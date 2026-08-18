@@ -34,7 +34,7 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use debug198x::{BaseMap, DebugInfo, FORMAT, FORMAT_VERSION, Header, SectionId};
+use debug198x::{BaseMap, DebugInfo, FORMAT, FORMAT_VERSION, Header, SectionId, Space};
 use serde::{Deserialize, Serialize};
 
 /// Why a sidecar could not be loaded.
@@ -92,11 +92,33 @@ pub struct SourceLine {
     pub line: u32,
 }
 
+/// One hardware slot and what is paged into it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct PagedSlot {
+    /// Hardware slot number, as the sidecar's `space` names it.
+    slot: u8,
+    /// Memory page currently in that slot.
+    page: u16,
+    /// CPU address the slot starts at.
+    base: u64,
+    /// Size of the slot's window, in bytes.
+    size: u64,
+}
+
+impl PagedSlot {
+    fn contains(self, addr: u64) -> bool {
+        addr >= self.base && addr - self.base < self.size
+    }
+}
+
 /// A loaded `.debug198x` sidecar, plus any section-base overrides.
 #[derive(Clone, Debug)]
 pub struct DebugSymbols {
     info: DebugInfo,
     bases: BaseMap,
+    /// Live paging state, when the consumer is a banked machine. Empty for
+    /// flat and relocatable images, which use `bases` alone.
+    slots: Vec<PagedSlot>,
     path: PathBuf,
 }
 
@@ -149,6 +171,7 @@ impl DebugSymbols {
         Ok(Self {
             info,
             bases: BTreeMap::new(),
+            slots: Vec::new(),
             path,
         })
     }
@@ -177,6 +200,99 @@ impl DebugSymbols {
     /// into it decline to answer rather than answering from another bank.
     pub fn set_paging(&mut self, mapped: impl IntoIterator<Item = (SectionId, u64)>) {
         self.bases = mapped.into_iter().collect();
+    }
+
+    /// Adopts a machine's live slot→page state as the paging state.
+    ///
+    /// Each entry is `(slot, page, base, size)`: a hardware slot, the memory
+    /// page currently in it, the CPU address the slot starts at, and how wide
+    /// the window is. Sections are matched by their `space`, which is why the
+    /// format puts one on a section — otherwise a consumer must scrape the
+    /// page out of some symbol, and a section holding only line records has
+    /// none to scrape.
+    ///
+    /// A page that is not named is not mapped, so a paged-out bank contributes
+    /// no address and cannot answer. Pass the whole state each time; this
+    /// replaces rather than accumulates.
+    ///
+    /// # Aliased banks
+    ///
+    /// One bank can be live at two CPU addresses at once — a Spectrum 128 keeps
+    /// bank 5 at `$4000` permanently *and* can select it for `$C000` — so a
+    /// caller describing the whole machine names page 5 twice.
+    ///
+    /// That is supported, not merely reported. A [`BaseMap`] holds one base per
+    /// section and so cannot express it, so address lookups do not use a single
+    /// map: each resolves through the slot that actually contains the address.
+    /// Every CPU address lies in exactly one slot, so `symbol_at` and `line_at`
+    /// stay unambiguous however many windows a bank appears in.
+    ///
+    /// Going the other way is genuinely multi-valued — an aliased bank's symbol
+    /// has two addresses — so [`DebugSymbols::addrs_of`] returns all of them
+    /// and [`DebugSymbols::addr_of`] returns the lowest.
+    ///
+    /// Callers pass plain integers, so nothing here requires naming a
+    /// `debug198x` type to describe a machine's own paging.
+    pub fn set_paging_from_slots(&mut self, slots: impl IntoIterator<Item = (u8, u16, u64, u64)>) {
+        self.slots = slots
+            .into_iter()
+            .map(|(slot, page, base, size)| PagedSlot {
+                slot,
+                page,
+                base,
+                size,
+            })
+            .collect();
+        // Kept coherent for the flat path and for name lookups: the lowest
+        // base wins, so the result does not depend on the order a caller
+        // happened to list its slots.
+        self.bases = BaseMap::new();
+        for slot in &self.slots {
+            for section in self.sections_in(*slot) {
+                self.bases
+                    .entry(section)
+                    .and_modify(|base| *base = (*base).min(slot.base))
+                    .or_insert(slot.base);
+            }
+        }
+    }
+
+    /// Section ids whose `space` names the page this slot currently holds.
+    ///
+    /// Matched on the **page**, not on the section's own `slot`. That is the
+    /// spec's consumer model — "for each slot, take the sections whose `space`
+    /// names the page currently in it" — and it is the only join that
+    /// describes real hardware: a bank of code belongs to a page, while which
+    /// slot it appears in is a fact about right now. A section's `space.slot`
+    /// records where the assembler expected it, and matching on it would make
+    /// a bank paged somewhere else invisible, and a bank live in two slots
+    /// impossible.
+    fn sections_in(&self, live: PagedSlot) -> Vec<SectionId> {
+        self.info
+            .sections
+            .iter()
+            .filter(|section| {
+                matches!(section.space, Some(Space::Paged { page, .. }) if page == live.page)
+            })
+            .map(|section| section.id)
+            .collect()
+    }
+
+    /// The base map to resolve `addr` through: the sections of the one slot
+    /// that contains it, or the flat map when no paging state is set.
+    ///
+    /// This is what makes an aliased bank work. Mapping every live section at
+    /// once cannot represent a bank in two windows; resolving per address
+    /// never has to, because an address is only ever in one of them.
+    fn bases_at(&self, addr: u32) -> Option<BaseMap> {
+        let addr = u64::from(addr);
+        let live = self.slots.iter().find(|slot| slot.contains(addr))?;
+        Some(
+            self.sections_in(*live)
+                .into_iter()
+                .map(|section| (section, live.base))
+                .collect(),
+        )
     }
 
     /// The sidecar's header — producing tool, CPU, dialect, source files.
@@ -208,24 +324,74 @@ impl DebugSymbols {
     /// would attach `start+7` to every instruction in the program.
     #[must_use]
     pub fn symbol_at(&self, addr: u32) -> Option<&str> {
+        let paged = self.bases_at(addr);
+        let bases = paged.as_ref().unwrap_or(&self.bases);
         self.info
-            .symbol_at(u64::from(addr), Some(&self.bases))
+            .symbol_at(u64::from(addr), Some(bases))
             .map(|sym| sym.name.as_str())
     }
 
     /// The address of a named symbol, or the value of a named constant.
+    ///
+    /// A bank that is live in two slots at once gives its symbols two
+    /// addresses; this returns the lowest. Use [`DebugSymbols::addrs_of`] when
+    /// every window matters.
     #[must_use]
     pub fn addr_of(&self, name: &str) -> Option<u32> {
-        self.info
-            .addr_of(name, Some(&self.bases))
-            .and_then(|addr| u32::try_from(addr).ok())
+        self.addrs_of(name).first().copied()
+    }
+
+    /// Every address a name is currently live at, ascending.
+    ///
+    /// Usually one. A bank paged into two slots at once — bank 5 on a Spectrum
+    /// 128, permanently at `$4000` and selectable for `$C000` — puts its
+    /// symbols at both, and a debugger that showed only one would be wrong
+    /// about the machine rather than merely terse.
+    ///
+    /// Empty when the name is unknown, or when its section is not currently
+    /// mapped anywhere.
+    #[must_use]
+    pub fn addrs_of(&self, name: &str) -> Vec<u32> {
+        let resolve = |bases: &BaseMap| -> Option<u32> {
+            self.info
+                .addr_of(name, Some(bases))
+                .and_then(|addr| u32::try_from(addr).ok())
+        };
+
+        let mut found: Vec<u32> = Vec::new();
+        if self.slots.is_empty() {
+            found.extend(resolve(&self.bases));
+        } else {
+            for live in &self.slots {
+                let bases: BaseMap = self
+                    .sections_in(*live)
+                    .into_iter()
+                    .map(|section| (section, live.base))
+                    .collect();
+                // A constant needs no section mapped, so an empty map would
+                // report it once for every slot.
+                if !bases.is_empty() {
+                    found.extend(resolve(&bases));
+                }
+            }
+            if found.is_empty() {
+                // Constants are not section-relative, so they survive here.
+                found.extend(resolve(&BaseMap::new()));
+            }
+        }
+
+        found.sort_unstable();
+        found.dedup();
+        found
     }
 
     /// The source line that produced the byte at `addr`.
     #[must_use]
     pub fn line_at(&self, addr: u32) -> Option<SourceLine> {
+        let paged = self.bases_at(addr);
+        let bases = paged.as_ref().unwrap_or(&self.bases);
         self.info
-            .line_at(u64::from(addr), Some(&self.bases))
+            .line_at(u64::from(addr), Some(bases))
             .map(|span| SourceLine {
                 file: span.file.clone(),
                 line: span.line,
