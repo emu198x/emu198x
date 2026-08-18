@@ -152,10 +152,31 @@ jobs:
         run: |
           set -euo pipefail
           version=$(scripts/prepare-release.py --print)
+          current=$(awk '/^\[workspace.package\]/{w=1;next} /^\[/{w=0} w&&/^version = /{gsub(/"/,"",$3);print $3;exit}' Cargo.toml)
           echo "version=${version}" >> "$GITHUB_OUTPUT"
-          echo "next version: ${version}"
+          echo "current: ${current}  next: ${version}"
+
+          # Nothing to prepare when the version would not move — which is the
+          # state immediately after a release, and after any push whose commits
+          # the changelog skips.
+          #
+          # This has to gate every later step, not just the PR. The changelog
+          # is written by resetting the version's section and regenerating it,
+          # and once a release has merged, main already holds that section
+          # while git-cliff has no unreleased commits left to re-emit. The
+          # reset therefore deletes it and puts nothing back: the run right
+          # after v0.4.0 committed an 11-line deletion of the notes it had
+          # just published. Merging that would have removed a shipped
+          # release's changelog from main.
+          if [ "${version}" = "${current}" ]; then
+            echo "nothing to release: the version would not move"
+            echo "proceed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "proceed=true" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Apply the version to the manifests
+        if: steps.version.outputs.proceed == 'true'
         run: |
           set -euo pipefail
           scripts/prepare-release.py --apply
@@ -165,6 +186,7 @@ jobs:
           cargo metadata --format-version 1 > /dev/null
 
       - name: Write the changelog
+        if: steps.version.outputs.proceed == 'true'
         run: |
           set -euo pipefail
           version="${{ steps.version.outputs.version }}"
@@ -175,13 +197,14 @@ jobs:
           git-cliff --unreleased --tag "v${version}" --prepend CHANGELOG.md
 
       - name: Show what would change
+        if: steps.version.outputs.proceed == 'true'
         run: |
           echo "::group::diff (stat)"
           git diff --stat
           echo "::endgroup::"
 
       - name: Open or update the release PR
-        if: ${{ github.event_name == 'push' || !inputs.dry_run }}
+        if: ${{ steps.version.outputs.proceed == 'true' && (github.event_name == 'push' || !inputs.dry_run) }}
         env:
           GH_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN || secrets.GITHUB_TOKEN }}
         run: |
@@ -228,11 +251,16 @@ jobs:
             echo "when the compatible base moves; see the decision record."
           } > /tmp/release-pr-body.md
 
-          if gh pr view "$branch" --json number >/dev/null 2>&1; then
+          # `gh pr view <branch>` resolves to any PR with that head, including
+          # merged ones — so after a release it found the PR it had just
+          # merged and edited that instead of opening a new one, leaving a
+          # live branch with no open PR. Ask for open ones only.
+          existing=$(gh pr list --state open --head "$branch" --json number -q '.[0].number // empty')
+          if [ -n "$existing" ]; then
             # Body as well as title: the notes go stale on every push otherwise,
             # which is worse than not having them — a reviewer would be reading
             # a description of an earlier range.
-            gh pr edit "$branch" \
+            gh pr edit "$existing" \
               --title "chore: release v${version}" \
               --body-file /tmp/release-pr-body.md
             echo "release PR updated for v${version}"
