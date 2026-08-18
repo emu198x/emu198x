@@ -115,8 +115,11 @@ byte of copyrighted material:
 | Unexplained absence | Does not run and does not say why |
 
 417 of the workspace's 591 `#[ignore]` attributes already carry a reason,
-and the reasons name the fixture. The remaining 174 are bare, and that
-residue is a finding the local run could not produce.
+and the reasons name the fixture. **96 ignored tests state no reason at
+all** — that residue is the finding, and it is the same in both
+environments. (The source grep counts 174 bare attributes; the collector
+counts 96 tests actually reporting as ignored without a reason. The
+measurement is the number to quote.)
 
 Reasons are recorded verbatim and grouped by exact string. Sorting them into
 a "fixture" category by keyword would be guessing at prose — the same class
@@ -133,12 +136,17 @@ Nothing infringing, and no reason to put it in a public repository.
   instrument, and `EMU198X_STRICT_FIXTURES` is how it fails loudly where
   the fixtures are supposed to be present.
 - A machine with no exclusive crates cannot have its own evidence separated
-  from its neighbour's. Two machines currently ship from one crate
-  (Master System and Game Gear), which is what #998 asks to split. Until it
-  is split, the page must say so rather than attribute the crate's tests to
-  both.
+  from its neighbour's. The Master System and the Game Gear shipped from one
+  crate and reported an identical 43 own passes because nothing could tell
+  their tests apart; #998 split them, and they now report 16 and 13 with the
+  shared runtime's tests in the shared column for both. Where a crate is
+  ever shared again, the page must say so instead of attributing its tests
+  twice.
 - Doctests are outside the ledger: rustdoc runs them, not a test binary, so
-  the executable-level attribution used here cannot see them.
+  the executable-level attribution used here cannot see them. They are still
+  *run* — a separate CI step, because collecting evidence replaced
+  `cargo test --workspace` and would otherwise have stopped checking them
+  silently.
 
 ## Drift triggers
 
