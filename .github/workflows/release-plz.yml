@@ -124,14 +124,43 @@ jobs:
         env:
           GIT_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN || secrets.GITHUB_TOKEN }}
 
+  # A separate job, and deliberately `if: always()`.
+  #
+  # This used to be three more steps in the job above, which meant it only ran
+  # when release-plz had succeeded. When release-plz started failing on
+  # 2026-08-15 the changelog stopped being written with it, and the release PR
+  # sat 39 commits behind for two days carrying 5 entries against a range of
+  # 21. Nothing reported that: the job was red for the version bump, and the
+  # stale changelog was a second, silent casualty.
+  #
+  # The coupling was incidental. This reads the version from the release PR's
+  # own branch, not from release-plz's output, so it has everything it needs
+  # whether or not release-plz ran. `needs:` keeps the ordering — when
+  # release-plz does work, its version is on the branch before this reads it.
+  #
+  # It also needs no Rust toolchain, so it cannot fail for a reason that has
+  # nothing to do with changelogs.
+  changelog:
+    name: Changelog
+    needs: [release-plz]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.RELEASE_PLZ_TOKEN || secrets.GITHUB_TOKEN }}
+
       # release-plz reasons in *packages* and only considers the ones it is
       # configured to release, so 181 of this workspace's 209 crates were
       # invisible to it — v0.2.2 came out with one entry against eighty-six
       # commits. git-cliff reasons in *commits* and has no package model, which
       # is what this repo actually is: one suite, one version, one changelog.
       #
-      # This runs after release-plz because the version it just decided is the
-      # heading the entries belong under.
+      # The version comes from the release PR branch's own manifest, which is
+      # where release-plz writes it — so this needs release-plz to have *run*,
+      # not to have succeeded.
       - name: Install git-cliff
         uses: taiki-e/install-action@v2
         with:
