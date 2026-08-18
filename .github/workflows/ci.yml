@@ -28,6 +28,14 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: scripts/status/check_registry.py
 
+      # The committed status pages are generated from the registry and the
+      # dependency graph. Neither needs a build, so this costs seconds and
+      # sits here rather than behind the test job. A page edited by hand
+      # fails, which is the point: the last time these pages were
+      # hand-maintained they went stale and then vanished (#825).
+      - name: Check the status pages are current
+        run: python3 scripts/status/render_status.py --check
+
   fmt:
     name: Format
     runs-on: ubuntu-latest
