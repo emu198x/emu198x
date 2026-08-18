@@ -49,6 +49,21 @@ sort_commits = "oldest"
 # CI and refactors are deliberately dropped: they are the majority of commits
 # here and would bury the twenty that matter.
 commit_parsers = [
+  # Scope-first, because these rules are evaluated in order and the type rules
+  # below would claim these commits before the type-based skip further down
+  # ever saw them: `^feat` matches `feat(ci):` perfectly well, which is how
+  # "Prototype cutting releases without release-plz" reached a user-facing
+  # changelog. The plumbing that ships a release is not a change *in* the
+  # release.
+  #
+  # `ci` and `release` are the scopes this actually happens with — six commits
+  # across the whole history, every one of them release machinery. Deliberately
+  # not a speculative list; add `build` or `deps` here when they first appear.
+  #
+  # `protect_breaking_commits` still wins over this, so a `feat(ci)!:` would
+  # appear anyway. That is right: if CI plumbing breaks someone's build, that
+  # is a change in the release.
+  { message = '^(feat|fix|perf|revert)\((ci|release)\)', skip = true },
   { message = "^feat", group = "Added" },
   { message = "^fix", group = "Fixed" },
   { message = "^perf", group = "Performance" },
