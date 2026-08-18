@@ -32,7 +32,31 @@ but distinguish none of them.
 The distinction is the point. A machine whose only passing tests live in
 `cpu-z80` has no machine-specific evidence at all, however green CI looks.
 
+## Where the published evidence comes from
+
+CI, not a development machine — and that is the better instrument, not a
+concession. Most of this workspace's verification depends on ROMs, corpora
+and disk images the project cannot distribute. On a machine where those are
+staged, the tests that need them pass and vanish into the totals: a full
+local run recorded 6,179 passes and **two** skips. In CI, where the fixtures
+are absent, those same tests announce exactly what they need. Absence of
+evidence is only visible where the fixture is absent.
+
+Publishing a fixture-complete run would also commit a standing attestation
+of which commercial ROMs sit on one person's disk. Local runs stay a
+development instrument; that is what `EMU198X_STRICT_FIXTURES` is for,
+failing loudly where the fixtures are supposed to be present.
+
 ## What this does not do
+
+It does not sort ignore reasons into categories. 417 of this workspace's
+591 `#[ignore]` attributes carry a reason, and those reasons name the
+fixture — `needs EMU198X_SPECTRUM_48K_ROM`, `requires local C64 ROMs`.
+Deciding by keyword which of them mean "fixture" would be pattern-guessing
+at prose, and pattern-guessing is what the registry exists to replace. The
+reasons are recorded verbatim and grouped by exact string; the only derived
+distinction is whether a reason was given at all. A test that does not run
+and does not say why is the finding.
 
 It does not derive a support tier. Counts cannot: a hundred passing unit
 tests on a memory map do not establish that a machine boots, and one
@@ -47,6 +71,7 @@ they are outside the executable-level attribution used here.
 from __future__ import annotations
 
 import argparse
+import collections
 import concurrent.futures
 import json
 import os
@@ -61,7 +86,9 @@ REPO = Path(__file__).resolve().parents[2]
 REGISTRY = REPO / "docs" / "status" / "systems.toml"
 
 # libtest's per-test result line. Stable across every edition this
-# workspace has used. `ignored` may carry a reason after a comma.
+# workspace has used. An `#[ignore = "..."]` reason follows the outcome
+# after a comma, and 417 of this workspace's 591 ignore attributes carry
+# one — usually naming the fixture the test needs.
 RESULT_LINE = re.compile(r"^test (?P<name>\S+) \.\.\. (?P<outcome>.+)$")
 
 
@@ -180,7 +207,13 @@ def run_one(package: str, target: str, exe: Path, root: str, skip_dir: Path) -> 
         if outcome == "ok":
             passed.append(name)
         elif outcome.startswith("ignored"):
-            ignored.append(name)
+            # `ignored, needs EMU198X_SPECTRUM_48K_ROM` -> the reason is
+            # kept verbatim. Sorting reasons into a "fixture" bucket would
+            # mean guessing at prose, and a guess that is usually right is
+            # what the registry exists to replace. A reader groups by the
+            # exact string instead; an absent one is the finding.
+            _, _, reason = outcome.partition(", ")
+            ignored.append({"test": name, "reason": reason or None})
         elif outcome.startswith("FAILED"):
             failed.append(name)
 
@@ -198,14 +231,28 @@ def run_one(package: str, target: str, exe: Path, root: str, skip_dir: Path) -> 
     skipped_names = {entry["test"] for entry in skipped}
     passed = [name for name in passed if name not in skipped_names]
 
+    # A binary that exits any other way did not merely fail a test — it
+    # died. libtest uses 0 for success and 101 for a failing assertion.
+    crashed = proc.returncode not in (0, 101)
+
+    # Keep the raw output when something went wrong. This replaces
+    # `cargo test` as the workspace gate, and a gate that reports "3
+    # failed" without the panic behind them is worse than the one it
+    # replaced. Nothing is kept for a clean binary.
+    output = ""
+    if failed or crashed:
+        output = (proc.stdout + proc.stderr).strip()
+
     return {
         "package": package,
         "target": target,
         "passed": sorted(passed),
         "failed": sorted(failed),
-        "ignored": sorted(ignored),
+        "ignored": sorted(ignored, key=lambda i: i["test"]),
         "skipped": sorted(skipped, key=lambda s: s["test"]),
-        "crashed": proc.returncode not in (0, 101),
+        "crashed": crashed,
+        "returncode": proc.returncode,
+        "output": output,
     }
 
 
@@ -252,10 +299,23 @@ def main() -> int:
     for result in results:
         tally = by_package.setdefault(
             result["package"],
-            {"passed": 0, "failed": 0, "ignored": 0, "skipped": 0, "targets": []},
+            {
+                "passed": 0,
+                "failed": 0,
+                "ignored": 0,
+                "skipped": 0,
+                # An ignored test that does not say why it is ignored. The
+                # rest name a fixture, a corpus or an environment variable,
+                # which is a queue of work; these are only a silence.
+                "unexplained_ignored": 0,
+                "targets": [],
+            },
         )
         for key in ("passed", "failed", "ignored", "skipped"):
             tally[key] += len(result[key])
+        tally["unexplained_ignored"] += sum(
+            1 for entry in result["ignored"] if not entry["reason"]
+        )
         tally["targets"].append(result)
 
     systems = []
@@ -281,6 +341,14 @@ def main() -> int:
             }
         )
 
+    # Grouped verbatim, commonest first. A reason repeated across thirty
+    # tests is one blocker, not thirty, and reads as one line of work.
+    reasons: collections.Counter[str] = collections.Counter()
+    for result in results:
+        for entry in result["ignored"]:
+            if entry["reason"]:
+                reasons[entry["reason"]] += 1
+
     orphans = sorted(set(by_package) - set(reach))
     payload = {
         "systems": systems,
@@ -288,16 +356,64 @@ def main() -> int:
             name: {k: v for k, v in tally.items() if k != "targets"}
             for name, tally in sorted(by_package.items())
         },
+        "ignored_reasons": [
+            {"reason": reason, "tests": count}
+            for reason, count in reasons.most_common()
+        ],
         "unattributed_packages": orphans,
     }
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
     print(f"wrote {args.out}", file=sys.stderr)
-    return 0
+
+    # The ledger is written before anything is judged: a run that fails
+    # must still say what it managed to establish.
+    broken = [r for r in results if r["failed"] or r["crashed"]]
+    if not broken:
+        totals = {
+            key: sum(t[key] for t in by_package.values())
+            for key in ("passed", "ignored", "skipped", "unexplained_ignored")
+        }
+        print(
+            f"{totals['passed']} passed, {totals['ignored']} ignored "
+            f"({totals['unexplained_ignored']} without a stated reason), "
+            f"{totals['skipped']} skipped for a missing fixture",
+            file=sys.stderr,
+        )
+        return 0
+
+    for result in broken:
+        where = f"{result['package']} ({result['target']})"
+        if result["crashed"]:
+            print(
+                f"\n=== {where} died with exit code {result['returncode']} ===",
+                file=sys.stderr,
+            )
+        else:
+            print(
+                f"\n=== {where}: {len(result['failed'])} failed ===",
+                file=sys.stderr,
+            )
+        print(result["output"], file=sys.stderr)
+
+    failed_total = sum(len(r["failed"]) for r in broken)
+    crashed_total = sum(1 for r in broken if r["crashed"])
+    print(
+        f"\nFAILED: {failed_total} tests across {len(broken)} binaries"
+        + (f", {crashed_total} of which died outright" if crashed_total else ""),
+        file=sys.stderr,
+    )
+    return 1
 
 
 def roll_up(crates: list[str], by_package: dict[str, dict]) -> dict:
-    total = {"passed": 0, "failed": 0, "ignored": 0, "skipped": 0}
+    total = {
+        "passed": 0,
+        "failed": 0,
+        "ignored": 0,
+        "skipped": 0,
+        "unexplained_ignored": 0,
+    }
     for crate in crates:
         tally = by_package.get(crate)
         if not tally:

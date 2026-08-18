@@ -143,17 +143,16 @@ jobs:
   test:
     name: Test
     runs-on: ubuntu-latest
-    env:
-      # Tests that need a ROM, corpus or disk image return early when it
-      # is absent and libtest prints `ok`, so a green run cannot be told
-      # from a vacuous one. libtest captures output from passing tests,
-      # which is why grepping the log for "skipping" finds nothing — this
-      # file survives that capture.
-      #
-      # Deliberately not strict: CI genuinely has no ROMs, so a skip here
-      # is honest. `EMU198X_STRICT_FIXTURES` belongs on the nightly
-      # accuracy run, which provisions fixtures.
-      EMU198X_SKIP_LOG: ${{ github.workspace }}/target/test-skips.tsv
+    # `EMU198X_SKIP_LOG` is not set here: the collector points each test
+    # binary at its own log, which is the only way a skip can be
+    # attributed to the crate that raised it — the logged line carries the
+    # test's thread name and no crate.
+    #
+    # Deliberately not strict either. CI genuinely has no ROMs, so a skip
+    # here is honest, and it is the reason CI is where the gaps are
+    # visible at all: on a machine with the fixtures staged those tests
+    # pass and vanish. `EMU198X_STRICT_FIXTURES` belongs on the nightly
+    # accuracy run, which provisions them.
     steps:
       - name: Check out repository
         uses: actions/checkout@v7
@@ -181,32 +180,42 @@ jobs:
         with:
           shared-key: test-linux
 
-      - name: Run the workspace test suite
-        # `--no-fail-fast` so one broken crate does not hide the state of
-        # every crate after it.
-        run: cargo test --workspace --no-fail-fast
+      - name: Run the workspace test suite and collect evidence
+        # Replaces `cargo test --workspace --no-fail-fast`, and is the same
+        # work: the same build, the same binaries, and no-fail-fast by
+        # construction since every binary runs regardless of its
+        # neighbours. What it adds is a record of what ran, so a green tick
+        # stops being the only thing this job produces.
+        #
+        # Deliberately not a second pass. Coverage was removed on
+        # 2026-08-13 for costing ~5 minutes on every PR's critical path,
+        # and a status canon that repeated the suite to measure it would
+        # earn the same fate. One run, all the data.
+        run: python3 scripts/status/collect_evidence.py --out target/status-evidence.json
 
-      - name: Publish skipped-fixture summary
+      - name: Run doctests
+        # The collector runs test binaries; rustdoc runs doctests, which are
+        # outside executable-level attribution and would otherwise stop
+        # being checked. Reuses the build the step above already paid for.
+        run: cargo test --workspace --doc
+
+      - name: Publish the evidence summary
         # Runs even when the suite fails — a failing run is exactly when
-        # you want to know how much of it never executed.
+        # you want to know how much of it never executed. The collector
+        # writes its ledger before judging anything, so there is something
+        # to summarise either way.
         if: always()
         run: |
-          log="${GITHUB_WORKSPACE}/target/test-skips.tsv"
-          {
-            echo "## Skipped for missing fixtures"
-            echo
-            if [ ! -s "${log}" ]; then
-              echo "None — every test ran."
-            else
-              echo "**$(wc -l < "${log}" | tr -d ' ') tests did not run.**"
-              echo "A green suite does not cover these."
-              echo
-              echo '| Count | Fixture |'
-              echo '|---|---|'
-              cut -f2 "${log}" | sort | uniq -c | sort -rn \
-                | sed -E 's/^ *([0-9]+) (.*)$/| \1 | \2 |/'
-            fi
-          } >> "${GITHUB_STEP_SUMMARY}"
+          python3 scripts/status/summarise_evidence.py \
+            target/status-evidence.json >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Upload the evidence ledger
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: status-evidence
+          path: target/status-evidence.json
+          if-no-files-found: warn
 
   # The Coverage job is disabled. It cost ~5 minutes on the critical path
   # of every PR (it gated on fmt + clippy) and had not failed in any
