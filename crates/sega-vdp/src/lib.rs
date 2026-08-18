@@ -19,7 +19,9 @@
 //! retained for SG-1000 backward compatibility.
 //!
 //! The Game Gear variant extends CRAM to 12-bit RGB (4096 colors) and
-//! displays a 160×144 viewport from the 256×192 framebuffer.
+//! displays a 160×144 viewport from the centre of the 256×192 active
+//! area, with no border — an LCD has no overscan to hide. Its framebuffer
+//! is sized to the LCD, so what it reports and what it holds agree.
 
 #![allow(clippy::cast_possible_truncation)]
 
@@ -63,9 +65,20 @@ pub const BORDER_RIGHT: u32 = 16;
 pub const BORDER_TOP: u32 = 24;
 pub const BORDER_BOTTOM: u32 = 24;
 
-/// Framebuffer dimensions (active + border).
+/// Framebuffer dimensions for a television (active + border).
 pub const FB_WIDTH: u32 = ACTIVE_WIDTH + BORDER_LEFT + BORDER_RIGHT;
 pub const FB_HEIGHT: u32 = ACTIVE_HEIGHT + BORDER_TOP + BORDER_BOTTOM;
+
+/// The Game Gear's LCD, which shows a window cut from the centre of the
+/// active display rather than the whole of it.
+pub const GG_WIDTH: u32 = 160;
+pub const GG_HEIGHT: u32 = 144;
+
+/// Where that window sits inside the 256x192 active area. The handheld has
+/// no border at all: a border emulates the overscan a television hides, and
+/// an LCD has none.
+const GG_ORIGIN_X: u32 = (ACTIVE_WIDTH - GG_WIDTH) / 2;
+const GG_ORIGIN_Y: u32 = (ACTIVE_HEIGHT - GG_HEIGHT) / 2;
 
 // ---------------------------------------------------------------------------
 // VDP
@@ -156,26 +169,44 @@ impl SegaVdp {
             dot: 0,
             region,
             variant,
-            framebuffer: vec![0; (FB_WIDTH * FB_HEIGHT) as usize],
+            // Sized to what the machine displays, so the buffer and the
+            // dimensions reported alongside it can never disagree.
+            framebuffer: if is_game_gear {
+                vec![0; (GG_WIDTH * GG_HEIGHT) as usize]
+            } else {
+                vec![0; (FB_WIDTH * FB_HEIGHT) as usize]
+            },
             sprite_buf: [0; 256],
             interrupt: false,
             frame_count: 0,
         }
     }
 
-    /// The current framebuffer (256×192 ARGB32).
+    /// The current framebuffer, ARGB32, `framebuffer_width()` by
+    /// `framebuffer_height()`.
     #[must_use]
     pub fn framebuffer(&self) -> &[u32] {
         &self.framebuffer
     }
 
+    /// Width of what the machine displays: the television envelope for a
+    /// Master System, the LCD for a Game Gear.
     #[must_use]
     pub const fn framebuffer_width(&self) -> u32 {
-        FB_WIDTH
+        if self.is_game_gear {
+            GG_WIDTH
+        } else {
+            FB_WIDTH
+        }
     }
+    /// Height of what the machine displays.
     #[must_use]
     pub const fn framebuffer_height(&self) -> u32 {
-        FB_HEIGHT
+        if self.is_game_gear {
+            GG_HEIGHT
+        } else {
+            FB_HEIGHT
+        }
     }
 
     fn lines_per_frame(&self) -> u16 {
@@ -454,6 +485,24 @@ impl SegaVdp {
         (BORDER_TOP as usize + line) * FB_WIDTH as usize + BORDER_LEFT as usize
     }
 
+    /// Where active-area pixel (`line`, `x`) lands in the framebuffer, or
+    /// `None` when this machine does not display it.
+    ///
+    /// The Master System displays every active pixel inside a border. The
+    /// Game Gear displays a 160x144 window from the middle and nothing
+    /// else — the rest is rendered by the VDP and never reaches the LCD.
+    fn plot_index(&self, line: usize, x: usize) -> Option<usize> {
+        if !self.is_game_gear {
+            return Some(Self::active_offset(line) + x);
+        }
+        let column = x.checked_sub(GG_ORIGIN_X as usize)?;
+        let row = line.checked_sub(GG_ORIGIN_Y as usize)?;
+        if column >= GG_WIDTH as usize || row >= GG_HEIGHT as usize {
+            return None;
+        }
+        Some(row * GG_WIDTH as usize + column)
+    }
+
     fn render_scanline(&mut self, line: u16) {
         let line = line as usize;
         self.prepare_line_sprites(line);
@@ -486,7 +535,9 @@ impl SegaVdp {
         } else {
             self.bg_pixel(line, x)
         };
-        self.framebuffer[Self::active_offset(line) + x] = argb;
+        if let Some(index) = self.plot_index(line, x) {
+            self.framebuffer[index] = argb;
+        }
     }
 
     /// Background colour when active Mode-4 rendering is not in effect (display
@@ -920,5 +971,82 @@ mod tests {
         }
         assert!(vdp.line_irq_pending);
         assert!(vdp.interrupt);
+    }
+
+    /// #1003: both machines reported 288x240, so nothing downstream could
+    /// tell a Game Gear frame from a Master System one. The dimensions must
+    /// differ, and they must match the buffer that carries them.
+    #[test]
+    fn the_two_machines_display_different_sized_screens() {
+        let sms = SegaVdp::new(VdpRegion::Ntsc, VdpVariant::Sms2);
+        let gg = SegaVdp::new_game_gear();
+
+        assert_eq!(
+            (sms.framebuffer_width(), sms.framebuffer_height()),
+            (288, 240)
+        );
+        assert_eq!(
+            (gg.framebuffer_width(), gg.framebuffer_height()),
+            (160, 144)
+        );
+        assert_ne!(
+            (sms.framebuffer_width(), sms.framebuffer_height()),
+            (gg.framebuffer_width(), gg.framebuffer_height()),
+            "a Game Gear frame must not be mistakable for a Master System one"
+        );
+
+        for vdp in [&sms, &gg] {
+            assert_eq!(
+                vdp.framebuffer().len(),
+                (vdp.framebuffer_width() * vdp.framebuffer_height()) as usize,
+                "the buffer and the dimensions reported for it must agree"
+            );
+        }
+    }
+
+    /// The window is cut from the centre, so an active pixel outside it is
+    /// rendered and discarded rather than wrapping into the visible area.
+    #[test]
+    fn the_game_gear_window_is_the_centre_of_the_active_area() {
+        let gg = SegaVdp::new_game_gear();
+
+        assert_eq!(
+            gg.plot_index(0, 0),
+            None,
+            "top-left of the active area is off-LCD"
+        );
+        assert_eq!(
+            gg.plot_index(GG_ORIGIN_Y as usize, GG_ORIGIN_X as usize),
+            Some(0),
+            "the window's first pixel is the buffer's first pixel"
+        );
+        let last_row = (GG_ORIGIN_Y + GG_HEIGHT - 1) as usize;
+        let last_column = (GG_ORIGIN_X + GG_WIDTH - 1) as usize;
+        assert_eq!(
+            gg.plot_index(last_row, last_column),
+            Some((GG_WIDTH * GG_HEIGHT - 1) as usize),
+            "the window's last pixel is the buffer's last pixel"
+        );
+        assert_eq!(
+            gg.plot_index(last_row, last_column + 1),
+            None,
+            "one column past the window must not wrap onto the next row"
+        );
+        assert_eq!(
+            gg.plot_index(last_row + 1, last_column),
+            None,
+            "one row past the window must not run off the buffer"
+        );
+    }
+
+    /// The Master System keeps its border, and the active area still starts
+    /// inside it.
+    #[test]
+    fn the_master_system_keeps_its_border() {
+        let sms = SegaVdp::new(VdpRegion::Ntsc, VdpVariant::Sms2);
+        assert_eq!(
+            sms.plot_index(0, 0),
+            Some((BORDER_TOP * FB_WIDTH + BORDER_LEFT) as usize)
+        );
     }
 }
