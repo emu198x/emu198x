@@ -205,11 +205,39 @@ jobs:
           git commit -m "chore: release v${version}"
           git push --force-with-lease origin "$branch"
 
+          # The release notes go in the PR description, not only in the diff.
+          # The diff is ~150 files of manifest churn, and CHANGELOG.md is one
+          # of them; a reviewer should be able to see what is being released
+          # without hunting for it.
+          {
+            echo "Merging cuts the suite tag \`v${version}\`, which cargo-dist builds the release from."
+            echo
+            echo "## What is in v${version}"
+            echo
+            section=$(python3 scripts/changelog-section.py CHANGELOG.md "${version}")
+            if [ -n "$section" ]; then
+              echo "$section"
+            else
+              echo "_No changelog entries — every commit in this range is one the changelog skips._"
+            fi
+            echo
+            echo "---"
+            echo
+            echo "Prepared by \`scripts/prepare-release.py\` + git-cliff on every push to main."
+            echo "The manifest churn is the intra-workspace requirement rewrite, which fires"
+            echo "when the compatible base moves; see the decision record."
+          } > /tmp/release-pr-body.md
+
           if gh pr view "$branch" --json number >/dev/null 2>&1; then
-            gh pr edit "$branch" --title "chore: release v${version}"
+            # Body as well as title: the notes go stale on every push otherwise,
+            # which is worse than not having them — a reviewer would be reading
+            # a description of an earlier range.
+            gh pr edit "$branch" \
+              --title "chore: release v${version}" \
+              --body-file /tmp/release-pr-body.md
             echo "release PR updated for v${version}"
           else
             gh pr create --base main --head "$branch" \
               --title "chore: release v${version}" \
-              --body "Prepared by \`scripts/prepare-release.py\` + git-cliff. Merging cuts the suite tag \`v${version}\`."
+              --body-file /tmp/release-pr-body.md
           fi
