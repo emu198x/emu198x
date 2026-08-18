@@ -4,6 +4,19 @@ All notable changes to Emu198x will be documented in this file.
 
 Format loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 not strictly. Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [0.4.0] - 2026-08-18
+
+
+### Added
+
+- Cross-check the Debug198x banked model against real 128K paging
+- Make an unreadable space shape reportable, not just survivable
+
+
+### Fixed
+
+- Decline an ambiguous source file rather than guessing which one
+
 ## [0.3.0] - 2026-08-18
 
 
