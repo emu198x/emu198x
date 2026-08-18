@@ -1068,5 +1068,16 @@ fn assert_safe_relative_file(file: &str, extension: &str) {
 }
 
 fn sha256_hex(bytes: &[u8]) -> String {
-    format!("{:x}", Sha256::digest(bytes))
+    // Formatted by hand rather than with `{:x}`. RustCrypto's digest output
+    // stopped implementing `LowerHex` when it moved from `GenericArray` to
+    // `hybrid-array`, so the format string fails to compile on sha2 0.11.
+    // Iterating the bytes works on both, which keeps this independent of
+    // which version is pinned.
+    use std::fmt::Write as _;
+    Sha256::digest(bytes)
+        .iter()
+        .fold(String::new(), |mut hex, byte| {
+            let _ = write!(hex, "{byte:02x}");
+            hex
+        })
 }
