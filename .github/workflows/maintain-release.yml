@@ -1,0 +1,215 @@
+name: Maintain release
+
+# One suite, one version, one changelog.
+#
+# This used to run release-plz, which reasons in *packages*. Nearly all of it
+# was already switched off to fit — publishing, tagging, GitHub releases and
+# the changelog were disabled in release-plz.toml — leaving 29 hand-maintained
+# [[package]] entries and a pinned fork of an unmerged upstream PR to do one
+# job: decide the next version.
+#
+# That job kept failing. `git_tag_name = "v{{ version }}"` is a single suite
+# tag shared by every package, so release-plz resolved "latest release of
+# emu198x-amstrad-cpc" to a tag cut before that crate was written, checked out
+# a worktree there, and could not find the package. Every run failed for three
+# days. Cutting v0.3.0 unblocked it only because the new tag happens to contain
+# that crate — any crate added after a tag would reproduce it exactly.
+#
+# So the package model is gone rather than patched. What remains is what this
+# repo actually needs: tag the suite version, then work out the next one from
+# the commits and put it in a PR. See knowledge/decisions/ for the reasoning.
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Compute the version and changelog, but open no PR"
+        type: boolean
+        default: false
+
+concurrency:
+  group: maintain-release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  pull-requests: write
+  contents: write
+
+jobs:
+  tag:
+    name: Tag the suite version
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          # NOTE: tag pushes made with GITHUB_TOKEN do not fire other
+          # workflows, so cargo-dist's release.yml will not trigger
+          # automatically unless RELEASE_PLZ_TOKEN is a PAT (or GitHub App
+          # token) with workflow-trigger rights.
+          token: ${{ secrets.RELEASE_PLZ_TOKEN || secrets.GITHUB_TOKEN }}
+
+      - name: Create suite tag
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          version=$(
+            awk '
+              /^\[workspace.package\]/ { in_workspace_package = 1; next }
+              /^\[/ { in_workspace_package = 0 }
+              in_workspace_package && /^version = / {
+                gsub(/"/, "", $3)
+                print $3
+                exit
+              }
+            ' Cargo.toml
+          )
+
+          if [ -z "$version" ]; then
+            echo "::error::no workspace package version found in Cargo.toml"
+            exit 1
+          fi
+
+          mismatches=0
+          for manifest in crates/emu198x-*/Cargo.toml; do
+            name=$(awk -F'"' '/^name = / { print $2; exit }' "$manifest")
+            case "$name" in
+              emu198x-catalogue|emu198x-native-video|emu198x-shell|emu198x-ui)
+                continue
+                ;;
+            esac
+
+            if grep -q '^version\.workspace = true$' "$manifest"; then
+              package_version=$version
+            else
+              package_version=$(awk -F'"' '/^version = / { print $2; exit }' "$manifest")
+            fi
+            if [ "$package_version" != "$version" ]; then
+              echo "::error::${name} is ${package_version}, expected suite version ${version}"
+              mismatches=$((mismatches + 1))
+            fi
+          done
+
+          if [ "$mismatches" -ne 0 ]; then
+            exit 1
+          fi
+
+          tag="v${version}"
+          if git rev-parse -q --verify "refs/tags/${tag}" >/dev/null; then
+            echo "exists: ${tag}"
+          else
+            echo "creating: ${tag}"
+            git tag "${tag}"
+            git push origin "${tag}"
+          fi
+
+  release-pr:
+    name: Prepare the next release
+    # Genuinely dependent, unlike the changelog job this replaces: the next
+    # version is computed from the commits *since the last tag*, so tagging
+    # has to have happened or it would measure from the previous release.
+    # That is why there is no `if: always()` here — the #981 reasoning was
+    # about a step that only looked dependent.
+    needs: [tag]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          # git-cliff needs the full history to see every commit since the tag.
+          fetch-depth: 0
+          token: ${{ secrets.RELEASE_PLZ_TOKEN || secrets.GITHUB_TOKEN }}
+
+      - name: Read pinned toolchain
+        id: toolchain
+        run: echo "channel=$(awk -F'"' '/^channel/{print $2}' rust-toolchain.toml)" >> "$GITHUB_OUTPUT"
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ steps.toolchain.outputs.channel }}
+
+      - name: Install Linux build dependencies
+        # cargo needs the same system deps as a normal build to resolve the
+        # workspace when the lockfile is regenerated.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libasound2-dev libudev-dev
+
+      - name: Install git-cliff
+        uses: taiki-e/install-action@v2
+        with:
+          tool: git-cliff@2.13.1
+
+      - name: Compute the next version
+        id: version
+        run: |
+          set -euo pipefail
+          version=$(scripts/prepare-release.py --print)
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "next version: ${version}"
+
+      - name: Apply the version to the manifests
+        run: |
+          set -euo pipefail
+          scripts/prepare-release.py --apply
+          # Rewriting the requirements changes what cargo resolves, so the
+          # lockfile has to be regenerated in the same step that moved them —
+          # a stale lock is how a green CI ships an unbuildable tag.
+          cargo metadata --format-version 1 > /dev/null
+
+      - name: Write the changelog
+        run: |
+          set -euo pipefail
+          version="${{ steps.version.outputs.version }}"
+          # Replace this version's section rather than appending another copy;
+          # regenerating wholesale would be idempotent but would destroy the
+          # hand-written v0.1.0 prose.
+          python3 scripts/changelog-section-reset.py CHANGELOG.md "${version}"
+          git-cliff --unreleased --tag "v${version}" --prepend CHANGELOG.md
+
+      - name: Show what would change
+        run: |
+          echo "::group::diff (stat)"
+          git diff --stat
+          echo "::endgroup::"
+
+      - name: Open or update the release PR
+        if: ${{ github.event_name == 'push' || !inputs.dry_run }}
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN || secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          version="${{ steps.version.outputs.version }}"
+          # A fixed branch, deliberately. Naming it after the version means a
+          # `feat!:` landing later computes a different version, opens a second
+          # PR, and orphans the first — which still carries a bump for a
+          # release that will never happen. One branch, retitled when the
+          # computed version moves.
+          branch="release/next"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -B "$branch"
+          git add Cargo.toml Cargo.lock CHANGELOG.md crates/*/Cargo.toml
+          if git diff --cached --quiet; then
+            echo "nothing to release"
+            exit 0
+          fi
+          git commit -m "chore: release v${version}"
+          git push --force-with-lease origin "$branch"
+
+          if gh pr view "$branch" --json number >/dev/null 2>&1; then
+            gh pr edit "$branch" --title "chore: release v${version}"
+            echo "release PR updated for v${version}"
+          else
+            gh pr create --base main --head "$branch" \
+              --title "chore: release v${version}" \
+              --body "Prepared by \`scripts/prepare-release.py\` + git-cliff. Merging cuts the suite tag \`v${version}\`."
+          fi
