@@ -11,7 +11,7 @@ repository.workspace = true
 serde = { workspace = true }
 
 [dev-dependencies]
-emu198x-test-skip = { path = "../emu198x-test-skip", version = "0.2.0" }
+emu198x-test-skip = { path = "../emu198x-test-skip", version = "0.3.0" }
 postcard = { workspace = true }
 serde_json = "1"
 # Asm198x ISA-spec disassembler, used only by the isa_conformance cross-check

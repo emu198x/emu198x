@@ -9,8 +9,8 @@ repository.workspace = true
 
 [dependencies]
 serde = { workspace = true }
-sinclair-zx81-ula = { path = "../sinclair-zx81-ula", version = "0.2.0" }
-zilog-z80 = { path = "../zilog-z80", version = "0.2.0" }
+sinclair-zx81-ula = { path = "../sinclair-zx81-ula", version = "0.3.0" }
+zilog-z80 = { path = "../zilog-z80", version = "0.3.0" }
 
 [dev-dependencies]
 postcard = { workspace = true }
