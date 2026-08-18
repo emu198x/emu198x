@@ -17,6 +17,25 @@ name: Release
 permissions:
   "contents": "write"
 
+# The jobs that write to the repo use RELEASE_PLZ_TOKEN, falling back to
+# GITHUB_TOKEN. The block above should be enough on its own — `contents: write`
+# is exactly what `gh release create` needs, and it is inherited by every job
+# here — but v0.4.0's host step got:
+#
+#   HTTP 403: Resource not accessible by integration
+#   (https://api.github.com/repos/emu198x/emu198x/releases)
+#
+# from an unchanged file that had published v0.3.0 with 236 assets three hours
+# earlier, and failed the same way on re-run. Both repo and org
+# `default_workflow_permissions` are `read`; nothing in the repo changed
+# between the two tags and no setting was changed by hand.
+#
+# That is unexplained rather than understood, so this does not pretend to fix
+# the cause. It removes the dependency on GITHUB_TOKEN carrying a write scope,
+# which is what every other workflow here already does — the tag push in
+# maintain-release.yml has always used this token, and it is the reason a tag
+# fires this workflow at all.
+
 # This task will run whenever you push a git tag that looks like a version
 # like "1.0.0", "v0.1.0-prerelease.1", "my-app/0.1.0", "releases/v1.0.0", etc.
 # Various formats will be parsed into a VERSION and an optional PACKAGE_NAME, where
@@ -54,7 +73,7 @@ jobs:
       tag-flag: ${{ !github.event.pull_request && format('--tag={0}', github.ref_name) || '' }}
       publishing: ${{ !github.event.pull_request }}
     env:
-      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN || secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -110,7 +129,7 @@ jobs:
     runs-on: ${{ matrix.runner }}
     container: ${{ matrix.container && matrix.container.image || null }}
     env:
-      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN || secrets.GITHUB_TOKEN }}
       BUILD_MANIFEST_NAME: target/distrib/${{ join(matrix.targets, '-') }}-dist-manifest.json
     steps:
       - name: enable windows longpaths
@@ -172,7 +191,7 @@ jobs:
       - build-local-artifacts
     runs-on: "ubuntu-22.04"
     env:
-      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN || secrets.GITHUB_TOKEN }}
       BUILD_MANIFEST_NAME: target/distrib/global-dist-manifest.json
     steps:
       - uses: actions/checkout@v6
@@ -220,7 +239,7 @@ jobs:
     # Only run if we're "publishing", and only if plan, local and global didn't fail (skipped is fine)
     if: ${{ always() && needs.plan.result == 'success' && needs.plan.outputs.publishing == 'true' && (needs.build-global-artifacts.result == 'skipped' || needs.build-global-artifacts.result == 'success') && (needs.build-local-artifacts.result == 'skipped' || needs.build-local-artifacts.result == 'success') }}
     env:
-      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN || secrets.GITHUB_TOKEN }}
     runs-on: "ubuntu-22.04"
     outputs:
       val: ${{ steps.host.outputs.manifest }}
@@ -288,7 +307,7 @@ jobs:
     if: ${{ always() && needs.host.result == 'success' }}
     runs-on: "ubuntu-22.04"
     env:
-      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN || secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v6
         with:
