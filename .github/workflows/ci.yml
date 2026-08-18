@@ -132,7 +132,16 @@ jobs:
           # campaign closed on.
           cargo test -p machine-sinclair-zx-spectrum-48k --test io_contention_oracle -- --ignored
           cargo test -p runtime-sinclair-zx-spectrum --test boot_invariants -- --ignored
-          cargo test -p runtime-sinclair-zx-spectrum --test goldens -- --ignored
+          # Only the goldens the 48K ROM covers. The 128K, +2 and +3 goldens
+          # want their own ROMs, which this job does not provision — and
+          # under strict fixtures their skips are failures rather than the
+          # silent passes they used to be.
+          cargo test -p runtime-sinclair-zx-spectrum --test goldens \
+            golden_spectrum_16k_boot -- --ignored
+          cargo test -p runtime-sinclair-zx-spectrum --test goldens \
+            golden_spectrum_48k_boot -- --ignored
+          cargo test -p runtime-sinclair-zx-spectrum --test goldens \
+            golden_spectrum_plus_boot -- --ignored
           # Only the two `runtime_48k` cases the ROM alone unlocks. The
           # other three want commercial tape images, and under
           # EMU198X_STRICT_FIXTURES their skips are failures — correctly,

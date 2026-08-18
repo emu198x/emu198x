@@ -735,7 +735,13 @@ fn runtime_capabilities_advertise_snapshot_export() {
     assert!(caps.contains(&emu198x_shell::known_capability("tape-input")));
 }
 
+// `EMU198X_SPECTRUM_48K_ROM` first, so CI can provision one copy and
+// point every Spectrum test at it; the home directory is the developer
+// fallback. Matches `z80test.rs` and `float_bus_oracle.rs`.
 fn spectrum_48k_rom_path() -> Option<PathBuf> {
+    if let Some(path) = std::env::var_os("EMU198X_SPECTRUM_48K_ROM") {
+        return Some(PathBuf::from(path));
+    }
     std::env::var_os("HOME")
         .map(|home| PathBuf::from(home).join(".emu198x/roms/sinclair-zx-spectrum-48k/48.rom"))
 }

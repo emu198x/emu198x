@@ -46,6 +46,16 @@ fn rom_root() -> Option<PathBuf> {
     std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".emu198x/roms"))
 }
 
+/// The 48K ROM: `EMU198X_SPECTRUM_48K_ROM` first so CI can provision one
+/// copy for every Spectrum test, then the developer's home directory.
+/// Matches `z80test.rs` and `float_bus_oracle.rs`.
+fn spectrum_48k_rom() -> Option<PathBuf> {
+    if let Some(path) = std::env::var_os("EMU198X_SPECTRUM_48K_ROM") {
+        return Some(PathBuf::from(path));
+    }
+    Some(rom_root()?.join("sinclair-zx-spectrum-48k").join("48.rom"))
+}
+
 fn goldens_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/goldens")
 }
@@ -148,9 +158,16 @@ fn rom_dir(system: &str) -> Option<PathBuf> {
     rom_root().map(|r| r.join(system))
 }
 
+/// Record a skip and tell the caller to return.
+///
+/// Previously an `eprintln!` and a bare `return`, which libtest reports as
+/// `ok` — these goldens reported eight passes in CI while comparing
+/// nothing. `record` is the non-returning half of `skip!`, used because the
+/// caller needs the bool; it still panics under `EMU198X_STRICT_FIXTURES`,
+/// so a job that provisioned the ROM cannot quietly compare nothing.
 fn skip_if_missing(path: &Path) -> bool {
     if !path.exists() {
-        eprintln!("ROM not found at {} — skipping", path.display());
+        emu198x_test_skip::record(&format!("ROM not staged at {}", path.display()));
         return true;
     }
     false
@@ -170,10 +187,11 @@ fn run_frames<F: FnMut()>(count: u32, mut step: F) {
 #[test]
 #[ignore = "requires local 48K ROM at ~/.emu198x/roms/sinclair-zx-spectrum-48k/48.rom"]
 fn golden_spectrum_16k_boot() {
-    let Some(dir) = rom_dir("sinclair-zx-spectrum-48k") else {
-        emu198x_test_skip::skip!("Spectrum ROMs not staged (~/.emu198x/roms/sinclair-zx-spectrum)");
+    let Some(rom) = spectrum_48k_rom() else {
+        emu198x_test_skip::skip!(
+            "48K ROM not staged (EMU198X_SPECTRUM_48K_ROM or ~/.emu198x/roms)"
+        );
     };
-    let rom = dir.join("48.rom");
     if skip_if_missing(&rom) {
         return;
     }
@@ -187,10 +205,11 @@ fn golden_spectrum_16k_boot() {
 #[test]
 #[ignore = "requires local 48K ROM at ~/.emu198x/roms/sinclair-zx-spectrum-48k/48.rom"]
 fn golden_spectrum_48k_boot() {
-    let Some(dir) = rom_dir("sinclair-zx-spectrum-48k") else {
-        emu198x_test_skip::skip!("Spectrum ROMs not staged (~/.emu198x/roms/sinclair-zx-spectrum)");
+    let Some(rom) = spectrum_48k_rom() else {
+        emu198x_test_skip::skip!(
+            "48K ROM not staged (EMU198X_SPECTRUM_48K_ROM or ~/.emu198x/roms)"
+        );
     };
-    let rom = dir.join("48.rom");
     if skip_if_missing(&rom) {
         return;
     }
@@ -204,10 +223,11 @@ fn golden_spectrum_48k_boot() {
 #[test]
 #[ignore = "requires local 48K ROM at ~/.emu198x/roms/sinclair-zx-spectrum-48k/48.rom"]
 fn golden_spectrum_plus_boot() {
-    let Some(dir) = rom_dir("sinclair-zx-spectrum-48k") else {
-        emu198x_test_skip::skip!("Spectrum ROMs not staged (~/.emu198x/roms/sinclair-zx-spectrum)");
+    let Some(rom) = spectrum_48k_rom() else {
+        emu198x_test_skip::skip!(
+            "48K ROM not staged (EMU198X_SPECTRUM_48K_ROM or ~/.emu198x/roms)"
+        );
     };
-    let rom = dir.join("48.rom");
     if skip_if_missing(&rom) {
         return;
     }

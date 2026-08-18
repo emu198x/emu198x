@@ -38,9 +38,17 @@ fn null_host() -> HostIo<'static> {
     }
 }
 
+// `EMU198X_SPECTRUM_48K_ROM` first, so CI can provision one copy and
+// point every Spectrum test at it; the home directory is the developer
+// fallback. Matches `z80test.rs` and `float_bus_oracle.rs`.
 fn home_rom_48k() -> Option<PathBuf> {
-    let home = std::env::var("HOME").ok()?;
-    let path = PathBuf::from(home).join(".emu198x/roms/sinclair-zx-spectrum-48k/48.rom");
+    let path = match std::env::var_os("EMU198X_SPECTRUM_48K_ROM") {
+        Some(path) => PathBuf::from(path),
+        None => {
+            let home = std::env::var("HOME").ok()?;
+            PathBuf::from(home).join(".emu198x/roms/sinclair-zx-spectrum-48k/48.rom")
+        }
+    };
     if path.exists() { Some(path) } else { None }
 }
 
