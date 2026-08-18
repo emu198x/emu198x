@@ -436,12 +436,69 @@ impl DebugSymbols {
     /// set, and the caller can walk forward itself if it wants that policy.
     #[must_use]
     pub fn addr_of_line(&self, file: &str, line: u32) -> Option<u32> {
+        // An exact match on the recorded path settles it outright, and is the
+        // only way to tell two same-named files apart.
+        if let Some(addr) = self
+            .spans_at(line, |recorded| recorded == file)
+            .into_iter()
+            .min()
+        {
+            return Some(addr);
+        }
+
+        // Otherwise fall back to the basename — a debugger has the file open,
+        // not the assembler's command line — but only when it names one file.
+        // Two directories can each hold a `main.s`, and the previous version
+        // took the lowest address across all of them: a breakpoint in whichever
+        // unrelated file happened to sit lower in memory. Declining is the
+        // honest answer, and `files_named` says why.
+        if self.files_named(file).len() > 1 {
+            return None;
+        }
+        self.spans_at(line, |recorded| basename(recorded) == basename(file))
+            .into_iter()
+            .min()
+    }
+
+    /// Absolute addresses of every span on `line` whose file satisfies `pick`.
+    fn spans_at(&self, line: u32, pick: impl Fn(&str) -> bool) -> Vec<u32> {
         self.info
             .lines
             .iter()
-            .filter(|span| span.line == line && file_matches(&span.file, file))
+            .filter(|span| span.line == line && pick(&span.file))
             .filter_map(|span| self.absolute(span.section, span.offset))
-            .min()
+            .collect()
+    }
+
+    /// Distinct recorded source files whose basename matches `file`.
+    ///
+    /// More than one means a bare name cannot identify a file in this build,
+    /// and [`DebugSymbols::addr_of_line`] declines rather than choosing. A
+    /// caller can use this to say which one it meant, or to report the
+    /// ambiguity instead of silently getting no breakpoint.
+    #[must_use]
+    pub fn files_named(&self, file: &str) -> Vec<&str> {
+        let wanted = basename(file);
+        self.distinct_files(|recorded| basename(recorded) == wanted)
+    }
+
+    /// Every source file the line map mentions, sorted.
+    #[must_use]
+    pub fn source_files(&self) -> Vec<&str> {
+        self.distinct_files(|_| true)
+    }
+
+    fn distinct_files(&self, pick: impl Fn(&str) -> bool) -> Vec<&str> {
+        let mut found: Vec<&str> = self
+            .info
+            .lines
+            .iter()
+            .map(|span| span.file.as_str())
+            .filter(|recorded| pick(recorded))
+            .collect();
+        found.sort_unstable();
+        found.dedup();
+        found
     }
 
     /// Rewrites 16-bit address literals in a disassembled instruction into the
@@ -526,26 +583,20 @@ impl DebugSymbols {
     }
 }
 
-/// Whether a sidecar's recorded file name refers to the same file the caller
-/// named.
+/// The final path component of a recorded file name, lowercased.
 ///
 /// The assembler records paths as they were given on its command line, so a
 /// sidecar can hold `test-data/c64/border-walk.s` while a debugger UI — which
-/// has the file open, not the build script — asks about `border-walk.s`. Both
-/// name the same file. Matching the full string first keeps two same-named
-/// files in different directories distinguishable whenever the caller supplies
-/// enough path to tell them apart.
-fn file_matches(recorded: &str, wanted: &str) -> bool {
-    if recorded == wanted {
-        return true;
-    }
-    let base = |s: &str| {
-        s.rsplit(['/', '\\'])
-            .next()
-            .unwrap_or(s)
-            .to_ascii_lowercase()
-    };
-    base(recorded) == base(wanted)
+/// has the file open, not the build script — knows only `border-walk.s`. Both
+/// separators are handled because a sidecar can be written on one platform and
+/// read on another. Lowercased because the filesystems this runs on mostly
+/// are, so a case difference in a path is far more often a spelling than a
+/// distinction.
+fn basename(path: &str) -> String {
+    path.rsplit(['/', '\\'])
+        .next()
+        .unwrap_or(path)
+        .to_ascii_lowercase()
 }
 
 #[cfg(test)]
@@ -944,6 +995,58 @@ mod tests {
         let ok = DebugSymbols::from_ndjson(&unknown_record, "future-record.debug198x")
             .expect("an unknown record type is skipped");
         assert_eq!(ok.counts(), (0, 0, 0));
+    }
+
+    /// Two directories, each with a `main.s`, both contributing to line 10.
+    ///
+    /// No corpus fixture can express this — both multifile fixtures use
+    /// distinct basenames (`.inc` and `.s`) — so it is built here. The
+    /// addresses are deliberately far apart and out of order so that picking
+    /// the wrong one is unmistakable rather than off by a few bytes.
+    fn collided() -> DebugSymbols {
+        let text = format!(
+            "{}\n{}\n{}\n{}\n{}",
+            header_line(FORMAT, FORMAT_VERSION),
+            r#"{"t":"section","id":0,"name":"lib","base":16384}"#,
+            r#"{"t":"section","id":1,"name":"app","base":49152}"#,
+            r#"{"t":"line","file":"lib/main.s","line":10,"section":0,"offset":0,"length":2}"#,
+            r#"{"t":"line","file":"src/main.s","line":10,"section":1,"offset":0,"length":2}"#
+        );
+        DebugSymbols::from_ndjson(&text, "collided.debug198x").expect("loads")
+    }
+
+    #[test]
+    fn an_ambiguous_basename_declines_rather_than_guessing() {
+        let sym = collided();
+        // Previously this filtered both files in and took the lowest address,
+        // so a breakpoint on "main.s" line 10 landed in lib/main.s — a
+        // different program's code — with nothing to indicate it.
+        assert_eq!(sym.addr_of_line("main.s", 10), None);
+        // …and the caller can find out why rather than concluding the line
+        // has no code.
+        assert_eq!(sym.files_named("main.s"), vec!["lib/main.s", "src/main.s"]);
+    }
+
+    #[test]
+    fn a_path_disambiguates_a_collided_basename() {
+        let sym = collided();
+        assert_eq!(sym.addr_of_line("src/main.s", 10), Some(0xc000));
+        assert_eq!(sym.addr_of_line("lib/main.s", 10), Some(0x4000));
+    }
+
+    #[test]
+    fn an_unambiguous_basename_still_works() {
+        // The common case must not regress: one file of that name, so the
+        // bare name a debugger has is enough.
+        let sym = fixture();
+        assert_eq!(sym.addr_of_line("border-walk.s", 18), Some(0xc00b));
+        assert_eq!(sym.files_named("border-walk.s").len(), 1);
+    }
+
+    #[test]
+    fn source_files_lists_what_the_build_was_made_from() {
+        assert_eq!(collided().source_files(), vec!["lib/main.s", "src/main.s"]);
+        assert_eq!(fixture().source_files().len(), 1);
     }
 
     #[test]
