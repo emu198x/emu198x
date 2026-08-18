@@ -66,20 +66,30 @@ early alignment saves rework.
   record in `knowledge/decisions/`
 
 Commit subjects use [Conventional Commits](https://www.conventionalcommits.org)
-prefixes so [release-plz](https://release-plz.dev) can compute version bumps
-and append CHANGELOG entries automatically:
+prefixes, because [git-cliff](https://git-cliff.org) computes the version bump
+and writes the CHANGELOG from them. The rules live in `cliff.toml`:
 
-- `feat:` — new user-facing capability (minor bump; major with `!` after 1.0)
-- `fix:` — bug fix (patch bump)
-- `chore:`, `docs:`, `refactor:`, `style:`, `test:`, `ci:`, `build:`, `perf:` —
-  no bump, appears in CHANGELOG under "Other"
+- `feat:` — new user-facing capability. Moves the minor, filed under "Added".
+- `fix:` — bug fix. Moves the patch, filed under "Fixed".
+- `perf:` / `revert:` — filed under "Performance" / "Reverted".
+- `docs:`, `test:`, `chore:`, `ci:`, `build:`, `refactor:`, `style:` — no bump,
+  and **absent from the CHANGELOG entirely**. They are most of the commits
+  here and would bury the twenty that matter.
+- `feat(ci):`, `fix(ci):`, `feat(release):`, `fix(release):` — also absent. The
+  machinery that ships a release is not a change *in* the release.
 - Scope notation (`feat(spectrum):`, `fix(amiga):`) is optional — use it when
-  the change is clearly system-specific
+  the change is clearly system-specific.
 
-The convention is by convention, not CI-enforced. Missing prefixes degrade
-gracefully — release-plz lands them under "Other" and skips the bump. Don't
-pick a prefix to satisfy a lint; the effect-described-in-the-title and
-why-in-the-body rules above are the higher bar.
+A `!` after the prefix, or a `BREAKING CHANGE:` footer, marks a breaking
+change. Before 1.0 that moves the **minor**, not the major — 0.x semver's
+breaking release — and the entry is marked **Breaking** in the CHANGELOG and
+carries its footer, which is the part telling a reader what to do about it.
+Declaring 1.0 is a deliberate act rather than something one `fix!:` decides.
+
+The convention is by convention, not CI-enforced. A missing prefix degrades
+gracefully: the commit is skipped rather than misfiled, and contributes no
+bump. Don't pick a prefix to satisfy a lint; the effect-described-in-the-title
+and why-in-the-body rules above are the higher bar.
 
 ## Reporting bugs
 
