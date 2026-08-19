@@ -3,7 +3,7 @@
 use commodore_agnus_ocs::{NTSC_CCKS_PER_FRAME, PAL_CCKS_PER_LINE, PAL_LINES_PER_FRAME};
 use emu198x_shell::{
     CapabilitySet, ClockDesc, ClockRate, Family, FirmwareRequirement, MachineId, MachineProfile,
-    MediaKind, MediaSlot, ProfileId, Region, SupportTier, WritebackPolicy, known_capability,
+    MediaKind, MediaSlot, ProfileId, Region, WritebackPolicy, known_capability,
 };
 use gvp_a530::{A530Config, A530RamSize};
 use machine_commodore_amiga_ocs::RamConfig;
@@ -466,19 +466,6 @@ pub fn profile_for(model: Model) -> MachineProfile {
         display_name: model.display_name().into(),
         family: Family::Amiga,
         region,
-        support_tier: if matches!(
-            model,
-            Model::A500OcsNtsc
-                | Model::A500OcsNtscA501
-                | Model::A500OcsNtscMaxed
-                | Model::A1200AgaNtsc
-                | Model::A500OcsPalGvpA530
-                | Model::A500OcsNtscGvpA530
-        ) {
-            SupportTier::Research
-        } else {
-            SupportTier::Boots
-        },
         release_year,
         summary: match model {
             Model::A1000OcsPal => "Amiga 1000 OCS PAL — bootstrap-ROM cold boot into writable WOM, 768x576 ARGB framebuffer, Paula-backed stereo runtime audio, DF0 ADF insertion, keyboard input. Kickstart-to-Workbench disk swaps are scriptable via headless media reloads.".into(),
@@ -547,7 +534,6 @@ mod tests {
         let profile = profile_for(Model::A500OcsPal);
         assert_eq!(profile.family, Family::Amiga);
         assert_eq!(profile.region, Region::Pal);
-        assert_eq!(profile.support_tier, SupportTier::Boots);
         assert_eq!(profile.firmware.len(), 1);
         assert_eq!(
             profile.firmware[0].id.as_ref(),
@@ -571,12 +557,10 @@ mod tests {
     }
 
     #[test]
-    fn a530_profiles_are_research_tier_and_keep_system_clock_regional() {
+    fn a530_profiles_keep_the_system_clock_regional() {
         let pal = profile_for(Model::A500OcsPalGvpA530);
         let ntsc = profile_for(Model::A500OcsNtscGvpA530);
 
-        assert_eq!(pal.support_tier, SupportTier::Research);
-        assert_eq!(ntsc.support_tier, SupportTier::Research);
         assert_eq!(pal.clock.rate.numerator_hz, A500_PAL_CCK_HZ * 2);
         assert_eq!(ntsc.clock.rate.numerator_hz, A500_NTSC_CCK_HZ * 2);
         assert_eq!(pal.region, Region::Pal);
@@ -585,28 +569,6 @@ mod tests {
         assert_eq!(
             ntsc.profile_id.as_str(),
             Model::A500OcsNtscGvpA530.model_id()
-        );
-    }
-
-    #[test]
-    fn profiles_with_pending_boot_validation_are_research_tier() {
-        for model in [
-            Model::A500OcsNtsc,
-            Model::A500OcsNtscA501,
-            Model::A500OcsNtscMaxed,
-            Model::A1200AgaNtsc,
-        ] {
-            assert_eq!(
-                profile_for(model).support_tier,
-                SupportTier::Research,
-                "{model:?} must not claim a completed baseline boot path"
-            );
-        }
-
-        assert_eq!(
-            profile_for(Model::A1200AgaPal).support_tier,
-            SupportTier::Boots,
-            "the validated PAL A1200 retains its baseline boot claim"
         );
     }
 }

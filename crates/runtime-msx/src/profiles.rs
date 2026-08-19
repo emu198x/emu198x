@@ -2,7 +2,7 @@
 
 use emu198x_shell::{
     CapabilitySet, ClockDesc, ClockRate, Family, FirmwareRequirement, MachineId, MachineProfile,
-    MediaKind, MediaSlot, ProfileId, Region, SupportTier, WritebackPolicy, known_capability,
+    MediaKind, MediaSlot, ProfileId, Region, WritebackPolicy, known_capability,
 };
 
 /// Supported MSX1 models in the initial parity bootstrap.
@@ -68,7 +68,6 @@ pub fn profile_for(model: Model) -> MachineProfile {
         display_name: model.display_name().into(),
         family: Family::Msx,
         region: model.region(),
-        support_tier: SupportTier::Boots,
         release_year: 1983,
         summary: "MSX1 — Z80A + TMS9918A + AY-3-8910 + 8255 PPI, 64 KB RAM, BIOS-driven boot, MegaROM mapper (plain/Konami/KonamiSCC/ASCII8/ASCII16) cartridge support.".into(),
         clock: ClockDesc::new("z80-tstate", ClockRate::from_hz(3_579_545)),

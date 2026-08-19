@@ -59,7 +59,7 @@ pub use keyboard::{
 };
 pub use machine::{
     Family, FamilyRuntime, MachineCore, MachineId, MachineProfile, ProfileId, Region, ResetKind,
-    RunResult, StopReason, SupportTier,
+    RunResult, StopReason,
 };
 pub use media::{FirmwareRequirement, MediaImage, MediaKind, MediaSet, MediaSlot, WritebackPolicy};
 pub use query::{

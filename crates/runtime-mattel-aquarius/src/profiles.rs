@@ -2,7 +2,7 @@
 
 use emu198x_shell::{
     CapabilitySet, ClockDesc, ClockRate, Family, FirmwareRequirement, MachineId, MachineProfile,
-    MediaKind, MediaSlot, ProfileId, Region, SupportTier, WritebackPolicy, known_capability,
+    MediaKind, MediaSlot, ProfileId, Region, WritebackPolicy, known_capability,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -52,7 +52,6 @@ pub fn profile_for(model: Model) -> MachineProfile {
         display_name: model.display_name().into(),
         family: Family::Other,
         region: model.region(),
-        support_tier: SupportTier::Boots,
         release_year: 1983,
         summary: "Mattel Aquarius — Z80A + Microsoft BASIC ROM (8 KB), 4 KB internal RAM, optional 16 KB expansion, character display.".into(),
         clock: ClockDesc::new("z80-tstate", ClockRate::from_hz(3_579_545)),

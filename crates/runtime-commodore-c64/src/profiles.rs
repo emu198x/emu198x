@@ -3,7 +3,7 @@
 use common_commodore_c64::timing::{TIMING_NTSC_BREADBIN, TIMING_PAL_BREADBIN};
 use emu198x_shell::{
     CapabilitySet, ClockDesc, ClockRate, Family, FirmwareRequirement, MachineId, MachineProfile,
-    MediaKind, MediaSlot, ProfileId, Region, SupportTier, WritebackPolicy, known_capability,
+    MediaKind, MediaSlot, ProfileId, Region, WritebackPolicy, known_capability,
 };
 
 /// Supported C64 models in the fresh workspace bootstrap.
@@ -66,31 +66,27 @@ pub fn profiles() -> Vec<MachineProfile> {
 /// Returns the profile metadata for one C64 model.
 #[must_use]
 pub fn profile_for(model: Model) -> MachineProfile {
-    let (region, support_tier, summary, clock_rate, release_year) = match model {
+    let (region, summary, clock_rate, release_year) = match model {
         Model::C64PalBreadbin => (
             Region::Pal,
-            SupportTier::Boots,
             "PAL breadbin baseline now boots real BASIC/KERNAL/CHARGEN ROMs to the BASIC READY. prompt in the fresh workspace. Live 6502, CIA, VIC-II, and SID are wired; headless frame and mono audio output plus runtime snapshot import/export now work. TAP-backed datasette transport is now wired through the 6510/CIA path; broader software validation is still pending.",
             ClockRate::from_hz(TIMING_PAL_BREADBIN.cpu_hz),
             1982,
         ),
         Model::C64NtscBreadbin => (
             Region::Ntsc,
-            SupportTier::Research,
             "NTSC breadbin follow-on profile on the same live 6502/CIA/VIC-II/SID substrate. Fresh-workspace frame and audio execution plus runtime snapshot support exist; datasette transport is on the shared board path, but NTSC boot validation and software/media verification are still pending.",
             ClockRate::from_hz(TIMING_NTSC_BREADBIN.cpu_hz),
             1982,
         ),
         Model::C64cPal => (
             Region::Pal,
-            SupportTier::Boots,
             "PAL Commodore 64C: the same live 6502/CIA/VIC-II substrate as the PAL breadbin, fitted with the cost-reduced MOS 8580 SID (more linear filter, distinct combined-waveform behaviour). Boots real BASIC/KERNAL/CHARGEN ROMs to READY.; the shared datasette/disk/cartridge paths apply.",
             ClockRate::from_hz(TIMING_PAL_BREADBIN.cpu_hz),
             1986,
         ),
         Model::C64cNtsc => (
             Region::Ntsc,
-            SupportTier::Research,
             "NTSC Commodore 64C on the shared 6502/CIA/VIC-II substrate with the MOS 8580 SID. Fresh-workspace frame and audio execution plus snapshot support exist; NTSC boot and software/media verification are still pending, as for the NTSC breadbin.",
             ClockRate::from_hz(TIMING_NTSC_BREADBIN.cpu_hz),
             1986,
@@ -103,7 +99,6 @@ pub fn profile_for(model: Model) -> MachineProfile {
         display_name: model.display_name().into(),
         family: Family::C64,
         region,
-        support_tier,
         release_year,
         summary: summary.into(),
         clock: ClockDesc::new("phi2-cycle", clock_rate),
@@ -238,18 +233,6 @@ mod tests {
         assert_eq!(
             profile.media_slots[0].writeback,
             WritebackPolicy::SidecarOnly
-        );
-    }
-
-    #[test]
-    fn profiles_stay_honest_about_current_support_tier() {
-        assert_eq!(
-            profile_for(Model::C64PalBreadbin).support_tier,
-            SupportTier::Boots
-        );
-        assert_eq!(
-            profile_for(Model::C64NtscBreadbin).support_tier,
-            SupportTier::Research
         );
     }
 }

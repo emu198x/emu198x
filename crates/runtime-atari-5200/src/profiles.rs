@@ -2,7 +2,7 @@
 
 use emu198x_shell::{
     CapabilitySet, ClockDesc, ClockRate, Family, FirmwareRequirement, MachineId, MachineProfile,
-    MediaKind, MediaSlot, ProfileId, Region, SupportTier, WritebackPolicy, known_capability,
+    MediaKind, MediaSlot, ProfileId, Region, WritebackPolicy, known_capability,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -56,7 +56,6 @@ pub fn profile_for(model: Model) -> MachineProfile {
         display_name: model.display_name().into(),
         family: Family::Other,
         region: model.region(),
-        support_tier: SupportTier::Boots,
         release_year: 1982,
         summary: "Atari 5200 — 6502C + ANTIC + GTIA + POKEY, 16 KB RAM, optional 2 KB BIOS, cartridge required.".into(),
         clock: ClockDesc::new("colour-clock", ClockRate::from_hz(3_579_545)),

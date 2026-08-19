@@ -2,7 +2,7 @@
 
 use emu198x_shell::{
     CapabilitySet, ClockDesc, ClockRate, Family, FirmwareRequirement, MachineId, MachineProfile,
-    MediaKind, MediaSlot, ProfileId, Region, SupportTier, WritebackPolicy, known_capability,
+    MediaKind, MediaSlot, ProfileId, Region, WritebackPolicy, known_capability,
 };
 
 /// Supported ColecoVision models.
@@ -67,7 +67,6 @@ pub fn profile_for(model: Model) -> MachineProfile {
         display_name: model.display_name().into(),
         family: Family::Other,
         region: model.region(),
-        support_tier: SupportTier::Boots,
         release_year: 1982,
         summary: "ColecoVision — Z80A + TMS9918A + SN76489, 1 KB RAM, BIOS-driven boot, cartridge ROM support.".into(),
         clock: ClockDesc::new("z80-tstate", ClockRate::from_hz(3_579_545)),

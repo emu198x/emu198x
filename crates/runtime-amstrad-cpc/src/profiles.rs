@@ -2,7 +2,7 @@
 
 use emu198x_shell::{
     CapabilitySet, ClockDesc, ClockRate, Family, FirmwareRequirement, MachineId, MachineProfile,
-    MediaKind, MediaSlot, ProfileId, Region, SupportTier, WritebackPolicy, known_capability,
+    MediaKind, MediaSlot, ProfileId, Region, WritebackPolicy, known_capability,
 };
 
 /// The CPC models this runtime can build.
@@ -50,7 +50,6 @@ pub fn profile_for(model: Model) -> MachineProfile {
         display_name: model.display_name().into(),
         family: Family::Other,
         region: model.region(),
-        support_tier: SupportTier::Boots,
         release_year: 1984,
         summary: "Amstrad CPC464 — Z80A at 4 MHz, Gate Array, HD6845S CRTC, AY-3-8912, Intel 8255 PPI, 64 KB RAM, 32 KB firmware, cassette."
             .into(),

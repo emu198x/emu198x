@@ -2,7 +2,7 @@
 
 use emu198x_shell::{
     CapabilitySet, ClockDesc, ClockRate, Family, FirmwareRequirement, MachineId, MachineProfile,
-    ProfileId, Region, SupportTier, known_capability,
+    ProfileId, Region, known_capability,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -44,7 +44,6 @@ pub fn profile_for(model: Model) -> MachineProfile {
         display_name: model.display_name().into(),
         family: Family::Other,
         region: model.region(),
-        support_tier: SupportTier::Boots,
         release_year: 1984,
         summary: "Tatung Einstein TC-01 — Z80A + TMS9929A + AY-3-8910 + Intel 8251 + WD1770, 64 KB RAM, 8 KB MOS ROM.".into(),
         clock: ClockDesc::new("z80-tstate", ClockRate::from_hz(4_000_000)),

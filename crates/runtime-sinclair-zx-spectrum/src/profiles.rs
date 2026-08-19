@@ -7,7 +7,7 @@
 
 use emu198x_shell::{
     CapabilitySet, ClockDesc, ClockRate, Family, FirmwareRequirement, MachineId, MachineProfile,
-    MediaKind, MediaSlot, ProfileId, Region, SupportTier, WritebackPolicy, known_capability,
+    MediaKind, MediaSlot, ProfileId, Region, WritebackPolicy, known_capability,
 };
 
 /// Supported Spectrum family models.
@@ -185,7 +185,6 @@ pub fn profile_for(model: Model) -> MachineProfile {
             display_name: model.display_name().into(),
             family: Family::Spectrum,
             region: Region::Pal,
-            support_tier: SupportTier::Research,
             release_year: 1982,
             summary:
                 "16K PAL — the half-RAM 1982 Spectrum. Same Ferranti ULA, same 48K ROM, upper 32 KiB electrically disconnected."
@@ -213,7 +212,6 @@ pub fn profile_for(model: Model) -> MachineProfile {
             display_name: model.display_name().into(),
             family: Family::Spectrum,
             region: Region::Pal,
-            support_tier: SupportTier::Research,
             release_year: 1982,
             summary: "48K PAL baseline for the first reference Spectrum implementation.".into(),
             clock: ClockDesc::new("master-cycle", ClockRate::from_hz(14_000_000)),
@@ -245,7 +243,6 @@ pub fn profile_for(model: Model) -> MachineProfile {
             display_name: model.display_name().into(),
             family: Family::Spectrum,
             region: Region::Pal,
-            support_tier: SupportTier::Research,
             release_year: 1984,
             summary:
                 "1984 ZX Spectrum+ — full-stroke keyboard with reset button. Electrically identical to the 48K (same Ferranti ULA, same 48K ROM, same RAM), distinct catalogue identity."
@@ -273,7 +270,6 @@ pub fn profile_for(model: Model) -> MachineProfile {
             display_name: model.display_name().into(),
             family: Family::Spectrum,
             region: Region::Pal,
-            support_tier: SupportTier::Research,
             release_year: model.release_year(),
             summary:
                 "128K PAL follow-on profile with banked memory, AY audio, and tape-era baseline media."
@@ -300,7 +296,6 @@ pub fn profile_for(model: Model) -> MachineProfile {
             display_name: model.display_name().into(),
             family: Family::Spectrum,
             region: Region::Pal,
-            support_tier: SupportTier::Research,
             release_year: model.release_year(),
             summary:
                 "Sinclair-branded Amstrad-built 128K-compatible. Same chip set as the 128K plus a built-in tape deck."
@@ -327,7 +322,6 @@ pub fn profile_for(model: Model) -> MachineProfile {
             display_name: model.display_name().into(),
             family: Family::Spectrum,
             region: Region::Pal,
-            support_tier: SupportTier::Research,
             release_year: model.release_year(),
             summary:
                 "Amstrad-built +2A / +2B with the 40077 gate array, 4 ROMs, and extended `$1FFD` paging. No floppy drive."
@@ -351,7 +345,6 @@ pub fn profile_for(model: Model) -> MachineProfile {
             display_name: model.display_name().into(),
             family: Family::Spectrum,
             region: Region::Pal,
-            support_tier: SupportTier::Research,
             release_year: model.release_year(),
             summary:
                 "Amstrad-built +3 with the 40077 gate array, 4 ROMs, extended `$1FFD` paging, and a built-in 3\" floppy drive driven by an NEC µPD765A."
@@ -388,7 +381,6 @@ pub fn profile_for(model: Model) -> MachineProfile {
             display_name: model.display_name().into(),
             family: Family::Spectrum,
             region: Region::Pal,
-            support_tier: SupportTier::Research,
             release_year: model.release_year(),
             summary: "Russian Spectrum clone with no contention, AY, and Beta 128 disk interface."
                 .into(),
@@ -406,7 +398,6 @@ pub fn profile_for(model: Model) -> MachineProfile {
             display_name: model.display_name().into(),
             family: Family::Spectrum,
             region: Region::Pal,
-            support_tier: SupportTier::Research,
             release_year: model.release_year(),
             summary:
                 "Russian extended Spectrum: 256 KB RAM in 16 banks, 4 ROMs, AY, no contention, Beta disk."
@@ -430,7 +421,6 @@ pub fn profile_for(model: Model) -> MachineProfile {
             display_name: model.display_name().into(),
             family: Family::Spectrum,
             region: Region::Pal,
-            support_tier: SupportTier::Research,
             release_year: model.release_year(),
             summary:
                 "Portuguese 48K-compatible with the SCLD chip — 8 video modes, full I/O decoding, no AY."
@@ -461,7 +451,6 @@ pub fn profile_for(model: Model) -> MachineProfile {
             } else {
                 Region::Pal
             },
-            support_tier: SupportTier::Research,
             release_year: model.release_year(),
             summary:
                 "Timex TC2068 (PAL) / TS2068 (NTSC): SCLD video, DOCK/EXROM paging via `$F4`, AY on `$F5`/`$F6`."

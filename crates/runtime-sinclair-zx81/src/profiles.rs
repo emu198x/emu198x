@@ -2,7 +2,7 @@
 
 use emu198x_shell::{
     CapabilitySet, ClockDesc, ClockRate, Family, FirmwareRequirement, MachineId, MachineProfile,
-    MediaKind, MediaSlot, ProfileId, Region, SupportTier, WritebackPolicy, known_capability,
+    MediaKind, MediaSlot, ProfileId, Region, WritebackPolicy, known_capability,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -44,7 +44,6 @@ pub fn profile_for(model: Model) -> MachineProfile {
         display_name: model.display_name().into(),
         family: Family::Spectrum,
         region: model.region(),
-        support_tier: SupportTier::Boots,
         release_year: 1981,
         summary: "Sinclair ZX81 / Timex TS1000 — Z80A + ULA, 1 KB internal RAM (16 KB expansion), 8 KB monitor ROM.".into(),
         clock: ClockDesc::new("z80-tstate", ClockRate::from_hz(3_250_000)),

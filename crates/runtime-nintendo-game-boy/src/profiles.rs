@@ -6,7 +6,7 @@
 
 use emu198x_shell::{
     CapabilitySet, ClockDesc, ClockRate, Family, MachineId, MachineProfile, MediaKind, MediaSlot,
-    ProfileId, Region, SupportTier, WritebackPolicy, known_capability,
+    ProfileId, Region, WritebackPolicy, known_capability,
 };
 use machine_nintendo_game_boy::BootProfile;
 
@@ -110,7 +110,6 @@ pub fn profile_for(model: Model) -> MachineProfile {
         // The DMG isn't really PAL/NTSC — the LCD is its own
         // refresh standard. `Other` is the closest fit.
         region: Region::Other,
-        support_tier: SupportTier::Boots,
         release_year: model.release_year(),
         summary: format!(
             "{}: SM83 CPU at 4.194 MHz, 160×144 4-shade LCD, 4-channel audio. Current runtime enters cartridges from the selected post-boot-ROM register state; boot ROM execution will land separately.",
@@ -204,7 +203,6 @@ mod tests {
             assert_eq!(profile.machine_id.as_str(), "nintendo-game-boy");
             assert_eq!(profile.family, Family::GameBoy);
             assert_eq!(profile.region, Region::Other);
-            assert_eq!(profile.support_tier, SupportTier::Boots);
             assert!(profile.firmware.is_empty());
             assert_eq!(profile.media_slots.len(), 1);
         }
