@@ -260,10 +260,11 @@ never-ran comparison is asserting a constant.
 | Evidence | Systems |
 | --- | --- |
 | Executes from cartridge and renders | 7 |
-| Executes from ROM socket and renders | 18 |
+| Executes from ROM socket and renders | 20 |
 | Real firmware cold-starts | 3 |
 
-7 + 18 + 3 = 28, the Acorn Electron and Commodore PET joining the Dragon 32, the CPC, BBC Micro, Aquarius, Jupiter
+7 + 20 + 3 = **30 of 30**. The ZX80 and ZX81 close it, joining the Electron,
+PET, Dragon 32, the CPC, BBC Micro, Aquarius, Jupiter
 Ace, Atom and Oric.
 
 **The Dragon is worth a note on method.** Three attempts failed by reasoning
@@ -325,6 +326,44 @@ its character set is RAM. Redefining glyph 0 floods the screen in eight
 stores, because power-on video RAM already holds glyph 0 everywhere. Knowing
 where a machine keeps its character generator changes the cost of proving it
 runs.
+
+## Amendment 2026-08-19 (fifth) — thirty of thirty, and what that does not mean
+
+Every registered system now has boot evidence that runs on every push. The
+count is closed; the claim behind it is narrower than the number looks, and
+this entry exists so nobody reads the former as the latter.
+
+**Twenty of the thirty rest on firmware this project wrote.** That is what
+made them possible — no licence, no upstream, nobody's permission — and it
+is also the ceiling on what they say. A synthetic image proves the reset
+vector was fetched, the ROM is readable where the memory map claims, the CPU
+executed, the display hardware took its programming, and a frame came out.
+It says nothing about the manufacturer's firmware, and nothing about
+accuracy.
+
+**A synthetic fixture can be built so it passes without the machine.** The
+PET's obvious construction — a character ROM with every glyph solid — lights
+the screen with the CPU switched off. The ZX80/ZX81 have the same shape.
+Each is avoided by making the lit state depend on something the firmware
+must do, and each is checked by a control image. The controls are not
+ceremony: they are the only thing standing between this row and a very
+convincing zero.
+
+**The ZX80 and ZX81 prove less than their entry suggests.** On real hardware
+the CPU generates the display; this emulator renders the display file from
+the `$400C` pointer instead. Their tests exercise no display generation
+because there is none to exercise. That is a fact about the emulator, and it
+belongs beside the count rather than buried in a test file.
+
+**The evidence is uneven and the row hides it.** Writing one background
+register and building a 6845 raster from nothing both read as "executes from
+ROM socket and renders". So does setting a pointer the ULA happens to read.
+Anywhere this is published, the range wants stating.
+
+What would move a machine up is unchanged: firmware somebody may
+distribute, or a free reimplementation. Nine of the thirty could take that
+step tomorrow if such a thing appeared; the Amiga is one ROM window away
+(#1022).
 
 ## Consequences
 
