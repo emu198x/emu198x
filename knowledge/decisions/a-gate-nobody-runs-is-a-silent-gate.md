@@ -138,6 +138,30 @@ ordinary diagnostic `eprintln!`.
 A checker that cannot demonstrate it still detects is a silent gate wearing
 a checker's clothes.
 
+## Amendment 2026-08-19 — the self-test proves detection, not coverage
+
+The section above argues a checker must demonstrate it still detects, and
+this one does: known-bad sample in, hit out, before every scan. It passed
+that self-test for its whole life while missing 86 guards — more than the 54
+the sweep it protects had found.
+
+Detection and coverage are different properties. The sample it proved itself
+against was the shape already swept, `eprintln!` then a bare `return;`, so
+the self-test kept confirming it could still see the one form nothing was
+writing any more. Every guard that survived bails with `return None` or
+`return Ok(())`, mostly from inside a helper whose caller goes quiet with
+`let Some(x) = helper() else { return }`. The checker matched the return
+keyword narrowly and never saw them.
+
+**A self-test built only from the cases a sweep already fixed proves the
+checker can find what is no longer there.** The samples have to come from
+the forms *not* yet cleaned up, which means writing them from what the
+codebase actually contains rather than from the example in the docstring.
+
+What made this visible was not the gate. It was reading an unrelated test's
+guard while scoping other work, recognising the shape, and checking whether
+the checker matched it. The gate stayed green throughout.
+
 ## Drift triggers
 
 Stop and re-read this decision if you find yourself:
@@ -145,7 +169,12 @@ Stop and re-read this decision if you find yourself:
 - Recording a gate as "passing" from a status document rather than a run.
 - Adding a gate whose only invocation is a command in a README.
 - Writing `eprintln!("skipping: …"); return;` in a gate that a summary line
-  will report as `ok`.
+  will report as `ok` — or any other bail: `return None` from a helper and
+  `return Ok(())` from a `Result` test are the same failure, and are what
+  the first version of the checker missed.
+- Trusting a checker's self-test as evidence of coverage. It proves the
+  detector still detects the samples it carries; it says nothing about the
+  forms nobody thought to write a sample for.
 - Deferring a re-capture with a note in a commit message. `85f3abbc` did
   exactly that, correctly and in detail, and the note went unread for nine
   weeks.
