@@ -104,7 +104,7 @@ impl Zx81 {
         let rom = &self.rom;
         let ram = &self.ram;
         let mask = self.ram_mask;
-        self.ula.tick(|addr| match addr {
+        self.ula.tick(self.cpu.regs.i, |addr| match addr {
             0x0000..=0x3FFF => rom[(addr & 0x1FFF) as usize],
             0x4000..=0x7FFF => ram[((addr - 0x4000) & mask) as usize],
             0x8000..=0xBFFF => rom[(addr & 0x1FFF) as usize],

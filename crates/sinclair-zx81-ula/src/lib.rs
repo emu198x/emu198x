@@ -90,6 +90,15 @@ pub struct Zx81Ula {
     framebuffer: Vec<u32>,
     /// Frame counter.
     frame_count: u64,
+    /// The CPU's `I` register, captured each tick.
+    ///
+    /// On real hardware the character address is `I << 8 | char << 3 | line`,
+    /// and the firmware sets `I` to point at its character set — `$1E` on the
+    /// ZX81, `$0E` on the ZX80. This used to be hardcoded to `$0000`, which is
+    /// executable code in both real ROMs, so every glyph rendered from
+    /// instruction bytes. See #1030.
+    #[serde(default)]
+    char_base: u8,
 }
 
 impl Zx81Ula {
@@ -103,6 +112,7 @@ impl Zx81Ula {
             line: 0,
             framebuffer: vec![WHITE; (FB_WIDTH * FB_HEIGHT) as usize],
             frame_count: 0,
+            char_base: 0,
         }
     }
 
@@ -110,7 +120,13 @@ impl Zx81Ula {
     ///
     /// The `read_mem` closure reads a byte from the system's RAM/ROM without
     /// side effects.
-    pub fn tick(&mut self, read_mem: impl Fn(u16) -> u8) {
+    /// Advance one T-state.
+    ///
+    /// `i_register` is the CPU's `I`, which supplies the high byte of the
+    /// character address exactly as it does on hardware. It is a parameter
+    /// rather than a setter so that a machine cannot forget to supply it.
+    pub fn tick(&mut self, i_register: u8, read_mem: impl Fn(u16) -> u8) {
+        self.char_base = i_register;
         self.tstate += 1;
         self.line = self.tstate / TSTATES_PER_LINE;
 
@@ -281,14 +297,17 @@ impl Zx81Ula {
 
                 let fb_x_base = BORDER_LEFT + (col as u32) * 8;
 
-                // Read 8 bytes from character ROM (first 512 bytes of ROM)
+                // Character bitmaps live where `I` points, as on hardware:
+                // `I << 8 | char << 3 | line`. A 64-entry set spans 512
+                // bytes, so it crosses into the following page.
+                let char_base = u16::from(self.char_base) << 8;
                 for py in 0..8u32 {
                     let fb_y = fb_y_base + py;
                     if fb_y >= FB_HEIGHT {
                         break;
                     }
 
-                    let rom_addr = char_index * 8 + py as u16;
+                    let rom_addr = char_base.wrapping_add(char_index * 8 + py as u16);
                     let mut pattern = read_mem(rom_addr);
 
                     if inverse {
@@ -354,7 +373,7 @@ mod tests {
         let mut ula = Zx81Ula::new();
         let zeros = [0u8; 0x10000];
         for _ in 0..TSTATES_PER_FRAME {
-            ula.tick(|addr| zeros[addr as usize]);
+            ula.tick(0x00, |addr| zeros[addr as usize]);
         }
         assert!(ula.take_frame_complete());
         assert!(!ula.take_frame_complete());
@@ -386,7 +405,7 @@ mod tests {
 
         let mut ula = Zx81Ula::new();
         for _ in 0..TSTATES_PER_FRAME {
-            ula.tick(|addr| mem[addr as usize]);
+            ula.tick(0x00, |addr| mem[addr as usize]);
         }
 
         assert!(
@@ -419,7 +438,7 @@ mod tests {
         // Tick to the start of the first display line
         let target = FIRST_SCREEN_LINE * TSTATES_PER_LINE;
         for _ in 0..target {
-            ula.tick(|addr| zeros[addr as usize]);
+            ula.tick(0x00, |addr| zeros[addr as usize]);
         }
         // The tick that crossed the line boundary should have set NMI
         assert!(ula.nmi_active());
