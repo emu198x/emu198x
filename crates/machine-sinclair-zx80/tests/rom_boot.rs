@@ -4,7 +4,7 @@ use std::env;
 use std::fs;
 use std::path::PathBuf;
 
-use machine_sinclair_zx80::Zx80;
+use machine_sinclair_zx80::{FB_HEIGHT, FB_WIDTH, Zx80};
 
 fn rom_path() -> Option<PathBuf> {
     if let Ok(p) = env::var("EMU198X_ZX80_ROM") {
@@ -64,8 +64,40 @@ fn rom_boots_to_its_power_on_screen() {
          which is what rendering code bytes as glyphs looks like",
         frame.len()
     );
+
+    // The cursor, and only the cursor. A ZX80 powers on to a blank screen
+    // with an inverse `K` on the input line at the bottom left, so the ink
+    // is one 8x8 cell — the display area starts 24 rows down and 32 pixels
+    // in, and the input line is its last row.
+    let w = FB_WIDTH as usize;
+    let ink_at = |x: usize, y: usize| frame[y * w + x] == 0xFF00_0000;
+    let (mut min_x, mut max_x, mut min_y, mut max_y) = (usize::MAX, 0, usize::MAX, 0);
+    for y in 0..FB_HEIGHT as usize {
+        for x in 0..w {
+            if ink_at(x, y) {
+                min_x = min_x.min(x);
+                max_x = max_x.max(x);
+                min_y = min_y.min(y);
+                max_y = max_y.max(y);
+            }
+        }
+    }
+    assert_eq!(
+        (min_x, max_x, min_y, max_y),
+        (32, 39, 208, 215),
+        "the cursor should be a single 8x8 cell at the bottom left of the \
+         display area; anything wider means the character generator ran on \
+         past the row's NEWLINE"
+    );
+
+    // Inverse video: the cell is mostly ink with the letter cut out of it.
+    let cell_ink = (208..216)
+        .flat_map(|y| (32..40).map(move |x| (x, y)))
+        .filter(|&(x, y)| ink_at(x, y))
+        .count();
     assert!(
-        ink > 0,
-        "but the cursor should be drawn — an all-paper frame means nothing rendered"
+        (40..64).contains(&cell_ink),
+        "an inverse `K` is a solid block with a letter knocked out of it, so \
+         most of the 64 pixels are ink but not all; found {cell_ink}"
     );
 }
