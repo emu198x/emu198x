@@ -4308,6 +4308,7 @@ name = "runtime-sinclair-zx80"
 version = "0.5.0"
 dependencies = [
  "emu198x-shell",
+ "format-sinclair-zx80-o",
  "machine-sinclair-zx80",
  "postcard",
  "serde",
