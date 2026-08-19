@@ -15,6 +15,39 @@ use serde::{Deserialize, Serialize};
 // Chip select output
 // ---------------------------------------------------------------------------
 
+/// Where a machine's extended ROM is decoded.
+///
+/// Both are the same mechanism at different addresses; the model decides
+/// which. Kept as a value rather than a flag so that adding a machine is
+/// choosing a variant, not adding a code path.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ExtendedRomWindow {
+    /// `$E00000-$E7FFFF` — the CD32. AROS m68k reuses this window for the
+    /// half of itself that does not fit in 512 KiB.
+    E00000,
+    /// `$F00000-$F7FFFF` — the CDTV, and the ALG arcade boards.
+    F00000,
+}
+
+impl ExtendedRomWindow {
+    /// First address decoded to this window.
+    #[must_use]
+    pub const fn base(self) -> u32 {
+        match self {
+            Self::E00000 => 0x00E0_0000,
+            Self::F00000 => 0x00F0_0000,
+        }
+    }
+
+    /// One past the last address decoded to this window. Both windows are
+    /// 512 KiB, and neither collides with autoconfig at `$E80000` or the
+    /// Kickstart at `$F80000`.
+    #[must_use]
+    pub const fn top(self) -> u32 {
+        self.base() + 0x0008_0000
+    }
+}
+
 /// Which chip or memory region a 24-bit address maps to.
 ///
 /// The variants are ordered by decode priority — higher-priority chip
@@ -48,6 +81,12 @@ pub enum ChipSelect {
     Autoconfig,
     /// Kickstart ROM: $F80000-$FFFFFF.
     Rom,
+    /// Extended ROM: a second ROM in its own window.
+    ///
+    /// A machine needing more operating system than fits at `$F80000` gets it
+    /// here, so every A500 does not pay for the space. Which window depends on
+    /// the model — see [`ExtendedRomWindow`].
+    ExtendedRom,
     /// Address not claimed by any chip select.
     Unmapped,
 }
@@ -74,6 +113,8 @@ pub struct GaryDiagnosticSnapshot {
     pub resource_regs_present: bool,
     /// Whether the battery-backed clock aperture is enabled.
     pub rtc_present: bool,
+    /// Which extended-ROM window is decoded, if any.
+    pub ext_rom_window: Option<ExtendedRomWindow>,
 }
 
 /// Gary address decoder state.
@@ -85,6 +126,8 @@ pub struct GaryDiagnosticSnapshot {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Gary {
     slow_ram_present: bool,
+    #[serde(default)]
+    ext_rom_window: Option<ExtendedRomWindow>,
     gayle_present: bool,
     pcmcia_present: bool,
     dmac_present: bool,
@@ -103,6 +146,7 @@ impl Gary {
             dmac_present: false,
             resource_regs_present: false,
             rtc_present: false,
+            ext_rom_window: None,
         }
     }
 
@@ -132,6 +176,15 @@ impl Gary {
     }
 
     /// Enable or disable the battery-backed clock chip select ($DC0000-$DC003F).
+    /// Select the extended-ROM window, or `None` for a machine without one.
+    ///
+    /// Absent by default: a stock Amiga has no second ROM, and an aperture
+    /// that answered when nothing was fitted would turn open bus into
+    /// whatever the last image left behind.
+    pub fn set_extended_rom_window(&mut self, window: Option<ExtendedRomWindow>) {
+        self.ext_rom_window = window;
+    }
+
     pub fn set_rtc_present(&mut self, present: bool) {
         self.rtc_present = present;
     }
@@ -185,6 +238,7 @@ impl Gary {
             dmac_present: self.dmac_present,
             resource_regs_present: self.resource_regs_present,
             rtc_present: self.rtc_present,
+            ext_rom_window: self.ext_rom_window,
         }
     }
 
@@ -285,6 +339,17 @@ impl Gary {
             }
         }
 
+        // Extended ROM, where a model has one. $E00000 sits between the top
+        // of custom space and the autoconfig probe window; $F00000 sits below
+        // the Kickstart. Neither collides, and neither is decoded unless a
+        // second ROM is actually fitted.
+        if let Some(window) = self.ext_rom_window
+            && addr >= window.base()
+            && addr < window.top()
+        {
+            return ChipSelect::ExtendedRom;
+        }
+
         // Autoconfig / Zorro: $E80000-$EFFFFF
         if addr >= 0xE8_0000 && addr < 0xF0_0000 {
             return ChipSelect::Autoconfig;
@@ -347,6 +412,7 @@ mod tests {
                 dmac_present: false,
                 resource_regs_present: false,
                 rtc_present: false,
+                ext_rom_window: None,
             }
         );
 
@@ -356,6 +422,7 @@ mod tests {
         gary.set_dmac_present(true);
         gary.set_resource_regs_present(true);
         gary.set_rtc_present(true);
+        gary.set_extended_rom_window(Some(ExtendedRomWindow::E00000));
 
         let snapshot = gary.diagnostic_snapshot();
         assert_eq!(
@@ -367,6 +434,7 @@ mod tests {
                 dmac_present: true,
                 resource_regs_present: true,
                 rtc_present: true,
+                ext_rom_window: Some(ExtendedRomWindow::E00000),
             }
         );
         assert_eq!(snapshot.slow_ram_present, gary.slow_ram_present());

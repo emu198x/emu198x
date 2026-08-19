@@ -35,7 +35,7 @@ pub use cia::{Cia, CiaExt};
 pub use commodore_amiga_autoconfig::{
     AutoconfigBoard, AutoconfigBoardDiagnosticSnapshot, AutoconfigState,
 };
-pub use commodore_gary::{ChipSelect, Gary};
+pub use commodore_gary::{ChipSelect, ExtendedRomWindow, Gary};
 use commodore_paula_8364::bits::{
     POTGOR_BTN_PORT0_MIDDLE, POTGOR_BTN_PORT0_RIGHT, POTGOR_BTN_PORT1_MIDDLE,
     POTGOR_BTN_PORT1_RIGHT,
@@ -607,6 +607,27 @@ impl AmigaOcs {
             InstalledAgnus::early_ocs(region)
         };
         Self::with_memory_config(memory, cfg, true, agnus)
+    }
+
+    /// Fit a second ROM in the extended-ROM window.
+    ///
+    /// A machine carrying more operating system than fits at `$F80000` puts
+    /// the rest here: `$E00000` on the CD32, `$F00000` on the CDTV. AROS
+    /// m68k reuses the CD32 window for the half of itself that does not fit
+    /// in 512 KiB, which is why supplying only `aros-amiga-m68k-rom.bin`
+    /// runs half an operating system.
+    ///
+    /// This wires both halves of the fact: the image into memory, and Gary
+    /// to decode the window. Neither alone is enough — an image nothing
+    /// selects is unreachable, and an aperture with no image behind it turns
+    /// open bus into zeroes.
+    ///
+    /// # Panics
+    ///
+    /// If the image is empty, not a power of two, or larger than 512 KiB.
+    pub fn install_extended_rom(&mut self, window: ExtendedRomWindow, image: Vec<u8>) {
+        self.memory.install_extended_rom(window.base(), image);
+        self.gary.set_extended_rom_window(Some(window));
     }
 
     /// Build a real A1000-style machine: a small bootstrap ROM at
