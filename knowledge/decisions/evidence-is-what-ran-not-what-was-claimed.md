@@ -365,6 +365,38 @@ distribute, or a free reimplementation. Nine of the thirty could take that
 step tomorrow if such a thing appeared; the Amiga is one ROM window away
 (#1022).
 
+## Amendment 2026-08-19 (sixth) — the Amiga boots free firmware, nightly
+
+#1022 is closed: the extended-ROM window is decoded, and AROS m68k boots.
+The Amiga was the one machine whose free reimplementation existed, was
+licensed, was redistributable and was already in the tree — and could not be
+used, because it spans two ROM windows and only one was mapped.
+
+**It does not join the real-firmware row, and the reason matters.** Every
+machine in that row is checked on every pull request. The AROS test costs
+~140 seconds in a debug build against 8 in release, and the per-PR
+firmware-boot job is deliberately under ten seconds in total, so it runs in
+the nightly sweep instead.
+
+So the Amiga now has **synthetic evidence per push and real-firmware
+evidence nightly**. Both are true; they are not the same claim, and the
+count above is defined as evidence that runs on every push. Folding a
+nightly result into a per-push row would be precisely the overstatement this
+record exists to prevent — the number would go up and the thing it measures
+would quietly change.
+
+The rows are therefore unchanged at 7 / 20 / 3, and the honest sentence is
+that the Amiga's evidence got stronger without its row moving.
+
+**A second lesson about how thin evidence can be.** Reporting on this work I
+said the full Amiga suite passed — "204 tests, zero failures". Those crates
+hold 111 integration test files; the run had produced 12 result lines and
+exited zero, and I read the exit code as completion. The real figure was 599
+across 118. Nothing was wrong with the change, but the evidence I offered for
+it was about a tenth of what I claimed, and CI found a stale assertion I had
+told you could not exist. **An exit code is not a count.** Where a suite's
+size is known, check the count.
+
 ## Consequences
 
 - Evidence differs by environment, and that is correct, not a defect. The

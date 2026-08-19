@@ -25,6 +25,7 @@ locally; the workflow uses the same env-var contract.
 | ZEXDOC + ZEXALL | `zilog-z80` · `zex_tests` | `EMU198X_ZEX_DIR` | Frank Cringle Z80 exerciser (`*.com`) | freeware | no |
 | Spectrum system tests | `machine-sinclair-zx-spectrum-48k` · `float_bus`, `tape_smoke`; `machine-sinclair-zx-spectrum-128k` · `float_bus` | `EMU198X_SPECTRUM_SYSTEM_TESTS_DIR` (tapes) — the Spectron screens are **checked in**, see below | tapes are third-party programs Spectron bundles — RAMSOFT floatspy v0.33 and Woody's Float48k/Float128k | tapes are long-circulated freeware, not covered by Spectron's licence, redistributed in the **private** store only | 48K Spectrum ROM — reuses the one in the `z80test` tarball |
 | C-BIOS (MSX) | `machine-msx` · `cbios_boot` | `EMU198X_ROMS_ROOT` (joins `microsoft-msx/`) | github.com/cbios/cbios, built with Pasmo | BSD — redistribution in binary form permitted, notice ships beside the ROMs | is firmware — a clean-room MSX BIOS, not Microsoft's |
+| AROS m68k (Amiga) | `machine-commodore-amiga-ocs` · `aros_boot` | `EMU198X_ROMS_ROOT` (joins `commodore-amiga/`) | Copperline's build of AROS master + two upstream PRs | AROS Public License 1.1 — redistribution permitted; licence and build notes ship beside the ROMs | is firmware — a reimplemented AmigaOS, not Commodore's |
 | AltirraOS (800XL) | `machine-atari-800xl` · `altirraos_boot` | `EMU198X_ROMS_ROOT` (joins `atari-800xl/`) | Avery Lee's XL/XE OS + Altirra BASIC, via atari800's vendored copy | all-permissive notice of its own — **not** the emulator's GPLv2; notice ships beside the ROMs | is firmware — a reimplemented Atari OS, not Atari's |
 | Open ROMs (C64) | `runtime-commodore-c64` · `openroms_boot` | `EMU198X_ROMS_ROOT` (joins `commodore-c64/`) | github.com/MEGA65/open-roms, prebuilt `bin/` images | GPL-3.0 / LGPL-3.0 — redistribution permitted, licence texts and a source pointer ship beside the ROMs | is firmware — a clean-room C64 BASIC and KERNAL, not Commodore's |
 | Spectrum ROMs (128K, +2, +3) | `machine-sinclair-zx-spectrum-128k` · `boot_test`; `-plus2`, `-plus2a`, `-plus2b`, `-plus3` · `boot_test` | `EMU198X_ROMS_ROOT` (firmware root; each machine joins its own directory onto it) | the machines' own firmware | free to distribute (Amstrad), the same permission the 48K ROM ships under | is firmware — these are the ROMs |
@@ -180,6 +181,37 @@ Decoding needs the Atari's *internal* character codes rather than ATASCII —
 `$00-$3F` are ATASCII `$20-$5F`. Applying a C64-style screen-code mapping
 renders a perfectly good boot screen as line noise, which is how the first
 reading of it was misdiagnosed.
+
+## The Amiga boots AROS — nightly, not per-PR
+
+Commodore's Kickstart cannot be distributed, and until #1022 the Amiga could
+not use the free alternative either: **AROS m68k spans two ROM windows** and
+this emulator decoded one. `aros-amiga-m68k-rom.bin` at `$F80000` and
+`aros-amiga-m68k-ext.bin` at `$E00000`, 512 KiB each. With only the first,
+half an operating system runs and behaves like one.
+
+With both, it boots: 15 distinct colours over 106 rows, against 2 colours and
+a flat field. Both states are asserted, the second as the control.
+
+**This one runs nightly.** 1500 frames of a 68000 costs ~140s in a debug
+build against 8s in release, and the per-PR firmware-boot job is deliberately
+under ten seconds in total. So the Amiga's per-push evidence remains
+synthetic and its real-firmware evidence is nightly. That is a genuine
+difference in what is checked how often, and it should not be flattened when
+the evidence is reported.
+
+**The build is patched, and the note says so.** These are not an AROS
+release: Copperline built them from upstream master `d0370bd757` on
+2026-07-28 with two not-yet-merged pull requests applied — 876, an NTSC boot
+fix, and 878, an input-event-loss fix. Both are named, dated and upstream
+rather than private, but the bytes are not reproducible from a single
+upstream commit, which is worth knowing before a behavioural difference is
+blamed on AROS. The chain is Copperline's, not the AROS project's; prefer a
+release carrying these fixes if one appears.
+
+AROS is a reimplementation of the AmigaOS API and is documented as less
+compatible than a real Kickstart. It establishes that the machine starts and
+renders, and nothing else — the Kickstart-backed tests are unchanged.
 
 ## The one exception: Spectron's reference screens
 
