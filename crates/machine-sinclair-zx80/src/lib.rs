@@ -51,6 +51,20 @@ pub struct Zx80 {
     keyboard: KeyboardState,
     master_clock: u64,
     frame_count: u64,
+    /// Cassette input: the times, in master-clock T-states, at which the
+    /// line flips. It starts low, so an odd number of elapsed transitions
+    /// means the line is high.
+    ///
+    /// Part of the snapshot: a tape half-loaded is a state worth restoring.
+    #[serde(default)]
+    tape_in: Vec<u64>,
+    /// How far through `tape_in` the playback has got.
+    #[serde(default)]
+    tape_pos: usize,
+    /// Cassette output: the times at which the ROM touched the bus while
+    /// recording. `None` when not recording.
+    #[serde(skip)]
+    tape_out: Option<Vec<u64>>,
     /// When `Some`, every I/O port access is appended here (debug trace).
     #[serde(skip)]
     io_trace: Option<Vec<IoEvent>>,
@@ -79,6 +93,9 @@ impl Zx80 {
             keyboard: KeyboardState::new(),
             master_clock: 0,
             frame_count: 0,
+            tape_in: Vec::new(),
+            tape_pos: 0,
+            tape_out: None,
             io_trace: None,
         })
     }
@@ -190,6 +207,7 @@ impl Zx80 {
                 self.cpu.data_in = io_val;
                 if let Some(trace) = &mut self.io_trace {
                     trace.push(IoEvent {
+                        t: self.master_clock,
                         pc: io_pc,
                         port: io_port,
                         value: io_val,
@@ -203,7 +221,16 @@ impl Zx80 {
                 // D11, not a mode bit — so this is the only thing that sets
                 // the frame rate.
                 self.video.vsync_stop();
-                // Cassette out exists but is not wired in v1.
+                if let Some(trace) = &mut self.io_trace {
+                    trace.push(IoEvent {
+                        t: self.master_clock,
+                        pc: self.cpu.regs.pc,
+                        port: (self.cpu.addr & 0xFF) as u8,
+                        value: self.cpu.data,
+                        write: true,
+                    });
+                }
+                self.record_tape_edge();
             }
             Some(BusOp::IntAck) => {
                 self.cpu.data_in = 0xFF;
@@ -235,11 +262,75 @@ impl Zx80 {
     /// `IN` with A0 low reads the keyboard *and* starts the vertical sync.
     /// One instruction, two jobs — there is no timing chip to ask.
     fn io_read(&mut self, port: u16) -> u8 {
+        // Reading the bus is also how the ROM drives the cassette output
+        // low: `SAVE` emits each pulse as an `OUT` followed by an `IN`.
+        self.record_tape_edge();
         if port & 0x01 == 0 {
             self.video.vsync_start();
-            return self.keyboard.read((port >> 8) as u8);
+            // Bit 7 is the cassette input, established from the loader
+            // itself: after `IN A,($FE)` at `$020A` it does `RRA` (bit 0,
+            // the BREAK key) then `RLA` twice, which lands bit 7 in carry.
+            // The keyboard read returns that bit set (`| 0xE0`), which would
+            // leave the loader seeing a line that never goes quiet, so the
+            // tape owns it whether or not one is inserted.
+            //
+            // The *polarity* is not established. A pulse presents a high
+            // here because the loader waits for carry before timing a burst,
+            // but a real ZX80's ear input may invert. The ROM does not yet
+            // decode a synthesised tape either way — see #292 and #293.
+            let keys = self.keyboard.read((port >> 8) as u8) & 0x7F;
+            return keys | if self.tape_level() { 0x80 } else { 0x00 };
         }
         0xFF
+    }
+
+    /// The cassette line's level now, advancing the playback cursor to the
+    /// current time.
+    fn tape_level(&mut self) -> bool {
+        while self
+            .tape_pos
+            .checked_sub(0)
+            .and_then(|i| self.tape_in.get(i))
+            .is_some_and(|&edge| edge <= self.master_clock)
+        {
+            self.tape_pos += 1;
+        }
+        self.tape_pos % 2 == 1
+    }
+
+    /// Notes a bus access while recording. The ZX80 has no cassette data
+    /// register: touching a port *is* the signal, so what a recording holds
+    /// is the times at which the ROM did it.
+    fn record_tape_edge(&mut self) {
+        let now = self.master_clock;
+        if let Some(out) = &mut self.tape_out {
+            out.push(now);
+        }
+    }
+
+    /// Loads a tape. `edges` are transition times relative to now, as
+    /// produced by `format_sinclair_zx80_o`.
+    pub fn insert_tape(&mut self, edges: &[u64]) {
+        let start = self.master_clock;
+        self.tape_in = edges.iter().map(|e| start.saturating_add(*e)).collect();
+        self.tape_pos = 0;
+    }
+
+    /// Whether a tape is loaded and still has signal left.
+    #[must_use]
+    pub fn tape_remaining(&self) -> usize {
+        self.tape_in.len().saturating_sub(self.tape_pos)
+    }
+
+    /// Starts capturing what the ROM writes to the cassette output.
+    pub fn start_tape_recording(&mut self) {
+        self.tape_out = Some(Vec::new());
+    }
+
+    /// Takes the recording, as bus-access times in T-states.
+    #[must_use]
+    pub fn take_tape_recording(&mut self) -> Vec<u64> {
+        self.tape_out.take().unwrap_or_default()
     }
 
     #[must_use]
@@ -395,6 +486,13 @@ mod tests {
 /// One captured I/O port access, for the debug trace.
 #[derive(Debug, Clone, Copy)]
 pub struct IoEvent {
+    /// Master clock, in T-states, when the access happened.
+    ///
+    /// The cassette interface is made of timings and nothing else: a port
+    /// access is what drives the tape line, and what distinguishes a `0` bit
+    /// from a `1` is how many pulses it takes. A trace without timestamps
+    /// cannot describe it.
+    pub t: u64,
     /// CPU program counter at the time of the access.
     pub pc: u16,
     /// I/O port (low 8 bits of the address bus).
