@@ -45,6 +45,7 @@ pub struct Zx80 {
     ram_mask: u16,
     video: Zx80Video,
     prev_rfsh: bool,
+    prev_halt: bool,
     dbg_m1: u64,
     dbg_m1_high: u64,
     dbg_high_byte: u8,
@@ -76,6 +77,7 @@ impl Zx80 {
             ram_mask: (ram_size - 1) as u16,
             video: Zx80Video::new(),
             prev_rfsh: false,
+            prev_halt: false,
             dbg_m1: 0,
             dbg_m1_high: 0,
             dbg_high_byte: 0,
@@ -128,6 +130,15 @@ impl Zx80 {
             // address bus holds `I:R`, and the multiplexers take A9-A12 of
             // it. Refresh is not a no-op on this machine: ignoring it
             // removes the display.
+            // A `HALT` ends a display line. The interrupt wired to A6
+            // releases it, and that release is the line sync — the vertical
+            // position is counted from these, not from a clock.
+            let halt = self.cpu.halt;
+            if halt && !self.prev_halt {
+                self.video.line_sync();
+            }
+            self.prev_halt = halt;
+
             let rfsh = self.cpu.rfsh;
             if rfsh {
                 // INT is wired to address line A6, so an interrupt is
@@ -236,6 +247,21 @@ impl Zx80 {
     }
 
     #[must_use]
+    pub fn video_events(&self) -> &[(char, u32)] {
+        &self.video.dbg_events
+    }
+
+    #[must_use]
+    pub fn video_counts(&self) -> (u32, u32, u32, u32, u32) {
+        (
+            self.video.dbg_overflow,
+            self.video.dbg_vsync_start,
+            self.video.dbg_vsync_stop,
+            self.video.dbg_paint_calls,
+            self.video.dbg_forced,
+        )
+    }
+
     pub fn video_debug(&self) -> (u32, u32, u32, u32) {
         (
             self.video.dbg_min_line,

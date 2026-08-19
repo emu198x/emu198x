@@ -17,6 +17,12 @@ fn probe() {
     for _ in 0..frames {
         m.run_frame();
     }
+    let ev: Vec<String> = m
+        .video_events()
+        .iter()
+        .map(|(k, l)| format!("{k}{l}"))
+        .collect();
+    println!("events (kind+line): {}", ev.join(" "));
     let fb = m.framebuffer();
     let mut h: HashMap<u32, usize> = HashMap::new();
     for &p in fb {
@@ -24,6 +30,8 @@ fn probe() {
     }
     let mut v: Vec<_> = h.into_iter().collect();
     v.sort_by_key(|&(_, n)| std::cmp::Reverse(n));
+    let (ov, vst, vsp, pc2, fo) = m.video_counts();
+    println!("overflow={ov} vsync_start={vst} vsync_stop={vsp} paint_calls={pc2} forced={fo}");
     let (f, r, pc, px) = m.video_debug();
     println!("paint lines {f}..{r}   paint x {pc}..{px}");
     println!("frames={frames} pixels={} distinct={}", fb.len(), v.len());
