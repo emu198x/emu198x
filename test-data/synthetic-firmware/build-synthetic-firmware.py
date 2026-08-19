@@ -415,6 +415,80 @@ def dragon_32_control() -> bytes:
     return bytes(rom)
 
 
+def acorn_electron() -> bytes:
+    """Acorn Electron, 16 KiB OS ROM at `$C000`.
+
+    The screen is never filled, and filling it would prove nothing: the ULA
+    powers on with all eight palette registers at `$FF`, which decodes to
+    **all sixteen logical colours white**. Attempts filling screen RAM with
+    `$FF` and then `$00` both left the frame 100% white, because screen
+    content was invisible rather than unwritten.
+
+    So this writes the palette instead. The ULA stores each register
+    inverted (`written EOR $FF`), and the logical-to-physical mapping is
+    scrambled across register *pairs* — red, green and blue for one colour
+    come from individual, non-contiguous bits of two registers. Working
+    backwards through that decode, every logical colour is red when the even
+    registers store `$00` and the odd ones store `$0F`, which means writing
+    `$FF` and `$F0`.
+    """
+    code = bytearray([0x78])                       # sei
+    code += bytes([0xA9, 0xFF])                    # lda #$FF -> stored $00
+    for addr in (0x08, 0x0A, 0x0C, 0x0E):
+        code += bytes([0x8D, addr, 0xFE])          # sta $FE08/0A/0C/0E
+    code += bytes([0xA9, 0xF0])                    # lda #$F0 -> stored $0F
+    for addr in (0x09, 0x0B, 0x0D, 0x0F):
+        code += bytes([0x8D, addr, 0xFE])
+    here = len(code)
+    code += bytes([0x4C, (0xC000 + here) & 0xFF, (0xC000 + here) >> 8])
+    return _6502_rom(bytes(code), 0x4000, 0xC000)
+
+
+def acorn_electron_control() -> bytes:
+    return _6502_rom(bytes([0x78, 0x4C, 0x01, 0xC0]), 0x4000, 0xC000)
+
+
+def commodore_pet_kernal() -> bytes:
+    """Commodore PET, 4 KiB KERNAL at `$F000`.
+
+    The PET is monochrome, so there is no colour to flood. The signal is
+    character output instead: the character ROM beside this one defines
+    glyph 0 as blank and glyph 1 as solid, and this fills screen RAM at
+    `$8000` with glyph 1.
+
+    That split is the load-bearing part. A character ROM whose *every* glyph
+    was solid would light the screen without the CPU doing anything, and the
+    test would pass on a machine that never executed an instruction. Power-on
+    screen RAM holds glyph 0, which is blank, so the display can only light
+    if the fill ran.
+    """
+    code = bytes([
+        0x78,                    # sei
+        0xA9, 0x01,              # lda #$01     glyph 1
+        0xA2, 0x00,              # ldx #$00
+        0x9D, 0x00, 0x80,        # loop: sta $8000,x
+        0x9D, 0x00, 0x81,        #       sta $8100,x
+        0x9D, 0x00, 0x82,        #       sta $8200,x
+        0x9D, 0x00, 0x83,        #       sta $8300,x
+        0xE8,                    #       inx
+        0xD0, 0xF1,              #       bne loop
+        0x4C, 0x14, 0xF0,        # jmp $F014
+    ])
+    return _6502_rom(code, 0x1000, 0xF000)
+
+
+def commodore_pet_kernal_control() -> bytes:
+    return _6502_rom(bytes([0x78, 0x4C, 0x01, 0xF0]), 0x1000, 0xF000)
+
+
+def commodore_pet_chargen() -> bytes:
+    """Glyph 0 blank, glyph 1 solid, the rest blank. The blank glyph 0 is
+    what stops the screen lighting without the CPU."""
+    rom = bytearray(0x800)
+    rom[8:16] = b"\xFF" * 8
+    return bytes(rom)
+
+
 def _6502_rom(program: bytes, size: int, base: int) -> bytes:
     """A 6502 ROM with its reset vector pointed at the first byte."""
     rom = bytearray(b"\xFF" * size)
@@ -459,6 +533,14 @@ SINGLE_MACHINE = {
     # Controls: identical sockets, no hardware touched. Each renders black,
     # which is what makes the expected colour above evidence rather than a
     # value someone liked the look of.
+    "acorn-electron.rom": acorn_electron,
+    "acorn-electron-control.rom": acorn_electron_control,
+    "acorn-electron-basic.rom": lambda: zero_rom(0x4000),
+    "commodore-pet-kernal.rom": commodore_pet_kernal,
+    "commodore-pet-kernal-control.rom": commodore_pet_kernal_control,
+    "commodore-pet-chargen.rom": commodore_pet_chargen,
+    "commodore-pet-basic.rom": lambda: zero_rom(0x2000),
+    "commodore-pet-editor.rom": lambda: zero_rom(0x800),
     "dragon-32.rom": dragon_32,
     "dragon-32-control.rom": dragon_32_control,
     "amstrad-cpc.rom": amstrad_cpc,

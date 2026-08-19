@@ -50,6 +50,36 @@ one register that floods the display, then spin.
 | Amstrad CPC | Z80 | 6845 built from scratch, then Gate Array pen 0 + border | **entire frame** uniform |
 | BBC Micro | 6502 | 6845 built from scratch, then all 16 logical colours mapped to one physical | **entire frame** uniform |
 | Dragon 32 | 6809 | 6144 bytes of display RAM filled at `$0000` | display area lit |
+| Acorn Electron | 6502 | ULA palette at `$FE08-$FE0F` — every logical colour remapped | **entire frame** uniform |
+| Commodore PET | 6502 | screen RAM filled with a glyph the character ROM defines as solid | display area lit |
+
+### The Electron: the screen was never the problem
+
+Its ULA powers on with all eight palette registers at `$FF`, which decodes
+to **all sixteen logical colours white**. Filling screen RAM proves nothing:
+`$FF` and `$00` both leave the frame 100% white, because the content is
+invisible rather than unwritten — and that failure looks exactly like a
+machine that never ran.
+
+Writing the palette skips the screen entirely. The mapping is scrambled: the
+ULA stores each register inverted (`written EOR $FF`) and draws one colour's
+red, green and blue from non-contiguous bits of a register *pair*. The
+values used were derived by working backwards through the crate's own
+`decode_palette`, not guessed.
+
+### The PET: monochrome, so the signal is character output
+
+There is no colour to flood. The synthetic character ROM defines **glyph 0
+as blank and glyph 1 as solid**, and the KERNAL fills screen RAM with glyph
+1.
+
+That split is deliberate and load-bearing. A character ROM whose every glyph
+was solid would light the screen *without the CPU doing anything*, and the
+test would pass on a machine that never executed an instruction — precisely
+the failure this whole exercise exists to remove. Power-on screen RAM holds
+glyph 0, so the display can only light if the fill ran.
+
+
 
 ### The two that must build a display first
 
