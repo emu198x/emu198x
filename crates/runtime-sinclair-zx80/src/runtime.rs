@@ -13,7 +13,6 @@ use crate::snapshot;
 
 const ROM_SIZE: usize = 4 * 1024;
 const AUDIO_SAMPLE_RATE: u32 = 48_000;
-const DEFAULT_RAM_BYTES: usize = 1024;
 
 pub struct Zx80Runtime {
     profile: MachineProfile,
@@ -35,7 +34,10 @@ impl Zx80Runtime {
             model,
             machine: None,
             rom_bytes: None,
-            ram_bytes: DEFAULT_RAM_BYTES,
+            // The profile decides: selecting the RAM-pack model is what
+            // asks for 16 KB. `set_ram_bytes` still overrides for anything
+            // in between.
+            ram_bytes: model.ram_bytes(),
             time: MachineTime::default(),
             rgba_framebuffer: Vec::new(),
             rgba_width: 0,
