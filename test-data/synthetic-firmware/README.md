@@ -72,12 +72,20 @@ These two also have no other route. Amstrad's permission stops at the
 machines Amstrad bought; the ZX80 and ZX81 rights sit with Nine Tiles, so
 synthetic firmware is not the cheap option for them, it is the only one.
 
-Their ROM layout is deliberate for the same reason the PET's character ROM
-is: character bitmaps come from the first 512 bytes of ROM, which is also
-where the Z80 starts. `$0000` holds a `jp $0100`, leaving character 1's
-bitmap zeroed, and the display file is filled with that character *inverted*
-— solid only because inverting blank sets every pixel. A glyph that was
-already solid in ROM would light the screen with the CPU doing nothing.
+Their firmware must point `I` at a character set before anything legible
+appears — bitmaps live at `I << 8 | char << 3 | line`, as on hardware. The
+image sets `I` to the page the real ROM uses, and the ROM is zero-filled
+there, so glyph 0 is blank and the display file is written with that glyph
+*inverted* — solid only because inverting blank sets every pixel.
+
+The test therefore depends on two separate things the firmware must do, and
+on neither being true by accident. A glyph already solid in ROM would light
+the screen with the CPU switched off, which is the trap the PET's character
+ROM avoids the same way.
+
+Before #1030 the character address was hardcoded to `$0000` and these images
+were built around it. They no longer need the trick, and exercise `I`
+instead.
 
 
 

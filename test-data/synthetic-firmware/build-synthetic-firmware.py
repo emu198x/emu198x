@@ -489,43 +489,45 @@ def commodore_pet_chargen() -> bytes:
     return bytes(rom)
 
 
-def _sinclair_zx_rom(size: int, with_program: bool) -> bytes:
-    """ZX80 (4 KiB) and ZX81 (8 KiB) — the same image, cut to length.
+def _sinclair_zx_rom(size: int, char_page: int, with_program: bool) -> bytes:
+    """ZX80 (4 KiB, `I=$0E`) and ZX81 (8 KiB, `I=$1E`).
 
-    ## What this proves here, and what it would prove on real hardware
+    ## What this proves
 
-    On a real ZX80/ZX81 the *CPU* generates the picture: the Z80 executes
+    On real hardware the *CPU* generates the picture: the Z80 executes
     through the display file while the ULA forces NOPs and turns the fetched
-    bytes into video. **This emulator does not model that.** Its ULA reads
-    the `D_FILE` pointer from the system variables at `$400C` and renders the
-    display file directly.
+    bytes into video. This emulator renders the display file from the
+    `D_FILE` pointer at `$400C` instead, so a pass proves the CPU executed
+    and those writes landed — not that display generation works, because
+    there is none to exercise.
 
-    So this image sets up `D_FILE` and writes a display file, and a pass
-    proves the CPU executed and those writes landed. It does **not** prove
-    the display-generation mechanism works, because there is nothing here to
-    exercise. On a faithful implementation this same image would prove far
-    more — or fail.
+    ## Why the program sets `I`
 
-    ## Why the ROM is laid out the way it is
+    Character bitmaps live at `I << 8 | char << 3 | line`, exactly as on
+    hardware, so the firmware has to point `I` at a character set before
+    anything legible appears. This image sets `I` to the page the real ROMs
+    use, and the ROM is zero-filled there — so glyph 0 is blank, and the
+    display file is written with `$80`: glyph 0 *inverted*, solid only
+    because inverting blank sets every pixel.
 
-    The ULA takes character bitmaps from the **first 512 bytes of ROM**,
-    which is also where the Z80 must start executing. So the program is not
-    at `$0000`: a `jp $0100` sits there instead, leaving `$08-$0F` — the
-    bitmap for character 1 — zeroed.
+    That makes the test depend on two separate things the firmware must do,
+    setting `I` and writing the display file, and on neither of them being
+    true by accident. A glyph that was already solid in ROM would light the
+    screen with the CPU switched off.
 
-    The display file is then filled with `$81`, character 1 *inverted*, which
-    renders solid because inverting a blank bitmap sets every pixel. A
-    character that was already solid in ROM would light the screen without
-    the firmware running, which is the trap the PET's character ROM avoids
-    the same way.
+    Before #1030 the character address was hardcoded to `$0000` and this
+    image was built around that, putting a `jp` at `$0000` to keep a blank
+    glyph nearby. It no longer needs the trick, and it exercises `I`
+    instead.
     """
-    rom = bytearray(b"\x00" * size)          # zeros: every glyph blank
-    rom[0:3] = bytes([0xC3, 0x00, 0x01])      # jp $0100
+    rom = bytearray(b"\x00" * size)      # zero-filled: glyph 0 is blank
     if not with_program:
-        rom[0x100:0x102] = bytes([0x18, 0xFE])    # jr $ — touch nothing
+        rom[0:2] = bytes([0x18, 0xFE])    # jr $ — sets no I, writes no D_FILE
         return bytes(rom)
     code = bytearray()
     code += bytes([0xF3])                     # di
+    code += bytes([0x3E, char_page])          # ld a,$1E / $0E
+    code += bytes([0xED, 0x47])               # ld i,a
     code += bytes([0x21, 0x00, 0x41])         # ld hl,$4100
     code += bytes([0x22, 0x0C, 0x40])         # ld ($400C),hl    D_FILE pointer
     code += bytes([0x36, 0x76])               # ld (hl),$76      leading NEWLINE
@@ -534,31 +536,31 @@ def _sinclair_zx_rom(size: int, with_program: bool) -> bytes:
     row = len(code)
     code += bytes([0x0E, 32])                 # ld c,32          columns
     col = len(code)
-    code += bytes([0x36, 0x81])               # ld (hl),$81      inverse char 1
+    code += bytes([0x36, 0x80])               # ld (hl),$80      glyph 0 inverted
     code += bytes([0x23, 0x0D])               # inc hl ; dec c
     code += bytes([0x20, (col - (len(code) + 2)) & 0xFF])   # jr nz,col
     code += bytes([0x36, 0x76])               # ld (hl),$76      NEWLINE
     code += bytes([0x23])                     # inc hl
     code += bytes([0x10, (row - (len(code) + 2)) & 0xFF])   # djnz row
     code += bytes([0x18, 0xFE])               # jr $
-    rom[0x100:0x100 + len(code)] = code
+    rom[0:len(code)] = code
     return bytes(rom)
 
 
 def sinclair_zx80() -> bytes:
-    return _sinclair_zx_rom(0x1000, True)
+    return _sinclair_zx_rom(0x1000, 0x0E, True)
 
 
 def sinclair_zx80_control() -> bytes:
-    return _sinclair_zx_rom(0x1000, False)
+    return _sinclair_zx_rom(0x1000, 0x0E, False)
 
 
 def sinclair_zx81() -> bytes:
-    return _sinclair_zx_rom(0x2000, True)
+    return _sinclair_zx_rom(0x2000, 0x1E, True)
 
 
 def sinclair_zx81_control() -> bytes:
-    return _sinclair_zx_rom(0x2000, False)
+    return _sinclair_zx_rom(0x2000, 0x1E, False)
 
 
 def _6502_rom(program: bytes, size: int, base: int) -> bytes:
