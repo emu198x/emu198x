@@ -260,10 +260,10 @@ never-ran comparison is asserting a constant.
 | Evidence | Systems |
 | --- | --- |
 | Executes from cartridge and renders | 7 |
-| Executes from ROM socket and renders | 16 |
+| Executes from ROM socket and renders | 18 |
 | Real firmware cold-starts | 3 |
 
-7 + 16 + 3 = 26, the Dragon 32 joining the CPC, BBC Micro, Aquarius, Jupiter
+7 + 18 + 3 = 28, the Acorn Electron and Commodore PET joining the Dragon 32, the CPC, BBC Micro, Aquarius, Jupiter
 Ace, Atom and Oric.
 
 **The Dragon is worth a note on method.** Three attempts failed by reasoning
@@ -276,6 +276,21 @@ frames.
 
 Reading back the state a test depends on, before doubting the thing under
 test, would have saved three attempts here and one on the 800XL.
+
+**The PET is the one machine where the fixture could have faked the
+result.** It is monochrome, so there is no colour to flood and the signal
+has to be character output. The obvious construction — a character ROM whose
+every glyph is solid — lights the screen without the CPU executing anything,
+and would have passed on a dead machine. Defining glyph 0 as blank and glyph
+1 as solid, and making the firmware fill the screen with glyph 1, is what
+keeps the test about the CPU.
+
+Worth stating generally: **a synthetic fixture can be built so it passes
+without the machine.** Every one of these images is written by this project,
+which is what makes them free of licence — and also what makes them capable
+of proving nothing while looking convincing. The control image is the guard
+against that, and on the PET the control is doing real work rather than
+confirming the obvious.
 
 **Those last two are the strongest synthetic proofs, and they show the
 weakness of the rest.** Every other machine here has something on screen at
