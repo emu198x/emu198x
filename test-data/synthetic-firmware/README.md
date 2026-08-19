@@ -21,6 +21,42 @@ The two are both "boot evidence" and they are not the same evidence.
 Anywhere they are reported together they should be worded differently;
 collapsing them into one word is how a status page starts overclaiming.
 
+## Machines that share nothing
+
+The VIC-20, Atari 5200 and Amiga each drive their own display hardware on
+their own CPU, so each gets its own few instructions rather than a shared
+program. What they have in common is only the shape of the proof: write the
+one register that floods the display, then spin.
+
+| Machine | CPU | Register | Result |
+| --- | --- | --- | --- |
+| VIC-20 | 6502 | `$900F` — screen, polarity and border in one byte | displayed raster red |
+| Atari 5200 | 6502 | `COLBK` at `$C01A` | **entire frame** uniform |
+| Amiga | 68000 | `COLOR00` at `$DFF180` | raster red edge to edge |
+
+Only the 5200 comes out fully uniform. ANTIC's DMA is off at power-on, so
+with no display list fetched there is nothing but background. The VIC-20's
+displayed raster is 176x184 inside a 224x216 buffer and the Amiga leaves a
+blanking band, so both are asserted as a majority of the frame rather than
+all of it — the Amiga's remaining 1536 pixels are the same band a real
+Kickstart leaves black.
+
+The VIC-20 is also given zero-filled BASIC and character ROMs. A blank
+character generator matters: every glyph the VIC fetches is then all
+background, so uninitialised screen RAM cannot speckle the frame.
+
+## Every image has a control
+
+Each of the three ships a `-control` twin that spins immediately without
+touching any hardware, and each test asserts the control renders **none** of
+the expected colour.
+
+This is what makes the colour evidence rather than a value someone liked the
+look of. Without it the test says "the framebuffer is red"; with it the test
+says "the framebuffer is red *because our code ran*, and is black otherwise".
+Every control renders black, which is also how the expected colours were
+chosen — measured against "never ran", not assumed.
+
 ## Why one script covers six machines
 
 The MSX, Memotech MTX, Sord M5, Spectravideo SVI-328, ColecoVision and

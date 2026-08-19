@@ -235,6 +235,36 @@ gaining stronger evidence moves it rather than duplicating it. Both its
 tests stay and both keep running — the synthetic one needs no fixture and
 runs on every push, the C-BIOS one needs the store.
 
+## Amendment 2026-08-19 (fourth) — nineteen, and the route that needs nobody
+
+Synthetic firmware takes the count to **19 of 30**: the VIC-20, the Atari
+5200 and the Amiga now execute from their ROM sockets and render.
+
+None of the three had any boot evidence. The VIC-20 has no free
+reimplementation at all — Open ROMs is C64/C65 only. The Amiga has one, and
+cannot use it: AROS m68k spans two ROM windows and this emulator maps one
+(#1022). Waiting on either would have left both at zero indefinitely.
+
+**The weakest route is the only one that always works.** A synthetic image
+needs no licence, no upstream project, and nobody's permission — the ROM
+socket takes bytes, and this project can write bytes. It answers less than a
+real firmware cold start, and it answers it for every machine.
+
+Each image ships with a **control**: the same socket, spinning, touching no
+hardware. Every control renders black, and each test asserts the control
+shows none of the expected colour. That converts "the framebuffer is red"
+into "the framebuffer is red because our code ran" — and it is how the
+expected colours were chosen rather than guessed. A boot test without a
+never-ran comparison is asserting a constant.
+
+| Evidence | Systems |
+| --- | --- |
+| Executes from cartridge and renders | 7 |
+| Executes from ROM socket and renders | 9 |
+| Real firmware cold-starts | 3 |
+
+7 + 9 + 3 = 19.
+
 ## Consequences
 
 - Evidence differs by environment, and that is correct, not a defect. The
