@@ -2122,7 +2122,6 @@ mod tests {
     use crate::host::{AudioPacket, FramePacket, HostIo, PixelFormat};
     use crate::machine::{
         Family, MachineId, MachineProfile, ProfileId, Region, ResetKind, RunResult, StopReason,
-        SupportTier,
     };
     use crate::media::{FirmwareRequirement, MediaSlot, WritebackPolicy};
     use crate::query::SessionQueryProvider;
@@ -2157,7 +2156,6 @@ mod tests {
                     display_name: "Dummy".into(),
                     family: Family::Spectrum,
                     region: Region::Pal,
-                    support_tier: SupportTier::Research,
                     release_year: 1982,
                     summary: "dummy".into(),
                     clock: ClockDesc::new("master-cycle", ClockRate::from_hz(1)),

@@ -48,22 +48,6 @@ pub enum Region {
     Other,
 }
 
-/// Declared support tier for a machine profile.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[non_exhaustive]
-pub enum SupportTier {
-    /// Research assembled, implementation not yet functional.
-    Research,
-    /// Baseline boot or monitor path works.
-    Boots,
-    /// Representative software path works with known gaps.
-    Usable,
-    /// Control and teaching-facing workflows are stable.
-    Teaching,
-    /// Verification ladder is complete for the current scope.
-    Reference,
-}
-
 /// Stable machine-family identifier such as `sinclair-zx-spectrum`.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct MachineId(pub Cow<'static, str>);
@@ -125,8 +109,6 @@ pub struct MachineProfile {
     pub family: Family,
     /// Region or timing family.
     pub region: Region,
-    /// Declared implementation and verification tier.
-    pub support_tier: SupportTier,
     /// First release year for the concrete profile.
     pub release_year: u16,
     /// Short human-readable summary.

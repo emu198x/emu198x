@@ -2,7 +2,7 @@
 
 use emu198x_shell::{
     CapabilitySet, ClockDesc, ClockRate, Family, FirmwareRequirement, MachineId, MachineProfile,
-    MediaKind, MediaSlot, ProfileId, Region, SupportTier, WritebackPolicy, known_capability,
+    MediaKind, MediaSlot, ProfileId, Region, WritebackPolicy, known_capability,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -58,7 +58,6 @@ pub fn profile_for(model: Model) -> MachineProfile {
         display_name: model.display_name().into(),
         family: Family::Other,
         region: model.region(),
-        support_tier: SupportTier::Boots,
         release_year: 1983,
         summary: "Atari 800XL — 6502C + ANTIC + GTIA + POKEY + PIA, 64 KB RAM, optional 16 KB OS ROM + 8 KB BASIC ROM, optional cartridge.".into(),
         clock: ClockDesc::new("cpu-cycle", ClockRate::from_hz(1_790_000)),

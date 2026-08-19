@@ -2,7 +2,7 @@
 
 use emu198x_shell::{
     CapabilitySet, ClockDesc, ClockRate, Family, MachineId, MachineProfile, MediaKind, MediaSlot,
-    ProfileId, Region, SupportTier, WritebackPolicy, known_capability,
+    ProfileId, Region, WritebackPolicy, known_capability,
 };
 use runtime_sega_master_system_class::{SmsRuntime, SmsVariant};
 
@@ -66,7 +66,6 @@ pub fn profile_for(model: Model) -> MachineProfile {
         display_name: model.display_name().into(),
         family: Family::Other,
         region: model.region(),
-        support_tier: SupportTier::Boots,
         release_year: 1985,
         summary:
             "Sega Master System — Z80A + Sega VDP + SN76489, 8 KB RAM, Sega mapper cartridge boot."

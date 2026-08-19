@@ -2,7 +2,7 @@
 
 use emu198x_shell::{
     CapabilitySet, ClockDesc, ClockRate, Family, FirmwareRequirement, MachineId, MachineProfile,
-    ProfileId, Region, SupportTier, known_capability,
+    ProfileId, Region, known_capability,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -63,7 +63,6 @@ pub fn profile_for(model: Model) -> MachineProfile {
         display_name: model.display_name().into(),
         family: Family::Other,
         region: model.region(),
-        support_tier: SupportTier::Boots,
         release_year: 1977,
         summary: "Commodore PET / CBM — 6502 + 6845 CRTC + PIA/VIA, KERNAL + BASIC + editor + character ROMs, 40 or 80 column display.".into(),
         clock: ClockDesc::new("cpu-cycle", ClockRate::from_hz(1_000_000)),

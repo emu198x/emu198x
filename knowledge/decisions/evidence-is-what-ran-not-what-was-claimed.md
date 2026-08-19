@@ -129,6 +129,40 @@ There is a second reason not to publish a local run: it would commit a
 standing attestation of which commercial ROMs sit on one person's disk.
 Nothing infringing, and no reason to put it in a public repository.
 
+## Amendment 2026-08-19 — `support_tier` is retired
+
+The entry above named `support_tier` as one of the claims a status page
+should show beside its evidence. That was the wrong destination for it, and
+measuring the field is what settled the matter.
+
+- **It was never promoted.** Most `profiles.rs` files have exactly one
+  commit touching `support_tier`: the one that created them. The handful
+  with two are creation plus a structural change — adding variants,
+  moving files. Not one commit in this repository's history raised a
+  machine's tier because the machine got better.
+- **Two of five rungs were ever used.** 28 `Boots`, 12 `Research`.
+  `Usable`, `Teaching` and `Reference` were never assigned to anything.
+- **Nothing consumed it** but a query path that echoed it back.
+- **The Spectrum declared `Research`** with 705 own passing tests, a
+  closed contention campaign and a curriculum being built on it.
+
+Publishing that on the page built to end status drift would have put
+unmaintained claims at the centre of the fix. So the field is gone: the
+struct member, the `SupportTier` enum, and the
+`session.profile.support_tier` query path.
+
+**What replaces it is evidence, not a better claim.** "Does it boot" is
+now checked on every push for the eight machines where that is honestly
+possible — the seven whose profiles declare no firmware, proven by
+synthetic cartridges, and the Spectrum, whose ROM Amstrad permits to be
+distributed. For the other twenty-two the answer is "not verifiable in
+public infrastructure, because the firmware cannot be", which is a fact
+about the licence rather than a guess about the machine.
+
+A tier could earn its way back. It would need a stated meaning per rung, a
+mechanism that moves it, and something that consumes it. Absent all three
+it was decoration that looked like data.
+
 ## Consequences
 
 - Evidence differs by environment, and that is correct, not a defect. The
@@ -157,6 +191,8 @@ Re-read this entry when you catch any of these:
 - writing a status table by hand, or editing a generated one in place
 - adding a machine, crate, label or milestone without touching the registry
 - proposing a formula that turns test counts into a support tier
+- reintroducing a declared tier without a stated meaning per rung, a
+  mechanism that changes it, and a consumer that reads it
 - treating a `skip!` or an `#[ignore]` as anything but a gap
 - "the local run has better numbers, publish that one" — it has fewer
   visible gaps, which is not the same thing

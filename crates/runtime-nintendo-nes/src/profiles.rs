@@ -2,7 +2,7 @@
 
 use emu198x_shell::{
     CapabilitySet, ClockDesc, ClockRate, Family, MachineId, MachineProfile, MediaKind, MediaSlot,
-    ProfileId, Region, SupportTier, WritebackPolicy, known_capability,
+    ProfileId, Region, WritebackPolicy, known_capability,
 };
 
 /// Supported NES models in the fresh-workspace bootstrap.
@@ -52,7 +52,6 @@ pub fn profile_for(model: Model) -> MachineProfile {
             display_name: model.display_name().into(),
             family: Family::Nes,
             region: Region::Ntsc,
-            support_tier: SupportTier::Boots,
             release_year: 1985,
             summary: "NTSC NES baseline with headless cartridge boot, NROM/MMC1/UxROM/CNROM/MMC3/MMC5/AxROM/Color Dreams/VRC2a/Action 53/BxROM/NINA-001/Sunsoft-4/Camerica mapper support, live 2A03/2C02/APU execution, RGBA frame output, mono audio, snapshots, and controller input.".into(),
             clock: ClockDesc::new("ppu-dot", ClockRate::from_hz(5_369_318)),
@@ -95,7 +94,6 @@ mod tests {
         let profile = profile_for(Model::NesNtsc);
         assert_eq!(profile.family, Family::Nes);
         assert_eq!(profile.region, Region::Ntsc);
-        assert_eq!(profile.support_tier, SupportTier::Boots);
         assert!(profile.firmware.is_empty());
         assert_eq!(profile.media_slots.len(), 1);
         assert_eq!(profile.media_slots[0].id.as_ref(), "cartridge-1");

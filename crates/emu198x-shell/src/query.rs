@@ -27,7 +27,6 @@ pub const SESSION_QUERY_PATHS: &[&str] = &[
     "session.profile.region",
     "session.profile.release_year",
     "session.profile.summary",
-    "session.profile.support_tier",
     "session.time",
 ];
 
@@ -126,7 +125,6 @@ pub fn query_value(
         "session.profile.display_name" => json!(profile.display_name.as_ref()),
         "session.profile.family" => json!(family_name(profile)),
         "session.profile.region" => json!(region_name(profile)),
-        "session.profile.support_tier" => json!(support_tier_name(profile)),
         "session.profile.release_year" => json!(profile.release_year),
         "session.profile.summary" => json!(profile.summary.as_ref()),
         "session.profile.clock.unit" => json!(profile.clock.unit.as_ref()),
@@ -206,16 +204,6 @@ fn region_name(profile: &MachineProfile) -> &'static str {
     }
 }
 
-fn support_tier_name(profile: &MachineProfile) -> &'static str {
-    match profile.support_tier {
-        crate::SupportTier::Research => "research",
-        crate::SupportTier::Boots => "boots",
-        crate::SupportTier::Usable => "usable",
-        crate::SupportTier::Teaching => "teaching",
-        crate::SupportTier::Reference => "reference",
-    }
-}
-
 fn stop_reason_name(stop_reason: StopReason) -> &'static str {
     match stop_reason {
         crate::StopReason::ReachedTarget => "reached_target",
@@ -230,7 +218,7 @@ mod tests {
     use super::*;
     use crate::capability::CapabilitySet;
     use crate::machine::{
-        Family, MachineId, MachineProfile, ProfileId, Region, RunResult, StopReason, SupportTier,
+        Family, MachineId, MachineProfile, ProfileId, Region, RunResult, StopReason,
     };
     use crate::media::{FirmwareRequirement, MediaSlot, WritebackPolicy};
     use crate::time::{ClockDesc, ClockRate};
@@ -243,7 +231,6 @@ mod tests {
             display_name: "ZX Spectrum 48K (PAL)".into(),
             family: Family::Spectrum,
             region: Region::Pal,
-            support_tier: SupportTier::Boots,
             release_year: 1982,
             summary: "test profile".into(),
             clock: ClockDesc::new("master-cycle", ClockRate::from_hz(14_000_000)),

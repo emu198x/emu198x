@@ -2,7 +2,7 @@
 
 use emu198x_shell::{
     CapabilitySet, ClockDesc, ClockRate, Family, FirmwareRequirement, MachineId, MachineProfile,
-    MediaKind, MediaSlot, ProfileId, Region, SupportTier, WritebackPolicy, known_capability,
+    MediaKind, MediaSlot, ProfileId, Region, WritebackPolicy, known_capability,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -67,7 +67,6 @@ pub fn profile_for(model: Model) -> MachineProfile {
         display_name: model.display_name().into(),
         family: Family::Other,
         region: model.region(),
-        support_tier: SupportTier::Boots,
         release_year: 1980,
         summary: "Acorn Atom — 6502 + 24 KB combined ROM (BASIC1 + FP + BASIC2 + OS), 2.5 KB / 32 KB RAM, VDG 6847 display.".into(),
         clock: ClockDesc::new("m6502-cycle", ClockRate::from_hz(1_000_000)),

@@ -2,7 +2,7 @@
 
 use emu198x_shell::{
     CapabilitySet, ClockDesc, ClockRate, Family, FirmwareRequirement, MachineId, MachineProfile,
-    MediaKind, MediaSlot, ProfileId, Region, SupportTier, WritebackPolicy, known_capability,
+    MediaKind, MediaSlot, ProfileId, Region, WritebackPolicy, known_capability,
 };
 use serde::{Deserialize, Serialize};
 
@@ -70,7 +70,6 @@ pub fn profile_for(model: Model) -> MachineProfile {
             display_name: model.display_name().into(),
             family: Family::Dragon,
             region: Region::Pal,
-            support_tier: SupportTier::Boots,
             release_year: 1982,
             summary: "Dragon 32 PAL bring-up runtime. It boots the real BASIC ROM through the shared MC6809/PIA/SAM/VDG machine substrate, mounts CAS tapes, VDK disks, ROM/DGN cartridges, and PC-Dragon PAK snapshots, emits the current MC6847 text, semigraphics, or graphics framebuffer, produces mono audio from the PIA DAC/mux path, and exposes Dragon analogue joystick hardware.".into(),
             clock: ClockDesc::new("cpu-cycle", ClockRate::from_hz(894_886)),
@@ -133,7 +132,6 @@ pub fn profile_for(model: Model) -> MachineProfile {
             display_name: model.display_name().into(),
             family: Family::Dragon,
             region: Region::Pal,
-            support_tier: SupportTier::Boots,
             release_year: 1983,
             summary: "Dragon 64 PAL runtime. It cold-boots in Dragon 32-compatible mode from the compatible BASIC ROM, switches to the high BASIC ROM for EXEC 48000 64-mode entry, adds the Dragon 64 ACIA decode and SAM-backed 64K RAM paging, and keeps the same cassette, VDK disk, cartridge, snapshot, program, keyboard, joystick, framebuffer, and mono audio surfaces as the Dragon 32 profile.".into(),
             clock: ClockDesc::new("cpu-cycle", ClockRate::from_hz(894_886)),

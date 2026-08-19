@@ -84,7 +84,7 @@ mod tests {
     use crate::runtime::SmsRuntime;
     use emu198x_shell::{
         CapabilitySet, ClockDesc, ClockRate, Family, MachineCore, MachineError, MachineId,
-        MachineProfile, MediaKind, MediaSlot, ProfileId, Region, SupportTier, WritebackPolicy,
+        MachineProfile, MediaKind, MediaSlot, ProfileId, Region, WritebackPolicy,
     };
     use machine_sega_master_system::SmsVariant;
     use zilog_z80::Z80Stepper;
@@ -100,7 +100,6 @@ mod tests {
             display_name: "Master System class test fixture".into(),
             family: Family::Other,
             region: Region::Ntsc,
-            support_tier: SupportTier::Research,
             release_year: 1985,
             summary: "Fixture profile for envelope tests.".into(),
             clock: ClockDesc::new("z80-tstate", ClockRate::from_hz(3_579_545)),

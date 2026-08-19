@@ -2,7 +2,7 @@
 
 use emu198x_shell::{
     CapabilitySet, ClockDesc, ClockRate, Family, FirmwareRequirement, MachineId, MachineProfile,
-    MediaKind, MediaSlot, ProfileId, Region, SupportTier, WritebackPolicy, known_capability,
+    MediaKind, MediaSlot, ProfileId, Region, WritebackPolicy, known_capability,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -58,7 +58,6 @@ pub fn profile_for(model: Model) -> MachineProfile {
         display_name: model.display_name().into(),
         family: Family::Other,
         region: model.region(),
-        support_tier: SupportTier::Boots,
         release_year: 1981,
         summary: "Commodore VIC-20 / VC-20 — 6502 + MOS VIC-I (6560/6561) + 5 KB RAM, KERNAL + BASIC + character ROMs, cassette / cartridge.".into(),
         clock: ClockDesc::new("cpu-cycle", ClockRate::from_hz(1_022_727)),

@@ -2,7 +2,7 @@
 
 use emu198x_shell::{
     CapabilitySet, ClockDesc, ClockRate, Family, FirmwareRequirement, MachineId, MachineProfile,
-    ProfileId, Region, SupportTier, known_capability,
+    ProfileId, Region, known_capability,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -73,7 +73,6 @@ pub fn profile_for(model: Model) -> MachineProfile {
         display_name: model.display_name().into(),
         family: Family::Other,
         region: model.region(),
-        support_tier: SupportTier::Boots,
         release_year: 1982,
         summary: "Jupiter Ace — Z80A + 8 KB Forth ROM, 1 KB character RAM, optional 16/48 KB RAM expansion.".into(),
         clock: ClockDesc::new("z80-tstate", ClockRate::from_hz(3_250_000)),

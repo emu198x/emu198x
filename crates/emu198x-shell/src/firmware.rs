@@ -106,7 +106,7 @@ mod tests {
     use super::*;
     use crate::{
         CapabilitySet, ClockDesc, ClockRate, Family, MachineId, MediaSlot, ProfileId, Region,
-        SupportTier, WritebackPolicy,
+        WritebackPolicy,
     };
     use crate::{FirmwareRequirement, MediaKind};
 
@@ -117,7 +117,6 @@ mod tests {
             display_name: "Test Profile".into(),
             family: Family::Spectrum,
             region: Region::Pal,
-            support_tier: SupportTier::Research,
             release_year: 1982,
             summary: "test".into(),
             clock: ClockDesc::new("master-cycle", ClockRate::from_hz(1)),

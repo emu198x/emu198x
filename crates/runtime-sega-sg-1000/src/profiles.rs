@@ -2,7 +2,7 @@
 
 use emu198x_shell::{
     CapabilitySet, ClockDesc, ClockRate, Family, MachineId, MachineProfile, MediaKind, MediaSlot,
-    ProfileId, Region, SupportTier, WritebackPolicy, known_capability,
+    ProfileId, Region, WritebackPolicy, known_capability,
 };
 
 /// Supported SG-1000 / SC-3000 family models.
@@ -61,7 +61,6 @@ pub fn profile_for(model: Model) -> MachineProfile {
         display_name: model.display_name().into(),
         family: Family::Other,
         region: model.region(),
-        support_tier: SupportTier::Boots,
         release_year: 1983,
         summary: "Sega SG-1000 — Z80A + TMS9918A + SN76489, 1 KB RAM, BIOS-less cartridge boot. Predecessor to the Master System.".into(),
         clock: ClockDesc::new("z80-tstate", ClockRate::from_hz(3_579_545)),

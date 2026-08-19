@@ -7,9 +7,7 @@
 //! everything below builds on that, not around it.
 
 use common_sinclair_zx_spectrum::error::RomImageError;
-use emu198x_shell::{
-    CapabilitySet, FirmwareSet, MachineError, MachineProfile, SupportTier, known_capability,
-};
+use emu198x_shell::{CapabilitySet, FirmwareSet, MachineError, MachineProfile, known_capability};
 use machine_sinclair_zx_spectrum_48k::{Spectrum48k, UlaRevision};
 
 use crate::runtime::SpectrumRuntime;
@@ -68,11 +66,10 @@ impl SpectrumRuntime<Spectrum48k> {
     }
 }
 
-/// 48K-only profile that bumps `support_tier` to `Boots` and advertises
-/// the snapshot-export capability the bespoke runtime used to declare.
+/// 48K-only profile that advertises the snapshot-export capability the
+/// bespoke runtime used to declare.
 fn boots_profile_with_export() -> MachineProfile {
     let mut profile = profile_for(Model::Spectrum48KPal);
-    profile.support_tier = SupportTier::Boots;
     profile.capabilities = CapabilitySet::with_all([
         known_capability("beeper-audio"),
         known_capability("keyboard-matrix"),
@@ -148,13 +145,12 @@ mod tests {
     }
 
     #[test]
-    fn boots_profile_with_export_promotes_support_tier_and_capabilities() {
+    fn boots_profile_with_export_advertises_snapshot_export() {
         use emu198x_shell::MachineCore;
         let runtime = Spectrum48kRuntime::blank();
         let caps = runtime.profile().capabilities.clone();
-        // The bespoke 48K profile bumps the support tier and advertises
-        // snapshot-export beyond the base profile_for(...) bundle.
-        assert_eq!(runtime.profile().support_tier, SupportTier::Boots);
+        // The bespoke 48K profile advertises snapshot-export beyond the
+        // base profile_for(...) bundle.
         assert!(caps.contains(&known_capability("snapshot-export")));
     }
 }
