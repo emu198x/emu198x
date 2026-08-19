@@ -14,7 +14,13 @@ use common_sinclair_zx_spectrum::memory::MemoryBus;
 use machine_sinclair_zx_spectrum_plus2a::SpectrumPlus2A;
 use std::path::PathBuf;
 
+// `EMU198X_ROMS_ROOT` overrides the firmware root so CI can provision one
+// staging directory and every machine's test find its own ROMs inside it.
+// `$HOME/.emu198x/roms` remains the developer default.
 fn rom_dir() -> Option<PathBuf> {
+    if let Some(root) = std::env::var_os("EMU198X_ROMS_ROOT") {
+        return Some(PathBuf::from(root).join("amstrad-zx-spectrum-plus3"));
+    }
     std::env::var_os("HOME")
         .map(|h| PathBuf::from(h).join(".emu198x/roms/amstrad-zx-spectrum-plus3"))
 }

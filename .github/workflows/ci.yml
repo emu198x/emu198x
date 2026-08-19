@@ -140,7 +140,7 @@ jobs:
         with:
           shared-key: test-linux
 
-      - name: Provision the 48K ROM from the store
+      - name: Provision the Spectrum ROMs from the store
         if: steps.store.outputs.configured == 'true'
         env:
           GH_TOKEN: ${{ secrets.ACCURACY_CORPORA_TOKEN }}
@@ -149,10 +149,17 @@ jobs:
           mkdir -p corpora
           cd corpora
           gh release download "${CORPORA_TAG}" -R "${CORPORA_REPO}" \
-            -p 'z80test.tar.zst' -p 'SHA256SUMS'
+            -p 'z80test.tar.zst' -p 'spectrum-roms.tar.zst' -p 'SHA256SUMS'
           grep ' z80test.tar.zst$' SHA256SUMS | sha256sum -c -
+          grep ' spectrum-roms.tar.zst$' SHA256SUMS | sha256sum -c -
           tar --zstd -xf 'z80test.tar.zst'
+          mkdir -p roms
+          tar --zstd -xf 'spectrum-roms.tar.zst' -C roms
+          # The 48K ROM travels inside the z80test tarball; the rest of the
+          # line has its own. `EMU198X_ROMS_ROOT` is the firmware root each
+          # machine's test joins its own directory onto.
           echo "EMU198X_SPECTRUM_48K_ROM=$(pwd)/z80test/48.rom" >> "$GITHUB_ENV"
+          echo "EMU198X_ROMS_ROOT=$(pwd)/roms" >> "$GITHUB_ENV"
 
       - name: Run the Spectrum tests the ROM unlocks
         if: steps.store.outputs.configured == 'true'
@@ -183,6 +190,13 @@ jobs:
             spectrum_boot_wait_and_prompt -- --ignored
           cargo test -p runtime-sinclair-zx-spectrum --test runtime_48k \
             spectrum_query_provider_detects -- --ignored
+          # The rest of the Sinclair/Amstrad line. Each boots its own real
+          # firmware, which Amstrad permits to be distributed — so unlike
+          # most machines here these need no synthetic stand-in.
+          for machine in 128k plus2 plus2a plus2b plus3; do
+            cargo test -p "machine-sinclair-zx-spectrum-${machine}" \
+              --test boot_test -- --ignored
+          done
 
   fmt:
     name: Format
