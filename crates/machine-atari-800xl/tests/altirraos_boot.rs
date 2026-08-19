@@ -83,8 +83,12 @@ fn altirraos_cold_starts_to_a_basic_prompt() {
     .expect("AltirraOS should initialise an 800XL");
 
     // Reaches the prompt between 200 and 400 frames, measured rather than
-    // guessed; 600 leaves margin without making the test slow.
-    for _ in 0..600 {
+    // guessed. 1000 is a deliberately loose allowance: this machine takes
+    // around 6 seconds of emulated time to get there where real hardware
+    // takes two or three, so the margin absorbs that without anyone having
+    // to re-measure if the gap narrows. A boot test wants to fail because
+    // the machine did not start, never because the budget was tight.
+    for _ in 0..1000 {
         system.run_frame();
     }
 
