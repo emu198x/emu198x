@@ -30,6 +30,28 @@ fn probe() {
     }
     let mut v: Vec<_> = h.into_iter().collect();
     v.sort_by_key(|&(_, n)| std::cmp::Reverse(n));
+    let tr = m.trace();
+    println!("--- last frame trace ({} entries) ---", tr.len());
+    let mut addrs: HashMap<u16, usize> = HashMap::new();
+    for &(k, _, a) in tr {
+        if k == 'F' {
+            *addrs.entry(a).or_default() += 1;
+        }
+    }
+    let mut av: Vec<_> = addrs.into_iter().collect();
+    av.sort_by_key(|&(_, n)| std::cmp::Reverse(n));
+    println!("distinct display-fetch addrs: {}", av.len());
+    for (a, n) in av.iter().take(6) {
+        println!("   {a:#06X} x{n}");
+    }
+    let seg: Vec<String> = tr
+        .iter()
+        .filter(|&&(_, l, _)| (228..=238).contains(&l))
+        .map(|&(k, l, a)| format!("{k}[{l} @ {a:#06X}]"))
+        .collect();
+    println!("lines 228-238: {}", seg.join(" "));
+    let last = tr.last().copied();
+    println!("last trace entry: {last:?}");
     let (ov, vst, vsp, pc2, fo) = m.video_counts();
     println!("overflow={ov} vsync_start={vst} vsync_stop={vsp} paint_calls={pc2} forced={fo}");
     let (f, r, pc, px) = m.video_debug();

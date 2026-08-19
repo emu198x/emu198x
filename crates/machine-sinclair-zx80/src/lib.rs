@@ -47,6 +47,7 @@ pub struct Zx80 {
     prev_rfsh: bool,
     prev_halt: bool,
     dbg_m1: u64,
+    dbg_trace: Vec<(char, u32, u16)>,
     dbg_m1_high: u64,
     dbg_high_byte: u8,
     dbg_chars: u64,
@@ -79,6 +80,7 @@ impl Zx80 {
             prev_rfsh: false,
             prev_halt: false,
             dbg_m1: 0,
+            dbg_trace: Vec::new(),
             dbg_m1_high: 0,
             dbg_high_byte: 0,
             dbg_chars: 0,
@@ -96,6 +98,7 @@ impl Zx80 {
         // picture — that blanking is the ZX80's defining behaviour, not a
         // dropped frame.
         self.video.clear();
+        self.dbg_trace.clear();
         loop {
             self.tick_tstate();
             if self.video.take_frame_complete() {
@@ -135,6 +138,10 @@ impl Zx80 {
             // position is counted from these, not from a clock.
             let halt = self.cpu.halt;
             if halt && !self.prev_halt {
+                if self.dbg_trace.len() < 4000 {
+                    let dl = self.video.display_line();
+                    self.dbg_trace.push(('H', dl, self.cpu.regs.pc));
+                }
                 self.video.line_sync();
             }
             self.prev_halt = halt;
@@ -173,6 +180,18 @@ impl Zx80 {
                     self.dbg_m1 += 1;
                     if self.cpu.addr >= 0x8000 {
                         self.dbg_m1_high += 1;
+                        // First display fetch of each line only, so the
+                        // trace shows where the picture starts, not every
+                        // character.
+                        let dl = self.video.display_line();
+                        if self.dbg_trace.len() < 4000
+                            && !self
+                                .dbg_trace
+                                .last()
+                                .is_some_and(|&(k, l, _)| k == 'F' && l == dl)
+                        {
+                            self.dbg_trace.push(('F', dl, self.cpu.addr));
+                        }
                         if byte & 0x40 == 0 {
                             self.dbg_chars += 1;
                         }
@@ -252,6 +271,10 @@ impl Zx80 {
     }
 
     #[must_use]
+    pub fn trace(&self) -> &[(char, u32, u16)] {
+        &self.dbg_trace
+    }
+
     pub fn video_counts(&self) -> (u32, u32, u32, u32, u32) {
         (
             self.video.dbg_overflow,
