@@ -47,6 +47,32 @@ one register that floods the display, then spin.
 | Acorn Atom | 6502 | none — semigraphics-4 cells filled into video RAM at `$8000` | display area one colour |
 | Mattel Aquarius | Z80 | none — spaces at `$3000`, one colour attribute at `$3400` | **entire frame** uniform |
 | Jupiter Ace | Z80 | none — glyph 0 redefined in character **RAM** at `$2C00` | display area solid ink |
+| Amstrad CPC | Z80 | 6845 built from scratch, then Gate Array pen 0 + border | **entire frame** uniform |
+| BBC Micro | 6502 | 6845 built from scratch, then all 16 logical colours mapped to one physical | **entire frame** uniform |
+
+### The two that must build a display first
+
+Every other machine here has *something* on screen at power-on, so one
+register write or one screen fill is enough. The CPC and BBC have a 6845
+whose registers are all zero at reset — there is no raster at all until the
+firmware makes one.
+
+Their programs are an order of magnitude longer than the rest, around 170
+bytes against a dozen, and almost all of it is CRTC setup. That makes them
+the strongest of the synthetic proofs: a pass means dozens of instructions
+executed in the right order, the CRTC took every register write, the Gate
+Array or Video ULA took its own, and a frame came out. Their controls
+render black for a stronger reason than the others — not "nothing was
+coloured" but "no display exists".
+
+The register values are an ordinary text-mode screen for each. They are not
+tuned, because the claim is that the machine runs and paints, not that it
+paints correctly.
+
+The BBC never fills the screen: all sixteen logical colours are mapped to
+one physical colour, so whatever uninitialised RAM holds, the frame comes
+out uniform. That keeps the test about the video path rather than about what
+RAM happened to contain.
 
 Only the 5200 comes out fully uniform. ANTIC's DMA is off at power-on, so
 with no display list fetched there is nothing but background. The VIC-20's

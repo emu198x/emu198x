@@ -260,11 +260,24 @@ never-ran comparison is asserting a constant.
 | Evidence | Systems |
 | --- | --- |
 | Executes from cartridge and renders | 7 |
-| Executes from ROM socket and renders | 13 |
+| Executes from ROM socket and renders | 15 |
 | Real firmware cold-starts | 3 |
 
-7 + 13 + 3 = 23, with the Aquarius and Jupiter Ace added to the Atom and
-Oric.
+7 + 15 + 3 = 25, with the Amstrad CPC and BBC Micro joining the Aquarius,
+Jupiter Ace, Atom and Oric.
+
+**Those last two are the strongest synthetic proofs, and they show the
+weakness of the rest.** Every other machine here has something on screen at
+power-on, so one register write suffices. The CPC and BBC have a 6845 that
+is entirely unprogrammed at reset: no raster exists until the firmware
+builds one. Their programs run to ~170 bytes against a dozen elsewhere, and
+a pass means dozens of instructions executed in order and two chips took
+their programming.
+
+So "executes from ROM socket and renders" covers a real range, from writing
+one port to constructing a display from nothing. The row does not
+distinguish them, and it would be honest to say so wherever it is
+published.
 
 Neither has a background register to write. The Oric keeps colour in the
 text stream as attribute bytes; the Atom's 6847 takes its mode from pins.
