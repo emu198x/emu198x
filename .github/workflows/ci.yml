@@ -14,6 +14,25 @@ jobs:
   # Format and lint run as separate jobs so the workflow summary
   # surfaces them independently. Both are fast (no test compile);
   # heavier downstream jobs gate on both passing.
+  # Cheap, buildless, and pure Python — it sits before everything that needs
+  # a toolchain so a reintroduced silent guard is reported in seconds.
+  hygiene:
+    name: Test hygiene
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      # libtest reports an early return as `ok`, so a guard that prints a
+      # missing fixture and returns claims a pass for a test that did not
+      # run. #1011 swept 54 of those across 39 files; this stops the next
+      # copied guard restoring the class.
+      #
+      # `--self-test` runs the detector against known-good and known-bad
+      # samples first. This repository runs no CI job over the scripts' own
+      # tests, so a checker that had stopped detecting would pass silently —
+      # which is the very failure it is here to prevent.
+      - name: Check no fixture guard passes in silence
+        run: python3 scripts/check-fixture-guards.py --self-test
+
   registry:
     name: System registry
     runs-on: ubuntu-latest
