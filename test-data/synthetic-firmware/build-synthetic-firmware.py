@@ -85,6 +85,131 @@ def build(size: int, control_port: int) -> bytes:
     return bytes(rom)
 
 
+# ---------------------------------------------------------------------------
+# Machines with no shared video chip
+# ---------------------------------------------------------------------------
+#
+# The six above share a TMS9918, so one program serves them all. These do
+# not share anything: each drives its own display hardware and needs its
+# own few instructions, on its own CPU. What they have in common is only
+# the shape of the proof — write the one register that floods the display
+# with a colour the power-on state cannot produce, then spin.
+#
+# Each is paired below with a control image that spins immediately without
+# touching any hardware. The control is what "the firmware never ran" looks
+# like, and every one of them renders black. That is the comparison the
+# expected colour is chosen against; it is not guesswork about what a hung
+# machine would show.
+
+
+def vic20_kernal() -> bytes:
+    """VIC-20 KERNAL socket ($E000-$FFFF).
+
+    `$900F` carries screen colour, video polarity and border colour in one
+    byte, so a single store floods both. `$2A` is screen 2 / normal video /
+    border 2 — red on both.
+
+    The BASIC and character ROMs are supplied zero-filled. A blank character
+    generator matters: every glyph the VIC fetches is then all-background,
+    so the text area cannot speckle the frame with whatever uninitialised
+    screen RAM happens to hold.
+    """
+    rom = bytearray(b"\xFF" * 0x2000)
+    rom[:9] = bytes([
+        0x78,                     # sei
+        0xA9, 0x2A,               # lda #$2A
+        0x8D, 0x0F, 0x90,         # sta $900F
+        0x4C, 0x06, 0xE0,         # jmp $E006
+    ])
+    rom[0x1FFC:0x1FFE] = bytes([0x00, 0xE0])   # reset vector -> $E000
+    return bytes(rom)
+
+
+def atari5200_bios() -> bytes:
+    """Atari 5200 BIOS socket ($F800-$FFFF).
+
+    ANTIC's DMA is off at power-on, so with no display list fetched the
+    whole raster shows GTIA's background register, `COLBK` at `$C01A`. That
+    makes this the only one of the three whose frame comes out entirely
+    uniform.
+    """
+    rom = bytearray(b"\xFF" * 0x800)
+    rom[:9] = bytes([
+        0x78,                     # sei
+        0xA9, 0x44,               # lda #$44
+        0x8D, 0x1A, 0xC0,         # sta $C01A   COLBK
+        0x4C, 0x06, 0xF8,         # jmp $F806
+    ])
+    rom[0x7FC:0x7FE] = bytes([0x00, 0xF8])     # reset vector -> $F800
+    return bytes(rom)
+
+
+def amiga_kickstart() -> bytes:
+    """Amiga Kickstart socket, 512 KiB at $F80000.
+
+    The 68000 takes its initial stack pointer from the first longword and
+    its entry point from the second; at reset OVL maps the ROM at $0 so
+    both are read from here. The first longword is the 512 KiB Kickstart
+    identifier a real ROM carries, which is why it is not a plausible stack
+    pointer -- the firmware sets its own stack before that matters.
+
+    With DMA off there are no bitplanes, so the display is `COLOR00` at
+    `$DFF180` from edge to edge.
+    """
+    rom = bytearray(b"\xFF" * 0x8_0000)
+    rom[0:4] = bytes([0x11, 0x14, 0x4E, 0xF9])      # 512 KiB Kickstart id
+    rom[4:8] = bytes([0x00, 0xF8, 0x00, 0x08])      # entry -> $F80008
+    rom[8:18] = bytes([
+        0x33, 0xFC, 0x0F, 0x00, 0x00, 0xDF, 0xF1, 0x80,   # move.w #$0F00,$DFF180
+        0x60, 0xFE,                                        # bra.s *
+    ])
+    return bytes(rom)
+
+
+def vic20_kernal_control() -> bytes:
+    """The same socket, spinning immediately. Renders black."""
+    rom = bytearray(b"\xFF" * 0x2000)
+    rom[:4] = bytes([0x78, 0x4C, 0x01, 0xE0])   # sei; jmp $E001
+    rom[0x1FFC:0x1FFE] = bytes([0x00, 0xE0])
+    return bytes(rom)
+
+
+def atari5200_bios_control() -> bytes:
+    rom = bytearray(b"\xFF" * 0x800)
+    rom[:4] = bytes([0x78, 0x4C, 0x01, 0xF8])   # sei; jmp $F801
+    rom[0x7FC:0x7FE] = bytes([0x00, 0xF8])
+    return bytes(rom)
+
+
+def amiga_kickstart_control() -> bytes:
+    rom = bytearray(b"\xFF" * 0x8_0000)
+    rom[0:4] = bytes([0x11, 0x14, 0x4E, 0xF9])
+    rom[4:8] = bytes([0x00, 0xF8, 0x00, 0x08])
+    rom[8:10] = bytes([0x60, 0xFE])             # bra.s *
+    return bytes(rom)
+
+
+def zero_rom(size: int) -> bytes:
+    return b"\x00" * size
+
+
+# name -> builder. Written flat so adding a machine is one line plus one
+# function, and so the file list is greppable.
+SINGLE_MACHINE = {
+    "commodore-vic-20-kernal.rom": vic20_kernal,
+    "commodore-vic-20-basic.rom": lambda: zero_rom(0x2000),
+    "commodore-vic-20-chargen.rom": lambda: zero_rom(0x1000),
+    "atari-5200-bios.rom": atari5200_bios,
+    "commodore-amiga-kickstart.rom": amiga_kickstart,
+    # Controls: identical sockets, no hardware touched. Each renders black,
+    # which is what makes the expected colour above evidence rather than a
+    # value someone liked the look of.
+    "commodore-vic-20-kernal-control.rom": vic20_kernal_control,
+    "atari-5200-bios-control.rom": atari5200_bios_control,
+    "commodore-amiga-kickstart-control.rom": amiga_kickstart_control,
+}
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--out-dir", type=Path, default=Path(__file__).parent)
@@ -93,6 +218,11 @@ def main() -> int:
         path = args.out_dir / name
         path.write_bytes(build(size, port))
         print(f"wrote {path} ({size} bytes, VDP control port ${port:02X})")
+    for name, builder in sorted(SINGLE_MACHINE.items()):
+        path = args.out_dir / name
+        image = builder()
+        path.write_bytes(image)
+        print(f"wrote {path} ({len(image)} bytes)")
     return 0
 
 
