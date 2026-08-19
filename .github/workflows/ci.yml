@@ -173,7 +173,7 @@ jobs:
           echo "EMU198X_SPECTRUM_48K_ROM=$(pwd)/z80test/48.rom" >> "$GITHUB_ENV"
           echo "EMU198X_ROMS_ROOT=$(pwd)/roms" >> "$GITHUB_ENV"
 
-      - name: Run the Spectrum tests the ROM unlocks
+      - name: Run the tests the provisioned firmware unlocks
         if: steps.store.outputs.configured == 'true'
         run: |
           cargo test -p machine-sinclair-zx-spectrum-48k --test boot_test -- --ignored
