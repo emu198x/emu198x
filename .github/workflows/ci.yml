@@ -159,14 +159,15 @@ jobs:
           cd corpora
           gh release download "${CORPORA_TAG}" -R "${CORPORA_REPO}" \
             -p 'z80test.tar.zst' -p 'spectrum-roms.tar.zst' -p 'cbios.tar.zst' \
-            -p 'SHA256SUMS'
-          for tarball in z80test spectrum-roms cbios; do
+            -p 'openroms-c64.tar.zst' -p 'SHA256SUMS'
+          for tarball in z80test spectrum-roms cbios openroms-c64; do
             grep " ${tarball}.tar.zst\$" SHA256SUMS | sha256sum -c -
           done
           tar --zstd -xf 'z80test.tar.zst'
           mkdir -p roms
           tar --zstd -xf 'spectrum-roms.tar.zst' -C roms
           tar --zstd -xf 'cbios.tar.zst' -C roms
+          tar --zstd -xf 'openroms-c64.tar.zst' -C roms
           # The 48K ROM travels inside the z80test tarball; the rest of the
           # line has its own. `EMU198X_ROMS_ROOT` is the firmware root each
           # machine's test joins its own directory onto.
@@ -213,6 +214,10 @@ jobs:
           # Microsoft's. Real firmware cold-starting, which is a stronger
           # claim than the synthetic image its sibling test uses.
           cargo test -p machine-msx --test cbios_boot -- --ignored
+          # The C64 boots Open ROMs: a clean-room GPL BASIC and KERNAL,
+          # not Commodore's. Same standing as C-BIOS — the machine's own
+          # ROMs cannot be distributed, and this one needs no permission.
+          cargo test -p runtime-commodore-c64 --test openroms_boot -- --ignored
 
   fmt:
     name: Format

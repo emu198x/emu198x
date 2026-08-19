@@ -25,6 +25,7 @@ locally; the workflow uses the same env-var contract.
 | ZEXDOC + ZEXALL | `zilog-z80` · `zex_tests` | `EMU198X_ZEX_DIR` | Frank Cringle Z80 exerciser (`*.com`) | freeware | no |
 | Spectrum system tests | `machine-sinclair-zx-spectrum-48k` · `float_bus`, `tape_smoke`; `machine-sinclair-zx-spectrum-128k` · `float_bus` | `EMU198X_SPECTRUM_SYSTEM_TESTS_DIR` (tapes) — the Spectron screens are **checked in**, see below | tapes are third-party programs Spectron bundles — RAMSOFT floatspy v0.33 and Woody's Float48k/Float128k | tapes are long-circulated freeware, not covered by Spectron's licence, redistributed in the **private** store only | 48K Spectrum ROM — reuses the one in the `z80test` tarball |
 | C-BIOS (MSX) | `machine-msx` · `cbios_boot` | `EMU198X_ROMS_ROOT` (joins `microsoft-msx/`) | github.com/cbios/cbios, built with Pasmo | BSD — redistribution in binary form permitted, notice ships beside the ROMs | is firmware — a clean-room MSX BIOS, not Microsoft's |
+| Open ROMs (C64) | `runtime-commodore-c64` · `openroms_boot` | `EMU198X_ROMS_ROOT` (joins `commodore-c64/`) | github.com/MEGA65/open-roms, prebuilt `bin/` images | GPL-3.0 / LGPL-3.0 — redistribution permitted, licence texts and a source pointer ship beside the ROMs | is firmware — a clean-room C64 BASIC and KERNAL, not Commodore's |
 | Spectrum ROMs (128K, +2, +3) | `machine-sinclair-zx-spectrum-128k` · `boot_test`; `-plus2`, `-plus2a`, `-plus2b`, `-plus3` · `boot_test` | `EMU198X_ROMS_ROOT` (firmware root; each machine joins its own directory onto it) | the machines' own firmware | free to distribute (Amstrad), the same permission the 48K ROM ships under | is firmware — these are the ROMs |
 | z80test | `machine-sinclair-zx-spectrum-48k` · `z80test` | `EMU198X_Z80TEST_DIR` (+ `EMU198X_SPECTRUM_48K_ROM`) | raxoft/z80test (`*.tap`) | MIT | 48K Spectrum ROM — free (Amstrad), shipped in the tarball |
 
@@ -84,9 +85,49 @@ binaries, so it does.
 
 It is **not** Microsoft's BIOS, and a title leaning on undocumented BIOS
 internals may behave differently. For "does this machine start", that does
-not matter — and this is the only machine outside the Spectrum
-whose boot evidence is a real firmware cold start rather than a synthetic
-stand-in.
+not matter — and it is one of two machines outside the Spectrum whose boot
+evidence is a real firmware cold start rather than a synthetic stand-in. The
+other is the C64, below.
+
+## The C64 boots Open ROMs
+
+The same move as C-BIOS, on the machine where the licence problem is
+sharpest: Commodore's BASIC, KERNAL and character ROMs cannot be
+distributed, and every C64 waypoint this project has depends on them.
+[Open ROMs](https://github.com/MEGA65/open-roms) is a clean-room BASIC and
+KERNAL written against the documented `$FF81` jump table and the published
+VIC-II/CIA registers, released under the GPL so emulators can ship legal
+firmware.
+
+`openroms-c64.tar.zst` carries the three images the C64 profile requires —
+8 KiB BASIC, 8 KiB KERNAL, 4 KiB character generator — with the GPL and
+LGPL texts and a provenance note.
+
+These are the prebuilt images committed upstream in `bin/`, copied rather
+than rebuilt, and the note records the commit that last produced *each*
+one rather than the repository's HEAD:
+
+| Image | Commit | Date |
+| --- | --- | --- |
+| `basic_generic.rom` | `5192c683a098` | 2021-08-23 |
+| `kernal_generic.rom` | `5192c683a098` | 2021-08-23 |
+| `chargen_openroms.rom` | `b96618115794` | 2020-03-06 |
+
+The pairing was checked rather than assumed: the banner these print on boot
+reads `RELEASE DEV.210823.FC.1`, which matches the BASIC/KERNAL commit date.
+HEAD was recorded first and was wrong — the binaries in `bin/` are years
+older than the branch they sit on.
+
+The GPL wants source to accompany a binary or a written offer for it. The
+source is the upstream repository at those commits, and the note says so
+and says what to do if that ever stops being reachable.
+
+It is **not** Commodore's KERNAL. Open ROMs says plainly that it is
+incomplete, and software reaching past the documented interface may behave
+differently — so this establishes that the machine starts, and nothing
+about compatibility. What it renders is the full banner, the sized-RAM
+count and the `READY.` prompt, and the test asserts all three: a machine
+that hung shows none of them.
 
 ## The one exception: Spectron's reference screens
 
