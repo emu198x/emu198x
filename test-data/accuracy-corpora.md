@@ -25,6 +25,7 @@ locally; the workflow uses the same env-var contract.
 | ZEXDOC + ZEXALL | `zilog-z80` · `zex_tests` | `EMU198X_ZEX_DIR` | Frank Cringle Z80 exerciser (`*.com`) | freeware | no |
 | Spectrum system tests | `machine-sinclair-zx-spectrum-48k` · `float_bus`, `tape_smoke`; `machine-sinclair-zx-spectrum-128k` · `float_bus` | `EMU198X_SPECTRUM_SYSTEM_TESTS_DIR` (tapes) — the Spectron screens are **checked in**, see below | tapes are third-party programs Spectron bundles — RAMSOFT floatspy v0.33 and Woody's Float48k/Float128k | tapes are long-circulated freeware, not covered by Spectron's licence, redistributed in the **private** store only | 48K Spectrum ROM — reuses the one in the `z80test` tarball |
 | C-BIOS (MSX) | `machine-msx` · `cbios_boot` | `EMU198X_ROMS_ROOT` (joins `microsoft-msx/`) | github.com/cbios/cbios, built with Pasmo | BSD — redistribution in binary form permitted, notice ships beside the ROMs | is firmware — a clean-room MSX BIOS, not Microsoft's |
+| AltirraOS (800XL) | `machine-atari-800xl` · `altirraos_boot` | `EMU198X_ROMS_ROOT` (joins `atari-800xl/`) | Avery Lee's XL/XE OS + Altirra BASIC, via atari800's vendored copy | all-permissive notice of its own — **not** the emulator's GPLv2; notice ships beside the ROMs | is firmware — a reimplemented Atari OS, not Atari's |
 | Open ROMs (C64) | `runtime-commodore-c64` · `openroms_boot` | `EMU198X_ROMS_ROOT` (joins `commodore-c64/`) | github.com/MEGA65/open-roms, prebuilt `bin/` images | GPL-3.0 / LGPL-3.0 — redistribution permitted, licence texts and a source pointer ship beside the ROMs | is firmware — a clean-room C64 BASIC and KERNAL, not Commodore's |
 | Spectrum ROMs (128K, +2, +3) | `machine-sinclair-zx-spectrum-128k` · `boot_test`; `-plus2`, `-plus2a`, `-plus2b`, `-plus3` · `boot_test` | `EMU198X_ROMS_ROOT` (firmware root; each machine joins its own directory onto it) | the machines' own firmware | free to distribute (Amstrad), the same permission the 48K ROM ships under | is firmware — these are the ROMs |
 | z80test | `machine-sinclair-zx-spectrum-48k` · `z80test` | `EMU198X_Z80TEST_DIR` (+ `EMU198X_SPECTRUM_48K_ROM`) | raxoft/z80test (`*.tap`) | MIT | 48K Spectrum ROM — free (Amstrad), shipped in the tarball |
@@ -85,9 +86,9 @@ binaries, so it does.
 
 It is **not** Microsoft's BIOS, and a title leaning on undocumented BIOS
 internals may behave differently. For "does this machine start", that does
-not matter — and it is one of two machines outside the Spectrum whose boot
+not matter — and it is one of three machines outside the Spectrum whose boot
 evidence is a real firmware cold start rather than a synthetic stand-in. The
-other is the C64, below.
+others are the C64 and the 800XL, below.
 
 ## The C64 boots Open ROMs
 
@@ -128,6 +129,57 @@ differently — so this establishes that the machine starts, and nothing
 about compatibility. What it renders is the full banner, the sized-RAM
 count and the `READY.` prompt, and the test asserts all three: a machine
 that hung shows none of them.
+
+## The 800XL boots AltirraOS
+
+[AltirraOS](https://www.virtualdub.org/altirra.html) is Avery Lee's
+reimplementation of the XL/XE operating system, written so his emulator
+needs no Atari ROM. Altirra BASIC stands in for Atari BASIC beside it.
+
+**The licence is not the one the project page states.** Altirra the emulator
+is GPLv2, and three separate places — the project page, the repository root
+and the kernel directory — say only that. The kernel ROM carries its own
+notice, in `src/Kernel/source/main.xasm`:
+
+> Copying and distribution of this file, with or without modification, are
+> permitted in any medium without royalty provided the copyright notice and
+> this notice are preserved. This file is offered as-is, without any
+> warranty.
+
+That is all-permissive, and considerably easier than the GPL's
+source-availability condition. It was found by reading the source file
+headers after concluding the opposite from the project page — the lesson
+being that a project's stated licence need not govern every artefact it
+produces.
+
+`altirraos-800xl.tar.zst` carries `altirraos_xl.rom` (16 KiB) and
+`altirra_basic.rom` (8 KiB), the notice, and a provenance note.
+
+**The chain is second-hand and the note says so.** AltirraOS ships embedded
+inside `Altirra.exe`; no ROM image exists as a file in either the binary or
+the source archive, and building it needs `atcompiler.exe`, a Windows-only
+assembler built as part of Altirra. So it cannot be rebuilt here the way
+C-BIOS was. The bytes come instead from the atari800 emulator, which has
+vendored both ROMs as C arrays for years — parsed to bytes, lengths checked
+against what the 800XL profile requires, nothing else changed. If a
+first-hand route appears, prefer it.
+
+atari800's header comments say kernel 3.11 and BASIC 1.58; the BASIC ROM's
+own banner prints `Altirra 8K BASIC 1.59`, so the comment is stale against
+the array beside it. The banner is what the machine reports and is the
+version to quote.
+
+The test asserts the banner and the `Ready` prompt by decoding the text
+window, not by counting pixels. Pixel counting was tried first and was
+actively misleading: at 300 frames both AltirraOS and Atari's own ROM
+produce an identical histogram — a blue field and 64 pixels of cursor — which
+reads as a hung machine, and is really a prompt that has not been reached
+yet. It arrives between 200 and 400 frames; the test runs 600.
+
+Decoding needs the Atari's *internal* character codes rather than ATASCII —
+`$00-$3F` are ATASCII `$20-$5F`. Applying a C64-style screen-code mapping
+renders a perfectly good boot screen as line noise, which is how the first
+reading of it was misdiagnosed.
 
 ## The one exception: Spectron's reference screens
 

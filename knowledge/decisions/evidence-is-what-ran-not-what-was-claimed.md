@@ -200,13 +200,21 @@ A stronger claim about a machine already counted does not move the count. It
 changes which row of the table that machine sits in, which is the more
 useful thing to report anyway.
 
-## Amendment 2026-08-19 (third) — fifteen, and the C64 arrives on real firmware
+## Amendment 2026-08-19 (third) — sixteen, and free reimplementations arrive
 
-Open ROMs takes the count to **15 of 30**. The C64 had no boot evidence at
+Open ROMs and AltirraOS take the count to **16 of 30**. The C64 had no boot evidence at
 all before it: Commodore's BASIC, KERNAL and character ROMs cannot be
 distributed, so every C64 waypoint here ran only on a machine that already
 had them, and public infrastructure knew nothing about whether the machine
 started.
+
+The 800XL follows on AltirraOS, and carries a lesson of its own: **a
+project's stated licence need not govern every artefact it produces.**
+Altirra the emulator is GPLv2, and the project page, the repository root
+and the kernel directory all say so and nothing else — enough to conclude,
+wrongly, that the ROM was GPL and needed source shipped beside it. The
+kernel source *file headers* carry an all-permissive notice instead. Read
+the artefact's own licence, not the project's.
 
 It arrives in the strongest row rather than the weakest, which is worth
 naming. The route that unblocked the TMS9918 six was to stop needing
@@ -219,9 +227,9 @@ somebody else has already built, not about the machine.
 | --- | --- |
 | Executes from cartridge and renders | 7 |
 | Executes from ROM socket and renders | 6 |
-| Real firmware cold-starts | 2 — the Spectrum line, and the C64 via Open ROMs |
+| Real firmware cold-starts | 3 — the Spectrum line, the C64 via Open ROMs, and the 800XL via AltirraOS |
 
-7 + 6 + 2 = 15. The MSX cold-starts C-BIOS too, but it is counted in the
+7 + 6 + 3 = 16. The MSX cold-starts C-BIOS too, but it is counted in the
 middle row and must not be added twice: a machine sits in one row, and
 gaining stronger evidence moves it rather than duplicating it. Both its
 tests stay and both keep running — the synthetic one needs no fixture and

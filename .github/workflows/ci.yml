@@ -159,8 +159,9 @@ jobs:
           cd corpora
           gh release download "${CORPORA_TAG}" -R "${CORPORA_REPO}" \
             -p 'z80test.tar.zst' -p 'spectrum-roms.tar.zst' -p 'cbios.tar.zst' \
-            -p 'openroms-c64.tar.zst' -p 'SHA256SUMS'
-          for tarball in z80test spectrum-roms cbios openroms-c64; do
+            -p 'openroms-c64.tar.zst' -p 'altirraos-800xl.tar.zst' \
+            -p 'SHA256SUMS'
+          for tarball in z80test spectrum-roms cbios openroms-c64 altirraos-800xl; do
             grep " ${tarball}.tar.zst\$" SHA256SUMS | sha256sum -c -
           done
           tar --zstd -xf 'z80test.tar.zst'
@@ -168,6 +169,7 @@ jobs:
           tar --zstd -xf 'spectrum-roms.tar.zst' -C roms
           tar --zstd -xf 'cbios.tar.zst' -C roms
           tar --zstd -xf 'openroms-c64.tar.zst' -C roms
+          tar --zstd -xf 'altirraos-800xl.tar.zst' -C roms
           # The 48K ROM travels inside the z80test tarball; the rest of the
           # line has its own. `EMU198X_ROMS_ROOT` is the firmware root each
           # machine's test joins its own directory onto.
@@ -218,6 +220,10 @@ jobs:
           # not Commodore's. Same standing as C-BIOS — the machine's own
           # ROMs cannot be distributed, and this one needs no permission.
           cargo test -p runtime-commodore-c64 --test openroms_boot -- --ignored
+          # The 800XL boots AltirraOS: Avery Lee's XL/XE OS reimplementation,
+          # under an all-permissive notice of its own rather than the GPLv2
+          # that covers the emulator around it.
+          cargo test -p machine-atari-800xl --test altirraos_boot -- --ignored
 
   fmt:
     name: Format

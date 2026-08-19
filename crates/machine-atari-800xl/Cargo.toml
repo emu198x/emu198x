@@ -16,6 +16,7 @@ mos-pia-6520 = { path = "../mos-pia-6520", version = "0.4.0" }
 serde = { workspace = true }
 
 [dev-dependencies]
+emu198x-test-skip = { path = "../emu198x-test-skip", version = "0.4.0" }
 postcard = { workspace = true }
 
 [lints]
