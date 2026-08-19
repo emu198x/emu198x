@@ -1041,7 +1041,7 @@ fn gary_group_exposes_every_persisted_configuration_flag() {
         .expect("Gary query should return an object")
         .clone();
 
-    assert_eq!(fields.len(), 6);
+    assert_eq!(fields.len(), 7);
     for field in [
         "slow_ram_present",
         "gayle_present",
@@ -1049,11 +1049,16 @@ fn gary_group_exposes_every_persisted_configuration_flag() {
         "dmac_present",
         "resource_regs_present",
         "rtc_present",
+        "ext_rom_window",
     ] {
         assert!(fields.contains_key(field), "gary.{field} should be exposed");
     }
     assert_eq!(fields["slow_ram_present"], json!(true));
     assert_eq!(fields["rtc_present"], json!(true));
+    // An A500 has no second ROM. The window is a value rather than a flag
+    // because the CD32 and CDTV use different addresses, so "absent" is
+    // null here rather than false.
+    assert_eq!(fields["ext_rom_window"], json!(null));
 }
 
 #[test]
