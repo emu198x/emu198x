@@ -60,6 +60,21 @@ enum RomRegion {
     },
 }
 
+/// A second ROM in its own window — see `ChipSelect::ExtendedRom`.
+///
+/// The CD32 and CDTV carry more operating system than fits at `$F80000`, and
+/// AROS m68k reuses the CD32's window for the half of itself that does not
+/// fit in 512 KiB. The base comes from the machine rather than being decided
+/// here, because which window a model uses is Gary's business.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ExtendedRom {
+    rom: Vec<u8>,
+    /// Address-line mask, so a short image mirrors through the window the
+    /// way the Kickstart does rather than reading open bus past its end.
+    mask: u32,
+    base: u32,
+}
+
 /// Size and address-line mask for one mirrored memory region.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MemoryRegionDiagnosticSnapshot {
@@ -158,6 +173,9 @@ pub struct Memory {
     chip_ram_mask: u32,
     slow_ram: Vec<u8>,
     rom: RomRegion,
+    /// Absent on every stock Amiga, so old snapshots deserialise unchanged.
+    #[serde(default)]
+    extended_rom: Option<ExtendedRom>,
     overlay: bool,
     /// Floating-bus state: the last 16-bit value driven on the chip
     /// bus. When the CPU reads an unmapped address, real Amiga
@@ -219,6 +237,7 @@ impl Memory {
                 rom_mask: (kickstart.len() as u32).wrapping_sub(1),
                 rom: kickstart,
             },
+            extended_rom: None,
             overlay: true,
             last_bus_value: std::cell::Cell::new(0x0000),
         }
@@ -265,6 +284,7 @@ impl Memory {
                 boot_rom_visible: true,
                 wom_locked: false,
             },
+            extended_rom: None,
             overlay: true,
             last_bus_value: std::cell::Cell::new(0x0000),
         }
@@ -486,11 +506,61 @@ impl Memory {
             return (self.rom_window_byte(addr), true);
         }
 
+        // Extended ROM, where one is fitted. Below the Kickstart arm because
+        // the two windows never overlap; above the open-bus fallback because
+        // a fitted second ROM must answer rather than float.
+        if let Some(ext) = &self.extended_rom
+            && addr >= ext.base
+            && addr < ext.base + 0x0008_0000
+        {
+            let off = ((addr - ext.base) & ext.mask) as usize;
+            return (ext.rom[off], true);
+        }
+
         // Unmapped read: no device responds, so the bus floats high.
         // Archive parity and the current autoconfig probe expect
         // absent devices to read back as open bus ($FF bytes / $FFFF
         // words), not as residue from the previous transfer.
         (0xFF, false)
+    }
+
+    /// Fit a second ROM in the extended-ROM window at `base`.
+    ///
+    /// `base` comes from the machine, which knows its model — `$E00000` on
+    /// the CD32 and for AROS m68k, `$F00000` on the CDTV. Gary must also be
+    /// told to decode the window; fitting the image here alone leaves it
+    /// unreachable, which is deliberate: the aperture and the chip that
+    /// selects it are separate facts about the machine.
+    ///
+    /// Writes are ignored, as for any ROM.
+    ///
+    /// # Panics
+    ///
+    /// If the image is empty, not a power of two, or larger than the 512 KiB
+    /// window — the same contract the Kickstart image is held to.
+    pub fn install_extended_rom(&mut self, base: u32, image: Vec<u8>) {
+        assert!(
+            !image.is_empty() && image.len().is_power_of_two(),
+            "extended ROM size must be a non-zero power of two; got {} bytes",
+            image.len()
+        );
+        assert!(
+            image.len() <= 0x0008_0000,
+            "extended ROM must fit the 512 KiB window; got {} bytes",
+            image.len()
+        );
+        let mask = (image.len() - 1) as u32;
+        self.extended_rom = Some(ExtendedRom {
+            rom: image,
+            mask,
+            base,
+        });
+    }
+
+    /// Bytes of extended ROM fitted, or zero if the machine has none.
+    #[must_use]
+    pub fn extended_rom_size(&self) -> usize {
+        self.extended_rom.as_ref().map_or(0, |ext| ext.rom.len())
     }
 
     /// Read one word (big-endian) from the active memory map.
@@ -892,6 +962,55 @@ mod tests {
         assert_eq!(mem.last_bus_value(), 0xBEEF);
         assert_eq!(mem.read_long(0x0000_0004), 0xCAFE_BABE);
         assert_eq!(mem.last_bus_value(), 0xBABE);
+    }
+
+    #[test]
+    fn no_extended_rom_is_fitted_by_default() {
+        let mem = Memory::new(vec![0xAA; 256 * 1024]);
+        assert_eq!(mem.extended_rom_size(), 0);
+        // Open bus, not zeroes: nothing answers at the window.
+        assert_eq!(mem.read_byte(0x00E0_0000), 0xFF);
+    }
+
+    #[test]
+    fn an_extended_rom_answers_in_its_window_and_mirrors() {
+        let mut mem = Memory::new(vec![0xAA; 256 * 1024]);
+        let mut image = vec![0x00u8; 64 * 1024];
+        image[0] = 0x11;
+        image[0xFFFF] = 0x22;
+        mem.install_extended_rom(0x00E0_0000, image);
+
+        assert_eq!(mem.extended_rom_size(), 64 * 1024);
+        assert_eq!(mem.read_byte(0x00E0_0000), 0x11);
+        assert_eq!(mem.read_byte(0x00E0_FFFF), 0x22);
+        // A short image mirrors through the 512 KiB window, as the
+        // Kickstart does, rather than reading open bus past its end.
+        assert_eq!(mem.read_byte(0x00E1_0000), 0x11);
+        assert_eq!(mem.read_byte(0x00E7_FFFF), 0x22);
+        // And it claims nothing outside the window.
+        assert_eq!(mem.read_byte(0x00E8_0000), 0xFF);
+    }
+
+    #[test]
+    fn writes_to_an_extended_rom_are_ignored() {
+        let mut mem = Memory::new(vec![0xAA; 256 * 1024]);
+        mem.install_extended_rom(0x00E0_0000, vec![0x5A; 64 * 1024]);
+        mem.write_word(0x00E0_0000, 0xCAFE);
+        assert_eq!(mem.read_byte(0x00E0_0000), 0x5A, "ROM writes are ignored");
+    }
+
+    #[test]
+    fn an_extended_rom_survives_a_snapshot_round_trip() {
+        let mut mem = Memory::new(vec![0xAA; 256 * 1024]);
+        let mut image = vec![0x00u8; 64 * 1024];
+        image[0x1234] = 0x99;
+        mem.install_extended_rom(0x00E0_0000, image);
+
+        let encoded = postcard::to_allocvec(&mem).expect("serialize memory");
+        let restored: Memory = postcard::from_bytes(&encoded).expect("deserialize memory");
+
+        assert_eq!(restored.extended_rom_size(), 64 * 1024);
+        assert_eq!(restored.read_byte(0x00E0_1234), 0x99);
     }
 
     #[test]
