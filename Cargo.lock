@@ -1685,6 +1685,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "format-sinclair-zx80-o"
+version = "0.5.0"
+dependencies = [
+ "thiserror 2.0.20",
+]
+
+[[package]]
 name = "format-tzx"
 version = "0.5.0"
 dependencies = [
@@ -2675,6 +2682,7 @@ name = "machine-sinclair-zx80"
 version = "0.5.0"
 dependencies = [
  "emu198x-test-skip",
+ "format-sinclair-zx80-o",
  "postcard",
  "serde",
  "sinclair-zx81-ula",
