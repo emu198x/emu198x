@@ -52,6 +52,34 @@ one register that floods the display, then spin.
 | Dragon 32 | 6809 | 6144 bytes of display RAM filled at `$0000` | display area lit |
 | Acorn Electron | 6502 | ULA palette at `$FE08-$FE0F` — every logical colour remapped | **entire frame** uniform |
 | Commodore PET | 6502 | screen RAM filled with a glyph the character ROM defines as solid | display area lit |
+| Sinclair ZX80 | Z80 | `D_FILE` pointer set at `$400C`, display file written | display area lit |
+| Sinclair ZX81 | Z80 | `D_FILE` pointer set at `$400C`, display file written | display area lit |
+
+### The ZX80/ZX81 prove less than they look like they do
+
+On real hardware the **CPU** generates the picture: the Z80 executes through
+the display file while the ULA forces NOPs and turns the fetched bytes into
+video. **This emulator does not model that.** Its ULA reads the `D_FILE`
+pointer from `$400C` and renders the display file directly.
+
+So a pass proves the CPU executed and wrote `D_FILE` plus a display file. It
+proves **nothing about display generation**, because there is nothing here
+to exercise. On a faithful implementation the same image would prove
+considerably more — or fail. Said plainly here because "the ZX81 boots" would
+otherwise sound like the machine's defining behaviour had been verified.
+
+These two also have no other route. Amstrad's permission stops at the
+machines Amstrad bought; the ZX80 and ZX81 rights sit with Nine Tiles, so
+synthetic firmware is not the cheap option for them, it is the only one.
+
+Their ROM layout is deliberate for the same reason the PET's character ROM
+is: character bitmaps come from the first 512 bytes of ROM, which is also
+where the Z80 starts. `$0000` holds a `jp $0100`, leaving character 1's
+bitmap zeroed, and the display file is filled with that character *inverted*
+— solid only because inverting blank sets every pixel. A glyph that was
+already solid in ROM would light the screen with the CPU doing nothing.
+
+
 
 ### The Electron: the screen was never the problem
 

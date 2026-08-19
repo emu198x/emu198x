@@ -489,6 +489,78 @@ def commodore_pet_chargen() -> bytes:
     return bytes(rom)
 
 
+def _sinclair_zx_rom(size: int, with_program: bool) -> bytes:
+    """ZX80 (4 KiB) and ZX81 (8 KiB) — the same image, cut to length.
+
+    ## What this proves here, and what it would prove on real hardware
+
+    On a real ZX80/ZX81 the *CPU* generates the picture: the Z80 executes
+    through the display file while the ULA forces NOPs and turns the fetched
+    bytes into video. **This emulator does not model that.** Its ULA reads
+    the `D_FILE` pointer from the system variables at `$400C` and renders the
+    display file directly.
+
+    So this image sets up `D_FILE` and writes a display file, and a pass
+    proves the CPU executed and those writes landed. It does **not** prove
+    the display-generation mechanism works, because there is nothing here to
+    exercise. On a faithful implementation this same image would prove far
+    more — or fail.
+
+    ## Why the ROM is laid out the way it is
+
+    The ULA takes character bitmaps from the **first 512 bytes of ROM**,
+    which is also where the Z80 must start executing. So the program is not
+    at `$0000`: a `jp $0100` sits there instead, leaving `$08-$0F` — the
+    bitmap for character 1 — zeroed.
+
+    The display file is then filled with `$81`, character 1 *inverted*, which
+    renders solid because inverting a blank bitmap sets every pixel. A
+    character that was already solid in ROM would light the screen without
+    the firmware running, which is the trap the PET's character ROM avoids
+    the same way.
+    """
+    rom = bytearray(b"\x00" * size)          # zeros: every glyph blank
+    rom[0:3] = bytes([0xC3, 0x00, 0x01])      # jp $0100
+    if not with_program:
+        rom[0x100:0x102] = bytes([0x18, 0xFE])    # jr $ — touch nothing
+        return bytes(rom)
+    code = bytearray()
+    code += bytes([0xF3])                     # di
+    code += bytes([0x21, 0x00, 0x41])         # ld hl,$4100
+    code += bytes([0x22, 0x0C, 0x40])         # ld ($400C),hl    D_FILE pointer
+    code += bytes([0x36, 0x76])               # ld (hl),$76      leading NEWLINE
+    code += bytes([0x23])                     # inc hl
+    code += bytes([0x06, 24])                 # ld b,24          rows
+    row = len(code)
+    code += bytes([0x0E, 32])                 # ld c,32          columns
+    col = len(code)
+    code += bytes([0x36, 0x81])               # ld (hl),$81      inverse char 1
+    code += bytes([0x23, 0x0D])               # inc hl ; dec c
+    code += bytes([0x20, (col - (len(code) + 2)) & 0xFF])   # jr nz,col
+    code += bytes([0x36, 0x76])               # ld (hl),$76      NEWLINE
+    code += bytes([0x23])                     # inc hl
+    code += bytes([0x10, (row - (len(code) + 2)) & 0xFF])   # djnz row
+    code += bytes([0x18, 0xFE])               # jr $
+    rom[0x100:0x100 + len(code)] = code
+    return bytes(rom)
+
+
+def sinclair_zx80() -> bytes:
+    return _sinclair_zx_rom(0x1000, True)
+
+
+def sinclair_zx80_control() -> bytes:
+    return _sinclair_zx_rom(0x1000, False)
+
+
+def sinclair_zx81() -> bytes:
+    return _sinclair_zx_rom(0x2000, True)
+
+
+def sinclair_zx81_control() -> bytes:
+    return _sinclair_zx_rom(0x2000, False)
+
+
 def _6502_rom(program: bytes, size: int, base: int) -> bytes:
     """A 6502 ROM with its reset vector pointed at the first byte."""
     rom = bytearray(b"\xFF" * size)
@@ -533,6 +605,10 @@ SINGLE_MACHINE = {
     # Controls: identical sockets, no hardware touched. Each renders black,
     # which is what makes the expected colour above evidence rather than a
     # value someone liked the look of.
+    "sinclair-zx80.rom": sinclair_zx80,
+    "sinclair-zx80-control.rom": sinclair_zx80_control,
+    "sinclair-zx81.rom": sinclair_zx81,
+    "sinclair-zx81-control.rom": sinclair_zx81_control,
     "acorn-electron.rom": acorn_electron,
     "acorn-electron-control.rom": acorn_electron_control,
     "acorn-electron-basic.rom": lambda: zero_rom(0x4000),
