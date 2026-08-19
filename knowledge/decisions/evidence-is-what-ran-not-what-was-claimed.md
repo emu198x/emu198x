@@ -192,8 +192,8 @@ thirty entries; `sinclair-zx-spectrum` is one of them, covering 48K, 128K,
 +2, +2A, +2B and +3 inside a single shipping crate. Counting those variants
 individually against the thirty produced "19 of 30" and then "20 of 30" in
 the session that wrote this amendment — both inflated, the second also
-counting the MSX twice because C-BIOS *raised* its evidence rather than
-adding a machine. Mixing the units is easy precisely because the variants
+counting the MSX twice because C-BIOS *raised* its evidence instead of
+adding a machine. The units invite mixing precisely because the variants
 have their own crates and their own boot tests.
 
 A stronger claim about a machine already counted does not move the count. It
