@@ -32,9 +32,34 @@ locally; the workflow uses the same env-var contract.
 
 Almost every machine here needs its manufacturer's ROM to reach a prompt, and
 cannot be checked in public CI because that ROM cannot be distributed. The
-Sinclair and Amstrad line is the exception: Amstrad permits those ROMs to be
-distributed, which is why the 48K ROM already travels inside the `z80test`
-tarball and why `spectrum-roms.tar.zst` can carry the 128K, +2 and +3 sets.
+Spectrum is the exception: Amstrad permits its ROMs to be distributed, which
+is why the 48K ROM already travels inside the `z80test` tarball and why
+`spectrum-roms.tar.zst` can carry the 128K, +2 and +3 sets.
+
+**The permission covers the Spectrum, and stops there.** It reads as a
+statement about "the Sinclair and Amstrad line", which invites two
+extensions it does not support:
+
+- **The ZX80 and ZX81 are outside it.** Amstrad bought the rights to the
+  Spectrum 48/128 and built the `+` machines; it never held the ZX80/ZX81
+  copyrights, which stayed with Nine Tiles. Amstrad's own statement of the
+  permission excludes them by name. Debian's review of this same permission
+  draws the line in the same place: its `spectrum-roms` package covers 48K,
+  128K, +2, +3 and TC2048, and no earlier machine.
+- **The CPC needs a second permission.** Amstrad's grant extends to the CPC
+  ROMs, but parts of that firmware are Locomotive Software's, whose terms
+  are their own and stricter. A CPC ROM is one image containing both, so it
+  cannot be split into the covered half.
+
+Neither is a claim that those ROMs may not be used — only that *this*
+permission is not what makes it so, and no other has been established here.
+Route them through synthetic firmware, which needs no permission at all,
+unless and until a specific grant is obtained and recorded above.
+
+Sourced from Amstrad's statement of the permission and from Debian's
+independent review of it. Read both directly before citing either: this
+paragraph was written from summaries, and the wording of a rights grant is
+exactly the place not to trust one.
 
 The mirror is still private, and the manifest's rule still holds — a private
 mirror controls access, it does not establish permission. The permission is
@@ -59,7 +84,7 @@ binaries, so it does.
 
 It is **not** Microsoft's BIOS, and a title leaning on undocumented BIOS
 internals may behave differently. For "does this machine start", that does
-not matter — and this is the only machine outside the Sinclair/Amstrad line
+not matter — and this is the only machine outside the Spectrum
 whose boot evidence is a real firmware cold start rather than a synthetic
 stand-in.
 
