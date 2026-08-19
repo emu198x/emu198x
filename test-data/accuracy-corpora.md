@@ -24,7 +24,25 @@ locally; the workflow uses the same env-var contract.
 | Wolfgang Lorenz 6502 | `mos-6502` · `lorenz_tests` | `EMU198X_6502_LORENZ_DIR` | Wolfgang Lorenz C64 test suite (via VICE `bin/`) | freeware | no — uses a synthetic free KERNAL |
 | ZEXDOC + ZEXALL | `zilog-z80` · `zex_tests` | `EMU198X_ZEX_DIR` | Frank Cringle Z80 exerciser (`*.com`) | freeware | no |
 | Spectrum system tests | `machine-sinclair-zx-spectrum-48k` · `float_bus`, `tape_smoke`; `machine-sinclair-zx-spectrum-128k` · `float_bus` | `EMU198X_SPECTRUM_SYSTEM_TESTS_DIR` (tapes) — the Spectron screens are **checked in**, see below | tapes are third-party programs Spectron bundles — RAMSOFT floatspy v0.33 and Woody's Float48k/Float128k | tapes are long-circulated freeware, not covered by Spectron's licence, redistributed in the **private** store only | 48K Spectrum ROM — reuses the one in the `z80test` tarball |
+| Spectrum ROMs (128K, +2, +3) | `machine-sinclair-zx-spectrum-128k` · `boot_test`; `-plus2`, `-plus2a`, `-plus2b`, `-plus3` · `boot_test` | `EMU198X_ROMS_ROOT` (firmware root; each machine joins its own directory onto it) | the machines' own firmware | free to distribute (Amstrad), the same permission the 48K ROM ships under | is firmware — these are the ROMs |
 | z80test | `machine-sinclair-zx-spectrum-48k` · `z80test` | `EMU198X_Z80TEST_DIR` (+ `EMU198X_SPECTRUM_48K_ROM`) | raxoft/z80test (`*.tap`) | MIT | 48K Spectrum ROM — free (Amstrad), shipped in the tarball |
+
+## The Spectrum line boots its own firmware
+
+Almost every machine here needs its manufacturer's ROM to reach a prompt, and
+cannot be checked in public CI because that ROM cannot be distributed. The
+Sinclair and Amstrad line is the exception: Amstrad permits those ROMs to be
+distributed, which is why the 48K ROM already travels inside the `z80test`
+tarball and why `spectrum-roms.tar.zst` can carry the 128K, +2 and +3 sets.
+
+The mirror is still private, and the manifest's rule still holds — a private
+mirror controls access, it does not establish permission. The permission is
+what makes these redistributable; the mirror is only how they are served.
+
+`EMU198X_ROMS_ROOT` is the firmware root each machine's test joins its own
+directory onto (`sinclair-zx-spectrum-128k/`, `amstrad-zx-spectrum-plus3/`,
+and so on). One variable, one staging directory, every machine finding its
+own ROMs — rather than a variable per machine.
 
 ## The one exception: Spectron's reference screens
 
