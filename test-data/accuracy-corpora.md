@@ -24,6 +24,7 @@ locally; the workflow uses the same env-var contract.
 | Wolfgang Lorenz 6502 | `mos-6502` · `lorenz_tests` | `EMU198X_6502_LORENZ_DIR` | Wolfgang Lorenz C64 test suite (via VICE `bin/`) | freeware | no — uses a synthetic free KERNAL |
 | ZEXDOC + ZEXALL | `zilog-z80` · `zex_tests` | `EMU198X_ZEX_DIR` | Frank Cringle Z80 exerciser (`*.com`) | freeware | no |
 | Spectrum system tests | `machine-sinclair-zx-spectrum-48k` · `float_bus`, `tape_smoke`; `machine-sinclair-zx-spectrum-128k` · `float_bus` | `EMU198X_SPECTRUM_SYSTEM_TESTS_DIR` (tapes) — the Spectron screens are **checked in**, see below | tapes are third-party programs Spectron bundles — RAMSOFT floatspy v0.33 and Woody's Float48k/Float128k | tapes are long-circulated freeware, not covered by Spectron's licence, redistributed in the **private** store only | 48K Spectrum ROM — reuses the one in the `z80test` tarball |
+| C-BIOS (MSX) | `machine-msx` · `cbios_boot` | `EMU198X_ROMS_ROOT` (joins `microsoft-msx/`) | github.com/cbios/cbios, built with Pasmo | BSD — redistribution in binary form permitted, notice ships beside the ROMs | is firmware — a clean-room MSX BIOS, not Microsoft's |
 | Spectrum ROMs (128K, +2, +3) | `machine-sinclair-zx-spectrum-128k` · `boot_test`; `-plus2`, `-plus2a`, `-plus2b`, `-plus3` · `boot_test` | `EMU198X_ROMS_ROOT` (firmware root; each machine joins its own directory onto it) | the machines' own firmware | free to distribute (Amstrad), the same permission the 48K ROM ships under | is firmware — these are the ROMs |
 | z80test | `machine-sinclair-zx-spectrum-48k` · `z80test` | `EMU198X_Z80TEST_DIR` (+ `EMU198X_SPECTRUM_48K_ROM`) | raxoft/z80test (`*.tap`) | MIT | 48K Spectrum ROM — free (Amstrad), shipped in the tarball |
 
@@ -43,6 +44,24 @@ what makes these redistributable; the mirror is only how they are served.
 directory onto (`sinclair-zx-spectrum-128k/`, `amstrad-zx-spectrum-plus3/`,
 and so on). One variable, one staging directory, every machine finding its
 own ROMs — rather than a variable per machine.
+
+## C-BIOS: real firmware nobody needs permission for
+
+The MSX has a second route. [C-BIOS](https://github.com/cbios/cbios) is a
+clean-room MSX BIOS under a BSD licence, written so that MSX emulators can
+ship without a manufacturer's ROM — exactly the problem this manifest is
+otherwise negotiating one machine at a time.
+
+`cbios.tar.zst` carries `cbios_main_msx1.rom` and `cbios_logo_msx1.rom`
+built from source with Pasmo, together with the licence text and a
+provenance note. The BSD terms require the notice to travel with the
+binaries, so it does.
+
+It is **not** Microsoft's BIOS, and a title leaning on undocumented BIOS
+internals may behave differently. For "does this machine start", that does
+not matter — and this is the only machine outside the Sinclair/Amstrad line
+whose boot evidence is a real firmware cold start rather than a synthetic
+stand-in.
 
 ## The one exception: Spectron's reference screens
 
