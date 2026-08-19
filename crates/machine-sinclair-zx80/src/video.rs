@@ -62,8 +62,19 @@ const INK: u32 = 0xFF00_0000;
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct Zx80Video {
     framebuffer: Vec<u32>,
-    /// T-state within the frame, reset by the software vertical sync.
+    /// T-states since the current display line began. The horizontal
+    /// position; the vertical one is counted, not clocked.
     tstate: u32,
+    /// Which display line is being drawn, counted by line syncs rather than
+    /// derived from a T-state schedule.
+    ///
+    /// This is the difference between a ZX80 and a machine with a video
+    /// chip. There is no beam running to a timetable: the CPU emits one
+    /// line, ends it with a `HALT`, and the interrupt that releases the
+    /// `HALT` is the line sync. Counting T-states instead puts the picture
+    /// wherever the ROM's housekeeping happens to leave the clock — 232
+    /// lines down the frame, in the case that led to this.
+    display_line: u32,
     /// 74LS373. Holds the character code the last display fetch put on the
     /// memory side of the bus.
     char_latch: u8,
@@ -89,6 +100,10 @@ pub struct Zx80Video {
     pub dbg_max_line: u32,
     pub dbg_min_x: u32,
     pub dbg_max_x: u32,
+    pub dbg_vsync_start: u32,
+    pub dbg_vsync_stop: u32,
+    pub dbg_overflow: u32,
+    pub dbg_events: Vec<(char, u32)>,
 }
 
 impl Zx80Video {
@@ -97,6 +112,7 @@ impl Zx80Video {
         Self {
             framebuffer: vec![PAPER; (FB_WIDTH * FB_HEIGHT) as usize],
             tstate: 0,
+            display_line: 0,
             char_latch: 0,
             line_counter: 0,
             vsync: false,
@@ -110,6 +126,10 @@ impl Zx80Video {
             dbg_max_line: 0,
             dbg_min_x: u32::MAX,
             dbg_max_x: 0,
+            dbg_vsync_start: 0,
+            dbg_vsync_stop: 0,
+            dbg_overflow: 0,
+            dbg_events: Vec::new(),
         }
     }
 
@@ -123,26 +143,40 @@ impl Zx80Video {
         self.painted
     }
 
-    /// Advance one T-state of the display timing.
+    /// Advance one T-state of the current display line.
     pub fn tick(&mut self) {
         self.tstate += 1;
-        if self.tstate % TSTATES_PER_LINE == 0 {
-            // Each TV line sync advances the character row counter.
-            self.line_counter = (self.line_counter + 1) & 0x07;
-        }
-        if self.tstate >= TSTATES_PER_LINE * LINES_PER_FRAME {
+    }
+
+    /// A display line has ended — the `HALT` that terminates it has been
+    /// released by the interrupt wired to A6.
+    ///
+    /// This is the line sync: it advances the vertical position and the
+    /// 3-bit counter selecting which row of the character set is shown, and
+    /// restarts the horizontal position.
+    pub fn line_sync(&mut self) {
+        self.display_line += 1;
+        self.log('H', 0);
+        self.line_counter = (self.line_counter + 1) & 0x07;
+        self.tstate = 0;
+        if self.display_line >= LINES_PER_FRAME {
+            self.dbg_overflow += 1;
             self.end_frame();
         }
     }
 
     /// An `IN` with A0 low: start the vertical sync, and with it the frame.
     pub fn vsync_start(&mut self) {
+        self.dbg_vsync_start += 1;
+        self.log('I', self.tstate);
         self.vsync = true;
     }
 
     /// An `OUT`: stop the vertical sync. The frame ends here on a real
     /// machine, which is why the rate is a software constant.
     pub fn vsync_stop(&mut self) {
+        self.dbg_vsync_stop += 1;
+        self.log('O', self.tstate);
         if self.vsync {
             self.vsync = false;
             self.end_frame();
@@ -150,8 +184,15 @@ impl Zx80Video {
         self.line_counter = 0;
     }
 
+    fn log(&mut self, kind: char, _tstate: u32) {
+        if self.dbg_events.len() < 400 {
+            self.dbg_events.push((kind, self.display_line));
+        }
+    }
+
     fn end_frame(&mut self) {
         self.tstate = 0;
+        self.display_line = 0;
         self.frame_complete = true;
     }
 
@@ -197,6 +238,7 @@ impl Zx80Video {
             return;
         }
         self.dbg_paint_calls += 1;
+        self.log('P', self.tstate);
         let code = u16::from(self.char_latch);
         let inverse = self.char_latch & 0x80 != 0;
         let addr =
@@ -209,8 +251,8 @@ impl Zx80Video {
     }
 
     fn paint(&mut self, pattern: u8) {
-        let line = self.tstate / TSTATES_PER_LINE;
-        let line_tstate = self.tstate % TSTATES_PER_LINE;
+        let line = self.display_line;
+        let line_tstate = self.tstate;
         self.dbg_min_line = self.dbg_min_line.min(line);
         self.dbg_max_line = self.dbg_max_line.max(line);
         self.dbg_min_x = self.dbg_min_x.min(line_tstate * PIXELS_PER_TSTATE);
@@ -240,8 +282,8 @@ impl Zx80Video {
 
 /// Where the visible window starts. Calibrated against the real ROM rather
 /// than derived: the boot screen's cursor must land where a ZX80's does.
-const FIRST_VISIBLE_LINE: u32 = 56;
-const FIRST_VISIBLE_PIXEL: u32 = 64;
+const FIRST_VISIBLE_LINE: u32 = 0;
+const FIRST_VISIBLE_PIXEL: u32 = 0;
 
 impl Default for Zx80Video {
     fn default() -> Self {
