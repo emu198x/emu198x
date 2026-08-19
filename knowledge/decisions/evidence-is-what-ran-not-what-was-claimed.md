@@ -260,10 +260,11 @@ never-ran comparison is asserting a constant.
 | Evidence | Systems |
 | --- | --- |
 | Executes from cartridge and renders | 7 |
-| Executes from ROM socket and renders | 11 |
+| Executes from ROM socket and renders | 13 |
 | Real firmware cold-starts | 3 |
 
-7 + 11 + 3 = 21, with the Acorn Atom and Oric Atmos added.
+7 + 13 + 3 = 23, with the Aquarius and Jupiter Ace added to the Atom and
+Oric.
 
 Neither has a background register to write. The Oric keeps colour in the
 text stream as attribute bytes; the Atom's 6847 takes its mode from pins.
@@ -271,12 +272,20 @@ Both are flooded by filling video RAM instead, which is a different proof of
 the same thing — and a reminder that "write the background register" is a
 habit of the machines that have one, not a method.
 
-**The Atom also broke the control's assumption.** Every control until then
-rendered black, and the wording had started to lean on that. A 6847 with no
-programming still paints its alphanumeric screen, so the Atom's "never ran"
-is green on dark green. The assertion that survives both is *a colour
-appears that the control does not contain* — never *the frame stopped being
-black*.
+**The Atom broke the control's assumption, and the Aquarius confirmed the
+break.** Every control until then rendered black, and the wording had
+started to lean on that. A 6847 with no programming still paints its
+alphanumeric screen, so the Atom's "never ran" is green on dark green; the
+Aquarius powers on light blue. The assertion that survives every case is *a
+colour appears that the control does not contain* — never *the frame stopped
+being black*. Where the power-on frame is a known constant the control test
+now pins that too, so drifting off it fails as well.
+
+The Jupiter Ace is the cheapest of the lot and for a reason worth keeping:
+its character set is RAM. Redefining glyph 0 floods the screen in eight
+stores, because power-on video RAM already holds glyph 0 everywhere. Knowing
+where a machine keeps its character generator changes the cost of proving it
+runs.
 
 ## Consequences
 

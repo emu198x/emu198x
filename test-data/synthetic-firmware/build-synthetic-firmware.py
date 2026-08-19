@@ -254,6 +254,62 @@ def oric_atmos_control() -> bytes:
     return bytes(rom)
 
 
+def mattel_aquarius() -> bytes:
+    """Mattel Aquarius, 8 KiB ROM at `$0000`.
+
+    Screen RAM is at `$3000` and colour RAM at `$3400`, a byte each per
+    cell. Spaces everywhere plus one colour attribute everywhere makes the
+    whole text area a single background colour.
+    """
+    return _z80_rom(bytes([
+        0xF3,                     # di
+        0x21, 0x00, 0x30,         # ld hl,$3000
+        0x11, 0x00, 0x04,         # ld de,$0400
+        0x36, 0x20,               # l1: ld (hl),$20   space
+        0x23, 0x1B, 0x7A, 0xB3,   #     inc hl ; dec de ; ld a,d ; or e
+        0x20, 0xF8,               #     jr nz,l1
+        0x21, 0x00, 0x34,         # ld hl,$3400
+        0x11, 0x00, 0x04,         # ld de,$0400
+        0x36, 0x66,               # l2: ld (hl),$66   colour attribute
+        0x23, 0x1B, 0x7A, 0xB3,
+        0x20, 0xF8,               #     jr nz,l2
+        0x18, 0xFE,               # jr $
+    ]))
+
+
+def jupiter_ace() -> bytes:
+    """Jupiter Ace, 8 KiB ROM at `$0000`.
+
+    The Ace's character set lives in RAM at `$2C00`, not ROM. So there is
+    nothing to fill in video RAM at all: redefining glyph 0 as eight solid
+    bytes floods the screen, because power-on video RAM already holds glyph
+    0 everywhere. Eight stores, where every other machine here loops over a
+    whole screen.
+
+    The Ace is monochrome, so the flood is ink rather than colour.
+    """
+    return _z80_rom(bytes([
+        0xF3,                     # di
+        0x21, 0x00, 0x2C,         # ld hl,$2C00      glyph 0
+        0x06, 0x08,               # ld b,8
+        0x36, 0xFF,               # l1: ld (hl),$FF
+        0x23,                     # inc hl
+        0x10, 0xFB,               # djnz l1
+        0x18, 0xFE,               # jr $
+    ]))
+
+
+def _z80_rom(program: bytes, size: int = 0x2000) -> bytes:
+    """A Z80 ROM at $0000 — reset lands on the first byte, no vector needed."""
+    rom = bytearray(b"\xFF" * size)
+    rom[:len(program)] = program
+    return bytes(rom)
+
+
+def spin_only_z80() -> bytes:
+    return _z80_rom(bytes([0xF3, 0x18, 0xFE]))
+
+
 def zero_rom(size: int) -> bytes:
     return b"\x00" * size
 
@@ -269,6 +325,10 @@ SINGLE_MACHINE = {
     # Controls: identical sockets, no hardware touched. Each renders black,
     # which is what makes the expected colour above evidence rather than a
     # value someone liked the look of.
+    "mattel-aquarius.rom": mattel_aquarius,
+    "jupiter-ace.rom": jupiter_ace,
+    "mattel-aquarius-control.rom": spin_only_z80,
+    "jupiter-ace-control.rom": spin_only_z80,
     "acorn-atom.rom": acorn_atom,
     "oric-atmos.rom": oric_atmos,
     "acorn-atom-control.rom": acorn_atom_control,

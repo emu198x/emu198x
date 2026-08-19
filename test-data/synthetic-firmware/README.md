@@ -45,6 +45,8 @@ one register that floods the display, then spin.
 | Amiga | 68000 | `COLOR00` at `$DFF180` | raster red edge to edge |
 | Oric Atmos | 6502 | none — paper attributes filled into video RAM at `$BB80` | **entire frame** uniform |
 | Acorn Atom | 6502 | none — semigraphics-4 cells filled into video RAM at `$8000` | display area one colour |
+| Mattel Aquarius | Z80 | none — spaces at `$3000`, one colour attribute at `$3400` | **entire frame** uniform |
+| Jupiter Ace | Z80 | none — glyph 0 redefined in character **RAM** at `$2C00` | display area solid ink |
 
 Only the 5200 comes out fully uniform. ANTIC's DMA is off at power-on, so
 with no display list fetched there is nothing but background. The VIC-20's
@@ -70,11 +72,19 @@ The expected colours were chosen this way — measured against "never ran",
 not assumed.
 
 **Not every control renders black.** The VIC-20, 5200, Amiga and Oric all
-do, and the Atom does not: a 6847 with no programming still paints its
-alphanumeric screen, so "never ran" there is green on dark green. The
-assertion that survives both cases is *"a colour appears that the control
-does not contain"* — not *"the frame stopped being black"*, which was only
-ever true of some of them.
+do. The Atom does not — a 6847 with no programming still paints its
+alphanumeric screen, so "never ran" there is green on dark green. Nor does
+the Aquarius, which powers on light blue.
+
+The assertion that survives every case is *"a colour appears that the
+control does not contain"* — not *"the frame stopped being black"*, which
+was only ever true of some of them. Where the power-on frame is a known
+constant, the control test pins that too, so a machine drifting off its
+power-on state is also a failure.
+
+The Jupiter Ace deserves its own note: its character set is RAM, so
+redefining glyph 0 floods the screen in eight stores rather than a loop over
+the display. Power-on video RAM already holds glyph 0 everywhere.
 
 ## Why one script covers six machines
 
