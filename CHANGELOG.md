@@ -4,6 +4,48 @@ All notable changes to Emu198x will be documented in this file.
 
 Format loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 not strictly. Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [0.5.0] - 2026-08-19
+
+
+### Added
+
+- *(status)* Add the system registry that joins the repo's four vocabularies
+- *(status)* Collect per-machine test evidence from what actually ran
+- *(sega)* Ship the Game Gear from its own crate
+- *(status)* Make evidence collection the test job, not a second pass
+- *(status)* Restore the status canon as generated pages checked for drift
+- *(sega)* Prove the Master System and Game Gear boot, without a commercial ROM
+- Prove the remaining five firmware-free machines boot
+- *(spectrum)* Evidence the Spectrum's boot on every pull request
+- *(spectrum)* Evidence the whole Sinclair/Amstrad line's boot in CI
+- Prove the six TMS9918 machines start, without their firmware
+- *(msx)* Boot real firmware, using a BIOS nobody needs permission for
+- *(c64)* Boot real firmware, using ROMs nobody needs permission for
+- *(800xl)* Boot real firmware, using an OS nobody needs permission for
+- Prove the VIC-20, Atari 5200 and Amiga start, without their firmware
+- Prove the Acorn Atom and Oric Atmos start, without their firmware
+- Prove the Aquarius and Jupiter Ace start, without their firmware
+- Prove the CPC and BBC Micro start, without their firmware
+- Prove the Dragon 32 starts, without its firmware
+- Prove the Electron and PET start, without their firmware
+- Prove the ZX80 and ZX81 start, closing the set at 30 of 30
+
+
+### Fixed
+
+- *(sega-vdp)* Show the Game Gear's LCD, not the Master System's television
+- *(spectrum)* Resolve the provisioned ROM, and stop the goldens passing on nothing
+- Record machine-msx's test-skip dev-dep in the lockfile
+- Record the 86 skips that were still passing in silence
+- Catch the guard forms the checker walked past
+- *(zx8x)* Take character bitmaps from I, not from ROM $0000
+- Record the ZX80/ZX81 test-skip dev-deps in the lockfile
+
+
+### Refactor
+
+- **Breaking** — Retire support_tier. `MachineProfile::support_tier` and the `SupportTier` enum are removed, and the `session.profile.support_tier` query path no longer resolves. Scripts and MCP clients reading that path will need to drop it; nothing replaces it, because a tier nobody maintained is not information worth preserving. A tier could earn its way back with a stated meaning per rung, a mechanism that moves it, and a consumer that reads it — it had none of the three.
+
 ## [0.4.0] - 2026-08-18
 
 
