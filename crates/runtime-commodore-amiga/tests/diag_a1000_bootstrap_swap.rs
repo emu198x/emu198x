@@ -37,7 +37,10 @@ fn workbench_disk_path() -> Option<PathBuf> {
     let home = std::env::var_os("HOME")?;
     let path = PathBuf::from(home).join(".emu198x/media/commodore-amiga/workbench-1.2.adf");
     if !path.exists() {
-        eprintln!("skipping: Workbench 1.2 disk missing at {}", path.display());
+        emu198x_test_skip::record(&format!(
+            "skipping: Workbench 1.2 disk missing at {}",
+            path.display()
+        ));
         return None;
     }
     Some(path)

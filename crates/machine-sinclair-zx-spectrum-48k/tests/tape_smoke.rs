@@ -471,7 +471,10 @@ fn run_and_compare_with_spectron(test_name: &str, spectron_png: Option<&str>) {
 fn run_to_completion(test_name: &str) -> Option<Spectrum48k> {
     let rom_path = rom_path();
     if !rom_path.is_file() {
-        eprintln!("48K ROM not found at {} — skipping", rom_path.display());
+        emu198x_test_skip::record(&format!(
+            "48K ROM not found at {} — skipping",
+            rom_path.display()
+        ));
         return None;
     }
     let tap_path = system_tests_dir().join(format!("{test_name}.tap"));

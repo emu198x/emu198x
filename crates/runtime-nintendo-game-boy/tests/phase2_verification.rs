@@ -277,7 +277,7 @@ fn run_until_mooneye_verdict(
 
 fn blargg_root() -> Option<PathBuf> {
     let Some(root) = std::env::var_os("EMU198X_GB_BLARGG_ROOT").map(PathBuf::from) else {
-        eprintln!("skipping: set EMU198X_GB_BLARGG_ROOT to a gb-test-roms root");
+        emu198x_test_skip::record("skipping: set EMU198X_GB_BLARGG_ROOT to a gb-test-roms root");
         return None;
     };
     if !root.exists() {
@@ -292,11 +292,14 @@ fn blargg_root() -> Option<PathBuf> {
 
 fn dmg_acid2_rom() -> Option<PathBuf> {
     let Some(path) = std::env::var_os("EMU198X_GB_DMG_ACID2_ROM").map(PathBuf::from) else {
-        eprintln!("skipping: set EMU198X_GB_DMG_ACID2_ROM to a dmg-acid2.gb path");
+        emu198x_test_skip::record("skipping: set EMU198X_GB_DMG_ACID2_ROM to a dmg-acid2.gb path");
         return None;
     };
     if !path.exists() {
-        eprintln!("skipping: dmg-acid2 ROM missing at {}", path.display());
+        emu198x_test_skip::record(&format!(
+            "skipping: dmg-acid2 ROM missing at {}",
+            path.display()
+        ));
         return None;
     }
     Some(path)
@@ -304,11 +307,16 @@ fn dmg_acid2_rom() -> Option<PathBuf> {
 
 fn mooneye_root() -> Option<PathBuf> {
     let Some(root) = std::env::var_os("EMU198X_GB_MOONEYE_ROOT").map(PathBuf::from) else {
-        eprintln!("skipping: set EMU198X_GB_MOONEYE_ROOT to a mooneye-gb tests root");
+        emu198x_test_skip::record(
+            "skipping: set EMU198X_GB_MOONEYE_ROOT to a mooneye-gb tests root",
+        );
         return None;
     };
     if !root.exists() {
-        eprintln!("skipping: mooneye root missing at {}", root.display());
+        emu198x_test_skip::record(&format!(
+            "skipping: mooneye root missing at {}",
+            root.display()
+        ));
         return None;
     }
     Some(root)

@@ -185,12 +185,15 @@ fn ram_config_defaults_are_stable() {
 #[ignore = "requires ~/.emu198x/roms/commodore-amiga/kick13.rom"]
 fn kickstart_13_reaches_insert_disk_screen() -> Result<(), Box<dyn Error>> {
     let Some(rom_dir) = home_rom_dir() else {
-        eprintln!("skip: no Amiga ROM dir at $HOME/.emu198x/roms/commodore-amiga");
+        emu198x_test_skip::record("skip: no Amiga ROM dir at $HOME/.emu198x/roms/commodore-amiga");
         return Ok(());
     };
     let kickstart_path = rom_dir.join("kick13.rom");
     if !kickstart_path.exists() {
-        eprintln!("skip: kick13.rom missing at {}", kickstart_path.display());
+        emu198x_test_skip::record(&format!(
+            "skip: kick13.rom missing at {}",
+            kickstart_path.display()
+        ));
         return Ok(());
     }
     let firmware = std::fs::read(&kickstart_path)?;
@@ -224,17 +227,17 @@ fn workbench_13_media_reaches_active_display() -> Result<(), Box<dyn Error>> {
     use emu198x_shell::{MediaImage, MediaKind, MediaSet};
 
     let Some(rom_dir) = home_rom_dir() else {
-        eprintln!("skip: no Amiga ROM dir");
+        emu198x_test_skip::record("skip: no Amiga ROM dir");
         return Ok(());
     };
     let Some(media_dir) = home_media_dir() else {
-        eprintln!("skip: no Amiga media dir");
+        emu198x_test_skip::record("skip: no Amiga media dir");
         return Ok(());
     };
     let kickstart_path = rom_dir.join("kick13.rom");
     let adf_path = media_dir.join("workbench-1.3.adf");
     if !kickstart_path.exists() || !adf_path.exists() {
-        eprintln!("skip: missing kickstart or workbench ADF");
+        emu198x_test_skip::record("skip: missing kickstart or workbench ADF");
         return Ok(());
     }
 
@@ -274,12 +277,15 @@ fn workbench_13_media_reaches_active_display() -> Result<(), Box<dyn Error>> {
 #[ignore = "requires ~/.emu198x/roms/commodore-amiga/kick204.rom (KS 2.04 r37.175)"]
 fn kickstart_204_reaches_insert_disk_screen_a2000_fat_agnus_pal() -> Result<(), Box<dyn Error>> {
     let Some(rom_dir) = home_rom_dir() else {
-        eprintln!("skip: no Amiga ROM dir at $HOME/.emu198x/roms/commodore-amiga");
+        emu198x_test_skip::record("skip: no Amiga ROM dir at $HOME/.emu198x/roms/commodore-amiga");
         return Ok(());
     };
     let kickstart_path = rom_dir.join("kick204.rom");
     if !kickstart_path.exists() {
-        eprintln!("skip: kick204.rom missing at {}", kickstart_path.display());
+        emu198x_test_skip::record(&format!(
+            "skip: kick204.rom missing at {}",
+            kickstart_path.display()
+        ));
         return Ok(());
     }
     let firmware = std::fs::read(&kickstart_path)?;
@@ -325,12 +331,15 @@ fn kickstart_204_reaches_insert_disk_screen_a2000_fat_agnus_pal() -> Result<(), 
 fn kickstart_204_reaches_insert_disk_screen_a500_plus_pal() -> Result<(), Box<dyn Error>> {
     use runtime_commodore_amiga::AmigaEcsRuntime;
     let Some(rom_dir) = home_rom_dir() else {
-        eprintln!("skip: no Amiga ROM dir at $HOME/.emu198x/roms/commodore-amiga");
+        emu198x_test_skip::record("skip: no Amiga ROM dir at $HOME/.emu198x/roms/commodore-amiga");
         return Ok(());
     };
     let kickstart_path = rom_dir.join("kick204.rom");
     if !kickstart_path.exists() {
-        eprintln!("skip: kick204.rom missing at {}", kickstart_path.display());
+        emu198x_test_skip::record(&format!(
+            "skip: kick204.rom missing at {}",
+            kickstart_path.display()
+        ));
         return Ok(());
     }
     let firmware = std::fs::read(&kickstart_path)?;
@@ -372,17 +381,17 @@ fn workbench_204_reaches_desktop_a500_plus_pal() -> Result<(), Box<dyn Error>> {
     use runtime_commodore_amiga::AmigaEcsRuntime;
 
     let Some(rom_dir) = home_rom_dir() else {
-        eprintln!("skip: no Amiga ROM dir");
+        emu198x_test_skip::record("skip: no Amiga ROM dir");
         return Ok(());
     };
     let Some(media_dir) = home_media_dir() else {
-        eprintln!("skip: no Amiga media dir");
+        emu198x_test_skip::record("skip: no Amiga media dir");
         return Ok(());
     };
     let kickstart_path = rom_dir.join("kick204.rom");
     let adf_path = media_dir.join("workbench-2.04.adf");
     if !kickstart_path.exists() || !adf_path.exists() {
-        eprintln!("skip: missing kickstart or workbench ADF");
+        emu198x_test_skip::record("skip: missing kickstart or workbench ADF");
         return Ok(());
     }
 
@@ -450,17 +459,17 @@ fn workbench_204_reaches_desktop_a2000_fat_agnus_pal() -> Result<(), Box<dyn Err
     use emu198x_shell::{MediaImage, MediaKind, MediaSet};
 
     let Some(rom_dir) = home_rom_dir() else {
-        eprintln!("skip: no Amiga ROM dir");
+        emu198x_test_skip::record("skip: no Amiga ROM dir");
         return Ok(());
     };
     let Some(media_dir) = home_media_dir() else {
-        eprintln!("skip: no Amiga media dir");
+        emu198x_test_skip::record("skip: no Amiga media dir");
         return Ok(());
     };
     let kickstart_path = rom_dir.join("kick204.rom");
     let adf_path = media_dir.join("workbench-2.04.adf");
     if !kickstart_path.exists() || !adf_path.exists() {
-        eprintln!("skip: missing kickstart or workbench ADF");
+        emu198x_test_skip::record("skip: missing kickstart or workbench ADF");
         return Ok(());
     }
 
@@ -543,12 +552,12 @@ fn workbench_204_reaches_desktop_a2000_fat_agnus_pal() -> Result<(), Box<dyn Err
 #[ignore = "diagnostic — disassemble KS 2.04 cold-boot from $F800D2"]
 fn kickstart_204_disassemble_cold_boot() -> Result<(), Box<dyn Error>> {
     let Some(rom_dir) = home_rom_dir() else {
-        eprintln!("skip: no Amiga ROM dir");
+        emu198x_test_skip::record("skip: no Amiga ROM dir");
         return Ok(());
     };
     let kickstart_path = rom_dir.join("kick204.rom");
     if !kickstart_path.exists() {
-        eprintln!("skip: kick204.rom missing");
+        emu198x_test_skip::record("skip: kick204.rom missing");
         return Ok(());
     }
     let firmware = std::fs::read(&kickstart_path)?;

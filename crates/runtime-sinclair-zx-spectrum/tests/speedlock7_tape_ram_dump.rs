@@ -2198,7 +2198,7 @@ fn check_speedlock_loader_alive(label: &str, tzx_relative_path: &str) -> Result<
     let firmware_root = home().join(".emu198x/roms/sinclair-zx-spectrum-48k");
     let tzx_path = spectrum_tzx_root().join(tzx_relative_path);
     if !firmware_root.exists() || !tzx_path.exists() {
-        eprintln!("[skip {label}] firmware or TZX missing");
+        emu198x_test_skip::record("[skip {label}] firmware or TZX missing");
         return Ok(());
     }
     let rom_bytes = read_firmware_asset(&firmware_root.join("48.rom")).expect("48K rom");

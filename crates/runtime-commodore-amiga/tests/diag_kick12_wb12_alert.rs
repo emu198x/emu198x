@@ -32,7 +32,7 @@ const MAX_FRAMES: u64 = 4000;
 
 fn load_artifact(path: PathBuf, label: &str) -> Option<Vec<u8>> {
     if !path.exists() {
-        eprintln!("skipping: {label} missing at {}", path.display());
+        emu198x_test_skip::record(&format!("skipping: {label} missing at {}", path.display()));
         return None;
     }
     Some(std::fs::read(&path).unwrap_or_else(|err| panic!("read {}: {err}", path.display())))

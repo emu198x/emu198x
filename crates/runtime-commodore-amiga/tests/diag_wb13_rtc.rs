@@ -18,7 +18,7 @@ use runtime_commodore_amiga::{
 
 fn load_artifact(path: &Path) -> Option<Vec<u8>> {
     if !path.exists() {
-        eprintln!("skipping: missing {}", path.display());
+        emu198x_test_skip::record(&format!("skipping: missing {}", path.display()));
         return None;
     }
     std::fs::read(path).ok()

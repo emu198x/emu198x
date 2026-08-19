@@ -38,7 +38,10 @@ fn load_kickstart() -> Option<Vec<u8>> {
     let home = std::env::var("HOME").expect("HOME is set");
     let path = PathBuf::from(home).join(".emu198x/roms/commodore-amiga/kick13.rom");
     if !path.exists() {
-        eprintln!("skipping: Kickstart 1.3 ROM missing at {}", path.display());
+        emu198x_test_skip::record(&format!(
+            "skipping: Kickstart 1.3 ROM missing at {}",
+            path.display()
+        ));
         return None;
     }
     Some(std::fs::read(&path).expect("read Kickstart 1.3 ROM"))

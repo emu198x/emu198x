@@ -268,7 +268,7 @@ fn cia2_pa_drives_vic_bank_select() -> Result<(), Box<dyn Error>> {
 #[ignore = "requires ~/.emu198x/roms/commodore-c64/{kernal,basic,chargen}.rom"]
 fn real_kernal_reaches_ready_prompt() -> Result<(), Box<dyn Error>> {
     let Some(rom_dir) = home_c64_rom_dir() else {
-        eprintln!("skip: no C64 ROM dir");
+        emu198x_test_skip::record("skip: no C64 ROM dir");
         return Ok(());
     };
     let kernal = std::fs::read(rom_dir.join("kernal.rom"))?;

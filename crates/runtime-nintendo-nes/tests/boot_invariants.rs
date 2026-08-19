@@ -252,7 +252,7 @@ fn cartridge_bytes_survive_snapshot_round_trip() -> Result<(), Box<dyn Error>> {
 #[ignore = "requires nestest.nes — set NES_TEST_DATA or place under ~/Projects/Emu198x-Unclean/..."]
 fn nestest_loads_and_runs() -> Result<(), Box<dyn Error>> {
     let Some(dir) = nestest_fixture_dir() else {
-        eprintln!("skip: nestest.nes missing");
+        emu198x_test_skip::record("skip: nestest.nes missing");
         return Ok(());
     };
     let rom = std::fs::read(dir.join("nestest.nes"))?;
