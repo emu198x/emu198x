@@ -200,6 +200,33 @@ A stronger claim about a machine already counted does not move the count. It
 changes which row of the table that machine sits in, which is the more
 useful thing to report anyway.
 
+## Amendment 2026-08-19 (third) — fifteen, and the C64 arrives on real firmware
+
+Open ROMs takes the count to **15 of 30**. The C64 had no boot evidence at
+all before it: Commodore's BASIC, KERNAL and character ROMs cannot be
+distributed, so every C64 waypoint here ran only on a machine that already
+had them, and public infrastructure knew nothing about whether the machine
+started.
+
+It arrives in the strongest row rather than the weakest, which is worth
+naming. The route that unblocked the TMS9918 six was to stop needing
+firmware; the route here is a *different* firmware — clean-room, GPL, and
+written precisely so emulators need nobody's permission. Two distinct
+answers to one licence problem, and which one applies is a fact about what
+somebody else has already built, not about the machine.
+
+| Evidence | Systems |
+| --- | --- |
+| Executes from cartridge and renders | 7 |
+| Executes from ROM socket and renders | 6 |
+| Real firmware cold-starts | 2 — the Spectrum line, and the C64 via Open ROMs |
+
+7 + 6 + 2 = 15. The MSX cold-starts C-BIOS too, but it is counted in the
+middle row and must not be added twice: a machine sits in one row, and
+gaining stronger evidence moves it rather than duplicating it. Both its
+tests stay and both keep running — the synthetic one needs no fixture and
+runs on every push, the C-BIOS one needs the store.
+
 ## Consequences
 
 - Evidence differs by environment, and that is correct, not a defect. The
