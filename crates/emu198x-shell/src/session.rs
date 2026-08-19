@@ -11,8 +11,8 @@ use crate::control::ControlCommand;
 use crate::debug_info::DebugSymbols;
 use crate::error::MachineError;
 use crate::headless::prepare_machine;
-use crate::host::{HostIo, InputEvent, NullTraceSink, TraceSink};
-use crate::machine::{FamilyRuntime, MachineCore, ResetKind, RunResult, StopReason};
+use crate::host::{FramePacket, FrameSink, HostIo, InputEvent, NullTraceSink, TraceSink};
+use crate::machine::{FamilyRuntime, MachineCore, ResetKind, RunResult};
 use crate::media::MediaSet;
 use crate::query::{
     NoAdditionalQueries, QueryError, QueryPathsResult, QueryResult, SessionQueryProvider,
@@ -133,6 +133,7 @@ pub enum AudioRecordingError {
 
 /// Result of waiting for one machine to report `boot.detected = true`.
 #[derive(Clone, Debug, PartialEq, Eq)]
+
 pub struct BootWaitResult {
     /// Number of native frames executed while waiting.
     pub frames: u32,
@@ -851,31 +852,41 @@ impl<M: MachineCore, Q: SessionQueryProvider<M>> HeadlessSession<M, Q> {
         Ok(())
     }
 
+    /// Runs with the recorder wired into the frame sink, so every frame the
+    /// machine emits is written.
+    ///
+    /// This used to advance in `native_frame_ticks` chunks and tee whichever
+    /// frame the capture happened to hold at each boundary. That samples the
+    /// shell's nominal frame grid rather than the machine's real one, and the
+    /// two need not agree: a machine whose field is *shorter* than nominal
+    /// completes two fields inside one chunk, and the first is overwritten
+    /// before the tee ever sees it. The ZX80's field is software-timed at
+    /// 64,167 T-states against a nominal 64,584, so exactly every other frame
+    /// was dropped — and with them the single-field blanks that are that
+    /// machine's defining behaviour.
     fn run_until_recording(&mut self, target: MachineTime) -> Result<RunResult, SessionError> {
-        let mut last = RunResult::new(self.machine.time(), StopReason::ReachedTarget);
-        while self.machine.time() < target {
-            let chunk_end = self
-                .machine
-                .time()
-                .saturating_add(self.native_frame_ticks)
-                .get()
-                .min(target.get());
-            last = self.run_until_inner(MachineTime::new(chunk_end))?;
-            self.tee_frame_to_recorder()?;
+        let inputs = std::mem::take(&mut self.queued_input);
+        let mut tee = RecordingTee {
+            latest: &mut self.frame_capture,
+            recorder: self.recorder.as_mut(),
+            failure: None,
+        };
+        let mut host = HostIo {
+            input_events: &inputs,
+            frame_sink: &mut tee,
+            audio_sink: &mut self.audio_capture,
+            trace_sink: &mut self.trace_sink,
+        };
+        let result = self.machine.run_until(target, &mut host);
+        // A broken ffmpeg pipe is the more specific fault, so report it
+        // ahead of whatever the machine returned.
+        if let Some(failure) = tee.failure {
+            return Err(failure.into());
         }
-        Ok(last)
-    }
-
-    fn tee_frame_to_recorder(&mut self) -> Result<(), SessionError> {
-        let Self {
-            frame_capture,
-            recorder,
-            ..
-        } = self;
-        if let (Some(recorder), Some(frame)) = (recorder.as_mut(), frame_capture.frame()) {
-            recorder.push_frame(frame)?;
-        }
-        Ok(())
+        let result = result?;
+        self.last_run_result = Some(result);
+        self.flush_audio_recording()?;
+        Ok(result)
     }
 
     /// Runs the machine until the requested target time, emitting trace events
@@ -1229,6 +1240,31 @@ impl<M: MachineCore, Q: SessionQueryProvider<M>> HeadlessSession<M, Q> {
     }
 }
 
+/// Frame sink that records every frame on its way to the latest-frame
+/// capture, so a recording keeps the machine's own frame cadence rather than
+/// the shell's nominal one.
+struct RecordingTee<'a> {
+    latest: &'a mut LatestFrameCapture,
+    recorder: Option<&'a mut VideoRecorder>,
+    /// A recorder failure, held until the run unwinds: `FrameSink` reports
+    /// `MachineError`, and a broken ffmpeg pipe is not one.
+    failure: Option<VideoRecordingError>,
+}
+
+impl FrameSink for RecordingTee<'_> {
+    fn push_frame(&mut self, frame: FramePacket<'_>) -> Result<(), MachineError> {
+        self.latest.push_frame(frame)?;
+        if self.failure.is_none()
+            && let Some(recorder) = self.recorder.as_mut()
+            && let Some(captured) = self.latest.frame()
+            && let Err(error) = recorder.push_frame(captured)
+        {
+            self.failure = Some(error);
+        }
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1243,6 +1279,7 @@ mod tests {
     use crate::{MediaImage, MediaKind};
     use serde_json::json;
 
+    const DUMMY_FRAME_TICKS: u64 = 69_888;
     const DUMMY_FRAME_PIXELS: [u8; 32 * 32] = [1; 32 * 32];
 
     struct DummyMachine {
@@ -1311,16 +1348,41 @@ mod tests {
             host: &mut HostIo<'_>,
         ) -> Result<RunResult, MachineError> {
             self.received_inputs.extend_from_slice(host.input_events);
-            self.time = target;
 
-            host.frame_sink.push_frame(FramePacket {
-                timestamp: target,
-                format: PixelFormat::Indexed8,
-                width: 32,
-                height: 32,
-                palette: Some(&[0x000000FF, 0xFFFFFFFF]),
-                pixels: &DUMMY_FRAME_PIXELS,
-            })?;
+            // One frame per native frame, which is what a machine does. This
+            // used to jump to `target` and emit a single frame however long
+            // the run was, leaving the session's chunking to manufacture the
+            // rest — so it could not tell a sink that sees every frame from
+            // one that samples them.
+            let mut emitted = 0;
+            while self.time < target {
+                self.time = MachineTime::new(
+                    self.time
+                        .saturating_add(DUMMY_FRAME_TICKS)
+                        .get()
+                        .min(target.get()),
+                );
+                emitted += 1;
+                host.frame_sink.push_frame(FramePacket {
+                    timestamp: self.time,
+                    format: PixelFormat::Indexed8,
+                    width: 32,
+                    height: 32,
+                    palette: Some(&[0x000000FF, 0xFFFFFFFF]),
+                    pixels: &DUMMY_FRAME_PIXELS,
+                })?;
+            }
+            self.time = target;
+            if emitted == 0 {
+                host.frame_sink.push_frame(FramePacket {
+                    timestamp: target,
+                    format: PixelFormat::Indexed8,
+                    width: 32,
+                    height: 32,
+                    palette: Some(&[0x000000FF, 0xFFFFFFFF]),
+                    pixels: &DUMMY_FRAME_PIXELS,
+                })?;
+            }
 
             host.audio_sink.push_audio(AudioPacket {
                 timestamp: target,

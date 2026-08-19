@@ -268,6 +268,13 @@ impl VideoRecorder {
             });
         }
 
+        // A capture buffer with no samples is not an audio track. The mux
+        // pass runs `-shortest`, so muxing an empty WAV truncates the video
+        // to the length of the audio — that is, to nothing: a 262-byte MP4
+        // with an empty `mdat` and no error anywhere, because both ffmpeg
+        // passes exit zero. Machines with no sound hardware at all, like the
+        // ZX80, hit this on every recording.
+        let audio = audio.filter(|audio| !audio.samples.is_empty());
         let has_audio = audio.is_some();
         if let Some(audio) = audio {
             mux_audio(&self.intermediate_path, &self.output_path, audio)?;
@@ -874,6 +881,67 @@ mod tests {
         assert!(output.is_file());
         assert!(!intermediate_video_path(&output).exists());
         assert!(!intermediate_audio_path(&output).exists());
+
+        let _ = fs::remove_file(&output);
+    }
+
+    /// A silent machine must still produce a playable recording.
+    ///
+    /// The mux pass runs `-shortest`. Handed a WAV with no samples it
+    /// truncates the video to the audio's length and exits zero, leaving a
+    /// container with an empty `mdat` and nothing on stderr to notice. The
+    /// ZX80 has no sound hardware, so every one of its recordings came out
+    /// empty.
+    #[test]
+    fn finish_with_empty_audio_keeps_the_video_instead_of_muxing_it_away() {
+        let Some(_) = find_ffmpeg() else {
+            emu198x_test_skip::skip!("ffmpeg not on PATH");
+        };
+
+        let temp_dir = std::env::temp_dir();
+        let output = temp_dir.join(format!(
+            "emu198x-shell-video-silent-{}-{}.mp4",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system time after unix epoch")
+                .as_nanos()
+        ));
+        let _ = fs::remove_file(&output);
+
+        let (width, height, fps) = (16u32, 16u32, 25u32);
+        let frame = solid_frame(width, height, [0x80, 0x80, 0x80, 0xFF]);
+        let mut recorder =
+            VideoRecorder::start(output.clone(), width, height, fps, MachineTime::new(0))
+                .expect("start should spawn ffmpeg");
+        for _ in 0..10 {
+            recorder.push_frame(&frame).expect("frame should write");
+        }
+
+        let silent = CapturedAudio {
+            sample_rate: 44_100,
+            channels: 1,
+            samples: Vec::new(),
+        };
+        let summary = recorder
+            .finish(Some(&silent))
+            .expect("finish should succeed");
+
+        assert!(
+            !summary.has_audio,
+            "an empty capture buffer is not an audio track"
+        );
+        assert_eq!(summary.frames, 10);
+        assert!(output.is_file());
+
+        // The symptom was a container with a header and no payload, so
+        // assert on the payload rather than on the file merely existing.
+        let written = fs::metadata(&output).expect("output metadata").len();
+        assert!(
+            written > 1024,
+            "a 10-frame recording should carry video data; got {written} bytes, \
+             which is the empty-mdat container `-shortest` leaves behind"
+        );
 
         let _ = fs::remove_file(&output);
     }
