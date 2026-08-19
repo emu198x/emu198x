@@ -139,8 +139,19 @@ jobs:
         # cargo needs the same system deps as a normal build to resolve the
         # workspace when the lockfile is regenerated.
         run: |
-          sudo apt-get update
-          sudo apt-get install -y pkg-config libasound2-dev libudev-dev
+          apt_opts="-o Acquire::Retries=2 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20"
+          for attempt in 1 2 3; do
+            sudo timeout 120 apt-get $apt_opts update \
+              || echo "::warning::apt-get update attempt ${attempt} incomplete (mirror unreachable)"
+            if sudo timeout 180 apt-get $apt_opts install -y --no-install-recommends \
+                 pkg-config libasound2-dev libudev-dev; then
+              exit 0
+            fi
+            echo "::warning::apt-get install attempt ${attempt} failed; retrying"
+            sleep 10
+          done
+          echo "::error::apt failed after three bounded attempts"
+          exit 1
 
       - name: Install git-cliff
         uses: taiki-e/install-action@v2

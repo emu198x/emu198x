@@ -355,8 +355,19 @@ jobs:
         # audio/input stack (cpal -> alsa, gilrs -> libudev). The pure-CPU
         # jobs above don't need these. Mirrors the main ci.yml install.
         run: |
-          sudo apt-get update
-          sudo apt-get install -y pkg-config libasound2-dev libudev-dev
+          apt_opts="-o Acquire::Retries=2 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20"
+          for attempt in 1 2 3; do
+            sudo timeout 120 apt-get $apt_opts update \
+              || echo "::warning::apt-get update attempt ${attempt} incomplete (mirror unreachable)"
+            if sudo timeout 180 apt-get $apt_opts install -y --no-install-recommends \
+                 pkg-config libasound2-dev libudev-dev; then
+              exit 0
+            fi
+            echo "::warning::apt-get install attempt ${attempt} failed; retrying"
+            sleep 10
+          done
+          echo "::error::apt failed after three bounded attempts"
+          exit 1
 
       - name: Provision corpus + 48K ROM from store
         env:
@@ -413,8 +424,19 @@ jobs:
         # These tests boot a full Spectrum, which pulls in the host
         # audio/input stack (cpal -> alsa, gilrs -> libudev).
         run: |
-          sudo apt-get update
-          sudo apt-get install -y pkg-config libasound2-dev libudev-dev
+          apt_opts="-o Acquire::Retries=2 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20"
+          for attempt in 1 2 3; do
+            sudo timeout 120 apt-get $apt_opts update \
+              || echo "::warning::apt-get update attempt ${attempt} incomplete (mirror unreachable)"
+            if sudo timeout 180 apt-get $apt_opts install -y --no-install-recommends \
+                 pkg-config libasound2-dev libudev-dev; then
+              exit 0
+            fi
+            echo "::warning::apt-get install attempt ${attempt} failed; retrying"
+            sleep 10
+          done
+          echo "::error::apt failed after three bounded attempts"
+          exit 1
 
       - name: Provision corpus + 48K ROM from store
         env:
@@ -532,8 +554,19 @@ jobs:
         # Both oracles build a whole Spectrum, which pulls in the host
         # audio/input stack (cpal -> alsa, gilrs -> libudev).
         run: |
-          sudo apt-get update
-          sudo apt-get install -y pkg-config libasound2-dev libudev-dev
+          apt_opts="-o Acquire::Retries=2 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20"
+          for attempt in 1 2 3; do
+            sudo timeout 120 apt-get $apt_opts update \
+              || echo "::warning::apt-get update attempt ${attempt} incomplete (mirror unreachable)"
+            if sudo timeout 180 apt-get $apt_opts install -y --no-install-recommends \
+                 pkg-config libasound2-dev libudev-dev; then
+              exit 0
+            fi
+            echo "::warning::apt-get install attempt ${attempt} failed; retrying"
+            sleep 10
+          done
+          echo "::error::apt failed after three bounded attempts"
+          exit 1
 
       - name: Provision 48K ROM + timing suite from store
         env:
@@ -670,8 +703,19 @@ jobs:
         # Booting a whole Spectrum pulls in the host audio/input stack
         # (cpal -> alsa, gilrs -> libudev).
         run: |
-          sudo apt-get update
-          sudo apt-get install -y pkg-config libasound2-dev libudev-dev
+          apt_opts="-o Acquire::Retries=2 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20"
+          for attempt in 1 2 3; do
+            sudo timeout 120 apt-get $apt_opts update \
+              || echo "::warning::apt-get update attempt ${attempt} incomplete (mirror unreachable)"
+            if sudo timeout 180 apt-get $apt_opts install -y --no-install-recommends \
+                 pkg-config libasound2-dev libudev-dev; then
+              exit 0
+            fi
+            echo "::warning::apt-get install attempt ${attempt} failed; retrying"
+            sleep 10
+          done
+          echo "::error::apt failed after three bounded attempts"
+          exit 1
 
       - name: Provision corpora from store
         env:

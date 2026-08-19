@@ -33,6 +33,15 @@ jobs:
       - name: Check no fixture guard passes in silence
         run: python3 scripts/check-fixture-guards.py --self-test
 
+      # An unreachable Ubuntu mirror makes apt retry with its default
+      # timeouts — twenty to thirty minutes per job, before any of this
+      # repository's code is involved. The first fix covered ci.yml and
+      # missed maintain-release.yml and four sites in nightly-accuracy.yml,
+      # and the release workflow then hung on exactly the mirror the fix
+      # was written for.
+      - name: Check every workflow bounds apt
+        run: python3 scripts/check-workflow-apt.py --self-test
+
   registry:
     name: System registry
     runs-on: ubuntu-latest
