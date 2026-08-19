@@ -30,7 +30,8 @@ mod keyboard;
 
 pub use input::Zx80Key;
 pub use keyboard::KeyboardState;
-pub use sinclair_zx81_ula::{FB_HEIGHT, FB_WIDTH, Zx81Ula};
+mod video;
+pub use video::{FB_HEIGHT, FB_WIDTH, Zx80Video};
 
 use serde::{Deserialize, Serialize};
 use zilog_z80::z80::{BusOp, Z80};
@@ -42,7 +43,12 @@ pub struct Zx80 {
     rom: Vec<u8>,
     ram: Vec<u8>,
     ram_mask: u16,
-    ula: Zx81Ula,
+    video: Zx80Video,
+    prev_rfsh: bool,
+    dbg_m1: u64,
+    dbg_m1_high: u64,
+    dbg_high_byte: u8,
+    dbg_chars: u64,
     keyboard: KeyboardState,
     master_clock: u64,
     frame_count: u64,
@@ -68,7 +74,12 @@ impl Zx80 {
             rom,
             ram: vec![0; ram_size],
             ram_mask: (ram_size - 1) as u16,
-            ula: Zx81Ula::new(),
+            video: Zx80Video::new(),
+            prev_rfsh: false,
+            dbg_m1: 0,
+            dbg_m1_high: 0,
+            dbg_high_byte: 0,
+            dbg_chars: 0,
             keyboard: KeyboardState::new(),
             master_clock: 0,
             frame_count: 0,
@@ -78,9 +89,14 @@ impl Zx80 {
 
     pub fn run_frame(&mut self) -> u64 {
         let start = self.master_clock;
+        // Start from paper. A frame in which the CPU never entered the
+        // display routine must come out blank rather than holding the last
+        // picture — that blanking is the ZX80's defining behaviour, not a
+        // dropped frame.
+        self.video.clear();
         loop {
             self.tick_tstate();
-            if self.ula.take_frame_complete() {
+            if self.video.take_frame_complete() {
                 break;
             }
         }
@@ -91,19 +107,11 @@ impl Zx80 {
     fn tick_tstate(&mut self) {
         self.master_clock += 1;
 
-        // The ULA needs to read memory for display rendering. Snapshot the
-        // ROM/RAM borrows out of self.bus to avoid a self-referential borrow.
-        let rom = &self.rom;
-        let ram = &self.ram;
-        let mask = self.ram_mask;
-        self.ula.tick(self.cpu.regs.i, |addr| match addr {
-            0x0000..=0x3FFF => rom[(addr & 0x0FFF) as usize],
-            0x4000..=0x7FFF => ram[((addr - 0x4000) & mask) as usize],
-            0x8000..=0xBFFF => rom[(addr & 0x0FFF) as usize],
-            0xC000..=0xFFFF => ram[((addr - 0xC000) & mask) as usize],
-        });
+        self.video.tick();
 
-        // The ZX80 does NOT wire NMI to the ULA — leave self.cpu.nmi alone.
+        // The ZX80 has no NMI generator — that is the ZX81's addition, and
+        // the reason this machine blanks while it thinks. Leave cpu.nmi
+        // alone.
         //
         // Two CPU half-cycles per T-state. `Z80::tick` advances one
         // half-cycle — `T1Rise` then `T1Fall` — so calling it once per
@@ -115,13 +123,55 @@ impl Zx80 {
         for _ in 0..2 {
             self.cpu.tick();
             self.handle_bus();
+
+            // /REFRESH taking the ROM address lines away from the CPU. The
+            // address bus holds `I:R`, and the multiplexers take A9-A12 of
+            // it. Refresh is not a no-op on this machine: ignoring it
+            // removes the display.
+            let rfsh = self.cpu.rfsh;
+            if rfsh {
+                // INT is wired to address line A6, so an interrupt is
+                // generated whenever the address on the bus has A6 low. The
+                // refresh address is `I:R`, and `R` counts up as the display
+                // is fetched — so the interrupt arrives once per display
+                // line, ends the `HALT` that terminates the line, and the
+                // ROM's handler moves to the next one.
+                //
+                // Without this the CPU HALTs on the first line and never
+                // leaves: 92% of fetches were phantom NOPs when this was
+                // missing.
+                self.cpu.irq = self.cpu.addr & 0x0040 == 0;
+            }
+            if rfsh && !self.prev_rfsh {
+                let rom = &self.rom;
+                self.video
+                    .refresh(self.cpu.addr, |addr| rom[(addr & 0x0FFF) as usize]);
+            }
+            self.prev_rfsh = rfsh;
         }
     }
 
     fn handle_bus(&mut self) {
         match self.cpu.bus_request() {
             Some(BusOp::MemRead) => {
-                self.cpu.data_in = self.mem_read(self.cpu.addr);
+                let byte = self.mem_read(self.cpu.addr);
+                // A display fetch is answered with $00 on the CPU side while
+                // the real byte goes to the character latch. One read, two
+                // results — which is the whole trick.
+                if self.cpu.m1 {
+                    self.dbg_m1 += 1;
+                    if self.cpu.addr >= 0x8000 {
+                        self.dbg_m1_high += 1;
+                        if byte & 0x40 == 0 {
+                            self.dbg_chars += 1;
+                        }
+                    }
+                }
+                self.cpu.data_in = if self.cpu.m1 {
+                    self.video.opcode_fetch(self.cpu.addr, byte).unwrap_or(byte)
+                } else {
+                    byte
+                };
             }
             Some(BusOp::MemWrite) => {
                 self.mem_write(self.cpu.addr, self.cpu.data);
@@ -141,6 +191,11 @@ impl Zx80 {
                 }
             }
             Some(BusOp::IoWrite) => {
+                // Any `OUT` stops the vertical sync and ends the frame. The
+                // 50/60 Hz difference is a software constant plus a diode at
+                // D11, not a mode bit — so this is the only thing that sets
+                // the frame rate.
+                self.video.vsync_stop();
                 // Cassette out exists but is not wired in v1.
             }
             Some(BusOp::IntAck) => {
@@ -170,26 +225,39 @@ impl Zx80 {
         }
     }
 
-    fn io_read(&self, port: u16) -> u8 {
+    /// `IN` with A0 low reads the keyboard *and* starts the vertical sync.
+    /// One instruction, two jobs — there is no timing chip to ask.
+    fn io_read(&mut self, port: u16) -> u8 {
         if port & 0x01 == 0 {
+            self.video.vsync_start();
             return self.keyboard.read((port >> 8) as u8);
         }
         0xFF
     }
 
     #[must_use]
+    pub fn video_debug(&self) -> (u32, u32, u32, u32) {
+        (
+            self.video.dbg_min_line,
+            self.video.dbg_max_line,
+            self.video.dbg_min_x,
+            self.video.dbg_max_x,
+        )
+    }
+
+    #[must_use]
     pub fn framebuffer(&self) -> &[u32] {
-        self.ula.framebuffer()
+        self.video.framebuffer()
     }
 
     #[must_use]
     pub fn framebuffer_width(&self) -> u32 {
-        self.ula.framebuffer_width()
+        FB_WIDTH
     }
 
     #[must_use]
     pub fn framebuffer_height(&self) -> u32 {
-        self.ula.framebuffer_height()
+        FB_HEIGHT
     }
 
     pub fn press_key(&mut self, key: Zx80Key) {
