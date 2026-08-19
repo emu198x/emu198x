@@ -299,6 +299,101 @@ def jupiter_ace() -> bytes:
     ]))
 
 
+# The two machines that need their CRTC programmed first
+# ---------------------------------------------------------------------------
+#
+# Every machine above has *something* on screen at power-on, so one register
+# write or one screen fill is enough. The CPC and the BBC have a 6845 whose
+# registers are all zero at reset, which means no display exists at all until
+# the firmware builds one. Their programs are an order of magnitude longer
+# than the rest — around 170 bytes against a dozen — and almost all of that
+# is CRTC setup.
+#
+# The register values are an ordinary text-mode screen for each machine. They
+# are not tuned: any values producing a raster would serve, because the claim
+# is that the machine runs and paints, not that it paints correctly.
+
+CPC_CRTC = [
+    (0, 63), (1, 40), (2, 46), (3, 0x8E), (4, 38), (5, 0),
+    (6, 25), (7, 30), (8, 0), (9, 7), (12, 0x30), (13, 0x00),
+]
+
+BBC_CRTC = [
+    (0, 127), (1, 80), (2, 98), (3, 0x28), (4, 38), (5, 0), (6, 32),
+    (7, 34), (8, 0), (9, 7), (10, 0x20), (11, 8), (12, 0x06), (13, 0x00),
+]
+
+
+def amstrad_cpc() -> bytes:
+    """Amstrad CPC, 32 KiB firmware — the lower 16 KiB ROM sits at `$0000`.
+
+    The 6845 is addressed through port `$BCxx` (register select) and `$BDxx`
+    (data), the Gate Array through `$7Fxx`. `OUT (C),A` is used throughout
+    rather than `OUT (n),A`: the latter puts the accumulator on the high
+    address byte and would send the port number as the data.
+
+    Power-on RAM is zero, so every pixel is pen 0. Setting pen 0 and the
+    border to the same colour floods the frame without touching video RAM.
+    """
+    code = bytearray([0xF3, 0x0E, 0x00])                     # di ; ld c,0
+    for reg, val in CPC_CRTC:
+        code += bytes([0x06, 0xBC, 0x3E, reg, 0xED, 0x79])   # select
+        code += bytes([0x06, 0xBD, 0x3E, val, 0xED, 0x79])   # data
+    code += bytes([0x06, 0x7F])                              # ld b,$7F
+    for value in (0x00, 0x46, 0x10, 0x46, 0x80):
+        # pen 0, its colour, the border, its colour, then mode/ROM select.
+        code += bytes([0x3E, value, 0xED, 0x79])
+    code += bytes([0x18, 0xFE])                              # jr $
+    return _z80_rom(bytes(code), 0x8000)
+
+
+def acorn_bbc_micro() -> bytes:
+    """BBC Micro, 16 KiB MOS ROM at `$C000`.
+
+    The 6845 is at `$FE00`/`$FE01`, the Video ULA's control register at
+    `$FE20` and its palette at `$FE21`.
+
+    The screen is never filled. Every one of the sixteen logical colours is
+    mapped to the same physical colour instead, so whatever uninitialised
+    screen RAM holds, the display shows one colour. A palette write is
+    `(logical << 4) | (physical EOR 7)`.
+    """
+    physical = 1
+    code = bytearray([0x78])                                 # sei
+    for reg, val in BBC_CRTC:
+        code += bytes([0xA2, reg, 0x8E, 0x00, 0xFE])         # ldx #reg ; stx $FE00
+        code += bytes([0xA9, val, 0x8D, 0x01, 0xFE])         # lda #val ; sta $FE01
+    code += bytes([0xA9, 0x9C, 0x8D, 0x20, 0xFE])            # lda #$9C ; sta $FE20
+    code += bytes([0xA9, (physical ^ 7) & 0x0F])             # lda #(P EOR 7)
+    code += bytes([0xA2, 0x10])                              # ldx #16
+    loop = len(code)
+    code += bytes([0x8D, 0x21, 0xFE])                        # sta $FE21
+    code += bytes([0x18, 0x69, 0x10])                        # clc ; adc #$10
+    code += bytes([0xCA])                                    # dex
+    code += bytes([0xD0, (loop - (len(code) + 2)) & 0xFF])   # bne loop
+    here = len(code)
+    code += bytes([0x4C, (0xC000 + here) & 0xFF, (0xC000 + here) >> 8])
+    return _6502_rom(bytes(code), 0x4000, 0xC000)
+
+
+def _6502_rom(program: bytes, size: int, base: int) -> bytes:
+    """A 6502 ROM with its reset vector pointed at the first byte."""
+    rom = bytearray(b"\xFF" * size)
+    rom[:len(program)] = program
+    vector = size - 4
+    rom[vector] = base & 0xFF
+    rom[vector + 1] = base >> 8
+    return bytes(rom)
+
+
+def amstrad_cpc_control() -> bytes:
+    return _z80_rom(bytes([0xF3, 0x18, 0xFE]), 0x8000)
+
+
+def acorn_bbc_micro_control() -> bytes:
+    return _6502_rom(bytes([0x78, 0x4C, 0x01, 0xC0]), 0x4000, 0xC000)
+
+
 def _z80_rom(program: bytes, size: int = 0x2000) -> bytes:
     """A Z80 ROM at $0000 — reset lands on the first byte, no vector needed."""
     rom = bytearray(b"\xFF" * size)
@@ -325,6 +420,10 @@ SINGLE_MACHINE = {
     # Controls: identical sockets, no hardware touched. Each renders black,
     # which is what makes the expected colour above evidence rather than a
     # value someone liked the look of.
+    "amstrad-cpc.rom": amstrad_cpc,
+    "acorn-bbc-micro.rom": acorn_bbc_micro,
+    "amstrad-cpc-control.rom": amstrad_cpc_control,
+    "acorn-bbc-micro-control.rom": acorn_bbc_micro_control,
     "mattel-aquarius.rom": mattel_aquarius,
     "jupiter-ace.rom": jupiter_ace,
     "mattel-aquarius-control.rom": spin_only_z80,
