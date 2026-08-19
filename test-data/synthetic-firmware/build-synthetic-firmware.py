@@ -490,16 +490,22 @@ def commodore_pet_chargen() -> bytes:
 
 
 def _sinclair_zx_rom(size: int, char_page: int, with_program: bool) -> bytes:
-    """ZX80 (4 KiB, `I=$0E`) and ZX81 (8 KiB, `I=$1E`).
+    """ZX81 (8 KiB, `I=$1E`), and the ZX80's control image.
 
     ## What this proves
 
     On real hardware the *CPU* generates the picture: the Z80 executes
     through the display file while the ULA forces NOPs and turns the fetched
-    bytes into video. This emulator renders the display file from the
-    `D_FILE` pointer at `$400C` instead, so a pass proves the CPU executed
-    and those writes landed — not that display generation works, because
-    there is none to exercise.
+    bytes into video. The ZX81 in this workspace does not model that yet —
+    it renders the display file from the `D_FILE` pointer at `$400C` — so a
+    ZX81 pass proves the CPU executed and those writes landed, not that
+    display generation works.
+
+    The ZX80 no longer uses this: it models the mechanism, so an image that
+    writes a display file without executing one renders nothing at all. See
+    `sinclair_zx80` for the image that drives it, and note that this
+    function still builds the ZX80 *control*, whose whole job is to write no
+    display file and render nothing.
 
     ## Why the program sets `I`
 
@@ -547,8 +553,61 @@ def _sinclair_zx_rom(size: int, char_page: int, with_program: bool) -> bytes:
     return bytes(rom)
 
 
+# Assembled from `sinclair-zx80-display.asm` in this directory. To change the
+# display routine, edit the assembly and regenerate:
+#
+#     asm198x asm --dialect pasmo --cpu z80 sinclair-zx80-display.asm -o out.bin
+#
+# then paste the bytes here. Hand-assembling this by hand was tried first and
+# was a mistake: one absolute-versus-relative address slip sent the display
+# loop to a return address inside the zero page and cost an afternoon. The
+# rendering assertions in `synthetic_firmware_boot.rs` are what catch a bad
+# paste — a wrong byte here shows up as a blank or ragged screen.
+_ZX80_DISPLAY_CODE = bytes([
+    0xC3, 0x50, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0D, 0xC2, 0x45, 0x00,
+    0xE1, 0x05, 0xC8, 0xCB, 0xD9, 0xED, 0x4F, 0xFB, 0xE9, 0xD1, 0xC8, 0x18,
+    0xF8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xF3, 0x31, 0x00, 0x48,
+    0xED, 0x56, 0x3E, 0x0E, 0xED, 0x47, 0x21, 0x00, 0x40, 0x36, 0x76, 0x21,
+    0x00, 0x41, 0x36, 0x76, 0x23, 0x06, 0x18, 0x0E, 0x20, 0x36, 0x80, 0x23,
+    0x0D, 0x20, 0xFA, 0x36, 0x76, 0x23, 0x10, 0xF3, 0xDB, 0xFE, 0x06, 0x14,
+    0x10, 0xFE, 0xD3, 0xFF, 0x21, 0x00, 0xC0, 0x06, 0x01, 0x0E, 0x30, 0xCD,
+    0x92, 0x00, 0x21, 0x00, 0xC1, 0x06, 0x19, 0x0E, 0x08, 0xCD, 0x92, 0x00,
+    0x18, 0xE2, 0x3E, 0x5E, 0xED, 0x4F, 0xFB, 0xE9,
+])
+
+
 def sinclair_zx80() -> bytes:
-    return _sinclair_zx_rom(0x1000, 0x0E, True)
+    """ZX80 firmware that generates a picture the way the hardware does.
+
+    ## What this proves
+
+    The ZX80 has no video chip: the CPU executes through the display file
+    while the discrete logic forces NOPs and turns the fetched bytes into
+    pixels. Firmware that merely writes a display file and spins therefore
+    renders **nothing at all**, correctly — which is what this image used to
+    do, and why its test could pass for a machine with no display generation.
+
+    This one runs a real display routine. The interrupt handler counts
+    scanlines and rows and jumps back into the display file itself, exactly
+    as Sinclair's ROM does, because the horizontal position of the picture is
+    set by how long the machine takes to get from the interrupt back to the
+    first character fetch. See the assembly for the timing, which is measured
+    rather than reasoned.
+
+    The result is a solid 256x192 block: 24 rows of 32 glyphs, each `$80` —
+    glyph 0 inverted. The ROM is zero-filled, so glyph 0 is blank and
+    inverting it sets every pixel. A glyph that was already solid in ROM
+    would light the screen with the CPU switched off; this way the test
+    depends on `I` being set, on the display file being written, *and* on the
+    CPU executing it.
+    """
+    rom = bytearray(b"\x00" * 0x1000)      # zero-filled: glyph 0 is blank
+    rom[0:len(_ZX80_DISPLAY_CODE)] = _ZX80_DISPLAY_CODE
+    return bytes(rom)
 
 
 def sinclair_zx80_control() -> bytes:
