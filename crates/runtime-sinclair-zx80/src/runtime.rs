@@ -2,14 +2,15 @@
 
 use emu198x_shell::{
     AudioPacket, CapabilitySet, ControlCommand, FirmwareSet, FramePacket, HostIo, MachineCore,
-    MachineError, MachineProfile, MachineTime, MediaSet, PixelFormat, ResetKind, RunResult,
-    StopReason,
+    MachineError, MachineProfile, MachineTime, MediaKind, MediaSet, PixelFormat, ResetKind,
+    RunResult, StopReason,
 };
 use machine_sinclair_zx80::Zx80;
 
 use crate::input::apply_input_event;
 use crate::profiles::{Model, ROM_FIRMWARE_ID, profile_for};
 use crate::snapshot;
+use format_sinclair_zx80_o::Zx80Image;
 
 const ROM_SIZE: usize = 4 * 1024;
 const AUDIO_SAMPLE_RATE: u32 = 48_000;
@@ -188,8 +189,33 @@ impl MachineCore for Zx80Runtime {
         self.time = MachineTime::default();
     }
 
-    fn load_media(&mut self, _media: &MediaSet<'_>) -> Result<(), MachineError> {
-        // Cassette tape loading is a follow-up.
+    /// Threads a cassette onto the machine.
+    ///
+    /// The tape starts playing at once, and the ROM will not decode it until
+    /// the user has typed `LOAD` — the `W` key on a ZX80 — and the line has
+    /// then been quiet for the loader's leader countdown. The encoder's
+    /// lead-in covers the countdown; typing is the user's business, exactly
+    /// as it is with a real cassette recorder left running.
+    fn load_media(&mut self, media: &MediaSet<'_>) -> Result<(), MachineError> {
+        for image in &media.images {
+            if image.kind != MediaKind::Tape {
+                return Err(MachineError::UnknownMediaSlot {
+                    slot: image.slot.as_ref().to_owned(),
+                });
+            }
+            let parsed =
+                Zx80Image::parse(image.bytes).map_err(|error| MachineError::InvalidMedia {
+                    slot: image.slot.as_ref().to_owned(),
+                    reason: error.to_string(),
+                })?;
+            let machine = self
+                .machine
+                .as_mut()
+                .ok_or_else(|| MachineError::MissingFirmware {
+                    id: ROM_FIRMWARE_ID.to_owned(),
+                })?;
+            machine.insert_tape(&parsed.to_pulses());
+        }
         Ok(())
     }
 

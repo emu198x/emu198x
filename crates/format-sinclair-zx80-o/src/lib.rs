@@ -57,9 +57,24 @@ pub const BIT_GAP_T: u64 = 4754;
 pub const ZERO_PULSES: usize = 4;
 /// Pulses that mean a set bit.
 pub const ONE_PULSES: usize = 9;
-/// Silence before the first bit, so a loader that is already running sees a
-/// clean start rather than joining mid-pulse.
-pub const LEAD_IN_T: u64 = 100_000;
+/// Silence before the first bit.
+///
+/// This is not padding, and it is not generous. The loader refuses to start
+/// until the line has been quiet for a `$5712` countdown at `$0207`, about
+/// 890,000 T-states, and **any** high resets it:
+///
+/// ```text
+/// $0207   LD DE,$5712
+/// $020A   IN A,($FE) / RRA / JR NC (break) / RLA / RLA
+/// $0213   JR C,$0207        ; a high restarts the count
+///         DEC DE / LD A,D / OR E / JR NZ,$020A
+/// ```
+///
+/// A tape whose pulses begin sooner plays out entirely inside that search —
+/// every pulse resetting the countdown — and the loader then waits forever
+/// for a signal that has already gone. The symptom is a tape fully consumed
+/// with RAM untouched, which reads exactly like a broken decoder.
+pub const LEAD_IN_T: u64 = 1_500_000;
 
 /// Where RAM images start on a ZX80.
 pub const RAM_BASE: u16 = 0x4000;
