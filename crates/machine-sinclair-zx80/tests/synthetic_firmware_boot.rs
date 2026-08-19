@@ -9,16 +9,22 @@
 //! ## What a pass proves, stated carefully
 //!
 //! On real hardware the **CPU** generates the picture: the Z80 executes
-//! through the display file while the ULA forces NOPs and turns the fetched
-//! bytes into video. **This emulator does not model that.** Its ULA reads
-//! the `D_FILE` pointer from the system variables at `$400C` and renders the
-//! display file directly.
+//! through the display file while the discrete logic forces NOPs and turns
+//! the fetched bytes into video. Since #1033 this machine models exactly
+//! that — and the consequence is that this image cannot produce a picture.
+//! It writes a display file and spins; it never executes one. A ZX80 that
+//! is not running its display routine shows a blank screen, which is the
+//! machine's defining behaviour and not a failure.
 //!
-//! So a pass here proves the CPU executed from reset, wrote the `D_FILE`
-//! pointer and a display file, and the ULA rendered it. It proves **nothing
-//! about the display-generation mechanism**, because this emulator has none
-//! to exercise. On a faithful implementation the same image would prove
-//! considerably more — or fail outright.
+//! So a pass here proves the CPU executed from reset, set `I`, and wrote
+//! the display file it was asked to write. Evidence that display generation
+//! works is a different test with a different subject: `rom_boot` runs the
+//! manufacturer's ROM and asserts the cursor lands as a single 8x8 cell.
+//!
+//! Before #1033 this file asserted a screenful of ink, because the machine
+//! borrowed the ZX81's ULA and rendered the display file from the `D_FILE`
+//! pointer once a frame. That assertion passed for a machine with no
+//! display generation at all, which is what made it worth replacing.
 //!
 //! ## The firmware has to point `I` at a character set
 //!
@@ -64,36 +70,61 @@ fn booted(name: &str) -> Zx80 {
 }
 
 #[test]
-fn synthetic_firmware_writes_a_display_file_the_ula_renders() {
+fn synthetic_firmware_runs_and_writes_its_display_file() {
     let machine = booted("sinclair-zx80.rom");
+
+    assert_eq!(
+        machine.cpu().regs.i,
+        0x0E,
+        "the firmware should point I at the character set page"
+    );
+
+    // The display file it was asked to write: 24 rows of 32 solid glyphs,
+    // each row closed by a NEWLINE. Reading it back proves the CPU ran the
+    // fill loop to completion, which a stalled or crashed machine cannot.
+    let row_start = 0x4101;
+    let glyphs = (0..32)
+        .filter(|i| machine.peek_memory(row_start + i) == 0x80)
+        .count();
+    assert_eq!(glyphs, 32, "the first row should be 32 solid glyphs");
+    assert_eq!(
+        machine.peek_memory(row_start + 32),
+        0x76,
+        "and closed by a NEWLINE"
+    );
+    let last_row = 0x4101 + 23 * 33;
+    assert_eq!(
+        machine.peek_memory(last_row),
+        0x80,
+        "the fill should have reached the 24th row, not stopped early"
+    );
+
+    // And the screen stays blank, because nothing executed that display
+    // file. This is the assertion that would have failed before #1033.
     let ink = machine
         .framebuffer()
         .iter()
         .filter(|&&pixel| pixel == INK)
         .count();
-    // 49,152 in practice — 256x192, exactly 32x24 characters. The rest is
-    // border, which a display file cannot reach.
-    assert!(
-        ink > machine.framebuffer().len() / 2,
-        "the ULA should render the display file as solid ink; got {ink} of {} pixels",
-        machine.framebuffer().len()
+    assert_eq!(
+        ink, 0,
+        "a ZX80 shows a picture only while the CPU is executing forced NOPs \
+         from the display file; this firmware never does, so the screen is \
+         blank. {ink} ink pixels means something is rendering the display \
+         file behind the CPU's back"
     );
 }
 
-/// The control image spins without setting `D_FILE`, which therefore stays
-/// zero and points the ULA at ROM. That renders a little scattered ink —
-/// about 5% of the frame — rather than nothing, so this asserts a ceiling
-/// rather than an absence. The gap between 5% and 64% is the signal.
+/// The control image spins without writing a display file at all, so the
+/// bytes the other test reads back stay zero. It separates "the CPU ran the
+/// firmware" from "the RAM happened to contain this", which matters when
+/// the rendering assertion is an absence.
 #[test]
-fn the_control_image_renders_no_display_file() {
+fn the_control_image_writes_no_display_file() {
     let machine = booted("sinclair-zx80-control.rom");
-    let ink = machine
-        .framebuffer()
-        .iter()
-        .filter(|&&pixel| pixel == INK)
+    assert_eq!(machine.cpu().regs.i, 0x00, "the control image sets no I");
+    let written = (0..32)
+        .filter(|i| machine.peek_memory(0x4101 + i) == 0x80)
         .count();
-    assert!(
-        ink < machine.framebuffer().len() / 8,
-        "a machine that never set D_FILE cannot fill the display; got {ink} pixels"
-    );
+    assert_eq!(written, 0, "and writes no display file");
 }
