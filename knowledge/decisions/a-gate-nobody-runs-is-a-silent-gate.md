@@ -112,6 +112,32 @@ It also does not argue that Seam 4 was wrong. Seam 4 is a good mechanism and
 should stay. The claim is narrower: a good mechanism plus no trigger equals no
 protection.
 
+## Amendment 2026-08-19 — the guard shape is now checked, and the checker checks itself
+
+The decision above said a gate is only as good as the thing that makes it
+run. There was a second half nobody had written down: a guard that reports
+a missing fixture and *returns* makes libtest print `ok`, so the gate does
+not merely go unrun — it reports success.
+
+That shape was not rare. #1011 found **54 of them across 39 files**, most
+in the Spectrum family, where the correct idiom often sat two lines above
+the broken one in the same function. Two were not even `#[ignore]`d:
+`emu198x-spectrum`'s MCP and script-runner tests ran on every push and
+exercised nothing, because CI has no 48K ROM.
+
+`scripts/check-fixture-guards.py` now fails the build on the shape, in a
+buildless CI job.
+
+**The checker carries its own self-test**, and that is the part worth
+keeping. This repository runs no CI job over the scripts' own tests, so a
+detector that had stopped detecting would report a clean tree and be
+believed — exactly the failure it exists to prevent, one level up. Before
+scanning, it proves it still flags a known-bad sample and still ignores an
+ordinary diagnostic `eprintln!`.
+
+A checker that cannot demonstrate it still detects is a silent gate wearing
+a checker's clothes.
+
 ## Drift triggers
 
 Stop and re-read this decision if you find yourself:
