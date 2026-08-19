@@ -49,6 +49,7 @@ one register that floods the display, then spin.
 | Jupiter Ace | Z80 | none — glyph 0 redefined in character **RAM** at `$2C00` | display area solid ink |
 | Amstrad CPC | Z80 | 6845 built from scratch, then Gate Array pen 0 + border | **entire frame** uniform |
 | BBC Micro | 6502 | 6845 built from scratch, then all 16 logical colours mapped to one physical | **entire frame** uniform |
+| Dragon 32 | 6809 | 6144 bytes of display RAM filled at `$0000` | display area lit |
 
 ### The two that must build a display first
 
@@ -84,6 +85,26 @@ Kickstart leaves black.
 The VIC-20 is also given zero-filled BASIC and character ROMs. A blank
 character generator matters: every glyph the VIC fetches is then all
 background, so uninitialised screen RAM cannot speckle the frame.
+
+### The Dragon's two traps
+
+Both looked exactly like a broken renderer, and neither is guessable from
+outside the machine.
+
+**The VDG is in a graphics mode at reset, not a text mode.** The SAM display
+base is `$0000` — real firmware moves it to `$0400` — and the mode PIA1's
+port B selects needs 6144 bytes, not the 512 a 32x16 text screen would.
+Filling 512 bytes fills an eighth of the display.
+
+**The fill needs time.** 6144 iterations outrun ten frames, so a short run
+leaves the screen part-filled. It completes by about 120 frames; the test
+runs 200.
+
+Both were found by **reading memory back** rather than by staring at pixel
+counts. Once the bytes were provably in RAM, the renderer stopped being the
+suspect and the question became what the VDG was fetching — which is the
+question that had the answer. Three earlier attempts had gone the other way
+and got nowhere.
 
 ## Every image has a control
 

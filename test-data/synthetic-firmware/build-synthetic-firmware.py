@@ -376,6 +376,45 @@ def acorn_bbc_micro() -> bytes:
     return _6502_rom(bytes(code), 0x4000, 0xC000)
 
 
+def dragon_32() -> bytes:
+    """Dragon 32, 16 KiB ROM at `$C000`, MC6809.
+
+    Two things about this machine cost several attempts, and both are
+    recorded here because neither is guessable from the outside.
+
+    **The VDG is in a graphics mode at reset, not a text mode.** The SAM
+    display base is `$0000` (real firmware moves it to `$0400`), and the mode
+    selected by PIA1's port B needs 6144 bytes, not the 512 a 32x16 text
+    screen would. Filling 512 bytes fills an eighth of the display and looks
+    exactly like a broken renderer.
+
+    **The fill loop needs time.** 6144 iterations of `sta ,x+` outruns ten
+    frames, so a run that is too short leaves the screen part-filled — which
+    also looks like a broken renderer. The test runs 200 frames; the fill
+    completes by about 120.
+    """
+    code = bytes([
+        0x1A, 0x50,              # orcc #$50     mask interrupts
+        0x86, 0xFF,              # lda #$FF      every pixel set
+        0x8E, 0x00, 0x00,        # ldx #$0000    SAM display base at reset
+        0xA7, 0x80,              # loop: sta ,x+
+        0x8C, 0x18, 0x00,        #       cmpx #$1800   6144 bytes
+        0x26, 0xF9,              #       bne loop
+        0x20, 0xFE,              # bra $
+    ])
+    rom = bytearray(b"\xFF" * 0x4000)
+    rom[:len(code)] = code
+    rom[0x3FFE:0x4000] = bytes([0xC0, 0x00])   # 6809 reset vector is at $FFFE
+    return bytes(rom)
+
+
+def dragon_32_control() -> bytes:
+    rom = bytearray(b"\xFF" * 0x4000)
+    rom[:4] = bytes([0x1A, 0x50, 0x20, 0xFE])
+    rom[0x3FFE:0x4000] = bytes([0xC0, 0x00])
+    return bytes(rom)
+
+
 def _6502_rom(program: bytes, size: int, base: int) -> bytes:
     """A 6502 ROM with its reset vector pointed at the first byte."""
     rom = bytearray(b"\xFF" * size)
@@ -420,6 +459,8 @@ SINGLE_MACHINE = {
     # Controls: identical sockets, no hardware touched. Each renders black,
     # which is what makes the expected colour above evidence rather than a
     # value someone liked the look of.
+    "dragon-32.rom": dragon_32,
+    "dragon-32-control.rom": dragon_32_control,
     "amstrad-cpc.rom": amstrad_cpc,
     "acorn-bbc-micro.rom": acorn_bbc_micro,
     "amstrad-cpc-control.rom": amstrad_cpc_control,

@@ -260,11 +260,22 @@ never-ran comparison is asserting a constant.
 | Evidence | Systems |
 | --- | --- |
 | Executes from cartridge and renders | 7 |
-| Executes from ROM socket and renders | 15 |
+| Executes from ROM socket and renders | 16 |
 | Real firmware cold-starts | 3 |
 
-7 + 15 + 3 = 25, with the Amstrad CPC and BBC Micro joining the Aquarius,
-Jupiter Ace, Atom and Oric.
+7 + 16 + 3 = 26, the Dragon 32 joining the CPC, BBC Micro, Aquarius, Jupiter
+Ace, Atom and Oric.
+
+**The Dragon is worth a note on method.** Three attempts failed by reasoning
+from the framebuffer: too few pixels changed, so the renderer looked broken.
+The fourth read memory back instead and found all 6144 bytes present — which
+moved the question from "is the renderer working" to "what is the VDG
+fetching", and that question had an answer. Its display base is `$0000` at
+reset in a graphics mode wanting 6144 bytes, and the fill loop outruns ten
+frames.
+
+Reading back the state a test depends on, before doubting the thing under
+test, would have saved three attempts here and one on the 800XL.
 
 **Those last two are the strongest synthetic proofs, and they show the
 weakness of the rest.** Every other machine here has something on screen at
