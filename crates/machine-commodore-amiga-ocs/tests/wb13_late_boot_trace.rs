@@ -96,7 +96,7 @@ const VALIDATOR_OWNER_LONG64: u32 = 0x64;
 
 fn load_artifact(path: &PathBuf) -> Option<Vec<u8>> {
     if !path.exists() {
-        eprintln!("skipping: missing {}", path.display());
+        emu198x_test_skip::record(&format!("skipping: missing {}", path.display()));
         return None;
     }
     std::fs::read(path).ok()

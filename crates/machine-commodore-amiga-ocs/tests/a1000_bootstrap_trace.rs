@@ -66,7 +66,10 @@ fn local_kick12_rom_path() -> Option<PathBuf> {
     let home = std::env::var_os("HOME")?;
     let path = PathBuf::from(home).join(".emu198x/roms/commodore-amiga/kick12.rom");
     if !path.exists() {
-        eprintln!("skipping: local kick12.rom missing at {}", path.display());
+        emu198x_test_skip::record(&format!(
+            "skipping: local kick12.rom missing at {}",
+            path.display()
+        ));
         return None;
     }
     Some(path)

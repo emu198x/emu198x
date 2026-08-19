@@ -195,7 +195,7 @@ fn run_to_completion(tap_filename: &str) -> Option<Spectrum128K> {
     let rom0_path = rom0_path();
     let rom1_path = rom1_path();
     if !rom0_path.is_file() || !rom1_path.is_file() {
-        eprintln!("128K ROMs not found — skipping");
+        emu198x_test_skip::record("128K ROMs not found — skipping");
         return None;
     }
     let tap_path = system_tests_dir().join(tap_filename);

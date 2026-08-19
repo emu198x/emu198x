@@ -436,7 +436,7 @@ fn dragon_runtime_loads_and_executes_real_machine_code_cas_when_available() {
 
 fn booted_dragon_session() -> Option<HeadlessSession<DragonRuntime, DragonSessionQueryProvider>> {
     let Some(rom_path) = dragon32_rom_path() else {
-        eprintln!("skipping Dragon 32 real-ROM smoke: set EMU198X_DRAGON32_ROM");
+        emu198x_test_skip::record("skipping Dragon 32 real-ROM smoke: set EMU198X_DRAGON32_ROM");
         return None;
     };
 
@@ -466,11 +466,13 @@ fn booted_dragon_session() -> Option<HeadlessSession<DragonRuntime, DragonSessio
 
 fn booted_dragon64_session() -> Option<HeadlessSession<DragonRuntime, DragonSessionQueryProvider>> {
     let Some(compat_rom_path) = dragon64_compatible_rom_path() else {
-        eprintln!("skipping Dragon 64 real-ROM smoke: set EMU198X_DRAGON64_COMPAT_ROM");
+        emu198x_test_skip::record(
+            "skipping Dragon 64 real-ROM smoke: set EMU198X_DRAGON64_COMPAT_ROM",
+        );
         return None;
     };
     let Some(mode_rom_path) = dragon64_rom_path() else {
-        eprintln!("skipping Dragon 64 real-ROM smoke: set EMU198X_DRAGON64_ROM");
+        emu198x_test_skip::record("skipping Dragon 64 real-ROM smoke: set EMU198X_DRAGON64_ROM");
         return None;
     };
 
