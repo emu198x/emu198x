@@ -163,6 +163,43 @@ A tier could earn its way back. It would need a stated meaning per rung, a
 mechanism that moves it, and something that consumes it. Absent all three
 it was decoration that looked like data.
 
+## Amendment 2026-08-19 (later) — fourteen of thirty, and the unit that count is in
+
+The entry above says boot is checked "for the eight machines where that is
+honestly possible" and that the other twenty-two are "not verifiable in
+public infrastructure, because the firmware cannot be". Both figures are
+superseded, and the second was too pessimistic about its own reasoning.
+
+**Fourteen of the thirty registered systems now have boot evidence that runs
+on every push**, in three strengths that must keep being worded differently:
+
+| Evidence | Systems |
+| --- | --- |
+| Executes from cartridge and renders | 7 — 2600, 7800, Game Boy, NES, Master System, Game Gear, SG-1000 |
+| Executes from ROM socket and renders | 6 — ColecoVision, MTX, MSX, M5, SVI-328, Einstein |
+| Real firmware cold-starts | 1 — the Spectrum line, and the MSX via C-BIOS |
+
+The licence framing was the thing that was wrong. "The firmware cannot be
+distributed" is true and was treated as the end of the argument, when for
+six machines the answer was to stop needing the firmware: a synthetic image
+in the ROM socket proves the machine fetches, executes and renders without
+anyone's ROM. For the MSX, C-BIOS then went further — a real BIOS nobody
+needs permission for. A licence blocks *one* route to evidence, not
+evidence.
+
+**The count is in registry systems, and nothing else.** `systems.toml` has
+thirty entries; `sinclair-zx-spectrum` is one of them, covering 48K, 128K,
++2, +2A, +2B and +3 inside a single shipping crate. Counting those variants
+individually against the thirty produced "19 of 30" and then "20 of 30" in
+the session that wrote this amendment — both inflated, the second also
+counting the MSX twice because C-BIOS *raised* its evidence rather than
+adding a machine. Mixing the units is easy precisely because the variants
+have their own crates and their own boot tests.
+
+A stronger claim about a machine already counted does not move the count. It
+changes which row of the table that machine sits in, which is the more
+useful thing to report anyway.
+
 ## Consequences
 
 - Evidence differs by environment, and that is correct, not a defect. The
@@ -194,6 +231,11 @@ Re-read this entry when you catch any of these:
 - reintroducing a declared tier without a stated meaning per rung, a
   mechanism that changes it, and a consumer that reads it
 - treating a `skip!` or an `#[ignore]` as anything but a gap
+- counting machine variants or crates against the thirty-system denominator
+  — the unit is the registry system, and the Spectrum is one of them
+- counting a machine again because its evidence got stronger
+- "the firmware cannot be distributed, so this machine cannot be verified" —
+  that blocks one route, and the synthetic-firmware six are the counterexample
 - "the local run has better numbers, publish that one" — it has fewer
   visible gaps, which is not the same thing
 - sorting ignore reasons into buckets by keyword rather than grouping them
