@@ -2249,6 +2249,7 @@ dependencies = [
  "atari-antic",
  "atari-gtia",
  "atari-pokey",
+ "emu198x-test-skip",
  "mos-6502",
  "mos-pia-6520",
  "postcard",
