@@ -54,9 +54,27 @@ REPORTS_ABSENCE = re.compile(
     r"not found|missing|not present|skipping|skip:|not staged|not set", re.I
 )
 
-# A bare return, or one yielding a bool — helpers such as `skip_if_missing`
-# return a flag their caller branches on, and those hid failures too.
-RETURNS = re.compile(r"^\s*return(\s+(true|false))?\s*;", re.M)
+# Any return, whatever it yields. The first version of this check matched
+# only `return;`, `return true;` and `return false;`, and missed 86 guards —
+# more than the 54 the sweep it was written to protect had found. The
+# dominant shape here is a helper that reports the absence and returns
+# `None`, which its caller discards with `else { return }`:
+#
+#     fn load_kickstart() -> Option<Vec<u8>> {
+#         if !path.exists() {
+#             eprintln!("skipping: Kickstart 1.3 ROM missing at {}", ...);
+#             return None;
+#         }
+#
+# The `eprintln!` and the bail sit together *inside the helper*, so matching
+# any return catches the split form without following the call graph.
+RETURNS = re.compile(r"^\s*return\b[^;]*;", re.M)
+
+# `record()` is the sanctioned non-returning half: a helper that records the
+# skip and then returns `None` has done its job, and the tally counts it. A
+# window mentioning the skip crate is therefore not a silent guard — without
+# this, the fix for every offender would trip the check that demanded it.
+RECORDS = re.compile(r"emu198x_test_skip|skip!\(|record\(")
 
 # How far after the `eprintln!` a return still counts as the same guard.
 WINDOW = 7
@@ -76,7 +94,8 @@ def offenders(root: Path) -> list[tuple[Path, int, str]]:
         for index, line in enumerate(lines):
             if "eprintln!" not in line or not REPORTS_ABSENCE.search(line):
                 continue
-            if RETURNS.search("\n".join(lines[index : index + WINDOW])):
+            window = "\n".join(lines[index : index + WINDOW])
+            if RETURNS.search(window) and not RECORDS.search(window):
                 found.append((path, index + 1, line.strip()))
     return found
 
@@ -111,9 +130,56 @@ fn prints_but_does_not_guard() {
 '''
 
 
+HELPER = '''
+fn load_kickstart() -> Option<Vec<u8>> {
+    if !path.exists() {
+        eprintln!("skipping: Kickstart 1.3 ROM missing at {}", path.display());
+        return None;
+    }
+    Some(std::fs::read(&path).expect("read ROM"))
+}
+
+#[test]
+fn silent_through_a_helper() {
+    let Some(rom) = load_kickstart() else { return };
+    assert!(!rom.is_empty());
+}
+'''
+
+RESULT = '''
+#[test]
+fn silent_returning_ok() -> Result<(), Box<dyn Error>> {
+    let Some(dir) = rom_dir() else {
+        eprintln!("skip: no C64 ROM dir");
+        return Ok(());
+    };
+    Ok(())
+}
+'''
+
+RECORDED = '''
+fn load_kickstart() -> Option<Vec<u8>> {
+    if !path.exists() {
+        emu198x_test_skip::record(&format!("Kickstart missing at {}", path.display()));
+        return None;
+    }
+    Some(std::fs::read(&path).expect("read ROM"))
+}
+'''
+
+
 def self_test(tmp: Path) -> None:
     """Prove the detector still detects, then prove it still discriminates."""
-    cases = [("good.rs", GOOD, 0), ("bad.rs", BAD, 1), ("noisy.rs", NOISY, 0)]
+    cases = [
+        ("good.rs", GOOD, 0),
+        ("bad.rs", BAD, 1),
+        ("noisy.rs", NOISY, 0),
+        # The three the first version of this checker walked straight past.
+        ("helper.rs", HELPER, 1),
+        ("result.rs", RESULT, 1),
+        # And the fix for them, which must not itself register as a guard.
+        ("recorded.rs", RECORDED, 0),
+    ]
     for name, body, expected in cases:
         sample = tmp / "tests"
         sample.mkdir(parents=True, exist_ok=True)
@@ -126,7 +192,10 @@ def self_test(tmp: Path) -> None:
                 f"self-test FAILED: {name} should yield {expected} hit(s), got {hits}. "
                 "The detector has stopped detecting; fix it before trusting a pass."
             )
-    print("self-test passed: detects the guard, ignores an ordinary eprintln!")
+    print(
+        "self-test passed: detects bare, helper and Result-returning guards; "
+        "ignores an ordinary eprintln! and a recorded skip"
+    )
 
 
 def main() -> int:
