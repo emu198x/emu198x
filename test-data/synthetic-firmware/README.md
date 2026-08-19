@@ -23,6 +23,16 @@ collapsing them into one word is how a status page starts overclaiming.
 
 ## Machines that share nothing
 
+Two of these have no background register at all. The Oric keeps colour in
+the text stream as attribute bytes and the Atom drives a 6847 whose mode
+comes from pins rather than registers, so both are flooded by *filling video
+RAM* instead of writing one port. The Atom's `$BF` is a semigraphics-4 cell
+— bit 7 set, colour 3, all four blocks lit — which needs no mode change.
+
+The Atom also shows why the reset vector is worth checking rather than
+assuming: its `$D000-$FFFF` maps to `rom[0x3000..]`, so `$FFFC` lives at
+`rom[0x5FFC]`, not where a flat image would put it.
+
 The VIC-20, Atari 5200 and Amiga each drive their own display hardware on
 their own CPU, so each gets its own few instructions rather than a shared
 program. What they have in common is only the shape of the proof: write the
@@ -33,6 +43,8 @@ one register that floods the display, then spin.
 | VIC-20 | 6502 | `$900F` — screen, polarity and border in one byte | displayed raster red |
 | Atari 5200 | 6502 | `COLBK` at `$C01A` | **entire frame** uniform |
 | Amiga | 68000 | `COLOR00` at `$DFF180` | raster red edge to edge |
+| Oric Atmos | 6502 | none — paper attributes filled into video RAM at `$BB80` | **entire frame** uniform |
+| Acorn Atom | 6502 | none — semigraphics-4 cells filled into video RAM at `$8000` | display area one colour |
 
 Only the 5200 comes out fully uniform. ANTIC's DMA is off at power-on, so
 with no display list fetched there is nothing but background. The VIC-20's
@@ -54,8 +66,15 @@ the expected colour.
 This is what makes the colour evidence rather than a value someone liked the
 look of. Without it the test says "the framebuffer is red"; with it the test
 says "the framebuffer is red *because our code ran*, and is black otherwise".
-Every control renders black, which is also how the expected colours were
-chosen — measured against "never ran", not assumed.
+The expected colours were chosen this way — measured against "never ran",
+not assumed.
+
+**Not every control renders black.** The VIC-20, 5200, Amiga and Oric all
+do, and the Atom does not: a 6847 with no programming still paints its
+alphanumeric screen, so "never ran" there is green on dark green. The
+assertion that survives both cases is *"a colour appears that the control
+does not contain"* — not *"the frame stopped being black"*, which was only
+ever true of some of them.
 
 ## Why one script covers six machines
 

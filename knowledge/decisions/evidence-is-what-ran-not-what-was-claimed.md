@@ -260,10 +260,23 @@ never-ran comparison is asserting a constant.
 | Evidence | Systems |
 | --- | --- |
 | Executes from cartridge and renders | 7 |
-| Executes from ROM socket and renders | 9 |
+| Executes from ROM socket and renders | 11 |
 | Real firmware cold-starts | 3 |
 
-7 + 9 + 3 = 19.
+7 + 11 + 3 = 21, with the Acorn Atom and Oric Atmos added.
+
+Neither has a background register to write. The Oric keeps colour in the
+text stream as attribute bytes; the Atom's 6847 takes its mode from pins.
+Both are flooded by filling video RAM instead, which is a different proof of
+the same thing — and a reminder that "write the background register" is a
+habit of the machines that have one, not a method.
+
+**The Atom also broke the control's assumption.** Every control until then
+rendered black, and the wording had started to lean on that. A 6847 with no
+programming still paints its alphanumeric screen, so the Atom's "never ran"
+is green on dark green. The assertion that survives both is *a colour
+appears that the control does not contain* — never *the frame stopped being
+black*.
 
 ## Consequences
 

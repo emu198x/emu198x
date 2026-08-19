@@ -189,6 +189,71 @@ def amiga_kickstart_control() -> bytes:
     return bytes(rom)
 
 
+def acorn_atom() -> bytes:
+    """Acorn Atom, 24 KiB ROM. `$D000-$FFFF` maps to `rom[0x3000..]`, so the
+    reset vector at `$FFFC` lives at `rom[0x5FFC]` — not where a flat
+    16 KiB image would put it.
+
+    The 6847 needs no register write here. `$BF` is a semigraphics-4 cell:
+    bit 7 set, colour 3, all four blocks lit. Filling the text screen at
+    `$8000` with it turns the whole display area to one colour without
+    touching a mode pin.
+    """
+    rom = bytearray(b"\xFF" * 0x6000)
+    rom[0x3000:0x3000 + 17] = bytes([
+        0x78,                     # sei
+        0xA9, 0xBF,               # lda #$BF
+        0xA2, 0x00,               # ldx #$00
+        0x9D, 0x00, 0x80,         # sta $8000,x     loop
+        0x9D, 0x00, 0x81,         # sta $8100,x
+        0xE8,                     # inx
+        0xD0, 0xF7,               # bne loop
+        0x4C, 0x0E, 0xD0,         # jmp $D00E
+    ])
+    rom[0x5FFC:0x5FFE] = bytes([0x00, 0xD0])
+    return bytes(rom)
+
+
+def acorn_atom_control() -> bytes:
+    rom = bytearray(b"\xFF" * 0x6000)
+    rom[0x3000:0x3004] = bytes([0x78, 0x4C, 0x01, 0xD0])
+    rom[0x5FFC:0x5FFE] = bytes([0x00, 0xD0])
+    return bytes(rom)
+
+
+def oric_atmos() -> bytes:
+    """Oric Atmos, 16 KiB ROM at `$C000`.
+
+    The Oric has no background register: colour lives in the text stream
+    itself, as attribute bytes. Filling video RAM at `$BB80` with a paper
+    attribute makes every cell background, so the whole frame becomes one
+    colour. `$16` is attribute 22 — paper 6.
+    """
+    rom = bytearray(b"\xFF" * 0x4000)
+    rom[:26] = bytes([
+        0x78,                     # sei
+        0xA9, 0x16,               # lda #$16        paper attribute
+        0xA2, 0x00,               # ldx #$00
+        0x9D, 0x80, 0xBB,         # sta $BB80,x     loop
+        0x9D, 0x80, 0xBC,         # sta $BC80,x
+        0x9D, 0x80, 0xBD,         # sta $BD80,x
+        0x9D, 0x80, 0xBE,         # sta $BE80,x
+        0x9D, 0x80, 0xBF,         # sta $BF80,x
+        0xE8,                     # inx
+        0xD0, 0xEE,               # bne loop
+        0x4C, 0x17, 0xC0,         # jmp $C017
+    ])
+    rom[0x3FFC:0x3FFE] = bytes([0x00, 0xC0])
+    return bytes(rom)
+
+
+def oric_atmos_control() -> bytes:
+    rom = bytearray(b"\xFF" * 0x4000)
+    rom[:4] = bytes([0x78, 0x4C, 0x01, 0xC0])
+    rom[0x3FFC:0x3FFE] = bytes([0x00, 0xC0])
+    return bytes(rom)
+
+
 def zero_rom(size: int) -> bytes:
     return b"\x00" * size
 
@@ -204,6 +269,10 @@ SINGLE_MACHINE = {
     # Controls: identical sockets, no hardware touched. Each renders black,
     # which is what makes the expected colour above evidence rather than a
     # value someone liked the look of.
+    "acorn-atom.rom": acorn_atom,
+    "oric-atmos.rom": oric_atmos,
+    "acorn-atom-control.rom": acorn_atom_control,
+    "oric-atmos-control.rom": oric_atmos_control,
     "commodore-vic-20-kernal-control.rom": vic20_kernal_control,
     "atari-5200-bios-control.rom": atari5200_bios_control,
     "commodore-amiga-kickstart-control.rom": amiga_kickstart_control,
