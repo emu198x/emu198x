@@ -18,9 +18,14 @@
 //!
 //! ## Fixtures
 //!
-//! Provisioned from `EMU198X_ROMS_ROOT`, joining `commodore-amiga/`. The
-//! images are APL-licensed and redistributable, but are not staged in the
-//! corpora store yet, so this skips in CI rather than failing.
+//! Provisioned from `EMU198X_ROMS_ROOT`, joining `commodore-amiga/`.
+//!
+//! Runs in the **nightly** accuracy sweep, not on every pull request. 1500
+//! frames of a 68000 costs about 140 seconds in a debug build against 8 in
+//! release, and the per-PR firmware-boot job is deliberately under ten
+//! seconds in total. So the Amiga's *per-push* evidence stays synthetic and
+//! its real-firmware evidence is nightly — a real distinction, and one the
+//! status pages should not blur.
 
 use std::path::PathBuf;
 

@@ -121,6 +121,17 @@ jobs:
             test: z80_fuse
             env_var: EMU198X_FUSE_Z80_TESTS_DIR
             filter: ''
+          # AROS m68k, the Amiga's free firmware. Nightly rather than
+          # per-PR: 1500 frames of a 68000 costs ~140s in a debug build,
+          # against 8s here in release. The firmware-boot job on every PR
+          # is deliberately under ten seconds, and this is not the change
+          # that ends that.
+          - name: aros-m68k
+            artifact: aros-m68k
+            crate: machine-commodore-amiga-ocs
+            test: aros_boot
+            env_var: EMU198X_ROMS_ROOT
+            filter: ''
     steps:
       - name: Check out repository
         uses: actions/checkout@v7
