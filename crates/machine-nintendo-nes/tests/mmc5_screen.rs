@@ -129,8 +129,7 @@ fn mmc5_executes_code_from_exram() {
     };
     let path = root.join("exram/mmc5exram.nes");
     let Ok(bytes) = std::fs::read(&path) else {
-        eprintln!("ROM not present at {path:?}; skipping");
-        return;
+        emu198x_test_skip::skip!("ROM not present at {path:?}; skipping");
     };
     let parsed = parse_ines(&bytes).expect("parse iNES");
     let mut nes = Nes::new(parsed.mapper);

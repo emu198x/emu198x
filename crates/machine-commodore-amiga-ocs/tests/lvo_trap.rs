@@ -125,8 +125,7 @@ fn run(amiga: &mut AmigaOcs, label: &str) {
     eprintln!("ExecBase = ${exec_base:08X}");
 
     let Some(gfx_base) = find_library(amiga, exec_base, "graphics.library") else {
-        eprintln!("graphics.library not found — abort");
-        return;
+        emu198x_test_skip::skip!("graphics.library not found — abort");
     };
     eprintln!("graphics.library base = ${gfx_base:08X}");
 

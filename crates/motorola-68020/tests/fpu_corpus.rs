@@ -526,8 +526,7 @@ fn fpu_corpus_fadd_smoke() {
     };
     let path = root.join("FADD.msgpack");
     if !path.exists() {
-        eprintln!("Skipping: {} not found", path.display());
-        return;
+        emu198x_test_skip::skip!("Skipping: {} not found", path.display());
     }
 
     let r = run_fixture(&path).expect("FADD fixture loads");

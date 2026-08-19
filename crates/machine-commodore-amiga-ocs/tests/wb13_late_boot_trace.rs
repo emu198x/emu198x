@@ -4376,8 +4376,7 @@ fn trace_wb13_trackdisk_beginio_requests() {
     }
     let exec_base = read_long(&discover, 0x0000_0004);
     let Some(td_base) = find_device(&discover, exec_base, "trackdisk.device") else {
-        eprintln!("trackdisk.device not found during discovery");
-        return;
+        emu198x_test_skip::skip!("trackdisk.device not found during discovery");
     };
     let beginio_slot = td_base.wrapping_add(LVO_BEGIN_IO as u32);
     if read_word(&discover, beginio_slot) != 0x4EF9 {
@@ -4453,8 +4452,7 @@ fn trace_wb13_root_block_read_compare() {
     }
     let exec_base = read_long(&discover, 0x0000_0004);
     let Some(td_base) = find_device(&discover, exec_base, "trackdisk.device") else {
-        eprintln!("trackdisk.device not found during discovery");
-        return;
+        emu198x_test_skip::skip!("trackdisk.device not found during discovery");
     };
     let beginio_slot = td_base.wrapping_add(LVO_BEGIN_IO as u32);
     if read_word(&discover, beginio_slot) != 0x4EF9 {

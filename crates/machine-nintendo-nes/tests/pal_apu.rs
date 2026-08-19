@@ -144,8 +144,7 @@ const ROMS: &[&str] = &[
 
 fn expect_pass(rel: &str) {
     if root().is_none() {
-        eprintln!("nes-test-roms not found; skipping {rel}");
-        return;
+        emu198x_test_skip::skip!("nes-test-roms not found; skipping {rel}");
     }
     match run_pal(rel) {
         Some(1) => {}

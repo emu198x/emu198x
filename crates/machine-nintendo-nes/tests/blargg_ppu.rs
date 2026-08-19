@@ -117,13 +117,11 @@ fn run_blargg(rom_path: &PathBuf) -> Result<BlarggResult, String> {
 /// Look up one blargg ROM and run it, asserting pass.
 fn run_or_skip(rel: &str) {
     let Some(root) = blargg_root() else {
-        eprintln!("blargg root not found; skipping {rel}");
-        return;
+        emu198x_test_skip::skip!("blargg root not found; skipping {rel}");
     };
     let rom = root.join(rel);
     if !rom.is_file() {
-        eprintln!("blargg ROM not present at {rom:?}; skipping");
-        return;
+        emu198x_test_skip::skip!("blargg ROM not present at {rom:?}; skipping");
     }
     let result = run_blargg(&rom).unwrap_or_else(|e| panic!("blargg run failed: {e}"));
     assert_eq!(

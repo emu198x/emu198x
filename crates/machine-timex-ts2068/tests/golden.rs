@@ -123,8 +123,7 @@ fn golden_ts2068_boot() {
     let main_rom = dir.join("ts2068.rom");
     let exrom = dir.join("exrom.rom");
     if !main_rom.exists() || !exrom.exists() {
-        eprintln!("TS2068 ROMs not found at {}", dir.display());
-        return;
+        emu198x_test_skip::skip!("TS2068 ROMs not found at {}", dir.display());
     }
     let mut machine = TimexTS2068::new(TimexModel::TS2068);
     machine

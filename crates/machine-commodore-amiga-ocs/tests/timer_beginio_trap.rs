@@ -82,8 +82,7 @@ fn run_with_trap(amiga_ctor: impl Fn() -> AmigaOcs, label: &str) {
     }
     let exec_base = read_long(&discover, 0x0000_0004);
     let Some(timer_base) = find_device(&discover, exec_base, "timer.device") else {
-        eprintln!("timer.device not found");
-        return;
+        emu198x_test_skip::skip!("timer.device not found");
     };
     let beginio_slot = timer_base.wrapping_add(LVO_BEGIN_IO as u32);
     let beginio_op = discover.read_word(beginio_slot);

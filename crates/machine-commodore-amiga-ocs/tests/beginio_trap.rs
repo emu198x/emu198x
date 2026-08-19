@@ -81,8 +81,7 @@ fn run_with_trap(amiga_ctor: impl Fn() -> AmigaOcs, label: &str) {
     }
     let exec_base = read_long(&discover, 0x0000_0004);
     let Some(td_base) = find_device(&discover, exec_base, "trackdisk.device") else {
-        eprintln!("trackdisk not found");
-        return;
+        emu198x_test_skip::skip!("trackdisk not found");
     };
     let beginio_slot = td_base.wrapping_add(LVO_BEGIN_IO as u32);
     let beginio = read_long(&discover, beginio_slot.wrapping_add(2));

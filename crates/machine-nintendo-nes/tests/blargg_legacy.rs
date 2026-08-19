@@ -133,13 +133,11 @@ fn run_legacy(rom_path: &PathBuf, opts: &LegacyRun<'_>) -> Result<Legacy, String
 /// Look up one legacy ROM and run it, asserting it prints its pass token.
 fn run_or_skip_with(rel: &str, opts: &LegacyRun<'_>) {
     let Some(root) = blargg_root() else {
-        eprintln!("blargg root not found; skipping {rel}");
-        return;
+        emu198x_test_skip::skip!("blargg root not found; skipping {rel}");
     };
     let rom = root.join(rel);
     if !rom.is_file() {
-        eprintln!("legacy ROM not present at {rom:?}; skipping");
-        return;
+        emu198x_test_skip::skip!("legacy ROM not present at {rom:?}; skipping");
     }
     match run_legacy(&rom, opts).unwrap_or_else(|e| panic!("legacy run failed: {e}")) {
         Legacy::Passed => eprintln!("legacy test {rel} passed"),
@@ -208,13 +206,11 @@ const CPU_TIMING_ROM: &str = "cpu_timing_test6/cpu_timing_test.nes";
 /// gate cannot pass on a mode it did not actually run.
 fn cpu_timing_mode(held: u8, banner: &str) {
     let Some(root) = blargg_root() else {
-        eprintln!("blargg root not found; skipping {CPU_TIMING_ROM}");
-        return;
+        emu198x_test_skip::skip!("blargg root not found; skipping {CPU_TIMING_ROM}");
     };
     let rom = root.join(CPU_TIMING_ROM);
     if !rom.is_file() {
-        eprintln!("legacy ROM not present at {rom:?}; skipping");
-        return;
+        emu198x_test_skip::skip!("legacy ROM not present at {rom:?}; skipping");
     }
     let opts = LegacyRun {
         held,

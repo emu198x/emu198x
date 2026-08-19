@@ -48,13 +48,11 @@ fn nametable_text(nes: &Nes) -> String {
 
 fn probe(name: &str) {
     let Some(root) = rom_root() else {
-        eprintln!("nes-test-roms not found; skipping");
-        return;
+        emu198x_test_skip::skip!("nes-test-roms not found; skipping");
     };
     let path = root.join("sprdma_and_dmc_dma").join(name);
     let Ok(bytes) = std::fs::read(&path) else {
-        eprintln!("missing {}", path.display());
-        return;
+        emu198x_test_skip::skip!("missing {}", path.display());
     };
     let parsed = parse_ines(&bytes).expect("parse iNES");
     let mut nes = Nes::new(parsed.mapper);
@@ -80,13 +78,11 @@ fn probe(name: &str) {
 /// halt/dummy/alignment cycle.
 fn trace(name: &str, episodes: usize, cycles: usize) {
     let Some(root) = rom_root() else {
-        eprintln!("nes-test-roms not found; skipping");
-        return;
+        emu198x_test_skip::skip!("nes-test-roms not found; skipping");
     };
     let path = root.join("sprdma_and_dmc_dma").join(name);
     let Ok(bytes) = std::fs::read(&path) else {
-        eprintln!("missing {}", path.display());
-        return;
+        emu198x_test_skip::skip!("missing {}", path.display());
     };
     let parsed = parse_ines(&bytes).expect("parse iNES");
     let mut nes = Nes::new(parsed.mapper);
@@ -186,8 +182,7 @@ fn probe_dma_episodes_around_transfers() {
         .join("sprdma_and_dmc_dma")
         .join("sprdma_and_dmc_dma.nes");
     let Ok(bytes) = std::fs::read(&path) else {
-        eprintln!("missing {}", path.display());
-        return;
+        emu198x_test_skip::skip!("missing {}", path.display());
     };
     let parsed = parse_ines(&bytes).expect("parse iNES");
     let mut nes = Nes::new(parsed.mapper);
@@ -251,8 +246,7 @@ fn probe_dmc_rearm_vs_fetch() {
         .join("sprdma_and_dmc_dma")
         .join("sprdma_and_dmc_dma.nes");
     let Ok(bytes) = std::fs::read(&path) else {
-        eprintln!("missing {}", path.display());
-        return;
+        emu198x_test_skip::skip!("missing {}", path.display());
     };
     let parsed = parse_ines(&bytes).expect("parse iNES");
     let mut nes = Nes::new(parsed.mapper);

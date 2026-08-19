@@ -24,8 +24,7 @@ fn boot_to_basic_renders_screen_content() {
     };
     let rom = dir.join("tc2048.rom");
     if !rom.exists() {
-        eprintln!("TC2048 ROM not found at {}", rom.display());
-        return;
+        emu198x_test_skip::skip!("TC2048 ROM not found at {}", rom.display());
     }
 
     let mut machine = TimexTC2048::new();

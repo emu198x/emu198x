@@ -191,8 +191,7 @@ fn set_machine_swaps_the_live_variant() {
     let home = std::env::var("HOME").expect("HOME is set");
     let a500_rom = PathBuf::from(&home).join(".emu198x/roms/commodore-amiga/kick13.rom");
     if !a500_rom.exists() {
-        eprintln!("skipping: A500 Kickstart missing at {}", a500_rom.display());
-        return;
+        emu198x_test_skip::skip!("skipping: A500 Kickstart missing at {}", a500_rom.display());
     }
 
     // Booted as the AGA A1200 (see boot_server); swap to the OCS A500.
