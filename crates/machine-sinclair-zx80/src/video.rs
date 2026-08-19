@@ -134,6 +134,11 @@ impl Zx80Video {
     }
 
     #[must_use]
+    pub fn display_line(&self) -> u32 {
+        self.display_line
+    }
+
+    #[must_use]
     pub fn framebuffer(&self) -> &[u32] {
         &self.framebuffer
     }
@@ -207,6 +212,14 @@ impl Zx80Video {
         self.framebuffer.fill(PAPER);
         self.painted = 0;
         self.pending = false;
+        // Per frame, not cumulative. Left accumulating, these reported the
+        // union of every frame since boot — which read as a steady-state
+        // geometry fault when it was really the boot frames' history.
+        self.dbg_min_line = u32::MAX;
+        self.dbg_max_line = 0;
+        self.dbg_min_x = u32::MAX;
+        self.dbg_max_x = 0;
+        self.dbg_paint_calls = 0;
     }
 
     /// An opcode fetch. Returns `Some(0x00)` when the inverters force a
