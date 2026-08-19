@@ -85,8 +85,8 @@ jobs:
   # `io-contention-is-a-count-not-a-level.md` forbids scoring gate changes
   # against that file at all — three terms were once tuned against its run
   # count and died.
-  spectrum-boot:
-    name: Spectrum boot evidence
+  firmware-boot:
+    name: Firmware boot evidence
     runs-on: ubuntu-latest
     env:
       CORPORA_REPO: ${{ vars.ACCURACY_CORPORA_REPO }}
@@ -107,7 +107,7 @@ jobs:
             echo "configured=true" >> "$GITHUB_OUTPUT"
           else
             echo "configured=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::Corpora store not configured — Spectrum boot evidence did NOT run."
+            echo "::warning::Corpora store not configured — firmware boot evidence did NOT run."
           fi
 
       - name: Install Linux build dependencies
@@ -149,7 +149,7 @@ jobs:
         with:
           shared-key: test-linux
 
-      - name: Provision the Spectrum ROMs from the store
+      - name: Provision the redistributable firmware from the store
         if: steps.store.outputs.configured == 'true'
         env:
           GH_TOKEN: ${{ secrets.ACCURACY_CORPORA_TOKEN }}
@@ -158,12 +158,15 @@ jobs:
           mkdir -p corpora
           cd corpora
           gh release download "${CORPORA_TAG}" -R "${CORPORA_REPO}" \
-            -p 'z80test.tar.zst' -p 'spectrum-roms.tar.zst' -p 'SHA256SUMS'
-          grep ' z80test.tar.zst$' SHA256SUMS | sha256sum -c -
-          grep ' spectrum-roms.tar.zst$' SHA256SUMS | sha256sum -c -
+            -p 'z80test.tar.zst' -p 'spectrum-roms.tar.zst' -p 'cbios.tar.zst' \
+            -p 'SHA256SUMS'
+          for tarball in z80test spectrum-roms cbios; do
+            grep " ${tarball}.tar.zst\$" SHA256SUMS | sha256sum -c -
+          done
           tar --zstd -xf 'z80test.tar.zst'
           mkdir -p roms
           tar --zstd -xf 'spectrum-roms.tar.zst' -C roms
+          tar --zstd -xf 'cbios.tar.zst' -C roms
           # The 48K ROM travels inside the z80test tarball; the rest of the
           # line has its own. `EMU198X_ROMS_ROOT` is the firmware root each
           # machine's test joins its own directory onto.
@@ -206,6 +209,10 @@ jobs:
             cargo test -p "machine-sinclair-zx-spectrum-${machine}" \
               --test boot_test -- --ignored
           done
+          # The MSX boots C-BIOS: a clean-room BSD-licensed MSX BIOS, not
+          # Microsoft's. Real firmware cold-starting, which is a stronger
+          # claim than the synthetic image its sibling test uses.
+          cargo test -p machine-msx --test cbios_boot -- --ignored
 
   fmt:
     name: Format
