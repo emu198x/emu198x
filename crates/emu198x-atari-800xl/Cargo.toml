@@ -28,6 +28,9 @@ png = { workspace = true }
 runtime-atari-800xl = { path = "../runtime-atari-800xl", version = "0.4.0" }
 serde_json = { workspace = true }
 
+[dev-dependencies]
+emu198x-test-skip = { path = "../emu198x-test-skip", version = "0.4.0" }
+
 [lints]
 workspace = true
 

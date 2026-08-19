@@ -140,8 +140,7 @@ fn real_ines_super_mario_bros_runs_and_draws() {
         emu198x_test_skip::skip!("set EMU198X_NES_SMB_ROM to a Super Mario Bros. iNES path");
     };
     if !path.is_file() {
-        eprintln!("SKIPPING: SMB ROM not found at {}", path.display());
-        return;
+        emu198x_test_skip::skip!("SKIPPING: SMB ROM not found at {}", path.display());
     }
 
     let rom = std::fs::read(&path).expect("reference ROM should read");

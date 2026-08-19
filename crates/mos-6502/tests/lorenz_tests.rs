@@ -617,15 +617,13 @@ fn lorenz_sweep() {
     let suite_dir = match find_lorenz_6502_dir() {
         Ok(d) => d,
         Err(message) => {
-            eprintln!("Wolfgang Lorenz suite not found; skipping sweep: {message}");
-            return;
+            emu198x_test_skip::skip!("Wolfgang Lorenz suite not found; skipping sweep: {message}");
         }
     };
     let kernal = match load_kernal_rom() {
         Ok(k) => k,
         Err(message) => {
-            eprintln!("C64 KERNAL ROM not found; skipping sweep: {message}");
-            return;
+            emu198x_test_skip::skip!("C64 KERNAL ROM not found; skipping sweep: {message}");
         }
     };
 

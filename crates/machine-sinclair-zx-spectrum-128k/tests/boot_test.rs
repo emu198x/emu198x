@@ -27,8 +27,7 @@ fn boot_to_menu_renders_screen_content() {
     let rom0 = dir.join("128-0.rom");
     let rom1 = dir.join("128-1.rom");
     if !rom0.exists() || !rom1.exists() {
-        eprintln!("128K ROMs not found at {}", dir.display());
-        return;
+        emu198x_test_skip::skip!("128K ROMs not found at {}", dir.display());
     }
 
     let mut machine = Spectrum128K::new();

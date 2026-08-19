@@ -130,8 +130,7 @@ fn dump_gfxbase(amiga: &AmigaOcs, label: &str) {
     }
 
     let Some(gfx_base) = find_library(amiga, exec_base, "graphics.library") else {
-        eprintln!("graphics.library not found in LibList");
-        return;
+        emu198x_test_skip::skip!("graphics.library not found in LibList");
     };
     eprintln!("graphics.library base = ${gfx_base:08X}");
 

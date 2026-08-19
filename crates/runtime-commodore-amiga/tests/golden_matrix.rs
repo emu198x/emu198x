@@ -479,8 +479,7 @@ fn count_unignored_differences(
 /// cases: byte mismatch in strict mode.
 fn run_row(row: &GoldenRow) {
     let Some(roms) = roms_dir() else {
-        eprintln!("skipping {}: $HOME not set", row.name);
-        return;
+        emu198x_test_skip::skip!("skipping {}: $HOME not set", row.name);
     };
     let rom_path = roms.join(row.kickstart);
     let Some(rom_bytes) = load_optional_artifact(&rom_path, "Kickstart ROM", row.name) else {

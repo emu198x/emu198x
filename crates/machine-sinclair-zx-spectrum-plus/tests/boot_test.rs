@@ -24,8 +24,7 @@ fn boot_to_basic_renders_screen_content() {
         emu198x_test_skip::skip!("HOME not set — cannot locate 48K ROM");
     };
     if !path.exists() {
-        eprintln!("48K ROM not found at {}", path.display());
-        return;
+        emu198x_test_skip::skip!("48K ROM not found at {}", path.display());
     }
 
     let bytes = std::fs::read(&path).expect("48K ROM should read");

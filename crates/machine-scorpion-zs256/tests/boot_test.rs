@@ -32,8 +32,7 @@ fn boot_runs_service_rom() {
     let roms: [PathBuf; 4] = std::array::from_fn(|i| dir.join(format!("scorpion-{i}.rom")));
     for rom in &roms {
         if !rom.exists() {
-            eprintln!("Scorpion ROM not found at {}", rom.display());
-            return;
+            emu198x_test_skip::skip!("Scorpion ROM not found at {}", rom.display());
         }
     }
 

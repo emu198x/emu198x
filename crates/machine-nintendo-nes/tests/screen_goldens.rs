@@ -137,13 +137,11 @@ fn screen_state(nes: &Nes) -> Vec<String> {
 
 fn check(rel: &str) {
     let Some(root) = roms_root() else {
-        eprintln!("nes-test-roms not found; skipping {rel}");
-        return;
+        emu198x_test_skip::skip!("nes-test-roms not found; skipping {rel}");
     };
     let rom = root.join(rel);
     if !rom.is_file() {
-        eprintln!("ROM not present at {rom:?}; skipping");
-        return;
+        emu198x_test_skip::skip!("ROM not present at {rom:?}; skipping");
     }
     let key = rel.replace('/', "_").replace(".nes", "");
     let golden_path = golden_root().join(format!("{key}.txt"));

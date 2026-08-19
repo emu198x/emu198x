@@ -99,13 +99,11 @@ fn grade_onscreen(rom_path: &PathBuf, result_addr: u16) -> Result<OnscreenResult
 /// Skips (no-op) when the ROM is absent.
 fn run_onscreen_or_skip(dir: &str, rom: &str, result_addr: u16) {
     let Some(root) = blargg_root() else {
-        eprintln!("blargg root not found; skipping {dir}/{rom}");
-        return;
+        emu198x_test_skip::skip!("blargg root not found; skipping {dir}/{rom}");
     };
     let path = root.join(dir).join(rom);
     if !path.is_file() {
-        eprintln!("ROM not present at {path:?}; skipping");
-        return;
+        emu198x_test_skip::skip!("ROM not present at {path:?}; skipping");
     }
     let result = grade_onscreen(&path, result_addr).unwrap_or_else(|e| panic!("{e}"));
     assert_eq!(

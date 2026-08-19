@@ -27,8 +27,7 @@ fn boot_to_menu_renders_screen_content() {
     for i in 0..4 {
         let rom = dir.join(format!("plus3-{i}.rom"));
         if !rom.exists() {
-            eprintln!("+3 ROMs not found at {}", dir.display());
-            return;
+            emu198x_test_skip::skip!("+3 ROMs not found at {}", dir.display());
         }
     }
 

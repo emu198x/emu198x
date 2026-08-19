@@ -32,8 +32,7 @@ fn key(name: &str, pressed: bool) -> InputEvent {
 #[ignore = "requires local OS + BASIC ROMs at ~/.emu198x/roms/atari-800xl/"]
 fn typing_print_expression_evaluates() {
     let (Some(os), Some(basic)) = (rom("atarixl.rom"), rom("ataribas.rom")) else {
-        eprintln!("skipping: ROMs not present");
-        return;
+        emu198x_test_skip::skip!("skipping: ROMs not present");
     };
 
     let runtime = Atari800xlRuntime::new(Model::A800xlNtsc, Some(os), Some(basic), None, true)

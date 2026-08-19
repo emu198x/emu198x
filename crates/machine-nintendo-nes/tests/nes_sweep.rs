@@ -726,8 +726,7 @@ fn assert_against_baseline(observed: &std::collections::BTreeMap<(String, String
     let path = match baseline_path() {
         Some(p) => p,
         None => {
-            eprintln!("no declared baseline found; skipping the gate");
-            return;
+            emu198x_test_skip::skip!("no declared baseline found; skipping the gate");
         }
     };
     let text = std::fs::read_to_string(&path).expect("read declared sweep baseline");

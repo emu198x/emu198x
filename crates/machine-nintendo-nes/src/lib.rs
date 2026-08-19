@@ -1149,8 +1149,9 @@ mod tests {
         // A set-but-wrong path is the same situation: report and skip rather
         // than take the package down with it.
         let Ok(entries) = std::fs::read_dir(&dir) else {
-            eprintln!("skipping diagnostic_nes_suite: cannot read {dir}");
-            return;
+            emu198x_test_skip::skip!(
+                "diagnostic_nes_suite: EMU198X_NES_SUITE is set but {dir} cannot be read"
+            );
         };
         let mut roms: Vec<_> = entries
             .flatten()

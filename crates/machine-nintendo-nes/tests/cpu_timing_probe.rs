@@ -123,8 +123,7 @@ fn probe_cpu_timing_test() {
         (HELD_B, "official + all undocumented"),
     ] {
         let Some((settled_at, text)) = run_with(&root, held) else {
-            eprintln!("missing cpu_timing_test.nes");
-            return;
+            emu198x_test_skip::skip!("missing cpu_timing_test.nes");
         };
         eprintln!(
             "\n═══ cpu_timing_test.nes — {label} (held {held:#04X}) — {} ═══\n{text}",

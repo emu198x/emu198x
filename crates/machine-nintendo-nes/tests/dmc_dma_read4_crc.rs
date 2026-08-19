@@ -54,13 +54,11 @@ fn screen_text(nes: &Nes) -> String {
 /// Assert the ROM printed one of the checksums its source header lists.
 fn expect_crc_in(name: &str, allowed: &[&str]) {
     let Some(root) = root() else {
-        eprintln!("nes-test-roms not found; skipping {name}");
-        return;
+        emu198x_test_skip::skip!("nes-test-roms not found; skipping {name}");
     };
     let path = root.join(format!("dmc_dma_during_read4/{name}.nes"));
     let Ok(bytes) = std::fs::read(&path) else {
-        eprintln!("ROM not present at {path:?}; skipping");
-        return;
+        emu198x_test_skip::skip!("ROM not present at {path:?}; skipping");
     };
     let parsed = parse_ines(&bytes).expect("parse iNES");
     let mut nes = Nes::new(parsed.mapper);

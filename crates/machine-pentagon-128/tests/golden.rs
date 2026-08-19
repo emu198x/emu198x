@@ -125,8 +125,7 @@ fn golden_pentagon_boot() {
     let rom0 = dir.join("pentagon-0.rom");
     let rom1 = dir.join("pentagon-1.rom");
     if !rom0.exists() || !rom1.exists() {
-        eprintln!("Pentagon ROMs not found at {}", dir.display());
-        return;
+        emu198x_test_skip::skip!("Pentagon ROMs not found at {}", dir.display());
     }
     let mut machine = Pentagon128::new();
     machine.memory.load_rom0(&rom0).expect("ROM 0 should load");

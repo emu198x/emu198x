@@ -339,8 +339,7 @@ mod tests {
         };
 
         if !rom_path.is_file() {
-            eprintln!("ROM not found at {}", rom_path.display());
-            return;
+            emu198x_test_skip::skip!("48K ROM not staged at {}", rom_path.display());
         }
 
         let rom = match fs::read(&rom_path) {

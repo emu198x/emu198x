@@ -197,8 +197,9 @@ mod tests {
         let runtime_48k = match boot_eager_48k(&RomOverrides::new()) {
             Ok(rt) => rt,
             Err(_) => {
-                eprintln!("skipping: 48K ROM missing (set up ~/.emu198x/roms/...)");
-                return;
+                emu198x_test_skip::skip!(
+                    "48K ROM not staged (~/.emu198x/roms/sinclair-zx-spectrum-48k/48.rom)"
+                );
             }
         };
         let kind = SpectrumRuntimeKind::Spectrum48K(runtime_48k);
@@ -278,8 +279,9 @@ mod tests {
         let runtime_48k = match boot_eager_48k(&RomOverrides::new()) {
             Ok(rt) => rt,
             Err(_) => {
-                eprintln!("skipping: 48K ROM missing (set up ~/.emu198x/roms/...)");
-                return;
+                emu198x_test_skip::skip!(
+                    "48K ROM not staged (~/.emu198x/roms/sinclair-zx-spectrum-48k/48.rom)"
+                );
             }
         };
         let kind = SpectrumRuntimeKind::Spectrum48K(runtime_48k);
