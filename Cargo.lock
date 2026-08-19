@@ -2480,6 +2480,7 @@ dependencies = [
 name = "machine-msx"
 version = "0.4.0"
 dependencies = [
+ "emu198x-test-skip",
  "gi-ay-3-8912",
  "intel-8255",
  "postcard",
