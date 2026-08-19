@@ -1,0 +1,14 @@
+[package]
+name = "format-sinclair-zx80-o"
+description = "ZX80 .o/.80 tape image parser and pulse encoder"
+edition.workspace = true
+version.workspace = true
+publish = false
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+thiserror = { workspace = true }
+
+[lints]
+workspace = true
