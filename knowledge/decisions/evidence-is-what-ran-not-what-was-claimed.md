@@ -416,6 +416,37 @@ size is known, check the count.
   `cargo test --workspace` and would otherwise have stopped checking them
   silently.
 
+## The instrument is evidence too, and it can lie
+
+Modelling the ZX80's video (#1033) cost three fixes aimed at the wrong
+thing, both times because a debug counter was believed over the machine.
+
+**A derived quantity is only as good as what it derives from.** The probe
+logged each event's line as `tstate / TSTATES_PER_LINE`, but `line_sync`
+zeroes `tstate` at the start of every line — so every event logged at line
+~0 regardless of where it was. Read as evidence, that said the picture had
+moved to the top of the frame when nothing had moved. The tell: a
+measurement that reports the same value for events you know differ.
+
+**Cumulative counters describe history, not the steady state.** The paint
+extent accumulated from power-on and was never reset, so it reported the
+union of every frame the machine had drawn since boot — dominated by the
+boot frames. It read as a stable geometry fault. Reset per-frame counters
+where the thing they describe is reset; here, alongside the framebuffer.
+
+**Identical output across a real behaviour change is information.** Three
+different frame-boundary rules produced byte-identical results, which I
+first read as a stale build. It was not: the ROM issues exactly one `OUT`
+per frame, so all three rules were the same rule. When a change provably
+landed and nothing moved, the next question is what makes the change
+irrelevant — not whether the change landed.
+
+The general form: before concluding from an instrument, ask what it would
+read if the hypothesis were false. All three of these read the same either
+way. Cheap counters that answer *how many* and *where, exactly* — one `OUT`
+per frame, 33 paints per line, `C` counting 56 then 8 — settled in one run
+what inference had failed to settle in six.
+
 ## Drift triggers
 
 Re-read this entry when you catch any of these:
@@ -437,3 +468,6 @@ Re-read this entry when you catch any of these:
   visible gaps, which is not the same thing
 - sorting ignore reasons into buckets by keyword rather than grouping them
   by their exact text
+- believing a debug counter over the machine, or reading a derived number
+  without checking what it derives from
+- a measurement that does not change when the code provably did
