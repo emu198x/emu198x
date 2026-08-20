@@ -47,6 +47,10 @@ use crate::{
     ModelArg, USAGE, die, find_rom_path, firmware_id_for_model_arg, next_arg, parse_model_arg,
 };
 
+/// Hires dot clock: twice the 7.09379 MHz PAL system tick, which is what
+/// the 768-wide framebuffer is drawn at.
+const HIRES_PIXEL_CLOCK_HZ: f64 = 14_187_580.0;
+
 const DEFAULT_FLOPPY_SLOT: &str = "floppy-0";
 const DEFAULT_SCALE: u32 = 1;
 const INPUT_SLICES_PER_FRAME: u32 = 4;
@@ -154,6 +158,25 @@ impl UiSystem for AmigaSystem {
 
     fn default_scale(&self) -> u32 {
         DEFAULT_SCALE
+    }
+
+    /// The framebuffer is 768x576: hires horizontally and interlaced
+    /// vertically, so both terms double against a lores non-interlaced
+    /// picture. That is the case the derivation's `lines_per_tv_height`
+    /// argument exists for — 576 buffer lines fill a PAL set's height, not
+    /// 288 — and getting it wrong would be out by a factor of two rather
+    /// than a few percent.
+    ///
+    /// Pinned to PAL, as `frame_ticks` and `framebuffer_size` already are:
+    /// this frontend runs an A500 PAL and ignores the runtime's region. The
+    /// NTSC machine's clock is a different figure and wants the region
+    /// threading through all three together, not here alone.
+    fn pixel_aspect_ratio(&self, _runtime: &Self::Runtime) -> Option<f32> {
+        emu198x_shell::display::pixel_aspect_ratio(
+            emu198x_shell::machine::Region::Pal,
+            HIRES_PIXEL_CLOCK_HZ,
+            f64::from(DISPLAY_HEIGHT),
+        )
     }
 
     fn framebuffer_size(&self, _runtime: &Self::Runtime) -> (u32, u32) {

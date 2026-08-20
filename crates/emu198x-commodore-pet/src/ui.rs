@@ -75,6 +75,14 @@ impl UiSystem for PetSystem {
 
     // The PET drove a 4:3 monochrome monitor; its framebuffer stretches to fill
     // it.
+    //
+    // Deliberately still on this hook rather than `pixel_aspect_ratio`, and the
+    // only core that should be. The raster derivation asks how much of a
+    // *broadcast* line a set displays, and a set overscans; a dedicated monitor
+    // shows the whole framebuffer, so "stretch this buffer to fill 4:3" is not
+    // a legacy approximation here but the correct model. The PET's profile says
+    // `Region::Other` for the same reason, and the derivation would decline to
+    // answer. See `knowledge/decisions/pixel-aspect-comes-from-the-raster.md`.
     fn display_aspect_ratio(&self) -> Option<f32> {
         Some(4.0 / 3.0)
     }

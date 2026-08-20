@@ -71,11 +71,26 @@ Gear's pixels are square because they are square, not because a standard says
 so. Game Boy is the same case and currently reaches square by omission rather
 than by saying so; that is worth tidying when it migrates.
 
-## Migration
+## `display_aspect_ratio` keeps one honest job
 
-`display_aspect_ratio` stays until the last core leaves it. The harness prefers
-`pixel_aspect_ratio` and falls back, so no core changes behaviour until it is
-migrated deliberately. Do not add new cores to the old hook.
+The old hook is not simply the pre-migration way of doing this. It asks a core
+what shape its framebuffer should *fill*, and that is the right question for a
+display that shows the whole framebuffer.
+
+A television does not. It overscans, which is why the raster derivation asks
+how much of a broadcast line a set displays and takes no framebuffer
+dimensions at all. A dedicated monitor has no such convention: the PET's 4:3
+monochrome screen shows the raster it is given, so "stretch this buffer to
+4:3" is exact rather than approximate.
+
+So the Commodore PET stays on `display_aspect_ratio`, and it is the only core
+that should. Its profile says `Region::Other` for the same reason and the
+raster derivation would decline to answer it. Every core that drove a
+television belongs on `pixel_aspect_ratio`; the hook is not deleted when the
+last of them moves.
+
+The harness prefers `pixel_aspect_ratio` and falls back, so no core changes
+behaviour until it is migrated deliberately.
 
 Migrated so far — sixteen of thirty:
 
@@ -109,8 +124,30 @@ correction makes its picture *narrower*, not wider. Reading the old hook as
 "square" is the mistake — it was stretching to 4:3, which lands somewhere
 different for every framebuffer shape.
 
-Fourteen remain; #1053 tracks them. Each wants a reference to check against,
-not just arithmetic.
+Then the rest of the fleet:
+
+| Core | TV | PAR | Published |
+|---|---|---|---|
+| Atari 800XL, 5200, 7800 | NTSC | 0.8571 | 6:7 ✓ |
+| " | PAL | 1.041 | — |
+| Aquarius | NTSC | 0.8571 | 6:7 |
+| VIC-20 | NTSC | 0.7500 | matches the NTSC C64 exactly |
+| VIC-20 | PAL | 0.8328 | ≈ 5/6 |
+| Atom, Dragon | PAL | 1.041 | — |
+| Oric | PAL | 1.231 | — |
+| Jupiter Ace | PAL | 1.136 | matches the ZX80 exactly |
+| BBC Micro, Electron, CPC | PAL | 0.4615 | — |
+| Amiga (hires, interlaced) | PAL | 1.041 | — |
+
+Twenty-nine of thirty cores now derive it; the PET is the thirtieth and stays
+where it is, for the reason below.
+
+Two of these check themselves against work done earlier. The VIC-20 on NTSC
+lands on 0.7500, the same as the NTSC C64 — both fetch a character per cycle
+and emit eight pixels, at the same cycle rate, so they must agree, and they
+do. The Jupiter Ace lands on the ZX80's 1.136: same 207 T-states, same 312
+lines, same two pixels per 3.25 MHz T-state. Neither was arranged; both fall
+out of clocks read from their own cores.
 
 ## This says nothing about overscan
 
