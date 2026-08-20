@@ -2,8 +2,8 @@
 
 use emu198x_shell::{
     AudioPacket, CapabilitySet, ControlCommand, FirmwareSet, FramePacket, HostIo, MachineCore,
-    MachineError, MachineProfile, MachineTime, MediaKind, MediaSet, PixelFormat, ResetKind,
-    RunResult, StopReason,
+    MachineError, MachineProfile, MachineTime, MediaKind, MediaSet, MediaTransportAction,
+    PixelFormat, ResetKind, RunResult, StopReason,
 };
 use machine_sinclair_zx80::Zx80;
 
@@ -14,6 +14,7 @@ use format_sinclair_zx80_o::Zx80Image;
 
 const ROM_SIZE: usize = 4 * 1024;
 const AUDIO_SAMPLE_RATE: u32 = 48_000;
+const TAPE_SLOT: &str = "tape-1";
 
 pub struct Zx80Runtime {
     profile: MachineProfile,
@@ -25,6 +26,10 @@ pub struct Zx80Runtime {
     rgba_framebuffer: Vec<u8>,
     rgba_width: u32,
     rgba_height: u32,
+    /// The cassette sitting in the deck, encoded but not playing. Threading
+    /// it onto the machine is `MediaTransportAction::Start`'s job, not
+    /// `load_media`'s — see [`Zx80Runtime::load_media`].
+    tape: Option<Vec<u64>>,
 }
 
 impl Zx80Runtime {
@@ -43,6 +48,7 @@ impl Zx80Runtime {
             rgba_framebuffer: Vec::new(),
             rgba_width: 0,
             rgba_height: 0,
+            tape: None,
         }
     }
 
@@ -189,13 +195,19 @@ impl MachineCore for Zx80Runtime {
         self.time = MachineTime::default();
     }
 
-    /// Threads a cassette onto the machine.
+    /// Puts a cassette in the deck. It does not press PLAY.
     ///
-    /// The tape starts playing at once, and the ROM will not decode it until
-    /// the user has typed `LOAD` — the `W` key on a ZX80 — and the line has
-    /// then been quiet for the loader's leader countdown. The encoder's
-    /// lead-in covers the countdown; typing is the user's business, exactly
-    /// as it is with a real cassette recorder left running.
+    /// Loading and playing are separate on purpose, because the ZX80's
+    /// loader makes them separate in practice. `$0207` will not start
+    /// decoding until the line has been quiet for a `$5712` countdown, and
+    /// **any** high resets it. The encoder's lead-in supplies exactly that
+    /// quiet run — so it has to arrive *after* the user has typed `LOAD`
+    /// (the `W` key). A tape threaded at load time spends its lead-in during
+    /// boot and typing, and its data pulses then land inside the leader
+    /// search, resetting the countdown until the tape runs out. The loader
+    /// waits forever for a signal that has already gone.
+    ///
+    /// Press PLAY with `MediaTransportAction::Start` once `LOAD` is typed.
     fn load_media(&mut self, media: &MediaSet<'_>) -> Result<(), MachineError> {
         for image in &media.images {
             if image.kind != MediaKind::Tape {
@@ -208,13 +220,50 @@ impl MachineCore for Zx80Runtime {
                     slot: image.slot.as_ref().to_owned(),
                     reason: error.to_string(),
                 })?;
-            let machine = self
-                .machine
-                .as_mut()
-                .ok_or_else(|| MachineError::MissingFirmware {
-                    id: ROM_FIRMWARE_ID.to_owned(),
-                })?;
-            machine.insert_tape(&parsed.to_pulses());
+            self.tape = Some(parsed.to_pulses());
+        }
+        Ok(())
+    }
+
+    /// Presses PLAY or STOP on the cassette deck.
+    ///
+    /// `Start` threads the loaded tape onto the machine from its beginning,
+    /// lead-in first; `Stop` lifts it off. Rewinding on every press is what
+    /// a `.o` deck does — the image is one program, not a position on a
+    /// longer tape.
+    fn command(&mut self, command: &ControlCommand) -> Result<(), MachineError> {
+        let ControlCommand::MediaTransport(transport) = command else {
+            return Err(MachineError::UnsupportedOperation {
+                operation: command.operation_name(),
+            });
+        };
+        if transport.slot.as_ref() != TAPE_SLOT {
+            return Err(MachineError::UnknownMediaSlot {
+                slot: transport.slot.as_ref().to_owned(),
+            });
+        }
+        let machine = self
+            .machine
+            .as_mut()
+            .ok_or_else(|| MachineError::MissingFirmware {
+                id: ROM_FIRMWARE_ID.to_owned(),
+            })?;
+        match transport.action {
+            MediaTransportAction::Start => {
+                let pulses =
+                    self.tape
+                        .as_deref()
+                        .ok_or_else(|| MachineError::UnknownMediaSlot {
+                            slot: TAPE_SLOT.to_owned(),
+                        })?;
+                machine.insert_tape(pulses);
+            }
+            MediaTransportAction::Stop => machine.insert_tape(&[]),
+            _ => {
+                return Err(MachineError::UnsupportedOperation {
+                    operation: command.operation_name(),
+                });
+            }
         }
         Ok(())
     }
@@ -269,12 +318,6 @@ impl MachineCore for Zx80Runtime {
 
     fn restore(&mut self, bytes: &[u8]) -> Result<(), MachineError> {
         snapshot::decode(self, bytes)
-    }
-
-    fn command(&mut self, command: &ControlCommand) -> Result<(), MachineError> {
-        Err(MachineError::UnsupportedOperation {
-            operation: command.operation_name(),
-        })
     }
 
     fn capabilities(&self) -> CapabilitySet {
