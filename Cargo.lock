@@ -3952,6 +3952,7 @@ dependencies = [
  "format-acorn-atom-atm",
  "format-acorn-uef",
  "machine-acorn-atom",
+ "motorola-vdg-6847",
  "postcard",
  "serde",
  "serde_json",
@@ -4002,6 +4003,7 @@ dependencies = [
 name = "runtime-atari-2600"
 version = "0.5.0"
 dependencies = [
+ "atari-tia",
  "emu198x-shell",
  "machine-atari-2600",
  "postcard",
@@ -4013,6 +4015,7 @@ dependencies = [
 name = "runtime-atari-5200"
 version = "0.5.0"
 dependencies = [
+ "atari-gtia",
  "emu198x-shell",
  "machine-atari-5200",
  "postcard",
@@ -4024,6 +4027,7 @@ dependencies = [
 name = "runtime-atari-7800"
 version = "0.5.0"
 dependencies = [
+ "atari-maria",
  "emu198x-shell",
  "machine-atari-7800",
  "postcard",
@@ -4035,6 +4039,7 @@ dependencies = [
 name = "runtime-atari-800xl"
 version = "0.5.0"
 dependencies = [
+ "atari-gtia",
  "emu198x-shell",
  "machine-atari-800xl",
  "postcard",
@@ -4051,6 +4056,7 @@ dependencies = [
  "postcard",
  "serde",
  "serde_json",
+ "ti-tms9918",
  "zilog-z80",
 ]
 
@@ -4125,6 +4131,7 @@ version = "0.5.0"
 dependencies = [
  "emu198x-shell",
  "machine-commodore-vic-20",
+ "mos-vic-i",
  "postcard",
  "serde",
  "serde_json",
@@ -4181,6 +4188,7 @@ dependencies = [
  "postcard",
  "serde",
  "serde_json",
+ "ti-tms9918",
  "zilog-z80",
 ]
 
@@ -4193,6 +4201,7 @@ dependencies = [
  "postcard",
  "serde",
  "serde_json",
+ "ti-tms9918",
  "zilog-z80",
 ]
 
@@ -4219,6 +4228,7 @@ dependencies = [
  "format-nintendo-nes-ines",
  "machine-nintendo-nes",
  "postcard",
+ "ricoh-ppu-2c02",
  "serde",
  "serde_json",
 ]
@@ -4262,6 +4272,7 @@ dependencies = [
  "emu198x-shell",
  "machine-sega-master-system",
  "postcard",
+ "sega-vdp",
  "serde",
  "serde_json",
  "zilog-z80",
@@ -4276,6 +4287,7 @@ dependencies = [
  "postcard",
  "serde",
  "serde_json",
+ "ti-tms9918",
  "zilog-z80",
 ]
 
@@ -4353,6 +4365,7 @@ dependencies = [
  "postcard",
  "serde",
  "serde_json",
+ "ti-tms9918",
  "zilog-z80",
 ]
 
@@ -4378,6 +4391,7 @@ dependencies = [
  "postcard",
  "serde",
  "serde_json",
+ "ti-tms9918",
  "zilog-z80",
 ]
 
