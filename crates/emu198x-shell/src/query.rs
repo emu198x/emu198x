@@ -29,6 +29,8 @@ pub const SESSION_QUERY_PATHS: &[&str] = &[
     "session.display.kind",
     "session.display.pixel_clock_hz",
     "session.display.lines_per_tv_height",
+    "session.framebuffer.height",
+    "session.framebuffer.width",
     "session.profile.summary",
     "session.time",
 ];
@@ -126,6 +128,8 @@ pub struct SessionView<'a> {
     pub native_frame_ticks: u64,
     /// Whether a frame has been captured.
     pub has_frame: bool,
+    /// Extent of the last captured frame, if there has been one.
+    pub framebuffer: Option<(u32, u32)>,
     /// Whether audio has been captured.
     pub has_audio: bool,
     /// Result of the last run step.
@@ -140,6 +144,7 @@ pub fn query_value(view: &SessionView<'_>, path: &str) -> Result<QueryResult, Qu
         time,
         native_frame_ticks,
         has_frame,
+        framebuffer,
         has_audio,
         last_run_result,
     } = *view;
@@ -174,6 +179,23 @@ pub fn query_value(view: &SessionView<'_>, path: &str) -> Result<QueryResult, Qu
                 ..
             }) => json!(lines_per_tv_height),
             _ => json!(null),
+        },
+        // Read off the last frame the machine emitted rather than stated
+        // anywhere, so it cannot disagree with what the core actually draws.
+        // Null until a frame exists: the extent is a fact about output, and a
+        // machine that has not run has produced none.
+        //
+        // Paired with the display, this is the instrument for #1054 — a
+        // television's window is `pixel_clock × active_line_seconds` wide by
+        // `lines_per_tv_height` tall, so the two together say how much of the
+        // raster a core keeps.
+        "session.framebuffer.width" => match framebuffer {
+            Some((width, _)) => json!(width),
+            None => json!(null),
+        },
+        "session.framebuffer.height" => match framebuffer {
+            Some((_, height)) => json!(height),
+            None => json!(null),
         },
         "session.profile.clock.unit" => json!(profile.clock.unit.as_ref()),
         "session.profile.clock.rate.numerator_hz" => json!(profile.clock.rate.numerator_hz),
@@ -325,6 +347,7 @@ mod tests {
             time,
             native_frame_ticks: 69888,
             has_frame: true,
+            framebuffer: Some((256, 192)),
             has_audio: false,
             last_run_result: last_run,
         };
@@ -339,6 +362,60 @@ mod tests {
     }
 
     #[test]
+    fn the_framebuffer_extent_is_null_until_a_frame_exists() {
+        let profile = test_profile();
+        let view = SessionView {
+            profile: &profile,
+            display: None,
+            time: MachineTime::new(0),
+            native_frame_ticks: 69888,
+            has_frame: false,
+            framebuffer: None,
+            has_audio: false,
+            last_run_result: None,
+        };
+
+        // Null rather than an error or a zero. The extent is a fact about
+        // output, and a machine that has not drawn has not stated one — which
+        // an audit needs to be able to tell apart from a core that draws
+        // nothing.
+        assert_eq!(
+            query_value(&view, "session.framebuffer.width")
+                .expect("the path exists")
+                .value,
+            json!(null)
+        );
+    }
+
+    #[test]
+    fn the_framebuffer_extent_comes_from_the_frame() {
+        let profile = test_profile();
+        let view = SessionView {
+            profile: &profile,
+            display: None,
+            time: MachineTime::new(0),
+            native_frame_ticks: 69888,
+            has_frame: true,
+            framebuffer: Some((352, 296)),
+            has_audio: false,
+            last_run_result: None,
+        };
+
+        assert_eq!(
+            query_value(&view, "session.framebuffer.width")
+                .expect("the path exists")
+                .value,
+            json!(352)
+        );
+        assert_eq!(
+            query_value(&view, "session.framebuffer.height")
+                .expect("the path exists")
+                .value,
+            json!(296)
+        );
+    }
+
+    #[test]
     fn query_value_rejects_missing_run_state() {
         let profile = test_profile();
         let view = SessionView {
@@ -347,6 +424,7 @@ mod tests {
             time: MachineTime::new(0),
             native_frame_ticks: 69888,
             has_frame: false,
+            framebuffer: None,
             has_audio: false,
             last_run_result: None,
         };
