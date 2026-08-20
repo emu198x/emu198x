@@ -262,6 +262,15 @@ fn default_true() -> bool {
 /// counts master clocks at 12 per CPU cycle (5 / 7 split for
 /// reads, 7 / 5 for writes), giving sub-PPU-dot resolution for
 /// the start / end phase split.
+/// Dot clock of the 2C02: 21,477,272 Hz over four. Gives 8:7 pixels, the
+/// ratio the NES is usually described by.
+pub const NTSC_DOT_CLOCK_HZ: f64 = 5_369_318.0;
+
+/// Dot clock of the 2C07, the PAL part: 26,601,712 Hz over five. Recorded
+/// here as the hardware figure; this core is NTSC-only, and #80 tracks the
+/// PAL machine.
+pub const PAL_DOT_CLOCK_HZ: f64 = 5_320_342.0;
+
 pub const MASTER_CLOCK_DIVIDER: u64 = 4;
 
 /// Serde default for [`Ppu::master_divider`] — NTSC, so snapshots taken

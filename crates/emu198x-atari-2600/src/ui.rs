@@ -7,6 +7,7 @@
 
 use std::path::PathBuf;
 
+use emu198x_shell::MachineCore;
 use emu198x_shell::{MediaKind, Region, read_media_asset};
 use emu198x_ui::{
     ButtonInputMap, ButtonTarget, HostControl, KeyCode, UiError, UiSystem, VideoFilter,
@@ -75,8 +76,16 @@ impl UiSystem for Atari2600System {
     // The 2600 drove a 4:3 TV. The harness derives the horizontal pixel stretch
     // from this and the cropped window height, matching Stella's proportions
     // (whose 160-wide framebuffer displays at a 4:3 viewable).
-    fn display_aspect_ratio(&self) -> Option<f32> {
-        Some(4.0 / 3.0)
+
+    /// One pixel per colour clock makes a 2600 pixel nearly twice as wide as it
+    /// is tall: 12:7 on NTSC, 25:12 on PAL. Showing them square is the single
+    /// most visible case of this bug in the fleet.
+    fn pixel_aspect_ratio(&self, runtime: &Self::Runtime) -> Option<f32> {
+        emu198x_shell::display::pixel_aspect_for_region(
+            runtime.profile().region,
+            atari_tia::PAL_COLOUR_CLOCK_HZ,
+            atari_tia::NTSC_COLOUR_CLOCK_HZ,
+        )
     }
 
     // The runtime advances in whole frames, so a sub-frame target would

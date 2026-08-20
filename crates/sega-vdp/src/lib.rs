@@ -66,6 +66,14 @@ pub const BORDER_TOP: u32 = 24;
 pub const BORDER_BOTTOM: u32 = 24;
 
 /// Framebuffer dimensions for a television (active + border).
+/// Dot clock of the NTSC VDP: half a 10.738635 MHz crystal, three times the
+/// colour subcarrier. Inherited from the TMS9918 the chip descends from, and
+/// the reason a Master System's pixels come out at 8:7 like an MSX's.
+pub const NTSC_DOT_CLOCK_HZ: f64 = 5_369_318.0;
+
+/// Dot clock of the PAL VDP: half a 10.6875 MHz crystal.
+pub const PAL_DOT_CLOCK_HZ: f64 = 5_343_750.0;
+
 pub const FB_WIDTH: u32 = ACTIVE_WIDTH + BORDER_LEFT + BORDER_RIGHT;
 pub const FB_HEIGHT: u32 = ACTIVE_HEIGHT + BORDER_TOP + BORDER_BOTTOM;
 
