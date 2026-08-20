@@ -1,7 +1,7 @@
 # The framebuffer is the set's window
 
-**Status:** rule stated; ZX80 and ZX81 conform vertically, the fleet does not
-yet
+**Status:** rule stated and the fleet measured; extents span 49%–202%
+horizontally and 67%–120% vertically, so most cores do not conform
 **Context:** #1054, #1053, `knowledge/decisions/pixel-aspect-comes-from-the-raster.md`
 
 ## Decision
@@ -62,27 +62,101 @@ tell a crop from a chip that renders less:
   whole picture and nothing is wrong.
 - **We cropped.** The ZX80's old 83% was ours.
 
-Separating them needs each chip's rendered-against-blanked extent. That pass
-is not done, and #1054 tracks it.
+Separating them needs each chip's rendered-against-blanked extent. Two are
+now settled by inspection: the NES's 91% is the hardware, and the BBC's 77% is
+the same shape — 640 dots at 16 MHz is 40 µs of a 52 µs line, and the rest is
+border the core does not draw. The VIC-20's 49% is ours: the chip fills the
+line, and we keep 24 border pixels a side where a set shows about 140. The
+remaining cores are unclassified and #1054 tracks the pass.
+
+## The measurement
+
+`session.framebuffer.width` and `.height` against
+`session.display.pixel_clock_hz` and `.lines_per_tv_height`, read from a
+running machine through the shared headless script surface. Twenty-nine of the
+thirty answer it directly. The Dragon is read from source instead, because its
+frontend keeps a bespoke `--headless --cycles` harness and does not take
+`--script` at all.
+
+Nothing is parsed out of the source, and that is deliberate. The system
+registry's own header records three attempts to infer its joins by pattern
+matching, every one of which produced wrong answers, which is why that file
+states them. Framebuffer extent needs no equivalent statement: every
+`FramePacket` already carries it, so the measured value cannot drift from what
+the core draws.
+
+| Core | Framebuffer | Set's window | H | V |
+|---|---|---|---|---|
+| Dragon (PAL) | 744×312 | 369×288 | **202%** | 108% |
+| Amiga (PAL) | 768×576 | 738×576 | 104% | 100% |
+| Memotech MTX, Tatung Einstein (PAL) | 288×240 | 278×288 | 104% | **83%** |
+| Atari 800XL, 5200, 7800 (NTSC) | 384×288 | 373×240 | 103% | **120%** |
+| ColecoVision, MSX, Master System, SG-1000, Sord M5, SVI-328 (NTSC) | 288×240 | 280×240 | 103% | 100% |
+| Acorn Atom (PAL) | 372×243 | 369×288 | 101% | 84% |
+| C64 (PAL) | 416×312 | 410×288 | 101% | 108% |
+| Spectrum 48K (PAL) | 352×296 | 364×288 | 97% | 103% |
+| ZX80, ZX81 (PAL) | 320×288 | 338×288 | 95% | 100% |
+| Jupiter Ace (PAL) | 320×240 | 338×288 | 95% | **83%** |
+| Amstrad CPC (PAL) | 768×270 | 832×288 | 92% | 94% |
+| NES (NTSC) | 256×240 | 280×240 | 91% | 100% |
+| Mattel Aquarius (PAL) | 320×192 | 369×288 | 87% | **67%** |
+| Atari 2600 (NTSC) | 160×228 | 187×240 | 86% | 95% |
+| BBC Micro, Electron (PAL) | 640×256 | 832×288 | **77%** | 89% |
+| Oric Atmos (PAL) | 240×224 | 312×288 | **77%** | 78% |
+| VIC-20 (PAL) | 224×216 | 461×288 | **49%** | 75% |
+
+Televisions only. The PET drives a monitor and the Game Boy and Game Gear
+drive panels, so the comparison does not apply — which is `Display` doing its
+job.
+
+The range is **49%–202% horizontally and 67%–120% vertically**. #1054 opened
+citing 86%–104% and 83%–108%, drawn from the seven cores that had been looked
+at; the fleet is roughly three times worse than that in both directions.
+
+## The pattern the numbers make
+
+Six TMS9918 machines land on exactly 288×240 and 103%/100%. Two more —
+Memotech MTX and Tatung Einstein — are the same chip on PAL profiles, and land
+on 104%/**83%**, because 240 lines in a 288-line window is 83%. The Jupiter
+Ace makes three at 83% for the same reason. It is the identical shortfall the
+ZX80 had before #1053, from the identical cause: **an NTSC-shaped buffer on a
+PAL machine**.
+
+The three Atari cores are that error's mirror. `FB_HEIGHT` is
+`ACTIVE_HEIGHT + BORDER_TOP + BORDER_BOTTOM` where `ACTIVE_HEIGHT` is already
+240 — the whole NTSC field — so 48 lines of border are added to a figure with
+no room for them. The constant still carries a stale doc comment reading
+"Framebuffer height (240 visible scan lines)" directly above the 240 it
+describes.
+
+Neither pattern is visible from one core at a time, which is the argument for
+having measured all of them at once.
+
+## Defects the audit surfaced
+
+- **The Amiga stated no display at all.** `AmigaRuntimeKind` forwards
+  `MachineCore` by hand, method by method, and `display` was not among them.
+  That method has a default returning `None`, so the omission compiled and
+  answered "unstated" for a machine whose three inner runtimes each state a
+  television — and the harness fell back to square pixels on a machine whose
+  pixels are 1.04. Fixed; `variant_dispatch.rs` covers the class rather than
+  the instance.
+- **The Dragon's 202% is arithmetically impossible.** 744 pixels cannot fit a
+  52 µs line at 7.09 MHz; they want about 14.3 MHz, which is twice the stated
+  clock. Whichever half is wrong, the pixel aspect #1053 derived for this core
+  is out by a factor of two.
+- **The Dragon is off the shared headless surface.** Every other frontend
+  takes `--script`. This one takes `--headless --cycles` with its own flags,
+  and does not document `--script` in its help even though `main.rs` names it.
+  Any fleet-wide measurement has to special-case it.
 
 ## What blocks the rest of the fleet
-
-Applying this fleet-wide wants two things that do not exist yet.
-
-**An instrument.** Half of this now exists. `Display` moved from the UI hook
-onto `MachineCore`, so every core answers `session.display.kind`,
-`session.display.pixel_clock_hz` and `session.display.lines_per_tv_height`
-headlessly — a set's window is computable per core without a window open.
-
-What is still missing is the other half of the comparison. Framebuffer size is
-not on the query surface, and no crate depends on all thirty frontends, so
-nothing can yet enumerate them. Cartridge machines are a second wrinkle: the
-NES and Game Boy runners refuse to start without media, so an audit needs an
-image or a blank runtime for each.
 
 **Goldens.** Changing a framebuffer's dimensions invalidates every frame hash
 and screenshot taken against it. The ZX80 and ZX81 could move because neither
 has committed image goldens. The catalogue systems cannot move so cheaply.
+
+That is now the only blocker. The instrument exists.
 
 ## Drift triggers
 
@@ -93,3 +167,8 @@ Re-read this entry when you catch yourself writing:
 - a border constant picked to look right in a screenshot
 - an extent audit that reads under-100% as a crop without checking what the
   chip blanks
+- a 240-line buffer on a PAL profile, or a 288-line buffer on an NTSC one
+- a framebuffer constant written `ACTIVE + BORDER + BORDER` without checking
+  the sum against the set's window
+- a new hand-written `impl MachineCore` — every trait method that has a
+  default fails silently rather than at the compiler
