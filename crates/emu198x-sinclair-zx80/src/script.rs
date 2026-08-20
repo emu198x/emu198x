@@ -5,7 +5,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process;
 
-use emu198x_shell::{HeadlessScript, HeadlessSession, MediaSet, ScriptObservation};
+use emu198x_shell::{
+    HeadlessScript, HeadlessSession, MediaImage, MediaKind, MediaSet, ScriptObservation,
+};
 use runtime_sinclair_zx80::{Model, Zx80Runtime, Zx80SessionQueryProvider};
 use serde_json::json;
 
@@ -24,6 +26,13 @@ Hardware:
     --ram-bytes N              RAM size (power-of-two ≤ 16384) [default: 1024]
     --frames N                 PAL frames to run [default: 0]
 
+Media:
+    --tape PATH                put a .o/.80 cassette in the deck. This does
+                               not press play: the loader's leader countdown
+                               is at the front of the tape, so the script has
+                               to type LOAD (the W key) first, then issue a
+                               `media_transport` start step on slot `tape-1`.
+
 Capture:
     --screenshot PATH          write the last emitted frame as PNG
     --audio-capture PATH       write emitted audio as WAV (currently silent)
@@ -41,6 +50,7 @@ struct Cli {
     screenshot: Option<PathBuf>,
     audio_capture: Option<PathBuf>,
     script: Option<PathBuf>,
+    tape: Option<PathBuf>,
 }
 
 impl Default for Cli {
@@ -52,6 +62,7 @@ impl Default for Cli {
             screenshot: None,
             audio_capture: None,
             script: None,
+            tape: None,
         }
     }
 }
@@ -79,6 +90,7 @@ fn parse_cli<I: IntoIterator<Item = String>>(args: I) -> Cli {
                 cli.audio_capture = Some(PathBuf::from(next_arg(&mut iter, "--audio-capture")));
             }
             "--script" => cli.script = Some(PathBuf::from(next_arg(&mut iter, "--script"))),
+            "--tape" => cli.tape = Some(PathBuf::from(next_arg(&mut iter, "--tape"))),
             "--headless" => {}
             "--help" | "-h" => {
                 println!("{USAGE}");
@@ -154,7 +166,16 @@ fn run_cli(cli: Cli) -> Result<serde_json::Value, String> {
         FRAME_TICKS_PAL,
         Zx80SessionQueryProvider,
     );
-    let media = MediaSet::new();
+    let tape_bytes = match &cli.tape {
+        Some(path) => Some(
+            fs::read(path).map_err(|err| format!("failed to read {}: {err}", path.display()))?,
+        ),
+        None => None,
+    };
+    let mut media = MediaSet::new();
+    if let Some(bytes) = &tape_bytes {
+        media.push(MediaImage::new("tape-1", MediaKind::Tape, bytes));
+    }
     session
         .prepare(&media, &[])
         .map_err(|err| format!("machine preparation failed: {err}"))?;
@@ -194,6 +215,7 @@ fn run_cli(cli: Cli) -> Result<serde_json::Value, String> {
         "frames_run": frame_count,
         "time":       session.time().get(),
         "ram_bytes":  cli.ram_bytes,
+        "tape_loaded": tape_bytes.is_some(),
         "observations": observations,
     }))
 }
