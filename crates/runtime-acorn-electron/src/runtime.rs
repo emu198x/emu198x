@@ -17,6 +17,10 @@ use machine_acorn_electron::AcornElectron;
 use crate::input::apply_input_event;
 use crate::profiles::{BASIC_FIRMWARE_ID, Model, OS_FIRMWARE_ID, profile_for};
 use crate::snapshot;
+use emu198x_shell::display::Display;
+
+/// Framebuffer pixels per second.
+const PIXEL_CLOCK_HZ: f64 = 16_000_000.0;
 
 const ROM_SIZE: usize = 16 * 1024;
 const AUDIO_SAMPLE_RATE: u32 = 48_000;
@@ -283,6 +287,12 @@ impl MachineCore for ElectronRuntime {
         Err(MachineError::UnsupportedOperation {
             operation: command.operation_name(),
         })
+    }
+
+    /// 16 MHz, as on the BBC — the ULA keeps the same dot rate and the core
+    /// scales every mode into one 640-wide buffer.
+    fn display(&self) -> Option<Display> {
+        Display::television_for_region(self.profile().region, PIXEL_CLOCK_HZ, PIXEL_CLOCK_HZ)
     }
 
     fn capabilities(&self) -> CapabilitySet {

@@ -45,7 +45,7 @@ assumed one field would be out by two.
 
 ## The answer can change under the machine
 
-`UiSystem::display` takes the runtime, and the harness re-derives
+`MachineCore::display` takes `&self`, and the harness re-derives
 it wherever the picture can change — window creation and variant switching.
 Most cores ignore the argument and return a constant, but the shape of the
 hook has to allow otherwise, because two things move it:
@@ -61,8 +61,17 @@ hook has to allow otherwise, because two things move it:
 
 ## One hook: what the output reached
 
-`UiSystem::display` returns a `Display`, and the harness derives the pixel
+`MachineCore::display` returns a `Display`, and the harness derives the pixel
 aspect from it. There is no second hook.
+
+It sits on the machine rather than the UI because a display is a fact about
+the hardware, and stating it there puts it on the shared query surface —
+`session.display.kind`, `session.display.pixel_clock_hz`,
+`session.display.lines_per_tv_height` — where headless and MCP can read it.
+`UiSystem::display` defaults to delegating, so the window and an audit see the
+same answer. It is not on `MachineProfile` because it can move under a running
+machine, and because one runtime can serve two machines: `SmsRuntime` is a
+television as a Master System and a panel as a Game Gear.
 
 ```rust
 enum Display {

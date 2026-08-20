@@ -12,13 +12,8 @@ use std::env;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use emu198x_shell::MachineCore;
-use emu198x_ui::Display;
 use emu198x_ui::{ButtonInputMap, KeyCode, UiError, UiSystem, VideoFilter};
 use runtime_acorn_electron::{ElectronRuntime, Model};
-
-/// Framebuffer pixels per second.
-const PIXEL_CLOCK_HZ: f64 = 16_000_000.0;
 
 const DEFAULT_SCALE: u32 = 3;
 /// 6502A @ 2 MHz nominal, 50 Hz → 40,000 cycles/frame, matching the headless
@@ -74,12 +69,6 @@ impl UiSystem for ElectronSystem {
     }
 
     // The Electron drove a 4:3 TV; its framebuffer stretches to fill it.
-
-    /// 16 MHz, as on the BBC — the ULA keeps the same dot rate and the core
-    /// scales every mode into one 640-wide buffer.
-    fn display(&self, runtime: &Self::Runtime) -> Option<Display> {
-        Display::television_for_region(runtime.profile().region, PIXEL_CLOCK_HZ, PIXEL_CLOCK_HZ)
-    }
 
     // The display is CPU-generated; advance whole frames so a slice never
     // captures a half-drawn picture.

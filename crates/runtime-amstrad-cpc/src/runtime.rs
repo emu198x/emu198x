@@ -11,6 +11,10 @@ use machine_amstrad_cpc::AmstradCpc;
 use crate::input::apply_input_event;
 use crate::profiles::{Model, ROM_FIRMWARE_ID, profile_for};
 use crate::snapshot;
+use emu198x_shell::display::Display;
+
+/// Framebuffer pixels per second.
+const PIXEL_CLOCK_HZ: f64 = 16_000_000.0;
 
 /// 16 KB of OS plus 16 KB of BASIC, the layout of MAME's `cpc464.rom`.
 const FIRMWARE_SIZE: usize = 32 * 1024;
@@ -264,6 +268,13 @@ impl MachineCore for AmstradCpcRuntime {
             operation: command.operation_name(),
         })
     }
+    /// Sixteen dots per character over sixty-four characters is 1024 dots a
+    /// line, which at 16 MHz is PAL's 64 µs. That the existing comment here
+    /// already named the same clock is corroboration, not coincidence.
+    fn display(&self) -> Option<Display> {
+        Display::television_for_region(self.profile().region, PIXEL_CLOCK_HZ, PIXEL_CLOCK_HZ)
+    }
+
     fn capabilities(&self) -> CapabilitySet {
         self.profile.capabilities.clone()
     }

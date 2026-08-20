@@ -11,8 +11,6 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
-use emu198x_shell::MachineCore;
-use emu198x_ui::Display;
 use emu198x_ui::{
     ButtonInputMap, ButtonTarget, HostControl, KeyCode, UiError, UiSystem, VideoFilter,
 };
@@ -110,18 +108,6 @@ impl UiSystem for Sg1000System {
 
     // The SG-1000's TMS9918 drove a 4:3 TV; its 288×240 framebuffer stretches
     // to fill it.
-
-    /// The TMS9918 family drove a television through a colour-subcarrier
-    /// crystal, so its dots are not square: 8:7 on the NTSC parts, about
-    /// 1.382 on the PAL TMS9929A. Presenting the 288x240 framebuffer unstretched
-    /// claimed otherwise.
-    fn display(&self, runtime: &Self::Runtime) -> Option<Display> {
-        Display::television_for_region(
-            runtime.profile().region,
-            ti_tms9918::PAL_DOT_CLOCK_HZ,
-            ti_tms9918::NTSC_DOT_CLOCK_HZ,
-        )
-    }
 
     // The display is CPU-generated; advance whole frames so a slice never
     // captures a half-drawn picture.

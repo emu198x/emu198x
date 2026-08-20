@@ -14,6 +14,7 @@ use machine_atari_2600::{Atari2600, Atari2600Region};
 use crate::input::{ControllerCache, apply_input_event};
 use crate::profiles::{Model, profile_for};
 use crate::snapshot;
+use emu198x_shell::display::Display;
 
 pub struct Atari2600Runtime {
     profile: MachineProfile,
@@ -243,6 +244,17 @@ impl MachineCore for Atari2600Runtime {
         Err(MachineError::UnsupportedOperation {
             operation: command.operation_name(),
         })
+    }
+
+    /// One pixel per colour clock makes a 2600 pixel nearly twice as wide as it
+    /// is tall: 12:7 on NTSC, 25:12 on PAL. Showing them square is the single
+    /// most visible case of this bug in the fleet.
+    fn display(&self) -> Option<Display> {
+        Display::television_for_region(
+            self.profile().region,
+            atari_tia::PAL_COLOUR_CLOCK_HZ,
+            atari_tia::NTSC_COLOUR_CLOCK_HZ,
+        )
     }
 
     fn capabilities(&self) -> CapabilitySet {

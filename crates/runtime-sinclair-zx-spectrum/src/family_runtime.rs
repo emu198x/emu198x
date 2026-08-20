@@ -37,6 +37,7 @@ use crate::variants::{
     Spectrum128kRuntime, SpectrumPlus2ARuntime, SpectrumPlus2BRuntime, SpectrumPlus2Runtime,
     SpectrumPlus3Runtime, SpectrumPlusRuntime, TimexTC2048Runtime, TimexTS2068Runtime,
 };
+use emu198x_shell::display::Display;
 
 /// Narrow Spectrum-machine surface that family-level helpers
 /// (`autoload_basic_tape`, `load_basic_program`) need.
@@ -477,6 +478,17 @@ impl MachineCore for SpectrumRuntimeKind {
 
     fn command(&mut self, command: &ControlCommand) -> Result<(), MachineError> {
         match_kind!(self, |rt| rt.command(command))
+    }
+
+    /// This is the case the runtime argument exists for: switching variant
+    /// changes the answer while the framebuffer keeps its dimensions.
+    fn display(&self) -> Option<Display> {
+        let region = self.profile().region;
+        Some(Display::Television {
+            region,
+            pixel_clock_hz: self.pixel_clock_hz(),
+            lines_per_tv_height: emu198x_shell::display::active_lines(region)?,
+        })
     }
 
     fn capabilities(&self) -> emu198x_shell::CapabilitySet {

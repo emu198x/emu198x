@@ -35,6 +35,11 @@ use crate::{
     Accelerator, AmigaConfig, ChipsetKind, ECS_AGA_CHIP_RAM_BYTES, FAT_AGNUS_CHIP_RAM_BYTES,
     FATTER_AGNUS_CHIP_RAM_BYTES, KIB, Model, OCS_AGNUS_CHIP_RAM_BYTES, profile_for,
 };
+use emu198x_shell::display::Display;
+
+/// Hires dot clock: twice the 7.09379 MHz PAL system tick, which is what
+/// the 768-wide framebuffer is drawn at.
+const HIRES_PIXEL_CLOCK_HZ: f64 = 14_187_580.0;
 
 pub(crate) const KICKSTART_ROM_ID: &str = "commodore-amiga-kickstart-rom";
 pub(crate) const A1000_BOOTSTRAP_ROM_ID: &str = "commodore-amiga-a1000-bootstrap-rom";
@@ -536,6 +541,18 @@ impl<M: AmigaMachine + AmigaLiveAccess> MachineCore for AmigaRuntime<M> {
     fn command(&mut self, command: &ControlCommand) -> Result<(), MachineError> {
         Err(MachineError::UnsupportedOperation {
             operation: command.operation_name(),
+        })
+    }
+
+    /// Pinned to PAL, as `frame_ticks` and `framebuffer_size` already are:
+    /// this frontend runs an A500 PAL and ignores the runtime's region. The
+    /// NTSC machine's clock is a different figure and wants the region
+    /// threading through all three together, not here alone.
+    fn display(&self) -> Option<Display> {
+        Some(Display::Television {
+            region: emu198x_shell::machine::Region::Pal,
+            pixel_clock_hz: HIRES_PIXEL_CLOCK_HZ,
+            lines_per_tv_height: f64::from(DISPLAY_HEIGHT),
         })
     }
 

@@ -10,6 +10,7 @@ use machine_nintendo_nes::{ApuChannel, AudioControls, FB_HEIGHT, FB_WIDTH, Nes};
 use crate::input::apply_input_event;
 use crate::snapshot;
 use crate::{Model, profile_for};
+use emu198x_shell::display::Display;
 
 /// Firmwareless NES runtime over the concrete machine crate.
 pub struct NesRuntime {
@@ -338,6 +339,17 @@ impl MachineCore for NesRuntime {
         Err(MachineError::UnsupportedOperation {
             operation: command.operation_name(),
         })
+    }
+
+    /// 8:7 — the ratio the NES is usually described by, and one the 256x240
+    /// framebuffer cannot express on its own. This core is NTSC-only; the PAL
+    /// 2C07 clock is wired up for when #80 lands.
+    fn display(&self) -> Option<Display> {
+        Display::television_for_region(
+            self.profile().region,
+            ricoh_ppu_2c02::PAL_DOT_CLOCK_HZ,
+            ricoh_ppu_2c02::NTSC_DOT_CLOCK_HZ,
+        )
     }
 
     fn capabilities(&self) -> CapabilitySet {

@@ -394,15 +394,16 @@ impl<M: MachineCore, Q: SessionQueryProvider<M>> HeadlessSession<M, Q> {
 
     /// Resolves one shared query path against the current session state.
     pub fn query(&self, path: &str) -> Result<QueryResult, QueryError> {
-        match query_value(
-            self.machine.profile(),
-            self.time(),
-            self.native_frame_ticks,
-            self.frame_capture.frame().is_some(),
-            self.audio_capture.audio().is_some(),
-            self.last_run_result,
-            path,
-        ) {
+        let view = crate::query::SessionView {
+            profile: self.machine.profile(),
+            display: self.machine.display(),
+            time: self.time(),
+            native_frame_ticks: self.native_frame_ticks,
+            has_frame: self.frame_capture.frame().is_some(),
+            has_audio: self.audio_capture.audio().is_some(),
+            last_run_result: self.last_run_result,
+        };
+        match query_value(&view, path) {
             Ok(result) => Ok(result),
             Err(QueryError::UnknownPath { .. }) => self
                 .query_provider

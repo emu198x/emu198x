@@ -26,12 +26,10 @@ use std::path::PathBuf;
 use std::process;
 use std::time::Duration;
 
-use emu198x_shell::MachineCore;
 use emu198x_shell::{
     FirmwareImage, FirmwareSet, HeadlessSession, InputEvent, MachineError, MediaImage, MediaKind,
     MediaSet, SessionError, read_firmware_asset, read_media_asset,
 };
-use emu198x_ui::Display;
 use emu198x_ui::{
     AxisInputMap, AxisTarget, ButtonInputMap, ButtonTarget, HostAxis, HostControl, KeyCode,
     UiSystem, VariantInfo, VideoFilter,
@@ -152,15 +150,6 @@ impl UiSystem for DragonSystem {
 
     fn default_scale(&self) -> u32 {
         DEFAULT_SCALE
-    }
-
-    /// Same VDG as the Atom, so the same two pixels per clock period.
-    fn display(&self, runtime: &Self::Runtime) -> Option<Display> {
-        Display::television_for_region(
-            runtime.profile().region,
-            motorola_vdg_6847::PAL_PIXEL_CLOCK_HZ,
-            motorola_vdg_6847::NTSC_PIXEL_CLOCK_HZ,
-        )
     }
 
     fn framebuffer_size(&self, _runtime: &Self::Runtime) -> (u32, u32) {

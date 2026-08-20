@@ -135,8 +135,12 @@ pub trait UiSystem {
     /// and gives square pixels.
     ///
     /// See `knowledge/decisions/pixel-aspect-comes-from-the-raster.md`.
-    fn display(&self, _runtime: &Self::Runtime) -> Option<Display> {
-        None
+    /// Defaults to the runtime's own answer, which is where this belongs: a
+    /// display is a fact about the machine, and stating it there puts it on
+    /// the query surface for headless and MCP as well as the window. Override
+    /// only for a system whose runtime has not been moved yet.
+    fn display(&self, runtime: &Self::Runtime) -> Option<Display> {
+        runtime.display()
     }
 
     /// Input sub-slices per frame. Use `1` for runtimes that advance in whole

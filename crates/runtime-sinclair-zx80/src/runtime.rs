@@ -10,7 +10,11 @@ use machine_sinclair_zx80::Zx80;
 use crate::input::apply_input_event;
 use crate::profiles::{Model, ROM_FIRMWARE_ID, profile_for};
 use crate::snapshot;
+use emu198x_shell::display::Display;
 use format_sinclair_zx80_o::Zx80Image;
+
+/// Framebuffer pixels per second: two per 3.25 MHz T-state.
+const PIXEL_CLOCK_HZ: f64 = 6_500_000.0;
 
 const ROM_SIZE: usize = 4 * 1024;
 const AUDIO_SAMPLE_RATE: u32 = 48_000;
@@ -318,6 +322,18 @@ impl MachineCore for Zx80Runtime {
 
     fn restore(&mut self, bytes: &[u8]) -> Result<(), MachineError> {
         snapshot::decode(self, bytes)
+    }
+
+    /// Two pixels per 3.25 MHz T-state, filling PAL's 288 active lines once.
+    /// Works out at about 1.14: the raster puts 256 pixels of characters
+    /// across roughly three quarters of a set's width but only 192 lines down
+    /// two thirds of its height, so the pixels are wider than they are tall.
+    fn display(&self) -> Option<Display> {
+        Some(Display::Television {
+            region: self.profile.region,
+            pixel_clock_hz: PIXEL_CLOCK_HZ,
+            lines_per_tv_height: emu198x_shell::display::PAL_ACTIVE_LINES,
+        })
     }
 
     fn capabilities(&self) -> CapabilitySet {

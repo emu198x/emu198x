@@ -17,6 +17,7 @@ use crate::profiles::{
     BASIC_FIRMWARE_ID, CHAR_FIRMWARE_ID, KERNAL_FIRMWARE_ID, Model, profile_for,
 };
 use crate::snapshot;
+use emu198x_shell::display::Display;
 
 const KERNAL_SIZE: usize = 8 * 1024;
 const BASIC_SIZE: usize = 8 * 1024;
@@ -348,6 +349,17 @@ impl MachineCore for Vic20Runtime {
         Err(MachineError::UnsupportedOperation {
             operation: command.operation_name(),
         })
+    }
+
+    /// Eight pixels per machine cycle. On NTSC that is the VIC-II's clock, so a
+    /// VIC-20 and a C64 share a pixel shape there and diverge on PAL, where
+    /// their cycle rates differ.
+    fn display(&self) -> Option<Display> {
+        Display::television_for_region(
+            self.profile().region,
+            mos_vic_i::PAL_PIXEL_CLOCK_HZ,
+            mos_vic_i::NTSC_PIXEL_CLOCK_HZ,
+        )
     }
 
     fn capabilities(&self) -> CapabilitySet {

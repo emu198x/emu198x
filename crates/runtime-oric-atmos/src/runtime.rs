@@ -10,6 +10,10 @@ use machine_oric_atmos::{FB_HEIGHT, FB_WIDTH, OricAtmos, OricModel};
 use crate::input::apply_input_event;
 use crate::profiles::{BIOS_FIRMWARE_ID, Model, profile_for};
 use crate::snapshot;
+use emu198x_shell::display::Display;
+
+/// Framebuffer pixels per second.
+const PIXEL_CLOCK_HZ: f64 = 6_000_000.0;
 
 const BIOS_SIZE: usize = 16 * 1024;
 const AUDIO_SAMPLE_RATE: u32 = 48_000;
@@ -215,6 +219,13 @@ impl MachineCore for OricRuntime {
             operation: command.operation_name(),
         })
     }
+    /// Six pixels per 1 MHz character, forty characters a line. Sixty-four
+    /// cycles at that rate is exactly PAL's 64 µs line, which is the check
+    /// that the six is right.
+    fn display(&self) -> Option<Display> {
+        Display::television_for_region(self.profile().region, PIXEL_CLOCK_HZ, PIXEL_CLOCK_HZ)
+    }
+
     fn capabilities(&self) -> CapabilitySet {
         self.profile.capabilities.clone()
     }

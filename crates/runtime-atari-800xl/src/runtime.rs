@@ -9,6 +9,7 @@ use machine_atari_800xl::{Atari800xl, Atari800xlRegion};
 
 use crate::profiles::{Model, profile_for};
 use crate::snapshot;
+use emu198x_shell::display::Display;
 
 const AUDIO_SAMPLE_RATE: u32 = 48_000;
 
@@ -267,6 +268,16 @@ impl MachineCore for Atari800xlRuntime {
             operation: command.operation_name(),
         })
     }
+    /// Two pixels per colour clock in the hires modes gives 6:7 on NTSC — the
+    /// Atari 8-bit's published ratio, and taller than it is wide.
+    fn display(&self) -> Option<Display> {
+        Display::television_for_region(
+            self.profile().region,
+            atari_gtia::PAL_PIXEL_CLOCK_HZ,
+            atari_gtia::NTSC_PIXEL_CLOCK_HZ,
+        )
+    }
+
     fn capabilities(&self) -> CapabilitySet {
         self.profile.capabilities.clone()
     }

@@ -14,8 +14,6 @@ use std::env;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use emu198x_shell::MachineCore;
-use emu198x_ui::Display;
 use emu198x_ui::{
     ButtonInputMap, ButtonTarget, HostControl, KeyCode, UiError, UiSystem, VideoFilter,
 };
@@ -116,15 +114,6 @@ impl UiSystem for Atari5200System {
     }
 
     // The 5200 drove a 4:3 TV; its GTIA framebuffer stretches to fill it.
-
-    /// Same GTIA raster as the 8-bit computers, so the same 6:7 on NTSC.
-    fn display(&self, runtime: &Self::Runtime) -> Option<Display> {
-        Display::television_for_region(
-            runtime.profile().region,
-            atari_gtia::PAL_PIXEL_CLOCK_HZ,
-            atari_gtia::NTSC_PIXEL_CLOCK_HZ,
-        )
-    }
 
     // The display is CPU-generated; advance whole frames so a slice never
     // captures a half-drawn picture.

@@ -11,6 +11,7 @@ use machine_nintendo_game_boy::{ApuChannel, AudioControls, GameBoy};
 use crate::input::apply_input_event;
 use crate::snapshot;
 use crate::{Model, profile_for};
+use emu198x_shell::display::Display;
 
 /// Audio sample rate produced by the APU. Matches
 /// `nintendo_game_boy_apu::SAMPLE_RATE_HZ`.
@@ -393,6 +394,14 @@ impl MachineCore for GameBoyRuntime {
         Err(MachineError::UnsupportedOperation {
             operation: command.operation_name(),
         })
+    }
+
+    /// Square, because the Game Boy's pixels are square. Its profile reports
+    /// `Region::Other` — it drove no television — so the derivation would
+    /// decline to answer anyway; saying so here makes it a decision rather
+    /// than an omission.
+    fn display(&self) -> Option<Display> {
+        Some(Display::Lcd)
     }
 
     fn capabilities(&self) -> CapabilitySet {

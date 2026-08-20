@@ -11,6 +11,7 @@ use machine_acorn_atom::AcornAtom;
 use crate::input::apply_input_event;
 use crate::profiles::{BIOS_FIRMWARE_ID, Model, profile_for};
 use crate::snapshot;
+use emu198x_shell::display::Display;
 
 const BIOS_SIZE: usize = 24 * 1024;
 const AUDIO_SAMPLE_RATE: u32 = 48_000;
@@ -327,6 +328,16 @@ impl MachineCore for AtomRuntime {
             operation: command.operation_name(),
         })
     }
+    /// Two pixels per 3.58 MHz clock period, which the VDG's own documented
+    /// figures give: 128 active clock periods carrying 256 pixels.
+    fn display(&self) -> Option<Display> {
+        Display::television_for_region(
+            self.profile().region,
+            motorola_vdg_6847::PAL_PIXEL_CLOCK_HZ,
+            motorola_vdg_6847::NTSC_PIXEL_CLOCK_HZ,
+        )
+    }
+
     fn capabilities(&self) -> CapabilitySet {
         self.profile.capabilities.clone()
     }

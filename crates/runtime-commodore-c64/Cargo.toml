@@ -8,6 +8,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+mos-vic-ii = { path = "../mos-vic-ii", version = "0.5.0" }
 common-commodore-c64 = { path = "../common-commodore-c64", version = "0.5.0" }
 common-commodore-iec = { path = "../common-commodore-iec", version = "0.5.0" }
 emu198x-shell = { path = "../emu198x-shell", version = "0.5.0" }
@@ -27,7 +28,6 @@ thiserror = { workspace = true }
 
 [dev-dependencies]
 emu198x-test-skip = { path = "../emu198x-test-skip", version = "0.5.0" }
-mos-vic-ii = { path = "../mos-vic-ii", version = "0.5.0" }
 png = { workspace = true }
 sha2 = { workspace = true }
 

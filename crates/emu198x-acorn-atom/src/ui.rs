@@ -11,8 +11,6 @@ use std::env;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use emu198x_shell::MachineCore;
-use emu198x_ui::Display;
 use emu198x_ui::{ButtonInputMap, KeyCode, UiError, UiSystem, VideoFilter};
 use runtime_acorn_atom::{AtomRuntime, Model};
 
@@ -67,16 +65,6 @@ impl UiSystem for AtomSystem {
     }
 
     // The Atom's MC6847 drove a 4:3 TV; its framebuffer stretches to fill it.
-
-    /// Two pixels per 3.58 MHz clock period, which the VDG's own documented
-    /// figures give: 128 active clock periods carrying 256 pixels.
-    fn display(&self, runtime: &Self::Runtime) -> Option<Display> {
-        Display::television_for_region(
-            runtime.profile().region,
-            motorola_vdg_6847::PAL_PIXEL_CLOCK_HZ,
-            motorola_vdg_6847::NTSC_PIXEL_CLOCK_HZ,
-        )
-    }
 
     // The display is CPU-generated; advance whole frames so a slice never
     // captures a half-drawn picture.
