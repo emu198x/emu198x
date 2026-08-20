@@ -446,10 +446,131 @@ def atari_5200() -> bytes:
     return bytes(cart)
 
 
+
+
+# --------------------------------------------------------------------------
+# Atari 7800
+# --------------------------------------------------------------------------
+
+# MARIA shares the GTIA colour encoding, so the same $A2 that matched
+# #0d4a7d on the 5200 applies here.
+A7800_PAPER, A7800_FILL, A7800_INK = 0x0E, 0xA2, 0x00
+A7800_COLOUR = {PAPER: 0, FILL: 1, INK: 2}  # transparent, P0C1, P0C2
+
+A7800_CART_BASE = 0x4000
+A7800_CART_SIZE = 0xC000          # $4000-$FFFF
+A7800_DLL = 0x4100
+A7800_EMPTY_DL = 0x4200
+A7800_DLS = 0x4300
+A7800_GFX = 0x4400
+A7800_PIXELS_PER_BYTE = 4         # 160A: two bits a pixel
+A7800_SCREEN_PX = 320             # hpos is in framebuffer pixels
+A7800_LINES = 240
+A7800_BLANK_ZONE = 16             # scanlines per blank zone
+
+
+def _a7800_encode(row) -> list[int]:
+    """160A packs four pixels a byte, high pixel first."""
+    out = []
+    for i in range(0, len(row), A7800_PIXELS_PER_BYTE):
+        byte = 0
+        for j, role in enumerate(row[i : i + A7800_PIXELS_PER_BYTE]):
+            byte |= A7800_COLOUR[role] << (6 - j * 2)
+        out.append(byte)
+    return out
+
+
+def a7800_art_source() -> str:
+    px = plate_bitmap()
+    height, width = len(px), len(px[0])
+    row_bytes = width // A7800_PIXELS_PER_BYTE
+
+    # A four-byte DL header cannot express a 32-byte width — the field is a
+    # five-bit two's complement and 32 encodes as zero, which is the marker for
+    # the five-byte form. So each row is two entries.
+    per_entry = row_bytes // 2
+    width_field = (32 - per_entry) & 0x1F
+    # Each source pixel is two framebuffer pixels in 160A.
+    left = (A7800_SCREEN_PX - width * 2) // 2
+    second = left + per_entry * A7800_PIXELS_PER_BYTE * 2
+
+    out = [
+        "",
+        f"PAPER_COLOUR = ${A7800_PAPER:02X}",
+        f"FILL_COLOUR = ${A7800_FILL:02X}",
+        f"INK_COLOUR = ${A7800_INK:02X}",
+        "",
+        # Emitted in ascending address order: this assembler will not move the
+        # origin backwards, and the DLL has to come first because it sits
+        # lowest. Its forward references to the per-line lists resolve on the
+        # second pass.
+        f"* = ${A7800_DLL:04X}",
+        "; Zone header: DLI(7) H16(6) H8(5) then a four-bit OFFSET that is both",
+        "; the per-line address offset and, plus one, the zone height.",
+        "dll:",
+    ]
+    blank = f"    !byte ${A7800_BLANK_ZONE - 1:02X}, >emptydl, <emptydl"
+    blank_zones = (A7800_LINES - height) // 2 // A7800_BLANK_ZONE
+    out += [blank] * blank_zones
+    for line in range(height):
+        out.append(f"    !byte $00, >dl{line}, <dl{line}")
+    out += [blank] * blank_zones
+
+    out += [
+        "",
+        f"* = ${A7800_EMPTY_DL:04X}",
+        "; A display list holding only its end marker: MARIA stops when the",
+        "; palette/width byte has bits 0-4 and 6 clear.",
+        "emptydl:",
+        "    !byte $00, $00",
+        "",
+        f"* = ${A7800_DLS:04X}",
+        "; One display list per scanline.",
+        "dls:",
+    ]
+    for line in range(height):
+        addr = A7800_GFX + line * row_bytes
+        out += [
+            f"dl{line}:",
+            f"    !byte ${addr & 0xFF:02X}, ${width_field:02X}, ${addr >> 8:02X}, ${left:02X}",
+            f"    !byte ${(addr + per_entry) & 0xFF:02X}, ${width_field:02X},"
+            f" ${(addr + per_entry) >> 8:02X}, ${second:02X}",
+            "    !byte $00, $00",
+        ]
+
+    out += [
+        "",
+        f"* = ${A7800_GFX:04X}",
+        f"; {height} rows of {row_bytes} bytes, contiguous — see the note on zones.",
+        "gfx:",
+    ]
+    for row in px:
+        out.append("    !byte " + ", ".join(f"${b:02X}" for b in _a7800_encode(row)))
+    return "\n".join(out) + "\n"
+
+
+def atari_7800() -> bytes:
+    """A 48 KB cartridge image spanning $4000-$FFFF."""
+    program = (HERE / "atari-7800-plate.s").read_text()
+    combined = HERE / "atari-7800-plate.combined.s"
+    combined.write_text(program + a7800_art_source())
+    try:
+        code = assemble(combined, "acme")
+    finally:
+        combined.unlink(missing_ok=True)
+
+    cart = bytearray(b"\xFF" * A7800_CART_SIZE)
+    cart[: len(code)] = code
+    for i, byte in enumerate((A7800_CART_BASE & 0xFF, A7800_CART_BASE >> 8)):
+        cart[0xBFFC + i] = byte          # reset vector at $FFFC
+    return bytes(cart)
+
+
 CARTRIDGES = {
     "nintendo-game-boy-logo.gb": game_boy,
     "nintendo-nes-logo.nes": nes,
     "atari-5200-logo.bin": atari_5200,
+    "atari-7800-logo.bin": atari_7800,
 }
 
 
