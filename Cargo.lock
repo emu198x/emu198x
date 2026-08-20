@@ -1008,6 +1008,7 @@ dependencies = [
 name = "emu198x-atari-2600"
 version = "0.5.0"
 dependencies = [
+ "atari-tia",
  "emu198x-shell",
  "emu198x-ui",
  "machine-atari-2600",
@@ -1060,6 +1061,7 @@ dependencies = [
  "common-commodore-c64",
  "emu198x-shell",
  "emu198x-ui",
+ "mos-vic-ii",
  "runtime-commodore-c64",
  "serde",
  "serde_json",
@@ -1102,6 +1104,7 @@ dependencies = [
  "png",
  "runtime-coleco-colecovision",
  "serde_json",
+ "ti-tms9918",
 ]
 
 [[package]]
@@ -1195,6 +1198,7 @@ dependencies = [
  "png",
  "runtime-memotech-mtx",
  "serde_json",
+ "ti-tms9918",
 ]
 
 [[package]]
@@ -1207,6 +1211,7 @@ dependencies = [
  "png",
  "runtime-msx",
  "serde_json",
+ "ti-tms9918",
 ]
 
 [[package]]
@@ -1228,6 +1233,7 @@ dependencies = [
  "emu198x-shell",
  "emu198x-ui",
  "machine-nintendo-nes",
+ "ricoh-ppu-2c02",
  "runtime-nintendo-nes",
  "serde",
  "serde_json",
@@ -1266,6 +1272,7 @@ dependencies = [
  "machine-sega-master-system",
  "png",
  "runtime-sega-master-system",
+ "sega-vdp",
  "serde_json",
 ]
 
@@ -1279,6 +1286,7 @@ dependencies = [
  "png",
  "runtime-sega-sg-1000",
  "serde_json",
+ "ti-tms9918",
 ]
 
 [[package]]
@@ -1332,6 +1340,7 @@ dependencies = [
  "png",
  "runtime-sord-m5",
  "serde_json",
+ "ti-tms9918",
  "zilog-z80",
 ]
 
@@ -1345,6 +1354,7 @@ dependencies = [
  "png",
  "runtime-spectravideo-svi-328",
  "serde_json",
+ "ti-tms9918",
 ]
 
 [[package]]
@@ -1376,6 +1386,7 @@ dependencies = [
  "png",
  "runtime-tatung-einstein",
  "serde_json",
+ "ti-tms9918",
 ]
 
 [[package]]
