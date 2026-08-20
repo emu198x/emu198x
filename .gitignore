@@ -71,4 +71,5 @@ emulators/
 
 # Python bytecode generated while exercising repository scripts.
 /scripts/__pycache__/
+/test-data/synthetic-cartridges/__pycache__/
 /scripts/status/__pycache__/
