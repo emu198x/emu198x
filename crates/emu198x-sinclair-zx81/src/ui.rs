@@ -16,6 +16,12 @@ use emu198x_ui::{ButtonInputMap, KeyCode, UiError, UiSystem, VideoFilter};
 use runtime_sinclair_zx81::{Model, Zx81Runtime};
 
 const DEFAULT_SCALE: u32 = 3;
+/// Framebuffer pixels per second: two per 3.25 MHz T-state.
+const PIXEL_CLOCK_HZ: f64 = 6_500_000.0;
+/// Framebuffer lines a PAL set spreads over its full height. The core is
+/// progressive, so this is the active line count itself.
+const PAL_ACTIVE_LINES: f64 = 288.0;
+
 /// PAL TV-clock ticks per frame (207 per line × 312 lines), matching the
 /// headless runner's `FRAME_TICKS_PAL`.
 const FRAME_TICKS_PAL: u64 = 207 * 312;
@@ -62,6 +68,20 @@ impl UiSystem for Zx81System {
 
     fn default_scale(&self) -> u32 {
         DEFAULT_SCALE
+    }
+
+    /// Two pixels per 3.25 MHz T-state, filling PAL's 288 active lines once.
+    /// Works out at about 1.14 — the ZX80/ZX81 raster puts 256 pixels of
+    /// characters across roughly three quarters of the screen's width but
+    /// only 192 lines down two thirds of its height, so the pixels are wider
+    /// than they are tall. Showing the 320×240 framebuffer square renders the
+    /// character area at 1.33:1 where a set gives 1.52:1.
+    fn pixel_aspect_ratio(&self) -> Option<f32> {
+        emu198x_shell::display::pixel_aspect_ratio(
+            emu198x_shell::machine::Region::Pal,
+            PIXEL_CLOCK_HZ,
+            PAL_ACTIVE_LINES,
+        )
     }
 
     // The display is CPU-generated; advance whole frames so a slice never
