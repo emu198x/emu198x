@@ -47,6 +47,23 @@ core knows which it is. The Amiga's 768×576 is the case that forces the
 distinction: both terms double against a 384×288 core, and a formula that
 assumed one field would be out by two.
 
+## The answer can change under the machine
+
+`UiSystem::pixel_aspect_ratio` takes the runtime, and the harness re-derives
+it wherever the picture can change — window creation and variant switching.
+Most cores ignore the argument and return a constant, but the shape of the
+hook has to allow otherwise, because two things move it:
+
+- **A variant switch can cross regions.** Switching a machine from its PAL
+  profile to its NTSC one changes the pixel aspect while the framebuffer keeps
+  its dimensions, so a size comparison will not catch it.
+- **A display card is not a television.** An Amiga running RTG drives a
+  monitor, and the mode's clock is the card's, not the chipset's. `Region` is
+  a property of the machine; what this derivation actually needs to know is
+  which display is being driven. Those coincide for every core today. If they
+  stop coinciding, that is the thing to change — not the formula, which is
+  about light on glass and does not care what generated the signal.
+
 ## Not every machine has an answer
 
 `Region::Other` returns `None`, and cores fall back to square pixels. A Game
