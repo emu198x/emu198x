@@ -95,8 +95,53 @@ Migrated so far — sixteen of thirty:
 | Atari 2600 | PAL | 2.0820 | 25:12 ✓ |
 | Game Boy, Game Gear | — | 1.0 | not televisions |
 
+What each core showed *before* is not one story, and commit messages from the
+migration get this wrong — several say "square" of cores that were not:
+
+| Core | Was | Now | Shift |
+|---|---|---|---|
+| ZX80, ZX81, Spectrum, NES, C64 | 1.0 — square, by never overriding the hook | derived | up to +14% (NES) |
+| MSX, ColecoVision, SG-1000, Sord M5, SVI-328, MTX, Einstein, Master System | 1.1111 — `Some(4/3)` over a 288×240 buffer | 1.1429 | +2.9% |
+| Atari 2600 | 1.8667 — `Some(4/3)` over a 160×224 buffer | 1.7143 | **−8.2%** |
+
+The 2600 is the one to remember: it was the furthest out of any core, and the
+correction makes its picture *narrower*, not wider. Reading the old hook as
+"square" is the mistake — it was stretching to 4:3, which lands somewhere
+different for every framebuffer shape.
+
 Fourteen remain; #1053 tracks them. Each wants a reference to check against,
 not just arithmetic.
+
+## This says nothing about overscan
+
+Pixel aspect is the shape of a pixel. How much of the raster a core keeps is a
+separate axis, and none of it is settled by the work above — the derivation
+takes no framebuffer dimensions, which is exactly why it could be fixed
+without touching any crop.
+
+The migration does leave the instrument to measure the other axis, because
+every migrated core now states a pixel clock. A set's window is
+`pixel_clock × active_line_seconds` wide and `active_lines` tall, so:
+
+| Core | Framebuffer | Set's window | Horizontal | Vertical |
+|---|---|---|---|---|
+| ZX80, ZX81 (PAL) | 320×240 | 338×288 | 95% | 83% |
+| Spectrum 48K (PAL) | 352×296 | 364×288 | 97% | 103% |
+| TMS9918 (NTSC) | 288×240 | 280×240 | 103% | 100% |
+| TMS9918 (PAL) | 288×240 | 278×288 | 104% | 83% |
+| NES (NTSC) | 256×240 | 280×240 | 91% | 100% |
+| C64 (PAL) | 416×312 | 410×288 | 101% | 108% |
+| Atari 2600 (NTSC) | 160×224 | 187×240 | 86% | 93% |
+
+Under 100% has two quite different causes and this table cannot tell them
+apart. The NES renders only 256 dots and blanks the rest, so a set genuinely
+shows black at the sides — that is the hardware, not our crop. The ZX80's 83%
+is our crop, and [`../../`#1054] is about exactly that. Over 100% means we
+present raster a set would hide.
+
+Sorting one from the other needs per-core knowledge of what the chip renders
+against what it blanks. Nobody has done that pass, and the spread here — 86%
+to 104% horizontally, 83% to 108% vertically — is the argument for doing it.
 
 ## Calibrating the active line
 
