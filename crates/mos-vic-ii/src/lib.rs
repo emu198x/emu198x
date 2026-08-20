@@ -106,6 +106,14 @@ const NTSC_LAST_VISIBLE_LINE: u16 = 263;
 const FIRST_VISIBLE_CYCLE: u8 = 10;
 const LAST_VISIBLE_CYCLE: u8 = 62;
 const VISIBLE_CYCLES: u8 = LAST_VISIBLE_CYCLE - FIRST_VISIBLE_CYCLE;
+/// Dot clock of the PAL VIC-II: eight pixels per 985,248 Hz cycle.
+/// Reproduces the published 0.9365 pixel aspect.
+pub const PAL_DOT_CLOCK_HZ: f64 = 7_881_984.0;
+
+/// Dot clock of the NTSC VIC-II: eight pixels per 1,022,727 Hz cycle.
+/// Reproduces the published 0.7500.
+pub const NTSC_DOT_CLOCK_HZ: f64 = 8_181_816.0;
+
 pub const FB_WIDTH: u32 = VISIBLE_CYCLES as u32 * 8;
 pub const FB_HEIGHT: u32 = (PAL_LAST_VISIBLE_LINE - PAL_FIRST_VISIBLE_LINE) as u32;
 const DISPLAY_START_LINE: u16 = 0x30;

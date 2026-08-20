@@ -104,8 +104,18 @@ impl UiSystem for GameGearSystem {
     }
 
     // The Game Gear is a square-pixel LCD, so it needs no aspect correction.
-    fn display_aspect_ratio(&self) -> Option<f32> {
-        None
+
+    /// Square, and not because a broadcast standard says so — because the
+    /// Game Gear's pixels are square. It is an LCD; nothing here was ever
+    /// sampled by a television.
+    ///
+    /// Note this cannot go through the region helper. The profile reports
+    /// `Region::Ntsc`, which is true of the machine's *timing* and says
+    /// nothing about its display, and deriving a TV aspect from it would
+    /// stretch a picture that never left the panel. `Region` describes the
+    /// clock, not the glass.
+    fn pixel_aspect_ratio(&self, _runtime: &Self::Runtime) -> Option<f32> {
+        Some(1.0)
     }
 
     // The display is CPU-generated; advance whole frames so a slice never

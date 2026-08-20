@@ -93,6 +93,15 @@ pub const ACTIVE_WIDTH: u32 = 160;
 /// the canonical 228-clock line width; the 68-clock HBLANK region is
 /// rendered black, because the TIA holds its output in blanking during
 /// horizontal retrace (COLUBK only appears in the 160 visible clocks).
+/// Colour clock of the NTSC TIA. The framebuffer is one pixel per colour
+/// clock, so this is its pixel clock too — and it is slow enough that a 2600
+/// pixel is 12:7, nearly twice as wide as it is tall.
+pub const NTSC_COLOUR_CLOCK_HZ: f64 = 3_579_545.0;
+
+/// Colour clock of the PAL TIA, four times the PAL subcarrier over five.
+/// Gives 25:12.
+pub const PAL_COLOUR_CLOCK_HZ: f64 = 3_546_894.0;
+
 pub const FB_WIDTH: u32 = 228;
 
 /// Number of colour clocks per scanline (68 hblank + 160 visible).

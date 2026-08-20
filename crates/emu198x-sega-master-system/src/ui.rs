@@ -12,6 +12,7 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
+use emu198x_shell::MachineCore;
 use emu198x_ui::{
     ButtonInputMap, ButtonTarget, HostControl, KeyCode, UiError, UiSystem, VideoFilter,
 };
@@ -109,8 +110,15 @@ impl UiSystem for SmsSystem {
     }
 
     // The SMS drove a 4:3 TV.
-    fn display_aspect_ratio(&self) -> Option<f32> {
-        Some(4.0 / 3.0)
+
+    /// The VDP descends from the TMS9918 and keeps its colour-subcarrier crystal,
+    /// so a Master System's pixels are 8:7 on NTSC, not square.
+    fn pixel_aspect_ratio(&self, runtime: &Self::Runtime) -> Option<f32> {
+        emu198x_shell::display::pixel_aspect_for_region(
+            runtime.profile().region,
+            sega_vdp::PAL_DOT_CLOCK_HZ,
+            sega_vdp::NTSC_DOT_CLOCK_HZ,
+        )
     }
 
     // The display is CPU-generated; advance whole frames so a slice never

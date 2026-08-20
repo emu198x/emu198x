@@ -86,6 +86,17 @@ impl UiSystem for NesSystem {
         INPUT_SLICES_PER_FRAME
     }
 
+    /// 8:7 — the ratio the NES is usually described by, and one the 256x240
+    /// framebuffer cannot express on its own. This core is NTSC-only; the PAL
+    /// 2C07 clock is wired up for when #80 lands.
+    fn pixel_aspect_ratio(&self, runtime: &Self::Runtime) -> Option<f32> {
+        emu198x_shell::display::pixel_aspect_for_region(
+            runtime.profile().region,
+            ricoh_ppu_2c02::PAL_DOT_CLOCK_HZ,
+            ricoh_ppu_2c02::NTSC_DOT_CLOCK_HZ,
+        )
+    }
+
     fn framebuffer_size(&self, _runtime: &Self::Runtime) -> (u32, u32) {
         (FB_WIDTH, FB_HEIGHT)
     }

@@ -89,6 +89,14 @@ impl UiSystem for GameBoySystem {
         INPUT_SLICES_PER_FRAME
     }
 
+    /// Square, because the Game Boy's pixels are square. Its profile reports
+    /// `Region::Other` — it drove no television — so the derivation would
+    /// decline to answer anyway; saying so here makes it a decision rather
+    /// than an omission.
+    fn pixel_aspect_ratio(&self, _runtime: &Self::Runtime) -> Option<f32> {
+        Some(1.0)
+    }
+
     fn framebuffer_size(&self, _runtime: &Self::Runtime) -> (u32, u32) {
         (SCREEN_WIDTH, SCREEN_HEIGHT)
     }
