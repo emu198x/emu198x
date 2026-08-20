@@ -255,6 +255,37 @@ impl SpectrumRuntimeKind {
     /// the +2A/+2B/+3 family at 17.7 MHz / 70908, the Pentagon at
     /// 14.336 MHz / 71680, the Scorpion at 14 MHz / 71680, the TC2048
     /// at the 48K rate, and the TC2068/TS2068 at their SCLD rate.
+    /// Framebuffer pixels emitted per second for the active variant.
+    ///
+    /// Two pixels per T-state across the whole family, so this is the CPU
+    /// clock doubled — and the CPU clock is the master crystal over the
+    /// variant's divisor, which is where the classes part company. The 48K
+    /// runs 14 MHz ÷ 4 for 7.00 MHz; the 128K runs four times the PAL colour
+    /// subcarrier ÷ 5 for 7.09 MHz. Close enough to look like rounding, far
+    /// enough that the picture is a different shape.
+    ///
+    /// Taken from the same timing tables as [`Self::frame_halfcycles`] rather
+    /// than restated, so a corrected crystal reaches both.
+    #[must_use]
+    pub fn pixel_clock_hz(&self) -> f64 {
+        use common_sinclair_zx_spectrum::timing::{
+            TIMING_48K, TIMING_128K, TIMING_PENTAGON, TIMING_PLUS2A, TIMING_SCORPION,
+        };
+        use machine_timex_ts2068::TIMING_TS2068;
+        let timing = match self {
+            Self::Spectrum16K(_) | Self::Spectrum48K(_) | Self::SpectrumPlus(_) => &TIMING_48K,
+            Self::Spectrum128K(_) | Self::SpectrumPlus2(_) => &TIMING_128K,
+            Self::SpectrumPlus2A(_) | Self::SpectrumPlus2B(_) | Self::SpectrumPlus3(_) => {
+                &TIMING_PLUS2A
+            }
+            Self::Pentagon128(_) => &TIMING_PENTAGON,
+            Self::ScorpionZS256(_) => &TIMING_SCORPION,
+            Self::TimexTC2048(_) | Self::TimexTC2068(_) => &TIMING_48K,
+            Self::TimexTS2068(_) => &TIMING_TS2068,
+        };
+        timing.master_hz as f64 / f64::from(timing.cpu_divisor) * 2.0
+    }
+
     #[must_use]
     pub fn frame_halfcycles(&self) -> u32 {
         use common_sinclair_zx_spectrum::timing::{

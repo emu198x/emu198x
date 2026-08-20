@@ -169,6 +169,23 @@ impl UiSystem for SpectrumSystem {
         DEFAULT_SCALE
     }
 
+    /// Two pixels per T-state, so the pixel clock is the variant's CPU clock
+    /// doubled — and the variants disagree. A 48K gives about 1.055, a 128K
+    /// about 1.041 from its colour-subcarrier crystal, and a TS2068 is NTSC
+    /// rather than PAL. None of them is square, which is what showing the
+    /// 352x296 framebuffer unstretched claimed.
+    ///
+    /// This is the case the runtime argument exists for: switching variant
+    /// changes the answer while the framebuffer keeps its dimensions.
+    fn pixel_aspect_ratio(&self, runtime: &Self::Runtime) -> Option<f32> {
+        let region = runtime.profile().region;
+        emu198x_shell::display::pixel_aspect_ratio(
+            region,
+            runtime.pixel_clock_hz(),
+            emu198x_shell::display::active_lines(region)?,
+        )
+    }
+
     fn framebuffer_size(&self, _runtime: &Self::Runtime) -> (u32, u32) {
         (SCREEN_WIDTH as u32, SCREEN_HEIGHT as u32)
     }
