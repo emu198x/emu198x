@@ -12,8 +12,12 @@ use std::env;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use emu198x_shell::MachineCore;
 use emu198x_ui::{ButtonInputMap, KeyCode, UiError, UiSystem, VideoFilter};
 use runtime_jupiter_ace::{JupiterAceRuntime, Model};
+
+/// Framebuffer pixels per second.
+const PIXEL_CLOCK_HZ: f64 = 6_500_000.0;
 
 const DEFAULT_SCALE: u32 = 3;
 /// Z80A @ 3.25 MHz, ~50 Hz PAL → ~65,000 t-states/frame, matching the
@@ -73,6 +77,16 @@ impl UiSystem for JupiterAceSystem {
     // captures a half-drawn picture.
     fn input_slices_per_frame(&self) -> u32 {
         1
+    }
+
+    /// Two pixels per 3.25 MHz T-state, and 207 T-states over 312 lines — the
+    /// same raster as a ZX80, and the same 1.14.
+    fn pixel_aspect_ratio(&self, runtime: &Self::Runtime) -> Option<f32> {
+        emu198x_shell::display::pixel_aspect_for_region(
+            runtime.profile().region,
+            PIXEL_CLOCK_HZ,
+            PIXEL_CLOCK_HZ,
+        )
     }
 
     fn framebuffer_size(&self, runtime: &Self::Runtime) -> (u32, u32) {

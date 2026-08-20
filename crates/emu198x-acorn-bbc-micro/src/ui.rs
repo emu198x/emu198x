@@ -13,10 +13,14 @@ use std::env;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use emu198x_shell::MachineCore;
 use emu198x_ui::{
     ButtonInputMap, ButtonTarget, HostControl, KeyCode, UiError, UiSystem, VideoFilter,
 };
 use runtime_acorn_bbc_micro::{BbcMicroRuntime, Model};
+
+/// Framebuffer pixels per second.
+const PIXEL_CLOCK_HZ: f64 = 16_000_000.0;
 
 const DEFAULT_SCALE: u32 = 3;
 /// 6502 @ 2 MHz, 50 Hz → 40,000 cycles/frame, matching the headless runner.
@@ -72,8 +76,16 @@ impl UiSystem for BbcSystem {
     }
 
     // The BBC drove a 4:3 TV / monitor; its framebuffer stretches to fill it.
-    fn display_aspect_ratio(&self) -> Option<f32> {
-        Some(4.0 / 3.0)
+
+    /// 16 MHz, which is the framebuffer's clock in every screen mode: the core
+    /// renders each mode into one 640-wide buffer, so the mode changes how
+    /// many source pixels there are and not how fast the buffer fills.
+    fn pixel_aspect_ratio(&self, runtime: &Self::Runtime) -> Option<f32> {
+        emu198x_shell::display::pixel_aspect_for_region(
+            runtime.profile().region,
+            PIXEL_CLOCK_HZ,
+            PIXEL_CLOCK_HZ,
+        )
     }
 
     // The display is CPU-generated; advance whole frames so a slice never

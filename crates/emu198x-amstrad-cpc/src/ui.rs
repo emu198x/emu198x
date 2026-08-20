@@ -21,6 +21,9 @@ use emu198x_ui::{
 use machine_amstrad_cpc::{FB_HEIGHT, FB_WIDTH};
 use runtime_amstrad_cpc::{AmstradCpcRuntime, Model};
 
+/// Framebuffer pixels per second.
+const PIXEL_CLOCK_HZ: f64 = 16_000_000.0;
+
 const DEFAULT_SCALE: u32 = 2;
 
 /// One PAL frame: 64 character clocks per line x 312 lines x 4 T-states.
@@ -91,12 +94,19 @@ impl UiSystem for CpcSystem {
         DEFAULT_SCALE
     }
 
-    /// The CPC's monitor is 4:3. The framebuffer is 768x270 because it is
-    /// drawn at the full 16 MHz dot clock — twice the horizontal resolution of
-    /// a mode-1 pixel — so it is far wider than 4:3 and must be squashed
-    /// rather than shown square.
-    fn display_aspect_ratio(&self) -> Option<f32> {
-        Some(4.0 / 3.0)
+    /// The framebuffer is drawn at the full 16 MHz dot clock — twice the
+    /// horizontal resolution of a mode-1 pixel — so its pixels are far
+    /// narrower than square and the picture has to be squashed to suit.
+    ///
+    /// Sixteen dots per character over sixty-four characters is 1024 dots a
+    /// line, which at 16 MHz is PAL's 64 µs. That the existing comment here
+    /// already named the same clock is corroboration, not coincidence.
+    fn pixel_aspect_ratio(&self, runtime: &Self::Runtime) -> Option<f32> {
+        emu198x_shell::display::pixel_aspect_for_region(
+            runtime.profile().region,
+            PIXEL_CLOCK_HZ,
+            PIXEL_CLOCK_HZ,
+        )
     }
 
     /// The beam locks to the CRTC's sync pulses, so a partial frame can hold a

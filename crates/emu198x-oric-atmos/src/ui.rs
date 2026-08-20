@@ -14,11 +14,15 @@ use std::env;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use emu198x_shell::MachineCore;
 use emu198x_ui::{
     ButtonInputMap, ButtonTarget, HostControl, KeyCode, UiError, UiSystem, VideoFilter,
 };
 use machine_oric_atmos::{FB_HEIGHT, FB_WIDTH};
 use runtime_oric_atmos::{Model, OricRuntime};
+
+/// Framebuffer pixels per second.
+const PIXEL_CLOCK_HZ: f64 = 6_000_000.0;
 
 const DEFAULT_SCALE: u32 = 3;
 /// 6502 @ 1 MHz, 50 Hz PAL → 20,000 cycles/frame, matching the headless
@@ -82,8 +86,16 @@ impl UiSystem for OricSystem {
     }
 
     // The Oric drove a 4:3 TV; its 240×224 framebuffer stretches to fill it.
-    fn display_aspect_ratio(&self) -> Option<f32> {
-        Some(4.0 / 3.0)
+
+    /// Six pixels per 1 MHz character, forty characters a line. Sixty-four
+    /// cycles at that rate is exactly PAL's 64 µs line, which is the check
+    /// that the six is right.
+    fn pixel_aspect_ratio(&self, runtime: &Self::Runtime) -> Option<f32> {
+        emu198x_shell::display::pixel_aspect_for_region(
+            runtime.profile().region,
+            PIXEL_CLOCK_HZ,
+            PIXEL_CLOCK_HZ,
+        )
     }
 
     // The display is CPU-generated; advance whole frames so a slice never
