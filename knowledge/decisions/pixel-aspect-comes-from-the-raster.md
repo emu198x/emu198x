@@ -77,9 +77,21 @@ than by saying so; that is worth tidying when it migrates.
 `pixel_aspect_ratio` and falls back, so no core changes behaviour until it is
 migrated deliberately. Do not add new cores to the old hook.
 
-Migrated so far: ZX80, ZX81 — both PAL, both two pixels per 3.25 MHz T-state
-over 288 active lines, both about 1.14. Twenty-eight remain; #1053 tracks them.
-Each migration wants a reference to check against, not just arithmetic.
+Migrated so far:
+
+| Core | Pixel clock | TV | PAR |
+|---|---|---|---|
+| ZX80, ZX81 | 6.50 MHz | PAL | 1.136 |
+| Spectrum 16K/48K/+, Pentagon | 7.00 MHz | PAL | 1.055 |
+| Spectrum 128K/+2/+2A/+2B/+3 | 7.09 MHz | PAL | 1.041 |
+| Timex TS2068 | 7.06 MHz | NTSC | 0.862 |
+
+Twenty-six remain; #1053 tracks them. Each migration wants a reference to
+check against, not just arithmetic. Two are on hand: the ZX80's figure is
+backed by a pixel-exact comparison against MAME 0.289, and the formula
+reproduces the widely published VIC-II ratios — 0.9365 PAL within 0.05%,
+0.7500 NTSC within 1% — which is corroboration from people who derived them
+independently. Those are the numbers to check the C64 against when it moves.
 
 ## Drift triggers
 
