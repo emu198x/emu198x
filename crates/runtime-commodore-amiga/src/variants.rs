@@ -2067,6 +2067,18 @@ impl emu198x_shell::MachineCore for AmigaRuntimeKind {
         }
     }
 
+    // Forwarded like everything else on this enum. `MachineCore::display` has
+    // a default of `None`, so an unforwarded method here does not fail to
+    // compile — it silently answers "no display stated" for a machine whose
+    // inner runtime states one, and the harness falls back to square pixels.
+    fn display(&self) -> Option<emu198x_shell::display::Display> {
+        match self {
+            Self::Ocs(rt) => rt.display(),
+            Self::Ecs(rt) => rt.display(),
+            Self::Aga(rt) => rt.display(),
+        }
+    }
+
     // The Amiga joins the shared debug tier via `impl DebugPrimitives` (see
     // `debug.rs`), which the shell's blanket impl turns into `DebugTarget`.
     // Always present: the family enum is always backed by a live machine.
