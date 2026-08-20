@@ -269,15 +269,21 @@ def _nes_encode(cell) -> bytes:
     return bytes(low + high)
 
 
-def _cut(px, blank_role=PAPER):
-    """Cuts a bitmap into 8x8 tiles, de-duplicated, tile 0 reserved blank."""
-    blank = tuple(tuple(blank_role for _ in range(8)) for _ in range(8))
+def _cut(px, cell_w=8, cell_h=8, blank_role=PAPER):
+    """Cuts a bitmap into cells, de-duplicated, cell 0 reserved blank.
+
+    The cell is not always 8x8. ANTIC's four-colour text mode reads its font
+    two bits per pixel, so a character is four pixels wide there — the same
+    plate becomes twice as many cells.
+    """
+    blank = tuple(tuple(blank_role for _ in range(cell_w)) for _ in range(cell_h))
     tiles, index, layout = [blank], {blank: 0}, []
-    rows, cols = len(px) // 8, len(px[0]) // 8
+    rows, cols = len(px) // cell_h, len(px[0]) // cell_w
     for row in range(rows):
         for col in range(cols):
             cell = tuple(
-                tuple(px[row * 8 + y][col * 8 + x] for x in range(8)) for y in range(8)
+                tuple(px[row * cell_h + y][col * cell_w + x] for x in range(cell_w))
+                for y in range(cell_h)
             )
             if cell not in index:
                 index[cell] = len(tiles)
@@ -338,9 +344,112 @@ def nes() -> bytes:
         combined.unlink(missing_ok=True)
 
 
+
+
+# --------------------------------------------------------------------------
+# Atari 5200
+# --------------------------------------------------------------------------
+
+# Measured against this workspace's own GTIA palette table, `$A2` is #1c4c78
+# against Emu198x's #0d4a7d — the closest any machine here gets to carrying
+# the identity colour outright, and it is also the nearest blue, so the two
+# criteria agree for once.
+A5200_PAPER, A5200_FILL, A5200_INK = 0x0E, 0xA2, 0x00
+A5200_COLOUR = {PAPER: 0, FILL: 1, INK: 2}  # COLBK, COLPF0, COLPF1
+
+A5200_CELL_W = 4          # ANTIC mode 4 reads the font 2 bits per pixel
+A5200_LINE_CELLS = 40     # normal playfield width
+A5200_CART_BASE = 0x4000
+A5200_CART_SIZE = 0x8000
+A5200_CHARSET = 0x4400    # 1 KB aligned, as mode 4 requires
+A5200_SCREEN = 0x4800
+A5200_DLIST = 0x4900
+
+
+def _a5200_encode(cell) -> list[int]:
+    """One byte a row: four pixels, two bits each, high pixel first."""
+    out = []
+    for row in cell:
+        byte = 0
+        for i, role in enumerate(row):
+            byte |= A5200_COLOUR[role] << (6 - i * 2)
+        out.append(byte)
+    return out
+
+
+def a5200_art_source() -> str:
+    px = plate_bitmap()
+    glyphs, layout = _cut(px, cell_w=A5200_CELL_W)
+    if len(glyphs) > 128:
+        raise SystemExit(f"mode 4 holds 128 glyphs; the plate needs {len(glyphs)}")
+
+    plate_cells = len(px[0]) // A5200_CELL_W
+    left = (A5200_LINE_CELLS - plate_cells) // 2
+    rows = len(px) // 8
+
+    out = [
+        "",
+        f"PAPER_COLOUR = ${A5200_PAPER:02X}",
+        f"FILL_COLOUR = ${A5200_FILL:02X}",
+        f"INK_COLOUR = ${A5200_INK:02X}",
+        "",
+        f"* = ${A5200_CHARSET:04X}",
+        f"; {len(glyphs)} glyphs of a 128-glyph font; glyph 0 is reserved paper,",
+        "; because screen memory is filled with it.",
+        "charset:",
+    ]
+    for i, cell in enumerate(glyphs):
+        out.append(f"    ; glyph {i}")
+        out.append("    !byte " + ", ".join(f"${b:02X}" for b in _a5200_encode(cell)))
+    out += ["", f"* = ${A5200_SCREEN:04X}", "screen:"]
+    for r in range(rows):
+        cells = layout[r * plate_cells : (r + 1) * plate_cells]
+        line = [0] * left + list(cells) + [0] * (A5200_LINE_CELLS - left - plate_cells)
+        out.append("    !byte " + ", ".join(str(v) for v in line))
+
+    # Ten blank instructions put the plate's 24 scanlines near the middle of
+    # the 192 a set shows, then one LMS and two plain mode-4 rows, then a jump
+    # that waits for vertical blank and starts the list again.
+    out += [
+        "",
+        f"* = ${A5200_DLIST:04X}",
+        "dlist:",
+        "    !byte " + ", ".join(["$70"] * 10),
+        "    !byte $44",
+        "    !word screen",
+        "    !byte $04, $04",
+        "    !byte $41",
+        "    !word dlist",
+    ]
+    return "\n".join(out) + "\n"
+
+
+def atari_5200() -> bytes:
+    """A 32 KB cartridge image spanning $4000-$BFFF.
+
+    The start address at $BFFE is the whole handover protocol: the BIOS jumps
+    through it, so a cartridge without one is a cartridge that never runs.
+    """
+    program = (HERE / "atari-5200-plate.s").read_text()
+    combined = HERE / "atari-5200-plate.combined.s"
+    combined.write_text(program + a5200_art_source())
+    try:
+        code = assemble(combined, "acme")
+    finally:
+        combined.unlink(missing_ok=True)
+
+    cart = bytearray(b"\xFF" * A5200_CART_SIZE)
+    cart[: len(code)] = code
+    start = A5200_CART_BASE
+    cart[0x7FFE] = start & 0xFF
+    cart[0x7FFF] = start >> 8
+    return bytes(cart)
+
+
 CARTRIDGES = {
     "nintendo-game-boy-logo.gb": game_boy,
     "nintendo-nes-logo.nes": nes,
+    "atari-5200-logo.bin": atari_5200,
 }
 
 
