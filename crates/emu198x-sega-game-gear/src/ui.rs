@@ -12,6 +12,7 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
+use emu198x_ui::Display;
 use emu198x_ui::{
     ButtonInputMap, ButtonTarget, HostControl, KeyCode, UiError, UiSystem, VideoFilter,
 };
@@ -114,8 +115,8 @@ impl UiSystem for GameGearSystem {
     /// nothing about its display, and deriving a TV aspect from it would
     /// stretch a picture that never left the panel. `Region` describes the
     /// clock, not the glass.
-    fn pixel_aspect_ratio(&self, _runtime: &Self::Runtime) -> Option<f32> {
-        Some(1.0)
+    fn display(&self, _runtime: &Self::Runtime) -> Option<Display> {
+        Some(Display::Lcd)
     }
 
     // The display is CPU-generated; advance whole frames so a slice never

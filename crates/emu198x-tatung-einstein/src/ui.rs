@@ -14,6 +14,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use emu198x_shell::MachineCore;
+use emu198x_ui::Display;
 use emu198x_ui::{
     ButtonInputMap, ButtonTarget, HostControl, KeyCode, UiError, UiSystem, VideoFilter,
 };
@@ -86,8 +87,8 @@ impl UiSystem for EinsteinSystem {
     /// crystal, so its dots are not square: 8:7 on the NTSC parts, about
     /// 1.382 on the PAL TMS9929A. Presenting the 288x240 framebuffer unstretched
     /// claimed otherwise.
-    fn pixel_aspect_ratio(&self, runtime: &Self::Runtime) -> Option<f32> {
-        emu198x_shell::display::pixel_aspect_for_region(
+    fn display(&self, runtime: &Self::Runtime) -> Option<Display> {
+        Display::television_for_region(
             runtime.profile().region,
             ti_tms9918::PAL_DOT_CLOCK_HZ,
             ti_tms9918::NTSC_DOT_CLOCK_HZ,

@@ -126,22 +126,90 @@ pub fn pixel_aspect_ratio(
     Some((FRAME_ASPECT * lines_per_tv_height / pixels_across) as f32)
 }
 
-/// Pixel aspect for a machine sold in both standards, given its clock in each.
+/// What a machine's video output actually reached.
 ///
-/// Most video chips of the era were built twice — a colour-subcarrier-derived
-/// crystal for each standard — so the clock and the standard move together.
-/// This picks both from the region rather than making every frontend repeat
-/// the same two-armed match.
+/// The distinction matters because the three kinds derive their geometry in
+/// genuinely different ways, and picking the wrong one is not a small error.
 ///
-/// Returns `None` for a machine that did not drive a television.
-#[must_use]
-pub fn pixel_aspect_for_region(region: Region, pal_hz: f64, ntsc_hz: f64) -> Option<f32> {
-    let clock = match region {
-        Region::Pal => pal_hz,
-        Region::Ntsc => ntsc_hz,
-        _ => return None,
-    };
-    pixel_aspect_ratio(region, clock, active_lines(region)?)
+/// A **television** overscans: it shows a fixed slice of each line and a fixed
+/// number of lines, whatever the machine sends. So its geometry comes from the
+/// raster — a clock and a line count — and is completely independent of how
+/// much of the signal we chose to keep in a framebuffer.
+///
+/// A **monitor** has no such convention. It displays the raster it is handed,
+/// so the framebuffer *is* the picture and its dimensions decide the shape.
+/// That is the one case where deriving from the framebuffer is right rather
+/// than a mistake.
+///
+/// An **LCD** has square pixels because its pixels are square.
+///
+/// [`Region`] cannot stand in for any of this. It describes the signal a
+/// machine generates, and machines exist whose region and display disagree —
+/// a Game Gear reports `Region::Ntsc` and drives a panel; an Amiga running a
+/// display card drives a monitor from a chipset that also feeds a set.
+#[derive(Clone, Copy, Debug, PartialEq)]
+#[non_exhaustive]
+pub enum Display {
+    /// A domestic television, which overscans.
+    Television {
+        /// Broadcast standard, which fixes how much of each line is shown.
+        region: Region,
+        /// Framebuffer pixels emitted per second along a scanline.
+        pixel_clock_hz: f64,
+        /// Framebuffer lines spanning the set's height: the active line count
+        /// for a progressive core, twice it for an interlaced framebuffer.
+        lines_per_tv_height: f64,
+    },
+    /// A flat panel. Square pixels, and no broadcast convention applies.
+    Lcd,
+    /// A dedicated monitor, which shows the whole raster and fills this shape.
+    Monitor {
+        /// Picture width ÷ height of the tube, typically `4.0 / 3.0`.
+        aspect: f32,
+    },
+}
+
+impl Display {
+    /// A television whose clock differs between standards — the common case,
+    /// since most chips of the era were built twice.
+    ///
+    /// Returns `None` when the region is not a broadcast standard, which is
+    /// the caller's cue that this machine wants a different variant.
+    #[must_use]
+    pub fn television_for_region(region: Region, pal_hz: f64, ntsc_hz: f64) -> Option<Self> {
+        let (pixel_clock_hz, lines_per_tv_height) = match region {
+            Region::Pal => (pal_hz, PAL_ACTIVE_LINES),
+            Region::Ntsc => (ntsc_hz, NTSC_ACTIVE_LINES),
+            _ => return None,
+        };
+        Some(Self::Television {
+            region,
+            pixel_clock_hz,
+            lines_per_tv_height,
+        })
+    }
+
+    /// Pixel aspect ratio for this display.
+    ///
+    /// The framebuffer dimensions are used by [`Self::Monitor`] and ignored by
+    /// the others, which is the asymmetry this type exists to express: a
+    /// monitor shows the whole buffer, so its shape decides the geometry,
+    /// while a television's crop cannot.
+    #[must_use]
+    pub fn pixel_aspect_ratio(&self, fb_width: u32, fb_height: u32) -> f32 {
+        match *self {
+            Self::Television {
+                region,
+                pixel_clock_hz,
+                lines_per_tv_height,
+            } => pixel_aspect_ratio(region, pixel_clock_hz, lines_per_tv_height).unwrap_or(1.0),
+            Self::Lcd => 1.0,
+            Self::Monitor { aspect } if fb_width > 0 && fb_height > 0 => {
+                aspect * fb_height as f32 / fb_width as f32
+            }
+            Self::Monitor { .. } => 1.0,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -239,6 +307,42 @@ mod tests {
                 "{name}: published {want}, derived {got}"
             );
         }
+    }
+
+    /// The asymmetry the `Display` type exists to express: a television's
+    /// geometry cannot depend on the crop, and a monitor's must.
+    #[test]
+    fn only_a_monitor_reads_the_framebuffer() {
+        let tv = Display::Television {
+            region: Region::Pal,
+            pixel_clock_hz: 6_500_000.0,
+            lines_per_tv_height: PAL_ACTIVE_LINES,
+        };
+        assert_eq!(
+            tv.pixel_aspect_ratio(320, 240),
+            tv.pixel_aspect_ratio(384, 311),
+            "a set overscans; what we kept cannot change the pixel's shape"
+        );
+
+        let monitor = Display::Monitor { aspect: 4.0 / 3.0 };
+        assert_ne!(
+            monitor.pixel_aspect_ratio(320, 240),
+            monitor.pixel_aspect_ratio(384, 311),
+            "a monitor shows the whole raster, so the buffer is the picture"
+        );
+        assert!((monitor.pixel_aspect_ratio(320, 240) - 1.0).abs() < 1e-6);
+
+        assert_eq!(Display::Lcd.pixel_aspect_ratio(160, 144), 1.0);
+    }
+
+    /// A machine on neither broadcast standard is not a television, and the
+    /// constructor says so instead of inventing a clock.
+    #[test]
+    fn television_for_region_declines_a_non_broadcast_region() {
+        assert_eq!(
+            Display::television_for_region(Region::Other, 6_500_000.0, 6_500_000.0),
+            None
+        );
     }
 
     #[test]

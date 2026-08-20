@@ -12,6 +12,7 @@ use std::env;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use emu198x_ui::Display;
 use emu198x_ui::{ButtonInputMap, KeyCode, UiError, UiSystem, VideoFilter};
 use runtime_sinclair_zx81::{Model, Zx81Runtime};
 
@@ -73,12 +74,12 @@ impl UiSystem for Zx81System {
     /// only 192 lines down two thirds of its height, so the pixels are wider
     /// than they are tall. Showing the 320×240 framebuffer square renders the
     /// character area at 1.33:1 where a set gives 1.52:1.
-    fn pixel_aspect_ratio(&self, _runtime: &Self::Runtime) -> Option<f32> {
-        emu198x_shell::display::pixel_aspect_ratio(
-            emu198x_shell::machine::Region::Pal,
-            PIXEL_CLOCK_HZ,
-            emu198x_shell::display::PAL_ACTIVE_LINES,
-        )
+    fn display(&self, _runtime: &Self::Runtime) -> Option<Display> {
+        Some(Display::Television {
+            region: emu198x_shell::machine::Region::Pal,
+            pixel_clock_hz: PIXEL_CLOCK_HZ,
+            lines_per_tv_height: emu198x_shell::display::PAL_ACTIVE_LINES,
+        })
     }
 
     // The display is CPU-generated; advance whole frames so a slice never

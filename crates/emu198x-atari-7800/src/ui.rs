@@ -13,6 +13,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use emu198x_shell::MachineCore;
+use emu198x_ui::Display;
 use emu198x_ui::{
     ButtonInputMap, ButtonTarget, HostControl, KeyCode, UiError, UiSystem, VideoFilter,
 };
@@ -114,8 +115,8 @@ impl UiSystem for Atari7800System {
     // The 7800 drove a 4:3 TV; its MARIA framebuffer stretches to fill it.
 
     /// MARIA keeps the colour clock its predecessors used, so 6:7 on NTSC.
-    fn pixel_aspect_ratio(&self, runtime: &Self::Runtime) -> Option<f32> {
-        emu198x_shell::display::pixel_aspect_for_region(
+    fn display(&self, runtime: &Self::Runtime) -> Option<Display> {
+        Display::television_for_region(
             runtime.profile().region,
             atari_maria::PAL_PIXEL_CLOCK_HZ,
             atari_maria::NTSC_PIXEL_CLOCK_HZ,

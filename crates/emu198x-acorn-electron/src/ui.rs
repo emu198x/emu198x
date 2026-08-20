@@ -13,6 +13,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use emu198x_shell::MachineCore;
+use emu198x_ui::Display;
 use emu198x_ui::{ButtonInputMap, KeyCode, UiError, UiSystem, VideoFilter};
 use runtime_acorn_electron::{ElectronRuntime, Model};
 
@@ -76,12 +77,8 @@ impl UiSystem for ElectronSystem {
 
     /// 16 MHz, as on the BBC — the ULA keeps the same dot rate and the core
     /// scales every mode into one 640-wide buffer.
-    fn pixel_aspect_ratio(&self, runtime: &Self::Runtime) -> Option<f32> {
-        emu198x_shell::display::pixel_aspect_for_region(
-            runtime.profile().region,
-            PIXEL_CLOCK_HZ,
-            PIXEL_CLOCK_HZ,
-        )
+    fn display(&self, runtime: &Self::Runtime) -> Option<Display> {
+        Display::television_for_region(runtime.profile().region, PIXEL_CLOCK_HZ, PIXEL_CLOCK_HZ)
     }
 
     // The display is CPU-generated; advance whole frames so a slice never

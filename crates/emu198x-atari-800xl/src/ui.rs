@@ -18,6 +18,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use emu198x_shell::MachineCore;
+use emu198x_ui::Display;
 use emu198x_ui::{
     ButtonInputMap, ButtonTarget, HostControl, KeyCode, UiError, UiSystem, VideoFilter,
 };
@@ -122,8 +123,8 @@ impl UiSystem for Atari800xlSystem {
 
     /// Two pixels per colour clock in the hires modes gives 6:7 on NTSC — the
     /// Atari 8-bit's published ratio, and taller than it is wide.
-    fn pixel_aspect_ratio(&self, runtime: &Self::Runtime) -> Option<f32> {
-        emu198x_shell::display::pixel_aspect_for_region(
+    fn display(&self, runtime: &Self::Runtime) -> Option<Display> {
+        Display::television_for_region(
             runtime.profile().region,
             atari_gtia::PAL_PIXEL_CLOCK_HZ,
             atari_gtia::NTSC_PIXEL_CLOCK_HZ,

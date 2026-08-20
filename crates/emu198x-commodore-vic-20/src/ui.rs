@@ -12,6 +12,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use emu198x_shell::MachineCore;
+use emu198x_ui::Display;
 use emu198x_ui::{
     ButtonInputMap, ButtonTarget, HostControl, KeyCode, UiError, UiSystem, VideoFilter,
 };
@@ -119,8 +120,8 @@ impl UiSystem for Vic20System {
     /// Eight pixels per machine cycle. On NTSC that is the VIC-II's clock, so a
     /// VIC-20 and a C64 share a pixel shape there and diverge on PAL, where
     /// their cycle rates differ.
-    fn pixel_aspect_ratio(&self, runtime: &Self::Runtime) -> Option<f32> {
-        emu198x_shell::display::pixel_aspect_for_region(
+    fn display(&self, runtime: &Self::Runtime) -> Option<Display> {
+        Display::television_for_region(
             runtime.profile().region,
             mos_vic_i::PAL_PIXEL_CLOCK_HZ,
             mos_vic_i::NTSC_PIXEL_CLOCK_HZ,

@@ -13,6 +13,7 @@ use std::env;
 use std::path::PathBuf;
 use std::time::Duration;
 
+use emu198x_ui::Display;
 use emu198x_ui::{ButtonInputMap, KeyCode, UiError, UiSystem, VideoFilter};
 use runtime_commodore_pet::{Model, PetRuntime};
 
@@ -83,8 +84,8 @@ impl UiSystem for PetSystem {
     // a legacy approximation here but the correct model. The PET's profile says
     // `Region::Other` for the same reason, and the derivation would decline to
     // answer. See `knowledge/decisions/pixel-aspect-comes-from-the-raster.md`.
-    fn display_aspect_ratio(&self) -> Option<f32> {
-        Some(4.0 / 3.0)
+    fn display(&self, _runtime: &Self::Runtime) -> Option<Display> {
+        Some(Display::Monitor { aspect: 4.0 / 3.0 })
     }
 
     // The display is CPU-generated; advance whole frames so a slice never

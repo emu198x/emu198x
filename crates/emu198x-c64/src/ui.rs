@@ -40,6 +40,7 @@ use emu198x_shell::{
     MediaImage, MediaKind, MediaSet, MediaTransportAction, MediaTransportCommand, boot_machine,
     read_firmware_asset, read_media_asset, read_program_asset,
 };
+use emu198x_ui::Display;
 use emu198x_ui::{
     ButtonInputMap, ButtonTarget, DriveOption, DrivePortInfo, HostControl, KeyCode, UiSystem,
     VariantInfo, VideoFilter,
@@ -214,8 +215,8 @@ impl UiSystem for C64System {
 
     /// 0.9365 on PAL and 0.7500 on NTSC, both widely published and both
     /// reproduced by the derivation to within a tenth of a percent.
-    fn pixel_aspect_ratio(&self, runtime: &Self::Runtime) -> Option<f32> {
-        emu198x_shell::display::pixel_aspect_for_region(
+    fn display(&self, runtime: &Self::Runtime) -> Option<Display> {
+        Display::television_for_region(
             runtime.profile().region,
             mos_vic_ii::PAL_DOT_CLOCK_HZ,
             mos_vic_ii::NTSC_DOT_CLOCK_HZ,

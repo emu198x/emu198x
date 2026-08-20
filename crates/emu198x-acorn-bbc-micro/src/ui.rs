@@ -14,6 +14,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use emu198x_shell::MachineCore;
+use emu198x_ui::Display;
 use emu198x_ui::{
     ButtonInputMap, ButtonTarget, HostControl, KeyCode, UiError, UiSystem, VideoFilter,
 };
@@ -80,12 +81,8 @@ impl UiSystem for BbcSystem {
     /// 16 MHz, which is the framebuffer's clock in every screen mode: the core
     /// renders each mode into one 640-wide buffer, so the mode changes how
     /// many source pixels there are and not how fast the buffer fills.
-    fn pixel_aspect_ratio(&self, runtime: &Self::Runtime) -> Option<f32> {
-        emu198x_shell::display::pixel_aspect_for_region(
-            runtime.profile().region,
-            PIXEL_CLOCK_HZ,
-            PIXEL_CLOCK_HZ,
-        )
+    fn display(&self, runtime: &Self::Runtime) -> Option<Display> {
+        Display::television_for_region(runtime.profile().region, PIXEL_CLOCK_HZ, PIXEL_CLOCK_HZ)
     }
 
     // The display is CPU-generated; advance whole frames so a slice never

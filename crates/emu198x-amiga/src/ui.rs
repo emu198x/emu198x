@@ -36,6 +36,7 @@ use emu198x_shell::{
     FamilyRuntime, FirmwareImage, FirmwareSet, MachineCore, MachineError, MediaImage, MediaKind,
     MediaSet, read_firmware_asset, read_media_asset,
 };
+use emu198x_ui::Display;
 use emu198x_ui::{
     ButtonInputMap, ButtonTarget, HostControl, KeyCode, UiSystem, VariantInfo, VideoFilter,
 };
@@ -171,12 +172,12 @@ impl UiSystem for AmigaSystem {
     /// this frontend runs an A500 PAL and ignores the runtime's region. The
     /// NTSC machine's clock is a different figure and wants the region
     /// threading through all three together, not here alone.
-    fn pixel_aspect_ratio(&self, _runtime: &Self::Runtime) -> Option<f32> {
-        emu198x_shell::display::pixel_aspect_ratio(
-            emu198x_shell::machine::Region::Pal,
-            HIRES_PIXEL_CLOCK_HZ,
-            f64::from(DISPLAY_HEIGHT),
-        )
+    fn display(&self, _runtime: &Self::Runtime) -> Option<Display> {
+        Some(Display::Television {
+            region: emu198x_shell::machine::Region::Pal,
+            pixel_clock_hz: HIRES_PIXEL_CLOCK_HZ,
+            lines_per_tv_height: f64::from(DISPLAY_HEIGHT),
+        })
     }
 
     fn framebuffer_size(&self, _runtime: &Self::Runtime) -> (u32, u32) {
