@@ -121,6 +121,19 @@ pub const BORDER_RIGHT: u32 = 16;
 pub const BORDER_TOP: u32 = 24;
 pub const BORDER_BOTTOM: u32 = 24;
 
+/// Dot clock of the NTSC parts — TMS9918A and TMS9928A. Half a 10.738635 MHz
+/// crystal, which is three times the colour subcarrier.
+///
+/// 342 dots at this rate is 63.70 µs, a shade longer than NTSC's 63.56 µs
+/// line. That is the chip, not a rounding error here: a TMS9918 frame runs
+/// slightly slow and sets tolerate it.
+pub const NTSC_DOT_CLOCK_HZ: f64 = 5_369_318.0;
+
+/// Dot clock of the PAL part, the TMS9929A: half a 10.6875 MHz crystal. 342
+/// dots comes to exactly 64 µs here, so the PAL chip sits on the standard in
+/// a way its NTSC sibling does not.
+pub const PAL_DOT_CLOCK_HZ: f64 = 5_343_750.0;
+
 /// Framebuffer dimensions (active + border).
 pub const FB_WIDTH: u32 = ACTIVE_WIDTH + BORDER_LEFT + BORDER_RIGHT;
 pub const FB_HEIGHT: u32 = ACTIVE_HEIGHT + BORDER_TOP + BORDER_BOTTOM;

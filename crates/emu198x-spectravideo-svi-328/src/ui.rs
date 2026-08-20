@@ -12,6 +12,7 @@ use std::env;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use emu198x_shell::MachineCore;
 use emu198x_ui::{
     ButtonInputMap, ButtonTarget, HostControl, KeyCode, UiError, UiSystem, VideoFilter,
 };
@@ -115,8 +116,17 @@ impl UiSystem for Svi328System {
 
     // The SVI-328's TMS9918 drove a 4:3 TV; its 288×240 framebuffer stretches
     // to fill it.
-    fn display_aspect_ratio(&self) -> Option<f32> {
-        Some(4.0 / 3.0)
+
+    /// The TMS9918 family drove a television through a colour-subcarrier
+    /// crystal, so its dots are not square: 8:7 on the NTSC parts, about
+    /// 1.382 on the PAL TMS9929A. Presenting the 288x240 framebuffer unstretched
+    /// claimed otherwise.
+    fn pixel_aspect_ratio(&self, runtime: &Self::Runtime) -> Option<f32> {
+        emu198x_shell::display::pixel_aspect_for_region(
+            runtime.profile().region,
+            ti_tms9918::PAL_DOT_CLOCK_HZ,
+            ti_tms9918::NTSC_DOT_CLOCK_HZ,
+        )
     }
 
     // The display is CPU-generated; advance whole frames so a slice never
