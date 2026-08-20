@@ -17,6 +17,7 @@ use std::env;
 use std::path::PathBuf;
 use std::time::Duration;
 
+use emu198x_shell::MachineCore;
 use emu198x_ui::{
     ButtonInputMap, ButtonTarget, HostControl, KeyCode, UiError, UiSystem, VideoFilter,
 };
@@ -118,8 +119,15 @@ impl UiSystem for Atari800xlSystem {
     }
 
     // The 800XL drove a 4:3 TV; its GTIA framebuffer stretches to fill it.
-    fn display_aspect_ratio(&self) -> Option<f32> {
-        Some(4.0 / 3.0)
+
+    /// Two pixels per colour clock in the hires modes gives 6:7 on NTSC — the
+    /// Atari 8-bit's published ratio, and taller than it is wide.
+    fn pixel_aspect_ratio(&self, runtime: &Self::Runtime) -> Option<f32> {
+        emu198x_shell::display::pixel_aspect_for_region(
+            runtime.profile().region,
+            atari_gtia::PAL_PIXEL_CLOCK_HZ,
+            atari_gtia::NTSC_PIXEL_CLOCK_HZ,
+        )
     }
 
     // The display is CPU-generated; advance whole frames so a slice never

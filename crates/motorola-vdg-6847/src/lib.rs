@@ -6,7 +6,18 @@
 
 use serde::{Deserialize, Serialize};
 
-/// Alphanumeric text columns.
+/// Pixel clock: two framebuffer pixels per 3.579545 MHz clock period.
+///
+/// Not asserted — the chip's own documented figures give it.
+/// [`MC6847_ACTIVE_CLOCK_PERIODS`] is 128 and the active display is 256
+/// pixels wide, so a clock period is two pixels, which is what
+/// [`MC6847_SCREEN_HALF_PIXELS`] already assumes.
+pub const NTSC_PIXEL_CLOCK_HZ: f64 = 7_159_090.0;
+
+/// The same against a PAL colour crystal, for machines that fitted one.
+pub const PAL_PIXEL_CLOCK_HZ: f64 = 7_093_788.0;
+
+/// Alphanumeric text columns./// Alphanumeric text columns.
 pub const TEXT_COLUMNS: usize = 32;
 /// Alphanumeric text rows.
 pub const TEXT_ROWS: usize = 16;

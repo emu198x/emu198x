@@ -30,6 +30,14 @@ pub const BORDER_RIGHT: u32 = 32;
 pub const BORDER_TOP: u32 = 24;
 pub const BORDER_BOTTOM: u32 = 24;
 
+/// Pixel clock of the NTSC part: twice the 3.579545 MHz colour clock, because
+/// the hires modes put two pixels in each. Gives 6:7 pixels — taller than
+/// they are wide, the Atari 8-bit's published ratio.
+pub const NTSC_PIXEL_CLOCK_HZ: f64 = 7_159_090.0;
+
+/// The same on PAL, from the 3.546894 MHz colour clock.
+pub const PAL_PIXEL_CLOCK_HZ: f64 = 7_093_788.0;
+
 pub const FB_WIDTH: u32 = ACTIVE_WIDTH + BORDER_LEFT + BORDER_RIGHT;
 
 /// Framebuffer height (240 visible scan lines).

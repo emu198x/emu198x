@@ -16,7 +16,21 @@
 //! nonlinear output DAC and an RC high/low-pass network, and resampled to the
 //! host rate. The model mirrors VICE 3.10 `vic20sound.c` (Rasanen & Heikkila).
 
-/// Framebuffer dimensions (visible area for text mode).
+/// Pixel clock of the 6560 (NTSC): eight pixels per machine cycle, the VIC
+/// fetching one character per cycle. 65 cycles a line comes to 63.55 µs at
+/// this rate, which is NTSC's line exactly — the check that the eight is
+/// right.
+///
+/// It matches the NTSC VIC-II, so a VIC-20 and a C64 have the same pixel
+/// shape on NTSC.
+pub const NTSC_PIXEL_CLOCK_HZ: f64 = 8_181_816.0;
+
+/// Pixel clock of the 6561 (PAL). 71 cycles a line gives 64.06 µs. The PAL
+/// VIC-20 does not share the PAL C64's cycle rate, so the two machines part
+/// company here where their NTSC versions agree.
+pub const PAL_PIXEL_CLOCK_HZ: f64 = 8_867_240.0;
+
+/// Framebuffer dimensions (visible area for text mode)./// Framebuffer dimensions (visible area for text mode).
 pub const ACTIVE_WIDTH: u32 = 176;
 pub const ACTIVE_HEIGHT: u32 = 184;
 
