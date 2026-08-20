@@ -566,11 +566,155 @@ def atari_7800() -> bytes:
     return bytes(cart)
 
 
+
+
+# --------------------------------------------------------------------------
+# Atari 2600
+# --------------------------------------------------------------------------
+
+# TIA shares the same colour encoding as GTIA and MARIA, so $A2 carries over
+# again — though on this machine only the playfield can use it.
+A2600_PAPER, A2600_FILL, A2600_INK = 0x0E, 0xA2, 0x00
+
+A2600_SPRITE_PX = 48       # six copies of an eight-pixel player
+A2600_SCREEN_PX = 160
+A2600_PF_BLOCKS = 40       # playfield resolution: four colour clocks a block
+A2600_VISIBLE_LINES = 192
+A2600_CART_SIZE = 0x1000
+
+
+# A four-block-wide face. The plate has forty blocks to hold a frame, a
+# divider and seven glyphs, so the letters get four blocks and one of gap.
+# This is not the 5x7 face shrunk — at this size that turns to mush — it is
+# drawn for the resolution the hardware has.
+BLOCK_FONT = {
+    "E": ["####", "#...", "###.", "#...", "#...", "####"],
+    "M": ["#..#", "####", "####", "#..#", "#..#", "#..#"],
+    "U": ["#..#", "#..#", "#..#", "#..#", "#..#", ".##."],
+    "1": [".#..", "##..", ".#..", ".#..", ".#..", "###."],
+    "9": [".##.", "#..#", ".###", "...#", "#..#", ".##."],
+    "8": [".##.", "#..#", ".##.", "#..#", "#..#", ".##."],
+    "x": ["....", "#..#", ".##.", ".##.", "#..#", "...."],
+}
+
+# A playfield block is four colour clocks wide, and this core's pixel aspect is
+# 1.867, so a block measures about seven and a half display units across. Eight
+# scanlines makes it square, which is what keeps the four-by-six glyphs looking
+# four by six. At four it drew a nine-to-one letterbox and the face collapsed.
+A2600_ROW_LINES = 8
+
+
+def a2600_blocks() -> list[list[int]]:
+    """The outlined plate as a 40-block grid, one entry a playfield block."""
+    # Ten rows, not eight: a one-block frame, a one-block gap, the six-row face,
+    # then the gap and frame again. Eight put the glyphs against the frame while
+    # the sides kept their block of padding, and the plate read as a solid bar
+    # with the letters knocked out of it rather than as a frame around them.
+    width, height = A2600_PF_BLOCKS, 10
+    grid = [[0] * width for _ in range(height)]
+
+    for x in range(width):
+        grid[0][x] = grid[height - 1][x] = 1
+    for y in range(height):
+        grid[y][0] = grid[y][width - 1] = 1
+
+    def put(text, x, y):
+        for ch in text:
+            for row, bits in enumerate(BLOCK_FONT[ch]):
+                for col, cell in enumerate(bits):
+                    if cell == "#":
+                        grid[y + row][x + col] = 1
+            x += len(BLOCK_FONT[ch][0]) + 1
+        return x
+
+    top = 2
+    put("EMU", 2, top)
+    divider = 17
+    for y in range(height):
+        grid[y][divider] = 1
+    put("198x", 19, top)
+    return grid
+
+
+def _pf_bytes(blocks: list[int]) -> tuple[int, int, int]:
+    """Twenty blocks into PF0, PF1 and PF2, in the TIA's own bit orders.
+
+    PF0 uses the high nibble and runs right-to-left; PF1 runs left-to-right;
+    PF2 runs right-to-left again. The arrangement is the chip's, not a
+    convention chosen here, and getting it wrong mirrors half the picture.
+    """
+    pf0 = sum(0x10 << i for i in range(4) if blocks[i])
+    pf1 = sum(0x80 >> i for i in range(8) if blocks[4 + i])
+    pf2 = sum(1 << i for i in range(8) if blocks[12 + i])
+    return pf0, pf1, pf2
+
+
+def a2600_art_source() -> str:
+    grid = a2600_blocks()
+    height = len(grid)
+    mark_lines = height * A2600_ROW_LINES
+    top_blank = (A2600_VISIBLE_LINES - mark_lines) // 2
+
+    # One entry a scanline, not one a block-row. A two-level loop needs its
+    # row bookkeeping to fit in what is left of a line after the six playfield
+    # stores, and it does not: the transition reached cycle 78 of a 76-cycle
+    # line, so its WSYNC waited out a whole further line and every row drew
+    # five scanlines instead of four. Repeating the rows here costs 144 bytes
+    # of a 4 KB cartridge and leaves the kernel with one loop and no
+    # bookkeeping at all.
+    left, right = [], []
+    for row in grid:
+        for _ in range(A2600_ROW_LINES):
+            left.append(_pf_bytes(row[:20]))
+            right.append(_pf_bytes(row[20:]))
+
+    out = [
+        "",
+        f"PAPER_COLOUR = ${A2600_PAPER:02X}",
+        f"INK_COLOUR = ${A2600_INK:02X}",
+        f"MARK_LINES = {mark_lines}",
+        f"TOP_BLANK = {top_blank}",
+        f"BOTTOM_BLANK = {A2600_VISIBLE_LINES - mark_lines - top_blank}",
+        "",
+    ]
+    # Each table starts on a page boundary. They are read as `abs,y`, and a read
+    # that crosses a page costs an extra cycle — a kernel whose stores shift by
+    # a cycle depending on which scanline it is on works only until the tables
+    # move. Alignment costs padding in a 4 KB cartridge that has plenty.
+    assert mark_lines <= 256, "a table must fit one page to be read without a crossing"
+    for name, table, index in (
+        ("pf0l", left, 0), ("pf1l", left, 1), ("pf2l", left, 2),
+        ("pf0r", right, 0), ("pf1r", right, 1), ("pf2r", right, 2),
+    ):
+        out.append("!align 255, 0")
+        out.append(f"{name}:")
+        out.append("    !byte " + ", ".join(f"${v[index]:02X}" for v in table))
+    return "\n".join(out) + "\n"
+
+
+def atari_2600() -> bytes:
+    """A 4 KB cartridge at $F000-$FFFF."""
+    program = (HERE / "atari-2600-plate.s").read_text()
+    combined = HERE / "atari-2600-plate.combined.s"
+    combined.write_text(program + a2600_art_source())
+    try:
+        code = assemble(combined, "acme")
+    finally:
+        combined.unlink(missing_ok=True)
+
+    cart = bytearray(b"\xFF" * A2600_CART_SIZE)
+    cart[: len(code)] = code
+    cart[0x0FFC] = 0x00      # reset vector -> $F000
+    cart[0x0FFD] = 0xF0
+    return bytes(cart)
+
+
 CARTRIDGES = {
     "nintendo-game-boy-logo.gb": game_boy,
     "nintendo-nes-logo.nes": nes,
     "atari-5200-logo.bin": atari_5200,
     "atari-7800-logo.bin": atari_7800,
+    "atari-2600-logo.bin": atari_2600,
 }
 
 
