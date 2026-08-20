@@ -77,21 +77,61 @@ than by saying so; that is worth tidying when it migrates.
 `pixel_aspect_ratio` and falls back, so no core changes behaviour until it is
 migrated deliberately. Do not add new cores to the old hook.
 
-Migrated so far:
+Migrated so far — sixteen of thirty:
 
-| Core | Pixel clock | TV | PAR |
+| Core | TV | PAR | Published |
 |---|---|---|---|
-| ZX80, ZX81 | 6.50 MHz | PAL | 1.136 |
-| Spectrum 16K/48K/+, Pentagon | 7.00 MHz | PAL | 1.055 |
-| Spectrum 128K/+2/+2A/+2B/+3 | 7.09 MHz | PAL | 1.041 |
-| Timex TS2068 | 7.06 MHz | NTSC | 0.862 |
+| ZX80, ZX81 | PAL | 1.136 | — (measured against MAME 0.289) |
+| Spectrum 16K/48K/+/Pentagon | PAL | 1.055 | — |
+| Spectrum 128K/+2/+2A/+2B/+3 | PAL | 1.041 | — |
+| Timex TS2068 | NTSC | 0.870 | — |
+| MSX, ColecoVision, SG-1000, Sord M5, SVI-328, MTX, Einstein | NTSC | 1.1429 | 8:7 ✓ |
+| " | PAL | 1.382 | — |
+| Master System | NTSC | 1.1429 | 8:7 ✓ |
+| NES | NTSC | 1.1429 | 8:7 ✓ |
+| C64 | PAL | 0.9369 | 0.9365 ✓ |
+| C64 | NTSC | 0.7500 | 0.7500 ✓ |
+| Atari 2600 | NTSC | 1.7143 | 12:7 ✓ |
+| Atari 2600 | PAL | 2.0820 | 25:12 ✓ |
+| Game Boy, Game Gear | — | 1.0 | not televisions |
 
-Twenty-six remain; #1053 tracks them. Each migration wants a reference to
-check against, not just arithmetic. Two are on hand: the ZX80's figure is
-backed by a pixel-exact comparison against MAME 0.289, and the formula
-reproduces the widely published VIC-II ratios — 0.9365 PAL within 0.05%,
-0.7500 NTSC within 1% — which is corroboration from people who derived them
-independently. Those are the numbers to check the C64 against when it moves.
+Fourteen remain; #1053 tracks them. Each wants a reference to check against,
+not just arithmetic.
+
+## Calibrating the active line
+
+The two active-line constants are the only free parameters, and they are
+pinned by published ratios rather than chosen.
+
+`NTSC_ACTIVE_LINE_SECONDS` was first set to 52.6 µs, the broadcast active
+video interval. That put every NTSC machine about 0.9% out. Working backwards
+from four published ratios — the C64's 0.7500, the NES's and the TMS9918's
+8:7, and the Atari 2600's 12:7 — gives 52.148 µs from all four, to three
+decimals, across four chips with four different clocks. Four independent
+sources converging on one figure is a measurement, not a convention, and a
+domestic set overscanning a little is the physical reason it sits below the
+broadcast number.
+
+The same exercise on PAL gives 52.02 µs from the C64 and 51.97 µs from the
+2600; 52.0 sits between them and reproduces both inside a tenth of a percent.
+
+A change to either constant should have to say which published ratio it is
+prepared to break. `the_published_ntsc_ratios_all_land` is that check.
+
+## Region is the clock, not the glass
+
+The Game Gear's profile reports `Region::Ntsc`. That is true of its timing and
+says nothing about its display, which is an LCD — deriving a TV aspect from it
+would stretch a picture that never went near a television. It returns `1.0`
+explicitly, and says why.
+
+The Game Boy reaches the same answer by a different route: its profile says
+`Region::Other`, so the derivation declines. It states `1.0` anyway, so that
+square is a decision rather than an omission.
+
+This is the same seam as the RTG note above, arrived at from the other end:
+`Region` describes the signal a machine generates, and the derivation needs to
+know what displays it.
 
 ## Drift triggers
 

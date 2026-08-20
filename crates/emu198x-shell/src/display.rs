@@ -31,11 +31,31 @@ use crate::machine::Region;
 const FRAME_ASPECT: f64 = 4.0 / 3.0;
 
 /// Active picture time in one 64 µs line. The rest is sync, burst and porch,
-/// which the set never shows.
+/// which the set never shows, and a domestic set overscans a little more.
+///
+/// Published PAL ratios back-calculate to 52.02 µs for the C64 and 51.97 µs
+/// for the Atari 2600, so 52.0 sits between them and reproduces both inside a
+/// tenth of a percent. See [`NTSC_ACTIVE_LINE_SECONDS`] for the same exercise
+/// on the other standard, where the agreement is tighter still.
 const PAL_ACTIVE_LINE_SECONDS: f64 = 52.0e-6;
 
 /// Active picture time in one 63.55 µs line.
-const NTSC_ACTIVE_LINE_SECONDS: f64 = 52.6e-6;
+///
+/// Broadcast documents give about 52.6 µs here, but that is the whole active
+/// video interval, and a domestic set overscans some of it. 52.148 µs is what
+/// four independently published pixel aspect ratios agree on, from four chips
+/// with four different clocks:
+///
+/// | Machine | Published | Implies |
+/// |---|---|---|
+/// | C64 NTSC | 0.7500 | 52.148 µs |
+/// | NES NTSC | 8:7 | 52.148 µs |
+/// | TMS9918 | 8:7 | 52.148 µs |
+/// | Atari 2600 NTSC | 12:7 | 52.148 µs |
+///
+/// Four chips converging on one figure to three decimals is the measurement.
+/// Taking 52.6 instead puts every NTSC machine about 0.9% out.
+const NTSC_ACTIVE_LINE_SECONDS: f64 = 52.148e-6;
 
 /// Lines of a 625-line signal a set displays: 312.5 per field, less the
 /// vertical interval. Pass this as `lines_per_tv_height` for a progressive
@@ -106,6 +126,24 @@ pub fn pixel_aspect_ratio(
     Some((FRAME_ASPECT * lines_per_tv_height / pixels_across) as f32)
 }
 
+/// Pixel aspect for a machine sold in both standards, given its clock in each.
+///
+/// Most video chips of the era were built twice — a colour-subcarrier-derived
+/// crystal for each standard — so the clock and the standard move together.
+/// This picks both from the region rather than making every frontend repeat
+/// the same two-armed match.
+///
+/// Returns `None` for a machine that did not drive a television.
+#[must_use]
+pub fn pixel_aspect_for_region(region: Region, pal_hz: f64, ntsc_hz: f64) -> Option<f32> {
+    let clock = match region {
+        Region::Pal => pal_hz,
+        Region::Ntsc => ntsc_hz,
+        _ => return None,
+    };
+    pixel_aspect_ratio(region, clock, active_lines(region)?)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -163,11 +201,10 @@ mod tests {
     /// formula is right rather than merely self-consistent. Neither machine is
     /// migrated yet; these are the numbers to check against when they are.
     ///
-    /// PAL lands within 0.05%. NTSC sits about 1% low, and the residual is the
-    /// convention for how much of a 525-line signal a set shows: 52.6 µs and
-    /// 240 lines here against the slightly different figures those published
-    /// values assume. Tightening this bound means picking a convention, not
-    /// finding a bug.
+    /// Both land inside a tenth of a percent, which is what calibrating
+    /// [`NTSC_ACTIVE_LINE_SECONDS`] against four published ratios bought — it
+    /// was a percent out before, and every NTSC machine would have inherited
+    /// that.
     #[test]
     fn the_formula_reproduces_published_vic_ii_ratios() {
         let pal = pixel_aspect_ratio(Region::Pal, 7_881_984.0, PAL_ACTIVE_LINES).expect("PAL");
@@ -178,9 +215,30 @@ mod tests {
 
         let ntsc = pixel_aspect_ratio(Region::Ntsc, 8_181_816.0, NTSC_ACTIVE_LINES).expect("NTSC");
         assert!(
-            (ntsc - 0.7500).abs() < 0.01,
-            "C64 NTSC should be ~0.75, got {ntsc}"
+            (ntsc - 0.7500).abs() < 0.001,
+            "C64 NTSC should be 0.75, got {ntsc}"
         );
+    }
+
+    /// The four ratios that calibrate `NTSC_ACTIVE_LINE_SECONDS`. They come
+    /// from four chips at four clocks and were published by different people,
+    /// so agreement here is agreement between independent sources rather than
+    /// one number restated. A change to that constant should have to explain
+    /// which of these it is prepared to break.
+    #[test]
+    fn the_published_ntsc_ratios_all_land() {
+        for (name, clock, want) in [
+            ("C64", 8_181_816.0, 0.7500),
+            ("NES", 5_369_318.0, 8.0 / 7.0),
+            ("TMS9918", 5_369_318.0, 8.0 / 7.0),
+            ("Atari 2600", 3_579_545.0, 12.0 / 7.0),
+        ] {
+            let got = pixel_aspect_ratio(Region::Ntsc, clock, NTSC_ACTIVE_LINES).expect("NTSC");
+            assert!(
+                (f64::from(got) - want).abs() < 0.002,
+                "{name}: published {want}, derived {got}"
+            );
+        }
     }
 
     #[test]
