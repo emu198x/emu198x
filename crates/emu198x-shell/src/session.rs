@@ -400,6 +400,10 @@ impl<M: MachineCore, Q: SessionQueryProvider<M>> HeadlessSession<M, Q> {
             time: self.time(),
             native_frame_ticks: self.native_frame_ticks,
             has_frame: self.frame_capture.frame().is_some(),
+            framebuffer: self
+                .frame_capture
+                .frame()
+                .map(|frame| (frame.width, frame.height)),
             has_audio: self.audio_capture.audio().is_some(),
             last_run_result: self.last_run_result,
         };
@@ -2098,5 +2102,39 @@ mod tests {
             session.stop_audio_recording(),
             Err(SessionError::Audio(AudioRecordingError::NoAudio))
         ));
+    }
+
+    #[test]
+    fn the_framebuffer_extent_reports_what_the_machine_drew() {
+        let mut session = HeadlessSession::new(DummyMachine::new(), 69_888);
+
+        assert_eq!(
+            session
+                .query("session.framebuffer.width")
+                .expect("the path exists")
+                .value,
+            serde_json::json!(null),
+            "a machine that has not run has drawn nothing to measure"
+        );
+
+        session.run_frames(1).expect("one frame should run");
+
+        // The dummy emits 32x32. Nothing states that anywhere but the frame
+        // itself, which is the point: the extent an audit reads is the extent
+        // the core actually emitted, so the two cannot drift apart.
+        assert_eq!(
+            session
+                .query("session.framebuffer.width")
+                .expect("the path exists")
+                .value,
+            serde_json::json!(32)
+        );
+        assert_eq!(
+            session
+                .query("session.framebuffer.height")
+                .expect("the path exists")
+                .value,
+            serde_json::json!(32)
+        );
     }
 }
