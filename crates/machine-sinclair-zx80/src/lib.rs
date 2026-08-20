@@ -280,6 +280,10 @@ impl Zx80 {
             // but a real ZX80's ear input may invert. The ROM does not yet
             // decode a synthesised tape either way — see #292 and #293.
             let keys = self.keyboard.read((port >> 8) as u8) & 0x7F;
+            // Idles low, and must. Leaving it high with no tape inserted —
+            // which is what the keyboard read's `| 0xE0` used to do — means
+            // the line is never quiet, so the loader's leader countdown at
+            // `$0207` never completes and `LOAD` hangs. Tried, measured.
             return keys | if self.tape_level() { 0x80 } else { 0x00 };
         }
         0xFF
