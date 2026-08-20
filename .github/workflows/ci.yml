@@ -64,6 +64,51 @@ jobs:
       - name: Check the status pages are current
         run: python3 scripts/status/render_status.py --check
 
+  cartridges:
+    name: Synthetic cartridges
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # The five cartridges are committed as binaries because the tests that
+      # boot them need an image, and they are ours from source so they carry
+      # no provenance question. A committed binary can drift from the source
+      # that claims to produce it, though — and it would drift silently, since
+      # every test would keep passing against the stale image. This job is the
+      # only thing that ties the two together.
+      #
+      # asm198x is the family's own assembler and lives in a sibling
+      # repository, so it is not a Cargo dependency and has to be fetched.
+      # Pinned to one release rather than tracking the latest: an assembler
+      # change that altered a single encoding would otherwise turn this
+      # repository red for work done elsewhere. Raise the pin deliberately and
+      # rebuild the images in the same commit.
+      #
+      # The hash is here rather than taken from the published `.sha256`, which
+      # is served from the same place as the tarball and so proves only that
+      # the download was not corrupted. Pinned here, it also fixes which bytes
+      # this workflow will run.
+      - name: Install asm198x
+        env:
+          ASM198X_TAG: asm198x-v0.0.16
+          ASM198X_SHA256: 0862c34e654d83c1a50101f44ca4080c766fa038efbb4e953b05565896b3fd0a
+        run: |
+          set -euo pipefail
+          base="https://github.com/asm198x/asm198x/releases/download/${ASM198X_TAG}"
+          curl -fsSL --retry 3 --retry-all-errors --max-time 120 \
+            -o asm198x.tar.xz "${base}/asm198x-x86_64-unknown-linux-gnu.tar.xz"
+          echo "${ASM198X_SHA256}  asm198x.tar.xz" | sha256sum -c -
+          mkdir -p "${RUNNER_TEMP}/asm198x"
+          tar -xJf asm198x.tar.xz -C "${RUNNER_TEMP}/asm198x" --strip-components=1
+          echo "${RUNNER_TEMP}/asm198x" >> "${GITHUB_PATH}"
+
+      # Rebuilds all five from source and compares. A mismatch means either
+      # the images were not rebuilt after a source change, or the pinned
+      # assembler now encodes something differently — the message names which
+      # cartridge, and rerunning without `--check` writes the new bytes.
+      - name: Check the committed cartridges match their source
+        run: python3 test-data/synthetic-cartridges/build-synthetic-cartridges.py --check
+
   # Spectrum boot evidence. Amstrad permits the Sinclair ROMs to be
   # distributed, so unlike almost every other machine here the Spectrum's
   # "does it boot" can be checked on a pull request rather than only in the
