@@ -125,11 +125,27 @@ pub trait UiSystem {
         3
     }
 
-    /// Target display aspect ratio (picture width ÷ height) the framebuffer
-    /// should fill — e.g. `Some(4.0 / 3.0)` for a system that drove a 4:3 TV.
-    /// The harness derives the pixel-stretch from this and the cropped
-    /// framebuffer dimensions, so the picture keeps its true proportions
-    /// whatever the scanline count. `None` ⇒ square pixels (no stretch).
+    /// Pixel aspect ratio — one framebuffer pixel's width ÷ its height on a
+    /// real display. Derive it with
+    /// [`emu198x_shell::display::pixel_aspect_ratio`] from the core's pixel
+    /// clock and how many framebuffer lines fill the screen's height, never
+    /// from the framebuffer's own dimensions. `None` falls back to
+    /// [`Self::display_aspect_ratio`].
+    ///
+    /// This supersedes `display_aspect_ratio`; see
+    /// `knowledge/decisions/pixel-aspect-comes-from-the-raster.md`.
+    fn pixel_aspect_ratio(&self) -> Option<f32> {
+        None
+    }
+
+    /// **Superseded by [`Self::pixel_aspect_ratio`].** Target display aspect
+    /// ratio the framebuffer should fill — e.g. `Some(4.0 / 3.0)`.
+    ///
+    /// The harness turns this into a pixel stretch by dividing it by the
+    /// *cropped* framebuffer's shape, which ties the picture's geometry to
+    /// how much of the signal the core happens to keep: trim some border and
+    /// the proportions change. Cores still on this hook are being migrated;
+    /// do not add new ones. `None` ⇒ square pixels.
     fn display_aspect_ratio(&self) -> Option<f32> {
         None
     }
@@ -514,16 +530,20 @@ impl<S: UiSystem> App<S> {
             return Ok(());
         }
         let (fb_width, fb_height) = self.system.framebuffer_size(&self.runner.runtime);
-        // Derive the pixel aspect ratio from the system's target display aspect
-        // and the cropped framebuffer dimensions, so the picture fills its
-        // intended shape (e.g. 4:3) for whatever scanline count is shown. The
-        // presenter and the window size then stretch width to match.
-        self.presentation.pixel_aspect_ratio = match self.system.display_aspect_ratio() {
-            Some(aspect) if fb_width > 0 && fb_height > 0 => {
-                aspect * fb_height as f32 / fb_width as f32
-            }
-            _ => 1.0,
-        };
+        // Prefer the raster-derived pixel aspect, which does not depend on how
+        // much of the signal this core crops to. Cores not yet migrated fall
+        // back to the older "fill this shape" hook, which does. The presenter
+        // and the window size then stretch width to match.
+        self.presentation.pixel_aspect_ratio = self
+            .system
+            .pixel_aspect_ratio()
+            .or_else(|| match self.system.display_aspect_ratio() {
+                Some(aspect) if fb_width > 0 && fb_height > 0 => {
+                    Some(aspect * fb_height as f32 / fb_width as f32)
+                }
+                _ => None,
+            })
+            .unwrap_or(1.0);
         let par = f64::from(self.presentation.pixel_aspect_ratio).max(f64::MIN_POSITIVE);
         let display_width = f64::from(fb_width) * par;
         let attributes = WindowAttributes::default()

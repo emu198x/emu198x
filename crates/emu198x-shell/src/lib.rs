@@ -11,6 +11,7 @@ pub mod capture;
 pub mod control;
 pub mod debug;
 pub mod debug_info;
+pub mod display;
 pub mod error;
 pub mod firmware;
 pub mod headless;
