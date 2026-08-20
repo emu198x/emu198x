@@ -37,6 +37,28 @@ const PAL_ACTIVE_LINE_SECONDS: f64 = 52.0e-6;
 /// Active picture time in one 63.55 µs line.
 const NTSC_ACTIVE_LINE_SECONDS: f64 = 52.6e-6;
 
+/// Lines of a 625-line signal a set displays: 312.5 per field, less the
+/// vertical interval. Pass this as `lines_per_tv_height` for a progressive
+/// PAL core, and twice it for one whose framebuffer holds both fields.
+pub const PAL_ACTIVE_LINES: f64 = 288.0;
+
+/// The same for a 525-line signal.
+pub const NTSC_ACTIVE_LINES: f64 = 240.0;
+
+/// Active lines for a region, or `None` when the region is not a television.
+///
+/// Prefer this to writing the number at a call site: passing a frame's *total*
+/// line count where the *active* count belongs is the easy mistake here, and
+/// it is silent — the picture is merely the wrong shape.
+#[must_use]
+pub fn active_lines(region: Region) -> Option<f64> {
+    match region {
+        Region::Pal => Some(PAL_ACTIVE_LINES),
+        Region::Ntsc => Some(NTSC_ACTIVE_LINES),
+        _ => None,
+    }
+}
+
 /// Returns the pixel aspect ratio for a core's framebuffer, or `None` when
 /// the region does not describe a television.
 ///
@@ -133,6 +155,32 @@ mod tests {
         let pal = pixel_aspect_ratio(Region::Pal, 6_500_000.0, 288.0).expect("PAL");
         let ntsc = pixel_aspect_ratio(Region::Ntsc, 6_500_000.0, 288.0).expect("NTSC");
         assert!(ntsc < pal, "NTSC {ntsc} should be narrower than PAL {pal}");
+    }
+
+    /// Corroboration from outside this repository. The VIC-II's pixel aspect
+    /// is widely published — 0.9365 for PAL, 0.7500 for NTSC — and derived by
+    /// other people from the same hardware, so reproducing it is evidence the
+    /// formula is right rather than merely self-consistent. Neither machine is
+    /// migrated yet; these are the numbers to check against when they are.
+    ///
+    /// PAL lands within 0.05%. NTSC sits about 1% low, and the residual is the
+    /// convention for how much of a 525-line signal a set shows: 52.6 µs and
+    /// 240 lines here against the slightly different figures those published
+    /// values assume. Tightening this bound means picking a convention, not
+    /// finding a bug.
+    #[test]
+    fn the_formula_reproduces_published_vic_ii_ratios() {
+        let pal = pixel_aspect_ratio(Region::Pal, 7_881_984.0, PAL_ACTIVE_LINES).expect("PAL");
+        assert!(
+            (pal - 0.9365).abs() < 0.001,
+            "C64 PAL should be ~0.9365, got {pal}"
+        );
+
+        let ntsc = pixel_aspect_ratio(Region::Ntsc, 8_181_816.0, NTSC_ACTIVE_LINES).expect("NTSC");
+        assert!(
+            (ntsc - 0.7500).abs() < 0.01,
+            "C64 NTSC should be ~0.75, got {ntsc}"
+        );
     }
 
     #[test]
