@@ -26,6 +26,9 @@ pub const SESSION_QUERY_PATHS: &[&str] = &[
     "session.profile.profile_id",
     "session.profile.region",
     "session.profile.release_year",
+    "session.display.kind",
+    "session.display.pixel_clock_hz",
+    "session.display.lines_per_tv_height",
     "session.profile.summary",
     "session.time",
 ];
@@ -107,16 +110,39 @@ pub fn query_paths(prefix: Option<&str>) -> QueryPathsResult {
     }
 }
 
+/// The session state the shared query paths read.
+///
+/// A struct rather than eight parameters: the display was the eighth, and a
+/// list that long stops being readable at the call site.
+#[derive(Clone, Copy)]
+pub struct SessionView<'a> {
+    /// Profile of the machine as currently configured.
+    pub profile: &'a MachineProfile,
+    /// What the machine's video output reaches, if it has said.
+    pub display: Option<crate::display::Display>,
+    /// Machine time reached.
+    pub time: MachineTime,
+    /// Authoritative ticks in one native frame.
+    pub native_frame_ticks: u64,
+    /// Whether a frame has been captured.
+    pub has_frame: bool,
+    /// Whether audio has been captured.
+    pub has_audio: bool,
+    /// Result of the last run step.
+    pub last_run_result: Option<RunResult>,
+}
+
 /// Resolves one shared session query path.
-pub fn query_value(
-    profile: &MachineProfile,
-    time: MachineTime,
-    native_frame_ticks: u64,
-    has_frame: bool,
-    has_audio: bool,
-    last_run_result: Option<RunResult>,
-    path: &str,
-) -> Result<QueryResult, QueryError> {
+pub fn query_value(view: &SessionView<'_>, path: &str) -> Result<QueryResult, QueryError> {
+    let SessionView {
+        profile,
+        display,
+        time,
+        native_frame_ticks,
+        has_frame,
+        has_audio,
+        last_run_result,
+    } = *view;
     let value = match path {
         "session.time" => json!(time.get()),
         "session.native_frame_ticks" => json!(native_frame_ticks),
@@ -127,6 +153,28 @@ pub fn query_value(
         "session.profile.region" => json!(region_name(profile)),
         "session.profile.release_year" => json!(profile.release_year),
         "session.profile.summary" => json!(profile.summary.as_ref()),
+        // The display is the machine's, not the profile's, because it can move
+        // under a running machine. A core that has not stated one answers null
+        // rather than guessing a television.
+        "session.display.kind" => match display {
+            Some(crate::display::Display::Television { .. }) => json!("television"),
+            Some(crate::display::Display::Lcd) => json!("lcd"),
+            Some(crate::display::Display::Monitor { .. }) => json!("monitor"),
+            _ => json!(null),
+        },
+        "session.display.pixel_clock_hz" => match display {
+            Some(crate::display::Display::Television { pixel_clock_hz, .. }) => {
+                json!(pixel_clock_hz)
+            }
+            _ => json!(null),
+        },
+        "session.display.lines_per_tv_height" => match display {
+            Some(crate::display::Display::Television {
+                lines_per_tv_height,
+                ..
+            }) => json!(lines_per_tv_height),
+            _ => json!(null),
+        },
         "session.profile.clock.unit" => json!(profile.clock.unit.as_ref()),
         "session.profile.clock.rate.numerator_hz" => json!(profile.clock.rate.numerator_hz),
         "session.profile.clock.rate.denominator_hz" => json!(profile.clock.rate.denominator_hz),
@@ -271,26 +319,20 @@ mod tests {
             StopReason::ReachedTarget,
         ));
 
-        let profile_id = query_value(
-            &profile,
+        let view = SessionView {
+            profile: &profile,
+            display: None,
             time,
-            69888,
-            true,
-            false,
-            last_run,
-            "session.profile.profile_id",
-        )
-        .expect("profile id should resolve");
-        let stop_reason = query_value(
-            &profile,
-            time,
-            69888,
-            true,
-            false,
-            last_run,
-            "run.last.stop_reason",
-        )
-        .expect("stop reason should resolve");
+            native_frame_ticks: 69888,
+            has_frame: true,
+            has_audio: false,
+            last_run_result: last_run,
+        };
+
+        let profile_id =
+            query_value(&view, "session.profile.profile_id").expect("profile id should resolve");
+        let stop_reason =
+            query_value(&view, "run.last.stop_reason").expect("stop reason should resolve");
 
         assert_eq!(profile_id.value, json!("sinclair-zx-spectrum-48k-pal"));
         assert_eq!(stop_reason.value, json!("reached_target"));
@@ -298,15 +340,17 @@ mod tests {
 
     #[test]
     fn query_value_rejects_missing_run_state() {
-        let result = query_value(
-            &test_profile(),
-            MachineTime::new(0),
-            69888,
-            false,
-            false,
-            None,
-            "run.last.reached",
-        );
+        let profile = test_profile();
+        let view = SessionView {
+            profile: &profile,
+            display: None,
+            time: MachineTime::new(0),
+            native_frame_ticks: 69888,
+            has_frame: false,
+            has_audio: false,
+            last_run_result: None,
+        };
+        let result = query_value(&view, "run.last.reached");
 
         assert!(matches!(
             result,

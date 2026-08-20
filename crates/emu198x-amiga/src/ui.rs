@@ -36,7 +36,6 @@ use emu198x_shell::{
     FamilyRuntime, FirmwareImage, FirmwareSet, MachineCore, MachineError, MediaImage, MediaKind,
     MediaSet, read_firmware_asset, read_media_asset,
 };
-use emu198x_ui::Display;
 use emu198x_ui::{
     ButtonInputMap, ButtonTarget, HostControl, KeyCode, UiSystem, VariantInfo, VideoFilter,
 };
@@ -47,10 +46,6 @@ use runtime_commodore_amiga::{
 use crate::{
     ModelArg, USAGE, die, find_rom_path, firmware_id_for_model_arg, next_arg, parse_model_arg,
 };
-
-/// Hires dot clock: twice the 7.09379 MHz PAL system tick, which is what
-/// the 768-wide framebuffer is drawn at.
-const HIRES_PIXEL_CLOCK_HZ: f64 = 14_187_580.0;
 
 const DEFAULT_FLOPPY_SLOT: &str = "floppy-0";
 const DEFAULT_SCALE: u32 = 1;
@@ -159,25 +154,6 @@ impl UiSystem for AmigaSystem {
 
     fn default_scale(&self) -> u32 {
         DEFAULT_SCALE
-    }
-
-    /// The framebuffer is 768x576: hires horizontally and interlaced
-    /// vertically, so both terms double against a lores non-interlaced
-    /// picture. That is the case the derivation's `lines_per_tv_height`
-    /// argument exists for — 576 buffer lines fill a PAL set's height, not
-    /// 288 — and getting it wrong would be out by a factor of two rather
-    /// than a few percent.
-    ///
-    /// Pinned to PAL, as `frame_ticks` and `framebuffer_size` already are:
-    /// this frontend runs an A500 PAL and ignores the runtime's region. The
-    /// NTSC machine's clock is a different figure and wants the region
-    /// threading through all three together, not here alone.
-    fn display(&self, _runtime: &Self::Runtime) -> Option<Display> {
-        Some(Display::Television {
-            region: emu198x_shell::machine::Region::Pal,
-            pixel_clock_hz: HIRES_PIXEL_CLOCK_HZ,
-            lines_per_tv_height: f64::from(DISPLAY_HEIGHT),
-        })
     }
 
     fn framebuffer_size(&self, _runtime: &Self::Runtime) -> (u32, u32) {

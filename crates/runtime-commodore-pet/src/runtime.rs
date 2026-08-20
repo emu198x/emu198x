@@ -12,6 +12,7 @@ use crate::profiles::{
     BASIC_FIRMWARE_ID, CHAR_FIRMWARE_ID, EDITOR_FIRMWARE_ID, KERNAL_FIRMWARE_ID, Model, profile_for,
 };
 use crate::snapshot;
+use emu198x_shell::display::Display;
 
 const KERNAL_SIZE: usize = 4 * 1024;
 const BASIC_SIZE: usize = 8 * 1024;
@@ -300,6 +301,10 @@ impl MachineCore for PetRuntime {
         Err(MachineError::UnsupportedOperation {
             operation: command.operation_name(),
         })
+    }
+
+    fn display(&self) -> Option<Display> {
+        Some(Display::Monitor { aspect: 4.0 / 3.0 })
     }
 
     fn capabilities(&self) -> CapabilitySet {

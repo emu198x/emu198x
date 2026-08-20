@@ -34,13 +34,11 @@ use std::process;
 use std::time::Duration;
 
 use common_commodore_c64::timing::{C64Timing, TIMING_NTSC_BREADBIN, TIMING_PAL_BREADBIN};
-use emu198x_shell::MachineCore;
 use emu198x_shell::{
     BootArtifacts, ControlCommand, FirmwareImage, FirmwareSet, HeadlessSession, MachineError,
     MediaImage, MediaKind, MediaSet, MediaTransportAction, MediaTransportCommand, boot_machine,
     read_firmware_asset, read_media_asset, read_program_asset,
 };
-use emu198x_ui::Display;
 use emu198x_ui::{
     ButtonInputMap, ButtonTarget, DriveOption, DrivePortInfo, HostControl, KeyCode, UiSystem,
     VariantInfo, VideoFilter,
@@ -211,16 +209,6 @@ impl UiSystem for C64System {
 
     fn default_scale(&self) -> u32 {
         DEFAULT_SCALE
-    }
-
-    /// 0.9365 on PAL and 0.7500 on NTSC, both widely published and both
-    /// reproduced by the derivation to within a tenth of a percent.
-    fn display(&self, runtime: &Self::Runtime) -> Option<Display> {
-        Display::television_for_region(
-            runtime.profile().region,
-            mos_vic_ii::PAL_DOT_CLOCK_HZ,
-            mos_vic_ii::NTSC_DOT_CLOCK_HZ,
-        )
     }
 
     fn framebuffer_size(&self, runtime: &Self::Runtime) -> (u32, u32) {

@@ -10,6 +10,7 @@ use machine_sord_m5::{M5Region, SordM5};
 use crate::input::apply_input_event;
 use crate::profiles::{Model, ROM_FIRMWARE_ID, profile_for};
 use crate::snapshot;
+use emu198x_shell::display::Display;
 
 const AUDIO_SAMPLE_RATE: u32 = 48_000;
 
@@ -236,6 +237,18 @@ impl MachineCore for M5Runtime {
             operation: command.operation_name(),
         })
     }
+    /// The TMS9918 family drove a television through a colour-subcarrier
+    /// crystal, so its dots are not square: 8:7 on the NTSC parts, about
+    /// 1.382 on the PAL TMS9929A. Presenting the 288x240 framebuffer unstretched
+    /// claimed otherwise.
+    fn display(&self) -> Option<Display> {
+        Display::television_for_region(
+            self.profile().region,
+            ti_tms9918::PAL_DOT_CLOCK_HZ,
+            ti_tms9918::NTSC_DOT_CLOCK_HZ,
+        )
+    }
+
     fn capabilities(&self) -> CapabilitySet {
         self.profile.capabilities.clone()
     }

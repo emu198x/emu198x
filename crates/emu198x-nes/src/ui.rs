@@ -12,8 +12,8 @@
 
 use std::path::{Path, PathBuf};
 
-use emu198x_shell::{MachineCore, MachineError, MediaImage, MediaKind, MediaSet, read_media_asset};
-use emu198x_ui::Display;
+use emu198x_shell::MachineCore;
+use emu198x_shell::{MachineError, MediaImage, MediaKind, MediaSet, read_media_asset};
 use emu198x_ui::{
     ButtonInputMap, ButtonTarget, HostControl, KeyCode, UiError, UiSystem, VideoFilter,
 };
@@ -85,17 +85,6 @@ impl UiSystem for NesSystem {
     // The runtime honours sub-frame targets, so finer slices cut input latency.
     fn input_slices_per_frame(&self) -> u32 {
         INPUT_SLICES_PER_FRAME
-    }
-
-    /// 8:7 — the ratio the NES is usually described by, and one the 256x240
-    /// framebuffer cannot express on its own. This core is NTSC-only; the PAL
-    /// 2C07 clock is wired up for when #80 lands.
-    fn display(&self, runtime: &Self::Runtime) -> Option<Display> {
-        Display::television_for_region(
-            runtime.profile().region,
-            ricoh_ppu_2c02::PAL_DOT_CLOCK_HZ,
-            ricoh_ppu_2c02::NTSC_DOT_CLOCK_HZ,
-        )
     }
 
     fn framebuffer_size(&self, _runtime: &Self::Runtime) -> (u32, u32) {

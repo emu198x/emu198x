@@ -9,6 +9,7 @@ use machine_atari_7800::{Atari7800, Atari7800Region};
 
 use crate::profiles::{Model, profile_for};
 use crate::snapshot;
+use emu198x_shell::display::Display;
 
 const AUDIO_SAMPLE_RATE: u32 = 48_000;
 
@@ -209,6 +210,15 @@ impl MachineCore for Atari7800Runtime {
             operation: command.operation_name(),
         })
     }
+    /// MARIA keeps the colour clock its predecessors used, so 6:7 on NTSC.
+    fn display(&self) -> Option<Display> {
+        Display::television_for_region(
+            self.profile().region,
+            atari_maria::PAL_PIXEL_CLOCK_HZ,
+            atari_maria::NTSC_PIXEL_CLOCK_HZ,
+        )
+    }
+
     fn capabilities(&self) -> CapabilitySet {
         self.profile.capabilities.clone()
     }

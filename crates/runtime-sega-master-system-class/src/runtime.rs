@@ -20,6 +20,7 @@ use machine_sega_master_system::{Sms, SmsVariant};
 
 use crate::input::{ControllerCache, apply_input_event};
 use crate::snapshot;
+use emu198x_shell::display::Display;
 
 const AUDIO_SAMPLE_RATE: u32 = 48_000;
 
@@ -241,6 +242,25 @@ impl MachineCore for SmsRuntime {
         Err(MachineError::UnsupportedOperation {
             operation: command.operation_name(),
         })
+    }
+
+    /// One runtime, two machines, two kinds of display. A Master System's
+    /// VDP feeds a television and its dots are 8:7 on NTSC; the same silicon
+    /// in a Game Gear feeds a 160x144 LCD whose pixels are square.
+    ///
+    /// The Game Gear's profile still reports `Region::Ntsc`, which is true of
+    /// its timing and says nothing about the panel — so this branches on the
+    /// variant, not the region. See
+    /// `knowledge/decisions/pixel-aspect-comes-from-the-raster.md`.
+    fn display(&self) -> Option<Display> {
+        match self.variant() {
+            SmsVariant::GameGear => Some(Display::Lcd),
+            _ => Display::television_for_region(
+                self.profile().region,
+                sega_vdp::PAL_DOT_CLOCK_HZ,
+                sega_vdp::NTSC_DOT_CLOCK_HZ,
+            ),
+        }
     }
 
     fn capabilities(&self) -> CapabilitySet {

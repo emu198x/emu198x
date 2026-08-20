@@ -14,17 +14,10 @@ use std::env;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use emu198x_shell::MachineCore;
-use emu198x_ui::Display;
 use emu198x_ui::{
     ButtonInputMap, ButtonTarget, HostControl, KeyCode, UiError, UiSystem, VideoFilter,
 };
 use runtime_mattel_aquarius::{AquariusRuntime, Model};
-
-/// Framebuffer pixels per second on PAL.
-const PAL_PIXEL_CLOCK_HZ: f64 = 7_093_788.0;
-/// The same on NTSC.
-const NTSC_PIXEL_CLOCK_HZ: f64 = 7_159_090.0;
 
 const DEFAULT_SCALE: u32 = 3;
 /// Z80 @ ~3.58 MHz, ~50 Hz PAL → 71,590 t-states/frame, matching the headless
@@ -91,17 +84,6 @@ impl UiSystem for AquariusSystem {
     }
 
     // The Aquarius drove a 4:3 TV; its 320×192 framebuffer stretches to fill it.
-
-    /// Two dots per T-state — the core's own frame arithmetic divides its dot
-    /// count by two to get T-states — putting the buffer at twice the
-    /// 3.58 MHz CPU clock.
-    fn display(&self, runtime: &Self::Runtime) -> Option<Display> {
-        Display::television_for_region(
-            runtime.profile().region,
-            PAL_PIXEL_CLOCK_HZ,
-            NTSC_PIXEL_CLOCK_HZ,
-        )
-    }
 
     // The display is CPU-generated; advance whole frames so a slice never
     // captures a half-drawn picture.

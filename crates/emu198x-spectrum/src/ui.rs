@@ -35,7 +35,6 @@ use emu198x_shell::{
     MachineError, MediaImage, MediaKind, MediaSet, MediaTransportAction, MediaTransportCommand,
     read_firmware_asset, read_media_asset,
 };
-use emu198x_ui::Display;
 use emu198x_ui::{
     AxisInputMap, AxisTarget, ButtonInputMap, ButtonTarget, HostAxis, HostControl, KeyCode,
     UiSystem, VariantInfo, VideoFilter,
@@ -168,23 +167,6 @@ impl UiSystem for SpectrumSystem {
 
     fn default_scale(&self) -> u32 {
         DEFAULT_SCALE
-    }
-
-    /// Two pixels per T-state, so the pixel clock is the variant's CPU clock
-    /// doubled — and the variants disagree. A 48K gives about 1.055, a 128K
-    /// about 1.041 from its colour-subcarrier crystal, and a TS2068 is NTSC
-    /// rather than PAL. None of them is square, which is what showing the
-    /// 352x296 framebuffer unstretched claimed.
-    ///
-    /// This is the case the runtime argument exists for: switching variant
-    /// changes the answer while the framebuffer keeps its dimensions.
-    fn display(&self, runtime: &Self::Runtime) -> Option<Display> {
-        let region = runtime.profile().region;
-        Some(Display::Television {
-            region,
-            pixel_clock_hz: runtime.pixel_clock_hz(),
-            lines_per_tv_height: emu198x_shell::display::active_lines(region)?,
-        })
     }
 
     fn framebuffer_size(&self, _runtime: &Self::Runtime) -> (u32, u32) {

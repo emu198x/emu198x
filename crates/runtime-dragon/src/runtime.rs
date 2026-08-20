@@ -24,6 +24,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use crate::{Model, profile_for};
+use emu198x_shell::display::Display;
 
 const SNAPSHOT_VERSION: u32 = 1;
 const DRAGON64_COMPATIBLE_ROM_ID: &str = "dragon64-compatible-rom";
@@ -1030,6 +1031,15 @@ impl MachineCore for DragonRuntime {
 
     fn restore(&mut self, bytes: &[u8]) -> Result<(), MachineError> {
         self.decode_snapshot(bytes)
+    }
+
+    /// Same VDG as the Atom, so the same two pixels per clock period.
+    fn display(&self) -> Option<Display> {
+        Display::television_for_region(
+            self.profile().region,
+            motorola_vdg_6847::PAL_PIXEL_CLOCK_HZ,
+            motorola_vdg_6847::NTSC_PIXEL_CLOCK_HZ,
+        )
     }
 
     fn capabilities(&self) -> CapabilitySet {

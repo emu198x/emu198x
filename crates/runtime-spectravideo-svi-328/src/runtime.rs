@@ -11,6 +11,7 @@ use ti_tms9918::{FB_HEIGHT as VDP_FB_HEIGHT, FB_WIDTH as VDP_FB_WIDTH};
 use crate::input::apply_input_event;
 use crate::profiles::{BIOS_FIRMWARE_ID, Model, profile_for};
 use crate::snapshot;
+use emu198x_shell::display::Display;
 
 const BIOS_SIZE: usize = 32 * 1024;
 const CART_CEILING: usize = 16 * 1024;
@@ -250,6 +251,18 @@ impl MachineCore for Svi328Runtime {
             operation: command.operation_name(),
         })
     }
+    /// The TMS9918 family drove a television through a colour-subcarrier
+    /// crystal, so its dots are not square: 8:7 on the NTSC parts, about
+    /// 1.382 on the PAL TMS9929A. Presenting the 288x240 framebuffer unstretched
+    /// claimed otherwise.
+    fn display(&self) -> Option<Display> {
+        Display::television_for_region(
+            self.profile().region,
+            ti_tms9918::PAL_DOT_CLOCK_HZ,
+            ti_tms9918::NTSC_DOT_CLOCK_HZ,
+        )
+    }
+
     fn capabilities(&self) -> CapabilitySet {
         self.profile.capabilities.clone()
     }

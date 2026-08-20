@@ -11,6 +11,10 @@ use machine_acorn_bbc_micro::BbcMicro;
 use crate::input::apply_input_event;
 use crate::profiles::{MOS_FIRMWARE_ID, Model, profile_for};
 use crate::snapshot;
+use emu198x_shell::display::Display;
+
+/// Framebuffer pixels per second.
+const PIXEL_CLOCK_HZ: f64 = 16_000_000.0;
 
 const MOS_SIZE: usize = 16 * 1024;
 const AUDIO_SAMPLE_RATE: u32 = 48_000;
@@ -272,6 +276,13 @@ impl MachineCore for BbcMicroRuntime {
             operation: command.operation_name(),
         })
     }
+    /// 16 MHz, which is the framebuffer's clock in every screen mode: the core
+    /// renders each mode into one 640-wide buffer, so the mode changes how
+    /// many source pixels there are and not how fast the buffer fills.
+    fn display(&self) -> Option<Display> {
+        Display::television_for_region(self.profile().region, PIXEL_CLOCK_HZ, PIXEL_CLOCK_HZ)
+    }
+
     fn capabilities(&self) -> CapabilitySet {
         self.profile.capabilities.clone()
     }

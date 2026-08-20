@@ -14,16 +14,13 @@ use std::env;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use emu198x_shell::{MachineCore, MediaImage, MediaKind, MediaSet};
-use emu198x_ui::Display;
+use emu198x_shell::MachineCore;
+use emu198x_shell::{MediaImage, MediaKind, MediaSet};
 use emu198x_ui::{
     ButtonInputMap, ButtonTarget, HostControl, KeyCode, UiError, UiSystem, VideoFilter,
 };
 use machine_amstrad_cpc::{FB_HEIGHT, FB_WIDTH};
 use runtime_amstrad_cpc::{AmstradCpcRuntime, Model};
-
-/// Framebuffer pixels per second.
-const PIXEL_CLOCK_HZ: f64 = 16_000_000.0;
 
 const DEFAULT_SCALE: u32 = 2;
 
@@ -93,17 +90,6 @@ impl UiSystem for CpcSystem {
 
     fn default_scale(&self) -> u32 {
         DEFAULT_SCALE
-    }
-
-    /// The framebuffer is drawn at the full 16 MHz dot clock — twice the
-    /// horizontal resolution of a mode-1 pixel — so its pixels are far
-    /// narrower than square and the picture has to be squashed to suit.
-    ///
-    /// Sixteen dots per character over sixty-four characters is 1024 dots a
-    /// line, which at 16 MHz is PAL's 64 µs. That the existing comment here
-    /// already named the same clock is corroboration, not coincidence.
-    fn display(&self, runtime: &Self::Runtime) -> Option<Display> {
-        Display::television_for_region(runtime.profile().region, PIXEL_CLOCK_HZ, PIXEL_CLOCK_HZ)
     }
 
     /// The beam locks to the CRTC's sync pulses, so a partial frame can hold a

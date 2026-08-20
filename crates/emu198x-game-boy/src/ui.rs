@@ -14,8 +14,8 @@ use std::path::{Path, PathBuf};
 
 use common_nintendo_game_boy::timing::MCYCLE_HZ;
 use common_nintendo_game_boy::{MCYCLES_PER_FRAME, SCREEN_HEIGHT, SCREEN_WIDTH};
-use emu198x_shell::{MachineCore, MediaImage, MediaKind, MediaSet, read_media_asset};
-use emu198x_ui::Display;
+use emu198x_shell::MachineCore;
+use emu198x_shell::{MediaImage, MediaKind, MediaSet, read_media_asset};
 use emu198x_ui::{
     ButtonInputMap, ButtonTarget, HostControl, KeyCode, UiError, UiSystem, VideoFilter,
 };
@@ -88,14 +88,6 @@ impl UiSystem for GameBoySystem {
     // The runtime honours sub-frame targets, so finer slices cut input latency.
     fn input_slices_per_frame(&self) -> u32 {
         INPUT_SLICES_PER_FRAME
-    }
-
-    /// Square, because the Game Boy's pixels are square. Its profile reports
-    /// `Region::Other` — it drove no television — so the derivation would
-    /// decline to answer anyway; saying so here makes it a decision rather
-    /// than an omission.
-    fn display(&self, _runtime: &Self::Runtime) -> Option<Display> {
-        Some(Display::Lcd)
     }
 
     fn framebuffer_size(&self, _runtime: &Self::Runtime) -> (u32, u32) {

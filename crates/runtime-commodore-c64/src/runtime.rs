@@ -18,6 +18,7 @@ use crate::drives::{DriveKind, IecDrive, IecDriveSnapshot};
 use crate::input::apply_input_event;
 use crate::snapshot;
 use crate::{Model, profile_for};
+use emu198x_shell::display::Display;
 
 const KERNAL_ROM_SIZE: usize = 0x2000;
 const BASIC_ROM_SIZE: usize = 0x2000;
@@ -1002,6 +1003,16 @@ impl MachineCore for C64Runtime {
 
     fn restore(&mut self, bytes: &[u8]) -> Result<(), MachineError> {
         snapshot::decode(self, bytes)
+    }
+
+    /// 0.9365 on PAL and 0.7500 on NTSC, both widely published and both
+    /// reproduced by the derivation to within a tenth of a percent.
+    fn display(&self) -> Option<Display> {
+        Display::television_for_region(
+            self.profile().region,
+            mos_vic_ii::PAL_DOT_CLOCK_HZ,
+            mos_vic_ii::NTSC_DOT_CLOCK_HZ,
+        )
     }
 
     fn capabilities(&self) -> CapabilitySet {

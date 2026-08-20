@@ -9,6 +9,7 @@ repository.workspace = true
 
 [dependencies]
 emu198x-shell = { path = "../emu198x-shell", version = "0.5.0" }
+ti-tms9918 = { path = "../ti-tms9918", version = "0.5.0" }
 machine-msx = { path = "../machine-msx", version = "0.5.0" }
 zilog-z80 = { path = "../zilog-z80", version = "0.5.0" }
 postcard = { workspace = true }

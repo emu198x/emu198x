@@ -19,6 +19,12 @@ use machine_mattel_aquarius::{Aquarius, AquariusRegion};
 use crate::input::apply_input_event;
 use crate::profiles::{BIOS_FIRMWARE_ID, CHAR_FIRMWARE_ID, Model, profile_for};
 use crate::snapshot;
+use emu198x_shell::display::Display;
+
+const NTSC_PIXEL_CLOCK_HZ: f64 = 7_159_090.0;
+
+/// Framebuffer pixels per second on PAL.
+const PAL_PIXEL_CLOCK_HZ: f64 = 7_093_788.0;
 
 const BIOS_SIZE: usize = 8 * 1024;
 const AUDIO_SAMPLE_RATE: u32 = 48_000;
@@ -302,6 +308,17 @@ impl MachineCore for AquariusRuntime {
         Err(MachineError::UnsupportedOperation {
             operation: command.operation_name(),
         })
+    }
+
+    /// Two dots per T-state — the core's own frame arithmetic divides its dot
+    /// count by two to get T-states — putting the buffer at twice the
+    /// 3.58 MHz CPU clock.
+    fn display(&self) -> Option<Display> {
+        Display::television_for_region(
+            self.profile().region,
+            PAL_PIXEL_CLOCK_HZ,
+            NTSC_PIXEL_CLOCK_HZ,
+        )
     }
 
     fn capabilities(&self) -> CapabilitySet {

@@ -69,12 +69,16 @@ is not done, and #1054 tracks it.
 
 Applying this fleet-wide wants two things that do not exist yet.
 
-**An instrument.** No crate depends on all thirty frontends, so nothing can
-enumerate them and compare. `Display` also lives in the UI layer, where
-headless and MCP cannot see it —
-[`pixel-aspect-comes-from-the-raster.md`](pixel-aspect-comes-from-the-raster.md)
-records that it moves to the profile when something needs to query it, and
-this is that need.
+**An instrument.** Half of this now exists. `Display` moved from the UI hook
+onto `MachineCore`, so every core answers `session.display.kind`,
+`session.display.pixel_clock_hz` and `session.display.lines_per_tv_height`
+headlessly — a set's window is computable per core without a window open.
+
+What is still missing is the other half of the comparison. Framebuffer size is
+not on the query surface, and no crate depends on all thirty frontends, so
+nothing can yet enumerate them. Cartridge machines are a second wrinkle: the
+NES and Game Boy runners refuse to start without media, so an audit needs an
+image or a blank runtime for each.
 
 **Goldens.** Changing a framebuffer's dimensions invalidates every frame hash
 and screenshot taken against it. The ZX80 and ZX81 could move because neither

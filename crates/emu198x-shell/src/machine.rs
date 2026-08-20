@@ -275,6 +275,19 @@ pub trait MachineCore {
         })
     }
 
+    /// What this machine's video output reached — a television, a monitor, or
+    /// a panel — and the raster facts its geometry needs.
+    ///
+    /// Lives here rather than on [`MachineProfile`] because it can change
+    /// under a running machine: a variant switch can cross regions, and a
+    /// machine with a display card drives a monitor from a chipset that also
+    /// feeds a set. `None` means unstated.
+    ///
+    /// See `knowledge/decisions/pixel-aspect-comes-from-the-raster.md`.
+    fn display(&self) -> Option<crate::display::Display> {
+        None
+    }
+
     /// Returns the currently available capability set.
     fn capabilities(&self) -> CapabilitySet;
 
