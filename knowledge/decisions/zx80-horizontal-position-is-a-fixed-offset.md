@@ -1,13 +1,38 @@
-# The ZX80's horizontal position is a fixed offset, not a detected sync
+# The ZX80's raster free-runs and is locked by sync
 
-**Status:** accepted, with a known limit
+**Status:** superseded in part — the free-running clock landed; the fixed
+back porch remains
 **Context:** #1033, #1036, #1037, #295
 
 ## Decision
 
-`machine-sinclair-zx80` places each scanline's first character at a constant
-`FIRST_CHAR_TSTATE`, measured at 73 T-states from the `HALT` release against
-Sinclair's ROM. It does not generate or detect a horizontal sync pulse.
+The line clock free-runs at 207 T-states and is *locked* by the horizontal
+sync — the interrupt acknowledgement that releases the `HALT`. A sync is
+authoritative when it arrives; the clock only decides how long to hold a
+line open waiting for one, allowing 40 T-states of overrun before giving up.
+That is a television's flywheel, and it is EightyOne's model.
+
+Within a line, the first character is placed at a constant
+`FIRST_CHAR_TSTATE`, measured at 73 T-states from the sync. That back porch
+is still fixed rather than derived.
+
+## What changed, and what it bought
+
+The original decision counted lines *only* from `HALT` edges. That is fine
+for firmware that syncs every line, and stops dead for anything that does
+not. The free-running clock removes that dependency.
+
+**It changed nothing observable.** Cross Chase renders identically before
+and after, and so does everything else. The entry previously predicted that
+only the ROM's own timing would render correctly; that prediction was not
+borne out — Cross Chase's 8K build draws its title screen correctly under
+both models, because it uses the ROM's display routine rather than its own.
+The free-running clock is a correctness change against the hardware and the
+reference implementation, not a fix for an observed fault.
+
+It cost a one-line phase shift: `display_line` now advances when the `HALT`
+releases rather than when it is entered, which moved the synthetic test
+image down a line and needed its border retuned from 48 to 47.
 
 ## Why this is worth writing down
 
@@ -32,11 +57,11 @@ That is the more faithful model. On real hardware the horizontal position
 from the interrupt back to the display file produces a picture shifted
 right — and still a picture.
 
-## What the fixed offset costs
+## What the fixed back porch still costs
 
-**Only the ROM's own timing renders correctly.** Any other display routine
-lands somewhere else, and if it is early the leading characters are clipped
-rather than shifted.
+A display routine whose timing differs from the ROM's lands somewhere else
+horizontally, and if it is early the leading characters are clipped rather
+than shifted off the left as they would be on a set.
 
 This is not hypothetical. The synthetic firmware in #1037 had to be
 hand-timed to match the ROM's handler to the T-state:
@@ -51,22 +76,28 @@ On hardware, none of that would have mattered: the picture would have sat
 slightly further right and stayed whole. The emulator forced a precision the
 machine does not.
 
-## When to revisit
+## When to revisit the back porch
 
-If a second ZX80 program needs to render — anything not the ROM and not the
-#1037 image — model the sync instead of the offset. The shape to copy is
-EightyOne's: accumulate a scanline length, watch for the sync, and position
-from it, with a tolerance window for routines that are close but not exact.
+If a program renders in the wrong place *horizontally*. EightyOne goes
+further than we do here: it measures each sync pulse and classifies it by
+duration — short is a line, long is a field — rather than taking the
+interrupt acknowledgement as the line sync and an `OUT` as the field sync.
+Copying that would remove the last fixed constant.
 
-Until then the offset is honest: it is calibrated, it is documented as
-calibrated, and the two things that depend on it both have tests.
+Nothing has needed it yet. Two real programs load and one renders; the
+other, Cross Chase's 16K build, runs without drawing at all, which is a
+different problem and tracked separately.
 
 ## Drift triggers
 
 - "the picture is in the wrong place, adjust `FIRST_CHAR_TSTATE`" — that
   constant is calibrated against the ROM. If new firmware renders in the
-  wrong place, the firmware's timing differs and the model is what is
-  wrong, not the number.
+  wrong place horizontally, the firmware's timing differs and the model is
+  what is wrong, not the number.
+- "lines are being counted twice, tighten the free-run threshold" — the
+  40 T-state overrun exists so a line that syncs slightly late is not
+  counted once by the clock and once by the sync. Tightening it halves the
+  picture; that was tried.
 - writing a ZX80 display routine and finding characters clipped off the
   left — that is this limit, not a bug in the routine
 - "our timings might be wrong" — the four that matter are confirmed against

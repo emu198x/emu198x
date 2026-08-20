@@ -174,3 +174,59 @@ fn a_tape_with_no_leader_is_missed_entirely() {
         "and nothing should have been decoded from it"
     );
 }
+
+/// Loads real software, when some is staged.
+///
+/// Point `EMU198X_ZX80_TAPE` at a `.o` and this loads it through the ROM and
+/// checks it arrives. TOSEC's ZX80 set is nineteen files, all versions of
+/// *Cross Chase*, none of which can be committed here — so this is a local
+/// check by design, in the same way the ROM-backed tests are.
+#[test]
+#[ignore = "needs a ZX80 .o in EMU198X_ZX80_TAPE — run with --ignored"]
+fn real_software_loads_through_the_rom() {
+    let Some(rom_path) = rom_path() else {
+        emu198x_test_skip::skip!("ZX80 ROM not staged");
+    };
+    let Ok(tape) = env::var("EMU198X_ZX80_TAPE") else {
+        emu198x_test_skip::skip!("no ZX80 tape staged — set EMU198X_ZX80_TAPE to a .o/.80 image");
+    };
+    let rom = fs::read(&rom_path).expect("read ROM");
+    let data = fs::read(&tape).expect("read tape image");
+    let parsed = Zx80Image::parse(&data).expect("a real .o should parse");
+    let pulses = parsed.to_pulses();
+
+    let mut machine = boot(&rom);
+    press(&mut machine, Zx80Key::W);
+    press(&mut machine, Zx80Key::Newline);
+    machine.insert_tape(&pulses);
+
+    // Loading is not instant: a real cassette takes real minutes, and this
+    // takes the emulated equivalent. Run until the tape is spent.
+    let mut frames = 0;
+    while machine.tape_remaining() > 0 && frames < 40_000 {
+        machine.run_frame();
+        frames += 1;
+    }
+    assert_eq!(
+        machine.tape_remaining(),
+        0,
+        "the tape should have played out"
+    );
+    for _ in 0..200 {
+        machine.run_frame();
+    }
+
+    let loaded = image(&machine);
+    assert_eq!(
+        loaded.len(),
+        data.len(),
+        "the loaded program should be the size the image says"
+    );
+    let matching = data.iter().zip(&loaded).filter(|(a, b)| a == b).count();
+    assert!(
+        matching + 16 >= data.len(),
+        "only {matching} of {} bytes arrived; a handful of system variables \
+         differ because the machine has been running, but the program must not",
+        data.len()
+    );
+}

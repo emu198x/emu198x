@@ -144,12 +144,13 @@ impl Zx80 {
             // A `HALT` ends a display line. The interrupt wired to A6
             // releases it, and that release is the line sync — the vertical
             // position is counted from these, not from a clock.
+            // The interrupt acknowledgement is the horizontal sync: the
+            // `HALT` releasing is the moment the beam starts a line. Entering
+            // the `HALT` is not — that is where the line's *characters* stop,
+            // and the video is blanked from there to the sync.
             let halt = self.cpu.halt;
-            if halt && !self.prev_halt {
-                self.video.line_sync();
-            }
             if !halt && self.prev_halt {
-                self.video.line_resume();
+                self.video.hsync();
             }
             self.prev_halt = halt;
 

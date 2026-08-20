@@ -58,7 +58,13 @@ DFILE       equ $4100           ; 24 rows of 32 glyphs + NEWLINE
 BORDER      equ $4000           ; a lone NEWLINE, reused for every border line
 ROWS        equ 24
 COLS        equ 32
-BORDER_LINES equ 48             ; a multiple of 8, so the line counter keeps phase
+BORDER_LINES equ 47             ; calibrated, not derived: it places the top of
+                                ; the picture at the top of the visible window.
+                                ; The 3-bit line counter goes out of phase at
+                                ; a count that is not a multiple of 8, which
+                                ; costs nothing here because every glyph is
+                                ; solid — inverted blank sets every pixel of
+                                ; every row.
 NEWLINE     equ $76
 SOLID       equ $80             ; glyph 0 inverted: blank bitmap, every pixel set
 
