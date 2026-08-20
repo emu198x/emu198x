@@ -76,7 +76,7 @@ impl UiSystem for Zx80System {
     /// only 192 lines down two thirds of its height, so the pixels are wider
     /// than they are tall. Showing the 320×240 framebuffer square renders the
     /// character area at 1.33:1 where a set gives 1.52:1.
-    fn pixel_aspect_ratio(&self) -> Option<f32> {
+    fn pixel_aspect_ratio(&self, _runtime: &Self::Runtime) -> Option<f32> {
         emu198x_shell::display::pixel_aspect_ratio(
             emu198x_shell::machine::Region::Pal,
             PIXEL_CLOCK_HZ,

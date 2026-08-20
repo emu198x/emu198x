@@ -132,9 +132,14 @@ pub trait UiSystem {
     /// from the framebuffer's own dimensions. `None` falls back to
     /// [`Self::display_aspect_ratio`].
     ///
+    /// Takes the runtime because the answer can change under it: a variant
+    /// switch can move a machine between PAL and NTSC, and a machine with a
+    /// display card drives a monitor rather than a television. Most cores
+    /// ignore the argument and return a constant.
+    ///
     /// This supersedes `display_aspect_ratio`; see
     /// `knowledge/decisions/pixel-aspect-comes-from-the-raster.md`.
-    fn pixel_aspect_ratio(&self) -> Option<f32> {
+    fn pixel_aspect_ratio(&self, _runtime: &Self::Runtime) -> Option<f32> {
         None
     }
 
@@ -525,25 +530,31 @@ impl<S: UiSystem> App<S> {
         event_loop.exit();
     }
 
-    fn create_window(&mut self, event_loop: &ActiveEventLoop) -> Result<(), UiError> {
-        if self.window.is_some() {
-            return Ok(());
-        }
+    /// Pixel aspect for the picture the machine is showing *now*.
+    ///
+    /// Prefer the raster-derived value, which does not depend on how much of
+    /// the signal this core crops to. Cores not yet migrated fall back to the
+    /// older "fill this shape" hook, which does. The presenter and the window
+    /// size then stretch width to match.
+    fn current_pixel_aspect_ratio(&self) -> f32 {
         let (fb_width, fb_height) = self.system.framebuffer_size(&self.runner.runtime);
-        // Prefer the raster-derived pixel aspect, which does not depend on how
-        // much of the signal this core crops to. Cores not yet migrated fall
-        // back to the older "fill this shape" hook, which does. The presenter
-        // and the window size then stretch width to match.
-        self.presentation.pixel_aspect_ratio = self
-            .system
-            .pixel_aspect_ratio()
+        self.system
+            .pixel_aspect_ratio(&self.runner.runtime)
             .or_else(|| match self.system.display_aspect_ratio() {
                 Some(aspect) if fb_width > 0 && fb_height > 0 => {
                     Some(aspect * fb_height as f32 / fb_width as f32)
                 }
                 _ => None,
             })
-            .unwrap_or(1.0);
+            .unwrap_or(1.0)
+    }
+
+    fn create_window(&mut self, event_loop: &ActiveEventLoop) -> Result<(), UiError> {
+        if self.window.is_some() {
+            return Ok(());
+        }
+        let (fb_width, fb_height) = self.system.framebuffer_size(&self.runner.runtime);
+        self.presentation.pixel_aspect_ratio = self.current_pixel_aspect_ratio();
         let par = f64::from(self.presentation.pixel_aspect_ratio).max(f64::MIN_POSITIVE);
         let display_width = f64::from(fb_width) * par;
         let attributes = WindowAttributes::default()
@@ -1194,6 +1205,9 @@ impl<S: UiSystem> App<S> {
         self.runner.last_run_result = None;
         // The framebuffer size can differ between variants; rebuild the presenter
         // and resize the window if so.
+        // A variant can move a machine between PAL and NTSC, which changes the
+        // pixel aspect even when the framebuffer keeps its dimensions.
+        self.presentation.pixel_aspect_ratio = self.current_pixel_aspect_ratio();
         let new_size = self.system.framebuffer_size(&self.runner.runtime);
         if new_size != old_size
             && let Some(window) = &self.window
