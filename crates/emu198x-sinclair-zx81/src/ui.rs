@@ -18,9 +18,6 @@ use runtime_sinclair_zx81::{Model, Zx81Runtime};
 const DEFAULT_SCALE: u32 = 3;
 /// Framebuffer pixels per second: two per 3.25 MHz T-state.
 const PIXEL_CLOCK_HZ: f64 = 6_500_000.0;
-/// Framebuffer lines a PAL set spreads over its full height. The core is
-/// progressive, so this is the active line count itself.
-const PAL_ACTIVE_LINES: f64 = 288.0;
 
 /// PAL TV-clock ticks per frame (207 per line × 312 lines), matching the
 /// headless runner's `FRAME_TICKS_PAL`.
@@ -80,7 +77,7 @@ impl UiSystem for Zx81System {
         emu198x_shell::display::pixel_aspect_ratio(
             emu198x_shell::machine::Region::Pal,
             PIXEL_CLOCK_HZ,
-            PAL_ACTIVE_LINES,
+            emu198x_shell::display::PAL_ACTIVE_LINES,
         )
     }
 
