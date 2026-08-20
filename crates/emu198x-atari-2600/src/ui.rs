@@ -9,6 +9,7 @@ use std::path::PathBuf;
 
 use emu198x_shell::MachineCore;
 use emu198x_shell::{MediaKind, Region, read_media_asset};
+use emu198x_ui::Display;
 use emu198x_ui::{
     ButtonInputMap, ButtonTarget, HostControl, KeyCode, UiError, UiSystem, VideoFilter,
 };
@@ -80,8 +81,8 @@ impl UiSystem for Atari2600System {
     /// One pixel per colour clock makes a 2600 pixel nearly twice as wide as it
     /// is tall: 12:7 on NTSC, 25:12 on PAL. Showing them square is the single
     /// most visible case of this bug in the fleet.
-    fn pixel_aspect_ratio(&self, runtime: &Self::Runtime) -> Option<f32> {
-        emu198x_shell::display::pixel_aspect_for_region(
+    fn display(&self, runtime: &Self::Runtime) -> Option<Display> {
+        Display::television_for_region(
             runtime.profile().region,
             atari_tia::PAL_COLOUR_CLOCK_HZ,
             atari_tia::NTSC_COLOUR_CLOCK_HZ,

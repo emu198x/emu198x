@@ -44,6 +44,7 @@ use winit::window::{Window, WindowAttributes, WindowId};
 // Re-exported so a `UiSystem` impl can describe itself without depending on
 // winit / native-video / shell input types directly.
 pub use emu198x_native_video::VideoFilter;
+pub use emu198x_shell::display::Display;
 pub use emu198x_shell::{
     AxisInputMap, AxisTarget, ButtonInputMap, ButtonTarget, HostAxis, HostControl,
 };
@@ -125,33 +126,16 @@ pub trait UiSystem {
         3
     }
 
-    /// Pixel aspect ratio — one framebuffer pixel's width ÷ its height on a
-    /// real display. Derive it with
-    /// [`emu198x_shell::display::pixel_aspect_ratio`] from the core's pixel
-    /// clock and how many framebuffer lines fill the screen's height, never
-    /// from the framebuffer's own dimensions. `None` falls back to
-    /// [`Self::display_aspect_ratio`].
+    /// What this machine's video output reached — a television, a monitor, or
+    /// a panel. The harness derives the pixel aspect from it.
     ///
-    /// Takes the runtime because the answer can change under it: a variant
-    /// switch can move a machine between PAL and NTSC, and a machine with a
-    /// display card drives a monitor rather than a television. Most cores
-    /// ignore the argument and return a constant.
+    /// Takes the runtime because the answer can move underneath: a variant
+    /// switch can cross regions, and a machine with a display card drives a
+    /// monitor from a chipset that also feeds a set. `None` means unstated,
+    /// and gives square pixels.
     ///
-    /// This supersedes `display_aspect_ratio`; see
-    /// `knowledge/decisions/pixel-aspect-comes-from-the-raster.md`.
-    fn pixel_aspect_ratio(&self, _runtime: &Self::Runtime) -> Option<f32> {
-        None
-    }
-
-    /// **Superseded by [`Self::pixel_aspect_ratio`].** Target display aspect
-    /// ratio the framebuffer should fill — e.g. `Some(4.0 / 3.0)`.
-    ///
-    /// The harness turns this into a pixel stretch by dividing it by the
-    /// *cropped* framebuffer's shape, which ties the picture's geometry to
-    /// how much of the signal the core happens to keep: trim some border and
-    /// the proportions change. Cores still on this hook are being migrated;
-    /// do not add new ones. `None` ⇒ square pixels.
-    fn display_aspect_ratio(&self) -> Option<f32> {
+    /// See `knowledge/decisions/pixel-aspect-comes-from-the-raster.md`.
+    fn display(&self, _runtime: &Self::Runtime) -> Option<Display> {
         None
     }
 
@@ -539,14 +523,10 @@ impl<S: UiSystem> App<S> {
     fn current_pixel_aspect_ratio(&self) -> f32 {
         let (fb_width, fb_height) = self.system.framebuffer_size(&self.runner.runtime);
         self.system
-            .pixel_aspect_ratio(&self.runner.runtime)
-            .or_else(|| match self.system.display_aspect_ratio() {
-                Some(aspect) if fb_width > 0 && fb_height > 0 => {
-                    Some(aspect * fb_height as f32 / fb_width as f32)
-                }
-                _ => None,
+            .display(&self.runner.runtime)
+            .map_or(1.0, |display| {
+                display.pixel_aspect_ratio(fb_width, fb_height)
             })
-            .unwrap_or(1.0)
     }
 
     fn create_window(&mut self, event_loop: &ActiveEventLoop) -> Result<(), UiError> {

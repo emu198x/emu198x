@@ -35,6 +35,7 @@ use emu198x_shell::{
     MachineError, MediaImage, MediaKind, MediaSet, MediaTransportAction, MediaTransportCommand,
     read_firmware_asset, read_media_asset,
 };
+use emu198x_ui::Display;
 use emu198x_ui::{
     AxisInputMap, AxisTarget, ButtonInputMap, ButtonTarget, HostAxis, HostControl, KeyCode,
     UiSystem, VariantInfo, VideoFilter,
@@ -177,13 +178,13 @@ impl UiSystem for SpectrumSystem {
     ///
     /// This is the case the runtime argument exists for: switching variant
     /// changes the answer while the framebuffer keeps its dimensions.
-    fn pixel_aspect_ratio(&self, runtime: &Self::Runtime) -> Option<f32> {
+    fn display(&self, runtime: &Self::Runtime) -> Option<Display> {
         let region = runtime.profile().region;
-        emu198x_shell::display::pixel_aspect_ratio(
+        Some(Display::Television {
             region,
-            runtime.pixel_clock_hz(),
-            emu198x_shell::display::active_lines(region)?,
-        )
+            pixel_clock_hz: runtime.pixel_clock_hz(),
+            lines_per_tv_height: emu198x_shell::display::active_lines(region)?,
+        })
     }
 
     fn framebuffer_size(&self, _runtime: &Self::Runtime) -> (u32, u32) {

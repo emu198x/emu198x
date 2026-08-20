@@ -15,6 +15,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use emu198x_shell::MachineCore;
+use emu198x_ui::Display;
 use emu198x_ui::{
     ButtonInputMap, ButtonTarget, HostControl, KeyCode, UiError, UiSystem, VideoFilter,
 };
@@ -90,12 +91,8 @@ impl UiSystem for OricSystem {
     /// Six pixels per 1 MHz character, forty characters a line. Sixty-four
     /// cycles at that rate is exactly PAL's 64 µs line, which is the check
     /// that the six is right.
-    fn pixel_aspect_ratio(&self, runtime: &Self::Runtime) -> Option<f32> {
-        emu198x_shell::display::pixel_aspect_for_region(
-            runtime.profile().region,
-            PIXEL_CLOCK_HZ,
-            PIXEL_CLOCK_HZ,
-        )
+    fn display(&self, runtime: &Self::Runtime) -> Option<Display> {
+        Display::television_for_region(runtime.profile().region, PIXEL_CLOCK_HZ, PIXEL_CLOCK_HZ)
     }
 
     // The display is CPU-generated; advance whole frames so a slice never

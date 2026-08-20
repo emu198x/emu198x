@@ -1,6 +1,6 @@
 # Pixel aspect comes from the raster, not the crop
 
-**Status:** adopted for the model; cores migrating one family at a time
+**Status:** adopted; all thirty cores state a display
 **Context:** #1053, #1050, `emu198x-shell/src/display.rs`
 
 ## Decision
@@ -12,26 +12,22 @@ pixels and how many framebuffer lines a television spreads over its height:
 PAR = (4/3) × lines_per_tv_height / (pixel_clock_hz × active_line_seconds)
 ```
 
-with the active line at 52.0 µs for PAL and 52.6 µs for NTSC. `emu198x_shell::display::pixel_aspect_ratio` is the one implementation.
-Cores expose the result through `UiSystem::pixel_aspect_ratio`.
+with the active line at 52.0 µs for PAL and 52.148 µs for NTSC — both
+calibrated, not chosen; see below. `emu198x_shell::display::pixel_aspect_ratio` is the one implementation.
+Cores expose this through `UiSystem::display`, which states what the output
+reached; see below.
 
 Nothing in that expression mentions the framebuffer's dimensions, and that is
 the whole point.
 
-## What it replaces
+## Why the old hook could not be repaired in place
 
-`UiSystem::display_aspect_ratio` asks a core for the shape its framebuffer
-should *fill* — `Some(4.0 / 3.0)` for a television — and the harness divides
-that by the framebuffer's own dimensions to get a stretch. That is correct
-only when the framebuffer is exactly the picture a set displays, or when both
-axes are cropped by the same fraction. Otherwise the crop decides the
-geometry: keep a little more border and the proportions change, though the
-machine has not.
-
-The ZX80 shows why the old hook cannot be repaired in place. Its window is
-320×240, which is already 4:3, so `Some(4.0/3.0)` computes to a stretch of
-1.0 and changes nothing — while the true figure is about 1.14. The hook has
-no way to say what is true.
+The ZX80 is the case that forces a new hook rather than a better constant.
+`display_aspect_ratio` asked what shape the framebuffer should *fill*, and the
+harness divided by the buffer's own dimensions. The ZX80's window is 320×240,
+already 4:3, so `Some(4.0/3.0)` computes to a stretch of 1.0 and changes
+nothing — while the true figure is about 1.14. The hook had no way to say what
+was true.
 
 ## Why the two arguments are the caller's to state
 
@@ -49,7 +45,7 @@ assumed one field would be out by two.
 
 ## The answer can change under the machine
 
-`UiSystem::pixel_aspect_ratio` takes the runtime, and the harness re-derives
+`UiSystem::display` takes the runtime, and the harness re-derives
 it wherever the picture can change — window creation and variant switching.
 Most cores ignore the argument and return a constant, but the shape of the
 hook has to allow otherwise, because two things move it:
@@ -57,97 +53,51 @@ hook has to allow otherwise, because two things move it:
 - **A variant switch can cross regions.** Switching a machine from its PAL
   profile to its NTSC one changes the pixel aspect while the framebuffer keeps
   its dimensions, so a size comparison will not catch it.
-- **A display card is not a television.** An Amiga running RTG drives a
-  monitor, and the mode's clock is the card's, not the chipset's. `Region` is
-  a property of the machine; what this derivation actually needs to know is
-  which display is being driven. Those coincide for every core today. If they
-  stop coinciding, that is the thing to change — not the formula, which is
+- **The display can change without the machine changing.** An Amiga running
+  RTG drives a monitor from a chipset that also feeds a set, at a clock the
+  card picks. `Display` says which of those is in front of you, so this is a
+  different return value rather than a different formula — the arithmetic is
   about light on glass and does not care what generated the signal.
 
-## Not every machine has an answer
+## One hook: what the output reached
 
-`Region::Other` returns `None`, and cores fall back to square pixels. A Game
-Gear's pixels are square because they are square, not because a standard says
-so. Game Boy is the same case and currently reaches square by omission rather
-than by saying so; that is worth tidying when it migrates.
+`UiSystem::display` returns a `Display`, and the harness derives the pixel
+aspect from it. There is no second hook.
 
-## `display_aspect_ratio` keeps one honest job
+```rust
+enum Display {
+    Television { region, pixel_clock_hz, lines_per_tv_height },
+    Lcd,
+    Monitor { aspect },
+}
+```
 
-The old hook is not simply the pre-migration way of doing this. It asks a core
-what shape its framebuffer should *fill*, and that is the right question for a
-display that shows the whole framebuffer.
+The three derive geometry in genuinely different ways, and the type exists to
+stop them being confused:
 
-A television does not. It overscans, which is why the raster derivation asks
-how much of a broadcast line a set displays and takes no framebuffer
-dimensions at all. A dedicated monitor has no such convention: the PET's 4:3
-monochrome screen shows the raster it is given, so "stretch this buffer to
-4:3" is exact rather than approximate.
+- A **television** overscans — it shows a fixed slice of each line whatever the
+  machine sends — so its geometry comes from the raster and **cannot** depend
+  on how much of the signal we kept.
+- A **monitor** displays the raster it is handed, so the framebuffer *is* the
+  picture and its dimensions decide the shape. This is the one case where
+  reading the framebuffer is correct rather than the bug this entry is about.
+- An **LCD** has square pixels because its pixels are square.
 
-So the Commodore PET stays on `display_aspect_ratio`, and it is the only core
-that should. Its profile says `Region::Other` for the same reason and the
-raster derivation would decline to answer it. Every core that drove a
-television belongs on `pixel_aspect_ratio`; the hook is not deleted when the
-last of them moves.
+`Display::pixel_aspect_ratio` takes the framebuffer dimensions and ignores them
+for two variants out of three. That asymmetry is the point, and
+`only_a_monitor_reads_the_framebuffer` pins it.
 
-The harness prefers `pixel_aspect_ratio` and falls back, so no core changes
-behaviour until it is migrated deliberately.
+### What this replaced
 
-Migrated so far — sixteen of thirty:
+Two hooks and three special cases. `display_aspect_ratio` asked what shape the
+framebuffer should fill and the harness divided by the buffer's own shape —
+right for a monitor, wrong for a set. `pixel_aspect_ratio` replaced it for
+televisions but could not say "panel" or "monitor", so the Game Gear
+hard-coded 1.0 with a paragraph explaining why its region misled, the Game Boy
+reached square through `Region::Other`, and the PET stayed on the older hook
+because that hook happened to be right for it.
 
-| Core | TV | PAR | Published |
-|---|---|---|---|
-| ZX80, ZX81 | PAL | 1.136 | — (measured against MAME 0.289) |
-| Spectrum 16K/48K/+/Pentagon | PAL | 1.055 | — |
-| Spectrum 128K/+2/+2A/+2B/+3 | PAL | 1.041 | — |
-| Timex TS2068 | NTSC | 0.870 | — |
-| MSX, ColecoVision, SG-1000, Sord M5, SVI-328, MTX, Einstein | NTSC | 1.1429 | 8:7 ✓ |
-| " | PAL | 1.382 | — |
-| Master System | NTSC | 1.1429 | 8:7 ✓ |
-| NES | NTSC | 1.1429 | 8:7 ✓ |
-| C64 | PAL | 0.9369 | 0.9365 ✓ |
-| C64 | NTSC | 0.7500 | 0.7500 ✓ |
-| Atari 2600 | NTSC | 1.7143 | 12:7 ✓ |
-| Atari 2600 | PAL | 2.0820 | 25:12 ✓ |
-| Game Boy, Game Gear | — | 1.0 | not televisions |
-
-What each core showed *before* is not one story, and commit messages from the
-migration get this wrong — several say "square" of cores that were not:
-
-| Core | Was | Now | Shift |
-|---|---|---|---|
-| ZX80, ZX81, Spectrum, NES, C64 | 1.0 — square, by never overriding the hook | derived | up to +14% (NES) |
-| MSX, ColecoVision, SG-1000, Sord M5, SVI-328, MTX, Einstein, Master System | 1.1111 — `Some(4/3)` over a 288×240 buffer | 1.1429 | +2.9% |
-| Atari 2600 | 1.8667 — `Some(4/3)` over a 160×224 buffer | 1.7143 | **−8.2%** |
-
-The 2600 is the one to remember: it was the furthest out of any core, and the
-correction makes its picture *narrower*, not wider. Reading the old hook as
-"square" is the mistake — it was stretching to 4:3, which lands somewhere
-different for every framebuffer shape.
-
-Then the rest of the fleet:
-
-| Core | TV | PAR | Published |
-|---|---|---|---|
-| Atari 800XL, 5200, 7800 | NTSC | 0.8571 | 6:7 ✓ |
-| " | PAL | 1.041 | — |
-| Aquarius | NTSC | 0.8571 | 6:7 |
-| VIC-20 | NTSC | 0.7500 | matches the NTSC C64 exactly |
-| VIC-20 | PAL | 0.8328 | ≈ 5/6 |
-| Atom, Dragon | PAL | 1.041 | — |
-| Oric | PAL | 1.231 | — |
-| Jupiter Ace | PAL | 1.136 | matches the ZX80 exactly |
-| BBC Micro, Electron, CPC | PAL | 0.4615 | — |
-| Amiga (hires, interlaced) | PAL | 1.041 | — |
-
-Twenty-nine of thirty cores now derive it; the PET is the thirtieth and stays
-where it is, for the reason below.
-
-Two of these check themselves against work done earlier. The VIC-20 on NTSC
-lands on 0.7500, the same as the NTSC C64 — both fetch a character per cycle
-and emit eight pixels, at the same cycle rate, so they must agree, and they
-do. The Jupiter Ace lands on the ZX80's 1.136: same 207 T-states, same 312
-lines, same two pixels per 3.25 MHz T-state. Neither was arranged; both fall
-out of clocks read from their own cores.
+All three are now one line naming the kind of display.
 
 ## This says nothing about overscan
 
@@ -173,7 +123,7 @@ every migrated core now states a pixel clock. A set's window is
 Under 100% has two quite different causes and this table cannot tell them
 apart. The NES renders only 256 dots and blanks the rest, so a set genuinely
 shows black at the sides — that is the hardware, not our crop. The ZX80's 83%
-is our crop, and [`../../`#1054] is about exactly that. Over 100% means we
+is our crop, which is what #1054 is about. Over 100% means we
 present raster a set would hide.
 
 Sorting one from the other needs per-core knowledge of what the chip renders
@@ -202,18 +152,17 @@ prepared to break. `the_published_ntsc_ratios_all_land` is that check.
 
 ## Region is the clock, not the glass
 
-The Game Gear's profile reports `Region::Ntsc`. That is true of its timing and
-says nothing about its display, which is an LCD — deriving a TV aspect from it
-would stretch a picture that never went near a television. It returns `1.0`
-explicitly, and says why.
+`Region` describes the signal a machine generates. It cannot stand in for the
+display, and the fleet already holds the counterexamples:
 
-The Game Boy reaches the same answer by a different route: its profile says
-`Region::Other`, so the derivation declines. It states `1.0` anyway, so that
-square is a decision rather than an omission.
-
-This is the same seam as the RTG note above, arrived at from the other end:
-`Region` describes the signal a machine generates, and the derivation needs to
-know what displays it.
+- The **Game Gear** reports `Region::Ntsc`, true of its timing and silent
+  about the panel it drives. `Display::Lcd`.
+- The **PET** drove a 4:3 monochrome monitor and reports `Region::Other`.
+  `Display::Monitor { aspect: 4.0 / 3.0 }` — and that is exact, not a
+  fallback: filling 4:3 is right for a display that shows the whole raster.
+- The **Amiga** running RTG would drive a monitor from a chipset that also
+  feeds a set, at a clock the display card picks. `Display` can already say
+  that; nothing new needs inventing when RTG lands.
 
 ## Drift triggers
 

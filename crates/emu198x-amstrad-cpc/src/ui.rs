@@ -15,6 +15,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use emu198x_shell::{MachineCore, MediaImage, MediaKind, MediaSet};
+use emu198x_ui::Display;
 use emu198x_ui::{
     ButtonInputMap, ButtonTarget, HostControl, KeyCode, UiError, UiSystem, VideoFilter,
 };
@@ -101,12 +102,8 @@ impl UiSystem for CpcSystem {
     /// Sixteen dots per character over sixty-four characters is 1024 dots a
     /// line, which at 16 MHz is PAL's 64 µs. That the existing comment here
     /// already named the same clock is corroboration, not coincidence.
-    fn pixel_aspect_ratio(&self, runtime: &Self::Runtime) -> Option<f32> {
-        emu198x_shell::display::pixel_aspect_for_region(
-            runtime.profile().region,
-            PIXEL_CLOCK_HZ,
-            PIXEL_CLOCK_HZ,
-        )
+    fn display(&self, runtime: &Self::Runtime) -> Option<Display> {
+        Display::television_for_region(runtime.profile().region, PIXEL_CLOCK_HZ, PIXEL_CLOCK_HZ)
     }
 
     /// The beam locks to the CRTC's sync pulses, so a partial frame can hold a

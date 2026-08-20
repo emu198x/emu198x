@@ -15,6 +15,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use emu198x_shell::MachineCore;
+use emu198x_ui::Display;
 use emu198x_ui::{
     ButtonInputMap, ButtonTarget, HostControl, KeyCode, UiError, UiSystem, VideoFilter,
 };
@@ -94,8 +95,8 @@ impl UiSystem for AquariusSystem {
     /// Two dots per T-state — the core's own frame arithmetic divides its dot
     /// count by two to get T-states — putting the buffer at twice the
     /// 3.58 MHz CPU clock.
-    fn pixel_aspect_ratio(&self, runtime: &Self::Runtime) -> Option<f32> {
-        emu198x_shell::display::pixel_aspect_for_region(
+    fn display(&self, runtime: &Self::Runtime) -> Option<Display> {
+        Display::television_for_region(
             runtime.profile().region,
             PAL_PIXEL_CLOCK_HZ,
             NTSC_PIXEL_CLOCK_HZ,

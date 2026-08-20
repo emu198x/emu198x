@@ -15,6 +15,7 @@ use std::path::{Path, PathBuf};
 use common_nintendo_game_boy::timing::MCYCLE_HZ;
 use common_nintendo_game_boy::{MCYCLES_PER_FRAME, SCREEN_HEIGHT, SCREEN_WIDTH};
 use emu198x_shell::{MachineCore, MediaImage, MediaKind, MediaSet, read_media_asset};
+use emu198x_ui::Display;
 use emu198x_ui::{
     ButtonInputMap, ButtonTarget, HostControl, KeyCode, UiError, UiSystem, VideoFilter,
 };
@@ -93,8 +94,8 @@ impl UiSystem for GameBoySystem {
     /// `Region::Other` — it drove no television — so the derivation would
     /// decline to answer anyway; saying so here makes it a decision rather
     /// than an omission.
-    fn pixel_aspect_ratio(&self, _runtime: &Self::Runtime) -> Option<f32> {
-        Some(1.0)
+    fn display(&self, _runtime: &Self::Runtime) -> Option<Display> {
+        Some(Display::Lcd)
     }
 
     fn framebuffer_size(&self, _runtime: &Self::Runtime) -> (u32, u32) {
