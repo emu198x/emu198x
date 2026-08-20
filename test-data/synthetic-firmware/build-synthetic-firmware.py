@@ -144,6 +144,33 @@ def atari5200_bios() -> bytes:
     return bytes(rom)
 
 
+def atari5200_bios_handover() -> bytes:
+    """The same socket, handing over to the cartridge.
+
+    [`atari5200_bios`] proves the machine runs by setting a colour and
+    spinning, which is what a boot-evidence fixture wants — and it means no
+    5200 cartridge can ever start, because the reset vector lives in this
+    socket and never leaves it.
+
+    A real 5200 BIOS ends by jumping through the address the cartridge
+    publishes at `$BFFE`. This does that and nothing else: no self-test, no
+    RAM clear, no display setup, because anything more would be this fixture
+    deciding what state a cartridge wakes up in.
+
+    Pairs with `test-data/synthetic-cartridges/atari-5200-plate.s`.
+    """
+    rom = bytearray(b"\xFF" * 0x800)
+    rom[:8] = bytes([
+        0x78,                     # sei
+        0xD8,                     # cld
+        0xA2, 0xFF,               # ldx #$FF
+        0x9A,                     # txs
+        0x6C, 0xFE, 0xBF,         # jmp ($BFFE)   the cartridge's start address
+    ])
+    rom[0x7FC:0x7FE] = bytes([0x00, 0xF8])     # reset vector -> $F800
+    return bytes(rom)
+
+
 def amiga_kickstart() -> bytes:
     """Amiga Kickstart socket, 512 KiB at $F80000.
 
@@ -662,6 +689,7 @@ SINGLE_MACHINE = {
     "commodore-vic-20-basic.rom": lambda: zero_rom(0x2000),
     "commodore-vic-20-chargen.rom": lambda: zero_rom(0x1000),
     "atari-5200-bios.rom": atari5200_bios,
+    "atari-5200-bios-handover.rom": atari5200_bios_handover,
     "commodore-amiga-kickstart.rom": amiga_kickstart,
     # Controls: identical sockets, no hardware touched. Each renders black,
     # which is what makes the expected colour above evidence rather than a
