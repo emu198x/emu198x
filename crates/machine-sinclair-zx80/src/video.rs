@@ -70,6 +70,15 @@ const LINES_PER_FRAME: u32 = 312;
 /// the nominal rate. Without this bound `run_frame` never returns, which
 /// is what the synthetic-firmware images (which never `HALT`) hit.
 const TSTATES_PER_LINE: u32 = 207;
+
+/// How far a line may overrun before the clock gives up waiting for a sync.
+///
+/// A sync is authoritative when it arrives; this only decides how long to
+/// hold the line open for one. Too tight and a line that syncs slightly late
+/// is counted twice — once by the clock, once by the sync — which halves the
+/// picture. EightyOne allows the same slack
+/// (`ZX80MaximumSupportedScanlineOverhang`).
+const MAX_LINE_T: u32 = TSTATES_PER_LINE + 40;
 const TSTATES_PER_FRAME: u32 = TSTATES_PER_LINE * LINES_PER_FRAME;
 
 /// Two pixels per T-state: the 6.5 MHz pixel clock against a 3.25 MHz CPU.
@@ -147,35 +156,45 @@ impl Zx80Video {
         self.painted
     }
 
-    /// Advance one T-state of the current display line.
+    /// Advance one T-state.
     pub fn tick(&mut self) {
         self.tstate += 1;
+        // The line clock free-runs. A television's horizontal oscillator
+        // does not wait to be told: it runs at its own rate, and incoming
+        // sync pulses pull it into step. Counting lines *only* from syncs
+        // works for firmware that emits one per line — Sinclair's ROM does —
+        // and stops dead for anything that does not, which is most machine
+        // code. Cross Chase painted a few scanlines of each character row
+        // and dropped the rest.
+        if self.tstate >= MAX_LINE_T {
+            self.next_line();
+        }
         self.frame_tstate += 1;
         if self.frame_tstate >= TSTATES_PER_FRAME {
             self.end_frame();
         }
     }
 
-    /// A display line has ended: the CPU has reached the `NEWLINE` that
-    /// terminates it and entered `HALT`.
+    /// A horizontal sync: the interrupt that released the `HALT` has been
+    /// acknowledged and the beam starts a new line.
     ///
-    /// This advances the vertical position and the 3-bit counter selecting
-    /// which row of the character set is shown. It does *not* restart the
-    /// horizontal position — the next line's pixels do not begin here but
-    /// when the `HALT` is released, so `line_resume` does that.
-    pub fn line_sync(&mut self) {
+    /// This *locks* the free-running clock rather than being the only thing
+    /// that advances it. Sinclair's ROM syncs every line, a little under the
+    /// nominal 207 T-states, so the lock wins and the picture sits exactly
+    /// where the firmware puts it. Code that syncs irregularly, or not at
+    /// all, still gets a raster — drifting, as it would on a real set.
+    pub fn hsync(&mut self) {
+        self.next_line();
+    }
+
+    /// Starts a line, whether from a sync or from the clock running out.
+    fn next_line(&mut self) {
+        self.tstate = 0;
         self.display_line += 1;
         self.line_counter = (self.line_counter + 1) & 0x07;
         if self.display_line >= LINES_PER_FRAME {
             self.end_frame();
         }
-    }
-
-    /// The `HALT` has been released and the CPU is fetching again. The
-    /// blanking that began at the `HALT` ends here, so this — not the
-    /// `HALT` itself — is where a line's pixels start being counted.
-    pub fn line_resume(&mut self) {
-        self.tstate = 0;
     }
 
     /// An `IN` with A0 low: start the vertical sync, and with it the frame.
