@@ -35,11 +35,16 @@ use serde::{Deserialize, Serialize};
 /// 320x240 gives a 4:3 display with 32-pixel borders around the 256x192
 /// active area.
 pub const FB_WIDTH: u32 = 320;
-pub const FB_HEIGHT: u32 = 240;
+/// A PAL set displays 288 lines, and the ZX81 shares the ZX80's 312-line
+/// frame. Was 240, which cropped 48 lines a set would have shown; #1054.
+pub const FB_HEIGHT: u32 = 288;
 
 /// Active display area within the framebuffer.
 const BORDER_LEFT: u32 = 32;
-const BORDER_TOP: u32 = 24;
+/// Framebuffer rows above the display. `FIRST_SCREEN_LINE` is 56 and a set
+/// blanks the first 24 lines of the frame, so 32 of those border lines are
+/// visible — twice what a 240-line window left room for.
+const BORDER_TOP: u32 = 32;
 const SCREEN_HEIGHT: u32 = 192;
 
 /// T-states per scanline.
@@ -365,7 +370,7 @@ mod tests {
         let ula = Zx81Ula::new();
         assert_eq!(ula.framebuffer().len(), (FB_WIDTH * FB_HEIGHT) as usize);
         assert_eq!(ula.framebuffer_width(), 320);
-        assert_eq!(ula.framebuffer_height(), 240);
+        assert_eq!(ula.framebuffer_height(), 288);
     }
 
     #[test]

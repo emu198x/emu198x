@@ -82,8 +82,8 @@ fn synthetic_firmware_generates_a_picture_with_the_cpu() {
         "the firmware should point I at the character set page"
     );
 
-    // 24 rows of 32 glyphs, every pixel set: the display area is 256x192 and
-    // starts 24 rows down and 32 pixels in, centred in the 320x240 frame.
+    // 24 rows of 32 glyphs, every pixel set: the display area is 256x192,
+    // starting 32 rows down and 32 pixels in, inside a 320x288 window.
     let frame = machine.framebuffer();
     let ink = frame.iter().filter(|&&pixel| pixel == INK).count();
     assert_eq!(
@@ -99,7 +99,10 @@ fn synthetic_firmware_generates_a_picture_with_the_cpu() {
     // a routine that dawdles between the interrupt and the first character
     // fetch pushes every line to the right.
     let w = FB_WIDTH as usize;
-    for row in [24usize, 25, 31, 120, 215] {
+    // The display starts at frame line 56 and a set blanks the first 24, so it
+    // occupies rows 32..=223 of the 288-line window: first row, second, the
+    // last of the first character row, the middle, and the last row.
+    for row in [32usize, 33, 39, 128, 223] {
         let lit: Vec<usize> = (0..w).filter(|&x| frame[row * w + x] == INK).collect();
         assert_eq!(
             (lit.first().copied(), lit.last().copied(), lit.len()),
@@ -107,7 +110,10 @@ fn synthetic_firmware_generates_a_picture_with_the_cpu() {
             "row {row} should be 32 characters starting at x=32"
         );
     }
-    for row in [0usize, 23, 216, 239] {
+    // Border: the top of the window, the last row above the display, the
+    // first below it, and the bottom. Sixty-four lines below against
+    // thirty-two above is the ROM's own split, not a symmetric crop.
+    for row in [0usize, 31, 224, 287] {
         let lit = (0..w).filter(|&x| frame[row * w + x] == INK).count();
         assert_eq!(lit, 0, "row {row} is border and must stay blank");
     }
@@ -129,5 +135,82 @@ fn the_control_image_generates_no_picture() {
     assert_eq!(
         ink, 0,
         "a machine running no display routine shows nothing; got {ink} ink pixels"
+    );
+}
+
+/// The window has to be a set's window, not a snug fit round the picture.
+///
+/// The ZX80's vertical position is software-timed: the firmware counts border
+/// lines and then jumps into the display file, so a routine that counts
+/// differently puts the picture somewhere else. A real set shows 288 lines and
+/// the picture moves within them. A 240-line window clipped that movement,
+/// which is #1054.
+///
+/// This drives it directly by rewriting the firmware's border count — the
+/// `ld c,BORDER_LINES` immediate — and checking the picture both moved and
+/// survived whole. Under the old window the later of these two would have
+/// lost rows off the bottom.
+#[test]
+fn a_software_moved_picture_stays_whole() {
+    /// `ld c,n` — the instruction that loads the border-line count.
+    const LD_C: u8 = 0x0E;
+    /// The value `BORDER_LINES` assembles to.
+    const DEFAULT_BORDER_LINES: u8 = 47;
+
+    let base = firmware("sinclair-zx80.rom");
+    let sites: Vec<usize> = base
+        .windows(2)
+        .enumerate()
+        .filter(|(_, w)| w[0] == LD_C && w[1] == DEFAULT_BORDER_LINES)
+        .map(|(at, _)| at)
+        .collect();
+    assert_eq!(
+        sites.len(),
+        1,
+        "expected one `ld c,{DEFAULT_BORDER_LINES}` to rewrite, found {}",
+        sites.len()
+    );
+    let operand = sites[0] + 1;
+
+    let top_row = |border_lines: u8| -> usize {
+        let mut rom = base.clone();
+        rom[operand] = border_lines;
+        let mut machine = Zx80::new(rom, 16 * 1024).expect("synthetic ROM should init");
+        for _ in 0..20 {
+            machine.run_frame();
+        }
+        let frame = machine.framebuffer();
+        let ink = frame.iter().filter(|&&pixel| pixel == INK).count();
+        assert_eq!(
+            ink,
+            256 * 192,
+            "the picture should survive whole at {border_lines} border lines; \
+             got {ink} of {} pixels, so it clipped",
+            frame.len()
+        );
+        frame
+            .chunks(FB_WIDTH as usize)
+            .position(|row| row.contains(&INK))
+            .expect("the picture should be somewhere")
+    };
+
+    // The moves are sized to the window, not chosen for roundness. The old
+    // 240-line window left 24 lines of border above the picture and 24 below,
+    // so a 24-line move up is exactly what it could still hold and a 40-line
+    // move down is not — that asymmetry is what makes this a regression test
+    // rather than a description. Both fit the 288-line window with room over.
+    let earlier = top_row(DEFAULT_BORDER_LINES - 24);
+    let default = top_row(DEFAULT_BORDER_LINES);
+    let later = top_row(DEFAULT_BORDER_LINES + 40);
+
+    assert!(
+        earlier < default && default < later,
+        "counting more border lines should push the picture down: \
+         {earlier}, {default}, {later}"
+    );
+    assert_eq!(
+        (default - earlier, later - default),
+        (24, 40),
+        "a line of border should move the picture exactly one line"
     );
 }

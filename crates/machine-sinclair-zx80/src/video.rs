@@ -58,7 +58,16 @@
 
 /// Framebuffer geometry, matching what the runtime and UI already expect.
 pub const FB_WIDTH: u32 = 320;
-pub const FB_HEIGHT: u32 = 240;
+/// A PAL set displays 288 lines. The frame is 312 and starts at the end of
+/// the vertical sync pulse, so the 24 lines of vertical interval that follow
+/// it are the ones a viewer never sees — 312 less 24 is 288, and the
+/// arithmetic closes without borrowing a figure from anywhere else.
+///
+/// This was 240, which cropped 48 lines a set would have shown. That matters
+/// here more than on a fixed-raster machine: the ZX80's vertical position is
+/// software-timed, so a program that shifts its timing moves the picture, and
+/// a window this much tighter than the set's clipped the movement. See #1054.
+pub const FB_HEIGHT: u32 = 288;
 
 const LINES_PER_FRAME: u32 = 312;
 
@@ -301,7 +310,9 @@ impl Zx80Video {
 /// loaded with a 56-line count and the last with 63, so the 24 character
 /// rows occupy frame lines 56-247. Showing them centred in a 240-line
 /// window puts the first one 24 rows down, hence 56 - 24.
-const FIRST_VISIBLE_LINE: u32 = 32;
+/// Lines of vertical interval after the sync pulse, which a set blanks.
+/// Frame line 0 is the end of that pulse — see [`Video::vsync_stop`].
+const FIRST_VISIBLE_LINE: u32 = 24;
 
 /// How long after the `HALT` releases the line's first character is
 /// fetched: the interrupt is acknowledged, the handler at `$0038` counts
