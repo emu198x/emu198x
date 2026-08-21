@@ -94,7 +94,7 @@ impl UiSystem for PetSystem {
         runtime
             .machine()
             .map(|machine| (machine.framebuffer_width(), machine.framebuffer_height()))
-            .unwrap_or((320, 200))
+            .unwrap_or((384, 248))
     }
 
     fn frame_ticks(&self, _runtime: &Self::Runtime) -> u64 {

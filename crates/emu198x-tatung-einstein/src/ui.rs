@@ -91,7 +91,9 @@ impl UiSystem for EinsteinSystem {
         runtime
             .machine()
             .map(|machine| (machine.framebuffer_width(), machine.framebuffer_height()))
-            .unwrap_or((288, 240))
+            // Before a machine exists, the NTSC window: 5.369318 MHz over
+            // 52.148 µs by 240 lines. Was 288 x 240, a fixed border.
+            .unwrap_or((278, 288))
     }
 
     fn frame_ticks(&self, _runtime: &Self::Runtime) -> u64 {

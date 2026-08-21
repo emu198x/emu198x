@@ -95,7 +95,7 @@ impl UiSystem for AquariusSystem {
         runtime
             .machine()
             .map(|machine| (machine.framebuffer_width(), machine.framebuffer_height()))
-            .unwrap_or((320, 192))
+            .unwrap_or((352, 232))
     }
 
     fn frame_ticks(&self, _runtime: &Self::Runtime) -> u64 {

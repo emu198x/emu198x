@@ -122,7 +122,7 @@ impl UiSystem for Atari7800System {
         runtime
             .machine()
             .map(|machine| (machine.framebuffer_width(), machine.framebuffer_height()))
-            .unwrap_or((320, 240))
+            .unwrap_or((374, 240))
     }
 
     fn frame_ticks(&self, _runtime: &Self::Runtime) -> u64 {

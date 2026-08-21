@@ -56,9 +56,12 @@ fn all_pixels(machine: &Sms) -> Option<u32> {
 fn the_master_system_boots_a_cartridge_and_paints_its_backdrop() {
     let machine = booted("master-system.sms", SmsVariant::SmsNtsc);
 
+    // 280 x 240 is the NTSC window — 5.369318 MHz over 52.148 µs, and 240
+    // lines. It read 288 while the horizontal border was a fixed 16 either
+    // side of the active 256, which is 103% of what a set shows (#1054).
     assert_eq!(
         (machine.framebuffer_width(), machine.framebuffer_height()),
-        (288, 240),
+        (280, 240),
         "the Master System displays a television envelope"
     );
     assert_eq!(
