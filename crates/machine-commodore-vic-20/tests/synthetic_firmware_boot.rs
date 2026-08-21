@@ -46,16 +46,20 @@ fn synthetic_firmware_runs_and_floods_the_display() {
     let framebuffer = machine.framebuffer();
     let red = framebuffer.iter().filter(|&&pixel| pixel == RED).count();
 
-    // Against the displayed raster, not the whole buffer. The VIC displays
-    // 176x184 and paints border around it, so a fraction of the buffer
-    // measures the border's size as much as the picture's — this read
-    // two-thirds when the border was 24 by 16 and under half once the machine
-    // held the field a PAL set shows, without the flood changing at all.
-    let displayed = (mos_vic_i::ACTIVE_WIDTH * mos_vic_i::ACTIVE_HEIGHT) as usize;
-    assert!(
-        red > displayed / 2,
-        "the VIC should flood its display with $900F's colour; got {red} of {displayed} \
-         displayed pixels"
+    // The whole window, border included: $2A is screen colour 2 and border
+    // colour 2, so nothing on screen should be any other colour.
+    //
+    // This was a fraction of the buffer for as long as the border was painted
+    // by a frame-start fill guarded on `scanline == 0 && pixel_x == 0` — a
+    // pair that never occurred, because the tick which wraps the frame returns
+    // early. The border stayed the power-on black and the test could only ask
+    // about the 176x184 the display covers, which is 49% of a PAL window.
+    // Compositing the border with the picture fixed it (#1087).
+    assert_eq!(
+        red,
+        framebuffer.len(),
+        "the VIC should flood its whole window with $900F's colour; got {red} of {} pixels",
+        framebuffer.len()
     );
 }
 

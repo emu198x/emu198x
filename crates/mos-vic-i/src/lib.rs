@@ -49,8 +49,23 @@ pub const NTSC_PIXEL_CLOCK_HZ: f64 = 4_090_908.0;
 pub const PAL_PIXEL_CLOCK_HZ: f64 = 4_433_620.0;
 
 /// The active display: 22 x 23 characters of 8 x 8 pixels.
+/// The display a stock VIC-20 puts up: 22 columns by 23 rows of 8 x 8.
+///
+/// The *default*, not the model. Registers 2 and 3 set the column and row
+/// counts and register 3's bit 0 doubles the character height, so a program
+/// can make the display any size it likes up to the raster. These two survive
+/// because the framebuffer is still defined as the stock display plus a border
+/// either side; nothing is clipped to them. See [`Vic6560::tick`].
 pub const ACTIVE_WIDTH: u32 = 176;
 pub const ACTIVE_HEIGHT: u32 = 184;
+
+/// Pixels the VIC emits per machine cycle.
+///
+/// The VIC generates the CPU's phi2, so a cycle is a unit of the raster as
+/// well as of time: 71 of them make a PAL line and 65 an NTSC one, four pixels
+/// each. Register 0's horizontal origin counts in cycles for the same reason —
+/// MAME's `mos6560.cpp` has `XPOS (((int)m_reg[0] & 0x7f) * 4)`.
+pub const PIXELS_PER_CYCLE: u32 = 4;
 
 /// Scan lines a set displays, which is the framebuffer's height.
 ///
@@ -74,16 +89,59 @@ pub const fn framebuffer_width(pal: bool) -> u32 {
     ACTIVE_WIDTH + 2 * border_left(pal)
 }
 
-/// Border either side of the active area — what the window has left over.
+/// What the window has left over either side of a *stock* display.
+///
+/// A position the KERNAL's defaults happen to produce, not a boundary. The
+/// display's real position comes from registers 0 and 1, so a program that
+/// moves the screen moves it; this is kept because the window's width is
+/// defined as the stock display plus a border either side.
 #[must_use]
 pub const fn border_left(pal: bool) -> u32 {
     if pal { 27 } else { 19 }
 }
 
-/// Border above and below the active area.
+/// The same above and below, and the same caveat.
 #[must_use]
 pub const fn border_top(pal: bool) -> u32 {
     (framebuffer_height(pal) - ACTIVE_HEIGHT) / 2
+}
+
+/// The raster pixel the framebuffer's first pixel sits on.
+///
+/// The two parts number their lines from different points relative to sync, so
+/// this is not derivable from the line length the way the vertical one is.
+/// MAME's `mos6560.h` states both: the 6560's buffer is `(4+201)` with "4 left
+/// not visible" and the 6561's `(20+229)` with "20 left not visible".
+///
+/// The check is that the KERNAL's own origin lands the display where a set
+/// centres it. Register 0 defaults to 12 on PAL, so the display starts at
+/// pixel 48 — 28 into a 230-pixel window, leaving 26 the other side. NTSC
+/// defaults to 5, so pixel 20, 16 into a 214-pixel window.
+#[must_use]
+pub const fn window_first_pixel(pal: bool) -> u32 {
+    if pal { 20 } else { 4 }
+}
+
+/// The scan line the framebuffer's first line sits on.
+///
+/// Unlike the horizontal case this needs no outside figure: the lines a set
+/// hides are the ones the frame has over the field, and on this chip they fall
+/// at the top, before the picture. 312 less 288 is 24 on PAL and 261 less 240
+/// is 21 on NTSC.
+///
+/// The same check applies and passes. Register 1 defaults to 38, two scan
+/// lines to the unit, so a PAL display starts on line 76 — 52 into the window,
+/// which is exactly [`border_top`]. NTSC defaults to 25, line 50, 29 into the
+/// window against a centred 28.
+#[must_use]
+pub const fn window_first_line(pal: bool) -> u32 {
+    lines_per_frame(pal) - framebuffer_height(pal)
+}
+
+/// Scan lines in a whole frame, picture and blanking together.
+#[must_use]
+pub const fn lines_per_frame(pal: bool) -> u32 {
+    if pal { 312 } else { 261 }
 }
 
 use serde::{Deserialize, Serialize};
@@ -238,63 +296,135 @@ impl Vic6560 {
             }
         }
 
-        // Render during visible area
-        // Text display: 22 columns x 23 rows = 176x184 pixels
-        let visible_y_start = 28u32;
-        let visible_y_end = visible_y_start + 184;
-
-        // At the start of each new frame, repaint the entire framebuffer
-        // with the VIC border colour (register $F low nibble) so the
-        // border around the 176 x 184 active region carries the right
-        // colour. Mid-frame border-colour changes affect the next frame
-        // — v1 simplification.
-        if self.scanline == 0 && self.pixel_x == 0 {
-            let border_colour = VIC_PALETTE[(self.regs[0x0F] as usize) & 0x0F];
-            self.framebuffer.fill(border_colour);
-        }
-
-        if self.scanline >= visible_y_start && self.scanline < visible_y_end && self.pixel_x < 22 {
-            let vis_y = self.scanline - visible_y_start;
-            let char_row = vis_y / 8;
-            let pixel_in_char_y = vis_y % 8;
-            let char_col = self.pixel_x;
-
-            // Screen memory base from registers
-            let screen_base =
-                (u16::from(self.regs[5]) & 0xF0) << 6 | (u16::from(self.regs[2]) & 0x80) << 2;
-
-            let char_addr = screen_base.wrapping_add(char_row as u16 * 22 + char_col as u16);
-            let char_code = read_screen(char_addr);
-            let colour_nibble = read_colour(char_addr) & 0x0F;
-
-            // Character ROM lookup
-            let char_rom_base = (u16::from(self.regs[5]) & 0x0F) << 10;
-            let char_rom_addr =
-                char_rom_base.wrapping_add(u16::from(char_code) * 8 + pixel_in_char_y as u16);
-            let char_data = read_char_rom(char_rom_addr);
-
-            // Background colour from register $0F
-            let bg_colour = VIC_PALETTE[(self.regs[0x0F] as usize >> 4) & 0x0F];
-            let fg_colour = VIC_PALETTE[colour_nibble as usize];
-
-            // Render 8 pixels for this character column, offset into
-            // the active region of the framebuffer (skip the border).
-            for px in 0..8 {
-                let active_x = char_col * 8 + px;
-                if active_x < ACTIVE_WIDTH {
-                    let bit = (char_data >> (7 - px)) & 1;
-                    let colour = if bit != 0 { fg_colour } else { bg_colour };
-                    let fb_x = self.border_left() + active_x;
-                    let fb_y = self.border_top() + vis_y;
-                    let idx = (fb_y * self.fb_width + fb_x) as usize;
-                    if idx < self.framebuffer.len() {
-                        self.framebuffer[idx] = colour;
-                    }
-                }
-            }
-        }
+        self.render_cycle(&read_screen, &read_colour, &read_char_rom);
 
         false
+    }
+
+    /// Paint the four pixels this machine cycle covers.
+    ///
+    /// Every pixel of the window is written every line — border outside the
+    /// display, character pixels inside — rather than the display alone over a
+    /// border painted once a frame. Two reasons. The display's position is the
+    /// registers' to decide, so there is no fixed rectangle to paint around;
+    /// and a border colour written partway down a frame has to land there,
+    /// which is the ordinary way a VIC-20 program draws a raster bar.
+    ///
+    /// Register decode follows MAME's `mos6560.cpp`: `XPOS` is register 0's
+    /// low seven bits times four pixels, `YPOS` register 1 times two scan
+    /// lines, `CHARS_X` register 2's low seven bits, `CHARS_Y` register 3 bits
+    /// 1-6, and register 3 bit 0 doubles the character height. `FRAMECOLOR` is
+    /// register 15's low **three** bits — bit 3 is the reverse-video flag, and
+    /// reading four bits made a program that toggled reverse change the border
+    /// colour with it.
+    fn render_cycle(
+        &mut self,
+        read_screen: &impl Fn(u16) -> u8,
+        read_colour: &impl Fn(u16) -> u8,
+        read_char_rom: &impl Fn(u16) -> u8,
+    ) {
+        let pal = self.lines_per_frame == lines_per_frame(true);
+        let fb_width = self.fb_width;
+        let fb_height = framebuffer_height(pal);
+
+        let Some(fb_y) = self.scanline.checked_sub(window_first_line(pal)) else {
+            return;
+        };
+        if fb_y >= fb_height {
+            return;
+        }
+
+        let colours = self.regs[0x0F];
+        let border = VIC_PALETTE[(colours & 0x07) as usize];
+        let background = VIC_PALETTE[(colours >> 4) as usize];
+        let reverse = colours & 0x08 == 0;
+
+        // Where the display sits and how big it is, entirely from the
+        // registers — this is what #1087 was about.
+        let origin_x = u32::from(self.regs[0] & 0x7F) * PIXELS_PER_CYCLE;
+        let origin_y = u32::from(self.regs[1]) * 2;
+        let columns = u32::from(self.regs[2] & 0x7F);
+        let rows = u32::from((self.regs[3] & 0x7E) >> 1);
+        let char_height = if self.regs[3] & 0x01 == 0 { 8 } else { 16 };
+
+        let row_in_display = self
+            .scanline
+            .checked_sub(origin_y)
+            .filter(|y| *y < rows * char_height);
+
+        let screen_base =
+            (u16::from(self.regs[5]) & 0xF0) << 6 | (u16::from(self.regs[2]) & 0x80) << 2;
+        let char_rom_base = (u16::from(self.regs[5]) & 0x0F) << 10;
+
+        let row_base = fb_y * fb_width;
+        for offset in 0..PIXELS_PER_CYCLE {
+            let raster_x = self.pixel_x * PIXELS_PER_CYCLE + offset;
+            let Some(fb_x) = raster_x.checked_sub(window_first_pixel(pal)) else {
+                continue;
+            };
+            if fb_x >= fb_width {
+                continue;
+            }
+
+            let colour = self
+                .display_pixel(
+                    raster_x,
+                    origin_x,
+                    columns,
+                    row_in_display,
+                    char_height,
+                    screen_base,
+                    char_rom_base,
+                    reverse,
+                    background,
+                    read_screen,
+                    read_colour,
+                    read_char_rom,
+                )
+                .unwrap_or(border);
+            self.framebuffer[(row_base + fb_x) as usize] = colour;
+        }
+    }
+
+    /// The character pixel at raster position `raster_x`, or `None` when the
+    /// beam is outside the display and the border shows instead.
+    #[allow(clippy::too_many_arguments)]
+    fn display_pixel(
+        &self,
+        raster_x: u32,
+        origin_x: u32,
+        columns: u32,
+        row_in_display: Option<u32>,
+        char_height: u32,
+        screen_base: u16,
+        char_rom_base: u16,
+        reverse: bool,
+        background: u32,
+        read_screen: &impl Fn(u16) -> u8,
+        read_colour: &impl Fn(u16) -> u8,
+        read_char_rom: &impl Fn(u16) -> u8,
+    ) -> Option<u32> {
+        let row = row_in_display?;
+        let x = raster_x.checked_sub(origin_x)?;
+        if x >= columns * 8 {
+            return None;
+        }
+
+        let char_row = row / char_height;
+        let char_col = x / 8;
+        let cell = screen_base.wrapping_add((char_row * columns + char_col) as u16);
+        let code = read_screen(cell);
+        let ink = VIC_PALETTE[(read_colour(cell) & 0x0F) as usize];
+
+        let glyph = char_rom_base
+            .wrapping_add(u16::from(code) * char_height as u16 + (row % char_height) as u16);
+        let bit = (read_char_rom(glyph) >> (7 - (x % 8))) & 1;
+
+        Some(if (bit != 0) != reverse {
+            ink
+        } else {
+            background
+        })
     }
 
     /// Take the frame-complete flag.
@@ -614,5 +744,220 @@ mod sound_tests {
             "the noise voice should be audible, got p2p {}",
             peak_to_peak(&out)
         );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const PAL: bool = true;
+
+    /// The KERNAL's own register values: origin 12/38, 22 columns of 23 rows,
+    /// screen and character generator at zero, background 1, border 3.
+    fn stock(vic: &mut Vic6560) {
+        vic.write(0x00, 12);
+        vic.write(0x01, 38);
+        vic.write(0x02, 22);
+        vic.write(0x03, 23 << 1);
+        vic.write(0x05, 0x00);
+        vic.write(0x0F, 0x1B);
+    }
+
+    /// Every cell holds character 1 in colour 2, and character 1's glyph is
+    /// solid at both character heights — so a display pixel is colour 2, paper
+    /// is colour 1 and border is colour 3, all distinguishable.
+    fn run_frame(vic: &mut Vic6560) {
+        let cycles = 71 * lines_per_frame(PAL);
+        for _ in 0..cycles {
+            vic.tick(
+                |_| 1,
+                |_| 2,
+                |addr| if (8..32).contains(&addr) { 0xFF } else { 0x00 },
+            );
+        }
+    }
+
+    fn pixel(vic: &Vic6560, x: u32, y: u32) -> u32 {
+        vic.framebuffer()[(y * vic.framebuffer_width() + x) as usize]
+    }
+
+    /// Where [`stock`] puts the display's top-left pixel, derived from the
+    /// registers it writes rather than from the border constants.
+    ///
+    /// It is 28 across and 52 down on PAL. The vertical figure is exactly
+    /// [`border_top`]; the horizontal one is a pixel right of [`border_left`],
+    /// because the KERNAL's origin is where it is and the window's is where
+    /// MAME says. A pixel is not worth fitting a constant to hide.
+    fn stock_origin() -> (u32, u32) {
+        (
+            12 * PIXELS_PER_CYCLE - window_first_pixel(PAL),
+            38 * 2 - window_first_line(PAL),
+        )
+    }
+
+    /// #1087: the display was drawn at a fixed border offset and the origin
+    /// registers were never read, so a program could not move the screen.
+    #[test]
+    fn the_origin_registers_move_the_display() {
+        let mut vic = Vic6560::new(PAL);
+        stock(&mut vic);
+        vic.write(0x00, 12 + 4); // four cycles right — sixteen pixels
+        vic.write(0x01, 38 + 5); // five units down — ten scan lines
+        run_frame(&mut vic);
+
+        let (x0, y0) = stock_origin();
+        let (x, y) = (x0 + 16, y0 + 10);
+        assert_eq!(
+            pixel(&vic, x, y),
+            VIC_PALETTE[2],
+            "the display moved with the registers"
+        );
+        assert_eq!(
+            pixel(&vic, x - 1, y),
+            VIC_PALETTE[3],
+            "and the border followed it across"
+        );
+        assert_eq!(pixel(&vic, x, y - 1), VIC_PALETTE[3], "and down");
+    }
+
+    /// The check that the window's own origin is right: with the KERNAL's
+    /// values the picture has to land where a set centres it, which is
+    /// `border_left` and `border_top` by construction.
+    #[test]
+    fn the_stock_registers_land_the_display_on_the_stock_border() {
+        let mut vic = Vic6560::new(PAL);
+        stock(&mut vic);
+        run_frame(&mut vic);
+
+        let (x, y) = stock_origin();
+        assert_eq!(pixel(&vic, x, y), VIC_PALETTE[2], "first display pixel");
+        assert_eq!(pixel(&vic, x - 1, y), VIC_PALETTE[3], "border left of it");
+        assert_eq!(
+            pixel(&vic, x + ACTIVE_WIDTH - 1, y + ACTIVE_HEIGHT - 1),
+            VIC_PALETTE[2],
+            "last display pixel"
+        );
+        assert_eq!(
+            pixel(&vic, x + ACTIVE_WIDTH, y + ACTIVE_HEIGHT - 1),
+            VIC_PALETTE[3],
+            "border right of it"
+        );
+    }
+
+    #[test]
+    fn registers_2_and_3_set_how_many_columns_and_rows_there_are() {
+        let mut vic = Vic6560::new(PAL);
+        stock(&mut vic);
+        vic.write(0x02, 10); // ten columns — eighty pixels
+        vic.write(0x03, 5 << 1); // five rows — forty scan lines
+        run_frame(&mut vic);
+
+        let (x, y) = stock_origin();
+        assert_eq!(pixel(&vic, x + 79, y), VIC_PALETTE[2], "last column shows");
+        assert_eq!(pixel(&vic, x + 80, y), VIC_PALETTE[3], "and stops there");
+        assert_eq!(pixel(&vic, x, y + 39), VIC_PALETTE[2], "last row shows");
+        assert_eq!(pixel(&vic, x, y + 40), VIC_PALETTE[3], "and stops there");
+    }
+
+    #[test]
+    fn register_3_bit_0_doubles_the_character_height() {
+        // Character 1's glyph is solid over both an 8-byte and a 16-byte
+        // stride, so only the row count separates the two: five rows of 16 is
+        // eighty scan lines where five rows of 8 is forty.
+        let mut vic = Vic6560::new(PAL);
+        stock(&mut vic);
+        vic.write(0x03, (5 << 1) | 1);
+        run_frame(&mut vic);
+
+        let (x, y) = stock_origin();
+        assert_eq!(pixel(&vic, x, y + 79), VIC_PALETTE[2], "eighty lines tall");
+        assert_eq!(pixel(&vic, x, y + 80), VIC_PALETTE[3], "and no taller");
+    }
+
+    /// Register 15 bit 3 is the reverse-video flag. Reading four bits for the
+    /// border colour made toggling reverse change the border with it — MAME's
+    /// `FRAMECOLOR` is `m_reg[0x0f] & 0x07`.
+    #[test]
+    fn reverse_video_does_not_change_the_border_colour() {
+        let mut plain = Vic6560::new(PAL);
+        stock(&mut plain);
+        run_frame(&mut plain);
+
+        let mut reversed = Vic6560::new(PAL);
+        stock(&mut reversed);
+        reversed.write(0x0F, 0x13); // same colours, bit 3 clear
+        run_frame(&mut reversed);
+
+        assert_eq!(
+            pixel(&plain, 0, border_top(PAL)),
+            pixel(&reversed, 0, border_top(PAL)),
+            "the border is the low three bits, and reverse is not one of them"
+        );
+        let (x, y) = stock_origin();
+        assert_eq!(
+            pixel(&reversed, x, y),
+            VIC_PALETTE[1],
+            "a lit pixel takes the paper colour under reverse video"
+        );
+    }
+
+    /// The border is composited with the picture rather than painted once a
+    /// frame, so a colour written partway down lands on that frame — which is
+    /// how a VIC-20 raster bar works.
+    #[test]
+    fn a_mid_frame_border_write_splits_the_border() {
+        let mut vic = Vic6560::new(PAL);
+        stock(&mut vic);
+        let half = 71 * lines_per_frame(PAL) / 2;
+        for _ in 0..half {
+            vic.tick(|_| 1, |_| 2, |_| 0x00);
+        }
+        vic.write(0x0F, 0x14); // border 4 from here down
+        for _ in 0..half {
+            vic.tick(|_| 1, |_| 2, |_| 0x00);
+        }
+
+        assert_eq!(pixel(&vic, 0, 10), VIC_PALETTE[3], "above the write");
+        assert_eq!(
+            pixel(&vic, 0, framebuffer_height(PAL) - 10),
+            VIC_PALETTE[4],
+            "below the write"
+        );
+    }
+
+    #[test]
+    fn the_window_holds_the_field_and_opens_where_blanking_ends() {
+        for pal in [true, false] {
+            assert_eq!(
+                window_first_line(pal) + framebuffer_height(pal),
+                lines_per_frame(pal),
+                "the window and the blanking have to account for the whole frame"
+            );
+            // The KERNAL's vertical origin lands within a line of centred,
+            // which is the check on `window_first_line`.
+            let origin = if pal { 38 } else { 25 } * 2;
+            let placed = origin - window_first_line(pal);
+            assert!(
+                placed.abs_diff(border_top(pal)) <= 1,
+                "{pal} places the stock display at {placed}, not near {}",
+                border_top(pal)
+            );
+
+            // Horizontally the check is weaker, because `window_first_pixel`
+            // comes from MAME rather than from the frame's own arithmetic: the
+            // stock display has to sit wholly inside the window with border
+            // both sides. PAL lands a pixel right of centre, NTSC three left.
+            let origin_x = if pal { 12 } else { 5 } * PIXELS_PER_CYCLE;
+            let placed_x = origin_x - window_first_pixel(pal);
+            assert!(
+                placed_x > 0 && placed_x + ACTIVE_WIDTH < framebuffer_width(pal),
+                "{pal} places the stock display at {placed_x}, not inside its window"
+            );
+        }
     }
 }
