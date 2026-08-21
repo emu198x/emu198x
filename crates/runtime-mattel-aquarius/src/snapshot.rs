@@ -12,7 +12,11 @@ use serde::{Deserialize, Serialize};
 
 use crate::runtime::AquariusRuntime;
 
-const SNAPSHOT_VERSION: u16 = 3;
+/// Bumped to 4 when the framebuffer gained the border the Aquarius
+/// draws. A snapshot carries the live machine, framebuffer included, so a
+/// version-3 snapshot holds a 320x192 buffer that a version-4 machine would
+/// never allocate.
+const SNAPSHOT_VERSION: u16 = 4;
 
 /// Borrowing envelope used during encode — avoids cloning the live machine.
 #[derive(Serialize)]
