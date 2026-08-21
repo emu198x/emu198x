@@ -22,13 +22,6 @@ use serde_big_array::BigArray;
 /// Active playfield area dimensions (the pixels ANTIC + GTIA draw
 /// playfield + player/missile content into).
 pub const ACTIVE_WIDTH: u32 = 320;
-/// Horizontal border thickness around the active area — 32 px each side of the
-/// 320-pixel playfield, for a 384-pixel line.
-///
-/// There is no vertical equivalent, because the vertical border is not a
-/// property of the chip: see [`GtiaRegion::border_top`].
-pub const BORDER_LEFT: u32 = 32;
-pub const BORDER_RIGHT: u32 = 32;
 
 /// Pixel clock of the NTSC part: twice the 3.579545 MHz colour clock, because
 /// the hires modes put two pixels in each. Gives 6:7 pixels — taller than
@@ -37,8 +30,6 @@ pub const NTSC_PIXEL_CLOCK_HZ: f64 = 7_159_090.0;
 
 /// The same on PAL, from the 3.546894 MHz colour clock.
 pub const PAL_PIXEL_CLOCK_HZ: f64 = 7_093_788.0;
-
-pub const FB_WIDTH: u32 = ACTIVE_WIDTH + BORDER_LEFT + BORDER_RIGHT;
 
 /// Active playfield height in scan lines — ANTIC's maximum, the same on both
 /// regions. What differs is how much field is left around it.
@@ -78,6 +69,29 @@ impl GtiaRegion {
     #[must_use]
     pub const fn border_top(self) -> u32 {
         (self.framebuffer_height() - ACTIVE_HEIGHT) / 2
+    }
+
+    /// Pixels a set displays along a line, which is the framebuffer's width.
+    ///
+    /// `pixel_clock x active_line_seconds`: 7.15909 MHz over 52.148 µs is 373
+    /// on NTSC, and 7.093788 MHz over 52.0 µs is 369 on PAL, rounded to leave
+    /// a whole border either side of the active 320.
+    ///
+    /// This used to be a fixed 32 pixels of border either side, giving 384 for
+    /// both regions — 103% of an NTSC window and 104% of a PAL one, which is
+    /// raster a set hides.
+    #[must_use]
+    pub const fn framebuffer_width(self) -> u32 {
+        ACTIVE_WIDTH + 2 * self.border_left()
+    }
+
+    /// Pixels of border left of the active area — what the line has left over.
+    #[must_use]
+    pub const fn border_left(self) -> u32 {
+        match self {
+            Self::Ntsc => 27,
+            Self::Pal => 24,
+        }
     }
 }
 
@@ -196,6 +210,8 @@ pub struct Gtia {
 
     // -- Framebuffer --
     framebuffer: Vec<u32>,
+    /// Width of that framebuffer, which the region decides.
+    fb_width: u32,
 }
 
 impl Gtia {
@@ -231,7 +247,11 @@ impl Gtia {
             sl_line_buf: [0; ACTIVE_WIDTH as usize],
             sl_playfield: Vec::new(),
             sl_x: 0,
-            framebuffer: vec![0xFF00_0000; (FB_WIDTH * region.framebuffer_height()) as usize],
+            framebuffer: vec![
+                0xFF00_0000;
+                (region.framebuffer_width() * region.framebuffer_height()) as usize
+            ],
+            fb_width: region.framebuffer_width(),
         }
     }
 
@@ -357,7 +377,7 @@ impl Gtia {
     /// Framebuffer width in pixels.
     #[must_use]
     pub const fn framebuffer_width(&self) -> u32 {
-        FB_WIDTH
+        self.fb_width
     }
 
     /// Framebuffer height in pixels.
@@ -366,13 +386,19 @@ impl Gtia {
     /// height a caller sees is always the height that was allocated.
     #[must_use]
     pub fn framebuffer_height(&self) -> u32 {
-        (self.framebuffer.len() / FB_WIDTH as usize) as u32
+        (self.framebuffer.len() / self.fb_width as usize) as u32
     }
 
     /// Scan lines of border above the active playfield, from the field height.
     #[must_use]
     pub fn border_top(&self) -> u32 {
         (self.framebuffer_height() - ACTIVE_HEIGHT) / 2
+    }
+
+    /// Pixels of border left of the active playfield, from the line width.
+    #[must_use]
+    pub const fn border_left(&self) -> u32 {
+        (self.fb_width - ACTIVE_WIDTH) / 2
     }
 
     // -----------------------------------------------------------------------
@@ -414,7 +440,7 @@ impl Gtia {
         }
         self.sl_visible = true;
         let fb_row = self.border_top() as usize + line as usize;
-        self.sl_fb_offset = fb_row * FB_WIDTH as usize + BORDER_LEFT as usize;
+        self.sl_fb_offset = fb_row * self.fb_width as usize + self.border_left() as usize;
         self.sl_mode = mode;
         self.sl_gtia_mode = (self.prior >> 6) & 0x03;
         self.sl_pf_width = pf_width;
@@ -877,7 +903,7 @@ mod tests {
             assert_eq!(gtia.framebuffer_height(), field, "{region:?}");
             assert_eq!(
                 gtia.framebuffer().len(),
-                (FB_WIDTH * field) as usize,
+                (region.framebuffer_width() * field) as usize,
                 "{region:?} allocated a buffer of the wrong size"
             );
         }
@@ -909,7 +935,7 @@ mod tests {
         gtia.render_line(ACTIVE_HEIGHT as u16 - 1, &playfield, 160, AnticMode::Mode2);
 
         assert_eq!(
-            gtia.framebuffer().len() / FB_WIDTH as usize,
+            gtia.framebuffer().len() / GtiaRegion::Ntsc.framebuffer_width() as usize,
             GtiaRegion::Ntsc.framebuffer_height() as usize
         );
     }
@@ -948,7 +974,9 @@ mod tests {
         gtia.composite_playfield(ACTIVE_WIDTH as usize); // right half at B
 
         let fb = gtia.framebuffer();
-        let base = GtiaRegion::Pal.border_top() as usize * FB_WIDTH as usize + BORDER_LEFT as usize;
+        let base = GtiaRegion::Pal.border_top() as usize
+            * GtiaRegion::Pal.framebuffer_width() as usize
+            + GtiaRegion::Pal.border_left() as usize;
         let colour_a = colour_to_argb32(0x0A);
         let colour_b = colour_to_argb32(0x0C);
         assert_ne!(colour_a, colour_b);
@@ -972,11 +1000,12 @@ mod tests {
 
         // Player at HPOS=80, PF_LEFT_CC=48, so active-region x = (80-48)*2 = 64.
         // 8 pixels wide at normal size, each 1 cc = 2 fb pixels.
-        // The active region starts at (BORDER_LEFT, GtiaRegion::Pal.border_top()) within the
+        // The active region starts at (GtiaRegion::Pal.border_left(), GtiaRegion::Pal.border_top()) within the
         // 384 x 288 TV-visible framebuffer.
         let fb = gtia.framebuffer();
-        let active_start =
-            GtiaRegion::Pal.border_top() as usize * FB_WIDTH as usize + BORDER_LEFT as usize;
+        let active_start = GtiaRegion::Pal.border_top() as usize
+            * GtiaRegion::Pal.framebuffer_width() as usize
+            + GtiaRegion::Pal.border_left() as usize;
         let player_argb = colour_to_argb32(0x38);
         assert_eq!(fb[active_start + 64], player_argb);
         assert_eq!(fb[active_start + 65], player_argb);
@@ -1001,7 +1030,9 @@ mod tests {
         gtia.composite_playfield(ACTIVE_WIDTH as usize); // right copy with HPOS 180
 
         let fb = gtia.framebuffer();
-        let base = GtiaRegion::Pal.border_top() as usize * FB_WIDTH as usize + BORDER_LEFT as usize;
+        let base = GtiaRegion::Pal.border_top() as usize
+            * GtiaRegion::Pal.framebuffer_width() as usize
+            + GtiaRegion::Pal.border_left() as usize;
         let player_argb = colour_to_argb32(0x3A);
         let bg_argb = colour_to_argb32(0x00);
         // Left copy (HPOS 50): cc 52 → active-x 8.
@@ -1146,14 +1177,17 @@ mod tests {
     #[test]
     fn framebuffer_size() {
         let gtia = Gtia::new(GtiaRegion::Pal);
-        assert_eq!(gtia.framebuffer_width(), FB_WIDTH);
+        assert_eq!(
+            gtia.framebuffer_width(),
+            GtiaRegion::Pal.framebuffer_width()
+        );
         assert_eq!(
             gtia.framebuffer_height(),
             GtiaRegion::Pal.framebuffer_height()
         );
         assert_eq!(
             gtia.framebuffer().len(),
-            (FB_WIDTH * GtiaRegion::Pal.framebuffer_height()) as usize
+            (GtiaRegion::Pal.framebuffer_width() * GtiaRegion::Pal.framebuffer_height()) as usize
         );
     }
 
@@ -1176,8 +1210,9 @@ mod tests {
         let fb = gtia.framebuffer();
         let player_argb = colour_to_argb32(0x38);
         let active_x = ((60 - PF_LEFT_CC) * 2) as usize;
-        let fb_idx = GtiaRegion::Pal.border_top() as usize * FB_WIDTH as usize
-            + BORDER_LEFT as usize
+        let fb_idx = GtiaRegion::Pal.border_top() as usize
+            * GtiaRegion::Pal.framebuffer_width() as usize
+            + GtiaRegion::Pal.border_left() as usize
             + active_x;
         assert_eq!(
             fb[fb_idx], player_argb,

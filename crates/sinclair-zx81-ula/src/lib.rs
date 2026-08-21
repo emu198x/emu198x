@@ -30,10 +30,19 @@
 
 use serde::{Deserialize, Serialize};
 
-/// Framebuffer dimensions.
+/// Framebuffer width: 320 pixels, the 256-pixel display with 32 of border
+/// either side.
 ///
-/// 320x240 gives a 4:3 display with 32-pixel borders around the 256x192
-/// active area.
+/// **A little narrower than a set's window**, which at 6.5 MHz over 52.0 µs is
+/// 338 — the #1054 audit reads it as 95%. Unlike the height, this cannot be
+/// derived: `FIRST_CHAR_TSTATE` is a constant fitted to place the picture
+/// inside a window that had already been chosen, so deriving a width from it
+/// would be circular. Closing the gap needs a measurement against a reference
+/// rather than arithmetic — MAME 0.289 puts its window 24 T-states earlier
+/// than this, which is a starting point and not an answer.
+///
+/// See `knowledge/decisions/the-framebuffer-is-the-sets-window.md`, which
+/// records the same open question for the height's sibling axis.
 pub const FB_WIDTH: u32 = 320;
 /// A PAL set displays 288 lines, and the ZX81 shares the ZX80's 312-line
 /// frame. Was 240, which cropped 48 lines a set would have shown; #1054.

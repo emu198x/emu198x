@@ -38,9 +38,12 @@ pub const ACTIVE_HEIGHT: u32 = 192;
 /// the Ace showing 240 lines of a 288-line field, which the #1054 audit read
 /// as 83%.
 ///
-/// Horizontally it stays at 32. `FIRST_CHAR_TSTATE`-style horizontal anchors
-/// are fitted constants on this family, so deriving a width from one would be
-/// circular; the ZX80 keeps its 320 for the same reason. See
+/// Horizontally it stays at 32, giving a 320-pixel frame against a set's window
+/// of 338 — **a little narrower**, which the #1054 audit reads as 95%. That
+/// cannot be derived: `FIRST_CHAR_TSTATE`-style horizontal anchors are fitted
+/// constants on this family, so deriving a width from one would be circular.
+/// The ZX80 and ZX81 keep their 320 for the same reason, and closing the gap
+/// on all three needs one measurement against a reference. See
 /// `knowledge/decisions/the-framebuffer-is-the-sets-window.md`.
 pub const BORDER_LEFT: u32 = 32;
 pub const BORDER_RIGHT: u32 = 32;

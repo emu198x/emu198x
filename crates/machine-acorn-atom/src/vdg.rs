@@ -25,6 +25,11 @@ use motorola_vdg_6847::{
 use serde::{Deserialize, Serialize};
 
 /// Framebuffer width (active 256 + 60 + 56 border = shared 372).
+///
+/// Within three pixels of a set's window: 7.093788 MHz over 52.0 µs is 369,
+/// and this holds 372. The #1054 audit reads it as 101%, and the asymmetric
+/// 60/56 border is the shared crate's, not a figure chosen here — unlike the
+/// height, which this machine now states for itself.
 pub const FB_WIDTH: u32 = TEXT_VISIBLE_FRAMEBUFFER_WIDTH as u32;
 
 /// Scan lines a PAL set displays, and so the height of the framebuffer.

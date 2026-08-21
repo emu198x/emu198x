@@ -89,8 +89,18 @@ pub const TEXT_VISIBLE_FRAMEBUFFER_HEIGHT: usize =
 pub const TEXT_VISIBLE_FRAMEBUFFER_PIXELS: usize =
     TEXT_VISIBLE_FRAMEBUFFER_WIDTH * TEXT_VISIBLE_FRAMEBUFFER_HEIGHT;
 /// Dragon PAL overscan framebuffer width in display pixels.
+///
+/// Within a pixel of a set's window: [`PAL_OVERSCAN_PIXEL_CLOCK_HZ`] over
+/// 52.0 µs is 738, and this holds 744. The audit reads it as 101%.
 pub const VDG_PAL_OVERSCAN_FRAMEBUFFER_WIDTH: usize = 744;
 /// Dragon PAL overscan framebuffer height in scanlines.
+///
+/// **Deliberately taller than a set's window** — the whole 312-line PAL frame
+/// against the 288 a television displays, which the #1054 audit reads as 108%.
+/// The same choice the C64 makes, and for the same reason: an overscan frame
+/// exists to show what the beam did everywhere, including the lines inside the
+/// vertical interval. See
+/// `knowledge/decisions/the-framebuffer-is-the-sets-window.md`.
 pub const VDG_PAL_OVERSCAN_FRAMEBUFFER_HEIGHT: usize = 312;
 /// Dragon PAL overscan framebuffer size in pixels.
 pub const VDG_PAL_OVERSCAN_FRAMEBUFFER_PIXELS: usize =

@@ -67,6 +67,27 @@ impl VdpRegion {
     pub const fn border_bottom(self) -> u32 {
         self.framebuffer_height() - ACTIVE_HEIGHT - self.border_top()
     }
+
+    /// Pixels a set displays along a line, which is a television framebuffer's
+    /// width.
+    ///
+    /// `dot_clock x active_line_seconds`: 5.369318 MHz over 52.148 µs is 280
+    /// on NTSC, and 5.34375 MHz over 52.0 µs is 278 on PAL. This used to be a
+    /// fixed 16 pixels of border either side of the active 256 — 288 for both
+    /// regions, which is 103% and 104% of their windows.
+    #[must_use]
+    pub const fn framebuffer_width(self) -> u32 {
+        match self {
+            Self::Ntsc => 280,
+            Self::Pal => 278,
+        }
+    }
+
+    /// Pixels of border left of the active area — what the line has left over.
+    #[must_use]
+    pub const fn border_left(self) -> u32 {
+        (self.framebuffer_width() - ACTIVE_WIDTH) / 2
+    }
 }
 
 /// VDP variant.
@@ -87,13 +108,6 @@ pub enum VdpVariant {
 pub const ACTIVE_WIDTH: u32 = 256;
 pub const ACTIVE_HEIGHT: u32 = 192;
 
-/// Border thickness around the active area. Same canonical TV-visible
-/// envelope as the TMS9918 family — close enough for screenshots,
-/// generous enough that the backdrop register matters.
-pub const BORDER_LEFT: u32 = 16;
-pub const BORDER_RIGHT: u32 = 16;
-
-/// Framebuffer dimensions for a television (active + border).
 /// Dot clock of the NTSC VDP: half a 10.738635 MHz crystal, three times the
 /// colour subcarrier. Inherited from the TMS9918 the chip descends from, and
 /// the reason a Master System's pixels come out at 8:7 like an MSX's.
@@ -101,8 +115,6 @@ pub const NTSC_DOT_CLOCK_HZ: f64 = 5_369_318.0;
 
 /// Dot clock of the PAL VDP: half a 10.6875 MHz crystal.
 pub const PAL_DOT_CLOCK_HZ: f64 = 5_343_750.0;
-
-pub const FB_WIDTH: u32 = ACTIVE_WIDTH + BORDER_LEFT + BORDER_RIGHT;
 
 /// The Game Gear's LCD, which shows a window cut from the centre of the
 /// active display rather than the whole of it.
@@ -209,7 +221,7 @@ impl SegaVdp {
             framebuffer: if is_game_gear {
                 vec![0; (GG_WIDTH * GG_HEIGHT) as usize]
             } else {
-                vec![0; (FB_WIDTH * region.framebuffer_height()) as usize]
+                vec![0; (region.framebuffer_width() * region.framebuffer_height()) as usize]
             },
             sprite_buf: [0; 256],
             interrupt: false,
@@ -231,7 +243,7 @@ impl SegaVdp {
         if self.is_game_gear {
             GG_WIDTH
         } else {
-            FB_WIDTH
+            self.region.framebuffer_width()
         }
     }
     /// Height of what the machine displays: the LCD for a Game Gear, and
@@ -518,7 +530,8 @@ impl SegaVdp {
     // -----------------------------------------------------------------------
 
     fn active_offset(&self, line: usize) -> usize {
-        (self.region.border_top() as usize + line) * FB_WIDTH as usize + BORDER_LEFT as usize
+        (self.region.border_top() as usize + line) * self.framebuffer_width() as usize
+            + self.region.border_left() as usize
     }
 
     /// Where active-area pixel (`line`, `x`) lands in the framebuffer, or
@@ -838,7 +851,7 @@ mod tests {
             assert_eq!(vdp.framebuffer_height(), field, "{region:?}");
             assert_eq!(
                 vdp.framebuffer().len(),
-                (FB_WIDTH * field) as usize,
+                (region.framebuffer_width() * field) as usize,
                 "{region:?} allocated a buffer of the wrong size"
             );
             assert_eq!(region.border_top(), border, "{region:?}");
@@ -868,7 +881,7 @@ mod tests {
         let vdp = SegaVdp::new(VdpRegion::Ntsc, VdpVariant::Sms2);
         assert_eq!(
             vdp.framebuffer().len(),
-            (FB_WIDTH * VdpRegion::Ntsc.framebuffer_height()) as usize
+            (VdpRegion::Ntsc.framebuffer_width() * VdpRegion::Ntsc.framebuffer_height()) as usize
         );
     }
 
@@ -1054,9 +1067,12 @@ mod tests {
         let sms = SegaVdp::new(VdpRegion::Ntsc, VdpVariant::Sms2);
         let gg = SegaVdp::new_game_gear();
 
+        // 280 x 240 is the NTSC window: 5.369318 MHz over 52.148 µs, and 240
+        // lines. It was 288 x 240 while the horizontal border was a fixed 16
+        // either side of the active 256.
         assert_eq!(
             (sms.framebuffer_width(), sms.framebuffer_height()),
-            (288, 240)
+            (280, 240)
         );
         assert_eq!(
             (gg.framebuffer_width(), gg.framebuffer_height()),
@@ -1119,7 +1135,10 @@ mod tests {
         let sms = SegaVdp::new(VdpRegion::Ntsc, VdpVariant::Sms2);
         assert_eq!(
             sms.plot_index(0, 0),
-            Some((VdpRegion::Ntsc.border_top() * FB_WIDTH + BORDER_LEFT) as usize)
+            Some(
+                (VdpRegion::Ntsc.border_top() * VdpRegion::Ntsc.framebuffer_width()
+                    + VdpRegion::Ntsc.border_left()) as usize
+            )
         );
     }
 }

@@ -114,7 +114,25 @@ pub const PAL_DOT_CLOCK_HZ: f64 = 7_881_984.0;
 /// Reproduces the published 0.7500.
 pub const NTSC_DOT_CLOCK_HZ: f64 = 8_181_816.0;
 
+/// Framebuffer width: 52 of the line's 63 cycles, eight pixels each.
+///
+/// **Deliberately a little wider than a set's window.** 7.881984 MHz over
+/// 52.0 µs is 410 pixels and this holds 416, so about three pixels each side
+/// are raster a television hides. The figure is the VIC-II's own cycle
+/// numbering rather than a chosen border, which is the trade: the extra costs
+/// six pixels and keeps every position in this file expressible as a cycle.
+///
+/// See `knowledge/decisions/the-framebuffer-is-the-sets-window.md`, which
+/// asks that holding more be stated rather than allowed to accumulate.
 pub const FB_WIDTH: u32 = VISIBLE_CYCLES as u32 * 8;
+
+/// Framebuffer height: the whole PAL frame, vertical interval included.
+///
+/// **Deliberately taller than a set's window** — 312 lines against the 288 a
+/// television displays, which the #1054 audit reads as 108%. A raster
+/// interrupt can change the border colour on any line of the frame, including
+/// the ones inside the vertical interval, and holding the whole frame is what
+/// lets a capture show that.
 pub const FB_HEIGHT: u32 = (PAL_LAST_VISIBLE_LINE - PAL_FIRST_VISIBLE_LINE) as u32;
 const DISPLAY_START_LINE: u16 = 0x30;
 const DISPLAY_END_LINE: u16 = 0xF8;

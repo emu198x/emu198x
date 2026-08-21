@@ -26,6 +26,18 @@ use crate::denise_chip::{DeniseChip, HorizontalDiwComparatorPhase};
 use crate::memory::Memory;
 
 /// Display dimensions for PAL Standard (line-doubled, lores → 4:3).
+///
+/// 576 lines is the 288 a PAL set shows, doubled because this framebuffer
+/// holds both interlaced fields — which is why `MachineCore::display` states
+/// `lines_per_tv_height` as 576 and not 288.
+///
+/// 768 is **deliberately a little wider than a set's window**: the hires clock
+/// of 14.18758 MHz over 52.0 µs is 738 pixels, so this holds about fifteen
+/// each side that a television hides. 768 is the standard PAL-hires overscan
+/// figure the Amiga world uses, and the tooling around this core — including
+/// the catalogue's committed frame hashes — is built on it. The #1054 audit
+/// reads it as 104%; see
+/// `knowledge/decisions/the-framebuffer-is-the-sets-window.md`.
 pub const FB_WIDTH: u32 = 768;
 pub const FB_HEIGHT: u32 = 576;
 
