@@ -19,16 +19,34 @@
 //!   render — text plus graphics modes 1-5.
 
 use motorola_vdg_6847::{
-    TEXT_FRAMEBUFFER_HEIGHT, TEXT_FRAMEBUFFER_WIDTH, TEXT_TOP_BORDER_LINES,
-    TEXT_VISIBLE_FRAMEBUFFER_HEIGHT, TEXT_VISIBLE_FRAMEBUFFER_PIXELS,
-    TEXT_VISIBLE_FRAMEBUFFER_WIDTH, TextPalette, VdgControl, decode_beam_byte,
+    TEXT_FRAMEBUFFER_HEIGHT, TEXT_FRAMEBUFFER_WIDTH, TEXT_VISIBLE_FRAMEBUFFER_WIDTH, TextPalette,
+    VdgControl, decode_beam_byte,
 };
 use serde::{Deserialize, Serialize};
 
 /// Framebuffer width (active 256 + 60 + 56 border = shared 372).
 pub const FB_WIDTH: u32 = TEXT_VISIBLE_FRAMEBUFFER_WIDTH as u32;
-/// Framebuffer height (active 192 + 25 + 26 border = shared 243).
-pub const FB_HEIGHT: u32 = TEXT_VISIBLE_FRAMEBUFFER_HEIGHT as u32;
+
+/// Scan lines a PAL set displays, and so the height of the framebuffer.
+///
+/// The Atom is PAL only, so this is a constant here rather than a region
+/// parameter like GTIA's or the VDPs'.
+pub const PAL_ACTIVE_LINES: u32 = 288;
+
+/// Framebuffer height: the whole PAL field.
+///
+/// This used to be the shared crate's `TEXT_VISIBLE_FRAMEBUFFER_HEIGHT`, which
+/// is 25 + 192 + 26 = 243 — a VDG-generic "visible" figure that the Dragon
+/// places as a sub-window inside its 312-line overscan frame. Borrowed here it
+/// meant the Atom showed 243 of a set's 288 lines, which the #1054 audit read
+/// as 84%. The shared constant is right for what the Dragon does with it and
+/// stays; the Atom states its own.
+pub const FB_HEIGHT: u32 = PAL_ACTIVE_LINES;
+
+/// Scan lines of border above the active area — what the field has left over
+/// around the 192 the VDG draws, halved. Written as the arithmetic, because
+/// the arithmetic is the justification.
+pub const BORDER_TOP: u32 = (PAL_ACTIVE_LINES - TEXT_FRAMEBUFFER_HEIGHT as u32) / 2;
 /// MC6847 active display lines — the shared crate's 192-line active region.
 pub const ACTIVE_LINES: u32 = TEXT_FRAMEBUFFER_HEIGHT as u32;
 /// Active display width in dots (pixels) — the bytes of a line, whatever the mode,
@@ -75,7 +93,7 @@ impl Mc6847 {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            framebuffer: vec![ATOM_PALETTE.border; TEXT_VISIBLE_FRAMEBUFFER_PIXELS],
+            framebuffer: vec![ATOM_PALETTE.border; (FB_WIDTH * FB_HEIGHT) as usize],
             control: 0,
             css: false,
             frame_complete: false,
@@ -156,7 +174,7 @@ impl Mc6847 {
                 let active_x = self.active_x;
                 byte.render_range_into(
                     &mut self.framebuffer,
-                    TEXT_TOP_BORDER_LINES + line,
+                    BORDER_TOP as usize + line,
                     active_x,
                     0,
                     width,
@@ -227,7 +245,7 @@ mod tests {
     }
 
     fn active_row(vdg: &Mc6847, active_y: u32) -> &[u32] {
-        let visible_y = TEXT_TOP_BORDER_LINES + active_y as usize;
+        let visible_y = BORDER_TOP as usize + active_y as usize;
         let start = visible_y * TEXT_VISIBLE_FRAMEBUFFER_WIDTH;
         &vdg.framebuffer()[start..start + TEXT_VISIBLE_FRAMEBUFFER_WIDTH]
     }
@@ -247,7 +265,22 @@ mod tests {
         render_field(&mut vdg, 0x10, 0x10, ACTIVE_DOTS + 1, 0b1010_1010);
         let control = vdg.control_lines();
         let whole = render_visible_argb(|_| 0b1010_1010, control, ATOM_PALETTE.into());
-        assert_eq!(vdg.framebuffer(), whole.as_slice());
+
+        // Row by row across the active band, because the two frames are no
+        // longer the same height: the shared render is the VDG-generic 243,
+        // and this machine holds the 288 a PAL set shows. The active lines are
+        // the claim — the rest is border, identical in both by construction.
+        let width = FB_WIDTH as usize;
+        let shared_top = motorola_vdg_6847::TEXT_TOP_BORDER_LINES;
+        for line in 0..TEXT_FRAMEBUFFER_HEIGHT {
+            let mine = (BORDER_TOP as usize + line) * width;
+            let theirs = (shared_top + line) * width;
+            assert_eq!(
+                &vdg.framebuffer()[mine..mine + width],
+                &whole[theirs..theirs + width],
+                "active line {line} differs from the whole-frame render"
+            );
+        }
     }
 
     #[test]
