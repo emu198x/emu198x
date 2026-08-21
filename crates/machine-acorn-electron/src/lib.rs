@@ -84,10 +84,26 @@ const MOTOR_BIT: u8 = 0x40;
 const RX_FULL_IRQ: u8 = 0x10;
 const HIGH_TONE_IRQ: u8 = 0x40;
 
-/// Framebuffer width (640 pixels; modes 1/4/6 render 320 doubled, modes
-/// 2/5 render 160 quadrupled).
+/// Framebuffer width: 640 dots (modes 1/4/6 render 320 doubled, modes 2/5
+/// render 160 quadrupled).
+///
+/// **Deliberately narrower than a set's window, because the ULA blanks the
+/// rest.** The service manual gives it directly: the ULA is busy "40
+/// microseconds of each 64 microseconds". At the 16 MHz dot clock those 40 µs
+/// are 640 dots, and a set's ~52 µs window is 832 — so the audit's 77% is the
+/// hardware. The Electron has no border colour register; outside the display
+/// the screen is black.
+///
+/// See `reference/by-system/acorn-electron/acorn-electron-reference.md` §3,
+/// which takes the figure from the 1987 service manual and cross-checks it
+/// against the community ULA notes.
 pub const FB_WIDTH: u32 = 640;
-/// Framebuffer height (256 visible scanlines per PAL Electron frame).
+
+/// Framebuffer height: the 256 scan lines the ULA generates pixel data for.
+///
+/// The same source, the same shape: "312, of which 256 generate pixel data".
+/// A PAL set shows 288, so the audit reads 89%, and the missing 56 lines are
+/// the ULA's vertical blanking rather than a crop of ours.
 pub const FB_HEIGHT: u32 = 256;
 
 const CYCLES_PER_SCANLINE: u64 = 128;

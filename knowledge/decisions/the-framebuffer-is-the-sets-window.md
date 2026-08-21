@@ -63,12 +63,34 @@ tell a crop from a chip that renders less:
   whole picture and nothing is wrong.
 - **We cropped.** The ZX80's old 83% was ours.
 
-Separating them needs each chip's rendered-against-blanked extent. Two are
-now settled by inspection: the NES's 91% is the hardware, and the BBC's 77% is
-the same shape — 640 dots at 16 MHz is 40 µs of a 52 µs line, and the rest is
-border the core does not draw. The VIC-20's 49% is ours: the chip fills the
-line, and we keep 24 border pixels a side where a set shows about 140. The
-remaining cores are unclassified and #1054 tracks the pass.
+Separating them needs each chip's rendered-against-blanked extent, and the
+reference library answers it where it covers the part.
+
+**The chip blanks it** — marked † in the table, and said so at the constant:
+
+- The **NES** renders 256 dots of a 341-dot line and blanks the rest.
+- The **Atari 2600** emits 160 colour clocks of picture in a 228-clock line;
+  the other 68 are HBLANK. A set's 187-clock window holds the 160 and black.
+- The **Electron**'s service manual gives it outright — the ULA is busy "40
+  microseconds of each 64", and there are "312 [lines], of which 256 generate
+  pixel data". 640 dots of an 832-dot window and 256 lines of 288.
+- The **BBC Micro** is the same picture from its 6845: R0 gives a 128-character
+  line with R1 displaying 80, and R4/R9 a 312-line frame with R6 displaying 32
+  rows of 8. Neither machine has a border colour register, so what a set shows
+  outside the display is black.
+
+**We cropped it** — fixed where the border was already being drawn:
+
+- The **Amstrad CPC** held 48 characters by 270 lines, which is Caprice32's
+  `CPC_VISIBLE_SCR_WIDTH`/`HEIGHT` rather than a field. Its reference is
+  explicit that the border is a 17th pen "drawn during HBLANK and overscan", so
+  the machine does paint the surround and we were keeping part of it. Now 52
+  characters by 288 lines, both derived from the CRTC's own totals.
+- The **VIC-20**'s 49% is unresolved and may not be an extent problem at all;
+  see below.
+
+Everything unmarked and under 100% is still unclassified, and #1054 tracks the
+pass.
 
 ## The measurement
 
@@ -105,17 +127,21 @@ the core draws.
 | Spectrum 48K (PAL) | 352×296 | 364×288 | 97% | 103% |
 | ZX80, ZX81 (PAL) | 320×288 | 338×288 | 95% | 100% |
 | Jupiter Ace (PAL) | 320×288 | 338×288 | 95% | 100% |
-| Amstrad CPC (PAL) | 768×270 | 832×288 | 92% | 94% |
-| NES (NTSC) | 256×240 | 280×240 | 91% | 100% |
+| Amstrad CPC (PAL) | 832×288 | 832×288 | 100% | 100% |
+| NES (NTSC) | 256×240 | 280×240 | 91% † | 100% |
 | Mattel Aquarius (PAL) | 320×192 | 369×288 | 87% | **67%** |
-| Atari 2600 (NTSC) | 160×228 | 187×240 | 86% | 95% |
-| BBC Micro, Electron (PAL) | 640×256 | 832×288 | **77%** | 89% |
+| Atari 2600 (NTSC) | 160×240 | 187×240 | 86% † | 100% |
+| BBC Micro, Electron (PAL) | 640×256 | 832×288 | 77% † | 89% † |
 | Oric Atmos (PAL) | 240×224 | 312×288 | **77%** | 78% |
 | VIC-20 (PAL) | 224×216 | 461×288 | **49%** | 75% |
 
 Televisions only. The PET drives a monitor and the Game Boy and Game Gear
 drive panels, so the comparison does not apply — which is `Display` doing its
 job.
+
+**†** marks a figure that is the chip rather than a crop: the core holds less
+because the hardware blanks the rest, and the constant says so. Everything
+unmarked and under 100% is still unclassified.
 
 The range is **49%–104% horizontally and 67%–108% vertically**, after the
 Dragon's 202% turned out to be a misstated clock rather than an extent, and the
