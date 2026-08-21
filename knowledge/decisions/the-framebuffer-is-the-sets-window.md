@@ -1,7 +1,8 @@
 # The framebuffer is the set's window
 
-**Status:** rule stated and the fleet measured; extents span 49%–104%
-horizontally and 67%–120% vertically, so most cores do not conform
+**Status:** rule stated and the fleet measured; the two extents that were
+errors rather than choices are fixed, and the rest are classified or tracked in
+#1054
 **Context:** #1054, #1053, `knowledge/decisions/pixel-aspect-comes-from-the-raster.md`
 
 ## Decision
@@ -90,7 +91,8 @@ the core draws.
 | Amiga (PAL) | 768×576 | 738×576 | 104% | 100% |
 | Dragon (PAL) | 744×312 | 738×288 | 101% | 108% |
 | Memotech MTX, Tatung Einstein (PAL) | 288×240 | 278×288 | 104% | **83%** |
-| Atari 800XL, 5200, 7800 (NTSC) | 384×288 | 373×240 | 103% | **120%** |
+| Atari 800XL, 5200, 7800 (PAL) | 384×288 | 369×288 | 104% | 100% |
+| Atari 800XL, 5200, 7800 (NTSC) | 384×240 | 373×240 | 103% | 100% |
 | ColecoVision, MSX, Master System, SG-1000, Sord M5, SVI-328 (NTSC) | 288×240 | 280×240 | 103% | 100% |
 | Acorn Atom (PAL) | 372×243 | 369×288 | 101% | 84% |
 | C64 (PAL) | 416×312 | 410×288 | 101% | 108% |
@@ -109,8 +111,10 @@ Televisions only. The PET drives a monitor and the Game Boy and Game Gear
 drive panels, so the comparison does not apply — which is `Display` doing its
 job.
 
-The range is **49%–104% horizontally and 67%–120% vertically**, after the
-Dragon's 202% turned out to be a misstated clock rather than an extent (below).
+The range is **49%–104% horizontally and 67%–108% vertically**, after the
+Dragon's 202% turned out to be a misstated clock rather than an extent, and the
+three Atari cores' 120% a single framebuffer height serving two regions (both
+below).
 #1054 opened citing 86%–104% and 83%–108%, drawn from the seven cores that had
 been looked at. Horizontally that upper bound held; the floor did not, and the
 vertical spread is half again as wide.
@@ -124,12 +128,15 @@ Ace makes three at 83% for the same reason. It is the identical shortfall the
 ZX80 had before #1053, from the identical cause: **an NTSC-shaped buffer on a
 PAL machine**.
 
-The three Atari cores are that error's mirror. `FB_HEIGHT` is
-`ACTIVE_HEIGHT + BORDER_TOP + BORDER_BOTTOM` where `ACTIVE_HEIGHT` is already
-240 — the whole NTSC field — so 48 lines of border are added to a figure with
-no room for them. The constant still carries a stale doc comment reading
-"Framebuffer height (240 visible scan lines)" directly above the 240 it
-describes.
+The three Atari cores were that error's mirror, at 120%. `FB_HEIGHT` was
+`ACTIVE_HEIGHT + BORDER_TOP + BORDER_BOTTOM` with `ACTIVE_HEIGHT` already 240 —
+the whole NTSC field — so 48 lines of border were added to a figure that had no
+room for them, and the same height then served both regions. It is correct for
+PAL, which is why it survived.
+
+GTIA and MARIA now take a region and size the field from it, with the border as
+whatever is left over: nothing on NTSC, 24 lines on PAL. Both regions of all
+three machines now sit at 100% vertically.
 
 Neither pattern is visible from one core at a time, which is the argument for
 having measured all of them at once.

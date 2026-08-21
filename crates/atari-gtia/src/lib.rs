@@ -22,13 +22,13 @@ use serde_big_array::BigArray;
 /// Active playfield area dimensions (the pixels ANTIC + GTIA draw
 /// playfield + player/missile content into).
 pub const ACTIVE_WIDTH: u32 = 320;
-/// Border thickness around the active area. Canonical Atari 8-bit
-/// TV-visible envelope — 32 px L/R + 24 px T/B around the 320 x 240
-/// active region, total 384 x 288.
+/// Horizontal border thickness around the active area — 32 px each side of the
+/// 320-pixel playfield, for a 384-pixel line.
+///
+/// There is no vertical equivalent, because the vertical border is not a
+/// property of the chip: see [`GtiaRegion::border_top`].
 pub const BORDER_LEFT: u32 = 32;
 pub const BORDER_RIGHT: u32 = 32;
-pub const BORDER_TOP: u32 = 24;
-pub const BORDER_BOTTOM: u32 = 24;
 
 /// Pixel clock of the NTSC part: twice the 3.579545 MHz colour clock, because
 /// the hires modes put two pixels in each. Gives 6:7 pixels — taller than
@@ -40,11 +40,46 @@ pub const PAL_PIXEL_CLOCK_HZ: f64 = 7_093_788.0;
 
 pub const FB_WIDTH: u32 = ACTIVE_WIDTH + BORDER_LEFT + BORDER_RIGHT;
 
-/// Framebuffer height (240 visible scan lines).
-/// Active playfield height in scan lines.
+/// Active playfield height in scan lines — ANTIC's maximum, the same on both
+/// regions. What differs is how much field is left around it.
 pub const ACTIVE_HEIGHT: u32 = 240;
 
-pub const FB_HEIGHT: u32 = ACTIVE_HEIGHT + BORDER_TOP + BORDER_BOTTOM;
+/// Which television standard the chip is feeding.
+///
+/// GTIA renders the same 240 active lines either way; the region decides how
+/// tall the field around them is, and so where the active window sits in it.
+/// A single height cannot serve both — 288 lines on NTSC is a fifth more
+/// raster than a set displays, and 240 on PAL is a sixth less.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GtiaRegion {
+    /// 240 visible scan lines. ANTIC's 240 fill the field, leaving no border.
+    Ntsc,
+    /// 288 visible scan lines, so 24 of border above and below the active 240.
+    Pal,
+}
+
+impl GtiaRegion {
+    /// Scan lines a set displays, which is what the framebuffer holds.
+    ///
+    /// Per `knowledge/decisions/the-framebuffer-is-the-sets-window.md`.
+    #[must_use]
+    pub const fn framebuffer_height(self) -> u32 {
+        match self {
+            Self::Ntsc => 240,
+            Self::Pal => 288,
+        }
+    }
+
+    /// Scan lines of border above the active playfield.
+    ///
+    /// Whatever the field has left over, halved. NTSC has nothing left over,
+    /// which is the case the old fixed 24 got wrong: it was added to a figure
+    /// that was already the whole NTSC field.
+    #[must_use]
+    pub const fn border_top(self) -> u32 {
+        (self.framebuffer_height() - ACTIVE_HEIGHT) / 2
+    }
+}
 
 /// First visible colour clock in the normal playfield (160 clocks wide).
 const PF_LEFT_CC: u16 = 48;
@@ -164,9 +199,9 @@ pub struct Gtia {
 }
 
 impl Gtia {
-    /// Create a new GTIA in its power-on state.
+    /// Create a new GTIA in its power-on state, feeding `region`'s field.
     #[must_use]
-    pub fn new() -> Self {
+    pub fn new(region: GtiaRegion) -> Self {
         Self {
             colpm: [0; 4],
             colpf: [0; 4],
@@ -196,7 +231,7 @@ impl Gtia {
             sl_line_buf: [0; ACTIVE_WIDTH as usize],
             sl_playfield: Vec::new(),
             sl_x: 0,
-            framebuffer: vec![0xFF00_0000; (FB_WIDTH * FB_HEIGHT) as usize],
+            framebuffer: vec![0xFF00_0000; (FB_WIDTH * region.framebuffer_height()) as usize],
         }
     }
 
@@ -326,9 +361,18 @@ impl Gtia {
     }
 
     /// Framebuffer height in pixels.
+    ///
+    /// Read back off the buffer rather than stated a second time, so the
+    /// height a caller sees is always the height that was allocated.
     #[must_use]
-    pub const fn framebuffer_height(&self) -> u32 {
-        FB_HEIGHT
+    pub fn framebuffer_height(&self) -> u32 {
+        (self.framebuffer.len() / FB_WIDTH as usize) as u32
+    }
+
+    /// Scan lines of border above the active playfield, from the field height.
+    #[must_use]
+    pub fn border_top(&self) -> u32 {
+        (self.framebuffer_height() - ACTIVE_HEIGHT) / 2
     }
 
     // -----------------------------------------------------------------------
@@ -369,7 +413,7 @@ impl Gtia {
             return;
         }
         self.sl_visible = true;
-        let fb_row = BORDER_TOP as usize + line as usize;
+        let fb_row = self.border_top() as usize + line as usize;
         self.sl_fb_offset = fb_row * FB_WIDTH as usize + BORDER_LEFT as usize;
         self.sl_mode = mode;
         self.sl_gtia_mode = (self.prior >> 6) & 0x03;
@@ -779,11 +823,9 @@ impl Gtia {
     }
 }
 
-impl Default for Gtia {
-    fn default() -> Self {
-        Self::new()
-    }
-}
+// No `Default`. There is no default television standard, and a chip that
+// guessed one would size its framebuffer wrong for half the machines that use
+// it — which is the bug this region parameter exists to fix.
 
 /// Player pixel width for a given size value (bits 0-1 of `SIZEPx`).
 const fn player_pixel_width(size_bits: u8) -> u16 {
@@ -821,11 +863,62 @@ fn colour_to_argb32(colour: u8) -> u32 {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn each_region_holds_exactly_the_field_a_set_shows() {
+        // 240 lines on NTSC, 288 on PAL — `Display::Television`'s
+        // `lines_per_tv_height`, and the rule in
+        // `the-framebuffer-is-the-sets-window.md`.
+        //
+        // This held one height for both. It was 288, which is right for PAL
+        // and a fifth more raster than an NTSC set displays; the #1054 audit
+        // read the NTSC profiles as 120%.
+        for (region, field) in [(GtiaRegion::Ntsc, 240), (GtiaRegion::Pal, 288)] {
+            let gtia = Gtia::new(region);
+            assert_eq!(gtia.framebuffer_height(), field, "{region:?}");
+            assert_eq!(
+                gtia.framebuffer().len(),
+                (FB_WIDTH * field) as usize,
+                "{region:?} allocated a buffer of the wrong size"
+            );
+        }
+    }
+
+    #[test]
+    fn the_active_playfield_fits_the_field_with_the_border_around_it() {
+        // The border is what the field has left over once the active
+        // playfield is placed, so it cannot be a constant: NTSC has nothing
+        // left over. Adding a fixed 24 to a field that was already full is
+        // how the old height reached 288.
+        for region in [GtiaRegion::Ntsc, GtiaRegion::Pal] {
+            assert_eq!(
+                region.border_top() * 2 + ACTIVE_HEIGHT,
+                region.framebuffer_height(),
+                "{region:?} does not account for every line of its field"
+            );
+        }
+        assert_eq!(GtiaRegion::Ntsc.border_top(), 0);
+        assert_eq!(GtiaRegion::Pal.border_top(), 24);
+    }
+
+    #[test]
+    fn the_last_active_line_lands_inside_the_ntsc_field() {
+        // The narrow field is the one that can overflow: ANTIC's last line
+        // has to reach the last row of the buffer and no further.
+        let mut gtia = Gtia::new(GtiaRegion::Ntsc);
+        let playfield = vec![0u8; ACTIVE_WIDTH as usize];
+        gtia.render_line(ACTIVE_HEIGHT as u16 - 1, &playfield, 160, AnticMode::Mode2);
+
+        assert_eq!(
+            gtia.framebuffer().len() / FB_WIDTH as usize,
+            GtiaRegion::Ntsc.framebuffer_height() as usize
+        );
+    }
+
     use super::*;
 
     #[test]
     fn colour_register_write_read() {
-        let mut gtia = Gtia::new();
+        let mut gtia = Gtia::new(GtiaRegion::Pal);
         // Write COLBK ($1A) and verify it's stored
         gtia.write(0x1A, 0x94);
         assert_eq!(gtia.colbk, 0x94);
@@ -847,7 +940,7 @@ mod tests {
         // after the write — the mechanism Phase 2 drives from the machine to
         // make rainbow / gradient kernels appear. A blank line is all index 0
         // (background), so every pixel takes COLBK.
-        let mut gtia = Gtia::new();
+        let mut gtia = Gtia::new(GtiaRegion::Pal);
         gtia.write(0x1A, 0x0A); // COLBK = A
         gtia.begin_scanline(0, &[], 160, AnticMode::Blank);
         gtia.composite_playfield(ACTIVE_WIDTH as usize / 2); // left half at A
@@ -855,7 +948,7 @@ mod tests {
         gtia.composite_playfield(ACTIVE_WIDTH as usize); // right half at B
 
         let fb = gtia.framebuffer();
-        let base = BORDER_TOP as usize * FB_WIDTH as usize + BORDER_LEFT as usize;
+        let base = GtiaRegion::Pal.border_top() as usize * FB_WIDTH as usize + BORDER_LEFT as usize;
         let colour_a = colour_to_argb32(0x0A);
         let colour_b = colour_to_argb32(0x0C);
         assert_ne!(colour_a, colour_b);
@@ -867,7 +960,7 @@ mod tests {
 
     #[test]
     fn player_position_and_graphics() {
-        let mut gtia = Gtia::new();
+        let mut gtia = Gtia::new(GtiaRegion::Pal);
         // Place player 0 at HPOS=80, give it a solid 8-pixel pattern
         gtia.write(0x00, 80); // HPOSP0
         gtia.write(0x0D, 0xFF); // GRAFP0: all 8 bits set
@@ -879,10 +972,11 @@ mod tests {
 
         // Player at HPOS=80, PF_LEFT_CC=48, so active-region x = (80-48)*2 = 64.
         // 8 pixels wide at normal size, each 1 cc = 2 fb pixels.
-        // The active region starts at (BORDER_LEFT, BORDER_TOP) within the
+        // The active region starts at (BORDER_LEFT, GtiaRegion::Pal.border_top()) within the
         // 384 x 288 TV-visible framebuffer.
         let fb = gtia.framebuffer();
-        let active_start = BORDER_TOP as usize * FB_WIDTH as usize + BORDER_LEFT as usize;
+        let active_start =
+            GtiaRegion::Pal.border_top() as usize * FB_WIDTH as usize + BORDER_LEFT as usize;
         let player_argb = colour_to_argb32(0x38);
         assert_eq!(fb[active_start + 64], player_argb);
         assert_eq!(fb[active_start + 65], player_argb);
@@ -895,7 +989,7 @@ mod tests {
         // same player object at two X positions — sprite multiplexing. The old
         // whole-line overlay sampled HPOS once (the final value), so the early
         // copy could not exist.
-        let mut gtia = Gtia::new();
+        let mut gtia = Gtia::new(GtiaRegion::Pal);
         gtia.write(0x0D, 0xFF); // GRAFP0: solid 8-pixel pattern
         gtia.write(0x12, 0x3A); // COLPM0: a visible colour
         // Blank line — no playfield, so any drawn pixel is the player.
@@ -907,7 +1001,7 @@ mod tests {
         gtia.composite_playfield(ACTIVE_WIDTH as usize); // right copy with HPOS 180
 
         let fb = gtia.framebuffer();
-        let base = BORDER_TOP as usize * FB_WIDTH as usize + BORDER_LEFT as usize;
+        let base = GtiaRegion::Pal.border_top() as usize * FB_WIDTH as usize + BORDER_LEFT as usize;
         let player_argb = colour_to_argb32(0x3A);
         let bg_argb = colour_to_argb32(0x00);
         // Left copy (HPOS 50): cc 52 → active-x 8.
@@ -920,7 +1014,7 @@ mod tests {
 
     #[test]
     fn collision_detection_player_playfield() {
-        let mut gtia = Gtia::new();
+        let mut gtia = Gtia::new(GtiaRegion::Pal);
         // Place player 0 at HPOS=60 (fb_x = (60-48)*2 = 24)
         gtia.write(0x00, 60); // HPOSP0
         gtia.write(0x0D, 0x80); // GRAFP0: leftmost bit only
@@ -943,7 +1037,7 @@ mod tests {
         // even over background with no playfield. The old overlay only recorded
         // collisions where playfield was present, so two players over bare
         // background never registered.
-        let mut gtia = Gtia::new();
+        let mut gtia = Gtia::new(GtiaRegion::Pal);
         // Players 0 and 1 both at HPOS=60 with a solid pattern → they overlap.
         gtia.write(0x00, 60); // HPOSP0
         gtia.write(0x01, 60); // HPOSP1
@@ -966,7 +1060,7 @@ mod tests {
         // only the left part of the line (the old whole-line overlay would read
         // zero until the line finished), and a mid-line HITCLR wipes only what
         // has been drawn so far — the next pixels re-accumulate it.
-        let mut gtia = Gtia::new();
+        let mut gtia = Gtia::new(GtiaRegion::Pal);
         gtia.write(0x00, 60); // HPOSP0 = 60 → active-x 24..
         gtia.write(0x08, 0x03); // SIZEP0 = quad → 8×4 = 32 cc wide (active-x 24..88)
         gtia.write(0x0D, 0xFF); // GRAFP0: solid
@@ -1002,7 +1096,7 @@ mod tests {
 
     #[test]
     fn collision_clear() {
-        let mut gtia = Gtia::new();
+        let mut gtia = Gtia::new(GtiaRegion::Pal);
         // Set up a collision
         gtia.p_pf[0] = 0x03;
         gtia.m_pf[1] = 0x05;
@@ -1016,7 +1110,7 @@ mod tests {
 
     #[test]
     fn trigger_inputs() {
-        let mut gtia = Gtia::new();
+        let mut gtia = Gtia::new(GtiaRegion::Pal);
         // Default: all released (1)
         assert_eq!(gtia.read(0x10), 1);
         assert_eq!(gtia.read(0x11), 1);
@@ -1032,7 +1126,7 @@ mod tests {
 
     #[test]
     fn consol_register() {
-        let mut gtia = Gtia::new();
+        let mut gtia = Gtia::new(GtiaRegion::Pal);
         // Default: all buttons released (bits 0-2 = 1)
         assert_eq!(gtia.read(0x1F) & 0x07, 0x07);
 
@@ -1051,15 +1145,21 @@ mod tests {
 
     #[test]
     fn framebuffer_size() {
-        let gtia = Gtia::new();
+        let gtia = Gtia::new(GtiaRegion::Pal);
         assert_eq!(gtia.framebuffer_width(), FB_WIDTH);
-        assert_eq!(gtia.framebuffer_height(), FB_HEIGHT);
-        assert_eq!(gtia.framebuffer().len(), (FB_WIDTH * FB_HEIGHT) as usize);
+        assert_eq!(
+            gtia.framebuffer_height(),
+            GtiaRegion::Pal.framebuffer_height()
+        );
+        assert_eq!(
+            gtia.framebuffer().len(),
+            (FB_WIDTH * GtiaRegion::Pal.framebuffer_height()) as usize
+        );
     }
 
     #[test]
     fn priority_default_players_over_playfield() {
-        let mut gtia = Gtia::new();
+        let mut gtia = Gtia::new(GtiaRegion::Pal);
         // Player 0 at position overlapping a playfield pixel
         gtia.write(0x00, 60); // HPOSP0 = 60
         gtia.write(0x0D, 0x80); // GRAFP0: leftmost bit
@@ -1076,7 +1176,9 @@ mod tests {
         let fb = gtia.framebuffer();
         let player_argb = colour_to_argb32(0x38);
         let active_x = ((60 - PF_LEFT_CC) * 2) as usize;
-        let fb_idx = BORDER_TOP as usize * FB_WIDTH as usize + BORDER_LEFT as usize + active_x;
+        let fb_idx = GtiaRegion::Pal.border_top() as usize * FB_WIDTH as usize
+            + BORDER_LEFT as usize
+            + active_x;
         assert_eq!(
             fb[fb_idx], player_argb,
             "Player should be on top at default priority"
@@ -1085,7 +1187,7 @@ mod tests {
 
     #[test]
     fn gtia_mode_selection() {
-        let mut gtia = Gtia::new();
+        let mut gtia = Gtia::new(GtiaRegion::Pal);
 
         // Default: mode 0
         assert_eq!((gtia.prior >> 6) & 0x03, 0);

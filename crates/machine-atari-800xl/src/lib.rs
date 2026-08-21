@@ -62,6 +62,13 @@ pub enum Atari800xlRegion {
 }
 
 impl Atari800xlRegion {
+    fn gtia_region(self) -> atari_gtia::GtiaRegion {
+        match self {
+            Self::Ntsc => atari_gtia::GtiaRegion::Ntsc,
+            Self::Pal => atari_gtia::GtiaRegion::Pal,
+        }
+    }
+
     fn antic_region(self) -> AnticRegion {
         match self {
             Self::Ntsc => AnticRegion::Ntsc,
@@ -167,7 +174,7 @@ impl Atari800xl {
         let mut sys = Self {
             cpu,
             antic: Antic::new(region.antic_region()),
-            gtia: Gtia::new(),
+            gtia: Gtia::new(region.gtia_region()),
             pokey,
             pia,
             ram,
@@ -709,7 +716,7 @@ mod tests {
         let w = sys.framebuffer_width() as usize;
         // A visible line well inside the active region (active starts at
         // BORDER_TOP; pick row 100 of the 240 active lines).
-        let row = atari_gtia::BORDER_TOP as usize + 100;
+        let row = atari_gtia::GtiaRegion::Pal.border_top() as usize + 100;
         let base = row * w + atari_gtia::BORDER_LEFT as usize;
         let active: std::collections::BTreeSet<u32> = (0..atari_gtia::ACTIVE_WIDTH as usize)
             .map(|x| fb[base + x])
