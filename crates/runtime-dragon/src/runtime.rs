@@ -1033,12 +1033,18 @@ impl MachineCore for DragonRuntime {
         self.decode_snapshot(bytes)
     }
 
-    /// Same VDG as the Atom, so the same two pixels per clock period.
+    /// The overscan rate, not the chip's.
+    ///
+    /// This used to quote the plain VDG clock, reasoning that the Atom has the
+    /// same chip and so the same two pixels per clock period. The Atom does —
+    /// but this machine emits `beam_pal_overscan_argb`, which writes every VDG
+    /// pixel twice to fill a 744-wide frame. Same chip, twice the framebuffer,
+    /// so half the pixel.
     fn display(&self) -> Option<Display> {
         Display::television_for_region(
             self.profile().region,
-            motorola_vdg_6847::PAL_PIXEL_CLOCK_HZ,
-            motorola_vdg_6847::NTSC_PIXEL_CLOCK_HZ,
+            motorola_vdg_6847::PAL_OVERSCAN_PIXEL_CLOCK_HZ,
+            motorola_vdg_6847::NTSC_OVERSCAN_PIXEL_CLOCK_HZ,
         )
     }
 

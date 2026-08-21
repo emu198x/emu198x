@@ -17,6 +17,23 @@ pub const NTSC_PIXEL_CLOCK_HZ: f64 = 7_159_090.0;
 /// The same against a PAL colour crystal, for machines that fitted one.
 pub const PAL_PIXEL_CLOCK_HZ: f64 = 7_093_788.0;
 
+/// Rate the PAL overscan framebuffer fills, which is twice the chip's.
+///
+/// [`expand_visible_argb_to_pal_overscan`] writes each VDG pixel into two
+/// adjacent entries, so one entry of that framebuffer is half a VDG pixel and
+/// it fills at twice the rate. Nothing extra is drawn — the doubling gives the
+/// 744x312 overscan frame roughly square pixels, and carries no information
+/// the 372-wide picture did not.
+///
+/// The distinction matters because `Display::Television` wants the rate the
+/// *framebuffer* fills, not the chip's dot clock. A core that expands its
+/// picture and then quotes the chip states a pixel twice as wide as the one it
+/// emits; see `knowledge/decisions/pixel-aspect-comes-from-the-raster.md`.
+pub const PAL_OVERSCAN_PIXEL_CLOCK_HZ: f64 = PAL_PIXEL_CLOCK_HZ * 2.0;
+
+/// [`PAL_OVERSCAN_PIXEL_CLOCK_HZ`] against the NTSC crystal.
+pub const NTSC_OVERSCAN_PIXEL_CLOCK_HZ: f64 = NTSC_PIXEL_CLOCK_HZ * 2.0;
+
 /// Alphanumeric text columns./// Alphanumeric text columns.
 pub const TEXT_COLUMNS: usize = 32;
 /// Alphanumeric text rows.
@@ -1393,6 +1410,52 @@ const FONT_6847: [u8; 64 * TEXT_CELL_HEIGHT] = [
 
 #[cfg(test)]
 mod tests {
+
+    /// PAL active line, per `emu198x-shell`'s display derivation.
+    const PAL_ACTIVE_LINE_SECONDS: f64 = 52.0e-6;
+
+    #[test]
+    fn the_overscan_clock_fills_the_overscan_framebuffer_in_one_line() {
+        // The rule from `the-framebuffer-is-the-sets-window.md`: a set's window
+        // is `pixel_clock x active_line_seconds` wide. State a clock that does
+        // not fill the framebuffer you emit and the pixel aspect is wrong by
+        // whatever the ratio is.
+        //
+        // This machine emitted 744 pixels while quoting a clock that fills 369
+        // of them, so its pixels were derived twice as wide as they are. The
+        // audit in #1054 caught it as 202% of a set's window, which is not a
+        // generous crop but an impossible one.
+        let window = PAL_OVERSCAN_PIXEL_CLOCK_HZ * PAL_ACTIVE_LINE_SECONDS;
+        let emitted = VDG_PAL_OVERSCAN_FRAMEBUFFER_WIDTH as f64;
+
+        assert!(
+            (emitted / window - 1.0).abs() < 0.02,
+            "{emitted} pixels against a {window:.0}-pixel window is {:.0}% — the stated clock \
+             and the emitted framebuffer disagree",
+            100.0 * emitted / window
+        );
+    }
+
+    #[test]
+    fn the_overscan_expansion_carries_no_extra_detail() {
+        // The reason the clock doubles is that this doubles, and the reason
+        // that matters is that it is *only* doubling: a genuine higher
+        // resolution would justify the width on its own terms. Every pair of
+        // adjacent entries holds one VDG pixel twice.
+        let visible = vec![0xFF00_0000u32; TEXT_VISIBLE_FRAMEBUFFER_PIXELS];
+        let frame = expand_visible_argb_to_pal_overscan(&visible, 0xFF12_3456);
+
+        let y = VDG_PAL_OVERSCAN_VISIBLE_Y + TEXT_VISIBLE_FRAMEBUFFER_HEIGHT / 2;
+        let row = y * VDG_PAL_OVERSCAN_FRAMEBUFFER_WIDTH + VDG_PAL_OVERSCAN_VISIBLE_X;
+        for x in 0..TEXT_VISIBLE_FRAMEBUFFER_WIDTH {
+            assert_eq!(
+                frame[row + x * 2],
+                frame[row + x * 2 + 1],
+                "entry pair {x} differs, so the frame is not a plain doubling"
+            );
+        }
+    }
+
     use super::*;
 
     #[test]
