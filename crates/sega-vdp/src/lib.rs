@@ -55,11 +55,30 @@ impl VdpRegion {
         }
     }
 
-    /// Scan lines of border above the active area — whatever the field has
-    /// left over around the 192 the chip draws, halved. 24 on NTSC, 48 on PAL.
+    /// Scan lines of border above the active area.
+    ///
+    /// Halving what the field has left over would put the active area in the
+    /// middle of the window, and the chip does not put it there. MAME's
+    /// `315_5124.h` tables the frame: 3 lines of sync and 13 of top blanking
+    /// before the picture, 27 lines of top border and 24 of bottom around the
+    /// 192 in 192-line mode, 3 more blanked at the end — 243 scanned of 262.
+    /// The TMS9918A manual's Table 3-3 gives the same 27 and 24 for the chip
+    /// this one descends from, so the number is doubly attested.
+    ///
+    /// A set shows 240 of those 243, centred, so it loses three lines: two off
+    /// the larger top border, one off the bottom. 25 and 23, and the picture
+    /// sits a line and a half below the middle of the window because that is
+    /// where the chip scans it.
+    ///
+    /// PAL runs the same 19 blanked lines and spends all 51 extra on border —
+    /// 54 top and 48 bottom, in the same 27:24 ratio. 294 scanned, 288 shown,
+    /// three off each end.
     #[must_use]
     pub const fn border_top(self) -> u32 {
-        (self.framebuffer_height() - ACTIVE_HEIGHT) / 2
+        match self {
+            Self::Ntsc => 25,
+            Self::Pal => 51,
+        }
     }
 
     /// Scan lines of border below the active area.
@@ -83,7 +102,17 @@ impl VdpRegion {
         }
     }
 
-    /// Pixels of border left of the active area — what the line has left over.
+    /// Pixels of border left of the active area.
+    ///
+    /// Centring is right here, which had to be checked rather than assumed
+    /// after the vertical case turned out not to be. MAME gives the line as 13
+    /// pixels of left border, 256 active and 15 of right, with 58 of sync,
+    /// burst and blanking — so the picture is *not* centred in the 284 the
+    /// chip scans. It is all but centred in what a set shows: measured from
+    /// the leading edge of sync the active area's midpoint lands 35.57 µs into
+    /// the line, against a broadcast picture centre of 35.5 to 35.7 depending
+    /// on which back-porch figure you take. Under a pixel either way, and less
+    /// than the porch figures disagree among themselves.
     #[must_use]
     pub const fn border_left(self) -> u32 {
         (self.framebuffer_width() - ACTIVE_WIDTH) / 2
@@ -856,7 +885,7 @@ mod tests {
         // NTSC's, so a PAL Master System showed 240 lines of a 288-line field
         // — the 83% the #1054 audit read across this chip and the TMS9918
         // family alike.
-        for (region, field, border) in [(VdpRegion::Ntsc, 240, 24), (VdpRegion::Pal, 288, 48)] {
+        for (region, field, border) in [(VdpRegion::Ntsc, 240, 25), (VdpRegion::Pal, 288, 51)] {
             let vdp = SegaVdp::new(region, VdpVariant::Sms2);
             assert_eq!(vdp.framebuffer_height(), field, "{region:?}");
             assert_eq!(

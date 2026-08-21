@@ -102,11 +102,31 @@ impl VdpRegion {
         }
     }
 
-    /// Scan lines of border above the active area — whatever the field has
-    /// left over around the 192 the chip draws, halved. 24 on NTSC, 48 on PAL.
+    /// Scan lines of border above the active area.
+    ///
+    /// Halving what the field has left over would put the active area in the
+    /// middle of the window, and the chip does not put it there. Table 3-3
+    /// gives the 262-line frame as 27 lines of top border, 192 active, 24 of
+    /// bottom border, and 19 blanked — 3 after the picture, 3 of sync, 13
+    /// before it. 243 lines are scanned and a set shows 240 of them, centred,
+    /// so three go: two off the larger top border and one off the bottom. 25
+    /// and 23, and the picture sits a line and a half below the middle of the
+    /// window because that is where the chip scans it.
+    ///
+    /// The manual does not table the 313-line 9929A frame — §3.6.2 gives the
+    /// 262-line case only, and
+    /// `reference/by-topic/vdp-tms9918/tms9918a-reference.md` records the gap.
+    /// MAME's `315_5124.h`, a descendant with the same line budget and the
+    /// same 27 and 24 on NTSC, gives 54 and 48 for PAL. Those restore the same
+    /// 19 blanked lines and split the extra 51 in the same 27:24 ratio, which
+    /// is the check that they belong to this frame and not another chip's.
+    /// 294 scanned, 288 shown, three off each end.
     #[must_use]
     pub const fn border_top(self) -> u32 {
-        (self.framebuffer_height() - ACTIVE_HEIGHT) / 2
+        match self {
+            Self::Ntsc => 25,
+            Self::Pal => 51,
+        }
     }
 
     /// Scan lines of border below the active area.
@@ -132,7 +152,18 @@ impl VdpRegion {
         }
     }
 
-    /// Pixels of border left of the active area — what the line has left over.
+    /// Pixels of border left of the active area.
+    ///
+    /// Centring is right here, which had to be checked rather than assumed
+    /// after the vertical case turned out not to be. Table 3-3 splits the
+    /// 342-cycle line into 13 pixels of left border, 256 active, 15 of right,
+    /// and 58 of sync, colour burst and blanking — so the picture is *not*
+    /// centred in the 284 the chip scans. It is all but centred in what a set
+    /// shows: measured from the leading edge of sync, 26 cycles of sync and 24
+    /// of back porch put the active area's midpoint 35.57 µs into the line,
+    /// against a broadcast picture centre of 35.5 to 35.7 depending on which
+    /// back-porch figure you take. Under a pixel either way, and less than the
+    /// porch figures disagree among themselves.
     #[must_use]
     pub const fn border_left(self) -> u32 {
         (self.framebuffer_width() - ACTIVE_WIDTH) / 2
@@ -1002,7 +1033,7 @@ mod tests {
         // this family — MSX, ColecoVision, Sord M5, SVI-328, MTX, Einstein,
         // SG-1000, Master System — showed 240 lines of a 288-line field, and
         // the #1054 audit read all of them at 83%.
-        for (region, field, border) in [(VdpRegion::Ntsc, 240, 24), (VdpRegion::Pal, 288, 48)] {
+        for (region, field, border) in [(VdpRegion::Ntsc, 240, 25), (VdpRegion::Pal, 288, 51)] {
             let vdp = Tms9918::new(region);
             assert_eq!(vdp.framebuffer_height(), field, "{region:?}");
             assert_eq!(
@@ -1031,14 +1062,14 @@ mod tests {
 
     #[test]
     fn the_last_active_line_lands_above_the_bottom_border() {
-        // PAL is the case that moved. Its active area starts 48 lines down,
-        // so the chip's last drawn line has to be 48 lines short of the
+        // PAL is the case that moved. Its active area starts 51 lines down,
+        // so the chip's last drawn line has to be 45 lines short of the
         // bottom of the buffer, not flush with it.
         let region = VdpRegion::Pal;
         let last_active_row = region.border_top() as usize + ACTIVE_HEIGHT as usize - 1;
         let rows = region.framebuffer_height() as usize;
 
-        assert_eq!(last_active_row, 239);
+        assert_eq!(last_active_row, 242);
         assert_eq!(rows - 1 - last_active_row, region.border_bottom() as usize);
     }
 
