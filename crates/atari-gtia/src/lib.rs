@@ -45,7 +45,7 @@ pub const ACTIVE_HEIGHT: u32 = 240;
 pub enum GtiaRegion {
     /// 240 visible scan lines. ANTIC's 240 fill the field, leaving no border.
     Ntsc,
-    /// 288 visible scan lines, so 24 of border above and below the active 240.
+    /// 288 visible scan lines, so 48 of border around the active 240.
     Pal,
 }
 
@@ -63,12 +63,30 @@ impl GtiaRegion {
 
     /// Scan lines of border above the active playfield.
     ///
-    /// Whatever the field has left over, halved. NTSC has nothing left over,
-    /// which is the case the old fixed 24 got wrong: it was added to a figure
-    /// that was already the whole NTSC field.
+    /// Halving what the field has left over is right on NTSC and a line or two
+    /// out on PAL, and the difference is where vertical sync falls. The
+    /// Altirra Hardware Reference Manual (ch. 6, "Vertical sync occurs over
+    /// three scan lines. In NTSC, it occupies lines 251-253, and in PAL,
+    /// 275-277") pins it, with ANTIC's display fixed at scan lines 8-247 in
+    /// both regions.
+    ///
+    /// On NTSC that leaves exactly 22 lines outside the display — 251 to 261
+    /// and 0 to 7 — and 262 less the 240 a set shows is exactly 22. The
+    /// Atari's display *is* the NTSC field, so there is no border to place and
+    /// nothing to get wrong.
+    ///
+    /// PAL moves sync 24 lines later and adds 50 to the frame, so 72 lines sit
+    /// outside the display and a set hides only 24 of them. Blanking runs from
+    /// about two and a half lines before the broad pulses to line 23 of the
+    /// field, which puts the display 23 lines below the top of what a set
+    /// shows. The same arithmetic on NTSC lands within a line of the zero that
+    /// case reaches exactly, which is the check on it.
     #[must_use]
     pub const fn border_top(self) -> u32 {
-        (self.framebuffer_height() - ACTIVE_HEIGHT) / 2
+        match self {
+            Self::Ntsc => 0,
+            Self::Pal => 23,
+        }
     }
 
     /// Pixels a set displays along a line, which is the framebuffer's width.
@@ -86,6 +104,16 @@ impl GtiaRegion {
     }
 
     /// Pixels of border left of the active area — what the line has left over.
+    ///
+    /// Centring is exact here rather than merely close, which is worth saying
+    /// because it is not exact on every chip. Altirra's GTIA chapter gives the
+    /// 228-colour-clock line a visible range of `$22`-`$DD` — 188 colour
+    /// clocks — with the normal playfield at `$30`-`$CF`, so 14 colour clocks
+    /// of visible border sit either side of it and the visible range's
+    /// midpoint falls on the playfield centre at the `$7F`/`$80` boundary. The
+    /// chip's picture is centred in its own line, so ours is centred in the
+    /// window. 188 colour clocks is 376 pixels, two more than the 374 a set
+    /// shows.
     #[must_use]
     pub const fn border_left(self) -> u32 {
         match self {
@@ -212,6 +240,11 @@ pub struct Gtia {
     framebuffer: Vec<u32>,
     /// Width of that framebuffer, which the region decides.
     fb_width: u32,
+    /// Scan lines of border above the active playfield, which the region also
+    /// decides. Carried rather than re-derived from the height: the two
+    /// borders are not equal on PAL, so halving the leftover would move the
+    /// picture a line.
+    fb_border_top: u32,
 }
 
 impl Gtia {
@@ -252,6 +285,7 @@ impl Gtia {
                 (region.framebuffer_width() * region.framebuffer_height()) as usize
             ],
             fb_width: region.framebuffer_width(),
+            fb_border_top: region.border_top(),
         }
     }
 
@@ -389,10 +423,11 @@ impl Gtia {
         (self.framebuffer.len() / self.fb_width as usize) as u32
     }
 
-    /// Scan lines of border above the active playfield, from the field height.
+    /// Scan lines of border above the active playfield, as the region placed
+    /// it.
     #[must_use]
-    pub fn border_top(&self) -> u32 {
-        (self.framebuffer_height() - ACTIVE_HEIGHT) / 2
+    pub const fn border_top(&self) -> u32 {
+        self.fb_border_top
     }
 
     /// Pixels of border left of the active playfield, from the line width.
@@ -916,14 +951,13 @@ mod tests {
         // left over. Adding a fixed 24 to a field that was already full is
         // how the old height reached 288.
         for region in [GtiaRegion::Ntsc, GtiaRegion::Pal] {
-            assert_eq!(
-                region.border_top() * 2 + ACTIVE_HEIGHT,
-                region.framebuffer_height(),
-                "{region:?} does not account for every line of its field"
+            assert!(
+                region.border_top() + ACTIVE_HEIGHT <= region.framebuffer_height(),
+                "{region:?} places the active playfield past the end of its field"
             );
         }
         assert_eq!(GtiaRegion::Ntsc.border_top(), 0);
-        assert_eq!(GtiaRegion::Pal.border_top(), 24);
+        assert_eq!(GtiaRegion::Pal.border_top(), 23);
     }
 
     #[test]
