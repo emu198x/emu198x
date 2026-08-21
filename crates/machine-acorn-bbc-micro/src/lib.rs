@@ -82,9 +82,27 @@ const NS_PER_MASTER_TICK: u64 = 500;
 /// Serial ULA (`$FE10`) bit 7: cassette motor relay (1 = motor on).
 const MOTOR_BIT: u8 = 0x80;
 
-/// Framebuffer width (640 pixels — MODE 0 native).
+/// Framebuffer width: the 640 dots MODE 0 displays.
+///
+/// **Deliberately narrower than a set's window, because the 6845 blanks the
+/// rest.** A PAL set shows about 52 µs, which at the BBC's 16 MHz dot clock is
+/// 832 dots — but R0 gives a 128-character line and R1 displays 80 of them, so
+/// 640 dots carry picture and the other 384 are non-display. The BBC has no
+/// border colour register: what a set shows outside the displayed window is
+/// black, not a programmable surround, so holding it would be holding black.
+///
+/// The #1054 audit reads this as 77% of a set's window. That is the hardware,
+/// not a crop — the distinction
+/// `knowledge/decisions/the-framebuffer-is-the-sets-window.md` exists to make.
+/// Register values from `reference/by-system/bbc-micro/bbc-micro-reference.md`
+/// §6845.
 pub const FB_WIDTH: u32 = 640;
-/// Framebuffer height (256 pixels visible per PAL frame).
+
+/// Framebuffer height: the 256 scan lines MODE 0-2 display.
+///
+/// Blanked for the same reason. R4 = 38 and R9 = 7 give a 312-line frame, of
+/// which R6 = 32 character rows of 8 lines are displayed. A PAL set shows 288,
+/// so the audit reads 89% — again the chip, and again black outside it.
 pub const FB_HEIGHT: u32 = 256;
 
 /// BBC Micro CPU clock: 2 MHz. Kept as a documented reference even

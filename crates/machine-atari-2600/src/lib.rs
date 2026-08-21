@@ -309,27 +309,34 @@ impl Atari2600 {
         self.tia.framebuffer_height()
     }
 
-    /// First displayable scanline — the top of the visible window, skipping the
-    /// VSYNC + VBLANK lines. Region-specific; matches Stella's TIA visible
-    /// window (`ystart` NTSC 23, PAL 32).
-    #[must_use]
-    pub fn visible_first_line(&self) -> u32 {
-        match self.region {
-            Atari2600Region::Ntsc => 23,
-            Atari2600Region::Pal => 32,
-        }
-    }
-
-    /// Height of the visible window (active picture + overscan border), the
-    /// region's displayable lines below [`Self::visible_first_line`]. Matches
-    /// Stella's TIA base height (NTSC 228, PAL 274); the full frame
-    /// ([`Self::framebuffer_height`]) is taller by the VBLANK/retrace lines.
+    /// Height of the visible window: the scan lines a set displays.
+    ///
+    /// 240 on NTSC and 288 on PAL, per
+    /// `knowledge/decisions/the-framebuffer-is-the-sets-window.md`. These used
+    /// to be Stella's TIA base heights, 228 and 274 — that emulator's display
+    /// convention rather than a field, and 228 of 240 is the 95% the #1054
+    /// audit read.
     #[must_use]
     pub fn visible_framebuffer_height(&self) -> u32 {
         match self.region {
-            Atari2600Region::Ntsc => 228,
-            Atari2600Region::Pal => 274,
+            Atari2600Region::Ntsc => 240,
+            Atari2600Region::Pal => 288,
         }
+    }
+
+    /// First displayable scanline — the top of the visible window.
+    ///
+    /// Whatever the frame has above the field, which is the vertical interval
+    /// a set blanks: 262 lines less 240 on NTSC, 312 less 288 on PAL. Derived
+    /// rather than chosen, the same way the ZX80 anchors its window, and so it
+    /// cannot drift away from the height above.
+    ///
+    /// It used to be Stella's `ystart` — 23 and 32. The NTSC figure was within
+    /// a line of this; the PAL one was eight out, and taking 288 lines from
+    /// line 32 would run off the end of a 312-line frame.
+    #[must_use]
+    pub fn visible_first_line(&self) -> u32 {
+        u32::from(self.region.lines_per_frame()) - self.visible_framebuffer_height()
     }
 
     /// Set RIOT port A input — joystick directions byte.

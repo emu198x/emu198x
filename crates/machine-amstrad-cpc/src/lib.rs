@@ -113,33 +113,62 @@ const AY_SAMPLES_PER_FRAME: usize = 1024;
 /// pixels at two dots, mode 0 two pixels at four.
 const DOTS_PER_CHAR: usize = 16;
 
-/// Framebuffer width, 48 character columns at full dot resolution.
+/// Character columns a PAL set displays: 52 of the CRTC's 64.
 ///
-/// Caprice32 draws a visible window of `4 + 40 + 4` columns — four of border,
-/// the forty of a standard display, four more of border (`CPC_VISIBLE_SCR_WIDTH`
-/// in `cap32.h`, given there at half dot resolution as 384). At the full dot
-/// clock that is 768.
-pub const FB_WIDTH: u32 = 48 * DOTS_PER_CHAR as u32;
+/// A CPC line is 64 characters at 16 dots, which is 1024 dots in 64 µs — a
+/// 16 MHz dot clock. A set shows about 52 µs of that, so 52 characters.
+///
+/// This used to be 48, from Caprice32's `CPC_VISIBLE_SCR_WIDTH`: that
+/// emulator's visible window of `4 + 40 + 4`. Another emulator's crop is not a
+/// television's, and 48 of 52 is the 92% the #1054 audit read. See
+/// `knowledge/decisions/the-framebuffer-is-the-sets-window.md`.
+const VISIBLE_CHARS: u32 = 52;
 
-/// Framebuffer height, matching Caprice32's `CPC_VISIBLE_SCR_HEIGHT`: the 200
-/// displayed lines with 35 of border above and below.
-pub const FB_HEIGHT: u32 = 270;
+/// Scan lines a PAL set displays.
+///
+/// The CPC's frame is 312 lines (CRTC R4 = 38 rows of 8, plus adjust); 288 of
+/// them reach the screen. This used to be 270, again Caprice32's
+/// `CPC_VISIBLE_SCR_HEIGHT` — the 200 displayed lines with 35 of border rather
+/// than the 44 a field leaves.
+const VISIBLE_LINES: u32 = 288;
+
+/// Framebuffer width at full dot resolution.
+pub const FB_WIDTH: u32 = VISIBLE_CHARS * DOTS_PER_CHAR as u32;
+
+/// Framebuffer height.
+pub const FB_HEIGHT: u32 = VISIBLE_LINES;
+
+/// Characters in a whole CPC line, CRTC R0 + 1.
+const LINE_CHARS: u32 = 64;
+
+/// Scan lines in a whole CPC frame: CRTC R4 + 1 rows of R9 + 1 lines.
+const FRAME_LINES: u32 = 39 * 8;
 
 /// Dots after the HSync edge at which the visible window opens.
 ///
+/// The horizontal blanking a set hides is whatever the line has over the
+/// window, and it follows the sync edge — so the window opens `64 - 52 = 12`
+/// characters in. Derived rather than chosen, so it cannot drift from
+/// [`VISIBLE_CHARS`], and the display's own position inside the window then
+/// falls out of the timing instead of being centred by construction.
+///
 /// A standard CPC line puts HSync at character 46 of 64 (CRTC R2 against R0),
-/// so the display restarts `64 - 46 = 18` characters after the sync edge.
-/// Opening the window four characters earlier gives the left border its four
-/// columns: `(18 - 4) x 16`.
-const H_VISIBLE_START: i32 = 14 * DOTS_PER_CHAR as i32;
+/// so the display restarts 18 characters after the sync edge — six characters
+/// into this window, leaving six on the right.
+const H_VISIBLE_START: i32 = (LINE_CHARS - VISIBLE_CHARS) as i32 * DOTS_PER_CHAR as i32;
 
 /// Lines after the VSync edge at which the visible window opens.
 ///
+/// The same for the vertical interval: 312 lines less the 288 a set shows.
+///
 /// A standard screen puts VSync at character row 30 of 39 (CRTC R7 against R4),
 /// eight lines to the row, so the display restarts `312 - 240 = 72` lines after
-/// the sync edge. Opening 35 lines earlier centres the 200 displayed lines in
-/// the 270 the window is tall.
-const V_VISIBLE_START: i32 = 72 - 35;
+/// the sync edge — 48 lines into this window, leaving 40 below. Not centred,
+/// because the CRTC does not centre it.
+///
+/// Centring the window on the display instead is what the old 270-line figure
+/// did, and at 288 it would run four lines off the end of the frame.
+const V_VISIBLE_START: i32 = (FRAME_LINES - VISIBLE_LINES) as i32;
 
 /// Keyboard matrix rows. Nine of keys plus row 9, which carries joystick 0 and
 /// the `DEL` key.
