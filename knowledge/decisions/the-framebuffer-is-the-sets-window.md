@@ -104,7 +104,7 @@ the core draws.
 | C64 (PAL) | 416×312 | 410×288 | 101% | 108% |
 | Spectrum 48K (PAL) | 352×296 | 364×288 | 97% | 103% |
 | ZX80, ZX81 (PAL) | 320×288 | 338×288 | 95% | 100% |
-| Jupiter Ace (PAL) | 320×240 | 338×288 | 95% | **83%** |
+| Jupiter Ace (PAL) | 320×288 | 338×288 | 95% | 100% |
 | Amstrad CPC (PAL) | 768×270 | 832×288 | 92% | 94% |
 | NES (NTSC) | 256×240 | 280×240 | 91% | 100% |
 | Mattel Aquarius (PAL) | 320×192 | 369×288 | 87% | **67%** |
@@ -139,7 +139,12 @@ never selected. Eight machines, one constant. `VdpRegion` and the Sega VDP's
 own region now size the field, and the border is what it has left over around
 the 192 lines the chip draws: 24 on NTSC, 48 on PAL. Fixed.
 
-The Jupiter Ace is still at 83%, from the same cause in its own video code.
+The Jupiter Ace made a ninth, from the same cause in its own video code: its
+border comment said it was copying the ZX81 ULA's 24 lines "so screenshots
+match the period look". #1053 then moved the ZX81 to the set's own field and
+the Ace did not follow. Fixed the same way — the border is `(288 - 192) / 2`,
+written as that expression rather than as 48, because the arithmetic is the
+justification.
 
 The three Atari cores were that error's mirror, at 120%. `FB_HEIGHT` was
 `ACTIVE_HEIGHT + BORDER_TOP + BORDER_BOTTOM` with `ACTIVE_HEIGHT` already 240 —

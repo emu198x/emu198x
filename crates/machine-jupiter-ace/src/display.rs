@@ -29,14 +29,30 @@
 pub const ACTIVE_WIDTH: u32 = 256;
 pub const ACTIVE_HEIGHT: u32 = 192;
 
-/// Border thickness around the active area. The Jupiter Ace shares
-/// the ZX80/81's broad TV-visible envelope (~320 x 240); using the
-/// same 32 px L/R + 24 px T/B border as the ZX81 ULA so screenshots
-/// match the period look of the machine.
+/// Border thickness around the active area.
+///
+/// Vertically this is what a PAL field has left over around the 192 active
+/// lines: 288 less 192, halved. It is not a chosen figure, and it is not the
+/// ZX81's — this used to copy the ZX81 ULA's 24, which #1053 then corrected
+/// upstream to the set's own field without this machine following. 24 left
+/// the Ace showing 240 lines of a 288-line field, which the #1054 audit read
+/// as 83%.
+///
+/// Horizontally it stays at 32. `FIRST_CHAR_TSTATE`-style horizontal anchors
+/// are fitted constants on this family, so deriving a width from one would be
+/// circular; the ZX80 keeps its 320 for the same reason. See
+/// `knowledge/decisions/the-framebuffer-is-the-sets-window.md`.
 pub const BORDER_LEFT: u32 = 32;
 pub const BORDER_RIGHT: u32 = 32;
-pub const BORDER_TOP: u32 = 24;
-pub const BORDER_BOTTOM: u32 = 24;
+pub const BORDER_TOP: u32 = (PAL_ACTIVE_LINES - ACTIVE_HEIGHT) / 2;
+pub const BORDER_BOTTOM: u32 = PAL_ACTIVE_LINES - ACTIVE_HEIGHT - BORDER_TOP;
+
+/// Scan lines a PAL set displays, and so the height of the framebuffer.
+///
+/// The Ace is PAL only — its profile states `Region::Pal` and its frame is
+/// 312 lines at 207 T-states — so this is a constant here rather than a
+/// region parameter like GTIA's or the VDP's.
+pub const PAL_ACTIVE_LINES: u32 = 288;
 
 /// Framebuffer dimensions (active + border).
 pub const FB_WIDTH: u32 = ACTIVE_WIDTH + BORDER_LEFT + BORDER_RIGHT;
