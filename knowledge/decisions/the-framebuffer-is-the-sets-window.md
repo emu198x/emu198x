@@ -129,7 +129,7 @@ the core draws.
 | Jupiter Ace (PAL) | 320×288 | 338×288 | 95% | 100% |
 | Amstrad CPC (PAL) | 832×288 | 832×288 | 100% | 100% |
 | NES (NTSC) | 256×240 | 280×240 | 91% † | 100% |
-| Mattel Aquarius (PAL) | 352×224 | 369×288 | 95% | 78% ‡ |
+| Mattel Aquarius (PAL) | 352×232 | 369×288 | 95% † | 81% † |
 | Atari 2600 (NTSC) | 160×240 | 187×240 | 86% † | 100% |
 | BBC Micro, Electron (PAL) | 640×256 | 832×288 | 77% † | 89% † |
 | Oric Atmos (PAL) | 240×224 | 312×288 | 77% † | 78% † |
@@ -140,9 +140,8 @@ drive panels, so the comparison does not apply — which is `Display` doing its
 job.
 
 **†** marks a figure that is the chip rather than a crop: the core holds less
-because the hardware blanks the rest, and the constant says so. **‡** marks the
-one core still short of what its own chip draws — see below. Everything
-unmarked and under 100% is still unclassified.
+because the hardware blanks the rest, and the constant says so. Every core
+under 100% is now marked.
 
 The range is **49%–104% horizontally and 67%–108% vertically**, after the
 Dragon's 202% turned out to be a misstated clock rather than an extent, and the
@@ -260,15 +259,28 @@ Adding it takes the Aquarius from 87% / 67% — the worst figure in the fleet �
 to 95% / 78%, and the width is now MAME's 352 to the pixel. Border and display
 go through one path, because on this machine they are the same thing.
 
-**A discrepancy this turned up, not settled here.** MAME's grid gives 25
-display rows: its border rows are 0, 1, 27 and 28, leaving rows 2 to 26. This
-project draws 24, and 40 x 24 is what its own header and the reference's
-"1 KB screen" describe. The one line of evidence to hand cuts the other way —
-`LISTCT` in the community memory map stops LIST "after every 24 rows", which is
-what a 24-row screen or a 25-row screen with a prompt line would both do. The
-Aquarius's height is therefore 224 here against MAME's 232, and the ‡ in the
-table marks it. Changing the row count changes what the machine displays, not
-how much of it we keep, so it wants its own evidence.
+**And the row count the border exposed.** MAME's grid gives 25 display rows —
+borders at 0, 1, 27, 28, leaving 2 to 26 — where this project drew 24, which is
+what its own header and the reference's "1 KB screen" describe. The BASIC ROM
+settles it, and the answer is that both were half right.
+
+Its screen clear walks `$3028` to `$33E8`: 960 bytes, 24 rows, starting one row
+*in*. Its scroll copies 920 bytes from `$3050` to `$3028` and blanks the row at
+`$33C0`. Neither touches `$3000`. So BASIC's text area is 24 rows — rows 1 to
+24 of a screen RAM the hardware scans 25 rows of.
+
+Drawing 24 rows from `$3000` therefore did two wrong things at once: it drew
+row 0, which BASIC never writes, and it clipped `$33C0`-`$33E7`, which is
+BASIC's **last line**. Poking both proved it — `$3000` appeared on screen and
+`$33C0` did not, so the bottom line of every Aquarius screen was invisible.
+
+At 25 rows the framebuffer is 352 x 232, MAME's `set_raw` visible area to the
+pixel, and 95% / 81% of a set's window with the remainder blanked by the chip.
+`the_last_line_basic_writes_reaches_the_screen` fails at 24 rows.
+
+The lesson is the one this audit keeps producing: the extent work did not find
+this, but asking *what does the chip put outside the picture* did. A border
+question turned out to be a missing row of the picture.
 
 ## Defects the audit surfaced
 

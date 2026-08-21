@@ -12,7 +12,7 @@
 //!
 //! The Aquarius (1983) is a Z80A-based home computer designed by
 //! Radofin for Mattel Electronics. Famous (mostly notorious) for its
-//! tiny chiclet keyboard. Character-only display — 40×24 cells with a
+//! tiny chiclet keyboard. Character-only display — 40×25 cells with a
 //! TEA1002 colour encoder producing a 16-colour palette. The character
 //! generator is a separate 2 KB ROM (supplied via `set_char_rom`), not part
 //! of the BASIC ROM.
@@ -23,7 +23,7 @@
 //! - **RAM:** 1 KB char + 1 KB colour + 2 KB spare at `$3000-$3FFF`
 //! - **Expansion RAM:** up to 16 KB at `$4000-$7FFF`
 //! - **Cart ROM:** up to 8 KB at `$E000-$FFFF`
-//! - **Display:** 320×192 (40×24 8×8 characters), TEA1002 16-colour
+//! - **Display:** 352×232 (40×25 8×8 characters plus a two-cell border), TEA1002 16-colour
 //!   palette
 //! - **Sound:** 1-bit internal speaker (port `$FF` bit 0)
 //!
@@ -132,7 +132,23 @@ fn disc_position(up: bool, down: bool, left: bool, right: bool) -> Option<usize>
 }
 
 const CHAR_COLS: u32 = 40;
-const CHAR_ROWS: u32 = 24;
+
+/// Character rows the video hardware scans — **25**, not the 24 of BASIC's
+/// text area.
+///
+/// Screen RAM is 1 KB at `$3000`, and 25 rows of 40 is 1000 of it. BASIC uses
+/// rows 1 to 24: its screen clear walks `$3028` to `$33E8` (960 bytes, one row
+/// in) and its scroll copies 920 bytes from `$3050` to `$3028` and then blanks
+/// the row at `$33C0`. Row 0 is never touched by either.
+///
+/// Drawing 24 rows from `$3000` therefore drew row 0, which BASIC never
+/// writes, and clipped `$33C0`-`$33E7`, which is BASIC's **last line**. Poking
+/// both proves it: `$3000` appeared on screen and `$33C0` did not.
+///
+/// MAME scans the same 25 (`mame/mattel/aquarius_v.cpp` maps its display grid
+/// rows 2..26 onto `m_videoram[(row - 2) * 40 + ...]`), and its `set_raw`
+/// visible height of 232 is those 25 rows plus two of border either side.
+const CHAR_ROWS: u32 = 25;
 const CHAR_WIDTH: u32 = 8;
 const CHAR_HEIGHT: u32 = 8;
 
@@ -853,6 +869,46 @@ mod tests {
             !unique.is_empty(),
             "framebuffer should have rendered at least one colour"
         );
+    }
+
+    #[test]
+    fn the_last_line_basic_writes_reaches_the_screen() {
+        // BASIC's text area is rows 1 to 24 of screen RAM: its clear walks
+        // $3028 to $33E8 and its scroll blanks the row at $33C0. Drawing 24
+        // rows from $3000 clipped that last row, so the bottom line of every
+        // Aquarius screen was invisible — and drew $3000, which BASIC never
+        // writes, in its place.
+        let mut sys = Aquarius::new(trap_rom(), 0, AquariusRegion::Ntsc);
+        for i in 0..CHAR_COLS as u16 {
+            sys.mem_write(0x33C0 + i, b'#');
+            sys.mem_write(0x3400 + 0x3C0 + i, 0xF0);
+        }
+        sys.run_frame();
+
+        // Rows 23 and 24 of the display grid, inside the two-cell border. Only
+        // 24 was written, so the two must differ — which they cannot if the
+        // grid stops at 24 rows and never reaches $33C0.
+        let pixels = |grid_row: u32| {
+            let y = (BORDER_CELLS * CHAR_HEIGHT + grid_row * CHAR_HEIGHT) as usize;
+            let start = y * FB_WIDTH as usize + (BORDER_CELLS * CHAR_WIDTH) as usize;
+            sys.framebuffer()[start..start + (CHAR_COLS * CHAR_WIDTH) as usize].to_vec()
+        };
+
+        assert_ne!(
+            pixels(24),
+            pixels(23),
+            "the row at $33C0 — BASIC's last line — is not being drawn"
+        );
+    }
+
+    #[test]
+    fn the_display_grid_is_the_25_rows_the_hardware_scans() {
+        // 25 rows of 40 is 1000 of the 1 KB screen RAM, and matches MAME's
+        // display grid. Two cells of border either side gives 352 x 232, which
+        // is MAME's `set_raw` visible area to the pixel.
+        assert_eq!(CHAR_ROWS, 25);
+        assert_eq!(FB_WIDTH, 352);
+        assert_eq!(FB_HEIGHT, 232);
     }
 
     #[test]
