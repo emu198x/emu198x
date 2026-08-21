@@ -135,10 +135,27 @@ const CHAR_COLS: u32 = 40;
 const CHAR_ROWS: u32 = 24;
 const CHAR_WIDTH: u32 = 8;
 const CHAR_HEIGHT: u32 = 8;
-/// Framebuffer pixel width (`CHAR_COLS * CHAR_WIDTH`).
-pub const FB_WIDTH: u32 = CHAR_COLS * CHAR_WIDTH;
-/// Framebuffer pixel height (`CHAR_ROWS * CHAR_HEIGHT`).
-pub const FB_HEIGHT: u32 = CHAR_ROWS * CHAR_HEIGHT;
+
+/// Border cells on each side of the display.
+///
+/// The Aquarius has no border colour register. Its video hardware scans a
+/// character grid larger than the display and fills the surround from **screen
+/// cell 0** — the same character code and colour attribute as the top-left
+/// cell of the picture, which is why writing `$3000` recolours the whole
+/// border. MAME models it as a 44 x 29 tilemap whose rows 0, 1, 27, 28 and
+/// columns 0, 1, 42, 43 all read `m_videoram[0]` / `m_colorram[0]`
+/// (`mame/mattel/aquarius_v.cpp`, `get_tile_info`), and its `set_raw` visible
+/// area of 352 x 232 agrees with that grid.
+///
+/// Without this the framebuffer was the bare 320 x 192 display, which the
+/// #1054 audit read as 87% of a set's window across and 67% down — the worst
+/// figure in the fleet, and ours rather than the chip's.
+const BORDER_CELLS: u32 = 2;
+
+/// Framebuffer pixel width: the display plus its border.
+pub const FB_WIDTH: u32 = (CHAR_COLS + 2 * BORDER_CELLS) * CHAR_WIDTH;
+/// Framebuffer pixel height: the display plus its border.
+pub const FB_HEIGHT: u32 = (CHAR_ROWS + 2 * BORDER_CELLS) * CHAR_HEIGHT;
 
 /// Master dot clock: a single 7.15909 MHz crystal (MAME `aquarius.cpp`
 /// `7.15909_MHz_XTAL`). The Z80 and the TEA1002 derive from it.
@@ -514,11 +531,25 @@ impl Aquarius {
     }
 
     fn render_display(&mut self) {
-        // 40×24 cells, each 8×8 pixels. The character generator lives
-        // in the upper 2 KB of the BASIC ROM.
-        for row in 0..CHAR_ROWS {
-            for col in 0..CHAR_COLS {
-                let screen_off = (row * CHAR_COLS + col) as usize;
+        // 40x24 cells of 8x8 pixels, with two cells of border on every side.
+        // The character generator lives in the upper 2 KB of the BASIC ROM.
+        //
+        // Border and display go through the same path because on this machine
+        // they are the same thing: a border cell is screen cell 0, drawn with
+        // cell 0's colour attribute. Painting it separately would be modelling
+        // a border register the Aquarius does not have.
+        let rows = CHAR_ROWS + 2 * BORDER_CELLS;
+        let cols = CHAR_COLS + 2 * BORDER_CELLS;
+        for grid_row in 0..rows {
+            for grid_col in 0..cols {
+                let inside = (BORDER_CELLS..BORDER_CELLS + CHAR_ROWS).contains(&grid_row)
+                    && (BORDER_CELLS..BORDER_CELLS + CHAR_COLS).contains(&grid_col);
+                let screen_off = if inside {
+                    ((grid_row - BORDER_CELLS) * CHAR_COLS + (grid_col - BORDER_CELLS)) as usize
+                } else {
+                    0
+                };
+                let (row, col) = (grid_row, grid_col);
                 let char_code = self.char_ram[screen_off % 1024] as usize;
                 let colour_byte = self.colour_ram[screen_off % 1024];
                 // Aquarius colour byte: high nibble = foreground,

@@ -129,10 +129,10 @@ the core draws.
 | Jupiter Ace (PAL) | 320×288 | 338×288 | 95% | 100% |
 | Amstrad CPC (PAL) | 832×288 | 832×288 | 100% | 100% |
 | NES (NTSC) | 256×240 | 280×240 | 91% † | 100% |
-| Mattel Aquarius (PAL) | 320×192 | 369×288 | 87% | **67%** |
+| Mattel Aquarius (PAL) | 352×224 | 369×288 | 95% | 78% ‡ |
 | Atari 2600 (NTSC) | 160×240 | 187×240 | 86% † | 100% |
 | BBC Micro, Electron (PAL) | 640×256 | 832×288 | 77% † | 89% † |
-| Oric Atmos (PAL) | 240×224 | 312×288 | **77%** | 78% |
+| Oric Atmos (PAL) | 240×224 | 312×288 | 77% † | 78% † |
 | VIC-20 (PAL) | 230×288 | 231×288 | 100% | 100% |
 
 Televisions only. The PET drives a monitor and the Game Boy and Game Gear
@@ -140,7 +140,8 @@ drive panels, so the comparison does not apply — which is `Display` doing its
 job.
 
 **†** marks a figure that is the chip rather than a crop: the core holds less
-because the hardware blanks the rest, and the constant says so. Everything
+because the hardware blanks the rest, and the constant says so. **‡** marks the
+one core still short of what its own chip draws — see below. Everything
 unmarked and under 100% is still unclassified.
 
 The range is **49%–104% horizontally and 67%–108% vertically**, after the
@@ -229,6 +230,45 @@ Two lessons, and the second is the one that generalises:
 - **A constant that checks itself against a figure both its terms cancel out of
   is not checked at all.** Both the VIC-20's clock and the eight it was derived
   from reproduce the line time exactly.
+
+## The last two, settled by MAME
+
+Both machines held exactly their character grid with no border at all, and
+neither `reference/by-system/` folder covers what their chips put outside the
+active area. MAME's driver sources do, in one line each.
+
+**The Oric blanks it.** `mame/tangerine/oric.cpp`:
+
+```text
+screen.set_raw(12_MHz_XTAL / 2, 64*6, 0, 40*6, 312, 0, 28*8);
+```
+
+A 6 MHz dot clock; a 384-dot line whose visible window is dots 0 to 240; 312
+lines whose visible window is lines 0 to 224. That visible area is *exactly*
+what this project already held, and everything outside it is blanking rather
+than border. So the Oric joins the BBC and the Electron: 77% and 78% are the
+hardware, and the constants now say so.
+
+**The Aquarius draws it, from screen cell 0.** `mame/mattel/aquarius_v.cpp`
+builds a 44 x 29 tilemap, and `get_tile_info` gives rows 0, 1, 27, 28 and
+columns 0, 1, 42, 43 the tile `m_videoram[0]` with the attribute
+`m_colorram[0]`. The machine has no border colour register; the surround is
+the top-left screen cell repeated, which is why writing `$3000` recolours the
+whole border. `set_raw`'s 352 x 232 visible area agrees with that grid.
+
+Adding it takes the Aquarius from 87% / 67% — the worst figure in the fleet —
+to 95% / 78%, and the width is now MAME's 352 to the pixel. Border and display
+go through one path, because on this machine they are the same thing.
+
+**A discrepancy this turned up, not settled here.** MAME's grid gives 25
+display rows: its border rows are 0, 1, 27 and 28, leaving rows 2 to 26. This
+project draws 24, and 40 x 24 is what its own header and the reference's
+"1 KB screen" describe. The one line of evidence to hand cuts the other way —
+`LISTCT` in the community memory map stops LIST "after every 24 rows", which is
+what a 24-row screen or a 25-row screen with a prompt line would both do. The
+Aquarius's height is therefore 224 here against MAME's 232, and the ‡ in the
+table marks it. Changing the row count changes what the machine displays, not
+how much of it we keep, so it wants its own evidence.
 
 ## Defects the audit surfaced
 

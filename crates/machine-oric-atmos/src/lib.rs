@@ -88,9 +88,33 @@ use mos_via_6522::Via6522;
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
 
-/// Framebuffer width (240 pixels = 40 columns × 6 pixels per character).
+/// Framebuffer width: 240 pixels, 40 columns of 6.
+///
+/// **Deliberately narrower than a set's window, because the ULA blanks the
+/// rest.** MAME states the whole raster in one line
+/// (`mame/tangerine/oric.cpp`):
+///
+/// ```text
+/// screen.set_raw(12_MHz_XTAL / 2, 64*6, 0, 40*6, 312, 0, 28*8);
+/// ```
+///
+/// A 6 MHz dot clock, a 384-dot line of which the visible window is dots
+/// 0 to 240, and 312 lines of which the visible window is lines 0 to 224.
+/// Everything outside that is blanking, not border: the Oric has no border
+/// colour register, and MAME's visible area is the display and nothing else.
+///
+/// 240 dots is 40 µs of a 64 µs line, so a set's ~52 µs window holds the
+/// picture and 12 µs of black. The #1054 audit reads that as 77%, and it is
+/// the hardware — see
+/// `knowledge/decisions/the-framebuffer-is-the-sets-window.md`, which allows a
+/// core to hold less exactly where the chip blanks, provided it says so.
 pub const FB_WIDTH: u32 = 240;
-/// Framebuffer height (224 pixels = 28 rows × 8 lines).
+
+/// Framebuffer height: 224 lines, 28 rows of 8.
+///
+/// Blanked for the same reason, and from the same `set_raw` — 224 of the
+/// frame's 312 lines carry picture. A PAL set shows 288, so the audit reads
+/// 78%, and the missing 64 lines are the ULA's vertical blanking.
 pub const FB_HEIGHT: u32 = 224;
 
 const CPU_CLOCK_HZ: u32 = 1_000_000;
