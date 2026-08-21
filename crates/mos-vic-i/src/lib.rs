@@ -218,6 +218,41 @@ pub struct Vic6560 {
     audio_buffer: Vec<f32>,
 }
 
+/// What the registers say about the scan line being drawn.
+///
+/// The colours come in fours because a multicolour cell draws from four, and
+/// three of them are shared by the whole line — only the ink is per cell.
+struct LineState {
+    origin_x: u32,
+    columns: u32,
+    char_height: u32,
+    /// The line's offset into the display, or `None` when the beam is above or
+    /// below it.
+    row: Option<u32>,
+    screen_base: u16,
+    char_rom_base: u16,
+    /// Register 15 bits 2-0. Also multicolour's `01`.
+    border: u32,
+    /// Register 15 bits 7-4.
+    background: u32,
+    /// Register 14 bits 7-4, and only multicolour uses it.
+    auxiliary: u32,
+    /// Register 15 bit 3 **clear**. The VIC-20 powers up with it set.
+    reverse: bool,
+}
+
+impl LineState {
+    /// `normal` under reverse video, `reversed` otherwise.
+    ///
+    /// Reverse swaps ink and paper, and in a multicolour cell it swaps the
+    /// same pair — `00` and `10` trade places while the border and auxiliary
+    /// colours stay put. MAME's `m_multiinverted` differs from `m_multi` in
+    /// exactly those two entries.
+    const fn reversible(&self, normal: u32, reversed: u32) -> u32 {
+        if self.reverse { normal } else { reversed }
+    }
+}
+
 impl Vic6560 {
     /// Create a new VIC chip.
     ///
@@ -325,37 +360,15 @@ impl Vic6560 {
     ) {
         let pal = self.lines_per_frame == lines_per_frame(true);
         let fb_width = self.fb_width;
-        let fb_height = framebuffer_height(pal);
 
         let Some(fb_y) = self.scanline.checked_sub(window_first_line(pal)) else {
             return;
         };
-        if fb_y >= fb_height {
+        if fb_y >= framebuffer_height(pal) {
             return;
         }
 
-        let colours = self.regs[0x0F];
-        let border = VIC_PALETTE[(colours & 0x07) as usize];
-        let background = VIC_PALETTE[(colours >> 4) as usize];
-        let reverse = colours & 0x08 == 0;
-
-        // Where the display sits and how big it is, entirely from the
-        // registers — this is what #1087 was about.
-        let origin_x = u32::from(self.regs[0] & 0x7F) * PIXELS_PER_CYCLE;
-        let origin_y = u32::from(self.regs[1]) * 2;
-        let columns = u32::from(self.regs[2] & 0x7F);
-        let rows = u32::from((self.regs[3] & 0x7E) >> 1);
-        let char_height = if self.regs[3] & 0x01 == 0 { 8 } else { 16 };
-
-        let row_in_display = self
-            .scanline
-            .checked_sub(origin_y)
-            .filter(|y| *y < rows * char_height);
-
-        let screen_base =
-            (u16::from(self.regs[5]) & 0xF0) << 6 | (u16::from(self.regs[2]) & 0x80) << 2;
-        let char_rom_base = (u16::from(self.regs[5]) & 0x0F) << 10;
-
+        let line = self.line_state();
         let row_base = fb_y * fb_width;
         for offset in 0..PIXELS_PER_CYCLE {
             let raster_x = self.pixel_x * PIXELS_PER_CYCLE + offset;
@@ -367,63 +380,90 @@ impl Vic6560 {
             }
 
             let colour = self
-                .display_pixel(
-                    raster_x,
-                    origin_x,
-                    columns,
-                    row_in_display,
-                    char_height,
-                    screen_base,
-                    char_rom_base,
-                    reverse,
-                    background,
-                    read_screen,
-                    read_colour,
-                    read_char_rom,
-                )
-                .unwrap_or(border);
+                .display_pixel(raster_x, &line, read_screen, read_colour, read_char_rom)
+                .unwrap_or(line.border);
             self.framebuffer[(row_base + fb_x) as usize] = colour;
+        }
+    }
+
+    /// Everything the registers say about the scan line being drawn.
+    ///
+    /// Read once per cycle rather than once per pixel, and gathered rather
+    /// than passed around: the pixel path needs eleven of these and a
+    /// parameter list that long stops being readable.
+    fn line_state(&self) -> LineState {
+        let colours = self.regs[0x0F];
+        let origin_y = u32::from(self.regs[1]) * 2;
+        let rows = u32::from((self.regs[3] & 0x7E) >> 1);
+        let char_height = if self.regs[3] & 0x01 == 0 { 8 } else { 16 };
+
+        LineState {
+            origin_x: u32::from(self.regs[0] & 0x7F) * PIXELS_PER_CYCLE,
+            columns: u32::from(self.regs[2] & 0x7F),
+            char_height,
+            row: self
+                .scanline
+                .checked_sub(origin_y)
+                .filter(|y| *y < rows * char_height),
+            screen_base: (u16::from(self.regs[5]) & 0xF0) << 6
+                | (u16::from(self.regs[2]) & 0x80) << 2,
+            char_rom_base: (u16::from(self.regs[5]) & 0x0F) << 10,
+            border: VIC_PALETTE[(colours & 0x07) as usize],
+            background: VIC_PALETTE[(colours >> 4) as usize],
+            auxiliary: VIC_PALETTE[(self.regs[0x0E] >> 4) as usize],
+            reverse: colours & 0x08 == 0,
         }
     }
 
     /// The character pixel at raster position `raster_x`, or `None` when the
     /// beam is outside the display and the border shows instead.
-    #[allow(clippy::too_many_arguments)]
     fn display_pixel(
         &self,
         raster_x: u32,
-        origin_x: u32,
-        columns: u32,
-        row_in_display: Option<u32>,
-        char_height: u32,
-        screen_base: u16,
-        char_rom_base: u16,
-        reverse: bool,
-        background: u32,
+        line: &LineState,
         read_screen: &impl Fn(u16) -> u8,
         read_colour: &impl Fn(u16) -> u8,
         read_char_rom: &impl Fn(u16) -> u8,
     ) -> Option<u32> {
-        let row = row_in_display?;
-        let x = raster_x.checked_sub(origin_x)?;
-        if x >= columns * 8 {
+        let row = line.row?;
+        let x = raster_x.checked_sub(line.origin_x)?;
+        if x >= line.columns * 8 {
             return None;
         }
 
-        let char_row = row / char_height;
-        let char_col = x / 8;
-        let cell = screen_base.wrapping_add((char_row * columns + char_col) as u16);
-        let code = read_screen(cell);
-        let ink = VIC_PALETTE[(read_colour(cell) & 0x0F) as usize];
+        let char_row = row / line.char_height;
+        let cell = line
+            .screen_base
+            .wrapping_add((char_row * line.columns + x / 8) as u16);
+        let attribute = read_colour(cell);
+        let ink = VIC_PALETTE[(attribute & 0x07) as usize];
 
-        let glyph = char_rom_base
-            .wrapping_add(u16::from(code) * char_height as u16 + (row % char_height) as u16);
-        let bit = (read_char_rom(glyph) >> (7 - (x % 8))) & 1;
+        let glyph = line.char_rom_base.wrapping_add(
+            u16::from(read_screen(cell)) * line.char_height as u16
+                + (row % line.char_height) as u16,
+        );
+        let bits = read_char_rom(glyph);
+        let dot = x % 8;
 
-        Some(if (bit != 0) != reverse {
-            ink
+        // Colour RAM bit 3 puts the cell in multicolour: two bits a pixel,
+        // four pixels a byte, each two dots wide, drawing from four colours
+        // instead of two. Reading the bit as part of the colour index — which
+        // is what this did until #1091 — rendered every such cell as a solid
+        // hi-res glyph somewhere in the bright half of the palette.
+        if attribute & 0x08 != 0 {
+            let pair = (bits >> (6 - (dot / 2) * 2)) & 0x03;
+            return Some(match pair {
+                0 => line.reversible(ink, line.background),
+                1 => line.border,
+                2 => line.reversible(line.background, ink),
+                _ => line.auxiliary,
+            });
+        }
+
+        Some(if bits >> (7 - dot) & 1 != 0 {
+            line.reversible(line.background, ink)
         } else {
-            background
+            line.reversible(ink, line.background)
         })
     }
 
@@ -782,6 +822,18 @@ mod tests {
         }
     }
 
+    /// The same, with the colour RAM and character generator supplied — the
+    /// two the multicolour tests need to vary.
+    fn run_frame_with(
+        vic: &mut Vic6560,
+        colour: impl Fn(u16) -> u8 + Copy,
+        char_rom: impl Fn(u16) -> u8 + Copy,
+    ) {
+        for _ in 0..71 * lines_per_frame(PAL) {
+            vic.tick(|_| 1, colour, char_rom);
+        }
+    }
+
     fn pixel(vic: &Vic6560, x: u32, y: u32) -> u32 {
         vic.framebuffer()[(y * vic.framebuffer_width() + x) as usize]
     }
@@ -927,6 +979,84 @@ mod tests {
             pixel(&vic, 0, framebuffer_height(PAL) - 10),
             VIC_PALETTE[4],
             "below the write"
+        );
+    }
+
+    /// #1091: colour RAM bit 3 puts a cell in multicolour. Reading it as part
+    /// of the colour index drew the cell as a solid hi-res glyph somewhere in
+    /// the bright half of the palette instead.
+    #[test]
+    fn a_multicolour_cell_draws_from_four_colours() {
+        // 0b00_01_10_11 walks the four bit-pairs across one byte, so the four
+        // pixels of the cell take one colour each.
+        let mut vic = Vic6560::new(PAL);
+        stock(&mut vic);
+        vic.write(0x0E, 0x50); // auxiliary colour 5
+        run_frame_with(&mut vic, |_| 0x08 | 2, |_| 0b00_01_10_11);
+
+        let (x, y) = stock_origin();
+        for (dot, expected) in [(0, 1), (2, 3), (4, 2), (6, 5)] {
+            assert_eq!(
+                pixel(&vic, x + dot, y),
+                VIC_PALETTE[expected],
+                "pair {} should take colour {expected}",
+                dot / 2
+            );
+        }
+    }
+
+    #[test]
+    fn a_multicolour_pixel_is_two_dots_wide() {
+        let mut vic = Vic6560::new(PAL);
+        stock(&mut vic);
+        vic.write(0x0E, 0x50);
+        run_frame_with(&mut vic, |_| 0x08 | 2, |_| 0b00_01_10_11);
+
+        let (x, y) = stock_origin();
+        for dot in [0, 2, 4, 6] {
+            assert_eq!(
+                pixel(&vic, x + dot, y),
+                pixel(&vic, x + dot + 1, y),
+                "dots {dot} and {} belong to one pixel",
+                dot + 1
+            );
+        }
+    }
+
+    /// Reverse video swaps ink and paper in a multicolour cell too, and only
+    /// those two: MAME's `m_multiinverted` differs from `m_multi` in entries 0
+    /// and 2 and leaves the border and auxiliary colours where they are.
+    #[test]
+    fn reverse_video_swaps_only_the_ink_and_paper_of_a_multicolour_cell() {
+        let mut vic = Vic6560::new(PAL);
+        stock(&mut vic);
+        vic.write(0x0E, 0x50);
+        vic.write(0x0F, 0x13); // same colours as stock, bit 3 clear
+        run_frame_with(&mut vic, |_| 0x08 | 2, |_| 0b00_01_10_11);
+
+        let (x, y) = stock_origin();
+        for (dot, expected) in [(0, 2), (2, 3), (4, 1), (6, 5)] {
+            assert_eq!(
+                pixel(&vic, x + dot, y),
+                VIC_PALETTE[expected],
+                "pair {} should take colour {expected} under reverse video",
+                dot / 2
+            );
+        }
+    }
+
+    /// The shape of the old bug, stated directly: a cell with bit 3 set and
+    /// ink 2 used to index the palette with 10.
+    #[test]
+    fn colour_ram_bit_3_never_reaches_the_palette() {
+        let mut vic = Vic6560::new(PAL);
+        stock(&mut vic);
+        vic.write(0x0E, 0x50);
+        run_frame_with(&mut vic, |_| 0x08 | 2, |_| 0xFF);
+
+        assert!(
+            !vic.framebuffer().contains(&VIC_PALETTE[0x0A]),
+            "an attribute of $0A is multicolour with ink 2, not colour 10"
         );
     }
 
