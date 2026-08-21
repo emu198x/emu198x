@@ -72,14 +72,14 @@ impl VdpRegion {
     /// width.
     ///
     /// `dot_clock x active_line_seconds`: 5.369318 MHz over 52.148 µs is 280
-    /// on NTSC, and 5.34375 MHz over 52.0 µs is 278 on PAL. This used to be a
+    /// on NTSC, and 5.320342 MHz over 52.0 µs is 277 on PAL. This used to be a
     /// fixed 16 pixels of border either side of the active 256 — 288 for both
     /// regions, which is 103% and 104% of their windows.
     #[must_use]
     pub const fn framebuffer_width(self) -> u32 {
         match self {
             Self::Ntsc => 280,
-            Self::Pal => 278,
+            Self::Pal => 277,
         }
     }
 
@@ -113,8 +113,18 @@ pub const ACTIVE_HEIGHT: u32 = 192;
 /// the reason a Master System's pixels come out at 8:7 like an MSX's.
 pub const NTSC_DOT_CLOCK_HZ: f64 = 5_369_318.0;
 
-/// Dot clock of the PAL VDP: half a 10.6875 MHz crystal.
-pub const PAL_DOT_CLOCK_HZ: f64 = 5_343_750.0;
+/// Dot clock of the PAL VDP: a 53.203424 MHz master clock divided by ten.
+///
+/// This held 5.34375 MHz — half a 10.6875 MHz crystal, which is the PAL
+/// *MSX's* figure and not this machine's. A PAL Master System runs from
+/// twelve times the PAL colour subcarrier (12 x 4.43361875 MHz), the VDP
+/// takes master ÷ 10 and the Z80 master ÷ 15. MAME's `sms.cpp` states the
+/// master clock and both divisors; Genesis Plus GX's `system.c` gives the
+/// same 53203424, and `reference/by-topic/vdp-sms/vdp-sms-reference.md`
+/// reaches 5.320 MHz from the other direction. The machine's own
+/// `PAL_PSG_CLOCK_HZ` has been 3546893 — master ÷ 15 — all along, so this
+/// constant disagreed with its neighbour by 0.44%.
+pub const PAL_DOT_CLOCK_HZ: f64 = 5_320_342.0;
 
 /// The Game Gear's LCD, which shows a window cut from the centre of the
 /// active display rather than the whole of it.
