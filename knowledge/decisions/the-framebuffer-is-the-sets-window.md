@@ -72,6 +72,12 @@ remaining cores are unclassified and #1054 tracks the pass.
 
 ## The measurement
 
+Measure every profile, not every machine. The first sweep took each frontend's
+default and so saw one region per core — which hid the fact that eight machines
+shared the TMS9918 family's PAL shortfall, because only two of them default to
+PAL. The Atari case was the same shape from the other side. A core is not
+measured until both of its regions are.
+
 `session.framebuffer.width` and `.height` against
 `session.display.pixel_clock_hz` and `.lines_per_tv_height`, read from a
 running machine through the shared headless script surface. All thirty answer
@@ -90,7 +96,7 @@ the core draws.
 |---|---|---|---|---|
 | Amiga (PAL) | 768×576 | 738×576 | 104% | 100% |
 | Dragon (PAL) | 744×312 | 738×288 | 101% | 108% |
-| Memotech MTX, Tatung Einstein (PAL) | 288×240 | 278×288 | 104% | **83%** |
+| ColecoVision, MSX, Master System, Memotech MTX, SG-1000, Sord M5, SVI-328, Tatung Einstein (PAL) | 288×288 | 278×288 | 104% | 100% |
 | Atari 800XL, 5200, 7800 (PAL) | 384×288 | 369×288 | 104% | 100% |
 | Atari 800XL, 5200, 7800 (NTSC) | 384×240 | 373×240 | 103% | 100% |
 | ColecoVision, MSX, Master System, SG-1000, Sord M5, SVI-328 (NTSC) | 288×240 | 280×240 | 103% | 100% |
@@ -121,12 +127,19 @@ vertical spread is half again as wide.
 
 ## The pattern the numbers make
 
-Six TMS9918 machines land on exactly 288×240 and 103%/100%. Two more —
-Memotech MTX and Tatung Einstein — are the same chip on PAL profiles, and land
-on 104%/**83%**, because 240 lines in a 288-line window is 83%. The Jupiter
-Ace makes three at 83% for the same reason. It is the identical shortfall the
-ZX80 had before #1053, from the identical cause: **an NTSC-shaped buffer on a
-PAL machine**.
+Six TMS9918 machines landed on exactly 288×240 and 103%/100%, and the same
+chip on a PAL profile landed on 104%/**83%** — because 240 lines in a 288-line
+window is 83%. The identical shortfall the ZX80 had before #1053, from the
+identical cause: **an NTSC-shaped buffer on a PAL machine**.
+
+Measuring default profiles hid how wide that was. Only the MTX and the
+Einstein default to PAL, so only they appeared; the ColecoVision, MSX, Sord M5,
+SVI-328, SG-1000 and Master System all had it too, on profiles the first sweep
+never selected. Eight machines, one constant. `VdpRegion` and the Sega VDP's
+own region now size the field, and the border is what it has left over around
+the 192 lines the chip draws: 24 on NTSC, 48 on PAL. Fixed.
+
+The Jupiter Ace is still at 83%, from the same cause in its own video code.
 
 The three Atari cores were that error's mirror, at 120%. `FB_HEIGHT` was
 `ACTIVE_HEIGHT + BORDER_TOP + BORDER_BOTTOM` with `ACTIVE_HEIGHT` already 240 —
@@ -189,3 +202,5 @@ Re-read this entry when you catch yourself writing:
   the sum against the set's window
 - a new hand-written `impl MachineCore` — every trait method that has a
   default fails silently rather than at the compiler
+- an extent measured from a frontend's default profile, which sees one region
+  and calls the core done

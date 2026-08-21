@@ -39,6 +39,36 @@ pub enum VdpRegion {
     Pal,
 }
 
+impl VdpRegion {
+    /// Scan lines a set displays, which is what a television framebuffer
+    /// holds.
+    ///
+    /// Per `knowledge/decisions/the-framebuffer-is-the-sets-window.md`. One
+    /// height served both regions and it was NTSC's, so a PAL Master System
+    /// showed 240 lines of a 288-line field — 83%, which is what the #1054
+    /// audit read across this chip and the TMS9918 family alike.
+    #[must_use]
+    pub const fn framebuffer_height(self) -> u32 {
+        match self {
+            Self::Ntsc => 240,
+            Self::Pal => 288,
+        }
+    }
+
+    /// Scan lines of border above the active area — whatever the field has
+    /// left over around the 192 the chip draws, halved. 24 on NTSC, 48 on PAL.
+    #[must_use]
+    pub const fn border_top(self) -> u32 {
+        (self.framebuffer_height() - ACTIVE_HEIGHT) / 2
+    }
+
+    /// Scan lines of border below the active area.
+    #[must_use]
+    pub const fn border_bottom(self) -> u32 {
+        self.framebuffer_height() - ACTIVE_HEIGHT - self.border_top()
+    }
+}
+
 /// VDP variant.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum VdpVariant {
@@ -62,8 +92,6 @@ pub const ACTIVE_HEIGHT: u32 = 192;
 /// generous enough that the backdrop register matters.
 pub const BORDER_LEFT: u32 = 16;
 pub const BORDER_RIGHT: u32 = 16;
-pub const BORDER_TOP: u32 = 24;
-pub const BORDER_BOTTOM: u32 = 24;
 
 /// Framebuffer dimensions for a television (active + border).
 /// Dot clock of the NTSC VDP: half a 10.738635 MHz crystal, three times the
@@ -75,7 +103,6 @@ pub const NTSC_DOT_CLOCK_HZ: f64 = 5_369_318.0;
 pub const PAL_DOT_CLOCK_HZ: f64 = 5_343_750.0;
 
 pub const FB_WIDTH: u32 = ACTIVE_WIDTH + BORDER_LEFT + BORDER_RIGHT;
-pub const FB_HEIGHT: u32 = ACTIVE_HEIGHT + BORDER_TOP + BORDER_BOTTOM;
 
 /// The Game Gear's LCD, which shows a window cut from the centre of the
 /// active display rather than the whole of it.
@@ -182,7 +209,7 @@ impl SegaVdp {
             framebuffer: if is_game_gear {
                 vec![0; (GG_WIDTH * GG_HEIGHT) as usize]
             } else {
-                vec![0; (FB_WIDTH * FB_HEIGHT) as usize]
+                vec![0; (FB_WIDTH * region.framebuffer_height()) as usize]
             },
             sprite_buf: [0; 256],
             interrupt: false,
@@ -207,13 +234,14 @@ impl SegaVdp {
             FB_WIDTH
         }
     }
-    /// Height of what the machine displays.
+    /// Height of what the machine displays: the LCD for a Game Gear, and
+    /// otherwise the region's own field — 240 lines on NTSC, 288 on PAL.
     #[must_use]
     pub const fn framebuffer_height(&self) -> u32 {
         if self.is_game_gear {
             GG_HEIGHT
         } else {
-            FB_HEIGHT
+            self.region.framebuffer_height()
         }
     }
 
@@ -489,8 +517,8 @@ impl SegaVdp {
     // Rendering
     // -----------------------------------------------------------------------
 
-    fn active_offset(line: usize) -> usize {
-        (BORDER_TOP as usize + line) * FB_WIDTH as usize + BORDER_LEFT as usize
+    fn active_offset(&self, line: usize) -> usize {
+        (self.region.border_top() as usize + line) * FB_WIDTH as usize + BORDER_LEFT as usize
     }
 
     /// Where active-area pixel (`line`, `x`) lands in the framebuffer, or
@@ -501,7 +529,7 @@ impl SegaVdp {
     /// else — the rest is rendered by the VDP and never reaches the LCD.
     fn plot_index(&self, line: usize, x: usize) -> Option<usize> {
         if !self.is_game_gear {
-            return Some(Self::active_offset(line) + x);
+            return Some(self.active_offset(line) + x);
         }
         let column = x.checked_sub(GG_ORIGIN_X as usize)?;
         let row = line.checked_sub(GG_ORIGIN_Y as usize)?;
@@ -799,12 +827,49 @@ impl SegaVdp {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_television_holds_exactly_the_field_its_region_shows() {
+        // 240 lines on NTSC, 288 on PAL. One height served both and it was
+        // NTSC's, so a PAL Master System showed 240 lines of a 288-line field
+        // — the 83% the #1054 audit read across this chip and the TMS9918
+        // family alike.
+        for (region, field, border) in [(VdpRegion::Ntsc, 240, 24), (VdpRegion::Pal, 288, 48)] {
+            let vdp = SegaVdp::new(region, VdpVariant::Sms2);
+            assert_eq!(vdp.framebuffer_height(), field, "{region:?}");
+            assert_eq!(
+                vdp.framebuffer().len(),
+                (FB_WIDTH * field) as usize,
+                "{region:?} allocated a buffer of the wrong size"
+            );
+            assert_eq!(region.border_top(), border, "{region:?}");
+            assert_eq!(
+                region.border_top() + ACTIVE_HEIGHT + region.border_bottom(),
+                field,
+                "{region:?} does not account for every line of its field"
+            );
+        }
+    }
+
+    #[test]
+    fn the_game_gear_keeps_its_lcd_whatever_the_region() {
+        // A panel is not a field. The handheld shows 160x144 of the active
+        // area and has no border at all, so the region's television geometry
+        // must not reach it.
+        let gg = SegaVdp::new_game_gear();
+        assert_eq!(gg.framebuffer_width(), GG_WIDTH);
+        assert_eq!(gg.framebuffer_height(), GG_HEIGHT);
+        assert_eq!(gg.framebuffer().len(), (GG_WIDTH * GG_HEIGHT) as usize);
+    }
+
     use super::*;
 
     #[test]
     fn new_vdp_has_blank_framebuffer() {
         let vdp = SegaVdp::new(VdpRegion::Ntsc, VdpVariant::Sms2);
-        assert_eq!(vdp.framebuffer().len(), (FB_WIDTH * FB_HEIGHT) as usize);
+        assert_eq!(
+            vdp.framebuffer().len(),
+            (FB_WIDTH * VdpRegion::Ntsc.framebuffer_height()) as usize
+        );
     }
 
     #[test]
@@ -911,7 +976,7 @@ mod tests {
             vdp.sprite_buf[0] = 5; // a sprite pixel at column 0
             vdp
         }
-        let fb = SegaVdp::active_offset(0); // column 0 of the active line
+        let fb = SegaVdp::new(VdpRegion::Ntsc, VdpVariant::Sms2).active_offset(0);
 
         // Opaque, high-priority background occludes the sprite.
         let mut vdp = setup(true, true);
@@ -1054,7 +1119,7 @@ mod tests {
         let sms = SegaVdp::new(VdpRegion::Ntsc, VdpVariant::Sms2);
         assert_eq!(
             sms.plot_index(0, 0),
-            Some((BORDER_TOP * FB_WIDTH + BORDER_LEFT) as usize)
+            Some((VdpRegion::Ntsc.border_top() * FB_WIDTH + BORDER_LEFT) as usize)
         );
     }
 }

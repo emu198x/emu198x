@@ -6,7 +6,7 @@ use emu198x_shell::{
     RunResult, StopReason,
 };
 use machine_spectravideo_svi_328::{Svi328, SviRegion};
-use ti_tms9918::{FB_HEIGHT as VDP_FB_HEIGHT, FB_WIDTH as VDP_FB_WIDTH};
+use ti_tms9918::{FB_WIDTH as VDP_FB_WIDTH, VdpRegion};
 
 use crate::input::apply_input_event;
 use crate::profiles::{BIOS_FIRMWARE_ID, Model, profile_for};
@@ -28,6 +28,17 @@ pub struct Svi328Runtime {
     controller_cache: crate::input::ControllerCache,
 }
 
+/// The VDP field this model drives.
+///
+/// A PAL set shows 288 lines and an NTSC one 240, so the height is not a
+/// constant — see `knowledge/decisions/the-framebuffer-is-the-sets-window.md`.
+fn vdp_region(model: Model) -> VdpRegion {
+    match model {
+        Model::Svi328Ntsc => VdpRegion::Ntsc,
+        Model::Svi328Pal => VdpRegion::Pal,
+    }
+}
+
 impl Svi328Runtime {
     #[must_use]
     pub fn blank(model: Model) -> Self {
@@ -38,7 +49,11 @@ impl Svi328Runtime {
             bios_bytes: None,
             cart_bytes: None,
             time: MachineTime::default(),
-            rgba_framebuffer: vec![0; (VDP_FB_WIDTH * VDP_FB_HEIGHT * 4) as usize],
+            rgba_framebuffer: vec![
+                0;
+                (VDP_FB_WIDTH * vdp_region(model).framebuffer_height() * 4)
+                    as usize
+            ],
             controller_cache: crate::input::ControllerCache::default(),
         }
     }
@@ -226,7 +241,7 @@ impl MachineCore for Svi328Runtime {
                 timestamp: self.time,
                 format: PixelFormat::Rgba8888,
                 width: VDP_FB_WIDTH,
-                height: VDP_FB_HEIGHT,
+                height: vdp_region(self.model).framebuffer_height(),
                 palette: None,
                 pixels: &self.rgba_framebuffer,
             })?;
