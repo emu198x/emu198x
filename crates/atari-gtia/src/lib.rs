@@ -12,15 +12,19 @@ pub mod palette;
 
 use palette::NTSC_PALETTE;
 use serde::{Deserialize, Serialize};
-use serde_big_array::BigArray;
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
 
-/// Framebuffer width (hires resolution: 320 pixels).
-/// Active playfield area dimensions (the pixels ANTIC + GTIA draw
-/// playfield + player/missile content into).
+/// The **normal** playfield: 160 colour clocks, 320 pixels at hires.
+///
+/// Not the width GTIA composites. A narrow playfield is smaller than this and
+/// a wide one is larger, and players and missiles reach either side of all
+/// three — the line runs the width of the window, and this is one span within
+/// it. Sizing the compositor to this constant is what clipped a wide playfield
+/// (#1086); it survives because the window is still defined as this plus a
+/// border either side.
 pub const ACTIVE_WIDTH: u32 = 320;
 
 /// Pixel clock of the NTSC part: twice the 3.579545 MHz colour clock, because
@@ -121,10 +125,63 @@ impl GtiaRegion {
             Self::Pal => 24,
         }
     }
+
+    /// The half colour clock the framebuffer's first pixel sits on.
+    ///
+    /// The scan line is 228 colour clocks and the framebuffer holds the part
+    /// of it a set shows, so the two need a shared origin — otherwise every
+    /// question about where something lands has to be asked in a coordinate
+    /// space that only covers the normal playfield, which is how a wide one
+    /// came to be clipped to 320 pixels (#1086).
+    ///
+    /// A pixel is half a colour clock. The normal playfield runs `$30`-`$CF`
+    /// and its first pixel sits [`border_left`](Self::border_left) into the
+    /// window, so the window opens `border_left` half-clocks before colour
+    /// clock 48: 69 on NTSC and 72 on PAL. Both fall inside the `$22`-`$DD`
+    /// Altirra gives as the visible range, 68 to 444 in half-clocks.
+    #[must_use]
+    pub const fn first_half_clock(self) -> u16 {
+        PF_LEFT_CC * 2 - self.border_left() as u16
+    }
 }
 
 /// First visible colour clock in the normal playfield (160 clocks wide).
 const PF_LEFT_CC: u16 = 48;
+
+/// The colour clock every playfield width is centred on.
+///
+/// Altirra: "The first color clock just to the right of the center is at
+/// `$80`." All three widths share it, so a wider playfield reaches further out
+/// on both sides rather than starting further left.
+const PF_CENTRE_CC: u16 = 128;
+
+/// The colour clock a playfield of `width_cc` maps its first data pixel to.
+const fn playfield_origin_cc(width_cc: u16) -> u16 {
+    PF_CENTRE_CC - width_cc / 2
+}
+
+/// The colour clocks a playfield of `width_cc` actually reaches the screen at,
+/// as a half-open range.
+///
+/// Not the same as where ANTIC maps it, and that is the whole point. Altirra's
+/// GTIA chapter: narrow playfields "are displayed at color clocks `$40`-`$BF`",
+/// normal "at `$30`-`$CF`", and wide are "mapped to positions `$20`-`$DF` (192
+/// color clocks), but clipped to display only within `$2C`-`$DD` (178 color
+/// clocks). The left edge is clipped by ANTIC by 10 color clocks, and displays
+/// background color even in hires modes."
+///
+/// So a wide playfield loses 12 colour clocks off its left edge to ANTIC and
+/// two off its right to horizontal blank — but the 178 that remain are 356
+/// pixels, and the window holds 374. Clipping it to the normal playfield's 320
+/// lost 36 more and shifted what was left, because the leftmost 320 data
+/// pixels are not the 320 the hardware shows.
+const fn playfield_display_cc(width_cc: u16) -> (u16, u16) {
+    match width_cc {
+        128 => (64, 192),
+        192 => (44, 222),
+        _ => (48, 208),
+    }
+}
 
 /// Number of players.
 const NUM_PLAYERS: usize = 4;
@@ -231,8 +288,7 @@ pub struct Gtia {
     sl_gtia_mode: u8,           // PRIOR bits 6-7 (GTIA 9/10/11 modes)
     sl_pf_width: u16,           // playfield width in colour clocks
     sl_pf_span: (usize, usize), // active-x [start, end) the playfield occupies
-    #[serde(with = "BigArray")]
-    sl_line_buf: [u8; ACTIVE_WIDTH as usize], // per-pixel playfield colour-register indices
+    sl_line_buf: Vec<u8>,       // per-pixel playfield colour-register indices, one per window pixel
     sl_playfield: Vec<u8>,      // raw ANTIC playfield bytes (GTIA 9/10/11 resolve)
     sl_x: usize,                // compositing cursor: next active-x to draw
 
@@ -245,6 +301,9 @@ pub struct Gtia {
     /// borders are not equal on PAL, so halving the leftover would move the
     /// picture a line.
     fb_border_top: u32,
+    /// The half colour clock framebuffer pixel 0 sits on, so a line position
+    /// in the chip's own coordinates can be turned into a pixel.
+    fb_first_half_clock: u16,
 }
 
 impl Gtia {
@@ -277,7 +336,7 @@ impl Gtia {
             sl_gtia_mode: 0,
             sl_pf_width: 0,
             sl_pf_span: (0, 0),
-            sl_line_buf: [0; ACTIVE_WIDTH as usize],
+            sl_line_buf: vec![0; region.framebuffer_width() as usize],
             sl_playfield: Vec::new(),
             sl_x: 0,
             framebuffer: vec![
@@ -286,6 +345,7 @@ impl Gtia {
             ],
             fb_width: region.framebuffer_width(),
             fb_border_top: region.border_top(),
+            fb_first_half_clock: region.first_half_clock(),
         }
     }
 
@@ -430,7 +490,12 @@ impl Gtia {
         self.fb_border_top
     }
 
-    /// Pixels of border left of the active playfield, from the line width.
+    /// Pixels between the window's left edge and the **normal** playfield's,
+    /// from the line width.
+    ///
+    /// A position, not a boundary: narrow playfields start to the right of it,
+    /// wide ones and player/missile objects to the left. Compositing runs the
+    /// full width of the window, so nothing is clipped to it.
     #[must_use]
     pub const fn border_left(&self) -> u32 {
         (self.fb_width - ACTIVE_WIDTH) / 2
@@ -441,11 +506,15 @@ impl Gtia {
     // -----------------------------------------------------------------------
 
     /// Fill the entire framebuffer with the current backdrop colour
-    /// (COLBK / colour register 0). Called by the machine at frame
-    /// start so the canonical TV-visible border around the active
-    /// 320 x 240 playfield carries the current backdrop colour.
-    /// Mid-frame COLBK changes affect the *next* frame — v1
-    /// simplification matching the TMS9918/sega-vdp treatment.
+    /// (COLBK / colour register 0). Called by the machine at frame start.
+    ///
+    /// This now only has to cover the scan lines GTIA never composites — the
+    /// ones outside ANTIC's 240, which is PAL's vertical border. Within those
+    /// 240 the beam composites the whole width of the window, side borders
+    /// included, so a mid-line COLBK write splits the border on the same frame
+    /// rather than the next. That is what an Atari raster bar in the border
+    /// does, and it was not possible while compositing stopped at the normal
+    /// playfield's edge (#1086).
     pub fn fill_border(&mut self) {
         let argb = colour_to_argb32(self.colbk);
         self.framebuffer.fill(argb);
@@ -475,19 +544,20 @@ impl Gtia {
         }
         self.sl_visible = true;
         let fb_row = self.border_top() as usize + line as usize;
-        self.sl_fb_offset = fb_row * self.fb_width as usize + self.border_left() as usize;
+        self.sl_fb_offset = fb_row * self.fb_width as usize;
         self.sl_mode = mode;
         self.sl_gtia_mode = (self.prior >> 6) & 0x03;
         self.sl_pf_width = pf_width;
         self.sl_playfield.clear();
         self.sl_playfield.extend_from_slice(playfield);
 
-        // Build the 320-pixel line of playfield colour-register indices.
-        let mut line_buf = [0u8; ACTIVE_WIDTH as usize];
-        self.sl_pf_span = if mode != AnticMode::Blank {
-            self.fill_playfield_line(&mut line_buf, playfield, pf_width, mode, self.sl_gtia_mode)
-        } else {
+        // Build the window-wide line of playfield colour-register indices.
+        let mut line_buf = std::mem::take(&mut self.sl_line_buf);
+        line_buf.fill(0);
+        self.sl_pf_span = if mode == AnticMode::Blank {
             (0, 0)
+        } else {
+            self.fill_playfield_line(&mut line_buf, playfield, pf_width, mode)
         };
         self.sl_line_buf = line_buf;
     }
@@ -503,7 +573,7 @@ impl Gtia {
         if !self.sl_visible {
             return;
         }
-        let end = end.min(ACTIVE_WIDTH as usize);
+        let end = end.min(self.fb_width as usize);
 
         // Hi-res 1.5-colour modes (2, 3, and F with no GTIA override): the
         // playfield background is COLPF2 and lit pixels take COLPF2's hue with
@@ -521,7 +591,7 @@ impl Gtia {
             // Players/missiles at this pixel's beam colour-clock, from the
             // *live* registers — so a mid-line HPOS/GRAFP rewrite (sprite
             // multiplexing) and per-pixel collision timing land at the beam.
-            let cc = PF_LEFT_CC + (x as u16) / 2;
+            let cc = (self.fb_first_half_clock + x as u16) / 2;
             let (pm_colour, pm_bits) = self.pm_at_cc(cc);
 
             // Collisions (independent of the final priority): PM-vs-playfield
@@ -638,11 +708,8 @@ impl Gtia {
     /// past the right edge it finishes the line. The machine calls this every
     /// colour clock to drive beam-ordered compositing.
     pub fn composite_to_beam(&mut self, line_cc: u16) {
-        let target = if line_cc <= PF_LEFT_CC {
-            0
-        } else {
-            usize::min(((line_cc - PF_LEFT_CC) * 2) as usize, ACTIVE_WIDTH as usize)
-        };
+        let target = usize::from((line_cc * 2).saturating_sub(self.fb_first_half_clock))
+            .min(self.fb_width as usize);
         self.composite_playfield(target);
     }
 
@@ -654,57 +721,47 @@ impl Gtia {
         if !self.sl_visible {
             return;
         }
-        self.composite_playfield(ACTIVE_WIDTH as usize);
+        self.composite_playfield(self.fb_width as usize);
     }
 
-    /// Fill the 320-pixel line buffer with playfield colour register indices.
+    /// Fill the window-wide line buffer with playfield colour register indices.
     ///
     /// Returns the `[start, end)` framebuffer-x span that the playfield
     /// occupies, so the caller can tell in-playfield background from border.
-    #[allow(clippy::unused_self)] // will use colour registers for GTIA mode expansion
+    ///
+    /// The span comes from the chip's line, not from the buffer's middle. Each
+    /// width is centred on colour clock [`PF_CENTRE_CC`] and displayed over
+    /// the range [`playfield_display_cc`] gives it; the window keeps whatever
+    /// part of that it reaches. Centring the data in a fixed 320-pixel active
+    /// area is what clipped a wide playfield to the normal one's width and
+    /// shifted the part that survived (#1086).
     fn fill_playfield_line(
         &self,
-        line_buf: &mut [u8; ACTIVE_WIDTH as usize],
+        line_buf: &mut [u8],
         playfield: &[u8],
         pf_width: u16,
         mode: AnticMode,
-        _gtia_mode: u8,
     ) -> (usize, usize) {
-        // Pixels per colour clock depend on mode resolution
-        let (pixels_per_cc, hires) = match mode {
-            AnticMode::ModeF => (2, true),                     // 320 px / 160 cc
-            AnticMode::ModeD | AnticMode::ModeE => (2, false), // 160 px → 2 fb px each
-            AnticMode::Mode2 | AnticMode::Mode3 => (2, true),  // text hires
-            _ => (2, false),
-        };
+        // Hi-res modes carry one data entry per half colour clock; the rest
+        // carry one per colour clock and each covers two pixels.
+        let hires = matches!(mode, AnticMode::ModeF | AnticMode::Mode2 | AnticMode::Mode3);
 
-        // Centre the playfield in the 320-pixel framebuffer
-        let pf_fb_width = u16::min(pf_width * pixels_per_cc, ACTIVE_WIDTH as u16);
-        let fb_start = ((ACTIVE_WIDTH as u16 - pf_fb_width) / 2) as usize;
-        let mut fb_end = fb_start;
+        let first = self.fb_first_half_clock;
+        let (display_start_cc, display_end_cc) = playfield_display_cc(pf_width);
+        let origin_h = playfield_origin_cc(pf_width) * 2;
 
-        if hires {
-            // Hires: each playfield byte is one pixel → 1 fb pixel
-            for (i, &px) in playfield.iter().enumerate() {
-                let fb_x = fb_start + i;
-                if fb_x < ACTIVE_WIDTH as usize {
-                    line_buf[fb_x] = px;
-                    fb_end = fb_x + 1;
-                }
-            }
-        } else {
-            // Non-hires: each playfield pixel maps to 2 fb pixels
-            for (i, &px) in playfield.iter().enumerate() {
-                let fb_x = fb_start + i * 2;
-                if fb_x + 1 < ACTIVE_WIDTH as usize {
-                    line_buf[fb_x] = px;
-                    line_buf[fb_x + 1] = px;
-                    fb_end = fb_x + 2;
-                }
+        let end = usize::from((display_end_cc * 2).saturating_sub(first)).min(line_buf.len());
+        let start = usize::from((display_start_cc * 2).saturating_sub(first)).min(end);
+
+        for (x, slot) in line_buf.iter_mut().enumerate().take(end).skip(start) {
+            let offset = usize::from((first + x as u16).saturating_sub(origin_h));
+            let index = if hires { offset } else { offset / 2 };
+            if let Some(&pixel) = playfield.get(index) {
+                *slot = pixel;
             }
         }
 
-        (fb_start, fb_end)
+        (start, end)
     }
 
     /// Record collisions for a pixel covered by the players/missiles in
@@ -1001,23 +1058,33 @@ mod tests {
         // make rainbow / gradient kernels appear. A blank line is all index 0
         // (background), so every pixel takes COLBK.
         let mut gtia = Gtia::new(GtiaRegion::Pal);
+        let width = GtiaRegion::Pal.framebuffer_width() as usize;
         gtia.write(0x1A, 0x0A); // COLBK = A
         gtia.begin_scanline(0, &[], 160, AnticMode::Blank);
-        gtia.composite_playfield(ACTIVE_WIDTH as usize / 2); // left half at A
+        gtia.composite_playfield(width / 2); // left half at A
         gtia.write(0x1A, 0x0C); // COLBK = B
-        gtia.composite_playfield(ACTIVE_WIDTH as usize); // right half at B
+        gtia.composite_playfield(width); // right half at B
 
         let fb = gtia.framebuffer();
-        let base = GtiaRegion::Pal.border_top() as usize
-            * GtiaRegion::Pal.framebuffer_width() as usize
-            + GtiaRegion::Pal.border_left() as usize;
+        let row = GtiaRegion::Pal.border_top() as usize * width;
         let colour_a = colour_to_argb32(0x0A);
         let colour_b = colour_to_argb32(0x0C);
         assert_ne!(colour_a, colour_b);
-        assert_eq!(fb[base + 10], colour_a, "left half keeps the first COLBK");
-        assert_eq!(fb[base + 150], colour_a, "still left of the change");
-        assert_eq!(fb[base + 200], colour_b, "right half takes the new COLBK");
-        assert_eq!(fb[base + 310], colour_b, "right edge takes the new COLBK");
+        // Pixel 10 is border, not playfield: the beam composites the whole
+        // window now, so a mid-line COLBK write splits the border too — which
+        // is what an Atari raster bar in the border actually does.
+        assert_eq!(fb[row + 10], colour_a, "left border keeps the first COLBK");
+        assert_eq!(
+            fb[row + width / 2 - 1],
+            colour_a,
+            "last pixel before the seam"
+        );
+        assert_eq!(fb[row + width / 2], colour_b, "first pixel after the seam");
+        assert_eq!(
+            fb[row + width - 1],
+            colour_b,
+            "right edge takes the new COLBK"
+        );
     }
 
     #[test]
@@ -1061,7 +1128,7 @@ mod tests {
         gtia.write(0x00, 50); // HPOSP0 = 50 → covers cc 50..58 → active-x 4..20
         gtia.composite_playfield(40); // beam crosses the left copy with HPOS 50
         gtia.write(0x00, 180); // HPOSP0 = 180 → covers cc 180..188 → active-x 264..280
-        gtia.composite_playfield(ACTIVE_WIDTH as usize); // right copy with HPOS 180
+        gtia.composite_playfield(GtiaRegion::Pal.framebuffer_width() as usize); // right copy
 
         let fb = gtia.framebuffer();
         let base = GtiaRegion::Pal.border_top() as usize
@@ -1251,6 +1318,122 @@ mod tests {
         assert_eq!(
             fb[fb_idx], player_argb,
             "Player should be on top at default priority"
+        );
+    }
+
+    /// #1086: a wide playfield used to be clipped to the normal playfield's
+    /// 320 pixels, losing 32 a side — and worse, keeping the *leftmost* 320
+    /// data pixels rather than the ones the hardware displays.
+    #[test]
+    fn each_playfield_width_lands_where_the_chip_displays_it() {
+        // Altirra: narrow at $40-$BF, normal at $30-$CF, wide mapped to
+        // $20-$DF but displayed only within $2C-$DD. In half colour clocks
+        // that is 128..384, 96..416 and 88..444, and a framebuffer pixel is
+        // one half colour clock from the window's own origin.
+        for region in [GtiaRegion::Ntsc, GtiaRegion::Pal] {
+            let first = region.first_half_clock();
+            let width = region.framebuffer_width() as usize;
+            for (pf_width, data_len, first_h, last_h) in [
+                (128u16, 128usize, 128u16, 384u16),
+                (160, 160, 96, 416),
+                (192, 192, 88, 444),
+            ] {
+                let mut gtia = Gtia::new(region);
+                gtia.begin_scanline(0, &vec![1u8; data_len], pf_width, AnticMode::ModeD);
+                let (start, end) = gtia.sl_pf_span;
+                assert_eq!(
+                    start,
+                    (first_h - first) as usize,
+                    "{region:?} {pf_width}cc starts in the wrong place"
+                );
+                assert_eq!(
+                    end,
+                    usize::min((last_h - first) as usize, width),
+                    "{region:?} {pf_width}cc ends in the wrong place"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_wide_playfield_shows_the_slice_antic_displays_not_the_leftmost() {
+        // Wide data pixel 0 maps to colour clock $20, but ANTIC clips the left
+        // edge and display starts at $2C — 12 colour clocks in, so 12 entries
+        // of data never reach the screen. Marking exactly the first displayed
+        // one proves the slice is aligned rather than merely wide: clipping to
+        // 320 used to put data pixel 0 at the playfield's left edge, so this
+        // pixel landed 12 colour clocks too far right.
+        let region = GtiaRegion::Ntsc;
+        let mut playfield = vec![0u8; 192]; // one entry per colour clock
+        playfield[12] = 1; // colour clock $20 + 12 = $2C
+
+        let mut gtia = Gtia::new(region);
+        gtia.write(0x16, 0x94); // COLPF0
+        gtia.write(0x1A, 0x00); // COLBK
+        gtia.render_line(0, &playfield, 192, AnticMode::ModeD);
+
+        let row = gtia.border_top() as usize * region.framebuffer_width() as usize;
+        let x = (88 - region.first_half_clock()) as usize;
+        assert_eq!(
+            x, 19,
+            "the first displayed wide pixel is 19 into the window"
+        );
+        assert_eq!(
+            gtia.framebuffer()[row + x],
+            colour_to_argb32(0x94),
+            "the first displayed data pixel must land on the first displayed clock"
+        );
+        assert_eq!(
+            gtia.framebuffer()[row + x - 1],
+            colour_to_argb32(0x00),
+            "and the clock before it is still border"
+        );
+    }
+
+    #[test]
+    fn a_wide_playfield_fills_more_of_the_window_than_a_normal_one() {
+        // The point of the fix, stated in pixels: 178 displayed colour clocks
+        // is 356 pixels of a 374-pixel window, against the normal playfield's
+        // 320. Clipping to ACTIVE_WIDTH threw away 36 of them.
+        let region = GtiaRegion::Ntsc;
+        let mut gtia = Gtia::new(region);
+        gtia.begin_scanline(0, &[1u8; 192], 192, AnticMode::ModeD);
+        let (start, end) = gtia.sl_pf_span;
+        assert_eq!(
+            end - start,
+            355,
+            "wide reaches all but the last window pixel"
+        );
+        assert!(
+            end - start > ACTIVE_WIDTH as usize,
+            "a wide playfield must be wider than the normal one it was clipped to"
+        );
+    }
+
+    #[test]
+    fn a_player_in_the_border_is_drawn() {
+        // Altirra, on the range ANTIC clips out of a wide playfield: "P/M
+        // graphics can still display within this range $22-$2B." Compositing
+        // over the normal playfield's 320 pixels could not draw them at all —
+        // colour clocks below $30 had no active-x to land on.
+        let region = GtiaRegion::Pal;
+        let mut gtia = Gtia::new(region);
+        gtia.write(0x00, 36); // HPOSP0 = $24, inside the border
+        gtia.write(0x0D, 0xFF); // GRAFP0: solid
+        gtia.write(0x12, 0x38); // COLPM0
+
+        gtia.render_line(0, &[], 160, AnticMode::Blank);
+
+        let row = gtia.border_top() as usize * region.framebuffer_width() as usize;
+        let x = (36 * 2 - region.first_half_clock()) as usize;
+        assert!(
+            x < gtia.border_left() as usize,
+            "the test position is border"
+        );
+        assert_eq!(
+            gtia.framebuffer()[row + x],
+            colour_to_argb32(0x38),
+            "a player left of the playfield must still reach the screen"
         );
     }
 
