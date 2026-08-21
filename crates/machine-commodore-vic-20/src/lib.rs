@@ -37,7 +37,7 @@ mod keyboard;
 
 pub use input::Vic20Key;
 pub use keyboard::KeyboardState;
-pub use mos_vic_i::{FB_HEIGHT, FB_WIDTH, Vic6560};
+pub use mos_vic_i::{Vic6560, framebuffer_height, framebuffer_width};
 
 use mos_6502::M6502;
 use mos_via_6522::Via6522;
