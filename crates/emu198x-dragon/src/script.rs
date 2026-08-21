@@ -16,8 +16,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use emu198x_shell::StopReason as RuntimeStopReason;
 use emu198x_shell::{
-    CapturedFrame, FirmwareImage, FirmwareSet, HeadlessSession, InputEvent, MachineError,
-    MachineTime, MediaImage, MediaKind, MediaSet, PixelFormat, TraceEvent, TraceSink,
+    CapturedFrame, FirmwareImage, FirmwareSet, HeadlessScript, HeadlessSession, InputEvent,
+    MachineError, MachineTime, MediaImage, MediaKind, MediaSet, PixelFormat, TraceEvent, TraceSink,
     read_media_asset,
 };
 use format_dragon_bin::{DragonBinImage, parse_dragon_bin};
@@ -72,6 +72,9 @@ Firmware:
     --disk PATH         DragonDOS VDK disk image; .zip archives are accepted
     --bin PATH          DragonDOS .BIN program image; .zip archives are accepted
     --snapshot PATH     PC-Dragon PAK snapshot; .zip archives are accepted
+
+Shared:
+    --script PATH      execute shared JSON session steps
 
 Execution:
     --cycles N         maximum MC6809 bus cycles to run [default: 100000]
@@ -143,6 +146,7 @@ Other:
 struct Cli {
     model: Model,
     rom: PathBuf,
+    script: Option<PathBuf>,
     mode_rom: Option<PathBuf>,
     cart: Option<PathBuf>,
     disk: Option<PathBuf>,
@@ -791,6 +795,37 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
 
     let cli = parse_cli(args)?;
     let firmware = load_dragon_firmware(&cli)?;
+
+    // The shared session surface, which every other frontend has taken since
+    // it existed. This one grew a harness of its own first — `--cycles`,
+    // `--type-command`, the smoke matrix — and never gained `--script`, so it
+    // sat outside anything built on the common query paths: MCP tooling,
+    // scripted capture, and the fleet audit in #1054, which had to read this
+    // machine's numbers out of its source instead of running it.
+    //
+    // Handled before the bespoke paths below because it is a complete run on
+    // its own: the script says what to do and the observations are the output.
+    if let Some(path) = &cli.script {
+        let mut session = runtime_session(&firmware)?;
+        let media = MediaSet::new();
+        session
+            .prepare(&media, &[])
+            .map_err(|err| format!("machine preparation failed: {err}"))?;
+        let script = HeadlessScript::from_path(path)
+            .map_err(|err| format!("failed to load script {}: {err}", path.display()))?;
+        let observations = script
+            .execute_collect(&mut session)
+            .map_err(|err| format!("script execution failed: {err}"))?;
+        println!(
+            "{}",
+            serde_json::json!({
+                "observations": observations,
+                "time": session.time().get(),
+            })
+        );
+        return Ok(());
+    }
+
     let rom = &firmware.rom;
     let cart = cli
         .cart
@@ -945,6 +980,7 @@ where
 {
     let mut model = Model::Dragon32Pal;
     let mut rom = None;
+    let mut script = None;
     let mut mode_rom = None;
     let mut cart = None;
     let mut disk = None;
@@ -990,6 +1026,9 @@ where
         match arg.as_str() {
             "--model" => {
                 model = parse_model(&next_value(&mut iter, "--model")?)?;
+            }
+            "--script" => {
+                script = Some(PathBuf::from(next_value(&mut iter, "--script")?));
             }
             "--rom" => {
                 rom = Some(PathBuf::from(next_value(&mut iter, "--rom")?));
@@ -1195,6 +1234,7 @@ where
     Ok(Cli {
         model,
         rom: rom.ok_or_else(|| format!("missing required --rom PATH\n\n{USAGE}"))?,
+        script,
         mode_rom,
         cart,
         disk,
@@ -7028,6 +7068,23 @@ mod tests {
         let err = parse_cli(Vec::<String>::new()).expect_err("missing ROM should fail");
 
         assert!(err.contains("missing required --rom"));
+    }
+
+    #[test]
+    fn cli_takes_the_shared_script_flag() {
+        // `main.rs` has always routed `--script` here, and this parser has
+        // always rejected it — so the flag selected the headless lane and then
+        // died in it with "unknown argument". The Dragon was the one frontend
+        // of thirty outside the shared session surface (#1073).
+        let cli = parse_cli([
+            "--rom".to_owned(),
+            "dragon32.rom".to_owned(),
+            "--script".to_owned(),
+            "steps.json".to_owned(),
+        ])
+        .expect("the shared script flag should parse");
+
+        assert_eq!(cli.script, Some(PathBuf::from("steps.json")));
     }
 
     #[test]

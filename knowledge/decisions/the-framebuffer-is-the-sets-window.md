@@ -1,6 +1,6 @@
 # The framebuffer is the set's window
 
-**Status:** rule stated and the fleet measured; extents span 49%–202%
+**Status:** rule stated and the fleet measured; extents span 49%–104%
 horizontally and 67%–120% vertically, so most cores do not conform
 **Context:** #1054, #1053, `knowledge/decisions/pixel-aspect-comes-from-the-raster.md`
 
@@ -73,10 +73,10 @@ remaining cores are unclassified and #1054 tracks the pass.
 
 `session.framebuffer.width` and `.height` against
 `session.display.pixel_clock_hz` and `.lines_per_tv_height`, read from a
-running machine through the shared headless script surface. Twenty-nine of the
-thirty answer it directly. The Dragon is read from source instead, because its
-frontend keeps a bespoke `--headless --cycles` harness and does not take
-`--script` at all.
+running machine through the shared headless script surface. All thirty answer
+it. The Dragon did not when the audit first ran — its frontend kept a bespoke
+`--headless --cycles` harness and rejected `--script` — and its numbers had to
+be read from source until it was given the shared surface.
 
 Nothing is parsed out of the source, and that is deliberate. The system
 registry's own header records three attempts to infer its joins by pattern
@@ -87,8 +87,8 @@ the core draws.
 
 | Core | Framebuffer | Set's window | H | V |
 |---|---|---|---|---|
-| Dragon (PAL) | 744×312 | 369×288 | **202%** | 108% |
 | Amiga (PAL) | 768×576 | 738×576 | 104% | 100% |
+| Dragon (PAL) | 744×312 | 738×288 | 101% | 108% |
 | Memotech MTX, Tatung Einstein (PAL) | 288×240 | 278×288 | 104% | **83%** |
 | Atari 800XL, 5200, 7800 (NTSC) | 384×288 | 373×240 | 103% | **120%** |
 | ColecoVision, MSX, Master System, SG-1000, Sord M5, SVI-328 (NTSC) | 288×240 | 280×240 | 103% | 100% |
@@ -109,9 +109,11 @@ Televisions only. The PET drives a monitor and the Game Boy and Game Gear
 drive panels, so the comparison does not apply — which is `Display` doing its
 job.
 
-The range is **49%–202% horizontally and 67%–120% vertically**. #1054 opened
-citing 86%–104% and 83%–108%, drawn from the seven cores that had been looked
-at; the fleet is roughly three times worse than that in both directions.
+The range is **49%–104% horizontally and 67%–120% vertically**, after the
+Dragon's 202% turned out to be a misstated clock rather than an extent (below).
+#1054 opened citing 86%–104% and 83%–108%, drawn from the seven cores that had
+been looked at. Horizontally that upper bound held; the floor did not, and the
+vertical spread is half again as wide.
 
 ## The pattern the numbers make
 
@@ -141,14 +143,22 @@ having measured all of them at once.
   television — and the harness fell back to square pixels on a machine whose
   pixels are 1.04. Fixed; `variant_dispatch.rs` covers the class rather than
   the instance.
-- **The Dragon's 202% is arithmetically impossible.** 744 pixels cannot fit a
-  52 µs line at 7.09 MHz; they want about 14.3 MHz, which is twice the stated
-  clock. Whichever half is wrong, the pixel aspect #1053 derived for this core
-  is out by a factor of two.
-- **The Dragon is off the shared headless surface.** Every other frontend
-  takes `--script`. This one takes `--headless --cycles` with its own flags,
-  and does not document `--script` in its help even though `main.rs` names it.
-  Any fleet-wide measurement has to special-case it.
+- **The Dragon stated half the clock its framebuffer fills at.** 744 pixels
+  cannot fit a 52 µs line at 7.09 MHz. The Atom settled which half was wrong:
+  same MC6847, same stated constant, 372 pixels emitted. The Dragon expands
+  that picture into a 744-wide PAL overscan frame by writing every pixel twice
+  — a plain doubling that carries no extra detail, done to give the overscan
+  frame roughly square pixels. Its pixels were therefore derived twice as wide
+  as the ones it emits. Fixed by stating the rate the framebuffer fills at;
+  the pixel aspect moves from 1.041 to 0.5205 and the extent from 202% to
+  101%.
+- **The Dragon was off the shared headless surface.** Every other frontend
+  took `--script`; this one grew a harness of its own first and never gained
+  it, so `main.rs` routed the flag to a parser that rejected it. That put the
+  machine outside everything built on the common query paths, and meant the
+  audit had to special-case it — reading numbers from source, which is exactly
+  the inference this project avoids elsewhere. Fixed; the Dragon's row above
+  is now measured like the rest.
 
 ## What blocks the rest of the fleet
 
