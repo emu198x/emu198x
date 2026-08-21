@@ -94,7 +94,7 @@ impl UiSystem for Atari2600System {
                     machine.visible_framebuffer_height(),
                 )
             })
-            .unwrap_or((160, 224))
+            .unwrap_or((160, 240))
     }
 
     fn frame_ticks(&self, runtime: &Self::Runtime) -> u64 {

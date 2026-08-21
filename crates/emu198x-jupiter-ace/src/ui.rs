@@ -79,7 +79,7 @@ impl UiSystem for JupiterAceSystem {
         runtime
             .machine()
             .map(|machine| (machine.framebuffer_width(), machine.framebuffer_height()))
-            .unwrap_or((320, 240))
+            .unwrap_or((320, 288))
     }
 
     fn frame_ticks(&self, _runtime: &Self::Runtime) -> u64 {

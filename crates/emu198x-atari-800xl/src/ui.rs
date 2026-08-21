@@ -129,7 +129,9 @@ impl UiSystem for Atari800xlSystem {
         runtime
             .machine()
             .map(|machine| (machine.framebuffer_width(), machine.framebuffer_height()))
-            .unwrap_or((384, 240))
+            // Before a machine exists, the NTSC window: 7.15909 MHz over
+            // 52.148 µs by 240 lines. Was 384 x 240, a fixed border.
+            .unwrap_or((374, 240))
     }
 
     fn frame_ticks(&self, _runtime: &Self::Runtime) -> u64 {

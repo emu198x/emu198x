@@ -76,7 +76,7 @@ impl UiSystem for AtomSystem {
         runtime
             .machine()
             .map(|machine| (machine.framebuffer_width(), machine.framebuffer_height()))
-            .unwrap_or((372, 243))
+            .unwrap_or((372, 288))
     }
 
     fn frame_ticks(&self, _runtime: &Self::Runtime) -> u64 {

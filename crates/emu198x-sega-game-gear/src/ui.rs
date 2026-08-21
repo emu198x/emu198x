@@ -115,7 +115,7 @@ impl UiSystem for GameGearSystem {
         runtime
             .machine()
             .map(|machine| (machine.framebuffer_width(), machine.framebuffer_height()))
-            .unwrap_or((256, 192))
+            .unwrap_or((160, 144))
     }
 
     fn frame_ticks(&self, _runtime: &Self::Runtime) -> u64 {

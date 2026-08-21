@@ -120,7 +120,7 @@ impl UiSystem for SmsSystem {
         runtime
             .machine()
             .map(|machine| (machine.framebuffer_width(), machine.framebuffer_height()))
-            .unwrap_or((256, 192))
+            .unwrap_or((280, 240))
     }
 
     fn frame_ticks(&self, _runtime: &Self::Runtime) -> u64 {

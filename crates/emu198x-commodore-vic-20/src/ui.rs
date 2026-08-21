@@ -125,7 +125,7 @@ impl UiSystem for Vic20System {
         runtime
             .machine()
             .map(|machine| (machine.framebuffer_width(), machine.framebuffer_height()))
-            .unwrap_or((232, 284))
+            .unwrap_or((230, 288))
     }
 
     fn frame_ticks(&self, _runtime: &Self::Runtime) -> u64 {
