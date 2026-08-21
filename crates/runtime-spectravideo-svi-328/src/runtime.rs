@@ -6,7 +6,7 @@ use emu198x_shell::{
     RunResult, StopReason,
 };
 use machine_spectravideo_svi_328::{Svi328, SviRegion};
-use ti_tms9918::{FB_WIDTH as VDP_FB_WIDTH, VdpRegion};
+use ti_tms9918::VdpRegion;
 
 use crate::input::apply_input_event;
 use crate::profiles::{BIOS_FIRMWARE_ID, Model, profile_for};
@@ -51,7 +51,7 @@ impl Svi328Runtime {
             time: MachineTime::default(),
             rgba_framebuffer: vec![
                 0;
-                (VDP_FB_WIDTH * vdp_region(model).framebuffer_height() * 4)
+                (vdp_region(model).framebuffer_width() * vdp_region(model).framebuffer_height() * 4)
                     as usize
             ],
             controller_cache: crate::input::ControllerCache::default(),
@@ -240,7 +240,7 @@ impl MachineCore for Svi328Runtime {
             host.frame_sink.push_frame(FramePacket {
                 timestamp: self.time,
                 format: PixelFormat::Rgba8888,
-                width: VDP_FB_WIDTH,
+                width: vdp_region(self.model).framebuffer_width(),
                 height: vdp_region(self.model).framebuffer_height(),
                 palette: None,
                 pixels: &self.rgba_framebuffer,

@@ -1,8 +1,7 @@
 # The framebuffer is the set's window
 
-**Status:** rule stated and the fleet measured; the two extents that were
-errors rather than choices are fixed, and the rest are classified or tracked in
-#1054
+**Status:** adopted; every core measured on both regions, and every departure
+from the window stated at the constant that makes it
 **Context:** #1054, #1053, `knowledge/decisions/pixel-aspect-comes-from-the-raster.md`
 
 ## Decision
@@ -118,10 +117,10 @@ the core draws.
 |---|---|---|---|---|
 | Amiga (PAL) | 768×576 | 738×576 | 104% | 100% |
 | Dragon (PAL) | 744×312 | 738×288 | 101% | 108% |
-| ColecoVision, MSX, Master System, Memotech MTX, SG-1000, Sord M5, SVI-328, Tatung Einstein (PAL) | 288×288 | 278×288 | 104% | 100% |
-| Atari 800XL, 5200, 7800 (PAL) | 384×288 | 369×288 | 104% | 100% |
-| Atari 800XL, 5200, 7800 (NTSC) | 384×240 | 373×240 | 103% | 100% |
-| ColecoVision, MSX, Master System, SG-1000, Sord M5, SVI-328 (NTSC) | 288×240 | 280×240 | 103% | 100% |
+| ColecoVision, MSX, Master System, Memotech MTX, SG-1000, Sord M5, SVI-328, Tatung Einstein (PAL) | 278×288 | 278×288 | 100% | 100% |
+| Atari 800XL, 5200, 7800 (PAL) | 368×288 | 369×288 | 100% | 100% |
+| Atari 800XL, 5200, 7800 (NTSC) | 374×240 | 373×240 | 100% | 100% |
+| ColecoVision, MSX, Master System, SG-1000, Sord M5, SVI-328 (NTSC) | 280×240 | 280×240 | 100% | 100% |
 | Acorn Atom (PAL) | 372×288 | 369×288 | 101% | 100% |
 | C64 (PAL) | 416×312 | 410×288 | 101% | 108% |
 | Spectrum 48K (PAL) | 352×296 | 364×288 | 97% | 103% |
@@ -282,6 +281,66 @@ The lesson is the one this audit keeps producing: the extent work did not find
 this, but asking *what does the chip put outside the picture* did. A border
 question turned out to be a missing row of the picture.
 
+## Every core, classified
+
+The rule allows three answers, and each core's constant now gives one of them
+in its own doc comment. This is the list, and it is complete.
+
+**Holds the window** — fourteen profiles across eleven machines, within a pixel
+or two on both axes: the Atari 800XL, 5200 and 7800 on both regions; the
+ColecoVision, MSX, Master System, SG-1000, Sord M5, SVI-328, Memotech MTX and
+Tatung Einstein; the Amstrad CPC; the VIC-20 on both regions.
+
+**Holds less, because the chip blanks the rest** — six machines, each citing
+what says so:
+
+| Core | | Source |
+|---|---|---|
+| BBC Micro | 77% / 89% | 6845 R1 = 80 of R0's 128; R6 = 32 rows of R4's 39 |
+| Acorn Electron | 77% / 89% | service manual: ULA busy "40 µs of each 64", "312, of which 256 generate pixel data" |
+| Oric Atmos | 77% / 78% | MAME `set_raw` visible area is dots 0-240 of 384, lines 0-224 of 312 |
+| Mattel Aquarius | 95% / 81% | MAME `set_raw` 352 x 232, and a 44 x 29 tilemap that agrees |
+| NES | 91% | 256 dots rendered of a 341-dot line |
+| Atari 2600 | 86% | TIA emits 160 colour clocks in a 228-clock line |
+
+**Holds more, deliberately** — four machines, each saying why:
+
+| Core | | Why |
+|---|---|---|
+| C64 | 101% / 108% | the whole 312-line PAL frame, so a raster interrupt inside the vertical interval is visible; width is the VIC-II's own cycle numbering |
+| Dragon | 101% / 108% | the same choice, for the same reason — it is an overscan frame |
+| Amiga | 104% | 768 is the standard PAL-hires overscan figure the tooling and the catalogue's frame hashes are built on |
+| Acorn Atom | 101% | three pixels, from the shared VDG crate's asymmetric 60/56 border |
+
+**Holds less, and cannot yet say whether that is right** — one family. The
+ZX80, ZX81 and Jupiter Ace all hold 320 pixels against a 338-pixel window.
+Their horizontal anchors are constants fitted to place the picture inside a
+window already chosen, so deriving a width from one would be circular. Closing
+it needs a measurement against a reference rather than arithmetic, and one
+measurement settles all three.
+
+The Spectrum's 97% / 103% is the same shape from the ULA's border count rather
+than the field, and stays for the same reason the Amiga's does: the
+catalogue's committed frame hashes are taken against those dimensions.
+
+## The horizontal border was the vertical one's twin
+
+Fixing the fields left a band of cores at 103% and 104% across — the TMS9918
+family, the Sega VDP, GTIA and MARIA. All four chips held their horizontal
+border as a round constant, 16 pixels a side on the VDPs and 32 on the Ataris,
+region-independent. A single figure cannot match two windows any more
+horizontally than it could vertically: 5.369318 MHz over 52.148 µs is 280
+pixels and 5.34375 MHz over 52.0 µs is 278.
+
+So the horizontal border is now what the line has left over around the active
+area, exactly as the vertical one is what the field has left over: 12 and 11
+pixels on the VDPs, 27 and 24 on the Ataris. Sixteen profiles across ten
+machines moved from 103-104% to 100%.
+
+Worth noticing that the vertical pass did not prompt this. The same mistake sat
+in the same constants, one line apart, and survived four separate visits to
+those files — because each visit was measuring the axis it had come to fix.
+
 ## Defects the audit surfaced
 
 - **The Amiga stated no display at all.** `AmigaRuntimeKind` forwards
@@ -336,3 +395,8 @@ Re-read this entry when you catch yourself writing:
   than terms to check — twice now it has been the pixel clock
 - a constant justified by a check both its terms cancel out of, such as pixels
   a cycle against the line time
+- a border thickness written as a round number — 16, 24, 32 — rather than as
+  what the line or the field has left over
+- fixing one axis of a geometry constant without looking at the other, which is
+  how a horizontal border survived four visits to the file that corrected the
+  vertical one

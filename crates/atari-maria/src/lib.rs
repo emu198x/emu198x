@@ -81,13 +81,6 @@ use serde_big_array::BigArray;
 /// Active display area dimensions (the pixels MARIA actually draws
 /// through its DLL/DL pipeline).
 pub const ACTIVE_WIDTH: u32 = 320;
-/// Horizontal border thickness — 32 px each side of the 320-pixel active area,
-/// for a 384-pixel line, matching GTIA.
-///
-/// There is no vertical equivalent, because the vertical border depends on how
-/// tall the field is: see [`MariaRegion::border_top`].
-pub const BORDER_LEFT: u32 = 32;
-pub const BORDER_RIGHT: u32 = 32;
 
 /// Pixel clock of the NTSC part: twice the 3.579545 MHz colour clock, because
 /// the hires modes put two pixels in each. Gives 6:7 pixels — taller than
@@ -96,8 +89,6 @@ pub const NTSC_PIXEL_CLOCK_HZ: f64 = 7_159_090.0;
 
 /// The same on PAL, from the 3.546894 MHz colour clock.
 pub const PAL_PIXEL_CLOCK_HZ: f64 = 7_093_788.0;
-
-pub const FB_WIDTH: u32 = ACTIVE_WIDTH + BORDER_LEFT + BORDER_RIGHT;
 
 /// Active display height in scan lines — MARIA's maximum, the same on both
 /// regions. What differs is how much field is left around it.
@@ -171,6 +162,29 @@ impl MariaRegion {
     #[must_use]
     pub const fn border_top(self) -> u32 {
         (self.framebuffer_height() - ACTIVE_HEIGHT) / 2
+    }
+
+    /// Pixels a set displays along a line, which is the framebuffer's width.
+    ///
+    /// `pixel_clock x active_line_seconds`: 7.15909 MHz over 52.148 µs is 373
+    /// on NTSC, and 7.093788 MHz over 52.0 µs is 369 on PAL, rounded to leave
+    /// a whole border either side of the active 320.
+    ///
+    /// This used to be a fixed 32 pixels of border either side, giving 384 for
+    /// both regions — 103% of an NTSC window and 104% of a PAL one, which is
+    /// raster a set hides.
+    #[must_use]
+    pub const fn framebuffer_width(self) -> u32 {
+        ACTIVE_WIDTH + 2 * self.border_left()
+    }
+
+    /// Pixels of border left of the active area — what the line has left over.
+    #[must_use]
+    pub const fn border_left(self) -> u32 {
+        match self {
+            Self::Ntsc => 27,
+            Self::Pal => 24,
+        }
     }
 }
 
@@ -311,7 +325,10 @@ impl Maria {
 
             dma_cycles: 0,
 
-            framebuffer: vec![0xFF00_0000; (FB_WIDTH * region.framebuffer_height()) as usize],
+            framebuffer: vec![
+                0xFF00_0000;
+                (region.framebuffer_width() * region.framebuffer_height()) as usize
+            ],
             line_buffer: [0; ACTIVE_WIDTH as usize],
         }
     }
@@ -413,7 +430,7 @@ impl Maria {
     /// Framebuffer width in pixels.
     #[must_use]
     pub const fn framebuffer_width(&self) -> u32 {
-        FB_WIDTH
+        self.region.framebuffer_width()
     }
 
     /// Framebuffer height in pixels.
@@ -422,7 +439,7 @@ impl Maria {
     /// height a caller sees is always the height that was allocated.
     #[must_use]
     pub fn framebuffer_height(&self) -> u32 {
-        (self.framebuffer.len() / FB_WIDTH as usize) as u32
+        (self.framebuffer.len() / self.region.framebuffer_width() as usize) as u32
     }
 
     /// DMA cycles stolen during the last `render_line` call. A populated zone's
@@ -836,7 +853,8 @@ impl Maria {
         };
 
         let kill = self.ctrl & CTRL_COLOUR_KILL != 0;
-        let row_start = fb_y * FB_WIDTH as usize + BORDER_LEFT as usize;
+        let row_start =
+            fb_y * self.region.framebuffer_width() as usize + self.region.border_left() as usize;
 
         for (i, &colour_reg) in self.line_buffer.iter().enumerate() {
             let index = if kill {
@@ -872,7 +890,7 @@ mod tests {
             assert_eq!(maria.framebuffer_height(), field, "{region:?}");
             assert_eq!(
                 maria.framebuffer().len(),
-                (FB_WIDTH * field) as usize,
+                (region.framebuffer_width() * field) as usize,
                 "{region:?} allocated a buffer of the wrong size"
             );
         }
@@ -896,14 +914,14 @@ mod tests {
     #[test]
     fn framebuffer_dimensions() {
         let maria = Maria::new(MariaRegion::Ntsc);
-        assert_eq!(maria.framebuffer_width(), FB_WIDTH);
+        assert_eq!(maria.framebuffer_width(), maria.region.framebuffer_width());
         assert_eq!(
             maria.framebuffer_height(),
             maria.region.framebuffer_height()
         );
         assert_eq!(
             maria.framebuffer().len(),
-            (FB_WIDTH * maria.region.framebuffer_height()) as usize
+            (maria.region.framebuffer_width() * maria.region.framebuffer_height()) as usize
         );
     }
 
@@ -1066,8 +1084,9 @@ mod tests {
         // painted by the machine via fill_border() at frame start; they're
         // outside the scope of this chip-level test.)
         let bg_argb = NTSC_PALETTE[(0x0E >> 1) as usize];
-        let row_start =
-            maria.region.border_top() as usize * FB_WIDTH as usize + BORDER_LEFT as usize;
+        let row_start = maria.region.border_top() as usize
+            * maria.region.framebuffer_width() as usize
+            + maria.region.border_left() as usize;
         let row = &maria.framebuffer[row_start..row_start + ACTIVE_WIDTH as usize];
         assert!(row.iter().all(|&px| px == bg_argb));
     }
@@ -1113,11 +1132,12 @@ mod tests {
         let bg_argb = NTSC_PALETTE[(0x0E >> 1) as usize];
         let fg_argb = NTSC_PALETTE[(0x66 >> 1) as usize]; // palette 0, colour 3
 
-        // Active region starts at (BORDER_LEFT, maria.region.border_top()). First two
+        // Active region starts at (maria.region.border_left(), maria.region.border_top()). First two
         // framebuffer pixels of the active row (one 160A pixel = 2 FB
         // pixels) should be the foreground colour.
-        let active_start =
-            maria.region.border_top() as usize * FB_WIDTH as usize + BORDER_LEFT as usize;
+        let active_start = maria.region.border_top() as usize
+            * maria.region.framebuffer_width() as usize
+            + maria.region.border_left() as usize;
         assert_eq!(maria.framebuffer[active_start], fg_argb);
         assert_eq!(maria.framebuffer[active_start + 1], fg_argb);
         // Next pixels should be background (transparent).

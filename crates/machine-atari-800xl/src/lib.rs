@@ -717,7 +717,7 @@ mod tests {
         // A visible line well inside the active region (active starts at
         // BORDER_TOP; pick row 100 of the 240 active lines).
         let row = atari_gtia::GtiaRegion::Pal.border_top() as usize + 100;
-        let base = row * w + atari_gtia::BORDER_LEFT as usize;
+        let base = row * w + atari_gtia::GtiaRegion::Pal.border_left() as usize;
         let active: std::collections::BTreeSet<u32> = (0..atari_gtia::ACTIVE_WIDTH as usize)
             .map(|x| fb[base + x])
             .collect();

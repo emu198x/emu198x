@@ -42,9 +42,24 @@ pub const LINES_PER_FRAME_128K: u32 = 311;
 pub const TSTATES_PER_FRAME_128K: u32 = TSTATES_PER_LINE_128K * LINES_PER_FRAME_128K;
 
 /// Visible framebuffer width including border.
+/// 352 pixels: the 256-pixel display with 48 of border either side.
+///
+/// **A little narrower than a set's window**, which at the 48K's 7 MHz pixel
+/// clock over 52.0 µs is 364. The 48 comes from the ULA's border cycles
+/// rather than from the window, and the two differ by six pixels a side. The
+/// #1054 audit reads it as 97%.
+///
+/// Not moved, because the catalogue's committed frame hashes are taken against
+/// these dimensions — see the goldens note in
+/// `knowledge/decisions/the-framebuffer-is-the-sets-window.md`.
 pub const SCREEN_WIDTH_48K: usize = 352;
 
 /// Visible framebuffer height including border.
+/// 296 lines: the 192-line display with 52 of border above and below.
+///
+/// **A little taller than a set's window** of 288, so about four lines each
+/// side are raster a television hides. Same origin as the width — the ULA's
+/// border count rather than the field — and the same reason for leaving it.
 pub const SCREEN_HEIGHT_48K: usize = 296;
 
 /// Standard Spectrum framebuffer width including border.
