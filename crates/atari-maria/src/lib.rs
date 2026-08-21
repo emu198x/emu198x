@@ -103,7 +103,17 @@ const NTSC_LINES: u16 = 263;
 /// PAL: 313 total scanlines per frame.
 const PAL_LINES: u16 = 313;
 
-/// First visible scanline (approximate; games vary).
+/// First scanline MARIA attempts to display.
+///
+/// Not an approximation, though this said it was for a long time.
+/// `reference/by-system/atari-7800/atari-7800-reference.md` §3 gives the
+/// raster budget outright: 262 per frame, "MARIA attempts display" on rasters
+/// **16-258**, and 41-232 is the 192-line band "visible on all televisions".
+///
+/// The window this anchors is 240 lines — a set's field — so it runs 16 to
+/// 255 and clips the last three of the 243 MARIA attempts. Centring 240 lines
+/// on the safe area's midpoint would give 16 to 256, so starting where MARIA
+/// starts is within a line of that and needs no figure of its own.
 const VISIBLE_TOP: u16 = 16;
 
 /// CTRL bit masks (MARIA `$3C`), bit positions per the hardware: read mode
