@@ -185,7 +185,6 @@ name = "atari-gtia"
 version = "0.5.0"
 dependencies = [
  "serde",
- "serde-big-array",
 ]
 
 [[package]]
