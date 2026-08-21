@@ -3,8 +3,8 @@
 //! Fresh-write against the workspace pin-driven bus pattern (RULES.md
 //! rule 6). The donor at `Emu198x-Oldest/crates/machine-tatung-einstein`
 //! used the deprecated `emu_core::Bus` callback and could not port
-//! directly; this file uses it as a system spec — memory map, port-`$21`
-//! ROM page-out, AY-driven keyboard, I/O port routing — but the
+//! directly; this file uses it as a system spec — memory map, ROM page-out,
+//! AY-driven keyboard, I/O port routing — but the
 //! wiring is written against [`zilog_z80::Z80`]'s public pin fields
 //! and `bus_request()` collapse.
 //!
@@ -22,21 +22,49 @@
 //! - **PSG:** AY-3-8910 @ 2 MHz (CPU ÷ 2) — consumed via our
 //!   `gi-ay-3-8910` crate (same silicon)
 //! - **RAM:** 64 KB
-//! - **ROM:** 8 KB X-TAL MOS at `$0000-$1FFF` (pageable)
+//! - **ROM:** 8 KB X-TAL MOS fitted, in a window decoding the lower 32 KB
+//!   (pageable) — [HW §1.2.1, §3.2.2]
 //! - **CTC:** Z80 CTC (channel 0 stubbed at port `$28`)
 //! - **Floppy:** WD1770 at ports `$18-$1B`, drive select at `$23`
 //!
 //! # Memory map
 //!
-//! Page 0 (`$0000-$1FFF`) returns ROM at reset; **every access to port
-//! `$24`** (read or write) toggles the ROM in and out, leaving the 64 KB
-//! RAM visible underneath — the MOS uses this to copy the ROM into RAM.
-//! Writes always land in RAM regardless of the ROM-page state.
+//! The **lower 32 KB** (`$0000-$7FFF`) returns ROM at reset, decoded on A15
+//! with A14 selecting one of two ROM devices [HW §3.2.2]. 8 KB is the ROM
+//! *fitted*; 32 KB is the space *decoded* [HW §1.2.1] — they are different
+//! facts. **Every access to port `$24`** (read or write) toggles the ROM in
+//! and out, leaving the 64 KB RAM visible underneath — the MOS uses this to
+//! copy the ROM into RAM. Writes always land in RAM regardless of the
+//! ROM-page state [HW §3.2.2: *"Memory-Write cycles are always directed to
+//! DRAM"*].
+//!
+//! ⚠ Whether a *read* of `$24` toggles is **not settled** by the manual, which
+//! says "addressing an output port". The current read-toggles behaviour is
+//! inherited and unverified — see `verification.md` M6.
+//!
+//! # Sources
+//!
+//! - **[HW]** — Tatung EINSTEIN TC01 Service Manual, 70pp. Section numbers
+//!   below refer to it. Indexed at
+//!   `/Volumes/Data/Library/Docs/Tatung-Einstein/hardwaremanual.pdf`.
+//! - Claim-by-claim status, including what is verified, corroborated,
+//!   contradicted or unsourced:
+//!   `reference/by-system/tatung-einstein/verification.md`.
 //!
 //! # I/O map
 //!
-//! Verified against MAME's `tatung/einstein.cpp`; the donor's map was
-//! wrong (it had the AY on `$00-$02` and the keyboard on `$20`).
+//! ⚠ **Only `$24` is verified from Tatung documentation** — it is the single
+//! hex port address printed anywhere in the 70-page service manual, which
+//! names every other port by its decoded signal (`KYBDINTMSK`, `ADCINTMSK`,
+//! `DRSEL`, `VDP`, `FDC`, `PSG`, `CTC`) because it documents the machine for
+//! servicing, not for programming.
+//!
+//! The rest of this map is **corroborated, not verified**: HW §3.2.3-3.2.4
+//! decodes peripherals onto eight-port blocks via I026, with one block
+//! sub-decoded by A0-A2 through I027 — and these addresses land exactly on
+//! that structure, `$20-$27` holding the four single-bit latches it predicts.
+//! The values themselves came from MAME's `tatung/einstein.cpp`. Drawing
+//! 85-4584-7 would settle them. See `verification.md`.
 //!
 //! | Port  | R/W   | Function                                       |
 //! |-------|-------|------------------------------------------------|
@@ -180,8 +208,8 @@ pub struct Einstein {
     rom: Vec<u8>,
     #[serde(with = "BigArray")]
     ram: [u8; 65536],
-    /// `$0000-$1FFF` returns ROM at reset; any write to `$21` flips
-    /// this `false` and exposes the 64 KB RAM across the full space.
+    /// `$0000-$7FFF` returns ROM at reset [HW §3.2.2 — A15 gating]; any
+    /// access to `$24` toggles this and exposes the 64 KB RAM underneath.
     rom_paged_in: bool,
     /// 8×8 keyboard matrix, active-low (a pressed key clears its bit).
     keyboard: [u8; NUM_KEY_ROWS],
@@ -359,7 +387,23 @@ impl Einstein {
     }
 
     fn mem_read(&self, addr: u16) -> u8 {
-        if self.rom_paged_in && addr < 0x2000 {
+        // The ROM window is the LOWER 32K, decoded on A15 — not the low 8K.
+        // Tatung TC01 service manual §3.2.2: "Gating of the top address line
+        // A15 with a latched ROM signal allows the lower 32k of DRAM to be
+        // effectively replaced by ROM", with two ROM devices (I023, I024)
+        // selected by A14.
+        //
+        // 8K is the ROM *fitted* (§1.2.1: "8k ROM with expansion for up to 32k
+        // internally"); 32K is the space *decoded*. Those are different facts
+        // and this function used to conflate them, returning RAM for
+        // $2000-$7FFF while the hardware asserts a ROM chip select there.
+        if self.rom_paged_in && addr < 0x8000 {
+            // ⚠ What an address inside the window but beyond the fitted image
+            // returns is NOT documented. An 8K device in a socket decoded
+            // across 16K would mirror; an unpopulated second socket leaves the
+            // bus undriven. Both are plausible and neither is stated, so this
+            // returns $FF and the ambiguity is recorded rather than hidden —
+            // see reference/by-system/tatung-einstein/verification.md, M5.
             self.rom.get(addr as usize).copied().unwrap_or(0xFF)
         } else {
             self.ram[addr as usize]
@@ -1032,7 +1076,13 @@ mod tests {
         // so the snapshot has to carry the controller and its (modified) image.
         sys.insert_disk(0, vec![0u8; 10 * 512], 10, 512, 1);
         sys.run_frame();
-        sys.poke(0x4000, 0xA5); // a work-RAM byte to carry across the snapshot
+        // ⚠ Must be at or above $8000. `peek` observes the Z80 BUS, not the RAM
+        // array, and the ROM window covers the lower 32K while paged in (service
+        // manual §3.2.2 — A15 gating). This test previously poked $4000, which
+        // read back as RAM only because the ROM window was modelled as 8K; on
+        // hardware that address returns ROM at reset. A15-high is always DRAM,
+        // so $8000 tests what this test means to test.
+        sys.poke(0x8000, 0xA5); // a work-RAM byte to carry across the snapshot
         sys.run_frame();
         let s1 = postcard::to_allocvec(&sys).expect("encode snapshot");
 
@@ -1047,7 +1097,7 @@ mod tests {
             "restore should reproduce the snapshot state exactly"
         );
         assert_eq!(
-            restored.peek(0x4000),
+            restored.peek(0x8000),
             0xA5,
             "poked RAM byte survives restore"
         );
