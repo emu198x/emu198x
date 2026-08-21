@@ -16,36 +16,75 @@
 //! nonlinear output DAC and an RC high/low-pass network, and resampled to the
 //! host rate. The model mirrors VICE 3.10 `vic20sound.c` (Rasanen & Heikkila).
 
-/// Pixel clock of the 6560 (NTSC): eight pixels per machine cycle, the VIC
-/// fetching one character per cycle. 65 cycles a line comes to 63.55 µs at
-/// this rate, which is NTSC's line exactly — the check that the eight is
-/// right.
+/// Pixel clock of the 6560 (NTSC): **four** pixels per machine cycle.
 ///
-/// It matches the NTSC VIC-II, so a VIC-20 and a C64 have the same pixel
-/// shape on NTSC.
-pub const NTSC_PIXEL_CLOCK_HZ: f64 = 8_181_816.0;
+/// This said eight, reasoning that the VIC fetches one character of eight
+/// pixels per cycle, and checked itself against the line time — which the
+/// eight cannot fail, because doubling the pixel count and the clock together
+/// leaves the microseconds unchanged. VICE settles it in one comment:
+///
+/// ```text
+/// #define VIC_NTSC_SCREEN_WIDTH  260   /* 65 cycles * 4 pixels */
+/// #define VIC_PAL_SCREEN_WIDTH   284   /* 71 cycles * 4 pixels */
+/// ```
+///
+/// A character therefore spans two machine cycles, not one, and 22 columns
+/// occupy 44 of the 65 or 71 — which is the VIC-20's familiar wide border,
+/// rather than the display filling barely a third of the line that the eight
+/// implied.
+///
+/// The second check is the published pixel aspect. `vic_get_pixel_aspect` in
+/// VICE's `vic20/vic.c` gives PAL 1.66574035 and NTSC 1.50411479, citing
+/// codebase64 (it halves both for its own doubled rendering, which this
+/// framebuffer does not do). Against
+/// `knowledge/decisions/pixel-aspect-comes-from-the-raster.md` these clocks
+/// give 1.6656 and 1.5000; the old ones gave exactly half each.
+///
+/// The claim that the VIC-20 and the C64 share a pixel shape on NTSC went with
+/// it. A VIC-20 pixel is twice as wide.
+pub const NTSC_PIXEL_CLOCK_HZ: f64 = 4_090_908.0;
 
-/// Pixel clock of the 6561 (PAL). 71 cycles a line gives 64.06 µs. The PAL
-/// VIC-20 does not share the PAL C64's cycle rate, so the two machines part
-/// company here where their NTSC versions agree.
-pub const PAL_PIXEL_CLOCK_HZ: f64 = 8_867_240.0;
+/// Pixel clock of the 6561 (PAL) — the 4.4336 MHz colour subcarrier, which is
+/// the master oscillator divided by four. See [`NTSC_PIXEL_CLOCK_HZ`].
+pub const PAL_PIXEL_CLOCK_HZ: f64 = 4_433_620.0;
 
-/// Framebuffer dimensions (visible area for text mode)./// Framebuffer dimensions (visible area for text mode).
+/// The active display: 22 x 23 characters of 8 x 8 pixels.
 pub const ACTIVE_WIDTH: u32 = 176;
 pub const ACTIVE_HEIGHT: u32 = 184;
 
-/// Border thickness around the active area. The VIC chip generates a
-/// substantial border around the active 22 x 23 character display;
-/// VIC-20 reference emulators (VICE) typically render ~30-40 px of
-/// border each side. 24 px L/R + 16 px T/B is a clean approximation
-/// that matches the period look on a typical PAL television set.
-pub const BORDER_LEFT: u32 = 24;
-pub const BORDER_RIGHT: u32 = 24;
-pub const BORDER_TOP: u32 = 16;
-pub const BORDER_BOTTOM: u32 = 16;
+/// Scan lines a set displays, which is the framebuffer's height.
+///
+/// Per `knowledge/decisions/the-framebuffer-is-the-sets-window.md`. This used
+/// to be a fixed 16 lines of border either side of the active 184, giving 216
+/// — 75% of a PAL field, and the comment said where it came from: "VICE
+/// typically render ~30-40 px of border each side... a clean approximation
+/// that matches the period look".
+#[must_use]
+pub const fn framebuffer_height(pal: bool) -> u32 {
+    if pal { 288 } else { 240 }
+}
 
-pub const FB_WIDTH: u32 = ACTIVE_WIDTH + BORDER_LEFT + BORDER_RIGHT;
-pub const FB_HEIGHT: u32 = ACTIVE_HEIGHT + BORDER_TOP + BORDER_BOTTOM;
+/// Pixels a set displays along a line, which is the framebuffer's width.
+///
+/// A PAL line is 71 cycles of 4 pixels — 284 in 64.06 µs — and a set shows
+/// about 52 µs of it, so 230. NTSC is 65 cycles, 260 pixels in 63.55 µs, so
+/// 213. Rounded to leave a whole border either side of the active 176.
+#[must_use]
+pub const fn framebuffer_width(pal: bool) -> u32 {
+    ACTIVE_WIDTH + 2 * border_left(pal)
+}
+
+/// Border either side of the active area — what the window has left over.
+#[must_use]
+pub const fn border_left(pal: bool) -> u32 {
+    if pal { 27 } else { 19 }
+}
+
+/// Border above and below the active area.
+#[must_use]
+pub const fn border_top(pal: bool) -> u32 {
+    (framebuffer_height(pal) - ACTIVE_HEIGHT) / 2
+}
 
 use serde::{Deserialize, Serialize};
 
@@ -81,6 +120,8 @@ struct SoundChannel {
 pub struct Vic6560 {
     /// ARGB32 framebuffer.
     framebuffer: Vec<u32>,
+    /// Width of that framebuffer, which the region decides.
+    fb_width: u32,
     /// VIC registers ($9000-$900F). Sound reads `$A`-`$E` from here directly.
     regs: [u8; 16],
     /// Whether a frame has completed.
@@ -133,7 +174,11 @@ impl Vic6560 {
         // derived from the per-sample timestep.
         let dt = 1.0 / sample_rate as f32;
         Self {
-            framebuffer: vec![0xFF00_0000; (FB_WIDTH * FB_HEIGHT) as usize],
+            framebuffer: vec![
+                0xFF00_0000;
+                (framebuffer_width(pal) * framebuffer_height(pal)) as usize
+            ],
+            fb_width: framebuffer_width(pal),
             regs: [0; 16],
             frame_complete: false,
             scanline: 0,
@@ -239,9 +284,9 @@ impl Vic6560 {
                 if active_x < ACTIVE_WIDTH {
                     let bit = (char_data >> (7 - px)) & 1;
                     let colour = if bit != 0 { fg_colour } else { bg_colour };
-                    let fb_x = BORDER_LEFT + active_x;
-                    let fb_y = BORDER_TOP + vis_y;
-                    let idx = (fb_y * FB_WIDTH + fb_x) as usize;
+                    let fb_x = self.border_left() + active_x;
+                    let fb_y = self.border_top() + vis_y;
+                    let idx = (fb_y * self.fb_width + fb_x) as usize;
                     if idx < self.framebuffer.len() {
                         self.framebuffer[idx] = colour;
                     }
@@ -265,16 +310,28 @@ impl Vic6560 {
         &self.framebuffer
     }
 
-    /// Framebuffer width.
+    /// Framebuffer width — the window this chip's region displays.
     #[must_use]
     pub fn framebuffer_width(&self) -> u32 {
-        FB_WIDTH
+        self.fb_width
     }
 
-    /// Framebuffer height.
+    /// Framebuffer height, read off the buffer so it cannot disagree with it.
     #[must_use]
     pub fn framebuffer_height(&self) -> u32 {
-        FB_HEIGHT
+        self.framebuffer.len() as u32 / self.fb_width
+    }
+
+    /// Border either side of the active area.
+    #[must_use]
+    pub fn border_left(&self) -> u32 {
+        (self.fb_width - ACTIVE_WIDTH) / 2
+    }
+
+    /// Border above the active area.
+    #[must_use]
+    pub fn border_top(&self) -> u32 {
+        (self.framebuffer_height() - ACTIVE_HEIGHT) / 2
     }
 
     /// Current registers (for observation).

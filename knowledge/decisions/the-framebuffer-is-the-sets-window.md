@@ -86,8 +86,8 @@ reference library answers it where it covers the part.
   explicit that the border is a 17th pen "drawn during HBLANK and overscan", so
   the machine does paint the surround and we were keeping part of it. Now 52
   characters by 288 lines, both derived from the CRTC's own totals.
-- The **VIC-20**'s 49% is unresolved and may not be an extent problem at all;
-  see below.
+- The **VIC-20** was neither. Its 49% was arithmetic on a wrong clock, and the
+  extent was nearly right all along; see below.
 
 Everything unmarked and under 100% is still unclassified, and #1054 tracks the
 pass.
@@ -133,7 +133,7 @@ the core draws.
 | Atari 2600 (NTSC) | 160×240 | 187×240 | 86% † | 100% |
 | BBC Micro, Electron (PAL) | 640×256 | 832×288 | 77% † | 89% † |
 | Oric Atmos (PAL) | 240×224 | 312×288 | **77%** | 78% |
-| VIC-20 (PAL) | 224×216 | 461×288 | **49%** | 75% |
+| VIC-20 (PAL) | 230×288 | 231×288 | 100% | 100% |
 
 Televisions only. The PET drives a monitor and the Game Boy and Game Gear
 drive panels, so the comparison does not apply — which is `Display` doing its
@@ -191,6 +191,45 @@ three machines now sit at 100% vertically.
 Neither pattern is visible from one core at a time, which is the argument for
 having measured all of them at once.
 
+## The VIC-20: an extent that was a clock
+
+The audit read the VIC-20 at 49% horizontally, by far the worst figure in the
+fleet, and its border comment was one of this entry's own drift triggers
+verbatim — "VICE typically render ~30-40 px of border each side... a clean
+approximation that matches the period look".
+
+Widening to match would have been wrong. `PAL_PIXEL_CLOCK_HZ` was 8.867 MHz on
+the reasoning that the VIC fetches one character of eight pixels per machine
+cycle, and the constant checked itself against the line time — a check it
+cannot fail, because doubling the pixel count and the clock together leaves the
+microseconds unchanged.
+
+VICE settles it in a comment:
+
+```text
+#define VIC_NTSC_SCREEN_WIDTH  260   /* 65 cycles * 4 pixels */
+#define VIC_PAL_SCREEN_WIDTH   284   /* 71 cycles * 4 pixels */
+```
+
+Four pixels a cycle. A character spans two cycles, 22 columns occupy 44 of 71,
+and the display fills three quarters of the line rather than the third the
+eight implied. The published pixel aspects agree: VICE's `vic_get_pixel_aspect`
+gives PAL 1.66574035 and NTSC 1.50411479 from codebase64, and these clocks
+derive 1.6656 and 1.5000 where the old ones gave exactly half each.
+
+So the horizontal extent was never 49%. At the corrected clock the old 224-wide
+buffer measures 97% of a PAL window — and 224 is, to the pixel, VICE's own
+`VIC_PAL_NORMAL_DISPLAY_WIDTH`. Only the height was short, at 216 of 288.
+
+Two lessons, and the second is the one that generalises:
+
+- **A ratio far outside the fleet's spread is a reason to check the terms, not
+  to move the number.** The Dragon's 202% was the same shape, caught the same
+  way.
+- **A constant that checks itself against a figure both its terms cancel out of
+  is not checked at all.** Both the VIC-20's clock and the eight it was derived
+  from reproduce the line time exactly.
+
 ## Defects the audit surfaced
 
 - **The Amiga stated no display at all.** `AmigaRuntimeKind` forwards
@@ -241,3 +280,7 @@ Re-read this entry when you catch yourself writing:
   default fails silently rather than at the compiler
 - an extent measured from a frontend's default profile, which sees one region
   and calls the core done
+- a ratio far outside the fleet's spread treated as a number to move rather
+  than terms to check — twice now it has been the pixel clock
+- a constant justified by a check both its terms cancel out of, such as pixels
+  a cycle against the line time

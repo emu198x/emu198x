@@ -46,14 +46,16 @@ fn synthetic_firmware_runs_and_floods_the_display() {
     let framebuffer = machine.framebuffer();
     let red = framebuffer.iter().filter(|&&pixel| pixel == RED).count();
 
-    // Not a uniform frame: the VIC's displayed raster is 176x184 inside a
-    // 224x216 buffer, and this emulator paints the blanking around it black.
-    // So the assertion is that the *displayed* area went red, which is
-    // two-thirds of the buffer — far more than any stray pixel could give.
+    // Against the displayed raster, not the whole buffer. The VIC displays
+    // 176x184 and paints border around it, so a fraction of the buffer
+    // measures the border's size as much as the picture's — this read
+    // two-thirds when the border was 24 by 16 and under half once the machine
+    // held the field a PAL set shows, without the flood changing at all.
+    let displayed = (mos_vic_i::ACTIVE_WIDTH * mos_vic_i::ACTIVE_HEIGHT) as usize;
     assert!(
-        red > framebuffer.len() / 2,
-        "the VIC should flood its display with $900F's colour; got {red} of {} pixels",
-        framebuffer.len()
+        red > displayed / 2,
+        "the VIC should flood its display with $900F's colour; got {red} of {displayed} \
+         displayed pixels"
     );
 }
 

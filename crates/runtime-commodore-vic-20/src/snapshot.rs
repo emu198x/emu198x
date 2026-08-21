@@ -12,7 +12,11 @@ use serde::{Deserialize, Serialize};
 
 use crate::runtime::Vic20Runtime;
 
-const SNAPSHOT_VERSION: u16 = 2;
+/// Bumped to 3 when the framebuffer became region-sized. A snapshot carries
+/// the live chip, framebuffer included, so a version-2 snapshot holds a
+/// 224x216 buffer that a version-3 machine would never allocate. Restoring it
+/// would resume into a geometry the machine disagrees with, and silently.
+const SNAPSHOT_VERSION: u16 = 3;
 
 /// Borrowing envelope used during encode — avoids cloning the live machine.
 #[derive(Serialize)]
