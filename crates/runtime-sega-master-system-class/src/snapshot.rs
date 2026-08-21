@@ -12,7 +12,13 @@ use serde::{Deserialize, Serialize};
 
 use crate::runtime::SmsRuntime;
 
-const SNAPSHOT_VERSION: u16 = 3;
+/// Bumped to 4 when the VDP framebuffer became region-sized. A snapshot
+/// carries the live chip, framebuffer included, so a version-3 PAL snapshot
+/// holds a 240-line buffer that a version-4 PAL machine would never allocate.
+/// Restoring it would resume into a geometry the machine disagrees with, and
+/// silently — so the version check rejects it instead. The Game Gear is
+/// unaffected either way: its LCD is 160x144 in both.
+const SNAPSHOT_VERSION: u16 = 4;
 
 /// Borrowing envelope used during encode — avoids cloning the live machine.
 #[derive(Serialize)]

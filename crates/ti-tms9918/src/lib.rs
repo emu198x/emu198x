@@ -87,6 +87,33 @@ impl VdpRegion {
             Self::Pal => 313,
         }
     }
+
+    /// Scan lines a set displays, which is what the framebuffer holds.
+    ///
+    /// Per `knowledge/decisions/the-framebuffer-is-the-sets-window.md`. The
+    /// two standards differ by 48 lines, so one height cannot serve both: the
+    /// single 240 this used to hold is NTSC's field, and left every PAL
+    /// machine in the family showing 83% of what a set does.
+    #[must_use]
+    pub const fn framebuffer_height(self) -> u32 {
+        match self {
+            Self::Ntsc => 240,
+            Self::Pal => 288,
+        }
+    }
+
+    /// Scan lines of border above the active area — whatever the field has
+    /// left over around the 192 the chip draws, halved. 24 on NTSC, 48 on PAL.
+    #[must_use]
+    pub const fn border_top(self) -> u32 {
+        (self.framebuffer_height() - ACTIVE_HEIGHT) / 2
+    }
+
+    /// Scan lines of border below the active area.
+    #[must_use]
+    pub const fn border_bottom(self) -> u32 {
+        self.framebuffer_height() - ACTIVE_HEIGHT - self.border_top()
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -111,15 +138,14 @@ enum Mode {
 pub const ACTIVE_WIDTH: u32 = 256;
 pub const ACTIVE_HEIGHT: u32 = 192;
 
-/// Border thickness in pixels around the active area. Chosen as a
-/// canonical TV-visible frame approximating both NTSC (TMS9918A /
-/// TMS9928A) and PAL (TMS9929A) overscan envelopes — close enough
-/// for screenshots, generous enough that the backdrop register
-/// matters. Border colour comes from VR7 low nibble (the backdrop).
+/// Horizontal border thickness in pixels around the active area. Border colour
+/// comes from VR7's low nibble (the backdrop).
+///
+/// There is no vertical equivalent, because the vertical border is whatever a
+/// set's field has left over around the 192 active lines, and the two
+/// standards do not leave the same amount: see [`VdpRegion::border_top`].
 pub const BORDER_LEFT: u32 = 16;
 pub const BORDER_RIGHT: u32 = 16;
-pub const BORDER_TOP: u32 = 24;
-pub const BORDER_BOTTOM: u32 = 24;
 
 /// Dot clock of the NTSC parts — TMS9918A and TMS9928A. Half a 10.738635 MHz
 /// crystal, which is three times the colour subcarrier.
@@ -134,9 +160,8 @@ pub const NTSC_DOT_CLOCK_HZ: f64 = 5_369_318.0;
 /// a way its NTSC sibling does not.
 pub const PAL_DOT_CLOCK_HZ: f64 = 5_343_750.0;
 
-/// Framebuffer dimensions (active + border).
+/// Framebuffer width (active + horizontal border).
 pub const FB_WIDTH: u32 = ACTIVE_WIDTH + BORDER_LEFT + BORDER_RIGHT;
-pub const FB_HEIGHT: u32 = ACTIVE_HEIGHT + BORDER_TOP + BORDER_BOTTOM;
 
 /// TMS9918 Video Display Processor.
 #[derive(Serialize, Deserialize)]
@@ -201,7 +226,7 @@ impl Tms9918 {
             scanline: 0,
             dot: 0,
             region,
-            framebuffer: vec![0; (FB_WIDTH * FB_HEIGHT) as usize],
+            framebuffer: vec![0; (FB_WIDTH * region.framebuffer_height()) as usize],
             sprite_buf: [0; 256],
             interrupt: false,
             frame_count: 0,
@@ -222,8 +247,8 @@ impl Tms9918 {
 
     /// Framebuffer height.
     #[must_use]
-    pub const fn framebuffer_height(&self) -> u32 {
-        FB_HEIGHT
+    pub fn framebuffer_height(&self) -> u32 {
+        (self.framebuffer.len() / FB_WIDTH as usize) as u32
     }
 
     // -----------------------------------------------------------------------
@@ -486,18 +511,19 @@ impl Tms9918 {
     /// Active-row interiors are drawn separately by `render_pixel` /
     /// `render_scanline`; this paints the left/right backdrop columns of each
     /// active row and the full width of the top/bottom border rows.
-    /// `fb_row = scanline + BORDER_TOP` unifies the active rows and the bottom
+    /// `fb_row = scanline + border_top` unifies the active rows and the bottom
     /// border; the top border (above the active area) is painted once as the
     /// frame opens. Called at the start of each scanline by both tick paths.
     fn paint_border_for_scanline(&mut self) {
         let backdrop = self.backdrop_color();
         let fbw = FB_WIDTH as usize;
         let scan = self.scanline as usize;
+        let border_top = self.region.border_top() as usize;
 
         // Top border: painted as the frame opens — it sits above the active
         // area and is scanned before any mid-frame VR7 write.
         if scan == 0 {
-            for px in &mut self.framebuffer[..BORDER_TOP as usize * fbw] {
+            for px in &mut self.framebuffer[..border_top * fbw] {
                 *px = backdrop;
             }
         }
@@ -505,7 +531,7 @@ impl Tms9918 {
         let active_h = ACTIVE_HEIGHT as usize;
         if scan < active_h {
             // Active row: the left and right backdrop columns only.
-            let row = (BORDER_TOP as usize + scan) * fbw;
+            let row = (border_top + scan) * fbw;
             for px in &mut self.framebuffer[row..row + BORDER_LEFT as usize] {
                 *px = backdrop;
             }
@@ -513,9 +539,9 @@ impl Tms9918 {
             for px in &mut self.framebuffer[right..row + fbw] {
                 *px = backdrop;
             }
-        } else if scan < active_h + BORDER_BOTTOM as usize {
+        } else if scan < active_h + self.region.border_bottom() as usize {
             // Bottom border row: the full width.
-            let row = (BORDER_TOP as usize + scan) * fbw;
+            let row = (border_top + scan) * fbw;
             for px in &mut self.framebuffer[row..row + fbw] {
                 *px = backdrop;
             }
@@ -548,7 +574,9 @@ impl Tms9918 {
         } else {
             bg
         };
-        let idx = (BORDER_TOP as usize + line) * FB_WIDTH as usize + BORDER_LEFT as usize + x;
+        let idx = (self.region.border_top() as usize + line) * FB_WIDTH as usize
+            + BORDER_LEFT as usize
+            + x;
         self.framebuffer[idx] = pixel;
     }
 
@@ -948,12 +976,65 @@ impl Tms9918 {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn each_region_holds_exactly_the_field_a_set_shows() {
+        // 240 lines on NTSC, 288 on PAL — `Display::Television`'s
+        // `lines_per_tv_height`, and the rule in
+        // `the-framebuffer-is-the-sets-window.md`.
+        //
+        // One height served both, and it was NTSC's. Every PAL machine in
+        // this family — MSX, ColecoVision, Sord M5, SVI-328, MTX, Einstein,
+        // SG-1000, Master System — showed 240 lines of a 288-line field, and
+        // the #1054 audit read all of them at 83%.
+        for (region, field, border) in [(VdpRegion::Ntsc, 240, 24), (VdpRegion::Pal, 288, 48)] {
+            let vdp = Tms9918::new(region);
+            assert_eq!(vdp.framebuffer_height(), field, "{region:?}");
+            assert_eq!(
+                vdp.framebuffer().len(),
+                (FB_WIDTH * field) as usize,
+                "{region:?} allocated a buffer of the wrong size"
+            );
+            assert_eq!(region.border_top(), border, "{region:?}");
+        }
+    }
+
+    #[test]
+    fn the_border_accounts_for_every_line_the_chip_does_not_draw() {
+        // The chip draws 192 lines whatever the region; the border is the
+        // rest of the field. Stating it as a constant is what made 240 serve
+        // a 288-line field, so it is derived and this checks the derivation
+        // leaves nothing over.
+        for region in [VdpRegion::Ntsc, VdpRegion::Pal] {
+            assert_eq!(
+                region.border_top() + ACTIVE_HEIGHT + region.border_bottom(),
+                region.framebuffer_height(),
+                "{region:?} does not account for every line of its field"
+            );
+        }
+    }
+
+    #[test]
+    fn the_last_active_line_lands_above_the_bottom_border() {
+        // PAL is the case that moved. Its active area starts 48 lines down,
+        // so the chip's last drawn line has to be 48 lines short of the
+        // bottom of the buffer, not flush with it.
+        let region = VdpRegion::Pal;
+        let last_active_row = region.border_top() as usize + ACTIVE_HEIGHT as usize - 1;
+        let rows = region.framebuffer_height() as usize;
+
+        assert_eq!(last_active_row, 239);
+        assert_eq!(rows - 1 - last_active_row, region.border_bottom() as usize);
+    }
+
     use super::*;
 
     #[test]
     fn new_vdp_has_blank_framebuffer() {
         let vdp = Tms9918::new(VdpRegion::Ntsc);
-        assert_eq!(vdp.framebuffer().len(), (FB_WIDTH * FB_HEIGHT) as usize);
+        assert_eq!(
+            vdp.framebuffer().len(),
+            (FB_WIDTH * vdp.framebuffer_height()) as usize
+        );
         assert!(vdp.framebuffer().iter().all(|&p| p == 0));
     }
 
@@ -1130,7 +1211,8 @@ mod tests {
         vdp.render_scanline(0);
 
         // First 8 pixels of the active area should be white.
-        let active_start = BORDER_TOP as usize * FB_WIDTH as usize + BORDER_LEFT as usize;
+        let active_start =
+            VdpRegion::Ntsc.border_top() as usize * FB_WIDTH as usize + BORDER_LEFT as usize;
         for x in 0..8 {
             assert_eq!(
                 vdp.framebuffer[active_start + x],
@@ -1221,7 +1303,7 @@ mod tests {
 
         let fbw = FB_WIDTH as usize;
         let top = vdp.framebuffer()[0]; // top border, painted before the switch
-        let bottom = vdp.framebuffer()[(FB_HEIGHT as usize - 1) * fbw]; // bottom border, after
+        let bottom = vdp.framebuffer()[(vdp.framebuffer_height() as usize - 1) * fbw]; // bottom border, after
         assert_eq!(
             top, PALETTE[1],
             "top border should keep the pre-split backdrop"
