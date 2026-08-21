@@ -100,7 +100,7 @@ the core draws.
 | Atari 800XL, 5200, 7800 (PAL) | 384×288 | 369×288 | 104% | 100% |
 | Atari 800XL, 5200, 7800 (NTSC) | 384×240 | 373×240 | 103% | 100% |
 | ColecoVision, MSX, Master System, SG-1000, Sord M5, SVI-328 (NTSC) | 288×240 | 280×240 | 103% | 100% |
-| Acorn Atom (PAL) | 372×243 | 369×288 | 101% | 84% |
+| Acorn Atom (PAL) | 372×288 | 369×288 | 101% | 100% |
 | C64 (PAL) | 416×312 | 410×288 | 101% | 108% |
 | Spectrum 48K (PAL) | 352×296 | 364×288 | 97% | 103% |
 | ZX80, ZX81 (PAL) | 320×288 | 338×288 | 95% | 100% |
@@ -138,6 +138,12 @@ SVI-328, SG-1000 and Master System all had it too, on profiles the first sweep
 never selected. Eight machines, one constant. `VdpRegion` and the Sega VDP's
 own region now size the field, and the border is what it has left over around
 the 192 lines the chip draws: 24 on NTSC, 48 on PAL. Fixed.
+
+The Acorn Atom's 84% was a borrowed figure of a different kind. It sized its
+picture from the shared VDG crate's `TEXT_VISIBLE_FRAMEBUFFER_HEIGHT`, 243 —
+which is a VDG-generic "visible" figure that the Dragon places as a sub-window
+inside its 312-line overscan frame. Correct for what the Dragon does with it,
+and not a set's field. The Atom now states its own; the shared constant stays.
 
 The Jupiter Ace made a ninth, from the same cause in its own video code: its
 border comment said it was copying the ZX81 ULA's 24 lines "so screenshots

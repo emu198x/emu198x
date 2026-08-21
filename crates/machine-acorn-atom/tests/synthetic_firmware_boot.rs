@@ -28,6 +28,11 @@ use machine_acorn_atom::AcornAtom;
 /// blocks lit. The control image never produces it.
 const SEMIGRAPHICS: u32 = 0xFF6B_0F1B;
 
+/// The 6847's active display, which is the only part of the frame it draws
+/// into. Everything outside it is border.
+const ACTIVE_WIDTH: usize = 256;
+const ACTIVE_HEIGHT: usize = 192;
+
 fn firmware(name: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../test-data/synthetic-firmware")
@@ -51,10 +56,18 @@ fn synthetic_firmware_runs_and_fills_the_display() {
         .iter()
         .filter(|&&pixel| pixel == SEMIGRAPHICS)
         .count();
+
+    // Against the active area, not the whole framebuffer. The 6847 draws
+    // 256x192 and the rest is border it can never light, so a fraction of the
+    // buffer measures the border's size as much as the picture's — this read
+    // 54% of the buffer when the border was 25 lines and 46% once the machine
+    // held the 288 a PAL set shows, without anything about the picture
+    // changing.
+    let active = ACTIVE_WIDTH * ACTIVE_HEIGHT;
     assert!(
-        lit > machine.framebuffer().len() / 2,
-        "the 6847 should fetch the semigraphics the firmware wrote; got {lit} of {} pixels",
-        machine.framebuffer().len()
+        lit > active / 2,
+        "the 6847 should fetch the semigraphics the firmware wrote; got {lit} of {active} \
+         active pixels"
     );
 }
 

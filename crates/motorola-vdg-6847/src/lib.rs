@@ -477,7 +477,18 @@ impl VdgBeamByte {
         start: usize,
         end: usize,
     ) {
-        assert_eq!(framebuffer.len(), TEXT_VISIBLE_FRAMEBUFFER_PIXELS);
+        // Rows of the shared width, and the target row inside them. This used
+        // to demand exactly `TEXT_VISIBLE_FRAMEBUFFER_PIXELS`, which fixed the
+        // caller's field height at 243 — a VDG-generic figure the Dragon
+        // places as a sub-window of its overscan frame, and which the Atom had
+        // borrowed as its whole picture. A machine that holds the 288 lines a
+        // PAL set shows has a taller buffer and the same rows.
+        //
+        // The looser check is also the stronger one: it catches a buffer that
+        // is not whole rows, and a row past the end, where a length equality
+        // caught neither.
+        assert_eq!(framebuffer.len() % TEXT_VISIBLE_FRAMEBUFFER_WIDTH, 0);
+        assert!(visible_y < framebuffer.len() / TEXT_VISIBLE_FRAMEBUFFER_WIDTH);
         assert!(start <= end);
         assert!(end <= self.width);
         let row_start = visible_y * TEXT_VISIBLE_FRAMEBUFFER_WIDTH
