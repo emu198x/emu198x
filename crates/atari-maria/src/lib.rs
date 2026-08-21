@@ -169,6 +169,19 @@ impl MariaRegion {
 
     /// Scan lines of border above the active display — whatever the field has
     /// left over, halved. NTSC has nothing left over.
+    ///
+    /// NTSC needs no border and so no placement: [`VISIBLE_TOP`] anchors the
+    /// window on the first raster MARIA attempts to display, which the 7800
+    /// reference states outright.
+    ///
+    /// PAL is the one region in the fleet whose placement is still a guess.
+    /// The reference is an NTSC document, [`VISIBLE_TOP`] is one constant for
+    /// both regions, and MAME's `a7800.cpp` is no help: its PAL screen starts
+    /// eight lines later than its NTSC one *and* carries a 228-line display
+    /// band against 192, so the two numbers describe different display lists
+    /// rather than the same picture moved. What would settle it is where PAL
+    /// MARIA puts vertical sync, the way the Altirra manual settles the same
+    /// question for the Atari 8-bit's ANTIC.
     #[must_use]
     pub const fn border_top(self) -> u32 {
         (self.framebuffer_height() - ACTIVE_HEIGHT) / 2

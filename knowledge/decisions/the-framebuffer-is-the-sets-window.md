@@ -38,7 +38,9 @@ fails against the old window, which is the only reason to trust it.
 ## Size is derivable; position is not
 
 The window's *size* falls out of the clock. Its *position* does not, and this
-is where the rule stops short of being mechanical.
+is where the rule stops short of being mechanical. What settles a position is
+the chip's own timing measured from sync; see *Position, checked against the
+chips* below for the pass that did that across the fleet.
 
 Vertically the ZX80 anchors honestly: frame line 0 is the end of the vertical
 sync pulse, so the vertical interval that follows it is what a set blanks —
@@ -333,13 +335,78 @@ horizontally than it could vertically: 5.369318 MHz over 52.148 µs is 280
 pixels and 5.34375 MHz over 52.0 µs is 278.
 
 So the horizontal border is now what the line has left over around the active
-area, exactly as the vertical one is what the field has left over: 12 and 11
-pixels on the VDPs, 27 and 24 on the Ataris. Sixteen profiles across ten
+area, exactly as the vertical one is what the field has left over: 12 and 10
+or 11 pixels on the VDPs, 27 and 24 on the Ataris. Sixteen profiles across ten
 machines moved from 103-104% to 100%.
 
 Worth noticing that the vertical pass did not prompt this. The same mistake sat
 in the same constants, one line apart, and survived four separate visits to
 those files — because each visit was measuring the axis it had come to fix.
+
+## Position, checked against the chips
+
+The size pass left every window derived and every window's *placement*
+assumed: the active area was centred in the window, and the window itself was
+anchored to whatever per-core constant already existed. This section is the
+pass that checked those assumptions against the chips' own timing. Four came
+out right, three came out wrong, and one is still open.
+
+**Centring is a claim about the chip, not a default.** A set's window is a
+fixed interval measured from sync, so where the picture lands inside it is
+decided by where the chip scans the picture relative to its own sync — never by
+arithmetic on the window. Two chips make the point in opposite directions.
+
+The **Atari 8-bit** centres exactly. Altirra's GTIA chapter gives the
+228-colour-clock line a visible range of `$22`-`$DD`, 188 colour clocks, with
+the normal playfield at `$30`-`$CF`; the visible range's midpoint falls on the
+playfield centre at the `$7F`/`$80` boundary, 14 colour clocks of border either
+side. Centring reproduces the hardware because the hardware is centred.
+
+The **TMS9918 family** does not. Table 3-3 splits the line 13 border, 256
+active, 15 border — the picture sits off-centre in what the chip scans. It is
+still all but centred in what a set *shows*, because the chip's sync and back
+porch put the active area's midpoint 35.57 µs into the line against a broadcast
+picture centre of 35.5 to 35.7. Under a pixel, and less than the two published
+back-porch figures disagree. The answer was right; the reason was not the one
+the code gave.
+
+**Vertically the same chips were out, and by more than a pixel.** Table 3-3
+gives the TMS9918's 262-line frame as 27 lines of top border, 192 active and 24
+of bottom, with 19 blanked — 243 scanned, of which a set shows 240. Centring
+put the picture a line and a half above where the chip scans it. MAME's
+`315_5124.h` states the same 27 and 24 for the Sega VDP and adds the PAL pair
+the TI manual never tabled, 54 and 48; those restore the same 19 blanked lines
+and hold the same 27:24 ratio, which is the check that they belong to this
+frame rather than another chip's. Both crates now place the picture at 25 and
+51 rather than 24 and 48.
+
+The **Atari 8-bit** moved a line for a different reason. ANTIC's display is
+scan lines 8-247 in both regions, but the Altirra manual puts vertical sync at
+lines 251-253 on NTSC and 275-277 on PAL. On NTSC the 22 lines outside the
+display are exactly the 22 a set hides, so the display *is* the field and there
+is nothing to place — which is the check on the method, because that case
+already read zero. PAL moves sync 24 lines later, and blanking that runs from
+two and a half lines before the broad pulses to line 23 of the field puts the
+display 23 lines down rather than 24.
+
+**Three cores were already derived and stay put.** The CPC computes its window
+from CRTC register values — 64 characters a line, sync at character 46, 39 rows
+with sync at row 30 — and the residual against a proper porch model is under
+one character. The 2600's window opens where the frame's leftover blanking
+ends, within two or three lines of the standard interval. MARIA's NTSC window
+starts on the first raster the 7800 reference says MARIA attempts to display.
+
+**One is open.** MARIA's PAL placement has no source: the 7800 reference is an
+NTSC document, `VISIBLE_TOP` is a single constant for both regions, and MAME's
+PAL 7800 screen describes a different display list rather than the same picture
+moved. Where PAL MARIA puts vertical sync would settle it, the way Altirra
+settles it for ANTIC.
+
+**And one is subordinate to a larger gap.** The VIC-20's screen origin is
+software: registers 0 and 1 set it, and the KERNAL's defaults are what put the
+picture where it sits. Our VIC-I ignores both and draws at a fixed border, so
+asking where its window sits is asking the wrong question until the registers
+are honoured. Filed rather than guessed.
 
 ## Defects the audit surfaced
 
@@ -359,6 +426,14 @@ those files — because each visit was measuring the axis it had come to fix.
   as the ones it emits. Fixed by stating the rate the framebuffer fills at;
   the pixel aspect moves from 1.041 to 0.5205 and the extent from 202% to
   101%.
+- **The PAL Master System ran on the PAL MSX's clock.** `sega-vdp` held
+  5.34375 MHz, half a 10.6875 MHz crystal — the figure for a PAL 9929A, not
+  for this machine. A PAL Master System runs from twelve times the PAL colour
+  subcarrier, the VDP taking master ÷ 10 and the Z80 master ÷ 15. The machine's
+  own `PAL_PSG_CLOCK_HZ` has been 3546893 all along, so the two constants
+  disagreed by 0.44% inside one fleet. MAME's `sms.cpp`, Genesis Plus GX's
+  `system.c` and the SMS reference all give 53203424 for the master. Fixed;
+  the PAL window narrows from 278 to 277.
 - **The Dragon was off the shared headless surface.** Every other frontend
   took `--script`; this one grew a harness of its own first and never gained
   it, so `main.rs` routed the flag to a parser that rejected it. That put the
@@ -397,6 +472,9 @@ Re-read this entry when you catch yourself writing:
   a cycle against the line time
 - a border thickness written as a round number — 16, 24, 32 — rather than as
   what the line or the field has left over
+- a picture centred in its window without checking where the chip scans it
+  relative to sync — the Atari is centred, the TMS9918 is not
+- a PAL geometry constant inferred from an NTSC document without saying so
 - fixing one axis of a geometry constant without looking at the other, which is
   how a horizontal border survived four visits to the file that corrected the
   vertical one
