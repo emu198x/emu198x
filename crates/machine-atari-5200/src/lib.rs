@@ -92,6 +92,13 @@ pub enum Atari5200Region {
 }
 
 impl Atari5200Region {
+    fn gtia_region(self) -> atari_gtia::GtiaRegion {
+        match self {
+            Self::Ntsc => atari_gtia::GtiaRegion::Ntsc,
+            Self::Pal => atari_gtia::GtiaRegion::Pal,
+        }
+    }
+
     fn antic_region(self) -> AnticRegion {
         match self {
             Self::Ntsc => AnticRegion::Ntsc,
@@ -173,7 +180,7 @@ impl Atari5200 {
         Ok(Self {
             cpu,
             antic: Antic::new(region.antic_region()),
-            gtia: Gtia::new(),
+            gtia: Gtia::new(region.gtia_region()),
             pokey,
             cart,
             ram: [0; 16384],

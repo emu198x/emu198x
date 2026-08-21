@@ -81,12 +81,13 @@ use serde_big_array::BigArray;
 /// Active display area dimensions (the pixels MARIA actually draws
 /// through its DLL/DL pipeline).
 pub const ACTIVE_WIDTH: u32 = 320;
-/// Border thickness — same canonical Atari 8-bit TV-visible envelope
-/// as GTIA (32 px L/R + 24 px T/B around the 320 x 240 active region).
+/// Horizontal border thickness — 32 px each side of the 320-pixel active area,
+/// for a 384-pixel line, matching GTIA.
+///
+/// There is no vertical equivalent, because the vertical border depends on how
+/// tall the field is: see [`MariaRegion::border_top`].
 pub const BORDER_LEFT: u32 = 32;
 pub const BORDER_RIGHT: u32 = 32;
-pub const BORDER_TOP: u32 = 24;
-pub const BORDER_BOTTOM: u32 = 24;
 
 /// Pixel clock of the NTSC part: twice the 3.579545 MHz colour clock, because
 /// the hires modes put two pixels in each. Gives 6:7 pixels — taller than
@@ -98,11 +99,9 @@ pub const PAL_PIXEL_CLOCK_HZ: f64 = 7_093_788.0;
 
 pub const FB_WIDTH: u32 = ACTIVE_WIDTH + BORDER_LEFT + BORDER_RIGHT;
 
-/// Framebuffer height: 240 scanlines (covers NTSC visible area; PAL uses up to 240).
-/// Active display height in scan lines.
+/// Active display height in scan lines — MARIA's maximum, the same on both
+/// regions. What differs is how much field is left around it.
 pub const ACTIVE_HEIGHT: u32 = 240;
-
-pub const FB_HEIGHT: u32 = ACTIVE_HEIGHT + BORDER_TOP + BORDER_BOTTOM;
 
 // ---------------------------------------------------------------------------
 // Internal constants
@@ -152,6 +151,26 @@ impl MariaRegion {
             Self::Ntsc => NTSC_LINES,
             Self::Pal => PAL_LINES,
         }
+    }
+
+    /// Scan lines a set displays, which is what the framebuffer holds.
+    ///
+    /// Per `knowledge/decisions/the-framebuffer-is-the-sets-window.md`. One
+    /// height cannot serve both regions: 288 lines on NTSC is a fifth more
+    /// raster than a set shows, which is what this used to emit.
+    #[must_use]
+    pub const fn framebuffer_height(self) -> u32 {
+        match self {
+            Self::Ntsc => 240,
+            Self::Pal => 288,
+        }
+    }
+
+    /// Scan lines of border above the active display — whatever the field has
+    /// left over, halved. NTSC has nothing left over.
+    #[must_use]
+    pub const fn border_top(self) -> u32 {
+        (self.framebuffer_height() - ACTIVE_HEIGHT) / 2
     }
 }
 
@@ -292,7 +311,7 @@ impl Maria {
 
             dma_cycles: 0,
 
-            framebuffer: vec![0xFF00_0000; (FB_WIDTH * FB_HEIGHT) as usize],
+            framebuffer: vec![0xFF00_0000; (FB_WIDTH * region.framebuffer_height()) as usize],
             line_buffer: [0; ACTIVE_WIDTH as usize],
         }
     }
@@ -398,9 +417,12 @@ impl Maria {
     }
 
     /// Framebuffer height in pixels.
+    ///
+    /// Read back off the buffer rather than stated a second time, so the
+    /// height a caller sees is always the height that was allocated.
     #[must_use]
-    pub const fn framebuffer_height(&self) -> u32 {
-        FB_HEIGHT
+    pub fn framebuffer_height(&self) -> u32 {
+        (self.framebuffer.len() / FB_WIDTH as usize) as u32
     }
 
     /// DMA cycles stolen during the last `render_line` call. A populated zone's
@@ -806,7 +828,7 @@ impl Maria {
         if active_y >= ACTIVE_HEIGHT as usize {
             return;
         }
-        let fb_y = BORDER_TOP as usize + active_y;
+        let fb_y = self.region.border_top() as usize + active_y;
 
         let palette = match self.region {
             MariaRegion::Ntsc => &NTSC_PALETTE,
@@ -836,14 +858,53 @@ impl Maria {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn each_region_holds_exactly_the_field_a_set_shows() {
+        // 240 lines on NTSC, 288 on PAL — `Display::Television`'s
+        // `lines_per_tv_height`, and the rule in
+        // `the-framebuffer-is-the-sets-window.md`.
+        //
+        // This held one height for both. It was 288, which is right for PAL
+        // and a fifth more raster than an NTSC set displays; the #1054 audit
+        // read the 7800's NTSC profile as 120%.
+        for (region, field) in [(MariaRegion::Ntsc, 240), (MariaRegion::Pal, 288)] {
+            let maria = Maria::new(region);
+            assert_eq!(maria.framebuffer_height(), field, "{region:?}");
+            assert_eq!(
+                maria.framebuffer().len(),
+                (FB_WIDTH * field) as usize,
+                "{region:?} allocated a buffer of the wrong size"
+            );
+        }
+    }
+
+    #[test]
+    fn the_active_display_fits_the_field_with_the_border_around_it() {
+        for region in [MariaRegion::Ntsc, MariaRegion::Pal] {
+            assert_eq!(
+                region.border_top() * 2 + ACTIVE_HEIGHT,
+                region.framebuffer_height(),
+                "{region:?} does not account for every line of its field"
+            );
+        }
+        assert_eq!(MariaRegion::Ntsc.border_top(), 0);
+        assert_eq!(MariaRegion::Pal.border_top(), 24);
+    }
+
     use super::*;
 
     #[test]
     fn framebuffer_dimensions() {
         let maria = Maria::new(MariaRegion::Ntsc);
         assert_eq!(maria.framebuffer_width(), FB_WIDTH);
-        assert_eq!(maria.framebuffer_height(), FB_HEIGHT);
-        assert_eq!(maria.framebuffer().len(), (FB_WIDTH * FB_HEIGHT) as usize);
+        assert_eq!(
+            maria.framebuffer_height(),
+            maria.region.framebuffer_height()
+        );
+        assert_eq!(
+            maria.framebuffer().len(),
+            (FB_WIDTH * maria.region.framebuffer_height()) as usize
+        );
     }
 
     #[test]
@@ -1005,7 +1066,8 @@ mod tests {
         // painted by the machine via fill_border() at frame start; they're
         // outside the scope of this chip-level test.)
         let bg_argb = NTSC_PALETTE[(0x0E >> 1) as usize];
-        let row_start = BORDER_TOP as usize * FB_WIDTH as usize + BORDER_LEFT as usize;
+        let row_start =
+            maria.region.border_top() as usize * FB_WIDTH as usize + BORDER_LEFT as usize;
         let row = &maria.framebuffer[row_start..row_start + ACTIVE_WIDTH as usize];
         assert!(row.iter().all(|&px| px == bg_argb));
     }
@@ -1051,10 +1113,11 @@ mod tests {
         let bg_argb = NTSC_PALETTE[(0x0E >> 1) as usize];
         let fg_argb = NTSC_PALETTE[(0x66 >> 1) as usize]; // palette 0, colour 3
 
-        // Active region starts at (BORDER_LEFT, BORDER_TOP). First two
+        // Active region starts at (BORDER_LEFT, maria.region.border_top()). First two
         // framebuffer pixels of the active row (one 160A pixel = 2 FB
         // pixels) should be the foreground colour.
-        let active_start = BORDER_TOP as usize * FB_WIDTH as usize + BORDER_LEFT as usize;
+        let active_start =
+            maria.region.border_top() as usize * FB_WIDTH as usize + BORDER_LEFT as usize;
         assert_eq!(maria.framebuffer[active_start], fg_argb);
         assert_eq!(maria.framebuffer[active_start + 1], fg_argb);
         // Next pixels should be background (transparent).

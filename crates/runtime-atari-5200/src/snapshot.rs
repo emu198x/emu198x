@@ -12,7 +12,12 @@ use serde::{Deserialize, Serialize};
 
 use crate::runtime::Atari5200Runtime;
 
-const SNAPSHOT_VERSION: u16 = 2;
+/// Bumped to 3 when the framebuffer became region-sized. A snapshot carries
+/// the live chip, framebuffer included, so a version-2 NTSC snapshot holds a
+/// 288-line buffer that a version-3 NTSC machine would never allocate.
+/// Restoring it would resume into a geometry the machine disagrees with, and
+/// silently — so the version check rejects it instead.
+const SNAPSHOT_VERSION: u16 = 3;
 
 /// Borrowing envelope used during encode — avoids cloning the live machine.
 #[derive(Serialize)]
