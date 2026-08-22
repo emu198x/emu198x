@@ -30,7 +30,7 @@
 //!
 //! # Clock model
 //!
-//! PAL display: 312 lines × 207 T-states/line = 64,584 T-states per
+//! PAL display: 312 lines × 208 T-states/line = 64,896 T-states per
 //! frame at 3.25 MHz, ~50.3 Hz. CPU + display + audio downsampler all
 //! tick once per T-state.
 
@@ -101,7 +101,7 @@ impl JupiterAce {
         })
     }
 
-    /// Run one full PAL frame (~64,584 T-states); returns T-states executed.
+    /// Run one full PAL frame (64,896 T-states); returns T-states executed.
     pub fn run_frame(&mut self) -> u64 {
         let start = self.master_clock;
         loop {

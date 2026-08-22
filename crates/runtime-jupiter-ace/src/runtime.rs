@@ -230,7 +230,7 @@ impl MachineCore for JupiterAceRuntime {
             operation: command.operation_name(),
         })
     }
-    /// Two pixels per 3.25 MHz T-state, and 207 T-states over 312 lines — the
+    /// Two pixels per 3.25 MHz T-state, and 208 T-states over 312 lines — the
     /// same raster as a ZX80, and the same 1.14.
     fn display(&self) -> Option<Display> {
         Display::television_for_region(self.profile().region, PIXEL_CLOCK_HZ, PIXEL_CLOCK_HZ)

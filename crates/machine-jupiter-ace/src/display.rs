@@ -20,7 +20,7 @@
 //!
 //! # Timing
 //!
-//! The Ace uses a PAL display: 312 lines, 207 T-states per line = 64,584
+//! The Ace uses a PAL display: 312 lines, 208 T-states per line = 64,896
 //! T-states per frame at 3.25 MHz (~50.3 Hz). The active display area is
 //! 256×192 pixels (32×24 characters × 8×8 pixels), surrounded by a
 //! 32 / 24 px border to match the wider TV-visible envelope.
@@ -53,7 +53,7 @@ pub const BORDER_BOTTOM: u32 = PAL_ACTIVE_LINES - ACTIVE_HEIGHT - BORDER_TOP;
 /// Scan lines a PAL set displays, and so the height of the framebuffer.
 ///
 /// The Ace is PAL only — its profile states `Region::Pal` and its frame is
-/// 312 lines at 207 T-states — so this is a constant here rather than a
+/// 312 lines at 208 T-states — so this is a constant here rather than a
 /// region parameter like GTIA's or the VDP's.
 pub const PAL_ACTIVE_LINES: u32 = 288;
 
@@ -78,9 +78,26 @@ pub const VIDEO_RAM_SIZE: usize = CHARS_PER_ROW * CHAR_ROWS;
 #[allow(dead_code)]
 pub const CHAR_RAM_SIZE: usize = 1024;
 
-/// T-states per scanline (PAL).
-const TSTATES_PER_LINE: u32 = 207;
+/// T-states per scanline, from the video counter chain on the circuit diagram
+/// (*The Computer Journal* #70).
+///
+/// The 6.5 MHz crystal feeds Z9 (LS393): its first half free-runs as a divide
+/// by 16, its second half takes `E` and emits `F` at divide by 32 overall.
+/// `F` clocks Z10's first half, which a 3-input AND on `G`,`I`,`J` clears at
+/// 13. One line is therefore 32 x 13 = 416 crystal periods. `B` -- Z9's first
+/// output, the crystal halved -- drives the PN2369 that emits the 3.25 MHz CPU
+/// clock, so one T-state is two crystal periods and a line is 208 T-states.
+///
+/// That lands on 15,625.0 Hz, the PAL line rate, exactly. 207 cannot be
+/// produced by this chain at all: it needs a non-integer Z10 divisor on either
+/// reading of Z9. MAME agrees independently -- `jupace.cpp` sets
+/// `screen.set_raw(6.5_MHz_XTAL, 416, 0, 336, 312, 0, 304)`.
+const TSTATES_PER_LINE: u32 = 208;
 /// Total scanlines per frame (PAL).
+///
+/// Z10's second half divides the line clock by 8 to give `M`, which clocks Z11
+/// (LS393). A 3-input AND on `N`,`O`,`P` gated with `S` clears both halves of
+/// Z11 at 39, so a frame is 8 x 39 = 312 lines. MAME's `set_raw` vtotal agrees.
 const LINES_PER_FRAME: u32 = 312;
 /// Total T-states per frame.
 pub const TSTATES_PER_FRAME: u32 = TSTATES_PER_LINE * LINES_PER_FRAME;
@@ -297,5 +314,35 @@ mod tests {
                 assert_eq!(display.framebuffer()[idx], BLACK);
             }
         }
+    }
+
+    /// The video counter chain produces the PAL line rate exactly. Anything
+    /// else means a divisor has been changed away from the circuit diagram.
+    ///
+    /// Crystal 6.5 MHz; Z9 divides by 32; Z10's first half is cleared at 13 by
+    /// the AND on `G`,`I`,`J`. 32 x 13 = 416 crystal periods per line, and the
+    /// CPU runs at the crystal halved, so a line is 208 T-states.
+    #[test]
+    fn the_line_rate_is_the_pal_line_rate() {
+        const CRYSTAL_HZ: u32 = 6_500_000;
+        const CRYSTAL_PERIODS_PER_TSTATE: u32 = 2;
+
+        let periods_per_line = TSTATES_PER_LINE * CRYSTAL_PERIODS_PER_TSTATE;
+        assert_eq!(periods_per_line, 416, "Z9 divide by 32 x Z10 divide by 13");
+        assert_eq!(
+            CRYSTAL_HZ % periods_per_line,
+            0,
+            "a line rate that is not a whole number of crystal periods cannot \
+             come from a binary counter chain",
+        );
+        assert_eq!(CRYSTAL_HZ / periods_per_line, 15_625, "PAL line rate");
+    }
+
+    /// Z10's second half divides lines by 8; Z11 is cleared at 39 by the AND on
+    /// `N`,`O`,`P` gated with `S`. 8 x 39 = 312.
+    #[test]
+    fn the_frame_is_eight_times_the_z11_terminal_count() {
+        assert_eq!(LINES_PER_FRAME, 8 * 39);
+        assert_eq!(TSTATES_PER_FRAME, 64_896);
     }
 }
