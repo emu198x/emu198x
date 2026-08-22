@@ -45,6 +45,40 @@ pub use video::{FB_HEIGHT, FB_WIDTH, Zx81Video};
 use serde::{Deserialize, Serialize};
 use zilog_z80::z80::{BusOp, Z80};
 
+/// The EAR level the port reports with nothing plugged in.
+const fn ear_idle() -> bool {
+    true
+}
+
+/// Which television standard the board is strapped for.
+///
+/// The strap reads back on **bit 6** of the keyboard port. The ROM checks it
+/// after scanning the keys and sets `MARGIN` ($4028) from it: high gives
+/// `$37` (55), the 50 Hz frame margin; low gives `$1F` (31) for 60 Hz. That
+/// one strap is the whole of the difference as far as the ROM is concerned,
+/// and grounding it is what the American board does.
+///
+/// Named for the strap rather than PAL/NTSC because the ZX81 has no colour
+/// system to differ about -- only the frame rate changes.
+///
+/// # On the bit number
+///
+/// *The Ins and Outs of the TS1000 & ZX81* (Thomasson, p42) puts this on bit
+/// 5 and calls bit 6 a "tape data available" flag. The shipped ROM disagrees:
+/// driving each of bits 5, 6 and 7 independently across all eight
+/// combinations moves `MARGIN` with **bit 6 alone**, and bits 5 and 7 have no
+/// effect on it. The ROM is Sinclair's own and decides what it reads, so it
+/// is taken as the authority here. See `zx81_margin_follows_bit_6` and
+/// `reference/by-system/sinclair-zx81/verification.md`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum TelevisionStandard {
+    /// Strap high -- 50 Hz. The British board.
+    #[default]
+    FiftyHz,
+    /// Strap grounded -- 60 Hz. The American board.
+    SixtyHz,
+}
+
 /// Sinclair ZX81 machine.
 #[derive(Serialize, Deserialize)]
 pub struct Zx81 {
@@ -58,6 +92,14 @@ pub struct Zx81 {
     frame_count: u64,
     /// `/REFRESH` last T-state, so its rising edge can be seen.
     prev_rfsh: bool,
+    /// Board strap, read back on port bit 6.
+    #[serde(default)]
+    television_standard: TelevisionStandard,
+    /// Cassette EAR level, read back on port bit 7. No cassette path drives
+    /// this yet; its idle level is unverified, so it keeps the value the port
+    /// has always returned.
+    #[serde(default = "ear_idle")]
+    ear_input: bool,
     /// When `Some`, every I/O port access is appended here (debug trace).
     #[serde(skip)]
     io_trace: Option<Vec<IoEvent>>,
@@ -85,8 +127,57 @@ impl Zx81 {
             master_clock: 0,
             frame_count: 0,
             prev_rfsh: false,
+            television_standard: TelevisionStandard::default(),
+            ear_input: ear_idle(),
             io_trace: None,
         })
+    }
+
+    /// Assemble a read of the keyboard port.
+    ///
+    /// | Bit | Source |
+    /// |---|---|
+    /// | 0-4 | Keyboard half-row, active low |
+    /// | 5 | Not driven -- reads high |
+    /// | 6 | Television-standard strap |
+    /// | 7 | Cassette EAR level |
+    ///
+    /// Bits 6 and 7 used to be forced high with bit 5, so the machine could
+    /// not report its own strap: every ZX81 was a 50 Hz one whatever profile
+    /// it claimed.
+    fn read_keyboard_port(&self, addr_high: u8) -> u8 {
+        let mut value = self.keyboard.read(addr_high) & 0x1F | 0x20;
+        if self.television_standard == TelevisionStandard::FiftyHz {
+            value |= 0x40;
+        }
+        if self.ear_input {
+            value |= 0x80;
+        }
+        value
+    }
+
+    /// The board's television-standard strap.
+    #[must_use]
+    pub fn television_standard(&self) -> TelevisionStandard {
+        self.television_standard
+    }
+
+    /// Strap the board for 50 Hz or 60 Hz. The ROM reads this on its next
+    /// keyboard scan and sets `MARGIN` from it.
+    pub fn set_television_standard(&mut self, standard: TelevisionStandard) {
+        self.television_standard = standard;
+    }
+
+    /// The cassette EAR level the port reports.
+    #[must_use]
+    pub fn ear_input(&self) -> bool {
+        self.ear_input
+    }
+
+    /// Drive the cassette EAR input, which the ROM polls on bit 7 during
+    /// `LOAD`.
+    pub fn set_ear_input(&mut self, level: bool) {
+        self.ear_input = level;
     }
 
     pub fn run_frame(&mut self) -> u64 {
@@ -230,7 +321,7 @@ impl Zx81 {
             // one port, two jobs, which is why the ROM's vertical interval is
             // a keyboard read it does not care about the answer to.
             self.video.vsync_start();
-            return self.keyboard.read((port >> 8) as u8);
+            return self.read_keyboard_port((port >> 8) as u8);
         }
         0xFF
     }
@@ -391,6 +482,55 @@ mod tests {
         let restored: Zx81 = postcard::from_bytes(&first).expect("decode first");
         let reencoded = postcard::to_allocvec(&restored).expect("re-encode restored");
         assert_eq!(first, reencoded, "round-trip must be byte-identical");
+    }
+
+    /// The non-keyboard half of the port, bit by bit.
+    ///
+    /// Bit 5 is not driven and reads high. Bit 6 is the strap and bit 7 the
+    /// EAR line — which bit is which was settled against the shipped ROM, see
+    /// `zx81_margin_follows_bit_6` in `tests/rom_boot.rs`.
+    #[test]
+    fn the_port_upper_bits_carry_the_strap_and_the_ear_line() {
+        let mut machine = Zx81::new(trap_rom(), 1024).expect("machine");
+
+        // No keys pressed, 50 Hz strap, EAR idle high: the historical 0xFF.
+        assert_eq!(machine.read_keyboard_port(0x00), 0xFF);
+
+        machine.set_television_standard(TelevisionStandard::SixtyHz);
+        assert_eq!(
+            machine.read_keyboard_port(0x00),
+            0xBF,
+            "a 60 Hz strap must pull bit 6 low and touch nothing else",
+        );
+
+        machine.set_ear_input(false);
+        assert_eq!(
+            machine.read_keyboard_port(0x00),
+            0x3F,
+            "a low EAR line must pull bit 7 low and touch nothing else",
+        );
+
+        machine.set_television_standard(TelevisionStandard::FiftyHz);
+        assert_eq!(machine.read_keyboard_port(0x00), 0x7F);
+
+        // Bit 5 is never driven low.
+        for standard in [TelevisionStandard::FiftyHz, TelevisionStandard::SixtyHz] {
+            machine.set_television_standard(standard);
+            assert_eq!(machine.read_keyboard_port(0x00) & 0x20, 0x20);
+        }
+    }
+
+    /// The keyboard bits still work, and the upper bits do not disturb them.
+    #[test]
+    fn the_strap_does_not_disturb_the_keyboard_bits() {
+        let mut machine = Zx81::new(trap_rom(), 1024).expect("machine");
+        machine.press_key(Zx81Key::Shift);
+        let fifty = machine.read_keyboard_port(0xFE) & 0x1F;
+
+        machine.set_television_standard(TelevisionStandard::SixtyHz);
+        machine.set_ear_input(false);
+        assert_eq!(machine.read_keyboard_port(0xFE) & 0x1F, fifty);
+        assert_ne!(fifty, 0x1F, "Shift should read as a pressed key");
     }
 }
 
