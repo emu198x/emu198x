@@ -344,6 +344,24 @@ impl Zx80 {
         self.tape_out.take().unwrap_or_default()
     }
 
+    /// Pixels the CPU generated this frame.
+    ///
+    /// The question this answers cannot be asked of the framebuffer, and on
+    /// this machine it is the first question worth asking. A ZX80 has no
+    /// frame buffer: video exists only while the processor is executing
+    /// forced `NOP`s through the display file, so a blank screen means either
+    /// that the picture is blank or that no picture was generated at all —
+    /// and those are entirely different faults. Zero here is the second.
+    ///
+    /// #1050 is why this is public. Establishing that *Cross Chase*'s 16K
+    /// build never asks for a display, while its 8K build paints all 49,152
+    /// pixels of one under the same emulator, needed a counter patched into
+    /// the crate. It should not have.
+    #[must_use]
+    pub fn painted_pixels(&self) -> u32 {
+        self.video.painted_pixels()
+    }
+
     #[must_use]
     pub fn framebuffer(&self) -> &[u32] {
         self.video.framebuffer()
@@ -467,6 +485,28 @@ mod tests {
         assert_eq!(sys.io_read(0xFDFE) & 0x01, 0x00);
         sys.release_key(Zx80Key::A);
         assert_eq!(sys.io_read(0xFDFE) & 0x01, 0x01);
+    }
+
+    /// The distinction #1050 turned on: a machine that generated no picture
+    /// reads zero here, and a blank framebuffer cannot tell you that on its
+    /// own.
+    #[test]
+    fn painted_pixels_counts_only_what_the_cpu_generated() {
+        // A ROM of `jr $` never reaches a display file, so it paints nothing
+        // however long it runs — and the framebuffer looks exactly as it
+        // would for a machine drawing a blank screen.
+        let mut rom = vec![0x00u8; 0x1000];
+        rom[0] = 0x18;
+        rom[1] = 0xFE;
+        let mut sys = Zx80::new(rom, 16 * 1024).expect("init");
+        for _ in 0..4 {
+            sys.run_frame();
+        }
+        assert_eq!(
+            sys.painted_pixels(),
+            0,
+            "a machine spinning in its own code generates no video"
+        );
     }
 
     #[test]
