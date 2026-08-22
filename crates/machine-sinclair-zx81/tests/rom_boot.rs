@@ -4,7 +4,7 @@ use std::env;
 use std::fs;
 use std::path::PathBuf;
 
-use machine_sinclair_zx81::{Zx81, Zx81Key};
+use machine_sinclair_zx81::{TelevisionStandard, Zx81, Zx81Key};
 
 fn rom_path() -> Option<PathBuf> {
     if let Ok(p) = env::var("EMU198X_ZX81_ROM") {
@@ -204,6 +204,57 @@ fn every_letter_types_its_keyword() {
             read_row(&sys, 23).trim_end(),
             format!("{keyword} L"),
             "{keyword} should have been typed"
+        );
+    }
+}
+
+/// The strap is on bit 6, and the ROM proves which bit that is.
+///
+/// `MARGIN` ($4028) is the one system variable the television-standard strap
+/// sets: `$37` (55) for a 50 Hz frame, `$1F` (31) for 60 Hz. Driving each of
+/// the three non-keyboard bits independently across all eight combinations
+/// moves `MARGIN` with **bit 6 alone** — bits 5 and 7 never change it.
+///
+/// This is the test that settled the bit number. Thomasson's hardware manual
+/// (p42) puts the strap on bit 5 and calls bit 6 "tape data available"; the
+/// shipped ROM disagrees, and the ROM is Sinclair's own.
+///
+/// It also pins the regression the old model had: with bits 5-7 hardwired
+/// high, every ZX81 reported 50 Hz whatever it was strapped for.
+#[test]
+#[ignore = "needs an 8 KB ZX81 ROM — run with --ignored"]
+fn zx81_margin_follows_bit_6() {
+    const MARGIN: u16 = 0x4028;
+    const FIFTY_HZ_MARGIN: u8 = 55;
+    const SIXTY_HZ_MARGIN: u8 = 31;
+
+    let Some(path) = rom_path() else {
+        emu198x_test_skip::skip!(
+            "ZX81 ROM not staged — set EMU198X_ZX81_ROM or place zx81.rom at ~/.emu198x/roms/sinclair-zx81/"
+        );
+    };
+    let rom = fs::read(&path).expect("read ROM");
+
+    let settled = |standard, ear| {
+        let mut machine = Zx81::new(rom.clone(), 16384).expect("machine");
+        machine.set_television_standard(standard);
+        machine.set_ear_input(ear);
+        for _ in 0..250 {
+            machine.run_frame();
+        }
+        machine.peek_memory(MARGIN)
+    };
+
+    for ear in [false, true] {
+        assert_eq!(
+            settled(TelevisionStandard::FiftyHz, ear),
+            FIFTY_HZ_MARGIN,
+            "a 50 Hz strap must give MARGIN 55 regardless of the EAR line",
+        );
+        assert_eq!(
+            settled(TelevisionStandard::SixtyHz, ear),
+            SIXTY_HZ_MARGIN,
+            "a 60 Hz strap must give MARGIN 31 regardless of the EAR line",
         );
     }
 }
