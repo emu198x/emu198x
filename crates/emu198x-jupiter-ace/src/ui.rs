@@ -18,9 +18,10 @@ use runtime_jupiter_ace::{JupiterAceRuntime, Model};
 const DEFAULT_SCALE: u32 = 3;
 /// Z80A @ 3.25 MHz, ~50 Hz PAL → ~65,000 t-states/frame, matching the
 /// headless runner's `FRAME_TICKS`.
-// Keep <= the machine's run_frame() size, or the harness runs two machine
-// frames per displayed frame (~2x too fast). See docs/status/ui-boot-verification.
-const FRAME_TICKS: u64 = 64_584;
+// Derived from the machine so it cannot drift: a budget longer than
+// run_frame() makes the harness run two machine frames per displayed frame
+// (~2x too fast). See docs/status/ui-boot-verification.
+const FRAME_TICKS: u64 = machine_jupiter_ace::TSTATES_PER_FRAME as u64;
 const PAL_FRAME_HZ: f64 = 50.0;
 const ROM_SIZE: usize = 8192;
 

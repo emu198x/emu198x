@@ -9,7 +9,7 @@ use machine_jupiter_ace::TSTATES_PER_FRAME;
 use runtime_jupiter_ace::{JupiterAceRuntime, JupiterAceSessionQueryProvider, Model};
 
 // One exact display frame. A rounded 65,000-tick budget is longer than the
-// 64,584-tick machine frame, so `run_frames(1)` would execute two frames.
+// 64,896-tick machine frame, so `run_frames(1)` would execute two frames.
 const FRAME_TICKS: u64 = TSTATES_PER_FRAME as u64;
 
 /// Runs MCP mode. Starts blank — ROM arrives via firmware load.

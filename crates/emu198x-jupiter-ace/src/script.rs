@@ -9,10 +9,11 @@ use emu198x_shell::{HeadlessScript, HeadlessSession, MediaSet, ScriptObservation
 use runtime_jupiter_ace::{JupiterAceRuntime, JupiterAceSessionQueryProvider, Model};
 use serde_json::json;
 
-// Z80 @ 3.25 MHz, ~50 Hz PAL → ~65,000 t-states/frame.
-// Keep <= the machine's run_frame() size, or the harness runs two machine
-// frames per displayed frame (~2x too fast). See docs/status/ui-boot-verification.
-const FRAME_TICKS: u64 = 64_584;
+// Z80 @ 3.25 MHz PAL: 312 lines x 208 T-states = 64,896 T-states/frame.
+// Derived from the machine so it cannot drift: a budget longer than
+// run_frame() makes the harness run two machine frames per displayed frame
+// (~2x too fast). See docs/status/ui-boot-verification.
+const FRAME_TICKS: u64 = machine_jupiter_ace::TSTATES_PER_FRAME as u64;
 
 const USAGE: &str = "\
 Usage: emu198x-jupiter-ace [OPTIONS]
