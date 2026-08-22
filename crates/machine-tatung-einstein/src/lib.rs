@@ -53,18 +53,39 @@
 //!
 //! # I/O map
 //!
-//! ⚠ **Only `$24` is verified from Tatung documentation** — it is the single
-//! hex port address printed anywhere in the 70-page service manual, which
-//! names every other port by its decoded signal (`KYBDINTMSK`, `ADCINTMSK`,
-//! `DRSEL`, `VDP`, `FDC`, `PSG`, `CTC`) because it documents the machine for
-//! servicing, not for programming.
+//! The Einstein decodes the whole port space into blocks, and the manual
+//! documents every one [HW §3.2.3-3.2.4]. Our summary of what it assigns:
 //!
-//! The rest of this map is **corroborated, not verified**: HW §3.2.3-3.2.4
-//! decodes peripherals onto eight-port blocks via I026, with one block
-//! sub-decoded by A0-A2 through I027 — and these addresses land exactly on
-//! that structure, `$20-$27` holding the four single-bit latches it predicts.
-//! The values themselves came from MAME's `tatung/einstein.cpp`. Tatung's own
-//! circuit diagram would settle them. See `verification.md`.
+//! | Block | Device |
+//! |---|---|
+//! | `$00-$07` | PSG |
+//! | `$08-$0F` | VDP |
+//! | `$10-$17` | PCI (serial) |
+//! | `$18-$1F` | FDC |
+//! | `$20` | keyboard-interrupt mask |
+//! | `$21` | ADC-interrupt mask |
+//! | `$22` | ALPH |
+//! | `$23` | drive select |
+//! | `$24` | ROM page |
+//! | `$25` | fire-button-interrupt mask |
+//! | `$26-$27` | unused |
+//! | `$28-$2F` | CTC |
+//! | `$30-$37` | PIO |
+//! | `$38-$3F` | ADC |
+//!
+//! Every port below sits in its documented block. ⚠ **Six decoded blocks are
+//! not implemented**: PCI (`$10-$17`), the ADC-interrupt mask (`$21`), ALPH
+//! (`$22`), the fire-button-interrupt mask (`$25`), PIO (`$30-$37`) and the
+//! ADC (`$38-$3F`).
+//!
+//! ⚠ An earlier version of this comment claimed `$24` was the only port
+//! address printed anywhere in the manual, and marked the rest
+//! corroborated-from-MAME. That was wrong, and instructively so: the signal
+//! names it listed as evidence — `KYBDINTMSK`, `ADCINTMSK`, `DRSEL`, `VDP`,
+//! `FDC`, `PSG`, `CTC` — are the device names the decode documentation
+//! assigns. OCR had dropped the addresses beside them, so the surviving half
+//! read as prose. See
+//! `reference/by-system/tatung-einstein/verification.md`.
 //!
 //! | Port  | R/W   | Function                                       |
 //! |-------|-------|------------------------------------------------|
