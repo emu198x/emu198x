@@ -11,10 +11,17 @@ use emu198x_shell::{
 };
 use runtime_tatung_einstein::{EinsteinRuntime, EinsteinSessionQueryProvider, Model};
 
-// Stay below the TMS9918A's approximately 79,746-T-state PAL frame. The
-// frame-granular runtime always finishes the current frame, so an 80,000-tick
-// request crossed the next boundary and emitted two frames per MCP call.
-const FRAME_TICKS_PAL: u64 = 79_700;
+// The frame-granular runtime always finishes the current frame, so a budget
+// longer than one frame crosses the next boundary and emits two frames per
+// MCP call. The old 80,000-tick nominal (4 MHz / 50 Hz) did exactly that.
+//
+// The VDP is clocked from the CPU through a rational accumulator, so the PAL
+// frame alternates 79,747 and 79,746 T-states -- 79,746.5 on average, with no
+// exact integer period. Take the floor: every real frame is then at least as
+// long as the budget, so `run_frames(n)` never overshoots, and the half-tick
+// shortfall only costs a frame once it accumulates past one full frame
+// (n > 159,492, roughly 53 minutes of emulated time).
+const FRAME_TICKS_PAL: u64 = 79_746;
 
 /// Runs MCP mode.
 ///
@@ -95,6 +102,36 @@ mod tests {
         assert_eq!(
             session.machine().machine().expect("machine").frame_count(),
             4
+        );
+    }
+
+    /// The budget must be the *largest* value that still never overshoots:
+    /// equal to the shortest real frame. Any larger and `run_frames(n)`
+    /// crosses a boundary and emits n+1 frames; any smaller and the per-frame
+    /// shortfall eventually swallows a whole frame on a long run.
+    #[test]
+    fn native_budget_equals_the_shortest_real_frame() {
+        let runtime =
+            EinsteinRuntime::new(Model::Einstein, vec![0; 8 * 1024]).expect("valid test ROM");
+        let mut session = HeadlessSession::new(runtime, FRAME_TICKS_PAL);
+
+        let mut shortest = u64::MAX;
+        for expected in 1..=4 {
+            let before = session.time().0;
+            session.run_frames(1).expect("one frame");
+            // Each call must advance exactly one frame, so the elapsed tick
+            // count is that frame's true length.
+            assert_eq!(
+                session.machine().machine().expect("machine").frame_count(),
+                expected,
+                "budget {FRAME_TICKS_PAL} crossed a frame boundary",
+            );
+            shortest = shortest.min(session.time().0 - before);
+        }
+
+        assert_eq!(
+            FRAME_TICKS_PAL, shortest,
+            "budget should equal the shortest real frame",
         );
     }
 }
