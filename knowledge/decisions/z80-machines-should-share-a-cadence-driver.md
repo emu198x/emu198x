@@ -84,7 +84,7 @@ the wrong unit. Every implementation maps `step_tick` to one machine T-state,
 which advances the pin-level Z80 by two half-cycle calls. The shared shell adds
 the returned count to T-state-denominated `MachineTime`.
 
-Commit `dfe3182b` defines the public contract as one machine-native CPU timing
+Commit `61a2ae75` defines the public contract as one machine-native CPU timing
 unit and records that every current implementation uses one Z80 T-state. It
 also adds the previously missing Jupiter Ace `NOP = 4 T-states` regression, so
 all twelve shared-stepper machines now pin the unit directly. The proposed
