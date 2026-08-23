@@ -2,9 +2,10 @@
 
 use emu198x_shell::{
     AudioPacket, CapabilitySet, ControlCommand, FirmwareSet, FramePacket, HostIo, MachineCore,
-    MachineError, MachineProfile, MachineTime, MediaSet, PixelFormat, ResetKind, RunResult,
-    StopReason,
+    MachineError, MachineProfile, MachineTime, MediaKind, MediaSet, MediaTransportAction,
+    PixelFormat, ResetKind, RunResult, StopReason,
 };
+use format_sinclair_zx81_p::Zx81Image;
 use machine_sinclair_zx81::Zx81;
 
 use crate::input::apply_input_event;
@@ -19,6 +20,12 @@ const ROM_SIZE: usize = 8 * 1024;
 const AUDIO_SAMPLE_RATE: u32 = 48_000;
 const DEFAULT_RAM_BYTES: usize = 1024;
 
+/// The tape slot this runtime answers for, matching the profile.
+const TAPE_SLOT: &str = "tape-1";
+
+/// ZX81 character code for `A`, used as the name in a generated waveform.
+const TAPE_NAME: u8 = 0x26;
+
 pub struct Zx81Runtime {
     profile: MachineProfile,
     model: Model,
@@ -29,6 +36,8 @@ pub struct Zx81Runtime {
     rgba_framebuffer: Vec<u8>,
     rgba_width: u32,
     rgba_height: u32,
+    /// The threaded tape's waveform, waiting for PLAY.
+    tape: Option<Vec<u64>>,
 }
 
 impl Zx81Runtime {
@@ -44,6 +53,7 @@ impl Zx81Runtime {
             rgba_framebuffer: Vec::new(),
             rgba_width: 0,
             rgba_height: 0,
+            tape: None,
         }
     }
 
@@ -201,7 +211,24 @@ impl MachineCore for Zx81Runtime {
         self.time = MachineTime::default();
     }
 
-    fn load_media(&mut self, _media: &MediaSet<'_>) -> Result<(), MachineError> {
+    /// Threads a `.p` image onto the deck. It does not start playing: the
+    /// ROM has to be sitting in `LOAD` first, so PLAY is a separate press.
+    fn load_media(&mut self, media: &MediaSet<'_>) -> Result<(), MachineError> {
+        for image in &media.images {
+            if image.kind != MediaKind::Tape {
+                return Err(MachineError::UnknownMediaSlot {
+                    slot: image.slot.as_ref().to_owned(),
+                });
+            }
+            let parsed =
+                Zx81Image::parse(image.bytes).map_err(|error| MachineError::InvalidMedia {
+                    slot: image.slot.as_ref().to_owned(),
+                    reason: error.to_string(),
+                })?;
+            // A one-character name. `LOAD ""` takes whatever it finds, but the
+            // stream still needs a name for the ROM to read past.
+            self.tape = Some(parsed.to_pulses(&[TAPE_NAME]));
+        }
         Ok(())
     }
 
@@ -257,10 +284,46 @@ impl MachineCore for Zx81Runtime {
         snapshot::decode(self, bytes)
     }
 
+    /// Presses PLAY or STOP on the cassette deck.
+    ///
+    /// `Start` threads the loaded waveform on from its beginning, lead-in
+    /// first. Rewinding on every press is what a `.p` deck does -- the image
+    /// is one program, not a position on a longer tape.
     fn command(&mut self, command: &ControlCommand) -> Result<(), MachineError> {
-        Err(MachineError::UnsupportedOperation {
-            operation: command.operation_name(),
-        })
+        let ControlCommand::MediaTransport(transport) = command else {
+            return Err(MachineError::UnsupportedOperation {
+                operation: command.operation_name(),
+            });
+        };
+        if transport.slot.as_ref() != TAPE_SLOT {
+            return Err(MachineError::UnknownMediaSlot {
+                slot: transport.slot.as_ref().to_owned(),
+            });
+        }
+        let machine = self
+            .machine
+            .as_mut()
+            .ok_or_else(|| MachineError::MissingFirmware {
+                id: ROM_FIRMWARE_ID.to_owned(),
+            })?;
+        match transport.action {
+            MediaTransportAction::Start => {
+                let pulses =
+                    self.tape
+                        .as_deref()
+                        .ok_or_else(|| MachineError::UnknownMediaSlot {
+                            slot: TAPE_SLOT.to_owned(),
+                        })?;
+                machine.insert_tape(pulses);
+            }
+            MediaTransportAction::Stop => machine.eject_tape(),
+            _ => {
+                return Err(MachineError::UnsupportedOperation {
+                    operation: command.operation_name(),
+                });
+            }
+        }
+        Ok(())
     }
 
     /// Two pixels per 3.25 MHz T-state, over the set's active lines.

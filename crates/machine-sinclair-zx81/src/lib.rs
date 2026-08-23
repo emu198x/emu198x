@@ -136,11 +136,23 @@ pub struct Zx81 {
     /// Board strap, read back on port bit 6.
     #[serde(default)]
     television_standard: TelevisionStandard,
-    /// Cassette EAR level, read back on port bit 7. No cassette path drives
-    /// this yet; its idle level is unverified, so it keeps the value the port
-    /// has always returned.
+    /// Cassette EAR level with no tape threaded, read back on port bit 7.
+    /// Its idle level is unverified, so it keeps the value the port has
+    /// always returned.
     #[serde(default = "ear_idle")]
     ear_input: bool,
+    /// Absolute master-clock times at which the cassette line transitions.
+    /// Even index means the line goes one way, odd the other, so the level is
+    /// simply the parity of how many have passed.
+    #[serde(default)]
+    tape_in: Vec<u64>,
+    /// How far through `tape_in` playback has got.
+    #[serde(default)]
+    tape_pos: usize,
+    /// When recording, the times at which the ROM touched a port. The ZX81
+    /// has no cassette data register -- the bus access *is* the signal.
+    #[serde(default)]
+    tape_out: Option<Vec<u64>>,
     /// When `Some`, every I/O port access is appended here (debug trace).
     #[serde(skip)]
     io_trace: Option<Vec<IoEvent>>,
@@ -170,6 +182,9 @@ impl Zx81 {
             prev_rfsh: false,
             television_standard: TelevisionStandard::default(),
             ear_input: ear_idle(),
+            tape_in: Vec::new(),
+            tape_pos: 0,
+            tape_out: None,
             io_trace: None,
         })
     }
@@ -186,15 +201,69 @@ impl Zx81 {
     /// Bits 6 and 7 used to be forced high with bit 5, so the machine could
     /// not report its own strap: every ZX81 was a 50 Hz one whatever profile
     /// it claimed.
-    fn read_keyboard_port(&self, addr_high: u8) -> u8 {
+    fn read_keyboard_port(&mut self, addr_high: u8) -> u8 {
         let mut value = self.keyboard.read(addr_high) & 0x1F | 0x20;
         if self.television_standard == TelevisionStandard::FiftyHz {
             value |= 0x40;
         }
-        if self.ear_input {
+        if self.ear_level() {
             value |= 0x80;
         }
         value
+    }
+
+    /// The cassette line's level now. A threaded tape drives it; otherwise it
+    /// sits at whatever `set_ear_input` last said.
+    fn ear_level(&mut self) -> bool {
+        if self.tape_in.is_empty() {
+            return self.ear_input;
+        }
+        while self
+            .tape_in
+            .get(self.tape_pos)
+            .is_some_and(|&edge| edge <= self.master_clock)
+        {
+            self.tape_pos += 1;
+        }
+        self.tape_pos % 2 == 1
+    }
+
+    /// Notes a bus access while recording. `SAVE` emits each pulse as an
+    /// `OUT` followed by an `IN`, so the times of those accesses are the
+    /// waveform.
+    fn record_tape_edge(&mut self) {
+        if let Some(out) = &mut self.tape_out {
+            out.push(self.master_clock);
+        }
+    }
+
+    /// Threads a tape. `edges` are transition times relative to now.
+    pub fn insert_tape(&mut self, edges: &[u64]) {
+        let start = self.master_clock;
+        self.tape_in = edges.iter().map(|e| start.saturating_add(*e)).collect();
+        self.tape_pos = 0;
+    }
+
+    /// Lifts the tape off.
+    pub fn eject_tape(&mut self) {
+        self.tape_in.clear();
+        self.tape_pos = 0;
+    }
+
+    /// Edges left to play.
+    #[must_use]
+    pub fn tape_remaining(&self) -> usize {
+        self.tape_in.len().saturating_sub(self.tape_pos)
+    }
+
+    /// Starts recording the cassette output.
+    pub fn start_tape_recording(&mut self) {
+        self.tape_out = Some(Vec::new());
+    }
+
+    /// Stops recording and returns the edge times, in master clocks.
+    pub fn take_tape_recording(&mut self) -> Vec<u64> {
+        self.tape_out.take().unwrap_or_default()
     }
 
     /// The board's television-standard strap.
@@ -357,6 +426,9 @@ impl Zx81 {
     }
 
     fn io_read(&mut self, port: u16) -> u8 {
+        // Reading the bus is also how the ROM drives the cassette output one
+        // way: `SAVE` emits each pulse as an `OUT` followed by an `IN`.
+        self.record_tape_edge();
         if port & 0x01 == 0 {
             // The same read that scans the keyboard starts the vertical sync:
             // one port, two jobs, which is why the ROM's vertical interval is
@@ -368,6 +440,7 @@ impl Zx81 {
     }
 
     fn io_write(&mut self, port: u16, _value: u8) {
+        self.record_tape_edge();
         // OUT to even port enables NMI generator; OUT with bit 1 clear
         // disables it. SLOW and FAST: with the generator off there is no line
         // clock, so the ROM never enters the display routine and the picture
