@@ -37,7 +37,12 @@ const CHARS: [&str; 64] = [
 
 /// The visible 32x24 character area within the 320x240 framebuffer.
 const ORIGIN_X: usize = 32;
-const ORIGIN_Y: usize = 24;
+/// Framebuffer row the text area starts on.
+///
+/// Was a literal 24, fitted to a 240-line window and left behind when the
+/// window became the 288 a set shows. Taken from the video module now, so it
+/// cannot drift again — see #1116.
+const ORIGIN_Y: usize = machine_sinclair_zx80::TEXT_TOP as usize;
 const INK: u32 = 0xFF00_0000;
 
 fn rom_path() -> Option<PathBuf> {

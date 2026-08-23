@@ -33,7 +33,7 @@ mod keyboard;
 pub use input::Zx80Key;
 pub use keyboard::KeyboardState;
 mod video;
-pub use video::{FB_HEIGHT, FB_WIDTH, Zx80Video};
+pub use video::{FB_HEIGHT, FB_WIDTH, TEXT_TOP, Zx80Video};
 
 use serde::{Deserialize, Serialize};
 use zilog_z80::z80::{BusOp, Z80};

@@ -42,10 +42,12 @@ is where the rule stops short of being mechanical. What settles a position is
 the chip's own timing measured from sync; see *Position, checked against the
 chips* below for the pass that did that across the fleet.
 
-Vertically the ZX80 anchors honestly: frame line 0 is the end of the vertical
-sync pulse, so the vertical interval that follows it is what a set blanks —
-312 lines less 24 is 288, and the arithmetic closes without borrowing a figure
-from anywhere else.
+Vertically the ZX80 looked as though it anchored honestly: frame line 0 is the
+end of the vertical sync pulse, so the interval that follows it is what a set
+blanks, and 312 less 24 is 288. The arithmetic closed. The machine does not
+emit 312 lines — it emits 310 — so the subtraction was against a figure
+borrowed from a broadcast field rather than taken from this one. See *The ZX8x:
+subtracting from a frame the machine never emits* below.
 
 Horizontally it does not. `FIRST_CHAR_TSTATE` is a fitted constant, calibrated
 to place the picture inside a window we had already chosen, so deriving a
@@ -408,6 +410,54 @@ picture where it sits. Our VIC-I ignores both and draws at a fixed border, so
 asking where its window sits is asking the wrong question until the registers
 are honoured. Filed rather than guessed.
 
+## The ZX8x: subtracting from a frame the machine never emits
+
+Both Sinclair machines placed their window at `LINES_PER_FRAME - FB_HEIGHT`,
+which is 24. It read as a derivation and it was not one.
+
+`LINES_PER_FRAME` is 312 in both crates, and in both it is a free-run ceiling —
+the bound that stops `run_frame` hanging on firmware that never syncs. Neither
+machine emits it. Sinclair's ROMs emit **310 lines**: the ZX80's frame measures
+64,167 T-states and the ZX81's 64,163, which at 207 a line is 310.0 for both.
+`reference/by-system/sinclair-zx80/zx80-video-generation-tynemouth.txt`
+tabulates the UK field outright — 6 lines of sync, 56 of pad, 192 of text, 56
+of pad, 310 in total.
+
+So the placement was arithmetic on a number from somewhere else, and it put the
+text area 16 lines high in the window.
+
+**What settles it is the pad, and the pad is the ROM's.** These machines have
+no video chip to scan a picture relative to sync; the pad *is* the timing
+measured from sync, because frame line 0 is where the sync pulse ends and the
+pad is what the ROM counts out before the first character row. The check that
+the pad is placing the picture in the *set's* window, rather than merely
+existing, is that it is region-selected in exact proportion to the region's
+active-line count:
+
+| | UK / 50 Hz | USA / 60 Hz | Difference |
+|---|---|---|---|
+| ZX80 pad, per Tynemouth | 56 | 32 | 24 |
+| ZX81 `MARGIN` (`$4028`) | 55 | 31 | 24 |
+| Lines a set shows | 288 | 240 | 48 |
+
+Twenty-four is exactly half of forty-eight. Each machine pads to its own
+region's active area plus the same small overscan allowance, on both sides.
+That is a statement about where the source puts the picture relative to its own
+sync — the thing this section demands — and it happens to mean the window is
+centred on the text area. Centring is the conclusion here, not the assumption.
+
+Both crates now derive it: `FIRST_VISIBLE_LINE = FIRST_TEXT_LINE -
+(FB_HEIGHT - TEXT_LINES) / 2`, with `FIRST_TEXT_LINE` the ROM's pad. The
+cursor moves from framebuffer row 216 to 232 on both machines.
+
+Two things this does not settle. The ZX81's `MARGIN` reads 55 where the model
+emits 56 — a one-line question, filed as #1118 rather than picked. And none of
+this is an external capture: it is a reference, a measurement of our own field
+length, and a proportion. #295 and #297 still want EightyOne or zxsp.
+
+The horizontal axis is untouched and still fitted; `FIRST_CHAR_TSTATE` remains
+what the section above says it is.
+
 ## Defects the audit surfaced
 
 - **The Amiga stated no display at all.** `AmigaRuntimeKind` forwards
@@ -478,3 +528,14 @@ Re-read this entry when you catch yourself writing:
 - fixing one axis of a geometry constant without looking at the other, which is
   how a horizontal border survived four visits to the file that corrected the
   vertical one
+- a window position written as `FRAME_LINES - VISIBLE_LINES` without checking
+  that the machine emits `FRAME_LINES` — on the ZX8x it emitted 310 and the
+  constant said 312
+- a frame-length constant doing two jobs: a free-run ceiling for firmware that
+  never syncs is not a field length, and geometry derived from it is derived
+  from nothing
+- a software-timed machine given a fixed-raster machine's reasoning because the
+  numbers are the same shape
+- geometry copied into a test as a literal rather than imported — five ZX8x
+  tests each held their own copy of the text area's top, every one fitted to a
+  framebuffer height that had since changed

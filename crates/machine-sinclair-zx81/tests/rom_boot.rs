@@ -82,7 +82,10 @@ fn read_row(sys: &Zx81, row: usize) -> String {
     let fb = sys.framebuffer();
     let width = sys.framebuffer_width() as usize;
     let i = u16::from(sys.cpu().regs.i);
-    let top = 32 + row * 8;
+    // Taken from the video module rather than written out: a literal here is
+    // a second copy of its geometry and goes stale the moment that one moves,
+    // which is #1116.
+    let top = machine_sinclair_zx81::TEXT_TOP as usize + row * 8;
 
     (0..32)
         .map(|col| {
@@ -295,4 +298,43 @@ fn the_frame_budget_never_exceeds_a_real_frame() {
             "{standard:?}: the backstop is the longest frame, not a budget",
         );
     }
+}
+
+/// The field is 310 lines, which is the figure the picture's placement rests
+/// on.
+///
+/// It matters because it is *not* 312. Both crates carry `LINES_PER_FRAME =
+/// 312` as a free-run ceiling for firmware that never syncs, and the visible
+/// window used to be placed at `312 - 288`. Nothing emits 312:
+/// `reference/by-system/sinclair-zx80/zx80-video-generation-tynemouth.txt`
+/// tabulates the UK field as 6 sync + 56 pad + 192 text + 56 pad, and this is
+/// the measurement that agrees with it. See #1116.
+#[test]
+#[ignore = "needs an 8 KB ZX81 ROM — run with --ignored"]
+fn the_field_is_310_lines() {
+    let Some(path) = rom_path() else {
+        emu198x_test_skip::skip!(
+            "EMU198X_ZX81_ROM or place zx81.rom at ~/.emu198x/roms/sinclair-zx81/"
+        );
+    };
+    let rom = fs::read(&path).expect("read ROM");
+    let mut sys = Zx81::new(rom, 16384).expect("init");
+    for _ in 0..400 {
+        sys.run_frame();
+    }
+
+    // One line is 207 T-states. Rounded, because the ROM's loop does not land
+    // on an exact multiple and the fraction is not the claim.
+    const LINE_T: u64 = 207;
+    let field = sys.run_frame();
+    let lines = (field as f64 / LINE_T as f64).round() as u64;
+    assert_eq!(
+        lines, 310,
+        "the ROM should emit a 310-line field; {field} T-states is {lines}"
+    );
+    assert!(
+        field.abs_diff(310 * LINE_T) < LINE_T / 2,
+        "and land within half a line of it; {field} against {}",
+        310 * LINE_T
+    );
 }
