@@ -13,6 +13,7 @@ sinclair-zx81-ula = { path = "../sinclair-zx81-ula", version = "0.5.0" }
 zilog-z80 = { path = "../zilog-z80", version = "0.5.0" }
 
 [dev-dependencies]
+png = { workspace = true }
 format-sinclair-zx81-p = { path = "../format-sinclair-zx81-p" }
 emu198x-test-skip = { path = "../emu198x-test-skip", version = "0.5.0" }
 postcard = { workspace = true }

@@ -2706,6 +2706,7 @@ version = "0.5.0"
 dependencies = [
  "emu198x-test-skip",
  "format-sinclair-zx80-o",
+ "png",
  "postcard",
  "serde",
  "sinclair-zx81-ula",
@@ -2718,6 +2719,7 @@ version = "0.5.0"
 dependencies = [
  "emu198x-test-skip",
  "format-sinclair-zx81-p",
+ "png",
  "postcard",
  "serde",
  "sinclair-zx81-ula",
