@@ -70,10 +70,14 @@
 /// See `knowledge/decisions/the-framebuffer-is-the-sets-window.md`, which
 /// records the same open question for the height's sibling axis.
 pub const FB_WIDTH: u32 = 320;
-/// A PAL set displays 288 lines. The frame is 312 and starts at the end of
-/// the vertical sync pulse, so the 24 lines of vertical interval that follow
-/// it are the ones a viewer never sees — 312 less 24 is 288, and the
-/// arithmetic closes without borrowing a figure from anywhere else.
+/// A PAL set displays 288 lines, and that is the whole of this figure: it is
+/// the receiver's window, not a remainder of the ZX80's frame.
+///
+/// It used to be justified as 312 less the 24-line vertical interval, which
+/// reads across from a fixed-raster machine. This one emits 310 lines, so
+/// there was no 312 to subtract from and the position that arithmetic implied
+/// was wrong by 16 lines. Where the window sits is [`FIRST_VISIBLE_LINE`],
+/// derived from the ROM's pads; see #1116.
 ///
 /// This was 240, which cropped 48 lines a set would have shown. That matters
 /// here more than on a fixed-raster machine: the ZX80's vertical position is
@@ -81,6 +85,10 @@ pub const FB_WIDTH: u32 = 320;
 /// a window this much tighter than the set's clipped the movement. See #1054.
 pub const FB_HEIGHT: u32 = 288;
 
+/// A ceiling on the frame, not its length.
+///
+/// The ROM decides when a field ends, and Sinclair's emits 310 lines. This
+/// only bounds firmware that never syncs; see [`TSTATES_PER_LINE`].
 const LINES_PER_FRAME: u32 = 312;
 
 /// T-states in a 50 Hz field at 3.25 MHz.
@@ -123,9 +131,10 @@ pub struct Zx80Video {
     /// This is the difference between a ZX80 and a machine with a video
     /// chip. There is no beam running to a timetable: the CPU emits a line,
     /// ends it with a `HALT`, and the ROM decides how many lines there are.
-    /// It counts them in `C`, and the borders are the same loop with a
-    /// bigger number — 56 for the first row and 63 for the last, against 8
-    /// for each of the 24 character rows.
+    /// It counts them in `C`, and the pads are the same loop with a bigger
+    /// number — 56 for the first and 63 for the last, against 8 for each of
+    /// the 24 character rows. The last is larger because it carries the
+    /// bottom pad and the six lines of sync that follow it together.
     display_line: u32,
     /// 74LS373. Holds the character code the last display fetch put on the
     /// memory side of the bus.
@@ -316,15 +325,49 @@ impl Zx80Video {
     }
 }
 
-/// Where the visible window starts, calibrated against the real ROM.
+/// The text area: 24 character rows of 8 lines.
+const TEXT_LINES: u32 = 192;
+
+/// The frame line the first character row starts on.
 ///
-/// The ROM folds the borders into its row loop: 25 iterations, the first
-/// loaded with a 56-line count and the last with 63, so the 24 character
-/// rows occupy frame lines 56-247. Showing them centred in a 240-line
-/// window puts the first one 24 rows down, hence 56 - 24.
-/// Lines of vertical interval after the sync pulse, which a set blanks.
-/// Frame line 0 is the end of that pulse — see [`Video::vsync_stop`].
-const FIRST_VISIBLE_LINE: u32 = 24;
+/// Frame line 0 is the end of the vertical sync pulse — see
+/// [`Zx80Video::vsync_stop`] — so the ROM's top pad *is* this offset.
+///
+/// `reference/by-system/sinclair-zx80/zx80-video-generation-tynemouth.txt`
+/// tabulates the whole UK field: 6 lines of sync, 56 of pad, 192 of text, 56
+/// of pad, 310 in total. The model emits that field exactly. The real ROM's
+/// frame measures 64,167 T-states, which at 207 a line is 310.0, and the
+/// power-on cursor lands on frame lines 240-247 — row 23 of a text area
+/// starting at 56.
+const FIRST_TEXT_LINE: u32 = 56;
+
+/// Where the set's window starts: centred on the text area.
+///
+/// The pads are what this machine has instead of a video chip's blanking,
+/// and placing the text area is their entire purpose. The proof is that the
+/// UK pad (56 lines) and the USA one (32) differ by 24 — exactly half the
+/// difference between the 288 lines a PAL set shows and the 240 an NTSC one
+/// does. Both pad to their own region's active area plus the same 8 lines
+/// of overscan allowance. So the window holds the text area with
+/// `(FB_HEIGHT - TEXT_LINES) / 2` of pad either side, and 8 lines of each
+/// pad fall outside it.
+///
+/// This was 24 — `LINES_PER_FRAME - FB_HEIGHT`, reading the whole vertical
+/// interval as following the sync pulse. That is roughly how a broadcast
+/// field is laid out, but it is not this machine: 312 is a free-run ceiling
+/// here, not a field length, and a ROM that emits 310 lines and centres its
+/// own picture does not inherit the arithmetic. It sat the text area 16
+/// lines high. See #1116.
+const FIRST_VISIBLE_LINE: u32 = FIRST_TEXT_LINE - (FB_HEIGHT - TEXT_LINES) / 2;
+
+/// Framebuffer row the text area's first line lands on.
+///
+/// The window is centred on the text area, so this is the pad it keeps. It
+/// is public because the geometry had been copied into five test files as a
+/// literal, every copy fitted to a framebuffer height that later changed and
+/// none of them updated — which is #1116. There is one derivation now, and
+/// callers ask for it.
+pub const TEXT_TOP: u32 = (FB_HEIGHT - TEXT_LINES) / 2;
 
 /// How long after the `HALT` releases the line's first character is
 /// fetched: the interrupt is acknowledged, the handler at `$0038` counts
@@ -340,5 +383,45 @@ const LEFT_BORDER: u32 = 32;
 impl Default for Zx80Video {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The window is centred on the text area, and the derivation is the
+    /// point: written as a literal it went stale twice, and #1116 is the
+    /// second time. Two independent statements of the same geometry, so a
+    /// hand-written `FIRST_VISIBLE_LINE` cannot satisfy both by accident.
+    #[test]
+    fn the_window_is_centred_on_the_text_area() {
+        assert_eq!(
+            TEXT_TOP * 2 + TEXT_LINES,
+            FB_HEIGHT,
+            "the pads the window keeps should be equal, and with the text \
+             area should fill it"
+        );
+        assert_eq!(
+            FIRST_VISIBLE_LINE + TEXT_TOP,
+            FIRST_TEXT_LINE,
+            "the frame line the window opens on, plus the rows of pad it \
+             keeps, is where the ROM starts the text -- the old 24 gave 72"
+        );
+    }
+
+    /// The figure the placement is derived from is not `LINES_PER_FRAME`.
+    ///
+    /// It is the ROM\'s pad, and this is here to make the difference fail
+    /// loudly rather than quietly: `LINES_PER_FRAME - FB_HEIGHT` is 24, and
+    /// nothing about this machine\'s geometry is 24.
+    #[test]
+    fn the_free_run_ceiling_is_not_the_placement() {
+        assert_ne!(
+            FIRST_VISIBLE_LINE,
+            LINES_PER_FRAME - FB_HEIGHT,
+            "312 is a ceiling for firmware that never syncs; the ROM emits \
+             310 and pads {FIRST_TEXT_LINE} lines. See #1116."
+        );
     }
 }

@@ -4,7 +4,7 @@ use std::env;
 use std::fs;
 use std::path::PathBuf;
 
-use machine_sinclair_zx80::{FB_HEIGHT, FB_WIDTH, Zx80};
+use machine_sinclair_zx80::{FB_HEIGHT, FB_WIDTH, TEXT_TOP, Zx80};
 
 fn rom_path() -> Option<PathBuf> {
     if let Ok(p) = env::var("EMU198X_ZX80_ROM") {
@@ -34,21 +34,15 @@ fn rom_path() -> Option<PathBuf> {
 /// - but *some* ink is present, so a framebuffer nobody drew into (the ULA
 ///   clears to white) fails too
 ///
-/// ⚠ Still `#[ignore]`d, and #295 asks for the opposite.
-///
-/// Un-ignoring it fails: the cursor's bounding box is `(32, 39, 216, 223)`
-/// against the `(32, 39, 208, 215)` asserted below — one character row lower.
-/// The expectation was written in `99df0b7b` and passed then; three video
-/// commits have landed since, including `fcaa04fd` taking the framebuffer
-/// from 240 lines to the 288 a PAL set shows. The picture moved and nothing
-/// noticed, because this test never ran.
-///
-/// Which row is *right* is exactly what #295's reference oracle is for, so
-/// the expectation is left alone rather than updated to match whatever the
-/// model currently does. `golden_frame.rs` pins the present output as a
-/// baseline meanwhile.
+/// The cursor's position is the fourth assertion, and it is the one that
+/// caught #1116: this test was `#[ignore]`d, so it went on asserting a row
+/// the picture had left. The expectation now derives from the ROM's own
+/// layout rather than from wherever the model happens to draw — see
+/// [`machine_sinclair_zx80::video`]'s `FIRST_VISIBLE_LINE`.
+/// Not `#[ignore]`d: it skips when no ROM is staged, which is what #295 asks
+/// for and what `golden_frame.rs` already does. Ignoring it is what stopped
+/// it running on the machines that *do* have the ROM.
 #[test]
-#[ignore = "needs a 4 KB ZX80 ROM, and currently fails — see the note above"]
 fn rom_boots_to_its_power_on_screen() {
     let Some(path) = rom_path() else {
         emu198x_test_skip::skip!(
@@ -81,8 +75,12 @@ fn rom_boots_to_its_power_on_screen() {
 
     // The cursor, and only the cursor. A ZX80 powers on to a blank screen
     // with an inverse `K` on the input line at the bottom left, so the ink
-    // is one 8x8 cell — the display area starts 24 rows down and 32 pixels
-    // in, and the input line is its last row.
+    // is one 8x8 cell, and the input line is the text area's last row.
+    //
+    // Where that row falls is arithmetic, not a fitted number: the text area
+    // is centred in the window, and row 23 is 184 lines into it. 32 pixels
+    // in, because 32 columns of 8 centred in 320 leave that either side.
+    let row_23_top = TEXT_TOP as usize + 23 * 8;
     let w = FB_WIDTH as usize;
     let ink_at = |x: usize, y: usize| frame[y * w + x] == 0xFF00_0000;
     let (mut min_x, mut max_x, mut min_y, mut max_y) = (usize::MAX, 0, usize::MAX, 0);
@@ -98,14 +96,14 @@ fn rom_boots_to_its_power_on_screen() {
     }
     assert_eq!(
         (min_x, max_x, min_y, max_y),
-        (32, 39, 208, 215),
+        (32, 39, row_23_top, row_23_top + 7),
         "the cursor should be a single 8x8 cell at the bottom left of the \
          display area; anything wider means the character generator ran on \
          past the row's NEWLINE"
     );
 
     // Inverse video: the cell is mostly ink with the letter cut out of it.
-    let cell_ink = (208..216)
+    let cell_ink = (row_23_top..row_23_top + 8)
         .flat_map(|y| (32..40).map(move |x| (x, y)))
         .filter(|&(x, y)| ink_at(x, y))
         .count();
@@ -113,5 +111,43 @@ fn rom_boots_to_its_power_on_screen() {
         (40..64).contains(&cell_ink),
         "an inverse `K` is a solid block with a letter knocked out of it, so \
          most of the 64 pixels are ink but not all; found {cell_ink}"
+    );
+}
+
+/// The field is 310 lines, which is the figure the picture's placement rests
+/// on.
+///
+/// It matters because it is *not* 312. Both crates carry `LINES_PER_FRAME =
+/// 312` as a free-run ceiling for firmware that never syncs, and the visible
+/// window used to be placed at `312 - 288`. Nothing emits 312:
+/// `reference/by-system/sinclair-zx80/zx80-video-generation-tynemouth.txt`
+/// tabulates the UK field as 6 sync + 56 pad + 192 text + 56 pad, and this is
+/// the measurement that agrees with it. See #1116.
+#[test]
+fn the_field_is_310_lines() {
+    let Some(path) = rom_path() else {
+        emu198x_test_skip::skip!(
+            "EMU198X_ZX80_ROM or place zx80.rom at ~/.emu198x/roms/sinclair-zx80/"
+        );
+    };
+    let rom = fs::read(&path).expect("read ROM");
+    let mut sys = Zx80::new(rom, 16384).expect("init");
+    for _ in 0..200 {
+        sys.run_frame();
+    }
+
+    // One line is 207 T-states. Rounded, because the ROM's loop does not land
+    // on an exact multiple and the fraction is not the claim.
+    const LINE_T: u64 = 207;
+    let field = sys.run_frame();
+    let lines = (field as f64 / LINE_T as f64).round() as u64;
+    assert_eq!(
+        lines, 310,
+        "the ROM should emit a 310-line field; {field} T-states is {lines}"
+    );
+    assert!(
+        field.abs_diff(310 * LINE_T) < LINE_T / 2,
+        "and land within half a line of it; {field} against {}",
+        310 * LINE_T
     );
 }

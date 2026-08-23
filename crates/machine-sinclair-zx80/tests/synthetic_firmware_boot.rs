@@ -52,7 +52,7 @@
 
 use std::path::PathBuf;
 
-use machine_sinclair_zx80::{FB_WIDTH, Zx80};
+use machine_sinclair_zx80::{FB_HEIGHT, FB_WIDTH, TEXT_TOP, Zx80};
 
 /// Ink.
 const INK: u32 = 0xFF00_0000;
@@ -83,7 +83,7 @@ fn synthetic_firmware_generates_a_picture_with_the_cpu() {
     );
 
     // 24 rows of 32 glyphs, every pixel set: the display area is 256x192,
-    // starting 32 rows down and 32 pixels in, inside a 320x288 window.
+    // centred in a 320x288 window, so `TEXT_TOP` rows down and 32 pixels in.
     let frame = machine.framebuffer();
     let ink = frame.iter().filter(|&&pixel| pixel == INK).count();
     assert_eq!(
@@ -99,10 +99,11 @@ fn synthetic_firmware_generates_a_picture_with_the_cpu() {
     // a routine that dawdles between the interrupt and the first character
     // fetch pushes every line to the right.
     let w = FB_WIDTH as usize;
-    // The display starts at frame line 56 and a set blanks the first 24, so it
-    // occupies rows 32..=223 of the 288-line window: first row, second, the
-    // last of the first character row, the middle, and the last row.
-    for row in [32usize, 33, 39, 128, 223] {
+    // The display starts at frame line 56 and the window is centred on it, so
+    // it occupies `TEXT_TOP..TEXT_TOP + 192`: first row, second, the last of
+    // the first character row, the middle, and the last row.
+    let top = TEXT_TOP as usize;
+    for row in [top, top + 1, top + 7, top + 96, top + 191] {
         let lit: Vec<usize> = (0..w).filter(|&x| frame[row * w + x] == INK).collect();
         assert_eq!(
             (lit.first().copied(), lit.last().copied(), lit.len()),
@@ -111,9 +112,9 @@ fn synthetic_firmware_generates_a_picture_with_the_cpu() {
         );
     }
     // Border: the top of the window, the last row above the display, the
-    // first below it, and the bottom. Sixty-four lines below against
-    // thirty-two above is the ROM's own split, not a symmetric crop.
-    for row in [0usize, 31, 224, 287] {
+    // first below it, and the bottom. The two pads are equal — the ROM emits
+    // 56 lines either side of the text and the window keeps 48 of each.
+    for row in [0usize, top - 1, top + 192, FB_HEIGHT as usize - 1] {
         let lit = (0..w).filter(|&x| frame[row * w + x] == INK).count();
         assert_eq!(lit, 0, "row {row} is border and must stay blank");
     }
@@ -197,7 +198,7 @@ fn a_software_moved_picture_stays_whole() {
     // The moves are sized to the window, not chosen for roundness. The old
     // 240-line window left 24 lines of border above the picture and 24 below,
     // so a 24-line move up is exactly what it could still hold and a 40-line
-    // move down is not — that asymmetry is what makes this a regression test
+    // move down was not — that asymmetry is what makes this a regression test
     // rather than a description. Both fit the 288-line window with room over.
     let earlier = top_row(DEFAULT_BORDER_LINES - 24);
     let default = top_row(DEFAULT_BORDER_LINES);
