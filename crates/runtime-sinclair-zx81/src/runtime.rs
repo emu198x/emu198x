@@ -263,13 +263,18 @@ impl MachineCore for Zx81Runtime {
         })
     }
 
-    /// The ZX80's raster, so the ZX80's answer: two pixels per 3.25 MHz
-    /// T-state over PAL's 288 active lines, about 1.14.
+    /// Two pixels per 3.25 MHz T-state, over the set's active lines.
+    ///
+    /// The line count has to follow the region rather than be written here:
+    /// a 60 Hz board is scanning an NTSC set with 240 active lines, not 288,
+    /// and hardcoding PAL made the 60 Hz variant claim a PAL raster while
+    /// reporting an NTSC region. `active_lines` exists to stop exactly that,
+    /// and the mistake is silent -- the picture is merely the wrong shape.
     fn display(&self) -> Option<Display> {
         Some(Display::Television {
             region: self.profile.region,
             pixel_clock_hz: PIXEL_CLOCK_HZ,
-            lines_per_tv_height: emu198x_shell::display::PAL_ACTIVE_LINES,
+            lines_per_tv_height: emu198x_shell::display::active_lines(self.profile.region)?,
         })
     }
 
