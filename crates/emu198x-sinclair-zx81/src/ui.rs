@@ -8,22 +8,21 @@
 //! with the `ui` Cargo feature; `main.rs` routes here when no automation flag
 //! is given.
 
+use std::borrow::Cow;
 use std::env;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use emu198x_ui::{ButtonInputMap, KeyCode, UiError, UiSystem, VideoFilter};
+use emu198x_shell::MachineError;
+use emu198x_ui::{ButtonInputMap, KeyCode, UiError, UiSystem, VariantInfo, VideoFilter};
 use runtime_sinclair_zx81::{Model, Zx81Runtime};
 
 const DEFAULT_SCALE: u32 = 3;
 
-/// PAL TV-clock ticks per frame (207 per line × 312 lines), matching the
-/// headless runner's `FRAME_TICKS_PAL`.
-// `207 * 312` is the field backstop -- the *longest* frame -- so budgeting
-// it ran two machine frames per requested frame. See
-// `SLOW_MODE_FRAME_TSTATES`.
-const FRAME_TICKS_PAL: u64 = machine_sinclair_zx81::SLOW_MODE_FRAME_TSTATES as u64;
-const PAL_FRAME_HZ: f64 = 50.0;
+/// The frame budget comes from the board strap now — see
+/// `TelevisionStandard::slow_mode_frame_tstates`.
+/// The Z80 clock, for turning a frame's T-states into a wall-clock duration.
+const CPU_HZ: f64 = 3_250_000.0;
 const ROM_SIZE: usize = 8192;
 
 /// The ZX81 has no joystick, but the harness still wants a button map — so an
@@ -53,9 +52,11 @@ Examples:
 ";
 
 /// The ZX81 as a [`UiSystem`] for the shared harness. Keyboard-only and
-/// single-model, so it carries no state — a hard reset rebuilds the machine
-/// from the firmware the runtime already holds.
-struct Zx81System;
+/// Carries only the board strap, so a hard reset rebuilds the machine from the
+/// firmware the runtime already holds.
+struct Zx81System {
+    model: Model,
+}
 
 impl UiSystem for Zx81System {
     type Runtime = Zx81Runtime;
@@ -74,6 +75,43 @@ impl UiSystem for Zx81System {
         1
     }
 
+    /// The two boards. They differ only in the strap the ROM reads on port
+    /// bit 6, which is enough to move the machine between 50.65 and 59.93 Hz.
+    fn variants(&self) -> Vec<VariantInfo> {
+        vec![
+            VariantInfo::new(Model::Zx81.profile_id(), Model::Zx81.display_name()),
+            VariantInfo::new(Model::Zx81Ntsc.profile_id(), Model::Zx81Ntsc.display_name()),
+        ]
+    }
+
+    fn current_variant(&self) -> Option<Cow<'static, str>> {
+        Some(Cow::Borrowed(self.model.profile_id()))
+    }
+
+    /// Rebuild on the other strap, reusing the ROM the runtime already holds —
+    /// both boards run the same 8 KB monitor.
+    fn switch_variant(
+        &mut self,
+        runtime: &mut Self::Runtime,
+        variant: &str,
+    ) -> Result<(), MachineError> {
+        let model = [Model::Zx81, Model::Zx81Ntsc]
+            .into_iter()
+            .find(|m| m.profile_id() == variant)
+            .ok_or(MachineError::UnsupportedOperation {
+                operation: "unknown ZX81 variant",
+            })?;
+        let rom = runtime
+            .rom_bytes()
+            .ok_or(MachineError::UnsupportedOperation {
+                operation: "switch variant before a ROM is loaded",
+            })?
+            .to_vec();
+        *runtime = Zx81Runtime::new(model, rom)?;
+        self.model = model;
+        Ok(())
+    }
+
     fn framebuffer_size(&self, runtime: &Self::Runtime) -> (u32, u32) {
         runtime
             .machine()
@@ -81,12 +119,20 @@ impl UiSystem for Zx81System {
             .unwrap_or((320, 288))
     }
 
-    fn frame_ticks(&self, _runtime: &Self::Runtime) -> u64 {
-        FRAME_TICKS_PAL
+    fn frame_ticks(&self, runtime: &Self::Runtime) -> u64 {
+        u64::from(
+            runtime
+                .model()
+                .television_standard()
+                .slow_mode_frame_tstates(),
+        )
     }
 
-    fn frame_duration(&self, _runtime: &Self::Runtime) -> Duration {
-        Duration::from_secs_f64(1.0 / PAL_FRAME_HZ)
+    /// Paced from the frame the ROM actually lays out, not a nominal 50. A
+    /// 50 Hz ZX81 runs at 50.65 Hz and a 60 Hz one at 59.93 Hz, both because
+    /// the ROM decides the field length.
+    fn frame_duration(&self, runtime: &Self::Runtime) -> Duration {
+        Duration::from_secs_f64(f64::from(self.frame_ticks(runtime) as u32) / CPU_HZ)
     }
 
     fn button_map(&self) -> &'static ButtonInputMap {
@@ -131,8 +177,13 @@ pub fn run(cli: Cli) -> Result<(), String> {
     println!(
         "Controls: Esc quit, F12 reset, A-Z/0-9/./Space keyboard, Shift SHIFT, Enter NEWLINE."
     );
-    emu198x_ui::run(Zx81System, runtime, cli.scale, cli.video)
-        .map_err(|err: UiError| err.to_string())
+    emu198x_ui::run(
+        Zx81System { model: Model::Zx81 },
+        runtime,
+        cli.scale,
+        cli.video,
+    )
+    .map_err(|err: UiError| err.to_string())
 }
 
 /// Parse the interactive CLI. Exits the process on `--help` or a malformed flag.

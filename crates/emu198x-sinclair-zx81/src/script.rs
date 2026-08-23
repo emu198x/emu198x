@@ -9,10 +9,11 @@ use emu198x_shell::{HeadlessScript, HeadlessSession, MediaSet, ScriptObservation
 use runtime_sinclair_zx81::{Model, Zx81Runtime, Zx81SessionQueryProvider};
 use serde_json::json;
 
-// `207 * 312` is the field backstop -- the *longest* frame -- so budgeting
-// it ran two machine frames per requested frame. See
-// `SLOW_MODE_FRAME_TSTATES`.
-const FRAME_TICKS_PAL: u64 = machine_sinclair_zx81::SLOW_MODE_FRAME_TSTATES as u64;
+/// Frame budget for the board the runtime is configured as. The 60 Hz strap
+/// lays out a much shorter field, so this cannot be one shared constant.
+fn frame_ticks(model: Model) -> u64 {
+    u64::from(model.television_standard().slow_mode_frame_tstates())
+}
 const ROM_SIZE: usize = 8 * 1024;
 
 const USAGE: &str = "\
@@ -152,11 +153,9 @@ fn run_cli(cli: Cli) -> Result<serde_json::Value, String> {
         .set_ram_bytes(cli.ram_bytes)
         .map_err(|err| format!("invalid --ram-bytes: {err}"))?;
 
-    let mut session = HeadlessSession::new_with_query_provider(
-        runtime,
-        FRAME_TICKS_PAL,
-        Zx81SessionQueryProvider,
-    );
+    let budget = frame_ticks(runtime.model());
+    let mut session =
+        HeadlessSession::new_with_query_provider(runtime, budget, Zx81SessionQueryProvider);
     let media = MediaSet::new();
     session
         .prepare(&media, &[])
