@@ -196,7 +196,15 @@ fn spectrum_query_provider_lists_supported_paths() {
 
     assert_eq!(
         paths,
-        vec!["tape.loaded".to_owned(), "tape.playing".to_owned()]
+        vec![
+            // The provider returns these sorted.
+            "tape.loaded".to_owned(),
+            "tape.playing".to_owned(),
+            "tape.progress".to_owned(),
+            "tape.span_count".to_owned(),
+            "tape.span_countdown".to_owned(),
+            "tape.span_index".to_owned(),
+        ]
     );
 }
 

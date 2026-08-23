@@ -457,6 +457,10 @@ impl SpectrumMachine for Spectrum48k {
     fn tape_is_playing(&self) -> bool {
         Spectrum48k::tape_is_playing(self)
     }
+
+    fn tape_player(&self) -> &common_tape::TapePlayer {
+        Spectrum48k::tape(self)
+    }
     fn half_cycle_in_frame(&self) -> u32 {
         Spectrum48k::hc(self)
     }
@@ -597,6 +601,10 @@ impl SpectrumMachine for Spectrum16K {
     }
     fn tape_is_playing(&self) -> bool {
         Spectrum16K::tape_is_playing(self)
+    }
+
+    fn tape_player(&self) -> &common_tape::TapePlayer {
+        Spectrum16K::tape(self)
     }
     fn half_cycle_in_frame(&self) -> u32 {
         Spectrum16K::hc(self)
@@ -743,6 +751,10 @@ impl SpectrumMachine for SpectrumPlus {
     }
     fn tape_is_playing(&self) -> bool {
         SpectrumPlus::tape_is_playing(self)
+    }
+
+    fn tape_player(&self) -> &common_tape::TapePlayer {
+        SpectrumPlus::tape(self)
     }
     fn half_cycle_in_frame(&self) -> u32 {
         SpectrumPlus::hc(self)
@@ -892,6 +904,10 @@ impl SpectrumMachine for Spectrum128K {
     }
     fn tape_is_playing(&self) -> bool {
         self.tape.is_playing()
+    }
+
+    fn tape_player(&self) -> &common_tape::TapePlayer {
+        &self.tape
     }
     fn half_cycle_in_frame(&self) -> u32 {
         <Self as SpectrumDriver>::hc(self)
@@ -1052,6 +1068,10 @@ impl SpectrumMachine for SpectrumPlus2 {
     }
     fn tape_is_playing(&self) -> bool {
         self.tape.is_playing()
+    }
+
+    fn tape_player(&self) -> &common_tape::TapePlayer {
+        &self.tape
     }
     fn half_cycle_in_frame(&self) -> u32 {
         <Self as SpectrumDriver>::hc(self)
@@ -1257,6 +1277,10 @@ impl<V: AmstradVariant> SpectrumMachine for SpectrumAmstradClassCore<V> {
     fn tape_is_playing(&self) -> bool {
         self.tape.is_playing()
     }
+
+    fn tape_player(&self) -> &common_tape::TapePlayer {
+        &self.tape
+    }
     fn half_cycle_in_frame(&self) -> u32 {
         <Self as SpectrumDriver>::hc(self)
     }
@@ -1427,6 +1451,10 @@ impl SpectrumMachine for Pentagon128 {
     fn tape_is_playing(&self) -> bool {
         self.tape.is_playing()
     }
+
+    fn tape_player(&self) -> &common_tape::TapePlayer {
+        &self.tape
+    }
     fn half_cycle_in_frame(&self) -> u32 {
         <Self as SpectrumDriver>::hc(self)
     }
@@ -1563,6 +1591,10 @@ impl SpectrumMachine for ScorpionZS256 {
     fn tape_is_playing(&self) -> bool {
         self.tape.is_playing()
     }
+
+    fn tape_player(&self) -> &common_tape::TapePlayer {
+        &self.tape
+    }
     fn half_cycle_in_frame(&self) -> u32 {
         <Self as SpectrumDriver>::hc(self)
     }
@@ -1694,6 +1726,10 @@ impl SpectrumMachine for TimexTC2048 {
     fn tape_is_playing(&self) -> bool {
         self.tape.is_playing()
     }
+
+    fn tape_player(&self) -> &common_tape::TapePlayer {
+        &self.tape
+    }
     fn half_cycle_in_frame(&self) -> u32 {
         <Self as SpectrumDriver>::hc(self)
     }
@@ -1820,6 +1856,10 @@ impl SpectrumMachine for TimexTS2068 {
     }
     fn tape_is_playing(&self) -> bool {
         self.tape.is_playing()
+    }
+
+    fn tape_player(&self) -> &common_tape::TapePlayer {
+        &self.tape
     }
     fn half_cycle_in_frame(&self) -> u32 {
         <Self as SpectrumDriver>::hc(self)

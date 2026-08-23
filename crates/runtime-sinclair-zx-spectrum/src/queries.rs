@@ -68,6 +68,13 @@ pub(crate) const SHARED_QUERY_PATHS: &[&str] = &[
     "machine.tstate_in_frame",
     "tape.loaded",
     "tape.playing",
+    // Position, so "did the tape drain" is observable rather than inferred.
+    // Names come from `common_tape::POSITION_QUERY_PATHS` so every machine
+    // with a deck answers the same set.
+    "tape.span_index",
+    "tape.span_count",
+    "tape.span_countdown",
+    "tape.progress",
 ];
 
 /// Every CPU leaf in one object, so a single query answers "where is the
@@ -272,6 +279,10 @@ impl<M: SpectrumMachine> SessionQueryProvider<SpectrumRuntime<M>> for SpectrumSe
             "machine.tstate_in_frame" => json!(machine.tstate_in_frame()),
             "tape.loaded" => json!(machine.tape_is_loaded()),
             "tape.playing" => json!(machine.tape_is_playing()),
+            "tape.span_index" => json!(machine.tape_player().span_index()),
+            "tape.span_count" => json!(machine.tape_player().span_count()),
+            "tape.span_countdown" => json!(machine.tape_player().span_countdown()),
+            "tape.progress" => json!(machine.tape_player().progress()),
             "basic.prog" => json!(read_word_le(machine, 0x5C53)),
             "basic.vars" => json!(read_word_le(machine, 0x5C4B)),
             "basic.e_line" => json!(read_word_le(machine, 0x5C59)),
