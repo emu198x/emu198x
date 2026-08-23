@@ -18,8 +18,6 @@ const PIXEL_CLOCK_HZ: f64 = 6_500_000.0;
 
 const ROM_SIZE: usize = 8 * 1024;
 const AUDIO_SAMPLE_RATE: u32 = 48_000;
-const DEFAULT_RAM_BYTES: usize = 1024;
-
 /// The tape slot this runtime answers for, matching the profile.
 const TAPE_SLOT: &str = "tape-1";
 
@@ -48,7 +46,7 @@ impl Zx81Runtime {
             model,
             machine: None,
             rom_bytes: None,
-            ram_bytes: DEFAULT_RAM_BYTES,
+            ram_bytes: model.ram_bytes(),
             time: MachineTime::default(),
             rgba_framebuffer: Vec::new(),
             rgba_width: 0,

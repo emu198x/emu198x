@@ -16,5 +16,8 @@ postcard = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 
+[dev-dependencies]
+emu198x-test-skip = { path = "../emu198x-test-skip" }
+
 [lints]
 workspace = true

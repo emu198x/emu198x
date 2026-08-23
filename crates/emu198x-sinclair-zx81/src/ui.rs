@@ -78,10 +78,10 @@ impl UiSystem for Zx81System {
     /// The two boards. They differ only in the strap the ROM reads on port
     /// bit 6, which is enough to move the machine between 50.65 and 59.93 Hz.
     fn variants(&self) -> Vec<VariantInfo> {
-        vec![
-            VariantInfo::new(Model::Zx81.profile_id(), Model::Zx81.display_name()),
-            VariantInfo::new(Model::Zx81Ntsc.profile_id(), Model::Zx81Ntsc.display_name()),
-        ]
+        Model::ALL
+            .iter()
+            .map(|model| VariantInfo::new(model.profile_id(), model.display_name()))
+            .collect()
     }
 
     fn current_variant(&self) -> Option<Cow<'static, str>> {
@@ -95,7 +95,7 @@ impl UiSystem for Zx81System {
         runtime: &mut Self::Runtime,
         variant: &str,
     ) -> Result<(), MachineError> {
-        let model = [Model::Zx81, Model::Zx81Ntsc]
+        let model = Model::ALL
             .into_iter()
             .find(|m| m.profile_id() == variant)
             .ok_or(MachineError::UnsupportedOperation {
