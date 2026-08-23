@@ -232,6 +232,14 @@ pub trait SpectrumMachine: Serialize + for<'de> Deserialize<'de> + SpectrumDrive
     /// Returns whether tape transport is currently playing.
     fn tape_is_playing(&self) -> bool;
 
+    /// The tape deck itself, for position queries.
+    ///
+    /// `tape_is_loaded` and `tape_is_playing` cannot tell a loader that
+    /// finished from one that gave up — both end not-playing. Every
+    /// Spectrum-family variant owns a `TapePlayer`, so this is required
+    /// rather than optional.
+    fn tape_player(&self) -> &common_tape::TapePlayer;
+
     /// Returns the current half-cycle position within the frame.
     fn half_cycle_in_frame(&self) -> u32;
 

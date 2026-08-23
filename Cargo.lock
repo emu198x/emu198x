@@ -4305,6 +4305,7 @@ version = "0.5.0"
 dependencies = [
  "common-sinclair-zx-spectrum",
  "common-sinclair-zx-spectrum-amstrad-class",
+ "common-tape",
  "criterion",
  "emu198x-shell",
  "emu198x-test-skip",

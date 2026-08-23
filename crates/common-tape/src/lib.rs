@@ -30,6 +30,19 @@ pub enum TapeSpan {
     Stop,
 }
 
+/// Query paths for tape position, named once so every machine that owns a
+/// [`TapePlayer`] answers them identically.
+///
+/// `tape.loaded` and `tape.playing` alone cannot distinguish a loader that
+/// finished from one that gave up: both end with `playing: false`. These say
+/// how far the tape actually got.
+pub const POSITION_QUERY_PATHS: [&str; 4] = [
+    "tape.span_index",
+    "tape.span_count",
+    "tape.span_countdown",
+    "tape.progress",
+];
+
 /// Tape player that advances through one timing-span stream.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TapePlayer {
@@ -107,6 +120,36 @@ impl TapePlayer {
     #[must_use]
     pub fn span_position(&self) -> (usize, usize) {
         (self.span_idx, self.spans.len())
+    }
+
+    /// Which span is playing.
+    ///
+    /// Reaches [`Self::span_count`] once the tape has drained, so
+    /// `span_index == span_count` is "played to the end" and anything less is
+    /// "stopped part-way".
+    #[must_use]
+    pub fn span_index(&self) -> usize {
+        self.span_idx
+    }
+
+    /// How many spans the loaded tape holds.
+    #[must_use]
+    pub fn span_count(&self) -> usize {
+        self.spans.len()
+    }
+
+    /// How far through the tape playback has got, from `0.0` to `1.0`.
+    ///
+    /// An empty deck reads `1.0` rather than `0.0`: there is nothing left to
+    /// play, which is the same answer a fully drained tape gives. Callers that
+    /// need to tell "no tape" from "finished tape" want [`Self::span_count`].
+    #[must_use]
+    pub fn progress(&self) -> f64 {
+        let total = self.spans.len();
+        if total == 0 {
+            return 1.0;
+        }
+        self.span_idx as f64 / total as f64
     }
 
     /// Diagnostic: returns the T-states remaining on the current span
@@ -409,5 +452,77 @@ mod tests {
         player.load_pulses(vec![10]);
         player.advance_tstates(1_000);
         assert_eq!(player.span_position(), (0, 1), "never started, never moved");
+    }
+
+    /// A drained tape and an abandoned one are distinguishable.
+    ///
+    /// This is the whole point of the position paths. `has_tape` and
+    /// `is_playing` cannot tell the two apart — a loader that consumed
+    /// everything and one that stopped half way both end up not playing with
+    /// a tape still loaded. The span index says which happened.
+    #[test]
+    fn position_separates_a_drained_tape_from_an_abandoned_one() {
+        let pulses = vec![100u32; 8];
+
+        let mut drained = TapePlayer::new();
+        drained.load_pulses(pulses.clone());
+        drained.play();
+        drained.advance_tstates(100 * 8 + 50);
+
+        let mut abandoned = TapePlayer::new();
+        abandoned.load_pulses(pulses);
+        abandoned.play();
+        abandoned.advance_tstates(100 * 3);
+        abandoned.stop();
+
+        // Indistinguishable on the old surface.
+        assert_eq!(drained.has_tape(), abandoned.has_tape());
+        assert!(!drained.is_playing());
+        assert!(!abandoned.is_playing());
+
+        // Distinguishable on the new one.
+        assert_eq!(drained.span_index(), drained.span_count());
+        assert!(abandoned.span_index() < abandoned.span_count());
+        assert_eq!(drained.progress(), 1.0);
+        assert!(abandoned.progress() < 1.0);
+    }
+
+    /// An empty deck reads as finished, not as stalled at the start.
+    ///
+    /// `0/0` has no meaningful ratio, and reporting `0.0` would make "no tape"
+    /// look like "a tape that has not started" — the confusion these paths
+    /// exist to remove. `span_count` is how a caller tells them apart.
+    #[test]
+    fn an_empty_deck_reads_as_finished() {
+        let player = TapePlayer::new();
+        assert_eq!(player.span_count(), 0);
+        assert_eq!(player.span_index(), 0);
+        assert_eq!(player.progress(), 1.0);
+    }
+
+    /// The count is the tape's, not the playback's, so it does not move.
+    #[test]
+    fn the_span_count_is_stable_while_the_index_advances() {
+        let mut player = TapePlayer::new();
+        player.load_pulses(vec![100u32; 5]);
+        player.play();
+
+        let count = player.span_count();
+        assert_eq!(count, 5);
+
+        let mut seen = vec![player.span_index()];
+        for _ in 0..4 {
+            player.advance_tstates(100);
+            seen.push(player.span_index());
+            assert_eq!(player.span_count(), count, "the tape did not get longer");
+        }
+        assert!(
+            seen.windows(2).all(|w| w[1] >= w[0]),
+            "the index must not go backwards: {seen:?}",
+        );
+        assert!(
+            seen.last() > seen.first(),
+            "the index must advance: {seen:?}"
+        );
     }
 }

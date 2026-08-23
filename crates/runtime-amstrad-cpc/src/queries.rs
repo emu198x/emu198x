@@ -21,6 +21,14 @@ pub(crate) const CPC_QUERY_PATHS: &[&str] = &[
     "psg.registers",
     "tape.loaded",
     "tape.motor_on",
+    // Position, so "did the tape drain" is observable rather than inferred.
+    // Same names as every other machine with a deck; see
+    // `common_tape::POSITION_QUERY_PATHS`. Kept in sorted order, which
+    // `the_path_list_is_sorted_and_unique` enforces.
+    "tape.progress",
+    "tape.span_count",
+    "tape.span_countdown",
+    "tape.span_index",
 ];
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -73,6 +81,10 @@ impl SessionQueryProvider<AmstradCpcRuntime> for AmstradCpcSessionQueryProvider 
             // the firmware asked for rather than a host setting.
             "tape.motor_on" => json!(loaded(machine, path)?.tape_motor_on()),
             "tape.loaded" => json!(loaded(machine, path)?.tape().has_tape()),
+            "tape.span_index" => json!(loaded(machine, path)?.tape().span_index()),
+            "tape.span_count" => json!(loaded(machine, path)?.tape().span_count()),
+            "tape.span_countdown" => json!(loaded(machine, path)?.tape().span_countdown()),
+            "tape.progress" => json!(loaded(machine, path)?.tape().progress()),
             _ => return Ok(None),
         };
         Ok(Some(QueryResult {
@@ -135,6 +147,16 @@ mod tests {
     fn a_prefix_narrows_the_listing() {
         let runtime = AmstradCpcRuntime::blank(Model::Cpc464);
         let paths = AmstradCpcSessionQueryProvider.query_paths(&runtime, Some("tape."));
-        assert_eq!(paths, vec!["tape.loaded", "tape.motor_on"]);
+        assert_eq!(
+            paths,
+            vec![
+                "tape.loaded",
+                "tape.motor_on",
+                "tape.progress",
+                "tape.span_count",
+                "tape.span_countdown",
+                "tape.span_index",
+            ]
+        );
     }
 }
