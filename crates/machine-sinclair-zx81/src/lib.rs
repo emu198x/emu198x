@@ -40,7 +40,7 @@ pub mod video;
 
 pub use input::Zx81Key;
 pub use keyboard::KeyboardState;
-pub use video::{FB_HEIGHT, FB_WIDTH, Zx81Video};
+pub use video::{FB_HEIGHT, FB_WIDTH, SLOW_MODE_FRAME_TSTATES, Zx81Video};
 
 use serde::{Deserialize, Serialize};
 use zilog_z80::z80::{BusOp, Z80};

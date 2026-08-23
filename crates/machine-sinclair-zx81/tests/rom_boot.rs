@@ -258,3 +258,37 @@ fn zx81_margin_follows_bit_6() {
         );
     }
 }
+
+/// The frame budget is at or below every frame the stock ROM emits.
+///
+/// A host that advances in whole frames runs a second one whenever a budget
+/// leaves the clock short of its target, so the budget must not exceed the
+/// shortest frame. `207 * 312` did exceed it: that figure is the field
+/// backstop, the *longest* frame, and budgeting it ran the machine at double
+/// speed in the settled state it spends all its time in.
+#[test]
+#[ignore = "needs an 8 KB ZX81 ROM — run with --ignored"]
+fn the_frame_budget_never_exceeds_a_real_frame() {
+    let Some(path) = rom_path() else {
+        emu198x_test_skip::skip!(
+            "ZX81 ROM not staged — set EMU198X_ZX81_ROM or place zx81.rom at ~/.emu198x/roms/sinclair-zx81/"
+        );
+    };
+    let rom = fs::read(&path).expect("read ROM");
+    let mut machine = Zx81::new(rom, 16384).expect("machine");
+
+    let budget = u64::from(machine_sinclair_zx81::SLOW_MODE_FRAME_TSTATES);
+    let mut shortest = u64::MAX;
+    for _ in 0..400 {
+        shortest = shortest.min(machine.run_frame());
+    }
+
+    assert_eq!(
+        shortest, budget,
+        "the budget should be exactly the shortest frame the ROM emits",
+    );
+    assert!(
+        budget < u64::from(207 * 312_u32),
+        "the backstop is the longest frame, not a budget",
+    );
+}

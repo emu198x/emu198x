@@ -9,7 +9,10 @@ use emu198x_shell::{HeadlessScript, HeadlessSession, MediaSet, ScriptObservation
 use runtime_sinclair_zx81::{Model, Zx81Runtime, Zx81SessionQueryProvider};
 use serde_json::json;
 
-const FRAME_TICKS_PAL: u64 = 207 * 312;
+// `207 * 312` is the field backstop -- the *longest* frame -- so budgeting
+// it ran two machine frames per requested frame. See
+// `SLOW_MODE_FRAME_TSTATES`.
+const FRAME_TICKS_PAL: u64 = machine_sinclair_zx81::SLOW_MODE_FRAME_TSTATES as u64;
 const ROM_SIZE: usize = 8 * 1024;
 
 const USAGE: &str = "\
