@@ -4357,6 +4357,7 @@ name = "runtime-sinclair-zx81"
 version = "0.5.0"
 dependencies = [
  "emu198x-shell",
+ "emu198x-test-skip",
  "format-sinclair-zx81-p",
  "machine-sinclair-zx81",
  "postcard",

@@ -17,7 +17,7 @@ fn television(model: Model) -> (Region, f64) {
     }
 }
 
-/// A 60 Hz board scans an NTSC set: 240 active lines, not PAL's 288.
+/// A 60 Hz board (the TS1000) scans an NTSC set: 240 active lines, not 288.
 ///
 /// This was hardcoded to PAL, so the 60 Hz variant reported an NTSC region
 /// with a PAL raster. Nothing fails when that is wrong — the picture is just
@@ -25,8 +25,5 @@ fn television(model: Model) -> (Region, f64) {
 #[test]
 fn the_active_line_count_follows_the_region() {
     assert_eq!(television(Model::Zx81), (Region::Pal, PAL_ACTIVE_LINES));
-    assert_eq!(
-        television(Model::Zx81Ntsc),
-        (Region::Ntsc, NTSC_ACTIVE_LINES)
-    );
+    assert_eq!(television(Model::Ts1000), (Region::Ntsc, NTSC_ACTIVE_LINES));
 }
