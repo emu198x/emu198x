@@ -11,10 +11,11 @@ use emu198x_shell::{
 };
 use runtime_sinclair_zx81::{Model, Zx81Runtime, Zx81SessionQueryProvider};
 
-// `207 * 312` is the field backstop -- the *longest* frame -- so budgeting
-// it ran two machine frames per requested frame. See
-// `SLOW_MODE_FRAME_TSTATES`.
-const FRAME_TICKS_PAL: u64 = machine_sinclair_zx81::SLOW_MODE_FRAME_TSTATES as u64;
+/// Frame budget for the board the runtime is configured as. The 60 Hz strap
+/// lays out a much shorter field, so this cannot be one shared constant.
+fn frame_ticks(model: Model) -> u64 {
+    u64::from(model.television_standard().slow_mode_frame_tstates())
+}
 
 /// Runs MCP mode. Loads ROM from `EMU198X_ZX81_ROM` or default path.
 ///
@@ -22,7 +23,8 @@ const FRAME_TICKS_PAL: u64 = machine_sinclair_zx81::SLOW_MODE_FRAME_TSTATES as u
 ///
 /// Returns an error string if the JSON-RPC stdio loop hits an I/O failure.
 pub fn run() -> Result<(), String> {
-    let mut machine = Zx81Runtime::blank(Model::Zx81);
+    let model = Model::Zx81;
+    let mut machine = Zx81Runtime::blank(model);
     if let Some(path) = rom_path()
         && let Ok(bytes) = fs::read(&path)
     {
@@ -45,7 +47,7 @@ pub fn run() -> Result<(), String> {
 
     let mut session = HeadlessSession::new_with_query_provider(
         machine,
-        FRAME_TICKS_PAL,
+        frame_ticks(model),
         Zx81SessionQueryProvider,
     );
     let mut server = Server::new(ServerInfo::new(

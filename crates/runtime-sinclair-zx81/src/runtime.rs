@@ -110,6 +110,14 @@ impl Zx81Runtime {
         self.machine.as_mut()
     }
 
+    /// The loaded ROM, if one has been set. Lets a caller rebuild on another
+    /// board strap without going back to disk — both boards run the same
+    /// monitor.
+    #[must_use]
+    pub fn rom_bytes(&self) -> Option<&[u8]> {
+        self.rom_bytes.as_deref()
+    }
+
     #[must_use]
     pub fn model(&self) -> Model {
         self.model
@@ -146,11 +154,14 @@ impl Zx81Runtime {
             self.machine = None;
             return Ok(());
         };
-        let machine =
+        let mut machine =
             Zx81::new(rom, self.ram_bytes).map_err(|reason| MachineError::InvalidFirmware {
                 id: ROM_FIRMWARE_ID.to_owned(),
                 reason,
             })?;
+        // The board strap is the whole of the region difference: the ROM reads
+        // it on port bit 6 and lays out a shorter field for 60 Hz.
+        machine.set_television_standard(self.model.television_standard());
         let width = machine.framebuffer_width();
         let height = machine.framebuffer_height();
         self.rgba_width = width;

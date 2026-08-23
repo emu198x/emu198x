@@ -275,20 +275,24 @@ fn the_frame_budget_never_exceeds_a_real_frame() {
         );
     };
     let rom = fs::read(&path).expect("read ROM");
-    let mut machine = Zx81::new(rom, 16384).expect("machine");
 
-    let budget = u64::from(machine_sinclair_zx81::SLOW_MODE_FRAME_TSTATES);
-    let mut shortest = u64::MAX;
-    for _ in 0..400 {
-        shortest = shortest.min(machine.run_frame());
+    for standard in [TelevisionStandard::FiftyHz, TelevisionStandard::SixtyHz] {
+        let mut machine = Zx81::new(rom.clone(), 16384).expect("machine");
+        machine.set_television_standard(standard);
+
+        let budget = u64::from(standard.slow_mode_frame_tstates());
+        let mut shortest = u64::MAX;
+        for _ in 0..400 {
+            shortest = shortest.min(machine.run_frame());
+        }
+
+        assert_eq!(
+            shortest, budget,
+            "{standard:?}: the budget should be exactly the shortest frame the ROM emits",
+        );
+        assert!(
+            budget < u64::from(207 * 312_u32),
+            "{standard:?}: the backstop is the longest frame, not a budget",
+        );
     }
-
-    assert_eq!(
-        shortest, budget,
-        "the budget should be exactly the shortest frame the ROM emits",
-    );
-    assert!(
-        budget < u64::from(207 * 312_u32),
-        "the backstop is the longest frame, not a budget",
-    );
 }
