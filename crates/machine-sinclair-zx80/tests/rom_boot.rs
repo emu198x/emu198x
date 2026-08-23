@@ -33,8 +33,22 @@ fn rom_path() -> Option<PathBuf> {
 /// - the frame is overwhelmingly paper — garbage glyphs are not
 /// - but *some* ink is present, so a framebuffer nobody drew into (the ULA
 ///   clears to white) fails too
+///
+/// ⚠ Still `#[ignore]`d, and #295 asks for the opposite.
+///
+/// Un-ignoring it fails: the cursor's bounding box is `(32, 39, 216, 223)`
+/// against the `(32, 39, 208, 215)` asserted below — one character row lower.
+/// The expectation was written in `99df0b7b` and passed then; three video
+/// commits have landed since, including `fcaa04fd` taking the framebuffer
+/// from 240 lines to the 288 a PAL set shows. The picture moved and nothing
+/// noticed, because this test never ran.
+///
+/// Which row is *right* is exactly what #295's reference oracle is for, so
+/// the expectation is left alone rather than updated to match whatever the
+/// model currently does. `golden_frame.rs` pins the present output as a
+/// baseline meanwhile.
 #[test]
-#[ignore = "needs a 4 KB ZX80 ROM — run with --ignored"]
+#[ignore = "needs a 4 KB ZX80 ROM, and currently fails — see the note above"]
 fn rom_boots_to_its_power_on_screen() {
     let Some(path) = rom_path() else {
         emu198x_test_skip::skip!(
