@@ -19,7 +19,10 @@ const DEFAULT_SCALE: u32 = 3;
 
 /// PAL TV-clock ticks per frame (207 per line × 312 lines), matching the
 /// headless runner's `FRAME_TICKS_PAL`.
-const FRAME_TICKS_PAL: u64 = 207 * 312;
+// `207 * 312` is the field backstop -- the *longest* frame -- so budgeting
+// it ran two machine frames per requested frame. See
+// `SLOW_MODE_FRAME_TSTATES`.
+const FRAME_TICKS_PAL: u64 = machine_sinclair_zx81::SLOW_MODE_FRAME_TSTATES as u64;
 const PAL_FRAME_HZ: f64 = 50.0;
 const ROM_SIZE: usize = 8192;
 

@@ -11,7 +11,10 @@ use emu198x_shell::{
 };
 use runtime_sinclair_zx81::{Model, Zx81Runtime, Zx81SessionQueryProvider};
 
-const FRAME_TICKS_PAL: u64 = 207 * 312;
+// `207 * 312` is the field backstop -- the *longest* frame -- so budgeting
+// it ran two machine frames per requested frame. See
+// `SLOW_MODE_FRAME_TSTATES`.
+const FRAME_TICKS_PAL: u64 = machine_sinclair_zx81::SLOW_MODE_FRAME_TSTATES as u64;
 
 /// Runs MCP mode. Loads ROM from `EMU198X_ZX81_ROM` or default path.
 ///
