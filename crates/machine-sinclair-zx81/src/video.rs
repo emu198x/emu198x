@@ -343,8 +343,22 @@ impl Zx81Video {
         if !std::mem::take(&mut self.pending) {
             return;
         }
+        // `I*256 + CODE*8 + COUNT` -- the ULA forms the pattern address from
+        // the processor's refresh output, the latched character code, and its
+        // own three-bit line counter. *The Ins and Outs of the TS1000 & ZX81*,
+        // Thomasson, p35-36, which states the formula in exactly that form.
+        //
+        // Both halves of that matter and neither is what this used to do. It
+        // masked the refresh address with `0xFE00`, which drops bit 0 of `I`,
+        // and it OR-ed the three terms together. With the stock `I` of `$1E`
+        // the two are indistinguishable: `$1E00` has no bits below A9, so
+        // nothing overlaps and nothing is lost. Any other `I` and they differ
+        // -- an odd one addresses the wrong 256-byte page entirely, which is
+        // why a character set pointed at RAM produced no picture.
         let code = u16::from(self.char_latch);
-        let addr = (refresh_addr & 0xFE00) | ((code & 0x3F) << 3) | u16::from(self.line_counter);
+        let addr = (refresh_addr & 0xFF00)
+            .wrapping_add((code & 0x3F) << 3)
+            .wrapping_add(u16::from(self.line_counter));
         let pattern = read_mem(addr);
         self.paint(if self.char_latch & 0x80 != 0 {
             !pattern
@@ -377,5 +391,63 @@ impl Zx81Video {
             };
             self.painted += 1;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::cell::RefCell;
+
+    /// Record which address the ULA asks memory for, for one character.
+    fn fetched_address(i: u8, r: u8, code: u8, count: u8) -> u16 {
+        let mut video = Zx81Video::new();
+        video.line_counter = count;
+        // An M1 fetch from the display file latches the code.
+        assert_eq!(video.opcode_fetch(0x8000 | 0x4000, code), Some(0x00));
+
+        let seen = RefCell::new(None);
+        video.refresh(u16::from(i) << 8 | u16::from(r), |addr| {
+            *seen.borrow_mut() = Some(addr);
+            0x00
+        });
+        seen.into_inner()
+            .expect("the ULA should have read a pattern")
+    }
+
+    /// `I*256 + CODE*8 + COUNT`, from the hardware manual (Thomasson, p35-36).
+    ///
+    /// The stock character set makes this look like three separate fields:
+    /// `I` is `$1E`, so `$1E00` has nothing below A9 and the terms cannot
+    /// overlap. That is what let an implementation that masked `I` to seven
+    /// bits and OR-ed the terms pass unnoticed for as long as nothing moved
+    /// the character set.
+    #[test]
+    fn the_pattern_address_is_i_times_256_plus_code_times_8_plus_count() {
+        // The stock set, where every reading agrees.
+        assert_eq!(fetched_address(0x1E, 0x00, 0x00, 0), 0x1E00);
+        assert_eq!(fetched_address(0x1E, 0x00, 0x3F, 7), 0x1E00 + 0x3F * 8 + 7);
+
+        // An odd `I` is a different 256-byte page, not the even one below it.
+        assert_eq!(fetched_address(0x21, 0x00, 0x00, 0), 0x2100);
+        assert_eq!(fetched_address(0x21, 0x00, 0x05, 3), 0x2100 + 0x05 * 8 + 3);
+
+        // `R` never reaches the address: the ULA supplies the low bits.
+        assert_eq!(
+            fetched_address(0x21, 0xFF, 0x05, 3),
+            fetched_address(0x21, 0x00, 0x05, 3),
+        );
+    }
+
+    /// The terms are summed, not OR-ed, which only shows when they overlap.
+    ///
+    /// `CODE*8` reaches A8 once the code is 32 or more, and that is the bit an
+    /// odd `I` also occupies.
+    #[test]
+    fn a_high_code_carries_into_the_page_an_odd_i_selects() {
+        // $21 * 256 + 32 * 8 = $2100 + $100 = $2200.
+        assert_eq!(fetched_address(0x21, 0x00, 0x20, 0), 0x2200);
+        // OR-ing would give $2100, and masking I first would give $2100 too.
+        assert_ne!(fetched_address(0x21, 0x00, 0x20, 0), 0x2100);
     }
 }
