@@ -1,0 +1,17 @@
+[package]
+name = "format-sinclair-zx81-p"
+description = "ZX81 .p/.p81 tape image parser"
+edition.workspace = true
+version.workspace = true
+publish = false
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+thiserror = { workspace = true }
+
+[dev-dependencies]
+emu198x-test-skip = { path = "../emu198x-test-skip" }
+
+[lints]
+workspace = true
