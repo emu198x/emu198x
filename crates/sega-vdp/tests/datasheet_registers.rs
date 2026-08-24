@@ -715,3 +715,76 @@ fn mode_4_reads_the_unused_status_bits_back_as_ones() {
         "outside Mode 4 the bits are a field, not a fill"
     );
 }
+
+// ---------------------------------------------------------------------------
+// The legacy TMS9918A modes
+// ---------------------------------------------------------------------------
+
+/// With M4 clear the chip selects one of four inherited TMS9918A modes. This
+/// crate does not draw them: the whole active area renders as backdrop.
+///
+/// The test exists so that is a stated limit rather than something a reader
+/// has to infer from a missing branch. Reusing `ti-tms9918`'s pipeline would
+/// not fix it either — MAME's `315_5124.cpp` gives these modes their own
+/// sixteen-entry palette, quantised into the Sega VDP's output levels, and
+/// notes that "sms and sg1000-mark3 uses a different palette for modes 0 to
+/// 3". The right shapes in the wrong colours would look plausible and be
+/// wrong, which is worse than a flat screen.
+///
+/// See issue #146. If this test ever fails, the modes have been implemented
+/// and it should be replaced rather than repaired.
+#[test]
+fn the_legacy_tms9918_modes_render_as_flat_backdrop() {
+    // Each row is the M1/M2/M3 combination for one legacy mode, with M4
+    // clear throughout. M2 is R0 bit 1; M1 and M3 are R1 bits 4 and 3.
+    for (name, reg0, reg1) in [
+        ("Graphics I", 0x00u8, 0x00u8),
+        ("Text", 0x00, 0x10),
+        ("Graphics II", 0x02, 0x00),
+        ("Multicolor", 0x00, 0x08),
+    ] {
+        let mut vdp = vdp();
+        write_register(&mut vdp, 0, reg0); // M4 clear
+        write_register(&mut vdp, 1, 0x40 | reg1); // display on
+        write_register(&mut vdp, 7, 0x00);
+        poke_cram(&mut vdp, 16, 0x30); // backdrop = blue
+
+        // Fill VRAM with a pattern that would draw *something* in any mode
+        // that read it, so a flat screen cannot be an artefact of empty
+        // memory.
+        for addr in (0..0x4000u16).step_by(64) {
+            poke_vram(&mut vdp, addr, &[0xFF; 32]);
+        }
+
+        render_to(&mut vdp, 0);
+        let backdrop = sms_argb(0x30);
+        for x in 0..256 {
+            assert_eq!(
+                pixel(&vdp, 0, x),
+                backdrop,
+                "{name}: pixel {x} should be backdrop, the modes are not drawn"
+            );
+        }
+    }
+}
+
+/// The backdrop itself still follows R7, so a legacy-mode screen is at least
+/// the colour the program asked for rather than a fixed one.
+#[test]
+fn a_legacy_mode_screen_still_takes_its_colour_from_register_7() {
+    let mut vdp = vdp();
+    write_register(&mut vdp, 0, 0x00); // no M4
+    write_register(&mut vdp, 1, 0x40);
+    for entry in 0..16u8 {
+        poke_cram(&mut vdp, 16 + entry, entry * 4);
+    }
+    for entry in [0u8, 5, 15] {
+        write_register(&mut vdp, 7, entry);
+        render_to(&mut vdp, 0);
+        assert_eq!(
+            pixel(&vdp, 0, 0),
+            sms_argb(entry * 4),
+            "R7 = {entry} should still choose the screen colour"
+        );
+    }
+}
