@@ -167,6 +167,17 @@ pub const TEXT_TOP: u32 = (FB_HEIGHT - TEXT_LINES) / 2;
 /// The ZX80's module records 73 for the same constant; the two ROMs reach
 /// their first character at different points in the line, which is one more
 /// reason the machines are not sharing a module.
+/// The highest `I` page that can hold a character set.
+///
+/// `$1F` is the top of the 8 KB ROM. An `I` above it addresses no character
+/// set, which is the condition that selects WRX -- EightyOne gates on the same
+/// figure, `maxireg` in `zx81config.cpp`.
+///
+/// The switch is not a mode the software announces; it falls out of where `I`
+/// points, which is why a program enters WRX simply by loading `I` with a RAM
+/// page.
+const CHARACTER_SET_TOP_PAGE: u16 = 0x1F;
+
 const FIRST_CHAR_TSTATE: u32 = 37;
 
 /// Framebuffer pixels of border left of the first character.
@@ -426,9 +437,25 @@ impl Zx81Video {
         // -- an odd one addresses the wrong 256-byte page entirely, which is
         // why a character set pointed at RAM produced no picture.
         let code = u16::from(self.char_latch);
-        let addr = (refresh_addr & 0xFF00)
-            .wrapping_add((code & 0x3F) << 3)
-            .wrapping_add(u16::from(self.line_counter));
+        let addr = if refresh_addr >> 8 > CHARACTER_SET_TOP_PAGE {
+            // WRX. `I` is pointing outside the ROM, so there is no character
+            // set to look a pattern up in and the plain refresh address stands:
+            // `I` supplies the high byte, `R` the low, and the byte found there
+            // is eight pixels of a bitmap. Korth's *Sinclair ZX Specifications*
+            // states it outright -- the opcode and the line counter are both
+            // ignored, and pixels are read directly from memory at `(IR)`.
+            //
+            // No adjustment to `R` is needed here, though EightyOne subtracts
+            // one. That is a property of where it reads: our refresh address is
+            // sampled at `T3Rise`, where the Z80 puts `IR` on the bus, and `R`
+            // is not incremented until `T4Rise`. The value is already the one
+            // the hardware presented.
+            refresh_addr
+        } else {
+            (refresh_addr & 0xFF00)
+                .wrapping_add((code & 0x3F) << 3)
+                .wrapping_add(u16::from(self.line_counter))
+        };
         let pattern = read_mem(addr);
         self.paint(if self.char_latch & 0x80 != 0 {
             !pattern
@@ -513,13 +540,18 @@ mod tests {
         assert_eq!(fetched_address(0x1E, 0x00, 0x3F, 7), 0x1E00 + 0x3F * 8 + 7);
 
         // An odd `I` is a different 256-byte page, not the even one below it.
-        assert_eq!(fetched_address(0x21, 0x00, 0x00, 0), 0x2100);
-        assert_eq!(fetched_address(0x21, 0x00, 0x05, 3), 0x2100 + 0x05 * 8 + 3);
+        // `$1F` rather than the `$21` this used before #301: `$21` is past the
+        // top of the ROM and now selects WRX, where the code and counter are
+        // ignored entirely. `$1F` is the last ROM page, still odd, and still
+        // separates the two maskings -- `$1F00 & 0xFE00` is `$1E00`.
+        assert_eq!(fetched_address(0x1F, 0x00, 0x00, 0), 0x1F00);
+        assert_eq!(fetched_address(0x1F, 0x00, 0x05, 3), 0x1F00 + 0x05 * 8 + 3);
 
-        // `R` never reaches the address: the ULA supplies the low bits.
+        // `R` never reaches the address on this path: the ULA supplies the low
+        // bits. On the WRX path it is the whole of them.
         assert_eq!(
-            fetched_address(0x21, 0xFF, 0x05, 3),
-            fetched_address(0x21, 0x00, 0x05, 3),
+            fetched_address(0x1F, 0xFF, 0x05, 3),
+            fetched_address(0x1F, 0x00, 0x05, 3),
         );
     }
 
@@ -529,10 +561,11 @@ mod tests {
     /// odd `I` also occupies.
     #[test]
     fn a_high_code_carries_into_the_page_an_odd_i_selects() {
-        // $21 * 256 + 32 * 8 = $2100 + $100 = $2200.
-        assert_eq!(fetched_address(0x21, 0x00, 0x20, 0), 0x2200);
-        // OR-ing would give $2100, and masking I first would give $2100 too.
-        assert_ne!(fetched_address(0x21, 0x00, 0x20, 0), 0x2100);
+        // $1F * 256 + 32 * 8 = $1F00 + $100 = $2000.
+        assert_eq!(fetched_address(0x1F, 0x00, 0x20, 0), 0x2000);
+        // OR-ing would give $1F00, and masking `I` first would give $1E00.
+        assert_ne!(fetched_address(0x1F, 0x00, 0x20, 0), 0x1F00);
+        assert_ne!(fetched_address(0x1F, 0x00, 0x20, 0), 0x1E00);
     }
 
     /// The window is centred on the text area, and the derivation is the
@@ -567,6 +600,63 @@ mod tests {
             LINES_PER_FRAME - FB_HEIGHT,
             "312 is a ceiling for firmware that never syncs; the ROM emits \
              310 and pads {FIRST_TEXT_LINE} lines. See #1116."
+        );
+    }
+
+    /// WRX: with `I` outside the ROM the pattern address is the plain `I:R`.
+    ///
+    /// Korth's *Sinclair ZX Specifications* has the opcode and the line
+    /// counter both ignored, and pixels read directly from memory at `(IR)`.
+    /// Both are varied here to show they make no difference.
+    #[test]
+    fn wrx_reads_the_bare_refresh_address() {
+        for code in [0x00, 0x2A, 0x3F] {
+            for count in 0..8u8 {
+                assert_eq!(
+                    fetched_address(0x40, 0x93, code, count),
+                    0x4093,
+                    "I=$40 is outside the ROM, so code ${code:02X} and count \
+                     {count} should both be ignored"
+                );
+            }
+        }
+    }
+
+    /// `R`'s bit 7 reaches the address.
+    ///
+    /// The Z80 increments only the low seven bits, so bit 7 is whatever was
+    /// last loaded and has to survive into the fetch. EightyOne carries it as
+    /// a separate `r7`; our `Registers::inc_r` preserves it in place, so it
+    /// arrives here already set — but only if nothing masks it on the way.
+    #[test]
+    fn wrx_keeps_bit_seven_of_r() {
+        assert_eq!(fetched_address(0x40, 0x93 | 0x80, 0x00, 0), 0x4093 | 0x80);
+    }
+
+    /// The switch is where `I` points, and `$1F` is the last ROM page.
+    #[test]
+    fn the_character_set_top_page_divides_the_two_paths() {
+        // $1F still addresses ROM, so the character formula applies.
+        assert_eq!(
+            fetched_address(0x1F, 0xFF, 0x02, 3),
+            0x1F00 + 0x02 * 8 + 3,
+            "an I of $1F is the top of the ROM and still a character set"
+        );
+        // $20 is the first page past it.
+        assert_eq!(
+            fetched_address(0x20, 0xFF, 0x02, 3),
+            0x20FF,
+            "an I of $20 is past the ROM, so the refresh address stands"
+        );
+    }
+
+    /// The stock machine is unaffected, which is the other half of #301.
+    #[test]
+    fn the_stock_character_set_still_takes_the_character_path() {
+        assert_eq!(
+            fetched_address(0x1E, 0x77, 0x2A, 5),
+            0x1E00 + 0x2A * 8 + 5,
+            "I=$1E is the shipped character set and must not reach WRX"
         );
     }
 }
