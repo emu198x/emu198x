@@ -190,6 +190,19 @@ enum Mode {
 /// Active display area dimensions (the pixels the chip actually draws
 /// tiles/sprites into).
 pub const ACTIVE_WIDTH: u32 = 256;
+
+/// Columns either side of the active area that sprite coincidence still covers.
+///
+/// §2.3.2: coincidence considers sprites "partially or completely off the
+/// screen", and the VDP "checks each pixel position for coincidence during the
+/// generation of the pixel regardless of where it is located on the screen".
+///
+/// Early clock subtracts 32 from a sprite's X, so the leftmost pixel a sprite
+/// can occupy is -32; the rightmost is an X of 255 plus the 32 columns of a
+/// magnified 16x16, so 286. One margin of 32 covers both ends.
+const COINCIDENCE_MARGIN: i16 = 32;
+/// The span that margin implies, either side of the active area.
+const COINCIDENCE_SPAN: usize = ACTIVE_WIDTH as usize + 2 * COINCIDENCE_MARGIN as usize;
 pub const ACTIVE_HEIGHT: u32 = 192;
 
 /// Dot clock of the NTSC parts — TMS9918A and TMS9928A. Half a 10.738635 MHz
@@ -809,7 +822,7 @@ impl Tms9918 {
         // Pattern-presence buffer for coincidence detection, separate from the
         // colour buffer: records every counted sprite's non-zero pattern bit
         // regardless of colour, so transparent (colour-0) sprites still collide.
-        let mut coincidence_buffer = [false; 256];
+        let mut coincidence_buffer = [false; COINCIDENCE_SPAN];
         let mut collision = false;
 
         for sprite in 0..32 {
@@ -928,7 +941,7 @@ impl Tms9918 {
     fn draw_sprite_row(
         &self,
         buffer: &mut [u8; 256],
-        coincidence: &mut [bool; 256],
+        coincidence: &mut [bool; COINCIDENCE_SPAN],
         pattern: u8,
         x: i16,
         color: usize,
@@ -944,22 +957,33 @@ impl Tms9918 {
             }
             for sub in 0..step {
                 let px = x + (bit * step + sub) as i16;
-                if !(0..256).contains(&px) {
-                    continue;
+
+                // Coincidence (status bit 5) fires wherever two counted
+                // sprites' non-zero PATTERN bits overlap — independent of
+                // colour, so two transparent (colour-0) sprites still collide
+                // (#134), and independent of whether the pixel is on screen.
+                //
+                // §2.3.2 puts sprites "partially or completely off the screen"
+                // in scope, so this is checked across the off-screen margins
+                // and not only the 256 visible columns.
+                #[allow(clippy::cast_sign_loss)]
+                let slot = (px + COINCIDENCE_MARGIN) as usize;
+                if px + COINCIDENCE_MARGIN >= 0 && slot < COINCIDENCE_SPAN {
+                    if coincidence[slot] {
+                        *collision = true;
+                    }
+                    coincidence[slot] = true;
                 }
-                let px = px as usize;
-                // Coincidence (status bit 5) fires wherever two counted sprites'
-                // non-zero PATTERN bits overlap — independent of colour, so two
-                // transparent (colour-0) sprites still collide. (#134)
-                if coincidence[px] {
-                    *collision = true;
-                }
-                coincidence[px] = true;
-                // Colour: the highest-priority (lowest-numbered, drawn-first)
-                // opaque sprite covering the pixel wins; transparent sprites
-                // contribute nothing to the picture.
-                if color != 0 && buffer[px] == 0 {
-                    buffer[px] = color as u8;
+
+                // The picture is only the visible columns. Colour: the
+                // highest-priority (lowest-numbered, drawn-first) opaque sprite
+                // covering the pixel wins; transparent sprites contribute
+                // nothing to it.
+                if (0..256).contains(&px) {
+                    let px = px as usize;
+                    if color != 0 && buffer[px] == 0 {
+                        buffer[px] = color as u8;
+                    }
                 }
             }
         }
