@@ -210,7 +210,6 @@ pub struct SegaVdp {
     /// Current dot within the scanline (0-341), for per-dot rendering.
     dot: u16,
     region: VdpRegion,
-    #[allow(dead_code)]
     variant: VdpVariant,
     framebuffer: Vec<u32>,
     /// Per-line sprite colour-index buffer (0 = no sprite pixel), evaluated at
@@ -319,6 +318,19 @@ impl SegaVdp {
     /// R0 bit 5 — draw the leftmost eight pixels as border instead of picture.
     fn left_column_hidden(&self) -> bool {
         self.regs[0] & 0x20 != 0
+    }
+
+    /// Whether this chip is the 315-5124.
+    ///
+    /// SMS Power puts the difference as a logic gate on the VRAM address bus:
+    /// several register bits that look unused are ANDed with an address bit,
+    /// so clearing one forces that bit to 0 for every fetch of its kind. On
+    /// the 315-5246 the gate always gets a 1 from the register and nothing is
+    /// masked. Well-behaved software sets all of them, which is why the
+    /// difference stays invisible until something leans on it deliberately —
+    /// tilemap mirroring being the usual reason.
+    const fn is_sms1(&self) -> bool {
+        matches!(self.variant, VdpVariant::Sms1)
     }
 
     fn backdrop_color(&self) -> u32 {
@@ -703,7 +715,12 @@ impl SegaVdp {
         let fine_x = scrolled_x & 7;
 
         // Name table entry (2 bytes, little-endian).
-        let nt_addr = name_base + (tile_row * 32 + tile_col) * 2;
+        let mut nt_addr = name_base + (tile_row * 32 + tile_col) * 2;
+        // R2 bit 0 is ANDed with the high bit of the row, so on a 315-5124
+        // with it clear the bottom half of the tilemap mirrors the top.
+        if self.is_sms1() && self.regs[2] & 0x01 == 0 {
+            nt_addr &= !0x0400;
+        }
         let nt_lo = self.vram[nt_addr & 0x3FFF] as u16;
         let nt_hi = self.vram[(nt_addr + 1) & 0x3FFF] as u16;
         let nt_entry = nt_lo | (nt_hi << 8);
@@ -718,11 +735,26 @@ impl SegaVdp {
         let col = if h_flip { fine_x } else { 7 - fine_x };
 
         // 4bpp planar: 4 bytes per row, 32 bytes per tile.
-        let pattern_addr = pattern_idx * 32 + row * 4;
-        let b0 = self.vram[pattern_addr & 0x3FFF];
-        let b1 = self.vram[(pattern_addr + 1) & 0x3FFF];
-        let b2 = self.vram[(pattern_addr + 2) & 0x3FFF];
-        let b3 = self.vram[(pattern_addr + 3) & 0x3FFF];
+        //
+        // On a 315-5124 the tile index is masked differently for each half of
+        // the bitplanes: R3's eight bits gate index bits 8-1 when fetching
+        // planes 0 and 1, R4's low three gate bits 8-6 when fetching planes 2
+        // and 3. The two halves of a pixel's colour can therefore come from
+        // two different tiles.
+        let (low_idx, high_idx) = if self.is_sms1() {
+            (
+                pattern_idx & (0x001 | (usize::from(self.regs[3]) << 1)),
+                pattern_idx & (0x03F | (usize::from(self.regs[4] & 0x07) << 6)),
+            )
+        } else {
+            (pattern_idx, pattern_idx)
+        };
+        let low_addr = low_idx * 32 + row * 4;
+        let high_addr = high_idx * 32 + row * 4;
+        let b0 = self.vram[low_addr & 0x3FFF];
+        let b1 = self.vram[(low_addr + 1) & 0x3FFF];
+        let b2 = self.vram[(high_addr + 2) & 0x3FFF];
+        let b3 = self.vram[(high_addr + 3) & 0x3FFF];
 
         let color_idx = ((b0 >> col) & 1)
             | (((b1 >> col) & 1) << 1)
@@ -782,8 +814,15 @@ impl SegaVdp {
                 break;
             }
 
-            // X and pattern from second half of SAT
-            let x_addr = sat_base + 0x80 + sprite * 2;
+            // X and pattern from second half of SAT. R5 bit 0 is ANDed with
+            // address bit 7, so on a 315-5124 with it clear both fold back
+            // into the Y half and a sprite reads its position out of the
+            // coordinate bytes.
+            let mut offset = 0x80 + sprite * 2;
+            if self.is_sms1() && self.regs[5] & 0x01 == 0 {
+                offset &= !0x80;
+            }
+            let x_addr = sat_base + offset;
             let mut x = self.vram[x_addr & 0x3FFF] as i16;
             let mut pattern = self.vram[(x_addr + 1) & 0x3FFF] as usize;
 
@@ -792,6 +831,11 @@ impl SegaVdp {
             }
             if tall_sprites {
                 pattern &= 0xFE;
+            }
+            // R6's low two bits gate tile-number bits 7 and 6, cutting the
+            // sprite tile set to 128 or 64 on a 315-5124.
+            if self.is_sms1() {
+                pattern &= 0x3F | (usize::from(self.regs[6] & 0x03) << 6);
             }
 
             let sprite_row = (line - y) >> zoom;
