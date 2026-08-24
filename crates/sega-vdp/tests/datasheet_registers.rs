@@ -274,9 +274,9 @@ fn each_two_bit_cram_channel_expands_by_repeating_its_bits() {
 // R0 scroll locks
 // ---------------------------------------------------------------------------
 
-/// A two-row scene: name-table row 0 draws colour 1, row 1 draws colour 2.
-/// With a vertical scroll of 8 the whole screen shows row 1 — unless a lock
-/// holds part of it at scroll 0.
+/// A striped scene: even name-table rows draw colour 1, odd rows colour 2.
+/// A vertical scroll of 8 swaps the two everywhere, so any line of the
+/// picture reports which scroll value was in force when it was drawn.
 fn scroll_scene(reg0: u8, reg9: u8) -> SegaVdp {
     let mut vdp = vdp();
     write_register(&mut vdp, 0, 0x04 | reg0);
@@ -287,9 +287,11 @@ fn scroll_scene(reg0: u8, reg9: u8) -> SegaVdp {
     poke_cram(&mut vdp, 2, 0x0C); // green
     poke_vram(&mut vdp, 0x0020, &solid_tile(1));
     poke_vram(&mut vdp, 0x0040, &solid_tile(2));
-    for col in 0..32u16 {
-        poke_vram(&mut vdp, 0x3800 + col * 2, &[0x01, 0x00]); // row 0 -> tile 1
-        poke_vram(&mut vdp, 0x3840 + col * 2, &[0x02, 0x00]); // row 1 -> tile 2
+    for row in 0..28u16 {
+        let tile = if row % 2 == 0 { 0x01 } else { 0x02 };
+        for col in 0..32u16 {
+            poke_vram(&mut vdp, 0x3800 + row * 64 + col * 2, &[tile, 0x00]);
+        }
     }
     vdp
 }
@@ -626,4 +628,53 @@ fn the_v_counter_maps_every_scanline_of_the_frame() {
             "{region:?} V counter sequence is not the documented map"
         );
     }
+}
+
+// ---------------------------------------------------------------------------
+// R9 is latched once per frame
+// ---------------------------------------------------------------------------
+
+/// R9 is "sampled only at the start of the active display", so a mid-frame
+/// write does not take effect until the next frame. This is why the Master
+/// System has no vertical raster-scroll trick: split scrolling is done with
+/// R8 and the line counter, and a game that writes R9 mid-frame is aiming at
+/// the frame after.
+///
+/// Genesis Plus GX agrees, and its variable says so: `vscroll` is declared
+/// "Latched vertical scroll value" in `vdp_ctrl.c`, assigned once in
+/// `system.c` on the line before the active display starts, and read
+/// unchanged by `render_bg_m4` for every line of the frame.
+#[test]
+fn the_vertical_scroll_register_is_latched_once_per_frame() {
+    let mut vdp = scroll_scene(0x00, 0);
+
+    // Scan into a frame with no vertical scroll, then move R9 by a whole
+    // tile row while the picture is still being drawn. Line 100 falls in an
+    // even name-table row at scroll 0 and an odd one at scroll 8, so it
+    // reports which value was in force when it was scanned.
+    while !vdp.tick_scanline() {}
+    for _ in 0..8 {
+        vdp.tick_scanline();
+    }
+    write_register(&mut vdp, 9, 8);
+    for _ in 8..192 {
+        vdp.tick_scanline();
+    }
+
+    assert_eq!(
+        pixel(&vdp, 100, 0),
+        sms_argb(0x03),
+        "a mid-frame write to R9 must not move the rest of this frame"
+    );
+
+    // The next whole frame picks it up.
+    while !vdp.tick_scanline() {}
+    for _ in 0..192 {
+        vdp.tick_scanline();
+    }
+    assert_eq!(
+        pixel(&vdp, 100, 0),
+        sms_argb(0x0C),
+        "the write takes effect from the next frame"
+    );
 }
