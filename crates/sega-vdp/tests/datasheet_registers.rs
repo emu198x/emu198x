@@ -678,3 +678,40 @@ fn the_vertical_scroll_register_is_latched_once_per_frame() {
         "the write takes effect from the next frame"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Status bits 4-0
+// ---------------------------------------------------------------------------
+
+/// Bits 4-0 of the status register are the fifth-sprite number in the TMS9918
+/// modes this chip inherited. Mode 4 has no such field and reads them back as
+/// ones.
+///
+/// Genesis Plus GX does this and names the title that proves it — `else if
+/// (reg[0] & 0x04) { /* Mode 4 unused bits (fixes PGA Tour Golf) */ temp |=
+/// 0x1F; }` — so a game does read them and does expect them set. That also
+/// settles a claim in our own distillation, which had the 315-5246 reporting
+/// the ninth sprite's index here: a game that needs ones would break on real
+/// hardware if an index were there.
+///
+/// The second half of this test pins that the fill is conditional on Mode 4
+/// rather than unconditional. The TMS-compatibility modes themselves are a
+/// placeholder in this crate, so what it checks is the gate, not the field.
+#[test]
+fn mode_4_reads_the_unused_status_bits_back_as_ones() {
+    let mut vdp = vdp();
+    write_register(&mut vdp, 0, 0x04); // Mode 4
+    write_register(&mut vdp, 1, 0x40);
+    assert_eq!(
+        vdp.read_status() & 0x1F,
+        0x1F,
+        "Mode 4 has no fifth-sprite field and reads ones there"
+    );
+
+    write_register(&mut vdp, 0, 0x00); // leave Mode 4
+    assert_eq!(
+        vdp.read_status() & 0x1F,
+        0x00,
+        "outside Mode 4 the bits are a field, not a fill"
+    );
+}

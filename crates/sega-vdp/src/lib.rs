@@ -418,7 +418,17 @@ impl SegaVdp {
     /// Read VDP control/status port ($BF).
     pub fn read_status(&mut self) -> u8 {
         self.latch_first = true;
-        let result = self.status;
+        // Status bits 4-0 are the fifth-sprite number in the TMS9918 modes
+        // this chip inherited, but Mode 4 has no such field and reads them
+        // back as ones. Genesis Plus GX does the same and names the title
+        // that proves it — "Mode 4 unused bits (fixes PGA Tour Golf)" — so
+        // this is not a cosmetic difference; a game reads them and expects
+        // them set.
+        let result = if self.mode4_active() {
+            self.status | 0x1F
+        } else {
+            self.status
+        };
         self.status = 0;
         self.line_irq_pending = false;
         self.interrupt = false;
@@ -792,9 +802,13 @@ impl SegaVdp {
         let shift_left = self.regs[0] & 0x08 != 0;
 
         let mut sprite_buffer = [0u8; 256]; // Color index per pixel
-        let mut sprites_on_line = 0u8;
         let mut collision = false;
 
+        // Evaluation first, drawing second. The 315-5124's magnification rule
+        // is stated in terms of how many sprites are on the line, so the
+        // count has to be known before the first one is drawn.
+        let mut chosen = [(0usize, 0usize); 8]; // (sprite index, first line)
+        let mut count = 0usize;
         for sprite in 0..64 {
             let y_raw = self.vram[(sat_base + sprite) & 0x3FFF];
 
@@ -808,11 +822,26 @@ impl SegaVdp {
                 continue;
             }
 
-            sprites_on_line += 1;
-            if sprites_on_line > 8 {
+            if count == 8 {
                 self.status |= 0x40;
                 break;
             }
+            chosen[count] = (sprite, y);
+            count += 1;
+        }
+
+        for (slot, &(sprite, y)) in chosen[..count].iter().enumerate() {
+            // On the 315-5124 magnification stretches every sprite
+            // vertically but only the first N-4 of the N sprites on the line
+            // horizontally, so how many widen depends on how crowded the line
+            // is — and on a line of four or fewer, none of them do. Genesis
+            // Plus GX has the same rule from the other end: "last 4 sprites
+            // can not be zoomed".
+            let h_zoom = if self.is_sms1() && slot + 4 >= count {
+                0
+            } else {
+                zoom
+            };
 
             // X and pattern from second half of SAT. R5 bit 0 is ANDed with
             // address bit 7, so on a 315-5124 with it clear both fold back
@@ -859,8 +888,8 @@ impl SegaVdp {
 
                 // One screen pixel per pattern bit, or two side by side when
                 // the sprite is magnified.
-                for step in 0..(1usize << zoom) {
-                    let px = x + ((bit << zoom) + step) as i16;
+                for step in 0..(1usize << h_zoom) {
+                    let px = x + ((bit << h_zoom) + step) as i16;
                     if !(0..256).contains(&px) {
                         continue;
                     }
