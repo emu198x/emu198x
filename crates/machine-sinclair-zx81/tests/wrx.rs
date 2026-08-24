@@ -141,25 +141,22 @@ fn a_wrx_program_drives_the_bitmap_path() {
         256 * 192
     );
 
-    // The discriminator, and the reason it is this number.
+    // There was a cell-count discriminator here and it did not hold.
     //
-    // On the character path the pattern address is `I*256 + CODE*8 + COUNT`,
-    // so within one `I` page it can reach 64 codes x 8 line-counter values =
-    // **512 bytes, and no more**. Every distinct cell the screen can show is
-    // one of those 512. Forcing the character path with this same program
-    // yields exactly 512 here, which is the ceiling being hit rather than
-    // approached.
+    // It counted distinct `(row-in-character, column, byte)` cells and
+    // required more than 64 x 8 = 512, on the reasoning that the character
+    // path can only reach 512 bytes within one `I` page. The bound is right
+    // for *bytes* and wrong for the triples it was applied to: the same byte
+    // at a different column counts again, so a character-mode display is not
+    // limited to 512 of them. Measured, `Bi-Plot` in plain character mode
+    // renders **609** -- above the ceiling that was being read as proof of
+    // WRX (#297).
     //
-    // The bitmap path has no such limit: `R` walks 256 bytes a page across 24
-    // pages. This image renders 880.
-    const CHARACTER_PATH_CEILING: usize = 64 * 8;
-    assert!(
-        cells.len() > CHARACTER_PATH_CEILING,
-        "only {} distinct cells, which the character path could have produced \
-         on its own — its reach is exactly {CHARACTER_PATH_CEILING} bytes a \
-         page. The bitmap path is not being taken.",
-        cells.len()
-    );
+    // Keyed soundly on `(row-in-character, byte)` the 512 bound does hold,
+    // and then nothing reaches it: this image renders 113 that way, because a
+    // bitmap has no reason to use many distinct byte values. So the count
+    // cannot separate the two paths in either direction, and the assertion
+    // below is the one that does.
 
     let wrx_pages: Vec<u8> = pages.iter().copied().filter(|&i| i > 0x1F).collect();
     assert!(
