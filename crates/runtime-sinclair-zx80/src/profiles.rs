@@ -1,5 +1,7 @@
 //! ZX80 family profile catalogue.
 
+use machine_sinclair_zx80::TelevisionStandard;
+
 use emu198x_shell::{
     CapabilitySet, ClockDesc, ClockRate, Family, FirmwareRequirement, MachineId, MachineProfile,
     MediaKind, MediaSlot, ProfileId, Region, WritebackPolicy, known_capability,
@@ -9,6 +11,12 @@ use emu198x_shell::{
 pub enum Model {
     /// As sold: 1 KB on the board.
     Zx80,
+    /// The American board: D11 fitted, so the ROM pads a 60 Hz field.
+    ///
+    /// Sinclair sold the ZX80 in the USA as the same machine with the diode
+    /// in place; there is no separate model name to use. Without this profile
+    /// a USA board could not be selected at all, which was #1133.
+    Zx80Usa,
     /// With Sinclair's 16 KB RAM pack on the edge connector.
     ///
     /// Almost all ZX80 software wants this. 1 KB leaves room for a display
@@ -28,6 +36,7 @@ impl Model {
             // Unchanged, and deliberately not renamed to `-1k`: this id is
             // already in the registry and in staged scripts.
             Self::Zx80 => "sinclair-zx80",
+            Self::Zx80Usa => "sinclair-zx80-usa",
             Self::Zx80RamPack => "sinclair-zx80-16k",
         }
     }
@@ -35,6 +44,7 @@ impl Model {
     pub const fn display_name(self) -> &'static str {
         match self {
             Self::Zx80 => "Sinclair ZX80",
+            Self::Zx80Usa => "Sinclair ZX80 (USA, 60 Hz)",
             Self::Zx80RamPack => "Sinclair ZX80 (16 KB RAM pack)",
         }
     }
@@ -43,13 +53,26 @@ impl Model {
     #[must_use]
     pub const fn ram_bytes(self) -> usize {
         match self {
-            Self::Zx80 => 1024,
+            Self::Zx80 | Self::Zx80Usa => 1024,
             Self::Zx80RamPack => 16 * 1024,
         }
     }
     #[must_use]
     pub const fn region(self) -> Region {
-        Region::Pal
+        match self {
+            Self::Zx80 | Self::Zx80RamPack => Region::Pal,
+            Self::Zx80Usa => Region::Ntsc,
+        }
+    }
+
+    /// The board's strap, which is the whole of the region difference: the
+    /// ROM reads D6 and lays out a shorter field for 60 Hz.
+    #[must_use]
+    pub const fn television_standard(self) -> TelevisionStandard {
+        match self {
+            Self::Zx80 | Self::Zx80RamPack => TelevisionStandard::FiftyHz,
+            Self::Zx80Usa => TelevisionStandard::SixtyHz,
+        }
     }
 }
 
@@ -57,7 +80,11 @@ pub const ROM_FIRMWARE_ID: &str = "sinclair-zx80-rom";
 
 #[must_use]
 pub fn profiles() -> Vec<MachineProfile> {
-    vec![profile_for(Model::Zx80), profile_for(Model::Zx80RamPack)]
+    vec![
+        profile_for(Model::Zx80),
+        profile_for(Model::Zx80Usa),
+        profile_for(Model::Zx80RamPack),
+    ]
 }
 
 #[must_use]
@@ -71,6 +98,7 @@ pub fn profile_for(model: Model) -> MachineProfile {
         release_year: 1980,
         summary: match model {
             Model::Zx80 => "Sinclair ZX80 — Z80A + discrete keyboard / display logic, 1 KB internal RAM, 4 KB monitor ROM.",
+            Model::Zx80Usa => "Sinclair ZX80, American board — D11 fitted, so the ROM pads a 60 Hz field of 262 lines instead of 310.",
             Model::Zx80RamPack => "Sinclair ZX80 with the 16 KB RAM pack — Z80A + discrete keyboard / display logic, 4 KB monitor ROM.",
         }
         .into(),
@@ -107,8 +135,8 @@ mod tests {
         }
     }
 
-    /// Both profiles are the same machine, so they share a `machine_id` and
-    /// differ only where the RAM pack makes them differ.
+    /// All three profiles are the same machine, so they share a `machine_id`
+    /// and differ only where the RAM pack and the strap make them differ.
     #[test]
     fn ram_pack_is_a_second_profile_of_the_same_machine() {
         let stock = profile_for(Model::Zx80);
@@ -116,7 +144,7 @@ mod tests {
 
         assert_eq!(stock.machine_id, packed.machine_id);
         assert_ne!(stock.profile_id, packed.profile_id);
-        assert_eq!(profiles().len(), 2);
+        assert_eq!(profiles().len(), 3, "stock, USA, and the RAM pack");
 
         // The existing id is load-bearing: it is in the registry and in
         // scripts people have already written.

@@ -52,7 +52,7 @@
 
 use std::path::PathBuf;
 
-use machine_sinclair_zx80::{FB_HEIGHT, FB_WIDTH, TEXT_TOP, Zx80};
+use machine_sinclair_zx80::{FB_WIDTH, Zx80};
 
 /// Ink.
 const INK: u32 = 0xFF00_0000;
@@ -102,7 +102,7 @@ fn synthetic_firmware_generates_a_picture_with_the_cpu() {
     // The display starts at frame line 56 and the window is centred on it, so
     // it occupies `TEXT_TOP..TEXT_TOP + 192`: first row, second, the last of
     // the first character row, the middle, and the last row.
-    let top = TEXT_TOP as usize;
+    let top = machine.text_top() as usize;
     for row in [top, top + 1, top + 7, top + 96, top + 191] {
         let lit: Vec<usize> = (0..w).filter(|&x| frame[row * w + x] == INK).collect();
         assert_eq!(
@@ -114,7 +114,12 @@ fn synthetic_firmware_generates_a_picture_with_the_cpu() {
     // Border: the top of the window, the last row above the display, the
     // first below it, and the bottom. The two pads are equal — the ROM emits
     // 56 lines either side of the text and the window keeps 48 of each.
-    for row in [0usize, top - 1, top + 192, FB_HEIGHT as usize - 1] {
+    for row in [
+        0usize,
+        top - 1,
+        top + 192,
+        machine.framebuffer_height() as usize - 1,
+    ] {
         let lit = (0..w).filter(|&x| frame[row * w + x] == INK).count();
         assert_eq!(lit, 0, "row {row} is border and must stay blank");
     }

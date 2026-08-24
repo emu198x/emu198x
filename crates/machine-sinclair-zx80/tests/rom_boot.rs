@@ -4,7 +4,7 @@ use std::env;
 use std::fs;
 use std::path::PathBuf;
 
-use machine_sinclair_zx80::{FB_HEIGHT, FB_WIDTH, TEXT_TOP, Zx80};
+use machine_sinclair_zx80::{FB_WIDTH, Zx80};
 
 fn rom_path() -> Option<PathBuf> {
     if let Ok(p) = env::var("EMU198X_ZX80_ROM") {
@@ -80,11 +80,11 @@ fn rom_boots_to_its_power_on_screen() {
     // Where that row falls is arithmetic, not a fitted number: the text area
     // is centred in the window, and row 23 is 184 lines into it. 32 pixels
     // in, because 32 columns of 8 centred in 320 leave that either side.
-    let row_23_top = TEXT_TOP as usize + 23 * 8;
+    let row_23_top = sys.text_top() as usize + 23 * 8;
     let w = FB_WIDTH as usize;
     let ink_at = |x: usize, y: usize| frame[y * w + x] == 0xFF00_0000;
     let (mut min_x, mut max_x, mut min_y, mut max_y) = (usize::MAX, 0, usize::MAX, 0);
-    for y in 0..FB_HEIGHT as usize {
+    for y in 0..sys.framebuffer_height() as usize {
         for x in 0..w {
             if ink_at(x, y) {
                 min_x = min_x.min(x);

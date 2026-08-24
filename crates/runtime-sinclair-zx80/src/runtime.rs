@@ -155,11 +155,15 @@ impl Zx80Runtime {
             self.machine = None;
             return Ok(());
         };
-        let machine =
+        let mut machine =
             Zx80::new(rom, self.ram_bytes).map_err(|reason| MachineError::InvalidFirmware {
                 id: ROM_FIRMWARE_ID.to_owned(),
                 reason,
             })?;
+        // The board strap is the whole of the region difference: the ROM reads
+        // D6 and pads a shorter field for 60 Hz. Set it before the height is
+        // read, because the window is sized from it (#1133).
+        machine.set_television_standard(self.model.television_standard());
         let width = machine.framebuffer_width();
         let height = machine.framebuffer_height();
         self.rgba_width = width;
@@ -332,7 +336,9 @@ impl MachineCore for Zx80Runtime {
         Some(Display::Television {
             region: self.profile.region,
             pixel_clock_hz: PIXEL_CLOCK_HZ,
-            lines_per_tv_height: emu198x_shell::display::PAL_ACTIVE_LINES,
+            // Follows the region rather than being PAL for everything, which
+            // is what let a USA board go unrepresentable (#1133).
+            lines_per_tv_height: emu198x_shell::display::active_lines(self.profile.region)?,
         })
     }
 
