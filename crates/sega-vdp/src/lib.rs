@@ -55,36 +55,59 @@ impl VdpRegion {
         }
     }
 
-    /// Scan lines of border above the active area.
+    /// Border lines the chip *scans* above and below the active area.
     ///
-    /// Halving what the field has left over would put the active area in the
-    /// middle of the window, and the chip does not put it there. MAME's
-    /// `315_5124.h` tables the frame: 3 lines of sync and 13 of top blanking
-    /// before the picture, 27 lines of top border and 24 of bottom around the
-    /// 192 in 192-line mode, 3 more blanked at the end — 243 scanned of 262.
+    /// MAME's `315_5124.h` tables the frame for every display height. The
+    /// blanking is a constant 19 lines in all six cases — 3 of sync and 13
+    /// before the picture, 3 after — so the border shrinks by exactly what
+    /// the picture grows, and each row here checks against its region's
+    /// frame: 27+192+24+19 = 262, 38+224+32+19 = 313, and so on.
+    ///
     /// The TMS9918A manual's Table 3-3 gives the same 27 and 24 for the chip
-    /// this one descends from, so the number is doubly attested.
+    /// this one descends from, so the 192-line NTSC pair is doubly attested.
     ///
-    /// A set shows 240 of those 243, centred, so it loses three lines: two off
-    /// the larger top border, one off the bottom. 25 and 23, and the picture
-    /// sits a line and a half below the middle of the window because that is
-    /// where the chip scans it.
-    ///
-    /// PAL runs the same 19 blanked lines and spends all 51 extra on border —
-    /// 54 top and 48 bottom, in the same 27:24 ratio. 294 scanned, 288 shown,
-    /// three off each end.
-    #[must_use]
-    pub const fn border_top(self) -> u32 {
-        match self {
-            Self::Ntsc => 25,
-            Self::Pal => 51,
+    /// NTSC at 240 lines is the one MAME does not table, and the arithmetic
+    /// says why: 262 less 19 blanked less 240 active leaves three lines of
+    /// border for the whole frame. There is nowhere to put a picture that
+    /// size on a 60 Hz set, which is why the mode is documented as unusable
+    /// there. The 11:8 ratio of the 224-line row splits those three as 2 and
+    /// 1, and the set then crops both away.
+    const fn scanned_borders(self, active_height: u32) -> (u32, u32) {
+        match (self, active_height) {
+            (Self::Ntsc, 192) => (27, 24),
+            (Self::Ntsc, 224) => (11, 8),
+            (Self::Ntsc, _) => (2, 1),
+            (Self::Pal, 192) => (54, 48),
+            (Self::Pal, 224) => (38, 32),
+            (Self::Pal, _) => (30, 24),
         }
     }
 
-    /// Scan lines of border below the active area.
+    /// Scan lines of border above the active area, as a set shows them.
+    ///
+    /// Halving what the field has left over would put the active area in the
+    /// middle of the window, and the chip does not put it there. The chip
+    /// scans more lines than a set displays — 243 of 262 on NTSC, 294 of 313
+    /// on PAL — so the difference is cropped, split as evenly as the count
+    /// allows with the odd line coming off the larger top border. NTSC loses
+    /// three lines, two of them off the top; PAL loses six, three each end.
+    ///
+    /// At 192 lines that gives 25 and 51, and the picture sits a line and a
+    /// half below the middle of the window because that is where the chip
+    /// scans it. At 240 lines on NTSC it gives zero: the picture is the
+    /// window.
     #[must_use]
-    pub const fn border_bottom(self) -> u32 {
-        self.framebuffer_height() - ACTIVE_HEIGHT - self.border_top()
+    pub const fn border_top(self, active_height: u32) -> u32 {
+        let (top, bottom) = self.scanned_borders(active_height);
+        let scanned = top + active_height + bottom;
+        let cropped = scanned - self.framebuffer_height();
+        top - cropped.div_ceil(2)
+    }
+
+    /// Scan lines of border below the active area, as a set shows them.
+    #[must_use]
+    pub const fn border_bottom(self, active_height: u32) -> u32 {
+        self.framebuffer_height() - active_height - self.border_top(active_height)
     }
 
     /// Pixels a set displays along a line, which is a television framebuffer's
@@ -204,6 +227,9 @@ pub struct SegaVdp {
     /// vertical scroll once a frame, so this is the value the whole frame
     /// renders with, whatever a game writes to R9 part-way down it.
     vscroll: u8,
+    /// Active display height for this frame — 192, 224 or 240. Latched at the
+    /// top of the frame for the same reason as `vscroll`.
+    active_height: u32,
 
     // Rendering
     scanline: u16,
@@ -255,6 +281,7 @@ impl SegaVdp {
             line_counter: 0,
             line_irq_pending: false,
             vscroll: 0,
+            active_height: ACTIVE_HEIGHT,
             scanline: 0,
             dot: 0,
             region,
@@ -309,6 +336,46 @@ impl SegaVdp {
 
     fn mode4_active(&self) -> bool {
         self.regs[0] & 0x04 != 0
+    }
+
+    /// Active display height for whatever the four mode bits currently say.
+    ///
+    /// M2 and M4 are R0 bits 1 and 2; M3 and M1 are R1 bits 3 and 4. Both
+    /// extended heights need M2 as well as M4, and the decode is an exact
+    /// match rather than "M1 implies 224" — setting M1 and M3 together, or
+    /// either without M2, is ordinary 192-line Mode 4. Genesis Plus GX builds
+    /// the same four-bit word and tests it for equality against $0E and $16.
+    ///
+    /// Both are 315-5246 modes. The 315-5124 ignores the bits, which is the
+    /// same `system_hw > SYSTEM_SMS` gate as its address-bus masks.
+    ///
+    /// A Game Gear is held at 192 as well, which is a decision rather than a
+    /// fact about the silicon: it carries a 315-5246, so the bits presumably
+    /// do something. But its 160x144 window is a physical panel rather than a
+    /// television's, and where that panel would sit on a taller raster is not
+    /// something any source here answers. No Game Gear software is known to
+    /// ask. Modelling it would mean either moving the panel on a guess or
+    /// breaking this crate's rule that the window is the centre of the active
+    /// area, so it stays at the height the panel was built around.
+    fn mode_height(&self) -> u32 {
+        if self.is_sms1() || self.is_game_gear {
+            return ACTIVE_HEIGHT;
+        }
+        match (self.regs[0] & 0x06) | (self.regs[1] & 0x18) {
+            0x0E => 240,
+            0x16 => 224,
+            _ => ACTIVE_HEIGHT,
+        }
+    }
+
+    /// The height this frame is being scanned at.
+    ///
+    /// Latched, like the vertical scroll: a mode change part-way down a frame
+    /// takes effect on the next one. Genesis Plus GX says so in as many
+    /// words — "viewport changes should be applied on next frame".
+    #[must_use]
+    pub const fn active_height(&self) -> u32 {
+        self.active_height
     }
 
     fn display_enabled(&self) -> bool {
@@ -524,6 +591,7 @@ impl SegaVdp {
     /// display and reading it unchanged for every line after.
     fn latch_frame_registers(&mut self) {
         self.vscroll = self.regs[9];
+        self.active_height = self.mode_height();
     }
 
     /// Tick one dot (pixel clock, ~5.37 MHz). Renders the active pixel scanned
@@ -540,10 +608,11 @@ impl SegaVdp {
             self.fill_border();
             self.latch_frame_registers();
         }
-        if self.scanline < 192 && self.dot == 0 {
+        let active_lines = self.active_height as u16;
+        if self.scanline < active_lines && self.dot == 0 {
             self.prepare_line_sprites(self.scanline as usize);
         }
-        if self.scanline < 192 && self.dot < ACTIVE_WIDTH as u16 {
+        if self.scanline < active_lines && self.dot < ACTIVE_WIDTH as u16 {
             self.render_pixel(self.scanline as usize, self.dot as usize);
         }
         self.dot += 1;
@@ -561,7 +630,7 @@ impl SegaVdp {
             self.fill_border();
             self.latch_frame_registers();
         }
-        if self.scanline < 192 {
+        if self.scanline < self.active_height as u16 {
             self.render_scanline(self.scanline);
         }
         self.advance_line()
@@ -571,7 +640,7 @@ impl SegaVdp {
     /// recompute, and the scanline advance. Returns true at frame end. Shared by
     /// [`tick`](Self::tick) and [`tick_scanline`](Self::tick_scanline).
     fn advance_line(&mut self) -> bool {
-        let active_lines: u16 = 192;
+        let active_lines = self.active_height as u16;
         if self.scanline < active_lines {
             if self.line_counter == 0 {
                 self.line_counter = self.regs[10];
@@ -587,21 +656,24 @@ impl SegaVdp {
             self.line_counter = self.regs[10];
         }
 
-        self.v_counter = match self.region {
-            VdpRegion::Ntsc => {
-                if self.scanline <= 0xDA {
-                    self.scanline
-                } else {
-                    self.scanline.wrapping_sub(6)
-                }
-            }
-            VdpRegion::Pal => {
-                if self.scanline <= 0xF2 {
-                    self.scanline
-                } else {
-                    self.scanline.wrapping_sub(57)
-                }
-            }
+        // The V counter has to report a scanline in a byte, so past a
+        // per-mode threshold it jumps back far enough that the last line of
+        // the frame reads $FF. The thresholds are Genesis Plus GX's
+        // `vc_table`; the jump is however much the frame overruns 256 lines,
+        // which is 6 on NTSC and 57 on PAL whatever the height.
+        let vc_max = match (self.region, self.active_height) {
+            (VdpRegion::Ntsc, 192) => 0x00DA,
+            (VdpRegion::Ntsc, 224) => 0x00EA,
+            (VdpRegion::Ntsc, _) => 0x0106,
+            (VdpRegion::Pal, 192) => 0x00F2,
+            (VdpRegion::Pal, 224) => 0x0102,
+            (VdpRegion::Pal, _) => 0x010A,
+        };
+        let jump = self.lines_per_frame() - 256;
+        self.v_counter = if self.scanline <= vc_max {
+            self.scanline
+        } else {
+            self.scanline.wrapping_sub(jump)
         };
 
         self.update_interrupt();
@@ -625,7 +697,8 @@ impl SegaVdp {
     // -----------------------------------------------------------------------
 
     fn active_offset(&self, line: usize) -> usize {
-        (self.region.border_top() as usize + line) * self.framebuffer_width() as usize
+        (self.region.border_top(self.active_height) as usize + line)
+            * self.framebuffer_width() as usize
             + self.region.border_left() as usize
     }
 
@@ -705,7 +778,14 @@ impl SegaVdp {
     /// priority; `priority` is the tile's foreground bit. The colour itself is
     /// resolved by the caller so it can arbitrate against the sprite pixel.
     fn mode4_bg_lookup(&self, line: usize, pixel_x: usize) -> (u8, bool, usize) {
-        let name_base = (self.regs[2] as usize & 0x0E) * 0x400;
+        // R2 in the 192-line mode is bits 3-1 times $800. In the tall modes
+        // only bits 3-2 count, times $1000, with $700 added — so the same
+        // R2 = $FF that gives $3800 in one gives $3700 in the other.
+        let name_base = if self.active_height > ACTIVE_HEIGHT {
+            (self.regs[2] as usize & 0x0C) * 0x400 + 0x700
+        } else {
+            (self.regs[2] as usize & 0x0E) * 0x400
+        };
         let scroll_x = self.regs[8] as usize;
         let hscroll_lock = self.regs[0] & 0x40 != 0;
         let vscroll_lock = self.regs[0] & 0x80 != 0;
@@ -721,7 +801,10 @@ impl SegaVdp {
             self.vscroll as usize
         };
 
-        let effective_line = (line + scroll_y) % 224; // Name table wraps at 224 (28 rows)
+        // The name table is 28 rows in the 192 and 224-line modes and 32 in
+        // the 240-line one, so the scroll wraps at 224 pixels or 256.
+        let wrap = if self.active_height > 224 { 256 } else { 224 };
+        let effective_line = (line + scroll_y) % wrap;
         let tile_row = effective_line / 8;
         let fine_y = effective_line & 7;
 
@@ -822,8 +905,10 @@ impl SegaVdp {
         for sprite in 0..64 {
             let y_raw = self.vram[(sat_base + sprite) & 0x3FFF];
 
-            // $D0 terminates in 192-line mode
-            if y_raw == 0xD0 {
+            // $D0 ends the list, but only in the 192-line mode. In the tall
+            // modes it is an ordinary Y coordinate, and a chip that still
+            // treated it as a terminator would truncate every sprite list.
+            if y_raw == 0xD0 && self.active_height == ACTIVE_HEIGHT {
                 break;
             }
 
@@ -931,8 +1016,8 @@ impl SegaVdp {
     /// Layout: regs (11) + status (1) + read_buffer (1) + address (2) +
     /// code (1) + latch_first (1) + latch_value (1) + cram_latch (1) +
     /// v_counter (2) + h_counter (1) + line_counter (1) + line_irq_pending (1) +
-    /// vscroll (1) + scanline (2) + interrupt (1) + frame_count (8) +
-    /// vram (16384) + cram (64) = 16484 bytes.
+    /// vscroll (1) + active_height (1) + scanline (2) + interrupt (1) +
+    /// frame_count (8) + vram (16384) + cram (64) = 16485 bytes.
     pub fn save_state(&self, out: &mut Vec<u8>) {
         out.extend_from_slice(&self.regs);
         out.push(self.status);
@@ -947,6 +1032,8 @@ impl SegaVdp {
         out.push(self.line_counter);
         out.push(u8::from(self.line_irq_pending));
         out.push(self.vscroll);
+        // 192, 224 or 240 — a byte holds any of them.
+        out.push(self.active_height as u8);
         out.extend_from_slice(&self.scanline.to_le_bytes());
         out.push(u8::from(self.interrupt));
         out.extend_from_slice(&self.frame_count.to_le_bytes());
@@ -956,7 +1043,8 @@ impl SegaVdp {
 
     /// Restore VDP state from a byte slice. Returns bytes consumed or error.
     pub fn load_state(&mut self, data: &[u8]) -> Result<usize, String> {
-        let needed = 11 + 1 + 1 + 2 + 1 + 1 + 1 + 1 + 2 + 1 + 1 + 1 + 1 + 2 + 1 + 8 + 16384 + 64;
+        let needed =
+            11 + 1 + 1 + 2 + 1 + 1 + 1 + 1 + 2 + 1 + 1 + 1 + 1 + 1 + 2 + 1 + 8 + 16384 + 64;
         if data.len() < needed {
             return Err("SegaVdp state truncated".into());
         }
@@ -986,6 +1074,8 @@ impl SegaVdp {
         self.line_irq_pending = data[p] != 0;
         p += 1;
         self.vscroll = data[p];
+        p += 1;
+        self.active_height = u32::from(data[p]);
         p += 1;
         self.scanline = u16::from_le_bytes([data[p], data[p + 1]]);
         p += 2;
@@ -1029,9 +1119,11 @@ mod tests {
                 (region.framebuffer_width() * field) as usize,
                 "{region:?} allocated a buffer of the wrong size"
             );
-            assert_eq!(region.border_top(), border, "{region:?}");
+            assert_eq!(region.border_top(ACTIVE_HEIGHT), border, "{region:?}");
             assert_eq!(
-                region.border_top() + ACTIVE_HEIGHT + region.border_bottom(),
+                region.border_top(ACTIVE_HEIGHT)
+                    + ACTIVE_HEIGHT
+                    + region.border_bottom(ACTIVE_HEIGHT),
                 field,
                 "{region:?} does not account for every line of its field"
             );
@@ -1273,6 +1365,7 @@ mod tests {
     #[test]
     fn the_game_gear_window_is_the_centre_of_the_active_area() {
         let gg = SegaVdp::new_game_gear();
+        let gg_origin_y = GG_ORIGIN_Y;
 
         assert_eq!(
             gg.plot_index(0, 0),
@@ -1280,11 +1373,11 @@ mod tests {
             "top-left of the active area is off-LCD"
         );
         assert_eq!(
-            gg.plot_index(GG_ORIGIN_Y as usize, GG_ORIGIN_X as usize),
+            gg.plot_index(gg_origin_y as usize, GG_ORIGIN_X as usize),
             Some(0),
             "the window's first pixel is the buffer's first pixel"
         );
-        let last_row = (GG_ORIGIN_Y + GG_HEIGHT - 1) as usize;
+        let last_row = (gg_origin_y + GG_HEIGHT - 1) as usize;
         let last_column = (GG_ORIGIN_X + GG_WIDTH - 1) as usize;
         assert_eq!(
             gg.plot_index(last_row, last_column),
@@ -1311,7 +1404,7 @@ mod tests {
         assert_eq!(
             sms.plot_index(0, 0),
             Some(
-                (VdpRegion::Ntsc.border_top() * VdpRegion::Ntsc.framebuffer_width()
+                (VdpRegion::Ntsc.border_top(ACTIVE_HEIGHT) * VdpRegion::Ntsc.framebuffer_width()
                     + VdpRegion::Ntsc.border_left()) as usize
             )
         );
