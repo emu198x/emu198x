@@ -182,6 +182,9 @@ pub struct Sms {
     gg_start: u8,
     /// Pause line; held by the host until released.
     pause_pressed: bool,
+    /// Port $3F, the I/O control register. Bits 1 and 3 set the controller
+    /// ports' TH pins to input; bits 5 and 7 are their output levels.
+    io_control: u8,
     variant: SmsVariant,
     cpu_tstates: u64,
     tstates_per_frame: u64,
@@ -213,6 +216,7 @@ impl Sms {
             port_dd: 0xFF,
             gg_start: 0xFF,
             pause_pressed: false,
+            io_control: 0,
             variant,
             cpu_tstates: 0,
             tstates_per_frame: variant.tstates_per_frame(),
@@ -382,11 +386,45 @@ impl Sms {
             return;
         }
         match p {
+            0x00..=0x3F if p & 1 == 1 => self.write_io_control(value),
             0x40..=0x7F => self.psg.write(value),
             0x80..=0xBF if p & 1 == 0 => self.vdp.write_data(value),
             0x80..=0xBF => self.vdp.write_control(value),
             _ => {}
         }
+    }
+
+    /// Port $3F, the I/O control register.
+    ///
+    /// Bits 1 and 3 set the TH pins of controller ports A and B to input;
+    /// bits 5 and 7 are their levels when driven as outputs. A pin switched
+    /// to input floats high, so taking TH from output-low to input is a
+    /// low-to-high transition on the pin — and that is what latches the VDP's
+    /// H counter.
+    ///
+    /// Writing $3F twice, once with TH low and once with it released, is
+    /// therefore how a game reads a horizontal raster position without a
+    /// light gun: it is the only path to the counter, since the CPU cannot
+    /// see it free running.
+    ///
+    /// Driving TH high as an *output* does not latch. The sense path is
+    /// connected to the pin only while TH is configured as an input, so an
+    /// output level is not an edge the counter can see — and a pin that was
+    /// already high as an output has no edge to give when it is released
+    /// either, which is what the second half of each mask below tests for.
+    ///
+    /// MAME gates the same transition on the pin's *external* level as well,
+    /// because a peripheral can hold TH down. Nothing here drives TH, and an
+    /// unconnected or ordinary pad leaves it high, so that term is constant
+    /// true until the Light Phaser lands (#205).
+    fn write_io_control(&mut self, value: u8) {
+        const PORT_A: (u8, u8) = (0x02, 0x22); // TH input bit, input-or-high mask
+        const PORT_B: (u8, u8) = (0x08, 0x88);
+        let released = |(input, held): (u8, u8)| value & input != 0 && self.io_control & held == 0;
+        if released(PORT_A) || released(PORT_B) {
+            self.vdp.latch_h_counter();
+        }
+        self.io_control = value;
     }
 
     /// Framebuffer (ARGB32) — VDP active display plus canonical
@@ -501,6 +539,139 @@ mod tests {
         cart[0x0008] = 0x18;
         cart[0x0009] = 0xFE;
         cart
+    }
+
+    /// #140: the H counter was declared, serialised and read, but never
+    /// written, so port $7F always returned 0. It is latched by a low-to-high
+    /// transition on a controller port's TH pin, and port $3F is what moves
+    /// those pins — so with $3F ignored there was no path to the counter at
+    /// all.
+    ///
+    /// The idiom is two writes: drive TH low, then release it to input.
+    #[test]
+    fn releasing_th_latches_the_h_counter() {
+        let mut sys = Sms::new(trap_cart_64k(), SmsVariant::SmsNtsc);
+        assert_eq!(sys.io_read(0x7F), 0, "nothing latched from cold");
+
+        // Let the beam get somewhere non-zero, then drive both TH pins low as
+        // outputs and release port A's to input.
+        for _ in 0..200 {
+            sys.tick_tstate();
+        }
+        sys.io_write(0x3F, 0x00);
+        assert_eq!(sys.io_read(0x7F), 0, "driving TH low must not latch");
+        sys.io_write(0x3F, 0x02);
+        let first = sys.io_read(0x7F);
+        assert_ne!(first, 0, "releasing TH to input should latch");
+
+        // Repeating the same value is not a transition.
+        for _ in 0..200 {
+            sys.tick_tstate();
+        }
+        sys.io_write(0x3F, 0x02);
+        assert_eq!(
+            sys.io_read(0x7F),
+            first,
+            "TH already high is not a low-to-high transition"
+        );
+
+        // Driving it low again and releasing gives a new position.
+        sys.io_write(0x3F, 0x00);
+        sys.io_write(0x3F, 0x02);
+        assert_ne!(
+            sys.io_read(0x7F),
+            first,
+            "the beam moved, so the second latch should differ"
+        );
+    }
+
+    /// Either port's TH latches, but only by becoming an *input*. While TH is
+    /// driven as an output the VDP's sense path is disconnected from it, so
+    /// raising an output high is not something the counter can see.
+    #[test]
+    fn only_switching_th_to_input_latches() {
+        for (write, latches) in [
+            (0x02u8, true), // port A TH to input
+            (0x08, true),   // port B TH to input
+            (0x20, false),  // port A TH driven high as an output
+            (0x80, false),  // port B TH driven high as an output
+            (0x00, false),  // still driven low
+        ] {
+            let mut sys = Sms::new(trap_cart_64k(), SmsVariant::SmsNtsc);
+            for _ in 0..300 {
+                sys.tick_tstate();
+            }
+            sys.io_write(0x3F, 0x00); // both TH pins output, low
+            sys.io_write(0x3F, write);
+            assert_eq!(
+                sys.io_read(0x7F) != 0,
+                latches,
+                "$3F = {write:#04X} should {} latch",
+                if latches { "" } else { "not" }
+            );
+        }
+    }
+
+    /// The pin has to have been *low* for releasing it to be a transition. TH
+    /// driven high as an output is already high, so switching it to input
+    /// changes nothing and latches nothing — which is what the "was neither
+    /// input nor output-high" half of the condition is for.
+    #[test]
+    fn releasing_a_pin_that_was_already_high_does_not_latch() {
+        let mut sys = Sms::new(trap_cart_64k(), SmsVariant::SmsNtsc);
+        for _ in 0..300 {
+            sys.tick_tstate();
+        }
+        sys.io_write(0x3F, 0x20); // port A TH: output, driven high
+        sys.io_write(0x3F, 0x02); // now an input — but the pin never moved
+        assert_eq!(sys.io_read(0x7F), 0, "no edge, so nothing to latch");
+
+        // Whereas from low it does.
+        sys.io_write(0x3F, 0x00);
+        sys.io_write(0x3F, 0x02);
+        assert_ne!(sys.io_read(0x7F), 0);
+    }
+
+    /// Port $3F is odd-addressed in the $00-$3F range; the even ports are the
+    /// memory-control register and must not latch anything.
+    #[test]
+    fn the_memory_control_port_does_not_latch() {
+        let mut sys = Sms::new(trap_cart_64k(), SmsVariant::SmsNtsc);
+        for _ in 0..300 {
+            sys.tick_tstate();
+        }
+        sys.io_write(0x3E, 0x02);
+        assert_eq!(sys.io_read(0x7F), 0, "$3E is memory control, not I/O");
+    }
+
+    /// Two latches a known distance apart differ by half that in counts,
+    /// because the counter is a beam position rather than a clock.
+    #[test]
+    fn the_latched_value_tracks_where_the_beam_is() {
+        let mut sys = Sms::new(trap_cart_64k(), SmsVariant::SmsNtsc);
+        let mut samples = Vec::new();
+        for _ in 0..4 {
+            for _ in 0..40 {
+                sys.tick_tstate();
+            }
+            sys.io_write(0x3F, 0x00);
+            sys.io_write(0x3F, 0x02);
+            samples.push(sys.io_read(0x7F));
+        }
+        // Equal T-state gaps should give equal counter gaps, whatever the
+        // exact dots-per-T-state ratio works out to.
+        let steps: Vec<i32> = samples
+            .windows(2)
+            .map(|w| i32::from(w[1]) - i32::from(w[0]))
+            .collect();
+        assert!(
+            steps.iter().all(|&s| s > 0),
+            "the beam only moves forward across a line: {samples:?}"
+        );
+        assert!(
+            steps.windows(2).all(|w| (w[0] - w[1]).abs() <= 1),
+            "equal waits should advance the counter equally: {steps:?}"
+        );
     }
 
     /// Save-state must capture LIVE machine state (Z80 + Sega VDP + SN76489
