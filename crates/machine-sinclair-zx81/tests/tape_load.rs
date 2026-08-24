@@ -6,7 +6,7 @@ fn read_row(sys: &Zx81, row: usize) -> String {
     let fb = sys.framebuffer();
     let width = sys.framebuffer_width() as usize;
     let i = u16::from(sys.cpu().regs.i);
-    let top = machine_sinclair_zx81::TEXT_TOP as usize + row * 8;
+    let top = sys.text_top() as usize + row * 8;
 
     (0..32)
         .map(|col| {

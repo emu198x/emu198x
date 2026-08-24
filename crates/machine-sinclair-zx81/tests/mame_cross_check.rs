@@ -80,7 +80,7 @@ fn the_text_area_matches_mame() {
          MAME's raster has moved and the offsets here need re-deriving"
     );
 
-    let our_y = machine_sinclair_zx81::TEXT_TOP;
+    let our_y = machine_sinclair_zx81::TelevisionStandard::FiftyHz.text_top();
     let dark = |buf: &[u8], w: u32, bpp: usize, x: u32, y: u32| {
         buf[(y as usize * w as usize + x as usize) * bpp] < 128
     };

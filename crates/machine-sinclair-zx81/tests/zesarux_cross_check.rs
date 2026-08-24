@@ -192,7 +192,7 @@ fn the_text_area_matches_zesarux() {
     );
 
     let ours = golden("zx81-boot.png");
-    let our_y = machine_sinclair_zx81::TEXT_TOP;
+    let our_y = machine_sinclair_zx81::TelevisionStandard::FiftyHz.text_top();
     let shifted = |x: u32, y: u32| ours(x, our_y + y);
     let diffs = scanline_diff(&shifted, &theirs, (ZESARUX_X, ZESARUX_Y), 0..TEXT_H);
 
@@ -288,7 +288,7 @@ fn the_wrx_fixture_matches_zesarux() {
 
     let read = |m: &Zx81| -> Vec<bool> {
         let w = m.framebuffer_width() as usize;
-        let top = machine_sinclair_zx81::TEXT_TOP as usize;
+        let top = m.text_top() as usize;
         let fb = m.framebuffer();
         (0..TEXT_H as usize)
             .flat_map(|y| (0..TEXT_W as usize).map(move |x| (y, x)))

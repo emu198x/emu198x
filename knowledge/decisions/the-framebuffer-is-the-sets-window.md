@@ -129,6 +129,7 @@ the core draws.
 | C64 (PAL) | 416×312 | 410×288 | 101% | 108% |
 | Spectrum 48K (PAL) | 352×296 | 364×288 | 97% | 103% |
 | ZX80, ZX81 (PAL) | 320×288 | 338×288 | 95% | 100% |
+| ZX81 (NTSC) | 320×240 | 338×240 | 95% | 100% |
 | Jupiter Ace (PAL) | 320×288 | 338×288 | 95% | 100% |
 | Amstrad CPC (PAL) | 832×288 | 832×288 | 100% | 100% |
 | NES (NTSC) | 256×240 | 280×240 | 91% † | 100% |
@@ -455,6 +456,32 @@ emits 56 — a one-line question, filed as #1118 rather than picked. And none of
 this is an external capture: it is a reference, a measurement of our own field
 length, and a proportion. #295 and #297 still want EightyOne or zxsp.
 
+**And the height itself now follows the strap.** The vertical *placement* was
+derived first and the vertical *extent* was not: `FB_HEIGHT` stayed a plain
+`const` at 288 for every ZX81, so a 60 Hz board painted into a PAL-sized buffer
+while its runtime declared a 240-line one — this entry's own drift trigger, *a
+288-line buffer on an NTSC one*, sitting in the crate that the vertical pass had
+just visited. It survived that pass for the reason such things usually do:
+nothing asserted the NTSC picture at all, and the 50 Hz path the goldens
+exercise was right.
+
+`MARGIN` is the primitive now — 55 lines at 50 Hz and 31 at 60, from the ROM —
+with the text line, the window height and the pad all derived from it, and the
+buffer reallocated when the strap moves. `Zx81Video::framebuffer_height` reads
+back off the buffer rather than stating it a second time, which is what the
+GTIA does and what stops the two disagreeing again.
+
+The check that it is right is that **`FIRST_VISIBLE_LINE` comes out the same on
+both boards**: 56 - 48 at 50 Hz and 32 - 24 at 60. Both terms move, by 24 and by
+12 either side, and the difference does not — which is the proportion this
+section already relied on, now doing a job instead of being an observation. If a
+region's height is ever wrong again, that invariance breaks and says so. #1119.
+
+The ZX80 still has neither region, and its failure is the quieter one: it does
+not contradict itself, it simply only ever claims PAL, so a USA board cannot be
+represented at all and the extent audit reads it as 100%. An absent capability
+rather than a wrong answer, which is why this pass did not surface it. #1133.
+
 The horizontal axis is untouched and still fitted; `FIRST_CHAR_TSTATE` remains
 what the section above says it is.
 
@@ -528,6 +555,12 @@ Re-read this entry when you catch yourself writing:
 - fixing one axis of a geometry constant without looking at the other, which is
   how a horizontal border survived four visits to the file that corrected the
   vertical one
+- a geometry constant left as a plain `const` on a machine that has two
+  regions, especially while the constant *next to it* is being derived — the
+  ZX81's window position was derived from the ROM's pad in one pass and its
+  window height stayed 288 for every board through the same pass
+- a region-dependent quantity read back from anywhere but the thing it sized:
+  state the height once, at the allocation, and have callers ask the buffer
 - a window position written as `FRAME_LINES - VISIBLE_LINES` without checking
   that the machine emits `FRAME_LINES` — on the ZX8x it emitted 310 and the
   constant said 312

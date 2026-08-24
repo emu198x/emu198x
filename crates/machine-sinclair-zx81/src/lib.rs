@@ -40,7 +40,7 @@ pub mod video;
 
 pub use input::Zx81Key;
 pub use keyboard::KeyboardState;
-pub use video::{FB_HEIGHT, FB_WIDTH, TEXT_TOP, Zx81Video};
+pub use video::{FB_WIDTH, Zx81Video};
 
 use serde::{Deserialize, Serialize};
 use zilog_z80::z80::{BusOp, Z80};
@@ -188,7 +188,7 @@ impl Zx81 {
             rom,
             ram: vec![0; ram_size],
             ram_mask: (ram_size - 1) as u16,
-            video: Zx81Video::new(),
+            video: Zx81Video::new(TelevisionStandard::default()),
             nmi_pending: false,
             nmi_line_prev: false,
             keyboard: KeyboardState::new(),
@@ -291,6 +291,15 @@ impl Zx81 {
     /// keyboard scan and sets `MARGIN` from it.
     pub fn set_television_standard(&mut self, standard: TelevisionStandard) {
         self.television_standard = standard;
+        // The two regions do not show the same number of lines, so the window
+        // is a different size and the buffer has to follow (#1119).
+        self.video.set_standard(standard);
+    }
+
+    /// Framebuffer row the text area starts on, which the region decides.
+    #[must_use]
+    pub fn text_top(&self) -> u32 {
+        self.video.text_top()
     }
 
     /// The cassette EAR level the port reports.
@@ -668,6 +677,54 @@ mod tests {
             machine.set_television_standard(standard);
             assert_eq!(machine.read_keyboard_port(0x00) & 0x20, 0x20);
         }
+    }
+
+    /// The window follows the board strap, buffer and placement together.
+    ///
+    /// This is #1119. `FB_HEIGHT` was a plain `const` at 288 for every ZX81,
+    /// so a 60 Hz board painted into a PAL-sized buffer while its runtime
+    /// declared a 240-line one, and `FIRST_TEXT_LINE` was the 50 Hz figure so
+    /// the picture sat high in it as well. Nothing failed: nothing asserted
+    /// the NTSC picture at all, and the 50 Hz path the goldens exercise was
+    /// right. That is why this asserts the pair rather than the height alone.
+    #[test]
+    fn the_window_follows_the_board_strap() {
+        let mut machine = Zx81::new(trap_rom(), 1024).expect("machine");
+        let width = machine.framebuffer_width();
+
+        assert_eq!(
+            machine.framebuffer_height(),
+            288,
+            "a 50 Hz board scans a PAL set"
+        );
+        assert_eq!(
+            machine.text_top(),
+            48,
+            "and centres 192 lines of text in it"
+        );
+
+        machine.set_television_standard(TelevisionStandard::SixtyHz);
+        assert_eq!(
+            machine.framebuffer_height(),
+            240,
+            "a 60 Hz board scans an NTSC set"
+        );
+        assert_eq!(
+            machine.text_top(),
+            24,
+            "and its shorter pad centres the text in that"
+        );
+
+        assert_eq!(
+            machine.framebuffer().len(),
+            (width * 240) as usize,
+            "the buffer itself has to be reallocated, or the height is a claim \
+             about a buffer that is still the other region's size"
+        );
+
+        machine.set_television_standard(TelevisionStandard::FiftyHz);
+        assert_eq!(machine.framebuffer_height(), 288, "and back");
+        assert_eq!(machine.framebuffer().len(), (width * 288) as usize);
     }
 
     /// The keyboard bits still work, and the upper bits do not disturb them.

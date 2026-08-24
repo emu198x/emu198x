@@ -131,7 +131,7 @@ fn lit_bands(machine: &Zx81) -> Vec<usize> {
     let width = machine.framebuffer_width() as usize;
     (0..24)
         .filter(|row| {
-            let y = machine_sinclair_zx81::TEXT_TOP as usize + row * 8 + 3;
+            let y = machine.text_top() as usize + row * 8 + 3;
             (0..256)
                 .filter(|x| frame[y * width + 32 + x] == INK)
                 .count()
