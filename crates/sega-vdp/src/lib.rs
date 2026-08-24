@@ -311,6 +311,11 @@ impl SegaVdp {
         self.regs[1] & 0x40 != 0
     }
 
+    /// R0 bit 5 — draw the leftmost eight pixels as border instead of picture.
+    fn left_column_hidden(&self) -> bool {
+        self.regs[0] & 0x20 != 0
+    }
+
     fn backdrop_color(&self) -> u32 {
         // Backdrop from sprite palette (palette 1), entry from reg 7 low nibble
         let idx = (self.regs[7] & 0x0F) as usize + 16;
@@ -609,14 +614,24 @@ impl SegaVdp {
     fn render_pixel(&mut self, line: usize, x: usize) {
         let sprite = self.sprite_buf[x];
         let argb = if self.display_enabled() && self.mode4_active() {
-            let (bg_idx, bg_priority, palette) = self.mode4_bg_lookup(line, x);
-            let bg_opaque = bg_idx != 0;
-            if sprite != 0 && !(bg_priority && bg_opaque) {
-                self.cram_to_argb(16 + sprite as usize)
-            } else if bg_opaque || bg_priority {
-                self.cram_to_argb(palette + bg_idx as usize)
-            } else {
+            if self.left_column_hidden() && x < 8 {
+                // R0 bit 5 draws the leftmost eight pixels as border, and the
+                // reference's rendering order applies that *after* sprites are
+                // composited. That ordering is the point of the bit: SMS Power
+                // notes that showing the column is what stops sprites
+                // scrolling smoothly off either edge, so what the mask has to
+                // hide is sprites, not background alone.
                 self.backdrop_color()
+            } else {
+                let (bg_idx, bg_priority, palette) = self.mode4_bg_lookup(line, x);
+                let bg_opaque = bg_idx != 0;
+                if sprite != 0 && !(bg_priority && bg_opaque) {
+                    self.cram_to_argb(16 + sprite as usize)
+                } else if bg_opaque || bg_priority {
+                    self.cram_to_argb(palette + bg_idx as usize)
+                } else {
+                    self.backdrop_color()
+                }
             }
         } else if sprite != 0 {
             self.cram_to_argb(16 + sprite as usize)
@@ -639,15 +654,21 @@ impl SegaVdp {
     /// priority; `priority` is the tile's foreground bit. The colour itself is
     /// resolved by the caller so it can arbitrate against the sprite pixel.
     fn mode4_bg_lookup(&self, line: usize, pixel_x: usize) -> (u8, bool, usize) {
-        // Column-0 blanking: the masked column reads as transparent backdrop.
-        if self.regs[0] & 0x20 != 0 && pixel_x < 8 {
-            return (0, false, 0);
-        }
-
         let name_base = (self.regs[2] as usize & 0x0E) * 0x400;
         let scroll_x = self.regs[8] as usize;
-        let scroll_y = self.regs[9] as usize;
         let hscroll_lock = self.regs[0] & 0x40 != 0;
+        let vscroll_lock = self.regs[0] & 0x80 != 0;
+
+        // R0 bit 7 holds screen columns 24-31 — pixels 192 and up — at
+        // vertical scroll 0, which is how a vertically scrolling game gives
+        // itself a fixed status panel down the right-hand side. The lock is
+        // keyed to the screen column, before horizontal scrolling moves the
+        // background under it.
+        let scroll_y = if vscroll_lock && pixel_x >= 192 {
+            0
+        } else {
+            self.regs[9] as usize
+        };
 
         let effective_line = (line + scroll_y) % 224; // Name table wraps at 224 (28 rows)
         let tile_row = effective_line / 8;
