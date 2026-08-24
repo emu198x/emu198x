@@ -263,11 +263,19 @@ impl MachineCore for Zx81Runtime {
                 pixels: &self.rgba_framebuffer,
             })?;
 
+            // The ZX81 has no sound chip. What a host hears is the ULA pin
+            // that carries both the video signal and the cassette output, so
+            // the machine generates it and this drains it (#303).
+            let audio = self
+                .machine
+                .as_mut()
+                .expect("machine checked above")
+                .take_audio_buffer();
             host.audio_sink.push_audio(AudioPacket {
                 timestamp: self.time,
                 sample_rate: AUDIO_SAMPLE_RATE,
                 channels: 1,
-                samples: &[],
+                samples: &audio,
             })?;
         }
 
