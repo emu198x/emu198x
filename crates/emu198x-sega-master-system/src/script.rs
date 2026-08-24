@@ -18,7 +18,8 @@ Cartridge:
     --cart PATH                cartridge ROM (required)
 
 Variant:
-    --variant KIND             sms-ntsc | sms-pal [default: sms-ntsc]
+    --variant KIND             sms-ntsc | sms-pal | sms1-ntsc | sms1-pal
+                               [default: sms-ntsc; sms1 is the early 315-5124 VDP]
     --frames N                 native video frames to run [default: 0]
 
 Capture:
@@ -57,6 +58,8 @@ impl Default for Cli {
 enum Variant {
     SmsNtsc,
     SmsPal,
+    Sms1Ntsc,
+    Sms1Pal,
 }
 
 impl Variant {
@@ -64,12 +67,14 @@ impl Variant {
         match self {
             Self::SmsNtsc => Model::SmsNtsc,
             Self::SmsPal => Model::SmsPal,
+            Self::Sms1Ntsc => Model::Sms1Ntsc,
+            Self::Sms1Pal => Model::Sms1Pal,
         }
     }
     const fn frame_ticks(self) -> u64 {
         match self {
-            Self::SmsPal => FRAME_TICKS_PAL,
-            Self::SmsNtsc => FRAME_TICKS_NTSC,
+            Self::SmsPal | Self::Sms1Pal => FRAME_TICKS_PAL,
+            Self::SmsNtsc | Self::Sms1Ntsc => FRAME_TICKS_NTSC,
         }
     }
 }
@@ -84,7 +89,11 @@ fn parse_cli<I: IntoIterator<Item = String>>(args: I) -> Cli {
                 cli.variant = match next_arg(&mut iter, "--variant").as_str() {
                     "sms-ntsc" | "sms" => Variant::SmsNtsc,
                     "sms-pal" => Variant::SmsPal,
-                    other => die(&format!("--variant expects sms-ntsc|sms-pal, got {other}")),
+                    "sms1-ntsc" | "sms1" => Variant::Sms1Ntsc,
+                    "sms1-pal" => Variant::Sms1Pal,
+                    other => die(&format!(
+                        "--variant expects sms-ntsc|sms-pal|sms1-ntsc|sms1-pal, got {other}"
+                    )),
                 };
             }
             "--frames" => {

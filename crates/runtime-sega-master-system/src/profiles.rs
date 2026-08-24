@@ -12,6 +12,10 @@ pub enum Model {
     SmsNtsc,
     /// Master System PAL.
     SmsPal,
+    /// Early Master System (NTSC) with the 315-5124 VDP.
+    Sms1Ntsc,
+    /// Early Master System (PAL) with the 315-5124 VDP.
+    Sms1Pal,
 }
 
 impl Model {
@@ -20,6 +24,8 @@ impl Model {
         match self {
             Self::SmsNtsc => "sega-master-system-ntsc",
             Self::SmsPal => "sega-master-system-pal",
+            Self::Sms1Ntsc => "sega-master-system-1-ntsc",
+            Self::Sms1Pal => "sega-master-system-1-pal",
         }
     }
 
@@ -33,14 +39,16 @@ impl Model {
         match self {
             Self::SmsNtsc => "Sega Master System (NTSC)",
             Self::SmsPal => "Sega Master System (PAL)",
+            Self::Sms1Ntsc => "Sega Master System 1 (NTSC)",
+            Self::Sms1Pal => "Sega Master System 1 (PAL)",
         }
     }
 
     #[must_use]
     pub const fn region(self) -> Region {
         match self {
-            Self::SmsPal => Region::Pal,
-            Self::SmsNtsc => Region::Ntsc,
+            Self::SmsPal | Self::Sms1Pal => Region::Pal,
+            Self::SmsNtsc | Self::Sms1Ntsc => Region::Ntsc,
         }
     }
 
@@ -48,8 +56,27 @@ impl Model {
     #[must_use]
     pub const fn z80_hz(self) -> u64 {
         match self {
-            Self::SmsNtsc => NTSC_Z80_HZ,
-            Self::SmsPal => PAL_Z80_HZ,
+            Self::SmsNtsc | Self::Sms1Ntsc => NTSC_Z80_HZ,
+            Self::SmsPal | Self::Sms1Pal => PAL_Z80_HZ,
+        }
+    }
+
+    /// What distinguishes this model from its siblings.
+    ///
+    /// The early Master System carries a 315-5124 VDP and the later one a
+    /// 315-5246. Almost all software runs the same on both, because the
+    /// difference is a set of register bits the earlier chip ANDs with the
+    /// VRAM address bus and every commercial title sets them; what needs the
+    /// earlier chip is software that closes one of those gates deliberately.
+    #[must_use]
+    pub const fn summary(self) -> &'static str {
+        match self {
+            Self::SmsNtsc | Self::SmsPal => {
+                "Sega Master System — Z80A + Sega VDP (315-5246) + SN76489, 8 KB RAM, Sega mapper cartridge boot."
+            }
+            Self::Sms1Ntsc | Self::Sms1Pal => {
+                "Early Sega Master System — Z80A + Sega VDP (315-5124) + SN76489, 8 KB RAM, Sega mapper cartridge boot."
+            }
         }
     }
 
@@ -58,6 +85,8 @@ impl Model {
         match self {
             Self::SmsNtsc => SmsVariant::SmsNtsc,
             Self::SmsPal => SmsVariant::SmsPal,
+            Self::Sms1Ntsc => SmsVariant::Sms1Ntsc,
+            Self::Sms1Pal => SmsVariant::Sms1Pal,
         }
     }
 }
@@ -84,7 +113,12 @@ const PAL_Z80_HZ: u64 = 3_546_893;
 
 #[must_use]
 pub fn profiles() -> Vec<MachineProfile> {
-    vec![profile_for(Model::SmsNtsc), profile_for(Model::SmsPal)]
+    vec![
+        profile_for(Model::SmsNtsc),
+        profile_for(Model::SmsPal),
+        profile_for(Model::Sms1Ntsc),
+        profile_for(Model::Sms1Pal),
+    ]
 }
 
 #[must_use]
@@ -96,9 +130,7 @@ pub fn profile_for(model: Model) -> MachineProfile {
         family: Family::Other,
         region: model.region(),
         release_year: 1985,
-        summary:
-            "Sega Master System — Z80A + Sega VDP + SN76489, 8 KB RAM, Sega mapper cartridge boot."
-                .into(),
+        summary: model.summary().into(),
         clock: ClockDesc::new("z80-tstate", ClockRate::from_hz(model.z80_hz())),
         firmware: vec![],
         media_slots: vec![MediaSlot::new(
@@ -138,6 +170,49 @@ pub fn with_cartridge(model: Model, cart_rom: Vec<u8>) -> SmsRuntime {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// #1149: `VdpVariant` was stored and never read, so the two Master
+    /// System VDPs behaved identically. Now that they do not, the profile has
+    /// to reach the right one — and this is the join that would silently give
+    /// an early machine the later chip.
+    #[test]
+    fn each_model_builds_the_vdp_revision_it_names() {
+        use sega_vdp::VdpVariant;
+        for (model, expected) in [
+            (Model::SmsNtsc, VdpVariant::Sms2),
+            (Model::SmsPal, VdpVariant::Sms2),
+            (Model::Sms1Ntsc, VdpVariant::Sms1),
+            (Model::Sms1Pal, VdpVariant::Sms1),
+        ] {
+            let runtime = with_cartridge(model, vec![0; 0x8000]);
+            let machine = runtime.machine().expect("cartridge inserted");
+            assert_eq!(
+                machine.vdp().variant(),
+                expected,
+                "{} should carry a {expected:?} VDP",
+                model.model_id()
+            );
+        }
+    }
+
+    /// The revision and the television standard are independent axes, so
+    /// there are four models and not three.
+    #[test]
+    fn revision_and_region_vary_independently() {
+        for (model, region) in [
+            (Model::Sms1Ntsc, Region::Ntsc),
+            (Model::Sms1Pal, Region::Pal),
+        ] {
+            let profile = profile_for(model);
+            assert_eq!(profile.region, region);
+            assert_eq!(profile.clock.rate.numerator_hz, model.z80_hz());
+        }
+        assert_ne!(
+            profile_for(Model::Sms1Ntsc).clock.rate.numerator_hz,
+            profile_for(Model::Sms1Pal).clock.rate.numerator_hz,
+            "an early PAL machine runs at the PAL rate, not the NTSC one"
+        );
+    }
 
     #[test]
     fn profile_ids_are_unique() {
