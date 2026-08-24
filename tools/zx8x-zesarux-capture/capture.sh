@@ -61,7 +61,20 @@ trap 'kill "$zpid" 2>/dev/null || true' EXIT
 
 sleep "$SETTLE"
 if [ -n "${ZRCP_PRE:-}" ]; then
-  { printf '%s\n' "$ZRCP_PRE"; sleep 2; printf 'exit\n'; } | nc 127.0.0.1 "$PORT" >/dev/null 2>&1 || true
+  # One line at a time, with a pause. Sent as a burst, ZEsarUX drops all but
+  # the first few, and it does so silently -- the capture comes back as an
+  # untouched boot screen rather than as an error.
+  {
+    while IFS= read -r zrcp_line; do
+      [ -n "$zrcp_line" ] || continue
+      printf '%s\n' "$zrcp_line"
+      sleep "${ZRCP_PACE:-0.3}"
+    done <<EOF
+$ZRCP_PRE
+EOF
+    sleep 2
+    printf 'exit\n'
+  } | nc 127.0.0.1 "$PORT" >/dev/null 2>&1 || true
   sleep "${POST_PRE:-4}"
 fi
 { printf 'save-screen %s\n' "$(cd "$(dirname "$OUT")" && pwd)/$(basename "$OUT")"; sleep 3; printf 'exit\n'; } \
