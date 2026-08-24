@@ -14,19 +14,18 @@
 //!
 //! Measured, and the check that it is the lead-in rather than anything about
 //! the data: doing the same rebase to a `to_pulses` train that loads perfectly
-//! well stops it loading too. That encoder starts its first pulse 1,500,000
-//! master clocks in — a little under half a second — and that quiet is what
-//! the loader needs to settle on. Everything else about the two waveforms is
+//! well stops it loading too. That encoder starts its first pulse
+//! [`LEAD_IN_T`] master clocks in — a little under half a second — and that
+//! quiet is what the loader needs to settle on. Imported rather than restated:
+//! a second copy of the number is a second thing to get wrong. Everything else about the two waveforms is
 //! the same, which was worth establishing the hard way: identical pulse widths
 //! (492/483), identical inter-bit gaps (4872/5008), and bursts of 8 and 18
 //! edges — four and nine pulses, the ZX81's 0 and 1 — matching burst for burst
 //! through the system-variable header.
 
+use format_sinclair_zx81_p::LEAD_IN_T;
 use machine_sinclair_zx81::{Zx81, Zx81Key};
 use std::{env, fs};
-
-/// What `Zx81Image::to_pulses` puts before its first pulse.
-const LEAD_IN: u64 = 1_500_000;
 
 fn tap(machine: &mut Zx81, key: Zx81Key) {
     machine.press_key(key);
@@ -122,7 +121,7 @@ fn a_saved_program_loads_back() {
         .expect("a SAVE waveform among the recorded transitions");
     let tape: Vec<u64> = edges[start..]
         .iter()
-        .map(|edge| edge - edges[start] + LEAD_IN)
+        .map(|edge| edge - edges[start] + LEAD_IN_T)
         .collect();
 
     // LOAD "" into a fresh machine.
