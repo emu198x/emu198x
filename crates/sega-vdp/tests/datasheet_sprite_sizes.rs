@@ -207,3 +207,103 @@ fn magnified_sprites_hold_their_slot_for_every_line_they_cover() {
         "and the ninth is still the one dropped"
     );
 }
+
+// ---------------------------------------------------------------------------
+// The 315-5124's magnification quirk
+// ---------------------------------------------------------------------------
+
+/// Lay `count` magnified 8x8 sprites along one line, 24 pixels apart so a
+/// doubled one still cannot touch its neighbour, and measure what each drew.
+fn magnified_row(variant: VdpVariant, count: u8) -> SegaVdp {
+    let mut vdp = SegaVdp::new(REGION, variant);
+    write_register(&mut vdp, 0, 0x04); // Mode 4
+    write_register(&mut vdp, 1, 0x41); // display on + MAG
+    write_register(&mut vdp, 3, 0xFF); // no 315-5124 masking
+    write_register(&mut vdp, 4, 0x07);
+    write_register(&mut vdp, 5, 0xFF); // attribute table $3F00
+    write_register(&mut vdp, 6, 0x03); // sprite patterns $0000, unmasked
+    write_register(&mut vdp, 7, 0x00);
+    poke_cram(&mut vdp, 16, BACKDROP);
+    poke_cram(&mut vdp, 16 + 5, INK);
+    poke_vram(&mut vdp, 0x0020, &solid_tile(5));
+    for i in 0..count {
+        poke_vram(&mut vdp, 0x3F00 + u16::from(i), &[15]);
+        poke_vram(&mut vdp, 0x3F80 + u16::from(i) * 2, &[i * 24, 1]);
+    }
+    poke_vram(&mut vdp, 0x3F00 + u16::from(count), &[0xD0]);
+    vdp
+}
+
+fn widths(vdp: &SegaVdp, count: u8) -> Vec<u32> {
+    let ink = sms_argb(INK);
+    (0..count)
+        .map(|i| {
+            let start = u32::from(i) * 24;
+            (start..start + 24)
+                .take_while(|&x| pixel(vdp, 16, x) == ink)
+                .count() as u32
+        })
+        .collect()
+}
+
+/// SMS Power, R1 bit 0: "On the SMS1, sprites are always doubled vertically,
+/// but only some sprites are doubled horizontally: if N sprites are on a
+/// scanline, the first N minus 4 are double-width. Fully works on GG and
+/// SMS2."
+///
+/// So the count that stretches depends on how crowded the line is, and a line
+/// of four or fewer gets no horizontal doubling at all. Genesis Plus GX
+/// states the same rule from the other end — `if (count < 4) width = 8;` with
+/// `count` running down through the sprites in index order.
+#[test]
+fn the_315_5124_widens_only_the_first_n_minus_4_sprites_on_a_line() {
+    for count in 1..=8u8 {
+        let mut vdp = magnified_row(VdpVariant::Sms1, count);
+        render_frame(&mut vdp);
+
+        let widened = count.saturating_sub(4);
+        let expected: Vec<u32> = (0..count)
+            .map(|i| if i < widened { 16 } else { 8 })
+            .collect();
+        assert_eq!(
+            widths(&vdp, count),
+            expected,
+            "with {count} sprites on the line the 315-5124 should widen the first {widened}"
+        );
+    }
+}
+
+/// The 315-5246 has no such rule: every sprite widens however many share the
+/// line.
+#[test]
+fn the_315_5246_widens_every_sprite_on_the_line() {
+    for count in 1..=8u8 {
+        let mut vdp = magnified_row(VdpVariant::Sms2, count);
+        render_frame(&mut vdp);
+        assert_eq!(
+            widths(&vdp, count),
+            vec![16u32; count as usize],
+            "the 315-5246 should widen all {count} sprites"
+        );
+    }
+}
+
+/// Only the horizontal half is broken. Vertical doubling works on the
+/// 315-5124 for every sprite, including the last four that stay eight pixels
+/// wide — so a crowded line of magnified sprites comes out tall and narrow,
+/// not unmagnified.
+#[test]
+fn the_315_5124_still_doubles_every_sprite_vertically() {
+    let mut vdp = magnified_row(VdpVariant::Sms1, 8);
+    render_frame(&mut vdp);
+
+    let ink = sms_argb(INK);
+    for i in 0..8u32 {
+        let x = i * 24;
+        let height = (16..192).take_while(|&y| pixel(&vdp, y, x) == ink).count();
+        assert_eq!(
+            height, 16,
+            "sprite {i} should be sixteen lines tall whether or not it widened"
+        );
+    }
+}
