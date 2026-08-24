@@ -124,6 +124,9 @@ pub struct Z80 {
     interrupt_sample_pending: bool,
     /// Previous NMI state for edge detection.
     nmi_prev: bool,
+    /// Set when a rising edge arrives on [`Self::nmi`], cleared when the
+    /// next instruction boundary services it.
+    nmi_latched: bool,
 
     /// Edge-detection state for `bus_request()`. The bus signals
     /// (`mreq`, `iorq`, `rd`, `wr`) are level-driven and held high for
@@ -358,6 +361,7 @@ impl Default for Z80 {
             ei_pending: false,
             interrupt_sample_pending: false,
             nmi_prev: false,
+            nmi_latched: false,
             prev_mr: false,
             prev_mw: false,
             prev_iorq: false,
@@ -501,6 +505,16 @@ impl Z80 {
         // so the response begins exactly where it did when the sample
         // was taken on the previous half-cycle, and no instruction
         // changes cost.
+        // `/NMI` is edge-triggered and the silicon latches the edge the
+        // moment it arrives, asynchronously. Sampling only at the boundary
+        // drops any pulse shorter than the instruction in flight — which is
+        // most of them: the ZX81's generator asserts for fifteen T-states.
+        // Latch here, consume at the boundary.
+        if self.nmi && !self.nmi_prev {
+            self.nmi_latched = true;
+        }
+        self.nmi_prev = self.nmi;
+
         if self.interrupt_sample_pending {
             self.interrupt_sample_pending = false;
             self.sample_interrupts_at_boundary();
@@ -1198,9 +1212,8 @@ impl Z80 {
     /// is what keeps the response starting exactly where it did when the
     /// sample was taken half a T-state earlier.
     fn sample_interrupts_at_boundary(&mut self) -> bool {
-        // NMI is edge-triggered: detect rising edge
-        let nmi_edge = self.nmi && !self.nmi_prev;
-        self.nmi_prev = self.nmi;
+        // The edge was latched when it arrived; see `tick`.
+        let nmi_edge = std::mem::take(&mut self.nmi_latched);
 
         if nmi_edge {
             self.halt = false;

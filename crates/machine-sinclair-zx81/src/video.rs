@@ -152,15 +152,22 @@ pub const TEXT_TOP: u32 = (FB_HEIGHT - TEXT_LINES) / 2;
 /// Deriving a window width from it would be circular; see [`FB_WIDTH`].
 ///
 /// The measurement is the one that says this model is right. Every display
-/// line of the power-on screen leaves its `HALT` at T-state 172 and fetches
-/// its characters from T-state 38 — thirty-two of them, four T-states apart,
-/// which is one forced `NOP` each. 128 T-states at two pixels a T-state is
-/// the 256-pixel display exactly, and the figure does not move from line to
-/// line or from field to field.
+/// line of the power-on screen fetches its characters from the same T-state,
+/// thirty-two of them four T-states apart, which is one forced `NOP` each.
+/// 128 T-states at two pixels a T-state is the 256-pixel display exactly, and
+/// the figure does not move from line to line or from field to field.
+///
+/// **Re-measured at 37 for #302.** It was 38, taken from a machine that could
+/// not reach SLOW — the ROM's capability probe never saw an NMI, so it settled
+/// into FAST and stayed there. A ZX81 powers on into SLOW, the SLOW path
+/// reaches the display file one T-state sooner, and 37 is the same measurement
+/// taken on a machine doing what the hardware does. The picture lands in the
+/// same place either way, which is the check: the constant moved by one and
+/// the goldens did not move at all.
 /// The ZX80's module records 73 for the same constant; the two ROMs reach
 /// their first character at different points in the line, which is one more
 /// reason the machines are not sharing a module.
-const FIRST_CHAR_TSTATE: u32 = 38;
+const FIRST_CHAR_TSTATE: u32 = 37;
 
 /// Framebuffer pixels of border left of the first character.
 const LEFT_BORDER: u32 = 32;
@@ -438,16 +445,30 @@ impl Zx81Video {
         if y >= FB_HEIGHT {
             return;
         }
-        let Some(active) = self.tstate.checked_sub(FIRST_CHAR_TSTATE) else {
-            return;
-        };
-        let x0 = active * PIXELS_PER_TSTATE + LEFT_BORDER;
-        for bit in 0..8u32 {
+        // Signed, because a character may legitimately begin *before*
+        // `FIRST_CHAR_TSTATE`. That constant is where the stock ROM starts
+        // its line; software that reaches the display file sooner starts
+        // earlier, and there are 32 pixels of border to the left for it to
+        // land in.
+        //
+        // This was `checked_sub`, which underflowed and dropped the whole
+        // character rather than drawing it two pixels to the left. #302
+        // found it the hard way: a one-T-state shift blanked the entire
+        // screen, because the only ink on a power-on display is the cursor
+        // and the cursor is in column 0.
+        let active = i64::from(self.tstate) - i64::from(FIRST_CHAR_TSTATE);
+        let x0 = active * i64::from(PIXELS_PER_TSTATE) + i64::from(LEFT_BORDER);
+        for bit in 0..8i64 {
             let x = x0 + bit;
-            if x >= FB_WIDTH {
+            if x < 0 {
+                continue;
+            }
+            if x >= i64::from(FB_WIDTH) {
                 break;
             }
-            self.framebuffer[(y * FB_WIDTH + x) as usize] = if pattern & (0x80 >> bit) != 0 {
+            #[allow(clippy::cast_sign_loss)]
+            let index = (y * FB_WIDTH + x as u32) as usize;
+            self.framebuffer[index] = if pattern & (0x80 >> bit) != 0 {
                 INK
             } else {
                 PAPER
