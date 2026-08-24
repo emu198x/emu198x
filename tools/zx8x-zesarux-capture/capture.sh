@@ -27,6 +27,21 @@
 # for a ZX81.
 #
 # Set ZESARUX_VO=simpletext for a character-only screen without needing X.
+#
+# ZRCP_PRE holds newline-separated ZRCP commands to run once the smartload has
+# settled, before the screen is saved. Its reason for existing is that most
+# ZX81 hi-res demos are a `1 REM <machine code>` that the user starts by typing
+# `RAND USR nnnnn`; a smartload alone leaves them sitting at the K cursor. So:
+#
+#   ZRCP_PRE='set-register PC=4084H' capture.sh ... --wrx "WRX Demo v1.0.p"
+#
+# The REM body of such a program usually opens with one or two HALT ($76) bytes
+# so that LIST stops there rather than printing the code as garbage. Those pad
+# bytes are not the entry point — enter past them, or the CPU simply halts.
+#
+# The `H` suffix is not optional. ZRCP reads `PC=4084` as decimal 4084, which
+# is $0FF4, inside the ROM; the emulator carries on and the capture looks like
+# a program that drew nothing rather than like a mistyped address.
 set -euo pipefail
 
 BIN="${1:?usage: capture.sh <zesarux> <out.bmp> [args...]}"
@@ -45,6 +60,10 @@ zpid=$!
 trap 'kill "$zpid" 2>/dev/null || true' EXIT
 
 sleep "$SETTLE"
+if [ -n "${ZRCP_PRE:-}" ]; then
+  { printf '%s\n' "$ZRCP_PRE"; sleep 2; printf 'exit\n'; } | nc 127.0.0.1 "$PORT" >/dev/null 2>&1 || true
+  sleep "${POST_PRE:-4}"
+fi
 { printf 'save-screen %s\n' "$(cd "$(dirname "$OUT")" && pwd)/$(basename "$OUT")"; sleep 3; printf 'exit\n'; } \
   | nc 127.0.0.1 "$PORT" >/dev/null 2>&1 || true
 sleep 1
