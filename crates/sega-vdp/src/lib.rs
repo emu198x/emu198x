@@ -705,6 +705,15 @@ impl SegaVdp {
                 self.line_counter -= 1;
             }
         } else if self.scanline == active_lines {
+            // The counter runs one line past the picture. This line checks it
+            // without decrementing, and only then is it reloaded — so a game
+            // can aim a line interrupt at the first line of vblank, which is
+            // where the work of setting up the next frame goes. Genesis Plus
+            // GX has this check as its own block ahead of the vblank section,
+            // before the code that sets the frame flag, and reloads after.
+            if self.line_counter == 0 {
+                self.line_irq_pending = true;
+            }
             self.status |= 0x80;
             self.line_counter = self.regs[10];
             self.frame_count += 1;
