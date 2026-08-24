@@ -129,7 +129,7 @@ the core draws.
 | C64 (PAL) | 416×312 | 410×288 | 101% | 108% |
 | Spectrum 48K (PAL) | 352×296 | 364×288 | 97% | 103% |
 | ZX80, ZX81 (PAL) | 320×288 | 338×288 | 95% | 100% |
-| ZX81 (NTSC) | 320×240 | 338×240 | 95% | 100% |
+| ZX80, ZX81 (NTSC) | 320×240 | 338×240 | 95% | 100% |
 | Jupiter Ace (PAL) | 320×288 | 338×288 | 95% | 100% |
 | Amstrad CPC (PAL) | 832×288 | 832×288 | 100% | 100% |
 | NES (NTSC) | 256×240 | 280×240 | 91% † | 100% |
@@ -477,10 +477,32 @@ both boards**: 56 - 48 at 50 Hz and 32 - 24 at 60. Both terms move, by 24 and by
 section already relied on, now doing a job instead of being an observation. If a
 region's height is ever wrong again, that invariance breaks and says so. #1119.
 
-The ZX80 still has neither region, and its failure is the quieter one: it does
-not contradict itself, it simply only ever claims PAL, so a USA board cannot be
-represented at all and the extent audit reads it as 100%. An absent capability
-rather than a wrong answer, which is why this pass did not surface it. #1133.
+**The ZX80 followed, and its failure was the quieter one.** It did not
+contradict itself: `region()` returned `Region::Pal` for every profile and
+`display()` reported `PAL_ACTIVE_LINES` outright, so nothing disagreed with
+anything and the extent audit read it as 100%. A USA board simply could not be
+selected. An absent capability rather than a wrong answer — which is exactly why
+it outlived the ZX81's, and worth remembering when an audit comes back clean:
+**a machine that only claims one region can only be measured against that one.**
+
+Its strap is a diode. `zx80-hardware-searle.txt` gives the electrical path — D6
+"indicates whether UK 50Hz or USA 60Hz display is to be used (via D11)", and
+"D6 will be low for USA (due to D11 pulling D6 low when /KBD is low)" — and
+`zx80-video-generation-tynemouth.txt` the rest: the diode is "fitted at D11" on
+USA models and "omitted" on the UK one, and the firmware reads it "each cycle"
+to decide the padding. So the crate owes the strap one bit on the keyboard read
+and a window the right size for what the ROM then does; it does not model the
+field length, because the ROM produces it.
+
+Both fields close exactly against their pads, which is the check that the
+figures belong together rather than being separately quoted:
+
+| | sync | pad | text | pad | total |
+|---|---|---|---|---|---|
+| UK | 6 | 56 | 192 | 56 | **310** |
+| USA | 6 | 32 | 192 | 32 | **262** |
+
+#1133.
 
 The horizontal axis is untouched and still fitted; `FIRST_CHAR_TSTATE` remains
 what the section above says it is.

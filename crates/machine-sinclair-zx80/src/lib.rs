@@ -33,14 +33,39 @@ mod keyboard;
 pub use input::Zx80Key;
 pub use keyboard::KeyboardState;
 mod video;
-pub use video::{FB_HEIGHT, FB_WIDTH, TEXT_TOP, Zx80Video};
+pub use video::{FB_WIDTH, Zx80Video};
 
 use serde::{Deserialize, Serialize};
 use zilog_z80::z80::{BusOp, Z80};
 
+/// The board's television-standard strap: a diode at D11, or no diode.
+///
+/// `reference/by-system/sinclair-zx80/zx80-hardware-searle.txt`: D6
+/// "indicates whether UK 50Hz or USA 60Hz display is to be used (via D11)",
+/// and "D6 will be low for USA (due to D11 pulling D6 low when /KBD is low)".
+/// `zx80-video-generation-tynemouth.txt` has the other half — the diode is
+/// "fitted at D11" on USA models and "omitted" on the standard UK one, and
+/// the firmware reads the setting "each cycle" to decide how much padding to
+/// put above and below the text.
+///
+/// So the strap is not a mode this crate implements. It is one bit presented
+/// on the keyboard read, and the ROM does the rest: 32 lines of pad instead of
+/// 56, and a 262-line field instead of 310. What this crate owes it is the bit
+/// and a window the right size for the result (#1133).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum TelevisionStandard {
+    /// No diode -- 50 Hz. The British board.
+    #[default]
+    FiftyHz,
+    /// D11 fitted -- 60 Hz. The American board.
+    SixtyHz,
+}
+
 /// Sinclair ZX80 machine.
 #[derive(Serialize, Deserialize)]
 pub struct Zx80 {
+    #[serde(default)]
+    television_standard: TelevisionStandard,
     cpu: Z80,
     rom: Vec<u8>,
     ram: Vec<u8>,
@@ -87,7 +112,8 @@ impl Zx80 {
             rom,
             ram: vec![0; ram_size],
             ram_mask: (ram_size - 1) as u16,
-            video: Zx80Video::new(),
+            television_standard: TelevisionStandard::default(),
+            video: Zx80Video::new(TelevisionStandard::default()),
             prev_rfsh: false,
             prev_halt: false,
             keyboard: KeyboardState::new(),
@@ -284,7 +310,13 @@ impl Zx80 {
             // which is what the keyboard read's `| 0xE0` used to do — means
             // the line is never quiet, so the loader's leader countdown at
             // `$0207` never completes and `LOAD` hangs. Tried, measured.
-            return keys | if self.tape_level() { 0x80 } else { 0x00 };
+            // Bit 6 is the strap. D11 pulls it low on a USA board when /KBD
+            // is low; a UK board has no diode and reads it high.
+            let strap = match self.television_standard {
+                TelevisionStandard::FiftyHz => 0x40,
+                TelevisionStandard::SixtyHz => 0x00,
+            };
+            return (keys & 0xBF) | strap | if self.tape_level() { 0x80 } else { 0x00 };
         }
         0xFF
     }
@@ -374,7 +406,26 @@ impl Zx80 {
 
     #[must_use]
     pub fn framebuffer_height(&self) -> u32 {
-        FB_HEIGHT
+        self.video.height()
+    }
+
+    /// Framebuffer row the text area starts on, which the region decides.
+    #[must_use]
+    pub fn text_top(&self) -> u32 {
+        self.video.text_top()
+    }
+
+    /// The board's television-standard strap.
+    #[must_use]
+    pub fn television_standard(&self) -> TelevisionStandard {
+        self.television_standard
+    }
+
+    /// Fit or omit D11. The ROM reads it on its next keyboard scan and pads
+    /// its field from it; the window has to be the size that field is for.
+    pub fn set_television_standard(&mut self, standard: TelevisionStandard) {
+        self.television_standard = standard;
+        self.video.set_standard(standard);
     }
 
     pub fn press_key(&mut self, key: Zx80Key) {
@@ -485,6 +536,74 @@ mod tests {
         assert_eq!(sys.io_read(0xFDFE) & 0x01, 0x00);
         sys.release_key(Zx80Key::A);
         assert_eq!(sys.io_read(0xFDFE) & 0x01, 0x01);
+    }
+
+    /// D11 is one bit on the keyboard read, and nothing else.
+    ///
+    /// Searle: D6 "indicates whether UK 50Hz or USA 60Hz display is to be
+    /// used (via D11)", and "D6 will be low for USA (due to D11 pulling D6
+    /// low when /KBD is low)". The ROM reads it each cycle and pads its field
+    /// from it, so presenting the bit is the whole of what this crate owes
+    /// the strap.
+    #[test]
+    fn the_strap_is_bit_six_of_the_keyboard_read() {
+        let mut sys = Zx80::new(trap_rom(), 1024).expect("init");
+
+        assert_eq!(
+            sys.io_read(0xFFFE) & 0x40,
+            0x40,
+            "no diode is the UK board, and D6 reads high"
+        );
+
+        sys.set_television_standard(TelevisionStandard::SixtyHz);
+        assert_eq!(
+            sys.io_read(0xFFFE) & 0x40,
+            0x00,
+            "D11 fitted pulls D6 low, which is the USA board"
+        );
+
+        // And it disturbs nothing else: the key bits still answer.
+        sys.press_key(Zx80Key::A);
+        assert_eq!(sys.io_read(0xFDFE) & 0x01, 0x00);
+        sys.release_key(Zx80Key::A);
+        assert_eq!(sys.io_read(0xFDFE) & 0x01, 0x01);
+    }
+
+    /// The window follows the strap, buffer and placement together.
+    ///
+    /// #1133, and the ZX81's #1119 before it. The ZX80's version was the
+    /// quieter failure: it did not contradict itself, it only ever claimed
+    /// PAL, so a USA board could not be represented at all and an extent
+    /// audit reads it as 100%.
+    #[test]
+    fn the_window_follows_the_board_strap() {
+        let mut sys = Zx80::new(trap_rom(), 1024).expect("init");
+        let width = sys.framebuffer_width();
+
+        assert_eq!(sys.framebuffer_height(), 288, "a UK board scans a PAL set");
+        assert_eq!(sys.text_top(), 48, "and centres 192 lines of text in it");
+
+        sys.set_television_standard(TelevisionStandard::SixtyHz);
+        assert_eq!(
+            sys.framebuffer_height(),
+            240,
+            "a USA board scans an NTSC set"
+        );
+        assert_eq!(
+            sys.text_top(),
+            24,
+            "and its 32-line pad centres the text in that"
+        );
+        assert_eq!(
+            sys.framebuffer().len(),
+            (width * 240) as usize,
+            "the buffer itself has to be reallocated, or the height is a claim \
+             about a buffer that is still the other region's size"
+        );
+
+        sys.set_television_standard(TelevisionStandard::FiftyHz);
+        assert_eq!(sys.framebuffer_height(), 288, "and back");
+        assert_eq!(sys.framebuffer().len(), (width * 288) as usize);
     }
 
     /// The distinction #1050 turned on: a machine that generated no picture

@@ -56,6 +56,8 @@
 //! The reference gives the forcing condition as A15 and D6 and does not
 //! mention `/HALT`; this gate is what the real ROM's output requires.
 
+use crate::TelevisionStandard;
+
 /// Framebuffer width: 320 pixels, the 256-pixel display with 32 of border
 /// either side.
 ///
@@ -83,7 +85,26 @@ pub const FB_WIDTH: u32 = 320;
 /// here more than on a fixed-raster machine: the ZX80's vertical position is
 /// software-timed, so a program that shifts its timing moves the picture, and
 /// a window this much tighter than the set's clipped the movement. See #1054.
-pub const FB_HEIGHT: u32 = 288;
+/// **It follows the board.** This was a plain `const` at 288 for every ZX80,
+/// which is the shape #1119 fixed on the ZX81. The ZX80's version of it was
+/// quieter: it did not contradict itself, it only ever claimed PAL, so a USA
+/// board could not be represented at all. #1133.
+impl TelevisionStandard {
+    /// Lines the region's set displays: a PAL field shows 288, an NTSC one 240.
+    #[must_use]
+    pub const fn framebuffer_height(self) -> u32 {
+        match self {
+            Self::FiftyHz => 288,
+            Self::SixtyHz => 240,
+        }
+    }
+
+    /// Framebuffer row the text area starts on — the pad the window keeps.
+    #[must_use]
+    pub const fn text_top(self) -> u32 {
+        (self.framebuffer_height() - TEXT_LINES) / 2
+    }
+}
 
 /// A ceiling on the frame, not its length.
 ///
@@ -160,10 +181,11 @@ pub struct Zx80Video {
 }
 
 impl Zx80Video {
+    /// A display sized for `standard`'s window.
     #[must_use]
-    pub fn new() -> Self {
+    pub fn new(standard: TelevisionStandard) -> Self {
         Self {
-            framebuffer: vec![PAPER; (FB_WIDTH * FB_HEIGHT) as usize],
+            framebuffer: vec![PAPER; (FB_WIDTH * standard.framebuffer_height()) as usize],
             tstate: 0,
             display_line: 0,
             char_latch: 0,
@@ -173,6 +195,30 @@ impl Zx80Video {
             frame_complete: false,
             painted: 0,
             pending: false,
+        }
+    }
+
+    /// Read back off the buffer rather than stated a second time, so the
+    /// height a caller sees is always the height that was allocated. Stating
+    /// it twice is how the ZX81 came to paint a 60 Hz picture into a PAL-sized
+    /// buffer (#1119); this machine's version of that is #1133.
+    #[must_use]
+    pub fn height(&self) -> u32 {
+        u32::try_from(self.framebuffer.len()).unwrap_or(0) / FB_WIDTH
+    }
+
+    /// Framebuffer row the text area starts on: the pad the window keeps.
+    #[must_use]
+    pub fn text_top(&self) -> u32 {
+        (self.height() - TEXT_LINES) / 2
+    }
+
+    /// Restrap the board. The window is a different size on the other region,
+    /// so the buffer is reallocated rather than reinterpreted.
+    pub fn set_standard(&mut self, standard: TelevisionStandard) {
+        let wanted = (FB_WIDTH * standard.framebuffer_height()) as usize;
+        if self.framebuffer.len() != wanted {
+            self.framebuffer = vec![PAPER; wanted];
         }
     }
 
@@ -305,7 +351,7 @@ impl Zx80Video {
         let Some(y) = line.checked_sub(FIRST_VISIBLE_LINE) else {
             return;
         };
-        if y >= FB_HEIGHT {
+        if y >= self.height() {
             return;
         }
         let Some(active) = line_tstate.checked_sub(FIRST_CHAR_TSTATE) else {
@@ -339,7 +385,15 @@ const TEXT_LINES: u32 = 192;
 /// frame measures 64,167 T-states, which at 207 a line is 310.0, and the
 /// power-on cursor lands on frame lines 240-247 — row 23 of a text area
 /// starting at 56.
-const FIRST_TEXT_LINE: u32 = 56;
+/// The USA field is the same tabulation with the other pad: 6 lines of sync,
+/// 32 of pad, 192 of text, 32 of pad, **262** in total — which Tynemouth gives
+/// outright, and which closes exactly against these figures.
+const fn first_text_line(standard: TelevisionStandard) -> u32 {
+    match standard {
+        TelevisionStandard::FiftyHz => 56,
+        TelevisionStandard::SixtyHz => 32,
+    }
+}
 
 /// Where the set's window starts: centred on the text area.
 ///
@@ -358,16 +412,19 @@ const FIRST_TEXT_LINE: u32 = 56;
 /// here, not a field length, and a ROM that emits 310 lines and centres its
 /// own picture does not inherit the arithmetic. It sat the text area 16
 /// lines high. See #1116.
-const FIRST_VISIBLE_LINE: u32 = FIRST_TEXT_LINE - (FB_HEIGHT - TEXT_LINES) / 2;
+/// Both terms move together — the pads by 24 and the windows by 12 either
+/// side — so the difference does not move at all: 56 - 48 on a UK board and
+/// 32 - 24 on a USA one. That invariance is the check that the pad is placing
+/// the text in the *set's* window rather than happening to suit one of them,
+/// and it is asserted below for both.
+const FIRST_VISIBLE_LINE: u32 =
+    first_text_line(TelevisionStandard::FiftyHz) - TelevisionStandard::FiftyHz.text_top();
 
-/// Framebuffer row the text area's first line lands on.
-///
-/// The window is centred on the text area, so this is the pad it keeps. It
-/// is public because the geometry had been copied into five test files as a
-/// literal, every copy fitted to a framebuffer height that later changed and
-/// none of them updated — which is #1116. There is one derivation now, and
-/// callers ask for it.
-pub const TEXT_TOP: u32 = (FB_HEIGHT - TEXT_LINES) / 2;
+// The text area's top row is [`TelevisionStandard::text_top`]. It was a
+// `pub const` because the geometry had been copied into five test files as a
+// literal, every copy fitted to a framebuffer height that later changed and
+// none of them updated, which is #1116. It is a function now for the same
+// reason it had to stop being a literal: the height is not one number.
 
 /// How long after the `HALT` releases the line's first character is
 /// fetched: the interrupt is acknowledged, the handler at `$0038` counts
@@ -389,7 +446,7 @@ const LEFT_BORDER: u32 = 32;
 
 impl Default for Zx80Video {
     fn default() -> Self {
-        Self::new()
+        Self::new(TelevisionStandard::default())
     }
 }
 
@@ -403,18 +460,49 @@ mod tests {
     /// hand-written `FIRST_VISIBLE_LINE` cannot satisfy both by accident.
     #[test]
     fn the_window_is_centred_on_the_text_area() {
+        for standard in [TelevisionStandard::FiftyHz, TelevisionStandard::SixtyHz] {
+            assert_eq!(
+                standard.text_top() * 2 + TEXT_LINES,
+                standard.framebuffer_height(),
+                "{standard:?}: the pads the window keeps should be equal, and \
+                 with the text area should fill it"
+            );
+            assert_eq!(
+                FIRST_VISIBLE_LINE + standard.text_top(),
+                first_text_line(standard),
+                "{standard:?}: the frame line the window opens on, plus the \
+                 rows of pad it keeps, is where the ROM starts the text. \
+                 FIRST_VISIBLE_LINE is derived from the UK pair, so this \
+                 failing for the USA board means the invariance it relies on \
+                 is gone"
+            );
+        }
+    }
+
+    /// The pads are the ROM's, and they are what makes the same
+    /// `FIRST_VISIBLE_LINE` right on both boards.
+    ///
+    /// Tynemouth tabulates both fields: 6 lines of sync, 56 of pad, 192 of
+    /// text, 56 of pad, 310 in total for the UK, and the same with 32-line
+    /// pads for 262 in the USA. The pads differ by 24, exactly half the
+    /// difference between the 288 lines a PAL set shows and the 240 an NTSC
+    /// one does, so each board pads to its own region's window.
+    #[test]
+    fn each_board_pads_to_its_own_regions_window() {
+        assert_eq!(first_text_line(TelevisionStandard::FiftyHz), 56);
+        assert_eq!(first_text_line(TelevisionStandard::SixtyHz), 32);
         assert_eq!(
-            TEXT_TOP * 2 + TEXT_LINES,
-            FB_HEIGHT,
-            "the pads the window keeps should be equal, and with the text \
-             area should fill it"
+            first_text_line(TelevisionStandard::FiftyHz)
+                - first_text_line(TelevisionStandard::SixtyHz),
+            (TelevisionStandard::FiftyHz.framebuffer_height()
+                - TelevisionStandard::SixtyHz.framebuffer_height())
+                / 2,
+            "the pads differ by half what the windows do, which is why the \
+             window opens on the same line on both boards"
         );
-        assert_eq!(
-            FIRST_VISIBLE_LINE + TEXT_TOP,
-            FIRST_TEXT_LINE,
-            "the frame line the window opens on, plus the rows of pad it \
-             keeps, is where the ROM starts the text -- the old 24 gave 72"
-        );
+        // 6 sync + pad + 192 text + pad, which is Tynemouth's own total.
+        assert_eq!(6 + 56 + 192 + 56, 310, "the UK field");
+        assert_eq!(6 + 32 + 192 + 32, 262, "and the USA one");
     }
 
     /// The figure the placement is derived from is not `LINES_PER_FRAME`.
@@ -424,11 +512,14 @@ mod tests {
     /// nothing about this machine\'s geometry is 24.
     #[test]
     fn the_free_run_ceiling_is_not_the_placement() {
-        assert_ne!(
-            FIRST_VISIBLE_LINE,
-            LINES_PER_FRAME - FB_HEIGHT,
-            "312 is a ceiling for firmware that never syncs; the ROM emits \
-             310 and pads {FIRST_TEXT_LINE} lines. See #1116."
-        );
+        for standard in [TelevisionStandard::FiftyHz, TelevisionStandard::SixtyHz] {
+            assert_ne!(
+                FIRST_VISIBLE_LINE,
+                LINES_PER_FRAME - standard.framebuffer_height(),
+                "{standard:?}: 312 is a ceiling for firmware that never syncs; \
+                 the ROM emits 310 or 262 and pads {} lines. See #1116.",
+                first_text_line(standard)
+            );
+        }
     }
 }
