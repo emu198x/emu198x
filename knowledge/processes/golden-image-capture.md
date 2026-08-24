@@ -1,7 +1,8 @@
-# Capturing Amiga boot-path golden frames
+# Capturing boot-path golden frames
 
 This process answers how the Amiga boot-path regression images are captured,
-compared, and interpreted.
+compared, and interpreted. The ZX80 and ZX81 follow the same rule against a
+different external emulator; see *The ZX8x, against MAME* at the end.
 
 The boot-path goldens preserve known framebuffer output for selected Kickstart
 and Workbench waypoints. They are regression baselines. A golden is an
@@ -160,3 +161,35 @@ that unexercised chipset modes are pixel accurate.
 - [Lisa bitplane and display-window output phase](../decisions/amiga-lisa-bitplane-diw-output-phase.md)
 - [Amiga Test Kit v1.12 verification](amiga-test-kit-verification.md)
 - [Test ROM bundling policy](../decisions/test-rom-policy.md)
+
+## The ZX8x, against MAME
+
+The Amiga compares against FS-UAE. The ZX80 and ZX81 compare against **MAME
+0.289**, for the same reason and under the same caveat: it is an independent
+implementation, not a machine.
+
+Capture with `tools/zx8x-mame-capture/capture.sh`, which repackages the ROMs
+already staged for Emu198x's own tests into the zips MAME expects. Nothing is
+downloaded. One detail decides whether the comparison means anything: **our
+ZX81 ROM is MAME's `zx81a`, the 2nd revision, and MAME's default is the 3rd.**
+Comparing against the default compares two different ROMs. The script passes
+`-bios 2nd`.
+
+### Aligning two rasters rather than cropping one
+
+Unlike the Amiga, the two rasters cannot be made to match by trimming edges.
+MAME renders the whole 384x311 field, closing with six blank lines of vertical
+sync. We render the 320x288 window a set shows, opening `FIRST_VISIBLE_LINE`
+into the field. So the comparison is over the 256x192 text area both contain,
+with MAME's row *n* mapping to our row *n* - 8.
+
+That 8 is the point. It is `FIRST_VISIBLE_LINE`, derived in #1116 from the
+ROM's own pad, and until this capture nothing had checked it against anything.
+Both machines' text areas come out **pixel-identical**.
+
+### What it does not settle
+
+Horizontal placement. MAME puts the ZX80's picture 26 pixels right of the
+ZX81's; we place both in the same column, because `FIRST_CHAR_TSTATE` is fitted
+per machine to a window already chosen. The tests assert the vertical agreement
+and deliberately do not assert the horizontal. See #1123.

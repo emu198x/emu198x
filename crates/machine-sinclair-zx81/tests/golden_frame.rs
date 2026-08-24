@@ -17,8 +17,19 @@
 //! compared the output to anything at all. A baseline turns that class of
 //! change from invisible into a failing test.
 //!
-//! Making it an accuracy oracle needs a capture from EightyOne or zxsp, which
-//! is #297's remaining half.
+//! **It is now corroborated.** `mame_cross_check.rs` compares the 256x192
+//! text area against a MAME 0.289 capture and finds it pixel-identical, with
+//! the two rasters aligned by the field line the text starts on. That makes
+//! this an accuracy reference in the sense
+//! `knowledge/processes/golden-image-capture.md` means — provenance recording
+//! an external capture — on the same footing as the Amiga boot goldens, which
+//! are checked against FS-UAE.
+//!
+//! Two honest limits. MAME is an emulator, not a machine, so the claim is that
+//! two independent implementations agree rather than that either matches
+//! hardware. And the agreement is vertical: horizontally MAME places the ZX80
+//! and ZX81 pictures 26 pixels apart where we place both in the same column,
+//! which is #1123.
 //!
 //! # Updating
 //!
