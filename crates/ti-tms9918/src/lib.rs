@@ -835,8 +835,20 @@ impl Tms9918 {
 
             sprites_on_line += 1;
             if sprites_on_line > 4 {
-                // 5th sprite: set flag if not already set
-                if self.status & 0x40 == 0 {
+                // The fifth sprite reports itself, but only with the frame flag
+                // clear. §2.3.3: the flag "is set to a 1 whenever there are five
+                // or more sprites on a horizontal line (lines 0 to 192) **and
+                // the frame flag is equal to a 0**".
+                //
+                // So a program that never reads the status register -- leaving F
+                // latched from the previous frame -- stops being told about
+                // sprite overflow. Testing bit 6 alone set it regardless, which
+                // is the same thing every frame rather than only the first after
+                // a read.
+                //
+                // Both bits at once: 5S must not already be set, and F must be
+                // clear.
+                if self.status & 0xC0 == 0 {
                     self.status = (self.status & 0xE0) | 0x40 | sprite as u8;
                 }
                 break; // Don't render 5th+ sprites
