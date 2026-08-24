@@ -750,7 +750,13 @@ impl SegaVdp {
             0x0000
         };
         let tall_sprites = self.regs[1] & 0x02 != 0;
-        let sprite_height: usize = if tall_sprites { 16 } else { 8 };
+        let pattern_height: usize = if tall_sprites { 16 } else { 8 };
+        // R1 bit 0 magnifies every sprite pixel to 2x2. The pattern is the
+        // same size either way — one tile for an 8x8, a pair for an 8x16 —
+        // so what doubles is the ground it covers, and a magnified sprite is
+        // on twice as many lines as its pattern has rows.
+        let zoom = usize::from(self.regs[1] & 0x01 != 0);
+        let sprite_height = pattern_height << zoom;
         let shift_left = self.regs[0] & 0x08 != 0;
 
         let mut sprite_buffer = [0u8; 256]; // Color index per pixel
@@ -788,7 +794,7 @@ impl SegaVdp {
                 pattern &= 0xFE;
             }
 
-            let sprite_row = line - y;
+            let sprite_row = (line - y) >> zoom;
             let pattern_addr = spg_base + pattern * 32 + sprite_row * 4;
 
             let b0 = self.vram[(pattern_addr) & 0x3FFF];
@@ -796,13 +802,7 @@ impl SegaVdp {
             let b2 = self.vram[(pattern_addr + 2) & 0x3FFF];
             let b3 = self.vram[(pattern_addr + 3) & 0x3FFF];
 
-            for bit in 0..8 {
-                let px = x + bit as i16;
-                if !(0..256).contains(&px) {
-                    continue;
-                }
-                let px = px as usize;
-
+            for bit in 0..8usize {
                 let col = 7 - bit;
                 let color_idx = ((b0 >> col) & 1)
                     | (((b1 >> col) & 1) << 1)
@@ -813,10 +813,20 @@ impl SegaVdp {
                     continue;
                 }
 
-                if sprite_buffer[px] != 0 {
-                    collision = true;
-                } else {
-                    sprite_buffer[px] = color_idx;
+                // One screen pixel per pattern bit, or two side by side when
+                // the sprite is magnified.
+                for step in 0..(1usize << zoom) {
+                    let px = x + ((bit << zoom) + step) as i16;
+                    if !(0..256).contains(&px) {
+                        continue;
+                    }
+                    let px = px as usize;
+
+                    if sprite_buffer[px] != 0 {
+                        collision = true;
+                    } else {
+                        sprite_buffer[px] = color_idx;
+                    }
                 }
             }
         }
