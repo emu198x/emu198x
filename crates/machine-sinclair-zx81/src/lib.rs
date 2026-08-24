@@ -93,10 +93,18 @@ impl TelevisionStandard {
     /// first, so it is the longest frame rather than the shortest. Measured
     /// against the stock ROM over 400 frames:
     ///
-    /// | Strap | Frame lengths | Rate |
-    /// |---|---|---|
-    /// | 50 Hz | 64,583/64,584 starting up, then **64,163**/64,194 | 50.65 Hz |
-    /// | 60 Hz | 64,583/64,584 starting up, then **54,227**/56,096 | 59.93 Hz |
+    /// | Strap | Settled frame | Startup backstop | Rate |
+    /// |---|---|---|---|
+    /// | 50 Hz | **64,166** | 64,584 | 50.65 Hz |
+    /// | 60 Hz | **54,230** | 64,584 | 59.93 Hz |
+    ///
+    /// **Re-measured for #302, and by three T-states each.** The previous
+    /// pair, 64,163 and 54,227, were taken from a machine that could not
+    /// reach SLOW: the ROM's capability probe never saw an NMI, so it
+    /// concluded it was running on a ZX80 and stayed in FAST. These figures
+    /// are the same measurement with `CDFLAG` reading `$C0`, which is what a
+    /// ZX81 powers on into. The rates are unchanged to two decimals, which is
+    /// the check that they are the same quantity rather than a new one.
     ///
     /// The two settled minima are the budgets. Note the 60 Hz one is far below
     /// the 50 Hz one, which is why this cannot be a single shared constant.
@@ -114,8 +122,8 @@ impl TelevisionStandard {
     #[must_use]
     pub const fn slow_mode_frame_tstates(self) -> u32 {
         match self {
-            Self::FiftyHz => 64_163,
-            Self::SixtyHz => 54_227,
+            Self::FiftyHz => 64_166,
+            Self::SixtyHz => 54_230,
         }
     }
 }
@@ -128,6 +136,11 @@ pub struct Zx81 {
     ram: Vec<u8>,
     ram_mask: u16,
     video: Zx81Video,
+    /// An NMI edge that arrived while the ULA had the processor's clock.
+    #[serde(default)]
+    nmi_pending: bool,
+    #[serde(default)]
+    nmi_line_prev: bool,
     keyboard: KeyboardState,
     master_clock: u64,
     frame_count: u64,
@@ -176,6 +189,8 @@ impl Zx81 {
             ram: vec![0; ram_size],
             ram_mask: (ram_size - 1) as u16,
             video: Zx81Video::new(),
+            nmi_pending: false,
+            nmi_line_prev: false,
             keyboard: KeyboardState::new(),
             master_clock: 0,
             frame_count: 0,
@@ -311,6 +326,21 @@ impl Zx81 {
         // half-cycle — `T1Rise` then `T1Fall` — so calling it once per
         // T-state ran the CPU at half speed: a `NOP` cost 8 T-states against
         // the Z80's 4.
+        // The NMI pin is presented whether or not the clock is gated.
+        //
+        // TR1 conducts when HALT is false and NMI is true (reference §1), so
+        // the processor is suspended for exactly the pulse that would have
+        // interrupted it. Gating the clock does not disconnect the pin: the
+        // Z80 latches the edge asynchronously and services it when the clock
+        // returns. Sampling the pin only on the ticks the ULA allows meant a
+        // running processor never saw one, so the ROM's SLOW probe at `$0207`
+        // always failed and the machine could not leave FAST. See #302.
+        let nmi_line = self.video.nmi_line();
+        if nmi_line && !self.nmi_line_prev {
+            self.nmi_pending = true;
+        }
+        self.nmi_line_prev = nmi_line;
+
         // The ULA takes the processor's clock away across the line sync, which
         // is what holds every line's characters at the same T-states. A
         // halted CPU is already waiting for the interrupt, so it is not held.
@@ -320,8 +350,10 @@ impl Zx81 {
 
         for _ in 0..2 {
             // The generator's pulse, sampled before the tick because the Z80
-            // samples its interrupt inputs during its own.
-            self.cpu.nmi = self.video.nmi_line();
+            // samples its interrupt inputs during its own. A pulse that began
+            // while the clock was gated is presented here instead, once, which
+            // is enough for the processor's own latch to take it.
+            self.cpu.nmi = nmi_line || self.nmi_pending;
 
             self.cpu.tick();
             self.handle_bus();
@@ -349,6 +381,10 @@ impl Zx81 {
             }
             self.prev_rfsh = rfsh;
         }
+
+        // The processor has now ticked with the pin presented, so its own
+        // latch holds the edge and this one has done its job.
+        self.nmi_pending = false;
     }
 
     fn handle_bus(&mut self) {
