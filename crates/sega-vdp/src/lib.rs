@@ -158,6 +158,10 @@ pub enum VdpVariant {
 /// Active display area dimensions (the pixels the SMS VDP actually
 /// draws tiles + sprites into).
 pub const ACTIVE_WIDTH: u32 = 256;
+
+/// Pixels the chip scans per line — 256 active and 86 of border, sync and
+/// blanking.
+pub const DOTS_PER_LINE: u16 = 342;
 pub const ACTIVE_HEIGHT: u32 = 192;
 
 /// Dot clock of the NTSC VDP: half a 10.738635 MHz crystal, three times the
@@ -550,7 +554,38 @@ impl SegaVdp {
         self.v_counter as u8
     }
 
-    /// Read H counter ($7F).
+    /// The H counter's value at the dot the beam is on.
+    ///
+    /// The counter advances once every two pixels of a 342-pixel line, so it
+    /// has 171 distinct values rather than 256: it counts $00 up to $93, then
+    /// jumps to $E9 and runs to $FF. MAME states the relation as
+    /// `((hpos - 1 - 46) >> 1) & 0xFF` over a 342-pixel raster whose active
+    /// display starts at pixel 63, which makes the jump fall out of the
+    /// arithmetic rather than needing a table: the pixels before the counter's
+    /// origin give a negative difference, and an arithmetic shift of that
+    /// truncated to a byte is the $E9-$FF run.
+    ///
+    /// Our `dot` counts from the first active pixel, so it sits 63 along
+    /// MAME's raster and the counter reads $08 on the first active pixel and
+    /// $87 on the last. The reference's "roughly $00-$7F" is the right span
+    /// and eight counts off on where it starts.
+    fn hcount(&self) -> u8 {
+        let hclock = i32::from((self.dot + 62) % DOTS_PER_LINE);
+        ((hclock - 46) >> 1) as u8
+    }
+
+    /// Latch the H counter, as a low-to-high transition on a controller
+    /// port's TH pin does.
+    ///
+    /// This is the whole of the light gun's position sense and the only way
+    /// to read a horizontal raster position on this machine: the counter free
+    /// runs and the CPU never sees it directly, so what port $7F returns is
+    /// whatever was captured here.
+    pub fn latch_h_counter(&mut self) {
+        self.h_counter = self.hcount();
+    }
+
+    /// Read H counter ($7F) — the value latched by the last TH transition.
     #[must_use]
     pub fn read_h_counter(&self) -> u8 {
         self.h_counter
@@ -616,7 +651,7 @@ impl SegaVdp {
             self.render_pixel(self.scanline as usize, self.dot as usize);
         }
         self.dot += 1;
-        if self.dot >= 342 {
+        if self.dot >= DOTS_PER_LINE {
             self.dot = 0;
             return self.advance_line();
         }
