@@ -383,6 +383,35 @@ and hold the same 27:24 ratio, which is the check that they belong to this
 frame rather than another chip's. Both crates now place the picture at 25 and
 51 rather than 24 and 48.
 
+**The Sega VDP has three picture heights, and only the position moves.** Mode
+4 on the 315-5246 scans 192, 224 or 240 lines. The window does not resize —
+it is still what a set shows, 240 lines on NTSC and 288 on PAL — so a taller
+picture is bought entirely out of border. `315_5124.h` tables the scanned
+borders for each, and the same 19 blanked lines survive every row, which is
+the check that they belong to this frame:
+
+| Region | Active | Scanned border (top, bottom) | Scanned | Shown | Placed at |
+|---|---|---|---|---|---|
+| NTSC | 192 | 27, 24 | 243 | 240 | 25, 23 |
+| NTSC | 224 | 11, 8 | 243 | 240 | 9, 7 |
+| NTSC | 240 | 2, 1 | 243 | 240 | 0, 0 |
+| PAL | 192 | 54, 48 | 294 | 288 | 51, 45 |
+| PAL | 224 | 38, 32 | 294 | 288 | 35, 29 |
+| PAL | 240 | 30, 24 | 294 | 288 | 27, 21 |
+
+The crop is what the chip scans less what the set shows — three lines on
+NTSC, six on PAL — split as evenly as the count allows with the odd line
+coming off the larger top border. That is the same rule the 192-line row
+already followed, stated once instead of tabulated per mode.
+
+NTSC at 240 is the row MAME does not table, and the arithmetic says why: 262
+lines less 19 blanked less 240 active leaves three for the entire border, so
+a 60 Hz set has nowhere to put the picture and shows none of it as border.
+The mode is documented as unusable there, and this is the shape of the
+reason. The 2 and 1 come from splitting those three lines in the 224-line
+row's 11:8 ratio; nothing downstream depends on the split, because the set
+crops both away.
+
 The **Atari 8-bit** moved a line for a different reason. ANTIC's display is
 scan lines 8-247 in both regions, but the Altirra manual puts vertical sync at
 lines 251-253 on NTSC and 275-277 on PAL. On NTSC the 22 lines outside the

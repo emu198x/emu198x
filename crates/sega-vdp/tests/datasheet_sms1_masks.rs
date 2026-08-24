@@ -69,7 +69,7 @@ fn render_frame(vdp: &mut SegaVdp) {
 
 fn pixel(vdp: &SegaVdp, line: u32, x: u32) -> u32 {
     let index =
-        (REGION.border_top() + line) * REGION.framebuffer_width() + REGION.border_left() + x;
+        (REGION.border_top(192) + line) * REGION.framebuffer_width() + REGION.border_left() + x;
     vdp.framebuffer()[index as usize]
 }
 
