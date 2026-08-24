@@ -15,8 +15,29 @@
 //! (6-bit RGB); horizontal and vertical scrolling; 8 sprites per line;
 //! and a line interrupt counter.
 //!
-//! All four TMS9918A legacy modes (Graphics I/II, Text, Multicolor) are
-//! retained for SG-1000 backward compatibility.
+//! # The TMS9918A legacy modes are not implemented
+//!
+//! With M4 clear the chip selects one of four inherited TMS9918A modes —
+//! Graphics I, Graphics II, Text or Multicolor. This crate renders the whole
+//! active area as backdrop in all four. That is a deliberate limit, not an
+//! oversight, and it is cheap to hold because nothing reaches it: the
+//! machines built around those modes — SG-1000, MSX, ColecoVision, Sord M5,
+//! SVI-328, MTX, Einstein — all drive [`ti-tms9918`](../ti_tms9918/index.html)
+//! instead. The only exposure is a Master System cartridge that switches the
+//! VDP into a legacy mode, which commercial software does not do.
+//!
+//! Implementing them is a bigger job than "call the other crate", and the
+//! reason is colour. MAME's `315_5124.cpp` builds a *separate* sixteen-entry
+//! palette for these modes, noting that "sms and sg1000-mark3 uses a
+//! different palette for modes 0 to 3", and quantises each legacy colour into
+//! the Sega VDP's own output levels rather than emitting the TMS9918A's.
+//! Medium green is (33, 200, 66) on a TMS9918A and lands two levels down the
+//! Sega's green scale with no red or blue at all. The two chips' revisions
+//! use different level tables again. So `ti-tms9918`'s pipeline cannot be
+//! reused as-is: it would render the right shapes in the wrong colours, which
+//! is worse than rendering nothing, because it would look plausible.
+//!
+//! See issue #146.
 //!
 //! The Game Gear variant extends CRAM to 12-bit RGB (4096 colors) and
 //! displays a 160×144 viewport from the centre of the 256×192 active
@@ -802,8 +823,15 @@ impl SegaVdp {
         }
     }
 
-    /// Background colour when active Mode-4 rendering is not in effect (display
-    /// blanked or a placeholder legacy TMS9918 mode) — both render as backdrop.
+    /// Background colour when active Mode-4 rendering is not in effect.
+    ///
+    /// Two cases reach here and both render as backdrop, for different
+    /// reasons. With the display disabled that is correct — the reference's
+    /// rendering order says the whole active area is overwritten with the
+    /// backdrop. With M4 clear it is a stated limit: the four inherited
+    /// TMS9918A modes are not implemented, for the reasons in this module's
+    /// documentation, and a flat screen is the honest rendering of a mode we
+    /// do not draw.
     fn bg_pixel(&self, _line: usize, _x: usize) -> u32 {
         self.backdrop_color()
     }
