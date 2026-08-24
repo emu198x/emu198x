@@ -11,8 +11,22 @@
 # generated the way the hardware does, which is the whole point of comparing
 # against it. ZEsarUX's own per-title list turns it on for every WRX program.
 #
+# Capturing a WRX screen needs three things, and missing any one of them yields
+# a picture that looks plausible and is wrong:
+#
+#   1. `--wrx`, plus the build.sh patch that makes it survive the smartload.
+#   2. The `xwindows` driver. `simpletext` reconstructs characters and cannot
+#      represent a bitmap; `null` does not populate the buffer at all.
+#   3. A display. There is no headless option here — see build.sh.
+#
+# The tell that WRX is not engaging is exactly 256 distinct 8-pixel cells:
+# one per (row-in-character, column), which is the character path rendering a
+# uniform display file. Working captures give hundreds more.
+#
 # `.pbm` and `.scr` are Spectrum-only in ZEsarUX; BMP is the format that works
 # for a ZX81.
+#
+# Set ZESARUX_VO=simpletext for a character-only screen without needing X.
 set -euo pipefail
 
 BIN="${1:?usage: capture.sh <zesarux> <out.bmp> [args...]}"
@@ -24,7 +38,7 @@ SETTLE="${SETTLE:-12}"
 
 rm -f "$OUT"
 "$BIN" --noconfigfile --machine ZX81 --realvideo \
-       --vo simpletext --ao null \
+       --vo "${ZESARUX_VO:-xwindows}" --ao null \
        --enable-remoteprotocol --quickexit --exit-after $((SETTLE + 20)) \
        "$@" >/dev/null 2>&1 &
 zpid=$!
