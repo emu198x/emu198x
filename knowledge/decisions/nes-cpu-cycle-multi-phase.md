@@ -80,5 +80,5 @@ Phrases that should make you re-read this entry.
 
 - [nes-clock-topology.md](nes-clock-topology.md) — original "master clock drives the loop" decision. This entry refines, doesn't replace.
 - [half-cycle-signals.md](half-cycle-signals.md) — Spectrum precedent for sub-CPU-cycle granularity (half-cycle for Z80 + ULA). Same shape of decision; the NES refactor is the 6502 equivalent.
-- `~/Projects/198x/emulators/nes/Mesen2/Core/NES/NesCpu.cpp` — the reference implementation. `StartCpuCycle` / `EndCpuCycle` plus `_ppuOffset` is the canonical pattern.
+- `emulators/nes/Mesen2/Core/NES/NesCpu.cpp` — the reference implementation. `StartCpuCycle` / `EndCpuCycle` plus `_ppuOffset` is the canonical pattern.
 - Task #35 (Emu198x project tasks) — the failing tests this refactor unblocks.

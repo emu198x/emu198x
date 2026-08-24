@@ -13,7 +13,7 @@ references yet.
 The harness resolves the ROM root in this order:
 
 1. `NES_BLARGG_ROOT`, a directory containing the blargg suite subdirectories;
-2. `~/Projects/198x/assets/test-suites/nes-test-roms/`.
+2. `assets/test-suites/nes-test-roms/`.
 
 If neither resolves, each per-ROM test becomes a no-op rather than a failure.
 
