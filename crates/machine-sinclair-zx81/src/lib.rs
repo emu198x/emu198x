@@ -253,6 +253,16 @@ impl Zx81 {
     }
 
     /// Threads a tape. `edges` are transition times relative to now.
+    ///
+    /// **Leave a lead-in.** A tape whose first transition is at zero arrives
+    /// while the ROM is still settling and it reads nothing at all -- it stays
+    /// in its `LOAD` loop for the whole tape and accepts zero bytes, which
+    /// looks like a corrupt image rather than a mistimed one.
+    /// `Zx81Image::to_pulses` starts its first pulse 1,500,000 master clocks
+    /// in, a little under half a second, and replaying a recorded `SAVE`
+    /// wants the same. Rebasing a recording so that it starts at zero is the
+    /// obvious thing to do and the thing that breaks it; `tape_save.rs` has
+    /// the measurement.
     pub fn insert_tape(&mut self, edges: &[u64]) {
         let start = self.master_clock;
         self.tape_in = edges.iter().map(|e| start.saturating_add(*e)).collect();
