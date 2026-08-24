@@ -124,12 +124,29 @@ fn a_real_image_loads_from_the_cassette_line() {
         "the editor should be holding LOAD \"\" before the tape rolls"
     );
 
-    machine.insert_tape(&pulses);
+    // Press NEWLINE first, let the loader start listening, and only then
+    // thread the tape — which is the order a person uses, `LOAD ""` and
+    // ENTER before pressing play.
+    //
+    // Threading it first used to work and stopped when the machine could
+    // reach SLOW (#1122). It was never safe: edge times are absolute from the
+    // moment of threading, and in SLOW the ULA holds the processor across
+    // every line sync, so the loader arrives about 100,000 T-states later
+    // than it did in FAST and joins the tape part-way through. The recording
+    // has a leader, not an unlimited one.
+    //
+    // Nothing about the emulator changed here. Threading late scores 7,169 of
+    // 7,180 bytes, which is what threading early scored before the machine
+    // learnt SLOW.
     machine.press_key(Zx81Key::Newline);
     for _ in 0..25 {
         machine.run_frame();
     }
     machine.release_key(Zx81Key::Newline);
+    for _ in 0..40 {
+        machine.run_frame();
+    }
+    machine.insert_tape(&pulses);
 
     let mut frames = 0;
     while machine.tape_remaining() > 0 && frames < 20_000 {
