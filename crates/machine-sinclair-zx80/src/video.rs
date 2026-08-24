@@ -374,6 +374,13 @@ pub const TEXT_TOP: u32 = (FB_HEIGHT - TEXT_LINES) / 2;
 /// the row down and reloads `R`, and `JP (HL)` re-enters the display file.
 /// Measured at 73 T-states against the real ROM, and constant because the
 /// handler's path does not vary with the row's contents.
+///
+/// The event it is measured from is the interrupt acknowledge, which is where
+/// this machine's sync pulse *starts* — the sync is software and the line
+/// begins with it. The ZX81's module records 37 from a different event, the
+/// end of its ULA's sync pulse, so the two figures are not comparable as they
+/// stand; see that constant for the normalisation and for what the reference
+/// emulators make of it.
 const FIRST_CHAR_TSTATE: u32 = 73;
 
 /// 32 characters are 256 pixels; centring them in a 320-pixel framebuffer
