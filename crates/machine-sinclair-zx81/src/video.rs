@@ -545,6 +545,27 @@ impl Zx81Video {
         });
     }
 
+    /// The level on the ULA pin that carries both the video signal and the
+    /// cassette output.
+    ///
+    /// They are the same pin. Thomasson, p13: *"the same pin on the ULA
+    /// provides both the video signal and the output to the tape recorder,
+    /// hence the odd patterns on the screen when tape is in use"* — which is
+    /// also why the display cannot be maintained during `SAVE` and `LOAD`.
+    ///
+    /// So the machine's sound is not a separate source to model. It is this
+    /// pin: the line sync while a picture is being generated, which is the
+    /// characteristic buzz at line rate, and the `SAVE` waveform when the ROM
+    /// is driving the software sync instead.
+    ///
+    /// **Sync only.** The picture rides this pin too, and it is not included:
+    /// the pixel clock is 6.5 MHz against a 48 kHz sink, so sampling it would
+    /// alias rather than inform. What is here is the structure you would hear.
+    #[must_use]
+    pub const fn output_level(&self) -> bool {
+        !(self.vsync || self.tstate >= HSYNC_START_T)
+    }
+
     /// Shift eight pixels out at the beam.
     fn paint(&mut self, pattern: u8) {
         let Some(y) = self.display_line.checked_sub(FIRST_VISIBLE_LINE) else {

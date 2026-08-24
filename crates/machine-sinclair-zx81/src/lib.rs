@@ -42,6 +42,11 @@ pub use input::Zx81Key;
 pub use keyboard::KeyboardState;
 pub use video::{FB_WIDTH, Zx81Video};
 
+/// Samples a second the host is fed. Matches the runtime's `AUDIO_SAMPLE_RATE`.
+const AUDIO_SAMPLE_RATE: u32 = 48_000;
+/// T-states a second, which is what `master_clock` counts.
+const CPU_CLOCK_HZ: u64 = 3_250_000;
+
 use serde::{Deserialize, Serialize};
 use zilog_z80::z80::{BusOp, Z80};
 
@@ -169,6 +174,11 @@ pub struct Zx81 {
     /// When `Some`, every I/O port access is appended here (debug trace).
     #[serde(skip)]
     io_trace: Option<Vec<IoEvent>>,
+    /// Host-facing, and drained every frame; see `take_audio_buffer`.
+    #[serde(default, skip)]
+    audio_buffer: Vec<f32>,
+    #[serde(default)]
+    audio_accum: u64,
 }
 
 impl Zx81 {
@@ -201,6 +211,8 @@ impl Zx81 {
             tape_pos: 0,
             tape_out: None,
             io_trace: None,
+            audio_buffer: Vec::with_capacity(1024),
+            audio_accum: 0,
         })
     }
 
@@ -250,6 +262,22 @@ impl Zx81 {
         if let Some(out) = &mut self.tape_out {
             out.push(self.master_clock);
         }
+    }
+
+    /// One audio sample per 48 kHz period, taken from the pin that carries
+    /// both video and cassette output.
+    fn tick_audio(&mut self) {
+        self.audio_accum += u64::from(AUDIO_SAMPLE_RATE);
+        if self.audio_accum >= CPU_CLOCK_HZ {
+            self.audio_accum -= CPU_CLOCK_HZ;
+            self.audio_buffer
+                .push(if self.video.output_level() { 0.5 } else { -0.5 });
+        }
+    }
+
+    /// Takes the samples generated since the last call.
+    pub fn take_audio_buffer(&mut self) -> Vec<f32> {
+        std::mem::take(&mut self.audio_buffer)
     }
 
     /// Threads a tape. `edges` are transition times relative to now.
@@ -340,6 +368,7 @@ impl Zx81 {
     fn tick_tstate(&mut self) {
         self.master_clock += 1;
         self.video.tick();
+        self.tick_audio();
 
         // Two CPU half-cycles per T-state. `Z80::tick` advances one
         // half-cycle — `T1Rise` then `T1Fall` — so calling it once per
