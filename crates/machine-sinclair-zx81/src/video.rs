@@ -164,9 +164,28 @@ pub const TEXT_TOP: u32 = (FB_HEIGHT - TEXT_LINES) / 2;
 /// taken on a machine doing what the hardware does. The picture lands in the
 /// same place either way, which is the check: the constant moved by one and
 /// the goldens did not move at all.
-/// The ZX80's module records 73 for the same constant; the two ROMs reach
-/// their first character at different points in the line, which is one more
-/// reason the machines are not sharing a module.
+/// # It is not the same constant as the ZX80's
+///
+/// That module records 73, and the two figures are anchored to **different
+/// events**, so the difference between them is not a difference between the
+/// pictures.
+///
+/// Here `T=0` is where the ULA's own sync pulse *ends*: [`HSYNC_START_T`] is
+/// 192 of a 207 T-state line, and the line wraps to zero straight after it.
+/// The ZX80 has no such constant — its sync is software, and its line begins
+/// at the interrupt acknowledge that releases the `HALT`, which is where its
+/// sync pulse *starts*.
+///
+/// Measured from the start of sync on both, this is 37 + (207 - 192) = 52
+/// against the ZX80's 73: 21 T-states, or 42 pixels, with the ZX80's picture
+/// later in the line. Our two framebuffers nonetheless place both pictures in
+/// the same column, because [`LEFT_BORDER`] is what centres them; #1123.
+///
+/// That 42 is a prediction of this model, not a measurement of a machine, and
+/// the two reference emulators disagree with it and with each other — MAME
+/// separates the pictures by 26 pixels and ZEsarUX by 2 in the other
+/// direction, each rendering both machines into one raster. Nothing here is
+/// fitted to any of the three.
 /// The highest `I` page that can hold a character set.
 ///
 /// `$1F` is the top of the 8 KB ROM. An `I` above it addresses no character
