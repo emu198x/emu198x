@@ -75,7 +75,7 @@ across commit messages, code comments, and memory.
   (`198x/decisions/shared-hardware-reference-canon.md`) as a codebase-tied,
   shipping *status* artifact — adjacent to, not a replacement for, the local
   distillation (layer 3) and curriculum extracts (layer 4).
-- Cites the primary library (`../reference/`) and `syntheses/` for hardware
+- Cites the primary library (`reference/`) and `syntheses/` for hardware
   facts; cites `knowledge/decisions/` for architecture.
 
 ## Consequences

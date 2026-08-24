@@ -142,7 +142,7 @@ not because no such residual exists, but because nothing measures one.
 **A graded, real-hardware-referenced instrument already exists and is already on
 disk.** `timingTests48k.sna`, in the `z80test` fixture directory, was catalogued
 as "unidentified — plausibly the ZXSpectrum4.net package" in
-[the reference test-ROM catalogue](../../../../reference/by-topic/testing-suites/spectrum-test-roms.md).
+`reference/by-topic/testing-suites/spectrum-test-roms.md`.
 Structural identification at `a19de51c` confirms it: the RAM image carries the
 load title `Timing Tests 48k Spectrum`, the reporting address
 `to - richard@ZXSpectrum4.net`, the prompt `choose test 1-35 or leave blank for
@@ -397,4 +397,4 @@ evidence, or an explicit expansion of the supported configuration claim.
 - [Floating-bus accuracy](../systems/spectrum/floating-bus-accuracy.md)
 - [Accuracy corpora](../../test-data/accuracy-corpora.md)
 - [Spectrum catalogue manifest](../../crates/emu198x-catalogue/manifest/spectrum.toml)
-- [ZX Spectrum test ROM catalogue](../../../../reference/by-topic/testing-suites/spectrum-test-roms.md)
+- `reference/by-topic/testing-suites/spectrum-test-roms.md`

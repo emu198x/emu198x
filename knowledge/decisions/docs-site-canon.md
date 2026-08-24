@@ -48,7 +48,7 @@ Supporting work (part of the site skeleton, from the audit):
   `docs/adding-a-system.md`) — both are synthesis jobs from existing
   material.
 - **No shipped page links to unshippable paths**: gitignored `knowledge/`
-  pages, sibling directories (`../reference/`, `../syntheses/`,
+  pages, sibling directories (`reference/`, `../syntheses/`,
   `emulators/`), or memory files. Cite them as named sources ("VICE's
   `ciat.c`", "HRM p. 123"), not as links. Audit the four `docs/systems/`
   pages (and crate `//!` docs) that currently violate this.

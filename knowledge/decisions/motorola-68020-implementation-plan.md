@@ -118,7 +118,7 @@ runs through it via the type alias.
   Instead we use `Emu198x-Oldest/crates/m68k-test-gen`, which
   drives Musashi as the reference oracle and emits MessagePack
   vectors using the same schema. Generated corpus lives at
-  `~/Projects/198x/assets/test-suites/m68k-generated/m68020/v1/`
+  `assets/test-suites/m68k-generated/m68020/v1/`
   — 240 fixtures, 10 vectors each, 6.6 MB.
 - `motorola-68020/tests/tom_harte.rs` is in place. Wiring
   detail worth recording for future maintainers: the fixture's
