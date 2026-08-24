@@ -4,7 +4,7 @@ use std::env;
 use std::fs;
 use std::path::PathBuf;
 
-use machine_sinclair_zx81::{TelevisionStandard, Zx81, Zx81Key};
+use machine_sinclair_zx81::{FB_HEIGHT, TEXT_TOP, TelevisionStandard, Zx81, Zx81Key};
 
 fn rom_path() -> Option<PathBuf> {
     if let Ok(p) = env::var("EMU198X_ZX81_ROM") {
@@ -336,5 +336,48 @@ fn the_field_is_310_lines() {
         field.abs_diff(310 * LINE_T) < LINE_T / 2,
         "and land within half a line of it; {field} against {}",
         310 * LINE_T
+    );
+}
+
+/// The ROM draws 303 lines a field, and the split is what puts the first
+/// character row where it is.
+///
+/// 55 of pad, one for the display file's leading `NEWLINE`, 192 of text, 55 of
+/// pad. The middle one is easy to miss and was: the main display call is
+/// `ld bc,$1901`, 25 rows whose first is a single scan line, so the picture
+/// starts one line below the pad rather than immediately after it. #1118 was
+/// filed against `MARGIN` on the strength of that line and was not a defect.
+///
+/// Pinned by counting interrupts because that is the ROM's own unit — the
+/// `$0038` handler decrements `C` once per scan line — so a change to the
+/// display's line budget fails here rather than only shifting a golden.
+#[test]
+#[ignore = "needs an 8 KB ZX81 ROM — run with --ignored"]
+fn the_field_is_303_drawn_lines() {
+    let Some(path) = rom_path() else {
+        emu198x_test_skip::skip!(
+            "ZX81 ROM not staged — set EMU198X_ZX81_ROM or place zx81.rom at ~/.emu198x/roms/sinclair-zx81/"
+        );
+    };
+    let rom = fs::read(&path).expect("read ROM");
+    let mut sys = Zx81::new(rom, 16384).expect("init");
+    for _ in 0..400 {
+        sys.run_frame();
+    }
+
+    // MARGIN is the pad depth the ROM actually booted with, not a literal:
+    // a 60 Hz board pads 31 and the sum below follows it.
+    let margin = u32::from(sys.peek_memory(0x4028));
+    assert_eq!(margin, 55, "a 50 Hz board should pad 55 lines");
+
+    let drawn = margin + 1 + 192 + margin;
+    assert_eq!(
+        drawn, 303,
+        "55 pad + 1 newline + 192 text + 55 pad is what the ROM draws"
+    );
+    assert_eq!(
+        TEXT_TOP,
+        (FB_HEIGHT - 192) / 2,
+        "and the window keeps the text area centred in it"
     );
 }

@@ -92,16 +92,24 @@ const TEXT_LINES: u32 = 192;
 
 /// The frame line the first character row starts on.
 ///
-/// Measured: the power-on cursor lands on frame lines 240-247, which is row
-/// 23 of a text area starting at 56.
+/// The ROM's own arithmetic, and it is 55 + 1 rather than 56.
 ///
-/// ⚠ The ROM's own figure is one lower. `MARGIN` (`$4028`) holds the pad
-/// depth and reads 55 on a booted machine, matching
-/// `reference/by-system/sinclair-zx81/zx81-hardware-reference.md`. Whether
-/// the loop emits `MARGIN` lines or one more is not settled here, and the
-/// gap is #1118 — it shifts the whole picture by a line, and no reference to
-/// hand resolves it. Naming the measured figure keeps the window derivation
-/// below correct either way: settle 55, and only this constant changes.
+/// `MARGIN` (`$4028`) holds the pad depth and reads 55 at 50 Hz. The pad is
+/// exactly that many lines: the routine at `$0292` enters `$02B5` with
+/// `B = 1, C = MARGIN`, and the INT handler at `$0038` decrements `C` once
+/// per scan line and ends the row at zero.
+///
+/// The extra line is the display file's leading `NEWLINE`. The main display
+/// call is `ld bc,$1901` — 25 rows, of which the **first is a single scan
+/// line**, and `HL` points at the `$76` the display file opens with. So one
+/// blank line is drawn between the pad and the first character row.
+///
+/// Checked against the running ROM rather than reasoned about: 303 interrupts
+/// a field, one per line, `B`/`C` reading `(1, 55)` at the first and `(25, 1)`
+/// at the fifty-sixth. 55 pad + 1 newline + 192 text + 55 pad = 303, and with
+/// seven lines of sync that is the 310-line field the machine measures.
+///
+/// This was filed as an off-by-one against `MARGIN` (#1118) and is not one.
 ///
 /// ⚠ This is the 50 Hz figure and does not follow the board. A 60 Hz ZX81
 /// pads 31 lines, not 55, so its text starts 24 lines earlier — and
