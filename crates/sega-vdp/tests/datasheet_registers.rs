@@ -78,12 +78,15 @@ fn pixel(vdp: &SegaVdp, line: u32, x: u32) -> u32 {
 }
 
 /// SMS CRAM is `%00BBGGRR`; each two-bit channel expands `cc -> cccccccc`.
+/// The 315-5246's measured CRAM output levels — `%00BBGGRR` through the
+/// table in `VdpVariant::output_levels`. Levels 0 and 3 happen to match a
+/// bit-replicated expansion, so a test that only uses black and full scale
+/// cannot tell the two apart; these helpers use the real table so that
+/// coincidence is not load-bearing.
 fn sms_argb(entry: u8) -> u32 {
-    let level = |c: u32| c * 85;
-    let r = level(u32::from(entry) & 3);
-    let g = level((u32::from(entry) >> 2) & 3);
-    let b = level((u32::from(entry) >> 4) & 3);
-    0xFF00_0000 | (r << 16) | (g << 8) | b
+    const LEVELS: [u32; 4] = [0, 89, 174, 255];
+    let e = u32::from(entry) as usize;
+    0xFF00_0000 | (LEVELS[e & 3] << 16) | (LEVELS[(e >> 2) & 3] << 8) | LEVELS[(e >> 4) & 3]
 }
 
 // ---------------------------------------------------------------------------
@@ -236,38 +239,110 @@ fn registers_0x0b_and_above_have_no_effect() {
 // Colour RAM
 // ---------------------------------------------------------------------------
 
-/// SMS CRAM is six bits, `%00BBGGRR`, and each two-bit channel expands by
-/// repeating its bits — so the four levels are $00, $55, $AA, $FF, and full
-/// scale reaches white rather than stopping short of it.
+/// SMS CRAM is six bits, `%00BBGGRR`. What each two-bit channel drives is
+/// not `cc -> cccccccc` but the level the chip's resistor ladder measurably
+/// put on the pin, and the two revisions differ.
+///
+/// An earlier version of this test asserted bit replication, and passed —
+/// levels 0 and 3 coincide with it on the 315-5246, so only the two middle
+/// steps tell them apart.
 #[test]
-fn each_two_bit_cram_channel_expands_by_repeating_its_bits() {
-    let mut vdp = vdp();
-    write_register(&mut vdp, 0, 0x04);
-    write_register(&mut vdp, 1, 0x40);
-    write_register(&mut vdp, 7, 0x00); // backdrop = CRAM entry 16
+fn each_cram_channel_drives_the_chips_own_output_levels() {
+    for (variant, levels, blue) in [
+        (VdpVariant::Sms1, [0u32, 78, 160, 238], [0u32, 98, 160, 238]),
+        (VdpVariant::Sms2, [0, 89, 174, 255], [0, 89, 174, 255]),
+    ] {
+        let mut vdp = SegaVdp::new(REGION, variant);
+        write_register(&mut vdp, 0, 0x04);
+        write_register(&mut vdp, 1, 0x40);
+        write_register(&mut vdp, 7, 0x00); // backdrop = CRAM entry 16
 
-    for level in 0..4u8 {
-        let expanded = u32::from(level) * 0x55;
-        for (shift, name, mask) in [
-            (0u8, "red", 0x00FF_0000u32),
-            (2, "green", 0x0000_FF00),
-            (4, "blue", 0x0000_00FF),
-        ] {
-            poke_cram(&mut vdp, 16, level << shift);
-            render_to(&mut vdp, 0);
-            let argb = pixel(&vdp, 0, 0);
-            assert_eq!(
-                (argb & mask) >> mask.trailing_zeros(),
-                expanded,
-                "{name} level {level} should expand to {expanded:#04X}"
-            );
-            assert_eq!(
-                argb & !mask,
-                0xFF00_0000,
-                "{name} level {level} must not bleed into the other channels"
-            );
+        for level in 0..4usize {
+            for (shift, name, mask, expected) in [
+                (0u8, "red", 0x00FF_0000u32, levels[level]),
+                (2, "green", 0x0000_FF00, levels[level]),
+                (4, "blue", 0x0000_00FF, blue[level]),
+            ] {
+                poke_cram(&mut vdp, 16, (level as u8) << shift);
+                render_to(&mut vdp, 0);
+                let argb = pixel(&vdp, 0, 0);
+                assert_eq!(
+                    (argb & mask) >> mask.trailing_zeros(),
+                    expected,
+                    "{variant:?} {name} level {level}"
+                );
+                assert_eq!(
+                    argb & !mask,
+                    0xFF00_0000,
+                    "{variant:?} {name} level {level} must not bleed into the other channels"
+                );
+            }
         }
     }
+}
+
+/// The 315-5124's blue channel is non-linear — its first step is higher than
+/// red and green take, and no other step is. That asymmetry is the thing bit
+/// replication cannot express at all, and it is gone on the later chip.
+#[test]
+fn only_the_315_5124_has_a_non_linear_blue() {
+    let channel = |variant, shift: u8, level: u8| {
+        let mut vdp = SegaVdp::new(REGION, variant);
+        write_register(&mut vdp, 0, 0x04);
+        write_register(&mut vdp, 1, 0x40);
+        write_register(&mut vdp, 7, 0x00);
+        poke_cram(&mut vdp, 16, level << shift);
+        render_to(&mut vdp, 0);
+        let argb = pixel(&vdp, 0, 0);
+        [(argb >> 16) & 0xFF, (argb >> 8) & 0xFF, argb & 0xFF]
+    };
+
+    // Level 1 is where they part.
+    assert_ne!(
+        channel(VdpVariant::Sms1, 0, 1)[0],
+        channel(VdpVariant::Sms1, 4, 1)[2],
+        "the 315-5124's blue takes a different first step from its red"
+    );
+    for level in [0u8, 2, 3] {
+        assert_eq!(
+            channel(VdpVariant::Sms1, 0, level)[0],
+            channel(VdpVariant::Sms1, 4, level)[2],
+            "and only the first step: level {level} is shared"
+        );
+    }
+    for level in 0..4u8 {
+        assert_eq!(
+            channel(VdpVariant::Sms2, 0, level)[0],
+            channel(VdpVariant::Sms2, 4, level)[2],
+            "the 315-5246 drives every channel the same"
+        );
+    }
+}
+
+/// The 315-5124 never reaches full scale: its white is dimmer than a
+/// 315-5246's, on every channel. That is a visible difference between two
+/// machines running the same code, so it is worth an assertion of its own.
+#[test]
+fn the_315_5124_does_not_reach_full_scale() {
+    let white = |variant| {
+        let mut vdp = SegaVdp::new(REGION, variant);
+        write_register(&mut vdp, 0, 0x04);
+        write_register(&mut vdp, 1, 0x40);
+        write_register(&mut vdp, 7, 0x00);
+        poke_cram(&mut vdp, 16, 0x3F);
+        render_to(&mut vdp, 0);
+        pixel(&vdp, 0, 0)
+    };
+    assert_eq!(
+        white(VdpVariant::Sms2),
+        0xFFFF_FFFF,
+        "the 315-5246 reaches it"
+    );
+    assert_eq!(
+        white(VdpVariant::Sms1),
+        0xFFEE_EEEE,
+        "the 315-5124 stops short, equally on all three channels"
+    );
 }
 
 // ---------------------------------------------------------------------------

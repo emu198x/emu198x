@@ -49,12 +49,15 @@ fn solid_tile(colour: u8) -> [u8; 32] {
     tile
 }
 
+/// The 315-5246's measured CRAM output levels — `%00BBGGRR` through the
+/// table in `VdpVariant::output_levels`. Levels 0 and 3 happen to match a
+/// bit-replicated expansion, so a test that only uses black and full scale
+/// cannot tell the two apart; these helpers use the real table so that
+/// coincidence is not load-bearing.
 fn sms_argb(entry: u8) -> u32 {
-    let level = |c: u32| c * 85;
-    0xFF00_0000
-        | (level(u32::from(entry) & 3) << 16)
-        | (level((u32::from(entry) >> 2) & 3) << 8)
-        | level((u32::from(entry) >> 4) & 3)
+    const LEVELS: [u32; 4] = [0, 89, 174, 255];
+    let e = u32::from(entry) as usize;
+    0xFF00_0000 | (LEVELS[e & 3] << 16) | (LEVELS[(e >> 2) & 3] << 8) | LEVELS[(e >> 4) & 3]
 }
 
 /// R1 bits that put the chip in a given height, alongside the M2 that both
