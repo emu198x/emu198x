@@ -545,6 +545,125 @@ mod tests {
             .expect("the ULA should have read a pattern")
     }
 
+    /// Run `lines` scan lines, fetching one character partway through each,
+    /// and report the `COUNT` the ULA composed into every pattern address.
+    ///
+    /// `pulse_at` is where in the line the routine issues its short vertical
+    /// sync, or `None` for a stock display that never issues one.
+    fn rows_shown(lines: usize, pulse_at: Option<u32>, nmi_generator: bool) -> Vec<u16> {
+        const FETCH_T: u32 = 120;
+        const CODE: u8 = 0x01;
+
+        let mut video = Zx81Video::new();
+        video.set_nmi_enabled(nmi_generator);
+        let mut rows = Vec::new();
+
+        for _ in 0..lines {
+            if let Some(at) = pulse_at {
+                while video.tstate != at {
+                    video.tick();
+                }
+                // Short: nothing like the thousand T-states of a field sync.
+                video.vsync_start();
+                for _ in 0..4 {
+                    video.tick();
+                }
+                video.vsync_stop();
+            }
+
+            while video.tstate != FETCH_T {
+                video.tick();
+            }
+            assert_eq!(video.opcode_fetch(0xC000, CODE), Some(0x00));
+            let seen = RefCell::new(None);
+            video.refresh(0x1E00, |addr| {
+                *seen.borrow_mut() = Some(addr);
+                0x00
+            });
+            let addr = seen
+                .into_inner()
+                .expect("the ULA should have read a pattern");
+            rows.push(addr - 0x1E00 - u16::from(CODE) * 8);
+
+            while video.tstate != TSTATES_PER_LINE - 1 {
+                video.tick();
+            }
+            video.tick();
+        }
+        rows
+    }
+
+    /// Pseudo hi-res: a short vertical sync on every scan line holds the
+    /// ULA's three-bit row counter at zero, so every line shows the *topmost*
+    /// row of whichever characters the display file names.
+    ///
+    /// The addressing does not move at all -- still `I*256 + CODE*8 + COUNT`,
+    /// with `COUNT` pinned. That is the whole difference from WRX, which
+    /// replaces the address with the raw `I:R` pair (#301, #1125).
+    #[test]
+    fn a_short_sync_every_line_pins_the_row_counter_at_zero() {
+        assert_eq!(rows_shown(16, Some(2), false), vec![0; 16]);
+    }
+
+    /// The control, and the reason the test above means anything: left alone,
+    /// the counter is advanced by each line sync and steps 1-7 and around.
+    #[test]
+    fn without_the_pulse_the_row_counter_steps_through_all_eight() {
+        let rows = rows_shown(16, None, false);
+        assert_eq!(rows, vec![0, 1, 2, 3, 4, 5, 6, 7, 0, 1, 2, 3, 4, 5, 6, 7]);
+    }
+
+    /// Where in the line the routine pulses decides *which* row it pins, and
+    /// the arithmetic is the hardware's rather than ours: the reset lands
+    /// first and the line sync that follows advances the counter off zero.
+    ///
+    /// Pinned either way, which is the technique working; the ROM's own
+    /// routines pulse early and get the top row.
+    #[test]
+    fn pulsing_after_the_fetch_pins_the_row_one_lower_down() {
+        assert_eq!(
+            rows_shown(16, Some(TSTATES_PER_LINE - 17), false),
+            vec![1; 16]
+        );
+    }
+
+    /// Pseudo hi-res needs FAST, and this is why.
+    ///
+    /// The ZX81 raises vertical sync from an `IN` with A0 low, which in SLOW
+    /// is also every keyboard read the ROM makes -- so the ULA only honours
+    /// it while the NMI generator is off. MAME gates it identically, on
+    /// `if (!m_vsync_active && !m_nmi_generator_active)`.
+    #[test]
+    fn the_pulse_does_nothing_while_the_nmi_generator_runs() {
+        let rows = rows_shown(16, Some(2), true);
+        assert_eq!(
+            rows,
+            vec![0, 1, 2, 3, 4, 5, 6, 7, 0, 1, 2, 3, 4, 5, 6, 7],
+            "with the generator running the pulse is not a sync at all, so the \
+             counter steps exactly as it does for a stock display"
+        );
+    }
+
+    /// And the short pulse must stay distinguishable from the long one that
+    /// ends a field, or pinning the row counter would end the frame instead.
+    #[test]
+    fn a_field_sync_is_still_told_apart_from_a_line_one() {
+        let mut video = Zx81Video::new();
+        video.set_nmi_enabled(false);
+        while video.frame_tstate <= MIN_FRAME_T {
+            video.tick();
+        }
+        video.vsync_start();
+        for _ in 0..=FIELD_SYNC_T {
+            video.tick();
+        }
+        video.vsync_stop();
+        assert!(
+            video.take_frame_complete(),
+            "a pulse held past FIELD_SYNC_T is a field sync and ends the frame"
+        );
+    }
+
     /// `I*256 + CODE*8 + COUNT`, from the hardware manual (Thomasson, p35-36).
     ///
     /// The stock character set makes this look like three separate fields:
