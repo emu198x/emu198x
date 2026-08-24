@@ -57,12 +57,25 @@ fn pixel(vdp: &SegaVdp, line: u32, x: u32) -> u32 {
     vdp.framebuffer()[index as usize]
 }
 
+/// The 315-5246's measured CRAM output levels — `%00BBGGRR` through the
+/// table in `VdpVariant::output_levels`. Levels 0 and 3 happen to match a
+/// bit-replicated expansion, so a test that only uses black and full scale
+/// cannot tell the two apart; these helpers use the real table so that
+/// coincidence is not load-bearing.
 fn sms_argb(entry: u8) -> u32 {
-    let level = |c: u32| c * 85;
-    0xFF00_0000
-        | (level(u32::from(entry) & 3) << 16)
-        | (level((u32::from(entry) >> 2) & 3) << 8)
-        | level((u32::from(entry) >> 4) & 3)
+    sms_argb_on(VdpVariant::Sms2, entry)
+}
+
+/// The same, for whichever chip is under test. The two drive different output
+/// levels — the 315-5124 never reaches full scale — so a test that renders on
+/// both cannot share one expected colour.
+fn sms_argb_on(variant: VdpVariant, entry: u8) -> u32 {
+    let (levels, blue) = match variant {
+        VdpVariant::Sms1 => ([0u32, 78, 160, 238], [0u32, 98, 160, 238]),
+        VdpVariant::Sms2 => ([0, 89, 174, 255], [0, 89, 174, 255]),
+    };
+    let e = u32::from(entry) as usize;
+    0xFF00_0000 | (levels[e & 3] << 16) | (levels[(e >> 2) & 3] << 8) | blue[(e >> 4) & 3]
 }
 
 const BACKDROP: u8 = 0x30;
@@ -234,8 +247,8 @@ fn magnified_row(variant: VdpVariant, count: u8) -> SegaVdp {
     vdp
 }
 
-fn widths(vdp: &SegaVdp, count: u8) -> Vec<u32> {
-    let ink = sms_argb(INK);
+fn widths(vdp: &SegaVdp, variant: VdpVariant, count: u8) -> Vec<u32> {
+    let ink = sms_argb_on(variant, INK);
     (0..count)
         .map(|i| {
             let start = u32::from(i) * 24;
@@ -266,7 +279,7 @@ fn the_315_5124_widens_only_the_first_n_minus_4_sprites_on_a_line() {
             .map(|i| if i < widened { 16 } else { 8 })
             .collect();
         assert_eq!(
-            widths(&vdp, count),
+            widths(&vdp, VdpVariant::Sms1, count),
             expected,
             "with {count} sprites on the line the 315-5124 should widen the first {widened}"
         );
@@ -281,7 +294,7 @@ fn the_315_5246_widens_every_sprite_on_the_line() {
         let mut vdp = magnified_row(VdpVariant::Sms2, count);
         render_frame(&mut vdp);
         assert_eq!(
-            widths(&vdp, count),
+            widths(&vdp, VdpVariant::Sms2, count),
             vec![16u32; count as usize],
             "the 315-5246 should widen all {count} sprites"
         );
@@ -297,7 +310,7 @@ fn the_315_5124_still_doubles_every_sprite_vertically() {
     let mut vdp = magnified_row(VdpVariant::Sms1, 8);
     render_frame(&mut vdp);
 
-    let ink = sms_argb(INK);
+    let ink = sms_argb_on(VdpVariant::Sms1, INK);
     for i in 0..8u32 {
         let x = i * 24;
         let height = (16..192).take_while(|&y| pixel(&vdp, y, x) == ink).count();

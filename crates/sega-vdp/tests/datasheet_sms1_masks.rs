@@ -73,12 +73,32 @@ fn pixel(vdp: &SegaVdp, line: u32, x: u32) -> u32 {
     vdp.framebuffer()[index as usize]
 }
 
-fn sms_argb(entry: u8) -> u32 {
-    let level = |c: u32| c * 85;
-    0xFF00_0000
-        | (level(u32::from(entry) & 3) << 16)
-        | (level((u32::from(entry) >> 2) & 3) << 8)
-        | level((u32::from(entry) >> 4) & 3)
+/// Read a rendered pixel back as the CRAM entry that produced it, through
+/// the chip's own output levels.
+///
+/// These tests are about which byte of VRAM a fetch landed on, not about
+/// colour, and the two chips do not share a palette — the 315-5124 never
+/// reaches full scale and its blue channel is non-linear, so an identical
+/// picture comes out in two sets of numbers. Comparing entries rather than
+/// colours keeps that out of tests that are not about it. See
+/// `VdpVariant::output_levels`.
+fn entry_of(variant: VdpVariant, argb: u32) -> u8 {
+    let (levels, blue) = match variant {
+        VdpVariant::Sms1 => ([0u32, 78, 160, 238], [0u32, 98, 160, 238]),
+        VdpVariant::Sms2 => ([0, 89, 174, 255], [0, 89, 174, 255]),
+    };
+    let find = |table: [u32; 4], value: u32| {
+        u8::try_from(
+            table
+                .iter()
+                .position(|&level| level == value)
+                .unwrap_or_else(|| panic!("{value} is not an output level of {variant:?}")),
+        )
+        .expect("index fits a byte")
+    };
+    find(levels, (argb >> 16) & 0xFF)
+        | (find(levels, (argb >> 8) & 0xFF) << 2)
+        | (find(blue, argb & 0xFF) << 4)
 }
 
 fn blank(variant: VdpVariant) -> SegaVdp {
@@ -96,8 +116,9 @@ fn blank(variant: VdpVariant) -> SegaVdp {
     vdp
 }
 
-/// Run the same scene on both chips and return what each drew at one pixel.
-fn both<F: Fn(&mut SegaVdp)>(line: u32, x: u32, build: F) -> (u32, u32) {
+/// Run the same scene on both chips and return the CRAM entry each drew at
+/// one pixel.
+fn both<F: Fn(&mut SegaVdp)>(line: u32, x: u32, build: F) -> (u8, u8) {
     let mut sms1 = blank(VdpVariant::Sms1);
     build(&mut sms1);
     render_frame(&mut sms1);
@@ -106,7 +127,10 @@ fn both<F: Fn(&mut SegaVdp)>(line: u32, x: u32, build: F) -> (u32, u32) {
     build(&mut sms2);
     render_frame(&mut sms2);
 
-    (pixel(&sms1, line, x), pixel(&sms2, line, x))
+    (
+        entry_of(VdpVariant::Sms1, pixel(&sms1, line, x)),
+        entry_of(VdpVariant::Sms2, pixel(&sms2, line, x)),
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -136,23 +160,17 @@ fn clearing_register_2_bit_0_mirrors_the_bottom_half_of_the_tilemap() {
 
     // Line 128 is row 16. With the mask bit set, both chips draw row 16.
     let (sms1, sms2) = both(128, 0, scene(0x0F));
-    assert_eq!(
-        sms1,
-        sms_argb(0x0C),
-        "mask bit set: the 315-5124 reads row 16"
-    );
-    assert_eq!(sms2, sms_argb(0x0C), "the 315-5246 reads row 16");
+    assert_eq!(sms1, 0x0C, "mask bit set: the 315-5124 reads row 16");
+    assert_eq!(sms2, 0x0C, "the 315-5246 reads row 16");
 
     // With it clear, only the 315-5124 folds row 16 onto row 0.
     let (sms1, sms2) = both(128, 0, scene(0x0E));
     assert_eq!(
-        sms1,
-        sms_argb(0x03),
+        sms1, 0x03,
         "mask bit clear: the 315-5124 mirrors row 0 into row 16"
     );
     assert_eq!(
-        sms2,
-        sms_argb(0x0C),
+        sms2, 0x0C,
         "the 315-5246 has no gate to close and still reads row 16"
     );
 }
@@ -185,22 +203,17 @@ fn register_3_masks_the_tile_index_for_the_low_bitplanes() {
     };
 
     let (sms1, sms2) = both(0, 0, scene(0xFF));
-    assert_eq!(
-        sms1,
-        sms_argb(15),
-        "unmasked, all four planes come from tile 2"
-    );
-    assert_eq!(sms2, sms_argb(15));
+    assert_eq!(sms1, 15, "unmasked, all four planes come from tile 2");
+    assert_eq!(sms2, 15);
 
     // R3 bit 0 gates tile-index bit 1, so clearing it sends the low bitplanes
     // to tile 0 while the high pair still reads tile 2.
     let (sms1, sms2) = both(0, 0, scene(0xFE));
     assert_eq!(
-        sms1,
-        sms_argb(0b1100),
+        sms1, 0b1100,
         "the 315-5124 takes planes 0-1 from tile 0 and planes 2-3 from tile 2"
     );
-    assert_eq!(sms2, sms_argb(15), "the 315-5246 masks nothing");
+    assert_eq!(sms2, 15, "the 315-5246 masks nothing");
 }
 
 /// R4's low three bits do the same job for bitplanes 2 and 3, but reach only
@@ -222,21 +235,16 @@ fn register_4_masks_the_tile_index_for_the_high_bitplanes() {
     };
 
     let (sms1, sms2) = both(0, 0, scene(0x07));
-    assert_eq!(
-        sms1,
-        sms_argb(15),
-        "unmasked, all four planes come from tile 64"
-    );
-    assert_eq!(sms2, sms_argb(15));
+    assert_eq!(sms1, 15, "unmasked, all four planes come from tile 64");
+    assert_eq!(sms2, 15);
 
     // R4 bit 0 gates tile-index bit 6.
     let (sms1, sms2) = both(0, 0, scene(0x06));
     assert_eq!(
-        sms1,
-        sms_argb(0b0011),
+        sms1, 0b0011,
         "the 315-5124 takes planes 2-3 from tile 0 and planes 0-1 from tile 64"
     );
-    assert_eq!(sms2, sms_argb(15), "the 315-5246 masks nothing");
+    assert_eq!(sms2, 15, "the 315-5246 masks nothing");
 }
 
 // ---------------------------------------------------------------------------
@@ -267,26 +275,20 @@ fn clearing_register_5_bit_0_folds_sprite_x_and_pattern_into_the_y_half() {
     };
 
     let (sms1, sms2) = both(8, 100, scene(0xFF));
-    assert_eq!(
-        sms1,
-        sms_argb(0x03),
-        "mask bit set: the sprite is at x = 100"
-    );
-    assert_eq!(sms2, sms_argb(0x03));
+    assert_eq!(sms1, 0x03, "mask bit set: the sprite is at x = 100");
+    assert_eq!(sms2, 0x03);
 
     let (sms1, sms2) = both(8, 100, scene(0xFE));
     assert_eq!(
-        sms1,
-        sms_argb(BACKDROP),
+        sms1, BACKDROP,
         "mask bit clear: the 315-5124 no longer finds a sprite at x = 100"
     );
-    assert_eq!(sms2, sms_argb(0x03), "the 315-5246 masks nothing");
+    assert_eq!(sms2, 0x03, "the 315-5246 masks nothing");
 
     // It moved to where the Y bytes said, rather than vanishing.
     let (sms1, _) = both(8, 7, scene(0xFE));
     assert_eq!(
-        sms1,
-        sms_argb(0x03),
+        sms1, 0x03,
         "the 315-5124 read x out of the Y half and put the sprite at 7"
     );
 }
@@ -316,16 +318,15 @@ fn clearing_register_6_low_bits_shrinks_the_sprite_tile_set() {
     };
 
     let (sms1, sms2) = both(8, 0, scene(0x03));
-    assert_eq!(sms1, sms_argb(0x03), "unmasked, the sprite uses tile 64");
-    assert_eq!(sms2, sms_argb(0x03));
+    assert_eq!(sms1, 0x03, "unmasked, the sprite uses tile 64");
+    assert_eq!(sms2, 0x03);
 
     let (sms1, sms2) = both(8, 0, scene(0x02));
     assert_eq!(
-        sms1,
-        sms_argb(0x0C),
+        sms1, 0x0C,
         "the 315-5124 folds tile 64 onto tile 0 with bit 0 clear"
     );
-    assert_eq!(sms2, sms_argb(0x03), "the 315-5246 masks nothing");
+    assert_eq!(sms2, 0x03, "the 315-5246 masks nothing");
 }
 
 /// The whole point of the mask bits is that they are invisible in ordinary
@@ -362,9 +363,19 @@ fn with_every_mask_bit_set_the_two_chips_agree() {
     scene(&mut sms2);
     render_frame(&mut sms2);
 
+    // Frame for frame, entry for entry. Not colour for colour: the two chips
+    // drive different output levels, so the same picture is two different
+    // sets of bytes and that difference belongs to the palette rather than
+    // to any gate.
+    let decode = |vdp: &SegaVdp, variant| {
+        vdp.framebuffer()
+            .iter()
+            .map(|&argb| entry_of(variant, argb))
+            .collect::<Vec<u8>>()
+    };
     assert_eq!(
-        sms1.framebuffer(),
-        sms2.framebuffer(),
+        decode(&sms1, VdpVariant::Sms1),
+        decode(&sms2, VdpVariant::Sms2),
         "with no gate closed the two chips must draw an identical frame"
     );
 }

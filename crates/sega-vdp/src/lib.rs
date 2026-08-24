@@ -172,6 +172,35 @@ pub enum VdpVariant {
     Sms2,
 }
 
+impl VdpVariant {
+    /// The eight-bit level each two-bit CRAM channel drives, red and green
+    /// first and blue second.
+    ///
+    /// Not `cc -> cccccccc`. Bit replication is a convention for turning two
+    /// bits into eight — correct by construction, and about nothing in
+    /// particular. These are what the chip's resistor ladder measurably put
+    /// on the RGB pins, from MAME's `315_5124.cpp`, which cites a die shot
+    /// for the blue channel and a thread of scope measurements for the rest.
+    ///
+    /// Three things fall out that an ideal expansion cannot express. The
+    /// 315-5124's blue is **non-linear** — its first step is 98 where red and
+    /// green take 78 — so blue is the odd channel out on that chip and not on
+    /// the later one. The 315-5124 never reaches full scale at all, topping
+    /// out at 238, so its white is dimmer than a 315-5246's. And the two
+    /// chips differ everywhere in between, which is why this hangs off the
+    /// variant rather than being one table.
+    ///
+    /// The Game Gear is not here. Its CRAM is twelve bits and MAME expands it
+    /// by nibble replication with `// TODO: linear? measure this` against it,
+    /// so there is no measurement to prefer and nothing to change.
+    const fn output_levels(self) -> ([u32; 4], [u32; 4]) {
+        match self {
+            Self::Sms1 => ([0, 78, 160, 238], [0, 98, 160, 238]),
+            Self::Sms2 => ([0, 89, 174, 255], [0, 89, 174, 255]),
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
@@ -467,11 +496,12 @@ impl SegaVdp {
             let b = (hi & 0x0F) * 17;
             0xFF00_0000 | (r << 16) | (g << 8) | b
         } else {
-            // 6-bit RGB: %00BBGGRR
-            let c = self.cram[index & 0x1F] as u32;
-            let r = (c & 0x03) * 85;
-            let g = ((c >> 2) & 0x03) * 85;
-            let b = ((c >> 4) & 0x03) * 85;
+            // 6-bit RGB: %00BBGGRR, through the chip's own output levels.
+            let (levels, blue_levels) = self.variant.output_levels();
+            let c = self.cram[index & 0x1F] as usize;
+            let r = levels[c & 0x03];
+            let g = levels[(c >> 2) & 0x03];
+            let b = blue_levels[(c >> 4) & 0x03];
             0xFF00_0000 | (r << 16) | (g << 8) | b
         }
     }
