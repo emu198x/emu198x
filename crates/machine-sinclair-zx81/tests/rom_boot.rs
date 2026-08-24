@@ -4,7 +4,7 @@ use std::env;
 use std::fs;
 use std::path::PathBuf;
 
-use machine_sinclair_zx81::{FB_HEIGHT, TEXT_TOP, TelevisionStandard, Zx81, Zx81Key};
+use machine_sinclair_zx81::{TelevisionStandard, Zx81, Zx81Key};
 
 fn rom_path() -> Option<PathBuf> {
     if let Ok(p) = env::var("EMU198X_ZX81_ROM") {
@@ -85,7 +85,7 @@ fn read_row(sys: &Zx81, row: usize) -> String {
     // Taken from the video module rather than written out: a literal here is
     // a second copy of its geometry and goes stale the moment that one moves,
     // which is #1116.
-    let top = machine_sinclair_zx81::TEXT_TOP as usize + row * 8;
+    let top = sys.text_top() as usize + row * 8;
 
     (0..32)
         .map(|col| {
@@ -376,8 +376,8 @@ fn the_field_is_303_drawn_lines() {
         "55 pad + 1 newline + 192 text + 55 pad is what the ROM draws"
     );
     assert_eq!(
-        TEXT_TOP,
-        (FB_HEIGHT - 192) / 2,
+        TelevisionStandard::FiftyHz.text_top(),
+        (TelevisionStandard::FiftyHz.framebuffer_height() - 192) / 2,
         "and the window keeps the text area centred in it"
     );
 }

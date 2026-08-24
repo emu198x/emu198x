@@ -30,6 +30,7 @@
 //! behaviour across, so a shared crate would be re-coupling exactly what that
 //! warning is about (#1033). Two machines is not enough to abstract over.
 
+use crate::TelevisionStandard;
 use serde::{Deserialize, Serialize};
 
 /// Framebuffer width: the 256-pixel display with 32 of border either side.
@@ -41,11 +42,35 @@ use serde::{Deserialize, Serialize};
 /// mechanism, not the extent.
 pub const FB_WIDTH: u32 = 320;
 
-/// A PAL set displays 288 lines, and that is the whole of this figure: it is
-/// the receiver's window. The ZX81's own field is 310 lines, so it is not a
-/// remainder of anything here — where the window sits is
-/// [`FIRST_VISIBLE_LINE`].
-pub const FB_HEIGHT: u32 = 288;
+/// Scan lines a set displays, which is the whole of this figure: it is the
+/// receiver's window, not a remainder of the machine's own 310-line field.
+/// Where the window sits is [`FIRST_VISIBLE_LINE`].
+///
+/// **It follows the board.** This was a plain `const` at 288 for every ZX81,
+/// so a 60 Hz machine painted into a PAL-sized buffer while its runtime
+/// declared a 240-line one — the shape
+/// `knowledge/decisions/the-framebuffer-is-the-sets-window.md` names as a
+/// drift trigger in as many words. That was #1119.
+///
+/// The geometry lives here rather than beside the enum because everything it
+/// is derived from — [`TEXT_LINES`], the pad — is here.
+impl TelevisionStandard {
+    /// Lines the region's set displays: a PAL field shows 288, an NTSC one 240.
+    #[must_use]
+    pub const fn framebuffer_height(self) -> u32 {
+        match self {
+            Self::FiftyHz => 288,
+            Self::SixtyHz => 240,
+        }
+    }
+
+    /// Framebuffer row the text area's first line lands on — the pad the
+    /// window keeps, which is what the region changes.
+    #[must_use]
+    pub const fn text_top(self) -> u32 {
+        (self.framebuffer_height() - TEXT_LINES) / 2
+    }
+}
 
 /// A ceiling on the frame, not its length.
 ///
@@ -111,39 +136,56 @@ const TEXT_LINES: u32 = 192;
 ///
 /// This was filed as an off-by-one against `MARGIN` (#1118) and is not one.
 ///
-/// ⚠ This is the 50 Hz figure and does not follow the board. A 60 Hz ZX81
-/// pads 31 lines, not 55, so its text starts 24 lines earlier — and
-/// [`FB_HEIGHT`] does not follow the board either. Both halves of that are
-/// #1119; the 50 Hz path, which is what the tests and goldens exercise, is
-/// unaffected.
-const FIRST_TEXT_LINE: u32 = 56;
-
-/// Where the set's window starts: centred on the text area.
+/// `MARGIN` (`$4028`): pad lines the ROM counts out before the text.
 ///
-/// The pad is what the ROM has instead of a video chip's blanking, and
-/// placing the text area is its entire purpose. `MARGIN` is 55 on a 50 Hz
-/// machine and 31 on a 60 Hz one — a difference of 24, exactly half the
-/// difference between the 288 lines a PAL set shows and the 240 an NTSC one
-/// does. Both pad to their own region's active area plus the same overscan
-/// allowance. So the window holds the text area with
-/// `(FB_HEIGHT - TEXT_LINES) / 2` of pad either side.
+/// The ROM reads the board strap on its keyboard scan and sets this from it.
+/// It is the primitive the vertical geometry is built on, because on a machine
+/// with no video chip the pad *is* the timing measured from sync.
+const fn margin(standard: TelevisionStandard) -> u32 {
+    match standard {
+        TelevisionStandard::FiftyHz => 55,
+        TelevisionStandard::SixtyHz => 31,
+    }
+}
+
+/// The frame line the text starts on: the pad, plus the one leading `NEWLINE`
+/// the ROM emits before the first text row.
+///
+/// A 60 Hz ZX81 pads 31 lines rather than 55, so its text starts 24 lines
+/// earlier. This was filed as an off-by-one against `MARGIN` (#1118) and is
+/// not one.
+const fn first_text_line(standard: TelevisionStandard) -> u32 {
+    margin(standard) + 1
+}
+
+/// Where the set's window starts, and it is the same line on both boards.
+///
+/// The pad is what the ROM has instead of a video chip's blanking, and placing
+/// the text area is its entire purpose. `MARGIN` is 55 on a 50 Hz machine and
+/// 31 on a 60 Hz one — a difference of 24, exactly half the difference between
+/// the 288 lines a PAL set shows and the 240 an NTSC one does. Each board pads
+/// to its own region's active area plus the same overscan allowance, so the
+/// window holds the text area with `(height - TEXT_LINES) / 2` either side.
+///
+/// Both terms of `FIRST_TEXT_LINE - text_top` therefore move together, by 24
+/// and by 12 either side, and the difference does not move at all: 56 - 48 on
+/// a 50 Hz board and 32 - 24 on a 60 Hz one. That invariance is the check that
+/// the pad really is placing the text in the *set's* window rather than
+/// happening to look right on one of them.
 ///
 /// This was `LINES_PER_FRAME - FB_HEIGHT`, which reads the whole vertical
-/// interval as following the sync pulse. That is roughly how a broadcast
-/// field is laid out, but the ZX81 emits 310 lines, not 312 — the real
-/// ROM's SLOW frame measures 64,163 T-states — so the subtraction was
-/// against a number this machine never produces. It sat the text area 16
-/// lines high. See #1116.
-const FIRST_VISIBLE_LINE: u32 = FIRST_TEXT_LINE - (FB_HEIGHT - TEXT_LINES) / 2;
+/// interval as following the sync pulse. That is roughly how a broadcast field
+/// is laid out, but the ZX81 emits 310 lines, not 312 — the real ROM's SLOW
+/// frame measures 64,163 T-states — so the subtraction was against a number
+/// this machine never produces. It sat the text area 16 lines high. See #1116.
+const FIRST_VISIBLE_LINE: u32 =
+    first_text_line(TelevisionStandard::FiftyHz) - TelevisionStandard::FiftyHz.text_top();
 
-/// Framebuffer row the text area's first line lands on.
-///
-/// The window is centred on the text area, so this is the pad it keeps. It
-/// is public because the geometry had been copied into five test files as a
-/// literal, every copy fitted to a framebuffer height that later changed and
-/// none of them updated — which is #1116. There is one derivation now, and
-/// callers ask for it.
-pub const TEXT_TOP: u32 = (FB_HEIGHT - TEXT_LINES) / 2;
+// The text area's top row is [`TelevisionStandard::text_top`]. It was a
+// `pub const` because the geometry had been copied into five test files as a
+// literal, every copy fitted to a framebuffer height that later changed and
+// none of them updated, which is #1116. It is a function now for the same
+// reason it had to stop being a literal: the height is not one number.
 
 /// How far into a line the first character is fetched, in T-states.
 ///
@@ -242,15 +284,16 @@ pub struct Zx81Video {
 
 impl Default for Zx81Video {
     fn default() -> Self {
-        Self::new()
+        Self::new(TelevisionStandard::default())
     }
 }
 
 impl Zx81Video {
+    /// A display sized for `standard`'s window.
     #[must_use]
-    pub fn new() -> Self {
+    pub fn new(standard: TelevisionStandard) -> Self {
         Self {
-            framebuffer: vec![PAPER; (FB_WIDTH * FB_HEIGHT) as usize],
+            framebuffer: vec![PAPER; (FB_WIDTH * standard.framebuffer_height()) as usize],
             tstate: 0,
             display_line: 0,
             frame_tstate: 0,
@@ -276,9 +319,28 @@ impl Zx81Video {
         FB_WIDTH
     }
 
+    /// Read back off the buffer rather than stated a second time, so the
+    /// height a caller sees is always the height that was allocated. Stating
+    /// it twice is how a 60 Hz board came to paint into a PAL-sized buffer
+    /// while declaring a 240-line one (#1119).
     #[must_use]
-    pub const fn framebuffer_height(&self) -> u32 {
-        FB_HEIGHT
+    pub fn framebuffer_height(&self) -> u32 {
+        u32::try_from(self.framebuffer.len()).unwrap_or(0) / FB_WIDTH
+    }
+
+    /// Framebuffer row the text area starts on: the pad the window keeps.
+    #[must_use]
+    pub fn text_top(&self) -> u32 {
+        (self.framebuffer_height() - TEXT_LINES) / 2
+    }
+
+    /// Restrap the board. The window is a different size on the other region,
+    /// so the buffer is reallocated rather than reinterpreted.
+    pub fn set_standard(&mut self, standard: TelevisionStandard) {
+        let wanted = (FB_WIDTH * standard.framebuffer_height()) as usize;
+        if self.framebuffer.len() != wanted {
+            self.framebuffer = vec![PAPER; wanted];
+        }
     }
 
     #[must_use]
@@ -488,7 +550,7 @@ impl Zx81Video {
         let Some(y) = self.display_line.checked_sub(FIRST_VISIBLE_LINE) else {
             return;
         };
-        if y >= FB_HEIGHT {
+        if y >= self.framebuffer_height() {
             return;
         }
         // Signed, because a character may legitimately begin *before*
@@ -531,7 +593,7 @@ mod tests {
 
     /// Record which address the ULA asks memory for, for one character.
     fn fetched_address(i: u8, r: u8, code: u8, count: u8) -> u16 {
-        let mut video = Zx81Video::new();
+        let mut video = Zx81Video::new(TelevisionStandard::default());
         video.line_counter = count;
         // An M1 fetch from the display file latches the code.
         assert_eq!(video.opcode_fetch(0x8000 | 0x4000, code), Some(0x00));
@@ -554,7 +616,7 @@ mod tests {
         const FETCH_T: u32 = 120;
         const CODE: u8 = 0x01;
 
-        let mut video = Zx81Video::new();
+        let mut video = Zx81Video::new(TelevisionStandard::default());
         video.set_nmi_enabled(nmi_generator);
         let mut rows = Vec::new();
 
@@ -648,7 +710,7 @@ mod tests {
     /// ends a field, or pinning the row counter would end the frame instead.
     #[test]
     fn a_field_sync_is_still_told_apart_from_a_line_one() {
-        let mut video = Zx81Video::new();
+        let mut video = Zx81Video::new(TelevisionStandard::default());
         video.set_nmi_enabled(false);
         while video.frame_tstate <= MIN_FRAME_T {
             video.tick();
@@ -712,17 +774,52 @@ mod tests {
     /// hand-written `FIRST_VISIBLE_LINE` cannot satisfy both by accident.
     #[test]
     fn the_window_is_centred_on_the_text_area() {
+        for standard in [TelevisionStandard::FiftyHz, TelevisionStandard::SixtyHz] {
+            assert_eq!(
+                standard.text_top() * 2 + TEXT_LINES,
+                standard.framebuffer_height(),
+                "{standard:?}: the pads the window keeps should be equal, and \
+                 with the text area should fill it"
+            );
+            assert_eq!(
+                FIRST_VISIBLE_LINE + standard.text_top(),
+                first_text_line(standard),
+                "{standard:?}: the frame line the window opens on, plus the \
+                 rows of pad it keeps, is where the ROM starts the text. \
+                 FIRST_VISIBLE_LINE is derived from the 50 Hz pair, so this \
+                 failing for 60 Hz means the invariance it relies on is gone"
+            );
+        }
+    }
+
+    /// The pads are the ROM's `MARGIN`, and they are what makes the same
+    /// `FIRST_VISIBLE_LINE` right on both boards.
+    ///
+    /// 55 lines at 50 Hz against 31 at 60 is a difference of 24, which is
+    /// exactly half the difference between the 288 lines a PAL set shows and
+    /// the 240 an NTSC one does. Each board pads to its own region's window,
+    /// so the window opens on the same line either way. If a region's height
+    /// is ever wrong, this is what stops it looking plausible.
+    #[test]
+    fn each_board_pads_to_its_own_regions_window() {
         assert_eq!(
-            TEXT_TOP * 2 + TEXT_LINES,
-            FB_HEIGHT,
-            "the pads the window keeps should be equal, and with the text \
-             area should fill it"
+            first_text_line(TelevisionStandard::FiftyHz),
+            56,
+            "MARGIN 55, plus the leading NEWLINE"
         );
         assert_eq!(
-            FIRST_VISIBLE_LINE + TEXT_TOP,
-            FIRST_TEXT_LINE,
-            "the frame line the window opens on, plus the rows of pad it \
-             keeps, is where the ROM starts the text -- the old 24 gave 72"
+            first_text_line(TelevisionStandard::SixtyHz),
+            32,
+            "MARGIN 31, plus the leading NEWLINE"
+        );
+        assert_eq!(
+            first_text_line(TelevisionStandard::FiftyHz)
+                - first_text_line(TelevisionStandard::SixtyHz),
+            (TelevisionStandard::FiftyHz.framebuffer_height()
+                - TelevisionStandard::SixtyHz.framebuffer_height())
+                / 2,
+            "the pads differ by half what the windows do, which is why the \
+             window opens on the same line on both boards"
         );
     }
 
@@ -733,12 +830,15 @@ mod tests {
     /// nothing about this machine\'s geometry is 24.
     #[test]
     fn the_free_run_ceiling_is_not_the_placement() {
-        assert_ne!(
-            FIRST_VISIBLE_LINE,
-            LINES_PER_FRAME - FB_HEIGHT,
-            "312 is a ceiling for firmware that never syncs; the ROM emits \
-             310 and pads {FIRST_TEXT_LINE} lines. See #1116."
-        );
+        for standard in [TelevisionStandard::FiftyHz, TelevisionStandard::SixtyHz] {
+            assert_ne!(
+                FIRST_VISIBLE_LINE,
+                LINES_PER_FRAME - standard.framebuffer_height(),
+                "{standard:?}: 312 is a ceiling for firmware that never syncs; \
+                 the ROM emits 310 and pads {} lines. See #1116.",
+                first_text_line(standard)
+            );
+        }
     }
 
     /// WRX: with `I` outside the ROM the pattern address is the plain `I:R`.
