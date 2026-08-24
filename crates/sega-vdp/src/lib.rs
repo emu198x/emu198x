@@ -355,6 +355,16 @@ impl SegaVdp {
         self.is_game_gear
     }
 
+    /// Which revision of the chip this is.
+    ///
+    /// The two differ in the mask bits documented on [`is_sms1`](Self::is_sms1)
+    /// and in how sprite magnification behaves, so a host that builds one from
+    /// a machine profile wants to be able to check it got the one it asked for.
+    #[must_use]
+    pub const fn variant(&self) -> VdpVariant {
+        self.variant
+    }
+
     fn cram_to_argb(&self, index: usize) -> u32 {
         if self.is_game_gear {
             // 12-bit RGB: low byte = xxxxGGGGRRRR, high byte = xxxxBBBB

@@ -102,10 +102,14 @@ const PAL_PSG_CLOCK_HZ: u32 = 3_546_893;
 /// SMS / Game Gear system variant.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SmsVariant {
-    /// Sega Master System (NTSC — Japan / US / Brazil).
+    /// Sega Master System (NTSC — Japan / US / Brazil), 315-5246 VDP.
     SmsNtsc,
-    /// Sega Master System (PAL — Europe).
+    /// Sega Master System (PAL — Europe), 315-5246 VDP.
     SmsPal,
+    /// Early Sega Master System (NTSC) with the 315-5124 VDP.
+    Sms1Ntsc,
+    /// Early Sega Master System (PAL) with the 315-5124 VDP.
+    Sms1Pal,
     /// Sega Game Gear (NTSC).
     GameGear,
 }
@@ -113,20 +117,41 @@ pub enum SmsVariant {
 impl SmsVariant {
     fn psg_clock_hz(self) -> u32 {
         match self {
-            Self::SmsPal => PAL_PSG_CLOCK_HZ,
+            Self::SmsPal | Self::Sms1Pal => PAL_PSG_CLOCK_HZ,
             _ => NTSC_PSG_CLOCK_HZ,
         }
     }
 
     fn tstates_per_frame(self) -> u64 {
         match self {
-            Self::SmsPal => PAL_TSTATES_PER_FRAME,
+            Self::SmsPal | Self::Sms1Pal => PAL_TSTATES_PER_FRAME,
             _ => NTSC_TSTATES_PER_FRAME,
         }
     }
 
     fn is_game_gear(self) -> bool {
         matches!(self, Self::GameGear)
+    }
+
+    /// Which revision of the VDP this machine carries.
+    ///
+    /// The 315-5124 shipped in the early Master System and the 315-5246 in
+    /// the Master System II and the Game Gear. The difference is a handful of
+    /// register bits the earlier chip ANDs with the VRAM address bus, plus a
+    /// sprite-magnification quirk — see `sega-vdp`.
+    fn vdp_variant(self) -> VdpVariant {
+        match self {
+            Self::Sms1Ntsc | Self::Sms1Pal => VdpVariant::Sms1,
+            _ => VdpVariant::Sms2,
+        }
+    }
+
+    /// The television standard this machine's VDP scans.
+    fn region(self) -> VdpRegion {
+        match self {
+            Self::SmsPal | Self::Sms1Pal => VdpRegion::Pal,
+            _ => VdpRegion::Ntsc,
+        }
     }
 }
 
@@ -175,11 +200,7 @@ impl Sms {
         let vdp = if variant.is_game_gear() {
             SegaVdp::new_game_gear()
         } else {
-            let region = match variant {
-                SmsVariant::SmsPal => VdpRegion::Pal,
-                _ => VdpRegion::Ntsc,
-            };
-            SegaVdp::new(region, VdpVariant::Sms2)
+            SegaVdp::new(variant.region(), variant.vdp_variant())
         };
         Self {
             cpu: Z80::new(),

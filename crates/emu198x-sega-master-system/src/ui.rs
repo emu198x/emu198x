@@ -42,7 +42,8 @@ Usage: emu198x-sega-master-system [OPTIONS]
 
 Options:
     --cart PATH     cartridge ROM (required)
-    --variant KIND  sms-ntsc | sms-pal [default: sms-ntsc]
+    --variant KIND  sms-ntsc | sms-pal | sms1-ntsc | sms1-pal [default: sms-ntsc]
+                    sms1 selects the early 315-5124 VDP
     --scale N       integer window scale, default 3
     --video MODE    raw | lcd | crt [default: raw]
     --help, -h      show this help
@@ -65,6 +66,8 @@ Examples:
 enum Variant {
     SmsNtsc,
     SmsPal,
+    Sms1Ntsc,
+    Sms1Pal,
 }
 
 impl Variant {
@@ -72,20 +75,22 @@ impl Variant {
         match self {
             Self::SmsNtsc => Model::SmsNtsc,
             Self::SmsPal => Model::SmsPal,
+            Self::Sms1Ntsc => Model::Sms1Ntsc,
+            Self::Sms1Pal => Model::Sms1Pal,
         }
     }
 
     fn frame_ticks(self) -> u64 {
         match self {
-            Self::SmsPal => FRAME_TICKS_PAL,
-            Self::SmsNtsc => FRAME_TICKS_NTSC,
+            Self::SmsPal | Self::Sms1Pal => FRAME_TICKS_PAL,
+            Self::SmsNtsc | Self::Sms1Ntsc => FRAME_TICKS_NTSC,
         }
     }
 
     fn frame_hz(self) -> f64 {
         match self {
-            Self::SmsPal => PAL_FRAME_HZ,
-            Self::SmsNtsc => NTSC_FRAME_HZ,
+            Self::SmsPal | Self::Sms1Pal => PAL_FRAME_HZ,
+            Self::SmsNtsc | Self::Sms1Ntsc => NTSC_FRAME_HZ,
         }
     }
 }
@@ -214,7 +219,11 @@ where
                 cli.variant = match next_arg(&mut iter, "--variant").as_str() {
                     "sms-ntsc" | "sms" => Variant::SmsNtsc,
                     "sms-pal" => Variant::SmsPal,
-                    other => die(&format!("--variant expects sms-ntsc|sms-pal, got {other}")),
+                    "sms1-ntsc" | "sms1" => Variant::Sms1Ntsc,
+                    "sms1-pal" => Variant::Sms1Pal,
+                    other => die(&format!(
+                        "--variant expects sms-ntsc|sms-pal|sms1-ntsc|sms1-pal, got {other}"
+                    )),
                 };
             }
             "--scale" => {
