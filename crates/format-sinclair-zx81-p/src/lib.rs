@@ -1,4 +1,16 @@
-//! `.p` / `.p81` tape images for the Sinclair ZX81.
+//! `.p` / `.p81` / `.81` tape images for the Sinclair ZX81.
+//!
+//! # One format, three extensions
+//!
+//! They are the same bytes. `.81` in particular is not a separate container
+//! and needs no separate parser: measured across the eight `.81` images in the
+//! local TOSEC set, every one parses as a plain memory image with an `E_LINE`
+//! that lands inside it and a required RAM size of exactly its length plus the
+//! nine bytes below `$4009`.
+//!
+//! Nothing in the runtime dispatches on the extension either — the tape slot
+//! takes bytes and they arrive here — so support for the whole family is a
+//! statement about this parser rather than about any routing.
 //!
 //! # The container is a memory image
 //!
