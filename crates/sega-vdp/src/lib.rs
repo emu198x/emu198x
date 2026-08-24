@@ -200,6 +200,10 @@ pub struct SegaVdp {
     h_counter: u8,
     line_counter: u8,
     line_irq_pending: bool,
+    /// R9 as it stood when the active display began. The chip samples the
+    /// vertical scroll once a frame, so this is the value the whole frame
+    /// renders with, whatever a game writes to R9 part-way down it.
+    vscroll: u8,
 
     // Rendering
     scanline: u16,
@@ -251,6 +255,7 @@ impl SegaVdp {
             h_counter: 0,
             line_counter: 0,
             line_irq_pending: false,
+            vscroll: 0,
             scanline: 0,
             dot: 0,
             region,
@@ -477,6 +482,18 @@ impl SegaVdp {
         self.framebuffer.fill(backdrop);
     }
 
+    /// Sample R9 for the frame about to be scanned.
+    ///
+    /// The vertical scroll is latched once, as the active display starts, so
+    /// a write part-way down a frame lands on the *next* one. This is why the
+    /// Master System has no vertical raster-scroll trick — a split has to be
+    /// built from R8 and the line counter instead. Genesis Plus GX does the
+    /// same, latching `vscroll` from `reg[9]` on the line before the active
+    /// display and reading it unchanged for every line after.
+    fn latch_frame_registers(&mut self) {
+        self.vscroll = self.regs[9];
+    }
+
     /// Tick one dot (pixel clock, ~5.37 MHz). Renders the active pixel scanned
     /// out at this dot, and processes the per-line events (line/frame interrupt,
     /// V counter) at line end. Returns true at frame end.
@@ -489,6 +506,7 @@ impl SegaVdp {
     pub fn tick(&mut self) -> bool {
         if self.scanline == 0 && self.dot == 0 {
             self.fill_border();
+            self.latch_frame_registers();
         }
         if self.scanline < 192 && self.dot == 0 {
             self.prepare_line_sprites(self.scanline as usize);
@@ -509,6 +527,7 @@ impl SegaVdp {
     pub fn tick_scanline(&mut self) -> bool {
         if self.scanline == 0 {
             self.fill_border();
+            self.latch_frame_registers();
         }
         if self.scanline < 192 {
             self.render_scanline(self.scanline);
@@ -667,7 +686,7 @@ impl SegaVdp {
         let scroll_y = if vscroll_lock && pixel_x >= 192 {
             0
         } else {
-            self.regs[9] as usize
+            self.vscroll as usize
         };
 
         let effective_line = (line + scroll_y) % 224; // Name table wraps at 224 (28 rows)
@@ -819,8 +838,8 @@ impl SegaVdp {
     /// Layout: regs (11) + status (1) + read_buffer (1) + address (2) +
     /// code (1) + latch_first (1) + latch_value (1) + cram_latch (1) +
     /// v_counter (2) + h_counter (1) + line_counter (1) + line_irq_pending (1) +
-    /// scanline (2) + interrupt (1) + frame_count (8) +
-    /// vram (16384) + cram (64) = 16483 bytes.
+    /// vscroll (1) + scanline (2) + interrupt (1) + frame_count (8) +
+    /// vram (16384) + cram (64) = 16484 bytes.
     pub fn save_state(&self, out: &mut Vec<u8>) {
         out.extend_from_slice(&self.regs);
         out.push(self.status);
@@ -834,6 +853,7 @@ impl SegaVdp {
         out.push(self.h_counter);
         out.push(self.line_counter);
         out.push(u8::from(self.line_irq_pending));
+        out.push(self.vscroll);
         out.extend_from_slice(&self.scanline.to_le_bytes());
         out.push(u8::from(self.interrupt));
         out.extend_from_slice(&self.frame_count.to_le_bytes());
@@ -843,7 +863,7 @@ impl SegaVdp {
 
     /// Restore VDP state from a byte slice. Returns bytes consumed or error.
     pub fn load_state(&mut self, data: &[u8]) -> Result<usize, String> {
-        let needed = 11 + 1 + 1 + 2 + 1 + 1 + 1 + 1 + 2 + 1 + 1 + 1 + 2 + 1 + 8 + 16384 + 64;
+        let needed = 11 + 1 + 1 + 2 + 1 + 1 + 1 + 1 + 2 + 1 + 1 + 1 + 1 + 2 + 1 + 8 + 16384 + 64;
         if data.len() < needed {
             return Err("SegaVdp state truncated".into());
         }
@@ -871,6 +891,8 @@ impl SegaVdp {
         self.line_counter = data[p];
         p += 1;
         self.line_irq_pending = data[p] != 0;
+        p += 1;
+        self.vscroll = data[p];
         p += 1;
         self.scanline = u16::from_le_bytes([data[p], data[p + 1]]);
         p += 2;
