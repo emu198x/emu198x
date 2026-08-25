@@ -323,8 +323,11 @@ impl Sms {
             // execution — Mode-4 raster splits depend on this.
             self.vdp_phase += VDP_DOT_PHASE_NUMERATOR;
             while self.vdp_phase >= VDP_DOT_PHASE_DENOMINATOR {
+                // Where the beam is *about* to draw, taken before the dot is
+                // drawn so the pixel read afterwards is the one it just lit.
+                let beam = self.vdp.beam_framebuffer_position();
                 self.vdp.tick();
-                self.tick_light_phasers();
+                self.tick_light_phasers(beam);
                 self.vdp_phase -= VDP_DOT_PHASE_DENOMINATOR;
             }
         }
@@ -462,32 +465,24 @@ impl Sms {
     ///
     /// Costs nothing with no gun plugged in, which is the ordinary case: every
     /// aim is `None` and this returns immediately.
-    fn tick_light_phasers(&mut self) {
+    fn tick_light_phasers(&mut self, beam: Option<(u32, u32)>) {
         if self.phasers.iter().all(|phaser| phaser.aim.is_none()) {
             return;
         }
-        // The VDP has drawn this dot and moved on, so the pixel the beam just
-        // lit is the one behind it. On the dot after a line wraps that is the
-        // last dot of the previous line, which is outside the active area
-        // whichever line it belongs to — so the line number does not matter
-        // there, and neither case can be lit.
-        let line = u32::from(self.vdp.scanline());
-        let x = match self.vdp.dot() {
-            0 => u32::from(sega_vdp::DOTS_PER_LINE - 1),
-            dot => u32::from(dot - 1),
-        };
-        let lit = self
-            .vdp
-            .active_pixel(line, x)
+        // Off the displayed screen — sync, blanking, the parts of the border a
+        // set crops — there is nothing for a diode to see, but a latch already
+        // scheduled still has to run down.
+        let lit = beam
+            .and_then(|(x, y)| self.vdp.framebuffer_pixel(x, y))
             .is_some_and(|argb| luma(argb) >= PHASER_MIN_BRIGHTNESS);
 
         for index in 0..self.phasers.len() {
-            self.tick_phaser(index, line, x, lit);
+            self.tick_phaser(index, beam, lit);
         }
     }
 
     /// One gun, one dot.
-    fn tick_phaser(&mut self, index: usize, line: u32, x: u32, lit: bool) {
+    fn tick_phaser(&mut self, index: usize, beam: Option<(u32, u32)>, lit: bool) {
         // A latch already scheduled runs down whatever the sensor does next.
         // The countdown is set on the dot TH rose and stepped on each dot
         // after it, so firing when the *decrement* reaches zero puts the latch
@@ -506,9 +501,11 @@ impl Sms {
         let Some((aim_x, aim_y)) = self.phasers[index].aim else {
             return;
         };
-        let dy = (line as i32 - i32::from(aim_y)).abs();
-        let in_view = dy < AIM_HALF_WIDTH.len() as i32
-            && (x as i32 - i32::from(aim_x)).abs() <= AIM_HALF_WIDTH[dy as usize];
+        let in_view = beam.is_some_and(|(x, y)| {
+            let dy = (y as i32 - i32::from(aim_y)).abs();
+            dy < AIM_HALF_WIDTH.len() as i32
+                && (x as i32 - i32::from(aim_x)).abs() <= AIM_HALF_WIDTH[dy as usize]
+        });
 
         // Once the diode is conducting it stays on until the beam leaves its
         // field of view, whatever the picture does in between — MAME keeps
@@ -529,33 +526,13 @@ impl Sms {
         }
     }
 
-    /// The active-display pixel a framebuffer position falls on, or `None`
-    /// when it falls outside the picture.
-    ///
-    /// A host aims a light gun at somewhere on the screen it is showing, which
-    /// includes the border; the sensor reads the *picture*, which does not. So
-    /// the border maps to `None` and the gun sees nothing there — as it would
-    /// on a set showing an overscan colour the game never drew into.
-    ///
-    /// Always `None` on a Game Gear. Its framebuffer is the LCD panel rather
-    /// than a television window, and no light gun was made for it.
-    #[must_use]
-    pub fn active_position(&self, fb_x: u32, fb_y: u32) -> Option<(u16, u16)> {
-        if self.variant.is_game_gear() {
-            return None;
-        }
-        let region = self.variant.region();
-        let height = self.vdp.active_height();
-        let x = fb_x.checked_sub(region.border_left())?;
-        let y = fb_y.checked_sub(region.border_top(height))?;
-        if x >= sega_vdp::ACTIVE_WIDTH || y >= height {
-            return None;
-        }
-        Some((x as u16, y as u16))
-    }
-
-    /// Point a Light Phaser at a spot on the active display, or unplug it with
+    /// Point a Light Phaser at a spot on the framebuffer, or unplug it with
     /// `None`.
+    ///
+    /// Framebuffer rather than picture coordinates because the sensor reads
+    /// the *screen*, border included: a gun aimed near the edge of the picture
+    /// has part of its field of view in the border, and one aimed squarely at
+    /// a bright border can be tripped by it.
     pub fn set_light_phaser_aim(&mut self, port: u8, aim: Option<(u16, u16)>) {
         if let Some(phaser) = self.phaser_mut(port) {
             if aim.is_none() {
@@ -1073,6 +1050,14 @@ mod tests {
         sys
     }
 
+    /// Aim at a spot on the *picture*, which is where these tests draw.
+    ///
+    /// The machine takes framebuffer coordinates, so the picture sits an
+    /// NTSC border in from the top-left: 12 pixels across, 25 down.
+    fn phaser_aim(sys: &mut Sms, port: u8, x: u16, y: u16) {
+        sys.set_light_phaser_aim(port, Some((x + 12, y + 25)));
+    }
+
     /// Read the latched horizontal position the way a game does.
     ///
     /// Only H is latched. The V counter is live — MAME computes it from the
@@ -1096,7 +1081,7 @@ mod tests {
     #[test]
     fn the_gun_answers_a_lit_screen_and_ignores_a_dark_one() {
         let mut lit = phaser_screen_of(0x3F);
-        lit.set_light_phaser_aim(1, Some((128, 96)));
+        phaser_aim(&mut lit, 1, 128, 96);
         phaser_run_frames(&mut lit, 2);
         assert_ne!(
             phaser_latched(&mut lit),
@@ -1105,7 +1090,7 @@ mod tests {
         );
 
         let mut dark = phaser_screen_of(0x00);
-        dark.set_light_phaser_aim(1, Some((128, 96)));
+        phaser_aim(&mut dark, 1, 128, 96);
         phaser_run_frames(&mut dark, 2);
         assert_eq!(
             phaser_latched(&mut dark),
@@ -1154,7 +1139,7 @@ mod tests {
     fn the_gun_answers_only_where_the_picture_is_lit() {
         for (aim_y, answers) in [(20u16, false), (40, true), (80, false)] {
             let mut sys = phaser_banded_screen();
-            sys.set_light_phaser_aim(1, Some((128, aim_y)));
+            phaser_aim(&mut sys, 1, 128, aim_y);
             phaser_run_frames(&mut sys, 2);
             assert_eq!(
                 phaser_latched(&mut sys) != 0,
@@ -1171,7 +1156,7 @@ mod tests {
     fn the_field_of_view_reaches_a_few_lines_past_the_aim() {
         for (aim_y, answers) in [(27u16, true), (24, false)] {
             let mut sys = phaser_banded_screen();
-            sys.set_light_phaser_aim(1, Some((128, aim_y)));
+            phaser_aim(&mut sys, 1, 128, aim_y);
             phaser_run_frames(&mut sys, 2);
             assert_eq!(
                 phaser_latched(&mut sys) != 0,
@@ -1189,7 +1174,7 @@ mod tests {
     fn the_latched_column_tracks_the_column_aimed_at() {
         let read = |aim_x: u16| {
             let mut sys = phaser_screen_of(0x3F);
-            sys.set_light_phaser_aim(1, Some((aim_x, 96)));
+            phaser_aim(&mut sys, 1, aim_x, 96);
             phaser_run_frames(&mut sys, 2);
             u32::from(phaser_latched(&mut sys))
         };
@@ -1226,7 +1211,7 @@ mod tests {
     fn the_latch_takes_the_trailing_edge_plus_the_delay() {
         for aim_x in [64u16, 128, 192] {
             let mut sys = phaser_banded_screen();
-            sys.set_light_phaser_aim(1, Some((aim_x, 44)));
+            phaser_aim(&mut sys, 1, aim_x, 44);
             phaser_run_frames(&mut sys, 2);
 
             let aim = i32::from(aim_x);
@@ -1280,7 +1265,7 @@ mod tests {
         // Tile column 16 lights pixels 128 through 135.
         for (aim_x, answers) in [(140u16, true), (145, false), (123, true), (118, false)] {
             let mut sys = phaser_striped_screen(16);
-            sys.set_light_phaser_aim(1, Some((aim_x, 96)));
+            phaser_aim(&mut sys, 1, aim_x, 96);
             phaser_run_frames(&mut sys, 2);
             assert_eq!(
                 phaser_latched(&mut sys) != 0,
@@ -1332,7 +1317,7 @@ mod tests {
         // five pixels right of its right edge, and differs only in height.
         for (aim_y, answers) in [(36u16, true), (28, true), (27, false)] {
             let mut sys = phaser_block_screen();
-            sys.set_light_phaser_aim(1, Some((140, aim_y)));
+            phaser_aim(&mut sys, 1, 140, aim_y);
             phaser_run_frames(&mut sys, 2);
             assert_eq!(
                 phaser_latched(&mut sys) != 0,
@@ -1349,7 +1334,7 @@ mod tests {
     #[test]
     fn the_diode_stays_on_until_the_beam_leaves_its_view() {
         let mut sys = phaser_block_screen();
-        sys.set_light_phaser_aim(1, Some((132, 36)));
+        phaser_aim(&mut sys, 1, 132, 36);
         phaser_run_frames(&mut sys, 2);
 
         let delay = i32::from(PHASER_LATCH_DELAY);
@@ -1385,7 +1370,7 @@ mod tests {
             (0x00, "black", false),
         ] {
             let mut sys = phaser_screen_of(colour);
-            sys.set_light_phaser_aim(1, Some((128, 96)));
+            phaser_aim(&mut sys, 1, 128, 96);
             phaser_run_frames(&mut sys, 2);
             assert_eq!(
                 phaser_latched(&mut sys) != 0,
@@ -1394,6 +1379,74 @@ mod tests {
                 if answers { "trip" } else { "not trip" }
             );
         }
+    }
+
+    /// The sensor reads the screen, and the screen includes the border. A gun
+    /// aimed squarely at a bright backdrop is tripped by it, on a screen whose
+    /// picture is entirely dark.
+    ///
+    /// This is what a light gun is looking at, rather than what the game
+    /// thinks it drew, and it is why the aim is in framebuffer coordinates.
+    #[test]
+    fn a_bright_border_trips_the_gun() {
+        let mut sys = phaser_screen_of(0x00); // black picture
+        phaser_write_register(&mut sys, 7, 0x00);
+        phaser_poke_cram(&mut sys, 16, 0x3F); // white backdrop
+        // Framebuffer (4, 120): four pixels in from the left edge, so well
+        // inside the twelve-pixel border.
+        sys.set_light_phaser_aim(1, Some((4, 120)));
+        phaser_run_frames(&mut sys, 2);
+        assert_ne!(
+            phaser_latched(&mut sys),
+            0,
+            "a white border is light the diode can see"
+        );
+
+        let mut dark = phaser_screen_of(0x00);
+        phaser_write_register(&mut dark, 7, 0x00);
+        phaser_poke_cram(&mut dark, 16, 0x00); // black backdrop
+        dark.set_light_phaser_aim(1, Some((4, 120)));
+        phaser_run_frames(&mut dark, 2);
+        assert_eq!(phaser_latched(&mut dark), 0, "a dark one is not");
+    }
+
+    /// A gun aimed at the edge of the picture has part of its field of view in
+    /// the border, and sees what is there. With a dark picture and a bright
+    /// backdrop it is the border alone that answers.
+    #[test]
+    fn a_gun_at_the_edge_of_the_picture_sees_into_the_border() {
+        let mut sys = phaser_screen_of(0x00);
+        phaser_write_register(&mut sys, 7, 0x00);
+        phaser_poke_cram(&mut sys, 16, 0x3F); // white backdrop
+        // Picture column 2 — three pixels of the six-wide view fall in the
+        // border to its left.
+        phaser_aim(&mut sys, 1, 2, 100);
+        phaser_run_frames(&mut sys, 2);
+        assert_ne!(
+            phaser_latched(&mut sys),
+            0,
+            "the part of the view over the border is still part of it"
+        );
+
+        // Well inside the picture, the same dark screen gives nothing.
+        let mut inside = phaser_screen_of(0x00);
+        phaser_write_register(&mut inside, 7, 0x00);
+        phaser_poke_cram(&mut inside, 16, 0x3F);
+        phaser_aim(&mut inside, 1, 128, 100);
+        phaser_run_frames(&mut inside, 2);
+        assert_eq!(phaser_latched(&mut inside), 0);
+    }
+
+    /// Sync and blanking are not screen. The beam passes through them on every
+    /// line, and a gun cannot be tripped there however bright the picture.
+    #[test]
+    fn the_gun_sees_nothing_during_blanking() {
+        let mut sys = phaser_screen_of(0x3F);
+        // Framebuffer positions stop at 280 across on NTSC; anything past that
+        // is a place the beam goes but the screen does not show.
+        sys.set_light_phaser_aim(1, Some((300, 120)));
+        phaser_run_frames(&mut sys, 2);
+        assert_eq!(phaser_latched(&mut sys), 0);
     }
 
     /// Nothing is latched with no gun plugged in, however bright the screen.
@@ -1409,7 +1462,7 @@ mod tests {
     #[test]
     fn unplugging_the_gun_stops_it_answering() {
         let mut sys = phaser_screen_of(0x3F);
-        sys.set_light_phaser_aim(1, Some((128, 96)));
+        phaser_aim(&mut sys, 1, 128, 96);
         phaser_run_frames(&mut sys, 2);
         assert_ne!(phaser_latched(&mut sys), 0);
 
@@ -1429,7 +1482,7 @@ mod tests {
     fn the_trigger_reads_back_on_the_ports_tl_bit() {
         for (port, io_port, bit) in [(1u8, 0xDCu16, 4u8), (2, 0xDD, 2)] {
             let mut sys = phaser_screen_of(0x3F);
-            sys.set_light_phaser_aim(port, Some((128, 96)));
+            phaser_aim(&mut sys, port, 128, 96);
             assert_eq!(
                 sys.io_read(io_port) & (1 << bit),
                 1 << bit,
@@ -1461,7 +1514,7 @@ mod tests {
     #[test]
     fn each_port_has_its_own_gun() {
         let mut sys = phaser_screen_of(0x3F);
-        sys.set_light_phaser_aim(2, Some((128, 96)));
+        phaser_aim(&mut sys, 2, 128, 96);
         sys.set_light_phaser_trigger(2, true);
         phaser_run_frames(&mut sys, 2);
 

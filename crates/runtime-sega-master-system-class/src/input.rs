@@ -68,9 +68,7 @@ pub(crate) fn apply_input_event(
         // `None` for anywhere the sensor cannot see.
         InputEvent::Aim { port, at } => {
             let (width, height) = (machine.framebuffer_width(), machine.framebuffer_height());
-            let aim = at
-                .map(|at| aim_to_pixels(at, width, height))
-                .and_then(|(x, y)| machine.active_position(u32::from(x), u32::from(y)));
+            let aim = at.map(|at| aim_to_pixels(at, width, height));
             machine.set_light_phaser_aim(*port, aim);
         }
         InputEvent::Key { name, pressed } => match name.to_ascii_lowercase().as_str() {
@@ -133,42 +131,21 @@ mod tests {
         apply_input_event(machine, cache, &event);
     }
 
-    /// A host aims at somewhere on the screen it is showing, borders and all;
-    /// the gun reads the picture. The corners of the picture have to survive
-    /// that conversion exactly, because an off-by-one at the edge is an aim
-    /// the game can never reach.
+    /// A host aims at somewhere on the screen it is showing, borders and all,
+    /// and the gun is pointed exactly there. Every corner of the window has to
+    /// survive the conversion, because an off-by-one at the edge is an aim the
+    /// player can never reach.
     #[test]
-    fn an_aim_lands_on_the_picture_pixel_under_the_pointer() {
-        // NTSC: a 280x240 window with 12 pixels of border each side and 25
-        // above, around a 256x192 picture.
-        for (fb_x, fb_y, expected) in [
-            (12, 25, Some((0, 0))),
-            (140, 121, Some((128, 96))),
-            (267, 216, Some((255, 191))),
-        ] {
+    fn an_aim_lands_on_the_screen_pixel_under_the_pointer() {
+        // NTSC shows a 280x240 window.
+        for (fb_x, fb_y) in [(0, 0), (12, 25), (140, 121), (267, 216), (279, 239)] {
             let mut machine = machine();
             let mut cache = ControllerCache::default();
             aim_at(&mut machine, &mut cache, fb_x, fb_y);
             assert_eq!(
                 machine.light_phaser_aim(1),
-                expected,
+                Some((fb_x as u16, fb_y as u16)),
                 "framebuffer ({fb_x}, {fb_y})"
-            );
-        }
-    }
-
-    /// The border is on the screen but not in the picture, so a gun aimed
-    /// there has nothing to see.
-    #[test]
-    fn an_aim_into_the_border_finds_no_picture() {
-        for (fb_x, fb_y) in [(11, 25), (12, 24), (268, 216), (267, 217)] {
-            let mut machine = machine();
-            let mut cache = ControllerCache::default();
-            aim_at(&mut machine, &mut cache, fb_x, fb_y);
-            assert_eq!(
-                machine.light_phaser_aim(1),
-                None,
-                "framebuffer ({fb_x}, {fb_y}) is border"
             );
         }
     }

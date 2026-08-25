@@ -381,7 +381,10 @@ impl SegaVdp {
         }
     }
 
-    fn lines_per_frame(&self) -> u16 {
+    /// Scan lines the chip runs per frame, which is a region constant and not
+    /// the number it displays.
+    #[must_use]
+    pub fn lines_per_frame(&self) -> u16 {
         match self.region {
             VdpRegion::Ntsc => 262,
             VdpRegion::Pal => 313,
@@ -612,18 +615,69 @@ impl SegaVdp {
         self.dot
     }
 
-    /// The colour standing at an active-area position, or `None` if the
-    /// machine does not display that position.
+    /// The colour standing at a framebuffer position, or `None` outside it.
     ///
-    /// A light gun's photodiode reads the picture through this: it looks at
-    /// one spot on the tube and the beam either lights it or does not.
+    /// A light gun's photodiode reads the screen through this: it looks at one
+    /// spot on the tube and the beam either lights it or does not. The screen
+    /// includes the border, which is why this is not limited to the picture —
+    /// a bright backdrop is something a sensor can see.
     #[must_use]
-    pub fn active_pixel(&self, line: u32, x: u32) -> Option<u32> {
-        if line >= self.active_height || x >= ACTIVE_WIDTH {
+    pub fn framebuffer_pixel(&self, x: u32, y: u32) -> Option<u32> {
+        let (width, height) = (self.framebuffer_width(), self.framebuffer_height());
+        if x >= width || y >= height {
             return None;
         }
-        self.plot_index(line as usize, x as usize)
-            .map(|index| self.framebuffer[index])
+        self.framebuffer.get((y * width + x) as usize).copied()
+    }
+
+    /// Where the beam is on the framebuffer, or `None` while it is somewhere
+    /// the machine does not display — sync, blanking, or the parts of the
+    /// border a set crops.
+    ///
+    /// The mapping is the geometry read backwards. `dot` counts from the first
+    /// active pixel, so the right border follows the picture on the same line
+    /// while the left border is the tail of the line *before* the one it
+    /// belongs to; `scanline` counts from the first active line, so the bottom
+    /// border follows the picture and the top border is the tail of the frame.
+    /// Both are the same wrap and neither is a special case, which is why this
+    /// is arithmetic rather than a table of phases.
+    ///
+    /// `None` on a Game Gear: its framebuffer is an LCD panel with no border
+    /// to scan, and [`plot_index`](Self::plot_index) already answers for the
+    /// picture.
+    #[must_use]
+    pub fn beam_framebuffer_position(&self) -> Option<(u32, u32)> {
+        if self.is_game_gear {
+            return None;
+        }
+        let (width, height) = (self.framebuffer_width(), self.framebuffer_height());
+        let left = self.region.border_left();
+        let top = self.region.border_top(self.active_height);
+
+        // Horizontal: the picture and the right border, else the left border
+        // of the line the beam is about to start.
+        let dot = u32::from(self.dot);
+        let (x, next_line) = if dot + left < width {
+            (dot + left, false)
+        } else if dot >= u32::from(DOTS_PER_LINE) - left {
+            (dot - (u32::from(DOTS_PER_LINE) - left), true)
+        } else {
+            return None; // blanking
+        };
+
+        // Vertical: the picture and the bottom border, else the top border of
+        // the frame the beam is about to start.
+        let lines = u32::from(self.lines_per_frame());
+        let line = (u32::from(self.scanline) + u32::from(next_line)) % lines;
+        let y = if line + top < height {
+            line + top
+        } else if line >= lines - top {
+            line - (lines - top)
+        } else {
+            return None; // vertical blanking
+        };
+
+        Some((x, y))
     }
 
     /// Read V counter ($7E).
