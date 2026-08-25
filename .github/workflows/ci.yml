@@ -109,6 +109,13 @@ jobs:
       - name: Check the committed cartridges match their source
         run: python3 test-data/synthetic-cartridges/build-synthetic-cartridges.py --check
 
+      # The Sega images are built by their own script, in their own folder,
+      # and were not covered here at all. One of them now encodes the timing
+      # constants a test asserts against, so a stale binary would not simply
+      # fail — it would keep passing against the wrong numbers.
+      - name: Check the committed Sega cartridges match their source
+        run: python3 test-data/sega/synthetic-cart/build-synthetic-cart.py --check
+
   # Spectrum boot evidence. Amstrad permits the Sinclair ROMs to be
   # distributed, so unlike almost every other machine here the Spectrum's
   # "does it boot" can be checked on a pull request rather than only in the
