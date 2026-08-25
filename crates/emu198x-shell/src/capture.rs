@@ -153,6 +153,44 @@ impl CapturedFrame {
         }
     }
 
+    /// The colour every pixel holds, when the whole frame holds one colour.
+    ///
+    /// A uniform frame is what a machine emits when it ran but never
+    /// painted — a cartridge mapped to the wrong layout, a program that
+    /// jumped into padding, a boot that never completed. It is also what
+    /// a legitimate blank screen looks like, so this reports rather than
+    /// judges.
+    ///
+    /// Returns `None` for a frame with two or more colours, and for a
+    /// zero-pixel frame, which says nothing either way.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the frame's pixel data does not match its
+    /// declared format and dimensions.
+    pub fn uniform_colour(&self) -> Result<Option<u32>, CaptureError> {
+        let rgba = self.rgba_pixels()?;
+        let Some(first) = rgba.get(0..4) else {
+            return Ok(None);
+        };
+        if rgba.chunks_exact(4).any(|pixel| pixel != first) {
+            return Ok(None);
+        }
+        Ok(Some(u32::from_be_bytes([
+            first[3], first[0], first[1], first[2],
+        ])))
+    }
+
+    /// Whether this frame shows anything at all — at least one pixel
+    /// differing from the rest.
+    ///
+    /// Undecodable and zero-pixel frames count as not painted: neither
+    /// is evidence that the machine drew something.
+    #[must_use]
+    pub fn painted(&self) -> bool {
+        !self.pixels.is_empty() && matches!(self.uniform_colour(), Ok(None))
+    }
+
     /// Encodes the frame as PNG.
     ///
     /// # Errors
@@ -176,6 +214,8 @@ impl CapturedFrame {
 #[derive(Debug, Default)]
 pub struct LatestFrameCapture {
     frame: Option<CapturedFrame>,
+    frames_seen: u64,
+    last_painted_frame: Option<u64>,
 }
 
 impl LatestFrameCapture {
@@ -183,6 +223,32 @@ impl LatestFrameCapture {
     #[must_use]
     pub fn frame(&self) -> Option<&CapturedFrame> {
         self.frame.as_ref()
+    }
+
+    /// How many frames this run has emitted.
+    #[must_use]
+    pub const fn frames_seen(&self) -> u64 {
+        self.frames_seen
+    }
+
+    /// The index of the most recent frame that showed more than one
+    /// colour, or `None` if no frame ever did.
+    ///
+    /// The last frame alone cannot answer "is this machine alive": a
+    /// title screen that animates can be mid-blank when the run ends, and
+    /// reporting that as dead is how a diagnostic earns a reputation for
+    /// crying wolf. Nor does "did it ever paint" answer it, because on
+    /// any machine with a boot screen the firmware paints before the
+    /// program gets a turn — every Atari 5200 cartridge inherits the BIOS
+    /// logo whether it runs or not.
+    ///
+    /// Reporting *when* it last painted separates the cases without
+    /// baking in a threshold: last painted at frame 258 of 3,000 is a
+    /// machine that died at the handoff, and at 2,900 of 3,000 is one
+    /// that is still going.
+    #[must_use]
+    pub const fn last_painted_frame(&self) -> Option<u64> {
+        self.last_painted_frame
     }
 
     /// Encodes the most recently captured frame as PNG.
@@ -200,7 +266,12 @@ impl LatestFrameCapture {
 
 impl FrameSink for LatestFrameCapture {
     fn push_frame(&mut self, frame: FramePacket<'_>) -> Result<(), MachineError> {
-        self.frame = Some(CapturedFrame::from_packet(frame));
+        let captured = CapturedFrame::from_packet(frame);
+        if captured.painted() {
+            self.last_painted_frame = Some(self.frames_seen);
+        }
+        self.frames_seen += 1;
+        self.frame = Some(captured);
         Ok(())
     }
 }
@@ -454,6 +525,155 @@ mod tests {
     use std::io::Cursor;
 
     use super::*;
+
+    fn frame(
+        format: PixelFormat,
+        width: u32,
+        height: u32,
+        palette: Option<&[u32]>,
+        pixels: &[u8],
+    ) -> CapturedFrame {
+        CapturedFrame::from_packet(FramePacket {
+            timestamp: MachineTime::new(1),
+            format,
+            width,
+            height,
+            palette,
+            pixels,
+        })
+    }
+
+    #[test]
+    fn uniform_indexed_frame_reports_its_colour() {
+        let f = frame(
+            PixelFormat::Indexed8,
+            2,
+            2,
+            Some(&[0x1A2B_3CFF]),
+            &[0, 0, 0, 0],
+        );
+        assert_eq!(
+            f.uniform_colour().expect("decodes"),
+            Some(0xFF1A_2B3C),
+            "0xAARRGGBB"
+        );
+    }
+
+    #[test]
+    fn frame_with_a_second_colour_reports_nothing() {
+        let f = frame(
+            PixelFormat::Indexed8,
+            2,
+            2,
+            Some(&[0x0000_00FF, 0xFFFF_FFFF]),
+            &[0, 0, 0, 1],
+        );
+        assert_eq!(f.uniform_colour().expect("decodes"), None);
+    }
+
+    /// One stray pixel is the whole point: a machine that painted almost
+    /// nothing still painted something.
+    #[test]
+    fn a_single_differing_pixel_is_enough() {
+        let mut pixels = vec![0u8; 64];
+        pixels[63] = 1;
+        let f = frame(
+            PixelFormat::Indexed8,
+            8,
+            8,
+            Some(&[0x0000_00FF, 0x0000_01FF]),
+            &pixels,
+        );
+        assert_eq!(f.uniform_colour().expect("decodes"), None);
+    }
+
+    #[test]
+    fn uniform_rgba_frame_reports_its_colour() {
+        let pixels: Vec<u8> = [0x12u8, 0x34, 0x56, 0xFF].repeat(4);
+        let f = frame(PixelFormat::Rgba8888, 2, 2, None, &pixels);
+        assert_eq!(f.uniform_colour().expect("decodes"), Some(0xFF12_3456));
+    }
+
+    /// A frame with no pixels says nothing either way, so it must not be
+    /// reported as blank.
+    #[test]
+    fn empty_frame_reports_nothing() {
+        let f = frame(PixelFormat::Rgba8888, 0, 0, None, &[]);
+        assert_eq!(f.uniform_colour().expect("decodes"), None);
+    }
+
+    /// The Stargate case: an attract screen that animates and happens to
+    /// be blank on the last frame is not a machine that never painted.
+    #[test]
+    fn a_run_that_painted_earlier_is_not_a_dead_run() {
+        let mut capture = LatestFrameCapture::default();
+        assert_eq!(capture.last_painted_frame(), None, "nothing pushed yet");
+
+        capture
+            .push_frame(FramePacket {
+                timestamp: MachineTime::new(1),
+                format: PixelFormat::Indexed8,
+                width: 2,
+                height: 1,
+                palette: Some(&[0x0000_00FF, 0xFFFF_FFFF]),
+                pixels: &[0, 1],
+            })
+            .expect("two-colour frame");
+        assert_eq!(capture.last_painted_frame(), Some(0));
+
+        capture
+            .push_frame(FramePacket {
+                timestamp: MachineTime::new(2),
+                format: PixelFormat::Indexed8,
+                width: 2,
+                height: 1,
+                palette: Some(&[0x0000_00FF, 0xFFFF_FFFF]),
+                pixels: &[0, 0],
+            })
+            .expect("blank frame");
+        assert_eq!(
+            capture.last_painted_frame(),
+            Some(0),
+            "ending blank does not retract having painted, but does date it"
+        );
+        assert_eq!(capture.frames_seen(), 2);
+    }
+
+    #[test]
+    fn a_run_that_never_painted_says_so() {
+        let mut capture = LatestFrameCapture::default();
+        for timestamp in 1..4 {
+            capture
+                .push_frame(FramePacket {
+                    timestamp: MachineTime::new(timestamp),
+                    format: PixelFormat::Indexed8,
+                    width: 2,
+                    height: 1,
+                    palette: Some(&[0x0000_00FF]),
+                    pixels: &[0, 0],
+                })
+                .expect("blank frame");
+        }
+        assert_eq!(capture.last_painted_frame(), None);
+        assert_eq!(capture.frames_seen(), 3);
+    }
+
+    /// A frame with no pixels is not evidence of painting.
+    #[test]
+    fn empty_frames_never_count_as_painted() {
+        let mut capture = LatestFrameCapture::default();
+        capture
+            .push_frame(FramePacket {
+                timestamp: MachineTime::new(1),
+                format: PixelFormat::Rgba8888,
+                width: 0,
+                height: 0,
+                palette: None,
+                pixels: &[],
+            })
+            .expect("empty frame");
+        assert_eq!(capture.last_painted_frame(), None);
+    }
 
     #[test]
     fn latest_frame_capture_encodes_indexed_png() {

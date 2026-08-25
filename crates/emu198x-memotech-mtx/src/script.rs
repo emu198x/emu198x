@@ -186,6 +186,7 @@ fn run_cli(cli: Cli) -> Result<serde_json::Value, String> {
     let machine = session.machine();
     let rom_loaded = machine.machine().is_some();
     let frame_count = machine.machine().map(|m| m.frame_count()).unwrap_or(0);
+    observations.extend(session.blank_frame_observation());
     Ok(json!({
         "rom_loaded": rom_loaded,
         "frames_run": frame_count,

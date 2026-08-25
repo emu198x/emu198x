@@ -18,6 +18,7 @@ use crate::query::{
     NoAdditionalQueries, QueryError, QueryPathsResult, QueryResult, SessionQueryProvider,
     query_paths, query_value,
 };
+use crate::script::ScriptObservation;
 use crate::time::MachineTime;
 use crate::video::{
     VideoRecorder, VideoRecordingError, VideoRecordingSummary, compute_fps, trim_audio_after,
@@ -993,6 +994,31 @@ impl<M: MachineCore, Q: SessionQueryProvider<M>> HeadlessSession<M, Q> {
             }
         }
         Ok(last)
+    }
+
+    /// Reports a final frame that holds a single colour, so a run that
+    /// painted nothing does not report the same success as one that
+    /// worked.
+    ///
+    /// The observation carries when the picture last changed, which is
+    /// the half that separates a machine that stopped from one whose
+    /// animation happened to be mid-blank when the run ended.
+    ///
+    /// Returns `None` when the frame has more than one colour, when no
+    /// frame was emitted at all, or when the frame data cannot be
+    /// decoded — this is a diagnostic, and it should never be the thing
+    /// that fails a run.
+    #[must_use]
+    pub fn blank_frame_observation(&self) -> Option<ScriptObservation> {
+        let frame = self.latest_frame()?;
+        let colour = frame.uniform_colour().ok().flatten()?;
+        Some(ScriptObservation::BlankFrame {
+            colour: format!("#{:06X}", colour & 0x00FF_FFFF),
+            width: frame.width,
+            height: frame.height,
+            frames_seen: self.frame_capture.frames_seen(),
+            last_painted_frame: self.frame_capture.last_painted_frame(),
+        })
     }
 
     /// Encodes the latest emitted frame as PNG.
