@@ -120,6 +120,15 @@ fn key_from_name(name: &str) -> Option<(AtomKey, bool)> {
     Some((unshifted, false))
 }
 
+/// Whether this machine's input layer can deliver `name`.
+///
+/// This is the same lookup [`apply_input_event`] performs before injecting a
+/// keystroke, exposed so the shared keyboard can refuse a character the
+/// machine cannot type instead of counting one it silently dropped (#1196).
+pub(crate) fn knows_key_name(name: &str) -> bool {
+    key_from_name(name).is_some()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -182,13 +191,4 @@ mod tests {
     fn unmapped_key_returns_none() {
         assert_eq!(key_from_name("f1"), None);
     }
-}
-
-/// Whether this machine's input layer can deliver `name`.
-///
-/// This is the same lookup [`apply_input_event`] performs before injecting a
-/// keystroke, exposed so the shared keyboard can refuse a character the
-/// machine cannot type instead of counting one it silently dropped (#1196).
-pub(crate) fn knows_key_name(name: &str) -> bool {
-    key_from_name(name).is_some()
 }
