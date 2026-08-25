@@ -51,7 +51,13 @@ index into a palette fixed in silicon, taken from register 7. A single
 shared image would exercise one path and imply the other two.
 
 The images also confirm the display geometry the machines do not share:
-288×240 for a television, 160×144 for the Game Gear's LCD (#1003).
+280×240 for an NTSC television, 160×144 for the Game Gear's LCD (#1003).
+
+280 rather than 288 because the width is what a set shows, and that is the
+dot clock across an active line — 5.369318 MHz over 52.148 µs — not the
+active area plus a border picked to be round. A PAL machine shows 277×288 on
+the same reasoning. See
+[`the-framebuffer-is-the-sets-window.md`](../../../knowledge/decisions/the-framebuffer-is-the-sets-window.md).
 
 ## Regenerating
 
