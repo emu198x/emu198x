@@ -457,13 +457,21 @@ impl AcornElectron {
             if line == 0 {
                 self.ula.signal_rtc();
             }
-            self.cpu.irq = self.ula.irq_active();
         }
         self.frame_count += 1;
         CYCLES_PER_FRAME
     }
 
     fn tick_cpu_cycle(&mut self) {
+        // The ULA drives IRQ as a level, so the CPU has to see the line
+        // as it stands on this cycle. This used to be sampled once per
+        // scanline, which let the CPU take an interrupt for a source
+        // the guest had already cleared earlier in the same line -- and
+        // the Electron OS treats an interrupt nobody claims as a fault
+        // it cannot be in, so its IRQ2V default reboots the machine.
+        // Elite clears the cassette interrupt mid-line and was rebooted
+        // for it, part-way through loading (#1193).
+        self.cpu.irq = self.ula.irq_active();
         self.cpu.tick();
         let cost = self.access_master_ticks(self.cpu.addr)
             + self.display_halt_ticks(self.cpu.addr, self.master_ticks - self.frame_base);
@@ -1127,6 +1135,30 @@ mod tests {
         assert!(sys.irq_asserted());
         // The status read sets bit 7 high (MAME `0x80 | m_int_status`).
         assert_eq!(sys.mem_read(0xFE00) & 0x80, 0x80);
+    }
+
+    #[test]
+    fn the_cpu_sees_the_irq_line_fall_within_a_scanline() {
+        let (os, basic) = trap_roms();
+        let mut sys = AcornElectron::new(os, basic);
+        sys.ula_write(0xFE00, 0x08); // enable the RTC source
+        sys.ula.signal_rtc();
+        sys.tick_cpu_cycle();
+        assert!(
+            sys.cpu.irq,
+            "an enabled, pending source has to reach the CPU's IRQ pin"
+        );
+
+        // Clear it the way the OS does, part-way through a scanline. The
+        // pin used to be refreshed once per line, so the CPU went on
+        // seeing an interrupt whose source had already gone -- and the
+        // Electron OS reboots on an interrupt nobody claims (#1193).
+        sys.ula_write(0xFE05, 0x20); // clears the RTC status bit
+        sys.tick_cpu_cycle();
+        assert!(
+            !sys.cpu.irq,
+            "a source cleared mid-line must drop the CPU's IRQ pin on the next cycle"
+        );
     }
 
     #[test]
