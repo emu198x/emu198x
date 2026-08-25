@@ -1270,17 +1270,23 @@ impl SessionQueryProvider<DragonRuntime> for DragonSessionQueryProvider {
 /// real header loaded, five fabricated blocks followed it, and the 6809
 /// ended up executing direct page (#1191).
 ///
-/// The one thing added to the file is leader. [`CassetteReceiver`]
-/// needs a run of `$55` to lock its bit clock, and cannot re-acquire
-/// mid-stream the way the hardware demodulator does, so a block whose
-/// own leader is short would be missed. Rebuilding the tape hid that
-/// by giving every block a full-length leader; measured across the
-/// corpus, removing the padding outright costs about two thirds of the
-/// tapes that load today. So pad — and pad only ahead of a block whose
-/// checksum verifies, because a leader inserted ahead of a coincidence
-/// found in unframed data is the fabrication this is meant to stop.
+/// The one thing added to the file is leader, which the container leaves
+/// out: measured across the corpus, an inter-block leader is a median of
+/// **one** byte and 4,760 of 11,532 blocks have none at all, against a
+/// median of sixteen before the first block. A CAS holds the logical byte
+/// stream, not the tape, so a player that decodes by timing has to put the
+/// carrier back.
 ///
-/// [`CassetteReceiver`]: machine_dragon_32::CassetteReceiver
+/// The length is not a documented figure and the padding is not merely
+/// satisfying a re-acquire window — load success is *not* monotonic in it.
+/// Over a 97-tape sample: no padding loads 31, four bytes loads 26, sixteen
+/// loads 21, and 128 loads 90. Something in the tape timing is wrong and
+/// this masks it by overwhelming it. It stays because it is worth 59 tapes,
+/// and #1201 carries the measurements and the candidates.
+///
+/// Padding goes only ahead of a block whose checksum verifies, because
+/// leader conjured up in front of a coincidence found in unframed data is
+/// the fabrication this is meant to stop.
 fn cassette_bytes_from_cas(image_bytes: &[u8], tape: &CasImage) -> Vec<u8> {
     let mut bytes = Vec::with_capacity(image_bytes.len() + MIN_INITIAL_LEADER_BYTES);
     let mut copied = 0usize;
