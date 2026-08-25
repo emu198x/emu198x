@@ -9,7 +9,7 @@
 //! the four rows back on D0-D3. The table below is transcribed from MAME's
 //! `acorn/electron.cpp` `LINE.0`-`LINE.13` port definitions.
 
-use emu198x_shell::InputEvent;
+use emu198x_shell::{InputEvent, KeyTiming, KeyboardTarget, STANDARD_KEY_TIMING};
 use machine_acorn_electron::AcornElectron;
 
 pub(crate) fn apply_input_event(machine: &mut AcornElectron, event: &InputEvent) {
@@ -97,4 +97,78 @@ fn key_to_matrix(name: &str) -> Option<(usize, usize)> {
         "shift" | "lshift" | "rshift" => (13, 3),
         _ => return None,
     })
+}
+
+/// The character an Electron keycap produces with SHIFT held, paired with the
+/// key's own name.
+///
+/// The digit row carries `!"#$%&'()` above `1`-`9`, and the punctuation keys
+/// carry a second legend each, as on the rest of the Acorn line. The standard
+/// keyboard could reach none of them: it offers a symbol as its own
+/// one-character name, the matrix has no key called `"`, and the input layer
+/// dropped it after `type_string` had already counted it (#1196). `"` is how
+/// you load a tape (`CHAIN""`).
+///
+/// Each pairing is checked on the machine — see the `shifted_legends_type_*`
+/// tests, which put the characters through BASIC and read them back off the
+/// screen.
+const SHIFTED_LEGENDS: &[(char, &str)] = &[
+    ('!', "1"),
+    ('"', "2"),
+    ('#', "3"),
+    ('$', "4"),
+    ('%', "5"),
+    ('&', "6"),
+    ('\'', "7"),
+    ('(', "8"),
+    (')', "9"),
+    ('=', "-"),
+    ('+', ";"),
+    ('*', ":"),
+    ('<', ","),
+    ('>', "."),
+    ('?', "/"),
+];
+
+/// The Electron's keyboard for the shared `press_key` / `type_string` tools.
+///
+/// Hand-written rather than the shared standard keyboard because the Electron
+/// reaches much of printable ASCII through SHIFT, and because a character it
+/// cannot type has to refuse rather than be counted and dropped (#916, #1196).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct ElectronKeyboard;
+
+impl KeyboardTarget for ElectronKeyboard {
+    fn key_name_is_valid(&self, name: &str) -> bool {
+        key_to_matrix(name).is_some()
+    }
+
+    fn key_names_hint(&self) -> &'static str {
+        "A-Z, 0-9, the punctuation on an Electron keyboard (including the \
+         shifted legends such as \" * + = ? < >), space, enter, escape, \
+         delete, shift, ctrl, func, and the arrow keys"
+    }
+
+    fn keys_for_char(&self, ch: char) -> Option<Vec<String>> {
+        let base = match ch {
+            'a'..='z' | 'A'..='Z' => ch.to_ascii_lowercase().to_string(),
+            '0'..='9' => ch.to_string(),
+            ' ' => "space".to_owned(),
+            '\n' | '\r' => "enter".to_owned(),
+            _ => {
+                if let Some((_, key)) = SHIFTED_LEGENDS.iter().find(|(c, _)| *c == ch) {
+                    let key = (*key).to_owned();
+                    return key_to_matrix(&key)
+                        .is_some()
+                        .then(|| vec!["shift".to_owned(), key]);
+                }
+                ch.to_string()
+            }
+        };
+        key_to_matrix(&base).is_some().then(|| vec![base])
+    }
+
+    fn key_timing(&self) -> KeyTiming {
+        STANDARD_KEY_TIMING
+    }
 }
