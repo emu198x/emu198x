@@ -27,9 +27,35 @@ const AUDIO_SAMPLE_RATE: u32 = 48_000;
 /// This machine's keyboard for the shared `press_key` / `type_string` tools:
 /// the standard layout, backed by this machine's own key-name resolver so a
 /// character it cannot type is refused rather than silently dropped (#1196).
-static KEYBOARD: emu198x_shell::StandardKeyboard = emu198x_shell::StandardKeyboard::new(
+/// The character each keycap carries above its own, read off the machine:
+/// hold SHIFT with every key in turn and let BASIC echo the result.
+///
+/// Only the symbols are listed. SHIFT with `*`, `-`, `@` or `=` produces
+/// PETSCII graphics rather than punctuation, and SHIFT-0 produces `0`, so
+/// none of them belongs here — `type_string` refuses those characters
+/// instead of typing a line drawing (#1206).
+const SHIFTED_LEGENDS: &[(char, &str)] = &[
+    ('!', "1"),
+    ('"', "2"),
+    ('#', "3"),
+    ('$', "4"),
+    ('%', "5"),
+    ('&', "6"),
+    ('\'', "7"),
+    ('(', "8"),
+    (')', "9"),
+    ('[', ":"),
+    (']', ";"),
+    ('<', ","),
+    ('>', "."),
+    ('?', "/"),
+];
+
+static KEYBOARD: emu198x_shell::StandardKeyboard = emu198x_shell::StandardKeyboard::with_legends(
     emu198x_shell::STANDARD_KEY_TIMING,
     crate::input::knows_key_name,
+    "shift",
+    SHIFTED_LEGENDS,
 );
 
 pub struct Vic20Runtime {

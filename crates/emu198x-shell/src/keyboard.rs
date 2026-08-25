@@ -113,6 +113,8 @@ pub const STANDARD_KEY_TIMING: KeyTiming = KeyTiming {
 pub struct StandardKeyboard {
     timing: KeyTiming,
     knows_name: fn(&str) -> bool,
+    legends: &'static [(char, &'static str)],
+    shift_name: &'static str,
 }
 
 impl StandardKeyboard {
@@ -122,9 +124,45 @@ impl StandardKeyboard {
     /// `knows_name` must answer for the *machine*, not for the shape of the
     /// string: wrap whatever `apply_input_event` uses to turn a name into a
     /// key, so the two cannot disagree.
+    ///
+    /// A machine built this way can type only what its keycaps carry
+    /// unshifted. Most 198x keyboards put half of printable ASCII on a
+    /// shifted legend, so prefer [`Self::with_legends`].
     #[must_use]
     pub const fn new(timing: KeyTiming, knows_name: fn(&str) -> bool) -> Self {
-        Self { timing, knows_name }
+        Self {
+            timing,
+            knows_name,
+            legends: &[],
+            shift_name: "shift",
+        }
+    }
+
+    /// Build a standard keyboard that can also reach its shifted legends.
+    ///
+    /// `legends` pairs each character with the key that carries it, and the
+    /// chord becomes `[shift_name, key]`. The machine's resolver still has
+    /// the last word: a legend naming a key the layout does not have is
+    /// refused rather than typed into the void.
+    ///
+    /// Establish the pairings by asking the machine, not from recollection:
+    /// hold shift with each key in turn, let BASIC echo the result, and read
+    /// it back off the screen. That is how every table in the tree was built,
+    /// and it is what caught SHIFT-0 on the Dragon being a case lock rather
+    /// than a symbol.
+    #[must_use]
+    pub const fn with_legends(
+        timing: KeyTiming,
+        knows_name: fn(&str) -> bool,
+        shift_name: &'static str,
+        legends: &'static [(char, &'static str)],
+    ) -> Self {
+        Self {
+            timing,
+            knows_name,
+            legends,
+            shift_name,
+        }
     }
 }
 
@@ -143,7 +181,15 @@ impl KeyboardTarget for StandardKeyboard {
             '0'..='9' => ch.to_string(),
             ' ' => "space".to_owned(),
             '\n' | '\r' => "enter".to_owned(),
-            c if c.is_ascii_graphic() => c.to_string(),
+            c if c.is_ascii_graphic() => {
+                // A shifted legend is a chord, so it resolves against the key
+                // that carries the symbol rather than the symbol itself.
+                if let Some((_, key)) = self.legends.iter().find(|(legend, _)| *legend == c) {
+                    return ((self.knows_name)(key) && (self.knows_name)(self.shift_name))
+                        .then(|| vec![self.shift_name.to_owned(), (*key).to_owned()]);
+                }
+                c.to_string()
+            }
             _ => return None,
         };
         // Ask the machine before promising the caller. A key this layout
@@ -164,7 +210,7 @@ mod tests {
     /// shape of a real 198x keyboard whose symbol set is narrower than
     /// printable ASCII.
     fn narrow_layout(name: &str) -> bool {
-        matches!(name, "space" | "enter" | "-")
+        matches!(name, "space" | "enter" | "-" | "shift")
             || (name.len() == 1
                 && name
                     .chars()
@@ -208,6 +254,41 @@ mod tests {
              so type_string stops instead of miscounting"
         );
         assert_eq!(kb.keys_for_char('*'), None);
+    }
+
+    /// A shifted legend resolves against the key that carries the symbol,
+    /// not the symbol itself — the layout has no key called `"`.
+    #[test]
+    fn a_shifted_legend_types_as_a_chord() {
+        const LEGENDS: &[(char, &str)] = &[('"', "2"), ('*', ":")];
+        let kb =
+            StandardKeyboard::with_legends(STANDARD_KEY_TIMING, narrow_layout, "shift", LEGENDS);
+        // `2` is in the narrow layout, so the chord resolves.
+        assert_eq!(
+            kb.keys_for_char('"'),
+            Some(vec!["shift".to_owned(), "2".to_owned()])
+        );
+        // `:` is not, so the legend is refused rather than typed into the
+        // void — the machine still has the last word.
+        assert_eq!(kb.keys_for_char('*'), None);
+        // Unlisted characters behave as before.
+        assert_eq!(kb.keys_for_char('a'), Some(vec!["a".to_owned()]));
+        assert_eq!(kb.keys_for_char('#'), None);
+    }
+
+    /// A legend is useless if the machine has no shift key by that name --
+    /// the PET's input layer has none, and would have produced a chord whose
+    /// first keystroke went nowhere.
+    #[test]
+    fn a_legend_needs_the_shift_key_to_exist_too() {
+        const LEGENDS: &[(char, &str)] = &[('"', "2")];
+        let kb = StandardKeyboard::with_legends(
+            STANDARD_KEY_TIMING,
+            narrow_layout,
+            "nosuchshift",
+            LEGENDS,
+        );
+        assert_eq!(kb.keys_for_char('"'), None);
     }
 
     /// `press_key` took any non-empty name and let the machine drop it,
