@@ -18,7 +18,7 @@
 //! the rendered text — the on-screen text is merely a rendering of it.
 //!
 //! ROMs resolve the same way as `blargg_ppu.rs` (NES_BLARGG_ROOT or
-//! `~/Projects/198x/assets/test-suites/nes-test-roms`). `#[ignore]` by
+//! `assets/test-suites/nes-test-roms`). `#[ignore]` by
 //! default; run with:
 //! `cargo test -p machine-nintendo-nes --test ppu_onscreen -- --ignored --nocapture`
 

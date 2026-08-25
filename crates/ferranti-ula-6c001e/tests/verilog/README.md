@@ -11,10 +11,16 @@ transcription changes, or when a conclusion rests on it.
 
 ```sh
 brew install icarus-verilog
-cd ~/Projects/198x/emulators/zx-spectrum/zx_ula
-iverilog -g2005 -o /tmp/tb.vvp \
-    ~/Projects/198x/Emu198x/emu198x/crates/ferranti-ula-6c001e/tests/verilog/tb_window.v \
-    fpga_version/rtl/ula.v
+
+# A checkout of the zx_ula FPGA project. Vendored under
+# emulators/zx-spectrum/zx_ula in the 198x tree; clone it yourself otherwise.
+ZX_ULA=/path/to/zx_ula
+
+# Run this from the directory holding this README.
+TB="$PWD/tb_window.v"
+
+cd "$ZX_ULA"
+iverilog -g2005 -o /tmp/tb.vvp "$TB" fpga_version/rtl/ula.v
 vvp /tmp/tb.vvp
 ```
 

@@ -16,7 +16,7 @@
 //! just pointed at `Cpu68020` instead of `Cpu68000`.
 //!
 //! Default corpus root:
-//!   `~/Projects/198x/assets/test-suites/processor-tests/680x0/68000/v1/`
+//!   `assets/test-suites/processor-tests/680x0/68000/v1/`
 //!
 //! Override with `EMU198X_68000_TOM_HARTE_ROOT`.
 //!

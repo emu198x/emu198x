@@ -17,8 +17,9 @@ lines, and anything else.
 Usage:
     tools/lvo-from-ndk.py [NDK_LVO_DIR] > lvo-tables.rs
 
-If NDK_LVO_DIR is omitted, defaults to the in-reference-library copy:
-    ~/Projects/198x/reference/by-system/commodore-amiga/ndk/ndk-3.2/Include_I/lvo
+If NDK_LVO_DIR is omitted, defaults to the copy in the private reference
+library, located relative to this script:
+    <198x>/reference/by-system/commodore-amiga/ndk/ndk-3.2/Include_I/lvo
 """
 
 from __future__ import annotations
@@ -29,9 +30,12 @@ from pathlib import Path
 
 LINE_PATTERN = re.compile(r"^_LVO([A-Za-z0-9_]+)\s+equ\s+(-\d+)\s*$")
 
+# The umbrella root, resolved from this file's own location rather than from
+# $HOME, so the default survives the tree being checked out anywhere. It did
+# not before: it hardcoded ~/Projects/198x and silently missed otherwise.
+_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_NDK = (
-    Path.home()
-    / "Projects/198x/reference/by-system/commodore-amiga/ndk/ndk-3.2/Include_I/lvo"
+    _ROOT / "reference/by-system/commodore-amiga/ndk/ndk-3.2/Include_I/lvo"
 )
 
 
