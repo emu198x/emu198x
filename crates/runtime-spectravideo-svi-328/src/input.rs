@@ -189,6 +189,15 @@ fn key_to_matrix(name: &str) -> Option<(usize, u8)> {
     })
 }
 
+/// Whether this machine's input layer can deliver `name`.
+///
+/// This is the same lookup [`apply_input_event`] performs before injecting a
+/// keystroke, exposed so the shared keyboard can refuse a character the
+/// machine cannot type instead of counting one it silently dropped (#1196).
+pub(crate) fn knows_key_name(name: &str) -> bool {
+    key_to_matrix(name).is_some()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -272,13 +281,4 @@ mod tests {
         assert_eq!(dirs & 0x04, 0x04, "P1 left released → bit 2 high");
         assert_eq!(dirs & 0x80, 0, "P2 right still held");
     }
-}
-
-/// Whether this machine's input layer can deliver `name`.
-///
-/// This is the same lookup [`apply_input_event`] performs before injecting a
-/// keystroke, exposed so the shared keyboard can refuse a character the
-/// machine cannot type instead of counting one it silently dropped (#1196).
-pub(crate) fn knows_key_name(name: &str) -> bool {
-    key_to_matrix(name).is_some()
 }
