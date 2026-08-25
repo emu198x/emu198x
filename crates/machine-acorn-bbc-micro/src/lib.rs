@@ -146,20 +146,41 @@ impl VideoUla {
         self.palette[logical] = physical;
     }
 
-    fn bpp(&self) -> u8 {
-        match (self.control >> 2) & 0x03 {
-            0 => 1,
-            1 => 2,
-            2 => 4,
-            _ => 1,
-        }
+    /// Bits 2-3 of the control register.
+    ///
+    /// The Advanced User Guide (§19.1.3) calls this the number of characters
+    /// per line — `11` 80, `10` 40, `01` 20, `00` 10. The ULA uses it as the
+    /// divisor on its pixel clock, so it decides how finely each byte is cut
+    /// up, not how many bytes a line holds. That count comes from the 6845.
+    const fn pixel_rate(&self) -> u8 {
+        (self.control >> 2) & 0x03
+    }
+
+    /// Pixels the serialiser draws from one byte.
+    ///
+    /// The ULA shifts a byte out over a character cell. The rate field says
+    /// how often it steps, and the slow 6845 clock (modes 4-6) stretches the
+    /// cell to twice as many pixel clocks, so the same rate yields twice the
+    /// pixels. Every documented mode falls out of this, including the Advanced
+    /// User Guide's own `*FX154,224` example (§19.3: slow clock, rate `00`,
+    /// "PIXELS PER BYTE-1" = 1, so two):
+    ///
+    /// | mode | rate | clock | pixels/byte |
+    /// |------|------|-------|-------------|
+    /// | 0    | 11   | fast  | 8           |
+    /// | 1    | 10   | fast  | 4           |
+    /// | 2    | 01   | fast  | 2           |
+    /// | 4, 6 | 10   | slow  | 8           |
+    /// | 5    | 01   | slow  | 4           |
+    const fn pixels_per_byte(&self) -> usize {
+        (1usize << self.pixel_rate()) * if self.fast_clock() { 1 } else { 2 }
     }
 
     fn teletext(&self) -> bool {
         self.control & 0x02 != 0
     }
 
-    fn fast_clock(&self) -> bool {
+    const fn fast_clock(&self) -> bool {
         self.control & 0x10 != 0
     }
 
@@ -817,39 +838,55 @@ impl BbcMicro {
             self.render_teletext_scanline(line, offset);
             return;
         }
-        let bpp = self.video_ula.bpp() as usize;
-        let pixels_per_byte = 8 / bpp;
-        let chars_per_line = if self.video_ula.fast_clock() { 80 } else { 40 };
-        let pixel_width = FB_WIDTH as usize / (chars_per_line * pixels_per_byte);
+        // The ULA has no bit-depth setting and no per-mode decode: it loads a
+        // byte into an 8-bit shift register, and every pixel takes its
+        // four-bit palette index from bits 7, 5, 3 and 1 of whatever is in
+        // there. Between pixels the register shifts left and a `1` comes in
+        // at the bottom. Two-colour modes work because the MOS programs the
+        // palette so the entries a shifted-in `1` can reach all hold the same
+        // colour — not because the ULA narrows the index.
+        //
+        // Decoding per depth instead, with a bespoke bit layout for each, is
+        // what made MODE 0 and MODE 3 come out black: every pixel resolved to
+        // logical colour 0, which those modes leave as the background (#1195).
+        let pixels_per_byte = self.video_ula.pixels_per_byte();
+        // Bytes per line is the 6845's horizontal-displayed (R1), not
+        // something the ULA knows. Guessing it from the ULA clock bit gave
+        // MODE 2 and MODE 5 the wrong width.
+        let chars_per_line = usize::from(self.crtc.regs()[1]).max(1);
+        let pixel_width = (FB_WIDTH as usize / (chars_per_line * pixels_per_byte)).max(1);
         let crtc_start = self.crtc.start_address() as usize;
-        let ra = line % 8;
-        let char_row = line / 8;
+        // Character cell height is the 6845's R9 (max scanline address), not
+        // a fixed eight: the gapped text modes 3 and 6 use ten-line cells, and
+        // counting rows in eights walked off the end of their screen memory.
+        let cell_height = usize::from(self.crtc.regs()[9]) + 1;
+        let ra = line % cell_height;
+        let char_row = line / cell_height;
+        // Display enable is masked by RA3, so a cell taller than eight lines
+        // blanks the rest instead of showing anything. That is where the gap
+        // between rows in the gapped text modes 3 and 6 comes from.
+        if ra & 0x08 != 0 {
+            let blank = self.video_ula.palette_to_argb(0);
+            self.framebuffer[offset..offset + FB_WIDTH as usize].fill(blank);
+            return;
+        }
         for col in 0..chars_per_line {
             let ma = crtc_start + char_row * chars_per_line + col;
-            let ram_addr = ((ma & 0x3FFF) << 3) | ra;
+            // Only RA0-RA2 reach the address bus, so a cell taller than eight
+            // lines repeats its first rows rather than reading past itself.
+            let ram_addr = ((ma & 0x3FFF) << 3) | (ra & 0x07);
             let byte = if ram_addr < 0x8000 {
                 self.ram[ram_addr]
             } else {
                 0
             };
+            let mut shiftreg = byte;
             for px in 0..pixels_per_byte {
-                let colour_idx = match bpp {
-                    1 => (byte >> (7 - px)) & 0x01,
-                    2 => {
-                        let bit_h = (byte >> (7 - px)) & 0x01;
-                        let bit_l = (byte >> (3 - px)) & 0x01;
-                        (bit_h << 1) | bit_l
-                    }
-                    4 => {
-                        let pi = (px & 1) as u8;
-                        let b7 = (byte >> (7 - pi)) & 0x01;
-                        let b5 = (byte >> (5 - pi)) & 0x01;
-                        let b3 = (byte >> (3 - pi)) & 0x01;
-                        let b1 = (byte >> (1 - pi)) & 0x01;
-                        (b7 << 3) | (b5 << 2) | (b3 << 1) | b1
-                    }
-                    _ => 0,
-                };
+                let colour_idx = ((shiftreg >> 4) & 0x08)
+                    | ((shiftreg >> 3) & 0x04)
+                    | ((shiftreg >> 2) & 0x02)
+                    | ((shiftreg >> 1) & 0x01);
+                shiftreg = (shiftreg << 1) | 1;
                 let argb = self.video_ula.palette_to_argb(colour_idx);
                 let fb_x = (col * pixels_per_byte + px) * pixel_width;
                 for w in 0..pixel_width {
@@ -1208,13 +1245,48 @@ mod tests {
         assert_eq!(sys.video_ula.palette[5], 3);
     }
 
+    /// The control values the MOS writes for each mode, from the Advanced
+    /// User Guide's own table (§19.1.7), against the pixels each byte has to
+    /// produce for the mode to come out the documented width.
+    ///
+    /// The old decode read bits 3-2 as a bit-depth field, which the register
+    /// does not have — they set the pixel rate. It got MODE 1 and MODE 2
+    /// backwards and doubled MODE 4 and MODE 6, and the test that covered it
+    /// asserted the same wrong answer (#1195).
     #[test]
-    fn video_ula_control_sets_bpp_and_fast_clock() {
+    fn video_ula_pixels_per_byte_matches_the_documented_modes() {
         let mut sys = BbcMicro::new(trap_rom());
-        // bits 3-2 = 10 (4 bpp), bit 4 = 1 (fast 80-col clock).
-        sys.mem_write(0xFE20, 0b0001_1000);
-        assert_eq!(sys.video_ula.bpp(), 4);
-        assert!(sys.video_ula.fast_clock());
+        for (mode, control, expected, width) in [
+            (0u8, 0x9Cu8, 8usize, 640usize),
+            (1, 0xD8, 4, 320),
+            (2, 0xF4, 2, 160),
+            (3, 0x9C, 8, 640),
+            (4, 0x88, 8, 320),
+            (5, 0xC4, 4, 160),
+            (6, 0x88, 8, 320),
+        ] {
+            sys.mem_write(0xFE20, control);
+            assert_eq!(
+                sys.video_ula.pixels_per_byte(),
+                expected,
+                "MODE {mode} (control ${control:02X})"
+            );
+            // Bytes per line comes from the 6845, so pair each mode with its
+            // own to confirm the geometry lands on the documented width.
+            let bytes_per_line = if mode <= 3 { 80 } else { 40 };
+            assert_eq!(bytes_per_line * expected, width, "MODE {mode} pixel width");
+        }
+    }
+
+    /// The guide's `*FX154,224` worked example (§19.3): a 16-colour mode with
+    /// ten characters per line, which its own listing documents as two pixels
+    /// per byte.
+    #[test]
+    fn video_ula_matches_the_guides_mode_8_example() {
+        let mut sys = BbcMicro::new(trap_rom());
+        sys.mem_write(0xFE20, 0xE0);
+        assert!(!sys.video_ula.fast_clock());
+        assert_eq!(sys.video_ula.pixels_per_byte(), 2);
     }
 
     #[test]
