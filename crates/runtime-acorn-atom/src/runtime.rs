@@ -16,6 +16,14 @@ use emu198x_shell::display::Display;
 const BIOS_SIZE: usize = 24 * 1024;
 const AUDIO_SAMPLE_RATE: u32 = 48_000;
 
+/// This machine's keyboard for the shared `press_key` / `type_string` tools:
+/// the standard layout, backed by this machine's own key-name resolver so a
+/// character it cannot type is refused rather than silently dropped (#1196).
+static KEYBOARD: emu198x_shell::StandardKeyboard = emu198x_shell::StandardKeyboard::new(
+    emu198x_shell::STANDARD_KEY_TIMING,
+    crate::input::knows_key_name,
+);
+
 pub struct AtomRuntime {
     profile: MachineProfile,
     model: Model,
@@ -345,7 +353,7 @@ impl MachineCore for AtomRuntime {
     fn keyboard_target(&self) -> Option<&dyn emu198x_shell::KeyboardTarget> {
         self.machine
             .is_some()
-            .then_some(&emu198x_shell::STANDARD_KEYBOARD as &dyn emu198x_shell::KeyboardTarget)
+            .then_some(&KEYBOARD as &dyn emu198x_shell::KeyboardTarget)
     }
 }
 

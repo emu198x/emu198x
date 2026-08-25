@@ -57,9 +57,7 @@ pub use input::{
     AxisInputMap, AxisTarget, ButtonInputMap, ButtonTarget, HostAxis, HostControl,
     NativeGamepadInput,
 };
-pub use keyboard::{
-    KeyTiming, KeyboardTarget, STANDARD_KEY_TIMING, STANDARD_KEYBOARD, StandardKeyboard,
-};
+pub use keyboard::{KeyTiming, KeyboardTarget, STANDARD_KEY_TIMING, StandardKeyboard};
 pub use machine::{
     Family, FamilyRuntime, MachineCore, MachineId, MachineProfile, ProfileId, Region, ResetKind,
     RunResult, StopReason,

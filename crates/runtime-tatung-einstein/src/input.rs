@@ -335,3 +335,12 @@ mod tests {
         assert_eq!(m.adc_channel(0), 0x80, "released → X centre");
     }
 }
+
+/// Whether this machine's input layer can deliver `name`.
+///
+/// This is the same lookup [`apply_input_event`] performs before injecting a
+/// keystroke, exposed so the shared keyboard can refuse a character the
+/// machine cannot type instead of counting one it silently dropped (#1196).
+pub(crate) fn knows_key_name(name: &str) -> bool {
+    key_to_matrix(name).is_some() || key_to_modifier(name).is_some()
+}

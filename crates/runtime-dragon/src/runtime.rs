@@ -83,6 +83,18 @@ const PROGRAM_BOOT_SETTLE_FRAMES: u64 = 30;
 
 const MIN_INITIAL_LEADER_BYTES: usize = 128;
 
+/// Whether the Dragon's input layer can deliver `name` — the same lookup
+/// [`DragonRuntime::apply_input_event`] performs before injecting a
+/// keystroke, so the shared keyboard refuses a character the machine cannot
+/// type instead of counting one it silently dropped (#1196).
+fn knows_key_name(name: &str) -> bool {
+    DragonKey::from_label(name).is_some()
+}
+
+/// The Dragon's keyboard for the shared `press_key` / `type_string` tools.
+static KEYBOARD: emu198x_shell::StandardKeyboard =
+    emu198x_shell::StandardKeyboard::new(emu198x_shell::STANDARD_KEY_TIMING, knows_key_name);
+
 /// Summary of the currently mounted Dragon cassette image.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DragonTapeSummary {
@@ -1056,7 +1068,7 @@ impl MachineCore for DragonRuntime {
     emu198x_shell::debug_target_hooks!(direct);
 
     fn keyboard_target(&self) -> Option<&dyn emu198x_shell::KeyboardTarget> {
-        Some(&emu198x_shell::STANDARD_KEYBOARD)
+        Some(&KEYBOARD)
     }
 }
 

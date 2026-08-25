@@ -96,37 +96,41 @@ pub const STANDARD_KEY_TIMING: KeyTiming = KeyTiming {
 /// letters in upper case (so a letter types via its bare keycap, no shift).
 ///
 /// It maps the universal core every 198x keyboard accepts — letters
-/// (lowercased), digits, space (`"space"`), and Enter (`"enter"`) — and passes
-/// any other printable ASCII through as its own one-character name; the
-/// machine's input layer silently ignores a name it doesn't recognise. A
-/// machine whose symbols need a shifted keycap (e.g. the Spectrum) implements
-/// [`KeyboardTarget`] by hand instead.
+/// (lowercased), digits, space (`"space"`), and Enter (`"enter"`) — and offers
+/// any other printable ASCII as its own one-character name, *if the machine
+/// says it has that key*. A machine whose symbols need a shifted keycap (e.g.
+/// the Spectrum) implements [`KeyboardTarget`] by hand instead.
 ///
-/// Stateless, so one shared instance serves every machine: see
-/// [`STANDARD_KEYBOARD`].
+/// The machine answers through `knows_name`, which is its own key-name
+/// resolver: the same lookup `apply_input_event` performs before injecting a
+/// keystroke. Asking it here is what makes the refusal in
+/// [`KeyboardTarget::keys_for_char`] true. This used to pass every printable
+/// character through and let the input layer drop the ones it did not
+/// recognise, so `type_string` counted characters that never reached the
+/// machine — twelve reported and ten delivered on the BBC, with `CHAIN""`
+/// arriving as `CHAIN` (#1196). That is precisely the outcome #916 refused,
+/// bypassed one layer further down where nothing was checking.
 pub struct StandardKeyboard {
     timing: KeyTiming,
+    knows_name: fn(&str) -> bool,
 }
 
 impl StandardKeyboard {
-    /// Build a standard keyboard with the given timing.
+    /// Build a standard keyboard with the given timing, backed by the
+    /// machine's own key-name resolver.
+    ///
+    /// `knows_name` must answer for the *machine*, not for the shape of the
+    /// string: wrap whatever `apply_input_event` uses to turn a name into a
+    /// key, so the two cannot disagree.
     #[must_use]
-    pub const fn new(timing: KeyTiming) -> Self {
-        Self { timing }
-    }
-}
-
-impl Default for StandardKeyboard {
-    fn default() -> Self {
-        Self::new(STANDARD_KEY_TIMING)
+    pub const fn new(timing: KeyTiming, knows_name: fn(&str) -> bool) -> Self {
+        Self { timing, knows_name }
     }
 }
 
 impl KeyboardTarget for StandardKeyboard {
     fn key_name_is_valid(&self, name: &str) -> bool {
-        // The input layer drops names it doesn't know, so accept anything
-        // non-empty rather than maintain a per-machine allow-list here.
-        !name.is_empty()
+        !name.is_empty() && (self.knows_name)(name)
     }
 
     fn key_names_hint(&self) -> &'static str {
@@ -142,7 +146,9 @@ impl KeyboardTarget for StandardKeyboard {
             c if c.is_ascii_graphic() => c.to_string(),
             _ => return None,
         };
-        Some(vec![name])
+        // Ask the machine before promising the caller. A key this layout
+        // does not have is a refusal, not a silent drop (#1196).
+        (self.knows_name)(&name).then(|| vec![name])
     }
 
     fn key_timing(&self) -> KeyTiming {
@@ -150,19 +156,29 @@ impl KeyboardTarget for StandardKeyboard {
     }
 }
 
-/// The shared [`StandardKeyboard`] instance. A machine with an ASCII keyboard
-/// returns `Some(&STANDARD_KEYBOARD)` from
-/// [`MachineCore::keyboard_target`](crate::MachineCore::keyboard_target) to get
-/// the shared `press_key` / `type_string` verbs with no per-machine table.
-pub static STANDARD_KEYBOARD: StandardKeyboard = StandardKeyboard::new(STANDARD_KEY_TIMING);
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    /// A layout with the universal core plus `-`, and nothing else — the
+    /// shape of a real 198x keyboard whose symbol set is narrower than
+    /// printable ASCII.
+    fn narrow_layout(name: &str) -> bool {
+        matches!(name, "space" | "enter" | "-")
+            || (name.len() == 1
+                && name
+                    .chars()
+                    .next()
+                    .is_some_and(|c| c.is_ascii_lowercase() || c.is_ascii_digit()))
+    }
+
+    fn narrow_keyboard() -> StandardKeyboard {
+        StandardKeyboard::new(STANDARD_KEY_TIMING, narrow_layout)
+    }
+
     #[test]
     fn standard_keyboard_maps_the_universal_core() {
-        let kb = StandardKeyboard::default();
+        let kb = narrow_keyboard();
         // Letters map to the lowercased bare keycap (uppercase charset).
         assert_eq!(kb.keys_for_char('A'), Some(vec!["a".to_owned()]));
         assert_eq!(kb.keys_for_char('a'), Some(vec!["a".to_owned()]));
@@ -171,12 +187,40 @@ mod tests {
         assert_eq!(kb.keys_for_char(' '), Some(vec!["space".to_owned()]));
         assert_eq!(kb.keys_for_char('\n'), Some(vec!["enter".to_owned()]));
         assert_eq!(kb.keys_for_char('\r'), Some(vec!["enter".to_owned()]));
-        // Printable symbols pass through as their own one-character name.
-        assert_eq!(kb.keys_for_char('*'), Some(vec!["*".to_owned()]));
+        // A symbol the layout does have still passes through by name.
+        assert_eq!(kb.keys_for_char('-'), Some(vec!["-".to_owned()]));
         // Non-printable / control characters are skipped.
         assert_eq!(kb.keys_for_char('\t'), None);
-        // Validation is permissive (the input layer drops unknown names).
-        assert!(kb.key_name_is_valid("return"));
         assert!(!kb.key_name_is_valid(""));
+    }
+
+    /// The reported case. `"` reached the BBC as the key name `"`, which
+    /// its layout does not have, so the input layer dropped it — and
+    /// `type_string` had already counted it. `CHAIN""HELLO` reported
+    /// twelve characters typed and put `CHAINHELLO` on screen (#1196).
+    #[test]
+    fn a_character_the_layout_lacks_is_refused_not_counted() {
+        let kb = narrow_keyboard();
+        assert_eq!(
+            kb.keys_for_char('"'),
+            None,
+            "a printable character the machine cannot type must refuse, \
+             so type_string stops instead of miscounting"
+        );
+        assert_eq!(kb.keys_for_char('*'), None);
+    }
+
+    /// `press_key` took any non-empty name and let the machine drop it,
+    /// so a typo reported success and did nothing.
+    #[test]
+    fn press_key_validates_against_the_layout() {
+        let kb = narrow_keyboard();
+        assert!(kb.key_name_is_valid("space"));
+        assert!(kb.key_name_is_valid("a"));
+        assert!(
+            !kb.key_name_is_valid("return"),
+            "this layout calls it enter"
+        );
+        assert!(!kb.key_name_is_valid("nosuchkey"));
     }
 }

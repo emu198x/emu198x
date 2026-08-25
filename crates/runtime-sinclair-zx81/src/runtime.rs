@@ -24,6 +24,14 @@ const TAPE_SLOT: &str = "tape-1";
 /// ZX81 character code for `A`, used as the name in a generated waveform.
 const TAPE_NAME: u8 = 0x26;
 
+/// This machine's keyboard for the shared `press_key` / `type_string` tools:
+/// the standard layout, backed by this machine's own key-name resolver so a
+/// character it cannot type is refused rather than silently dropped (#1196).
+static KEYBOARD: emu198x_shell::StandardKeyboard = emu198x_shell::StandardKeyboard::new(
+    emu198x_shell::STANDARD_KEY_TIMING,
+    crate::input::knows_key_name,
+);
+
 pub struct Zx81Runtime {
     profile: MachineProfile,
     model: Model,
@@ -354,7 +362,7 @@ impl MachineCore for Zx81Runtime {
     fn keyboard_target(&self) -> Option<&dyn emu198x_shell::KeyboardTarget> {
         self.machine
             .is_some()
-            .then_some(&emu198x_shell::STANDARD_KEYBOARD as &dyn emu198x_shell::KeyboardTarget)
+            .then_some(&KEYBOARD as &dyn emu198x_shell::KeyboardTarget)
     }
 }
 
