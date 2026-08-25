@@ -63,8 +63,8 @@
 //! decodes peripherals onto eight-port blocks via I026, with one block
 //! sub-decoded by A0-A2 through I027 — and these addresses land exactly on
 //! that structure, `$20-$27` holding the four single-bit latches it predicts.
-//! The values themselves came from MAME's `tatung/einstein.cpp`. Drawing
-//! 85-4584-7 would settle them. See `verification.md`.
+//! The values themselves came from MAME's `tatung/einstein.cpp`. Tatung's own
+//! circuit diagram would settle them. See `verification.md`.
 //!
 //! | Port  | R/W   | Function                                       |
 //! |-------|-------|------------------------------------------------|
