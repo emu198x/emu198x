@@ -83,6 +83,8 @@ Media:
 
 Automation:
     --script PATH              execute shared JSON session steps
+    --headless                 run without a window (implied by --script)
+    --mcp                      serve this machine over MCP on stdio
     --headless                 force headless mode without a script
     --frames N                 number of native Game Boy video frames to run
     --load-snapshot PATH       restore a runtime snapshot before running

@@ -42,6 +42,13 @@ jobs:
       - name: Check every workflow bounds apt
         run: python3 scripts/check-workflow-apt.py --self-test
 
+      # --mcp, --script and --headless were wired into every machine and
+      # absent from every --help, and the Spectrum accepted --script but
+      # not --frames or --screenshot. Neither was someone forgetting
+      # once: nothing compared the thirty binaries.
+      - name: Check --help lists the flags the binaries accept
+        run: python3 scripts/check-help-lists-flags.py --self-test
+
   registry:
     name: System registry
     runs-on: ubuntu-latest
