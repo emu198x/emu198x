@@ -498,6 +498,12 @@ pub struct BbcMicro {
     /// fits a variable number of cycles into it.
     master_ticks: u64,
     frame_count: u64,
+    /// Tick at which the current frame started, and the line within it.
+    ///
+    /// Line boundaries used to be local to `run_frame`, so the work done at
+    /// each one never happened when the debugger stepped instructions (#1202).
+    frame_base: u64,
+    scanline: u16,
     /// Joystick fire buttons, `[joy1, joy2]`. The two analogue joysticks each
     /// have a switch wired to System VIA port B: PB4 (joy 1) and PB5 (joy 2),
     /// both active low. Merged into the VIA input latch each tick. (The X/Y
@@ -553,6 +559,8 @@ impl BbcMicro {
             cpu_cycles: 0,
             master_ticks: 0,
             frame_count: 0,
+            frame_base: 0,
+            scanline: 0,
             fire: [false; 2],
             adc: Upd7002::new(),
             acia: Mc6850::new(),
@@ -641,29 +649,40 @@ impl BbcMicro {
 
     /// Run one PAL frame.
     pub fn run_frame(&mut self) -> u64 {
-        // The frame is a fixed 312 × 128 = 39 936 master ticks at 2 MHz.
-        // Each scanline is 128 ticks; the CPU fits a variable number of
-        // 6502 cycles into it because accesses to the 1 MHz peripherals
-        // cost two ticks. Anchor line boundaries to a frame base so a
-        // cycle that overruns a boundary carries its extra tick into the
-        // next line rather than stretching the frame.
-        let frame_base = self.master_ticks;
-        for line in 0..SCANLINES_PER_FRAME {
-            let line_end = frame_base + u64::from(line + 1) * CYCLES_PER_LINE;
-            while self.master_ticks < line_end {
-                self.tick_cpu_cycle();
-            }
-            // Render visible scanlines.
-            if line < FB_HEIGHT as u16 {
-                self.render_scanline(line as usize);
-            }
-            // VSYNC pulse during a sensible window — System VIA CA1
-            // is wired to the CRTC's VSYNC. Drive the level so the
-            // VIA's edge detector latches the interrupt.
-            self.system_via.set_ca1_level(!self.crtc.vsync);
+        let start = self.master_ticks;
+        while self.master_ticks - start < CYCLES_PER_FRAME {
+            self.tick_cpu_cycle();
         }
-        self.frame_count += 1;
         CYCLES_PER_FRAME
+    }
+
+    /// Close off the scanline the machine has just finished: paint it, drive
+    /// the CRTC's VSYNC into the System VIA, and step to the next.
+    ///
+    /// This used to live in `run_frame`'s loop, so none of it happened when
+    /// the debugger stepped instructions. The VIAs and the CRTC tick per
+    /// cycle, so timer interrupts were fine, but the VSYNC line into CA1 was
+    /// never driven and nothing was painted -- a stepped machine ran without
+    /// its 50 Hz interrupt and handed back a stale framebuffer (#1202).
+    ///
+    /// The frame is a fixed 312 x 128 = 39,936 master ticks at 2 MHz. Each
+    /// line is 128 ticks; the CPU fits a variable number of 6502 cycles into
+    /// one because accesses to the 1 MHz peripherals cost two ticks. Anchor
+    /// the boundaries to a frame base so a cycle that overruns one carries
+    /// its extra tick into the next line rather than stretching the frame.
+    fn finish_scanline(&mut self) {
+        if self.scanline < FB_HEIGHT as u16 {
+            self.render_scanline(self.scanline as usize);
+        }
+        // System VIA CA1 is wired to the CRTC's VSYNC. Drive the level so the
+        // VIA's edge detector latches the interrupt.
+        self.system_via.set_ca1_level(!self.crtc.vsync);
+        self.scanline += 1;
+        if self.scanline >= SCANLINES_PER_FRAME {
+            self.scanline = 0;
+            self.frame_base += CYCLES_PER_FRAME;
+            self.frame_count += 1;
+        }
     }
 
     fn tick_cpu_cycle(&mut self) {
@@ -701,6 +720,12 @@ impl BbcMicro {
         self.cpu.irq = self.system_via.irq || self.user_via.irq || self.acia.irq();
         self.master_ticks += cost;
         self.cpu_cycles += 1;
+        // A cycle can cost more than one tick, so it may carry the machine
+        // over more than one line boundary.
+        while self.master_ticks >= self.frame_base + u64::from(self.scanline + 1) * CYCLES_PER_LINE
+        {
+            self.finish_scanline();
+        }
     }
 
     /// Advances the cassette demodulator by `cost` master ticks while the motor
@@ -1498,6 +1523,28 @@ mod tests {
     /// deck gate says whether it is running at all. A script could not stop
     /// the tape at all before, which made a stalled load hard to inspect
     /// (#1198).
+    /// Stepping instructions and running frames have to drive the same
+    /// hardware. The scanline loop lived in `run_frame`, so a stepped BBC
+    /// never had VSYNC driven into the System VIA and painted nothing --
+    /// no 50 Hz interrupt, and a stale framebuffer (#1202).
+    #[test]
+    fn stepping_a_frames_worth_of_instructions_is_a_frame() {
+        let mut stepped = BbcMicro::new(trap_rom());
+        let mut run = BbcMicro::new(trap_rom());
+
+        while stepped.master_ticks < CYCLES_PER_FRAME {
+            stepped.step_instruction();
+        }
+        run.run_frame();
+
+        assert_eq!(stepped.frame_count(), run.frame_count());
+        assert_eq!(
+            stepped.framebuffer(),
+            run.framebuffer(),
+            "a stepped frame has to paint what a run frame paints"
+        );
+    }
+
     #[test]
     fn a_stopped_deck_does_not_advance_even_with_the_motor_on() {
         let mut sys = BbcMicro::new(trap_rom());

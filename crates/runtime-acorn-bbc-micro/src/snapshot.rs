@@ -12,10 +12,11 @@ use serde::{Deserialize, Serialize};
 
 use crate::runtime::BbcMicroRuntime;
 
-// Bumped to 3: the machine gained a host-side deck-running
-// flag for `media_transport` (#1198). postcard is not
-// self-describing, so an added field shifts every byte after it.
-const SNAPSHOT_VERSION: u16 = 3;
+// Bumped to 4: the machine now carries its frame base and
+// current scanline, so instruction stepping crosses line
+// boundaries the way running does (#1202). postcard is not
+// self-describing, so added fields shift every byte after them.
+const SNAPSHOT_VERSION: u16 = 4;
 
 /// Borrowing envelope used during encode — avoids cloning the live machine.
 #[derive(Serialize)]

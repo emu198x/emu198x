@@ -184,6 +184,11 @@ pub struct OricAtmos {
     model: OricModel,
     cpu_cycles: u64,
     frame_count: u64,
+    /// Cycle at which the current frame started, and the raster line within
+    /// it. Line boundaries used to be local to `run_frame`, so nothing was
+    /// painted while the debugger stepped instructions (#1202).
+    frame_start: u64,
+    raster: u32,
     /// When `Some`, every write to the AY data register (via the VIA's
     /// BDIR/BC1 handshake) is captured for the shared `watch_ay_*` tools.
     /// Host-side debug only, not part of the snapshot.
@@ -215,6 +220,8 @@ impl OricAtmos {
             model,
             cpu_cycles: 0,
             frame_count: 0,
+            frame_start: 0,
+            raster: 0,
             ay_watch: None,
         }
     }
@@ -249,24 +256,36 @@ impl OricAtmos {
 
     /// Run one PAL frame.
     pub fn run_frame(&mut self) -> u64 {
-        // Render scanline-by-scanline as the beam scans, reading display RAM
-        // at the moment each line is scanned out, so mid-frame changes —
-        // raster splits, serial-attribute and TEXT/HIRES mode changes per
-        // line — land on the right rows. The 224-line display occupies raster
-        // lines DISPLAY_TOP..DISPLAY_TOP+224 of the 312-line frame
-        // (Oricutron `vid_start = 65`).
-        let frame_start = self.cpu_cycles;
-        for raster in 0..LINES_PER_FRAME {
-            let line_end = frame_start + u64::from((raster + 1) * CYCLES_PER_LINE);
-            while self.cpu_cycles < line_end {
-                self.tick_cpu_cycle();
-            }
-            if (DISPLAY_TOP..DISPLAY_TOP + FB_HEIGHT).contains(&raster) {
-                self.render_scanline((raster - DISPLAY_TOP) as usize);
-            }
+        let start = self.cpu_cycles;
+        while self.cpu_cycles - start < TICKS_PER_FRAME {
+            self.tick_cpu_cycle();
         }
-        self.frame_count += 1;
         TICKS_PER_FRAME
+    }
+
+    /// Paint the raster line the machine has just finished and step to the
+    /// next.
+    ///
+    /// Lines are rendered as the beam scans them, reading display RAM at the
+    /// moment each is scanned out, so mid-frame changes -- raster splits,
+    /// serial-attribute and TEXT/HIRES mode changes per line -- land on the
+    /// right rows. The 224-line display occupies raster lines
+    /// `DISPLAY_TOP..DISPLAY_TOP + 224` of the 312-line frame (Oricutron
+    /// `vid_start = 65`).
+    ///
+    /// This used to live in `run_frame`'s loop, so a machine driven by the
+    /// debugger's instruction stepping painted nothing and handed back a
+    /// stale framebuffer (#1202).
+    fn finish_scanline(&mut self) {
+        if (DISPLAY_TOP..DISPLAY_TOP + FB_HEIGHT).contains(&self.raster) {
+            self.render_scanline((self.raster - DISPLAY_TOP) as usize);
+        }
+        self.raster += 1;
+        if self.raster >= LINES_PER_FRAME {
+            self.raster = 0;
+            self.frame_start += TICKS_PER_FRAME;
+            self.frame_count += 1;
+        }
     }
 
     fn tick_cpu_cycle(&mut self) {
@@ -280,6 +299,9 @@ impl OricAtmos {
         self.psg.tick();
         self.cpu.irq = self.via.irq;
         self.cpu_cycles += 1;
+        while self.cpu_cycles >= self.frame_start + u64::from((self.raster + 1) * CYCLES_PER_LINE) {
+            self.finish_scanline();
+        }
     }
 
     fn mem_read(&mut self, addr: u16) -> u8 {
@@ -740,6 +762,27 @@ mod tests {
         assert_eq!(sys.mem_read(0xC000), 0x4C);
         assert_eq!(sys.mem_read(0xFFFC), 0x00);
         assert_eq!(sys.mem_read(0xFFFD), 0xC0);
+    }
+
+    /// Stepping instructions and running frames have to drive the same
+    /// hardware. The raster loop lived in `run_frame`, so a stepped Oric
+    /// painted nothing and handed back a stale framebuffer (#1202).
+    #[test]
+    fn stepping_a_frames_worth_of_instructions_is_a_frame() {
+        let mut stepped = OricAtmos::new(trap_rom(), OricModel::Atmos);
+        let mut run = OricAtmos::new(trap_rom(), OricModel::Atmos);
+
+        while stepped.cpu_cycles < TICKS_PER_FRAME {
+            stepped.step_instruction();
+        }
+        run.run_frame();
+
+        assert_eq!(stepped.frame_count(), run.frame_count());
+        assert_eq!(
+            stepped.framebuffer(),
+            run.framebuffer(),
+            "a stepped frame has to paint what a run frame paints"
+        );
     }
 
     #[test]
