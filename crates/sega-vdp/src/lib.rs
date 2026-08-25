@@ -599,6 +599,33 @@ impl SegaVdp {
         }
     }
 
+    /// The scan line the beam is on.
+    #[must_use]
+    pub const fn scanline(&self) -> u16 {
+        self.scanline
+    }
+
+    /// The dot within the line the beam is on, 0 at the first active pixel
+    /// and running to [`DOTS_PER_LINE`].
+    #[must_use]
+    pub const fn dot(&self) -> u16 {
+        self.dot
+    }
+
+    /// The colour standing at an active-area position, or `None` if the
+    /// machine does not display that position.
+    ///
+    /// A light gun's photodiode reads the picture through this: it looks at
+    /// one spot on the tube and the beam either lights it or does not.
+    #[must_use]
+    pub fn active_pixel(&self, line: u32, x: u32) -> Option<u32> {
+        if line >= self.active_height || x >= ACTIVE_WIDTH {
+            return None;
+        }
+        self.plot_index(line as usize, x as usize)
+            .map(|index| self.framebuffer[index])
+    }
+
     /// Read V counter ($7E).
     #[must_use]
     pub fn read_v_counter(&self) -> u8 {
