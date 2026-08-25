@@ -17,7 +17,11 @@ use crate::runtime::Atari5200Runtime;
 /// 288-line buffer that a version-3 NTSC machine would never allocate.
 /// Restoring it would resume into a geometry the machine disagrees with, and
 /// silently — so the version check rejects it instead.
-const SNAPSHOT_VERSION: u16 = 3;
+///
+/// Bumped to 4 when the cartridge gained its layout field. Postcard is not
+/// self-describing, so a version-3 payload decodes into a version-4 struct by
+/// misreading whatever follows the ROM — the same silent-resume failure.
+const SNAPSHOT_VERSION: u16 = 4;
 
 /// Borrowing envelope used during encode — avoids cloning the live machine.
 #[derive(Serialize)]

@@ -48,9 +48,10 @@
 //! line-level pipeline stalls the CPU for its DMA budget at the
 //! start of each line, then frees it for the remainder.
 
+mod cart_layouts;
 mod cartridge;
 
-pub use cartridge::Cartridge;
+pub use cartridge::{CartLayout, Cartridge};
 
 use atari_antic::{Antic, AnticRegion, COLOUR_CLOCKS_PER_LINE, CYCLES_HSYNC, cpu_dma_stalled};
 use atari_gtia::Gtia;
