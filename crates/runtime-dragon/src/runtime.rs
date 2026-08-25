@@ -8,7 +8,7 @@ use emu198x_shell::{
     QueryResult, ResetKind, RunResult, SessionQueryProvider, StopReason, TraceEvent,
 };
 use format_dragon_bin::{DragonBinImage, parse_dragon_bin};
-use format_dragon_cas::{CasFileType, CasImage, LEADER_BYTE, SYNC_BYTE, parse_cas_tolerant};
+use format_dragon_cas::{CasFileType, CasImage, LEADER_BYTE, parse_cas_tolerant};
 use format_dragon_disk::{DragonDiskImage, parse_vdk};
 use format_dragon_pak::{
     DragonCartridgeKind as ParsedDragonCartridgeKind, DragonPakImage, PcDragonSnapshot,
@@ -812,7 +812,7 @@ impl MachineCore for DragonRuntime {
                             reason: reason.to_string(),
                         }
                     })?;
-                    let tape_bytes = cassette_bytes_from_cas(&tape);
+                    let tape_bytes = cassette_bytes_from_cas(image.bytes, &tape);
                     self.machine.load_cassette_bytes(tape_bytes.clone());
                     self.tape = Some(tape);
                     self.tape_bytes = tape_bytes;
@@ -1182,18 +1182,61 @@ impl SessionQueryProvider<DragonRuntime> for DragonSessionQueryProvider {
     }
 }
 
-fn cassette_bytes_from_cas(tape: &CasImage) -> Vec<u8> {
-    let mut bytes = Vec::new();
-    for block in &tape.blocks {
-        let leader_len = block.leader_len.max(MIN_INITIAL_LEADER_BYTES);
-        bytes.extend(std::iter::repeat_n(LEADER_BYTE, leader_len));
-        bytes.push(SYNC_BYTE);
-        bytes.push(block.block_type);
-        bytes.push(block.data.len() as u8);
-        bytes.extend_from_slice(&block.data);
-        bytes.push(block.checksum);
-        bytes.push(LEADER_BYTE);
+/// Builds the byte stream the cassette peripheral plays.
+///
+/// A CAS file *is* the byte stream the ROM's cassette routines see, so
+/// every byte of it reaches the deck, in order.
+///
+/// This used to rebuild the tape from the blocks the parser had
+/// recognised, which did two harmful things to any tape whose data is
+/// not block-framed -- a custom loader, of which this corpus holds
+/// dozens. It dropped every unframed byte, leaving the loader nothing
+/// to read; and it wrapped a fresh leader and sync around each `$3C`
+/// the tolerant parser had stumbled across inside that unframed data,
+/// handing the ROM coincidences dressed as blocks. On Manic Miner the
+/// real header loaded, five fabricated blocks followed it, and the 6809
+/// ended up executing direct page (#1191).
+///
+/// The one thing added to the file is leader. [`CassetteReceiver`]
+/// needs a run of `$55` to lock its bit clock, and cannot re-acquire
+/// mid-stream the way the hardware demodulator does, so a block whose
+/// own leader is short would be missed. Rebuilding the tape hid that
+/// by giving every block a full-length leader; measured across the
+/// corpus, removing the padding outright costs about two thirds of the
+/// tapes that load today. So pad — and pad only ahead of a block whose
+/// checksum verifies, because a leader inserted ahead of a coincidence
+/// found in unframed data is the fabrication this is meant to stop.
+///
+/// [`CassetteReceiver`]: machine_dragon_32::CassetteReceiver
+fn cassette_bytes_from_cas(image_bytes: &[u8], tape: &CasImage) -> Vec<u8> {
+    let mut bytes = Vec::with_capacity(image_bytes.len() + MIN_INITIAL_LEADER_BYTES);
+    let mut copied = 0usize;
+    for block in tape.blocks.iter().filter(|block| block.checksum_valid) {
+        // `offset` is the block's leader, or its sync byte when it has
+        // none, so the shortfall is what stands between the two.
+        let leader_len = block.sync_offset.saturating_sub(block.offset);
+        let shortfall = MIN_INITIAL_LEADER_BYTES.saturating_sub(leader_len);
+        if block.offset < copied {
+            continue;
+        }
+        bytes.extend_from_slice(&image_bytes[copied..block.offset]);
+        bytes.extend(std::iter::repeat_n(LEADER_BYTE, shortfall));
+        // One byte of carrier after the checksum, where the rebuild used
+        // to put one. Two tapes in the corpus sample load only with it,
+        // and it costs nothing: it is carrier, arriving where the ROM
+        // has just finished a block and is hunting for the next.
+        // Sync, type and length are three bytes, then the payload, then
+        // the checksum.
+        let block_end = block.sync_offset + 3 + block.data.len() + 1;
+        if block_end <= image_bytes.len() {
+            bytes.extend_from_slice(&image_bytes[block.offset..block_end]);
+            bytes.push(LEADER_BYTE);
+            copied = block_end;
+        } else {
+            copied = block.offset;
+        }
     }
+    bytes.extend_from_slice(&image_bytes[copied..]);
     bytes
 }
 
@@ -1286,6 +1329,65 @@ mod tests {
     };
 
     use super::*;
+
+    /// Framed block: leader, sync, type, length, payload, checksum.
+    fn framed_block(leader: usize, block_type: u8, payload: &[u8], good_checksum: bool) -> Vec<u8> {
+        let mut out = vec![LEADER_BYTE; leader];
+        out.push(SYNC_BYTE);
+        out.push(block_type);
+        out.push(payload.len() as u8);
+        out.extend_from_slice(payload);
+        let checksum = checksum_for(block_type, payload.len() as u8, payload);
+        out.push(if good_checksum {
+            checksum
+        } else {
+            checksum ^ 0xFF
+        });
+        out
+    }
+
+    /// A custom loader's data is not block-framed, and it is the whole
+    /// program. Rebuilding the tape from parsed blocks dropped it --
+    /// 30,530 bytes of 30,989 on Manic Miner -- so the loader read
+    /// nothing and the 6809 ended up in direct page (#1191).
+    #[test]
+    fn unframed_data_after_a_header_still_reaches_the_deck() {
+        let mut image = framed_block(128, 0x00, &[0x41; 15], true);
+        let loader: Vec<u8> = (0..200u16).map(|i| (i % 251) as u8).collect();
+        image.extend_from_slice(&loader);
+
+        let tape = parse_cas_tolerant(&image).expect("the header parses");
+        let played = cassette_bytes_from_cas(&image, &tape);
+
+        let found = played
+            .windows(loader.len())
+            .any(|window| window == loader.as_slice());
+        assert!(found, "the unframed loader data must be played verbatim");
+    }
+
+    /// `$3C` occurs by chance in unframed data, and the tolerant parser
+    /// reports those as blocks. Giving one a leader presents a
+    /// coincidence to the ROM as a real block, which is how five
+    /// fabricated blocks got loaded over Manic Miner's memory.
+    #[test]
+    fn a_block_that_fails_its_checksum_gets_no_leader() {
+        let mut image = framed_block(128, 0x00, &[0x41; 15], true);
+        let junk_at = image.len();
+        image.extend_from_slice(&framed_block(0, 0x01, &[0x5A; 8], false));
+
+        let tape = parse_cas_tolerant(&image).expect("parses");
+        let played = cassette_bytes_from_cas(&image, &tape);
+
+        // The file, plus the single carrier byte that follows the one
+        // block that verified. No leader is inserted anywhere else.
+        assert_eq!(played.len(), image.len() + 1);
+        assert_eq!(
+            &played[junk_at + 1..],
+            &image[junk_at..],
+            "the bad-checksum block is played exactly as it sits in the file, \
+             with no leader conjured up in front of it"
+        );
+    }
 
     #[derive(Default)]
     struct CaptureFrameSink {
