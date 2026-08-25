@@ -49,7 +49,8 @@ pub use firmware::{FirmwareImage, FirmwareSet};
 pub use headless::{BootArtifacts, boot_machine, prepare_machine};
 pub use host::{
     AudioPacket, AudioSink, FramePacket, FrameSink, HostIo, InputEvent, NullAudioSink,
-    NullFrameSink, NullTraceSink, PixelFormat, TraceEvent, TraceSink,
+    NullFrameSink, NullTraceSink, PixelFormat, TraceEvent, TraceSink, aim_from_pixels,
+    aim_to_pixels,
 };
 pub use input::{
     AxisInputMap, AxisTarget, ButtonInputMap, ButtonTarget, HostAxis, HostControl,

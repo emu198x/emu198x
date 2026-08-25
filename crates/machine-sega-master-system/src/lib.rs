@@ -437,8 +437,8 @@ impl Sms {
             0x40..=0x7F => self.vdp.read_h_counter(),
             0x80..=0xBF if p & 1 == 0 => self.vdp.read_data(),
             0x80..=0xBF => self.vdp.read_status(),
-            0xC0..=0xFF if p & 1 == 0 => self.with_trigger(self.port_dc, 0, 4),
-            0xC0..=0xFF => self.with_trigger(self.port_dd, 1, 2),
+            0xC0..=0xFF if p & 1 == 0 => self.read_controller_port(1),
+            0xC0..=0xFF => self.read_controller_port(2),
             _ => 0xFF,
         }
     }
@@ -529,6 +529,31 @@ impl Sms {
         }
     }
 
+    /// The active-display pixel a framebuffer position falls on, or `None`
+    /// when it falls outside the picture.
+    ///
+    /// A host aims a light gun at somewhere on the screen it is showing, which
+    /// includes the border; the sensor reads the *picture*, which does not. So
+    /// the border maps to `None` and the gun sees nothing there — as it would
+    /// on a set showing an overscan colour the game never drew into.
+    ///
+    /// Always `None` on a Game Gear. Its framebuffer is the LCD panel rather
+    /// than a television window, and no light gun was made for it.
+    #[must_use]
+    pub fn active_position(&self, fb_x: u32, fb_y: u32) -> Option<(u16, u16)> {
+        if self.variant.is_game_gear() {
+            return None;
+        }
+        let region = self.variant.region();
+        let height = self.vdp.active_height();
+        let x = fb_x.checked_sub(region.border_left())?;
+        let y = fb_y.checked_sub(region.border_top(height))?;
+        if x >= sega_vdp::ACTIVE_WIDTH || y >= height {
+            return None;
+        }
+        Some((x as u16, y as u16))
+    }
+
     /// Point a Light Phaser at a spot on the active display, or unplug it with
     /// `None`.
     pub fn set_light_phaser_aim(&mut self, port: u8, aim: Option<(u16, u16)>) {
@@ -538,6 +563,17 @@ impl Sms {
             } else {
                 phaser.aim = aim;
             }
+        }
+    }
+
+    /// Where a Light Phaser is pointed, in active-display pixels, or `None`
+    /// if the port is empty or the gun is aimed off the picture.
+    #[must_use]
+    pub fn light_phaser_aim(&self, port: u8) -> Option<(u16, u16)> {
+        match port {
+            1 => self.phasers[0].aim,
+            2 => self.phasers[1].aim,
+            _ => None,
         }
     }
 
@@ -557,10 +593,24 @@ impl Sms {
         }
     }
 
+    /// The byte the CPU reads for a controller port, active low.
+    ///
+    /// This is what the game sees, so it carries a Light Phaser's trigger as
+    /// well as whatever the host set for a pad: the trigger is TL, the same
+    /// pin a pad uses for button 1.
+    #[must_use]
+    pub fn read_controller_port(&self, port: u8) -> u8 {
+        match port {
+            1 => self.with_trigger(self.port_dc, 0, 4),
+            2 => self.with_trigger(self.port_dd, 1, 2),
+            _ => 0xFF,
+        }
+    }
+
     /// A controller byte with any Light Phaser trigger folded in.
     ///
-    /// The trigger is TL, the same pin a pad uses for button 1 — bit 4 of $DC
-    /// for port 1, bit 2 of $DD for port 2 — and it is active low.
+    /// The trigger is TL — bit 4 of $DC for port 1, bit 2 of $DD for port 2 —
+    /// and it is active low.
     fn with_trigger(&self, value: u8, index: usize, bit: u8) -> u8 {
         if self.phasers[index].aim.is_some() && self.phasers[index].trigger {
             value & !(1 << bit)
