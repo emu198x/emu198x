@@ -813,9 +813,10 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
             .map_err(|err| format!("machine preparation failed: {err}"))?;
         let script = HeadlessScript::from_path(path)
             .map_err(|err| format!("failed to load script {}: {err}", path.display()))?;
-        let observations = script
+        let mut observations = script
             .execute_collect(&mut session)
             .map_err(|err| format!("script execution failed: {err}"))?;
+        observations.extend(session.blank_frame_observation());
         println!(
             "{}",
             serde_json::json!({

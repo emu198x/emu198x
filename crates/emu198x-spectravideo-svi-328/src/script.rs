@@ -228,6 +228,7 @@ fn run_cli(cli: Cli) -> Result<serde_json::Value, String> {
     let bios_loaded = machine.machine().is_some();
     let frame_count = machine.machine().map(|m| m.frame_count()).unwrap_or(0);
     let cart_provided = cli.cart.is_some();
+    observations.extend(session.blank_frame_observation());
     Ok(json!({
         "bios_loaded":  bios_loaded,
         "cart_loaded":  cart_provided,

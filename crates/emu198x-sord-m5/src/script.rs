@@ -225,6 +225,7 @@ fn run_cli(cli: Cli) -> Result<serde_json::Value, String> {
     let rom_loaded = machine.machine().is_some();
     let cart_loaded = rom_loaded && cart.is_some();
     let frame_count = machine.machine().map(|m| m.frame_count()).unwrap_or(0);
+    observations.extend(session.blank_frame_observation());
     Ok(json!({
         "rom_loaded":  rom_loaded,
         "cart_loaded": cart_loaded,

@@ -189,6 +189,7 @@ fn run_cli(cli: Cli) -> Result<serde_json::Value, String> {
     }
 
     let machine = session.machine();
+    observations.extend(session.blank_frame_observation());
     Ok(json!({
         "rom_loaded":   machine.machine().is_some(),
         "tape_loaded":  machine.machine().is_some_and(|m| m.tape().has_tape()),

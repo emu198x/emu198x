@@ -693,6 +693,32 @@ pub struct HeadlessScript {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ScriptObservation {
+    /// The final frame held a single colour.
+    ///
+    /// Emitted once per report rather than per step, and only when the
+    /// last frame is uniform. A blank final frame is legitimate for many
+    /// programs — one that animates can simply end mid-blank — so this
+    /// is a note to grep for, not a failure.
+    ///
+    /// `last_painted_frame` against `frames_seen` is what separates a
+    /// dead run from a live one. `None` means nothing ever painted; a
+    /// value far short of `frames_seen` means the picture stopped
+    /// changing and never came back. See
+    /// `knowledge/decisions/a-run-that-paints-nothing-says-so.md`.
+    BlankFrame {
+        /// The colour every pixel held, as `#RRGGBB`.
+        colour: String,
+        /// Frame width in pixels, so a degenerate frame is distinguishable
+        /// from a black one.
+        width: u32,
+        /// Frame height in pixels.
+        height: u32,
+        /// Frames emitted during this run.
+        frames_seen: u64,
+        /// Index of the last frame that showed more than one colour.
+        /// `None` if no frame ever did.
+        last_painted_frame: Option<u64>,
+    },
     /// Result of a frame-run step.
     RunFrames {
         /// Number of requested native frames.
