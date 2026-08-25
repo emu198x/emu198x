@@ -1029,7 +1029,7 @@ impl SegaVdp {
         // Evaluation first, drawing second. The 315-5124's magnification rule
         // is stated in terms of how many sprites are on the line, so the
         // count has to be known before the first one is drawn.
-        let mut chosen = [(0usize, 0usize); 8]; // (sprite index, first line)
+        let mut chosen = [(0usize, 0i32); 8]; // (sprite index, first line)
         let mut count = 0usize;
         for sprite in 0..64 {
             let y_raw = self.vram[(sat_base + sprite) & 0x3FFF];
@@ -1041,8 +1041,20 @@ impl SegaVdp {
                 break;
             }
 
-            let y = y_raw as usize + 1;
-            if line < y || line >= y + sprite_height {
+            // A Y at the very bottom of the byte's range is a sprite hanging
+            // off the *top* of the screen, not one far below it: MAME wraps
+            // at 240 — "wrap from top if y position is >= 240" — so a sprite
+            // can slide in from above rather than appearing all at once when
+            // its coordinate crosses zero.
+            //
+            // Genesis Plus GX wraps at `viewport height + 16` instead, which
+            // disagrees over 209 to 239 in the 192-line mode, and flags itself
+            // as "likely not 100% accurate and needs to be verified on real
+            // hardware". MAME's is both unqualified and the shape a comparator
+            // would take, being a plain test of the top nibble.
+            let y = i32::from(y_raw) + 1 - if y_raw >= 240 { 256 } else { 0 };
+            let line = line as i32;
+            if line < y || line >= y + sprite_height as i32 {
                 continue;
             }
 
@@ -1091,7 +1103,7 @@ impl SegaVdp {
                 pattern &= 0x3F | (usize::from(self.regs[6] & 0x03) << 6);
             }
 
-            let sprite_row = (line - y) >> zoom;
+            let sprite_row = ((line as i32 - y) as usize) >> zoom;
             let pattern_addr = spg_base + pattern * 32 + sprite_row * 4;
 
             let b0 = self.vram[(pattern_addr) & 0x3FFF];

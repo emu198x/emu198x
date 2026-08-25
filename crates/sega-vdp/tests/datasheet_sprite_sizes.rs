@@ -52,8 +52,9 @@ fn render_frame(vdp: &mut SegaVdp) {
 }
 
 fn pixel(vdp: &SegaVdp, line: u32, x: u32) -> u32 {
-    let index =
-        (REGION.border_top(192) + line) * REGION.framebuffer_width() + REGION.border_left() + x;
+    let index = (REGION.border_top(vdp.active_height()) + line) * REGION.framebuffer_width()
+        + REGION.border_left()
+        + x;
     vdp.framebuffer()[index as usize]
 }
 
@@ -319,4 +320,164 @@ fn the_315_5124_still_doubles_every_sprite_vertically() {
             "sprite {i} should be sixteen lines tall whether or not it widened"
         );
     }
+}
+
+// ---------------------------------------------------------------------------
+// Sprites hanging off the top of the screen
+// ---------------------------------------------------------------------------
+
+/// One sprite at a chosen Y, on a screen otherwise empty.
+fn sprite_at_y(y_raw: u8) -> SegaVdp {
+    let mut vdp = SegaVdp::new(REGION, VdpVariant::Sms2);
+    write_register(&mut vdp, 0, 0x04);
+    write_register(&mut vdp, 1, 0x40);
+    write_register(&mut vdp, 3, 0xFF);
+    write_register(&mut vdp, 4, 0x07);
+    write_register(&mut vdp, 5, 0xFF); // attribute table $3F00
+    write_register(&mut vdp, 6, 0x03); // sprite patterns $0000
+    write_register(&mut vdp, 7, 0x00);
+    poke_cram(&mut vdp, 16, BACKDROP);
+    poke_cram(&mut vdp, 16 + 5, INK);
+    poke_vram(&mut vdp, 0x0020, &solid_tile(5));
+    poke_vram(&mut vdp, 0x3F00, &[y_raw, 0xD0]);
+    poke_vram(&mut vdp, 0x3F80, &[0, 1]);
+    vdp
+}
+
+/// A Y at the bottom of the byte's range puts a sprite off the *top* of the
+/// screen, part-way in. Without the wrap a sprite scrolling on from above
+/// pops into existence all at once as its coordinate crosses zero, instead of
+/// sliding in a line at a time.
+///
+/// MAME: "wrap from top if y position is >= 240".
+#[test]
+fn a_y_at_the_end_of_the_range_hangs_the_sprite_off_the_top() {
+    // $FA is 250: first line -5, so three of the sprite's eight rows show.
+    let mut vdp = sprite_at_y(0xFA);
+    render_frame(&mut vdp);
+    let ink = sms_argb(INK);
+    assert_eq!(
+        pixel(&vdp, 0, 0),
+        ink,
+        "the sprite's sixth row is on line 0"
+    );
+    assert_eq!(pixel(&vdp, 2, 0), ink, "and its last on line 2");
+    assert_eq!(
+        pixel(&vdp, 3, 0),
+        sms_argb(BACKDROP),
+        "an 8x8 sprite starting at -5 ends after line 2"
+    );
+}
+
+/// The visible edge of the wrap. An 8x8 sprite whose first line is -8 is
+/// entirely above the picture; one line lower and its last row lands on line
+/// 0. Without the wrap both are far below the picture instead, so this is the
+/// boundary the wrap creates rather than one the coordinate already had.
+///
+/// Where exactly the wrap *begins* is not observable here, and that is worth
+/// knowing rather than glossing: a sprite with Y 240 wraps to first line -15
+/// and an 8x8 one is still wholly above the screen, so every value from 209
+/// to 247 looks the same — invisible — whether it wrapped or not. The two
+/// emulators' thresholds disagree across that band and the disagreement
+/// cannot be seen. It becomes visible only in the 240-line mode, where MAME
+/// wraps and Genesis Plus GX does not; we take MAME's, which is stated
+/// without qualification where the other flags itself as unverified.
+#[test]
+fn the_wrap_shows_a_sprite_that_would_otherwise_be_below_the_picture() {
+    let mut clear = sprite_at_y(247); // first line -8
+    render_frame(&mut clear);
+    assert_eq!(
+        pixel(&clear, 0, 0),
+        sms_argb(BACKDROP),
+        "eight rows starting at -8 all fall above the picture"
+    );
+
+    let mut showing = sprite_at_y(248); // first line -7
+    render_frame(&mut showing);
+    assert_eq!(
+        pixel(&showing, 0, 0),
+        sms_argb(INK),
+        "one line lower and the sprite's last row is on line 0"
+    );
+    assert_eq!(
+        pixel(&showing, 1, 0),
+        sms_argb(BACKDROP),
+        "and only that row"
+    );
+}
+
+/// A wrapped sprite still takes one of the eight slots on the lines it
+/// covers, and still draws from the right row of its pattern rather than
+/// from row zero.
+#[test]
+fn a_wrapped_sprite_draws_its_lower_rows() {
+    // A pattern whose rows differ, so which row is drawn is visible.
+    let mut vdp = sprite_at_y(0xFA); // first line -5
+    let mut tile = [0u8; 32];
+    for row in 0..8 {
+        // Row n takes colour n + 1.
+        let colour = (row + 1) as u8;
+        for (plane, byte) in tile[row * 4..row * 4 + 4].iter_mut().enumerate() {
+            *byte = if colour & (1 << plane) != 0 {
+                0xFF
+            } else {
+                0x00
+            };
+        }
+    }
+    poke_vram(&mut vdp, 0x0020, &tile);
+    for colour in 1..=8u8 {
+        poke_cram(&mut vdp, 16 + colour, colour * 4);
+    }
+    render_frame(&mut vdp);
+
+    // Line 0 is the sprite's row 5, since it began five lines above zero.
+    for (line, row) in [(0u32, 5u8), (1, 6), (2, 7)] {
+        assert_eq!(
+            pixel(&vdp, line, 0),
+            sms_argb((row + 1) * 4),
+            "line {line} should draw the pattern's row {row}"
+        );
+    }
+}
+
+/// In the 240-line mode a Y in the 200s is an ordinary position near the
+/// bottom of the picture, and must not be read as a wrapped one.
+///
+/// This is where the wrap's threshold stops being academic. In the 192-line
+/// mode everything from 209 to 247 is invisible either way, so a threshold
+/// set too low costs nothing; here it hides a sprite that belongs on screen.
+/// Both reference emulators agree on this case — MAME wraps from 240 and
+/// Genesis Plus GX from past the end of a 240-line display — so it is the
+/// low threshold, not the choice between them, that this rules out.
+#[test]
+fn a_tall_mode_shows_sprites_low_down_rather_than_wrapping_them() {
+    let mut vdp = SegaVdp::new(REGION, VdpVariant::Sms2);
+    write_register(&mut vdp, 0, 0x06); // Mode 4 + M2
+    write_register(&mut vdp, 1, 0x48); // display on + M3: 240 lines
+    write_register(&mut vdp, 3, 0xFF);
+    write_register(&mut vdp, 4, 0x07);
+    write_register(&mut vdp, 5, 0xFF);
+    write_register(&mut vdp, 6, 0x03);
+    write_register(&mut vdp, 7, 0x00);
+    poke_cram(&mut vdp, 16, BACKDROP);
+    poke_cram(&mut vdp, 16 + 5, INK);
+    poke_vram(&mut vdp, 0x0020, &solid_tile(5));
+    // Sprite 0 at Y 230, so lines 231 to 238. The second entry is a Y that
+    // wraps clear of the picture, since $D0 is not a terminator up here.
+    poke_vram(&mut vdp, 0x3F00, &[230, 245]);
+    poke_vram(&mut vdp, 0x3F80, &[0, 1, 0, 1]);
+
+    while !vdp.tick_scanline() {}
+    for _ in 0..240 {
+        vdp.tick_scanline();
+    }
+
+    assert_eq!(
+        pixel(&vdp, 231, 0),
+        sms_argb(INK),
+        "Y 230 is a position, not a wrap"
+    );
+    assert_eq!(pixel(&vdp, 238, 0), sms_argb(INK), "and it is eight tall");
+    assert_eq!(pixel(&vdp, 239, 0), sms_argb(BACKDROP));
 }
