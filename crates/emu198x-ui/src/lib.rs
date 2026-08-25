@@ -17,7 +17,7 @@ mod menu;
 mod overlay;
 
 use std::borrow::Cow;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::mpsc::{Receiver, Sender, channel};
@@ -252,6 +252,35 @@ pub trait UiSystem {
         None
     }
 
+    /// The controller port an absolute pointing device is plugged into — a
+    /// light gun, light pen or tablet — or `None` (default) if this system has
+    /// none.
+    ///
+    /// `Some` opts the window into reporting where the cursor *is* rather than
+    /// how far it moved: the harness sends [`InputEvent::Aim`] on every cursor
+    /// move, normalized across the framebuffer, and `None` when the pointer
+    /// leaves the window. A system may have both this and a
+    /// [`mouse_device`](Self::mouse_device); they answer different questions
+    /// and neither can be derived from the other.
+    fn aim_port(&self) -> Option<u8> {
+        None
+    }
+
+    /// Control name a host mouse button maps to on the aiming device's port,
+    /// or `None` to ignore it. Only consulted when
+    /// [`Self::aim_port`](Self::aim_port) is `Some`.
+    ///
+    /// Default: the left button is the trigger. A light gun's trigger is an
+    /// ordinary control on its port — on the Master System it is the same pin
+    /// a pad uses for button 1 — so this goes out as
+    /// [`InputEvent::Button`], not as a pointer event.
+    fn map_aim_button(&self, button: MouseButton) -> Option<&'static str> {
+        match button {
+            MouseButton::Left => Some("trigger"),
+            _ => None,
+        }
+    }
+
     /// Name for a host mouse button, or `None` to ignore it. Only consulted when
     /// [`Self::mouse_device`] is `Some`. Default: the standard three buttons.
     fn map_mouse_button(&self, button: MouseButton) -> Option<&'static str> {
@@ -401,6 +430,9 @@ struct App<S: UiSystem> {
     last_cursor_position: Option<(f64, f64)>,
     /// Mouse buttons currently held, so they can be released on focus loss.
     pressed_mouse_buttons: HashMap<MouseButton, &'static str>,
+    /// Host buttons held on an aiming device's port, so focus loss can let
+    /// go of a trigger the game would otherwise see stuck down.
+    pressed_aim_buttons: HashSet<MouseButton>,
     /// Held modifier keys, tracked so the save/load chords (Cmd/Ctrl+S / +L)
     /// can be distinguished from the bare keys the machine keyboard uses.
     modifiers: ModifiersState,
@@ -465,6 +497,7 @@ impl<S: UiSystem> App<S> {
             pressed_key_names: HashMap::new(),
             last_cursor_position: None,
             pressed_mouse_buttons: HashMap::new(),
+            pressed_aim_buttons: HashSet::new(),
             modifiers: ModifiersState::empty(),
             gamepads: NativeGamepadInput::new(),
             window: None,
@@ -723,6 +756,33 @@ impl<S: UiSystem> App<S> {
         (x * f64::from(fb_w) / width, y * f64::from(fb_h) / height)
     }
 
+    /// Emit an absolute `Aim` for a system with a pointing device.
+    ///
+    /// Sent on every move rather than on change, because the machine may have
+    /// resized its display since the last one — the Master System switches
+    /// between 192, 224 and 240 lines at runtime — and the same cursor
+    /// position then means a different pixel.
+    fn queue_aim(&mut self, x: f64, y: f64) {
+        let Some(port) = self.system.aim_port() else {
+            return;
+        };
+        let (fb_w, fb_h) = self.system.framebuffer_size(&self.runner.runtime);
+        let (fx, fy) = self.cursor_to_frame_position(x, y);
+        let at = emu198x_shell::aim_from_pixels(fx as i32, fy as i32, fb_w, fb_h);
+        self.pending_inputs.push(InputEvent::Aim { port, at });
+        self.next_slice_at = Instant::now();
+    }
+
+    /// Tell a pointing device the cursor has left the window, which is a
+    /// gesture and not an absence: light-gun games read "aimed off the
+    /// screen" as the reload.
+    fn queue_aim_away(&mut self) {
+        if let Some(port) = self.system.aim_port() {
+            self.pending_inputs.push(InputEvent::Aim { port, at: None });
+            self.next_slice_at = Instant::now();
+        }
+    }
+
     /// Emit a relative `PointerMotion` from an absolute cursor position (the
     /// first event after focus just sets the baseline). No-op for a system with
     /// no mouse.
@@ -751,6 +811,24 @@ impl<S: UiSystem> App<S> {
     /// released on focus loss. No-op for a system with no mouse or an unmapped
     /// button.
     fn queue_mouse_button_state(&mut self, button: MouseButton, pressed: bool) {
+        if let (Some(port), Some(name)) =
+            (self.system.aim_port(), self.system.map_aim_button(button))
+        {
+            let held = self.pressed_aim_buttons.contains(&button);
+            if pressed != held {
+                if pressed {
+                    self.pressed_aim_buttons.insert(button);
+                } else {
+                    self.pressed_aim_buttons.remove(&button);
+                }
+                self.pending_inputs.push(InputEvent::Button {
+                    port,
+                    name: name.into(),
+                    pressed,
+                });
+                self.next_slice_at = Instant::now();
+            }
+        }
         let Some(device) = self.system.mouse_device() else {
             return;
         };
@@ -778,6 +856,18 @@ impl<S: UiSystem> App<S> {
     }
 
     fn release_all_mouse_buttons(&mut self) {
+        if let Some(port) = self.system.aim_port() {
+            for button in std::mem::take(&mut self.pressed_aim_buttons) {
+                if let Some(name) = self.system.map_aim_button(button) {
+                    self.pending_inputs.push(InputEvent::Button {
+                        port,
+                        name: name.into(),
+                        pressed: false,
+                    });
+                }
+            }
+            self.next_slice_at = Instant::now();
+        }
         let Some(device) = self.system.mouse_device() else {
             return;
         };
@@ -1333,9 +1423,12 @@ impl<S: UiSystem> ApplicationHandler for App<S> {
                 self.modifiers = ModifiersState::empty();
                 self.release_all_keys();
                 self.release_all_mouse_buttons();
+                self.queue_aim_away();
             }
+            WindowEvent::CursorLeft { .. } => self.queue_aim_away(),
             WindowEvent::CursorMoved { position, .. } => {
                 self.queue_mouse_motion(position.x, position.y);
+                self.queue_aim(position.x, position.y);
             }
             WindowEvent::MouseInput { state, button, .. } => {
                 self.queue_mouse_button_state(button, state == ElementState::Pressed);

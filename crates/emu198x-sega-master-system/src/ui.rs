@@ -103,6 +103,13 @@ struct SmsSystem {
 }
 
 impl UiSystem for SmsSystem {
+    /// The Light Phaser lives in controller port 1, where every light-gun
+    /// title expects it. Pointing the mouse aims it; the left button is the
+    /// trigger, mapped through the ordinary button path.
+    fn aim_port(&self) -> Option<u8> {
+        Some(1)
+    }
+
     type Runtime = SmsRuntime;
 
     fn window_title(&self) -> String {
