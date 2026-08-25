@@ -92,9 +92,37 @@ fn knows_key_name(name: &str) -> bool {
     DragonKey::from_label(name).is_some()
 }
 
+/// The character each Dragon keycap carries above its own, read off the
+/// machine: hold SHIFT with every key in turn and let BASIC echo the result.
+///
+/// SHIFT-0 is not in the table because it is not a symbol — the Dragon uses
+/// it to toggle the case lock, and the screen shows a block glyph. SHIFT-@
+/// produces nothing. Both were assumptions worth not making (#1206).
+const SHIFTED_LEGENDS: &[(char, &str)] = &[
+    ('!', "1"),
+    ('"', "2"),
+    ('#', "3"),
+    ('$', "4"),
+    ('%', "5"),
+    ('&', "6"),
+    ('\'', "7"),
+    ('(', "8"),
+    (')', "9"),
+    ('*', ":"),
+    ('+', ";"),
+    ('<', ","),
+    ('=', "-"),
+    ('>', "."),
+    ('?', "/"),
+];
+
 /// The Dragon's keyboard for the shared `press_key` / `type_string` tools.
-static KEYBOARD: emu198x_shell::StandardKeyboard =
-    emu198x_shell::StandardKeyboard::new(emu198x_shell::STANDARD_KEY_TIMING, knows_key_name);
+static KEYBOARD: emu198x_shell::StandardKeyboard = emu198x_shell::StandardKeyboard::with_legends(
+    emu198x_shell::STANDARD_KEY_TIMING,
+    knows_key_name,
+    "shift",
+    SHIFTED_LEGENDS,
+);
 
 /// Summary of the currently mounted Dragon cassette image.
 #[derive(Clone, Debug, PartialEq, Eq)]
