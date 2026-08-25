@@ -36,6 +36,7 @@ not a Master System with a smaller screen.
 from __future__ import annotations
 
 import argparse
+import sys
 from pathlib import Path
 
 # 32 KB is the smallest size the Sega mapper is happy to page.
@@ -57,6 +58,13 @@ GG_EXPECTED_ARGB = 0xFF00FF00
 # two cannot be confused.
 SG_BACKDROP_INDEX = 0x0F
 SG_EXPECTED_ARGB = 0xFFFFFFFF
+
+# The raster cartridge's two backdrop colours, and the line its interrupt is
+# aimed at. Green above the split and red below it, so which is which cannot
+# be mistaken for a shade of the other.
+RASTER_TOP_CRAM = 0x0C  # full green
+RASTER_BOTTOM_CRAM = 0x03  # full red
+RASTER_SPLIT_R10 = 0x3F  # fire once, 63 lines down
 
 
 def z80(*parts: bytes) -> bytes:
@@ -139,6 +147,90 @@ def program(game_gear: bool) -> bytes:
     return body
 
 
+def raster_split_program() -> bytes:
+    """A cartridge that changes the backdrop from a line interrupt.
+
+    Where the boot cartridges answer "did anything happen at all", this one
+    answers "when". It paints the screen from the backdrop, arms the line
+    counter, and has its interrupt handler switch the backdrop to a second
+    colour — so the frame comes out green above a line and red below it, and
+    the *position of that edge* is the line interrupt's timing made visible.
+
+    The split is re-armed every frame, so it stands in the same place on every
+    one of them and a test can read it from any frame after the first. That
+    needs the frame interrupt as well as the line interrupt, and the handler
+    tells them apart the way a game does: it reads the status port first and
+    looks at bit 7.
+
+    Reading status is also what clears both pending flags, which is why the
+    two interrupts must not coincide — with the counter reloading at 63, 127
+    and 191, none of them lands on the line the frame flag is set.
+
+    The background is left as powered-up VRAM, all zeros, which in Mode 4 is
+    pattern 0 in every cell and colour 0 in every pixel. Colour 0 is
+    transparent, so every active pixel shows the backdrop and the split runs
+    the full width of the screen.
+    """
+    body = z80(
+        bytes([0xF3]),  # di
+        bytes([0x31, 0xF0, 0xDF]),  # ld sp, $DFF0
+        bytes([0xED, 0x56]),  # im 1
+        # CRAM entries 16 and 17: the backdrop is a sprite-palette index, and
+        # the address register walks on by itself between the two writes.
+        cram_address(16),
+        bytes([0x3E, RASTER_TOP_CRAM]),
+        bytes([0xD3, 0xBE]),  # out ($BE), a
+        bytes([0x3E, RASTER_BOTTOM_CRAM]),
+        bytes([0xD3, 0xBE]),
+        vdp_register(7, 0x00),  # backdrop = entry 16
+        vdp_register(10, RASTER_SPLIT_R10),  # line counter reload
+        vdp_register(1, 0x60),  # display on + frame interrupts
+        vdp_register(0, 0x14),  # mode 4 + line interrupts
+        bytes([0xFB]),  # ei
+        bytes([0x18, 0xFE]),  # jr $
+    )
+    # The Z80's IM 1 vector is $0038, which the body runs past, so the reset
+    # vector jumps over it and the handler sits where the CPU will look. The
+    # body then has to start clear of the handler — overlap it and the handler
+    # falls through into the setup code instead of returning, which reads as a
+    # timing fault rather than a layout one.
+    handler_end = 0x38 + len(RASTER_HANDLER)
+    entry = 0x0050
+    assert entry >= handler_end, f"body at {entry:#06x} would clobber the handler"
+    rom = bytearray(b"\xFF" * (entry + len(body)))
+    rom[0:3] = bytes([0xC3, entry & 0xFF, entry >> 8])  # jp entry
+    rom[0x38:handler_end] = RASTER_HANDLER
+    rom[entry : entry + len(body)] = body
+    return bytes(rom)
+
+
+# The handler. It reads the status port first — which is both how a game tells
+# a line interrupt from a frame one and what clears the pending flag — then
+# turns bit 7 into the backdrop it wants: entry 0 at the top of a frame, entry
+# 1 from the split down.
+#
+# The cost to the write that matters is fixed, and stated here because the
+# test computes where the split should land from it: 58 T-states from the
+# handler's first instruction to the register write completing, on top of the
+# 13 the Z80 spends accepting an interrupt in mode 1.
+RASTER_HANDLER = z80(
+    bytes([0xDB, 0xBF]),  # in a, ($BF)   11 T  — status, and clears it
+    bytes([0x07]),  # rlca                 4 T  — frame flag to bit 0
+    bytes([0xE6, 0x01]),  # and $01        7 T
+    bytes([0xEE, 0x01]),  # xor $01        7 T  — 0 on a frame, 1 on a line
+    bytes([0xD3, 0xBF]),  # out ($BF), a  11 T  — the register's data byte
+    bytes([0x3E, 0x87]),  # ld a, $87      7 T  — register 7
+    bytes([0xD3, 0xBF]),  # out ($BF), a  11 T  — the backdrop changes here
+    bytes([0xFB]),  # ei
+    bytes([0xED, 0x4D]),  # reti
+)
+
+# What the handler costs before the backdrop changes, and what the Z80 spends
+# getting there. A test turns these into a screen position.
+HANDLER_T_STATES_TO_WRITE = 11 + 4 + 7 + 7 + 11 + 7 + 11
+INTERRUPT_ACCEPTANCE_T_STATES = 13
+
+
 def build(code: bytes) -> bytes:
     rom = bytearray(b"\xFF" * CART_SIZE)
     rom[0 : len(code)] = code
@@ -148,17 +240,36 @@ def build(code: bytes) -> bytes:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--out-dir", type=Path, default=Path(__file__).parent)
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help="rebuild and compare instead of writing",
+    )
     args = parser.parse_args()
 
     images = (
         ("master-system.sms", program(game_gear=False)),
         ("game-gear.gg", program(game_gear=True)),
         ("sg-1000.sg", sg_1000_program()),
+        ("master-system-raster.sms", raster_split_program()),
     )
+    drifted = []
     for name, code in images:
         path = args.out_dir / name
-        path.write_bytes(build(code))
-        print(f"wrote {path} ({CART_SIZE} bytes)")
+        image = build(code)
+        if args.check:
+            if (path.read_bytes() if path.exists() else b"") != image:
+                drifted.append(name)
+        else:
+            path.write_bytes(image)
+            print(f"wrote {path} ({CART_SIZE} bytes)")
+
+    if drifted:
+        print(f"cartridges have drifted: {', '.join(drifted)}", file=sys.stderr)
+        print("Run `python3 build-synthetic-cart.py` and commit.", file=sys.stderr)
+        return 1
+    if args.check:
+        print(f"cartridges are current ({len(images)})")
     return 0
 
 
