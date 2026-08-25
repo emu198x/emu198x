@@ -21,7 +21,11 @@ use crate::runtime::Atari5200Runtime;
 /// Bumped to 4 when the cartridge gained its layout field. Postcard is not
 /// self-describing, so a version-3 payload decodes into a version-4 struct by
 /// misreading whatever follows the ROM — the same silent-resume failure.
-const SNAPSHOT_VERSION: u16 = 4;
+///
+/// Bumped to 5 when GTIA gained its PAL register. Postcard is not
+/// self-describing, so a version-4 payload decodes by misreading the
+/// chip state that follows.
+const SNAPSHOT_VERSION: u16 = 5;
 
 /// Borrowing envelope used during encode — avoids cloning the live machine.
 #[derive(Serialize)]

@@ -236,6 +236,16 @@ pub enum AnticMode {
 /// Atari GTIA graphics chip.
 #[derive(Serialize, Deserialize)]
 pub struct Gtia {
+    /// PAL register, read-only at `$D014`/`$C014`. Software reads it to
+    /// find out which television standard it is running on: `$0F` for
+    /// NTSC, `$01` for PAL (MAME `src/mame/atari/gtia.cpp:270`,
+    /// `m_r.pal = is_ntsc() ? 0x0f : 0x01`).
+    ///
+    /// It is not decoration. Joust reads `$C014`, compares against `$0F`,
+    /// and picks an all-zero palette when it does not match — a machine
+    /// that answers neither value renders the whole game black.
+    pal: u8,
+
     // -- Colour registers --
     colpm: [u8; 4], // COLPM0-3: player/missile colours
     colpf: [u8; 4], // COLPF0-3: playfield colours
@@ -311,6 +321,10 @@ impl Gtia {
     #[must_use]
     pub fn new(region: GtiaRegion) -> Self {
         Self {
+            pal: match region {
+                GtiaRegion::Ntsc => 0x0F,
+                GtiaRegion::Pal => 0x01,
+            },
             colpm: [0; 4],
             colpf: [0; 4],
             colbk: 0,
@@ -397,8 +411,8 @@ impl Gtia {
             0x0C..=0x0F => self.p_pl[(reg - 0x0C) as usize],
             // Triggers
             0x10..=0x13 => self.trig[(reg - 0x10) as usize],
-            // PAL flag (always NTSC = 0 for now)
-            0x14 => 0x00,
+            // PAL register — which television standard this chip feeds.
+            0x14 => self.pal,
             // CONSOL — switch inputs (bits 0-2, active low); bit 3 reads back
             // the speaker output latch.
             0x1F => (self.consol_out & 0x08) | (self.console_switches & 0x07),
@@ -981,6 +995,26 @@ fn colour_to_argb32(colour: u8) -> u32 {
 
 #[cfg(test)]
 mod tests {
+    /// Software reads `$D014`/`$C014` to find out which television
+    /// standard it is on. MAME: `m_r.pal = is_ntsc() ? 0x0f : 0x01`
+    /// (`src/mame/atari/gtia.cpp:270`).
+    ///
+    /// Answering `$00` — neither value — made Joust load an all-zero
+    /// palette and render the whole game black on an NTSC machine.
+    #[test]
+    fn pal_register_reports_the_television_standard() {
+        assert_eq!(Gtia::new(GtiaRegion::Ntsc).read(0x14), 0x0F, "NTSC");
+        assert_eq!(Gtia::new(GtiaRegion::Pal).read(0x14), 0x01, "PAL");
+    }
+
+    /// The register is mirrored across GTIA's address space like every
+    /// other one, so a read of `$C034` must answer too.
+    #[test]
+    fn pal_register_is_mirrored() {
+        let gtia = Gtia::new(GtiaRegion::Ntsc);
+        assert_eq!(gtia.read(0x34), 0x0F);
+    }
+
     #[test]
     fn each_region_holds_exactly_the_field_a_set_shows() {
         // 240 lines on NTSC, 288 on PAL — `Display::Television`'s
