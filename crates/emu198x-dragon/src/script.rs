@@ -7,6 +7,7 @@
 //! `emu198x-dragon` binary; the dispatcher in `main.rs` routes here when
 //! a headless-only flag is present.
 
+use std::collections::BTreeMap;
 use std::env;
 use std::fs;
 use std::io::Read;
@@ -239,6 +240,10 @@ struct HarnessReport {
 struct SmokeMatrixReport {
     tape_count: usize,
     runtime_smokes: usize,
+    /// Tapes found but not run, by reason. Present so a scan that runs
+    /// nothing says why on its own summary line.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    runtime_skipped: BTreeMap<&'static str, usize>,
     rows: Vec<SmokeMatrixRow>,
 }
 
@@ -260,6 +265,11 @@ struct SmokeMatrixRow {
     header: Option<CasHeaderSummary>,
     #[serde(skip_serializing_if = "Option::is_none")]
     runtime: Option<CasRuntimeSmoke>,
+    /// Why this tape was not run, when it was not. A scan that runs
+    /// nothing used to report only `runtime_smokes: 0`, which reads as
+    /// "nothing to do" rather than "everything was declined".
+    #[serde(skip_serializing_if = "Option::is_none")]
+    runtime_skipped: Option<&'static str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
 }
@@ -1665,9 +1675,17 @@ fn run_smoke_matrix(
         rows.push(row);
     }
 
+    let mut runtime_skipped: BTreeMap<&'static str, usize> = BTreeMap::new();
+    for row in &rows {
+        if let Some(reason) = row.runtime_skipped {
+            *runtime_skipped.entry(reason).or_default() += 1;
+        }
+    }
+
     Ok(SmokeMatrixReport {
         tape_count: rows.len(),
         runtime_smokes,
+        runtime_skipped,
         rows,
     })
 }
@@ -3625,6 +3643,7 @@ fn scan_tape_candidate(
                 ignored_bytes: None,
                 header: None,
                 runtime: None,
+                runtime_skipped: Some("tape could not be read"),
                 error: Some(err.to_string()),
             };
         }
@@ -3643,21 +3662,35 @@ fn scan_tape_candidate(
                 ignored_bytes: None,
                 header: None,
                 runtime: None,
+                runtime_skipped: Some("tape could not be parsed"),
                 error: Some(err.to_string()),
             };
         }
     };
 
     let header = parsed.first_header().map(CasHeaderSummary::from);
-    let should_smoke = parsed.first_header().is_some_and(|header| {
-        matches!(
-            header.file_type,
-            CasFileType::Basic | CasFileType::MachineCode
-        )
-    }) && !parsed.has_ignored_bytes()
-        && parsed.checksums_valid()
-        && *runtime_smokes < smoke.run_limit;
-    let runtime = if should_smoke {
+
+    // Unrecognised bytes and failed checksums used to gate this too,
+    // from when the tape was rebuilt out of the blocks the parser
+    // recognised and anything unparsed really was lost. The tape is now
+    // played as it stands, so neither says whether the machine can load
+    // it: a custom loader's data is unframed by design, and those were
+    // precisely the tapes the old gate refused to run. What decides it
+    // is whether the tape names a file the ROM knows how to load.
+    let skip_reason = match parsed.first_header() {
+        None => Some("no namefile header"),
+        Some(header)
+            if !matches!(
+                header.file_type,
+                CasFileType::Basic | CasFileType::MachineCode
+            ) =>
+        {
+            Some("file type is not loadable")
+        }
+        Some(_) if *runtime_smokes >= smoke.run_limit => Some("run limit reached"),
+        Some(_) => None,
+    };
+    let runtime = if skip_reason.is_none() {
         *runtime_smokes += 1;
         Some(run_runtime_smoke(firmware, &loaded.bytes, &parsed, smoke))
     } else {
@@ -3678,6 +3711,7 @@ fn scan_tape_candidate(
         ignored_bytes: Some(parsed.ignored_byte_count()),
         header,
         runtime,
+        runtime_skipped: skip_reason,
         error: None,
     }
 }
