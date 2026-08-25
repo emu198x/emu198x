@@ -20,8 +20,12 @@ use crate::mcp_tools::register_c64_tools;
 ///
 /// Returns an error string if the C64 ROMs cannot be resolved, the
 /// machine fails to boot, or the JSON-RPC stdio loop hits an I/O failure.
-pub fn run() -> Result<(), String> {
+pub fn run(args: &[String]) -> Result<(), String> {
     let mut session = crate::script::mcp_session()?;
+
+    // Media named on the command line is loaded here so `--rom`
+    // means the same thing in MCP mode as in the other two (#1180).
+    emu198x_shell::startup_media::load_into(&mut session, args)?;
 
     let mut server = Server::new(ServerInfo::new("emu198x-c64", env!("CARGO_PKG_VERSION")));
     register_base_tools(server.registry_mut());

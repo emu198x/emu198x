@@ -21,7 +21,7 @@ const FIRMWARE_SIZE: usize = 32 * 1024;
 ///
 /// Returns an error string if the firmware is present but invalid, or if the
 /// JSON-RPC stdio loop hits an I/O failure.
-pub fn run() -> Result<(), String> {
+pub fn run(args: &[String]) -> Result<(), String> {
     let mut machine = AmstradCpcRuntime::blank(Model::Cpc464);
     if let Some(path) = default_rom_path().filter(|p| p.exists())
         && let Ok(bytes) = fs::read(&path)
@@ -48,6 +48,10 @@ pub fn run() -> Result<(), String> {
         FRAME_TICKS_PAL,
         AmstradCpcSessionQueryProvider,
     );
+
+    // Media named on the command line is loaded here so `--rom`
+    // means the same thing in MCP mode as in the other two (#1180).
+    emu198x_shell::startup_media::load_into(&mut session, args)?;
     let mut server = Server::new(ServerInfo::new(
         "emu198x-amstrad-cpc",
         env!("CARGO_PKG_VERSION"),

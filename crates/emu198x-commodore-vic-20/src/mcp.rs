@@ -19,7 +19,7 @@ const FRAME_TICKS_PAL: u64 = 71 * 312;
 /// # Errors
 ///
 /// Returns an error string if the JSON-RPC stdio loop hits an I/O failure.
-pub fn run() -> Result<(), String> {
+pub fn run(args: &[String]) -> Result<(), String> {
     let mut machine = Vic20Runtime::blank(Model::Vic20Pal);
     let kernal = rom_path("KERNAL", "kernal.rom");
     let basic = rom_path("BASIC", "basic.rom");
@@ -42,6 +42,10 @@ pub fn run() -> Result<(), String> {
         FRAME_TICKS_PAL,
         Vic20SessionQueryProvider,
     );
+
+    // Media named on the command line is loaded here so `--rom`
+    // means the same thing in MCP mode as in the other two (#1180).
+    emu198x_shell::startup_media::load_into(&mut session, args)?;
     let mut server = Server::new(ServerInfo::new(
         "emu198x-commodore-vic-20",
         env!("CARGO_PKG_VERSION"),

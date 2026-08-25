@@ -20,7 +20,7 @@ const FRAME_TICKS: u64 = 20_000;
 /// # Errors
 ///
 /// Returns an error string if the JSON-RPC stdio loop hits an I/O failure.
-pub fn run() -> Result<(), String> {
+pub fn run(args: &[String]) -> Result<(), String> {
     let mut machine = PetRuntime::blank(Model::Pet40Col);
     let kernal = rom_path("KERNAL", "kernal.rom");
     let basic = rom_path("BASIC", "basic.rom");
@@ -46,6 +46,10 @@ pub fn run() -> Result<(), String> {
 
     let mut session =
         HeadlessSession::new_with_query_provider(machine, FRAME_TICKS, PetSessionQueryProvider);
+
+    // Media named on the command line is loaded here so `--rom`
+    // means the same thing in MCP mode as in the other two (#1180).
+    emu198x_shell::startup_media::load_into(&mut session, args)?;
     let mut server = Server::new(ServerInfo::new(
         "emu198x-commodore-pet",
         env!("CARGO_PKG_VERSION"),

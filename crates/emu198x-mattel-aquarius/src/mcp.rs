@@ -19,7 +19,7 @@ const FRAME_TICKS_PAL: u64 = 71_590;
 /// # Errors
 ///
 /// Returns an error string if the JSON-RPC stdio loop hits an I/O failure.
-pub fn run() -> Result<(), String> {
+pub fn run(args: &[String]) -> Result<(), String> {
     let mut machine = AquariusRuntime::blank(Model::Aquarius);
     if let Some(path) = bios_path()
         && let Ok(bytes) = fs::read(&path)
@@ -46,6 +46,10 @@ pub fn run() -> Result<(), String> {
         FRAME_TICKS_PAL,
         AquariusSessionQueryProvider,
     );
+
+    // Media named on the command line is loaded here so `--rom`
+    // means the same thing in MCP mode as in the other two (#1180).
+    emu198x_shell::startup_media::load_into(&mut session, args)?;
     let mut server = Server::new(ServerInfo::new(
         "emu198x-mattel-aquarius",
         env!("CARGO_PKG_VERSION"),

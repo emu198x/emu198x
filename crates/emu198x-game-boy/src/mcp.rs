@@ -21,13 +21,17 @@ use runtime_nintendo_game_boy::{GameBoyRuntime, GameBoySessionQueryProvider, Mod
 /// # Errors
 ///
 /// Returns an error string if the JSON-RPC stdio loop hits an I/O failure.
-pub fn run() -> Result<(), String> {
+pub fn run(args: &[String]) -> Result<(), String> {
     let machine = GameBoyRuntime::blank(Model::Dmg);
     let mut session = HeadlessSession::new_with_query_provider(
         machine,
         u64::from(MCYCLES_PER_FRAME),
         GameBoySessionQueryProvider,
     );
+
+    // Media named on the command line is loaded here so `--rom`
+    // means the same thing in MCP mode as in the other two (#1180).
+    emu198x_shell::startup_media::load_into(&mut session, args)?;
 
     let mut server = Server::new(ServerInfo::new(
         "emu198x-game-boy",
