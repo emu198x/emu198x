@@ -5,12 +5,18 @@ use emu198x_shell::{
     MediaKind, MediaSlot, ProfileId, Region, WritebackPolicy, known_capability,
 };
 
+/// The 5200 shipped in one television standard.
+///
+/// Atari's own *CX5200 Field Service Manual* (Rev 4, 1983) tells
+/// technicians that the power-up screen "displays … the type of TIA in
+/// the unit. NTSC appears if the GTIA is the proper one for that unit.
+/// If PAL appears, replace with a GTIA from your kit." A PAL GTIA in a
+/// 5200 is a part to swap out, not a regional variant, so there is no
+/// PAL model to select.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Model {
     /// Atari 5200 NTSC.
     A5200Ntsc,
-    /// Atari 5200 PAL.
-    A5200Pal,
 }
 
 impl Model {
@@ -18,7 +24,6 @@ impl Model {
     pub const fn model_id(self) -> &'static str {
         match self {
             Self::A5200Ntsc => "atari-5200-ntsc",
-            Self::A5200Pal => "atari-5200-pal",
         }
     }
     #[must_use]
@@ -29,14 +34,12 @@ impl Model {
     pub const fn display_name(self) -> &'static str {
         match self {
             Self::A5200Ntsc => "Atari 5200 (NTSC)",
-            Self::A5200Pal => "Atari 5200 (PAL)",
         }
     }
     #[must_use]
     pub const fn region(self) -> Region {
         match self {
             Self::A5200Ntsc => Region::Ntsc,
-            Self::A5200Pal => Region::Pal,
         }
     }
 }
@@ -45,7 +48,7 @@ pub const BIOS_FIRMWARE_ID: &str = "atari-5200-bios";
 
 #[must_use]
 pub fn profiles() -> Vec<MachineProfile> {
-    vec![profile_for(Model::A5200Ntsc), profile_for(Model::A5200Pal)]
+    vec![profile_for(Model::A5200Ntsc)]
 }
 
 #[must_use]
