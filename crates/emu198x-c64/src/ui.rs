@@ -511,6 +511,11 @@ Options:
     --video MODE         raw | lcd | crt [default: raw]
     --help, -h           show this help
 
+Automation:
+    --script PATH   run a JSON session headlessly and print a report
+    --headless      run without a window (implied by --script)
+    --mcp           serve this machine over MCP on stdio
+
 Controls:
     Esc                  quit
     F9 / F10 / F11       start / stop tape, toggle tape turbo

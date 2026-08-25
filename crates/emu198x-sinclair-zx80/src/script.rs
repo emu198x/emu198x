@@ -39,6 +39,8 @@ Capture:
 
 Shared:
     --script PATH              execute shared JSON session steps
+    --headless                 run without a window (implied by --script)
+    --mcp                      serve this machine over MCP on stdio
     --help, -h                 show this help
 ";
 

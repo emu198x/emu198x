@@ -104,6 +104,7 @@ Media:
 Automation:
     --script PATH              execute shared JSON session steps
     --headless                 force headless mode without a script
+    --mcp                      serve this machine over MCP on stdio
     --frames N                 number of native NES video frames to run
     --assert-blargg            assert Blargg-style status output at $6000
     --screenshot PATH          write the last emitted frame as PNG
