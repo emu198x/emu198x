@@ -8,9 +8,9 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-emu198x-shell = { path = "../emu198x-shell", version = "0.5.0" }
-machine-mattel-aquarius = { path = "../machine-mattel-aquarius", version = "0.5.0" }
-zilog-z80 = { path = "../zilog-z80", version = "0.5.0" }
+emu198x-shell = { path = "../emu198x-shell", version = "0.6.0" }
+machine-mattel-aquarius = { path = "../machine-mattel-aquarius", version = "0.6.0" }
+zilog-z80 = { path = "../zilog-z80", version = "0.6.0" }
 postcard = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

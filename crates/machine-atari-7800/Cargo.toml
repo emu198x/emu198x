@@ -8,9 +8,9 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-atari-maria = { path = "../atari-maria", version = "0.5.0" }
-mos-6502 = { path = "../mos-6502", version = "0.5.0" }
-mos-riot-6532 = { path = "../mos-riot-6532", version = "0.5.0" }
+atari-maria = { path = "../atari-maria", version = "0.6.0" }
+mos-6502 = { path = "../mos-6502", version = "0.6.0" }
+mos-riot-6532 = { path = "../mos-riot-6532", version = "0.6.0" }
 serde = { workspace = true }
 serde-big-array = { workspace = true }
 

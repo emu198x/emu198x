@@ -8,9 +8,9 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-mos-6502 = { path = "../mos-6502", version = "0.5.0" }
-mos-vic-i = { path = "../mos-vic-i", version = "0.5.0" }
-mos-via-6522 = { path = "../mos-via-6522", version = "0.5.0" }
+mos-6502 = { path = "../mos-6502", version = "0.6.0" }
+mos-vic-i = { path = "../mos-vic-i", version = "0.6.0" }
+mos-via-6522 = { path = "../mos-via-6522", version = "0.6.0" }
 serde = { workspace = true }
 serde-big-array = { workspace = true }
 
