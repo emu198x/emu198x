@@ -8,7 +8,7 @@
 //! from [`InputEvent::Button`] on the matching port; the **X/Y axes** are read
 //! through the μPD7002 ADC (`InputEvent::Axis`, a separate path).
 
-use emu198x_shell::InputEvent;
+use emu198x_shell::{InputEvent, KeyTiming, KeyboardTarget, STANDARD_KEY_TIMING};
 use machine_acorn_bbc_micro::BbcMicro;
 
 pub(crate) fn apply_input_event(machine: &mut BbcMicro, event: &InputEvent) {
@@ -307,5 +307,84 @@ mod tests {
         assert_eq!(key_to_matrix("f4"), Some((4, 1)));
         assert_eq!(key_to_matrix("f7"), Some((6, 1)));
         assert_eq!(key_to_matrix("f0"), Some((0, 2)));
+    }
+}
+
+/// The character a BBC keycap produces when Shift is held, paired with the
+/// key's own name.
+///
+/// Taken from the Model B's UK legends: the digit row carries `!"#$%&'()`
+/// above `1`-`9`, and the punctuation keys carry a second symbol each. The
+/// standard keyboard could not reach any of these, because it offers a
+/// symbol as its own one-character name and the matrix has no key called
+/// `"` — so `type_string` counted characters the machine never saw (#1196).
+/// Reaching them matters: `*` and `"` are how you load a tape (`*TAPE`,
+/// `CHAIN""`).
+const SHIFTED_LEGENDS: &[(char, &str)] = &[
+    ('!', "1"),
+    ('"', "2"),
+    ('#', "3"),
+    ('$', "4"),
+    ('%', "5"),
+    ('&', "6"),
+    ('\'', "7"),
+    ('(', "8"),
+    (')', "9"),
+    ('=', "-"),
+    ('~', "^"),
+    ('|', "backslash"),
+    ('{', "["),
+    ('+', ";"),
+    ('*', ":"),
+    ('}', "]"),
+    ('<', ","),
+    ('>', "."),
+    ('?', "/"),
+];
+
+/// The BBC's keyboard for the shared `press_key` / `type_string` tools.
+///
+/// Hand-written rather than the shared standard keyboard because the BBC
+/// reaches a good half of printable ASCII through Shift, and because a
+/// character it cannot type has to refuse rather than be counted and dropped
+/// (#916, #1196).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct BbcKeyboard;
+
+impl KeyboardTarget for BbcKeyboard {
+    fn key_name_is_valid(&self, name: &str) -> bool {
+        key_to_matrix(name).is_some()
+    }
+
+    fn key_names_hint(&self) -> &'static str {
+        "A-Z, 0-9, the punctuation on a Model B keyboard (including the \
+         shifted legends such as \" * + = ? < >), space, enter, escape, tab, \
+         delete, copy, shift, ctrl, capslock, shiftlock, the arrow keys, and \
+         f0-f9"
+    }
+
+    fn keys_for_char(&self, ch: char) -> Option<Vec<String>> {
+        // A letter types on its bare keycap: the BBC boots with CAPS LOCK
+        // on, so that is the upper-case glyph.
+        let base = match ch {
+            'a'..='z' | 'A'..='Z' => ch.to_ascii_lowercase().to_string(),
+            '0'..='9' => ch.to_string(),
+            ' ' => "space".to_owned(),
+            '\n' | '\r' => "enter".to_owned(),
+            _ => {
+                if let Some((_, key)) = SHIFTED_LEGENDS.iter().find(|(c, _)| *c == ch) {
+                    let key = (*key).to_owned();
+                    return key_to_matrix(&key)
+                        .is_some()
+                        .then(|| vec!["shift".to_owned(), key]);
+                }
+                ch.to_string()
+            }
+        };
+        key_to_matrix(&base).is_some().then(|| vec![base])
+    }
+
+    fn key_timing(&self) -> KeyTiming {
+        STANDARD_KEY_TIMING
     }
 }

@@ -291,7 +291,7 @@ impl MachineCore for BbcMicroRuntime {
     fn keyboard_target(&self) -> Option<&dyn emu198x_shell::KeyboardTarget> {
         self.machine
             .is_some()
-            .then_some(&emu198x_shell::STANDARD_KEYBOARD as &dyn emu198x_shell::KeyboardTarget)
+            .then_some(&crate::input::BbcKeyboard as &dyn emu198x_shell::KeyboardTarget)
     }
 }
 
