@@ -457,31 +457,41 @@ impl AcornElectron {
 
     /// Run one PAL frame (312 scanlines × 128 CPU cycles each).
     pub fn run_frame(&mut self) -> u64 {
-        self.scanline = 0;
-        // The frame is a fixed 312 × 128 = 39 936 master ticks at 2 MHz.
-        // Each scanline is 128 master ticks; the CPU fits a variable
-        // number of cycles into it (RAM accesses cost two ticks). Anchor
-        // the line boundaries to a frame base so a cycle that overruns a
-        // line boundary carries its extra tick into the next line rather
-        // than stretching the frame.
-        self.frame_base = self.master_ticks;
-        for line in 0..SCANLINES_PER_FRAME {
-            let line_end = self.frame_base + u64::from(line + 1) * CYCLES_PER_SCANLINE;
-            while self.master_ticks < line_end {
-                self.tick_cpu_cycle();
-            }
-            if line < FB_HEIGHT as u16 {
-                self.render_scanline();
-            }
-            if line == FB_HEIGHT as u16 {
-                self.ula.signal_vblank();
-            }
-            if line == 0 {
-                self.ula.signal_rtc();
-            }
+        let start = self.master_ticks;
+        while self.master_ticks - start < CYCLES_PER_FRAME {
+            self.tick_cpu_cycle();
         }
-        self.frame_count += 1;
         CYCLES_PER_FRAME
+    }
+
+    /// Close off the scanline the machine has just finished: paint it, raise
+    /// whatever the ULA raises at that line, and step to the next.
+    ///
+    /// This used to live in `run_frame`'s loop, which meant it did not happen
+    /// when the debugger stepped instructions — so a stepped Electron never
+    /// saw a display-end or RTC interrupt, and anything interrupt-driven made
+    /// no progress. Elite's tape load sat in the OS cassette wait loop for
+    /// fifty million stepped instructions while reproducing in a few thousand
+    /// run frames, and the debugger looked like it was clearing the machine
+    /// (#1202). Hanging the work off elapsed ticks instead gives both paths
+    /// the same hardware.
+    fn finish_scanline(&mut self) {
+        let line = self.scanline;
+        if line < FB_HEIGHT as u16 {
+            self.render_scanline();
+        }
+        if line == FB_HEIGHT as u16 {
+            self.ula.signal_vblank();
+        }
+        if line == 0 {
+            self.ula.signal_rtc();
+        }
+        self.scanline += 1;
+        if self.scanline >= SCANLINES_PER_FRAME {
+            self.scanline = 0;
+            self.frame_base += CYCLES_PER_FRAME;
+            self.frame_count += 1;
+        }
     }
 
     fn tick_cpu_cycle(&mut self) {
@@ -510,6 +520,13 @@ impl AcornElectron {
         self.tick_cassette(cost);
         self.master_ticks += cost;
         self.cpu_cycles += 1;
+        // A cycle can cost more than one tick, so it may carry the machine
+        // over more than one line boundary.
+        while self.master_ticks
+            >= self.frame_base + u64::from(self.scanline + 1) * CYCLES_PER_SCANLINE
+        {
+            self.finish_scanline();
+        }
     }
 
     /// Advances the cassette demodulator by `cost` master ticks while the motor
@@ -711,7 +728,6 @@ impl AcornElectron {
             for x in 0..FB_WIDTH as usize {
                 self.framebuffer[offset + x] = background;
             }
-            self.scanline += 1;
             return;
         }
 
@@ -759,7 +775,6 @@ impl AcornElectron {
                 }
             }
         }
-        self.scanline += 1;
     }
 
     /// Framebuffer width.
@@ -1157,6 +1172,42 @@ mod tests {
         assert!(sys.irq_asserted());
         // The status read sets bit 7 high (MAME `0x80 | m_int_status`).
         assert_eq!(sys.mem_read(0xFE00) & 0x80, 0x80);
+    }
+
+    /// Stepping instructions and running frames have to drive the same
+    /// hardware. They did not: the scanline loop lived in `run_frame`, so a
+    /// stepped Electron never saw a display-end or RTC interrupt and anything
+    /// interrupt-driven stood still. `run_until_pc` then reported a machine
+    /// that could not reach addresses it reaches every time when run (#1202).
+    #[test]
+    fn stepping_a_frames_worth_of_instructions_raises_what_running_raises() {
+        let (os, basic) = trap_roms();
+        let mut stepped = AcornElectron::new(os.clone(), basic.clone());
+        let mut run = AcornElectron::new(os, basic);
+        // Enable every ULA source so both machines have something to raise.
+        stepped.ula_write(0xFE00, 0x7C);
+        run.ula_write(0xFE00, 0x7C);
+
+        while stepped.master_ticks < CYCLES_PER_FRAME {
+            stepped.step_instruction();
+        }
+        run.run_frame();
+
+        assert_eq!(
+            stepped.frame_count(),
+            run.frame_count(),
+            "a frame's worth of stepping is a frame"
+        );
+        assert_eq!(
+            stepped.ula.interrupt_status & 0x7C,
+            run.ula.interrupt_status & 0x7C,
+            "the same sources have been raised either way"
+        );
+        assert!(
+            stepped.ula.interrupt_status & 0x0C != 0,
+            "stepping has to raise the display-end and RTC interrupts, or \
+             nothing interrupt-driven can make progress"
+        );
     }
 
     #[test]
