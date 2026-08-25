@@ -8,14 +8,14 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-motorola-68k-common = { path = "../motorola-68k-common", version = "0.5.0" }
-motorola-68000 = { path = "../motorola-68000", version = "0.5.0" }
-motorola-68010 = { path = "../motorola-68010", version = "0.5.0" }
-motorola-68020 = { path = "../motorola-68020", version = "0.5.0" }
+motorola-68k-common = { path = "../motorola-68k-common", version = "0.6.0" }
+motorola-68000 = { path = "../motorola-68000", version = "0.6.0" }
+motorola-68010 = { path = "../motorola-68010", version = "0.6.0" }
+motorola-68020 = { path = "../motorola-68020", version = "0.6.0" }
 serde = { workspace = true }
 
 [dev-dependencies]
-emu198x-test-skip = { path = "../emu198x-test-skip", version = "0.5.0" }
+emu198x-test-skip = { path = "../emu198x-test-skip", version = "0.6.0" }
 rmp-serde = { workspace = true }
 serde = { workspace = true }
 

@@ -8,16 +8,16 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-emu198x-shell = { path = "../emu198x-shell", version = "0.5.0" }
-ricoh-ppu-2c02 = { path = "../ricoh-ppu-2c02", version = "0.5.0" }
-format-nintendo-nes-ines = { path = "../format-nintendo-nes-ines", version = "0.5.0" }
-machine-nintendo-nes = { path = "../machine-nintendo-nes", version = "0.5.0" }
+emu198x-shell = { path = "../emu198x-shell", version = "0.6.0" }
+ricoh-ppu-2c02 = { path = "../ricoh-ppu-2c02", version = "0.6.0" }
+format-nintendo-nes-ines = { path = "../format-nintendo-nes-ines", version = "0.6.0" }
+machine-nintendo-nes = { path = "../machine-nintendo-nes", version = "0.6.0" }
 postcard = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 
 [dev-dependencies]
-emu198x-test-skip = { path = "../emu198x-test-skip", version = "0.5.0" }
+emu198x-test-skip = { path = "../emu198x-test-skip", version = "0.6.0" }
 
 [lints]
 workspace = true

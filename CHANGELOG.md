@@ -4,6 +4,112 @@ All notable changes to Emu198x will be documented in this file.
 
 Format loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 not strictly. Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [0.6.0] - 2026-08-25
+
+
+### Added
+
+- *(amiga)* Decode the extended ROM window, and boot AROS with it
+- Generate the ZX80 picture with the CPU, not a borrowed ULA
+- Give the ZX80's synthetic firmware a display routine of its own
+- Offer the ZX80's 16 KB RAM pack as a profile
+- Parse ZX80 .o images and wire the cassette line to the bus
+- Load ZX80 tapes through the ROM's own cassette loader
+- Free-run the ZX80's line clock and lock it to the sync
+- *(zx80)* Load a cassette from the headless runner
+- *(ui)* Derive pixel aspect from the raster instead of the crop
+- *(shell)* Name the active line counts, and check them against the VIC-II
+- *(ui)* State what the display was, not just how fast the pixels came
+- *(shell)* Put the display on the machine so the audit can see it
+- *(game-boy)* A synthetic cartridge carrying the Emu198x plate
+- *(nes)* A synthetic cartridge, and the plate carries a real colour
+- *(atari-5200)* A synthetic cartridge, and a BIOS that hands over to it
+- *(atari-7800)* A synthetic cartridge, and one zone per scanline
+- *(atari-2600)* A synthetic cartridge drawn by chasing the beam
+- *(shell)* Put the framebuffer extent on the query surface
+- *(dragon)* Take the shared --script session surface
+- *(zx81)* Generate the display from the bus, not from the display file
+- *(zx80)* Put "was a picture generated" on the query surface
+- *(zx81)* Add the 60 Hz board as a selectable variant
+- *(zx81)* Parse .p/.p81 tape images
+- *(zx81)* Load .p images off the cassette line
+- *(zx81)* Fit each board its own RAM, and make the TS1000 real
+- *(tape)* Put tape position on the query surface
+- *(zx81)* WRX hi-res, and fix the tape test that SLOW mode invalidated
+- *(zx80)* Give the board a television-standard strap
+- *(zx81)* Give the machine its voice, which is the display
+- *(sega-vdp)* Magnify sprites when R1 bit 0 is set
+- *(sega-vdp)* Apply the 315-5124's address-bus mask bits
+- *(sega-vdp)* The 315-5124's magnification quirk, and Mode 4's status fill
+- *(sega-master-system)* Ship the early machine as its own model
+- *(sega-vdp)* Mode 4's 224 and 240-line displays
+- *(sega-vdp)* Give the H counter a value, and port $3F a way to latch it
+- *(sms)* The Light Phaser
+- *(shell)* Absolute aim input, and the Light Phaser on a mouse
+- *(shell)* Say so when a run paints nothing
+
+
+### Fixed
+
+- Measure the ZX80 beam position instead of a zeroed clock
+- Report ZX80 paint geometry per frame, not since boot
+- Record every frame a machine emits, and don't mux silence away
+- *(zx80)* Let a cassette sit in the deck without playing
+- *(zx80, zx81)* Stop showing PAL pixels square
+- *(ui)* Re-derive pixel aspect when the machine changes under it
+- *(spectrum)* Stop showing every variant's pixels square
+- *(shell)* Calibrate the NTSC active line against four published ratios
+- *(tms9918)* Stop showing seven machines' pixels square
+- *(sms, nes, c64, 2600)* Derive pixel aspect; state it for the handhelds
+- *(atari, vdg, vic-20)* Derive pixel aspect from the chip clocks
+- *(bbc, electron, cpc, oric, ace, aquarius)* Derive pixel aspect
+- *(amiga)* Derive pixel aspect; leave the PET where it belongs
+- *(zx80, zx81)* Show the 288 lines a set shows, not 240
+- *(amiga)* State the display through the variant enum
+- *(dragon)* State the rate the overscan framebuffer actually fills at
+- *(atari)* Size the framebuffer to the region's field, not to PAL's
+- *(vdp)* Give every PAL machine the 288 lines its set shows
+- *(jupiter-ace)* Take the 288 lines a PAL set shows
+- *(acorn-atom)* Hold the 288 lines a PAL set shows, not the VDG's 243
+- *(2600, cpc)* Take the whole field; classify the BBC and Electron
+- *(vic-20)* Four pixels a cycle, not eight
+- *(aquarius, oric)* Draw the border one has, classify the one the other blanks
+- *(aquarius)* Draw the 25 rows the hardware scans, not 24 from the wrong end
+- *(video)* Derive the horizontal border too, and classify every core
+- *(ui)* Open windows at the size the machine will report
+- *(sega-vdp)* Clock the PAL VDP from the Master System's own master
+- *(video)* Place each picture where its chip scans it, not in the middle
+- *(gtia)* Composite the window, not the normal playfield
+- *(vic-i)* Draw the display where the registers put it
+- *(sms)* Clock a PAL Master System's Z80 from its own master
+- *(vic-i)* Draw multicolour cells instead of colouring them wrong
+- *(einstein)* The ROM window is the lower 32K, not the low 8K
+- *(c64)* Preserve far-edge VIC-II C-data state
+- *(z80)* Collapse held Spectrum I/O strobes
+- *(z80)* Run one native frame per request
+- *(amiga)* Pace UI at one field per frame
+- *(amiga)* Freeze same-CCK DMA ownership
+- *(amiga)* Keep NTSC floppy at 300 RPM
+- *(z80)* Pin the MTX and Einstein frame budget to the real frame
+- *(shell)* Preserve exact native frame counts
+- *(jupiter-ace)* Run 208 T-states per line, not 207
+- *(zx81)* Report the television strap on port bit 6
+- *(zx81)* Budget the shortest frame, not the field backstop
+- *(zx81)* Report the active line count for the board's region
+- *(zx81)* Form the pattern address as the ULA does
+- *(zx80, zx81)* Place the picture from the ROM's pad, not a nominal frame
+- *(zx81, z80)* Let the machine reach SLOW mode at all
+- *(zx81)* Size the window from the board strap, not a constant
+- *(tms9918)* The fifth-sprite flag needs the frame flag clear
+- *(tms9918)* Coincidence covers sprites off the edges of the screen
+- *(sega-vdp)* Honour both of R0's scroll and column-mask bits
+- *(sega-vdp)* Latch the vertical scroll once a frame
+- *(sega-vdp)* The line counter is checked on the first line of vblank
+- *(sega-vdp)* Drive CRAM through the chip's measured output levels
+- *(sega-vdp)* A sprite Y near the top of the range hangs off the screen
+- *(sms)* The light gun sees the border, not just the picture
+- *(atari-5200)* Pick the 16 KB cartridge layout from evidence, not size
+
 ## [0.5.0] - 2026-08-19
 
 

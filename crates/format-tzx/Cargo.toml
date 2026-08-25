@@ -8,7 +8,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-common-tape = { path = "../common-tape", version = "0.5.0" }
+common-tape = { path = "../common-tape", version = "0.6.0" }
 
 [lints]
 workspace = true

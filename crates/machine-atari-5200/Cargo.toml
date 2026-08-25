@@ -8,10 +8,10 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-atari-antic = { path = "../atari-antic", version = "0.5.0" }
-atari-gtia = { path = "../atari-gtia", version = "0.5.0" }
-atari-pokey = { path = "../atari-pokey", version = "0.5.0" }
-mos-6502 = { path = "../mos-6502", version = "0.5.0" }
+atari-antic = { path = "../atari-antic", version = "0.6.0" }
+atari-gtia = { path = "../atari-gtia", version = "0.6.0" }
+atari-pokey = { path = "../atari-pokey", version = "0.6.0" }
+mos-6502 = { path = "../mos-6502", version = "0.6.0" }
 serde = { workspace = true }
 serde-big-array = { workspace = true }
 
