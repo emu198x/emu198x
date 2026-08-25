@@ -515,6 +515,16 @@ pub struct BbcMicro {
     /// relay (`$FE10` bit 7) is energised, delivering recovered bytes to the
     /// ACIA's receive register and raising its RX interrupt.
     cassette: CassetteReceiver,
+    /// Whether the host has the deck running.
+    ///
+    /// The guest's motor relay says whether the *machine* wants the tape to
+    /// move; this says whether the deck is running at all, which on real
+    /// hardware is the play button. Both must be true for the tape to
+    /// advance. It defaults to `true`, so a machine behaves as it always did
+    /// until something drives it, and `media_transport` is what drives it --
+    /// so a script can stop a tape mid-load and look at what happened
+    /// (#1198).
+    deck_running: bool,
 }
 
 impl BbcMicro {
@@ -548,6 +558,7 @@ impl BbcMicro {
             acia: Mc6850::new(),
             serial_ula: 0,
             cassette: CassetteReceiver::new(),
+            deck_running: true,
         }
     }
 
@@ -566,6 +577,17 @@ impl BbcMicro {
     #[must_use]
     pub fn tape_loaded(&self) -> bool {
         self.cassette.is_loaded()
+    }
+
+    /// Whether the host has the deck running. See [`Self::set_deck_running`].
+    #[must_use]
+    pub const fn deck_running(&self) -> bool {
+        self.deck_running
+    }
+
+    /// Starts or stops the deck, independently of the guest's motor relay.
+    pub const fn set_deck_running(&mut self, running: bool) {
+        self.deck_running = running;
     }
 
     /// Returns `true` when the cassette motor relay (`$FE10` bit 7) is on.
@@ -688,7 +710,7 @@ impl BbcMicro {
     /// high-tone line — that is the serial ULA's job — so carrier edges are not
     /// surfaced here.
     fn tick_cassette(&mut self, cost: u64) {
-        if self.serial_ula & MOTOR_BIT == 0 {
+        if self.serial_ula & MOTOR_BIT == 0 || !self.deck_running {
             return;
         }
         let ns = cost * NS_PER_MASTER_TICK;
@@ -1470,6 +1492,39 @@ mod tests {
             "no byte should arrive with the motor off"
         );
         assert!(sys.tape_loaded());
+    }
+
+    /// The motor line says whether the machine wants the tape to move; the
+    /// deck gate says whether it is running at all. A script could not stop
+    /// the tape at all before, which made a stalled load hard to inspect
+    /// (#1198).
+    #[test]
+    fn a_stopped_deck_does_not_advance_even_with_the_motor_on() {
+        let mut sys = BbcMicro::new(trap_rom());
+        sys.insert_tape(carrier_then_byte(0xA5));
+        sys.mem_write(0xFE08, 0x80); // ACIA: enable RX interrupt
+        sys.mem_write(0xFE10, 0x80); // serial ULA: motor on
+        assert!(sys.cassette_motor_on());
+
+        sys.set_deck_running(false);
+        for _ in 0..12 {
+            sys.run_frame();
+        }
+        assert!(
+            !sys.acia.rx_full,
+            "the motor is on, but the deck is stopped, so no byte can arrive"
+        );
+
+        sys.set_deck_running(true);
+        let mut arrived = false;
+        for _ in 0..12 {
+            sys.run_frame();
+            if sys.acia.rx_full {
+                arrived = true;
+                break;
+            }
+        }
+        assert!(arrived, "starting the deck lets the same tape play");
     }
 
     #[test]

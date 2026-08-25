@@ -11,7 +11,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::runtime::ElectronRuntime;
 
-const SNAPSHOT_VERSION: u16 = 2;
+// Bumped to 3: the machine gained a host-side deck-running
+// flag for `media_transport` (#1198). postcard is not
+// self-describing, so an added field shifts every byte after it.
+const SNAPSHOT_VERSION: u16 = 3;
 
 /// Borrowing envelope used during encode — avoids cloning the live machine.
 #[derive(Serialize)]

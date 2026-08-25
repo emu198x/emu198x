@@ -384,6 +384,16 @@ pub struct AcornElectron {
     /// relay (`$FE07` bit 6) is energised, delivering recovered bytes to the
     /// ULA's `$FE04` register and raising the cassette interrupts.
     cassette: CassetteReceiver,
+    /// Whether the host has the deck running.
+    ///
+    /// The guest's motor relay says whether the *machine* wants the tape to
+    /// move; this says whether the deck is running at all, which on real
+    /// hardware is the play button. Both must be true for the tape to
+    /// advance. It defaults to `true`, so a machine behaves as it always did
+    /// until something drives it, and `media_transport` is what drives it --
+    /// so a script can stop a tape mid-load and look at what happened
+    /// (#1198).
+    deck_running: bool,
 }
 
 impl AcornElectron {
@@ -407,6 +417,7 @@ impl AcornElectron {
             frame_count: 0,
             scanline: 0,
             cassette: CassetteReceiver::new(),
+            deck_running: true,
         }
     }
 
@@ -425,6 +436,17 @@ impl AcornElectron {
     #[must_use]
     pub fn tape_loaded(&self) -> bool {
         self.cassette.is_loaded()
+    }
+
+    /// Whether the host has the deck running. See [`Self::set_deck_running`].
+    #[must_use]
+    pub const fn deck_running(&self) -> bool {
+        self.deck_running
+    }
+
+    /// Starts or stops the deck, independently of the guest's motor relay.
+    pub const fn set_deck_running(&mut self, running: bool) {
+        self.deck_running = running;
     }
 
     /// Returns `true` when the cassette motor relay (`$FE07` bit 6) is on.
@@ -494,7 +516,7 @@ impl AcornElectron {
     /// relay is energised, folding any recovered byte / carrier edge into the
     /// ULA's `$FE04` register and interrupt status.
     fn tick_cassette(&mut self, cost: u64) {
-        if self.ula.misc_control & MOTOR_BIT == 0 {
+        if self.ula.misc_control & MOTOR_BIT == 0 || !self.deck_running {
             return;
         }
         let ns = cost * NS_PER_MASTER_TICK;
