@@ -8,6 +8,7 @@
 pub mod audio;
 pub mod driver;
 pub mod error;
+pub mod io_trace;
 pub mod keyboard;
 pub mod memory;
 pub mod memory_watch;

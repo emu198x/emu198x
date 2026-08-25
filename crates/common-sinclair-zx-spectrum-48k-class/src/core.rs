@@ -13,6 +13,7 @@
 //! and keep their own machine implementations.
 
 use common_sinclair_zx_spectrum::SpectrumTapePlayer;
+use common_sinclair_zx_spectrum::io_trace::{IoEvent, IoTrace};
 use std::marker::PhantomData;
 
 use common_sinclair_zx_spectrum::audio::{
@@ -59,6 +60,11 @@ fn make_audio() -> BeeperAudio {
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct SpectrumMachineCore<M: MemoryBus, V: Variant48kClass> {
     z80: Z80,
+    /// Host-side capture of `IN`/`OUT` traffic, off unless a debugger
+    /// turns it on. Outside the snapshot: a saved state carries the
+    /// machine, not what a debugger happened to be collecting.
+    #[serde(skip)]
+    io_trace: IoTrace,
     ula: FerrantiUla,
     memory: M,
     keyboard: KeyboardMatrix,
@@ -101,6 +107,7 @@ impl<M: MemoryBus, V: Variant48kClass> SpectrumMachineCore<M, V> {
         let audio_frame = vec![0.0; audio.samples_per_frame()];
         Self {
             z80: Z80::new(),
+            io_trace: IoTrace::default(),
             ula: FerrantiUla::new(revision),
             memory,
             keyboard: KeyboardMatrix::new(),
@@ -156,6 +163,22 @@ impl<M: MemoryBus, V: Variant48kClass> SpectrumMachineCore<M, V> {
         self.write_watch
             .as_ref()
             .map(|w| (w.lo(), w.hi().wrapping_sub(w.lo())))
+    }
+
+    /// Start, or restart, capturing `IN`/`OUT` traffic.
+    ///
+    /// The Spectrum decodes I/O on single address lines — bit 0 clear is
+    /// the ULA, so the keyboard, border, speaker and tape all land on
+    /// `$FE` and its even mirrors — which is what makes a port trace
+    /// worth having here.
+    pub fn start_io_trace(&mut self) {
+        self.io_trace.start();
+    }
+
+    /// Stop capturing and take the events collected since
+    /// [`start_io_trace`](Self::start_io_trace).
+    pub fn take_io_trace(&mut self) -> Vec<IoEvent> {
+        self.io_trace.take()
     }
 
     /// Reads one Z80 I/O port directly through the bus-level handler.
@@ -492,6 +515,13 @@ impl<M: MemoryBus, V: Variant48kClass> SpectrumMachineCore<M, V> {
     }
 
     fn io_read(&mut self, port: u16) -> u8 {
+        let value = self.io_read_untraced(port);
+        let pc = self.z80.regs.pc;
+        self.io_trace.record(pc, port, value, false);
+        value
+    }
+
+    fn io_read_untraced(&mut self, port: u16) -> u8 {
         if self.kempston.claims_port(port) {
             return self.kempston.read(port);
         }
@@ -564,6 +594,12 @@ impl<M: MemoryBus, V: Variant48kClass> SpectrumMachineCore<M, V> {
     }
 
     fn io_write(&mut self, port: u16, data: u8) {
+        let pc = self.z80.regs.pc;
+        self.io_trace.record(pc, port, data, true);
+        self.io_write_untraced(port, data);
+    }
+
+    fn io_write_untraced(&mut self, port: u16, data: u8) {
         if port & 0x01 == 0 {
             self.write_fe(data);
         }
@@ -1216,5 +1252,65 @@ mod tests {
         restored.advance_halfcycles(9);
         assert_eq!(machine.frame_position(), restored.frame_position());
         assert_eq!(machine.frame_position().halfcycles(), 5);
+    }
+}
+
+#[cfg(test)]
+mod io_trace_tests {
+    use super::*;
+
+    use crate::variant::Spectrum48kMarker;
+
+    type Spectrum48k = SpectrumMachineCore<Spectrum48kMemory, Spectrum48kMarker>;
+
+    /// Every ULA function shares port `$FE`, so a trace is the only way
+    /// to tell a border write from a speaker write from a tape write —
+    /// `port_read` can only sample, it cannot say what the program did.
+    #[test]
+    fn tracing_records_ula_writes_with_their_pc() {
+        let mut machine = Spectrum48k::new();
+        machine.start_io_trace();
+        machine.port_write(0x00FE, 0x02);
+        machine.port_write(0x00FE, 0x07);
+        let events = machine.take_io_trace();
+        assert_eq!(events.len(), 2, "both writes recorded");
+        assert!(events.iter().all(|e| e.port == 0x00FE && e.write));
+        assert_eq!(events[0].value, 0x02);
+        assert_eq!(events[1].value, 0x07);
+    }
+
+    #[test]
+    fn reads_are_recorded_with_the_byte_the_bus_returned() {
+        let mut machine = Spectrum48k::new();
+        machine.start_io_trace();
+        let observed = machine.port_read(0x00FE);
+        let events = machine.take_io_trace();
+        assert_eq!(events.len(), 1);
+        assert!(!events[0].write, "an IN, not an OUT");
+        assert_eq!(
+            events[0].value, observed,
+            "the trace must carry what the bus actually returned"
+        );
+    }
+
+    #[test]
+    fn nothing_is_recorded_until_tracing_starts() {
+        let mut machine = Spectrum48k::new();
+        machine.port_write(0x00FE, 0x02);
+        assert!(machine.take_io_trace().is_empty());
+    }
+
+    /// The buffer is host-side and deliberately outside the snapshot.
+    #[test]
+    fn tracing_does_not_survive_a_snapshot_round_trip() {
+        let mut machine = Spectrum48k::new();
+        machine.start_io_trace();
+        machine.port_write(0x00FE, 0x02);
+        let encoded = serde_json::to_vec(&machine).expect("encode");
+        let mut restored: Spectrum48k = serde_json::from_slice(&encoded).expect("decode");
+        assert!(
+            restored.take_io_trace().is_empty(),
+            "a saved state carries the machine, not a debugger's buffer"
+        );
     }
 }

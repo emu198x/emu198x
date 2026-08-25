@@ -12,11 +12,18 @@
 //! `dbg_cpu_state` here carries the full Z80 register file + decoded
 //! flags, so the shared `register_debug_tools` `query_cpu` is the rich
 //! curriculum surface — the bespoke `query_cpu` override was removed
-//! (#456). `io_trace` is left unsupported (the default) — the Spectrum
-//! exposes I/O through `port_read` / `port_write` and the AY
-//! write-watch instead.
+//! (#456).
+//!
+//! `io_trace` was left unsupported here for a long time, on the grounds
+//! that `port_read` / `port_write` and the AY write-watch covered the
+//! ground. They do not cover the same ground: those sample a port when
+//! *you* ask, and a trace records what the *program* did. On a machine
+//! that decodes I/O on single address lines — bit 0 clear is the ULA, so
+//! keyboard, border, speaker and tape all arrive at `$FE` and its even
+//! mirrors — watching the traffic is often the only way to see which
+//! device a write was aimed at. Wired 2026-08-25 (#1183).
 
-use emu198x_shell::DebugPrimitives;
+use emu198x_shell::{DebugPrimitives, IoEvent};
 use serde_json::{Value, json};
 
 use crate::family_runtime::{SpectrumLiveAccess, SpectrumRuntimeKind};
@@ -91,5 +98,31 @@ impl DebugPrimitives for SpectrumRuntimeKind {
 
     fn dbg_step(&mut self) -> u64 {
         u64::from(self.step_instructions(1))
+    }
+
+    fn dbg_supports_io_trace(&self) -> bool {
+        // Asked per variant rather than answered for the family, so a
+        // variant added later cannot inherit a claim it does not honour.
+        // Every current variant traces.
+        SpectrumLiveAccess::supports_io_trace(self)
+    }
+
+    fn dbg_start_io_trace(&mut self) {
+        SpectrumLiveAccess::start_io_trace(self);
+    }
+
+    fn dbg_take_io_trace(&mut self) -> Vec<IoEvent> {
+        SpectrumLiveAccess::take_io_trace(self)
+            .into_iter()
+            .map(|e| IoEvent {
+                pc: u32::from(e.pc),
+                // The shared event keeps the full sixteen-bit bus, which
+                // is what distinguishes the AY's select port from its
+                // data port — both have a low byte of $FD.
+                port: e.port,
+                value: e.value,
+                write: e.write,
+            })
+            .collect()
     }
 }

@@ -21,6 +21,7 @@ pub mod memory;
 use common_sinclair_zx_spectrum::SpectrumTapePlayer;
 use common_sinclair_zx_spectrum::audio::{BeeperAudio, SpeakerMixer};
 use common_sinclair_zx_spectrum::driver::SpectrumDriver;
+use common_sinclair_zx_spectrum::io_trace::{IoEvent, IoTrace};
 use common_sinclair_zx_spectrum::memory::MemoryBus;
 use common_sinclair_zx_spectrum::peripheral::Peripheral;
 use common_sinclair_zx_spectrum::snapshot::apply_z80_registers;
@@ -41,6 +42,11 @@ const AUDIO_SAMPLE_RATE: u32 = 44_100;
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct TimexTC2048 {
     pub z80: Z80,
+    /// Host-side capture of `IN`/`OUT` traffic, off unless a debugger
+    /// turns it on. Outside the snapshot: a saved state carries the
+    /// machine, not what a debugger happened to be collecting.
+    #[serde(skip)]
+    io_trace: IoTrace,
     pub ula: TimexScld,
     pub memory: MemoryTC2048,
     pub framebuffer: Vec<u8>,
@@ -66,6 +72,7 @@ impl TimexTC2048 {
         let samples_per_frame = (AUDIO_SAMPLE_RATE / 50) as usize;
         Self {
             z80: Z80::new(),
+            io_trace: IoTrace::default(),
             ula: TimexScld::new(),
             memory: MemoryTC2048::new(),
             framebuffer: vec![0u8; SCREEN_WIDTH_HIRES * SCREEN_HEIGHT],
@@ -95,23 +102,18 @@ impl TimexTC2048 {
     pub fn model_id(&self) -> &'static str {
         "timex-tc2048"
     }
-
     pub fn load_tape_blocks(&mut self, blocks: Vec<TapeBlock>) {
         self.tape.load_blocks(blocks);
     }
-
     pub fn load_tape_pulses(&mut self, pulses: Vec<u32>) {
         self.tape.load_pulses(pulses);
     }
-
     pub fn load_tape_stream(&mut self, stream: Vec<TapeSpan>) {
         self.tape.load_stream(stream);
     }
-
     pub fn tape_play(&mut self) {
         self.tape.play();
     }
-
     pub fn tape_stop(&mut self) {
         self.tape.stop();
     }
@@ -152,15 +154,12 @@ impl TimexTC2048 {
             }
         }
     }
-
     pub fn run_frame(&mut self) {
         <Self as SpectrumDriver>::run_frame(self);
     }
-
     pub fn advance_halfcycles(&mut self, halfcycles: u32) {
         <Self as SpectrumDriver>::advance_halfcycles(self, halfcycles);
     }
-
     pub fn advance_tstates(&mut self, tstates: u32) {
         <Self as SpectrumDriver>::advance_tstates(self, tstates);
     }
@@ -177,6 +176,13 @@ impl TimexTC2048 {
     }
 
     fn io_read(&mut self, port: u16) -> u8 {
+        let value = self.io_read_untraced(port);
+        let pc = self.z80.regs.pc;
+        self.io_trace.record(pc, port, value, false);
+        value
+    }
+
+    fn io_read_untraced(&mut self, port: u16) -> u8 {
         // Kempston is a separate add-on board with its own (partial)
         // decoding — the SCLD's full decoding doesn't constrain it.
         if self.kempston.claims_port(port) {
@@ -197,6 +203,12 @@ impl TimexTC2048 {
     }
 
     fn io_write(&mut self, port: u16, data: u8) {
+        let pc = self.z80.regs.pc;
+        self.io_trace.record(pc, port, data, true);
+        self.io_write_untraced(port, data);
+    }
+
+    fn io_write_untraced(&mut self, port: u16, data: u8) {
         match port & 0xFF {
             0xFE => {
                 self.ula.write_fe(data);
@@ -217,7 +229,6 @@ impl TimexTC2048 {
             _ => {}
         }
     }
-
     pub fn audio_frame(&self) -> &[f32] {
         &self.audio_frame
     }
@@ -252,6 +263,17 @@ impl TimexTC2048 {
         gain: f32,
     ) {
         self.audio.set_audio_channel_gain(channel, gain);
+    }
+
+    /// Start, or restart, capturing `IN`/`OUT` traffic.
+    pub fn start_io_trace(&mut self) {
+        self.io_trace.start();
+    }
+
+    /// Stop capturing and take the events collected since
+    /// [`start_io_trace`](Self::start_io_trace).
+    pub fn take_io_trace(&mut self) -> Vec<IoEvent> {
+        self.io_trace.take()
     }
 
     /// Bus-level port read.
