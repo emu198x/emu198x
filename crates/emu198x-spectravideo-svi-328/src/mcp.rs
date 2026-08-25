@@ -15,13 +15,17 @@ const FRAME_TICKS_NTSC: u64 = 228 * 262;
 /// # Errors
 ///
 /// Returns an error string if the JSON-RPC stdio loop hits an I/O failure.
-pub fn run() -> Result<(), String> {
+pub fn run(args: &[String]) -> Result<(), String> {
     let machine = Svi328Runtime::blank(Model::Svi328Ntsc);
     let mut session = HeadlessSession::new_with_query_provider(
         machine,
         FRAME_TICKS_NTSC,
         Svi328SessionQueryProvider,
     );
+
+    // Media named on the command line is loaded here so `--rom`
+    // means the same thing in MCP mode as in the other two (#1180).
+    emu198x_shell::startup_media::load_into(&mut session, args)?;
     let mut server = Server::new(ServerInfo::new(
         "emu198x-spectravideo-svi-328",
         env!("CARGO_PKG_VERSION"),

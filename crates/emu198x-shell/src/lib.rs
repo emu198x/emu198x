@@ -25,6 +25,7 @@ pub mod media;
 pub mod query;
 pub mod script;
 pub mod session;
+pub mod startup_media;
 pub mod time;
 pub mod video;
 pub mod watch;

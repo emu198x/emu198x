@@ -18,7 +18,7 @@ const FRAME_TICKS_NTSC: u64 = 228 * 262;
 /// # Errors
 ///
 /// Returns an error string if the JSON-RPC stdio loop hits an I/O failure.
-pub fn run() -> Result<(), String> {
+pub fn run(args: &[String]) -> Result<(), String> {
     let mut machine = M5Runtime::blank(Model::M5Ntsc);
     if let Some(path) = rom_path()
         && let Ok(bytes) = fs::read(&path)
@@ -29,6 +29,10 @@ pub fn run() -> Result<(), String> {
 
     let mut session =
         HeadlessSession::new_with_query_provider(machine, FRAME_TICKS_NTSC, M5SessionQueryProvider);
+
+    // Media named on the command line is loaded here so `--rom`
+    // means the same thing in MCP mode as in the other two (#1180).
+    emu198x_shell::startup_media::load_into(&mut session, args)?;
     let mut server = Server::new(ServerInfo::new(
         "emu198x-sord-m5",
         env!("CARGO_PKG_VERSION"),

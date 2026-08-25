@@ -31,7 +31,7 @@ const ROM_ENV: &str = "EMU198X_DRAGON32_ROM";
 /// Returns an error string if the ROM cannot be found or loaded, the
 /// runtime fails to build, or the JSON-RPC stdio loop hits an I/O
 /// failure.
-pub fn run() -> Result<(), String> {
+pub fn run(args: &[String]) -> Result<(), String> {
     let rom_path = resolve_dragon32_rom()?;
     let rom = read_firmware_asset(&rom_path)
         .map_err(|err| format!("failed to load Dragon 32 ROM {}: {err}", rom_path.display()))?;
@@ -46,6 +46,10 @@ pub fn run() -> Result<(), String> {
         DRAGON_FRAME_CYCLES,
         DragonSessionQueryProvider,
     );
+
+    // Media named on the command line is loaded here so `--rom`
+    // means the same thing in MCP mode as in the other two (#1180).
+    emu198x_shell::startup_media::load_into(&mut session, args)?;
 
     let mut server = Server::new(ServerInfo::new("emu198x-dragon", env!("CARGO_PKG_VERSION")));
     register_base_tools(server.registry_mut());

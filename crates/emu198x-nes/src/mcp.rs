@@ -36,10 +36,14 @@ const NES_FRAME_TICKS: u64 = 341 * 262;
 /// # Errors
 ///
 /// Returns an error string if the JSON-RPC stdio loop hits an I/O failure.
-pub fn run() -> Result<(), String> {
+pub fn run(args: &[String]) -> Result<(), String> {
     let machine = NesRuntime::blank(Model::NesNtsc);
     let mut session =
         HeadlessSession::new_with_query_provider(machine, NES_FRAME_TICKS, NesSessionQueryProvider);
+
+    // Media named on the command line is loaded here so `--rom`
+    // means the same thing in MCP mode as in the other two (#1180).
+    emu198x_shell::startup_media::load_into(&mut session, args)?;
 
     let mut server = Server::new(ServerInfo::new("emu198x-nes", env!("CARGO_PKG_VERSION")));
     register_base_tools(server.registry_mut());

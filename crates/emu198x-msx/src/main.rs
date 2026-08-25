@@ -53,7 +53,7 @@ fn main() {
     let result = match detect_mode(&args) {
         Mode::Ui => run_ui(args),
         Mode::Script => script::run(args),
-        Mode::Mcp => mcp::run(),
+        Mode::Mcp => mcp::run(&args),
     };
 
     if let Err(err) = result {
