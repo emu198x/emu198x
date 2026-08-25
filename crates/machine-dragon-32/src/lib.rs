@@ -1851,6 +1851,13 @@ struct DragonMemory {
     keyboard: DragonKeyboard,
     joystick: DragonJoystick,
     cassette: CassettePlayback,
+    /// Whether the host has the deck running.
+    ///
+    /// The PIA's motor line says whether the *machine* wants the tape to
+    /// move; this is the deck's own play button. Both must be true for the
+    /// tape to advance. Defaults to `true`, so behaviour is unchanged until
+    /// `media_transport` drives it (#1198).
+    deck_running: bool,
     cartridge: Option<DragonCartridge>,
     disk_controller: Option<DragonDosController>,
     cartridge_sound_level: f32,
@@ -1870,9 +1877,16 @@ struct DragonMemorySnapshot {
     keyboard: DragonKeyboard,
     joystick: DragonJoystick,
     cassette: CassettePlayback,
+    #[serde(default = "deck_running_default")]
+    deck_running: bool,
     cartridge: Option<DragonCartridge>,
     disk_controller: Option<DragonDosController>,
     cartridge_sound_level: f32,
+}
+
+/// A snapshot written before the deck gate existed had the deck running.
+const fn deck_running_default() -> bool {
+    true
 }
 
 impl Serialize for DragonMemory {
@@ -1893,6 +1907,7 @@ impl Serialize for DragonMemory {
             keyboard: self.keyboard.clone(),
             joystick: self.joystick.clone(),
             cassette: self.cassette.clone(),
+            deck_running: self.deck_running,
             cartridge: self.cartridge.clone(),
             disk_controller: self.disk_controller.clone(),
             cartridge_sound_level: self.cartridge_sound_level,
@@ -1926,6 +1941,7 @@ impl<'de> Deserialize<'de> for DragonMemory {
             keyboard: snapshot.keyboard,
             joystick: snapshot.joystick,
             cassette: snapshot.cassette,
+            deck_running: snapshot.deck_running,
             cartridge: snapshot.cartridge,
             disk_controller: snapshot.disk_controller,
             cartridge_sound_level: snapshot.cartridge_sound_level,
@@ -1974,6 +1990,7 @@ impl DragonMemory {
             keyboard,
             joystick: DragonJoystick::new(),
             cassette: CassettePlayback::default(),
+            deck_running: true,
             cartridge: None,
             disk_controller: None,
             cartridge_sound_level: 0.0,
@@ -2273,7 +2290,7 @@ impl DragonMemory {
     }
 
     fn advance_cassette(&mut self, master_ticks: u64) {
-        if self.pia1.ca2 {
+        if self.pia1.ca2 && self.deck_running {
             self.cassette.advance_ticks(master_ticks);
             self.refresh_pia_inputs();
             self.sync_dragon64_rom_select();
@@ -3443,6 +3460,17 @@ impl Dragon32 {
     pub fn clear_cassette(&mut self) {
         self.memory.cassette.clear();
         self.memory.refresh_pia_inputs();
+    }
+
+    /// Whether the host has the deck running. See [`Self::set_deck_running`].
+    #[must_use]
+    pub const fn deck_running(&self) -> bool {
+        self.memory.deck_running
+    }
+
+    /// Starts or stops the deck, independently of the guest's motor line.
+    pub const fn set_deck_running(&mut self, running: bool) {
+        self.memory.deck_running = running;
     }
 
     /// Returns whether the cassette motor relay line is on.

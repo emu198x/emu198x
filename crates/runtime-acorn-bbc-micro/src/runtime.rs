@@ -3,8 +3,8 @@
 use common_acorn_cassette::TapePulse;
 use emu198x_shell::{
     AudioPacket, CapabilitySet, ControlCommand, FirmwareSet, FramePacket, HostIo, MachineCore,
-    MachineError, MachineProfile, MachineTime, MediaKind, MediaSet, PixelFormat, ResetKind,
-    RunResult, StopReason,
+    MachineError, MachineProfile, MachineTime, MediaKind, MediaSet, MediaTransportAction,
+    PixelFormat, ResetKind, RunResult, StopReason,
 };
 use machine_acorn_bbc_micro::BbcMicro;
 
@@ -271,10 +271,42 @@ impl MachineCore for BbcMicroRuntime {
     fn restore(&mut self, bytes: &[u8]) -> Result<(), MachineError> {
         snapshot::decode(self, bytes)
     }
+    /// Start or stop the deck.
+    ///
+    /// The tape used to advance purely on the guest's motor line, so a script
+    /// could not stop it, could not re-position it, and could not inspect a
+    /// stalled load without the deck running on underneath (#1198). The host
+    /// gate ANDs with the motor line, so a running deck still only moves when
+    /// the machine asks.
     fn command(&mut self, command: &ControlCommand) -> Result<(), MachineError> {
-        Err(MachineError::UnsupportedOperation {
-            operation: command.operation_name(),
-        })
+        match command {
+            ControlCommand::MediaTransport(cmd) => {
+                if cmd.slot.as_ref() != "tape-1" {
+                    return Err(MachineError::UnknownMediaSlot {
+                        slot: cmd.slot.as_ref().to_owned(),
+                    });
+                }
+                let running = match cmd.action {
+                    MediaTransportAction::Start => true,
+                    MediaTransportAction::Stop => false,
+                    _ => {
+                        return Err(MachineError::UnsupportedOperation {
+                            operation: "media-transport",
+                        });
+                    }
+                };
+                let Some(machine) = self.machine.as_mut() else {
+                    return Err(MachineError::InvalidRequest {
+                        reason: "no machine is running, so there is no deck to drive".to_owned(),
+                    });
+                };
+                machine.set_deck_running(running);
+                Ok(())
+            }
+            _ => Err(MachineError::UnsupportedOperation {
+                operation: command.operation_name(),
+            }),
+        }
     }
     /// 16 MHz, which is the framebuffer's clock in every screen mode: the core
     /// renders each mode into one 640-wide buffer, so the mode changes how

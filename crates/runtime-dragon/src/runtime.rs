@@ -3,9 +3,10 @@
 use std::borrow::Cow;
 
 use emu198x_shell::{
-    AudioPacket, CapabilitySet, FirmwareSet, FramePacket, HostIo, InputEvent, MachineCore,
-    MachineError, MachineProfile, MachineTime, MediaKind, MediaSet, PixelFormat, QueryError,
-    QueryResult, ResetKind, RunResult, SessionQueryProvider, StopReason, TraceEvent,
+    AudioPacket, CapabilitySet, ControlCommand, FirmwareSet, FramePacket, HostIo, InputEvent,
+    MachineCore, MachineError, MachineProfile, MachineTime, MediaKind, MediaSet,
+    MediaTransportAction, PixelFormat, QueryError, QueryResult, ResetKind, RunResult,
+    SessionQueryProvider, StopReason, TraceEvent,
 };
 use format_dragon_bin::{DragonBinImage, parse_dragon_bin};
 use format_dragon_cas::{CasFileType, CasImage, LEADER_BYTE, parse_cas_tolerant};
@@ -1058,6 +1059,38 @@ impl MachineCore for DragonRuntime {
             motorola_vdg_6847::PAL_OVERSCAN_PIXEL_CLOCK_HZ,
             motorola_vdg_6847::NTSC_OVERSCAN_PIXEL_CLOCK_HZ,
         )
+    }
+
+    /// Start or stop the deck.
+    ///
+    /// The tape used to free-run on the guest's motor line, so a script could
+    /// not stop it and could not inspect a stalled load without the deck
+    /// running on underneath (#1198). The host gate ANDs with the motor line,
+    /// so a running deck still only moves when the machine asks.
+    fn command(&mut self, command: &ControlCommand) -> Result<(), MachineError> {
+        match command {
+            ControlCommand::MediaTransport(cmd) => {
+                if cmd.slot.as_ref() != "tape-1" {
+                    return Err(MachineError::UnknownMediaSlot {
+                        slot: cmd.slot.as_ref().to_owned(),
+                    });
+                }
+                let running = match cmd.action {
+                    MediaTransportAction::Start => true,
+                    MediaTransportAction::Stop => false,
+                    _ => {
+                        return Err(MachineError::UnsupportedOperation {
+                            operation: "media-transport",
+                        });
+                    }
+                };
+                self.machine.set_deck_running(running);
+                Ok(())
+            }
+            _ => Err(MachineError::UnsupportedOperation {
+                operation: command.operation_name(),
+            }),
+        }
     }
 
     fn capabilities(&self) -> CapabilitySet {
