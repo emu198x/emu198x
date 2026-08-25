@@ -15,6 +15,7 @@
 use common_sinclair_zx_spectrum::SPECTRUM_PALETTE;
 use common_sinclair_zx_spectrum::audio::{AudioControls, SpeakerChannel};
 use common_sinclair_zx_spectrum::driver::SpectrumDriver;
+use common_sinclair_zx_spectrum::io_trace::IoEvent as SpectrumIoEvent;
 use common_sinclair_zx_spectrum::keyboard::KeyboardMatrix;
 use common_sinclair_zx_spectrum::snapshot::Snapshot;
 use common_sinclair_zx_spectrum::tape::{TapeBlock, TapeSpan};
@@ -321,6 +322,33 @@ pub trait SpectrumMachine: Serialize + for<'de> Deserialize<'de> + SpectrumDrive
     /// `OUT (C),A` would produce (border colour, beeper, paging,
     /// AY register select / data, …).
     fn port_write(&mut self, port: u16, value: u8);
+
+    /// Whether this variant can capture `IN`/`OUT` traffic.
+    ///
+    /// Every variant in the family overrides this to `true`: the
+    /// Sinclair and Amstrad machines through the shared class cores, the
+    /// clones — Pentagon, Scorpion, the Timex pair — through their own.
+    ///
+    /// The default stays `false` so a variant added later has to opt in
+    /// deliberately. Answering `true` without the plumbing would return
+    /// an empty trace, which reads as a quiet machine rather than a
+    /// missing feature.
+    fn supports_io_trace(&self) -> bool {
+        false
+    }
+
+    /// Begin capturing every `IN`/`OUT` the Z80 performs.
+    ///
+    /// Worth having on this machine in particular: the Spectrum decodes
+    /// I/O on single address lines, so the keyboard, border, speaker and
+    /// tape all arrive at `$FE` and its even mirrors.
+    fn start_io_trace(&mut self) {}
+
+    /// Stop capturing and take the events collected since
+    /// [`start_io_trace`](Self::start_io_trace).
+    fn take_io_trace(&mut self) -> Vec<SpectrumIoEvent> {
+        Vec::new()
+    }
 
     /// Begin tracing every `OUT ($BFFD), data` write. Variants
     /// without an AY (16K / 48K / Spectrum+ / TC2048) return `Err`.

@@ -71,20 +71,32 @@ const EXPECTED_SERDE_SKIPS: &[SerdeSkipAudit] = &[
     },
     SerdeSkipAudit {
         path: "crates/common-sinclair-zx-spectrum-48k-class/src/core.rs",
-        expected: 1,
-        justification: "`PhantomData<V>` is a ZST — the default IS the \
+        expected: 2,
+        justification: "An `IoTrace` capture buffer. Case 1: the default is \
+                        not-tracing, which is the honest state for a \
+                        machine restored from a snapshot — a debugger \
+                        buffer is host-side and belongs to the session \
+                        that opened it, not to the machine (#1183). Also: `PhantomData<V>` is a ZST — the default IS the \
                         full state; serde skip has no observable effect.",
     },
     SerdeSkipAudit {
         path: "crates/common-sinclair-zx-spectrum-128k-class/src/core.rs",
-        expected: 2,
-        justification: "`PhantomData<V>` (ZST, no state) + `&'static \
+        expected: 3,
+        justification: "An `IoTrace` capture buffer. Case 1: the default is \
+                        not-tracing, which is the honest state for a \
+                        machine restored from a snapshot — a debugger \
+                        buffer is host-side and belongs to the session \
+                        that opened it, not to the machine (#1183). Also: `PhantomData<V>` (ZST, no state) + `&'static \
                         UlaConfig` (reattached by `restore_volatile_refs`).",
     },
     SerdeSkipAudit {
         path: "crates/common-sinclair-zx-spectrum-amstrad-class/src/core.rs",
-        expected: 2,
-        justification: "`PhantomData<V>` (ZST, no state) + `&'static \
+        expected: 3,
+        justification: "An `IoTrace` capture buffer. Case 1: the default is \
+                        not-tracing, which is the honest state for a \
+                        machine restored from a snapshot — a debugger \
+                        buffer is host-side and belongs to the session \
+                        that opened it, not to the machine (#1183). Also: `PhantomData<V>` (ZST, no state) + `&'static \
                         UlaConfig` (reattached by `restore_volatile_refs`).",
     },
 ];

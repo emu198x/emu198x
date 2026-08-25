@@ -10,6 +10,7 @@
 
 use common_sinclair_zx_spectrum::audio::{AudioControls, SpeakerChannel};
 use common_sinclair_zx_spectrum::driver::SpectrumDriver;
+use common_sinclair_zx_spectrum::io_trace::IoEvent as SpectrumIoEvent;
 use common_sinclair_zx_spectrum::memory::MemoryBus;
 use common_sinclair_zx_spectrum::snapshot::Snapshot;
 use common_sinclair_zx_spectrum::tape::{TapeBlock, TapeSpan};
@@ -523,6 +524,15 @@ impl SpectrumMachine for Spectrum48k {
     fn port_write(&mut self, port: u16, value: u8) {
         self.port_write(port, value);
     }
+    fn supports_io_trace(&self) -> bool {
+        true
+    }
+    fn start_io_trace(&mut self) {
+        Spectrum48k::start_io_trace(self);
+    }
+    fn take_io_trace(&mut self) -> Vec<SpectrumIoEvent> {
+        Spectrum48k::take_io_trace(self)
+    }
 }
 
 impl SpectrumMachine for Spectrum16K {
@@ -667,6 +677,15 @@ impl SpectrumMachine for Spectrum16K {
     }
     fn port_write(&mut self, port: u16, value: u8) {
         self.port_write(port, value);
+    }
+    fn supports_io_trace(&self) -> bool {
+        true
+    }
+    fn start_io_trace(&mut self) {
+        Spectrum16K::start_io_trace(self);
+    }
+    fn take_io_trace(&mut self) -> Vec<SpectrumIoEvent> {
+        Spectrum16K::take_io_trace(self)
     }
 }
 
@@ -817,6 +836,15 @@ impl SpectrumMachine for SpectrumPlus {
     }
     fn port_write(&mut self, port: u16, value: u8) {
         self.port_write(port, value);
+    }
+    fn supports_io_trace(&self) -> bool {
+        true
+    }
+    fn start_io_trace(&mut self) {
+        SpectrumPlus::start_io_trace(self);
+    }
+    fn take_io_trace(&mut self) -> Vec<SpectrumIoEvent> {
+        SpectrumPlus::take_io_trace(self)
     }
 }
 
@@ -970,6 +998,15 @@ impl SpectrumMachine for Spectrum128K {
     }
     fn port_write(&mut self, port: u16, value: u8) {
         self.port_write(port, value);
+    }
+    fn supports_io_trace(&self) -> bool {
+        true
+    }
+    fn start_io_trace(&mut self) {
+        Spectrum128K::start_io_trace(self);
+    }
+    fn take_io_trace(&mut self) -> Vec<SpectrumIoEvent> {
+        Spectrum128K::take_io_trace(self)
     }
     fn start_ay_write_watch(&mut self) -> Result<(), &'static str> {
         Spectrum128K::start_ay_write_watch(self);
@@ -1134,6 +1171,15 @@ impl SpectrumMachine for SpectrumPlus2 {
     }
     fn port_write(&mut self, port: u16, value: u8) {
         self.port_write(port, value);
+    }
+    fn supports_io_trace(&self) -> bool {
+        true
+    }
+    fn start_io_trace(&mut self) {
+        SpectrumPlus2::start_io_trace(self);
+    }
+    fn take_io_trace(&mut self) -> Vec<SpectrumIoEvent> {
+        SpectrumPlus2::take_io_trace(self)
     }
     fn start_ay_write_watch(&mut self) -> Result<(), &'static str> {
         SpectrumPlus2::start_ay_write_watch(self);
@@ -1352,6 +1398,15 @@ impl<V: AmstradVariant> SpectrumMachine for SpectrumAmstradClassCore<V> {
     fn port_write(&mut self, port: u16, value: u8) {
         self.port_write(port, value);
     }
+    fn supports_io_trace(&self) -> bool {
+        true
+    }
+    fn start_io_trace(&mut self) {
+        SpectrumAmstradClassCore::start_io_trace(self);
+    }
+    fn take_io_trace(&mut self) -> Vec<SpectrumIoEvent> {
+        SpectrumAmstradClassCore::take_io_trace(self)
+    }
     fn start_ay_write_watch(&mut self) -> Result<(), &'static str> {
         SpectrumAmstradClassCore::<V>::start_ay_write_watch(self);
         Ok(())
@@ -1480,6 +1535,15 @@ impl SpectrumMachine for Pentagon128 {
     }
     fn port_write(&mut self, port: u16, value: u8) {
         self.port_write(port, value);
+    }
+    fn supports_io_trace(&self) -> bool {
+        true
+    }
+    fn start_io_trace(&mut self) {
+        Pentagon128::start_io_trace(self);
+    }
+    fn take_io_trace(&mut self) -> Vec<SpectrumIoEvent> {
+        Pentagon128::take_io_trace(self)
     }
 
     fn variant_query_paths() -> &'static [&'static str] {
@@ -1621,6 +1685,15 @@ impl SpectrumMachine for ScorpionZS256 {
     fn port_write(&mut self, port: u16, value: u8) {
         self.port_write(port, value);
     }
+    fn supports_io_trace(&self) -> bool {
+        true
+    }
+    fn start_io_trace(&mut self) {
+        ScorpionZS256::start_io_trace(self);
+    }
+    fn take_io_trace(&mut self) -> Vec<SpectrumIoEvent> {
+        ScorpionZS256::take_io_trace(self)
+    }
 
     fn variant_query_paths() -> &'static [&'static str] {
         SCORPION_ZS256_QUERY_PATHS
@@ -1756,6 +1829,15 @@ impl SpectrumMachine for TimexTC2048 {
     fn port_write(&mut self, port: u16, value: u8) {
         self.port_write(port, value);
     }
+    fn supports_io_trace(&self) -> bool {
+        true
+    }
+    fn start_io_trace(&mut self) {
+        TimexTC2048::start_io_trace(self);
+    }
+    fn take_io_trace(&mut self) -> Vec<SpectrumIoEvent> {
+        TimexTC2048::take_io_trace(self)
+    }
 
     fn variant_query_paths() -> &'static [&'static str] {
         TIMEX_TC2048_QUERY_PATHS
@@ -1886,6 +1968,15 @@ impl SpectrumMachine for TimexTS2068 {
     }
     fn port_write(&mut self, port: u16, value: u8) {
         self.port_write(port, value);
+    }
+    fn supports_io_trace(&self) -> bool {
+        true
+    }
+    fn start_io_trace(&mut self) {
+        TimexTS2068::start_io_trace(self);
+    }
+    fn take_io_trace(&mut self) -> Vec<SpectrumIoEvent> {
+        TimexTS2068::take_io_trace(self)
     }
 
     fn variant_query_paths() -> &'static [&'static str] {

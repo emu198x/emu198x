@@ -18,6 +18,7 @@ use beta_disk_interface::BetaDisk;
 use common_sinclair_zx_spectrum::SpectrumTapePlayer;
 use common_sinclair_zx_spectrum::audio::{BeeperAudio, SpeakerMixer};
 use common_sinclair_zx_spectrum::driver::SpectrumDriver;
+use common_sinclair_zx_spectrum::io_trace::{IoEvent, IoTrace};
 use common_sinclair_zx_spectrum::memory::MemoryBus;
 use common_sinclair_zx_spectrum::peripheral::Peripheral;
 use common_sinclair_zx_spectrum::snapshot::{
@@ -40,6 +41,11 @@ const AUDIO_SAMPLES_PER_FRAME: usize = 882;
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct ScorpionZS256 {
     pub z80: Z80,
+    /// Host-side capture of `IN`/`OUT` traffic, off unless a debugger
+    /// turns it on. Outside the snapshot: a saved state carries the
+    /// machine, not what a debugger happened to be collecting.
+    #[serde(skip)]
+    io_trace: IoTrace,
     pub ula: ScorpionUla,
     pub memory: MemoryScorpion,
     pub framebuffer: Vec<u8>,
@@ -67,6 +73,7 @@ impl ScorpionZS256 {
         let ay_hz = cpu_hz / 2;
         Self {
             z80: Z80::new(),
+            io_trace: IoTrace::default(),
             ula: ScorpionUla::new(),
             memory: MemoryScorpion::new(),
             framebuffer: vec![0u8; SCREEN_WIDTH * SCREEN_HEIGHT],
@@ -98,23 +105,18 @@ impl ScorpionZS256 {
     pub fn model_id(&self) -> &'static str {
         "scorpion-zs256"
     }
-
     pub fn load_tape_blocks(&mut self, blocks: Vec<TapeBlock>) {
         self.tape.load_blocks(blocks);
     }
-
     pub fn load_tape_pulses(&mut self, pulses: Vec<u32>) {
         self.tape.load_pulses(pulses);
     }
-
     pub fn load_tape_stream(&mut self, stream: Vec<TapeSpan>) {
         self.tape.load_stream(stream);
     }
-
     pub fn tape_play(&mut self) {
         self.tape.play();
     }
-
     pub fn tape_stop(&mut self) {
         self.tape.stop();
     }
@@ -146,15 +148,12 @@ impl ScorpionZS256 {
         self.memory.write_7ffd(snap.port_7ffd);
         apply_ay_registers(snap, &mut self.ay);
     }
-
     pub fn run_frame(&mut self) {
         <Self as SpectrumDriver>::run_frame(self);
     }
-
     pub fn advance_halfcycles(&mut self, halfcycles: u32) {
         <Self as SpectrumDriver>::advance_halfcycles(self, halfcycles);
     }
-
     pub fn advance_tstates(&mut self, tstates: u32) {
         <Self as SpectrumDriver>::advance_tstates(self, tstates);
     }
@@ -183,6 +182,13 @@ impl ScorpionZS256 {
     }
 
     fn io_read(&mut self, port: u16) -> u8 {
+        let value = self.io_read_untraced(port);
+        let pc = self.z80.regs.pc;
+        self.io_trace.record(pc, port, value, false);
+        value
+    }
+
+    fn io_read_untraced(&mut self, port: u16) -> u8 {
         if self.beta.claims_port(port) {
             return self.beta.read(port);
         }
@@ -203,6 +209,12 @@ impl ScorpionZS256 {
     }
 
     fn io_write(&mut self, port: u16, data: u8) {
+        let pc = self.z80.regs.pc;
+        self.io_trace.record(pc, port, data, true);
+        self.io_write_untraced(port, data);
+    }
+
+    fn io_write_untraced(&mut self, port: u16, data: u8) {
         if self.beta.claims_port(port) {
             self.beta.write(port, data);
             return;
@@ -234,7 +246,6 @@ impl ScorpionZS256 {
             self.ay.write_data(data);
         }
     }
-
     pub fn audio_frame(&self) -> &[f32] {
         &self.audio_frame
     }
@@ -269,6 +280,17 @@ impl ScorpionZS256 {
         gain: f32,
     ) {
         self.audio.set_audio_channel_gain(channel, gain);
+    }
+
+    /// Start, or restart, capturing `IN`/`OUT` traffic.
+    pub fn start_io_trace(&mut self) {
+        self.io_trace.start();
+    }
+
+    /// Stop capturing and take the events collected since
+    /// [`start_io_trace`](Self::start_io_trace).
+    pub fn take_io_trace(&mut self) -> Vec<IoEvent> {
+        self.io_trace.take()
     }
 
     /// Bus-level port read.

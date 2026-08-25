@@ -16,6 +16,7 @@
 //! `knowledge/decisions/spectrum-joystick-architecture.md`.
 
 use common_sinclair_zx_spectrum::SpectrumTapePlayer;
+use common_sinclair_zx_spectrum::io_trace::{IoEvent, IoTrace};
 use std::marker::PhantomData;
 
 use amstrad_ula_40077::AmstradGateArray;
@@ -54,6 +55,11 @@ const AUDIO_SAMPLES_PER_FRAME: usize = 882;
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct SpectrumAmstradClassCore<V: AmstradVariant> {
     pub z80: Z80,
+    /// Host-side capture of `IN`/`OUT` traffic, off unless a debugger
+    /// turns it on. Outside the snapshot: a saved state carries the
+    /// machine, not what a debugger happened to be collecting.
+    #[serde(skip)]
+    io_trace: IoTrace,
     pub ula: AmstradGateArray,
     pub memory: MemoryPlus,
     pub framebuffer: Vec<u8>,
@@ -108,6 +114,7 @@ impl<V: AmstradVariant> SpectrumAmstradClassCore<V> {
         }
         Self {
             z80: Z80::new(),
+            io_trace: IoTrace::default(),
             ula: AmstradGateArray::new(),
             memory: MemoryPlus::new(),
             framebuffer: vec![0u8; SCREEN_WIDTH * SCREEN_HEIGHT],
@@ -181,6 +188,22 @@ impl<V: AmstradVariant> SpectrumAmstradClassCore<V> {
             .map(|w| (w.lo(), w.hi().wrapping_sub(w.lo())))
     }
 
+    /// Start, or restart, capturing `IN`/`OUT` traffic.
+    ///
+    /// The Spectrum decodes I/O on single address lines — bit 0 clear is
+    /// the ULA, so the keyboard, border, speaker and tape all land on
+    /// `$FE` and its even mirrors — which is what makes a port trace
+    /// worth having here.
+    pub fn start_io_trace(&mut self) {
+        self.io_trace.start();
+    }
+
+    /// Stop capturing and take the events collected since
+    /// [`start_io_trace`](Self::start_io_trace).
+    pub fn take_io_trace(&mut self) -> Vec<IoEvent> {
+        self.io_trace.take()
+    }
+
     /// Bus-level port read — see `SpectrumMachineCore::port_read` on
     /// the 48K-class core for the rationale.
     pub fn port_read(&mut self, port: u16) -> u8 {
@@ -236,23 +259,18 @@ impl<V: AmstradVariant> SpectrumAmstradClassCore<V> {
         self.z80.rehydrate_walker_sequence();
         self.ula.reattach_config();
     }
-
     pub fn load_tape_blocks(&mut self, blocks: Vec<TapeBlock>) {
         self.tape.load_blocks(blocks);
     }
-
     pub fn load_tape_pulses(&mut self, pulses: Vec<u32>) {
         self.tape.load_pulses(pulses);
     }
-
     pub fn load_tape_stream(&mut self, stream: Vec<TapeSpan>) {
         self.tape.load_stream(stream);
     }
-
     pub fn tape_play(&mut self) {
         self.tape.play();
     }
-
     pub fn tape_stop(&mut self) {
         self.tape.stop();
     }
@@ -281,11 +299,9 @@ impl<V: AmstradVariant> SpectrumAmstradClassCore<V> {
     pub fn run_frame(&mut self) {
         <Self as SpectrumDriver>::run_frame(self);
     }
-
     pub fn advance_halfcycles(&mut self, halfcycles: u32) {
         <Self as SpectrumDriver>::advance_halfcycles(self, halfcycles);
     }
-
     pub fn advance_tstates(&mut self, tstates: u32) {
         <Self as SpectrumDriver>::advance_tstates(self, tstates);
     }
@@ -321,6 +337,13 @@ impl<V: AmstradVariant> SpectrumAmstradClassCore<V> {
     }
 
     pub(crate) fn io_read(&mut self, port: u16) -> u8 {
+        let value = self.io_read_untraced(port);
+        let pc = self.z80.regs.pc;
+        self.io_trace.record(pc, port, value, false);
+        value
+    }
+
+    fn io_read_untraced(&mut self, port: u16) -> u8 {
         // The FDC claims its own ports first — `claims_port` honours
         // the `enabled` flag, so +2A / +2B fall through here.
         if self.fdc.claims_port(port) {
@@ -353,6 +376,12 @@ impl<V: AmstradVariant> SpectrumAmstradClassCore<V> {
     }
 
     pub(crate) fn io_write(&mut self, port: u16, data: u8) {
+        let pc = self.z80.regs.pc;
+        self.io_trace.record(pc, port, data, true);
+        self.io_write_untraced(port, data);
+    }
+
+    fn io_write_untraced(&mut self, port: u16, data: u8) {
         if self.fdc.claims_port(port) {
             if std::env::var("EMU198X_FDC_TRACE").is_ok() {
                 eprintln!(
@@ -404,7 +433,6 @@ impl<V: AmstradVariant> SpectrumAmstradClassCore<V> {
             self.ay.write_data(data);
         }
     }
-
     pub fn audio_frame(&self) -> &[f32] {
         &self.audio_frame
     }

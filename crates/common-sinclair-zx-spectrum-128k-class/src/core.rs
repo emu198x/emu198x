@@ -12,6 +12,7 @@
 //! contention models and keep their own machine implementations.
 
 use common_sinclair_zx_spectrum::SpectrumTapePlayer;
+use common_sinclair_zx_spectrum::io_trace::{IoEvent, IoTrace};
 use std::marker::PhantomData;
 
 use common_sinclair_zx_spectrum::audio::{BeeperAudio, SpeakerMixer};
@@ -52,6 +53,11 @@ const AUDIO_SAMPLES_PER_FRAME: usize = 882;
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct Spectrum128kClassCore<V: Class128kVariant> {
     pub z80: Z80,
+    /// Host-side capture of `IN`/`OUT` traffic, off unless a debugger
+    /// turns it on. Outside the snapshot: a saved state carries the
+    /// machine, not what a debugger happened to be collecting.
+    #[serde(skip)]
+    io_trace: IoTrace,
     pub ula: SinclairUla,
     pub memory: Memory128K,
     pub framebuffer: Vec<u8>,
@@ -104,6 +110,7 @@ impl<V: Class128kVariant> Spectrum128kClassCore<V> {
         let ay_hz = cpu_hz / 2;
         Self {
             z80: Z80::new(),
+            io_trace: IoTrace::default(),
             ula: SinclairUla::new(),
             memory: Memory128K::new(),
             framebuffer: vec![0u8; SCREEN_WIDTH * SCREEN_HEIGHT],
@@ -179,6 +186,22 @@ impl<V: Class128kVariant> Spectrum128kClassCore<V> {
             .map(|w| (w.lo(), w.hi().wrapping_sub(w.lo())))
     }
 
+    /// Start, or restart, capturing `IN`/`OUT` traffic.
+    ///
+    /// The Spectrum decodes I/O on single address lines — bit 0 clear is
+    /// the ULA, so the keyboard, border, speaker and tape all land on
+    /// `$FE` and its even mirrors — which is what makes a port trace
+    /// worth having here.
+    pub fn start_io_trace(&mut self) {
+        self.io_trace.start();
+    }
+
+    /// Stop capturing and take the events collected since
+    /// [`start_io_trace`](Self::start_io_trace).
+    pub fn take_io_trace(&mut self) -> Vec<IoEvent> {
+        self.io_trace.take()
+    }
+
     /// Bus-level port read — see `SpectrumMachineCore::port_read` on
     /// the 48K-class core for the rationale.
     pub fn port_read(&mut self, port: u16) -> u8 {
@@ -247,23 +270,18 @@ impl<V: Class128kVariant> Spectrum128kClassCore<V> {
         self.z80.rehydrate_walker_sequence();
         self.ula.reattach_config();
     }
-
     pub fn load_tape_blocks(&mut self, blocks: Vec<TapeBlock>) {
         self.tape.load_blocks(blocks);
     }
-
     pub fn load_tape_pulses(&mut self, pulses: Vec<u32>) {
         self.tape.load_pulses(pulses);
     }
-
     pub fn load_tape_stream(&mut self, stream: Vec<TapeSpan>) {
         self.tape.load_stream(stream);
     }
-
     pub fn tape_play(&mut self) {
         self.tape.play();
     }
-
     pub fn tape_stop(&mut self) {
         self.tape.stop();
     }
@@ -331,6 +349,13 @@ impl<V: Class128kVariant> Spectrum128kClassCore<V> {
     }
 
     pub(crate) fn io_read(&mut self, port: u16) -> u8 {
+        let value = self.io_read_untraced(port);
+        let pc = self.z80.regs.pc;
+        self.io_trace.record(pc, port, value, false);
+        value
+    }
+
+    fn io_read_untraced(&mut self, port: u16) -> u8 {
         if self.kempston.claims_port(port) {
             return self.kempston.read(port);
         }
@@ -380,6 +405,12 @@ impl<V: Class128kVariant> Spectrum128kClassCore<V> {
     }
 
     pub(crate) fn io_write(&mut self, port: u16, data: u8) {
+        let pc = self.z80.regs.pc;
+        self.io_trace.record(pc, port, data, true);
+        self.io_write_untraced(port, data);
+    }
+
+    fn io_write_untraced(&mut self, port: u16, data: u8) {
         if port & 0x0001 == 0 {
             self.ula.write_fe(data);
             let beeper = data & 0x10 != 0;
@@ -407,7 +438,6 @@ impl<V: Class128kVariant> Spectrum128kClassCore<V> {
             self.ay.write_data(data);
         }
     }
-
     pub fn audio_frame(&self) -> &[f32] {
         &self.audio_frame
     }

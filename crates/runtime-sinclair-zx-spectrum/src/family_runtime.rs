@@ -30,6 +30,8 @@ use emu198x_shell::{
     MachineTime, MediaSet, QueryError, QueryResult, ResetKind, RunResult, SessionQueryProvider,
 };
 
+use common_sinclair_zx_spectrum::io_trace::IoEvent as SpectrumIoEvent;
+
 use crate::queries::SpectrumSessionQueryProvider;
 use crate::runtime::{SpectrumMachine, SpectrumRuntime};
 use crate::variants::{
@@ -104,6 +106,12 @@ pub trait SpectrumLiveAccess {
     fn port_read(&mut self, port: u16) -> u8;
     /// Bus-level Z80 I/O port write.
     fn port_write(&mut self, port: u16, value: u8);
+    /// Whether this variant can capture `IN`/`OUT` traffic.
+    fn supports_io_trace(&self) -> bool;
+    /// Begin capturing every `IN`/`OUT` the Z80 performs.
+    fn start_io_trace(&mut self);
+    /// Stop capturing and take the events collected.
+    fn take_io_trace(&mut self) -> Vec<SpectrumIoEvent>;
     /// Begin tracing every `OUT ($BFFD), data` write. Variants
     /// without an AY return `Err`.
     ///
@@ -190,6 +198,18 @@ impl<M: SpectrumMachine> SpectrumLiveAccess for SpectrumRuntime<M> {
 
     fn port_write(&mut self, port: u16, value: u8) {
         self.machine_mut().port_write(port, value);
+    }
+
+    fn supports_io_trace(&self) -> bool {
+        self.machine().supports_io_trace()
+    }
+
+    fn start_io_trace(&mut self) {
+        self.machine_mut().start_io_trace();
+    }
+
+    fn take_io_trace(&mut self) -> Vec<SpectrumIoEvent> {
+        self.machine_mut().take_io_trace()
     }
 
     fn start_ay_write_watch(&mut self) -> Result<(), &'static str> {
@@ -739,6 +759,18 @@ impl SpectrumLiveAccess for SpectrumRuntimeKind {
 
     fn run_until_pc(&mut self, target: u16, max_halfcycles: u32) -> (bool, u32, u32) {
         match_kind!(self, |rt| rt.run_until_pc(target, max_halfcycles))
+    }
+
+    fn supports_io_trace(&self) -> bool {
+        match_kind!(self, |rt| rt.supports_io_trace())
+    }
+
+    fn start_io_trace(&mut self) {
+        match_kind!(self, |rt| rt.start_io_trace());
+    }
+
+    fn take_io_trace(&mut self) -> Vec<SpectrumIoEvent> {
+        match_kind!(self, |rt| rt.take_io_trace())
     }
 
     fn port_read(&mut self, port: u16) -> u8 {
