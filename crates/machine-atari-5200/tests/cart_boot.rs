@@ -21,7 +21,11 @@ fn first_cart(dir: &PathBuf) -> Option<PathBuf> {
                 Some("a52") | Some("A52") | Some("bin") | Some("BIN") | Some("car") | Some("CAR")
             );
             let size = fs::metadata(p).ok().map(|m| m.len()).unwrap_or(0);
-            ok_ext && matches!(size, 4096 | 8192 | 16384 | 32768)
+            // A headered .a52/.car dump is a whole number of 4 KB pages
+            // plus its 16-byte header; the loader strips it.
+            let raw = matches!(size, 4096 | 8192 | 16384 | 32768);
+            let headered = matches!(size.wrapping_sub(16), 4096 | 8192 | 16384 | 32768);
+            ok_ext && (raw || headered)
         })
         .collect();
     paths.sort();

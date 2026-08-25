@@ -307,7 +307,12 @@ impl Atari5200 {
     fn mem_read(&mut self, addr: u16) -> u8 {
         match addr {
             0x0000..=0x3FFF => self.ram[(addr & 0x3FFF) as usize],
-            0x4000..=0xBFFF => self.cart.read(addr),
+            0x4000..=0xBFFF => {
+                // A Bounty Bob cart switches on reads as well as writes,
+                // so the read path has to be able to move a window.
+                self.refresh_banked_window(addr);
+                self.cart.read(addr)
+            }
             0xC000..=0xCFFF => self.gtia.read(addr as u8),
             0xD400..=0xD5FF => self.antic.read(addr as u8),
             0xE800..=0xE9FF => self.pokey.read(addr as u8),
@@ -325,6 +330,23 @@ impl Atari5200 {
         }
     }
 
+    /// Let the cartridge see `addr` in case it is a bank register, and
+    /// re-bake ANTIC's shadow for the window if a page moved.
+    ///
+    /// ANTIC does not go through `mem_read` — it reads `dma_mem`, which
+    /// is baked once at construction. A banked cart makes that copy
+    /// stale, and a display list or character set living in a switchable
+    /// window would keep showing the old page.
+    fn refresh_banked_window(&mut self, addr: u16) {
+        let Some(base) = self.cart.touch_bank_register(addr) else {
+            return;
+        };
+        for offset in 0..0x1000u16 {
+            let at = base + offset;
+            self.dma_mem[at as usize] = self.cart.read(at);
+        }
+    }
+
     fn mem_write(&mut self, addr: u16, value: u8) {
         match addr {
             0x0000..=0x3FFF => {
@@ -332,6 +354,7 @@ impl Atari5200 {
                 self.ram[i] = value;
                 self.dma_mem[i] = value;
             }
+            0x4000..=0xBFFF => self.refresh_banked_window(addr),
             0xC000..=0xCFFF => self.gtia.write(addr as u8, value),
             0xD400..=0xD5FF => self.antic.write(addr as u8, value),
             0xE800..=0xE9FF => self.pokey.write(addr as u8, value),
@@ -384,6 +407,12 @@ impl Atari5200 {
         } else {
             self.pokey.release_key();
         }
+    }
+
+    /// Cartridge reference, for tests and chip inspection.
+    #[must_use]
+    pub const fn cart(&self) -> &Cartridge {
+        &self.cart
     }
 
     /// CPU reference.
