@@ -35,18 +35,18 @@
 //! facts. **Every access to port `$24`** (read or write) toggles the ROM in
 //! and out, leaving the 64 KB RAM visible underneath — the MOS uses this to
 //! copy the ROM into RAM. Writes always land in RAM regardless of the
-//! ROM-page state [HW §3.2.2: *"Memory-Write cycles are always directed to
-//! DRAM"*].
+//! ROM-page state [HW §3.2.2].
 //!
 //! ⚠ Whether a *read* of `$24` toggles is **not settled** by the manual, which
-//! says "addressing an output port". The current read-toggles behaviour is
-//! inherited and unverified — see `verification.md` M6.
+//! describes the latch as responding to an output port being addressed. The
+//! current read-toggles behaviour is inherited and unverified — see
+//! `verification.md` M6.
 //!
 //! # Sources
 //!
-//! - **[HW]** — Tatung EINSTEIN TC01 Service Manual, 70pp. Section numbers
-//!   below refer to it. Indexed at
-//!   `/Volumes/Data/Library/Docs/Tatung-Einstein/hardwaremanual.pdf`.
+//! - **[HW]** — Tatung EINSTEIN TC01 Service Manual. Section numbers below
+//!   refer to it. Held for private reference only: it is named here by title
+//!   alone, with no link, filename or identifier, and must stay that way.
 //! - Claim-by-claim status, including what is verified, corroborated,
 //!   contradicted or unsourced:
 //!   `reference/by-system/tatung-einstein/verification.md`.
