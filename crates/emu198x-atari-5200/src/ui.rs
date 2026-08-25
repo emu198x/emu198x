@@ -22,9 +22,7 @@ use runtime_atari_5200::{Atari5200Runtime, Model};
 const DEFAULT_SCALE: u32 = 3;
 /// CPU clocks per frame — `lines × 228`, matching the headless runner.
 const FRAME_TICKS_NTSC: u64 = 262 * 228;
-const FRAME_TICKS_PAL: u64 = 312 * 228;
 const NTSC_FRAME_HZ: f64 = 60.0;
-const PAL_FRAME_HZ: f64 = 50.0;
 
 /// Player-1 controller: stick directions plus fire. The runtime snaps the
 /// digital directions to the analogue pot extremes; `fire` drives the trigger.
@@ -46,7 +44,7 @@ Options:
     --cart PATH     Atari 5200 cartridge ROM (required)
     --bios PATH     Atari 5200 BIOS ROM (2 KB); default
                     ~/.emu198x/roms/atari-5200/bios.rom or 5200.rom (or set EMU198X_A5200_BIOS)
-    --region MODE   ntsc | pal [default: ntsc]
+    --region MODE   ntsc (the only standard the 5200 shipped in) [default: ntsc]
     --scale N       integer window scale, default 3
     --video MODE    raw | lcd | crt [default: raw]
     --help, -h      show this help
@@ -62,35 +60,35 @@ Controls:
 
 Examples:
     emu198x-atari-5200 --cart galaxian.a52
-    emu198x-atari-5200 --cart game.bin --region pal --scale 4
+    emu198x-atari-5200 --cart game.bin --scale 4
 ";
 
 /// Display region — selects the model, frame tick budget, and refresh rate.
+///
+/// The 5200 shipped in one television standard, so this names the only
+/// one rather than offering a choice. See
+/// `crates/runtime-atari-5200/src/profiles.rs` for the citation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Region {
     Ntsc,
-    Pal,
 }
 
 impl Region {
     fn model(self) -> Model {
         match self {
             Self::Ntsc => Model::A5200Ntsc,
-            Self::Pal => Model::A5200Pal,
         }
     }
 
     fn frame_ticks(self) -> u64 {
         match self {
             Self::Ntsc => FRAME_TICKS_NTSC,
-            Self::Pal => FRAME_TICKS_PAL,
         }
     }
 
     fn frame_hz(self) -> f64 {
         match self {
             Self::Ntsc => NTSC_FRAME_HZ,
-            Self::Pal => PAL_FRAME_HZ,
         }
     }
 }
@@ -251,8 +249,12 @@ where
             "--region" => {
                 cli.region = match next_arg(&mut iter, "--region").as_str() {
                     "ntsc" => Region::Ntsc,
-                    "pal" => Region::Pal,
-                    other => die(&format!("--region expects ntsc|pal, got {other}")),
+                    "pal" => die(
+                        "the Atari 5200 shipped NTSC only — Atari's CX5200 Field Service \
+                         Manual has a PAL GTIA in one as a part to replace, not a region \
+                         to select",
+                    ),
+                    other => die(&format!("--region expects ntsc, got {other}")),
                 };
             }
             "--scale" => {
@@ -316,7 +318,7 @@ mod tests {
             "--bios".to_owned(),
             "5200.rom".to_owned(),
             "--region".to_owned(),
-            "pal".to_owned(),
+            "ntsc".to_owned(),
             "--scale".to_owned(),
             "4".to_owned(),
             "--video".to_owned(),
@@ -324,7 +326,7 @@ mod tests {
         ]);
         assert_eq!(cli.cart, Some(PathBuf::from("game.a52")));
         assert_eq!(cli.bios, Some(PathBuf::from("5200.rom")));
-        assert_eq!(cli.region, Region::Pal);
+        assert_eq!(cli.region, Region::Ntsc);
         assert_eq!(cli.scale, 4);
         assert_eq!(cli.video, VideoFilter::Crt);
     }
@@ -338,7 +340,6 @@ mod tests {
     #[test]
     fn region_frame_ticks_match() {
         assert_eq!(Region::Ntsc.frame_ticks(), 262 * 228);
-        assert_eq!(Region::Pal.frame_ticks(), 312 * 228);
     }
 
     #[test]

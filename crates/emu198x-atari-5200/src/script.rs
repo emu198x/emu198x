@@ -10,7 +10,6 @@ use runtime_atari_5200::{Atari5200Runtime, Atari5200SessionQueryProvider, Model}
 use serde_json::json;
 
 const FRAME_TICKS_NTSC: u64 = 262 * 228;
-const FRAME_TICKS_PAL: u64 = 312 * 228;
 
 const USAGE: &str = "\
 Usage: emu198x-atari-5200 [OPTIONS]
@@ -61,23 +60,23 @@ impl Default for Cli {
     }
 }
 
+/// The 5200 shipped in one television standard, so this names the only
+/// one rather than offering a choice. See
+/// `crates/runtime-atari-5200/src/profiles.rs` for the citation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Region {
     Ntsc,
-    Pal,
 }
 
 impl Region {
     const fn model(self) -> Model {
         match self {
             Self::Ntsc => Model::A5200Ntsc,
-            Self::Pal => Model::A5200Pal,
         }
     }
     const fn frame_ticks(self) -> u64 {
         match self {
             Self::Ntsc => FRAME_TICKS_NTSC,
-            Self::Pal => FRAME_TICKS_PAL,
         }
     }
 }
@@ -92,8 +91,12 @@ fn parse_cli<I: IntoIterator<Item = String>>(args: I) -> Cli {
             "--region" => {
                 cli.region = match next_arg(&mut iter, "--region").as_str() {
                     "ntsc" => Region::Ntsc,
-                    "pal" => Region::Pal,
-                    other => die(&format!("--region expects ntsc|pal, got {other}")),
+                    "pal" => die(
+                        "the Atari 5200 shipped NTSC only — Atari's CX5200 Field Service \
+                         Manual has a PAL GTIA in one as a part to replace, not a region \
+                         to select",
+                    ),
+                    other => die(&format!("--region expects ntsc, got {other}")),
                 };
             }
             "--frames" => {

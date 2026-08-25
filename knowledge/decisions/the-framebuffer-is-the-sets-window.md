@@ -122,7 +122,7 @@ the core draws.
 | Amiga (PAL) | 768×576 | 738×576 | 104% | 100% |
 | Dragon (PAL) | 744×312 | 738×288 | 101% | 108% |
 | ColecoVision, MSX, Master System, Memotech MTX, SG-1000, Sord M5, SVI-328, Tatung Einstein (PAL) | 278×288 | 278×288 | 100% | 100% |
-| Atari 800XL, 5200, 7800 (PAL) | 368×288 | 369×288 | 100% | 100% |
+| Atari 800XL, 7800 (PAL) | 368×288 | 369×288 | 100% | 100% |
 | Atari 800XL, 5200, 7800 (NTSC) | 374×240 | 373×240 | 100% | 100% |
 | ColecoVision, MSX, Master System, SG-1000, Sord M5, SVI-328 (NTSC) | 280×240 | 280×240 | 100% | 100% |
 | Acorn Atom (PAL) | 372×288 | 369×288 | 101% | 100% |
@@ -292,7 +292,8 @@ The rule allows three answers, and each core's constant now gives one of them
 in its own doc comment. This is the list, and it is complete.
 
 **Holds the window** — fourteen profiles across eleven machines, within a pixel
-or two on both axes: the Atari 800XL, 5200 and 7800 on both regions; the
+or two on both axes: the Atari 800XL and 7800 on both regions, the 5200 on
+its only one; the
 ColecoVision, MSX, Master System, SG-1000, Sord M5, SVI-328, Memotech MTX and
 Tatung Einstein; the Amstrad CPC; the VIC-20 on both regions.
 
