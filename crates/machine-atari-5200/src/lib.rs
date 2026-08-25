@@ -232,6 +232,10 @@ impl Atari5200 {
         // When the line completes, overlay players/missiles + collisions.
         if self.master_clock.is_multiple_of(ccpl) {
             self.gtia.finish_scanline();
+            // End of the pulse. The CPU latched any rising edge as it
+            // ticked through the line, so dropping the line here costs
+            // nothing and lets the next line's interrupt be seen.
+            self.cpu.nmi = false;
         }
 
         // CPU + POKEY tick every 2nd colour clock.
@@ -285,9 +289,19 @@ impl Atari5200 {
         );
         self.dma_budget = result.dma_cycles;
         self.line_cycle = 0;
-        // VBI + DLI both pulse the NMI line.
-        let nmi = self.antic.take_vbi() || self.antic.take_dli();
-        self.cpu.nmi = nmi;
+        // ANTIC pulses NMI; it does not hold it. Raise the line for any
+        // source that fired on this line — `tick_colour_clock` drops it
+        // again once the line ends, so the next source gets its own
+        // rising edge. Holding it high across two consecutive lines
+        // merges them into one edge and the second interrupt is lost,
+        // which is what happens to any program with a DLI on its last
+        // mode line: the DLI at the end of the picture and the VBI on
+        // the line after arrive as a single NMI, the OS handler sees
+        // both NMIST bits, services the DLI because bit 7 wins, and
+        // NMIRES clears the VBI bit unserviced.
+        if self.antic.take_vbi() | self.antic.take_dli() {
+            self.cpu.nmi = true;
+        }
     }
 
     fn mem_read(&mut self, addr: u16) -> u8 {
@@ -540,6 +554,39 @@ mod tests {
         let mut pal =
             Atari5200::new(trap_rom_8k(), Vec::new(), Atari5200Region::Pal).expect("init");
         assert!(pal.run_frame() > ntsc.run_frame());
+    }
+
+    /// ANTIC pulses NMI. Holding the line high across two consecutive
+    /// lines merges them into one rising edge, and the 6502 only latches
+    /// on an edge — so the second interrupt is never delivered.
+    ///
+    /// That is not academic: Missile Command puts a DLI on its last mode
+    /// line, one line before the VBI. Merged, the OS handler saw both
+    /// NMIST bits, serviced the DLI because bit 7 wins, and NMIRES
+    /// cleared the VBI bit unserviced. The BIOS VBI is what restores
+    /// DLISTL/DLISTH from the shadow, so the display list pointer was
+    /// left at the JVB and every other frame came out blank.
+    #[test]
+    fn antic_nmi_falls_at_the_end_of_every_scan_line() {
+        let mut sys =
+            Atari5200::new(trap_rom_8k(), Vec::new(), Atari5200Region::Ntsc).expect("init");
+        // Enable both NMI sources so the line is driven as often as
+        // possible.
+        sys.antic.write(0x0E, 0xC0);
+
+        let ccpl = u64::from(COLOUR_CLOCKS_PER_LINE);
+        let mut held_across_a_line_boundary = 0;
+        for _ in 0..(ccpl * u64::from(sys.region.lines_per_frame())) {
+            sys.tick_colour_clock();
+            if sys.master_clock.is_multiple_of(ccpl) && sys.cpu.nmi {
+                held_across_a_line_boundary += 1;
+            }
+        }
+        assert_eq!(
+            held_across_a_line_boundary, 0,
+            "NMI must be a pulse: a line still asserted at the line boundary \
+             merges with the next line's interrupt into a single edge"
+        );
     }
 
     #[test]

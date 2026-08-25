@@ -269,6 +269,9 @@ impl Atari800xl {
         // When the line completes, overlay players/missiles + collisions.
         if self.master_clock.is_multiple_of(ccpl) {
             self.gtia.finish_scanline();
+            // End of the NMI pulse; the CPU latched any rising edge as it
+            // ticked through the line.
+            self.cpu.nmi = false;
         }
 
         if self.master_clock.is_multiple_of(2) {
@@ -381,7 +384,13 @@ impl Atari800xl {
         );
         self.dma_budget = result.dma_cycles;
         self.line_cycle = 0;
-        self.cpu.nmi = self.antic.take_vbi() || self.antic.take_dli();
+        // ANTIC pulses NMI; it does not hold it. See the same wiring in
+        // `machine-atari-5200`: holding the line high across two
+        // consecutive lines merges a DLI on the last mode line with the
+        // VBI on the line after into one edge, and the OS loses the VBI.
+        if self.antic.take_vbi() | self.antic.take_dli() {
+            self.cpu.nmi = true;
+        }
     }
 
     fn effective_portb(&self) -> u8 {
