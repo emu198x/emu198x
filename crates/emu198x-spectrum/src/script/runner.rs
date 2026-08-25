@@ -48,6 +48,12 @@ pub struct ScriptInputs {
     pub play_tape: bool,
     /// Run the BASIC autoload sequence on `tape-1` once boot is detected.
     pub autoload_tape: bool,
+    /// Frames to run after any script, before capturing.
+    pub frames: u32,
+    /// Write a PNG of the final frame here.
+    pub screenshot: Option<PathBuf>,
+    /// Write a WAV of the captured audio here.
+    pub audio_capture: Option<PathBuf>,
     /// Raw `--rom` values. Resolved against the boot variant's bundle
     /// once that variant is known, because `ID=PATH` is checked against
     /// it and a bare `PATH` only means anything on a single-ROM variant.
@@ -177,6 +183,33 @@ pub fn run_script(inputs: ScriptInputs) -> Result<RunnerReport, AppError> {
             if let Some(observation) = execute_step(step, &mut session)? {
                 observations.push(observation);
             }
+        }
+    }
+
+    // The flags are the two-minute path to a picture; they run through
+    // the same steps a script would, so there is one implementation to
+    // keep correct rather than two.
+    if inputs.frames > 0 {
+        let step = ScriptStep::RunFrames {
+            frames: inputs.frames,
+        };
+        if let Some(observation) = execute_step(&step, &mut session)? {
+            observations.push(observation);
+        }
+    }
+    if let Some(path) = &inputs.screenshot {
+        let step = ScriptStep::SaveScreenshot { path: path.clone() };
+        if let Some(observation) = execute_step(&step, &mut session)? {
+            observations.push(observation);
+        }
+    }
+    if let Some(path) = &inputs.audio_capture {
+        let step = ScriptStep::SaveAudioCapture {
+            path: path.clone(),
+            reset_after: true,
+        };
+        if let Some(observation) = execute_step(&step, &mut session)? {
+            observations.push(observation);
         }
     }
 

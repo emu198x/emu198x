@@ -92,6 +92,15 @@ pub struct ScriptCli {
     pub autoload_tape: bool,
     /// Raw `--rom` values, resolved against the boot variant's bundle.
     pub rom: Vec<String>,
+    /// Frames to run before capturing. The other twenty-nine binaries
+    /// take this; the Spectrum did not, so the machine this project's
+    /// curriculum leads with was the one that needed a JSON file to
+    /// take a picture (#1187).
+    pub frames: u32,
+    /// Write a PNG of the final frame here.
+    pub screenshot: Option<PathBuf>,
+    /// Write a WAV of the captured audio here.
+    pub audio_capture: Option<PathBuf>,
 }
 
 /// Parses CLI args for headless / script mode. Mode flags (`--headless`,
@@ -116,6 +125,17 @@ where
             }
             "--machine" => cli.machine = Some(next_arg(&mut iter, "--machine")),
             "--tape" => cli.tape = Some(PathBuf::from(next_arg(&mut iter, "--tape"))),
+            "--frames" => {
+                cli.frames = next_arg(&mut iter, "--frames").parse().unwrap_or_else(|_| {
+                    die("--frames expects a number of frames");
+                });
+            }
+            "--screenshot" => {
+                cli.screenshot = Some(PathBuf::from(next_arg(&mut iter, "--screenshot")));
+            }
+            "--audio-capture" => {
+                cli.audio_capture = Some(PathBuf::from(next_arg(&mut iter, "--audio-capture")));
+            }
             "--play-tape" => cli.play_tape = true,
             "--autoload-tape" => cli.autoload_tape = true,
             "--rom" => {
@@ -140,12 +160,22 @@ where
 pub fn run(cli: ScriptCli) -> Result<(), AppError> {
     let inputs = ScriptInputs {
         script: cli.script.clone(),
+        frames: cli.frames,
+        screenshot: cli.screenshot.clone(),
+        audio_capture: cli.audio_capture.clone(),
         machine: cli.machine.clone(),
         tape: cli.tape.clone(),
         play_tape: cli.play_tape,
         autoload_tape: cli.autoload_tape,
         rom: cli.rom.clone(),
     };
+
+    if (cli.screenshot.is_some() || cli.audio_capture.is_some())
+        && cli.frames == 0
+        && cli.script.is_none()
+    {
+        die("capture requests require either --frames or --script so the machine emits output");
+    }
 
     let report = run_script(inputs)?;
 
@@ -216,6 +246,9 @@ mod tests {
                 play_tape: false,
                 autoload_tape: true,
                 rom: Vec::new(),
+                frames: 0,
+                screenshot: None,
+                audio_capture: None,
             }
         );
     }
@@ -252,5 +285,37 @@ mod tests {
         assert!(cli.play_tape);
         assert!(!cli.autoload_tape);
         assert_eq!(cli.tape, Some(PathBuf::from("demo.tap")));
+    }
+}
+
+#[cfg(test)]
+mod capture_flag_tests {
+    use super::*;
+
+    /// #1187: twenty-nine binaries took these and the Spectrum did not,
+    /// so the machine the curriculum leads with was the only one that
+    /// needed a JSON file to take a picture.
+    #[test]
+    fn the_capture_flags_parse() {
+        let cli = parse_cli([
+            "--headless".to_owned(),
+            "--frames".to_owned(),
+            "120".to_owned(),
+            "--screenshot".to_owned(),
+            "boot.png".to_owned(),
+            "--audio-capture".to_owned(),
+            "boot.wav".to_owned(),
+        ]);
+        assert_eq!(cli.frames, 120);
+        assert_eq!(cli.screenshot, Some(PathBuf::from("boot.png")));
+        assert_eq!(cli.audio_capture, Some(PathBuf::from("boot.wav")));
+    }
+
+    #[test]
+    fn capture_flags_default_to_off() {
+        let cli = parse_cli(["--headless".to_owned()]);
+        assert_eq!(cli.frames, 0);
+        assert!(cli.screenshot.is_none());
+        assert!(cli.audio_capture.is_none());
     }
 }
