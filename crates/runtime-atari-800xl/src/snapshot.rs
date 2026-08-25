@@ -17,7 +17,11 @@ use crate::runtime::Atari800xlRuntime;
 /// 288-line buffer that a version-3 NTSC machine would never allocate.
 /// Restoring it would resume into a geometry the machine disagrees with, and
 /// silently — so the version check rejects it instead.
-const SNAPSHOT_VERSION: u16 = 3;
+///
+/// Bumped to 4 when GTIA gained its PAL register. Postcard is not
+/// self-describing, so a version-3 payload decodes by misreading the
+/// chip state that follows.
+const SNAPSHOT_VERSION: u16 = 4;
 
 /// Borrowing envelope used during encode — avoids cloning the live machine.
 #[derive(Serialize)]
