@@ -381,6 +381,17 @@ impl<M: MachineCore, Q: SessionQueryProvider<M>> HeadlessSession<M, Q> {
         self.frame_capture.frame()
     }
 
+    /// Returns how many frames the machine has emitted since the session
+    /// was created or last reset.
+    ///
+    /// This counts the machine's own fields, not the shell's nominal frame
+    /// grid, so a caller can check that a run of `n` frames produced `n`
+    /// frames rather than trusting that the two agree.
+    #[must_use]
+    pub const fn frames_emitted(&self) -> u64 {
+        self.frame_capture.frames_seen()
+    }
+
     /// Returns the supported shared query paths, optionally filtered by prefix.
     #[must_use]
     pub fn query_paths(&self, prefix: Option<&str>) -> QueryPathsResult {
