@@ -12,6 +12,24 @@ use crate::snapshot;
 use crate::{Model, profile_for};
 use emu198x_shell::display::Display;
 
+/// One PPU scanline, in dots — the tolerance `run_until` allows itself
+/// when it decides whether another field still fits before the target.
+///
+/// A field is 341 x 262 = 89,342 dots, except that the pre-render line
+/// of an odd frame is one dot short, so the machine alternates 89,342
+/// and 89,341. The shell's frame grid is a fixed nominal 89,342, so a
+/// short field lands one dot below the target — and a bare
+/// `while self.time < target` starts an entire second field to cover
+/// that single dot, emitting a second frame with it. A hundred
+/// scripted frames recorded a hundred and ninety-one (#1179).
+///
+/// Undershooting by a dot is far closer to what the caller asked for
+/// than overshooting by a whole frame, and the deficit does not
+/// accumulate: the next request computes its target from the actual
+/// time. The tolerance is a scanline rather than a single dot so that
+/// a run covering many fields can absorb the same drift repeatedly.
+const RUN_UNTIL_TOLERANCE_DOTS: u64 = 341;
+
 /// Firmwareless NES runtime over the concrete machine crate.
 pub struct NesRuntime {
     profile: MachineProfile,
@@ -275,6 +293,10 @@ impl MachineCore for NesRuntime {
                 channels: 1,
                 samples: &audio,
             })?;
+
+            if target.get().saturating_sub(self.time.get()) < RUN_UNTIL_TOLERANCE_DOTS {
+                break;
+            }
         }
 
         Ok(RunResult::new(self.time, StopReason::ReachedTarget))
