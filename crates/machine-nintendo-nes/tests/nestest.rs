@@ -19,8 +19,8 @@
 //!
 //! Resolved in order:
 //! 1. `NES_TEST_DATA` environment variable (directory containing both)
-//! 2. `~/Projects/198x/assets/nintendo/nes/test-suites/other/`
-//! 3. `~/Projects/198x/assets/test-suites/nes-test-roms/other/`
+//! 2. `assets/nintendo/nes/test-suites/other/`
+//! 3. `assets/test-suites/nes-test-roms/other/`
 //!
 //! If none resolves, the test is a no-op.
 

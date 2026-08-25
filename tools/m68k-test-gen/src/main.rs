@@ -30,7 +30,7 @@ struct CliArgs {
     fp: bool,
     /// Explicit output directory (overrides the per-CPU default). Use
     /// this to write into the canonical corpus, e.g.
-    /// `--out ~/Projects/198x/assets/test-suites/m68k-generated/m68020/v1`.
+    /// `--out assets/test-suites/m68k-generated/m68020/v1`.
     out_dir: Option<String>,
 }
 

@@ -9,7 +9,7 @@
 //! fixtures.
 //!
 //! Default corpus root:
-//!   `~/Projects/198x/assets/test-suites/m68k-generated/m68020/v1/`
+//!   `assets/test-suites/m68k-generated/m68020/v1/`
 //!
 //! Override with the `M68020_TEST_DATA` environment variable.
 //!

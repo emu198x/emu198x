@@ -4,7 +4,7 @@ Hard constraints. Non-negotiable. If you find yourself breaking one, stop and re
 
 ## Umbrella context
 
-This project lives at `~/Projects/198x/Emu198x/emu198x/` inside the local `emu198x` org container. The umbrella binds rules that span sibling projects — see [`../../CLAUDE.md`](../../CLAUDE.md) and [`../../decisions/`](../../decisions/).
+This project lives at `Emu198x/emu198x/` inside the 198x tree, in the local `emu198x` org container. The umbrella binds rules that span sibling projects — see [`../../CLAUDE.md`](../../CLAUDE.md) and [`../../decisions/`](../../decisions/).
 
 Hardware reference is **layered**, not single-canon. The primary library at [`../../reference/`](../../reference/) is the source of truth — Docling-extracted datasheets, manuals, magazines with sidecar metadata, organised by-system and by-topic. This project's [`knowledge/`](knowledge/) is a *codebase-tied distillation*: schema-bound (`knowledge/SCHEMA.md`), pressure-tested by working code, capturing what the emulator actually depends on. It cites the primary library; it does not replace it. When chip-level facts (Z80, 6502, 6510, 68000, VIC-II, ULA, Paula, SID, AY-3-8912) need updating, the primary library is the first port of call.
 

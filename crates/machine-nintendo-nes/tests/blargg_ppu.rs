@@ -19,7 +19,7 @@
 //! umbrella. The harness resolves them in this order:
 //!
 //! 1. `NES_BLARGG_ROOT` env var (directory containing the blargg subdirs).
-//! 2. `~/Projects/198x/assets/test-suites/nes-test-roms/`.
+//! 2. `assets/test-suites/nes-test-roms/`.
 //!
 //! If neither resolves, the per-ROM test is a no-op (skipped). When the
 //! ROM is present, the test is `#[ignore]`-by-default — run with

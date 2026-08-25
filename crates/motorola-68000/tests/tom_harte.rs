@@ -2,7 +2,7 @@
 //!
 //! Runs the registered SingleStepTests/680x0 fixture suite from a local root
 //! such as:
-//! - `~/Projects/198x/assets/test-suites/processor-tests/680x0/68000/v1/*.json.gz`
+//! - `assets/test-suites/processor-tests/680x0/68000/v1/*.json.gz`
 //! - `~/Projects/Emu198x-Unclean/680x0/68000/v1/*.json.gz`
 //! - `~/Projects/Emu198x-archive/test-data/680x0/68000/v1/*.json.gz`
 //!

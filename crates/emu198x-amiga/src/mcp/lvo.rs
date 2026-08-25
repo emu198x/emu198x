@@ -12,7 +12,7 @@
 //!
 //! **Source of truth.** Every entry below is parsed from the NDK 3.2
 //! `Include_I/lvo/*.i` files shipped by Commodore, mirrored at
-//! `~/Projects/198x/reference/by-system/commodore-amiga/ndk/ndk-3.2/`.
+//! `reference/by-system/commodore-amiga/ndk/ndk-3.2/`.
 //! Do NOT hand-edit these tables — regenerate from the NDK source if
 //! the schema changes (the in-repo script
 //! `tools/lvo-from-ndk.py` does the conversion). Hand-edited offsets
