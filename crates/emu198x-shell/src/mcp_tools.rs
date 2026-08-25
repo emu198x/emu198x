@@ -111,6 +111,7 @@ where
         arguments: Value,
         session: &mut HeadlessSession<M, Q>,
     ) -> Result<ToolResponse, ToolError> {
+        reject_unknown_arguments(self.name, &self.schema, &arguments)?;
         let step = build_step(self.name, arguments)?;
         let observation = (self.dispatch)(&step, session)?;
         let body = match observation {
@@ -364,6 +365,54 @@ use crate::debug::DebugTarget;
 // runs frames and is gated on `supports_io_trace` — stays a bespoke
 // `InlineTool`; its helpers (`debug_mut` / `parse_num` / `parse_opt`) live here.
 
+/// Reject arguments the tool does not declare.
+///
+/// Serde skips unknown fields, so a caller who guesses a field name gets
+/// the default instead of an error: `disasm {"count": 3}` quietly
+/// decoded sixteen instructions, because the argument is spelled
+/// `instructions` and `count` is what the *reply* calls the number
+/// decoded (#1182). A wrong name that looks like it worked is worse than
+/// one that fails, so name the argument and list what the tool takes.
+fn reject_unknown_arguments(
+    name: &str,
+    schema: &Value,
+    arguments: &Value,
+) -> Result<(), ToolError> {
+    let (Some(given), Some(known)) = (
+        arguments.as_object(),
+        schema.get("properties").and_then(Value::as_object),
+    ) else {
+        return Ok(());
+    };
+    let mut unknown: Vec<&str> = given
+        .keys()
+        .filter(|key| !known.contains_key(key.as_str()))
+        .map(String::as_str)
+        .collect();
+    if unknown.is_empty() {
+        return Ok(());
+    }
+    unknown.sort_unstable();
+    let mut accepted: Vec<&str> = known.keys().map(String::as_str).collect();
+    accepted.sort_unstable();
+    let quoted = |names: &[&str]| {
+        names
+            .iter()
+            .map(|n| format!("`{n}`"))
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    Err(ToolError::InvalidArguments(format!(
+        "`{name}` does not take {}; it takes {}",
+        quoted(&unknown),
+        if accepted.is_empty() {
+            "no arguments".to_owned()
+        } else {
+            quoted(&accepted)
+        }
+    )))
+}
+
 fn debug_mut<M: MachineCore, Q>(
     session: &mut HeadlessSession<M, Q>,
 ) -> Result<&mut dyn DebugTarget, ToolError> {
@@ -413,9 +462,17 @@ fn run_io_trace<M: MachineCore, Q: SessionQueryProvider<M>>(
     session: &mut HeadlessSession<M, Q>,
 ) -> Result<Value, ToolError> {
     if !debug_mut(session)?.supports_io_trace() {
+        // Do not name a reason here. Port tracing is a per-machine
+        // capability, not a property of the CPU: it is wired for six
+        // machines and absent on the rest, and the absent set includes
+        // Z80 machines with a separate I/O space. Blaming "memory-mapped
+        // CPU" told a Spectrum developer something false about their
+        // own hardware (#1183).
         return Err(ToolError::Execution(
-            "this machine does not support I/O port tracing (memory-mapped CPU); \
-             use memory_read / disasm / run_until_pc instead"
+            "I/O port tracing is not implemented for this machine; \
+             where a machine exposes ports individually it registers \
+             port_read / port_write, and memory_read / disasm / \
+             run_until_pc are available everywhere"
                 .into(),
         ));
     }
@@ -826,4 +883,72 @@ where
             }
         }),
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn disasm_schema() -> Value {
+        json!({
+            "type": "object",
+            "required": ["addr"],
+            "properties": {
+                "addr":         { "type": "integer" },
+                "instructions": { "type": "integer" }
+            }
+        })
+    }
+
+    /// The reported case: `count` is what the *reply* calls the number
+    /// decoded, so a caller reasonably sends it — and used to get
+    /// sixteen instructions and a reply saying `count: 16`, which reads
+    /// as confirmation.
+    #[test]
+    fn an_argument_the_tool_does_not_take_is_named_and_refused() {
+        let err =
+            reject_unknown_arguments("disasm", &disasm_schema(), &json!({"addr": 0, "count": 3}))
+                .expect_err("`count` is not a disasm argument");
+        let ToolError::InvalidArguments(message) = err else {
+            panic!("wrong error kind");
+        };
+        assert!(message.contains("does not take `count`"), "{message}");
+        assert!(
+            message.contains("`addr`, `instructions`"),
+            "the message must name what the tool does take: {message}"
+        );
+    }
+
+    #[test]
+    fn declared_arguments_pass() {
+        reject_unknown_arguments(
+            "disasm",
+            &disasm_schema(),
+            &json!({"addr": 0, "instructions": 3}),
+        )
+        .expect("both are declared");
+        reject_unknown_arguments("disasm", &disasm_schema(), &json!({"addr": 0}))
+            .expect("omitting an optional argument is fine");
+    }
+
+    /// Several tools take no arguments at all; they must still say so
+    /// rather than panicking or accepting anything.
+    #[test]
+    fn a_tool_with_no_arguments_says_so() {
+        let schema = json!({"type": "object", "properties": {}});
+        let err = reject_unknown_arguments("reset", &schema, &json!({"frames": 1}))
+            .expect_err("takes nothing");
+        let ToolError::InvalidArguments(message) = err else {
+            panic!("wrong error kind");
+        };
+        assert!(message.contains("no arguments"), "{message}");
+    }
+
+    /// A schema without a `properties` map cannot say what is unknown,
+    /// so it must not guess.
+    #[test]
+    fn a_schema_without_properties_accepts_anything() {
+        reject_unknown_arguments("odd", &json!({"type": "object"}), &json!({"anything": 1}))
+            .expect("nothing to check against");
+    }
 }
