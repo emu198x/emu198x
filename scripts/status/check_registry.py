@@ -22,7 +22,6 @@ import tomllib
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 REGISTRY = ROOT / "docs/status/systems.toml"
-NOT_A_SYSTEM = {"catalogue", "native-video", "shell", "ui", "test-skip"}
 # Machines whose id is built from a variable rather than a literal, so a scan
 # of `MachineId::from("...")` cannot see them. Empty since #998 split the Game
 # Gear out: every machine now states its id as a literal in its own crate.
@@ -36,10 +35,25 @@ def registry() -> list[dict]:
 
 
 def shipping_crates() -> set[str]:
+    """The crates that ship a machine: `emu198x-*` with a binary to run.
+
+    This used to be "`emu198x-*` minus a denylist of five", which worked
+    while that prefix meant one thing here. It no longer does: publishing a
+    crate takes the `emu198x-` prefix (198x/decisions/crate-naming.md binds
+    it at publication), so `emu198x-mos-6502` is a CPU library sitting in the
+    same namespace as `emu198x-spectrum`, which is an app. The denylist would
+    have to name every chip crate ever published, and would fail the build
+    the day someone forgot.
+
+    `src/main.rs` separates them positively: a machine you can run has an
+    entry point, a chip you link against does not. Verified equivalent when
+    it landed — it reproduces all 30 registry entries exactly, and the only
+    crates it drops are the six chips the denylist would have had to list.
+    """
     return {
         p.name
         for p in (ROOT / "crates").glob("emu198x-*")
-        if p.is_dir() and p.name.removeprefix("emu198x-") not in NOT_A_SYSTEM
+        if p.is_dir() and (p / "src" / "main.rs").exists()
     }
 
 
