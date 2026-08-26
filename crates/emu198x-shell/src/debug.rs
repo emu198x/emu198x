@@ -82,7 +82,7 @@ pub trait DebugTarget {
     /// Disassemble one instruction at `addr`, returning `(text, length)`.
     ///
     /// Returns `None` only for a target that has not overridden this method.
-    /// Every wired CPU returns `Some`: Z80 via `zilog_z80::disassemble`; the 6502
+    /// Every wired CPU returns `Some`: Z80 via `emu198x_zilog_z80::disassemble`; the 6502
     /// family and the 6809 via the Asm198x `isa_disasm` spec disassembler
     /// (`decode_one_6502` / `decode_one_6809`).
     fn disassemble(&self, _addr: u32) -> Option<(String, u8)> {
@@ -369,7 +369,7 @@ macro_rules! impl_z80_debug_primitives {
             }
             fn dbg_disassemble(&self, addr: u32) -> Option<(String, u8)> {
                 let m = $get(&self.machine)?;
-                Some(::zilog_z80::disassemble(addr as u16, |a| m.peek(a)))
+                Some(::emu198x_zilog_z80::disassemble(addr as u16, |a| m.peek(a)))
             }
             fn dbg_step(&mut self) -> u64 {
                 let ticks = self.dbg_step_no_resync();
@@ -377,7 +377,7 @@ macro_rules! impl_z80_debug_primitives {
                 ticks
             }
             fn dbg_step_no_resync(&mut self) -> u64 {
-                use ::zilog_z80::Z80Stepper as _;
+                use ::emu198x_zilog_z80::Z80Stepper as _;
                 let ticks = match $get_mut(&mut self.machine) {
                     ::core::option::Option::Some(m) => m.step_instruction(),
                     ::core::option::Option::None => return 0,

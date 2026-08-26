@@ -12,7 +12,7 @@ common-commodore-amiga = { path = "../common-commodore-amiga", version = "0.6.0"
 motorola-68000 = { path = "../motorola-68000", version = "0.6.0" }
 motorola-68020 = { path = "../motorola-68020", version = "0.6.0" }
 mos-cia-8520 = { path = "../mos-cia-8520", version = "0.6.0" }
-commodore-paula-8364 = { path = "../commodore-paula-8364", version = "0.6.0" }
+emu198x-commodore-paula-8364 = { path = "../emu198x-commodore-paula-8364", version = "0.6.0" }
 commodore-agnus-ocs = { path = "../commodore-agnus-ocs", version = "0.6.0" }
 commodore-agnus-ecs = { path = "../commodore-agnus-ecs", version = "0.6.0" }
 commodore-agnus-aga = { path = "../commodore-agnus-aga", version = "0.6.0" }

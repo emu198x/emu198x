@@ -43,7 +43,7 @@ struct SerdeSkipAudit {
 
 #[cfg(test)]
 const EXPECTED_SERDE_SKIPS: &[SerdeSkipAudit] = &[SerdeSkipAudit {
-    path: "crates/ricoh-apu-2a03/src/lib.rs",
+    path: "crates/emu198x-ricoh-apu-2a03/src/lib.rs",
     expected: 4,
     justification: "Four `&'static` region-dependent timing tables \
                         (noise period, DMC rate, 4-step and 5-step frame \

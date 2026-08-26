@@ -63,7 +63,7 @@ const EXPECTED_SERDE_SKIPS: &[SerdeSkipAudit] = &[
                         load_disk_image after restore (Seam 3).",
     },
     SerdeSkipAudit {
-        path: "crates/zilog-z80/src/walker.rs",
+        path: "crates/emu198x-zilog-z80/src/walker.rs",
         expected: 1,
         justification: "Walker sequence is `&'static`. Rehydrated by \
                         `Z80::rehydrate_walker_sequence` from the preserved \

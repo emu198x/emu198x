@@ -6,7 +6,7 @@
 //! directly; this file uses it as a system spec — memory map, TEA1002
 //! palette, 8-row keyboard via port `$FF` with row select on the high
 //! address byte, NMI on VBlank — but the wiring is written against
-//! [`zilog_z80::Z80`]'s public pin fields and `bus_request()` collapse.
+//! [`emu198x_zilog_z80::Z80`]'s public pin fields and `bus_request()` collapse.
 //!
 //! # The Mattel Aquarius
 //!
@@ -68,10 +68,10 @@
 //! (register 14) is player 2, port B (register 15) is player 1. Codes are
 //! transcribed from MAME `bus/aquarius/mini.cpp`.
 
-use gi_ay_3_8910::{Ay3_8910, AyWriteRecord, AyWriteWatch};
+use emu198x_gi_ay_3_8910::{Ay3_8910, AyWriteRecord, AyWriteWatch};
+use emu198x_zilog_z80::{BusOp, Z80};
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
-use zilog_z80::{BusOp, Z80};
 
 /// Mini Expander AY-3-8910 clock: the Z80 clock divided by two
 /// (MAME `DERIVED_CLOCK(1, 2)`).
@@ -727,7 +727,7 @@ impl Aquarius {
     }
 }
 
-impl zilog_z80::Z80Stepper for Aquarius {
+impl emu198x_zilog_z80::Z80Stepper for Aquarius {
     fn z80_instructions_retired(&self) -> u64 {
         self.cpu.instructions_retired()
     }

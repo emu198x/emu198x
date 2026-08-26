@@ -93,7 +93,9 @@ impl DebugPrimitives for SpectrumRuntimeKind {
     }
 
     fn dbg_disassemble(&self, addr: u32) -> Option<(String, u8)> {
-        Some(zilog_z80::disassemble(addr as u16, |a| self.read_byte(a)))
+        Some(emu198x_zilog_z80::disassemble(addr as u16, |a| {
+            self.read_byte(a)
+        }))
     }
 
     fn dbg_step(&mut self) -> u64 {

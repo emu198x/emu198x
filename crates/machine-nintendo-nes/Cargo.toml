@@ -9,8 +9,8 @@ repository.workspace = true
 
 [dependencies]
 format-nintendo-nes-ines = { path = "../format-nintendo-nes-ines", version = "0.6.0" }
-mos-6502 = { path = "../mos-6502", version = "0.6.0" }
-ricoh-apu-2a03 = { path = "../ricoh-apu-2a03", version = "0.6.0" }
+emu198x-mos-6502 = { path = "../emu198x-mos-6502", version = "0.6.0" }
+emu198x-ricoh-apu-2a03 = { path = "../emu198x-ricoh-apu-2a03", version = "0.6.0" }
 ricoh-ppu-2c02 = { path = "../ricoh-ppu-2c02", version = "0.6.0" }
 serde = { workspace = true }
 serde-big-array = { workspace = true }

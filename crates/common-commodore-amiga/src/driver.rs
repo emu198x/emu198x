@@ -49,7 +49,7 @@ use crate::copper::Copper;
 use crate::memory::Memory;
 use crate::rtc::Msm6242Rtc;
 use commodore_agnus_ocs::{Agnus, AgnusRegion, BlitterCckOutcome, CckBusPlan, SlotOwner, bits};
-use commodore_paula_8364::{IntSource, Paula8364};
+use emu198x_commodore_paula_8364::{IntSource, Paula8364};
 use motorola_68000::Cpu68000;
 use motorola_68000::bus::{BusStatus, FunctionCode, interrupt_acknowledge_level};
 use motorola_68000::cpu::State;

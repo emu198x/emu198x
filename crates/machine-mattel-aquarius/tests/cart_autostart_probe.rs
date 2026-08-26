@@ -24,8 +24,8 @@
 use std::env;
 use std::fs;
 
+use emu198x_zilog_z80::Z80Stepper;
 use machine_mattel_aquarius::{Aquarius, AquariusRegion};
-use zilog_z80::Z80Stepper;
 
 fn env_file(var: &str) -> Vec<u8> {
     let path = env::var(var).unwrap_or_else(|_| panic!("set {var}"));

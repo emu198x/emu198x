@@ -4,7 +4,7 @@
 //! 14) instead of two — port B (register 15) is bonded out on the 8910
 //! but absent on the 8912. The sound core (3 tone channels, noise,
 //! envelope) is identical, so this crate is a thin facade over
-//! [`gi_ay_3_8910::Ay3_8910`] that exposes only the port-A surface. New
+//! [`emu198x_gi_ay_3_8910::Ay3_8910`] that exposes only the port-A surface. New
 //! machines that need port B should use `gi-ay-3-8910` directly.
 //!
 //! Used in the ZX Spectrum 128K, Amstrad CPC, Atari ST (as the Yamaha
@@ -16,11 +16,11 @@
 //! - Data write: OUT to port $BFFD
 //! - Data read: IN from port $FFFD
 
-use gi_ay_3_8910::Ay3_8910;
+use emu198x_gi_ay_3_8910::Ay3_8910;
 
 // The register-write tracer lives in the base 8910 crate so every AY-bearing
 // core — whether it embeds the 8910 or this 8912 facade — reaches one struct.
-pub use gi_ay_3_8910::{AyWriteRecord, AyWriteWatch, DEFAULT_AY_WATCH_CAP};
+pub use emu198x_gi_ay_3_8910::{AyWriteRecord, AyWriteWatch, DEFAULT_AY_WATCH_CAP};
 
 /// AY-3-8912: the single-port member of the AY-3-891x family. Wraps the
 /// shared [`Ay3_8910`] core and surfaces only the port-A I/O; port B is

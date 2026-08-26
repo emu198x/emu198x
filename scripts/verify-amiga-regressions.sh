@@ -56,7 +56,7 @@ run_group "Amiga library regressions" \
         -p commodore-denise-ocs \
         -p commodore-denise-ecs \
         -p commodore-denise-aga \
-        -p commodore-paula-8364 \
+        -p emu198x-commodore-paula-8364 \
         -p commodore-amiga-autoconfig \
         -p commodore-gary \
         -p commodore-gayle \
@@ -75,7 +75,7 @@ run_group "Agnus arbitration and blitter integrations" \
         --test blitter_startup
 
 run_group "Paula disk integration" \
-    cargo test --locked -p commodore-paula-8364 --test disk
+    cargo test --locked -p emu198x-commodore-paula-8364 --test disk
 
 run_group "Floppy mechanism and MFM integrations" \
     cargo test --locked -p peripheral-commodore-amiga-floppy \

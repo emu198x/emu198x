@@ -31,9 +31,9 @@ use common_sinclair_zx_spectrum::timing::{
     FramePosition, FrameTiming, SCREEN_HEIGHT, SCREEN_WIDTH, TIMING_48K,
 };
 use common_sinclair_zx_spectrum::ula::Ula;
+use emu198x_zilog_z80::{BusOp, IO_READ_DATA_LATCH_LEAD_TSTATES, Z80};
 use ferranti_ula_6c001e::{FerrantiUla, UlaRevision};
 use peripheral_kempston_joystick::KempstonJoystick;
-use zilog_z80::{BusOp, IO_READ_DATA_LATCH_LEAD_TSTATES, Z80};
 
 use crate::tape_input::TapeInput;
 use crate::variant::Variant48kClass;

@@ -12,7 +12,7 @@ common-sinclair-zx-spectrum = { path = "../common-sinclair-zx-spectrum", version
 ferranti-ula-6c001e = { path = "../ferranti-ula-6c001e", version = "0.6.0" }
 peripheral-kempston-joystick = { path = "../peripheral-kempston-joystick", version = "0.6.0" }
 serde = { workspace = true }
-zilog-z80 = { path = "../zilog-z80", version = "0.6.0" }
+emu198x-zilog-z80 = { path = "../emu198x-zilog-z80", version = "0.6.0" }
 
 [lints]
 workspace = true

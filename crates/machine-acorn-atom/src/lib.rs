@@ -3,7 +3,7 @@
 //! Fresh-write against the workspace pin-driven bus pattern (RULES.md
 //! rule 6). The donor at `Emu198x-Oldest/crates/machine-acorn-atom/`
 //! used the deprecated `emu_core::Bus` callback; the wiring here goes
-//! through [`mos_6502::M6502`]'s public pin fields.
+//! through [`emu198x_mos_6502::M6502`]'s public pin fields.
 //!
 //! # The Acorn Atom
 //!
@@ -61,8 +61,8 @@ pub use keyboard::KeyboardState;
 pub use vdg::{FB_HEIGHT, FB_WIDTH, Mc6847};
 
 use common_acorn_cassette::{CassetteReceiver, TapePulse};
+use emu198x_mos_6502::M6502;
 use intel_8255::Ppi8255;
-use mos_6502::M6502;
 use mos_via_6522::Via6522;
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;

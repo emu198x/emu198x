@@ -1,0 +1,28 @@
+[package]
+name = "emu198x-mos-6502"
+description = "MOS 6502 CPU with a cycle-accurate pin-level bus interface"
+edition.workspace = true
+# Independently versioned, not the workspace lockstep version: this is a
+# published crate whose version communicates *its* changes to consumers, so it
+# bumps when it changes rather than on every Emu198x suite release. Starts at
+# the version it already carried in-tree.
+version = "0.6.0"
+license.workspace = true
+repository.workspace = true
+readme = "README.md"
+keywords = ["6502", "cpu", "emulator", "c64", "nes"]
+categories = ["emulators"]
+
+[dependencies]
+serde = { workspace = true }
+
+[dev-dependencies]
+# Path-only on purpose. A dev-dependency carrying a version must resolve
+# on the registry at publish time; without one cargo strips it from the
+# published manifest, which is what lets this crate ship while its test
+# helper stays unpublished.
+emu198x-test-skip = { path = "../emu198x-test-skip" }
+serde_json = { workspace = true }
+
+[lints]
+workspace = true

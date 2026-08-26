@@ -5,7 +5,7 @@
 //! used the deprecated `emu_core::Bus` callback and could not port
 //! directly; the donor is used here as the system spec for the
 //! 800XL-specific PORTB-controlled ROM overlay, while the wiring is
-//! written against [`mos_6502::M6502`]'s public pin fields.
+//! written against [`emu198x_mos_6502::M6502`]'s public pin fields.
 //!
 //! Scope of this initial port: the **800XL** model — 64 KB RAM with
 //! XL-style PORTB ROM banking (OS ROM, BASIC ROM, self-test). The 400 /
@@ -50,7 +50,7 @@ pub use cartridge::Cartridge;
 use atari_antic::{Antic, AnticRegion, COLOUR_CLOCKS_PER_LINE, CYCLES_HSYNC, cpu_dma_stalled};
 use atari_gtia::Gtia;
 use atari_pokey::Pokey;
-use mos_6502::M6502;
+use emu198x_mos_6502::M6502;
 use mos_pia_6520::Pia6520;
 use serde::{Deserialize, Serialize};
 

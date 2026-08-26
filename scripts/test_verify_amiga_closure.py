@@ -101,7 +101,7 @@ class VerifyAmigaClosureTests(unittest.TestCase):
             "-p motorola-68040",
             "-p commodore-agnus-ocs",
             "-p commodore-denise-aga",
-            "-p commodore-paula-8364",
+            "-p emu198x-commodore-paula-8364",
             "-p commodore-gayle",
             "-p mos-cia-8520",
             "-p peripheral-commodore-amiga-floppy",

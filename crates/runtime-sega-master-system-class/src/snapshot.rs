@@ -92,9 +92,9 @@ mod tests {
         CapabilitySet, ClockDesc, ClockRate, Family, MachineCore, MachineError, MachineId,
         MachineProfile, MediaKind, MediaSlot, ProfileId, Region, WritebackPolicy,
     };
+    use emu198x_zilog_z80::Z80Stepper;
+    use emu198x_zilog_z80::z80::Phase;
     use machine_sega_master_system::SmsVariant;
-    use zilog_z80::Z80Stepper;
-    use zilog_z80::z80::Phase;
 
     /// The envelope is class-level behaviour, so these tests build their own
     /// profile rather than reaching for a machine crate's catalogue — the

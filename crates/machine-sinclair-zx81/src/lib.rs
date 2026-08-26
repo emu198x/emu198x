@@ -3,7 +3,7 @@
 //! Fresh-write against the workspace pin-driven bus pattern (RULES.md
 //! rule 6). Donor at `Emu198x-Oldest/crates/machine-sinclair-zx81/`
 //! used the deprecated `emu_core::Bus` callback; this file uses it as
-//! the system spec but wires [`zilog_z80::Z80`] through its public pin
+//! the system spec but wires [`emu198x_zilog_z80::Z80`] through its public pin
 //! fields and `bus_request()` collapse. The keyboard matrix is shared
 //! with the ZX80 — see [`sinclair_zx81_ula`]; the display is not, and
 //! [`video`] says why.
@@ -47,8 +47,8 @@ const AUDIO_SAMPLE_RATE: u32 = 48_000;
 /// T-states a second, which is what `master_clock` counts.
 const CPU_CLOCK_HZ: u64 = 3_250_000;
 
+use emu198x_zilog_z80::z80::{BusOp, Z80};
 use serde::{Deserialize, Serialize};
-use zilog_z80::z80::{BusOp, Z80};
 
 /// The EAR level the port reports with nothing plugged in.
 const fn ear_idle() -> bool {
@@ -598,7 +598,7 @@ impl Zx81 {
     }
 }
 
-impl zilog_z80::Z80Stepper for Zx81 {
+impl emu198x_zilog_z80::Z80Stepper for Zx81 {
     fn z80_instructions_retired(&self) -> u64 {
         self.cpu.instructions_retired()
     }

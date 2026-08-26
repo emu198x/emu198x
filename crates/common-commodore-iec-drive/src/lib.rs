@@ -16,7 +16,7 @@
 
 use common_commodore_drive_gcr::GcrRotationEngine;
 use common_commodore_iec::IecBus;
-use mos_6502::M6502;
+use emu198x_mos_6502::M6502;
 use mos_via_6522::Via6522;
 
 /// 2KB of drive RAM, mirrored across `$0000-$17FF` (identical on the 1541/1571).

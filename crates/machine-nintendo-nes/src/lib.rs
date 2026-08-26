@@ -1,6 +1,6 @@
 //! NES machine wiring.
 //!
-//! Ties the 2A03 CPU ([`mos_6502`]), 2C02 PPU
+//! Ties the 2A03 CPU ([`emu198x_mos_6502`]), 2C02 PPU
 //! ([`ricoh_ppu_2c02`]), and cartridge mapper
 //! ([`format_nintendo_nes_ines::Mapper`]) together with 2 KiB of
 //! internal RAM, OAMDMA, and controller I/O.
@@ -49,14 +49,14 @@
 
 mod serde_skip_audit;
 
+use emu198x_mos_6502::M6502;
+use emu198x_ricoh_apu_2a03::Apu;
 use format_nintendo_nes_ines::{Mapper, MapperSnapshot, mapper_from_snapshot};
-use mos_6502::M6502;
-use ricoh_apu_2a03::Apu;
 use ricoh_ppu_2c02::Ppu;
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
 
-pub use ricoh_apu_2a03::{ApuChannel, AudioControls};
+pub use emu198x_ricoh_apu_2a03::{ApuChannel, AudioControls};
 pub use ricoh_ppu_2c02::{
     FB_HEIGHT, FB_WIDTH, TV_CROP_BOTTOM, TV_CROP_TOP, TV_VISIBLE_HEIGHT, TV_VISIBLE_WIDTH,
 };
@@ -106,10 +106,10 @@ impl Region {
 
     /// Matching APU region, for the frame-counter and DMC rate tables.
     #[must_use]
-    pub const fn apu_region(self) -> ricoh_apu_2a03::ApuRegion {
+    pub const fn apu_region(self) -> emu198x_ricoh_apu_2a03::ApuRegion {
         match self {
-            Self::Ntsc => ricoh_apu_2a03::ApuRegion::Ntsc,
-            Self::Pal => ricoh_apu_2a03::ApuRegion::Pal,
+            Self::Ntsc => emu198x_ricoh_apu_2a03::ApuRegion::Ntsc,
+            Self::Pal => emu198x_ricoh_apu_2a03::ApuRegion::Pal,
         }
     }
 }

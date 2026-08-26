@@ -12,8 +12,8 @@
 //! wd1770}.c`). The 8520 is modelled with the 6526 core, as VICE does.
 
 use common_commodore_iec::IecBus;
+use emu198x_mos_6502::M6502;
 use format_commodore_c64_d81::D81ParseError;
-use mos_6502::M6502;
 use mos_cia_6526::Cia6526;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;

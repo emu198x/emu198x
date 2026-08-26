@@ -29,10 +29,10 @@ use common_sinclair_zx_spectrum::timing::{
 };
 use common_sinclair_zx_spectrum::ula::Ula;
 use common_sinclair_zx_spectrum::ula_engine::floating_bus_byte;
+use emu198x_zilog_z80::{BusOp, IO_READ_DATA_LATCH_LEAD_TSTATES, Z80};
 use gi_ay_3_8912::Ay3_8912;
 use peripheral_kempston_joystick::KempstonJoystick;
 use sinclair_ula_7k010e::SinclairUla;
-use zilog_z80::{BusOp, IO_READ_DATA_LATCH_LEAD_TSTATES, Z80};
 
 use crate::memory::Memory128K;
 use crate::variant::Class128kVariant;

@@ -22,8 +22,8 @@
 //! lands, this test *should* fail, and the new expected figure belongs here with
 //! its derivation.
 
+use emu198x_zilog_z80::Z80Stepper;
 use machine_amstrad_cpc::AmstradCpc;
-use zilog_z80::Z80Stepper;
 
 /// Zilog `NOP`: one `M1` fetch, four T-states.
 const NOP_TSTATES: u64 = 4;

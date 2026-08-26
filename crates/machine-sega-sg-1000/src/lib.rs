@@ -5,7 +5,7 @@
 //! used the deprecated `emu_core::Bus` callback and could not port
 //! directly; this file uses it as a system spec — memory map, I/O
 //! port routing, controller layout, **3:2 VDP-phase clock model** —
-//! but the wiring is written against [`zilog_z80::Z80`]'s public pin
+//! but the wiring is written against [`emu198x_zilog_z80::Z80`]'s public pin
 //! fields and `bus_request()` collapse.
 //!
 //! # Hardware
@@ -51,11 +51,11 @@
 //! corresponds to one Z80 T-state; per iteration the phase counter
 //! advances by 3 and yields one VDP dot whenever it reaches 2.
 
+use emu198x_zilog_z80::{BusOp, Z80};
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
 use ti_sn76489::{NoiseLfsr, Sn76489};
 use ti_tms9918::{Tms9918, VdpRegion};
-use zilog_z80::{BusOp, Z80};
 
 /// VDP dot ticks per CPU T-state, numerator.
 const VDP_DOT_PHASE_NUMERATOR: u32 = 3;
@@ -419,7 +419,7 @@ impl Sg1000 {
     }
 }
 
-impl zilog_z80::Z80Stepper for Sg1000 {
+impl emu198x_zilog_z80::Z80Stepper for Sg1000 {
     fn z80_instructions_retired(&self) -> u64 {
         self.cpu.instructions_retired()
     }

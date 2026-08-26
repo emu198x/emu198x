@@ -82,7 +82,7 @@ const STEP_TSTATES: u32 = 1;
 /// 14363 and neither number came from anywhere.
 ///
 /// Both are gone. The core now applies one shared, derived constant —
-/// `zilog_z80::IO_READ_DATA_LATCH_LEAD_TSTATES`, the two T-states between
+/// `emu198x_zilog_z80::IO_READ_DATA_LATCH_LEAD_TSTATES`, the two T-states between
 /// the `/IORQ` edge and the CPU's data latch, re-derived from the recorded
 /// I/O-read waveform by `zilog-z80`'s `bus_pin_waveform` — onto an origin
 /// that is libspectrum's `top_left_pixel` for this ULA,

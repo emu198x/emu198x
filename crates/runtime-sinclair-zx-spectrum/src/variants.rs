@@ -505,7 +505,7 @@ impl SpectrumMachine for Spectrum48k {
     fn clear_memory_write_watch_records(&mut self) {
         Spectrum48k::clear_memory_write_watch_records(self);
     }
-    fn z80_registers(&self) -> &zilog_z80::Registers {
+    fn z80_registers(&self) -> &emu198x_zilog_z80::Registers {
         &self.z80().regs
     }
     fn z80_halted(&self) -> bool {
@@ -659,7 +659,7 @@ impl SpectrumMachine for Spectrum16K {
     fn clear_memory_write_watch_records(&mut self) {
         Spectrum16K::clear_memory_write_watch_records(self);
     }
-    fn z80_registers(&self) -> &zilog_z80::Registers {
+    fn z80_registers(&self) -> &emu198x_zilog_z80::Registers {
         &self.z80().regs
     }
     fn z80_halted(&self) -> bool {
@@ -818,7 +818,7 @@ impl SpectrumMachine for SpectrumPlus {
     fn clear_memory_write_watch_records(&mut self) {
         SpectrumPlus::clear_memory_write_watch_records(self);
     }
-    fn z80_registers(&self) -> &zilog_z80::Registers {
+    fn z80_registers(&self) -> &emu198x_zilog_z80::Registers {
         &self.z80().regs
     }
     fn z80_halted(&self) -> bool {
@@ -980,7 +980,7 @@ impl SpectrumMachine for Spectrum128K {
     fn clear_memory_write_watch_records(&mut self) {
         Spectrum128K::clear_memory_write_watch_records(self);
     }
-    fn z80_registers(&self) -> &zilog_z80::Registers {
+    fn z80_registers(&self) -> &emu198x_zilog_z80::Registers {
         &self.z80.regs
     }
     fn z80_halted(&self) -> bool {
@@ -1153,7 +1153,7 @@ impl SpectrumMachine for SpectrumPlus2 {
     fn clear_memory_write_watch_records(&mut self) {
         SpectrumPlus2::clear_memory_write_watch_records(self);
     }
-    fn z80_registers(&self) -> &zilog_z80::Registers {
+    fn z80_registers(&self) -> &emu198x_zilog_z80::Registers {
         &self.z80.regs
     }
     fn z80_halted(&self) -> bool {
@@ -1379,7 +1379,7 @@ impl<V: AmstradVariant> SpectrumMachine for SpectrumAmstradClassCore<V> {
     fn clear_memory_write_watch_records(&mut self) {
         SpectrumAmstradClassCore::<V>::clear_memory_write_watch_records(self);
     }
-    fn z80_registers(&self) -> &zilog_z80::Registers {
+    fn z80_registers(&self) -> &emu198x_zilog_z80::Registers {
         &self.z80.regs
     }
     fn z80_halted(&self) -> bool {
@@ -1517,7 +1517,7 @@ impl SpectrumMachine for Pentagon128 {
         <Self as SpectrumDriver>::hc(self) / TIMING_PENTAGON.cpu_divisor
     }
 
-    fn z80_registers(&self) -> &zilog_z80::Registers {
+    fn z80_registers(&self) -> &emu198x_zilog_z80::Registers {
         &self.z80.regs
     }
     fn z80_halted(&self) -> bool {
@@ -1666,7 +1666,7 @@ impl SpectrumMachine for ScorpionZS256 {
         <Self as SpectrumDriver>::hc(self) / TIMING_SCORPION.cpu_divisor
     }
 
-    fn z80_registers(&self) -> &zilog_z80::Registers {
+    fn z80_registers(&self) -> &emu198x_zilog_z80::Registers {
         &self.z80.regs
     }
     fn z80_halted(&self) -> bool {
@@ -1810,7 +1810,7 @@ impl SpectrumMachine for TimexTC2048 {
         <Self as SpectrumDriver>::hc(self) / TIMING_48K.cpu_divisor
     }
 
-    fn z80_registers(&self) -> &zilog_z80::Registers {
+    fn z80_registers(&self) -> &emu198x_zilog_z80::Registers {
         &self.z80.regs
     }
     fn z80_halted(&self) -> bool {
@@ -1950,7 +1950,7 @@ impl SpectrumMachine for TimexTS2068 {
         <Self as SpectrumDriver>::hc(self) / TIMING_48K.cpu_divisor
     }
 
-    fn z80_registers(&self) -> &zilog_z80::Registers {
+    fn z80_registers(&self) -> &emu198x_zilog_z80::Registers {
         &self.z80.regs
     }
     fn z80_halted(&self) -> bool {

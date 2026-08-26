@@ -11,10 +11,10 @@
 use emu198x_shell::{
     HostIo, MachineCore, MachineTime, NullAudioSink, NullFrameSink, NullTraceSink,
 };
+use emu198x_zilog_z80::z80::Phase;
 use runtime_sinclair_zx_spectrum::{
     Spectrum16kRuntime, Spectrum48kRuntime, Spectrum128kRuntime, SpectrumPlus3Runtime,
 };
-use zilog_z80::z80::Phase;
 
 const WARMUP: u64 = 50_000;
 const LOCKSTEP: u64 = 100_000;

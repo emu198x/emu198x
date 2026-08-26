@@ -16,8 +16,8 @@
 //! prefix and no conditional path — if `NOP` is right the clock division
 //! is right, and if it is wrong nothing else can be.
 
+use emu198x_zilog_z80::Z80Stepper;
 use machine_sega_master_system::{Sms, SmsVariant};
-use zilog_z80::Z80Stepper;
 
 /// Zilog `NOP`: one `M1` fetch, four T-states.
 const NOP_TSTATES: u64 = 4;

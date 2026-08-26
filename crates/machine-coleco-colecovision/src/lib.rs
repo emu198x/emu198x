@@ -6,7 +6,7 @@
 //! deprecated `emu_core::Bus` callback and could not port directly; this
 //! file uses it as a system spec — memory map, I/O port routing, keypad
 //! multiplex, clock ratios — but the wiring is written against
-//! [`zilog_z80::Z80`]'s public pin fields and `bus_request()` collapse,
+//! [`emu198x_zilog_z80::Z80`]'s public pin fields and `bus_request()` collapse,
 //! the same pattern used by `machine-sinclair-zx-spectrum-48k` and
 //! `machine-nintendo-nes`.
 //!
@@ -48,11 +48,11 @@
 //! which ran the VDP and wall-clock 1.5× too fast. Same model as the
 //! SG-1000 (identical TMS9918A + Z80 at the same clocks).
 
+use emu198x_zilog_z80::{BusOp, Z80};
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
 use ti_sn76489::{NoiseLfsr, Sn76489};
 use ti_tms9918::{Tms9918, VdpRegion};
-use zilog_z80::{BusOp, Z80};
 
 /// VDP dot ticks per CPU T-state, numerator. The real ColecoVision
 /// crystal is 10.738635 MHz with the CPU at ÷3 (3.579545 MHz) and the
@@ -466,7 +466,7 @@ impl ColecoVision {
     }
 }
 
-impl zilog_z80::Z80Stepper for ColecoVision {
+impl emu198x_zilog_z80::Z80Stepper for ColecoVision {
     fn z80_instructions_retired(&self) -> u64 {
         self.cpu.instructions_retired()
     }

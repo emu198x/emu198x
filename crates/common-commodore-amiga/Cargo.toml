@@ -9,7 +9,7 @@ repository.workspace = true
 
 [dependencies]
 mos-cia-8520 = { path = "../mos-cia-8520", version = "0.6.0" }
-commodore-paula-8364 = { path = "../commodore-paula-8364", version = "0.6.0" }
+emu198x-commodore-paula-8364 = { path = "../emu198x-commodore-paula-8364", version = "0.6.0" }
 commodore-denise-ocs = { path = "../commodore-denise-ocs", version = "0.6.0" }
 commodore-denise-ecs = { path = "../commodore-denise-ecs", version = "0.6.0" }
 commodore-agnus-ocs = { path = "../commodore-agnus-ocs", version = "0.6.0" }

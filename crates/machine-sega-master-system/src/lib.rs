@@ -6,7 +6,7 @@
 //! directly; this file uses it as a system spec — Sega mapper at
 //! `$FFFC-$FFFF`, I/O port routing, controller layout, Game Gear
 //! extensions, clock model — but the wiring is written against
-//! [`zilog_z80::Z80`]'s public pin fields and `bus_request()` collapse.
+//! [`emu198x_zilog_z80::Z80`]'s public pin fields and `bus_request()` collapse.
 //!
 //! # The Sega Master System
 //!
@@ -76,11 +76,11 @@
 //! is the obvious next accuracy step, tracked under
 //! `docs/status/outstanding-work.md` § Sega Master System.
 
+use emu198x_zilog_z80::{BusOp, Z80};
 use sega_vdp::{SegaVdp, VdpRegion, VdpVariant};
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
 use ti_sn76489::{NoiseLfsr, Sn76489};
-use zilog_z80::{BusOp, Z80};
 
 const CPU_TSTATES_PER_SCANLINE: u64 = 228;
 // VDP dot clock vs CPU clock: master 10.738635 MHz, CPU ÷3, VDP dot ÷2, so
@@ -720,7 +720,7 @@ impl Sms {
     }
 }
 
-impl zilog_z80::Z80Stepper for Sms {
+impl emu198x_zilog_z80::Z80Stepper for Sms {
     fn z80_instructions_retired(&self) -> u64 {
         self.cpu.instructions_retired()
     }

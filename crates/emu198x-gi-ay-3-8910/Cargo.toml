@@ -1,0 +1,20 @@
+[package]
+name = "emu198x-gi-ay-3-8910"
+description = "General Instrument AY-3-8910 PSG — 3-channel sound + two 8-bit I/O ports (A and B)"
+edition.workspace = true
+# Independently versioned, not the workspace lockstep version: this is a
+# published crate whose version communicates *its* changes to consumers, so it
+# bumps when it changes rather than on every Emu198x suite release. Starts at
+# the version it already carried in-tree.
+version = "0.6.0"
+license.workspace = true
+repository.workspace = true
+readme = "README.md"
+keywords = ["ay-3-8910", "psg", "audio-chip", "zx-spectrum", "msx"]
+categories = ["emulators", "multimedia::audio"]
+
+[dependencies]
+serde = { workspace = true }
+
+[lints]
+workspace = true

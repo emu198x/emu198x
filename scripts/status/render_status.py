@@ -136,7 +136,7 @@ def _usability(rows) -> str:
         "",
         "**Own crates** are reachable from this machine's shipping crate and no "
         "other, so their tests are evidence about this machine. **Shared "
-        "crates** are common to several machines — `zilog-z80` passing says "
+        "crates** are common to several machines — `emu198x-zilog-z80` passing says "
         "nothing about whether the Einstein boots. A machine with few own "
         "crates has little that can be said about it specifically, however "
         "green the suite looks.",

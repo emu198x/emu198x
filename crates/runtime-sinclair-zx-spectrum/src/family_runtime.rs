@@ -91,7 +91,7 @@ pub trait SpectrumLiveAccess {
     fn clear_memory_write_watch_records(&mut self);
     /// Z80 register file. Every Spectrum-family variant carries a Z80
     /// so this is always available.
-    fn z80_registers(&self) -> &zilog_z80::Registers;
+    fn z80_registers(&self) -> &emu198x_zilog_z80::Registers;
     /// Whether the Z80 is currently halted.
     fn z80_halted(&self) -> bool;
     /// `true` when the Z80 is at an instruction boundary.
@@ -172,7 +172,7 @@ impl<M: SpectrumMachine> SpectrumLiveAccess for SpectrumRuntime<M> {
         self.machine_mut().clear_memory_write_watch_records();
     }
 
-    fn z80_registers(&self) -> &zilog_z80::Registers {
+    fn z80_registers(&self) -> &emu198x_zilog_z80::Registers {
         self.machine().z80_registers()
     }
 
@@ -787,7 +787,7 @@ impl SpectrumLiveAccess for SpectrumRuntimeKind {
         match_kind!(self, |rt| rt.clear_memory_write_watch_records())
     }
 
-    fn z80_registers(&self) -> &zilog_z80::Registers {
+    fn z80_registers(&self) -> &emu198x_zilog_z80::Registers {
         match_kind!(self, |rt| rt.z80_registers())
     }
 

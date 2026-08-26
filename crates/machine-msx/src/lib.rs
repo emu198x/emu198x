@@ -5,7 +5,7 @@
 //! deprecated `emu_core::Bus` callback and could not port directly;
 //! this file uses it as a system spec — slot system, PPI-driven
 //! keyboard matrix, I/O port map, MegaROM mapper variants — but the
-//! wiring is written against [`zilog_z80::Z80`]'s public pin fields
+//! wiring is written against [`emu198x_zilog_z80::Z80`]'s public pin fields
 //! and `bus_request()` collapse.
 //!
 //! # The MSX standard
@@ -76,11 +76,11 @@
 //! the phase counter advances by 3 and yields one VDP dot whenever
 //! it reaches 2. PSG ticks every other T-state (clock ÷ 2).
 
+use emu198x_zilog_z80::{BusOp, Z80};
 use gi_ay_3_8912::{Ay3_8912, AyWriteRecord, AyWriteWatch};
 use intel_8255::Ppi8255;
 use serde::{Deserialize, Serialize};
 use ti_tms9918::{Tms9918, VdpRegion};
-use zilog_z80::{BusOp, Z80};
 
 /// VDP dot ticks per CPU T-state, numerator (TMS9918A on MSX).
 ///
@@ -672,7 +672,7 @@ impl Msx {
     }
 }
 
-impl zilog_z80::Z80Stepper for Msx {
+impl emu198x_zilog_z80::Z80Stepper for Msx {
     fn z80_instructions_retired(&self) -> u64 {
         self.cpu.instructions_retired()
     }

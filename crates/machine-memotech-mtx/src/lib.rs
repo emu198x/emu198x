@@ -3,7 +3,7 @@
 //! Fresh-write against the workspace pin-driven bus pattern (RULES.md
 //! rule 6). Donor at `Emu198x-Oldest/crates/machine-memotech-mtx/`
 //! used the deprecated `emu_core::Bus` callback; the wiring here goes
-//! through [`zilog_z80::Z80`]'s public pin fields and `bus_request()`
+//! through [`emu198x_zilog_z80::Z80`]'s public pin fields and `bus_request()`
 //! collapse.
 //!
 //! # The Memotech MTX
@@ -51,10 +51,10 @@ pub use input::MtxKey;
 pub use keyboard::KeyboardState;
 pub use ti_tms9918::Tms9918;
 
+use emu198x_zilog_z80::z80::{BusOp, Z80};
 use serde::{Deserialize, Serialize};
 use ti_sn76489::{NoiseLfsr, Sn76489};
 use ti_tms9918::VdpRegion;
-use zilog_z80::z80::{BusOp, Z80};
 use zilog_z80_ctc::Ctc;
 
 const VDP_CLOCK_HZ: u64 = 5_369_318;
@@ -479,7 +479,7 @@ impl Mtx {
     }
 }
 
-impl zilog_z80::Z80Stepper for Mtx {
+impl emu198x_zilog_z80::Z80Stepper for Mtx {
     fn z80_instructions_retired(&self) -> u64 {
         self.cpu.instructions_retired()
     }

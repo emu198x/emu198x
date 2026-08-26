@@ -93,13 +93,13 @@ jobs:
         include:
           - name: harte-6502
             artifact: harte-6502
-            crate: mos-6502
+            crate: emu198x-mos-6502
             test: single_step_tests
             env_var: EMU198X_6502_TOM_HARTE_DIR
             filter: run_all
           - name: harte-z80
             artifact: harte-z80
-            crate: zilog-z80
+            crate: emu198x-zilog-z80
             test: single_step_tests
             env_var: EMU198X_Z80_TOM_HARTE_DIR
             filter: run_all
@@ -111,13 +111,13 @@ jobs:
             filter: run_all
           - name: dormann-6502
             artifact: dormann-6502
-            crate: mos-6502
+            crate: emu198x-mos-6502
             test: dormann_tests
             env_var: EMU198X_6502_DORMANN_DIR
             filter: ''
           - name: fuse-z80
             artifact: fuse-z80
-            crate: zilog-z80
+            crate: emu198x-zilog-z80
             test: z80_fuse
             env_var: EMU198X_FUSE_Z80_TESTS_DIR
             filter: ''
@@ -282,7 +282,7 @@ jobs:
           echo "EMU198X_C64_KERNAL_ROM=$(pwd)/lorenz-6502/kernal.rom" >> "$GITHUB_ENV"
 
       - name: Run Wolfgang Lorenz 6502 suite
-        run: cargo test --release -p mos-6502 --test lorenz_tests run_lorenz_6502_cpu_suite -- --include-ignored --nocapture
+        run: cargo test --release -p emu198x-mos-6502 --test lorenz_tests run_lorenz_6502_cpu_suite -- --include-ignored --nocapture
 
   # Frank Cringle's ZEXDOC + ZEXALL Z80 exerciser. Own job (tens of minutes).
   # Previously ran hermetically from a checked-in corpus via zex.yml, on Z80
@@ -330,7 +330,7 @@ jobs:
       - name: Run ZEXDOC + ZEXALL
         # --skip checkpoint drops run_zexdoc_checkpoint / run_zexall_checkpoint,
         # which need EMU198X_ZEX_CHECKPOINT set and panic without it.
-        run: cargo test --release -p zilog-z80 --test zex_tests -- --include-ignored --skip checkpoint --nocapture
+        run: cargo test --release -p emu198x-zilog-z80 --test zex_tests -- --include-ignored --skip checkpoint --nocapture
 
   # Patrik Rak's z80test exerciser (MIT). Runs on a full 48K Spectrum, so it
   # needs the free (Amstrad-permissioned) 48K ROM — the z80test tarball ships

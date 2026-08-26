@@ -6,7 +6,7 @@ an original 8 KB image whose only meaningful bytes are minimal interrupt
 handlers at the three addresses the Lorenz test harness actually routes through;
 everything else is RTS filler.
 
-Why this works: the harness (crates/mos-6502/tests/lorenz_tests.rs) loads a
+Why this works: the harness (crates/emu198x-mos-6502/tests/lorenz_tests.rs) loads a
 KERNAL into $E000-$FFFF but then overwrites the reset/IRQ vectors, installs its
 own IRQ stub at $FF48, and traps CHROUT/GETIN/success/fail by address. So the
 suite never executes real KERNAL routines except the interrupt handlers reached
