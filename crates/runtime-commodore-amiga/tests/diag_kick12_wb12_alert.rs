@@ -158,7 +158,13 @@ fn trace_a500_kick12_early_boot_branch_to_alert() {
         runtime.machine_mut().tick();
         let amiga = runtime.machine();
         let regs = amiga.cpu().regs;
-        let pc = regs.pc;
+        // The address of the instruction *starting*, not `regs.pc`.
+        // `regs.pc` advances past each fetch, so it takes the value of
+        // any address it walks over: measured on a bare A500 it equals
+        // KS12_ALERT_ENTRY once, at frame 12, without the alert ever
+        // executing — and never equals KS12_EXEC_INIT, which the boot
+        // demonstrably does execute. It is wrong in both directions.
+        let pc = amiga.cpu().instr_start_pc;
         let frame = tick / A500_PAL_FRAME_TICKS + 1;
 
         let hit = match pc {
@@ -228,7 +234,16 @@ fn trace_a500_kick12_early_boot_branch_to_alert() {
         prev_pc = pc;
     }
 
-    assert!(alert_seen, "expected to reach KS 1.2 alert path");
+    assert!(
+        !alert_seen,
+        "KS 1.2 entered the alert path on a bare A500; it should reach the \
+         insert-disk screen instead"
+    );
+    assert!(
+        exec_init_hits > 0,
+        "KS 1.2 should reach exec init on a bare A500; it never did, so this \
+         window proves nothing about the alert path"
+    );
 }
 
 #[test]
@@ -370,6 +385,7 @@ fn trace_a500_kick12_last_instructions_before_alert() {
     };
 
     let mut runtime = AmigaOcsRuntime::new(Model::A500OcsPal, rom).expect("build KS 1.2 runtime");
+    let mut exec_init_seen = false;
     let mut prev_instr_start_pc = runtime.machine().cpu().instr_start_pc;
     let mut prev_instr_count = runtime.machine().cpu().instruction_starts;
     let mut recent = VecDeque::<String>::with_capacity(48);
@@ -383,6 +399,10 @@ fn trace_a500_kick12_last_instructions_before_alert() {
         }
         prev_instr_count = cpu.instruction_starts;
         prev_instr_start_pc = cpu.instr_start_pc;
+
+        if cpu.instr_start_pc == KS12_EXEC_INIT {
+            exec_init_seen = true;
+        }
 
         let frame = tick / A500_PAL_FRAME_TICKS + 1;
         let line = format!(
@@ -404,15 +424,19 @@ fn trace_a500_kick12_last_instructions_before_alert() {
         recent.push_back(line);
 
         if cpu.instr_start_pc == KS12_ALERT_ENTRY {
-            println!("last instructions before first KS 1.2 alert:");
+            println!("instructions leading into the KS 1.2 alert:");
             for entry in recent {
                 println!("  {entry}");
             }
-            return;
+            panic!("KS 1.2 entered the alert path on a bare A500");
         }
     }
 
-    panic!("expected to reach KS 1.2 alert path");
+    assert!(
+        exec_init_seen,
+        "KS 1.2 should reach exec init on a bare A500; it never did, so this \
+         window proves nothing about the alert path"
+    );
 }
 
 #[test]
@@ -430,6 +454,7 @@ fn trace_a500_kick12_cpu_detect_helper() {
     runtime.machine_mut().debug_watch_addr = Some((0x0000_0010, 0x0000_0020));
     runtime.machine_mut().debug_watch_writes.clear();
 
+    let mut exec_init_seen = false;
     let mut prev_instr_start_pc = runtime.machine().cpu().instr_start_pc;
     let mut prev_instr_count = runtime.machine().cpu().instruction_starts;
     let mut last_watch_len = 0usize;
@@ -456,6 +481,10 @@ fn trace_a500_kick12_cpu_detect_helper() {
         }
         prev_instr_count = cpu.instruction_starts;
         prev_instr_start_pc = cpu.instr_start_pc;
+
+        if cpu.instr_start_pc == KS12_EXEC_INIT {
+            exec_init_seen = true;
+        }
 
         let interesting = (0x00FC_0546..=0x00FC_0590).contains(&cpu.instr_start_pc)
             || cpu.instr_start_pc == KS12_ALERT_ENTRY;
@@ -486,11 +515,15 @@ fn trace_a500_kick12_cpu_detect_helper() {
         );
 
         if cpu.instr_start_pc == KS12_ALERT_ENTRY {
-            return;
+            panic!("KS 1.2 entered the alert path on a bare A500");
         }
     }
 
-    panic!("expected to reach KS 1.2 alert path");
+    assert!(
+        exec_init_seen,
+        "KS 1.2 should reach exec init on a bare A500; it never did, so this \
+         window proves nothing about the alert path"
+    );
 }
 
 #[test]
@@ -505,6 +538,7 @@ fn trace_a500_kick12_pre_helper_call_and_alert_frame() {
     };
 
     let mut runtime = AmigaOcsRuntime::new(Model::A500OcsPal, rom).expect("build KS 1.2 runtime");
+    let mut exec_init_seen = false;
     let mut prev_instr_start_pc = runtime.machine().cpu().instr_start_pc;
     let mut prev_instr_count = runtime.machine().cpu().instruction_starts;
 
@@ -517,6 +551,10 @@ fn trace_a500_kick12_pre_helper_call_and_alert_frame() {
         }
         prev_instr_count = cpu.instruction_starts;
         prev_instr_start_pc = cpu.instr_start_pc;
+
+        if cpu.instr_start_pc == KS12_EXEC_INIT {
+            exec_init_seen = true;
+        }
 
         let interesting = matches!(
             cpu.instr_start_pc,
@@ -573,11 +611,15 @@ fn trace_a500_kick12_pre_helper_call_and_alert_frame() {
         );
 
         if cpu.instr_start_pc == KS12_ALERT_ENTRY {
-            return;
+            panic!("KS 1.2 entered the alert path on a bare A500");
         }
     }
 
-    panic!("expected to reach KS 1.2 alert path");
+    assert!(
+        exec_init_seen,
+        "KS 1.2 should reach exec init on a bare A500; it never did, so this \
+         window proves nothing about the alert path"
+    );
 }
 
 #[test]
