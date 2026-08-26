@@ -44,7 +44,9 @@ fn write_dma_persists_a_track_to_the_adf() {
     }
     let mfm_bytes = encode_mfm_track(&track, 0, 11);
     let words: Vec<u16> = mfm_bytes
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .map(|c| (u16::from(c[0]) << 8) | u16::from(c[1]))
         .collect();
     assert!(words.len() <= 0x3FFF, "track must fit the 14-bit DSKLEN");
@@ -104,7 +106,9 @@ fn encoded_track_words() -> Vec<u16> {
         *b = (i & 0xFF) as u8;
     }
     encode_mfm_track(&track, 0, 11)
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .map(|c| (u16::from(c[0]) << 8) | u16::from(c[1]))
         .collect()
 }

@@ -1153,16 +1153,20 @@ fn diff_mask(actual: &[u8], expected: &[u8]) -> Vec<u8> {
     assert_eq!(actual.len(), expected.len());
     assert_eq!(actual.len() % 3, 0);
     actual
-        .chunks_exact(3)
-        .zip(expected.chunks_exact(3))
+        .as_chunks::<3>()
+        .0
+        .iter()
+        .zip(expected.as_chunks::<3>().0.iter())
         .map(|(actual_pixel, expected_pixel)| u8::from(actual_pixel != expected_pixel))
         .collect()
 }
 
 fn differing_pixel_count(actual: &[u8], expected: &[u8]) -> usize {
     actual
-        .chunks_exact(3)
-        .zip(expected.chunks_exact(3))
+        .as_chunks::<3>()
+        .0
+        .iter()
+        .zip(expected.as_chunks::<3>().0.iter())
         .filter(|(actual_pixel, expected_pixel)| actual_pixel != expected_pixel)
         .count()
 }
@@ -1209,8 +1213,10 @@ fn pixel_mismatch(profile: &GateProfile, actual: &[u8], expected: &[u8]) -> Opti
     let mut max_y = 0;
 
     for (index, (actual_pixel, expected_pixel)) in actual
-        .chunks_exact(3)
-        .zip(expected.chunks_exact(3))
+        .as_chunks::<3>()
+        .0
+        .iter()
+        .zip(expected.as_chunks::<3>().0.iter())
         .enumerate()
     {
         if actual_pixel == expected_pixel {
@@ -1264,7 +1270,9 @@ fn normalized_frame(profile: &GateProfile, session: &TestSession) -> Result<Vec<
         .rgba_pixels()
         .map_err(|error| format!("convert runtime frame to RGBA: {error}"))?;
     if let Some((index, alpha)) = rgba
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .enumerate()
         .find_map(|(index, pixel)| (pixel[3] != 0xFF).then_some((index, pixel[3])))
     {
@@ -2454,7 +2462,12 @@ fn frame_comparison(profile: &GateProfile, left: &[u8], right: &[u8]) -> serde_j
 
 fn diff_pixels(profile: &GateProfile, actual: &[u8], expected: &[u8]) -> Vec<u8> {
     let mut diff = Vec::with_capacity(actual.len());
-    for (actual_pixel, expected_pixel) in actual.chunks_exact(3).zip(expected.chunks_exact(3)) {
+    for (actual_pixel, expected_pixel) in actual
+        .as_chunks::<3>()
+        .0
+        .iter()
+        .zip(expected.as_chunks::<3>().0.iter())
+    {
         if actual_pixel == expected_pixel {
             diff.extend_from_slice(&[0, 0, 0]);
         } else {

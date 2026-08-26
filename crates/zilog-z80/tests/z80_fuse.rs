@@ -445,7 +445,7 @@ fn parse_tests_expected(data: &str) -> Vec<FuseExpected> {
 
 fn deadbeef_memory() -> [u8; 65_536] {
     let mut memory = [0u8; 65_536];
-    for chunk in memory.chunks_exact_mut(4) {
+    for chunk in memory.as_chunks_mut::<4>().0.iter_mut() {
         chunk[0] = 0xDE;
         chunk[1] = 0xAD;
         chunk[2] = 0xBE;

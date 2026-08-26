@@ -285,9 +285,7 @@ fn frestore_idle_frame_sets_idle_state() {
         mem.write_long(BUF, 0x1F18_0000);
         mem.write_long(BUF + 24, 0x5C0E_FFFF);
         cpu.variant_fpu_state = 0;
-        for r in &mut cpu.regs.fp {
-            *r = seeded;
-        }
+        cpu.regs.fp.fill(seeded);
     });
     assert_eq!(out.fpu_state, 1, "idle frame → idle state");
     assert_eq!(out.fp[3], seeded, "FRESTORE idle leaves FP data registers");

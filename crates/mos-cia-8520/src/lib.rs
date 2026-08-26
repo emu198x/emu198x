@@ -811,7 +811,6 @@ impl Cia8520 {
 
 #[cfg(test)]
 mod tests {
-    use super::bits::*;
     use super::reg;
     use super::*;
 

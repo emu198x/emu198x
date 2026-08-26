@@ -2551,7 +2551,7 @@ where
     let replacement_track = vec![0xA5; 11 * 512];
     let replacement_mfm = encode_mfm_track(&replacement_track, 0, 11);
     let drive = runtime.machine_mut().drive_mut();
-    for bytes in replacement_mfm.chunks_exact(2) {
+    for bytes in replacement_mfm.as_chunks::<2>().0.iter() {
         drive.note_write_mfm_word(u16::from_be_bytes([bytes[0], bytes[1]]));
     }
     assert_eq!(
@@ -2600,7 +2600,7 @@ where
     let second_track = vec![0x3C; 11 * 512];
     let second_mfm = encode_mfm_track(&second_track, 0, 11);
     let restored_drive = restored.machine_mut().drive_mut();
-    for bytes in second_mfm.chunks_exact(2) {
+    for bytes in second_mfm.as_chunks::<2>().0.iter() {
         restored_drive.note_write_mfm_word(u16::from_be_bytes([bytes[0], bytes[1]]));
     }
     assert_eq!(

@@ -629,7 +629,11 @@ fn frame_rgba_pixels<'a>(
                 .as_ref()
                 .ok_or(VideoPresenterError::MissingPalette)?;
             scratch.resize(pixel_count.saturating_mul(4), 0);
-            for (&index, rgba) in frame.pixels.iter().zip(scratch.chunks_exact_mut(4)) {
+            for (&index, rgba) in frame
+                .pixels
+                .iter()
+                .zip(scratch.as_chunks_mut::<4>().0.iter_mut())
+            {
                 let value = palette.get(index as usize).ok_or(
                     VideoPresenterError::InvalidPaletteIndex {
                         index,

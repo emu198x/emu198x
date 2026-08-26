@@ -840,7 +840,7 @@ fn measure_pcm16_stereo(wav: &[u8]) -> Result<Measurement, String> {
 
     let mut left = Vec::with_capacity(data_bytes / 4);
     let mut right = Vec::with_capacity(data_bytes / 4);
-    for frame in wav[44..].chunks_exact(4) {
+    for frame in wav[44..].as_chunks::<4>().0.iter() {
         left.push(f64::from(i16::from_le_bytes([frame[0], frame[1]])) / 32_768.0);
         right.push(f64::from(i16::from_le_bytes([frame[2], frame[3]])) / 32_768.0);
     }
@@ -906,7 +906,7 @@ fn measure_float32_stereo(wav: &[u8]) -> Result<Measurement, String> {
 
     let mut left = Vec::with_capacity(sample_frames);
     let mut right = Vec::with_capacity(sample_frames);
-    for frame in wav[58..].chunks_exact(8) {
+    for frame in wav[58..].as_chunks::<8>().0.iter() {
         let left_sample = f32::from_le_bytes([frame[0], frame[1], frame[2], frame[3]]);
         let right_sample = f32::from_le_bytes([frame[4], frame[5], frame[6], frame[7]]);
         if !left_sample.is_finite() || !right_sample.is_finite() {

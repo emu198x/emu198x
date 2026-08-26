@@ -2849,7 +2849,7 @@ fn line_start_cycle(line: usize) -> u64 {
 
 fn video_line_for_cycle(cycle: u64) -> usize {
     let line = cycle / VDG_LINE_MASTER_TICKS;
-    usize::try_from(line).map_or(usize::MAX, |line| line)
+    usize::try_from(line).unwrap_or(usize::MAX)
 }
 
 fn crosses_hsync_rise(previous: u64, current: u64) -> bool {

@@ -134,8 +134,10 @@ fn the_boot_screen_matches_its_baseline() {
 
     if actual != expected {
         let differing = actual
-            .chunks_exact(3)
-            .zip(expected.chunks_exact(3))
+            .as_chunks::<3>()
+            .0
+            .iter()
+            .zip(expected.as_chunks::<3>().0.iter())
             .filter(|(a, b)| a != b)
             .count();
         write_png(
@@ -145,8 +147,10 @@ fn the_boot_screen_matches_its_baseline() {
             height,
         );
         let diff: Vec<u8> = actual
-            .chunks_exact(3)
-            .zip(expected.chunks_exact(3))
+            .as_chunks::<3>()
+            .0
+            .iter()
+            .zip(expected.as_chunks::<3>().0.iter())
             .flat_map(|(a, b)| if a == b { [0, 0, 0] } else { [255, 0, 0] })
             .collect();
         write_png(

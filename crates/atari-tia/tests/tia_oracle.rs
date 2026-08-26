@@ -111,7 +111,9 @@ fn load_golden(path: &Path) -> Option<Vec<u32>> {
     let info = reader.next_frame(&mut buf).ok()?;
     let rgba = &buf[..info.buffer_size()];
     Some(
-        rgba.chunks_exact(4)
+        rgba.as_chunks::<4>()
+            .0
+            .iter()
             .map(|p| {
                 u32::from(p[3]) << 24
                     | u32::from(p[0]) << 16

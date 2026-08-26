@@ -173,7 +173,7 @@ impl CapturedFrame {
         let Some(first) = rgba.get(0..4) else {
             return Ok(None);
         };
-        if rgba.chunks_exact(4).any(|pixel| pixel != first) {
+        if rgba.as_chunks::<4>().0.iter().any(|pixel| pixel != first) {
             return Ok(None);
         }
         Ok(Some(u32::from_be_bytes([

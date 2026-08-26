@@ -1660,7 +1660,9 @@ fn execute_case(
             .rgba_pixels()
             .map_err(|error| format!("convert capture field {capture_index} to RGBA: {error}"))?;
         if let Some((pixel, alpha)) = rgba
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .enumerate()
             .find_map(|(index, pixel)| (pixel[3] != 0xFF).then_some((index, pixel[3])))
         {
