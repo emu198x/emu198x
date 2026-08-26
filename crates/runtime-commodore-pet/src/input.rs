@@ -29,6 +29,7 @@ fn key_from_name(name: &str) -> Option<PetKey> {
         "*" | "asterisk" => PetKey::Asterisk,
         "+" | "plus" => PetKey::Plus,
         "=" | "equal" | "equals" => PetKey::Equal,
+        "-" | "minus" => PetKey::Minus,
         "@" | "at" => PetKey::At,
         "?" | "question" => PetKey::Question,
         "<" | "less" => PetKey::Less,
