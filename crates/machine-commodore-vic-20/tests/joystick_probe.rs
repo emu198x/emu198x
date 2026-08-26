@@ -34,7 +34,7 @@ fn settle_read(sys: &mut Vic20) -> (u8, u8) {
 }
 
 #[test]
-#[ignore = "needs VIC-20 ROMs — run with --ignored"]
+#[ignore = "FIXTURE: needs VIC-20 ROMs — run with --ignored"]
 fn joystick_lines_match_the_standard_layout() {
     let kernal = rom("EMU198X_VIC20_KERNAL", "kernal.rom", 8192);
     let basic = rom("EMU198X_VIC20_BASIC", "basic.rom", 8192);

@@ -24,7 +24,7 @@ use runtime_commodore_c64::{
 use common::{local_aztec_challenge_d64_zip, local_rom_firmware_with_drive, press_key};
 
 #[test]
-#[ignore = "requires local C64 ROMs + 1541 ROM + Aztec D64 — run with --ignored --nocapture"]
+#[ignore = "FIXTURE: requires local C64 ROMs + 1541 ROM + Aztec D64 — run with --ignored --nocapture"]
 fn dump_vic_state_at_aztec_player_select() {
     let firmware = local_rom_firmware_with_drive();
     let runtime = C64Runtime::from_firmware(Model::C64PalBreadbin, &firmware)

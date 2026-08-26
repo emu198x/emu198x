@@ -24,7 +24,7 @@ use common::{
 };
 
 #[test]
-#[ignore = "requires local C64 ROMs, 1541 ROM, and Bruce Lee D64 archive"]
+#[ignore = "FIXTURE: requires local C64 ROMs, 1541 ROM, and Bruce Lee D64 archive"]
 fn real_d64_mount_bruce_lee_reports_disk_metadata() {
     let mut runtime =
         C64Runtime::from_firmware(Model::C64PalBreadbin, &local_rom_firmware_with_drive())
@@ -82,7 +82,7 @@ fn real_d64_mount_bruce_lee_reports_disk_metadata() {
 }
 
 #[test]
-#[ignore = "requires local C64 ROMs, 1541 ROM, and Bruce Lee D64 archive"]
+#[ignore = "FIXTURE: requires local C64 ROMs, 1541 ROM, and Bruce Lee D64 archive"]
 fn real_d64_autoload_bruce_lee_starts_drive_motion() {
     let firmware = local_rom_firmware_with_drive();
     let runtime = C64Runtime::from_firmware(Model::C64PalBreadbin, &firmware)
@@ -138,7 +138,7 @@ fn real_d64_autoload_bruce_lee_starts_drive_motion() {
 }
 
 #[test]
-#[ignore = "requires local C64 ROMs, 1541 ROM, and Bruce Lee D64 archive"]
+#[ignore = "FIXTURE: requires local C64 ROMs, 1541 ROM, and Bruce Lee D64 archive"]
 fn real_d64_autoload_bruce_lee_reaches_loading() {
     let firmware = local_rom_firmware_with_drive();
     let runtime = C64Runtime::from_firmware(Model::C64PalBreadbin, &firmware)
@@ -175,7 +175,7 @@ fn real_d64_autoload_bruce_lee_reaches_loading() {
 }
 
 #[test]
-#[ignore = "requires local C64 ROMs, 1541 ROM, and Bruce Lee D64 archive"]
+#[ignore = "FIXTURE: requires local C64 ROMs, 1541 ROM, and Bruce Lee D64 archive"]
 fn real_d64_autoload_and_run_bruce_lee_reaches_title() {
     // The one-command path (`--autoload-run`): load, wait for the drive to
     // idle, then type RUN — reaching the same title screen the manual
@@ -222,7 +222,7 @@ fn real_d64_autoload_and_run_bruce_lee_reaches_title() {
 }
 
 #[test]
-#[ignore = "requires local C64 ROMs, 1541 ROM, and Bruce Lee D64 archive"]
+#[ignore = "FIXTURE: requires local C64 ROMs, 1541 ROM, and Bruce Lee D64 archive"]
 fn real_d64_autoload_bruce_lee_starts_after_run() {
     let firmware = local_rom_firmware_with_drive();
     let runtime = C64Runtime::from_firmware(Model::C64PalBreadbin, &firmware)
@@ -308,7 +308,7 @@ fn real_d64_autoload_bruce_lee_starts_after_run() {
 }
 
 #[test]
-#[ignore = "requires local C64 ROMs, 1541 ROM, and Bruce Lee D64 archive"]
+#[ignore = "FIXTURE: requires local C64 ROMs, 1541 ROM, and Bruce Lee D64 archive"]
 fn real_d64_autoload_bruce_lee_advances_after_fire() {
     let firmware = local_rom_firmware_with_drive();
     let runtime = C64Runtime::from_firmware(Model::C64PalBreadbin, &firmware)
@@ -400,7 +400,7 @@ fn real_d64_autoload_bruce_lee_advances_after_fire() {
 }
 
 #[test]
-#[ignore = "requires local C64 ROMs, 1541 ROM, and Bruce Lee D64 archive"]
+#[ignore = "FIXTURE: requires local C64 ROMs, 1541 ROM, and Bruce Lee D64 archive"]
 fn real_d64_autoload_bruce_lee_responds_to_joystick_right_after_fire() {
     let firmware = local_rom_firmware_with_drive();
     let runtime = C64Runtime::from_firmware(Model::C64PalBreadbin, &firmware)
@@ -480,7 +480,7 @@ fn real_d64_autoload_bruce_lee_responds_to_joystick_right_after_fire() {
 }
 
 #[test]
-#[ignore = "requires local C64 ROMs, 1541 ROM, and Aztec Challenge D64 archive"]
+#[ignore = "FIXTURE: requires local C64 ROMs, 1541 ROM, and Aztec Challenge D64 archive"]
 fn real_d64_autoload_aztec_challenge_reaches_instruction_screen() {
     let firmware = local_rom_firmware_with_drive();
     let runtime = C64Runtime::from_firmware(Model::C64PalBreadbin, &firmware)
@@ -564,7 +564,7 @@ fn real_d64_autoload_aztec_challenge_reaches_instruction_screen() {
 }
 
 #[test]
-#[ignore = "requires local C64 ROMs, 1541 ROM, and Bomb Jack D64 archive"]
+#[ignore = "FIXTURE: requires local C64 ROMs, 1541 ROM, and Bomb Jack D64 archive"]
 fn real_d64_autoload_bomb_jack_responds_to_port1_fire() {
     let firmware = local_rom_firmware_with_drive();
     let runtime = C64Runtime::from_firmware(Model::C64PalBreadbin, &firmware)
@@ -638,7 +638,7 @@ fn real_d64_autoload_bomb_jack_responds_to_port1_fire() {
 /// off the disk within a bounded window. This is the standing regression that
 /// the fast serial-transfer timing games rely on stays correct.
 #[test]
-#[ignore = "requires local C64 ROMs, 1541 ROM, and Bomb Jack D64 archive"]
+#[ignore = "FIXTURE: requires local C64 ROMs, 1541 ROM, and Bomb Jack D64 archive"]
 fn real_d64_fastloader_bomb_jack_streams_from_drive() {
     let firmware = local_rom_firmware_with_drive();
     let runtime = C64Runtime::from_firmware(Model::C64PalBreadbin, &firmware)

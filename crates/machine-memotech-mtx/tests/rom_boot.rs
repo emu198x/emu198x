@@ -19,7 +19,7 @@ fn rom_path() -> Option<PathBuf> {
 }
 
 #[test]
-#[ignore = "needs a Memotech MTX ROM set — run with --ignored"]
+#[ignore = "FIXTURE: needs a Memotech MTX ROM set — run with --ignored"]
 fn rom_boots_without_panic() {
     let Some(path) = rom_path() else {
         panic!(

@@ -380,7 +380,7 @@ fn assert_passed_with_allowlist(name: &str, outcome: &TestOutcome, allowed_failu
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore = "requires local 48K ROM and the z80test corpus; runs for ~minute"]
+#[ignore = "FIXTURE: requires local 48K ROM and the z80test corpus; runs for ~minute"]
 fn z80doc() {
     let Some(outcome) = run_one("z80doc") else {
         emu198x_test_skip::skip!("z80test corpus not staged");
@@ -389,7 +389,7 @@ fn z80doc() {
 }
 
 #[test]
-#[ignore = "requires local 48K ROM and the z80test corpus; runs for ~minute"]
+#[ignore = "FIXTURE: requires local 48K ROM and the z80test corpus; runs for ~minute"]
 fn z80docflags() {
     let Some(outcome) = run_one("z80docflags") else {
         emu198x_test_skip::skip!("z80test corpus not staged");
@@ -398,7 +398,7 @@ fn z80docflags() {
 }
 
 #[test]
-#[ignore = "requires local 48K ROM and the z80test corpus; runs for ~minute"]
+#[ignore = "FIXTURE: requires local 48K ROM and the z80test corpus; runs for ~minute"]
 fn z80flags() {
     let Some(outcome) = run_one("z80flags") else {
         emu198x_test_skip::skip!("z80test corpus not staged");
@@ -407,7 +407,7 @@ fn z80flags() {
 }
 
 #[test]
-#[ignore = "requires local 48K ROM and the z80test corpus; runs for ~minute"]
+#[ignore = "FIXTURE: requires local 48K ROM and the z80test corpus; runs for ~minute"]
 fn z80full() {
     let Some(outcome) = run_one("z80full") else {
         emu198x_test_skip::skip!("z80test corpus not staged");
@@ -416,7 +416,7 @@ fn z80full() {
 }
 
 #[test]
-#[ignore = "requires local 48K ROM and the z80test corpus; runs for ~minute"]
+#[ignore = "FIXTURE: requires local 48K ROM and the z80test corpus; runs for ~minute"]
 fn z80ccf() {
     let Some(outcome) = run_one("z80ccf") else {
         emu198x_test_skip::skip!("z80test corpus not staged");
@@ -432,7 +432,7 @@ fn z80ccf() {
 const Z80MEMPTR_ALLOWLIST: &[&str] = &[];
 
 #[test]
-#[ignore = "requires local 48K ROM and the z80test corpus; runs for ~minute"]
+#[ignore = "FIXTURE: requires local 48K ROM and the z80test corpus; runs for ~minute"]
 fn z80memptr() {
     let Some(outcome) = run_one("z80memptr") else {
         emu198x_test_skip::skip!("z80test corpus not staged");

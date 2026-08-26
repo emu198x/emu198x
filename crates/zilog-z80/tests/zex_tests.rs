@@ -810,21 +810,21 @@ fn run_zex(suite: ZexSuite, com_data: &[u8], options: ZexRunOptions) -> ZexRunRe
 }
 
 #[test]
-#[ignore = "requires local ZEX corpus and runs for minutes"]
+#[ignore = "FIXTURE: requires local ZEX corpus and runs for minutes"]
 fn run_zexdoc() {
     let result = run_zex_suite(ZexSuite::Doc, ZexRunOptions::default());
     assert_full_zex_success(ZexSuite::Doc, &result);
 }
 
 #[test]
-#[ignore = "requires local ZEX corpus and runs for minutes"]
+#[ignore = "FIXTURE: requires local ZEX corpus and runs for minutes"]
 fn run_zexall() {
     let result = run_zex_suite(ZexSuite::All, ZexRunOptions::default());
     assert_full_zex_success(ZexSuite::All, &result);
 }
 
 #[test]
-#[ignore = "requires local ZEX corpus and EMU198X_ZEX_CHECKPOINT to target one checkpoint"]
+#[ignore = "FIXTURE: requires local ZEX corpus and EMU198X_ZEX_CHECKPOINT to target one checkpoint"]
 fn run_zexdoc_checkpoint() {
     let Some(target) = zex_checkpoint_target_from_env(ZexSuite::Doc) else {
         emu198x_test_skip::skip!("ZEX corpus not staged");
@@ -841,7 +841,7 @@ fn run_zexdoc_checkpoint() {
 }
 
 #[test]
-#[ignore = "requires local ZEX corpus and EMU198X_ZEX_CHECKPOINT to target one checkpoint"]
+#[ignore = "FIXTURE: requires local ZEX corpus and EMU198X_ZEX_CHECKPOINT to target one checkpoint"]
 fn run_zexall_checkpoint() {
     let Some(target) = zex_checkpoint_target_from_env(ZexSuite::All) else {
         emu198x_test_skip::skip!("ZEX corpus not staged");

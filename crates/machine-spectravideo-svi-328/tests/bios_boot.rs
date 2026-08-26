@@ -34,7 +34,7 @@ fn bios_path() -> Option<PathBuf> {
 }
 
 #[test]
-#[ignore = "needs SVI-328 system ROM (32 KB) — run with --ignored"]
+#[ignore = "FIXTURE: needs SVI-328 system ROM (32 KB) — run with --ignored"]
 fn bios_boots_to_initial_screen() {
     let Some(path) = bios_path() else {
         panic!(

@@ -100,7 +100,7 @@ fn loads_via_autoload<M: SpectrumMachine>(
 }
 
 #[test]
-#[ignore = "needs the 128K ROMs and the Manic Miner TZX — run with --ignored"]
+#[ignore = "FIXTURE: needs the 128K ROMs and the Manic Miner TZX — run with --ignored"]
 fn autoload_drives_the_128k_boot_menu() {
     let Some(images) = firmware_from(
         "sinclair-zx-spectrum-128k",
@@ -126,7 +126,7 @@ fn autoload_drives_the_128k_boot_menu() {
 }
 
 #[test]
-#[ignore = "needs the +3 ROMs and the Manic Miner TZX — run with --ignored"]
+#[ignore = "FIXTURE: needs the +3 ROMs and the Manic Miner TZX — run with --ignored"]
 fn autoload_waits_out_the_plus3_disk_timeout() {
     // The +3 is the reason the helper waits for the loader to ask for
     // tape rather than starting the transport on a fixed settle: it

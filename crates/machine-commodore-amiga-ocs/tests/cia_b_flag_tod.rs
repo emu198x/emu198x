@@ -148,7 +148,7 @@ fn cia_b_tod_ticks_once_per_scanline() {
 }
 
 #[test]
-#[ignore = "spins the drive a full revolution (~5M machine ticks); run with --include-ignored"]
+#[ignore = "SLOW: spins the drive a full revolution (~5M machine ticks); run with --include-ignored"]
 fn cia_b_flag_raised_by_floppy_index_pulse() {
     let mut amiga = AmigaOcs::new(parked_cpu_rom());
     amiga.insert_adf(Adf::from_bytes(vec![0; ADF_SIZE_DD]).expect("valid blank ADF"));

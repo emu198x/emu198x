@@ -50,7 +50,7 @@ fn boot_machine_with_profile(rom: Vec<u8>, boot_profile: BootProfile) -> GameBoy
 }
 
 #[test]
-#[ignore = "diagnostic: searches skipped-boot DIV phase against local mooneye ROMs"]
+#[ignore = "DIAGNOSTIC: diagnostic: searches skipped-boot DIV phase against local mooneye ROMs"]
 fn diagnostic_mooneye_boot_div_counter_phase_search() {
     let root = std::env::var("EMU198X_GB_MOONEYE_ROOT").unwrap();
     for (rom_name, boot_profile, range) in [
@@ -98,7 +98,7 @@ fn diagnostic_mooneye_boot_div_counter_phase_search() {
 }
 
 #[test]
-#[ignore = "diagnostic: traces boot_hwio reads against local mooneye ROMs"]
+#[ignore = "DIAGNOSTIC: diagnostic: traces boot_hwio reads against local mooneye ROMs"]
 fn diagnostic_mooneye_boot_hwio_read_trace() {
     let root = std::env::var("EMU198X_GB_MOONEYE_ROOT").unwrap();
     for (rom_name, boot_profile) in [
@@ -138,7 +138,7 @@ fn diagnostic_mooneye_boot_hwio_read_trace() {
 }
 
 #[test]
-#[ignore = "diagnostic: traces mooneye PPU STAT interrupt timing"]
+#[ignore = "DIAGNOSTIC: diagnostic: traces mooneye PPU STAT interrupt timing"]
 fn diagnostic_mooneye_ppu_intr_2_0_trace() {
     let root = std::env::var("EMU198X_GB_MOONEYE_ROOT").unwrap();
     let rom = std::fs::read(format!("{root}/acceptance/ppu/intr_2_0_timing.gb")).unwrap();
@@ -206,7 +206,7 @@ fn diagnostic_mooneye_ppu_intr_2_0_trace() {
 }
 
 #[test]
-#[ignore = "diagnostic: traces mooneye PPU mode0 timing with sprites"]
+#[ignore = "DIAGNOSTIC: diagnostic: traces mooneye PPU mode0 timing with sprites"]
 fn diagnostic_mooneye_ppu_intr_2_mode0_sprites_trace() {
     let root = std::env::var("EMU198X_GB_MOONEYE_ROOT").unwrap();
     let target_case = std::env::var("EMU198X_GB_MOONEYE_CASE")
@@ -333,7 +333,7 @@ fn diagnostic_mooneye_ppu_intr_2_mode0_sprites_trace() {
 }
 
 #[test]
-#[ignore = "diagnostic: traces mooneye HBlank LY/SCX timing"]
+#[ignore = "DIAGNOSTIC: diagnostic: traces mooneye HBlank LY/SCX timing"]
 fn diagnostic_mooneye_ppu_hblank_ly_scx_trace() {
     let root = std::env::var("EMU198X_GB_MOONEYE_ROOT").unwrap();
     let rom = std::fs::read(format!("{root}/acceptance/ppu/hblank_ly_scx_timing-GS.gb")).unwrap();
@@ -439,7 +439,7 @@ fn diagnostic_mooneye_ppu_hblank_ly_scx_trace() {
 }
 
 #[test]
-#[ignore = "diagnostic: traces mooneye STAT LYC LCD on/off behavior"]
+#[ignore = "DIAGNOSTIC: diagnostic: traces mooneye STAT LYC LCD on/off behavior"]
 fn diagnostic_mooneye_ppu_stat_lyc_onoff_trace() {
     let root = std::env::var("EMU198X_GB_MOONEYE_ROOT").unwrap();
     let rom = std::fs::read(format!("{root}/acceptance/ppu/stat_lyc_onoff.gb")).unwrap();
@@ -553,7 +553,7 @@ fn diagnostic_mooneye_ppu_stat_lyc_onoff_trace() {
 }
 
 #[test]
-#[ignore = "diagnostic: traces mooneye VBlank/STAT interrupt ordering"]
+#[ignore = "DIAGNOSTIC: diagnostic: traces mooneye VBlank/STAT interrupt ordering"]
 fn diagnostic_mooneye_ppu_vblank_stat_intr_trace() {
     let root = std::env::var("EMU198X_GB_MOONEYE_ROOT").unwrap();
     let rom = std::fs::read(format!("{root}/acceptance/ppu/vblank_stat_intr-GS.gb")).unwrap();
@@ -679,7 +679,7 @@ fn diagnostic_mooneye_ppu_vblank_stat_intr_trace() {
 }
 
 #[test]
-#[ignore = "diagnostic: dumps mooneye LCD-on timing result arrays"]
+#[ignore = "DIAGNOSTIC: diagnostic: dumps mooneye LCD-on timing result arrays"]
 fn diagnostic_mooneye_ppu_lcdon_timing_results() {
     let root = std::env::var("EMU198X_GB_MOONEYE_ROOT").unwrap();
     let rom = std::fs::read(format!("{root}/acceptance/ppu/lcdon_timing-GS.gb")).unwrap();
@@ -759,7 +759,7 @@ fn diagnostic_mooneye_ppu_lcdon_timing_results() {
 }
 
 #[test]
-#[ignore = "diagnostic: dumps mooneye LCD-on write timing result table"]
+#[ignore = "DIAGNOSTIC: diagnostic: dumps mooneye LCD-on write timing result table"]
 fn diagnostic_mooneye_ppu_lcdon_write_timing_results() {
     let root = std::env::var("EMU198X_GB_MOONEYE_ROOT").unwrap();
     let rom = std::fs::read(format!("{root}/acceptance/ppu/lcdon_write_timing-GS.gb")).unwrap();
@@ -1108,7 +1108,7 @@ fn oam_dma_copies_160_bytes_from_source_page() {
 /// set: set `EMU198X_GB_MOONEYE_ROOT` to the extracted `mooneye-test-suite`
 /// directory and run with `--ignored`.
 #[test]
-#[ignore = "needs EMU198X_GB_MOONEYE_ROOT (mooneye-test-suite) — run with --ignored"]
+#[ignore = "FIXTURE: needs EMU198X_GB_MOONEYE_ROOT (mooneye-test-suite) — run with --ignored"]
 fn mooneye_dmg_acceptance_suite_passes() {
     let Ok(root) = std::env::var("EMU198X_GB_MOONEYE_ROOT") else {
         panic!("set EMU198X_GB_MOONEYE_ROOT to the mooneye-test-suite directory");
@@ -1201,7 +1201,7 @@ fn mooneye_dmg_acceptance_suite_passes() {
 /// Gated on the ROM: set `EMU198X_GB_DMG_ACID2` to `dmg-acid2.gb`, run with
 /// `--ignored`.
 #[test]
-#[ignore = "needs EMU198X_GB_DMG_ACID2 (dmg-acid2.gb) — run with --ignored"]
+#[ignore = "FIXTURE: needs EMU198X_GB_DMG_ACID2 (dmg-acid2.gb) — run with --ignored"]
 fn dmg_acid2_renders_reference() {
     let Ok(path) = std::env::var("EMU198X_GB_DMG_ACID2") else {
         panic!("set EMU198X_GB_DMG_ACID2 to dmg-acid2.gb");
@@ -1257,7 +1257,7 @@ fn run_blargg_a000(rom: Vec<u8>, budget: u32) -> Option<u8> {
 /// Gated on the ROMs: set `EMU198X_GB_BLARGG_DMG_SOUND` to the `dmg_sound/
 /// rom_singles` directory and run with `--ignored`.
 #[test]
-#[ignore = "needs EMU198X_GB_BLARGG_DMG_SOUND (blargg dmg_sound/rom_singles) — run with --ignored"]
+#[ignore = "FIXTURE: needs EMU198X_GB_BLARGG_DMG_SOUND (blargg dmg_sound/rom_singles) — run with --ignored"]
 fn blargg_dmg_sound_suite_passes() {
     let dir = std::env::var("EMU198X_GB_BLARGG_DMG_SOUND")
         .expect("set EMU198X_GB_BLARGG_DMG_SOUND to dmg_sound/rom_singles");
@@ -1323,7 +1323,7 @@ fn decode_mealybug_dmg_ref(path: &std::path::Path) -> Vec<u8> {
 }
 
 #[test]
-#[ignore = "diagnostic: per-ROM pixel diff vs Mealybug DMG references (EMU198X_GB_MEALYBUG_ROOT)"]
+#[ignore = "DIAGNOSTIC: diagnostic: per-ROM pixel diff vs Mealybug DMG references (EMU198X_GB_MEALYBUG_ROOT)"]
 fn diagnostic_mealybug_dmg() {
     let root = std::env::var("EMU198X_GB_MEALYBUG_ROOT")
         .expect("set EMU198X_GB_MEALYBUG_ROOT to the mealybug ppu/ dir");
@@ -1401,7 +1401,7 @@ fn write_shades_png(path: &std::path::Path, shades: &[u8]) {
 /// The full set is surveyed by `diagnostic_mealybug_dmg`. Gated on the ROMs:
 /// set `EMU198X_GB_MEALYBUG_ROOT` to the mealybug `ppu/` dir, run `--ignored`.
 #[test]
-#[ignore = "needs EMU198X_GB_MEALYBUG_ROOT (mealybug ppu/ dir) — run with --ignored"]
+#[ignore = "FIXTURE: needs EMU198X_GB_MEALYBUG_ROOT (mealybug ppu/ dir) — run with --ignored"]
 fn mealybug_dmg_ppu_ledger() {
     // Pixel-perfect against the DMG reference. Grow as the PPU tightens.
     const PASSING: &[&str] = &["m2_win_en_toggle"];

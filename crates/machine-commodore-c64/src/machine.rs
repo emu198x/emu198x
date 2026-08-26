@@ -2593,7 +2593,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "requires real C64 BASIC/KERNAL/CHARGEN ROMs at ~/.emu198x/roms/commodore-c64"]
+    #[ignore = "FIXTURE: requires real C64 BASIC/KERNAL/CHARGEN ROMs at ~/.emu198x/roms/commodore-c64"]
     fn boots_kernal_to_ready_prompt() {
         let rom_dir = c64_rom_dir();
         let kernal = fs::read(rom_dir.join("kernal.rom")).expect("KERNAL ROM");

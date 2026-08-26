@@ -20,7 +20,7 @@ fn default_uef() -> PathBuf {
 }
 
 #[test]
-#[ignore = "reads a real .uef from the vendored emulators tree — run with --ignored"]
+#[ignore = "FIXTURE: reads a real .uef from the vendored emulators tree — run with --ignored"]
 fn demodulates_a_real_uef() {
     let path = std::env::var("ACORN_UEF").map_or_else(|_| default_uef(), PathBuf::from);
     let bytes = std::fs::read(&path).unwrap_or_else(|e| {

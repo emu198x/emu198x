@@ -318,7 +318,7 @@ fn run_opcode_tests(path: &Path) -> (usize, usize, Vec<String>) {
 }
 
 #[test]
-#[ignore = "requires local Tom Harte Z80 corpus and runs for minutes"]
+#[ignore = "FIXTURE: requires local Tom Harte Z80 corpus and runs for minutes"]
 fn run_all() {
     // Fail rather than skip. This is a declared accuracy gate, and it
     // is `#[ignore]`d — reaching it means someone asked for it by name.
@@ -401,7 +401,7 @@ fn run_all() {
 /// Run tests for a single opcode (useful for debugging).
 /// Example: cargo test -p zilog-z80 --test single_step_tests run_opcode_00 -- --ignored --nocapture
 #[test]
-#[ignore = "requires local Tom Harte Z80 corpus"]
+#[ignore = "FIXTURE: requires local Tom Harte Z80 corpus"]
 fn run_opcode_00() {
     let path = match find_tom_harte_z80_dir() {
         Ok(dir) => dir.join("00.json"),

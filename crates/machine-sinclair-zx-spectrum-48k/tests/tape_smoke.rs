@@ -514,7 +514,7 @@ fn run_to_completion(test_name: &str) -> Option<Spectrum48k> {
 }
 
 #[test]
-#[ignore = "requires local 48K ROM and floatspy.tap; ~100 s wall time at cycle-accurate tape speed"]
+#[ignore = "FIXTURE: requires local 48K ROM and floatspy.tap; ~100 s wall time at cycle-accurate tape speed"]
 fn floatspy_runs_to_completion() {
     // Captures floatspy's interactive menu. After the +3 floating-bus
     // phase fix (#62) the menu's IN() BYTE reads 0, matching Spectron's
@@ -529,7 +529,7 @@ fn floatspy_runs_to_completion() {
 /// IN() BYTE reads 0 and floatspy reports OK, byte-equal to the oracle.
 /// Gated on `EMU198X_SPECTRON_RESULTS_DIR`; ~370 s at cycle-accurate speed.
 #[test]
-#[ignore = "requires local 48K ROM, floatspy.tap, and EMU198X_SPECTRON_RESULTS_DIR; ~370 s"]
+#[ignore = "FIXTURE: requires local 48K ROM, floatspy.tap, and EMU198X_SPECTRON_RESULTS_DIR; ~370 s"]
 fn floatspy_selftest_ok() {
     let rom_path = rom_path();
     if !rom_path.is_file() {
@@ -574,7 +574,7 @@ fn floatspy_selftest_ok() {
 }
 
 #[test]
-#[ignore = "requires local 48K ROM and halt2int.tap; ~100 s wall time"]
+#[ignore = "FIXTURE: requires local 48K ROM and halt2int.tap; ~100 s wall time"]
 fn halt2int_runs_to_completion() {
     let Some(machine) = run_to_completion("halt2int") else {
         emu198x_test_skip::skip!(
@@ -610,13 +610,13 @@ fn halt2int_runs_to_completion() {
 }
 
 #[test]
-#[ignore = "requires local 48K ROM and btime.tap; ~100 s wall time"]
+#[ignore = "FIXTURE: requires local 48K ROM and btime.tap; ~100 s wall time"]
 fn btime_runs_to_completion() {
     run_and_compare_with_spectron("btime", Some("btime_48.png"));
 }
 
 #[test]
-#[ignore = "requires local 48K ROM and ptime.tap; ~100 s wall time"]
+#[ignore = "FIXTURE: requires local 48K ROM and ptime.tap; ~100 s wall time"]
 fn ptime_runs_to_completion() {
     // Spectron ships only a 128K ptime reference (`ptime_128.png`); there
     // is no 48K one to validly compare this 48K run against, so it stays

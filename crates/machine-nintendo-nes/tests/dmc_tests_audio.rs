@@ -172,7 +172,7 @@ fn tone_count(rel: &str) -> Option<usize> {
 /// below use. A counter that could not tell one tone from three would
 /// make every `dmc_tests` gate vacuous.
 #[test]
-#[ignore = "ROM run — requires test-suites/nes-test-roms"]
+#[ignore = "FIXTURE: ROM run — requires test-suites/nes-test-roms"]
 fn counter_separates_passing_from_failing_roms() {
     if roms_root().is_none() {
         emu198x_test_skip::skip!("nes-test-roms not found");
@@ -206,7 +206,7 @@ macro_rules! dmc_gate {
     ($name:ident, $rel:expr) => {
         /// Passes iff the ROM beeps a single tone — blargg code 0.
         #[test]
-        #[ignore = "ROM run — requires test-suites/nes-test-roms"]
+        #[ignore = "FIXTURE: ROM run — requires test-suites/nes-test-roms"]
         fn $name() {
             if roms_root().is_none() {
                 emu198x_test_skip::skip!(
@@ -235,7 +235,7 @@ dmc_gate!(status_irq, "dmc_tests/status_irq.nes");
 /// its length: per-tone duration, gap and the top autocorrelation peaks,
 /// which is where the low/high classifier came unstuck.
 #[test]
-#[ignore = "diagnostic; requires local nes-test-roms"]
+#[ignore = "DIAGNOSTIC: diagnostic; requires local nes-test-roms"]
 fn probe_tone_shape() {
     if roms_root().is_none() {
         emu198x_test_skip::skip!("nes-test-roms not found");

@@ -97,7 +97,7 @@ fn run_one(cpc: &mut AmstradCpc) -> (u64, u16, u64) {
 /// the nine are *not* multiples of four unstretched, and every one of them is
 /// wrong on this machine without `/WAIT` (#959).
 #[test]
-#[ignore = "needs the CPC464 firmware — run with --ignored"]
+#[ignore = "FIXTURE: needs the CPC464 firmware — run with --ignored"]
 fn every_instruction_costs_whole_microseconds() {
     let rom = firmware_path();
     if !rom.exists() {
@@ -178,7 +178,7 @@ fn every_instruction_costs_whole_microseconds() {
 /// in a stream of `NOP`s. Pinned exactly here, wrong values and all, so that
 /// fixing it fails this test loudly.
 #[test]
-#[ignore = "needs the CPC464 firmware — run with --ignored"]
+#[ignore = "FIXTURE: needs the CPC464 firmware — run with --ignored"]
 fn instruction_cost_depends_on_alignment_and_should_not() {
     let rom = firmware_path();
     if !rom.exists() {
@@ -242,7 +242,7 @@ fn instruction_cost_depends_on_alignment_and_should_not() {
 ///
 /// Same root cause as [`instruction_cost_depends_on_alignment_and_should_not`].
 #[test]
-#[ignore = "needs the CPC464 firmware — run with --ignored"]
+#[ignore = "FIXTURE: needs the CPC464 firmware — run with --ignored"]
 fn the_interrupt_response_leaves_the_grid() {
     let rom = firmware_path();
     if !rom.exists() {

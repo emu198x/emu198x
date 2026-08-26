@@ -350,7 +350,7 @@ fn run_full(
 }
 
 #[test]
-#[ignore = "requires local 48K ROM and Float48k.tap; ~50 s wall time at cycle-accurate tape speed"]
+#[ignore = "FIXTURE: requires local 48K ROM and Float48k.tap; ~50 s wall time at cycle-accurate tape speed"]
 fn float48k_prints_expected_tstate() {
     let rom_path = rom_path();
     if !rom_path.is_file() {

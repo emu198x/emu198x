@@ -22,7 +22,7 @@ fn rom_path() -> PathBuf {
 }
 
 #[test]
-#[ignore = "needs the real 1571 DOS ROM at ~/.emu198x/roms/commodore-c64/1571.rom"]
+#[ignore = "FIXTURE: needs the real 1571 DOS ROM at ~/.emu198x/roms/commodore-c64/1571.rom"]
 fn boots_to_an_idle_loop() {
     let rom = std::fs::read(rom_path()).expect("stage the 1571 DOS ROM first");
     assert_eq!(rom.len(), 0x8000, "1571 DOS ROM is 32 KB");

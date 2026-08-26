@@ -33,6 +33,15 @@ jobs:
       - name: Check no fixture guard passes in silence
         run: python3 scripts/check-fixture-guards.py --self-test
 
+      # `#[ignore]` meant three incompatible things — needs-a-fixture,
+      # deliberately-red, and slow-diagnostic — separated only by free text,
+      # so a batch `--ignored` sweep showed one red bar for all of them.
+      # #1226 was a real failure sitting unnoticed in that crowd for two
+      # weeks. The prefix makes the sweep classifiable without opening
+      # every test; the check stops the distinction eroding again.
+      - name: Check every #[ignore] says which kind it is
+        run: python3 scripts/check-ignore-reasons.py --self-test
+
       # An unreachable Ubuntu mirror makes apt retry with its default
       # timeouts — twenty to thirty minutes per job, before any of this
       # repository's code is involved. The first fix covered ci.yml and

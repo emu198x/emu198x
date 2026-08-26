@@ -119,7 +119,7 @@ fn compare_or_update(name: &str, framebuffer: &[u8]) {
 }
 
 #[test]
-#[ignore = "requires local TC2048 ROM at ~/.emu198x/roms/timex-tc2048/tc2048.rom"]
+#[ignore = "FIXTURE: requires local TC2048 ROM at ~/.emu198x/roms/timex-tc2048/tc2048.rom"]
 fn golden_tc2048_boot() {
     let Some(dir) = rom_dir() else {
         emu198x_test_skip::skip!("Timex TC2048 ROM not staged (~/.emu198x/roms/timex-tc2048)");

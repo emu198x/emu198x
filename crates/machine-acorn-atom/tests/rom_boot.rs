@@ -19,7 +19,7 @@ fn rom_path() -> Option<PathBuf> {
 }
 
 #[test]
-#[ignore = "needs a 24 KB Acorn Atom combined ROM — run with --ignored"]
+#[ignore = "FIXTURE: needs a 24 KB Acorn Atom combined ROM — run with --ignored"]
 fn rom_boots_to_prompt() {
     let Some(path) = rom_path() else {
         panic!(

@@ -19,7 +19,7 @@ fn rom_path() -> Option<PathBuf> {
 }
 
 #[test]
-#[ignore = "needs an 8 KB Jupiter Ace Forth ROM — run with --ignored"]
+#[ignore = "FIXTURE: needs an 8 KB Jupiter Ace Forth ROM — run with --ignored"]
 fn rom_boots_to_cursor() {
     let Some(path) = rom_path() else {
         panic!(

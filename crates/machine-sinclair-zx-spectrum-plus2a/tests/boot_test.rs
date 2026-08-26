@@ -26,7 +26,7 @@ fn rom_dir() -> Option<PathBuf> {
 }
 
 #[test]
-#[ignore = "requires local +3 ROMs at ~/.emu198x/roms/amstrad-zx-spectrum-plus3/{plus3-0..3}.rom"]
+#[ignore = "FIXTURE: requires local +3 ROMs at ~/.emu198x/roms/amstrad-zx-spectrum-plus3/{plus3-0..3}.rom"]
 fn boot_to_menu_renders_screen_content() {
     let Some(dir) = rom_dir() else {
         emu198x_test_skip::skip!("HOME not set — cannot locate +3 ROMs");

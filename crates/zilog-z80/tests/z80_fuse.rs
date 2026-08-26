@@ -861,7 +861,7 @@ fn parse_fuse_inline_sample() {
 }
 
 #[test]
-#[ignore = "requires local FUSE Z80 fixtures"]
+#[ignore = "FIXTURE: requires local FUSE Z80 fixtures"]
 fn run_fuse_z80_reference_suite() {
     let fixture_dir = match find_fuse_z80_tests_dir() {
         Ok(path) => path,

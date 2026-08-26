@@ -117,7 +117,7 @@ fn compare_or_update(name: &str, framebuffer: &[u8]) {
 }
 
 #[test]
-#[ignore = "requires local Pentagon ROMs at ~/.emu198x/roms/pentagon-128/{pentagon-0,pentagon-1}.rom"]
+#[ignore = "FIXTURE: requires local Pentagon ROMs at ~/.emu198x/roms/pentagon-128/{pentagon-0,pentagon-1}.rom"]
 fn golden_pentagon_boot() {
     let Some(dir) = rom_dir() else {
         emu198x_test_skip::skip!("Pentagon 128 ROM not staged (~/.emu198x/roms/pentagon-128)");

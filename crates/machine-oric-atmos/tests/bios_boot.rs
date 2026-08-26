@@ -25,7 +25,7 @@ fn rom_path() -> Option<PathBuf> {
 }
 
 #[test]
-#[ignore = "needs Oric Atmos / Oric-1 ROM (16 KB) — run with --ignored"]
+#[ignore = "FIXTURE: needs Oric Atmos / Oric-1 ROM (16 KB) — run with --ignored"]
 fn rom_boots_to_initial_screen() {
     let Some(path) = rom_path() else {
         panic!(

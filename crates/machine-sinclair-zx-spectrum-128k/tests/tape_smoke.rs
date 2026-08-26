@@ -278,7 +278,7 @@ fn screen_text_lines(machine: &Spectrum128K) -> Vec<String> {
 }
 
 #[test]
-#[ignore = "requires local 128K ROMs and halt2int128.tap; ~100 s wall time"]
+#[ignore = "FIXTURE: requires local 128K ROMs and halt2int128.tap; ~100 s wall time"]
 fn halt2int128_runs_to_completion() {
     let Some(machine) = run_to_completion("halt2int128.tap") else {
         emu198x_test_skip::skip!("Spectrum 128K ROMs or tape image not staged");
@@ -307,7 +307,7 @@ fn halt2int128_runs_to_completion() {
 /// 5,936-pixel diff it failed on was title-screen animation. A HALT suite that
 /// never reached a `HALT`.
 #[test]
-#[ignore = "requires local 128K ROMs and Super HALT Invaders TAP; ~120 s wall time"]
+#[ignore = "FIXTURE: requires local 128K ROMs and Super HALT Invaders TAP; ~120 s wall time"]
 fn super_halt_invaders_reaches_the_game() {
     let Some(mut machine) =
         run_to_completion("Super HALT Invaders Test (2021-10-07)(Woodmass, Mark)[!].tap")

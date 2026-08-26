@@ -277,7 +277,7 @@ fn opcode_path_uses_lowercase_hex_names() {
 }
 
 #[test]
-#[ignore = "requires local Tom Harte 6502 corpus"]
+#[ignore = "FIXTURE: requires local Tom Harte 6502 corpus"]
 fn run_opcode_69() {
     let root = find_tom_harte_6502_dir().expect("Tom Harte 6502 corpus should exist");
     let (pass, fail, first_failures) = run_opcode_tests(&opcode_path(&root, 0x69));
@@ -291,7 +291,7 @@ fn run_opcode_69() {
 }
 
 #[test]
-#[ignore = "requires local Tom Harte 6502 corpus"]
+#[ignore = "FIXTURE: requires local Tom Harte 6502 corpus"]
 fn run_named_opcode() {
     let Some(opcode) = named_opcode_from_env() else {
         panic!("set {OPCODE_ENV} to one hex opcode, for example '69' or 'e9'");
@@ -308,7 +308,7 @@ fn run_named_opcode() {
 }
 
 #[test]
-#[ignore = "requires local Tom Harte 6502 corpus and runs for minutes"]
+#[ignore = "FIXTURE: requires local Tom Harte 6502 corpus and runs for minutes"]
 fn run_all() {
     let root = find_tom_harte_6502_dir().expect("Tom Harte 6502 corpus should exist");
     let limit = opcode_limit_from_env();

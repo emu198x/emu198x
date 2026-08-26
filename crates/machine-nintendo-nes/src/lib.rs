@@ -1130,7 +1130,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "diagnostic: run a directory of blargg NES test ROMs (EMU198X_NES_SUITE)"]
+    #[ignore = "DIAGNOSTIC: diagnostic: run a directory of blargg NES test ROMs (EMU198X_NES_SUITE)"]
     fn diagnostic_nes_suite() {
         // ⚠⚠ SKIP when the input is absent; never panic. This test lives in the
         // LIB target, which cargo runs before the integration targets, so a
@@ -1302,7 +1302,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "diagnostic: prints OAM DMA length at each get/put alignment"]
+    #[ignore = "DIAGNOSTIC: diagnostic: prints OAM DMA length at each get/put alignment"]
     fn probe_oamdma_length_by_alignment() {
         for parity in 0..2u64 {
             let mut nes = nop_nes();
@@ -1338,7 +1338,7 @@ mod tests {
     /// with `t`'s parity; a flat column here localises the defect to the
     /// arbitration rather than to either DMA on its own.
     #[test]
-    #[ignore = "diagnostic: prints combined OAM+DMC stall per DMC offset"]
+    #[ignore = "DIAGNOSTIC: diagnostic: prints combined OAM+DMC stall per DMC offset"]
     fn probe_combined_dma_by_dmc_offset() {
         for parity in 0..2u64 {
             let mut row = Vec::new();
@@ -1386,7 +1386,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "diagnostic: prints DMC DMA length at each get/put alignment"]
+    #[ignore = "DIAGNOSTIC: diagnostic: prints DMC DMA length at each get/put alignment"]
     fn probe_dmc_dma_length_by_alignment() {
         for parity in 0..2u64 {
             let mut nes = nop_nes();

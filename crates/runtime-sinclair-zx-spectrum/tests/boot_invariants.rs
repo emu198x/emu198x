@@ -740,7 +740,7 @@ fn amstrad_class_declines_kempston_events_plus3() -> Result<(), Box<dyn Error>> 
 /// Catches regression: any change that breaks the Z80 / ULA / contention
 /// chain when running real Sinclair ROM code.
 #[test]
-#[ignore = "requires ~/.emu198x/roms/sinclair-zx-spectrum-48k/48.rom"]
+#[ignore = "FIXTURE: requires ~/.emu198x/roms/sinclair-zx-spectrum-48k/48.rom"]
 fn real_48k_rom_runs_thirty_frames() -> Result<(), Box<dyn Error>> {
     let Some(rom_path) = home_rom_48k() else {
         emu198x_test_skip::record("skip: 48.rom missing");

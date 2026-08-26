@@ -285,7 +285,7 @@ fn query_paths_filters_by_prefix() {
 }
 
 #[test]
-#[ignore = "requires local C64 and 1541 ROMs at ~/.emu198x/roms/commodore-c64"]
+#[ignore = "FIXTURE: requires local C64 and 1541 ROMs at ~/.emu198x/roms/commodore-c64"]
 fn query_provider_reports_real_attached_drive_progress() {
     let mut runtime =
         C64Runtime::from_firmware(Model::C64PalBreadbin, &local_rom_firmware_with_drive())
@@ -326,7 +326,7 @@ fn query_provider_reports_real_attached_drive_progress() {
 }
 
 #[test]
-#[ignore = "requires local C64 ROMs at ~/.emu198x/roms/commodore-c64"]
+#[ignore = "FIXTURE: requires local C64 ROMs at ~/.emu198x/roms/commodore-c64"]
 fn query_provider_detects_ready_on_real_pal_boot() {
     let firmware = local_rom_firmware();
     let mut runtime = C64Runtime::from_firmware(Model::C64PalBreadbin, &firmware)

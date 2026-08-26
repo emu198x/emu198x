@@ -18,7 +18,7 @@ use std::fs;
 use machine_tatung_einstein::{Einstein, EinsteinRegion};
 
 #[test]
-#[ignore = "needs EMU198X_EINSTEIN_DISK (a CPCEMU .dsk) — run with --ignored"]
+#[ignore = "FIXTURE: needs EMU198X_EINSTEIN_DISK (a CPCEMU .dsk) — run with --ignored"]
 fn real_dsk_parses_and_inserts() {
     let Ok(path) = env::var("EMU198X_EINSTEIN_DISK") else {
         panic!("set EMU198X_EINSTEIN_DISK to a CPCEMU .dsk (e.g. einstein_flop basic.dsk)");

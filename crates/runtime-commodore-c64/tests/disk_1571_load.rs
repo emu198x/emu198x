@@ -30,7 +30,7 @@ fn blank_formatted_d64() -> Vec<u8> {
 }
 
 #[test]
-#[ignore = "requires local C64 ROMs plus 1541, 1571, and 1581 DOS ROMs"]
+#[ignore = "FIXTURE: requires local C64 ROMs plus 1541, 1571, and 1581 DOS ROMs"]
 fn save_then_load_and_run_on_a_1571_device_8() {
     let mut runtime =
         C64Runtime::from_firmware(Model::C64PalBreadbin, &local_rom_firmware_with_all_drives())

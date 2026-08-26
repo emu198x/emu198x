@@ -91,7 +91,7 @@ fn press_shifted(sys: &mut AcornElectron, col: usize, row: usize) {
 }
 
 #[test]
-#[ignore = "needs the Electron OS+BASIC ROMs and a UEF (ACORN_UEF) — run with --ignored"]
+#[ignore = "FIXTURE: needs the Electron OS+BASIC ROMs and a UEF (ACORN_UEF) — run with --ignored"]
 fn os_loads_a_real_tape_to_page() {
     let os = rom("os.rom");
     let basic = rom("basic.rom");

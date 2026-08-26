@@ -50,7 +50,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "requires local OS + BASIC ROMs at ~/.emu198x/roms/atari-800xl/"]
+    #[ignore = "FIXTURE: requires local OS + BASIC ROMs at ~/.emu198x/roms/atari-800xl/"]
     fn inspection_tools_report_booted_state() {
         let (Some(os), Some(basic)) = roms() else {
             panic!("{MISSING_ROMS}");
@@ -147,7 +147,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "requires local OS + BASIC ROMs at ~/.emu198x/roms/atari-800xl/"]
+    #[ignore = "FIXTURE: requires local OS + BASIC ROMs at ~/.emu198x/roms/atari-800xl/"]
     fn run_and_input_tools_drive_basic() {
         let (Some(os), Some(basic)) = roms() else {
             panic!("{MISSING_ROMS}");

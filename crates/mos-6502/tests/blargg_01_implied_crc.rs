@@ -294,7 +294,7 @@ const EXPECTED: &[ExpectedRow] = &[
 ];
 
 #[test]
-#[ignore = "diagnostic; needs the blargg cpu_test5 expected-CRC table baked in"]
+#[ignore = "DIAGNOSTIC: diagnostic; needs the blargg cpu_test5 expected-CRC table baked in"]
 fn print_crc_per_opcode() {
     println!("Opcode  Name    Got CRC    Expected (.dword byte-rev)  Match?");
     for row in EXPECTED {
@@ -309,7 +309,7 @@ fn print_crc_per_opcode() {
 }
 
 #[test]
-#[ignore = "diagnostic; dumps the first few CRC byte tuples for NOP"]
+#[ignore = "DIAGNOSTIC: diagnostic; dumps the first few CRC byte tuples for NOP"]
 fn dump_nop_byte_stream() {
     let mut crc: u32 = 0xFFFFFFFF;
     let mut count = 0;

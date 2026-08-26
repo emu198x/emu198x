@@ -91,7 +91,7 @@ fn shifted(m: &mut Zx81, k: Zx81Key) {
 /// An earlier draft asserted `0/0` and failed on the two that auto-run, which
 /// is the test being wrong rather than the loader.
 #[test]
-#[ignore = "needs a ZX81 ROM and a .p image — set EMU198X_ZX81_P and run with --ignored"]
+#[ignore = "FIXTURE: needs a ZX81 ROM and a .p image — set EMU198X_ZX81_P and run with --ignored"]
 fn a_real_image_loads_from_the_cassette_line() {
     let Ok(rom_path) = env::var("EMU198X_ZX81_ROM")
         .or_else(|_| env::var("HOME").map(|h| format!("{h}/.emu198x/roms/sinclair-zx81/zx81.rom")))

@@ -59,7 +59,7 @@ fn screen_text(machine: &machine_commodore_c64::C64) -> String {
 }
 
 #[test]
-#[ignore = "needs Open ROMs at <EMU198X_ROMS_ROOT>/commodore-c64/{kernal_generic,basic_generic,chargen_openroms}.rom"]
+#[ignore = "FIXTURE: needs Open ROMs at <EMU198X_ROMS_ROOT>/commodore-c64/{kernal_generic,basic_generic,chargen_openroms}.rom"]
 fn open_roms_cold_starts_to_a_basic_prompt() {
     let Some(dir) = rom_dir() else {
         emu198x_test_skip::skip!("neither EMU198X_ROMS_ROOT nor HOME is set");

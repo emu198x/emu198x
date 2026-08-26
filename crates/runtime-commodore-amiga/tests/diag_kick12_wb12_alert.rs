@@ -49,7 +49,7 @@ fn read_word(runtime: &AmigaOcsRuntime, addr: u32) -> u16 {
 }
 
 #[test]
-#[ignore = "needs local kick12.rom and workbench-1.2.adf"]
+#[ignore = "FIXTURE: needs local kick12.rom and workbench-1.2.adf"]
 fn trace_a500_kick12_wb12_first_alert() {
     let home = PathBuf::from(std::env::var("HOME").expect("HOME"));
     let Some(rom) = load_artifact(
@@ -133,7 +133,7 @@ fn trace_a500_kick12_wb12_first_alert() {
 }
 
 #[test]
-#[ignore = "needs local kick12.rom"]
+#[ignore = "FIXTURE: needs local kick12.rom"]
 fn trace_a500_kick12_early_boot_branch_to_alert() {
     let home = PathBuf::from(std::env::var("HOME").expect("HOME"));
     let Some(rom) = load_artifact(
@@ -232,7 +232,7 @@ fn trace_a500_kick12_early_boot_branch_to_alert() {
 }
 
 #[test]
-#[ignore = "needs local kick12.rom"]
+#[ignore = "FIXTURE: needs local kick12.rom"]
 fn trace_a500_kick12_chip_probe_instruction_flow() {
     let home = PathBuf::from(std::env::var("HOME").expect("HOME"));
     let Some(rom) = load_artifact(
@@ -359,7 +359,7 @@ fn trace_a500_kick12_chip_probe_instruction_flow() {
 }
 
 #[test]
-#[ignore = "needs local kick12.rom"]
+#[ignore = "FIXTURE: needs local kick12.rom"]
 fn trace_a500_kick12_last_instructions_before_alert() {
     let home = PathBuf::from(std::env::var("HOME").expect("HOME"));
     let Some(rom) = load_artifact(
@@ -416,7 +416,7 @@ fn trace_a500_kick12_last_instructions_before_alert() {
 }
 
 #[test]
-#[ignore = "needs local kick12.rom"]
+#[ignore = "FIXTURE: needs local kick12.rom"]
 fn trace_a500_kick12_cpu_detect_helper() {
     let home = PathBuf::from(std::env::var("HOME").expect("HOME"));
     let Some(rom) = load_artifact(
@@ -494,7 +494,7 @@ fn trace_a500_kick12_cpu_detect_helper() {
 }
 
 #[test]
-#[ignore = "needs local kick12.rom"]
+#[ignore = "FIXTURE: needs local kick12.rom"]
 fn trace_a500_kick12_pre_helper_call_and_alert_frame() {
     let home = PathBuf::from(std::env::var("HOME").expect("HOME"));
     let Some(rom) = load_artifact(
@@ -581,7 +581,7 @@ fn trace_a500_kick12_pre_helper_call_and_alert_frame() {
 }
 
 #[test]
-#[ignore = "needs local kick12.rom"]
+#[ignore = "FIXTURE: needs local kick12.rom"]
 fn trace_kick12_slow_ram_probe_on_a500_variants() {
     let home = PathBuf::from(std::env::var("HOME").expect("HOME"));
     let Some(rom) = load_artifact(
@@ -667,7 +667,7 @@ fn trace_kick12_slow_ram_probe_on_a500_variants() {
 }
 
 #[test]
-#[ignore = "needs local kick12.rom"]
+#[ignore = "FIXTURE: needs local kick12.rom"]
 fn trace_kick12_nodisk_on_plain_256k_chip_machine() {
     let home = PathBuf::from(std::env::var("HOME").expect("HOME"));
     let Some(rom) = load_artifact(

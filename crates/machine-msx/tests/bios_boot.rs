@@ -43,7 +43,7 @@ fn bios_path() -> Option<PathBuf> {
 }
 
 #[test]
-#[ignore = "needs a 32 KB MSX1 BIOS (real or C-BIOS) — run with --ignored"]
+#[ignore = "FIXTURE: needs a 32 KB MSX1 BIOS (real or C-BIOS) — run with --ignored"]
 fn bios_boots_to_initial_screen() {
     let Some(path) = bios_path() else {
         panic!(

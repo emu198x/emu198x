@@ -186,7 +186,7 @@ struct ReferenceObservation {
 }
 
 #[test]
-#[ignore = "explicit project-authored Paula waveform corpus gate"]
+#[ignore = "FIXTURE: explicit project-authored Paula waveform corpus gate"]
 fn paula_audio_corpus_matches_registered_routing_cadence_and_volume_relationship() {
     let dist = required_directory(DIST_ENV);
     let manifest = load_and_validate_suite(&dist);

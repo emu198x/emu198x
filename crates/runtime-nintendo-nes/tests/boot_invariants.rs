@@ -249,7 +249,7 @@ fn cartridge_bytes_survive_snapshot_round_trip() -> Result<(), Box<dyn Error>> {
 /// stays in `machine-nintendo-nes::tests::nestest`; this is the
 /// runtime-layer equivalent that catches load-media-path regressions.
 #[test]
-#[ignore = "requires nestest.nes — set NES_TEST_DATA or place under ~/Projects/Emu198x-Unclean/..."]
+#[ignore = "FIXTURE: requires nestest.nes — set NES_TEST_DATA or place under ~/Projects/Emu198x-Unclean/..."]
 fn nestest_loads_and_runs() -> Result<(), Box<dyn Error>> {
     let Some(dir) = nestest_fixture_dir() else {
         emu198x_test_skip::record("skip: nestest.nes missing");

@@ -25,7 +25,7 @@ fn rom_dir() -> Option<PathBuf> {
 }
 
 #[test]
-#[ignore = "requires local 128K ROMs at ~/.emu198x/roms/sinclair-zx-spectrum-128k/{128-0,128-1}.rom"]
+#[ignore = "FIXTURE: requires local 128K ROMs at ~/.emu198x/roms/sinclair-zx-spectrum-128k/{128-0,128-1}.rom"]
 fn boot_to_menu_renders_screen_content() {
     let Some(dir) = rom_dir() else {
         emu198x_test_skip::skip!("HOME not set — cannot locate 128K ROMs");

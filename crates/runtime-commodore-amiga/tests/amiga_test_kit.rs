@@ -45,7 +45,7 @@ struct Fixtures {
 }
 
 #[test]
-#[ignore = "explicit Amiga Test Kit v1.12 accuracy gate"]
+#[ignore = "FIXTURE: explicit Amiga Test Kit v1.12 accuracy gate"]
 fn amiga_test_kit_v112_a500_reaches_memory_page() {
     let fixtures = load_fixtures();
     let mut session = build_session(Model::A500OcsPal, &fixtures);
@@ -69,7 +69,7 @@ fn amiga_test_kit_v112_a500_reaches_memory_page() {
 }
 
 #[test]
-#[ignore = "explicit Amiga Test Kit v1.12 accuracy gate"]
+#[ignore = "FIXTURE: explicit Amiga Test Kit v1.12 accuracy gate"]
 fn amiga_test_kit_v112_a530_identifies_cpu_and_replays() {
     let fixtures = load_fixtures();
     let mut session = build_session(Model::A500OcsPalGvpA530, &fixtures);

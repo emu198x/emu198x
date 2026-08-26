@@ -391,7 +391,7 @@ fn sweep_mooneye_bucket(
 }
 
 #[test]
-#[ignore = "needs local Blargg Game Boy ROMs"]
+#[ignore = "FIXTURE: needs local Blargg Game Boy ROMs"]
 fn blargg_cpu_instrs_passes_all_11_subtests() -> Result<(), Box<dyn std::error::Error>> {
     let Some(root) = blargg_root() else {
         return Ok(());
@@ -416,7 +416,7 @@ fn blargg_cpu_instrs_passes_all_11_subtests() -> Result<(), Box<dyn std::error::
 }
 
 #[test]
-#[ignore = "needs local Blargg Game Boy ROMs"]
+#[ignore = "FIXTURE: needs local Blargg Game Boy ROMs"]
 fn blargg_instr_timing_passes() -> Result<(), Box<dyn std::error::Error>> {
     let Some(root) = blargg_root() else {
         return Ok(());
@@ -439,7 +439,7 @@ fn blargg_instr_timing_passes() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[test]
-#[ignore = "needs local Blargg Game Boy ROMs"]
+#[ignore = "FIXTURE: needs local Blargg Game Boy ROMs"]
 fn blargg_mem_timing_v1_and_v2_pass() -> Result<(), Box<dyn std::error::Error>> {
     let Some(root) = blargg_root() else {
         return Ok(());
@@ -464,7 +464,7 @@ fn blargg_mem_timing_v1_and_v2_pass() -> Result<(), Box<dyn std::error::Error>> 
 }
 
 #[test]
-#[ignore = "needs local mooneye-gb acceptance ROMs"]
+#[ignore = "FIXTURE: needs local mooneye-gb acceptance ROMs"]
 fn mooneye_acceptance_gate_set_passes() -> Result<(), Box<dyn std::error::Error>> {
     let Some(root) = mooneye_root() else {
         return Ok(());
@@ -495,7 +495,7 @@ fn mooneye_acceptance_gate_set_passes() -> Result<(), Box<dyn std::error::Error>
 }
 
 #[test]
-#[ignore = "needs local dmg-acid2 ROM"]
+#[ignore = "FIXTURE: needs local dmg-acid2 ROM"]
 fn dmg_acid2_renders_non_trivial_frame() -> Result<(), Box<dyn std::error::Error>> {
     let Some(path) = dmg_acid2_rom() else {
         return Ok(());
@@ -541,7 +541,7 @@ fn dmg_acid2_renders_non_trivial_frame() -> Result<(), Box<dyn std::error::Error
 }
 
 #[test]
-#[ignore = "reports broad local mooneye coverage without gating CI"]
+#[ignore = "DIAGNOSTIC: reports broad local mooneye coverage without gating CI"]
 fn mooneye_broad_acceptance_sweep_reports_baseline() -> Result<(), Box<dyn std::error::Error>> {
     let Some(root) = mooneye_root() else {
         return Ok(());

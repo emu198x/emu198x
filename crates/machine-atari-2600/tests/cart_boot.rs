@@ -35,7 +35,7 @@ fn cart_path() -> Option<PathBuf> {
 }
 
 #[test]
-#[ignore = "needs an Atari 2600 cart — run with --ignored"]
+#[ignore = "FIXTURE: needs an Atari 2600 cart — run with --ignored"]
 fn cart_boots_to_playfield() {
     let Some(path) = cart_path() else {
         panic!(

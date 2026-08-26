@@ -47,7 +47,7 @@ fn cart_path() -> Option<PathBuf> {
 }
 
 #[test]
-#[ignore = "needs an SG-1000 / Othello Multivision .sg cart — run with --ignored"]
+#[ignore = "FIXTURE: needs an SG-1000 / Othello Multivision .sg cart — run with --ignored"]
 fn cart_boots_to_title_screen() {
     let Some(path) = cart_path() else {
         panic!(

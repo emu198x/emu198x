@@ -18,7 +18,7 @@ fn rom_dir() -> Option<PathBuf> {
 }
 
 #[test]
-#[ignore = "requires local TS2068 ROMs at ~/.emu198x/roms/timex-ts2068/{ts2068,exrom}.rom"]
+#[ignore = "FIXTURE: requires local TS2068 ROMs at ~/.emu198x/roms/timex-ts2068/{ts2068,exrom}.rom"]
 fn boot_to_basic_renders_screen_content() {
     let Some(dir) = rom_dir() else {
         emu198x_test_skip::skip!("HOME not set — cannot locate TS2068 ROMs");

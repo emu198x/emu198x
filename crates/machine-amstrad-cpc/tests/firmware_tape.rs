@@ -69,7 +69,7 @@ fn type_char(cpc: &mut AmstradCpc, c: char) {
 }
 
 #[test]
-#[ignore = "needs the CPC464 firmware and a .cdt — run with --ignored"]
+#[ignore = "FIXTURE: needs the CPC464 firmware and a .cdt — run with --ignored"]
 fn the_firmware_loads_a_game_from_tape() {
     let (Some(rom), Some(tape)) = (firmware_path(), tape_path()) else {
         panic!("needs ~/.emu198x/roms/amstrad-cpc/cpc464.rom and a .cdt");

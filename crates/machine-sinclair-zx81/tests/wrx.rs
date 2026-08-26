@@ -64,7 +64,7 @@ fn shifted(m: &mut Zx81, k: Zx81Key) {
 }
 
 #[test]
-#[ignore = "needs an 8 KB ZX81 ROM and a WRX .p — set EMU198X_ZX81_WRX_P"]
+#[ignore = "FIXTURE: needs an 8 KB ZX81 ROM and a WRX .p — set EMU198X_ZX81_WRX_P"]
 fn a_wrx_program_drives_the_bitmap_path() {
     let Ok(rom_path) = env::var("EMU198X_ZX81_ROM")
         .or_else(|_| env::var("HOME").map(|h| format!("{h}/.emu198x/roms/sinclair-zx81/zx81.rom")))

@@ -81,7 +81,7 @@ fn atom_screen(sys: &AcornAtom) -> String {
 }
 
 #[test]
-#[ignore = "needs the Atom ROM + a UEF — run with --ignored"]
+#[ignore = "FIXTURE: needs the Atom ROM + a UEF — run with --ignored"]
 fn os_loads_a_real_tape() {
     // 12 KB RAM so the text space (~$2900) exists for the loaded program.
     let mut sys = AcornAtom::new(rom(), 0x3000);

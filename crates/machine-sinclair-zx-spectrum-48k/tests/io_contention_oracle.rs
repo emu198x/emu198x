@@ -429,7 +429,7 @@ fn best_shared_offset(collected: &[Scored]) -> i32 {
 /// Runs without a ROM-dependent instruction stream and asserts two things,
 /// either of which can fail: where the edge falls, and how long it lasts.
 #[test]
-#[ignore = "needs EMU198X_SPECTRUM_48K_ROM"]
+#[ignore = "FIXTURE: needs EMU198X_SPECTRUM_48K_ROM"]
 fn the_frame_origin_is_pinned_by_the_interrupt() {
     use common_sinclair_zx_spectrum::driver::SpectrumDriver;
     use common_sinclair_zx_spectrum::ula::Ula;
@@ -640,7 +640,7 @@ fn the_port_model_reproduces_the_four_way_table() {
 /// asserts only the part that is not in question — that the model and the
 /// engine agree outside the contended window, where neither contends.
 #[test]
-#[ignore = "differential harness; needs EMU198X_SPECTRUM_48K_ROM"]
+#[ignore = "FIXTURE: differential harness; needs EMU198X_SPECTRUM_48K_ROM"]
 fn io_contention_matches_fuse_across_the_whole_frame() {
     let Some(rom) = rom_bytes() else {
         panic!("set {ROM_PATH_ENV} to the 48K ROM to run this harness");
@@ -902,7 +902,7 @@ fn io_contention_matches_fuse_across_the_whole_frame() {
 /// instructions actually begin on, and scores each phase group against both
 /// candidate origins.
 #[test]
-#[ignore = "needs EMU198X_SPECTRUM_48K_ROM"]
+#[ignore = "FIXTURE: needs EMU198X_SPECTRUM_48K_ROM"]
 fn the_arrival_label_and_the_raster_agree_on_the_tstate() {
     use common_sinclair_zx_spectrum::driver::SpectrumDriver;
 

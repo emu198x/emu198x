@@ -21,7 +21,7 @@ fn local_48k_rom() -> Vec<u8> {
 }
 
 #[test]
-#[ignore = "requires local 48K ROM at ~/.emu198x/roms/sinclair-zx-spectrum-48k/48.rom"]
+#[ignore = "FIXTURE: requires local 48K ROM at ~/.emu198x/roms/sinclair-zx-spectrum-48k/48.rom"]
 fn save_captures_a_reloadable_tap() {
     let runtime = Spectrum48kRuntime::from_rom_bytes(&local_48k_rom())
         .expect("local 48K ROM should construct a runtime");

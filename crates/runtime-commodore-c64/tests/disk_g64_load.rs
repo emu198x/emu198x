@@ -27,7 +27,7 @@ fn g64_path() -> PathBuf {
 }
 
 #[test]
-#[ignore = "requires local C64 + 1541 ROMs and a real G64 from the Time Capsule TOSEC"]
+#[ignore = "FIXTURE: requires local C64 + 1541 ROMs and a real G64 from the Time Capsule TOSEC"]
 fn real_g64_reaches_the_load_search_over_the_bus() {
     let runtime =
         C64Runtime::from_firmware(Model::C64PalBreadbin, &local_rom_firmware_with_drive())

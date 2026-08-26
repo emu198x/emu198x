@@ -100,7 +100,7 @@ fn dormann_functional_path_points_to_bin_file() {
 }
 
 #[test]
-#[ignore = "requires local Dormann 6502 functional suite"]
+#[ignore = "FIXTURE: requires local Dormann 6502 functional suite"]
 fn run_functional_test() {
     let root = find_dormann_6502_dir().expect("Dormann 6502 functional suite should exist");
     let bin = dormann_functional_bin_path(&root);

@@ -22,7 +22,7 @@ fn rom(name: &str) -> Option<Vec<u8>> {
 }
 
 #[test]
-#[ignore = "needs VIC-20 ROM set — run with --ignored"]
+#[ignore = "FIXTURE: needs VIC-20 ROM set — run with --ignored"]
 fn debug_surface_works_on_6502() {
     let (Some(kernal), Some(basic), Some(char_rom)) =
         (rom("kernal.rom"), rom("basic.rom"), rom("char.rom"))

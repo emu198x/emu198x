@@ -58,7 +58,7 @@ fn screen_text(system: &Atari800xl) -> String {
 }
 
 #[test]
-#[ignore = "needs AltirraOS at <EMU198X_ROMS_ROOT>/atari-800xl/{altirraos_xl,altirra_basic}.rom"]
+#[ignore = "FIXTURE: needs AltirraOS at <EMU198X_ROMS_ROOT>/atari-800xl/{altirraos_xl,altirra_basic}.rom"]
 fn altirraos_cold_starts_to_a_basic_prompt() {
     let Some(dir) = rom_dir() else {
         emu198x_test_skip::skip!("neither EMU198X_ROMS_ROOT nor HOME is set");

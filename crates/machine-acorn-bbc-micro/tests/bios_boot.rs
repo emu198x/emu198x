@@ -37,7 +37,7 @@ fn font_path() -> Option<PathBuf> {
 }
 
 #[test]
-#[ignore = "needs BBC Micro MOS + BASIC ROMs — run with --ignored"]
+#[ignore = "FIXTURE: needs BBC Micro MOS + BASIC ROMs — run with --ignored"]
 fn os_boots_to_basic_banner() {
     let Some(path) = os_path() else {
         panic!(
@@ -92,7 +92,7 @@ fn os_boots_to_basic_banner() {
 }
 
 #[test]
-#[ignore = "needs BBC Micro MOS + BASIC ROMs — run with --ignored"]
+#[ignore = "FIXTURE: needs BBC Micro MOS + BASIC ROMs — run with --ignored"]
 fn boots_to_basic_prompt() {
     // Regression for the 6850 ACIA interrupt storm: open-bus $FE08 reads (0xFF,
     // status bit 7 set) made the MOS service a phantom serial interrupt every
@@ -129,7 +129,7 @@ fn boots_to_basic_prompt() {
 }
 
 #[test]
-#[ignore = "needs BBC MOS + BASIC + SAA5050 ROMs — run with --ignored"]
+#[ignore = "FIXTURE: needs BBC MOS + BASIC + SAA5050 ROMs — run with --ignored"]
 fn mode7_renders_the_banner() {
     let (Some(os), Some(basic), Some(font)) = (os_path(), basic_path(), font_path()) else {
         panic!(

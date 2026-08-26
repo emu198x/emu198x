@@ -464,7 +464,7 @@ fn lorenz_cpu_test_inventory_contains_key_cases() {
 }
 
 #[test]
-#[ignore = "requires local Wolfgang Lorenz 6502 suite and C64 KERNAL ROM"]
+#[ignore = "FIXTURE: requires local Wolfgang Lorenz 6502 suite and C64 KERNAL ROM"]
 fn run_lorenz_6502_smoke_ldab() {
     let kernal = load_kernal_rom().expect("local C64 KERNAL ROM should be available");
     let cycles = run_case("ldab", &kernal).expect("ldab should complete successfully");
@@ -472,7 +472,7 @@ fn run_lorenz_6502_smoke_ldab() {
 }
 
 #[test]
-#[ignore = "requires local Wolfgang Lorenz 6502 suite and C64 KERNAL ROM"]
+#[ignore = "FIXTURE: requires local Wolfgang Lorenz 6502 suite and C64 KERNAL ROM"]
 fn run_lorenz_6502_case() {
     let Some(case_name) = selected_case_from_env() else {
         panic!("set {CASE_ENV} to one Lorenz case name, for example 'arrb' or 'jmpi'");
@@ -484,7 +484,7 @@ fn run_lorenz_6502_case() {
 }
 
 #[test]
-#[ignore = "requires local Wolfgang Lorenz 6502 suite and runs for minutes"]
+#[ignore = "FIXTURE: requires local Wolfgang Lorenz 6502 suite and runs for minutes"]
 fn run_lorenz_6502_cpu_suite() {
     let kernal = load_kernal_rom().expect("local C64 KERNAL ROM should be available");
     let mut tests = cpu_test_names();
@@ -612,7 +612,7 @@ const KNOWN_HARDWARE_DEPENDENT: &[&str] = &[
 ];
 
 #[test]
-#[ignore = "long survey; run with --release --ignored --nocapture"]
+#[ignore = "SLOW: long survey; run with --release --ignored --nocapture"]
 fn lorenz_sweep() {
     let suite_dir = match find_lorenz_6502_dir() {
         Ok(d) => d,

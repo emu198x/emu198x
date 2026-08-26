@@ -79,7 +79,7 @@ fn autostart_hi_crt() -> Vec<u8> {
 
 /// Waypoint: a real KERNAL detects an inserted autostart cartridge and runs it.
 #[test]
-#[ignore = "requires ~/.emu198x/roms/commodore-c64/{kernal,basic,chargen}.rom"]
+#[ignore = "FIXTURE: requires ~/.emu198x/roms/commodore-c64/{kernal,basic,chargen}.rom"]
 fn autostart_cartridge_prints_to_screen() -> Result<(), Box<dyn Error>> {
     let Some(rom_dir) = home_c64_rom_dir() else {
         emu198x_test_skip::record("skip: no C64 ROM dir");

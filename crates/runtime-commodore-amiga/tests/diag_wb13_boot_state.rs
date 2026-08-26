@@ -22,7 +22,7 @@ fn load_artifact(path: &PathBuf) -> Option<Vec<u8>> {
 }
 
 #[test]
-#[ignore = "explicit 900-frame Workbench 1.3 boot diagnostic"]
+#[ignore = "DIAGNOSTIC: explicit 900-frame Workbench 1.3 boot diagnostic"]
 fn wb13_boot_state_checkpoints() -> Result<(), Box<dyn Error>> {
     let home = PathBuf::from(std::env::var("HOME").expect("HOME"));
     let Some(rom) = load_artifact(&home.join(".emu198x/roms/commodore-amiga/kick13.rom")) else {

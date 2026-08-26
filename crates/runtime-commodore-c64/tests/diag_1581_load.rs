@@ -68,7 +68,7 @@ struct Sample {
 }
 
 #[test]
-#[ignore = "requires local C64 ROMs + 1581 DOS ROM + Batman D81 — run with --ignored --nocapture"]
+#[ignore = "FIXTURE: requires local C64 ROMs + 1581 DOS ROM + Batman D81 — run with --ignored --nocapture"]
 fn trace_solo_1581_load_handshake() {
     let firmware = local_rom_firmware_with_1581_only();
     let runtime = C64Runtime::from_firmware(Model::C64PalBreadbin, &firmware)

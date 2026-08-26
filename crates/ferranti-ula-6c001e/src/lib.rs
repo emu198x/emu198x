@@ -711,7 +711,7 @@ mod tests {
     /// once `MREQ` is low again it has no memory of the access — so this
     /// cannot pass vacuously, and it does fail against the old gate.
     #[test]
-    #[ignore = "passes only with the MREQT23 latch wired into the gate; \
+    #[ignore = "KNOWN DIVERGENCE: passes only with the MREQT23 latch wired into the gate; \
                 blocked on the floating-bus derivation — see \
                 knowledge/decisions/spectrum-contention-vs-floating-bus.md"]
     fn a_committed_access_suppresses_contention_that_would_otherwise_fire() {

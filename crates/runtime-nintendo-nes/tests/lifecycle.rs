@@ -134,7 +134,7 @@ fn audio_controls_mutate_loaded_machine_mixer() {
 }
 
 #[test]
-#[ignore = "uses local NES reference ROM"]
+#[ignore = "FIXTURE: uses local NES reference ROM"]
 fn real_ines_super_mario_bros_runs_and_draws() {
     let Some(path) = std::env::var_os("EMU198X_NES_SMB_ROM").map(std::path::PathBuf::from) else {
         emu198x_test_skip::skip!("set EMU198X_NES_SMB_ROM to a Super Mario Bros. iNES path");

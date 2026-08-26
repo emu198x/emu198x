@@ -159,7 +159,7 @@ fn screen_state(nes: &Nes) -> Vec<String> {
 /// is not a gate. This reports, per ROM, whether NTSC and PAL differ —
 /// and how much — so that only discriminating ROMs get gated.
 #[test]
-#[ignore = "diagnostic; requires local nes-test-roms"]
+#[ignore = "DIAGNOSTIC: diagnostic; requires local nes-test-roms"]
 fn region_sensitivity_of_each_rom() {
     if roms_root().is_none() {
         emu198x_test_skip::skip!("nes-test-roms not found");

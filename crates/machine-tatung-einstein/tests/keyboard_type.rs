@@ -54,7 +54,7 @@ fn screen(sys: &Einstein) -> String {
 }
 
 #[test]
-#[ignore = "needs Tatung Einstein X-TAL MOS ROM — run with --ignored"]
+#[ignore = "FIXTURE: needs Tatung Einstein X-TAL MOS ROM — run with --ignored"]
 fn types_hello_at_the_mos_prompt() {
     let Some(bios) = rom() else {
         panic!(

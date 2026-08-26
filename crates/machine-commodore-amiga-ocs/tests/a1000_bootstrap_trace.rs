@@ -307,7 +307,7 @@ fn run_case(label: &'static str, pending_change: bool) -> Option<ScenarioSummary
 }
 
 #[test]
-#[ignore = "needs local A1000 bootstrap ROM and Kickstart disk"]
+#[ignore = "FIXTURE: needs local A1000 bootstrap ROM and Kickstart disk"]
 fn compare_a1000_bootstrap_disk_insert_semantics() {
     let Some(acknowledged) = run_case("acknowledged", false) else {
         emu198x_test_skip::skip!("Amiga A1000 bootstrap artifacts not staged");
@@ -327,7 +327,7 @@ fn compare_a1000_bootstrap_disk_insert_semantics() {
 }
 
 #[test]
-#[ignore = "needs local A1000 bootstrap ROM and Kickstart disk"]
+#[ignore = "FIXTURE: needs local A1000 bootstrap ROM and Kickstart disk"]
 fn trace_a1000_pending_change_read_path() {
     let Some(rom) = load_bootstrap_rom() else {
         emu198x_test_skip::skip!("Amiga A1000 bootstrap artifacts not staged");
@@ -388,7 +388,7 @@ fn trace_a1000_pending_change_read_path() {
 }
 
 #[test]
-#[ignore = "needs local A1000 bootstrap ROM, Kickstart disk, and kick12.rom"]
+#[ignore = "FIXTURE: needs local A1000 bootstrap ROM, Kickstart disk, and kick12.rom"]
 fn compare_wom_loaded_kickstart_to_local_kick12_rom() {
     let Some(rom) = load_bootstrap_rom() else {
         emu198x_test_skip::skip!("Amiga A1000 bootstrap artifacts not staged");
@@ -451,7 +451,7 @@ fn compare_wom_loaded_kickstart_to_local_kick12_rom() {
 }
 
 #[test]
-#[ignore = "needs local A1000 bootstrap ROM and Kickstart disk"]
+#[ignore = "FIXTURE: needs local A1000 bootstrap ROM and Kickstart disk"]
 fn trace_a1000_boot_rom_disable_write() {
     let Some(rom) = load_bootstrap_rom() else {
         emu198x_test_skip::skip!("Amiga A1000 bootstrap artifacts not staged");
@@ -511,7 +511,7 @@ fn trace_a1000_boot_rom_disable_write() {
 }
 
 #[test]
-#[ignore = "needs local A1000 bootstrap ROM and Kickstart disk"]
+#[ignore = "FIXTURE: needs local A1000 bootstrap ROM and Kickstart disk"]
 fn trace_a1000_wom_fill_progress() {
     let Some(rom) = load_bootstrap_rom() else {
         emu198x_test_skip::skip!("Amiga A1000 bootstrap artifacts not staged");
@@ -584,7 +584,7 @@ fn trace_a1000_wom_fill_progress() {
 }
 
 #[test]
-#[ignore = "needs local A1000 bootstrap ROM and Kickstart disk"]
+#[ignore = "FIXTURE: needs local A1000 bootstrap ROM and Kickstart disk"]
 fn trace_a1000_kickdisk_white_phase_display_state() {
     let Some(rom) = load_bootstrap_rom() else {
         emu198x_test_skip::skip!("Amiga A1000 bootstrap artifacts not staged");

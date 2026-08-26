@@ -93,7 +93,7 @@ fn count_in_fe(
 }
 
 #[test]
-#[ignore = "diagnostic — needs 48K ROM and Op Wolf SpeedLock 7 TZX"]
+#[ignore = "DIAGNOSTIC: diagnostic — needs 48K ROM and Op Wolf SpeedLock 7 TZX"]
 fn dump_speedlock7_loader_ram() {
     let firmware_root = home().join(".emu198x/roms/sinclair-zx-spectrum-48k");
     let tzx_file = env::var("SPEEDLOCK7_TZX").unwrap_or_else(|_| {
@@ -274,7 +274,7 @@ fn dump_speedlock7_loader_ram() {
 }
 
 #[test]
-#[ignore = "diagnostic — find what writes $01 to $feb3 in Green Beret"]
+#[ignore = "DIAGNOSTIC: diagnostic — find what writes $01 to $feb3 in Green Beret"]
 fn find_feb3_write_in_green_beret() {
     let firmware_root = home().join(".emu198x/roms/sinclair-zx-spectrum-48k");
     let tzx_file = "ARCADE COLLECTION 02 - Green Beret (1989)(Hit Squad, The)[SpeedLock 7].zip";
@@ -411,7 +411,7 @@ fn find_feb3_write_in_green_beret() {
 }
 
 #[test]
-#[ignore = "diagnostic — measure exact T-state offsets for block-7 end vs fill start"]
+#[ignore = "DIAGNOSTIC: diagnostic — measure exact T-state offsets for block-7 end vs fill start"]
 fn measure_block7_to_fill_timing() {
     for (label, tzx_relative_path) in [
         (
@@ -507,7 +507,7 @@ fn measure_one(label: &str, tzx_relative_path: &str) {
 }
 
 #[test]
-#[ignore = "diagnostic — measure fill duration end-to-end"]
+#[ignore = "DIAGNOSTIC: diagnostic — measure fill duration end-to-end"]
 fn measure_fill_duration() {
     for (label, tzx_relative_path) in [
         (
@@ -657,7 +657,7 @@ fn measure_fill_one(label: &str, tzx_relative_path: &str) {
 }
 
 #[test]
-#[ignore = "diagnostic — direct N×IN A,($FE) timing audit against spec"]
+#[ignore = "DIAGNOSTIC: diagnostic — direct N×IN A,($FE) timing audit against spec"]
 fn audit_in_a_fe_cost() {
     // Drive N back-to-back IN A,($FE) instructions at $f800 (uncontended
     // memory) and measure cumulative T-states. Spec for IN A,(n) on the
@@ -751,7 +751,7 @@ fn measure_n_instructions(label: &str, n: usize, opcode_bytes: &[u8]) {
 }
 
 #[test]
-#[ignore = "diagnostic — measure byte-decoder loop cost vs documented 54T/iter spec"]
+#[ignore = "DIAGNOSTIC: diagnostic — measure byte-decoder loop cost vs documented 54T/iter spec"]
 fn measure_byte_decoder_loop_cost() {
     for (label, file) in [
         (
@@ -873,7 +873,7 @@ fn time_byte_decoder(label: &str, tzx_relative_path: &str) {
 }
 
 #[test]
-#[ignore = "diagnostic — try every Green Beret TZX rip in the archive"]
+#[ignore = "DIAGNOSTIC: diagnostic — try every Green Beret TZX rip in the archive"]
 fn probe_green_beret_alternates() {
     let tzx_files: &[(&str, &str)] = &[
         // The known-bad rip we've been testing.
@@ -1001,7 +1001,7 @@ fn probe_one_loader_status_abs(label: &str, tzx_path: &std::path::Path) {
 }
 
 #[test]
-#[ignore = "diagnostic — probe Speedlock-7 titles with near-Green-Beret calibration pauses"]
+#[ignore = "DIAGNOSTIC: diagnostic — probe Speedlock-7 titles with near-Green-Beret calibration pauses"]
 fn probe_near_outliers() {
     for (label, file) in [
         (
@@ -1098,7 +1098,7 @@ fn probe_one_loader_status(label: &str, tzx_relative_path: &str) {
 }
 
 #[test]
-#[ignore = "diagnostic — dump ALL Green Beret spans"]
+#[ignore = "DIAGNOSTIC: diagnostic — dump ALL Green Beret spans"]
 fn dump_green_beret_spans() {
     let tzx_path = spectrum_tzx_root()
         .join("ARCADE COLLECTION 02 - Green Beret (1989)(Hit Squad, The)[SpeedLock 7].zip");
@@ -1134,7 +1134,7 @@ fn dump_green_beret_spans() {
 }
 
 #[test]
-#[ignore = "diagnostic — survey block-7 pause across all Speedlock-7 TZXs"]
+#[ignore = "DIAGNOSTIC: diagnostic — survey block-7 pause across all Speedlock-7 TZXs"]
 fn survey_speedlock7_pauses() {
     let tzx_root = spectrum_tzx_root();
     if !tzx_root.exists() {
@@ -1224,7 +1224,7 @@ fn survey_speedlock7_pauses() {
 }
 
 #[test]
-#[ignore = "diagnostic — does Green Beret load if we lengthen its pause?"]
+#[ignore = "DIAGNOSTIC: diagnostic — does Green Beret load if we lengthen its pause?"]
 fn green_beret_with_extended_pause() {
     // Confirms or refutes the timing hypothesis: load Green Beret,
     // parse the TZX to TapeSpans, find the Level span immediately
@@ -1312,7 +1312,7 @@ fn green_beret_with_extended_pause() {
 }
 
 #[test]
-#[ignore = "diagnostic — are bytes $90ef-$90fe actually written, or leftover memory?"]
+#[ignore = "DIAGNOSTIC: diagnostic — are bytes $90ef-$90fe actually written, or leftover memory?"]
 fn check_90ef_writes_in_green_beret() {
     let firmware_root = home().join(".emu198x/roms/sinclair-zx-spectrum-48k");
     let tzx_file = "ARCADE COLLECTION 02 - Green Beret (1989)(Hit Squad, The)[SpeedLock 7].zip";
@@ -1503,7 +1503,7 @@ fn check_90ef_writes_in_green_beret() {
 }
 
 #[test]
-#[ignore = "diagnostic — what does HL contain at $fe9d for Green Beret vs Op Wolf?"]
+#[ignore = "DIAGNOSTIC: diagnostic — what does HL contain at $fe9d for Green Beret vs Op Wolf?"]
 fn trace_hl_at_checksum_check() {
     for (label, tzx_relative_path) in [
         (
@@ -1617,7 +1617,7 @@ fn log_hl_at_fe9d(label: &str, tzx_relative_path: &str) {
 }
 
 #[test]
-#[ignore = "diagnostic — log every $fd5f bit-shift hit + wipe trigger for Green Beret"]
+#[ignore = "DIAGNOSTIC: diagnostic — log every $fd5f bit-shift hit + wipe trigger for Green Beret"]
 fn trace_green_beret_wipe_fire() {
     log_speedlock7_verifier_hits(
         "Green Beret",
@@ -1627,7 +1627,7 @@ fn trace_green_beret_wipe_fire() {
 }
 
 #[test]
-#[ignore = "diagnostic — log every $fd5f bit-shift hit + wipe trigger for Op Wolf (baseline)"]
+#[ignore = "DIAGNOSTIC: diagnostic — log every $fd5f bit-shift hit + wipe trigger for Op Wolf (baseline)"]
 fn trace_op_wolf_wipe_fire() {
     log_speedlock7_verifier_hits(
         "Op Wolf",
@@ -1797,7 +1797,7 @@ fn log_speedlock7_verifier_hits(label: &str, tzx_relative_path: &str, max_frames
 }
 
 #[test]
-#[ignore = "diagnostic — needs 48K ROM and Op Wolf SpeedLock 7 TZX"]
+#[ignore = "DIAGNOSTIC: diagnostic — needs 48K ROM and Op Wolf SpeedLock 7 TZX"]
 fn trace_speedlock7_byte_decoder_b_values() {
     // Run Op Wolf to frame 1700 (just before pulses start), then drop
     // to single-T-state stepping and capture register state every time
@@ -2106,7 +2106,7 @@ fn trace_speedlock7_byte_decoder_b_values() {
 }
 
 #[test]
-#[ignore = "diagnostic — needs 48K ROM and Op Wolf SpeedLock 7 TZX"]
+#[ignore = "DIAGNOSTIC: diagnostic — needs 48K ROM and Op Wolf SpeedLock 7 TZX"]
 fn sample_border_color_through_loader() {
     // The Speedlock-7 byte-decoder at $FCE3 toggles the border colour
     // (OUT $FE, A) on every successful edge detect. If the loader is
@@ -2253,7 +2253,7 @@ fn check_speedlock_loader_alive(label: &str, tzx_relative_path: &str) -> Result<
 }
 
 #[test]
-#[ignore = "diagnostic — needs 48K ROM and Op Wolf SpeedLock 7 TZX"]
+#[ignore = "DIAGNOSTIC: diagnostic — needs 48K ROM and Op Wolf SpeedLock 7 TZX"]
 fn opwolf_loads_past_speedlock_wipe() {
     check_speedlock_loader_alive(
         "Op Wolf [Speedlock 7]",
@@ -2263,7 +2263,7 @@ fn opwolf_loads_past_speedlock_wipe() {
 }
 
 #[test]
-#[ignore = "diagnostic — sweep verification for Speedlock-7 Green Beret"]
+#[ignore = "DIAGNOSTIC: diagnostic — sweep verification for Speedlock-7 Green Beret"]
 fn green_beret_loads_past_speedlock_wipe() {
     check_speedlock_loader_alive(
         "Green Beret [Speedlock 7]",
@@ -2273,7 +2273,7 @@ fn green_beret_loads_past_speedlock_wipe() {
 }
 
 #[test]
-#[ignore = "diagnostic — comparison probe for working title (Op Wolf)"]
+#[ignore = "DIAGNOSTIC: diagnostic — comparison probe for working title (Op Wolf)"]
 fn probe_op_wolf_tape_and_pc_evolution() {
     probe_tape_and_pc(
         "Op Wolf",
@@ -2282,7 +2282,7 @@ fn probe_op_wolf_tape_and_pc_evolution() {
 }
 
 #[test]
-#[ignore = "diagnostic — Green Beret black-screen investigation"]
+#[ignore = "DIAGNOSTIC: diagnostic — Green Beret black-screen investigation"]
 fn probe_green_beret_tape_and_pc_evolution() {
     probe_tape_and_pc(
         "Green Beret",
@@ -2361,7 +2361,7 @@ fn probe_tape_and_pc(label: &str, tzx_relative_path: &str) {
 }
 
 #[test]
-#[ignore = "diagnostic — needs 48K ROM and Bubble Bobble SpeedLock 5 TZX"]
+#[ignore = "DIAGNOSTIC: diagnostic — needs 48K ROM and Bubble Bobble SpeedLock 5 TZX"]
 fn bubble_bobble_loads_past_speedlock_wipe() {
     check_speedlock_loader_alive(
         "Bubble Bobble [Speedlock 5]",
@@ -2389,7 +2389,7 @@ fn bubble_bobble_loads_past_speedlock_wipe() {
 /// never asserts. Promote to a hard assertion once Speedlock-2 is
 /// fixed.
 #[test]
-#[ignore = "diagnostic — Speedlock-2 is a known separate investigation"]
+#[ignore = "DIAGNOSTIC: diagnostic — Speedlock-2 is a known separate investigation"]
 fn head_over_heels_speedlock2_status() {
     match check_speedlock_loader_alive(
         "Head over Heels [Speedlock 2]",
@@ -2403,7 +2403,7 @@ fn head_over_heels_speedlock2_status() {
 }
 
 #[test]
-#[ignore = "diagnostic — needs 48K ROM and Head over Heels SpeedLock 2 TZX"]
+#[ignore = "DIAGNOSTIC: diagnostic — needs 48K ROM and Head over Heels SpeedLock 2 TZX"]
 fn dump_speedlock2_head_over_heels_tape_state() {
     // Sample tape player state + PC across frames 1000-5000 for
     // Head over Heels. The loader appears wedged in the DEC A
@@ -2498,7 +2498,7 @@ fn dump_speedlock2_head_over_heels_tape_state() {
 }
 
 #[test]
-#[ignore = "diagnostic — needs 48K ROM and Head over Heels SpeedLock 2 TZX"]
+#[ignore = "DIAGNOSTIC: diagnostic — needs 48K ROM and Head over Heels SpeedLock 2 TZX"]
 fn dump_speedlock2_head_over_heels_loader_bytes() {
     // Speedlock-2 wedges PC at $fd2e..$fd3b — the same range our
     // Speedlock-7 disassembly identified as the 7-iter pre-check
@@ -2575,7 +2575,7 @@ fn dump_speedlock2_head_over_heels_loader_bytes() {
 }
 
 #[test]
-#[ignore = "diagnostic — needs Op Wolf SpeedLock 7 TZX"]
+#[ignore = "DIAGNOSTIC: diagnostic — needs Op Wolf SpeedLock 7 TZX"]
 fn dump_speedlock7_tzx_span_widths_around_57050() {
     // Parse the Op Wolf TZX into a TapeSpan stream and dump the span
     // sequence around span index 57050 — that's where the byte-decoder
@@ -2631,7 +2631,7 @@ fn dump_speedlock7_tzx_span_widths_around_57050() {
 }
 
 #[test]
-#[ignore = "diagnostic — needs 48K ROM and Op Wolf SpeedLock 7 TZX"]
+#[ignore = "DIAGNOSTIC: diagnostic — needs 48K ROM and Op Wolf SpeedLock 7 TZX"]
 fn dump_speedlock7_decrypted_loader() {
     // Run to frame 1400 (after self-decryption, before anti-tamper wipe)
     // and capture $F48E..+0x0A5A to disk. Companion to

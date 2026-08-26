@@ -345,7 +345,7 @@ fn step_one_instruction(machine: &mut Spectrum48k) -> u32 {
 }
 
 #[test]
-#[ignore = "diagnostic harness; needs EMU198X_SPECTRUM_48K_ROM"]
+#[ignore = "DIAGNOSTIC: diagnostic harness; needs EMU198X_SPECTRUM_48K_ROM"]
 fn contention_matches_the_canonical_model_per_instruction() {
     let Some(rom) = rom_bytes() else {
         panic!("set {ROM_PATH_ENV} to the 48K ROM to run this harness");
@@ -398,7 +398,7 @@ fn contention_matches_the_canonical_model_per_instruction() {
 /// video window, so no sample straddles a boundary and the canonical
 /// cost is a pure phase walk.
 #[test]
-#[ignore = "diagnostic harness; needs EMU198X_SPECTRUM_48K_ROM"]
+#[ignore = "DIAGNOSTIC: diagnostic harness; needs EMU198X_SPECTRUM_48K_ROM"]
 fn contention_cost_by_arrival_phase() {
     let Some(rom) = rom_bytes() else {
         panic!("set {ROM_PATH_ENV} to the 48K ROM to run this harness");
@@ -464,7 +464,7 @@ fn contention_cost_by_arrival_phase() {
 /// retired counter lagged, the per-phase table would be measuring the
 /// harness rather than the engine.
 #[test]
-#[ignore = "diagnostic harness; needs EMU198X_SPECTRUM_48K_ROM"]
+#[ignore = "DIAGNOSTIC: diagnostic harness; needs EMU198X_SPECTRUM_48K_ROM"]
 fn stepping_one_tstate_agrees_with_a_bulk_advance() {
     let Some(rom) = rom_bytes() else {
         panic!("set {ROM_PATH_ENV} to the 48K ROM to run this harness");
@@ -518,7 +518,7 @@ fn stepping_one_tstate_agrees_with_a_bulk_advance() {
 /// trace than from a pass count, and because any change to the gate
 /// should be read here first.
 #[test]
-#[ignore = "diagnostic harness; needs EMU198X_SPECTRUM_48K_ROM"]
+#[ignore = "DIAGNOSTIC: diagnostic harness; needs EMU198X_SPECTRUM_48K_ROM"]
 fn trace_one_instruction() {
     let Some(rom) = rom_bytes() else {
         panic!("set {ROM_PATH_ENV} to the 48K ROM to run this harness");
@@ -591,7 +591,7 @@ fn trace_one_instruction() {
 /// This samples the PC across a measured frame and reports how much of
 /// it ran inside contended RAM.
 #[test]
-#[ignore = "diagnostic harness; needs EMU198X_SPECTRUM_48K_ROM"]
+#[ignore = "DIAGNOSTIC: diagnostic harness; needs EMU198X_SPECTRUM_48K_ROM"]
 fn measured_frame_runs_the_instruction_under_test() {
     let Some(rom) = rom_bytes() else {
         panic!("set {ROM_PATH_ENV} to the 48K ROM to run this harness");
@@ -725,7 +725,7 @@ fn mismatches(samples: &[(u32, u32)], mcycles: &[u32], offset: i32) -> usize {
 /// Runs without an instruction stream and can fail two ways: where the
 /// edge falls, and how long it is held.
 #[test]
-#[ignore = "needs EMU198X_SPECTRUM_48K_ROM"]
+#[ignore = "FIXTURE: needs EMU198X_SPECTRUM_48K_ROM"]
 fn the_origin_is_pinned_by_the_interrupt() {
     /// `interrupt_length` for `timings_frame_ferranti_5c_6c`, libspectrum
     /// `timings.c`. FUSE holds `/INT` while `tstates < interrupt_length`.
@@ -788,7 +788,7 @@ fn the_origin_is_pinned_by_the_interrupt() {
 /// a finding — it says the engine's contention phase has moved against its
 /// own interrupt — and is never a reason to rescore.
 #[test]
-#[ignore = "differential harness; needs EMU198X_SPECTRUM_48K_ROM"]
+#[ignore = "FIXTURE: differential harness; needs EMU198X_SPECTRUM_48K_ROM"]
 fn memory_contention_matches_fuse_at_every_arrival_tstate() {
     let Some(rom) = rom_bytes() else {
         panic!("set {ROM_PATH_ENV} to the 48K ROM to run this harness");

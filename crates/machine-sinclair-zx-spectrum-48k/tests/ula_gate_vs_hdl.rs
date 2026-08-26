@@ -142,7 +142,7 @@ fn replay(trace: &[ferranti_ula_6c001e::UlaTick]) -> (Vec<Divergence>, usize) {
 /// Report-only: the engine is known to disagree, and the value is in
 /// *which* half-cycles and on what pin state.
 #[test]
-#[ignore = "differential harness; needs EMU198X_SPECTRUM_48K_ROM"]
+#[ignore = "FIXTURE: differential harness; needs EMU198X_SPECTRUM_48K_ROM"]
 fn engine_gate_against_the_hdl_on_the_real_machine() {
     let Some(rom) = rom_bytes() else {
         panic!("set {ROM_PATH_ENV} to the 48K ROM to run this harness");
@@ -195,7 +195,7 @@ fn engine_gate_against_the_hdl_on_the_real_machine() {
 /// clock. If any of these slip, the differential above is measuring the
 /// recorder.
 #[test]
-#[ignore = "needs EMU198X_SPECTRUM_48K_ROM"]
+#[ignore = "FIXTURE: needs EMU198X_SPECTRUM_48K_ROM"]
 fn the_recorder_records_what_it_claims() {
     let Some(rom) = rom_bytes() else {
         panic!("set {ROM_PATH_ENV} to the 48K ROM to run this harness");

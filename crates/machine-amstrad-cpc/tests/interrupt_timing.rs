@@ -123,7 +123,7 @@ fn run_one_instruction(cpc: &mut AmstradCpc, limit: u64) -> (u64, u16) {
 /// `RST $38` written in code, with interrupts off so nothing else can reach
 /// `$0038` first.
 #[test]
-#[ignore = "needs the CPC464 firmware — run with --ignored"]
+#[ignore = "FIXTURE: needs the CPC464 firmware — run with --ignored"]
 fn rst38_from_code_is_recorded_against_the_compendium() {
     let rom = firmware_path();
     if !rom.exists() {
@@ -160,7 +160,7 @@ fn rst38_from_code_is_recorded_against_the_compendium() {
 /// counter to raise `/INT` on its own — no pin is forced, so this exercises
 /// the real assertion path.
 #[test]
-#[ignore = "needs the CPC464 firmware — run with --ignored"]
+#[ignore = "FIXTURE: needs the CPC464 firmware — run with --ignored"]
 fn the_interrupt_call_is_recorded_against_the_compendium() {
     let rom = firmware_path();
     if !rom.exists() {

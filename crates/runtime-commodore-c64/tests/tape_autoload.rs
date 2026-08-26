@@ -21,7 +21,7 @@ use common::{
 };
 
 #[test]
-#[ignore = "requires local C64 ROMs and Thinker TAP archive"]
+#[ignore = "FIXTURE: requires local C64 ROMs and Thinker TAP archive"]
 fn real_tap_autoload_reaches_post_load_ready() {
     let firmware = local_rom_firmware();
     let runtime = C64Runtime::from_firmware(Model::C64PalBreadbin, &firmware)
@@ -83,7 +83,7 @@ fn real_tap_autoload_reaches_post_load_ready() {
 }
 
 #[test]
-#[ignore = "requires local C64 ROMs and Thomas the Tank Engine TAP archive"]
+#[ignore = "FIXTURE: requires local C64 ROMs and Thomas the Tank Engine TAP archive"]
 fn real_tap_autoload_reaches_thomas_loading_ready_banner() {
     let firmware = local_rom_firmware();
     let runtime = C64Runtime::from_firmware(Model::C64PalBreadbin, &firmware)
@@ -145,7 +145,7 @@ fn real_tap_autoload_reaches_thomas_loading_ready_banner() {
 }
 
 #[test]
-#[ignore = "requires local C64 ROMs and Ghostbusters TAP archive"]
+#[ignore = "FIXTURE: requires local C64 ROMs and Ghostbusters TAP archive"]
 fn real_tap_autoload_ghostbusters_reaches_later_loader_state() {
     let firmware = local_rom_firmware();
     let runtime = C64Runtime::from_firmware(Model::C64PalBreadbin, &firmware)
@@ -216,7 +216,7 @@ fn real_tap_autoload_ghostbusters_reaches_later_loader_state() {
 }
 
 #[test]
-#[ignore = "requires local C64 ROMs and Thing on a Spring TAP archive"]
+#[ignore = "FIXTURE: requires local C64 ROMs and Thing on a Spring TAP archive"]
 fn real_tap_autoload_thing_on_a_spring_reaches_menu() {
     let firmware = local_rom_firmware();
     let runtime = C64Runtime::from_firmware(Model::C64PalBreadbin, &firmware)
@@ -288,7 +288,7 @@ fn real_tap_autoload_thing_on_a_spring_reaches_menu() {
 }
 
 #[test]
-#[ignore = "requires local C64 ROMs and Thing on a Spring TAP archive"]
+#[ignore = "FIXTURE: requires local C64 ROMs and Thing on a Spring TAP archive"]
 fn real_tap_autoload_thing_on_a_spring_starts_after_space() {
     let firmware = local_rom_firmware();
     let runtime = C64Runtime::from_firmware(Model::C64PalBreadbin, &firmware)

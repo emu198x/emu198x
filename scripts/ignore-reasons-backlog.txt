@@ -1,0 +1,111 @@
+# Bare `#[ignore]` attributes that predate check-ignore-reasons.py.
+#
+# 81 of these 97 state no intent anywhere — no reason string, no doc
+# comment — so classifying them means inferring intent from the test
+# body and recording the guess as fact. A wrong label reads as
+# authoritative, which is worse than an absent one, so they are listed
+# rather than guessed at.
+#
+# This list may shrink, never grow. When you touch one of these tests,
+# give its #[ignore] a category and delete the line. A new bare
+# #[ignore] fails the check; so does a line naming a test that no
+# longer exists, so the file cannot rot into sediment.
+#
+# See #1232.
+crates/emu198x-atari-800xl/src/mcp_tools.rs::rom
+crates/emu198x-catalogue/tests/plus3_disk_entries.rs::plus3_disk_entries_load_and_match
+crates/emu198x-catalogue/tests/run.rs::catalogue_passes_every_entry
+crates/machine-commodore-amiga-ocs/tests/bchg_crb_trap.rs::trap_bchg_crb
+crates/machine-commodore-amiga-ocs/tests/beginio_trap.rs::check_beginio_dispatch
+crates/machine-commodore-amiga-ocs/tests/cia_a_timer_state.rs::snapshot_cia_a_timers
+crates/machine-commodore-amiga-ocs/tests/cprlist_dump.rs::dump_chip_only_cprlist_and_view
+crates/machine-commodore-amiga-ocs/tests/cprlist_dump.rs::dump_slow_ram_cprlist_and_view
+crates/machine-commodore-amiga-ocs/tests/decode_execbase_as_copper.rs::decode_chip_only_execbase_as_copper
+crates/machine-commodore-amiga-ocs/tests/diag_boot_state.rs::snapshot_boot_state_at_frame_300
+crates/machine-commodore-amiga-ocs/tests/diag_memlist_diff.rs::diff_memlist_chip_only_vs_slow_ram
+crates/machine-commodore-amiga-ocs/tests/diag_memlist_diff.rs::trace_intena_writes_chip_only_vs_slow_ram
+crates/machine-commodore-amiga-ocs/tests/disable_copper_experiment.rs::chip_only_with_copper_neutered
+crates/machine-commodore-amiga-ocs/tests/dsk_writes.rs::dump_paula_disk_writes_400_frames
+crates/machine-commodore-amiga-ocs/tests/early_trap.rs::trap_screen_setup_from_frame_zero
+crates/machine-commodore-amiga-ocs/tests/exec_early_trap.rs::exec_traffic_from_zero
+crates/machine-commodore-amiga-ocs/tests/frame_188_caller.rs::inspect_chip_only_at_same_address
+crates/machine-commodore-amiga-ocs/tests/frame_188_caller.rs::inspect_slow_ram_frame_188_caller
+crates/machine-commodore-amiga-ocs/tests/gfxbase_state.rs::snapshot_gfxbase_at_frame_300
+crates/machine-commodore-amiga-ocs/tests/gfxbase_state.rs::snapshot_gfxbase_at_frame_700
+crates/machine-commodore-amiga-ocs/tests/intuition_trap.rs::trap_intuition_lvos
+crates/machine-commodore-amiga-ocs/tests/loadview_branch_trap.rs::chip_only_branches
+crates/machine-commodore-amiga-ocs/tests/loadview_branch_trap.rs::slow_ram_branches
+crates/machine-commodore-amiga-ocs/tests/loadview_trap.rs::chip_only_loadview_entries
+crates/machine-commodore-amiga-ocs/tests/loadview_trap.rs::slow_ram_loadview_entries
+crates/machine-commodore-amiga-ocs/tests/loflist_write_hunt.rs::chip_only_loflist_writer
+crates/machine-commodore-amiga-ocs/tests/loflist_write_hunt.rs::slow_ram_loflist_writer
+crates/machine-commodore-amiga-ocs/tests/loflist_write_log.rs::chip_only_loflist_writes
+crates/machine-commodore-amiga-ocs/tests/loflist_write_log.rs::slow_ram_loflist_writes
+crates/machine-commodore-amiga-ocs/tests/lvo_trap.rs::trap_graphics_lvos_at_frame_400
+crates/machine-commodore-amiga-ocs/tests/m11_2_slow_ram.rs::diagnostic_boot_with_slow_ram
+crates/machine-commodore-amiga-ocs/tests/m13_boot_state_dump.rs::dump_boot_state
+crates/machine-commodore-amiga-ocs/tests/m13_boot_state_dump.rs::pc_histogram_over_last_20_frames
+crates/machine-commodore-amiga-ocs/tests/m5_diagnostic.rs::diagnostic_long_run
+crates/machine-commodore-amiga-ocs/tests/m8_register_read_diagnostic.rs::count_register_reads
+crates/machine-commodore-amiga-ocs/tests/msg_port_trap.rs::trap_msg_port_lvos
+crates/machine-commodore-amiga-ocs/tests/port_inspect.rs::dump_trackdisk_timer_reply_ports
+crates/machine-commodore-amiga-ocs/tests/resident_trap.rs::trap_resident_init_functions
+crates/machine-commodore-amiga-ocs/tests/romboot_d0_bisect.rs::bisect_romboot_d0
+crates/machine-commodore-amiga-ocs/tests/signal_trap.rs::trap_exec_signal_path
+crates/machine-commodore-amiga-ocs/tests/strap_path_trap.rs::trap_strap_branch
+crates/machine-commodore-amiga-ocs/tests/task_saved_pc.rs::dump_waiting_task_saved_pcs
+crates/machine-commodore-amiga-ocs/tests/timer_beginio_trap.rs::timer_device_request_trap
+crates/machine-commodore-amiga-ocs/tests/timer_vbl_handler.rs::trap_timer_vbl_handler
+crates/machine-commodore-amiga-ocs/tests/tr_addrequest_trace.rs::trace_tr_addrequest_paths
+crates/machine-commodore-amiga-ocs/tests/trackdisk_state_trap.rs::trackdisk_state_after_400_frames
+crates/machine-commodore-amiga-ocs/tests/view_struct_writers.rs::chip_only_view_struct_region_writers
+crates/machine-commodore-amiga-ocs/tests/view_struct_writers.rs::slow_ram_view_struct_writers
+crates/machine-commodore-amiga-ocs/tests/viewport_writer_pc.rs::compare_view_setup_paths
+crates/machine-commodore-amiga-ocs/tests/wb13_late_boot_trace.rs::compare_wb13_acknowledged_vs_pending_disk_change
+crates/machine-commodore-amiga-ocs/tests/wb13_late_boot_trace.rs::force_wake_validator_experiments
+crates/machine-commodore-amiga-ocs/tests/wb13_late_boot_trace.rs::trace_wb13_copper_bplcon0_mode_writes
+crates/machine-commodore-amiga-ocs/tests/wb13_late_boot_trace.rs::trace_wb13_disk_write_path_gap
+crates/machine-commodore-amiga-ocs/tests/wb13_late_boot_trace.rs::trace_wb13_display_custom_byte_writes
+crates/machine-commodore-amiga-ocs/tests/wb13_late_boot_trace.rs::trace_wb13_display_mode_source_field
+crates/machine-commodore-amiga-ocs/tests/wb13_late_boot_trace.rs::trace_wb13_hires_line_actual_bitplane_fetches
+crates/machine-commodore-amiga-ocs/tests/wb13_late_boot_trace.rs::trace_wb13_hires_line_fetch_cadence
+crates/machine-commodore-amiga-ocs/tests/wb13_late_boot_trace.rs::trace_wb13_late_boot_tasks_and_signals
+crates/machine-commodore-amiga-ocs/tests/wb13_late_boot_trace.rs::trace_wb13_root_block_read_compare
+crates/machine-commodore-amiga-ocs/tests/wb13_late_boot_trace.rs::trace_wb13_trackdisk_beginio_requests
+crates/machine-commodore-amiga-ocs/tests/wb13_late_boot_trace.rs::trace_wb13_validator_idcmp_bridge_gap
+crates/machine-commodore-amiga-ocs/tests/wb13_late_boot_trace.rs::trace_wb13_validator_idcmp_creator_path
+crates/machine-commodore-amiga-ocs/tests/wb13_late_boot_trace.rs::trace_wb13_validator_idcmp_port_traffic
+crates/machine-commodore-amiga-ocs/tests/wb13_late_boot_trace.rs::trace_wb13_validator_idcmp_ref_holder_writers
+crates/machine-commodore-amiga-ocs/tests/wb13_late_boot_trace.rs::trace_wb13_validator_lifecycle
+crates/machine-commodore-amiga-ocs/tests/wb13_late_boot_trace.rs::trace_wb13_validator_ports_and_sigalloc
+crates/machine-commodore-amiga-ocs/tests/wb13_late_boot_trace.rs::trace_wb13_validator_requester_entry_path
+crates/machine-commodore-amiga-ocs/tests/wb13_late_boot_trace.rs::trace_wb13_validator_requester_payload_strings
+crates/machine-commodore-amiga-ocs/tests/wb13_late_boot_trace.rs::trace_wb13_validator_requester_ram_chain
+crates/machine-commodore-amiga-ocs/tests/wb13_late_boot_trace.rs::trace_wb13_validator_signal_window
+crates/machine-commodore-amiga-ocs/tests/wb13_late_boot_trace.rs::trace_wb13_validator_task_field_writers
+crates/machine-commodore-amiga-ocs/tests/wb13_late_boot_trace.rs::trace_wb13_validator_transition_window
+crates/machine-commodore-amiga-ocs/tests/wb13_late_boot_trace.rs::trace_wb13_workbench_copper_builder_source_context
+crates/machine-commodore-amiga-ocs/tests/wb13_late_boot_trace.rs::trace_wb13_workbench_copper_display_build
+crates/machine-commodore-amiga-ocs/tests/wb13_late_boot_trace.rs::trace_wb13_workbench_copper_source_block_writers
+crates/machine-commodore-amiga-ocs/tests/wb13_late_boot_trace.rs::trace_wb13_workbench_copper_source_slots
+crates/machine-commodore-amiga-ocs/tests/wb13_late_boot_trace.rs::trace_wb13_workbench_display_memory
+crates/machine-commodore-amiga-ocs/tests/wb13_late_boot_trace.rs::trace_wb13_workbench_display_slot_writers
+crates/machine-commodore-amiga-ocs/tests/wb13_late_boot_trace.rs::trace_wb13_workbench_screen_blits
+crates/motorola-68000/tests/mame_singlestep.rs::mame_address_error_event_sweep
+crates/motorola-68000/tests/mame_singlestep.rs::mame_agreement_sweep
+crates/motorola-68000/tests/mame_singlestep.rs::mame_full_comparison
+crates/motorola-68000/tests/tom_harte.rs::harte_focus_remaining
+crates/motorola-68000/tests/tom_harte.rs::harte_full_sweep
+crates/motorola-68000/tests/tom_harte.rs::harte_smoke
+crates/motorola-68010/tests/harte_real_hw.rs::inherited_subset_passes_real_hw_68000_corpus
+crates/motorola-68010/tests/tom_harte.rs::harte_baseline_full_sweep
+crates/motorola-68010/tests/tom_harte.rs::harte_movec_smoke
+crates/motorola-68020/tests/fpu_corpus.rs::fpu_corpus_fadd_smoke
+crates/motorola-68020/tests/fpu_corpus.rs::fpu_corpus_full_sweep
+crates/motorola-68020/tests/harte_real_hw.rs::inherited_subset_passes_real_hw_68000_corpus
+crates/motorola-68020/tests/tom_harte.rs::harte_baseline_full_sweep
+crates/motorola-68020/tests/tom_harte.rs::harte_nop_smoke
+crates/motorola-68030/tests/tom_harte.rs::harte_baseline_full_sweep
+crates/motorola-68030/tests/tom_harte.rs::harte_nop_smoke
+crates/motorola-68040/tests/tom_harte.rs::harte_baseline_full_sweep
+crates/motorola-68040/tests/tom_harte.rs::harte_nop_smoke
