@@ -27,10 +27,28 @@ const TAPE_NAME: u8 = 0x26;
 /// This machine's keyboard for the shared `press_key` / `type_string` tools:
 /// the standard layout, backed by this machine's own key-name resolver so a
 /// character it cannot type is refused rather than silently dropped (#1196).
-static KEYBOARD: emu198x_shell::StandardKeyboard = emu198x_shell::StandardKeyboard::new(
-    emu198x_shell::STANDARD_KEY_TIMING,
-    crate::input::knows_key_name,
-);
+/// The ZX81 debounces a key across several frames, so the shared defaults are
+/// too quick for it: at the standard two-frame gap every keystroke after the
+/// first is dropped while `type_string` still counts them all and reports
+/// success. Measured on the real ROM — two frames loses everything after the
+/// first key, four is the first gap that holds, and these values give double
+/// that.
+///
+/// The ZX80 does **not** need this and keeps the shared defaults. It was
+/// measured rather than assumed: at the standard timing it takes a
+/// thirteen-character string including a repeated key without dropping any of
+/// it. Same family, same matrix, different answer.
+const ZX81_KEY_TIMING: emu198x_shell::KeyTiming = emu198x_shell::KeyTiming {
+    default_hold_frames: 5,
+    max_hold_frames: 600,
+    press_settle_frames: 2,
+    inter_key_settle_frames: 8,
+    repeat_settle_frames: 8,
+    default_type_settle_frames: 20,
+};
+
+static KEYBOARD: emu198x_shell::StandardKeyboard =
+    emu198x_shell::StandardKeyboard::new(ZX81_KEY_TIMING, crate::input::knows_key_name);
 
 pub struct Zx81Runtime {
     profile: MachineProfile,
@@ -367,3 +385,40 @@ impl MachineCore for Zx81Runtime {
 }
 
 emu198x_shell::impl_z80_debug_primitives!(Zx81Runtime);
+
+#[cfg(test)]
+mod tests {
+    use super::{KEYBOARD, ZX81_KEY_TIMING};
+    use emu198x_shell::KeyboardTarget;
+
+    /// The measured floor is a four-frame gap between keystrokes; below it the
+    /// ZX81 silently drops everything after the first key while `type_string`
+    /// reports the full count. These are the values that measurement chose —
+    /// the gap at double the floor, the hold widened to match, and a repeated
+    /// key given no less settling than a different one. Pinned exactly, so
+    /// lowering any of them has to be a deliberate edit with a new
+    /// measurement behind it.
+    #[test]
+    fn the_timing_is_the_one_that_was_measured() {
+        assert_eq!(ZX81_KEY_TIMING.inter_key_settle_frames, 8);
+        assert_eq!(ZX81_KEY_TIMING.repeat_settle_frames, 8);
+        assert_eq!(ZX81_KEY_TIMING.default_hold_frames, 5);
+        assert_eq!(ZX81_KEY_TIMING.press_settle_frames, 2);
+        assert_eq!(ZX81_KEY_TIMING.default_type_settle_frames, 20);
+    }
+
+    /// This machine needs its own timing; inheriting the shared defaults is
+    /// exactly the bug. Read it back through the keyboard the shell actually
+    /// uses, so wiring the fast defaults back in would fail here even if the
+    /// constant above survived.
+    #[test]
+    fn the_keyboard_uses_the_slow_timing_not_the_shared_default() {
+        let timing = KEYBOARD.key_timing();
+        let shared = emu198x_shell::STANDARD_KEY_TIMING;
+        assert_eq!(timing.inter_key_settle_frames, 8);
+        assert_ne!(
+            timing.inter_key_settle_frames, shared.inter_key_settle_frames,
+            "the ZX81 is back on the shared gap, which drops keystrokes"
+        );
+    }
+}
