@@ -82,6 +82,10 @@ const DRAGON_QUERY_PATHS: &[&str] = &[
 const PROGRAM_BOOT_FRAME_BUDGET: u64 = 100;
 const PROGRAM_BOOT_SETTLE_FRAMES: u64 = 30;
 
+/// Leader the ROM needs before it can read a block, in bytes of `$55`.
+///
+/// Not a tuned constant: `$90:91` is the ROM's own leader count and
+/// initialises to `$0080`. See [`cassette_bytes_from_cas`].
 const MIN_INITIAL_LEADER_BYTES: usize = 128;
 
 /// Whether the Dragon's input layer can deliver `name` — the same lookup
@@ -1271,18 +1275,26 @@ impl SessionQueryProvider<DragonRuntime> for DragonSessionQueryProvider {
 /// ended up executing direct page (#1191).
 ///
 /// The one thing added to the file is leader, which the container leaves
-/// out: measured across the corpus, an inter-block leader is a median of
-/// **one** byte and 4,760 of 11,532 blocks have none at all, against a
-/// median of sixteen before the first block. A CAS holds the logical byte
-/// stream, not the tape, so a player that decodes by timing has to put the
-/// carrier back.
+/// out. That is not a workaround: it is what the ROM requires.
 ///
-/// The length is not a documented figure and the padding is not merely
-/// satisfying a re-acquire window — load success is *not* monotonic in it.
-/// Over a 97-tape sample: no padding loads 31, four bytes loads 26, sixteen
-/// loads 21, and 128 loads 90. Something in the tape timing is wrong and
-/// this masks it by overwhelming it. It stays because it is worth 59 tapes,
-/// and #1201 carries the measurements and the candidates.
+/// `CSRDON` establishes *bit sync* from the leader before any block can be
+/// read — "CSRDON must be called before this routine to get the tape up to
+/// speed and turn on bit sync", per *Inside the Dragon* (1983) on `BLKIN` —
+/// and the leader count it works to lives at `$90:91`, initial value
+/// `$0080`. 128 bytes. Give it fewer and bit sync settles on the wrong bit
+/// boundary, after which every byte decodes wrongly while the ROM goes on
+/// sampling happily: the thresholds at `$92-$94` stay at their defaults and
+/// the sampling phase stays uniform across the pulse, which is why none of
+/// the obvious suspects show anything.
+///
+/// A CAS holds the logical byte stream and drops the leader — measured over
+/// the corpus, an inter-block leader is a median of one byte and 4,760 of
+/// 11,532 blocks have none — so a player that decodes by timing has to put
+/// it back. XRoar sidesteps all of this by intercepting the ROM's cassette
+/// routines outright, which is why raw playback works there and not here.
+///
+/// The cliff is exactly where the documentation says it is. Over a 97-tape
+/// sample: 96 bytes of leader loads 27, 128 loads 90, 192 loads 89.
 ///
 /// Padding goes only ahead of a block whose checksum verifies, because
 /// leader conjured up in front of a coincidence found in unframed data is
