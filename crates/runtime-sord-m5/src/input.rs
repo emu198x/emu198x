@@ -134,24 +134,25 @@ fn key_to_matrix(name: &str) -> Option<(usize, u8)> {
         "n" => (4, 5),
         "m" => (4, 6),
         "," | "comma" => (4, 7),
-        // Y5: 9 0 - = . / _triangle backspace.
+        // Y5: 9 0 - ^ . / _ \\ — a JIS layout, so `^` and `\\` are their
+        // own keycaps rather than shifted legends of `-` and `/`.
         "9" => (5, 0),
         "0" => (5, 1),
         "-" | "minus" => (5, 2),
-        "=" | "equals" => (5, 3),
+        "^" | "caret" => (5, 3),
         "." | "period" | "stop" => (5, 4),
         "/" | "slash" => (5, 5),
         "_" | "underscore" | "triangle" => (5, 6),
-        "backspace" | "bs" | "delete" | "del" => (5, 7),
+        "\\" | "backslash" | "yen" => (5, 7),
         // Y6: O P [ ] L : ' \.
         "o" => (6, 0),
         "p" => (6, 1),
-        "[" | "leftbracket" | "openbrace" => (6, 2),
-        "]" | "rightbracket" | "closebrace" => (6, 3),
+        "@" | "at" => (6, 2),
+        "[" | "leftbracket" | "openbrace" => (6, 3),
         "l" => (6, 4),
-        ":" | "colon" => (6, 5),
-        "'" | "quote" | "apostrophe" => (6, 6),
-        "\\" | "backslash" | "yen" => (6, 7),
+        ";" | "semicolon" => (6, 5),
+        ":" | "colon" => (6, 6),
+        "]" | "rightbracket" | "closebrace" => (6, 7),
         _ => return None,
     })
 }
@@ -212,5 +213,66 @@ mod tests {
         let mut cache = ControllerCache::default();
         apply_input_event(&mut m, &mut cache, &button(1, "fire", true));
         assert_eq!(m.joystick_byte(), 0x00, "M5 JOY port carries no fire line");
+    }
+
+    /// The M5 has a JIS keyboard and this table had been written as though it
+    /// were a US one, so seven keycaps were named after the wrong character.
+    /// Each typed something plausible, which is why none of it surfaced:
+    /// asking for `[` gave `@`, `]` gave `[`, `:` gave `;`, `'` gave `:`,
+    /// `=` gave `^`, `\` gave `]`, and `backspace` gave `\`.
+    ///
+    /// Established by sweeping all 64 cells against the Monitor ROM plus the
+    /// BASIC-I cartridge and reading the echoed character out of VRAM.
+    #[test]
+    fn the_jis_keycaps_are_named_after_what_they_type() {
+        assert_eq!(key_to_matrix("^"), Some((5, 3)));
+        assert_eq!(key_to_matrix("\\"), Some((5, 7)));
+        assert_eq!(key_to_matrix("@"), Some((6, 2)));
+        assert_eq!(key_to_matrix("["), Some((6, 3)));
+        assert_eq!(key_to_matrix(";"), Some((6, 5)));
+        assert_eq!(key_to_matrix(":"), Some((6, 6)));
+        assert_eq!(key_to_matrix("]"), Some((6, 7)));
+    }
+
+    /// `-` and `/` keep their own keycaps, so the JIS correction must not have
+    /// moved them while shuffling their neighbours.
+    #[test]
+    fn the_keys_that_were_already_right_did_not_move() {
+        assert_eq!(key_to_matrix("-"), Some((5, 2)));
+        assert_eq!(key_to_matrix("."), Some((5, 4)));
+        assert_eq!(key_to_matrix("/"), Some((5, 5)));
+        assert_eq!(key_to_matrix("_"), Some((5, 6)));
+        assert_eq!(key_to_matrix(","), Some((4, 7)));
+    }
+
+    /// `backspace` used to name `(5, 7)`, which types a `\`. No cell in this
+    /// matrix was observed to delete a character — pressing `(0, 4)` and
+    /// `(0, 5)` after typing `AB` left the `B` in place — so the name is gone
+    /// rather than left pointing at a key that types a backslash. Refusing an
+    /// unknown name is the behaviour #1196 asked for.
+    #[test]
+    fn backspace_is_refused_rather_than_typing_a_backslash() {
+        for name in ["backspace", "bs", "delete", "del"] {
+            assert_eq!(key_to_matrix(name), None, "{name} still resolves");
+        }
+    }
+
+    /// Two names on one cell means one of them types the wrong character.
+    #[test]
+    fn no_two_key_names_share_a_cell() {
+        const NAMES: &[&str] = &[
+            "1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "a", "b", "c", "d", "e", "f", "g",
+            "h", "i", "j", "k", "l", "m", "n", "o", "p", "q", "r", "s", "t", "u", "v", "w", "x",
+            "y", "z", "-", "^", ".", "/", "_", ",", "@", "[", ";", ":", "]", "\\", "space",
+            "enter", "shift", "ctrl", "func",
+        ];
+        let mut seen: Vec<((usize, u8), &str)> = Vec::new();
+        for name in NAMES {
+            let cell = key_to_matrix(name).unwrap_or_else(|| panic!("{name} does not resolve"));
+            if let Some((_, other)) = seen.iter().find(|(c, _)| *c == cell) {
+                panic!("{name:?} and {other:?} both claim cell {cell:?}");
+            }
+            seen.push((cell, name));
+        }
     }
 }
