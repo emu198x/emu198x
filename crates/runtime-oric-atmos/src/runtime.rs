@@ -18,12 +18,45 @@ const PIXEL_CLOCK_HZ: f64 = 6_000_000.0;
 const BIOS_SIZE: usize = 16 * 1024;
 const AUDIO_SAMPLE_RATE: u32 = 48_000;
 
+/// Characters the Oric puts on a shifted legend, paired with the keycap that
+/// carries them. Without this the machine could type only its unshifted
+/// keycaps, so every one of these was refused (#1206) — including `+`, which
+/// made `PRINT 2+3` untypeable.
+///
+/// Read off the machine, not off a layout diagram: all 64 cells were pressed
+/// with and without shift on a UK Atmos ROM and the echoed character taken
+/// from screen RAM. See `input.rs` for where that disagrees with MAME.
+const SHIFTED_LEGENDS: &[(char, &str)] = &[
+    ('!', "1"),
+    ('"', "2"),
+    ('_', "3"),
+    ('$', "4"),
+    ('%', "5"),
+    ('^', "6"),
+    ('&', "7"),
+    ('*', "8"),
+    ('(', "9"),
+    (')', "0"),
+    ('<', ","),
+    ('>', "."),
+    (':', ";"),
+    ('@', "'"),
+    ('|', "\\"),
+    ('~', "#"),
+    ('?', "/"),
+    ('+', "="),
+    ('{', "["),
+    ('}', "]"),
+];
+
 /// This machine's keyboard for the shared `press_key` / `type_string` tools:
 /// the standard layout, backed by this machine's own key-name resolver so a
 /// character it cannot type is refused rather than silently dropped (#1196).
-static KEYBOARD: emu198x_shell::StandardKeyboard = emu198x_shell::StandardKeyboard::new(
+static KEYBOARD: emu198x_shell::StandardKeyboard = emu198x_shell::StandardKeyboard::with_legends(
     emu198x_shell::STANDARD_KEY_TIMING,
     crate::input::knows_key_name,
+    "shift",
+    SHIFTED_LEGENDS,
 );
 
 pub struct OricRuntime {
@@ -299,5 +332,54 @@ impl emu198x_shell::WatchTarget for OricRuntime {
                     })
                     .collect()
             })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::SHIFTED_LEGENDS;
+    use crate::input::knows_key_name;
+
+    /// A legend naming a key the layout does not have is refused rather than
+    /// typed, so a typo here costs a character and reports nothing. Check the
+    /// whole table resolves, and that shift itself does.
+    #[test]
+    fn every_legend_names_a_key_this_machine_has() {
+        assert!(knows_key_name("shift"), "the shift chord needs a shift key");
+        for (legend, key) in SHIFTED_LEGENDS {
+            assert!(
+                knows_key_name(key),
+                "legend {legend:?} names {key:?}, which the layout does not have"
+            );
+        }
+    }
+
+    /// Two legends on one keycap would mean the second is unreachable, and
+    /// two keycaps for one character means one of them is wrong.
+    #[test]
+    fn legends_are_one_to_one() {
+        let mut chars: Vec<char> = SHIFTED_LEGENDS.iter().map(|(c, _)| *c).collect();
+        chars.sort_unstable();
+        let before = chars.len();
+        chars.dedup();
+        assert_eq!(before, chars.len(), "a character is listed twice");
+
+        let mut keys: Vec<&str> = SHIFTED_LEGENDS.iter().map(|(_, k)| *k).collect();
+        keys.sort_unstable();
+        let before = keys.len();
+        keys.dedup();
+        assert_eq!(before, keys.len(), "a keycap carries two legends");
+    }
+
+    /// `+` is the one that made this visible: `PRINT 2+3` was untypeable, so
+    /// the machine could not be asked to do arithmetic at all (#1206).
+    #[test]
+    fn the_arithmetic_operators_are_reachable() {
+        for ch in ['+', '*', '(', ')', ':', '?', '<', '>'] {
+            assert!(
+                SHIFTED_LEGENDS.iter().any(|(c, _)| *c == ch),
+                "{ch:?} is still unreachable"
+            );
+        }
     }
 }

@@ -9,6 +9,15 @@
 //! cell, read the echoed glyph from screen RAM) and cross-checked against
 //! MAME's `tangerine/oric.cpp` `ROW0`-`ROW7` ports.
 //!
+//! The two disagree on one key and the ROM wins here, because the ROM is
+//! what actually decodes the matrix. Sweeping all 64 cells on a UK Atmos
+//! ROM (`V1.1uk`) gives `\` / `|` at (3,5) and `#` / `~` at (3,6); MAME
+//! marks (3,5) unused and puts `\` at (3,6), and has no `#` at all. Every
+//! other cell in the row — `k`, `9`, `;`, `-`, `'` — matches MAME exactly,
+//! so this is not an off-by-one on our side. It reads as MAME's table
+//! being a non-UK layout. A hardware reference in `reference/` should
+//! settle it; until then the measured layout is the one implemented.
+//!
 //! Joystick input arrives as [`InputEvent::Button`] on a numbered port and
 //! drives the IJK interface — the de-facto Oric joystick — through
 //! [`OricAtmos::set_joystick`]. Port 1 is the left stick, port 2 the right.
@@ -141,10 +150,13 @@ fn key_to_matrix(name: &str) -> Option<(usize, u8)> {
         // Punctuation (unshifted legends).
         "," | "comma" => (4, 1),
         "." | "period" | "stop" => (4, 2),
-        ";" | "semicolon" | ":" | "colon" => (3, 2),
+        // `:` is shift-`;` on this keyboard, so it is a legend, not a name
+        // here — mapping it to the same cell typed a `;` and looked fine.
+        ";" | "semicolon" => (3, 2),
         "-" | "minus" => (3, 3),
         "'" | "quote" | "apostrophe" => (3, 7),
-        "\\" | "backslash" => (3, 6),
+        "\\" | "backslash" => (3, 5),
+        "#" | "hash" => (3, 6),
         "/" | "slash" => (7, 3),
         "=" | "equals" | "equal" => (7, 7),
         "[" | "leftbracket" | "openbracket" => (5, 7),
@@ -191,6 +203,27 @@ mod tests {
     #[test]
     fn unmapped_key_returns_none() {
         assert_eq!(key_to_matrix("f1"), None);
+    }
+
+    /// `(3, 6)` was named `backslash` but types `#`, and the real `\` sits
+    /// one cell along at `(3, 5)` — a cell the table did not have. Asking
+    /// for a backslash therefore produced a `#`, which is not an error, so
+    /// nothing surfaced it.
+    #[test]
+    fn backslash_and_hash_are_separate_keys() {
+        assert_eq!(key_to_matrix("\\"), Some((3, 5)));
+        assert_eq!(key_to_matrix("backslash"), Some((3, 5)));
+        assert_eq!(key_to_matrix("#"), Some((3, 6)));
+        assert_eq!(key_to_matrix("hash"), Some((3, 6)));
+    }
+
+    /// `:` used to share the `;` cell, so asking for a colon typed a
+    /// semicolon. It is shift-`;` and belongs in the legend table.
+    #[test]
+    fn colon_is_not_a_bare_keycap() {
+        assert_eq!(key_to_matrix(";"), Some((3, 2)));
+        assert_eq!(key_to_matrix(":"), None);
+        assert_eq!(key_to_matrix("colon"), None);
     }
 
     fn button(port: u8, name: &str, pressed: bool) -> InputEvent {
