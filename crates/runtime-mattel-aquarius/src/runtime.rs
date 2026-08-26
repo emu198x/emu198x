@@ -32,9 +32,43 @@ const AUDIO_SAMPLE_RATE: u32 = 48_000;
 /// This machine's keyboard for the shared `press_key` / `type_string` tools:
 /// the standard layout, backed by this machine's own key-name resolver so a
 /// character it cannot type is refused rather than silently dropped (#1196).
-static KEYBOARD: emu198x_shell::StandardKeyboard = emu198x_shell::StandardKeyboard::new(
+/// Characters the Aquarius puts on a shifted legend, paired with the keycap
+/// that carries them. Without this the machine could type only its unshifted
+/// keycaps, so `+`, `*`, `<`, `>`, `?`, `@`, `^`, `_` and the whole
+/// shifted-digit row were refused (#1206) — `PRINT 2+3` included.
+///
+/// Read off the machine: all 48 matrix cells pressed with and without shift,
+/// in BASIC on the real ROM, taking the echoed character out of the screen
+/// RAM at `$3000`.
+///
+/// `\` is genuinely shift-Backspace on this keyboard — an odd pairing, but
+/// that is what the ROM returns.
+const SHIFTED_LEGENDS: &[(char, &str)] = &[
+    ('!', "1"),
+    ('"', "2"),
+    ('#', "3"),
+    ('$', "4"),
+    ('%', "5"),
+    ('&', "6"),
+    ('\'', "7"),
+    ('(', "8"),
+    (')', "9"),
+    ('?', "0"),
+    ('+', "="),
+    ('*', ":"),
+    ('@', ";"),
+    ('>', "."),
+    ('_', "-"),
+    ('^', "/"),
+    ('<', ","),
+    ('\\', "backspace"),
+];
+
+static KEYBOARD: emu198x_shell::StandardKeyboard = emu198x_shell::StandardKeyboard::with_legends(
     emu198x_shell::STANDARD_KEY_TIMING,
     crate::input::knows_key_name,
+    "shift",
+    SHIFTED_LEGENDS,
 );
 
 pub struct AquariusRuntime {
@@ -394,5 +428,53 @@ impl emu198x_shell::WatchTarget for AquariusRuntime {
                     })
                     .collect()
             })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::SHIFTED_LEGENDS;
+    use crate::input::knows_key_name;
+
+    /// A legend naming a key the layout does not have is refused rather than
+    /// typed, so a typo here costs a character and reports nothing.
+    #[test]
+    fn every_legend_names_a_key_this_machine_has() {
+        assert!(knows_key_name("shift"), "the shift chord needs a shift key");
+        for (legend, key) in SHIFTED_LEGENDS {
+            assert!(
+                knows_key_name(key),
+                "legend {legend:?} names {key:?}, which the layout does not have"
+            );
+        }
+    }
+
+    /// Two legends on one keycap would mean the second is unreachable, and
+    /// two keycaps for one character means one of them is wrong.
+    #[test]
+    fn legends_are_one_to_one() {
+        let mut chars: Vec<char> = SHIFTED_LEGENDS.iter().map(|(c, _)| *c).collect();
+        chars.sort_unstable();
+        let before = chars.len();
+        chars.dedup();
+        assert_eq!(before, chars.len(), "a character is listed twice");
+
+        let mut keys: Vec<&str> = SHIFTED_LEGENDS.iter().map(|(_, k)| *k).collect();
+        keys.sort_unstable();
+        let before = keys.len();
+        keys.dedup();
+        assert_eq!(before, keys.len(), "a keycap carries two legends");
+    }
+
+    /// The operators #1206 was about — `PRINT 2+3*4` needs both, and neither
+    /// has an unshifted keycap here.
+    #[test]
+    fn the_arithmetic_operators_are_reachable() {
+        for ch in ['+', '*', '<', '>', '?', '@', '^', '_'] {
+            assert!(
+                SHIFTED_LEGENDS.iter().any(|(c, _)| *c == ch),
+                "{ch:?} is still unreachable"
+            );
+        }
     }
 }
