@@ -146,7 +146,7 @@ fn ks31_executes_beyond_reset_during_the_first_pal_frame() {
 }
 
 #[test]
-#[ignore = "explicit 4,000-frame A1200 boot investigation"]
+#[ignore = "DIAGNOSTIC: explicit 4,000-frame A1200 boot investigation"]
 fn diagnose_ks31_boot_over_4000_frames() {
     let Some(rom) = load_ks31_rom() else { return };
 

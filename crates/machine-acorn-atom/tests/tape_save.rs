@@ -121,7 +121,7 @@ fn tap(sys: &mut AcornAtom, key: AtomKey) {
 }
 
 #[test]
-#[ignore = "needs a real Atom ROM — run with --ignored"]
+#[ignore = "FIXTURE: needs a real Atom ROM — run with --ignored"]
 fn os_saves_and_loads_a_program() {
     let mut sys = AcornAtom::new(rom(), 0x3000);
     for _ in 0..120 {
@@ -173,7 +173,7 @@ fn os_saves_and_loads_a_program() {
 }
 
 #[test]
-#[ignore = "needs a real Atom ROM — run with --ignored"]
+#[ignore = "FIXTURE: needs a real Atom ROM — run with --ignored"]
 fn os_saves_to_uef_then_loads_the_uef_back() {
     use common_acorn_cassette::demodulate_blocks;
     use format_acorn_uef::{encode_blocks, parse};

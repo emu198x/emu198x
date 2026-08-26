@@ -34,7 +34,7 @@ fn corpus() -> Option<Vec<PathBuf>> {
 /// required `E_LINE` to equal the file length, as the ZX80 sibling does, and
 /// that alone rejected 827 of 1,206 perfectly good images.
 #[test]
-#[ignore = "needs a .p corpus — set EMU198X_ZX81_P_CORPUS and run with --ignored"]
+#[ignore = "FIXTURE: needs a .p corpus — set EMU198X_ZX81_P_CORPUS and run with --ignored"]
 fn a_real_corpus_parses_except_for_structurally_broken_images() {
     let Some(images) = corpus() else {
         emu198x_test_skip::skip!(

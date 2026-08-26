@@ -295,7 +295,7 @@ fn spectrum_query_provider_reads_runtime_state() {
 }
 
 #[test]
-#[ignore = "requires local 48K ROM at ~/.emu198x/roms/sinclair-zx-spectrum-48k/48.rom"]
+#[ignore = "FIXTURE: requires local 48K ROM at ~/.emu198x/roms/sinclair-zx-spectrum-48k/48.rom"]
 fn spectrum_query_provider_detects_booted_48k_rom() {
     let Some(rom_path) = spectrum_48k_rom_path() else {
         emu198x_test_skip::skip!(
@@ -372,7 +372,7 @@ fn spectrum_query_provider_detects_booted_48k_rom() {
 }
 
 #[test]
-#[ignore = "requires local 48K ROM at ~/.emu198x/roms/sinclair-zx-spectrum-48k/48.rom"]
+#[ignore = "FIXTURE: requires local 48K ROM at ~/.emu198x/roms/sinclair-zx-spectrum-48k/48.rom"]
 fn spectrum_boot_wait_and_prompt_input_change_decoded_text() {
     let Some(rom_path) = spectrum_48k_rom_path() else {
         emu198x_test_skip::skip!("HOME is not set; skipping ROM-backed Spectrum prompt input test");
@@ -454,7 +454,7 @@ fn spectrum_boot_wait_and_prompt_input_change_decoded_text() {
 }
 
 #[test]
-#[ignore = "requires local Manic Miner TZX zip"]
+#[ignore = "FIXTURE: requires local Manic Miner TZX zip"]
 fn runtime_loads_zipped_manic_miner_tzx_media() {
     let Some(tape_path) = spectrum_manic_miner_tzx_path() else {
         emu198x_test_skip::skip!(
@@ -480,7 +480,7 @@ fn runtime_loads_zipped_manic_miner_tzx_media() {
 }
 
 #[test]
-#[ignore = "requires local 48K ROM and Manic Miner TZX zip"]
+#[ignore = "FIXTURE: requires local 48K ROM and Manic Miner TZX zip"]
 fn spectrum_boots_and_loads_manic_miner_from_zipped_tzx() {
     let Some(rom_path) = spectrum_48k_rom_path() else {
         emu198x_test_skip::skip!("HOME is not set; skipping ROM-backed Manic Miner load test");
@@ -539,7 +539,7 @@ fn spectrum_boots_and_loads_manic_miner_from_zipped_tzx() {
 }
 
 #[test]
-#[ignore = "requires local 48K ROM and Jet Set Willy TZX zip"]
+#[ignore = "FIXTURE: requires local 48K ROM and Jet Set Willy TZX zip"]
 fn spectrum_boots_and_loads_jet_set_willy_from_zipped_tzx() {
     let Some(rom_path) = spectrum_48k_rom_path() else {
         emu198x_test_skip::skip!("HOME is not set; skipping ROM-backed Jet Set Willy load test");

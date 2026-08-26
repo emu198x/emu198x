@@ -624,7 +624,7 @@ const UNSWEPT_DIRS: &[(&str, &str)] = &[
 ];
 
 #[test]
-#[ignore = "long survey; run with --release --ignored --nocapture"]
+#[ignore = "SLOW: long survey; run with --release --ignored --nocapture"]
 fn sweep() {
     let Some(root) = nes_test_roms_root() else {
         emu198x_test_skip::skip!("nes-test-roms not found; skipping sweep");
@@ -845,7 +845,7 @@ fn baseline_path() -> Option<PathBuf> {
 /// Print the on-screen text of named ROMs, for triaging a timeout into
 /// "visual-only", "needs input", or "genuinely stuck".
 #[test]
-#[ignore = "diagnostic: prints screen text for triage"]
+#[ignore = "DIAGNOSTIC: diagnostic: prints screen text for triage"]
 fn probe_timeout_screens() {
     let Some(root) = nes_test_roms_root() else {
         emu198x_test_skip::skip!("nes-test-roms corpus not staged (test-suites/nes-test-roms)");

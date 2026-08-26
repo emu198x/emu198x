@@ -27,7 +27,7 @@ fn rom() -> Option<Vec<u8>> {
 /// Asserted as a range because the ZX81's frame length is the ROM's business
 /// rather than a constant.
 #[test]
-#[ignore = "needs an 8 KB ZX81 ROM — set EMU198X_ZX81_ROM"]
+#[ignore = "FIXTURE: needs an 8 KB ZX81 ROM — set EMU198X_ZX81_ROM"]
 fn a_frame_produces_a_frames_worth_of_samples() {
     let Some(rom) = rom() else {
         emu198x_test_skip::skip!("no ZX81 ROM");
@@ -75,7 +75,7 @@ fn a_frame_produces_a_frames_worth_of_samples() {
 /// the signal rather than its spectrum. Band-limiting before the sink would be
 /// the honest fix and is not attempted here.
 #[test]
-#[ignore = "needs an 8 KB ZX81 ROM — set EMU198X_ZX81_ROM"]
+#[ignore = "FIXTURE: needs an 8 KB ZX81 ROM — set EMU198X_ZX81_ROM"]
 fn the_display_buzzes_at_the_sync_duty_cycle() {
     let Some(rom) = rom() else {
         emu198x_test_skip::skip!("no ZX81 ROM");
@@ -123,7 +123,7 @@ fn the_display_buzzes_at_the_sync_duty_cycle() {
 /// transitions a second during a save, because it is just reporting the line
 /// sync underneath. Tried, and it passed.
 #[test]
-#[ignore = "needs an 8 KB ZX81 ROM — set EMU198X_ZX81_ROM"]
+#[ignore = "FIXTURE: needs an 8 KB ZX81 ROM — set EMU198X_ZX81_ROM"]
 fn saving_puts_the_tape_signal_on_the_same_pin() {
     let Some(rom) = rom() else {
         emu198x_test_skip::skip!("no ZX81 ROM");

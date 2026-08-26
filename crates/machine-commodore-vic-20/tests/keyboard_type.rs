@@ -57,7 +57,7 @@ fn screen_text(sys: &Vic20) -> String {
 }
 
 #[test]
-#[ignore = "needs VIC-20 KERNAL/BASIC/char ROMs — run with --ignored"]
+#[ignore = "FIXTURE: needs VIC-20 KERNAL/BASIC/char ROMs — run with --ignored"]
 fn types_a_basic_line_and_prints_the_result() {
     let (Some(kernal), Some(basic), Some(charrom)) =
         (rom("kernal.rom"), rom("basic.rom"), rom("char.rom"))

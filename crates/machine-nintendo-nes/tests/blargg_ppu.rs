@@ -140,61 +140,61 @@ fn run_or_skip(rel: &str) {
 // ────────────────────────────────────────────────────────────────
 
 #[test]
-#[ignore = "blargg ROM run — requires test-suites/nes-test-roms"]
+#[ignore = "FIXTURE: blargg ROM run — requires test-suites/nes-test-roms"]
 fn ppu_vbl_nmi_01_vbl_basics() {
     run_or_skip("ppu_vbl_nmi/rom_singles/01-vbl_basics.nes");
 }
 
 #[test]
-#[ignore = "blargg ROM run — requires test-suites/nes-test-roms"]
+#[ignore = "FIXTURE: blargg ROM run — requires test-suites/nes-test-roms"]
 fn ppu_vbl_nmi_02_vbl_set_time() {
     run_or_skip("ppu_vbl_nmi/rom_singles/02-vbl_set_time.nes");
 }
 
 #[test]
-#[ignore = "blargg ROM run — requires test-suites/nes-test-roms"]
+#[ignore = "FIXTURE: blargg ROM run — requires test-suites/nes-test-roms"]
 fn ppu_vbl_nmi_03_vbl_clear_time() {
     run_or_skip("ppu_vbl_nmi/rom_singles/03-vbl_clear_time.nes");
 }
 
 #[test]
-#[ignore = "blargg ROM run — requires test-suites/nes-test-roms"]
+#[ignore = "FIXTURE: blargg ROM run — requires test-suites/nes-test-roms"]
 fn ppu_vbl_nmi_04_nmi_control() {
     run_or_skip("ppu_vbl_nmi/rom_singles/04-nmi_control.nes");
 }
 
 #[test]
-#[ignore = "blargg ROM run — requires test-suites/nes-test-roms"]
+#[ignore = "FIXTURE: blargg ROM run — requires test-suites/nes-test-roms"]
 fn ppu_vbl_nmi_05_nmi_timing() {
     run_or_skip("ppu_vbl_nmi/rom_singles/05-nmi_timing.nes");
 }
 
 #[test]
-#[ignore = "blargg ROM run — requires test-suites/nes-test-roms"]
+#[ignore = "FIXTURE: blargg ROM run — requires test-suites/nes-test-roms"]
 fn ppu_vbl_nmi_06_suppression() {
     run_or_skip("ppu_vbl_nmi/rom_singles/06-suppression.nes");
 }
 
 #[test]
-#[ignore = "blargg ROM run — requires test-suites/nes-test-roms"]
+#[ignore = "FIXTURE: blargg ROM run — requires test-suites/nes-test-roms"]
 fn ppu_vbl_nmi_07_nmi_on_timing() {
     run_or_skip("ppu_vbl_nmi/rom_singles/07-nmi_on_timing.nes");
 }
 
 #[test]
-#[ignore = "blargg ROM run — requires test-suites/nes-test-roms"]
+#[ignore = "FIXTURE: blargg ROM run — requires test-suites/nes-test-roms"]
 fn ppu_vbl_nmi_08_nmi_off_timing() {
     run_or_skip("ppu_vbl_nmi/rom_singles/08-nmi_off_timing.nes");
 }
 
 #[test]
-#[ignore = "blargg ROM run — requires test-suites/nes-test-roms"]
+#[ignore = "FIXTURE: blargg ROM run — requires test-suites/nes-test-roms"]
 fn ppu_vbl_nmi_09_even_odd_frames() {
     run_or_skip("ppu_vbl_nmi/rom_singles/09-even_odd_frames.nes");
 }
 
 #[test]
-#[ignore = "blargg ROM run — requires test-suites/nes-test-roms"]
+#[ignore = "FIXTURE: blargg ROM run — requires test-suites/nes-test-roms"]
 fn ppu_vbl_nmi_10_even_odd_timing() {
     run_or_skip("ppu_vbl_nmi/rom_singles/10-even_odd_timing.nes");
 }
@@ -204,13 +204,13 @@ fn ppu_vbl_nmi_10_even_odd_timing() {
 // ────────────────────────────────────────────────────────────────
 
 #[test]
-#[ignore = "blargg ROM run — requires test-suites/nes-test-roms"]
+#[ignore = "FIXTURE: blargg ROM run — requires test-suites/nes-test-roms"]
 fn oam_read() {
     run_or_skip("oam_read/oam_read.nes");
 }
 
 #[test]
-#[ignore = "blargg ROM run — requires test-suites/nes-test-roms"]
+#[ignore = "FIXTURE: blargg ROM run — requires test-suites/nes-test-roms"]
 fn oam_stress() {
     run_or_skip("oam_stress/oam_stress.nes");
 }
@@ -255,31 +255,31 @@ fn oam_stress() {
 // ────────────────────────────────────────────────────────────────
 
 #[test]
-#[ignore = "blargg ROM run — requires test-suites/nes-test-roms"]
+#[ignore = "FIXTURE: blargg ROM run — requires test-suites/nes-test-roms"]
 fn mmc3_1_clocking() {
     run_or_skip("mmc3_test/1-clocking.nes");
 }
 
 #[test]
-#[ignore = "blargg ROM run — requires test-suites/nes-test-roms"]
+#[ignore = "FIXTURE: blargg ROM run — requires test-suites/nes-test-roms"]
 fn mmc3_2_details() {
     run_or_skip("mmc3_test/2-details.nes");
 }
 
 #[test]
-#[ignore = "blargg ROM run — requires test-suites/nes-test-roms"]
+#[ignore = "FIXTURE: blargg ROM run — requires test-suites/nes-test-roms"]
 fn mmc3_3_a12_clocking() {
     run_or_skip("mmc3_test/3-A12_clocking.nes");
 }
 
 #[test]
-#[ignore = "blargg ROM run — requires test-suites/nes-test-roms"]
+#[ignore = "FIXTURE: blargg ROM run — requires test-suites/nes-test-roms"]
 fn mmc3_4_scanline_timing() {
     run_or_skip("mmc3_test/4-scanline_timing.nes");
 }
 
 #[test]
-#[ignore = "blargg ROM run — requires test-suites/nes-test-roms"]
+#[ignore = "FIXTURE: blargg ROM run — requires test-suites/nes-test-roms"]
 fn mmc3_5_mmc3() {
     run_or_skip("mmc3_test/5-MMC3.nes");
 }
@@ -299,7 +299,7 @@ fn mmc3_5_mmc3() {
 // ────────────────────────────────────────────────────────────────
 
 #[test]
-#[ignore = "blargg ROM run — requires test-suites/nes-test-roms"]
+#[ignore = "FIXTURE: blargg ROM run — requires test-suites/nes-test-roms"]
 fn ppu_read_buffer() {
     run_or_skip("ppu_read_buffer/test_ppu_read_buffer.nes");
 }

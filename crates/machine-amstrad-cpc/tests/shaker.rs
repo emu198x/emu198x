@@ -237,7 +237,7 @@ fn screen_ink(cpc: &AmstradCpc) -> usize {
 }
 
 #[test]
-#[ignore = "needs shaker26.dsk — run with --ignored"]
+#[ignore = "FIXTURE: needs shaker26.dsk — run with --ignored"]
 fn the_interrupt_modules_come_out_of_the_catalogue() {
     let path = dsk_path();
     if !path.exists() {
@@ -262,7 +262,7 @@ fn the_interrupt_modules_come_out_of_the_catalogue() {
 }
 
 #[test]
-#[ignore = "needs shaker26.dsk and the CPC464 firmware — run with --ignored"]
+#[ignore = "FIXTURE: needs shaker26.dsk and the CPC464 firmware — run with --ignored"]
 fn shaker_module_d_takes_over_and_runs() {
     let (dsk, rom) = (dsk_path(), firmware_path());
     if !dsk.exists() || !rom.exists() {
@@ -384,7 +384,7 @@ fn tap(cpc: &mut AmstradCpc, c: char) {
 /// `SK 2-UNRELIABLE INTERRUPT SYSTEM BETWEEN CPCs`. A disagreement is not
 /// automatically a defect here until a target CPC variant is named.
 #[test]
-#[ignore = "needs shaker26.dsk and the CPC464 firmware — run with --ignored"]
+#[ignore = "FIXTURE: needs shaker26.dsk and the CPC464 firmware — run with --ignored"]
 fn shaker_killer_2_reports_its_interrupt_measurements() {
     let (dsk, rom) = (dsk_path(), firmware_path());
     if !dsk.exists() || !rom.exists() {
@@ -501,7 +501,7 @@ const SCREEN_SAVE_ADDR: u16 = 0xBC00;
 /// So scoring this page needs a 6128-class variant with banked RAM, not a
 /// timing fix. See #968.
 #[test]
-#[ignore = "needs shaker26.dsk and the CPC464 firmware — run with --ignored"]
+#[ignore = "FIXTURE: needs shaker26.dsk and the CPC464 firmware — run with --ignored"]
 fn killer_2_saves_the_screen_over_its_own_hex_table_on_a_464() {
     let (dsk, rom) = (dsk_path(), firmware_path());
     if !dsk.exists() || !rom.exists() {
@@ -617,7 +617,7 @@ const MEASUREMENTS: &[Measurement] = &[
 /// gate: it is real period software scoring the machine against figures its
 /// author took from hardware.
 #[test]
-#[ignore = "needs shaker26.dsk and the CPC6128 firmware — run with --ignored"]
+#[ignore = "FIXTURE: needs shaker26.dsk and the CPC6128 firmware — run with --ignored"]
 fn shaker_killer_2_scores_on_a_6128() {
     let (dsk, rom) = (dsk_path(), firmware_path_6128());
     if !dsk.exists() || !rom.exists() {

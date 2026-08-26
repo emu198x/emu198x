@@ -56,7 +56,7 @@ fn dots_per_frame(nes: &mut Nes) -> u64 {
 }
 
 #[test]
-#[ignore = "ROM run — requires test-suites/nes-test-roms"]
+#[ignore = "FIXTURE: ROM run — requires test-suites/nes-test-roms"]
 fn pal_frame_is_312_scanlines() {
     let Some(mapper) = load() else {
         emu198x_test_skip::skip!("nes-test-roms corpus not staged (test-suites/nes-test-roms)");
@@ -76,7 +76,7 @@ fn pal_frame_is_312_scanlines() {
 }
 
 #[test]
-#[ignore = "ROM run — requires test-suites/nes-test-roms"]
+#[ignore = "FIXTURE: ROM run — requires test-suites/nes-test-roms"]
 fn ntsc_frame_is_262_scanlines() {
     let Some(mapper) = load() else {
         emu198x_test_skip::skip!("nes-test-roms corpus not staged (test-suites/nes-test-roms)");
@@ -99,7 +99,7 @@ fn ntsc_frame_is_262_scanlines() {
 /// depends on — with rendering off, NTSC would not skip either and the
 /// test would pass without proving anything.
 #[test]
-#[ignore = "ROM run — requires test-suites/nes-test-roms"]
+#[ignore = "FIXTURE: ROM run — requires test-suites/nes-test-roms"]
 fn pal_never_skips_a_dot() {
     let Some(mapper) = load() else {
         emu198x_test_skip::skip!("nes-test-roms corpus not staged (test-suites/nes-test-roms)");
@@ -126,7 +126,7 @@ fn pal_never_skips_a_dot() {
 /// proving nothing about PAL. Asserting that NTSC *does* produce a
 /// 340-dot frame here is what gives the PAL assertion its meaning.
 #[test]
-#[ignore = "ROM run — requires test-suites/nes-test-roms"]
+#[ignore = "FIXTURE: ROM run — requires test-suites/nes-test-roms"]
 fn ntsc_does_skip_a_dot_on_odd_frames() {
     let Some(mapper) = load() else {
         emu198x_test_skip::skip!("nes-test-roms corpus not staged (test-suites/nes-test-roms)");
@@ -152,7 +152,7 @@ fn ntsc_does_skip_a_dot_on_odd_frames() {
 /// Measured by counting dots between the VBLANK flag rising and the
 /// pre-render line clearing it.
 #[test]
-#[ignore = "ROM run — requires test-suites/nes-test-roms"]
+#[ignore = "FIXTURE: ROM run — requires test-suites/nes-test-roms"]
 fn pal_vblank_spans_70_scanlines() {
     let Some(mapper) = load() else {
         emu198x_test_skip::skip!("nes-test-roms corpus not staged (test-suites/nes-test-roms)");
@@ -183,7 +183,7 @@ fn pal_vblank_spans_70_scanlines() {
 /// 33 247.5 CPU cycles. Measured over two frames to land on a whole
 /// number and prove the half-cycle is real rather than rounded away.
 #[test]
-#[ignore = "ROM run — requires test-suites/nes-test-roms"]
+#[ignore = "FIXTURE: ROM run — requires test-suites/nes-test-roms"]
 fn pal_cpu_runs_at_one_cycle_per_3_2_dots() {
     let Some(mapper) = load() else {
         emu198x_test_skip::skip!("nes-test-roms corpus not staged (test-suites/nes-test-roms)");

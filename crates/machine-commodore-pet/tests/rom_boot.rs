@@ -20,7 +20,7 @@ fn rom(name: &str, env: &str, default_name: &str) -> Option<Vec<u8>> {
 }
 
 #[test]
-#[ignore = "needs Commodore PET ROM set — run with --ignored"]
+#[ignore = "FIXTURE: needs Commodore PET ROM set — run with --ignored"]
 fn rom_set_boots_without_panic() {
     let kernal = rom("kernal", "EMU198X_PET_KERNAL", "kernal.rom");
     let basic = rom("basic", "EMU198X_PET_BASIC", "basic.rom");

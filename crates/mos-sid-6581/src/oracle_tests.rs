@@ -181,7 +181,7 @@ fn resid_oracle_subset() {
 /// Full 410-scenario battery (~6 s optimized); run explicitly with
 /// `cargo test -p mos-sid-6581 resid_oracle_full -- --ignored`.
 #[test]
-#[ignore = "the always-on subset covers every mode/model; run for full sweeps"]
+#[ignore = "SLOW: the always-on subset covers every mode/model; run for full sweeps"]
 fn resid_oracle_full() {
     let references = parse_fixture();
     let all: Vec<&Reference> = references.iter().collect();

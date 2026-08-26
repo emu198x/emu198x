@@ -27,7 +27,7 @@ fn roms_present() -> bool {
 }
 
 #[test]
-#[ignore = "needs the C64 ROMs — run with --ignored"]
+#[ignore = "FIXTURE: needs the C64 ROMs — run with --ignored"]
 fn a_script_can_load_and_run_a_basic_program() {
     assert!(
         roms_present(),

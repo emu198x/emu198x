@@ -18,7 +18,7 @@ use runtime_sinclair_zx81::{Model, Zx81Runtime};
 /// the TS1000, from the hardware reference — and that is the test that fails
 /// if someone changes one.
 #[test]
-#[ignore = "needs an 8 KB ZX81 ROM — run with --ignored"]
+#[ignore = "FIXTURE: needs an 8 KB ZX81 ROM — run with --ignored"]
 fn the_rom_finds_the_ram_each_board_declares() {
     const RAMTOP: u16 = 0x4004;
 

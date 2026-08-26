@@ -294,7 +294,7 @@ struct CapturedField {
 }
 
 #[test]
-#[ignore = "explicit programmable-HBLANK corpus consensus and measurement gate"]
+#[ignore = "FIXTURE: explicit programmable-HBLANK corpus consensus and measurement gate"]
 fn programmable_hblank_corpus_matches_consensus_and_records_disagreements() {
     let dist = required_directory(DIST_ENV);
     let manifest = load_and_validate_suite(&dist);

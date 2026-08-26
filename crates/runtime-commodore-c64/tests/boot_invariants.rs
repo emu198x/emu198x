@@ -267,7 +267,7 @@ fn cia2_pa_drives_vic_bank_select() -> Result<(), Box<dyn Error>> {
 /// banking change. This is the C64 equivalent of the Spectrum 48K
 /// ©1982 boot screen.
 #[test]
-#[ignore = "requires ~/.emu198x/roms/commodore-c64/{kernal,basic,chargen}.rom"]
+#[ignore = "FIXTURE: requires ~/.emu198x/roms/commodore-c64/{kernal,basic,chargen}.rom"]
 fn real_kernal_reaches_ready_prompt() -> Result<(), Box<dyn Error>> {
     let Some(rom_dir) = home_c64_rom_dir() else {
         emu198x_test_skip::record("skip: no C64 ROM dir");

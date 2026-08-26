@@ -102,7 +102,7 @@ fn ram_contains(sys: &BbcMicro, needle: &[u8]) -> bool {
 }
 
 #[test]
-#[ignore = "needs the BBC MOS+BASIC ROMs — run with --ignored"]
+#[ignore = "FIXTURE: needs the BBC MOS+BASIC ROMs — run with --ignored"]
 fn os_loads_a_real_tape() {
     let os = rom("os.rom");
     let basic = rom("basic.rom");

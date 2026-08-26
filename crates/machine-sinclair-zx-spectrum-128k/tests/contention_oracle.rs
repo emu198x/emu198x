@@ -427,7 +427,7 @@ fn the_delay_table_still_matches_fuse() {
 /// ported to this machine — a frame of screen bytes is a second anchor and
 /// there is currently only one.
 #[test]
-#[ignore = "needs EMU198X_SPECTRUM_128K_ROM0 / ROM1"]
+#[ignore = "FIXTURE: needs EMU198X_SPECTRUM_128K_ROM0 / ROM1"]
 fn the_origin_is_pinned_by_the_interrupt() {
     let Some(roms) = roms() else {
         panic!("set {ROM0_PATH_ENV} and {ROM1_PATH_ENV} to run this harness");
@@ -489,7 +489,7 @@ fn the_origin_is_pinned_by_the_interrupt() {
 
 /// The differential itself.
 #[test]
-#[ignore = "differential harness; needs EMU198X_SPECTRUM_128K_ROM0 / ROM1"]
+#[ignore = "FIXTURE: differential harness; needs EMU198X_SPECTRUM_128K_ROM0 / ROM1"]
 fn memory_contention_matches_fuse_at_every_arrival_tstate() {
     let Some(roms) = roms() else {
         panic!("set {ROM0_PATH_ENV} and {ROM1_PATH_ENV} to run this harness");

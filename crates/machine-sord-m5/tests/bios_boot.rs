@@ -57,7 +57,7 @@ fn cart() -> Option<Vec<u8>> {
 }
 
 #[test]
-#[ignore = "needs Sord M5 BIOS + cart — run with --ignored"]
+#[ignore = "FIXTURE: needs Sord M5 BIOS + cart — run with --ignored"]
 fn boots_through_ctc_to_a_rendered_screen() {
     let Some(path) = bios_path() else {
         panic!(

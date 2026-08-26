@@ -29,7 +29,7 @@ fn bios() -> Option<PathBuf> {
 }
 
 #[test]
-#[ignore = "needs C-BIOS at <EMU198X_ROMS_ROOT>/microsoft-msx/cbios_main_msx1.rom"]
+#[ignore = "FIXTURE: needs C-BIOS at <EMU198X_ROMS_ROOT>/microsoft-msx/cbios_main_msx1.rom"]
 fn cbios_cold_starts_and_renders_its_screen() {
     let Some(path) = bios() else {
         emu198x_test_skip::skip!("neither EMU198X_ROMS_ROOT nor HOME is set");

@@ -25,7 +25,7 @@ fn blank_formatted_d64() -> Vec<u8> {
 }
 
 #[test]
-#[ignore = "requires local C64 + 1541 ROMs at ~/.emu198x/roms/commodore-c64/"]
+#[ignore = "FIXTURE: requires local C64 + 1541 ROMs at ~/.emu198x/roms/commodore-c64/"]
 fn save_writes_a_readable_file_to_a_writable_disk() {
     let runtime =
         C64Runtime::from_firmware(Model::C64PalBreadbin, &local_rom_firmware_with_drive())
@@ -99,7 +99,7 @@ fn save_writes_a_readable_file_to_a_writable_disk() {
 /// GCR the drive itself just wrote (through the real ROM), the strongest check
 /// that the write path is faithful — a lenient flush decode is not enough.
 #[test]
-#[ignore = "requires local C64 + 1541 ROMs at ~/.emu198x/roms/commodore-c64/"]
+#[ignore = "FIXTURE: requires local C64 + 1541 ROMs at ~/.emu198x/roms/commodore-c64/"]
 fn saved_program_loads_back_and_runs() {
     let runtime =
         C64Runtime::from_firmware(Model::C64PalBreadbin, &local_rom_firmware_with_drive())

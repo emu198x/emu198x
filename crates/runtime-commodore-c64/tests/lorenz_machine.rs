@@ -374,7 +374,7 @@ fn expected_pass_is_a_subset_of_the_hardware_dependent_set() {
 /// regress. Cases still blocked on the CIA cycle-delay pipeline (#17) are
 /// reported, not asserted.
 #[test]
-#[ignore = "requires local C64 ROMs + the Wolfgang Lorenz suite"]
+#[ignore = "FIXTURE: requires local C64 ROMs + the Wolfgang Lorenz suite"]
 fn lorenz_machine_hardware_dependent_ledger() {
     let Some(dir) = lorenz_dir() else {
         panic!("Lorenz suite not found; set EMU198X_6502_LORENZ_DIR");

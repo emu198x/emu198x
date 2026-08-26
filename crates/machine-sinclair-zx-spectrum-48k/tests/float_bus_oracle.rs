@@ -249,7 +249,7 @@ fn prepare(rom: &[u8]) -> Spectrum48k {
 /// `floating_bus_matches_fuse_at_every_tstate` scores — two anchors that
 /// share nothing but the raster.
 #[test]
-#[ignore = "needs EMU198X_SPECTRUM_48K_ROM"]
+#[ignore = "FIXTURE: needs EMU198X_SPECTRUM_48K_ROM"]
 fn the_interrupt_and_the_bus_agree_on_the_frame_origin() {
     let Some(rom) = rom_bytes() else {
         panic!("set {ROM_PATH_ENV} to the 48K ROM to run this harness");
@@ -356,7 +356,7 @@ fn mismatches(bus: &[u8], machine: &Spectrum48k, offset: i32) -> usize {
 /// this measures the read phase alone. A contended arrangement would
 /// re-measure the contention gate and call it a floating-bus result.
 #[test]
-#[ignore = "differential harness; needs EMU198X_SPECTRUM_48K_ROM"]
+#[ignore = "FIXTURE: differential harness; needs EMU198X_SPECTRUM_48K_ROM"]
 fn the_in_path_samples_the_bus_where_fuse_does() {
     /// `IN A,(C)` out of uncontended RAM: `M1`, `M1`, then the I/O cycle.
     /// FUSE models the two `M1`s as four T-states each, so the I/O
@@ -520,7 +520,7 @@ fn step_one_instruction(machine: &mut Spectrum48k) -> u32 {
 
 /// The differential itself.
 #[test]
-#[ignore = "differential harness; needs EMU198X_SPECTRUM_48K_ROM"]
+#[ignore = "FIXTURE: differential harness; needs EMU198X_SPECTRUM_48K_ROM"]
 fn floating_bus_matches_fuse_at_every_tstate() {
     let Some(rom) = rom_bytes() else {
         panic!("set {ROM_PATH_ENV} to the 48K ROM to run this harness");
@@ -777,7 +777,7 @@ fn the_port_delay_table_still_matches_fuse() {
 /// instant is wrong, and a residual no single lead can remove means the
 /// delays are landing in the wrong places.
 #[test]
-#[ignore = "differential harness; needs EMU198X_SPECTRUM_48K_ROM"]
+#[ignore = "FIXTURE: differential harness; needs EMU198X_SPECTRUM_48K_ROM"]
 fn the_in_path_samples_the_bus_where_fuse_does_under_contention() {
     /// Two uncontended `M1` fetches before the I/O M-cycle opens.
     const IO_MCYCLE_OFFSET: u32 = 8;
@@ -981,7 +981,7 @@ fn the_in_path_samples_the_bus_where_fuse_does_under_contention() {
 /// can be pursued in the arrival rather than in the read. See
 /// `knowledge/decisions/spectrum-contention-vs-floating-bus.md`.
 #[test]
-#[ignore = "differential harness; needs EMU198X_SPECTRUM_48K_ROM"]
+#[ignore = "FIXTURE: differential harness; needs EMU198X_SPECTRUM_48K_ROM"]
 fn the_in_a_n_sample_instant_matches_fuse() {
     /// `M1` (4) then the operand fetch (3).
     const IO_MCYCLE_OFFSET: i64 = 7;

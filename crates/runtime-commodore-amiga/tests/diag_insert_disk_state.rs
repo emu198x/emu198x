@@ -29,7 +29,7 @@ fn load_ks13() -> Option<Vec<u8>> {
 }
 
 #[test]
-#[ignore = "needs KS 1.3 ROM — run with --ignored"]
+#[ignore = "FIXTURE: needs KS 1.3 ROM — run with --ignored"]
 fn dump_dmacon_trajectory_from_reset() -> Result<(), Box<dyn Error>> {
     let Some(rom) = load_ks13() else {
         return Ok(());
@@ -70,7 +70,7 @@ fn dump_dmacon_trajectory_from_reset() -> Result<(), Box<dyn Error>> {
 }
 
 #[test]
-#[ignore = "needs KS 1.3 ROM — run with --ignored"]
+#[ignore = "FIXTURE: needs KS 1.3 ROM — run with --ignored"]
 fn dump_state_at_frame_250_a500_a501() -> Result<(), Box<dyn Error>> {
     let Some(rom) = load_ks13() else {
         return Ok(());

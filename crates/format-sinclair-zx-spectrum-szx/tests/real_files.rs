@@ -30,7 +30,7 @@ fn tests_dir() -> Option<PathBuf> {
 /// mis-strides a chunk still produces *a* snapshot; it does not produce
 /// one that passes these.
 #[test]
-#[ignore = "needs EMU198X_ZX_SPECTRUM_TESTS_DIR"]
+#[ignore = "FIXTURE: needs EMU198X_ZX_SPECTRUM_TESTS_DIR"]
 fn reads_the_128k_timing_suite() {
     let Some(dir) = tests_dir() else {
         panic!("set {TESTS_DIR_ENV} to the extracted zx-spectrum-tests corpus");
@@ -116,7 +116,7 @@ fn reads_the_128k_timing_suite() {
 /// habits. This is cheap breadth: it catches chunks and machine ids the
 /// spec allows and the sample happens not to use.
 #[test]
-#[ignore = "needs EMU198X_ZX_SPECTRUM_TESTS_DIR"]
+#[ignore = "FIXTURE: needs EMU198X_ZX_SPECTRUM_TESTS_DIR"]
 fn reads_every_szx_in_the_corpus() {
     let Some(dir) = tests_dir() else {
         panic!("set {TESTS_DIR_ENV} to the extracted zx-spectrum-tests corpus");

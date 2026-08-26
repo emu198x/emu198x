@@ -58,7 +58,7 @@ fn dump_region(rom: &[u8], label: &str, start: u32, end: u32) {
 }
 
 #[test]
-#[ignore = "needs KS 1.2 ROM locally"]
+#[ignore = "FIXTURE: needs KS 1.2 ROM locally"]
 fn dump_ks12_early_boot_alert_regions() {
     let Some(rom) = load_kickstart() else { return };
 

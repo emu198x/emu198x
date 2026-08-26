@@ -51,7 +51,7 @@ fn sprite_snapshot(sys: &SordM5, n: usize) -> Vec<(u8, u8, u8)> {
 }
 
 #[test]
-#[ignore = "needs Sord M5 BIOS + Dig Dug cart — run with --ignored"]
+#[ignore = "FIXTURE: needs Sord M5 BIOS + Dig Dug cart — run with --ignored"]
 fn cart_round_spawns_and_runs() {
     let bios = env::var("EMU198X_SORD_M5_BIOS")
         .ok()
@@ -154,7 +154,7 @@ fn cart_round_spawns_and_runs() {
 /// ch3 actually fires at ~1/frame: the regression (raw, non-inverted /INT)
 /// left ch3 silent while a timer on ch1 flooded ~16 IRQs/frame.
 #[test]
-#[ignore = "needs Sord M5 BIOS + Dig Dug cart — run with --ignored"]
+#[ignore = "FIXTURE: needs Sord M5 BIOS + Dig Dug cart — run with --ignored"]
 fn vdp_int_drives_ctc_channel3() {
     let bios = env::var("EMU198X_SORD_M5_BIOS")
         .ok()

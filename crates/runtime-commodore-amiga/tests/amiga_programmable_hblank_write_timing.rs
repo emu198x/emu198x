@@ -750,7 +750,7 @@ struct CaseReportContext<'a> {
 }
 
 #[test]
-#[ignore = "explicit ten-run programmable-HBLANK write-timing UAE-family compatibility gate"]
+#[ignore = "FIXTURE: explicit ten-run programmable-HBLANK write-timing UAE-family compatibility gate"]
 fn programmable_hblank_write_timing_matches_registered_uae_observations() {
     let revision = revision_from_environment()
         .unwrap_or_else(|error| panic!("invalid accuracy revision identity: {error}"));

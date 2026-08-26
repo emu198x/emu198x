@@ -68,7 +68,7 @@ fn booted(rom: Vec<u8>) -> Zx81 {
 }
 
 #[test]
-#[ignore = "needs an 8 KB ZX81 ROM — set EMU198X_ZX81_ROM"]
+#[ignore = "FIXTURE: needs an 8 KB ZX81 ROM — set EMU198X_ZX81_ROM"]
 fn a_saved_program_loads_back() {
     let Ok(rom_path) = env::var("EMU198X_ZX81_ROM")
         .or_else(|_| env::var("HOME").map(|h| format!("{h}/.emu198x/roms/sinclair-zx81/zx81.rom")))

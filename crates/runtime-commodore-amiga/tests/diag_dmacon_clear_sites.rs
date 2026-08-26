@@ -27,7 +27,7 @@ fn load_ks13() -> Option<Vec<u8>> {
 }
 
 #[test]
-#[ignore = "needs KS 1.3 ROM — run with --ignored"]
+#[ignore = "FIXTURE: needs KS 1.3 ROM — run with --ignored"]
 fn dump_rom_around_dmacon_clear_sites() -> Result<(), Box<dyn Error>> {
     let Some(rom) = load_ks13() else {
         return Ok(());

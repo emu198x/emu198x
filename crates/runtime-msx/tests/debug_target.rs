@@ -52,7 +52,7 @@ fn z80_disasm_is_wired() {
 }
 
 #[test]
-#[ignore = "needs MSX BIOS — run with --ignored"]
+#[ignore = "FIXTURE: needs MSX BIOS — run with --ignored"]
 fn debug_surface_works_on_z80() {
     let Some(bios) = bios() else {
         panic!("MSX BIOS not found at ~/.emu198x/roms/microsoft-msx/msx.rom");

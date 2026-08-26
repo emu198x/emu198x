@@ -69,7 +69,7 @@ fn summarise(rt: &AmigaOcsRuntime) -> (u32, u32, u32) {
 }
 
 #[test]
-#[ignore = "needs KS 1.3 ROM — run with --ignored"]
+#[ignore = "FIXTURE: needs KS 1.3 ROM — run with --ignored"]
 fn sample_framebuffer_across_boot() -> Result<(), Box<dyn Error>> {
     let Some(rom) = load_ks13() else {
         return Ok(());

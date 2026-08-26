@@ -18,7 +18,7 @@ use runtime_commodore_c64::{C64Runtime, C64SessionQueryProvider, Model, type_str
 use common::{local_rom_firmware, wait_for_screen_line_contains};
 
 #[test]
-#[ignore = "requires local C64 ROMs at ~/.emu198x/roms/commodore-c64/"]
+#[ignore = "FIXTURE: requires local C64 ROMs at ~/.emu198x/roms/commodore-c64/"]
 fn save_records_a_readable_tap_on_a_writable_tape() {
     let runtime = C64Runtime::from_firmware(Model::C64PalBreadbin, &local_rom_firmware())
         .expect("local ROMs should construct a C64 runtime");

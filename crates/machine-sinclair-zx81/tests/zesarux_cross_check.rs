@@ -252,7 +252,7 @@ const PATTERN_STEP: u8 = 0x4D;
 /// this fixture leaves `R` to the ROM's display routine while a title reloads
 /// it in a routine of its own, so the two are not measuring the same thing.
 #[test]
-#[ignore = "needs a ZX81 ROM and a capture from tools/zx8x-zesarux-capture/wrx-fixture.sh"]
+#[ignore = "FIXTURE: needs a ZX81 ROM and a capture from tools/zx8x-zesarux-capture/wrx-fixture.sh"]
 fn the_wrx_fixture_matches_zesarux() {
     use machine_sinclair_zx81::Zx81;
 

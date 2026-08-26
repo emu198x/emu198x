@@ -332,7 +332,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "requires local 48K ROM at ~/.emu198x/roms/sinclair-zx-spectrum-48k/48.rom"]
+    #[ignore = "FIXTURE: requires local 48K ROM at ~/.emu198x/roms/sinclair-zx-spectrum-48k/48.rom"]
     fn boot_rom_populates_screen_memory() {
         let Some(rom_path) = spectrum_48k_rom_path() else {
             emu198x_test_skip::skip!("HOME is not set; skipping ROM-backed boot smoke test");

@@ -108,7 +108,7 @@ fn run_with(root: &std::path::Path, held: u8) -> Option<(Option<u64>, String)> {
 }
 
 #[test]
-#[ignore = "diagnostic: prints cpu_timing_test's on-screen result"]
+#[ignore = "DIAGNOSTIC: diagnostic: prints cpu_timing_test's on-screen result"]
 fn probe_cpu_timing_test() {
     let Some(root) = nes_test_roms_root() else {
         emu198x_test_skip::skip!("nes-test-roms corpus not staged (test-suites/nes-test-roms)");

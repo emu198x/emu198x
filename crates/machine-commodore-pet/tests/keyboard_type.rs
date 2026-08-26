@@ -77,7 +77,7 @@ fn screen(sys: &Pet) -> String {
 }
 
 #[test]
-#[ignore = "needs PET kernal/basic/editor/char ROMs — run with --ignored"]
+#[ignore = "FIXTURE: needs PET kernal/basic/editor/char ROMs — run with --ignored"]
 fn types_a_basic_line_and_prints_the_result() {
     let (Some(kernal), Some(basic), Some(editor), Some(charrom)) = (
         rom("kernal.rom"),
@@ -128,7 +128,7 @@ fn types_a_basic_line_and_prints_the_result() {
 /// cell it belongs in is row 8 column 7, the keypad's bottom-right pair
 /// with `=`. Typing a subtraction is the check that it landed right.
 #[test]
-#[ignore = "needs PET kernal/basic/editor/char ROMs — run with --ignored"]
+#[ignore = "FIXTURE: needs PET kernal/basic/editor/char ROMs — run with --ignored"]
 fn types_a_subtraction_through_the_keypad_minus() {
     let (Some(kernal), Some(basic), Some(editor), Some(charrom)) = (
         rom("kernal.rom"),
@@ -179,7 +179,7 @@ fn types_a_subtraction_through_the_keypad_minus() {
 /// than a rendered string: these are exactly the characters a lossy decode
 /// would smear together.
 #[test]
-#[ignore = "needs PET kernal/basic/editor/char ROMs — run with --ignored"]
+#[ignore = "FIXTURE: needs PET kernal/basic/editor/char ROMs — run with --ignored"]
 fn types_the_bracket_and_arrow_keys() {
     let Some(mut sys) = booted() else {
         panic!("PET ROMs not found — set EMU198X_PET_ROMS");
@@ -206,7 +206,7 @@ fn types_the_bracket_and_arrow_keys() {
 /// `]` instead of moving the cursor — and typing something is not an error,
 /// so nothing surfaced it. Cursor right is `(0, 7)`.
 #[test]
-#[ignore = "needs PET kernal/basic/editor/char ROMs — run with --ignored"]
+#[ignore = "FIXTURE: needs PET kernal/basic/editor/char ROMs — run with --ignored"]
 fn cursor_right_moves_the_cursor_instead_of_typing() {
     let Some(mut sys) = booted() else {
         panic!("PET ROMs not found — set EMU198X_PET_ROMS");

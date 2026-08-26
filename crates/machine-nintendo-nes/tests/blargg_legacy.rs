@@ -168,7 +168,7 @@ fn run_or_skip(rel: &str) {
 // ────────────────────────────────────────────────────────────────
 
 #[test]
-#[ignore = "blargg ROM run — requires test-suites/nes-test-roms"]
+#[ignore = "FIXTURE: blargg ROM run — requires test-suites/nes-test-roms"]
 fn cpu_dummy_reads() {
     run_or_skip("cpu_dummy_reads/cpu_dummy_reads.nes");
 }
@@ -242,19 +242,19 @@ fn cpu_timing_mode(held: u8, banner: &str) {
 }
 
 #[test]
-#[ignore = "blargg ROM run — requires test-suites/nes-test-roms"]
+#[ignore = "FIXTURE: blargg ROM run — requires test-suites/nes-test-roms"]
 fn cpu_timing_official() {
     cpu_timing_mode(0x00, "OFFICIAL INSTRUCTIONS ONLY");
 }
 
 #[test]
-#[ignore = "blargg ROM run — requires test-suites/nes-test-roms"]
+#[ignore = "FIXTURE: blargg ROM run — requires test-suites/nes-test-roms"]
 fn cpu_timing_official_plus_nops() {
     cpu_timing_mode(0x01, "OFFICIAL + NOP");
 }
 
 #[test]
-#[ignore = "blargg ROM run — requires test-suites/nes-test-roms"]
+#[ignore = "FIXTURE: blargg ROM run — requires test-suites/nes-test-roms"]
 fn cpu_timing_all_undocumented() {
     cpu_timing_mode(0x02, "OFFICIAL + UNDOCUMENTED");
 }

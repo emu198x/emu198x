@@ -83,7 +83,7 @@ fn a_corrupt_atm_reports_invalid_media() {
 /// Load a real `.atm` (e.g. from the Atom Software Archive) and confirm its first
 /// body byte lands at the header's load address.
 #[test]
-#[ignore = "needs a real .atm — set EMU198X_ATOM_ATM"]
+#[ignore = "FIXTURE: needs a real .atm — set EMU198X_ATOM_ATM"]
 fn real_atm_loads_to_its_address() {
     let path = std::env::var("EMU198X_ATOM_ATM").expect("set EMU198X_ATOM_ATM to a .atm file");
     let bytes = std::fs::read(&path).expect("read the .atm");

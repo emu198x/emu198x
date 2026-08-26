@@ -34,7 +34,7 @@ fn rom_path() -> Option<PathBuf> {
 /// - but *some* ink is present, so a framebuffer nobody drew into (the ULA
 ///   clears to white) fails too
 #[test]
-#[ignore = "needs an 8 KB ZX81 ROM — run with --ignored"]
+#[ignore = "FIXTURE: needs an 8 KB ZX81 ROM — run with --ignored"]
 fn rom_boots_to_its_power_on_screen() {
     let Some(path) = rom_path() else {
         emu198x_test_skip::skip!(
@@ -142,7 +142,7 @@ fn character(code: u8) -> char {
 /// ROM that cannot be staged in CI — so the time is spent only by someone who
 /// asked for it.
 #[test]
-#[ignore = "needs an 8 KB ZX81 ROM — run with --ignored"]
+#[ignore = "FIXTURE: needs an 8 KB ZX81 ROM — run with --ignored"]
 fn every_letter_types_its_keyword() {
     let Some(path) = rom_path() else {
         emu198x_test_skip::skip!(
@@ -225,7 +225,7 @@ fn every_letter_types_its_keyword() {
 /// It also pins the regression the old model had: with bits 5-7 hardwired
 /// high, every ZX81 reported 50 Hz whatever it was strapped for.
 #[test]
-#[ignore = "needs an 8 KB ZX81 ROM — run with --ignored"]
+#[ignore = "FIXTURE: needs an 8 KB ZX81 ROM — run with --ignored"]
 fn zx81_margin_follows_bit_6() {
     const MARGIN: u16 = 0x4028;
     const FIFTY_HZ_MARGIN: u8 = 55;
@@ -270,7 +270,7 @@ fn zx81_margin_follows_bit_6() {
 /// backstop, the *longest* frame, and budgeting it ran the machine at double
 /// speed in the settled state it spends all its time in.
 #[test]
-#[ignore = "needs an 8 KB ZX81 ROM — run with --ignored"]
+#[ignore = "FIXTURE: needs an 8 KB ZX81 ROM — run with --ignored"]
 fn the_frame_budget_never_exceeds_a_real_frame() {
     let Some(path) = rom_path() else {
         emu198x_test_skip::skip!(
@@ -310,7 +310,7 @@ fn the_frame_budget_never_exceeds_a_real_frame() {
 /// tabulates the UK field as 6 sync + 56 pad + 192 text + 56 pad, and this is
 /// the measurement that agrees with it. See #1116.
 #[test]
-#[ignore = "needs an 8 KB ZX81 ROM — run with --ignored"]
+#[ignore = "FIXTURE: needs an 8 KB ZX81 ROM — run with --ignored"]
 fn the_field_is_310_lines() {
     let Some(path) = rom_path() else {
         emu198x_test_skip::skip!(
@@ -352,7 +352,7 @@ fn the_field_is_310_lines() {
 /// `$0038` handler decrements `C` once per scan line — so a change to the
 /// display's line budget fails here rather than only shifting a golden.
 #[test]
-#[ignore = "needs an 8 KB ZX81 ROM — run with --ignored"]
+#[ignore = "FIXTURE: needs an 8 KB ZX81 ROM — run with --ignored"]
 fn the_field_is_303_drawn_lines() {
     let Some(path) = rom_path() else {
         emu198x_test_skip::skip!(

@@ -178,7 +178,7 @@ fn booted(roms: &(Vec<u8>, Vec<u8>), snapshot: &Snapshot) -> Spectrum128K {
 /// This can fail two ways that matter: the snapshot's `$7FFD` not being
 /// applied, and a future change to `apply_snapshot` paging over it.
 #[test]
-#[ignore = "needs the zx-spectrum-tests corpus and 128K ROMs"]
+#[ignore = "FIXTURE: needs the zx-spectrum-tests corpus and 128K ROMs"]
 fn the_suite_runs_in_48k_paging_mode() {
     let (Some(roms), Ok(bytes)) = (roms(), std::fs::read(suite_path())) else {
         panic!("set {TESTS_DIR_ENV}, {ROM0_PATH_ENV} and {ROM1_PATH_ENV}");
@@ -226,7 +226,7 @@ fn the_suite_runs_in_48k_paging_mode() {
 /// single case into an assertion here would collapse it into the binary
 /// gate it replaces.
 #[test]
-#[ignore = "needs the zx-spectrum-tests corpus and 128K ROMs; ~5 min"]
+#[ignore = "FIXTURE: needs the zx-spectrum-tests corpus and 128K ROMs; ~5 min"]
 fn timing_survey_128k_records_every_case() {
     let Some(roms) = roms() else {
         panic!("set {ROM0_PATH_ENV} and {ROM1_PATH_ENV} to the 128K ROMs");

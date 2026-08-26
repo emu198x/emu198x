@@ -29,7 +29,7 @@ fn key(name: &str, pressed: bool) -> InputEvent {
 }
 
 #[test]
-#[ignore = "requires local OS + BASIC ROMs at ~/.emu198x/roms/atari-800xl/"]
+#[ignore = "FIXTURE: requires local OS + BASIC ROMs at ~/.emu198x/roms/atari-800xl/"]
 fn typing_print_expression_evaluates() {
     let (Some(os), Some(basic)) = (rom("atarixl.rom"), rom("ataribas.rom")) else {
         emu198x_test_skip::skip!("skipping: ROMs not present");

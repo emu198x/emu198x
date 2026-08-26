@@ -323,7 +323,7 @@ fn opcode_path_uses_lowercase_hex_names() {
 }
 
 #[test]
-#[ignore = "requires local Adam Tennant SM83 corpus"]
+#[ignore = "FIXTURE: requires local Adam Tennant SM83 corpus"]
 fn run_opcode_00() {
     let root = find_sm83_tennant_dir().expect("SM83 corpus should exist");
     let (pass, fail, first_failures) = run_opcode_tests(&opcode_path(&root, 0x00));
@@ -336,7 +336,7 @@ fn run_opcode_00() {
 }
 
 #[test]
-#[ignore = "requires local Adam Tennant SM83 corpus"]
+#[ignore = "FIXTURE: requires local Adam Tennant SM83 corpus"]
 fn run_named_opcode() {
     let Some(opcode) = named_opcode_from_env() else {
         panic!("set {OPCODE_ENV} to one hex opcode, for example 'cd' or '3e'");
@@ -354,7 +354,7 @@ fn run_named_opcode() {
 /// Runs the entire 256-opcode top-level corpus (skipping the illegal
 /// opcodes the corpus doesn't ship).
 #[test]
-#[ignore = "requires local Adam Tennant SM83 corpus and runs for ~minutes"]
+#[ignore = "FIXTURE: requires local Adam Tennant SM83 corpus and runs for ~minutes"]
 fn run_all() {
     let root = find_sm83_tennant_dir().expect("SM83 corpus should exist");
 
@@ -401,7 +401,7 @@ fn run_all() {
 /// Runs the 25,600 entries in `cb.json` covering every `CB xx`
 /// permutation.
 #[test]
-#[ignore = "requires local Adam Tennant SM83 corpus and runs for ~minutes"]
+#[ignore = "FIXTURE: requires local Adam Tennant SM83 corpus and runs for ~minutes"]
 fn run_cb() {
     let root = find_sm83_tennant_dir().expect("SM83 corpus should exist");
     let (pass, fail, first_failures) = run_opcode_tests(&cb_path(&root));

@@ -356,7 +356,7 @@ fn run_full(
 }
 
 #[test]
-#[ignore = "needs local 128K ROMs and Float128k.tap; ~50 s at cycle-accurate \
+#[ignore = "FIXTURE: needs local 128K ROMs and Float128k.tap; ~50 s at cycle-accurate \
            tape speed"]
 fn float128k_prints_expected_tstate() {
     let rom0_path = rom0_path();

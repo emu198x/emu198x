@@ -24,7 +24,7 @@ fn all_drives_runtime() -> C64Runtime {
 }
 
 #[test]
-#[ignore = "requires local C64 ROMs plus 1541, 1571, and 1581 DOS ROMs"]
+#[ignore = "FIXTURE: requires local C64 ROMs plus 1541, 1571, and 1581 DOS ROMs"]
 fn default_layout_is_1541_on_8_and_1581_on_9() {
     let runtime = all_drives_runtime();
 
@@ -38,7 +38,7 @@ fn default_layout_is_1541_on_8_and_1581_on_9() {
 }
 
 #[test]
-#[ignore = "requires local C64 ROMs plus 1541, 1571, and 1581 DOS ROMs"]
+#[ignore = "FIXTURE: requires local C64 ROMs plus 1541, 1571, and 1581 DOS ROMs"]
 fn set_port_drive_swaps_and_clears_ports() {
     let mut runtime = all_drives_runtime();
 
@@ -76,7 +76,7 @@ fn set_port_drive_swaps_and_clears_ports() {
 }
 
 #[test]
-#[ignore = "requires local C64 ROMs plus 1541, 1571, and 1581 DOS ROMs"]
+#[ignore = "FIXTURE: requires local C64 ROMs plus 1541, 1571, and 1581 DOS ROMs"]
 fn selecting_a_model_without_its_rom_errors() {
     // This runtime has only the 1541 DOS ROM (device 8); the 1571/1581 ROMs
     // were never supplied, so selecting those models must fail cleanly.
@@ -97,7 +97,7 @@ fn selecting_a_model_without_its_rom_errors() {
 }
 
 #[test]
-#[ignore = "requires local C64 ROMs plus 1541, 1571, and 1581 DOS ROMs"]
+#[ignore = "FIXTURE: requires local C64 ROMs plus 1541, 1571, and 1581 DOS ROMs"]
 fn a_1581_chosen_on_a_non_default_port_boots_on_the_bus() {
     let runtime = all_drives_runtime();
     let mut session = HeadlessSession::new_with_query_provider(
@@ -142,7 +142,7 @@ fn a_1581_chosen_on_a_non_default_port_boots_on_the_bus() {
 }
 
 #[test]
-#[ignore = "requires local C64 ROMs plus 1541, 1571, and 1581 DOS ROMs"]
+#[ignore = "FIXTURE: requires local C64 ROMs plus 1541, 1571, and 1581 DOS ROMs"]
 fn snapshot_preserves_a_custom_port_layout() {
     let mut runtime = all_drives_runtime();
     // Custom layout: device 8 empty, 1581 on 9 (default), 1571 on 10.

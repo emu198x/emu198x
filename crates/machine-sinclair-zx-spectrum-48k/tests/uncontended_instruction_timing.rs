@@ -352,7 +352,7 @@ fn measure(case: &Case, rom: &[u8]) -> Result<u32, String> {
 
 /// Every instruction must cost what Zilog says, with no ULA involved.
 #[test]
-#[ignore = "needs EMU198X_SPECTRUM_48K_ROM"]
+#[ignore = "FIXTURE: needs EMU198X_SPECTRUM_48K_ROM"]
 fn uncontended_costs_match_zilog() {
     let Some(rom) = rom_bytes() else {
         panic!("set {ROM_PATH_ENV} to the 48K ROM to run this harness");

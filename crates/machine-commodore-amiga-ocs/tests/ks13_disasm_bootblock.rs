@@ -58,7 +58,7 @@ fn dump_region(rom: &[u8], label: &str, start: u32, end: u32) {
 }
 
 #[test]
-#[ignore = "needs KS 1.3 ROM locally"]
+#[ignore = "FIXTURE: needs KS 1.3 ROM locally"]
 fn dump_ks13_trackdisk_bootblock_regions() {
     let Some(rom) = load_kickstart() else { return };
 

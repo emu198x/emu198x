@@ -643,7 +643,7 @@ mod tests {
     /// `*` (the COS command prefix) is SHIFT + the `:` key, probed against the
     /// real MOS — not a dedicated key. Confirm SHIFT+Colon echoes `*` (0x2A).
     #[test]
-    #[ignore = "needs the real Atom ROM"]
+    #[ignore = "FIXTURE: needs the real Atom ROM"]
     fn star_is_shift_colon_on_the_real_mos() {
         let path = std::path::PathBuf::from(std::env::var("HOME").expect("HOME"))
             .join(".emu198x/roms/acorn-atom/atom.rom");
@@ -673,7 +673,7 @@ mod tests {
     /// DELETE — the (4,1) key — removes the char to the left and steps the
     /// cursor back, probed against the real MOS.
     #[test]
-    #[ignore = "needs the real Atom ROM"]
+    #[ignore = "FIXTURE: needs the real Atom ROM"]
     fn delete_removes_the_previous_char() {
         let path = std::path::PathBuf::from(std::env::var("HOME").expect("HOME"))
             .join(".emu198x/roms/acorn-atom/atom.rom");
@@ -715,7 +715,7 @@ mod tests {
     /// The two bidirectional cursor keys move the edit cursor on the real MOS:
     /// `CursorUpDown` up / SHIFT-down, `CursorLeftRight` right / SHIFT-left.
     #[test]
-    #[ignore = "needs the real Atom ROM"]
+    #[ignore = "FIXTURE: needs the real Atom ROM"]
     fn cursor_keys_move_the_cursor() {
         let path = std::path::PathBuf::from(std::env::var("HOME").expect("HOME"))
             .join(".emu198x/roms/acorn-atom/atom.rom");
@@ -778,7 +778,7 @@ mod tests {
     /// LOCK is a shift-lock: after pressing it, letters come out shifted
     /// (inverse video, display code 0x80+), probed against the real MOS.
     #[test]
-    #[ignore = "needs the real Atom ROM"]
+    #[ignore = "FIXTURE: needs the real Atom ROM"]
     fn lock_shifts_following_letters() {
         let path = std::path::PathBuf::from(std::env::var("HOME").expect("HOME"))
             .join(".emu198x/roms/acorn-atom/atom.rom");
@@ -820,7 +820,7 @@ mod tests {
     /// press COPY, and confirm the MOS outputs that character (caught at OSWRCH,
     /// $FFF4) — proving COPY is the (5,1) key, not a fixed control code.
     #[test]
-    #[ignore = "needs the real Atom ROM"]
+    #[ignore = "FIXTURE: needs the real Atom ROM"]
     fn copy_reads_the_char_under_the_cursor() {
         let path = std::path::PathBuf::from(std::env::var("HOME").expect("HOME"))
             .join(".emu198x/roms/acorn-atom/atom.rom");

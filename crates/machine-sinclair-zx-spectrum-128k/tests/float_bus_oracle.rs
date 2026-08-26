@@ -288,7 +288,7 @@ fn mismatches(bus: &[(u8, u8)], memory: &Memory128K, offset: i32) -> usize {
 
 /// The differential itself, and the second anchor.
 #[test]
-#[ignore = "differential harness; needs EMU198X_SPECTRUM_128K_ROM0 / ROM1"]
+#[ignore = "FIXTURE: differential harness; needs EMU198X_SPECTRUM_128K_ROM0 / ROM1"]
 fn floating_bus_matches_fuse_at_every_tstate() {
     let Some(roms) = roms() else {
         panic!("set {ROM0_PATH_ENV} and {ROM1_PATH_ENV} to run this harness");
@@ -407,7 +407,7 @@ fn floating_bus_matches_fuse_at_every_tstate() {
 /// say in the same breath what `Float128K` now reads and why that is the
 /// right number. See the module docs.
 #[test]
-#[ignore = "differential harness; needs EMU198X_SPECTRUM_128K_ROM0 / ROM1"]
+#[ignore = "FIXTURE: differential harness; needs EMU198X_SPECTRUM_128K_ROM0 / ROM1"]
 fn the_int_anchor_still_disagrees_with_the_bus() {
     let Some(roms) = roms() else {
         panic!("set {ROM0_PATH_ENV} and {ROM1_PATH_ENV} to run this harness");

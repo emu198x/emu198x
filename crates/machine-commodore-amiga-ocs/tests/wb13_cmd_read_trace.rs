@@ -606,7 +606,7 @@ fn run_later_block_field_watch_pass(
 }
 
 #[test]
-#[ignore = "needs KS 1.3 ROM + Workbench 1.3 ADF locally"]
+#[ignore = "FIXTURE: needs KS 1.3 ROM + Workbench 1.3 ADF locally"]
 fn trace_wb13_cmd_read_request_and_loop_state() {
     let home = PathBuf::from(std::env::var("HOME").expect("HOME"));
     let Some(rom) = load_artifact(&home.join(".emu198x/roms/commodore-amiga/kick13.rom")) else {
@@ -824,7 +824,7 @@ fn trace_wb13_cmd_read_request_and_loop_state() {
 }
 
 #[test]
-#[ignore = "needs KS 1.3 ROM + Workbench 1.3 ADF locally"]
+#[ignore = "FIXTURE: needs KS 1.3 ROM + Workbench 1.3 ADF locally"]
 fn trace_wb13_later_read_block_writers() {
     let home = PathBuf::from(std::env::var("HOME").expect("HOME"));
     let Some(rom) = load_artifact(&home.join(".emu198x/roms/commodore-amiga/kick13.rom")) else {
@@ -871,7 +871,7 @@ fn trace_wb13_later_read_block_writers() {
 }
 
 #[test]
-#[ignore = "needs KS 1.3 ROM + Workbench 1.3 ADF locally"]
+#[ignore = "FIXTURE: needs KS 1.3 ROM + Workbench 1.3 ADF locally"]
 fn trace_wb13_later_request_origin_context() {
     let home = PathBuf::from(std::env::var("HOME").expect("HOME"));
     let Some(rom) = load_artifact(&home.join(".emu198x/roms/commodore-amiga/kick13.rom")) else {

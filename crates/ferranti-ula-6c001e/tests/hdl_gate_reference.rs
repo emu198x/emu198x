@@ -432,7 +432,7 @@ fn the_hdl_model_reproduces_fuse_four_way_table() {
 
 /// Half-cycle trace of the I/O cycle, for the class the table rejects.
 #[test]
-#[ignore = "diagnostic"]
+#[ignore = "DIAGNOSTIC: diagnostic"]
 fn trace_the_failing_class() {
     for port in [0x40FEu16, 0x40FF] {
         let pins = in_a_c_pins(0x4000, port);
@@ -673,7 +673,7 @@ fn engine_cost(pixel_phase: u16, pins: &[HalfCycle]) -> Option<u32> {
 /// Report-only. The engine is known to disagree — that is the open work —
 /// and the value is in *where*, which the per-case rotations give.
 #[test]
-#[ignore = "diagnostic; scores the engine against the model"]
+#[ignore = "DIAGNOSTIC: diagnostic; scores the engine against the model"]
 fn the_engine_gate_against_the_hdl_model() {
     struct Case {
         name: &'static str,
@@ -829,7 +829,7 @@ fn the_hdl_model_reproduces_fuse_multi_mcycle_contention() {
 /// the latch is its fix; if it does not, the latch is solving a problem
 /// the engine no longer has.
 #[test]
-#[ignore = "diagnostic; scores the engine against the model"]
+#[ignore = "DIAGNOSTIC: diagnostic; scores the engine against the model"]
 fn the_engine_on_multi_mcycle_sequences() {
     let cases = [
         ("LD A,(HL)", ld_a_hl_pins(0x4000, 0x5000)),

@@ -131,7 +131,7 @@ fn survey_titles() -> Vec<(&'static str, &'static str, &'static str)> {
 }
 
 #[test]
-#[ignore = "diagnostic — needs +3 ROMs and a local DSK reference library"]
+#[ignore = "DIAGNOSTIC: diagnostic — needs +3 ROMs and a local DSK reference library"]
 fn survey_plus3_disk_titles() {
     let firmware_root = home().join(".emu198x/roms/amstrad-zx-spectrum-plus3");
     if !firmware_root.exists() {

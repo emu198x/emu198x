@@ -76,7 +76,7 @@ fn image(machine: &Zx80) -> Vec<u8> {
 }
 
 #[test]
-#[ignore = "needs a 4 KB ZX80 ROM — run with --ignored"]
+#[ignore = "FIXTURE: needs a 4 KB ZX80 ROM — run with --ignored"]
 fn a_saved_program_loads_back_through_the_rom() {
     let Some(path) = rom_path() else {
         emu198x_test_skip::skip!(
@@ -138,7 +138,7 @@ fn a_saved_program_loads_back_through_the_rom() {
 /// most time to diagnose, so it gets its own assertion: the loader has to
 /// still be waiting, not finished.
 #[test]
-#[ignore = "needs a 4 KB ZX80 ROM — run with --ignored"]
+#[ignore = "FIXTURE: needs a 4 KB ZX80 ROM — run with --ignored"]
 fn a_tape_with_no_leader_is_missed_entirely() {
     let Some(path) = rom_path() else {
         emu198x_test_skip::skip!("ZX80 ROM not staged");
@@ -182,7 +182,7 @@ fn a_tape_with_no_leader_is_missed_entirely() {
 /// *Cross Chase*, none of which can be committed here — so this is a local
 /// check by design, in the same way the ROM-backed tests are.
 #[test]
-#[ignore = "needs a ZX80 .o in EMU198X_ZX80_TAPE — run with --ignored"]
+#[ignore = "FIXTURE: needs a ZX80 .o in EMU198X_ZX80_TAPE — run with --ignored"]
 fn real_software_loads_through_the_rom() {
     let Some(rom_path) = rom_path() else {
         emu198x_test_skip::skip!("ZX80 ROM not staged");

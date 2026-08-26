@@ -45,7 +45,7 @@ fn home() -> PathBuf {
 }
 
 #[test]
-#[ignore = "diagnostic — trace IFF1 over time from a SkoolKit Rainbow Islands snapshot"]
+#[ignore = "DIAGNOSTIC: diagnostic — trace IFF1 over time from a SkoolKit Rainbow Islands snapshot"]
 fn trace_iff_and_mixer_from_skoolkit_snapshot() {
     let snapshot_path = PathBuf::from("/tmp/rainbow-sk-128.z80");
     if !snapshot_path.exists() {

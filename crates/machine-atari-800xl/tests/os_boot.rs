@@ -31,7 +31,7 @@ fn basic_path() -> Option<PathBuf> {
 }
 
 #[test]
-#[ignore = "needs an Atari 800XL OS ROM (atarixl.rom) — run with --ignored"]
+#[ignore = "FIXTURE: needs an Atari 800XL OS ROM (atarixl.rom) — run with --ignored"]
 fn os_reaches_self_check() {
     let Some(path) = os_path() else {
         panic!(

@@ -262,7 +262,7 @@ fn sha256_hex(bytes: &[u8]) -> String {
 /// that best matches VICE's 384x272 reference, reporting the best alignment +
 /// match fraction. Drives the constants baked into the real comparison test.
 #[test]
-#[ignore = "calibration aid: derives crop offset + palette match vs VICE reference"]
+#[ignore = "DIAGNOSTIC: calibration aid: derives crop offset + palette match vs VICE reference"]
 fn calibrate_gfxfetch_alignment() {
     if !roms_present() || testbench_dir().is_none() {
         emu198x_test_skip::skip!("C64 ROMs or VIC-II testbench not staged");
@@ -357,7 +357,7 @@ fn match_fraction_bounded(
 /// NTSC window is the same 384px width as PAL but 247 lines tall (vs our 244),
 /// so this quantifies both the crop offset and the vertical-extent gap.
 #[test]
-#[ignore = "calibration aid: NTSC crop offset + match vs VICE 6567R8 reference"]
+#[ignore = "DIAGNOSTIC: calibration aid: NTSC crop offset + match vs VICE 6567R8 reference"]
 fn calibrate_ntsc_gfxfetch_alignment() {
     if !roms_present() || testbench_dir().is_none() {
         emu198x_test_skip::skip!("C64 ROMs or VIC-II testbench not staged");
@@ -421,7 +421,7 @@ fn calibrate_ntsc_gfxfetch_alignment() {
 /// full frame instead of the bottom of a cropped window. We render every raster
 /// line (like PAL) and leave cropping to the consumer.
 #[test]
-#[ignore = "requires ~/.emu198x/roms/commodore-c64 + ~/.emu198x/test-suites/c64-vicii"]
+#[ignore = "FIXTURE: requires ~/.emu198x/roms/commodore-c64 + ~/.emu198x/test-suites/c64-vicii"]
 fn ntsc_gfxfetch_matches_vice_reference() {
     if !roms_present() || testbench_dir().is_none() {
         emu198x_test_skip::skip!("C64 ROMs or VIC-II testbench not staged");
@@ -455,7 +455,7 @@ fn ntsc_gfxfetch_matches_vice_reference() {
 /// cycle-timing gap toward exactness that is open Increment 5 work. See
 /// `/tmp/vicii_gfxfetch_diff.png` from `calibrate_gfxfetch_alignment`.
 #[test]
-#[ignore = "requires ~/.emu198x/roms/commodore-c64 + ~/.emu198x/test-suites/c64-vicii"]
+#[ignore = "FIXTURE: requires ~/.emu198x/roms/commodore-c64 + ~/.emu198x/test-suites/c64-vicii"]
 fn gfxfetch_matches_vice_reference() {
     if !roms_present() || testbench_dir().is_none() {
         emu198x_test_skip::skip!("C64 ROMs or VIC-II testbench not staged");
@@ -474,7 +474,7 @@ fn gfxfetch_matches_vice_reference() {
 /// Diagnostic: dump one program's framebuffer to `/tmp/vicii_dump.png`. The
 /// program path (relative to the testbench dir) comes from `VICII_DUMP_PRG`.
 #[test]
-#[ignore = "diagnostic: dumps framebuffer for the VICII_DUMP_PRG program"]
+#[ignore = "DIAGNOSTIC: diagnostic: dumps framebuffer for the VICII_DUMP_PRG program"]
 fn dump_prg_framebuffer() {
     if !roms_present() || testbench_dir().is_none() {
         emu198x_test_skip::skip!("C64 ROMs or VIC-II testbench not staged");
@@ -493,7 +493,7 @@ fn dump_prg_framebuffer() {
 /// CPU access phase and VICE's store-watchpoint timestamp are intentionally
 /// separate: comparing them as if they were one phase creates false deltas.
 #[test]
-#[ignore = "diagnostic: pins sequencer-bug D011 writes to the VIC-II cycle boundary"]
+#[ignore = "DIAGNOSTIC: diagnostic: pins sequencer-bug D011 writes to the VIC-II cycle boundary"]
 fn sequencer_bug_d011_write_cycle_boundary() {
     if !roms_present() || testbench_dir().is_none() {
         emu198x_test_skip::skip!("C64 ROMs or VIC-II testbench not staged");
@@ -753,7 +753,7 @@ fn sequencer_bug_d011_write_cycle_boundary() {
 /// drive the unmodified byte and then the modified byte on consecutive Phi2
 /// cycles, so inspecting only register changes hides half the timing evidence.
 #[test]
-#[ignore = "diagnostic: reports D020 CPU bus phases"]
+#[ignore = "DIAGNOSTIC: diagnostic: reports D020 CPU bus phases"]
 fn d020_write_cycle_boundary() {
     if !roms_present() || testbench_dir().is_none() {
         emu198x_test_skip::skip!("C64 ROMs or VIC-II testbench not staged");
@@ -900,7 +900,7 @@ const SURVEY: &[(&str, &str, &str)] = &[
 /// (worst first). Reveals whether `gfxfetch`'s residual is isolated or a
 /// systematic sub-cycle offset. Not a pass/fail — a measurement dashboard.
 #[test]
-#[ignore = "survey aid: measures match % across VICII testbench categories"]
+#[ignore = "DIAGNOSTIC: survey aid: measures match % across VICII testbench categories"]
 fn survey_testbench_categories() {
     let result_path = std::env::var("EMU198X_C64_VICII_SURVEY_RESULT")
         .ok()
@@ -1008,7 +1008,7 @@ fn survey_testbench_categories() {
 /// matrix byte, the CPU-side colour nibble, line-buffer leakage and the first
 /// valid access after the three-cycle BA-to-AEC handover.
 #[test]
-#[ignore = "strict colour-fetch parity requires C64 ROMs + VIC-II testbench"]
+#[ignore = "FIXTURE: strict colour-fetch parity requires C64 ROMs + VIC-II testbench"]
 fn colorfetchbug_cases_match_vice_references_exactly() {
     if !roms_present() || testbench_dir().is_none() {
         emu198x_test_skip::skip!("C64 ROMs or VIC-II testbench not staged");
@@ -1048,7 +1048,7 @@ fn colorfetchbug_cases_match_vice_references_exactly() {
 /// PAL 6569 colour-resolution ring. Keep both shapes exact so an unrelated
 /// timing change cannot trade one disagreement for another.
 #[test]
-#[ignore = "strict sequencer-bug parity requires C64 ROMs + VIC-II testbench"]
+#[ignore = "FIXTURE: strict sequencer-bug parity requires C64 ROMs + VIC-II testbench"]
 fn sequencer_bug_retains_only_the_known_pipeline_disagreements() {
     if !roms_present() || testbench_dir().is_none() {
         emu198x_test_skip::skip!("C64 ROMs or VIC-II testbench not staged");
@@ -1120,7 +1120,7 @@ fn row_match_fraction(fb: &[u32], reference: &RefImage, dx: u32, dy: u32, ry: u3
 /// at 99.998 % when it became the default). Guards against a future sprite-path
 /// change silently regressing the anchor.
 #[test]
-#[ignore = "sequencer: spritedma floor vs VICE (requires ROMs + testbench)"]
+#[ignore = "FIXTURE: sequencer: spritedma floor vs VICE (requires ROMs + testbench)"]
 fn sprite_sequencer_spritedma_parity() {
     if !roms_present() || testbench_dir().is_none() {
         emu198x_test_skip::skip!("C64 ROMs or VIC-II testbench not staged");
@@ -1146,7 +1146,7 @@ fn sprite_sequencer_spritedma_parity() {
 /// any effect) diverges — height, position, a wrapped copy — so each chain step
 /// can be pinned to specific rows instead of one aggregate number.
 #[test]
-#[ignore = "oracle: per-scanline match % vs VICE for VICII_DIFF_CAT (sprite-chain rebuild)"]
+#[ignore = "DIAGNOSTIC: oracle: per-scanline match % vs VICE for VICII_DIFF_CAT (sprite-chain rebuild)"]
 fn diff_by_row() {
     if !roms_present() || testbench_dir().is_none() {
         emu198x_test_skip::skip!("C64 ROMs or VIC-II testbench not staged");

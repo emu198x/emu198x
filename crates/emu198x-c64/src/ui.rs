@@ -1087,7 +1087,7 @@ mod tests {
     /// is the enabling piece for the native-UI drive-type chooser: without the
     /// ROMs retained, `set_port_drive` would reject 1571/1581 as MissingFirmware.
     #[test]
-    #[ignore = "requires local C64 + 1541/1571/1581 DOS ROMs at ~/.emu198x/roms/commodore-c64/"]
+    #[ignore = "FIXTURE: requires local C64 + 1541/1571/1581 DOS ROMs at ~/.emu198x/roms/commodore-c64/"]
     fn build_runtime_loads_the_optional_1571_and_1581_dos_roms() {
         use runtime_commodore_c64::DriveKind;
 

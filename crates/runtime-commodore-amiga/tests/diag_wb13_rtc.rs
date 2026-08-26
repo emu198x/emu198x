@@ -44,7 +44,7 @@ fn snapshot_to_png(rt: &AmigaOcsRuntime, path: &Path) {
 }
 
 #[test]
-#[ignore = "needs local KS 1.3 ROM + WB 1.3 disk"]
+#[ignore = "FIXTURE: needs local KS 1.3 ROM + WB 1.3 disk"]
 fn trace_wb13_setclock_rtc_accesses() -> Result<(), Box<dyn Error>> {
     let home = PathBuf::from(std::env::var("HOME").expect("HOME"));
     let Some(rom) = load_artifact(&home.join(".emu198x/roms/commodore-amiga/kick13.rom")) else {

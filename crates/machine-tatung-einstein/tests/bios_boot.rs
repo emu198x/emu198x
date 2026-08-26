@@ -19,7 +19,7 @@ fn bios_path() -> Option<PathBuf> {
 }
 
 #[test]
-#[ignore = "needs Tatung Einstein X-TAL MOS ROM (8 KB) — run with --ignored"]
+#[ignore = "FIXTURE: needs Tatung Einstein X-TAL MOS ROM (8 KB) — run with --ignored"]
 fn bios_boots_to_mos_prompt() {
     let Some(path) = bios_path() else {
         panic!(

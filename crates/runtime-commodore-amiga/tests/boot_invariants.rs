@@ -182,7 +182,7 @@ fn ram_config_defaults_are_stable() {
 /// floppy ID stream, MFM encoder). Promoted from the
 /// `diag_wb13_boot_state.rs` and `golden_matrix.rs` waypoints.
 #[test]
-#[ignore = "requires ~/.emu198x/roms/commodore-amiga/kick13.rom"]
+#[ignore = "FIXTURE: requires ~/.emu198x/roms/commodore-amiga/kick13.rom"]
 fn kickstart_13_reaches_insert_disk_screen() -> Result<(), Box<dyn Error>> {
     let Some(rom_dir) = home_rom_dir() else {
         emu198x_test_skip::record("skip: no Amiga ROM dir at $HOME/.emu198x/roms/commodore-amiga");
@@ -222,7 +222,7 @@ fn kickstart_13_reaches_insert_disk_screen() -> Result<(), Box<dyn Error>> {
 /// This catches early boot-path failures. `boot.detected` does not identify
 /// the Workbench desktop and must not be used as evidence that boot completed.
 #[test]
-#[ignore = "requires ~/.emu198x/roms/commodore-amiga/kick13.rom and ~/.emu198x/media/commodore-amiga/workbench-1.3.adf"]
+#[ignore = "FIXTURE: requires ~/.emu198x/roms/commodore-amiga/kick13.rom and ~/.emu198x/media/commodore-amiga/workbench-1.3.adf"]
 fn workbench_13_media_reaches_active_display() -> Result<(), Box<dyn Error>> {
     use emu198x_shell::{MediaImage, MediaKind, MediaSet};
 
@@ -274,7 +274,7 @@ fn workbench_13_media_reaches_active_display() -> Result<(), Box<dyn Error>> {
 /// corrected Fat-Agnus identity must not divert Kickstart into a path
 /// that the OCS-shaped machine cannot execute.
 #[test]
-#[ignore = "requires ~/.emu198x/roms/commodore-amiga/kick204.rom (KS 2.04 r37.175)"]
+#[ignore = "FIXTURE: requires ~/.emu198x/roms/commodore-amiga/kick204.rom (KS 2.04 r37.175)"]
 fn kickstart_204_reaches_insert_disk_screen_a2000_fat_agnus_pal() -> Result<(), Box<dyn Error>> {
     let Some(rom_dir) = home_rom_dir() else {
         emu198x_test_skip::record("skip: no Amiga ROM dir at $HOME/.emu198x/roms/commodore-amiga");
@@ -327,7 +327,7 @@ fn kickstart_204_reaches_insert_disk_screen_a2000_fat_agnus_pal() -> Result<(), 
 /// `kickstart_13_reaches_insert_disk_screen` for the OCS A500
 /// equivalent on KS 1.3.
 #[test]
-#[ignore = "requires ~/.emu198x/roms/commodore-amiga/kick204.rom (KS 2.04 r37.175)"]
+#[ignore = "FIXTURE: requires ~/.emu198x/roms/commodore-amiga/kick204.rom (KS 2.04 r37.175)"]
 fn kickstart_204_reaches_insert_disk_screen_a500_plus_pal() -> Result<(), Box<dyn Error>> {
     use runtime_commodore_amiga::AmigaEcsRuntime;
     let Some(rom_dir) = home_rom_dir() else {
@@ -375,7 +375,7 @@ fn kickstart_204_reaches_insert_disk_screen_a500_plus_pal() -> Result<(), Box<dy
 /// stable post-boot display-list state where bitplane pointer alignment
 /// can also be checked.
 #[test]
-#[ignore = "requires ~/.emu198x/roms/commodore-amiga/kick204.rom and ~/.emu198x/media/commodore-amiga/workbench-2.04.adf"]
+#[ignore = "FIXTURE: requires ~/.emu198x/roms/commodore-amiga/kick204.rom and ~/.emu198x/media/commodore-amiga/workbench-2.04.adf"]
 fn workbench_204_reaches_desktop_a500_plus_pal() -> Result<(), Box<dyn Error>> {
     use emu198x_shell::{MediaImage, MediaKind, MediaSet};
     use runtime_commodore_amiga::AmigaEcsRuntime;
@@ -452,7 +452,7 @@ fn workbench_204_reaches_desktop_a500_plus_pal() -> Result<(), Box<dyn Error>> {
 /// disk path, the V36 enhanced-Agnus branch and a non-trivial final
 /// framebuffer all survive together.
 #[test]
-#[ignore = "requires ~/.emu198x/roms/commodore-amiga/kick204.rom and ~/.emu198x/media/commodore-amiga/workbench-2.04.adf"]
+#[ignore = "FIXTURE: requires ~/.emu198x/roms/commodore-amiga/kick204.rom and ~/.emu198x/media/commodore-amiga/workbench-2.04.adf"]
 fn workbench_204_reaches_desktop_a2000_fat_agnus_pal() -> Result<(), Box<dyn Error>> {
     use std::collections::HashSet;
 
@@ -549,7 +549,7 @@ fn workbench_204_reaches_desktop_a2000_fat_agnus_pal() -> Result<(), Box<dyn Err
 /// fine for branch / move / arithmetic; DBcc loops need manual
 /// re-decoding from the raw bytes for now.
 #[test]
-#[ignore = "diagnostic — disassemble KS 2.04 cold-boot from $F800D2"]
+#[ignore = "DIAGNOSTIC: diagnostic — disassemble KS 2.04 cold-boot from $F800D2"]
 fn kickstart_204_disassemble_cold_boot() -> Result<(), Box<dyn Error>> {
     let Some(rom_dir) = home_rom_dir() else {
         emu198x_test_skip::record("skip: no Amiga ROM dir");

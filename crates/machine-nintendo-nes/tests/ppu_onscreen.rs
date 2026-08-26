@@ -119,7 +119,7 @@ fn run_onscreen_or_skip(dir: &str, rom: &str, result_addr: u16) {
 macro_rules! onscreen_test {
     ($name:ident, $dir:expr, $rom:expr, $addr:expr) => {
         #[test]
-        #[ignore = "requires local nes-test-roms; run with --ignored"]
+        #[ignore = "FIXTURE: requires local nes-test-roms; run with --ignored"]
         fn $name() {
             run_onscreen_or_skip($dir, $rom, $addr);
         }
@@ -267,7 +267,7 @@ onscreen_test!(
 /// 2005 suites and print code + settle frames, so the result protocol
 /// and completion detection can be eyeballed before wiring assertions.
 #[test]
-#[ignore = "survey: requires local nes-test-roms; run with --ignored --nocapture"]
+#[ignore = "FIXTURE: survey: requires local nes-test-roms; run with --ignored --nocapture"]
 fn survey_onscreen_suites() {
     let Some(root) = blargg_root() else {
         emu198x_test_skip::skip!("blargg root not found; skipping survey");

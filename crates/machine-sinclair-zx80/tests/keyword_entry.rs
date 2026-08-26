@@ -114,7 +114,7 @@ fn keyword(line: &str) -> String {
 }
 
 #[test]
-#[ignore = "needs a 4 KB ZX80 ROM — run with --ignored"]
+#[ignore = "FIXTURE: needs a 4 KB ZX80 ROM — run with --ignored"]
 fn keyword_layout_is_the_zx80s_own_not_the_zx81s() {
     let Some(path) = rom_path() else {
         emu198x_test_skip::skip!(
@@ -176,7 +176,7 @@ fn keyword_layout_is_the_zx80s_own_not_the_zx81s() {
 /// The three mappings *The ZX80 Companion* states in prose, called out
 /// separately because they are the ones with a second source behind them.
 #[test]
-#[ignore = "needs a 4 KB ZX80 ROM — run with --ignored"]
+#[ignore = "FIXTURE: needs a 4 KB ZX80 ROM — run with --ignored"]
 fn the_companion_s_three_documented_keys_match() {
     let Some(path) = rom_path() else {
         emu198x_test_skip::skip!("ZX80 ROM not staged");
@@ -195,7 +195,7 @@ fn the_companion_s_three_documented_keys_match() {
 /// letter. Typing `PRINT 42` is `O`, `4`, `2` — the digits land as digits
 /// because the keyword switched the cursor to `L`.
 #[test]
-#[ignore = "needs a 4 KB ZX80 ROM — run with --ignored"]
+#[ignore = "FIXTURE: needs a 4 KB ZX80 ROM — run with --ignored"]
 fn a_keyword_switches_to_literal_entry_and_the_line_runs() {
     let Some(path) = rom_path() else {
         emu198x_test_skip::skip!("ZX80 ROM not staged");

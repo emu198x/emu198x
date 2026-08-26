@@ -106,7 +106,7 @@ fn run_ntsc(rel: &str) -> Option<u8> {
 /// Reports which ROMs discriminate rather than asserting a count, so
 /// the answer is visible rather than encoded in a threshold.
 #[test]
-#[ignore = "diagnostic: shows which PAL ROMs discriminate by region"]
+#[ignore = "DIAGNOSTIC: diagnostic: shows which PAL ROMs discriminate by region"]
 fn probe_pal_roms_discriminate() {
     if root().is_none() {
         emu198x_test_skip::skip!("nes-test-roms not found");
@@ -156,7 +156,7 @@ fn expect_pass(rel: &str) {
 macro_rules! pal_apu_test {
     ($name:ident, $rel:literal) => {
         #[test]
-        #[ignore = "ROM run — requires test-suites/nes-test-roms"]
+        #[ignore = "FIXTURE: ROM run — requires test-suites/nes-test-roms"]
         fn $name() {
             expect_pass($rel);
         }

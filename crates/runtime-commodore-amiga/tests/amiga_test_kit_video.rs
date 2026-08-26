@@ -674,7 +674,7 @@ fn registered_disagreement_rejects_agreement_and_signature_drift() {
 }
 
 #[test]
-#[ignore = "explicit Amiga Test Kit v1.21 reference-pattern gate"]
+#[ignore = "FIXTURE: explicit Amiga Test Kit v1.21 reference-pattern gate"]
 fn amiga_test_kit_v121_a500_a501_ocs_pal_matches_reference() {
     let reference_dir = reference_dir(&A500_PROFILE);
     let manifest = load_a500_manifest(&reference_dir);
@@ -691,7 +691,7 @@ fn amiga_test_kit_v121_a500_a501_ocs_pal_matches_reference() {
 }
 
 #[test]
-#[ignore = "explicit Amiga Test Kit v1.21 A1200 AGA reference-pattern gate"]
+#[ignore = "FIXTURE: explicit Amiga Test Kit v1.21 A1200 AGA reference-pattern gate"]
 fn amiga_test_kit_v121_a1200_aga_pal_matches_reference() {
     let reference_dir = reference_dir(&A1200_PROFILE);
     let manifest = load_a1200_manifest(&reference_dir);

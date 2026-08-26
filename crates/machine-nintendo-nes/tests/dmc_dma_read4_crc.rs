@@ -85,7 +85,7 @@ fn expect_crc_in(name: &str, allowed: &[&str]) {
 /// on the other one, and neither is more right — which is exactly why
 /// this is gated on the set rather than on a golden.
 #[test]
-#[ignore = "ROM run — requires test-suites/nes-test-roms"]
+#[ignore = "FIXTURE: ROM run — requires test-suites/nes-test-roms"]
 fn dma_2007_read_crc() {
     expect_crc_in("dma_2007_read", &["159A7A8F", "5E3DF9C4"]);
 }
@@ -95,7 +95,7 @@ fn dma_2007_read_crc() {
 /// second handed back a freshly latched buffer instead of repeating the
 /// first read's value. Fixed in `ricoh-ppu-2c02`; now prints `85CFD627`.
 #[test]
-#[ignore = "ROM run — requires test-suites/nes-test-roms"]
+#[ignore = "FIXTURE: ROM run — requires test-suites/nes-test-roms"]
 fn double_2007_read_crc() {
     expect_crc_in(
         "double_2007_read",

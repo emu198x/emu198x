@@ -147,19 +147,19 @@ fn split_episodes(trace: &[(u64, u16, bool)]) -> Vec<Vec<(u64, u16)>> {
 }
 
 #[test]
-#[ignore = "diagnostic: prints the DMA bus-op trace for diffing against Mesen2"]
+#[ignore = "DIAGNOSTIC: diagnostic: prints the DMA bus-op trace for diffing against Mesen2"]
 fn trace_sprdma_and_dmc_dma() {
     trace("sprdma_and_dmc_dma.nes", 20, 560);
 }
 
 #[test]
-#[ignore = "diagnostic: prints the ROM's measured clock table"]
+#[ignore = "DIAGNOSTIC: diagnostic: prints the ROM's measured clock table"]
 fn probe_sprdma_and_dmc_dma() {
     probe("sprdma_and_dmc_dma.nes");
 }
 
 #[test]
-#[ignore = "diagnostic: prints the ROM's measured clock table"]
+#[ignore = "DIAGNOSTIC: diagnostic: prints the ROM's measured clock table"]
 fn probe_sprdma_and_dmc_dma_512() {
     probe("sprdma_and_dmc_dma_512.nes");
 }
@@ -173,7 +173,7 @@ fn probe_sprdma_and_dmc_dma_512() {
 /// leaves ~14 cycles of overhead to hold the discrepancy, and the only
 /// alignment-sensitive thing that fits is a DMC-only DMA at 3 or 4 cycles.
 #[test]
-#[ignore = "diagnostic: lists DMA episodes bracketing the first OAM transfers"]
+#[ignore = "DIAGNOSTIC: diagnostic: lists DMA episodes bracketing the first OAM transfers"]
 fn probe_dma_episodes_around_transfers() {
     let Some(root) = rom_root() else {
         emu198x_test_skip::skip!("nes-test-roms corpus not staged (test-suites/nes-test-roms)");
@@ -237,7 +237,7 @@ fn probe_dma_episodes_around_transfers() {
 /// With `sample_length` 1 every fetch needs its own re-arm, so a re-arm landing
 /// while the channel still has bytes remaining is silently ignored.
 #[test]
-#[ignore = "diagnostic: $4015 re-arms interleaved with DMC sample fetches"]
+#[ignore = "DIAGNOSTIC: diagnostic: $4015 re-arms interleaved with DMC sample fetches"]
 fn probe_dmc_rearm_vs_fetch() {
     let Some(root) = rom_root() else {
         emu198x_test_skip::skip!("nes-test-roms corpus not staged (test-suites/nes-test-roms)");
@@ -296,7 +296,7 @@ fn probe_dmc_rearm_vs_fetch() {
 /// still in nametable RAM, so if it is legible they can become real gates --
 /// `latency.nes` in particular exercises the DMC transfer-start timing.
 #[test]
-#[ignore = "diagnostic: prints dmc_tests on-screen text"]
+#[ignore = "DIAGNOSTIC: diagnostic: prints dmc_tests on-screen text"]
 fn probe_dmc_tests_text() {
     let Some(root) = rom_root() else {
         emu198x_test_skip::skip!("nes-test-roms corpus not staged (test-suites/nes-test-roms)");
@@ -325,7 +325,7 @@ fn probe_dmc_tests_text() {
 /// This checks the `$6000` protocol on all four, over a budget well past
 /// the sweep's ceiling.
 #[test]
-#[ignore = "diagnostic; requires local nes-test-roms"]
+#[ignore = "DIAGNOSTIC: diagnostic; requires local nes-test-roms"]
 fn probe_dmc_tests_6000_protocol() {
     let Some(root) = rom_root() else {
         emu198x_test_skip::skip!("nes-test-roms corpus not staged (test-suites/nes-test-roms)");
@@ -411,7 +411,7 @@ fn probe_dmc_tests_6000_protocol() {
 /// Segments 48 kHz audio into bursts by RMS and estimates each burst's
 /// pitch by zero-crossing rate.
 #[test]
-#[ignore = "diagnostic; requires local nes-test-roms"]
+#[ignore = "DIAGNOSTIC: diagnostic; requires local nes-test-roms"]
 fn probe_dmc_tests_audio() {
     let Some(root) = rom_root() else {
         emu198x_test_skip::skip!("nes-test-roms corpus not staged (test-suites/nes-test-roms)");
@@ -503,7 +503,7 @@ fn probe_dmc_tests_audio() {
 /// the write lands on a put cycle. `lib.rs` says so in two comments and
 /// nothing has ever asserted it.
 #[test]
-#[ignore = "diagnostic; requires local nes-test-roms"]
+#[ignore = "DIAGNOSTIC: diagnostic; requires local nes-test-roms"]
 fn probe_oam_dma_stall_from_trace() {
     let Some(root) = rom_root() else {
         emu198x_test_skip::skip!("nes-test-roms corpus not staged (test-suites/nes-test-roms)");

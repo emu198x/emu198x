@@ -29,7 +29,7 @@ fn rom_path(env_key: &str, default_name: &str) -> Option<PathBuf> {
 }
 
 #[test]
-#[ignore = "needs Acorn Electron OS ROM + BASIC ROM (16 KB each) — run with --ignored"]
+#[ignore = "FIXTURE: needs Acorn Electron OS ROM + BASIC ROM (16 KB each) — run with --ignored"]
 fn os_basic_roms_boot_to_initial_screen() {
     let Some(os_path) = rom_path("EMU198X_ELECTRON_OS", "os.rom") else {
         panic!(

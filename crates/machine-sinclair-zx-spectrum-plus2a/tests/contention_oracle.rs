@@ -427,7 +427,7 @@ fn the_delay_table_still_matches_fuse() {
 /// Half-cycle resolution is deliberate — a T-state-resolution version of
 /// this measurement on the 48K read its edge one T-state late for months.
 #[test]
-#[ignore = "needs the +3 ROM set"]
+#[ignore = "FIXTURE: needs the +3 ROM set"]
 fn the_origin_is_pinned_by_the_interrupt() {
     let Some(roms) = roms() else {
         // Not a bare `return`. A harness that passes when its fixture is
@@ -486,7 +486,7 @@ fn the_origin_is_pinned_by_the_interrupt() {
 
 /// The differential itself.
 #[test]
-#[ignore = "differential harness; needs the +3 ROM set"]
+#[ignore = "FIXTURE: differential harness; needs the +3 ROM set"]
 fn memory_contention_matches_fuse_at_every_arrival_tstate() {
     let Some(roms) = roms() else {
         // Not a bare `return`. A harness that passes when its fixture is

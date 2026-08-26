@@ -27,7 +27,7 @@ fn rom_dir() -> Option<PathBuf> {
 }
 
 #[test]
-#[ignore = "requires local OS + BASIC ROMs at ~/.emu198x/roms/atari-800xl/"]
+#[ignore = "FIXTURE: requires local OS + BASIC ROMs at ~/.emu198x/roms/atari-800xl/"]
 fn basic_boot_programs_antic_and_gtia() {
     let dir = rom_dir().expect("HOME unset");
     let os = std::fs::read(dir.join("atarixl.rom")).expect("atarixl.rom");
@@ -105,7 +105,7 @@ fn basic_boot_programs_antic_and_gtia() {
 const READY_SCREEN_CODES: [u8; 5] = [0x32, 0x25, 0x21, 0x24, 0x39];
 
 #[test]
-#[ignore = "requires local OS + BASIC ROMs at ~/.emu198x/roms/atari-800xl/"]
+#[ignore = "FIXTURE: requires local OS + BASIC ROMs at ~/.emu198x/roms/atari-800xl/"]
 fn boots_to_basic_ready() {
     let dir = rom_dir().expect("HOME unset");
     let os = std::fs::read(dir.join("atarixl.rom")).expect("atarixl.rom");
@@ -168,7 +168,7 @@ fn boots_to_basic_ready() {
 }
 
 #[test]
-#[ignore = "requires local OS + BASIC ROMs at ~/.emu198x/roms/atari-800xl/"]
+#[ignore = "FIXTURE: requires local OS + BASIC ROMs at ~/.emu198x/roms/atari-800xl/"]
 fn keyboard_types_into_basic() {
     let dir = rom_dir().expect("HOME unset");
     let os = std::fs::read(dir.join("atarixl.rom")).expect("atarixl.rom");

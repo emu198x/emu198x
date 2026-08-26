@@ -188,7 +188,7 @@ fn is_contended(addr: u16) -> bool {
 }
 
 #[test]
-#[ignore = "needs EMU198X_SPECTRUM_48K_ROM"]
+#[ignore = "FIXTURE: needs EMU198X_SPECTRUM_48K_ROM"]
 fn the_gate_arms_on_the_half_cycle_that_precedes_mreq() {
     let observed = observe(400);
 
@@ -550,7 +550,8 @@ fn report_io(port: u16, label: &str) -> Vec<IoCycle> {
 /// merging, because it compares two classes rather than a class against a
 /// number.
 #[test]
-#[ignore = "KNOWN LIMITATION: a withheld *run* merges charges landing one \
+#[ignore = "KNOWN LIMITATION (knowledge/decisions/io-contention-is-a-count-not-a-level.md): \
+            a withheld *run* merges charges landing one \
             T-state apart, so this reports 1 where the gate charges 2 and 2 \
             where it charges 4. Score I/O contention with \
             io_contention_oracle, which is at zero. See the tables on this \
@@ -678,7 +679,7 @@ fn io_contention_matches_the_four_fuse_port_classes() {
 /// nothing else to tell them apart — and that a reading of 2 happens *only*
 /// there, so the counter cannot hand a spurious lookup to a memory cycle.
 #[test]
-#[ignore = "needs EMU198X_SPECTRUM_48K_ROM"]
+#[ignore = "FIXTURE: needs EMU198X_SPECTRUM_48K_ROM"]
 fn the_io_lookup_offsets_are_pinned_to_the_falling_half_cycles() {
     /// The phase each FUSE offset's lookup must land on.
     const OFFSETS: [(&str, u8); 4] = [
@@ -809,7 +810,7 @@ fn the_io_lookup_offsets_are_pinned_to_the_falling_half_cycles() {
 /// blank, where `contend_window` is shut — which is an argument, not a
 /// measurement, and the whole campaign has been a lesson in the difference.
 #[test]
-#[ignore = "needs EMU198X_SPECTRUM_48K_ROM"]
+#[ignore = "FIXTURE: needs EMU198X_SPECTRUM_48K_ROM"]
 fn the_interrupt_acknowledge_cycle_is_never_contended() {
     use common_sinclair_zx_spectrum::ula::Ula;
 

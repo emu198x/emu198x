@@ -40,7 +40,7 @@ fn cart_machine() -> Aquarius {
 }
 
 #[test]
-#[ignore = "needs Aquarius BIOS + char + cart"]
+#[ignore = "FIXTURE: needs Aquarius BIOS + char + cart"]
 fn cart_detect_reaches_cart_entry() {
     let mut sys = cart_machine();
 
@@ -74,7 +74,7 @@ fn cart_detect_reaches_cart_entry() {
 }
 
 #[test]
-#[ignore = "needs Aquarius BIOS + char + cart"]
+#[ignore = "FIXTURE: needs Aquarius BIOS + char + cart"]
 fn cart_descrambles_and_renders() {
     let mut sys = cart_machine();
     // Boot past the beep, cart entry and title-draw. A descrambled cart writes

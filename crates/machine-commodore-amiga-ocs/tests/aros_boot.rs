@@ -86,7 +86,7 @@ fn frame_shape(amiga: &AmigaOcs) -> (usize, usize) {
 }
 
 #[test]
-#[ignore = "needs AROS at <EMU198X_ROMS_ROOT>/commodore-amiga/aros-amiga-m68k-{rom,ext}.bin"]
+#[ignore = "FIXTURE: needs AROS at <EMU198X_ROMS_ROOT>/commodore-amiga/aros-amiga-m68k-{rom,ext}.bin"]
 fn aros_boots_when_both_rom_halves_are_fitted() {
     let Some(amiga) = booted(true) else {
         emu198x_test_skip::skip!("AROS m68k not staged at <EMU198X_ROMS_ROOT>/commodore-amiga/");
@@ -112,7 +112,7 @@ fn aros_boots_when_both_rom_halves_are_fitted() {
 /// same image, same RAM, same frame count, and a flat field instead of a
 /// screen.
 #[test]
-#[ignore = "needs AROS at <EMU198X_ROMS_ROOT>/commodore-amiga/aros-amiga-m68k-{rom,ext}.bin"]
+#[ignore = "FIXTURE: needs AROS at <EMU198X_ROMS_ROOT>/commodore-amiga/aros-amiga-m68k-{rom,ext}.bin"]
 fn the_main_rom_alone_renders_a_flat_field() {
     let Some(amiga) = booted(false) else {
         emu198x_test_skip::skip!("AROS m68k not staged at <EMU198X_ROMS_ROOT>/commodore-amiga/");

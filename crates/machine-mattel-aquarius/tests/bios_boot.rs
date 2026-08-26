@@ -34,7 +34,7 @@ fn bios_path() -> Option<PathBuf> {
 }
 
 #[test]
-#[ignore = "needs Aquarius BASIC ROM (8 KB) — run with --ignored"]
+#[ignore = "FIXTURE: needs Aquarius BASIC ROM (8 KB) — run with --ignored"]
 fn bios_boots_to_initial_screen() {
     let Some(path) = bios_path() else {
         panic!(

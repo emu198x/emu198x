@@ -34,7 +34,7 @@ fn bios_path() -> Option<PathBuf> {
 }
 
 #[test]
-#[ignore = "needs ColecoVision BIOS — run with --ignored"]
+#[ignore = "FIXTURE: needs ColecoVision BIOS — run with --ignored"]
 fn bios_boots_to_title_screen() {
     let Some(path) = bios_path() else {
         panic!(

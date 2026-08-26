@@ -184,7 +184,7 @@ fn check(rel: &str) {
 macro_rules! screen_gate {
     ($name:ident, $rel:literal) => {
         #[test]
-        #[ignore = "ROM run — requires test-suites/nes-test-roms"]
+        #[ignore = "FIXTURE: ROM run — requires test-suites/nes-test-roms"]
         fn $name() {
             check($rel);
         }
@@ -222,7 +222,7 @@ screen_gate!(volumes, "volume_tests/volumes.nes");
 /// nametable — static — still matches. Reports the offset rather than
 /// assuming one.
 #[test]
-#[ignore = "diagnostic: find frame alignment against the golden"]
+#[ignore = "DIAGNOSTIC: diagnostic: find frame alignment against the golden"]
 fn probe_frame_alignment() {
     let Some(root) = roms_root() else { return };
     for rel in [

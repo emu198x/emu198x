@@ -29,7 +29,7 @@ fn home() -> PathBuf {
 }
 
 #[test]
-#[ignore = "diagnostic — needs +3 ROMs and a +3 DSK (default: Chase H.Q.)"]
+#[ignore = "DIAGNOSTIC: diagnostic — needs +3 ROMs and a +3 DSK (default: Chase H.Q.)"]
 fn trace_plus3_loader_pc_histogram() {
     let firmware_root = home().join(".emu198x/roms/amstrad-zx-spectrum-plus3");
     // Override target with `PLUS3_TRACE_DSK=<filename inside the reference [DSK] dir>`

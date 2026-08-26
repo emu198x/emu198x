@@ -50,7 +50,7 @@ fn screen(sys: &AcornAtom) -> String {
 }
 
 #[test]
-#[ignore = "needs Acorn Atom ROM — run with --ignored"]
+#[ignore = "FIXTURE: needs Acorn Atom ROM — run with --ignored"]
 fn types_a_basic_line_and_prints_the_result() {
     let Some(rom) = rom() else {
         panic!(

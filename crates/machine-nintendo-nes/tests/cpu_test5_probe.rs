@@ -128,7 +128,7 @@ fn watch(rom_path: &PathBuf, until: u64) {
 /// markers sit at column 31 of the row BELOW each test's name, which
 /// reads as an off-by-one until you see Mesen2 produce it too.
 #[test]
-#[ignore = "diagnostic; requires local nes-test-roms"]
+#[ignore = "DIAGNOSTIC: diagnostic; requires local nes-test-roms"]
 fn probe_cpu_test5_raw_nametable() {
     let Some(root) = nes_test_roms_root() else {
         emu198x_test_skip::skip!("nes-test-roms corpus not staged (test-suites/nes-test-roms)");
@@ -193,7 +193,7 @@ const IMPLIED_ENTRIES: &[(u8, &str, u32)] = &[
 /// x from 3 down to 0 against `correct_checksums,y` ascending, so the
 /// two are stored in opposite orders; both are searched.
 #[test]
-#[ignore = "diagnostic; requires local nes-test-roms"]
+#[ignore = "DIAGNOSTIC: diagnostic; requires local nes-test-roms"]
 fn probe_implied_checksums() {
     let Some(root) = nes_test_roms_root() else {
         emu198x_test_skip::skip!("nes-test-roms corpus not staged (test-suites/nes-test-roms)");
@@ -236,7 +236,7 @@ fn probe_implied_checksums() {
 }
 
 #[test]
-#[ignore = "diagnostic; requires local nes-test-roms"]
+#[ignore = "DIAGNOSTIC: diagnostic; requires local nes-test-roms"]
 fn probe_official_screen_during_run() {
     let Some(root) = nes_test_roms_root() else {
         emu198x_test_skip::skip!("nes-test-roms corpus not staged (test-suites/nes-test-roms)");
@@ -246,7 +246,7 @@ fn probe_official_screen_during_run() {
 }
 
 #[test]
-#[ignore = "diagnostic; requires local nes-test-roms"]
+#[ignore = "DIAGNOSTIC: diagnostic; requires local nes-test-roms"]
 fn probe_cpu_nes() {
     let Some(root) = nes_test_roms_root() else {
         emu198x_test_skip::skip!("nes-test-roms corpus not staged (test-suites/nes-test-roms)");
@@ -255,7 +255,7 @@ fn probe_cpu_nes() {
 }
 
 #[test]
-#[ignore = "diagnostic; requires local nes-test-roms"]
+#[ignore = "DIAGNOSTIC: diagnostic; requires local nes-test-roms"]
 fn probe_official_nes() {
     let Some(root) = nes_test_roms_root() else {
         emu198x_test_skip::skip!("nes-test-roms corpus not staged (test-suites/nes-test-roms)");

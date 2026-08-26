@@ -25,7 +25,7 @@ fn cart_path() -> Option<PathBuf> {
 }
 
 #[test]
-#[ignore = "needs the Supercharger Phaser Patrol proto — run with --ignored"]
+#[ignore = "FIXTURE: needs the Supercharger Phaser Patrol proto — run with --ignored"]
 fn phaser_patrol_fast_loads_and_renders() {
     let Some(path) = cart_path() else {
         panic!(

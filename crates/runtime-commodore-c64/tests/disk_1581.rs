@@ -23,7 +23,7 @@ use runtime_commodore_c64::{C64Runtime, C64SessionQueryProvider, Model};
 use common::{local_batman_d81_zip, local_rom_firmware_with_both_drives};
 
 #[test]
-#[ignore = "requires local C64 ROMs, 1581 DOS ROM, and a D81 game archive"]
+#[ignore = "FIXTURE: requires local C64 ROMs, 1581 DOS ROM, and a D81 game archive"]
 fn real_1581_coexists_with_1541_and_boots_to_idle() {
     let firmware = local_rom_firmware_with_both_drives();
     let runtime = C64Runtime::from_firmware(Model::C64PalBreadbin, &firmware)

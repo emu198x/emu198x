@@ -18,7 +18,7 @@ fn rom_path() -> Option<PathBuf> {
 }
 
 #[test]
-#[ignore = "requires local 48K ROM at ~/.emu198x/roms/sinclair-zx-spectrum-48k/48.rom"]
+#[ignore = "FIXTURE: requires local 48K ROM at ~/.emu198x/roms/sinclair-zx-spectrum-48k/48.rom"]
 fn boot_to_basic_renders_screen_content() {
     let Some(path) = rom_path() else {
         emu198x_test_skip::skip!("HOME not set — cannot locate 48K ROM");

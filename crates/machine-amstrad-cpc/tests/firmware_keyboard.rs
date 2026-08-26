@@ -54,7 +54,7 @@ fn type_char(cpc: &mut AmstradCpc, c: char) {
 }
 
 #[test]
-#[ignore = "needs the 32 KB CPC464 firmware — run with --ignored"]
+#[ignore = "FIXTURE: needs the 32 KB CPC464 firmware — run with --ignored"]
 fn typing_a_poke_at_the_basic_prompt_writes_to_memory() {
     let Some(path) = firmware_path() else {
         panic!(

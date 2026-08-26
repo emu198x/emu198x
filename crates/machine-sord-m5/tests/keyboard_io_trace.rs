@@ -23,7 +23,7 @@ use std::fs;
 use machine_sord_m5::{M5Region, SordM5};
 
 #[test]
-#[ignore = "needs Sord M5 BIOS — run with --ignored"]
+#[ignore = "FIXTURE: needs Sord M5 BIOS — run with --ignored"]
 fn trace_keyboard_scan_ports() {
     let bios = env::var("EMU198X_SORD_M5_BIOS")
         .ok()

@@ -42,7 +42,7 @@ const ROMS: &[&str] = &[
 ];
 
 #[test]
-#[ignore = "diagnostic; requires local nes-test-roms"]
+#[ignore = "DIAGNOSTIC: diagnostic; requires local nes-test-roms"]
 fn probe_mmc5_screens() {
     let Some(root) = root() else {
         emu198x_test_skip::skip!("nes-test-roms corpus not staged (test-suites/nes-test-roms)");
@@ -122,7 +122,7 @@ fn probe_mmc5_screens() {
 ///   ExRAM-resident code actually ran. A ROM that drew its banner and
 ///   then died in ExRAM would still pass the first check alone.
 #[test]
-#[ignore = "ROM run — requires test-suites/nes-test-roms"]
+#[ignore = "FIXTURE: ROM run — requires test-suites/nes-test-roms"]
 fn mmc5_executes_code_from_exram() {
     let Some(root) = root() else {
         emu198x_test_skip::skip!("nes-test-roms corpus not staged (test-suites/nes-test-roms)");
@@ -169,7 +169,7 @@ fn mmc5_executes_code_from_exram() {
 /// CHR font" is wrong — there is no screen output to compare at all.
 /// This records where their output does go.
 #[test]
-#[ignore = "diagnostic; requires local nes-test-roms"]
+#[ignore = "DIAGNOSTIC: diagnostic; requires local nes-test-roms"]
 fn probe_dmc_tests_output_channels() {
     let Some(root) = root() else {
         emu198x_test_skip::skip!("nes-test-roms corpus not staged (test-suites/nes-test-roms)");
@@ -217,7 +217,7 @@ fn probe_dmc_tests_output_channels() {
 /// them. They end with `jsr print_crc`, and the header lists every
 /// acceptable checksum — that is the real verdict channel.
 #[test]
-#[ignore = "diagnostic; requires local nes-test-roms"]
+#[ignore = "DIAGNOSTIC: diagnostic; requires local nes-test-roms"]
 fn probe_dma_read4_crcs() {
     let Some(root) = root() else { return };
     for name in [

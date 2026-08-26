@@ -66,7 +66,7 @@ fn nes_test_roms_root() -> Option<PathBuf> {
 }
 
 #[test]
-#[ignore = "diagnostic; requires local nes-test-roms"]
+#[ignore = "DIAGNOSTIC: diagnostic; requires local nes-test-roms"]
 fn probe_ppu_read_buffer() {
     let Some(root) = nes_test_roms_root() else {
         emu198x_test_skip::skip!("nes-test-roms corpus not staged (test-suites/nes-test-roms)");
@@ -147,7 +147,7 @@ fn probe_ppu_read_buffer() {
 /// data_in — we report what it was, alongside the live status
 /// shadow + scanline + dot.
 #[test]
-#[ignore = "diagnostic; requires local nes-test-roms"]
+#[ignore = "DIAGNOSTIC: diagnostic; requires local nes-test-roms"]
 fn what_the_cpu_actually_reads_from_2002() {
     let Some(root) = nes_test_roms_root() else {
         emu198x_test_skip::skip!("nes-test-roms corpus not staged (test-suites/nes-test-roms)");
@@ -272,7 +272,7 @@ fn what_the_cpu_actually_reads_from_2002() {
 /// IS exited correctly when VBL fires — so any TIMEOUT must be
 /// from a later stall.
 #[test]
-#[ignore = "diagnostic; requires local nes-test-roms"]
+#[ignore = "DIAGNOSTIC: diagnostic; requires local nes-test-roms"]
 fn long_run_pc_distribution() {
     let Some(root) = nes_test_roms_root() else {
         emu198x_test_skip::skip!("nes-test-roms corpus not staged (test-suites/nes-test-roms)");
@@ -365,7 +365,7 @@ fn long_run_pc_distribution() {
 /// the BIT $2002 cycle 4. Run to the stall, then single-step until
 /// the next $2002 read returns bit-7 set, then dump registers.
 #[test]
-#[ignore = "diagnostic; requires local nes-test-roms"]
+#[ignore = "DIAGNOSTIC: diagnostic; requires local nes-test-roms"]
 fn one_loop_iteration_with_vbl_set() {
     let Some(root) = nes_test_roms_root() else {
         emu198x_test_skip::skip!("nes-test-roms corpus not staged (test-suites/nes-test-roms)");
@@ -445,7 +445,7 @@ struct Read2002 {
 /// rendering state at intervals to confirm whether the VBlank flag
 /// ever rises during the wait.
 #[test]
-#[ignore = "diagnostic; requires local nes-test-roms"]
+#[ignore = "DIAGNOSTIC: diagnostic; requires local nes-test-roms"]
 fn vblank_flag_during_stall() {
     let Some(root) = nes_test_roms_root() else {
         emu198x_test_skip::skip!("nes-test-roms corpus not staged (test-suites/nes-test-roms)");
@@ -522,7 +522,7 @@ fn vblank_flag_during_stall() {
 /// while 32 palette bytes do not, so the question is whether the values
 /// written are wrong or the addresses are.
 #[test]
-#[ignore = "diagnostic; requires local nes-test-roms"]
+#[ignore = "DIAGNOSTIC: diagnostic; requires local nes-test-roms"]
 fn probe_palette_write_trace() {
     let Some(root) = nes_test_roms_root() else {
         emu198x_test_skip::skip!("nes-test-roms corpus not staged (test-suites/nes-test-roms)");
@@ -579,7 +579,7 @@ fn probe_palette_write_trace() {
 /// is mid-test: the readme's expected output ends "the test is in
 /// progress", and "Passed" prints later.
 #[test]
-#[ignore = "diagnostic; requires local nes-test-roms"]
+#[ignore = "DIAGNOSTIC: diagnostic; requires local nes-test-roms"]
 fn probe_nametable_at_late_frames() {
     let Some(root) = nes_test_roms_root() else {
         emu198x_test_skip::skip!("nes-test-roms corpus not staged (test-suites/nes-test-roms)");
@@ -632,7 +632,7 @@ fn probe_nametable_at_late_frames() {
 /// report every phase change, so the ROM's phase boundaries can be
 /// compared against the reference rather than guessed at.
 #[test]
-#[ignore = "diagnostic; requires local nes-test-roms"]
+#[ignore = "DIAGNOSTIC: diagnostic; requires local nes-test-roms"]
 fn probe_palette_phase_boundaries() {
     let Some(root) = nes_test_roms_root() else {
         emu198x_test_skip::skip!("nes-test-roms corpus not staged (test-suites/nes-test-roms)");
@@ -682,7 +682,7 @@ fn probe_palette_phase_boundaries() {
 /// offset against the reference can be localised to the sub-test that
 /// caused it.
 #[test]
-#[ignore = "diagnostic; requires local nes-test-roms"]
+#[ignore = "DIAGNOSTIC: diagnostic; requires local nes-test-roms"]
 fn probe_nametable_change_frames() {
     let Some(root) = nes_test_roms_root() else {
         emu198x_test_skip::skip!("nes-test-roms corpus not staged (test-suites/nes-test-roms)");
@@ -724,7 +724,7 @@ fn probe_nametable_change_frames() {
 /// `CnRom` carries work RAM at `$6000-$7FFF` precisely for it. This
 /// checks what our run leaves there.
 #[test]
-#[ignore = "diagnostic; requires local nes-test-roms"]
+#[ignore = "DIAGNOSTIC: diagnostic; requires local nes-test-roms"]
 fn probe_6000_console() {
     let Some(root) = nes_test_roms_root() else {
         emu198x_test_skip::skip!("nes-test-roms corpus not staged (test-suites/nes-test-roms)");
@@ -771,7 +771,7 @@ fn probe_6000_console() {
 /// the 12,10,10 cadence is therefore still unknown — recorded so the
 /// next attempt does not re-run this measurement expecting an answer.
 #[test]
-#[ignore = "diagnostic; requires local nes-test-roms"]
+#[ignore = "DIAGNOSTIC: diagnostic; requires local nes-test-roms"]
 fn probe_cpu_cycles_per_frame() {
     let Some(root) = nes_test_roms_root() else {
         emu198x_test_skip::skip!("nes-test-roms corpus not staged (test-suites/nes-test-roms)");
@@ -816,7 +816,7 @@ fn probe_cpu_cycles_per_frame() {
 /// iterations and reports the hot addresses, so the wait loop can be
 /// named rather than guessed at.
 #[test]
-#[ignore = "diagnostic; requires local nes-test-roms"]
+#[ignore = "DIAGNOSTIC: diagnostic; requires local nes-test-roms"]
 fn probe_subtest_loop_pcs() {
     let Some(root) = nes_test_roms_root() else {
         emu198x_test_skip::skip!("nes-test-roms corpus not staged (test-suites/nes-test-roms)");
@@ -896,7 +896,7 @@ fn probe_subtest_loop_pcs() {
 /// each iteration and then drift a few dots late, which is enough to
 /// push one wait past a threshold and cost a whole extra frame.
 #[test]
-#[ignore = "diagnostic; requires local nes-test-roms"]
+#[ignore = "DIAGNOSTIC: diagnostic; requires local nes-test-roms"]
 fn probe_vbl_wait_cpu_cycles() {
     let Some(root) = nes_test_roms_root() else {
         emu198x_test_skip::skip!("nes-test-roms corpus not staged (test-suites/nes-test-roms)");
@@ -962,7 +962,7 @@ fn probe_vbl_wait_cpu_cycles() {
 /// whose length is 513 or 514 cycles depending on CPU parity, is the
 /// obvious candidate: a parity that never varies would lock the phase.
 #[test]
-#[ignore = "diagnostic; requires local nes-test-roms"]
+#[ignore = "DIAGNOSTIC: diagnostic; requires local nes-test-roms"]
 fn probe_dma_costs_in_the_loop() {
     let Some(root) = nes_test_roms_root() else {
         emu198x_test_skip::skip!("nes-test-roms corpus not staged (test-suites/nes-test-roms)");
@@ -1052,7 +1052,7 @@ fn probe_dma_costs_in_the_loop() {
 /// cycle after the write, so a window closing at `$E512` measures the
 /// STA alone and reports a flat 4 cycles on both emulators.
 #[test]
-#[ignore = "diagnostic; requires local nes-test-roms"]
+#[ignore = "DIAGNOSTIC: diagnostic; requires local nes-test-roms"]
 fn probe_oam_dma_cost() {
     let Some(root) = nes_test_roms_root() else {
         emu198x_test_skip::skip!("nes-test-roms corpus not staged (test-suites/nes-test-roms)");
@@ -1107,7 +1107,7 @@ fn probe_oam_dma_cost() {
 /// poll landing at scanline 241 dots 0-3 and what it read, so the miss
 /// can be attributed rather than assumed.
 #[test]
-#[ignore = "diagnostic; requires local nes-test-roms"]
+#[ignore = "DIAGNOSTIC: diagnostic; requires local nes-test-roms"]
 fn probe_polls_near_vbl_set() {
     let Some(root) = nes_test_roms_root() else {
         emu198x_test_skip::skip!("nes-test-roms corpus not staged (test-suites/nes-test-roms)");
@@ -1160,7 +1160,7 @@ fn probe_polls_near_vbl_set() {
 /// This is the counterpart of the Mesen2 duration table, which uses exec
 /// callbacks and is sound on that side.
 #[test]
-#[ignore = "diagnostic; requires local nes-test-roms"]
+#[ignore = "DIAGNOSTIC: diagnostic; requires local nes-test-roms"]
 fn probe_wait_durations() {
     let Some(root) = nes_test_roms_root() else {
         emu198x_test_skip::skip!("nes-test-roms corpus not staged (test-suites/nes-test-roms)");
@@ -1223,7 +1223,7 @@ fn probe_wait_durations() {
 /// NMI handler sees the flag first is a race decided within a few dots
 /// of scanline 241 dot 1.
 #[test]
-#[ignore = "diagnostic; requires local nes-test-roms"]
+#[ignore = "DIAGNOSTIC: diagnostic; requires local nes-test-roms"]
 fn probe_nmi_vs_poll_race() {
     let Some(root) = nes_test_roms_root() else {
         emu198x_test_skip::skip!("nes-test-roms corpus not staged (test-suites/nes-test-roms)");
@@ -1304,7 +1304,7 @@ fn probe_nmi_vs_poll_race() {
 /// Kept only as the record of an instrument that failed and how it was
 /// caught.
 #[test]
-#[ignore = "diagnostic; requires local nes-test-roms"]
+#[ignore = "DIAGNOSTIC: diagnostic; requires local nes-test-roms"]
 fn probe_first_2002_read_per_frame() {
     let Some(root) = nes_test_roms_root() else {
         emu198x_test_skip::skip!("nes-test-roms corpus not staged (test-suites/nes-test-roms)");

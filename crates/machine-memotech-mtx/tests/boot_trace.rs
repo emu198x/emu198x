@@ -38,7 +38,7 @@ fn rom_path() -> Option<PathBuf> {
 }
 
 #[test]
-#[ignore = "needs MTX OS+BASIC+ASSEM ROM — run with --ignored"]
+#[ignore = "FIXTURE: needs MTX OS+BASIC+ASSEM ROM — run with --ignored"]
 fn boots_to_basic_ready() {
     let Some(path) = rom_path() else {
         panic!(

@@ -199,7 +199,7 @@ fn run_and_compare(nes: &mut Nes, log_lines: &[&str], label_count: usize) {
 ///     -- --ignored --nocapture
 /// ```
 #[test]
-#[ignore = "needs nestest.nes + nestest.log — run with --ignored"]
+#[ignore = "FIXTURE: needs nestest.nes + nestest.log — run with --ignored"]
 fn run_all() {
     let Some(dir) = fixture_dir() else {
         panic!(

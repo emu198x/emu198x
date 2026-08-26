@@ -124,7 +124,7 @@ fn screen(machine: &Spectrum48k) -> Vec<String> {
 /// into the binary gate this exists to replace. Strict per-case
 /// assertions come later, once a case has been closed and can be held.
 #[test]
-#[ignore = "requires the ZXSpectrum4.net suite and a 48K ROM; several minutes"]
+#[ignore = "FIXTURE: requires the ZXSpectrum4.net suite and a 48K ROM; several minutes"]
 fn timing_survey_records_every_case() {
     let rom_path = rom_path();
     let suite_path = suite_path();

@@ -19,7 +19,7 @@ fn rom(env: &str, default_name: &str) -> Option<Vec<u8>> {
 }
 
 #[test]
-#[ignore = "needs VIC-20 ROM set — run with --ignored"]
+#[ignore = "FIXTURE: needs VIC-20 ROM set — run with --ignored"]
 fn rom_set_boots_without_panic() {
     let kernal = rom("EMU198X_VIC20_KERNAL", "kernal.rom");
     let basic = rom("EMU198X_VIC20_BASIC", "basic.rom");

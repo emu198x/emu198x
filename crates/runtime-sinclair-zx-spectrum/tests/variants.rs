@@ -1350,7 +1350,7 @@ fn screen_lines<M: SpectrumMachine>(rt: &SpectrumRuntime<M>) -> Vec<String> {
 /// `src/variants.rs::TIMEX_TC2048_BANNERS`. Boots the local ROM and
 /// asserts the boot status matches.
 #[test]
-#[ignore = "requires local Timex TC2048 ROM at ~/.emu198x/roms/timex-tc2048/tc2048.rom"]
+#[ignore = "FIXTURE: requires local Timex TC2048 ROM at ~/.emu198x/roms/timex-tc2048/tc2048.rom"]
 fn tc2048_boot_banner_is_detected_with_real_rom() {
     let dir = rom_dir(".emu198x/roms/timex-tc2048").expect("HOME set");
     let path = dir.join("tc2048.rom");
@@ -1395,7 +1395,7 @@ fn tc2048_boot_banner_is_detected_with_real_rom() {
 /// SPECTRUM_128K_BANNERS`. Boots the local ROMs and asserts the
 /// boot status matches the verified Sinclair 1986 banner.
 #[test]
-#[ignore = "requires local Spectrum 128K ROMs at ~/.emu198x/roms/sinclair-zx-spectrum-128k/128-{0,1}.rom"]
+#[ignore = "FIXTURE: requires local Spectrum 128K ROMs at ~/.emu198x/roms/sinclair-zx-spectrum-128k/128-{0,1}.rom"]
 fn spectrum_128k_boot_banner_is_detected_with_real_rom() {
     let dir = rom_dir(".emu198x/roms/sinclair-zx-spectrum-128k").expect("HOME set");
     let rom0 = std::fs::read(dir.join("128-0.rom"));
@@ -1429,7 +1429,7 @@ fn spectrum_128k_boot_banner_is_detected_with_real_rom() {
 /// detected. The Plus2A and Plus2B share the same row-22 banner —
 /// covered by the same constant.
 #[test]
-#[ignore = "requires local +3 ROMs at ~/.emu198x/roms/amstrad-zx-spectrum-plus3/plus3-{0..3}.rom"]
+#[ignore = "FIXTURE: requires local +3 ROMs at ~/.emu198x/roms/amstrad-zx-spectrum-plus3/plus3-{0..3}.rom"]
 fn spectrum_plus3_boot_banner_is_detected_with_real_rom() {
     let dir = rom_dir(".emu198x/roms/amstrad-zx-spectrum-plus3").expect("HOME set");
     let r0 = std::fs::read(dir.join("plus3-0.rom"));
@@ -1461,7 +1461,7 @@ fn spectrum_plus3_boot_banner_is_detected_with_real_rom() {
 /// `src/variants.rs::PENTAGON_128_BANNERS`. Boots the local Pentagon
 /// ROMs and asserts the 1993 Sinclair banner is detected.
 #[test]
-#[ignore = "requires local Pentagon ROMs at ~/.emu198x/roms/pentagon-128/pentagon-{0,1}.rom"]
+#[ignore = "FIXTURE: requires local Pentagon ROMs at ~/.emu198x/roms/pentagon-128/pentagon-{0,1}.rom"]
 fn pentagon_128_boot_banner_is_detected_with_real_rom() {
     let dir = rom_dir(".emu198x/roms/pentagon-128").expect("HOME set");
     let r0 = std::fs::read(dir.join("pentagon-0.rom"));
@@ -1497,7 +1497,7 @@ fn pentagon_128_boot_banner_is_detected_with_real_rom() {
 /// everything is zero, the issue is upstream — Service ROM never
 /// writes to screen.
 #[test]
-#[ignore = "diagnostic — Scorpion screen-RAM dump (pixel bitmap + attributes)"]
+#[ignore = "DIAGNOSTIC: diagnostic — Scorpion screen-RAM dump (pixel bitmap + attributes)"]
 fn probe_scorpion_screen_ram() {
     let dir = rom_dir(".emu198x/roms/scorpion-zs256").expect("HOME set");
     let r0 = std::fs::read(dir.join("scorpion-0.rom"));
@@ -1550,7 +1550,7 @@ fn probe_scorpion_screen_ram() {
 /// Dump raw byte counts in each region to see which layout is in
 /// play.
 #[test]
-#[ignore = "diagnostic — TS2068 screen-RAM dump (standard + high-res addresses)"]
+#[ignore = "DIAGNOSTIC: diagnostic — TS2068 screen-RAM dump (standard + high-res addresses)"]
 fn probe_ts2068_screen_ram() {
     let dir = rom_dir(".emu198x/roms/timex-ts2068").expect("HOME set");
     let main_path = dir.join("ts2068.rom");
@@ -1597,7 +1597,7 @@ fn probe_ts2068_screen_ram() {
 }
 
 #[test]
-#[ignore = "diagnostic — boots six variants from ~/.emu198x/roms and prints banners"]
+#[ignore = "DIAGNOSTIC: diagnostic — boots six variants from ~/.emu198x/roms and prints banners"]
 fn probe_all_variant_banners() {
     if let Some(dir) = rom_dir(".emu198x/roms/sinclair-zx-spectrum-128k") {
         let r0 = std::fs::read(dir.join("128-0.rom"));
