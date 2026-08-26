@@ -130,26 +130,28 @@ pub fn record_under(policy: &Policy, reason: &str) {
         .unwrap_or("<unnamed test>")
         .to_owned();
 
+    eprintln!("{MARKER}: {test}: {reason}");
+
+    // Record before the strict check, not after. A strict run is the one
+    // where the tally matters most — it is the run that is about to fail,
+    // and the log is how you learn *which* fixtures were missing rather
+    // than just the first one to panic. Asserting first published nothing.
+    if let Some(path) = policy.log.as_ref() {
+        // One `O_APPEND` write of one line. Test binaries run in parallel
+        // processes, and short appends do not interleave; a lock file would
+        // buy nothing and could deadlock a test run.
+        let mut line = String::new();
+        let _ = writeln!(line, "{test}\t{reason}");
+        if let Ok(mut file) = OpenOptions::new().append(true).create(true).open(path) {
+            let _ = file.write_all(line.as_bytes());
+        }
+    }
+
     assert!(
         !policy.strict,
         "{MARKER}: {test} skipped for a missing fixture under \
          {STRICT_VAR}: {reason}"
     );
-
-    eprintln!("{MARKER}: {test}: {reason}");
-
-    let Some(path) = policy.log.as_ref() else {
-        return;
-    };
-
-    // One `O_APPEND` write of one line. Test binaries run in parallel
-    // processes, and short appends do not interleave; a lock file would
-    // buy nothing and could deadlock a test run.
-    let mut line = String::new();
-    let _ = writeln!(line, "{test}\t{reason}");
-    if let Ok(mut file) = OpenOptions::new().append(true).create(true).open(path) {
-        let _ = file.write_all(line.as_bytes());
-    }
 }
 
 #[cfg(test)]
@@ -203,6 +205,29 @@ mod tests {
             message.contains("Dragon ROM not staged"),
             "the panic must carry the reason, got {message:?}",
         );
+    }
+
+    #[test]
+    fn a_strict_skip_is_logged_before_it_panics() {
+        let path = temp_log("strict-append");
+        let _ = std::fs::remove_file(&path);
+        let policy = Policy {
+            strict: true,
+            log: Some(path.clone()),
+        };
+
+        let outcome =
+            std::panic::catch_unwind(|| record_under(&policy, "Kickstart 1.2 ROM not staged"));
+        outcome.expect_err("a skip under strict mode must still fail the test");
+
+        let logged = std::fs::read_to_string(&path)
+            .expect("a strict run should still publish its tally, not swallow it");
+        assert!(
+            logged.contains("Kickstart 1.2 ROM not staged"),
+            "the strict run's log should name the fixture it caught, got {logged:?}",
+        );
+
+        let _ = std::fs::remove_file(&path);
     }
 
     #[test]
