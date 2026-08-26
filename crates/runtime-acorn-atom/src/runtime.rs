@@ -19,10 +19,26 @@ const AUDIO_SAMPLE_RATE: u32 = 48_000;
 /// This machine's keyboard for the shared `press_key` / `type_string` tools:
 /// the standard layout, backed by this machine's own key-name resolver so a
 /// character it cannot type is refused rather than silently dropped (#1196).
-static KEYBOARD: emu198x_shell::StandardKeyboard = emu198x_shell::StandardKeyboard::new(
-    emu198x_shell::STANDARD_KEY_TIMING,
-    crate::input::knows_key_name,
-);
+/// The Atom needs at least three frames between keystrokes; the shared
+/// default leaves two, so `type_string` dropped **every second character**
+/// while reporting the full count. `PRINT 2+3*4` arrived as `PIT234` and
+/// BASIC answered `ERROR 94`.
+///
+/// Measured on the real ROM by pressing six keys with a varying gap: one and
+/// two frames give `ACE` from `ABCDEF`, three and four give all six. These
+/// values sit comfortably above that floor and match the ZX81's, which has
+/// the same fault for the same reason.
+const ATOM_KEY_TIMING: emu198x_shell::KeyTiming = emu198x_shell::KeyTiming {
+    default_hold_frames: 5,
+    max_hold_frames: 600,
+    press_settle_frames: 2,
+    inter_key_settle_frames: 8,
+    repeat_settle_frames: 8,
+    default_type_settle_frames: 20,
+};
+
+static KEYBOARD: emu198x_shell::StandardKeyboard =
+    emu198x_shell::StandardKeyboard::new(ATOM_KEY_TIMING, crate::input::knows_key_name);
 
 pub struct AtomRuntime {
     profile: MachineProfile,
@@ -358,3 +374,36 @@ impl MachineCore for AtomRuntime {
 }
 
 emu198x_shell::impl_6502_debug_primitives!(AtomRuntime);
+
+#[cfg(test)]
+mod tests {
+    use super::{ATOM_KEY_TIMING, KEYBOARD};
+    use emu198x_shell::KeyboardTarget;
+
+    /// The measured floor is a three-frame gap between keystrokes; at two the
+    /// Atom drops every second one and `type_string` still reports the full
+    /// count. These are the values measurement chose — pinned exactly, so
+    /// lowering any of them takes a deliberate edit and a new measurement.
+    #[test]
+    fn the_timing_is_the_one_that_was_measured() {
+        assert_eq!(ATOM_KEY_TIMING.inter_key_settle_frames, 8);
+        assert_eq!(ATOM_KEY_TIMING.repeat_settle_frames, 8);
+        assert_eq!(ATOM_KEY_TIMING.default_hold_frames, 5);
+        assert_eq!(ATOM_KEY_TIMING.press_settle_frames, 2);
+    }
+
+    /// This machine needs its own timing; inheriting the shared defaults is
+    /// exactly the bug. Read it back through the keyboard the shell actually
+    /// uses, so wiring the fast defaults back in fails here even if the
+    /// constant above survives.
+    #[test]
+    fn the_keyboard_uses_the_slow_timing_not_the_shared_default() {
+        let timing = KEYBOARD.key_timing();
+        let shared = emu198x_shell::STANDARD_KEY_TIMING;
+        assert_eq!(timing.inter_key_settle_frames, 8);
+        assert_ne!(
+            timing.inter_key_settle_frames, shared.inter_key_settle_frames,
+            "the Atom is back on the shared gap, which drops every second key"
+        );
+    }
+}
