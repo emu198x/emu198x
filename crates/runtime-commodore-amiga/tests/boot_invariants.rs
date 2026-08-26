@@ -377,6 +377,9 @@ fn kickstart_204_reaches_insert_disk_screen_a500_plus_pal() -> Result<(), Box<dy
 #[test]
 #[ignore = "FIXTURE: requires ~/.emu198x/roms/commodore-amiga/kick204.rom and ~/.emu198x/media/commodore-amiga/workbench-2.04.adf"]
 fn workbench_204_reaches_desktop_a500_plus_pal() -> Result<(), Box<dyn Error>> {
+    use std::collections::HashSet;
+
+    use common_commodore_amiga::denise::FB_WIDTH;
     use emu198x_shell::{MediaImage, MediaKind, MediaSet};
     use runtime_commodore_amiga::AmigaEcsRuntime;
 
@@ -427,19 +430,58 @@ fn workbench_204_reaches_desktop_a500_plus_pal() -> Result<(), Box<dyn Error>> {
         steps > 200,
         "KS 2.04 should issue hundreds of step pulses while loading WB 2.04 (got {steps})"
     );
-    let agnus = runtime.machine().agnus();
-    // The active KeyMap screen is 640 pixels (80 bytes) wide across
-    // 256 display lines, so adjacent plane streams remain $5000 apart.
-    const WB204_PLANE_SPAN: u32 = 80 * 256;
+    let detected = provider
+        .query(&runtime, "boot.detected")?
+        .expect("boot.detected should be available")
+        .value;
     assert_eq!(
-        agnus.num_bitplanes(),
-        2,
-        "the Workbench waypoint should use two bitplanes",
+        detected,
+        serde_json::Value::Bool(true),
+        "Workbench 2.04 should leave a visible post-boot display"
     );
-    assert_eq!(
-        agnus.bpl_pt[1].wrapping_sub(agnus.bpl_pt[0]),
-        WB204_PLANE_SPAN,
-        "the two equal-sized Workbench planes must remain one plane span apart",
+
+    // Assert the picture, not a register read at one instant.
+    //
+    // This waypoint used to assert `agnus.num_bitplanes() == 2` and a
+    // $5000 span between plane pointers. Neither can work here:
+    // `run_until` always halts at the same point in the frame — 3000
+    // samples 137 ticks apart landed on a single (vpos, hpos) phase —
+    // and at that phase a copper-driven display legitimately has BPU 0.
+    // The old assertions were reading BPLCON0 during vblank and calling
+    // it the desktop's bitplane count. See #1225.
+    //
+    // The boot itself was never in doubt: the A500+ ECS stack renders
+    // this screen pixel-for-pixel identically to the A2000 OCS stack
+    // (0 differing pixels of 442,368), and the framebuffer holds the
+    // AmigaDOS shell — "Amiga Release 2. Kickstart 37.175, Workbench
+    // 37.67".
+    //
+    // Distinct row patterns is the cheap structural check that a blank
+    // field cannot pass. The booted screen has 48 of 576 rows distinct,
+    // with the background row repeating 296 times; a flat screen has
+    // one or two. 16 leaves room for the display to change without
+    // making this brittle the way a pixel golden would be.
+    let framebuffer = runtime.machine().denise().framebuffer();
+    let non_black = framebuffer
+        .iter()
+        .filter(|pixel| (**pixel & 0x00FF_FFFF) != 0)
+        .count();
+    let unique_rgb: HashSet<u32> = framebuffer
+        .iter()
+        .map(|pixel| pixel & 0x00FF_FFFF)
+        .collect();
+    let distinct_rows: HashSet<&[u32]> = framebuffer.chunks(FB_WIDTH as usize).collect();
+    assert!(
+        non_black > 1_000 && unique_rgb.len() >= 4,
+        "the Workbench framebuffer should be non-trivial \
+         (non_black={non_black}, unique_rgb={})",
+        unique_rgb.len()
+    );
+    assert!(
+        distinct_rows.len() >= 16,
+        "the Workbench screen should be structured, not a flat field \
+         (got {} distinct row patterns)",
+        distinct_rows.len()
     );
     Ok(())
 }
