@@ -21,9 +21,66 @@ const AUDIO_SAMPLE_RATE: u32 = 48_000;
 /// This machine's keyboard for the shared `press_key` / `type_string` tools:
 /// the standard layout, backed by this machine's own key-name resolver so a
 /// character it cannot type is refused rather than silently dropped (#1196).
-static KEYBOARD: emu198x_shell::StandardKeyboard = emu198x_shell::StandardKeyboard::new(
+/// Characters the Ace puts on a red Symbol Shift legend, paired with the
+/// keycap that carries them. The modifier is Symbol Shift, not Caps Shift —
+/// on this keyboard Caps Shift only selects upper case, so every punctuation
+/// mark lives here. Without the table `type_string` could type letters,
+/// digits and space and nothing else (#1206), which on a Forth machine means
+/// it could not enter a single word definition.
+///
+/// Measured against the real ROM: Symbol Shift chorded with every key, the
+/// echoed character read out of the Ace's character RAM. Every entry agrees
+/// with MAME's `cantab/jupace.cpp` third `PORT_CHAR`.
+///
+/// `q`, `w` and `e` carry no red legend — the ROM falls through and returns
+/// the capital letter — so they are absent here rather than mapped to
+/// something they do not produce. `©` (Symbol Shift + `i`) is absent too:
+/// the cell is right and MAME names the glyph, but nothing in this tree
+/// verifies what the Ace's `$7F` actually draws, so it stays out until it
+/// can be checked.
+const SYMBOL_LEGENDS: &[(char, &str)] = &[
+    ('!', "1"),
+    ('@', "2"),
+    ('#', "3"),
+    ('$', "4"),
+    ('%', "5"),
+    ('&', "6"),
+    ('\'', "7"),
+    ('(', "8"),
+    (')', "9"),
+    ('_', "0"),
+    ('~', "a"),
+    ('*', "b"),
+    ('?', "c"),
+    ('\\', "d"),
+    ('{', "f"),
+    ('}', "g"),
+    ('^', "h"),
+    ('-', "j"),
+    ('+', "k"),
+    ('=', "l"),
+    ('.', "m"),
+    (',', "n"),
+    (';', "o"),
+    ('"', "p"),
+    ('<', "r"),
+    ('|', "s"),
+    ('>', "t"),
+    (']', "u"),
+    ('/', "v"),
+    ('£', "x"),
+    ('[', "y"),
+    (':', "z"),
+];
+
+/// This machine's keyboard for the shared `press_key` / `type_string` tools:
+/// the standard layout, backed by this machine's own key-name resolver so a
+/// character it cannot type is refused rather than silently dropped (#1196).
+static KEYBOARD: emu198x_shell::StandardKeyboard = emu198x_shell::StandardKeyboard::with_legends(
     emu198x_shell::STANDARD_KEY_TIMING,
     crate::input::knows_key_name,
+    "symbol",
+    SYMBOL_LEGENDS,
 );
 
 pub struct JupiterAceRuntime {
@@ -256,3 +313,69 @@ impl MachineCore for JupiterAceRuntime {
 }
 
 emu198x_shell::impl_z80_debug_primitives!(JupiterAceRuntime);
+
+#[cfg(test)]
+mod tests {
+    use super::SYMBOL_LEGENDS;
+    use crate::input::knows_key_name;
+
+    /// A legend naming a key the layout does not have is refused rather than
+    /// typed, so a typo here costs a character and reports nothing.
+    #[test]
+    fn every_legend_names_a_key_this_machine_has() {
+        assert!(
+            knows_key_name("symbol"),
+            "the legend chord is Symbol Shift, so that name must resolve"
+        );
+        for (legend, key) in SYMBOL_LEGENDS {
+            assert!(
+                knows_key_name(key),
+                "legend {legend:?} names {key:?}, which the layout does not have"
+            );
+        }
+    }
+
+    /// Two legends on one keycap would mean the second is unreachable, and
+    /// two keycaps for one character means one of them is wrong.
+    #[test]
+    fn legends_are_one_to_one() {
+        let mut chars: Vec<char> = SYMBOL_LEGENDS.iter().map(|(c, _)| *c).collect();
+        chars.sort_unstable();
+        let before = chars.len();
+        chars.dedup();
+        assert_eq!(before, chars.len(), "a character is listed twice");
+
+        let mut keys: Vec<&str> = SYMBOL_LEGENDS.iter().map(|(_, k)| *k).collect();
+        keys.sort_unstable();
+        let before = keys.len();
+        keys.dedup();
+        assert_eq!(before, keys.len(), "a keycap carries two legends");
+    }
+
+    /// This is a Forth machine, so punctuation is not decoration: without
+    /// these the Ace cannot be given a word definition, a stack operator or
+    /// a print. `.` and `+` alone are the difference between `2 3 + .` and
+    /// nothing at all.
+    #[test]
+    fn the_forth_punctuation_is_reachable() {
+        for ch in ['.', '+', '-', '*', '/', ';', ':', '"', '<', '>', '=', ','] {
+            assert!(
+                SYMBOL_LEGENDS.iter().any(|(c, _)| *c == ch),
+                "{ch:?} is still unreachable, so Forth cannot be typed"
+            );
+        }
+    }
+
+    /// `q`, `w` and `e` carry no red legend — the ROM falls through to the
+    /// capital letter. Listing them would map a character onto a chord that
+    /// does not produce it.
+    #[test]
+    fn keys_without_a_red_legend_are_not_listed() {
+        for key in ["q", "w", "e"] {
+            assert!(
+                !SYMBOL_LEGENDS.iter().any(|(_, k)| *k == key),
+                "{key:?} is listed as carrying a symbol legend, but it does not"
+            );
+        }
+    }
+}
