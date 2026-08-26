@@ -71,6 +71,7 @@ pub enum PetKey {
     Less,
     Greater,
     Equal,
+    Minus,
     At,
     // Control / editing.
     Return,
@@ -149,6 +150,7 @@ impl PetKey {
             Self::CursorRight => (8, 2),
             Self::Greater => (8, 4),
             Self::Num0 => (8, 6),
+            Self::Minus => (8, 7),
             // Row 9
             Self::Space => (9, 2),
             Self::Less => (9, 3),
@@ -166,5 +168,98 @@ mod tests {
     fn key_matrix_valid() {
         let (r, c) = PetKey::A.matrix();
         assert_eq!((r, c), (4, 0));
+    }
+
+    /// Every key this machine has, so the collision check below sees the
+    /// whole matrix rather than whichever keys someone remembered.
+    const ALL_KEYS: &[PetKey] = &[
+        PetKey::A,
+        PetKey::B,
+        PetKey::C,
+        PetKey::D,
+        PetKey::E,
+        PetKey::F,
+        PetKey::G,
+        PetKey::H,
+        PetKey::I,
+        PetKey::J,
+        PetKey::K,
+        PetKey::L,
+        PetKey::M,
+        PetKey::N,
+        PetKey::O,
+        PetKey::P,
+        PetKey::Q,
+        PetKey::R,
+        PetKey::S,
+        PetKey::T,
+        PetKey::U,
+        PetKey::V,
+        PetKey::W,
+        PetKey::X,
+        PetKey::Y,
+        PetKey::Z,
+        PetKey::Num0,
+        PetKey::Num1,
+        PetKey::Num2,
+        PetKey::Num3,
+        PetKey::Num4,
+        PetKey::Num5,
+        PetKey::Num6,
+        PetKey::Num7,
+        PetKey::Num8,
+        PetKey::Num9,
+        PetKey::Exclaim,
+        PetKey::Hash,
+        PetKey::Percent,
+        PetKey::Ampersand,
+        PetKey::ParenLeft,
+        PetKey::Quote,
+        PetKey::Dollar,
+        PetKey::Apostrophe,
+        PetKey::ParenRight,
+        PetKey::Slash,
+        PetKey::Asterisk,
+        PetKey::Plus,
+        PetKey::Colon,
+        PetKey::Semicolon,
+        PetKey::Comma,
+        PetKey::Period,
+        PetKey::Question,
+        PetKey::Less,
+        PetKey::Greater,
+        PetKey::Equal,
+        PetKey::Minus,
+        PetKey::At,
+        PetKey::Return,
+        PetKey::Space,
+        PetKey::CursorRight,
+    ];
+
+    /// Two keys sharing a cell is silent: the later one simply presses the
+    /// earlier one, and the machine types the wrong character with no error
+    /// anywhere. Adding a key means picking a free cell, so check it is free.
+    #[test]
+    fn no_two_keys_share_a_matrix_cell() {
+        let mut seen: Vec<((usize, u8), PetKey)> = Vec::new();
+        for &key in ALL_KEYS {
+            let cell = key.matrix();
+            assert!(cell.0 < 10 && cell.1 < 8, "{key:?} is outside the matrix");
+            if let Some((_, other)) = seen.iter().find(|(c, _)| *c == cell) {
+                panic!("{key:?} and {other:?} both claim cell {cell:?}");
+            }
+            seen.push((cell, key));
+        }
+    }
+
+    /// The keypad's bottom row is `0 . - =`, and its two columns are 6 and 7
+    /// throughout, so minus sits beside `=` at row 8 column 7 — the cell MAME
+    /// gives it as `ROW8` bit `0x80`.
+    #[test]
+    fn keypad_minus_sits_beside_equals() {
+        assert_eq!(PetKey::Minus.matrix(), (8, 7));
+        assert_eq!(PetKey::Equal.matrix(), (9, 7));
+        assert_eq!(PetKey::Num0.matrix(), (8, 6));
+        assert_eq!(PetKey::Period.matrix(), (9, 6));
     }
 }

@@ -100,3 +100,54 @@ fn types_a_basic_line_and_prints_the_result() {
         "expected BASIC to print the result 7; screen was: {screen:?}"
     );
 }
+
+/// The keypad minus. It was missing from the matrix entirely, so `-` was
+/// the one arithmetic operator `type_string` could not reach (#1206); the
+/// cell it belongs in is row 8 column 7, the keypad's bottom-right pair
+/// with `=`. Typing a subtraction is the check that it landed right.
+#[test]
+#[ignore = "needs PET kernal/basic/editor/char ROMs — run with --ignored"]
+fn types_a_subtraction_through_the_keypad_minus() {
+    let (Some(kernal), Some(basic), Some(editor), Some(charrom)) = (
+        rom("kernal.rom"),
+        rom("basic.rom"),
+        rom("editor.rom"),
+        rom("char.rom"),
+    ) else {
+        panic!(
+            "PET ROMs not found — set EMU198X_PET_ROMS or place \
+             kernal.rom/basic.rom/editor.rom/char.rom at ~/.emu198x/roms/commodore-pet/"
+        );
+    };
+    let mut sys = Pet::new(kernal, basic, editor, charrom, 40);
+    for _ in 0..120 {
+        sys.run_frame();
+    }
+
+    for key in [
+        PetKey::P,
+        PetKey::R,
+        PetKey::I,
+        PetKey::N,
+        PetKey::T,
+        PetKey::Num9,
+        PetKey::Minus,
+        PetKey::Num4,
+        PetKey::Return,
+    ] {
+        tap(&mut sys, key);
+    }
+    for _ in 0..30 {
+        sys.run_frame();
+    }
+
+    let screen = screen(&sys);
+    assert!(
+        screen.contains("PRINT9-4"),
+        "expected the minus to echo in the typed line; got: {screen:?}"
+    );
+    assert!(
+        screen.split(' ').any(|tok| tok == "5"),
+        "expected BASIC to print the result 5; screen was: {screen:?}"
+    );
+}
