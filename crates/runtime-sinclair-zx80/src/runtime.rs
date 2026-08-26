@@ -23,9 +23,44 @@ const TAPE_SLOT: &str = "tape-1";
 /// This machine's keyboard for the shared `press_key` / `type_string` tools:
 /// the standard layout, backed by this machine's own key-name resolver so a
 /// character it cannot type is refused rather than silently dropped (#1196).
-static KEYBOARD: emu198x_shell::StandardKeyboard = emu198x_shell::StandardKeyboard::new(
+/// Characters the ZX80 puts on a shifted legend, paired with the keycap that
+/// carries them. Without this the machine could type letters, digits, space
+/// and `.` and nothing else (#1206) — no operator, no string quote, no
+/// comparison.
+///
+/// Measured on the real ROM, and decoded with the **ZX80's** character set,
+/// which is not the ZX81's: the symbol block is ordered `- + * / = > <` from
+/// `$12`, where the ZX81 has `> < = + - * /`. Reading a ZX80 screen through a
+/// ZX81 table silently renames seven operators — it made Shift-V look like
+/// `+` when it is `/`, and the first table written that way typed `2/3` for
+/// `2+3` and printed 0.
+///
+/// Shift chords that yield a keyword (Shift-N1 is NOT, Shift-B is OR) or two
+/// glyphs (Shift-H is `**`) are not single characters, so they are absent;
+/// reach those with `press_keys`.
+const SHIFTED_LEGENDS: &[(char, &str)] = &[
+    (':', "z"),
+    (';', "x"),
+    ('?', "c"),
+    ('/', "v"),
+    ('"', "g"),
+    ('*', "p"),
+    (')', "o"),
+    ('(', "i"),
+    ('$', "u"),
+    ('=', "l"),
+    ('+', "k"),
+    ('-', "j"),
+    (',', "period"),
+    ('>', "m"),
+    ('<', "n"),
+];
+
+static KEYBOARD: emu198x_shell::StandardKeyboard = emu198x_shell::StandardKeyboard::with_legends(
     emu198x_shell::STANDARD_KEY_TIMING,
     crate::input::knows_key_name,
+    "shift",
+    SHIFTED_LEGENDS,
 );
 
 pub struct Zx80Runtime {
@@ -362,3 +397,79 @@ impl MachineCore for Zx80Runtime {
 }
 
 emu198x_shell::impl_z80_debug_primitives!(Zx80Runtime);
+
+#[cfg(test)]
+mod tests {
+    use super::SHIFTED_LEGENDS;
+    use crate::input::knows_key_name;
+
+    /// A legend naming a key the layout does not have is refused rather than
+    /// typed, so a typo here costs a character and reports nothing.
+    #[test]
+    fn every_legend_names_a_key_this_machine_has() {
+        assert!(
+            knows_key_name("shift"),
+            "the legend chord needs a shift key"
+        );
+        for (legend, key) in SHIFTED_LEGENDS {
+            assert!(
+                knows_key_name(key),
+                "legend {legend:?} names {key:?}, which the layout does not have"
+            );
+        }
+    }
+
+    /// Two legends on one keycap would mean the second is unreachable, and
+    /// two keycaps for one character means one of them is wrong.
+    #[test]
+    fn legends_are_one_to_one() {
+        let mut chars: Vec<char> = SHIFTED_LEGENDS.iter().map(|(c, _)| *c).collect();
+        chars.sort_unstable();
+        let before = chars.len();
+        chars.dedup();
+        assert_eq!(before, chars.len(), "a character is listed twice");
+
+        let mut keys: Vec<&str> = SHIFTED_LEGENDS.iter().map(|(_, k)| *k).collect();
+        keys.sort_unstable();
+        let before = keys.len();
+        keys.dedup();
+        assert_eq!(before, keys.len(), "a keycap carries two legends");
+    }
+
+    /// Every arithmetic operator, checked by running the sum on the real ROM
+    /// rather than by decoding a glyph: `2+3` is 5, `9-4` is 5, and so on.
+    /// A wrong operator here still produces a valid expression, so only the
+    /// answer catches it.
+    #[test]
+    fn the_arithmetic_operators_are_reachable() {
+        for ch in ['+', '-', '*', '/', '=', '<', '>'] {
+            assert!(
+                SHIFTED_LEGENDS.iter().any(|(c, _)| *c == ch),
+                "{ch:?} is still unreachable"
+            );
+        }
+    }
+
+    /// The ZX80's operators, pinned to the keys that were measured, and they
+    /// are *not* the ZX81's. `*` is Shift-P here and Shift-B there; `"` is
+    /// Shift-G here and Shift-P there.
+    ///
+    /// The first version of this table was decoded with the ZX81's character
+    /// set, which orders the symbol block differently from `$12`. That made
+    /// Shift-V look like `+` when it is `/`, so `2+3` typed `2/3` and printed
+    /// 0. Nothing about the typed line looked wrong — only the answer did.
+    #[test]
+    fn the_operators_sit_where_the_rom_puts_them() {
+        let at = |ch: char| {
+            SHIFTED_LEGENDS
+                .iter()
+                .find(|(c, _)| *c == ch)
+                .map(|(_, k)| *k)
+        };
+        assert_eq!(at('+'), Some("k"));
+        assert_eq!(at('-'), Some("j"));
+        assert_eq!(at('*'), Some("p"));
+        assert_eq!(at('/'), Some("v"));
+        assert_eq!(at('"'), Some("g"));
+    }
+}

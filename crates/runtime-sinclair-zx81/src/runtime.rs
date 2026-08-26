@@ -47,8 +47,41 @@ const ZX81_KEY_TIMING: emu198x_shell::KeyTiming = emu198x_shell::KeyTiming {
     default_type_settle_frames: 20,
 };
 
-static KEYBOARD: emu198x_shell::StandardKeyboard =
-    emu198x_shell::StandardKeyboard::new(ZX81_KEY_TIMING, crate::input::knows_key_name);
+/// Characters the ZX81 puts on a shifted legend, paired with the keycap that
+/// carries them. Without this the machine could type letters, digits, space
+/// and `.` and nothing else (#1206) — no operator, no string quote, no
+/// comparison.
+///
+/// Measured on the real ROM: every key chorded with Shift, the result read
+/// out of the display file. Most Shift chords produce a *keyword* token
+/// (Shift-A is STOP, Shift-W is OR) and several produce two-glyph tokens
+/// (`<=`, `>=`, `<>`, `**`, `""`). Only the chords that yield exactly one
+/// character can be legends, so only those are here; the rest are reachable
+/// with `press_keys` and are not characters `type_string` can be asked for.
+const SHIFTED_LEGENDS: &[(char, &str)] = &[
+    (':', "z"),
+    (';', "x"),
+    ('?', "c"),
+    ('/', "v"),
+    ('"', "p"),
+    (')', "o"),
+    ('(', "i"),
+    ('$', "u"),
+    ('=', "l"),
+    ('+', "k"),
+    ('-', "j"),
+    (',', "period"),
+    ('>', "m"),
+    ('<', "n"),
+    ('*', "b"),
+];
+
+static KEYBOARD: emu198x_shell::StandardKeyboard = emu198x_shell::StandardKeyboard::with_legends(
+    ZX81_KEY_TIMING,
+    crate::input::knows_key_name,
+    "shift",
+    SHIFTED_LEGENDS,
+);
 
 pub struct Zx81Runtime {
     profile: MachineProfile,
@@ -388,7 +421,8 @@ emu198x_shell::impl_z80_debug_primitives!(Zx81Runtime);
 
 #[cfg(test)]
 mod tests {
-    use super::{KEYBOARD, ZX81_KEY_TIMING};
+    use super::{KEYBOARD, SHIFTED_LEGENDS, ZX81_KEY_TIMING};
+    use crate::input::knows_key_name;
     use emu198x_shell::KeyboardTarget;
 
     /// The measured floor is a four-frame gap between keystrokes; below it the
@@ -420,5 +454,70 @@ mod tests {
             timing.inter_key_settle_frames, shared.inter_key_settle_frames,
             "the ZX81 is back on the shared gap, which drops keystrokes"
         );
+    }
+
+    /// A legend naming a key the layout does not have is refused rather than
+    /// typed, so a typo here costs a character and reports nothing.
+    #[test]
+    fn every_legend_names_a_key_this_machine_has() {
+        assert!(
+            knows_key_name("shift"),
+            "the legend chord needs a shift key"
+        );
+        for (legend, key) in SHIFTED_LEGENDS {
+            assert!(
+                knows_key_name(key),
+                "legend {legend:?} names {key:?}, which the layout does not have"
+            );
+        }
+    }
+
+    /// Two legends on one keycap would mean the second is unreachable, and
+    /// two keycaps for one character means one of them is wrong.
+    #[test]
+    fn legends_are_one_to_one() {
+        let mut chars: Vec<char> = SHIFTED_LEGENDS.iter().map(|(c, _)| *c).collect();
+        chars.sort_unstable();
+        let before = chars.len();
+        chars.dedup();
+        assert_eq!(before, chars.len(), "a character is listed twice");
+
+        let mut keys: Vec<&str> = SHIFTED_LEGENDS.iter().map(|(_, k)| *k).collect();
+        keys.sort_unstable();
+        let before = keys.len();
+        keys.dedup();
+        assert_eq!(before, keys.len(), "a keycap carries two legends");
+    }
+
+    /// Every arithmetic operator, checked by running the sum on the real ROM
+    /// rather than by decoding a glyph: `2+3` is 5, `9-4` is 5, and so on.
+    /// A wrong operator here still produces a valid expression, so only the
+    /// answer catches it.
+    #[test]
+    fn the_arithmetic_operators_are_reachable() {
+        for ch in ['+', '-', '*', '/', '=', '<', '>'] {
+            assert!(
+                SHIFTED_LEGENDS.iter().any(|(c, _)| *c == ch),
+                "{ch:?} is still unreachable"
+            );
+        }
+    }
+
+    /// The ZX81's operators, pinned to the keys that were measured. `+` is
+    /// Shift-K here and Shift-V on the ZX80 — the two machines share a matrix
+    /// but not a shifted layer, and they do not share a character set either.
+    #[test]
+    fn the_operators_sit_where_the_rom_puts_them() {
+        let at = |ch: char| {
+            SHIFTED_LEGENDS
+                .iter()
+                .find(|(c, _)| *c == ch)
+                .map(|(_, k)| *k)
+        };
+        assert_eq!(at('+'), Some("k"));
+        assert_eq!(at('-'), Some("j"));
+        assert_eq!(at('*'), Some("b"));
+        assert_eq!(at('/'), Some("v"));
+        assert_eq!(at('"'), Some("p"));
     }
 }
