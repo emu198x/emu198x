@@ -28,7 +28,7 @@ const HINT_TEXT: &str = "F12 RESET   ESC QUIT";
 #[must_use]
 pub fn build_halt_overlay(width: u32, height: u32, message: &str) -> Vec<u8> {
     let mut buf = vec![0u8; (width as usize) * (height as usize) * 4];
-    for px in buf.chunks_exact_mut(4) {
+    for px in buf.as_chunks_mut::<4>().0.iter_mut() {
         px.copy_from_slice(&BG);
     }
 
@@ -203,8 +203,13 @@ mod tests {
         let buf = build_halt_overlay(w, h, "CPU HALTED (JAM) AT $18AC");
         assert_eq!(buf.len(), (w * h * 4) as usize);
         // Background present and some non-background (text/accent) pixels drawn.
-        assert!(buf.chunks_exact(4).any(|p| p == BG));
-        assert!(buf.chunks_exact(4).any(|p| p == BODY || p == HEADER));
+        assert!(buf.as_chunks::<4>().0.contains(&BG));
+        assert!(
+            buf.as_chunks::<4>()
+                .0
+                .iter()
+                .any(|&p| p == BODY || p == HEADER)
+        );
     }
 
     #[test]

@@ -474,9 +474,7 @@ impl Atc040Bank {
                 e.valid = false;
             }
         }
-        for w in &mut self.next_way {
-            *w = 0;
-        }
+        self.next_way.fill(0);
     }
 
     /// Invalidate entries for a page. When `include_global` is false,

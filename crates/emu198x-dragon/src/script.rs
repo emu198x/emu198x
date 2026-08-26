@@ -3204,8 +3204,8 @@ fn runtime_framebuffer_argb(
         .rgba_pixels()
         .map_err(|err| format!("failed to read runtime frame pixels: {err}"))?;
     let mut pixels = Vec::with_capacity(rgba.len() / 4);
-    for chunk in rgba.chunks_exact(4) {
-        let [r, g, b, a] = [chunk[0], chunk[1], chunk[2], chunk[3]];
+    for chunk in rgba.as_chunks::<4>().0.iter() {
+        let [r, g, b, a] = *chunk;
         pixels
             .push((u32::from(a) << 24) | (u32::from(r) << 16) | (u32::from(g) << 8) | u32::from(b));
     }
@@ -4264,7 +4264,7 @@ fn decode_png_rgba(bytes: &[u8]) -> Result<DecodedImage, String> {
     let rgba = match info.color_type {
         png::ColorType::Rgb => {
             let mut out = Vec::with_capacity((info.width * info.height * 4) as usize);
-            for chunk in data.chunks_exact(3) {
+            for chunk in data.as_chunks::<3>().0.iter() {
                 out.extend_from_slice(chunk);
                 out.push(0xFF);
             }
@@ -4309,7 +4309,12 @@ fn compare_images(emu: &DecodedImage, reference: &DecodedImage) -> ImageComparis
     let mut differing_pixels = 0u64;
     let mut max_channel_delta = 0u8;
     let mut total_abs_channel_delta = 0u64;
-    for (emu_pixel, reference_pixel) in emu.rgba.chunks_exact(4).zip(reference.rgba.chunks_exact(4))
+    for (emu_pixel, reference_pixel) in emu
+        .rgba
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .zip(reference.rgba.as_chunks::<4>().0.iter())
     {
         let mut pixel_differs = false;
         for channel in 0..3 {
@@ -5676,7 +5681,7 @@ fn failed_runtime_smoke(command: &str, error: &str) -> CasRuntimeSmoke {
 
 fn load_wait_frame_budget(tape_length_bits: u64) -> u32 {
     let scaled = tape_length_bits / 16;
-    u32::try_from(scaled.clamp(4_500, 20_000)).map_or(20_000, |frames| frames)
+    u32::try_from(scaled.clamp(4_500, 20_000)).unwrap_or(20_000)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

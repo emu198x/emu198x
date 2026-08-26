@@ -2455,8 +2455,10 @@ mod bus_plan_dispatch_tests {
         let replacement_data = vec![0xA5; 11 * 512];
         let replacement_track = encode_mfm_track(&replacement_data, 0, 11);
         let word_phase = stale_track
-            .chunks_exact(2)
-            .zip(replacement_track.chunks_exact(2))
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .zip(replacement_track.as_chunks::<2>().0.iter())
             .position(|(old, replacement)| old != replacement)
             .expect("distinct sector data should change the encoded track");
         let stale_word =
@@ -2469,8 +2471,10 @@ mod bus_plan_dispatch_tests {
         amiga.track_word_cursor = word_phase;
 
         let mfm_words: Vec<u16> = replacement_track
-            .chunks_exact(2)
-            .map(|bytes| u16::from_be_bytes([bytes[0], bytes[1]]))
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|&bytes| u16::from_be_bytes(bytes))
             .collect();
         let dsklen = commodore_paula_8364::bits::DSKLEN_DMAEN
             | commodore_paula_8364::bits::DSKLEN_WRITE

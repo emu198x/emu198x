@@ -386,7 +386,12 @@ fn encode_rgb_png(rgb: &[u8], w: u32, h: u32) -> Vec<u8> {
 fn write_diff_mask(path: &Path, actual_rgb: &[u8], expected_rgb: &[u8], w: u32, h: u32) {
     assert_eq!(actual_rgb.len(), expected_rgb.len());
     let mut mask = Vec::with_capacity(actual_rgb.len());
-    for (a, e) in actual_rgb.chunks_exact(3).zip(expected_rgb.chunks_exact(3)) {
+    for (a, e) in actual_rgb
+        .as_chunks::<3>()
+        .0
+        .iter()
+        .zip(expected_rgb.as_chunks::<3>().0.iter())
+    {
         if a == e {
             mask.extend_from_slice(&[0, 0, 0]);
         } else {
@@ -423,7 +428,9 @@ fn decode_png_rgb(path: &Path) -> (Vec<u8>, u32, u32) {
     let rgb = match info.color_type {
         png::ColorType::Rgb => buf,
         png::ColorType::Rgba => buf
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .flat_map(|c| [c[0], c[1], c[2]])
             .collect(),
         other => panic!(
@@ -452,8 +459,10 @@ fn count_unignored_differences(
     }
 
     actual_rgb
-        .chunks_exact(3)
-        .zip(expected_rgb.chunks_exact(3))
+        .as_chunks::<3>()
+        .0
+        .iter()
+        .zip(expected_rgb.as_chunks::<3>().0.iter())
         .enumerate()
         .filter(|(index, (actual, expected))| {
             if actual == expected {

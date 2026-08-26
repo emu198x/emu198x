@@ -168,7 +168,9 @@ fn decode_reference_png(path: &PathBuf) -> RefImage {
         png::ColorType::Rgb => ("rgb8", buf),
         png::ColorType::Rgba => (
             "rgba8",
-            buf.chunks_exact(4)
+            buf.as_chunks::<4>()
+                .0
+                .iter()
                 .flat_map(|p| [p[0], p[1], p[2]])
                 .collect(),
         ),

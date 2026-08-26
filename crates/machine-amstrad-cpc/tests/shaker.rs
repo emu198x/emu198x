@@ -128,7 +128,7 @@ fn extract(img: &DiskImage, want: &str) -> Option<AmsdosFile> {
     }
 
     let mut extents: Vec<(u16, usize, Vec<u8>)> = Vec::new();
-    for entry in catalogue.chunks_exact(DIR_ENTRY_LEN) {
+    for entry in catalogue.as_chunks::<DIR_ENTRY_LEN>().0.iter() {
         // User 0 only. `$E5` marks a deleted entry; anything else is another
         // user area.
         if entry[0] != 0 {

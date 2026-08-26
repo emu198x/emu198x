@@ -613,7 +613,7 @@ fn autoload_tape(
 
 fn load_wait_frame_budget(tape_length_bits: u64) -> u32 {
     let scaled = tape_length_bits / 16;
-    u32::try_from(scaled.clamp(4_500, 20_000)).map_or(20_000, |frames| frames)
+    u32::try_from(scaled.clamp(4_500, 20_000)).unwrap_or(20_000)
 }
 
 fn wait_for_tape_position_above(

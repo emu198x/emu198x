@@ -873,7 +873,9 @@ mod tests {
         // Encode track 0 (cyl 0, head 0) and feed as MFM words
         let mfm_bytes = mfm::encode_mfm_track(&sector_data, 0, 11);
         let mfm_words: Vec<u16> = mfm_bytes
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .map(|c| (u16::from(c[0]) << 8) | u16::from(c[1]))
             .collect();
         for &word in &mfm_words {
@@ -906,7 +908,7 @@ mod tests {
         let mut track = vec![0u8; 11 * 512];
         track[0] = 0xAB;
         let mfm = mfm::encode_mfm_track(&track, 0, 11);
-        for w in mfm.chunks_exact(2) {
+        for w in mfm.as_chunks::<2>().0.iter() {
             drive.note_write_mfm_word((u16::from(w[0]) << 8) | u16::from(w[1]));
         }
         assert_eq!(

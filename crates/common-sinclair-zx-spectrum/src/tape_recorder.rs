@@ -145,7 +145,7 @@ fn is_pilot(pulse: u32) -> bool {
 /// stream). Returns `None` for a runt block (no flag + checksum).
 fn bits_to_block(bits: &[u8]) -> Option<TapeBlock> {
     let mut bytes = Vec::with_capacity(bits.len() / 8);
-    for chunk in bits.chunks_exact(8) {
+    for chunk in bits.as_chunks::<8>().0.iter() {
         let byte = chunk.iter().fold(0u8, |acc, &bit| (acc << 1) | bit);
         bytes.push(byte);
     }

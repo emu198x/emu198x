@@ -2878,8 +2878,10 @@ mod tests {
         let replacement_data = vec![0xA5; 11 * 512];
         let replacement_track = encode_mfm_track(&replacement_data, 0, 11);
         let word_phase = stale_track
-            .chunks_exact(2)
-            .zip(replacement_track.chunks_exact(2))
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .zip(replacement_track.as_chunks::<2>().0.iter())
             .position(|(old, replacement)| old != replacement)
             .expect("distinct sector data should change the encoded track");
         let stale_word =
@@ -2892,8 +2894,10 @@ mod tests {
         amiga.track_word_cursor = word_phase;
 
         let mfm_words: Vec<u16> = replacement_track
-            .chunks_exact(2)
-            .map(|bytes| u16::from_be_bytes([bytes[0], bytes[1]]))
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|&bytes| u16::from_be_bytes(bytes))
             .collect();
         let dsklen = commodore_paula_8364::bits::DSKLEN_DMAEN
             | commodore_paula_8364::bits::DSKLEN_WRITE
@@ -3339,7 +3343,7 @@ mod tests {
             let board = amiga.gvp_a530.as_mut().expect("A530 must be installed");
             board.write_autoconfig_word(0x4A, 0x0000);
             board.write_autoconfig_word(0x48, 0x2000);
-            for word in board.storage_mut().chunks_exact_mut(2) {
+            for word in board.storage_mut().as_chunks_mut::<2>().0.iter_mut() {
                 word.copy_from_slice(&0x4E71u16.to_be_bytes());
             }
 

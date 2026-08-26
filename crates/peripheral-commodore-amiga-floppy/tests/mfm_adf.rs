@@ -78,8 +78,10 @@ fn encode_then_decode_round_trips_all_11_sectors() {
     // Repack as u16 words, big-endian — this is the format Paula DMA
     // captures into chip RAM and hands back to the decoder.
     let words: Vec<u16> = mfm
-        .chunks_exact(2)
-        .map(|c| u16::from_be_bytes([c[0], c[1]]))
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|&c| u16::from_be_bytes(c))
         .collect();
     let decoded = decode_mfm_track(&words);
 
@@ -96,8 +98,10 @@ fn decode_rejects_sector_with_bad_data_checksum() {
     let track = distinctive_track_bytes();
     let mfm = encode_mfm_track(&track, 0, 11);
     let mut words: Vec<u16> = mfm
-        .chunks_exact(2)
-        .map(|c| u16::from_be_bytes([c[0], c[1]]))
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|&c| u16::from_be_bytes(c))
         .collect();
 
     // Corrupt one data byte in sector 0 (the data region starts at
@@ -127,7 +131,9 @@ fn write_capture_flushes_through_to_adf_save() {
 
     let mfm_bytes = encode_mfm_track(&track_data, 0, 11);
     let mfm_words: Vec<u16> = mfm_bytes
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .map(|c| (u16::from(c[0]) << 8) | u16::from(c[1]))
         .collect();
     for &word in &mfm_words {

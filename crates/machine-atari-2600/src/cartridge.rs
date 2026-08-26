@@ -934,7 +934,9 @@ fn is_probably_sc(rom: &[u8]) -> bool {
     !rom.is_empty()
         && rom.len().is_multiple_of(4096)
         && rom
-            .chunks_exact(4096)
+            .as_chunks::<4096>()
+            .0
+            .iter()
             .all(|bank| bank[0..128] == bank[128..256])
 }
 
@@ -1356,7 +1358,7 @@ mod tests {
     /// byte from $0100 up so bank reads are identifiable.
     fn f6sc_rom() -> Vec<u8> {
         let mut rom = vec![0u8; 16384];
-        for (b, bank) in rom.chunks_exact_mut(4096).enumerate() {
+        for (b, bank) in rom.as_chunks_mut::<4096>().0.iter_mut().enumerate() {
             // First 256 bytes stay zero, so the first-128 == next-128 Superchip
             // signature holds; the rest carries the bank index.
             bank[256..].fill(b as u8);

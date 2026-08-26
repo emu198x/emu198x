@@ -664,7 +664,9 @@ fn execute_case(
             .rgba_pixels()
             .map_err(|error| format!("convert emitted frame to RGBA: {error}"))?;
         if let Some((index, alpha)) = rgba
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .enumerate()
             .find_map(|(index, pixel)| (pixel[3] != 0xFF).then_some((index, pixel[3])))
         {
@@ -816,7 +818,7 @@ fn canonical_probe_row(rgba: &[u8], case: &Case) -> Result<Vec<[u8; 3]>, String>
     }
 
     let mut samples = Vec::with_capacity(DISPLAY_WIDTH as usize / PIXEL_DUPLICATION);
-    for (pair_index, pair) in first.chunks_exact(8).enumerate() {
+    for (pair_index, pair) in first.as_chunks::<8>().0.iter().enumerate() {
         if pair[..4] != pair[4..] {
             return Err(format!(
                 "declared horizontal duplicate pair {pair_index} differs"
