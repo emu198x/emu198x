@@ -50,7 +50,7 @@ corpora=(
   "Tom Harte 6502|EMU198X_6502_TOM_HARTE_DIR|${umbrella}/assets/test-suites/processor-tests/65x02/6502/v1|00.json|"
   "Tom Harte Z80|EMU198X_Z80_TOM_HARTE_DIR|${umbrella}/assets/test-suites/processor-tests/z80/v1|00.json|"
   "Tom Harte 68000|EMU198X_68000_TOM_HARTE_ROOT|${umbrella}/assets/test-suites/processor-tests/680x0/68000/v1|ADD.b.json.gz|"
-  "SM83 (Tennant)|EMU198X_SM83_TENNANT_DIR|${umbrella}/assets/test-suites/processor-tests/sm83/v1|00.json|"
+  "SM83 (Tennant)|EMU198X_SM83_TENNANT_DIR|${umbrella}/assets/test-suites/processor-tests/sm83/v1|cb.json|sentinel is cb.json, not 00.json: Harte's SM83 tree has 00.json too, and the two disagree on where initial.pc points (#1230)"
   "Klaus Dormann 6502|EMU198X_6502_DORMANN_DIR|${umbrella}/assets/test-suites/6502|6502_functional_test.bin|"
   "FUSE Z80|EMU198X_FUSE_Z80_TESTS_DIR|${umbrella}/emulators/zx-spectrum/fuse-emulator-fuse/z80/tests|tests.in|"
   "Wolfgang Lorenz 6502|EMU198X_6502_LORENZ_DIR|${umbrella}/assets/test-suites/vice/bin|adca|also needs a KERNAL; the store's tarball carries a synthetic one"
