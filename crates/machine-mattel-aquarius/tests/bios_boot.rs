@@ -19,7 +19,7 @@ use std::env;
 use std::fs;
 use std::path::PathBuf;
 
-use machine_mattel_aquarius::{Aquarius, AquariusRegion};
+use machine_mattel_aquarius::{Aquarius, AquariusRegion, FB_HEIGHT, FB_WIDTH};
 
 fn bios_path() -> Option<PathBuf> {
     if let Ok(p) = env::var("EMU198X_AQUARIUS_BIOS") {
@@ -56,7 +56,10 @@ fn bios_boots_to_initial_screen() {
     for _ in 0..400 {
         sys.run_frame();
         let fb = sys.framebuffer();
-        assert_eq!(fb.len(), 320 * 192);
+        // Derived, not written down: this asserted a bare `320 * 192` and so
+        // started failing the moment the borders were added to the
+        // framebuffer — before it ever reached the content checks below.
+        assert_eq!(fb.len() as u32, FB_WIDTH * FB_HEIGHT);
         let colours: std::collections::HashSet<u32> = fb.iter().copied().collect();
         let non_zero = fb.iter().filter(|&&px| px & 0x00FF_FFFF != 0).count();
         best_colours = best_colours.max(colours.len());
