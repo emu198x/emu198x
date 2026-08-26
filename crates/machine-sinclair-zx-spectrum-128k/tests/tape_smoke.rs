@@ -10,6 +10,11 @@
 //! change. HALT2INT is a semantic exception: it decodes the finished
 //! screen and requires the diagnostic's complete `HALT: Early`
 //! classification instead of preserving an obsolete self-golden.
+//!
+//! Super HALT Invaders needs a second ENTER at its own prompt before it
+//! is running anything — see [`start_the_program`]. These screenshot
+//! goldens are change-detectors: they say the timing moved, not that it
+//! moved the right way. Only HALT2INT answers the second question.
 
 use common_sinclair_zx_spectrum::keyboard::SpectrumKey;
 use common_sinclair_zx_spectrum::memory::MemoryBus;
@@ -26,6 +31,17 @@ const SYSTEM_TESTS_DIR_ENV: &str = "EMU198X_SPECTRUM_SYSTEM_TESTS_DIR";
 
 const BOOT_FRAMES: usize = 200;
 const RUN_BUDGET_FRAMES: usize = 5_000;
+/// Frames held on the program's own `press ENTER to start` prompt. Super HALT
+/// Invaders debounces the key: it wants to see ENTER down *and* back up.
+const START_PRESS_FRAMES: usize = 10;
+/// Frames run after the program starts, before the frame is captured.
+///
+/// Chosen by looking: at 250 the program is still clearing down and the frame
+/// is solid black — which a golden refresh will happily accept — and by ~2,750
+/// the unplayed player has died and it has fallen back to the attract screen.
+/// 750 sits in the middle, with all three invader rows, the player, the ground
+/// and the score line on screen.
+const GAME_FRAMES: usize = 750;
 
 fn home() -> PathBuf {
     PathBuf::from(std::env::var_os("HOME").expect("HOME must be set"))
@@ -88,6 +104,25 @@ fn press_enter(machine: &mut Spectrum128K) {
     }
     set_key(&mut machine.keyboard, SpectrumKey::Enter, false);
     for _ in 0..30 {
+        machine.run_frame();
+    }
+}
+
+/// Press ENTER at the *program's* `press ENTER to start` prompt, as opposed to
+/// the firmware menu that [`press_enter`] answers.
+///
+/// The release is the part that matters. Super HALT Invaders waits for ENTER
+/// to go down and come back up, so holding the key does not start it — a
+/// 90-frame hold leaves the title screen up indefinitely. Tracing the title
+/// screen's I/O shows it polling `$BFFE`, the half-row carrying ENTER, and the
+/// poll stopping once the press is consumed.
+fn start_the_program(machine: &mut Spectrum128K) {
+    set_key(&mut machine.keyboard, SpectrumKey::Enter, true);
+    for _ in 0..START_PRESS_FRAMES {
+        machine.run_frame();
+    }
+    set_key(&mut machine.keyboard, SpectrumKey::Enter, false);
+    for _ in 0..GAME_FRAMES {
         machine.run_frame();
     }
 }
@@ -229,14 +264,6 @@ fn run_to_completion(tap_filename: &str) -> Option<Spectrum128K> {
     Some(machine)
 }
 
-fn run_and_compare(tap_filename: &str, png_stem: &str) {
-    let Some(machine) = run_to_completion(tap_filename) else {
-        return;
-    };
-
-    compare_or_update(png_stem, &machine.framebuffer);
-}
-
 /// Decode the 24×32 ROM-font text cells in the fixed screen bank.
 ///
 /// HALT2INT prints through ROM 1 (48 BASIC). Reading that ROM bank
@@ -265,11 +292,28 @@ fn halt2int128_runs_to_completion() {
     );
 }
 
+/// Capture Super HALT Invaders **in its game**, not on its title screen.
+///
+/// This is a change-detector, not a correctness test, and the distinction is
+/// the point. Any golden taken at frame N of a running program is a hash of
+/// total elapsed cycles, so every legitimate timing change moves it. What that
+/// buys is a loud "the timing moved — go and look"; what it cannot tell you is
+/// whether the new timing is *right*. For that, see
+/// `halt2int128_runs_to_completion`, which asserts the diagnostic's own
+/// `HALT: Early` classification.
+///
+/// It previously captured the attract screen, because nothing ever answered
+/// the program's own prompt: the golden was a picture of a menu, and the
+/// 5,936-pixel diff it failed on was title-screen animation. A HALT suite that
+/// never reached a `HALT`.
 #[test]
 #[ignore = "requires local 128K ROMs and Super HALT Invaders TAP; ~120 s wall time"]
-fn super_halt_invaders_runs_to_completion() {
-    run_and_compare(
-        "Super HALT Invaders Test (2021-10-07)(Woodmass, Mark)[!].tap",
-        "super-halt-invaders",
-    );
+fn super_halt_invaders_reaches_the_game() {
+    let Some(mut machine) =
+        run_to_completion("Super HALT Invaders Test (2021-10-07)(Woodmass, Mark)[!].tap")
+    else {
+        emu198x_test_skip::skip!("Spectrum 128K ROMs or Super HALT Invaders TAP not staged");
+    };
+    start_the_program(&mut machine);
+    compare_or_update("super-halt-invaders", &machine.framebuffer);
 }
