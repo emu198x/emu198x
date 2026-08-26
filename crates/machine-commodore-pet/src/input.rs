@@ -9,6 +9,13 @@
 //! On the graphics keyboard the digits live on a numeric keypad and every
 //! punctuation mark is its own unshifted key, so a program can be typed
 //! without modelling Shift at all.
+//!
+//! The table is complete: every cell the keyboard drives is here, and the
+//! cells MAME's `pet` driver marks unused — (1,5), (3,5), (4,5), (5,5),
+//! (7,5), (8,3), (9,5) — are the only gaps. Completeness is the point. The
+//! table was previously partial, and a missing key is invisible: it does
+//! not fail, it just cannot be pressed, so `type_string` refuses a
+//! character with no hint that the matrix is where the hole is.
 
 /// Logical key on the PET graphics keyboard.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -73,10 +80,35 @@ pub enum PetKey {
     Equal,
     Minus,
     At,
+    BracketLeft,
+    BracketRight,
+    Backslash,
+    /// The `↑` keycap, left of the keypad. Types `^` — BASIC's power
+    /// operator — and carries π on its shifted legend.
+    UpArrow,
+    /// The `←` keycap, top left. PETSCII $5F; BASIC reads it as the
+    /// token delimiter, and it is not any ASCII character.
+    LeftArrow,
     // Control / editing.
     Return,
     Space,
+    Home,
+    /// Cursor right; shifted, cursor left. One keycap, both directions.
     CursorRight,
+    /// Cursor down; shifted, cursor up. One keycap, both directions.
+    CursorDown,
+    /// Delete; shifted, insert.
+    Delete,
+    ShiftLeft,
+    ShiftRight,
+    RvsOff,
+    /// Stop; shifted, Run.
+    ///
+    /// The cell is right — holding it moves the row-9 column read at $9B
+    /// from `255` to `239`, bit 4 clear — but a running BASIC program does
+    /// not break. That is a fault somewhere past the scan, tracked as
+    /// #1212; pressing this key registers and does nothing visible.
+    StopRun,
 }
 
 impl PetKey {
@@ -91,17 +123,24 @@ impl PetKey {
             Self::Percent => (0, 2),
             Self::Ampersand => (0, 3),
             Self::ParenLeft => (0, 4),
+            Self::LeftArrow => (0, 5),
+            Self::Home => (0, 6),
+            Self::CursorRight => (0, 7),
             // Row 1
             Self::Quote => (1, 0),
             Self::Dollar => (1, 1),
             Self::Apostrophe => (1, 2),
+            Self::Backslash => (1, 3),
             Self::ParenRight => (1, 4),
+            Self::CursorDown => (1, 6),
+            Self::Delete => (1, 7),
             // Row 2
             Self::Q => (2, 0),
             Self::E => (2, 1),
             Self::T => (2, 2),
             Self::U => (2, 3),
             Self::O => (2, 4),
+            Self::UpArrow => (2, 5),
             Self::Num7 => (2, 6),
             Self::Num9 => (2, 7),
             // Row 3
@@ -146,14 +185,19 @@ impl PetKey {
             Self::Num2 => (7, 6),
             Self::Plus => (7, 7),
             // Row 8
+            Self::ShiftLeft => (8, 0),
             Self::At => (8, 1),
-            Self::CursorRight => (8, 2),
+            Self::BracketRight => (8, 2),
             Self::Greater => (8, 4),
+            Self::ShiftRight => (8, 5),
             Self::Num0 => (8, 6),
             Self::Minus => (8, 7),
             // Row 9
+            Self::RvsOff => (9, 0),
+            Self::BracketLeft => (9, 1),
             Self::Space => (9, 2),
             Self::Less => (9, 3),
+            Self::StopRun => (9, 4),
             Self::Period => (9, 6),
             Self::Equal => (9, 7),
         }
@@ -233,7 +277,19 @@ mod tests {
         PetKey::At,
         PetKey::Return,
         PetKey::Space,
+        PetKey::BracketLeft,
+        PetKey::BracketRight,
+        PetKey::Backslash,
+        PetKey::UpArrow,
+        PetKey::LeftArrow,
+        PetKey::Home,
         PetKey::CursorRight,
+        PetKey::CursorDown,
+        PetKey::Delete,
+        PetKey::ShiftLeft,
+        PetKey::ShiftRight,
+        PetKey::RvsOff,
+        PetKey::StopRun,
     ];
 
     /// Two keys sharing a cell is silent: the later one simply presses the
@@ -255,11 +311,44 @@ mod tests {
     /// The keypad's bottom row is `0 . - =`, and its two columns are 6 and 7
     /// throughout, so minus sits beside `=` at row 8 column 7 — the cell MAME
     /// gives it as `ROW8` bit `0x80`.
+    ///
+    /// `(8, 2)` is in here too because it used to be labelled `CursorRight`,
+    /// which is a different key at `(0, 7)`. Pressing it deposited `]` on
+    /// screen rather than moving the cursor — the mapping did something, so
+    /// nothing looked broken.
     #[test]
     fn keypad_minus_sits_beside_equals() {
         assert_eq!(PetKey::Minus.matrix(), (8, 7));
         assert_eq!(PetKey::Equal.matrix(), (9, 7));
         assert_eq!(PetKey::Num0.matrix(), (8, 6));
         assert_eq!(PetKey::Period.matrix(), (9, 6));
+        assert_eq!(PetKey::BracketRight.matrix(), (8, 2));
+        assert_eq!(PetKey::CursorRight.matrix(), (0, 7));
+    }
+
+    /// The matrix is complete, so the only empty cells are the seven the
+    /// keyboard genuinely does not drive. Pin them: a key added to a cell
+    /// that is not on this list means either the key or the list is wrong.
+    #[test]
+    fn only_the_undriven_cells_are_empty() {
+        const UNDRIVEN: &[(usize, u8)] = &[(1, 5), (3, 5), (4, 5), (5, 5), (7, 5), (8, 3), (9, 5)];
+        let mut filled = [[false; 8]; 10];
+        for &key in ALL_KEYS {
+            let (r, c) = key.matrix();
+            filled[r][usize::from(c)] = true;
+        }
+        for (r, row) in filled.iter().enumerate() {
+            for c in 0..8u8 {
+                let expected = !UNDRIVEN.contains(&(r, c));
+                let claimed = row[usize::from(c)];
+                assert_eq!(
+                    claimed,
+                    expected,
+                    "cell ({r}, {c}) is {} but should be {}",
+                    if claimed { "claimed" } else { "empty" },
+                    if expected { "claimed" } else { "empty" },
+                );
+            }
+        }
     }
 }
