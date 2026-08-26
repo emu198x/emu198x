@@ -28,10 +28,10 @@ use common_sinclair_zx_spectrum::tape::{TapeBlock, TapePlayer, TapeSpan};
 use common_sinclair_zx_spectrum::tape_recorder::TapeRecorder;
 use common_sinclair_zx_spectrum::timing::{SCREEN_HEIGHT, SCREEN_WIDTH, TIMING_SCORPION};
 use common_sinclair_zx_spectrum::ula::Ula;
+use emu198x_zilog_z80::{BusOp, Z80};
 use gi_ay_3_8912::Ay3_8912;
 use peripheral_kempston_joystick::KempstonJoystick;
 use scorpion_ula::ScorpionUla;
-use zilog_z80::{BusOp, Z80};
 
 use crate::memory::MemoryScorpion;
 

@@ -2,11 +2,11 @@
 
 use common_commodore_c64::timing::C64Timing;
 use common_commodore_iec::IecBus;
+use emu198x_mos_6502::M6502;
+use emu198x_mos_sid_6581::{AudioControls, Sid6581, SidChannel};
 use format_commodore_c64_crt::{CrtCartridge, parse as parse_crt};
 use format_commodore_c64_tap::{TapParseError, TapSystem, TapVideo, encode_tap, parse_tap};
-use mos_6502::M6502;
 use mos_cia_6526::Cia6526;
-use mos_sid_6581::{AudioControls, Sid6581, SidChannel};
 use mos_vic_ii::{Vic, VicModel, VicPhi2Bus};
 
 use crate::action_replay::ActionReplay;
@@ -1805,7 +1805,7 @@ mod tests {
 
     #[test]
     fn c64c_model_constructs_with_the_8580_sid() {
-        use mos_sid_6581::SidModel;
+        use emu198x_mos_sid_6581::SidModel;
         let breadbin = stub_machine(C64Model::PalBreadbin);
         assert_eq!(breadbin.sid().model, SidModel::Mos6581);
 

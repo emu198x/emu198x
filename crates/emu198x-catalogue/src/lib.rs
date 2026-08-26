@@ -752,12 +752,12 @@ fn verify_routing_versions(manifest: &Manifest) -> Result<(), CatalogueError> {
         }
         "c64" => {
             if let Some(found) = manifest.system.audio_routing_version
-                && found != mos_sid_6581::AUDIO_ROUTING_VERSION
+                && found != emu198x_mos_sid_6581::AUDIO_ROUTING_VERSION
             {
                 return Err(CatalogueError::RoutingVersionMismatch {
                     kind: "audio",
                     system: "c64".into(),
-                    expected: mos_sid_6581::AUDIO_ROUTING_VERSION,
+                    expected: emu198x_mos_sid_6581::AUDIO_ROUTING_VERSION,
                     found,
                 });
             }
@@ -774,12 +774,12 @@ fn verify_routing_versions(manifest: &Manifest) -> Result<(), CatalogueError> {
         }
         "nes" => {
             if let Some(found) = manifest.system.audio_routing_version
-                && found != ricoh_apu_2a03::AUDIO_ROUTING_VERSION
+                && found != emu198x_ricoh_apu_2a03::AUDIO_ROUTING_VERSION
             {
                 return Err(CatalogueError::RoutingVersionMismatch {
                     kind: "audio",
                     system: "nes".into(),
-                    expected: ricoh_apu_2a03::AUDIO_ROUTING_VERSION,
+                    expected: emu198x_ricoh_apu_2a03::AUDIO_ROUTING_VERSION,
                     found,
                 });
             }
@@ -3444,7 +3444,7 @@ hash = "xxh64:0000000000000000"
     #[test]
     fn routing_version_check_passes_for_c64_when_manifest_matches_runtime() {
         let manifest = c64_manifest_with_versions(
-            Some(mos_sid_6581::AUDIO_ROUTING_VERSION),
+            Some(emu198x_mos_sid_6581::AUDIO_ROUTING_VERSION),
             Some(mos_vic_ii::FRAME_ROUTING_VERSION),
         );
         verify_routing_versions(&manifest).expect("matching C64 versions should pass");
@@ -3491,7 +3491,7 @@ hash = "xxh64:0000000000000000"
     #[test]
     fn routing_version_check_passes_for_nes_when_manifest_matches_runtime() {
         let manifest = nes_manifest_with_versions(
-            Some(ricoh_apu_2a03::AUDIO_ROUTING_VERSION),
+            Some(emu198x_ricoh_apu_2a03::AUDIO_ROUTING_VERSION),
             Some(ricoh_ppu_2c02::FRAME_ROUTING_VERSION),
         );
         verify_routing_versions(&manifest).expect("matching NES versions should pass");

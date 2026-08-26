@@ -28,7 +28,7 @@ machine-sord-m5 = { path = "../machine-sord-m5", version = "0.6.0" }
 png = { workspace = true }
 runtime-sord-m5 = { path = "../runtime-sord-m5", version = "0.6.0" }
 serde_json = { workspace = true }
-zilog-z80 = { path = "../zilog-z80", version = "0.6.0" }
+emu198x-zilog-z80 = { path = "../emu198x-zilog-z80", version = "0.6.0" }
 
 [lints]
 workspace = true

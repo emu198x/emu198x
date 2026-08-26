@@ -13,7 +13,7 @@
 #
 # The "Spectrum-specific" scope is the set of crates that exist
 # primarily for the Spectrum family. Some chip crates are shared with
-# future systems (zilog-z80 also covers MSX / CPC / Master System;
+# future systems (emu198x-zilog-z80 also covers MSX / CPC / Master System;
 # gi-ay-3-8912 also covers MSX / CPC / Mockingboard), but they ship
 # today as Spectrum-driving infrastructure and are part of the
 # October-launch quality bar.
@@ -70,7 +70,7 @@ GATED_CRATES = [
     "gi-ay-3-8912",
     "nec-upd765a",
     "sinclair-ula-7k010e",
-    "zilog-z80",
+    "emu198x-zilog-z80",
     # Format crates
     "format-amstrad-dsk",
     "format-sinclair-zx-spectrum-sna",

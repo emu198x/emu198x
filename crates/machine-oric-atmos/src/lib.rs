@@ -7,7 +7,7 @@
 //! AY-via-VIA routing through CA2 (BDIR) and CB2 (BC1), 8×8 keyboard
 //! scan via VIA port B column select / port A row read, TEXT + HIRES
 //! ULA video modes with serial attributes — but the wiring is written
-//! against [`mos_6502::M6502`]'s public pin fields and the
+//! against [`emu198x_mos_6502::M6502`]'s public pin fields and the
 //! `mos-via-6522` chip crate's pin-truth surface.
 //!
 //! # The Oric
@@ -82,8 +82,8 @@
 //! reset at the start of each line. Same 8-colour 3-bit RGB palette as the
 //! Acorn / BBC family.
 
+use emu198x_mos_6502::M6502;
 use gi_ay_3_8912::{Ay3_8912, AyWriteRecord, AyWriteWatch};
-use mos_6502::M6502;
 use mos_via_6522::Via6522;
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;

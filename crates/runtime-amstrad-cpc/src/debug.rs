@@ -14,9 +14,9 @@
 //! trace is here and reports whole addresses.
 
 use emu198x_shell::DebugPrimitives;
+use emu198x_zilog_z80::Z80Stepper as _;
 use machine_amstrad_cpc::AmstradCpc;
 use serde_json::{Value, json};
-use zilog_z80::Z80Stepper as _;
 
 use crate::runtime::AmstradCpcRuntime;
 
@@ -65,7 +65,7 @@ impl DebugPrimitives for AmstradCpcRuntime {
 
     fn dbg_disassemble(&self, addr: u32) -> Option<(String, u8)> {
         let m = self.machine()?;
-        Some(zilog_z80::disassemble(addr as u16, |a| m.peek(a)))
+        Some(emu198x_zilog_z80::disassemble(addr as u16, |a| m.peek(a)))
     }
 
     fn dbg_step(&mut self) -> u64 {

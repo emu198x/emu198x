@@ -38,7 +38,7 @@ mod keyboard;
 pub use input::PetKey;
 pub use keyboard::KeyboardState;
 
-use mos_6502::M6502;
+use emu198x_mos_6502::M6502;
 use mos_pia_6520::Pia6520;
 use mos_via_6522::Via6522;
 use motorola_6845::Crtc6845;

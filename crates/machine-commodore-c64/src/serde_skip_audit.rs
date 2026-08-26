@@ -18,9 +18,9 @@
 
 #[cfg(test)]
 const C64_STACK_SOURCE_ROOTS: &[&str] = &[
-    "crates/mos-6502/src",
+    "crates/emu198x-mos-6502/src",
     "crates/mos-vic-ii/src",
-    "crates/mos-sid-6581/src",
+    "crates/emu198x-mos-sid-6581/src",
     "crates/mos-cia-6526/src",
     "crates/common-commodore-c64/src",
     "crates/common-commodore-iec/src",

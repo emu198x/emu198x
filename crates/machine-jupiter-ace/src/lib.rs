@@ -4,7 +4,7 @@
 //! rule 6). The donor at `Emu198x-Oldest/crates/machine-jupiter-ace/`
 //! used the deprecated `emu_core::Bus` callback and could not port
 //! directly; this file uses it as the system spec, but the CPU wiring
-//! goes through [`zilog_z80::Z80`]'s public pin fields and
+//! goes through [`emu198x_zilog_z80::Z80`]'s public pin fields and
 //! `bus_request()` collapse.
 //!
 //! # The Jupiter Ace
@@ -42,8 +42,8 @@ pub use display::{Display, FB_HEIGHT, FB_WIDTH, TSTATES_PER_FRAME};
 pub use input::JupiterAceKey;
 pub use keyboard::KeyboardState;
 
+use emu198x_zilog_z80::z80::{BusOp, Z80};
 use serde::{Deserialize, Serialize};
-use zilog_z80::z80::{BusOp, Z80};
 
 /// Jupiter Ace machine.
 ///
@@ -298,7 +298,7 @@ impl JupiterAce {
     }
 }
 
-impl zilog_z80::Z80Stepper for JupiterAce {
+impl emu198x_zilog_z80::Z80Stepper for JupiterAce {
     fn z80_instructions_retired(&self) -> u64 {
         self.cpu.instructions_retired()
     }

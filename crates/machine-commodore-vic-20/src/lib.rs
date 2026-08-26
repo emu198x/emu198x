@@ -3,7 +3,7 @@
 //! Fresh-write against the workspace pin-driven bus pattern (RULES.md
 //! rule 6). The donor at `Emu198x-Oldest/crates/machine-commodore-vic-20/`
 //! used the deprecated `emu_core::Bus` callback; the wiring here goes
-//! through [`mos_6502::M6502`]'s public pin fields.
+//! through [`emu198x_mos_6502::M6502`]'s public pin fields.
 //!
 //! # The VIC-20
 //!
@@ -39,7 +39,7 @@ pub use input::Vic20Key;
 pub use keyboard::KeyboardState;
 pub use mos_vic_i::{Vic6560, framebuffer_height, framebuffer_width};
 
-use mos_6502::M6502;
+use emu198x_mos_6502::M6502;
 use mos_via_6522::Via6522;
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;

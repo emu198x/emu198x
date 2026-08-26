@@ -19,8 +19,8 @@
 //! `NOP` is right the clock division is right, and if it is wrong nothing
 //! else can be.
 
+use emu198x_zilog_z80::Z80Stepper;
 use machine_memotech_mtx::{Mtx, MtxModel};
-use zilog_z80::Z80Stepper;
 
 /// Zilog `NOP`: one `M1` fetch, four T-states.
 const NOP_TSTATES: u64 = 4;

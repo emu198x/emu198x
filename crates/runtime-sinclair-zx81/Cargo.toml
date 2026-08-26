@@ -11,7 +11,7 @@ repository.workspace = true
 emu198x-shell = { path = "../emu198x-shell", version = "0.6.0" }
 format-sinclair-zx81-p = { path = "../format-sinclair-zx81-p", version = "0.6.0" }
 machine-sinclair-zx81 = { path = "../machine-sinclair-zx81", version = "0.6.0" }
-zilog-z80 = { path = "../zilog-z80", version = "0.6.0" }
+emu198x-zilog-z80 = { path = "../emu198x-zilog-z80", version = "0.6.0" }
 postcard = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

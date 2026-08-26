@@ -3,7 +3,7 @@
 //! Fresh-write against the workspace pin-driven bus pattern (RULES.md
 //! rule 6). Donor at `Emu198x-Oldest/crates/machine-sinclair-zx80/`
 //! used the deprecated `emu_core::Bus` callback; this file uses it as
-//! the system spec but wires [`zilog_z80::Z80`] through its public pin
+//! the system spec but wires [`emu198x_zilog_z80::Z80`] through its public pin
 //! fields and `bus_request()` collapse.
 //!
 //! # The ZX80
@@ -35,8 +35,8 @@ pub use keyboard::KeyboardState;
 mod video;
 pub use video::{FB_WIDTH, Zx80Video};
 
+use emu198x_zilog_z80::z80::{BusOp, Z80};
 use serde::{Deserialize, Serialize};
-use zilog_z80::z80::{BusOp, Z80};
 
 /// The board's television-standard strap: a diode at D11, or no diode.
 ///
@@ -467,7 +467,7 @@ impl Zx80 {
     }
 }
 
-impl zilog_z80::Z80Stepper for Zx80 {
+impl emu198x_zilog_z80::Z80Stepper for Zx80 {
     fn z80_instructions_retired(&self) -> u64 {
         self.cpu.instructions_retired()
     }

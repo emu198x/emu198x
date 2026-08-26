@@ -7,7 +7,7 @@ Every machine this repository ships, and where the evidence for each one lives. 
 
 ## How to read this
 
-**Own crates** are reachable from this machine's shipping crate and no other, so their tests are evidence about this machine. **Shared crates** are common to several machines — `zilog-z80` passing says nothing about whether the Einstein boots. A machine with few own crates has little that can be said about it specifically, however green the suite looks.
+**Own crates** are reachable from this machine's shipping crate and no other, so their tests are evidence about this machine. **Shared crates** are common to several machines — `emu198x-zilog-z80` passing says nothing about whether the Einstein boots. A machine with few own crates has little that can be said about it specifically, however green the suite looks.
 
 **There are no test counts on this page.** They would be stale within a day, and a page that is usually wrong trains people to stop reading it. Counts are published as the `status-evidence` artifact on every CI run, where being a snapshot is the point. See [the evidence decision](../../knowledge/decisions/evidence-is-what-ran-not-what-was-claimed.md).
 

@@ -14,7 +14,7 @@ peripheral-kempston-joystick = { path = "../peripheral-kempston-joystick", versi
 serde = { workspace = true }
 serde-big-array = { workspace = true }
 timex-scld = { path = "../timex-scld", version = "0.6.0" }
-zilog-z80 = { path = "../zilog-z80", version = "0.6.0" }
+emu198x-zilog-z80 = { path = "../emu198x-zilog-z80", version = "0.6.0" }
 
 [dev-dependencies]
 emu198x-test-skip = { path = "../emu198x-test-skip", version = "0.6.0" }

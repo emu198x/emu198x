@@ -31,11 +31,11 @@ use common_sinclair_zx_spectrum::timing::{
 };
 use common_sinclair_zx_spectrum::ula::Ula;
 use common_sinclair_zx_spectrum::ula_engine;
+use emu198x_zilog_z80::{BusOp, Z80};
 use format_sinclair_zx_spectrum_snapshot::Snapshot;
 use gi_ay_3_8912::Ay3_8912;
 use peripheral_kempston_joystick::KempstonJoystick;
 use timex_scld::TimexScld;
-use zilog_z80::{BusOp, Z80};
 
 use crate::memory::MemoryTimex;
 

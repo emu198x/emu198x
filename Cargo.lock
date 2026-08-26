@@ -532,13 +532,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "commodore-paula-8364"
-version = "0.6.0"
-dependencies = [
- "serde",
-]
-
-[[package]]
 name = "common-acorn-cassette"
 version = "0.6.0"
 dependencies = [
@@ -552,7 +545,7 @@ dependencies = [
  "commodore-agnus-ocs",
  "commodore-denise-ecs",
  "commodore-denise-ocs",
- "commodore-paula-8364",
+ "emu198x-commodore-paula-8364",
  "mos-cia-8520",
  "motorola-68000",
  "motorola-68010",
@@ -591,7 +584,7 @@ version = "0.6.0"
 dependencies = [
  "common-commodore-drive-gcr",
  "common-commodore-iec",
- "mos-6502",
+ "emu198x-mos-6502",
  "mos-via-6522",
 ]
 
@@ -607,12 +600,12 @@ name = "common-sinclair-zx-spectrum"
 version = "0.6.0"
 dependencies = [
  "common-tape",
+ "emu198x-zilog-z80",
  "format-sinclair-zx-spectrum-snapshot",
  "gi-ay-3-8912",
  "serde",
  "serde-big-array",
  "thiserror 2.0.20",
- "zilog-z80",
 ]
 
 [[package]]
@@ -620,12 +613,12 @@ name = "common-sinclair-zx-spectrum-128k-class"
 version = "0.6.0"
 dependencies = [
  "common-sinclair-zx-spectrum",
+ "emu198x-zilog-z80",
  "gi-ay-3-8912",
  "peripheral-kempston-joystick",
  "serde",
  "serde_json",
  "sinclair-ula-7k010e",
- "zilog-z80",
 ]
 
 [[package]]
@@ -633,11 +626,11 @@ name = "common-sinclair-zx-spectrum-48k-class"
 version = "0.6.0"
 dependencies = [
  "common-sinclair-zx-spectrum",
+ "emu198x-zilog-z80",
  "ferranti-ula-6c001e",
  "peripheral-kempston-joystick",
  "serde",
  "serde_json",
- "zilog-z80",
 ]
 
 [[package]]
@@ -646,11 +639,11 @@ version = "0.6.0"
 dependencies = [
  "amstrad-ula-40077",
  "common-sinclair-zx-spectrum",
+ "emu198x-zilog-z80",
  "gi-ay-3-8912",
  "nec-upd765a",
  "serde",
  "serde_json",
- "zilog-z80",
 ]
 
 [[package]]
@@ -1077,15 +1070,15 @@ version = "0.6.0"
 dependencies = [
  "common-commodore-c64",
  "common-sinclair-zx-spectrum",
+ "emu198x-mos-sid-6581",
+ "emu198x-ricoh-apu-2a03",
  "emu198x-shell",
  "machine-sinclair-zx-spectrum-128k",
  "machine-sinclair-zx-spectrum-plus2",
  "machine-sinclair-zx-spectrum-plus2a",
  "machine-sinclair-zx-spectrum-plus2b",
  "machine-sinclair-zx-spectrum-plus3",
- "mos-sid-6581",
  "mos-vic-ii",
- "ricoh-apu-2a03",
  "ricoh-ppu-2c02",
  "runtime-commodore-amiga",
  "runtime-commodore-c64",
@@ -1108,6 +1101,13 @@ dependencies = [
  "runtime-coleco-colecovision",
  "serde_json",
  "ti-tms9918",
+]
+
+[[package]]
+name = "emu198x-commodore-paula-8364"
+version = "0.6.0"
+dependencies = [
+ "serde",
 ]
 
 [[package]]
@@ -1169,6 +1169,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "emu198x-gi-ay-3-8910"
+version = "0.6.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "emu198x-jupiter-ace"
 version = "0.6.0"
 dependencies = [
@@ -1203,6 +1210,22 @@ dependencies = [
  "runtime-memotech-mtx",
  "serde_json",
  "ti-tms9918",
+]
+
+[[package]]
+name = "emu198x-mos-6502"
+version = "0.6.0"
+dependencies = [
+ "emu198x-test-skip",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "emu198x-mos-sid-6581"
+version = "0.6.0"
+dependencies = [
+ "serde",
 ]
 
 [[package]]
@@ -1253,6 +1276,14 @@ dependencies = [
  "png",
  "runtime-oric-atmos",
  "serde_json",
+]
+
+[[package]]
+name = "emu198x-ricoh-apu-2a03"
+version = "0.6.0"
+dependencies = [
+ "postcard",
+ "serde",
 ]
 
 [[package]]
@@ -1340,12 +1371,12 @@ version = "0.6.0"
 dependencies = [
  "emu198x-shell",
  "emu198x-ui",
+ "emu198x-zilog-z80",
  "machine-sord-m5",
  "png",
  "runtime-sord-m5",
  "serde_json",
  "ti-tms9918",
- "zilog-z80",
 ]
 
 [[package]]
@@ -1369,6 +1400,7 @@ dependencies = [
  "emu198x-shell",
  "emu198x-test-skip",
  "emu198x-ui",
+ "emu198x-zilog-z80",
  "format-sinclair-zx-spectrum-bas",
  "format-sinclair-zx-spectrum-sna",
  "format-sinclair-zx-spectrum-szx",
@@ -1377,7 +1409,6 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.20",
- "zilog-z80",
 ]
 
 [[package]]
@@ -1407,6 +1438,17 @@ dependencies = [
  "rfd",
  "thiserror 2.0.20",
  "winit",
+]
+
+[[package]]
+name = "emu198x-zilog-z80"
+version = "0.6.0"
+dependencies = [
+ "emu198x-test-skip",
+ "isa-disasm",
+ "postcard",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -1768,17 +1810,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "gi-ay-3-8910"
-version = "0.6.0"
-dependencies = [
- "serde",
-]
-
-[[package]]
 name = "gi-ay-3-8912"
 version = "0.6.0"
 dependencies = [
- "gi-ay-3-8910",
+ "emu198x-gi-ay-3-8910",
  "serde",
 ]
 
@@ -2180,9 +2215,9 @@ name = "machine-acorn-atom"
 version = "0.6.0"
 dependencies = [
  "common-acorn-cassette",
+ "emu198x-mos-6502",
  "format-acorn-uef",
  "intel-8255",
- "mos-6502",
  "mos-via-6522",
  "motorola-vdg-6847",
  "postcard",
@@ -2195,8 +2230,8 @@ name = "machine-acorn-bbc-micro"
 version = "0.6.0"
 dependencies = [
  "common-acorn-cassette",
+ "emu198x-mos-6502",
  "format-acorn-uef",
- "mos-6502",
  "mos-via-6522",
  "motorola-6845",
  "postcard",
@@ -2210,8 +2245,8 @@ name = "machine-acorn-electron"
 version = "0.6.0"
 dependencies = [
  "common-acorn-cassette",
+ "emu198x-mos-6502",
  "format-acorn-uef",
- "mos-6502",
  "postcard",
  "serde",
  "serde-big-array",
@@ -2224,6 +2259,7 @@ dependencies = [
  "amstrad-gate-array",
  "common-tape",
  "emu198x-test-skip",
+ "emu198x-zilog-z80",
  "format-amstrad-cpc-cdt",
  "format-amstrad-dsk",
  "gi-ay-3-8912",
@@ -2231,7 +2267,6 @@ dependencies = [
  "motorola-6845",
  "nec-upd765a",
  "serde",
- "zilog-z80",
 ]
 
 [[package]]
@@ -2239,8 +2274,8 @@ name = "machine-atari-2600"
 version = "0.6.0"
 dependencies = [
  "atari-tia",
+ "emu198x-mos-6502",
  "emu198x-test-skip",
- "mos-6502",
  "mos-riot-6532",
  "postcard",
  "serde",
@@ -2254,7 +2289,7 @@ dependencies = [
  "atari-antic",
  "atari-gtia",
  "atari-pokey",
- "mos-6502",
+ "emu198x-mos-6502",
  "postcard",
  "serde",
  "serde-big-array",
@@ -2265,7 +2300,7 @@ name = "machine-atari-7800"
 version = "0.6.0"
 dependencies = [
  "atari-maria",
- "mos-6502",
+ "emu198x-mos-6502",
  "mos-riot-6532",
  "postcard",
  "serde",
@@ -2279,8 +2314,8 @@ dependencies = [
  "atari-antic",
  "atari-gtia",
  "atari-pokey",
+ "emu198x-mos-6502",
  "emu198x-test-skip",
- "mos-6502",
  "mos-pia-6520",
  "postcard",
  "serde",
@@ -2290,12 +2325,12 @@ dependencies = [
 name = "machine-coleco-colecovision"
 version = "0.6.0"
 dependencies = [
+ "emu198x-zilog-z80",
  "postcard",
  "serde",
  "serde-big-array",
  "ti-sn76489",
  "ti-tms9918",
- "zilog-z80",
 ]
 
 [[package]]
@@ -2305,9 +2340,9 @@ dependencies = [
  "common-commodore-drive-gcr",
  "common-commodore-iec",
  "common-commodore-iec-drive",
+ "emu198x-mos-6502",
  "format-commodore-c64-d64",
  "format-commodore-c64-g64",
- "mos-6502",
  "mos-via-6522",
  "serde",
  "thiserror 2.0.20",
@@ -2320,10 +2355,10 @@ dependencies = [
  "common-commodore-drive-gcr",
  "common-commodore-iec",
  "common-commodore-iec-drive",
+ "emu198x-mos-6502",
  "format-commodore-c64-d64",
  "format-commodore-c64-d71",
  "format-commodore-c64-g64",
- "mos-6502",
  "mos-cia-6526",
  "mos-via-6522",
  "serde",
@@ -2336,8 +2371,8 @@ name = "machine-commodore-1581"
 version = "0.6.0"
 dependencies = [
  "common-commodore-iec",
+ "emu198x-mos-6502",
  "format-commodore-c64-d81",
- "mos-6502",
  "mos-cia-6526",
  "serde",
  "thiserror 2.0.20",
@@ -2357,8 +2392,8 @@ dependencies = [
  "commodore-denise-ocs",
  "commodore-gary",
  "commodore-gayle",
- "commodore-paula-8364",
  "common-commodore-amiga",
+ "emu198x-commodore-paula-8364",
  "emu198x-test-skip",
  "format-commodore-amiga-adf",
  "machine-commodore-amiga-ocs",
@@ -2384,8 +2419,8 @@ dependencies = [
  "commodore-denise-ocs",
  "commodore-gary",
  "commodore-gayle",
- "commodore-paula-8364",
  "common-commodore-amiga",
+ "emu198x-commodore-paula-8364",
  "format-commodore-amiga-adf",
  "machine-commodore-amiga-ocs",
  "mos-cia-8520",
@@ -2406,8 +2441,8 @@ dependencies = [
  "commodore-amiga-autoconfig",
  "commodore-denise-ocs",
  "commodore-gary",
- "commodore-paula-8364",
  "common-commodore-amiga",
+ "emu198x-commodore-paula-8364",
  "emu198x-test-skip",
  "format-commodore-amiga-adf",
  "gvp-a530",
@@ -2427,13 +2462,13 @@ version = "0.6.0"
 dependencies = [
  "common-commodore-c64",
  "common-commodore-iec",
+ "emu198x-mos-6502",
+ "emu198x-mos-sid-6581",
  "format-commodore-c64-crt",
  "format-commodore-c64-prg",
  "format-commodore-c64-tap",
  "machine-commodore-1541",
- "mos-6502",
  "mos-cia-6526",
- "mos-sid-6581",
  "mos-vic-ii",
  "serde",
  "thiserror 2.0.20",
@@ -2443,7 +2478,7 @@ dependencies = [
 name = "machine-commodore-pet"
 version = "0.6.0"
 dependencies = [
- "mos-6502",
+ "emu198x-mos-6502",
  "mos-pia-6520",
  "mos-via-6522",
  "motorola-6845",
@@ -2456,7 +2491,7 @@ dependencies = [
 name = "machine-commodore-vic-20"
 version = "0.6.0"
 dependencies = [
- "mos-6502",
+ "emu198x-mos-6502",
  "mos-via-6522",
  "mos-vic-i",
  "postcard",
@@ -2480,31 +2515,31 @@ dependencies = [
 name = "machine-jupiter-ace"
 version = "0.6.0"
 dependencies = [
+ "emu198x-zilog-z80",
  "postcard",
  "serde",
- "zilog-z80",
 ]
 
 [[package]]
 name = "machine-mattel-aquarius"
 version = "0.6.0"
 dependencies = [
- "gi-ay-3-8910",
+ "emu198x-gi-ay-3-8910",
+ "emu198x-zilog-z80",
  "postcard",
  "serde",
  "serde-big-array",
- "zilog-z80",
 ]
 
 [[package]]
 name = "machine-memotech-mtx"
 version = "0.6.0"
 dependencies = [
+ "emu198x-zilog-z80",
  "postcard",
  "serde",
  "ti-sn76489",
  "ti-tms9918",
- "zilog-z80",
  "zilog-z80-ctc",
 ]
 
@@ -2513,12 +2548,12 @@ name = "machine-msx"
 version = "0.6.0"
 dependencies = [
  "emu198x-test-skip",
+ "emu198x-zilog-z80",
  "gi-ay-3-8912",
  "intel-8255",
  "postcard",
  "serde",
  "ti-tms9918",
- "zilog-z80",
 ]
 
 [[package]]
@@ -2541,10 +2576,10 @@ dependencies = [
 name = "machine-nintendo-nes"
 version = "0.6.0"
 dependencies = [
+ "emu198x-mos-6502",
+ "emu198x-ricoh-apu-2a03",
  "emu198x-test-skip",
  "format-nintendo-nes-ines",
- "mos-6502",
- "ricoh-apu-2a03",
  "ricoh-ppu-2c02",
  "serde",
  "serde-big-array",
@@ -2554,8 +2589,8 @@ dependencies = [
 name = "machine-oric-atmos"
 version = "0.6.0"
 dependencies = [
+ "emu198x-mos-6502",
  "gi-ay-3-8912",
- "mos-6502",
  "mos-via-6522",
  "postcard",
  "serde",
@@ -2569,13 +2604,13 @@ dependencies = [
  "beta-disk-interface",
  "common-sinclair-zx-spectrum",
  "emu198x-test-skip",
+ "emu198x-zilog-z80",
  "format-sinclair-zx-spectrum-z80",
  "gi-ay-3-8912",
  "pentagon-ula",
  "peripheral-kempston-joystick",
  "png",
  "serde",
- "zilog-z80",
 ]
 
 [[package]]
@@ -2585,36 +2620,36 @@ dependencies = [
  "beta-disk-interface",
  "common-sinclair-zx-spectrum",
  "emu198x-test-skip",
+ "emu198x-zilog-z80",
  "format-sinclair-zx-spectrum-z80",
  "gi-ay-3-8912",
  "peripheral-kempston-joystick",
  "scorpion-ula",
  "serde",
- "zilog-z80",
 ]
 
 [[package]]
 name = "machine-sega-master-system"
 version = "0.6.0"
 dependencies = [
+ "emu198x-zilog-z80",
  "postcard",
  "sega-vdp",
  "serde",
  "serde-big-array",
  "ti-sn76489",
- "zilog-z80",
 ]
 
 [[package]]
 name = "machine-sega-sg-1000"
 version = "0.6.0"
 dependencies = [
+ "emu198x-zilog-z80",
  "postcard",
  "serde",
  "serde-big-array",
  "ti-sn76489",
  "ti-tms9918",
- "zilog-z80",
 ]
 
 [[package]]
@@ -2646,12 +2681,12 @@ dependencies = [
  "common-sinclair-zx-spectrum-48k-class",
  "emu198x-shell",
  "emu198x-test-skip",
+ "emu198x-zilog-z80",
  "ferranti-ula-6c001e",
  "format-sinclair-zx-spectrum-tap",
  "peripheral-kempston-joystick",
  "png",
  "serde",
- "zilog-z80",
 ]
 
 [[package]]
@@ -2706,12 +2741,12 @@ name = "machine-sinclair-zx80"
 version = "0.6.0"
 dependencies = [
  "emu198x-test-skip",
+ "emu198x-zilog-z80",
  "format-sinclair-zx80-o",
  "png",
  "postcard",
  "serde",
  "sinclair-zx81-ula",
- "zilog-z80",
 ]
 
 [[package]]
@@ -2719,24 +2754,24 @@ name = "machine-sinclair-zx81"
 version = "0.6.0"
 dependencies = [
  "emu198x-test-skip",
+ "emu198x-zilog-z80",
  "format-sinclair-zx81-p",
  "png",
  "postcard",
  "serde",
  "sinclair-zx81-ula",
- "zilog-z80",
 ]
 
 [[package]]
 name = "machine-sord-m5"
 version = "0.6.0"
 dependencies = [
+ "emu198x-zilog-z80",
  "postcard",
  "serde",
  "serde-big-array",
  "ti-sn76489",
  "ti-tms9918",
- "zilog-z80",
  "zilog-z80-ctc",
 ]
 
@@ -2744,26 +2779,26 @@ dependencies = [
 name = "machine-spectravideo-svi-328"
 version = "0.6.0"
 dependencies = [
+ "emu198x-zilog-z80",
  "gi-ay-3-8912",
  "intel-8255",
  "postcard",
  "serde",
  "ti-tms9918",
- "zilog-z80",
 ]
 
 [[package]]
 name = "machine-tatung-einstein"
 version = "0.6.0"
 dependencies = [
+ "emu198x-gi-ay-3-8910",
  "emu198x-test-skip",
- "gi-ay-3-8910",
+ "emu198x-zilog-z80",
  "postcard",
  "serde",
  "serde-big-array",
  "ti-tms9918",
  "western-digital-wd1770",
- "zilog-z80",
 ]
 
 [[package]]
@@ -2772,13 +2807,13 @@ version = "0.6.0"
 dependencies = [
  "common-sinclair-zx-spectrum",
  "emu198x-test-skip",
+ "emu198x-zilog-z80",
  "format-sinclair-zx-spectrum-snapshot",
  "peripheral-kempston-joystick",
  "png",
  "serde",
  "serde-big-array",
  "timex-scld",
- "zilog-z80",
 ]
 
 [[package]]
@@ -2787,6 +2822,7 @@ version = "0.6.0"
 dependencies = [
  "common-sinclair-zx-spectrum",
  "emu198x-test-skip",
+ "emu198x-zilog-z80",
  "format-sinclair-zx-spectrum-snapshot",
  "gi-ay-3-8912",
  "peripheral-kempston-joystick",
@@ -2794,7 +2830,6 @@ dependencies = [
  "serde",
  "serde-big-array",
  "timex-scld",
- "zilog-z80",
 ]
 
 [[package]]
@@ -2820,15 +2855,6 @@ checksum = "1fa76a2c86f704bdb222d66965fb3d63269ce38518b83cb0575fca855ebb6316"
 dependencies = [
  "adler2",
  "simd-adler32",
-]
-
-[[package]]
-name = "mos-6502"
-version = "0.6.0"
-dependencies = [
- "emu198x-test-skip",
- "serde",
- "serde_json",
 ]
 
 [[package]]
@@ -2858,13 +2884,6 @@ version = "0.6.0"
 dependencies = [
  "serde",
  "serde-big-array",
-]
-
-[[package]]
-name = "mos-sid-6581"
-version = "0.6.0"
-dependencies = [
- "serde",
 ]
 
 [[package]]
@@ -3920,14 +3939,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ricoh-apu-2a03"
-version = "0.6.0"
-dependencies = [
- "postcard",
- "serde",
-]
-
-[[package]]
 name = "ricoh-ppu-2c02"
 version = "0.6.0"
 dependencies = [
@@ -4003,12 +4014,12 @@ dependencies = [
  "amstrad-gate-array",
  "common-tape",
  "emu198x-shell",
+ "emu198x-zilog-z80",
  "format-amstrad-cpc-cdt",
  "machine-amstrad-cpc",
  "postcard",
  "serde",
  "serde_json",
- "zilog-z80",
 ]
 
 [[package]]
@@ -4064,12 +4075,12 @@ name = "runtime-coleco-colecovision"
 version = "0.6.0"
 dependencies = [
  "emu198x-shell",
+ "emu198x-zilog-z80",
  "machine-coleco-colecovision",
  "postcard",
  "serde",
  "serde_json",
  "ti-tms9918",
- "zilog-z80",
 ]
 
 [[package]]
@@ -4172,11 +4183,11 @@ name = "runtime-jupiter-ace"
 version = "0.6.0"
 dependencies = [
  "emu198x-shell",
+ "emu198x-zilog-z80",
  "machine-jupiter-ace",
  "postcard",
  "serde",
  "serde_json",
- "zilog-z80",
 ]
 
 [[package]]
@@ -4184,11 +4195,11 @@ name = "runtime-mattel-aquarius"
 version = "0.6.0"
 dependencies = [
  "emu198x-shell",
+ "emu198x-zilog-z80",
  "machine-mattel-aquarius",
  "postcard",
  "serde",
  "serde_json",
- "zilog-z80",
 ]
 
 [[package]]
@@ -4196,12 +4207,12 @@ name = "runtime-memotech-mtx"
 version = "0.6.0"
 dependencies = [
  "emu198x-shell",
+ "emu198x-zilog-z80",
  "machine-memotech-mtx",
  "postcard",
  "serde",
  "serde_json",
  "ti-tms9918",
- "zilog-z80",
 ]
 
 [[package]]
@@ -4209,12 +4220,12 @@ name = "runtime-msx"
 version = "0.6.0"
 dependencies = [
  "emu198x-shell",
+ "emu198x-zilog-z80",
  "machine-msx",
  "postcard",
  "serde",
  "serde_json",
  "ti-tms9918",
- "zilog-z80",
 ]
 
 [[package]]
@@ -4271,11 +4282,11 @@ name = "runtime-sega-master-system"
 version = "0.6.0"
 dependencies = [
  "emu198x-shell",
+ "emu198x-zilog-z80",
  "machine-sega-master-system",
  "runtime-sega-master-system-class",
  "sega-vdp",
  "serde_json",
- "zilog-z80",
 ]
 
 [[package]]
@@ -4283,12 +4294,12 @@ name = "runtime-sega-master-system-class"
 version = "0.6.0"
 dependencies = [
  "emu198x-shell",
+ "emu198x-zilog-z80",
  "machine-sega-master-system",
  "postcard",
  "sega-vdp",
  "serde",
  "serde_json",
- "zilog-z80",
 ]
 
 [[package]]
@@ -4296,12 +4307,12 @@ name = "runtime-sega-sg-1000"
 version = "0.6.0"
 dependencies = [
  "emu198x-shell",
+ "emu198x-zilog-z80",
  "machine-sega-sg-1000",
  "postcard",
  "serde",
  "serde_json",
  "ti-tms9918",
- "zilog-z80",
 ]
 
 [[package]]
@@ -4314,6 +4325,7 @@ dependencies = [
  "criterion",
  "emu198x-shell",
  "emu198x-test-skip",
+ "emu198x-zilog-z80",
  "format-amstrad-dsk",
  "format-sinclair-zx-spectrum-bas",
  "format-sinclair-zx-spectrum-sna",
@@ -4342,7 +4354,6 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.20",
  "twox-hash",
- "zilog-z80",
 ]
 
 [[package]]
@@ -4350,12 +4361,12 @@ name = "runtime-sinclair-zx80"
 version = "0.6.0"
 dependencies = [
  "emu198x-shell",
+ "emu198x-zilog-z80",
  "format-sinclair-zx80-o",
  "machine-sinclair-zx80",
  "postcard",
  "serde",
  "serde_json",
- "zilog-z80",
 ]
 
 [[package]]
@@ -4364,12 +4375,12 @@ version = "0.6.0"
 dependencies = [
  "emu198x-shell",
  "emu198x-test-skip",
+ "emu198x-zilog-z80",
  "format-sinclair-zx81-p",
  "machine-sinclair-zx81",
  "postcard",
  "serde",
  "serde_json",
- "zilog-z80",
 ]
 
 [[package]]
@@ -4377,12 +4388,12 @@ name = "runtime-sord-m5"
 version = "0.6.0"
 dependencies = [
  "emu198x-shell",
+ "emu198x-zilog-z80",
  "machine-sord-m5",
  "postcard",
  "serde",
  "serde_json",
  "ti-tms9918",
- "zilog-z80",
 ]
 
 [[package]]
@@ -4390,12 +4401,12 @@ name = "runtime-spectravideo-svi-328"
 version = "0.6.0"
 dependencies = [
  "emu198x-shell",
+ "emu198x-zilog-z80",
  "machine-spectravideo-svi-328",
  "postcard",
  "serde",
  "serde_json",
  "ti-tms9918",
- "zilog-z80",
 ]
 
 [[package]]
@@ -4403,12 +4414,12 @@ name = "runtime-tatung-einstein"
 version = "0.6.0"
 dependencies = [
  "emu198x-shell",
+ "emu198x-zilog-z80",
  "machine-tatung-einstein",
  "postcard",
  "serde",
  "serde_json",
  "ti-tms9918",
- "zilog-z80",
 ]
 
 [[package]]
@@ -5733,17 +5744,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.117",
-]
-
-[[package]]
-name = "zilog-z80"
-version = "0.6.0"
-dependencies = [
- "emu198x-test-skip",
- "isa-disasm",
- "postcard",
- "serde",
- "serde_json",
 ]
 
 [[package]]

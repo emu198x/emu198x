@@ -1,0 +1,20 @@
+[package]
+name = "emu198x-commodore-paula-8364"
+description = "Commodore Paula 8364 — 4-channel DMA audio with return-latency modelling, interrupt priority controller (14 sources to 6 IPL levels)."
+edition.workspace = true
+# Independently versioned, not the workspace lockstep version: this is a
+# published crate whose version communicates *its* changes to consumers, so it
+# bumps when it changes rather than on every Emu198x suite release. Starts at
+# the version it already carried in-tree.
+version = "0.6.0"
+license.workspace = true
+repository.workspace = true
+readme = "README.md"
+keywords = ["amiga", "paula", "8364", "audio-chip", "emulator"]
+categories = ["emulators", "multimedia::audio"]
+
+[dependencies]
+serde = { workspace = true }
+
+[lints]
+workspace = true

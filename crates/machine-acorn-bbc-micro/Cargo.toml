@@ -9,7 +9,7 @@ repository.workspace = true
 
 [dependencies]
 common-acorn-cassette = { path = "../common-acorn-cassette", version = "0.6.0" }
-mos-6502 = { path = "../mos-6502", version = "0.6.0" }
+emu198x-mos-6502 = { path = "../emu198x-mos-6502", version = "0.6.0" }
 mos-via-6522 = { path = "../mos-via-6522", version = "0.6.0" }
 motorola-6845 = { path = "../motorola-6845", version = "0.6.0" }
 ti-sn76489 = { path = "../ti-sn76489", version = "0.6.0" }

@@ -10,7 +10,7 @@
 [system]
 id = "c64"
 # Routing versions the captured hashes encode. Verified at run-time
-# against AUDIO_ROUTING_VERSION (mos-sid-6581) and
+# against AUDIO_ROUTING_VERSION (emu198x-mos-sid-6581) and
 # FRAME_ROUTING_VERSION (mos-vic-ii). Mismatch fails loud with a
 # re-capture instruction. See
 # knowledge/decisions/c64-architecture-review.md Seam 4.

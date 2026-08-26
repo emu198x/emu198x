@@ -6,7 +6,7 @@
 //! directly; this file uses it as a system spec — 6502 "Sally"
 //! address decode, ANTIC scan-line processing + DMA cycle stealing,
 //! GTIA player/missile DMA feed, POKEY paddle pots — but the wiring
-//! is written against [`mos_6502::M6502`]'s public pin fields.
+//! is written against [`emu198x_mos_6502::M6502`]'s public pin fields.
 //!
 //! # The Atari 5200 SuperSystem
 //!
@@ -56,7 +56,7 @@ pub use cartridge::{CartLayout, Cartridge};
 use atari_antic::{Antic, AnticRegion, COLOUR_CLOCKS_PER_LINE, CYCLES_HSYNC, cpu_dma_stalled};
 use atari_gtia::Gtia;
 use atari_pokey::Pokey;
-use mos_6502::M6502;
+use emu198x_mos_6502::M6502;
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
 

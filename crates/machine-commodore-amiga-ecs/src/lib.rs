@@ -27,14 +27,16 @@ pub use cia::{Cia, CiaExt};
 pub use commodore_amiga_autoconfig::{AutoconfigBoard, AutoconfigState};
 pub use commodore_gary::{ChipSelect, Gary};
 pub use commodore_gayle::{Gayle, GayleDiagnosticSnapshot};
-use commodore_paula_8364::bits::{
+pub use copper::Copper;
+pub use denise::{Denise, DeniseEcs, FB_HEIGHT, FB_WIDTH};
+use emu198x_commodore_paula_8364::bits::{
     POTGOR_BTN_PORT0_MIDDLE, POTGOR_BTN_PORT0_RIGHT, POTGOR_BTN_PORT1_MIDDLE,
     POTGOR_BTN_PORT1_RIGHT,
 };
-use commodore_paula_8364::decode as paula_decode;
-pub use commodore_paula_8364::{AudioControls, AudioField, IntSource, Paula8364, PaulaChannel};
-pub use copper::Copper;
-pub use denise::{Denise, DeniseEcs, FB_HEIGHT, FB_WIDTH};
+use emu198x_commodore_paula_8364::decode as paula_decode;
+pub use emu198x_commodore_paula_8364::{
+    AudioControls, AudioField, IntSource, Paula8364, PaulaChannel,
+};
 pub use format_commodore_amiga_adf::Adf;
 pub use memory::{CHIP_RAM_SIZE, DEFAULT_CHIP_RAM_SIZE, Memory};
 pub use peripheral_commodore_amiga_floppy::{AmigaFloppyDrive, DriveStatus};
@@ -2476,8 +2478,8 @@ mod bus_plan_dispatch_tests {
             .iter()
             .map(|&bytes| u16::from_be_bytes(bytes))
             .collect();
-        let dsklen = commodore_paula_8364::bits::DSKLEN_DMAEN
-            | commodore_paula_8364::bits::DSKLEN_WRITE
+        let dsklen = emu198x_commodore_paula_8364::bits::DSKLEN_DMAEN
+            | emu198x_commodore_paula_8364::bits::DSKLEN_WRITE
             | u16::try_from(mfm_words.len()).expect("DD track fits DSKLEN");
         amiga.paula.write_dsklen(dsklen);
         amiga.paula.write_dsklen(dsklen);

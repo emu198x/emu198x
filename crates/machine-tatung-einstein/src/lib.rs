@@ -5,7 +5,7 @@
 //! used the deprecated `emu_core::Bus` callback and could not port
 //! directly; this file uses it as a system spec — memory map, ROM page-out,
 //! AY-driven keyboard, I/O port routing — but the
-//! wiring is written against [`zilog_z80::Z80`]'s public pin fields
+//! wiring is written against [`emu198x_zilog_z80::Z80`]'s public pin fields
 //! and `bus_request()` collapse.
 //!
 //! # The Tatung Einstein TC-01
@@ -124,12 +124,12 @@
 //! as the Memotech MTX (the other 4 MHz TMS9918 machine). PSG ticks
 //! every other T-state for the CPU ÷ 2 = 2 MHz AY clock.
 
-use gi_ay_3_8910::{Ay3_8910, AyWriteRecord, AyWriteWatch};
+use emu198x_gi_ay_3_8910::{Ay3_8910, AyWriteRecord, AyWriteWatch};
+use emu198x_zilog_z80::{BusOp, Z80};
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
 use ti_tms9918::{Tms9918, VdpRegion};
 use western_digital_wd1770::{Disk, Wd1770};
-use zilog_z80::{BusOp, Z80};
 
 // Einstein's Z80A runs at 4 MHz; the TMS9918A dot clock is 5.369318 MHz.
 // That ratio (≈1.342, *not* 3:2) is what makes the Einstein different from
@@ -754,7 +754,7 @@ impl Einstein {
     }
 }
 
-impl zilog_z80::Z80Stepper for Einstein {
+impl emu198x_zilog_z80::Z80Stepper for Einstein {
     fn z80_instructions_retired(&self) -> u64 {
         self.cpu.instructions_retired()
     }

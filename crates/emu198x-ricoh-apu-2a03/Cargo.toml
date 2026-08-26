@@ -1,0 +1,23 @@
+[package]
+name = "emu198x-ricoh-apu-2a03"
+description = "Ricoh 2A03 APU — two pulse channels, triangle, noise, DMC with DMA cycle stealing. Ticked once per CPU cycle, mixed output downsampled to 48 kHz."
+edition.workspace = true
+# Independently versioned, not the workspace lockstep version: this is a
+# published crate whose version communicates *its* changes to consumers, so it
+# bumps when it changes rather than on every Emu198x suite release. Starts at
+# the version it already carried in-tree.
+version = "0.6.0"
+license.workspace = true
+repository.workspace = true
+readme = "README.md"
+keywords = ["nes", "2a03", "apu", "audio-chip", "emulator"]
+categories = ["emulators", "multimedia::audio"]
+
+[dependencies]
+serde = { workspace = true }
+
+[dev-dependencies]
+postcard = { workspace = true }
+
+[lints]
+workspace = true

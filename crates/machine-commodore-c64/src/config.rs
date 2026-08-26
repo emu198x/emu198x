@@ -1,8 +1,8 @@
 //! C64 model selection and construction inputs.
 
 use common_commodore_c64::timing::{C64Timing, TIMING_NTSC_BREADBIN, TIMING_PAL_BREADBIN};
+use emu198x_mos_sid_6581::SidModel;
 use mos_cia_6526::CiaModel;
-use mos_sid_6581::SidModel;
 use serde::{Deserialize, Serialize};
 
 /// Supported fresh-workspace C64 machine variants.

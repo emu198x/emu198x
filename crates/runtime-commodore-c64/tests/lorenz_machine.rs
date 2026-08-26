@@ -1,6 +1,6 @@
 //! Full-machine Wolfgang Lorenz harness (issue #18).
 //!
-//! The CPU-only Lorenz harness in `crates/mos-6502/tests/lorenz_tests.rs`
+//! The CPU-only Lorenz harness in `crates/emu198x-mos-6502/tests/lorenz_tests.rs`
 //! runs the bare 6502 against a flat memory map and *skips* the cases that
 //! need a real C64 — the CIA timers, IRQ/NMI delivery, `cputiming`, the 6510
 //! banking, and the tape KERNAL traps. This harness runs those same cases

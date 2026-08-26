@@ -61,7 +61,7 @@ members = [
     "crates/format-sinclair-zx-spectrum-tzx",
     "crates/format-tzx",
     "crates/format-sinclair-zx-spectrum-z80",
-    "crates/gi-ay-3-8910",
+    "crates/emu198x-gi-ay-3-8910",
     "crates/gi-ay-3-8912",
     "crates/gvp-a530",
     "crates/intel-8255",
@@ -86,12 +86,12 @@ members = [
     "crates/machine-sinclair-zx-spectrum-plus2a",
     "crates/machine-sinclair-zx-spectrum-plus2b",
     "crates/machine-sinclair-zx-spectrum-plus3",
-    "crates/mos-6502",
+    "crates/emu198x-mos-6502",
     "crates/mos-pia-6520",
     "crates/mos-cia-6526",
     "crates/mos-cia-8520",
     "crates/motorola-pia-6821",
-    "crates/commodore-paula-8364",
+    "crates/emu198x-commodore-paula-8364",
     "crates/commodore-agnus-ocs",
     "crates/commodore-agnus-ecs",
     "crates/commodore-agnus-aga",
@@ -153,7 +153,7 @@ members = [
     "crates/machine-tatung-einstein",
     "crates/runtime-commodore-amiga",
     "crates/runtime-dragon",
-    "crates/mos-sid-6581",
+    "crates/emu198x-mos-sid-6581",
     "crates/mos-via-6522",
     "crates/mos-vic-i",
     "crates/mos-vic-ii",
@@ -185,7 +185,7 @@ members = [
     "crates/sinclair-zx81-ula",
     "crates/sharp-lr35902",
     "crates/timex-scld",
-    "crates/ricoh-apu-2a03",
+    "crates/emu198x-ricoh-apu-2a03",
     "crates/ricoh-ppu-2c02",
     "crates/runtime-commodore-c64",
     "crates/runtime-nintendo-game-boy",
@@ -220,7 +220,7 @@ members = [
     "crates/ti-sn76489",
     "crates/ti-tms9918",
     "crates/western-digital-wd1770",
-    "crates/zilog-z80",
+    "crates/emu198x-zilog-z80",
     "crates/zilog-z80-ctc",
 ]
 
@@ -291,7 +291,7 @@ split-debuginfo = "unpacked"
 # once per model at first use (reSID filter8580new model, issues #19/#20).
 # Unoptimized that costs the best part of a minute per test process; optimized
 # it's around a second. Debug assertions stay on — only codegen changes.
-[profile.dev.package.mos-sid-6581]
+[profile.dev.package.emu198x-mos-sid-6581]
 opt-level = 3
 
 [profile.release]

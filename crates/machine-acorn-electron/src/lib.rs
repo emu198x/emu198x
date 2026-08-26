@@ -7,7 +7,7 @@
 //! `$FE00-$FE0F`, eight display modes with mode-dependent bpp and
 //! byte-per-line layouts, BBC-Micro-compatible 8-colour palette,
 //! 14×4 keyboard matrix scanned via the address bus, VBlank + RTC
-//! IRQ sources — but the wiring is written against [`mos_6502::M6502`]'s
+//! IRQ sources — but the wiring is written against [`emu198x_mos_6502::M6502`]'s
 //! public pin fields and its own internal reset-vector fetch.
 //!
 //! # The Acorn Electron
@@ -69,7 +69,7 @@
 //!   logical-to-physical colour entries
 
 use common_acorn_cassette::{CassetteEvent, CassetteReceiver, TapePulse};
-use mos_6502::M6502;
+use emu198x_mos_6502::M6502;
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
 

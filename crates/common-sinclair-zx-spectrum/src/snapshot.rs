@@ -42,8 +42,8 @@
 //! self.ay.select_register(snap.ay_register);
 //! ```
 
+use emu198x_zilog_z80::Z80;
 pub use format_sinclair_zx_spectrum_snapshot::{Snapshot, SnapshotModel};
-use zilog_z80::Z80;
 
 use crate::memory::MemoryBus;
 

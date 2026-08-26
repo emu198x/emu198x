@@ -7,7 +7,7 @@
 //! address decode, master-colour-clock tick model with CPU and RIOT
 //! at 1/3 the rate, TIA WSYNC CPU halt, cartridge hotspot bank
 //! switching (F8 / F6 / F4) — but the wiring is written against
-//! [`mos_6502::M6502`]'s public pin fields.
+//! [`emu198x_mos_6502::M6502`]'s public pin fields.
 //!
 //! # The Atari 2600 (Video Computer System)
 //!
@@ -51,7 +51,7 @@ use keypad::Keypad;
 use supercharger::ArEffect;
 
 use atari_tia::{ACTIVE_WIDTH, CLOCKS_PER_LINE, HBLANK_CLOCKS, Tia, TiaRegion};
-use mos_6502::M6502;
+use emu198x_mos_6502::M6502;
 use mos_riot_6532::Riot6532;
 use serde::{Deserialize, Serialize};
 

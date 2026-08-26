@@ -388,7 +388,7 @@ impl Zx81Video {
     /// it the ROM's loop drifts against the ULA's clock and the picture's
     /// left edge moves by a character or two from line to line.
     ///
-    /// Clock gating rather than the `/WAIT` pin, which `zilog_z80` documents
+    /// Clock gating rather than the `/WAIT` pin, which `emu198x_zilog_z80` documents
     /// as the way a ULA does this — the pin models the +2A/+3 gate array's
     /// contention, which is a different mechanism.
     #[must_use]

@@ -6,7 +6,7 @@
 //! deprecated `emu_core::Bus` callback and could not port directly;
 //! this file uses it as a system spec — memory map, port-`$97`
 //! banking, 8255-driven keyboard, I/O port routing — but the wiring
-//! is written against [`zilog_z80::Z80`]'s public pin fields and
+//! is written against [`emu198x_zilog_z80::Z80`]'s public pin fields and
 //! `bus_request()` collapse.
 //!
 //! # The Spectravideo SVI-328
@@ -66,11 +66,11 @@
 //! Adopts SG-1000 / MSX 3:2 VDP-dot-per-T-state phase counter. PSG
 //! ticks every other T-state for the CPU ÷ 2 = 1.789 MHz AY clock.
 
+use emu198x_zilog_z80::{BusOp, Z80};
 use gi_ay_3_8912::{Ay3_8912, AyWriteRecord, AyWriteWatch};
 use intel_8255::Ppi8255;
 use serde::{Deserialize, Serialize};
 use ti_tms9918::{Tms9918, VdpRegion};
-use zilog_z80::{BusOp, Z80};
 
 /// VDP dot ticks per CPU half-cycle. Three dots per four half-cycles is the
 /// TMS9918A's 3:2 against T-states, interleaved twice as finely.
@@ -490,7 +490,7 @@ impl Svi328 {
     }
 }
 
-impl zilog_z80::Z80Stepper for Svi328 {
+impl emu198x_zilog_z80::Z80Stepper for Svi328 {
     fn z80_instructions_retired(&self) -> u64 {
         self.cpu.instructions_retired()
     }

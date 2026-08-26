@@ -14,7 +14,7 @@ emu198x-shell = { path = "../emu198x-shell", version = "0.6.0" }
 ferranti-ula-6c001e = { path = "../ferranti-ula-6c001e", version = "0.6.0" }
 peripheral-kempston-joystick = { path = "../peripheral-kempston-joystick", version = "0.6.0" }
 serde = { workspace = true }
-zilog-z80 = { path = "../zilog-z80", version = "0.6.0" }
+emu198x-zilog-z80 = { path = "../emu198x-zilog-z80", version = "0.6.0" }
 
 [dev-dependencies]
 emu198x-test-skip = { path = "../emu198x-test-skip", version = "0.6.0" }

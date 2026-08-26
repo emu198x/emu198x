@@ -85,11 +85,11 @@ pub mod screen_text;
 
 use amstrad_gate_array::GateArray;
 use common_tape::{TapePlayer, TapeSpan};
+use emu198x_zilog_z80::{BusOp, Z80};
 use gi_ay_3_8912::Ay3_8912;
 use intel_8255::Ppi8255;
 use motorola_6845::{Crtc6845, Crtc6845Variant};
 use serde::{Deserialize, Serialize};
-use zilog_z80::{BusOp, Z80};
 
 /// T-states per CRTC character clock: 4 MHz CPU against a 1 MHz CRTC.
 const TSTATES_PER_CRTC_TICK: u32 = 4;
@@ -1106,7 +1106,7 @@ impl AmstradCpc {
     }
 }
 
-impl zilog_z80::Z80Stepper for AmstradCpc {
+impl emu198x_zilog_z80::Z80Stepper for AmstradCpc {
     fn z80_instructions_retired(&self) -> u64 {
         self.cpu.instructions_retired()
     }

@@ -14,6 +14,76 @@
 | System-family common code | `{system}-common` | `common-sinclair-zx-spectrum` |
 | Cross-project shell | `emu198x-{role}` | `emu198x-shell` |
 
+## Amendment 2026-08-26: published crates carry the `emu198x-` prefix
+
+**The table above governs crates that stay in this workspace. A crate that is
+published takes `emu198x-` in front of whatever that table gives it.**
+
+`mos-sid-6581` on disk becomes `emu198x-mos-sid-6581` on crates.io. The prefix
+is added and nothing is dropped, so the category word survives:
+`format-commodore-amiga-adf` would publish as
+`emu198x-format-commodore-amiga-adf`, not `emu198x-commodore-amiga-adf` —
+this repo sorts crates by category, and dropping the word would collide a
+format crate with a machine crate for the same system.
+
+This implements [`198x/decisions/crate-naming.md`](../../../../decisions/crate-naming.md)
+at the moment it starts to bind. A registry entry has no folder to sit in, so
+the name is the only place provenance can live; on disk the path already says
+it. That is why the rule applies at publication and not before, and why the
+other ~214 crates here keep their unprefixed names.
+
+### What is published, and why only these
+
+Six leaf crates, renamed and published 2026-08-26:
+
+| Crate | Why |
+|---|---|
+| `emu198x-mos-6502` | `.sid` playback needs a 6502 — the tune *is* a program |
+| `emu198x-mos-sid-6581` | the chip that program drives |
+| `emu198x-zilog-z80` | the same shape for `.ay` |
+| `emu198x-gi-ay-3-8910` | the chip that program drives |
+| `emu198x-ricoh-apu-2a03` | NSF, the same shape again |
+| `emu198x-commodore-paula-8364` | Amiga audio |
+
+All six are true leaves — one dependency each, `serde`, and none of it
+internal — so publishing them drags nothing else onto the registry. That was
+the selection criterion, not importance:
+[emu198x#1214](https://github.com/emu198x/emu198x/issues/1214) needs Play198x
+to consume a chip and a CPU, and these are the pairs that reach it without
+committing a permanent name for any `common-`, `format-` or `peripheral-`
+crate.
+
+Publishing the remaining 56 chip crates would drag in 9 of those, one of
+which is `format-commodore-amiga-adf` — and the family already publishes
+`format198x-commodore-amiga-adf`. Two ADF crates from one family, on a
+registry that never releases a name, is a decision that has not been taken.
+It is the gate on widening this scope.
+
+### Independently versioned
+
+These six drop `version.workspace = true` and carry their own versions,
+starting at the `0.6.0` they already had. A published crate's version tells
+consumers when *it* changed; tying it to the suite would bump all six on
+every Emu198x release whether or not a line moved. This follows
+`format198x-commodore-amiga-adf`, whose manifest makes the same argument.
+
+It also means the package-release machinery removed from
+`maintain-release.yml` — release-plz, which reasons in packages against this
+repo's one-suite-one-version tag — is not reintroduced by this change.
+Publishing these six is a `cargo publish` per crate, not a release model.
+
+### Drift triggers
+
+- **"Rename the rest to match"** — no. The prefix binds at publication.
+  Renaming an unpublished crate buys nothing and breaks in-repo paths.
+- **"Add a `[lib] name` alias so `use mos_6502::` keeps working"** — no.
+  Format198x renamed all the way through and its consumers import
+  `format198x_commodore_amiga_adf`; an alias would hide the real name from
+  exactly the reader the rename is for.
+- **"Publish a chip crate that has internal dependencies"** — not without
+  deciding what happens to those dependencies' names first, and not while the
+  ADF duplication above is open.
+
 ## Format naming: always namespace by system
 
 Every format crate includes the full system name, even when the format is currently unique to one system. Reasons:
