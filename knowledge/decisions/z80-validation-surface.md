@@ -81,18 +81,38 @@ repo and CI checks out `emu198x` alone. That is now an honest reason
 rather than a missing-fixture panic, and running it locally is a single
 command with no environment variables.
 
-**The Super HALT Invaders Test never runs.** `super_halt_invaders_runs_to_completion`
-boots the tape, presses `ENTER` once for the 128K firmware's Tape Loader
-menu, and screenshots the result against a golden. But the program loads
-to its own title screen asking the user to "press ENTER to start", and
-that key is never sent — so the golden is a picture of a menu, and the
-5,936-pixel diff it has been failing on is title-screen animation. A
-HALT-and-interrupt suite that never reaches a `HALT`.
+**The Super HALT Invaders Test now runs.** It did not until
+2026-08-26: it booted the tape, pressed `ENTER` once for the 128K
+firmware's Tape Loader menu, and screenshotted the *title screen*,
+because nothing answered the program's own "press ENTER to start". The
+golden was a picture of a menu and the 5,936-pixel diff it failed on was
+title-screen animation — a HALT-and-interrupt suite that never reached a
+`HALT`.
 
-Sending a second `ENTER` advances it (the title text and a "welcome to
-SUPER HALT" line appear) but does not start the test, so it needs real
-input driving rather than one more keypress. Left alone rather than
-half-fixed.
+The blocker was the debounce, not the amount of input. Super HALT
+Invaders wants `ENTER` **down and back up**: holding the key never starts
+it, and a 90-frame hold leaves the title up indefinitely. Tracing the
+title screen's I/O shows it polling `$BFFE` — the half-row carrying
+`ENTER` — and the poll stopping the moment a press is consumed. Ten
+frames down, then release, starts the game.
+
+`super_halt_invaders_reaches_the_game` now captures 750 frames into the
+game: 250 is still a black clear-down, and by ~2,750 the unplayed player
+has died and it is back on the attract screen.
+
+It remains a **change-detector, not a correctness test**, and that is
+inherent rather than a shortcoming to fix later. A golden taken at frame
+N of a running program is a hash of total elapsed cycles, so any
+legitimate timing change moves it — which is worth having as a loud "the
+timing moved, go and look", and is worth nothing as evidence the timing
+is *right*. `halt2int128_runs_to_completion` answers that question, by
+asserting the diagnostic's own `HALT: Early` classification.
+
+Two cautions for whoever refreshes it next. `UPDATE_GOLDENS=1` accepts
+whatever was captured — the first attempt at this fix locked in a solid
+black frame and reported `ok` — so look at the PNG afterwards. And the
+test is `#[ignore]`d for a fixture CI does not have, so nothing will tell
+you when it goes stale; it was red for two weeks after `9a2d8697`.
 
 **`tape_smoke` degrades to a pass when its oracle is absent.** The
 Spectron screen comparison is skipped entirely when
