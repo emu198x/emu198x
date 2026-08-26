@@ -235,10 +235,10 @@ fn run_to_completion(tap_filename: &str) -> Option<Spectrum128K> {
     }
     let tap_path = system_tests_dir().join(tap_filename);
     if !tap_path.is_file() {
-        eprintln!(
+        emu198x_test_skip::record(&format!(
             "{tap_filename} not found at {} — skipping",
             tap_path.display()
-        );
+        ));
         return None;
     }
 
