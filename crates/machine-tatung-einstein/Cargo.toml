@@ -16,6 +16,7 @@ serde = { workspace = true }
 serde-big-array = { workspace = true }
 
 [dev-dependencies]
+emu198x-test-skip = { path = "../emu198x-test-skip" }
 postcard = { workspace = true }
 
 [lints]

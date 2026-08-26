@@ -2756,6 +2756,7 @@ dependencies = [
 name = "machine-tatung-einstein"
 version = "0.6.0"
 dependencies = [
+ "emu198x-test-skip",
  "gi-ay-3-8910",
  "postcard",
  "serde",
