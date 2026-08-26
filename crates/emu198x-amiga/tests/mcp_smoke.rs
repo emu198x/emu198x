@@ -69,10 +69,10 @@ fn load_rom() -> Option<(Vec<u8>, PathBuf)> {
         }
     };
     if !path.exists() {
-        eprintln!(
+        emu198x_test_skip::record(&format!(
             "skipping: KS 3.1 A1200 ROM missing at {} (set $EMU198X_KS31_A1200_ROM)",
             path.display()
-        );
+        ));
         return None;
     }
     let bytes = std::fs::read(&path).expect("read KS 3.1 ROM");

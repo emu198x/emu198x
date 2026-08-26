@@ -29,6 +29,7 @@ format-commodore-amiga-adf = { path = "../format-commodore-amiga-adf", version =
 serde = { workspace = true }
 
 [dev-dependencies]
+emu198x-test-skip = { path = "../emu198x-test-skip" }
 png = { workspace = true }
 zip = { workspace = true }
 postcard = { workspace = true }

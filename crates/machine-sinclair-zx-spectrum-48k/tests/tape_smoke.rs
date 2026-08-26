@@ -479,11 +479,11 @@ fn run_to_completion(test_name: &str) -> Option<Spectrum48k> {
     }
     let tap_path = system_tests_dir().join(format!("{test_name}.tap"));
     if !tap_path.is_file() {
-        eprintln!(
+        emu198x_test_skip::record(&format!(
             "{}.tap not found at {} — skipping",
             test_name,
             tap_path.display()
-        );
+        ));
         return None;
     }
 

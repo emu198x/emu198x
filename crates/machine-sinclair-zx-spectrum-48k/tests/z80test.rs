@@ -130,17 +130,17 @@ impl TestOutcome {
 fn run_one(name: &str) -> Option<TestOutcome> {
     let rom_path = rom_path();
     if !rom_path.is_file() {
-        eprintln!(
+        emu198x_test_skip::record(&format!(
             "48K ROM not found at {} — skipping {name}",
             rom_path.display()
-        );
+        ));
         return None;
     }
 
     let Some(tap_path) = z80test_tap_path(name) else {
-        eprintln!(
+        emu198x_test_skip::record(&format!(
             "{name}.tap not found (set {Z80TEST_DIR_ENV} or place under ~/.emu198x/test-data/z80test/) — skipping"
-        );
+        ));
         return None;
     };
 

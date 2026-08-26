@@ -76,12 +76,44 @@ RETURNS = re.compile(r"^\s*return\b[^;]*;", re.M)
 # this, the fix for every offender would trip the check that demanded it.
 RECORDS = re.compile(r"emu198x_test_skip|skip!\(|record\(")
 
-# How far after the `eprintln!` a return still counts as the same guard.
-WINDOW = 7
+# A bail that is the function's trailing expression rather than a `return`
+# statement. `kickstart_disk_path()` ends `eprintln!(...); None }` — no
+# `return` anywhere — and that shape kept five A1000 tests passing in silence
+# even after their sibling guards were converted.
+TRAILING_BAIL = re.compile(
+    r"\A\s*(?://[^\n]*\n\s*)*(None|Ok\(\(\)\)|false|true)\s*\n?\s*\}"
+)
+
+# How far after the report a return still counts as part of the same guard.
+# Characters rather than lines, because the report itself may be wrapped over
+# several and a line budget then measures formatting rather than distance.
+TAIL_CHARS = 300
 
 
 def is_test_code(path: Path, text: str) -> bool:
     return "/tests/" in str(path) or "#[cfg(test)]" in text
+
+
+def macro_call(text: str, start: int) -> tuple[str, int]:
+    """The whole `eprintln!(...)` invocation at `start`, and where it ends.
+
+    Matching the trigger line alone missed every guard rustfmt had wrapped —
+    and it wraps exactly the ones that interpolate a path, which is most of
+    them. `eprintln!(` then sits on a line with no absence word on it and the
+    message sits on a line with no `eprintln!` on it, so neither half matches.
+    """
+    open_paren = text.find("(", start)
+    if open_paren == -1:
+        return text[start:start + 200], start + 200
+    depth = 0
+    for index in range(open_paren, len(text)):
+        if text[index] == "(":
+            depth += 1
+        elif text[index] == ")":
+            depth -= 1
+            if depth == 0:
+                return text[start : index + 1], index + 1
+    return text[start:], len(text)
 
 
 def offenders(root: Path) -> list[tuple[Path, int, str]]:
@@ -90,13 +122,20 @@ def offenders(root: Path) -> list[tuple[Path, int, str]]:
         text = path.read_text(errors="ignore")
         if not is_test_code(path, text):
             continue
-        lines = text.splitlines()
-        for index, line in enumerate(lines):
-            if "eprintln!" not in line or not REPORTS_ABSENCE.search(line):
+        for match in re.finditer(r"eprintln!", text):
+            call, end = macro_call(text, match.start())
+            # The absence must be reported by the message itself. Scanning a
+            # line window instead picks up the word from a neighbouring
+            # comment: the Dragon golden helper's update-mode branch writes
+            # the file and returns, three lines above a comment explaining
+            # that a *missing* golden used to be a silent pass.
+            if not REPORTS_ABSENCE.search(call):
                 continue
-            window = "\n".join(lines[index : index + WINDOW])
-            if RETURNS.search(window) and not RECORDS.search(window):
-                found.append((path, index + 1, line.strip()))
+            tail = text[end : end + TAIL_CHARS]
+            bails = RETURNS.search(tail) or TRAILING_BAIL.match(tail.lstrip(" ;\n\t"))
+            if bails and not RECORDS.search(call + tail):
+                line = text.count("\n", 0, match.start()) + 1
+                found.append((path, line, " ".join(call.split())[:100]))
     return found
 
 
@@ -168,6 +207,52 @@ fn load_kickstart() -> Option<Vec<u8>> {
 '''
 
 
+# rustfmt wraps `eprintln!` once the message interpolates a path, which is
+# most fixture guards. The message then sits on a line with no `eprintln!`
+# and the macro on a line with no absence word — invisible to a check that
+# reads one line. Eight live guards were hiding behind exactly this.
+WRAPPED = '''
+fn load_rom() -> Option<Vec<u8>> {
+    if !path.exists() {
+        eprintln!(
+            "skipping: A1000 bootstrap ROM missing at {}",
+            path.display()
+        );
+        return None;
+    }
+    Some(std::fs::read(&path).expect("read ROM"))
+}
+'''
+
+# ...and the over-correction to guard against. Widening the search to a line
+# window instead of the macro call flags this: the message reports a *write*,
+# but a comment three lines down explains that a missing golden used to be a
+# silent pass, and the window cannot tell the two apart.
+UPDATE_MODE = '''
+fn compare_or_update(name: &str, png: &[u8]) {
+    if update_mode() {
+        std::fs::write(&golden_path, png).expect("write golden");
+        eprintln!("wrote Dragon golden at {}", golden_path.display());
+        return;
+    }
+    // Write it, then fail. Returning here instead made a missing golden a
+    // silent pass: delete the file and the test goes green having compared
+    // nothing.
+    assert!(golden_path.exists(), "golden missing");
+}
+'''
+
+# A helper whose bail is the trailing expression, with no `return` in sight.
+TRAILING = '''
+fn kickstart_disk_path() -> Option<PathBuf> {
+    if let Some(path) = std::env::var_os("EMU198X_A1000_DISK") {
+        return Some(PathBuf::from(path));
+    }
+    eprintln!("skipping: A1000 Kickstart disk not found; set EMU198X_A1000_DISK");
+    None
+}
+'''
+
 def self_test(tmp: Path) -> None:
     """Prove the detector still detects, then prove it still discriminates."""
     cases = [
@@ -179,6 +264,12 @@ def self_test(tmp: Path) -> None:
         ("result.rs", RESULT, 1),
         # And the fix for them, which must not itself register as a guard.
         ("recorded.rs", RECORDED, 0),
+        # The formatting the line-based check could not see.
+        ("wrapped.rs", WRAPPED, 1),
+        # ...without flagging a write-and-return whose *comment* says missing.
+        ("update_mode.rs", UPDATE_MODE, 0),
+        # A bail with no `return` in it at all.
+        ("trailing.rs", TRAILING, 1),
     ]
     for name, body, expected in cases:
         sample = tmp / "tests"
@@ -193,8 +284,9 @@ def self_test(tmp: Path) -> None:
                 "The detector has stopped detecting; fix it before trusting a pass."
             )
     print(
-        "self-test passed: detects bare, helper and Result-returning guards; "
-        "ignores an ordinary eprintln! and a recorded skip"
+        "self-test passed: detects bare, helper, Result-returning, "
+        "rustfmt-wrapped and trailing-expression guards; ignores an ordinary eprintln!, a recorded "
+        "skip, and a write-and-return whose comment mentions a missing file"
     )
 
 

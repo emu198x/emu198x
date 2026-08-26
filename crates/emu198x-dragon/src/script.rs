@@ -8501,7 +8501,7 @@ mod tests {
         match existing_env_path(var) {
             Some(path) => Some(path),
             None => {
-                eprintln!("skipping DragonDOS DIR regression: set {var}");
+                emu198x_test_skip::record("skipping DragonDOS DIR regression: set {var}");
                 None
             }
         }
