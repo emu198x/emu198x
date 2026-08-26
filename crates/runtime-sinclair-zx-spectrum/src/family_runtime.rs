@@ -542,6 +542,47 @@ impl MachineCore for SpectrumRuntimeKind {
     }
 }
 
+/// Characters the Spectrum puts on a red Symbol Shift legend, paired with the
+/// keycap that carries them.
+///
+/// Without this the machine could type letters, digits, space and newline and
+/// nothing else — every punctuation mark on a Spectrum is a Symbol Shift
+/// chord, so `type_string` refused all of them and `PRINT 2+3` was not
+/// typeable on the family the curriculum leans on hardest.
+///
+/// Measured on the real ROM: Symbol Shift chorded with every key, read back
+/// through `screen.text.lines`. Chords that produce a BASIC token rather than
+/// a character — `STOP`, `STEP`, `TO`, `THEN`, `AT`, `NOT`, `OR`, `AND` — and
+/// the two-glyph operators `<=`, `>=`, `<>` are deliberately absent: they are
+/// not single characters, and `press_keys` reaches them.
+const SYMBOL_LEGENDS: &[(char, &str)] = &[
+    ('!', "1"),
+    ('@', "2"),
+    ('#', "3"),
+    ('$', "4"),
+    ('%', "5"),
+    ('&', "6"),
+    ('\'', "7"),
+    ('(', "8"),
+    (')', "9"),
+    ('_', "0"),
+    ('*', "B"),
+    ('?', "C"),
+    ('^', "H"),
+    ('-', "J"),
+    ('+', "K"),
+    ('=', "L"),
+    ('.', "M"),
+    (',', "N"),
+    (';', "O"),
+    ('"', "P"),
+    ('<', "R"),
+    ('>', "T"),
+    ('/', "V"),
+    ('`', "X"),
+    (':', "Z"),
+];
+
 impl emu198x_shell::KeyboardTarget for SpectrumRuntimeKind {
     fn key_name_is_valid(&self, name: &str) -> bool {
         common_sinclair_zx_spectrum::keyboard::SpectrumKey::from_name(name).is_some()
@@ -562,7 +603,12 @@ impl emu198x_shell::KeyboardTarget for SpectrumRuntimeKind {
             '0'..='9' => (ch.to_string(), false),
             ' ' => ("Space".to_owned(), false),
             '\n' => ("Enter".to_owned(), false),
-            _ => return None,
+            // Everything else printable lives on a red Symbol Shift legend.
+            _ => {
+                let (_, key) = SYMBOL_LEGENDS.iter().find(|(c, _)| *c == ch)?;
+                common_sinclair_zx_spectrum::keyboard::SpectrumKey::from_name(key)?;
+                return Some(vec!["SymbolShift".to_owned(), (*key).to_owned()]);
+            }
         };
         // Skip anything the layout doesn't actually name.
         common_sinclair_zx_spectrum::keyboard::SpectrumKey::from_name(&key_name)?;
@@ -951,5 +997,68 @@ mod tests {
         kind.stop_memory_write_watch();
         assert!(kind.memory_write_watch_range().is_none());
         assert!(kind.memory_write_watch_records().is_none());
+    }
+}
+
+#[cfg(test)]
+mod symbol_legend_tests {
+    use super::SYMBOL_LEGENDS;
+    use common_sinclair_zx_spectrum::keyboard::SpectrumKey;
+
+    /// A legend naming a key the layout does not have is refused rather than
+    /// typed, so a typo here costs a character and reports nothing.
+    #[test]
+    fn every_legend_names_a_key_this_machine_has() {
+        assert!(SpectrumKey::from_name("SymbolShift").is_some());
+        for (legend, key) in SYMBOL_LEGENDS {
+            assert!(
+                SpectrumKey::from_name(key).is_some(),
+                "legend {legend:?} names {key:?}, which the layout does not have"
+            );
+        }
+    }
+
+    /// Two legends on one keycap would mean the second is unreachable, and
+    /// two keycaps for one character means one of them is wrong.
+    #[test]
+    fn legends_are_one_to_one() {
+        let mut chars: Vec<char> = SYMBOL_LEGENDS.iter().map(|(c, _)| *c).collect();
+        chars.sort_unstable();
+        let before = chars.len();
+        chars.dedup();
+        assert_eq!(before, chars.len(), "a character is listed twice");
+
+        let mut keys: Vec<&str> = SYMBOL_LEGENDS.iter().map(|(_, k)| *k).collect();
+        keys.sort_unstable();
+        let before = keys.len();
+        keys.dedup();
+        assert_eq!(before, keys.len(), "a keycap carries two legends");
+    }
+
+    /// Every punctuation mark on a Spectrum is a Symbol Shift chord, so
+    /// without these the machine cannot be given an expression at all.
+    #[test]
+    fn the_punctuation_a_basic_line_needs_is_reachable() {
+        for ch in [
+            '+', '-', '*', '/', '=', '<', '>', '"', ';', ':', ',', '.', '?', '(', ')', '$',
+        ] {
+            assert!(
+                SYMBOL_LEGENDS.iter().any(|(c, _)| *c == ch),
+                "{ch:?} is still unreachable"
+            );
+        }
+    }
+
+    /// These keycaps carry BASIC *tokens* under Symbol Shift, not characters —
+    /// Shift-A is `STOP`, Shift-Q is `<=`. Listing one would map a character
+    /// onto a chord that inserts a whole keyword.
+    #[test]
+    fn keys_carrying_tokens_are_not_legends() {
+        for key in ["A", "D", "E", "F", "G", "I", "Q", "S", "U", "W", "Y"] {
+            assert!(
+                !SYMBOL_LEGENDS.iter().any(|(_, k)| *k == key),
+                "{key:?} carries a token under Symbol Shift, not a character"
+            );
+        }
     }
 }
