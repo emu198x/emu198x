@@ -17,7 +17,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 
 [dev-dependencies]
-emu198x-test-skip = { path = "../emu198x-test-skip" }
+emu198x-test-skip = { path = "../emu198x-test-skip", version = "0.6.0" }
 
 [lints]
 workspace = true
