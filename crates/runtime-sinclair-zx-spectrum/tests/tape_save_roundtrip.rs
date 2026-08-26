@@ -42,6 +42,15 @@ fn save_captures_a_reloadable_tap() {
     tap_key(&mut session, "e").expect("type REM");
     tap_key(&mut session, "enter").expect("enter the line");
 
+    // Wait for the ROM to store the line, re-list it, and come back to a fresh
+    // K cursor. Without this the next key lands while the editor is still
+    // re-listing and the ROM's debounce drops it — `S` then types nothing, the
+    // line reads `"a"`, ENTER reports a syntax error, and no SAVE ever runs.
+    // A real typist could not hit the next key this fast either.
+    session
+        .wait_for_query_text_contains("screen.text.lines", "10>REM", 120)
+        .expect("the ROM should list the stored line and return to the editor");
+
     // `SAVE "A"`: S enters the SAVE keyword (K cursor); the cursor is then L, so
     // the quotes (SYMBOL SHIFT + P) and the name letter are entered literally.
     tap_key(&mut session, "s").expect("type SAVE");
