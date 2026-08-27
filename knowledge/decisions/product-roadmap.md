@@ -47,7 +47,7 @@ C64, NES, and Amiga continue as engineering bars. They progress in this priority
 A new axis **on top of** the engineering bar, decided at umbrella level — see
 [`../../../../decisions/emu198x-best-in-class.md`](../../../../decisions/emu198x-best-in-class.md)
 and the programme plan at
-[`2026-07-03-best-in-class-programme.md`](../../docs/plans/2026-07-03-best-in-class-programme.md).
+[`2026-07-03-best-in-class-programme.md`](../../../docs/plans/2026-07-03-best-in-class-programme.md).
 
 The victory condition is **best consistent multi-system suite + reference-class
 depth on the four headliners, run as staged campaigns**, backed by three moats
@@ -160,7 +160,7 @@ Roadmaps drift through scope creep and reprioritization, not code patterns. If I
 - [Crate naming](crate-naming.md) — how new crates should be named
 - [No unified launcher](no-unified-launcher.md) — the 2026-05-23 supersession of the launcher commitment
 - [Best-in-class decision (umbrella)](../../../../decisions/emu198x-best-in-class.md) — victory condition, campaign staging, moats (2026-07-03)
-- [Brainstorm doc](../../docs/brainstorms/2026-04-05-accuracy-to-product-roadmap-brainstorm.md) — full discussion
+- [Brainstorm doc](../../../docs/brainstorms/2026-04-05-accuracy-to-product-roadmap-brainstorm.md) — full discussion
 
 ## Log
 
@@ -173,7 +173,7 @@ condition: best unified suite + staged reference-class campaigns
 campaign systems, and WASM as sequenced strategic scope. Binding record at the
 umbrella: [`emu198x-best-in-class.md`](../../../../decisions/emu198x-best-in-class.md).
 Programme detail:
-[`2026-07-03-best-in-class-programme.md`](../../docs/plans/2026-07-03-best-in-class-programme.md).
+[`2026-07-03-best-in-class-programme.md`](../../../docs/plans/2026-07-03-best-in-class-programme.md).
 The pre-October web-version drift trigger amended (reject displacement, not the
 target); engineering-bar order and October scope unchanged.
 

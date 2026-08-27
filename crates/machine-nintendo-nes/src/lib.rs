@@ -32,14 +32,14 @@
 //! address, so the arbitration is in scope and correct. Both ROMs now pass; the
 //! remaining defect was in the DMC's `$4015` transfer-start delay, not the
 //! arbitration. See
-//! [nes-accuracy-closure-campaign.md](../../knowledge/decisions/nes-accuracy-closure-campaign.md).
+//! [nes-accuracy-closure-campaign.md](../../../knowledge/decisions/nes-accuracy-closure-campaign.md).
 //!
 //! # Porting provenance
 //!
 //! The archive crate at
 //! `~/Projects/Emu198x-archive/crates/machine-nintendo-nes/` is
 //! **not directly portable** per
-//! [archives-as-source.md](../../knowledge/decisions/archives-as-source.md)
+//! [archives-as-source.md](../../../knowledge/decisions/archives-as-source.md)
 //! — it used a CPU-driven loop where the PPU was stepped in
 //! batches. This crate is written from scratch against the
 //! nes-clock-topology decision doc, using the C64 machine

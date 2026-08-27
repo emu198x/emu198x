@@ -42,6 +42,14 @@ jobs:
       - name: Check every #[ignore] says which kind it is
         run: python3 scripts/check-ignore-reasons.py --self-test
 
+      # Doc comments cite decision records by relative path, and those paths
+      # were written at four incompatible depths — mostly from the crate root
+      # instead of the repo root. Thirteen of nineteen resolved nowhere.
+      # Nothing noticed: rustdoc does not render knowledge/, so no build ever
+      # followed one.
+      - name: Check doc references resolve
+        run: python3 scripts/check-doc-links.py --self-test
+
       # An unreachable Ubuntu mirror makes apt retry with its default
       # timeouts — twenty to thirty minutes per job, before any of this
       # repository's code is involved. The first fix covered ci.yml and

@@ -4,7 +4,7 @@
 **Status:** Locked. Governs Cargo.toml `version` declarations across
 the workspace, release-plz behaviour, cargo-dist tag patterns, and
 the path to crates.io publishing referenced by
-[`../../docs/plans/2026-05-23-post-october-roadmap.md`](../../docs/plans/2026-05-23-post-october-roadmap.md)
+[`../../../docs/plans/2026-05-23-post-october-roadmap.md`](../../../docs/plans/2026-05-23-post-october-roadmap.md)
 § Phase G.
 
 ## What this is

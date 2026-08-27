@@ -4,7 +4,7 @@
 **Status:** Locked. Governs whether and when the 113-crate workspace
 splits into multiple workspaces or repos as the project grows
 through Waves 2 / 3 (per the
-[post-October roadmap](../../docs/plans/2026-05-23-post-october-roadmap.md)).
+[post-October roadmap](../../../docs/plans/2026-05-23-post-october-roadmap.md)).
 Companion to [`versioning-strategy.md`](versioning-strategy.md) —
 that record covers crate version management; this one covers
 workspace organisation.

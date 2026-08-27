@@ -1,7 +1,7 @@
 //! Opcode dispatch and the m-cycle walker.
 //!
 //! Pin-level pipelined per
-//! [`knowledge/decisions/cpu-bus-interface.md`](../../../knowledge/decisions/cpu-bus-interface.md):
+//! [`knowledge/decisions/cpu-bus-interface.md`](../../../../knowledge/decisions/cpu-bus-interface.md):
 //! each m-cycle "consumes" `data_in` populated by the machine after the
 //! previous tick's scheduled read, then schedules the next bus
 //! operation by setting `addr` / `rd` / `wr` / `mreq` (or

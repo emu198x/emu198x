@@ -269,4 +269,4 @@ focused tests and clean survey comparison to be rerun.
 - [MOS 6569 / 6567 VIC-II](../chips/mos-vic-ii.md)
 - [C64 VIC-II reference survey](../processes/c64-vicii-vice-survey.md)
 - [VIC-II survey fixture notes](../../test-data/commodore/c64/vicii-vice-survey/README.md)
-- [VIC-II VC/VCBASE/RC rewrite plan](../../docs/plans/2026-06-30-c64-vic-ii-vc-vcbase-rc-rewrite.md)
+- [VIC-II VC/VCBASE/RC rewrite plan](../../../docs/plans/2026-06-30-c64-vic-ii-vc-vcbase-rc-rewrite.md)

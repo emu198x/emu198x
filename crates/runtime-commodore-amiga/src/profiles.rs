@@ -276,7 +276,7 @@ impl Model {
     /// kind enum discriminates on; everything else (CPU, memory
     /// layout, region, Kickstart) is configuration.
     ///
-    /// [`amiga-machine-catalogue.md`]: ../../../../../knowledge/decisions/amiga-machine-catalogue.md
+    /// [`amiga-machine-catalogue.md`]: ../../../knowledge/decisions/amiga-machine-catalogue.md
     #[must_use]
     pub const fn chipset(self) -> crate::amiga_model::ChipsetKind {
         use crate::amiga_model::ChipsetKind;
@@ -302,7 +302,7 @@ impl Model {
 
     /// Active CPU type for this model configuration.
     ///
-    /// [`amiga-machine-catalogue.md`]: ../../../../../knowledge/decisions/amiga-machine-catalogue.md
+    /// [`amiga-machine-catalogue.md`]: ../../../knowledge/decisions/amiga-machine-catalogue.md
     #[must_use]
     pub const fn cpu(self) -> crate::amiga_model::CpuKind {
         use crate::amiga_model::CpuKind;

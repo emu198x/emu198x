@@ -1,0 +1,23 @@
+# Doc references whose target tree no longer exists.
+#
+# Almost all point into `Emu198x-Reference/`, the old reference library.
+# The family's prose sources now live in `198x/reference/`, but the paths
+# inside the old tree do not map across one-for-one, so repointing these
+# is research against the new library rather than arithmetic. Guessing a
+# target would be worse than leaving the reference visibly dead.
+#
+# This list may shrink, never grow. A new dead reference fails the check;
+# so does a line here that no longer matches, so it cannot rot.
+#
+# See #1200.
+knowledge/decisions/spectrum-test-oracle-priority.md	../../../../Emu198x-Reference/_organised/by-topic/testing-suites/spectrum-test-roms.md
+knowledge/decisions/spectrum-test-oracle-priority.md	../../../../Emu198x-Reference/_organised/known-unknowns.md
+knowledge/decisions/spectrum-test-oracle-priority.md	../../../Emu198x-Reference/_organised/by-topic/testing-suites/spectrum-test-roms.md
+knowledge/decisions/ula-first-fetch-tstate-offset.md	../../../Emu198x-Reference/_organised/by-system/zx-spectrum/ula-snow-effect.md
+knowledge/decisions/ula-first-fetch-tstate-offset.md	../../../Emu198x-Reference/_organised/by-system/zx-spectrum/zx-spectrum-ula-chapter-10-internal-clocks.md
+knowledge/decisions/ula-first-fetch-tstate-offset.md	../../../Emu198x-Reference/_organised/by-system/zx-spectrum/zx-spectrum-ula-chapter-11-video-synchronisation.md
+knowledge/decisions/ula-first-fetch-tstate-offset.md	../../../Emu198x-Reference/_organised/by-system/zx-spectrum/zx-spectrum-ula-chapter-12-generating-the-display.md
+knowledge/decisions/ula-first-fetch-tstate-offset.md	../../../Emu198x-Reference/_organised/by-system/zx-spectrum/zx-spectrum-ula-chapter-13-video-memory-access.md
+knowledge/decisions/ula-first-fetch-tstate-offset.md	../../../Emu198x-Reference/_organised/by-system/zx-spectrum/zx-spectrum-ula-chapter-14-video-control-clocks.md
+knowledge/decisions/ula-first-fetch-tstate-offset.md	../../../Emu198x-Reference/_organised/by-system/zx-spectrum/zx-spectrum-ula-chapter-18-cpu-clock-and-contention.md
+knowledge/decisions/ula-first-fetch-tstate-offset.md	../../../Emu198x-Reference/_organised/known-unknowns.md

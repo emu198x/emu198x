@@ -3,7 +3,7 @@
 **Date:** 2026-05-23
 **Status:** Locked. Supersedes the "plus a unified launcher" framing
 in [`product-roadmap.md`](product-roadmap.md) § Product shape and
-amends [`../../docs/plans/2026-05-23-post-october-roadmap.md`](../../docs/plans/2026-05-23-post-october-roadmap.md)
+amends [`../../../docs/plans/2026-05-23-post-october-roadmap.md`](../../../docs/plans/2026-05-23-post-october-roadmap.md)
 § Phase D.
 
 ## What this is
@@ -158,7 +158,7 @@ the launcher would have been a layer on top that fights the grain.
    time'" is removed (it's been *deliberately* dropped, not drifted
    into dropping). Replaced with "Adding a unified launcher" as the
    new trigger to reject.
-3. **[`../../docs/plans/2026-05-23-post-october-roadmap.md`](../../docs/plans/2026-05-23-post-october-roadmap.md)
+3. **[`../../../docs/plans/2026-05-23-post-october-roadmap.md`](../../../docs/plans/2026-05-23-post-october-roadmap.md)
    § Phase D** loses the "game library / launcher" work item.
    Other Phase D work (Game Boy CGB / SGB / link cable,
    cross-system polish, cheats) stays.
