@@ -1,0 +1,94 @@
+name: Notify Discord
+
+# Announces a release in Discord.
+#
+# Wired in as a cargo-dist post-announce job rather than triggered by
+# `on: release`, because the GitHub Release here is cut by `gh release create`
+# inside release.yml — and a release created with GITHUB_TOKEN does not fire
+# `release: published` for any other workflow. As a post-announce job this runs
+# inside the same workflow run, so it fires whichever token cut the release.
+#
+# Reads DISCORD_RELEASE_WEBHOOK (an org-level secret holding a Discord channel
+# webhook URL). When that secret is absent the job logs and succeeds: a missing
+# notification must not fail a release that otherwise worked.
+
+on:
+  workflow_call:
+    inputs:
+      plan:
+        description: "The dist manifest for this release, passed by release.yml"
+        required: true
+        type: string
+    secrets:
+      DISCORD_RELEASE_WEBHOOK:
+        required: false
+
+jobs:
+  notify:
+    name: Post to Discord
+    runs-on: ubuntu-latest
+    steps:
+      - name: Post the release to Discord
+        env:
+          WEBHOOK: ${{ secrets.DISCORD_RELEASE_WEBHOOK }}
+          PLAN: ${{ inputs.plan }}
+          REPO: ${{ github.repository }}
+          SERVER_URL: ${{ github.server_url }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${WEBHOOK}" ]; then
+            echo "::notice::DISCORD_RELEASE_WEBHOOK is not set — nothing posted."
+            exit 0
+          fi
+
+          title=$(jq -r '.announcement_title // empty' <<<"$PLAN")
+          tag=$(jq -r '.announcement_tag // empty' <<<"$PLAN")
+          body=$(jq -r '.announcement_github_body // empty' <<<"$PLAN")
+          prerelease=$(jq -r '.announcement_is_prerelease // false' <<<"$PLAN")
+
+          if [ -z "$tag" ]; then
+            echo "::warning::no announcement_tag in the plan — nothing to announce."
+            exit 0
+          fi
+
+          # Discord caps an embed description at 4096 characters and rejects the
+          # whole payload if it is over, so a long changelog has to be cut here
+          # rather than by Discord. 3900 leaves room for the truncation notice.
+          if [ "${#body}" -gt 3900 ]; then
+            body="${body:0:3900}"$'\n\n'"…truncated. Full notes: ${SERVER_URL}/${REPO}/releases/tag/${tag}"
+          fi
+
+          # Amber for a prerelease, green for a release: the colour is the fastest
+          # way to tell them apart in a channel that carries both.
+          if [ "$prerelease" = "true" ]; then colour=16215907; else colour=3066993; fi
+
+          # Built with jq rather than a heredoc: changelog bodies contain quotes,
+          # backslashes and newlines, and hand-escaping them into JSON is how this
+          # kind of step silently starts posting nothing.
+          jq -n \
+            --arg title "${title:-$REPO $tag}" \
+            --arg url "${SERVER_URL}/${REPO}/releases/tag/${tag}" \
+            --arg body "$body" \
+            --arg repo "$REPO" \
+            --argjson colour "$colour" \
+            '{
+               username: "198x releases",
+               embeds: [{
+                 title: $title,
+                 url: $url,
+                 description: $body,
+                 color: $colour,
+                 footer: { text: $repo }
+               }]
+             }' > payload.json
+
+          # --fail-with-body so a 4xx from Discord surfaces its reason in the log
+          # instead of an exit code with no explanation.
+          curl --silent --show-error --fail-with-body \
+               --retry 3 --retry-delay 5 --retry-all-errors \
+               -H "Content-Type: application/json" \
+               -X POST -d @payload.json "$WEBHOOK"
+
+          echo "Announced ${tag} to Discord."

@@ -313,3 +313,17 @@ jobs:
         with:
           persist-credentials: false
           submodules: recursive
+
+  # Added by hand, not by `dist generate`. This repo sets allow-dirty = ["ci"]
+  # because the action pins here are maintained outside dist's template, so
+  # regenerating the file to add this job would revert them. The block matches
+  # what dist emits for post-announce-jobs = ["./notify-discord"], which is
+  # recorded in Cargo.toml so a future regeneration reproduces it.
+  custom-notify-discord:
+    needs:
+      - plan
+      - announce
+    uses: ./.github/workflows/notify-discord.yml
+    with:
+      plan: ${{ needs.plan.outputs.val }}
+    secrets: inherit

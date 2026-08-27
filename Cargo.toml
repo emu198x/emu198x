@@ -309,6 +309,14 @@ ci = "github"
 installers = []
 targets = ["aarch64-apple-darwin", "x86_64-apple-darwin", "x86_64-unknown-linux-gnu", "x86_64-pc-windows-msvc"]
 pr-run-mode = "plan"
+# Announce each release in Discord. A custom job rather than an `on: release`
+# workflow: the release is cut by `gh release create` with GITHUB_TOKEN, and a
+# release created with that token fires no `release: published` event for
+# another workflow to catch. See .github/workflows/notify-discord.yml.
+#
+# The job itself is appended to release.yml by hand — allow-dirty = ["ci"] above
+# means that file is not regenerated here. Kept in sync deliberately.
+post-announce-jobs = ["./notify-discord"]
 # Dependabot keeps the `actions/*` pins in the generated release.yml current
 # (e.g. checkout v6 -> v7 in #589). cargo-dist's own template lags those bumps,
 # so without this its `plan` check fails on every PR ("release.yml out of date").
