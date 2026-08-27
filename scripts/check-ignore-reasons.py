@@ -13,8 +13,8 @@ batch `--ignored` sweep sees one red bar for all of them:
   KNOWN LIMITATION  someone fixes the modelling or the harness.
 
 Without the prefix you cannot tell a regression from an unset environment
-variable without opening every test. That is how #1226 stayed red for two
-weeks: it was a real failure sitting in a crowd of expected ones.
+variable without opening every test, so a real failure sitting in a crowd of
+expected ones goes unread.
 
 The two KNOWN forms must also carry an anchor — a `#NNN` issue or a
 `knowledge/decisions/*.md` path — because their whole purpose is that
@@ -22,12 +22,12 @@ somebody comes back to them. Closing the issue should surface the test.
 
 ## The backlog
 
-179 attributes were bare when this check landed, and 155 of those state no
-intent anywhere, so nobody can classify them without reading the test and
-guessing. Guessed intent recorded as fact is worse than none, so they are
-listed in `scripts/ignore-reasons-backlog.txt` instead. The list may shrink,
-never grow: a new bare `#[ignore]` fails, and an entry naming a test that no
-longer exists fails too, so the file cannot rot into sediment.
+`scripts/ignore-reasons-backlog.txt` holds the attributes that were already
+bare and state no intent anywhere, so nobody can classify them without
+reading the test and guessing. Guessed intent recorded as fact is worse than
+none. The list may shrink, never grow: a new bare `#[ignore]` fails, and an
+entry naming a test that no longer exists fails too, so the file cannot rot
+into sediment.
 
 Run `--self-test` to check the detector itself. A checker that has stopped
 detecting is the same failure as the tests it looks for.
@@ -193,9 +193,10 @@ def self_test() -> int:
             [],
         ),
         # Prose, not an attribute. Lifted from boot_invariants.rs, which
-        # explains in a module comment why its siblings are ignored — 63 of
-        # the 178 "bare" attributes the first version of this check found
-        # were sentences like these.
+        # explains in a module comment why its siblings are ignored. Module
+        # and doc comments discuss `#[ignore]` far more often than they
+        # write it, so matching the eight characters anywhere counts
+        # sentences as offenders.
         ("//! backed invariants are `#[ignore]`'d and resolve assets from\n", []),
         ("/// `#[ignore]`'d only because it needs the local 48K ROM.\nfn h() {}", []),
         ("// ROM-backed — `#[ignore]`'d; resolve assets under ~/.emu198x/\n", []),
