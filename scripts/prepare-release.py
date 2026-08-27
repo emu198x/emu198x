@@ -66,21 +66,50 @@ def set_workspace_version(version: str) -> str | None:
     return previous
 
 
+def independently_versioned() -> set[str]:
+    """Crates that carry their own version instead of the suite's.
+
+    The published chip crates dropped `version.workspace = true` so their
+    version can tell a consumer when *they* changed rather than when the suite
+    did. They are still path dependencies, so they look exactly like every
+    other intra-workspace requirement — but their version does not move with
+    the suite, and rewriting their requirement to a version they do not have
+    is a resolution failure.
+    """
+    own = set()
+    for manifest in sorted(ROOT.glob("crates/*/Cargo.toml")):
+        if re.search(r'^version = "', manifest.read_text(), re.M):
+            own.add(manifest.parent.name)
+    return own
+
+
 def rewrite_workspace_requirements(base: str) -> int:
-    """Point every intra-workspace path dependency at `base`.
+    """Point every suite-versioned path dependency at `base`.
 
     Only path dependencies are touched: a `version` beside a `path` names a
     crate in this workspace, and rewriting an external crate's requirement
     would be a different and much worse bug.
+
+    Crates with their own version are skipped — see `independently_versioned`.
     """
-    pattern = re.compile(r'(path = "\.\./[^"]+", version = ")([^"]+)(")')
+    own = independently_versioned()
+    pattern = re.compile(r'(path = "\.\./([^"]+)", version = ")([^"]+)(")')
+
+    def replace(match: re.Match[str]) -> str:
+        if match.group(2) in own:
+            return match.group(0)
+        return f"{match.group(1)}{base}{match.group(4)}"
+
     changed = 0
     for manifest in sorted(ROOT.glob("crates/*/Cargo.toml")):
         text = manifest.read_text()
-        new_text, count = pattern.subn(rf'\g<1>{base}\g<3>', text)
-        if count and new_text != text:
+        new_text = pattern.sub(replace, text)
+        if new_text != text:
             manifest.write_text(new_text)
-            changed += count
+            changed += sum(
+                1 for m in pattern.finditer(text)
+                if m.group(2) not in own and m.group(3) != base
+            )
     return changed
 
 
