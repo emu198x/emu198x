@@ -2,7 +2,7 @@
 
 **Date:** 2026-05-23
 **Status:** Locked. Brainstorm captured in
-[`docs/plans/2026-05-23-post-october-roadmap.md`](../../docs/plans/2026-05-23-post-october-roadmap.md)
+[`docs/plans/2026-05-23-post-october-roadmap.md`](../../../docs/plans/2026-05-23-post-october-roadmap.md)
 § Phase C; this record promotes the design to a binding decision
 before code starts. Implementation phased across four waves below.
 
@@ -450,7 +450,7 @@ Umbrella capture of the `dbg198x` layer is in
 ### 2026-05-23 — Decision locked
 
 Brainstorm captured in
-[`docs/plans/2026-05-23-post-october-roadmap.md`](../../docs/plans/2026-05-23-post-october-roadmap.md)
+[`docs/plans/2026-05-23-post-october-roadmap.md`](../../../docs/plans/2026-05-23-post-october-roadmap.md)
 § Phase C and the in-session brainstorm thread. Audience direction
 (learner-first), architecture (MCP-client separate binary),
 transport (`--mcp-listen`), tech stack (egui), disassemblers

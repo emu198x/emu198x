@@ -30,7 +30,7 @@
 //!   palette / bplcon0 / chipset-read inspectors degrade gracefully
 //!   on OCS / ECS sessions.
 //!
-//! [`knowledge/decisions/amiga-machine-catalogue.md`]: ../../../../knowledge/decisions/amiga-machine-catalogue.md
+//! [`knowledge/decisions/amiga-machine-catalogue.md`]: ../../../knowledge/decisions/amiga-machine-catalogue.md
 
 use commodore_agnus_ocs::{Agnus, AgnusBusDiagnosticSnapshot};
 use commodore_denise_aga::{

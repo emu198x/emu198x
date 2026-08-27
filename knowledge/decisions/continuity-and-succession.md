@@ -3,7 +3,7 @@
 **Date:** 2026-07-03
 **Status:** Active. Companion to the best-in-class programme
 ([`../../../../decisions/emu198x-best-in-class.md`](../../../../decisions/emu198x-best-in-class.md),
-[`../../docs/plans/2026-07-03-best-in-class-programme.md`](../../docs/plans/2026-07-03-best-in-class-programme.md)).
+[`../../../docs/plans/2026-07-03-best-in-class-programme.md`](../../../docs/plans/2026-07-03-best-in-class-programme.md)).
 Written because a `ce-ideate` stress-test named single-author fragility as the
 programme's largest uninsured risk, and the programme *adds* solo-operator load
 (hardware rigs, four campaigns, a publishing obligation) without touching it.

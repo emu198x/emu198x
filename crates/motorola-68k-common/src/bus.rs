@@ -3,7 +3,7 @@
 //! The archive used a reactive `M68kBus` trait with `poll_cycle()`
 //! callbacks. This port uses public pin fields on [`Cpu68000`],
 //! matching the pin-level contract from
-//! [cpu-bus-interface.md](../../knowledge/decisions/cpu-bus-interface.md).
+//! [cpu-bus-interface.md](../../../knowledge/decisions/cpu-bus-interface.md).
 //!
 //! The machine layer inspects the CPU's output pins between ticks
 //! and drives the input pins with the result, same shape as the

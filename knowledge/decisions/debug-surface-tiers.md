@@ -6,7 +6,7 @@
 explicit owner decision (Steve) to fold Amiga onto the shared tier *now* —
 building the 68000 debug path early rather than waiting for the first 68000
 sibling. See the **2026-06-05 override** in the Log and the migration plan at
-[`../../docs/plans/2026-06-05-refactor-amiga-unified-driver-replatform.md`](../../docs/plans/2026-06-05-refactor-amiga-unified-driver-replatform.md).
+[`../../../docs/plans/2026-06-05-refactor-amiga-unified-driver-replatform.md`](../../../docs/plans/2026-06-05-refactor-amiga-unified-driver-replatform.md).
 The drift-trigger guidance below is **suspended for the Amiga 68000 work** (it
 remains live for any *other* "tidy the flagships onto the macros" impulse).
 Sits beside [`runtime-internal-shape.md`](runtime-internal-shape.md) and

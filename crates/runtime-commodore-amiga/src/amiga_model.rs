@@ -12,7 +12,7 @@
 //! See [`knowledge/decisions/amiga-machine-catalogue.md`] for the
 //! binding decision behind this layout.
 //!
-//! [`knowledge/decisions/amiga-machine-catalogue.md`]: ../../../../../knowledge/decisions/amiga-machine-catalogue.md
+//! [`knowledge/decisions/amiga-machine-catalogue.md`]: ../../../knowledge/decisions/amiga-machine-catalogue.md
 
 pub use crate::profiles::Model;
 use gvp_a530::A530Config;

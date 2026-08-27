@@ -7,7 +7,7 @@
 //! events into joypad button presses, and per-frame execution into
 //! `Indexed8` framebuffers + 48 kHz stereo audio packets.
 //!
-//! Per [within-family-layering](../../knowledge/decisions/within-family-layering.md)
+//! Per [within-family-layering](../../../knowledge/decisions/within-family-layering.md)
 //! this crate adds nothing chip-specific — it is the family's seat
 //! at the host boundary.
 

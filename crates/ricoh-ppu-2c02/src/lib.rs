@@ -15,7 +15,7 @@
 //! The archive PPU took `chr_read: &mut dyn FnMut(u16) -> u8` and
 //! `mirroring: Mirroring` closures on every method. This port takes
 //! `&mut dyn Mapper` instead, matching the pin contract in
-//! [nes-clock-topology.md](../../knowledge/decisions/nes-clock-topology.md).
+//! [nes-clock-topology.md](../../../knowledge/decisions/nes-clock-topology.md).
 //! The mapper provides CHR reads/writes and mirroring — the PPU
 //! calls through it directly.
 //!
