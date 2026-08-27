@@ -255,12 +255,16 @@ impl Crtc6845 {
             }
         }
 
-        // Advance horizontal counter
-        self.h_counter += 1;
-        if self.h_counter > h_total {
+        // Advance horizontal counter. The line is R0 + 1 characters, so the
+        // tick where the counter already equals R0 is the last one; testing
+        // before the increment keeps that length while making R0 = 255 — a
+        // legal value — wrap rather than increment past the top of a u8 (#162).
+        if self.h_counter >= h_total {
             // End of line
             self.h_counter = 0;
             new_frame = self.advance_vertical();
+        } else {
+            self.h_counter += 1;
         }
 
         new_frame
@@ -434,6 +438,71 @@ mod tests {
         for (i, &v) in vals.iter().enumerate() {
             crtc.write_address(i as u8);
             crtc.write_data(v);
+        }
+    }
+
+    #[test]
+    fn a_horizontal_total_of_255_does_not_overflow_the_counter() {
+        // R0 = 255 is a legal value. The counter must wrap at the end of the
+        // line rather than incrementing past the top of a u8 (#162).
+        let mut crtc = Crtc6845::new();
+        crtc.write_address(0);
+        crtc.write_data(255);
+        for _ in 0..600 {
+            crtc.tick();
+        }
+    }
+
+    /// The wrap test moved from after the increment to before it. That is only
+    /// safe if a line is still R0 + 1 characters, so measure it rather than
+    /// trusting the reasoning.
+    #[test]
+    fn a_line_is_r0_plus_one_characters() {
+        for h_total in [0_u8, 1, 63, 127, 254, 255] {
+            let mut crtc = Crtc6845::new();
+            crtc.write_address(0);
+            crtc.write_data(h_total);
+            // Count the ticks between one line start and the next. Detecting
+            // the end by "the counter went back to zero" does not work for
+            // R0 = 0, where it never leaves zero and the line is one tick.
+            while crtc.h_counter != 0 {
+                crtc.tick();
+            }
+            let mut ticks = 0_u32;
+            loop {
+                crtc.tick();
+                ticks += 1;
+                if crtc.h_counter == 0 {
+                    break;
+                }
+                assert!(ticks < 1000, "line never ended for R0 = {h_total}");
+            }
+            assert_eq!(
+                ticks,
+                u32::from(h_total) + 1,
+                "R0 = {h_total} should give a line of R0 + 1 characters"
+            );
+        }
+    }
+
+    /// A mid-frame write that drops a vertical register below its live counter
+    /// must not strand that counter above a reset condition it can never meet
+    /// again (#162). These pass because every vertical test is `>=` or `>`
+    /// against the value *after* the increment; recorded so a future
+    /// restructure cannot quietly reintroduce the horizontal asymmetry.
+    #[test]
+    fn lowering_r4_or_r9_mid_frame_does_not_strand_a_counter() {
+        for (reg, lowered) in [(4_u8, 1_u8), (9, 0), (5, 0)] {
+            let mut crtc = Crtc6845::new();
+            setup_mode0(&mut crtc);
+            for _ in 0..20_000 {
+                crtc.tick();
+            }
+            crtc.write_address(reg);
+            crtc.write_data(lowered);
+            for _ in 0..20_000 {
+                crtc.tick();
+            }
         }
     }
 
