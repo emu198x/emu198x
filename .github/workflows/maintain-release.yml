@@ -85,6 +85,15 @@ jobs:
                 ;;
             esac
 
+            # A published crate carries its own version so it can tell a consumer
+            # when *it* changed rather than when the suite did, so it is not a
+            # suite-bump mismatch. Keyed on publishability rather than a list of
+            # names: dropping `publish = false` is what makes a crate independent,
+            # so the exemption cannot fall out of step with the decision behind it.
+            if ! grep -q '^publish = false$' "$manifest"; then
+              continue
+            fi
+
             if grep -q '^version\.workspace = true$' "$manifest"; then
               package_version=$version
             else
