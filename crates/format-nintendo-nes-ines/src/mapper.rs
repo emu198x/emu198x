@@ -3,13 +3,13 @@
 //!
 //! # Mirroring
 //!
-//! [`Mirroring`] is defined here rather than re-exported from a PPU
-//! crate because the PPU is not yet ported. When `ricoh-ppu-2c02` is
-//! rewritten in the dot-driven architecture, the canonical
-//! `Mirroring` will live in that crate and this one will re-export
-//! it — matching the archive's shape. The enum is small enough
-//! (five variants) that re-defining it here is cheap and the future
-//! reconciliation will be a one-line re-export change.
+//! [`Mirroring`] is defined here, and `ricoh-ppu-2c02` re-exports it,
+//! because the cartridge decides mirroring and the PPU obeys it. A
+//! mapper answers [`Mapper::mirroring`] — MMC1 and its kin change the
+//! answer at runtime — and the PPU takes the value as an argument to
+//! `mirror_nametable_addr` rather than holding one of its own. Keeping
+//! the enum beside the thing that decides it means there is one
+//! definition and no direction to get wrong.
 //!
 //! # Scope of the `Mapper` trait
 //!
