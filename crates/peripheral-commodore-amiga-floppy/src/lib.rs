@@ -6,17 +6,78 @@
 
 pub mod mfm;
 
-use format_commodore_amiga_adf::Adf;
+use format198x_commodore_amiga_adf::{Image, ImageMut};
+
+// `Adf` hands these back — its error, its geometry, and the two geometries an
+// Amiga floppy comes in — so a caller cannot use it without being able to name
+// them.
+pub use format198x_commodore_amiga_adf::{DD, Error as AdfError, Geometry, HD};
 use mfm::{decode_mfm_track, encode_mfm_track};
 use serde::{Deserialize, Serialize};
 
+/// An ADF held in memory, checked once when it is loaded.
+///
+/// `format198x-commodore-amiga-adf` addresses an image through [`Image`] and
+/// [`ImageMut`], which borrow their bytes — the shape an FFI boundary and a
+/// zero-copy encoder both want. A drive is the other way round: it owns the
+/// disk it has been handed, and holds it across the whole time it is inserted.
+/// This is the join between the two. It owns the bytes and opens a view over
+/// them where one is needed.
+///
+/// Constructing it is the only place an ADF is validated, so every drive,
+/// machine and runtime downstream can take one as proof that the bytes really
+/// are a disk. The length is fixed here and no operation can change it: a
+/// sector write replaces 512 bytes in place.
+pub struct Adf {
+    bytes: Vec<u8>,
+    /// Settled at construction from the image's length, so the drive can
+    /// answer `sectors_per_track` without reopening the image.
+    geometry: Geometry,
+}
+
+impl Adf {
+    /// Read an image, failing if the bytes are not a DD or HD ADF.
+    ///
+    /// Rejects the containers an Amiga disk otherwise arrives in — IPF, DMS,
+    /// extended ADF, zip, gzip — by name rather than by complaining about the
+    /// size of a format the file never was (#1192).
+    pub fn from_bytes(bytes: Vec<u8>) -> Result<Self, AdfError> {
+        let geometry = Image::open(&bytes)?.geometry();
+        Ok(Self { bytes, geometry })
+    }
+
+    /// The image's cylinders, heads and sectors per track.
+    #[must_use]
+    pub fn geometry(&self) -> Geometry {
+        self.geometry
+    }
+
+    /// A read view over the image.
+    pub fn image(&self) -> Result<Image<'_>, AdfError> {
+        Image::open(&self.bytes)
+    }
+
+    /// A write view over the image.
+    pub fn image_mut(&mut self) -> Result<ImageMut<'_>, AdfError> {
+        ImageMut::open(&mut self.bytes)
+    }
+
+    /// The whole image, as it would be written back to a file.
+    #[must_use]
+    pub fn bytes(&self) -> &[u8] {
+        &self.bytes
+    }
+}
+
 /// Trait abstracting the disk data source.
 ///
-/// Implemented by `AdfDiskImage` and `IpfImage` (in the `format-ipf` crate).
 /// The floppy drive holds a `Box<dyn DiskImage>` and delegates track encoding
-/// and write-back through this interface.
+/// and write-back through this interface. `AdfDiskImage` is the only
+/// implementation today; IPF is #1192.
 pub trait DiskImage: Send {
     /// Encode the specified track as raw MFM bytes for the drive read path.
+    ///
+    /// `None` when the head is somewhere this disk has no track.
     fn encode_mfm_track(&self, cyl: u32, head: u32) -> Option<Vec<u8>>;
 
     /// Number of sectors per track (11 for DD, 22 for HD).
@@ -26,7 +87,12 @@ pub trait DiskImage: Send {
     fn is_writable(&self) -> bool;
 
     /// Write a decoded sector back to the image.
-    fn write_sector(&mut self, cyl: u32, head: u32, sector: u32, data: &[u8]);
+    ///
+    /// Returns whether it was written. A sector address decoded from the MFM
+    /// stream comes from the disk surface rather than from the drive, so a
+    /// foreign or damaged disk can name a track that does not exist. Such a
+    /// write is dropped, not applied and not panicked on.
+    fn write_sector(&mut self, cyl: u32, head: u32, sector: u32, data: &[u8]) -> bool;
 
     /// Serialise the current image state for saving (e.g. ADF bytes).
     /// Returns `None` for read-only formats like IPF.
@@ -61,28 +127,41 @@ impl AdfDiskImage {
 impl DiskImage for AdfDiskImage {
     fn encode_mfm_track(&self, cyl: u32, head: u32) -> Option<Vec<u8>> {
         let track_num = (cyl * 2 + head) as u8;
-        let sectors = self.adf.read_track_sectors(cyl, head);
+        let image = self.adf.image().ok()?;
+        // Straight from the image with no copy: an ADF stores a track's
+        // sectors contiguously, so this is one run of bytes.
+        let sectors = image
+            .track(u16::try_from(cyl).ok()?, u8::try_from(head).ok()?)
+            .ok()?;
         Some(encode_mfm_track(
             sectors,
             track_num,
-            self.adf.sectors_per_track(),
+            self.sectors_per_track(),
         ))
     }
 
     fn sectors_per_track(&self) -> u32 {
-        self.adf.sectors_per_track()
+        u32::from(self.adf.geometry().sectors_per_track)
     }
 
     fn is_writable(&self) -> bool {
         self.writable
     }
 
-    fn write_sector(&mut self, cyl: u32, head: u32, sector: u32, data: &[u8]) {
-        self.adf.write_sector(cyl, head, sector, data);
+    fn write_sector(&mut self, cyl: u32, head: u32, sector: u32, data: &[u8]) -> bool {
+        let (Ok(cyl), Ok(head), Ok(sector)) =
+            (u16::try_from(cyl), u8::try_from(head), u8::try_from(sector))
+        else {
+            return false;
+        };
+        self.adf
+            .image_mut()
+            .and_then(|mut image| image.write_sector(cyl, head, sector, data))
+            .is_ok()
     }
 
     fn save_data(&self) -> Option<Vec<u8>> {
-        Some(self.adf.data().to_vec())
+        Some(self.adf.bytes().to_vec())
     }
 }
 
@@ -542,14 +621,16 @@ impl AmigaFloppyDrive {
             _ => return 0,
         };
 
-        let spt = image.sectors_per_track();
         let mut written = 0;
         for sector in &decoded {
             let track_num = sector.track as u32;
             let cyl = track_num / 2;
             let head = track_num % 2;
-            if cyl < 80 && (sector.sector as u32) < spt {
-                image.write_sector(cyl, head, sector.sector as u32, &sector.data);
+            // The address came off the disk surface, not from the drive, so a
+            // foreign or damaged disk can name a track this image has not got.
+            // The image bounds-checks it and says so; there is no geometry to
+            // restate here.
+            if image.write_sector(cyl, head, sector.sector as u32, &sector.data) {
                 written += 1;
             }
         }
@@ -666,7 +747,7 @@ mod tests {
     #[test]
     fn deselected_drive_still_reports_mechanical_status() {
         let mut drive = AmigaFloppyDrive::new();
-        let adf = Adf::from_bytes(vec![0; format_commodore_amiga_adf::ADF_SIZE_DD]).expect("valid");
+        let adf = Adf::from_bytes(vec![0; DD.len()]).expect("valid");
         drive.insert_disk(adf);
         drive.acknowledge_disk_change();
 
@@ -680,7 +761,7 @@ mod tests {
     #[test]
     fn motor_spinup() {
         let mut drive = AmigaFloppyDrive::new();
-        let adf = Adf::from_bytes(vec![0; format_commodore_amiga_adf::ADF_SIZE_DD]).expect("valid");
+        let adf = Adf::from_bytes(vec![0; DD.len()]).expect("valid");
         drive.insert_disk(adf);
         drive.acknowledge_disk_change();
         drive.update_control(false, false, false, true, true);
@@ -699,7 +780,7 @@ mod tests {
     #[test]
     fn spinup_completes_under_repeated_motor_on_writes() {
         let mut drive = AmigaFloppyDrive::new();
-        let adf = Adf::from_bytes(vec![0; format_commodore_amiga_adf::ADF_SIZE_DD]).expect("valid");
+        let adf = Adf::from_bytes(vec![0; DD.len()]).expect("valid");
         drive.insert_disk(adf);
         drive.acknowledge_disk_change();
         drive.update_control(false, false, false, true, true);
@@ -718,7 +799,7 @@ mod tests {
     #[test]
     fn spun_up_selected_drive_emits_index_pulse_once_per_revolution() {
         let mut drive = AmigaFloppyDrive::new();
-        let adf = Adf::from_bytes(vec![0; format_commodore_amiga_adf::ADF_SIZE_DD]).expect("valid");
+        let adf = Adf::from_bytes(vec![0; DD.len()]).expect("valid");
         drive.insert_disk(adf);
         drive.acknowledge_disk_change();
         drive.update_control(false, false, false, true, true);
@@ -738,8 +819,7 @@ mod tests {
 
         for e_clock_hz in [PAL_E_CLOCK_HZ, NTSC_E_CLOCK_HZ] {
             let mut drive = AmigaFloppyDrive::new();
-            let adf =
-                Adf::from_bytes(vec![0; format_commodore_amiga_adf::ADF_SIZE_DD]).expect("valid");
+            let adf = Adf::from_bytes(vec![0; DD.len()]).expect("valid");
             drive.insert_disk(adf);
             drive.acknowledge_disk_change();
             drive.update_control(false, false, false, true, true);
@@ -756,7 +836,7 @@ mod tests {
     #[test]
     fn spun_up_deselected_drive_stops_emitting_index_pulses() {
         let mut drive = AmigaFloppyDrive::new();
-        let adf = Adf::from_bytes(vec![0; format_commodore_amiga_adf::ADF_SIZE_DD]).expect("valid");
+        let adf = Adf::from_bytes(vec![0; DD.len()]).expect("valid");
         drive.insert_disk(adf);
         drive.acknowledge_disk_change();
         drive.update_control(false, false, false, true, true);
@@ -783,7 +863,7 @@ mod tests {
     #[test]
     fn spun_up_drive_keeps_status_but_hides_read_data_after_deselect() {
         let mut drive = AmigaFloppyDrive::new();
-        let adf = Adf::from_bytes(vec![0; format_commodore_amiga_adf::ADF_SIZE_DD]).expect("valid");
+        let adf = Adf::from_bytes(vec![0; DD.len()]).expect("valid");
         drive.insert_disk(adf);
         drive.acknowledge_disk_change();
         drive.update_control(false, false, false, true, true);
@@ -803,7 +883,7 @@ mod tests {
     #[test]
     fn disk_change_cleared_by_step() {
         let mut drive = AmigaFloppyDrive::new();
-        let adf = Adf::from_bytes(vec![0; format_commodore_amiga_adf::ADF_SIZE_DD]).expect("valid");
+        let adf = Adf::from_bytes(vec![0; DD.len()]).expect("valid");
         drive.insert_disk(adf);
         drive.update_control(false, true, false, true, true);
         // CHNG active after insert — cleared by head step, matching real hardware
@@ -814,8 +894,7 @@ mod tests {
         assert!(drive.status().disk_change);
 
         // Insert new disk — CHNG still active until step
-        let adf2 =
-            Adf::from_bytes(vec![0; format_commodore_amiga_adf::ADF_SIZE_DD]).expect("valid");
+        let adf2 = Adf::from_bytes(vec![0; DD.len()]).expect("valid");
         drive.insert_disk(adf2);
         assert!(drive.status().disk_change);
 
@@ -828,7 +907,7 @@ mod tests {
     #[test]
     fn encode_track_returns_data_with_disk() {
         let mut drive = AmigaFloppyDrive::new();
-        let adf = Adf::from_bytes(vec![0; format_commodore_amiga_adf::ADF_SIZE_DD]).expect("valid");
+        let adf = Adf::from_bytes(vec![0; DD.len()]).expect("valid");
         drive.insert_disk(adf);
         drive.acknowledge_disk_change();
         drive.update_control(false, false, false, true, true);
@@ -861,7 +940,7 @@ mod tests {
     #[test]
     fn flush_write_capture_persists_to_adf() {
         let mut drive = AmigaFloppyDrive::new();
-        let adf = Adf::from_bytes(vec![0; format_commodore_amiga_adf::ADF_SIZE_DD]).expect("valid");
+        let adf = Adf::from_bytes(vec![0; DD.len()]).expect("valid");
         drive.insert_disk(adf);
 
         // Prepare sector data with a known pattern
@@ -897,7 +976,7 @@ mod tests {
         // Empty drive: not protected (no tab to sense).
         assert!(!drive.status().write_protect);
 
-        let adf = Adf::from_bytes(vec![0; format_commodore_amiga_adf::ADF_SIZE_DD]).expect("valid");
+        let adf = Adf::from_bytes(vec![0; DD.len()]).expect("valid");
         drive.insert_disk_writable(adf, false); // read-only archive mount
         assert!(
             drive.status().write_protect,
@@ -923,14 +1002,14 @@ mod tests {
     #[test]
     fn writable_mount_does_not_report_dskprot() {
         let mut drive = AmigaFloppyDrive::new();
-        let adf = Adf::from_bytes(vec![0; format_commodore_amiga_adf::ADF_SIZE_DD]).expect("valid");
+        let adf = Adf::from_bytes(vec![0; DD.len()]).expect("valid");
         drive.insert_disk_writable(adf, true);
         assert!(!drive.status().write_protect);
     }
 
     #[test]
     fn snapshot_media_reattachment_preserves_drive_state() {
-        let bytes = vec![0; format_commodore_amiga_adf::ADF_SIZE_DD];
+        let bytes = vec![0; DD.len()];
         let mut drive = AmigaFloppyDrive::new();
         drive.insert_disk_writable(Adf::from_bytes(bytes.clone()).expect("valid"), false);
         drive.acknowledge_disk_change();

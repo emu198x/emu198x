@@ -12,8 +12,8 @@
 use std::collections::VecDeque;
 use std::path::PathBuf;
 
-use format_commodore_amiga_adf::Adf;
 use machine_commodore_amiga_ocs::{AmigaOcs, RamConfig};
+use peripheral_commodore_amiga_floppy::Adf;
 use runtime_commodore_amiga::{A500_PAL_FRAME_TICKS, AmigaOcsRuntime, Model};
 
 const KS12_ALERT_ENTRY: u32 = 0x00FC_05B4;

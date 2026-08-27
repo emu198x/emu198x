@@ -18,7 +18,6 @@ use emu198x_shell::{
     MachineError, MachineProfile, MachineTime, MediaKind, MediaSet, ResetKind, RunResult,
     StopReason,
 };
-use format_commodore_amiga_adf::Adf;
 use machine_commodore_amiga_a1200::AmigaA1200;
 use machine_commodore_amiga_ecs::{
     AmigaEcs, AudioControls as EcsAudioControls, PaulaChannel as EcsPaulaChannel,
@@ -26,6 +25,7 @@ use machine_commodore_amiga_ecs::{
 use machine_commodore_amiga_ocs::{
     AmigaOcs, AudioControls, FB_HEIGHT, FB_WIDTH, PaulaChannel, RamConfig,
 };
+use peripheral_commodore_amiga_floppy::Adf;
 
 use crate::input::apply_input_event;
 use crate::live_access::AmigaLiveAccess;

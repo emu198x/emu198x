@@ -14,8 +14,8 @@
 //! write-capture round-trip. Both are lifted into the live crate
 //! verbatim when Phase 2 / Phase 3 land.
 
-use format_commodore_amiga_adf::{ADF_SIZE_DD, Adf};
 use peripheral_commodore_amiga_floppy::AmigaFloppyDrive;
+use peripheral_commodore_amiga_floppy::{Adf, DD};
 
 /// Matches the archive's private `MOTOR_SPINUP_TICKS` constant.
 const MOTOR_SPINUP_TICKS: u32 = 350_000;
@@ -30,7 +30,7 @@ fn select_motor_on(drive: &mut AmigaFloppyDrive) {
 
 fn with_blank_disk() -> AmigaFloppyDrive {
     let mut drive = AmigaFloppyDrive::new();
-    let adf = Adf::from_bytes(vec![0; ADF_SIZE_DD]).expect("valid blank DD ADF");
+    let adf = Adf::from_bytes(vec![0; DD.len()]).expect("valid blank DD ADF");
     drive.insert_disk(adf);
     drive.acknowledge_disk_change();
     drive
@@ -120,7 +120,7 @@ fn deselecting_drive_suppresses_index_pulses() {
 #[test]
 fn dskchange_latched_on_insert_and_cleared_by_step() {
     let mut drive = AmigaFloppyDrive::new();
-    let adf = Adf::from_bytes(vec![0; ADF_SIZE_DD]).expect("valid ADF");
+    let adf = Adf::from_bytes(vec![0; DD.len()]).expect("valid ADF");
     drive.insert_disk(adf);
     // Straight after insert, CHNG is active (latched low).
     assert!(drive.status().disk_change);
@@ -173,7 +173,7 @@ fn selecting_with_motor_on_bypasses_id_stream() {
 #[test]
 fn diagnostic_snapshot_exposes_media_mechanism_and_write_state_without_side_effects() {
     let mut drive = AmigaFloppyDrive::new();
-    let adf = Adf::from_bytes(vec![0; ADF_SIZE_DD]).expect("valid blank DD ADF");
+    let adf = Adf::from_bytes(vec![0; DD.len()]).expect("valid blank DD ADF");
     drive.insert_disk_writable(adf, false);
     drive.acknowledge_disk_change();
     drive.note_write_mfm_word(0x4489);

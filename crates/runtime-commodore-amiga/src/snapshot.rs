@@ -127,7 +127,7 @@ pub(crate) fn decode<M: AmigaMachine>(
         .floppy0_bytes
         .as_ref()
         .map(|bytes| {
-            format_commodore_amiga_adf::Adf::from_bytes(bytes.clone()).map_err(|reason| {
+            peripheral_commodore_amiga_floppy::Adf::from_bytes(bytes.clone()).map_err(|reason| {
                 MachineError::InvalidSnapshot {
                     reason: format!("invalid persisted DF0 image: {reason}"),
                 }
@@ -195,9 +195,9 @@ fn validate_framebuffer_pixels(actual: usize, expected: usize) -> Result<(), Mac
 
 #[cfg(test)]
 mod tests {
-    use format_commodore_amiga_adf::{ADF_SIZE_DD, Adf};
     use machine_commodore_amiga_ocs::AmigaOcs;
     use motorola_68000::CpuModel;
+    use peripheral_commodore_amiga_floppy::{Adf, DD};
 
     use super::*;
     use crate::{AmigaOcsRuntime, Model};
@@ -308,7 +308,7 @@ mod tests {
         let forged = postcard::to_allocvec(&envelope).expect("encode forged envelope");
 
         let mut target = AmigaOcsRuntime::blank(Model::A500OcsPal);
-        let target_media = vec![0; ADF_SIZE_DD];
+        let target_media = vec![0; DD.len()];
         let target_adf = Adf::from_bytes(target_media.clone()).expect("decode valid target media");
         target.machine_mut().insert_adf(target_adf);
         target.set_floppy0_bytes(Some(target_media));

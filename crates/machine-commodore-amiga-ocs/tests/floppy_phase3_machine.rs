@@ -13,8 +13,8 @@
 //! live; the boot-flow test lives in #180 alongside the other
 //! cross-cutting scenarios.
 
-use format_commodore_amiga_adf::{ADF_SIZE_DD, Adf};
 use machine_commodore_amiga_ocs::AmigaOcs;
+use peripheral_commodore_amiga_floppy::{Adf, DD};
 
 fn zero_rom() -> Vec<u8> {
     vec![0; 512 * 1024]
@@ -37,7 +37,7 @@ fn fresh_machine_has_no_disk_and_reports_power_on_status() {
 #[test]
 fn insert_adf_clears_disk_change_and_exposes_disk() {
     let mut amiga = AmigaOcs::new(zero_rom());
-    let adf = Adf::from_bytes(vec![0; ADF_SIZE_DD]).expect("valid blank ADF");
+    let adf = Adf::from_bytes(vec![0; DD.len()]).expect("valid blank ADF");
     amiga.insert_adf(adf);
     assert!(amiga.drive().has_disk());
     // insert_adf acknowledges the change, so PA2 (/DSKCHANGE) is now
@@ -52,7 +52,7 @@ fn insert_adf_clears_disk_change_and_exposes_disk() {
 #[test]
 fn eject_disk_reasserts_dskchange() {
     let mut amiga = AmigaOcs::new(zero_rom());
-    let adf = Adf::from_bytes(vec![0; ADF_SIZE_DD]).expect("valid ADF");
+    let adf = Adf::from_bytes(vec![0; DD.len()]).expect("valid ADF");
     amiga.insert_adf(adf);
     amiga.eject_disk();
     assert!(!amiga.drive().has_disk());

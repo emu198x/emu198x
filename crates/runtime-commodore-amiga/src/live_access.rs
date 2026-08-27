@@ -43,7 +43,6 @@ use common_commodore_amiga::ActiveCpuDiagnosticSnapshot;
 use common_commodore_amiga::board::MotherboardBridgeDiagnosticSnapshot;
 use common_commodore_amiga::denise::DeniseBoardPipelineDiagnosticSnapshot;
 use common_commodore_amiga::memory::MemoryDiagnosticSnapshot;
-use format_commodore_amiga_adf::Adf;
 use gvp_a530::GvpA530DiagnosticSnapshot;
 use machine_commodore_amiga_a1200::AmigaA1200;
 use machine_commodore_amiga_ecs::{AgnusEcs, AmigaEcs, DeniseEcs};
@@ -54,6 +53,7 @@ use machine_commodore_amiga_ocs::{
     Msm6242RtcDiagnosticSnapshot, Paula8364,
 };
 use motorola_68k_common::registers::Registers;
+use peripheral_commodore_amiga_floppy::Adf;
 
 use crate::variants::AmigaRuntimeKind;
 

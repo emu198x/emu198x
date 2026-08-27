@@ -15,8 +15,8 @@
 //! a blank ADF has no valid bootblock. It does prove the Floppy Phase
 //! 2 wiring (aa8aaf5+) drives the full chain end-to-end.
 
-use format_commodore_amiga_adf::{ADF_SIZE_DD, Adf};
 use machine_commodore_amiga_ocs::{AmigaOcs, PAL_FRAME_TICKS};
+use peripheral_commodore_amiga_floppy::{Adf, DD};
 use std::path::PathBuf;
 
 fn load_kickstart() -> Option<Vec<u8>> {
@@ -39,7 +39,7 @@ fn blank_adf_inserted_engages_drive_within_300_frames() {
 
     // Insert a blank DD ADF. `insert_adf` acknowledges the change so
     // /DSKCHANGE reads inactive at boot.
-    let adf = Adf::from_bytes(vec![0; ADF_SIZE_DD]).expect("valid blank ADF");
+    let adf = Adf::from_bytes(vec![0; DD.len()]).expect("valid blank ADF");
     amiga.insert_adf(adf);
     assert!(amiga.drive().has_disk());
     assert!(

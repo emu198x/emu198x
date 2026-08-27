@@ -11,7 +11,7 @@
 //! before Phase 2, so these tests lock the byte counts, sync-word
 //! positions, and header-info layout that downstream code depends on.
 
-use format_commodore_amiga_adf::{ADF_SIZE_DD, Adf};
+use peripheral_commodore_amiga_floppy::{Adf, DD};
 use peripheral_commodore_amiga_floppy::{
     AmigaFloppyDrive,
     mfm::{MFM_TRACK_BYTES, SECTOR_MFM_BYTES, decode_mfm_track, encode_mfm_track},
@@ -119,7 +119,7 @@ fn decode_rejects_sector_with_bad_data_checksum() {
 #[test]
 fn write_capture_flushes_through_to_adf_save() {
     let mut drive = AmigaFloppyDrive::new();
-    let adf = Adf::from_bytes(vec![0; ADF_SIZE_DD]).expect("valid blank ADF");
+    let adf = Adf::from_bytes(vec![0; DD.len()]).expect("valid blank ADF");
     drive.insert_disk(adf);
 
     // Author new sector-0 content; leave sectors 1..=10 zero so we

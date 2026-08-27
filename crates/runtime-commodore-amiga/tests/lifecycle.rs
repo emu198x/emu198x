@@ -8,7 +8,7 @@ use emu198x_shell::{
     MachineCore, MachineError, MachineTime, MediaImage, MediaKind, MediaSet, MediaTransportAction,
     MediaTransportCommand, NullAudioSink, NullFrameSink, NullTraceSink, ResetKind,
 };
-use format_commodore_amiga_adf::ADF_SIZE_DD;
+use peripheral_commodore_amiga_floppy::DD;
 use runtime_commodore_amiga::{
     A500_PAL_FRAME_TICKS, AmigaOcsRuntime, AudioControls, Model, PaulaChannel, RamConfig,
     profile_for,
@@ -94,7 +94,7 @@ fn a1000_new_rejects_non_bootstrap_rom_size() {
 fn load_media_accepts_dd_adf() {
     let mut runtime = AmigaOcsRuntime::new(Model::A500OcsPal, dummy_kickstart())
         .expect("dummy Kickstart should construct");
-    let disk = vec![0u8; ADF_SIZE_DD];
+    let disk = vec![0u8; DD.len()];
     let mut media = MediaSet::new();
     media.push(MediaImage::new("floppy-0", MediaKind::Disk, &disk));
     runtime
@@ -107,7 +107,7 @@ fn load_media_accepts_dd_adf() {
 fn load_media_keeps_a1000_disk_change_pending() {
     let mut runtime = AmigaOcsRuntime::new(Model::A1000OcsPal, dummy_a1000_bootstrap_rom())
         .expect("dummy bootstrap ROM should construct");
-    let disk = vec![0u8; ADF_SIZE_DD];
+    let disk = vec![0u8; DD.len()];
     let mut media = MediaSet::new();
     media.push(MediaImage::new("floppy-0", MediaKind::Disk, &disk));
     runtime
@@ -125,7 +125,7 @@ fn load_media_keeps_a1000_disk_change_pending() {
 fn load_media_rejects_unknown_slot() {
     let mut runtime =
         AmigaOcsRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
-    let disk = vec![0u8; ADF_SIZE_DD];
+    let disk = vec![0u8; DD.len()];
     let mut media = MediaSet::new();
     media.push(MediaImage::new("floppy-1", MediaKind::Disk, &disk));
     let err = runtime.load_media(&media).expect_err("unknown slot");
@@ -411,7 +411,7 @@ fn machine_core_reset_rebuilds_runtime_state() {
 fn machine_core_reset_remounts_inserted_floppy() {
     let mut runtime =
         AmigaOcsRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
-    let disk = vec![0u8; ADF_SIZE_DD];
+    let disk = vec![0u8; DD.len()];
     let mut media = MediaSet::new();
     media.push(MediaImage::new("floppy-0", MediaKind::Disk, &disk));
     runtime.load_media(&media).expect("ADF should mount");

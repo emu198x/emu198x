@@ -9,8 +9,8 @@ use std::collections::BTreeMap;
 use std::error::Error;
 use std::path::{Path, PathBuf};
 
-use format_commodore_amiga_adf::Adf;
 use machine_commodore_amiga_ocs::RTC_BASE;
+use peripheral_commodore_amiga_floppy::Adf;
 use png::{BitDepth, ColorType, Encoder};
 use runtime_commodore_amiga::{
     A500_PAL_FRAME_TICKS, AmigaOcsRuntime, DISPLAY_HEIGHT, DISPLAY_WIDTH, Model,

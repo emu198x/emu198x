@@ -7,7 +7,7 @@ use emu198x_shell::{
     DebugPrimitives, HostIo, MachineCore, MachineTime, MediaImage, MediaKind, MediaSet,
     NullAudioSink, NullFrameSink, NullTraceSink, SessionQueryProvider,
 };
-use format_commodore_amiga_adf::ADF_SIZE_DD;
+use peripheral_commodore_amiga_floppy::DD;
 use runtime_commodore_amiga::{
     A500_PAL_FRAME_TICKS, AgnusInstalledVariant, AmigaA1200Runtime, AmigaEcsRuntime,
     AmigaLiveAccess, AmigaMachine, AmigaOcsRuntime, AmigaRuntime, AmigaRuntimeKind,
@@ -1698,7 +1698,7 @@ fn walk_all_paths(with_disk: bool) {
     let mut runtime = AmigaOcsRuntime::new(Model::A500OcsPal, dummy_kickstart())
         .expect("dummy Kickstart should construct");
     if with_disk {
-        let disk = vec![0u8; ADF_SIZE_DD];
+        let disk = vec![0u8; DD.len()];
         let mut media = MediaSet::new();
         media.push(MediaImage::new("floppy-0", MediaKind::Disk, &disk));
         runtime
@@ -1880,7 +1880,7 @@ fn disk_queries_flip_after_load_media() {
         .expect("path present");
     assert_eq!(inserted.value, json!(false));
 
-    let disk = vec![0u8; ADF_SIZE_DD];
+    let disk = vec![0u8; DD.len()];
     let mut media = MediaSet::new();
     media.push(MediaImage::new("floppy-0", MediaKind::Disk, &disk));
     runtime.load_media(&media).expect("ADF bytes should insert");

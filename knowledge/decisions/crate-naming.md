@@ -21,8 +21,8 @@ published takes `emu198x-` in front of whatever that table gives it.**
 
 `mos-sid-6581` on disk becomes `emu198x-mos-sid-6581` on crates.io. The prefix
 is added and nothing is dropped, so the category word survives:
-`format-commodore-amiga-adf` would publish as
-`emu198x-format-commodore-amiga-adf`, not `emu198x-commodore-amiga-adf` —
+`format-commodore-c64-d64` would publish as
+`emu198x-format-commodore-c64-d64`, not `emu198x-commodore-c64-d64` —
 this repo sorts crates by category, and dropping the word would collide a
 format crate with a machine crate for the same system.
 
@@ -54,10 +54,16 @@ committing a permanent name for any `common-`, `format-` or `peripheral-`
 crate.
 
 Publishing the remaining 56 chip crates would drag in 9 of those, one of
-which is `format-commodore-amiga-adf` — and the family already publishes
+which was `format-commodore-amiga-adf` — and the family already publishes
 `format198x-commodore-amiga-adf`. Two ADF crates from one family, on a
-registry that never releases a name, is a decision that has not been taken.
-It is the gate on widening this scope.
+registry that never releases a name, was a decision nobody had taken, and it
+was the gate on widening this scope.
+
+**That gate is closed.** Emu198x's crate was deleted on 2026-08-27 and its
+five consumers moved to the published one. The name is never claimed, so the
+question of two ADF crates does not arise. Widening the publishing scope is
+now a question about the other 8 crates it would drag in, and about the
+`emu198x-format-*` names they would claim — not about ADF.
 
 ### Independently versioned
 
@@ -81,8 +87,8 @@ Publishing these six is a `cargo publish` per crate, not a release model.
   `format198x_commodore_amiga_adf`; an alias would hide the real name from
   exactly the reader the rename is for.
 - **"Publish a chip crate that has internal dependencies"** — not without
-  deciding what happens to those dependencies' names first, and not while the
-  ADF duplication above is open.
+  deciding what happens to those dependencies' names first. The ADF half of
+  that question is settled; the rest is not.
 
 ## Format naming: always namespace by system
 
