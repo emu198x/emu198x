@@ -4,6 +4,61 @@ All notable changes to Emu198x will be documented in this file.
 
 Format loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 not strictly. Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [0.7.0] - 2026-08-27
+
+
+### Added
+
+- *(atari-5200)* Load headered dumps and Bounty Bob's bank switching
+- *(spectrum)* Trace I/O ports on the Spectrum and its clones
+- *(spectrum)* --frames, --screenshot and --audio-capture
+- *(bbc,electron)* Type the shifted legends, so `*` and `"` work
+- *(bbc,electron,dragon)* Let a script start and stop the tape
+- *(keyboard)* Type the shifted legends on the Dragon, VIC-20, MSX and SVI-328
+- *(einstein)* Type the shifted legends
+- *(pet)* Let the PET type a subtraction
+- *(mtx)* Let the MTX type its shifted legends
+- *(aquarius)* Let the Aquarius type its shifted legends, and fix its boot test
+- *(zx80, zx81)* Let both Sinclair machines type their shifted legends
+- *(spectrum)* Let the Spectrum type its Symbol Shift legends
+- Publish six chip cores as emu198x-* crates
+
+
+### Fixed
+
+- *(atari)* Pulse ANTIC's NMI so a DLI stops eating the VBI
+- *(atari)* Report the television standard from GTIA's PAL register
+- *(shell)* Name the argument an MCP tool does not take
+- *(shell)* MCP mode loads the media named on the command line
+- *(amiga-adf)* Say which container it is, not that the size is wrong
+- *(nes)* One scripted frame is one recorded frame
+- *(dragon)* Play the tape the file holds, not a reconstruction of it
+- *(dragon)* Stop the tape smoke reporting success on a scan it declined
+- *(electron)* Sample the IRQ line every cycle, not once a scanline
+- *(shell)* Refuse a character the machine cannot type, do not count it
+- *(bbc)* Decode the video ULA the way the hardware does
+- *(shell)* Place the layout helper before the test module
+- *(bbc,electron,oric)* Step instructions through the same hardware as a frame
+- *(pet)* Give the PET the rest of its keyboard, and stop cursor-right typing ]
+- *(oric)* Let the Oric type its shifted legends, and tell # from backslash
+- *(ace)* Stop the Jupiter Ace typing the wrong letters
+- *(zx81)* Stop dropping every keystroke after the first
+- *(m5)* Name the M5's keycaps after what they type, and reach the shifted ones
+- *(atom)* Stop dropping every second keystroke
+- *(spectrum)* Make the Super HALT Invaders test reach a HALT
+- *(build)* Record the test-skip dev-dependency in Cargo.lock
+- *(build)* Give the Einstein dev-dependency a version
+- *(build)* Give the last four path dependencies a version
+- *(status)* Identify shipping machines by their binary, not by prefix
+- *(docs)* Make relative doc references resolve, and keep them resolving
+- *(docs)* Answer "does this link resolve" from git, not from the disk it ran on
+- *(6845)* Wrap the horizontal counter instead of overflowing it
+
+
+### Chore
+
+- **Breaking** — *(atari-5200)* Drop the PAL profile — the 5200 shipped NTSC only. The `atari-5200-pal` machine profile is removed, and `--region pal` is rejected. `--region ntsc` keeps working.
+
 ## [0.6.0] - 2026-08-25
 
 

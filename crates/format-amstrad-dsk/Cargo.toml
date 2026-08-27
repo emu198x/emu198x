@@ -8,7 +8,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-nec-upd765a = { path = "../nec-upd765a", version = "0.6.0" }
+nec-upd765a = { path = "../nec-upd765a", version = "0.7.0" }
 
 [lints]
 workspace = true

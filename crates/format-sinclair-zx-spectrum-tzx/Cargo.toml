@@ -8,8 +8,8 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-format-tzx = { path = "../format-tzx", version = "0.6.0" }
-common-sinclair-zx-spectrum = { path = "../common-sinclair-zx-spectrum", version = "0.6.0" }
+format-tzx = { path = "../format-tzx", version = "0.7.0" }
+common-sinclair-zx-spectrum = { path = "../common-sinclair-zx-spectrum", version = "0.7.0" }
 
 [lints]
 workspace = true
