@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
 """Print one version's section of the changelog.
 
-Used to put the release notes in the release PR's description. release-plz did
-this, and it is the difference between a reviewer reading what is being
-released and scrolling a hundred-file diff hoping to find CHANGELOG.md among
-the manifests.
+Used to put the release notes in the release PR's description, which is the
+difference between a reviewer reading what is being released and scrolling a
+hundred-file diff hoping to find CHANGELOG.md among the manifests.
 
 Usage:
     changelog-section.py CHANGELOG.md 0.4.0

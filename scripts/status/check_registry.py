@@ -37,13 +37,12 @@ def registry() -> list[dict]:
 def shipping_crates() -> set[str]:
     """The crates that ship a machine: `emu198x-*` with a binary to run.
 
-    This used to be "`emu198x-*` minus a denylist of five", which worked
-    while that prefix meant one thing here. It no longer does: publishing a
-    crate takes the `emu198x-` prefix (198x/decisions/crate-naming.md binds
-    it at publication), so `emu198x-mos-6502` is a CPU library sitting in the
-    same namespace as `emu198x-spectrum`, which is an app. The denylist would
-    have to name every chip crate ever published, and would fail the build
-    the day someone forgot.
+    The prefix alone cannot answer this. Publishing a crate takes the
+    `emu198x-` prefix (198x/decisions/crate-naming.md binds it at
+    publication), so `emu198x-mos-6502` is a CPU library sitting in the same
+    namespace as `emu198x-spectrum`, which is an app. Naming the exceptions
+    instead would mean listing every chip crate ever published, and failing
+    the build the day someone forgot one.
 
     `src/main.rs` separates them positively: a machine you can run has an
     entry point, a chip you link against does not. Verified equivalent when

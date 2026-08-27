@@ -54,11 +54,10 @@ REPORTS_ABSENCE = re.compile(
     r"not found|missing|not present|skipping|skip:|not staged|not set", re.I
 )
 
-# Any return, whatever it yields. The first version of this check matched
-# only `return;`, `return true;` and `return false;`, and missed 86 guards —
-# more than the 54 the sweep it was written to protect had found. The
-# dominant shape here is a helper that reports the absence and returns
-# `None`, which its caller discards with `else { return }`:
+# Any return, whatever it yields. Matching only `return;`, `return true;`
+# and `return false;` misses most guards in this workspace: the dominant
+# shape is a helper that reports the absence and returns `None`, which its
+# caller discards with `else { return }`:
 #
 #     fn load_kickstart() -> Option<Vec<u8>> {
 #         if !path.exists() {
@@ -259,7 +258,8 @@ def self_test(tmp: Path) -> None:
         ("good.rs", GOOD, 0),
         ("bad.rs", BAD, 1),
         ("noisy.rs", NOISY, 0),
-        # The three the first version of this checker walked straight past.
+        # Guards that bail without a literal `return`, which a naive
+        # return-matcher reads as ordinary code.
         ("helper.rs", HELPER, 1),
         ("result.rs", RESULT, 1),
         # And the fix for them, which must not itself register as a guard.

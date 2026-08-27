@@ -1,39 +1,36 @@
 #!/usr/bin/env python3
-"""Checks that `../`-relative Markdown references in the repo actually resolve.
+"""Checks that `../`-relative Markdown references in the repo resolve.
 
-Doc comments cite decision records and knowledge pages by relative path, and
-those paths were written at four mutually incompatible depths: from the crate
-root instead of the repo root, mostly off by exactly one `../`. Thirteen of
-nineteen went nowhere. Nothing noticed, because rustdoc does not render
-`knowledge/` and nothing else ever followed them.
+Doc comments and `knowledge/` pages cite decision records and each other by
+relative path. Nothing follows those links automatically — rustdoc does not
+render `knowledge/` — so a wrong `../` depth stays invisible until someone
+tries to read one. This is what notices.
 
 The links are for a person reading the source, so the convention is
 file-relative: resolve from the directory of the file that contains the link.
 
 ## Resolution is answered from git, never from the filesystem
 
-The first version of this check asked the filesystem whether a target existed.
-That made its answer a property of the machine it ran on: it passed here and
-failed in CI with 88 unresolved references, none of which were broken. Two
-whole classes of target exist on a developer's disk and in no CI checkout —
-files this repo deliberately gitignores, and files in sibling repos entirely.
-
-So every question here is put to git, which answers identically everywhere:
+Asking the filesystem whether a target exists makes the verdict a property of
+the machine running the check. Two classes of target exist on a developer's
+disk and in no CI checkout: files this repo deliberately gitignores, and files
+in sibling repos. Git answers identically in both places, and answers about
+paths that are not present, so every question here goes to git:
 
 - **Tracked** — in `git ls-files`. Resolves.
 - **Deliberately untracked** — matched by `.gitignore`. Most of `knowledge/`
   is a local working notebook; `knowledge/chips/`, `knowledge/systems/` and
-  friends are ignored on purpose. A link into one is correct for the person
-  reading the source, who has it. Resolves.
-- **In the repo and neither** — nothing can produce this file. Fails, with the
-  `../` depth that would have worked.
+  friends are ignored on purpose, and a link into one is correct for the
+  person reading the source, who has it. Resolves.
+- **In the repo and neither** — nothing can produce this file. Fails, naming
+  the `../` depth that would have worked.
 - **Outside the repo** — the sibling docs repo and the 198x umbrella, reached
   by climbing past the root. A single-repo checkout cannot see them, so they
-  are counted and reported rather than checked. Claiming to verify these
-  would only re-describe whoever ran the check's disk layout.
+  are counted and reported rather than checked: a verdict on them would
+  describe the runner's disk layout rather than the reference.
 
-The one exception among those is a tree that exists nowhere at all, listed in
-`RETIRED_TREES` — dead as text, so it can be caught as text.
+`RETIRED_TREES` is the exception. A tree that exists nowhere at all is dead as
+text, so it is caught as text.
 
 ## What is not checked
 
@@ -181,12 +178,11 @@ def classify(path: Path, ref: str, tracked: set[str], ignored: set[str]) -> str:
 
 
 def self_test() -> int:
-    """Samples lifted out of the tree, not written to fit the checker.
+    """Samples taken from the tree, not written to fit the checker.
 
-    Every one of these was a false failure or a silent pass at some point.
-    The two verdicts that cost a CI run — a target this repo ignores on
-    purpose, and a target in another repo — are here as the exact lines that
-    produced them.
+    A sample written from the author's picture of the target can only confirm
+    that picture. These cover all five verdicts, and include the wrong-depth
+    failure the check exists for, so the four passing verdicts cannot hide it.
     """
     shape = [
         # The real shape: a Markdown link inside a `//!` comment.
@@ -208,8 +204,8 @@ def self_test() -> int:
             "../processes/amiga-test-kit-video-conformance.md",
             "resolves",
         ),
-        # Ignored on purpose: `knowledge/systems/` is a local notebook. CI
-        # called this broken; it is correct for whoever is reading the source.
+        # Ignored on purpose: `knowledge/systems/` is a local notebook, so
+        # this target is correct for whoever is reading the source.
         (
             "crates/common-nintendo-game-boy/src/timing.rs",
             "../../../knowledge/systems/nintendo-game-boy/timing.md",
