@@ -12,9 +12,9 @@
 
 use std::path::PathBuf;
 
-use format_commodore_amiga_adf::Adf;
 use machine_commodore_amiga_ocs::{AmigaOcs, PAL_FRAME_TICKS};
 use motorola_68000::flags::{C, N, Status, V, X, Z};
+use peripheral_commodore_amiga_floppy::Adf;
 
 const STRAP_CMD_READ_CALL: u32 = 0x00FE_859C;
 const STRAP_POST_CMD_READ: u32 = 0x00FE_85A0;

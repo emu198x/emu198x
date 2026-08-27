@@ -4,8 +4,8 @@
 //! pin is active-low horizontal sync. These tests cover both board
 //! connections and the delayed, counter-visible TOD update.
 
-use format_commodore_amiga_adf::{ADF_SIZE_DD, Adf};
 use machine_commodore_amiga_ocs::{AmigaOcs, PAL_LINE_TICKS, RamConfig};
+use peripheral_commodore_amiga_floppy::{Adf, DD};
 
 const ICR_FLAG: u8 = 0x10; // CIA ICR bit 4 = FLAG.
 const ICR_ALARM: u8 = 0x04;
@@ -151,7 +151,7 @@ fn cia_b_tod_ticks_once_per_scanline() {
 #[ignore = "SLOW: spins the drive a full revolution (~5M machine ticks); run with --include-ignored"]
 fn cia_b_flag_raised_by_floppy_index_pulse() {
     let mut amiga = AmigaOcs::new(parked_cpu_rom());
-    amiga.insert_adf(Adf::from_bytes(vec![0; ADF_SIZE_DD]).expect("valid blank ADF"));
+    amiga.insert_adf(Adf::from_bytes(vec![0; DD.len()]).expect("valid blank ADF"));
     // CIA-B drive-control pins are outputs; the OS sets DDRB = $FF. Then
     // PRB ($BFD100) = $75 → motor on + DF0 selected. A parked CPU leaves
     // both set.

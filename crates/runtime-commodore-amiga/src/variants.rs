@@ -14,9 +14,9 @@
 //! still pending in the chip layer).
 
 use emu198x_shell::QueryError;
-use format_commodore_amiga_adf::Adf;
 use gvp_a530::A530Config;
 use machine_commodore_amiga_a1200::{AmigaA1200, AmigaA1200Snapshot};
+use peripheral_commodore_amiga_floppy::Adf;
 // `CiaExt::power_led` — the LED-filter gate. The trait is re-exported
 // identically by every Amiga machine crate (it originates in
 // `common_commodore_amiga::cia`); one import covers all three variants.

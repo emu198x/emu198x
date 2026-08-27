@@ -9,7 +9,7 @@
 use std::error::Error;
 use std::path::PathBuf;
 
-use format_commodore_amiga_adf::Adf;
+use peripheral_commodore_amiga_floppy::Adf;
 use peripheral_commodore_amiga_floppy::mfm::{MFM_TRACK_BYTES, decode_mfm_track, encode_mfm_track};
 use runtime_commodore_amiga::{A500_PAL_FRAME_TICKS, AmigaOcsRuntime, Model};
 

@@ -47,7 +47,6 @@ members = [
     "crates/format-dragon-pak",
     "crates/format-amstrad-cpc-cdt",
     "crates/format-amstrad-dsk",
-    "crates/format-commodore-amiga-adf",
     "crates/format-nintendo-game-boy-cartridge",
     "crates/format-nintendo-nes-ines",
     "crates/format-sinclair-zx-spectrum-bas",

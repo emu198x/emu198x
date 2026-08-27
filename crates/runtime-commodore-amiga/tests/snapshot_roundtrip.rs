@@ -32,10 +32,10 @@ use emu198x_shell::{
     HostIo, MachineCore, MachineError, MachineTime, MediaImage, MediaKind, MediaSet, NullAudioSink,
     NullFrameSink, NullTraceSink,
 };
-use format_commodore_amiga_adf::ADF_SIZE_DD;
 use motorola_68000::bus::TransferSize;
 use motorola_68000::cpu::State;
 use motorola_68000::microcode::MicroOp;
+use peripheral_commodore_amiga_floppy::DD;
 use peripheral_commodore_amiga_floppy::mfm::encode_mfm_track;
 use runtime_commodore_amiga::{
     AmigaA1200Runtime, AmigaEcsRuntime, AmigaLiveAccess, AmigaMachine, AmigaOcsRuntime,
@@ -2505,7 +2505,7 @@ fn restore_rejects_mismatched_snapshot_version() -> Result<(), Box<dyn Error>> {
 #[test]
 fn restore_remounts_persisted_floppy_image() -> Result<(), Box<dyn Error>> {
     let mut runtime = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
-    let disk = vec![0u8; ADF_SIZE_DD];
+    let disk = vec![0u8; DD.len()];
     let mut media = MediaSet::new();
     media.push(MediaImage::new("floppy-0", MediaKind::Disk, &disk));
     runtime.load_media(&media)?;
@@ -2539,7 +2539,7 @@ fn assert_writable_live_floppy_snapshot<M>(
 where
     M: AmigaDriver + AmigaLiveAccess + AmigaMachine,
 {
-    let source_disk = vec![0u8; ADF_SIZE_DD];
+    let source_disk = vec![0u8; DD.len()];
     let mut media = MediaSet::new();
     media.push(MediaImage::new("floppy-0", MediaKind::Disk, &source_disk).writable(true));
     runtime.load_media(&media)?;

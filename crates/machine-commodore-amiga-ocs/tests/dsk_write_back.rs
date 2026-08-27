@@ -7,9 +7,9 @@
 //! CPU in a `BRA.S *` self-loop up in ROM space (where OVL can't reach
 //! it), so the DMA runs in isolation while the CPU does nothing.
 
-use format_commodore_amiga_adf::{ADF_SIZE_DD, Adf};
 use machine_commodore_amiga_ocs::AmigaOcs;
 use peripheral_commodore_amiga_floppy::mfm::encode_mfm_track;
+use peripheral_commodore_amiga_floppy::{Adf, DD};
 
 /// 512 KiB ROM whose reset vector parks the CPU on an infinite
 /// `BRA.S *` at $F8_0008 — in ROM, immune to the OVL overlay — so it
@@ -34,7 +34,7 @@ fn disable_ovl(amiga: &mut AmigaOcs) {
 fn write_dma_persists_a_track_to_the_adf() {
     let mut amiga = AmigaOcs::new(halt_rom());
     disable_ovl(&mut amiga);
-    amiga.insert_adf(Adf::from_bytes(vec![0; ADF_SIZE_DD]).expect("valid blank ADF"));
+    amiga.insert_adf(Adf::from_bytes(vec![0; DD.len()]).expect("valid blank ADF"));
 
     // Build a track-0 image with a known pattern in sector 0, then
     // MFM-encode the whole track the way trackdisk would before a write.
@@ -118,7 +118,7 @@ fn write_protected_mount_drops_the_save() {
     let mut amiga = AmigaOcs::new(halt_rom());
     disable_ovl(&mut amiga);
     // Read-only (archive) mount.
-    amiga.insert_adf_writable(Adf::from_bytes(vec![0; ADF_SIZE_DD]).expect("valid"), false);
+    amiga.insert_adf_writable(Adf::from_bytes(vec![0; DD.len()]).expect("valid"), false);
 
     let words = encoded_track_words();
     let base = 0x0001_0000u32;

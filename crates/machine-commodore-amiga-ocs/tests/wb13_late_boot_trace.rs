@@ -17,9 +17,9 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use commodore_agnus_ocs::SlotOwner;
-use format_commodore_amiga_adf::Adf;
 use machine_commodore_amiga_ocs::{AmigaOcs, PAL_FRAME_TICKS};
 use motorola_68000::disasm::disassemble;
+use peripheral_commodore_amiga_floppy::Adf;
 
 const EXEC_THIS_TASK: u32 = 276;
 const EXEC_IDLE_COUNT: u32 = 280;

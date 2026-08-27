@@ -37,8 +37,8 @@ use emu198x_commodore_paula_8364::decode as paula_decode;
 pub use emu198x_commodore_paula_8364::{
     AudioControls, AudioField, IntSource, Paula8364, PaulaChannel,
 };
-pub use format_commodore_amiga_adf::Adf;
 pub use memory::{CHIP_RAM_SIZE, DEFAULT_CHIP_RAM_SIZE, Memory};
+pub use peripheral_commodore_amiga_floppy::Adf;
 pub use peripheral_commodore_amiga_floppy::{AmigaFloppyDrive, DriveStatus};
 pub use peripheral_commodore_amiga_keyboard::AmigaKeyboard;
 pub use rtc::{Msm6242RtcDiagnosticSnapshot, RTC_BASE};
@@ -2337,11 +2337,11 @@ impl AmigaDriver for AmigaEcs {
 #[cfg(test)]
 mod bus_plan_dispatch_tests {
     use super::*;
-    use format_commodore_amiga_adf::ADF_SIZE_DD;
     use motorola_68000::CpuModel;
     use motorola_68000::bus::{BusStatus, FunctionCode};
     use motorola_68000::cpu::State;
     use motorola_68000::microcode::MicroOp;
+    use peripheral_commodore_amiga_floppy::DD;
     use peripheral_commodore_amiga_floppy::mfm::encode_mfm_track;
 
     fn machine() -> AmigaEcs {
@@ -2385,7 +2385,7 @@ mod bus_plan_dispatch_tests {
         const WORD_PHASE: usize = 173;
 
         let mut amiga = machine();
-        amiga.insert_adf(Adf::from_bytes(vec![0; ADF_SIZE_DD]).expect("valid blank ADF"));
+        amiga.insert_adf(Adf::from_bytes(vec![0; DD.len()]).expect("valid blank ADF"));
         amiga.feed_next_mfm_word();
         amiga.track_word_cursor = WORD_PHASE;
 
@@ -2407,14 +2407,14 @@ mod bus_plan_dispatch_tests {
         const WORD_PHASE: usize = 32;
 
         let mut amiga = machine();
-        amiga.insert_adf(Adf::from_bytes(vec![0; ADF_SIZE_DD]).expect("valid blank ADF"));
+        amiga.insert_adf(Adf::from_bytes(vec![0; DD.len()]).expect("valid blank ADF"));
         amiga.track_word_cursor = WORD_PHASE;
         amiga.feed_next_mfm_word();
         let old_word = amiga.paula.dskdatr();
         assert!(amiga.track_cache.is_some());
 
         amiga.track_word_cursor = WORD_PHASE;
-        amiga.insert_adf(Adf::from_bytes(vec![0xFF; ADF_SIZE_DD]).expect("valid replacement ADF"));
+        amiga.insert_adf(Adf::from_bytes(vec![0xFF; DD.len()]).expect("valid replacement ADF"));
         assert!(amiga.track_cache.is_none());
         assert_eq!(amiga.track_word_cursor, WORD_PHASE);
 
@@ -2442,7 +2442,7 @@ mod bus_plan_dispatch_tests {
     fn successful_track_write_invalidates_cache_and_preserves_word_phase() {
         let mut amiga = machine();
         amiga.mount_adf(
-            Adf::from_bytes(vec![0; ADF_SIZE_DD]).expect("valid blank ADF"),
+            Adf::from_bytes(vec![0; DD.len()]).expect("valid blank ADF"),
             false,
             true,
         );

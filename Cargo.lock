@@ -1574,10 +1574,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "format-commodore-amiga-adf"
-version = "0.6.0"
-
-[[package]]
 name = "format-commodore-c64-bas"
 version = "0.6.0"
 
@@ -1762,6 +1758,12 @@ version = "0.6.0"
 dependencies = [
  "common-tape",
 ]
+
+[[package]]
+name = "format198x-commodore-amiga-adf"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8a678aefa033ad667e40c1655f2fcbe0aa2e5d4d0a706eff60a92f08a479eb62"
 
 [[package]]
 name = "futures-core"
@@ -2395,7 +2397,6 @@ dependencies = [
  "common-commodore-amiga",
  "emu198x-commodore-paula-8364",
  "emu198x-test-skip",
- "format-commodore-amiga-adf",
  "machine-commodore-amiga-ocs",
  "mos-cia-8520",
  "motorola-68000",
@@ -2421,7 +2422,6 @@ dependencies = [
  "commodore-gayle",
  "common-commodore-amiga",
  "emu198x-commodore-paula-8364",
- "format-commodore-amiga-adf",
  "machine-commodore-amiga-ocs",
  "mos-cia-8520",
  "motorola-68000",
@@ -2444,7 +2444,6 @@ dependencies = [
  "common-commodore-amiga",
  "emu198x-commodore-paula-8364",
  "emu198x-test-skip",
- "format-commodore-amiga-adf",
  "gvp-a530",
  "mos-cia-8520",
  "motorola-68000",
@@ -3648,7 +3647,7 @@ checksum = "9b4f627cb1b25917193a259e49bdad08f671f8d9708acfd5fe0a8c1455d87220"
 name = "peripheral-commodore-amiga-floppy"
 version = "0.6.0"
 dependencies = [
- "format-commodore-amiga-adf",
+ "format198x-commodore-amiga-adf",
  "serde",
 ]
 
@@ -4095,7 +4094,6 @@ dependencies = [
  "common-commodore-amiga",
  "emu198x-shell",
  "emu198x-test-skip",
- "format-commodore-amiga-adf",
  "gvp-a530",
  "machine-commodore-amiga-a1200",
  "machine-commodore-amiga-ecs",

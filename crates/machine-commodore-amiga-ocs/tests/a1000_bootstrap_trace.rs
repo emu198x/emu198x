@@ -12,9 +12,9 @@
 use commodore_agnus_ocs::{SlotOwner, bits};
 use std::path::{Path, PathBuf};
 
-use format_commodore_amiga_adf::Adf;
 use machine_commodore_amiga_ocs::{AmigaOcs, PAL_FRAME_TICKS, RamConfig};
 use motorola_68000::disasm::disassemble;
+use peripheral_commodore_amiga_floppy::Adf;
 use zip::ZipArchive;
 
 fn bootstrap_rom_path() -> Option<PathBuf> {
