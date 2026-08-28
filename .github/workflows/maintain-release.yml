@@ -15,9 +15,11 @@ name: Maintain release
 # days. Cutting v0.3.0 unblocked it only because the new tag happens to contain
 # that crate — any crate added after a tag would reproduce it exactly.
 #
-# So the package model is gone rather than patched. What remains is what this
-# repo actually needs: tag the suite version, then work out the next one from
-# the commits and put it in a PR. See knowledge/decisions/ for the reasoning.
+# So the package model is gone rather than patched. What remains here is what
+# the suite needs: tag the suite version, then work out the next one from the
+# commits and put it in a PR. Independently versioned crates publish through
+# the separate, positively discovered `publish-crates.yml`; it does not infer
+# releases or alter this suite workflow. See knowledge/decisions/ for why.
 
 on:
   push:

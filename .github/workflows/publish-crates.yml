@@ -1,0 +1,95 @@
+name: Publish crates
+
+# This is deliberately separate from the suite tag/release workflow. The six
+# public libraries version independently, while Emu198x itself releases as one
+# suite; a package-release model cannot represent both honestly.
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Package everything without uploading
+        type: boolean
+        default: true
+
+concurrency:
+  group: publish-crates
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    name: Publish changed crate versions
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Read pinned toolchain
+        id: toolchain
+        run: echo "channel=$(awk -F'\"' '/^channel/{print $2}' rust-toolchain.toml)" >> "$GITHUB_OUTPUT"
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ steps.toolchain.outputs.channel }}
+
+      - name: Discover publishable crates
+        id: crates
+        run: |
+          set -euo pipefail
+          crates=$(scripts/publishable-crates.py)
+          echo "crates=${crates}" >> "$GITHUB_OUTPUT"
+          echo "$crates" | jq .
+
+      - name: Package publishable crates
+        if: inputs.dry_run
+        env:
+          CRATES: ${{ steps.crates.outputs.crates }}
+        run: |
+          set -euo pipefail
+          echo "$CRATES" | jq -r '.[].name' | while read -r name; do
+            cargo publish --locked --dry-run -p "$name"
+          done
+
+      - name: Authenticate to crates.io
+        if: ${{ !inputs.dry_run }}
+        id: auth
+        uses: rust-lang/crates-io-auth-action@v1
+
+      - name: Publish versions absent from crates.io
+        if: ${{ !inputs.dry_run }}
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+          CRATES: ${{ steps.crates.outputs.crates }}
+        run: |
+          set -euo pipefail
+          echo "$CRATES" | jq -c '.[]' | while read -r crate; do
+            name=$(echo "$crate" | jq -r .name)
+            version=$(echo "$crate" | jq -r .version)
+            if curl --fail --silent --show-error \
+              "https://crates.io/api/v1/crates/${name}/${version}" >/dev/null 2>&1; then
+              echo "already published: ${name} ${version}"
+              continue
+            fi
+
+            # New-crate batches can receive a crates.io 429 with a retry-after
+            # window. Retry a bounded number of times; ordinary failures still
+            # surface with the complete Cargo diagnostic.
+            for attempt in 1 2 3 4; do
+              log=$(mktemp)
+              if cargo publish --locked -p "$name" 2>&1 | tee "$log"; then
+                rm -f "$log"
+                break
+              fi
+              if ! grep -qE '429|Too Many Requests' "$log" || [ "$attempt" -eq 4 ]; then
+                rm -f "$log"
+                exit 1
+              fi
+              rm -f "$log"
+              delay=$((attempt * 90))
+              echo "rate limited publishing ${name}; retrying in ${delay}s"
+              sleep "$delay"
+            done
+          done
