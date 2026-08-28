@@ -9,37 +9,17 @@ repository.workspace = true
 
 [dependencies]
 cpal = { workspace = true }
-# The Debug198x sidecar reader from Asm198x. Serde-only by design: reading a
+# The Debug198x sidecar reader. Serde-only by design: reading a
 # `.debug198x` file must not drag in the assembler's parser, engine, or
 # dialects. The dependency direction is one-way — asm198x writes, Emu198x
 # reads — so this crate must never gain a dependency back on asm198x.
-#
-# Pinned to its own rev rather than isa-disasm's: that pin (2026-06-04)
-# predates debug198x (2026-07-06), and bumping it would change disassembly
-# output across every 6502/6809 machine. Different packages from one repo at
-# two revs is fine; cargo just checks the repo out twice.
-#
-# Moved to f0d3503 for asm198x#72, which gives `Section` the same optional
-# `space` qualifier the address-kind symbols already carried. That is what
-# lets a consumer derive the base map from a live paging state by lookup
-# rather than by scraping a symbol out of each section, which a section
-# holding only line records defeats. Needed for the Spectrum 128 paging
-# cross-check. Wire-additive, and source-free here: this crate reads
-# `info.sections` and never constructs a `Section`.
-#
-# Moved again to 8b06a12 for asm198x#78: `Space` gains an `Unknown`
-# catch-all so a shape this build predates is carried rather than failing
-# the whole file, and the unexercised `Bank` shape is withdrawn from v1.
-# That catch-all matters here specifically — the pin is a fixed revision,
-# so without it a sidecar from a newer Asm198x would take down
-# symbolisation entirely instead of degrading.
-debug198x = { git = "https://github.com/asm198x/asm198x", rev = "8b06a12f8ae020dac5d8519473ab054fb79349b2" }
+# The frozen v1 contract now releases independently from Debug198x.
+debug198x = "0.1"
 gilrs = { workspace = true }
-# Shared 6502/6809 disassembler from Asm198x (the isa spec crate). Pinned to a
-# reproducible rev — isa-disasm is untagged. Re-exported below so the
+# Shared 6502/6809 disassembler from Isa198x. Re-exported below so the
 # `impl_6502_debug_target!` macro can reach it via `$crate::isa_disasm` without
 # every 6502 runtime taking the dependency. See 198x/decisions/rung1-wiring.md.
-isa-disasm = { git = "https://github.com/asm198x/asm198x", rev = "30a0e5238ee2935521c480de018ee60e645624ed" }
+isa-disasm = { package = "isa198x-disasm", version = "0.1" }
 png = { workspace = true }
 postcard = { workspace = true }
 serde = { workspace = true }
