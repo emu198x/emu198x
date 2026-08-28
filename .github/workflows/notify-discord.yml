@@ -15,6 +15,15 @@ name: Notify Discord
 #
 # Both are org-level secrets. With neither set the job logs and succeeds: a
 # missing notification must not fail a release that otherwise worked.
+#
+# The `plan` input is accepted because release.yml passes it, and deliberately
+# not read. dist's plan is the whole manifest — half a megabyte for a release
+# with 244 assets — and Linux caps one environment string at 128 KB, so putting
+# it in `env:` stopped bash starting at all: "Argument list too long", before a
+# line of this script ran. The four fields wanted here are on the release
+# itself, which exists by the time a post-announce job runs, so they are read
+# from there instead. Bounded by construction rather than by hoping the
+# manifest stays small.
 
 on:
   workflow_call:
@@ -38,9 +47,10 @@ jobs:
         env:
           WEBHOOK: ${{ secrets.DISCORD_RELEASE_WEBHOOK }}
           WEBHOOK_ALL: ${{ secrets.DISCORD_RELEASE_WEBHOOK_ALL }}
-          PLAN: ${{ inputs.plan }}
           REPO: ${{ github.repository }}
           SERVER_URL: ${{ github.server_url }}
+          TAG: ${{ github.ref_name }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
 
@@ -63,15 +73,24 @@ jobs:
             exit 0
           fi
 
-          title=$(jq -r '.announcement_title // empty' <<<"$PLAN")
-          tag=$(jq -r '.announcement_tag // empty' <<<"$PLAN")
-          body=$(jq -r '.announcement_github_body // empty' <<<"$PLAN")
-          prerelease=$(jq -r '.announcement_is_prerelease // false' <<<"$PLAN")
-
+          tag="$TAG"
           if [ -z "$tag" ]; then
-            echo "::warning::no announcement_tag in the plan — nothing to announce."
+            echo "::warning::no tag on this ref — nothing to announce."
             exit 0
           fi
+
+          # Read from the release rather than the plan: a few hundred bytes
+          # instead of half a megabyte. A release that cannot be read is not
+          # worth failing a successful build over, so say so and stop.
+          if ! release=$(gh release view "$tag" --repo "$REPO" \
+                           --json name,body,isPrerelease 2>&1); then
+            echo "::warning::could not read release ${tag}: ${release}"
+            exit 0
+          fi
+
+          title=$(jq -r '.name // empty' <<<"$release")
+          body=$(jq -r '.body // empty' <<<"$release")
+          prerelease=$(jq -r '.isPrerelease // false' <<<"$release")
 
           # Discord caps an embed description at 4096 characters and rejects the
           # whole payload if it is over, so a long changelog has to be cut here
