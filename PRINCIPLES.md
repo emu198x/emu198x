@@ -11,9 +11,15 @@ Every repository within the 198x family should inherit these principles and add 
 
 # Philosophy
 
-198x exists to understand computing.
+198x keeps three documents at its root.
 
-Programming, emulation, tooling, preservation and education are all expressions of that single goal.
+[`MANIFESTO.md`](MANIFESTO.md) says why the project exists.
+
+This document settles disagreements.
+
+`PRACTICE.md` describes the default method of working on a subject. It sits beside this file at the umbrella, and is published in each organisation's `.github` repository.
+
+Motive, rules, method. Where the method and the rules disagree, the rules win.
 
 The project teaches more than *how* to build software.
 
@@ -41,11 +47,27 @@ Keep asking "why?"
 
 ## Understanding over implementation
 
-Working software is not the destination.
+Working software does not settle the question.
 
-Understanding is.
+Something can run correctly and still not be understood.
 
 Software, documentation and tooling exist to deepen understanding.
+
+Understanding is what this document checks for.
+
+What it is ultimately for is in `MANIFESTO.md`.
+
+---
+
+## Capability, not specifications
+
+No machine has a single property called "power".
+
+Every machine is a set of capabilities, constraints and trade-offs.
+
+"Which is more powerful?" is not a question until it becomes "more powerful for what?"
+
+Answer the second one, name the constraint, and say what it cost.
 
 ---
 
@@ -135,6 +157,18 @@ Avoid disagreement without reasoning.
 
 ---
 
+## Locate the disagreement before settling it
+
+Two people can contradict each other and both be right.
+
+"Old computers felt faster" and "modern computers are enormously faster" describe different layers of the same system.
+
+Before adjudicating a disagreement, establish which layer each side is talking about, and what each of them means by the words.
+
+Many arguments about computing are not disputes about fact. They are two accurate observations taken from different heights.
+
+---
+
 ## Distinguish certainty
 
 Always distinguish between:
@@ -143,10 +177,15 @@ Always distinguish between:
 - observation
 - inference
 - hypothesis
+- counterfactual
 - opinion
 - preference
 
 Unknown is an acceptable answer.
+
+A counterfactual is never presented as something that happened.
+
+Exploring what a machine could have been is legitimate work; letting a reader mistake it for history is not.
 
 ---
 
@@ -161,6 +200,16 @@ Only treat decisions as final once explicitly confirmed.
 ## Preserve optionality
 
 Avoid unnecessarily narrowing future design space.
+
+---
+
+## Curiosity does not amend scope
+
+An interesting thread is not, by itself, a reason to widen what the project covers.
+
+Scope is settled in the decision records.
+
+See `PRACTICE.md` for when to stop pulling a thread.
 
 ---
 
@@ -409,180 +458,6 @@ Never change evidence to preserve a narrative.
 
 ---
 
-# Knowledge Model
-
-198x should gradually evolve from documents towards a connected body of knowledge.
-
-The project should avoid treating pages as the canonical source of truth.
-
-Instead:
-
-```
-Entities
-
-↓
-
-Facts
-
-↓
-
-Evidence
-
-↓
-
-Relationships
-
-↓
-
-Narratives
-```
-
-Pages should increasingly assemble information from shared knowledge rather than duplicate it.
-
----
-
-## Entities
-
-Examples:
-
-- Computer
-- CPU
-- Chip
-- Peripheral
-- Operating System
-- Programming Language
-- Person
-- Company
-- Game
-- Book
-- Magazine
-- Format
-- Tool
-- Standard
-
----
-
-## Facts
-
-Facts belong to entities.
-
-Examples:
-
-- release date
-- CPU
-- memory
-- manufacturer
-- supported formats
-- instruction timing
-- hardware revisions
-
-Each fact should be independently maintainable.
-
----
-
-## Evidence
-
-Each fact should, where practical, retain:
-
-- sources
-- confidence
-- verification status
-- evidence type
-- contradictory evidence
-- notes
-
----
-
-## Relationships
-
-Relationships should be explicit.
-
-Examples:
-
-```
-Spectrum
-
-uses
-
-Z80A
-```
-
-```
-Game
-
-developed by
-
-Company
-```
-
-```
-CPU
-
-implements
-
-Instruction Set
-```
-
-These relationships should be reusable across the entire ecosystem.
-
----
-
-## Narratives
-
-Documentation is a narrative assembled from entities and facts.
-
-Narratives are not facts.
-
-Facts should remain reusable independently of the documents that describe them.
-
----
-
-## Grow incrementally
-
-Do not stop development to design a perfect ontology.
-
-Extract shared knowledge gradually.
-
-Allow the knowledge model to emerge naturally from repeated use.
-
----
-
-# Repository Structure
-
-Each repository should inherit this document.
-
-Repository-specific guidance belongs in its own `AGENTS.md`.
-
-For example:
-
-```
-198x/
-    PRINCIPLES.md
-
-code198x/
-    AGENTS.md
-
-emu198x/
-    AGENTS.md
-
-asm198x/
-    AGENTS.md
-
-format198x/
-    AGENTS.md
-
-website/
-    AGENTS.md
-```
-
-Each `AGENTS.md` should begin:
-
-> Read `PRINCIPLES.md` first.
-
-Only repository-specific behaviour should be added afterwards.
-
----
-
 # Final Principle
 
 The purpose of 198x is not to create emulators.
@@ -597,6 +472,10 @@ Nor documentation.
 
 Those are all means.
 
-The purpose is to build, preserve and share understanding.
+Preservation serves understanding.
+
+Understanding serves creation.
+
+The purpose is to understand computing well enough to build something new with what was learned.
 
 Every contribution should leave the project knowing something it did not know before.
