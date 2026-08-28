@@ -1,0 +1,256 @@
+00 | 1 | BRK
+01 | 2 | ORA ($00,X)
+02 | 1 | !byte $02
+03 | 1 | !byte $03
+04 | 1 | !byte $04
+05 | 2 | ORA $00
+06 | 2 | ASL $00
+07 | 1 | !byte $07
+08 | 1 | PHP
+09 | 2 | ORA #$00
+0A | 1 | ASL
+0B | 1 | !byte $0B
+0C | 1 | !byte $0C
+0D | 3 | ORA $0000
+0E | 3 | ASL $0000
+0F | 1 | !byte $0F
+10 | 2 | BPL $0002
+11 | 2 | ORA ($00),Y
+12 | 1 | !byte $12
+13 | 1 | !byte $13
+14 | 1 | !byte $14
+15 | 2 | ORA $00,X
+16 | 2 | ASL $00,X
+17 | 1 | !byte $17
+18 | 1 | CLC
+19 | 3 | ORA $0000,Y
+1A | 1 | !byte $1A
+1B | 1 | !byte $1B
+1C | 1 | !byte $1C
+1D | 3 | ORA $0000,X
+1E | 3 | ASL $0000,X
+1F | 1 | !byte $1F
+20 | 3 | JSR $0000
+21 | 2 | AND ($00,X)
+22 | 1 | !byte $22
+23 | 1 | !byte $23
+24 | 2 | BIT $00
+25 | 2 | AND $00
+26 | 2 | ROL $00
+27 | 1 | !byte $27
+28 | 1 | PLP
+29 | 2 | AND #$00
+2A | 1 | ROL
+2B | 1 | !byte $2B
+2C | 3 | BIT $0000
+2D | 3 | AND $0000
+2E | 3 | ROL $0000
+2F | 1 | !byte $2F
+30 | 2 | BMI $0002
+31 | 2 | AND ($00),Y
+32 | 1 | !byte $32
+33 | 1 | !byte $33
+34 | 1 | !byte $34
+35 | 2 | AND $00,X
+36 | 2 | ROL $00,X
+37 | 1 | !byte $37
+38 | 1 | SEC
+39 | 3 | AND $0000,Y
+3A | 1 | !byte $3A
+3B | 1 | !byte $3B
+3C | 1 | !byte $3C
+3D | 3 | AND $0000,X
+3E | 3 | ROL $0000,X
+3F | 1 | !byte $3F
+40 | 1 | RTI
+41 | 2 | EOR ($00,X)
+42 | 1 | !byte $42
+43 | 1 | !byte $43
+44 | 1 | !byte $44
+45 | 2 | EOR $00
+46 | 2 | LSR $00
+47 | 1 | !byte $47
+48 | 1 | PHA
+49 | 2 | EOR #$00
+4A | 1 | LSR
+4B | 1 | !byte $4B
+4C | 3 | JMP $0000
+4D | 3 | EOR $0000
+4E | 3 | LSR $0000
+4F | 1 | !byte $4F
+50 | 2 | BVC $0002
+51 | 2 | EOR ($00),Y
+52 | 1 | !byte $52
+53 | 1 | !byte $53
+54 | 1 | !byte $54
+55 | 2 | EOR $00,X
+56 | 2 | LSR $00,X
+57 | 1 | !byte $57
+58 | 1 | CLI
+59 | 3 | EOR $0000,Y
+5A | 1 | !byte $5A
+5B | 1 | !byte $5B
+5C | 1 | !byte $5C
+5D | 3 | EOR $0000,X
+5E | 3 | LSR $0000,X
+5F | 1 | !byte $5F
+60 | 1 | RTS
+61 | 2 | ADC ($00,X)
+62 | 1 | !byte $62
+63 | 1 | !byte $63
+64 | 1 | !byte $64
+65 | 2 | ADC $00
+66 | 2 | ROR $00
+67 | 1 | !byte $67
+68 | 1 | PLA
+69 | 2 | ADC #$00
+6A | 1 | ROR
+6B | 1 | !byte $6B
+6C | 3 | JMP ($0000)
+6D | 3 | ADC $0000
+6E | 3 | ROR $0000
+6F | 1 | !byte $6F
+70 | 2 | BVS $0002
+71 | 2 | ADC ($00),Y
+72 | 1 | !byte $72
+73 | 1 | !byte $73
+74 | 1 | !byte $74
+75 | 2 | ADC $00,X
+76 | 2 | ROR $00,X
+77 | 1 | !byte $77
+78 | 1 | SEI
+79 | 3 | ADC $0000,Y
+7A | 1 | !byte $7A
+7B | 1 | !byte $7B
+7C | 1 | !byte $7C
+7D | 3 | ADC $0000,X
+7E | 3 | ROR $0000,X
+7F | 1 | !byte $7F
+80 | 1 | !byte $80
+81 | 2 | STA ($00,X)
+82 | 1 | !byte $82
+83 | 1 | !byte $83
+84 | 2 | STY $00
+85 | 2 | STA $00
+86 | 2 | STX $00
+87 | 1 | !byte $87
+88 | 1 | DEY
+89 | 1 | !byte $89
+8A | 1 | TXA
+8B | 1 | !byte $8B
+8C | 3 | STY $0000
+8D | 3 | STA $0000
+8E | 3 | STX $0000
+8F | 1 | !byte $8F
+90 | 2 | BCC $0002
+91 | 2 | STA ($00),Y
+92 | 1 | !byte $92
+93 | 1 | !byte $93
+94 | 2 | STY $00,X
+95 | 2 | STA $00,X
+96 | 2 | STX $00,Y
+97 | 1 | !byte $97
+98 | 1 | TYA
+99 | 3 | STA $0000,Y
+9A | 1 | TXS
+9B | 1 | !byte $9B
+9C | 1 | !byte $9C
+9D | 3 | STA $0000,X
+9E | 1 | !byte $9E
+9F | 1 | !byte $9F
+A0 | 2 | LDY #$00
+A1 | 2 | LDA ($00,X)
+A2 | 2 | LDX #$00
+A3 | 1 | !byte $A3
+A4 | 2 | LDY $00
+A5 | 2 | LDA $00
+A6 | 2 | LDX $00
+A7 | 1 | !byte $A7
+A8 | 1 | TAY
+A9 | 2 | LDA #$00
+AA | 1 | TAX
+AB | 1 | !byte $AB
+AC | 3 | LDY $0000
+AD | 3 | LDA $0000
+AE | 3 | LDX $0000
+AF | 1 | !byte $AF
+B0 | 2 | BCS $0002
+B1 | 2 | LDA ($00),Y
+B2 | 1 | !byte $B2
+B3 | 1 | !byte $B3
+B4 | 2 | LDY $00,X
+B5 | 2 | LDA $00,X
+B6 | 2 | LDX $00,Y
+B7 | 1 | !byte $B7
+B8 | 1 | CLV
+B9 | 3 | LDA $0000,Y
+BA | 1 | TSX
+BB | 1 | !byte $BB
+BC | 3 | LDY $0000,X
+BD | 3 | LDA $0000,X
+BE | 3 | LDX $0000,Y
+BF | 1 | !byte $BF
+C0 | 2 | CPY #$00
+C1 | 2 | CMP ($00,X)
+C2 | 1 | !byte $C2
+C3 | 1 | !byte $C3
+C4 | 2 | CPY $00
+C5 | 2 | CMP $00
+C6 | 2 | DEC $00
+C7 | 1 | !byte $C7
+C8 | 1 | INY
+C9 | 2 | CMP #$00
+CA | 1 | DEX
+CB | 1 | !byte $CB
+CC | 3 | CPY $0000
+CD | 3 | CMP $0000
+CE | 3 | DEC $0000
+CF | 1 | !byte $CF
+D0 | 2 | BNE $0002
+D1 | 2 | CMP ($00),Y
+D2 | 1 | !byte $D2
+D3 | 1 | !byte $D3
+D4 | 1 | !byte $D4
+D5 | 2 | CMP $00,X
+D6 | 2 | DEC $00,X
+D7 | 1 | !byte $D7
+D8 | 1 | CLD
+D9 | 3 | CMP $0000,Y
+DA | 1 | !byte $DA
+DB | 1 | !byte $DB
+DC | 1 | !byte $DC
+DD | 3 | CMP $0000,X
+DE | 3 | DEC $0000,X
+DF | 1 | !byte $DF
+E0 | 2 | CPX #$00
+E1 | 2 | SBC ($00,X)
+E2 | 1 | !byte $E2
+E3 | 1 | !byte $E3
+E4 | 2 | CPX $00
+E5 | 2 | SBC $00
+E6 | 2 | INC $00
+E7 | 1 | !byte $E7
+E8 | 1 | INX
+E9 | 2 | SBC #$00
+EA | 1 | NOP
+EB | 1 | !byte $EB
+EC | 3 | CPX $0000
+ED | 3 | SBC $0000
+EE | 3 | INC $0000
+EF | 1 | !byte $EF
+F0 | 2 | BEQ $0002
+F1 | 2 | SBC ($00),Y
+F2 | 1 | !byte $F2
+F3 | 1 | !byte $F3
+F4 | 1 | !byte $F4
+F5 | 2 | SBC $00,X
+F6 | 2 | INC $00,X
+F7 | 1 | !byte $F7
+F8 | 1 | SED
+F9 | 3 | SBC $0000,Y
+FA | 1 | !byte $FA
+FB | 1 | !byte $FB
+FC | 1 | !byte $FC
+FD | 3 | SBC $0000,X
+FE | 3 | INC $0000,X
+FF | 1 | !byte $FF
