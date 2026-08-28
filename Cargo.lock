@@ -4602,6 +4602,7 @@ dependencies = [
 name = "sharp-lr35902"
 version = "0.7.0"
 dependencies = [
+ "isa198x-disasm",
  "serde",
  "serde_json",
 ]

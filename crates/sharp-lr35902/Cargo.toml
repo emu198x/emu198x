@@ -11,6 +11,7 @@ repository.workspace = true
 serde = { workspace = true }
 
 [dev-dependencies]
+isa-disasm = { package = "isa198x-disasm", version = "0.1" }
 serde_json = { workspace = true }
 
 [lints]
