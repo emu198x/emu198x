@@ -1,17 +1,24 @@
-# Per-system status docs (`docs/systems/<manufacturer>/<system>.md`)
+# Per-system status docs (`systems/<manufacturer>/<system>.md` in `emu198x/docs`)
 
 **Status: ACCEPTED (2026-06-06).**
 
 ## Decision
 
 Every emulated system gets one committed status page at
-`docs/systems/<manufacturer>/<system>.md` — the path derived mechanically from
-its `machine-<manufacturer>-<system>` crate name — or a
-`docs/systems/<manufacturer>/<system>/` folder with `index.md` when it needs
-several pages. The page records the **current state of the emulation**: what
-works (with validation), what's not implemented, where the accuracy gaps are,
-and a **Known unknowns / disproven hypotheses** section. Template and conventions
-in `docs/systems/README.md`.
+[`systems/<manufacturer>/<system>.md`](https://github.com/emu198x/docs/tree/main/systems) in the
+[`emu198x/docs`](https://github.com/emu198x/docs) repository — the path derived mechanically from its
+`machine-<manufacturer>-<system>` crate name — or a
+`systems/<manufacturer>/<system>/` folder with `index.md` when it needs several
+pages. The page records the **current state of the emulation**: what works
+(with validation), what's not implemented, where the accuracy gaps are, and a
+**Known unknowns / disproven hypotheses** section. Template and conventions in
+[`systems/README.md`](https://github.com/emu198x/docs/blob/main/systems/README.md).
+
+These pages are prose, so they live in the documentation repository rather than
+beside the code; see
+[`documentation-splits-on-what-the-build-reads.md`](documentation-splits-on-what-the-build-reads.md).
+They were written here first, at `docs/systems/`, and moved with the rest of
+the prose. The rule below is unchanged — only the repository is.
 
 ## Context
 
@@ -80,8 +87,8 @@ across commit messages, code comments, and memory.
 
 ## Consequences
 
-- New systems: add the page as part of bringing the machine up (extend
-  `docs/adding-a-system.md` to require it).
+- New systems: add the page as part of bringing the machine up (extend the
+  [notes on adding a system](https://github.com/emu198x/docs/blob/main/adding-a-system.md) to require it).
 - Existing flat `docs/systems/*.md` pages migrate into the manufacturer-subdir
   layout and gain the two new sections. No inbound links reference them, so the
   move is mechanical.
