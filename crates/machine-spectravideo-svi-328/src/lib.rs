@@ -392,6 +392,13 @@ impl Svi328 {
         self.vdp.framebuffer()
     }
 
+    /// Finish the current PSG frame and return its mono host samples.
+    pub fn take_audio_buffer(&mut self) -> Vec<f32> {
+        let mut out = vec![0.0; AY_SAMPLES_PER_FRAME];
+        self.psg.end_frame(&mut out);
+        out
+    }
+
     /// Press a key at the given (row, bit).
     pub fn press_key(&mut self, row: usize, bit: u8) {
         if row < self.keyboard.len() && bit < 8 {
@@ -689,6 +696,31 @@ mod tests {
         assert_eq!(sys.ay_write_watch_records().expect("armed").len(), 0);
         sys.stop_ay_write_watch();
         assert!(sys.ay_write_watch_records().is_none());
+    }
+
+    /// #254: the PSG was ticking, but its generated samples had no path out
+    /// of the machine. Exercise the real SVI I/O ports so this covers both the
+    /// register wiring and the host-facing buffer.
+    #[test]
+    fn psg_tone_reaches_the_audio_buffer() {
+        let mut sys = Svi328::new(trap_rom(), SviRegion::Ntsc);
+        for (register, value) in [(0, 100), (1, 0), (7, 0x3E), (8, 15)] {
+            sys.io_write(0x88, register);
+            sys.io_write(0x8C, value);
+        }
+
+        sys.run_frame();
+        let audio = sys.take_audio_buffer();
+        let (minimum, maximum) = audio.iter().copied().fold(
+            (f32::INFINITY, f32::NEG_INFINITY),
+            |(minimum, maximum), sample| (minimum.min(sample), maximum.max(sample)),
+        );
+
+        assert_eq!(audio.len(), AY_SAMPLES_PER_FRAME);
+        assert!(
+            maximum - minimum > 0.01,
+            "an enabled tone should produce a varying waveform"
+        );
     }
 }
 

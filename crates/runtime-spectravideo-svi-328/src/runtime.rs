@@ -279,12 +279,16 @@ impl MachineCore for Svi328Runtime {
                 palette: None,
                 pixels: &self.rgba_framebuffer,
             })?;
-            // AY PSG output not yet exposed by machine-svi-328.
+            let audio = self
+                .machine
+                .as_mut()
+                .expect("machine checked above")
+                .take_audio_buffer();
             host.audio_sink.push_audio(AudioPacket {
                 timestamp: self.time,
                 sample_rate: AUDIO_SAMPLE_RATE,
                 channels: 1,
-                samples: &[],
+                samples: &audio,
             })?;
         }
         Ok(RunResult::new(self.time, StopReason::ReachedTarget))
