@@ -44,38 +44,54 @@ pub fn tzx_to_stream(data: &[u8]) -> Result<Vec<TapeSpan>, String> {
     if data.len() < 10 {
         return Err("TZX file too short".into());
     }
-    if &data[0..7] != b"ZXTape!" || data[7] != 0x1A {
+    if &data[..8] != b"ZXTape!\x1a" {
         return Err("Not a valid TZX file (bad header)".into());
     }
-
-    let major = data[8];
-    if major > 1 {
-        return Err(format!("Unsupported TZX version {}.{}", major, data[9]));
-    }
+    let image = format198x_tzx::decode(data).map_err(|reason| match reason {
+        format198x_tzx::Error::UnsupportedVersion(version) => {
+            format!(
+                "Unsupported TZX version {}.{}",
+                version.major, version.minor
+            )
+        }
+        format198x_tzx::Error::UnknownBlock { id, at } => {
+            format!("Unknown TZX block ID 0x{id:02X} at offset {at}")
+        }
+        other => other.to_string(),
+    })?;
 
     let mut stream = Vec::new();
-    let mut pos = 10usize;
     let mut current_level = false;
     let mut loop_start_stream_len = 0usize;
     let mut loop_remaining = 0u16;
 
-    while pos < data.len() {
-        let block_id = data[pos];
-        pos += 1;
-
-        match block_id {
-            0x10 => pos = parse_standard_speed(data, pos, &mut current_level, &mut stream)?,
-            0x11 => pos = parse_turbo_speed(data, pos, &mut current_level, &mut stream)?,
-            0x12 => pos = parse_pure_tone(data, pos, &mut current_level, &mut stream)?,
-            0x13 => pos = parse_pulse_sequence(data, pos, &mut current_level, &mut stream)?,
-            0x14 => pos = parse_pure_data(data, pos, &mut current_level, &mut stream)?,
-            0x15 => pos = parse_direct_recording(data, pos, &mut current_level, &mut stream)?,
-            0x20 => pos = parse_pause(data, pos, &mut current_level, &mut stream)?,
+    for block in &image.blocks {
+        let payload = block.payload();
+        match block.id() {
+            0x10 => {
+                parse_standard_speed(payload, 0, &mut current_level, &mut stream)?;
+            }
+            0x11 => {
+                parse_turbo_speed(payload, 0, &mut current_level, &mut stream)?;
+            }
+            0x12 => {
+                parse_pure_tone(payload, 0, &mut current_level, &mut stream)?;
+            }
+            0x13 => {
+                parse_pulse_sequence(payload, 0, &mut current_level, &mut stream)?;
+            }
+            0x14 => {
+                parse_pure_data(payload, 0, &mut current_level, &mut stream)?;
+            }
+            0x15 => {
+                parse_direct_recording(payload, 0, &mut current_level, &mut stream)?;
+            }
+            0x20 => {
+                parse_pause(payload, 0, &mut current_level, &mut stream)?;
+            }
             0x24 => {
-                check_len(data, pos, 2, "Loop Start")?;
-                loop_remaining = read_u16(data, pos);
+                loop_remaining = read_u16(payload, 0);
                 loop_start_stream_len = stream.len();
-                pos += 2;
             }
             0x25 => {
                 if loop_remaining > 1 {
@@ -85,79 +101,19 @@ pub fn tzx_to_stream(data: &[u8]) -> Result<Vec<TapeSpan>, String> {
                     }
                 }
             }
-            0x21 => {
-                check_len(data, pos, 1, "Group Start")?;
-                pos += 1 + usize::from(data[pos]);
-            }
-            0x22 => {}
-            0x23 => {
-                check_len(data, pos, 2, "Jump To Block")?;
-                pos += 2;
-            }
-            0x26 => {
-                check_len(data, pos, 2, "Call Sequence")?;
-                let count = usize::from(read_u16(data, pos));
-                pos += 2 + count * 2;
-            }
-            0x27 => {}
-            0x28 => {
-                check_len(data, pos, 2, "Select Block")?;
-                let len = usize::from(read_u16(data, pos));
-                pos += 2 + len;
-            }
-            0x2A => {
-                check_len(data, pos, 4, "Stop 48K")?;
-                let len = read_u32(data, pos) as usize;
-                pos += 4 + len;
-            }
             0x2B => {
-                check_len(data, pos, 4, "Set Signal Level")?;
-                let len = read_u32(data, pos) as usize;
-                let payload_start = pos + 4;
-                check_len(data, payload_start, len, "Set Signal Level data")?;
-                if let Some(&level) = data[payload_start..payload_start + len].last() {
+                if let Some(&level) = payload[4..].last() {
                     current_level = level != 0;
                     stream.push(TapeSpan::Level {
                         duration: 0,
                         level: current_level,
                     });
                 }
-                pos = payload_start + len;
             }
-            0x30 => {
-                check_len(data, pos, 1, "Text Description")?;
-                pos += 1 + usize::from(data[pos]);
-            }
-            0x31 => {
-                check_len(data, pos, 2, "Message Block")?;
-                pos += 2 + usize::from(data[pos + 1]);
-            }
-            0x32 => {
-                check_len(data, pos, 2, "Archive Info")?;
-                let len = usize::from(read_u16(data, pos));
-                pos += 2 + len;
-            }
-            0x33 => {
-                check_len(data, pos, 1, "Hardware Type")?;
-                let count = usize::from(data[pos]);
-                pos += 1 + count * 3;
-            }
-            0x35 => {
-                check_len(data, pos, 20, "Custom Info")?;
-                let len = read_u32(data, pos + 16) as usize;
-                pos += 20 + len;
-            }
-            0x5A => {
-                check_len(data, pos, 9, "Glue Block")?;
-                pos += 9;
-            }
-            _ => {
-                return Err(format!(
-                    "Unknown TZX block ID 0x{:02X} at offset {}",
-                    block_id,
-                    pos - 1
-                ));
-            }
+            // Metadata and control-flow blocks carry no immediate pulses in
+            // the existing player. Their framing has already been validated
+            // by format198x-tzx.
+            _ => {}
         }
     }
 
@@ -430,10 +386,6 @@ fn read_u16(data: &[u8], pos: usize) -> u16 {
 
 fn read_u24(data: &[u8], pos: usize) -> u32 {
     u32::from_le_bytes([data[pos], data[pos + 1], data[pos + 2], 0])
-}
-
-fn read_u32(data: &[u8], pos: usize) -> u32 {
-    u32::from_le_bytes([data[pos], data[pos + 1], data[pos + 2], data[pos + 3]])
 }
 
 fn check_len(data: &[u8], pos: usize, need: usize, ctx: &str) -> Result<(), String> {
