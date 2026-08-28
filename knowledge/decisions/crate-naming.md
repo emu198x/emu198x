@@ -78,6 +78,15 @@ It also means the package-release machinery removed from
 repo's one-suite-one-version tag — is not reintroduced by this change.
 Publishing these six is a `cargo publish` per crate, not a release model.
 
+Since 2026-08-28, `.github/workflows/publish-crates.yml` performs those
+publishes through crates.io Trusted Publishing. It discovers the publishable
+workspace members positively from Cargo metadata, dependency-orders them,
+packages all six on a dry run, and on an approved real run skips versions the
+registry already has before invoking `cargo publish`. The workflow has OIDC
+permission and receives a short-lived token; no crates.io credential is stored
+in GitHub or required on a developer machine. This remains deliberately
+separate from the suite tag and changelog workflow above.
+
 ### Drift triggers
 
 - **"Rename the rest to match"** — no. The prefix binds at publication.
