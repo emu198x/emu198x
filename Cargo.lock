@@ -1720,10 +1720,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "format-sinclair-zx-spectrum-tap"
-version = "0.7.0"
-
-[[package]]
 name = "format-sinclair-zx-spectrum-tzx"
 version = "0.7.0"
 dependencies = [
@@ -1765,6 +1761,12 @@ name = "format198x-commodore-amiga-adf"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8a678aefa033ad667e40c1655f2fcbe0aa2e5d4d0a706eff60a92f08a479eb62"
+
+[[package]]
+name = "format198x-sinclair-zx-spectrum-tap"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4d24ed83a7027015be0e62bd801812f1f36dac769e59b6c69bbd3dcdf1a8411c"
 
 [[package]]
 name = "futures-core"
@@ -2661,7 +2663,7 @@ dependencies = [
  "common-sinclair-zx-spectrum",
  "common-sinclair-zx-spectrum-128k-class",
  "emu198x-test-skip",
- "format-sinclair-zx-spectrum-tap",
+ "format198x-sinclair-zx-spectrum-tap",
  "png",
 ]
 
@@ -2685,7 +2687,7 @@ dependencies = [
  "emu198x-test-skip",
  "emu198x-zilog-z80",
  "ferranti-ula-6c001e",
- "format-sinclair-zx-spectrum-tap",
+ "format198x-sinclair-zx-spectrum-tap",
  "peripheral-kempston-joystick",
  "png",
  "serde",
@@ -4332,9 +4334,9 @@ dependencies = [
  "format-sinclair-zx-spectrum-sna",
  "format-sinclair-zx-spectrum-snapshot",
  "format-sinclair-zx-spectrum-szx",
- "format-sinclair-zx-spectrum-tap",
  "format-sinclair-zx-spectrum-tzx",
  "format-sinclair-zx-spectrum-z80",
+ "format198x-sinclair-zx-spectrum-tap",
  "gi-ay-3-8912",
  "machine-pentagon-128",
  "machine-scorpion-zs256",

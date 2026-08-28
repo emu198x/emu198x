@@ -544,7 +544,7 @@ impl<M: SpectrumMachine> SpectrumRuntime<M> {
         // checksum); a TAP block stores only the payload, so strip both ends.
         let tap_blocks: Vec<_> = blocks
             .into_iter()
-            .map(|block| format_sinclair_zx_spectrum_tap::TapBlock {
+            .map(|block| format198x_sinclair_zx_spectrum_tap::TapBlock {
                 flag: block.flag,
                 data: block
                     .data
@@ -554,7 +554,7 @@ impl<M: SpectrumMachine> SpectrumRuntime<M> {
             })
             .collect();
 
-        Some(format_sinclair_zx_spectrum_tap::encode_tap(&tap_blocks))
+        Some(format198x_sinclair_zx_spectrum_tap::encode(&tap_blocks))
     }
 
     /// Discards any captured tape `SAVE` signal.
@@ -674,10 +674,10 @@ impl<M: SpectrumMachine> SpectrumRuntime<M> {
                 })?;
             self.machine.load_tape_stream(stream);
         } else {
-            let blocks = format_sinclair_zx_spectrum_tap::parse_tap(bytes).map_err(|reason| {
+            let blocks = format198x_sinclair_zx_spectrum_tap::decode(bytes).map_err(|reason| {
                 MachineError::InvalidMedia {
                     slot: slot.to_owned(),
-                    reason,
+                    reason: reason.to_string(),
                 }
             })?;
             self.machine
@@ -842,7 +842,7 @@ fn is_tzx(bytes: &[u8]) -> bool {
 }
 
 fn tap_blocks_to_tape_blocks(
-    blocks: Vec<format_sinclair_zx_spectrum_tap::TapBlock>,
+    blocks: Vec<format198x_sinclair_zx_spectrum_tap::TapBlock>,
 ) -> Vec<TapeBlock> {
     blocks
         .into_iter()
@@ -870,7 +870,7 @@ mod tests {
         ControlCommand, MachineCore, MediaImage, MediaSet, MediaTransportAction,
         MediaTransportCommand, ResetKind,
     };
-    use format_sinclair_zx_spectrum_tap::TapBlock;
+    use format198x_sinclair_zx_spectrum_tap::TapBlock;
 
     /// `is_tzx` recognises the canonical 8-byte TZX header
     /// (`ZXTape!\x1A`). Catches a regression where a 1-byte typo in
@@ -894,7 +894,7 @@ mod tests {
     }
 
     /// `tap_blocks_to_tape_blocks` re-attaches the per-block flag byte
-    /// and XOR checksum that `parse_tap` strips, so the tape player
+    /// and XOR checksum that the TAP decoder strips, so the tape player
     /// sees the same byte stream the original cassette delivered.
     #[test]
     fn tap_blocks_to_tape_blocks_round_trip_with_checksum() {

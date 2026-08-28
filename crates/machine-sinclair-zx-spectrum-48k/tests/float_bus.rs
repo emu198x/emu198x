@@ -34,7 +34,7 @@ use common_sinclair_zx_spectrum::memory::MemoryBus;
 use common_sinclair_zx_spectrum::palette::SPECTRUM_PALETTE;
 use common_sinclair_zx_spectrum::tape::TapeBlock;
 use common_sinclair_zx_spectrum::timing::{SCREEN_HEIGHT, SCREEN_WIDTH};
-use format_sinclair_zx_spectrum_tap::{TapBlock, parse_tap};
+use format198x_sinclair_zx_spectrum_tap::{TapBlock, decode};
 use machine_sinclair_zx_spectrum_48k::Spectrum48k;
 use std::fs::File;
 use std::io::BufWriter;
@@ -363,7 +363,7 @@ fn float48k_prints_expected_tstate() {
 
     let rom = std::fs::read(&rom_path).expect("48K ROM should read");
     let tap_bytes = std::fs::read(&tap_path).expect("Float48k.tap should read");
-    let tap_blocks = parse_tap(&tap_bytes).expect("Float48k.tap should parse");
+    let tap_blocks = decode(&tap_bytes).expect("Float48k.tap should parse");
     let tape_blocks = tap_blocks_to_tape_blocks(tap_blocks);
 
     let mut machine = Spectrum48k::new();

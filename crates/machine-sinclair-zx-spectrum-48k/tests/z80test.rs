@@ -27,7 +27,7 @@
 //! ```
 
 use common_sinclair_zx_spectrum::memory::MemoryBus;
-use format_sinclair_zx_spectrum_tap::parse_tap;
+use format198x_sinclair_zx_spectrum_tap::decode;
 use machine_sinclair_zx_spectrum_48k::Spectrum48k;
 use std::path::PathBuf;
 
@@ -86,11 +86,11 @@ fn z80test_tap_path(name: &str) -> Option<PathBuf> {
 ///
 /// z80test TAPs are four-block: BASIC header, BASIC loader, CODE header, CODE
 /// data. A Spectrum header is a 17-byte payload (flag and checksum already
-/// stripped by `parse_tap`): one type byte (`0x03` = CODE), ten filename
+/// stripped by the TAP decoder): one type byte (`0x03` = CODE), ten filename
 /// bytes, two length bytes, and two pairs of parameters. For CODE the first
 /// parameter (bytes 13–14, little-endian) is the load address.
 fn extract_code_block(tap_bytes: &[u8]) -> Result<(u16, Vec<u8>), String> {
-    let blocks = parse_tap(tap_bytes).map_err(|e| format!("TAP parse: {e}"))?;
+    let blocks = decode(tap_bytes).map_err(|e| format!("TAP parse: {e}"))?;
 
     let mut load_addr: Option<u16> = None;
     let mut code: Option<Vec<u8>> = None;
@@ -485,7 +485,7 @@ fn push_block(tap: &mut Vec<u8>, flag: u8, body: &[u8]) {
     tap.extend_from_slice(&len.to_le_bytes());
     tap.push(flag);
     tap.extend_from_slice(body);
-    // Checksum: XOR of flag and body. The parse_tap reader strips it.
+    // Checksum: XOR of flag and body. The TAP decoder strips it.
     let mut sum = flag;
     for &b in body {
         sum ^= b;

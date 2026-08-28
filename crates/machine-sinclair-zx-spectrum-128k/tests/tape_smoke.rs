@@ -21,7 +21,7 @@ use common_sinclair_zx_spectrum::memory::MemoryBus;
 use common_sinclair_zx_spectrum::palette::SPECTRUM_PALETTE;
 use common_sinclair_zx_spectrum::tape::TapeBlock;
 use common_sinclair_zx_spectrum::timing::{SCREEN_HEIGHT, SCREEN_WIDTH};
-use format_sinclair_zx_spectrum_tap::{TapBlock, parse_tap};
+use format198x_sinclair_zx_spectrum_tap::{TapBlock, decode};
 use machine_sinclair_zx_spectrum_128k::Spectrum128K;
 use std::path::{Path, PathBuf};
 
@@ -243,7 +243,7 @@ fn run_to_completion(tap_filename: &str) -> Option<Spectrum128K> {
     }
 
     let tap_bytes = std::fs::read(&tap_path).unwrap_or_else(|e| panic!("{tap_filename}: {e}"));
-    let tap_blocks = parse_tap(&tap_bytes).unwrap_or_else(|e| panic!("{tap_filename} parse: {e}"));
+    let tap_blocks = decode(&tap_bytes).unwrap_or_else(|e| panic!("{tap_filename} parse: {e}"));
     let tape_blocks = tap_blocks_to_tape_blocks(tap_blocks);
 
     let mut machine = Spectrum128K::new();
