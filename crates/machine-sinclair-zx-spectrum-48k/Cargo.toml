@@ -18,7 +18,7 @@ emu198x-zilog-z80 = { path = "../emu198x-zilog-z80", version = "0.6.0" }
 
 [dev-dependencies]
 emu198x-test-skip = { path = "../emu198x-test-skip", version = "0.7.0" }
-format-sinclair-zx-spectrum-tap = { path = "../format-sinclair-zx-spectrum-tap", version = "0.7.0" }
+format198x-sinclair-zx-spectrum-tap = "0.1.1"
 png = { workspace = true }
 
 [lints]

@@ -49,7 +49,7 @@ use common_sinclair_zx_spectrum::memory::MemoryBus;
 use common_sinclair_zx_spectrum::palette::SPECTRUM_PALETTE;
 use common_sinclair_zx_spectrum::tape::TapeBlock;
 use common_sinclair_zx_spectrum::timing::{SCREEN_HEIGHT, SCREEN_WIDTH};
-use format_sinclair_zx_spectrum_tap::{TapBlock, parse_tap};
+use format198x_sinclair_zx_spectrum_tap::{TapBlock, decode};
 use machine_sinclair_zx_spectrum_48k::Spectrum48k;
 use std::path::{Path, PathBuf};
 
@@ -489,7 +489,7 @@ fn run_to_completion(test_name: &str) -> Option<Spectrum48k> {
 
     let rom = std::fs::read(&rom_path).expect("48K ROM should read");
     let tap_bytes = std::fs::read(&tap_path).unwrap_or_else(|e| panic!("{test_name}.tap: {e}"));
-    let tap_blocks = parse_tap(&tap_bytes).unwrap_or_else(|e| panic!("{test_name}.tap parse: {e}"));
+    let tap_blocks = decode(&tap_bytes).unwrap_or_else(|e| panic!("{test_name}.tap parse: {e}"));
     let tape_blocks = tap_blocks_to_tape_blocks(tap_blocks);
 
     let mut machine = Spectrum48k::new();
@@ -541,8 +541,7 @@ fn floatspy_selftest_ok() {
     }
     let rom = std::fs::read(&rom_path).expect("read 48K ROM");
     let tape_blocks = tap_blocks_to_tape_blocks(
-        parse_tap(&std::fs::read(&tap_path).expect("read floatspy.tap"))
-            .expect("parse floatspy.tap"),
+        decode(&std::fs::read(&tap_path).expect("read floatspy.tap")).expect("parse floatspy.tap"),
     );
     let mut machine = Spectrum48k::new();
     machine.load_rom_bytes(&rom).expect("load 48K ROM bytes");

@@ -8,7 +8,7 @@
 
 use common_sinclair_zx_spectrum::timing::TIMING_48K;
 use emu198x_shell::HeadlessSession;
-use format_sinclair_zx_spectrum_tap::parse_tap;
+use format198x_sinclair_zx_spectrum_tap::decode;
 use runtime_sinclair_zx_spectrum::{
     DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES, Spectrum48kRuntime, SpectrumSessionQueryProvider, tap_key,
     tap_symbol_combo,
@@ -76,7 +76,7 @@ fn save_captures_a_reloadable_tap() {
         .machine()
         .flush_tape_image()
         .expect("a SAVE should have produced a tape image");
-    let blocks = parse_tap(&tap).expect("the flushed image should parse as a .tap");
+    let blocks = decode(&tap).expect("the flushed image should parse as a .tap");
 
     assert!(
         blocks.len() >= 2,
