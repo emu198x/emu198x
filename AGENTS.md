@@ -1,6 +1,6 @@
 # Emu198x
 
-> Read [`PRINCIPLES.md`](PRINCIPLES.md) first.
+> Read [`PRINCIPLES.md`](PRINCIPLES.md) first. [`MANIFESTO.md`](MANIFESTO.md) is why the project exists.
 
 Multi-platform retro emulator (Rust workspace). Flagship repo of the local `Emu198x/` org container and one of seven sibling projects under the `198x/` umbrella; see [`../../AGENTS.md`](../../AGENTS.md) for umbrella context and cross-project rules.
 
