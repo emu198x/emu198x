@@ -127,16 +127,15 @@ Emu198x does not treat “boots one thing” as sufficient proof. Verification i
 - CPU oracle suites and external reference suites where appropriate;
 - screenshots, audio captures, scripts, and MCP probes for system-level checks.
 
-Coverage is an audit signal, not the primary correctness gate. The testing standard is [`docs/testing-policy.md`](docs/testing-policy.md).
+Coverage is an audit signal, not the primary correctness gate. The testing standard is the [testing policy](https://github.com/emu198x/docs/blob/main/testing-policy.md) in the [`emu198x/docs`](https://github.com/emu198x/docs) repository.
 
 ## Repository map
 
 - [`crates/`](crates) — Rust workspace: chip cores, format parsers, machine models, and `emu198x-*` binaries.
 - [`docs/status/current-system-usability.md`](docs/status/current-system-usability.md) — authoritative current-state matrix.
 - [`docs/status/outstanding-work.md`](docs/status/outstanding-work.md) — cross-system remaining work.
-- [`docs/testing-policy.md`](docs/testing-policy.md) — verification standard.
 - [`knowledge/decisions/`](knowledge/decisions) — binding architectural decisions.
-- [`docs/archive/`](docs/archive) — superseded or historical material.
+- [`emu198x/docs`](https://github.com/emu198x/docs) — project documentation: the [testing policy](https://github.com/emu198x/docs/blob/main/testing-policy.md), per-system status pages, plans, and the [archive](https://github.com/emu198x/docs/tree/main/archive) of superseded material.
 
 Source comments may reference local working-note paths such as `knowledge/chips/`, `knowledge/systems/`, or `knowledge/concepts/`. Only `knowledge/decisions/` is public project canon.
 
@@ -147,8 +146,8 @@ For current work, prefer these sources in order:
 1. `RULES.md` for binding engineering rules.
 2. `docs/status/` for current system state.
 3. `knowledge/decisions/` for architectural decisions.
-4. `docs/testing-policy.md` for verification expectations.
-5. `docs/plans/` and `docs/archive/` for planning and historical context.
+4. The [testing policy](https://github.com/emu198x/docs/blob/main/testing-policy.md) in `emu198x/docs` for verification expectations.
+5. [`plans/`](https://github.com/emu198x/docs/tree/main/plans) and [`archive/`](https://github.com/emu198x/docs/tree/main/archive) in `emu198x/docs` for planning and historical context.
 
 If a status claim in an older plan or archive conflicts with `docs/status/`, treat `docs/status/` as current.
 

@@ -4,7 +4,7 @@ Hard constraints. Non-negotiable. If you find yourself breaking one, stop and re
 
 ## Umbrella context
 
-This project lives at `Emu198x/emu198x/` inside the 198x tree, in the local `emu198x` org container. The umbrella binds rules that span sibling projects — see [`../../CLAUDE.md`](../../CLAUDE.md) and [`../../decisions/`](../../decisions/).
+This project lives at `Emu198x/emu198x/` inside the 198x tree, in the local `emu198x` org container. The umbrella binds rules that span sibling projects — see `../../CLAUDE.md` and `../../decisions/`. Neither is part of this repository; both are present only in a checkout of the wider tree.
 
 Hardware reference is **layered**, not single-canon. The primary library at [`../../reference/`](../../reference/) is the source of truth — Docling-extracted datasheets, manuals, magazines with sidecar metadata, organised by-system and by-topic. This project's [`knowledge/`](knowledge/) is a *codebase-tied distillation*: schema-bound (`knowledge/SCHEMA.md`), pressure-tested by working code, capturing what the emulator actually depends on. It cites the primary library; it does not replace it. When chip-level facts (Z80, 6502, 6510, 68000, VIC-II, ULA, Paula, SID, AY-3-8912) need updating, the primary library is the first port of call.
 
@@ -15,7 +15,7 @@ Full layered model, citation direction, and drift triggers at [`../../decisions/
 Before writing code, state what lane the session serves:
 
 - **Spectrum launch-hardening** — regression gates, validation, capture reliability, and any residual accuracy/scope debt in [`docs/status/outstanding-work.md`](docs/status/outstanding-work.md).
-- **Best-in-class campaign work** — staged reference-class campaigns per [`../../decisions/emu198x-best-in-class.md`](../../decisions/emu198x-best-in-class.md) and [`docs/plans/2026-07-03-best-in-class-programme.md`](docs/plans/2026-07-03-best-in-class-programme.md).
+- **Best-in-class campaign work** — staged reference-class campaigns per `../../decisions/emu198x-best-in-class.md` and the [best-in-class programme](https://github.com/emu198x/docs/blob/main/plans/2026-07-03-best-in-class-programme.md) in the [`emu198x/docs`](https://github.com/emu198x/docs) repository.
 - **Engineering-frontier work** — additional systems, catalogue progress, shared infrastructure, validation corpus work, and cross-machine improvements.
 
 Flag genuinely out-of-roadmap work before expanding scope. Roadmap tiers live at [`knowledge/decisions/product-roadmap.md`](knowledge/decisions/product-roadmap.md).

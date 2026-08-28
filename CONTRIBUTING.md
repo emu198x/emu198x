@@ -15,9 +15,11 @@ why specific architectural choices were made. Most "shouldn't we just…"
 questions are answered there. If you find yourself wanting to relitigate one,
 open an issue rather than a PR.
 
-The umbrella context lives at [`../../CLAUDE.md`](../../CLAUDE.md) for contributors
-who clone the wider 198x umbrella. Read it if you're touching anything that
-interacts with the shared hardware reference layer.
+This repository sits inside a wider 198x tree that carries the shared
+hardware reference layer. That tree is not part of this repository, and its
+context file — `CLAUDE.md`, two levels above this one — is only present if you
+have it checked out. If you do, read it before touching anything that cites the
+shared reference layer.
 
 ## Dev setup
 
@@ -35,8 +37,8 @@ The workspace tracks the latest stable Rust toolchain via `rust-toolchain.toml`.
 
 ## Tests
 
-Read [`docs/testing-policy.md`](docs/testing-policy.md) — the verification
-standard for the project. Briefly:
+Read the [testing policy][policy], in the [`emu198x/docs`][docs] repository —
+the verification standard for the project. Briefly:
 
 - Chip- and format-level unit tests first
 - Machine wiring tests second
@@ -52,10 +54,11 @@ in each test file's prologue (`EMU198X_SPECTRUM_MANIC_MINER_TZX`,
 ## Adding a system
 
 Tier-1 systems (Spectrum, C64, Amiga, NES, Game Boy, Dragon 32) are the current
-focus. New systems get added via the
-[`docs/adding-a-system.md`](docs/adding-a-system.md) playbook. Open an issue
-before starting work — system additions touch enough of the workspace that
-early alignment saves rework.
+focus. Open an issue before starting work — system additions touch enough of the
+workspace that early alignment saves rework, and the shape of the job differs
+enough per machine that the issue is where the plan gets made. The
+[`emu198x/docs`][docs] repository carries the per-system status pages and the
+[notes on adding a system][adding].
 
 ## Commit and PR style
 
@@ -101,3 +104,7 @@ that reproduces it.
 
 Security issues go through [SECURITY.md](SECURITY.md), not the public issue
 tracker.
+
+[docs]: https://github.com/emu198x/docs
+[policy]: https://github.com/emu198x/docs/blob/main/testing-policy.md
+[adding]: https://github.com/emu198x/docs/blob/main/adding-a-system.md
