@@ -1754,6 +1754,7 @@ name = "format-tzx"
 version = "0.7.0"
 dependencies = [
  "common-tape",
+ "format198x-tzx",
 ]
 
 [[package]]
@@ -1767,6 +1768,12 @@ name = "format198x-sinclair-zx-spectrum-tap"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4d24ed83a7027015be0e62bd801812f1f36dac769e59b6c69bbd3dcdf1a8411c"
+
+[[package]]
+name = "format198x-tzx"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f02c9359896c1afca79a6396751c948f86927d187bfbe3d84aad385e41138fc4"
 
 [[package]]
 name = "futures-core"
