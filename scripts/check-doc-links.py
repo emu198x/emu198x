@@ -1,13 +1,29 @@
 #!/usr/bin/env python3
-"""Checks that `../`-relative Markdown references in the repo resolve.
+"""Checks that the Markdown references in this repository resolve.
 
-Doc comments and `knowledge/` pages cite decision records and each other by
-relative path. Nothing follows those links automatically — rustdoc does not
-render `knowledge/` — so a wrong `../` depth stays invisible until someone
-tries to read one. This is what notices.
+Doc comments and Markdown pages cite decision records, each other, and the
+repository's own trees by relative path. Nothing follows those links
+automatically — rustdoc does not render `knowledge/`, and no build step reads
+`README.md` — so a reference that stopped resolving stays invisible until
+someone tries to read one. This is what notices.
 
 The links are for a person reading the source, so the convention is
 file-relative: resolve from the directory of the file that contains the link.
+
+There are two halves, and they fail in different ways.
+
+**`../`-relative references** climb out of the file's own directory, so what
+goes wrong is the depth: one `../` short and the path still lands inside the
+repository, on nothing. Failures name the depth that would have worked.
+
+**Repo-relative link targets** — `[x](docs/testing-policy.md)` — have no depth
+to get wrong. What goes wrong is that the target leaves: a file moves to
+another repository, or a directory is retired, and the link stays behind
+pointing at nothing. These are read only from Markdown pages, and only where
+they are actual link targets, because in Rust the convention is `../`-relative
+and a repo-relative path in a doc comment is prose. A directory target
+resolves when the tree holds anything, since a directory is not itself a
+tracked object.
 
 ## Resolution is answered from git, never from the filesystem
 
@@ -41,6 +57,11 @@ text, so it is caught as text.
   than links. `knowledge/SCHEMA.md` teaches "use relative links" by showing
   `[Z80](../chips/zilog-z80.md)` — correct from a page one level down, and
   wrong if "fixed" to resolve from SCHEMA.md itself.
+- Repo-relative paths written in prose rather than linked. `RULES.md` cites
+  globs and placeholder paths that way — `knowledge/decisions/*.md`,
+  `docs/systems/<manufacturer>/<system>.md` — and neither names a real file.
+- Anything a link target names other than a path here: a URL, any other
+  scheme, a protocol-relative host, a bare anchor, an absolute path.
 
 Run `--self-test` to check the detector itself.
 """
@@ -57,6 +78,17 @@ ROOT = Path(__file__).resolve().parents[1]
 # A `../`-prefixed path ending in .md, however it is delimited — these appear
 # as Markdown link targets, and bare in backticks.
 REF = re.compile(r"((?:\.\./)+[A-Za-z0-9_./-]+\.md)")
+
+# A Markdown link target: the `x` in `](x)`. `REF` above asks whether a `../`
+# depth is right; this asks whether a repo-relative target is still there at
+# all, which is what a file moving to another repository breaks. Only Markdown
+# pages are read for these: in Rust the convention is file-relative `../`, so a
+# bare repo-relative path in a doc comment is prose, not a link.
+LINK = re.compile(r"\]\(([^)\s]+)\)")
+
+# Link targets that do not name a path in this repository: a URL or any other
+# scheme, a protocol-relative host, a bare anchor, an absolute path.
+NOT_LOCAL = re.compile(r"^(?:[A-Za-z][A-Za-z0-9+.-]*:|//|#|/)")
 
 SKIP_DIRS = ("target", "docs/plans", "docs/brainstorms")
 
@@ -139,6 +171,54 @@ def references(text: str, comments_only: bool) -> list[tuple[int, str]]:
     return found
 
 
+def local_links(text: str) -> list[tuple[int, str]]:
+    """Yields (line number, target) for every repo-relative Markdown link."""
+    found = []
+    for number, line in enumerate(text.split("\n"), 1):
+        for match in LINK.finditer(line):
+            ref = match.group(1).split("#")[0].strip()
+            # `../` targets are REF's half of the surface; an empty target is
+            # a pure anchor that has already been stripped.
+            if not ref or ref.startswith("../") or NOT_LOCAL.match(ref):
+                continue
+            found.append((number, ref))
+    return found
+
+
+def classify_local(
+    path: Path, ref: str, tracked: set[str], ignored: set[str], dirs: set[str]
+) -> str:
+    """Where a repo-relative `ref` points, from `path`."""
+    rel = inside_repo(path, ref)
+    if rel is None:
+        return "outside"
+    if rel in tracked:
+        return "resolves"
+    # A link to a directory — `[crates/](crates)` — resolves when the tree has
+    # anything in it. Directories are not themselves tracked objects.
+    if rel in dirs:
+        return "resolves"
+    # `.gitignore` directory patterns carry a trailing slash — `knowledge/chips/`
+    # — and git matches those only when it can tell the path is a directory. It
+    # cannot, for a path that does not exist, which is every ignored directory
+    # in a clean checkout. Asking in both forms keeps the verdict a property of
+    # git rather than of the machine running the check.
+    if rel in ignored or f"{rel}/" in ignored:
+        return "ignored"
+    return "missing"
+
+
+def tracked_dirs(tracked: set[str]) -> set[str]:
+    """Every directory that holds a tracked file, at any depth."""
+    found: set[str] = set()
+    for rel in tracked:
+        parent = Path(rel).parent
+        while str(parent) != ".":
+            found.add(str(parent))
+            parent = parent.parent
+    return found
+
+
 def depths(path: Path, ref: str, resolvable: set[str]) -> list[int]:
     """The `../` depths that would make `ref` resolve from `path`."""
     tail = ref
@@ -153,13 +233,18 @@ def depths(path: Path, ref: str, resolvable: set[str]) -> list[int]:
 
 
 def targets() -> list[tuple[Path, bool]]:
-    """The files scanned: tracked Rust sources and tracked `knowledge/` pages."""
-    listed = git("ls-files", "-z", "*.rs", "knowledge/*.md", "knowledge/**/*.md")
+    """The files scanned: tracked Rust sources and tracked Markdown pages."""
+    listed = git("ls-files", "-z", "*.rs", "*.md")
     listed.check_returncode()
     return [
         (ROOT / rel, rel.endswith(".rs"))
         for rel in listed.stdout.split("\0")
-        if rel and not skipped(rel) and rel not in ILLUSTRATIVE
+        if rel
+        and not skipped(rel)
+        and rel not in ILLUSTRATIVE
+        # `CLAUDE.md` is a symlink to `AGENTS.md`; the same bytes read twice
+        # report every problem twice.
+        and not (ROOT / rel).is_symlink()
     ]
 
 
@@ -233,6 +318,42 @@ def self_test() -> int:
         ),
     ]
 
+    # The repo-relative half. A link that names a path in this repository is
+    # right or wrong on its face, with no depth to get right.
+    local_shape = [
+        # A link to a directory, which is not itself a tracked object.
+        ("- [`crates/`](crates) — Rust workspace", 1),
+        # Another repository, reached by URL: not a path here.
+        ("[docs](https://github.com/emu198x/docs)", 0),
+        # A bare anchor into the same page.
+        ("see [Building](#building)", 0),
+        # `../` targets are REF's half of the surface, not this one.
+        ("[x](../../knowledge/decisions/nes-clock-topology.md)", 0),
+        # A path named in prose rather than linked. `RULES.md` cites globs and
+        # placeholder paths this way, and neither is a link.
+        ("The standard is `docs/testing-policy.md`, see `knowledge/*.md`", 0),
+    ]
+
+    # (file, target, expected verdict) — taken from the tree, except where noted.
+    local_verdicts = [
+        ("README.md", "docs/status/current-system-usability.md", "resolves"),
+        # A directory resolves when the tree has anything in it.
+        ("README.md", "crates", "resolves"),
+        # `knowledge/chips/` is a local notebook, ignored on purpose.
+        ("knowledge/index.md", "chips/zilog-z80.md", "ignored"),
+        # The same notebook linked as a directory. Its `.gitignore` pattern
+        # ends in a slash, so this resolves only when git is asked in the
+        # directory form — and in a clean checkout the directory is absent,
+        # which is where a filesystem answer would differ from git's.
+        ("AGENTS.md", "knowledge/chips/", "ignored"),
+        # The failure this half exists for: a repo-relative target that moved
+        # to another repository, leaving a link that 404s on GitHub.
+        ("README.md", "docs/testing-policy.md", "missing"),
+        # Constructed — no page in the tree climbs out without a `../` prefix,
+        # and an untested branch is one that has stopped being checked.
+        ("README.md", "docs/../../PRINCIPLES.md", "outside"),
+    ]
+
     failures = 0
     fake = ROOT / "crates" / "nonexistent" / "src" / "lib.rs"
     for source, expected in shape:
@@ -241,12 +362,17 @@ def self_test() -> int:
             print(f"self-test FAILED: {source!r} — want {expected} refs, got {got}")
             failures += 1
 
+    for source, expected in local_shape:
+        got = len(local_links(source))
+        if got != expected:
+            print(f"self-test FAILED: {source!r} — want {expected} links, got {got}")
+            failures += 1
+
     tracked = tracked_files()
-    wanted = {
-        rel
-        for name, ref, _ in verdicts
-        if (rel := inside_repo(ROOT / name, ref)) is not None
-    }
+    wanted = set()
+    for name, ref, _ in (*verdicts, *local_verdicts):
+        if (rel := inside_repo(ROOT / name, ref)) is not None:
+            wanted.update((rel, f"{rel}/"))
     ignored = ignored_files(wanted - tracked)
     for name, ref, expected in verdicts:
         got = classify(ROOT / name, ref, tracked, ignored)
@@ -254,9 +380,17 @@ def self_test() -> int:
             print(f"self-test FAILED: {name} -> {ref} — want {expected}, got {got}")
             failures += 1
 
+    dirs = tracked_dirs(tracked)
+    for name, ref, expected in local_verdicts:
+        got = classify_local(ROOT / name, ref, tracked, ignored, dirs)
+        if got != expected:
+            print(f"self-test FAILED: {name} -> {ref} — want {expected}, got {got}")
+            failures += 1
+
     if failures:
         return 1
-    print(f"self-test: {len(shape) + len(verdicts)} cases pass")
+    cases = len(shape) + len(verdicts) + len(local_shape) + len(local_verdicts)
+    print(f"self-test: {cases} cases pass")
     return 0
 
 
@@ -265,10 +399,17 @@ def main() -> int:
         return 1
 
     scanned = targets()
+    text = {path: path.read_text(errors="replace") for path, _ in scanned}
     found = [
         (path, number, ref)
         for path, comments_only in scanned
-        for number, ref in references(path.read_text(errors="replace"), comments_only)
+        for number, ref in references(text[path], comments_only)
+    ]
+    local = [
+        (path, number, ref)
+        for path, comments_only in scanned
+        if not comments_only
+        for number, ref in local_links(text[path])
     ]
 
     tracked = tracked_files()
@@ -282,7 +423,11 @@ def main() -> int:
             probe = ref if depth == 0 else "../" * depth + tail
             if (rel := inside_repo(path, probe)) is not None:
                 wanted.add(rel)
+    for path, _, ref in local:
+        if (rel := inside_repo(path, ref)) is not None:
+            wanted.update((rel, f"{rel}/"))
     ignored = ignored_files(wanted - tracked)
+    dirs = tracked_dirs(tracked)
 
     resolvable = tracked | ignored
     backlog = load_backlog()
@@ -315,6 +460,26 @@ def main() -> int:
                 if not options
                 else f"ambiguous: depths {options} all resolve"
             )
+        problems.append(f"{rel}:{number}\n    {ref}\n    {hint}")
+
+    for path, number, ref in local:
+        rel = path.relative_to(ROOT)
+        verdict = classify_local(path, ref, tracked, ignored, dirs)
+        counts[verdict] += 1
+        if verdict != "missing":
+            continue
+        # Where a file of that name does exist, the link is a stale path
+        # rather than a stale target, and naming it saves the search.
+        base = Path(ref).name
+        elsewhere = sorted(t for t in tracked | dirs if Path(t).name == base)
+        hint = (
+            f"nothing at {inside_repo(path, ref)} — did you mean {elsewhere[0]}?"
+            if len(elsewhere) == 1
+            else f"nothing at {inside_repo(path, ref)} — candidates: {elsewhere}"
+            if elsewhere
+            else f"nothing at {inside_repo(path, ref)}, and no {base} anywhere "
+            "in this repo — has it moved to another repository?"
+        )
         problems.append(f"{rel}:{number}\n    {ref}\n    {hint}")
 
     for stale in sorted(backlog - seen_dead):

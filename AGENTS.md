@@ -16,7 +16,9 @@ Per [`../../decisions/shared-hardware-reference-canon.md`](../../decisions/share
 
 - [`RULES.md`](RULES.md) — binding constraints
 - [`knowledge/`](knowledge/) — LLM-curated knowledge base; see [`knowledge/SCHEMA.md`](knowledge/SCHEMA.md) for the schema
-- [`docs/`](docs/) — operational docs (architecture, features, plans, handoffs, status)
+- [`docs/`](docs/) — the status pages CI renders and checks
+- [`emu198x/docs`](https://github.com/emu198x/docs) — project documentation: testing policy, architecture,
+  plans, handoffs, and the archive. A separate repository.
 - [`crates/`](crates/) — Rust workspace
 
 For cross-project knowledge spanning Emu198x and Code198x, see [`../../AGENTS.md`](../../AGENTS.md) and [`../../decisions/`](../../decisions/). For personal cross-cutting knowledge, see `~/knowledge/`.
