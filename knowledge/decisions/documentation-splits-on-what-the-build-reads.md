@@ -1,6 +1,6 @@
 # Documentation splits on what the build reads
 
-**Status: PROPOSED (2026-08-28).**
+**Status: ACCEPTED (2026-08-28).**
 
 ## Decision
 
@@ -44,8 +44,8 @@ resolves for a reader on GitHub and a reader with both checkouts alike.
 
 `scripts/check-doc-links.py` enforces the rest: a repo-relative Markdown link
 target that names nothing in this repository fails the `Test hygiene` job, and
-the failure asks whether the file has moved to another repository. That check
-is why this decision can be relied on rather than merely stated.
+the failure asks whether the file has moved to another repository. That check is
+what keeps this decision true, rather than a rule nobody enforces.
 
 ## Consequences
 
