@@ -104,7 +104,12 @@ impl<F: Fn(u16) -> u8> Decoder<'_, F> {
     fn disasm_misc(&mut self, opcode: u8) -> String {
         match opcode {
             0x00 => "NOP".into(),
-            0x10 => "STOP".into(),
+            0x10 => {
+                // STOP is encoded as `10 00`; consume the padding byte so the
+                // debugger advances to the next instruction correctly.
+                let _padding = self.next();
+                "STOP".into()
+            }
             0x76 => "HALT".into(),
             0xF3 => "DI".into(),
             0xFB => "EI".into(),

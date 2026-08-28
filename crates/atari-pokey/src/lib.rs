@@ -992,15 +992,21 @@ impl Pokey {
         match distortion {
             // $00 (000): 5-bit poly AND 17/9-bit poly
             0b000 => p5 && p17_or_9,
-            // $20 (001): 5-bit poly AND 4-bit poly
-            0b001 => p5 && p4,
-            // $40 (010): 5-bit poly only
-            // $60 (011): 5-bit poly only (duplicate)
-            0b010 | 0b011 => p5,
+            // $20 (001): 5-bit poly only
+            0b001 => p5,
+            // $40 (010): 5-bit poly AND 4-bit poly
+            0b010 => p5 && p4,
+            // $60 (011): 5-bit poly only (duplicate of $20)
+            0b011 => p5,
             // $80 (100): 17/9-bit poly only
             0b100 => p17_or_9,
-            // $A0, $C0, $E0 (101, 110, 111): Pure tone (no poly gating)
-            _ => true,
+            // $A0 (101): Pure tone (no poly gating)
+            0b101 => true,
+            // $C0 (110): 4-bit poly only
+            0b110 => p4,
+            // $E0 (111): Pure tone (no poly gating)
+            0b111 => true,
+            _ => unreachable!("distortion is a three-bit field"),
         }
     }
 
@@ -1280,6 +1286,40 @@ mod tests {
         assert_eq!(pokey.poly5_table.len(), POLY5_PERIOD as usize);
         assert_eq!(pokey.poly9_table.len(), POLY9_PERIOD as usize);
         assert_eq!(pokey.poly17_table.len(), POLY17_PERIOD as usize);
+    }
+
+    #[test]
+    fn every_distortion_field_uses_the_documented_polynomial_gates() {
+        let expected = |distortion, p5, p4, p17_or_9| match distortion {
+            0b000 => p5 && p17_or_9,
+            0b001 => p5,
+            0b010 => p5 && p4,
+            0b011 => p5,
+            0b100 => p17_or_9,
+            0b101 => true,
+            0b110 => p4,
+            0b111 => true,
+            _ => unreachable!(),
+        };
+
+        let mut pokey = ntsc_pokey();
+        for distortion in 0..=0b111 {
+            for bits in 0..=0b111 {
+                let p5 = bits & 0b001 != 0;
+                let p4 = bits & 0b010 != 0;
+                let p17_or_9 = bits & 0b100 != 0;
+                pokey.poly5_table[0] = u8::from(p5);
+                pokey.poly4_table[0] = u8::from(p4);
+                pokey.poly17_table[0] = u8::from(p17_or_9);
+                pokey.poly_counter = 0;
+
+                assert_eq!(
+                    pokey.poly_gate(distortion),
+                    expected(distortion, p5, p4, p17_or_9),
+                    "distortion {distortion:03b}, p5={p5}, p4={p4}, p17={p17_or_9}"
+                );
+            }
+        }
     }
 
     #[test]
