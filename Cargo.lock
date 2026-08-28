@@ -847,8 +847,9 @@ checksum = "0c87e182de0887fd5361989c677c4e8f5000cd9491d6d563161a8f3a5519fc7f"
 
 [[package]]
 name = "debug198x"
-version = "0.0.9"
-source = "git+https://github.com/asm198x/asm198x?rev=8b06a12f8ae020dac5d8519473ab054fb79349b2#8b06a12f8ae020dac5d8519473ab054fb79349b2"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b7b758cddf8ce93adf9cb21eebdf1b0f33fb1304fe56620134d2131332d32b14"
 dependencies = [
  "serde",
  "serde_json",
@@ -1332,7 +1333,7 @@ dependencies = [
  "debug198x",
  "emu198x-test-skip",
  "gilrs",
- "isa-disasm",
+ "isa198x-disasm",
  "png",
  "postcard",
  "serde",
@@ -1445,7 +1446,7 @@ name = "emu198x-zilog-z80"
 version = "0.6.0"
 dependencies = [
  "emu198x-test-skip",
- "isa-disasm",
+ "isa198x-disasm",
  "postcard",
  "serde",
  "serde_json",
@@ -1994,16 +1995,18 @@ dependencies = [
 ]
 
 [[package]]
-name = "isa"
-version = "0.0.4"
-source = "git+https://github.com/asm198x/asm198x?rev=30a0e5238ee2935521c480de018ee60e645624ed#30a0e5238ee2935521c480de018ee60e645624ed"
+name = "isa198x"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b82bc0bf85e1e4d080a687259533265bafc2e16f679064a90e2d0f492f7ad005"
 
 [[package]]
-name = "isa-disasm"
-version = "0.0.4"
-source = "git+https://github.com/asm198x/asm198x?rev=30a0e5238ee2935521c480de018ee60e645624ed#30a0e5238ee2935521c480de018ee60e645624ed"
+name = "isa198x-disasm"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bf7c236e49615d4cd41339b60880e4dde1039484f1a8f4cc61f3716a367f509a"
 dependencies = [
- "isa",
+ "isa198x",
 ]
 
 [[package]]
@@ -2912,7 +2915,7 @@ name = "motorola-68000"
 version = "0.7.0"
 dependencies = [
  "flate2",
- "isa-disasm",
+ "isa198x-disasm",
  "motorola-68k-common",
  "serde",
  "serde-big-array",
