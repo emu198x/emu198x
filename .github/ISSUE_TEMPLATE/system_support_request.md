@@ -21,6 +21,6 @@ system well — the more reference material the better.)
 
 ## Notes
 
-System support is a substantial undertaking and follows the
-[`docs/adding-a-system.md`](../../docs/adding-a-system.md) playbook. Open this
-as a discussion rather than a commitment to work.
+System support is a substantial undertaking. See the [notes on adding a
+system](https://github.com/emu198x/docs/blob/main/adding-a-system.md) in the `emu198x/docs` repository, and
+open this as a discussion rather than a commitment to work.
