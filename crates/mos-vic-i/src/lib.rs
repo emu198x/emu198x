@@ -298,7 +298,14 @@ impl Vic6560 {
     #[must_use]
     pub fn read(&self, addr: u8) -> u8 {
         let reg = (addr & 0x0F) as usize;
-        self.regs[reg]
+        match reg {
+            // The raster counter is split across these two registers. VICE's
+            // `vic_read` and the MiSTer m6561 core both expose bit 0 in
+            // register 3 bit 7 and the remaining bits in register 4.
+            0x03 => ((self.scanline as u8 & 1) << 7) | (self.regs[reg] & 0x7F),
+            0x04 => (self.scanline >> 1) as u8,
+            _ => self.regs[reg],
+        }
     }
 
     /// Write a VIC register.
@@ -850,6 +857,30 @@ mod tests {
             12 * PIXELS_PER_CYCLE - window_first_pixel(PAL),
             38 * 2 - window_first_line(PAL),
         )
+    }
+
+    /// #361: registers 3 and 4 expose the live raster counter, not the bytes
+    /// last written to them. Register 4 advances once for every two lines.
+    #[test]
+    fn raster_registers_follow_the_live_scanline() {
+        let mut vic = Vic6560::new(PAL);
+        vic.write(0x03, 0x2F);
+        vic.write(0x04, 0xFF);
+
+        assert_eq!(vic.read(0x03), 0x2F, "line 0 is even");
+        assert_eq!(vic.read(0x04), 0, "the stored register 4 byte is ignored");
+
+        for _ in 0..vic.cycles_per_line {
+            vic.tick(|_| 0, |_| 0, |_| 0);
+        }
+        assert_eq!(vic.read(0x03), 0xAF, "line 1 sets the raster low bit");
+        assert_eq!(vic.read(0x04), 0, "the divided raster has not advanced");
+
+        for _ in 0..vic.cycles_per_line {
+            vic.tick(|_| 0, |_| 0, |_| 0);
+        }
+        assert_eq!(vic.read(0x03), 0x2F, "line 2 clears the raster low bit");
+        assert_eq!(vic.read(0x04), 1, "the divided raster advances on line 2");
     }
 
     /// #1087: the display was drawn at a fixed border offset and the origin
