@@ -62,9 +62,9 @@
 //!   reading clears the receive-data-full interrupt). w: cassette
 //!   transmit (tape SAVE) — still a stub, see #401.
 //! - `$FE05` w: ROM page select + interrupt clears + NMI enable
-//! - `$FE06` w: counter / sound period low byte
-//! - `$FE07` w: misc control — display mode (bits 3-5), cassette
-//!   motor, caps lock LED
+//! - `$FE06` w: 8-bit cassette / sound counter
+//! - `$FE07` w: misc control — communications mode (bits 1-2), display mode
+//!   (bits 3-5), cassette motor, and CAPS LOCK LED
 //! - `$FE08-$FE0F` w: palette mapping — each register sets two
 //!   logical-to-physical colour entries
 
@@ -174,7 +174,8 @@ struct ElectronUla {
     /// Active-high enable bits 1-6 for the matching status sources.
     interrupt_enable: u8,
     screen_start: u16,
-    /// `$FE07` bits: 3-5 display mode, 6 cassette motor, 7 caps lock.
+    /// `$FE07` bits: 1-2 communications mode, 3-5 display mode,
+    /// 6 cassette motor, 7 caps lock.
     misc_control: u8,
     /// The eight palette registers (`$FE08-$FE0F`) as stored by the ULA. The
     /// hardware inverts on write, so each holds `written ^ 0xFF`. Decoded in
@@ -184,7 +185,7 @@ struct ElectronUla {
     /// palette write. The Electron's logical→physical mapping is scrambled and
     /// per-component (see `decode_palette`).
     logical_argb: [u32; 16],
-    /// `$FE06` counter / sound period low byte.
+    /// `$FE06` shared cassette / sound counter.
     counter: u8,
     rom_page: u8,
     sound_period: u16,
@@ -219,9 +220,9 @@ impl ElectronUla {
             logical_argb,
             counter: 0,
             rom_page: 0,
-            sound_period: 0,
+            sound_period: 8,
             sound_toggle: false,
-            sound_counter: 0,
+            sound_counter: 8,
             sound_enabled: false,
             audio_accum: 0,
             audio_buffer: Vec::with_capacity(960),
@@ -305,8 +306,8 @@ impl ElectronUla {
     }
 
     fn tick_sound(&mut self) {
-        if self.sound_enabled && self.sound_period > 0 {
-            if self.sound_counter == 0 {
+        if self.sound_enabled {
+            if self.sound_counter <= 1 {
                 self.sound_counter = self.sound_period;
                 self.sound_toggle = !self.sound_toggle;
             } else {
@@ -316,10 +317,12 @@ impl ElectronUla {
         self.audio_accum += u64::from(AUDIO_SAMPLE_RATE);
         if self.audio_accum >= u64::from(CPU_CLOCK_HZ) {
             self.audio_accum -= u64::from(CPU_CLOCK_HZ);
-            let sample = if self.sound_enabled && self.sound_toggle {
-                0.3_f32
-            } else {
+            let sample = if !self.sound_enabled {
                 0.0
+            } else if self.sound_toggle {
+                0.3
+            } else {
+                -0.3
             };
             self.audio_buffer.push(sample);
         }
@@ -694,12 +697,20 @@ impl AcornElectron {
             }
             0x06 => {
                 self.ula.counter = value;
-                self.ula.sound_period = (self.ula.sound_period & 0xFF00) | u16::from(value);
+                // The sound counter's output frequency is
+                // 1 MHz / (16 * (S + 1)). Since this model ticks the ULA at
+                // 2 MHz and toggles once per half-wave, that is 8 * (S + 1)
+                // master ticks per toggle. Zero is the highest valid pitch,
+                // not a request to disable sound. (Electron AUG ch. 14;
+                // Elkulator `writeula`, cases 6 and 7.)
+                self.ula.sound_period = 8 * (u16::from(value) + 1);
                 self.ula.sound_counter = self.ula.sound_period;
-                self.ula.sound_enabled = self.ula.sound_period > 0;
             }
             0x07 => {
                 self.ula.misc_control = value;
+                // FE07 bits 2-1 select the shared counter's function:
+                // 00 cassette input, 01 sound, 10 cassette output, 11 spare.
+                self.ula.sound_enabled = value & 0x06 == 0x02;
             }
             0x08..=0x0F => {
                 // The ULA inverts the written byte, then decodes the register
@@ -1241,6 +1252,47 @@ mod tests {
         sys.ula_write(0xFE08, 0x11);
         // The ULA inverts on write.
         assert_eq!(sys.ula.pal_regs[0], 0xEE);
+    }
+
+    #[test]
+    fn sound_counter_uses_documented_eight_bit_pitch() {
+        let (os, basic) = trap_roms();
+        let mut sys = AcornElectron::new(os, basic);
+
+        sys.ula_write(0xFE06, 0);
+        assert_eq!(sys.ula.sound_period, 8);
+        sys.ula_write(0xFE06, 255);
+        assert_eq!(sys.ula.sound_period, 2_048);
+    }
+
+    #[test]
+    fn sound_toggles_after_eight_times_counter_plus_one_master_ticks() {
+        let (os, basic) = trap_roms();
+        let mut sys = AcornElectron::new(os, basic);
+        sys.ula_write(0xFE06, 1);
+        sys.ula_write(0xFE07, 0x02);
+
+        for _ in 0..15 {
+            sys.ula.tick_sound();
+            assert!(!sys.ula.sound_toggle);
+        }
+        sys.ula.tick_sound();
+        assert!(sys.ula.sound_toggle);
+    }
+
+    #[test]
+    fn communications_mode_gates_sound_and_zero_is_a_valid_pitch() {
+        let (os, basic) = trap_roms();
+        let mut sys = AcornElectron::new(os, basic);
+        sys.ula_write(0xFE06, 0);
+
+        for mode in [0x00, 0x04, 0x06] {
+            sys.ula_write(0xFE07, mode);
+            assert!(!sys.ula.sound_enabled);
+        }
+        sys.ula_write(0xFE07, 0x02);
+        assert!(sys.ula.sound_enabled);
+        assert_eq!(sys.ula.sound_period, 8);
     }
 
     // Kansas-City encoding for the cassette wiring tests.
