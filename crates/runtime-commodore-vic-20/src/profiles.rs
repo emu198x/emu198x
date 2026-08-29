@@ -66,13 +66,22 @@ pub fn profile_for(model: Model) -> MachineProfile {
             FirmwareRequirement::new(BASIC_FIRMWARE_ID, "VIC-20 BASIC ROM (8 KB)", false),
             FirmwareRequirement::new(CHAR_FIRMWARE_ID, "VIC-20 character ROM (4 KB)", false),
         ],
-        media_slots: vec![MediaSlot::new(
-            "cartridge-1",
-            "Cartridge Slot",
-            MediaKind::Cartridge,
-            false,
-            WritebackPolicy::InMemoryOnly,
-        )],
+        media_slots: vec![
+            MediaSlot::new(
+                "cartridge-1",
+                "Cartridge Slot",
+                MediaKind::Cartridge,
+                false,
+                WritebackPolicy::InMemoryOnly,
+            ),
+            MediaSlot::new(
+                "program-1",
+                "Program (.prg)",
+                MediaKind::Program,
+                false,
+                WritebackPolicy::InMemoryOnly,
+            ),
+        ],
         capabilities: CapabilitySet::with_all([
             known_capability("keyboard-input"),
             known_capability("scripted-input"),
@@ -88,5 +97,15 @@ mod tests {
     fn profile_declares_three_roms() {
         let p = profile_for(Model::Vic20Ntsc);
         assert_eq!(p.firmware.len(), 3);
+    }
+
+    #[test]
+    fn profile_declares_the_standard_program_slot() {
+        let p = profile_for(Model::Vic20Ntsc);
+        assert!(
+            p.media_slots
+                .iter()
+                .any(|slot| slot.id == "program-1" && slot.kind == MediaKind::Program)
+        );
     }
 }

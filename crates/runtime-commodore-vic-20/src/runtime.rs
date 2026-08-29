@@ -7,8 +7,8 @@
 
 use emu198x_shell::{
     AudioPacket, CapabilitySet, ControlCommand, FirmwareSet, FramePacket, HostIo, MachineCore,
-    MachineError, MachineProfile, MachineTime, MediaSet, PixelFormat, ResetKind, RunResult,
-    StopReason,
+    MachineError, MachineProfile, MachineTime, MediaKind, MediaSet, PixelFormat, ResetKind,
+    RunResult, StopReason,
 };
 use machine_commodore_vic_20::{Vic20, Vic20Model};
 
@@ -23,6 +23,7 @@ const KERNAL_SIZE: usize = 8 * 1024;
 const BASIC_SIZE: usize = 8 * 1024;
 const CHAR_SIZE: usize = 4 * 1024;
 const AUDIO_SAMPLE_RATE: u32 = 48_000;
+const PRG_AUTOLOAD_FRAME: u64 = 150;
 
 /// This machine's keyboard for the shared `press_key` / `type_string` tools:
 /// the standard layout, backed by this machine's own key-name resolver so a
@@ -71,6 +72,7 @@ pub struct Vic20Runtime {
     rgba_width: u32,
     rgba_height: u32,
     controller_cache: crate::input::ControllerCache,
+    pending_prg: Option<Vec<u8>>,
 }
 
 impl Vic20Runtime {
@@ -89,6 +91,7 @@ impl Vic20Runtime {
             rgba_width: 0,
             rgba_height: 0,
             controller_cache: crate::input::ControllerCache::default(),
+            pending_prg: None,
         }
     }
 
@@ -241,6 +244,22 @@ impl Vic20Runtime {
         Ok(())
     }
 
+    /// Minimum installed RAM configuration selected by the three canonical
+    /// VIC-20 BASIC load addresses. An arbitrary machine-code load keeps the
+    /// caller's chosen configuration; a PRG gives no other expansion metadata.
+    fn expansion_for_prg(bytes: &[u8], current: usize) -> Result<usize, String> {
+        if bytes.len() < 3 {
+            return Err("PRG image too short".into());
+        }
+        let load = u16::from_le_bytes([bytes[0], bytes[1]]);
+        Ok(match load {
+            0x0401 => 3,
+            0x1001 => 0,
+            0x1201 => 8,
+            _ => current,
+        })
+    }
+
     #[must_use]
     pub fn model(&self) -> Model {
         self.model
@@ -250,7 +269,10 @@ impl Vic20Runtime {
         self.time = time;
     }
 
-    pub(crate) fn ram_expansion_kb(&self) -> usize {
+    /// Active RAM expansion in KiB, including any configuration selected from
+    /// a loaded PRG's canonical BASIC start address.
+    #[must_use]
+    pub fn ram_expansion_kb(&self) -> usize {
         self.ram_expansion_kb
     }
 
@@ -321,9 +343,30 @@ impl MachineCore for Vic20Runtime {
         self.time = MachineTime::default();
     }
 
-    fn load_media(&mut self, _media: &MediaSet<'_>) -> Result<(), MachineError> {
-        // Cartridge / tape loading is a follow-up — the machine
-        // currently boots only with ROMs in place.
+    fn load_media(&mut self, media: &MediaSet<'_>) -> Result<(), MachineError> {
+        for image in &media.images {
+            let slot = image.slot.as_ref();
+            match image.kind {
+                MediaKind::Program if slot == "program-1" => {
+                    let expansion = Self::expansion_for_prg(image.bytes, self.ram_expansion_kb)
+                        .map_err(|reason| MachineError::InvalidMedia {
+                            slot: slot.to_owned(),
+                            reason,
+                        })?;
+                    if expansion != self.ram_expansion_kb {
+                        self.ram_expansion_kb = expansion;
+                        self.rebuild_machine();
+                    }
+                    self.pending_prg = Some(image.bytes.to_vec());
+                }
+                MediaKind::Program => {
+                    return Err(MachineError::UnknownMediaSlot {
+                        slot: slot.to_owned(),
+                    });
+                }
+                kind => return Err(MachineError::UnsupportedMediaKind { kind }),
+            }
+        }
         Ok(())
     }
 
@@ -348,7 +391,17 @@ impl MachineCore for Vic20Runtime {
             // Drain the VIC's audio for the frame just run before releasing the
             // machine borrow for the framebuffer conversion below.
             let audio = machine.take_vic_audio();
+            let inject_prg =
+                self.pending_prg.is_some() && machine.frame_count() >= PRG_AUTOLOAD_FRAME;
             self.time = self.time.saturating_add(ticks);
+            if inject_prg {
+                let bytes = self.pending_prg.take().expect("checked above");
+                self.autoload_prg(&bytes, false)
+                    .map_err(|reason| MachineError::InvalidMedia {
+                        slot: "program-1".to_owned(),
+                        reason,
+                    })?;
+            }
             self.update_rgba_framebuffer();
 
             host.frame_sink.push_frame(FramePacket {
@@ -410,3 +463,35 @@ impl MachineCore for Vic20Runtime {
 
 // 6502 debug target via the shared macro (lazy `machine: Option<Vic20>`).
 emu198x_shell::impl_6502_debug_primitives!(Vic20Runtime);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use emu198x_shell::MediaImage;
+
+    fn load_program(runtime: &mut Vic20Runtime, bytes: &[u8]) -> Result<(), MachineError> {
+        let mut media = MediaSet::new();
+        media.push(MediaImage::new("program-1", MediaKind::Program, bytes));
+        runtime.load_media(&media)
+    }
+
+    #[test]
+    fn program_media_selects_the_minimum_expansion_from_its_load_address() {
+        for (load, expected) in [(0x0401u16, 3), (0x1001, 0), (0x1201, 8)] {
+            let mut runtime = Vic20Runtime::blank(Model::Vic20Ntsc);
+            let [lo, hi] = load.to_le_bytes();
+            load_program(&mut runtime, &[lo, hi, 0x00]).expect("valid PRG");
+            assert_eq!(runtime.ram_expansion_kb, expected, "load ${load:04X}");
+            assert_eq!(runtime.pending_prg.as_deref(), Some(&[lo, hi, 0x00][..]));
+        }
+    }
+
+    #[test]
+    fn short_program_media_is_rejected_at_the_slot_boundary() {
+        let mut runtime = Vic20Runtime::blank(Model::Vic20Ntsc);
+        let error = load_program(&mut runtime, &[0x01, 0x12]).expect_err("header only");
+        assert!(
+            matches!(error, MachineError::InvalidMedia { ref slot, .. } if slot == "program-1")
+        );
+    }
+}
