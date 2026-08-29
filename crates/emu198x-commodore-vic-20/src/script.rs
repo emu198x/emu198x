@@ -5,7 +5,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process;
 
-use emu198x_shell::{HeadlessScript, HeadlessSession, MediaSet, ScriptObservation};
+use emu198x_shell::{
+    HeadlessScript, HeadlessSession, MediaImage, MediaKind, MediaSet, ScriptObservation,
+};
 use runtime_commodore_vic_20::{Model, Vic20Runtime, Vic20SessionQueryProvider};
 use serde_json::json;
 
@@ -214,22 +216,33 @@ fn run_cli(cli: Cli) -> Result<serde_json::Value, String> {
         cli.region.frame_ticks(),
         Vic20SessionQueryProvider,
     );
-    let media = MediaSet::new();
+    let prg_bytes = cli
+        .prg
+        .as_ref()
+        .map(|path| {
+            fs::read(path).map_err(|err| format!("failed to read --prg {}: {err}", path.display()))
+        })
+        .transpose()?;
+    let mut media = MediaSet::new();
+    if let Some(bytes) = prg_bytes.as_deref().filter(|_| !cli.prg_sys) {
+        media.push(MediaImage::new("program-1", MediaKind::Program, bytes));
+    }
     session
         .prepare(&media, &[])
         .map_err(|err| format!("machine preparation failed: {err}"))?;
 
-    // A `.PRG` is injected after a short boot so the KERNAL has reached READY
-    // (and set TXTTAB), then auto-RUN through the keyboard buffer.
-    if let Some(path) = &cli.prg {
-        let bytes = fs::read(path)
-            .map_err(|err| format!("failed to read --prg {}: {err}", path.display()))?;
+    // `--prg-sys` remains the explicit machine-code side channel. Ordinary
+    // BASIC PRGs use the standard `MediaSet` path above; the runtime delays
+    // their injection until the KERNAL has reached READY.
+    if cli.prg_sys
+        && let Some(bytes) = &prg_bytes
+    {
         session
             .run_frames(150)
             .map_err(|err| format!("boot-to-READY run failed: {err}"))?;
         session
             .machine_mut()
-            .autoload_prg(&bytes, cli.prg_sys)
+            .autoload_prg(bytes, true)
             .map_err(|err| format!("PRG autoload failed: {err}"))?;
     }
 
@@ -268,7 +281,7 @@ fn run_cli(cli: Cli) -> Result<serde_json::Value, String> {
         "roms_loaded": roms_loaded,
         "frames_run":  frame_count,
         "time":        session.time().get(),
-        "ram_expansion_kb": cli.ram_expansion_kb,
+        "ram_expansion_kb": machine.ram_expansion_kb(),
         "observations": observations,
     }))
 }
