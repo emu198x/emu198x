@@ -222,3 +222,55 @@ fn cursor_right_moves_the_cursor_instead_of_typing() {
         "expected cursor-right to skip a cell, not deposit one; line was {line:?}"
     );
 }
+
+/// STOP is sampled into `$9B` by UDTIM, then the KERNAL STOP vector transfers
+/// control to BASIC's break handler. This used to leave the program running
+/// (or apparently wedged in the editor wait) instead of returning to READY
+/// (#1212). Keep the complete ROM path pinned, including accepting another
+/// key after the break.
+#[test]
+#[ignore = "FIXTURE: needs PET kernal/basic/editor/char ROMs — run with --ignored"]
+fn stop_breaks_a_running_basic_program() {
+    let Some(mut sys) = booted() else {
+        panic!("PET ROMs not found");
+    };
+    for key in [
+        PetKey::Num1,
+        PetKey::Num0,
+        PetKey::Space,
+        PetKey::G,
+        PetKey::O,
+        PetKey::T,
+        PetKey::O,
+        PetKey::Space,
+        PetKey::Num1,
+        PetKey::Num0,
+        PetKey::Return,
+        PetKey::R,
+        PetKey::U,
+        PetKey::N,
+        PetKey::Return,
+    ] {
+        tap(&mut sys, key);
+    }
+    for _ in 0..30 {
+        sys.run_frame();
+    }
+
+    tap(&mut sys, PetKey::StopRun);
+    for _ in 0..10 {
+        sys.run_frame();
+    }
+    let stopped = screen(&sys);
+    assert!(
+        stopped.contains("BREAK IN 10 READY."),
+        "expected STOP to break the loop and return to READY; got {stopped:?}"
+    );
+
+    tap(&mut sys, PetKey::A);
+    let responsive = screen(&sys);
+    assert!(
+        responsive.ends_with("READY. A"),
+        "expected the editor to accept input after STOP; got {responsive:?}"
+    );
+}
