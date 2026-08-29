@@ -809,9 +809,9 @@ mod tests {
     fn stock(vic: &mut Vic6560) {
         vic.write(0x00, 12);
         vic.write(0x01, 38);
-        vic.write(0x02, 22);
+        vic.write(0x02, 0x80 | 22);
         vic.write(0x03, 23 << 1);
-        vic.write(0x05, 0x00);
+        vic.write(0x05, 0xF0);
         vic.write(0x0F, 0x1B);
     }
 
@@ -945,6 +945,53 @@ mod tests {
         assert_eq!(pixel(&vic, x + 80, y), VIC_PALETTE[3], "and stops there");
         assert_eq!(pixel(&vic, x, y + 39), VIC_PALETTE[2], "last row shows");
         assert_eq!(pixel(&vic, x, y + 40), VIC_PALETTE[3], "and stops there");
+    }
+
+    #[test]
+    fn registers_2_and_5_select_the_screen_and_colour_offsets_together() {
+        let mut vic = Vic6560::new(PAL);
+        stock(&mut vic);
+        vic.scanline = 38 * 2;
+
+        let stock_line = vic.line_state();
+        assert_eq!(stock_line.screen_base, 0x3E00);
+        assert_eq!(
+            vic.display_pixel(
+                stock_line.origin_x,
+                &stock_line,
+                &|addr| {
+                    assert_eq!(addr, 0x3E00);
+                    1
+                },
+                &|addr| {
+                    assert_eq!(addr & 0x03FF, 0x0200, "$9600 colour offset");
+                    2
+                },
+                &|_| 0xFF,
+            ),
+            Some(VIC_PALETTE[2])
+        );
+
+        vic.write(0x02, 22); // clear screen/colour bit 9
+        vic.write(0x05, 0xC0); // screen matrix at VIC $3000 / CPU $1000
+        let moved_line = vic.line_state();
+        assert_eq!(moved_line.screen_base, 0x3000);
+        assert_eq!(
+            vic.display_pixel(
+                moved_line.origin_x,
+                &moved_line,
+                &|addr| {
+                    assert_eq!(addr, 0x3000);
+                    1
+                },
+                &|addr| {
+                    assert_eq!(addr & 0x03FF, 0, "$9400 colour offset");
+                    2
+                },
+                &|_| 0xFF,
+            ),
+            Some(VIC_PALETTE[2])
+        );
     }
 
     #[test]

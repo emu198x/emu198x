@@ -175,21 +175,35 @@ impl Vic20 {
     fn tick_cycle(&mut self) {
         self.master_clock += 1;
         // Tick VIC chip with callbacks for screen RAM, colour RAM, char ROM reads.
+        let ram_low = &self.ram_low;
+        let ram_exp_low = &self.ram_exp_low;
         let ram_main = &self.ram_main;
+        let has_exp_low = self.has_exp_low;
         let colour_ram = &self.colour_ram;
         let char_rom = &self.char_rom;
         self.vic.tick(
             |addr| {
-                // Screen RAM lives in main RAM at $1000-$1FFF by default —
-                // the donor's VIC reads through this mirror.
-                ram_main[(addr & 0x0FFF) as usize]
+                read_vic_memory(
+                    addr,
+                    ram_low,
+                    ram_exp_low,
+                    ram_main,
+                    has_exp_low,
+                    colour_ram,
+                    char_rom,
+                )
             },
             |addr| colour_ram[(addr & 0x03FF) as usize],
             |addr| {
-                char_rom
-                    .get((addr & 0x0FFF) as usize)
-                    .copied()
-                    .unwrap_or(0xFF)
+                read_vic_memory(
+                    addr,
+                    ram_low,
+                    ram_exp_low,
+                    ram_main,
+                    has_exp_low,
+                    colour_ram,
+                    char_rom,
+                )
             },
         );
 
@@ -395,6 +409,40 @@ impl Vic20 {
     }
 }
 
+/// Read the VIC-I's 14-bit address space.
+///
+/// Motherboard wiring maps VIC `$0000-$1FFF` to CPU `$8000-$9FFF` and VIC
+/// `$2000-$3FFF` to CPU `$0000-$1FFF`. Keeping this translation at the
+/// machine boundary lets programmable screen and character bases reach lower
+/// RAM instead of aliasing every fetch into CPU `$1000-$1FFF`.
+#[allow(clippy::too_many_arguments)]
+fn read_vic_memory(
+    addr: u16,
+    ram_low: &[u8; 0x0400],
+    ram_exp_low: &[u8; 0x0C00],
+    ram_main: &[u8; 0x1000],
+    has_exp_low: bool,
+    colour_ram: &[u8; 0x0400],
+    char_rom: &[u8],
+) -> u8 {
+    let addr = addr & 0x3FFF;
+    match addr {
+        0x0000..=0x0FFF => char_rom.get(addr as usize).copied().unwrap_or(0xFF),
+        0x1000..=0x13FF | 0x1800..=0x1FFF => 0xFF,
+        0x1400..=0x17FF => colour_ram[(addr - 0x1400) as usize] & 0x0F,
+        0x2000..=0x23FF => ram_low[(addr - 0x2000) as usize],
+        0x2400..=0x2FFF => {
+            if has_exp_low {
+                ram_exp_low[(addr - 0x2400) as usize]
+            } else {
+                0xFF
+            }
+        }
+        0x3000..=0x3FFF => ram_main[(addr - 0x3000) as usize],
+        _ => unreachable!("VIC address is masked to 14 bits"),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -458,6 +506,54 @@ mod tests {
         let mut sys = make_vic20();
         sys.mem_write(0x9400, 0xFF);
         assert_eq!(sys.mem_read(0x9400), 0x0F);
+    }
+
+    #[test]
+    fn vic_address_bus_reaches_rom_colour_and_each_visible_ram_bank() {
+        let mut sys = make_vic20();
+        sys.char_rom[0x0123] = 0x11;
+        sys.colour_ram[0x0234] = 0xF2;
+        sys.ram_low[0x0345] = 0x33;
+        sys.ram_main[0x0456] = 0x44;
+
+        let read = |addr| {
+            read_vic_memory(
+                addr,
+                &sys.ram_low,
+                &sys.ram_exp_low,
+                &sys.ram_main,
+                sys.has_exp_low,
+                &sys.colour_ram,
+                &sys.char_rom,
+            )
+        };
+        assert_eq!(read(0x0123), 0x11, "VIC $0123 maps to character ROM");
+        assert_eq!(read(0x1634), 0x02, "VIC $1634 maps to colour RAM");
+        assert_eq!(read(0x2345), 0x33, "VIC $2345 maps to CPU $0345");
+        assert_eq!(read(0x3456), 0x44, "VIC $3456 maps to CPU $1456");
+        assert_eq!(read(0x2456), 0xFF, "absent 3 KiB expansion is open bus");
+
+        let mut expanded = Vic20::new(
+            vec![0; 0x2000],
+            vec![0; 0x2000],
+            vec![0; 0x1000],
+            Vic20Model::Pal,
+            3,
+        );
+        expanded.ram_exp_low[0x0567] = 0x55;
+        assert_eq!(
+            read_vic_memory(
+                0x2967,
+                &expanded.ram_low,
+                &expanded.ram_exp_low,
+                &expanded.ram_main,
+                expanded.has_exp_low,
+                &expanded.colour_ram,
+                &expanded.char_rom,
+            ),
+            0x55,
+            "VIC $2967 maps to expanded CPU $0967"
+        );
     }
 
     #[test]
