@@ -78,6 +78,12 @@ impl Ay3_8912 {
         self.inner.registers()
     }
 
+    /// Value driven by the bonded-out I/O port A (register 14).
+    #[must_use]
+    pub fn port_a_output(&self) -> u8 {
+        self.inner.port_a_output()
+    }
+
     /// Advance one AY clock cycle. Call at `ay_clock_hz` rate.
     pub fn tick(&mut self) {
         self.inner.tick();
