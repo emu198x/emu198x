@@ -26,11 +26,9 @@
 //!   `$E000-$E7FF`), Kernal (4 KB at `$F000-$FFFF`), Character ROM
 //!   (4 KB, display-only).
 //!
-//! Clock model: one master tick per 6502 cycle (1 MHz). CRTC + VIA
-//! tick on the same cadence. Per the donor's v1 simplification, the
-//! CRTC ticks at CPU rate even in 80-column mode where the real
-//! hardware would clock it at 2 MHz; mid-frame timing accuracy is on
-//! the accuracy backlog.
+//! Clock model: one master tick per 6502 cycle (1 MHz). The VIA ticks
+//! on that cadence; the 80-column board advances its CRTC twice per
+//! master tick because one CPU cycle carries two character times.
 
 pub mod input;
 mod keyboard;
@@ -87,8 +85,7 @@ pub struct Pet {
 
 impl Pet {
     /// Create a new PET. ROM sizes: kernal 4 KB, basic 8 KB, editor 2 KB,
-    /// char ROM 4 KB. `screen_chars` is 40 (PET 4032 / 8032) or 80
-    /// (PET 8032).
+    /// char ROM 4 KB. `screen_chars` is 40 (PET 4032) or 80 (PET 8032).
     pub fn new(
         kernal_rom: Vec<u8>,
         basic_rom: Vec<u8>,
@@ -167,6 +164,12 @@ impl Pet {
     fn tick(&mut self) {
         self.master_clock += 1;
         self.tick_display();
+        if self.screen_chars >= 80 {
+            // The 80-column board's CRTC character clock is 2 MHz. VICE models
+            // the same wiring as `CRTC_HW_DOUBLE_CHARS`: two displayed
+            // characters are consumed in each 1 MHz machine cycle.
+            self.tick_display();
+        }
         self.via.tick();
         // PIA #1 CA1 is wired to the CRTC vertical retrace: its edge is the
         // 60 Hz system IRQ that runs the editor's keyboard scan and jiffy
@@ -516,5 +519,21 @@ mod tests {
             frame, 20_032,
             "PET PAL frame must be 20,032 cycles (64 × 313); got {frame}"
         );
+    }
+
+    #[test]
+    fn frame_is_16200_cpu_cycles_on_the_80_column_board() {
+        // The 8032 defaults are 100 CRTC character times per line and
+        // 32×10+4 = 324 scanlines. At two character times per 1 MHz CPU cycle,
+        // the complete frame is therefore 100×324/2 = 16,200 CPU cycles.
+        let mut pet = Pet::new(
+            vec![0u8; 0x1000],
+            vec![0u8; 0x2000],
+            vec![0u8; 0x0800],
+            vec![0u8; 0x1000],
+            80,
+        );
+        pet.run_frame();
+        assert_eq!(pet.run_frame(), 16_200);
     }
 }
