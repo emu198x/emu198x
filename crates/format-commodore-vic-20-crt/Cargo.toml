@@ -1,0 +1,14 @@
+[package]
+name = "format-commodore-vic-20-crt"
+description = "Commodore VIC-20 CRT and raw cartridge-image parser"
+edition.workspace = true
+version.workspace = true
+publish = false
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+thiserror = { workspace = true }
+
+[lints]
+workspace = true

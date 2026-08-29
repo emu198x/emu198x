@@ -73,6 +73,9 @@ pub struct Vic20Runtime {
     rgba_height: u32,
     controller_cache: crate::input::ControllerCache,
     pending_prg: Option<Vec<u8>>,
+    /// Original cartridge container retained so resets rebuild the inserted
+    /// ROM before the KERNAL performs its cold-start probe.
+    cartridge_image: Option<Vec<u8>>,
 }
 
 impl Vic20Runtime {
@@ -92,6 +95,7 @@ impl Vic20Runtime {
             rgba_height: 0,
             controller_cache: crate::input::ControllerCache::default(),
             pending_prg: None,
+            cartridge_image: None,
         }
     }
 
@@ -269,6 +273,14 @@ impl Vic20Runtime {
         self.time = time;
     }
 
+    pub(crate) fn cartridge_image(&self) -> Option<&[u8]> {
+        self.cartridge_image.as_deref()
+    }
+
+    pub(crate) fn set_cartridge_image(&mut self, image: Option<Vec<u8>>) {
+        self.cartridge_image = image;
+    }
+
     /// Active RAM expansion in KiB, including any configuration selected from
     /// a loaded PRG's canonical BASIC start address.
     #[must_use]
@@ -304,7 +316,12 @@ impl Vic20Runtime {
             emu198x_shell::Region::Pal => Vic20Model::Pal,
             _ => Vic20Model::Ntsc,
         };
-        let machine = Vic20::new(kernal, basic, char_rom, vic_model, self.ram_expansion_kb);
+        let mut machine = Vic20::new(kernal, basic, char_rom, vic_model, self.ram_expansion_kb);
+        if let Some(image) = self.cartridge_image.as_deref() {
+            machine
+                .insert_cartridge_bytes(image)
+                .expect("retained cartridge was validated when loaded");
+        }
         let width = machine.framebuffer_width();
         let height = machine.framebuffer_height();
         self.rgba_width = width;
@@ -347,6 +364,26 @@ impl MachineCore for Vic20Runtime {
         for image in &media.images {
             let slot = image.slot.as_ref();
             match image.kind {
+                MediaKind::Cartridge if slot == "cartridge-1" => {
+                    let machine =
+                        self.machine
+                            .as_mut()
+                            .ok_or_else(|| MachineError::MissingFirmware {
+                                id: KERNAL_FIRMWARE_ID.to_owned(),
+                            })?;
+                    machine
+                        .insert_cartridge_bytes(image.bytes)
+                        .map_err(|reason| MachineError::InvalidMedia {
+                            slot: slot.to_owned(),
+                            reason,
+                        })?;
+                    self.cartridge_image = Some(image.bytes.to_vec());
+                }
+                MediaKind::Cartridge => {
+                    return Err(MachineError::UnknownMediaSlot {
+                        slot: slot.to_owned(),
+                    });
+                }
                 MediaKind::Program if slot == "program-1" => {
                     let expansion = Self::expansion_for_prg(image.bytes, self.ram_expansion_kb)
                         .map_err(|reason| MachineError::InvalidMedia {
