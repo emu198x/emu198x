@@ -1640,6 +1640,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "format-commodore-vic-20-crt"
+version = "0.7.1"
+dependencies = [
+ "thiserror 2.0.20",
+]
+
+[[package]]
 name = "format-dragon-bin"
 version = "0.7.1"
 dependencies = [
@@ -2503,6 +2510,7 @@ name = "machine-commodore-vic-20"
 version = "0.7.1"
 dependencies = [
  "emu198x-mos-6502",
+ "format-commodore-vic-20-crt",
  "mos-via-6522",
  "mos-vic-i",
  "postcard",

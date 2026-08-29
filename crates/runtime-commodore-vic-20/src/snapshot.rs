@@ -12,11 +12,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::runtime::Vic20Runtime;
 
-/// Bumped to 3 when the framebuffer became region-sized. A snapshot carries
-/// the live chip, framebuffer included, so a version-2 snapshot holds a
-/// 224x216 buffer that a version-3 machine would never allocate. Restoring it
-/// would resume into a geometry the machine disagrees with, and silently.
-const SNAPSHOT_VERSION: u16 = 3;
+/// Version 3 made the framebuffer region-sized. Version 4 retains the original
+/// cartridge container alongside the live mapped machine, so a reset after
+/// restore can reinsert the same cartridge before the KERNAL cold-start probe.
+const SNAPSHOT_VERSION: u16 = 4;
 
 /// Borrowing envelope used during encode — avoids cloning the live machine.
 #[derive(Serialize)]
@@ -25,6 +24,7 @@ struct Vic20RuntimeSnapshotRefV2<'a> {
     time: u64,
     model_id: &'a str,
     machine: Option<&'a Vic20>,
+    cartridge_image: Option<&'a [u8]>,
 }
 
 /// Owning envelope used during decode.
@@ -34,6 +34,7 @@ struct Vic20RuntimeSnapshotV2 {
     time: u64,
     model_id: String,
     machine: Option<Vic20>,
+    cartridge_image: Option<Vec<u8>>,
 }
 
 pub(crate) fn encode(runtime: &Vic20Runtime) -> Result<Vec<u8>, MachineError> {
@@ -42,6 +43,7 @@ pub(crate) fn encode(runtime: &Vic20Runtime) -> Result<Vec<u8>, MachineError> {
         time: runtime.time().get(),
         model_id: runtime.model().model_id(),
         machine: runtime.machine(),
+        cartridge_image: runtime.cartridge_image(),
     };
     postcard::to_allocvec(&snapshot).map_err(|reason| MachineError::InvalidSnapshot {
         reason: format!("encode failed: {reason}"),
@@ -68,6 +70,7 @@ pub(crate) fn decode(runtime: &mut Vic20Runtime, bytes: &[u8]) -> Result<(), Mac
         });
     }
     runtime.set_time(MachineTime::new(snapshot.time));
+    runtime.set_cartridge_image(snapshot.cartridge_image);
     runtime.set_machine(snapshot.machine);
     Ok(())
 }
@@ -88,6 +91,7 @@ mod tests {
             time: 0,
             model_id: runtime.model().model_id(),
             machine: None,
+            cartridge_image: None,
         })
         .expect("synthetic envelope should encode");
 

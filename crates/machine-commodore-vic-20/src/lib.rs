@@ -73,6 +73,8 @@ pub struct Vic20 {
     char_rom: Vec<u8>,
     basic_rom: Vec<u8>,
     kernal_rom: Vec<u8>,
+    /// Statically decoded ROM regions supplied by a generic cartridge.
+    cartridge_rom: Vec<(u16, Vec<u8>)>,
     vic: Vic6560,
     keyboard: KeyboardState,
     /// VIA #1 ($9110-$911F): RESTORE key (CA1 → NMI), user port. Its IRQ
@@ -131,6 +133,7 @@ impl Vic20 {
             char_rom,
             basic_rom,
             kernal_rom,
+            cartridge_rom: Vec::new(),
             vic: Vic6560::new(pal),
             keyboard: KeyboardState::new(),
             via1: Via6522::new(),
@@ -248,6 +251,9 @@ impl Vic20 {
     }
 
     fn mem_read(&self, addr: u16) -> u8 {
+        if let Some(byte) = self.cartridge_read(addr) {
+            return byte;
+        }
         match addr {
             0x0000..=0x03FF => self.ram_low[addr as usize],
             0x0400..=0x0FFF => {
@@ -292,6 +298,50 @@ impl Vic20 {
                 .copied()
                 .unwrap_or(0xFF),
         }
+    }
+
+    fn cartridge_read(&self, addr: u16) -> Option<u8> {
+        self.cartridge_rom.iter().find_map(|(start, bytes)| {
+            let offset = addr.checked_sub(*start).map(usize::from)?;
+            bytes.get(offset).copied()
+        })
+    }
+
+    /// Insert a generic VICE CRT or raw BLK5 cartridge image.
+    ///
+    /// Static CHIP packets may map into BLK1, BLK2, BLK3, and BLK5. They take
+    /// priority over RAM in those windows, as a ROM cartridge's decode lines
+    /// do on the machine. Bank-switched hardware types are rejected by the
+    /// format parser until their I/O latch behaviour is modelled.
+    ///
+    /// # Errors
+    ///
+    /// Returns a readable parse/mapping error for malformed or unsupported
+    /// cartridge images.
+    pub fn insert_cartridge_bytes(&mut self, bytes: &[u8]) -> Result<(), String> {
+        let cartridge = format_commodore_vic_20_crt::parse(bytes).map_err(|e| e.to_string())?;
+        self.cartridge_rom = cartridge
+            .blocks
+            .into_iter()
+            .map(|block| (block.load_address, block.data))
+            .collect();
+        Ok(())
+    }
+
+    /// Remove the cartridge, exposing RAM/open bus in its blocks again.
+    pub fn remove_cartridge(&mut self) {
+        self.cartridge_rom.clear();
+    }
+
+    /// Whether BLK5 carries the VIC-20 KERNAL's `A0` + high-bit `CBM` signature.
+    #[must_use]
+    pub fn cartridge_is_autostart(&self) -> bool {
+        self.cartridge_rom.iter().any(|(start, bytes)| {
+            let Some(offset) = 0xA004u16.checked_sub(*start).map(usize::from) else {
+                return false;
+            };
+            offset + 5 <= bytes.len() && bytes[offset..offset + 5] == [0x41, 0x30, 0xC3, 0xC2, 0xCD]
+        })
     }
 
     fn mem_write(&mut self, addr: u16, value: u8) {
@@ -659,5 +709,51 @@ mod tests {
         );
         sys.mem_write(0x0400, 0x55);
         assert_eq!(sys.mem_read(0x0400), 0x55);
+    }
+
+    #[test]
+    fn cartridge_blocks_overlay_ram_and_blk5_and_can_be_removed() {
+        fn crt(chips: &[(u16, u8)]) -> Vec<u8> {
+            let mut bytes = Vec::from(*b"VIC20 CARTRIDGE ");
+            bytes.extend_from_slice(&0x40u32.to_be_bytes());
+            bytes.extend_from_slice(&0x0100u16.to_be_bytes());
+            bytes.extend_from_slice(&0u16.to_be_bytes());
+            bytes.extend_from_slice(&[0; 8 + 32]);
+            for (address, fill) in chips {
+                bytes.extend_from_slice(b"CHIP");
+                bytes.extend_from_slice(&0x2010u32.to_be_bytes());
+                bytes.extend_from_slice(&[0; 4]);
+                bytes.extend_from_slice(&address.to_be_bytes());
+                bytes.extend_from_slice(&0x2000u16.to_be_bytes());
+                bytes.extend(std::iter::repeat_n(*fill, 0x2000));
+            }
+            bytes
+        }
+
+        let mut sys = make_vic20();
+        sys.mem_write(0x2000, 0x11);
+        let image = crt(&[(0x2000, 0x22), (0xA000, 0x33)]);
+        sys.insert_cartridge_bytes(&image).expect("generic CRT");
+        assert_eq!(sys.peek(0x2000), 0x22, "BLK1 cartridge overlays RAM");
+        assert_eq!(sys.peek(0xA000), 0x33, "BLK5 cartridge replaces open bus");
+
+        sys.remove_cartridge();
+        assert_eq!(
+            sys.peek(0x2000),
+            0xFF,
+            "unexpanded BLK1 returns to open bus"
+        );
+        assert_eq!(sys.peek(0xA000), 0xFF, "BLK5 returns to open bus");
+    }
+
+    #[test]
+    fn raw_blk5_autostart_signature_is_visible_to_the_kernal() {
+        let mut sys = make_vic20();
+        let mut image = vec![0; 0x2000];
+        image[0..4].copy_from_slice(&[0x09, 0xA0, 0x09, 0xA0]);
+        image[4..9].copy_from_slice(&[0x41, 0x30, 0xC3, 0xC2, 0xCD]);
+        sys.insert_cartridge_bytes(&image).expect("raw BLK5 ROM");
+        assert!(sys.cartridge_is_autostart());
+        assert_eq!(&[sys.peek(0xA004), sys.peek(0xA005)], &[0x41, 0x30]);
     }
 }
