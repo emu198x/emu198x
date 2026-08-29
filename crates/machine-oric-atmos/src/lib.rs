@@ -355,24 +355,24 @@ impl OricAtmos {
     /// Inspect VIA control state and drive the AY accordingly.
     fn process_ay_bus(&mut self) {
         let pcr = self.via.peek(0x0C);
-        // CA2 → AY BDIR; CB2 → AY BC1. The Oric uses PCR's "fixed
+        // CA2 → AY BC1; CB2 → AY BDIR. The Oric uses PCR's "fixed
         // high output" mode bit pattern (0b111) to drive these high.
-        let bdir = (pcr & 0x0E) == 0x0E;
-        let bc1 = (pcr & 0xE0) == 0xE0;
+        let ca2 = (pcr & 0x0E) == 0x0E;
+        let cb2 = (pcr & 0xE0) == 0xE0;
         let port_a = self.via.ora();
-        match (bdir, bc1) {
+        match (ca2, cb2) {
             (true, true) => {
                 self.psg.select_register(port_a);
             }
             (true, false) => {
+                let ay_data = self.psg.read_data();
+                self.via.pa_in = ay_data;
+            }
+            (false, true) => {
                 if let Some(w) = &mut self.ay_watch {
                     w.record(self.cpu.regs.pc, self.psg.selected_register(), port_a);
                 }
                 self.psg.write_data(port_a);
-            }
-            (false, true) => {
-                let ay_data = self.psg.read_data();
-                self.via.pa_in = ay_data;
             }
             (false, false) => {}
         }
@@ -387,10 +387,10 @@ impl OricAtmos {
     /// `keyboard[col] | row_mask` has any zero bit. (MAME oric `write_pb3`.)
     fn scan_keyboard(&mut self) {
         let col = (self.via.orb() & 0x07) as usize;
-        // The scan routine drives the row mask on VIA port A directly
-        // (one row pulled low at a time); port A is shared with the AY
-        // bus but carries the row mask when the AY is not being addressed.
-        let row_mask = self.via.ora();
+        // AY port A drives the row mask. MAME receives this through the PSG's
+        // port-A output callback; reading the VIA latch directly bypasses the
+        // AY and lets uncommitted data affect the keyboard matrix.
+        let row_mask = self.psg.port_a_output();
         if (self.keyboard[col] | row_mask) != 0xFF {
             self.via.pb_in |= 0x08;
         } else {
@@ -826,17 +826,31 @@ mod tests {
     }
 
     #[test]
-    fn ay_register_latch_via_pcr() {
+    fn ay_bus_decodes_all_four_ca2_cb2_phases() {
         let mut sys = OricAtmos::new(trap_rom(), OricModel::Atmos);
-        // DDRA = $FF (port A all output).
         sys.mem_write(0x0303, 0xFF);
-        // Put 7 in port A latch (target AY register = 7).
+
+        // CA2=1, CB2=1: latch the register address.
         sys.mem_write(0x0301, 0x07);
-        // PCR = $EE → both CA2 and CB2 in "fixed high" output mode
-        // → BDIR=1, BC1=1 → latch register address.
         sys.mem_write(0x030C, 0xEE);
-        // AY's selected register should now be 7.
         assert_eq!(sys.psg.selected_register(), 7);
+
+        // CA2=0, CB2=1: write port A to the selected register.
+        sys.mem_write(0x030C, 0xCC);
+        sys.mem_write(0x0301, 0x38);
+        sys.mem_write(0x030C, 0xEC);
+        assert_eq!(sys.psg.registers()[7], 0x38);
+
+        // CA2=1, CB2=0: read the selected register onto VIA port A.
+        sys.via.pa_in = 0;
+        sys.mem_write(0x030C, 0xCE);
+        assert_eq!(sys.via.pa_in, 0x38);
+
+        // CA2=0, CB2=0: inactive; neither selected register nor data changes.
+        sys.mem_write(0x030C, 0xCC);
+        sys.mem_write(0x0301, 0xFF);
+        assert_eq!(sys.psg.selected_register(), 7);
+        assert_eq!(sys.psg.registers()[7], 0x38);
     }
 
     #[test]
@@ -848,16 +862,16 @@ mod tests {
         assert!(cap > 0);
 
         // Drive a select-then-write for R7=0x38, then R8=0x0F, the way the
-        // ROM does: load port A, then pulse PCR for BDIR/BC1. PCR=$EE
-        // selects (BDIR=1,BC1=1); PCR=$0E writes (BDIR=1,BC1=0); PCR=$00 is
+        // ROM does: load port A, then pulse PCR for BC1/BDIR. PCR=$EE
+        // selects (CA2=1,CB2=1); PCR=$EC writes (CA2=0,CB2=1); PCR=$00 is
         // inactive so a port-A load between operations is not latched.
         let program = |sys: &mut OricAtmos, reg: u8, val: u8| {
             sys.mem_write(0x030C, 0x00); // inactive
             sys.mem_write(0x0301, reg); // port A = register index
-            sys.mem_write(0x030C, 0xEE); // BDIR=1,BC1=1 → select
+            sys.mem_write(0x030C, 0xEE); // CA2=1,CB2=1 → select
             sys.mem_write(0x030C, 0x00); // inactive
             sys.mem_write(0x0301, val); // port A = data
-            sys.mem_write(0x030C, 0x0E); // BDIR=1,BC1=0 → write data
+            sys.mem_write(0x030C, 0xEC); // CA2=0,CB2=1 → write data
         };
         program(&mut sys, 7, 0x38);
         program(&mut sys, 8, 0x0F);
@@ -876,20 +890,40 @@ mod tests {
     #[test]
     fn keyboard_senses_on_pb3() {
         let mut sys = OricAtmos::new(trap_rom(), OricModel::Atmos);
+        sys.mem_write(0x0303, 0xFF); // DDRA: PSG data bus output
         // Press the key at column 3, row 5.
         sys.press_key(3, 5);
         // Select column 3 on port B (PB0-2).
         sys.mem_write(0x0300, 0x03);
-        // Drive row 5 low on port A: the pressed key grounds the sense,
-        // so PB3 reads high. (Writing ORA also re-runs the scan.)
-        sys.mem_write(0x0301, !(1u8 << 5));
+
+        let write_port_a = |sys: &mut OricAtmos, value: u8| {
+            sys.mem_write(0x030C, 0x00);
+            sys.mem_write(0x0301, 14);
+            sys.mem_write(0x030C, 0xEE); // select AY port A
+            sys.mem_write(0x030C, 0x00);
+            sys.mem_write(0x0301, value);
+            sys.mem_write(0x030C, 0xEC); // write AY port A
+        };
+
+        // Drive row 5 low through AY port A: the pressed key grounds the
+        // sense, so PB3 reads high.
+        write_port_a(&mut sys, !(1u8 << 5));
         assert_ne!(sys.via.pb_in & 0x08, 0, "PB3 should sense the pressed key");
         // Driving a different row leaves the sense clear.
-        sys.mem_write(0x0301, !(1u8 << 2));
+        write_port_a(&mut sys, !(1u8 << 2));
         assert_eq!(
             sys.via.pb_in & 0x08,
             0,
             "PB3 clear when the row is not driven"
+        );
+
+        // A VIA latch change without an AY write must not alter the matrix.
+        sys.mem_write(0x030C, 0x00);
+        sys.mem_write(0x0301, !(1u8 << 5));
+        assert_eq!(
+            sys.via.pb_in & 0x08,
+            0,
+            "the VIA latch does not bypass AY port A"
         );
     }
 
