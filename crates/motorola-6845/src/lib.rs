@@ -103,7 +103,11 @@ pub struct Crtc6845 {
     hsync_counter: u8,
     vsync_counter: u8,
 
-    /// Cursor address (R14:R15).
+    /// Fields elapsed, used by R10's 16/32-field cursor blink modes.
+    #[serde(default)]
+    cursor_blink_count: u8,
+
+    /// Cursor output after address, raster-shape, and blink gating.
     pub cursor_active: bool,
 }
 
@@ -128,6 +132,7 @@ impl Crtc6845 {
             display_enable: false,
             hsync_counter: 0,
             vsync_counter: 0,
+            cursor_blink_count: 0,
             cursor_active: false,
         }
     }
@@ -239,8 +244,9 @@ impl Crtc6845 {
             self.ma = self.ma.wrapping_add(1) & 0x3FFF;
         }
 
-        // Cursor detection — compare against the address being displayed now.
-        self.cursor_active = self.display_enable && self.ma_output == self.cursor_address();
+        // Cursor detection — R14/R15 choose the cell, R10/R11 choose its
+        // raster shape, and R10 also gates it steadily/off/at 16 or 32 fields.
+        self.cursor_active = self.cursor_visible();
 
         // HSYNC generation
         if self.h_counter == h_sync_pos {
@@ -270,6 +276,39 @@ impl Crtc6845 {
         new_frame
     }
 
+    fn cursor_visible(&self) -> bool {
+        if !self.display_enable || self.ma_output != self.cursor_address() {
+            return false;
+        }
+
+        let mode = self.regs[10] & 0x60;
+        let blink_visible = match mode {
+            0x00 => true,
+            0x20 => false,
+            0x40 => self.cursor_blink_count & 0x10 != 0,
+            0x60 => self.cursor_blink_count & 0x20 != 0,
+            _ => unreachable!(),
+        };
+        if !blink_visible {
+            return false;
+        }
+
+        let start = self.regs[10] & 0x1f;
+        let end = self.regs[11] & 0x1f;
+        let max = self.max_scanline();
+        if start > max {
+            return false;
+        }
+
+        match self.variant {
+            Crtc6845Variant::Mc6845 if start > end => self.ra <= end || self.ra >= start,
+            Crtc6845Variant::Mc6845 if end > max => true,
+            Crtc6845Variant::Mc6845 | Crtc6845Variant::Hd6845s => {
+                start <= end && self.ra >= start && self.ra <= end
+            }
+        }
+    }
+
     /// Advance vertical counters at end of each horizontal line.
     /// Returns true at frame start.
     fn advance_vertical(&mut self) -> bool {
@@ -288,6 +327,7 @@ impl Crtc6845 {
                 self.ra = 0;
                 self.ma = self.start_address();
                 self.row_start = self.ma;
+                self.cursor_blink_count = self.cursor_blink_count.wrapping_add(1);
                 return true;
             }
             return false;
@@ -328,6 +368,7 @@ impl Crtc6845 {
                     self.ra = 0;
                     self.ma = self.start_address();
                     self.row_start = self.ma;
+                    self.cursor_blink_count = self.cursor_blink_count.wrapping_add(1);
                     return true;
                 }
             }
@@ -354,7 +395,7 @@ impl Crtc6845 {
     /// Serialize CRTC state for save states.
     #[must_use]
     pub fn save_state(&self) -> Vec<u8> {
-        let mut data = Vec::with_capacity(32);
+        let mut data = Vec::with_capacity(37);
         data.push(self.selected);
         data.extend_from_slice(&self.regs);
         data.push(self.h_counter);
@@ -371,6 +412,7 @@ impl Crtc6845 {
         data.push(self.hsync_counter);
         data.push(self.vsync_counter);
         data.push(u8::from(self.cursor_active));
+        data.push(self.cursor_blink_count);
         data
     }
 
@@ -380,7 +422,7 @@ impl Crtc6845 {
     ///
     /// Returns an error if the data is too short.
     pub fn load_state(&mut self, data: &[u8]) -> Result<usize, String> {
-        if data.len() < 35 {
+        if data.len() < 36 {
             return Err("CRTC state truncated".into());
         }
         let mut p = 0;
@@ -416,6 +458,8 @@ impl Crtc6845 {
         p += 1;
         self.cursor_active = data[p] != 0;
         p += 1;
+        self.cursor_blink_count = data.get(p).copied().unwrap_or(0);
+        p += usize::from(data.len() > p);
         Ok(p)
     }
 }
@@ -599,6 +643,75 @@ mod tests {
         }
         // MA should have advanced from the start
         assert!(crtc.memory_address() > ma_start);
+    }
+
+    fn cursor_at(crtc: &mut Crtc6845, raster: u8, blink_count: u8) -> bool {
+        crtc.display_enable = true;
+        crtc.ma_output = 0x0123;
+        crtc.regs[14] = 0x01;
+        crtc.regs[15] = 0x23;
+        crtc.regs[9] = 7;
+        crtc.ra = raster;
+        crtc.cursor_blink_count = blink_count;
+        crtc.cursor_visible()
+    }
+
+    #[test]
+    fn cursor_is_present_only_between_r10_and_r11_inclusive() {
+        let mut crtc = Crtc6845::new();
+        crtc.regs[10] = 2;
+        crtc.regs[11] = 5;
+        for raster in 0..=7 {
+            assert_eq!(cursor_at(&mut crtc, raster, 0), (2..=5).contains(&raster));
+        }
+    }
+
+    #[test]
+    fn mc6845_wraps_a_split_cursor_but_hd6845s_does_not() {
+        let mut crtc = Crtc6845::new();
+        crtc.regs[10] = 6;
+        crtc.regs[11] = 1;
+        for raster in 0..=7 {
+            assert_eq!(cursor_at(&mut crtc, raster, 0), raster <= 1 || raster >= 6);
+        }
+        crtc.set_variant(Crtc6845Variant::Hd6845s);
+        for raster in 0..=7 {
+            assert!(!cursor_at(&mut crtc, raster, 0));
+        }
+    }
+
+    #[test]
+    fn r10_selects_steady_hidden_and_16_or_32_field_blink() {
+        let mut crtc = Crtc6845::new();
+        crtc.regs[11] = 0;
+        for (mode, count, visible) in [
+            (0x00, 0, true),
+            (0x20, 0, false),
+            (0x40, 15, false),
+            (0x40, 16, true),
+            (0x40, 32, false),
+            (0x60, 31, false),
+            (0x60, 32, true),
+            (0x60, 64, false),
+        ] {
+            crtc.regs[10] = mode;
+            assert_eq!(cursor_at(&mut crtc, 0, count), visible);
+        }
+    }
+
+    #[test]
+    fn old_explicit_state_loads_with_a_reset_blink_phase() {
+        let crtc = Crtc6845::new();
+        let mut old = crtc.save_state();
+        old.pop();
+        let mut restored = Crtc6845::new();
+        assert_eq!(
+            restored
+                .load_state(&old)
+                .expect("the legacy state should load"),
+            old.len()
+        );
+        assert_eq!(restored.cursor_blink_count, 0);
     }
 }
 #[cfg(test)]
