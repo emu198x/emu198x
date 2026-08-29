@@ -4,6 +4,17 @@ All notable changes to Emu198x will be documented in this file.
 
 Format loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 not strictly. Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [0.7.1] - 2026-08-29
+
+
+### Fixed
+
+- *(sm83)* Make ISA disassembly upgrades reviewable
+- *(pokey)* Correct distortion polynomial gates
+- Expose the VIC-20 live raster register
+- Route SVI PSG audio to the host
+- Correct the Oric AY VIA decode
+
 ## [0.7.0] - 2026-08-27
 
 
