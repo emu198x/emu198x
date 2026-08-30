@@ -21,11 +21,11 @@ default = ["ui"]
 ui = ["dep:emu198x-ui"]
 
 [dependencies]
-emu198x-shell = { path = "../emu198x-shell", version = "0.7.0" }
-emu198x-ui = { path = "../emu198x-ui", version = "0.7.0", optional = true }
-machine-sinclair-zx81 = { path = "../machine-sinclair-zx81", version = "0.7.0" }
+emu198x-shell = { path = "../emu198x-shell", version = "0.8.0" }
+emu198x-ui = { path = "../emu198x-ui", version = "0.8.0", optional = true }
+machine-sinclair-zx81 = { path = "../machine-sinclair-zx81", version = "0.8.0" }
 png = { workspace = true }
-runtime-sinclair-zx81 = { path = "../runtime-sinclair-zx81", version = "0.7.0" }
+runtime-sinclair-zx81 = { path = "../runtime-sinclair-zx81", version = "0.8.0" }
 serde_json = { workspace = true }
 
 [lints]

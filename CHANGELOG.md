@@ -4,6 +4,29 @@ All notable changes to Emu198x will be documented in this file.
 
 Format loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 not strictly. Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [0.8.0] - 2026-08-30
+
+
+### Added
+
+- VIC-20 programs now load through the standard media slot, selecting the
+  canonical 3 KiB, unexpanded, or 8 KiB RAM configuration from the PRG load
+  address before starting BASIC.
+- VIC-20 generic CRT and raw BLK5 cartridges now map through the standard
+  cartridge slot, persist across resets and snapshots, and cold-start through
+  the real KERNAL probe. Static multi-block CRT images are supported; hardware
+  with bank-switching I/O remains explicitly rejected.
+
+### Fixed
+
+- PET 80-column models now clock the CRTC at its real 2 MHz character rate.
+- The 6845 cursor now follows its programmed raster range and blink mode.
+- Acorn Electron sound now uses the ULA's correct pitch divider and source mux.
+- VIC-20 display fetches now honour the programmable screen, colour-RAM, and
+  character-memory bases across the VIC-I's 14-bit bus; the existing
+  register-driven geometry and screen origin therefore work with relocated
+  displays as well as the KERNAL defaults.
+
 ## [0.7.1] - 2026-08-29
 
 

@@ -8,15 +8,15 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-atari-antic = { path = "../atari-antic", version = "0.7.0" }
-atari-gtia = { path = "../atari-gtia", version = "0.7.0" }
-atari-pokey = { path = "../atari-pokey", version = "0.7.0" }
+atari-antic = { path = "../atari-antic", version = "0.8.0" }
+atari-gtia = { path = "../atari-gtia", version = "0.8.0" }
+atari-pokey = { path = "../atari-pokey", version = "0.8.0" }
 emu198x-mos-6502 = { path = "../emu198x-mos-6502", version = "0.6.0" }
-mos-pia-6520 = { path = "../mos-pia-6520", version = "0.7.0" }
+mos-pia-6520 = { path = "../mos-pia-6520", version = "0.8.0" }
 serde = { workspace = true }
 
 [dev-dependencies]
-emu198x-test-skip = { path = "../emu198x-test-skip", version = "0.7.0" }
+emu198x-test-skip = { path = "../emu198x-test-skip", version = "0.8.0" }
 postcard = { workspace = true }
 
 [lints]
