@@ -96,30 +96,11 @@ const STEP_TSTATES: u32 = 1;
 /// moves, the sample instant or the origin moved — do not re-bless it.
 const FLOAT128K_EXPECTED_TSTATE: u32 = 14364;
 
-/// What the probe actually reads, recorded so the gate stays live (#942).
-///
-/// The derived target above is unchanged and is **not** re-blessed. This is a
-/// second constant, and the gap between the two is the open question.
-///
-/// `56e8148b` — "sample /INT at the instruction boundary" — moved *both*
-/// machines' floating-bus probes one T-state:
-///
-/// ```text
-///                 before         after      reference
-/// Float48K        14336 (fail)   14337      14338, Woody's hardware measurement
-/// Float128k       14364          14365      14364, derived
-/// ```
-///
-/// The two expectations had been blessed at different points in history and
-/// were never red at the same time, so the pair looked consistent. They are
-/// not: the 48K now reads one *short* of hardware while the 128K reads one
-/// *long* of its derivation, so they want opposite corrections and no single
-/// origin satisfies both.
-///
-/// That sampling change is settled correct, on the CPC's evidence rather than
-/// the Spectrum's — see
-/// `knowledge/decisions/zilog-z80-samples-int-at-the-instruction-boundary.md`.
-/// So this is not a regression to revert.
+/// Mark Woodmass's hardware-derived table independently gives the same 14364
+/// coordinate for the 128K. The core therefore carries a machine-specific
+/// read origin, just as the 48K does: this fixes when the CPU samples the live
+/// bus without moving the byte-exact raster model or the shared Z80 latch
+/// geometry.
 ///
 /// ## Why nothing here is fitted
 ///
@@ -158,11 +139,6 @@ const FLOAT128K_EXPECTED_TSTATE: u32 = 14364;
 /// interrupt event and its contention table read out of the vendored source
 /// rather than inferred. Until then this is recorded, not resolved.
 ///
-/// Recorded **exactly**, so it fails in either direction — including if it
-/// starts matching the derivation, which would be the news this is waiting
-/// for.
-const FLOAT128K_MEASURED_TSTATE: u32 = 14365;
-
 fn home() -> PathBuf {
     PathBuf::from(std::env::var_os("HOME").expect("HOME must be set"))
 }
@@ -461,17 +437,12 @@ fn float128k_prints_expected_tstate() {
     });
     assert_eq!(
         first_non_ff,
-        Some(FLOAT128K_MEASURED_TSTATE),
-        "Float128K first non-255 reading drifted from the recorded \
-         {FLOAT128K_MEASURED_TSTATE}\n\
-         (the derived target is {FLOAT128K_EXPECTED_TSTATE}; the one-T-state \
-         gap between them is #942 — see FLOAT128K_MEASURED_TSTATE's note)\n\
+        Some(FLOAT128K_EXPECTED_TSTATE),
+        "Float128K first non-255 reading drifted from the hardware-derived \
+         target {FLOAT128K_EXPECTED_TSTATE}\n\
          --- transcript ---\n{transcript}",
     );
-    eprintln!(
-        "\nFloat128K: first non-255 reading at {FLOAT128K_MEASURED_TSTATE} \
-         (derived target {FLOAT128K_EXPECTED_TSTATE}, #942)"
-    );
+    eprintln!("\nFloat128K: first non-255 reading at {FLOAT128K_EXPECTED_TSTATE}");
 }
 
 /// Save the current 128K framebuffer as an RGBA PNG using the Spectrum
