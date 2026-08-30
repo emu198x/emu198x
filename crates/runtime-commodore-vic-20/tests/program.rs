@@ -39,3 +39,36 @@ fn expanded_basic_prg_selects_8k_loads_and_queues_run() {
     assert_eq!(machine.peek(0x1201), 0x0B);
     assert_eq!(machine.peek(0x1205), 0x9E);
 }
+
+#[test]
+#[ignore = "FIXTURE: needs VIC-20 ROM set — run with --ignored"]
+fn expanded_basic_prg_executes_its_sys_entry_point() {
+    let (Some(kernal), Some(basic), Some(char_rom)) =
+        (rom("kernal.rom"), rom("basic.rom"), rom("char.rom"))
+    else {
+        panic!("VIC-20 ROM set not found at ~/.emu198x/roms/commodore-vic-20/");
+    };
+    let runtime =
+        Vic20Runtime::new(Model::Vic20Pal, kernal, basic, char_rom).expect("build runtime");
+    let mut session =
+        HeadlessSession::new_with_query_provider(runtime, 71 * 312, Vic20SessionQueryProvider);
+
+    // 10 SYS4624, followed at $1210 by LDA #$2A / STA $0340 / RTS.
+    let mut prg = vec![
+        0x01, 0x12, 0x0B, 0x12, 0x0A, 0x00, 0x9E, b'4', b'6', b'2', b'4', 0, 0, 0,
+    ];
+    prg.resize(2 + (0x1210 - 0x1201), 0);
+    prg.extend_from_slice(&[0xA9, 0x2A, 0x8D, 0x40, 0x03, 0x60]);
+
+    let mut media = MediaSet::new();
+    media.push(MediaImage::new("program-1", MediaKind::Program, &prg));
+    session.prepare(&media, &[]).expect("PRG is accepted");
+    session.run_frames(240).expect("boot, autoload, and RUN");
+
+    let machine = session.machine().machine().expect("machine");
+    assert_eq!(
+        machine.peek(0x0340),
+        0x2A,
+        "SYS entry point did not execute"
+    );
+}
