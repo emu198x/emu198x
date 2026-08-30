@@ -8,8 +8,8 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-ti-sn76489 = { path = "../ti-sn76489", version = "0.10.0" }
-ti-tms9918 = { path = "../ti-tms9918", version = "0.10.0" }
+ti-sn76489 = { path = "../ti-sn76489", version = "0.11.0" }
+ti-tms9918 = { path = "../ti-tms9918", version = "0.11.0" }
 emu198x-zilog-z80 = { path = "../emu198x-zilog-z80", version = "0.6.0" }
 serde = { workspace = true }
 serde-big-array = { workspace = true }

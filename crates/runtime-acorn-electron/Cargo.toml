@@ -8,10 +8,10 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-common-acorn-cassette = { path = "../common-acorn-cassette", version = "0.10.0" }
-emu198x-shell = { path = "../emu198x-shell", version = "0.10.0" }
-format-acorn-uef = { path = "../format-acorn-uef", version = "0.10.0" }
-machine-acorn-electron = { path = "../machine-acorn-electron", version = "0.10.0" }
+common-acorn-cassette = { path = "../common-acorn-cassette", version = "0.11.0" }
+emu198x-shell = { path = "../emu198x-shell", version = "0.11.0" }
+format-acorn-uef = { path = "../format-acorn-uef", version = "0.11.0" }
+machine-acorn-electron = { path = "../machine-acorn-electron", version = "0.11.0" }
 postcard = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
