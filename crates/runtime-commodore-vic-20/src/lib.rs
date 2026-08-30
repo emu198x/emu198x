@@ -13,4 +13,4 @@ pub use profiles::{
 };
 pub use queries::Vic20SessionQueryProvider;
 pub use runtime::Vic20Runtime;
-pub use serial::BitBangSerial;
+pub use serial::{BitBangSerial, EspAtModem, EspAtTcpBridge};
