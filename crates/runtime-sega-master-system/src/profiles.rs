@@ -10,6 +10,8 @@ use runtime_sega_master_system_class::{SmsRuntime, SmsVariant};
 pub enum Model {
     /// Master System NTSC.
     SmsNtsc,
+    /// Japanese Master System NTSC.
+    SmsJapanNtsc,
     /// Master System PAL.
     SmsPal,
     /// Early Master System (NTSC) with the 315-5124 VDP.
@@ -23,6 +25,7 @@ impl Model {
     pub const fn model_id(self) -> &'static str {
         match self {
             Self::SmsNtsc => "sega-master-system-ntsc",
+            Self::SmsJapanNtsc => "sega-master-system-japan-ntsc",
             Self::SmsPal => "sega-master-system-pal",
             Self::Sms1Ntsc => "sega-master-system-1-ntsc",
             Self::Sms1Pal => "sega-master-system-1-pal",
@@ -38,6 +41,7 @@ impl Model {
     pub const fn display_name(self) -> &'static str {
         match self {
             Self::SmsNtsc => "Sega Master System (NTSC)",
+            Self::SmsJapanNtsc => "Sega Master System (Japan, NTSC)",
             Self::SmsPal => "Sega Master System (PAL)",
             Self::Sms1Ntsc => "Sega Master System 1 (NTSC)",
             Self::Sms1Pal => "Sega Master System 1 (PAL)",
@@ -48,7 +52,7 @@ impl Model {
     pub const fn region(self) -> Region {
         match self {
             Self::SmsPal | Self::Sms1Pal => Region::Pal,
-            Self::SmsNtsc | Self::Sms1Ntsc => Region::Ntsc,
+            Self::SmsNtsc | Self::SmsJapanNtsc | Self::Sms1Ntsc => Region::Ntsc,
         }
     }
 
@@ -56,7 +60,7 @@ impl Model {
     #[must_use]
     pub const fn z80_hz(self) -> u64 {
         match self {
-            Self::SmsNtsc | Self::Sms1Ntsc => NTSC_Z80_HZ,
+            Self::SmsNtsc | Self::SmsJapanNtsc | Self::Sms1Ntsc => NTSC_Z80_HZ,
             Self::SmsPal | Self::Sms1Pal => PAL_Z80_HZ,
         }
     }
@@ -74,6 +78,9 @@ impl Model {
             Self::SmsNtsc | Self::SmsPal => {
                 "Sega Master System — Z80A + Sega VDP (315-5246) + SN76489, 8 KB RAM, Sega mapper cartridge boot."
             }
+            Self::SmsJapanNtsc => {
+                "Japanese Sega Master System — Z80A + Sega VDP (315-5246) + SN76489, 8 KB RAM, and Japanese I/O-chip behaviour."
+            }
             Self::Sms1Ntsc | Self::Sms1Pal => {
                 "Early Sega Master System — Z80A + Sega VDP (315-5124) + SN76489, 8 KB RAM, Sega mapper cartridge boot."
             }
@@ -84,6 +91,7 @@ impl Model {
     pub const fn variant(self) -> SmsVariant {
         match self {
             Self::SmsNtsc => SmsVariant::SmsNtsc,
+            Self::SmsJapanNtsc => SmsVariant::SmsJapanNtsc,
             Self::SmsPal => SmsVariant::SmsPal,
             Self::Sms1Ntsc => SmsVariant::Sms1Ntsc,
             Self::Sms1Pal => SmsVariant::Sms1Pal,
@@ -115,6 +123,7 @@ const PAL_Z80_HZ: u64 = 3_546_893;
 pub fn profiles() -> Vec<MachineProfile> {
     vec![
         profile_for(Model::SmsNtsc),
+        profile_for(Model::SmsJapanNtsc),
         profile_for(Model::SmsPal),
         profile_for(Model::Sms1Ntsc),
         profile_for(Model::Sms1Pal),
@@ -180,6 +189,7 @@ mod tests {
         use sega_vdp::VdpVariant;
         for (model, expected) in [
             (Model::SmsNtsc, VdpVariant::Sms2),
+            (Model::SmsJapanNtsc, VdpVariant::Sms2),
             (Model::SmsPal, VdpVariant::Sms2),
             (Model::Sms1Ntsc, VdpVariant::Sms1),
             (Model::Sms1Pal, VdpVariant::Sms1),

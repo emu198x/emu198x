@@ -112,8 +112,11 @@ const MEMORY_DISABLE_CARTRIDGE: u8 = 0x40;
 /// SMS / Game Gear system variant.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SmsVariant {
-    /// Sega Master System (NTSC — Japan / US / Brazil), 315-5246 VDP.
+    /// Export Sega Master System (NTSC — US / Brazil), 315-5246 VDP.
     SmsNtsc,
+    /// Japanese Sega Master System (NTSC), whose I/O chip reports
+    /// output-configured TH pins differently from export machines.
+    SmsJapanNtsc,
     /// Sega Master System (PAL — Europe), 315-5246 VDP.
     SmsPal,
     /// Early Sega Master System (NTSC) with the 315-5124 VDP.
@@ -141,6 +144,10 @@ impl SmsVariant {
 
     fn is_game_gear(self) -> bool {
         matches!(self, Self::GameGear)
+    }
+
+    fn is_japan(self) -> bool {
+        matches!(self, Self::SmsJapanNtsc)
     }
 
     /// Which revision of the VDP this machine carries.
@@ -627,9 +634,28 @@ impl Sms {
         }
         match port {
             1 => self.with_trigger(self.port_dc, 0, 4),
-            2 => self.with_trigger(self.port_dd, 1, 2),
+            2 => self.read_controller_port_dd(),
             _ => 0xFF,
         }
+    }
+
+    /// Controller/misc port `$DD`, including the TH pins software uses to
+    /// distinguish Japanese and export I/O hardware.
+    fn read_controller_port_dd(&self) -> u8 {
+        let mut value = self.with_trigger(self.port_dd, 1, 2);
+
+        // When TH is an input, the external pin remains visible. When it is an
+        // output, export hardware reflects the programmed level while Japanese
+        // hardware reads zero. There is no PAL/NTSC flag at $00 or $DD.
+        for (direction, output, input) in [(0x02, 0x20, 0x40), (0x08, 0x80, 0x80)] {
+            if self.io_control & direction == 0 {
+                value &= !input;
+                if !self.variant.is_japan() && self.io_control & output != 0 {
+                    value |= input;
+                }
+            }
+        }
+        value
     }
 
     /// A controller byte with any Light Phaser trigger folded in.
@@ -955,6 +981,45 @@ mod tests {
         );
     }
 
+    #[test]
+    fn th_output_readback_distinguishes_export_and_japanese_io_chips() {
+        for (variant, expected) in [
+            (SmsVariant::SmsNtsc, 0xC0),
+            (SmsVariant::SmsPal, 0xC0),
+            (SmsVariant::SmsJapanNtsc, 0x00),
+        ] {
+            let mut sys = Sms::new(trap_cart_64k(), variant);
+            sys.set_port_dd(0xFF);
+            // Both TH pins are outputs (direction bits 1/3 clear) driven high
+            // (level bits 5/7 set).
+            sys.io_write(0x3F, 0xA0);
+            assert_eq!(
+                sys.io_read(0xDD) & 0xC0,
+                expected,
+                "{variant:?} TH output readback"
+            );
+        }
+    }
+
+    #[test]
+    fn input_configured_th_pins_report_the_external_level_in_every_region() {
+        for variant in [SmsVariant::SmsNtsc, SmsVariant::SmsJapanNtsc] {
+            let mut sys = Sms::new(trap_cart_64k(), variant);
+            sys.set_port_dd(0xFF);
+            sys.io_write(0x3F, 0x0A); // both TH pins inputs
+            assert_eq!(sys.io_read(0xDD) & 0xC0, 0xC0, "{variant:?}");
+        }
+    }
+
+    #[test]
+    fn pal_and_ntsc_export_profiles_have_the_same_region_readback() {
+        let mut ntsc = Sms::new(trap_cart_64k(), SmsVariant::SmsNtsc);
+        let mut pal = Sms::new(trap_cart_64k(), SmsVariant::SmsPal);
+        ntsc.io_write(0x3F, 0xA0);
+        pal.io_write(0x3F, 0xA0);
+        assert_eq!(ntsc.io_read(0xDD), pal.io_read(0xDD));
+    }
+
     /// Two latches a known distance apart differ by half that in counts,
     /// because the counter is a beam position rather than a clock.
     #[test]
@@ -1097,6 +1162,7 @@ mod tests {
         let mut sys = Sms::new(trap_cart_64k(), SmsVariant::SmsNtsc);
         sys.set_port_dc(0xAA);
         sys.set_port_dd(0x55);
+        sys.io_write(0x3F, 0x0A); // both TH pins inputs, exposing external levels
         assert_eq!(sys.io_read(0xDC), 0xAA);
         assert_eq!(sys.io_read(0xDD), 0x55);
     }
