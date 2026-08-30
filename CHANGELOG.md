@@ -4,6 +4,22 @@ All notable changes to Emu198x will be documented in this file.
 
 Format loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 not strictly. Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [0.8.1] - 2026-08-30
+
+
+### Fixed
+
+- Identify unsupported Amiga IPF disks
+- Expose Einstein disk media through runtime
+- Detect MSX MegaROM mappers on media load
+- Model the standard MSX M1 wait state
+- Preserve distinct ZX80 and ZX81 picture origins
+- Select the GTIA palette by television standard
+- Correct Atari GTIA and ANTIC edge cases
+- Correct POKEY linked-channel dividers
+- Implement MARIA Kangaroo transparency mode
+- Correct Jupiter Ace expansion map
+
 ## [0.8.0] - 2026-08-30
 
 
