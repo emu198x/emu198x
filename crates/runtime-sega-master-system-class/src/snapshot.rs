@@ -1,7 +1,7 @@
 //! Postcard-encoded snapshot envelope for the Master System class.
 //!
 //! Serialises the **live machine** (Z80, Sega VDP, SN76489 PSG, cart ROM,
-//! RAM, and mapper registers) so a restore resumes exactly, rather than the
+//! work/cartridge RAM, and mapper registers) so a restore resumes exactly, rather than the
 //! old bootstrap envelope that cold-booted from the cart. Mirrors the SG-1000
 //! shape: a borrowing envelope for encode (no clone), an owning envelope for
 //! decode.
@@ -12,17 +12,14 @@ use serde::{Deserialize, Serialize};
 
 use crate::runtime::SmsRuntime;
 
-/// Bumped to 4 when the VDP framebuffer became region-sized. A snapshot
-/// carries the live chip, framebuffer included, so a version-3 PAL snapshot
-/// holds a 240-line buffer that a version-4 PAL machine would never allocate.
-/// Restoring it would resume into a geometry the machine disagrees with, and
-/// silently — so the version check rejects it instead. The Game Gear is
-/// unaffected either way: its LCD is 160x144 in both.
-const SNAPSHOT_VERSION: u16 = 5;
+/// Version 6 adds the cartridge SRAM backing store to the live machine state.
+/// Earlier snapshots cannot reconstruct battery-backed memory, so the version
+/// check rejects them instead of silently restoring an incomplete machine.
+const SNAPSHOT_VERSION: u16 = 6;
 
 /// Borrowing envelope used during encode — avoids cloning the live machine.
 #[derive(Serialize)]
-struct SmsRuntimeSnapshotRefV3<'a> {
+struct SmsRuntimeSnapshotRefV6<'a> {
     version: u16,
     time: u64,
     model_id: &'a str,
@@ -31,7 +28,7 @@ struct SmsRuntimeSnapshotRefV3<'a> {
 
 /// Owning envelope used during decode.
 #[derive(Deserialize)]
-struct SmsRuntimeSnapshotV3 {
+struct SmsRuntimeSnapshotV6 {
     version: u16,
     time: u64,
     model_id: String,
@@ -39,7 +36,7 @@ struct SmsRuntimeSnapshotV3 {
 }
 
 pub(crate) fn encode(runtime: &SmsRuntime) -> Result<Vec<u8>, MachineError> {
-    let snapshot = SmsRuntimeSnapshotRefV3 {
+    let snapshot = SmsRuntimeSnapshotRefV6 {
         version: SNAPSHOT_VERSION,
         time: runtime.time().get(),
         model_id: runtime.model_id(),
@@ -61,7 +58,7 @@ pub(crate) fn decode(runtime: &mut SmsRuntime, bytes: &[u8]) -> Result<(), Machi
             reason: format!("unsupported snapshot version {version}; expected {SNAPSHOT_VERSION}"),
         });
     }
-    let snapshot: SmsRuntimeSnapshotV3 =
+    let snapshot: SmsRuntimeSnapshotV6 =
         postcard::from_bytes(bytes).map_err(|reason| MachineError::InvalidSnapshot {
             reason: format!("decode failed: {reason}"),
         })?;
@@ -157,6 +154,24 @@ mod tests {
             MachineError::InvalidSnapshot { reason } => {
                 assert!(
                     reason.contains("unsupported snapshot version 2"),
+                    "unexpected reason: {reason}"
+                );
+            }
+            other => panic!("expected InvalidSnapshot, got {other:?}"),
+        }
+    }
+
+    /// Version 5 predates cartridge SRAM in the serialised machine.
+    #[test]
+    fn decode_rejects_version_5_before_payload_decode() {
+        let mut runtime = test_runtime();
+        let bytes = postcard::to_allocvec(&5_u16).expect("legacy version should encode");
+
+        let err = decode(&mut runtime, &bytes).expect_err("version 5 should reject");
+        match err {
+            MachineError::InvalidSnapshot { reason } => {
+                assert!(
+                    reason.contains("unsupported snapshot version 5"),
                     "unexpected reason: {reason}"
                 );
             }

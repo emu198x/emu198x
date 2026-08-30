@@ -39,7 +39,8 @@
 //! Writes to `$FFFC-$FFFF` in the RAM mirror window also update the
 //! mapper registers:
 //!
-//! - `$FFFC` — control register (bit 3 = cart RAM enable for page 2)
+//! - `$FFFC` — control register (bit 3 = cart RAM enable for page 2;
+//!   bit 2 selects either 16 KB RAM bank)
 //! - `$FFFD` — bank for slot 0 (`$0000-$3FFF` above the fixed 1 KB)
 //! - `$FFFE` — bank for slot 1 (`$4000-$7FFF`)
 //! - `$FFFF` — bank for slot 2 (`$8000-$BFFF`)
@@ -253,6 +254,9 @@ pub struct Sms {
     bios_rom: Vec<u8>,
     #[serde(with = "BigArray")]
     ram: [u8; 8192],
+    /// Battery-backed cartridge SRAM. The Sega mapper exposes either 16 KB
+    /// half at `$8000-$BFFF` when `$FFFC` bit 3 is set.
+    cartridge_ram: Vec<u8>,
     /// Sega mapper bank registers, shadowed from RAM writes at
     /// `$FFFC-$FFFF`.
     mapper_regs: [u8; 4],
@@ -313,6 +317,7 @@ impl Sms {
             cart_header,
             bios_rom,
             ram: [0; 8192],
+            cartridge_ram: vec![0xFF; 32768],
             mapper_regs: [0x00, 0x00, 0x01, 0x02],
             port_dc: 0xFF,
             port_dd: 0xFF,
@@ -457,7 +462,7 @@ impl Sms {
                 0x8000..=0xBFFF if self.mapper_regs[0] & 0x08 == 0 => {
                     self.read_rom(self.mapper_regs[3], (addr & 0x3FFF) as usize)
                 }
-                0x8000..=0xBFFF => 0xFF,
+                0x8000..=0xBFFF => self.cartridge_ram[self.cartridge_ram_addr(addr)],
                 _ => unreachable!(),
             };
         }
@@ -468,6 +473,14 @@ impl Sms {
     }
 
     fn mem_write(&mut self, addr: u16, value: u8) {
+        if (0x8000..=0xBFFF).contains(&addr)
+            && self.memory_control & MEMORY_DISABLE_CARTRIDGE == 0
+            && self.mapper_regs[0] & 0x08 != 0
+        {
+            let ram_addr = self.cartridge_ram_addr(addr);
+            self.cartridge_ram[ram_addr] = value;
+            return;
+        }
         if (0xC000..=0xFFFF).contains(&addr) {
             if self.memory_control & MEMORY_DISABLE_WORK_RAM == 0 {
                 self.ram[(addr & 0x1FFF) as usize] = value;
@@ -482,6 +495,11 @@ impl Sms {
                 }
             }
         }
+    }
+
+    fn cartridge_ram_addr(&self, addr: u16) -> usize {
+        let bank = usize::from((self.mapper_regs[0] & 0x04) != 0);
+        bank * 0x4000 + usize::from(addr & 0x3FFF)
     }
 
     fn io_read(&mut self, port: u16) -> u8 {
@@ -1064,7 +1082,7 @@ mod tests {
     }
 
     /// Save-state must capture LIVE machine state (Z80 + Sega VDP + SN76489
-    /// PSG + RAM + mapper), not cold-boot from the cart. Serialise, advance (so
+    /// PSG + work/cart RAM + mapper), not cold-boot from the cart. Serialise, advance (so
     /// the state differs), then deserialise the first snapshot and confirm
     /// re-serialising it is byte-identical — every stateful field across all
     /// three chips round-trips, including the VDP's 16 KB VRAM.
@@ -1073,6 +1091,8 @@ mod tests {
         let mut sys = Sms::new(trap_cart_64k(), SmsVariant::SmsNtsc);
         sys.run_frame();
         sys.poke(0xC100, 0xA5); // a work-RAM byte to carry across the snapshot
+        sys.poke(0xFFFC, 0x08);
+        sys.poke(0x8123, 0x5A); // a cartridge-SRAM byte to carry across it too
         sys.run_frame();
         let s1 = postcard::to_allocvec(&sys).expect("encode snapshot");
 
@@ -1081,6 +1101,7 @@ mod tests {
         assert_ne!(s1, s2, "running a frame should change the serialised state");
 
         let restored: Sms = postcard::from_bytes(&s1).expect("decode snapshot");
+        assert_eq!(restored.peek(0x8123), 0x5A);
         let s3 = postcard::to_allocvec(&restored).expect("re-encode restored");
         assert_eq!(
             s1, s3,
@@ -1147,6 +1168,38 @@ mod tests {
         assert_eq!(sys.mem_read(0x4000), 0xAA);
         sys.mem_write(0xFFFE, 2);
         assert_eq!(sys.mem_read(0x4000), 0xBB);
+    }
+
+    #[test]
+    fn sega_mapper_cartridge_ram_round_trips_and_restores_rom() {
+        let mut cart = vec![0u8; 0x10000];
+        cart[0x8000] = 0x42;
+        let mut sys = Sms::new(cart, SmsVariant::SmsNtsc);
+
+        assert_eq!(sys.mem_read(0x8000), 0x42);
+        sys.mem_write(0xFFFC, 0x08);
+        assert_eq!(sys.mem_read(0x8000), 0xFF);
+        sys.mem_write(0x8000, 0xA5);
+        assert_eq!(sys.mem_read(0x8000), 0xA5);
+
+        sys.mem_write(0xFFFC, 0x00);
+        assert_eq!(sys.mem_read(0x8000), 0x42);
+    }
+
+    #[test]
+    fn sega_mapper_selects_both_cartridge_ram_banks() {
+        let mut sys = Sms::new(trap_cart_64k(), SmsVariant::SmsNtsc);
+
+        sys.mem_write(0xFFFC, 0x08);
+        sys.mem_write(0xBFFF, 0x11);
+        sys.mem_write(0xFFFC, 0x0C);
+        assert_eq!(sys.mem_read(0xBFFF), 0xFF);
+        sys.mem_write(0xBFFF, 0x22);
+
+        sys.mem_write(0xFFFC, 0x08);
+        assert_eq!(sys.mem_read(0xBFFF), 0x11);
+        sys.mem_write(0xFFFC, 0x0C);
+        assert_eq!(sys.mem_read(0xBFFF), 0x22);
     }
 
     #[test]

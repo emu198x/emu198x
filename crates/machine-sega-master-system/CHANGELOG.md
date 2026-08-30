@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Route Sega-mapper cartridge SRAM reads and writes through the two banked 16 KB windows instead of returning `$FF`
+
 ## [0.2.0](https://github.com/emu198x/emu198x/releases/tag/machine-sega-master-system-v0.2.0) - 2026-06-04
 
 ### Added
