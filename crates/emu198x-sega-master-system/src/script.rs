@@ -161,7 +161,9 @@ fn run_cli(cli: Cli) -> Result<serde_json::Value, String> {
         );
     }
 
-    let runtime = with_cartridge(cli.variant.model(), cart_bytes);
+    let save_path = default_battery_save_path(&cart_path);
+    let mut runtime = with_cartridge(cli.variant.model(), cart_bytes);
+    load_battery_save(&mut runtime, &save_path)?;
     let mut session = HeadlessSession::new_with_query_provider(
         runtime,
         cli.variant.frame_ticks(),
@@ -203,12 +205,46 @@ fn run_cli(cli: Cli) -> Result<serde_json::Value, String> {
     let cart_loaded = machine.machine().is_some();
     let frame_count = machine.machine().map(|m| m.frame_count()).unwrap_or(0);
     observations.extend(session.blank_frame_observation());
+    write_battery_save(session.machine(), &save_path)?;
     Ok(json!({
         "cart_loaded": cart_loaded,
         "frames_run":  frame_count,
         "time":        session.time().get(),
         "observations": observations,
     }))
+}
+
+fn default_battery_save_path(cart_path: &Path) -> PathBuf {
+    let mut path = cart_path.to_path_buf();
+    path.set_extension("sav");
+    path
+}
+
+fn load_battery_save(
+    runtime: &mut runtime_sega_master_system::SmsRuntime,
+    path: &Path,
+) -> Result<(), String> {
+    match fs::read(path) {
+        Ok(bytes) => runtime
+            .restore_cartridge_save_image(&bytes)
+            .map_err(|err| format!("failed to restore battery save {}: {err}", path.display())),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(err) => Err(format!(
+            "failed to read battery save {}: {err}",
+            path.display()
+        )),
+    }
+}
+
+fn write_battery_save(
+    runtime: &runtime_sega_master_system::SmsRuntime,
+    path: &Path,
+) -> Result<(), String> {
+    let Some(image) = runtime.cartridge_save_image() else {
+        return Ok(());
+    };
+    fs::write(path, image)
+        .map_err(|err| format!("failed to write battery save {}: {err}", path.display()))
 }
 
 fn load_cart_bytes(path: &Path) -> Result<Vec<u8>, String> {
@@ -218,6 +254,17 @@ fn load_cart_bytes(path: &Path) -> Result<Vec<u8>, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn temporary_save_path() -> PathBuf {
+        std::env::temp_dir().join(format!(
+            "emu198x-sms-save-{}-{}.sav",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system clock should follow Unix epoch")
+                .as_nanos()
+        ))
+    }
 
     #[test]
     fn parse_cli_defaults() {
@@ -240,5 +287,29 @@ mod tests {
         let cli = parse_cli(argv);
         assert_eq!(cli.cart.expect("parsed by CLI"), Path::new("/tmp/cart"));
         assert_eq!(cli.variant, Variant::SmsPal);
+    }
+
+    #[test]
+    fn battery_save_is_created_only_after_sram_changes_and_loads_cleanly() {
+        let path = temporary_save_path();
+        let mut runtime = with_cartridge(Model::SmsNtsc, vec![0; 0x10000]);
+
+        write_battery_save(&runtime, &path).expect("clean cartridge should be skipped");
+        assert!(!path.exists());
+
+        let machine = runtime.machine_mut().expect("cartridge should be loaded");
+        machine.poke(0xFFFC, 0x08);
+        machine.poke(0x8123, 0x5A);
+        write_battery_save(&runtime, &path).expect("changed SRAM should save");
+        assert_eq!(fs::metadata(&path).expect("save should exist").len(), 32768);
+
+        let mut restored = with_cartridge(Model::SmsNtsc, vec![0; 0x10000]);
+        load_battery_save(&mut restored, &path).expect("save should load");
+        let machine = restored.machine_mut().expect("cartridge should be loaded");
+        machine.poke(0xFFFC, 0x08);
+        assert_eq!(machine.peek(0x8123), 0x5A);
+        assert!(restored.cartridge_save_image().is_none());
+
+        fs::remove_file(path).expect("temporary save should be removable");
     }
 }

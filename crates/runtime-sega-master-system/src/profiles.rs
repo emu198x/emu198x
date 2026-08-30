@@ -147,7 +147,7 @@ pub fn profile_for(model: Model) -> MachineProfile {
             "Cartridge Slot",
             MediaKind::Cartridge,
             true,
-            WritebackPolicy::InMemoryOnly,
+            WritebackPolicy::SidecarOnly,
         )],
         capabilities: CapabilitySet::with_all([
             known_capability("controller-input"),
@@ -201,6 +201,16 @@ mod tests {
                 expected,
                 "{} should carry a {expected:?} VDP",
                 model.model_id()
+            );
+        }
+    }
+
+    #[test]
+    fn cartridge_slot_uses_sidecar_writeback() {
+        for profile in profiles() {
+            assert_eq!(
+                profile.media_slots[0].writeback,
+                WritebackPolicy::SidecarOnly
             );
         }
     }

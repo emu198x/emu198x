@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Load and flush Master System battery-backed cartridge SRAM through `.sav` sidecars in UI and headless modes
+
 ## [0.2.0](https://github.com/emu198x/emu198x/releases/tag/emu198x-sega-master-system-v0.2.0) - 2026-06-04
 
 ### Added

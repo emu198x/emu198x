@@ -12,14 +12,14 @@ use serde::{Deserialize, Serialize};
 
 use crate::runtime::SmsRuntime;
 
-/// Version 6 adds the cartridge SRAM backing store to the live machine state.
+/// Version 7 adds the cartridge SRAM writeback state to the live machine state.
 /// Earlier snapshots cannot reconstruct battery-backed memory, so the version
 /// check rejects them instead of silently restoring an incomplete machine.
-const SNAPSHOT_VERSION: u16 = 6;
+const SNAPSHOT_VERSION: u16 = 7;
 
 /// Borrowing envelope used during encode — avoids cloning the live machine.
 #[derive(Serialize)]
-struct SmsRuntimeSnapshotRefV6<'a> {
+struct SmsRuntimeSnapshotRefV7<'a> {
     version: u16,
     time: u64,
     model_id: &'a str,
@@ -28,7 +28,7 @@ struct SmsRuntimeSnapshotRefV6<'a> {
 
 /// Owning envelope used during decode.
 #[derive(Deserialize)]
-struct SmsRuntimeSnapshotV6 {
+struct SmsRuntimeSnapshotV7 {
     version: u16,
     time: u64,
     model_id: String,
@@ -36,7 +36,7 @@ struct SmsRuntimeSnapshotV6 {
 }
 
 pub(crate) fn encode(runtime: &SmsRuntime) -> Result<Vec<u8>, MachineError> {
-    let snapshot = SmsRuntimeSnapshotRefV6 {
+    let snapshot = SmsRuntimeSnapshotRefV7 {
         version: SNAPSHOT_VERSION,
         time: runtime.time().get(),
         model_id: runtime.model_id(),
@@ -58,7 +58,7 @@ pub(crate) fn decode(runtime: &mut SmsRuntime, bytes: &[u8]) -> Result<(), Machi
             reason: format!("unsupported snapshot version {version}; expected {SNAPSHOT_VERSION}"),
         });
     }
-    let snapshot: SmsRuntimeSnapshotV6 =
+    let snapshot: SmsRuntimeSnapshotV7 =
         postcard::from_bytes(bytes).map_err(|reason| MachineError::InvalidSnapshot {
             reason: format!("decode failed: {reason}"),
         })?;
@@ -172,6 +172,24 @@ mod tests {
             MachineError::InvalidSnapshot { reason } => {
                 assert!(
                     reason.contains("unsupported snapshot version 5"),
+                    "unexpected reason: {reason}"
+                );
+            }
+            other => panic!("expected InvalidSnapshot, got {other:?}"),
+        }
+    }
+
+    /// Version 6 predates the SRAM writeback signal.
+    #[test]
+    fn decode_rejects_version_6_before_payload_decode() {
+        let mut runtime = test_runtime();
+        let bytes = postcard::to_allocvec(&6_u16).expect("legacy version should encode");
+
+        let err = decode(&mut runtime, &bytes).expect_err("version 6 should reject");
+        match err {
+            MachineError::InvalidSnapshot { reason } => {
+                assert!(
+                    reason.contains("unsupported snapshot version 6"),
                     "unexpected reason: {reason}"
                 );
             }

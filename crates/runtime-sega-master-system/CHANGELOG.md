@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Persist changed Master System cartridge SRAM beside the ROM as a 32 KB `.sav` file
+
 ### Changed
 
 - Advance live-machine snapshots to version 6 so cartridge SRAM survives save-state round trips; version 5 predates SRAM machine state
