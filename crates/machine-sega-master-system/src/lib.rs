@@ -99,6 +99,16 @@ const PAL_TSTATES_PER_FRAME: u64 = CPU_TSTATES_PER_SCANLINE * PAL_SCANLINES_PER_
 const NTSC_PSG_CLOCK_HZ: u32 = 3_579_545;
 const PAL_PSG_CLOCK_HZ: u32 = 3_546_893;
 
+// Port $3E is active low. A no-BIOS machine starts with cartridge, work RAM,
+// and controllers enabled; unused external/card slots and the absent BIOS are
+// disabled. A BIOS machine starts in Sega's documented $E0 power-on map.
+const MEMORY_CONTROL_NO_BIOS: u8 = 0xA8;
+const MEMORY_CONTROL_WITH_BIOS: u8 = 0xE0;
+const MEMORY_DISABLE_IO: u8 = 0x04;
+const MEMORY_DISABLE_BIOS: u8 = 0x08;
+const MEMORY_DISABLE_WORK_RAM: u8 = 0x10;
+const MEMORY_DISABLE_CARTRIDGE: u8 = 0x40;
+
 /// SMS / Game Gear system variant.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SmsVariant {
@@ -227,6 +237,8 @@ pub struct Sms {
     vdp: SegaVdp,
     psg: Sn76489,
     cart_rom: Vec<u8>,
+    /// Optional base-unit boot ROM, selected through memory-control port $3E.
+    bios_rom: Vec<u8>,
     #[serde(with = "BigArray")]
     ram: [u8; 8192],
     /// Sega mapper bank registers, shadowed from RAM writes at
@@ -245,6 +257,8 @@ pub struct Sms {
     /// Port $3F, the I/O control register. Bits 1 and 3 set the controller
     /// ports' TH pins to input; bits 5 and 7 are their output levels.
     io_control: u8,
+    /// Port $3E active-low memory/device enables.
+    memory_control: u8,
     /// A Light Phaser in each controller port, if one is plugged in.
     phasers: [LightPhaser; 2],
     variant: SmsVariant,
@@ -262,16 +276,28 @@ impl Sms {
     /// Create a new SMS / Game Gear with the given cart ROM.
     #[must_use]
     pub fn new(cart_rom: Vec<u8>, variant: SmsVariant) -> Self {
+        Self::new_with_bios(cart_rom, Vec::new(), variant)
+    }
+
+    /// Create an SMS / Game Gear with an optional base-unit BIOS ROM.
+    #[must_use]
+    pub fn new_with_bios(cart_rom: Vec<u8>, bios_rom: Vec<u8>, variant: SmsVariant) -> Self {
         let vdp = if variant.is_game_gear() {
             SegaVdp::new_game_gear()
         } else {
             SegaVdp::new(variant.region(), variant.vdp_variant())
+        };
+        let memory_control = if bios_rom.is_empty() {
+            MEMORY_CONTROL_NO_BIOS
+        } else {
+            MEMORY_CONTROL_WITH_BIOS
         };
         Self {
             cpu: Z80::new(),
             vdp,
             psg: Sn76489::new(variant.psg_clock_hz(), NoiseLfsr::Sega16),
             cart_rom,
+            bios_rom,
             ram: [0; 8192],
             mapper_regs: [0x00, 0x00, 0x01, 0x02],
             port_dc: 0xFF,
@@ -279,6 +305,7 @@ impl Sms {
             gg_start: 0xFF,
             pause_pressed: false,
             io_control: 0,
+            memory_control,
             phasers: [LightPhaser::default(); 2],
             variant,
             cpu_tstates: 0,
@@ -396,35 +423,49 @@ impl Sms {
 
     fn mem_read(&self, addr: u16) -> u8 {
         match addr {
-            // First 1 KB is always cart page 0 — interrupt vectors.
-            0x0000..=0x03FF => self.cart_rom.get(addr as usize).copied().unwrap_or(0xFF),
-            // Rest of slot 0.
-            0x0400..=0x3FFF => self.read_rom(self.mapper_regs[1], (addr & 0x3FFF) as usize),
-            // Slot 1.
-            0x4000..=0x7FFF => self.read_rom(self.mapper_regs[2], (addr & 0x3FFF) as usize),
-            // Slot 2 (or cart RAM when control bit 3 is set; cart RAM
-            // not yet modelled — returns $FF).
-            0x8000..=0xBFFF => {
-                if self.mapper_regs[0] & 0x08 != 0 {
-                    0xFF
-                } else {
+            0x0000..=0xBFFF => self.read_selected_rom(addr),
+            // 8 KB RAM mirrored across $C000-$FFFF.
+            0xC000..=0xFFFF if self.memory_control & MEMORY_DISABLE_WORK_RAM == 0 => {
+                self.ram[(addr & 0x1FFF) as usize]
+            }
+            0xC000..=0xFFFF => 0xFF,
+        }
+    }
+
+    fn read_selected_rom(&self, addr: u16) -> u8 {
+        let mut data = 0xFF;
+        if self.memory_control & MEMORY_DISABLE_CARTRIDGE == 0 {
+            data &= match addr {
+                // The cartridge keeps its first 1 KB fixed for vectors.
+                0x0000..=0x03FF => self.cart_rom.get(addr as usize).copied().unwrap_or(0xFF),
+                0x0400..=0x3FFF => self.read_rom(self.mapper_regs[1], (addr & 0x3FFF) as usize),
+                0x4000..=0x7FFF => self.read_rom(self.mapper_regs[2], (addr & 0x3FFF) as usize),
+                0x8000..=0xBFFF if self.mapper_regs[0] & 0x08 == 0 => {
                     self.read_rom(self.mapper_regs[3], (addr & 0x3FFF) as usize)
                 }
-            }
-            // 8 KB RAM mirrored across $C000-$FFFF.
-            0xC000..=0xFFFF => self.ram[(addr & 0x1FFF) as usize],
+                0x8000..=0xBFFF => 0xFF,
+                _ => unreachable!(),
+            };
         }
+        if self.memory_control & MEMORY_DISABLE_BIOS == 0 {
+            data &= self.bios_rom.get(addr as usize).copied().unwrap_or(0xFF);
+        }
+        data
     }
 
     fn mem_write(&mut self, addr: u16, value: u8) {
         if (0xC000..=0xFFFF).contains(&addr) {
-            self.ram[(addr & 0x1FFF) as usize] = value;
-            match addr {
-                0xFFFC => self.mapper_regs[0] = value,
-                0xFFFD => self.mapper_regs[1] = value,
-                0xFFFE => self.mapper_regs[2] = value,
-                0xFFFF => self.mapper_regs[3] = value,
-                _ => {}
+            if self.memory_control & MEMORY_DISABLE_WORK_RAM == 0 {
+                self.ram[(addr & 0x1FFF) as usize] = value;
+            }
+            if self.memory_control & MEMORY_DISABLE_CARTRIDGE == 0 {
+                match addr {
+                    0xFFFC => self.mapper_regs[0] = value,
+                    0xFFFD => self.mapper_regs[1] = value,
+                    0xFFFE => self.mapper_regs[2] = value,
+                    0xFFFF => self.mapper_regs[3] = value,
+                    _ => {}
+                }
             }
         }
     }
@@ -450,6 +491,10 @@ impl Sms {
         let p = port as u8;
         if self.variant.is_game_gear() && p == 0x06 {
             self.psg.write_stereo(value);
+            return;
+        }
+        if p == 0x3E {
+            self.memory_control = value;
             return;
         }
         match p {
@@ -577,6 +622,9 @@ impl Sms {
     /// pin a pad uses for button 1.
     #[must_use]
     pub fn read_controller_port(&self, port: u8) -> u8 {
+        if self.memory_control & MEMORY_DISABLE_IO != 0 {
+            return 0xFF;
+        }
         match port {
             1 => self.with_trigger(self.port_dc, 0, 4),
             2 => self.with_trigger(self.port_dd, 1, 2),
@@ -844,6 +892,67 @@ mod tests {
         }
         sys.io_write(0x3E, 0x02);
         assert_eq!(sys.io_read(0x7F), 0, "$3E is memory control, not I/O");
+    }
+
+    #[test]
+    fn memory_control_switches_between_bios_cartridge_and_open_bus() {
+        let cart = vec![0xC3; 0xC000];
+        let bios = vec![0x5A; 0x2000];
+        let mut sys = Sms::new_with_bios(cart, bios, SmsVariant::SmsNtsc);
+
+        assert_eq!(
+            sys.peek(0),
+            0x5A,
+            "the documented power-on map selects BIOS"
+        );
+        sys.io_write(0x3E, MEMORY_CONTROL_NO_BIOS);
+        assert_eq!(
+            sys.peek(0),
+            0xC3,
+            "disabling BIOS and enabling cart selects cart"
+        );
+        sys.io_write(0x3E, MEMORY_CONTROL_NO_BIOS | MEMORY_DISABLE_CARTRIDGE);
+        assert_eq!(sys.peek(0), 0xFF, "no selected ROM leaves the bus open");
+    }
+
+    #[test]
+    fn memory_control_cart_disable_disconnects_every_cartridge_window() {
+        let mut cart = vec![0; 0xC000];
+        cart[0] = 0x11;
+        cart[0x4000] = 0x22;
+        cart[0x8000] = 0x33;
+        let mut sys = Sms::new(cart, SmsVariant::SmsNtsc);
+        assert_eq!(
+            [sys.peek(0), sys.peek(0x4000), sys.peek(0x8000)],
+            [0x11, 0x22, 0x33]
+        );
+
+        sys.io_write(0x3E, MEMORY_CONTROL_NO_BIOS | MEMORY_DISABLE_CARTRIDGE);
+        assert_eq!([sys.peek(0), sys.peek(0x4000), sys.peek(0x8000)], [0xFF; 3]);
+    }
+
+    #[test]
+    fn memory_control_gates_controllers_and_work_ram() {
+        let mut sys = Sms::new(trap_cart_64k(), SmsVariant::SmsNtsc);
+        sys.set_port_dc(0x00);
+        sys.poke(0xC123, 0xA5);
+        assert_eq!(sys.io_read(0xDC), 0x00);
+        assert_eq!(sys.peek(0xC123), 0xA5);
+
+        sys.io_write(
+            0x3E,
+            MEMORY_CONTROL_NO_BIOS | MEMORY_DISABLE_IO | MEMORY_DISABLE_WORK_RAM,
+        );
+        assert_eq!(sys.io_read(0xDC), 0xFF);
+        assert_eq!(sys.peek(0xC123), 0xFF);
+        sys.poke(0xC123, 0x3C);
+
+        sys.io_write(0x3E, MEMORY_CONTROL_NO_BIOS);
+        assert_eq!(
+            sys.peek(0xC123),
+            0xA5,
+            "disabled work RAM must ignore writes"
+        );
     }
 
     /// Two latches a known distance apart differ by half that in counts,
