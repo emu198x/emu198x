@@ -80,6 +80,7 @@ use emu198x_zilog_z80::{BusOp, Z80};
 use sega_vdp::{SegaVdp, VdpRegion, VdpVariant};
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
+use std::sync::mpsc::{Receiver, Sender, TryRecvError};
 use ti_sn76489::{NoiseLfsr, Sn76489};
 
 const CPU_TSTATES_PER_SCANLINE: u64 = 228;
@@ -256,6 +257,15 @@ pub struct Sms {
     /// When `Some`, every I/O port access is appended here (debug trace).
     #[serde(skip)]
     io_trace: Option<Vec<IoEvent>>,
+    /// Optional host adapter implementing Rachel's documented $F0-$F2 UART
+    /// contract. It is deliberately absent from snapshots: sockets and host
+    /// channels are external peripherals, not deterministic machine state.
+    #[serde(skip)]
+    virtual_uart_tx: Option<Sender<u8>>,
+    #[serde(skip)]
+    virtual_uart_rx: Option<Receiver<u8>>,
+    #[serde(skip)]
+    virtual_uart_pending: Option<u8>,
 }
 
 impl Sms {
@@ -286,7 +296,21 @@ impl Sms {
             vdp_phase: 0,
             frame_count: 0,
             io_trace: None,
+            virtual_uart_tx: None,
+            virtual_uart_rx: None,
+            virtual_uart_pending: None,
         }
+    }
+
+    /// Attach a host-backed byte UART at ports `$F0` (data), `$F1` (control)
+    /// and `$F2` (status). Status bit 0 is TX-ready and bit 1 is RX-ready.
+    ///
+    /// The first channel carries console writes to the host. The second
+    /// carries host response bytes to the console.
+    pub fn attach_virtual_uart(&mut self, tx: Sender<u8>, rx: Receiver<u8>) {
+        self.virtual_uart_tx = Some(tx);
+        self.virtual_uart_rx = Some(rx);
+        self.virtual_uart_pending = None;
     }
 
     /// Run one frame and return T-states consumed.
@@ -431,6 +455,14 @@ impl Sms {
 
     fn io_read(&mut self, port: u16) -> u8 {
         let p = port as u8;
+        if self.virtual_uart_rx.is_some() {
+            match p {
+                0xF0 => return self.read_virtual_uart(),
+                0xF1 => return 0,
+                0xF2 => return self.virtual_uart_status(),
+                _ => {}
+            }
+        }
         // Game Gear-specific I/O at the low end.
         if self.variant.is_game_gear() && p == 0x00 {
             return self.gg_start;
@@ -448,6 +480,16 @@ impl Sms {
 
     fn io_write(&mut self, port: u16, value: u8) {
         let p = port as u8;
+        if let Some(tx) = &self.virtual_uart_tx {
+            match p {
+                0xF0 => {
+                    let _ = tx.send(value);
+                    return;
+                }
+                0xF1 | 0xF2 => return,
+                _ => {}
+            }
+        }
         if self.variant.is_game_gear() && p == 0x06 {
             self.psg.write_stereo(value);
             return;
@@ -459,6 +501,28 @@ impl Sms {
             0x80..=0xBF => self.vdp.write_control(value),
             _ => {}
         }
+    }
+
+    fn poll_virtual_uart(&mut self) {
+        if self.virtual_uart_pending.is_some() {
+            return;
+        }
+        if let Some(rx) = &self.virtual_uart_rx {
+            match rx.try_recv() {
+                Ok(value) => self.virtual_uart_pending = Some(value),
+                Err(TryRecvError::Empty | TryRecvError::Disconnected) => {}
+            }
+        }
+    }
+
+    fn virtual_uart_status(&mut self) -> u8 {
+        self.poll_virtual_uart();
+        0x01 | u8::from(self.virtual_uart_pending.is_some()) << 1
+    }
+
+    fn read_virtual_uart(&mut self) -> u8 {
+        self.poll_virtual_uart();
+        self.virtual_uart_pending.take().unwrap_or(0xFF)
     }
 
     /// Advance both Light Phasers by one dot.
@@ -1525,6 +1589,32 @@ mod tests {
             0x10,
             "port 1 is empty and unaffected"
         );
+    }
+
+    #[test]
+    fn virtual_uart_exposes_host_bytes_and_ready_bits() {
+        let mut sys = Sms::new(vec![0; 0x8000], SmsVariant::SmsNtsc);
+        let (console_tx, host_rx) = std::sync::mpsc::channel();
+        let (host_tx, console_rx) = std::sync::mpsc::channel();
+        sys.attach_virtual_uart(console_tx, console_rx);
+
+        assert_eq!(sys.io_read(0xF2), 0x01, "TX starts ready");
+        sys.io_write(0xF0, 0x52);
+        assert_eq!(host_rx.recv().expect("host receives console byte"), 0x52);
+
+        host_tx
+            .send(0x41)
+            .expect("console channel remains attached");
+        assert_eq!(sys.io_read(0xF2), 0x03, "RX-ready is advertised");
+        assert_eq!(sys.io_read(0xF0), 0x41);
+        assert_eq!(sys.io_read(0xF2), 0x01, "reading clears RX-ready");
+    }
+
+    #[test]
+    fn unattached_f0_still_reads_as_controller_mirror() {
+        let mut sys = Sms::new(vec![0; 0x8000], SmsVariant::SmsNtsc);
+        sys.set_port_dc(0xAA);
+        assert_eq!(sys.io_read(0xF0), 0xAA);
     }
 }
 
