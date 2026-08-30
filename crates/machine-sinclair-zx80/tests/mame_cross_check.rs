@@ -14,19 +14,18 @@
 //! # Aligning two different rasters
 //!
 //! MAME renders the whole 384x311 field, closing with the six blank
-//! lines of vertical sync. We render the 320x288 window a set shows,
-//! starting `FIRST_VISIBLE_LINE` into the field. So MAME's row *n* is our row
+//! lines of vertical sync. We retain its full horizontal line and render the
+//! 288-line window a set shows, starting `FIRST_VISIBLE_LINE` into the field.
+//! So MAME's row *n* is our row
 //! *n* - 8, and the comparison is over the 256x192 text area both contain.
 //!
 //! The vertical offset is the interesting half. It comes out at exactly 8,
 //! which is `FIRST_VISIBLE_LINE` — derived in #1116 from the ROM's pad and
 //! never checked against anything until now.
 //!
-//! Horizontally the two disagree, and deliberately not asserted as agreement:
-//! MAME puts the ZX80's picture 26 pixels right of the ZX81's, while we place
-//! both at the same column. Ours is `FIRST_CHAR_TSTATE`, a constant fitted to
-//! a window that had already been chosen — the circularity #1054 records. See
-//! #1123.
+//! Horizontally the full-line capture now agrees directly: MAME puts the
+//! ZX80's picture at x=80, 26 pixels right of the ZX81's x=54. Retaining all
+//! 384 pixels avoids inventing a narrower crop origin. See #1123.
 //!
 //! # Producing the capture
 //!
@@ -40,7 +39,7 @@
 use std::{env, fs, io::BufReader, path::PathBuf};
 
 /// Framebuffer column and row where our text area begins.
-const OUR_X: u32 = 32;
+const OUR_X: u32 = 80;
 /// MAME's column for the same character, and the frame line it starts on.
 const MAME_X: u32 = 80;
 const MAME_Y: u32 = 56;

@@ -24,7 +24,7 @@ use std::env;
 use std::fs;
 use std::path::PathBuf;
 
-use machine_sinclair_zx80::{Zx80, Zx80Key};
+use machine_sinclair_zx80::{FB_WIDTH, Zx80, Zx80Key};
 
 /// ZX80 character set, codes 0..=63. Graphics codes are irrelevant here and
 /// are named rather than drawn.
@@ -35,8 +35,8 @@ const CHARS: [&str; 64] = [
     "R", "S", "T", "U", "V", "W", "X", "Y", "Z",
 ];
 
-/// The visible 32x24 character area within the 320x240 framebuffer.
-const ORIGIN_X: usize = 32;
+/// The visible 32x24 character area within the full-line framebuffer.
+const ORIGIN_X: usize = 80;
 /// Framebuffer row the text area starts on.
 ///
 /// Was a literal 24, fitted to a 240-line window and left behind when the
@@ -69,7 +69,7 @@ fn read_row(machine: &Zx80, rom: &[u8], row: usize) -> String {
             for x in 0..8usize {
                 let px = ORIGIN_X + column * 8 + x;
                 let py = ORIGIN_Y + row * 8 + y;
-                if frame[py * 320 + px] == INK {
+                if frame[py * FB_WIDTH as usize + px] == INK {
                     *bits |= 0x80 >> x;
                 }
             }

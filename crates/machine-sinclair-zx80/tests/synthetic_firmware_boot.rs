@@ -83,7 +83,7 @@ fn synthetic_firmware_generates_a_picture_with_the_cpu() {
     );
 
     // 24 rows of 32 glyphs, every pixel set: the display area is 256x192,
-    // centred in a 320x288 window, so `TEXT_TOP` rows down and 32 pixels in.
+    // `TEXT_TOP` rows down and at MAME's full-line ZX80 origin x=80.
     let frame = machine.framebuffer();
     let ink = frame.iter().filter(|&&pixel| pixel == INK).count();
     assert_eq!(
@@ -107,8 +107,8 @@ fn synthetic_firmware_generates_a_picture_with_the_cpu() {
         let lit: Vec<usize> = (0..w).filter(|&x| frame[row * w + x] == INK).collect();
         assert_eq!(
             (lit.first().copied(), lit.last().copied(), lit.len()),
-            (Some(32), Some(287), 256),
-            "row {row} should be 32 characters starting at x=32"
+            (Some(80), Some(335), 256),
+            "row {row} should be 32 characters starting at x=80"
         );
     }
     // Border: the top of the window, the last row above the display, the

@@ -89,7 +89,7 @@ fn read_row(sys: &Zx81, row: usize) -> String {
 
     (0..32)
         .map(|col| {
-            let left = 32 + col * 8;
+            let left = 54 + col * 8;
             let cell: Vec<u8> = (0..8)
                 .map(|r| {
                     (0..8).fold(0u8, |b, bit| {
