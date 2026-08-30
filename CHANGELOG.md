@@ -4,6 +4,21 @@ All notable changes to Emu198x will be documented in this file.
 
 Format loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 not strictly. Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [0.10.0] - 2026-08-30
+
+
+### Added
+
+- Expose VIC-20 serial user-port pins
+
+
+### Fixed
+
+- *(aquarius)* Require character ROM firmware
+- *(master-system)* Parse cartridge headers
+- *(svi-328)* Add cassette media path
+- *(atari-7800)* Synthesize TIA audio
+
 ## [0.9.0] - 2026-08-30
 
 

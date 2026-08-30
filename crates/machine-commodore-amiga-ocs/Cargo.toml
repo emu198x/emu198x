@@ -8,22 +8,22 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-common-commodore-amiga = { path = "../common-commodore-amiga", version = "0.9.0" }
-motorola-68000 = { path = "../motorola-68000", version = "0.9.0" }
-mos-cia-8520 = { path = "../mos-cia-8520", version = "0.9.0" }
+common-commodore-amiga = { path = "../common-commodore-amiga", version = "0.10.0" }
+motorola-68000 = { path = "../motorola-68000", version = "0.10.0" }
+mos-cia-8520 = { path = "../mos-cia-8520", version = "0.10.0" }
 emu198x-commodore-paula-8364 = { path = "../emu198x-commodore-paula-8364", version = "0.6.0" }
-commodore-agnus-ocs = { path = "../commodore-agnus-ocs", version = "0.9.0" }
-commodore-agnus-ecs = { path = "../commodore-agnus-ecs", version = "0.9.0" }
-commodore-denise-ocs = { path = "../commodore-denise-ocs", version = "0.9.0" }
-peripheral-commodore-amiga-floppy = { path = "../peripheral-commodore-amiga-floppy", version = "0.9.0" }
-peripheral-commodore-amiga-keyboard = { path = "../peripheral-commodore-amiga-keyboard", version = "0.9.0" }
-commodore-gary = { path = "../commodore-gary", version = "0.9.0" }
-commodore-amiga-autoconfig = { path = "../commodore-amiga-autoconfig", version = "0.9.0" }
-gvp-a530 = { path = "../gvp-a530", version = "0.9.0" }
+commodore-agnus-ocs = { path = "../commodore-agnus-ocs", version = "0.10.0" }
+commodore-agnus-ecs = { path = "../commodore-agnus-ecs", version = "0.10.0" }
+commodore-denise-ocs = { path = "../commodore-denise-ocs", version = "0.10.0" }
+peripheral-commodore-amiga-floppy = { path = "../peripheral-commodore-amiga-floppy", version = "0.10.0" }
+peripheral-commodore-amiga-keyboard = { path = "../peripheral-commodore-amiga-keyboard", version = "0.10.0" }
+commodore-gary = { path = "../commodore-gary", version = "0.10.0" }
+commodore-amiga-autoconfig = { path = "../commodore-amiga-autoconfig", version = "0.10.0" }
+gvp-a530 = { path = "../gvp-a530", version = "0.10.0" }
 serde = { workspace = true }
 
 [dev-dependencies]
-emu198x-test-skip = { path = "../emu198x-test-skip", version = "0.9.0" }
+emu198x-test-skip = { path = "../emu198x-test-skip", version = "0.10.0" }
 postcard = { workspace = true }
 png = { workspace = true }
 zip = { workspace = true }
