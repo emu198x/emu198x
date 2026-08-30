@@ -12,12 +12,12 @@ use emu198x_shell::{
 };
 use machine_commodore_vic_20::{Vic20, Vic20Model};
 
-use crate::BitBangSerial;
 use crate::input::apply_input_event;
 use crate::profiles::{
     BASIC_FIRMWARE_ID, CHAR_FIRMWARE_ID, KERNAL_FIRMWARE_ID, Model, profile_for,
 };
 use crate::snapshot;
+use crate::{BitBangSerial, EspAtModem, EspAtTcpBridge};
 use emu198x_shell::display::Display;
 
 const KERNAL_SIZE: usize = 8 * 1024;
@@ -78,6 +78,8 @@ pub struct Vic20Runtime {
     /// ROM before the KERNAL performs its cold-start probe.
     cartridge_image: Option<Vec<u8>>,
     user_port_serial: Option<BitBangSerial>,
+    esp_at_modem: Option<EspAtModem>,
+    esp_at_tcp_bridge: Option<EspAtTcpBridge>,
 }
 
 impl Vic20Runtime {
@@ -99,6 +101,8 @@ impl Vic20Runtime {
             pending_prg: None,
             cartridge_image: None,
             user_port_serial: None,
+            esp_at_modem: None,
+            esp_at_tcp_bridge: None,
         }
     }
 
@@ -205,10 +209,35 @@ impl Vic20Runtime {
     /// Attach a deterministic 8N1 byte stream to user-port CB2/PB0.
     pub fn attach_user_port_serial(&mut self, cycles_per_bit: u32) {
         self.user_port_serial = Some(BitBangSerial::new(cycles_per_bit));
+        self.esp_at_modem = None;
+        self.esp_at_tcp_bridge = None;
     }
 
     pub fn user_port_serial_mut(&mut self) -> Option<&mut BitBangSerial> {
         self.user_port_serial.as_mut()
+    }
+
+    /// Attach the deterministic ESP-AT subset used by Rachel.
+    pub fn attach_esp_at_modem(&mut self, cycles_per_bit: u32) {
+        self.esp_at_modem = Some(EspAtModem::new(cycles_per_bit));
+        self.user_port_serial = None;
+        self.esp_at_tcp_bridge = None;
+    }
+
+    pub fn esp_at_modem_mut(&mut self) -> Option<&mut EspAtModem> {
+        self.esp_at_modem.as_mut()
+    }
+
+    /// Attach ESP-AT to a real non-blocking TCP transport. Connections are
+    /// made only after the emulated client sends `AT+CIPSTART`.
+    pub fn attach_esp_at_tcp_bridge(&mut self, cycles_per_bit: u32, frame_size: usize) {
+        self.esp_at_tcp_bridge = Some(EspAtTcpBridge::new(cycles_per_bit, frame_size));
+        self.esp_at_modem = None;
+        self.user_port_serial = None;
+    }
+
+    pub fn esp_at_tcp_bridge(&self) -> Option<&EspAtTcpBridge> {
+        self.esp_at_tcp_bridge.as_ref()
     }
 
     /// Inject a `.PRG` image into RAM and queue a launch command so it runs
@@ -436,7 +465,11 @@ impl MachineCore for Vic20Runtime {
 
         while self.time < target {
             let machine = self.machine.as_mut().expect("machine checked above");
-            let ticks = if let Some(serial) = &mut self.user_port_serial {
+            let ticks = if let Some(bridge) = &mut self.esp_at_tcp_bridge {
+                machine.run_frame_with_user_port(&mut |cb2| bridge.tick(cb2))
+            } else if let Some(modem) = &mut self.esp_at_modem {
+                machine.run_frame_with_user_port(&mut |cb2| modem.tick(cb2))
+            } else if let Some(serial) = &mut self.user_port_serial {
                 machine.run_frame_with_user_port(&mut |cb2| serial.tick(cb2))
             } else {
                 machine.run_frame()

@@ -31,6 +31,8 @@ Hardware:
                                RAM to the load address, e.g. +8K for $1201)
     --prg-sys                  launch the --prg with SYS <load-addr> (machine
                                code) instead of RUN (BASIC)
+    --esp-at-tcp               attach a 9600-baud ESP-AT modem; CIPSTART opens
+                               a real TCP connection (64-byte frame reassembly)
     --frames N                 frames to run [default: 0]
 
 Capture:
@@ -51,6 +53,7 @@ struct Cli {
     ram_expansion_kb: usize,
     prg: Option<PathBuf>,
     prg_sys: bool,
+    esp_at_tcp: bool,
     frames: u32,
     screenshot: Option<PathBuf>,
     audio_capture: Option<PathBuf>,
@@ -65,6 +68,7 @@ impl Default for Cli {
             char_rom: None,
             prg: None,
             prg_sys: false,
+            esp_at_tcp: false,
             region: Region::Pal,
             ram_expansion_kb: 0,
             frames: 0,
@@ -129,6 +133,7 @@ fn parse_cli<I: IntoIterator<Item = String>>(args: I) -> Cli {
             }
             "--prg" => cli.prg = Some(PathBuf::from(next_arg(&mut iter, "--prg"))),
             "--prg-sys" => cli.prg_sys = true,
+            "--esp-at-tcp" => cli.esp_at_tcp = true,
             "--script" => cli.script = Some(PathBuf::from(next_arg(&mut iter, "--script"))),
             "--headless" => {}
             "--help" | "-h" => {
@@ -210,6 +215,10 @@ fn run_cli(cli: Cli) -> Result<serde_json::Value, String> {
     let mut runtime = Vic20Runtime::new(cli.region.model(), kernal, basic, char_rom)
         .map_err(|err| format!("failed to construct runtime: {err}"))?;
     runtime.set_ram_expansion_kb(cli.ram_expansion_kb);
+    if cli.esp_at_tcp {
+        // PAL Rachel uses approximately 115 CPU cycles per 9600-baud bit.
+        runtime.attach_esp_at_tcp_bridge(115, 64);
+    }
 
     let mut session = HeadlessSession::new_with_query_provider(
         runtime,
@@ -282,6 +291,10 @@ fn run_cli(cli: Cli) -> Result<serde_json::Value, String> {
         "frames_run":  frame_count,
         "time":        session.time().get(),
         "ram_expansion_kb": machine.ram_expansion_kb(),
+        "esp_at_tcp_error": machine.esp_at_tcp_bridge().and_then(|bridge| bridge.last_error()),
+        "esp_at_received_hex": machine.esp_at_tcp_bridge().map(|bridge| {
+            bridge.diagnostic_received().iter().map(|byte| format!("{byte:02x}")).collect::<Vec<_>>().join("")
+        }),
         "observations": observations,
     }))
 }
