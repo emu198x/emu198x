@@ -4,6 +4,7 @@ mod input;
 mod profiles;
 mod queries;
 mod runtime;
+mod serial;
 mod snapshot;
 
 pub use machine_commodore_vic_20::Vic20Model;
@@ -12,3 +13,4 @@ pub use profiles::{
 };
 pub use queries::Vic20SessionQueryProvider;
 pub use runtime::Vic20Runtime;
+pub use serial::BitBangSerial;
