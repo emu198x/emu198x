@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Optional host-backed `$F0`-`$F2` UART for emulator peripherals such as the Rachel ESP-AT bridge
+
 ## [0.2.0](https://github.com/emu198x/emu198x/releases/tag/machine-sega-master-system-v0.2.0) - 2026-06-04
 
 ### Added
