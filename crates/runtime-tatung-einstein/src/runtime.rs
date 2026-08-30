@@ -51,6 +51,7 @@ pub struct EinsteinRuntime {
     model: Model,
     machine: Option<Einstein>,
     rom_bytes: Option<Vec<u8>>,
+    floppy0_bytes: Option<Vec<u8>>,
     time: MachineTime,
     rgba_framebuffer: Vec<u8>,
     rgba_width: u32,
@@ -66,6 +67,7 @@ impl EinsteinRuntime {
             model,
             machine: None,
             rom_bytes: None,
+            floppy0_bytes: None,
             time: MachineTime::default(),
             rgba_framebuffer: Vec::new(),
             rgba_width: 0,
@@ -158,7 +160,12 @@ impl EinsteinRuntime {
             self.machine = None;
             return;
         };
-        let machine = Einstein::new(rom, EinsteinRegion::Pal);
+        let mut machine = Einstein::new(rom, EinsteinRegion::Pal);
+        if let Some(bytes) = &self.floppy0_bytes {
+            machine
+                .insert_cpc_dsk(0, bytes)
+                .expect("cached floppy image was validated when loaded");
+        }
         let width = machine.framebuffer_width();
         let height = machine.framebuffer_height();
         self.rgba_width = width;
@@ -194,7 +201,46 @@ impl MachineCore for EinsteinRuntime {
         self.rebuild_machine();
         self.time = MachineTime::default();
     }
-    fn load_media(&mut self, _media: &MediaSet<'_>) -> Result<(), MachineError> {
+    fn load_media(&mut self, media: &MediaSet<'_>) -> Result<(), MachineError> {
+        for image in &media.images {
+            let slot = image.slot.as_ref();
+            if slot != "floppy-0" {
+                return Err(MachineError::UnknownMediaSlot {
+                    slot: slot.to_owned(),
+                });
+            }
+            if image.kind != emu198x_shell::MediaKind::Disk {
+                return Err(MachineError::UnsupportedMediaKind { kind: image.kind });
+            }
+            if let Some(machine) = self.machine.as_mut() {
+                machine.insert_cpc_dsk(0, image.bytes).map_err(|reason| {
+                    MachineError::InvalidMedia {
+                        slot: slot.to_owned(),
+                        reason,
+                    }
+                })?;
+            } else {
+                Einstein::validate_cpc_dsk(image.bytes).map_err(|reason| {
+                    MachineError::InvalidMedia {
+                        slot: slot.to_owned(),
+                        reason,
+                    }
+                })?;
+            }
+            self.floppy0_bytes = Some(image.bytes.to_vec());
+        }
+        Ok(())
+    }
+    fn eject_media(&mut self, slot: &str) -> Result<(), MachineError> {
+        if slot != "floppy-0" {
+            return Err(MachineError::UnknownMediaSlot {
+                slot: slot.to_owned(),
+            });
+        }
+        if let Some(machine) = self.machine.as_mut() {
+            machine.eject_disk(0);
+        }
+        self.floppy0_bytes = None;
         Ok(())
     }
     fn run_until(
