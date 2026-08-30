@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Integrate the one-bit speaker level over each 48 kHz output window so high-frequency edges attenuate instead of aliasing at full scale
+
 ### Added
 
 - Direct CPU-cadence regression proving that a `NOP` consumes four machine T-states

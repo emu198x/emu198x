@@ -12,11 +12,11 @@ use serde::{Deserialize, Serialize};
 
 use crate::runtime::JupiterAceRuntime;
 
-const SNAPSHOT_VERSION: u16 = 3;
+const SNAPSHOT_VERSION: u16 = 4;
 
 /// Borrowing envelope used during encode — avoids cloning the live machine.
 #[derive(Serialize)]
-struct AceRuntimeSnapshotRefV3<'a> {
+struct AceRuntimeSnapshotRefV4<'a> {
     version: u16,
     time: u64,
     model_id: &'a str,
@@ -25,7 +25,7 @@ struct AceRuntimeSnapshotRefV3<'a> {
 
 /// Owning envelope used during decode.
 #[derive(Deserialize)]
-struct AceRuntimeSnapshotV3 {
+struct AceRuntimeSnapshotV4 {
     version: u16,
     time: u64,
     model_id: String,
@@ -33,7 +33,7 @@ struct AceRuntimeSnapshotV3 {
 }
 
 pub(crate) fn encode(runtime: &JupiterAceRuntime) -> Result<Vec<u8>, MachineError> {
-    let snapshot = AceRuntimeSnapshotRefV3 {
+    let snapshot = AceRuntimeSnapshotRefV4 {
         version: SNAPSHOT_VERSION,
         time: runtime.time().get(),
         model_id: runtime.model().model_id(),
@@ -55,7 +55,7 @@ pub(crate) fn decode(runtime: &mut JupiterAceRuntime, bytes: &[u8]) -> Result<()
             reason: format!("unsupported snapshot version {version}; expected {SNAPSHOT_VERSION}"),
         });
     }
-    let snapshot: AceRuntimeSnapshotV3 =
+    let snapshot: AceRuntimeSnapshotV4 =
         postcard::from_bytes(bytes).map_err(|reason| MachineError::InvalidSnapshot {
             reason: format!("decode failed: {reason}"),
         })?;
@@ -114,6 +114,25 @@ mod tests {
             MachineError::InvalidSnapshot { reason } => {
                 assert!(
                     reason.contains("unsupported snapshot version 2"),
+                    "unexpected reason: {reason}"
+                );
+            }
+            other => panic!("expected InvalidSnapshot, got {other:?}"),
+        }
+    }
+
+    /// Version 3 has no partial-window beeper integration state, so accepting
+    /// it would introduce an audio discontinuity at the restore boundary.
+    #[test]
+    fn decode_rejects_version_3_before_payload_decode() {
+        let mut runtime = JupiterAceRuntime::blank(Model::Ace3k);
+        let bytes = postcard::to_allocvec(&3_u16).expect("legacy version should encode");
+
+        let err = decode(&mut runtime, &bytes).expect_err("version 3 should reject");
+        match err {
+            MachineError::InvalidSnapshot { reason } => {
+                assert!(
+                    reason.contains("unsupported snapshot version 3"),
                     "unexpected reason: {reason}"
                 );
             }

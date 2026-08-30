@@ -65,6 +65,8 @@ pub struct JupiterAce {
     audio_buffer: Vec<f32>,
     audio_accum: u64,
     audio_denom: u64,
+    audio_level_sum: i64,
+    audio_level_ticks: u32,
     master_clock: u64,
     frame_count: u64,
     /// When `Some`, every I/O port access is appended here (debug trace).
@@ -95,6 +97,8 @@ impl JupiterAce {
             audio_buffer: Vec::with_capacity(1024),
             audio_accum: 0,
             audio_denom: 3_250_000,
+            audio_level_sum: 0,
+            audio_level_ticks: 0,
             master_clock: 0,
             frame_count: 0,
             io_trace: None,
@@ -135,15 +139,15 @@ impl JupiterAce {
     }
 
     fn tick_audio(&mut self) {
+        self.audio_level_sum += if self.display.speaker_state { 1 } else { -1 };
+        self.audio_level_ticks += 1;
         self.audio_accum += 48_000;
         if self.audio_accum >= self.audio_denom {
             self.audio_accum -= self.audio_denom;
-            let sample = if self.display.speaker_state {
-                0.5
-            } else {
-                -0.5
-            };
+            let sample = 0.5 * self.audio_level_sum as f32 / self.audio_level_ticks as f32;
             self.audio_buffer.push(sample);
+            self.audio_level_sum = 0;
+            self.audio_level_ticks = 0;
         }
     }
 
@@ -432,6 +436,26 @@ mod tests {
         assert!(sys.display.speaker_state);
         sys.io_write(0x00FE, 0x00);
         assert!(!sys.display.speaker_state);
+    }
+
+    #[test]
+    fn beeper_integrates_high_frequency_edges_over_each_host_sample() {
+        let mut sys = JupiterAce::new(trap_rom(), 0).expect("init");
+
+        // Alternate the speaker every machine T-state: far above the 48 kHz
+        // host Nyquist limit. Point sampling reports false full-scale tones;
+        // an area average cancels the nearly equal high and low durations.
+        for tick in 0..3_250 {
+            sys.display.speaker_state = tick % 2 == 0;
+            sys.tick_audio();
+        }
+
+        let samples = sys.take_audio_buffer();
+        assert_eq!(samples.len(), 48);
+        assert!(
+            samples.iter().all(|sample| sample.abs() < 0.01),
+            "integrated high-frequency samples should be near silence: {samples:?}"
+        );
     }
 
     #[test]

@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Advance live-machine snapshots to version 4 for the beeper integration state; older snapshots cannot resume part-way through an output-sample window
 - Advance live-machine snapshots to version 3 and rehydrate the Z80 walker sequence before resumed execution; version 2 cannot preserve accepted interrupt response identity
 
 ## [0.2.0](https://github.com/emu198x/emu198x/releases/tag/runtime-jupiter-ace-v0.2.0) - 2026-06-04
