@@ -1777,6 +1777,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4d24ed83a7027015be0e62bd801812f1f36dac769e59b6c69bbd3dcdf1a8411c"
 
 [[package]]
+name = "format198x-tangerine-oric-tap"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d06a3757d110510956e441640c4f8befd227d03cabd58c09056a95ed8690a0a3"
+
+[[package]]
 name = "format198x-tzx"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4279,6 +4285,7 @@ name = "runtime-oric-atmos"
 version = "0.8.2"
 dependencies = [
  "emu198x-shell",
+ "format198x-tangerine-oric-tap",
  "machine-oric-atmos",
  "postcard",
  "serde",

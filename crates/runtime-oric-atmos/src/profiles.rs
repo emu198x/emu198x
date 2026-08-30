@@ -2,7 +2,7 @@
 
 use emu198x_shell::{
     CapabilitySet, ClockDesc, ClockRate, Family, FirmwareRequirement, MachineId, MachineProfile,
-    ProfileId, Region, known_capability,
+    MediaKind, MediaSlot, ProfileId, Region, WritebackPolicy, known_capability,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -67,7 +67,13 @@ pub fn profile_for(model: Model) -> MachineProfile {
             "Oric BASIC + OS ROM (16 KB)",
             false,
         )],
-        media_slots: Vec::new(),
+        media_slots: vec![MediaSlot::new(
+            "tape-1",
+            "Cassette Tape",
+            MediaKind::Tape,
+            false,
+            WritebackPolicy::SidecarOnly,
+        )],
         capabilities: CapabilitySet::with_all([
             known_capability("keyboard-input"),
             known_capability("scripted-input"),
@@ -84,5 +90,7 @@ mod tests {
         let p = profiles();
         assert_eq!(p.len(), 2);
         assert!(p.iter().all(|p| p.firmware.len() == 1));
+        assert!(p.iter().all(|p| p.media_slots.len() == 1));
+        assert!(p.iter().all(|p| p.media_slots[0].id == "tape-1"));
     }
 }

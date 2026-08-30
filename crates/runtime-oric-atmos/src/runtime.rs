@@ -2,8 +2,8 @@
 
 use emu198x_shell::{
     AudioPacket, CapabilitySet, ControlCommand, FirmwareSet, FramePacket, HostIo, MachineCore,
-    MachineError, MachineProfile, MachineTime, MediaSet, PixelFormat, ResetKind, RunResult,
-    StopReason,
+    MachineError, MachineProfile, MachineTime, MediaKind, MediaSet, PixelFormat, ResetKind,
+    RunResult, StopReason,
 };
 use machine_oric_atmos::{FB_HEIGHT, FB_WIDTH, OricAtmos, OricModel};
 
@@ -67,6 +67,7 @@ pub struct OricRuntime {
     time: MachineTime,
     rgba_framebuffer: Vec<u8>,
     controller_cache: crate::input::ControllerCache,
+    tape_bytes: Option<Vec<u8>>,
 }
 
 impl OricRuntime {
@@ -80,6 +81,7 @@ impl OricRuntime {
             time: MachineTime::default(),
             rgba_framebuffer: vec![0; (FB_WIDTH * FB_HEIGHT * 4) as usize],
             controller_cache: crate::input::ControllerCache::default(),
+            tape_bytes: None,
         }
     }
 
@@ -167,7 +169,10 @@ impl OricRuntime {
             Model::Oric1 => OricModel::Oric1,
             Model::Atmos => OricModel::Atmos,
         };
-        let machine = OricAtmos::new(bios, oric_model);
+        let mut machine = OricAtmos::new(bios, oric_model);
+        if let Some(bytes) = &self.tape_bytes {
+            machine.insert_tape(bytes.clone());
+        }
         self.machine = Some(machine);
         self.update_rgba_framebuffer();
     }
@@ -199,10 +204,28 @@ impl MachineCore for OricRuntime {
         self.time = MachineTime::default();
     }
     fn load_media(&mut self, media: &MediaSet<'_>) -> Result<(), MachineError> {
-        if let Some(first) = media.images.first() {
-            return Err(MachineError::UnknownMediaSlot {
-                slot: first.slot.as_ref().to_owned(),
-            });
+        for image in &media.images {
+            let slot = image.slot.as_ref();
+            match image.kind {
+                MediaKind::Tape if slot == "tape-1" => {
+                    format198x_tangerine_oric_tap::decode(image.bytes).map_err(|reason| {
+                        MachineError::InvalidMedia {
+                            slot: slot.to_owned(),
+                            reason: reason.to_string(),
+                        }
+                    })?;
+                    let bytes = image.bytes.to_vec();
+                    if let Some(machine) = self.machine.as_mut() {
+                        machine.insert_tape(bytes.clone());
+                    }
+                    self.tape_bytes = Some(bytes);
+                }
+                _ => {
+                    return Err(MachineError::UnknownMediaSlot {
+                        slot: slot.to_owned(),
+                    });
+                }
+            }
         }
         Ok(())
     }
