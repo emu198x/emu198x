@@ -10,7 +10,7 @@
 
 pub mod palette;
 
-use palette::NTSC_PALETTE;
+use palette::{NTSC_PALETTE, PAL_PALETTE};
 use serde::{Deserialize, Serialize};
 
 // ---------------------------------------------------------------------------
@@ -530,7 +530,7 @@ impl Gtia {
     /// does, and it was not possible while compositing stopped at the normal
     /// playfield's edge (#1086).
     pub fn fill_border(&mut self) {
-        let argb = colour_to_argb32(self.colbk);
+        let argb = self.colour_to_argb32(self.colbk);
         self.framebuffer.fill(argb);
     }
 
@@ -636,7 +636,7 @@ impl Gtia {
                 self.colbk
             };
 
-            self.framebuffer[self.sl_fb_offset + x] = colour_to_argb32(colour);
+            self.framebuffer[self.sl_fb_offset + x] = self.colour_to_argb32(colour);
             self.sl_x += 1;
         }
     }
@@ -979,13 +979,19 @@ const fn missile_width(size_bits: u8) -> u16 {
     }
 }
 
-/// Convert an Atari colour register value to ARGB32 via the NTSC palette.
-fn colour_to_argb32(colour: u8) -> u32 {
-    let index = (colour >> 1) as usize;
-    if index < NTSC_PALETTE.len() {
-        NTSC_PALETTE[index]
-    } else {
-        0xFF00_0000 // black fallback
+impl Gtia {
+    /// Convert an Atari colour register value to ARGB32 using the palette for
+    /// the television standard reported by PAL ($D014).
+    fn colour_to_argb32(&self, colour: u8) -> u32 {
+        let palette = if self.pal == 0x01 {
+            &PAL_PALETTE
+        } else {
+            &NTSC_PALETTE
+        };
+        palette
+            .get((colour >> 1) as usize)
+            .copied()
+            .unwrap_or(0xFF00_0000)
     }
 }
 
@@ -1005,6 +1011,21 @@ mod tests {
     fn pal_register_reports_the_television_standard() {
         assert_eq!(Gtia::new(GtiaRegion::Ntsc).read(0x14), 0x0F, "NTSC");
         assert_eq!(Gtia::new(GtiaRegion::Pal).read(0x14), 0x01, "PAL");
+    }
+
+    #[test]
+    fn colour_conversion_uses_the_television_standard_palette() {
+        let ntsc = Gtia::new(GtiaRegion::Ntsc);
+        let pal = Gtia::new(GtiaRegion::Pal);
+
+        assert_eq!(ntsc.colour_to_argb32(0x20), 0xFF70_2800);
+        assert_eq!(pal.colour_to_argb32(0x20), 0xFF50_0000);
+        assert_ne!(
+            ntsc.colour_to_argb32(0x20),
+            pal.colour_to_argb32(0x20),
+            "PAL must not silently render through the NTSC table"
+        );
+        assert_eq!(pal.colour_to_argb32(0x20), pal.colour_to_argb32(0x21));
     }
 
     /// The register is mirrored across GTIA's address space like every
@@ -1101,8 +1122,8 @@ mod tests {
 
         let fb = gtia.framebuffer();
         let row = GtiaRegion::Pal.border_top() as usize * width;
-        let colour_a = colour_to_argb32(0x0A);
-        let colour_b = colour_to_argb32(0x0C);
+        let colour_a = gtia.colour_to_argb32(0x0A);
+        let colour_b = gtia.colour_to_argb32(0x0C);
         assert_ne!(colour_a, colour_b);
         // Pixel 10 is border, not playfield: the beam composites the whole
         // window now, so a mid-line COLBK write splits the border too — which
@@ -1141,7 +1162,7 @@ mod tests {
         let active_start = GtiaRegion::Pal.border_top() as usize
             * GtiaRegion::Pal.framebuffer_width() as usize
             + GtiaRegion::Pal.border_left() as usize;
-        let player_argb = colour_to_argb32(0x38);
+        let player_argb = gtia.colour_to_argb32(0x38);
         assert_eq!(fb[active_start + 64], player_argb);
         assert_eq!(fb[active_start + 65], player_argb);
     }
@@ -1168,8 +1189,8 @@ mod tests {
         let base = GtiaRegion::Pal.border_top() as usize
             * GtiaRegion::Pal.framebuffer_width() as usize
             + GtiaRegion::Pal.border_left() as usize;
-        let player_argb = colour_to_argb32(0x3A);
-        let bg_argb = colour_to_argb32(0x00);
+        let player_argb = gtia.colour_to_argb32(0x3A);
+        let bg_argb = gtia.colour_to_argb32(0x00);
         // Left copy (HPOS 50): cc 52 → active-x 8.
         assert_eq!(fb[base + 8], player_argb, "left copy at the first HPOS");
         // Right copy (HPOS 180): cc 183 → active-x 270.
@@ -1343,7 +1364,7 @@ mod tests {
 
         // With default priority, player should win
         let fb = gtia.framebuffer();
-        let player_argb = colour_to_argb32(0x38);
+        let player_argb = gtia.colour_to_argb32(0x38);
         let active_x = ((60 - PF_LEFT_CC) * 2) as usize;
         let fb_idx = GtiaRegion::Pal.border_top() as usize
             * GtiaRegion::Pal.framebuffer_width() as usize
@@ -1414,12 +1435,12 @@ mod tests {
         );
         assert_eq!(
             gtia.framebuffer()[row + x],
-            colour_to_argb32(0x94),
+            gtia.colour_to_argb32(0x94),
             "the first displayed data pixel must land on the first displayed clock"
         );
         assert_eq!(
             gtia.framebuffer()[row + x - 1],
-            colour_to_argb32(0x00),
+            gtia.colour_to_argb32(0x00),
             "and the clock before it is still border"
         );
     }
@@ -1466,7 +1487,7 @@ mod tests {
         );
         assert_eq!(
             gtia.framebuffer()[row + x],
-            colour_to_argb32(0x38),
+            gtia.colour_to_argb32(0x38),
             "a player left of the playfield must still reach the screen"
         );
     }
