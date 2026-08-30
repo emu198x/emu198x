@@ -55,11 +55,18 @@ pub fn profile_for(model: Model) -> MachineProfile {
         release_year: 1983,
         summary: "Mattel Aquarius — Z80A + Microsoft BASIC ROM (8 KB), 4 KB internal RAM, optional 16 KB expansion, character display.".into(),
         clock: ClockDesc::new("z80-tstate", ClockRate::from_hz(3_579_545)),
-        firmware: vec![FirmwareRequirement::new(
-            BIOS_FIRMWARE_ID,
-            "Aquarius BASIC ROM (8 KB)",
-            false,
-        )],
+        firmware: vec![
+            FirmwareRequirement::new(
+                BIOS_FIRMWARE_ID,
+                "Aquarius BASIC ROM (8 KB)",
+                false,
+            ),
+            FirmwareRequirement::new(
+                CHAR_FIRMWARE_ID,
+                "Aquarius character-generator ROM (2 KB)",
+                false,
+            ),
+        ],
         media_slots: vec![MediaSlot::new(
             "cartridge-1",
             "Cartridge Slot",
@@ -82,7 +89,9 @@ mod tests {
     fn profile_uses_pal_region() {
         let p = profile_for(Model::Aquarius);
         assert_eq!(p.region, Region::Pal);
-        assert_eq!(p.firmware.len(), 1);
+        assert_eq!(p.firmware.len(), 2);
         assert_eq!(p.firmware[0].id.as_ref(), BIOS_FIRMWARE_ID);
+        assert_eq!(p.firmware[1].id.as_ref(), CHAR_FIRMWARE_ID);
+        assert!(p.firmware.iter().all(|firmware| !firmware.optional));
     }
 }
