@@ -572,6 +572,13 @@ impl<M: AmigaMachine> AmigaRuntime<M> {
         bytes: &[u8],
         writable: bool,
     ) -> Result<(), MachineError> {
+        if bytes.starts_with(b"CAPS") {
+            return Err(MachineError::InvalidMedia {
+                slot: slot.to_owned(),
+                reason: "IPF disk images are not supported yet (identified by CAPS magic)"
+                    .to_owned(),
+            });
+        }
         let adf = Adf::from_bytes(bytes.to_vec()).map_err(|reason| MachineError::InvalidMedia {
             slot: slot.to_owned(),
             reason: reason.to_string(),

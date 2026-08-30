@@ -496,6 +496,29 @@ fn load_media_rejects_invalid_adf_bytes() {
 }
 
 #[test]
+fn load_media_identifies_unsupported_ipf_before_trying_adf() {
+    let mut runtime =
+        AmigaOcsRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
+    let bytes = b"CAPS\0\0\0\0";
+    let mut media = MediaSet::new();
+    media.push(MediaImage::new("floppy-0", MediaKind::Disk, bytes));
+
+    let err = runtime
+        .load_media(&media)
+        .expect_err("unsupported IPF should be identified by its magic");
+    match err {
+        MachineError::InvalidMedia { slot, reason } => {
+            assert_eq!(slot, "floppy-0");
+            assert_eq!(
+                reason,
+                "IPF disk images are not supported yet (identified by CAPS magic)"
+            );
+        }
+        other => panic!("expected InvalidMedia, got {other:?}"),
+    }
+}
+
+#[test]
 fn from_firmware_reports_missing_kickstart() {
     let firmware = FirmwareSet::new();
     let result = AmigaOcsRuntime::from_firmware(Model::A500OcsPal, &firmware);
