@@ -22,11 +22,11 @@
 use emu198x_zilog_z80::Z80Stepper;
 use machine_msx::{Msx, MsxRegion};
 
-/// Zilog `NOP`: one `M1` fetch, four T-states.
-const NOP_TSTATES: u64 = 4;
+/// Zilog `NOP`: four CPU T-states plus the standard MSX M1 wait state.
+const MSX_NOP_TSTATES: u64 = 5;
 
 #[test]
-fn a_nop_costs_four_tstates() {
+fn a_nop_costs_five_tstates_on_msx() {
     // 32 KB of `NOP` in place of the BIOS; the Z80 starts at `$0000`.
     let mut msx = Msx::new(vec![0x00u8; 32 * 1024], MsxRegion::Pal);
 
@@ -50,10 +50,9 @@ fn a_nop_costs_four_tstates() {
     );
     assert_eq!(
         tstates,
-        retired * NOP_TSTATES,
-        "{retired} `NOP`s cost {tstates} T-states, not {}. A ratio of \
-         exactly 2 means `Z80::tick` — which advances one half-cycle — is \
-         being called once per T-state instead of twice.",
-        retired * NOP_TSTATES,
+        retired * MSX_NOP_TSTATES,
+        "{retired} `NOP`s cost {tstates} T-states, not {} including the \
+         standard one-T-state MSX wait on every M1 fetch.",
+        retired * MSX_NOP_TSTATES,
     );
 }

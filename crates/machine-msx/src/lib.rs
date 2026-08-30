@@ -303,6 +303,10 @@ pub struct Msx {
     /// Keyboard matrix: 11 rows × 8 columns, active-low (1 = released).
     keyboard: [u8; 11],
     region: MsxRegion,
+    /// Progress of the standard MSX wait state in the current opcode-fetch
+    /// (`M1`) bus cycle: 0 = not started, 2/1 = half-cycles remaining,
+    /// 3 = complete.
+    m1_wait_phase: u8,
     cpu_tstates: u64,
     tstates_per_frame: u64,
     vdp_phase: u32,
@@ -353,6 +357,7 @@ impl Msx {
             ram: vec![0u8; 65536],
             keyboard: [0xFF; 11],
             region,
+            m1_wait_phase: 0,
             cpu_tstates: 0,
             tstates_per_frame,
             vdp_phase: 0,
@@ -445,7 +450,27 @@ impl Msx {
             // `knowledge/decisions/zilog-z80-samples-int-at-the-instruction-boundary.md`.
             self.cpu.irq = self.vdp.interrupt;
 
+            // Standard MSX hardware stretches every opcode-fetch (M1) bus
+            // cycle by one T-state. The Z80 samples WAIT during T2; assert it
+            // for one T-state, then release it so the held phase can advance.
+            // Refresh is also marked M1, but is not a memory read, hence the
+            // MREQ + RD qualification. Sources: `reference/by-system/msx/
+            // msx-reference.md`; openMSX `src/cpu/Z80.hh::WAIT_CYCLES`.
+            if !self.cpu.m1 {
+                self.m1_wait_phase = 0;
+            }
+            if self.cpu.m1 && self.cpu.mreq && self.cpu.rd && self.m1_wait_phase == 0 {
+                // `Z80::tick` is a half-cycle, so a one-T-state wait holds
+                // T2Rise for two calls.
+                self.m1_wait_phase = 2;
+            }
+            self.cpu.wait = matches!(self.m1_wait_phase, 1 | 2);
             self.cpu.tick();
+            if self.m1_wait_phase == 2 {
+                self.m1_wait_phase = 1;
+            } else if self.m1_wait_phase == 1 {
+                self.m1_wait_phase = 3;
+            }
             self.handle_bus();
 
             // VDP dots at 3:2 against T-states, accumulated per
