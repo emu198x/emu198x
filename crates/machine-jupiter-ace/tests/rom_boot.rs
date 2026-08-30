@@ -30,7 +30,7 @@ fn rom_boots_to_cursor() {
     let rom = fs::read(&path).expect("read ROM");
     assert_eq!(rom.len(), 0x2000, "ROM must be exactly 8 KB");
 
-    let mut sys = JupiterAce::new(rom, 3 * 1024).expect("init");
+    let mut sys = JupiterAce::new(rom, 0).expect("init");
     for _ in 0..200 {
         sys.run_frame();
     }

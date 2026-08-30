@@ -52,6 +52,16 @@ impl Model {
             Self::Ace48k => 48,
         }
     }
+
+    /// RAM fitted at `$4000+`, excluding the three on-board 1 KB banks.
+    #[must_use]
+    pub const fn expansion_ram_kb(self) -> usize {
+        match self {
+            Self::Ace3k => 0,
+            Self::Ace16k => 16,
+            Self::Ace48k => 48,
+        }
+    }
 }
 
 pub const BIOS_FIRMWARE_ID: &str = "jupiter-ace-rom";

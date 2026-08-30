@@ -191,12 +191,13 @@ impl JupiterAceRuntime {
             self.machine = None;
             return Ok(());
         };
-        let machine = JupiterAce::new(bios, self.model.ram_kb() * 1024).map_err(|reason| {
-            MachineError::InvalidFirmware {
-                id: BIOS_FIRMWARE_ID.to_owned(),
-                reason,
-            }
-        })?;
+        let machine =
+            JupiterAce::new(bios, self.model.expansion_ram_kb() * 1024).map_err(|reason| {
+                MachineError::InvalidFirmware {
+                    id: BIOS_FIRMWARE_ID.to_owned(),
+                    reason,
+                }
+            })?;
         let width = machine.framebuffer_width();
         let height = machine.framebuffer_height();
         self.rgba_width = width;

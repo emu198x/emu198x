@@ -22,7 +22,8 @@
 //!   `$2400-$27FF`
 //! - **Character RAM:** 1 KB at `$2800-$2BFF` (128 × 8-byte glyphs),
 //!   mirrored at `$2C00-$2FFF`
-//! - **Base RAM:** 1 KB mirrored across `$3000-$3FFF`; expansion at `$4000+`
+//! - **Base RAM:** 1 KB mirrored across `$3000-$3FFF`; up to 48 KB of
+//!   expansion RAM at `$4000+`
 //! - **Display:** 256 × 192 monochrome, 32 × 24 characters
 //! - **Audio:** 1-bit beeper on port `$FE` bit 4
 //! - **Keyboard:** identical 8 × 5 matrix to the ZX Spectrum, scanned
@@ -73,10 +74,9 @@ pub struct JupiterAce {
 
 impl JupiterAce {
     /// Create a new Jupiter Ace. `rom` must be exactly 8192 bytes
-    /// (the Forth interpreter). `ram_size` is the bytes of general
-    /// RAM: the first 1 KB is the base user RAM mirrored across
-    /// `$3000-$3FFF`, and any remainder backs the `$4000+` expansion.
-    pub fn new(rom: Vec<u8>, ram_size: usize) -> Result<Self, String> {
+    /// (the Forth interpreter). `expansion_ram_size` backs the contiguous RAM at
+    /// `$4000+`; the on-board 1 KB at `$3000-$3FFF` is always present.
+    pub fn new(rom: Vec<u8>, expansion_ram_size: usize) -> Result<Self, String> {
         if rom.len() != 0x2000 {
             return Err(format!(
                 "Jupiter Ace ROM must be 8192 bytes, got {}",
@@ -89,7 +89,7 @@ impl JupiterAce {
             rom,
             video_ram: vec![0; 1024],
             char_ram: vec![0; 1024],
-            ram: vec![0; ram_size],
+            ram: vec![0; 1024 + expansion_ram_size],
             display: Display::new(),
             keyboard: KeyboardState::new(),
             audio_buffer: Vec::with_capacity(1024),
@@ -319,7 +319,7 @@ mod tests {
     /// snapshot would re-derive a fresh machine and fail the final equality.
     #[test]
     fn snapshot_round_trips_live_state() {
-        let mut ace = JupiterAce::new(trap_rom(), 1024).expect("build machine");
+        let mut ace = JupiterAce::new(trap_rom(), 0).expect("build machine");
         ace.run_frame();
         ace.poke(0x3000, 0xA5); // a base-RAM byte to carry across the snapshot
         ace.run_frame();
@@ -347,7 +347,7 @@ mod tests {
 
     #[test]
     fn frame_advances_master_clock_and_count() {
-        let mut sys = JupiterAce::new(trap_rom(), 1024).expect("init");
+        let mut sys = JupiterAce::new(trap_rom(), 0).expect("init");
         let clocks = sys.run_frame();
         assert_eq!(clocks, u64::from(TSTATES_PER_FRAME));
         assert_eq!(sys.frame_count(), 1);
@@ -355,7 +355,7 @@ mod tests {
 
     #[test]
     fn framebuffer_correct_size() {
-        let sys = JupiterAce::new(trap_rom(), 1024).expect("init");
+        let sys = JupiterAce::new(trap_rom(), 0).expect("init");
         assert_eq!(sys.framebuffer_width(), FB_WIDTH);
         assert_eq!(sys.framebuffer_height(), FB_HEIGHT);
         assert_eq!(sys.framebuffer().len(), (FB_WIDTH * FB_HEIGHT) as usize);
@@ -363,26 +363,26 @@ mod tests {
 
     #[test]
     fn rom_too_small_rejected() {
-        assert!(JupiterAce::new(vec![0u8; 1024], 1024).is_err());
+        assert!(JupiterAce::new(vec![0u8; 1024], 0).is_err());
     }
 
     #[test]
     fn ram_is_writable_and_readable() {
-        let mut sys = JupiterAce::new(trap_rom(), 1024).expect("init");
+        let mut sys = JupiterAce::new(trap_rom(), 0).expect("init");
         sys.mem_write(0x2800, 0x42);
         assert_eq!(sys.mem_read(0x2800), 0x42);
     }
 
     #[test]
     fn rom_is_read_only() {
-        let mut sys = JupiterAce::new(trap_rom(), 1024).expect("init");
+        let mut sys = JupiterAce::new(trap_rom(), 0).expect("init");
         sys.mem_write(0x0000, 0xFF);
         assert_eq!(sys.mem_read(0x0000), 0xF3);
     }
 
     #[test]
     fn video_and_char_ram_independent() {
-        let mut sys = JupiterAce::new(trap_rom(), 1024).expect("init");
+        let mut sys = JupiterAce::new(trap_rom(), 0).expect("init");
         // Video RAM ($2000) and character RAM ($2800) are separate banks.
         sys.mem_write(0x2000, 0xAA);
         sys.mem_write(0x2800, 0xBB);
@@ -392,7 +392,7 @@ mod tests {
 
     #[test]
     fn video_and_char_ram_mirror_at_high_kilobyte() {
-        let mut sys = JupiterAce::new(trap_rom(), 1024).expect("init");
+        let mut sys = JupiterAce::new(trap_rom(), 0).expect("init");
         // The decode ignores A10, so each 1 KB bank reappears in the next:
         // video RAM at $2400, character RAM at $2C00.
         sys.mem_write(0x2000, 0x11);
@@ -402,8 +402,32 @@ mod tests {
     }
 
     #[test]
+    fn sixteen_k_expansion_covers_4000_through_7fff() {
+        let mut sys = JupiterAce::new(trap_rom(), 16 * 1024).expect("init");
+
+        sys.mem_write(0x4000, 0x16);
+        sys.mem_write(0x7FFF, 0x7F);
+        sys.mem_write(0x8000, 0x80);
+
+        assert_eq!(sys.mem_read(0x4000), 0x16);
+        assert_eq!(sys.mem_read(0x7FFF), 0x7F);
+        assert_eq!(sys.mem_read(0x8000), 0xFF, "unmapped RAM reads open bus");
+    }
+
+    #[test]
+    fn forty_eight_k_expansion_covers_4000_through_ffff() {
+        let mut sys = JupiterAce::new(trap_rom(), 48 * 1024).expect("init");
+
+        sys.mem_write(0x4000, 0x48);
+        sys.mem_write(0xFFFF, 0xFF);
+
+        assert_eq!(sys.mem_read(0x4000), 0x48);
+        assert_eq!(sys.mem_read(0xFFFF), 0xFF);
+    }
+
+    #[test]
     fn beeper_port_drives_speaker_state() {
-        let mut sys = JupiterAce::new(trap_rom(), 1024).expect("init");
+        let mut sys = JupiterAce::new(trap_rom(), 0).expect("init");
         sys.io_write(0x00FE, 0x10);
         assert!(sys.display.speaker_state);
         sys.io_write(0x00FE, 0x00);
@@ -412,7 +436,7 @@ mod tests {
 
     #[test]
     fn keyboard_press_release() {
-        let mut sys = JupiterAce::new(trap_rom(), 1024).expect("init");
+        let mut sys = JupiterAce::new(trap_rom(), 0).expect("init");
         sys.press_key(JupiterAceKey::A);
         // Row 1 = A9 high-byte bit 1 clear (0xFD).
         assert_eq!(sys.io_read(0xFDFE) & 0x01, 0x00);

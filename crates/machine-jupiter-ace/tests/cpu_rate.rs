@@ -13,7 +13,7 @@ const NOP_TSTATES: u64 = 4;
 
 #[test]
 fn a_nop_costs_four_tstates() {
-    let mut ace = JupiterAce::new(vec![0x00; 8 * 1024], 1024).expect("build machine");
+    let mut ace = JupiterAce::new(vec![0x00; 8 * 1024], 0).expect("build machine");
 
     // Clear reset sequencing before measuring the steady-state NOP stream.
     for _ in 0..64 {
