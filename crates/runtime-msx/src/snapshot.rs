@@ -12,16 +12,14 @@ use serde::{Deserialize, Serialize};
 
 use crate::runtime::MsxRuntime;
 
-/// Bumped to 4 when the VDP framebuffer became region-sized. A snapshot
-/// carries the live chip, framebuffer included, so a version-3 PAL snapshot
-/// holds a 240-line buffer that a version-4 PAL machine would never allocate.
-/// Restoring it would resume into a geometry the machine disagrees with, and
-/// silently — so the version check rejects it instead.
-const SNAPSHOT_VERSION: u16 = 4;
+/// Bumped to 5 when the machine gained the live M1 wait-state latch. Restoring
+/// an older snapshot without that latch could insert the wait twice or omit it
+/// when resuming in the middle of an opcode fetch.
+const SNAPSHOT_VERSION: u16 = 5;
 
 /// Borrowing envelope used during encode — avoids cloning the live machine.
 #[derive(Serialize)]
-struct MsxRuntimeSnapshotRefV3<'a> {
+struct MsxRuntimeSnapshotRefV5<'a> {
     version: u16,
     time: u64,
     model_id: &'a str,
@@ -30,7 +28,7 @@ struct MsxRuntimeSnapshotRefV3<'a> {
 
 /// Owning envelope used during decode.
 #[derive(Deserialize)]
-struct MsxRuntimeSnapshotV3 {
+struct MsxRuntimeSnapshotV5 {
     version: u16,
     time: u64,
     model_id: String,
@@ -38,7 +36,7 @@ struct MsxRuntimeSnapshotV3 {
 }
 
 pub(crate) fn encode(runtime: &MsxRuntime) -> Result<Vec<u8>, MachineError> {
-    let snapshot = MsxRuntimeSnapshotRefV3 {
+    let snapshot = MsxRuntimeSnapshotRefV5 {
         version: SNAPSHOT_VERSION,
         time: runtime.time().get(),
         model_id: runtime.model().model_id(),
@@ -60,7 +58,7 @@ pub(crate) fn decode(runtime: &mut MsxRuntime, bytes: &[u8]) -> Result<(), Machi
             reason: format!("unsupported snapshot version {version}; expected {SNAPSHOT_VERSION}"),
         });
     }
-    let snapshot: MsxRuntimeSnapshotV3 =
+    let snapshot: MsxRuntimeSnapshotV5 =
         postcard::from_bytes(bytes).map_err(|reason| MachineError::InvalidSnapshot {
             reason: format!("decode failed: {reason}"),
         })?;
