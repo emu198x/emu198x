@@ -502,9 +502,9 @@ impl Antic {
         // VBI at the start of vertical blank.
         // NMIEN bit 6 = VBI enable (bit 7 is DLI). NMIST bit 6 records VBI.
         if self.scan_line == VISIBLE_END {
+            self.nmist |= 0x40;
             if self.nmien & 0x40 != 0 {
                 self.vbi_pending = true;
-                self.nmist |= 0x40;
             }
             // Reset display list state for next frame
             self.mode_line = 0;
@@ -549,9 +549,11 @@ impl Antic {
         if self.mode_line >= self.scan_lines_per_row {
             // End of this mode line — check for DLI.
             // NMIEN bit 7 = DLI enable. NMIST bit 7 records DLI.
-            if self.current_dli && (self.nmien & 0x80 != 0) {
-                self.dli_pending = true;
+            if self.current_dli {
                 self.nmist |= 0x80;
+                if self.nmien & 0x80 != 0 {
+                    self.dli_pending = true;
+                }
             }
             self.mode_line = 0;
             self.dl_active = false;
@@ -702,19 +704,13 @@ impl Antic {
         } else {
             self.mode_line
         };
-        let font_row = if reflect {
-            7u8.saturating_sub(raw_row)
-        } else {
-            raw_row
-        };
-
         let count = usize::min(self.char_codes.len(), bytes as usize);
         let mut pixels = Vec::new();
 
         // DMA for character bitmap fetch: 1 byte per character per scan line
         self.dma_cycles += bytes;
 
-        let glyph_byte = |glyph: u16| -> u8 {
+        let glyph_byte = |glyph: u16, font_row: u8| -> u8 {
             let addr = chbase_addr
                 .wrapping_add(glyph.wrapping_mul(8))
                 .wrapping_add(u16::from(font_row));
@@ -723,6 +719,22 @@ impl Antic {
 
         for i in 0..count {
             let raw_code = self.char_codes[i];
+            // Mode 3's ten-line row still addresses an eight-byte glyph. The
+            // hardware uses the low three row-counter bits, blanks rows 8-9
+            // for ordinary characters, and blanks rows 0-1 for the $60-$7F
+            // descender range. Those characters therefore expose glyph rows
+            // 0-1 at display rows 8-9 without reading into the next glyph.
+            let font_row = if desc.antic_mode == AnticMode::Mode3 {
+                let descender = raw_code & 0x60 == 0x60;
+                if (!descender && raw_row >= 8) || (descender && raw_row < 2) {
+                    None
+                } else {
+                    Some(raw_row & 0x07)
+                }
+            } else {
+                Some(raw_row)
+            }
+            .map(|row| if reflect { 7 - row } else { row });
 
             match desc.antic_mode {
                 // 5-colour text (modes 6, 7): the low 6 bits are the glyph and
@@ -732,7 +744,9 @@ impl Antic {
                 // clear pixel is background.
                 AnticMode::Mode6 | AnticMode::Mode7 => {
                     let colour = ((raw_code >> 6) & 0x03) + 1;
-                    let bitmap = glyph_byte(u16::from(raw_code & 0x3F));
+                    let bitmap = font_row
+                        .map(|row| glyph_byte(u16::from(raw_code & 0x3F), row))
+                        .unwrap_or(0);
                     for bit in (0..8).rev() {
                         pixels.push(if (bitmap >> bit) & 1 != 0 { colour } else { 0 });
                     }
@@ -742,7 +756,9 @@ impl Antic {
                 // COLPF2, or COLPF3 when the code's high bit is set.
                 AnticMode::Mode4 | AnticMode::Mode5 => {
                     let hi = raw_code & 0x80 != 0;
-                    let bitmap = glyph_byte(u16::from(raw_code & 0x7F));
+                    let bitmap = font_row
+                        .map(|row| glyph_byte(u16::from(raw_code & 0x7F), row))
+                        .unwrap_or(0);
                     for pair in 0..4u8 {
                         let value = (bitmap >> (6 - pair * 2)) & 0x03;
                         pixels.push(match value {
@@ -756,7 +772,9 @@ impl Antic {
                 // 1 bit per pixel.
                 _ => {
                     let inverse_bit = raw_code & 0x80 != 0;
-                    let mut bitmap = glyph_byte(u16::from(raw_code & 0x7F));
+                    let mut bitmap = font_row
+                        .map(|row| glyph_byte(u16::from(raw_code & 0x7F), row))
+                        .unwrap_or(0);
                     if inverse_bit {
                         let blanked = if blank { 0 } else { bitmap };
                         bitmap = if inverse_video { !blanked } else { blanked };
@@ -1098,6 +1116,36 @@ mod tests {
     }
 
     #[test]
+    fn nmist_latches_vbi_when_vbi_nmi_is_disabled() {
+        let ram = make_ram();
+        let mut antic = Antic::new(AnticRegion::Ntsc);
+        antic.scan_line = VISIBLE_END;
+
+        antic.process_line(&ram);
+
+        assert_eq!(antic.read(0x0F) & 0x40, 0x40);
+        assert!(!antic.take_vbi(), "NMIEN must still gate the NMI request");
+    }
+
+    #[test]
+    fn nmist_latches_dli_when_dli_nmi_is_disabled() {
+        let ram = make_ram();
+        let mut antic = Antic::new(AnticRegion::Ntsc);
+        antic.scan_line = VISIBLE_START;
+        antic.dmactl = 0x20;
+        antic.current_dli = true;
+        antic.current_mode = 0;
+        antic.mode_line = 1;
+        antic.scan_lines_per_row = 2;
+        antic.dl_active = true;
+
+        antic.process_line(&ram);
+
+        assert_eq!(antic.read(0x0F) & 0x80, 0x80);
+        assert!(!antic.take_dli(), "NMIEN must still gate the NMI request");
+    }
+
+    #[test]
     fn blank_line_instruction() {
         let mut ram = make_ram();
         let mut antic = Antic::new(AnticRegion::Ntsc);
@@ -1218,6 +1266,57 @@ mod tests {
 
         // Character 0 (rest) with bitmap $00 → all clear
         assert_eq!(result.playfield[8], 0);
+    }
+
+    #[test]
+    fn mode_3_blanks_extra_rows_without_reading_the_next_glyph() {
+        let mut ram = make_ram();
+        let mut antic = Antic::new(AnticRegion::Ntsc);
+        antic.chbase = 0xE0;
+        antic.char_codes.push(0x01);
+        antic.mode_line = 8;
+
+        // The byte immediately after glyph 1 is glyph 2 row 0. A raw
+        // ten-line lookup would incorrectly display it on row 8.
+        ram[0xE010] = 0xFF;
+
+        let pixels = antic.render_char_line(
+            &ram,
+            &mode_desc(0x03).expect("ANTIC mode 3 has a descriptor"),
+            1,
+        );
+        assert_eq!(pixels, vec![0; 8]);
+    }
+
+    #[test]
+    fn mode_3_descenders_wrap_glyph_rows_zero_and_one_to_the_bottom() {
+        let mut ram = make_ram();
+        let mut antic = Antic::new(AnticRegion::Ntsc);
+        antic.chbase = 0xE0;
+        antic.char_codes.push(0x60);
+
+        // Descender characters blank their first two display rows.
+        ram[0xE300] = 0x80;
+        antic.mode_line = 0;
+        assert_eq!(
+            antic.render_char_line(
+                &ram,
+                &mode_desc(0x03).expect("ANTIC mode 3 has a descriptor"),
+                1,
+            ),
+            vec![0; 8]
+        );
+
+        // On display row 8 the low three row-counter bits address glyph row
+        // 0, exposing the portion of the character stored for the descender.
+        antic.mode_line = 8;
+        let pixels = antic.render_char_line(
+            &ram,
+            &mode_desc(0x03).expect("ANTIC mode 3 has a descriptor"),
+            1,
+        );
+        assert_eq!(pixels[0], 1);
+        assert_eq!(&pixels[1..], &[0; 7]);
     }
 
     #[test]

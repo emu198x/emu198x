@@ -845,7 +845,10 @@ impl Gtia {
             2 => {
                 // Mode 10: 9-colour. Use all 9 colour registers.
                 match pf_idx {
-                    0 => self.colbk,
+                    // Unlike the other GTIA modes, mode 10 takes its
+                    // background from COLPM0. Atari's hardware manuals call
+                    // this out because COLBK does not participate here.
+                    0 => self.colpm[0],
                     1 => self.colpf[0],
                     2 => self.colpf[1],
                     3 => self.colpf[2],
@@ -1510,5 +1513,17 @@ mod tests {
         // Set mode 11 (PRIOR bits 6-7 = 11)
         gtia.write(0x1B, 0xC0);
         assert_eq!((gtia.prior >> 6) & 0x03, 3);
+    }
+
+    #[test]
+    fn mode_10_background_uses_colpm0() {
+        let mut gtia = Gtia::new(GtiaRegion::Ntsc);
+        gtia.write(0x12, 0x38); // COLPM0
+        gtia.write(0x1A, 0x94); // COLBK, deliberately different
+
+        assert_eq!(
+            gtia.resolve_colour(0, 2, &[], 0, 160, AnticMode::ModeF),
+            0x38
+        );
     }
 }
