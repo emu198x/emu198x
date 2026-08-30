@@ -123,8 +123,7 @@ const VISIBLE_TOP: u16 = 16;
 const CTRL_DMA_ENABLED: u8 = 0x40;
 const CTRL_COLOUR_KILL: u8 = 0x80;
 const CTRL_CW: u8 = 0x10;
-// Kangaroo mode (bit 2) is a transparency option, not yet implemented — see the
-// module CTRL table. The 4-vs-5-byte DL header choice is per-entry, not CTRL.
+const CTRL_KANGAROO: u8 = 0x04;
 
 /// Upper bound on the DMA cycles a single scanline can steal. A 7800 line is
 /// 454 MARIA colour clocks; this caps the display-list walk so a malformed list
@@ -749,14 +748,19 @@ impl Maria {
     /// Blit one graphics byte into the line buffer at column `*x`, advancing
     /// `*x` by 8 framebuffer columns. 320 mode is 1 bit/pixel; 160 mode is
     /// 2 bits/pixel with each pixel doubled to two columns. Pixel value 0 is
-    /// transparent.
+    /// transparent unless Kangaroo mode makes zero pixels opaque background.
     fn blit_byte(&mut self, byte: u8, x: &mut usize, use_320: bool, palette: u8) {
         let pal = palette as usize;
+        let kangaroo = self.ctrl & CTRL_KANGAROO != 0;
         if use_320 {
             // 320A: 1 bit per pixel, 8 pixels per byte.
             for bit in (0..8).rev() {
-                if *x < ACTIVE_WIDTH as usize && (byte >> bit) & 1 != 0 {
-                    self.line_buffer[*x] = self.palettes[pal][0];
+                if *x < ACTIVE_WIDTH as usize {
+                    if (byte >> bit) & 1 != 0 {
+                        self.line_buffer[*x] = self.palettes[pal][0];
+                    } else if kangaroo {
+                        self.line_buffer[*x] = self.backgrnd;
+                    }
                 }
                 *x += 1;
             }
@@ -764,8 +768,12 @@ impl Maria {
             // 160A: 2 bits per pixel, 4 pixels per byte, each doubled.
             for shift in [6, 4, 2, 0] {
                 let pixel = (byte >> shift) & 0x03;
-                if pixel != 0 {
-                    let colour = self.palettes[pal][(pixel - 1) as usize];
+                if pixel != 0 || kangaroo {
+                    let colour = if pixel == 0 {
+                        self.backgrnd
+                    } else {
+                        self.palettes[pal][(pixel - 1) as usize]
+                    };
                     if *x < ACTIVE_WIDTH as usize {
                         self.line_buffer[*x] = colour;
                     }
@@ -1166,6 +1174,23 @@ mod tests {
         // Next pixels should be background (transparent).
         assert_eq!(maria.framebuffer[active_start + 2], bg_argb);
         assert_eq!(maria.framebuffer[active_start + 3], bg_argb);
+    }
+
+    #[test]
+    fn kangaroo_mode_makes_zero_pixels_opaque_background() {
+        let mut maria = Maria::new(MariaRegion::Ntsc);
+        maria.backgrnd = 0x0E;
+        maria.line_buffer.fill(0x66);
+        maria.ctrl = CTRL_KANGAROO;
+
+        let mut x = 0;
+        maria.blit_byte(0x00, &mut x, false, 0);
+        assert_eq!(&maria.line_buffer[..8], &[0x0E; 8], "160A");
+
+        maria.line_buffer.fill(0x66);
+        x = 0;
+        maria.blit_byte(0x00, &mut x, true, 0);
+        assert_eq!(&maria.line_buffer[..8], &[0x0E; 8], "320A");
     }
 
     #[test]
