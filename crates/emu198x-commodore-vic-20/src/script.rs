@@ -31,8 +31,9 @@ Hardware:
                                RAM to the load address, e.g. +8K for $1201)
     --prg-sys                  launch the --prg with SYS <load-addr> (machine
                                code) instead of RUN (BASIC)
-    --esp-at-tcp               attach a 9600-baud ESP-AT modem; CIPSTART opens
-                               a real TCP connection (64-byte frame reassembly)
+    --esp-at-tcp               attach an ESP-AT modem (9600 baud initially,
+                               with AT+UART_CUR support); CIPSTART opens a real
+                               TCP connection (64-byte frame reassembly)
     --frames N                 frames to run [default: 0]
 
 Capture:

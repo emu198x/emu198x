@@ -35,6 +35,7 @@ pub struct EspAtModem {
     connect_requests: VecDeque<(String, u16)>,
     connected: bool,
     diagnostic_received: VecDeque<u8>,
+    pending_cycles_per_bit: Option<u32>,
 }
 
 /// Optional real TCP transport behind the deterministic ESP-AT serial model.
@@ -153,6 +154,7 @@ impl EspAtModem {
             connect_requests: VecDeque::new(),
             connected: false,
             diagnostic_received: VecDeque::new(),
+            pending_cycles_per_bit: None,
         }
     }
 
@@ -161,6 +163,11 @@ impl EspAtModem {
         let pb0 = self.serial.tick(cb2);
         for byte in self.serial.take_output() {
             self.accept_byte(byte);
+        }
+        if self.serial.input_idle()
+            && let Some(cycles) = self.pending_cycles_per_bit.take()
+        {
+            self.serial.set_cycles_per_bit(cycles);
         }
         pb0
     }
@@ -232,6 +239,10 @@ impl EspAtModem {
             }
         } else if let Some(endpoint) = parse_cipstart(command) {
             self.connect_requests.push_back(endpoint);
+        } else if command == "AT+UART_CUR=2400,8,1,0,0" {
+            // Complete OK at the old rate, then switch both serial directions.
+            self.queue_response(b"\r\nOK\r\n");
+            self.pending_cycles_per_bit = Some(self.serial.cycles_per_bit * 4);
         } else if command == "AT+CIPCLOSE" {
             self.connected = false;
             self.queue_response(b"\r\nCLOSED\r\nOK\r\n");
@@ -291,6 +302,15 @@ impl BitBangSerial {
 
     pub fn take_output(&mut self) -> Vec<u8> {
         self.received.drain(..).collect()
+    }
+
+    fn input_idle(&self) -> bool {
+        self.transmit.is_empty() && self.transmit_byte.is_none() && self.transmit_delay == 0
+    }
+
+    fn set_cycles_per_bit(&mut self, cycles_per_bit: u32) {
+        assert!(cycles_per_bit >= 2);
+        self.cycles_per_bit = cycles_per_bit;
     }
 
     /// Advance one emulated CPU cycle and return the PB0 level for that cycle.
@@ -449,6 +469,21 @@ mod tests {
         assert!(prompt.contains(&b'>'));
         send_host_bytes(&mut modem, b"RACH", 12);
         assert_eq!(modem.take_outbound_packet(), Some(b"RACH".to_vec()));
+    }
+
+    #[test]
+    fn esp_at_switches_baud_after_uart_ok_finishes() {
+        let mut modem = EspAtModem::new(12);
+        send_host_bytes(&mut modem, b"AT+UART_CUR=2400,8,1,0,0\r", 12);
+        assert_eq!(modem.serial.cycles_per_bit, 12);
+        let response = drain_device_bytes(&mut modem, 12 * 10 * 16);
+        assert!(response.windows(2).any(|window| window == b"OK"));
+        assert_eq!(modem.serial.cycles_per_bit, 48);
+
+        modem.connected = true;
+        send_host_bytes(&mut modem, b"AT+CIPSEND=4\r", 48);
+        let prompt = drain_device_bytes(&mut modem, 48 * 10 * 16);
+        assert!(prompt.contains(&b'>'));
     }
 
     #[test]
