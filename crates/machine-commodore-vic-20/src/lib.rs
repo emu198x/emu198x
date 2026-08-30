@@ -94,6 +94,15 @@ pub struct Vic20 {
     /// tick. See the VIC-20 Programmer's Reference Guide control-port table.
     joy_via1_pa: u8,
     joy_right_low: bool,
+    /// External level presented at user-port PB0 (pin C). The line idles high,
+    /// matching an unattached RS-232 adapter, and is folded through VIA #1's
+    /// DDR on every cycle rather than injected into a register read.
+    #[serde(default = "default_high")]
+    user_port_pb0_input: bool,
+}
+
+const fn default_high() -> bool {
+    true
 }
 
 impl Vic20 {
@@ -143,6 +152,7 @@ impl Vic20 {
             frame_count: 0,
             joy_via1_pa: 0xFF,
             joy_right_low: false,
+            user_port_pb0_input: true,
         }
     }
 
@@ -161,6 +171,35 @@ impl Vic20 {
         }
         self.joy_via1_pa = pa;
         self.joy_right_low = right;
+    }
+
+    /// Drive the external level at user-port PB0 (pin C).
+    ///
+    /// The level reaches VIA #1's port-B input latch on the next machine
+    /// cycle. When DDRB0 is configured as an output the VIA's output latch
+    /// wins, exactly as it does at the physical pin.
+    pub fn set_user_port_pb0(&mut self, high: bool) {
+        self.user_port_pb0_input = high;
+    }
+
+    /// Read the effective logic level at user-port PB0 (pin C), after DDRB.
+    #[must_use]
+    pub fn user_port_pb0(&self) -> bool {
+        self.via1.compose_port_b_read(self.via1.pb_in) & 0x01 != 0
+    }
+
+    /// Read the effective logic level at user-port CB2 (pin M).
+    ///
+    /// This exposes the VIA pin, not the PCR register encoding, so a host
+    /// peripheral observes bit-banged transitions produced by real VIA
+    /// execution.
+    #[must_use]
+    pub fn user_port_cb2(&self) -> bool {
+        if self.via1.cb2_drive {
+            self.via1.cb2_out
+        } else {
+            self.via1.cb2
+        }
     }
 
     pub fn run_frame(&mut self) -> u64 {
@@ -220,6 +259,11 @@ impl Vic20 {
         // low). Read-modify-write leaves the IEC / cassette bits on PA and the
         // keyboard-column bits on PB untouched.
         self.via1.pa_in = (self.via1.pa_in & !0x3C) | (self.joy_via1_pa & 0x3C);
+        if self.user_port_pb0_input {
+            self.via1.pb_in |= 0x01;
+        } else {
+            self.via1.pb_in &= !0x01;
+        }
         if self.joy_right_low {
             self.via2.pb_in &= !0x80;
         } else {
@@ -696,6 +740,40 @@ mod tests {
         let _ = sys.step_instruction();
         assert_eq!(sys.mem_read(0x9111) & 0x3C, 0x3C, "PA2-PA5 idle high");
         assert_eq!(sys.mem_read(0x9120) & (1 << 7), 1 << 7, "PB7 idle high");
+    }
+
+    #[test]
+    fn user_port_pb0_external_level_reaches_via1_through_ddr() {
+        let mut sys = make_vic20();
+        sys.mem_write(0x9112, 0x00); // VIA1 DDRB: PB0 input
+
+        sys.set_user_port_pb0(false);
+        sys.tick_cycle();
+        assert_eq!(sys.mem_read(0x9110) & 0x01, 0, "external PB0 low");
+        assert!(!sys.user_port_pb0());
+
+        sys.set_user_port_pb0(true);
+        sys.tick_cycle();
+        assert_eq!(sys.mem_read(0x9110) & 0x01, 1, "external PB0 high");
+        assert!(sys.user_port_pb0());
+
+        // Output mode must expose the VIA latch, not the external input.
+        sys.mem_write(0x9112, 0x01);
+        sys.mem_write(0x9110, 0x00);
+        assert!(!sys.user_port_pb0(), "DDRB0 output low wins");
+        sys.mem_write(0x9110, 0x01);
+        assert!(sys.user_port_pb0(), "DDRB0 output high wins");
+    }
+
+    #[test]
+    fn user_port_cb2_exposes_via1_pin_transitions() {
+        let mut sys = make_vic20();
+
+        sys.mem_write(0x911C, 0xC0); // PCR: CB2 manual output low
+        assert!(!sys.user_port_cb2());
+
+        sys.mem_write(0x911C, 0xE0); // PCR: CB2 manual output high
+        assert!(sys.user_port_cb2());
     }
 
     #[test]
