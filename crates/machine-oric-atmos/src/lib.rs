@@ -139,6 +139,27 @@ const ORIC_PALETTE: [u32; 8] = [
     0xFFFF_FFFF, // 7: White
 ];
 
+/// Serial ULA state rebuilt from the start of every raster line.
+struct SerialAttributes {
+    ink: u32,
+    paper: u32,
+    alternate_charset: bool,
+    double_height: bool,
+    flash: bool,
+}
+
+impl Default for SerialAttributes {
+    fn default() -> Self {
+        Self {
+            ink: ORIC_PALETTE[7],
+            paper: ORIC_PALETTE[0],
+            alternate_charset: false,
+            double_height: false,
+            flash: false,
+        }
+    }
+}
+
 /// Oric model variant.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum OricModel {
@@ -489,12 +510,12 @@ impl OricAtmos {
         if hires {
             if fb_y < 24 {
                 // The top 3 text rows live at $BF68 in HIRES mode.
-                self.render_text_scanline(fb_y, 0xBF68);
+                self.render_text_scanline(fb_y, 0xBF68, true);
             } else {
                 self.render_bitmap_scanline(fb_y);
             }
         } else {
-            self.render_text_scanline(fb_y, 0xBB80);
+            self.render_text_scanline(fb_y, 0xBB80, false);
         }
     }
 
@@ -502,31 +523,40 @@ impl OricAtmos {
     /// memory; the font row comes from the character generator at $B400.
     /// Serial attributes reset at the start of the line — the ULA
     /// re-scans the row's bytes for every one of its eight pixel lines.
-    fn render_text_scanline(&mut self, fb_y: usize, base: usize) {
-        let charset_base = 0xB400usize;
+    fn render_text_scanline(&mut self, fb_y: usize, base: usize, hires_charset: bool) {
         let char_row = fb_y / 8;
-        let font_row = fb_y % 8;
-        let mut ink: u32 = ORIC_PALETTE[7];
-        let mut paper: u32 = ORIC_PALETTE[0];
+        let mut attrs = SerialAttributes::default();
         for col in 0..40 {
             let byte = self.ram[base + char_row * 40 + col];
             let inverse = byte & 0x80 != 0;
             let effective = byte & 0x7F;
             if effective < 32 {
-                Self::apply_serial_attribute(effective, &mut ink, &mut paper);
-                self.fill_scanline_cell(fb_y, col, paper);
+                Self::apply_serial_attribute(effective, &mut attrs);
+                self.fill_scanline_cell(fb_y, col, attrs.paper);
             } else {
+                let standard_base = if hires_charset { 0x9800 } else { 0xB400 };
+                let charset_base = standard_base + usize::from(attrs.alternate_charset) * 0x400;
+                let font_row = if attrs.double_height {
+                    (fb_y / 2) % 8
+                } else {
+                    fb_y % 8
+                };
                 let pattern = self
                     .ram
                     .get(charset_base + effective as usize * 8 + font_row)
                     .copied()
-                    .unwrap_or(0);
+                    .unwrap_or(0)
+                    & self.flash_mask(attrs.flash);
                 for bit in 0..6 {
                     let fb_x = col * 6 + bit;
                     if fb_x >= FB_WIDTH as usize {
                         continue;
                     }
-                    let (fg, bg) = if inverse { (paper, ink) } else { (ink, paper) };
+                    let (fg, bg) = if inverse {
+                        (attrs.paper, attrs.ink)
+                    } else {
+                        (attrs.ink, attrs.paper)
+                    };
                     let pixel = if pattern & (0x20 >> bit) != 0 { fg } else { bg };
                     self.framebuffer[fb_y * FB_WIDTH as usize + fb_x] = pixel;
                 }
@@ -539,22 +569,26 @@ impl OricAtmos {
     fn render_bitmap_scanline(&mut self, fb_y: usize) {
         let bitmap_base = 0xA000usize;
         let line = fb_y - 24;
-        let mut ink: u32 = ORIC_PALETTE[7];
-        let mut paper: u32 = ORIC_PALETTE[0];
+        let mut attrs = SerialAttributes::default();
         for col in 0..40 {
             let byte = self.ram[bitmap_base + line * 40 + col];
             let inverse = byte & 0x80 != 0;
             let effective = byte & 0x7F;
             if effective < 32 {
-                Self::apply_serial_attribute(effective, &mut ink, &mut paper);
-                self.fill_scanline_cell(fb_y, col, paper);
+                Self::apply_serial_attribute(effective, &mut attrs);
+                self.fill_scanline_cell(fb_y, col, attrs.paper);
             } else {
+                let effective = effective & self.flash_mask(attrs.flash);
                 for bit in 0..6 {
                     let fb_x = col * 6 + bit;
                     if fb_x >= FB_WIDTH as usize {
                         continue;
                     }
-                    let (fg, bg) = if inverse { (paper, ink) } else { (ink, paper) };
+                    let (fg, bg) = if inverse {
+                        (attrs.paper, attrs.ink)
+                    } else {
+                        (attrs.ink, attrs.paper)
+                    };
                     let pixel = if effective & (0x20 >> bit) != 0 {
                         fg
                     } else {
@@ -577,10 +611,23 @@ impl OricAtmos {
         }
     }
 
-    fn apply_serial_attribute(attr: u8, ink: &mut u32, paper: &mut u32) {
+    fn flash_mask(&self, flashing: bool) -> u8 {
+        if flashing && self.frame_count & 0x10 == 0 {
+            0
+        } else {
+            0x3F
+        }
+    }
+
+    fn apply_serial_attribute(attr: u8, attrs: &mut SerialAttributes) {
         match attr {
-            0..=7 => *ink = ORIC_PALETTE[attr as usize],
-            16..=23 => *paper = ORIC_PALETTE[(attr - 16) as usize],
+            0..=7 => attrs.ink = ORIC_PALETTE[attr as usize],
+            8..=15 => {
+                attrs.alternate_charset = attr & 0x01 != 0;
+                attrs.double_height = attr & 0x02 != 0;
+                attrs.flash = attr & 0x04 != 0;
+            }
+            16..=23 => attrs.paper = ORIC_PALETTE[(attr - 16) as usize],
             _ => {}
         }
     }
@@ -801,6 +848,75 @@ mod tests {
         // …a scanline in a different row does not.
         sys.render_scanline(32);
         assert_ne!(sys.framebuffer[32 * FB_WIDTH as usize], ORIC_PALETTE[1]);
+    }
+
+    #[test]
+    fn alternate_charset_attribute_selects_the_text_and_hires_banks() {
+        let glyph = 32usize;
+
+        let mut text = OricAtmos::new(trap_rom(), OricModel::Atmos);
+        text.ram[0xBB80] = 9; // alternate charset, single height, steady
+        text.ram[0xBB81] = glyph as u8;
+        text.ram[0xB400 + glyph * 8] = 0;
+        text.ram[0xB800 + glyph * 8] = 0x20;
+        text.render_scanline(0);
+        assert_eq!(text.framebuffer[6], ORIC_PALETTE[7]);
+
+        let mut hires = OricAtmos::new(trap_rom(), OricModel::Atmos);
+        hires.ram[0x026A] = 0x04;
+        hires.ram[0xBF68] = 9;
+        hires.ram[0xBF69] = glyph as u8;
+        hires.ram[0x9800 + glyph * 8] = 0;
+        hires.ram[0x9C00 + glyph * 8] = 0x20;
+        hires.render_scanline(0);
+        assert_eq!(hires.framebuffer[6], ORIC_PALETTE[7]);
+    }
+
+    #[test]
+    fn double_height_repeats_each_glyph_raster_line() {
+        let mut sys = OricAtmos::new(trap_rom(), OricModel::Atmos);
+        let glyph = 32usize;
+        let row = 0xBB80 + 40;
+        sys.ram[row] = 10; // standard charset, double height, steady
+        sys.ram[row + 1] = glyph as u8;
+        sys.ram[0xB400 + glyph * 8 + 4] = 0x20;
+
+        sys.render_scanline(8);
+        sys.render_scanline(9);
+        assert_eq!(sys.framebuffer[8 * FB_WIDTH as usize + 6], ORIC_PALETTE[7]);
+        assert_eq!(sys.framebuffer[9 * FB_WIDTH as usize + 6], ORIC_PALETTE[7]);
+    }
+
+    #[test]
+    fn flash_blanks_then_reveals_glyph_data_on_the_ula_phase() {
+        let mut sys = OricAtmos::new(trap_rom(), OricModel::Atmos);
+        let glyph = 32usize;
+        sys.ram[0xBB80] = 12; // standard charset, single height, flashing
+        sys.ram[0xBB81] = glyph as u8;
+        sys.ram[0xB400 + glyph * 8] = 0x20;
+
+        sys.frame_count = 0;
+        sys.render_scanline(0);
+        assert_eq!(sys.framebuffer[6], ORIC_PALETTE[0]);
+
+        sys.frame_count = 0x10;
+        sys.render_scanline(0);
+        assert_eq!(sys.framebuffer[6], ORIC_PALETTE[7]);
+    }
+
+    #[test]
+    fn flash_also_gates_hires_bitmap_data() {
+        let mut sys = OricAtmos::new(trap_rom(), OricModel::Atmos);
+        sys.ram[0x026A] = 0x04;
+        sys.ram[0xA000] = 12;
+        sys.ram[0xA001] = 0x20;
+
+        sys.frame_count = 0;
+        sys.render_scanline(24);
+        assert_eq!(sys.framebuffer[24 * FB_WIDTH as usize + 6], ORIC_PALETTE[0]);
+        sys.frame_count = 0x10;
+        sys.render_scanline(24);
+        assert_eq!(sys.framebuffer[24 * FB_WIDTH as usize + 6], ORIC_PALETTE[7]);
     }
 
     #[test]
