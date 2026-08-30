@@ -257,8 +257,10 @@ impl Sg1000 {
                 self.io_write(self.cpu.addr, self.cpu.data);
             }
             Some(BusOp::IntAck) => {
-                // SG-1000 cartridges set IM 1 — INT fetches RST 38h via
-                // floating bus. No external IM 2 vector hardware.
+                // The TMS9918A drives IRQ directly, with no acknowledge
+                // device; Ares and MAME both leave the external bus at $FF.
+                // IM 1 then selects RST 38h independently of that byte. See
+                // knowledge/decisions/sg-1000-interrupt-acknowledge.md.
                 self.cpu.data_in = 0xFF;
             }
             None => {}
