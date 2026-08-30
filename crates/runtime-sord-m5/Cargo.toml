@@ -8,9 +8,9 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-emu198x-shell = { path = "../emu198x-shell", version = "0.7.0" }
-ti-tms9918 = { path = "../ti-tms9918", version = "0.7.0" }
-machine-sord-m5 = { path = "../machine-sord-m5", version = "0.7.0" }
+emu198x-shell = { path = "../emu198x-shell", version = "0.8.0" }
+ti-tms9918 = { path = "../ti-tms9918", version = "0.8.0" }
+machine-sord-m5 = { path = "../machine-sord-m5", version = "0.8.0" }
 emu198x-zilog-z80 = { path = "../emu198x-zilog-z80", version = "0.6.0" }
 postcard = { workspace = true }
 serde = { workspace = true }

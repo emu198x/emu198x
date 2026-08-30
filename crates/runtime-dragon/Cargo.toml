@@ -8,19 +8,19 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-emu198x-shell = { path = "../emu198x-shell", version = "0.7.0" }
-format-dragon-bin = { path = "../format-dragon-bin", version = "0.7.0" }
-format-dragon-cas = { path = "../format-dragon-cas", version = "0.7.0" }
-format-dragon-disk = { path = "../format-dragon-disk", version = "0.7.0" }
-format-dragon-pak = { path = "../format-dragon-pak", version = "0.7.0" }
-machine-dragon-32 = { path = "../machine-dragon-32", version = "0.7.0" }
-motorola-vdg-6847 = { path = "../motorola-vdg-6847", version = "0.7.0" }
+emu198x-shell = { path = "../emu198x-shell", version = "0.8.0" }
+format-dragon-bin = { path = "../format-dragon-bin", version = "0.8.0" }
+format-dragon-cas = { path = "../format-dragon-cas", version = "0.8.0" }
+format-dragon-disk = { path = "../format-dragon-disk", version = "0.8.0" }
+format-dragon-pak = { path = "../format-dragon-pak", version = "0.8.0" }
+machine-dragon-32 = { path = "../machine-dragon-32", version = "0.8.0" }
+motorola-vdg-6847 = { path = "../motorola-vdg-6847", version = "0.8.0" }
 postcard = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 
 [dev-dependencies]
-emu198x-test-skip = { path = "../emu198x-test-skip", version = "0.7.0" }
+emu198x-test-skip = { path = "../emu198x-test-skip", version = "0.8.0" }
 png = { workspace = true }
 
 [lints]

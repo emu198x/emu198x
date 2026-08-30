@@ -4,6 +4,25 @@ All notable changes to Emu198x will be documented in this file.
 
 Format loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 not strictly. Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [0.8.0] - 2026-08-30
+
+
+### Added
+
+- *(vic-20)* Load PRGs through standard media
+- *(vic-20)* Load cartridge media
+
+
+### Fixed
+
+- *(pet)* Clock 80-column CRTC at 2 MHz
+- *(pet)* Clock 80-column CRTC at 2 MHz
+- *(6845)* Model cursor raster and blink
+- *(6845)* Model cursor raster and blink
+- *(electron)* Correct ULA sound pitch and mux
+- *(electron)* Correct ULA sound pitch and mux
+- *(vic-20)* Honour VIC display memory bases
+
 ## [0.7.1] - 2026-08-29
 
 

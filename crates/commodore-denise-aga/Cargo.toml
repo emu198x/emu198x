@@ -8,9 +8,9 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-commodore-denise-ecs = { path = "../commodore-denise-ecs", version = "0.7.0" }
-commodore-denise-ocs = { path = "../commodore-denise-ocs", version = "0.7.0" }
-common-commodore-amiga = { path = "../common-commodore-amiga", version = "0.7.0" }
+commodore-denise-ecs = { path = "../commodore-denise-ecs", version = "0.8.0" }
+commodore-denise-ocs = { path = "../commodore-denise-ocs", version = "0.8.0" }
+common-commodore-amiga = { path = "../common-commodore-amiga", version = "0.8.0" }
 serde = { workspace = true }
 
 [lints]
