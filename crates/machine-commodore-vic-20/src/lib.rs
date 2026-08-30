@@ -203,8 +203,20 @@ impl Vic20 {
     }
 
     pub fn run_frame(&mut self) -> u64 {
+        self.run_frame_with_user_port(&mut |_| true)
+    }
+
+    /// Run one frame while exchanging the physical user-port serial lines on
+    /// every CPU cycle. The callback observes CB2 (pin M, computer TX) and
+    /// returns the external PB0 level (pin C, computer RX).
+    pub fn run_frame_with_user_port<F>(&mut self, exchange: &mut F) -> u64
+    where
+        F: FnMut(bool) -> bool,
+    {
         let start = self.master_clock;
         for _ in 0..200_000 {
+            let pb0 = exchange(self.user_port_cb2());
+            self.set_user_port_pb0(pb0);
             self.tick_cycle();
             if self.vic.take_frame_complete() {
                 break;
@@ -774,6 +786,20 @@ mod tests {
 
         sys.mem_write(0x911C, 0xE0); // PCR: CB2 manual output high
         assert!(sys.user_port_cb2());
+    }
+
+    #[test]
+    fn frame_user_port_exchange_runs_at_cycle_granularity() {
+        let mut sys = make_vic20();
+        sys.mem_write(0x9112, 0x00); // PB0 input
+        let mut calls = 0u64;
+        let ticks = sys.run_frame_with_user_port(&mut |cb2| {
+            assert!(cb2, "unattached CB2 should idle high");
+            calls += 1;
+            calls & 1 == 0
+        });
+        assert_eq!(calls, ticks);
+        assert_eq!(sys.user_port_pb0(), calls & 1 == 0);
     }
 
     #[test]

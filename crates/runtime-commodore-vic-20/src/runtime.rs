@@ -12,6 +12,7 @@ use emu198x_shell::{
 };
 use machine_commodore_vic_20::{Vic20, Vic20Model};
 
+use crate::BitBangSerial;
 use crate::input::apply_input_event;
 use crate::profiles::{
     BASIC_FIRMWARE_ID, CHAR_FIRMWARE_ID, KERNAL_FIRMWARE_ID, Model, profile_for,
@@ -76,6 +77,7 @@ pub struct Vic20Runtime {
     /// Original cartridge container retained so resets rebuild the inserted
     /// ROM before the KERNAL performs its cold-start probe.
     cartridge_image: Option<Vec<u8>>,
+    user_port_serial: Option<BitBangSerial>,
 }
 
 impl Vic20Runtime {
@@ -96,6 +98,7 @@ impl Vic20Runtime {
             controller_cache: crate::input::ControllerCache::default(),
             pending_prg: None,
             cartridge_image: None,
+            user_port_serial: None,
         }
     }
 
@@ -197,6 +200,15 @@ impl Vic20Runtime {
 
     pub fn machine_mut(&mut self) -> Option<&mut Vic20> {
         self.machine.as_mut()
+    }
+
+    /// Attach a deterministic 8N1 byte stream to user-port CB2/PB0.
+    pub fn attach_user_port_serial(&mut self, cycles_per_bit: u32) {
+        self.user_port_serial = Some(BitBangSerial::new(cycles_per_bit));
+    }
+
+    pub fn user_port_serial_mut(&mut self) -> Option<&mut BitBangSerial> {
+        self.user_port_serial.as_mut()
     }
 
     /// Inject a `.PRG` image into RAM and queue a launch command so it runs
@@ -424,7 +436,11 @@ impl MachineCore for Vic20Runtime {
 
         while self.time < target {
             let machine = self.machine.as_mut().expect("machine checked above");
-            let ticks = machine.run_frame();
+            let ticks = if let Some(serial) = &mut self.user_port_serial {
+                machine.run_frame_with_user_port(&mut |cb2| serial.tick(cb2))
+            } else {
+                machine.run_frame()
+            };
             // Drain the VIC's audio for the frame just run before releasing the
             // machine borrow for the framebuffer conversion below.
             let audio = machine.take_vic_audio();
