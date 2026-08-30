@@ -124,13 +124,21 @@ impl AquariusRuntime {
     pub fn from_firmware(model: Model, firmware: &FirmwareSet<'_>) -> Result<Self, MachineError> {
         let profile = profile_for(model);
         firmware.validate_for_profile(&profile)?;
-        let bytes =
+        let bios =
             firmware
                 .bytes(BIOS_FIRMWARE_ID)
                 .ok_or_else(|| MachineError::MissingFirmware {
                     id: BIOS_FIRMWARE_ID.to_owned(),
                 })?;
-        Self::new(model, bytes.to_vec())
+        let char_rom =
+            firmware
+                .bytes(CHAR_FIRMWARE_ID)
+                .ok_or_else(|| MachineError::MissingFirmware {
+                    id: CHAR_FIRMWARE_ID.to_owned(),
+                })?;
+        let mut runtime = Self::new(model, bios.to_vec())?;
+        runtime.set_char_rom(char_rom.to_vec())?;
+        Ok(runtime)
     }
 
     /// Replace the BIOS image and rebuild the wrapped machine.
@@ -435,6 +443,35 @@ impl emu198x_shell::WatchTarget for AquariusRuntime {
 mod tests {
     use super::SHIFTED_LEGENDS;
     use crate::input::knows_key_name;
+    use crate::profiles::{BIOS_FIRMWARE_ID, CHAR_FIRMWARE_ID, Model};
+    use crate::runtime::AquariusRuntime;
+    use emu198x_shell::{FirmwareImage, FirmwareSet, MachineError};
+
+    #[test]
+    fn firmware_set_requires_the_separate_character_rom() {
+        let bios = vec![0; 8192];
+        let mut firmware = FirmwareSet::new();
+        firmware.push(FirmwareImage::new(BIOS_FIRMWARE_ID, &bios));
+
+        match AquariusRuntime::from_firmware(Model::Aquarius, &firmware) {
+            Err(MachineError::MissingFirmware { id }) => assert_eq!(id, CHAR_FIRMWARE_ID),
+            Err(other) => panic!("expected missing character ROM, got {other:?}"),
+            Ok(_) => panic!("expected missing character ROM"),
+        }
+    }
+
+    #[test]
+    fn firmware_set_builds_with_both_physical_roms() {
+        let bios = vec![0; 8192];
+        let char_rom = vec![0xff; 2048];
+        let mut firmware = FirmwareSet::new();
+        firmware.push(FirmwareImage::new(BIOS_FIRMWARE_ID, &bios));
+        firmware.push(FirmwareImage::new(CHAR_FIRMWARE_ID, &char_rom));
+
+        let runtime = AquariusRuntime::from_firmware(Model::Aquarius, &firmware)
+            .expect("both valid ROMs build the runtime");
+        assert!(runtime.machine().is_some());
+    }
 
     /// A legend naming a key the layout does not have is refused rather than
     /// typed, so a typo here costs a character and reports nothing.
