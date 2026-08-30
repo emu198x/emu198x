@@ -8,9 +8,9 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-emu198x-shell = { path = "../emu198x-shell", version = "0.8.0" }
+emu198x-shell = { path = "../emu198x-shell", version = "0.9.0" }
 format198x-tangerine-oric-tap = "0.1.0"
-machine-oric-atmos = { path = "../machine-oric-atmos", version = "0.8.0" }
+machine-oric-atmos = { path = "../machine-oric-atmos", version = "0.9.0" }
 postcard = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
