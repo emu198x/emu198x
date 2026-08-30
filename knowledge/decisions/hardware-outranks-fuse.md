@@ -136,3 +136,24 @@ separate question and stays open.
 **Cost:** two FUSE sample-instant assertions restated by one constant. Nothing
 else in the Spectrum family moved; the 128K, +2A, +3 and runtime suites are
 bit-identical either side.
+
+## Applied 2026-08-30: the 128K floating-bus read origin
+
+The 128K read path had remained at libspectrum's `top_left_pixel` origin,
+14362, and Float128K consequently observed the first non-idle byte at 14365.
+[Mark Woodmass's published hardware-derived timing table](https://sourceforge.net/p/fuse-emulator/bugs/360/)
+gives **14364** for the 128K, alongside the already adopted 48K figure of
+14338. The matching community table and test program are independently
+preserved by the
+[redcode/ZXSpectrum documentation](https://github.com/redcode/ZXSpectrum/wiki/2A-3-Floating-Bus-Test).
+
+The read origin therefore moves to 14363. With the shared two-T-state Z80
+latch lead, Float128K now reports 14364. This does **not** move the live ULA
+bus: the frame-wide differential remains byte-exact against FUSE at
+libspectrum's 14362 `top_left_pixel`. It changes when the CPU samples that bus,
+using the same explicit live-bus/read-path distinction as the 48K core.
+
+**Verification:** Float128K reaches 14364 from a real 128K ROM and the original
+multi-block tape; the full-frame live-bus differential remains 0 wrong of
+70,908 T-states. This closes #942 without reverting the independently settled
+Z80 interrupt-boundary decision or changing shared Z80 timing.

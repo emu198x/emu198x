@@ -376,9 +376,15 @@ impl<V: Class128kVariant> Spectrum128kClassCore<V> {
         } else {
             // The floating bus, sampled where the CPU latches it.
             //
-            // `LIVE_BUS_ORIGIN` maps our frame T-state 0 onto FUSE's frame
-            // and is libspectrum's `top_left_pixel` for this ULA —
-            // `timings_frame_ferranti_7c` in `timings.c`, which is 14362.
+            // `READ_ORIGIN` maps our frame T-state 0 onto the bus for this
+            // read path. It is one T-state later than libspectrum's
+            // `top_left_pixel` (14362): Mark Woodmass's hardware-derived
+            // table places the 128K's first floating-bus byte at 14364, and
+            // 14363 plus the Z80's two-T-state latch lead makes Float128K
+            // observe that byte at 14364. The live ULA bus itself remains
+            // anchored to libspectrum and is byte-exact there; this constant
+            // describes when the CPU samples it, as the 48K core's separate
+            // read origin does.
             // The lead onto it is the I/O M-cycle's own geometry, shared
             // with every other variant; see
             // `IO_READ_DATA_LATCH_LEAD_TSTATES` and the 48K-class core,
@@ -390,9 +396,9 @@ impl<V: Class128kVariant> Spectrum128kClassCore<V> {
             // they read one T-state short of the reference, and the fix is
             // not to move either of them again but to state the rule both
             // machines follow.
-            const LIVE_BUS_ORIGIN: u32 = 14_362;
+            const READ_ORIGIN: u32 = 14_363;
             let frame_tstate = (self.frame_position().tstate(&TIMING_128K)
-                + LIVE_BUS_ORIGIN
+                + READ_ORIGIN
                 + IO_READ_DATA_LATCH_LEAD_TSTATES)
                 % TIMING_128K.tstates_per_frame;
             floating_bus_byte(

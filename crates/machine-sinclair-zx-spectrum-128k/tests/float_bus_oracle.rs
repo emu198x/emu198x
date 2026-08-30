@@ -11,9 +11,8 @@
 //! `contention_oracle`'s `the_origin_is_pinned_by_the_interrupt` measures
 //! the `/INT` edge at engine T-state 56544, giving an origin of
 //! 70908 - 56544 = **14364**. libspectrum's `top_left_pixel` for
-//! `timings_frame_ferranti_7c` is **14362**, and that is what
-//! `Spectrum128kClassCore::io_read` maps the floating bus through as
-//! `LIVE_BUS_ORIGIN`. Two T-states apart, where the 48K's two coincide.
+//! `timings_frame_ferranti_7c` is **14362**. Two T-states apart, where the
+//! 48K's two coincide.
 //!
 //! One anchor cannot say which is right. This is the other one, and it is
 //! unambiguous.
@@ -23,7 +22,7 @@
 //! **The raster is right and the interrupt is two T-states early.** The
 //! live bus is byte-exact against FUSE — 0 of 70,908 — at `+14362` and
 //! nowhere else in the frame; at the `/INT` origin of `+14364` it
-//! disagrees at 18,432 T-states. So `LIVE_BUS_ORIGIN` is correct,
+//! disagrees at 18,432 T-states. So the live-bus origin is correct,
 //! `IDLE_TABLE` and `MEM_TABLE` are correct on this ULA too, and the two
 //! T-states belong to `CONFIG_128K.int_start_pixel`.
 //!
@@ -40,21 +39,13 @@
 //! tracks the interrupt one for one, so the two anchors trade off exactly
 //! and the correction cannot be landed on its own.
 //!
-//! Which leaves a genuine open question rather than a pending fix. FUSE's
-//! interrupt sits 14362 T-states before `top_left_pixel`; ours sits 14364
-//! before it, and the engine's floating bus is byte-exact against FUSE
-//! anyway because `io_read` maps through `LIVE_BUS_ORIGIN` and not through
-//! the interrupt. `Float128K`'s 14364 is the only oracle that spans both,
-//! and its own evidence note calls it "a long-established Fuse/community
-//! reference coordinate" whose "primary hardware capture provenance
-//! remains incomplete" — an implementation target, not a measurement.
-//!
-//! So one of two things is true, and neither can be settled from inside
-//! this engine: `int_start_pixel` is two T-states out and 14364 is the
-//! wrong target, or the interrupt is right and the two T-states live in
-//! how the probe counts. Settling it needs `Float128K` run under FUSE
-//! itself, or a hardware capture on a real 128K. Recorded as the next
-//! move rather than guessed at.
+//! The remaining read-path question was settled in #942 by Mark Woodmass's
+//! published hardware-derived table: the first 128K floating-bus byte is at
+//! 14364 relative to `/INT`. The CPU read path therefore uses its own 14363
+//! origin plus the Z80's two-T-state latch lead. That does not move the live
+//! bus measured here; it distinguishes when the ULA drives a byte from when
+//! the CPU samples it, following the same separation already used by the
+//! 48K core.
 //!
 //! `the_int_anchor_still_disagrees_with_the_bus` below is the marker: it
 //! fails when the two are reconciled, which is when this record needs
@@ -108,9 +99,8 @@ const SCREEN_END: u16 = 0x5B00;
 /// and not the bank the ULA displays from.
 const PARK_ADDR: u16 = 0x8000;
 
-/// libspectrum's `timings_frame_ferranti_7c.top_left_pixel`, and the
-/// origin `Spectrum128kClassCore::io_read` maps the floating bus through
-/// as `LIVE_BUS_ORIGIN`.
+/// libspectrum's `timings_frame_ferranti_7c.top_left_pixel`, used to anchor
+/// the live ULA bus independently of the CPU read path.
 const TOP_LEFT_PIXEL_ORIGIN: i32 = 14_362;
 
 /// The origin `contention_oracle` measures from the `/INT` edge:
@@ -348,7 +338,7 @@ fn floating_bus_matches_fuse_at_every_tstate() {
     let at_top_left = mismatches(&bus, &machine.memory, TOP_LEFT_PIXEL_ORIGIN);
     let at_int = mismatches(&bus, &machine.memory, INT_ORIGIN);
     println!(
-        "\norigin {TOP_LEFT_PIXEL_ORIGIN:+} (top_left_pixel / LIVE_BUS_ORIGIN) — {at_top_left} of {FRAME_TSTATES} disagree"
+        "\norigin {TOP_LEFT_PIXEL_ORIGIN:+} (top_left_pixel / live bus) — {at_top_left} of {FRAME_TSTATES} disagree"
     );
     println!(
         "origin {INT_ORIGIN:+} (/INT edge)                       — {at_int} of {FRAME_TSTATES} disagree"
