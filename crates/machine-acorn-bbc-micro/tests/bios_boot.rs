@@ -36,6 +36,33 @@ fn font_path() -> Option<PathBuf> {
     p.exists().then_some(p)
 }
 
+fn tap(sys: &mut BbcMicro, col: usize, row: usize) {
+    sys.press_key(col, row);
+    for _ in 0..3 {
+        sys.run_frame();
+    }
+    sys.release_key(col, row);
+    for _ in 0..3 {
+        sys.run_frame();
+    }
+}
+
+fn mode7_text(sys: &BbcMicro) -> String {
+    (0x7C00u16..0x8000)
+        .map(|address| {
+            let byte = sys.peek(address);
+            if (0x20..0x7F).contains(&byte) {
+                byte as char
+            } else {
+                ' '
+            }
+        })
+        .collect::<String>()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 #[test]
 #[ignore = "FIXTURE: needs BBC Micro MOS + BASIC ROMs — run with --ignored"]
 fn os_boots_to_basic_banner() {
@@ -69,16 +96,7 @@ fn os_boots_to_basic_banner() {
     // "key held", so the MOS never finished init, never ran CLI, and never
     // printed anything. A booted machine writes `BBC Computer 32K` into the
     // MODE 7 screen RAM at $7C00 (teletext alphanumerics are plain ASCII).
-    let screen: String = (0x7C00u16..0x8000)
-        .map(|a| {
-            let c = sys.peek(a);
-            if (0x20..0x7f).contains(&c) {
-                c as char
-            } else {
-                ' '
-            }
-        })
-        .collect();
+    let screen = mode7_text(&sys);
     assert!(
         screen.contains("BBC Computer"),
         "expected the BBC banner in MODE 7 screen RAM; got: {:?}",
@@ -106,16 +124,7 @@ fn boots_to_basic_prompt() {
     for _ in 0..200 {
         sys.run_frame();
     }
-    let screen: String = (0x7C00u16..0x8000)
-        .map(|a| {
-            let c = sys.peek(a);
-            if (0x20..0x7f).contains(&c) {
-                c as char
-            } else {
-                ' '
-            }
-        })
-        .collect();
+    let screen = mode7_text(&sys);
     assert!(
         screen.contains("BASIC"),
         "expected BASIC startup text; got: {:?}",
@@ -125,6 +134,50 @@ fn boots_to_basic_prompt() {
         screen.contains('>'),
         "expected the BASIC `>` prompt (ACIA storm regression); got: {:?}",
         screen.trim()
+    );
+}
+
+#[test]
+#[ignore = "FIXTURE: needs BBC Micro MOS + BASIC ROMs — run with --ignored"]
+fn keyboard_types_a_basic_expression_and_prints_the_result() {
+    let (Some(os), Some(basic)) = (os_path(), basic_path()) else {
+        panic!("needs os.rom + basic.rom at ~/.emu198x/roms/acorn-bbc-micro/");
+    };
+    let mut sys = BbcMicro::new(fs::read(&os).expect("read OS"));
+    sys.insert_rom(15, fs::read(&basic).expect("read BASIC"));
+    for _ in 0..200 {
+        sys.run_frame();
+    }
+
+    // Type `PRINT 9/3` through the physical 10×8 keyboard matrix. All of its
+    // characters are unshifted, keeping this test focused on the MOS scan and
+    // debounce path rather than symbol/modifier mapping.
+    for (col, row) in [
+        (7, 3), // P
+        (3, 3), // R
+        (5, 2), // I
+        (5, 5), // N
+        (3, 2), // T
+        (2, 6), // SPACE
+        (6, 2), // 9
+        (8, 6), // /
+        (1, 1), // 3
+        (9, 4), // RETURN
+    ] {
+        tap(&mut sys, col, row);
+    }
+    for _ in 0..20 {
+        sys.run_frame();
+    }
+
+    let screen = mode7_text(&sys);
+    assert!(
+        screen.contains("PRINT 9/3"),
+        "expected the typed expression to echo; got: {screen:?}"
+    );
+    assert!(
+        screen.contains("PRINT 9/3 3 >"),
+        "expected BASIC to evaluate 9/3 and return to the prompt; got: {screen:?}"
     );
 }
 
