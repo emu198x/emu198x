@@ -88,6 +88,9 @@ use mos_via_6522::Via6522;
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
 
+mod tape;
+use tape::TapeDeck;
+
 /// Framebuffer width: 240 pixels, 40 columns of 6.
 ///
 /// **Deliberately narrower than a set's window, because the ULA blanks the
@@ -215,6 +218,7 @@ pub struct OricAtmos {
     /// Host-side debug only, not part of the snapshot.
     #[serde(skip)]
     ay_watch: Option<AyWriteWatch>,
+    tape: Option<TapeDeck>,
 }
 
 impl OricAtmos {
@@ -244,6 +248,7 @@ impl OricAtmos {
             frame_start: 0,
             raster: 0,
             ay_watch: None,
+            tape: None,
         }
     }
 
@@ -310,6 +315,13 @@ impl OricAtmos {
     }
 
     fn tick_cpu_cycle(&mut self) {
+        if let Some(tape) = &mut self.tape {
+            // The relay is energised only when PB6 is configured as an
+            // output and its latch is high. An input pin's pull-up is not a
+            // motor command (Oricutron `via_main_w_iorb`).
+            let motor_on = self.via.orb() & self.via.peek(0x02) & 0x40 != 0;
+            self.via.set_cb1_level(tape.tick(motor_on));
+        }
         self.cpu.tick();
         if self.cpu.rw {
             self.cpu.data_in = self.mem_read(self.cpu.addr);
@@ -697,6 +709,23 @@ impl OricAtmos {
 }
 
 impl OricAtmos {
+    /// Insert a validated Oric TAP byte stream into the cassette deck.
+    pub fn insert_tape(&mut self, bytes: Vec<u8>) {
+        self.tape = Some(TapeDeck::new(bytes));
+    }
+
+    /// Whether a cassette image is present.
+    #[must_use]
+    pub fn tape_loaded(&self) -> bool {
+        self.tape.is_some()
+    }
+
+    /// Current byte position in the cassette image.
+    #[must_use]
+    pub fn tape_position(&self) -> Option<usize> {
+        self.tape.as_ref().map(TapeDeck::position)
+    }
+
     /// Read one byte with no side effects (RAM / ROM; `$FF` for the VIA).
     #[must_use]
     pub fn peek(&self, addr: u16) -> u8 {
