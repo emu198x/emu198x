@@ -59,13 +59,6 @@ fn cart_boots_to_title_screen() {
         );
     };
     let cart = fs::read(&path).expect("read cart");
-    // Strip 512-byte SMD header if present.
-    let cart = if cart.len() % 0x4000 == 0x200 {
-        cart[0x200..].to_vec()
-    } else {
-        cart
-    };
-
     let mut sys = Sms::new(cart, SmsVariant::SmsNtsc);
     for _ in 0..600 {
         sys.run_frame();

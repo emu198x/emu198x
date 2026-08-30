@@ -76,6 +76,10 @@
 //! is the obvious next accuracy step, tracked under
 //! `docs/status/outstanding-work.md` § Sega Master System.
 
+mod cartridge;
+
+pub use cartridge::{CartridgeHeader, CartridgeTerritory, normalize_cartridge};
+
 use emu198x_zilog_z80::{BusOp, Z80};
 use sega_vdp::{SegaVdp, VdpRegion, VdpVariant};
 use serde::{Deserialize, Serialize};
@@ -244,6 +248,7 @@ pub struct Sms {
     vdp: SegaVdp,
     psg: Sn76489,
     cart_rom: Vec<u8>,
+    cart_header: Option<CartridgeHeader>,
     /// Optional base-unit boot ROM, selected through memory-control port $3E.
     bios_rom: Vec<u8>,
     #[serde(with = "BigArray")]
@@ -289,6 +294,7 @@ impl Sms {
     /// Create an SMS / Game Gear with an optional base-unit BIOS ROM.
     #[must_use]
     pub fn new_with_bios(cart_rom: Vec<u8>, bios_rom: Vec<u8>, variant: SmsVariant) -> Self {
+        let (cart_rom, cart_header) = normalize_cartridge(cart_rom);
         let vdp = if variant.is_game_gear() {
             SegaVdp::new_game_gear()
         } else {
@@ -304,6 +310,7 @@ impl Sms {
             vdp,
             psg: Sn76489::new(variant.psg_clock_hz(), NoiseLfsr::Sega16),
             cart_rom,
+            cart_header,
             bios_rom,
             ram: [0; 8192],
             mapper_regs: [0x00, 0x00, 0x01, 0x02],
@@ -772,6 +779,12 @@ impl Sms {
     #[must_use]
     pub fn mapper_regs(&self) -> &[u8; 4] {
         &self.mapper_regs
+    }
+
+    /// Standard Sega cartridge header metadata, when the signature is present.
+    #[must_use]
+    pub fn cartridge_header(&self) -> Option<&CartridgeHeader> {
+        self.cart_header.as_ref()
     }
 
     /// CPU T-states executed since power-on.
