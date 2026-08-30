@@ -57,6 +57,7 @@ pub struct Svi328Runtime {
     machine: Option<Svi328>,
     bios_bytes: Option<Vec<u8>>,
     cart_bytes: Option<Vec<u8>>,
+    cassette_blocks: Option<Vec<Vec<u8>>>,
     time: MachineTime,
     rgba_framebuffer: Vec<u8>,
     controller_cache: crate::input::ControllerCache,
@@ -82,6 +83,7 @@ impl Svi328Runtime {
             machine: None,
             bios_bytes: None,
             cart_bytes: None,
+            cassette_blocks: None,
             time: MachineTime::default(),
             rgba_framebuffer: vec![
                 0;
@@ -159,6 +161,28 @@ impl Svi328Runtime {
         Ok(())
     }
 
+    /// Insert an SVI CAS image and leave the deck stopped until the firmware
+    /// enables its active-low motor line.
+    ///
+    /// # Errors
+    ///
+    /// Returns `MachineError::InvalidMedia` when the marker-delimited image is
+    /// malformed.
+    pub fn insert_cassette(&mut self, bytes: &[u8]) -> Result<(), MachineError> {
+        let image = format198x_spectravideo_svi_cas::decode(bytes).map_err(|reason| {
+            MachineError::InvalidMedia {
+                slot: "tape-1".to_owned(),
+                reason: reason.to_string(),
+            }
+        })?;
+        let blocks = image.into_blocks();
+        if let Some(machine) = self.machine.as_mut() {
+            machine.insert_cassette(&blocks);
+        }
+        self.cassette_blocks = Some(blocks);
+        Ok(())
+    }
+
     #[must_use]
     pub fn machine(&self) -> Option<&Svi328> {
         self.machine.as_ref()
@@ -202,6 +226,9 @@ impl Svi328Runtime {
         if let Some(rom) = self.cart_bytes.clone() {
             machine.insert_cart(rom);
         }
+        if let Some(blocks) = &self.cassette_blocks {
+            machine.insert_cassette(blocks);
+        }
         self.machine = Some(machine);
         self.update_rgba_framebuffer();
     }
@@ -239,6 +266,14 @@ impl MachineCore for Svi328Runtime {
                     self.insert_cartridge(image.bytes.to_vec())?;
                 }
                 (slot, MediaKind::Cartridge) => {
+                    return Err(MachineError::UnknownMediaSlot {
+                        slot: slot.to_owned(),
+                    });
+                }
+                ("tape-1", MediaKind::Tape) => {
+                    self.insert_cassette(image.bytes)?;
+                }
+                (slot, MediaKind::Tape) => {
                     return Err(MachineError::UnknownMediaSlot {
                         slot: slot.to_owned(),
                     });

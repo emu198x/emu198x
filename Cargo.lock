@@ -1777,6 +1777,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4d24ed83a7027015be0e62bd801812f1f36dac769e59b6c69bbd3dcdf1a8411c"
 
 [[package]]
+name = "format198x-spectravideo-svi-cas"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7e7c2f7d2c23e46625ddd73b6d37c56c3e51dfa4b033a8ba257ddd5e08baab8f"
+
+[[package]]
 name = "format198x-tangerine-oric-tap"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4427,6 +4433,7 @@ version = "0.9.0"
 dependencies = [
  "emu198x-shell",
  "emu198x-zilog-z80",
+ "format198x-spectravideo-svi-cas",
  "machine-spectravideo-svi-328",
  "postcard",
  "serde",
