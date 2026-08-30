@@ -80,7 +80,7 @@
 mod audio;
 mod palette;
 
-use audio::TiaAudio;
+pub use audio::TiaAudio;
 pub use palette::{NTSC_PALETTE, PAL_PALETTE};
 use serde::{Deserialize, Serialize};
 

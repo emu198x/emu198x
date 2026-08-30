@@ -21,7 +21,7 @@
 //! - **MARIA:** display processor (zone-based DLL/DL, palette,
 //!   320 × 240 framebuffer). See [`atari_maria`].
 //! - **RIOT:** I/O and timer (P0 / P1 joystick + console switches).
-//! - **TIA:** audio only in 7800 mode (six registers, stubbed here).
+//! - **TIA:** two-channel audio and controller fire inputs in 7800 mode.
 //! - **RAM:** 4 KB main at `$1800-$27FF` (mirrored to `$3FFF`), 192 B
 //!   zero-page (`$0040-$00FF`), 192 B stack (`$0140-$01FF`).
 //! - **Cart:** up to 128 KB; 16 KB / 32 KB / 48 KB flat or SuperGame
@@ -150,6 +150,7 @@ impl Atari7800 {
     }
 
     fn tick_colour_clock(&mut self) {
+        self.tia_audio.tick();
         self.master_clock += 1;
 
         if self
@@ -282,6 +283,20 @@ impl Atari7800 {
     #[must_use]
     pub fn framebuffer_height(&self) -> u32 {
         self.maria.framebuffer_height()
+    }
+
+    /// Drain the TIA's mono audio samples produced since the previous call.
+    pub fn take_audio_samples(&mut self) -> Vec<f32> {
+        self.tia_audio.take_samples()
+    }
+
+    /// Native audio rate: two TIA samples per scanline at nominal refresh.
+    #[must_use]
+    pub fn audio_sample_rate(&self) -> u32 {
+        match self.region {
+            Atari7800Region::Ntsc => u32::from(self.region.lines_per_frame()) * 2 * 60,
+            Atari7800Region::Pal => u32::from(self.region.lines_per_frame()) * 2 * 50,
+        }
     }
 
     /// Set P0 joystick direction. Active-low on RIOT port A bits 4-7.
@@ -422,6 +437,19 @@ mod tests {
         let mut ntsc = Atari7800::new(trap_rom_32k(), Atari7800Region::Ntsc).expect("init");
         let mut pal = Atari7800::new(trap_rom_32k(), Atari7800Region::Pal).expect("init");
         assert!(pal.run_frame() > ntsc.run_frame());
+    }
+
+    #[test]
+    fn frame_produces_tia_audio_at_native_rate() {
+        let mut sys = Atari7800::new(trap_rom_32k(), Atari7800Region::Ntsc).expect("init");
+        sys.poke(0x0015, 0x04);
+        sys.poke(0x0017, 0x00);
+        sys.poke(0x0019, 0x0F);
+        sys.run_frame();
+        let samples = sys.take_audio_samples();
+        assert_eq!(samples.len(), 263 * 2);
+        assert!(samples.iter().any(|sample| *sample > 0.0));
+        assert_eq!(sys.audio_sample_rate(), 31_560);
     }
 
     #[test]

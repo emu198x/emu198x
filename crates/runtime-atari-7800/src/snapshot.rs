@@ -16,7 +16,7 @@ use crate::runtime::Atari7800Runtime;
 /// 288-line buffer that a version-3 NTSC machine would never allocate.
 /// Restoring it would resume into a geometry the machine disagrees with, and
 /// silently — so the version check rejects it instead.
-const SNAPSHOT_VERSION: u16 = 3;
+const SNAPSHOT_VERSION: u16 = 4;
 
 /// Borrowing envelope used during encode — avoids cloning the live machine.
 #[derive(Serialize)]
