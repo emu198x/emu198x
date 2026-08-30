@@ -18,7 +18,7 @@ use crate::runtime::SmsRuntime;
 /// Restoring it would resume into a geometry the machine disagrees with, and
 /// silently — so the version check rejects it instead. The Game Gear is
 /// unaffected either way: its LCD is 160x144 in both.
-const SNAPSHOT_VERSION: u16 = 4;
+const SNAPSHOT_VERSION: u16 = 5;
 
 /// Borrowing envelope used during encode — avoids cloning the live machine.
 #[derive(Serialize)]
