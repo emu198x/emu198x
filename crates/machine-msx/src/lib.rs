@@ -126,6 +126,59 @@ pub enum MapperType {
     Ascii16,
 }
 
+/// Infer one of the mapper families implemented by this machine from ROM
+/// code. ROM headers do not identify mapper hardware, so images larger than
+/// 32 KiB are scored by absolute `LD (nn),A` writes to known mapper registers.
+/// This follows OpenMSX's `RomFactory::guessRomType`; a caller with database
+/// metadata or an explicit user choice should prefer that stronger evidence.
+#[must_use]
+pub fn detect_mapper(rom: &[u8]) -> MapperType {
+    if rom.len() <= 32 * 1024 {
+        return MapperType::Plain;
+    }
+
+    let mut scores = [0_u32; 4];
+    for instruction in rom.windows(3) {
+        if instruction[0] != 0x32 {
+            continue;
+        }
+        let address = u16::from_le_bytes([instruction[1], instruction[2]]);
+        match address {
+            0x5000 | 0x9000 | 0xb000 => scores[1] += 1,
+            0x4000 | 0x8000 | 0xa000 => scores[0] += 1,
+            0x6800 | 0x7800 => scores[2] += 1,
+            0x6000 => {
+                scores[0] += 1;
+                scores[2] += 1;
+                scores[3] += 1;
+            }
+            0x7000 => {
+                scores[1] += 1;
+                scores[2] += 1;
+                scores[3] += 1;
+            }
+            0x77ff => scores[3] += 1,
+            _ => {}
+        }
+    }
+    // OpenMSX applies this correction because the shared $6000/$7000 writes
+    // otherwise bias close results toward ASCII8.
+    scores[2] = scores[2].saturating_sub(1);
+
+    let candidates = [
+        MapperType::Konami,
+        MapperType::KonamiScc,
+        MapperType::Ascii8,
+        MapperType::Ascii16,
+    ];
+    scores
+        .iter()
+        .enumerate()
+        .filter(|(_, score)| **score != 0)
+        .max_by_key(|(index, score)| (**score, *index))
+        .map_or(MapperType::Plain, |(index, _)| candidates[index])
+}
+
 /// A cartridge slot containing ROM + mapper bank registers.
 #[derive(Serialize, Deserialize)]
 struct CartridgeSlot {
@@ -358,6 +411,12 @@ impl Msx {
     /// Insert a cartridge into slot 2.
     pub fn insert_cart2(&mut self, rom: Vec<u8>, mapper: MapperType) {
         self.cart2 = CartridgeSlot::new(rom, mapper);
+    }
+
+    /// Mapper currently selected for cartridge slot 1.
+    #[must_use]
+    pub fn cart1_mapper(&self) -> MapperType {
+        self.cart1.mapper
     }
 
     /// Run one frame and return T-states consumed.
@@ -874,5 +933,41 @@ mod tests {
         sys.ppi.write(0, 0b0000_0100);
         assert_eq!(sys.mem_read(0x4000), 0x42);
         assert_eq!(sys.mem_read(0x4001), 0xAA);
+    }
+
+    fn mapped_rom_with_writes(addresses: &[u16]) -> Vec<u8> {
+        let mut rom = vec![0; 128 * 1024];
+        for (index, address) in addresses.iter().copied().enumerate() {
+            let offset = index * 3;
+            rom[offset] = 0x32;
+            rom[offset + 1..offset + 3].copy_from_slice(&address.to_le_bytes());
+        }
+        rom
+    }
+
+    #[test]
+    fn mapper_detection_keeps_small_and_unrecognised_images_plain() {
+        assert_eq!(detect_mapper(&vec![0; 32 * 1024]), MapperType::Plain);
+        assert_eq!(detect_mapper(&vec![0; 128 * 1024]), MapperType::Plain);
+    }
+
+    #[test]
+    fn mapper_detection_scores_each_supported_register_family() {
+        assert_eq!(
+            detect_mapper(&mapped_rom_with_writes(&[0x8000, 0xa000, 0x6000])),
+            MapperType::Konami
+        );
+        assert_eq!(
+            detect_mapper(&mapped_rom_with_writes(&[0x5000, 0x9000, 0xb000])),
+            MapperType::KonamiScc
+        );
+        assert_eq!(
+            detect_mapper(&mapped_rom_with_writes(&[0x6800, 0x7800, 0x6800])),
+            MapperType::Ascii8
+        );
+        assert_eq!(
+            detect_mapper(&mapped_rom_with_writes(&[0x6000, 0x7000, 0x77ff])),
+            MapperType::Ascii16
+        );
     }
 }

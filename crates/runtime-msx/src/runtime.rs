@@ -5,7 +5,7 @@ use emu198x_shell::{
     MachineError, MachineProfile, MachineTime, MediaKind, MediaSet, PixelFormat, ResetKind,
     RunResult, StopReason,
 };
-use machine_msx::{MapperType, Msx, MsxRegion};
+use machine_msx::{MapperType, Msx, MsxRegion, detect_mapper};
 
 use crate::input::apply_input_event;
 use crate::profiles::{BIOS_FIRMWARE_ID, Model, profile_for};
@@ -293,10 +293,10 @@ impl MachineCore for MsxRuntime {
         for image in &media.images {
             match (image.slot.as_ref(), image.kind) {
                 ("cartridge-1", MediaKind::Cartridge) => {
-                    self.insert_cartridge1(image.bytes.to_vec(), MapperType::Plain);
+                    self.insert_cartridge1(image.bytes.to_vec(), detect_mapper(image.bytes));
                 }
                 ("cartridge-2", MediaKind::Cartridge) => {
-                    self.insert_cartridge2(image.bytes.to_vec(), MapperType::Plain);
+                    self.insert_cartridge2(image.bytes.to_vec(), detect_mapper(image.bytes));
                 }
                 (slot, kind) => {
                     if matches!(kind, MediaKind::Cartridge) {
