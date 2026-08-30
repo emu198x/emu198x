@@ -8,21 +8,21 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-common-tape = { path = "../common-tape", version = "0.8.0" }
-amstrad-gate-array = { path = "../amstrad-gate-array", version = "0.8.0" }
-gi-ay-3-8912 = { path = "../gi-ay-3-8912", version = "0.8.0" }
-intel-8255 = { path = "../intel-8255", version = "0.8.0" }
-motorola-6845 = { path = "../motorola-6845", version = "0.8.0" }
+common-tape = { path = "../common-tape", version = "0.9.0" }
+amstrad-gate-array = { path = "../amstrad-gate-array", version = "0.9.0" }
+gi-ay-3-8912 = { path = "../gi-ay-3-8912", version = "0.9.0" }
+intel-8255 = { path = "../intel-8255", version = "0.9.0" }
+motorola-6845 = { path = "../motorola-6845", version = "0.9.0" }
 serde = { workspace = true }
 emu198x-zilog-z80 = { path = "../emu198x-zilog-z80", version = "0.6.0" }
 
 [dev-dependencies]
-format-amstrad-cpc-cdt = { path = "../format-amstrad-cpc-cdt", version = "0.8.0" }
+format-amstrad-cpc-cdt = { path = "../format-amstrad-cpc-cdt", version = "0.9.0" }
 # SHAKER ships as a DSK; the harness reads its AMSDOS catalogue directly
 # rather than waiting on an FDC (#951).
-format-amstrad-dsk = { path = "../format-amstrad-dsk", version = "0.8.0" }
-nec-upd765a = { path = "../nec-upd765a", version = "0.8.0" }
-emu198x-test-skip = { path = "../emu198x-test-skip", version = "0.8.0" }
+format-amstrad-dsk = { path = "../format-amstrad-dsk", version = "0.9.0" }
+nec-upd765a = { path = "../nec-upd765a", version = "0.9.0" }
+emu198x-test-skip = { path = "../emu198x-test-skip", version = "0.9.0" }
 
 [lints]
 workspace = true

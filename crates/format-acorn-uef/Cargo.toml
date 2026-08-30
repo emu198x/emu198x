@@ -8,7 +8,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-common-acorn-cassette = { path = "../common-acorn-cassette", version = "0.8.0" }
+common-acorn-cassette = { path = "../common-acorn-cassette", version = "0.9.0" }
 serde = { workspace = true }
 thiserror = { workspace = true }
 flate2 = { workspace = true }
