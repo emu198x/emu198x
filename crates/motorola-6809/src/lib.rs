@@ -7727,18 +7727,28 @@ mod tests {
         let mut cpu = cpu_at(0x4000);
         cpu.regs.a = 0x3C;
         cpu.regs.set_flag(FLAG_H, true);
+        cpu.regs.set_flag(FLAG_V, true);
 
         run_cycles(&mut cpu, &mut memory, 2);
         assert_eq!(cpu.regs.a, 0x42);
         assert!(!cpu.regs.flag(FLAG_Z));
         assert!(!cpu.regs.flag(FLAG_C));
+        assert!(
+            cpu.regs.flag(FLAG_V),
+            "Motorola defines V as undefined; the core preserves it"
+        );
 
         cpu.regs.a = 0x9A;
         cpu.regs.set_flag(FLAG_H, false);
+        cpu.regs.set_flag(FLAG_V, false);
         run_cycles(&mut cpu, &mut memory, 2);
         assert_eq!(cpu.regs.a, 0x00);
         assert!(cpu.regs.flag(FLAG_Z));
         assert!(cpu.regs.flag(FLAG_C));
+        assert!(
+            !cpu.regs.flag(FLAG_V),
+            "preserving undefined V must not force it high"
+        );
     }
 
     #[test]
