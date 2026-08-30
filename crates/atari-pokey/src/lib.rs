@@ -121,8 +121,8 @@ const SEROUT_HOLD_TICKS: u16 = 90;
 const AUDCTL_POLY9: u8 = 0x01;
 const AUDCTL_CH1_179MHZ: u8 = 0x02;
 const AUDCTL_CH3_179MHZ: u8 = 0x04;
-const AUDCTL_16BIT_CH12: u8 = 0x08;
-const AUDCTL_16BIT_CH34: u8 = 0x10;
+const AUDCTL_16BIT_CH12: u8 = 0x10;
+const AUDCTL_16BIT_CH34: u8 = 0x08;
 const AUDCTL_HPF_CH1: u8 = 0x20;
 const AUDCTL_HPF_CH2: u8 = 0x40;
 const AUDCTL_15KHZ: u8 = 0x80;
@@ -198,7 +198,6 @@ impl Channel {
     }
 
     /// Reload the counter for 16-bit paired mode (high byte from partner).
-    #[allow(dead_code)]
     fn reload_16bit(&mut self, high_byte: u8) {
         self.counter = u16::from(self.audf) | (u16::from(high_byte) << 8);
     }
@@ -522,6 +521,14 @@ impl Pokey {
                 for ch in &mut self.channels {
                     ch.reload();
                 }
+                if self.audctl & AUDCTL_16BIT_CH12 != 0 {
+                    let high = self.channels[1].audf;
+                    self.channels[0].reload_16bit(high);
+                }
+                if self.audctl & AUDCTL_16BIT_CH34 != 0 {
+                    let high = self.channels[3].audf;
+                    self.channels[2].reload_16bit(high);
+                }
             }
 
             // SKRES: reset serial port status bits.
@@ -829,47 +836,43 @@ impl Pokey {
         let ch2_tick = base_tick;
         let ch4_tick = base_tick;
 
-        // 16-bit mode: ch1+ch2 paired, ch3+ch4 paired.
-        // In 16-bit mode, the low channel (1 or 3) clocks the high channel
-        // (2 or 4) on underflow instead of using the base clock.
+        // 16-bit mode: ch1+ch2 paired, ch3+ch4 paired. The low and high AUDF
+        // bytes form one divider; modelling them as two reloading 8-bit
+        // counters would multiply their periods instead.
         let pair_12 = self.audctl & AUDCTL_16BIT_CH12 != 0;
         let pair_34 = self.audctl & AUDCTL_16BIT_CH34 != 0;
 
         // Tick channel 1.
-        let ch1_underflow = if ch1_tick {
-            self.tick_single_channel(0)
+        let (ch1_underflow, ch2_underflow) = if pair_12 && ch1_tick {
+            self.tick_linked_pair(0, 1)
+        } else if ch1_tick {
+            (self.tick_single_channel(0), false)
         } else {
-            false
+            (false, false)
         };
 
-        // Tick channel 2.
+        // Tick channel 2 independently only when it is not the high byte of
+        // a linked pair.
         let ch2_underflow = if pair_12 {
-            // In 16-bit mode, ch2 is clocked by ch1 underflow.
-            if ch1_underflow {
-                self.tick_single_channel(1)
-            } else {
-                false
-            }
+            ch2_underflow
         } else if ch2_tick {
             self.tick_single_channel(1)
         } else {
             false
         };
 
-        // Tick channel 3.
-        let ch3_underflow = if ch3_tick {
-            self.tick_single_channel(2)
+        // Tick channel 3, or the combined 3+4 divider.
+        let (ch3_underflow, ch4_underflow) = if pair_34 && ch3_tick {
+            self.tick_linked_pair(2, 3)
+        } else if ch3_tick {
+            (self.tick_single_channel(2), false)
         } else {
-            false
+            (false, false)
         };
 
-        // Tick channel 4.
+        // Tick channel 4 independently only when it is not linked.
         let ch4_underflow = if pair_34 {
-            if ch3_underflow {
-                self.tick_single_channel(3)
-            } else {
-                false
-            }
+            ch4_underflow
         } else if ch4_tick {
             self.tick_single_channel(3)
         } else {
@@ -909,6 +912,30 @@ impl Pokey {
         } else {
             ch.counter -= 1;
             false
+        }
+    }
+
+    /// Tick a linked 16-bit pair, returning `(low_borrow, full_underflow)`.
+    ///
+    /// POKEY concatenates the two AUDF bytes into one little-endian divider.
+    /// The low channel still produces a borrow when its byte wraps; the high
+    /// channel toggles only when the complete 16-bit value underflows.
+    fn tick_linked_pair(&mut self, low_idx: usize, high_idx: usize) -> (bool, bool) {
+        let high_audf = self.channels[high_idx].audf;
+        let counter = self.channels[low_idx].counter;
+        let low_borrow = counter & 0x00FF == 0;
+
+        if counter == 0 {
+            self.channels[low_idx].reload_16bit(high_audf);
+            self.channels[low_idx].output = !self.channels[low_idx].output;
+            self.channels[high_idx].output = !self.channels[high_idx].output;
+            (true, true)
+        } else {
+            self.channels[low_idx].counter -= 1;
+            if low_borrow {
+                self.channels[low_idx].output = !self.channels[low_idx].output;
+            }
+            (low_borrow, false)
         }
     }
 
@@ -1323,34 +1350,50 @@ mod tests {
     }
 
     #[test]
-    fn sixteen_bit_mode_pairs_channels() {
+    fn sixteen_bit_mode_uses_one_little_endian_divider() {
         let mut pokey = ntsc_pokey();
 
         // Enable 16-bit mode for channels 1+2 and 1.79 MHz for channel 1.
         pokey.audctl = AUDCTL_16BIT_CH12 | AUDCTL_CH1_179MHZ;
 
-        // Set AUDF1 = 3 (low byte), AUDF2 = 0 (high byte).
-        // Effective 16-bit period = 3 for channel 1.
-        pokey.write(0x00, 3); // AUDF1
-        pokey.write(0x02, 0); // AUDF2
+        // $010A + 1 = 267 source ticks. Treating the bytes as cascaded
+        // reloading counters would incorrectly produce (10+1)*(1+1) = 22.
+        pokey.write(0x00, 10); // AUDF1, low byte
+        pokey.write(0x02, 1); // AUDF2, high byte
         pokey.write(0x03, 0xAF); // AUDC2: pure tone, volume 15
         pokey.write(0x09, 0); // STIMER
 
-        // Channel 2 should only tick when channel 1 underflows.
-        // Channel 1 underflows every 4 CPU cycles (AUDF=3: 3->2->1->0->underflow).
+        assert_eq!(pokey.channels[0].counter, 0x010A);
         let output_before = pokey.channels[1].output;
-        for _ in 0..3 {
+        for _ in 0..266 {
             pokey.tick();
         }
         assert_eq!(
             pokey.channels[1].output, output_before,
-            "Channel 2 should not tick until channel 1 underflows"
+            "the high channel must not toggle before the full divider expires"
         );
 
-        pokey.tick(); // Channel 1 underflows, clocks channel 2.
-        // Channel 2 counter was loaded from AUDF2 (0), so it underflows immediately.
-        // (counter 0 -> underflow on first clock -> toggle)
-        // The exact toggle depends on counter state, but channel 2 should have been clocked.
+        pokey.tick();
+        assert_ne!(pokey.channels[1].output, output_before);
+    }
+
+    #[test]
+    fn audctl_join_bits_select_the_documented_channel_pairs() {
+        let mut pokey = ntsc_pokey();
+        pokey.write(0x00, 0x12);
+        pokey.write(0x02, 0x34);
+        pokey.write(0x04, 0x56);
+        pokey.write(0x06, 0x78);
+
+        pokey.write(0x08, 0x10); // bit 4: join channels 1+2
+        pokey.write(0x09, 0);
+        assert_eq!(pokey.channels[0].counter, 0x3412);
+        assert_eq!(pokey.channels[2].counter, 0x0056);
+
+        pokey.write(0x08, 0x08); // bit 3: join channels 3+4
+        pokey.write(0x09, 0);
+        assert_eq!(pokey.channels[0].counter, 0x0012);
+        assert_eq!(pokey.channels[2].counter, 0x7856);
     }
 
     #[test]
