@@ -1,24 +1,21 @@
-//! Minimal TIA register file for the Atari 7800.
+//! TIA audio and controller inputs for the Atari 7800.
 //!
 //! Adapted from `Emu198x-Oldest/crates/machine-atari-7800/src/tia_audio.rs`
 //! (RULES.md rule 27).
 //!
 //! In 7800 mode the TIA does sound and the controller **fire-button** reads —
-//! MARIA handles all video. This stores the six audio registers (synthesis is
-//! wired in later, tracked in `docs/status/outstanding-work.md`) and the
-//! controller buttons surfaced through the TIA `INPT0`-`INPT5` registers.
+//! MARIA handles all video. Sound synthesis delegates to the shared TIA chip
+//! implementation; this wrapper retains the 7800-specific ProLine controller
+//! inputs surfaced through the TIA `INPT0`-`INPT5` registers.
+
+use atari_tia::TiaAudio as SoundCore;
 
 /// Controller button state, packed exactly as MAME's `a7800` `BUTTONS` port so
 /// the `INPT` read logic ports across directly: bit 0 = P2 button 2, bit 1 =
 /// P1 button 2, bit 2 = P2 button 1, bit 3 = P1 button 1 (active-high).
 #[derive(Default, serde::Serialize, serde::Deserialize)]
 pub struct TiaAudio {
-    pub audc0: u8,
-    pub audc1: u8,
-    pub audf0: u8,
-    pub audf1: u8,
-    pub audv0: u8,
-    pub audv1: u8,
+    sound: SoundCore,
     buttons: u8,
 }
 
@@ -29,15 +26,17 @@ impl TiaAudio {
     }
 
     pub fn write(&mut self, addr: u8, value: u8) {
-        match addr & 0x1F {
-            0x15 => self.audc0 = value,
-            0x16 => self.audc1 = value,
-            0x17 => self.audf0 = value,
-            0x18 => self.audf1 = value,
-            0x19 => self.audv0 = value,
-            0x1A => self.audv1 = value,
-            _ => {}
-        }
+        self.sound.write(addr & 0x1F, value);
+    }
+
+    /// Advance the sound core by one TIA colour clock.
+    pub fn tick(&mut self) {
+        self.sound.tick();
+    }
+
+    /// Drain mono samples produced since the previous call.
+    pub fn take_samples(&mut self) -> Vec<f32> {
+        self.sound.take_samples()
     }
 
     /// Set a controller button. `player` is 1 or 2; `button` is 1 (the standard
@@ -97,20 +96,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn audio_registers_roundtrip() {
+    fn audio_registers_generate_samples() {
         let mut tia = TiaAudio::new();
-        tia.write(0x15, 0x0A);
-        tia.write(0x16, 0x0B);
-        tia.write(0x17, 0x1F);
-        tia.write(0x18, 0x1E);
+        tia.write(0x15, 0x04);
+        tia.write(0x17, 0x00);
         tia.write(0x19, 0x0F);
-        tia.write(0x1A, 0x0E);
-        assert_eq!(tia.audc0, 0x0A);
-        assert_eq!(tia.audc1, 0x0B);
-        assert_eq!(tia.audf0, 0x1F);
-        assert_eq!(tia.audf1, 0x1E);
-        assert_eq!(tia.audv0, 0x0F);
-        assert_eq!(tia.audv1, 0x0E);
+        for _ in 0..(228 * 4) {
+            tia.tick();
+        }
+        let samples = tia.take_samples();
+        assert_eq!(samples.len(), 8);
+        assert!(samples.iter().any(|sample| *sample > 0.0));
     }
 
     #[test]
@@ -118,7 +114,10 @@ mod tests {
         let mut tia = TiaAudio::new();
         tia.write(0x00, 0xFF);
         tia.write(0x0D, 0xFF);
-        assert_eq!(tia.audc0, 0);
+        for _ in 0..228 {
+            tia.tick();
+        }
+        assert!(tia.take_samples().iter().all(|sample| *sample == 0.0));
     }
 
     #[test]

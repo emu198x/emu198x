@@ -117,7 +117,7 @@ const MIX_ENTRIES: usize = 0x1F;
 /// Both TIA audio channels plus the colour-clock phase scheduler and the
 /// host-side mono sample buffer.
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-pub(crate) struct TiaAudio {
+pub struct TiaAudio {
     channel0: AudioChannel,
     channel1: AudioChannel,
     /// Colour-clock position within the scanline (`0..=227`).
@@ -161,7 +161,7 @@ impl Default for TiaAudio {
 
 impl TiaAudio {
     /// Write one of the six audio registers (`$15-$1A`).
-    pub(crate) fn write(&mut self, addr: u8, value: u8) {
+    pub fn write(&mut self, addr: u8, value: u8) {
         match addr {
             0x15 => self.channel0.set_audc(value),
             0x16 => self.channel1.set_audc(value),
@@ -176,7 +176,7 @@ impl TiaAudio {
     /// Advance one colour clock: sample both channels' volume every clock and
     /// fire the phase clocks at their four fixed scanline positions, emitting
     /// one averaged sample per `phase1`.
-    pub(crate) fn tick(&mut self) {
+    pub fn tick(&mut self) {
         self.sum0 += u32::from(self.channel0.actual_volume());
         self.sum1 += u32::from(self.channel1.actual_volume());
         self.sum_ct += 1;
@@ -217,7 +217,7 @@ impl TiaAudio {
     }
 
     /// Drain the mono samples produced since the last call.
-    pub(crate) fn take_samples(&mut self) -> Vec<f32> {
+    pub fn take_samples(&mut self) -> Vec<f32> {
         std::mem::take(&mut self.samples)
     }
 }

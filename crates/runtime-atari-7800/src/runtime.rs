@@ -11,8 +11,6 @@ use crate::profiles::{Model, profile_for};
 use crate::snapshot;
 use emu198x_shell::display::Display;
 
-const AUDIO_SAMPLE_RATE: u32 = 48_000;
-
 pub struct Atari7800Runtime {
     profile: MachineProfile,
     model: Model,
@@ -174,11 +172,10 @@ impl MachineCore for Atari7800Runtime {
             }
         }
         while self.time < target {
-            let ticks = self
-                .machine
-                .as_mut()
-                .expect("machine checked above")
-                .run_frame();
+            let machine = self.machine.as_mut().expect("machine checked above");
+            let ticks = machine.run_frame();
+            let audio_samples = machine.take_audio_samples();
+            let sample_rate = machine.audio_sample_rate();
             self.time = self.time.saturating_add(ticks);
             self.update_rgba_framebuffer();
             host.frame_sink.push_frame(FramePacket {
@@ -189,12 +186,11 @@ impl MachineCore for Atari7800Runtime {
                 palette: None,
                 pixels: &self.rgba_framebuffer,
             })?;
-            // TIA audio not yet exposed by machine-atari-7800.
             host.audio_sink.push_audio(AudioPacket {
                 timestamp: self.time,
-                sample_rate: AUDIO_SAMPLE_RATE,
+                sample_rate,
                 channels: 1,
-                samples: &[],
+                samples: &audio_samples,
             })?;
         }
         Ok(RunResult::new(self.time, StopReason::ReachedTarget))
