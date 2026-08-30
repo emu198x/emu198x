@@ -87,13 +87,10 @@ fn synthetic_firmware_writes_a_display_file_the_ula_renders() {
         .iter()
         .filter(|&&pixel| pixel == INK)
         .count();
-    // 49,152 in practice — 256x192, exactly 32x24 characters. The rest is
-    // border, which a display file cannot reach.
-    assert!(
-        ink > machine.framebuffer().len() / 2,
-        "the CPU should have drawn the display file as solid ink; got {ink} of {} pixels",
-        machine.framebuffer().len()
-    );
+    // 49,152 — 256x192, exactly 32x24 characters. The rest is border, which
+    // a display file cannot reach; widening the captured line must not weaken
+    // this into a ratio assertion.
+    assert_eq!(ink, 256 * 192, "the CPU should draw one solid text area");
 
     // The sharp one. The firmware never writes the D_FILE pointer, so the
     // frame-boundary renderer this replaced would have had nothing to draw
@@ -133,7 +130,7 @@ fn lit_bands(machine: &Zx81) -> Vec<usize> {
         .filter(|row| {
             let y = machine.text_top() as usize + row * 8 + 3;
             (0..256)
-                .filter(|x| frame[y * width + 32 + x] == INK)
+                .filter(|x| frame[y * width + 54 + x] == INK)
                 .count()
                 > 200
         })

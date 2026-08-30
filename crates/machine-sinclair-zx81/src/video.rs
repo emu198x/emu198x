@@ -33,14 +33,11 @@
 use crate::TelevisionStandard;
 use serde::{Deserialize, Serialize};
 
-/// Framebuffer width: the 256-pixel display with 32 of border either side.
+/// Full 384-pixel line captured by MAME 0.289's ZX80/ZX81 driver.
 ///
-/// **Narrower than a set's window**, which at 6.5 MHz over 52.0 µs is 338 —
-/// the #1054 audit reads it as 95%. [`FIRST_CHAR_TSTATE`] is calibrated to
-/// place the picture inside a window that was already chosen, so a width
-/// derived from it would be circular. Unchanged here; #1032 is about the
-/// mechanism, not the extent.
-pub const FB_WIDTH: u32 = 320;
+/// Keeping the reference raster whole avoids choosing an unmeasured crop and
+/// preserves the ZX81 text origin at x=54, 26 pixels left of the ZX80.
+pub const FB_WIDTH: u32 = 384;
 
 /// Scan lines a set displays, which is the whole of this figure: it is the
 /// receiver's window, not a remainder of the machine's own 310-line field.
@@ -220,14 +217,12 @@ const FIRST_VISIBLE_LINE: u32 =
 ///
 /// Measured from the start of sync on both, this is 37 + (207 - 192) = 52
 /// against the ZX80's 73: 21 T-states, or 42 pixels, with the ZX80's picture
-/// later in the line. Our two framebuffers nonetheless place both pictures in
-/// the same column, because [`LEFT_BORDER`] is what centres them; #1123.
+/// later in the line. That prediction does not choose the capture origin;
+/// [`LEFT_BORDER`] now follows MAME's full-line observation directly.
 ///
-/// That 42 is a prediction of this model, not a measurement of a machine, and
-/// the two reference emulators disagree with it and with each other — MAME
-/// separates the pictures by 26 pixels and ZEsarUX by 2 in the other
-/// direction, each rendering both machines into one raster. Nothing here is
-/// fitted to any of the three.
+/// The full-line capture follows MAME's measured x=54 origin directly. MAME
+/// separates the pictures by 26 pixels; ZEsarUX remains contradictory
+/// implementation evidence rather than a hardware measurement.
 /// The highest `I` page that can hold a character set.
 ///
 /// `$1F` is the top of the 8 KB ROM. An `I` above it addresses no character
@@ -242,7 +237,7 @@ const CHARACTER_SET_TOP_PAGE: u16 = 0x1F;
 const FIRST_CHAR_TSTATE: u32 = 37;
 
 /// Framebuffer pixels of border left of the first character.
-const LEFT_BORDER: u32 = 32;
+const LEFT_BORDER: u32 = 54;
 
 /// The ZX81 displays black on white.
 const PAPER: u32 = 0xFFFF_FFFF;
@@ -577,8 +572,7 @@ impl Zx81Video {
         // Signed, because a character may legitimately begin *before*
         // `FIRST_CHAR_TSTATE`. That constant is where the stock ROM starts
         // its line; software that reaches the display file sooner starts
-        // earlier, and there are 32 pixels of border to the left for it to
-        // land in.
+        // earlier, and the full-line capture retains the space to its left.
         //
         // This was `checked_sub`, which underflowed and dropped the whole
         // character rather than drawing it two pixels to the left. #302

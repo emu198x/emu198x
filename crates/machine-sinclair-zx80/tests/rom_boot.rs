@@ -77,9 +77,8 @@ fn rom_boots_to_its_power_on_screen() {
     // with an inverse `K` on the input line at the bottom left, so the ink
     // is one 8x8 cell, and the input line is the text area's last row.
     //
-    // Where that row falls is arithmetic, not a fitted number: the text area
-    // is centred in the window, and row 23 is 184 lines into it. 32 pixels
-    // in, because 32 columns of 8 centred in 320 leave that either side.
+    // The text area's vertical position follows the ROM's pad; horizontally
+    // the full-line MAME capture puts the ZX80's first text pixel at x=80.
     let row_23_top = sys.text_top() as usize + 23 * 8;
     let w = FB_WIDTH as usize;
     let ink_at = |x: usize, y: usize| frame[y * w + x] == 0xFF00_0000;
@@ -96,7 +95,7 @@ fn rom_boots_to_its_power_on_screen() {
     }
     assert_eq!(
         (min_x, max_x, min_y, max_y),
-        (32, 39, row_23_top, row_23_top + 7),
+        (80, 87, row_23_top, row_23_top + 7),
         "the cursor should be a single 8x8 cell at the bottom left of the \
          display area; anything wider means the character generator ran on \
          past the row's NEWLINE"
@@ -104,7 +103,7 @@ fn rom_boots_to_its_power_on_screen() {
 
     // Inverse video: the cell is mostly ink with the letter cut out of it.
     let cell_ink = (row_23_top..row_23_top + 8)
-        .flat_map(|y| (32..40).map(move |x| (x, y)))
+        .flat_map(|y| (80..88).map(move |x| (x, y)))
         .filter(|&(x, y)| ink_at(x, y))
         .count();
     assert!(

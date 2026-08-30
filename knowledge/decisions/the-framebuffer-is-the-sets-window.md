@@ -49,12 +49,14 @@ emit 312 lines — it emits 310 — so the subtraction was against a figure
 borrowed from a broadcast field rather than taken from this one. See *The ZX8x:
 subtracting from a frame the machine never emits* below.
 
-Horizontally it does not. `FIRST_CHAR_TSTATE` is a fitted constant, calibrated
-to place the picture inside a window we had already chosen, so deriving a
-set's horizontal window from it would be circular. Fixing that needs a
-measurement against a reference, not arithmetic — MAME 0.289 puts its window
-24 T-states earlier than ours, which is a starting point rather than an
-answer. The ZX80 keeps its 320-pixel width until someone measures it.
+Horizontally it did not. `FIRST_CHAR_TSTATE` was combined with a fitted border
+to place both pictures inside a 320-pixel window, so deriving the window from
+that pair would have been circular. #1123 resolved the choice by retaining
+MAME 0.289's full 384-pixel line instead of inventing a narrower crop: the
+ZX80 text begins at x=80 and the ZX81 at x=54, preserving the independently
+observed 26-pixel separation. This is reference-emulator evidence, not a
+measurement of a real set; the wider capture preserves optionality until one
+exists.
 
 ## Under 100% has two causes
 
@@ -128,8 +130,8 @@ the core draws.
 | Acorn Atom (PAL) | 372×288 | 369×288 | 101% | 100% |
 | C64 (PAL) | 416×312 | 410×288 | 101% | 108% |
 | Spectrum 48K (PAL) | 352×296 | 364×288 | 97% | 103% |
-| ZX80, ZX81 (PAL) | 320×288 | 338×288 | 95% | 100% |
-| ZX80, ZX81 (NTSC) | 320×240 | 338×240 | 95% | 100% |
+| ZX80, ZX81 (PAL) | 384×288 | 338×288 | 114% | 100% |
+| ZX80, ZX81 (NTSC) | 384×240 | 338×240 | 114% | 100% |
 | Jupiter Ace (PAL) | 320×288 | 338×288 | 95% | 100% |
 | Amstrad CPC (PAL) | 832×288 | 832×288 | 100% | 100% |
 | NES (NTSC) | 256×240 | 280×240 | 91% † | 100% |
@@ -147,10 +149,11 @@ job.
 because the hardware blanks the rest, and the constant says so. Every core
 under 100% is now marked.
 
-The range is **49%–104% horizontally and 67%–108% vertically**, after the
+The range is **49%–114% horizontally and 67%–108% vertically**, after the
 Dragon's 202% turned out to be a misstated clock rather than an extent, and the
 three Atari cores' 120% a single framebuffer height serving two regions (both
-below).
+below). The 114% upper end is the ZX80/ZX81 full-line capture adopted for
+#1123, not a claim that a set exposes all 384 pixels.
 #1054 opened citing 86%–104% and 83%–108%, drawn from the seven cores that had
 been looked at. Horizontally that upper bound held; the floor did not, and the
 vertical spread is half again as wide.
@@ -317,13 +320,12 @@ what says so:
 | Dragon | 101% / 108% | the same choice, for the same reason — it is an overscan frame |
 | Amiga | 104% | 768 is the standard PAL-hires overscan figure the tooling and the catalogue's frame hashes are built on |
 | Acorn Atom | 101% | three pixels, from the shared VDG crate's asymmetric 60/56 border |
+| ZX80, ZX81 | 114% | MAME's full 384-pixel line, retained because no evidence anchors a narrower crop; it preserves the machines' measured x=80/x=54 origins |
 
-**Holds less, and cannot yet say whether that is right** — one family. The
-ZX80, ZX81 and Jupiter Ace all hold 320 pixels against a 338-pixel window.
-Their horizontal anchors are constants fitted to place the picture inside a
-window already chosen, so deriving a width from one would be circular. Closing
-it needs a measurement against a reference rather than arithmetic, and one
-measurement settles all three.
+**Holds less, and cannot yet say whether that is right** — the Jupiter Ace
+holds 320 pixels against a 338-pixel window. Its horizontal anchor is still a
+constant fitted to that chosen window; the ZX80/ZX81 MAME evidence does not
+automatically transfer to different hardware.
 
 The Spectrum's 97% / 103% is the same shape from the ULA's border count rather
 than the field, and stays for the same reason the Amiga's does: the
@@ -534,8 +536,9 @@ figures belong together rather than being separately quoted:
 
 #1133.
 
-The horizontal axis is untouched and still fitted; `FIRST_CHAR_TSTATE` remains
-what the section above says it is.
+The horizontal axis was subsequently resolved for ZX80/ZX81 by #1123's
+full-line MAME capture. `FIRST_CHAR_TSTATE` remains a ROM timing measurement;
+the capture origin is no longer inferred from it.
 
 ## Defects the audit surfaced
 

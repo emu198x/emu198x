@@ -12,10 +12,9 @@
 //! arithmetic puts the sync. Its row 0 is therefore frame line 15, against our
 //! 8, so **our row is its row plus seven**.
 //!
-//! Horizontally its text area starts at column 50 where ours starts at 32.
-//! That offset is not asserted as agreement, for the same reason the MAME
-//! check does not assert one: `FIRST_CHAR_TSTATE` is fitted per machine, which
-//! is #1123.
+//! Horizontally its text area starts at column 50 where the MAME-anchored
+//! full-line capture puts ours at 54. This remains contradictory reference-
+//! emulator evidence; MAME governs the capture geometry for #1123.
 //!
 //! Both origins were found by exhaustive search rather than assumed, and the
 //! match at (50, 41) is exact — zero differing pixels of 49,152 — while every
@@ -59,7 +58,7 @@
 use std::{env, fs, path::PathBuf};
 
 /// Where our text area begins.
-const OUR_X: u32 = 32;
+const OUR_X: u32 = 54;
 /// And ZEsarUX's, in its own raster.
 const ZESARUX_X: u32 = 50;
 const ZESARUX_Y: u32 = 41;

@@ -127,7 +127,7 @@ fn a_wrx_program_drives_the_bitmap_path() {
         for cx in 0..32usize {
             let mut byte = 0u8;
             for bit in 0..8usize {
-                if fb[y * w + 32 + cx * 8 + bit] == INK {
+                if fb[y * w + 54 + cx * 8 + bit] == INK {
                     byte |= 0x80 >> bit;
                 }
             }

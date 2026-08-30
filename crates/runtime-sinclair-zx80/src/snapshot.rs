@@ -11,11 +11,12 @@ use serde::{Deserialize, Serialize};
 
 use crate::runtime::Zx80Runtime;
 
-const SNAPSHOT_VERSION: u16 = 3;
+/// Bumped to 4 when the live framebuffer widened to the full 384-pixel line.
+const SNAPSHOT_VERSION: u16 = 4;
 
 /// Borrowing envelope used during encode — avoids cloning the live machine.
 #[derive(Serialize)]
-struct Zx80RuntimeSnapshotRefV3<'a> {
+struct Zx80RuntimeSnapshotRefV4<'a> {
     version: u16,
     time: u64,
     model_id: &'a str,
@@ -24,7 +25,7 @@ struct Zx80RuntimeSnapshotRefV3<'a> {
 
 /// Owning envelope used during decode.
 #[derive(Deserialize)]
-struct Zx80RuntimeSnapshotV3 {
+struct Zx80RuntimeSnapshotV4 {
     version: u16,
     time: u64,
     model_id: String,
@@ -32,7 +33,7 @@ struct Zx80RuntimeSnapshotV3 {
 }
 
 pub(crate) fn encode(runtime: &Zx80Runtime) -> Result<Vec<u8>, MachineError> {
-    let snapshot = Zx80RuntimeSnapshotRefV3 {
+    let snapshot = Zx80RuntimeSnapshotRefV4 {
         version: SNAPSHOT_VERSION,
         time: runtime.time().get(),
         model_id: runtime.model().model_id(),
@@ -54,7 +55,7 @@ pub(crate) fn decode(runtime: &mut Zx80Runtime, bytes: &[u8]) -> Result<(), Mach
             reason: format!("unsupported snapshot version {version}; expected {SNAPSHOT_VERSION}"),
         });
     }
-    let snapshot: Zx80RuntimeSnapshotV3 =
+    let snapshot: Zx80RuntimeSnapshotV4 =
         postcard::from_bytes(bytes).map_err(|reason| MachineError::InvalidSnapshot {
             reason: format!("decode failed: {reason}"),
         })?;
