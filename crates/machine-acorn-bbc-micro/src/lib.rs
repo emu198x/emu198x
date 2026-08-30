@@ -71,7 +71,7 @@
 use common_acorn_cassette::{CassetteEvent, CassetteReceiver, TapePulse};
 use emu198x_mos_6502::M6502;
 use mos_via_6522::Via6522;
-use motorola_6845::Crtc6845;
+use motorola_6845::{Crtc6845, Crtc6845Variant};
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
 use ti_sn76489::{NoiseLfsr, Sn76489};
@@ -541,9 +541,11 @@ impl BbcMicro {
     pub fn new(mos_rom: Vec<u8>) -> Self {
         let mut cpu = M6502::new();
         cpu.reset();
+        let mut crtc = Crtc6845::new();
+        crtc.set_variant(Crtc6845Variant::Hd6845s);
         Self {
             cpu,
-            crtc: Crtc6845::new(),
+            crtc,
             video_ula: VideoUla::new(),
             system_via: Via6522::new(),
             user_via: Via6522::new(),

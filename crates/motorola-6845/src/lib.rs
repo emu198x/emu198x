@@ -21,8 +21,8 @@ use serde::{Deserialize, Serialize};
 
 /// Which 6845 the machine actually fits.
 ///
-/// The part number matters at exactly one place in this model — which
-/// registers read back. The CPC community numbers the variants 0 to 4, and
+/// The part number matters for register readback, cursor shape, and sync-width
+/// programming. The CPC community numbers the variants 0 to 4, and
 /// software detects them by reading registers and seeing what comes out. So a
 /// machine that claims one part while reading back like another is detectable
 /// by real software, not merely wrong on paper.
@@ -249,14 +249,17 @@ impl Crtc6845 {
         self.cursor_active = self.cursor_visible();
 
         // HSYNC generation
-        if self.h_counter == h_sync_pos {
+        // The original Motorola datasheet says zero suppresses HSYNC. The
+        // HD6845S datasheet calls zero unprogrammable; its pulse-width table
+        // likewise has no pulse for that value. See the primary sources in
+        // `198x/reference/by-topic/crtc-6845/`.
+        if self.h_counter == h_sync_pos && h_sync_width != 0 {
             self.hsync = true;
             self.hsync_counter = 0;
         }
         if self.hsync {
             self.hsync_counter += 1;
-            let width = if h_sync_width == 0 { 16 } else { h_sync_width };
-            if self.hsync_counter >= width {
+            if self.hsync_counter >= h_sync_width {
                 self.hsync = false;
             }
         }
@@ -316,7 +319,15 @@ impl Crtc6845 {
         let v_total = self.regs[4] & 0x7F;
         let v_adjust = self.regs[5] & 0x1F;
         let v_sync_pos = self.regs[7] & 0x7F;
-        let v_sync_width = (self.regs[3] >> 4) & 0x0F;
+        // MC6845 vertical sync is fixed at 16 scanlines and does not use R3's
+        // upper nibble. HD6845S makes that nibble programmable, with zero
+        // encoding 16 scanlines.
+        let programmed_v_sync_width = (self.regs[3] >> 4) & 0x0F;
+        let v_sync_width = match self.variant {
+            Crtc6845Variant::Mc6845 => 16,
+            Crtc6845Variant::Hd6845s if programmed_v_sync_width == 0 => 16,
+            Crtc6845Variant::Hd6845s => programmed_v_sync_width,
+        };
 
         if self.in_v_adjust {
             self.v_adjust += 1;
@@ -384,8 +395,7 @@ impl Crtc6845 {
         // VSYNC width
         if self.vsync {
             self.vsync_counter += 1;
-            let width = if v_sync_width == 0 { 16 } else { v_sync_width };
-            if self.vsync_counter >= width {
+            if self.vsync_counter >= v_sync_width {
                 self.vsync = false;
             }
         }
@@ -527,6 +537,61 @@ mod tests {
                 "R0 = {h_total} should give a line of R0 + 1 characters"
             );
         }
+    }
+
+    #[test]
+    fn zero_horizontal_sync_width_suppresses_hsync() {
+        for variant in [Crtc6845Variant::Mc6845, Crtc6845Variant::Hd6845s] {
+            let mut crtc = Crtc6845::new();
+            crtc.set_variant(variant);
+            crtc.regs[0] = 7;
+            crtc.regs[2] = 2;
+            crtc.regs[3] = 0;
+
+            for _ in 0..24 {
+                crtc.tick();
+                assert!(!crtc.hsync, "{variant:?} generated HSYNC for width zero");
+            }
+        }
+    }
+
+    fn start_vertical_sync(crtc: &mut Crtc6845, r3: u8) {
+        crtc.regs[3] = r3;
+        crtc.regs[4] = 20;
+        crtc.regs[7] = 1;
+        crtc.regs[9] = 0;
+        crtc.advance_vertical();
+        assert!(crtc.vsync);
+    }
+
+    #[test]
+    fn mc6845_vertical_sync_is_fixed_at_sixteen_scanlines() {
+        let mut crtc = Crtc6845::new();
+        start_vertical_sync(&mut crtc, 0x20);
+
+        // R3's high nibble requests two lines on later parts, but the original
+        // MC6845 ignores it and keeps the fixed 16-line pulse.
+        crtc.advance_vertical();
+        assert!(crtc.vsync);
+    }
+
+    #[test]
+    fn hd6845s_programs_vertical_sync_and_maps_zero_to_sixteen() {
+        let mut crtc = Crtc6845::new();
+        crtc.set_variant(Crtc6845Variant::Hd6845s);
+        start_vertical_sync(&mut crtc, 0x20);
+        crtc.advance_vertical();
+        assert!(!crtc.vsync, "a width of two must finish on the second line");
+
+        let mut zero = Crtc6845::new();
+        zero.set_variant(Crtc6845Variant::Hd6845s);
+        start_vertical_sync(&mut zero, 0);
+        for _ in 0..14 {
+            zero.advance_vertical();
+            assert!(zero.vsync);
+        }
+        zero.advance_vertical();
+        assert!(!zero.vsync, "zero must encode a 16-line vertical pulse");
     }
 
     /// A mid-frame write that drops a vertical register below its live counter
