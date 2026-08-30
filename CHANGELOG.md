@@ -4,6 +4,17 @@ All notable changes to Emu198x will be documented in this file.
 
 Format loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 not strictly. Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [0.8.2] - 2026-08-30
+
+
+### Fixed
+
+- Align 128K floating-bus reads with hardware
+- Model 6845 zero sync widths by variant
+- Implement SMS memory control port
+- Expose SMS region through TH readback
+- Render Oric serial text attributes
+
 ## [0.8.1] - 2026-08-30
 
 
