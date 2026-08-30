@@ -105,6 +105,7 @@ impl Variant {
 /// the cartridge the runtime already holds.
 struct SmsSystem {
     variant: Variant,
+    battery_save_path: PathBuf,
 }
 
 impl UiSystem for SmsSystem {
@@ -172,6 +173,18 @@ impl UiSystem for SmsSystem {
             _ => None,
         }
     }
+
+    fn on_exit(&mut self, runtime: &mut Self::Runtime) -> Result<(), String> {
+        let Some(image) = runtime.cartridge_save_image() else {
+            return Ok(());
+        };
+        std::fs::write(&self.battery_save_path, image).map_err(|err| {
+            format!(
+                "failed to write battery save {}: {err}",
+                self.battery_save_path.display()
+            )
+        })
+    }
 }
 
 /// Parsed interactive CLI.
@@ -203,18 +216,40 @@ pub fn run(cli: Cli) -> Result<(), String> {
         .ok_or_else(|| "provide a cartridge with --cart PATH".to_owned())?;
     let cart = std::fs::read(cart_path)
         .map_err(|err| format!("failed to read --cart {}: {err}", cart_path.display()))?;
-    let runtime = with_cartridge(cli.variant.model(), cart);
+    let battery_save_path = default_battery_save_path(cart_path);
+    let mut runtime = with_cartridge(cli.variant.model(), cart);
+    load_battery_save(&mut runtime, &battery_save_path)?;
 
     println!("Controls: Esc quit, F12 reset, arrows d-pad, Z/X buttons, Enter Pause/Start.");
     emu198x_ui::run(
         SmsSystem {
             variant: cli.variant,
+            battery_save_path,
         },
         runtime,
         cli.scale,
         cli.video,
     )
     .map_err(|err: UiError| err.to_string())
+}
+
+fn default_battery_save_path(cart_path: &std::path::Path) -> PathBuf {
+    let mut path = cart_path.to_path_buf();
+    path.set_extension("sav");
+    path
+}
+
+fn load_battery_save(runtime: &mut SmsRuntime, path: &std::path::Path) -> Result<(), String> {
+    match std::fs::read(path) {
+        Ok(bytes) => runtime
+            .restore_cartridge_save_image(&bytes)
+            .map_err(|err| format!("failed to restore battery save {}: {err}", path.display())),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(err) => Err(format!(
+            "failed to read battery save {}: {err}",
+            path.display()
+        )),
+    }
 }
 
 /// Parse the interactive CLI. Exits the process on `--help` or a malformed flag.
@@ -309,6 +344,7 @@ mod tests {
     fn pad_maps_and_console_button() {
         let sms = SmsSystem {
             variant: Variant::SmsNtsc,
+            battery_save_path: PathBuf::from("game.sav"),
         };
         assert_eq!(sms.map_key(KeyCode::ArrowLeft), Some(HostControl::Left));
         assert_eq!(sms.map_key(KeyCode::KeyZ), Some(HostControl::South));

@@ -257,6 +257,8 @@ pub struct Sms {
     /// Battery-backed cartridge SRAM. The Sega mapper exposes either 16 KB
     /// half at `$8000-$BFFF` when `$FFFC` bit 3 is set.
     cartridge_ram: Vec<u8>,
+    /// Host-visible writeback signal. Set only when software changes SRAM.
+    cartridge_ram_dirty: bool,
     /// Sega mapper bank registers, shadowed from RAM writes at
     /// `$FFFC-$FFFF`.
     mapper_regs: [u8; 4],
@@ -318,6 +320,7 @@ impl Sms {
             bios_rom,
             ram: [0; 8192],
             cartridge_ram: vec![0xFF; 32768],
+            cartridge_ram_dirty: false,
             mapper_regs: [0x00, 0x00, 0x01, 0x02],
             port_dc: 0xFF,
             port_dd: 0xFF,
@@ -478,7 +481,10 @@ impl Sms {
             && self.mapper_regs[0] & 0x08 != 0
         {
             let ram_addr = self.cartridge_ram_addr(addr);
-            self.cartridge_ram[ram_addr] = value;
+            if self.cartridge_ram[ram_addr] != value {
+                self.cartridge_ram[ram_addr] = value;
+                self.cartridge_ram_dirty = true;
+            }
             return;
         }
         if (0xC000..=0xFFFF).contains(&addr) {
@@ -797,6 +803,28 @@ impl Sms {
     #[must_use]
     pub fn mapper_regs(&self) -> &[u8; 4] {
         &self.mapper_regs
+    }
+
+    /// The complete 32 KB battery-backed SRAM image.
+    #[must_use]
+    pub fn cartridge_ram(&self) -> &[u8] {
+        &self.cartridge_ram
+    }
+
+    /// Whether cartridge software has changed SRAM since construction/load.
+    #[must_use]
+    pub const fn cartridge_ram_dirty(&self) -> bool {
+        self.cartridge_ram_dirty
+    }
+
+    /// Replace SRAM from host state and choose whether it still needs writing.
+    pub fn restore_cartridge_ram(&mut self, bytes: &[u8], dirty: bool) -> bool {
+        if bytes.len() != self.cartridge_ram.len() {
+            return false;
+        }
+        self.cartridge_ram.copy_from_slice(bytes);
+        self.cartridge_ram_dirty = dirty;
+        true
     }
 
     /// Standard Sega cartridge header metadata, when the signature is present.
@@ -1200,6 +1228,27 @@ mod tests {
         assert_eq!(sys.mem_read(0xBFFF), 0x11);
         sys.mem_write(0xFFFC, 0x0C);
         assert_eq!(sys.mem_read(0xBFFF), 0x22);
+    }
+
+    #[test]
+    fn cartridge_ram_is_dirty_only_after_a_changed_sram_write() {
+        let mut sys = Sms::new(trap_cart_64k(), SmsVariant::SmsNtsc);
+        assert!(!sys.cartridge_ram_dirty());
+
+        sys.mem_write(0x8000, 0x42);
+        assert!(!sys.cartridge_ram_dirty(), "ROM writes do not dirty SRAM");
+        sys.mem_write(0xFFFC, 0x08);
+        sys.mem_write(0x8000, 0xFF);
+        assert!(
+            !sys.cartridge_ram_dirty(),
+            "unchanged SRAM does not need a save"
+        );
+        sys.mem_write(0x8000, 0x42);
+        assert!(sys.cartridge_ram_dirty());
+
+        let image = sys.cartridge_ram().to_vec();
+        assert!(sys.restore_cartridge_ram(&image, false));
+        assert!(!sys.cartridge_ram_dirty());
     }
 
     #[test]

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Expose cartridge SRAM import/export and dirty tracking for battery-save sidecars
+
 ### Fixed
 
 - Route Sega-mapper cartridge SRAM reads and writes through the two banked 16 KB windows instead of returning `$FF`

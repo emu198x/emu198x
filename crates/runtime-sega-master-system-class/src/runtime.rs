@@ -82,6 +82,33 @@ impl SmsRuntime {
         self.machine.as_mut()
     }
 
+    /// Returns a changed battery-save image suitable for a `.sav` sidecar.
+    #[must_use]
+    pub fn cartridge_save_image(&self) -> Option<&[u8]> {
+        self.machine
+            .as_ref()
+            .filter(|machine| machine.cartridge_ram_dirty())
+            .map(Sms::cartridge_ram)
+    }
+
+    /// Restore a 32 KB cartridge SRAM sidecar.
+    pub fn restore_cartridge_save_image(&mut self, bytes: &[u8]) -> Result<(), MachineError> {
+        let machine = self
+            .machine
+            .as_mut()
+            .ok_or_else(|| MachineError::InvalidMedia {
+                slot: "cartridge-1".to_owned(),
+                reason: "no cartridge is loaded".to_owned(),
+            })?;
+        if !machine.restore_cartridge_ram(bytes, false) {
+            return Err(MachineError::InvalidMedia {
+                slot: "cartridge-1".to_owned(),
+                reason: format!("save RAM length {} does not match 32768", bytes.len()),
+            });
+        }
+        Ok(())
+    }
+
     /// The hardware variant this runtime drives.
     #[must_use]
     pub fn variant(&self) -> SmsVariant {
@@ -119,11 +146,21 @@ impl SmsRuntime {
     }
 
     fn rebuild_machine(&mut self) {
+        let preserved_ram = self.machine.as_ref().map(|machine| {
+            (
+                machine.cartridge_ram().to_vec(),
+                machine.cartridge_ram_dirty(),
+            )
+        });
         let Some(rom) = self.cart_bytes.clone() else {
             self.machine = None;
             return;
         };
-        let machine = Sms::new(rom, self.variant);
+        let mut machine = Sms::new(rom, self.variant);
+        if let Some((ram, dirty)) = preserved_ram {
+            let restored = machine.restore_cartridge_ram(&ram, dirty);
+            debug_assert!(restored);
+        }
         let width = machine.framebuffer_width();
         let height = machine.framebuffer_height();
         self.rgba_width = width;
