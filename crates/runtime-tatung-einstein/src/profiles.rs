@@ -2,7 +2,7 @@
 
 use emu198x_shell::{
     CapabilitySet, ClockDesc, ClockRate, Family, FirmwareRequirement, MachineId, MachineProfile,
-    ProfileId, Region, known_capability,
+    MediaKind, MediaSlot, ProfileId, Region, WritebackPolicy, known_capability,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -52,7 +52,13 @@ pub fn profile_for(model: Model) -> MachineProfile {
             "Einstein MOS ROM (8 KB)",
             false,
         )],
-        media_slots: vec![],
+        media_slots: vec![MediaSlot::new(
+            "floppy-0",
+            "Floppy Drive 0",
+            MediaKind::Disk,
+            false,
+            WritebackPolicy::InMemoryOnly,
+        )],
         capabilities: CapabilitySet::with_all([
             known_capability("keyboard-input"),
             known_capability("scripted-input"),
@@ -65,8 +71,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn profile_declares_rom_firmware() {
+    fn profile_declares_rom_firmware_and_floppy() {
         let p = profile_for(Model::Einstein);
         assert_eq!(p.firmware.len(), 1);
+        assert_eq!(p.media_slots.len(), 1);
+        assert_eq!(p.media_slots[0].id, "floppy-0");
+        assert_eq!(p.media_slots[0].kind, MediaKind::Disk);
     }
 }

@@ -606,6 +606,25 @@ impl Einstein {
         Ok(())
     }
 
+    /// Check that bytes are a CPCEMU standard or extended `.DSK` image.
+    ///
+    /// This lets a runtime validate media before firmware has been supplied,
+    /// without constructing a throwaway machine merely to reach the parser.
+    pub fn validate_cpc_dsk(dsk: &[u8]) -> Result<(), String> {
+        parse_cpc_dsk(dsk).map(drop)
+    }
+
+    /// Remove and return the disk in one of the four WD1770 drive positions.
+    pub fn eject_disk(&mut self, drive: usize) -> Option<Disk> {
+        self.fdc.eject_disk(drive)
+    }
+
+    /// Inspect the parsed disk mounted in one of the four WD1770 positions.
+    #[must_use]
+    pub fn disk(&self, drive: usize) -> Option<&Disk> {
+        self.fdc.disk(drive)
+    }
+
     /// Press a key at the given (row, column).
     pub fn press_key(&mut self, row: usize, col: u8) {
         if row < self.keyboard.len() && col < 8 {
