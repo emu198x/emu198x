@@ -72,13 +72,22 @@ pub fn profile_for(model: Model) -> MachineProfile {
             "SVI-328 system ROM (32 KB)",
             false,
         )],
-        media_slots: vec![MediaSlot::new(
-            "cartridge-1",
-            "Cartridge Slot",
-            MediaKind::Cartridge,
-            false,
-            WritebackPolicy::InMemoryOnly,
-        )],
+        media_slots: vec![
+            MediaSlot::new(
+                "cartridge-1",
+                "Cartridge Slot",
+                MediaKind::Cartridge,
+                false,
+                WritebackPolicy::InMemoryOnly,
+            ),
+            MediaSlot::new(
+                "tape-1",
+                "Cassette Tape",
+                MediaKind::Tape,
+                false,
+                WritebackPolicy::SidecarOnly,
+            ),
+        ],
         capabilities: CapabilitySet::with_all([
             known_capability("keyboard-input"),
             known_capability("scripted-input"),
@@ -95,5 +104,10 @@ mod tests {
         let p = profiles();
         assert_eq!(p.len(), 2);
         assert!(p.iter().all(|p| p.firmware.len() == 1));
+        assert!(p.iter().all(|p| {
+            p.media_slots
+                .iter()
+                .any(|slot| slot.id.as_ref() == "tape-1" && slot.kind == MediaKind::Tape)
+        }));
     }
 }

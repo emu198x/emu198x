@@ -66,6 +66,9 @@
 //! Adopts SG-1000 / MSX 3:2 VDP-dot-per-T-state phase counter. PSG
 //! ticks every other T-state for the CPU ÷ 2 = 1.789 MHz AY clock.
 
+mod cassette;
+
+use cassette::Cassette;
 use emu198x_zilog_z80::{BusOp, Z80};
 use gi_ay_3_8912::{Ay3_8912, AyWriteRecord, AyWriteWatch};
 use intel_8255::Ppi8255;
@@ -130,6 +133,7 @@ pub struct Svi328 {
     /// Joystick fire buttons `[player1, player2]`, read on PPI port A bits
     /// 4-5 (active low). See [`Self::io_read`] `$98`.
     joy_fire: [bool; 2],
+    cassette: Cassette,
     region: SviRegion,
     cpu_tstates: u64,
     tstates_per_frame: u64,
@@ -172,6 +176,7 @@ impl Svi328 {
             keyboard: [0xFF; NUM_KEY_ROWS],
             joy_dirs: 0xFF,
             joy_fire: [false; 2],
+            cassette: Cassette::default(),
             region,
             cpu_tstates: 0,
             tstates_per_frame,
@@ -187,6 +192,11 @@ impl Svi328 {
     pub fn insert_cart(&mut self, rom: Vec<u8>) {
         self.cart_rom = rom;
         self.bank_cart = true;
+    }
+
+    /// Insert decoded CAS payload blocks and leave the transport stopped.
+    pub fn insert_cassette(&mut self, blocks: &[Vec<u8>]) {
+        self.cassette.insert(blocks);
     }
 
     /// Run one frame and return T-states consumed.
@@ -225,6 +235,8 @@ impl Svi328 {
         if self.psg_phase == 0 {
             self.psg.tick();
         }
+
+        self.cassette.tick_tstate();
 
         self.cpu_tstates += 1;
     }
@@ -333,7 +345,14 @@ impl Svi328 {
             // idle byte is 0x7F; a held fire button pulls its bit (PB1 = bit 4,
             // PB2 = bit 5) low. (MAME `svi318` `ppi_port_a_r`.)
             0x98 => {
-                let mut data = 0x7F;
+                let mut data = if self.cassette.is_present() {
+                    0x3F
+                } else {
+                    0x7F
+                };
+                if self.cassette.input_high() {
+                    data |= 0x80;
+                }
                 if self.joy_fire[0] {
                     data &= !0x10;
                 }
@@ -380,7 +399,12 @@ impl Svi328 {
             // selects the keyboard row.
             0x94 => self.ppi.write(0, value),
             0x95 => self.ppi.write(1, value),
-            0x96 => self.ppi.write(2, value),
+            0x96 => {
+                self.ppi.write(2, value);
+                // PC4 is active-low motor control; PC5 is cassette output and
+                // PC6 speaker enable, both intentionally read-only for now.
+                self.cassette.set_motor(value & 0x10 == 0);
+            }
             0x97 => self.ppi.write(3, value),
             _ => {}
         }
@@ -604,6 +628,29 @@ mod tests {
 
         sys.set_joystick(2, false, false, false, false, true); // P2 fire
         assert_eq!(sys.io_read(0x98) & 0x30, 0, "both fire → PA4+PA5 low");
+    }
+
+    #[test]
+    fn ppi_cassette_lines_report_media_and_follow_motor_control() {
+        let mut sys = Svi328::new(vec![0; 0x8000], SviRegion::Ntsc);
+        assert_eq!(sys.io_read(0x98) & 0xC0, 0x40, "empty deck: absent and low");
+        sys.insert_cassette(&[vec![0x80]]);
+        assert_eq!(sys.io_read(0x98) & 0xC0, 0x00, "inserted tape starts low");
+
+        // PC4 low starts the deck. Run through MAME's 200-sample initial
+        // silence and observe the first high half-wave of the leader on PA7.
+        sys.io_write(0x96, 0x00);
+        for _ in 0..17_000 {
+            sys.tick_tstate();
+        }
+        assert_eq!(sys.io_read(0x98) & 0xC0, 0x80, "leader reaches PA7");
+
+        sys.io_write(0x96, 0x10);
+        let level = sys.io_read(0x98) & 0x80;
+        for _ in 0..10_000 {
+            sys.tick_tstate();
+        }
+        assert_eq!(sys.io_read(0x98) & 0x80, level, "PC4 high stops tape");
     }
 
     #[test]
