@@ -217,8 +217,13 @@ fn run_cli(cli: Cli) -> Result<serde_json::Value, String> {
         .map_err(|err| format!("failed to construct runtime: {err}"))?;
     runtime.set_ram_expansion_kb(cli.ram_expansion_kb);
     if cli.esp_at_tcp {
-        // PAL Rachel uses approximately 115 CPU cycles per 9600-baud bit.
-        runtime.attach_esp_at_tcp_bridge(115, 64);
+        // The external modem keeps real baud time while the VIC-I CPU clock
+        // differs by region: ~115 PAL cycles or ~107 NTSC cycles at 9600.
+        let cycles_per_bit = match cli.region {
+            Region::Pal => 115,
+            Region::Ntsc => 107,
+        };
+        runtime.attach_esp_at_tcp_bridge(cycles_per_bit, 64);
     }
 
     let mut session = HeadlessSession::new_with_query_provider(
