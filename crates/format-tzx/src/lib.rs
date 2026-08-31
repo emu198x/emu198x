@@ -117,6 +117,14 @@ pub fn tzx_to_stream(data: &[u8]) -> Result<Vec<TapeSpan>, String> {
         }
     }
 
+    // Stopping at end-of-file still needs a terminating pulse. TZX's tape
+    // encoding rules require one millisecond before the motor stops because
+    // some images deliberately put no pause after their final data block.
+    // Without it, a loader waiting for the closing edge times out even though
+    // every encoded data pulse was delivered.
+    if !stream.is_empty() {
+        stream.push(TapeSpan::Pulse(TSTATES_PER_MS));
+    }
     Ok(stream)
 }
 
@@ -406,6 +414,14 @@ fn check_len(data: &[u8], pos: usize, need: usize, ctx: &str) -> Result<(), Stri
 mod tests {
     use super::*;
 
+    fn content_spans(data: &[u8]) -> Result<Vec<TapeSpan>, String> {
+        let mut stream = tzx_to_stream(data)?;
+        if !stream.is_empty() {
+            assert_eq!(stream.pop(), Some(TapeSpan::Pulse(TSTATES_PER_MS)));
+        }
+        Ok(stream)
+    }
+
     fn make_header() -> Vec<u8> {
         let mut header = b"ZXTape!\x1a".to_vec();
         header.push(1);
@@ -415,8 +431,22 @@ mod tests {
 
     #[test]
     fn empty_tzx_has_no_spans() {
-        let stream = tzx_to_stream(&make_header()).expect("empty header should parse");
+        let stream = content_spans(&make_header()).expect("empty header should parse");
         assert!(stream.is_empty());
+    }
+
+    #[test]
+    fn end_of_file_adds_one_millisecond_terminating_pulse() {
+        let mut data = make_header();
+        data.push(0x12);
+        data.extend_from_slice(&565u16.to_le_bytes());
+        data.extend_from_slice(&1u16.to_le_bytes());
+
+        let stream = tzx_to_stream(&data).expect("pure tone should parse");
+        assert_eq!(
+            stream,
+            vec![TapeSpan::Pulse(565), TapeSpan::Pulse(TSTATES_PER_MS)]
+        );
     }
 
     #[test]
@@ -426,7 +456,7 @@ mod tests {
         data.extend_from_slice(&500u16.to_le_bytes());
         data.extend_from_slice(&10u16.to_le_bytes());
 
-        let stream = tzx_to_stream(&data).expect("pure tone should parse");
+        let stream = content_spans(&data).expect("pure tone should parse");
         assert_eq!(stream, vec![TapeSpan::Pulse(500); 10]);
     }
 
@@ -439,7 +469,7 @@ mod tests {
         data.extend_from_slice(&200u16.to_le_bytes());
         data.extend_from_slice(&300u16.to_le_bytes());
 
-        let stream = tzx_to_stream(&data).expect("pulse sequence should parse");
+        let stream = content_spans(&data).expect("pulse sequence should parse");
         assert_eq!(
             stream,
             vec![
@@ -458,7 +488,7 @@ mod tests {
         data.extend_from_slice(&2u16.to_le_bytes());
         data.extend_from_slice(&[0x00, 0xff]);
 
-        let stream = tzx_to_stream(&data).expect("standard-speed block should parse");
+        let stream = content_spans(&data).expect("standard-speed block should parse");
         assert_eq!(stream.first(), Some(&TapeSpan::Pulse(PILOT_PULSE)));
         assert_eq!(
             stream.last(),
@@ -479,7 +509,7 @@ mod tests {
         data.extend_from_slice(&250u16.to_le_bytes());
         data.extend_from_slice(&2u16.to_le_bytes());
 
-        let stream = tzx_to_stream(&data).expect("metadata-skipping parse should succeed");
+        let stream = content_spans(&data).expect("metadata-skipping parse should succeed");
         assert_eq!(stream, vec![TapeSpan::Pulse(250), TapeSpan::Pulse(250)]);
     }
 
@@ -493,7 +523,7 @@ mod tests {
         data.extend_from_slice(&1u16.to_le_bytes());
         data.push(0x25);
 
-        let stream = tzx_to_stream(&data).expect("loop expansion should parse");
+        let stream = content_spans(&data).expect("loop expansion should parse");
         assert_eq!(stream, vec![TapeSpan::Pulse(100); 3]);
     }
 
@@ -510,7 +540,7 @@ mod tests {
         // pause=0 after the direct-recording data means "no pause,
         // continue to next block" per the TZX spec, so the stream
         // should end after the recorded level holds with no Stop.
-        let stream = tzx_to_stream(&data).expect("direct recording should parse");
+        let stream = content_spans(&data).expect("direct recording should parse");
         assert_eq!(
             stream,
             vec![
@@ -532,7 +562,7 @@ mod tests {
         data.push(0x20);
         data.extend_from_slice(&0u16.to_le_bytes());
 
-        let stream = tzx_to_stream(&data).expect("pause block should parse");
+        let stream = content_spans(&data).expect("pause block should parse");
         assert_eq!(stream, vec![TapeSpan::Stop]);
     }
 
@@ -543,7 +573,7 @@ mod tests {
         data.extend_from_slice(&1u32.to_le_bytes());
         data.push(1);
 
-        let stream = tzx_to_stream(&data).expect("set signal level should parse");
+        let stream = content_spans(&data).expect("set signal level should parse");
         assert_eq!(
             stream,
             vec![TapeSpan::Level {
@@ -580,7 +610,7 @@ mod tests {
         data.extend_from_slice(&[1u8, 0, 0]); // data_len = 1 (u24)
         data.push(0b1010_0000); // bits: 1 0 1 0 0 0 0 0
 
-        let stream = tzx_to_stream(&data).expect("turbo speed block should parse");
+        let stream = content_spans(&data).expect("turbo speed block should parse");
         // Expected: 3 pilot pulses (1000 each), sync1 (500), sync2 (600),
         // then 8 data bits: 1→(200,200), 0→(100,100), 1→(200,200),
         // 0→(100,100), 0,0,0,0 → all (100,100).
@@ -608,7 +638,7 @@ mod tests {
         data.push(0x20);
         data.extend_from_slice(&5u16.to_le_bytes()); // 5 ms pause
 
-        let stream = tzx_to_stream(&data).expect("pause block should parse");
+        let stream = content_spans(&data).expect("pause block should parse");
         assert_eq!(stream.len(), 2, "5 ms pause emits a 1 ms + 4 ms pair");
         // First span: 1 ms at the current level (false at fresh start).
         assert_eq!(
@@ -636,7 +666,7 @@ mod tests {
         data.push(0x20);
         data.extend_from_slice(&1u16.to_le_bytes()); // 1 ms pause
 
-        let stream = tzx_to_stream(&data).expect("1 ms pause should parse");
+        let stream = content_spans(&data).expect("1 ms pause should parse");
         assert_eq!(stream.len(), 1);
         assert_eq!(
             stream[0],
@@ -660,7 +690,7 @@ mod tests {
         data.extend_from_slice(&100u16.to_le_bytes());
         data.extend_from_slice(&1u16.to_le_bytes());
 
-        let stream = tzx_to_stream(&data).expect("group start should skip");
+        let stream = content_spans(&data).expect("group start should skip");
         assert_eq!(stream, vec![TapeSpan::Pulse(100)]);
     }
 
@@ -674,7 +704,7 @@ mod tests {
         data.extend_from_slice(&250u16.to_le_bytes());
         data.extend_from_slice(&1u16.to_le_bytes());
 
-        let stream = tzx_to_stream(&data).expect("group end should parse");
+        let stream = content_spans(&data).expect("group end should parse");
         assert_eq!(stream, vec![TapeSpan::Pulse(250)]);
     }
 
@@ -690,7 +720,7 @@ mod tests {
         data.extend_from_slice(&123u16.to_le_bytes());
         data.extend_from_slice(&1u16.to_le_bytes());
 
-        let stream = tzx_to_stream(&data).expect("jump block should parse");
+        let stream = content_spans(&data).expect("jump block should parse");
         assert_eq!(stream, vec![TapeSpan::Pulse(123)]);
     }
 
@@ -709,7 +739,7 @@ mod tests {
         data.extend_from_slice(&77u16.to_le_bytes());
         data.extend_from_slice(&1u16.to_le_bytes());
 
-        let stream = tzx_to_stream(&data).expect("call sequence should parse");
+        let stream = content_spans(&data).expect("call sequence should parse");
         assert_eq!(stream, vec![TapeSpan::Pulse(77)]);
     }
 
@@ -722,7 +752,7 @@ mod tests {
         data.extend_from_slice(&88u16.to_le_bytes());
         data.extend_from_slice(&1u16.to_le_bytes());
 
-        let stream = tzx_to_stream(&data).expect("return block should parse");
+        let stream = content_spans(&data).expect("return block should parse");
         assert_eq!(stream, vec![TapeSpan::Pulse(88)]);
     }
 
@@ -738,7 +768,7 @@ mod tests {
         data.extend_from_slice(&99u16.to_le_bytes());
         data.extend_from_slice(&1u16.to_le_bytes());
 
-        let stream = tzx_to_stream(&data).expect("select block should parse");
+        let stream = content_spans(&data).expect("select block should parse");
         assert_eq!(stream, vec![TapeSpan::Pulse(99)]);
     }
 
@@ -756,7 +786,7 @@ mod tests {
         data.extend_from_slice(&55u16.to_le_bytes());
         data.extend_from_slice(&1u16.to_le_bytes());
 
-        let stream = tzx_to_stream(&data).expect("stop-48K block should parse");
+        let stream = content_spans(&data).expect("stop-48K block should parse");
         assert_eq!(stream, vec![TapeSpan::Pulse(55)]);
     }
 
@@ -773,7 +803,7 @@ mod tests {
         data.extend_from_slice(&44u16.to_le_bytes());
         data.extend_from_slice(&1u16.to_le_bytes());
 
-        let stream = tzx_to_stream(&data).expect("message block should parse");
+        let stream = content_spans(&data).expect("message block should parse");
         assert_eq!(stream, vec![TapeSpan::Pulse(44)]);
     }
 
@@ -789,7 +819,7 @@ mod tests {
         data.extend_from_slice(&66u16.to_le_bytes());
         data.extend_from_slice(&1u16.to_le_bytes());
 
-        let stream = tzx_to_stream(&data).expect("archive info should parse");
+        let stream = content_spans(&data).expect("archive info should parse");
         assert_eq!(stream, vec![TapeSpan::Pulse(66)]);
     }
 
@@ -805,7 +835,7 @@ mod tests {
         data.extend_from_slice(&33u16.to_le_bytes());
         data.extend_from_slice(&1u16.to_le_bytes());
 
-        let stream = tzx_to_stream(&data).expect("hardware type should parse");
+        let stream = content_spans(&data).expect("hardware type should parse");
         assert_eq!(stream, vec![TapeSpan::Pulse(33)]);
     }
 
@@ -822,7 +852,7 @@ mod tests {
         data.extend_from_slice(&22u16.to_le_bytes());
         data.extend_from_slice(&1u16.to_le_bytes());
 
-        let stream = tzx_to_stream(&data).expect("custom info should parse");
+        let stream = content_spans(&data).expect("custom info should parse");
         assert_eq!(stream, vec![TapeSpan::Pulse(22)]);
     }
 
@@ -837,7 +867,7 @@ mod tests {
         data.extend_from_slice(&11u16.to_le_bytes());
         data.extend_from_slice(&1u16.to_le_bytes());
 
-        let stream = tzx_to_stream(&data).expect("glue block should parse");
+        let stream = content_spans(&data).expect("glue block should parse");
         assert_eq!(stream, vec![TapeSpan::Pulse(11)]);
     }
 
@@ -903,7 +933,7 @@ mod tests {
         data.extend_from_slice(&[1, 0, 0]); // data_len=1 (u24)
         data.push(0xE8);
 
-        let stream = tzx_to_stream(&data).expect("pure data should parse");
+        let stream = content_spans(&data).expect("pure data should parse");
         let expected: Vec<TapeSpan> = [20, 20, 20, 20, 20, 20, 10, 10, 20, 20, 10, 10]
             .into_iter()
             .map(TapeSpan::Pulse)
