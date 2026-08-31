@@ -744,6 +744,38 @@ mod tests {
         );
     }
 
+    #[test]
+    fn prior_playfield_front_scheme_is_wired_through_the_machine_bus() {
+        let mut sys = Atari800xl::new(None, None, Some(trap_cart()), Atari800xlRegion::Ntsc, false)
+            .expect("init");
+
+        // Put player 0 over a PF0 pixel, configuring every GTIA register
+        // through the 800XL's real $D000 bus window.
+        sys.mem_write(0xD000, 60); // HPOSP0
+        sys.mem_write(0xD00D, 0x80); // GRAFP0: leftmost bit
+        sys.mem_write(0xD012, 0x38); // COLPM0
+        sys.mem_write(0xD016, 0x94); // COLPF0
+        let mut playfield = vec![0u8; 160];
+        playfield[12] = 1;
+
+        sys.gtia
+            .render_line(0, &playfield, 160, atari_gtia::AnticMode::ModeD);
+        sys.mem_write(0xD01B, 0x04); // PRIOR: all playfields over all players
+        sys.gtia
+            .render_line(1, &playfield, 160, atari_gtia::AnticMode::ModeD);
+
+        let x = sys.gtia.border_left() as usize + ((60 - 48) * 2) as usize;
+        let width = sys.framebuffer_width() as usize;
+        let player_colour = atari_gtia::palette::NTSC_PALETTE[(0x38 >> 1) as usize];
+        let playfield_colour = atari_gtia::palette::NTSC_PALETTE[(0x94 >> 1) as usize];
+        assert_eq!(sys.framebuffer()[x], player_colour, "default PRIOR");
+        assert_eq!(
+            sys.framebuffer()[width + x],
+            playfield_colour,
+            "PRIOR=$04 should occlude player 0 with PF0"
+        );
+    }
+
     fn trap_cart() -> Vec<u8> {
         let mut rom = vec![0xEAu8; 8192];
         rom[0x0000] = 0x4C;
