@@ -6,7 +6,7 @@ edition.workspace = true
 # published crate whose version communicates *its* changes to consumers, so it
 # bumps when it changes rather than on every Emu198x suite release. Starts at
 # the version it already carried in-tree.
-version = "0.6.0"
+version = "0.7.0"
 license.workspace = true
 repository.workspace = true
 readme = "README.md"
@@ -15,6 +15,9 @@ categories = ["emulators", "multimedia::audio"]
 
 [dependencies]
 serde = { workspace = true }
+
+[dev-dependencies]
+allocation-counter = "0.8.1"
 
 [lints]
 workspace = true

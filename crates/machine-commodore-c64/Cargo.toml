@@ -15,7 +15,7 @@ format-commodore-c64-prg = { path = "../format-commodore-c64-prg", version = "0.
 format-commodore-c64-tap = { path = "../format-commodore-c64-tap", version = "0.13.0" }
 emu198x-mos-6502 = { path = "../emu198x-mos-6502", version = "0.6.0" }
 mos-cia-6526 = { path = "../mos-cia-6526", version = "0.13.0" }
-emu198x-mos-sid-6581 = { path = "../emu198x-mos-sid-6581", version = "0.6.0" }
+emu198x-mos-sid-6581 = { path = "../emu198x-mos-sid-6581", version = "0.7.0" }
 mos-vic-ii = { path = "../mos-vic-ii", version = "0.13.0" }
 serde = { workspace = true }
 thiserror = { workspace = true }
