@@ -642,7 +642,9 @@ impl Einstein {
     /// Hold or release a modifier key read on `$20` bits 5-7 (active low):
     /// GRAPH (bit 5), CTRL (bit 6), SHIFT (bit 7). The BREAK key itself is in
     /// the scanned matrix at row 0, column 0 (`press_key(0, 0)`), so a
-    /// Ctrl-BREAK disk boot is `set_control(true)` + `press_key(0, 0)`.
+    /// Ctrl-BREAK disk boot holds [`Modifier::Control`], presses BREAK with
+    /// `press_key(0, 0)`, then releases BREAK while keeping CTRL held long
+    /// enough for the MOS to sample port `$20`.
     pub fn set_modifier(&mut self, modifier: Modifier, held: bool) {
         let bit = modifier as u8;
         if held {
