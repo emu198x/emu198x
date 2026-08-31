@@ -523,8 +523,41 @@ impl Sid6581 {
         std::mem::take(&mut self.buffer)
     }
 
+    /// Move all pending mixed samples into `out` while retaining both vectors'
+    /// allocations for reuse.
+    ///
+    /// `out` is cleared first. After the caller has warmed both buffers to the
+    /// required frame size, repeated tick/drain cycles allocate no memory. The
+    /// matching pending per-voice samples are discarded while retaining their
+    /// internal allocations: a mixed-only consumer must consume the complete
+    /// output window or the unobserved channel buffers would grow indefinitely.
+    /// Use [`Self::drain_channel_buffers_into`] before this method when both
+    /// mixed and isolated voice output are required.
+    ///
+    /// [`Self::take_buffer`] remains available when transferring ownership of
+    /// the SID's allocation is more convenient; it preserves the historical
+    /// behaviour of leaving pending channel buffers untouched.
+    pub fn drain_buffer_into(&mut self, out: &mut Vec<f32>) {
+        out.clear();
+        out.append(&mut self.buffer);
+        for channel in &mut self.channel_buffers {
+            channel.clear();
+        }
+    }
+
     pub fn take_channel_buffers(&mut self) -> [Vec<f32>; 3] {
         std::array::from_fn(|index| std::mem::take(&mut self.channel_buffers[index]))
+    }
+
+    /// Move all pending per-voice samples into reusable caller buffers.
+    ///
+    /// Each destination is cleared before receiving its matching voice. The
+    /// SID retains the allocation of every internal channel buffer.
+    pub fn drain_channel_buffers_into(&mut self, out: &mut [Vec<f32>; 3]) {
+        for (destination, source) in out.iter_mut().zip(&mut self.channel_buffers) {
+            destination.clear();
+            destination.append(source);
+        }
     }
 
     #[must_use]
@@ -789,6 +822,44 @@ mod tests {
         let buffer = sid.take_buffer();
         assert!(!buffer.is_empty());
         assert_eq!(sid.buffer_len(), 0);
+    }
+
+    #[test]
+    fn drain_buffer_into_reuses_both_allocations() {
+        let mut sid = Sid6581::new(985_248, 48_000);
+        for _ in 0..30_000 {
+            sid.tick();
+        }
+        let sid_capacity = sid.buffer.capacity();
+        let expected = sid.buffer.clone();
+        let mut output = Vec::with_capacity(expected.len());
+
+        sid.drain_buffer_into(&mut output);
+
+        assert_eq!(output, expected);
+        assert_eq!(sid.buffer_len(), 0);
+        assert_eq!(sid.buffer.capacity(), sid_capacity);
+        assert!(sid.channel_buffers.iter().all(Vec::is_empty));
+    }
+
+    #[test]
+    fn drain_channel_buffers_into_reuses_internal_allocations() {
+        let mut sid = Sid6581::new(985_248, 48_000);
+        for _ in 0..30_000 {
+            sid.tick();
+        }
+        let capacities: [usize; 3] =
+            std::array::from_fn(|index| sid.channel_buffers[index].capacity());
+        let expected = sid.channel_buffers.clone();
+        let mut output = std::array::from_fn(|index| Vec::with_capacity(expected[index].len()));
+
+        sid.drain_channel_buffers_into(&mut output);
+
+        assert_eq!(output, expected);
+        for (index, channel) in sid.channel_buffers.iter().enumerate() {
+            assert!(channel.is_empty());
+            assert_eq!(channel.capacity(), capacities[index]);
+        }
     }
 
     #[test]
