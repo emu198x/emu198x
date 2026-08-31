@@ -39,6 +39,12 @@ const DRIVE1541_ID: &str = "commodore-1541-dos-rom";
 const DEFAULT_IMPORT_BOOT_FRAMES: u32 = 200;
 const DEFAULT_TRACE_LIMIT: usize = 512;
 
+/// Baud the ESP-AT modem answers at before any `AT+UART_CUR` renegotiation.
+const ESP_AT_INITIAL_BAUD: u64 = 9600;
+
+/// RUBP's fixed frame size, which the bridge reassembles TCP reads into.
+const ESP_AT_FRAME_SIZE: usize = 64;
+
 #[derive(Debug, Default, PartialEq, Eq)]
 struct Cli {
     model: ModelArg,
@@ -52,6 +58,7 @@ struct Cli {
     autoload_disk: bool,
     autoload_tape: bool,
     start_tape: bool,
+    esp_at_tcp: bool,
     load_snapshot: Option<PathBuf>,
     save_snapshot: Option<PathBuf>,
     screenshot: Option<PathBuf>,
@@ -167,6 +174,10 @@ Cold boot:
     --autoload-disk           wait for READY. and type LOAD\"*\",8,1 for drive-8
     --autoload-tape           wait for READY., press SHIFT+RUN/STOP, and start tape-1
     --start-tape              press PLAY on the inserted datasette image
+    --esp-at-tcp              plug an ESP-AT modem into the user port (9600
+                              baud initially, with AT+UART_CUR support);
+                              CIPSTART opens a real TCP connection (64-byte
+                              frame reassembly)
 
 State and automation:
     --load-snapshot PATH      restore a runtime snapshot before running
@@ -292,6 +303,7 @@ where
             "--autoload-disk" => cli.autoload_disk = true,
             "--autoload-tape" => cli.autoload_tape = true,
             "--start-tape" => cli.start_tape = true,
+            "--esp-at-tcp" => cli.esp_at_tcp = true,
             "--load-snapshot" => {
                 cli.load_snapshot = Some(PathBuf::from(next_arg(&mut iter, "--load-snapshot")));
             }
@@ -406,7 +418,18 @@ fn run_cli(cli: Cli) -> Result<RunnerReport, String> {
         );
     }
 
-    let machine = boot_runtime(&cli)?;
+    let mut machine = boot_runtime(&cli)?;
+    if cli.esp_at_tcp {
+        // The modem keeps real baud time while the C64's phi2 clock differs by
+        // region, so the bit period is a cycle count rather than a constant.
+        let cpu_hz = match cli.model {
+            ModelArg::Pal => TIMING_PAL_BREADBIN.cpu_hz,
+            ModelArg::Ntsc => TIMING_NTSC_BREADBIN.cpu_hz,
+        };
+        let cycles_per_bit = u32::try_from(cpu_hz / ESP_AT_INITIAL_BAUD)
+            .map_err(|_| "ESP-AT bit period does not fit in a cycle count".to_owned())?;
+        machine.attach_esp_at_tcp_bridge(cycles_per_bit, ESP_AT_FRAME_SIZE);
+    }
     let native_frame_ticks = match cli.model {
         ModelArg::Pal => u64::from(TIMING_PAL_BREADBIN.cycles_per_frame),
         ModelArg::Ntsc => u64::from(TIMING_NTSC_BREADBIN.cycles_per_frame),
@@ -984,6 +1007,7 @@ mod tests {
                 autoload_disk: false,
                 autoload_tape: false,
                 start_tape: false,
+                esp_at_tcp: false,
                 load_snapshot: Some(PathBuf::from("in.c64.pst")),
                 save_snapshot: Some(PathBuf::from("out.c64.pst")),
                 screenshot: Some(PathBuf::from("ready.png")),
@@ -1026,6 +1050,7 @@ mod tests {
                 autoload_disk: false,
                 autoload_tape: true,
                 start_tape: false,
+                esp_at_tcp: false,
                 load_snapshot: None,
                 save_snapshot: None,
                 screenshot: None,

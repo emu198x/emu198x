@@ -89,6 +89,39 @@ impl EspAtTcpBridge {
         self.last_error.as_deref()
     }
 
+    /// Whether the emulated modem currently holds an open TCP connection.
+    #[must_use]
+    pub fn is_connected(&self) -> bool {
+        self.modem.connected
+    }
+
+    /// Diagnostic query leaves this peripheral answers, relative to wherever a
+    /// host runtime mounts it. A runtime advertises these while the modem is
+    /// attached and drops them when it is unplugged, so the peripheral owns the
+    /// names and the runtime owns only the mount point.
+    #[cfg(feature = "query")]
+    pub const QUERY_LEAVES: &'static [&'static str] = &["connected", "error", "received_hex"];
+
+    /// Resolve one leaf from [`Self::QUERY_LEAVES`].
+    ///
+    /// Returns `None` for any other name, so a caller can fall through to its
+    /// own paths rather than having to pre-filter.
+    #[cfg(feature = "query")]
+    #[must_use]
+    pub fn query_leaf(&self, leaf: &str) -> Option<serde_json::Value> {
+        match leaf {
+            "connected" => Some(serde_json::Value::from(self.is_connected())),
+            "error" => Some(serde_json::Value::from(self.last_error())),
+            "received_hex" => Some(serde_json::Value::from(
+                self.diagnostic_received()
+                    .iter()
+                    .map(|byte| format!("{byte:02x}"))
+                    .collect::<String>(),
+            )),
+            _ => None,
+        }
+    }
+
     #[must_use]
     pub fn diagnostic_received(&self) -> Vec<u8> {
         self.modem.diagnostic_received()

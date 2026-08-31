@@ -15,6 +15,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   completes the same end-to-end game against the same server, move for move.
 - Published to crates.io. The crate has no dependencies and no machine-specific
   knowledge, so it stands alone.
+- `is_connected` reports whether the emulated modem holds an open TCP
+  connection, which a host needs to tell a stalled client from a dropped link.
+- An optional `query` feature exposes `QUERY_LEAVES` and `query_leaf`, the
+  diagnostic names this peripheral answers. A host runtime mounts them wherever
+  it likes and advertises them only while the modem is plugged in, so the leaf
+  names stay here rather than being restated in each machine. The feature is
+  off by default; without it the crate still has no dependencies.
 
 ### Changed
 

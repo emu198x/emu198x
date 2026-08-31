@@ -10,5 +10,13 @@ readme = "README.md"
 keywords = ["emulator", "retrocomputing", "esp-at", "serial", "modem"]
 categories = ["emulators", "network-programming"]
 
+[dependencies]
+# Only for the optional `query` surface; the modem itself is dependency-free.
+serde_json = { workspace = true, optional = true }
+
+[features]
+## Expose the diagnostic query leaves a host runtime can mount.
+query = ["dep:serde_json"]
+
 [lints]
 workspace = true

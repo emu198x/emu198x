@@ -23,6 +23,15 @@ let mut bridge = EspAtTcpBridge::new(8, 64);
 let rx = bridge.tick(tx_level);
 ```
 
+## Diagnostics
+
+Enable the `query` feature to expose `EspAtTcpBridge::QUERY_LEAVES` and
+`query_leaf`, the names this peripheral answers about itself — whether it is
+connected, its last transport error, and the bytes it has received. A host
+mounts them under a path of its choosing and drops them again when the modem is
+unplugged, so the names live with the hardware rather than with each machine.
+The feature is off by default and is the crate's only dependency.
+
 Timing is expressed in emulated CPU cycles rather than wall-clock time, so
 recordings and tests reproduce exactly regardless of host scheduling — which
 matters, because a host-paced link against a free-running emulator produces
