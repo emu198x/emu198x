@@ -8,18 +8,18 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-mos-cia-8520 = { path = "../mos-cia-8520", version = "0.12.0" }
+mos-cia-8520 = { path = "../mos-cia-8520", version = "0.13.0" }
 emu198x-commodore-paula-8364 = { path = "../emu198x-commodore-paula-8364", version = "0.6.0" }
-commodore-denise-ocs = { path = "../commodore-denise-ocs", version = "0.12.0" }
-commodore-denise-ecs = { path = "../commodore-denise-ecs", version = "0.12.0" }
-commodore-agnus-ocs = { path = "../commodore-agnus-ocs", version = "0.12.0" }
-motorola-68000 = { path = "../motorola-68000", version = "0.12.0" }
-motorola-68010 = { path = "../motorola-68010", version = "0.12.0" }
-motorola-68020 = { path = "../motorola-68020", version = "0.12.0" }
-motorola-68030 = { path = "../motorola-68030", version = "0.12.0" }
-motorola-68040 = { path = "../motorola-68040", version = "0.12.0" }
-peripheral-commodore-amiga-floppy = { path = "../peripheral-commodore-amiga-floppy", version = "0.12.0" }
-peripheral-commodore-amiga-keyboard = { path = "../peripheral-commodore-amiga-keyboard", version = "0.12.0" }
+commodore-denise-ocs = { path = "../commodore-denise-ocs", version = "0.13.0" }
+commodore-denise-ecs = { path = "../commodore-denise-ecs", version = "0.13.0" }
+commodore-agnus-ocs = { path = "../commodore-agnus-ocs", version = "0.13.0" }
+motorola-68000 = { path = "../motorola-68000", version = "0.13.0" }
+motorola-68010 = { path = "../motorola-68010", version = "0.13.0" }
+motorola-68020 = { path = "../motorola-68020", version = "0.13.0" }
+motorola-68030 = { path = "../motorola-68030", version = "0.13.0" }
+motorola-68040 = { path = "../motorola-68040", version = "0.13.0" }
+peripheral-commodore-amiga-floppy = { path = "../peripheral-commodore-amiga-floppy", version = "0.13.0" }
+peripheral-commodore-amiga-keyboard = { path = "../peripheral-commodore-amiga-keyboard", version = "0.13.0" }
 serde = { workspace = true }
 
 [dev-dependencies]
