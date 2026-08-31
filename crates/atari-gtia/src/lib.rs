@@ -579,10 +579,10 @@ impl Gtia {
     /// Composite pixels from the cursor up to (but not including) active-x
     /// `end`, and advance the cursor. Each pixel resolves the playfield index
     /// and the player/missile coverage from the *live* registers at that pixel's
-    /// beam colour-clock, applies default priority (PM over PF over background),
-    /// and records collisions — so mid-line colour, HPOS/GRAFP and HITCLR writes
-    /// all land at the beam. Calling with `end == ACTIVE_WIDTH` finishes the
-    /// line; the beam-driven path calls it repeatedly with the beam position.
+    /// beam colour-clock, applies the live PRIOR scheme, and records collisions
+    /// — so mid-line colour, priority, HPOS/GRAFP and HITCLR writes all land at
+    /// the beam. Calling with `end == ACTIVE_WIDTH` finishes the line; the
+    /// beam-driven path calls it repeatedly with the beam position.
     pub fn composite_playfield(&mut self, end: usize) {
         if !self.sl_visible {
             return;
@@ -606,7 +606,7 @@ impl Gtia {
             // *live* registers — so a mid-line HPOS/GRAFP rewrite (sprite
             // multiplexing) and per-pixel collision timing land at the beam.
             let cc = (self.fb_first_half_clock + x as u16) / 2;
-            let (pm_colour, pm_bits) = self.pm_at_cc(cc);
+            let pm_bits = self.pm_bits_at_cc(cc);
 
             // Collisions (independent of the final priority): PM-vs-playfield
             // where playfield is present, PM-vs-PM wherever objects overlap.
@@ -615,59 +615,127 @@ impl Gtia {
             }
 
             let in_pf = x >= self.sl_pf_span.0 && x < self.sl_pf_span.1;
-            let colour = if pm_colour != 0 {
-                pm_colour
-            } else if hires_text && in_pf {
+            let playfield_colour = if hires_text && in_pf {
                 if pf_col_idx != 0 {
-                    (self.colpf[2] & 0xF0) | (self.colpf[1] & 0x0F)
+                    Some((self.colpf[2] & 0xF0) | (self.colpf[1] & 0x0F))
                 } else {
-                    self.colpf[2]
+                    Some(self.colpf[2])
                 }
             } else if pf_col_idx != 0 {
-                self.resolve_colour(
+                Some(self.resolve_colour(
                     pf_col_idx,
                     self.sl_gtia_mode,
                     &self.sl_playfield,
                     x,
                     self.sl_pf_width,
                     self.sl_mode,
-                )
+                ))
             } else {
-                self.colbk
+                None
             };
+            let colour = self
+                .priority_colour(pm_bits, pf_col_idx, playfield_colour)
+                .unwrap_or(self.colbk);
 
             self.framebuffer[self.sl_fb_offset + x] = self.colour_to_argb32(colour);
             self.sl_x += 1;
         }
     }
 
-    /// Player/missile colour and object-bit mask covering beam colour-clock
-    /// `cc`, evaluated from the live registers. Missiles paint first and only
-    /// where still empty; players then overwrite the colour and OR their object
-    /// bit — default priority, matching the prior whole-line overlay. A colour
-    /// of 0 doubles as "no PM pixel" (a player whose COLPM is 0 still collides
-    /// but shows the playfield through), preserving the original sentinel.
-    fn pm_at_cc(&self, cc: u16) -> (u8, u8) {
-        let fifth_player = (self.prior & 0x10) != 0;
-        let mut colour = 0u8;
+    /// Object-bit mask for every player and missile covering colour-clock `cc`.
+    fn pm_bits_at_cc(&self, cc: u16) -> u8 {
         let mut bits = 0u8;
         for m in 0..NUM_MISSILES {
-            if self.missile_covers(m, cc) && colour == 0 {
-                colour = if fifth_player {
-                    self.colpf[3]
-                } else {
-                    self.colpm[m]
-                };
+            if self.missile_covers(m, cc) {
                 bits |= 1 << (m + 4);
             }
         }
         for p in 0..NUM_PLAYERS {
             if self.player_covers(p, cc) {
-                colour = self.colpm[p];
                 bits |= 1 << p;
             }
         }
-        (colour, bits)
+        bits
+    }
+
+    /// Resolve the live PRIOR scheme for one playfield/PM overlap.
+    ///
+    /// Ranks are the hardware's front-to-back order. Normal missiles share
+    /// their associated player's colour and rank; combined missiles occupy the
+    /// PF3/fifth-player layer. Colour zero retains the existing transparent-PM
+    /// behaviour, while a conflicting PRIOR selection returns visible black.
+    fn priority_colour(
+        &self,
+        pm_bits: u8,
+        pf_col_idx: u8,
+        playfield_colour: Option<u8>,
+    ) -> Option<u8> {
+        let schemes = self.prior & 0x0F;
+        let player_ranks = [[0u8, 1, 2, 3], [0, 1, 6, 7], [4, 5, 6, 7], [2, 3, 4, 5]];
+        let playfield_ranks = [[4u8, 5, 6, 7], [2, 3, 4, 5], [0, 1, 2, 3], [0, 1, 6, 7]];
+
+        let front_pm_rank = |scheme: usize| {
+            let player = player_ranks[scheme]
+                .iter()
+                .enumerate()
+                .filter(|&(player, _)| {
+                    self.colpm[player] != 0
+                        && ((pm_bits & (1 << player)) != 0
+                            || ((self.prior & 0x10) == 0 && (pm_bits & (1 << (player + 4))) != 0))
+                })
+                .map(|(_, &rank)| rank)
+                .min();
+            let fifth = ((self.prior & 0x10) != 0 && (pm_bits & 0xF0) != 0 && self.colpf[3] != 0)
+                .then_some(playfield_ranks[scheme][3]);
+            player.into_iter().chain(fifth).min()
+        };
+
+        if schemes.count_ones() > 1 && playfield_colour.is_some() {
+            let pf = usize::from(pf_col_idx.saturating_sub(1).min(3));
+            let mut outcome = None;
+            for (scheme, pf_ranks) in playfield_ranks.iter().enumerate() {
+                if (schemes & (1 << scheme)) == 0 {
+                    continue;
+                }
+                let pm_wins = front_pm_rank(scheme).is_some_and(|rank| rank < pf_ranks[pf]);
+                if outcome.is_some_and(|previous| previous != pm_wins) {
+                    return Some(0);
+                }
+                outcome = Some(pm_wins);
+            }
+        }
+
+        // PRIOR=0 retains the chip's default PM-over-playfield order.
+        let scheme = if schemes == 0 {
+            0
+        } else {
+            schemes.trailing_zeros() as usize
+        };
+
+        let mut winner = playfield_colour.map(|colour| {
+            let pf = usize::from(pf_col_idx.saturating_sub(1).min(3));
+            (playfield_ranks[scheme][pf], colour)
+        });
+
+        for (player, &player_rank) in player_ranks[scheme].iter().enumerate() {
+            let player_or_missile = (pm_bits & (1 << player)) != 0
+                || ((self.prior & 0x10) == 0 && (pm_bits & (1 << (player + 4))) != 0);
+            if player_or_missile {
+                let colour = self.colpm[player];
+                if colour != 0 && winner.is_none_or(|(rank, _)| player_rank < rank) {
+                    winner = Some((player_rank, colour));
+                }
+            }
+        }
+
+        if (self.prior & 0x10) != 0 && (pm_bits & 0xF0) != 0 {
+            let rank = playfield_ranks[scheme][3];
+            if winner.is_none_or(|(winner_rank, _)| rank < winner_rank) {
+                winner = Some((rank, self.colpf[3]));
+            }
+        }
+
+        winner.map(|(_, colour)| colour)
     }
 
     /// Whether player `p`'s graphic covers beam colour-clock `cc`, from the
@@ -1376,6 +1444,106 @@ mod tests {
         assert_eq!(
             fb[fb_idx], player_argb,
             "Player should be on top at default priority"
+        );
+    }
+
+    fn priority_overlap_colour(prior: u8, player: u8, playfield: u8) -> u32 {
+        let mut gtia = Gtia::new(GtiaRegion::Pal);
+        gtia.write(player, 60);
+        gtia.write(0x0D + player, 0x80);
+        gtia.write(0x12 + player, 0x20 + player * 0x10 + 0x08);
+        gtia.write(0x15 + playfield, 0x80 + playfield * 0x10 + 0x04);
+        gtia.write(0x1B, prior);
+
+        let mut pixels = vec![0u8; 160];
+        pixels[12] = playfield;
+        gtia.render_line(0, &pixels, 160, AnticMode::ModeD);
+
+        let active_x = ((60 - PF_LEFT_CC) * 2) as usize;
+        let fb_idx = GtiaRegion::Pal.border_top() as usize
+            * GtiaRegion::Pal.framebuffer_width() as usize
+            + GtiaRegion::Pal.border_left() as usize
+            + active_x;
+        gtia.framebuffer()[fb_idx]
+    }
+
+    #[test]
+    fn prior_scheme_one_puts_all_players_over_playfield() {
+        let expected = Gtia::new(GtiaRegion::Pal).colour_to_argb32(0x48);
+        assert_eq!(priority_overlap_colour(0x01, 2, 1), expected);
+    }
+
+    #[test]
+    fn prior_scheme_two_splits_players_around_playfield() {
+        let gtia = Gtia::new(GtiaRegion::Pal);
+        assert_eq!(
+            priority_overlap_colour(0x02, 0, 1),
+            gtia.colour_to_argb32(0x28)
+        );
+        assert_eq!(
+            priority_overlap_colour(0x02, 2, 1),
+            gtia.colour_to_argb32(0x94)
+        );
+    }
+
+    #[test]
+    fn prior_scheme_three_puts_all_playfield_over_players() {
+        let expected = Gtia::new(GtiaRegion::Pal).colour_to_argb32(0x94);
+        assert_eq!(priority_overlap_colour(0x04, 0, 1), expected);
+    }
+
+    #[test]
+    fn prior_scheme_four_splits_playfield_around_players() {
+        let gtia = Gtia::new(GtiaRegion::Pal);
+        assert_eq!(
+            priority_overlap_colour(0x08, 0, 1),
+            gtia.colour_to_argb32(0x94)
+        );
+        assert_eq!(
+            priority_overlap_colour(0x08, 0, 3),
+            gtia.colour_to_argb32(0x28)
+        );
+    }
+
+    #[test]
+    fn conflicting_prior_schemes_render_overlap_black() {
+        let gtia = Gtia::new(GtiaRegion::Pal);
+        assert_eq!(
+            priority_overlap_colour(0x05, 0, 1),
+            gtia.colour_to_argb32(0)
+        );
+        assert_eq!(
+            priority_overlap_colour(0x03, 0, 1),
+            gtia.colour_to_argb32(0x28),
+            "schemes which agree on this overlap should retain their winner"
+        );
+    }
+
+    #[test]
+    fn prior_changes_at_the_beam() {
+        let mut gtia = Gtia::new(GtiaRegion::Pal);
+        gtia.write(0x00, 60);
+        gtia.write(0x08, 0x03); // quadruple-width player covers both samples
+        gtia.write(0x0D, 0xFF);
+        gtia.write(0x12, 0x38);
+        gtia.write(0x16, 0x94);
+        gtia.write(0x1B, 0x01);
+        gtia.begin_scanline(0, &[1u8; 160], 160, AnticMode::ModeD);
+        gtia.composite_playfield(72);
+        gtia.write(0x1B, 0x04);
+        gtia.composite_playfield(GtiaRegion::Pal.framebuffer_width() as usize);
+
+        let row =
+            GtiaRegion::Pal.border_top() as usize * GtiaRegion::Pal.framebuffer_width() as usize;
+        assert_eq!(
+            gtia.framebuffer()[row + 52],
+            gtia.colour_to_argb32(0x38),
+            "left side should retain player-first PRIOR"
+        );
+        assert_eq!(
+            gtia.framebuffer()[row + 80],
+            gtia.colour_to_argb32(0x94),
+            "right side should use the live playfield-first PRIOR"
         );
     }
 
