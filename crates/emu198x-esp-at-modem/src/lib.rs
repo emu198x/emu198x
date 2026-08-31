@@ -1,4 +1,12 @@
-//! Deterministic cycle-driven 8N1 adapter for VIC-20 user-port serial.
+//! Deterministic cycle-driven ESP-AT modem on a bit-banged 8N1 line.
+//!
+//! Nothing here knows which machine it is attached to. A runtime supplies the
+//! transmit level each tick and reads the receive level back, so the wiring —
+//! VIA CB2/PB0 on a VIC-20, CIA2 PA2/PB0 on a C64 — stays with the machine and
+//! only the timing, protocol and transport live here.
+//!
+//! Extracted from `runtime-commodore-vic-20` when the C64 needed the same
+//! capability; see RULES.md #30.
 
 use std::collections::VecDeque;
 use std::io::{ErrorKind, Read, Write};
@@ -6,8 +14,9 @@ use std::net::TcpStream;
 
 /// A byte-stream boundary backed by physical 8N1 levels.
 ///
-/// The computer transmits on CB2 and receives on PB0. Timing is expressed in
-/// emulated CPU cycles so tests and recordings remain independent of host
+/// The computer drives one transmit line and samples one receive line; which
+/// port pins those are is the attaching machine's business. Timing is expressed
+/// in emulated CPU cycles so tests and recordings remain independent of host
 /// scheduling.
 #[derive(Debug)]
 pub struct BitBangSerial {
@@ -24,7 +33,7 @@ pub struct BitBangSerial {
     transmit_delay: u32,
 }
 
-/// Deterministic subset of ESP-AT used by the Rachel VIC-20 client.
+/// Deterministic subset of ESP-AT used by the Rachel vintage clients.
 #[derive(Debug)]
 pub struct EspAtModem {
     serial: BitBangSerial,
@@ -64,15 +73,15 @@ impl EspAtTcpBridge {
         }
     }
 
-    pub fn tick(&mut self, cb2: bool) -> bool {
-        let pb0 = self.modem.tick(cb2);
+    pub fn tick(&mut self, transmit: bool) -> bool {
+        let receive = self.modem.tick(transmit);
         if self.poll_countdown == 0 {
             self.service_tcp();
             self.poll_countdown = 255;
         } else {
             self.poll_countdown -= 1;
         }
-        pb0
+        receive
     }
 
     #[must_use]
@@ -164,8 +173,8 @@ impl EspAtModem {
     }
 
     /// Advance the physical serial side by one emulated CPU cycle.
-    pub fn tick(&mut self, cb2: bool) -> bool {
-        let pb0 = self.serial.tick(cb2);
+    pub fn tick(&mut self, transmit: bool) -> bool {
+        let receive = self.serial.tick(transmit);
         for byte in self.serial.take_output() {
             self.accept_byte(byte);
         }
@@ -174,7 +183,7 @@ impl EspAtModem {
         {
             self.serial.set_cycles_per_bit(cycles);
         }
-        pb0
+        receive
     }
 
     /// Queue bytes received from the network. ESP-AT presents active TCP data
@@ -328,9 +337,9 @@ impl BitBangSerial {
     }
 
     /// Advance one emulated CPU cycle and return the PB0 level for that cycle.
-    pub fn tick(&mut self, cb2: bool) -> bool {
-        self.receive_tick(cb2);
-        self.previous_tx = cb2;
+    pub fn tick(&mut self, transmit: bool) -> bool {
+        self.receive_tick(transmit);
+        self.previous_tx = transmit;
         self.transmit_tick()
     }
 

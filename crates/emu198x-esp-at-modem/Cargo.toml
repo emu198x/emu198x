@@ -1,0 +1,14 @@
+[package]
+name = "emu198x-esp-at-modem"
+description = "Cycle-accurate ESP-AT WiFi modem on a bit-banged 8N1 serial line, for 8-bit emulators"
+edition.workspace = true
+version.workspace = true
+publish = true
+license.workspace = true
+repository.workspace = true
+readme = "README.md"
+keywords = ["emulator", "retrocomputing", "esp-at", "serial", "modem"]
+categories = ["emulators", "network-programming"]
+
+[lints]
+workspace = true

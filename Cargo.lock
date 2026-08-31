@@ -1164,6 +1164,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "emu198x-esp-at-modem"
+version = "0.14.0"
+
+[[package]]
 name = "emu198x-game-boy"
 version = "0.14.0"
 dependencies = [
@@ -4198,6 +4202,7 @@ dependencies = [
 name = "runtime-commodore-vic-20"
 version = "0.14.0"
 dependencies = [
+ "emu198x-esp-at-modem",
  "emu198x-shell",
  "machine-commodore-vic-20",
  "mos-vic-i",

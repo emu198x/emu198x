@@ -4,7 +4,6 @@ mod input;
 mod profiles;
 mod queries;
 mod runtime;
-mod serial;
 mod snapshot;
 
 pub use machine_commodore_vic_20::Vic20Model;
@@ -13,4 +12,5 @@ pub use profiles::{
 };
 pub use queries::Vic20SessionQueryProvider;
 pub use runtime::Vic20Runtime;
-pub use serial::{BitBangSerial, EspAtModem, EspAtTcpBridge};
+// Re-exported so the VIC-20's public surface is unchanged by the move.
+pub use emu198x_esp_at_modem::{BitBangSerial, EspAtModem, EspAtTcpBridge};
