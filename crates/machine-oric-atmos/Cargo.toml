@@ -8,9 +8,9 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-gi-ay-3-8912 = { path = "../gi-ay-3-8912", version = "0.12.0" }
+gi-ay-3-8912 = { path = "../gi-ay-3-8912", version = "0.13.0" }
 emu198x-mos-6502 = { path = "../emu198x-mos-6502", version = "0.6.0" }
-mos-via-6522 = { path = "../mos-via-6522", version = "0.12.0" }
+mos-via-6522 = { path = "../mos-via-6522", version = "0.13.0" }
 serde = { workspace = true }
 serde-big-array = { workspace = true }
 

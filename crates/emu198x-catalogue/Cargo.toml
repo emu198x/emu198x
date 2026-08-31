@@ -8,22 +8,22 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-common-sinclair-zx-spectrum = { path = "../common-sinclair-zx-spectrum", version = "0.12.0" }
-emu198x-shell = { path = "../emu198x-shell", version = "0.12.0" }
-common-commodore-c64 = { path = "../common-commodore-c64", version = "0.12.0" }
-machine-sinclair-zx-spectrum-128k = { path = "../machine-sinclair-zx-spectrum-128k", version = "0.12.0" }
-machine-sinclair-zx-spectrum-plus2 = { path = "../machine-sinclair-zx-spectrum-plus2", version = "0.12.0" }
-machine-sinclair-zx-spectrum-plus2a = { path = "../machine-sinclair-zx-spectrum-plus2a", version = "0.12.0" }
-machine-sinclair-zx-spectrum-plus2b = { path = "../machine-sinclair-zx-spectrum-plus2b", version = "0.12.0" }
-machine-sinclair-zx-spectrum-plus3 = { path = "../machine-sinclair-zx-spectrum-plus3", version = "0.12.0" }
+common-sinclair-zx-spectrum = { path = "../common-sinclair-zx-spectrum", version = "0.13.0" }
+emu198x-shell = { path = "../emu198x-shell", version = "0.13.0" }
+common-commodore-c64 = { path = "../common-commodore-c64", version = "0.13.0" }
+machine-sinclair-zx-spectrum-128k = { path = "../machine-sinclair-zx-spectrum-128k", version = "0.13.0" }
+machine-sinclair-zx-spectrum-plus2 = { path = "../machine-sinclair-zx-spectrum-plus2", version = "0.13.0" }
+machine-sinclair-zx-spectrum-plus2a = { path = "../machine-sinclair-zx-spectrum-plus2a", version = "0.13.0" }
+machine-sinclair-zx-spectrum-plus2b = { path = "../machine-sinclair-zx-spectrum-plus2b", version = "0.13.0" }
+machine-sinclair-zx-spectrum-plus3 = { path = "../machine-sinclair-zx-spectrum-plus3", version = "0.13.0" }
 emu198x-mos-sid-6581 = { path = "../emu198x-mos-sid-6581", version = "0.6.0" }
-mos-vic-ii = { path = "../mos-vic-ii", version = "0.12.0" }
+mos-vic-ii = { path = "../mos-vic-ii", version = "0.13.0" }
 emu198x-ricoh-apu-2a03 = { path = "../emu198x-ricoh-apu-2a03", version = "0.6.0" }
-ricoh-ppu-2c02 = { path = "../ricoh-ppu-2c02", version = "0.12.0" }
-runtime-commodore-amiga = { path = "../runtime-commodore-amiga", version = "0.12.0" }
-runtime-commodore-c64 = { path = "../runtime-commodore-c64", version = "0.12.0" }
-runtime-nintendo-nes = { path = "../runtime-nintendo-nes", version = "0.12.0" }
-runtime-sinclair-zx-spectrum = { path = "../runtime-sinclair-zx-spectrum", version = "0.12.0" }
+ricoh-ppu-2c02 = { path = "../ricoh-ppu-2c02", version = "0.13.0" }
+runtime-commodore-amiga = { path = "../runtime-commodore-amiga", version = "0.13.0" }
+runtime-commodore-c64 = { path = "../runtime-commodore-c64", version = "0.13.0" }
+runtime-nintendo-nes = { path = "../runtime-nintendo-nes", version = "0.13.0" }
+runtime-sinclair-zx-spectrum = { path = "../runtime-sinclair-zx-spectrum", version = "0.13.0" }
 serde = { workspace = true }
 thiserror = { workspace = true }
 toml = { workspace = true }

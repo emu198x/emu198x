@@ -7,8 +7,8 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-format-commodore-c64-d64 = { path = "../format-commodore-c64-d64", version = "0.12.0" }
-format-commodore-c64-g64 = { path = "../format-commodore-c64-g64", version = "0.12.0" }
+format-commodore-c64-d64 = { path = "../format-commodore-c64-d64", version = "0.13.0" }
+format-commodore-c64-g64 = { path = "../format-commodore-c64-g64", version = "0.13.0" }
 serde = { workspace = true }
 
 [features]
