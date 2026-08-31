@@ -4,6 +4,13 @@ All notable changes to Emu198x will be documented in this file.
 
 Format loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 not strictly. Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [0.13.3] - 2026-08-31
+
+
+### Fixed
+
+- Wire SVI cartridge bank control
+
 ## [0.13.2] - 2026-08-31
 
 
