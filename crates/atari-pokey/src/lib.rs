@@ -159,7 +159,7 @@ struct Channel {
     /// Audio control register (AUDC).
     audc: u8,
     /// Current frequency counter (counts down).
-    counter: u16,
+    counter: u32,
     /// Channel output toggle (flips when counter underflows).
     output: bool,
     /// High-pass filter flip-flop (toggled by the paired channel).
@@ -194,12 +194,12 @@ impl Channel {
 
     /// Reload the counter from AUDF.
     fn reload(&mut self) {
-        self.counter = u16::from(self.audf);
+        self.counter = u32::from(self.audf);
     }
 
     /// Reload the counter for 16-bit paired mode (high byte from partner).
     fn reload_16bit(&mut self, high_byte: u8) {
-        self.counter = u16::from(self.audf) | (u16::from(high_byte) << 8);
+        self.counter = u32::from(self.audf) | (u32::from(high_byte) << 8);
     }
 }
 
@@ -295,8 +295,11 @@ pub struct Pokey {
     #[serde(skip)]
     sample_count: u32,
 
-    /// CPU ticks per output sample (fractional).
-    ticks_per_sample: f32,
+    /// Fractional output-sample clock, in SAMPLE_RATE units.  Carrying the
+    /// remainder alternates 37- and 38-tick windows as required instead of
+    /// rounding every window up to 38 ticks (~47.1 kHz on NTSC machines).
+    #[serde(skip)]
+    sample_phase: u32,
 
     /// Output sample buffer at 48 kHz.
     #[serde(skip)]
@@ -351,7 +354,7 @@ impl Pokey {
             accumulator: 0.0,
             channel_accumulators: [0.0; 4],
             sample_count: 0,
-            ticks_per_sample: cpu_freq as f32 / SAMPLE_RATE as f32,
+            sample_phase: 0,
             buffer: Vec::with_capacity(SAMPLE_RATE as usize / 50 + 1),
             channel_buffers: [
                 Vec::with_capacity(SAMPLE_RATE as usize / 50 + 1),
@@ -421,7 +424,9 @@ impl Pokey {
         }
         self.sample_count += 1;
 
-        if self.sample_count as f32 >= self.ticks_per_sample {
+        self.sample_phase += SAMPLE_RATE;
+        if self.sample_phase >= self.cpu_freq {
+            self.sample_phase -= self.cpu_freq;
             let count = self.sample_count as f32;
             let avg = self.accumulator / count;
 
@@ -524,10 +529,16 @@ impl Pokey {
                 if self.audctl & AUDCTL_16BIT_CH12 != 0 {
                     let high = self.channels[1].audf;
                     self.channels[0].reload_16bit(high);
+                    if self.audctl & AUDCTL_CH1_179MHZ != 0 {
+                        self.channels[0].counter += 6;
+                    }
                 }
                 if self.audctl & AUDCTL_16BIT_CH34 != 0 {
                     let high = self.channels[3].audf;
                     self.channels[2].reload_16bit(high);
+                    if self.audctl & AUDCTL_CH3_179MHZ != 0 {
+                        self.channels[2].counter += 6;
+                    }
                 }
             }
 
@@ -768,7 +779,7 @@ impl Pokey {
     ///
     /// Returns an error if the data is too short.
     pub fn load_state(&mut self, data: &[u8]) -> Result<usize, String> {
-        if data.len() < 24 + 14 + 17 {
+        if data.len() < 32 + 14 + 17 {
             return Err("POKEY state truncated".into());
         }
         let mut p = 0;
@@ -777,8 +788,8 @@ impl Pokey {
             p += 1;
             ch.audc = data[p];
             p += 1;
-            ch.counter = u16::from_le_bytes([data[p], data[p + 1]]);
-            p += 2;
+            ch.counter = u32::from_le_bytes([data[p], data[p + 1], data[p + 2], data[p + 3]]);
+            p += 4;
             ch.output = data[p] != 0;
             p += 1;
             ch.hp_flipflop = data[p] != 0;
@@ -927,6 +938,16 @@ impl Pokey {
 
         if counter == 0 {
             self.channels[low_idx].reload_16bit(high_audf);
+            // A linked pair clocked directly at 1.79 MHz has six additional
+            // propagation cycles.  Atari800's POKEY reference expresses the
+            // resulting period as `AUDF2*256 + AUDF1 + 7`; `reload_16bit`
+            // and the zero-inclusive countdown already account for the +1.
+            // Base-clocked linked pairs use the ordinary +1 period.
+            let high_speed = (low_idx == 0 && self.audctl & AUDCTL_CH1_179MHZ != 0)
+                || (low_idx == 2 && self.audctl & AUDCTL_CH3_179MHZ != 0);
+            if high_speed {
+                self.channels[low_idx].counter += 6;
+            }
             self.channels[low_idx].output = !self.channels[low_idx].output;
             self.channels[high_idx].output = !self.channels[high_idx].output;
             (true, true)
@@ -1307,6 +1328,15 @@ mod tests {
     }
 
     #[test]
+    fn output_clock_produces_exactly_48khz_over_one_second() {
+        let mut pokey = ntsc_pokey();
+        for _ in 0..1_789_772 {
+            pokey.tick();
+        }
+        assert_eq!(pokey.buffer_len(), SAMPLE_RATE as usize);
+    }
+
+    #[test]
     fn poly_tables_have_correct_periods() {
         let pokey = ntsc_pokey();
         assert_eq!(pokey.poly4_table.len(), POLY4_PERIOD as usize);
@@ -1356,16 +1386,16 @@ mod tests {
         // Enable 16-bit mode for channels 1+2 and 1.79 MHz for channel 1.
         pokey.audctl = AUDCTL_16BIT_CH12 | AUDCTL_CH1_179MHZ;
 
-        // $010A + 1 = 267 source ticks. Treating the bytes as cascaded
+        // In 1.79 MHz mode, $010A + 7 = 273 source ticks. Treating the bytes as cascaded
         // reloading counters would incorrectly produce (10+1)*(1+1) = 22.
         pokey.write(0x00, 10); // AUDF1, low byte
         pokey.write(0x02, 1); // AUDF2, high byte
         pokey.write(0x03, 0xAF); // AUDC2: pure tone, volume 15
         pokey.write(0x09, 0); // STIMER
 
-        assert_eq!(pokey.channels[0].counter, 0x010A);
+        assert_eq!(pokey.channels[0].counter, 0x0110);
         let output_before = pokey.channels[1].output;
-        for _ in 0..266 {
+        for _ in 0..272 {
             pokey.tick();
         }
         assert_eq!(
@@ -1375,6 +1405,17 @@ mod tests {
 
         pokey.tick();
         assert_ne!(pokey.channels[1].output, output_before);
+    }
+
+    #[test]
+    fn maximum_linked_divider_includes_high_speed_latency_without_overflow() {
+        let mut pokey = ntsc_pokey();
+        pokey.write(0x00, 0xFF);
+        pokey.write(0x02, 0xFF);
+        pokey.write(0x08, AUDCTL_16BIT_CH12 | AUDCTL_CH1_179MHZ);
+        pokey.write(0x09, 0);
+
+        assert_eq!(pokey.channels[0].counter, 0x1_0005);
     }
 
     #[test]

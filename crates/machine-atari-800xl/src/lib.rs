@@ -756,6 +756,119 @@ mod tests {
         rom
     }
 
+    /// Minimal cartridge program that configures one POKEY tone through the
+    /// 800XL's real `$D200` bus window, then spins.  This deliberately avoids
+    /// reaching into the chip object from the test: the captured samples prove
+    /// the CPU, machine bus, POKEY clocks, and host audio drain work together.
+    fn pokey_tone_cart(audf1: u8, audf2: u8, audc_register: u8, audc: u8, audctl: u8) -> Vec<u8> {
+        let mut rom = vec![0xEAu8; 8192];
+        let prog = [
+            0x78, // SEI
+            0xA9,
+            0x00, // LDA #0
+            0x8D,
+            0x0E,
+            0xD4, // STA NMIEN
+            0xA9,
+            audf1, // LDA #AUDF1
+            0x8D,
+            0x00,
+            0xD2, // STA AUDF1
+            0xA9,
+            audf2, // LDA #AUDF2
+            0x8D,
+            0x02,
+            0xD2, // STA AUDF2
+            0xA9,
+            audc, // LDA #AUDC2
+            0x8D,
+            audc_register,
+            0xD2, // STA AUDC1 or AUDC2
+            0xA9,
+            audctl, // LDA #AUDCTL
+            0x8D,
+            0x08,
+            0xD2, // STA AUDCTL
+            0x8D,
+            0x09,
+            0xD2, // STA STIMER (value ignored)
+            0x4C,
+            0x1D,
+            0xA0, // JMP $A01D
+        ];
+        rom[..prog.len()].copy_from_slice(&prog);
+        rom
+    }
+
+    fn captured_pokey_tone(
+        audf1: u8,
+        audf2: u8,
+        audc_register: u8,
+        audc: u8,
+        audctl: u8,
+    ) -> Vec<f32> {
+        let mut sys = Atari800xl::new(
+            None,
+            None,
+            Some(pokey_tone_cart(audf1, audf2, audc_register, audc, audctl)),
+            Atari800xlRegion::Ntsc,
+            false,
+        )
+        .expect("init");
+        // Discard startup and DC-filter settling, then capture a stable window.
+        for _ in 0..2 {
+            sys.run_frame();
+        }
+        sys.take_audio_buffer();
+        for _ in 0..8 {
+            sys.run_frame();
+        }
+        sys.take_audio_buffer()
+    }
+
+    #[test]
+    fn linked_pokey_channels_are_audible_at_the_reference_pitch() {
+        // Atari800's reference POKEY implementation specifies the 1.79 MHz
+        // linked divider as AUDF2*256 + AUDF1 + 7.  For $010A that is 273
+        // source clocks per toggle, or about 3.278 kHz for the full wave.
+        let samples = captured_pokey_tone(10, 1, 0x03, 0xAF, 0x12);
+        let crossings = samples
+            .windows(2)
+            .filter(|pair| pair[0] <= 0.0 && pair[1] > 0.0)
+            .count();
+        let measured_hz = crossings as f32 * 48_000.0 / samples.len() as f32;
+        let reference_hz = 1_789_772.0 / (2.0 * 273.0);
+        assert!(
+            (measured_hz - reference_hz).abs() < 35.0,
+            "linked POKEY tone measured {measured_hz:.1} Hz, expected {reference_hz:.1} Hz"
+        );
+    }
+
+    #[test]
+    fn pokey_distortions_have_distinct_audible_signatures() {
+        fn rms(samples: &[f32]) -> f32 {
+            (samples.iter().map(|sample| sample * sample).sum::<f32>() / samples.len() as f32)
+                .sqrt()
+        }
+
+        let poly5 = rms(&captured_pokey_tone(31, 0, 0x01, 0x2F, 0x02));
+        let poly5_and_poly4 = rms(&captured_pokey_tone(31, 0, 0x01, 0x4F, 0x02));
+        let poly4 = rms(&captured_pokey_tone(31, 0, 0x01, 0xCF, 0x02));
+        let pure = rms(&captured_pokey_tone(31, 0, 0x01, 0xEF, 0x02));
+        // Atari800's gate ordering predicts fewer transitions for P5&P4 than
+        // P5 alone, while P4 noise remains clearly distinct from an ungated
+        // pure tone.  Generous margins tolerate downsampling/filter changes
+        // but reject the former swapped/ungated distortion implementations.
+        assert!(
+            poly5 > poly5_and_poly4 * 1.15,
+            "P5 ({poly5}) should be audibly stronger than P5&P4 ({poly5_and_poly4})"
+        );
+        assert!(
+            poly4 < pure * 0.85,
+            "P4 ({poly4}) should remain gated relative to pure tone ({pure})"
+        );
+    }
+
     /// Save-state must capture LIVE machine state (6502C + ANTIC + GTIA +
     /// POKEY + PIA + 64 KB RAM), not cold-boot from ROM. Serialise, advance
     /// (so the state differs), then deserialise the first snapshot and confirm
