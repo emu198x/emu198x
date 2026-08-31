@@ -2346,6 +2346,7 @@ name = "machine-atari-7800"
 version = "0.14.0"
 dependencies = [
  "atari-maria",
+ "atari-pokey",
  "atari-tia",
  "emu198x-mos-6502",
  "mos-riot-6532",

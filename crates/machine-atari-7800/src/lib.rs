@@ -53,10 +53,11 @@
 mod cartridge;
 mod tia_audio;
 
-pub use cartridge::Cartridge;
+pub use cartridge::{Cartridge, PokeyLocation};
 pub use tia_audio::TiaAudio;
 
 use atari_maria::{Maria, MariaRegion};
+use atari_pokey::Pokey;
 use emu198x_mos_6502::M6502;
 use mos_riot_6532::Riot6532;
 use serde::{Deserialize, Serialize};
@@ -85,6 +86,13 @@ impl Atari7800Region {
             Self::Pal => 313,
         }
     }
+
+    fn cpu_hz(self) -> u32 {
+        match self {
+            Self::Ntsc => 1_789_772,
+            Self::Pal => 1_773_447,
+        }
+    }
 }
 
 /// Atari 7800 machine.
@@ -94,6 +102,8 @@ pub struct Atari7800 {
     maria: Maria,
     riot: Riot6532,
     tia_audio: TiaAudio,
+    pokey: Option<Pokey>,
+    pokey_location: Option<PokeyLocation>,
     cart: Cartridge,
     #[serde(with = "BigArray")]
     ram_zp: [u8; 192],
@@ -112,6 +122,8 @@ pub struct Atari7800 {
 impl Atari7800 {
     pub fn new(rom: Vec<u8>, region: Atari7800Region) -> Result<Self, String> {
         let cart = Cartridge::from_rom(&rom)?;
+        let pokey_location = cart.pokey_location();
+        let pokey = pokey_location.map(|_| Pokey::new(region.cpu_hz()));
         let mut cpu = M6502::new();
         cpu.reset();
         let mut riot = Riot6532::new();
@@ -124,6 +136,8 @@ impl Atari7800 {
             maria: Maria::new(region.maria_region()),
             riot,
             tia_audio: TiaAudio::new(),
+            pokey,
+            pokey_location,
             cart,
             ram_zp: [0; 192],
             ram_stack: [0; 192],
@@ -171,6 +185,9 @@ impl Atari7800 {
                 }
             }
             self.riot.tick();
+            if let Some(pokey) = &mut self.pokey {
+                pokey.tick();
+            }
         }
     }
 
@@ -193,6 +210,12 @@ impl Atari7800 {
     }
 
     fn mem_read(&mut self, addr: u16) -> u8 {
+        if let (Some(pokey), Some(location)) = (&self.pokey, self.pokey_location) {
+            let base = location.base();
+            if (base..base + 16).contains(&addr) {
+                return pokey.read((addr - base) as u8);
+            }
+        }
         match addr {
             0x0000..=0x001F => self.tia_audio.read(addr as u8),
             0x0020..=0x003F => self.maria.read(addr as u8 - 0x20),
@@ -232,6 +255,13 @@ impl Atari7800 {
     }
 
     fn mem_write(&mut self, addr: u16, value: u8) {
+        if let (Some(pokey), Some(location)) = (&mut self.pokey, self.pokey_location) {
+            let base = location.base();
+            if (base..base + 16).contains(&addr) {
+                pokey.write((addr - base) as u8, value);
+                return;
+            }
+        }
         match addr {
             0x0000..=0x001F => self.tia_audio.write(addr as u8, value),
             0x0020..=0x003F => self.maria.write(addr as u8 - 0x20, value),
@@ -288,6 +318,13 @@ impl Atari7800 {
     /// Drain the TIA's mono audio samples produced since the previous call.
     pub fn take_audio_samples(&mut self) -> Vec<f32> {
         self.tia_audio.take_samples()
+    }
+
+    /// Drain audio from an optional cartridge POKEY at its native 48 kHz.
+    pub fn take_pokey_audio_samples(&mut self) -> Vec<f32> {
+        self.pokey
+            .as_mut()
+            .map_or_else(Vec::new, Pokey::take_buffer)
     }
 
     /// Native audio rate: two TIA samples per scanline at nominal refresh.
@@ -424,6 +461,17 @@ mod tests {
         rom
     }
 
+    fn a78_with_pokey_0440() -> Vec<u8> {
+        let rom = trap_rom_32k();
+        let mut image = vec![0; 128];
+        image[0] = 4;
+        image[1..10].copy_from_slice(b"ATARI7800");
+        image[49..53].copy_from_slice(&(rom.len() as u32).to_be_bytes());
+        image[67] = 1;
+        image.extend_from_slice(&rom);
+        image
+    }
+
     #[test]
     fn frame_advances_master_clock_and_count() {
         let mut sys = Atari7800::new(trap_rom_32k(), Atari7800Region::Ntsc).expect("init");
@@ -450,6 +498,21 @@ mod tests {
         assert_eq!(samples.len(), 263 * 2);
         assert!(samples.iter().any(|sample| *sample > 0.0));
         assert_eq!(sys.audio_sample_rate(), 31_560);
+    }
+
+    #[test]
+    fn a78_pokey_feature_installs_and_routes_the_chip() {
+        let mut sys =
+            Atari7800::new(a78_with_pokey_0440(), Atari7800Region::Ntsc).expect("POKEY cartridge");
+        assert!(sys.pokey.is_some());
+        assert_eq!(sys.pokey_location, Some(PokeyLocation::Addr0440));
+        sys.mem_write(0x0441, 0x1F);
+        sys.run_frame();
+        assert!(
+            sys.take_pokey_audio_samples()
+                .iter()
+                .any(|sample| *sample != 0.0)
+        );
     }
 
     #[test]
