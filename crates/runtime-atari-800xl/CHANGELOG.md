@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- XEX program media with ordered segment loading and INIT/RUN execution
+
 ## [0.2.0](https://github.com/emu198x/emu198x/releases/tag/runtime-atari-800xl-v0.2.0) - 2026-06-04
 
 ### Added

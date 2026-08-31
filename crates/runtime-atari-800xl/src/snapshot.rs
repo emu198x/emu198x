@@ -21,7 +21,10 @@ use crate::runtime::Atari800xlRuntime;
 /// Bumped to 4 when GTIA gained its PAL register. Postcard is not
 /// self-describing, so a version-3 payload decodes by misreading the
 /// chip state that follows.
-const SNAPSHOT_VERSION: u16 = 4;
+///
+/// Bumped to 5 when mounted XEX bytes and their pending-autoload state joined
+/// the runtime envelope.
+const SNAPSHOT_VERSION: u16 = 5;
 
 /// Borrowing envelope used during encode — avoids cloning the live machine.
 #[derive(Serialize)]
@@ -30,6 +33,8 @@ struct Atari800xlRuntimeSnapshotRefV2<'a> {
     time: u64,
     model_id: &'a str,
     machine: Option<&'a Atari800xl>,
+    xex_bytes: Option<&'a [u8]>,
+    xex_pending: bool,
 }
 
 /// Owning envelope used during decode.
@@ -39,6 +44,8 @@ struct Atari800xlRuntimeSnapshotV2 {
     time: u64,
     model_id: String,
     machine: Option<Atari800xl>,
+    xex_bytes: Option<Vec<u8>>,
+    xex_pending: bool,
 }
 
 pub(crate) fn encode(runtime: &Atari800xlRuntime) -> Result<Vec<u8>, MachineError> {
@@ -47,6 +54,8 @@ pub(crate) fn encode(runtime: &Atari800xlRuntime) -> Result<Vec<u8>, MachineErro
         time: runtime.time().get(),
         model_id: runtime.model().model_id(),
         machine: runtime.machine(),
+        xex_bytes: runtime.xex_bytes(),
+        xex_pending: runtime.xex_pending(),
     };
     postcard::to_allocvec(&snapshot).map_err(|reason| MachineError::InvalidSnapshot {
         reason: format!("encode failed: {reason}"),
@@ -73,6 +82,7 @@ pub(crate) fn decode(runtime: &mut Atari800xlRuntime, bytes: &[u8]) -> Result<()
         });
     }
     runtime.set_time(MachineTime::new(snapshot.time));
+    runtime.set_xex(snapshot.xex_bytes, snapshot.xex_pending);
     runtime.set_machine(snapshot.machine);
     Ok(())
 }
@@ -93,6 +103,8 @@ mod tests {
             time: 0,
             model_id: runtime.model().model_id(),
             machine: None,
+            xex_bytes: None,
+            xex_pending: false,
         })
         .expect("synthetic envelope should encode");
 

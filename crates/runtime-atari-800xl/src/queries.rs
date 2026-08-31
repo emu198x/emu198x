@@ -38,6 +38,8 @@ pub(crate) const A800XL_QUERY_PATHS: &[&str] = &[
     "pia.irq_pending",
     "pia.porta",
     "pia.portb",
+    "program.loaded",
+    "program.pending",
     "pokey",
     "pokey.audc",
     "pokey.audctl",
@@ -74,6 +76,8 @@ impl SessionQueryProvider<Atari800xlRuntime> for Atari800xlSessionQueryProvider 
             "basic.loaded" => json!(machine.basic_bytes().is_some()),
             "basic.enabled" => json!(machine.basic_enabled()),
             "cartridge.loaded" => json!(machine.cart_bytes().is_some()),
+            "program.loaded" => json!(machine.xex_bytes().is_some()),
+            "program.pending" => json!(machine.xex_pending()),
             "machine.frame_count" => {
                 json!(machine.machine().map_or(0, Atari800xl::frame_count))
             }

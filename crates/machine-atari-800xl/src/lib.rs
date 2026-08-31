@@ -541,6 +541,61 @@ impl Atari800xl {
         }
     }
 
+    /// Write one byte through the CPU-visible bus, as an Atari executable
+    /// loader would. Unlike debugger `poke`, this preserves writes to the
+    /// hardware-register page.
+    pub fn load_program_byte(&mut self, addr: u16, value: u8) {
+        self.mem_write(addr, value);
+    }
+
+    /// Call a loaded 6502 subroutine and stop when it returns.
+    ///
+    /// The synthetic return address is deliberately in page one, matching
+    /// Altirra's executable-loader sentinel. Returns whether the routine
+    /// reached that sentinel before `max_ticks` elapsed.
+    pub fn call_loaded_subroutine(&mut self, entry: u16, max_ticks: u64) -> bool {
+        if !self.prepare_loaded_entry(max_ticks) {
+            return false;
+        }
+
+        const RETURN_PC: u16 = 0x01FE;
+        let return_address = RETURN_PC.wrapping_sub(1);
+        let sp = self.cpu.regs.sp;
+        self.mem_write(0x0100 | u16::from(sp), (return_address >> 8) as u8);
+        self.mem_write(0x0100 | u16::from(sp.wrapping_sub(1)), return_address as u8);
+        self.cpu.regs.sp = sp.wrapping_sub(2);
+        self.cpu.regs.pc = entry;
+        self.cpu.addr = entry;
+        self.cpu.data_in = self.mem_read(entry);
+
+        self.run_until_pc(RETURN_PC, max_ticks).1
+    }
+
+    /// Enter a loaded Atari executable using the register state established
+    /// by the DOS loader before it jumps through RUNAD.
+    pub fn launch_loaded_program(&mut self, entry: u16, max_ticks: u64) -> bool {
+        if !self.prepare_loaded_entry(max_ticks) {
+            return false;
+        }
+        self.cpu.regs.x = 0x20;
+        self.cpu.regs.y = 0x03;
+        self.cpu.regs.p = 0x03;
+        self.cpu.regs.pc = entry;
+        self.cpu.addr = entry;
+        self.cpu.data_in = self.mem_read(entry);
+        true
+    }
+
+    fn prepare_loaded_entry(&mut self, max_ticks: u64) -> bool {
+        for _ in 0..max_ticks {
+            if self.cpu.instruction_complete() && self.cpu.sync {
+                return true;
+            }
+            self.tick_colour_clock();
+        }
+        self.cpu.instruction_complete() && self.cpu.sync
+    }
+
     #[must_use]
     pub fn framebuffer(&self) -> &[u32] {
         self.gtia.framebuffer()

@@ -12,6 +12,11 @@ use crate::snapshot;
 use emu198x_shell::display::Display;
 
 const AUDIO_SAMPLE_RATE: u32 = 48_000;
+const XEX_AUTOLOAD_FRAME: u64 = 150;
+const INITAD: u16 = 0x02E2;
+const RUNAD: u16 = 0x02E0;
+const INIT_RETURN_STUB: u16 = 0xE4C0;
+const INIT_MAX_TICKS: u64 = 10_000_000;
 
 pub struct Atari800xlRuntime {
     profile: MachineProfile,
@@ -20,6 +25,8 @@ pub struct Atari800xlRuntime {
     os_bytes: Option<Vec<u8>>,
     basic_bytes: Option<Vec<u8>>,
     cart_bytes: Option<Vec<u8>>,
+    xex_bytes: Option<Vec<u8>>,
+    xex_pending: bool,
     basic_enabled: bool,
     time: MachineTime,
     rgba_framebuffer: Vec<u8>,
@@ -38,6 +45,8 @@ impl Atari800xlRuntime {
             os_bytes: None,
             basic_bytes: None,
             cart_bytes: None,
+            xex_bytes: None,
+            xex_pending: false,
             basic_enabled: false,
             time: MachineTime::default(),
             rgba_framebuffer: Vec::new(),
@@ -132,6 +141,16 @@ impl Atari800xlRuntime {
     pub(crate) fn cart_bytes(&self) -> Option<&[u8]> {
         self.cart_bytes.as_deref()
     }
+    pub(crate) fn xex_bytes(&self) -> Option<&[u8]> {
+        self.xex_bytes.as_deref()
+    }
+    pub(crate) fn xex_pending(&self) -> bool {
+        self.xex_pending
+    }
+    pub(crate) fn set_xex(&mut self, bytes: Option<Vec<u8>>, pending: bool) {
+        self.xex_bytes = bytes;
+        self.xex_pending = pending;
+    }
     pub(crate) fn basic_enabled(&self) -> bool {
         self.basic_enabled
     }
@@ -167,6 +186,62 @@ impl Atari800xlRuntime {
         Ok(())
     }
 
+    fn autoload_xex(&mut self) -> Result<(), MachineError> {
+        let Some(bytes) = self.xex_bytes.as_deref() else {
+            return Ok(());
+        };
+        let xex = format198x_atari_8bit_xex::parse(bytes).map_err(|reason| {
+            MachineError::InvalidMedia {
+                slot: "program-1".to_owned(),
+                reason: reason.to_string(),
+            }
+        })?;
+        let machine = self.machine.as_mut().ok_or(MachineError::InvalidMedia {
+            slot: "program-1".to_owned(),
+            reason: "an OS ROM or cartridge is required before an XEX can run".to_owned(),
+        })?;
+
+        // DOS begins with an RTS stub in INITAD and defaults RUNAD to the
+        // first segment's start. A segment may install INITAD; run it before
+        // loading the following segment, then restore the stub.
+        machine.load_program_byte(INITAD, INIT_RETURN_STUB as u8);
+        machine.load_program_byte(INITAD + 1, (INIT_RETURN_STUB >> 8) as u8);
+        let first_start = xex.segments[0].start;
+        machine.load_program_byte(RUNAD, first_start as u8);
+        machine.load_program_byte(RUNAD + 1, (first_start >> 8) as u8);
+
+        for segment in &xex.segments {
+            for (offset, &byte) in segment.data.iter().enumerate() {
+                machine.load_program_byte(segment.start.wrapping_add(offset as u16), byte);
+            }
+            let init = u16::from(machine.peek(INITAD)) | (u16::from(machine.peek(INITAD + 1)) << 8);
+            if init != INIT_RETURN_STUB {
+                if !machine.call_loaded_subroutine(init, INIT_MAX_TICKS) {
+                    let pc = machine.cpu().regs.pc;
+                    let sp = machine.cpu().regs.sp;
+                    return Err(MachineError::InvalidMedia {
+                        slot: "program-1".to_owned(),
+                        reason: format!(
+                            "INIT routine at ${init:04X} did not return (PC=${pc:04X}, SP=${sp:02X})"
+                        ),
+                    });
+                }
+                machine.load_program_byte(INITAD, INIT_RETURN_STUB as u8);
+                machine.load_program_byte(INITAD + 1, (INIT_RETURN_STUB >> 8) as u8);
+            }
+        }
+
+        let run = u16::from(machine.peek(RUNAD)) | (u16::from(machine.peek(RUNAD + 1)) << 8);
+        if !machine.launch_loaded_program(run, INIT_MAX_TICKS) {
+            return Err(MachineError::InvalidMedia {
+                slot: "program-1".to_owned(),
+                reason: format!("could not enter RUN routine at ${run:04X}"),
+            });
+        }
+        self.xex_pending = false;
+        Ok(())
+    }
+
     fn update_rgba_framebuffer(&mut self) {
         let Some(machine) = self.machine.as_ref() else {
             self.rgba_framebuffer.fill(0);
@@ -191,6 +266,7 @@ impl MachineCore for Atari800xlRuntime {
     }
     fn reset(&mut self, _kind: ResetKind) {
         let _ = self.rebuild_machine();
+        self.xex_pending = self.xex_bytes.is_some();
         self.time = MachineTime::default();
     }
     fn load_media(&mut self, media: &MediaSet<'_>) -> Result<(), MachineError> {
@@ -200,6 +276,21 @@ impl MachineCore for Atari800xlRuntime {
                     self.insert_cartridge(Some(image.bytes.to_vec()))?;
                 }
                 (slot, MediaKind::Cartridge) => {
+                    return Err(MachineError::UnknownMediaSlot {
+                        slot: slot.to_owned(),
+                    });
+                }
+                ("program-1", MediaKind::Program) => {
+                    format198x_atari_8bit_xex::parse(image.bytes).map_err(|reason| {
+                        MachineError::InvalidMedia {
+                            slot: "program-1".to_owned(),
+                            reason: reason.to_string(),
+                        }
+                    })?;
+                    self.xex_bytes = Some(image.bytes.to_vec());
+                    self.xex_pending = true;
+                }
+                (slot, MediaKind::Program) => {
                     return Err(MachineError::UnknownMediaSlot {
                         slot: slot.to_owned(),
                     });
@@ -234,6 +325,14 @@ impl MachineCore for Atari800xlRuntime {
                 .expect("machine checked above")
                 .run_frame();
             self.time = self.time.saturating_add(ticks);
+            if self.xex_pending
+                && self
+                    .machine
+                    .as_ref()
+                    .is_some_and(|machine| machine.frame_count() >= XEX_AUTOLOAD_FRAME)
+            {
+                self.autoload_xex()?;
+            }
             self.update_rgba_framebuffer();
             host.frame_sink.push_frame(FramePacket {
                 timestamp: self.time,
