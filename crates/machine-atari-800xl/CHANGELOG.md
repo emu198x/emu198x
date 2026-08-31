@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Host-loader entry points for copying and invoking Atari segmented executables
+
 ### Fixed
 
 - Verify POKEY distortion signatures and linked-channel pitch through the complete Atari 800XL audio path

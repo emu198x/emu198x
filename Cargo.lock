@@ -1772,6 +1772,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "format198x-atari-8bit-xex"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "521bc83489669ef9fbb8e32846464b7c3b419204b42823323b2e17573b33b4c7"
+
+[[package]]
 name = "format198x-commodore-amiga-adf"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4103,6 +4109,7 @@ version = "0.13.3"
 dependencies = [
  "atari-gtia",
  "emu198x-shell",
+ "format198x-atari-8bit-xex",
  "machine-atari-800xl",
  "postcard",
  "serde",

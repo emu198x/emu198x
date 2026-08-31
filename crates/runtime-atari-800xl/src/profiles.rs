@@ -65,13 +65,22 @@ pub fn profile_for(model: Model) -> MachineProfile {
             FirmwareRequirement::new(OS_FIRMWARE_ID, "Atari 800XL OS ROM (16 KB) — optional", true),
             FirmwareRequirement::new(BASIC_FIRMWARE_ID, "Atari BASIC ROM (8 KB) — optional", true),
         ],
-        media_slots: vec![MediaSlot::new(
-            "cartridge-1",
-            "Cartridge Slot",
-            MediaKind::Cartridge,
-            false,
-            WritebackPolicy::InMemoryOnly,
-        )],
+        media_slots: vec![
+            MediaSlot::new(
+                "cartridge-1",
+                "Cartridge Slot",
+                MediaKind::Cartridge,
+                false,
+                WritebackPolicy::InMemoryOnly,
+            ),
+            MediaSlot::new(
+                "program-1",
+                "XEX Program",
+                MediaKind::Program,
+                false,
+                WritebackPolicy::InMemoryOnly,
+            ),
+        ],
         capabilities: CapabilitySet::with_all([
             known_capability("keyboard-input"),
             known_capability("scripted-input"),
