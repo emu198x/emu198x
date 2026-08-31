@@ -9,7 +9,7 @@
 use std::env;
 use std::fs;
 
-use machine_tatung_einstein::{Einstein, EinsteinRegion, Modifier};
+use machine_tatung_einstein::{Einstein, Modifier};
 
 #[test]
 #[ignore = "FIXTURE: needs the Einstein MOS and a bootable CPCEMU .dsk — run with --ignored"]
@@ -25,7 +25,7 @@ fn ctrl_break_loads_from_real_disk() {
     let bios = fs::read(&bios_path).expect("read BIOS");
     let dsk = fs::read(&disk_path).expect("read .dsk");
 
-    let mut sys = Einstein::new(bios, EinsteinRegion::Pal);
+    let mut sys = Einstein::new(bios);
     sys.insert_cpc_dsk(0, &dsk)
         .unwrap_or_else(|e| panic!("parse {disk_path}: {e}"));
     for _ in 0..300 {

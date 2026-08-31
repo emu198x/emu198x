@@ -16,7 +16,7 @@
 
 use std::path::PathBuf;
 
-use machine_tatung_einstein::{Einstein, EinsteinRegion};
+use machine_tatung_einstein::Einstein;
 
 /// TMS9918 palette entry 15. The power-on backdrop is entry 0, which is
 /// transparent, so white cannot appear unless the firmware ran.
@@ -28,7 +28,7 @@ fn firmware() -> PathBuf {
 }
 
 fn booted(rom: Vec<u8>) -> Einstein {
-    let mut machine = Einstein::new(rom, EinsteinRegion::Ntsc);
+    let mut machine = Einstein::new(rom);
     for _ in 0..5 {
         machine.run_frame();
     }

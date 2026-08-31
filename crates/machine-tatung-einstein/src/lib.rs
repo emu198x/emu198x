@@ -147,13 +147,6 @@ const AY_SAMPLES_PER_FRAME: usize = 1024;
 /// Number of keyboard matrix rows.
 pub const NUM_KEY_ROWS: usize = 8;
 
-/// Einstein region.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum EinsteinRegion {
-    Ntsc,
-    Pal,
-}
-
 /// A modifier key read on `$20` bits 5-7 (active low). The value is the
 /// status-byte bit it clears when held.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -252,7 +245,6 @@ pub struct Einstein {
     /// Joystick fire buttons `[joy1, joy2]`, read on port `$20` bits 0-1
     /// (active low).
     fire: [bool; 2],
-    region: EinsteinRegion,
     cpu_tstates: u64,
     /// VDP dot-clock accumulator (in CPU-Hz units). Each T-state adds
     /// [`VDP_CLOCK_HZ`]; every [`CPU_CLOCK_HZ`] accumulated ticks the VDP
@@ -271,16 +263,12 @@ pub struct Einstein {
 }
 
 impl Einstein {
-    /// Create a new Einstein with the given 8 KB X-TAL MOS ROM.
+    /// Create a new PAL Einstein TC-01 with the given 8 KB X-TAL MOS ROM.
     #[must_use]
-    pub fn new(rom: Vec<u8>, region: EinsteinRegion) -> Self {
-        let vdp_region = match region {
-            EinsteinRegion::Ntsc => VdpRegion::Ntsc,
-            EinsteinRegion::Pal => VdpRegion::Pal,
-        };
+    pub fn new(rom: Vec<u8>) -> Self {
         Self {
             cpu: Z80::new(),
-            vdp: Tms9918::new(vdp_region),
+            vdp: Tms9918::new(VdpRegion::Pal),
             psg: Ay3_8910::new(AY_CLOCK_HZ, AY_SAMPLE_RATE, AY_SAMPLES_PER_FRAME),
             rom,
             ram: [0; 65536],
@@ -293,7 +281,6 @@ impl Einstein {
             fdc: Wd1770::default(),
             adc: Adc0844::new(),
             fire: [false; 2],
-            region,
             cpu_tstates: 0,
             vdp_accum: 0,
             psg_phase: 0,
@@ -709,12 +696,6 @@ impl Einstein {
         &self.vdp
     }
 
-    /// Region.
-    #[must_use]
-    pub fn region(&self) -> EinsteinRegion {
-        self.region
-    }
-
     /// Drain accumulated PSG audio samples for the most recent frame.
     ///
     /// Always a whole frame, silence included — see #934. Trimming
@@ -916,26 +897,8 @@ mod tests {
     }
 
     #[test]
-    fn ntsc_frame_runs_one_vdp_frame_of_4mhz_tstates() {
-        let mut sys = Einstein::new(trap_rom(), EinsteinRegion::Ntsc);
-        let first = sys.run_frame();
-        let second = sys.run_frame();
-        // One full NTSC VDP frame is 342 × 262 dots; at 4 MHz : 5.369318 MHz
-        // that is ≈66 753 T-states — ~1.5× the ~44 730 the old 3.58 MHz-
-        // equivalent budget produced.
-        let expected = 342u64 * 262 * 4_000_000 / 5_369_318;
-        for ticks in [first, second] {
-            assert!(
-                ticks.abs_diff(expected) <= 1,
-                "got {ticks} T-states, expected {expected} or {} for one 4 MHz NTSC frame",
-                expected + 1
-            );
-        }
-    }
-
-    #[test]
     fn pal_frame_runs_one_vdp_frame_of_4mhz_tstates() {
-        let mut sys = Einstein::new(trap_rom(), EinsteinRegion::Pal);
+        let mut sys = Einstein::new(trap_rom());
         let first = sys.run_frame();
         let second = sys.run_frame();
         // One full PAL VDP frame is 342 × 313 dots; at 4 MHz : 5.369318 MHz
@@ -952,7 +915,7 @@ mod tests {
 
     #[test]
     fn many_frames_complete_without_panic() {
-        let mut sys = Einstein::new(trap_rom(), EinsteinRegion::Ntsc);
+        let mut sys = Einstein::new(trap_rom());
         for _ in 0..60 {
             sys.run_frame();
         }
@@ -961,7 +924,7 @@ mod tests {
 
     #[test]
     fn rom_visible_at_reset_toggles_on_port_24() {
-        let mut sys = Einstein::new(trap_rom(), EinsteinRegion::Ntsc);
+        let mut sys = Einstein::new(trap_rom());
         assert!(sys.rom_paged_in());
         assert_eq!(sys.mem_read(0x0008), 0x18);
         // $24 toggles the bank: write pages RAM in, $0008 then reads RAM.
@@ -976,7 +939,7 @@ mod tests {
 
     #[test]
     fn reading_port_24_also_toggles_the_rom() {
-        let mut sys = Einstein::new(trap_rom(), EinsteinRegion::Ntsc);
+        let mut sys = Einstein::new(trap_rom());
         assert!(sys.rom_paged_in());
         let _ = sys.io_read(0x24);
         assert!(!sys.rom_paged_in());
@@ -984,7 +947,7 @@ mod tests {
 
     #[test]
     fn writes_always_land_in_ram_even_with_rom_paged_in() {
-        let mut sys = Einstein::new(trap_rom(), EinsteinRegion::Ntsc);
+        let mut sys = Einstein::new(trap_rom());
         // ROM still in view but write to RAM underneath.
         sys.mem_write(0x0100, 0x42);
         // Toggle the ROM out and re-read.
@@ -994,7 +957,7 @@ mod tests {
 
     #[test]
     fn keyboard_row_selected_via_ay_port_a() {
-        let mut sys = Einstein::new(trap_rom(), EinsteinRegion::Ntsc);
+        let mut sys = Einstein::new(trap_rom());
         sys.keyboard[5] = 0xAB;
         // The MOS drives the row-select lines on AY port A (R14) and reads
         // the columns back on port B (R15). Select R14, drive row 5 low
@@ -1027,7 +990,7 @@ mod tests {
 
     #[test]
     fn ay_watch_captures_psg_data_writes() {
-        let mut sys = Einstein::new(trap_rom(), EinsteinRegion::Ntsc);
+        let mut sys = Einstein::new(trap_rom());
         assert!(sys.ay_write_watch_records().is_none());
         let cap = sys.start_ay_write_watch();
         assert!(cap > 0);
@@ -1047,7 +1010,7 @@ mod tests {
 
     #[test]
     fn key_press_and_release() {
-        let mut sys = Einstein::new(trap_rom(), EinsteinRegion::Ntsc);
+        let mut sys = Einstein::new(trap_rom());
         sys.press_key(2, 5);
         assert_eq!(sys.keyboard[2] & (1 << 5), 0);
         sys.release_key(2, 5);
@@ -1056,7 +1019,7 @@ mod tests {
 
     #[test]
     fn analogue_joystick_reads_through_the_adc0844() {
-        let mut sys = Einstein::new(trap_rom(), EinsteinRegion::Ntsc);
+        let mut sys = Einstein::new(trap_rom());
         sys.set_adc_channel(0, 0xC0); // joy1 X
         sys.set_adc_channel(1, 0x30); // joy1 Y
 
@@ -1073,7 +1036,7 @@ mod tests {
 
     #[test]
     fn joystick_fire_buttons_read_on_port_20_active_low() {
-        let mut sys = Einstein::new(trap_rom(), EinsteinRegion::Ntsc);
+        let mut sys = Einstein::new(trap_rom());
         // Idle: bits 0-1 high (no fire).
         assert_eq!(sys.io_read(0x20) & 0x03, 0x03);
         sys.set_fire_button(1, true);
@@ -1089,7 +1052,7 @@ mod tests {
         // here we only check the machine-level wiring: a disk inserted through
         // the public API reads back through ports $18-$1B after a $23 select.
         let bios = vec![0u8; 0x2000];
-        let mut sys = Einstein::new(bios, EinsteinRegion::Pal);
+        let mut sys = Einstein::new(bios);
         let mut data = vec![0u8; 10 * 512];
         data[0] = 0xAA; // track 0, sector 1, first byte
         data[511] = 0xBB; // last byte of that sector
@@ -1121,7 +1084,7 @@ mod tests {
 
     #[test]
     fn snapshot_round_trips_live_state() {
-        let mut sys = Einstein::new(trap_rom(), EinsteinRegion::Pal);
+        let mut sys = Einstein::new(trap_rom());
         // Give the FDC live state too: an inserted disk that a write dirties,
         // so the snapshot has to carry the controller and its (modified) image.
         sys.insert_disk(0, vec![0u8; 10 * 512], 10, 512, 1);
@@ -1156,7 +1119,7 @@ mod tests {
     #[test]
     fn fdc_read_with_no_disk_reports_record_not_found() {
         let bios = vec![0u8; 0x2000];
-        let mut sys = Einstein::new(bios, EinsteinRegion::Pal);
+        let mut sys = Einstein::new(bios);
         sys.io_write(0x1A, 1);
         sys.io_write(0x18, 0x80); // read sector, no disk inserted
         for _ in 0..128 {
@@ -1205,7 +1168,7 @@ mod tests {
 
     #[test]
     fn cpc_dsk_round_trips_through_the_fdc() {
-        let mut sys = Einstein::new(vec![0u8; 0x2000], EinsteinRegion::Pal);
+        let mut sys = Einstein::new(vec![0u8; 0x2000]);
         sys.insert_cpc_dsk(0, &synthetic_dsk(5, 10))
             .expect("synthetic DSK parses");
 
@@ -1230,7 +1193,7 @@ mod tests {
 
     #[test]
     fn cpc_dsk_rejects_non_dsk() {
-        let mut sys = Einstein::new(vec![0u8; 0x2000], EinsteinRegion::Pal);
+        let mut sys = Einstein::new(vec![0u8; 0x2000]);
         assert!(sys.insert_cpc_dsk(0, b"not a disk image at all").is_err());
     }
 }
