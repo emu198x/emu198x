@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Remove the fictional NTSC machine configuration; the Einstein TC-01 is a
+  PAL-only TMS9129A system.
 - End `run_frame` at the TMS9918A raster wrap instead of its earlier VBlank
   interrupt, eliminating the short power-on frame.
 

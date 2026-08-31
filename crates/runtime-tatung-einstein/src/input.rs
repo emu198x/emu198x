@@ -250,14 +250,13 @@ pub(crate) fn knows_key_name(name: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use machine_tatung_einstein::EinsteinRegion;
     use std::borrow::Cow;
 
     fn make_einstein() -> Einstein {
         let mut rom = vec![0u8; 0x2000];
         rom[0x0000] = 0x18; // JR -2 trap
         rom[0x0001] = 0xFE;
-        Einstein::new(rom, EinsteinRegion::Pal)
+        Einstein::new(rom)
     }
 
     fn axis(port: u8, name: &str, value: i16) -> InputEvent {

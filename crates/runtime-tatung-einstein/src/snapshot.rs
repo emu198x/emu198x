@@ -12,16 +12,14 @@ use serde::{Deserialize, Serialize};
 
 use crate::runtime::EinsteinRuntime;
 
-/// Bumped to 4 when the VDP framebuffer became region-sized. A snapshot
-/// carries the live chip, framebuffer included, so a version-3 PAL snapshot
-/// holds a 240-line buffer that a version-4 PAL machine would never allocate.
-/// Restoring it would resume into a geometry the machine disagrees with, and
-/// silently — so the version check rejects it instead.
-const SNAPSHOT_VERSION: u16 = 4;
+/// Bumped to 5 when the fictional NTSC configuration and its serialised region
+/// field were removed. The TC-01 is a PAL-only machine; accepting a version-4
+/// payload would decode the following fields at the wrong offsets.
+const SNAPSHOT_VERSION: u16 = 5;
 
 /// Borrowing envelope used during encode — avoids cloning the live machine.
 #[derive(Serialize)]
-struct EinsteinRuntimeSnapshotRefV3<'a> {
+struct EinsteinRuntimeSnapshotRefV5<'a> {
     version: u16,
     time: u64,
     model_id: &'a str,
@@ -30,7 +28,7 @@ struct EinsteinRuntimeSnapshotRefV3<'a> {
 
 /// Owning envelope used during decode.
 #[derive(Deserialize)]
-struct EinsteinRuntimeSnapshotV3 {
+struct EinsteinRuntimeSnapshotV5 {
     version: u16,
     time: u64,
     model_id: String,
@@ -38,7 +36,7 @@ struct EinsteinRuntimeSnapshotV3 {
 }
 
 pub(crate) fn encode(runtime: &EinsteinRuntime) -> Result<Vec<u8>, MachineError> {
-    let snapshot = EinsteinRuntimeSnapshotRefV3 {
+    let snapshot = EinsteinRuntimeSnapshotRefV5 {
         version: SNAPSHOT_VERSION,
         time: runtime.time().get(),
         model_id: runtime.model().model_id(),
@@ -60,7 +58,7 @@ pub(crate) fn decode(runtime: &mut EinsteinRuntime, bytes: &[u8]) -> Result<(), 
             reason: format!("unsupported snapshot version {version}; expected {SNAPSHOT_VERSION}"),
         });
     }
-    let snapshot: EinsteinRuntimeSnapshotV3 =
+    let snapshot: EinsteinRuntimeSnapshotV5 =
         postcard::from_bytes(bytes).map_err(|reason| MachineError::InvalidSnapshot {
             reason: format!("decode failed: {reason}"),
         })?;
@@ -119,6 +117,24 @@ mod tests {
             MachineError::InvalidSnapshot { reason } => {
                 assert!(
                     reason.contains("unsupported snapshot version 2"),
+                    "unexpected reason: {reason}"
+                );
+            }
+            other => panic!("expected InvalidSnapshot, got {other:?}"),
+        }
+    }
+
+    /// Version 4 serialised the removed `EinsteinRegion` field.
+    #[test]
+    fn decode_rejects_version_4_before_payload_decode() {
+        let mut runtime = EinsteinRuntime::blank(Model::Einstein);
+        let bytes = postcard::to_allocvec(&4_u16).expect("legacy version should encode");
+
+        let err = decode(&mut runtime, &bytes).expect_err("version 4 should reject");
+        match err {
+            MachineError::InvalidSnapshot { reason } => {
+                assert!(
+                    reason.contains("unsupported snapshot version 4"),
                     "unexpected reason: {reason}"
                 );
             }

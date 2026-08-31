@@ -20,7 +20,7 @@
 //! else can be.
 
 use emu198x_zilog_z80::Z80Stepper;
-use machine_tatung_einstein::{Einstein, EinsteinRegion};
+use machine_tatung_einstein::Einstein;
 
 /// Zilog `NOP`: one `M1` fetch, four T-states.
 const NOP_TSTATES: u64 = 4;
@@ -29,7 +29,7 @@ const NOP_TSTATES: u64 = 4;
 fn a_nop_costs_four_tstates() {
     // 8 KB of `NOP` in place of the MOS ROM, which is paged in at `$0000`
     // on reset.
-    let mut einstein = Einstein::new(vec![0x00u8; 8 * 1024], EinsteinRegion::Pal);
+    let mut einstein = Einstein::new(vec![0x00u8; 8 * 1024]);
 
     // Clear the reset sequence so the measurement covers steady-state `NOP`s
     // rather than whatever the first instruction happens to be.

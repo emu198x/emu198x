@@ -11,7 +11,7 @@ use std::env;
 use std::fs;
 use std::path::PathBuf;
 
-use machine_tatung_einstein::{Einstein, EinsteinRegion};
+use machine_tatung_einstein::Einstein;
 
 fn rom() -> Option<Vec<u8>> {
     if let Ok(p) = env::var("EMU198X_EINSTEIN_BIOS") {
@@ -62,7 +62,7 @@ fn types_hello_at_the_mos_prompt() {
              einstein.rom at ~/.emu198x/roms/tatung-einstein/"
         );
     };
-    let mut sys = Einstein::new(bios, EinsteinRegion::Pal);
+    let mut sys = Einstein::new(bios);
     for _ in 0..300 {
         sys.run_frame();
     }

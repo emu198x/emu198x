@@ -5,7 +5,7 @@ use emu198x_shell::{
     MachineError, MachineProfile, MachineTime, MediaSet, PixelFormat, ResetKind, RunResult,
     StopReason,
 };
-use machine_tatung_einstein::{Einstein, EinsteinRegion};
+use machine_tatung_einstein::Einstein;
 
 use crate::input::apply_input_event;
 use crate::profiles::{Model, ROM_FIRMWARE_ID, profile_for};
@@ -160,7 +160,7 @@ impl EinsteinRuntime {
             self.machine = None;
             return;
         };
-        let mut machine = Einstein::new(rom, EinsteinRegion::Pal);
+        let mut machine = Einstein::new(rom);
         if let Some(bytes) = &self.floppy0_bytes {
             machine
                 .insert_cpc_dsk(0, bytes)

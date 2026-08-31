@@ -4,7 +4,7 @@ use std::env;
 use std::fs;
 use std::path::PathBuf;
 
-use machine_tatung_einstein::{Einstein, EinsteinRegion};
+use machine_tatung_einstein::Einstein;
 
 fn bios_path() -> Option<PathBuf> {
     if let Ok(p) = env::var("EMU198X_EINSTEIN_BIOS") {
@@ -30,7 +30,7 @@ fn bios_boots_to_mos_prompt() {
     let bios = fs::read(&path).expect("read BIOS");
     assert_eq!(bios.len(), 0x2000, "BIOS must be exactly 8 KB");
 
-    let mut sys = Einstein::new(bios, EinsteinRegion::Pal);
+    let mut sys = Einstein::new(bios);
     for _ in 0..300 {
         sys.run_frame();
     }
