@@ -28,6 +28,7 @@ pub struct BitBangSerial {
 #[derive(Debug)]
 pub struct EspAtModem {
     serial: BitBangSerial,
+    initial_cycles_per_bit: u32,
     command: Vec<u8>,
     payload_remaining: usize,
     payload: Vec<u8>,
@@ -112,6 +113,7 @@ impl EspAtTcpBridge {
             if let Err(error) = stream.write_all(&packet) {
                 self.last_error = Some(error.to_string());
                 self.stream = None;
+                self.modem.set_link_closed();
                 break;
             }
         }
@@ -124,6 +126,7 @@ impl EspAtTcpBridge {
             match stream.read(&mut buffer) {
                 Ok(0) => {
                     self.stream = None;
+                    self.modem.set_link_closed();
                     break;
                 }
                 Ok(count) => self.incoming.extend_from_slice(&buffer[..count]),
@@ -131,6 +134,7 @@ impl EspAtTcpBridge {
                 Err(error) => {
                     self.last_error = Some(error.to_string());
                     self.stream = None;
+                    self.modem.set_link_closed();
                     break;
                 }
             }
@@ -147,6 +151,7 @@ impl EspAtModem {
     pub fn new(cycles_per_bit: u32) -> Self {
         Self {
             serial: BitBangSerial::new(cycles_per_bit),
+            initial_cycles_per_bit: cycles_per_bit,
             command: Vec::new(),
             payload_remaining: 0,
             payload: Vec::new(),
@@ -197,6 +202,15 @@ impl EspAtModem {
         }
     }
 
+    /// Report an established TCP link closing, matching ESP-AT's unsolicited
+    /// status rather than silently leaving the emulated modem connected.
+    pub fn set_link_closed(&mut self) {
+        self.connected = false;
+        self.payload_remaining = 0;
+        self.payload.clear();
+        self.queue_response(b"\r\nCLOSED\r\n");
+    }
+
     #[must_use]
     pub fn diagnostic_received(&self) -> Vec<u8> {
         self.diagnostic_received.iter().copied().collect()
@@ -242,7 +256,7 @@ impl EspAtModem {
         } else if command == "AT+UART_CUR=2400,8,1,0,0" {
             // Complete OK at the old rate, then switch both serial directions.
             self.queue_response(b"\r\nOK\r\n");
-            self.pending_cycles_per_bit = Some(self.serial.cycles_per_bit * 4);
+            self.pending_cycles_per_bit = Some(self.initial_cycles_per_bit * 4);
         } else if command == "AT+CIPCLOSE" {
             self.connected = false;
             self.queue_response(b"\r\nCLOSED\r\nOK\r\n");
@@ -484,6 +498,13 @@ mod tests {
         send_host_bytes(&mut modem, b"AT+CIPSEND=4\r", 48);
         let prompt = drain_device_bytes(&mut modem, 48 * 10 * 16);
         assert!(prompt.contains(&b'>'));
+        send_host_bytes(&mut modem, b"RACH", 48);
+        let _ = drain_device_bytes(&mut modem, 48 * 10 * 16);
+
+        send_host_bytes(&mut modem, b"AT+UART_CUR=2400,8,1,0,0\r", 48);
+        let response = drain_device_bytes(&mut modem, 48 * 10 * 16);
+        assert!(response.windows(2).any(|window| window == b"OK"));
+        assert_eq!(modem.serial.cycles_per_bit, 48);
     }
 
     #[test]
@@ -492,6 +513,16 @@ mod tests {
         modem.queue_network_packet(b"RACH");
         let bytes = drain_device_bytes(&mut modem, 12 * 10 * 20);
         assert!(bytes.windows(11).any(|window| window == b"+IPD,4:RACH"));
+    }
+
+    #[test]
+    fn esp_at_reports_established_link_closure() {
+        let mut modem = EspAtModem::new(12);
+        modem.connected = true;
+        modem.set_link_closed();
+        let bytes = drain_device_bytes(&mut modem, 12 * 10 * 20);
+        assert!(!modem.connected);
+        assert!(bytes.windows(6).any(|window| window == b"CLOSED"));
     }
 
     #[test]

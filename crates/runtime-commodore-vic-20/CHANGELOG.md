@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- ESP-AT TCP links now emit `CLOSED` on peer loss and repeated 2400-baud
+  configuration remains idempotent, matching reconnect behaviour on hardware
+
 ## [0.2.0](https://github.com/emu198x/emu198x/releases/tag/runtime-commodore-vic-20-v0.2.0) - 2026-06-04
 
 ### Added
