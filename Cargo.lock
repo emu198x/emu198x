@@ -1230,7 +1230,7 @@ dependencies = [
 
 [[package]]
 name = "emu198x-mos-sid-6581"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "allocation-counter",
  "serde",
