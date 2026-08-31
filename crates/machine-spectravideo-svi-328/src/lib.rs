@@ -4,7 +4,7 @@
 //! rule 6). The donor at
 //! `Emu198x-Oldest/crates/machine-spectravideo-svi-328` used the
 //! deprecated `emu_core::Bus` callback and could not port directly;
-//! this file uses it as a system spec — memory map, port-`$97`
+//! this file uses it as a system spec — memory map, PSG-port-B
 //! banking, 8255-driven keyboard, I/O port routing — but the wiring
 //! is written against [`emu198x_zilog_z80::Z80`]'s public pin fields and
 //! `bus_request()` collapse.
@@ -15,7 +15,7 @@
 //! designed it before MSX standardisation, and the MSX standard later
 //! crystallised around essentially the same chip stack: Z80 + TMS9918
 //! + AY-3-8910 + Intel 8255. The SVI-328 differs from MSX1 mainly in
-//!   its simpler **port-`$97` ROM/RAM banking** rather than MSX's
+//!   its simpler **PSG port-B ROM/RAM banking** rather than MSX's
 //!   4-slot system, and in its tighter I/O port window (`$80-$97` vs
 //!   MSX's spread across `$98`, `$A0-$AB`).
 //!
@@ -30,14 +30,11 @@
 //!
 //! # Memory map
 //!
-//! | Range         | Default                  | Port `$97` overlay  |
-//! |---------------|--------------------------|---------------------|
-//! | `$0000-$7FFF` | System ROM (BASIC + OS)  | RAM when bit 0 = 1  |
-//! | `$8000-$BFFF` | RAM                      | Cart when bit 1 = 1 |
-//! | `$C000-$FFFF` | RAM                      | (always RAM)        |
-//!
-//! Reading port `$96` / `$97` returns the current bank state in bits
-//! 0 and 1.
+//! | Range         | Default                  | PSG R15 overlay  |
+//! |---------------|--------------------------|------------------|
+//! | `$0000-$7FFF` | System ROM (BASIC + OS)  | RAM when D1 = 0  |
+//! | `$8000-$BFFF` | RAM                      | Cart when D0 = 0 |
+//! | `$C000-$FFFF` | RAM                      | (always RAM)     |
 //!
 //! # I/O map
 //!
@@ -119,7 +116,8 @@ pub struct Svi328 {
     /// `true` → RAM replaces ROM at `$0000-$7FFF`. Driven by AY-3-8910 port B
     /// (R15) bit 1 (`bk21`): low banks RAM in. ROM is visible at reset.
     bank_ram_low: bool,
-    /// `true` → cart ROM replaces RAM at `$8000-$BFFF`.
+    /// `true` → cart ROM replaces RAM at `$8000-$BFFF`. Driven by AY-3-8910
+    /// port B (R15) bit 0 (`CART`): low enables the cartridge bank.
     bank_cart: bool,
     /// The PSG register last selected via the address port ($88); used to spot
     /// writes to R15, the memory-bank register.
@@ -188,10 +186,10 @@ impl Svi328 {
         }
     }
 
-    /// Insert a cartridge ROM and enable the cart bank overlay.
+    /// Insert a cartridge ROM. PSG R15 controls whether it is visible;
+    /// insertion alone does not change a hardware bank latch.
     pub fn insert_cart(&mut self, rom: Vec<u8>) {
         self.cart_rom = rom;
-        self.bank_cart = true;
     }
 
     /// Insert decoded CAS payload blocks and leave the transport stopped.
@@ -388,10 +386,13 @@ impl Svi328 {
                 }
                 self.psg.write_data(value);
                 // The AY-3-8910's port B (R15) is the memory-bank register.
-                // Bit 1 (`bk21`) low banks the lower 32 KB of RAM in over the
-                // BASIC ROM; otherwise the ROM stays visible. (The cart and
-                // expansion-ROM bits are not modelled on the base machine.)
+                // D0 (`CART`) low enables the cartridge bank; D1 (`BK21`) low
+                // banks the lower 32 KB of RAM in over BASIC ROM. D2-D4 and
+                // D6-D7 address expansion hardware that the base machine does
+                // not contain. Service manual PSG Port B table; MAME
+                // `svi318.cpp` `bank_w`.
                 if self.psg_reg_select == 0x0F {
+                    self.bank_cart = value & 0x01 == 0;
                     self.bank_ram_low = value & 0x02 == 0;
                 }
             }
@@ -667,32 +668,50 @@ mod tests {
         let mut sys = Svi328::new(trap_rom(), SviRegion::Ntsc);
         // Bank the lower RAM in via PSG R15 (port B), bit 1 low.
         sys.io_write(0x88, 0x0F); // select R15
-        sys.io_write(0x8C, 0x00); // bk21 = 0 → RAM low
+        sys.io_write(0x8C, 0x01); // CART=1, BK21=0 → RAM low
         assert_eq!(sys.memory_control(), (true, false));
         sys.mem_write(0x0100, 0x42);
         assert_eq!(sys.mem_read(0x0100), 0x42);
     }
 
     #[test]
-    fn cart_overlay_replaces_ram_at_8000() {
+    fn psg_port_b_cart_bit_controls_the_cart_overlay() {
         let mut sys = Svi328::new(trap_rom(), SviRegion::Ntsc);
         sys.insert_cart(vec![0xAA; 0x4000]);
-        // insert_cart auto-enables bank_cart.
+        assert_eq!(sys.memory_control(), (false, false));
+        assert_eq!(sys.mem_read(0x8000), 0x00, "cart starts disabled");
+
+        sys.io_write(0x88, 0x0F); // select PSG R15 (port B)
+        sys.io_write(0x8C, 0x02); // CART=0, BK21=1
         assert_eq!(sys.memory_control(), (false, true));
         assert_eq!(sys.mem_read(0x8000), 0xAA);
         assert_eq!(sys.mem_read(0xBFFF), 0xAA);
-        // $C000 is always RAM.
-        assert_eq!(sys.mem_read(0xC000), 0x00);
+
+        sys.io_write(0x8C, 0x03); // CART=1, BK21=1
+        assert_eq!(sys.memory_control(), (false, false));
+        assert_eq!(sys.mem_read(0x8000), 0x00, "RAM returns when CART is high");
+    }
+
+    #[test]
+    fn ppi_control_port_does_not_change_memory_banks() {
+        let mut sys = Svi328::new(trap_rom(), SviRegion::Ntsc);
+        sys.insert_cart(vec![0xAA; 0x4000]);
+        sys.io_write(0x97, 0x00);
+        assert_eq!(
+            sys.memory_control(),
+            (false, false),
+            "$97 is the 8255 control register, not memory control"
+        );
     }
 
     #[test]
     fn psg_port_b_drives_lower_ram_bank() {
         let mut sys = Svi328::new(trap_rom(), SviRegion::Ntsc);
         sys.io_write(0x88, 0x0F); // select R15
-        sys.io_write(0x8C, 0x00); // bk21 = 0 → RAM low
+        sys.io_write(0x8C, 0x01); // CART=1, BK21=0 → RAM low
         assert!(sys.memory_control().0, "bk21 low should bank RAM in");
         sys.io_write(0x88, 0x0F);
-        sys.io_write(0x8C, 0x02); // bk21 = 1 → ROM low
+        sys.io_write(0x8C, 0x03); // CART=1, BK21=1 → ROM low
         assert!(!sys.memory_control().0, "bk21 high should restore the ROM");
     }
 
