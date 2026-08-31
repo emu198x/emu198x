@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Match the documented extra six clocks for 1.79 MHz linked-channel dividers
+- Preserve the maximum linked-channel period without counter overflow
+- Produce a true 48 kHz host stream with fractional sample-clock carry
+
 ## [0.2.0](https://github.com/emu198x/emu198x/releases/tag/atari-pokey-v0.2.0) - 2026-06-04
 
 ### Added

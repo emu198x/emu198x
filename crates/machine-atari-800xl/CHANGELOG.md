@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Verify POKEY distortion signatures and linked-channel pitch through the complete Atari 800XL audio path
+
 ## [0.2.0](https://github.com/emu198x/emu198x/releases/tag/machine-atari-800xl-v0.2.0) - 2026-06-04
 
 ### Added
