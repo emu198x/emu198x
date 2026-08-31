@@ -16,21 +16,21 @@ default = ["ui"]
 ui = ["dep:emu198x-ui"]
 
 [dependencies]
-common-sinclair-zx-spectrum = { path = "../common-sinclair-zx-spectrum", version = "0.13.0" }
-emu198x-shell = { path = "../emu198x-shell", version = "0.13.0" }
-emu198x-ui = { path = "../emu198x-ui", version = "0.13.0", optional = true }
-format-sinclair-zx-spectrum-bas = { path = "../format-sinclair-zx-spectrum-bas", version = "0.13.0" }
-format-sinclair-zx-spectrum-sna = { path = "../format-sinclair-zx-spectrum-sna", version = "0.13.0" }
-format-sinclair-zx-spectrum-szx = { path = "../format-sinclair-zx-spectrum-szx", version = "0.13.0" }
-format-sinclair-zx-spectrum-z80 = { path = "../format-sinclair-zx-spectrum-z80", version = "0.13.0" }
-runtime-sinclair-zx-spectrum = { path = "../runtime-sinclair-zx-spectrum", version = "0.13.0" }
+common-sinclair-zx-spectrum = { path = "../common-sinclair-zx-spectrum", version = "0.14.0" }
+emu198x-shell = { path = "../emu198x-shell", version = "0.14.0" }
+emu198x-ui = { path = "../emu198x-ui", version = "0.14.0", optional = true }
+format-sinclair-zx-spectrum-bas = { path = "../format-sinclair-zx-spectrum-bas", version = "0.14.0" }
+format-sinclair-zx-spectrum-sna = { path = "../format-sinclair-zx-spectrum-sna", version = "0.14.0" }
+format-sinclair-zx-spectrum-szx = { path = "../format-sinclair-zx-spectrum-szx", version = "0.14.0" }
+format-sinclair-zx-spectrum-z80 = { path = "../format-sinclair-zx-spectrum-z80", version = "0.14.0" }
+runtime-sinclair-zx-spectrum = { path = "../runtime-sinclair-zx-spectrum", version = "0.14.0" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror.workspace = true
 emu198x-zilog-z80 = { path = "../emu198x-zilog-z80", version = "0.6.0" }
 
 [dev-dependencies]
-emu198x-test-skip = { path = "../emu198x-test-skip", version = "0.13.0" }
+emu198x-test-skip = { path = "../emu198x-test-skip", version = "0.14.0" }
 
 [lints]
 workspace = true

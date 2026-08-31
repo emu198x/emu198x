@@ -8,9 +8,9 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-common-tape = { path = "../common-tape", version = "0.13.0" }
-format-sinclair-zx-spectrum-snapshot = { path = "../format-sinclair-zx-spectrum-snapshot", version = "0.13.0" }
-gi-ay-3-8912 = { path = "../gi-ay-3-8912", version = "0.13.0" }
+common-tape = { path = "../common-tape", version = "0.14.0" }
+format-sinclair-zx-spectrum-snapshot = { path = "../format-sinclair-zx-spectrum-snapshot", version = "0.14.0" }
+gi-ay-3-8912 = { path = "../gi-ay-3-8912", version = "0.14.0" }
 serde = { workspace = true }
 serde-big-array = { workspace = true }
 thiserror = { workspace = true }

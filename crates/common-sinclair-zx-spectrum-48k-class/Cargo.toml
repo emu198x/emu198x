@@ -8,9 +8,9 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-common-sinclair-zx-spectrum = { path = "../common-sinclair-zx-spectrum", version = "0.13.0" }
-ferranti-ula-6c001e = { path = "../ferranti-ula-6c001e", version = "0.13.0" }
-peripheral-kempston-joystick = { path = "../peripheral-kempston-joystick", version = "0.13.0" }
+common-sinclair-zx-spectrum = { path = "../common-sinclair-zx-spectrum", version = "0.14.0" }
+ferranti-ula-6c001e = { path = "../ferranti-ula-6c001e", version = "0.14.0" }
+peripheral-kempston-joystick = { path = "../peripheral-kempston-joystick", version = "0.14.0" }
 serde = { workspace = true }
 emu198x-zilog-z80 = { path = "../emu198x-zilog-z80", version = "0.6.0" }
 

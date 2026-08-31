@@ -8,10 +8,10 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-amstrad-ula-40077 = { path = "../amstrad-ula-40077", version = "0.13.0" }
-common-sinclair-zx-spectrum = { path = "../common-sinclair-zx-spectrum", version = "0.13.0" }
-gi-ay-3-8912 = { path = "../gi-ay-3-8912", version = "0.13.0" }
-nec-upd765a = { path = "../nec-upd765a", version = "0.13.0" }
+amstrad-ula-40077 = { path = "../amstrad-ula-40077", version = "0.14.0" }
+common-sinclair-zx-spectrum = { path = "../common-sinclair-zx-spectrum", version = "0.14.0" }
+gi-ay-3-8912 = { path = "../gi-ay-3-8912", version = "0.14.0" }
+nec-upd765a = { path = "../nec-upd765a", version = "0.14.0" }
 serde = { workspace = true }
 emu198x-zilog-z80 = { path = "../emu198x-zilog-z80", version = "0.6.0" }
 

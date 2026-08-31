@@ -8,14 +8,14 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-atari-tia = { path = "../atari-tia", version = "0.13.0" }
+atari-tia = { path = "../atari-tia", version = "0.14.0" }
 emu198x-mos-6502 = { path = "../emu198x-mos-6502", version = "0.6.0" }
-mos-riot-6532 = { path = "../mos-riot-6532", version = "0.13.0" }
+mos-riot-6532 = { path = "../mos-riot-6532", version = "0.14.0" }
 serde = { workspace = true }
 serde-big-array = { workspace = true }
 
 [dev-dependencies]
-emu198x-test-skip = { path = "../emu198x-test-skip", version = "0.13.0" }
+emu198x-test-skip = { path = "../emu198x-test-skip", version = "0.14.0" }
 postcard = { workspace = true }
 
 [lints]
