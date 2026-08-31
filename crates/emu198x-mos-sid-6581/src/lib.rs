@@ -523,20 +523,30 @@ impl Sid6581 {
         std::mem::take(&mut self.buffer)
     }
 
-    /// Copy pending mixed samples into a caller-owned reusable buffer, then
-    /// clear the pending window without giving up either allocation.
+    /// Move pending mixed samples into a caller-owned reusable buffer, then
+    /// clear the complete pending window without giving up any allocation.
     ///
     /// Unlike [`Self::take_buffer`], repeated calls allocate nothing after
     /// `out` has grown to the largest window seen. Real-time consumers should
     /// keep one output vector and use this method at each frame boundary.
     pub fn drain_buffer_into(&mut self, out: &mut Vec<f32>) {
         out.clear();
-        out.extend_from_slice(&self.buffer);
-        self.buffer.clear();
+        out.append(&mut self.buffer);
+        for channel in &mut self.channel_buffers {
+            channel.clear();
+        }
     }
 
     pub fn take_channel_buffers(&mut self) -> [Vec<f32>; 3] {
         std::array::from_fn(|index| std::mem::take(&mut self.channel_buffers[index]))
+    }
+
+    /// Move all pending per-voice samples into reusable caller buffers.
+    pub fn drain_channel_buffers_into(&mut self, out: &mut [Vec<f32>; 3]) {
+        for (destination, source) in out.iter_mut().zip(&mut self.channel_buffers) {
+            destination.clear();
+            destination.append(source);
+        }
     }
 
     #[must_use]
