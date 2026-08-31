@@ -523,6 +523,18 @@ impl Sid6581 {
         std::mem::take(&mut self.buffer)
     }
 
+    /// Copy pending mixed samples into a caller-owned reusable buffer, then
+    /// clear the pending window without giving up either allocation.
+    ///
+    /// Unlike [`Self::take_buffer`], repeated calls allocate nothing after
+    /// `out` has grown to the largest window seen. Real-time consumers should
+    /// keep one output vector and use this method at each frame boundary.
+    pub fn drain_buffer_into(&mut self, out: &mut Vec<f32>) {
+        out.clear();
+        out.extend_from_slice(&self.buffer);
+        self.buffer.clear();
+    }
+
     pub fn take_channel_buffers(&mut self) -> [Vec<f32>; 3] {
         std::array::from_fn(|index| std::mem::take(&mut self.channel_buffers[index]))
     }
@@ -789,6 +801,26 @@ mod tests {
         let buffer = sid.take_buffer();
         assert!(!buffer.is_empty());
         assert_eq!(sid.buffer_len(), 0);
+    }
+
+    #[test]
+    fn reusable_drain_preserves_both_buffer_capacities() {
+        let mut sid = Sid6581::new(985_248, 48_000);
+        let mut out = Vec::new();
+        for _ in 0..20_000 {
+            sid.tick();
+        }
+        sid.drain_buffer_into(&mut out);
+        let internal_capacity = sid.buffer.capacity();
+        let output_capacity = out.capacity();
+        assert!(!out.is_empty());
+
+        for _ in 0..20_000 {
+            sid.tick();
+        }
+        sid.drain_buffer_into(&mut out);
+        assert_eq!(sid.buffer.capacity(), internal_capacity);
+        assert_eq!(out.capacity(), output_capacity);
     }
 
     #[test]
