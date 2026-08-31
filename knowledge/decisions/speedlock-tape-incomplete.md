@@ -1,6 +1,6 @@
 # Speedlock-tape loading incomplete
 
-**Status: Speedlock-5 and Speedlock-7 RESOLVED 2026-05-13. Speedlock-2 still open (different mechanism).** Root cause for the 5/7 cluster was a one-line bug in our TZX parser: `append_data_spans` read the *lower* N bits of a 0x14/0x11 block's last byte when `bits_in_last_byte = N < 8`, but the TZX spec stores partial last bytes left-justified (upper N bits). Speedlock-7's check-pattern block is a single byte `$E8` with `bits_in_last_byte = 6` — the loader expects the top six bits (`1 1 1 0 1 0`) to decode into `L = $3A`; we were delivering the bottom six bits (`1 0 1 0 0 0`) which built `L = $28`, missing the anti-tamper compare at `$fd6c` and firing the wipe. Fix: `for bit in (8-bits..8).rev()` instead of `for bit in (0..bits).rev()`. Op Wolf (Speedlock 7) and Bubble Bobble (Speedlock 5) now both clear the wipe; Bubble Bobble runs game code at PC=`$e8be` by frame 4000.
+**Status: Speedlock-2, Speedlock-5, and Speedlock-7 RESOLVED.** Speedlock-5/7 were fixed on 2026-05-13 by correcting partial-last-byte bit ordering. Speedlock-2 was fixed on 2026-08-31 by emitting TZX's required one-millisecond end-of-file terminating pulse. Head over Heels now clears the wipe and runs game code around `$75xx`.
 
 **Speedlock-7 has multi-layer anti-tamper; the bit-shift verifier fix only covers layer 1.** Eleven 48K Speedlock-7 catalogue entries now load cleanly (Op Wolf, RoboCop, Dragon Ninja, Combat School, Mikie, Nemesis, Rambo, Renegade, Salamander, Star Wars, plus Speedlock-5 Bubble Bobble), but Green Beret (ARCADE COLLECTION 02) still wedges with an all-black screen. The 2026-05-13 deeper trace established that Speedlock-7 has three independent wipe-trigger paths:
 
@@ -197,11 +197,11 @@ The Green Beret rip is degraded, in the strict sense that its block-7 pause is 4
 
 The Imagine 1986 [SpeedLock 2] standalone rip is the cleanest catalogue choice: original 1986 release, English, single-tape format, loads cleanly. Entry added at `crates/emu198x-catalogue/manifest/spectrum.toml::green-beret-tape-speedlock` (frame_hash `xxh64:7a0d72fd2dd56a21`, attract-silence audio).
 
-**Interesting wrinkle:** The working rip is labelled "[SpeedLock 2]" by the cataloguer. Head over Heels — our canonical Speedlock-2 wedge example — still fails (see Speedlock-2 section). Either this Green Beret rip is mislabelled, or Speedlock-2 has sub-variants that behave differently against our chip. Worth investigating if Speedlock-2 becomes a priority, but not blocking the catalogue today.
+**Interesting wrinkle:** The working rip is labelled "[SpeedLock 2]" by the cataloguer. At this point Head over Heels — our canonical Speedlock-2 wedge example — still failed (see the later resolution). The apparent sub-variant difference ultimately came from Head over Heels depending on the TZX end-of-file terminating pulse.
 
 **Final status:** Speedlock-7 cluster has 11 working entries plus Green Beret loaded from a different generation's rip. Catalogue at 81 entries. The chip-side timing audit (IO contention model verified within 1T per IN of spec) closes the chip side of the investigation regardless.
 
-**Speedlock-2 (Head over Heels) is a separate problem — but not the one we first thought.** The 2026-05-13 follow-up disassembly showed Speedlock-2 reuses Speedlock-7's byte-decoder loop verbatim (same code, just relocated to `$fd2c..$fd3b` instead of `$fcdb..$fce9`). Its TZX is a mix of `0x10` standard blocks, `0x12`/`0x13` pilot+sync sequences, and 11 `0x14` data blocks (all with `bits_last = 8`, so the partial-last-byte fix doesn't apply). The tape drains fully — all 835 729 spans consumed by frame 16000 — and only *then* does the loader give up: by frame 30000 the border is red, the canonical "tape verify failed" indicator. So the loader is decoding something wrong during the data pass. The fix needs deeper protocol analysis; see the bottom of this document for next-step pointers.
+**Speedlock-2 (Head over Heels) was a separate problem — but not the one we first thought.** The 2026-05-13 follow-up disassembly showed Speedlock-2 reuses Speedlock-7's byte-decoder loop verbatim (same code, just relocated to `$fd2c..$fd3b` instead of `$fcdb..$fce9`). Its TZX is a mix of `0x10` standard blocks, `0x12`/`0x13` pilot+sync sequences, and 11 `0x14` data blocks (all with `bits_last = 8`, so the partial-last-byte fix doesn't apply). The tape drained fully and the loader then fired its wipe. The 2026-08-31 resolution showed that the decoded data was correct: the absent TZX end-of-file terminating pulse made the final edge wait time out.
 
 The rest of this document is preserved as the investigation history. Skip to **Resolution** at the bottom for the full closing summary.
 
@@ -517,23 +517,24 @@ The trace harness at `crates/runtime-sinclair-zx-spectrum/tests/speedlock7_tape_
 
 Why this stayed hidden: every previously-loading TZX used either `bits_in_last_byte = 8` (the parser's correct path) or relied only on full bytes. Speedlock-7 was the first protection in our catalogue to use the partial-last-byte field for its anti-tamper signature, so the bug was effectively a Speedlock-tape-only failure mode.
 
-Speedlock-5 was verified to share the same construction (`bubble_bobble_loads_past_speedlock_wipe` clears the wipe and reaches game code at PC=`$e8be` by frame 4000). Speedlock-2 (Head over Heels) is unfixed but newly understood. The 2026-05-13 follow-up — `dump_speedlock2_head_over_heels_loader_bytes` + `dump_speedlock2_head_over_heels_tape_state` — established:
+Speedlock-5 was verified to share the same construction (`bubble_bobble_loads_past_speedlock_wipe` clears the wipe and reaches game code at PC=`$e8be` by frame 4000). The 2026-05-13 Speedlock-2 follow-up — `dump_speedlock2_head_over_heels_loader_bytes` + `dump_speedlock2_head_over_heels_tape_state` — established:
 
 1. Speedlock-2's byte-decoder loop is the **same code** as Speedlock-7's, relocated to `$fd2c..$fd3b` instead of `$fcdb..$fce9`. The family-level loader infrastructure is shared.
 2. The TZX contains 11 `0x14` data blocks (zero=565, one=1130, all `bits_last = 8`). The partial-last-byte fix doesn't apply.
 3. The loader successfully **drains the entire tape** — all 835 729 spans consumed by frame 16000 — then keeps polling EAR in `$fd2c..$fd3b` for pulses that aren't coming. By frame 30000 the border is red (the canonical "verify failed" indicator).
 
-So Speedlock-2 isn't a wedge in pre-check, it's a *post-load verify failure*. Likely candidates: (a) the `0x13` pulse-sequence triplets `[1502, 740, 1394]` between data blocks aren't being interpreted correctly as sync markers, so the loader reads data into the wrong destination; (b) the loader's running checksum across all 11 data blocks doesn't match because some byte decoded wrong (a different kind of partial-byte / endian / encoding issue we haven't yet found); (c) the tape decodes correctly but a final post-load handoff (e.g. a `JP HL` to a computed address) goes to the wrong place. To narrow, the next investigator should disassemble the post-data-pass code at `$fd3c..$fda0` and the JP target sourced from the last bytes loaded.
+The 2026-08-31 trace found the exact failure at `$ff7e..$ff88`: the final edge reader timed out with `H=$c9`, then called the wipe at `$fd20`. The data was sound; the parser simply stopped after the final zero-pause data block. TZX playback requires a one-millisecond terminating pulse at end-of-file because valid images may omit a final pause. Appending that pulse lets the edge reader return, after which Head over Heels reaches game code around `$75xx` by frame 16000.
 
 Regression coverage:
 
 - `pure_data_partial_last_byte_uses_upper_bits` (TZX parser unit test): pins the correct bit ordering for byte `$E8` with `bits_last = 6`.
+- `end_of_file_adds_one_millisecond_terminating_pulse` (TZX parser unit test): pins the Speedlock-2 fix.
 - `opwolf_loads_past_speedlock_wipe` (runtime): Op Wolf clears the wipe.
 - `bubble_bobble_loads_past_speedlock_wipe` (runtime): Bubble Bobble clears the wipe.
-- `head_over_heels_speedlock2_status` (runtime, diagnostic-only): records that Head over Heels still wedges; flips to "alive" output when Speedlock-2 is fixed.
+- `head_over_heels_speedlock2_reaches_game_code` (runtime, external fixture): Head over Heels drains the tape and reaches `$70xx..$7fxx` game code.
 
 Catalogue entries unlocked by this fix:
 
 - Speedlock-7 cluster: Op Wolf, RoboCop, Where Time Stood Still, Bad Dudes vs Dragon Ninja (Hit Squad re-releases).
 - Speedlock-5: Bubble Bobble (Hit Squad re-release).
-- Still blocked: Head over Heels (Speedlock-2), plus other Speedlock-2 titles in the reference library (Super Bowl, Leader Board, etc.).
+- Speedlock-2: Head over Heels; other reference-library titles can now be surveyed for catalogue promotion.
