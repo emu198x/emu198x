@@ -48,7 +48,9 @@ const REFRESH_DMA_CYCLES: u8 = 9;
 /// beam position instead of being shoved late by a front-loaded block. When
 /// the budget exceeds the window (heavy character modes), the overflow spills
 /// into the cycles immediately before `CYCLES_HSTART`. Exactly `dma_budget`
-/// cycles are stolen either way, preserving the per-line cycle count.
+/// cycles are stolen either way, preserving the per-line cycle count — up to
+/// `CYCLES_HSYNC`, which is all a line has. Above that the CPU gets nothing
+/// until the line ends, and the excess is simply lost.
 ///
 /// This is an approximation: the *exact* per-character fetch positions are
 /// mode-dependent and not modelled (a relaxation MAME shares — it block-steals
@@ -60,9 +62,13 @@ pub fn cpu_dma_stalled(line_cycle: u16, dma_budget: u16) -> bool {
     }
     let window = CYCLES_HSYNC - CYCLES_HSTART; // 72 fetch cycles
     if dma_budget >= window {
-        // Steal the whole window plus the overflow just before it.
+        // Steal the whole window plus the overflow just before it. A line has
+        // only `CYCLES_HSYNC` cycles to give, so a budget past that takes
+        // every one of them and no more — the first scan line of a wide mode 2
+        // line asks for 108.
         let overflow = dma_budget - window;
-        return line_cycle > CYCLES_HSTART - overflow && line_cycle <= CYCLES_HSYNC;
+        let start = CYCLES_HSTART.saturating_sub(overflow);
+        return line_cycle > start && line_cycle <= CYCLES_HSYNC;
     }
     // Even spread across (CYCLES_HSTART, CYCLES_HSYNC]: steal on cycle c when
     // the running count floor(pos·budget/window) advances.
@@ -1479,6 +1485,39 @@ mod tests {
         assert_eq!(result.playfield[0..4], [1, 1, 1, 1]);
         assert_eq!(result.playfield[4..8], [2, 2, 2, 2]);
         assert_eq!(result.playfield[8..12], [0, 0, 0, 0]);
+    }
+
+    /// The first scan line of a wide mode 2 line asks for more DMA than the
+    /// line can spare: 48 character codes, 48 character-data bytes, 9 refresh
+    /// and 1 display-list cycle. Subtracting that from the fetch window's
+    /// start used to underflow — a panic in debug, and in release a wrapped
+    /// comparison that reported no stall at all on exactly the lines where
+    /// ANTIC holds the CPU for nearly the whole line.
+    #[test]
+    fn a_budget_larger_than_the_line_stalls_every_cycle_it_can() {
+        let mut ram = make_ram();
+        let mut antic = Antic::new(AnticRegion::Ntsc);
+
+        ram[0x4000] = 0x42; // mode 2 + LMS
+        ram[0x4001] = 0x00;
+        ram[0x4002] = 0x80;
+
+        antic.write(0x00, 0x23); // DMACTL: DL DMA + wide playfield
+        antic.write(0x02, 0x00);
+        antic.write(0x03, 0x40);
+        antic.scan_line = VISIBLE_START;
+
+        let budget = u16::from(antic.process_line(&ram).dma_cycles);
+        assert!(
+            budget > CYCLES_HSYNC,
+            "budget {budget} should exceed the line"
+        );
+
+        assert_eq!(count_stalls(budget), CYCLES_HSYNC);
+        assert!(!cpu_dma_stalled(0, budget));
+        assert!(cpu_dma_stalled(1, budget));
+        assert!(cpu_dma_stalled(CYCLES_HSYNC, budget));
+        assert!(!cpu_dma_stalled(CYCLES_HSYNC + 1, budget));
     }
 
     #[test]
