@@ -27,8 +27,11 @@ ROMs (all required):
 Hardware:
     --region MODE              ntsc | pal [default: pal]
     --ram-expansion-kb N       0 (unexpanded) / 3 (low) / 3+N (high) [default: 0]
-    --prg PATH                 inject a .PRG after boot and auto-RUN it (match
-                               RAM to the load address, e.g. +8K for $1201)
+    --prg PATH                 inject a .PRG after boot and auto-RUN it. A
+                               canonical BASIC load address raises the
+                               expansion to its minimum if needed ($0401 -> 3,
+                               $1201 -> 11); a larger --ram-expansion-kb is
+                               kept, so pass 19 or 27 for a 16K/24K program
     --prg-sys                  launch the --prg with SYS <load-addr> (machine
                                code) instead of RUN (BASIC)
     --esp-at-tcp               attach an ESP-AT modem (9600 baud initially,
