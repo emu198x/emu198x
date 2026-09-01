@@ -261,7 +261,14 @@ pub struct Gtia {
 
     // -- Player/missile graphics --
     grafp: [u8; 4], // GRAFPx: 8-bit player graphic patterns
-    grafm: u8,      // GRAFM: 2-bit missile graphic patterns
+    /// Last DMA bytes held back for objects whose VDELAY bit is set. In the
+    /// two-line display GTIA latches a delayed object one line later, so the
+    /// previous byte stays on screen for the extra line.
+    #[serde(default)]
+    vdelay_pending_grafp: [u8; 4],
+    #[serde(default)]
+    vdelay_pending_grafm: u8,
+    grafm: u8, // GRAFM: 2-bit missile graphic patterns
 
     // -- Control --
     prior: u8,  // PRIOR: priority and GTIA mode select
@@ -276,6 +283,10 @@ pub struct Gtia {
 
     // -- Trigger inputs --
     trig: [u8; 4], // TRIG0-TRIG3: 1=released, 0=pressed
+    /// Triggers held at "pressed" by GRACTL bit 2. Latching is all-or-nothing
+    /// across the four inputs and is released only by clearing that bit.
+    #[serde(default)]
+    trig_latched: [bool; 4],
 
     // -- Console --
     // CONSOL is split: writes drive an output latch (bit 3 = speaker), while
@@ -333,6 +344,8 @@ impl Gtia {
             sizep: [0; 4],
             sizem: 0,
             grafp: [0; 4],
+            vdelay_pending_grafp: [0; 4],
+            vdelay_pending_grafm: 0,
             grafm: 0,
             prior: 0,
             vdelay: 0,
@@ -342,6 +355,7 @@ impl Gtia {
             m_pl: [0; 4],
             p_pl: [0; 4],
             trig: [1; 4], // all released
+            trig_latched: [false; 4],
             consol_out: 0x00,
             console_switches: 0x07, // all buttons released (active low)
             sl_visible: false,
@@ -382,7 +396,22 @@ impl Gtia {
             0x1A => self.colbk = value,
             0x1B => self.prior = value,
             0x1C => self.vdelay = value,
-            0x1D => self.gractl = value,
+            0x1D => {
+                self.gractl = value;
+                // "all TRIG BITs 0 are latched when the button is pressed and
+                // are only reset to one when BIT 2 of GRACTL is reset to zero"
+                // — Mapping the Atari, TRIG0. Latching is all-or-nothing: the
+                // book notes you cannot set it for individual triggers.
+                if self.trigger_latching() {
+                    for i in 0..NUM_PLAYERS {
+                        if self.trig[i] == 0 {
+                            self.trig_latched[i] = true;
+                        }
+                    }
+                } else {
+                    self.trig_latched = [false; 4];
+                }
+            }
             0x1E => {
                 // HITCLR — clear all collision registers
                 self.m_pf = [0; 4];
@@ -410,7 +439,14 @@ impl Gtia {
             0x08..=0x0B => self.m_pl[(reg - 0x08) as usize],
             0x0C..=0x0F => self.p_pl[(reg - 0x0C) as usize],
             // Triggers
-            0x10..=0x13 => self.trig[(reg - 0x10) as usize],
+            0x10..=0x13 => {
+                let i = (reg - 0x10) as usize;
+                if self.trig_latched[i] {
+                    0
+                } else {
+                    self.trig[i]
+                }
+            }
             // PAL register — which television standard this chip feeds.
             0x14 => self.pal,
             // CONSOL — switch inputs (bits 0-2, active low); bit 3 reads back
@@ -442,6 +478,58 @@ impl Gtia {
     pub const fn colpm_values(&self) -> [u8; 4] {
         self.colpm
     }
+    /// Accept one line of player/missile DMA from ANTIC.
+    ///
+    /// GRACTL decides whether the DMA data reaches the graphics registers at
+    /// all: bit 0 admits missiles, bit 1 admits players. With a bit clear the
+    /// register keeps whatever the CPU last wrote, which is how software drives
+    /// players with DMA switched off. Source: Master Memory Map (1982), GRACTL
+    /// — "For Missile DMA, add 1. For Player DMA, add 2."
+    ///
+    /// VDELAY then shifts an object down one TV line, but only in the two-line
+    /// display: "Used to give one-line resolution movement capability in the
+    /// vertical positioning of an object when the two line resolution display
+    /// is enabled" (Mapping the Atari, $D01C). Bits 4-7 are players 0-3, bits
+    /// 0-3 missiles 0-3. A delayed object latches the previous line's byte and
+    /// holds this one back, which is the shift.
+    pub fn accept_pm_dma(&mut self, players: [u8; 4], missiles: u8, single_line: bool) {
+        let delay = !single_line;
+        if self.gractl & 0x02 != 0 {
+            for (p, &incoming) in players.iter().enumerate() {
+                let delayed = delay && (self.vdelay & (0x10 << p)) != 0;
+                self.grafp[p] = if delayed {
+                    self.vdelay_pending_grafp[p]
+                } else {
+                    incoming
+                };
+                self.vdelay_pending_grafp[p] = incoming;
+            }
+        }
+        if self.gractl & 0x01 != 0 {
+            // GRAFM packs all four missiles, two bits each, so a delayed
+            // missile takes its own pair from the held byte.
+            let mut out = 0u8;
+            for m in 0..4 {
+                let mask = 0x03 << (m * 2);
+                let delayed = delay && (self.vdelay & (1 << m)) != 0;
+                let source = if delayed {
+                    self.vdelay_pending_grafm
+                } else {
+                    missiles
+                };
+                out |= source & mask;
+            }
+            self.grafm = out;
+            self.vdelay_pending_grafm = missiles;
+        }
+    }
+
+    /// Current GRAFPx pattern (write-only; debug accessor).
+    #[must_use]
+    pub const fn grafp_value(&self, player: usize) -> u8 {
+        self.grafp[player]
+    }
+
     /// Current GRACTL value (write-only; debug accessor).
     #[must_use]
     pub const fn gractl_value(&self) -> u8 {
@@ -462,7 +550,15 @@ impl Gtia {
     pub fn set_trigger(&mut self, index: u8, pressed: bool) {
         if (index as usize) < NUM_PLAYERS {
             self.trig[index as usize] = u8::from(!pressed);
+            if pressed && self.trigger_latching() {
+                self.trig_latched[index as usize] = true;
+            }
         }
+    }
+
+    /// Whether GRACTL bit 2 is holding pressed triggers.
+    const fn trigger_latching(&self) -> bool {
+        self.gractl & 0x04 != 0
     }
 
     /// Set the console-switch inputs read via CONSOL ($D01F), bits 0-2 =
@@ -960,6 +1056,8 @@ impl Gtia {
         data.extend_from_slice(&self.sizep);
         data.push(self.sizem);
         data.extend_from_slice(&self.grafp);
+        data.extend_from_slice(&self.vdelay_pending_grafp);
+        data.push(self.vdelay_pending_grafm);
         data.push(self.grafm);
         data.push(self.prior);
         data.push(self.vdelay);
@@ -969,6 +1067,9 @@ impl Gtia {
         data.extend_from_slice(&self.m_pl);
         data.extend_from_slice(&self.p_pl);
         data.extend_from_slice(&self.trig);
+        for latched in self.trig_latched {
+            data.push(u8::from(latched));
+        }
         data.push(self.consol_out);
         data.push(self.console_switches);
         data
@@ -1000,6 +1101,10 @@ impl Gtia {
         p += 1;
         self.grafp.copy_from_slice(&data[p..p + 4]);
         p += 4;
+        self.vdelay_pending_grafp.copy_from_slice(&data[p..p + 4]);
+        p += 4;
+        self.vdelay_pending_grafm = data[p];
+        p += 1;
         self.grafm = data[p];
         p += 1;
         self.prior = data[p];
@@ -1017,6 +1122,10 @@ impl Gtia {
         self.p_pl.copy_from_slice(&data[p..p + 4]);
         p += 4;
         self.trig.copy_from_slice(&data[p..p + 4]);
+        p += 4;
+        for i in 0..NUM_PLAYERS {
+            self.trig_latched[i] = data[p + i] != 0;
+        }
         p += 4;
         self.consol_out = data[p];
         p += 1;
@@ -1415,6 +1524,134 @@ mod tests {
         assert_eq!(
             gtia.framebuffer().len(),
             (GtiaRegion::Pal.framebuffer_width() * GtiaRegion::Pal.framebuffer_height()) as usize
+        );
+    }
+
+    /// GRACTL: bit 0 admits missile DMA, bit 1 player DMA (Master Memory Map).
+    const GRACTL_MISSILES: u8 = 0x01;
+    const GRACTL_PLAYERS: u8 = 0x02;
+    const TWO_LINE: bool = false;
+    const ONE_LINE: bool = true;
+
+    /// GRACTL bit 2 latches the trigger inputs.
+    const GRACTL_LATCH: u8 = 0x04;
+
+    #[test]
+    fn a_latched_trigger_reads_pressed_until_gractl_releases_it() {
+        // "all TRIG BITs 0 are latched when the button is pressed and are only
+        // reset to one when BIT 2 of GRACTL is reset to zero" — Mapping the
+        // Atari, TRIG0.
+        let mut gtia = Gtia::new(GtiaRegion::Ntsc);
+        gtia.write(0x1D, GRACTL_LATCH);
+
+        gtia.set_trigger(0, true);
+        assert_eq!(gtia.read(0x10), 0, "pressed");
+        gtia.set_trigger(0, false);
+        assert_eq!(gtia.read(0x10), 0, "still reads pressed while latched");
+
+        gtia.write(0x1D, 0x00);
+        assert_eq!(gtia.read(0x10), 1, "clearing bit 2 releases the latch");
+    }
+
+    #[test]
+    fn triggers_follow_the_button_when_latching_is_off() {
+        let mut gtia = Gtia::new(GtiaRegion::Ntsc);
+        gtia.set_trigger(1, true);
+        assert_eq!(gtia.read(0x11), 0);
+        gtia.set_trigger(1, false);
+        assert_eq!(gtia.read(0x11), 1, "no latch, so the release shows");
+    }
+
+    #[test]
+    fn enabling_the_latch_catches_a_button_already_held() {
+        let mut gtia = Gtia::new(GtiaRegion::Ntsc);
+        gtia.set_trigger(2, true);
+        gtia.write(0x1D, GRACTL_LATCH);
+        gtia.set_trigger(2, false);
+        assert_eq!(gtia.read(0x12), 0, "the held button latched on enable");
+    }
+
+    #[test]
+    fn latching_is_all_four_triggers_or_none() {
+        // "you cannot set the latch mode for individual triggers" — Mapping
+        // the Atari, GRACTL.
+        let mut gtia = Gtia::new(GtiaRegion::Ntsc);
+        gtia.write(0x1D, GRACTL_LATCH);
+        for i in 0..4u8 {
+            gtia.set_trigger(i, true);
+            gtia.set_trigger(i, false);
+            assert_eq!(gtia.read(0x10 + i), 0, "trigger {i} latched");
+        }
+        gtia.write(0x1D, 0x00);
+        for i in 0..4u8 {
+            assert_eq!(gtia.read(0x10 + i), 1, "trigger {i} released together");
+        }
+    }
+
+    #[test]
+    fn dma_is_ignored_until_gractl_admits_it() {
+        let mut gtia = Gtia::new(GtiaRegion::Ntsc);
+        // The CPU has written a pattern directly; DMA is off, so it stands.
+        gtia.write(0x0D, 0xAA);
+        gtia.write(0x11, 0x55);
+        gtia.accept_pm_dma([0xFF; 4], 0xFF, ONE_LINE);
+        assert_eq!(gtia.grafp[0], 0xAA, "players need GRACTL bit 1");
+        assert_eq!(gtia.grafm, 0x55, "missiles need GRACTL bit 0");
+
+        gtia.write(0x1D, GRACTL_PLAYERS);
+        gtia.accept_pm_dma([0x3C; 4], 0xFF, ONE_LINE);
+        assert_eq!(gtia.grafp[0], 0x3C, "players admitted");
+        assert_eq!(gtia.grafm, 0x55, "missiles still not admitted");
+
+        gtia.write(0x1D, GRACTL_PLAYERS | GRACTL_MISSILES);
+        gtia.accept_pm_dma([0x3C; 4], 0x99, ONE_LINE);
+        assert_eq!(gtia.grafm, 0x99, "missiles admitted");
+    }
+
+    #[test]
+    fn vdelay_holds_a_player_back_one_line() {
+        let mut gtia = Gtia::new(GtiaRegion::Ntsc);
+        gtia.write(0x1D, GRACTL_PLAYERS);
+        gtia.write(0x1C, 0x20); // VDELAY bit 5 = player 1
+
+        gtia.accept_pm_dma([0x11, 0x11, 0x11, 0x11], 0, TWO_LINE);
+        assert_eq!(gtia.grafp[0], 0x11, "player 0 is not delayed");
+        assert_eq!(gtia.grafp[1], 0x00, "player 1 shows the previous line");
+
+        gtia.accept_pm_dma([0x22, 0x22, 0x22, 0x22], 0, TWO_LINE);
+        assert_eq!(gtia.grafp[0], 0x22, "player 0 keeps up");
+        assert_eq!(gtia.grafp[1], 0x11, "player 1 trails by one line");
+    }
+
+    #[test]
+    fn vdelay_does_nothing_in_the_one_line_display() {
+        // "when the two line resolution display is enabled" — Mapping the
+        // Atari, $D01C. One-line P/M already has per-line positioning.
+        let mut gtia = Gtia::new(GtiaRegion::Ntsc);
+        gtia.write(0x1D, GRACTL_PLAYERS);
+        gtia.write(0x1C, 0xFF); // every object delayed
+        gtia.accept_pm_dma([0x11; 4], 0, ONE_LINE);
+        assert_eq!(gtia.grafp, [0x11; 4], "no delay at one-line resolution");
+    }
+
+    #[test]
+    fn vdelay_delays_one_missile_without_disturbing_its_neighbours() {
+        // GRAFM packs four missiles at two bits each, so a delayed missile
+        // must take only its own pair from the held byte.
+        let mut gtia = Gtia::new(GtiaRegion::Ntsc);
+        gtia.write(0x1D, GRACTL_MISSILES);
+        gtia.write(0x1C, 0x02); // VDELAY bit 1 = missile 1
+
+        gtia.accept_pm_dma([0; 4], 0b1111_1111, TWO_LINE);
+        assert_eq!(
+            gtia.grafm, 0b1111_0011,
+            "missile 1's pair still shows the previous line's zeros"
+        );
+
+        gtia.accept_pm_dma([0; 4], 0b0000_0000, TWO_LINE);
+        assert_eq!(
+            gtia.grafm, 0b0000_1100,
+            "missile 1's pair trails by one line while the others keep up"
         );
     }
 

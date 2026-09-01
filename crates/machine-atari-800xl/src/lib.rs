@@ -369,10 +369,14 @@ impl Atari800xl {
     fn start_scan_line(&mut self) {
         let result = self.antic.process_line(&self.antic_mem);
         if result.pm_dma {
-            for i in 0..4 {
-                self.gtia.write(0x0D + i as u8, result.player_data[i]);
-            }
-            self.gtia.write(0x11, result.missile_data);
+            // GRACTL decides whether this DMA reaches the graphics registers,
+            // and VDELAY whether an object is held back a line; both live in
+            // GTIA, so hand the line over rather than poking the registers.
+            self.gtia.accept_pm_dma(
+                result.player_data,
+                result.missile_data,
+                result.pm_single_line,
+            );
         }
         let line = self.antic.scan_line().saturating_sub(1);
         let visible_line = line.wrapping_sub(8);
