@@ -25,7 +25,8 @@
 //! - **Cart ROM:** up to 8 KB at `$E000-$FFFF`
 //! - **Display:** 352×232 (40×25 8×8 characters plus a two-cell border), TEA1002 16-colour
 //!   palette
-//! - **Sound:** 1-bit internal speaker (port `$FF` bit 0)
+//! - **Sound:** 1-bit internal speaker (port `$FC` bit 0, the pin it
+//!   shares with cassette output)
 //!
 //! # Memory map
 //!
@@ -46,10 +47,11 @@
 //! |-------|-------|-----------------------------------------------------|
 //! | `$F6` | r/w   | Mini Expander AY-3-8910 data (controllers on R14/R15)|
 //! | `$F7` | write | Mini Expander AY-3-8910 register select              |
-//! | `$FC` | r/w   | Cassette (stub)                                     |
+//! | `$FC` | write | Cassette out + 1-bit speaker on bit 0 (common pin)  |
+//! | `$FC` | read  | Cassette in (stub)                                  |
 //! | `$FE` | r/w   | Printer status (read) / data (write) — stub         |
 //! | `$FF` | read  | Keyboard column read; rows selected by addr A8-A15  |
-//! | `$FF` | write | Scrambler latch + 1-bit speaker on bit 0            |
+//! | `$FF` | write | Software-lock (scrambler) latch                     |
 //!
 //! # Keyboard
 //!
@@ -253,8 +255,9 @@ pub struct Aquarius {
     cart_rom: Vec<u8>,
     /// 8 rows × 6 columns matrix; active-low (1 = released).
     key_matrix: [u8; NUM_KEY_ROWS],
+    /// Level on the shared sound/cassette pin, latched by a write to `$FC`.
     speaker_bit: bool,
-    /// 1-bit speaker waveform, sampled from the port `$FF` bit 0 latch at the
+    /// 1-bit speaker waveform, sampled from the port `$FC` bit 0 latch at the
     /// audio output rate. Drained each frame by
     /// [`Aquarius::take_audio_buffer`]; regenerated live, so it is not part of
     /// the snapshot.
@@ -383,7 +386,7 @@ impl Aquarius {
         self.tick_audio();
     }
 
-    /// Sample the 1-bit speaker (port `$FF` bit 0) into the audio buffer,
+    /// Sample the 1-bit speaker (port `$FC` bit 0) into the audio buffer,
     /// downsampling the CPU clock to the 48 kHz output rate with a fractional
     /// accumulator. A high bit drives the cone one way, low the other, so a
     /// program toggling the latch makes a square-wave tone.
@@ -572,12 +575,12 @@ impl Aquarius {
                 self.psg.write_data(value);
             }
             0xF7 => self.psg.select_register(value),
-            0xFC => {} // Cassette (stub).
+            // Sound and cassette share one physical pin, so a write here is
+            // both: the level the tape sees is the level the speaker hears.
+            // Only the speaker side is modelled; cassette output is a stub.
+            0xFC => self.speaker_bit = value & 0x01 != 0,
             0xFE => {} // Printer data stub.
-            0xFF => {
-                self.scrambler = value;
-                self.speaker_bit = value & 0x01 != 0;
-            }
+            0xFF => self.scrambler = value,
             _ => {}
         }
     }
@@ -728,7 +731,7 @@ impl Aquarius {
         self.cpu_tstates
     }
 
-    /// Current speaker bit (1-bit audio).
+    /// Current level on the shared sound/cassette pin (`$FC` bit 0).
     #[must_use]
     pub fn speaker_bit(&self) -> bool {
         self.speaker_bit
@@ -888,7 +891,7 @@ mod tests {
         let mut rom = vec![0u8; 0x2000];
         rom[0x0000..0x000B].copy_from_slice(&[
             0xAF, // XOR A          ; speaker level starts low
-            0xD3, 0xFF, // OUT ($FF),A   ; drive the speaker latch
+            0xD3, 0xFC, // OUT ($FC),A   ; drive the sound/cassette pin
             0x06, 0x00, // LD B,0        ; 256 delay iterations
             0x10, 0xFE, // DJNZ -2
             0xEE, 0x01, // XOR $01       ; flip the level
@@ -957,12 +960,23 @@ mod tests {
     }
 
     #[test]
-    fn writing_ff_drives_speaker_bit() {
+    fn writing_fc_drives_the_sound_pin() {
         let mut sys = Aquarius::new(trap_rom(), 0, AquariusRegion::Ntsc);
-        sys.io_write(0xFF, 0x01);
+        sys.io_write(0x00FC, 0x01);
         assert!(sys.speaker_bit());
-        sys.io_write(0xFF, 0x00);
+        sys.io_write(0x00FC, 0x00);
         assert!(!sys.speaker_bit());
+    }
+
+    #[test]
+    fn writing_ff_latches_the_software_lock_and_leaves_the_speaker_alone() {
+        // $FF is the software-lock (scrambler) pattern and the keyboard port.
+        // An earlier model also drove the speaker from it, which is why the
+        // machine stayed silent through its own boot beep.
+        let mut sys = Aquarius::new(trap_rom(), 0, AquariusRegion::Ntsc);
+        sys.io_write(0x00FC, 0x01);
+        sys.io_write(0x00FF, 0x00);
+        assert!(sys.speaker_bit(), "$FF must not touch the sound pin");
     }
 
     #[test]

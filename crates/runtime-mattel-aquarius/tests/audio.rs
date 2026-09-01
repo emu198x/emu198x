@@ -15,7 +15,7 @@ fn beeper_rom() -> Vec<u8> {
     let mut rom = vec![0u8; 0x2000];
     rom[0x0000..0x000B].copy_from_slice(&[
         0xAF, // XOR A          ; speaker level starts low
-        0xD3, 0xFF, // OUT ($FF),A   ; drive the speaker latch
+        0xD3, 0xFC, // OUT ($FC),A   ; drive the sound/cassette pin
         0x06, 0x00, // LD B,0        ; 256 delay iterations
         0x10, 0xFE, // DJNZ -2
         0xEE, 0x01, // XOR $01       ; flip the level
