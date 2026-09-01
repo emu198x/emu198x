@@ -28,7 +28,7 @@ Display:
 
 Capture:
     --screenshot PATH          write the last emitted frame as PNG
-    --audio-capture PATH       write emitted audio as WAV (silent — PET has no audio)
+    --audio-capture PATH       write emitted audio as WAV (CB2 piezo)
 
 Shared:
     --script PATH              execute shared JSON session steps

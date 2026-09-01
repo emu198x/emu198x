@@ -286,11 +286,16 @@ impl MachineCore for PetRuntime {
                 pixels: &self.rgba_framebuffer,
             })?;
 
+            let audio = self
+                .machine
+                .as_mut()
+                .expect("machine checked above")
+                .take_audio_buffer();
             host.audio_sink.push_audio(AudioPacket {
                 timestamp: self.time,
                 sample_rate: AUDIO_SAMPLE_RATE,
                 channels: 1,
-                samples: &[],
+                samples: &audio,
             })?;
         }
 
