@@ -4,6 +4,23 @@ All notable changes to Emu198x will be documented in this file.
 
 Format loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 not strictly. Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [0.16.0] - 2026-09-01
+
+
+### Added
+
+- *(aquarius)* Give the machine its voice
+- *(pet)* Give the machine its voice
+- *(pet)* Let the PET load a program instead of only typing one
+- *(jupiter-ace)* Load .ace snapshots
+
+
+### Fixed
+
+- *(vic-20)* Give a $1201 PRG the whole 8K expansion block
+- **Breaking** — *(vic-20)* Model each RAM expansion cartridge independently
+- *(aquarius)* Move the speaker to the pin the hardware puts it on
+
 ## [0.15.0] - 2026-09-01
 
 

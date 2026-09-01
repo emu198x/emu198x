@@ -8,8 +8,8 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-emu198x-shell = { path = "../emu198x-shell", version = "0.15.0" }
-machine-commodore-pet = { path = "../machine-commodore-pet", version = "0.15.0" }
+emu198x-shell = { path = "../emu198x-shell", version = "0.16.0" }
+machine-commodore-pet = { path = "../machine-commodore-pet", version = "0.16.0" }
 postcard = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
