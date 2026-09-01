@@ -8,16 +8,16 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-common-acorn-cassette = { path = "../common-acorn-cassette", version = "0.15.0" }
+common-acorn-cassette = { path = "../common-acorn-cassette", version = "0.16.0" }
 emu198x-mos-6502 = { path = "../emu198x-mos-6502", version = "0.6.0" }
-mos-via-6522 = { path = "../mos-via-6522", version = "0.15.0" }
-motorola-6845 = { path = "../motorola-6845", version = "0.15.0" }
-ti-sn76489 = { path = "../ti-sn76489", version = "0.15.0" }
+mos-via-6522 = { path = "../mos-via-6522", version = "0.16.0" }
+motorola-6845 = { path = "../motorola-6845", version = "0.16.0" }
+ti-sn76489 = { path = "../ti-sn76489", version = "0.16.0" }
 serde = { workspace = true }
 serde-big-array = { workspace = true }
 
 [dev-dependencies]
-format-acorn-uef = { path = "../format-acorn-uef", version = "0.15.0" }
+format-acorn-uef = { path = "../format-acorn-uef", version = "0.16.0" }
 postcard = { workspace = true }
 
 [lints]
