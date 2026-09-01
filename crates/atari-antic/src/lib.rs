@@ -143,6 +143,12 @@ struct ModeDesc {
     char_mode: bool,
     /// Bits per pixel (1, 2, or 4 for colour-clock grouping).
     bits_per_pixel: u8,
+    /// Colour clocks one pixel of this mode covers. ANTIC repeats each pixel
+    /// across them so `LineResult::playfield` is always one entry per colour
+    /// clock — the contract GTIA reads it on. Cannot be derived from
+    /// `bits_per_pixel`: modes 4 and 5 carry 1 there yet emit four pixels per
+    /// byte, modes 6 and 7 carry 2 yet emit eight.
+    cc_per_pixel: u8,
     /// Corresponding `AnticMode` for GTIA.
     antic_mode: AnticMode,
 }
@@ -156,6 +162,7 @@ const fn mode_desc(mode: u8) -> Option<ModeDesc> {
             scan_lines_per_row: 8,
             char_mode: true,
             bits_per_pixel: 1,
+            cc_per_pixel: 1,
             antic_mode: AnticMode::Mode2,
         }),
         0x03 => Some(ModeDesc {
@@ -163,6 +170,7 @@ const fn mode_desc(mode: u8) -> Option<ModeDesc> {
             scan_lines_per_row: 10,
             char_mode: true,
             bits_per_pixel: 1,
+            cc_per_pixel: 1,
             antic_mode: AnticMode::Mode3,
         }),
         0x04 => Some(ModeDesc {
@@ -170,6 +178,7 @@ const fn mode_desc(mode: u8) -> Option<ModeDesc> {
             scan_lines_per_row: 8,
             char_mode: true,
             bits_per_pixel: 1,
+            cc_per_pixel: 1,
             antic_mode: AnticMode::Mode4,
         }),
         0x05 => Some(ModeDesc {
@@ -177,6 +186,7 @@ const fn mode_desc(mode: u8) -> Option<ModeDesc> {
             scan_lines_per_row: 16,
             char_mode: true,
             bits_per_pixel: 1,
+            cc_per_pixel: 1,
             antic_mode: AnticMode::Mode5,
         }),
         0x06 => Some(ModeDesc {
@@ -184,6 +194,7 @@ const fn mode_desc(mode: u8) -> Option<ModeDesc> {
             scan_lines_per_row: 8,
             char_mode: true,
             bits_per_pixel: 2,
+            cc_per_pixel: 1,
             antic_mode: AnticMode::Mode6,
         }),
         0x07 => Some(ModeDesc {
@@ -191,6 +202,7 @@ const fn mode_desc(mode: u8) -> Option<ModeDesc> {
             scan_lines_per_row: 16,
             char_mode: true,
             bits_per_pixel: 2,
+            cc_per_pixel: 1,
             antic_mode: AnticMode::Mode7,
         }),
         0x08 => Some(ModeDesc {
@@ -198,6 +210,7 @@ const fn mode_desc(mode: u8) -> Option<ModeDesc> {
             scan_lines_per_row: 8,
             char_mode: false,
             bits_per_pixel: 2,
+            cc_per_pixel: 4,
             antic_mode: AnticMode::Mode8,
         }),
         0x09 => Some(ModeDesc {
@@ -205,6 +218,7 @@ const fn mode_desc(mode: u8) -> Option<ModeDesc> {
             scan_lines_per_row: 4,
             char_mode: false,
             bits_per_pixel: 1,
+            cc_per_pixel: 2,
             antic_mode: AnticMode::Mode9,
         }),
         0x0A => Some(ModeDesc {
@@ -212,6 +226,7 @@ const fn mode_desc(mode: u8) -> Option<ModeDesc> {
             scan_lines_per_row: 4,
             char_mode: false,
             bits_per_pixel: 2,
+            cc_per_pixel: 2,
             antic_mode: AnticMode::ModeA,
         }),
         0x0B => Some(ModeDesc {
@@ -219,6 +234,7 @@ const fn mode_desc(mode: u8) -> Option<ModeDesc> {
             scan_lines_per_row: 2,
             char_mode: false,
             bits_per_pixel: 1,
+            cc_per_pixel: 1,
             antic_mode: AnticMode::ModeB,
         }),
         0x0C => Some(ModeDesc {
@@ -226,6 +242,7 @@ const fn mode_desc(mode: u8) -> Option<ModeDesc> {
             scan_lines_per_row: 1,
             char_mode: false,
             bits_per_pixel: 1,
+            cc_per_pixel: 1,
             antic_mode: AnticMode::ModeC,
         }),
         0x0D => Some(ModeDesc {
@@ -233,6 +250,7 @@ const fn mode_desc(mode: u8) -> Option<ModeDesc> {
             scan_lines_per_row: 2,
             char_mode: false,
             bits_per_pixel: 2,
+            cc_per_pixel: 1,
             antic_mode: AnticMode::ModeD,
         }),
         0x0E => Some(ModeDesc {
@@ -240,6 +258,7 @@ const fn mode_desc(mode: u8) -> Option<ModeDesc> {
             scan_lines_per_row: 1,
             char_mode: false,
             bits_per_pixel: 2,
+            cc_per_pixel: 1,
             antic_mode: AnticMode::ModeE,
         }),
         0x0F => Some(ModeDesc {
@@ -247,6 +266,7 @@ const fn mode_desc(mode: u8) -> Option<ModeDesc> {
             scan_lines_per_row: 1,
             char_mode: false,
             bits_per_pixel: 1,
+            cc_per_pixel: 1,
             antic_mode: AnticMode::ModeF,
         }),
         _ => None,
@@ -673,11 +693,21 @@ impl Antic {
         // Player/missile DMA
         let (player_data, missile_data, pm_active) = self.fetch_pm_data(ram);
 
-        let playfield = if desc.char_mode {
+        let mut playfield = if desc.char_mode {
             self.render_char_line(ram, desc, bytes)
         } else {
             self.render_bitmap_line(ram, desc, bytes)
         };
+
+        // Modes 8, 9 and A draw pixels wider than a colour clock. Repeat each
+        // one across the clocks it covers so the buffer handed to GTIA is one
+        // entry per colour clock whatever the mode.
+        if desc.cc_per_pixel > 1 {
+            playfield = playfield
+                .iter()
+                .flat_map(|&px| std::iter::repeat_n(px, usize::from(desc.cc_per_pixel)))
+                .collect();
+        }
 
         LineResult {
             mode: desc.antic_mode,
@@ -1388,6 +1418,67 @@ mod tests {
         // plain char, COLPF3 (index 4) when the code's high bit is set.
         assert_eq!(result.playfield[0], 3); // char $01, leftmost pair = 11
         assert_eq!(result.playfield[4], 4); // char $81, leftmost pair = 11 + hi
+    }
+
+    /// One entry per colour clock, whatever the mode. GTIA's
+    /// `fill_playfield_line` indexes the buffer by colour clock (half colour
+    /// clock in the hi-res modes) and leaves anything past its end at
+    /// background, so a mode that emits one entry per *pixel* draws into the
+    /// left quarter (mode 8) or half (modes 9, A) of the playfield.
+    #[test]
+    fn every_mode_fills_the_playfield_width() {
+        for mode in 0x02u8..=0x0F {
+            let mut ram = make_ram();
+            let mut antic = Antic::new(AnticRegion::Ntsc);
+
+            // Display list: `mode` + LMS → screen $8000.
+            ram[0x4000] = mode | 0x40;
+            ram[0x4001] = 0x00;
+            ram[0x4002] = 0x80;
+
+            antic.write(0x00, 0x22); // DMACTL: normal width + DL DMA
+            antic.write(0x02, 0x00);
+            antic.write(0x03, 0x40); // DLIST = $4000
+            antic.scan_line = VISIBLE_START;
+
+            let result = antic.process_line(&ram);
+            let hires = matches!(
+                result.mode,
+                AnticMode::Mode2 | AnticMode::Mode3 | AnticMode::ModeF
+            );
+            let expected = usize::from(result.playfield_width) * if hires { 2 } else { 1 };
+            assert_eq!(
+                result.playfield.len(),
+                expected,
+                "ANTIC mode {mode:X} returned {} entries for a {}-colour-clock playfield",
+                result.playfield.len(),
+                result.playfield_width
+            );
+        }
+    }
+
+    /// Mode 8's pixels are four colour clocks wide, so each one occupies four
+    /// consecutive entries.
+    #[test]
+    fn mode_8_pixels_span_four_colour_clocks() {
+        let mut ram = make_ram();
+        let mut antic = Antic::new(AnticRegion::Ntsc);
+
+        ram[0x4000] = 0x48; // Mode 8 + LMS
+        ram[0x4001] = 0x00;
+        ram[0x4002] = 0x80;
+        ram[0x8000] = 0b0110_0000; // pixel pairs: 01, 10, 00, 00
+
+        antic.write(0x00, 0x22);
+        antic.write(0x02, 0x00);
+        antic.write(0x03, 0x40);
+        antic.scan_line = VISIBLE_START;
+
+        let result = antic.process_line(&ram);
+        assert_eq!(result.mode, AnticMode::Mode8);
+        assert_eq!(result.playfield[0..4], [1, 1, 1, 1]);
+        assert_eq!(result.playfield[4..8], [2, 2, 2, 2]);
+        assert_eq!(result.playfield[8..12], [0, 0, 0, 0]);
     }
 
     #[test]
