@@ -1,0 +1,16 @@
+[package]
+name = "format-atari-8bit-atr"
+version.workspace = true
+publish = false
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+thiserror.workspace = true
+
+[dev-dependencies]
+emu198x-test-skip = { path = "../emu198x-test-skip", version = "0.17.0" }
+
+[lints]
+workspace = true
