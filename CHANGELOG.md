@@ -4,6 +4,20 @@ All notable changes to Emu198x will be documented in this file.
 
 Format loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 not strictly. Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [0.18.1] - 2026-09-01
+
+
+### Fixed
+
+- *(atari)* Run player/missile DMA on every displayed line. ANTIC only
+  fetched P/M data while drawing a mode line, so sprites over blank
+  display-list instructions, below the JVB, or with the display list off
+  never reached GTIA. Enabling player DMA now enables missile DMA with it,
+  as the hardware does. Both fixes reach the 5200 too
+- *(atari)* Test P/M DMA through the machine: an asm198x-built cartridge
+  boots the 800XL with no OS ROM and the framebuffer is checked pixel by
+  pixel for both P/M layouts, players-only DMA, GRACTL off and VDELAY
+
 ## [0.18.0] - 2026-09-01
 
 

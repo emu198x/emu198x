@@ -236,7 +236,7 @@ exclude = ["tools/m68k-test-gen"]
 
 [workspace.package]
 edition = "2024"
-version = "0.18.0"
+version = "0.18.1"
 license = "GPL-2.0-or-later"
 repository = "https://github.com/emu198x/emu198x"
 
