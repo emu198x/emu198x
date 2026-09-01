@@ -161,7 +161,7 @@ mod tests {
             vec![0u8; 0x2000],
             vec![0u8; 0x1000],
             Vic20Model::Ntsc,
-            0,
+            machine_commodore_vic_20::Vic20RamExpansion::NONE,
         )
     }
 

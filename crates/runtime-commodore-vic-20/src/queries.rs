@@ -12,6 +12,7 @@ pub(crate) const VIC20_QUERY_PATHS: &[&str] = &[
     "machine.frame_count",
     "machine.master_clock",
     "machine.region",
+    "ram.expansion",
     "ram.expansion_kb",
 ];
 
@@ -33,6 +34,7 @@ impl SessionQueryProvider<Vic20Runtime> for Vic20SessionQueryProvider {
     fn query(&self, machine: &Vic20Runtime, path: &str) -> Result<Option<QueryResult>, QueryError> {
         let value = match path {
             "firmware.loaded" => json!(machine.machine().is_some()),
+            "ram.expansion" => json!(machine.ram_expansion().to_string()),
             "ram.expansion_kb" => json!(machine.ram_expansion_kb()),
             "machine.region" => json!(format!("{:?}", machine.model().region())),
             "machine.frame_count" => json!(machine.machine().map_or(0, Vic20::frame_count)),

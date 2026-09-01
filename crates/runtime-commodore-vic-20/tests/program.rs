@@ -3,7 +3,7 @@
 use std::path::PathBuf;
 
 use emu198x_shell::{HeadlessSession, MediaImage, MediaKind, MediaSet};
-use runtime_commodore_vic_20::{Model, Vic20Runtime, Vic20SessionQueryProvider};
+use runtime_commodore_vic_20::{Model, Vic20RamExpansion, Vic20Runtime, Vic20SessionQueryProvider};
 
 fn rom(name: &str) -> Option<Vec<u8>> {
     let home = std::env::var("HOME").ok()?;
@@ -33,7 +33,7 @@ fn expanded_basic_prg_selects_8k_loads_and_queues_run() {
     media.push(MediaImage::new("program-1", MediaKind::Program, &prg));
     session.prepare(&media, &[]).expect("PRG is accepted");
 
-    assert_eq!(session.machine().ram_expansion_kb(), 11);
+    assert_eq!(session.machine().ram_expansion(), Vic20RamExpansion::EXP_8K);
     session.run_frames(151).expect("boot and delayed autoload");
     let machine = session.machine().machine().expect("machine");
     assert_eq!(machine.peek(0x1201), 0x0B);
@@ -105,9 +105,9 @@ fn expanded_basic_prg_loads_through_the_top_of_the_block_1_expansion() {
     session.prepare(&media, &[]).expect("PRG is accepted");
 
     assert_eq!(
-        session.machine().ram_expansion_kb(),
-        11,
-        "$1201 needs the full $2000-$3FFF block, not 5 KiB of it"
+        session.machine().ram_expansion(),
+        Vic20RamExpansion::EXP_8K,
+        "$1201 needs BLK1, the full $2000-$3FFF block"
     );
     session.run_frames(151).expect("boot and delayed autoload");
 

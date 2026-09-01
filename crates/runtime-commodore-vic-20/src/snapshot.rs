@@ -15,7 +15,9 @@ use crate::runtime::Vic20Runtime;
 /// Version 3 made the framebuffer region-sized. Version 4 retains the original
 /// cartridge container alongside the live mapped machine, so a reset after
 /// restore can reinsert the same cartridge before the KERNAL cold-start probe.
-const SNAPSHOT_VERSION: u16 = 4;
+/// Version 5 replaced the machine's composite RAM-expansion size with the
+/// per-cartridge block set (#1363), which changes the serialised machine.
+const SNAPSHOT_VERSION: u16 = 5;
 
 /// Borrowing envelope used during encode — avoids cloning the live machine.
 #[derive(Serialize)]

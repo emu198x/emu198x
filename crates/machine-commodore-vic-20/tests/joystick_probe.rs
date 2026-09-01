@@ -11,7 +11,7 @@ use std::env;
 use std::fs;
 use std::path::PathBuf;
 
-use machine_commodore_vic_20::{Vic20, Vic20Model};
+use machine_commodore_vic_20::{Vic20, Vic20Model, Vic20RamExpansion};
 
 fn rom(var: &str, default_name: &str, len: usize) -> Vec<u8> {
     let path = env::var(var).map(PathBuf::from).unwrap_or_else(|_| {
@@ -40,7 +40,13 @@ fn joystick_lines_match_the_standard_layout() {
     let basic = rom("EMU198X_VIC20_BASIC", "basic.rom", 8192);
     let char_rom = rom("EMU198X_VIC20_CHAR", "char.rom", 4096);
 
-    let mut sys = Vic20::new(kernal, basic, char_rom, Vic20Model::Ntsc, 0);
+    let mut sys = Vic20::new(
+        kernal,
+        basic,
+        char_rom,
+        Vic20Model::Ntsc,
+        Vic20RamExpansion::NONE,
+    );
     // Boot to READY so the KERNAL has configured the VIA DDRs.
     for _ in 0..180 {
         sys.run_frame();

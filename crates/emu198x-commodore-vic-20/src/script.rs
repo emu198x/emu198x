@@ -8,7 +8,7 @@ use std::process;
 use emu198x_shell::{
     HeadlessScript, HeadlessSession, MediaImage, MediaKind, MediaSet, ScriptObservation,
 };
-use runtime_commodore_vic_20::{Model, Vic20Runtime, Vic20SessionQueryProvider};
+use runtime_commodore_vic_20::{Model, Vic20RamExpansion, Vic20Runtime, Vic20SessionQueryProvider};
 use serde_json::json;
 
 const FRAME_TICKS_PAL: u64 = 71 * 312;
@@ -26,12 +26,14 @@ ROMs (all required):
 
 Hardware:
     --region MODE              ntsc | pal [default: pal]
-    --ram-expansion-kb N       0 (unexpanded) / 3 (low) / 3+N (high) [default: 0]
+    --ram-expansion SPEC       RAM expansion cartridges [default: none]
+                               none | 3k | 8k | 16k | 24k, or a DIP-switched
+                               8k@2000 | 8k@4000 | 8k@6000 | 8k@a000, joined
+                               with + (3k+8k, 8k@2000+8k@6000)
     --prg PATH                 inject a .PRG after boot and auto-RUN it. A
-                               canonical BASIC load address raises the
-                               expansion to its minimum if needed ($0401 -> 3,
-                               $1201 -> 11); a larger --ram-expansion-kb is
-                               kept, so pass 19 or 27 for a 16K/24K program
+                               canonical BASIC load address fits what it needs
+                               ($0401 -> 3k, $1201 -> BLK1); cartridges already
+                               named by --ram-expansion are kept
     --prg-sys                  launch the --prg with SYS <load-addr> (machine
                                code) instead of RUN (BASIC)
     --esp-at-tcp               attach an ESP-AT modem (9600 baud initially,
@@ -54,7 +56,7 @@ struct Cli {
     basic: Option<PathBuf>,
     char_rom: Option<PathBuf>,
     region: Region,
-    ram_expansion_kb: usize,
+    ram_expansion: Vic20RamExpansion,
     prg: Option<PathBuf>,
     prg_sys: bool,
     esp_at_tcp: bool,
@@ -74,7 +76,7 @@ impl Default for Cli {
             prg_sys: false,
             esp_at_tcp: false,
             region: Region::Pal,
-            ram_expansion_kb: 0,
+            ram_expansion: Vic20RamExpansion::NONE,
             frames: 0,
             screenshot: None,
             audio_capture: None,
@@ -119,11 +121,19 @@ fn parse_cli<I: IntoIterator<Item = String>>(args: I) -> Cli {
                     other => die(&format!("--region expects ntsc|pal, got {other}")),
                 };
             }
-            "--ram-expansion-kb" => {
-                cli.ram_expansion_kb = next_arg(&mut iter, "--ram-expansion-kb")
-                    .parse()
-                    .unwrap_or_else(|_| die("--ram-expansion-kb requires a non-negative integer"));
+            "--ram-expansion" => {
+                let spec = next_arg(&mut iter, "--ram-expansion");
+                cli.ram_expansion = Vic20RamExpansion::parse(&spec)
+                    .unwrap_or_else(|reason| die(&format!("--ram-expansion {spec}: {reason}")));
             }
+            // Removed in #1363. The old value folded the 3K expander and the
+            // block cartridges into one number, so silently reinterpreting it
+            // would change which RAM a script gets.
+            "--ram-expansion-kb" => die(
+                "--ram-expansion-kb was removed because it could not express a plain 8K \
+                 cartridge; use --ram-expansion (none|3k|8k|16k|24k, e.g. 3k+8k for what \
+                 --ram-expansion-kb 11 used to mean)",
+            ),
             "--frames" => {
                 cli.frames = next_arg(&mut iter, "--frames")
                     .parse()
@@ -218,7 +228,7 @@ fn run_cli(cli: Cli) -> Result<serde_json::Value, String> {
 
     let mut runtime = Vic20Runtime::new(cli.region.model(), kernal, basic, char_rom)
         .map_err(|err| format!("failed to construct runtime: {err}"))?;
-    runtime.set_ram_expansion_kb(cli.ram_expansion_kb);
+    runtime.set_ram_expansion(cli.ram_expansion);
     if cli.esp_at_tcp {
         // The external modem keeps real baud time while the VIC-I CPU clock
         // differs by region: ~115 PAL cycles or ~107 NTSC cycles at 9600.
@@ -299,6 +309,7 @@ fn run_cli(cli: Cli) -> Result<serde_json::Value, String> {
         "roms_loaded": roms_loaded,
         "frames_run":  frame_count,
         "time":        session.time().get(),
+        "ram_expansion": machine.ram_expansion().to_string(),
         "ram_expansion_kb": machine.ram_expansion_kb(),
         "esp_at_tcp_error": machine.esp_at_tcp_bridge().and_then(|bridge| bridge.last_error()),
         "esp_at_received_hex": machine.esp_at_tcp_bridge().map(|bridge| {
@@ -329,6 +340,26 @@ mod tests {
     fn parse_cli_defaults() {
         let cli = parse_cli(Vec::<String>::new());
         assert_eq!(cli.region, Region::Pal);
-        assert_eq!(cli.ram_expansion_kb, 0);
+        assert_eq!(cli.ram_expansion, Vic20RamExpansion::NONE);
+    }
+
+    #[test]
+    fn ram_expansion_flag_accepts_hardware_shaped_specs() {
+        for (spec, expected) in [
+            ("none", Vic20RamExpansion::NONE),
+            ("3k", Vic20RamExpansion::EXP_3K),
+            ("8k", Vic20RamExpansion::EXP_8K),
+            ("16k", Vic20RamExpansion::EXP_16K),
+            ("24k", Vic20RamExpansion::EXP_24K),
+        ] {
+            let cli = parse_cli(vec!["--ram-expansion".to_owned(), spec.to_owned()]);
+            assert_eq!(cli.ram_expansion, expected, "{spec}");
+        }
+
+        let module = parse_cli(vec!["--ram-expansion".to_owned(), "3k+8k".to_owned()]);
+        assert!(module.ram_expansion.exp_3k && module.ram_expansion.blk1);
+
+        let dipped = parse_cli(vec!["--ram-expansion".to_owned(), "8k@4000".to_owned()]);
+        assert!(dipped.ram_expansion.blk2 && !dipped.ram_expansion.blk1);
     }
 }
