@@ -4,10 +4,8 @@
 //! The runtime stays in `Option` until firmware arrives via
 //! `set_bios` or `from_firmware`.
 //!
-//! The Aquarius's 1-bit speaker isn't yet routed through a host-side
-//! audio buffer (the chip exposes only `speaker_bit()`); the runtime
-//! emits empty audio packets per frame. Real PWM-style speaker
-//! resampling is a follow-up.
+//! The machine samples its 1-bit speaker into a waveform buffer, which this
+//! runtime drains into one mono `AudioPacket` per frame.
 
 use emu198x_shell::{
     AudioPacket, CapabilitySet, ControlCommand, FirmwareSet, FramePacket, HostIo, MachineCore,
@@ -334,12 +332,16 @@ impl MachineCore for AquariusRuntime {
                 pixels: &self.rgba_framebuffer,
             })?;
 
-            // Speaker bit not yet PWM-resampled — emit empty packets.
+            let audio = self
+                .machine
+                .as_mut()
+                .expect("machine checked above")
+                .take_audio_buffer();
             host.audio_sink.push_audio(AudioPacket {
                 timestamp: self.time,
                 sample_rate: AUDIO_SAMPLE_RATE,
                 channels: 1,
-                samples: &[],
+                samples: &audio,
             })?;
         }
 
