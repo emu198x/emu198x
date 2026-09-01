@@ -30,6 +30,7 @@ members = [
     "crates/emu198x-ui",
     "crates/ferranti-ula-6c001e",
     "crates/format-acorn-atom-atm",
+    "crates/format-atari-8bit-atr",
     "crates/format-acorn-uef",
     "crates/format-commodore-c64-bas",
     "crates/format-commodore-c64-crt",

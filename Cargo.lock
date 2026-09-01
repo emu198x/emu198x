@@ -1589,6 +1589,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "format-atari-8bit-atr"
+version = "0.17.0"
+dependencies = [
+ "emu198x-test-skip",
+ "thiserror 2.0.20",
+]
+
+[[package]]
 name = "format-commodore-c64-bas"
 version = "0.17.0"
 
