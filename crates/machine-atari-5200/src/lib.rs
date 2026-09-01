@@ -151,9 +151,9 @@ pub struct Atari5200 {
     master_clock: u64,
     clocks_per_frame: u64,
     frame_count: u64,
-    /// ANTIC DMA cycle budget for the current line (CPU stalls until
-    /// this many CPU cycles have elapsed).
-    dma_budget: u8,
+    /// Which of the current scan line's cycles ANTIC is taking for DMA, from
+    /// its own fetch schedule. The CPU runs on the cycles left over.
+    dma_mask: u128,
     /// CPU cycle counter within the current scan line.
     line_cycle: u16,
 }
@@ -182,7 +182,7 @@ impl Atari5200 {
             master_clock: 0,
             clocks_per_frame,
             frame_count: 0,
-            dma_budget: 0,
+            dma_mask: 0,
             line_cycle: 0,
         })
     }
@@ -233,15 +233,13 @@ impl Atari5200 {
         if self.master_clock.is_multiple_of(2) {
             self.line_cycle += 1;
             // ANTIC releases a WSYNC-halted CPU at HSYNC (end of the visible
-            // region), not at the next line (MAME `CYCLES_HSYNC`).
+            // region), not at the next line.
             if self.line_cycle == CYCLES_HSYNC {
                 self.antic.clear_wsync();
             }
-            // CPU runs unless ANTIC is stealing this cycle for DMA (spread
-            // through the fetch window) or it is held by WSYNC.
-            if !cpu_dma_stalled(self.line_cycle, u16::from(self.dma_budget))
-                && !self.antic.wsync_halt()
-            {
+            // CPU runs unless ANTIC is taking this cycle for a fetch, or it is
+            // held by WSYNC.
+            if !cpu_dma_stalled(self.line_cycle, self.dma_mask) && !self.antic.wsync_halt() {
                 self.cpu.tick();
                 if self.cpu.rw {
                     self.cpu.data_in = self.mem_read(self.cpu.addr);
@@ -256,7 +254,7 @@ impl Atari5200 {
 
     /// Start a scan line: ANTIC fetches its display data and the GTIA begins
     /// beam compositing for it. Player/missile DMA and the DLI/VBI NMI are
-    /// applied here, and the per-line DMA budget that gates the CPU is set.
+    /// applied here, and the line's DMA schedule that gates the CPU is set.
     /// Pixels are composited incrementally as the beam advances
     /// (`composite_to_beam`), then finished with the PM overlay at line end.
     fn start_scan_line(&mut self) {
@@ -289,7 +287,7 @@ impl Atari5200 {
             result.playfield_width,
             result.mode,
         );
-        self.dma_budget = result.dma_cycles;
+        self.dma_mask = result.dma_mask;
         self.line_cycle = 0;
         // ANTIC pulses NMI; it does not hold it. Raise the line for any
         // source that fired on this line — `tick_colour_clock` drops it

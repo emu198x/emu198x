@@ -25,60 +25,40 @@ pub const COLOUR_CLOCKS_PER_LINE: u16 = 228;
 /// CPU cycles per scan line (`colour_clock` / 2).
 pub const CPU_CYCLES_PER_LINE: u8 = 114;
 
-/// CPU cycle at which ANTIC's display-fetch DMA begins (MAME `CYCLES_HSTART`).
-/// The CPU runs at full speed before this; the DMA steal lands in the fetch
-/// window that follows.
-pub const CYCLES_HSTART: u16 = 32;
+/// CPU cycle at which ANTIC releases a CPU held by WSYNC — the start of
+/// horizontal blank. A `STA WSYNC` halts the CPU until the beam reaches this
+/// cycle, not until the next scan line.
+pub const CYCLES_HSYNC: u16 = 105;
 
-/// CPU cycle of HSYNC — where the visible region ends and ANTIC releases a
-/// CPU held by WSYNC (MAME `CYCLES_HSYNC`). A `STA WSYNC` halts the CPU until
-/// the beam reaches this cycle, not until the next scan line.
-pub const CYCLES_HSYNC: u16 = 104;
+/// Missile DMA takes cycle 0, the display-list instruction byte cycle 1, the
+/// four players cycles 2-5, and an LMS or jump address word cycles 6 and 7.
+const MISSILE_DMA_CYCLE: u16 = 0;
+const DL_INSTRUCTION_CYCLE: u16 = 1;
+const PLAYER_DMA_CYCLES: std::ops::RangeInclusive<u16> = 2..=5;
+const DL_OPERAND_CYCLES: (u16, u16) = (6, 7);
 
-/// Memory refresh DMA cycles stolen every line.
-const REFRESH_DMA_CYCLES: u8 = 9;
+/// A character mode fetches the glyph bitmap three cycles after the name.
+const CHARACTER_DATA_DELAY: u16 = 3;
 
-/// Whether the CPU is stalled by ANTIC DMA on cycle `line_cycle` (1-based,
-/// within the 114-cycle line) given the line's total `dma_budget`.
+/// Memory refresh takes nine cycles per line, the first at cycle 25 and one
+/// every four after that. Playfield DMA outranks refresh; see
+/// [`Antic::schedule_refresh`] for what happens when a slot is blocked.
+const REFRESH_FIRST_CYCLE: u16 = 25;
+const REFRESH_INTERVAL: u16 = 4;
+const REFRESH_COUNT: u16 = 9;
+
+/// The last cycle playfield DMA may occupy. A fetch that would land later does
+/// not take the bus or halt the CPU, though ANTIC still reads the bus and
+/// advances the memory scan counter — the "virtual DMA" of the manual.
+const PLAYFIELD_LAST_CYCLE: u16 = 105;
+
+/// Whether ANTIC takes cycle `line_cycle` of the line whose DMA is `dma_mask`.
 ///
-/// Real ANTIC steals its DMA cycles spread through the display-fetch window
-/// `[CYCLES_HSTART, CYCLES_HSYNC)` rather than in one block at the line start.
-/// This distributes `dma_budget` stalls evenly across that 72-cycle window
-/// (a Bresenham split), so a mid-line CPU write lands at roughly the right
-/// beam position instead of being shoved late by a front-loaded block. When
-/// the budget exceeds the window (heavy character modes), the overflow spills
-/// into the cycles immediately before `CYCLES_HSTART`. Exactly `dma_budget`
-/// cycles are stolen either way, preserving the per-line cycle count — up to
-/// `CYCLES_HSYNC`, which is all a line has. Above that the CPU gets nothing
-/// until the line ends, and the excess is simply lost.
-///
-/// This is an approximation: the *exact* per-character fetch positions are
-/// mode-dependent and not modelled (a relaxation MAME shares — it block-steals
-/// `m_steal_cycles`). It captures the window, not the fine structure.
+/// `line_cycle` is in the hardware's own numbering: cycle 0 is missile DMA and
+/// the first CPU cycle of the line, and the line runs to cycle 113.
 #[must_use]
-pub fn cpu_dma_stalled(line_cycle: u16, dma_budget: u16) -> bool {
-    if dma_budget == 0 {
-        return false;
-    }
-    let window = CYCLES_HSYNC - CYCLES_HSTART; // 72 fetch cycles
-    if dma_budget >= window {
-        // Steal the whole window plus the overflow just before it. A line has
-        // only `CYCLES_HSYNC` cycles to give, so a budget past that takes
-        // every one of them and no more — the first scan line of a wide mode 2
-        // line asks for 108.
-        let overflow = dma_budget - window;
-        let start = CYCLES_HSTART.saturating_sub(overflow);
-        return line_cycle > start && line_cycle <= CYCLES_HSYNC;
-    }
-    // Even spread across (CYCLES_HSTART, CYCLES_HSYNC]: steal on cycle c when
-    // the running count floor(pos·budget/window) advances.
-    if line_cycle <= CYCLES_HSTART || line_cycle > CYCLES_HSYNC {
-        return false;
-    }
-    let pos = u32::from(line_cycle - CYCLES_HSTART); // 1..=window
-    let budget = u32::from(dma_budget);
-    let win = u32::from(window);
-    (pos * budget) / win > ((pos - 1) * budget) / win
+pub fn cpu_dma_stalled(line_cycle: u16, dma_mask: u128) -> bool {
+    line_cycle < u16::from(CPU_CYCLES_PER_LINE) && dma_mask >> line_cycle & 1 != 0
 }
 
 /// First visible scan line (approximate).
@@ -152,8 +132,12 @@ pub struct LineResult {
     pub playfield: Vec<u8>,
     /// Playfield width in colour clocks.
     pub playfield_width: u16,
-    /// CPU cycles stolen by DMA this line.
+    /// CPU cycles stolen by DMA this line — `dma_mask.count_ones()`.
     pub dma_cycles: u8,
+    /// Which cycles ANTIC took, bit N = cycle N. Cycle 0 is missile DMA, and
+    /// the line runs to cycle 113. This is what gates the CPU; the count above
+    /// is for anything that only wants the total.
+    pub dma_mask: u128,
     /// Player graphics bytes (if PM DMA enabled).
     pub player_data: [u8; 4],
     /// Missile graphics byte (all 4 missiles, 2 bits each).
@@ -342,6 +326,37 @@ fn fetch_width_bits(width_bits: u8, hscrol_enabled: bool) -> u8 {
     }
 }
 
+/// Where playfield DMA starts, how often it repeats, and how many fetches it
+/// makes — the schedule ANTIC follows on the first scan line of a mode line.
+///
+/// Character modes fetch names at cycle 26 / 18 / 10 for narrow / normal / wide
+/// fetch width, every two cycles (modes 2-5) or four (modes 6-7), and fetch the
+/// character *data* three cycles after each name. Mapped modes fetch at cycle
+/// 28 / 20 / 12, every eight cycles (modes 8-9), four (A-C) or two (D-F).
+///
+/// The width here is the *fetch* width, which horizontal scrolling widens by
+/// one level, and scrolling delays the whole schedule by one cycle for every
+/// two of HSCROL.
+fn playfield_schedule(desc: &ModeDesc, fetch_bits: u8, hscrol: u8) -> (u16, u16, u16) {
+    let step = match desc.antic_mode {
+        AnticMode::Mode2 | AnticMode::Mode3 | AnticMode::Mode4 | AnticMode::Mode5 => 2,
+        AnticMode::Mode6 | AnticMode::Mode7 => 4,
+        AnticMode::Mode8 | AnticMode::Mode9 => 8,
+        AnticMode::ModeA | AnticMode::ModeB | AnticMode::ModeC => 4,
+        _ => 2,
+    };
+    let base = match (desc.char_mode, fetch_bits) {
+        (true, 1) => 26,
+        (true, 3) => 10,
+        (true, _) => 18,
+        (false, 1) => 28,
+        (false, 3) => 12,
+        (false, _) => 20,
+    };
+    let bytes = adjust_bytes_for_width(desc.bytes_per_line, fetch_bits);
+    (base + u16::from(hscrol / 2), step, u16::from(bytes))
+}
+
 /// Playfield entries per colour clock. The hi-res modes carry two — GTIA
 /// reads them at half-colour-clock resolution — and every other mode one.
 fn entries_per_colour_clock(mode: AnticMode) -> usize {
@@ -417,6 +432,9 @@ pub struct Antic {
     current_mode: u8,
     current_dli: bool,
     memory_scan: u16,
+    /// First value `mode_line` takes in the current mode line. Zero, until
+    /// vertical scrolling starts the line partway down its rows.
+    row_start: u8,
     /// Last value `mode_line` takes in the current mode line. One less than
     /// the mode's height, until vertical scrolling moves either end.
     row_end: u8,
@@ -434,7 +452,9 @@ pub struct Antic {
     dli_pending: bool,
 
     // -- DMA --
-    dma_cycles: u8,
+    /// Which of the line's 114 cycles ANTIC takes, bit N = cycle N in the
+    /// hardware's numbering (cycle 0 is missile DMA).
+    dma_mask: u128,
 
     // -- Character code buffer (reused across scan lines within a mode line) --
     char_codes: Vec<u8>,
@@ -465,6 +485,7 @@ impl Antic {
             current_mode: 0,
             current_dli: false,
             memory_scan: 0,
+            row_start: 0,
             row_end: 0,
             prev_vscrol: false,
             vscrol_enabled: false,
@@ -474,7 +495,7 @@ impl Antic {
             vbi_pending: false,
             dli_pending: false,
 
-            dma_cycles: 0,
+            dma_mask: 0,
 
             char_codes: Vec::new(),
 
@@ -616,7 +637,7 @@ impl Antic {
     /// Process one scan line. Reads display list instructions and screen data
     /// from `ram`. Returns a `LineResult` describing the output.
     pub fn process_line<M: AnticMemory + ?Sized>(&mut self, mem: &M) -> LineResult {
-        self.dma_cycles = REFRESH_DMA_CYCLES;
+        self.dma_mask = 0;
 
         let lines_per_frame = self.region.lines_per_frame();
         let in_vblank = self.scan_line < VISIBLE_START || self.scan_line >= VISIBLE_END;
@@ -631,13 +652,17 @@ impl Antic {
             // Reset display list state for next frame
             self.mode_line = 0;
             self.current_mode = 0;
+            self.row_start = 0;
             self.row_end = 0;
             self.prev_vscrol = false;
             self.dl_active = false;
         }
 
         if in_vblank {
-            let result = blank_result(self.dma_cycles);
+            // Vertical blank has no display fetch, so all nine refresh cycles
+            // land on their slots.
+            self.schedule_refresh();
+            let result = blank_result(self.dma_mask);
             self.advance_scan_line(lines_per_frame);
             return result;
         }
@@ -645,7 +670,8 @@ impl Antic {
         // Display list DMA disabled?
         let dl_dma = self.dmactl & 0x20 != 0;
         if !dl_dma {
-            let result = blank_result(self.dma_cycles);
+            self.schedule_refresh();
+            let result = blank_result(self.dma_mask);
             self.advance_scan_line(lines_per_frame);
             return result;
         }
@@ -661,14 +687,18 @@ impl Antic {
         }
 
         // Generate playfield data for this scan line
-        let result = if self.current_mode == 0 {
+        let mut result = if self.current_mode == 0 {
             // Blank instruction
-            blank_result(self.dma_cycles)
+            blank_result(0)
         } else if let Some(desc) = mode_desc(self.current_mode) {
             self.render_mode_line(mem, &desc, width_bits)
         } else {
-            blank_result(self.dma_cycles)
+            blank_result(0)
         };
+        // Refresh fills in around the playfield, which outranks it.
+        self.schedule_refresh();
+        result.dma_mask = self.dma_mask;
+        result.dma_cycles = self.dma_mask.count_ones() as u8;
 
         // Advance the row counter, or close the mode line at its last row.
         if self.mode_line >= self.row_end {
@@ -694,7 +724,7 @@ impl Antic {
     fn fetch_dl_instruction<M: AnticMemory + ?Sized>(&mut self, mem: &M) {
         let instr = mem.read(self.dlist);
         self.dlist = self.dlist.wrapping_add(1);
-        self.dma_cycles += 1; // DL fetch costs 1 cycle
+        self.claim(DL_INSTRUCTION_CYCLE);
 
         // Display-list instruction option bits (matches ANTIC hardware):
         //   bit 7 = DLI (display-list interrupt)
@@ -716,6 +746,7 @@ impl Antic {
                 let blank_count = ((instr >> 4) & 0x07) + 1;
                 self.current_mode = 0;
                 self.mode_line = 0;
+                self.row_start = 0;
                 self.row_end = blank_count - 1;
                 // Bit 5 of a blank instruction is part of the line count, not
                 // VSCROL, so a blank line breaks a scrolling region.
@@ -729,7 +760,8 @@ impl Antic {
                 self.dlist = self.dlist.wrapping_add(1);
                 let hi = mem.read(self.dlist);
                 self.dlist = self.dlist.wrapping_add(1);
-                self.dma_cycles += 2;
+                self.claim(DL_OPERAND_CYCLES.0);
+                self.claim(DL_OPERAND_CYCLES.1);
 
                 let target = u16::from(lo) | (u16::from(hi) << 8);
                 self.dlist = target;
@@ -740,6 +772,7 @@ impl Antic {
                     // Fill remaining visible lines with blank
                     let remaining = VISIBLE_END.saturating_sub(self.scan_line);
                     self.mode_line = 0;
+                    self.row_start = 0;
                     self.row_end = (remaining.max(1) as u8) - 1;
                     self.prev_vscrol = false;
                     self.dl_active = true;
@@ -779,6 +812,7 @@ impl Antic {
                 };
                 let rows = (last_row.wrapping_sub(first_row) & 0x0F) + 1;
                 self.mode_line = first_row;
+                self.row_start = first_row;
                 self.row_end = first_row + rows - 1;
                 self.prev_vscrol = has_vscrol;
 
@@ -788,7 +822,8 @@ impl Antic {
                     let hi = mem.read(self.dlist);
                     self.dlist = self.dlist.wrapping_add(1);
                     self.memory_scan = u16::from(lo) | (u16::from(hi) << 8);
-                    self.dma_cycles += 2;
+                    self.claim(DL_OPERAND_CYCLES.0);
+                    self.claim(DL_OPERAND_CYCLES.1);
                 }
 
                 self.dl_active = true;
@@ -805,7 +840,8 @@ impl Antic {
                         self.char_codes
                             .push(mem.read(self.memory_scan.wrapping_add(i)));
                     }
-                    self.dma_cycles += bytes;
+                    let (start, step, count) = playfield_schedule(&desc, width_bits, self.hscrol);
+                    self.claim_playfield(start, step, count);
                     // Memory scan advances past character codes
                     self.memory_scan = self.memory_scan.wrapping_add(u16::from(bytes));
                 }
@@ -858,7 +894,8 @@ impl Antic {
             mode: desc.antic_mode,
             playfield,
             playfield_width: pf_width,
-            dma_cycles: self.dma_cycles,
+            dma_cycles: 0,
+            dma_mask: 0,
             player_data,
             missile_data,
             pm_dma: pm_active,
@@ -891,8 +928,11 @@ impl Antic {
         let count = usize::min(self.char_codes.len(), bytes as usize);
         let mut pixels = Vec::new();
 
-        // DMA for character bitmap fetch: 1 byte per character per scan line
-        self.dma_cycles += bytes;
+        // Character data is not buffered — it is fetched on every scan line of
+        // the mode line, three cycles after where the name fetch sits.
+        let fetch_bits = fetch_width_bits(self.dmactl & 0x03, self.hscrol_enabled);
+        let (start, step, fetches) = playfield_schedule(desc, fetch_bits, self.hscrol);
+        self.claim_playfield(start + CHARACTER_DATA_DELAY, step, fetches);
 
         let glyph_byte = |glyph: u16, font_row: u8| -> u8 {
             let addr = chbase_addr
@@ -1003,8 +1043,13 @@ impl Antic {
             }
         }
 
-        // DMA for playfield data fetch
-        self.dma_cycles += bytes;
+        // A mapped mode fills ANTIC's line buffer on the first scan line of the
+        // mode line and replays it for the rest, so the DMA is charged once.
+        if self.mode_line == self.row_start {
+            let fetch_bits = fetch_width_bits(self.dmactl & 0x03, self.hscrol_enabled);
+            let (start, step, fetches) = playfield_schedule(desc, fetch_bits, self.hscrol);
+            self.claim_playfield(start, step, fetches);
+        }
 
         // Memory scan advances only after all scan lines for this row complete
         if self.mode_line >= self.row_end {
@@ -1046,7 +1091,7 @@ impl Antic {
             // Missiles: base + $180 (single) or $C0 (double) + line
             let offset = if single_line { 0x0300 } else { 0x0180 };
             missile_data = mem.read(pm_base.wrapping_add(offset).wrapping_add(line));
-            self.dma_cycles += 1;
+            self.claim(MISSILE_DMA_CYCLE);
         }
 
         if player_dma {
@@ -1061,15 +1106,67 @@ impl Antic {
                 let addr = pm_base.wrapping_add(offset).wrapping_add(line);
                 player_data[p as usize] = mem.read(addr);
             }
-            self.dma_cycles += 4;
-        }
-
-        // PM DMA overhead
-        if player_dma || missile_dma {
-            self.dma_cycles += 2;
+            for cycle in PLAYER_DMA_CYCLES {
+                self.claim(cycle);
+            }
         }
 
         (player_data, missile_data, true)
+    }
+
+    /// Claim `count` playfield fetches, `step` cycles apart, from `start`.
+    /// Fetches past [`PLAYFIELD_LAST_CYCLE`] are virtual: ANTIC still reads
+    /// them, but they neither take the bus nor halt the CPU.
+    fn claim_playfield(&mut self, start: u16, step: u16, count: u16) {
+        for i in 0..count {
+            let cycle = start + i * step;
+            if cycle > PLAYFIELD_LAST_CYCLE {
+                break;
+            }
+            self.claim(cycle);
+        }
+    }
+
+    /// Take one cycle of the line for DMA.
+    fn claim(&mut self, cycle: u16) {
+        if cycle < u16::from(CPU_CYCLES_PER_LINE) {
+            self.dma_mask |= 1u128 << cycle;
+        }
+    }
+
+    fn taken(&self, cycle: u16) -> bool {
+        cycle < u16::from(CPU_CYCLES_PER_LINE) && self.dma_mask >> cycle & 1 != 0
+    }
+
+    /// Place the line's nine refresh cycles around whatever playfield DMA has
+    /// already claimed, which outranks them.
+    ///
+    /// A refresh whose slot is blocked moves to the next free cycle. Only one
+    /// can be waiting at a time; a second blocked refresh while one is still
+    /// waiting is dropped. On the first scan line of modes 2-5 the bus is
+    /// contended enough that only one or two of the nine survive, and in wide
+    /// character modes the last one can be pushed past the end of playfield DMA
+    /// to cycle 105 or 106.
+    fn schedule_refresh(&mut self) {
+        let mut waiting = false;
+        let mut next = 0u16;
+        for cycle in REFRESH_FIRST_CYCLE..u16::from(CPU_CYCLES_PER_LINE) {
+            let due =
+                next < REFRESH_COUNT && cycle == REFRESH_FIRST_CYCLE + next * REFRESH_INTERVAL;
+            if due {
+                next += 1;
+            }
+            if self.taken(cycle) {
+                if due {
+                    waiting = true;
+                }
+            } else if due {
+                self.claim(cycle);
+            } else if waiting {
+                self.claim(cycle);
+                waiting = false;
+            }
+        }
     }
 
     /// Serialize ANTIC register and internal state for save states.
@@ -1091,6 +1188,7 @@ impl Antic {
         data.push(self.current_mode);
         data.push(u8::from(self.current_dli));
         data.extend_from_slice(&self.memory_scan.to_le_bytes());
+        data.push(self.row_start);
         data.push(self.row_end);
         data.push(u8::from(self.prev_vscrol));
         data.push(u8::from(self.vscrol_enabled));
@@ -1098,7 +1196,7 @@ impl Antic {
         data.push(u8::from(self.dl_active));
         data.push(u8::from(self.vbi_pending));
         data.push(u8::from(self.dli_pending));
-        data.push(self.dma_cycles);
+        data.extend_from_slice(&self.dma_mask.to_le_bytes());
         data.push(u8::from(self.frame_complete));
         data
     }
@@ -1109,7 +1207,7 @@ impl Antic {
     ///
     /// Returns an error if the data is too short.
     pub fn load_state(&mut self, data: &[u8]) -> Result<usize, String> {
-        if data.len() < 25 {
+        if data.len() < 41 {
             return Err("ANTIC state truncated".into());
         }
         let mut p = 0;
@@ -1143,6 +1241,8 @@ impl Antic {
         p += 1;
         self.memory_scan = u16::from_le_bytes([data[p], data[p + 1]]);
         p += 2;
+        self.row_start = data[p];
+        p += 1;
         self.row_end = data[p];
         p += 1;
         self.prev_vscrol = data[p] != 0;
@@ -1157,8 +1257,12 @@ impl Antic {
         p += 1;
         self.dli_pending = data[p] != 0;
         p += 1;
-        self.dma_cycles = data[p];
-        p += 1;
+        self.dma_mask = u128::from_le_bytes(
+            data[p..p + 16]
+                .try_into()
+                .map_err(|_| "ANTIC state truncated")?,
+        );
+        p += 16;
         self.frame_complete = data[p] != 0;
         p += 1;
         Ok(p)
@@ -1175,12 +1279,13 @@ impl Antic {
 }
 
 /// Create a blank `LineResult`.
-fn blank_result(dma_cycles: u8) -> LineResult {
+fn blank_result(dma_mask: u128) -> LineResult {
     LineResult {
         mode: AnticMode::Blank,
         playfield: Vec::new(),
         playfield_width: 0,
-        dma_cycles,
+        dma_cycles: dma_mask.count_ones() as u8,
+        dma_mask,
         player_data: [0; 4],
         missile_data: 0,
         pm_dma: false,
@@ -1199,57 +1304,6 @@ mod tests {
     /// Helper: create a minimal 64KB RAM array.
     fn make_ram() -> Vec<u8> {
         vec![0u8; 65536]
-    }
-
-    fn count_stalls(dma_budget: u16) -> u16 {
-        (1..=u16::from(CPU_CYCLES_PER_LINE))
-            .filter(|&c| cpu_dma_stalled(c, dma_budget))
-            .count() as u16
-    }
-
-    #[test]
-    fn dma_spread_preserves_the_cycle_budget() {
-        // However the steal is distributed, exactly `dma_budget` cycles are
-        // stolen per line — the count the CPU loses must not change.
-        for budget in [0u16, 1, 9, 32, 50, 72, 73, 90, 100] {
-            assert_eq!(
-                count_stalls(budget),
-                budget,
-                "exactly {budget} cycles should be stolen"
-            );
-        }
-    }
-
-    #[test]
-    fn dma_steal_lands_in_the_fetch_window() {
-        // A modest budget steals only inside (HSTART, HSYNC] — the CPU runs at
-        // full speed before the display fetch, unlike the old front-loaded
-        // block that stalled from cycle 0.
-        for c in 1..=CYCLES_HSTART {
-            assert!(
-                !cpu_dma_stalled(c, 40),
-                "no steal before HSTART (cycle {c})"
-            );
-        }
-        for c in CYCLES_HSYNC + 1..=u16::from(CPU_CYCLES_PER_LINE) {
-            assert!(!cpu_dma_stalled(c, 40), "no steal after HSYNC (cycle {c})");
-        }
-    }
-
-    #[test]
-    fn dma_overflow_spills_before_the_window() {
-        // A budget larger than the 72-cycle window fills the window and spills
-        // into the cycles just before HSTART, but still steals exactly budget.
-        let budget = 90; // window is 72 → overflow 18
-        assert_eq!(count_stalls(budget), budget);
-        assert!(
-            cpu_dma_stalled(CYCLES_HSTART, budget),
-            "overflow reaches HSTART"
-        );
-        assert!(
-            !cpu_dma_stalled(CYCLES_HSTART - 18, budget),
-            "but not earlier than the overflow"
-        );
     }
 
     #[test]
@@ -1637,199 +1691,6 @@ mod tests {
         assert_eq!(result.playfield[8..12], [0, 0, 0, 0]);
     }
 
-    /// The first scan line of a wide mode 2 line asks for more DMA than the
-    /// line can spare: 48 character codes, 48 character-data bytes, 9 refresh
-    /// and 1 display-list cycle. Subtracting that from the fetch window's
-    /// start used to underflow — a panic in debug, and in release a wrapped
-    /// comparison that reported no stall at all on exactly the lines where
-    /// ANTIC holds the CPU for nearly the whole line.
-    #[test]
-    fn a_budget_larger_than_the_line_stalls_every_cycle_it_can() {
-        let mut ram = make_ram();
-        let mut antic = Antic::new(AnticRegion::Ntsc);
-
-        ram[0x4000] = 0x42; // mode 2 + LMS
-        ram[0x4001] = 0x00;
-        ram[0x4002] = 0x80;
-
-        antic.write(0x00, 0x23); // DMACTL: DL DMA + wide playfield
-        antic.write(0x02, 0x00);
-        antic.write(0x03, 0x40);
-        antic.scan_line = VISIBLE_START;
-
-        let budget = u16::from(antic.process_line(&ram[..]).dma_cycles);
-        assert!(
-            budget > CYCLES_HSYNC,
-            "budget {budget} should exceed the line"
-        );
-
-        assert_eq!(count_stalls(budget), CYCLES_HSYNC);
-        assert!(!cpu_dma_stalled(0, budget));
-        assert!(cpu_dma_stalled(1, budget));
-        assert!(cpu_dma_stalled(CYCLES_HSYNC, budget));
-        assert!(!cpu_dma_stalled(CYCLES_HSYNC + 1, budget));
-    }
-
-    /// Render one scan line of a single mode line, with the machine set up
-    /// the way the fine-scrolling tests want it.
-    fn scrolled_line(instr: u8, width_bits: u8, hscrol: u8, screen: &[u8]) -> LineResult {
-        let mut ram = make_ram();
-        let mut antic = Antic::new(AnticRegion::Ntsc);
-
-        ram[0x4000] = instr | 0x40; // + LMS
-        ram[0x4001] = 0x00;
-        ram[0x4002] = 0x80;
-        ram[0x8000..0x8000 + screen.len()].copy_from_slice(screen);
-
-        antic.write(0x00, 0x20 | width_bits); // DMACTL: DL DMA + playfield width
-        antic.write(0x02, 0x00);
-        antic.write(0x03, 0x40);
-        antic.write(0x04, hscrol);
-        antic.scan_line = VISIBLE_START;
-
-        antic.process_line(&ram[..])
-    }
-
-    /// A scrolled line fetches one width level wider than DMACTL asks for, so
-    /// there is picture to shift in from the left. The width it *displays* is
-    /// unchanged.
-    #[test]
-    fn hscrol_fetches_one_width_level_wider() {
-        let plain = scrolled_line(0x0F, 2, 0, &[0xFF; 48]);
-        let scrolled = scrolled_line(0x1F, 2, 0, &[0xFF; 48]);
-
-        assert_eq!(scrolled.playfield_width, plain.playfield_width);
-        assert_eq!(scrolled.playfield.len(), plain.playfield.len());
-        // Mode F fetches 40 bytes at normal width and 48 at wide. The extra
-        // eight are stolen from the CPU whether or not they are displayed.
-        assert_eq!(scrolled.dma_cycles - plain.dma_cycles, 8);
-    }
-
-    /// Wide has no wider level to fetch at, so a scrolled wide playfield
-    /// fetches the same data and shifts background in on the left.
-    #[test]
-    fn a_scrolled_wide_playfield_fetches_no_extra_data() {
-        let plain = scrolled_line(0x0F, 3, 0, &[0xFF; 48]);
-        let scrolled = scrolled_line(0x1F, 3, 4, &[0xFF; 48]);
-
-        assert_eq!(scrolled.dma_cycles, plain.dma_cycles);
-        // Four colour clocks of background at the left edge, then picture.
-        assert_eq!(scrolled.playfield[0..8], [0; 8]);
-        assert_eq!(scrolled.playfield[8], 1);
-    }
-
-    /// At HSCROL 0 the picture does not move: the wider fetch is windowed back
-    /// to the requested width, dropping the same number of colour clocks from
-    /// each side. Raising HSCROL then moves the picture right, one colour
-    /// clock at a time.
-    #[test]
-    fn hscrol_shifts_the_playfield_right_one_colour_clock_at_a_time() {
-        // Mode C: 20 bytes, one bit per pixel, one pixel per colour clock. A
-        // single lit bit gives a landmark to follow. Narrow displays 128
-        // colour clocks and fetches 160 when scrolled, so the window drops 16
-        // from each side and the bit at colour clock 40 lands at 24.
-        let mut screen = [0u8; 24];
-        screen[5] = 0x80; // colour clock 40
-
-        for hscrol in 0..=15u8 {
-            let line = scrolled_line(0x1C, 1, hscrol, &screen);
-            let lit: Vec<usize> = line
-                .playfield
-                .iter()
-                .enumerate()
-                .filter(|&(_, &px)| px != 0)
-                .map(|(i, _)| i)
-                .collect();
-            assert_eq!(lit, vec![24 + usize::from(hscrol)], "HSCROL {hscrol}");
-        }
-    }
-
-    /// Hi-res pixels are half a colour clock, and HSCROL counts whole colour
-    /// clocks, so a hi-res mode scrolls in pairs of pixels.
-    #[test]
-    fn hi_res_modes_scroll_two_pixels_per_hscrol_step() {
-        let mut screen = [0u8; 48];
-        screen[5] = 0x80;
-
-        let at = |hscrol| {
-            let line = scrolled_line(0x1F, 1, hscrol, &screen);
-            line.playfield.iter().position(|&px| px != 0).expect("lit")
-        };
-
-        let base = at(0);
-        assert_eq!(at(1), base + 2);
-        assert_eq!(at(7), base + 14);
-    }
-
-    /// Vertical scrolling reshapes the mode lines at the edges of a region and
-    /// leaves the ones inside it alone. Altirra's worked example: two mode 2
-    /// lines with the bit set followed by one with it clear occupy
-    /// `(8 - VSCROL) + 8 + (VSCROL + 1)` scan lines, not 24.
-    #[test]
-    fn vscrol_moves_the_edges_of_a_scrolling_region() {
-        for vscrol in 0..8u8 {
-            let mut ram = make_ram();
-            let mut antic = Antic::new(AnticRegion::Ntsc);
-
-            ram[0x4000] = 0x62; // mode 2 + LMS + VSCROL
-            ram[0x4001] = 0x00;
-            ram[0x4002] = 0x80;
-            ram[0x4003] = 0x22; // mode 2 + VSCROL
-            ram[0x4004] = 0x02; // mode 2
-            ram[0x4005] = 0x02; // mode 2, clear of the region entirely
-
-            antic.write(0x00, 0x22);
-            antic.write(0x02, 0x00);
-            antic.write(0x03, 0x40);
-            antic.write(0x05, vscrol);
-            antic.scan_line = VISIBLE_START;
-
-            let mut rows: Vec<u32> = Vec::new();
-            for _ in 0..32 {
-                let before = antic.dlist;
-                antic.process_line(&ram[..]);
-                if antic.dlist != before {
-                    rows.push(0);
-                }
-                *rows.last_mut().expect("a mode line has started") += 1;
-            }
-
-            assert_eq!(
-                rows[0..4],
-                [8 - u32::from(vscrol), 8, u32::from(vscrol) + 1, 8],
-                "VSCROL {vscrol}"
-            );
-        }
-    }
-
-    /// Entering a scrolling region starts the mode line partway down its
-    /// glyph, which is what makes the picture move vertically.
-    #[test]
-    fn the_first_line_of_a_region_starts_partway_down_the_glyph() {
-        let mut ram = make_ram();
-        let mut antic = Antic::new(AnticRegion::Ntsc);
-
-        ram[0x4000] = 0x62; // mode 2 + LMS + VSCROL
-        ram[0x4001] = 0x00;
-        ram[0x4002] = 0x80;
-        ram[0x8000] = 0x01; // one character, glyph 1
-
-        // Glyph 1's rows: only row 3 is lit.
-        ram[0xE00B] = 0xFF;
-
-        antic.write(0x00, 0x22);
-        antic.write(0x02, 0x00);
-        antic.write(0x03, 0x40);
-        antic.write(0x05, 3); // VSCROL: start at glyph row 3
-        antic.write(0x09, 0xE0); // CHBASE
-        antic.scan_line = VISIBLE_START;
-
-        // The region's first line starts at row 3, so the lit row is the very
-        // first scan line rather than the fourth.
-        let line = antic.process_line(&ram[..]);
-        assert_eq!(line.playfield[0..8], [1; 8]);
-    }
-
     #[test]
     fn jump_jvb_resets_for_vblank() {
         let mut ram = make_ram();
@@ -1903,22 +1764,196 @@ mod tests {
 
     #[test]
     fn pm_dma_cycle_counting() {
-        let mut ram = make_ram();
-        let mut antic = Antic::new(AnticRegion::Ntsc);
+        let result = first_line(0x4D, 0x2E, 0); // mode D + LMS, normal + P/M DMA
+        assert!(result.pm_dma);
 
-        // Mode D + LMS + player DMA + missile DMA
-        ram[0x4000] = 0x4D;
+        // Mode D fetches every two cycles from cycle 20, so it takes the even
+        // cycles and leaves every refresh slot — all of which are odd — alone.
+        // missile(1) + DL(1) + players(4) + LMS(2) + playfield(40) + refresh(9)
+        assert_eq!(result.dma_cycles, 57);
+        assert_eq!(cycles(result.dma_mask, 0..10), vec![0, 1, 2, 3, 4, 5, 6, 7]);
+    }
+
+    /// Run one scan line of a fresh ANTIC: `instr` as the whole display list,
+    /// `dmactl` as written, `hscrol` in the register.
+    fn first_line(instr: u8, dmactl: u8, hscrol: u8) -> LineResult {
+        let mut ram = make_ram();
+        ram[0x4000] = instr;
         ram[0x4001] = 0x00;
         ram[0x4002] = 0x80;
 
-        antic.write(0x00, 0x2E); // normal width + DL DMA + player + missile
+        let mut antic = Antic::new(AnticRegion::Ntsc);
+        antic.write(0x00, dmactl);
+        antic.write(0x02, 0x00);
+        antic.write(0x03, 0x40);
+        antic.write(0x04, hscrol);
+        antic.scan_line = VISIBLE_START;
+        antic.process_line(&ram[..])
+    }
+
+    /// The cycles a mask claims within `range`.
+    fn cycles(mask: u128, range: std::ops::Range<u16>) -> Vec<u16> {
+        range.filter(|&c| mask >> c & 1 != 0).collect()
+    }
+
+    /// Cycle 0 is missile DMA, cycle 1 the display-list instruction byte,
+    /// cycles 2-5 the four players, and cycles 6-7 an LMS or jump address
+    /// word. *Altirra Hardware Reference Manual* §4.14.
+    #[test]
+    fn the_fixed_fetches_sit_where_the_hardware_puts_them() {
+        // Mode 8 fetches every eight cycles from cycle 20, so nothing it does
+        // reaches back into the first ten cycles.
+        let with_lms = first_line(0x48, 0x2E, 0);
+        assert_eq!(
+            cycles(with_lms.dma_mask, 0..10),
+            vec![0, 1, 2, 3, 4, 5, 6, 7]
+        );
+
+        // Without P/M DMA the missile and player cycles go back to the CPU.
+        let no_pm = first_line(0x48, 0x22, 0);
+        assert_eq!(cycles(no_pm.dma_mask, 0..10), vec![1, 6, 7]);
+    }
+
+    /// Character modes fetch names from cycle 18 at normal width, every two
+    /// cycles in modes 2-5, and the glyph data three cycles after each name.
+    #[test]
+    fn character_names_and_data_fetch_at_the_documented_cycles() {
+        let result = first_line(0x42, 0x22, 0); // mode 2 + LMS, normal width
+
+        let names: Vec<u16> = (18..=96).step_by(2).collect();
+        let data: Vec<u16> = (21..=99).step_by(2).collect();
+        for cycle in names.iter().chain(data.iter()) {
+            assert!(
+                result.dma_mask >> cycle & 1 != 0,
+                "cycle {cycle} should be a playfield fetch"
+            );
+        }
+        // Nothing before the first name fetch but the display list.
+        assert_eq!(cycles(result.dma_mask, 0..18), vec![1, 6, 7]);
+    }
+
+    /// Playfield DMA outranks refresh. On the first scan line of a mode 2 line
+    /// the bus is solid from the first name fetch to the last data fetch, so
+    /// every refresh slot is blocked and only the one deferred refresh lands.
+    /// On later scan lines only the data fetches remain, and each refresh slips
+    /// one cycle into the gap between them.
+    #[test]
+    fn refresh_gives_way_to_playfield_and_takes_the_next_free_cycle() {
+        let mut ram = make_ram();
+        ram[0x4000] = 0x42; // mode 2 + LMS
+        ram[0x4001] = 0x00;
+        ram[0x4002] = 0x80;
+
+        let mut antic = Antic::new(AnticRegion::Ntsc);
+        antic.write(0x00, 0x22);
         antic.write(0x02, 0x00);
         antic.write(0x03, 0x40);
         antic.scan_line = VISIBLE_START;
 
-        let result = antic.process_line(&ram[..]);
-        assert!(result.pm_dma);
-        // refresh(9) + DL(1) + LMS(2) + playfield(40) + missile(1) + players(4) + overhead(2) = 59
-        assert_eq!(result.dma_cycles, 59);
+        // First scan line: names on the even cycles 18-96, data on the odd
+        // cycles 21-99. Every refresh slot is blocked, and the one that gets
+        // deferred waits until cycle 98 — the first even cycle past the last
+        // name fetch. The other eight are dropped.
+        let first = antic.process_line(&ram[..]);
+        assert_eq!(cycles(first.dma_mask, 98..114), vec![98, 99]);
+        assert_eq!(first.dma_cycles, 1 + 2 + 40 + 40 + 1);
+
+        // Later scan lines fetch only character data, so each refresh slot is
+        // blocked but the cycle after it is free.
+        let later = antic.process_line(&ram[..]);
+        // Character data still holds every odd cycle from 21, so each refresh
+        // slot is blocked and slips onto the even cycle after it. Those are the
+        // only even cycles a replayed line takes.
+        let evens: Vec<u16> = cycles(later.dma_mask, 0..114)
+            .into_iter()
+            .filter(|c| c % 2 == 0)
+            .collect();
+        assert_eq!(evens, (26..=58).step_by(4).collect::<Vec<_>>());
+        assert_eq!(later.dma_cycles, 40 + 9);
+    }
+
+    /// Vertical blank has no display fetch, so all nine refresh cycles land on
+    /// their own slots: cycle 25, then every four.
+    #[test]
+    fn vertical_blank_takes_all_nine_refresh_cycles() {
+        let mut antic = Antic::new(AnticRegion::Ntsc);
+        antic.write(0x00, 0x22);
+        antic.scan_line = VISIBLE_END;
+
+        let result = antic.process_line(&make_ram()[..]);
+        assert_eq!(
+            cycles(result.dma_mask, 0..114),
+            (25..=57).step_by(4).collect::<Vec<_>>()
+        );
+    }
+
+    /// A mapped mode loads ANTIC's line buffer on the first scan line of the
+    /// mode line and replays it, so it takes no playfield DMA afterwards.
+    #[test]
+    fn a_mapped_mode_fetches_once_per_mode_line() {
+        let mut ram = make_ram();
+        ram[0x4000] = 0x4D; // mode D + LMS — two scan lines per row
+        ram[0x4001] = 0x00;
+        ram[0x4002] = 0x80;
+
+        let mut antic = Antic::new(AnticRegion::Ntsc);
+        antic.write(0x00, 0x22);
+        antic.write(0x02, 0x00);
+        antic.write(0x03, 0x40);
+        antic.scan_line = VISIBLE_START;
+
+        let first = antic.process_line(&ram[..]);
+        assert_eq!(first.dma_cycles, 1 + 2 + 40 + 9);
+
+        let second = antic.process_line(&ram[..]);
+        assert_eq!(second.dma_cycles, 9, "only refresh on a replayed line");
+    }
+
+    /// Horizontal scrolling delays the whole fetch window by one cycle for
+    /// every two of HSCROL, and odd values share the even value's timing.
+    #[test]
+    fn hscrol_delays_playfield_dma_one_cycle_per_two() {
+        for hscrol in 0..16u8 {
+            // Mode 8 + LMS + HSCROL, normal width — a slow fetch rate keeps the
+            // playfield clear of the fixed cycles and of each refresh slot.
+            let result = first_line(0x58, 0x22, hscrol);
+            let first_fetch = cycles(result.dma_mask, 8..114)[0];
+            assert_eq!(first_fetch, 12 + u16::from(hscrol / 2), "HSCROL {hscrol}");
+        }
+    }
+
+    /// A playfield fetch that would land past cycle 105 is virtual: ANTIC still
+    /// reads it and advances the memory scan counter, but it neither takes the
+    /// bus nor halts the CPU.
+    #[test]
+    fn playfield_dma_stops_at_cycle_105() {
+        // Wide mode 2 with the maximum scroll starts the name fetches at cycle
+        // 17 and would run them to 111. The bus stays solid to 105, so the one
+        // deferred refresh takes 106 — which the manual calls out as the
+        // furthest a refresh can be pushed — and nothing at all lands later.
+        let result = first_line(0x52, 0x23, 15);
+        assert!(
+            result.dma_mask >> 105 & 1 != 0,
+            "cycle 105 is still fair game"
+        );
+        assert_eq!(cycles(result.dma_mask, 106..114), vec![106]);
+
+        // A wide line is solid to 105 with or without scrolling, so the
+        // contrast is a normal-width one: its playfield ends at 99, the
+        // deferred refresh finds a gap before then, and the tail of the line
+        // is the CPU's.
+        let normal = first_line(0x42, 0x22, 0);
+        assert!(cycles(normal.dma_mask, 100..114).is_empty());
+    }
+
+    /// Cycle 0 is missile DMA and the first CPU cycle of the line; the line
+    /// runs to 113. Anything past that is not a cycle of this line.
+    #[test]
+    fn the_stall_predicate_reads_the_mask_in_hardware_numbering() {
+        let mask = 1u128 | 1 << 113;
+        assert!(cpu_dma_stalled(0, mask));
+        assert!(!cpu_dma_stalled(1, mask));
+        assert!(cpu_dma_stalled(113, mask));
+        assert!(!cpu_dma_stalled(114, mask));
     }
 }
