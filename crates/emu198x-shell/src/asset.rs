@@ -314,7 +314,7 @@ fn archive_match_rules(kind: MediaKind) -> (&'static str, &'static [&'static str
         MediaKind::Disk => (
             "disk image",
             &[
-                "adf", "d64", "d71", "d81", "dsk", "g64", "ipf", "nib", "vdk", "woz",
+                "adf", "atr", "d64", "d71", "d81", "dsk", "g64", "ipf", "nib", "vdk", "woz",
             ],
         ),
         MediaKind::Cartridge => (

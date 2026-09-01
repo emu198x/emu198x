@@ -21,6 +21,7 @@ pub(crate) const A800XL_QUERY_PATHS: &[&str] = &[
     "basic.loaded",
     "cartridge.loaded",
     "cpu.pc",
+    "disk.loaded",
     "gtia",
     "gtia.colbk",
     "gtia.colpf",
@@ -76,6 +77,7 @@ impl SessionQueryProvider<Atari800xlRuntime> for Atari800xlSessionQueryProvider 
             "basic.loaded" => json!(machine.basic_bytes().is_some()),
             "basic.enabled" => json!(machine.basic_enabled()),
             "cartridge.loaded" => json!(machine.cart_bytes().is_some()),
+            "disk.loaded" => json!(machine.disk_in_d1()),
             "program.loaded" => json!(machine.xex_bytes().is_some()),
             "program.pending" => json!(machine.xex_pending()),
             "machine.frame_count" => {

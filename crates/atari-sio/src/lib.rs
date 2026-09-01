@@ -146,6 +146,13 @@ impl DiskDrive {
         self.delay = 0;
     }
 
+    /// Take the disk out, with whatever was written to it while it was in.
+    pub fn eject(&mut self) -> Option<AtrImage> {
+        let disk = self.disk.take();
+        self.insert(None);
+        disk
+    }
+
     /// Whether a disk is in the drive.
     #[must_use]
     pub fn has_disk(&self) -> bool {
@@ -436,6 +443,12 @@ impl SioBus {
         }
     }
 
+    /// Take the disk out of drive `n`, leaving the drive on the bus. `None`
+    /// when the drive is not there or is empty.
+    pub fn eject_disk(&mut self, drive: u8) -> Option<AtrImage> {
+        self.drive_mut(drive)?.eject()
+    }
+
     /// One drive, numbered from 1, if it is plugged in.
     #[must_use]
     pub fn drive(&self, drive: u8) -> Option<&DiskDrive> {
@@ -646,6 +659,22 @@ mod tests {
 
         let read = issue(&mut bus, command(0x31, CMD_READ, 100), &[], 3 + 128);
         assert_eq!(&read[2..130], &written);
+    }
+
+    /// The disk that comes out carries what was written to it, and the drive
+    /// it came out of is still on the bus and answers as an empty one.
+    #[test]
+    fn an_ejected_disk_keeps_its_writes_and_leaves_the_drive_attached() {
+        let mut bus = bus_with_disk();
+        let written = [0x5Au8; 128];
+        issue(&mut bus, command(0x31, CMD_PUT, 100), &written, 3);
+
+        let disk = bus.eject_disk(1).expect("a disk was in D1");
+        assert_eq!(disk.sector(100), Some(&written[..]));
+        assert!(bus.eject_disk(1).is_none());
+        assert!(bus.drive(1).is_some_and(|d| !d.has_disk()));
+        let out = issue(&mut bus, command(0x31, CMD_READ, 1), &[], 1);
+        assert_eq!(out, vec![NAK]);
     }
 
     #[test]

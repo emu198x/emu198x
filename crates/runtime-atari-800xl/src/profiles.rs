@@ -80,6 +80,13 @@ pub fn profile_for(model: Model) -> MachineProfile {
                 false,
                 WritebackPolicy::InMemoryOnly,
             ),
+            MediaSlot::new(
+                "disk-1",
+                "Disk Drive D1:",
+                MediaKind::Disk,
+                false,
+                WritebackPolicy::InMemoryOnly,
+            ),
         ],
         capabilities: CapabilitySet::with_all([
             known_capability("keyboard-input"),
@@ -97,5 +104,18 @@ mod tests {
         let p = profile_for(Model::A800xlNtsc);
         assert_eq!(p.firmware.len(), 2);
         assert!(p.firmware.iter().all(|f| f.optional));
+    }
+
+    #[test]
+    fn profile_declares_one_disk_slot() {
+        let p = profile_for(Model::A800xlNtsc);
+        let disks: Vec<_> = p
+            .media_slots
+            .iter()
+            .filter(|slot| slot.kind == MediaKind::Disk)
+            .collect();
+        assert_eq!(disks.len(), 1);
+        assert_eq!(disks[0].id, "disk-1");
+        assert!(!disks[0].required);
     }
 }

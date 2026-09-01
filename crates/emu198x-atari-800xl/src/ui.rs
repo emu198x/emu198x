@@ -17,6 +17,7 @@ use std::env;
 use std::path::PathBuf;
 use std::time::Duration;
 
+use emu198x_shell::{MachineCore, MediaImage, MediaKind, MediaSet, read_media_asset};
 use emu198x_ui::{
     ButtonInputMap, ButtonTarget, HostControl, KeyCode, UiError, UiSystem, VideoFilter,
 };
@@ -49,6 +50,7 @@ Options:
     --basic PATH    8 KB Atari BASIC ROM; default
                     ~/.emu198x/roms/atari-800xl/ataribas.rom (or EMU198X_A800XL_BASIC)
     --cart PATH     cartridge ROM (8 KB or 16 KB)
+    --disk PATH     ATR disk image for D1: (a .zip holding one .atr works too)
     --no-basic      hold OPTION at boot to disable the built-in BASIC
     --region MODE   ntsc | pal [default: ntsc]
     --scale N       integer window scale, default 3
@@ -72,6 +74,7 @@ Controls:
 Examples:
     emu198x-atari-800xl
     emu198x-atari-800xl --cart game.bin --region pal --scale 4
+    emu198x-atari-800xl --disk dos.atr --no-basic
 ";
 
 /// Display region — selects the model, frame tick budget, and refresh rate.
@@ -221,6 +224,7 @@ pub struct Cli {
     os: Option<PathBuf>,
     basic: Option<PathBuf>,
     cart: Option<PathBuf>,
+    disk: Option<PathBuf>,
     basic_enabled: bool,
     region: Region,
     scale: u32,
@@ -233,6 +237,7 @@ impl Default for Cli {
             os: None,
             basic: None,
             cart: None,
+            disk: None,
             basic_enabled: true,
             region: Region::Ntsc,
             scale: DEFAULT_SCALE,
@@ -266,8 +271,18 @@ pub fn run(cli: Cli) -> Result<(), String> {
             .to_owned());
     }
 
-    let runtime = Atari800xlRuntime::new(cli.region.model(), os, basic, cart, cli.basic_enabled)
-        .map_err(|err| format!("failed to construct runtime: {err}"))?;
+    let mut runtime =
+        Atari800xlRuntime::new(cli.region.model(), os, basic, cart, cli.basic_enabled)
+            .map_err(|err| format!("failed to construct runtime: {err}"))?;
+    if let Some(path) = &cli.disk {
+        let loaded = read_media_asset(path, MediaKind::Disk)
+            .map_err(|err| format!("failed to load disk asset {}: {err}", path.display()))?;
+        let mut media = MediaSet::new();
+        media.push(MediaImage::new("disk-1", MediaKind::Disk, &loaded.bytes));
+        runtime
+            .load_media(&media)
+            .map_err(|err| format!("disk load failed: {err}"))?;
+    }
 
     println!(
         "Controls: Esc quit, F12 reset, A-Z/0-9 keyboard, arrows joystick, \
@@ -294,6 +309,7 @@ where
             "--os" => cli.os = Some(PathBuf::from(next_arg(&mut iter, "--os"))),
             "--basic" => cli.basic = Some(PathBuf::from(next_arg(&mut iter, "--basic"))),
             "--cart" => cli.cart = Some(PathBuf::from(next_arg(&mut iter, "--cart"))),
+            "--disk" => cli.disk = Some(PathBuf::from(next_arg(&mut iter, "--disk"))),
             "--no-basic" => cli.basic_enabled = false,
             "--region" => {
                 cli.region = match next_arg(&mut iter, "--region").as_str() {

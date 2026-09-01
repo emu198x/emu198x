@@ -11,6 +11,7 @@ repository.workspace = true
 emu198x-shell = { path = "../emu198x-shell", version = "0.17.0" }
 atari-gtia = { path = "../atari-gtia", version = "0.17.0" }
 machine-atari-800xl = { path = "../machine-atari-800xl", version = "0.17.0" }
+format-atari-8bit-atr = { path = "../format-atari-8bit-atr", version = "0.17.0" }
 format198x-atari-8bit-xex = "0.1.0"
 postcard = { workspace = true }
 serde = { workspace = true }
