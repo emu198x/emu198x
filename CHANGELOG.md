@@ -9,15 +9,25 @@ not strictly. Versions follow [Semantic Versioning](https://semver.org/spec/v2.0
 
 ### Added
 
-- Read Atari ATR disk images
-- Give POKEY's serial port a wire
-- Put a disk drive on the SIO bus
-- *(atari)* --disk loads an ATR into D1: on the 800XL
+- *(atari)* Read ATR disk images — the `format-atari-8bit-atr` crate parses
+  the header, sector size and density, and hands out sectors by number
+- *(atari)* Give POKEY's serial port a wire: SKCTL, SEROUT, SERIN and the
+  serial interrupts now drive a real bit stream, clocked from the timer that
+  runs it
+- *(atari)* Put a disk drive on the SIO bus — the 800XL answers status, read
+  and write command frames for D1:, so the OS boots a disk
+- *(atari)* Load a disk with `--disk PATH` in the GUI, headless script mode
+  and MCP; a `.zip` holding one `.atr` works unpacked. The drive keeps its
+  disk through a hard reset, writes and all, and `disk.loaded` reports
+  whether D1: is occupied
 
 
 ### Fixed
 
-- *(atari)* --no-basic takes effect with the real XL OS
+- *(atari)* Make `--no-basic` take effect with the real XL OS. The OS cold
+  start decides from OPTION whether BASIC is in and writes PORTB itself, so
+  the preset bit was ignored; the machine now holds OPTION for the OS's
+  first second after a cold start with BASIC off
 
 ## [0.17.0] - 2026-09-01
 
