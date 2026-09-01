@@ -24,6 +24,9 @@ pub use basic_loader::{
     load_basic_source,
 };
 pub use drives::{DriveKind, IecDrive};
+// Re-exported so a host can drive the user port without naming the
+// machine-neutral modem crate directly.
+pub use emu198x_esp_at_modem::{BitBangSerial, EspAtModem, EspAtTcpBridge};
 pub use input::{key_name_is_valid, keys_for_char};
 pub use machine_commodore_c64::{AudioControls, SidChannel};
 pub use profiles::{Model, profile_for, profiles};

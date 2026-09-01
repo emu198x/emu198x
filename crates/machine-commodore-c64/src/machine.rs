@@ -1006,6 +1006,36 @@ impl C64 {
         (self.phi2_cycles - start) as u32
     }
 
+    /// Read the effective logic level at user-port PA2 (pin M), after DDRA.
+    ///
+    /// PA2 is the line a user-port serial adapter reads as the computer's TX.
+    /// It is the same physical pin the VIC-20 reaches through its VIA's CB2,
+    /// so a three-wire adapter built for one machine is wired for the other.
+    #[must_use]
+    pub fn user_port_pa2(&self) -> bool {
+        self.cia2.pa & 0x04 != 0
+    }
+
+    /// Read the effective logic level at user-port PB0 (pin C), after DDRB.
+    #[must_use]
+    pub fn user_port_pb0(&self) -> bool {
+        self.cia2.pb & 0x01 != 0
+    }
+
+    /// Drive the external level at user-port PB0 (pin C).
+    ///
+    /// The level lands in CIA #2's port-B input register, so it reaches the
+    /// pin on the next `phi2` cycle. When DDRB0 is configured as an output
+    /// the CIA's output latch wins, exactly as it does at the physical pin.
+    /// The line idles high, matching the user port's pull-ups.
+    pub fn set_user_port_pb0(&mut self, high: bool) {
+        if high {
+            self.cia2.pb_in |= 0x01;
+        } else {
+            self.cia2.pb_in &= !0x01;
+        }
+    }
+
     /// Loads one PRG file into raw RAM and returns its load address.
     ///
     /// This is a host-side import convenience, not an emulated disk or tape
@@ -1930,6 +1960,97 @@ mod tests {
         machine.advance_phi2_cycles(63);
         assert_eq!(machine.cycle_in_line(), 0);
         assert_eq!(machine.raster_line(), 1);
+    }
+
+    #[test]
+    fn user_port_pa2_follows_the_cia_output_latch() {
+        let mut machine = stub_machine(C64Model::PalBreadbin);
+        // PA2 an output (pin M is the computer's TX on a serial adapter).
+        machine.cpu_write(0xDD02, 0x04);
+        machine.cpu_write(0xDD00, 0x04);
+        assert!(machine.user_port_pa2());
+        machine.cpu_write(0xDD00, 0x00);
+        assert!(!machine.user_port_pa2());
+    }
+
+    #[test]
+    fn user_port_pb0_takes_the_external_level_while_it_is_an_input() {
+        let mut machine = stub_machine(C64Model::PalBreadbin);
+        // The user port's pull-ups idle the line high.
+        assert!(machine.user_port_pb0());
+
+        // PB0 an input (pin C is the computer's RX on a serial adapter).
+        machine.cpu_write(0xDD03, 0x00);
+        machine.set_user_port_pb0(false);
+        machine.tick();
+        assert!(!machine.user_port_pb0());
+        machine.set_user_port_pb0(true);
+        machine.tick();
+        assert!(machine.user_port_pb0());
+
+        // Configured as an output, the CIA's latch wins at the pin.
+        machine.set_user_port_pb0(false);
+        machine.cpu_write(0xDD03, 0x01);
+        machine.cpu_write(0xDD01, 0x01);
+        assert!(machine.user_port_pb0());
+    }
+
+    #[test]
+    fn a_byte_bit_banged_on_pa2_reaches_a_serial_listener() {
+        use emu198x_esp_at_modem::BitBangSerial;
+
+        const CYCLES_PER_BIT: u32 = 16;
+        let mut machine = stub_machine(C64Model::PalBreadbin);
+        let mut serial = BitBangSerial::new(CYCLES_PER_BIT);
+
+        // PA2 an output, as a client's transmit routine leaves it.
+        machine.cpu_write(0xDD02, 0x04);
+
+        // 8N1 for $5A, LSB first: idle high, start low, data, stop high. The
+        // register write is the client's `STA $DD00`; the ticks in between are
+        // the bit period it waits out.
+        let byte = 0x5Au8;
+        let mut levels = vec![true, true, false];
+        levels.extend((0..8).map(|bit| byte & (1 << bit) != 0));
+        levels.push(true);
+        levels.push(true);
+
+        for high in levels {
+            machine.cpu_write(0xDD00, if high { 0x04 } else { 0x00 });
+            for _ in 0..CYCLES_PER_BIT {
+                let receive = serial.tick(machine.user_port_pa2());
+                machine.set_user_port_pb0(receive);
+            }
+        }
+
+        assert_eq!(serial.take_output(), vec![byte]);
+    }
+
+    #[test]
+    fn a_listener_transmitting_pulls_pb0_low_at_the_pin() {
+        use emu198x_esp_at_modem::BitBangSerial;
+
+        const CYCLES_PER_BIT: u32 = 16;
+        let mut machine = stub_machine(C64Model::PalBreadbin);
+        let mut serial = BitBangSerial::new(CYCLES_PER_BIT);
+
+        // PB0 an input, as a client's receive routine leaves it.
+        machine.cpu_write(0xDD03, 0x00);
+        serial.queue_input(&[0x5A]);
+        assert!(machine.user_port_pb0(), "the line idles high");
+
+        // The start bit must show up at the pin within a few bit periods.
+        let mut saw_start_bit = false;
+        for _ in 0..(CYCLES_PER_BIT * 8) {
+            let receive = serial.tick(true);
+            machine.set_user_port_pb0(receive);
+            machine.cpu_write(0xDD03, 0x00);
+            if !machine.user_port_pb0() {
+                saw_start_bit = true;
+                break;
+            }
+        }
+        assert!(saw_start_bit, "the modem's start bit never reached PB0");
     }
 
     #[test]

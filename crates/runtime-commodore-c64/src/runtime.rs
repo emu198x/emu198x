@@ -3,6 +3,7 @@
 use std::borrow::Cow;
 
 use common_commodore_iec::IecBus;
+use emu198x_esp_at_modem::EspAtTcpBridge;
 use emu198x_shell::{
     AudioPacket, CapabilitySet, ControlCommand, FirmwareSet, FramePacket, HostIo, MachineCore,
     MachineError, MachineProfile, MachineTime, MediaKind, MediaSet, MediaTransportAction,
@@ -74,6 +75,11 @@ pub struct C64Runtime {
     mouse_1351_port: Option<u8>,
     iec_bus: IecBus,
     rgba_framebuffer: Vec<u8>,
+    /// ESP-AT modem bridged to a real TCP socket, hanging off the user port
+    /// (CIA #2 PA2 = pin M, computer TX; PB0 = pin C, computer RX). `None`
+    /// leaves the port's pull-ups idling both lines high, as with nothing
+    /// plugged in.
+    esp_at_tcp_bridge: Option<EspAtTcpBridge>,
     trace_vic_colour_writes: bool,
     trace_drive_rom_window: Option<(u16, u16)>,
     last_drive_trace_state: Option<DriveRomTraceState>,
@@ -220,6 +226,7 @@ impl C64Runtime {
             mouse_1351_port: None,
             iec_bus,
             rgba_framebuffer,
+            esp_at_tcp_bridge: None,
             trace_vic_colour_writes: false,
             trace_drive_rom_window: None,
             last_drive_trace_state: None,
@@ -600,6 +607,31 @@ impl C64Runtime {
         self.mouse_1351_port
     }
 
+    /// Plug an ESP-AT modem into the user port, bridged to a real TCP
+    /// transport. Connections open only once the emulated client sends
+    /// `AT+CIPSTART`.
+    ///
+    /// `cycles_per_bit` is the modem's bit period in C64 `phi2` cycles, which
+    /// differs by region because the external modem keeps real baud time while
+    /// the CPU clock does not.
+    pub fn attach_esp_at_tcp_bridge(&mut self, cycles_per_bit: u32, frame_size: usize) {
+        self.esp_at_tcp_bridge = Some(EspAtTcpBridge::new(cycles_per_bit, frame_size));
+    }
+
+    /// The attached ESP-AT bridge, if any — for host-side diagnostics.
+    #[must_use]
+    pub fn esp_at_tcp_bridge(&self) -> Option<&EspAtTcpBridge> {
+        self.esp_at_tcp_bridge.as_ref()
+    }
+
+    /// Unplug the ESP-AT modem, closing any open connection. The peripheral's
+    /// query leaves stop being advertised, as they do for any absent hardware.
+    pub fn detach_esp_at_tcp_bridge(&mut self) {
+        self.esp_at_tcp_bridge = None;
+        // Nothing is driving the line any more, so the port's pull-ups win.
+        self.machine.set_user_port_pb0(true);
+    }
+
     /// Attached GeoRAM size in KiB, if any. Retained across a reset.
     #[must_use]
     pub fn georam_kb(&self) -> Option<usize> {
@@ -896,6 +928,13 @@ impl MachineCore for C64Runtime {
                     }
                     continue;
                 }
+            }
+
+            // One bit-bang step per C64 `phi2` cycle: the modem samples PA2
+            // (pin M, computer TX) and answers on PB0 (pin C, computer RX).
+            if let Some(bridge) = self.esp_at_tcp_bridge.as_mut() {
+                let rx = bridge.tick(self.machine.user_port_pa2());
+                self.machine.set_user_port_pb0(rx);
             }
 
             let frame_complete = if any_drive {

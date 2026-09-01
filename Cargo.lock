@@ -1164,6 +1164,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "emu198x-esp-at-modem"
+version = "0.14.0"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
 name = "emu198x-game-boy"
 version = "0.14.0"
 dependencies = [
@@ -2507,6 +2514,7 @@ version = "0.14.0"
 dependencies = [
  "common-commodore-c64",
  "common-commodore-iec",
+ "emu198x-esp-at-modem",
  "emu198x-mos-6502",
  "emu198x-mos-sid-6581",
  "format-commodore-c64-crt",
@@ -4163,6 +4171,7 @@ version = "0.14.0"
 dependencies = [
  "common-commodore-c64",
  "common-commodore-iec",
+ "emu198x-esp-at-modem",
  "emu198x-shell",
  "emu198x-test-skip",
  "format-commodore-c64-bas",
@@ -4198,6 +4207,7 @@ dependencies = [
 name = "runtime-commodore-vic-20"
 version = "0.14.0"
 dependencies = [
+ "emu198x-esp-at-modem",
  "emu198x-shell",
  "machine-commodore-vic-20",
  "mos-vic-i",

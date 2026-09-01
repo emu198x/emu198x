@@ -9,6 +9,7 @@ use emu198x_shell::{QueryError, QueryResult, SessionQueryProvider};
 use serde_json::json;
 
 use crate::runtime::{C64Runtime, SCREEN_RAM_BASE, SCREEN_TEXT_HEIGHT, SCREEN_TEXT_WIDTH};
+use emu198x_esp_at_modem::EspAtTcpBridge;
 use machine_commodore_c64::C64;
 
 /// Every path the C64 runtime answers via `query()`. Wildcard paths
@@ -60,6 +61,7 @@ pub(crate) const C64_QUERY_PATHS: &[&str] = &[
     "cia2.timer_a_latch",
     "cia2.timer_b",
     "cia2.timer_b_latch",
+    "userport.esp_at.attached",
     "drive8.attached",
     "drive8.cpu.addr",
     "drive8.cpu.cycles",
@@ -157,6 +159,27 @@ pub(crate) const C64_QUERY_PATHS: &[&str] = &[
     "screen.text.lines",
 ];
 
+/// Where the C64 mounts the ESP-AT modem's own query leaves. The peripheral
+/// owns the leaf names ([`EspAtTcpBridge::QUERY_LEAVES`]); the runtime owns
+/// only this mount point, and advertises the leaves solely while the modem is
+/// plugged into the user port.
+const ESP_AT_QUERY_PREFIX: &str = "userport.esp_at.";
+
+/// Paths owned by whichever optional peripherals are currently attached.
+///
+/// Kept apart from [`C64_QUERY_PATHS`] because these come and go with the
+/// hardware: attaching a peripheral registers its paths and detaching it
+/// deregisters them, so a catalogue never advertises a path that cannot answer.
+fn attached_peripheral_query_paths(machine: &C64Runtime) -> Vec<String> {
+    let Some(_bridge) = machine.esp_at_tcp_bridge() else {
+        return Vec::new();
+    };
+    EspAtTcpBridge::QUERY_LEAVES
+        .iter()
+        .map(|leaf| format!("{ESP_AT_QUERY_PREFIX}{leaf}"))
+        .collect()
+}
+
 /// Boot-status heuristic used by the `boot.*` query paths.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct C64BootStatus {
@@ -171,12 +194,13 @@ pub(crate) struct C64BootStatus {
 pub struct C64SessionQueryProvider;
 
 impl SessionQueryProvider<C64Runtime> for C64SessionQueryProvider {
-    fn query_paths(&self, _machine: &C64Runtime, prefix: Option<&str>) -> Vec<String> {
+    fn query_paths(&self, machine: &C64Runtime, prefix: Option<&str>) -> Vec<String> {
         let mut paths: Vec<String> = C64_QUERY_PATHS
             .iter()
             .copied()
-            .filter(|path| prefix.is_none_or(|prefix| path.starts_with(prefix)))
             .map(str::to_owned)
+            .chain(attached_peripheral_query_paths(machine))
+            .filter(|path| prefix.is_none_or(|prefix| path.starts_with(prefix)))
             .collect();
         paths.sort_unstable();
         paths
@@ -235,6 +259,7 @@ impl SessionQueryProvider<C64Runtime> for C64SessionQueryProvider {
             "cia2.timer_a_latch" => json!(machine.machine().cia2().timer_a_latch()),
             "cia2.timer_b" => json!(machine.machine().cia2().timer_b()),
             "cia2.timer_b_latch" => json!(machine.machine().cia2().timer_b_latch()),
+            "userport.esp_at.attached" => json!(machine.esp_at_tcp_bridge().is_some()),
             "drive8.attached" => json!(machine.drive8().is_some()),
             "drive8.cpu.addr" => json!(machine.drive8().map(|drive| drive.cpu().addr)),
             "drive8.cpu.cycles" => json!(machine.drive8().map(|drive| drive.cycles())),
@@ -439,6 +464,22 @@ impl SessionQueryProvider<C64Runtime> for C64SessionQueryProvider {
                         .map(|drive| drive.peek_with_iec_bus(addr, machine.iec_bus()))
                 )
             }
+            // Peripheral-owned leaves. The modem answers its own names, so
+            // adding one there needs no change here; an unplugged modem
+            // reports the leaf as unavailable rather than unknown, which is
+            // the honest distinction for hardware that is simply absent.
+            _ if let Some(leaf) = path.strip_prefix(ESP_AT_QUERY_PREFIX) => {
+                let Some(bridge) = machine.esp_at_tcp_bridge() else {
+                    return Err(QueryError::UnavailablePath {
+                        path: path.to_owned(),
+                        reason: "no ESP-AT modem is attached to the user port",
+                    });
+                };
+                match bridge.query_leaf(leaf) {
+                    Some(value) => value,
+                    None => return Ok(None),
+                }
+            }
             _ => return Ok(None),
         };
 
@@ -536,6 +577,7 @@ mod tests {
     };
     use crate::Model;
     use crate::runtime::C64Runtime;
+    use emu198x_esp_at_modem::EspAtTcpBridge;
 
     /// Each match arm in `decode_screen_code` is a chip-spec invariant
     /// (the C64 KERNAL puts each character at a fixed code-point).
@@ -562,6 +604,57 @@ mod tests {
         assert_eq!(decode_screen_code(0x7A), 'Z');
         assert_eq!(decode_screen_code(0x7B), '?', "outside printable arms");
         assert_eq!(decode_screen_code(0xFF), '?', "high bit fallback");
+    }
+
+    #[test]
+    fn attaching_the_modem_registers_its_own_query_leaves() {
+        use emu198x_shell::SessionQueryProvider;
+
+        let mut machine = C64Runtime::blank(Model::C64PalBreadbin);
+        let provider = super::C64SessionQueryProvider;
+
+        // Unplugged: the peripheral's leaves are not advertised, and the
+        // runtime's own `attached` fact still answers.
+        let paths = provider.query_paths(&machine, Some("userport."));
+        assert_eq!(paths, vec!["userport.esp_at.attached".to_owned()]);
+
+        machine.attach_esp_at_tcp_bridge(103, 64);
+        let paths = provider.query_paths(&machine, Some("userport."));
+        for leaf in EspAtTcpBridge::QUERY_LEAVES {
+            let path = format!("userport.esp_at.{leaf}");
+            assert!(paths.contains(&path), "{path} was not registered");
+        }
+
+        // Detaching deregisters them again.
+        machine.detach_esp_at_tcp_bridge();
+        let paths = provider.query_paths(&machine, Some("userport."));
+        assert_eq!(paths, vec!["userport.esp_at.attached".to_owned()]);
+    }
+
+    #[test]
+    fn the_modem_answers_its_own_leaves_and_reports_absence_when_unplugged() {
+        use emu198x_shell::{QueryError, SessionQueryProvider};
+
+        let mut machine = C64Runtime::blank(Model::C64PalBreadbin);
+        let provider = super::C64SessionQueryProvider;
+
+        assert!(matches!(
+            provider.query(&machine, "userport.esp_at.connected"),
+            Err(QueryError::UnavailablePath { .. }),
+        ));
+
+        machine.attach_esp_at_tcp_bridge(103, 64);
+        let result = provider
+            .query(&machine, "userport.esp_at.connected")
+            .expect("attached modem answers its own leaf")
+            .expect("leaf is owned by the peripheral");
+        assert_eq!(result.value, serde_json::json!(false));
+
+        // A name the peripheral does not own stays unknown, not unavailable.
+        assert!(matches!(
+            provider.query(&machine, "userport.esp_at.nonsense"),
+            Ok(None),
+        ));
     }
 
     #[test]
