@@ -4,6 +4,28 @@ All notable changes to Emu198x will be documented in this file.
 
 Format loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 not strictly. Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [0.17.0] - 2026-09-01
+
+
+### Added
+
+- *(mtx)* Parse .mtx tape images and .RUN programs
+- *(atari)* Honour GRACTL and VDELAY in the render path
+- *(atari)* Latch the triggers when GRACTL asks
+- *(atari)* Give overlapping players their third colour
+- Implement ANTIC fine scrolling
+- Steal the DMA cycles ANTIC actually takes
+
+
+### Fixed
+
+- Draw ANTIC modes 8, 9 and A across the full playfield width
+- Let the 800XL type shifted characters
+- Stop a full-line ANTIC DMA budget underflowing the stall window
+- Let ANTIC fetch through the machine's live memory
+- Read AUDCTL's bits from the end the register starts at
+- Clock POKEY's serial output from the timer that drives it
+
 ## [0.16.0] - 2026-09-01
 
 

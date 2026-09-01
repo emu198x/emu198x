@@ -8,10 +8,10 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-emu198x-shell = { path = "../emu198x-shell", version = "0.16.0" }
-mos-vic-i = { path = "../mos-vic-i", version = "0.16.0" }
-emu198x-esp-at-modem = { path = "../emu198x-esp-at-modem", version = "0.16.0" }
-machine-commodore-vic-20 = { path = "../machine-commodore-vic-20", version = "0.16.0" }
+emu198x-shell = { path = "../emu198x-shell", version = "0.17.0" }
+mos-vic-i = { path = "../mos-vic-i", version = "0.17.0" }
+emu198x-esp-at-modem = { path = "../emu198x-esp-at-modem", version = "0.17.0" }
+machine-commodore-vic-20 = { path = "../machine-commodore-vic-20", version = "0.17.0" }
 postcard = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

@@ -8,9 +8,9 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-emu198x-shell = { path = "../emu198x-shell", version = "0.16.0" }
-machine-sega-master-system = { path = "../machine-sega-master-system", version = "0.16.0" }
-runtime-sega-master-system-class = { path = "../runtime-sega-master-system-class", version = "0.16.0" }
+emu198x-shell = { path = "../emu198x-shell", version = "0.17.0" }
+machine-sega-master-system = { path = "../machine-sega-master-system", version = "0.17.0" }
+runtime-sega-master-system-class = { path = "../runtime-sega-master-system-class", version = "0.17.0" }
 
 [dev-dependencies]
 serde_json = { workspace = true }

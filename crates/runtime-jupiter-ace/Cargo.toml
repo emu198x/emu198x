@@ -8,9 +8,9 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-emu198x-shell = { path = "../emu198x-shell", version = "0.16.0" }
-machine-jupiter-ace = { path = "../machine-jupiter-ace", version = "0.16.0" }
-format-jupiter-ace-ace = { path = "../format-jupiter-ace-ace", version = "0.16.0" }
+emu198x-shell = { path = "../emu198x-shell", version = "0.17.0" }
+machine-jupiter-ace = { path = "../machine-jupiter-ace", version = "0.17.0" }
+format-jupiter-ace-ace = { path = "../format-jupiter-ace-ace", version = "0.17.0" }
 emu198x-zilog-z80 = { path = "../emu198x-zilog-z80", version = "0.6.0" }
 postcard = { workspace = true }
 serde = { workspace = true }
