@@ -1,0 +1,516 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "OCS Copper colour output-phase suite manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "suite",
+    "build",
+    "cases",
+    "artifacts"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1.0.0"
+    },
+    "suite": {
+      "$ref": "#/$defs/suite"
+    },
+    "build": {
+      "$ref": "#/$defs/build"
+    },
+    "cases": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 1,
+      "items": {
+        "$ref": "#/$defs/case"
+      }
+    },
+    "artifacts": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 1,
+      "items": {
+        "$ref": "#/$defs/artifact"
+      }
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "word": {
+      "type": "string",
+      "pattern": "^0x[0-9a-f]{4}$"
+    },
+    "suite": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "version",
+        "license",
+        "source_revision"
+      ],
+      "properties": {
+        "id": {
+          "const": "org.198x.amiga.copper-color-output-phase"
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+        },
+        "license": {
+          "const": "CC0-1.0"
+        },
+        "source_revision": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "tool": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "command",
+        "version"
+      ],
+      "properties": {
+        "command": {
+          "type": "string",
+          "minLength": 1
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "build": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "toolchain",
+        "case_file_sha256",
+        "source_sha256"
+      ],
+      "properties": {
+        "toolchain": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "target",
+            "assembler",
+            "linker",
+            "python"
+          ],
+          "properties": {
+            "target": {
+              "const": "m68k-elf"
+            },
+            "assembler": {
+              "$ref": "#/$defs/tool"
+            },
+            "linker": {
+              "$ref": "#/$defs/tool"
+            },
+            "python": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "implementation",
+                "version"
+              ],
+              "properties": {
+                "implementation": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "version": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            }
+          }
+        },
+        "case_file_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "source_sha256": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {
+            "$ref": "#/$defs/sha256"
+          }
+        }
+      }
+    },
+    "registers": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "diwstrt",
+        "diwstop",
+        "ddfstrt",
+        "ddfstop",
+        "bplcon0",
+        "bplcon1",
+        "bplcon2",
+        "bpl1mod",
+        "bpl2mod",
+        "dmacon_enable"
+      ],
+      "properties": {
+        "diwstrt": { "$ref": "#/$defs/word" },
+        "diwstop": { "$ref": "#/$defs/word" },
+        "ddfstrt": { "$ref": "#/$defs/word" },
+        "ddfstop": { "$ref": "#/$defs/word" },
+        "bplcon0": { "$ref": "#/$defs/word" },
+        "bplcon1": { "$ref": "#/$defs/word" },
+        "bplcon2": { "$ref": "#/$defs/word" },
+        "bpl1mod": { "$ref": "#/$defs/word" },
+        "bpl2mod": { "$ref": "#/$defs/word" },
+        "dmacon_enable": { "$ref": "#/$defs/word" }
+      }
+    },
+    "color_program": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "target_register",
+        "guard_word",
+        "marker_register",
+        "marker_word",
+        "move_words",
+        "move_order"
+      ],
+      "properties": {
+        "target_register": {
+          "const": "COLOR00"
+        },
+        "guard_word": {
+          "$ref": "#/$defs/word"
+        },
+        "marker_register": {
+          "const": "COLOR01"
+        },
+        "marker_word": {
+          "$ref": "#/$defs/word"
+        },
+        "move_words": {
+          "type": "array",
+          "minItems": 4,
+          "maxItems": 4,
+          "items": {
+            "$ref": "#/$defs/word"
+          }
+        },
+        "move_order": {
+          "const": [
+            "guard-to-red",
+            "red-to-green",
+            "green-to-blue",
+            "blue-to-yellow"
+          ]
+        }
+      }
+    },
+    "geometry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "resolution",
+        "sample_line_first",
+        "sample_line_last_exclusive",
+        "sample_beam_line",
+        "reset_wait_hpos_cck",
+        "move_wait_hpos_cck",
+        "bitplane_rows",
+        "bitplane_words_per_row",
+        "marker_word_index",
+        "marker_bit_index",
+        "horizontal_mapping",
+        "anchor"
+      ],
+      "properties": {
+        "resolution": {
+          "const": "lores"
+        },
+        "sample_line_first": {
+          "const": 128
+        },
+        "sample_line_last_exclusive": {
+          "const": 136
+        },
+        "sample_beam_line": {
+          "type": "integer",
+          "minimum": 128,
+          "maximum": 135
+        },
+        "reset_wait_hpos_cck": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 226,
+          "multipleOf": 2
+        },
+        "move_wait_hpos_cck": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 226,
+          "multipleOf": 2
+        },
+        "bitplane_rows": {
+          "type": "integer",
+          "minimum": 256
+        },
+        "bitplane_words_per_row": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "marker_word_index": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "marker_bit_index": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 15
+        },
+        "horizontal_mapping": {
+          "const": "producer-recorded"
+        },
+        "anchor": {
+          "const": "DMA-fed one-bitplane marker within a fixed display window"
+        }
+      }
+    },
+    "programming_schedule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "phase",
+        "write_order",
+        "move_spacing",
+        "steady_state"
+      ],
+      "properties": {
+        "phase": {
+          "type": "string",
+          "minLength": 1
+        },
+        "write_order": {
+          "const": [
+            "early-line COLOR00 guard restore",
+            "fixed horizontal WAIT",
+            "COLOR00 red MOVE",
+            "COLOR00 green MOVE",
+            "COLOR00 blue MOVE",
+            "COLOR00 yellow MOVE"
+          ]
+        },
+        "move_spacing": {
+          "const": "four back-to-back Copper MOVE instructions with no intervening WAIT"
+        },
+        "steady_state": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "capture": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ready_record_address",
+        "ready_magic",
+        "case_number_address",
+        "schema_version_address",
+        "field_counter_address",
+        "byte_order",
+        "ready_timeout_fields",
+        "settle_fields",
+        "capture_fields",
+        "adjacent_field_stability_required",
+        "blanking_retained",
+        "overscan_retained",
+        "alignment_search"
+      ],
+      "properties": {
+        "ready_record_address": { "const": "0x0002ff00" },
+        "ready_magic": { "const": "CCPH" },
+        "case_number_address": { "const": "0x0002ff04" },
+        "schema_version_address": { "const": "0x0002ff06" },
+        "field_counter_address": { "const": "0x0002ff08" },
+        "byte_order": { "const": "big-endian" },
+        "ready_timeout_fields": { "type": "integer", "minimum": 1 },
+        "settle_fields": { "type": "integer", "minimum": 8 },
+        "capture_fields": { "type": "integer", "minimum": 3 },
+        "adjacent_field_stability_required": { "const": true },
+        "blanking_retained": { "const": true },
+        "overscan_retained": { "const": true },
+        "alignment_search": { "const": false }
+      }
+    },
+    "identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "serial",
+        "serial_address",
+        "serial_maximum_bytes",
+        "background",
+        "marker",
+        "sequence"
+      ],
+      "properties": {
+        "serial": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 63
+        },
+        "serial_address": {
+          "const": "0x0002ff50"
+        },
+        "serial_maximum_bytes": {
+          "const": 64
+        },
+        "background": {
+          "type": "string",
+          "minLength": 1
+        },
+        "marker": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sequence": {
+          "type": "array",
+          "minItems": 4,
+          "maxItems": 4,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "case": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "numeric_id",
+        "question",
+        "applicability",
+        "registers",
+        "color_program",
+        "geometry",
+        "programming_schedule",
+        "capture",
+        "identity",
+        "expected"
+      ],
+      "properties": {
+        "id": {
+          "const": "adjacent-color00-moves"
+        },
+        "numeric_id": {
+          "const": 1
+        },
+        "question": {
+          "type": "string",
+          "minLength": 2,
+          "pattern": "\\?$"
+        },
+        "applicability": {
+          "const": {
+            "chipsets": ["OCS"],
+            "regions": ["PAL"],
+            "min_chip_ram_bytes": 524288
+          }
+        },
+        "registers": {
+          "$ref": "#/$defs/registers"
+        },
+        "color_program": {
+          "$ref": "#/$defs/color_program"
+        },
+        "geometry": {
+          "$ref": "#/$defs/geometry"
+        },
+        "programming_schedule": {
+          "$ref": "#/$defs/programming_schedule"
+        },
+        "capture": {
+          "$ref": "#/$defs/capture"
+        },
+        "identity": {
+          "$ref": "#/$defs/identity"
+        },
+        "expected": {
+          "const": {
+            "status": "unresolved",
+            "observations": []
+          }
+        }
+      }
+    },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "case_id",
+        "adf_file",
+        "payload_file",
+        "adf_bytes",
+        "payload_bytes",
+        "sha256",
+        "load_address",
+        "sectors",
+        "bootblock_checksum"
+      ],
+      "properties": {
+        "case_id": {
+          "const": "adjacent-color00-moves"
+        },
+        "adf_file": {
+          "const": "adjacent-color00-moves.adf"
+        },
+        "payload_file": {
+          "const": "adjacent-color00-moves.bin"
+        },
+        "adf_bytes": {
+          "const": 901120
+        },
+        "payload_bytes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "sha256": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["adf", "payload"],
+          "properties": {
+            "adf": { "$ref": "#/$defs/sha256" },
+            "payload": { "$ref": "#/$defs/sha256" }
+          }
+        },
+        "load_address": {
+          "const": 196608
+        },
+        "sectors": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "bootblock_checksum": {
+          "type": "string",
+          "pattern": "^0x[0-9a-f]{8}$"
+        }
+      }
+    }
+  }
+}
