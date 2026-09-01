@@ -1,8 +1,8 @@
 //! Atari 800XL keyboard input mapping.
 //!
 //! Unlike a scanned key matrix, the Atari keyboard is read by POKEY, which
-//! presents a single KBCODE register (bits 0-5 = key, bit 6 = Ctrl, bit 7 =
-//! Shift) plus a keyboard interrupt. So a host key name maps to one complete
+//! presents a single KBCODE register (bits 0-5 = key, bit 6 = Shift, bit 7 =
+//! Ctrl) plus a keyboard interrupt. So a host key name maps to one complete
 //! scan code, with Shift baked in only for the shifted *symbols*. The OS
 //! converts KBCODE to ATASCII, applying SHFLOK (the caps-lock shadow) to set
 //! letter case — so letters arrive uppercase on a freshly-booted machine,
@@ -17,8 +17,12 @@
 use emu198x_shell::InputEvent;
 use machine_atari_800xl::Atari800xl;
 
-/// Shift modifier bit in a POKEY scan code.
-const SHIFT: u8 = 0x80;
+/// Shift modifier bit in a POKEY scan code. Bit 6, not bit 7 — bit 7 is
+/// Control, and sending a shifted symbol with it set asks the OS for the
+/// Control version of the key instead. Some of those are commands: `Ctrl-1`
+/// freezes the display, so one mis-sent `!` swallows everything typed after
+/// it.
+const SHIFT: u8 = 0x40;
 
 /// Host-side mirror of the P0 joystick directions, fire trigger, and the
 /// three console keys (Start / Select / Option), re-applied via the
@@ -254,11 +258,20 @@ mod tests {
         assert_eq!(char_scancode(' '), Some(0x21));
     }
 
+    /// Written against the hardware's own bit numbering rather than against
+    /// `SHIFT`, so the constant cannot quietly define itself as correct. In
+    /// KBCODE, bit 6 is Shift and bit 7 is Control; setting bit 7 asks the OS
+    /// for the Control version of the key, which for several of these is a
+    /// command rather than a character.
     #[test]
-    fn shifted_symbols_carry_shift() {
-        assert_eq!(char_scancode('"'), Some(0x1E | SHIFT));
-        assert_eq!(char_scancode('!'), Some(0x1F | SHIFT));
-        assert_eq!(char_scancode('?'), Some(0x26 | SHIFT));
+    fn shifted_symbols_set_kbcode_bit_six_and_leave_bit_seven_clear() {
+        for (ch, base) in [('"', 0x1E), ('!', 0x1F), ('?', 0x26), ('(', 0x30)] {
+            let code = char_scancode(ch).expect("mapped");
+            assert_eq!(code & 0x3F, base, "{ch} scan code");
+            assert_eq!(code & 0x40, 0x40, "{ch} must set the Shift bit");
+            assert_eq!(code & 0x80, 0x00, "{ch} must leave the Control bit clear");
+        }
+        assert_eq!(SHIFT, 0x40);
     }
 
     #[test]

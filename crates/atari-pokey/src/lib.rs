@@ -103,6 +103,13 @@ const IRQ_BREAK: u8 = 0x80;
 /// SKSTAT bit 2 — "last key still pressed" (active low: 0 = a key is held).
 const SKSTAT_KEY_DOWN: u8 = 0x04;
 
+/// SKSTAT bit 3 — Shift key down (active low: 0 = Shift is held).
+const SKSTAT_SHIFT: u8 = 0x08;
+
+/// KBCODE bit 6 — Shift was down when the key was pressed. Bit 7, the one
+/// above it, is Control.
+const KBCODE_SHIFT: u8 = 0x40;
+
 /// SKCTL bit 5 — serial output clock enabled (the OS sets SKCTL = $23 to
 /// transmit). Used to prime "output data needed" when a frame starts.
 const SKCTL_SEROUT_ENABLE: u8 = 0x20;
@@ -652,22 +659,32 @@ impl Pokey {
     }
 
     /// Press a key. `code` is the POKEY keyboard scan code in bits 0-5, with
-    /// bit 6 = Ctrl and bit 7 = Shift. Latches KBCODE, raises the keyboard
+    /// bit 6 = Shift and bit 7 = Ctrl. Latches KBCODE, raises the keyboard
     /// interrupt (IRQST bit 6) — which the OS handler reads and converts to
     /// ATASCII — and marks "key down" in SKSTAT (bit 2 low). The interrupt is
     /// edge-triggered: it asserts once here and the CPU clears it by toggling
     /// IRQEN, exactly like the serial-output IRQs.
+    ///
+    /// SKSTAT bit 3 follows the code's Shift bit. On hardware that bit tracks
+    /// the Shift key itself and moves even with no other key pressed; a host
+    /// that sends whole characters has no separate Shift key to track, so the
+    /// state is taken from the character being typed and released with it.
     pub fn press_key(&mut self, code: u8) {
         self.kbcode = code;
         self.irqst &= !IRQ_KEY; // keyboard IRQ pending
         self.skstat &= !SKSTAT_KEY_DOWN; // a key is held
+        if code & KBCODE_SHIFT == 0 {
+            self.skstat |= SKSTAT_SHIFT;
+        } else {
+            self.skstat &= !SKSTAT_SHIFT;
+        }
     }
 
     /// Release the currently held key — clears the "last key still pressed"
     /// status (SKSTAT bit 2 high). KBCODE retains its last value, as on
     /// hardware.
     pub fn release_key(&mut self) {
-        self.skstat |= SKSTAT_KEY_DOWN;
+        self.skstat |= SKSTAT_KEY_DOWN | SKSTAT_SHIFT;
     }
 
     /// Set the serial input data register.
@@ -1495,6 +1512,31 @@ mod tests {
             pokey.read(0x09),
             0x2F,
             "KBCODE retains its value after release"
+        );
+    }
+
+    #[test]
+    fn shift_bit_in_the_scan_code_drives_skstat() {
+        let mut pokey = ntsc_pokey();
+        assert_eq!(pokey.read(0x0F) & SKSTAT_SHIFT, SKSTAT_SHIFT);
+
+        // '(' on the Atari keyboard: Shift + the '9' key. Shift is KBCODE
+        // bit 6; bit 7 would be Control.
+        pokey.press_key(0x30 | KBCODE_SHIFT);
+        assert_eq!(pokey.read(0x0F) & SKSTAT_SHIFT, 0, "Shift reads as held");
+
+        pokey.release_key();
+        assert_eq!(
+            pokey.read(0x0F) & SKSTAT_SHIFT,
+            SKSTAT_SHIFT,
+            "Shift reads as released"
+        );
+
+        pokey.press_key(0x30);
+        assert_eq!(
+            pokey.read(0x0F) & SKSTAT_SHIFT,
+            SKSTAT_SHIFT,
+            "an unshifted key leaves Shift released"
         );
     }
 }
