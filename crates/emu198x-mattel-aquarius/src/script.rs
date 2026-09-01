@@ -30,7 +30,7 @@ Hardware:
 
 Capture:
     --screenshot PATH          write the last emitted frame as PNG
-    --audio-capture PATH       write emitted audio as WAV (currently silent)
+    --audio-capture PATH       write emitted audio as WAV (1-bit speaker)
 
 Shared:
     --script PATH              execute shared JSON session steps

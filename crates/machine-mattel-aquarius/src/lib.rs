@@ -180,6 +180,9 @@ const DOT_CLOCK_HZ: u64 = 7_159_090;
 /// `7.15909_MHz_XTAL / 2`). The earlier 3.5 MHz value was wrong; the
 /// runtime profile already declared 3.579545 MHz.
 const CPU_CLOCK_HZ: u64 = DOT_CLOCK_HZ / 2;
+/// Host audio output rate for the 1-bit speaker, matching the runtime's
+/// declared `AudioPacket` sample rate.
+const AUDIO_SAMPLE_RATE: u64 = 48_000;
 /// Dot clocks per scanline (MAME `set_raw` htotal = 458).
 const DOTS_PER_LINE: u64 = 458;
 /// Scanlines per frame by region (MAME `set_raw` vtotal): NTSC 262
@@ -251,6 +254,17 @@ pub struct Aquarius {
     /// 8 rows × 6 columns matrix; active-low (1 = released).
     key_matrix: [u8; NUM_KEY_ROWS],
     speaker_bit: bool,
+    /// 1-bit speaker waveform, sampled from the port `$FF` bit 0 latch at the
+    /// audio output rate. Drained each frame by
+    /// [`Aquarius::take_audio_buffer`]; regenerated live, so it is not part of
+    /// the snapshot.
+    #[serde(skip)]
+    audio_buffer: Vec<f32>,
+    /// Fractional accumulator converting the 3.579545 MHz CPU clock to the
+    /// 48 kHz output rate: one sample is emitted each time it crosses
+    /// [`CPU_CLOCK_HZ`].
+    #[serde(default)]
+    audio_accum: u64,
     scrambler: u8,
     framebuffer: Vec<u32>,
     region: AquariusRegion,
@@ -300,6 +314,8 @@ impl Aquarius {
             cart_rom: Vec::new(),
             key_matrix: [0xFF; NUM_KEY_ROWS],
             speaker_bit: false,
+            audio_buffer: Vec::new(),
+            audio_accum: 0,
             scrambler: 0,
             framebuffer: vec![PALETTE[0]; (FB_WIDTH * FB_HEIGHT) as usize],
             region,
@@ -364,6 +380,26 @@ impl Aquarius {
             self.handle_bus();
         }
         self.cpu_tstates += 1;
+        self.tick_audio();
+    }
+
+    /// Sample the 1-bit speaker (port `$FF` bit 0) into the audio buffer,
+    /// downsampling the CPU clock to the 48 kHz output rate with a fractional
+    /// accumulator. A high bit drives the cone one way, low the other, so a
+    /// program toggling the latch makes a square-wave tone.
+    fn tick_audio(&mut self) {
+        self.audio_accum += AUDIO_SAMPLE_RATE;
+        if self.audio_accum >= CPU_CLOCK_HZ {
+            self.audio_accum -= CPU_CLOCK_HZ;
+            let sample = if self.speaker_bit { 0.5 } else { -0.5 };
+            self.audio_buffer.push(sample);
+        }
+    }
+
+    /// Drain the speaker waveform accumulated since the last call (the runtime
+    /// pushes it into an `AudioPacket` each frame).
+    pub fn take_audio_buffer(&mut self) -> Vec<f32> {
+        core::mem::take(&mut self.audio_buffer)
     }
 
     /// Run T-states until the CPU's `PC` equals `target` (returning `true`) or
@@ -842,6 +878,82 @@ mod tests {
         // Selecting row 3 means clearing bit 3 of the high address byte.
         let port = ((!(1u16 << 3)) << 8) | 0xFF;
         assert_eq!(sys.io_read(port), 0x0F);
+    }
+
+    /// 8 KB ROM whose reset vector runs the canonical Aquarius beeper loop:
+    /// write bit 0 of port `$FF`, wait out a `DJNZ` delay, flip the bit, repeat.
+    /// The delay puts the tone near 1 kHz, well under the 48 kHz sample rate,
+    /// so each half-cycle spans many samples.
+    fn beeper_rom() -> Vec<u8> {
+        let mut rom = vec![0u8; 0x2000];
+        rom[0x0000..0x000B].copy_from_slice(&[
+            0xAF, // XOR A          ; speaker level starts low
+            0xD3, 0xFF, // OUT ($FF),A   ; drive the speaker latch
+            0x06, 0x00, // LD B,0        ; 256 delay iterations
+            0x10, 0xFE, // DJNZ -2
+            0xEE, 0x01, // XOR $01       ; flip the level
+            0x18, 0xF6, // JR -10        ; back to the OUT
+        ]);
+        rom
+    }
+
+    #[test]
+    fn toggling_the_speaker_produces_a_waveform() {
+        let mut sys = Aquarius::new(beeper_rom(), 0, AquariusRegion::Ntsc);
+        sys.run_frame();
+
+        let audio = sys.take_audio_buffer();
+        assert!(!audio.is_empty(), "a frame yields audio samples");
+        assert!(
+            audio.iter().any(|&s| s > 0.0),
+            "speaker-high samples are present"
+        );
+        assert!(
+            audio.iter().any(|&s| s < 0.0),
+            "speaker-low samples are present"
+        );
+    }
+
+    #[test]
+    fn a_silent_machine_emits_a_constant_level() {
+        let mut sys = Aquarius::new(trap_rom(), 0, AquariusRegion::Ntsc);
+        sys.run_frame();
+        let audio = sys.take_audio_buffer();
+        assert!(!audio.is_empty(), "samples are emitted even when silent");
+        assert!(
+            audio.iter().all(|&s| (s - audio[0]).abs() < f32::EPSILON),
+            "an idle speaker produces no waveform"
+        );
+    }
+
+    #[test]
+    fn a_frame_yields_close_to_the_declared_sample_rate() {
+        // The packet is one frame of mono audio at AUDIO_SAMPLE_RATE, so the
+        // count must track the region's frame rate rather than the CPU clock.
+        for (region, tstates) in [
+            (AquariusRegion::Ntsc, NTSC_TSTATES_PER_FRAME),
+            (AquariusRegion::Pal, PAL_TSTATES_PER_FRAME),
+        ] {
+            let mut sys = Aquarius::new(trap_rom(), 0, region);
+            sys.run_frame();
+            let expected = tstates * AUDIO_SAMPLE_RATE / CPU_CLOCK_HZ;
+            let got = sys.take_audio_buffer().len() as u64;
+            assert!(
+                got.abs_diff(expected) <= 1,
+                "{region:?}: {got} samples, expected about {expected}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_audio_buffer_drains() {
+        let mut sys = Aquarius::new(trap_rom(), 0, AquariusRegion::Ntsc);
+        sys.run_frame();
+        assert!(!sys.take_audio_buffer().is_empty());
+        assert!(
+            sys.take_audio_buffer().is_empty(),
+            "a second take returns nothing without another frame"
+        );
     }
 
     #[test]
