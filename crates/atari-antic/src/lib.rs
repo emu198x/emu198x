@@ -124,6 +124,9 @@ pub struct LineResult {
     pub missile_data: u8,
     /// Whether player/missile data was fetched this line.
     pub pm_dma: bool,
+    /// One-line P/M resolution (DMACTL bit 4). GTIA needs it because VDELAY
+    /// only shifts an object in the two-line display.
+    pub pm_single_line: bool,
 }
 
 // ---------------------------------------------------------------------------
@@ -684,6 +687,7 @@ impl Antic {
             player_data,
             missile_data,
             pm_dma: pm_active,
+            pm_single_line: self.dmactl & 0x10 != 0,
         }
     }
 
@@ -994,6 +998,7 @@ fn blank_result(dma_cycles: u8) -> LineResult {
         player_data: [0; 4],
         missile_data: 0,
         pm_dma: false,
+        pm_single_line: false,
     }
 }
 
