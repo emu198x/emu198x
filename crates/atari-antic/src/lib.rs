@@ -667,11 +667,22 @@ impl Antic {
             return result;
         }
 
+        // Player/missile DMA has no display list of its own: once enabled it
+        // runs on every displayed line, whether the playfield is drawing a
+        // mode line, sitting in a blank instruction, idle after the JVB, or
+        // switched off altogether.
+        let (player_data, missile_data, pm_dma) = self.fetch_pm_data(mem);
+        let pm_single_line = self.dmactl & 0x10 != 0;
+
         // Display list DMA disabled?
         let dl_dma = self.dmactl & 0x20 != 0;
         if !dl_dma {
             self.schedule_refresh();
-            let result = blank_result(self.dma_mask);
+            let mut result = blank_result(self.dma_mask);
+            result.player_data = player_data;
+            result.missile_data = missile_data;
+            result.pm_dma = pm_dma;
+            result.pm_single_line = pm_single_line;
             self.advance_scan_line(lines_per_frame);
             return result;
         }
@@ -695,6 +706,10 @@ impl Antic {
         } else {
             blank_result(0)
         };
+        result.player_data = player_data;
+        result.missile_data = missile_data;
+        result.pm_dma = pm_dma;
+        result.pm_single_line = pm_single_line;
         // Refresh fills in around the playfield, which outranks it.
         self.schedule_refresh();
         result.dma_mask = self.dma_mask;
@@ -861,9 +876,6 @@ impl Antic {
         let bytes = adjust_bytes_for_width(desc.bytes_per_line, fetch_bits);
         let pf_width = playfield_width_cc(width_bits);
 
-        // Player/missile DMA
-        let (player_data, missile_data, pm_active) = self.fetch_pm_data(mem);
-
         let mut playfield = if desc.char_mode {
             self.render_char_line(mem, desc, bytes)
         } else {
@@ -896,10 +908,10 @@ impl Antic {
             playfield_width: pf_width,
             dma_cycles: 0,
             dma_mask: 0,
-            player_data,
-            missile_data,
-            pm_dma: pm_active,
-            pm_single_line: self.dmactl & 0x10 != 0,
+            player_data: [0; 4],
+            missile_data: 0,
+            pm_dma: false,
+            pm_single_line: false,
         }
     }
 
@@ -1062,10 +1074,14 @@ impl Antic {
     /// Fetch player/missile DMA data if enabled.
     fn fetch_pm_data<M: AnticMemory + ?Sized>(&mut self, mem: &M) -> ([u8; 4], u8, bool) {
         let player_dma = self.dmactl & 0x08 != 0;
-        let missile_dma = self.dmactl & 0x04 != 0;
+        // Enabling player DMA enables missile DMA with it; bit 2 only matters
+        // on its own. The Hardware Manual states you cannot disable missile
+        // DMA while enabling player DMA (quoted in the Complete and Essential
+        // Map, part II), and atari800 gates missiles on DMACTL & $0C.
+        let missile_dma = self.dmactl & 0x0C != 0;
         let single_line = self.dmactl & 0x10 != 0;
 
-        if !player_dma && !missile_dma {
+        if !missile_dma {
             return ([0; 4], 0, false);
         }
 
@@ -1774,10 +1790,53 @@ mod tests {
         assert_eq!(cycles(result.dma_mask, 0..10), vec![0, 1, 2, 3, 4, 5, 6, 7]);
     }
 
+    /// P/M data for the first displayed line with PMBASE at zero, two-line
+    /// resolution: missiles at $180 and player 0 at $200, indexed by half
+    /// the scan line.
+    fn pm_ram() -> Vec<u8> {
+        let mut ram = make_ram();
+        ram[0x0180 + usize::from(VISIBLE_START / 2)] = 0x03;
+        ram[0x0200 + usize::from(VISIBLE_START / 2)] = 0xFF;
+        ram
+    }
+
+    /// P/M DMA has no display list of its own, so a blank instruction and a
+    /// display list that is switched off both still feed GTIA.
+    #[test]
+    fn pm_dma_runs_without_a_mode_line() {
+        for dmactl in [0x2E, 0x0E] {
+            let result = first_line_in(pm_ram(), 0x70, dmactl, 0);
+            assert!(result.pm_dma, "DMACTL {dmactl:#04x}");
+            assert_eq!(result.player_data[0], 0xFF);
+            assert_eq!(result.missile_data, 0x03);
+            // The missile and player fetch cycles are taken either way; only
+            // the display-list byte at cycle 1 depends on DL DMA.
+            assert_eq!(cycles(result.dma_mask, 0..1), vec![0]);
+            assert_eq!(cycles(result.dma_mask, 2..6), vec![2, 3, 4, 5]);
+        }
+    }
+
+    /// Enabling player DMA enables missile DMA with it.
+    #[test]
+    fn player_dma_fetches_the_missiles_too() {
+        let result = first_line_in(pm_ram(), 0x70, 0x2A, 0);
+        assert_eq!(result.missile_data, 0x03);
+        assert_eq!(cycles(result.dma_mask, 0..6), vec![0, 1, 2, 3, 4, 5]);
+
+        let missiles_only = first_line_in(pm_ram(), 0x70, 0x26, 0);
+        assert_eq!(missiles_only.missile_data, 0x03);
+        assert_eq!(missiles_only.player_data, [0; 4]);
+        assert_eq!(cycles(missiles_only.dma_mask, 0..6), vec![0, 1]);
+    }
+
     /// Run one scan line of a fresh ANTIC: `instr` as the whole display list,
     /// `dmactl` as written, `hscrol` in the register.
     fn first_line(instr: u8, dmactl: u8, hscrol: u8) -> LineResult {
-        let mut ram = make_ram();
+        first_line_in(make_ram(), instr, dmactl, hscrol)
+    }
+
+    /// [`first_line`] over caller-supplied RAM.
+    fn first_line_in(mut ram: Vec<u8>, instr: u8, dmactl: u8, hscrol: u8) -> LineResult {
         ram[0x4000] = instr;
         ram[0x4001] = 0x00;
         ram[0x4002] = 0x80;
