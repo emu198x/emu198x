@@ -4,6 +4,16 @@ All notable changes to Emu198x will be documented in this file.
 
 Format loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 not strictly. Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [0.15.0] - 2026-09-01
+
+
+### Added
+
+- Plug an ESP-AT modem into the C64 user port
+- Teach the modem Hayes dialing so C64-era clients can connect
+- Emulate the Ultimate Command Interface network target
+- *(uci-net)* Answer network commands the way the hardware does
+
 ## [0.14.0] - 2026-08-31
 
 

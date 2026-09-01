@@ -9,14 +9,14 @@ repository.workspace = true
 
 [dependencies]
 emu198x-gi-ay-3-8910 = { path = "../emu198x-gi-ay-3-8910", version = "0.6.0" }
-ti-tms9918 = { path = "../ti-tms9918", version = "0.14.0" }
-western-digital-wd1770 = { path = "../western-digital-wd1770", version = "0.14.0" }
+ti-tms9918 = { path = "../ti-tms9918", version = "0.15.0" }
+western-digital-wd1770 = { path = "../western-digital-wd1770", version = "0.15.0" }
 emu198x-zilog-z80 = { path = "../emu198x-zilog-z80", version = "0.6.0" }
 serde = { workspace = true }
 serde-big-array = { workspace = true }
 
 [dev-dependencies]
-emu198x-test-skip = { path = "../emu198x-test-skip", version = "0.14.0" }
+emu198x-test-skip = { path = "../emu198x-test-skip", version = "0.15.0" }
 postcard = { workspace = true }
 
 [lints]

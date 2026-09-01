@@ -9,10 +9,10 @@ repository.workspace = true
 
 [dependencies]
 serde = { workspace = true }
-common-sinclair-zx-spectrum = { path = "../common-sinclair-zx-spectrum", version = "0.14.0" }
+common-sinclair-zx-spectrum = { path = "../common-sinclair-zx-spectrum", version = "0.15.0" }
 
 [dev-dependencies]
-common-sinclair-zx-spectrum = { path = "../common-sinclair-zx-spectrum", version = "0.14.0" }
+common-sinclair-zx-spectrum = { path = "../common-sinclair-zx-spectrum", version = "0.15.0" }
 
 [lints]
 workspace = true

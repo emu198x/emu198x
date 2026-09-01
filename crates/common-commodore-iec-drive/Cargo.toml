@@ -7,10 +7,10 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-common-commodore-drive-gcr = { path = "../common-commodore-drive-gcr", version = "0.14.0" }
-common-commodore-iec = { path = "../common-commodore-iec", version = "0.14.0" }
+common-commodore-drive-gcr = { path = "../common-commodore-drive-gcr", version = "0.15.0" }
+common-commodore-iec = { path = "../common-commodore-iec", version = "0.15.0" }
 emu198x-mos-6502 = { path = "../emu198x-mos-6502", version = "0.6.0" }
-mos-via-6522 = { path = "../mos-via-6522", version = "0.14.0" }
+mos-via-6522 = { path = "../mos-via-6522", version = "0.15.0" }
 
 [lints]
 workspace = true
