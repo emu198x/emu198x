@@ -1090,7 +1090,11 @@ mod tests {
         // Atari800's reference POKEY implementation specifies the 1.79 MHz
         // linked divider as AUDF2*256 + AUDF1 + 7.  For $010A that is 273
         // source clocks per toggle, or about 3.278 kHz for the full wave.
-        let samples = captured_pokey_tone(10, 1, 0x03, 0xAF, 0x12);
+        // AUDCTL $50: channel 1+2 link (D4) plus channel 1's fast clock (D6).
+        // This read $12 while `atari-pokey` had six of the eight AUDCTL bits
+        // transposed — a value that asks the real chip for the link and
+        // channel 2's high-pass filter, and never reaches 1.79 MHz at all.
+        let samples = captured_pokey_tone(10, 1, 0x03, 0xAF, 0x50);
         let crossings = samples
             .windows(2)
             .filter(|pair| pair[0] <= 0.0 && pair[1] > 0.0)

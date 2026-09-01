@@ -1,0 +1,116 @@
+{
+  "source_format_version": 1,
+  "suite": {
+    "id": "org.198x.amiga.copper-color-output-phase",
+    "version": "1.0.0",
+    "license": "CC0-1.0",
+    "source_revision": "source-v1"
+  },
+  "defaults": {
+    "applicability": {
+      "chipsets": [
+        "OCS"
+      ],
+      "regions": [
+        "PAL"
+      ],
+      "min_chip_ram_bytes": 524288
+    },
+    "registers": {
+      "diwstrt": "0x2c81",
+      "diwstop": "0xf4c1",
+      "ddfstrt": "0x0038",
+      "ddfstop": "0x0060",
+      "bplcon0": "0x1000",
+      "bplcon1": "0x0000",
+      "bplcon2": "0x0000",
+      "bpl1mod": "0x0000",
+      "bpl2mod": "0x0000",
+      "dmacon_enable": "0x8380"
+    },
+    "color_program": {
+      "target_register": "COLOR00",
+      "guard_word": "0x0011",
+      "marker_register": "COLOR01",
+      "marker_word": "0x0fff",
+      "move_words": [
+        "0x0f00",
+        "0x00f0",
+        "0x000f",
+        "0x0ff0"
+      ],
+      "move_order": [
+        "guard-to-red",
+        "red-to-green",
+        "green-to-blue",
+        "blue-to-yellow"
+      ]
+    },
+    "geometry": {
+      "resolution": "lores",
+      "sample_line_first": 128,
+      "sample_line_last_exclusive": 136,
+      "sample_beam_line": 132,
+      "reset_wait_hpos_cck": 32,
+      "move_wait_hpos_cck": 144,
+      "bitplane_rows": 256,
+      "bitplane_words_per_row": 6,
+      "marker_word_index": 2,
+      "marker_bit_index": 15,
+      "horizontal_mapping": "producer-recorded",
+      "anchor": "DMA-fed one-bitplane marker within a fixed display window"
+    },
+    "programming_schedule": {
+      "phase": "once per field through a Copper list after the ready record is published",
+      "write_order": [
+        "early-line COLOR00 guard restore",
+        "fixed horizontal WAIT",
+        "COLOR00 red MOVE",
+        "COLOR00 green MOVE",
+        "COLOR00 blue MOVE",
+        "COLOR00 yellow MOVE"
+      ],
+      "move_spacing": "four back-to-back Copper MOVE instructions with no intervening WAIT",
+      "steady_state": "The eight-line schedule repeats every field; the bitplane pointer is restored at vertical blank."
+    },
+    "capture": {
+      "ready_record_address": "0x0002ff00",
+      "ready_magic": "CCPH",
+      "case_number_address": "0x0002ff04",
+      "schema_version_address": "0x0002ff06",
+      "field_counter_address": "0x0002ff08",
+      "byte_order": "big-endian",
+      "ready_timeout_fields": 600,
+      "settle_fields": 8,
+      "capture_fields": 3,
+      "adjacent_field_stability_required": true,
+      "blanking_retained": true,
+      "overscan_retained": true,
+      "alignment_search": false
+    }
+  },
+  "cases": [
+    {
+      "id": "adjacent-color00-moves",
+      "numeric_id": 1,
+      "question": "At which source-capture samples do four back-to-back OCS Copper MOVEs to COLOR00 take effect relative to a fixed DMA-fed one-bitplane marker?",
+      "identity": {
+        "serial": "amiga-copper-color-phase-v1/01-adjacent-color00-moves",
+        "serial_address": "0x0002ff50",
+        "serial_maximum_bytes": 64,
+        "background": "dark blue COLOR00 guard",
+        "marker": "white COLOR01 one-bitplane pixel",
+        "sequence": [
+          "red COLOR00",
+          "green COLOR00",
+          "blue COLOR00",
+          "yellow COLOR00"
+        ]
+      },
+      "expected": {
+        "status": "unresolved",
+        "observations": []
+      }
+    }
+  ]
+}

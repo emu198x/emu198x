@@ -124,15 +124,17 @@ const SEROUT_SHIFT_TICKS: u16 = 930;
 /// leads "transmission finished" (bit 3) within each byte.
 const SEROUT_HOLD_TICKS: u16 = 90;
 
-// AUDCTL bit masks.
-const AUDCTL_POLY9: u8 = 0x01;
-const AUDCTL_CH1_179MHZ: u8 = 0x02;
-const AUDCTL_CH3_179MHZ: u8 = 0x04;
+// AUDCTL bit masks. The register reads `PLY CH1 CH3 L12 L34 HP1 HP2 15K` from
+// bit 7 down, so the polynomial select is the *high* bit and the clock select
+// the low one — the opposite of the order they are listed in.
+const AUDCTL_POLY9: u8 = 0x80;
+const AUDCTL_CH1_179MHZ: u8 = 0x40;
+const AUDCTL_CH3_179MHZ: u8 = 0x20;
 const AUDCTL_16BIT_CH12: u8 = 0x10;
 const AUDCTL_16BIT_CH34: u8 = 0x08;
-const AUDCTL_HPF_CH1: u8 = 0x20;
-const AUDCTL_HPF_CH2: u8 = 0x40;
-const AUDCTL_15KHZ: u8 = 0x80;
+const AUDCTL_HPF_CH1: u8 = 0x04;
+const AUDCTL_HPF_CH2: u8 = 0x02;
+const AUDCTL_15KHZ: u8 = 0x01;
 
 // ---------------------------------------------------------------------------
 // Polynomial counter tables (precomputed)
@@ -1193,6 +1195,39 @@ mod tests {
             0,
             "IRQST bit 0 should be 0 (active low) when timer 1 fires"
         );
+    }
+
+    /// AUDCTL reads `PLY CH1 CH3 L12 L34 HP1 HP2 15K` from bit 7 down, so the
+    /// polynomial select is the high bit and the clock select the low one.
+    /// Six of these were transposed, and only the two link bits in the middle
+    /// were right — which is why the audio tests, which exercise the link,
+    /// never noticed. Asserted against the bit positions rather than against
+    /// the constants, so the constants cannot define themselves as correct.
+    #[test]
+    fn audctl_bits_sit_where_the_register_layout_puts_them() {
+        assert_eq!(AUDCTL_POLY9, 0x80);
+        assert_eq!(AUDCTL_CH1_179MHZ, 0x40);
+        assert_eq!(AUDCTL_CH3_179MHZ, 0x20);
+        assert_eq!(AUDCTL_16BIT_CH12, 0x10);
+        assert_eq!(AUDCTL_16BIT_CH34, 0x08);
+        assert_eq!(AUDCTL_HPF_CH1, 0x04);
+        assert_eq!(AUDCTL_HPF_CH2, 0x02);
+        assert_eq!(AUDCTL_15KHZ, 0x01);
+    }
+
+    /// The 800XL OS sets up SIO with AUDCTL $28: channel 3's fast clock and
+    /// the channel 3+4 link, which with AUDF3 $28 gives the documented 19040
+    /// baud. Read with the bits transposed it selects the link and channel
+    /// 1's high-pass filter, leaves channel 3 on the 64 kHz clock, and runs
+    /// the serial port roughly twenty-five times too slow.
+    #[test]
+    fn the_sio_audctl_value_selects_the_fast_clock_and_the_link() {
+        let mut pokey = ntsc_pokey();
+        pokey.write(0x08, 0x28);
+        assert_eq!(pokey.audctl & AUDCTL_CH3_179MHZ, AUDCTL_CH3_179MHZ);
+        assert_eq!(pokey.audctl & AUDCTL_16BIT_CH34, AUDCTL_16BIT_CH34);
+        assert_eq!(pokey.audctl & AUDCTL_HPF_CH1, 0);
+        assert_eq!(pokey.audctl & AUDCTL_15KHZ, 0);
     }
 
     #[test]
