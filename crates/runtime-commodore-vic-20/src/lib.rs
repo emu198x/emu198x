@@ -6,7 +6,7 @@ mod queries;
 mod runtime;
 mod snapshot;
 
-pub use machine_commodore_vic_20::Vic20Model;
+pub use machine_commodore_vic_20::{Vic20Model, Vic20RamExpansion};
 pub use profiles::{
     BASIC_FIRMWARE_ID, CHAR_FIRMWARE_ID, KERNAL_FIRMWARE_ID, Model, profile_for, profiles,
 };

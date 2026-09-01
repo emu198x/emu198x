@@ -10,7 +10,7 @@ use emu198x_shell::{
     MachineError, MachineProfile, MachineTime, MediaKind, MediaSet, PixelFormat, ResetKind,
     RunResult, StopReason,
 };
-use machine_commodore_vic_20::{Vic20, Vic20Model};
+use machine_commodore_vic_20::{Vic20, Vic20Model, Vic20RamExpansion};
 
 use crate::input::apply_input_event;
 use crate::profiles::{
@@ -67,7 +67,7 @@ pub struct Vic20Runtime {
     kernal_bytes: Option<Vec<u8>>,
     basic_bytes: Option<Vec<u8>>,
     char_bytes: Option<Vec<u8>>,
-    ram_expansion_kb: usize,
+    ram_expansion: Vic20RamExpansion,
     time: MachineTime,
     rgba_framebuffer: Vec<u8>,
     rgba_width: u32,
@@ -92,7 +92,7 @@ impl Vic20Runtime {
             kernal_bytes: None,
             basic_bytes: None,
             char_bytes: None,
-            ram_expansion_kb: 0,
+            ram_expansion: Vic20RamExpansion::NONE,
             time: MachineTime::default(),
             rgba_framebuffer: Vec::new(),
             rgba_width: 0,
@@ -190,10 +190,9 @@ impl Vic20Runtime {
         Ok(())
     }
 
-    /// Set RAM expansion (0 = unexpanded, 3 = full low expansion, 3+N
-    /// for high expansion up to 24 KB).
-    pub fn set_ram_expansion_kb(&mut self, kb: usize) {
-        self.ram_expansion_kb = kb;
+    /// Fit the named RAM expansion cartridges to the expansion port.
+    pub fn set_ram_expansion(&mut self, expansion: Vic20RamExpansion) {
+        self.ram_expansion = expansion;
         self.rebuild_machine();
     }
 
@@ -289,25 +288,30 @@ impl Vic20Runtime {
         Ok(())
     }
 
-    /// Minimum installed RAM configuration selected by the three canonical
-    /// VIC-20 BASIC load addresses. An arbitrary machine-code load keeps the
-    /// caller's chosen configuration; a PRG gives no other expansion metadata.
+    /// RAM configuration implied by the three canonical VIC-20 BASIC load
+    /// addresses. An arbitrary machine-code load keeps the caller's chosen
+    /// cartridges; a PRG gives no other expansion metadata.
     ///
-    /// `Vic20::new` reads the returned value as `3 + N`, where `N` is the KiB
-    /// of high expansion at `$2000`. `$1201` is the BASIC start for every
-    /// block-1 expansion from 8 KiB upwards, so it selects `3 + 8 = 11` — the
-    /// full `$2000-$3FFF` block. A caller who has already asked for more than
-    /// that keeps it: 16 KiB and 24 KiB expansions share the same BASIC start,
-    /// and reducing them would truncate the program being loaded.
-    fn expansion_for_prg(bytes: &[u8], current: usize) -> Result<usize, String> {
+    /// `$0401` and `$1001` name an exact machine: the 3K expander alone, and
+    /// the unexpanded 5K machine. `$1201` names only a floor — BLK1 must be
+    /// fitted for BASIC's program area to start there, but BLK2, BLK3 and the
+    /// 3K expander may also be present, and a caller who asked for them keeps
+    /// them rather than having a larger program truncated.
+    fn expansion_for_prg(
+        bytes: &[u8],
+        current: Vic20RamExpansion,
+    ) -> Result<Vic20RamExpansion, String> {
         if bytes.len() < 3 {
             return Err("PRG image too short".into());
         }
         let load = u16::from_le_bytes([bytes[0], bytes[1]]);
         Ok(match load {
-            0x0401 => 3,
-            0x1001 => 0,
-            0x1201 => current.max(11),
+            0x0401 => Vic20RamExpansion::EXP_3K,
+            0x1001 => Vic20RamExpansion::NONE,
+            0x1201 => Vic20RamExpansion {
+                blk1: true,
+                ..current
+            },
             _ => current,
         })
     }
@@ -329,11 +333,17 @@ impl Vic20Runtime {
         self.cartridge_image = image;
     }
 
-    /// Active RAM expansion in KiB, including any configuration selected from
-    /// a loaded PRG's canonical BASIC start address.
+    /// RAM expansion cartridges currently fitted, including any block added to
+    /// satisfy a loaded PRG's canonical BASIC start address.
+    #[must_use]
+    pub fn ram_expansion(&self) -> Vic20RamExpansion {
+        self.ram_expansion
+    }
+
+    /// Total installed expansion RAM in KiB.
     #[must_use]
     pub fn ram_expansion_kb(&self) -> usize {
-        self.ram_expansion_kb
+        self.ram_expansion.total_kib()
     }
 
     /// Install a machine restored from a snapshot, re-deriving the host RGBA
@@ -364,7 +374,7 @@ impl Vic20Runtime {
             emu198x_shell::Region::Pal => Vic20Model::Pal,
             _ => Vic20Model::Ntsc,
         };
-        let mut machine = Vic20::new(kernal, basic, char_rom, vic_model, self.ram_expansion_kb);
+        let mut machine = Vic20::new(kernal, basic, char_rom, vic_model, self.ram_expansion);
         if let Some(image) = self.cartridge_image.as_deref() {
             machine
                 .insert_cartridge_bytes(image)
@@ -433,13 +443,13 @@ impl MachineCore for Vic20Runtime {
                     });
                 }
                 MediaKind::Program if slot == "program-1" => {
-                    let expansion = Self::expansion_for_prg(image.bytes, self.ram_expansion_kb)
+                    let expansion = Self::expansion_for_prg(image.bytes, self.ram_expansion)
                         .map_err(|reason| MachineError::InvalidMedia {
                             slot: slot.to_owned(),
                             reason,
                         })?;
-                    if expansion != self.ram_expansion_kb {
-                        self.ram_expansion_kb = expansion;
+                    if expansion != self.ram_expansion {
+                        self.ram_expansion = expansion;
                         self.rebuild_machine();
                     }
                     self.pending_prg = Some(image.bytes.to_vec());
@@ -569,39 +579,55 @@ mod tests {
     }
 
     #[test]
-    fn program_media_selects_the_minimum_expansion_from_its_load_address() {
-        for (load, expected) in [(0x0401u16, 3), (0x1001, 0), (0x1201, 11)] {
+    fn program_media_selects_the_expansion_from_its_load_address() {
+        for (load, expected) in [
+            (0x0401u16, Vic20RamExpansion::EXP_3K),
+            (0x1001, Vic20RamExpansion::NONE),
+            (0x1201, Vic20RamExpansion::EXP_8K),
+        ] {
             let mut runtime = Vic20Runtime::blank(Model::Vic20Ntsc);
             let [lo, hi] = load.to_le_bytes();
             load_program(&mut runtime, &[lo, hi, 0x00]).expect("valid PRG");
-            assert_eq!(runtime.ram_expansion_kb, expected, "load ${load:04X}");
+            assert_eq!(runtime.ram_expansion, expected, "load ${load:04X}");
             assert_eq!(runtime.pending_prg.as_deref(), Some(&[lo, hi, 0x00][..]));
         }
     }
 
     #[test]
-    fn expanded_basic_prg_keeps_an_expansion_larger_than_the_minimum() {
-        // 16 KiB and 24 KiB expansions share the $1201 BASIC start with 8 KiB,
-        // so inference must not pull an explicit choice back down to 11.
-        for requested in [11usize, 19, 27] {
+    fn expanded_basic_prg_keeps_cartridges_beyond_the_one_it_needs() {
+        // BLK2, BLK3 and the 3K expander all leave the BASIC start at $1201,
+        // so inference must add BLK1 without evicting anything already fitted.
+        for spec in ["8k", "16k", "24k", "3k+8k", "24k+8k@a000"] {
+            let requested = Vic20RamExpansion::parse(spec).expect("valid spec");
             let mut runtime = Vic20Runtime::blank(Model::Vic20Ntsc);
-            runtime.set_ram_expansion_kb(requested);
+            runtime.set_ram_expansion(requested);
             load_program(&mut runtime, &[0x01, 0x12, 0x00]).expect("valid PRG");
-            assert_eq!(
-                runtime.ram_expansion_kb, requested,
-                "requested {requested} KiB"
-            );
+            assert_eq!(runtime.ram_expansion, requested, "{spec}");
         }
     }
 
     #[test]
-    fn expanded_basic_prg_raises_an_expansion_below_the_minimum() {
-        for requested in [0usize, 3, 8] {
+    fn expanded_basic_prg_fits_blk1_when_it_is_missing() {
+        for (spec, expected) in [
+            ("none", "8k"),
+            ("3k", "3k+8k"),
+            ("8k@4000", "16k"),
+            ("8k@a000", "8k+8k@a000"),
+        ] {
             let mut runtime = Vic20Runtime::blank(Model::Vic20Ntsc);
-            runtime.set_ram_expansion_kb(requested);
+            runtime.set_ram_expansion(Vic20RamExpansion::parse(spec).expect("valid spec"));
             load_program(&mut runtime, &[0x01, 0x12, 0x00]).expect("valid PRG");
-            assert_eq!(runtime.ram_expansion_kb, 11, "requested {requested} KiB");
+            assert_eq!(runtime.ram_expansion.to_string(), expected, "from {spec}");
         }
+    }
+
+    #[test]
+    fn a_3k_program_evicts_the_blocks_that_would_move_the_basic_start() {
+        // $0401 is only reachable with the 3K expander and no BLK1.
+        let mut runtime = Vic20Runtime::blank(Model::Vic20Ntsc);
+        runtime.set_ram_expansion(Vic20RamExpansion::EXP_24K);
+        load_program(&mut runtime, &[0x01, 0x04, 0x00]).expect("valid PRG");
+        assert_eq!(runtime.ram_expansion, Vic20RamExpansion::EXP_3K);
     }
 
     #[test]

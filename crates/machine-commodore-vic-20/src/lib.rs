@@ -51,6 +51,224 @@ pub enum Vic20Model {
     Ntsc,
 }
 
+/// Which RAM expansion cartridges are plugged into the expansion port.
+///
+/// The 3K expander (VIC-1210) and the block RAM cartridges (VIC-1110 8K,
+/// VIC-1111 16K) are separate products. Either can be plugged into the
+/// expansion socket alone, or several together through the VIC-1010 Expansion
+/// Module, so their presence is tracked independently rather than derived from
+/// a single size.
+///
+/// An 8K cartridge carries four DIP switches selecting which block it answers:
+/// `$2000-$3FFF` (the normal position for BASIC), `$4000-$5FFF`,
+/// `$6000-$7FFF` or `$A000-$BFFF`. Two cartridges must never claim the same
+/// block. BASIC only follows a continuous program area, so a second 8K has to
+/// sit at `$4000` for BASIC to see it.
+///
+/// Source: Commodore, *Using the 3K, 8K and 16K Memory Expanders* (1982),
+/// `reference/by-system/commodore-vic20/1982-vic-1210-1110-1111-memory-expanders.txt`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct Vic20RamExpansion {
+    /// VIC-1210 3K expander at `$0400-$0FFF`.
+    pub exp_3k: bool,
+    /// BLK1, `$2000-$3FFF`.
+    pub blk1: bool,
+    /// BLK2, `$4000-$5FFF`.
+    pub blk2: bool,
+    /// BLK3, `$6000-$7FFF`.
+    pub blk3: bool,
+    /// BLK5, `$A000-$BFFF` — shared with the cartridge ROM window, where a
+    /// ROM cartridge's decode lines win.
+    pub blk5: bool,
+}
+
+impl Vic20RamExpansion {
+    /// Unexpanded 5K machine.
+    pub const NONE: Self = Self {
+        exp_3k: false,
+        blk1: false,
+        blk2: false,
+        blk3: false,
+        blk5: false,
+    };
+    /// VIC-1210 3K expander on its own.
+    pub const EXP_3K: Self = Self {
+        exp_3k: true,
+        ..Self::NONE
+    };
+    /// VIC-1110 8K expander in its normal `$2000` position.
+    pub const EXP_8K: Self = Self {
+        blk1: true,
+        ..Self::NONE
+    };
+    /// VIC-1111 16K expander, BLK1 + BLK2.
+    pub const EXP_16K: Self = Self {
+        blk1: true,
+        blk2: true,
+        ..Self::NONE
+    };
+    /// 24K for BASIC, BLK1 + BLK2 + BLK3.
+    pub const EXP_24K: Self = Self {
+        blk1: true,
+        blk2: true,
+        blk3: true,
+        ..Self::NONE
+    };
+
+    /// Total installed expansion RAM in KiB.
+    #[must_use]
+    pub const fn total_kib(self) -> usize {
+        let mut kib = if self.exp_3k { 3 } else { 0 };
+        if self.blk1 {
+            kib += 8;
+        }
+        if self.blk2 {
+            kib += 8;
+        }
+        if self.blk3 {
+            kib += 8;
+        }
+        if self.blk5 {
+            kib += 8;
+        }
+        kib
+    }
+
+    /// Address the KERNAL reports as the BASIC program start for this
+    /// configuration. BLK1 moves screen memory to `$1000` and BASIC to
+    /// `$1200`; the 3K expander alone moves BASIC down to `$0400`. With both
+    /// fitted the 3K area is not part of the BASIC program area, so BLK1 wins.
+    #[must_use]
+    pub const fn basic_start(self) -> u16 {
+        if self.blk1 {
+            0x1200
+        } else if self.exp_3k {
+            0x0400
+        } else {
+            0x1000
+        }
+    }
+
+    /// Storage slot backing an address, if a block covers it: BLK1, BLK2,
+    /// BLK3, BLK5.
+    const fn slot_for(addr: u16) -> Option<usize> {
+        match addr {
+            0x2000..=0x3FFF => Some(0),
+            0x4000..=0x5FFF => Some(1),
+            0x6000..=0x7FFF => Some(2),
+            0xA000..=0xBFFF => Some(3),
+            _ => None,
+        }
+    }
+
+    const fn slot_populated(self, slot: usize) -> bool {
+        match slot {
+            0 => self.blk1,
+            1 => self.blk2,
+            2 => self.blk3,
+            3 => self.blk5,
+            _ => false,
+        }
+    }
+
+    fn claim(&mut self, slot: usize) -> Result<(), String> {
+        let (present, name) = match slot {
+            0 => (&mut self.exp_3k, "the 3K area at $0400"),
+            1 => (&mut self.blk1, "BLK1 at $2000"),
+            2 => (&mut self.blk2, "BLK2 at $4000"),
+            3 => (&mut self.blk3, "BLK3 at $6000"),
+            _ => (&mut self.blk5, "BLK5 at $A000"),
+        };
+        if *present {
+            return Err(format!("two cartridges claim {name}"));
+        }
+        *present = true;
+        Ok(())
+    }
+
+    /// Parse a hardware-shaped expansion spec: `none`, `3k`, `8k`, `16k`,
+    /// `24k`, or DIP-switched blocks such as `8k@4000`, joined with `+`
+    /// (`3k+8k`, `8k@2000+8k@6000`).
+    ///
+    /// # Errors
+    ///
+    /// Returns a readable message for an unknown term, or for two terms
+    /// claiming the same block.
+    pub fn parse(spec: &str) -> Result<Self, String> {
+        let spec = spec.trim().to_ascii_lowercase();
+        if spec.is_empty() {
+            return Err("empty RAM expansion spec".to_owned());
+        }
+        if spec == "none" || spec == "0" {
+            return Ok(Self::NONE);
+        }
+        let mut out = Self::NONE;
+        for term in spec.split('+') {
+            let slots: &[usize] = match term.trim() {
+                "3k" => &[0],
+                "8k" | "8k@2000" => &[1],
+                "8k@4000" => &[2],
+                "8k@6000" => &[3],
+                "8k@a000" => &[4],
+                "16k" => &[1, 2],
+                "24k" => &[1, 2, 3],
+                other => {
+                    return Err(format!(
+                        "unknown RAM expansion term `{other}`; expected none, 3k, 8k, 16k, 24k, \
+                         or a DIP-switched 8k@2000/8k@4000/8k@6000/8k@a000"
+                    ));
+                }
+            };
+            for &slot in slots {
+                out.claim(slot)?;
+            }
+        }
+        Ok(out)
+    }
+}
+
+impl core::fmt::Display for Vic20RamExpansion {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let mut terms: Vec<String> = Vec::new();
+        if self.exp_3k {
+            terms.push("3k".to_owned());
+        }
+        let mut named = [false; 3];
+        if self.blk1 {
+            if self.blk2 && self.blk3 {
+                terms.push("24k".to_owned());
+                named = [true, true, true];
+            } else if self.blk2 {
+                terms.push("16k".to_owned());
+                named = [true, true, false];
+            } else {
+                terms.push("8k".to_owned());
+                named[0] = true;
+            }
+        }
+        for (slot, (present, at)) in [
+            (self.blk1, "2000"),
+            (self.blk2, "4000"),
+            (self.blk3, "6000"),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            if present && !named[slot] {
+                terms.push(format!("8k@{at}"));
+            }
+        }
+        if self.blk5 {
+            terms.push("8k@a000".to_owned());
+        }
+        if terms.is_empty() {
+            f.write_str("none")
+        } else {
+            f.write_str(&terms.join("+"))
+        }
+    }
+}
+
 /// VIC-20 machine.
 ///
 /// Fully serialisable for save-states: the 6502, both 6522 VIAs, the VIC-I,
@@ -65,9 +283,10 @@ pub struct Vic20 {
     ram_exp_low: [u8; 0x0C00],
     #[serde(with = "BigArray")]
     ram_main: [u8; 0x1000],
-    ram_exp_high: Vec<u8>,
-    has_exp_low: bool,
-    exp_high_size: usize,
+    /// BLK1 `$2000`, BLK2 `$4000`, BLK3 `$6000`, BLK5 `$A000`. A slot holds
+    /// 8 KiB when its cartridge is fitted and is empty when it is not.
+    ram_blocks: [Vec<u8>; 4],
+    expansion: Vic20RamExpansion,
     #[serde(with = "BigArray")]
     colour_ram: [u8; 0x0400],
     char_rom: Vec<u8>,
@@ -107,23 +326,24 @@ const fn default_high() -> bool {
 
 impl Vic20 {
     /// Create a new VIC-20. ROMs: `kernal` 8 KB, `basic` 8 KB, `char_rom` 4 KB.
-    /// `ram_expansion_kb` is 0 (unexpanded), 3 (low expansion = full $0400-$0FFF),
-    /// or 3+N where N ≤ 24 (high expansion at $2000 onwards).
+    /// `expansion` names the RAM cartridges fitted to the expansion port; each
+    /// is independent, so [`Vic20RamExpansion::EXP_8K`] installs BLK1 and
+    /// leaves `$0400-$0FFF` as open bus, exactly as a VIC-1110 on its own does.
     pub fn new(
         kernal_rom: Vec<u8>,
         basic_rom: Vec<u8>,
         char_rom: Vec<u8>,
         model: Vic20Model,
-        ram_expansion_kb: usize,
+        expansion: Vic20RamExpansion,
     ) -> Self {
         let pal = model == Vic20Model::Pal;
-        let has_exp_low = ram_expansion_kb >= 3;
-        let exp_high_size = if ram_expansion_kb > 3 {
-            (ram_expansion_kb - 3) * 1024
-        } else {
-            0
-        };
-        let exp_high_size = exp_high_size.min(0x6000);
+        let ram_blocks = core::array::from_fn(|slot| {
+            if expansion.slot_populated(slot) {
+                vec![0u8; 0x2000]
+            } else {
+                Vec::new()
+            }
+        });
         // Run the 6502 reset sequence so the first fetch comes from the KERNAL
         // reset vector ($FFFC). Without this the CPU powers on at PC=$0000,
         // executes the BRK there, and storms in the IRQ/BRK handler instead of
@@ -135,9 +355,8 @@ impl Vic20 {
             ram_low: [0; 0x0400],
             ram_exp_low: [0; 0x0C00],
             ram_main: [0; 0x1000],
-            ram_exp_high: vec![0; exp_high_size],
-            has_exp_low,
-            exp_high_size,
+            ram_blocks,
+            expansion,
             colour_ram: [0; 0x0400],
             char_rom,
             basic_rom,
@@ -232,7 +451,7 @@ impl Vic20 {
         let ram_low = &self.ram_low;
         let ram_exp_low = &self.ram_exp_low;
         let ram_main = &self.ram_main;
-        let has_exp_low = self.has_exp_low;
+        let has_exp_low = self.expansion.exp_3k;
         let colour_ram = &self.colour_ram;
         let char_rom = &self.char_rom;
         self.vic.tick(
@@ -313,21 +532,14 @@ impl Vic20 {
         match addr {
             0x0000..=0x03FF => self.ram_low[addr as usize],
             0x0400..=0x0FFF => {
-                if self.has_exp_low {
+                if self.expansion.exp_3k {
                     self.ram_exp_low[(addr - 0x0400) as usize]
                 } else {
                     0xFF
                 }
             }
             0x1000..=0x1FFF => self.ram_main[(addr - 0x1000) as usize],
-            0x2000..=0x7FFF => {
-                let offset = (addr - 0x2000) as usize;
-                if offset < self.exp_high_size {
-                    self.ram_exp_high[offset]
-                } else {
-                    0xFF
-                }
-            }
+            0x2000..=0x7FFF => self.block_read(addr),
             0x8000..=0x8FFF => self
                 .char_rom
                 .get((addr - 0x8000) as usize)
@@ -339,10 +551,12 @@ impl Vic20 {
             0x9100..=0x910F | 0x9130..=0x93FF => 0xFF,
             0x9400..=0x97FF => self.colour_ram[(addr - 0x9400) as usize] & 0x0F,
             0x9800..=0x9FFF => 0xFF,
-            // $A000-$BFFF is cartridge block 5 (autostart carts); open bus
-            // when empty. The VIC-20 — unlike the C64 — puts BASIC at
-            // $C000-$DFFF and KERNAL at $E000-$FFFF.
-            0xA000..=0xBFFF => 0xFF,
+            // $A000-$BFFF is BLK5. A ROM cartridge (autostart carts) is read
+            // above via `cartridge_read`, so what is left here is a RAM
+            // cartridge DIP-switched to BLK5, else open bus. The VIC-20 —
+            // unlike the C64 — puts BASIC at $C000-$DFFF and KERNAL at
+            // $E000-$FFFF.
+            0xA000..=0xBFFF => self.block_read(addr),
             0xC000..=0xDFFF => self
                 .basic_rom
                 .get((addr - 0xC000) as usize)
@@ -354,6 +568,29 @@ impl Vic20 {
                 .copied()
                 .unwrap_or(0xFF),
         }
+    }
+
+    /// Read an expansion-block address: the fitted cartridge's RAM, else open
+    /// bus. A ROM cartridge in the same window is resolved before this by
+    /// `cartridge_read`.
+    fn block_read(&self, addr: u16) -> u8 {
+        Vic20RamExpansion::slot_for(addr)
+            .and_then(|slot| self.ram_blocks[slot].get((addr & 0x1FFF) as usize).copied())
+            .unwrap_or(0xFF)
+    }
+
+    fn block_write(&mut self, addr: u16, value: u8) {
+        if let Some(slot) = Vic20RamExpansion::slot_for(addr)
+            && let Some(cell) = self.ram_blocks[slot].get_mut((addr & 0x1FFF) as usize)
+        {
+            *cell = value;
+        }
+    }
+
+    /// RAM expansion cartridges fitted to the expansion port.
+    #[must_use]
+    pub const fn expansion(&self) -> Vic20RamExpansion {
+        self.expansion
     }
 
     fn cartridge_read(&self, addr: u16) -> Option<u8> {
@@ -403,16 +640,11 @@ impl Vic20 {
     fn mem_write(&mut self, addr: u16, value: u8) {
         match addr {
             0x0000..=0x03FF => self.ram_low[addr as usize] = value,
-            0x0400..=0x0FFF if self.has_exp_low => {
+            0x0400..=0x0FFF if self.expansion.exp_3k => {
                 self.ram_exp_low[(addr - 0x0400) as usize] = value;
             }
             0x1000..=0x1FFF => self.ram_main[(addr - 0x1000) as usize] = value,
-            0x2000..=0x7FFF => {
-                let offset = (addr - 0x2000) as usize;
-                if offset < self.exp_high_size {
-                    self.ram_exp_high[offset] = value;
-                }
-            }
+            0x2000..=0x7FFF | 0xA000..=0xBFFF => self.block_write(addr, value),
             0x9000..=0x90FF => self.vic.write((addr & 0x0F) as u8, value),
             0x9110..=0x911F => self.via1.write((addr & 0x0F) as u8, value),
             0x9120..=0x912F => self.via2.write((addr & 0x0F) as u8, value),
@@ -563,7 +795,7 @@ mod tests {
             vec![0u8; 0x2000],
             vec![0u8; 0x1000],
             Vic20Model::Pal,
-            0,
+            Vic20RamExpansion::NONE,
         )
     }
 
@@ -628,7 +860,7 @@ mod tests {
                 &sys.ram_low,
                 &sys.ram_exp_low,
                 &sys.ram_main,
-                sys.has_exp_low,
+                sys.expansion.exp_3k,
                 &sys.colour_ram,
                 &sys.char_rom,
             )
@@ -644,7 +876,7 @@ mod tests {
             vec![0; 0x2000],
             vec![0; 0x1000],
             Vic20Model::Pal,
-            3,
+            Vic20RamExpansion::EXP_3K,
         );
         expanded.ram_exp_low[0x0567] = 0x55;
         assert_eq!(
@@ -653,7 +885,7 @@ mod tests {
                 &expanded.ram_low,
                 &expanded.ram_exp_low,
                 &expanded.ram_main,
-                expanded.has_exp_low,
+                expanded.expansion.exp_3k,
                 &expanded.colour_ram,
                 &expanded.char_rom,
             ),
@@ -686,7 +918,7 @@ mod tests {
             vec![0u8; 0x2000],
             vec![0u8; 0x1000],
             Vic20Model::Ntsc,
-            0,
+            Vic20RamExpansion::NONE,
         );
         let _ = sys.run_frame();
         assert_eq!(sys.frame_count(), 1);
@@ -809,10 +1041,115 @@ mod tests {
             vec![0u8; 0x2000],
             vec![0u8; 0x1000],
             Vic20Model::Pal,
-            3,
+            Vic20RamExpansion::EXP_3K,
         );
         sys.mem_write(0x0400, 0x55);
         assert_eq!(sys.mem_read(0x0400), 0x55);
+    }
+
+    fn machine_with(expansion: Vic20RamExpansion) -> Vic20 {
+        Vic20::new(
+            vec![0xEA; 0x2000],
+            vec![0u8; 0x2000],
+            vec![0u8; 0x1000],
+            Vic20Model::Pal,
+            expansion,
+        )
+    }
+
+    #[test]
+    fn an_8k_cartridge_alone_leaves_the_3k_area_as_open_bus() {
+        // A VIC-1110 fills BLK1 only. The 3K expander is a separate product,
+        // so $0400-$0FFF must stay unpopulated.
+        let mut sys = machine_with(Vic20RamExpansion::EXP_8K);
+        sys.mem_write(0x0400, 0x55);
+        sys.mem_write(0x0FFF, 0x55);
+        assert_eq!(sys.mem_read(0x0400), 0xFF, "$0400 has no RAM behind it");
+        assert_eq!(sys.mem_read(0x0FFF), 0xFF, "$0FFF has no RAM behind it");
+
+        sys.mem_write(0x2000, 0x42);
+        sys.mem_write(0x3FFF, 0x43);
+        assert_eq!(sys.mem_read(0x2000), 0x42, "BLK1 is fitted");
+        assert_eq!(sys.mem_read(0x3FFF), 0x43, "BLK1 runs to $3FFF");
+        assert_eq!(sys.mem_read(0x4000), 0xFF, "BLK2 is not fitted");
+    }
+
+    #[test]
+    fn a_3k_expander_alone_leaves_the_blocks_as_open_bus() {
+        let mut sys = machine_with(Vic20RamExpansion::EXP_3K);
+        sys.mem_write(0x0400, 0x55);
+        assert_eq!(sys.mem_read(0x0400), 0x55, "the 3K expander is fitted");
+        sys.mem_write(0x2000, 0x42);
+        assert_eq!(sys.mem_read(0x2000), 0xFF, "BLK1 is not fitted");
+    }
+
+    #[test]
+    fn a_dip_switched_cartridge_populates_only_its_own_block() {
+        // "8k@4000": BLK2 answers, BLK1 and BLK3 stay empty.
+        let expansion = Vic20RamExpansion::parse("8k@4000").expect("valid spec");
+        let mut sys = machine_with(expansion);
+        for (addr, fitted) in [(0x2000u16, false), (0x4000, true), (0x6000, false)] {
+            sys.mem_write(addr, 0x42);
+            let expected = if fitted { 0x42 } else { 0xFF };
+            assert_eq!(sys.mem_read(addr), expected, "${addr:04X}");
+        }
+    }
+
+    #[test]
+    fn blk5_ram_answers_when_no_rom_cartridge_claims_it() {
+        let expansion = Vic20RamExpansion::parse("8k@a000").expect("valid spec");
+        let mut sys = machine_with(expansion);
+        sys.mem_write(0xA000, 0x37);
+        sys.mem_write(0xBFFF, 0x38);
+        assert_eq!(sys.mem_read(0xA000), 0x37);
+        assert_eq!(sys.mem_read(0xBFFF), 0x38);
+
+        let mut bare = machine_with(Vic20RamExpansion::NONE);
+        bare.mem_write(0xA000, 0x37);
+        assert_eq!(bare.mem_read(0xA000), 0xFF, "empty BLK5 is open bus");
+    }
+
+    #[test]
+    fn expansion_spec_round_trips_and_rejects_a_double_claim() {
+        for (spec, expected) in [
+            ("none", Vic20RamExpansion::NONE),
+            ("3k", Vic20RamExpansion::EXP_3K),
+            ("8k", Vic20RamExpansion::EXP_8K),
+            ("16k", Vic20RamExpansion::EXP_16K),
+            ("24k", Vic20RamExpansion::EXP_24K),
+        ] {
+            assert_eq!(Vic20RamExpansion::parse(spec), Ok(expected), "{spec}");
+            assert_eq!(expected.to_string(), spec, "display of {spec}");
+        }
+
+        let module = Vic20RamExpansion::parse("3k+8k").expect("VIC-1010 combination");
+        assert!(module.exp_3k && module.blk1);
+        assert_eq!(module.to_string(), "3k+8k");
+        assert_eq!(module.total_kib(), 11);
+
+        let split = Vic20RamExpansion::parse("8k@2000+8k@6000").expect("two DIP-switched packs");
+        assert_eq!(split.to_string(), "8k+8k@6000");
+        assert!(
+            !split.blk2,
+            "BLK2 stays empty, so BASIC cannot follow past $3FFF"
+        );
+
+        let clash = Vic20RamExpansion::parse("8k+8k@2000").expect_err("same block twice");
+        assert!(clash.contains("BLK1"), "{clash}");
+        let unknown = Vic20RamExpansion::parse("32k").expect_err("no such cartridge");
+        assert!(unknown.contains("unknown RAM expansion term"), "{unknown}");
+    }
+
+    #[test]
+    fn basic_start_follows_the_fitted_cartridges() {
+        assert_eq!(Vic20RamExpansion::NONE.basic_start(), 0x1000);
+        assert_eq!(Vic20RamExpansion::EXP_3K.basic_start(), 0x0400);
+        assert_eq!(Vic20RamExpansion::EXP_8K.basic_start(), 0x1200);
+        assert_eq!(Vic20RamExpansion::EXP_24K.basic_start(), 0x1200);
+        // With both fitted the 3K area is outside the BASIC program area, so
+        // BASIC still starts at $1200.
+        let module = Vic20RamExpansion::parse("3k+8k").expect("valid spec");
+        assert_eq!(module.basic_start(), 0x1200);
     }
 
     #[test]

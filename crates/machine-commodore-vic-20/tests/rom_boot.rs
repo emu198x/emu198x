@@ -4,7 +4,7 @@ use std::env;
 use std::fs;
 use std::path::PathBuf;
 
-use machine_commodore_vic_20::{Vic20, Vic20Model};
+use machine_commodore_vic_20::{Vic20, Vic20Model, Vic20RamExpansion};
 
 fn rom(env: &str, default_name: &str) -> Option<Vec<u8>> {
     if let Ok(p) = env::var(env) {
@@ -32,7 +32,13 @@ fn rom_set_boots_without_panic() {
         );
     };
 
-    let mut sys = Vic20::new(kernal, basic, char_rom, Vic20Model::Pal, 0);
+    let mut sys = Vic20::new(
+        kernal,
+        basic,
+        char_rom,
+        Vic20Model::Pal,
+        Vic20RamExpansion::NONE,
+    );
     for _ in 0..200 {
         sys.run_frame();
     }
