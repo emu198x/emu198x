@@ -5,6 +5,7 @@ use emu198x_shell::{
     MachineProfile, MachineTime, MediaKind, MediaSet, PixelFormat, ResetKind, RunResult,
     StopReason,
 };
+use format_atari_8bit_atr::AtrImage;
 use machine_atari_800xl::{Atari800xl, Atari800xlRegion};
 
 use crate::profiles::{Model, profile_for};
@@ -27,6 +28,9 @@ pub struct Atari800xlRuntime {
     cart_bytes: Option<Vec<u8>>,
     xex_bytes: Option<Vec<u8>>,
     xex_pending: bool,
+    /// A disk loaded before there was a machine to put it in. Once a machine
+    /// exists the drive on its SIO bus owns the disk, writes and all.
+    disk_1: Option<AtrImage>,
     basic_enabled: bool,
     time: MachineTime,
     rgba_framebuffer: Vec<u8>,
@@ -47,6 +51,7 @@ impl Atari800xlRuntime {
             cart_bytes: None,
             xex_bytes: None,
             xex_pending: false,
+            disk_1: None,
             basic_enabled: false,
             time: MachineTime::default(),
             rgba_framebuffer: Vec::new(),
@@ -144,6 +149,16 @@ impl Atari800xlRuntime {
     pub(crate) fn xex_bytes(&self) -> Option<&[u8]> {
         self.xex_bytes.as_deref()
     }
+    /// Whether D1: has a disk in it — held here until a machine exists,
+    /// then in the drive on the machine's SIO bus.
+    pub(crate) fn disk_in_d1(&self) -> bool {
+        self.disk_1.is_some()
+            || self
+                .machine
+                .as_ref()
+                .and_then(|machine| machine.sio().drive(1))
+                .is_some_and(|drive| drive.has_disk())
+    }
     pub(crate) fn xex_pending(&self) -> bool {
         self.xex_pending
     }
@@ -155,17 +170,33 @@ impl Atari800xlRuntime {
         self.basic_enabled
     }
 
+    /// Put `disk` in D1:, or hold it until there is a machine to put it in.
+    fn insert_disk(&mut self, disk: AtrImage) {
+        match self.machine.as_mut() {
+            Some(machine) => machine.sio_mut().insert_disk(1, disk),
+            None => self.disk_1 = Some(disk),
+        }
+    }
+
     fn rebuild_machine(&mut self) -> Result<(), MachineError> {
+        // The drive keeps its disk across a reset of the computer, so carry
+        // the live image over rather than reloading the bytes it came from.
+        let disk = self
+            .machine
+            .as_mut()
+            .and_then(|machine| machine.sio_mut().eject_disk(1))
+            .or_else(|| self.disk_1.take());
         // The 800XL needs at least a cart OR an OS to boot meaningfully.
         if self.cart_bytes.is_none() && self.os_bytes.is_none() {
             self.machine = None;
+            self.disk_1 = disk;
             return Ok(());
         }
         let region = match self.model.region() {
             emu198x_shell::Region::Pal => Atari800xlRegion::Pal,
             _ => Atari800xlRegion::Ntsc,
         };
-        let machine = Atari800xl::new(
+        let mut machine = Atari800xl::new(
             self.os_bytes.clone(),
             self.basic_bytes.clone(),
             self.cart_bytes.clone(),
@@ -176,6 +207,9 @@ impl Atari800xlRuntime {
             slot: "cartridge-1".to_owned(),
             reason,
         })?;
+        if let Some(disk) = disk {
+            machine.sio_mut().insert_disk(1, disk);
+        }
         let width = machine.framebuffer_width();
         let height = machine.framebuffer_height();
         self.rgba_width = width;
@@ -295,12 +329,40 @@ impl MachineCore for Atari800xlRuntime {
                         slot: slot.to_owned(),
                     });
                 }
+                ("disk-1", MediaKind::Disk) => {
+                    let disk = AtrImage::parse(image.bytes).map_err(|reason| {
+                        MachineError::InvalidMedia {
+                            slot: "disk-1".to_owned(),
+                            reason: reason.to_string(),
+                        }
+                    })?;
+                    self.insert_disk(disk);
+                }
+                (slot, MediaKind::Disk) => {
+                    return Err(MachineError::UnknownMediaSlot {
+                        slot: slot.to_owned(),
+                    });
+                }
                 (_, kind) => {
                     return Err(MachineError::UnsupportedMediaKind { kind });
                 }
             }
         }
         Ok(())
+    }
+    fn eject_media(&mut self, slot: &str) -> Result<(), MachineError> {
+        match slot {
+            "disk-1" => {
+                self.disk_1 = None;
+                if let Some(machine) = self.machine.as_mut() {
+                    machine.sio_mut().eject_disk(1);
+                }
+                Ok(())
+            }
+            other => Err(MachineError::UnknownMediaSlot {
+                slot: other.to_owned(),
+            }),
+        }
     }
     fn run_until(
         &mut self,

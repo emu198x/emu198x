@@ -174,7 +174,19 @@ pub struct Atari800xl {
     dma_mask: u128,
     /// CPU cycle counter within the current scan line, counting from 1.
     line_cycle: u16,
+    /// The frame OPTION stops being held down for the OS. The XL OS decides
+    /// whether BASIC is in from OPTION during its cold start and writes PORTB
+    /// itself, so presetting PORTB is not enough to boot without BASIC: the
+    /// key has to be down when the OS looks. AltirraOS reads CONSOL ten
+    /// times before deciding and the Atari OS twice, so this is a period
+    /// rather than a read count — about the second a person holds the key.
+    /// A read from outside the OS ends the hold early so a program never
+    /// sees a key nobody is pressing.
+    option_held_until_frame: u64,
 }
+
+/// How long OPTION is held for the OS after a cold start with BASIC off.
+const OPTION_HOLD_FRAMES: u64 = 60;
 
 impl Atari800xl {
     /// Create a new Atari 800XL.
@@ -205,12 +217,14 @@ impl Atari800xl {
         // CRB bit 2 = 1 → future $D302 writes hit data register.
         pia.write(0x03, 0x04);
         // PORTB: bit 0 = 1 OS ROM on, bit 1 = 0 BASIC on (or 1 off),
-        // bit 7 = 1 self-test off, other bits high.
+        // bit 7 = 1 self-test off, other bits high. This is what a boot
+        // without an OS ROM runs with; the XL OS re-derives it from OPTION.
         let mut portb: u8 = 0xFF;
         if basic_enabled {
             portb &= !0x02;
         }
         pia.write(0x02, portb);
+        let option_held_until_frame = if basic_enabled { 0 } else { OPTION_HOLD_FRAMES };
 
         let mut ram = vec![0u8; 65536];
 
@@ -248,6 +262,7 @@ impl Atari800xl {
             sio: SioBus::new(),
             dma_mask: 0,
             line_cycle: 0,
+            option_held_until_frame,
         };
 
         // Prime CPU's PC from reset vector via our memory map.
@@ -500,7 +515,16 @@ impl Atari800xl {
                 }
                 self.ram[addr as usize]
             }
-            0xD000..=0xD0FF => self.gtia.read(addr as u8),
+            0xD000..=0xD0FF => {
+                let value = self.gtia.read(addr as u8);
+                if addr & 0x1F == 0x1F && self.frame_count < self.option_held_until_frame {
+                    if self.cpu.regs.pc >= 0xC000 {
+                        return value & !0x04;
+                    }
+                    self.option_held_until_frame = 0;
+                }
+                value
+            }
             0xD100..=0xD1FF => 0xFF,
             0xD200..=0xD2FF => self.pokey.read(addr as u8),
             0xD300..=0xD3FF => self.pia.read(Self::bus_to_pia_addr(addr)),

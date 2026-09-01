@@ -5,7 +5,10 @@ use std::fs;
 use std::path::PathBuf;
 use std::process;
 
-use emu198x_shell::{HeadlessScript, HeadlessSession, MediaSet, ScriptObservation};
+use emu198x_shell::{
+    HeadlessScript, HeadlessSession, MediaImage, MediaKind, MediaSet, ScriptObservation,
+    read_media_asset,
+};
 use runtime_atari_800xl::{Atari800xlRuntime, Atari800xlSessionQueryProvider, Model};
 use serde_json::json;
 
@@ -23,6 +26,9 @@ ROMs (all optional, but need at least one of --os or --cart to boot):
                                default: $EMU198X_A800XL_BASIC, then
                                ~/.emu198x/roms/atari-800xl/ataribas.rom
     --cart PATH                cartridge ROM (8 KB or 16 KB)
+
+Media:
+    --disk PATH                ATR disk image for D1: (a .zip holding one .atr works too)
 
 Hardware:
     --region MODE              ntsc | pal [default: ntsc]
@@ -43,6 +49,7 @@ struct Cli {
     os: Option<PathBuf>,
     basic: Option<PathBuf>,
     cart: Option<PathBuf>,
+    disk: Option<PathBuf>,
     basic_enabled: bool,
     region: Region,
     frames: u32,
@@ -57,6 +64,7 @@ impl Default for Cli {
             os: None,
             basic: None,
             cart: None,
+            disk: None,
             basic_enabled: true,
             region: Region::Ntsc,
             frames: 0,
@@ -96,6 +104,7 @@ fn parse_cli<I: IntoIterator<Item = String>>(args: I) -> Cli {
             "--os" => cli.os = Some(PathBuf::from(next_arg(&mut iter, "--os"))),
             "--basic" => cli.basic = Some(PathBuf::from(next_arg(&mut iter, "--basic"))),
             "--cart" => cli.cart = Some(PathBuf::from(next_arg(&mut iter, "--cart"))),
+            "--disk" => cli.disk = Some(PathBuf::from(next_arg(&mut iter, "--disk"))),
             "--no-basic" => cli.basic_enabled = false,
             "--region" => {
                 cli.region = match next_arg(&mut iter, "--region").as_str() {
@@ -218,6 +227,16 @@ fn run_cli(cli: Cli) -> Result<serde_json::Value, String> {
         .prepare(&media, &[])
         .map_err(|err| format!("machine preparation failed: {err}"))?;
 
+    if let Some(path) = &cli.disk {
+        let loaded = read_media_asset(path, MediaKind::Disk)
+            .map_err(|err| format!("failed to load disk asset {}: {err}", path.display()))?;
+        let mut media = MediaSet::new();
+        media.push(MediaImage::new("disk-1", MediaKind::Disk, &loaded.bytes));
+        session
+            .load_media(&media)
+            .map_err(|err| format!("disk load failed: {err}"))?;
+    }
+
     let mut observations: Vec<ScriptObservation> = Vec::new();
     if let Some(path) = &cli.script {
         let script = HeadlessScript::from_path(path)
@@ -267,5 +286,12 @@ mod tests {
         let cli = parse_cli(Vec::<String>::new());
         assert_eq!(cli.region, Region::Ntsc);
         assert!(cli.basic_enabled);
+        assert!(cli.disk.is_none());
+    }
+
+    #[test]
+    fn parse_cli_takes_a_disk_path() {
+        let cli = parse_cli(["--disk".to_owned(), "dos.atr".to_owned()]);
+        assert_eq!(cli.disk, Some(PathBuf::from("dos.atr")));
     }
 }

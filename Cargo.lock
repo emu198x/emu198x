@@ -4159,6 +4159,7 @@ version = "0.17.0"
 dependencies = [
  "atari-gtia",
  "emu198x-shell",
+ "format-atari-8bit-atr",
  "format198x-atari-8bit-xex",
  "machine-atari-800xl",
  "postcard",
