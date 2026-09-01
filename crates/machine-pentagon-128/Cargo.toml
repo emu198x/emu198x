@@ -8,17 +8,17 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-beta-disk-interface = { path = "../beta-disk-interface", version = "0.17.0" }
-common-sinclair-zx-spectrum = { path = "../common-sinclair-zx-spectrum", version = "0.17.0" }
-format-sinclair-zx-spectrum-z80 = { path = "../format-sinclair-zx-spectrum-z80", version = "0.17.0" }
-gi-ay-3-8912 = { path = "../gi-ay-3-8912", version = "0.17.0" }
-pentagon-ula = { path = "../pentagon-ula", version = "0.17.0" }
-peripheral-kempston-joystick = { path = "../peripheral-kempston-joystick", version = "0.17.0" }
+beta-disk-interface = { path = "../beta-disk-interface", version = "0.18.0" }
+common-sinclair-zx-spectrum = { path = "../common-sinclair-zx-spectrum", version = "0.18.0" }
+format-sinclair-zx-spectrum-z80 = { path = "../format-sinclair-zx-spectrum-z80", version = "0.18.0" }
+gi-ay-3-8912 = { path = "../gi-ay-3-8912", version = "0.18.0" }
+pentagon-ula = { path = "../pentagon-ula", version = "0.18.0" }
+peripheral-kempston-joystick = { path = "../peripheral-kempston-joystick", version = "0.18.0" }
 serde = { workspace = true }
 emu198x-zilog-z80 = { path = "../emu198x-zilog-z80", version = "0.6.0" }
 
 [dev-dependencies]
-emu198x-test-skip = { path = "../emu198x-test-skip", version = "0.17.0" }
+emu198x-test-skip = { path = "../emu198x-test-skip", version = "0.18.0" }
 png = { workspace = true }
 
 [lints]

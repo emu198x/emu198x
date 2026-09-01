@@ -4,6 +4,21 @@ All notable changes to Emu198x will be documented in this file.
 
 Format loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 not strictly. Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [0.18.0] - 2026-09-01
+
+
+### Added
+
+- Read Atari ATR disk images
+- Give POKEY's serial port a wire
+- Put a disk drive on the SIO bus
+- *(atari)* --disk loads an ATR into D1: on the 800XL
+
+
+### Fixed
+
+- *(atari)* --no-basic takes effect with the real XL OS
+
 ## [0.17.0] - 2026-09-01
 
 
