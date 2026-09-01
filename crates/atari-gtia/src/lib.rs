@@ -813,15 +813,45 @@ impl Gtia {
             (playfield_ranks[scheme][pf], colour)
         });
 
-        for (player, &player_rank) in player_ranks[scheme].iter().enumerate() {
+        // Which players are showing here. A missile takes its own player's
+        // colour unless PRIOR bit 4 has combined the four into a fifth player.
+        let mut active = 0u8;
+        for player in 0..NUM_PLAYERS {
             let player_or_missile = (pm_bits & (1 << player)) != 0
                 || ((self.prior & 0x10) == 0 && (pm_bits & (1 << (player + 4))) != 0);
-            if player_or_missile {
-                let colour = self.colpm[player];
-                if colour != 0 && winner.is_none_or(|(rank, _)| player_rank < rank) {
-                    winner = Some((player_rank, colour));
-                }
+            if player_or_missile && self.colpm[player] != 0 {
+                active |= 1 << player;
             }
+        }
+
+        let mut player_won = false;
+        for (player, &player_rank) in player_ranks[scheme].iter().enumerate() {
+            if active & (1 << player) != 0 && winner.is_none_or(|(rank, _)| player_rank < rank) {
+                winner = Some((player_rank, self.colpm[player]));
+                player_won = true;
+            }
+        }
+
+        // Where players overlap, the front one does not simply win.
+        //
+        // Mapping the Atari, PRIOR: "The Atari performs a logical OR to colors
+        // of players 0/1 and 2/3 when they overlap. Only the 0/1, 2/3
+        // combinations are allowed; you will not get a third color when players
+        // 1 and 3 overlap, for example (you will get black instead) ... If you
+        // don't enable the overlap option, the area of overlap for all players
+        // will be black."
+        //
+        // So bit 5 buys the third colour for the two sanctioned pairs, and
+        // every other overlap — including all of them with the bit clear — is
+        // black rather than the front player's colour.
+        if player_won && active.count_ones() > 1 {
+            let multi_colour = self.prior & 0x20 != 0;
+            let overlap = match active {
+                0b0011 if multi_colour => self.colpm[0] | self.colpm[1],
+                0b1100 if multi_colour => self.colpm[2] | self.colpm[3],
+                _ => 0,
+            };
+            winner = winner.map(|(rank, _)| (rank, overlap));
         }
 
         if (self.prior & 0x10) != 0 && (pm_bits & 0xF0) != 0 {
@@ -1682,6 +1712,102 @@ mod tests {
             fb[fb_idx], player_argb,
             "Player should be on top at default priority"
         );
+    }
+
+    /// Put two players at the same colour clock and return the pixel there.
+    /// `colours` are the raw COLPM values for the two players.
+    fn player_overlap_colour(prior: u8, players: (u8, u8), colours: (u8, u8)) -> u32 {
+        let mut gtia = Gtia::new(GtiaRegion::Pal);
+        for (player, colour) in [(players.0, colours.0), (players.1, colours.1)] {
+            gtia.write(player, 60); // HPOSPx — same position, so they overlap
+            gtia.write(0x0D + player, 0x80); // GRAFPx — leftmost bit
+            gtia.write(0x12 + player, colour); // COLPMx
+        }
+        gtia.write(0x1B, prior);
+
+        let pixels = vec![0u8; 160];
+        gtia.render_line(0, &pixels, 160, AnticMode::ModeD);
+
+        let active_x = ((60 - PF_LEFT_CC) * 2) as usize;
+        let fb_idx = GtiaRegion::Pal.border_top() as usize
+            * GtiaRegion::Pal.framebuffer_width() as usize
+            + GtiaRegion::Pal.border_left() as usize
+            + active_x;
+        gtia.framebuffer()[fb_idx]
+    }
+
+    /// PRIOR bit 5 — the multi-colour player enable.
+    const PRIOR_MULTI_COLOUR: u8 = 0x20;
+
+    #[test]
+    fn overlapping_players_zero_and_one_make_a_third_colour() {
+        // "The Atari performs a logical OR to colors of players 0/1 and 2/3
+        // when they overlap ... If player one is pink and player 0 is blue, the
+        // overlap is green." — Mapping the Atari, PRIOR.
+        let expected = palette::PAL_PALETTE[((0x46 | 0x82) >> 1) as usize];
+        assert_eq!(
+            player_overlap_colour(PRIOR_MULTI_COLOUR | 0x01, (0, 1), (0x46, 0x82)),
+            expected,
+            "P0/P1 overlap should take the ORed colour"
+        );
+    }
+
+    #[test]
+    fn overlapping_players_two_and_three_make_a_third_colour() {
+        let expected = palette::PAL_PALETTE[((0x24 | 0x90) >> 1) as usize];
+        assert_eq!(
+            player_overlap_colour(PRIOR_MULTI_COLOUR | 0x01, (2, 3), (0x24, 0x90)),
+            expected,
+            "P2/P3 is the other sanctioned pair"
+        );
+    }
+
+    #[test]
+    fn an_unsanctioned_pair_overlaps_to_black() {
+        // "you will not get a third color when players 1 and 3 overlap, for
+        // example (you will get black instead)".
+        let black = palette::PAL_PALETTE[0];
+        assert_eq!(
+            player_overlap_colour(PRIOR_MULTI_COLOUR | 0x01, (1, 3), (0x46, 0x82)),
+            black,
+            "only 0/1 and 2/3 combine"
+        );
+    }
+
+    #[test]
+    fn players_overlap_to_black_when_the_option_is_off() {
+        // "If you don't enable the overlap option, the area of overlap for all
+        // players will be black." Not the front player's colour, which is what
+        // a plain priority sort would give.
+        let black = palette::PAL_PALETTE[0];
+        assert_eq!(
+            player_overlap_colour(0x01, (0, 1), (0x46, 0x82)),
+            black,
+            "no bit 5, so the overlap is black rather than player 0"
+        );
+    }
+
+    #[test]
+    fn a_lone_player_keeps_its_own_colour_either_way() {
+        for prior in [0x01, PRIOR_MULTI_COLOUR | 0x01] {
+            let mut gtia = Gtia::new(GtiaRegion::Pal);
+            gtia.write(0x00, 60);
+            gtia.write(0x0D, 0x80);
+            gtia.write(0x12, 0x46);
+            gtia.write(0x1B, prior);
+            let pixels = vec![0u8; 160];
+            gtia.render_line(0, &pixels, 160, AnticMode::ModeD);
+            let active_x = ((60 - PF_LEFT_CC) * 2) as usize;
+            let fb_idx = GtiaRegion::Pal.border_top() as usize
+                * GtiaRegion::Pal.framebuffer_width() as usize
+                + GtiaRegion::Pal.border_left() as usize
+                + active_x;
+            assert_eq!(
+                gtia.framebuffer()[fb_idx],
+                palette::PAL_PALETTE[(0x46 >> 1) as usize],
+                "one player is not an overlap (PRIOR ${prior:02X})"
+            );
+        }
     }
 
     fn priority_overlap_colour(prior: u8, player: u8, playfield: u8) -> u32 {
