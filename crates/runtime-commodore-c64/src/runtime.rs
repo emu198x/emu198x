@@ -40,6 +40,10 @@ pub(crate) const SCREEN_TEXT_WIDTH: usize = 40;
 pub(crate) const SCREEN_TEXT_HEIGHT: usize = 25;
 
 /// Firmware-backed Commodore 64 runtime.
+/// How many `phi2` cycles pass between chances for the Ultimate to move bytes.
+/// It buffers, so this only has to be often enough to keep a socket draining.
+const UCI_POLL_INTERVAL: u16 = 512;
+
 pub struct C64Runtime {
     profile: MachineProfile,
     model: Model,
@@ -80,6 +84,8 @@ pub struct C64Runtime {
     /// leaves the port's pull-ups idling both lines high, as with nothing
     /// plugged in.
     esp_at_tcp_bridge: Option<EspAtTcpBridge>,
+    /// Cycles until the Ultimate's transport is given a turn.
+    uci_poll_countdown: u16,
     trace_vic_colour_writes: bool,
     trace_drive_rom_window: Option<(u16, u16)>,
     last_drive_trace_state: Option<DriveRomTraceState>,
@@ -227,6 +233,7 @@ impl C64Runtime {
             iec_bus,
             rgba_framebuffer,
             esp_at_tcp_bridge: None,
+            uci_poll_countdown: UCI_POLL_INTERVAL,
             trace_vic_colour_writes: false,
             trace_drive_rom_window: None,
             last_drive_trace_state: None,
@@ -624,6 +631,12 @@ impl C64Runtime {
         self.esp_at_tcp_bridge.as_ref()
     }
 
+    /// Fit an Ultimate Command Interface, giving the machine a buffered
+    /// network device instead of a bit-banged user port.
+    pub fn attach_ultimate_uci(&mut self) {
+        self.machine.attach_ultimate_uci();
+    }
+
     /// Unplug the ESP-AT modem, closing any open connection. The peripheral's
     /// query leaves stop being advertised, as they do for any absent hardware.
     pub fn detach_esp_at_tcp_bridge(&mut self) {
@@ -935,6 +948,15 @@ impl MachineCore for C64Runtime {
             if let Some(bridge) = self.esp_at_tcp_bridge.as_mut() {
                 let rx = bridge.tick(self.machine.user_port_pa2());
                 self.machine.set_user_port_pb0(rx);
+            }
+
+            // The Ultimate is buffered, so it only needs the chance to move
+            // bytes rather than a step per cycle. Once per frame's worth of
+            // cycles keeps the socket draining without costing anything.
+            self.uci_poll_countdown = self.uci_poll_countdown.wrapping_sub(1);
+            if self.uci_poll_countdown == 0 {
+                self.machine.poll_ultimate_uci();
+                self.uci_poll_countdown = UCI_POLL_INTERVAL;
             }
 
             let frame_complete = if any_drive {

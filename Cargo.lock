@@ -2523,6 +2523,7 @@ dependencies = [
  "machine-commodore-1541",
  "mos-cia-6526",
  "mos-vic-ii",
+ "peripheral-ultimate-uci-net",
  "serde",
  "thiserror 2.0.20",
 ]
@@ -3720,6 +3721,10 @@ dependencies = [
  "common-sinclair-zx-spectrum",
  "serde",
 ]
+
+[[package]]
+name = "peripheral-ultimate-uci-net"
+version = "0.14.0"
 
 [[package]]
 name = "pin-project"

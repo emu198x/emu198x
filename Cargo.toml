@@ -110,6 +110,7 @@ members = [
     "crates/emu198x-atari-7800",
     "crates/emu198x-atari-800xl",
     "crates/emu198x-esp-at-modem",
+    "crates/peripheral-ultimate-uci-net",
     "crates/emu198x-commodore-pet",
     "crates/emu198x-commodore-vic-20",
     "crates/emu198x-jupiter-ace",

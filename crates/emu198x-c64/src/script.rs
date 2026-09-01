@@ -64,6 +64,7 @@ struct Cli {
     start_tape: bool,
     esp_at_tcp: bool,
     esp_at_baud: Option<u64>,
+    ultimate_net: bool,
     load_snapshot: Option<PathBuf>,
     save_snapshot: Option<PathBuf>,
     screenshot: Option<PathBuf>,
@@ -185,6 +186,10 @@ Cold boot:
                               and Hayes (ATD), latching whichever the client
                               uses first
     --esp-at-baud N           user-port line rate [default: 9600]
+    --ultimate-net            fit an Ultimate Command Interface, giving the
+                              machine the buffered network device a 1541
+                              Ultimate-II or Ultimate 64 provides. Preferred
+                              over --esp-at-tcp: no line rate, no framing
 
 State and automation:
     --load-snapshot PATH      restore a runtime snapshot before running
@@ -311,6 +316,7 @@ where
             "--autoload-tape" => cli.autoload_tape = true,
             "--start-tape" => cli.start_tape = true,
             "--esp-at-tcp" => cli.esp_at_tcp = true,
+            "--ultimate-net" => cli.ultimate_net = true,
             "--esp-at-baud" => {
                 cli.esp_at_baud = Some(
                     next_arg(&mut iter, "--esp-at-baud")
@@ -447,6 +453,9 @@ fn run_cli(cli: Cli) -> Result<RunnerReport, String> {
         let cycles_per_bit = u32::try_from(cpu_hz / baud)
             .map_err(|_| "modem bit period does not fit in a cycle count".to_owned())?;
         machine.attach_esp_at_tcp_bridge(cycles_per_bit, ESP_AT_FRAME_SIZE);
+    }
+    if cli.ultimate_net {
+        machine.attach_ultimate_uci();
     }
     let native_frame_ticks = match cli.model {
         ModelArg::Pal => u64::from(TIMING_PAL_BREADBIN.cycles_per_frame),
@@ -1027,6 +1036,7 @@ mod tests {
                 start_tape: false,
                 esp_at_tcp: false,
                 esp_at_baud: None,
+                ultimate_net: false,
                 load_snapshot: Some(PathBuf::from("in.c64.pst")),
                 save_snapshot: Some(PathBuf::from("out.c64.pst")),
                 screenshot: Some(PathBuf::from("ready.png")),
@@ -1071,6 +1081,7 @@ mod tests {
                 start_tape: false,
                 esp_at_tcp: false,
                 esp_at_baud: None,
+                ultimate_net: false,
                 load_snapshot: None,
                 save_snapshot: None,
                 screenshot: None,
