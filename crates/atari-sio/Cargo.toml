@@ -1,5 +1,5 @@
 [package]
-name = "format-atari-8bit-atr"
+name = "atari-sio"
 version.workspace = true
 publish = false
 edition.workspace = true
@@ -7,11 +7,8 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+format-atari-8bit-atr = { path = "../format-atari-8bit-atr", version = "0.17.0" }
 serde.workspace = true
-thiserror.workspace = true
-
-[dev-dependencies]
-emu198x-test-skip = { path = "../emu198x-test-skip", version = "0.17.0" }
 
 [lints]
 workspace = true

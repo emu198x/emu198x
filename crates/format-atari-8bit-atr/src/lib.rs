@@ -44,6 +44,7 @@
 //! [`AtrImage::parse`] picks between them from the file length and the padding,
 //! and [`AtrImage::boot_sector_layout`] reports which it found.
 
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 /// The sum of the ASCII bytes of "NICKATARI", which opens every `ATR`.
@@ -80,7 +81,7 @@ pub enum AtrError {
 /// How an image stores the three 128-byte boot sectors of a double-density
 /// disk. Single-density images are always [`Self::Logical`], the distinction
 /// having nothing to divide.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum BootSectorLayout {
     /// 128 bytes each, the way the drive returns them.
     Logical,
@@ -91,7 +92,11 @@ pub enum BootSectorLayout {
 }
 
 /// A parsed `ATR` disk image.
-#[derive(Clone, Debug, PartialEq, Eq)]
+///
+/// Carries `Serialize`/`Deserialize` because a disk in a drive is live machine
+/// state: sectors written during a session are in here and nowhere else until
+/// the image is exported, so a save state has to carry it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AtrImage {
     sector_size: u16,
     sector_count: u16,

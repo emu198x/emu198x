@@ -50,6 +50,7 @@ pub use cartridge::Cartridge;
 use atari_antic::{Antic, AnticRegion, COLOUR_CLOCKS_PER_LINE, CYCLES_HSYNC, cpu_dma_stalled};
 use atari_gtia::Gtia;
 use atari_pokey::Pokey;
+use atari_sio::SioBus;
 use emu198x_mos_6502::M6502;
 use mos_pia_6520::Pia6520;
 use serde::{Deserialize, Serialize};
@@ -165,6 +166,9 @@ pub struct Atari800xl {
     master_clock: u64,
     clocks_per_frame: u64,
     frame_count: u64,
+    /// The SIO bus and the disk drives on it. The PIA's CB2 pin is the bus's
+    /// command line, POKEY's serial port carries the bytes.
+    sio: SioBus,
     /// Which of the current scan line's cycles ANTIC is taking for DMA, from
     /// its own fetch schedule. The CPU runs on the cycles left over.
     dma_mask: u128,
@@ -241,6 +245,7 @@ impl Atari800xl {
             master_clock: 0,
             clocks_per_frame,
             frame_count: 0,
+            sio: SioBus::new(),
             dma_mask: 0,
             line_cycle: 0,
         };
@@ -344,9 +349,41 @@ impl Atari800xl {
                 }
             }
             self.pokey.tick();
+            self.tick_sio();
             self.cpu.irq = self.pokey.irq_pending() || self.pia.irq_pending();
             self.line_cycle += 1;
         }
+    }
+
+    /// Carry one machine cycle of the SIO bus.
+    ///
+    /// The command line is the PIA's CB2 pin, active low, so the bus sees it
+    /// asserted when the CPU drives that pin down. Bytes cross whole: whatever
+    /// POKEY's output shift register has finished goes to the devices, and a
+    /// device's reply goes into POKEY's input register when that is free.
+    fn tick_sio(&mut self) {
+        let command = self.pia.cb2_output().is_some_and(|level| !level);
+        self.sio.set_command_line(command);
+        self.sio.tick();
+        if let Some(byte) = self.pokey.take_serial_output() {
+            self.sio.send(byte);
+        }
+        if self.pokey.serial_input_idle()
+            && let Some(byte) = self.sio.poll_response()
+        {
+            self.pokey.begin_serial_input(byte);
+        }
+    }
+
+    /// The SIO bus, to put a disk in a drive.
+    #[must_use]
+    pub fn sio(&self) -> &SioBus {
+        &self.sio
+    }
+
+    /// The SIO bus, mutably.
+    pub fn sio_mut(&mut self) -> &mut SioBus {
+        &mut self.sio
     }
 
     /// Start a scan line: ANTIC fetches its display data and the GTIA begins

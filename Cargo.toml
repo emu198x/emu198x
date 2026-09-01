@@ -29,6 +29,7 @@ members = [
     "crates/emu198x-shell",
     "crates/emu198x-ui",
     "crates/ferranti-ula-6c001e",
+    "crates/atari-sio",
     "crates/format-acorn-atom-atm",
     "crates/format-atari-8bit-atr",
     "crates/format-acorn-uef",
