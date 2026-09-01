@@ -1,0 +1,11 @@
+[package]
+name = "peripheral-ultimate-uci-net"
+description = "Network target of the Ultimate Command Interface, as exposed by 1541 Ultimate-II and Ultimate 64 hardware"
+edition.workspace = true
+version.workspace = true
+publish = false
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true

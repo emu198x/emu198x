@@ -27,10 +27,29 @@ const AUDIO_SAMPLE_RATE: u32 = 48_000;
 /// decay of the last driven value, not yet modelled).
 const PORT_INPUT_PULLUPS: u8 = 0x17;
 
+/// Holder for the Ultimate, so cloning a machine does not try to clone a live
+/// socket.
+///
+/// A clone is a snapshot of emulated state, and an open TCP connection is not
+/// emulated state — it belongs to the host. A cloned machine therefore comes
+/// back with no Ultimate fitted rather than with a duplicated connection,
+/// which is the honest answer: the copy is not the thing holding the socket.
+#[derive(Debug, Default)]
+struct UciSlot(Option<peripheral_ultimate_uci_net::UltimateUciNet>);
+
+impl Clone for UciSlot {
+    fn clone(&self) -> Self {
+        Self(None)
+    }
+}
+
 /// Fresh-workspace C64 machine substrate.
 #[derive(Clone)]
 pub struct C64 {
     model: C64Model,
+    /// Ultimate Command Interface in the I/O2 window, when one is fitted. Its
+    /// absence is what a detect routine reads as "no Ultimate here".
+    uci: UciSlot,
     cpu: M6502,
     vic: Vic,
     cia1: Cia6526,
@@ -391,6 +410,7 @@ impl C64 {
             Sid6581::new_with_model(timing.cpu_hz, AUDIO_SAMPLE_RATE, config.model.sid_model());
 
         let mut machine = Self {
+            uci: UciSlot(None),
             model: config.model,
             cpu,
             vic,
@@ -1006,6 +1026,32 @@ impl C64 {
         (self.phi2_cycles - start) as u32
     }
 
+    /// Fit an Ultimate Command Interface, so software that probes $DF1D finds
+    /// it and can open sockets through it instead of bit-banging the user
+    /// port.
+    pub fn attach_ultimate_uci(&mut self) {
+        self.uci = UciSlot(Some(peripheral_ultimate_uci_net::UltimateUciNet::new()));
+    }
+
+    /// Remove it again. Probing then reads open bus, as with no cartridge.
+    pub fn detach_ultimate_uci(&mut self) {
+        self.uci = UciSlot(None);
+    }
+
+    /// The fitted Ultimate, for host-side diagnostics.
+    #[must_use]
+    pub fn ultimate_uci(&self) -> Option<&peripheral_ultimate_uci_net::UltimateUciNet> {
+        self.uci.0.as_ref()
+    }
+
+    /// Let the Ultimate's transport move bytes. The host calls this as it runs
+    /// the machine; the device is buffered, so the timing is not critical.
+    pub fn poll_ultimate_uci(&mut self) {
+        if let Some(uci) = self.uci.0.as_mut() {
+            uci.poll();
+        }
+    }
+
     /// Read the effective logic level at user-port PA2 (pin M), after DDRA.
     ///
     /// PA2 is the line a user-port serial adapter reads as the computer's TX.
@@ -1034,6 +1080,15 @@ impl C64 {
         } else {
             self.cia2.pb_in &= !0x01;
         }
+        // The same wire reaches /FLAG2 (pin B), because that is how user-port
+        // serial adapters are built — the Sven Petersen Rev. 2 board among
+        // them. /FLAG2 is edge triggered, so the falling edge that opens a
+        // start bit raises a CIA interrupt and a client can be *told* a byte
+        // is arriving instead of having to be watching the pin at that
+        // instant. Driving pin C without pin B would model a board nobody
+        // ships, and would quietly deny the client the one interrupt the
+        // hardware exists to give it.
+        self.cia2.flag = high;
     }
 
     /// Loads one PRG file into raw RAM and returns its load address.
@@ -1206,6 +1261,13 @@ impl C64 {
                 }
             }
             0xDD00..=0xDDFF => self.cia2.read((addr & 0x0F) as u8),
+            // The Ultimate decodes four registers at $DF1C. It answers before
+            // the cartridge expansions because a fitted Ultimate is what owns
+            // that window.
+            0xDF1C..=0xDF1F if self.uci.0.is_some() => {
+                let register = (addr & 0x03) as u8;
+                self.uci.0.as_mut().map_or(0xFF, |uci| uci.read(register))
+            }
             0xDE00..=0xDFFF => self
                 .memory
                 .freeze_cart_io_read(addr)
@@ -1229,6 +1291,12 @@ impl C64 {
             0xDD00..=0xDDFF => {
                 self.cia2.write((addr & 0x0F) as u8, value);
                 self.refresh_vic_bank();
+            }
+            0xDF1C..=0xDF1F if self.uci.0.is_some() => {
+                let register = (addr & 0x03) as u8;
+                if let Some(uci) = self.uci.0.as_mut() {
+                    uci.write(register, value);
+                }
             }
             0xDE00..=0xDFFF => self.memory.expansion_io_write(addr, value),
             _ => {}
@@ -1993,6 +2061,45 @@ mod tests {
         machine.cpu_write(0xDD03, 0x01);
         machine.cpu_write(0xDD01, 0x01);
         assert!(machine.user_port_pb0());
+    }
+
+    #[test]
+    fn an_unfitted_ultimate_reads_as_open_bus() {
+        // Detection is "read $DF1D and look for $C9", so an empty I/O2 window
+        // has to answer with something else or every machine claims one.
+        let mut machine = stub_machine(C64Model::PalBreadbin);
+        assert_ne!(machine.cpu_read(0xDF1D), 0xC9);
+    }
+
+    #[test]
+    fn a_fitted_ultimate_answers_the_detect_read() {
+        let mut machine = stub_machine(C64Model::PalBreadbin);
+        machine.attach_ultimate_uci();
+        assert_eq!(machine.cpu_read(0xDF1D), 0xC9);
+        assert_eq!(machine.cpu_read(0xDF1C) & 0x30, 0, "idle and ready");
+
+        machine.detach_ultimate_uci();
+        assert_ne!(machine.cpu_read(0xDF1D), 0xC9);
+    }
+
+    #[test]
+    fn a_start_bit_on_the_receive_line_raises_the_flag_interrupt() {
+        // Without this a client can only catch a frame by happening to be
+        // looking at the pin when it arrives.
+        let mut machine = stub_machine(C64Model::PalBreadbin);
+        machine.cpu_write(0xDD0D, 0x90); // enable the /FLAG2 interrupt
+        machine.set_user_port_pb0(true); // idle high
+        machine.tick();
+        assert!(!machine.cia2().irq, "an idle line must not interrupt");
+
+        machine.set_user_port_pb0(false); // start bit
+        // The 6526 raises the line a cycle after the flag is set.
+        machine.tick();
+        machine.tick();
+        assert!(
+            machine.cia2().irq,
+            "the start bit's falling edge should have raised /FLAG2"
+        );
     }
 
     #[test]

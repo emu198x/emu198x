@@ -20,6 +20,8 @@ mos-vic-ii = { path = "../mos-vic-ii", version = "0.14.0" }
 serde = { workspace = true }
 thiserror = { workspace = true }
 
+peripheral-ultimate-uci-net = { path = "../peripheral-ultimate-uci-net", version = "0.14.0" }
+
 [dev-dependencies]
 emu198x-esp-at-modem = { path = "../emu198x-esp-at-modem", version = "0.14.0" }
 machine-commodore-1541 = { path = "../machine-commodore-1541", version = "0.14.0" }
