@@ -283,6 +283,10 @@ pub struct Gtia {
 
     // -- Trigger inputs --
     trig: [u8; 4], // TRIG0-TRIG3: 1=released, 0=pressed
+    /// Triggers held at "pressed" by GRACTL bit 2. Latching is all-or-nothing
+    /// across the four inputs and is released only by clearing that bit.
+    #[serde(default)]
+    trig_latched: [bool; 4],
 
     // -- Console --
     // CONSOL is split: writes drive an output latch (bit 3 = speaker), while
@@ -351,6 +355,7 @@ impl Gtia {
             m_pl: [0; 4],
             p_pl: [0; 4],
             trig: [1; 4], // all released
+            trig_latched: [false; 4],
             consol_out: 0x00,
             console_switches: 0x07, // all buttons released (active low)
             sl_visible: false,
@@ -391,7 +396,22 @@ impl Gtia {
             0x1A => self.colbk = value,
             0x1B => self.prior = value,
             0x1C => self.vdelay = value,
-            0x1D => self.gractl = value,
+            0x1D => {
+                self.gractl = value;
+                // "all TRIG BITs 0 are latched when the button is pressed and
+                // are only reset to one when BIT 2 of GRACTL is reset to zero"
+                // — Mapping the Atari, TRIG0. Latching is all-or-nothing: the
+                // book notes you cannot set it for individual triggers.
+                if self.trigger_latching() {
+                    for i in 0..NUM_PLAYERS {
+                        if self.trig[i] == 0 {
+                            self.trig_latched[i] = true;
+                        }
+                    }
+                } else {
+                    self.trig_latched = [false; 4];
+                }
+            }
             0x1E => {
                 // HITCLR — clear all collision registers
                 self.m_pf = [0; 4];
@@ -419,7 +439,14 @@ impl Gtia {
             0x08..=0x0B => self.m_pl[(reg - 0x08) as usize],
             0x0C..=0x0F => self.p_pl[(reg - 0x0C) as usize],
             // Triggers
-            0x10..=0x13 => self.trig[(reg - 0x10) as usize],
+            0x10..=0x13 => {
+                let i = (reg - 0x10) as usize;
+                if self.trig_latched[i] {
+                    0
+                } else {
+                    self.trig[i]
+                }
+            }
             // PAL register — which television standard this chip feeds.
             0x14 => self.pal,
             // CONSOL — switch inputs (bits 0-2, active low); bit 3 reads back
@@ -523,7 +550,15 @@ impl Gtia {
     pub fn set_trigger(&mut self, index: u8, pressed: bool) {
         if (index as usize) < NUM_PLAYERS {
             self.trig[index as usize] = u8::from(!pressed);
+            if pressed && self.trigger_latching() {
+                self.trig_latched[index as usize] = true;
+            }
         }
+    }
+
+    /// Whether GRACTL bit 2 is holding pressed triggers.
+    const fn trigger_latching(&self) -> bool {
+        self.gractl & 0x04 != 0
     }
 
     /// Set the console-switch inputs read via CONSOL ($D01F), bits 0-2 =
@@ -1032,6 +1067,9 @@ impl Gtia {
         data.extend_from_slice(&self.m_pl);
         data.extend_from_slice(&self.p_pl);
         data.extend_from_slice(&self.trig);
+        for latched in self.trig_latched {
+            data.push(u8::from(latched));
+        }
         data.push(self.consol_out);
         data.push(self.console_switches);
         data
@@ -1084,6 +1122,10 @@ impl Gtia {
         self.p_pl.copy_from_slice(&data[p..p + 4]);
         p += 4;
         self.trig.copy_from_slice(&data[p..p + 4]);
+        p += 4;
+        for i in 0..NUM_PLAYERS {
+            self.trig_latched[i] = data[p + i] != 0;
+        }
         p += 4;
         self.consol_out = data[p];
         p += 1;
@@ -1490,6 +1532,61 @@ mod tests {
     const GRACTL_PLAYERS: u8 = 0x02;
     const TWO_LINE: bool = false;
     const ONE_LINE: bool = true;
+
+    /// GRACTL bit 2 latches the trigger inputs.
+    const GRACTL_LATCH: u8 = 0x04;
+
+    #[test]
+    fn a_latched_trigger_reads_pressed_until_gractl_releases_it() {
+        // "all TRIG BITs 0 are latched when the button is pressed and are only
+        // reset to one when BIT 2 of GRACTL is reset to zero" — Mapping the
+        // Atari, TRIG0.
+        let mut gtia = Gtia::new(GtiaRegion::Ntsc);
+        gtia.write(0x1D, GRACTL_LATCH);
+
+        gtia.set_trigger(0, true);
+        assert_eq!(gtia.read(0x10), 0, "pressed");
+        gtia.set_trigger(0, false);
+        assert_eq!(gtia.read(0x10), 0, "still reads pressed while latched");
+
+        gtia.write(0x1D, 0x00);
+        assert_eq!(gtia.read(0x10), 1, "clearing bit 2 releases the latch");
+    }
+
+    #[test]
+    fn triggers_follow_the_button_when_latching_is_off() {
+        let mut gtia = Gtia::new(GtiaRegion::Ntsc);
+        gtia.set_trigger(1, true);
+        assert_eq!(gtia.read(0x11), 0);
+        gtia.set_trigger(1, false);
+        assert_eq!(gtia.read(0x11), 1, "no latch, so the release shows");
+    }
+
+    #[test]
+    fn enabling_the_latch_catches_a_button_already_held() {
+        let mut gtia = Gtia::new(GtiaRegion::Ntsc);
+        gtia.set_trigger(2, true);
+        gtia.write(0x1D, GRACTL_LATCH);
+        gtia.set_trigger(2, false);
+        assert_eq!(gtia.read(0x12), 0, "the held button latched on enable");
+    }
+
+    #[test]
+    fn latching_is_all_four_triggers_or_none() {
+        // "you cannot set the latch mode for individual triggers" — Mapping
+        // the Atari, GRACTL.
+        let mut gtia = Gtia::new(GtiaRegion::Ntsc);
+        gtia.write(0x1D, GRACTL_LATCH);
+        for i in 0..4u8 {
+            gtia.set_trigger(i, true);
+            gtia.set_trigger(i, false);
+            assert_eq!(gtia.read(0x10 + i), 0, "trigger {i} latched");
+        }
+        gtia.write(0x1D, 0x00);
+        for i in 0..4u8 {
+            assert_eq!(gtia.read(0x10 + i), 1, "trigger {i} released together");
+        }
+    }
 
     #[test]
     fn dma_is_ignored_until_gractl_admits_it() {
