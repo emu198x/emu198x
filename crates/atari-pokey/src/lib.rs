@@ -93,10 +93,11 @@ const IRQ_TIMER4: u8 = 0x04;
 // priority than bit 3 — would loop on bit 4 forever and never finish a frame.
 const IRQ_SEROUT_DONE: u8 = 0x08;
 const IRQ_SEROUT_NEEDED: u8 = 0x10;
-#[allow(dead_code)]
 const IRQ_SERIN_READY: u8 = 0x20;
 // bit 6 = keyboard key pressed.
 const IRQ_KEY: u8 = 0x40;
+/// bit 7 = the Break key. Nothing asserts it: Break is wired to POKEY's own
+/// pin on real hardware, and the machines drive the keyboard through KBCODE.
 #[allow(dead_code)]
 const IRQ_BREAK: u8 = 0x80;
 
@@ -105,6 +106,17 @@ const SKSTAT_KEY_DOWN: u8 = 0x04;
 
 /// SKSTAT bit 3 — Shift key down (active low: 0 = Shift is held).
 const SKSTAT_SHIFT: u8 = 0x08;
+
+/// SKSTAT bit 1 — the serial input shift register is active (active low). It
+/// goes low when the start bit is sampled and high again on the stop bit, so
+/// on back-to-back bytes it is low nine bit cells in ten rather than
+/// continuously.
+const SKSTAT_SERIN_BUSY: u8 = 0x02;
+
+/// SKSTAT bit 5 — a byte arrived while the previous one was still unread
+/// (active low). Set when the serial port tries to raise the input IRQ and
+/// finds it already raised.
+const SKSTAT_SERIN_OVERRUN: u8 = 0x20;
 
 /// KBCODE bit 6 — Shift was down when the key was pressed. Bit 7, the one
 /// above it, is Control.
@@ -123,6 +135,17 @@ fn serial_output_clock(skctl: u8) -> Option<usize> {
         0b010..=0b101 => Some(3),
         0b110 | 0b111 => Some(1),
         _ => None,
+    }
+}
+
+/// Which timer channel clocks the serial *input* shift register. Only channel
+/// 4 can reach it — either alone or as the high half of the linked 3+4 pair
+/// the asynchronous modes use — so every mode but the two external-clock ones
+/// lands on the same counter. (*Altirra Hardware Reference Manual*, Table 10.)
+fn serial_input_clock(skctl: u8) -> Option<usize> {
+    match (skctl >> 4) & 0x07 {
+        0b000 | 0b100 => None,
+        _ => Some(3),
     }
 }
 
@@ -221,9 +244,9 @@ impl Channel {
 /// Atari POKEY chip.
 #[derive(Serialize, Deserialize)]
 pub struct Pokey {
-    /// CPU clock frequency (Hz), e.g. `1_789_772` for NTSC.
-    /// Stored for diagnostics and future use (e.g. serial baud rate calculation).
-    #[allow(dead_code)]
+    /// CPU clock frequency (Hz), e.g. `1_789_772` for NTSC. Used to
+    /// downsample the audio; the serial port takes its rate from the timers
+    /// rather than from here.
     cpu_freq: u32,
 
     /// Four audio channels.
@@ -266,6 +289,18 @@ pub struct Pokey {
     /// port. The shift register acts on the rising edge, so one bit cell is
     /// two timer underflows.
     serial_out_clock_phase: bool,
+
+    /// The byte the output shift register is sending, and the byte it has
+    /// finished sending and not yet handed to the bus.
+    serial_out_shifting: u8,
+    serial_out_sent: Option<u8>,
+
+    /// The byte the input shift register is receiving, the bit cells left in
+    /// its frame, and its own divide-by-two flip-flop. Zero bits left means
+    /// the register is idle and can take another byte.
+    serial_in_shifting: u8,
+    serial_in_bits: u8,
+    serial_in_clock_phase: bool,
 
     /// KBCODE — keyboard scan code.
     kbcode: u8,
@@ -357,6 +392,11 @@ impl Pokey {
             serout_pending: false,
             serial_out_bits: 0,
             serial_out_clock_phase: false,
+            serial_out_shifting: 0,
+            serial_out_sent: None,
+            serial_in_shifting: 0,
+            serial_in_bits: 0,
+            serial_in_clock_phase: false,
             kbcode: 0,
             pot_target: [0; NUM_POTS],
             pot_value: [0; NUM_POTS],
@@ -942,6 +982,35 @@ impl Pokey {
                 self.tick_serial_output();
             }
         }
+
+        if serial_input_clock(self.skctl) == Some(3) && ch4_underflow {
+            self.serial_in_clock_phase = !self.serial_in_clock_phase;
+            if self.serial_in_clock_phase {
+                self.tick_serial_input();
+            }
+        }
+    }
+
+    /// One bit cell of the serial input shift register.
+    ///
+    /// A frame is ten bit cells; on the last one the byte lands in SERIN and
+    /// the input-ready IRQ is raised. Raising it when it is already raised
+    /// means the CPU never read the previous byte, which is the overrun
+    /// SKSTAT bit 5 reports — and the new byte replaces the old one either
+    /// way.
+    fn tick_serial_input(&mut self) {
+        if self.serial_in_bits == 0 {
+            return;
+        }
+        self.serial_in_bits -= 1;
+        if self.serial_in_bits == 0 {
+            if self.irqst & IRQ_SERIN_READY == 0 {
+                self.skstat &= !SKSTAT_SERIN_OVERRUN;
+            }
+            self.serin = self.serial_in_shifting;
+            self.irqst &= !IRQ_SERIN_READY;
+            self.skstat |= SKSTAT_SERIN_BUSY;
+        }
     }
 
     /// One bit cell of the serial output shift register, on the rising edge of
@@ -956,12 +1025,53 @@ impl Pokey {
     fn tick_serial_output(&mut self) {
         if self.serial_out_bits > 0 {
             self.serial_out_bits -= 1;
+            if self.serial_out_bits == 0 {
+                // The stop bit has gone out, so the byte is on the wire.
+                self.serial_out_sent = Some(self.serial_out_shifting);
+            }
         }
         if self.serial_out_bits == 0 && self.serout_pending {
             self.serout_pending = false;
+            self.serial_out_shifting = self.serout;
             self.serial_out_bits = SERIAL_FRAME_BITS;
             self.irqst &= !IRQ_SEROUT_NEEDED;
         }
+    }
+
+    /// Take the byte the output shift register has finished sending, if any.
+    ///
+    /// This is POKEY's end of the SIO bus: the machine polls it and hands
+    /// whatever comes out to the devices listening on DATA OUT. A byte is
+    /// offered once.
+    pub fn take_serial_output(&mut self) -> Option<u8> {
+        self.serial_out_sent.take()
+    }
+
+    /// Whether the input shift register can take another byte.
+    #[must_use]
+    pub fn serial_input_idle(&self) -> bool {
+        self.serial_in_bits == 0
+    }
+
+    /// Start shifting a byte in from DATA IN. It arrives in SERIN ten bit
+    /// cells later, at the input clock's rate, and raises the input-ready IRQ
+    /// then — not now.
+    ///
+    /// Offering a byte while the register is still busy does nothing, which is
+    /// what happens on the bus: a device transmitting over another device's
+    /// byte garbles it rather than queuing behind it.
+    pub fn begin_serial_input(&mut self, byte: u8) {
+        if self.serial_in_bits != 0 {
+            return;
+        }
+        self.serial_in_shifting = byte;
+        self.serial_in_bits = SERIAL_FRAME_BITS;
+        // The asynchronous receive modes resync their bit clock to the start
+        // bit rather than free-running with the transmitter, so the frame is
+        // ten whole bit cells from here. The timer underneath keeps its own
+        // phase, which is why the first cell can be short.
+        self.serial_in_clock_phase = false;
+        self.skstat &= !SKSTAT_SERIN_BUSY;
     }
 
     /// Whether the output shift register is idle, which is what the "output
@@ -1388,6 +1498,144 @@ mod tests {
         }
         assert_eq!(pokey.serial_out_bits, 0);
         assert!(pokey.serout_pending, "the byte is still waiting");
+    }
+
+    /// The input shift register takes the same ten bit cells as the output
+    /// one, and the byte does not appear in SERIN until the last of them.
+    #[test]
+    fn a_received_byte_arrives_after_a_whole_frame() {
+        let mut pokey = sio_configured_pokey();
+        assert!(pokey.serial_input_idle());
+        assert_eq!(pokey.read(0x0E) & IRQ_SERIN_READY, IRQ_SERIN_READY);
+
+        pokey.begin_serial_input(0x41);
+        assert!(!pokey.serial_input_idle());
+        assert_eq!(
+            pokey.read(0x0F) & SKSTAT_SERIN_BUSY,
+            0,
+            "the shift register reports itself active"
+        );
+
+        let mut cycles = 0;
+        while !pokey.serial_input_idle() {
+            pokey.tick();
+            cycles += 1;
+            assert!(cycles < 100_000, "the byte never arrived");
+            if !pokey.serial_input_idle() {
+                assert_eq!(
+                    pokey.read(0x0E) & IRQ_SERIN_READY,
+                    IRQ_SERIN_READY,
+                    "nothing is ready until the frame ends"
+                );
+            }
+        }
+
+        // Ten 94-cycle bit cells from the start bit, less however far into a
+        // timer period the byte happened to arrive.
+        assert!(
+            (940 - 94..=940).contains(&cycles),
+            "expected about ten bit cells, took {cycles}"
+        );
+        assert_eq!(pokey.read(0x0D), 0x41, "SERIN holds the byte");
+        assert_eq!(pokey.read(0x0E) & IRQ_SERIN_READY, 0, "and raises its IRQ");
+        assert_eq!(pokey.read(0x0F) & SKSTAT_SERIN_BUSY, SKSTAT_SERIN_BUSY);
+    }
+
+    /// Reading SERIN has no side effects — it does not acknowledge the byte,
+    /// and it can be read as often as you like.
+    #[test]
+    fn reading_serin_does_not_acknowledge_it() {
+        let mut pokey = sio_configured_pokey();
+        pokey.begin_serial_input(0x43);
+        while !pokey.serial_input_idle() {
+            pokey.tick();
+        }
+        assert_eq!(pokey.read(0x0D), 0x43);
+        assert_eq!(pokey.read(0x0D), 0x43);
+        assert_eq!(pokey.read(0x0E) & IRQ_SERIN_READY, 0, "still pending");
+    }
+
+    /// A byte arriving while the last one is unread is an overrun: the new
+    /// byte replaces the old, and SKSTAT bit 5 says so.
+    #[test]
+    fn a_byte_arriving_on_an_unread_one_is_an_overrun() {
+        let mut pokey = sio_configured_pokey();
+        let receive = |pokey: &mut Pokey, byte| {
+            pokey.begin_serial_input(byte);
+            while !pokey.serial_input_idle() {
+                pokey.tick();
+            }
+        };
+
+        receive(&mut pokey, 0x11);
+        assert_eq!(
+            pokey.read(0x0F) & SKSTAT_SERIN_OVERRUN,
+            SKSTAT_SERIN_OVERRUN,
+            "no overrun on the first byte"
+        );
+
+        receive(&mut pokey, 0x22);
+        assert_eq!(pokey.read(0x0D), 0x22, "the new byte replaces the old");
+        assert_eq!(
+            pokey.read(0x0F) & SKSTAT_SERIN_OVERRUN,
+            0,
+            "and the overrun is flagged"
+        );
+    }
+
+    /// Only one byte at a time is on the wire. Offering a second while the
+    /// first is still shifting does nothing — the bus has no queue.
+    #[test]
+    fn a_byte_offered_mid_frame_is_dropped() {
+        let mut pokey = sio_configured_pokey();
+        pokey.begin_serial_input(0x11);
+        for _ in 0..400 {
+            pokey.tick();
+        }
+        pokey.begin_serial_input(0x22);
+        while !pokey.serial_input_idle() {
+            pokey.tick();
+        }
+        assert_eq!(pokey.read(0x0D), 0x11, "the first byte still arrives");
+    }
+
+    /// The byte the output shift register finishes goes onto the wire once,
+    /// and it is the byte SEROUT held when the register loaded.
+    #[test]
+    fn a_sent_byte_reaches_the_bus_once() {
+        let mut pokey = sio_configured_pokey();
+        assert_eq!(pokey.take_serial_output(), None);
+
+        pokey.write(0x0D, 0x53);
+        while pokey.serial_out_bits == 0 {
+            pokey.tick();
+        }
+        // Loaded, but not yet shifted out.
+        assert_eq!(pokey.take_serial_output(), None);
+        // Overwriting SEROUT now cannot change what is already shifting.
+        pokey.write(0x0D, 0x99);
+
+        let mut sent = None;
+        while sent.is_none() {
+            pokey.tick();
+            sent = pokey.take_serial_output();
+        }
+        assert_eq!(sent, Some(0x53));
+        assert_eq!(pokey.take_serial_output(), None, "offered once");
+    }
+
+    /// With an external clock selected there is nothing to shift the input
+    /// register either.
+    #[test]
+    fn an_external_serial_clock_never_receives() {
+        let mut pokey = sio_configured_pokey();
+        pokey.write(0x0F, 0x03); // SKCTL bits 6-4 = %000 — external clock
+        pokey.begin_serial_input(0x41);
+        for _ in 0..10_000 {
+            pokey.tick();
+        }
+        assert!(!pokey.serial_input_idle(), "still waiting for a clock");
+        assert_eq!(pokey.read(0x0E) & IRQ_SERIN_READY, IRQ_SERIN_READY);
     }
 
     /// AUDCTL reads `PLY CH1 CH3 L12 L34 HP1 HP2 15K` from bit 7 down, so the
