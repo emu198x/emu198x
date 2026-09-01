@@ -2,8 +2,8 @@
 
 use emu198x_shell::{
     AudioPacket, CapabilitySet, ControlCommand, FirmwareSet, FramePacket, HostIo, MachineCore,
-    MachineError, MachineProfile, MachineTime, MediaSet, PixelFormat, ResetKind, RunResult,
-    StopReason,
+    MachineError, MachineProfile, MachineTime, MediaKind, MediaSet, PixelFormat, ResetKind,
+    RunResult, StopReason,
 };
 use machine_jupiter_ace::JupiterAce;
 
@@ -158,6 +158,67 @@ impl JupiterAceRuntime {
         self.machine.as_ref()
     }
 
+    /// Restore an ACE32 `.ace` snapshot into the live machine.
+    ///
+    /// The image is written from `$2000` in address order, which is what makes
+    /// the container's redundancy work for us rather than against us: the file
+    /// does not reproduce the Ace's address aliases, so the ACE32 configuration
+    /// block it keeps at `$2000-$23FF` is overwritten when the real video RAM at
+    /// `$2400` is written, the `$2800` block is overwritten by `$2C00`, and the
+    /// `$3000`/`$3400`/`$3800` mirrors collapse onto `$3C00`. See
+    /// `reference/by-system/jupiter-ace/jupiter-ace-ace-snapshot-format.md` §5.
+    ///
+    /// Registers are restored last, so the machine resumes where the snapshot
+    /// was taken rather than restarting.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when no machine is loaded, or the image is not a
+    /// well-formed `.ace`.
+    pub fn load_ace_snapshot(&mut self, bytes: &[u8]) -> Result<(), String> {
+        let snapshot = format_jupiter_ace_ace::Snapshot::parse(bytes)?;
+        // A snapshot taken on a larger machine would have its tail silently
+        // dropped by the memory map, leaving a half-loaded program that looks
+        // like a bad dump. Refuse it and say which machine it wants.
+        let top = snapshot.top_address();
+        let fitted = match self.model.expansion_ram_kb() {
+            0 => 0x3FFF,
+            16 => 0x7FFF,
+            _ => 0xBFFF,
+        };
+        if top > fitted {
+            return Err(format!(
+                "snapshot covers $2000-${top:04X} but this machine has RAM to ${fitted:04X}; \
+                 it needs the {} KB model",
+                if top > 0x7FFF { 48 } else { 16 }
+            ));
+        }
+        let machine = self.machine.as_mut().ok_or("Jupiter Ace not initialised")?;
+        for (offset, &byte) in snapshot.memory.iter().enumerate() {
+            let addr = u16::try_from(offset)
+                .ok()
+                .and_then(|o| format_jupiter_ace_ace::LOAD_ADDRESS.checked_add(o))
+                .ok_or("snapshot runs past the top of memory")?;
+            machine.poke(addr, byte);
+        }
+        let regs = &mut machine.cpu_mut().regs;
+        let r = snapshot.registers;
+        regs.af = r.af;
+        regs.bc = r.bc;
+        regs.de = r.de;
+        regs.hl = r.hl;
+        regs.ix = r.ix;
+        regs.iy = r.iy;
+        regs.sp = r.sp;
+        regs.pc = r.pc;
+        regs.af_alt = r.af_alt;
+        regs.bc_alt = r.bc_alt;
+        regs.de_alt = r.de_alt;
+        regs.hl_alt = r.hl_alt;
+        self.update_rgba_framebuffer();
+        Ok(())
+    }
+
     pub fn machine_mut(&mut self) -> Option<&mut JupiterAce> {
         self.machine.as_mut()
     }
@@ -235,10 +296,24 @@ impl MachineCore for JupiterAceRuntime {
         self.time = MachineTime::default();
     }
     fn load_media(&mut self, media: &MediaSet<'_>) -> Result<(), MachineError> {
-        if let Some(first) = media.images.first() {
-            return Err(MachineError::UnknownMediaSlot {
-                slot: first.slot.as_ref().to_owned(),
-            });
+        for image in &media.images {
+            let slot = image.slot.as_ref();
+            match image.kind {
+                MediaKind::Snapshot if slot == "snapshot-1" => {
+                    self.load_ace_snapshot(image.bytes).map_err(|reason| {
+                        MachineError::InvalidMedia {
+                            slot: slot.to_owned(),
+                            reason,
+                        }
+                    })?;
+                }
+                MediaKind::Snapshot => {
+                    return Err(MachineError::UnknownMediaSlot {
+                        slot: slot.to_owned(),
+                    });
+                }
+                kind => return Err(MachineError::UnsupportedMediaKind { kind }),
+            }
         }
         Ok(())
     }

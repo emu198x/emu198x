@@ -2,7 +2,7 @@
 
 use emu198x_shell::{
     CapabilitySet, ClockDesc, ClockRate, Family, FirmwareRequirement, MachineId, MachineProfile,
-    ProfileId, Region, known_capability,
+    MediaKind, MediaSlot, ProfileId, Region, WritebackPolicy, known_capability,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -91,7 +91,13 @@ pub fn profile_for(model: Model) -> MachineProfile {
             "Jupiter Ace Forth ROM (8 KB)",
             false,
         )],
-        media_slots: Vec::new(),
+        media_slots: vec![MediaSlot::new(
+            "snapshot-1",
+            "Snapshot (.ace)",
+            MediaKind::Snapshot,
+            false,
+            WritebackPolicy::InMemoryOnly,
+        )],
         capabilities: CapabilitySet::with_all([
             known_capability("keyboard-input"),
             known_capability("scripted-input"),

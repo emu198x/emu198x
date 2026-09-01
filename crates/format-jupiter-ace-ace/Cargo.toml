@@ -1,0 +1,11 @@
+[package]
+name = "format-jupiter-ace-ace"
+description = "Jupiter Ace .ace snapshot decoder (ACE32 RLE container)"
+edition.workspace = true
+version.workspace = true
+publish = false
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
