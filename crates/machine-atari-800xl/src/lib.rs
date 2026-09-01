@@ -165,7 +165,10 @@ pub struct Atari800xl {
     master_clock: u64,
     clocks_per_frame: u64,
     frame_count: u64,
-    dma_budget: u8,
+    /// Which of the current scan line's cycles ANTIC is taking for DMA, from
+    /// its own fetch schedule. The CPU runs on the cycles left over.
+    dma_mask: u128,
+    /// CPU cycle counter within the current scan line, counting from 1.
     line_cycle: u16,
 }
 
@@ -238,7 +241,7 @@ impl Atari800xl {
             master_clock: 0,
             clocks_per_frame,
             frame_count: 0,
-            dma_budget: 0,
+            dma_mask: 0,
             line_cycle: 0,
         };
 
@@ -324,18 +327,15 @@ impl Atari800xl {
         }
 
         if self.master_clock.is_multiple_of(2) {
-            self.line_cycle += 1;
-            // ANTIC releases a WSYNC-halted CPU at HSYNC (end of the visible
-            // region), not at the next line — so post-WSYNC writes land at the
-            // right beam position (MAME `CYCLES_HSYNC`).
+            // ANTIC releases a WSYNC-halted CPU at the start of horizontal
+            // blank, not at the next line — so post-WSYNC writes land at the
+            // right beam position.
             if self.line_cycle == CYCLES_HSYNC {
                 self.antic.clear_wsync();
             }
-            // CPU runs unless ANTIC is stealing this cycle for DMA (spread
-            // through the fetch window) or it is held by WSYNC.
-            if !cpu_dma_stalled(self.line_cycle, u16::from(self.dma_budget))
-                && !self.antic.wsync_halt()
-            {
+            // CPU runs unless ANTIC is taking this cycle for a fetch, or it is
+            // held by WSYNC.
+            if !cpu_dma_stalled(self.line_cycle, self.dma_mask) && !self.antic.wsync_halt() {
                 self.cpu.tick();
                 if self.cpu.rw {
                     self.cpu.data_in = self.mem_read(self.cpu.addr);
@@ -345,12 +345,13 @@ impl Atari800xl {
             }
             self.pokey.tick();
             self.cpu.irq = self.pokey.irq_pending() || self.pia.irq_pending();
+            self.line_cycle += 1;
         }
     }
 
     /// Start a scan line: ANTIC fetches its display data and the GTIA begins
     /// beam compositing for it. Player/missile DMA and the DLI/VBI NMI are
-    /// applied here, and the per-line DMA budget that gates the CPU is set.
+    /// applied here, and the line's DMA schedule that gates the CPU is set.
     /// The actual pixels are composited incrementally as the beam advances
     /// (`composite_to_beam`), then finished with the PM overlay at line end.
     fn start_scan_line(&mut self) {
@@ -382,7 +383,7 @@ impl Atari800xl {
             result.playfield_width,
             result.mode,
         );
-        self.dma_budget = result.dma_cycles;
+        self.dma_mask = result.dma_mask;
         self.line_cycle = 0;
         // ANTIC pulses NMI; it does not hold it. See the same wiring in
         // `machine-atari-5200`: holding the line high across two
@@ -895,6 +896,78 @@ mod tests {
             sys.run_frame();
         }
         sys
+    }
+
+    /// A cart that counts a tight loop into `$0600/$0601` behind a screenful
+    /// of mode 2 lines at the requested playfield width.
+    fn cpu_speed_cart(dmactl: u8) -> Vec<u8> {
+        let mut p: Vec<u8> = Vec::new();
+
+        p.extend_from_slice(&[0xA9, 0x00, 0x8D, 0x0E, 0xD4]); // NMIEN = 0
+        p.extend_from_slice(&[0xA9, 0x42, 0x8D, 0x00, 0x20]); // mode 2 + LMS
+        p.extend_from_slice(&[0xA9, 0x00, 0x8D, 0x01, 0x20]);
+        p.extend_from_slice(&[0xA9, 0x30, 0x8D, 0x02, 0x20]); // screen $3000
+
+        p.extend_from_slice(&[0xA2, 0x00]); // LDX #$00
+        let dl_loop = p.len();
+        p.extend_from_slice(&[0xA9, 0x02]); // LDA #$02 — mode 2
+        p.extend_from_slice(&[0x9D, 0x03, 0x20]); // STA $2003,X
+        p.push(0xE8);
+        p.extend_from_slice(&[0xE0, 0x17]); // CPX #$17 — 23 more mode lines
+        p.push(0xD0);
+        p.push(((dl_loop as isize - (p.len() as isize + 1)) as i8) as u8);
+
+        p.extend_from_slice(&[0xA9, 0x41, 0x8D, 0x1A, 0x20]); // JVB → $2000
+        p.extend_from_slice(&[0xA9, 0x00, 0x8D, 0x1B, 0x20]);
+        p.extend_from_slice(&[0xA9, 0x20, 0x8D, 0x1C, 0x20]);
+
+        p.extend_from_slice(&[0xA9, 0x00, 0x8D, 0x00, 0x06]); // counter = 0
+        p.extend_from_slice(&[0x8D, 0x01, 0x06]);
+        p.extend_from_slice(&[0xA9, 0x00, 0x8D, 0x02, 0xD4]); // DLISTL
+        p.extend_from_slice(&[0xA9, 0x20, 0x8D, 0x03, 0xD4]); // DLISTH → $2000
+        p.extend_from_slice(&[0xA9, dmactl, 0x8D, 0x00, 0xD4]); // DMACTL
+
+        let count_loop = 0xA000u16 + p.len() as u16;
+        p.extend_from_slice(&[0xEE, 0x00, 0x06]); // INC $0600
+        p.extend_from_slice(&[0xD0, 0x03]); // BNE +3
+        p.extend_from_slice(&[0xEE, 0x01, 0x06]); // INC $0601
+        p.extend_from_slice(&[0x4C, count_loop as u8, (count_loop >> 8) as u8]);
+
+        let mut rom = vec![0xEAu8; 8192];
+        rom[..p.len()].copy_from_slice(&p);
+        rom
+    }
+
+    /// ANTIC's DMA reaches the CPU as the cycles it actually takes, so a wider
+    /// playfield visibly slows the CPU down. Mode 2 fetches a character name
+    /// every two cycles and its data two cycles after that, so a wide line
+    /// leaves the CPU almost nothing while a narrow one leaves a third of the
+    /// fetch window free.
+    #[test]
+    fn playfield_width_changes_how_many_cycles_the_cpu_gets() {
+        let count = |dmactl| {
+            let mut sys = Atari800xl::new(
+                None,
+                None,
+                Some(cpu_speed_cart(dmactl)),
+                Atari800xlRegion::Ntsc,
+                false,
+            )
+            .expect("init");
+            for _ in 0..4 {
+                sys.run_frame();
+            }
+            u32::from(sys.ram[0x0600]) | u32::from(sys.ram[0x0601]) << 8
+        };
+
+        let narrow = count(0x21);
+        let normal = count(0x22);
+        let wide = count(0x23);
+
+        assert!(
+            narrow > normal && normal > wide,
+            "each width step should cost the CPU cycles: narrow {narrow}, normal {normal}, wide {wide}"
+        );
     }
 
     /// ANTIC fetches through the machine's live memory, so a program can
