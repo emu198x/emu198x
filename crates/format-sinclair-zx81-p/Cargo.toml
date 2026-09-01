@@ -11,7 +11,7 @@ repository.workspace = true
 thiserror = { workspace = true }
 
 [dev-dependencies]
-emu198x-test-skip = { path = "../emu198x-test-skip", version = "0.16.0" }
+emu198x-test-skip = { path = "../emu198x-test-skip", version = "0.17.0" }
 
 [lints]
 workspace = true
