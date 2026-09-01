@@ -8,6 +8,12 @@ and talking to an ESP8266/ESP32 running Espressif's AT firmware. This crate
 models that link: the 8N1 bit timing, the subset of ESP-AT those clients use,
 and an optional real TCP transport behind it.
 
+It speaks the two AT dialects those machines actually meet — Espressif's ESP-AT
+(`AT+CIPSTART`, `AT+CIPSEND`, `+IPD,`) and Hayes as a Zimodem-based user-port
+modem speaks it (`ATD`, then a transparent link) — latching whichever the
+computer uses first. A client only ever speaks one, so accepting both cannot
+confuse either.
+
 It knows nothing about the machine it is attached to. The emulator supplies the
 transmit level each tick and reads the receive level back, so the wiring stays
 with the machine — VIA CB2/PB0 on a VIC-20, CIA2 PA2/PB0 on a C64 — and only

@@ -23,6 +23,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   names stay here rather than being restated in each machine. The feature is
   off by default; without it the crate still has no dependencies.
 
+- Hayes dialing (`ATD`/`ATDT`/`ATDI`/`ATDP`, `ATZ`, `ATH`), as spoken by a
+  Zimodem-based user-port WiFi modem, alongside the existing ESP-AT command
+  set. The modem latches whichever dialect the computer uses first, so a client
+  needs no configuration. After `CONNECT` a Hayes link goes transparent in both
+  directions: no `AT+CIPSEND` framing on the way out, no `+IPD,` envelope on
+  the way back, and `CONNECT` stands alone on its line because a Hayes client
+  drains one response line and reads the next byte as data.
+- `ModemDialect` and `dialect()` expose which dialect was latched.
+
 ### Changed
 
 - `tick` takes `transmit` rather than `cb2`. The old name was a 6522 VIA pin,

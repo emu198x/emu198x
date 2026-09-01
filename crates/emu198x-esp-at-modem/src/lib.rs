@@ -33,6 +33,22 @@ pub struct BitBangSerial {
     transmit_delay: u32,
 }
 
+/// Which AT dialect the attached computer is speaking.
+///
+/// Both dialects share the physical link and the `AT` prefix, so the modem
+/// latches whichever the computer uses first rather than needing to be told.
+/// A client only ever speaks one, so accepting both cannot confuse either.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ModemDialect {
+    /// Espressif's ESP-AT: `AT+CIPSTART` to dial, `AT+CIPSEND` to frame
+    /// outgoing data, `+IPD,<n>:` envelopes on the way back.
+    #[default]
+    EspAt,
+    /// Hayes, as spoken by a Zimodem-based user-port WiFi modem: `ATD` to
+    /// dial, then the link goes transparent in both directions.
+    Hayes,
+}
+
 /// Deterministic subset of ESP-AT used by the Rachel vintage clients.
 #[derive(Debug)]
 pub struct EspAtModem {
@@ -46,6 +62,10 @@ pub struct EspAtModem {
     connected: bool,
     diagnostic_received: VecDeque<u8>,
     pending_cycles_per_bit: Option<u32>,
+    dialect: ModemDialect,
+    /// Hayes data mode: after `CONNECT` the modem stops interpreting bytes and
+    /// carries them straight through in both directions until the link drops.
+    transparent: bool,
 }
 
 /// Optional real TCP transport behind the deterministic ESP-AT serial model.
@@ -200,6 +220,8 @@ impl EspAtModem {
             outbound_packets: VecDeque::new(),
             connect_requests: VecDeque::new(),
             connected: false,
+            dialect: ModemDialect::EspAt,
+            transparent: false,
             diagnostic_received: VecDeque::new(),
             pending_cycles_per_bit: None,
         }
@@ -220,15 +242,30 @@ impl EspAtModem {
     }
 
     /// Queue bytes received from the network. ESP-AT presents active TCP data
-    /// using its `+IPD,<length>:` envelope.
+    /// using its `+IPD,<length>:` envelope; a Hayes link in data mode carries
+    /// the bytes with no envelope at all, so adding one would corrupt the
+    /// stream the computer is about to read as a protocol frame.
     pub fn queue_network_packet(&mut self, bytes: &[u8]) {
-        let header = format!("\r\n+IPD,{}:", bytes.len());
-        self.serial.queue_input(header.as_bytes());
+        if !self.transparent {
+            let header = format!("\r\n+IPD,{}:", bytes.len());
+            self.serial.queue_input(header.as_bytes());
+        }
         self.serial.queue_input(bytes);
     }
 
     pub fn take_outbound_packet(&mut self) -> Option<Vec<u8>> {
+        // In data mode there is no length prefix to wait for, so whatever the
+        // computer has clocked out since the last poll is the packet.
+        if self.transparent && !self.payload.is_empty() {
+            return Some(std::mem::take(&mut self.payload));
+        }
         self.outbound_packets.pop_front()
+    }
+
+    /// The dialect this modem has latched onto, for tests and diagnostics.
+    #[must_use]
+    pub fn dialect(&self) -> ModemDialect {
+        self.dialect
     }
 
     pub fn take_connect_request(&mut self) -> Option<(String, u16)> {
@@ -237,10 +274,17 @@ impl EspAtModem {
 
     pub fn set_connected(&mut self, connected: bool) {
         self.connected = connected;
-        if connected {
-            self.queue_response(b"\r\nCONNECT\r\nOK\r\n");
-        } else {
-            self.queue_response(b"\r\nERROR\r\n");
+        match (self.dialect, connected) {
+            // A Hayes computer drains exactly one response line and then reads
+            // the next byte as data, so anything after CONNECT would be read
+            // as the head of a protocol frame.
+            (ModemDialect::Hayes, true) => {
+                self.transparent = true;
+                self.queue_response(b"\r\nCONNECT\r\n");
+            }
+            (ModemDialect::Hayes, false) => self.queue_response(b"\r\nNO CARRIER\r\n"),
+            (ModemDialect::EspAt, true) => self.queue_response(b"\r\nCONNECT\r\nOK\r\n"),
+            (ModemDialect::EspAt, false) => self.queue_response(b"\r\nERROR\r\n"),
         }
     }
 
@@ -250,7 +294,12 @@ impl EspAtModem {
         self.connected = false;
         self.payload_remaining = 0;
         self.payload.clear();
-        self.queue_response(b"\r\nCLOSED\r\n");
+        if self.transparent {
+            self.transparent = false;
+            self.queue_response(b"\r\nNO CARRIER\r\n");
+        } else {
+            self.queue_response(b"\r\nCLOSED\r\n");
+        }
     }
 
     #[must_use]
@@ -263,6 +312,14 @@ impl EspAtModem {
             self.diagnostic_received.pop_front();
         }
         self.diagnostic_received.push_back(byte);
+        if self.transparent {
+            // Data mode: no commands, no escapes. A real Hayes modem watches
+            // for +++ here; nothing in this fleet uses it, and guessing at an
+            // escape would risk cutting a protocol frame that happens to
+            // contain three plus signs.
+            self.payload.push(byte);
+            return;
+        }
         if self.payload_remaining != 0 {
             self.payload.push(byte);
             self.payload_remaining -= 1;
@@ -302,7 +359,22 @@ impl EspAtModem {
         } else if command == "AT+CIPCLOSE" {
             self.connected = false;
             self.queue_response(b"\r\nCLOSED\r\nOK\r\n");
-        } else if command == "AT" || command.starts_with("AT+") {
+        } else if let Some(address) = parse_hayes_dial(command) {
+            // Only a Hayes computer dials this way, so this is where the
+            // dialect is settled for the rest of the session.
+            self.dialect = ModemDialect::Hayes;
+            match address {
+                Some(endpoint) => self.connect_requests.push_back(endpoint),
+                None => self.queue_response(b"\r\nNO CARRIER\r\n"),
+            }
+        } else if command == "ATH" || command == "ATH0" {
+            self.transparent = false;
+            self.connected = false;
+            self.queue_response(b"\r\nOK\r\n");
+        } else if command == "AT" || command.starts_with("AT+") || command.starts_with("ATZ") {
+            // ATZ resets a Hayes modem to command mode. It is also the first
+            // thing a Zimodem client says, so answering ERROR here strands the
+            // whole connection before it dials.
             self.queue_response(b"\r\nOK\r\n");
         } else if !command.is_empty() {
             self.queue_response(b"\r\nERROR\r\n");
@@ -316,6 +388,27 @@ impl EspAtModem {
         // turnaround at 9600 baud.
         self.serial
             .queue_input_after(bytes, self.serial.cycles_per_bit * 10);
+    }
+}
+
+/// Recognise a Hayes dial command and pull `host:port` out of it.
+///
+/// Returns `None` when this is not a dial command at all, `Some(None)` when it
+/// is one the modem cannot act on — the difference between "not mine" and "no
+/// carrier". `ATD`, `ATDT` and `ATDI` all reach the same place: the tone/pulse
+/// distinction is meaningless over TCP, and Zimodem accepts them alike.
+fn parse_hayes_dial(command: &str) -> Option<Option<(String, u16)>> {
+    let rest = command
+        .strip_prefix("ATDT")
+        .or_else(|| command.strip_prefix("ATDI"))
+        .or_else(|| command.strip_prefix("ATDP"))
+        .or_else(|| command.strip_prefix("ATD"))?;
+    let Some((host, port)) = rest.trim().rsplit_once(':') else {
+        return Some(None);
+    };
+    match port.parse() {
+        Ok(port) if !host.is_empty() => Some(Some((host.to_owned(), port))),
+        _ => Some(None),
     }
 }
 
@@ -514,6 +607,82 @@ mod tests {
         let response = drain_device_bytes(&mut modem, 12 * 10 * 40);
         assert!(response.windows(7).any(|window| window == b"CONNECT"));
         assert!(response.windows(2).any(|window| window == b"OK"));
+    }
+
+    #[test]
+    fn hayes_reset_is_answered_rather_than_refused() {
+        // A Zimodem client opens with ATZ. Answering ERROR strands it before
+        // it ever dials, which is exactly how the C64 client first failed.
+        let mut modem = EspAtModem::new(12);
+        send_host_bytes(&mut modem, b"ATZ\r", 12);
+        let response = drain_device_bytes(&mut modem, 12 * 10 * 16);
+        assert!(response.windows(2).any(|window| window == b"OK"));
+        assert!(!response.windows(5).any(|window| window == b"ERROR"));
+    }
+
+    #[test]
+    fn hayes_dial_connects_and_answers_with_one_line() {
+        let mut modem = EspAtModem::new(12);
+        send_host_bytes(&mut modem, b"ATDT127.0.0.1:6502\r", 12);
+        assert_eq!(modem.dialect(), ModemDialect::Hayes);
+        assert_eq!(
+            modem.take_connect_request(),
+            Some(("127.0.0.1".to_owned(), 6502))
+        );
+
+        modem.set_connected(true);
+        let response = drain_device_bytes(&mut modem, 12 * 10 * 40);
+        assert!(response.windows(7).any(|window| window == b"CONNECT"));
+        // A Hayes client drains one line and reads the next byte as data, so a
+        // trailing OK would be swallowed as the head of a protocol frame.
+        assert!(
+            !response.windows(2).any(|window| window == b"OK"),
+            "CONNECT must stand alone: {response:?}"
+        );
+    }
+
+    #[test]
+    fn hayes_data_mode_is_transparent_in_both_directions() {
+        let mut modem = EspAtModem::new(12);
+        send_host_bytes(&mut modem, b"ATDT127.0.0.1:6502\r", 12);
+        let _ = modem.take_connect_request();
+        modem.set_connected(true);
+        let _ = drain_device_bytes(&mut modem, 12 * 10 * 40);
+
+        // Outbound: bytes are carried as sent, with no AT framing around them.
+        send_host_bytes(&mut modem, b"RACH", 12);
+        assert_eq!(modem.take_outbound_packet(), Some(b"RACH".to_vec()));
+
+        // Inbound: no +IPD envelope, which the client would read as frame data.
+        modem.queue_network_packet(b"RACH");
+        let inbound = drain_device_bytes(&mut modem, 12 * 10 * 24);
+        assert_eq!(inbound, b"RACH".to_vec());
+    }
+
+    #[test]
+    fn hayes_dial_without_a_port_reports_no_carrier() {
+        let mut modem = EspAtModem::new(12);
+        send_host_bytes(&mut modem, b"ATDTnowhere\r", 12);
+        assert_eq!(modem.take_connect_request(), None);
+        let response = drain_device_bytes(&mut modem, 12 * 10 * 24);
+        assert!(response.windows(10).any(|window| window == b"NO CARRIER"));
+    }
+
+    #[test]
+    fn esp_at_client_is_unaffected_by_the_hayes_additions() {
+        // The dialect is latched by use, so an ESP-AT client still gets the
+        // +IPD envelope and the CONNECT/OK pair it expects.
+        let mut modem = EspAtModem::new(12);
+        send_host_bytes(&mut modem, b"AT+CIPSTART=\"TCP\",\"127.0.0.1\",6502\r", 12);
+        let _ = modem.take_connect_request();
+        assert_eq!(modem.dialect(), ModemDialect::EspAt);
+        modem.set_connected(true);
+        let response = drain_device_bytes(&mut modem, 12 * 10 * 40);
+        assert!(response.windows(2).any(|window| window == b"OK"));
+
+        modem.queue_network_packet(b"RACH");
+        let inbound = drain_device_bytes(&mut modem, 12 * 10 * 40);
+        assert!(inbound.windows(5).any(|window| window == b"+IPD,"));
     }
 
     #[test]
