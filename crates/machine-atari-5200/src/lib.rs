@@ -60,26 +60,6 @@ use emu198x_mos_6502::M6502;
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
 
-/// Serde adapter for `dma_mem: Box<[u8; 65536]>` — the live write-through DMA
-/// shadow ANTIC reads each line. Plain `BigArray` does not see through the
-/// `Box`, and `#[serde(skip)]` is wrong (the field is live state, not derivable
-/// — there is no `Default` for `Box<[u8; 65536]>` either). So we serialise the
-/// boxed array as a length-prefixed byte slice and rebuild the box on the way
-/// back.
-mod boxed_dma_mem {
-    use serde::{Deserialize, Deserializer, Serialize, Serializer};
-    pub fn serialize<S: Serializer>(v: &[u8; 65536], s: S) -> Result<S::Ok, S::Error> {
-        // serialise as a byte slice (postcard encodes length-prefixed)
-        v.as_slice().serialize(s)
-    }
-    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Box<[u8; 65536]>, D::Error> {
-        let v: Vec<u8> = Vec::deserialize(d)?;
-        v.into_boxed_slice()
-            .try_into()
-            .map_err(|_| serde::de::Error::custom("dma_mem must be 65536 bytes"))
-    }
-}
-
 /// Joystick pot centre value (0-228 range — POKEY pots are 8-bit).
 pub const POT_CENTER: u8 = 114;
 /// Joystick pot maximum (fully right or fully down).
@@ -122,6 +102,40 @@ impl Atari5200Region {
     }
 }
 
+/// The address space ANTIC fetches through, borrowed from the console's live
+/// fields rather than copied.
+///
+/// Real ANTIC fetches its display list, screen data, character sets and
+/// player/missile data straight off the system bus, so it reads RAM
+/// (`$0000-$3FFF`), cart ROM (`$4000-$BFFF`) and the BIOS character set
+/// (`$F800-$FFFF`) alike. The register windows read `$FF` (open bus); no
+/// display fetches data from there.
+struct AnticView<'a> {
+    ram: &'a [u8; 16384],
+    cart: &'a Cartridge,
+    bios: &'a [u8],
+}
+
+impl atari_antic::AnticMemory for AnticView<'_> {
+    fn read(&self, addr: u16) -> u8 {
+        match addr {
+            0x0000..=0x3FFF => self.ram[(addr & 0x3FFF) as usize],
+            0x4000..=0xBFFF => self.cart.read(addr),
+            0xF800..=0xFFFF => {
+                if self.bios.is_empty() {
+                    self.cart.read(addr)
+                } else {
+                    self.bios
+                        .get((addr - 0xF800) as usize)
+                        .copied()
+                        .unwrap_or(0xFF)
+                }
+            }
+            _ => 0xFF,
+        }
+    }
+}
+
 /// Atari 5200 machine.
 #[derive(Serialize, Deserialize)]
 pub struct Atari5200 {
@@ -132,15 +146,6 @@ pub struct Atari5200 {
     cart: Cartridge,
     #[serde(with = "BigArray")]
     ram: [u8; 16384],
-    /// ANTIC's DMA view of the whole `$0000-$FFFF` map. Real ANTIC fetches
-    /// its display list, screen data, character sets, and player/missile
-    /// data straight off the system bus, so it can read RAM
-    /// (`$0000-$3FFF`), cart ROM (`$4000-$BFFF`), and the BIOS character
-    /// set (`$F800-$FFFF`) — not just RAM. We mirror RAM writes into here
-    /// and bake the (immutable) cart + BIOS once at construction. The I/O
-    /// gaps read `$FF` (open bus); ANTIC never DMAs from register space.
-    #[serde(with = "boxed_dma_mem")]
-    dma_mem: Box<[u8; 65536]>,
     bios: Vec<u8>,
     region: Atari5200Region,
     master_clock: u64,
@@ -158,19 +163,6 @@ impl Atari5200 {
     /// the cartridge's `$FFFC/$FFFD` mirror for the reset vector.
     pub fn new(rom: Vec<u8>, bios: Vec<u8>, region: Atari5200Region) -> Result<Self, String> {
         let cart = Cartridge::from_rom(&rom)?;
-        // Bake ANTIC's DMA image: cart at $4000-$BFFF, BIOS character set
-        // at $F800-$FFFF, everything else open bus. RAM ($0000-$3FFF)
-        // starts zeroed and tracks live writes via mem_write.
-        let mut dma_mem = Box::new([0xFFu8; 65536]);
-        for byte in &mut dma_mem[0..0x4000] {
-            *byte = 0;
-        }
-        for (addr, slot) in dma_mem[0x4000..0xC000].iter_mut().enumerate() {
-            *slot = cart.read(0x4000 + addr as u16);
-        }
-        for (i, &b) in bios.iter().take(0x800).enumerate() {
-            dma_mem[0xF800 + i] = b;
-        }
         let mut cpu = M6502::new();
         cpu.reset();
         let mut pokey = Pokey::new(region.cpu_hz());
@@ -185,7 +177,6 @@ impl Atari5200 {
             pokey,
             cart,
             ram: [0; 16384],
-            dma_mem,
             bios,
             region,
             master_clock: 0,
@@ -269,7 +260,14 @@ impl Atari5200 {
     /// Pixels are composited incrementally as the beam advances
     /// (`composite_to_beam`), then finished with the PM overlay at line end.
     fn start_scan_line(&mut self) {
-        let result = self.antic.process_line(&self.dma_mem[..]);
+        // Borrow the memory ANTIC fetches through directly from the fields it
+        // covers, so `self.antic` can be borrowed mutably alongside it.
+        let view = AnticView {
+            ram: &self.ram,
+            cart: &self.cart,
+            bios: &self.bios,
+        };
+        let result = self.antic.process_line(&view);
         if result.pm_dma {
             // GRACTL decides whether this DMA reaches the graphics registers,
             // and VDELAY whether an object is held back a line; both live in
@@ -314,7 +312,7 @@ impl Atari5200 {
             0x4000..=0xBFFF => {
                 // A Bounty Bob cart switches on reads as well as writes,
                 // so the read path has to be able to move a window.
-                self.refresh_banked_window(addr);
+                self.touch_bank_register(addr);
                 self.cart.read(addr)
             }
             0xC000..=0xCFFF => self.gtia.read(addr as u8),
@@ -334,31 +332,16 @@ impl Atari5200 {
         }
     }
 
-    /// Let the cartridge see `addr` in case it is a bank register, and
-    /// re-bake ANTIC's shadow for the window if a page moved.
-    ///
-    /// ANTIC does not go through `mem_read` — it reads `dma_mem`, which
-    /// is baked once at construction. A banked cart makes that copy
-    /// stale, and a display list or character set living in a switchable
-    /// window would keep showing the old page.
-    fn refresh_banked_window(&mut self, addr: u16) {
-        let Some(base) = self.cart.touch_bank_register(addr) else {
-            return;
-        };
-        for offset in 0..0x1000u16 {
-            let at = base + offset;
-            self.dma_mem[at as usize] = self.cart.read(at);
-        }
+    /// Let the cartridge see `addr` in case it is a bank register. A Bounty
+    /// Bob cart switches on reads as well as writes, so both paths call it.
+    fn touch_bank_register(&mut self, addr: u16) {
+        let _ = self.cart.touch_bank_register(addr);
     }
 
     fn mem_write(&mut self, addr: u16, value: u8) {
         match addr {
-            0x0000..=0x3FFF => {
-                let i = (addr & 0x3FFF) as usize;
-                self.ram[i] = value;
-                self.dma_mem[i] = value;
-            }
-            0x4000..=0xBFFF => self.refresh_banked_window(addr),
+            0x0000..=0x3FFF => self.ram[(addr & 0x3FFF) as usize] = value,
+            0x4000..=0xBFFF => self.touch_bank_register(addr),
             0xC000..=0xCFFF => self.gtia.write(addr as u8, value),
             0xD400..=0xD5FF => self.antic.write(addr as u8, value),
             0xE800..=0xE9FF => self.pokey.write(addr as u8, value),
@@ -544,8 +527,6 @@ mod tests {
         // A low work-RAM byte ($0600 is inside the 16 KB RAM at $0000-$3FFF).
         sys.poke(0x0600, 0xA5);
         assert_eq!(sys.peek(0x0600), 0xA5, "poke landed in RAM");
-        // The write tracks into the DMA shadow too (mem_write mirrors RAM
-        // writes into dma_mem) — running a frame keeps it resident there.
         sys.run_frame();
         let s1 = postcard::to_allocvec(&sys).expect("encode snapshot");
 
@@ -558,11 +539,6 @@ mod tests {
             restored.peek(0x0600),
             0xA5,
             "poked RAM byte survives restore"
-        );
-        // The boxed DMA shadow survives too: its $0600 slot tracks the RAM write.
-        assert_eq!(
-            restored.dma_mem[0x0600], 0xA5,
-            "dma_mem write-through shadow survives restore"
         );
         let s3 = postcard::to_allocvec(&restored).expect("re-encode restored");
         assert_eq!(

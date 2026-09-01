@@ -111,6 +111,36 @@ impl AnticRegion {
 }
 
 // ---------------------------------------------------------------------------
+// Memory
+// ---------------------------------------------------------------------------
+
+/// The memory ANTIC fetches through.
+///
+/// ANTIC addresses memory itself — display list, screen data, character set,
+/// player/missile graphics — so it reads through the machine's live view
+/// rather than a copy handed over in advance. A display list rewritten by a
+/// DLI, a mid-frame character-set swap, and a page flip in the frame that
+/// draws it all depend on the fetch seeing memory as it stands at that moment.
+///
+/// This is not the CPU bus interface [`RULES.md`] rule 6 forbids. That rule is
+/// about how a *CPU* exposes its pins, so the chips sharing its bus can watch
+/// them continuously. ANTIC is on the other side of that relationship: it
+/// drives the address bus for its own fetches. `mos-vic-ii` reads its memory
+/// the same way, through `VicMemory`.
+pub trait AnticMemory {
+    /// Read the byte ANTIC's address bus is pointing at.
+    fn read(&self, addr: u16) -> u8;
+}
+
+/// A flat image of memory, for tests and for a machine with nothing banked.
+/// Addresses wrap within the slice, which must be a power of two long.
+impl AnticMemory for [u8] {
+    fn read(&self, addr: u16) -> u8 {
+        self[addr as usize & (self.len() - 1)]
+    }
+}
+
+// ---------------------------------------------------------------------------
 // LineResult
 // ---------------------------------------------------------------------------
 
@@ -585,7 +615,7 @@ impl Antic {
 
     /// Process one scan line. Reads display list instructions and screen data
     /// from `ram`. Returns a `LineResult` describing the output.
-    pub fn process_line(&mut self, ram: &[u8]) -> LineResult {
+    pub fn process_line<M: AnticMemory + ?Sized>(&mut self, mem: &M) -> LineResult {
         self.dma_cycles = REFRESH_DMA_CYCLES;
 
         let lines_per_frame = self.region.lines_per_frame();
@@ -627,7 +657,7 @@ impl Antic {
         // starts a mode line partway down its glyph, so row zero is not
         // necessarily where a line begins.
         if !self.dl_active {
-            self.fetch_dl_instruction(ram);
+            self.fetch_dl_instruction(mem);
         }
 
         // Generate playfield data for this scan line
@@ -635,7 +665,7 @@ impl Antic {
             // Blank instruction
             blank_result(self.dma_cycles)
         } else if let Some(desc) = mode_desc(self.current_mode) {
-            self.render_mode_line(ram, &desc, width_bits)
+            self.render_mode_line(mem, &desc, width_bits)
         } else {
             blank_result(self.dma_cycles)
         };
@@ -661,8 +691,8 @@ impl Antic {
     }
 
     /// Fetch and decode the next display list instruction.
-    fn fetch_dl_instruction(&mut self, ram: &[u8]) {
-        let instr = ram[self.dlist as usize & (ram.len() - 1)];
+    fn fetch_dl_instruction<M: AnticMemory + ?Sized>(&mut self, mem: &M) {
+        let instr = mem.read(self.dlist);
         self.dlist = self.dlist.wrapping_add(1);
         self.dma_cycles += 1; // DL fetch costs 1 cycle
 
@@ -695,9 +725,9 @@ impl Antic {
             }
             0x01 => {
                 // Jump instruction
-                let lo = ram[self.dlist as usize & (ram.len() - 1)];
+                let lo = mem.read(self.dlist);
                 self.dlist = self.dlist.wrapping_add(1);
-                let hi = ram[self.dlist as usize & (ram.len() - 1)];
+                let hi = mem.read(self.dlist);
                 self.dlist = self.dlist.wrapping_add(1);
                 self.dma_cycles += 2;
 
@@ -718,7 +748,7 @@ impl Antic {
                     self.dl_active = false;
                     self.mode_line = 0;
                     // Re-fetch from the new address on this same call
-                    self.fetch_dl_instruction(ram);
+                    self.fetch_dl_instruction(mem);
                 }
             }
             0x02..=0x0F => {
@@ -753,9 +783,9 @@ impl Antic {
                 self.prev_vscrol = has_vscrol;
 
                 if has_lms {
-                    let lo = ram[self.dlist as usize & (ram.len() - 1)];
+                    let lo = mem.read(self.dlist);
                     self.dlist = self.dlist.wrapping_add(1);
-                    let hi = ram[self.dlist as usize & (ram.len() - 1)];
+                    let hi = mem.read(self.dlist);
                     self.dlist = self.dlist.wrapping_add(1);
                     self.memory_scan = u16::from(lo) | (u16::from(hi) << 8);
                     self.dma_cycles += 2;
@@ -772,8 +802,8 @@ impl Antic {
                     let bytes = adjust_bytes_for_width(desc.bytes_per_line, width_bits);
                     self.char_codes.clear();
                     for i in 0..u16::from(bytes) {
-                        let addr = self.memory_scan.wrapping_add(i) as usize & (ram.len() - 1);
-                        self.char_codes.push(ram[addr]);
+                        self.char_codes
+                            .push(mem.read(self.memory_scan.wrapping_add(i)));
                     }
                     self.dma_cycles += bytes;
                     // Memory scan advances past character codes
@@ -785,18 +815,23 @@ impl Antic {
     }
 
     /// Render pixel data for the current mode line.
-    fn render_mode_line(&mut self, ram: &[u8], desc: &ModeDesc, width_bits: u8) -> LineResult {
+    fn render_mode_line<M: AnticMemory + ?Sized>(
+        &mut self,
+        mem: &M,
+        desc: &ModeDesc,
+        width_bits: u8,
+    ) -> LineResult {
         let fetch_bits = fetch_width_bits(width_bits, self.hscrol_enabled);
         let bytes = adjust_bytes_for_width(desc.bytes_per_line, fetch_bits);
         let pf_width = playfield_width_cc(width_bits);
 
         // Player/missile DMA
-        let (player_data, missile_data, pm_active) = self.fetch_pm_data(ram);
+        let (player_data, missile_data, pm_active) = self.fetch_pm_data(mem);
 
         let mut playfield = if desc.char_mode {
-            self.render_char_line(ram, desc, bytes)
+            self.render_char_line(mem, desc, bytes)
         } else {
-            self.render_bitmap_line(ram, desc, bytes)
+            self.render_bitmap_line(mem, desc, bytes)
         };
 
         // Modes 8, 9 and A draw pixels wider than a colour clock. Repeat each
@@ -832,7 +867,12 @@ impl Antic {
     }
 
     /// Render a character mode scan line.
-    fn render_char_line(&mut self, ram: &[u8], desc: &ModeDesc, bytes: u8) -> Vec<u8> {
+    fn render_char_line<M: AnticMemory + ?Sized>(
+        &mut self,
+        mem: &M,
+        desc: &ModeDesc,
+        bytes: u8,
+    ) -> Vec<u8> {
         let chbase_addr = u16::from(self.chbase) << 8;
         // CHACTL: bit 1 = inverse-video enable, bit 0 = blank, bit 2 = reflect.
         let inverse_video = self.chactl & 0x02 != 0;
@@ -858,7 +898,7 @@ impl Antic {
             let addr = chbase_addr
                 .wrapping_add(glyph.wrapping_mul(8))
                 .wrapping_add(u16::from(font_row));
-            ram[addr as usize & (ram.len() - 1)]
+            mem.read(addr)
         };
 
         for i in 0..count {
@@ -934,13 +974,17 @@ impl Antic {
     }
 
     /// Render a bitmap mode scan line.
-    fn render_bitmap_line(&mut self, ram: &[u8], desc: &ModeDesc, bytes: u8) -> Vec<u8> {
+    fn render_bitmap_line<M: AnticMemory + ?Sized>(
+        &mut self,
+        mem: &M,
+        desc: &ModeDesc,
+        bytes: u8,
+    ) -> Vec<u8> {
         let mut pixels = Vec::new();
 
         // Fetch playfield data bytes
         for i in 0..u16::from(bytes) {
-            let addr = self.memory_scan.wrapping_add(i) as usize & (ram.len() - 1);
-            let data = ram[addr];
+            let data = mem.read(self.memory_scan.wrapping_add(i));
 
             if desc.bits_per_pixel == 1 {
                 // 1 bit per pixel — 8 pixels per byte
@@ -971,7 +1015,7 @@ impl Antic {
     }
 
     /// Fetch player/missile DMA data if enabled.
-    fn fetch_pm_data(&mut self, ram: &[u8]) -> ([u8; 4], u8, bool) {
+    fn fetch_pm_data<M: AnticMemory + ?Sized>(&mut self, mem: &M) -> ([u8; 4], u8, bool) {
         let player_dma = self.dmactl & 0x08 != 0;
         let missile_dma = self.dmactl & 0x04 != 0;
         let single_line = self.dmactl & 0x10 != 0;
@@ -1001,8 +1045,7 @@ impl Antic {
         if missile_dma {
             // Missiles: base + $180 (single) or $C0 (double) + line
             let offset = if single_line { 0x0300 } else { 0x0180 };
-            let addr = pm_base.wrapping_add(offset).wrapping_add(line) as usize;
-            missile_data = ram[addr & (ram.len() - 1)];
+            missile_data = mem.read(pm_base.wrapping_add(offset).wrapping_add(line));
             self.dma_cycles += 1;
         }
 
@@ -1015,8 +1058,8 @@ impl Antic {
                 } else {
                     0x0200 + p * 0x0080
                 };
-                let addr = pm_base.wrapping_add(offset).wrapping_add(line) as usize;
-                player_data[p as usize] = ram[addr & (ram.len() - 1)];
+                let addr = pm_base.wrapping_add(offset).wrapping_add(line);
+                player_data[p as usize] = mem.read(addr);
             }
             self.dma_cycles += 4;
         }
@@ -1269,7 +1312,7 @@ mod tests {
         let mut antic = Antic::new(AnticRegion::Ntsc);
         antic.scan_line = VISIBLE_END;
 
-        antic.process_line(&ram);
+        antic.process_line(&ram[..]);
 
         assert_eq!(antic.read(0x0F) & 0x40, 0x40);
         assert!(!antic.take_vbi(), "NMIEN must still gate the NMI request");
@@ -1287,7 +1330,7 @@ mod tests {
         antic.row_end = 1;
         antic.dl_active = true;
 
-        antic.process_line(&ram);
+        antic.process_line(&ram[..]);
 
         assert_eq!(antic.read(0x0F) & 0x80, 0x80);
         assert!(!antic.take_dli(), "NMIEN must still gate the NMI request");
@@ -1313,7 +1356,7 @@ mod tests {
         antic.mode_line = 0;
         antic.dl_active = false;
 
-        let result = antic.process_line(&ram);
+        let result = antic.process_line(&ram[..]);
         assert_eq!(result.mode, AnticMode::Blank);
         // Should set up 3 blank lines
         assert_eq!(antic.row_end, 2);
@@ -1337,7 +1380,7 @@ mod tests {
         antic.write(0x03, 0x40);
         antic.scan_line = VISIBLE_START;
 
-        let result = antic.process_line(&ram);
+        let result = antic.process_line(&ram[..]);
         assert_eq!(result.mode, AnticMode::ModeD);
         assert!(!result.playfield.is_empty());
 
@@ -1366,7 +1409,7 @@ mod tests {
         antic.write(0x03, 0x40);
         antic.scan_line = VISIBLE_START;
 
-        let result = antic.process_line(&ram);
+        let result = antic.process_line(&ram[..]);
         assert_eq!(result.mode, AnticMode::ModeF);
         assert!(!result.playfield.is_empty());
 
@@ -1404,7 +1447,7 @@ mod tests {
         antic.write(0x09, 0xE0); // CHBASE
         antic.scan_line = VISIBLE_START;
 
-        let result = antic.process_line(&ram);
+        let result = antic.process_line(&ram[..]);
         assert_eq!(result.mode, AnticMode::Mode2);
         assert!(!result.playfield.is_empty());
 
@@ -1429,7 +1472,7 @@ mod tests {
         ram[0xE010] = 0xFF;
 
         let pixels = antic.render_char_line(
-            &ram,
+            &ram[..],
             &mode_desc(0x03).expect("ANTIC mode 3 has a descriptor"),
             1,
         );
@@ -1448,7 +1491,7 @@ mod tests {
         antic.mode_line = 0;
         assert_eq!(
             antic.render_char_line(
-                &ram,
+                &ram[..],
                 &mode_desc(0x03).expect("ANTIC mode 3 has a descriptor"),
                 1,
             ),
@@ -1459,7 +1502,7 @@ mod tests {
         // 0, exposing the portion of the character stored for the descender.
         antic.mode_line = 8;
         let pixels = antic.render_char_line(
-            &ram,
+            &ram[..],
             &mode_desc(0x03).expect("ANTIC mode 3 has a descriptor"),
             1,
         );
@@ -1488,7 +1531,7 @@ mod tests {
         antic.write(0x09, 0xE0); // CHBASE
         antic.scan_line = VISIBLE_START;
 
-        let result = antic.process_line(&ram);
+        let result = antic.process_line(&ram[..]);
         assert_eq!(result.mode, AnticMode::Mode6);
 
         // Mode 6 is 8 px/char (1bpp font), not 4: the lit pixel takes the
@@ -1524,7 +1567,7 @@ mod tests {
         antic.write(0x09, 0xE0);
         antic.scan_line = VISIBLE_START;
 
-        let result = antic.process_line(&ram);
+        let result = antic.process_line(&ram[..]);
         assert_eq!(result.mode, AnticMode::Mode4);
 
         // 4 px/char (2bpp font). Pair value 3 → COLPF2 (index 3) for the
@@ -1554,7 +1597,7 @@ mod tests {
             antic.write(0x03, 0x40); // DLIST = $4000
             antic.scan_line = VISIBLE_START;
 
-            let result = antic.process_line(&ram);
+            let result = antic.process_line(&ram[..]);
             let hires = matches!(
                 result.mode,
                 AnticMode::Mode2 | AnticMode::Mode3 | AnticMode::ModeF
@@ -1587,7 +1630,7 @@ mod tests {
         antic.write(0x03, 0x40);
         antic.scan_line = VISIBLE_START;
 
-        let result = antic.process_line(&ram);
+        let result = antic.process_line(&ram[..]);
         assert_eq!(result.mode, AnticMode::Mode8);
         assert_eq!(result.playfield[0..4], [1, 1, 1, 1]);
         assert_eq!(result.playfield[4..8], [2, 2, 2, 2]);
@@ -1614,7 +1657,7 @@ mod tests {
         antic.write(0x03, 0x40);
         antic.scan_line = VISIBLE_START;
 
-        let budget = u16::from(antic.process_line(&ram).dma_cycles);
+        let budget = u16::from(antic.process_line(&ram[..]).dma_cycles);
         assert!(
             budget > CYCLES_HSYNC,
             "budget {budget} should exceed the line"
@@ -1644,7 +1687,7 @@ mod tests {
         antic.write(0x04, hscrol);
         antic.scan_line = VISIBLE_START;
 
-        antic.process_line(&ram)
+        antic.process_line(&ram[..])
     }
 
     /// A scrolled line fetches one width level wider than DMACTL asks for, so
@@ -1744,7 +1787,7 @@ mod tests {
             let mut rows: Vec<u32> = Vec::new();
             for _ in 0..32 {
                 let before = antic.dlist;
-                antic.process_line(&ram);
+                antic.process_line(&ram[..]);
                 if antic.dlist != before {
                     rows.push(0);
                 }
@@ -1783,7 +1826,7 @@ mod tests {
 
         // The region's first line starts at row 3, so the lit row is the very
         // first scan line rather than the fourth.
-        let line = antic.process_line(&ram);
+        let line = antic.process_line(&ram[..]);
         assert_eq!(line.playfield[0..8], [1; 8]);
     }
 
@@ -1803,7 +1846,7 @@ mod tests {
         antic.write(0x0E, 0xC0); // Enable VBI + DLI
         antic.scan_line = VISIBLE_START;
 
-        let result = antic.process_line(&ram);
+        let result = antic.process_line(&ram[..]);
         assert_eq!(result.mode, AnticMode::Blank);
         // dlist should be reset to $4000
         assert_eq!(antic.dlist, 0x4000);
@@ -1824,7 +1867,7 @@ mod tests {
         antic.write(0x03, 0x40);
         antic.scan_line = VISIBLE_START;
 
-        let result = antic.process_line(&ram);
+        let result = antic.process_line(&ram[..]);
         // refresh(9) + DL(1) + LMS(2) + playfield(40) = 52
         assert_eq!(result.dma_cycles, 52);
     }
@@ -1835,14 +1878,14 @@ mod tests {
         antic_ntsc.scan_line = 261;
         let ram = make_ram();
 
-        antic_ntsc.process_line(&ram);
+        antic_ntsc.process_line(&ram[..]);
         assert!(antic_ntsc.frame_complete());
         assert_eq!(antic_ntsc.scan_line(), 0);
 
         let mut antic_pal = Antic::new(AnticRegion::Pal);
         antic_pal.scan_line = 311;
 
-        antic_pal.process_line(&ram);
+        antic_pal.process_line(&ram[..]);
         assert!(antic_pal.frame_complete());
         assert_eq!(antic_pal.scan_line(), 0);
     }
@@ -1853,7 +1896,7 @@ mod tests {
         antic.scan_line = 250;
         let ram = make_ram();
 
-        antic.process_line(&ram);
+        antic.process_line(&ram[..]);
         assert!(!antic.frame_complete());
         assert_eq!(antic.scan_line(), 251);
     }
@@ -1873,7 +1916,7 @@ mod tests {
         antic.write(0x03, 0x40);
         antic.scan_line = VISIBLE_START;
 
-        let result = antic.process_line(&ram);
+        let result = antic.process_line(&ram[..]);
         assert!(result.pm_dma);
         // refresh(9) + DL(1) + LMS(2) + playfield(40) + missile(1) + players(4) + overhead(2) = 59
         assert_eq!(result.dma_cycles, 59);

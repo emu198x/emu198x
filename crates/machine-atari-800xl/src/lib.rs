@@ -91,6 +91,64 @@ impl Atari800xlRegion {
     }
 }
 
+/// The address space ANTIC fetches through, borrowed from the machine's live
+/// fields rather than copied.
+///
+/// ANTIC reads the display list, screen data, player/missile graphics and —
+/// critically — the GR.0 character set through here. That character set lives
+/// at `$E000` inside the OS ROM, so bare RAM would make every normal glyph
+/// fetch read 0: only the inverse-video cursor cell (`!0 = $FF`) would paint.
+/// Overlay precedence mirrors [`Atari800xl::mem_read`]: cart over BASIC at
+/// `$A000-$BFFF`.
+///
+/// `$D000-$D7FF` reads as RAM. ANTIC on real hardware would drive the address
+/// bus into the register page like anything else, but no display fetches data
+/// from there and modelling the register reads would mean giving ANTIC a path
+/// into chips it does not otherwise touch.
+struct AnticView<'a> {
+    ram: &'a [u8],
+    os_rom: Option<&'a [u8]>,
+    basic_rom: Option<&'a [u8]>,
+    cart: Option<&'a Cartridge>,
+    portb: u8,
+}
+
+impl atari_antic::AnticMemory for AnticView<'_> {
+    fn read(&self, addr: u16) -> u8 {
+        let os_on = self.portb & 0x01 != 0;
+        let basic_on = self.portb & 0x02 == 0;
+        let self_test = self.portb & 0x80 == 0;
+        let os_byte = |offset: usize| {
+            self.os_rom
+                .map_or(0xFF, |os| os.get(offset).copied().unwrap_or(0xFF))
+        };
+
+        match addr {
+            // Self-test RAM/ROM window, which maps to OS ROM $1000-$17FF.
+            0x5000..=0x57FF if self_test && os_on && self.os_rom.is_some() => {
+                os_byte(0x1000 + (addr - 0x5000) as usize)
+            }
+            0x8000..=0xBFFF => {
+                if let Some(cart) = self.cart
+                    && cart.covers(addr)
+                {
+                    return cart.read(addr);
+                }
+                if basic_on
+                    && addr >= 0xA000
+                    && let Some(basic) = self.basic_rom
+                {
+                    return basic.get((addr - 0xA000) as usize).copied().unwrap_or(0xFF);
+                }
+                self.ram[addr as usize]
+            }
+            0xC000..=0xCFFF if os_on && self.os_rom.is_some() => os_byte((addr - 0xC000) as usize),
+            0xD800..=0xFFFF if os_on && self.os_rom.is_some() => os_byte((addr - 0xC000) as usize),
+            _ => self.ram[addr as usize],
+        }
+    }
+}
+
 /// Atari 800XL machine.
 #[derive(Serialize, Deserialize)]
 pub struct Atari800xl {
@@ -100,11 +158,6 @@ pub struct Atari800xl {
     pokey: Pokey,
     pia: Pia6520,
     ram: Vec<u8>,
-    /// ANTIC's view of the address space: RAM with the OS / BASIC / self-test
-    /// ROM overlays baked in (the GR.0 character set lives at $E000 in the OS
-    /// ROM). Rebuilt each frame by [`Self::sync_antic_mem`]; ANTIC DMA reads
-    /// from here, never bare RAM.
-    antic_mem: Vec<u8>,
     os_rom: Option<Vec<u8>>,
     basic_rom: Option<Vec<u8>>,
     cart: Option<Cartridge>,
@@ -178,7 +231,6 @@ impl Atari800xl {
             pokey,
             pia,
             ram,
-            antic_mem: vec![0u8; 65536],
             os_rom,
             basic_rom,
             cart,
@@ -201,9 +253,6 @@ impl Atari800xl {
     pub fn run_frame(&mut self) -> u64 {
         let start = self.master_clock;
         let target = start + self.clocks_per_frame;
-        // Refresh ANTIC's ROM-overlaid memory view for this frame so its DMA
-        // (notably the $E000 character set) reads the OS ROM, not bare RAM.
-        self.sync_antic_mem();
         // Paint the canonical TV-visible border (COLBK) at frame start.
         self.gtia.fill_border();
         while self.master_clock < target {
@@ -299,75 +348,22 @@ impl Atari800xl {
         }
     }
 
-    /// Rebuild ANTIC's view of memory: RAM with the currently banked-in ROM
-    /// overlays applied. ANTIC fetches the display list, screen data, P/M
-    /// graphics, and — critically — the GR.0 character set from this image.
-    /// The character set lives at $E000 inside the OS ROM, so bare RAM would
-    /// make every normal glyph fetch read 0 (a blank bitmap): only the
-    /// inverse-video cursor cell (`!0 = $FF`) would paint, which is exactly how
-    /// the bug presented. The overlay precedence mirrors [`Self::mem_read`]
-    /// (cart over BASIC at $A000-$BFFF). Mid-frame PORTB bank switches are not
-    /// reflected until the next frame; no 800XL display relies on that.
-    fn sync_antic_mem(&mut self) {
-        // Take the buffer so the ROM fields can be borrowed while we fill it.
-        let mut buf = std::mem::take(&mut self.antic_mem);
-        buf.copy_from_slice(&self.ram);
-
-        let portb = self.effective_portb();
-        let os_on = portb & 0x01 != 0;
-        let basic_on = portb & 0x02 == 0;
-        let self_test = portb & 0x80 == 0;
-
-        // Self-test RAM/ROM window $5000-$57FF maps to OS ROM $1000-$17FF.
-        if self_test
-            && os_on
-            && let Some(ref os) = self.os_rom
-        {
-            for (i, slot) in buf[0x5000..0x5800].iter_mut().enumerate() {
-                *slot = os.get(0x1000 + i).copied().unwrap_or(0xFF);
-            }
-        }
-        // Cartridge $8000-$BFFF (takes precedence over BASIC).
-        if let Some(ref cart) = self.cart {
-            for (i, slot) in buf[0x8000..=0xBFFF].iter_mut().enumerate() {
-                let addr = 0x8000 + i as u16;
-                if cart.covers(addr) {
-                    *slot = cart.read(addr);
-                }
-            }
-        }
-        // BASIC ROM $A000-$BFFF where no cartridge covers it.
-        if basic_on && let Some(ref basic) = self.basic_rom {
-            for (i, slot) in buf[0xA000..=0xBFFF].iter_mut().enumerate() {
-                let addr = 0xA000 + i as u16;
-                let covered = self.cart.as_ref().is_some_and(|c| c.covers(addr));
-                if !covered {
-                    *slot = basic.get(i).copied().unwrap_or(0xFF);
-                }
-            }
-        }
-        // OS ROM at $C000-$CFFF and $D800-$FFFF (the $D000-$D7FF I/O hole stays
-        // RAM — ANTIC never fetches display data from the register page).
-        if os_on && let Some(ref os) = self.os_rom {
-            for (i, slot) in buf[0xC000..0xD000].iter_mut().enumerate() {
-                *slot = os.get(i).copied().unwrap_or(0xFF);
-            }
-            for (i, slot) in buf[0xD800..=0xFFFF].iter_mut().enumerate() {
-                // $D800 is OS ROM offset $1800 ($D800 - $C000).
-                *slot = os.get(0x1800 + i).copied().unwrap_or(0xFF);
-            }
-        }
-
-        self.antic_mem = buf;
-    }
-
     /// Start a scan line: ANTIC fetches its display data and the GTIA begins
     /// beam compositing for it. Player/missile DMA and the DLI/VBI NMI are
     /// applied here, and the per-line DMA budget that gates the CPU is set.
     /// The actual pixels are composited incrementally as the beam advances
     /// (`composite_to_beam`), then finished with the PM overlay at line end.
     fn start_scan_line(&mut self) {
-        let result = self.antic.process_line(&self.antic_mem);
+        // Borrow the memory ANTIC fetches through directly from the fields it
+        // covers, so `self.antic` can be borrowed mutably alongside it.
+        let view = AnticView {
+            ram: &self.ram,
+            os_rom: self.os_rom.as_deref(),
+            basic_rom: self.basic_rom.as_deref(),
+            cart: self.cart.as_ref(),
+            portb: self.pia.port_b_output() | !self.pia.ddr_b(),
+        };
+        let result = self.antic.process_line(&view);
         if result.pm_dma {
             // GRACTL decides whether this DMA reaches the graphics registers,
             // and VDELAY whether an object is held back a line; both live in
@@ -866,23 +862,6 @@ mod tests {
         p.extend_from_slice(&[0xA9, 0x00, 0x8D, 0x18, 0xD0]); // COLPF2 = black
         p.extend_from_slice(&[0xA9, 0x00, 0x8D, 0x1A, 0xD0]); // COLBK = black
 
-        // Wait several frames before switching display DMA on. ANTIC reads a
-        // copy of RAM that the machine refreshes once a frame, so a display
-        // list written this frame is not visible to it until the next one —
-        // and with DMA already running it would walk the stale copy and lose
-        // its place, never reaching the JVB that resets the pointer. Real
-        // ANTIC fetches live; the snapshot is tracked as #1384.
-        p.extend_from_slice(&[0xA0, 0x60]); // LDY #$60
-        let outer = p.len();
-        p.extend_from_slice(&[0xA2, 0x00]); // LDX #$00
-        let inner = p.len();
-        p.push(0xCA); // DEX
-        p.push(0xD0); // BNE inner
-        p.push(((inner as isize - (p.len() as isize + 1)) as i8) as u8);
-        p.push(0x88); // DEY
-        p.push(0xD0); // BNE outer
-        p.push(((outer as isize - (p.len() as isize + 1)) as i8) as u8);
-
         p.extend_from_slice(&[0xA9, hscrol, 0x8D, 0x04, 0xD4]);
         p.extend_from_slice(&[0xA9, vscrol, 0x8D, 0x05, 0xD4]);
         p.extend_from_slice(&[0xA9, 0x00, 0x8D, 0x02, 0xD4]); // DLISTL
@@ -912,10 +891,35 @@ mod tests {
     fn run_scroll_cart(cart: Vec<u8>) -> Atari800xl {
         let mut sys =
             Atari800xl::new(None, None, Some(cart), Atari800xlRegion::Ntsc, false).expect("init");
-        for _ in 0..30 {
+        for _ in 0..3 {
             sys.run_frame();
         }
         sys
+    }
+
+    /// ANTIC fetches through the machine's live memory, so a program can
+    /// build a display list and switch display DMA on in the same frame and
+    /// see the result on that frame. ANTIC used to read a copy of RAM taken
+    /// once at frame start: the display list was still zeros in that copy, so
+    /// ANTIC walked blank instructions to the bottom of the screen, never
+    /// reached the JVB that resets the pointer, and lost its place for good.
+    #[test]
+    fn a_display_list_built_this_frame_is_visible_on_this_frame() {
+        let mut sys = Atari800xl::new(
+            None,
+            None,
+            Some(scroll_cart(0x4F, 0x0F, 0, 0, 0x04, 0x01, 0xFF)),
+            Atari800xlRegion::Ntsc,
+            false,
+        )
+        .expect("init");
+
+        sys.run_frame();
+
+        assert!(
+            !lit_pixels(&sys).is_empty(),
+            "the first frame should already show the playfield"
+        );
     }
 
     /// HSCROL wired all the way through: one lit byte of a scrolled mode F
