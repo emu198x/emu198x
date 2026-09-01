@@ -1693,6 +1693,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "format-jupiter-ace-ace"
+version = "0.15.0"
+
+[[package]]
 name = "format-nintendo-game-boy-cartridge"
 version = "0.15.0"
 dependencies = [
@@ -4245,6 +4249,7 @@ version = "0.15.0"
 dependencies = [
  "emu198x-shell",
  "emu198x-zilog-z80",
+ "format-jupiter-ace-ace",
  "machine-jupiter-ace",
  "postcard",
  "serde",

@@ -5,7 +5,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process;
 
-use emu198x_shell::{HeadlessScript, HeadlessSession, MediaSet, ScriptObservation};
+use emu198x_shell::{
+    HeadlessScript, HeadlessSession, MediaImage, MediaKind, MediaSet, ScriptObservation,
+};
 use runtime_jupiter_ace::{JupiterAceRuntime, JupiterAceSessionQueryProvider, Model};
 use serde_json::json;
 
@@ -25,6 +27,7 @@ ROM (required):
 
 Hardware:
     --ram-kb N                 base RAM in KB (3 / 16 / 48) [default: 3]
+    --ace PATH                 restore an ACE32 .ace snapshot before running
     --frames N                 frames to run [default: 0]
 
 Capture:
@@ -44,6 +47,7 @@ struct Cli {
     screenshot: Option<PathBuf>,
     audio_capture: Option<PathBuf>,
     script: Option<PathBuf>,
+    ace: Option<PathBuf>,
 }
 
 impl Default for Cli {
@@ -55,6 +59,7 @@ impl Default for Cli {
             screenshot: None,
             audio_capture: None,
             script: None,
+            ace: None,
         }
     }
 }
@@ -81,6 +86,7 @@ fn parse_cli<I: IntoIterator<Item = String>>(args: I) -> Cli {
             "--audio-capture" => {
                 cli.audio_capture = Some(PathBuf::from(next_arg(&mut iter, "--audio-capture")));
             }
+            "--ace" => cli.ace = Some(PathBuf::from(next_arg(&mut iter, "--ace"))),
             "--script" => cli.script = Some(PathBuf::from(next_arg(&mut iter, "--script"))),
             "--headless" => {}
             "--help" | "-h" => {
@@ -166,7 +172,17 @@ fn run_cli(cli: Cli) -> Result<serde_json::Value, String> {
         FRAME_TICKS,
         JupiterAceSessionQueryProvider,
     );
-    let media = MediaSet::new();
+    let ace_bytes = cli
+        .ace
+        .as_deref()
+        .map(|path| {
+            fs::read(path).map_err(|err| format!("failed to read --ace {}: {err}", path.display()))
+        })
+        .transpose()?;
+    let mut media = MediaSet::new();
+    if let Some(bytes) = ace_bytes.as_deref() {
+        media.push(MediaImage::new("snapshot-1", MediaKind::Snapshot, bytes));
+    }
     session
         .prepare(&media, &[])
         .map_err(|err| format!("machine preparation failed: {err}"))?;
