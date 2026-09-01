@@ -9,9 +9,9 @@ repository.workspace = true
 
 [dependencies]
 emu198x-mos-6502 = { path = "../emu198x-mos-6502", version = "0.6.0" }
-mos-pia-6520 = { path = "../mos-pia-6520", version = "0.17.0" }
-mos-via-6522 = { path = "../mos-via-6522", version = "0.17.0" }
-motorola-6845 = { path = "../motorola-6845", version = "0.17.0" }
+mos-pia-6520 = { path = "../mos-pia-6520", version = "0.18.0" }
+mos-via-6522 = { path = "../mos-via-6522", version = "0.18.0" }
+motorola-6845 = { path = "../motorola-6845", version = "0.18.0" }
 serde = { workspace = true }
 serde-big-array = { workspace = true }
 

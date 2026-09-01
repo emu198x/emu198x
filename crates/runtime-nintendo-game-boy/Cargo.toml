@@ -8,16 +8,16 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-common-nintendo-game-boy = { path = "../common-nintendo-game-boy", version = "0.17.0" }
-emu198x-shell = { path = "../emu198x-shell", version = "0.17.0" }
-machine-nintendo-game-boy = { path = "../machine-nintendo-game-boy", version = "0.17.0" }
-sharp-lr35902 = { path = "../sharp-lr35902", version = "0.17.0" }
+common-nintendo-game-boy = { path = "../common-nintendo-game-boy", version = "0.18.0" }
+emu198x-shell = { path = "../emu198x-shell", version = "0.18.0" }
+machine-nintendo-game-boy = { path = "../machine-nintendo-game-boy", version = "0.18.0" }
+sharp-lr35902 = { path = "../sharp-lr35902", version = "0.18.0" }
 postcard = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 
 [dev-dependencies]
-emu198x-test-skip = { path = "../emu198x-test-skip", version = "0.17.0" }
+emu198x-test-skip = { path = "../emu198x-test-skip", version = "0.18.0" }
 
 [lints]
 workspace = true

@@ -8,14 +8,14 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-gi-ay-3-8912 = { path = "../gi-ay-3-8912", version = "0.17.0" }
-intel-8255 = { path = "../intel-8255", version = "0.17.0" }
-ti-tms9918 = { path = "../ti-tms9918", version = "0.17.0" }
+gi-ay-3-8912 = { path = "../gi-ay-3-8912", version = "0.18.0" }
+intel-8255 = { path = "../intel-8255", version = "0.18.0" }
+ti-tms9918 = { path = "../ti-tms9918", version = "0.18.0" }
 emu198x-zilog-z80 = { path = "../emu198x-zilog-z80", version = "0.6.0" }
 serde = { workspace = true }
 
 [dev-dependencies]
-emu198x-test-skip = { path = "../emu198x-test-skip", version = "0.17.0" }
+emu198x-test-skip = { path = "../emu198x-test-skip", version = "0.18.0" }
 postcard = { workspace = true }
 
 [lints]

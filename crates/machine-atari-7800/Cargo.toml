@@ -8,11 +8,11 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-atari-maria = { path = "../atari-maria", version = "0.17.0" }
-atari-pokey = { path = "../atari-pokey", version = "0.17.0" }
-atari-tia = { path = "../atari-tia", version = "0.17.0" }
+atari-maria = { path = "../atari-maria", version = "0.18.0" }
+atari-pokey = { path = "../atari-pokey", version = "0.18.0" }
+atari-tia = { path = "../atari-tia", version = "0.18.0" }
 emu198x-mos-6502 = { path = "../emu198x-mos-6502", version = "0.6.0" }
-mos-riot-6532 = { path = "../mos-riot-6532", version = "0.17.0" }
+mos-riot-6532 = { path = "../mos-riot-6532", version = "0.18.0" }
 serde = { workspace = true }
 serde-big-array = { workspace = true }
 
