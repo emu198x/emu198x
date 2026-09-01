@@ -33,7 +33,7 @@ fn expanded_basic_prg_selects_8k_loads_and_queues_run() {
     media.push(MediaImage::new("program-1", MediaKind::Program, &prg));
     session.prepare(&media, &[]).expect("PRG is accepted");
 
-    assert_eq!(session.machine().ram_expansion_kb(), 8);
+    assert_eq!(session.machine().ram_expansion_kb(), 11);
     session.run_frames(151).expect("boot and delayed autoload");
     let machine = session.machine().machine().expect("machine");
     assert_eq!(machine.peek(0x1201), 0x0B);
@@ -70,5 +70,52 @@ fn expanded_basic_prg_executes_its_sys_entry_point() {
         machine.peek(0x0340),
         0x2A,
         "SYS entry point did not execute"
+    );
+}
+
+#[test]
+#[ignore = "FIXTURE: needs VIC-20 ROM set — run with --ignored"]
+fn expanded_basic_prg_loads_through_the_top_of_the_block_1_expansion() {
+    // #1349: $1201 inference selected 3 KiB low + 5 KiB high, so RAM stopped at
+    // $33FF and every byte of a larger program above it read back as open bus.
+    const MARKER_ADDR: u16 = 0x3495;
+    const MARKER: u8 = 0x5A;
+
+    let (Some(kernal), Some(basic), Some(char_rom)) =
+        (rom("kernal.rom"), rom("basic.rom"), rom("char.rom"))
+    else {
+        panic!("VIC-20 ROM set not found at ~/.emu198x/roms/commodore-vic-20/");
+    };
+    let runtime =
+        Vic20Runtime::new(Model::Vic20Pal, kernal, basic, char_rom).expect("build runtime");
+    let mut session =
+        HeadlessSession::new_with_query_provider(runtime, 71 * 312, Vic20SessionQueryProvider);
+
+    // 10 SYS4624, a $0000 end-of-program link, then filler up to the marker.
+    let mut prg = vec![
+        0x01, 0x12, // load address $1201
+        0x0B, 0x12, 0x0A, 0x00, 0x9E, b'4', b'6', b'2', b'4', 0x00, // 10 SYS4624
+        0x00, 0x00, // end of program
+    ];
+    prg.resize(2 + usize::from(MARKER_ADDR - 0x1201), 0xAA);
+    prg.push(MARKER);
+
+    let mut media = MediaSet::new();
+    media.push(MediaImage::new("program-1", MediaKind::Program, &prg));
+    session.prepare(&media, &[]).expect("PRG is accepted");
+
+    assert_eq!(
+        session.machine().ram_expansion_kb(),
+        11,
+        "$1201 needs the full $2000-$3FFF block, not 5 KiB of it"
+    );
+    session.run_frames(151).expect("boot and delayed autoload");
+
+    let machine = session.machine().machine().expect("machine");
+    assert_eq!(machine.peek(0x1201), 0x0B, "program start");
+    assert_eq!(
+        machine.peek(MARKER_ADDR),
+        MARKER,
+        "byte above $33FF was dropped instead of loaded"
     );
 }

@@ -292,6 +292,13 @@ impl Vic20Runtime {
     /// Minimum installed RAM configuration selected by the three canonical
     /// VIC-20 BASIC load addresses. An arbitrary machine-code load keeps the
     /// caller's chosen configuration; a PRG gives no other expansion metadata.
+    ///
+    /// `Vic20::new` reads the returned value as `3 + N`, where `N` is the KiB
+    /// of high expansion at `$2000`. `$1201` is the BASIC start for every
+    /// block-1 expansion from 8 KiB upwards, so it selects `3 + 8 = 11` — the
+    /// full `$2000-$3FFF` block. A caller who has already asked for more than
+    /// that keeps it: 16 KiB and 24 KiB expansions share the same BASIC start,
+    /// and reducing them would truncate the program being loaded.
     fn expansion_for_prg(bytes: &[u8], current: usize) -> Result<usize, String> {
         if bytes.len() < 3 {
             return Err("PRG image too short".into());
@@ -300,7 +307,7 @@ impl Vic20Runtime {
         Ok(match load {
             0x0401 => 3,
             0x1001 => 0,
-            0x1201 => 8,
+            0x1201 => current.max(11),
             _ => current,
         })
     }
@@ -563,12 +570,37 @@ mod tests {
 
     #[test]
     fn program_media_selects_the_minimum_expansion_from_its_load_address() {
-        for (load, expected) in [(0x0401u16, 3), (0x1001, 0), (0x1201, 8)] {
+        for (load, expected) in [(0x0401u16, 3), (0x1001, 0), (0x1201, 11)] {
             let mut runtime = Vic20Runtime::blank(Model::Vic20Ntsc);
             let [lo, hi] = load.to_le_bytes();
             load_program(&mut runtime, &[lo, hi, 0x00]).expect("valid PRG");
             assert_eq!(runtime.ram_expansion_kb, expected, "load ${load:04X}");
             assert_eq!(runtime.pending_prg.as_deref(), Some(&[lo, hi, 0x00][..]));
+        }
+    }
+
+    #[test]
+    fn expanded_basic_prg_keeps_an_expansion_larger_than_the_minimum() {
+        // 16 KiB and 24 KiB expansions share the $1201 BASIC start with 8 KiB,
+        // so inference must not pull an explicit choice back down to 11.
+        for requested in [11usize, 19, 27] {
+            let mut runtime = Vic20Runtime::blank(Model::Vic20Ntsc);
+            runtime.set_ram_expansion_kb(requested);
+            load_program(&mut runtime, &[0x01, 0x12, 0x00]).expect("valid PRG");
+            assert_eq!(
+                runtime.ram_expansion_kb, requested,
+                "requested {requested} KiB"
+            );
+        }
+    }
+
+    #[test]
+    fn expanded_basic_prg_raises_an_expansion_below_the_minimum() {
+        for requested in [0usize, 3, 8] {
+            let mut runtime = Vic20Runtime::blank(Model::Vic20Ntsc);
+            runtime.set_ram_expansion_kb(requested);
+            load_program(&mut runtime, &[0x01, 0x12, 0x00]).expect("valid PRG");
+            assert_eq!(runtime.ram_expansion_kb, 11, "requested {requested} KiB");
         }
     }
 
