@@ -5,7 +5,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process;
 
-use emu198x_shell::{HeadlessScript, HeadlessSession, MediaSet, ScriptObservation};
+use emu198x_shell::{
+    HeadlessScript, HeadlessSession, MediaImage, MediaKind, MediaSet, ScriptObservation,
+};
 use runtime_commodore_pet::{Model, PetRuntime, PetSessionQueryProvider};
 use serde_json::json;
 
@@ -24,6 +26,7 @@ ROMs (all required):
 
 Display:
     --columns N                40 or 80 [default: 40]
+    --prg PATH                 load a .prg after boot and auto-RUN it
     --frames N                 frames to run [default: 0]
 
 Capture:
@@ -46,6 +49,7 @@ struct Cli {
     screenshot: Option<PathBuf>,
     audio_capture: Option<PathBuf>,
     script: Option<PathBuf>,
+    prg: Option<PathBuf>,
 }
 
 fn parse_cli<I: IntoIterator<Item = String>>(args: I) -> Cli {
@@ -75,6 +79,7 @@ fn parse_cli<I: IntoIterator<Item = String>>(args: I) -> Cli {
             "--audio-capture" => {
                 cli.audio_capture = Some(PathBuf::from(next_arg(&mut iter, "--audio-capture")));
             }
+            "--prg" => cli.prg = Some(PathBuf::from(next_arg(&mut iter, "--prg"))),
             "--script" => cli.script = Some(PathBuf::from(next_arg(&mut iter, "--script"))),
             "--headless" => {}
             "--help" | "-h" => {
@@ -168,7 +173,17 @@ fn run_cli(cli: Cli) -> Result<serde_json::Value, String> {
         .map_err(|err| format!("failed to construct runtime: {err}"))?;
     let mut session =
         HeadlessSession::new_with_query_provider(runtime, FRAME_TICKS, PetSessionQueryProvider);
-    let media = MediaSet::new();
+    let prg_bytes = cli
+        .prg
+        .as_deref()
+        .map(|path| {
+            fs::read(path).map_err(|err| format!("failed to read --prg {}: {err}", path.display()))
+        })
+        .transpose()?;
+    let mut media = MediaSet::new();
+    if let Some(bytes) = prg_bytes.as_deref() {
+        media.push(MediaImage::new("program-1", MediaKind::Program, bytes));
+    }
     session
         .prepare(&media, &[])
         .map_err(|err| format!("machine preparation failed: {err}"))?;

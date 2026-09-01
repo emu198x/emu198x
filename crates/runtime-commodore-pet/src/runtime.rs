@@ -2,8 +2,8 @@
 
 use emu198x_shell::{
     AudioPacket, CapabilitySet, ControlCommand, FirmwareSet, FramePacket, HostIo, MachineCore,
-    MachineError, MachineProfile, MachineTime, MediaSet, PixelFormat, ResetKind, RunResult,
-    StopReason,
+    MachineError, MachineProfile, MachineTime, MediaKind, MediaSet, PixelFormat, ResetKind,
+    RunResult, StopReason,
 };
 use machine_commodore_pet::Pet;
 
@@ -19,6 +19,32 @@ const BASIC_SIZE: usize = 8 * 1024;
 const EDITOR_SIZE: usize = 2 * 1024;
 const CHAR_SIZE: usize = 4 * 1024;
 const AUDIO_SAMPLE_RATE: u32 = 48_000;
+
+/// Frames of boot before a queued PRG is injected. The KERNAL reaches a usable
+/// editor well inside this; the machine crate's keyboard tests use the same
+/// 120-frame budget before typing.
+const PRG_AUTOLOAD_FRAME: u64 = 120;
+
+// BASIC's zero-page pointers on the Rev 3 (BASIC 2.0/4.0) ROMs this runtime
+// models. They are *not* the C64/VIC-20 addresses — those sit two bytes further
+// on — and the keyboard buffer moved too: $0277 is the C64's buffer but the
+// ninth byte of the PET's.
+//
+// Source: Commodore, *PET/CBM Personal Computer Guide* (1980), Table 6-2 "PET
+// Memory Map (Rev. 3 ROMs)", distilled in
+// reference/by-system/commodore-pet/pet-reference.md.
+/// Start of BASIC text; the user program area begins at $0401.
+const BASIC_TXTTAB: u16 = 0x0028;
+/// Start of variables, end of variables, end of arrays — all set just past a
+/// loaded program so RUN and variable allocation agree about where it ends.
+const BASIC_VARTAB: u16 = 0x002A;
+const BASIC_ARYTAB: u16 = 0x002C;
+const BASIC_STREND: u16 = 0x002E;
+/// Keyboard buffer (10 bytes) and the count of characters in it.
+const KEYBOARD_BUFFER: u16 = 0x026F;
+const KEYBOARD_COUNT: u16 = 0x009E;
+/// The buffer holds ten characters; a longer launch command would wrap.
+const KEYBOARD_BUFFER_LEN: usize = 10;
 
 /// This machine's keyboard for the shared `press_key` / `type_string` tools:
 /// the standard layout, backed by this machine's own key-name resolver so a
@@ -40,6 +66,8 @@ pub struct PetRuntime {
     rgba_framebuffer: Vec<u8>,
     rgba_width: u32,
     rgba_height: u32,
+    /// PRG image waiting for the machine to finish booting.
+    pending_prg: Option<Vec<u8>>,
 }
 
 impl PetRuntime {
@@ -57,6 +85,7 @@ impl PetRuntime {
             rgba_framebuffer: Vec::new(),
             rgba_width: 0,
             rgba_height: 0,
+            pending_prg: None,
         }
     }
 
@@ -165,6 +194,58 @@ impl PetRuntime {
         Ok(())
     }
 
+    /// Inject a `.prg` image into RAM and queue `RUN` so it starts itself.
+    ///
+    /// The first two bytes are the little-endian load address; the rest is
+    /// copied there. BASIC's start-of-variables, end-of-variables and
+    /// end-of-arrays pointers are then set just past the program, and `RUN` is
+    /// placed in the KERNAL's keyboard buffer so the editor runs it on reaching
+    /// READY.
+    ///
+    /// The machine must already be booted to READY. A program loading at
+    /// `$0401` — the ordinary case, since that is where PET BASIC text starts —
+    /// also has TXTTAB pointed at it, so a PRG saved from a machine with a
+    /// different bottom of memory still runs.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when no machine is loaded, the image is too short, or
+    /// the launch command would not fit the ten-character keyboard buffer.
+    pub fn autoload_prg(&mut self, bytes: &[u8]) -> Result<(), String> {
+        let machine = self.machine.as_mut().ok_or("PET not initialised")?;
+        if bytes.len() < 3 {
+            return Err("PRG image too short".into());
+        }
+        let load = u16::from(bytes[0]) | (u16::from(bytes[1]) << 8);
+        for (i, &byte) in bytes[2..].iter().enumerate() {
+            let offset = u16::try_from(i).map_err(|_| "PRG larger than 64 KB")?;
+            machine.poke(load.wrapping_add(offset), byte);
+        }
+        let body = u16::try_from(bytes.len() - 2).map_err(|_| "PRG larger than 64 KB")?;
+        let end = load.wrapping_add(body);
+
+        let [lo, hi] = load.to_le_bytes();
+        machine.poke(BASIC_TXTTAB, lo);
+        machine.poke(BASIC_TXTTAB + 1, hi);
+        let [lo, hi] = end.to_le_bytes();
+        for base in [BASIC_VARTAB, BASIC_ARYTAB, BASIC_STREND] {
+            machine.poke(base, lo);
+            machine.poke(base + 1, hi);
+        }
+
+        let command = b"RUN\r";
+        if command.len() > KEYBOARD_BUFFER_LEN {
+            return Err("launch command longer than the keyboard buffer".into());
+        }
+        for (i, &byte) in command.iter().enumerate() {
+            let offset = u16::try_from(i).map_err(|_| "launch command too long")?;
+            machine.poke(KEYBOARD_BUFFER + offset, byte);
+        }
+        let count = u8::try_from(command.len()).map_err(|_| "launch command too long")?;
+        machine.poke(KEYBOARD_COUNT, count);
+        Ok(())
+    }
+
     #[must_use]
     pub fn machine(&self) -> Option<&Pet> {
         self.machine.as_ref()
@@ -249,7 +330,27 @@ impl MachineCore for PetRuntime {
         self.time = MachineTime::default();
     }
 
-    fn load_media(&mut self, _media: &MediaSet<'_>) -> Result<(), MachineError> {
+    fn load_media(&mut self, media: &MediaSet<'_>) -> Result<(), MachineError> {
+        for image in &media.images {
+            let slot = image.slot.as_ref();
+            match image.kind {
+                MediaKind::Program if slot == "program-1" => {
+                    if image.bytes.len() < 3 {
+                        return Err(MachineError::InvalidMedia {
+                            slot: slot.to_owned(),
+                            reason: "PRG image too short".to_owned(),
+                        });
+                    }
+                    self.pending_prg = Some(image.bytes.to_vec());
+                }
+                MediaKind::Program => {
+                    return Err(MachineError::UnknownMediaSlot {
+                        slot: slot.to_owned(),
+                    });
+                }
+                kind => return Err(MachineError::UnsupportedMediaKind { kind }),
+            }
+        }
         Ok(())
     }
 
@@ -269,12 +370,19 @@ impl MachineCore for PetRuntime {
         }
 
         while self.time < target {
-            let ticks = self
-                .machine
-                .as_mut()
-                .expect("machine checked above")
-                .run_frame();
+            let machine = self.machine.as_mut().expect("machine checked above");
+            let ticks = machine.run_frame();
+            let inject_prg =
+                self.pending_prg.is_some() && machine.frame_count() >= PRG_AUTOLOAD_FRAME;
             self.time = self.time.saturating_add(ticks);
+            if inject_prg {
+                let bytes = self.pending_prg.take().expect("checked above");
+                self.autoload_prg(&bytes)
+                    .map_err(|reason| MachineError::InvalidMedia {
+                        slot: "program-1".to_owned(),
+                        reason,
+                    })?;
+            }
             self.update_rgba_framebuffer();
 
             host.frame_sink.push_frame(FramePacket {
