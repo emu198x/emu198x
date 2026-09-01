@@ -107,3 +107,36 @@ fn altirraos_cold_starts_to_a_basic_prompt() {
         "Altirra BASIC should reach its Ready prompt; screen was:\n{screen}"
     );
 }
+
+/// The XL OS decides whether BASIC is in from OPTION during its cold start
+/// and writes PORTB itself, so asking for BASIC off has to mean the OS sees
+/// OPTION down when it looks. Without that the machine lands on the BASIC
+/// prompt whatever the caller asked for, and there is no way to reach a
+/// DOS menu from a boot disk.
+#[test]
+#[ignore = "FIXTURE: needs AltirraOS at <EMU198X_ROMS_ROOT>/atari-800xl/{altirraos_xl,altirra_basic}.rom"]
+fn altirraos_cold_starts_without_basic_when_asked() {
+    let Some(dir) = rom_dir() else {
+        emu198x_test_skip::skip!("neither EMU198X_ROMS_ROOT nor HOME is set");
+    };
+    let os_path = dir.join("altirraos_xl.rom");
+    if !os_path.exists() {
+        emu198x_test_skip::skip!("AltirraOS not staged at {}", dir.display());
+    }
+    let os = std::fs::read(&os_path).expect("AltirraOS should read");
+    let basic = std::fs::read(dir.join("altirra_basic.rom")).expect("Altirra BASIC should read");
+
+    let mut system = Atari800xl::new(Some(os), Some(basic), None, Atari800xlRegion::Ntsc, false)
+        .expect("AltirraOS should initialise an 800XL");
+    for _ in 0..1000 {
+        system.run_frame();
+    }
+
+    let screen = screen_text(&system);
+    assert!(
+        !screen.contains("Ready"),
+        "BASIC should not have started; screen was:\n{screen}"
+    );
+    // The OS left BASIC banked out: $A000 reads as the RAM underneath.
+    assert_eq!(system.peek(0xA000), 0x00, "BASIC ROM is still mapped in");
+}
