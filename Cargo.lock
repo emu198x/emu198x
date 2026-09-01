@@ -1697,6 +1697,10 @@ name = "format-jupiter-ace-ace"
 version = "0.16.0"
 
 [[package]]
+name = "format-memotech-mtx"
+version = "0.16.0"
+
+[[package]]
 name = "format-nintendo-game-boy-cartridge"
 version = "0.16.0"
 dependencies = [
