@@ -110,19 +110,21 @@ const SKSTAT_SHIFT: u8 = 0x08;
 /// above it, is Control.
 const KBCODE_SHIFT: u8 = 0x40;
 
-/// SKCTL bit 5 — serial output clock enabled (the OS sets SKCTL = $23 to
-/// transmit). Used to prime "output data needed" when a frame starts.
-const SKCTL_SEROUT_ENABLE: u8 = 0x20;
+/// A serial frame is ten bit cells: a start bit, eight data bits, and a stop
+/// bit.
+const SERIAL_FRAME_BITS: u8 = 10;
 
-/// POKEY ticks for a serial byte to fully shift out (≈ a 10-bit frame at the
-/// ~19.2 kbaud SIO rate; `tick` runs once per machine cycle). Only the
-/// handshake order is software-observable, so this is a round figure.
-const SEROUT_SHIFT_TICKS: u16 = 930;
-
-/// Ticks until the holding register empties into the shift register (≈ one
-/// bit time). Shorter than the full shift so "output data needed" (bit 4)
-/// leads "transmission finished" (bit 3) within each byte.
-const SEROUT_HOLD_TICKS: u16 = 90;
+/// Which timer channel clocks the serial *output* shift register, from
+/// SKCTL bits 6-4. Modes 010, 011, 100 and 101 take channel 4; 110 and 111
+/// take channel 2; 000 and 001 take an external clock, which nothing on the
+/// SIO bus drives here. (*Altirra Hardware Reference Manual*, Table 10.)
+fn serial_output_clock(skctl: u8) -> Option<usize> {
+    match (skctl >> 4) & 0x07 {
+        0b010..=0b101 => Some(3),
+        0b110 | 0b111 => Some(1),
+        _ => None,
+    }
+}
 
 // AUDCTL bit masks. The register reads `PLY CH1 CH3 L12 L34 HP1 HP2 15K` from
 // bit 7 down, so the polynomial select is the *high* bit and the clock select
@@ -249,15 +251,21 @@ pub struct Pokey {
     /// SEROUT — serial output data.
     serout: u8,
 
-    /// Serial-output transmit, modelled as two stages so the OS's SIO send
-    /// sees the right handshake order. `serout_hold_delay` counts down to the
-    /// holding-register-empty edge (asserts IRQST bit 4, "output needed");
-    /// `serout_shift_delay` counts down to the shift-register-empty edge
-    /// (asserts IRQST bit 3, "transmission finished"). Both are edge events:
-    /// asserted once on completion, cleared by the CPU's IRQEN-toggle ack.
-    /// See [`SEROUT_HOLD_TICKS`] / [`SEROUT_SHIFT_TICKS`].
-    serout_hold_delay: u16,
-    serout_shift_delay: u16,
+    /// Whether SEROUT holds a byte waiting to be loaded into the output shift
+    /// register. Writing SEROUT queues; the shift register takes it on the
+    /// next serial clock edge on which it is idle, and only then does the
+    /// "output ready" IRQ (bit 4) assert.
+    serout_pending: bool,
+
+    /// Bit cells left in the frame the output shift register is sending, or
+    /// zero when it is idle. Idle is what the "output complete" IRQ (bit 3)
+    /// reports — see [`Pokey::serial_output_complete`].
+    serial_out_bits: u8,
+
+    /// The divide-by-two flip-flop between the clocking timer and the serial
+    /// port. The shift register acts on the rising edge, so one bit cell is
+    /// two timer underflows.
+    serial_out_clock_phase: bool,
 
     /// KBCODE — keyboard scan code.
     kbcode: u8,
@@ -346,8 +354,9 @@ impl Pokey {
             skstat: 0xFF,
             serin: 0,
             serout: 0,
-            serout_hold_delay: 0,
-            serout_shift_delay: 0,
+            serout_pending: false,
+            serial_out_bits: 0,
+            serial_out_clock_phase: false,
             kbcode: 0,
             pot_target: [0; NUM_POTS],
             pot_value: [0; NUM_POTS],
@@ -382,23 +391,6 @@ impl Pokey {
     pub fn tick(&mut self) {
         // Advance polynomial counters (run at CPU clock rate).
         self.poly_counter = self.poly_counter.wrapping_add(1);
-
-        // Serial-output two-stage handshake (edge-triggered — see the field
-        // docs). Each stage asserts its IRQST bit exactly once on completion;
-        // the CPU clears it by toggling IRQEN. Holding the bits asserted would
-        // make the OS dispatcher loop on bit 4 (higher priority) forever.
-        if self.serout_hold_delay > 0 {
-            self.serout_hold_delay -= 1;
-            if self.serout_hold_delay == 0 {
-                self.irqst &= !IRQ_SEROUT_NEEDED; // holding register empty
-            }
-        }
-        if self.serout_shift_delay > 0 {
-            self.serout_shift_delay -= 1;
-            if self.serout_shift_delay == 0 {
-                self.irqst &= !IRQ_SEROUT_DONE; // transmission finished
-            }
-        }
 
         // Pot scan: one increment per scan line (114 CPU cycles).
         if self.pot_scanning {
@@ -503,7 +495,7 @@ impl Pokey {
             0x0D => self.serin,
 
             // IRQST: interrupt status (active low).
-            0x0E => self.irqst,
+            0x0E => self.irqst_live(),
 
             // SKSTAT: serial port status.
             0x0F => self.skstat,
@@ -569,14 +561,13 @@ impl Pokey {
             // $0C: unused write address.
             0x0C => {}
 
-            // SEROUT: serial output data. Loading the holding register marks
-            // output busy (bit 4 = 1) and the transmitter active (bit 3 = 1),
-            // and arms both stage timers (see `tick`).
+            // SEROUT: serial output data. Writing queues the byte; the shift
+            // register loads it on its next idle clock edge, and only that
+            // load asserts "output ready". Writing again before the load
+            // replaces the queued byte, and the first one is never sent.
             0x0D => {
                 self.serout = value;
-                self.serout_hold_delay = SEROUT_HOLD_TICKS;
-                self.serout_shift_delay = SEROUT_SHIFT_TICKS;
-                self.irqst |= IRQ_SEROUT_NEEDED | IRQ_SEROUT_DONE;
+                self.serout_pending = true;
             }
 
             // IRQEN: interrupt enable mask.
@@ -587,14 +578,19 @@ impl Pokey {
                 self.irqst |= !value;
             }
 
-            // SKCTL: serial port control. Enabling the serial-output clock
-            // (bit 5) while the transmitter is idle primes "output data
-            // needed" — the holding register is empty, so the OS's send loop
-            // (polled at $CF2D, or the first interrupt byte) can start.
+            // SKCTL: serial port control. Clearing bits 0-1 selects
+            // initialisation mode, which interrupts whatever the shift
+            // registers are doing and flushes the byte queued in SEROUT.
+            // Selecting an external clock for both directions (bits 6-4 =
+            // %000) resets the clock flip-flops.
             0x0F => {
                 self.skctl = value;
-                if value & SKCTL_SEROUT_ENABLE != 0 && self.serout_hold_delay == 0 {
-                    self.irqst &= !IRQ_SEROUT_NEEDED;
+                if value & 0x03 == 0 {
+                    self.serial_out_bits = 0;
+                    self.serout_pending = false;
+                }
+                if (value >> 4) & 0x07 == 0 {
+                    self.serial_out_clock_phase = false;
                 }
             }
 
@@ -652,7 +648,8 @@ impl Pokey {
     #[must_use]
     pub fn irq_pending(&self) -> bool {
         // IRQST is active-low (0 = pending). IRQEN selects which are enabled.
-        (self.irqst & self.irqen) != self.irqen
+        let irqst = self.irqst_live();
+        (irqst & self.irqen) != self.irqen
     }
 
     /// Set the keyboard code register (written by external keyboard controller).
@@ -703,7 +700,7 @@ impl Pokey {
     /// Get the IRQST register value (for diagnostics).
     #[must_use]
     pub fn irqst(&self) -> u8 {
-        self.irqst
+        self.irqst_live()
     }
 
     /// Get the IRQEN register value (for diagnostics).
@@ -929,6 +926,63 @@ impl Pokey {
         // Timer 3 has no dedicated IRQ bit.
         if ch4_underflow {
             self.trigger_timer_irq(IRQ_TIMER4);
+        }
+
+        // The serial port is clocked by a divide-by-two flip-flop hanging off
+        // the selected timer, so the shift register sees one edge for every
+        // two underflows.
+        let clocked = match serial_output_clock(self.skctl) {
+            Some(1) => ch2_underflow,
+            Some(3) => ch4_underflow,
+            _ => false,
+        };
+        if clocked {
+            self.serial_out_clock_phase = !self.serial_out_clock_phase;
+            if self.serial_out_clock_phase {
+                self.tick_serial_output();
+            }
+        }
+    }
+
+    /// One bit cell of the serial output shift register, on the rising edge of
+    /// the serial clock.
+    ///
+    /// A frame is ten bit cells. When the register finishes one and a byte is
+    /// waiting in SEROUT, it loads immediately and asserts the "output ready"
+    /// IRQ (bit 4) to say SEROUT is free again — which is why the first byte
+    /// of a transmission has to be written without waiting for that IRQ, and
+    /// why there is always a bit cell of delay between writing SEROUT and
+    /// anything being observable.
+    fn tick_serial_output(&mut self) {
+        if self.serial_out_bits > 0 {
+            self.serial_out_bits -= 1;
+        }
+        if self.serial_out_bits == 0 && self.serout_pending {
+            self.serout_pending = false;
+            self.serial_out_bits = SERIAL_FRAME_BITS;
+            self.irqst &= !IRQ_SEROUT_NEEDED;
+        }
+    }
+
+    /// Whether the output shift register is idle, which is what the "output
+    /// complete" IRQ (bit 3) reports.
+    ///
+    /// Unlike every other POKEY interrupt this one is a level, not a latch: it
+    /// stays asserted while the register is idle even if IRQEN has it masked
+    /// off, and deasserts on its own when shifting starts. Latching it is what
+    /// made the OS's send loop depend on where the CPU happened to be when the
+    /// edge went by.
+    fn serial_output_complete(&self) -> bool {
+        self.serial_out_bits == 0
+    }
+
+    /// IRQST as software sees it: the latched bits, with the level-driven
+    /// "output complete" bit folded in.
+    fn irqst_live(&self) -> u8 {
+        if self.serial_output_complete() {
+            self.irqst & !IRQ_SEROUT_DONE
+        } else {
+            self.irqst | IRQ_SEROUT_DONE
         }
     }
 
@@ -1197,6 +1251,145 @@ mod tests {
         );
     }
 
+    /// Set POKEY up the way the 800XL OS sets it up to talk to a disk drive:
+    /// channels 3+4 linked on the 1.79 MHz clock with divisor $0028, and the
+    /// serial port clocked from channel 4.
+    fn sio_configured_pokey() -> Pokey {
+        let mut pokey = ntsc_pokey();
+        pokey.write(0x08, 0x28); // AUDCTL: channel 3 fast clock + 3&4 link
+        pokey.write(0x04, 0x28); // AUDF3 — divisor low
+        pokey.write(0x06, 0x00); // AUDF4 — divisor high
+        pokey.write(0x0F, 0x23); // SKCTL: transmit clocked from channel 4
+        pokey
+    }
+
+    /// How many CPU cycles the shift register takes over a whole frame, which
+    /// is ten bit cells.
+    fn cycles_for_one_serial_frame(pokey: &mut Pokey) -> u32 {
+        pokey.write(0x0D, 0x55); // SEROUT
+        let mut cycles = 0;
+        // The load itself takes a bit cell; count from there to idle again.
+        while pokey.serial_out_bits == 0 {
+            pokey.tick();
+            cycles += 1;
+            assert!(cycles < 100_000, "the shift register never loaded");
+        }
+        let mut frame = 0;
+        while pokey.serial_out_bits > 0 {
+            pokey.tick();
+            frame += 1;
+            assert!(frame < 100_000, "the frame never finished");
+        }
+        frame
+    }
+
+    /// A linked 1.79 MHz timer's period is its divisor plus seven, and the
+    /// serial clock is half the timer, so divisor $0028 gives a 94-cycle bit
+    /// cell — 19040 baud, the rate the manual states the SIO bus actually
+    /// runs at. Ten bit cells make the frame.
+    #[test]
+    fn serial_output_runs_at_the_documented_sio_baud_rate() {
+        let mut pokey = sio_configured_pokey();
+        let frame = cycles_for_one_serial_frame(&mut pokey);
+
+        assert_eq!(frame, 940, "ten 94-cycle bit cells");
+        let baud = 1_789_772 / (frame / u32::from(SERIAL_FRAME_BITS));
+        assert_eq!(baud, 19_040);
+    }
+
+    /// "Output complete" is a level, not a latch: it reports that the shift
+    /// register is idle, stays asserted while it is even with IRQEN masking
+    /// it off, and deasserts on its own when shifting starts. Latching it made
+    /// the OS's send loop depend on where the CPU was when the edge went past.
+    #[test]
+    fn output_complete_reports_an_idle_shift_register() {
+        let mut pokey = sio_configured_pokey();
+        assert_eq!(pokey.read(0x0E) & IRQ_SEROUT_DONE, 0, "idle at reset");
+
+        // Masking it off in IRQEN does not clear it.
+        pokey.write(0x0E, 0x00);
+        assert_eq!(pokey.read(0x0E) & IRQ_SEROUT_DONE, 0);
+
+        pokey.write(0x0D, 0x55);
+        while pokey.serial_out_bits == 0 {
+            pokey.tick();
+        }
+        assert_eq!(
+            pokey.read(0x0E) & IRQ_SEROUT_DONE,
+            IRQ_SEROUT_DONE,
+            "deasserts once shifting starts"
+        );
+
+        while pokey.serial_out_bits > 0 {
+            pokey.tick();
+        }
+        assert_eq!(pokey.read(0x0E) & IRQ_SEROUT_DONE, 0, "idle again");
+    }
+
+    /// "Output ready" asserts when the shift register loads from SEROUT, not
+    /// when SEROUT is written — which is why the first byte of a transmission
+    /// has to be sent without waiting for it.
+    #[test]
+    fn output_ready_asserts_on_the_load_not_on_the_write() {
+        let mut pokey = sio_configured_pokey();
+        pokey.write(0x0D, 0x55);
+        assert_eq!(
+            pokey.read(0x0E) & IRQ_SEROUT_NEEDED,
+            IRQ_SEROUT_NEEDED,
+            "nothing has loaded yet"
+        );
+
+        while pokey.serial_out_bits == 0 {
+            pokey.tick();
+        }
+        assert_eq!(pokey.read(0x0E) & IRQ_SEROUT_NEEDED, 0, "SEROUT is free");
+    }
+
+    /// Only one byte can be queued. A second write before the shift register
+    /// takes the first replaces it, and the first is never sent.
+    #[test]
+    fn a_second_serout_write_replaces_the_byte_waiting_to_load() {
+        let mut pokey = sio_configured_pokey();
+        pokey.write(0x0D, 0x11);
+        pokey.write(0x0D, 0x22);
+        assert_eq!(pokey.serout, 0x22);
+
+        while pokey.serial_out_bits == 0 {
+            pokey.tick();
+        }
+        assert!(!pokey.serout_pending, "one load consumed both writes");
+    }
+
+    /// Clearing SKCTL bits 0-1 selects initialisation mode, which interrupts
+    /// whatever is shifting and flushes the byte queued in SEROUT.
+    #[test]
+    fn initialisation_mode_flushes_the_output_path() {
+        let mut pokey = sio_configured_pokey();
+        pokey.write(0x0D, 0x55);
+        while pokey.serial_out_bits == 0 {
+            pokey.tick();
+        }
+        pokey.write(0x0D, 0xAA);
+
+        pokey.write(0x0F, 0x00);
+        assert_eq!(pokey.serial_out_bits, 0);
+        assert!(!pokey.serout_pending);
+    }
+
+    /// With an external clock selected for both directions there is nothing on
+    /// our SIO bus driving it, so the shift register never advances.
+    #[test]
+    fn an_external_serial_clock_never_shifts() {
+        let mut pokey = sio_configured_pokey();
+        pokey.write(0x0F, 0x03); // SKCTL bits 6-4 = %000 — external clock
+        pokey.write(0x0D, 0x55);
+        for _ in 0..10_000 {
+            pokey.tick();
+        }
+        assert_eq!(pokey.serial_out_bits, 0);
+        assert!(pokey.serout_pending, "the byte is still waiting");
+    }
+
     /// AUDCTL reads `PLY CH1 CH3 L12 L34 HP1 HP2 15K` from bit 7 down, so the
     /// polynomial select is the high bit and the clock select the low one.
     /// Six of these were transposed, and only the two link bits in the middle
@@ -1234,8 +1427,10 @@ mod tests {
     fn irqen_irqst_read_write() {
         let mut pokey = ntsc_pokey();
 
-        // Initially IRQST = $FF (no interrupts pending).
-        assert_eq!(pokey.read(0x0E), 0xFF);
+        // Initially nothing is pending but "serial output complete", which is
+        // a level rather than a latch and reads asserted while the output
+        // shift register is idle — which it is at power-on.
+        assert_eq!(pokey.read(0x0E), !IRQ_SEROUT_DONE);
 
         // Enable timer 1 and timer 2.
         pokey.write(0x0E, IRQ_TIMER1 | IRQ_TIMER2);
