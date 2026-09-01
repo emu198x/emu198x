@@ -59,6 +59,12 @@ pub const SCREEN_WIDTH_40: u32 = ACTIVE_WIDTH_40 + BORDER_LEFT + BORDER_RIGHT;
 pub const SCREEN_WIDTH_80: u32 = ACTIVE_WIDTH_80 + BORDER_LEFT + BORDER_RIGHT;
 pub const SCREEN_HEIGHT: u32 = ACTIVE_HEIGHT + BORDER_TOP + BORDER_BOTTOM;
 
+/// Φ2 machine clock: 1 MHz, one tick per [`Pet::tick`].
+const CPU_CLOCK_HZ: u64 = 1_000_000;
+/// Host audio output rate for the CB2 piezo, matching the runtime's declared
+/// `AudioPacket` sample rate.
+const AUDIO_SAMPLE_RATE: u64 = 48_000;
+
 /// Commodore PET machine.
 #[derive(Serialize, Deserialize)]
 pub struct Pet {
@@ -79,6 +85,16 @@ pub struct Pet {
     screen_chars: u32,
     screen_width_px: u32,
     frame_complete: bool,
+    /// Piezo waveform, sampled from the VIA's CB2 output at the audio output
+    /// rate. Drained each frame by [`Pet::take_audio_buffer`]; regenerated
+    /// live, so it is not part of the snapshot.
+    #[serde(skip)]
+    audio_buffer: Vec<f32>,
+    /// Fractional accumulator converting the 1 MHz Φ2 clock to the 48 kHz
+    /// output rate: one sample is emitted each time it crosses
+    /// [`CPU_CLOCK_HZ`].
+    #[serde(default)]
+    audio_accum: u64,
     master_clock: u64,
     frame_count: u64,
 }
@@ -141,6 +157,8 @@ impl Pet {
             screen_chars,
             screen_width_px,
             frame_complete: false,
+            audio_buffer: Vec::new(),
+            audio_accum: 0,
             master_clock: 0,
             frame_count: 0,
         }
@@ -171,6 +189,7 @@ impl Pet {
             self.tick_display();
         }
         self.via.tick();
+        self.tick_audio();
         // PIA #1 CA1 is wired to the CRTC vertical retrace: its edge is the
         // 60 Hz system IRQ that runs the editor's keyboard scan and jiffy
         // clock. Without it the machine boots to READY but never sees a key.
@@ -186,6 +205,29 @@ impl Pet {
         } else {
             self.mem_write(self.cpu.addr, self.cpu.data);
         }
+    }
+
+    /// Sample the piezo speaker into the audio buffer, downsampling the 1 MHz
+    /// Φ2 clock to the 48 kHz output rate with a fractional accumulator.
+    ///
+    /// The PET's only sound source is a piezo disc on the VIA's CB2 line. BASIC
+    /// tones come from the shift register in free-running output mode, which
+    /// rotates the SR pattern onto CB2 at the T2 rate — T2 sets the pitch, the
+    /// SR byte the timbre — but CB2 driven directly from the PCR clicks the
+    /// disc just as well, and both resolve to `cb2_out`.
+    fn tick_audio(&mut self) {
+        self.audio_accum += AUDIO_SAMPLE_RATE;
+        if self.audio_accum >= CPU_CLOCK_HZ {
+            self.audio_accum -= CPU_CLOCK_HZ;
+            let sample = if self.via.cb2_out { 0.5 } else { -0.5 };
+            self.audio_buffer.push(sample);
+        }
+    }
+
+    /// Drain the piezo waveform accumulated since the last call (the runtime
+    /// pushes it into an `AudioPacket` each frame).
+    pub fn take_audio_buffer(&mut self) -> Vec<f32> {
+        core::mem::take(&mut self.audio_buffer)
     }
 
     fn tick_display(&mut self) {
@@ -425,6 +467,93 @@ mod tests {
             vec![0u8; 0x1000],
             40,
         )
+    }
+
+    /// VIA register addresses on the PET's $E840 block.
+    const VIA_SR: u16 = 0xE84A;
+    const VIA_ACR: u16 = 0xE84B;
+    const VIA_PCR: u16 = 0xE84C;
+    const VIA_T2L_L: u16 = 0xE848;
+
+    #[test]
+    fn the_shift_register_tone_reaches_the_piezo() {
+        // The PET's BASIC tone path: shift register in free-running output mode
+        // (ACR bits 4-2 = 100), clocked at the T2 rate, rotating an SR pattern
+        // onto CB2. T2 sets the pitch, the SR byte the timbre.
+        let mut sys = make_pet();
+        sys.mem_write(VIA_T2L_L, 100);
+        sys.mem_write(VIA_ACR, 0b0001_0000);
+        sys.mem_write(VIA_SR, 0xF0);
+        sys.run_frame();
+
+        let audio = sys.take_audio_buffer();
+        assert!(!audio.is_empty(), "a frame yields audio samples");
+        assert!(
+            audio.iter().any(|&s| s > 0.0),
+            "piezo-high samples are present"
+        );
+        assert!(
+            audio.iter().any(|&s| s < 0.0),
+            "piezo-low samples are present"
+        );
+    }
+
+    #[test]
+    fn a_pcr_driven_cb2_clicks_the_piezo() {
+        // CB2 driven straight from the PCR, no shift register: manual-output
+        // low (110) then manual-output high (111). Type-in programs click the
+        // disc this way.
+        let mut sys = make_pet();
+        sys.mem_write(VIA_PCR, 0b1100_0000);
+        sys.run_frame();
+        let low = sys.take_audio_buffer();
+        assert!(
+            low.iter().all(|&s| s < 0.0),
+            "manual-output low holds the piezo down"
+        );
+
+        sys.mem_write(VIA_PCR, 0b1110_0000);
+        sys.run_frame();
+        let high = sys.take_audio_buffer();
+        assert!(
+            high.iter().all(|&s| s > 0.0),
+            "manual-output high holds the piezo up"
+        );
+    }
+
+    #[test]
+    fn a_silent_machine_emits_a_constant_level() {
+        let mut sys = make_pet();
+        sys.run_frame();
+        let audio = sys.take_audio_buffer();
+        assert!(!audio.is_empty(), "samples are emitted even when silent");
+        assert!(
+            audio.iter().all(|&s| (s - audio[0]).abs() < f32::EPSILON),
+            "an untouched CB2 produces no waveform"
+        );
+    }
+
+    #[test]
+    fn a_frame_yields_close_to_the_declared_sample_rate() {
+        let mut sys = make_pet();
+        let cycles = sys.run_frame();
+        let expected = cycles * AUDIO_SAMPLE_RATE / CPU_CLOCK_HZ;
+        let got = sys.take_audio_buffer().len() as u64;
+        assert!(
+            got.abs_diff(expected) <= 1,
+            "{got} samples for {cycles} cycles, expected about {expected}"
+        );
+    }
+
+    #[test]
+    fn the_audio_buffer_drains() {
+        let mut sys = make_pet();
+        sys.run_frame();
+        assert!(!sys.take_audio_buffer().is_empty());
+        assert!(
+            sys.take_audio_buffer().is_empty(),
+            "a second take returns nothing without another frame"
+        );
     }
 
     #[test]
