@@ -297,6 +297,61 @@ fn adjust_bytes_for_width(base: u8, width_bits: u8) -> u8 {
     }
 }
 
+/// The width ANTIC *fetches* at when a mode line enables horizontal scrolling.
+///
+/// A scrolled line fetches one width level wider than DMACTL asks for, so
+/// there is data to shift in from the left. Wide has no wider level to go to
+/// and fetches unchanged — which is why a scrolled wide playfield shifts
+/// background in on the left instead of picture.
+fn fetch_width_bits(width_bits: u8, hscrol_enabled: bool) -> u8 {
+    match (width_bits, hscrol_enabled) {
+        (0, _) => 0, // playfield DMA off — nothing to widen
+        (1, true) => 2,
+        (2, true) => 3,
+        (w, _) => w,
+    }
+}
+
+/// Playfield entries per colour clock. The hi-res modes carry two — GTIA
+/// reads them at half-colour-clock resolution — and every other mode one.
+fn entries_per_colour_clock(mode: AnticMode) -> usize {
+    match mode {
+        AnticMode::Mode2 | AnticMode::Mode3 | AnticMode::ModeF => 2,
+        _ => 1,
+    }
+}
+
+/// Window a fetched playfield to the displayed width and shift it right by
+/// `hscrol` colour clocks.
+///
+/// The wider fetch of a scrolled line is centred on the same screen centre as
+/// the narrower display, so at `hscrol == 0` the result is the fetched image
+/// windowed to the requested width — the picture does not move. Each step of
+/// `hscrol` then moves the window one colour clock left, which moves the
+/// picture one colour clock right.
+///
+/// Anything the window reaches for beyond the fetched data comes back as
+/// background. On a wide playfield, which has no wider level to fetch at, that
+/// is the whole left edge.
+fn shift_playfield(
+    fetched: &[u8],
+    per_cc: usize,
+    fetch_width: u16,
+    display_width: u16,
+    hscrol: u8,
+) -> Vec<u8> {
+    let margin = usize::from(fetch_width.saturating_sub(display_width) / 2) * per_cc;
+    let shift = usize::from(hscrol) * per_cc;
+    (0..usize::from(display_width) * per_cc)
+        .map(|i| {
+            (i + margin)
+                .checked_sub(shift)
+                .and_then(|src| fetched.get(src).copied())
+                .unwrap_or(0)
+        })
+        .collect()
+}
+
 /// Playfield width in colour clocks for a given width setting and mode.
 fn playfield_width_cc(width_bits: u8) -> u16 {
     match width_bits {
@@ -332,7 +387,14 @@ pub struct Antic {
     current_mode: u8,
     current_dli: bool,
     memory_scan: u16,
-    scan_lines_per_row: u8,
+    /// Last value `mode_line` takes in the current mode line. One less than
+    /// the mode's height, until vertical scrolling moves either end.
+    row_end: u8,
+    /// Whether the previous display-list mode line enabled vertical scrolling.
+    /// A scrolling region's first and last lines are the ones where this
+    /// disagrees with the current instruction, and those are the two that
+    /// change height.
+    prev_vscrol: bool,
     vscrol_enabled: bool,
     hscrol_enabled: bool,
     dl_active: bool,
@@ -373,7 +435,8 @@ impl Antic {
             current_mode: 0,
             current_dli: false,
             memory_scan: 0,
-            scan_lines_per_row: 0,
+            row_end: 0,
+            prev_vscrol: false,
             vscrol_enabled: false,
             hscrol_enabled: false,
             dl_active: false,
@@ -538,7 +601,8 @@ impl Antic {
             // Reset display list state for next frame
             self.mode_line = 0;
             self.current_mode = 0;
-            self.scan_lines_per_row = 0;
+            self.row_end = 0;
+            self.prev_vscrol = false;
             self.dl_active = false;
         }
 
@@ -558,8 +622,11 @@ impl Antic {
 
         let width_bits = self.dmactl & 0x03;
 
-        // Start of a new mode line — fetch the next display list instruction
-        if !self.dl_active || self.mode_line == 0 {
+        // Start of a new mode line — fetch the next display list instruction.
+        // The row counter cannot stand in for this test: vertical scrolling
+        // starts a mode line partway down its glyph, so row zero is not
+        // necessarily where a line begins.
+        if !self.dl_active {
             self.fetch_dl_instruction(ram);
         }
 
@@ -573,9 +640,8 @@ impl Antic {
             blank_result(self.dma_cycles)
         };
 
-        // Advance mode_line within the current row
-        self.mode_line += 1;
-        if self.mode_line >= self.scan_lines_per_row {
+        // Advance the row counter, or close the mode line at its last row.
+        if self.mode_line >= self.row_end {
             // End of this mode line — check for DLI.
             // NMIEN bit 7 = DLI enable. NMIST bit 7 records DLI.
             if self.current_dli {
@@ -586,6 +652,8 @@ impl Antic {
             }
             self.mode_line = 0;
             self.dl_active = false;
+        } else {
+            self.mode_line += 1;
         }
 
         self.advance_scan_line(lines_per_frame);
@@ -617,8 +685,12 @@ impl Antic {
                 // Blank line instruction: bits 6-4 = number of blank lines - 1
                 let blank_count = ((instr >> 4) & 0x07) + 1;
                 self.current_mode = 0;
-                self.scan_lines_per_row = blank_count;
                 self.mode_line = 0;
+                self.row_end = blank_count - 1;
+                // Bit 5 of a blank instruction is part of the line count, not
+                // VSCROL, so a blank line breaks a scrolling region.
+                self.prev_vscrol = false;
+                self.vscrol_enabled = false;
                 self.dl_active = true;
             }
             0x01 => {
@@ -637,8 +709,9 @@ impl Antic {
                     self.current_mode = 0;
                     // Fill remaining visible lines with blank
                     let remaining = VISIBLE_END.saturating_sub(self.scan_line);
-                    self.scan_lines_per_row = if remaining > 0 { remaining as u8 } else { 1 };
                     self.mode_line = 0;
+                    self.row_end = (remaining.max(1) as u8) - 1;
+                    self.prev_vscrol = false;
                     self.dl_active = true;
                 } else {
                     // Plain jump — immediately fetch from new address
@@ -652,11 +725,32 @@ impl Antic {
                 // Mode line
                 self.current_mode = mode;
 
-                if let Some(desc) = mode_desc(mode) {
-                    self.scan_lines_per_row = desc.scan_lines_per_row;
+                let height = mode_desc(mode).map_or(1, |desc| desc.scan_lines_per_row);
+
+                // Vertical fine scrolling reshapes the mode lines at the two
+                // edges of a scrolling region, and leaves the ones inside it
+                // alone. Entering the region (bit set, previous line clear),
+                // the row counter *starts* at VSCROL, so the line is short by
+                // that much at the top. Leaving it (bit clear, previous line
+                // set), the line *ends* at VSCROL, so it is VSCROL + 1 rows
+                // tall. Both counters are four bits whatever the mode's
+                // height, so a VSCROL past the end of the glyph wraps rather
+                // than truncating.
+                let vscrol = self.vscrol & 0x0F;
+                let first_row = if has_vscrol && !self.prev_vscrol {
+                    vscrol
                 } else {
-                    self.scan_lines_per_row = 1;
-                }
+                    0
+                };
+                let last_row = if !has_vscrol && self.prev_vscrol {
+                    vscrol
+                } else {
+                    height - 1
+                };
+                let rows = (last_row.wrapping_sub(first_row) & 0x0F) + 1;
+                self.mode_line = first_row;
+                self.row_end = first_row + rows - 1;
+                self.prev_vscrol = has_vscrol;
 
                 if has_lms {
                     let lo = ram[self.dlist as usize & (ram.len() - 1)];
@@ -667,7 +761,6 @@ impl Antic {
                     self.dma_cycles += 2;
                 }
 
-                self.mode_line = 0;
                 self.dl_active = true;
 
                 // For character modes, fetch character codes now (reused for
@@ -675,7 +768,7 @@ impl Antic {
                 if let Some(desc) = mode_desc(mode)
                     && desc.char_mode
                 {
-                    let width_bits = self.dmactl & 0x03;
+                    let width_bits = fetch_width_bits(self.dmactl & 0x03, self.hscrol_enabled);
                     let bytes = adjust_bytes_for_width(desc.bytes_per_line, width_bits);
                     self.char_codes.clear();
                     for i in 0..u16::from(bytes) {
@@ -693,7 +786,8 @@ impl Antic {
 
     /// Render pixel data for the current mode line.
     fn render_mode_line(&mut self, ram: &[u8], desc: &ModeDesc, width_bits: u8) -> LineResult {
-        let bytes = adjust_bytes_for_width(desc.bytes_per_line, width_bits);
+        let fetch_bits = fetch_width_bits(width_bits, self.hscrol_enabled);
+        let bytes = adjust_bytes_for_width(desc.bytes_per_line, fetch_bits);
         let pf_width = playfield_width_cc(width_bits);
 
         // Player/missile DMA
@@ -713,6 +807,16 @@ impl Antic {
                 .iter()
                 .flat_map(|&px| std::iter::repeat_n(px, usize::from(desc.cc_per_pixel)))
                 .collect();
+        }
+
+        if self.hscrol_enabled {
+            playfield = shift_playfield(
+                &playfield,
+                entries_per_colour_clock(desc.antic_mode),
+                playfield_width_cc(fetch_bits),
+                pf_width,
+                self.hscrol & 0x0F,
+            );
         }
 
         LineResult {
@@ -739,11 +843,11 @@ impl Antic {
         // double-height modes (5, 7) show each font line on two scan lines,
         // so the font row is the mode-line row halved.
         let double_height = matches!(desc.antic_mode, AnticMode::Mode5 | AnticMode::Mode7);
-        let raw_row = if double_height {
-            self.mode_line / 2
-        } else {
-            self.mode_line
-        };
+        // The row counter is four bits whatever the mode's height, so a
+        // vertically scrolled line that starts past the end of the glyph wraps
+        // back to its top rather than reading into the next one.
+        let row = self.mode_line & 0x0F;
+        let raw_row = if double_height { row / 2 } else { row };
         let count = usize::min(self.char_codes.len(), bytes as usize);
         let mut pixels = Vec::new();
 
@@ -859,7 +963,7 @@ impl Antic {
         self.dma_cycles += bytes;
 
         // Memory scan advances only after all scan lines for this row complete
-        if self.mode_line + 1 >= self.scan_lines_per_row {
+        if self.mode_line >= self.row_end {
             self.memory_scan = self.memory_scan.wrapping_add(u16::from(bytes));
         }
 
@@ -944,7 +1048,8 @@ impl Antic {
         data.push(self.current_mode);
         data.push(u8::from(self.current_dli));
         data.extend_from_slice(&self.memory_scan.to_le_bytes());
-        data.push(self.scan_lines_per_row);
+        data.push(self.row_end);
+        data.push(u8::from(self.prev_vscrol));
         data.push(u8::from(self.vscrol_enabled));
         data.push(u8::from(self.hscrol_enabled));
         data.push(u8::from(self.dl_active));
@@ -961,7 +1066,7 @@ impl Antic {
     ///
     /// Returns an error if the data is too short.
     pub fn load_state(&mut self, data: &[u8]) -> Result<usize, String> {
-        if data.len() < 24 {
+        if data.len() < 25 {
             return Err("ANTIC state truncated".into());
         }
         let mut p = 0;
@@ -995,7 +1100,9 @@ impl Antic {
         p += 1;
         self.memory_scan = u16::from_le_bytes([data[p], data[p + 1]]);
         p += 2;
-        self.scan_lines_per_row = data[p];
+        self.row_end = data[p];
+        p += 1;
+        self.prev_vscrol = data[p] != 0;
         p += 1;
         self.vscrol_enabled = data[p] != 0;
         p += 1;
@@ -1177,7 +1284,7 @@ mod tests {
         antic.current_dli = true;
         antic.current_mode = 0;
         antic.mode_line = 1;
-        antic.scan_lines_per_row = 2;
+        antic.row_end = 1;
         antic.dl_active = true;
 
         antic.process_line(&ram);
@@ -1209,7 +1316,7 @@ mod tests {
         let result = antic.process_line(&ram);
         assert_eq!(result.mode, AnticMode::Blank);
         // Should set up 3 blank lines
-        assert_eq!(antic.scan_lines_per_row, 3);
+        assert_eq!(antic.row_end, 2);
     }
 
     #[test]
@@ -1518,6 +1625,166 @@ mod tests {
         assert!(cpu_dma_stalled(1, budget));
         assert!(cpu_dma_stalled(CYCLES_HSYNC, budget));
         assert!(!cpu_dma_stalled(CYCLES_HSYNC + 1, budget));
+    }
+
+    /// Render one scan line of a single mode line, with the machine set up
+    /// the way the fine-scrolling tests want it.
+    fn scrolled_line(instr: u8, width_bits: u8, hscrol: u8, screen: &[u8]) -> LineResult {
+        let mut ram = make_ram();
+        let mut antic = Antic::new(AnticRegion::Ntsc);
+
+        ram[0x4000] = instr | 0x40; // + LMS
+        ram[0x4001] = 0x00;
+        ram[0x4002] = 0x80;
+        ram[0x8000..0x8000 + screen.len()].copy_from_slice(screen);
+
+        antic.write(0x00, 0x20 | width_bits); // DMACTL: DL DMA + playfield width
+        antic.write(0x02, 0x00);
+        antic.write(0x03, 0x40);
+        antic.write(0x04, hscrol);
+        antic.scan_line = VISIBLE_START;
+
+        antic.process_line(&ram)
+    }
+
+    /// A scrolled line fetches one width level wider than DMACTL asks for, so
+    /// there is picture to shift in from the left. The width it *displays* is
+    /// unchanged.
+    #[test]
+    fn hscrol_fetches_one_width_level_wider() {
+        let plain = scrolled_line(0x0F, 2, 0, &[0xFF; 48]);
+        let scrolled = scrolled_line(0x1F, 2, 0, &[0xFF; 48]);
+
+        assert_eq!(scrolled.playfield_width, plain.playfield_width);
+        assert_eq!(scrolled.playfield.len(), plain.playfield.len());
+        // Mode F fetches 40 bytes at normal width and 48 at wide. The extra
+        // eight are stolen from the CPU whether or not they are displayed.
+        assert_eq!(scrolled.dma_cycles - plain.dma_cycles, 8);
+    }
+
+    /// Wide has no wider level to fetch at, so a scrolled wide playfield
+    /// fetches the same data and shifts background in on the left.
+    #[test]
+    fn a_scrolled_wide_playfield_fetches_no_extra_data() {
+        let plain = scrolled_line(0x0F, 3, 0, &[0xFF; 48]);
+        let scrolled = scrolled_line(0x1F, 3, 4, &[0xFF; 48]);
+
+        assert_eq!(scrolled.dma_cycles, plain.dma_cycles);
+        // Four colour clocks of background at the left edge, then picture.
+        assert_eq!(scrolled.playfield[0..8], [0; 8]);
+        assert_eq!(scrolled.playfield[8], 1);
+    }
+
+    /// At HSCROL 0 the picture does not move: the wider fetch is windowed back
+    /// to the requested width, dropping the same number of colour clocks from
+    /// each side. Raising HSCROL then moves the picture right, one colour
+    /// clock at a time.
+    #[test]
+    fn hscrol_shifts_the_playfield_right_one_colour_clock_at_a_time() {
+        // Mode C: 20 bytes, one bit per pixel, one pixel per colour clock. A
+        // single lit bit gives a landmark to follow. Narrow displays 128
+        // colour clocks and fetches 160 when scrolled, so the window drops 16
+        // from each side and the bit at colour clock 40 lands at 24.
+        let mut screen = [0u8; 24];
+        screen[5] = 0x80; // colour clock 40
+
+        for hscrol in 0..=15u8 {
+            let line = scrolled_line(0x1C, 1, hscrol, &screen);
+            let lit: Vec<usize> = line
+                .playfield
+                .iter()
+                .enumerate()
+                .filter(|&(_, &px)| px != 0)
+                .map(|(i, _)| i)
+                .collect();
+            assert_eq!(lit, vec![24 + usize::from(hscrol)], "HSCROL {hscrol}");
+        }
+    }
+
+    /// Hi-res pixels are half a colour clock, and HSCROL counts whole colour
+    /// clocks, so a hi-res mode scrolls in pairs of pixels.
+    #[test]
+    fn hi_res_modes_scroll_two_pixels_per_hscrol_step() {
+        let mut screen = [0u8; 48];
+        screen[5] = 0x80;
+
+        let at = |hscrol| {
+            let line = scrolled_line(0x1F, 1, hscrol, &screen);
+            line.playfield.iter().position(|&px| px != 0).expect("lit")
+        };
+
+        let base = at(0);
+        assert_eq!(at(1), base + 2);
+        assert_eq!(at(7), base + 14);
+    }
+
+    /// Vertical scrolling reshapes the mode lines at the edges of a region and
+    /// leaves the ones inside it alone. Altirra's worked example: two mode 2
+    /// lines with the bit set followed by one with it clear occupy
+    /// `(8 - VSCROL) + 8 + (VSCROL + 1)` scan lines, not 24.
+    #[test]
+    fn vscrol_moves_the_edges_of_a_scrolling_region() {
+        for vscrol in 0..8u8 {
+            let mut ram = make_ram();
+            let mut antic = Antic::new(AnticRegion::Ntsc);
+
+            ram[0x4000] = 0x62; // mode 2 + LMS + VSCROL
+            ram[0x4001] = 0x00;
+            ram[0x4002] = 0x80;
+            ram[0x4003] = 0x22; // mode 2 + VSCROL
+            ram[0x4004] = 0x02; // mode 2
+            ram[0x4005] = 0x02; // mode 2, clear of the region entirely
+
+            antic.write(0x00, 0x22);
+            antic.write(0x02, 0x00);
+            antic.write(0x03, 0x40);
+            antic.write(0x05, vscrol);
+            antic.scan_line = VISIBLE_START;
+
+            let mut rows: Vec<u32> = Vec::new();
+            for _ in 0..32 {
+                let before = antic.dlist;
+                antic.process_line(&ram);
+                if antic.dlist != before {
+                    rows.push(0);
+                }
+                *rows.last_mut().expect("a mode line has started") += 1;
+            }
+
+            assert_eq!(
+                rows[0..4],
+                [8 - u32::from(vscrol), 8, u32::from(vscrol) + 1, 8],
+                "VSCROL {vscrol}"
+            );
+        }
+    }
+
+    /// Entering a scrolling region starts the mode line partway down its
+    /// glyph, which is what makes the picture move vertically.
+    #[test]
+    fn the_first_line_of_a_region_starts_partway_down_the_glyph() {
+        let mut ram = make_ram();
+        let mut antic = Antic::new(AnticRegion::Ntsc);
+
+        ram[0x4000] = 0x62; // mode 2 + LMS + VSCROL
+        ram[0x4001] = 0x00;
+        ram[0x4002] = 0x80;
+        ram[0x8000] = 0x01; // one character, glyph 1
+
+        // Glyph 1's rows: only row 3 is lit.
+        ram[0xE00B] = 0xFF;
+
+        antic.write(0x00, 0x22);
+        antic.write(0x02, 0x00);
+        antic.write(0x03, 0x40);
+        antic.write(0x05, 3); // VSCROL: start at glyph row 3
+        antic.write(0x09, 0xE0); // CHBASE
+        antic.scan_line = VISIBLE_START;
+
+        // The region's first line starts at row 3, so the lit row is the very
+        // first scan line rather than the fourth.
+        let line = antic.process_line(&ram);
+        assert_eq!(line.playfield[0..8], [1; 8]);
     }
 
     #[test]
