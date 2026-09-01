@@ -1,0 +1,11 @@
+[package]
+name = "format-memotech-mtx"
+description = "Memotech MTX .mtx tape-image and .RUN program parsers"
+edition.workspace = true
+version.workspace = true
+publish = false
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
