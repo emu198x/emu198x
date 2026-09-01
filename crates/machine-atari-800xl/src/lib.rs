@@ -803,6 +803,170 @@ mod tests {
         );
     }
 
+    /// A cart that puts one scrolled playfield on screen and nothing else.
+    ///
+    /// The display list is 24 blank lines, then 21 mode lines of `first`
+    /// (which carries LMS) and `rest`, then JVB. Screen memory is cleared and
+    /// `fill_len` bytes from `$3000 + fill_start` are set to `fill_value`, so
+    /// the only lit pixels on the frame are the ones under test — whole-frame
+    /// minimum x and maximum y then locate them without guessing at border
+    /// geometry.
+    fn scroll_cart(
+        first: u8,
+        rest: u8,
+        hscrol: u8,
+        vscrol: u8,
+        fill_start: u8,
+        fill_len: u8,
+        fill_value: u8,
+    ) -> Vec<u8> {
+        let mut p: Vec<u8> = Vec::new();
+
+        p.extend_from_slice(&[0xA9, 0x00, 0x8D, 0x0E, 0xD4]); // NMIEN = 0
+        p.extend_from_slice(&[0xA9, 0x70]); // 8 blank lines
+        for addr in 0x2000u16..=0x2002 {
+            p.extend_from_slice(&[0x8D, addr as u8, (addr >> 8) as u8]);
+        }
+        p.extend_from_slice(&[0xA9, first, 0x8D, 0x03, 0x20]);
+        p.extend_from_slice(&[0xA9, 0x00, 0x8D, 0x04, 0x20]); // LMS low
+        p.extend_from_slice(&[0xA9, 0x30, 0x8D, 0x05, 0x20]); // LMS high → $3000
+
+        p.push(0xA2); // LDX #$00
+        p.push(0x00);
+        let dl_loop = p.len();
+        p.extend_from_slice(&[0xA9, rest]); // LDA #rest
+        p.extend_from_slice(&[0x9D, 0x06, 0x20]); // STA $2006,X
+        p.push(0xE8); // INX
+        p.extend_from_slice(&[0xE0, 0x14]); // CPX #$14
+        p.push(0xD0); // BNE dl_loop
+        p.push(((dl_loop as isize - (p.len() as isize + 1)) as i8) as u8);
+
+        p.extend_from_slice(&[0xA9, 0x41, 0x8D, 0x1A, 0x20]); // JVB
+        p.extend_from_slice(&[0xA9, 0x00, 0x8D, 0x1B, 0x20]);
+        p.extend_from_slice(&[0xA9, 0x20, 0x8D, 0x1C, 0x20]); // → $2000
+
+        p.extend_from_slice(&[0xA9, 0x00, 0xA2, 0x00]); // clear screen memory
+        let clear_loop = p.len();
+        p.extend_from_slice(&[0x9D, 0x00, 0x30]); // STA $3000,X
+        p.push(0xE8);
+        p.extend_from_slice(&[0xE0, 0x40]); // CPX #$40
+        p.push(0xD0);
+        p.push(((clear_loop as isize - (p.len() as isize + 1)) as i8) as u8);
+
+        p.extend_from_slice(&[0xA9, fill_value, 0xA2, 0x00]);
+        let fill_loop = p.len();
+        p.extend_from_slice(&[0x9D, fill_start, 0x30]); // STA $30xx,X
+        p.push(0xE8);
+        p.extend_from_slice(&[0xE0, fill_len]);
+        p.push(0xD0);
+        p.push(((fill_loop as isize - (p.len() as isize + 1)) as i8) as u8);
+
+        p.extend_from_slice(&[0xA9, 0x0F, 0x8D, 0x16, 0xD0]); // COLPF0 = white
+        p.extend_from_slice(&[0xA9, 0x0F, 0x8D, 0x17, 0xD0]); // COLPF1 = white
+        p.extend_from_slice(&[0xA9, 0x00, 0x8D, 0x18, 0xD0]); // COLPF2 = black
+        p.extend_from_slice(&[0xA9, 0x00, 0x8D, 0x1A, 0xD0]); // COLBK = black
+
+        // Wait several frames before switching display DMA on. ANTIC reads a
+        // copy of RAM that the machine refreshes once a frame, so a display
+        // list written this frame is not visible to it until the next one —
+        // and with DMA already running it would walk the stale copy and lose
+        // its place, never reaching the JVB that resets the pointer. Real
+        // ANTIC fetches live; the snapshot is tracked as #1384.
+        p.extend_from_slice(&[0xA0, 0x60]); // LDY #$60
+        let outer = p.len();
+        p.extend_from_slice(&[0xA2, 0x00]); // LDX #$00
+        let inner = p.len();
+        p.push(0xCA); // DEX
+        p.push(0xD0); // BNE inner
+        p.push(((inner as isize - (p.len() as isize + 1)) as i8) as u8);
+        p.push(0x88); // DEY
+        p.push(0xD0); // BNE outer
+        p.push(((outer as isize - (p.len() as isize + 1)) as i8) as u8);
+
+        p.extend_from_slice(&[0xA9, hscrol, 0x8D, 0x04, 0xD4]);
+        p.extend_from_slice(&[0xA9, vscrol, 0x8D, 0x05, 0xD4]);
+        p.extend_from_slice(&[0xA9, 0x00, 0x8D, 0x02, 0xD4]); // DLISTL
+        p.extend_from_slice(&[0xA9, 0x20, 0x8D, 0x03, 0xD4]); // DLISTH → $2000
+        p.extend_from_slice(&[0xA9, 0x22, 0x8D, 0x00, 0xD4]); // DMACTL: normal + DL DMA
+
+        let here = 0xA000u16 + p.len() as u16;
+        p.extend_from_slice(&[0x4C, here as u8, (here >> 8) as u8]);
+
+        let mut rom = vec![0xEAu8; 8192];
+        rom[..p.len()].copy_from_slice(&p);
+        rom
+    }
+
+    /// Every lit pixel on the frame, as (x, y).
+    fn lit_pixels(sys: &Atari800xl) -> Vec<(usize, usize)> {
+        let w = sys.framebuffer_width() as usize;
+        let fb = sys.framebuffer();
+        let black = fb[0];
+        fb.iter()
+            .enumerate()
+            .filter(|&(_, &px)| px != black)
+            .map(|(i, _)| (i % w, i / w))
+            .collect()
+    }
+
+    fn run_scroll_cart(cart: Vec<u8>) -> Atari800xl {
+        let mut sys =
+            Atari800xl::new(None, None, Some(cart), Atari800xlRegion::Ntsc, false).expect("init");
+        for _ in 0..30 {
+            sys.run_frame();
+        }
+        sys
+    }
+
+    /// HSCROL wired all the way through: one lit byte of a scrolled mode F
+    /// line moves right by exactly the register's value in colour clocks, two
+    /// framebuffer pixels each.
+    #[test]
+    fn hscrol_moves_the_playfield_right_through_the_machine_bus() {
+        let x_at = |hscrol| {
+            // Mode F + LMS + HSCROL, then mode F + HSCROL. Screen byte 4 is
+            // the only lit one, far enough in to stay visible at HSCROL 0.
+            let sys = run_scroll_cart(scroll_cart(0x5F, 0x1F, hscrol, 0, 0x04, 0x01, 0xFF));
+            let lit = lit_pixels(&sys);
+            assert!(!lit.is_empty(), "HSCROL {hscrol} lit nothing");
+            lit.iter().map(|&(x, _)| x).min().expect("lit")
+        };
+
+        let base = x_at(0);
+        for hscrol in [1u8, 4, 9, 15] {
+            assert_eq!(
+                x_at(hscrol),
+                base + 2 * usize::from(hscrol),
+                "HSCROL {hscrol} should move the playfield {hscrol} colour clocks right"
+            );
+        }
+    }
+
+    /// VSCROL wired all the way through: the first mode line of a scrolling
+    /// region starts partway down its rows, so it is that many scan lines
+    /// shorter and everything below it moves up.
+    #[test]
+    fn vscrol_shortens_the_first_line_of_a_region_through_the_machine_bus() {
+        let bottom_at = |vscrol| {
+            // Mode 8 + LMS + VSCROL, then mode 8 + VSCROL. Mode 8 is eight
+            // scan lines per row and ten bytes per line, so filling the first
+            // ten lights exactly the first mode line.
+            let sys = run_scroll_cart(scroll_cart(0x68, 0x28, 0, vscrol, 0x00, 0x0A, 0x55));
+            let lit = lit_pixels(&sys);
+            assert!(!lit.is_empty(), "VSCROL {vscrol} lit nothing");
+            lit.iter().map(|&(_, y)| y).max().expect("lit")
+        };
+
+        let base = bottom_at(0);
+        for vscrol in [1u8, 3, 7] {
+            assert_eq!(
+                bottom_at(vscrol),
+                base - usize::from(vscrol),
+                "VSCROL {vscrol} should shorten the region's first line by {vscrol} scan lines"
+            );
+        }
+    }
+
     #[test]
     fn prior_playfield_front_scheme_is_wired_through_the_machine_bus() {
         let mut sys = Atari800xl::new(None, None, Some(trap_cart()), Atari800xlRegion::Ntsc, false)
