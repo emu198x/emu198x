@@ -274,6 +274,20 @@ impl Pia6520 {
         flags | (self.cra & 0x3F)
     }
 
+    /// The level CB2 is driving, when the CPU has configured it as an output.
+    ///
+    /// CRB bit 5 makes CB2 an output; bit 4 chooses between the pulse and
+    /// set/reset modes, and in set/reset — the only one anything here uses —
+    /// bit 3 is the level. `None` while CB2 is an input, because then the pin
+    /// belongs to whatever is wired to it.
+    ///
+    /// The Atari hangs the SIO command line off this pin, and the cassette
+    /// motor off CA2.
+    #[must_use]
+    pub fn cb2_output(&self) -> Option<bool> {
+        (self.crb & 0x20 != 0).then_some(self.crb & 0x08 != 0)
+    }
+
     /// Read control register B, with the live CB1/CB2 interrupt flags in bits
     /// 7-6. Diagnostics only.
     #[must_use]
