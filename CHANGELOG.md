@@ -42,7 +42,7 @@ not strictly. Versions follow [Semantic Versioning](https://semver.org/spec/v2.0
 - CI proves the two builds agree. A native run and a headless Chrome
   run of the same crate must reach the same golden frame hash after
   the same input, so the browser build cannot quietly drift from the
-  emulator this project actually tests
+  emulator this project tests
 
 ## [0.20.1] - 2026-09-02
 
