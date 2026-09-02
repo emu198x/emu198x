@@ -17,7 +17,7 @@
 use std::fs;
 use std::path::PathBuf;
 
-use emu198x_shell::{FamilyRuntime, FirmwareImage, FirmwareSet};
+use emu198x_shell::{FamilyRuntime, FirmwareImage, FirmwareSet, MediaKind};
 use emu198x_web::WebMachine;
 use runtime_sinclair_zx_spectrum::{Model, SpectrumRuntimeKind};
 
@@ -261,4 +261,78 @@ fn a_muted_machine_buffers_nothing() {
         "a muted machine buffered {} samples",
         machine.audio().len()
     );
+}
+
+/// Any real `.tap` from the Spectrum test-data set.
+///
+/// Freely redistributable test programs, so this needs no rights decision —
+/// what matters is that it is a real tape image rather than bytes we invented
+/// to match our own parser.
+fn any_tap() -> Option<(PathBuf, Vec<u8>)> {
+    let home = std::env::var("HOME").ok()?;
+    let dir = PathBuf::from(home).join(".emu198x/test-data/zx-spectrum-tests");
+    let mut taps: Vec<PathBuf> = fs::read_dir(dir)
+        .ok()?
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| path.extension().is_some_and(|ext| ext == "tap"))
+        .collect();
+    taps.sort();
+    let path = taps.into_iter().next()?;
+    let bytes = fs::read(&path).ok()?;
+    Some((path, bytes))
+}
+
+#[test]
+#[ignore = "FIXTURE: needs the 48K Spectrum ROM — run with --ignored"]
+fn the_machine_declares_a_tape_slot() {
+    let rom = rom().expect("needs ~/.emu198x/roms/sinclair-zx-spectrum-48k/48.rom");
+    let machine = WebMachine::new(spectrum(&rom));
+
+    let slots = machine.media_slots();
+    assert!(!slots.is_empty(), "the 48K declares no media slots");
+    assert!(
+        slots.iter().any(|slot| machine.has_slot(slot)),
+        "a declared slot is not recognised by has_slot"
+    );
+}
+
+#[test]
+#[ignore = "FIXTURE: needs the 48K ROM and the Spectrum test-data set"]
+fn a_real_tape_image_loads_from_bytes_alone() {
+    let rom = rom().expect("needs ~/.emu198x/roms/sinclair-zx-spectrum-48k/48.rom");
+    let Some((path, tap)) = any_tap() else {
+        panic!("needs a .tap in ~/.emu198x/test-data/zx-spectrum-tests");
+    };
+    let mut machine = WebMachine::new(spectrum(&rom));
+
+    let slot = machine
+        .media_slots()
+        .first()
+        .expect("the 48K declares a slot")
+        .to_string();
+
+    machine
+        .load_media_bytes(&slot, MediaKind::Tape, &tap)
+        .unwrap_or_else(|e| panic!("loading {} failed: {e}", path.display()));
+
+    // And the machine keeps running afterwards, rather than the load having
+    // left it in a state that faults on the next frame.
+    for _ in 0..10 {
+        machine
+            .run_one_frame()
+            .expect("the machine runs after loading");
+    }
+}
+
+#[test]
+#[ignore = "FIXTURE: needs the 48K Spectrum ROM — run with --ignored"]
+fn an_unknown_slot_is_an_error_rather_than_a_silent_no_op() {
+    let rom = rom().expect("needs ~/.emu198x/roms/sinclair-zx-spectrum-48k/48.rom");
+    let mut machine = WebMachine::new(spectrum(&rom));
+
+    // A page that mistypes a slot must hear about it. Silently doing nothing
+    // would look exactly like a program that loaded and did not run.
+    let result = machine.load_media_bytes("drive-99", MediaKind::Disk, &[0u8; 8]);
+    assert!(result.is_err(), "an unknown slot was accepted");
 }

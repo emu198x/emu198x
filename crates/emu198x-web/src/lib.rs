@@ -18,7 +18,10 @@ pub mod pacing;
 
 use std::borrow::Cow;
 
-use emu198x_shell::{FamilyRuntime, HostIo, InputEvent, MachineError, MachineTime, NullTraceSink};
+use emu198x_shell::{
+    FamilyRuntime, HostIo, InputEvent, MachineError, MachineTime, MediaImage, MediaKind, MediaSet,
+    NullTraceSink,
+};
 
 pub use audio::WebAudioOutput;
 pub use frame::RgbaFrame;
@@ -182,6 +185,57 @@ impl<R: FamilyRuntime> WebMachine<R> {
     #[must_use]
     pub fn pending_input(&self) -> &[InputEvent] {
         &self.pending_input
+    }
+
+    /// Loads media into `slot` from bytes the page supplies.
+    ///
+    /// This is how a lesson runs the program a learner just assembled: the
+    /// page fetches or builds the bytes and hands them straight over. No
+    /// filesystem is involved at any point, which is why the browser needed no
+    /// new loading path — the runtimes already take bytes rather than paths.
+    ///
+    /// `kind` is explicit rather than sniffed from the bytes. The page knows
+    /// what it fetched, and guessing wrong would mount a snapshot as a tape.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MachineError`] if the machine has no such slot or rejects the
+    /// image.
+    pub fn load_media_bytes(
+        &mut self,
+        slot: &str,
+        kind: MediaKind,
+        bytes: &[u8],
+    ) -> Result<(), MachineError> {
+        if !self.has_slot(slot) {
+            return Err(MachineError::UnsupportedOperation {
+                operation: "load_media_bytes: unknown slot",
+            });
+        }
+        let mut media = MediaSet::new();
+        media.push(MediaImage::new(slot.to_owned(), kind, bytes));
+        self.runtime.load_media(&media)
+    }
+
+    /// Slot identifiers this machine's profile declares, such as `tape-1`.
+    #[must_use]
+    pub fn media_slots(&self) -> Vec<&str> {
+        self.runtime
+            .profile()
+            .media_slots
+            .iter()
+            .map(|slot| slot.id.as_ref())
+            .collect()
+    }
+
+    /// Whether the machine declares `slot`.
+    #[must_use]
+    pub fn has_slot(&self, slot: &str) -> bool {
+        self.runtime
+            .profile()
+            .media_slots
+            .iter()
+            .any(|declared| declared.id == slot)
     }
 
     /// Matches the buffer to the page's Web Audio graph.
