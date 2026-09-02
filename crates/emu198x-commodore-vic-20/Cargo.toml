@@ -21,12 +21,12 @@ default = ["ui"]
 ui = ["dep:emu198x-ui"]
 
 [dependencies]
-emu198x-shell = { path = "../emu198x-shell", version = "0.18.0" }
-mos-vic-i = { path = "../mos-vic-i", version = "0.18.0" }
-emu198x-ui = { path = "../emu198x-ui", version = "0.18.0", optional = true }
-machine-commodore-vic-20 = { path = "../machine-commodore-vic-20", version = "0.18.0" }
+emu198x-shell = { path = "../emu198x-shell", version = "0.19.0" }
+mos-vic-i = { path = "../mos-vic-i", version = "0.19.0" }
+emu198x-ui = { path = "../emu198x-ui", version = "0.19.0", optional = true }
+machine-commodore-vic-20 = { path = "../machine-commodore-vic-20", version = "0.19.0" }
 png = { workspace = true }
-runtime-commodore-vic-20 = { path = "../runtime-commodore-vic-20", version = "0.18.0" }
+runtime-commodore-vic-20 = { path = "../runtime-commodore-vic-20", version = "0.19.0" }
 serde_json = { workspace = true }
 
 [lints]
