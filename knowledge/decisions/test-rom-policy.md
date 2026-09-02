@@ -43,6 +43,7 @@ outputs rather than redistributed ROMs.
 | Super Mario Bros. ROM (NES regression) | `EMU198X_NES_SMB_ROM` | Commercial, copyrighted (Nintendo) | No — never bundle |
 | Manic Miner / Jet Set Willy TZX (Spectrum regression) | `EMU198X_SPECTRUM_MANIC_MINER_TZX` / `…_JET_SET_WILLY_TZX` | Commercial (Bug-Byte / Software Projects); some titles have permissive distribution permission, varies | No — never bundle |
 | Mealybug Tearoom (mattcurrie, future use) | (env var TBD when first referenced) | MIT | Yes if we want |
+| Sinclair 48K ROM (firmware, npm package only) | `EMU198X_SPECTRUM_48K_ROM` | Commercial (Amstrad), permitted for redistribution with emulators | Not in this repo; embedded in the published `@emu198x/zx-spectrum` wasm only — see § Firmware in a published browser build |
 | ZEXDOC / ZEXALL | `EMU198X_ZEX_DIR` | No explicit grant; long-standing redistribution | No — referenced externally since 2026-07-04 |
 | Amiga Test Kit v1.12 | `EMU198X_AMIGA_TEST_KIT_ADF` | Public domain / Unlicense | Yes for the ADF; required Kickstart remains proprietary |
 | Amiga Test Kit v1.21 | `EMU198X_AMIGA_TEST_KIT_V121_ADF` | Public domain / Unlicense | Yes for the ADF; required Kickstart remains proprietary |
@@ -204,6 +205,52 @@ separately by `test-data/amiga-test-kit-v1.21-a1200-aga-pal.sha256`.
 
 Obvious. Just naming it for completeness.
 
+### Firmware in a published browser build (added 2026-09-02)
+
+The `@emu198x/zx-spectrum` npm package embeds the Sinclair 48K ROM in its
+wasm artifact. This is the documented special case the "bundle a commercial
+ROM with permission from the rights-holder" drift trigger asks for, and it is
+narrow.
+
+**Scope.** The Spectrum 48K ROM, in the published browser package only. No
+other firmware, no other system, and not in this repository — see § How it
+reaches the artifact below. C64 KERNAL and Amiga Kickstart are unchanged:
+never bundled, no permission of this kind on record.
+
+**Basis.** Amstrad acquired Sinclair's computer rights in 1986 and has
+permitted redistribution of the Spectrum ROMs with emulators. That permission
+is what
+[`wasm-sequencing.md`](wasm-sequencing.md) already relies on when it puts
+curriculum embeds on firmware-permission systems in scope, and it is why the
+Spectrum is the system this programme starts with.
+
+**The permission is an informal grant, not a licence file, and this record
+does not yet cite a primary source for it.** That gap is worth closing: an
+archived statement from the rights-holder, recorded here, is what makes this
+case auditable rather than remembered. Until then this section records a
+decision taken on the project's existing understanding, not a verified
+licence.
+
+**Why bundling rather than serving the file.** A `.rom` served beside the
+page is functionally a ROM download: separable, linkable, and indistinguishable
+from a ROM site. Embedded in the wasm it is inseparable from the emulator,
+which is the condition the permission is granted under. The bundling is
+therefore the more conservative option here, not the more permissive one — the
+opposite of how it first looks.
+
+**What it costs.** The project becomes a redistributor through npm, which
+mirrors and caches more widely than a site does. That exposure is accepted
+deliberately for one 16 KiB firmware image on one system, and is the reason
+this section is narrow rather than a general firmware exemption.
+
+**How it reaches the artifact.** Not through this repository. The crate
+compiles without the ROM by default; `scripts/build-npm.sh` enables the
+`bundled-rom` feature and reads the image from `EMU198X_SPECTRUM_48K_ROM`,
+the same environment variable the tests already use. So a clone, a fork or a
+mirror of this repository carries no firmware, and only the published package
+does. `*.rom` stays in the crate's `.gitignore` to keep that true by
+construction.
+
 ## What we are NOT doing
 
 - **Bundling Blargg test ROMs** even though they're universally
@@ -253,7 +300,10 @@ When a new test ROM corpus is added:
   awkward. Otherwise stay with env-var pattern for uniformity.
 - **"Bundle a commercial ROM with permission from the rights-
   holder"** — out of scope of this policy. If permission is real,
-  document it as a special case and revisit.
+  document it as a special case and revisit. Done once, narrowly:
+  § Firmware in a published browser build. Reaching for that section
+  to justify a second firmware image is the drift — it covers one ROM,
+  on one system, in one artifact.
 
 ## Log
 
@@ -323,3 +373,18 @@ paths align with this policy. No action needed in the README.
 - [Amiga Test Kit v1.21 fixture identity](../../test-data/amiga-test-kit-v1.21.md)
 - [Amiga Test Kit verification](../processes/amiga-test-kit-verification.md)
 - [Amiga Test Kit v1.21 video conformance](../processes/amiga-test-kit-video-conformance.md)
+
+### 2026-09-02 — Firmware bundling, narrowly, for the browser package
+
+The browser programme (#1414) reached the point where a lesson embed needs a
+ROM to boot. Serving one beside the page and embedding one in the wasm are
+both redistribution; the second is inseparable from the emulator and so sits
+better with the permission the project already relies on.
+
+Recorded as the special case the drift trigger asks for, scoped to the
+Spectrum 48K ROM in the published npm package. The repository still carries no
+firmware: the crate builds without it, and the publish step supplies it from
+`EMU198X_SPECTRUM_48K_ROM`.
+
+Open: this record cites no primary source for the Amstrad permission. It
+should.

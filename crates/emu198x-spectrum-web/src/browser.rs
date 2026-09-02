@@ -115,6 +115,25 @@ impl Spectrum {
             .map_err(|error| JsError::new(&format!("loading into {slot:?}: {error}")))
     }
 
+    /// Builds a 48K on the ROM embedded in this package.
+    ///
+    /// The ordinary entry point for a page: the firmware travels with the
+    /// emulator, so a lesson embed needs no ROM of its own and no file
+    /// picker in front of the first thing a learner sees.
+    ///
+    /// Present only in a build made with the `bundled-rom` feature, which is
+    /// how the npm package is published. A build without it uses
+    /// [`create`](Self::create) and supplies its own image.
+    ///
+    /// # Errors
+    ///
+    /// Returns a JavaScript error if the canvas has no 2-D context.
+    #[cfg(feature = "bundled-rom")]
+    #[wasm_bindgen(js_name = createBundled)]
+    pub async fn create_bundled(canvas: HtmlCanvasElement) -> Result<Spectrum, JsError> {
+        Self::create(canvas, crate::BUNDLED_ROM.to_vec()).await
+    }
+
     /// Loads a portable snapshot — `.sna` or `.z80` — from bytes.
     ///
     /// This is how a lesson runs the program it ships: the curriculum's

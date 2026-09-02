@@ -15,6 +15,16 @@ mod browser;
 #[cfg(target_arch = "wasm32")]
 pub use browser::Spectrum;
 
+/// The Sinclair 48K ROM, embedded at build time.
+///
+/// Present only under the `bundled-rom` feature, which the npm publish step
+/// enables and nothing else does. The image is read from
+/// `EMU198X_SPECTRUM_48K_ROM` at compile time, so it never enters this
+/// repository — see `knowledge/decisions/test-rom-policy.md`
+/// § Firmware in a published browser build for why that distinction matters.
+#[cfg(feature = "bundled-rom")]
+pub const BUNDLED_ROM: &[u8] = include_bytes!(env!("EMU198X_SPECTRUM_48K_ROM"));
+
 /// Parses a portable Spectrum snapshot from bytes.
 ///
 /// The curriculum's capture pipeline builds `.sna` files, so a lesson embed
@@ -69,6 +79,19 @@ mod tests {
     fn control_and_alt_both_reach_symbol_shift() {
         assert_eq!(spectrum_key_name("ControlLeft"), Some("SymbolShift"));
         assert_eq!(spectrum_key_name("AltRight"), Some("SymbolShift"));
+    }
+
+    #[cfg(feature = "bundled-rom")]
+    #[test]
+    fn the_bundled_rom_is_a_16k_image() {
+        // Guards against the environment variable pointing at the wrong file:
+        // a 128K ROM pair, a zip, or a snapshot would all compile fine and
+        // then fail to boot in a browser with nothing to explain why.
+        assert_eq!(
+            BUNDLED_ROM.len(),
+            16 * 1024,
+            "EMU198X_SPECTRUM_48K_ROM is not a 16 KiB image"
+        );
     }
 
     #[test]
