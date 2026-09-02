@@ -8,8 +8,8 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-emu198x-shell = { path = "../emu198x-shell", version = "0.19.0" }
-emu198x-native-video = { path = "../emu198x-native-video", version = "0.19.0" }
+emu198x-shell = { path = "../emu198x-shell", version = "0.20.0" }
+emu198x-native-video = { path = "../emu198x-native-video", version = "0.20.0" }
 winit = { workspace = true }
 thiserror.workspace = true
 # Native file dialogs for the File → Open menu. Builds cross-platform (its Linux
