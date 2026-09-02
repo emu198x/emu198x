@@ -43,6 +43,7 @@ outputs rather than redistributed ROMs.
 | Super Mario Bros. ROM (NES regression) | `EMU198X_NES_SMB_ROM` | Commercial, copyrighted (Nintendo) | No — never bundle |
 | Manic Miner / Jet Set Willy TZX (Spectrum regression) | `EMU198X_SPECTRUM_MANIC_MINER_TZX` / `…_JET_SET_WILLY_TZX` | Commercial (Bug-Byte / Software Projects); some titles have permissive distribution permission, varies | No — never bundle |
 | Mealybug Tearoom (mattcurrie, future use) | (env var TBD when first referenced) | MIT | Yes if we want |
+| Sinclair 48K ROM (firmware, npm package only) | `EMU198X_SPECTRUM_48K_ROM` | Commercial (Amstrad), permitted for redistribution with emulators | Not in this repo; embedded in the published `@emu198x/zx-spectrum` wasm only — see § Firmware in a published browser build |
 | ZEXDOC / ZEXALL | `EMU198X_ZEX_DIR` | No explicit grant; long-standing redistribution | No — referenced externally since 2026-07-04 |
 | Amiga Test Kit v1.12 | `EMU198X_AMIGA_TEST_KIT_ADF` | Public domain / Unlicense | Yes for the ADF; required Kickstart remains proprietary |
 | Amiga Test Kit v1.21 | `EMU198X_AMIGA_TEST_KIT_V121_ADF` | Public domain / Unlicense | Yes for the ADF; required Kickstart remains proprietary |
@@ -204,6 +205,104 @@ separately by `test-data/amiga-test-kit-v1.21-a1200-aga-pal.sha256`.
 
 Obvious. Just naming it for completeness.
 
+### Firmware in a published browser build (added 2026-09-02)
+
+The `@emu198x/zx-spectrum` npm package embeds the Sinclair 48K ROM in its
+wasm artifact. This is the documented special case the "bundle a commercial
+ROM with permission from the rights-holder" drift trigger asks for, and it is
+narrow.
+
+**Scope.** The Spectrum 48K ROM, in the published browser package only. No
+other firmware, no other system, and not in this repository — see § How it
+reaches the artifact below. C64 KERNAL and Amiga Kickstart are unchanged:
+never bundled, no permission of this kind on record.
+
+**Basis.** Cliff Lawson of Amstrad plc, answering Andrew Owen on
+comp.sys.sinclair, 31 August 1999. Archived by World of Spectrum:
+<https://web.archive.org/web/20180828125931/http://www.worldofspectrum.org/permits/amstrad-roms.txt>
+
+> Amstrad are happy for emulator writers to include images of our copyrighted
+> code as long as the (c)opyright messages are not altered and we appreciate
+> it if the program/manual includes a note to the effect that "Amstrad have
+> kindly given their permission for the redistribution of their copyrighted
+> material but retain that copyright".
+
+It is a public statement by the rights-holder rather than a signed licence,
+and the whole retro-computing field has relied on it for a quarter of a
+century. Treat it as what it is: durable, specific, and informal.
+
+**What it covers, and what it does not.** The statement is explicit about its
+own edges, and they matter here because this repository emulates machines on
+both sides of the line.
+
+| ROM | Covered? | Source |
+|---|---|---|
+| Spectrum 48K, 128K | Yes | "Amstrad only bought the rights to Spectrum 48/128 from Sinclair" |
+| Spectrum +2, +2A, +3 | Yes | "then produced the + machines ourselves" |
+| ZX80, ZX81, Interface 1/2 | **No** | "I do not believe the (c) for ZXs or IF1/2 has anything to do with Amstrad" |
+| Timex TC2048 / TS2068 | **No** | "Ask Timex. We only hold the copyright for code written by Sinclair or Amstrad" |
+| Pentagon, Scorpion | **No** | Clones, and answered with an opinion about piracy rather than a grant |
+| Spectrum game software | **No** | "remains the copyrighted property of its authors (Ocean etc.)" |
+
+This repository has runtimes for Pentagon, Scorpion, TC2048 and TS2068. **None
+of their ROMs are covered by this permission**, and none may be bundled under
+this section. It authorises the Sinclair/Amstrad Spectrum firmware and nothing
+else.
+
+**The age of the statement, and what it does and does not weaken.** The
+permission is dated 31 August 1999 and has not been re-confirmed since. Amstrad
+plc was acquired by BSkyB in 2007; whether the Spectrum firmware rights moved
+with the company, and who would answer a question about them today, is not
+established by this record and should not be assumed either way. A current
+statement, if one can be obtained, would be worth more than this one.
+
+What age does not weaken is the copyright itself. The permission is a
+permission — Lawson's own wording is that Amstrad "retain that copyright" — so
+the ROM is not ours, is not GPL, and does not become either through being
+embedded in something that is. Anything downstream that would only be true if
+the firmware were freely licensed is out of scope of this record, however long
+the permission goes unchallenged.
+
+This is why the published package declares `SEE LICENSE IN README.md` rather
+than the crate's `GPL-2.0-or-later`. A bare SPDX identifier on an artifact
+containing proprietary firmware tells every licence scanner something false,
+and tooling acts on that field without reading the prose beside it.
+
+**Conditions, all three of which bind us.**
+
+1. *Copyright messages must not be altered.* We embed the image verbatim and
+   do not patch it, so this holds by construction. A future change that
+   patches firmware — a fast-loader hook, say — would step outside the
+   permission as written, even though Lawson separately allows modification.
+2. *An acknowledgement is requested* in the program or manual, in specific
+   words. Carried in the package README, which wasm-pack ships inside the
+   published artifact, so it travels with the ROM rather than sitting only in
+   this repository.
+3. *No charging for the ROM code.* "No one should be charging for the ROM
+   code." The package is free; if any part of this family is ever sold, the
+   firmware cannot be part of what is charged for.
+
+
+**Why bundling rather than serving the file.** A `.rom` served beside the
+page is functionally a ROM download: separable, linkable, and indistinguishable
+from a ROM site. Embedded in the wasm it is inseparable from the emulator,
+which is the condition the permission is granted under. The bundling is
+therefore the more conservative option here, not the more permissive one — the
+opposite of how it first looks.
+
+**What it costs.** The project becomes a redistributor through npm, which
+mirrors and caches more widely than a site does. That exposure is accepted
+deliberately for one 16 KiB firmware image on one system, and is the reason
+this section is narrow rather than a general firmware exemption.
+
+**How it reaches the artifact.** Not through this repository. The crate
+compiles without the ROM by default; `scripts/build-npm.sh` enables the
+`bundled-rom` feature and reads the image from `EMU198X_SPECTRUM_48K_ROM`,
+the same environment variable the tests already use. So a clone, a fork or a
+mirror of this repository carries no firmware, and only the published package
+does. `*.rom` stays in the crate's `.gitignore` to keep that true by
+construction.
+
 ## What we are NOT doing
 
 - **Bundling Blargg test ROMs** even though they're universally
@@ -253,7 +352,10 @@ When a new test ROM corpus is added:
   awkward. Otherwise stay with env-var pattern for uniformity.
 - **"Bundle a commercial ROM with permission from the rights-
   holder"** — out of scope of this policy. If permission is real,
-  document it as a special case and revisit.
+  document it as a special case and revisit. Done once, narrowly:
+  § Firmware in a published browser build. Reaching for that section
+  to justify a second firmware image is the drift — it covers one ROM,
+  on one system, in one artifact.
 
 ## Log
 
@@ -323,3 +425,23 @@ paths align with this policy. No action needed in the README.
 - [Amiga Test Kit v1.21 fixture identity](../../test-data/amiga-test-kit-v1.21.md)
 - [Amiga Test Kit verification](../processes/amiga-test-kit-verification.md)
 - [Amiga Test Kit v1.21 video conformance](../processes/amiga-test-kit-video-conformance.md)
+
+### 2026-09-02 — Firmware bundling, narrowly, for the browser package
+
+The browser programme (#1414) reached the point where a lesson embed needs a
+ROM to boot. Serving one beside the page and embedding one in the wasm are
+both redistribution; the second is inseparable from the emulator and so sits
+better with the permission the project already relies on.
+
+Recorded as the special case the drift trigger asks for, scoped to the
+Spectrum 48K ROM in the published npm package. The repository still carries no
+firmware: the crate builds without it, and the publish step supplies it from
+`EMU198X_SPECTRUM_48K_ROM`.
+
+Citation added the same day: Cliff Lawson, Amstrad plc, comp.sys.sinclair,
+31 August 1999, archived at World of Spectrum. Reading the source changed the
+record rather than merely footnoting it — the permission is conditional and
+bounded, it excludes the ZX80/ZX81, Interface 1/2, Timex and the Russian
+clones this repository also emulates, and it asks for an acknowledgement we
+were not yet carrying. That acknowledgement now ships in the package README, and the package no
+longer claims a single licence it cannot honour.

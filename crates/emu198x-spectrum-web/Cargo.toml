@@ -10,6 +10,16 @@ repository.workspace = true
 [lib]
 crate-type = ["cdylib", "rlib"]
 
+[features]
+# Embeds the 48K ROM in the artifact, for the published npm package only.
+# Off by default so this repository, and every clone and fork of it, builds
+# and ships without firmware. `scripts/build-npm.sh` turns it on and supplies
+# the image from EMU198X_SPECTRUM_48K_ROM.
+#
+# See knowledge/decisions/test-rom-policy.md
+# § Firmware in a published browser build.
+bundled-rom = []
+
 [dependencies]
 emu198x-shell = { path = "../emu198x-shell", version = "0.20.1" }
 format-sinclair-zx-spectrum-sna = { path = "../format-sinclair-zx-spectrum-sna", version = "0.20.1" }
