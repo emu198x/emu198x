@@ -105,3 +105,108 @@ fn the_booted_machine_produces_a_real_picture() {
         "a transparent pixel reached the canvas"
     );
 }
+
+#[test]
+#[ignore = "FIXTURE: needs the 48K Spectrum ROM — run with --ignored"]
+fn every_mapped_dom_code_names_a_key_the_spectrum_has() {
+    let rom = rom().expect("needs ~/.emu198x/roms/sinclair-zx-spectrum-48k/48.rom");
+    let machine = WebMachine::new(spectrum(&rom));
+
+    // The mapper is generic and the machine is the authority, so the pairing
+    // is only correct if the real keyboard accepts everything it emits. A
+    // mapping that produces a plausible-looking name the machine rejects
+    // would fail silently as a dead key.
+    let codes = [
+        "KeyA",
+        "KeyM",
+        "KeyZ",
+        "Digit0",
+        "Digit7",
+        "Digit9",
+        "Numpad3",
+        "Space",
+        "Enter",
+        "NumpadEnter",
+        "ArrowUp",
+        "ArrowDown",
+        "ArrowLeft",
+        "ArrowRight",
+        "Backspace",
+    ];
+
+    for code in codes {
+        let name = emu198x_web::dom_code_to_key_name(code)
+            .unwrap_or_else(|| panic!("{code} should map to a key name"));
+        assert!(
+            machine.accepts_key(name),
+            "{code} maps to {name:?}, which the Spectrum does not recognise"
+        );
+    }
+}
+
+#[test]
+#[ignore = "FIXTURE: needs the 48K Spectrum ROM — run with --ignored"]
+fn a_keypress_reaches_the_machine_once_and_only_once() {
+    let rom = rom().expect("needs ~/.emu198x/roms/sinclair-zx-spectrum-48k/48.rom");
+    let mut machine = WebMachine::new(spectrum(&rom));
+
+    assert!(machine.key_event("KeyA", true), "A is a Spectrum key");
+    assert_eq!(machine.pending_input().len(), 1);
+
+    machine.run_one_frame().expect("the machine runs");
+
+    assert!(
+        machine.pending_input().is_empty(),
+        "a queued key that is not drained replays on every later frame, \
+         so one keypress becomes a held key"
+    );
+}
+
+#[test]
+#[ignore = "FIXTURE: needs the 48K Spectrum ROM — run with --ignored"]
+fn keys_the_machine_does_not_have_are_refused_rather_than_queued() {
+    let rom = rom().expect("needs ~/.emu198x/roms/sinclair-zx-spectrum-48k/48.rom");
+    let mut machine = WebMachine::new(spectrum(&rom));
+
+    // No machine-neutral name.
+    assert!(!machine.key_event("F13", true));
+    // A name no Spectrum key answers to.
+    assert!(!machine.queue_key("Meta", true));
+
+    assert!(
+        machine.pending_input().is_empty(),
+        "a refused key must queue nothing"
+    );
+
+    // But the machine's own compound names do work, which is how a binding
+    // reaches CapsShift and SymbolShift.
+    assert!(
+        machine.queue_key("CapsShift", true),
+        "CapsShift is a Spectrum key"
+    );
+    assert_eq!(machine.pending_input().len(), 1);
+}
+
+#[test]
+#[ignore = "FIXTURE: needs the 48K Spectrum ROM — run with --ignored"]
+fn a_cursor_key_becomes_the_chord_the_hardware_needs() {
+    let rom = rom().expect("needs ~/.emu198x/roms/sinclair-zx-spectrum-48k/48.rom");
+    let mut machine = WebMachine::new(spectrum(&rom));
+
+    // The Spectrum has no cursor keys: Up is CapsShift + 7. Queueing the bare
+    // name would be accepted by nothing and the key would simply be dead, so
+    // the host has to expand it into the chord the machine actually scans.
+    assert!(machine.key_event("ArrowUp", true), "ArrowUp is reachable");
+    assert!(
+        machine.pending_input().len() > 1,
+        "Up queued {} event(s); a compound key must expand into its chord",
+        machine.pending_input().len()
+    );
+
+    machine.run_one_frame().expect("the machine runs");
+    assert!(machine.pending_input().is_empty());
+
+    // Releasing unwinds the chord in the opposite order, as a hand would.
+    assert!(machine.key_event("ArrowUp", false));
+    assert!(machine.pending_input().len() > 1);
+}
