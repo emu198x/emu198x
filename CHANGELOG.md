@@ -4,6 +4,14 @@ All notable changes to Emu198x will be documented in this file.
 
 Format loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 not strictly. Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [0.19.1] - 2026-09-02
+
+
+### Fixed
+
+- *(atari)* Render GTIA modes 9, 10 and 11
+- *(atari)* Give GTIA all sixteen luminances
+
 ## [0.19.0] - 2026-09-02
 
 
