@@ -45,7 +45,7 @@
 
 mod cartridge;
 
-pub use cartridge::Cartridge;
+pub use cartridge::{Cartridge, CartridgeKind};
 
 use atari_antic::{Antic, AnticRegion, COLOUR_CLOCKS_PER_LINE, CYCLES_HSYNC, cpu_dma_stalled};
 use atari_gtia::Gtia;
@@ -192,9 +192,11 @@ impl Atari800xl {
     /// Create a new Atari 800XL.
     ///
     /// `os_rom` should be 16 KB (covers `$C000-$FFFF` with a `$D000-$D7FF`
-    /// I/O gap baked into the ROM). `basic_rom` is 8 KB. `cart` may be 8 or
-    /// 16 KB; an 8 KB cart shadows BASIC at `$A000-$BFFF`. With no OS ROM,
-    /// the reset vector is fetched from the cart entry point.
+    /// I/O gap baked into the ROM). `basic_rom` is 8 KB. `cart` is a flat 8
+    /// or 16 KB image, a banked image with its `CART` header, or a headerless
+    /// 32 KB+ XEGS image (see [`Cartridge`]); a cart shadows BASIC at
+    /// `$A000-$BFFF`. With no OS ROM, the reset vector is fetched from the
+    /// cart entry point.
     pub fn new(
         os_rom: Option<Vec<u8>>,
         basic_rom: Option<Vec<u8>>,
@@ -529,7 +531,15 @@ impl Atari800xl {
             0xD200..=0xD2FF => self.pokey.read(addr as u8),
             0xD300..=0xD3FF => self.pia.read(Self::bus_to_pia_addr(addr)),
             0xD400..=0xD4FF => self.antic.read(addr as u8),
-            0xD500..=0xD7FF => 0xFF,
+            // The cartridge control select line: the cartridge decodes the
+            // access itself, and nothing drives the data bus.
+            0xD500..=0xD5FF => {
+                if let Some(ref mut cart) = self.cart {
+                    cart.cctl_access(addr);
+                }
+                0xFF
+            }
+            0xD600..=0xD7FF => 0xFF,
             0xD800..=0xFFFF => {
                 if os_on && let Some(ref os) = self.os_rom {
                     let offset = (addr - 0xC000) as usize;
@@ -548,7 +558,12 @@ impl Atari800xl {
             0xD200..=0xD2FF => self.pokey.write(addr as u8, value),
             0xD300..=0xD3FF => self.pia.write(Self::bus_to_pia_addr(addr), value),
             0xD400..=0xD4FF => self.antic.write(addr as u8, value),
-            0xD500..=0xD7FF => {}
+            0xD500..=0xD5FF => {
+                if let Some(ref mut cart) = self.cart {
+                    cart.cctl_write(addr, value);
+                }
+            }
+            0xD600..=0xD7FF => {}
             // Writes under OS ROM go to underlying RAM.
             0xD800..=0xFFFF => self.ram[addr as usize] = value,
         }
@@ -1372,16 +1387,13 @@ mod tests {
     }
 
     #[test]
-    fn accepts_up_to_8k_cart_but_rejects_oversize_rom() {
-        // Any 1..=8192-byte image is accepted as an 8 KB cartridge (per
-        // cartridge.rs's `1..=8192 => 0xA000` range), so 4097 bytes is fine;
-        // only an oversize (here 32 KB) ROM is rejected.
+    fn accepts_up_to_8k_cart_but_rejects_odd_sizes() {
+        // Any 1..=8192-byte image is accepted as an 8 KB cartridge, so 4097
+        // bytes is fine; a size no scheme uses (here 24 KB) is rejected.
         let small = vec![0u8; 4097];
         assert!(Atari800xl::new(None, None, Some(small), Atari800xlRegion::Ntsc, false).is_ok());
-        let oversize = vec![0u8; 32768];
-        assert!(
-            Atari800xl::new(None, None, Some(oversize), Atari800xlRegion::Ntsc, false).is_err()
-        );
+        let odd = vec![0u8; 24576];
+        assert!(Atari800xl::new(None, None, Some(odd), Atari800xlRegion::Ntsc, false).is_err());
     }
 
     #[test]

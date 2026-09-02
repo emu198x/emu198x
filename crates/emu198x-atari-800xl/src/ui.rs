@@ -49,7 +49,7 @@ Options:
                     ~/.emu198x/roms/atari-800xl/atarixl.rom (or EMU198X_A800XL_OS)
     --basic PATH    8 KB Atari BASIC ROM; default
                     ~/.emu198x/roms/atari-800xl/ataribas.rom (or EMU198X_A800XL_BASIC)
-    --cart PATH     cartridge ROM (8 KB or 16 KB)
+    --cart PATH     cartridge image (flat, XEGS, MegaCart or OSS; .car headers honoured)
     --disk PATH     ATR disk image for D1: (a .zip holding one .atr works too)
     --no-basic      hold OPTION at boot to disable the built-in BASIC
     --region MODE   ntsc | pal [default: ntsc]

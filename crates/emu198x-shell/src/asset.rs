@@ -320,7 +320,7 @@ fn archive_match_rules(kind: MediaKind) -> (&'static str, &'static [&'static str
         MediaKind::Cartridge => (
             "cartridge image",
             &[
-                "a26", "a52", "a78", "bin", "crt", "dgn", "gb", "gbc", "md", "nes", "rom",
+                "a26", "a52", "a78", "bin", "car", "crt", "dgn", "gb", "gbc", "md", "nes", "rom",
             ],
         ),
         MediaKind::Optical => ("optical image", &["bin", "ccd", "chd", "cue", "img", "iso"]),
