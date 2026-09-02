@@ -530,14 +530,23 @@ impl Antic {
     }
 
     /// Read an ANTIC register. `addr` is the offset within $D400-$D40F (0-15).
+    /// Read an ANTIC register. `addr` is the offset within $D400-$D40F.
+    ///
+    /// Only VCOUNT, PENH, PENV and NMIST drive the data bus. Every other
+    /// offset reads as `$FF`, and NMIST's unused low five bits read as 1,
+    /// which programs rely on: `LDA $D40E / ORA #$40 / STA $D40E` is a
+    /// common way to turn the VBI on, and it only ends with both NMIs
+    /// enabled because the read returns `$FF` (Altirra `antic.cpp`
+    /// `case 0x0E: return 0xFF; // needed or else Karateka breaks`;
+    /// atari800 `antic.c` `ANTIC_GetByte` `default: return 0xff`).
     #[must_use]
     pub fn read(&self, addr: u8) -> u8 {
         match addr & 0x0F {
             0x0B => self.vcount(),
             0x0C => 0, // PENH (not implemented)
             0x0D => 0, // PENV (not implemented)
-            0x0F => self.nmist,
-            _ => 0, // write-only or unused registers read as 0
+            0x0F => self.nmist | 0x1F,
+            _ => 0xFF,
         }
     }
 
@@ -644,8 +653,10 @@ impl Antic {
 
         // VBI at the start of vertical blank.
         // NMIEN bit 6 = VBI enable (bit 7 is DLI). NMIST bit 6 records VBI.
+        // Each NMI source clears the other's status bit as it sets its own
+        // (Altirra `antic.cpp`: `mNMIST |= 0x40; mNMIST &= ~0x80;`).
         if self.scan_line == VISIBLE_END {
-            self.nmist |= 0x40;
+            self.nmist = (self.nmist & !0x80) | 0x40;
             if self.nmien & 0x40 != 0 {
                 self.vbi_pending = true;
             }
@@ -720,7 +731,7 @@ impl Antic {
             // End of this mode line — check for DLI.
             // NMIEN bit 7 = DLI enable. NMIST bit 7 records DLI.
             if self.current_dli {
-                self.nmist |= 0x80;
+                self.nmist = (self.nmist & !0x40) | 0x80;
                 if self.nmien & 0x80 != 0 {
                     self.dli_pending = true;
                 }
@@ -1367,13 +1378,44 @@ mod tests {
         antic.write(0x0E, 0xC0);
         assert_eq!(antic.nmien, 0xC0);
 
-        // Simulate VBI pending
+        // Simulate VBI pending; the unused low bits read as 1.
         antic.nmist = 0x40;
-        assert_eq!(antic.read(0x0F), 0x40);
+        assert_eq!(antic.read(0x0F), 0x5F);
 
         // NMIRES clears status
         antic.write(0x0F, 0x00);
-        assert_eq!(antic.read(0x0F), 0x00);
+        assert_eq!(antic.read(0x0F), 0x1F);
+    }
+
+    #[test]
+    fn write_only_and_unused_registers_read_as_ff() {
+        let mut antic = Antic::new(AnticRegion::Ntsc);
+        antic.write(0x0E, 0xC0);
+        for addr in [
+            0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0E,
+        ] {
+            assert_eq!(antic.read(addr), 0xFF, "offset {addr:#04x}");
+        }
+    }
+
+    #[test]
+    fn each_nmi_source_clears_the_others_status_bit() {
+        let ram = make_ram();
+        let mut antic = Antic::new(AnticRegion::Ntsc);
+        antic.nmist = 0x80;
+        antic.scan_line = VISIBLE_END;
+        antic.process_line(&ram[..]);
+        assert_eq!(antic.read(0x0F), 0x5F);
+
+        antic.scan_line = VISIBLE_START;
+        antic.dmactl = 0x20;
+        antic.current_dli = true;
+        antic.current_mode = 0;
+        antic.mode_line = 1;
+        antic.row_end = 1;
+        antic.dl_active = true;
+        antic.process_line(&ram[..]);
+        assert_eq!(antic.read(0x0F), 0x9F);
     }
 
     #[test]
