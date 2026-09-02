@@ -247,25 +247,67 @@ impl WgpuVideoPresenter {
         frame_height: u32,
     ) -> Result<Self, VideoPresenterError> {
         let size = window.inner_size();
-        let width = size.width.max(1);
-        let height = size.height.max(1);
+        let surface_size = (size.width.max(1), size.height.max(1));
+        pollster::block_on(Self::new_async(
+            window,
+            surface_size,
+            frame_width,
+            frame_height,
+        ))
+    }
+
+    /// Creates a presenter attached to any wgpu surface target — a winit
+    /// window natively, an `HtmlCanvasElement` in a browser.
+    ///
+    /// Async rather than blocking because adapter and device acquisition
+    /// cannot be driven through `pollster::block_on` on the web: blocking the
+    /// browser's main thread deadlocks it. [`Self::new`] keeps the blocking
+    /// call for native callers, so their signature is unchanged.
+    ///
+    /// `surface_size` is a parameter rather than read from the target, because
+    /// a canvas has no `inner_size`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the host cannot create a GPU surface, adapter, or device.
+    pub async fn new_async<T>(
+        target: T,
+        surface_size: (u32, u32),
+        frame_width: u32,
+        frame_height: u32,
+    ) -> Result<Self, VideoPresenterError>
+    where
+        T: Into<wgpu::SurfaceTarget<'static>>,
+    {
+        let width = surface_size.0.max(1);
+        let height = surface_size.1.max(1);
 
         let instance = wgpu::Instance::default();
-        let surface = instance.create_surface(window)?;
-        let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
-            power_preference: wgpu::PowerPreference::LowPower,
-            force_fallback_adapter: false,
-            compatible_surface: Some(&surface),
-            apply_limit_buckets: false,
-        }))
-        .map_err(|_| VideoPresenterError::NoAdapter)?;
-        let (device, queue) =
-            pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+        let surface = instance.create_surface(target)?;
+        let adapter = instance
+            .request_adapter(&wgpu::RequestAdapterOptions {
+                power_preference: wgpu::PowerPreference::LowPower,
+                force_fallback_adapter: false,
+                compatible_surface: Some(&surface),
+                apply_limit_buckets: false,
+            })
+            .await
+            .map_err(|_| VideoPresenterError::NoAdapter)?;
+        // WebGL2 advertises far lower limits than a native backend, so asking
+        // for the desktop defaults there fails device creation outright.
+        #[cfg(target_arch = "wasm32")]
+        let required_limits = wgpu::Limits::downlevel_webgl2_defaults();
+        #[cfg(not(target_arch = "wasm32"))]
+        let required_limits = wgpu::Limits::default();
+
+        let (device, queue) = adapter
+            .request_device(&wgpu::DeviceDescriptor {
                 label: Some("emu198x-native-video device"),
                 required_features: wgpu::Features::empty(),
-                required_limits: wgpu::Limits::default(),
+                required_limits,
                 ..Default::default()
-            }))?;
+            })
+            .await?;
 
         let caps = surface.get_capabilities(&adapter);
         let format =
