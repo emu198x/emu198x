@@ -12,11 +12,11 @@
 
 use emu198x_shell::{FamilyRuntime, FirmwareImage, FirmwareSet, MediaKind};
 use emu198x_web::WebMachine;
-use runtime_sinclair_zx_spectrum::{Model, SpectrumRuntimeKind};
+use runtime_sinclair_zx_spectrum::{Model, SpectrumLiveAccess, SpectrumRuntimeKind};
 use wasm_bindgen::{Clamped, prelude::*};
 use web_sys::{CanvasRenderingContext2d, HtmlCanvasElement, ImageData};
 
-use crate::spectrum_key_name;
+use crate::{parse_snapshot, spectrum_key_name};
 
 /// Firmware id the 48K runtime expects for its ROM image.
 const ROM_ID: &str = "sinclair-zx-spectrum-48k-rom";
@@ -113,6 +113,25 @@ impl Spectrum {
         self.machine
             .load_media_bytes(slot, kind, bytes)
             .map_err(|error| JsError::new(&format!("loading into {slot:?}: {error}")))
+    }
+
+    /// Loads a portable snapshot — `.sna` or `.z80` — from bytes.
+    ///
+    /// This is how a lesson runs the program it ships: the curriculum's
+    /// capture pipeline builds `.sna` files, and a snapshot is applied to the
+    /// machine rather than mounted in a slot, so it does not go through
+    /// [`load`](Self::load).
+    ///
+    /// # Errors
+    ///
+    /// Returns a JavaScript error for an unknown format or bytes that do not
+    /// parse.
+    #[wasm_bindgen(js_name = loadSnapshot)]
+    pub fn load_snapshot(&mut self, bytes: &[u8], format: &str) -> Result<(), JsError> {
+        let snapshot = parse_snapshot(bytes, format)
+            .map_err(|error| JsError::new(&format!("loading a snapshot: {error}")))?;
+        self.machine.runtime_mut().apply_snapshot(&snapshot);
+        Ok(())
     }
 
     /// The machine's media slots, for a page that wants to name one.

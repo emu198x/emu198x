@@ -1449,9 +1449,11 @@ dependencies = [
 name = "emu198x-spectrum-web"
 version = "0.20.1"
 dependencies = [
- "emu198x-native-video",
  "emu198x-shell",
  "emu198x-web",
+ "format-sinclair-zx-spectrum-sna",
+ "format-sinclair-zx-spectrum-snapshot",
+ "format-sinclair-zx-spectrum-z80",
  "js-sys",
  "runtime-sinclair-zx-spectrum",
  "wasm-bindgen",
