@@ -18,4 +18,10 @@ workspace = true
 # fake that agrees with it.
 [dev-dependencies]
 runtime-sinclair-zx-spectrum = { path = "../runtime-sinclair-zx-spectrum", version = "0.20.0" }
+twox-hash = { workspace = true }
+
+# Runs the parity test inside a real browser, so the claim that the browser
+# build is the same emulator is checked rather than asserted.
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+wasm-bindgen-test = "0.3"
 
