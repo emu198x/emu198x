@@ -1464,6 +1464,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "emu198x-web"
+version = "0.20.0"
+dependencies = [
+ "emu198x-shell",
+ "runtime-sinclair-zx-spectrum",
+]
+
+[[package]]
 name = "emu198x-zilog-z80"
 version = "0.6.0"
 dependencies = [
