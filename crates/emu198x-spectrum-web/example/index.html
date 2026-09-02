@@ -1,0 +1,48 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>@emu198x/zx-spectrum</title>
+<style>
+  body { background:#111; color:#eee; font:14px system-ui; margin:0; padding:16px; }
+  canvas { image-rendering: pixelated; border:1px solid #444; display:block;
+           margin:12px 0; width:704px; height:592px; }
+  #stats { font:13px ui-monospace, monospace; white-space:pre; line-height:1.6; }
+</style>
+<h1>@emu198x/zx-spectrum</h1>
+<p style="font:13px ui-monospace">Build with <code>scripts/build-npm.sh</code>, put a 48K ROM beside this file as <code>48.rom</code>, then serve this directory.</p>
+<canvas id="screen"></canvas>
+<div id="stats">starting…</div>
+<script type="module">
+import init, { Spectrum } from '../pkg/emu198x_spectrum_web.js';
+const stats = document.getElementById('stats');
+const log = m => { console.log('[spectrum] ' + m); stats.textContent += m + '\n'; };
+
+try {
+  await init();
+  const rom = new Uint8Array(await (await fetch('./48.rom')).arrayBuffer());
+  const spec = await Spectrum.create(document.getElementById('screen'), rom);
+  stats.textContent = '';
+  log('created; media slots: ' + spec.mediaSlots().join(', '));
+
+  // Synchronous, because a background tab throttles rAF to ~1 Hz.
+  const TICK = 1000 / 60, TICKS = 360;
+  let frames = 0;
+  const t0 = performance.now();
+  for (let i = 0; i < TICKS; i++) frames += spec.tick(TICK);
+  const wall = performance.now() - t0;
+
+  const expected = TICKS * (TICK / 19.968);
+  log(TICKS + ' ticks at 60 Hz -> ' + frames + ' machine frames (expected ~' + expected.toFixed(0) + ')');
+  log(Math.abs(frames - expected) <= 2 ? 'PACING OK' : 'PACING WRONG');
+  log('emulate+draw: ' + (wall / frames).toFixed(3) + ' ms per machine frame  ('
+      + (19.968 / (wall / frames)).toFixed(1) + 'x realtime)');
+  log('frame: ' + spec.frameSize().join('x'));
+
+  // Keyboard reaches the machine: type a letter and see it appear.
+  spec.keyDown('KeyA');
+  for (let i = 0; i < 12; i++) spec.tick(TICK);
+  spec.keyUp('KeyA');
+  for (let i = 0; i < 30; i++) spec.tick(TICK);
+  log('typed A via keyDown/keyUp');
+  log('DONE');
+} catch (e) { log('ERROR: ' + e); console.error(e); }
+</script>

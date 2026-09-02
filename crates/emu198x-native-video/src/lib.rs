@@ -9,6 +9,11 @@ use emu198x_shell::{CapturedFrame, PixelFormat};
 use thiserror::Error;
 use winit::window::Window;
 
+// Re-exported because this crate's public types name wgpu's: a caller cannot
+// build a `PresentationProfile` without `wgpu::Color`, nor a browser surface
+// target without `wgpu::SurfaceTarget`.
+pub use wgpu;
+
 const SHADER: &str = include_str!("shader.wgsl");
 
 /// How native frames should be scaled onto the host window.

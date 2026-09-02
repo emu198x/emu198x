@@ -25,6 +25,7 @@ members = [
     "crates/emu198x-game-boy",
     "crates/emu198x-native-video",
     "crates/emu198x-web",
+    "crates/emu198x-spectrum-web",
     "crates/emu198x-nes",
     "crates/emu198x-spectrum",
     "crates/emu198x-shell",
