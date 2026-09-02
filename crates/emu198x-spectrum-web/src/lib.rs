@@ -22,6 +22,14 @@ pub use browser::Spectrum;
 /// `EMU198X_SPECTRUM_48K_ROM` at compile time, so it never enters this
 /// repository — see `knowledge/decisions/test-rom-policy.md`
 /// § Firmware in a published browser build for why that distinction matters.
+///
+/// Redistributed under Amstrad's permission for emulator authors (Cliff
+/// Lawson, Amstrad plc, comp.sys.sinclair, 31 August 1999). Two conditions
+/// ride on that and are easy to break by accident: the image must not be
+/// patched, because the permission turns on its copyright messages being
+/// unaltered, and no charge may be made for the ROM itself. The
+/// acknowledgement it asks for ships in this crate's README, which wasm-pack
+/// includes in the published package.
 #[cfg(feature = "bundled-rom")]
 pub const BUNDLED_ROM: &[u8] = include_bytes!(env!("EMU198X_SPECTRUM_48K_ROM"));
 

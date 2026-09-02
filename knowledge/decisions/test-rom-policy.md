@@ -217,19 +217,52 @@ other firmware, no other system, and not in this repository — see § How it
 reaches the artifact below. C64 KERNAL and Amiga Kickstart are unchanged:
 never bundled, no permission of this kind on record.
 
-**Basis.** Amstrad acquired Sinclair's computer rights in 1986 and has
-permitted redistribution of the Spectrum ROMs with emulators. That permission
-is what
-[`wasm-sequencing.md`](wasm-sequencing.md) already relies on when it puts
-curriculum embeds on firmware-permission systems in scope, and it is why the
-Spectrum is the system this programme starts with.
+**Basis.** Cliff Lawson of Amstrad plc, answering Andrew Owen on
+comp.sys.sinclair, 31 August 1999. Archived by World of Spectrum:
+<https://web.archive.org/web/20180828125931/http://www.worldofspectrum.org/permits/amstrad-roms.txt>
 
-**The permission is an informal grant, not a licence file, and this record
-does not yet cite a primary source for it.** That gap is worth closing: an
-archived statement from the rights-holder, recorded here, is what makes this
-case auditable rather than remembered. Until then this section records a
-decision taken on the project's existing understanding, not a verified
-licence.
+> Amstrad are happy for emulator writers to include images of our copyrighted
+> code as long as the (c)opyright messages are not altered and we appreciate
+> it if the program/manual includes a note to the effect that "Amstrad have
+> kindly given their permission for the redistribution of their copyrighted
+> material but retain that copyright".
+
+It is a public statement by the rights-holder rather than a signed licence,
+and the whole retro-computing field has relied on it for a quarter of a
+century. Treat it as what it is: durable, specific, and informal.
+
+**What it covers, and what it does not.** The statement is explicit about its
+own edges, and they matter here because this repository emulates machines on
+both sides of the line.
+
+| ROM | Covered? | Source |
+|---|---|---|
+| Spectrum 48K, 128K | Yes | "Amstrad only bought the rights to Spectrum 48/128 from Sinclair" |
+| Spectrum +2, +2A, +3 | Yes | "then produced the + machines ourselves" |
+| ZX80, ZX81, Interface 1/2 | **No** | "I do not believe the (c) for ZXs or IF1/2 has anything to do with Amstrad" |
+| Timex TC2048 / TS2068 | **No** | "Ask Timex. We only hold the copyright for code written by Sinclair or Amstrad" |
+| Pentagon, Scorpion | **No** | Clones, and answered with an opinion about piracy rather than a grant |
+| Spectrum game software | **No** | "remains the copyrighted property of its authors (Ocean etc.)" |
+
+This repository has runtimes for Pentagon, Scorpion, TC2048 and TS2068. **None
+of their ROMs are covered by this permission**, and none may be bundled under
+this section. It authorises the Sinclair/Amstrad Spectrum firmware and nothing
+else.
+
+**Conditions, all three of which bind us.**
+
+1. *Copyright messages must not be altered.* We embed the image verbatim and
+   do not patch it, so this holds by construction. A future change that
+   patches firmware — a fast-loader hook, say — would step outside the
+   permission as written, even though Lawson separately allows modification.
+2. *An acknowledgement is requested* in the program or manual, in specific
+   words. Carried in the package README, which wasm-pack ships inside the
+   published artifact, so it travels with the ROM rather than sitting only in
+   this repository.
+3. *No charging for the ROM code.* "No one should be charging for the ROM
+   code." The package is free; if any part of this family is ever sold, the
+   firmware cannot be part of what is charged for.
+
 
 **Why bundling rather than serving the file.** A `.rom` served beside the
 page is functionally a ROM download: separable, linkable, and indistinguishable
@@ -386,5 +419,9 @@ Spectrum 48K ROM in the published npm package. The repository still carries no
 firmware: the crate builds without it, and the publish step supplies it from
 `EMU198X_SPECTRUM_48K_ROM`.
 
-Open: this record cites no primary source for the Amstrad permission. It
-should.
+Citation added the same day: Cliff Lawson, Amstrad plc, comp.sys.sinclair,
+31 August 1999, archived at World of Spectrum. Reading the source changed the
+record rather than merely footnoting it — the permission is conditional and
+bounded, it excludes the ZX80/ZX81, Interface 1/2, Timex and the Russian
+clones this repository also emulates, and it asks for an acknowledgement we
+were not yet carrying. That acknowledgement now ships in the package README.
