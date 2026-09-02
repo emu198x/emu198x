@@ -11,8 +11,10 @@ repository.workspace = true
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-emu198x-native-video = { path = "../emu198x-native-video", version = "0.20.1" }
 emu198x-shell = { path = "../emu198x-shell", version = "0.20.1" }
+format-sinclair-zx-spectrum-sna = { path = "../format-sinclair-zx-spectrum-sna", version = "0.20.1" }
+format-sinclair-zx-spectrum-z80 = { path = "../format-sinclair-zx-spectrum-z80", version = "0.20.1" }
+format-sinclair-zx-spectrum-snapshot = { path = "../format-sinclair-zx-spectrum-snapshot", version = "0.20.1" }
 emu198x-web = { path = "../emu198x-web", version = "0.20.1" }
 runtime-sinclair-zx-spectrum = { path = "../runtime-sinclair-zx-spectrum", version = "0.20.1" }
 
