@@ -17,3 +17,11 @@ winit.workspace = true
 
 [lints]
 workspace = true
+
+# wgpu targets WebGPU only by default on wasm; the `webgl` feature adds the
+# GL backend so the presenter still runs where WebGPU is unavailable. No
+# web-sys here on purpose: the crate is generic over the surface target, so
+# the caller supplies the canvas and this crate never names a DOM type.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wgpu = { workspace = true, features = ["webgl"] }
+
