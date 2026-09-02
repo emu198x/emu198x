@@ -4,6 +4,13 @@ All notable changes to Emu198x will be documented in this file.
 
 Format loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 not strictly. Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [0.20.0] - 2026-09-02
+
+
+### Added
+
+- *(atari)* Fetch the playfield mid-line so DLI writes reach their line
+
 ## [0.19.1] - 2026-09-02
 
 

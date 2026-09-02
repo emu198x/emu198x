@@ -8,7 +8,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-nintendo-game-boy-mbc = { path = "../nintendo-game-boy-mbc", version = "0.19.0" }
+nintendo-game-boy-mbc = { path = "../nintendo-game-boy-mbc", version = "0.20.0" }
 serde = { workspace = true }
 thiserror = { workspace = true }
 
