@@ -17,11 +17,11 @@ default = ["ui"]
 ui = ["dep:emu198x-ui"]
 
 [dependencies]
-emu198x-shell = { path = "../emu198x-shell", version = "0.18.0" }
-ricoh-ppu-2c02 = { path = "../ricoh-ppu-2c02", version = "0.18.0" }
-emu198x-ui = { path = "../emu198x-ui", version = "0.18.0", optional = true }
-machine-nintendo-nes = { path = "../machine-nintendo-nes", version = "0.18.0" }
-runtime-nintendo-nes = { path = "../runtime-nintendo-nes", version = "0.18.0" }
+emu198x-shell = { path = "../emu198x-shell", version = "0.19.0" }
+ricoh-ppu-2c02 = { path = "../ricoh-ppu-2c02", version = "0.19.0" }
+emu198x-ui = { path = "../emu198x-ui", version = "0.19.0", optional = true }
+machine-nintendo-nes = { path = "../machine-nintendo-nes", version = "0.19.0" }
+runtime-nintendo-nes = { path = "../runtime-nintendo-nes", version = "0.19.0" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 

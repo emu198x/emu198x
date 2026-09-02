@@ -4,6 +4,18 @@ All notable changes to Emu198x will be documented in this file.
 
 Format loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 not strictly. Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [0.19.0] - 2026-09-02
+
+
+### Added
+
+- *(atari)* Bank-switched cartridges — OSS, XEGS and MegaCart
+
+
+### Fixed
+
+- *(atari)* Read ANTIC's write-only registers as $FF, and NMIST's unused bits as 1
+
 ## [0.18.1] - 2026-09-01
 
 

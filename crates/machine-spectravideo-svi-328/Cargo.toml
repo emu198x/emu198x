@@ -8,9 +8,9 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-gi-ay-3-8912 = { path = "../gi-ay-3-8912", version = "0.18.0" }
-intel-8255 = { path = "../intel-8255", version = "0.18.0" }
-ti-tms9918 = { path = "../ti-tms9918", version = "0.18.0" }
+gi-ay-3-8912 = { path = "../gi-ay-3-8912", version = "0.19.0" }
+intel-8255 = { path = "../intel-8255", version = "0.19.0" }
+ti-tms9918 = { path = "../ti-tms9918", version = "0.19.0" }
 emu198x-zilog-z80 = { path = "../emu198x-zilog-z80", version = "0.6.0" }
 serde = { workspace = true }
 
