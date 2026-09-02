@@ -174,6 +174,9 @@ pub struct Atari800xl {
     dma_mask: u128,
     /// CPU cycle counter within the current scan line, counting from 1.
     line_cycle: u16,
+    /// The cycle at which ANTIC reads this line's playfield, once it has
+    /// begun a line that has one.
+    playfield_fetch_cycle: Option<u16>,
     /// The frame OPTION stops being held down for the OS. The XL OS decides
     /// whether BASIC is in from OPTION during its cold start and writes PORTB
     /// itself, so presetting PORTB is not enough to boot without BASIC: the
@@ -264,6 +267,7 @@ impl Atari800xl {
             sio: SioBus::new(),
             dma_mask: 0,
             line_cycle: 0,
+            playfield_fetch_cycle: None,
             option_held_until_frame,
         };
 
@@ -369,6 +373,26 @@ impl Atari800xl {
             self.tick_sio();
             self.cpu.irq = self.pokey.irq_pending() || self.pia.irq_pending();
             self.line_cycle += 1;
+            if Some(self.line_cycle) == self.playfield_fetch_cycle {
+                self.fetch_playfield();
+            }
+        }
+    }
+
+    /// ANTIC reads the line's playfield and hands it to the GTIA, ahead of
+    /// the beam reaching it. Registers the CPU wrote earlier in the line —
+    /// CHBASE, CHACTL, HSCROL — shape this line; later writes shape the next.
+    fn fetch_playfield(&mut self) {
+        let view = AnticView {
+            ram: &self.ram,
+            os_rom: self.os_rom.as_deref(),
+            basic_rom: self.basic_rom.as_deref(),
+            cart: self.cart.as_ref(),
+            portb: self.pia.port_b_output() | !self.pia.ddr_b(),
+        };
+        if let Some(fetched) = self.antic.fetch_playfield(&view) {
+            self.gtia
+                .set_playfield(&fetched.playfield, fetched.playfield_width, fetched.mode);
         }
     }
 
@@ -403,9 +427,10 @@ impl Atari800xl {
         &mut self.sio
     }
 
-    /// Start a scan line: ANTIC fetches its display data and the GTIA begins
+    /// Start a scan line: ANTIC reads the display list and the GTIA begins
     /// beam compositing for it. Player/missile DMA and the DLI/VBI NMI are
     /// applied here, and the line's DMA schedule that gates the CPU is set.
+    /// The playfield itself is fetched later in the line (`fetch_playfield`).
     /// The actual pixels are composited incrementally as the beam advances
     /// (`composite_to_beam`), then finished with the PM overlay at line end.
     fn start_scan_line(&mut self) {
@@ -418,7 +443,7 @@ impl Atari800xl {
             cart: self.cart.as_ref(),
             portb: self.pia.port_b_output() | !self.pia.ddr_b(),
         };
-        let result = self.antic.process_line(&view);
+        let result = self.antic.begin_line(&view);
         if result.pm_dma {
             // GRACTL decides whether this DMA reaches the graphics registers,
             // and VDELAY whether an object is held back a line; both live in
@@ -431,14 +456,10 @@ impl Atari800xl {
         }
         let line = self.antic.scan_line().saturating_sub(1);
         let visible_line = line.wrapping_sub(8);
-        self.gtia.begin_scanline(
-            visible_line,
-            &result.playfield,
-            result.playfield_width,
-            result.mode,
-        );
+        self.gtia.begin_scanline(visible_line);
         self.dma_mask = result.dma_mask;
         self.line_cycle = 0;
+        self.playfield_fetch_cycle = self.antic.playfield_fetch_cycle();
         // ANTIC pulses NMI; it does not hold it. See the same wiring in
         // `machine-atari-5200`: holding the line high across two
         // consecutive lines merges a DLI on the last mode line with the

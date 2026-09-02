@@ -306,11 +306,12 @@ pub struct Gtia {
 
     // -- Per-scanline beam-compositing state --
     // The beam composites the active line left-to-right. `begin_scanline`
-    // precomputes the playfield colour-register *index* buffer (stable for the
-    // line — ANTIC DMA's the bitmap at line start); `composite_playfield` then
-    // resolves those indices to colours using the *live* colour registers as
-    // the beam reaches each pixel, so a mid-line COLBK/COLPF write changes only
-    // the pixels drawn after it.
+    // resets the line and `set_playfield` fills the playfield colour-register
+    // *index* buffer once ANTIC has fetched the line, ahead of the beam
+    // reaching it; `composite_playfield` then resolves those indices to
+    // colours using the *live* colour registers as the beam reaches each
+    // pixel, so a mid-line COLBK/COLPF write changes only the pixels drawn
+    // after it.
     sl_visible: bool,           // false when the line is off-screen
     sl_fb_offset: usize,        // framebuffer index of this line's first active pixel
     sl_mode: AnticMode,         // ANTIC mode for the line
@@ -639,17 +640,21 @@ impl Gtia {
     /// - `pf_width`: playfield width in colour clocks (128, 160, or 192)
     /// - `mode`: the ANTIC display mode, controls colour interpretation
     pub fn render_line(&mut self, line: u16, playfield: &[u8], pf_width: u16, mode: AnticMode) {
-        self.begin_scanline(line, playfield, pf_width, mode);
+        self.begin_scanline(line);
+        self.set_playfield(playfield, pf_width, mode);
         self.finish_scanline();
     }
 
-    /// Start a new active scan line: precompute the playfield colour-register
-    /// *index* buffer (stable for the whole line — ANTIC DMA's the bitmap at
-    /// line start) and reset the compositing cursor. The colours themselves are
-    /// resolved later, per pixel, from the live registers (see
-    /// `composite_playfield`) so mid-line register writes land at the beam.
-    pub fn begin_scanline(&mut self, line: u16, playfield: &[u8], pf_width: u16, mode: AnticMode) {
+    /// Start a new active scan line with no playfield: reset the compositing
+    /// cursor and clear the line. Until [`set_playfield`](Self::set_playfield)
+    /// arrives the line composites as border, which depends on nothing ANTIC
+    /// fetches, so compositing can run from the line's left edge while ANTIC
+    /// is still reading the playfield.
+    pub fn begin_scanline(&mut self, line: u16) {
         self.sl_x = 0;
+        self.sl_mode = AnticMode::Blank;
+        self.sl_pf_span = (0, 0);
+        self.sl_line_buf.fill(0);
         if line >= ACTIVE_HEIGHT as u16 {
             self.sl_visible = false;
             return;
@@ -657,6 +662,18 @@ impl Gtia {
         self.sl_visible = true;
         let fb_row = self.border_top() as usize + line as usize;
         self.sl_fb_offset = fb_row * self.fb_width as usize;
+    }
+
+    /// Give the current line its playfield: precompute the colour-register
+    /// *index* buffer for the pixels the beam has yet to reach. The colours
+    /// themselves are resolved later, per pixel, from the live registers (see
+    /// `composite_playfield`) so mid-line register writes land at the beam.
+    /// The cursor is left where it is, so this can be called partway through
+    /// the line once ANTIC has fetched the data.
+    pub fn set_playfield(&mut self, playfield: &[u8], pf_width: u16, mode: AnticMode) {
+        if !self.sl_visible {
+            return;
+        }
         self.sl_mode = mode;
 
         // Build the window-wide line of playfield colour-register indices.
@@ -1385,7 +1402,7 @@ mod tests {
         let mut gtia = Gtia::new(GtiaRegion::Pal);
         let width = GtiaRegion::Pal.framebuffer_width() as usize;
         gtia.write(0x1A, 0x0A); // COLBK = A
-        gtia.begin_scanline(0, &[], 160, AnticMode::Blank);
+        gtia.begin_scanline(0);
         gtia.composite_playfield(width / 2); // left half at A
         gtia.write(0x1A, 0x0C); // COLBK = B
         gtia.composite_playfield(width); // right half at B
@@ -1448,7 +1465,7 @@ mod tests {
         gtia.write(0x0D, 0xFF); // GRAFP0: solid 8-pixel pattern
         gtia.write(0x12, 0x3A); // COLPM0: a visible colour
         // Blank line — no playfield, so any drawn pixel is the player.
-        gtia.begin_scanline(0, &[], 160, AnticMode::Blank);
+        gtia.begin_scanline(0);
 
         gtia.write(0x00, 50); // HPOSP0 = 50 → covers cc 50..58 → active-x 4..20
         gtia.composite_playfield(40); // beam crosses the left copy with HPOS 50
@@ -1527,7 +1544,8 @@ mod tests {
         for b in playfield.iter_mut().take(44).skip(12) {
             *b = 1; // colour index 1 = COLPF0
         }
-        gtia.begin_scanline(0, &playfield, 160, AnticMode::ModeD);
+        gtia.begin_scanline(0);
+        gtia.set_playfield(&playfield, 160, AnticMode::ModeD);
 
         // Composite only as far as active-x 50 — the beam has crossed the left
         // part of the player/playfield overlap.
@@ -1951,7 +1969,8 @@ mod tests {
         gtia.write(0x12, 0x38);
         gtia.write(0x16, 0x94);
         gtia.write(0x1B, 0x01);
-        gtia.begin_scanline(0, &[1u8; 160], 160, AnticMode::ModeD);
+        gtia.begin_scanline(0);
+        gtia.set_playfield(&[1u8; 160], 160, AnticMode::ModeD);
         gtia.composite_playfield(72);
         gtia.write(0x1B, 0x04);
         gtia.composite_playfield(GtiaRegion::Pal.framebuffer_width() as usize);
@@ -1988,7 +2007,8 @@ mod tests {
                 (192, 192, 88, 444),
             ] {
                 let mut gtia = Gtia::new(region);
-                gtia.begin_scanline(0, &vec![1u8; data_len], pf_width, AnticMode::ModeD);
+                gtia.begin_scanline(0);
+                gtia.set_playfield(&vec![1u8; data_len], pf_width, AnticMode::ModeD);
                 let (start, end) = gtia.sl_pf_span;
                 assert_eq!(
                     start,
@@ -2046,7 +2066,8 @@ mod tests {
         // 320. Clipping to ACTIVE_WIDTH threw away 36 of them.
         let region = GtiaRegion::Ntsc;
         let mut gtia = Gtia::new(region);
-        gtia.begin_scanline(0, &[1u8; 192], 192, AnticMode::ModeD);
+        gtia.begin_scanline(0);
+        gtia.set_playfield(&[1u8; 192], 192, AnticMode::ModeD);
         let (start, end) = gtia.sl_pf_span;
         assert_eq!(
             end - start,
