@@ -149,6 +149,27 @@ pub struct LineResult {
     pub pm_single_line: bool,
 }
 
+/// The playfield ANTIC fetched for a scan line, once it has.
+pub struct LinePlayfield {
+    /// ANTIC display mode for this line.
+    pub mode: AnticMode,
+    /// Pixel data as colour register indices.
+    pub playfield: Vec<u8>,
+    /// Playfield width in colour clocks.
+    pub playfield_width: u16,
+}
+
+/// What a scan line settled at its start and still has to fetch: the mode
+/// line's row and memory position, and the DMACTL width that set its DMA
+/// schedule. The fetch itself reads CHBASE, CHACTL and HSCROL when it runs.
+#[derive(Clone, Copy, Serialize, Deserialize)]
+struct PendingLine {
+    mode: u8,
+    row: u8,
+    memory_scan: u16,
+    width_bits: u8,
+}
+
 // ---------------------------------------------------------------------------
 // Mode descriptors
 // ---------------------------------------------------------------------------
@@ -458,6 +479,9 @@ pub struct Antic {
 
     // -- Character code buffer (reused across scan lines within a mode line) --
     char_codes: Vec<u8>,
+    /// The line begun by `begin_line` whose playfield `fetch_playfield` has
+    /// yet to read.
+    pending: Option<PendingLine>,
 
     // -- Frame state --
     region: AnticRegion,
@@ -498,6 +522,7 @@ impl Antic {
             dma_mask: 0,
 
             char_codes: Vec::new(),
+            pending: None,
 
             region,
             frame_complete: false,
@@ -643,10 +668,29 @@ impl Antic {
     // Line processing
     // -----------------------------------------------------------------------
 
-    /// Process one scan line. Reads display list instructions and screen data
-    /// from `ram`. Returns a `LineResult` describing the output.
+    /// Process one scan line in one step: [`begin_line`](Self::begin_line)
+    /// and [`fetch_playfield`](Self::fetch_playfield) together, for callers
+    /// that do not run a CPU between the two.
     pub fn process_line<M: AnticMemory + ?Sized>(&mut self, mem: &M) -> LineResult {
+        let mut result = self.begin_line(mem);
+        if let Some(fetched) = self.fetch_playfield(mem) {
+            result.mode = fetched.mode;
+            result.playfield = fetched.playfield;
+            result.playfield_width = fetched.playfield_width;
+        }
+        result
+    }
+
+    /// Start one scan line: the VBI or DLI, player/missile DMA, the display
+    /// list instruction and the line's DMA schedule. The playfield itself is
+    /// not read yet; [`fetch_playfield`](Self::fetch_playfield) does that at
+    /// the cycle [`playfield_fetch_cycle`](Self::playfield_fetch_cycle) names,
+    /// so registers written earlier in the line shape it. The result's
+    /// `playfield` is empty, and its `mode` and `playfield_width` describe the
+    /// line the fetch will produce.
+    pub fn begin_line<M: AnticMemory + ?Sized>(&mut self, mem: &M) -> LineResult {
         self.dma_mask = 0;
+        self.pending = None;
 
         let lines_per_frame = self.region.lines_per_frame();
         let in_vblank = self.scan_line < VISIBLE_START || self.scan_line >= VISIBLE_END;
@@ -708,15 +752,15 @@ impl Antic {
             self.fetch_dl_instruction(mem);
         }
 
-        // Generate playfield data for this scan line
-        let mut result = if self.current_mode == 0 {
-            // Blank instruction
-            blank_result(0)
-        } else if let Some(desc) = mode_desc(self.current_mode) {
-            self.render_mode_line(mem, &desc, width_bits)
-        } else {
-            blank_result(0)
-        };
+        // Claim the line's playfield DMA and note what the fetch has to read.
+        let mut result = blank_result(0);
+        if self.current_mode != 0
+            && let Some(desc) = mode_desc(self.current_mode)
+        {
+            self.schedule_mode_line(&desc, width_bits);
+            result.mode = desc.antic_mode;
+            result.playfield_width = playfield_width_cc(width_bits);
+        }
         result.player_data = player_data;
         result.missile_data = missile_data;
         result.pm_dma = pm_dma;
@@ -744,6 +788,36 @@ impl Antic {
 
         self.advance_scan_line(lines_per_frame);
         result
+    }
+
+    /// The cycle of the line at which [`fetch_playfield`](Self::fetch_playfield)
+    /// should run, or `None` when the line begun has no playfield.
+    ///
+    /// The playfield is sampled as a whole at the cycle its first colour
+    /// clock is displayed: the three widths share a centre at clock 128, and
+    /// the wide one loses 12 clocks off its left edge (Altirra Hardware
+    /// Reference Manual, "Playfield width"), so clock 64 for narrow, 48 for
+    /// normal and 44 for wide — cycle 32, 24 or 22. Writes in the cycles
+    /// before it shape this line; writes from it onwards shape the next. The
+    /// hardware fetches the line a byte at a time from cycle 26, 18 or 10
+    /// (same manual, "Character mode playfield DMA"), so a write that lands
+    /// between the first fetch and the display is taken here and not there.
+    #[must_use]
+    pub fn playfield_fetch_cycle(&self) -> Option<u16> {
+        self.pending.map(|line| match line.width_bits {
+            1 => 32,
+            3 => 22,
+            _ => 24,
+        })
+    }
+
+    /// Read the playfield for the line [`begin_line`](Self::begin_line)
+    /// started, with CHBASE, CHACTL and HSCROL as they stand now. Returns
+    /// `None` when the line has no playfield, or it has already been fetched.
+    pub fn fetch_playfield<M: AnticMemory + ?Sized>(&mut self, mem: &M) -> Option<LinePlayfield> {
+        let line = self.pending.take()?;
+        let desc = mode_desc(line.mode)?;
+        Some(self.render_mode_line(mem, &desc, &line))
     }
 
     /// Fetch and decode the next display list instruction.
@@ -876,21 +950,48 @@ impl Antic {
         }
     }
 
-    /// Render pixel data for the current mode line.
+    /// Claim a mode line's playfield DMA for this scan line and record what
+    /// the fetch has to read. Character data is fetched on every scan line of
+    /// the mode line, three cycles after the name fetch would sit; a mapped
+    /// mode fills ANTIC's line buffer on the first scan line and replays it
+    /// for the rest, so its DMA is charged once. The memory scan counter
+    /// moves on after the mode line's last row, whether or not the playfield
+    /// is fetched.
+    fn schedule_mode_line(&mut self, desc: &ModeDesc, width_bits: u8) {
+        let fetch_bits = fetch_width_bits(width_bits, self.hscrol_enabled);
+        let (start, step, fetches) = playfield_schedule(desc, fetch_bits, self.hscrol);
+        if desc.char_mode {
+            self.claim_playfield(start + CHARACTER_DATA_DELAY, step, fetches);
+        } else if self.mode_line == self.row_start {
+            self.claim_playfield(start, step, fetches);
+        }
+        self.pending = Some(PendingLine {
+            mode: self.current_mode,
+            row: self.mode_line,
+            memory_scan: self.memory_scan,
+            width_bits,
+        });
+        if !desc.char_mode && self.mode_line >= self.row_end {
+            let bytes = adjust_bytes_for_width(desc.bytes_per_line, fetch_bits);
+            self.memory_scan = self.memory_scan.wrapping_add(u16::from(bytes));
+        }
+    }
+
+    /// Render pixel data for a scan line of the current mode line.
     fn render_mode_line<M: AnticMemory + ?Sized>(
-        &mut self,
+        &self,
         mem: &M,
         desc: &ModeDesc,
-        width_bits: u8,
-    ) -> LineResult {
-        let fetch_bits = fetch_width_bits(width_bits, self.hscrol_enabled);
+        line: &PendingLine,
+    ) -> LinePlayfield {
+        let fetch_bits = fetch_width_bits(line.width_bits, self.hscrol_enabled);
         let bytes = adjust_bytes_for_width(desc.bytes_per_line, fetch_bits);
-        let pf_width = playfield_width_cc(width_bits);
+        let pf_width = playfield_width_cc(line.width_bits);
 
         let mut playfield = if desc.char_mode {
-            self.render_char_line(mem, desc, bytes)
+            self.render_char_line(mem, desc, bytes, line.row)
         } else {
-            self.render_bitmap_line(mem, desc, bytes)
+            render_bitmap_line(mem, desc, bytes, line.memory_scan)
         };
 
         // Modes 8, 9 and A draw pixels wider than a colour clock. Repeat each
@@ -913,25 +1014,20 @@ impl Antic {
             );
         }
 
-        LineResult {
+        LinePlayfield {
             mode: desc.antic_mode,
             playfield,
             playfield_width: pf_width,
-            dma_cycles: 0,
-            dma_mask: 0,
-            player_data: [0; 4],
-            missile_data: 0,
-            pm_dma: false,
-            pm_single_line: false,
         }
     }
 
-    /// Render a character mode scan line.
+    /// Render a character mode scan line: row `mode_row` of the mode line.
     fn render_char_line<M: AnticMemory + ?Sized>(
-        &mut self,
+        &self,
         mem: &M,
         desc: &ModeDesc,
         bytes: u8,
+        mode_row: u8,
     ) -> Vec<u8> {
         let chbase_addr = u16::from(self.chbase) << 8;
         // CHACTL: bit 1 = inverse-video enable, bit 0 = blank, bit 2 = reflect.
@@ -946,16 +1042,10 @@ impl Antic {
         // The row counter is four bits whatever the mode's height, so a
         // vertically scrolled line that starts past the end of the glyph wraps
         // back to its top rather than reading into the next one.
-        let row = self.mode_line & 0x0F;
+        let row = mode_row & 0x0F;
         let raw_row = if double_height { row / 2 } else { row };
         let count = usize::min(self.char_codes.len(), bytes as usize);
         let mut pixels = Vec::new();
-
-        // Character data is not buffered — it is fetched on every scan line of
-        // the mode line, three cycles after where the name fetch sits.
-        let fetch_bits = fetch_width_bits(self.dmactl & 0x03, self.hscrol_enabled);
-        let (start, step, fetches) = playfield_schedule(desc, fetch_bits, self.hscrol);
-        self.claim_playfield(start + CHARACTER_DATA_DELAY, step, fetches);
 
         let glyph_byte = |glyph: u16, font_row: u8| -> u8 {
             let addr = chbase_addr
@@ -1031,52 +1121,6 @@ impl Antic {
                     }
                 }
             }
-        }
-
-        pixels
-    }
-
-    /// Render a bitmap mode scan line.
-    fn render_bitmap_line<M: AnticMemory + ?Sized>(
-        &mut self,
-        mem: &M,
-        desc: &ModeDesc,
-        bytes: u8,
-    ) -> Vec<u8> {
-        let mut pixels = Vec::new();
-
-        // Fetch playfield data bytes
-        for i in 0..u16::from(bytes) {
-            let data = mem.read(self.memory_scan.wrapping_add(i));
-
-            if desc.bits_per_pixel == 1 {
-                // 1 bit per pixel — 8 pixels per byte
-                for bit in (0..8).rev() {
-                    let px = (data >> bit) & 1;
-                    pixels.push(u8::from(px != 0));
-                }
-            } else {
-                // 2 bits per pixel — 4 pixels per byte
-                // Shifts: 6, 4, 2, 0 (high pair is leftmost pixel)
-                for pair in 0..4u8 {
-                    let shift = 6 - pair * 2;
-                    let px = (data >> shift) & 0x03;
-                    pixels.push(px);
-                }
-            }
-        }
-
-        // A mapped mode fills ANTIC's line buffer on the first scan line of the
-        // mode line and replays it for the rest, so the DMA is charged once.
-        if self.mode_line == self.row_start {
-            let fetch_bits = fetch_width_bits(self.dmactl & 0x03, self.hscrol_enabled);
-            let (start, step, fetches) = playfield_schedule(desc, fetch_bits, self.hscrol);
-            self.claim_playfield(start, step, fetches);
-        }
-
-        // Memory scan advances only after all scan lines for this row complete
-        if self.mode_line >= self.row_end {
-            self.memory_scan = self.memory_scan.wrapping_add(u16::from(bytes));
         }
 
         pixels
@@ -1303,6 +1347,39 @@ impl Antic {
             self.frame_complete = true;
         }
     }
+}
+
+/// Render a bitmap mode scan line from `bytes` bytes at `memory_scan`.
+fn render_bitmap_line<M: AnticMemory + ?Sized>(
+    mem: &M,
+    desc: &ModeDesc,
+    bytes: u8,
+    memory_scan: u16,
+) -> Vec<u8> {
+    let mut pixels = Vec::new();
+
+    // Fetch playfield data bytes
+    for i in 0..u16::from(bytes) {
+        let data = mem.read(memory_scan.wrapping_add(i));
+
+        if desc.bits_per_pixel == 1 {
+            // 1 bit per pixel — 8 pixels per byte
+            for bit in (0..8).rev() {
+                let px = (data >> bit) & 1;
+                pixels.push(u8::from(px != 0));
+            }
+        } else {
+            // 2 bits per pixel — 4 pixels per byte
+            // Shifts: 6, 4, 2, 0 (high pair is leftmost pixel)
+            for pair in 0..4u8 {
+                let shift = 6 - pair * 2;
+                let px = (data >> shift) & 0x03;
+                pixels.push(px);
+            }
+        }
+    }
+
+    pixels
 }
 
 /// Create a blank `LineResult`.
@@ -1577,7 +1654,6 @@ mod tests {
         let mut antic = Antic::new(AnticRegion::Ntsc);
         antic.chbase = 0xE0;
         antic.char_codes.push(0x01);
-        antic.mode_line = 8;
 
         // The byte immediately after glyph 1 is glyph 2 row 0. A raw
         // ten-line lookup would incorrectly display it on row 8.
@@ -1587,6 +1663,7 @@ mod tests {
             &ram[..],
             &mode_desc(0x03).expect("ANTIC mode 3 has a descriptor"),
             1,
+            8,
         );
         assert_eq!(pixels, vec![0; 8]);
     }
@@ -1600,23 +1677,23 @@ mod tests {
 
         // Descender characters blank their first two display rows.
         ram[0xE300] = 0x80;
-        antic.mode_line = 0;
         assert_eq!(
             antic.render_char_line(
                 &ram[..],
                 &mode_desc(0x03).expect("ANTIC mode 3 has a descriptor"),
                 1,
+                0,
             ),
             vec![0; 8]
         );
 
         // On display row 8 the low three row-counter bits address glyph row
         // 0, exposing the portion of the character stored for the descender.
-        antic.mode_line = 8;
         let pixels = antic.render_char_line(
             &ram[..],
             &mode_desc(0x03).expect("ANTIC mode 3 has a descriptor"),
             1,
+            8,
         );
         assert_eq!(pixels[0], 1);
         assert_eq!(&pixels[1..], &[0; 7]);

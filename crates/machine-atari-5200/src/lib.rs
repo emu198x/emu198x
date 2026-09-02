@@ -156,6 +156,9 @@ pub struct Atari5200 {
     dma_mask: u128,
     /// CPU cycle counter within the current scan line.
     line_cycle: u16,
+    /// The cycle at which ANTIC reads this line's playfield, once it has
+    /// begun a line that has one.
+    playfield_fetch_cycle: Option<u16>,
 }
 
 impl Atari5200 {
@@ -184,6 +187,7 @@ impl Atari5200 {
             frame_count: 0,
             dma_mask: 0,
             line_cycle: 0,
+            playfield_fetch_cycle: None,
         })
     }
 
@@ -249,12 +253,31 @@ impl Atari5200 {
             }
             self.pokey.tick();
             self.cpu.irq = self.pokey.irq_pending();
+            if Some(self.line_cycle) == self.playfield_fetch_cycle {
+                self.fetch_playfield();
+            }
         }
     }
 
-    /// Start a scan line: ANTIC fetches its display data and the GTIA begins
+    /// ANTIC reads the line's playfield and hands it to the GTIA, ahead of
+    /// the beam reaching it. Registers the CPU wrote earlier in the line —
+    /// CHBASE, CHACTL, HSCROL — shape this line; later writes shape the next.
+    fn fetch_playfield(&mut self) {
+        let view = AnticView {
+            ram: &self.ram,
+            cart: &self.cart,
+            bios: &self.bios,
+        };
+        if let Some(fetched) = self.antic.fetch_playfield(&view) {
+            self.gtia
+                .set_playfield(&fetched.playfield, fetched.playfield_width, fetched.mode);
+        }
+    }
+
+    /// Start a scan line: ANTIC reads the display list and the GTIA begins
     /// beam compositing for it. Player/missile DMA and the DLI/VBI NMI are
     /// applied here, and the line's DMA schedule that gates the CPU is set.
+    /// The playfield itself is fetched later in the line (`fetch_playfield`).
     /// Pixels are composited incrementally as the beam advances
     /// (`composite_to_beam`), then finished with the PM overlay at line end.
     fn start_scan_line(&mut self) {
@@ -265,7 +288,7 @@ impl Atari5200 {
             cart: &self.cart,
             bios: &self.bios,
         };
-        let result = self.antic.process_line(&view);
+        let result = self.antic.begin_line(&view);
         if result.pm_dma {
             // GRACTL decides whether this DMA reaches the graphics registers,
             // and VDELAY whether an object is held back a line; both live in
@@ -281,14 +304,10 @@ impl Atari5200 {
         // visible start.
         let line = self.antic.scan_line().saturating_sub(1);
         let visible_line = line.wrapping_sub(8);
-        self.gtia.begin_scanline(
-            visible_line,
-            &result.playfield,
-            result.playfield_width,
-            result.mode,
-        );
+        self.gtia.begin_scanline(visible_line);
         self.dma_mask = result.dma_mask;
         self.line_cycle = 0;
+        self.playfield_fetch_cycle = self.antic.playfield_fetch_cycle();
         // ANTIC pulses NMI; it does not hold it. Raise the line for any
         // source that fired on this line — `tick_colour_clock` drops it
         // again once the line ends, so the next source gets its own
