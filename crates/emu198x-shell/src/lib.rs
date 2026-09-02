@@ -16,6 +16,10 @@ pub mod error;
 pub mod firmware;
 pub mod headless;
 pub mod host;
+// Gamepad input is gilrs-backed throughout, and no browser build consumes
+// it yet. A web gamepad layer would split the pure mapping types out; doing
+// that now would be splitting for a caller that does not exist.
+#[cfg(not(target_arch = "wasm32"))]
 pub mod input;
 pub mod keyboard;
 pub mod machine;
@@ -38,7 +42,9 @@ pub use isa_disasm;
 pub use asset::{
     AssetLoadError, LoadedAsset, read_firmware_asset, read_media_asset, read_program_asset,
 };
-pub use audio::{NativeAudioError, NativeAudioOutput, convert_audio_packet};
+pub use audio::convert_audio_packet;
+#[cfg(not(target_arch = "wasm32"))]
+pub use audio::{NativeAudioError, NativeAudioOutput};
 pub use capability::{CapabilityId, CapabilitySet, known_capability};
 pub use capture::{
     AudioCapture, CaptureError, CapturedAudio, CapturedFrame, LatestFrameCapture, WavStreamWriter,
@@ -53,6 +59,7 @@ pub use host::{
     NullFrameSink, NullTraceSink, PixelFormat, TraceEvent, TraceSink, aim_from_pixels,
     aim_to_pixels,
 };
+#[cfg(not(target_arch = "wasm32"))]
 pub use input::{
     AxisInputMap, AxisTarget, ButtonInputMap, ButtonTarget, HostAxis, HostControl,
     NativeGamepadInput,
