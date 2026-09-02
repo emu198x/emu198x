@@ -4,6 +4,25 @@ All notable changes to Emu198x will be documented in this file.
 
 Format loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 not strictly. Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [0.21.0] - 2026-09-02
+
+
+### Added
+
+- *(video)* Present through any wgpu surface, so the browser can share it
+- *(web)* Pace the machine off elapsed time, not the animation frame
+- *(web)* Drive the machine from physical key codes
+- *(web)* Buffer machine audio for a Web Audio worklet
+- *(web)* Load a program into the machine from bytes alone
+- *(spectrum-web)* Run the Spectrum in a browser, as @emu198x/zx-spectrum
+- *(spectrum-web)* Load a .sna or .z80 snapshot from bytes
+- *(spectrum-web)* Ship the 48K ROM inside the published package
+
+
+### Fixed
+
+- *(spectrum-web)* Stop the package claiming GPL over firmware it cannot license
+
 ## [0.20.1] - 2026-09-02
 
 

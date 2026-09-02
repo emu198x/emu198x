@@ -8,11 +8,11 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-common-sinclair-zx-spectrum = { path = "../common-sinclair-zx-spectrum", version = "0.20.0" }
-gi-ay-3-8912 = { path = "../gi-ay-3-8912", version = "0.20.0" }
-peripheral-kempston-joystick = { path = "../peripheral-kempston-joystick", version = "0.20.0" }
+common-sinclair-zx-spectrum = { path = "../common-sinclair-zx-spectrum", version = "0.21.0" }
+gi-ay-3-8912 = { path = "../gi-ay-3-8912", version = "0.21.0" }
+peripheral-kempston-joystick = { path = "../peripheral-kempston-joystick", version = "0.21.0" }
 serde = { workspace = true }
-sinclair-ula-7k010e = { path = "../sinclair-ula-7k010e", version = "0.20.0" }
+sinclair-ula-7k010e = { path = "../sinclair-ula-7k010e", version = "0.21.0" }
 emu198x-zilog-z80 = { path = "../emu198x-zilog-z80", version = "0.6.0" }
 
 [lints]

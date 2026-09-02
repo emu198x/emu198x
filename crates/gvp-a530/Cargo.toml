@@ -8,8 +8,8 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-commodore-amiga-autoconfig = { path = "../commodore-amiga-autoconfig", version = "0.20.0" }
-motorola-68k-common = { path = "../motorola-68k-common", version = "0.20.0" }
+commodore-amiga-autoconfig = { path = "../commodore-amiga-autoconfig", version = "0.21.0" }
+motorola-68k-common = { path = "../motorola-68k-common", version = "0.21.0" }
 serde = { workspace = true }
 
 [dev-dependencies]

@@ -11,7 +11,7 @@ serde.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
-emu198x-test-skip = { path = "../emu198x-test-skip", version = "0.20.0" }
+emu198x-test-skip = { path = "../emu198x-test-skip", version = "0.21.0" }
 
 [lints]
 workspace = true
