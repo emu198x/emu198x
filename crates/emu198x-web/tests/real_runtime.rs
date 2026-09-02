@@ -210,3 +210,55 @@ fn a_cursor_key_becomes_the_chord_the_hardware_needs() {
     assert!(machine.key_event("ArrowUp", false));
     assert!(machine.pending_input().len() > 1);
 }
+
+#[test]
+#[ignore = "FIXTURE: needs the 48K Spectrum ROM — run with --ignored"]
+fn a_second_of_machine_produces_a_second_of_audio() {
+    let rom = rom().expect("needs ~/.emu198x/roms/sinclair-zx-spectrum-48k/48.rom");
+    let mut machine = WebMachine::new(spectrum(&rom));
+
+    // Deep enough that nothing is dropped, so the count means what it says.
+    machine.configure_audio(48_000, 1, 1_000_000);
+
+    // ~50 frames is one second of Spectrum.
+    for _ in 0..50 {
+        machine.run_one_frame().expect("the machine runs");
+    }
+
+    let samples = machine.audio_drain();
+    assert_eq!(
+        machine.audio().dropped(),
+        0,
+        "the buffer was too shallow to measure"
+    );
+
+    // One second at 48 kHz mono. The machine's own rate is resampled to the
+    // graph's, so a wrong conversion shows up here as audio that would play
+    // at the wrong pitch rather than as an error.
+    let expected = 48_000_f64;
+    let ratio = samples.len() as f64 / expected;
+    assert!(
+        (0.95..1.05).contains(&ratio),
+        "one second of machine produced {} samples, expected ~{expected} \
+         (ratio {ratio:.3}) — audio would play at the wrong pitch",
+        samples.len()
+    );
+}
+
+#[test]
+#[ignore = "FIXTURE: needs the 48K Spectrum ROM — run with --ignored"]
+fn a_muted_machine_buffers_nothing() {
+    let rom = rom().expect("needs ~/.emu198x/roms/sinclair-zx-spectrum-48k/48.rom");
+    let mut machine = WebMachine::new(spectrum(&rom));
+    machine.set_audio_enabled(false);
+
+    for _ in 0..50 {
+        machine.run_one_frame().expect("the machine runs");
+    }
+
+    assert!(
+        machine.audio().is_empty(),
+        "a muted machine buffered {} samples",
+        machine.audio().len()
+    );
+}

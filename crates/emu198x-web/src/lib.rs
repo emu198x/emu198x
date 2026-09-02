@@ -11,16 +11,16 @@
 
 #![doc(html_no_source)]
 
+pub mod audio;
 pub mod frame;
 pub mod input;
 pub mod pacing;
 
 use std::borrow::Cow;
 
-use emu198x_shell::{
-    FamilyRuntime, HostIo, InputEvent, MachineError, MachineTime, NullAudioSink, NullTraceSink,
-};
+use emu198x_shell::{FamilyRuntime, HostIo, InputEvent, MachineError, MachineTime, NullTraceSink};
 
+pub use audio::WebAudioOutput;
 pub use frame::RgbaFrame;
 pub use input::dom_code_to_key_name;
 pub use pacing::Pacer;
@@ -30,9 +30,21 @@ pub use pacing::Pacer;
 /// Owns the machine, the pacing clock, and the most recent frame. The page
 /// calls [`advance`](Self::advance) once per animation callback with the time
 /// elapsed since the last one, then reads [`frame_rgba`](Self::frame_rgba).
+/// Half a second at 48 kHz mono.
+///
+/// Deep enough to ride out a slow animation frame, shallow enough that a page
+/// which stops draining drops audio rather than accruing latency the viewer
+/// hears as the machine running behind the picture.
+pub const DEFAULT_AUDIO_CAPACITY: usize = 24_000;
+
+/// Sample rate assumed until the page says otherwise. Web Audio contexts are
+/// commonly 48 kHz, and [`WebMachine::configure_audio`] corrects it.
+pub const DEFAULT_AUDIO_RATE: u32 = 48_000;
+
 pub struct WebMachine<R: FamilyRuntime> {
     runtime: R,
     frame: RgbaFrame,
+    audio: WebAudioOutput,
     pacer: Pacer,
     frame_ticks: u64,
     pending_input: Vec<InputEvent>,
@@ -47,6 +59,7 @@ impl<R: FamilyRuntime> WebMachine<R> {
         Self {
             runtime,
             frame: RgbaFrame::new(),
+            audio: WebAudioOutput::new(DEFAULT_AUDIO_RATE, 1, DEFAULT_AUDIO_CAPACITY),
             pacer: Pacer::new(frame_ms),
             frame_ticks,
             pending_input: Vec::new(),
@@ -80,12 +93,11 @@ impl<R: FamilyRuntime> WebMachine<R> {
     pub fn run_one_frame(&mut self) -> Result<(), MachineError> {
         let target = MachineTime::new(self.runtime.time().get().saturating_add(self.frame_ticks));
 
-        let mut audio = NullAudioSink;
         let mut trace = NullTraceSink;
         let mut host = HostIo {
             input_events: &self.pending_input,
             frame_sink: &mut self.frame,
-            audio_sink: &mut audio,
+            audio_sink: &mut self.audio,
             trace_sink: &mut trace,
         };
         self.runtime.run_until(target, &mut host)?;
@@ -170,6 +182,40 @@ impl<R: FamilyRuntime> WebMachine<R> {
     #[must_use]
     pub fn pending_input(&self) -> &[InputEvent] {
         &self.pending_input
+    }
+
+    /// Matches the buffer to the page's Web Audio graph.
+    ///
+    /// Call once the page has an `AudioContext`, because its sample rate is
+    /// the browser's choice rather than ours. Discards anything buffered: it
+    /// was converted for the old rate and would play at the wrong pitch.
+    pub fn configure_audio(&mut self, output_rate: u32, output_channels: u16, capacity: usize) {
+        let enabled = self.audio.is_enabled();
+        self.audio = WebAudioOutput::new(output_rate, output_channels, capacity);
+        self.audio.set_enabled(enabled);
+    }
+
+    /// Takes the buffered audio for the page to feed its worklet.
+    #[must_use]
+    pub fn audio_drain(&mut self) -> Vec<f32> {
+        self.audio.drain()
+    }
+
+    /// Takes at most `count` buffered samples.
+    #[must_use]
+    pub fn audio_drain_at_most(&mut self, count: usize) -> Vec<f32> {
+        self.audio.drain_at_most(count)
+    }
+
+    /// Starts or stops buffering machine audio.
+    pub fn set_audio_enabled(&mut self, enabled: bool) {
+        self.audio.set_enabled(enabled);
+    }
+
+    /// The audio buffer, for its fill level and drop count.
+    #[must_use]
+    pub const fn audio(&self) -> &WebAudioOutput {
+        &self.audio
     }
 
     /// RGBA bytes of the most recent frame, empty before the first one.
