@@ -4,6 +4,46 @@ All notable changes to Emu198x will be documented in this file.
 
 Format loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 not strictly. Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [0.21.0] - 2026-09-02
+
+
+### Added
+
+- *(web)* The Spectrum runs in a browser, published as
+  `@emu198x/zx-spectrum`. A page creates the machine, hands it bytes
+  and a canvas, and gets a working 48K Spectrum — 89 KB gzipped with
+  the ROM inside it, which is small enough to sit in a lesson page
+  rather than behind a link to somewhere else. Snapshots load from
+  `.sna` or `.z80` bytes, keys arrive as physical DOM codes so a
+  reader's keyboard layout does not change which Spectrum key they
+  press, and audio drains into a Web Audio worklet through a bounded
+  buffer that drops rather than drifts. The pacing runs off elapsed
+  time, not the animation frame: the Spectrum's 50.08 Hz against a
+  60 Hz display would otherwise run the machine 20% fast, and a
+  backgrounded tab would bank up an unbounded catch-up
+- *(web)* `emu198x-web` carries none of that per system. It is generic
+  over `FamilyRuntime`, so the next machine to reach the browser
+  brings a thin wrapper rather than a second copy of the shell
+- *(web)* The 48K ROM ships inside the published package, under the
+  permission Amstrad granted for the Sinclair ROMs in 1999. That
+  permission covers the 48K, 128K, +2, +2A and +3 firmware and no
+  more — the ZX80, ZX81, Interface 1 and 2, Timex, Pentagon and
+  Scorpion ROMs sit outside it, so a browser build of those machines
+  cannot bundle firmware the way this one does. Recorded in
+  `knowledge/decisions/test-rom-policy.md` with the conditions the
+  permission carries, and with the caveat that a 26-year-old usenet
+  post is the whole of it
+- *(video)* The wgpu presenter attaches to any surface target rather
+  than only to a window, which is what let the browser share it
+
+
+### Changed
+
+- CI proves the two builds agree. A native run and a headless Chrome
+  run of the same crate must reach the same golden frame hash after
+  the same input, so the browser build cannot quietly drift from the
+  emulator this project tests
+
 ## [0.20.1] - 2026-09-02
 
 

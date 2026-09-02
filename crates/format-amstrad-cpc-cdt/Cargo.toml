@@ -8,8 +8,8 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-common-tape = { path = "../common-tape", version = "0.20.0" }
-format-tzx = { path = "../format-tzx", version = "0.20.0" }
+common-tape = { path = "../common-tape", version = "0.21.0" }
+format-tzx = { path = "../format-tzx", version = "0.21.0" }
 
 [lints]
 workspace = true

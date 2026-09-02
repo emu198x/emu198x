@@ -8,26 +8,26 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-commodore-agnus-ocs = { path = "../commodore-agnus-ocs", version = "0.20.0" }
-commodore-denise-aga = { path = "../commodore-denise-aga", version = "0.20.0" }
-commodore-denise-ocs = { path = "../commodore-denise-ocs", version = "0.20.0" }
-commodore-gary = { path = "../commodore-gary", version = "0.20.0" }
-commodore-gayle = { path = "../commodore-gayle", version = "0.20.0" }
-common-commodore-amiga = { path = "../common-commodore-amiga", version = "0.20.0" }
-emu198x-shell = { path = "../emu198x-shell", version = "0.20.0" }
-gvp-a530 = { path = "../gvp-a530", version = "0.20.0" }
-machine-commodore-amiga-a1200 = { path = "../machine-commodore-amiga-a1200", version = "0.20.0" }
-machine-commodore-amiga-ecs = { path = "../machine-commodore-amiga-ecs", version = "0.20.0" }
-machine-commodore-amiga-ocs = { path = "../machine-commodore-amiga-ocs", version = "0.20.0" }
-motorola-68000 = { path = "../motorola-68000", version = "0.20.0" }
-motorola-68k-common = { path = "../motorola-68k-common", version = "0.20.0" }
-peripheral-commodore-amiga-floppy = { path = "../peripheral-commodore-amiga-floppy", version = "0.20.0" }
+commodore-agnus-ocs = { path = "../commodore-agnus-ocs", version = "0.21.0" }
+commodore-denise-aga = { path = "../commodore-denise-aga", version = "0.21.0" }
+commodore-denise-ocs = { path = "../commodore-denise-ocs", version = "0.21.0" }
+commodore-gary = { path = "../commodore-gary", version = "0.21.0" }
+commodore-gayle = { path = "../commodore-gayle", version = "0.21.0" }
+common-commodore-amiga = { path = "../common-commodore-amiga", version = "0.21.0" }
+emu198x-shell = { path = "../emu198x-shell", version = "0.21.0" }
+gvp-a530 = { path = "../gvp-a530", version = "0.21.0" }
+machine-commodore-amiga-a1200 = { path = "../machine-commodore-amiga-a1200", version = "0.21.0" }
+machine-commodore-amiga-ecs = { path = "../machine-commodore-amiga-ecs", version = "0.21.0" }
+machine-commodore-amiga-ocs = { path = "../machine-commodore-amiga-ocs", version = "0.21.0" }
+motorola-68000 = { path = "../motorola-68000", version = "0.21.0" }
+motorola-68k-common = { path = "../motorola-68k-common", version = "0.21.0" }
+peripheral-commodore-amiga-floppy = { path = "../peripheral-commodore-amiga-floppy", version = "0.21.0" }
 postcard = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 
 [dev-dependencies]
-emu198x-test-skip = { path = "../emu198x-test-skip", version = "0.20.0" }
+emu198x-test-skip = { path = "../emu198x-test-skip", version = "0.21.0" }
 png = { workspace = true }
 sha2 = { workspace = true }
 twox-hash = { workspace = true }

@@ -8,16 +8,16 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-common-sinclair-zx-spectrum = { path = "../common-sinclair-zx-spectrum", version = "0.20.0" }
-format-sinclair-zx-spectrum-snapshot = { path = "../format-sinclair-zx-spectrum-snapshot", version = "0.20.0" }
-peripheral-kempston-joystick = { path = "../peripheral-kempston-joystick", version = "0.20.0" }
+common-sinclair-zx-spectrum = { path = "../common-sinclair-zx-spectrum", version = "0.21.0" }
+format-sinclair-zx-spectrum-snapshot = { path = "../format-sinclair-zx-spectrum-snapshot", version = "0.21.0" }
+peripheral-kempston-joystick = { path = "../peripheral-kempston-joystick", version = "0.21.0" }
 serde = { workspace = true }
 serde-big-array = { workspace = true }
-timex-scld = { path = "../timex-scld", version = "0.20.0" }
+timex-scld = { path = "../timex-scld", version = "0.21.0" }
 emu198x-zilog-z80 = { path = "../emu198x-zilog-z80", version = "0.6.0" }
 
 [dev-dependencies]
-emu198x-test-skip = { path = "../emu198x-test-skip", version = "0.20.0" }
+emu198x-test-skip = { path = "../emu198x-test-skip", version = "0.21.0" }
 png = { workspace = true }
 
 [lints]
