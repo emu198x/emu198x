@@ -9,7 +9,18 @@ not strictly. Versions follow [Semantic Versioning](https://semver.org/spec/v2.0
 
 ### Added
 
-- *(atari)* Fetch the playfield mid-line so DLI writes reach their line
+- *(atari)* Display list interrupt writes reach the line they were aimed
+  at. ANTIC rendered a whole mode line at the start of the scan line, so
+  a colour, CHBASE or HSCROL write made in the DLI's horizontal blank
+  showed up one line late and every raster-split display was off by a
+  row. ANTIC now begins the line at cycle 0 but fetches its playfield at
+  the CPU cycle where the playfield's first colour clock is displayed —
+  32, 24 or 22 for narrow, normal and wide — so writes before that
+  cycle land on the line and later ones on the next. One sample per line,
+  not a byte-by-byte fetch; writes inside the fetch window still take
+  the whole line. Verified with a DLI timing probe cartridge, checked
+  in and rebuilt by CI, and unchanged output on the DLI-driven titles
+  tried. The 800XL and 5200 share the change
 
 ## [0.19.1] - 2026-09-02
 
