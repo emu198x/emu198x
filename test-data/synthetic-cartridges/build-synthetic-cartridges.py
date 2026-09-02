@@ -191,8 +191,6 @@ def gb_art_source() -> str:
 # --------------------------------------------------------------------------
 
 GB_ROM_SIZE = 0x8000  # The smallest legal image: header plus one 32 KiB bank.
-GB_CODE_ORIGIN = 0x0100  # Where the assembled section starts, and where the
-# CPU begins on a machine with no boot ROM.
 
 
 def game_boy() -> bytes:
@@ -209,8 +207,14 @@ def game_boy() -> bytes:
         code = assemble(combined, "rgbasm")
     finally:
         combined.unlink(missing_ok=True)
-    rom = bytearray(b"\x00" * GB_ROM_SIZE)
-    rom[GB_CODE_ORIGIN : GB_CODE_ORIGIN + len(code)] = code
+    # The rgbasm dialect emits the whole of ROM0 from `$0000`, as rgbasm and
+    # rgblink do, so the assembler's output is the image; only the tail past
+    # the last section is missing.
+    if len(code) > GB_ROM_SIZE:
+        raise SystemExit(
+            f"Game Boy plate is {len(code)} bytes; the image holds {GB_ROM_SIZE}"
+        )
+    rom = bytearray(code) + bytearray(GB_ROM_SIZE - len(code))
 
     title = b"EMU198X"
     rom[0x0134 : 0x0134 + len(title)] = title

@@ -117,8 +117,8 @@ jobs:
       # this workflow will run.
       - name: Install asm198x
         env:
-          ASM198X_TAG: asm198x-v0.0.16
-          ASM198X_SHA256: 0862c34e654d83c1a50101f44ca4080c766fa038efbb4e953b05565896b3fd0a
+          ASM198X_TAG: asm198x-v0.0.56
+          ASM198X_SHA256: 84ea0acce839f05d7e9fe8956daea5fc9750eff9eed9a55980dce85c1e37211c
         run: |
           set -euo pipefail
           base="https://github.com/asm198x/asm198x/releases/download/${ASM198X_TAG}"
