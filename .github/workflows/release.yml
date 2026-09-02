@@ -18,23 +18,12 @@ permissions:
   "contents": "write"
 
 # The jobs that write to the repo use RELEASE_PLZ_TOKEN, falling back to
-# GITHUB_TOKEN. The block above should be enough on its own — `contents: write`
-# is exactly what `gh release create` needs, and it is inherited by every job
-# here — but v0.4.0's host step got:
-#
-#   HTTP 403: Resource not accessible by integration
-#   (https://api.github.com/repos/emu198x/emu198x/releases)
-#
-# from an unchanged file that had published v0.3.0 with 236 assets three hours
-# earlier, and failed the same way on re-run. Both repo and org
-# `default_workflow_permissions` are `read`; nothing in the repo changed
-# between the two tags and no setting was changed by hand.
-#
-# That is unexplained rather than understood, so this does not pretend to fix
-# the cause. It removes the dependency on GITHUB_TOKEN carrying a write scope,
-# which is what every other workflow here already does — the tag push in
-# maintain-release.yml has always used this token, and it is the reason a tag
-# fires this workflow at all.
+# GITHUB_TOKEN, so no job depends on GITHUB_TOKEN carrying a write scope. The
+# `contents: write` block above should be enough on its own, but v0.4.0's host
+# step got `HTTP 403: Resource not accessible by integration` from
+# `gh release create` under GITHUB_TOKEN, on a file that had published v0.3.0
+# three hours earlier; that failure was never explained, and the PAT
+# sidesteps it.
 
 # This task will run whenever you push a git tag that looks like a version
 # like "1.0.0", "v0.1.0-prerelease.1", "my-app/0.1.0", "releases/v1.0.0", etc.
@@ -290,12 +279,17 @@ jobs:
           PRERELEASE_FLAG: "${{ fromJson(steps.host.outputs.manifest).announcement_is_prerelease && '--prerelease' || '' }}"
           ANNOUNCEMENT_TITLE: "${{ fromJson(steps.host.outputs.manifest).announcement_title }}"
           ANNOUNCEMENT_BODY: "${{ fromJson(steps.host.outputs.manifest).announcement_github_body }}"
-          RELEASE_COMMIT: "${{ github.sha }}"
         run: |
           # Write and read notes from a file to avoid quoting breaking things
           echo "$ANNOUNCEMENT_BODY" > $RUNNER_TEMP/notes.txt
 
-          gh release create "${{ needs.plan.outputs.tag }}" --target "$RELEASE_COMMIT" $PRERELEASE_FLAG --title "$ANNOUNCEMENT_TITLE" --notes-file "$RUNNER_TEMP/notes.txt" artifacts/*
+          # No --target. The tag is what fired this workflow, so it exists and
+          # already pins the commit; GitHub documents target_commitish as
+          # unused in that case, yet on 2026-09-02 it rejected a commit SHA
+          # there with 403 (PAT) and 404 (user token) for v0.19.1, minutes
+          # after accepting the same flag for v0.19.0. dist's generated step
+          # passes `--target` with the pushed SHA; the tag makes it redundant.
+          gh release create "${{ needs.plan.outputs.tag }}" $PRERELEASE_FLAG --title "$ANNOUNCEMENT_TITLE" --notes-file "$RUNNER_TEMP/notes.txt" artifacts/*
 
   announce:
     needs:
