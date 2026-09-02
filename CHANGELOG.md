@@ -9,7 +9,13 @@ not strictly. Versions follow [Semantic Versioning](https://semver.org/spec/v2.0
 
 ### Fixed
 
-- *(spectrum)* Wait for the BASIC prompt instead of sampling it once
+- *(spectrum)* Loading a BASIC program on the 48K works again.
+  `load_basic_program` tapped ENTER to clear the copyright banner and
+  then read row 23 immediately, catching the screen after the ROM had
+  cleared the line and before it repainted the cursor, so every run
+  failed with "48K BASIC prompt was not ready" and a blank row. It now
+  waits for the prompt, which unblocks headless screenshot and video
+  capture of any Spectrum BASIC program.
 
 ## [0.20.0] - 2026-09-02
 
