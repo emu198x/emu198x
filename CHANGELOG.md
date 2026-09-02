@@ -4,6 +4,27 @@ All notable changes to Emu198x will be documented in this file.
 
 Format loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 not strictly. Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [0.19.1] - 2026-09-02
+
+
+### Fixed
+
+- *(atari)* GTIA modes 9, 10 and 11 render. PRIOR bits 6-7 selected a
+  mode but the playfield was still drawn as plain mode F; GTIA now pairs
+  ANTIC's pixels two colour clocks at a time into a nibble and colours
+  each pixel per mode: 16 luminances of the background hue (9), one of
+  nine colour registers with the picture one clock right and its last
+  pixel spilling into the border (10), or 16 hues at the background
+  luminance with nibble 0 black (11). The border and blank lines take
+  the mode too. Checked against a probe cartridge of our own, row by
+  row including the border
+- *(atari)* GTIA has all sixteen luminances. The palette was a 128-entry
+  TIA table that dropped the luminance's low bit, so mode 9's sixteen
+  shades came out as eight pairs. The NTSC and PAL tables are now 256
+  entries generated from atari800's colour model at its standard preset;
+  every colour moves, mostly darker, as atari800's black level is 16.
+  The 800XL and 5200 share the change
+
 ## [0.19.0] - 2026-09-02
 
 
