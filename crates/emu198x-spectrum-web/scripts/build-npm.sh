@@ -51,6 +51,22 @@ pkg["name"] = name
 # one consumer, and 0.20.x would imply twenty releases of history it has not
 # had. The emulator build it came from is recorded separately.
 pkg["version"] = version
+
+# The crate is GPL-2.0-or-later and wasm-pack copies that through, but this
+# artifact is not: it also contains the Sinclair 48K ROM, which is copyright
+# Amstrad and redistributed by permission, not relicensed. Leaving a bare
+# SPDX id here tells every licence scanner the firmware is GPL, which is a
+# false statement that tooling then acts on. npm's own escape hatch for a
+# package that is not one licence is to point at the file that explains it.
+pkg["license"] = "SEE LICENSE IN README.md"
+
+# npm always publishes the README, but naming it makes the intent visible to
+# anyone reading this manifest and stops a future `files` edit dropping the
+# acknowledgement Amstrad asked for.
+files = pkg.get("files", [])
+if "README.md" not in files:
+    files.append("README.md")
+pkg["files"] = files
 with open(path, "w") as f:
     json.dump(pkg, f, indent=2)
     f.write("\n")

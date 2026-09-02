@@ -249,6 +249,25 @@ of their ROMs are covered by this permission**, and none may be bundled under
 this section. It authorises the Sinclair/Amstrad Spectrum firmware and nothing
 else.
 
+**The age of the statement, and what it does and does not weaken.** The
+permission is dated 31 August 1999 and has not been re-confirmed since. Amstrad
+plc was acquired by BSkyB in 2007; whether the Spectrum firmware rights moved
+with the company, and who would answer a question about them today, is not
+established by this record and should not be assumed either way. A current
+statement, if one can be obtained, would be worth more than this one.
+
+What age does not weaken is the copyright itself. The permission is a
+permission — Lawson's own wording is that Amstrad "retain that copyright" — so
+the ROM is not ours, is not GPL, and does not become either through being
+embedded in something that is. Anything downstream that would only be true if
+the firmware were freely licensed is out of scope of this record, however long
+the permission goes unchallenged.
+
+This is why the published package declares `SEE LICENSE IN README.md` rather
+than the crate's `GPL-2.0-or-later`. A bare SPDX identifier on an artifact
+containing proprietary firmware tells every licence scanner something false,
+and tooling acts on that field without reading the prose beside it.
+
 **Conditions, all three of which bind us.**
 
 1. *Copyright messages must not be altered.* We embed the image verbatim and
@@ -424,4 +443,5 @@ Citation added the same day: Cliff Lawson, Amstrad plc, comp.sys.sinclair,
 record rather than merely footnoting it — the permission is conditional and
 bounded, it excludes the ZX80/ZX81, Interface 1/2, Timex and the Russian
 clones this repository also emulates, and it asks for an acknowledgement we
-were not yet carrying. That acknowledgement now ships in the package README.
+were not yet carrying. That acknowledgement now ships in the package README, and the package no
+longer claims a single licence it cannot honour.
