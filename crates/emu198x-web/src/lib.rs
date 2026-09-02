@@ -12,13 +12,17 @@
 #![doc(html_no_source)]
 
 pub mod frame;
+pub mod input;
 pub mod pacing;
+
+use std::borrow::Cow;
 
 use emu198x_shell::{
     FamilyRuntime, HostIo, InputEvent, MachineError, MachineTime, NullAudioSink, NullTraceSink,
 };
 
 pub use frame::RgbaFrame;
+pub use input::dom_code_to_key_name;
 pub use pacing::Pacer;
 
 /// A family runtime driven from a browser page.
@@ -96,6 +100,70 @@ impl<R: FamilyRuntime> WebMachine<R> {
     /// Queues an input event for the next frame.
     pub fn queue_input(&mut self, event: InputEvent) {
         self.pending_input.push(event);
+    }
+
+    /// Queues a press or release for a DOM `KeyboardEvent.code`.
+    ///
+    /// Returns `false` when the code has no machine-neutral name, or when the
+    /// machine does not recognise the name it maps to — in both cases nothing
+    /// is queued and the page should let the browser keep the keystroke.
+    ///
+    /// Modifiers are not mapped here. A per-system binding calls
+    /// [`queue_key`](Self::queue_key) with its own names for those.
+    pub fn key_event(&mut self, dom_code: &str, pressed: bool) -> bool {
+        let Some(name) = dom_code_to_key_name(dom_code) else {
+            return false;
+        };
+        self.queue_key(name, pressed)
+    }
+
+    /// Queues a press or release for a machine key name.
+    ///
+    /// The machine validates the name, so a binding cannot silently inject a
+    /// key its own layout does not have. Returns `false` when the name is
+    /// rejected, having queued nothing.
+    ///
+    /// Compound names are expanded into the chord that produces them, because
+    /// several keycaps a viewer expects are not single keys on the hardware:
+    /// the Spectrum's cursor keys are `CapsShift` plus a digit, and queueing
+    /// the bare name `"Up"` would be a dead key.
+    pub fn queue_key(&mut self, name: impl Into<Cow<'static, str>>, pressed: bool) -> bool {
+        let name = name.into();
+        let Some(mut chord) = self.resolve_key(&name) else {
+            return false;
+        };
+
+        // Press modifiers first and release them last, as the hardware would.
+        if !pressed {
+            chord.reverse();
+        }
+        for key in chord {
+            self.queue_input(InputEvent::Key { name: key, pressed });
+        }
+        true
+    }
+
+    /// Whether the machine can produce `name`, as a key or as a chord.
+    #[must_use]
+    pub fn accepts_key(&self, name: &str) -> bool {
+        self.resolve_key(name).is_some()
+    }
+
+    /// The keys that together produce `name` on this machine.
+    ///
+    /// A machine that exposes no keyboard description accepts anything: it has
+    /// not told us otherwise, and refusing every key would be worse than
+    /// forwarding one it ignores.
+    fn resolve_key(&self, name: &str) -> Option<Vec<Cow<'static, str>>> {
+        let Some(keyboard) = self.runtime.keyboard_target() else {
+            return Some(vec![Cow::Owned(name.to_owned())]);
+        };
+        if keyboard.key_name_is_valid(name) {
+            return Some(vec![Cow::Owned(name.to_owned())]);
+        }
+        keyboard
+            .expand_named_key(name)
+            .map(|chord| chord.into_iter().map(Cow::Owned).collect())
     }
 
     /// Events queued but not yet handed to the machine.
