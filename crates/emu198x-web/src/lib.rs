@@ -272,6 +272,12 @@ impl<R: FamilyRuntime> WebMachine<R> {
         &self.audio
     }
 
+    /// The most recent frame, for a consumer that presents it itself.
+    #[must_use]
+    pub const fn frame(&self) -> &RgbaFrame {
+        &self.frame
+    }
+
     /// RGBA bytes of the most recent frame, empty before the first one.
     #[must_use]
     pub fn frame_rgba(&self) -> &[u8] {

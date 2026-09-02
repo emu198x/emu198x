@@ -15,6 +15,13 @@ use emu198x_shell::{CaptureError, CapturedFrame, FramePacket, FrameSink, Machine
 #[derive(Debug, Default)]
 pub struct RgbaFrame {
     pixels: Vec<u8>,
+    /// The frame as the capture layer models it.
+    ///
+    /// Kept alongside the RGBA bytes because the GPU presenter takes a
+    /// `CapturedFrame` and does its own conversion into a reusable scratch
+    /// buffer. A canvas-2D consumer wants [`pixels`](Self::pixels); the wgpu
+    /// path wants this.
+    captured: Option<CapturedFrame>,
     width: u32,
     height: u32,
     /// Set when a frame arrived but could not be converted, so the caller
@@ -41,6 +48,12 @@ impl RgbaFrame {
         (self.width, self.height)
     }
 
+    /// The most recent frame, for a consumer that converts it itself.
+    #[must_use]
+    pub const fn captured(&self) -> Option<&CapturedFrame> {
+        self.captured.as_ref()
+    }
+
     /// The error from the most recent frame that failed to convert.
     #[must_use]
     pub const fn last_error(&self) -> Option<&CaptureError> {
@@ -59,6 +72,7 @@ impl FrameSink for RgbaFrame {
                 self.pixels = pixels;
                 self.width = width;
                 self.height = height;
+                self.captured = Some(captured);
                 self.last_error = None;
             }
             Err(error) => {

@@ -23,5 +23,5 @@ workspace = true
 # web-sys here on purpose: the crate is generic over the surface target, so
 # the caller supplies the canvas and this crate never names a DOM type.
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-wgpu = { workspace = true, features = ["webgl"] }
+wgpu = { workspace = true, features = ["web", "webgl"] }
 
