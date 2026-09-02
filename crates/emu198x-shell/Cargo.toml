@@ -8,14 +8,12 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-cpal = { workspace = true }
 # The Debug198x sidecar reader. Serde-only by design: reading a
 # `.debug198x` file must not drag in the assembler's parser, engine, or
 # dialects. The dependency direction is one-way — asm198x writes, Emu198x
 # reads — so this crate must never gain a dependency back on asm198x.
 # The frozen v1 contract now releases independently from Debug198x.
 debug198x = "0.1"
-gilrs = { workspace = true }
 # Shared 6502/6809 disassembler from Isa198x. Re-exported below so the
 # `impl_6502_debug_target!` macro can reach it via `$crate::isa_disasm` without
 # every 6502 runtime taking the dependency. See 198x/decisions/rung1-wiring.md.
@@ -32,3 +30,10 @@ emu198x-test-skip = { path = "../emu198x-test-skip", version = "0.20.0" }
 
 [lints]
 workspace = true
+
+# Native host backends. Both compile for wasm32 (they resolve web backends),
+# but a browser build has no use for a native audio device or gilrs, so it
+# should not carry them.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+cpal = { workspace = true }
+gilrs = { workspace = true }

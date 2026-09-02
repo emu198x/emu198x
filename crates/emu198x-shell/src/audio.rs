@@ -1,15 +1,22 @@
 //! Shared host-side audio conversion helpers.
 
+#[cfg(not(target_arch = "wasm32"))]
 use std::collections::VecDeque;
+#[cfg(not(target_arch = "wasm32"))]
 use std::sync::{Arc, Mutex};
 
+#[cfg(not(target_arch = "wasm32"))]
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+#[cfg(not(target_arch = "wasm32"))]
 use cpal::{FromSample, SampleFormat, SizedSample, Stream, StreamConfig};
+#[cfg(not(target_arch = "wasm32"))]
 use thiserror::Error;
 
+#[cfg(not(target_arch = "wasm32"))]
 use crate::{AudioPacket, AudioSink, MachineError};
 
 /// Host audio output setup or callback queue failure.
+#[cfg(not(target_arch = "wasm32"))]
 #[derive(Debug, Error)]
 pub enum NativeAudioError {
     /// The system has no default output device.
@@ -54,6 +61,7 @@ pub enum NativeAudioError {
 /// callback buffering, sample-rate conversion, and host channel conversion.
 /// Per-chip/per-voice mute and gain belong in each machine's native audio
 /// mixer before packets cross the shared shell boundary.
+#[cfg(not(target_arch = "wasm32"))]
 pub struct NativeAudioOutput {
     _stream: Stream,
     shared: Arc<Mutex<AudioBuffer>>,
@@ -61,6 +69,7 @@ pub struct NativeAudioOutput {
     channels: u16,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl NativeAudioOutput {
     /// Creates a native host output stream with a bounded callback queue.
     ///
@@ -121,6 +130,7 @@ impl NativeAudioOutput {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl AudioSink for NativeAudioOutput {
     fn push_audio(&mut self, packet: AudioPacket<'_>) -> Result<(), MachineError> {
         let samples = convert_audio_packet(
@@ -138,11 +148,13 @@ impl AudioSink for NativeAudioOutput {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 struct AudioBuffer {
     samples: VecDeque<f32>,
     max_samples: usize,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl AudioBuffer {
     fn new(max_samples: usize) -> Self {
         Self {
@@ -159,6 +171,7 @@ impl AudioBuffer {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn build_output_stream(
     device: &cpal::Device,
     config: &StreamConfig,
@@ -173,6 +186,7 @@ fn build_output_stream(
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn build_typed_output_stream<T>(
     device: &cpal::Device,
     config: &StreamConfig,
@@ -195,6 +209,7 @@ where
         .map_err(|source| NativeAudioError::BuildStream { source })
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn write_output_data<T>(data: &mut [T], shared: &Arc<Mutex<AudioBuffer>>)
 where
     T: SizedSample + FromSample<f32>,
