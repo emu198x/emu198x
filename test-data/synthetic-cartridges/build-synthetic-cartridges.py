@@ -350,11 +350,12 @@ def nes() -> bytes:
 # Atari 5200
 # --------------------------------------------------------------------------
 
-# Measured against this workspace's own GTIA palette table, `$A2` is #1c4c78
+# Measured against this workspace's own GTIA palette table, `$A5` is #11506f
 # against Emu198x's #0d4a7d — the closest any machine here gets to carrying
 # the identity colour outright, and it is also the nearest blue, so the two
-# criteria agree for once.
-A5200_PAPER, A5200_FILL, A5200_INK = 0x0E, 0xA2, 0x00
+# criteria agree for once. It is an odd luminance, which GTIA has and the
+# TIA-style 128-entry tables do not.
+A5200_PAPER, A5200_FILL, A5200_INK = 0x0E, 0xA5, 0x00
 A5200_COLOUR = {PAPER: 0, FILL: 1, INK: 2}  # COLBK, COLPF0, COLPF1
 
 A5200_CELL_W = 4          # ANTIC mode 4 reads the font 2 bits per pixel
@@ -452,8 +453,8 @@ def atari_5200() -> bytes:
 # Atari 7800
 # --------------------------------------------------------------------------
 
-# MARIA shares the GTIA colour encoding, so the same $A2 that matched
-# #0d4a7d on the 5200 applies here.
+# MARIA shares the GTIA colour encoding. Against this workspace's MARIA
+# palette table `$A2` is #1c4c78, the nearest blue to #0d4a7d.
 A7800_PAPER, A7800_FILL, A7800_INK = 0x0E, 0xA2, 0x00
 A7800_COLOUR = {PAPER: 0, FILL: 1, INK: 2}  # transparent, P0C1, P0C2
 
@@ -572,7 +573,7 @@ def atari_7800() -> bytes:
 # Atari 2600
 # --------------------------------------------------------------------------
 
-# TIA shares the same colour encoding as GTIA and MARIA, so $A2 carries over
+# TIA shares the colour encoding and the MARIA table's values, so $A2 carries over
 # again — though on this machine only the playfield can use it.
 A2600_PAPER, A2600_FILL, A2600_INK = 0x0E, 0xA2, 0x00
 

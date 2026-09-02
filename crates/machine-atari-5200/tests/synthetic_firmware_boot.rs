@@ -24,7 +24,7 @@ use machine_atari_5200::{Atari5200, Atari5200Region};
 /// What `COLBK = $44` renders. ANTIC's DMA is off at power-on, so with no
 /// display list fetched the whole raster is the background register — this
 /// is the one machine here whose frame comes out entirely uniform.
-const BACKDROP: u32 = 0xFFB0_3C3C;
+const BACKDROP: u32 = 0xFF68_1B23;
 
 fn firmware(name: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
