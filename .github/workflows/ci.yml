@@ -143,10 +143,13 @@ jobs:
       - name: Check the committed Sega cartridges match their source
         run: python3 test-data/sega/synthetic-cart/build-synthetic-cart.py --check
 
-      # The 800XL's player/missile DMA probe is assembled the same way and
-      # drives a machine test, so a stale image would test the wrong program.
+      # The 800XL's player/missile DMA and GTIA mode probes are assembled the
+      # same way and drive machine tests, so a stale image would test the
+      # wrong program.
       - name: Check the committed Atari P/M DMA probe matches its source
         run: python3 test-data/atari/pm-dma/build.py --check
+      - name: Check the committed Atari GTIA mode probe matches its source
+        run: python3 test-data/atari/gtia-modes/build.py --check
 
   # Spectrum boot evidence. Amstrad permits the Sinclair ROMs to be
   # distributed, so unlike almost every other machine here the Spectrum's
