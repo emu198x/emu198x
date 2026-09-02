@@ -229,6 +229,14 @@ pub enum AnticMode {
     ModeF,
 }
 
+impl AnticMode {
+    /// Whether the mode sends two pixels per colour clock: modes 2, 3 and F.
+    #[must_use]
+    pub const fn is_hires(self) -> bool {
+        matches!(self, Self::Mode2 | Self::Mode3 | Self::ModeF)
+    }
+}
+
 // ---------------------------------------------------------------------------
 // GTIA chip
 // ---------------------------------------------------------------------------
@@ -306,11 +314,8 @@ pub struct Gtia {
     sl_visible: bool,           // false when the line is off-screen
     sl_fb_offset: usize,        // framebuffer index of this line's first active pixel
     sl_mode: AnticMode,         // ANTIC mode for the line
-    sl_gtia_mode: u8,           // PRIOR bits 6-7 (GTIA 9/10/11 modes)
-    sl_pf_width: u16,           // playfield width in colour clocks
     sl_pf_span: (usize, usize), // active-x [start, end) the playfield occupies
     sl_line_buf: Vec<u8>,       // per-pixel playfield colour-register indices, one per window pixel
-    sl_playfield: Vec<u8>,      // raw ANTIC playfield bytes (GTIA 9/10/11 resolve)
     sl_x: usize,                // compositing cursor: next active-x to draw
 
     // -- Framebuffer --
@@ -361,11 +366,8 @@ impl Gtia {
             sl_visible: false,
             sl_fb_offset: 0,
             sl_mode: AnticMode::Blank,
-            sl_gtia_mode: 0,
-            sl_pf_width: 0,
             sl_pf_span: (0, 0),
             sl_line_buf: vec![0; region.framebuffer_width() as usize],
-            sl_playfield: Vec::new(),
             sl_x: 0,
             framebuffer: vec![
                 0xFF00_0000;
@@ -656,10 +658,6 @@ impl Gtia {
         let fb_row = self.border_top() as usize + line as usize;
         self.sl_fb_offset = fb_row * self.fb_width as usize;
         self.sl_mode = mode;
-        self.sl_gtia_mode = (self.prior >> 6) & 0x03;
-        self.sl_pf_width = pf_width;
-        self.sl_playfield.clear();
-        self.sl_playfield.extend_from_slice(playfield);
 
         // Build the window-wide line of playfield colour-register indices.
         let mut line_buf = std::mem::take(&mut self.sl_line_buf);
@@ -685,14 +683,10 @@ impl Gtia {
         }
         let end = end.min(self.fb_width as usize);
 
-        // Hi-res 1.5-colour modes (2, 3, and F with no GTIA override): the
-        // playfield background is COLPF2 and lit pixels take COLPF2's hue with
-        // COLPF1's luminance. Anything outside the playfield is COLBK border.
-        let hires_text = self.sl_gtia_mode == 0
-            && matches!(
-                self.sl_mode,
-                AnticMode::Mode2 | AnticMode::Mode3 | AnticMode::ModeF
-            );
+        // Hi-res 1.5-colour modes (2, 3, and F): the playfield background is
+        // COLPF2 and lit pixels take COLPF2's hue with COLPF1's luminance.
+        // Anything outside the playfield is COLBK border.
+        let hires = self.sl_mode.is_hires();
 
         while self.sl_x < end {
             let x = self.sl_x;
@@ -704,37 +698,128 @@ impl Gtia {
             let cc = (self.fb_first_half_clock + x as u16) / 2;
             let pm_bits = self.pm_bits_at_cc(cc);
 
-            // Collisions (independent of the final priority): PM-vs-playfield
-            // where playfield is present, PM-vs-PM wherever objects overlap.
-            if pm_bits != 0 {
-                self.record_collisions(pm_bits, pf_col_idx);
-            }
+            let colour = match (self.prior >> 6) & 0x03 {
+                0 => {
+                    // Collisions (independent of the final priority):
+                    // PM-vs-playfield where playfield is present, PM-vs-PM
+                    // wherever objects overlap.
+                    if pm_bits != 0 {
+                        self.record_collisions(pm_bits, pf_col_idx);
+                    }
 
-            let in_pf = x >= self.sl_pf_span.0 && x < self.sl_pf_span.1;
-            let playfield_colour = if hires_text && in_pf {
-                if pf_col_idx != 0 {
-                    Some((self.colpf[2] & 0xF0) | (self.colpf[1] & 0x0F))
-                } else {
-                    Some(self.colpf[2])
+                    let in_pf = x >= self.sl_pf_span.0 && x < self.sl_pf_span.1;
+                    let playfield_colour = if hires && in_pf {
+                        if pf_col_idx != 0 {
+                            Some((self.colpf[2] & 0xF0) | (self.colpf[1] & 0x0F))
+                        } else {
+                            Some(self.colpf[2])
+                        }
+                    } else if pf_col_idx != 0 {
+                        Some(self.playfield_register(pf_col_idx))
+                    } else {
+                        None
+                    };
+                    self.priority_colour(pm_bits, pf_col_idx, playfield_colour)
+                        .map_or(self.colbk, |(colour, _)| colour)
                 }
-            } else if pf_col_idx != 0 {
-                Some(self.resolve_colour(
-                    pf_col_idx,
-                    self.sl_gtia_mode,
-                    &self.sl_playfield,
-                    x,
-                    self.sl_pf_width,
-                    self.sl_mode,
-                ))
-            } else {
-                None
+                gtia_mode => self.gtia_mode_colour(gtia_mode, cc, pm_bits),
             };
-            let colour = self
-                .priority_colour(pm_bits, pf_col_idx, playfield_colour)
-                .unwrap_or(self.colbk);
 
             self.framebuffer[self.sl_fb_offset + x] = self.colour_to_argb32(colour);
             self.sl_x += 1;
+        }
+    }
+
+    /// The colour at colour clock `cc` in GTIA mode 9, 10 or 11 (`gtia_mode`
+    /// 1, 2 or 3: PRIOR bits 6-7), with `pm_bits` the objects covering it.
+    ///
+    /// These modes read ANTIC's output two colour clocks at a time: the two
+    /// AN values form a nibble, and the nibble is the pixel. The pairing is
+    /// fixed to the line, not to the playfield, so a pixel is the two colour
+    /// clocks from an even one — and it runs through the border and blank
+    /// lines too, where AN is zero and the nibble is 0. Atari800 `antic.c`
+    /// (`draw_an_gtia9`, `draw_an_gtia10`, `draw_an_gtia11`) and Altirra
+    /// `gtiarenderer.cpp` (`RenderMode9`, `RenderMode10`, `RenderMode11`)
+    /// agree on what each mode makes of the nibble:
+    ///
+    /// - Mode 9 turns the playfield off and ORs the nibble into COLBK as
+    ///   luminance.
+    /// - Mode 10 pairs one colour clock later than the others, so its
+    ///   picture sits one clock to the right. Nibbles 0-3 put COLPM0-3 on
+    ///   screen as if that player were there, so a real player in front of
+    ///   it wins or overlaps by the usual rules but no collision registers;
+    ///   4-7 and 12-15 are the playfield colours COLPF0-3 and collide as
+    ///   playfield; 8-11 are COLBK.
+    /// - Mode 11 turns the playfield off and ORs the nibble into COLBK as
+    ///   hue; nibble 0 has no luminance at all, whatever COLBK says.
+    ///
+    /// Where the fifth player shows over a mode 9 or 11 pixel, the nibble is
+    /// ORed into COLPF3 the same way; over a real player it is not.
+    fn gtia_mode_colour(&mut self, gtia_mode: u8, cc: u16, pm_bits: u8) -> u8 {
+        let pair = if gtia_mode == 2 {
+            cc.wrapping_sub(1) & !1
+        } else {
+            cc & !1
+        };
+        let nibble = (self.an_at(pair) << 2) | self.an_at(pair.wrapping_add(1));
+
+        if gtia_mode == 2 {
+            let (pf_col_idx, base, as_player) = match nibble {
+                0..=3 => (0, self.colpm[usize::from(nibble)], 1u8 << nibble),
+                4..=7 | 12..=15 => {
+                    let pf = nibble & 3;
+                    (pf + 1, self.colpf[usize::from(pf)], 0)
+                }
+                _ => (0, self.colbk, 0),
+            };
+            if pm_bits != 0 {
+                self.record_collisions(pm_bits, pf_col_idx);
+            }
+            let playfield_colour = (pf_col_idx != 0).then_some(base);
+            return self
+                .priority_colour(pm_bits | as_player, pf_col_idx, playfield_colour)
+                .map_or(base, |(colour, _)| colour);
+        }
+
+        // Modes 9 and 11: no playfield, so only object collisions register,
+        // and the nibble colours whatever the objects leave uncovered.
+        if pm_bits != 0 {
+            self.record_collisions(pm_bits, 0);
+        }
+        let shade = |register: u8| {
+            if gtia_mode == 1 {
+                register | nibble
+            } else if nibble == 0 {
+                register & 0xF0
+            } else {
+                register | (nibble << 4)
+            }
+        };
+        match self.priority_colour(pm_bits, 0, None) {
+            None => shade(self.colbk),
+            Some((_, true)) => shade(self.colpf[3]),
+            Some((colour, false)) => colour,
+        }
+    }
+
+    /// ANTIC's AN0-1 output at colour clock `cc` for the current line, as
+    /// GTIA's nibble logic sees it: the two hi-res bits of a hi-res mode,
+    /// or the playfield number (PF0-3 as 0-3, background as 0) of any other.
+    /// Zero outside the picture.
+    fn an_at(&self, cc: u16) -> u8 {
+        let Some(x) = (cc * 2).checked_sub(self.fb_first_half_clock) else {
+            return 0;
+        };
+        let x = usize::from(x);
+        if self.sl_mode.is_hires() {
+            let bit = |x: usize| self.sl_line_buf.get(x).copied().unwrap_or(0) & 1;
+            (bit(x) << 1) | bit(x + 1)
+        } else {
+            self.sl_line_buf
+                .get(x)
+                .copied()
+                .unwrap_or(0)
+                .saturating_sub(1)
         }
     }
 
@@ -760,12 +845,15 @@ impl Gtia {
     /// their associated player's colour and rank; combined missiles occupy the
     /// PF3/fifth-player layer. Colour zero retains the existing transparent-PM
     /// behaviour, while a conflicting PRIOR selection returns visible black.
+    ///
+    /// Returns the winning colour and whether the fifth player supplied it,
+    /// which the GTIA modes need because they shade it like the background.
     fn priority_colour(
         &self,
         pm_bits: u8,
         pf_col_idx: u8,
         playfield_colour: Option<u8>,
-    ) -> Option<u8> {
+    ) -> Option<(u8, bool)> {
         let schemes = self.prior & 0x0F;
         let player_ranks = [[0u8, 1, 2, 3], [0, 1, 6, 7], [4, 5, 6, 7], [2, 3, 4, 5]];
         let playfield_ranks = [[4u8, 5, 6, 7], [2, 3, 4, 5], [0, 1, 2, 3], [0, 1, 6, 7]];
@@ -795,7 +883,7 @@ impl Gtia {
                 }
                 let pm_wins = front_pm_rank(scheme).is_some_and(|rank| rank < pf_ranks[pf]);
                 if outcome.is_some_and(|previous| previous != pm_wins) {
-                    return Some(0);
+                    return Some((0, false));
                 }
                 outcome = Some(pm_wins);
             }
@@ -854,14 +942,16 @@ impl Gtia {
             winner = winner.map(|(rank, _)| (rank, overlap));
         }
 
+        let mut fifth_won = false;
         if (self.prior & 0x10) != 0 && (pm_bits & 0xF0) != 0 {
             let rank = playfield_ranks[scheme][3];
             if winner.is_none_or(|(winner_rank, _)| rank < winner_rank) {
                 winner = Some((rank, self.colpf[3]));
+                fifth_won = true;
             }
         }
 
-        winner.map(|(_, colour)| colour)
+        winner.map(|(_, colour)| (colour, fifth_won))
     }
 
     /// Whether player `p`'s graphic covers beam colour-clock `cc`, from the
@@ -952,7 +1042,7 @@ impl Gtia {
     ) -> (usize, usize) {
         // Hi-res modes carry one data entry per half colour clock; the rest
         // carry one per colour clock and each covers two pixels.
-        let hires = matches!(mode, AnticMode::ModeF | AnticMode::Mode2 | AnticMode::Mode3);
+        let hires = mode.is_hires();
 
         let first = self.fb_first_half_clock;
         let (display_start_cc, display_end_cc) = playfield_display_cc(pf_width);
@@ -1020,55 +1110,12 @@ impl Gtia {
         }
     }
 
-    /// Map a playfield colour register index to an actual colour value.
-    fn resolve_colour(
-        &self,
-        pf_idx: u8,
-        gtia_mode: u8,
-        _playfield: &[u8],
-        _x: usize,
-        _pf_width: u16,
-        _mode: AnticMode,
-    ) -> u8 {
-        match gtia_mode {
-            1 => {
-                // Mode 9: 16-shade. Pixel value selects luminance, COLBK hue.
-                let lum = (pf_idx & 0x0F) << 1;
-                (self.colbk & 0xF0) | lum
-            }
-            2 => {
-                // Mode 10: 9-colour. Use all 9 colour registers.
-                match pf_idx {
-                    // Unlike the other GTIA modes, mode 10 takes its
-                    // background from COLPM0. Atari's hardware manuals call
-                    // this out because COLBK does not participate here.
-                    0 => self.colpm[0],
-                    1 => self.colpf[0],
-                    2 => self.colpf[1],
-                    3 => self.colpf[2],
-                    4 => self.colpf[3],
-                    5 => self.colpm[0],
-                    6 => self.colpm[1],
-                    7 => self.colpm[2],
-                    8 => self.colpm[3],
-                    _ => self.colbk,
-                }
-            }
-            3 => {
-                // Mode 11: 16-hue. Pixel value selects hue, COLBK luminance.
-                let hue = (pf_idx & 0x0F) << 4;
-                hue | (self.colbk & 0x0F)
-            }
-            _ => {
-                // Normal: map index to colour register
-                match pf_idx {
-                    1 => self.colpf[0],
-                    2 => self.colpf[1],
-                    3 => self.colpf[2],
-                    4 => self.colpf[3],
-                    _ => self.colbk,
-                }
-            }
+    /// The colour register a playfield index names: 1-4 are COLPF0-3,
+    /// anything else the background.
+    fn playfield_register(&self, pf_idx: u8) -> u8 {
+        match pf_idx {
+            1..=4 => self.colpf[usize::from(pf_idx - 1)],
+            _ => self.colbk,
         }
     }
 }
@@ -1192,7 +1239,8 @@ const fn missile_width(size_bits: u8) -> u16 {
 impl Gtia {
     /// Convert an Atari colour register value to ARGB32 using the palette for
     /// the television standard reported by PAL ($D014).
-    fn colour_to_argb32(&self, colour: u8) -> u32 {
+    #[must_use]
+    pub fn colour_to_argb32(&self, colour: u8) -> u32 {
         let palette = if self.pal == 0x01 {
             &PAL_PALETTE
         } else {
@@ -2046,15 +2094,27 @@ mod tests {
         assert_eq!((gtia.prior >> 6) & 0x03, 3);
     }
 
+    /// The GTIA modes transform whatever ANTIC sends, border and blank
+    /// lines included, where the nibble is 0: mode 10 shows COLPM0 there,
+    /// mode 11 shows COLBK's hue with no luminance, and mode 9 shows COLBK.
     #[test]
-    fn mode_10_background_uses_colpm0() {
+    fn gtia_modes_colour_a_blank_line_from_nibble_zero() {
         let mut gtia = Gtia::new(GtiaRegion::Ntsc);
         gtia.write(0x12, 0x38); // COLPM0
         gtia.write(0x1A, 0x94); // COLBK, deliberately different
+        let row = gtia.border_top() as usize * gtia.fb_width as usize;
+        let width = gtia.fb_width as usize;
 
-        assert_eq!(
-            gtia.resolve_colour(0, 2, &[], 0, 160, AnticMode::ModeF),
-            0x38
-        );
+        for (prior, colour) in [(0x40, 0x94), (0x80, 0x38), (0xC0, 0x90)] {
+            gtia.write(0x1B, prior);
+            gtia.render_line(0, &[], 160, AnticMode::Blank);
+            let want = gtia.colour_to_argb32(colour);
+            assert!(
+                gtia.framebuffer()[row..row + width]
+                    .iter()
+                    .all(|&px| px == want),
+                "PRIOR ${prior:02X}: blank line should be ${colour:02X} across"
+            );
+        }
     }
 }
