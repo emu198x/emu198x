@@ -1246,10 +1246,7 @@ impl Gtia {
         } else {
             &NTSC_PALETTE
         };
-        palette
-            .get((colour >> 1) as usize)
-            .copied()
-            .unwrap_or(0xFF00_0000)
+        palette[usize::from(colour)]
     }
 }
 
@@ -1276,14 +1273,29 @@ mod tests {
         let ntsc = Gtia::new(GtiaRegion::Ntsc);
         let pal = Gtia::new(GtiaRegion::Pal);
 
-        assert_eq!(ntsc.colour_to_argb32(0x20), 0xFF70_2800);
-        assert_eq!(pal.colour_to_argb32(0x20), 0xFF50_0000);
+        assert_eq!(ntsc.colour_to_argb32(0x20), 0xFF1C_0800);
+        assert_eq!(pal.colour_to_argb32(0x20), 0xFF38_0000);
         assert_ne!(
             ntsc.colour_to_argb32(0x20),
             pal.colour_to_argb32(0x20),
             "PAL must not silently render through the NTSC table"
         );
-        assert_eq!(pal.colour_to_argb32(0x20), pal.colour_to_argb32(0x21));
+    }
+
+    /// GTIA has sixteen luminances, not the TIA's eight: the odd values
+    /// mode 9 produces must each be their own shade.
+    #[test]
+    fn every_luminance_is_a_distinct_shade() {
+        for gtia in [Gtia::new(GtiaRegion::Ntsc), Gtia::new(GtiaRegion::Pal)] {
+            let shades: Vec<u32> = (0x20..0x30).map(|c| gtia.colour_to_argb32(c)).collect();
+            let mut distinct = shades.clone();
+            distinct.dedup();
+            assert_eq!(distinct.len(), 16, "hue 2 luminances: {shades:08X?}");
+            assert!(
+                shades.windows(2).all(|w| w[0] < w[1]),
+                "luminance climbs: {shades:08X?}"
+            );
+        }
     }
 
     /// The register is mirrored across GTIA's address space like every
@@ -1792,7 +1804,7 @@ mod tests {
         // "The Atari performs a logical OR to colors of players 0/1 and 2/3
         // when they overlap ... If player one is pink and player 0 is blue, the
         // overlap is green." — Mapping the Atari, PRIOR.
-        let expected = palette::PAL_PALETTE[((0x46 | 0x82) >> 1) as usize];
+        let expected = palette::PAL_PALETTE[0x46 | 0x82];
         assert_eq!(
             player_overlap_colour(PRIOR_MULTI_COLOUR | 0x01, (0, 1), (0x46, 0x82)),
             expected,
@@ -1802,7 +1814,7 @@ mod tests {
 
     #[test]
     fn overlapping_players_two_and_three_make_a_third_colour() {
-        let expected = palette::PAL_PALETTE[((0x24 | 0x90) >> 1) as usize];
+        let expected = palette::PAL_PALETTE[0x24 | 0x90];
         assert_eq!(
             player_overlap_colour(PRIOR_MULTI_COLOUR | 0x01, (2, 3), (0x24, 0x90)),
             expected,
@@ -1852,7 +1864,7 @@ mod tests {
                 + active_x;
             assert_eq!(
                 gtia.framebuffer()[fb_idx],
-                palette::PAL_PALETTE[(0x46 >> 1) as usize],
+                palette::PAL_PALETTE[0x46],
                 "one player is not an overlap (PRIOR ${prior:02X})"
             );
         }

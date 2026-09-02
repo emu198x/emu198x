@@ -1142,8 +1142,8 @@ mod tests {
 
         let x = sys.gtia.border_left() as usize + ((60 - 48) * 2) as usize;
         let width = sys.framebuffer_width() as usize;
-        let player_colour = atari_gtia::palette::NTSC_PALETTE[(0x38 >> 1) as usize];
-        let playfield_colour = atari_gtia::palette::NTSC_PALETTE[(0x94 >> 1) as usize];
+        let player_colour = atari_gtia::palette::NTSC_PALETTE[0x38];
+        let playfield_colour = atari_gtia::palette::NTSC_PALETTE[0x94];
         assert_eq!(sys.framebuffer()[x], player_colour, "default PRIOR");
         assert_eq!(
             sys.framebuffer()[width + x],

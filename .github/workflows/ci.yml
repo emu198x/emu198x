@@ -151,6 +151,11 @@ jobs:
       - name: Check the committed Atari GTIA mode probe matches its source
         run: python3 test-data/atari/gtia-modes/build.py --check
 
+      # The GTIA palette is generated from atari800's colour model; a hand
+      # edit would drift from the model the file claims to reproduce.
+      - name: Check the committed GTIA palette matches its generator
+        run: python3 tools/gtia-palette.py --check
+
   # Spectrum boot evidence. Amstrad permits the Sinclair ROMs to be
   # distributed, so unlike almost every other machine here the Spectrum's
   # "does it boot" can be checked on a pull request rather than only in the
