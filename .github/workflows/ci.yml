@@ -575,3 +575,53 @@ jobs:
   # ZEXDOC + ZEXALL moved to .github/workflows/zex.yml — it runs only when
   # the Z80 core or its corpus changes (plus on demand), so it no longer
   # makes every push wait tens of minutes on a stable CPU exerciser.
+
+  # The browser build has to be the same emulator, not merely a build that
+  # compiles for another target. #1416 was verified compile-only and shipped a
+  # renderer that could not draw; this job is what stops that class recurring.
+  #
+  # No frames-per-second assertion here. Shared runners vary enough that a
+  # throughput floor would fail for reasons unrelated to the change; speed
+  # stays on the native `frame_throughput` criterion bench, run deliberately.
+  wasm:
+    name: Browser parity
+    runs-on: ubuntu-latest
+    needs: [fmt, clippy]
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Read pinned toolchain
+        id: toolchain
+        run: |
+          channel=$(awk -F'"' '/^channel/{print $2}' rust-toolchain.toml)
+          echo "channel=${channel}" >> "$GITHUB_OUTPUT"
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ steps.toolchain.outputs.channel }}
+          targets: wasm32-unknown-unknown
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+
+      # No apt packages: the wasm build carries neither cpal nor gilrs, so it
+      # needs none of the native audio or input libraries the other jobs do.
+      - name: Check the browser crates build for wasm
+        run: |
+          cargo check --target wasm32-unknown-unknown \
+            -p emu198x-shell -p emu198x-web
+
+      - name: Install wasm-pack
+        # Installed through cargo rather than a third-party action so the
+        # workflow depends on nothing outside the toolchain it already trusts.
+        # rust-cache keeps it between runs.
+        run: cargo install wasm-pack --locked
+
+      # Release, not debug. A debug wasm build overflows the stack moving the
+      # runtime — SpectrumRuntimeKind is a whole machine — and fails with
+      # "memory access out of bounds" before reaching an assertion. Chrome is
+      # preinstalled on the runner; wasm-pack fetches its own chromedriver.
+      - name: Native and browser must draw the same pixels
+        run: wasm-pack test --headless --chrome --release crates/emu198x-web
