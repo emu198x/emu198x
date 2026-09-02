@@ -84,8 +84,8 @@ fn megacart_walks_its_banks_under_the_running_program() {
         0x8A, // txa
         0x8D, 0x00, 0xD5, // sta $D500
         0x4C, 0x00, 0x80, // jmp $8000
-              // done: jmp done lives at $8016 (see below)
     ];
+    // done: jmp done lives at $8016, written per bank below.
     for bank in 0..4 {
         let base = bank * 0x4000;
         rom[base..base + program.len()].copy_from_slice(&program);
