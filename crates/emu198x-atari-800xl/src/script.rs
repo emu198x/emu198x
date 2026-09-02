@@ -25,7 +25,7 @@ ROMs (all optional, but need at least one of --os or --cart to boot):
     --basic PATH               8 KB BASIC ROM (ataribas.rom)
                                default: $EMU198X_A800XL_BASIC, then
                                ~/.emu198x/roms/atari-800xl/ataribas.rom
-    --cart PATH                cartridge ROM (8 KB or 16 KB)
+    --cart PATH                cartridge image (flat, XEGS, MegaCart or OSS; .car headers honoured)
 
 Media:
     --disk PATH                ATR disk image for D1: (a .zip holding one .atr works too)
