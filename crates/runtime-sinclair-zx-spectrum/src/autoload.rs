@@ -335,14 +335,39 @@ where
     R: MachineCore,
     Q: SessionQueryProvider<R>,
 {
+    let line = wait_for_prompt_line(session)?;
+    if line.trim_end() == "K" {
+        return Ok(());
+    }
+    Err(SpectrumAutoloadError::PromptNotReady { line })
+}
+
+/// Run frames until row 23 shows the `K` cursor, returning the last row-23
+/// text seen: `"K"` when the prompt arrived, and whatever was on screen when
+/// the budget ran out otherwise. Callers turn a non-`K` result into their own
+/// error type.
+///
+/// Polls rather than settling for a fixed number of frames. `wait_for_boot`
+/// returns while the copyright banner is still up; the ROM then clears row 23
+/// before repainting it, so a read taken too early gets 32 spaces — neither
+/// the banner nor the cursor. A fixed delay is not enough either, because the
+/// cursor flashes and a single sample can land on the wrong half of the cycle.
+///
+/// Sampling once broke autoload on every cold 48K boot (#869), and the BASIC
+/// loader in the same way (#1413). Both callers now share this loop so a third
+/// cannot repeat it.
+pub(crate) fn wait_for_prompt_line<R, Q>(
+    session: &mut HeadlessSession<R, Q>,
+) -> Result<String, SessionError>
+where
+    R: MachineCore,
+    Q: SessionQueryProvider<R>,
+{
     let mut waited = 0;
     loop {
         let line = decoded_prompt_line(session)?;
-        if line.trim_end() == "K" {
-            return Ok(());
-        }
-        if waited >= PROMPT_WAIT_FRAMES {
-            return Err(SpectrumAutoloadError::PromptNotReady { line });
+        if line.trim_end() == "K" || waited >= PROMPT_WAIT_FRAMES {
+            return Ok(line);
         }
         session.run_frames(PROMPT_POLL_FRAMES)?;
         waited += PROMPT_POLL_FRAMES;

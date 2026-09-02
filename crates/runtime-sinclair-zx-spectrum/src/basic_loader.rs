@@ -20,7 +20,7 @@ use format_sinclair_zx_spectrum_bas::BasicProgram;
 use thiserror::Error;
 
 use crate::SpectrumLiveAccess;
-use crate::autoload::{decoded_prompt_line, tap_key};
+use crate::autoload::{decoded_prompt_line, tap_key, wait_for_prompt_line};
 
 /// Default frame budget used to wait for the 48K ROM boot banner before
 /// installing the program. Mirrors the autoload-tape default so script
@@ -143,7 +143,10 @@ where
     if decoded_prompt_line(session)?.trim_end() != "K" {
         tap_key(session, "enter")?;
     }
-    let prompt = decoded_prompt_line(session)?;
+    // Then wait for the cursor rather than reading once. The tap only runs
+    // the two frames of its own key edges, and the ROM has cleared row 23
+    // and not yet repainted it, so an immediate read gets 32 spaces (#1413).
+    let prompt = wait_for_prompt_line(session)?;
     if prompt.trim_end() != "K" {
         return Err(LoadBasicError::PromptNotReady { line: prompt });
     }
@@ -399,5 +402,85 @@ mod tests {
             LoadBasicError::PromptNotReady { line } => assert!(line.starts_with('X')),
             other => panic!("expected PromptNotReady, got {other:?}"),
         }
+    }
+
+    /// Provider that repaints row 23 the way the real ROM does: the
+    /// copyright banner, then a gap of blank rows while the ROM clears
+    /// and redraws the edit line, then the `K` cursor.
+    ///
+    /// `ReadyPromptProvider` reports `K` from the very first read, which
+    /// is why the existing tests passed while the loader was broken on
+    /// every real 48K boot (#1413).
+    struct RepaintingPromptProvider {
+        reads: std::cell::Cell<usize>,
+    }
+
+    impl RepaintingPromptProvider {
+        /// Row-23 reads that come back before the cursor is drawn.
+        const BLANK_READS: usize = 4;
+
+        fn new() -> Self {
+            Self {
+                reads: std::cell::Cell::new(0),
+            }
+        }
+    }
+
+    impl SessionQueryProvider<Spectrum48kRuntime> for RepaintingPromptProvider {
+        fn query_paths(&self, _machine: &Spectrum48kRuntime, _prefix: Option<&str>) -> Vec<String> {
+            vec!["boot.detected".to_owned(), "screen.text.lines".to_owned()]
+        }
+
+        fn query(
+            &self,
+            _machine: &Spectrum48kRuntime,
+            path: &str,
+        ) -> Result<Option<QueryResult>, emu198x_shell::QueryError> {
+            let value = match path {
+                "boot.detected" => json!(true),
+                "screen.text.lines" => {
+                    let seen = self.reads.get();
+                    self.reads.set(seen + 1);
+                    let row23 = if seen == 0 {
+                        // wait_for_boot returns on the banner.
+                        format!("{:<32}", "\u{a9} 1982 Sinclair Research Ltd")
+                    } else if seen <= Self::BLANK_READS {
+                        // Cleared, not yet repainted. This is the state
+                        // the loader used to sample exactly once.
+                        " ".repeat(32)
+                    } else {
+                        format!("{:<32}", "K")
+                    };
+                    let mut lines = vec![" ".repeat(32); 24];
+                    lines[23] = row23;
+                    json!(lines)
+                }
+                _ => return Ok(None),
+            };
+            Ok(Some(QueryResult {
+                path: path.to_owned(),
+                value,
+            }))
+        }
+    }
+
+    #[test]
+    fn the_prompt_is_waited_for_rather_than_sampled_once() {
+        let runtime = loaded_runtime();
+        let mut session =
+            HeadlessSession::new_with_query_provider(runtime, 1, RepaintingPromptProvider::new());
+        let program = BasicProgram {
+            bytes: vec![0x00, 0x0A, 0x02, 0x00, 0xFB, 0x0D],
+        };
+
+        let result = load_basic_program(
+            &mut session,
+            &program,
+            false,
+            DEFAULT_BASIC_LOADER_BOOT_FRAMES,
+        )
+        .expect("loader must wait for the cursor instead of failing on the repaint gap");
+
+        assert_eq!(result.program_bytes, 6);
     }
 }
