@@ -9,12 +9,23 @@ not strictly. Versions follow [Semantic Versioning](https://semver.org/spec/v2.0
 
 ### Added
 
-- *(atari)* Bank-switched cartridges — OSS, XEGS and MegaCart
+- *(atari)* Bank-switched cartridges on the 800XL: XEGS (32 KB to 1 MB,
+  8 KB banks at $8000 with the last bank fixed at $A000), MegaCart
+  (16 KB to 1 MB, 16 KB banks filling $8000-$BFFF) and the OSS one-chip
+  and two-chip language carts (4 KB banked at $A000, fixed at $B000,
+  selected by the address of any $D5xx access). A `CART` header picks
+  the scheme; headerless images load flat up to 16 KB and as XEGS from
+  32 KB up. Ballblazer and Ace of Aces boot from their TOSEC images.
+  `.car` files are recognised inside zips
 
 
 ### Fixed
 
-- *(atari)* Read ANTIC's write-only registers as $FF, and NMIST's unused bits as 1
+- *(atari)* ANTIC's write-only registers read as $FF and NMIST's unused
+  bits as 1, as on the chip. Ace of Aces enables its interrupts by
+  reading NMIEN back and masking it, which only works when the read
+  returns $FF; it used to hang on a jiffy clock the OS never advanced.
+  A VBI now clears the DLI status bit as it sets its own, and vice versa
 
 ## [0.18.1] - 2026-09-01
 
