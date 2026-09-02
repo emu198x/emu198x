@@ -1,0 +1,21 @@
+[package]
+name = "emu198x-web"
+description = "Generic browser host layer for Emu198x family runtimes"
+edition.workspace = true
+version.workspace = true
+publish = false
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+emu198x-shell = { path = "../emu198x-shell", version = "0.20.0" }
+
+[lints]
+workspace = true
+
+# A real runtime, for tests only. The crate itself stays generic — this is
+# how the generic layer is proved against a machine rather than against a
+# fake that agrees with it.
+[dev-dependencies]
+runtime-sinclair-zx-spectrum = { path = "../runtime-sinclair-zx-spectrum", version = "0.20.0" }
+
