@@ -12,8 +12,8 @@
 
 use emu198x_shell::session::BootWaitResult;
 use emu198x_shell::{
-    ControlCommand, HeadlessSession, InputEvent, MachineCore, MachineTime, MediaTransportAction,
-    MediaTransportCommand, SessionError, SessionQueryProvider,
+    ControlCommand, InputEvent, MachineCore, MachineTime, MediaTransportAction,
+    MediaTransportCommand, SessionDriver, SessionError,
 };
 use thiserror::Error;
 
@@ -128,14 +128,14 @@ pub enum SpectrumAutoloadError {
 ///
 /// Returns an error if the requested slot is unsupported, no tape is loaded,
 /// the boot wait times out, or the prompt is not ready for keyword entry.
-pub fn autoload_basic_tape<R, Q>(
-    session: &mut HeadlessSession<R, Q>,
+pub fn autoload_basic_tape<D>(
+    session: &mut D,
     slot: &str,
     max_boot_frames: u32,
 ) -> Result<SpectrumTapeAutoloadResult, SpectrumAutoloadError>
 where
-    R: MachineCore + SpectrumLiveAccess,
-    Q: SessionQueryProvider<R>,
+    D: SessionDriver,
+    D::Machine: MachineCore + SpectrumLiveAccess,
 {
     if slot != DEFAULT_TAPE_AUTOLOAD_SLOT {
         return Err(SpectrumAutoloadError::UnsupportedSlot {
@@ -231,10 +231,9 @@ where
 /// after [`TAPE_PROMPT_WAIT_FRAMES`] rather than failing: starting the
 /// transport anyway is what this helper did before, so a ROM that words
 /// its prompt differently is no worse off than it was.
-fn wait_for_tape_prompt<R, Q>(session: &mut HeadlessSession<R, Q>) -> Result<(), SessionError>
+fn wait_for_tape_prompt<D>(session: &mut D) -> Result<(), SessionError>
 where
-    R: MachineCore,
-    Q: SessionQueryProvider<R>,
+    D: SessionDriver,
 {
     let mut waited = 0;
     while waited < TAPE_PROMPT_WAIT_FRAMES {
@@ -266,10 +265,9 @@ where
 ///
 /// Deliberately does not tap ENTER itself: on the 128K family that would
 /// select a menu entry before anything had decided which one.
-fn wait_for_loader_menu<R, Q>(session: &mut HeadlessSession<R, Q>) -> Result<bool, SessionError>
+fn wait_for_loader_menu<D>(session: &mut D) -> Result<bool, SessionError>
 where
-    R: MachineCore,
-    Q: SessionQueryProvider<R>,
+    D: SessionDriver,
 {
     let mut waited = 0;
     loop {
@@ -296,10 +294,9 @@ where
 /// The menu is drawn inside a box of block-graphic characters, so the row
 /// carries non-ASCII glyphs either side of the label; those are stripped
 /// rather than matched, leaving the label itself.
-fn menu_first_entry<R, Q>(session: &HeadlessSession<R, Q>) -> Result<Option<String>, SessionError>
+fn menu_first_entry<D>(session: &D) -> Result<Option<String>, SessionError>
 where
-    R: MachineCore,
-    Q: SessionQueryProvider<R>,
+    D: SessionDriver,
 {
     let result = session.query("screen.text.lines")?;
     let Some(lines) = result.value.as_array() else {
@@ -328,12 +325,9 @@ where
 ///
 /// Returns [`SpectrumAutoloadError::PromptNotReady`] carrying the last
 /// line seen if the prompt does not appear within [`PROMPT_WAIT_FRAMES`].
-fn wait_for_basic_prompt<R, Q>(
-    session: &mut HeadlessSession<R, Q>,
-) -> Result<(), SpectrumAutoloadError>
+fn wait_for_basic_prompt<D>(session: &mut D) -> Result<(), SpectrumAutoloadError>
 where
-    R: MachineCore,
-    Q: SessionQueryProvider<R>,
+    D: SessionDriver,
 {
     let line = wait_for_prompt_line(session)?;
     if line.trim_end() == "K" {
@@ -356,12 +350,9 @@ where
 /// Sampling once broke autoload on every cold 48K boot (#869), and the BASIC
 /// loader in the same way (#1413). Both callers now share this loop so a third
 /// cannot repeat it.
-pub(crate) fn wait_for_prompt_line<R, Q>(
-    session: &mut HeadlessSession<R, Q>,
-) -> Result<String, SessionError>
+pub(crate) fn wait_for_prompt_line<D>(session: &mut D) -> Result<String, SessionError>
 where
-    R: MachineCore,
-    Q: SessionQueryProvider<R>,
+    D: SessionDriver,
 {
     let mut waited = 0;
     loop {
@@ -374,20 +365,16 @@ where
     }
 }
 
-fn basic_prompt_ready<R, Q>(session: &HeadlessSession<R, Q>) -> Result<bool, SessionError>
+fn basic_prompt_ready<D>(session: &D) -> Result<bool, SessionError>
 where
-    R: MachineCore,
-    Q: SessionQueryProvider<R>,
+    D: SessionDriver,
 {
     Ok(decoded_prompt_line(session)?.trim_end() == "K")
 }
 
-pub(crate) fn decoded_prompt_line<R, Q>(
-    session: &HeadlessSession<R, Q>,
-) -> Result<String, SessionError>
+pub(crate) fn decoded_prompt_line<D>(session: &D) -> Result<String, SessionError>
 where
-    R: MachineCore,
-    Q: SessionQueryProvider<R>,
+    D: SessionDriver,
 {
     let result = session.query("screen.text.lines")?;
     let Some(lines) = result.value.as_array() else {
@@ -418,13 +405,9 @@ where
 /// [`tap_symbol_combo`]. This is the canonical way to type into the 48K BASIC
 /// editor from a test or tool — see `docs/systems/sinclair/zx-spectrum/index.md`
 /// § "Port $FE I/O, tape SAVE/LOAD, and driving the keyboard from tests".
-pub fn tap_key<R, Q>(
-    session: &mut HeadlessSession<R, Q>,
-    name: &'static str,
-) -> Result<(), SessionError>
+pub fn tap_key<D>(session: &mut D, name: &'static str) -> Result<(), SessionError>
 where
-    R: MachineCore,
-    Q: SessionQueryProvider<R>,
+    D: SessionDriver,
 {
     session.queue_input(InputEvent::Key {
         name: name.into(),
@@ -443,13 +426,9 @@ where
 /// that the 48K editor places on the symbol-shifted layer (e.g. `"` is SYMBOL
 /// SHIFT + `P`, `;` is SYMBOL SHIFT + `O`). See [`tap_key`] for the cursor-mode
 /// notes.
-pub fn tap_symbol_combo<R, Q>(
-    session: &mut HeadlessSession<R, Q>,
-    name: &'static str,
-) -> Result<(), SessionError>
+pub fn tap_symbol_combo<D>(session: &mut D, name: &'static str) -> Result<(), SessionError>
 where
-    R: MachineCore,
-    Q: SessionQueryProvider<R>,
+    D: SessionDriver,
 {
     session.queue_input(InputEvent::Key {
         name: "symbol".into(),
@@ -479,7 +458,9 @@ mod tests {
     use super::*;
     use crate::Spectrum48kRuntime;
     use crate::SpectrumSessionQueryProvider;
-    use emu198x_shell::{FirmwareImage, FirmwareSet, QueryResult};
+    use emu198x_shell::{
+        FirmwareImage, FirmwareSet, HeadlessSession, QueryResult, SessionQueryProvider,
+    };
     use serde_json::json;
 
     struct FakePromptProvider;

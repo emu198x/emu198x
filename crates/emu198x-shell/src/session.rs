@@ -9,6 +9,7 @@ use crate::capture::{
 };
 use crate::control::ControlCommand;
 use crate::debug_info::DebugSymbols;
+use crate::driver::SessionDriver;
 use crate::error::MachineError;
 use crate::headless::prepare_machine;
 use crate::host::{FramePacket, FrameSink, HostIo, InputEvent, NullTraceSink, TraceSink};
@@ -440,33 +441,7 @@ impl<M: MachineCore, Q: SessionQueryProvider<M>> HeadlessSession<M, Q> {
     /// to unexpected value shapes, or if the frame budget expires before boot
     /// is detected.
     pub fn wait_for_boot(&mut self, max_frames: u32) -> Result<BootWaitResult, SessionError> {
-        let mut state = self.boot_query_state()?;
-        if state.detected {
-            return Ok(BootWaitResult {
-                frames: 0,
-                reached: self.time(),
-                reason: state.reason,
-                row: state.row,
-            });
-        }
-
-        for frames in 1..=max_frames {
-            let result = self.run_frames(1)?;
-            state = self.boot_query_state()?;
-            if state.detected {
-                return Ok(BootWaitResult {
-                    frames,
-                    reached: result.reached,
-                    reason: state.reason,
-                    row: state.row,
-                });
-            }
-        }
-
-        Err(SessionError::BootTimeout {
-            max_frames,
-            reason: state.reason,
-        })
+        <Self as SessionDriver>::wait_for_boot(self, max_frames)
     }
 
     /// Runs native frames until the machine reports `boot.detected = true`,
@@ -1329,6 +1304,38 @@ impl FrameSink for RecordingTee<'_> {
             self.failure = Some(error);
         }
         Ok(())
+    }
+}
+
+impl<M, Q> SessionDriver for HeadlessSession<M, Q>
+where
+    M: MachineCore,
+    Q: SessionQueryProvider<M>,
+{
+    type Machine = M;
+
+    fn machine(&self) -> &Self::Machine {
+        &self.machine
+    }
+
+    fn time(&self) -> MachineTime {
+        Self::time(self)
+    }
+
+    fn query(&self, path: &str) -> Result<QueryResult, QueryError> {
+        Self::query(self, path)
+    }
+
+    fn queue_input(&mut self, event: InputEvent) {
+        Self::queue_input(self, event);
+    }
+
+    fn command(&mut self, command: &ControlCommand) -> Result<(), SessionError> {
+        Self::command(self, command)
+    }
+
+    fn run_frames(&mut self, count: u32) -> Result<RunResult, SessionError> {
+        Self::run_frames(self, count)
     }
 }
 
