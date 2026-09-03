@@ -12,12 +12,10 @@
 
 use emu198x_shell::session::BootWaitResult;
 use emu198x_shell::{
-    ControlCommand, InputEvent, MachineCore, MachineTime, MediaTransportAction,
-    MediaTransportCommand, SessionDriver, SessionError,
+    ControlCommand, InputEvent, MachineTime, MediaTransportAction, MediaTransportCommand,
+    SessionDriver, SessionError,
 };
 use thiserror::Error;
-
-use crate::family_runtime::SpectrumLiveAccess;
 
 /// Default frame budget used to wait for the 48K ROM boot banner before typing
 /// the standard tape load command.
@@ -135,7 +133,6 @@ pub fn autoload_basic_tape<D>(
 ) -> Result<SpectrumTapeAutoloadResult, SpectrumAutoloadError>
 where
     D: SessionDriver,
-    D::Machine: MachineCore + SpectrumLiveAccess,
 {
     if slot != DEFAULT_TAPE_AUTOLOAD_SLOT {
         return Err(SpectrumAutoloadError::UnsupportedSlot {
@@ -144,7 +141,7 @@ where
         });
     }
 
-    if !session.machine().tape_is_loaded() {
+    if !session.query_bool("tape.loaded")? {
         return Err(SpectrumAutoloadError::MissingTape {
             slot: slot.to_owned(),
         });
@@ -458,6 +455,7 @@ mod tests {
     use super::*;
     use crate::Spectrum48kRuntime;
     use crate::SpectrumSessionQueryProvider;
+    use crate::family_runtime::SpectrumLiveAccess;
     use emu198x_shell::{
         FirmwareImage, FirmwareSet, HeadlessSession, QueryResult, SessionQueryProvider,
     };
@@ -540,15 +538,20 @@ mod tests {
                 "boot.reason".to_owned(),
                 "boot.row".to_owned(),
                 "screen.text.lines".to_owned(),
+                "tape.loaded".to_owned(),
             ]
         }
 
         fn query(
             &self,
-            _machine: &Spectrum48kRuntime,
+            machine: &Spectrum48kRuntime,
             path: &str,
         ) -> Result<Option<QueryResult>, emu198x_shell::QueryError> {
             let value = match path {
+                // Answered from the machine, not stubbed: these fakes exist to
+                // pin the *prompt* the helper reads, and a stubbed tape would
+                // let the deck state drift from what the test set up.
+                "tape.loaded" => json!(machine.tape_is_loaded()),
                 "boot.detected" => json!(true),
                 "boot.reason" => json!("found copyright banner on row 23"),
                 "boot.row" => json!(23),
@@ -578,10 +581,14 @@ mod tests {
 
         fn query(
             &self,
-            _machine: &Spectrum48kRuntime,
+            machine: &Spectrum48kRuntime,
             path: &str,
         ) -> Result<Option<QueryResult>, emu198x_shell::QueryError> {
             let value = match path {
+                // Answered from the machine, not stubbed: these fakes exist to
+                // pin the *prompt* the helper reads, and a stubbed tape would
+                // let the deck state drift from what the test set up.
+                "tape.loaded" => json!(machine.tape_is_loaded()),
                 "boot.detected" => json!(true),
                 "screen.text.lines" => {
                     // Every row shows "X" — no K prompt anywhere.

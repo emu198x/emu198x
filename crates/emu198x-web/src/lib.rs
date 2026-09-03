@@ -388,12 +388,6 @@ where
     R: FamilyRuntime,
     Q: SessionQueryProvider<R>,
 {
-    type Machine = R;
-
-    fn machine(&self) -> &Self::Machine {
-        &self.runtime
-    }
-
     fn time(&self) -> MachineTime {
         self.runtime.time()
     }

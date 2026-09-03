@@ -1312,12 +1312,6 @@ where
     M: MachineCore,
     Q: SessionQueryProvider<M>,
 {
-    type Machine = M;
-
-    fn machine(&self) -> &Self::Machine {
-        &self.machine
-    }
-
     fn time(&self) -> MachineTime {
         Self::time(self)
     }

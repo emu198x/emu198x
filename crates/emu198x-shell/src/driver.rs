@@ -21,13 +21,12 @@ use crate::session::{BootWaitResult, SessionError};
 use crate::time::MachineTime;
 
 /// A live machine something can drive frame by frame.
+///
+/// Five methods, deliberately. Everything else a helper needs — whether the
+/// machine has booted, whether a tape is loaded — is a query path, so it
+/// stays the machine's own vocabulary rather than becoming trait surface that
+/// every host must grow as helpers ask new questions.
 pub trait SessionDriver {
-    /// The machine being driven.
-    type Machine;
-
-    /// The machine, for state a query path does not cover.
-    fn machine(&self) -> &Self::Machine;
-
     /// The machine's current time.
     fn time(&self) -> MachineTime;
 
@@ -54,6 +53,22 @@ pub trait SessionDriver {
     ///
     /// Returns [`SessionError`] if the machine rejects a run.
     fn run_frames(&mut self, count: u32) -> Result<RunResult, SessionError>;
+
+    /// Reads one query path that answers yes or no.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SessionError`] if the path is unknown or is not a boolean.
+    fn query_bool(&self, path: &str) -> Result<bool, SessionError> {
+        let result = self.query(path)?;
+        result
+            .value
+            .as_bool()
+            .ok_or_else(|| SessionError::UnexpectedQueryValue {
+                path: path.to_owned(),
+                expected: "a boolean",
+            })
+    }
 
     /// Runs native frames until the machine reports `boot.detected = true`.
     ///
@@ -107,7 +122,7 @@ pub(crate) fn boot_query_state<D>(driver: &D) -> Result<BootQueryState, SessionE
 where
     D: SessionDriver + ?Sized,
 {
-    let detected = query_bool(driver, "boot.detected")?;
+    let detected = driver.query_bool("boot.detected")?;
     let reason = optional_query_string(driver, "boot.reason")
         .unwrap_or_else(|| "boot.detected remained false".to_owned());
     let row = optional_query_u64(driver, "boot.row");
@@ -117,20 +132,6 @@ where
         reason,
         row,
     })
-}
-
-fn query_bool<D>(driver: &D, path: &str) -> Result<bool, SessionError>
-where
-    D: SessionDriver + ?Sized,
-{
-    let result = driver.query(path)?;
-    result
-        .value
-        .as_bool()
-        .ok_or_else(|| SessionError::UnexpectedQueryValue {
-            path: path.to_owned(),
-            expected: "a boolean",
-        })
 }
 
 /// A path the runtime does not publish is absent, not an error: `boot.reason`
