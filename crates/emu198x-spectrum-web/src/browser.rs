@@ -191,6 +191,36 @@ impl Spectrum {
     }
 
     /// The machine's media slots, for a page that wants to name one.
+    /// Asks the machine a question, and hands back the answer as JSON.
+    ///
+    /// The same query surface the headless session and the MCP server use, so
+    /// a page sees what a script sees rather than a browser-only subset. The
+    /// paths a Spectrum answers include `cpu.pc`, `cpu.halted`, `cpu.iff1`,
+    /// `cpu.instructions_retired`, `screen.text.lines`, `tape.playing` and
+    /// `boot.detected`.
+    ///
+    /// This is what lets a lesson say *why* a machine stopped rather than
+    /// offering a reset and moving on: a program that ran past its own last
+    /// instruction has a `cpu.pc` outside the bytes it was assembled into, and
+    /// one that halted with interrupts disabled is `cpu.halted` with
+    /// `cpu.iff1` false. Both are mistakes a unit is teaching against.
+    ///
+    /// JSON rather than a native value: the answers are already JSON inside
+    /// the query layer, and a page parses one string more cheaply than this
+    /// crate grows a serialisation dependency.
+    ///
+    /// # Errors
+    ///
+    /// Returns a JavaScript error if the machine does not know the path.
+    pub fn query(&self, path: &str) -> Result<String, JsError> {
+        let result = self
+            .machine
+            .query(path)
+            .map_err(|error| JsError::new(&format!("query {path:?}: {error}")))?;
+        serde_json::to_string(&result.value)
+            .map_err(|error| JsError::new(&format!("query {path:?} did not serialise: {error}")))
+    }
+
     #[wasm_bindgen(js_name = mediaSlots)]
     #[must_use]
     pub fn media_slots(&self) -> Vec<String> {
