@@ -21,6 +21,10 @@ crate-type = ["cdylib", "rlib"]
 bundled-rom = []
 
 [dependencies]
+# The query layer's answers are already JSON values; this turns one into a
+# string for the page. Workspace-pinned, and already in this crate's tree
+# through the runtime.
+serde_json = { workspace = true }
 emu198x-shell = { path = "../emu198x-shell", version = "0.21.0" }
 format-sinclair-zx-spectrum-sna = { path = "../format-sinclair-zx-spectrum-sna", version = "0.21.0" }
 format-sinclair-zx-spectrum-z80 = { path = "../format-sinclair-zx-spectrum-z80", version = "0.21.0" }
@@ -56,4 +60,4 @@ workspace = true
 # one without seeing the other.
 [package.metadata.npm]
 name = "@emu198x/zx-spectrum"
-version = "0.2.0"
+version = "0.3.0"
