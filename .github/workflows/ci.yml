@@ -613,11 +613,14 @@ jobs:
           cargo check --target wasm32-unknown-unknown \
             -p emu198x-shell -p emu198x-web
 
+      # A release binary rather than `cargo install wasm-pack --locked`, which
+      # rebuilds it from source whenever the cache misses. Same action
+      # maintain-release.yml and the npm publish workflow use, and dependabot
+      # keeps the version current.
       - name: Install wasm-pack
-        # Installed through cargo rather than a third-party action so the
-        # workflow depends on nothing outside the toolchain it already trusts.
-        # rust-cache keeps it between runs.
-        run: cargo install wasm-pack --locked
+        uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-pack
 
       # Release, not debug. A debug wasm build overflows the stack moving the
       # runtime — SpectrumRuntimeKind is a whole machine — and fails with

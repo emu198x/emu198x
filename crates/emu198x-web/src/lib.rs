@@ -18,9 +18,15 @@ pub mod pacing;
 
 use std::borrow::Cow;
 
+use emu198x_shell::control::ControlCommand;
+use emu198x_shell::machine::{RunResult, StopReason};
+use emu198x_shell::query::{
+    NoAdditionalQueries, QueryError, QueryResult, SessionQueryProvider, SessionView, query_value,
+};
+use emu198x_shell::session::SessionError;
 use emu198x_shell::{
     FamilyRuntime, HostIo, InputEvent, MachineError, MachineTime, MediaImage, MediaKind, MediaSet,
-    NullTraceSink,
+    NullTraceSink, SessionDriver,
 };
 
 pub use audio::WebAudioOutput;
@@ -44,19 +50,34 @@ pub const DEFAULT_AUDIO_CAPACITY: usize = 24_000;
 /// commonly 48 kHz, and [`WebMachine::configure_audio`] corrects it.
 pub const DEFAULT_AUDIO_RATE: u32 = 48_000;
 
-pub struct WebMachine<R: FamilyRuntime> {
+pub struct WebMachine<R: FamilyRuntime, Q = NoAdditionalQueries> {
     runtime: R,
     frame: RgbaFrame,
     audio: WebAudioOutput,
     pacer: Pacer,
     frame_ticks: u64,
     pending_input: Vec<InputEvent>,
+    query_provider: Q,
+    last_run_result: Option<RunResult>,
 }
 
 impl<R: FamilyRuntime> WebMachine<R> {
     /// Wraps a runtime, taking its frame length from its own profile.
+    ///
+    /// The machine answers only the query paths every session shares. A page
+    /// that needs a family's own paths — the Spectrum's `boot.detected`, say,
+    /// which tape autoload waits on — uses
+    /// [`new_with_query_provider`](Self::new_with_query_provider).
     #[must_use]
     pub fn new(runtime: R) -> Self {
+        Self::new_with_query_provider(runtime, NoAdditionalQueries)
+    }
+}
+
+impl<R: FamilyRuntime, Q: SessionQueryProvider<R>> WebMachine<R, Q> {
+    /// Wraps a runtime alongside the provider for its family's query paths.
+    #[must_use]
+    pub fn new_with_query_provider(runtime: R, query_provider: Q) -> Self {
         let frame_ticks = runtime.native_frame_ticks();
         let frame_ms = frame_duration_ms(&runtime, frame_ticks);
         Self {
@@ -66,6 +87,8 @@ impl<R: FamilyRuntime> WebMachine<R> {
             pacer: Pacer::new(frame_ms),
             frame_ticks,
             pending_input: Vec::new(),
+            query_provider,
+            last_run_result: None,
         }
     }
 
@@ -103,7 +126,8 @@ impl<R: FamilyRuntime> WebMachine<R> {
             audio_sink: &mut self.audio,
             trace_sink: &mut trace,
         };
-        self.runtime.run_until(target, &mut host)?;
+        let result = self.runtime.run_until(target, &mut host)?;
+        self.last_run_result = Some(result);
 
         // Drained after the run, not before: the events belong to the frame
         // that just executed, and leaving them queued would replay every
@@ -290,10 +314,62 @@ impl<R: FamilyRuntime> WebMachine<R> {
         self.frame.size()
     }
 
+    /// Runs the machine ahead of the clock, or stops doing so.
+    ///
+    /// For fast-loading a tape. The caller decides when, because whether a
+    /// tape is playing is a per-family question this crate deliberately does
+    /// not ask — a binding that knows its machine sets this each tick.
+    pub const fn set_turbo(&mut self, turbo: bool) {
+        self.pacer.set_turbo(turbo);
+    }
+
+    /// Whether the machine is currently running ahead of the clock.
+    #[must_use]
+    pub const fn is_turbo(&self) -> bool {
+        self.pacer.is_turbo()
+    }
+
     /// The machine's frame duration in milliseconds.
     #[must_use]
     pub fn frame_ms(&self) -> f64 {
         self.pacer.frame_ms()
+    }
+
+    /// Resolves one query path against the machine's current state.
+    ///
+    /// Shared session paths first, then this machine's family provider —
+    /// the same order [`HeadlessSession`] uses, so a helper written against
+    /// one host answers identically on the other.
+    ///
+    /// [`HeadlessSession`]: emu198x_shell::HeadlessSession
+    ///
+    /// # Errors
+    ///
+    /// Returns [`QueryError`] if neither knows the path.
+    pub fn query(&self, path: &str) -> Result<QueryResult, QueryError> {
+        let view = SessionView {
+            profile: self.runtime.profile(),
+            display: self.runtime.display(),
+            time: self.runtime.time(),
+            native_frame_ticks: self.frame_ticks,
+            has_frame: self.frame.captured().is_some(),
+            framebuffer: self
+                .frame
+                .captured()
+                .map(|frame| (frame.width, frame.height)),
+            has_audio: !self.audio.is_empty(),
+            last_run_result: self.last_run_result,
+        };
+        match query_value(&view, path) {
+            Ok(result) => Ok(result),
+            Err(QueryError::UnknownPath { .. }) => self
+                .query_provider
+                .query(&self.runtime, path)?
+                .ok_or_else(|| QueryError::UnknownPath {
+                    path: path.to_owned(),
+                }),
+            Err(err) => Err(err),
+        }
     }
 
     /// The wrapped runtime.
@@ -304,6 +380,46 @@ impl<R: FamilyRuntime> WebMachine<R> {
     /// The wrapped runtime, mutably, for media loading and control.
     pub const fn runtime_mut(&mut self) -> &mut R {
         &mut self.runtime
+    }
+}
+
+impl<R, Q> SessionDriver for WebMachine<R, Q>
+where
+    R: FamilyRuntime,
+    Q: SessionQueryProvider<R>,
+{
+    fn time(&self) -> MachineTime {
+        self.runtime.time()
+    }
+
+    fn query(&self, path: &str) -> Result<QueryResult, QueryError> {
+        Self::query(self, path)
+    }
+
+    fn queue_input(&mut self, event: InputEvent) {
+        Self::queue_input(self, event);
+    }
+
+    fn command(&mut self, command: &ControlCommand) -> Result<(), SessionError> {
+        self.runtime.command(command)?;
+        Ok(())
+    }
+
+    /// Frame at a time with a stall check, matching the session rather than
+    /// running straight to a multi-frame target: a helper that waits on a
+    /// query between frames needs each frame's sink output, and a machine that
+    /// stops advancing must end the run instead of spinning out the count.
+    fn run_frames(&mut self, count: u32) -> Result<RunResult, SessionError> {
+        let mut last = RunResult::new(self.runtime.time(), StopReason::ReachedTarget);
+        for _ in 0..count {
+            let before = self.runtime.time();
+            self.run_one_frame()?;
+            last = self.last_run_result.unwrap_or(last);
+            if last.stop_reason != StopReason::ReachedTarget || self.runtime.time() <= before {
+                break;
+            }
+        }
+        Ok(last)
     }
 }
 

@@ -45,3 +45,15 @@ web-sys = { version = "0.3", features = [
 
 [lints]
 workspace = true
+
+# The npm package's version, read by scripts/build-npm.sh.
+#
+# Independent of the crate's workspace-lockstep version, for the reason
+# format198x-commodore-amiga-adf gives: a published artifact's version
+# communicates *its* changes to consumers, so it bumps when the browser build
+# changes and not on every emulator release. Kept here rather than in the
+# script so it sits with the code it describes, and so a release cannot bump
+# one without seeing the other.
+[package.metadata.npm]
+name = "@emu198x/zx-spectrum"
+version = "0.2.0"

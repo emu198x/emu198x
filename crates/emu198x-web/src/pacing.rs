@@ -14,6 +14,7 @@
 pub struct Pacer {
     frame_ms: f64,
     accumulated_ms: f64,
+    turbo: bool,
 }
 
 impl Pacer {
@@ -26,13 +27,34 @@ impl Pacer {
     /// sprint through what they missed instead of resuming from now.
     pub const MAX_FRAMES_PER_TICK: u32 = 4;
 
+    /// Frames per tick while fast-loading a tape.
+    ///
+    /// Loading is the one time running ahead of the clock is what the viewer
+    /// wants: a tape takes as long to load as it did in 1982, and nobody
+    /// reading a lesson wants to watch that. Bounded rather than unlimited so
+    /// the page keeps repainting and stays responsive — the same value, and
+    /// the same reasoning, as the native UI's turbo.
+    pub const MAX_TURBO_FRAMES: u32 = 32;
+
     /// Creates a pacer for a machine whose frame lasts `frame_ms`.
     #[must_use]
     pub const fn new(frame_ms: f64) -> Self {
         Self {
             frame_ms,
             accumulated_ms: 0.0,
+            turbo: false,
         }
+    }
+
+    /// Runs the machine ahead of the clock, or stops doing so.
+    pub const fn set_turbo(&mut self, turbo: bool) {
+        self.turbo = turbo;
+    }
+
+    /// Whether the pacer is currently running ahead of the clock.
+    #[must_use]
+    pub const fn is_turbo(&self) -> bool {
+        self.turbo
     }
 
     /// The machine's frame duration in milliseconds.
@@ -57,6 +79,15 @@ impl Pacer {
             return 0;
         }
 
+        // Turbo ignores the clock rather than reading it faster. The
+        // accumulator is cleared with it, so the frames run ahead here are not
+        // also owed once the tape stops and the machine drops back to real
+        // time — which would leave it sprinting past the end of the load.
+        if self.turbo {
+            self.accumulated_ms = 0.0;
+            return Self::MAX_TURBO_FRAMES;
+        }
+
         self.accumulated_ms += elapsed_ms;
 
         let mut owed = 0;
@@ -77,6 +108,34 @@ impl Pacer {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn turbo_runs_a_bounded_burst_regardless_of_elapsed_time() {
+        let mut pacer = Pacer::new(19.968);
+        pacer.set_turbo(true);
+
+        // A tick shorter than one frame would normally owe nothing.
+        assert_eq!(pacer.frames_owed(1.0), Pacer::MAX_TURBO_FRAMES);
+    }
+
+    #[test]
+    fn leaving_turbo_does_not_owe_the_frames_it_ran_ahead() {
+        let mut pacer = Pacer::new(19.968);
+        pacer.set_turbo(true);
+        pacer.frames_owed(1000.0);
+
+        pacer.set_turbo(false);
+
+        // A second of wall time accrued during the load must not come back as
+        // a backlog: the machine already ran far past it.
+        assert_eq!(pacer.frames_owed(0.0), 0);
+    }
+
+    #[test]
+    fn a_pacer_is_not_in_turbo_until_asked() {
+        let mut pacer = Pacer::new(19.968);
+        assert!(!pacer.is_turbo());
+        assert!(pacer.frames_owed(1000.0) <= Pacer::MAX_FRAMES_PER_TICK);
+    }
     use super::*;
 
     /// PAL Spectrum: 69888 T-states at 3.5 MHz.

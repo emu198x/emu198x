@@ -12,7 +12,10 @@
 
 use emu198x_shell::{FamilyRuntime, FirmwareImage, FirmwareSet, MediaKind};
 use emu198x_web::WebMachine;
-use runtime_sinclair_zx_spectrum::{Model, SpectrumLiveAccess, SpectrumRuntimeKind};
+use runtime_sinclair_zx_spectrum::{
+    Model, SpectrumLiveAccess, SpectrumRuntimeKind, SpectrumSessionQueryProvider,
+    autoload_basic_tape,
+};
 use wasm_bindgen::{Clamped, prelude::*};
 use web_sys::{CanvasRenderingContext2d, HtmlCanvasElement, ImageData};
 
@@ -24,7 +27,7 @@ const ROM_ID: &str = "sinclair-zx-spectrum-48k-rom";
 /// A ZX Spectrum attached to a canvas.
 #[wasm_bindgen]
 pub struct Spectrum {
-    machine: WebMachine<SpectrumRuntimeKind>,
+    machine: WebMachine<SpectrumRuntimeKind, SpectrumSessionQueryProvider>,
     canvas: HtmlCanvasElement,
     context: CanvasRenderingContext2d,
 }
@@ -60,7 +63,7 @@ impl Spectrum {
             .map_err(|_| JsError::new("the canvas context is not a 2-D context"))?;
 
         Ok(Spectrum {
-            machine: WebMachine::new(runtime),
+            machine: WebMachine::new_with_query_provider(runtime, SpectrumSessionQueryProvider),
             canvas,
             context,
         })
@@ -72,11 +75,18 @@ impl Spectrum {
     /// 60 Hz display driving a 50 Hz machine has nothing to do on roughly one
     /// callback in six.
     ///
+    /// While a tape is playing the machine runs ahead of the clock instead,
+    /// and the count is correspondingly larger. That is not a setting a page
+    /// has to find: a tape takes as long to load as it did in 1982, and a
+    /// reader waiting on a lesson has no reason to sit through it.
+    ///
     /// # Errors
     ///
     /// Returns a JavaScript error if the machine fails or the canvas rejects
     /// the frame.
     pub fn tick(&mut self, elapsed_ms: f64) -> Result<u32, JsError> {
+        self.machine
+            .set_turbo(self.machine.runtime().tape_is_playing());
         let ran = self
             .machine
             .advance(elapsed_ms)
@@ -113,6 +123,33 @@ impl Spectrum {
         self.machine
             .load_media_bytes(slot, kind, bytes)
             .map_err(|error| JsError::new(&format!("loading into {slot:?}: {error}")))
+    }
+
+    /// Waits for the boot prompt, types `LOAD ""`, and starts the tape.
+    ///
+    /// The way a lesson runs a program a learner just assembled. Loading
+    /// through the real ROM matters beyond authenticity: the firmware
+    /// initialises the machine as it goes, so a program can call ROM routines
+    /// afterwards. A snapshot built by an assembler cannot offer that, because
+    /// nobody has yet written down what a booted 48K holds in RAM.
+    ///
+    /// Drives the ROM keyboard editor rather than patching the ROM or
+    /// short-circuiting the loader, and is the same code path the native
+    /// binary's `--autoload-tape` takes — including its two hard-won waits, for
+    /// the editor prompt to be repainted before it is read, and for the 128K
+    /// family's loader to be listening before the tape rolls.
+    ///
+    /// Returns the number of frames spent waiting for boot. Load a tape first.
+    ///
+    /// # Errors
+    ///
+    /// Returns a JavaScript error if no tape is loaded, if the machine does
+    /// not reach a boot prompt within `max_boot_frames`, or if the prompt
+    /// never becomes ready for keyword entry.
+    pub fn autoload(&mut self, max_boot_frames: u32) -> Result<u32, JsError> {
+        let result = autoload_basic_tape(&mut self.machine, "tape-1", max_boot_frames)
+            .map_err(|error| JsError::new(&format!("autoloading the tape: {error}")))?;
+        Ok(result.boot.frames)
     }
 
     /// Builds a 48K on the ROM embedded in this package.

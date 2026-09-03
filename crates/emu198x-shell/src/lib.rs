@@ -12,6 +12,7 @@ pub mod control;
 pub mod debug;
 pub mod debug_info;
 pub mod display;
+pub mod driver;
 pub mod error;
 pub mod firmware;
 pub mod headless;
@@ -51,6 +52,7 @@ pub use capture::{
 };
 pub use control::{ControlCommand, MediaTransportAction, MediaTransportCommand};
 pub use debug::{DebugPrimitives, DebugTarget, IoEvent};
+pub use driver::SessionDriver;
 pub use error::MachineError;
 pub use firmware::{FirmwareImage, FirmwareSet};
 pub use headless::{BootArtifacts, boot_machine, prepare_machine};
