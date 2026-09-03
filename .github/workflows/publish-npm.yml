@@ -76,11 +76,15 @@ jobs:
         with:
           shared-key: publish-npm
 
-      # Same install CI's browser-parity job uses, rather than a second
-      # way of getting the same binary.
+      # A prebuilt binary rather than `cargo install wasm-pack --locked`,
+      # which builds it from source on every uncached run. Same action
+      # asm198x's CI already uses, so it is one thing to know across the
+      # family rather than two.
       - name: Install wasm-pack
         if: steps.store.outputs.configured == 'true'
-        run: cargo install wasm-pack --locked
+        uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-pack
 
       - uses: actions/setup-node@v4
         if: steps.store.outputs.configured == 'true'
