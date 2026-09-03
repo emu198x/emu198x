@@ -1,0 +1,118 @@
+# Publish the browser Spectrum to npm, via npm's trusted publishing.
+#
+# No NPM_TOKEN. The `id-token: write` permission below lets this workflow mint
+# a short-lived OIDC credential npm verifies against the trusted publisher
+# configured on the package, so there is no long-lived secret to leak, rotate
+# or forget. Provenance is attested automatically: the tarball on the registry
+# can be traced to this workflow and this commit.
+#
+# The firmware is a separate matter and still needs its own credential. The
+# published package embeds the 48K ROM, under the permission recorded in
+# knowledge/decisions/test-rom-policy.md § Firmware in a published browser
+# build, and the ROM is not in this repository. It comes from the same corpora
+# store CI already provisions from, verified by checksum before it is used.
+# Without that store configured this job does nothing rather than publishing a
+# package with no machine in it.
+#
+# Reconciling rather than event-driven: it runs on every push to main and asks
+# the registry what is missing, so a failed publish or a version bump that
+# landed while the runner was down is picked up next time. Publishing an
+# already-published version is a normal no-op.
+name: Publish to npm
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "crates/emu198x-spectrum-web/**"
+      - "crates/emu198x-web/**"
+      - ".github/workflows/publish-npm.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: publish-npm
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: "@emu198x/zx-spectrum"
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      CORPORA_REPO: ${{ vars.ACCURACY_CORPORA_REPO }}
+      CORPORA_TAG: ${{ vars.ACCURACY_CORPORA_TAG || 'v1' }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Check the corpora store is configured
+        id: store
+        env:
+          CORPORA_TOKEN: ${{ secrets.ACCURACY_CORPORA_TOKEN }}
+        run: |
+          if [ -n "${CORPORA_TOKEN}" ] && [ -n "${CORPORA_REPO}" ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Corpora store not configured — the npm package was NOT published."
+          fi
+
+      - name: Read the toolchain the repository pins
+        id: toolchain
+        if: steps.store.outputs.configured == 'true'
+        run: |
+          channel=$(awk -F'"' '/^channel/{print $2}' rust-toolchain.toml)
+          echo "channel=${channel}" >> "$GITHUB_OUTPUT"
+
+      - uses: dtolnay/rust-toolchain@master
+        if: steps.store.outputs.configured == 'true'
+        with:
+          toolchain: ${{ steps.toolchain.outputs.channel }}
+          targets: wasm32-unknown-unknown
+
+      - uses: Swatinem/rust-cache@v2
+        if: steps.store.outputs.configured == 'true'
+        with:
+          shared-key: publish-npm
+
+      # Same install CI's browser-parity job uses, rather than a second
+      # way of getting the same binary.
+      - name: Install wasm-pack
+        if: steps.store.outputs.configured == 'true'
+        run: cargo install wasm-pack --locked
+
+      - uses: actions/setup-node@v4
+        if: steps.store.outputs.configured == 'true'
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+
+      # Trusted publishing needs a recent npm; the one bundled with Node may
+      # predate it. Pinned to a major so a new npm cannot change publish
+      # behaviour under us without an edit here.
+      - name: Use an npm that speaks OIDC
+        if: steps.store.outputs.configured == 'true'
+        run: npm install -g npm@11
+
+      - name: Provision the 48K ROM from the store
+        if: steps.store.outputs.configured == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.ACCURACY_CORPORA_TOKEN }}
+        run: |
+          set -euo pipefail
+          mkdir -p corpora
+          cd corpora
+          gh release download "${CORPORA_TAG}" -R "${CORPORA_REPO}" \
+            -p 'z80test.tar.zst' -p 'SHA256SUMS'
+          grep " z80test.tar.zst\$" SHA256SUMS | sha256sum -c -
+          tar --zstd -xf 'z80test.tar.zst'
+          # The same image CI's firmware evidence runs against. The build
+          # script checks it is 16384 bytes before embedding it, because a
+          # wrong image compiles perfectly and then fails to boot in a browser
+          # with nothing on screen to explain why.
+          echo "EMU198X_SPECTRUM_48K_ROM=$(pwd)/z80test/48.rom" >> "$GITHUB_ENV"
+
+      - name: Build and publish
+        if: steps.store.outputs.configured == 'true'
+        run: bash crates/emu198x-spectrum-web/scripts/build-npm.sh --publish

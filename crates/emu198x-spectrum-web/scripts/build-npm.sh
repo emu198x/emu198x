@@ -110,6 +110,14 @@ if [ "$publish" -eq 1 ]; then
   fi
 
   cd pkg
+  # Already there? Say so and stop. npm would refuse anyway, but with an error
+  # that fails a workflow running on every push — and "this version is already
+  # published" is a normal outcome for a reconciling job, not a fault.
+  if npm view "$package_name@$package_version" version >/dev/null 2>&1; then
+    echo "already published: $package_name@$package_version"
+    exit 0
+  fi
+
   # --access public because a scoped package defaults to restricted, and a
   # restricted publish looks identical in the output until an install fails.
   npm publish --access public
