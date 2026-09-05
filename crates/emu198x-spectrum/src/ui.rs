@@ -201,6 +201,34 @@ impl UiSystem for SpectrumSystem {
         }
     }
 
+    fn supports_host_keyboard(&self) -> bool {
+        true
+    }
+
+    fn host_character_keys(&self, runtime: &Self::Runtime, ch: char) -> Option<Vec<String>> {
+        use emu198x_shell::KeyboardTarget;
+        // Reuse the runtime/MCP character table, normalising to the aliases
+        // used by the physical mapping so overlapping chords share ownership.
+        runtime.keys_for_char(ch).map(|keys| {
+            keys.into_iter()
+                .map(|name| match name.as_str() {
+                    "CapsShift" => "caps".to_owned(),
+                    "SymbolShift" => "symbol".to_owned(),
+                    _ => name.to_ascii_lowercase(),
+                })
+                .collect()
+        })
+    }
+
+    fn host_control_keys(&self, code: KeyCode) -> Option<&'static [&'static str]> {
+        match code {
+            KeyCode::Home => Some(&["caps", "1"]), // EDIT
+            KeyCode::Delete => Some(&["caps", "0"]),
+            KeyCode::Pause => Some(&["caps", "space"]), // BREAK
+            _ => map_spectrum_keys(code),
+        }
+    }
+
     fn map_keys(&self, code: KeyCode) -> Option<&'static [&'static str]> {
         map_spectrum_keys(code)
     }
@@ -346,6 +374,8 @@ Controls:
     Esc                quit
     F9 / F10 / F11     start / stop tape, toggle fast-load (turbo)
     Cmd/Ctrl+Shift+E  export tape recording to a new .tap file
+    Cmd/Ctrl+Shift+K  toggle Host / Original keyboard (also Machine → Keyboard)
+    Home / Pause      EDIT / BREAK in Host keyboard mode
     F12                hard reset
     Cmd/Ctrl+S / +L    quick save / load state
     Arrow keys         Spectrum cursor keys (Caps Shift + 5/6/7/8)
@@ -532,6 +562,77 @@ fn die(message: &str) -> ! {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[ignore = "FIXTURE: requires configured local Spectrum 48K ROM"]
+    fn host_characters_enter_basic_through_the_rom() {
+        std::thread::Builder::new()
+            .stack_size(8 * 1024 * 1024)
+            .spawn(check_host_characters)
+            .expect("test thread")
+            .join()
+            .expect("host character entry");
+    }
+
+    fn check_host_characters() {
+        use emu198x_shell::InputEvent;
+        let system = SpectrumSystem {
+            current: MachineKind::Spectrum48K,
+        };
+        let runtime =
+            build_runtime(&parse_cli(std::iter::empty::<String>())).expect("configured ROM");
+        assert!(system.host_character_keys(&runtime, '€').is_none());
+        assert!(system.host_character_keys(&runtime, '`').is_none());
+        assert_eq!(
+            system.host_control_keys(KeyCode::Home),
+            Some(&["caps", "1"][..])
+        );
+        let ticks = u64::from(runtime.frame_halfcycles());
+        let mut session =
+            HeadlessSession::new_with_query_provider(runtime, ticks, SpectrumSessionQueryProvider);
+        session
+            .wait_for_boot(DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES)
+            .expect("boot");
+        // P/L/R remain keyword keys in K mode. Everything after each keyword
+        // is passed through the desktop host-character adapter, including quotes.
+        for text in [
+            "10p\"Hello, \";12.5+3.5\n",
+            "20p\"!@#$%&'()_+-*/=<>?:;\"\n",
+            "30ln$=\"Sam\"\n",
+            "40pn$\n",
+            "50p\"£\"\n",
+            "r\n",
+        ] {
+            for ch in text.chars() {
+                let names = system
+                    .host_character_keys(session.machine(), ch)
+                    .expect("representable character");
+                for name in &names {
+                    session.queue_input(InputEvent::Key {
+                        name: name.clone().into(),
+                        pressed: true,
+                    });
+                }
+                session.run_frames(3).expect("press");
+                for name in names {
+                    session.queue_input(InputEvent::Key {
+                        name: name.into(),
+                        pressed: false,
+                    });
+                }
+                session
+                    .run_frames(if ch == '\n' { 30 } else { 8 })
+                    .expect("release");
+            }
+        }
+        // The text-query decoder currently labels glyph 96 with ASCII's `;
+        // the Spectrum ROM renders it as a pound sign.
+        for expected in ["Hello, 16", "!@#$%&'()_+-*/=<>?:;", "Sam", "`", "0 OK"] {
+            session
+                .wait_for_query_text_contains("screen.text.lines", expected, 120)
+                .expect(expected);
+        }
+    }
 
     #[test]
     #[ignore = "FIXTURE: requires configured local Spectrum 48K ROM"]

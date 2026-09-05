@@ -38,6 +38,8 @@ pub struct MachineMenu<'a> {
     pub variants: &'a [VariantInfo],
     /// The currently-running variant's id, for the radio check.
     pub current_variant: Option<&'a str>,
+    /// Offer host-layout and original keyboard modes.
+    pub host_keyboard: bool,
     /// Configurable drive ports (empty ⇒ no Drives menu).
     pub drive_ports: &'a [DrivePortInfo],
 }
@@ -100,6 +102,8 @@ pub enum AppCommand {
     SaveState,
     /// Export recorded tape data to a new user-chosen file.
     ExportTape,
+    /// Select host-character translation or original key mapping.
+    SetHostKeyboard(bool),
 }
 
 #[cfg(not(target_os = "linux"))]
@@ -120,6 +124,7 @@ fn filter_label(filter: VideoFilter) -> &'static str {
 pub struct AppMenu {
     /// Owns the menu tree so its items aren't dropped while installed.
     root: Menu,
+    keyboard_items: Vec<(bool, CheckMenuItem)>,
     action_map: HashMap<MenuId, AppCommand>,
     scale_items: Vec<(u32, CheckMenuItem)>,
     filter_items: Vec<(VideoFilter, CheckMenuItem)>,
@@ -150,6 +155,7 @@ impl AppMenu {
             variants,
             current_variant,
             drive_ports,
+            host_keyboard,
         } = *machine;
         let root = Menu::new();
         let mut action_map = HashMap::new();
@@ -272,6 +278,20 @@ impl AppMenu {
         action_map.insert(reset_item.id().clone(), AppCommand::Reset);
         machine_menu.append(&reset_item).expect("append reset");
 
+        let mut keyboard_items = Vec::new();
+        if host_keyboard {
+            let keyboard = Submenu::new("Keyboard", true);
+            for (host, label) in [(true, "Host Keyboard"), (false, "Original Keyboard")] {
+                let item = CheckMenuItem::new(label, true, host, None);
+                action_map.insert(item.id().clone(), AppCommand::SetHostKeyboard(host));
+                keyboard.append(&item).expect("append keyboard mode");
+                keyboard_items.push((host, item));
+            }
+            machine_menu
+                .append(&keyboard)
+                .expect("append keyboard menu");
+        }
+
         // Tape → Play / Stop / Fast Load, when the machine has a tape slot. The
         // transport commands target that slot; the same AppCommands the F9/F10/F11
         // shortcuts emit, so menu and keys share one path.
@@ -371,12 +391,19 @@ impl AppMenu {
 
         Self {
             root,
+            keyboard_items,
             action_map,
             scale_items,
             filter_items,
             variant_items,
             port_drive_items,
             turbo_item,
+        }
+    }
+
+    pub fn set_host_keyboard(&self, enabled: bool) {
+        for (host, item) in &self.keyboard_items {
+            item.set_checked(*host == enabled);
         }
     }
 
@@ -458,6 +485,8 @@ impl AppMenu {
     }
 
     pub fn install(&self) {}
+
+    pub fn set_host_keyboard(&self, _enabled: bool) {}
 
     pub fn set_current_scale(&self, _scale: u32) {}
 
