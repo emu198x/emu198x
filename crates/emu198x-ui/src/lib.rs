@@ -13,6 +13,7 @@
 //! slots, so it needs no per-system code. Still to come for the menu: machine
 //! variant switching (a live-runtime trait) and multi-slot save-states.
 
+mod export;
 mod menu;
 mod overlay;
 
@@ -292,6 +293,17 @@ pub trait UiSystem {
         }
     }
 
+    /// File type for exporting a tape recording. `None` hides the command.
+    fn tape_export_filter(&self) -> Option<(&'static str, &'static str)> {
+        None
+    }
+
+    /// Decode the recorded tape without consuming it. The UI owns the picker,
+    /// writing and feedback. Called only when `tape_export_filter` is `Some`.
+    fn export_tape(&self, _runtime: &Self::Runtime) -> Result<Vec<u8>, String> {
+        Err("Tape recording export is not available for this system.".to_owned())
+    }
+
     /// File-picker filter for "Open State…", as `(label, extensions)`. `Some`
     /// adds a File → Open State… item (loading an arbitrary state/snapshot file,
     /// distinct from the fixed-slot quick-save); `None` (default) hides it. This
@@ -482,6 +494,7 @@ impl<S: UiSystem> App<S> {
                 drive_ports: &drive_ports,
             },
             state_open,
+            system.tape_export_filter().is_some(),
         );
         let (command_tx, command_rx) = channel();
         Self {
@@ -983,6 +996,12 @@ impl<S: UiSystem> App<S> {
         code: KeyCode,
         pressed: bool,
     ) -> bool {
+        if self.system.tape_export_filter().is_some() && tape_export_chord(self.modifiers, code) {
+            if pressed {
+                let _ = self.command_tx.send(AppCommand::ExportTape);
+            }
+            return true;
+        }
         // Save-state chords. Gated on a host modifier (Cmd on macOS, Ctrl
         // elsewhere) so they never shadow the bare S / L keys the machine
         // keyboard uses, nor the F1-F10 function keys the home computers map.
@@ -1085,6 +1104,7 @@ impl<S: UiSystem> App<S> {
                 }
             }
             AppCommand::SaveState => self.save_state(),
+            AppCommand::ExportTape => self.export_tape(),
         }
     }
 
@@ -1154,6 +1174,47 @@ impl<S: UiSystem> App<S> {
                 bytes.len()
             ),
             Err(err) => eprintln!("save-state: cannot write {}: {err}", path.display()),
+        }
+    }
+
+    /// Export the recording to a new host file; cancellation and write failures
+    /// retain the recording so the user can retry. Dialogs run at a frame boundary.
+    fn export_tape(&mut self) {
+        let Some((label, extension)) = self.system.tape_export_filter() else {
+            return;
+        };
+        self.release_all_keys();
+        let bytes = match self.system.export_tape(&self.runner.runtime) {
+            Ok(bytes) => bytes,
+            Err(message) => {
+                tape_export_message(rfd::MessageLevel::Warning, &message);
+                return;
+            }
+        };
+        let Some(path) = rfd::FileDialog::new()
+            .set_title("Export Tape Recording — choose a new file")
+            .set_file_name(format!("recording.{extension}"))
+            .add_filter(label, &[extension])
+            .save_file()
+        else {
+            return;
+        };
+        match export::write_new_file(&path, &bytes) {
+            Ok(()) => tape_export_message(
+                rfd::MessageLevel::Info,
+                &format!(
+                    "Exported {} bytes to {}.\nThe recording remains available in this session.",
+                    bytes.len(),
+                    path.display()
+                ),
+            ),
+            Err(err) => tape_export_message(
+                rfd::MessageLevel::Error,
+                &format!(
+                    "Could not export to {}: {err}\nChoose a new filename and try again. The recording has been kept.",
+                    path.display()
+                ),
+            ),
         }
     }
 
@@ -1500,6 +1561,21 @@ impl<S: UiSystem> ApplicationHandler for App<S> {
     }
 }
 
+fn tape_export_message(level: rfd::MessageLevel, message: &str) {
+    rfd::MessageDialog::new()
+        .set_title("Export Tape Recording")
+        .set_level(level)
+        .set_description(message)
+        .show();
+}
+
+fn tape_export_chord(modifiers: ModifiersState, code: KeyCode) -> bool {
+    code == KeyCode::KeyE
+        && modifiers.shift_key()
+        && (modifiers.super_key() || modifiers.control_key())
+        && !modifiers.alt_key()
+}
+
 /// A tape-transport action a function key maps to (only honoured on a system
 /// that has a tape slot and doesn't itself use the key).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1652,6 +1728,28 @@ pub fn run<S: UiSystem>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tape_export_requires_an_explicit_host_chord() {
+        assert!(tape_export_chord(
+            ModifiersState::SUPER | ModifiersState::SHIFT,
+            KeyCode::KeyE
+        ));
+        assert!(tape_export_chord(
+            ModifiersState::CONTROL | ModifiersState::SHIFT,
+            KeyCode::KeyE
+        ));
+        assert!(!tape_export_chord(ModifiersState::empty(), KeyCode::KeyE));
+        assert!(!tape_export_chord(ModifiersState::CONTROL, KeyCode::KeyE));
+        assert!(!tape_export_chord(
+            ModifiersState::ALT | ModifiersState::SHIFT,
+            KeyCode::KeyE
+        ));
+        assert!(!tape_export_chord(
+            ModifiersState::CONTROL | ModifiersState::SHIFT,
+            KeyCode::KeyS
+        ));
+    }
 
     #[test]
     fn slot_file_name_keeps_safe_chars_and_adds_extension() {

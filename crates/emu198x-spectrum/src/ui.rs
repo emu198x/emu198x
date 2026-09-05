@@ -205,6 +205,16 @@ impl UiSystem for SpectrumSystem {
         map_spectrum_keys(code)
     }
 
+    fn tape_export_filter(&self) -> Option<(&'static str, &'static str)> {
+        Some(("Spectrum tape recording", "tap"))
+    }
+
+    fn export_tape(&self, runtime: &Self::Runtime) -> Result<Vec<u8>, String> {
+        runtime.flush_tape_image().ok_or_else(|| {
+            "No decodable tape recording is available. Run BASIC SAVE, press a key at the tape prompt, and wait for SAVE to finish before exporting.".to_owned()
+        })
+    }
+
     fn tape_playing(&self, runtime: &Self::Runtime) -> bool {
         runtime.tape_is_playing()
     }
@@ -335,6 +345,7 @@ Automation:
 Controls:
     Esc                quit
     F9 / F10 / F11     start / stop tape, toggle fast-load (turbo)
+    Cmd/Ctrl+Shift+E  export tape recording to a new .tap file
     F12                hard reset
     Cmd/Ctrl+S / +L    quick save / load state
     Arrow keys         Spectrum cursor keys (Caps Shift + 5/6/7/8)
@@ -521,6 +532,77 @@ fn die(message: &str) -> ! {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[ignore = "FIXTURE: requires configured local Spectrum 48K ROM"]
+    fn desktop_tape_export_is_repeatable_and_reloads() {
+        // The family enum includes large machine variants, as in the runtime's
+        // variant tests; the test harness's default stack is too small.
+        std::thread::Builder::new()
+            .stack_size(8 * 1024 * 1024)
+            .spawn(check_desktop_tape_roundtrip)
+            .expect("test thread")
+            .join()
+            .expect("desktop export round trip");
+    }
+
+    fn check_desktop_tape_roundtrip() {
+        use runtime_sinclair_zx_spectrum::{tap_key, tap_symbol_combo};
+        let system = SpectrumSystem {
+            current: MachineKind::Spectrum48K,
+        };
+        let cli = parse_cli(std::iter::empty::<String>());
+        let runtime = build_runtime(&cli).expect("configured 48K ROM");
+        assert!(system.export_tape(&runtime).is_err());
+        let ticks = u64::from(runtime.frame_halfcycles());
+        let mut session =
+            HeadlessSession::new_with_query_provider(runtime, ticks, SpectrumSessionQueryProvider);
+        session
+            .wait_for_boot(DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES)
+            .expect("boot");
+        for key in ["1", "0", "e", "enter"] {
+            tap_key(&mut session, key).expect("enter 10 REM");
+        }
+        session
+            .wait_for_query_text_contains("screen.text.lines", "10>REM", 120)
+            .expect("stored line");
+        tap_key(&mut session, "s").expect("SAVE");
+        tap_symbol_combo(&mut session, "p").expect("quote");
+        tap_key(&mut session, "a").expect("filename");
+        tap_symbol_combo(&mut session, "p").expect("quote");
+        tap_key(&mut session, "enter").expect("SAVE prompt");
+        session.run_frames(20).expect("settle");
+        tap_key(&mut session, "enter").expect("start recording");
+        session.run_frames(800).expect("finish SAVE");
+        let bytes = system
+            .export_tape(session.machine())
+            .expect("desktop export bytes");
+        assert_eq!(
+            bytes,
+            system.export_tape(session.machine()).expect("export again")
+        );
+        let runtime = build_runtime(&cli).expect("fresh runtime");
+        let mut loaded =
+            HeadlessSession::new_with_query_provider(runtime, ticks, SpectrumSessionQueryProvider);
+        let mut media = MediaSet::new();
+        media.push(MediaImage::new(DEFAULT_TAPE_SLOT, MediaKind::Tape, &bytes));
+        loaded
+            .machine_mut()
+            .load_media(&media)
+            .expect("mount exported tape");
+        autoload_basic_tape(
+            &mut loaded,
+            DEFAULT_TAPE_AUTOLOAD_SLOT,
+            DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES,
+        )
+        .expect("autoload");
+        loaded.run_frames(1200).expect("finish loading");
+        tap_key(&mut loaded, "k").expect("LIST");
+        tap_key(&mut loaded, "enter").expect("run LIST");
+        loaded
+            .wait_for_query_text_contains("screen.text.lines", "REM", 120)
+            .expect("recovered program");
+    }
 
     #[test]
     fn parse_cli_defaults_to_scale_two() {
