@@ -98,6 +98,8 @@ pub enum AppCommand {
     /// (menu State → Save State As…). The counterpart to [`Self::QuickSave`],
     /// which writes to the fixed per-machine slot.
     SaveState,
+    /// Export recorded tape data to a new user-chosen file.
+    ExportTape,
 }
 
 #[cfg(not(target_os = "linux"))]
@@ -142,6 +144,7 @@ impl AppMenu {
         media_slots: &[MediaSlot],
         machine: &MachineMenu<'_>,
         state_open: bool,
+        tape_export: bool,
     ) -> Self {
         let MachineMenu {
             variants,
@@ -299,6 +302,13 @@ impl AppMenu {
             tape_menu
                 .append_items(&[&play, &stop, &PredefinedMenuItem::separator(), &fast])
                 .expect("append tape items");
+            if tape_export {
+                let export = MenuItem::new("Export Recording…", true, None);
+                action_map.insert(export.id().clone(), AppCommand::ExportTape);
+                tape_menu
+                    .append_items(&[&PredefinedMenuItem::separator(), &export])
+                    .expect("append tape export");
+            }
             (Some(tape_menu), Some(fast))
         } else {
             (None, None)
@@ -442,6 +452,7 @@ impl AppMenu {
         _media_slots: &[MediaSlot],
         _machine: &MachineMenu<'_>,
         _state_open: bool,
+        _tape_export: bool,
     ) -> Self {
         Self
     }

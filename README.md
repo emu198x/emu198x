@@ -75,6 +75,26 @@ It runs in-repository checks and conditionally runs local ROM/media smoke tests 
 
 Use `--help` on each binary for the complete flag set. Add `--no-default-features` when you want a headless-only build for screenshots, scripts, CI, or MCP use.
 
+### Keeping a Spectrum BASIC program
+
+After entering `SAVE "greeting"` in BASIC, press a key at the tape prompt and
+wait for SAVE to finish. Choose **Tape → Export Recording…**, or press
+**Cmd/Ctrl+Shift+E**, and select a new `.tap` filename. A confirmation names the
+file written. Export is separate from Save State: it creates a tape image that
+the Spectrum can load through its tape interface.
+
+The export includes every decodable recording accumulated in the current tape
+session. It does not clear the recording. Cancelling the picker or encountering
+an error leaves it available to export again. Existing destination files are
+rejected, including loaded tape images; choose a new filename for each version.
+If no decodable recording is available, the UI explains how to make one first.
+
+To check the file independently, close the session and start the emulator with
+`--tape greeting.tap --autoload-tape`. After loading, use BASIC `LIST` and `RUN`
+and make another edit. The desktop File menu also provides the tape-slot picker;
+start playback with Tape → Play after issuing `LOAD ""` in BASIC. Linux uses the
+export shortcut because the shared UI currently has no native menu there.
+
 Representative commands:
 
 ```bash
