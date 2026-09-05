@@ -579,7 +579,8 @@ const SYMBOL_LEGENDS: &[(char, &str)] = &[
     ('<', "R"),
     ('>', "T"),
     ('/', "V"),
-    ('`', "X"),
+    // Spectrum character 96 is £, not ASCII's backtick (BASIC manual, Appendix A).
+    ('£', "X"),
     (':', "Z"),
 ];
 

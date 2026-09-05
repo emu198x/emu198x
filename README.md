@@ -75,6 +75,30 @@ It runs in-repository checks and conditionally runs local ROM/media smoke tests 
 
 Use `--help` on each binary for the complete flag set. Add `--no-default-features` when you want a headless-only build for screenshots, scripts, CI, or MCP use.
 
+### Spectrum keyboard modes
+
+The Spectrum starts in **Host Keyboard** mode. Type letters, digits and ordinary
+BASIC punctuation using your host keyboard layout: `"`, `;`, `$`, `=`, `+` and so
+on are translated into Spectrum key combinations. Host Shift is used to choose
+the character, not forwarded as an extra CAPS SHIFT press. Arrow keys and
+Backspace edit; Home is EDIT, and Pause is BREAK.
+
+The ROM still interprets the keyboard. At the K cursor, P enters PRINT, L enters
+LET and R enters RUN; this mode does not let you spell out keywords or paste
+whole listings. The mapping assumes normal letter mode for text. Spectrum caps
+lock, graphics and extended modes still have their target-defined effects.
+Unsupported characters are identified in the window title rather than replaced
+with the physical key's letter. IME composition and multi-character input are
+not implemented.
+
+Choose **Machine → Keyboard → Original Keyboard** for direct target controls:
+Shift is CAPS SHIFT and Alt/Option is SYMBOL SHIFT. Use this mode for Spectrum
+shift combinations, graphics/extended entry and games that depend on raw keys.
+**Cmd/Ctrl+Shift+K** switches modes (including on Linux, which has no native menu).
+The window title shows the active mode. Switching modes or losing window focus
+releases held target keys; releasing a translated key uses the combination chosen
+when it was pressed, even if a host modifier has changed in the meantime.
+
 ### Keeping a Spectrum BASIC program
 
 After entering `SAVE "greeting"` in BASIC, press a key at the tape prompt and

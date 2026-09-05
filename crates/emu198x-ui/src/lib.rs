@@ -14,6 +14,7 @@
 //! variant switching (a live-runtime trait) and multi-slot save-states.
 
 mod export;
+mod keyboard;
 mod menu;
 mod overlay;
 
@@ -39,7 +40,7 @@ use winit::dpi::LogicalSize;
 use winit::error::{EventLoopError, OsError};
 use winit::event::{ElementState, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
-use winit::keyboard::{ModifiersState, PhysicalKey};
+use winit::keyboard::{Key, ModifiersState, PhysicalKey};
 use winit::window::{Window, WindowAttributes, WindowId};
 
 // Re-exported so a `UiSystem` impl can describe itself without depending on
@@ -171,6 +172,22 @@ pub trait UiSystem {
     /// [`Self::button_map`], it may vary by the system's current variant.
     fn axis_map(&self) -> &'static AxisInputMap {
         &EMPTY_AXIS_MAP
+    }
+
+    /// Whether this system offers host-layout character input, enabled by default.
+    fn supports_host_keyboard(&self) -> bool {
+        false
+    }
+
+    /// Translate one host character to target key names, using the same names
+    /// as `map_keys`. Unsupported characters must return `None`.
+    fn host_character_keys(&self, _runtime: &Self::Runtime, _ch: char) -> Option<Vec<String>> {
+        None
+    }
+
+    /// Named controls in host mode, such as arrows and editing keys.
+    fn host_control_keys(&self, code: KeyCode) -> Option<&'static [&'static str]> {
+        self.map_keys(code)
     }
 
     /// Translate a physical key to a host control (joystick / d-pad), or `None`
@@ -435,7 +452,9 @@ struct App<S: UiSystem> {
     next_slice_at: Instant,
     pending_inputs: Vec<InputEvent>,
     pressed_keys: HashMap<KeyCode, HostControl>,
-    pressed_key_names: HashMap<KeyCode, &'static [&'static str]>,
+    held_target_keys: keyboard::HeldKeys,
+    host_keyboard: bool,
+    keyboard_notice: Option<String>,
     /// Last cursor position in framebuffer coordinates, for relative mouse
     /// deltas. `None` until the first motion (so the first event sets a baseline
     /// without emitting a jump). Only used when the system has a mouse.
@@ -492,11 +511,13 @@ impl<S: UiSystem> App<S> {
                 variants: &variants,
                 current_variant: current_variant.as_deref(),
                 drive_ports: &drive_ports,
+                host_keyboard: system.supports_host_keyboard(),
             },
             state_open,
             system.tape_export_filter().is_some(),
         );
         let (command_tx, command_rx) = channel();
+        let host_keyboard = system.supports_host_keyboard();
         Self {
             system,
             runner,
@@ -507,7 +528,9 @@ impl<S: UiSystem> App<S> {
             next_slice_at: Instant::now(),
             pending_inputs: Vec::new(),
             pressed_keys: HashMap::new(),
-            pressed_key_names: HashMap::new(),
+            held_target_keys: keyboard::HeldKeys::default(),
+            host_keyboard,
+            keyboard_notice: None,
             last_cursor_position: None,
             pressed_mouse_buttons: HashMap::new(),
             pressed_aim_buttons: HashSet::new(),
@@ -539,12 +562,12 @@ impl<S: UiSystem> App<S> {
             Some(message) => {
                 eprintln!("warning: {message}");
                 if let Some(window) = &self.window {
-                    window.set_title(&format!("{} — {message}", self.system.window_title()));
+                    window.set_title(&format!("{} — {message}", self.window_title()));
                 }
             }
             None => {
                 if let Some(window) = &self.window {
-                    window.set_title(&self.system.window_title());
+                    window.set_title(&self.window_title());
                 }
             }
         }
@@ -588,7 +611,7 @@ impl<S: UiSystem> App<S> {
         let par = f64::from(self.presentation.pixel_aspect_ratio).max(f64::MIN_POSITIVE);
         let display_width = f64::from(fb_width) * par;
         let attributes = WindowAttributes::default()
-            .with_title(self.system.window_title())
+            .with_title(self.window_title())
             .with_inner_size(self.window_logical_size(self.scale))
             .with_min_inner_size(LogicalSize::new(display_width, f64::from(fb_height)));
         let window = Arc::new(event_loop.create_window(attributes)?);
@@ -690,20 +713,34 @@ impl<S: UiSystem> App<S> {
         }
     }
 
+    fn window_title(&self) -> String {
+        let title = self.system.window_title();
+        if let Some(notice) = &self.keyboard_notice {
+            return format!("{title} — {notice}");
+        }
+        if self.system.supports_host_keyboard() {
+            format!(
+                "{title} — {} keyboard",
+                if self.host_keyboard {
+                    "Host"
+                } else {
+                    "Original"
+                }
+            )
+        } else {
+            title
+        }
+    }
+
     fn queue_key_state(&mut self, code: KeyCode, pressed: bool) {
         // Keyboard path (home computers): one host key → one or more machine key
         // names, emitted as InputEvent::Key. Takes precedence over the joystick
         // button map.
         if let Some(names) = self.system.map_keys(code) {
-            if pressed {
-                if self.pressed_key_names.contains_key(&code) {
-                    return;
-                }
-                self.pressed_key_names.insert(code, names);
-                self.push_key_events(names, true);
-            } else if let Some(names) = self.pressed_key_names.remove(&code) {
-                self.push_key_events(names, false);
-            }
+            let keys = pressed.then(|| names.iter().map(|name| (*name).to_owned()).collect());
+            self.pending_inputs
+                .extend(self.held_target_keys.update(code, keys));
+            self.next_slice_at = Instant::now();
             return;
         }
 
@@ -729,15 +766,52 @@ impl<S: UiSystem> App<S> {
         }
     }
 
-    /// Emit an `InputEvent::Key` for each machine key name in a host key's
-    /// mapping (multiple names form a hardware combo).
-    fn push_key_events(&mut self, names: &'static [&'static str], pressed: bool) {
-        for name in names {
-            self.pending_inputs.push(InputEvent::Key {
-                name: (*name).into(),
-                pressed,
-            });
+    fn queue_host_key(&mut self, code: KeyCode, logical: &Key, pressed: bool) {
+        // Release by physical identity even if Shift/layout changed after key-down.
+        let keys = if !pressed {
+            None
+        } else if matches!(
+            code,
+            KeyCode::ShiftLeft
+                | KeyCode::ShiftRight
+                | KeyCode::AltLeft
+                | KeyCode::AltRight
+                | KeyCode::ControlLeft
+                | KeyCode::ControlRight
+                | KeyCode::SuperLeft
+                | KeyCode::SuperRight
+                | KeyCode::CapsLock
+        ) || self.modifiers.super_key()
+            || self.modifiers.control_key() && !self.modifiers.alt_key()
+        {
+            return;
+        } else if let Some(ch) = keyboard::character(logical) {
+            match self.system.host_character_keys(&self.runner.runtime, ch) {
+                Some(keys) => Some(keys),
+                None => {
+                    self.keyboard_notice = Some(format!("Unsupported character: {ch}"));
+                    if let Some(window) = &self.window {
+                        window.set_title(&self.window_title());
+                    }
+                    eprintln!("keyboard: character {ch:?} is not supported by this target mapping");
+                    return;
+                }
+            }
+        } else if matches!(logical, Key::Character(_) | Key::Dead(_)) {
+            return;
+        } else {
+            self.system
+                .host_control_keys(code)
+                .map(|names| names.iter().map(|name| (*name).to_owned()).collect())
+        };
+        if pressed
+            && self.keyboard_notice.take().is_some()
+            && let Some(window) = &self.window
+        {
+            window.set_title(&self.window_title());
         }
+        self.pending_inputs
+            .extend(self.held_target_keys.update(code, keys));
         self.next_slice_at = Instant::now();
     }
 
@@ -748,9 +822,8 @@ impl<S: UiSystem> App<S> {
                 self.pending_inputs.push(input);
             }
         }
-        for names in std::mem::take(&mut self.pressed_key_names).into_values() {
-            self.push_key_events(names, false);
-        }
+        self.pending_inputs
+            .extend(self.held_target_keys.release_all());
         self.next_slice_at = Instant::now();
     }
 
@@ -996,6 +1069,19 @@ impl<S: UiSystem> App<S> {
         code: KeyCode,
         pressed: bool,
     ) -> bool {
+        if self.system.supports_host_keyboard()
+            && code == KeyCode::KeyK
+            && !self.modifiers.alt_key()
+            && self.modifiers.shift_key()
+            && (self.modifiers.super_key() || self.modifiers.control_key())
+        {
+            if pressed {
+                let _ = self
+                    .command_tx
+                    .send(AppCommand::SetHostKeyboard(!self.host_keyboard));
+            }
+            return true;
+        }
         if self.system.tape_export_filter().is_some() && tape_export_chord(self.modifiers, code) {
             if pressed {
                 let _ = self.command_tx.send(AppCommand::ExportTape);
@@ -1105,6 +1191,15 @@ impl<S: UiSystem> App<S> {
             }
             AppCommand::SaveState => self.save_state(),
             AppCommand::ExportTape => self.export_tape(),
+            AppCommand::SetHostKeyboard(enabled) => {
+                self.release_all_keys();
+                self.keyboard_notice = None;
+                self.host_keyboard = enabled && self.system.supports_host_keyboard();
+                self.app_menu.set_host_keyboard(self.host_keyboard);
+                if let Some(window) = &self.window {
+                    window.set_title(&self.window_title());
+                }
+            }
         }
     }
 
@@ -1356,7 +1451,7 @@ impl<S: UiSystem> App<S> {
             self.app_menu.set_current_variant(&current);
         }
         if let Some(window) = &self.window {
-            window.set_title(&self.system.window_title());
+            window.set_title(&self.window_title());
             window.request_redraw();
         }
         Ok(())
@@ -1512,7 +1607,11 @@ impl<S: UiSystem> ApplicationHandler for App<S> {
                 if self.handle_shortcut(event_loop, code, pressed) {
                     return;
                 }
-                self.queue_key_state(code, pressed);
+                if self.host_keyboard {
+                    self.queue_host_key(code, &event.logical_key, pressed);
+                } else {
+                    self.queue_key_state(code, pressed);
+                }
             }
             WindowEvent::RedrawRequested => {
                 if let Err(err) = self.render() {
@@ -1612,7 +1711,7 @@ fn state_chord_action(
     code: KeyCode,
     pressed: bool,
 ) -> Option<StateAction> {
-    if !pressed || !(modifiers.super_key() || modifiers.control_key()) {
+    if !pressed || modifiers.alt_key() || !(modifiers.super_key() || modifiers.control_key()) {
         return None;
     }
     match code {
