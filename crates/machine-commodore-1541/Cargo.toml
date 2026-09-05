@@ -8,19 +8,19 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-common-commodore-drive-gcr = { path = "../common-commodore-drive-gcr", version = "0.21.0" }
-common-commodore-iec = { path = "../common-commodore-iec", version = "0.21.0" }
-common-commodore-iec-drive = { path = "../common-commodore-iec-drive", version = "0.21.0" }
-format-commodore-c64-d64 = { path = "../format-commodore-c64-d64", version = "0.21.0" }
-format-commodore-c64-g64 = { path = "../format-commodore-c64-g64", version = "0.21.0" }
+common-commodore-drive-gcr = { path = "../common-commodore-drive-gcr", version = "0.22.0" }
+common-commodore-iec = { path = "../common-commodore-iec", version = "0.22.0" }
+common-commodore-iec-drive = { path = "../common-commodore-iec-drive", version = "0.22.0" }
+format-commodore-c64-d64 = { path = "../format-commodore-c64-d64", version = "0.22.0" }
+format-commodore-c64-g64 = { path = "../format-commodore-c64-g64", version = "0.22.0" }
 emu198x-mos-6502 = { path = "../emu198x-mos-6502", version = "0.6.0" }
-mos-via-6522 = { path = "../mos-via-6522", version = "0.21.0" }
+mos-via-6522 = { path = "../mos-via-6522", version = "0.22.0" }
 serde = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]
 # The white-box rotation tests reach into the shared engine's state.
-common-commodore-drive-gcr = { path = "../common-commodore-drive-gcr", version = "0.21.0", features = [
+common-commodore-drive-gcr = { path = "../common-commodore-drive-gcr", version = "0.22.0", features = [
     "test-support",
 ] }
 

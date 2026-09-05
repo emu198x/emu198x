@@ -8,7 +8,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-common-sinclair-zx-spectrum = { path = "../common-sinclair-zx-spectrum", version = "0.21.0" }
+common-sinclair-zx-spectrum = { path = "../common-sinclair-zx-spectrum", version = "0.22.0" }
 serde = { workspace = true }
 
 [lints]

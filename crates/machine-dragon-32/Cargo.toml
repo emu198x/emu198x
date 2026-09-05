@@ -8,11 +8,11 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-format-dragon-disk = { path = "../format-dragon-disk", version = "0.21.0" }
-motorola-6809 = { path = "../motorola-6809", version = "0.21.0" }
-motorola-pia-6821 = { path = "../motorola-pia-6821", version = "0.21.0" }
-motorola-sam-6883 = { path = "../motorola-sam-6883", version = "0.21.0" }
-motorola-vdg-6847 = { path = "../motorola-vdg-6847", version = "0.21.0" }
+format-dragon-disk = { path = "../format-dragon-disk", version = "0.22.0" }
+motorola-6809 = { path = "../motorola-6809", version = "0.22.0" }
+motorola-pia-6821 = { path = "../motorola-pia-6821", version = "0.22.0" }
+motorola-sam-6883 = { path = "../motorola-sam-6883", version = "0.22.0" }
+motorola-vdg-6847 = { path = "../motorola-vdg-6847", version = "0.22.0" }
 serde = { workspace = true }
 
 [lints]

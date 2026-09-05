@@ -25,12 +25,12 @@ bundled-rom = []
 # string for the page. Workspace-pinned, and already in this crate's tree
 # through the runtime.
 serde_json = { workspace = true }
-emu198x-shell = { path = "../emu198x-shell", version = "0.21.0" }
-format-sinclair-zx-spectrum-sna = { path = "../format-sinclair-zx-spectrum-sna", version = "0.21.0" }
-format-sinclair-zx-spectrum-z80 = { path = "../format-sinclair-zx-spectrum-z80", version = "0.21.0" }
-format-sinclair-zx-spectrum-snapshot = { path = "../format-sinclair-zx-spectrum-snapshot", version = "0.21.0" }
-emu198x-web = { path = "../emu198x-web", version = "0.21.0" }
-runtime-sinclair-zx-spectrum = { path = "../runtime-sinclair-zx-spectrum", version = "0.21.0" }
+emu198x-shell = { path = "../emu198x-shell", version = "0.22.0" }
+format-sinclair-zx-spectrum-sna = { path = "../format-sinclair-zx-spectrum-sna", version = "0.22.0" }
+format-sinclair-zx-spectrum-z80 = { path = "../format-sinclair-zx-spectrum-z80", version = "0.22.0" }
+format-sinclair-zx-spectrum-snapshot = { path = "../format-sinclair-zx-spectrum-snapshot", version = "0.22.0" }
+emu198x-web = { path = "../emu198x-web", version = "0.22.0" }
+runtime-sinclair-zx-spectrum = { path = "../runtime-sinclair-zx-spectrum", version = "0.22.0" }
 
 # The browser boundary. wasm-bindgen was named in the approved plan; js-sys,
 # web-sys and wasm-bindgen-futures are how it reaches the DOM and awaits the
