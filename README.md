@@ -83,6 +83,12 @@ on are translated into Spectrum key combinations. Host Shift is used to choose
 the character, not forwarded as an extra CAPS SHIFT press. Arrow keys and
 Backspace edit; Home is EDIT, and Pause is BREAK.
 
+Hold **Tab** for SYMBOL SHIFT: **Tab+G** enters THEN, **Tab+W** enters `<>`,
+and **Tab+A** enters STOP. Hold **Shift+Tab**, then release both keys to enter
+extended mode; R then enters INT. While Tab is held, keys use the Spectrum's
+physical mapping. Release it to resume normal host-layout typing. Option/AltGr
+remain available for characters produced by your keyboard layout.
+
 The ROM still interprets the keyboard. At the K cursor, P enters PRINT, L enters
 LET and R enters RUN; this mode does not let you spell out keywords or paste
 whole listings. The mapping assumes normal letter mode for text. Spectrum caps
@@ -92,8 +98,7 @@ with the physical key's letter. IME composition and multi-character input are
 not implemented.
 
 Choose **Machine → Keyboard → Original Keyboard** for direct target controls:
-Shift is CAPS SHIFT and Alt/Option is SYMBOL SHIFT. Use this mode for Spectrum
-shift combinations, graphics/extended entry and games that depend on raw keys.
+Shift is CAPS SHIFT and Alt/Option is SYMBOL SHIFT. Use this mode for games or other software that depend on raw target keys.
 **Cmd/Ctrl+Shift+K** switches modes (including on Linux, which has no native menu).
 The window title shows the active mode. Switching modes or losing window focus
 releases held target keys; releasing a translated key uses the combination chosen

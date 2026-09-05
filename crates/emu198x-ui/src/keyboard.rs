@@ -1,7 +1,7 @@
 //! Remember the chord chosen on key-down until its physical key is released.
 use emu198x_shell::InputEvent;
 use std::collections::{BTreeSet, HashMap};
-use winit::keyboard::{Key, KeyCode};
+use winit::keyboard::{Key, KeyCode, ModifiersState};
 
 pub(crate) fn character(key: &Key) -> Option<char> {
     let Key::Character(text) = key else {
@@ -10,6 +10,95 @@ pub(crate) fn character(key: &Key) -> Option<char> {
     let mut chars = text.chars();
     let first = chars.next()?;
     chars.next().is_none().then_some(first)
+}
+
+/// A host key reserved for deliberate target-key chords in character mode.
+/// Normal layout characters (including Option/AltGr output) remain unchanged.
+#[derive(Clone, Copy)]
+pub struct KeywordModifier {
+    /// Physical host key that selects target-key chords.
+    pub key: KeyCode,
+    /// Target contacts held by that key alone.
+    pub keys: &'static [&'static str],
+    /// Target contacts held while host Shift is also down.
+    pub shifted_keys: &'static [&'static str],
+}
+
+impl KeywordModifier {
+    pub(crate) fn keys(self, shift: bool) -> Vec<String> {
+        if shift { self.shifted_keys } else { self.keys }
+            .iter()
+            .map(|name| (*name).to_owned())
+            .collect()
+    }
+}
+
+pub(crate) enum HostKey {
+    Release,
+    Ignore,
+    Keys(Vec<String>),
+    Character(char),
+    Control,
+    Physical,
+}
+
+pub(crate) fn route_host_key(
+    code: KeyCode,
+    logical: &Key,
+    pressed: bool,
+    modifiers: ModifiersState,
+    keyword: Option<KeywordModifier>,
+    held: &HeldKeys,
+) -> HostKey {
+    if !pressed {
+        return HostKey::Release;
+    }
+    // Let application shortcuts and layout-produced AltGr characters retain
+    // their existing meanings. In particular, Alt is not a target modifier.
+    if modifiers.super_key() || modifiers.control_key() && !modifiers.alt_key() {
+        return HostKey::Ignore;
+    }
+    if let Some(keyword) = keyword {
+        if code == keyword.key {
+            return HostKey::Keys(keyword.keys(modifiers.shift_key()));
+        }
+        if held.contains(keyword.key)
+            && !matches!(
+                code,
+                KeyCode::ShiftLeft
+                    | KeyCode::ShiftRight
+                    | KeyCode::AltLeft
+                    | KeyCode::AltRight
+                    | KeyCode::ControlLeft
+                    | KeyCode::ControlRight
+                    | KeyCode::SuperLeft
+                    | KeyCode::SuperRight
+                    | KeyCode::CapsLock
+            )
+        {
+            return HostKey::Physical;
+        }
+    }
+    if matches!(
+        code,
+        KeyCode::ShiftLeft
+            | KeyCode::ShiftRight
+            | KeyCode::AltLeft
+            | KeyCode::AltRight
+            | KeyCode::ControlLeft
+            | KeyCode::ControlRight
+            | KeyCode::SuperLeft
+            | KeyCode::SuperRight
+            | KeyCode::CapsLock
+    ) {
+        HostKey::Ignore
+    } else if let Some(ch) = character(logical) {
+        HostKey::Character(ch)
+    } else if matches!(logical, Key::Character(_) | Key::Dead(_)) {
+        HostKey::Ignore
+    } else {
+        HostKey::Control
+    }
 }
 
 #[derive(Default)]
@@ -26,20 +115,44 @@ impl HeldKeys {
             self.chords.remove(&code);
         }
         let after = self.names();
+        Self::changes(&before, &after)
+    }
+
+    fn changes(before: &BTreeSet<String>, after: &BTreeSet<String>) -> Vec<InputEvent> {
         let mut events = Vec::new();
-        for name in before.difference(&after) {
+        for name in before.difference(after) {
             events.push(InputEvent::Key {
                 name: name.clone().into(),
                 pressed: false,
             });
         }
-        for name in after.difference(&before) {
+        for name in after.difference(before) {
             events.push(InputEvent::Key {
                 name: name.clone().into(),
                 pressed: true,
             });
         }
         events
+    }
+
+    pub(crate) fn contains(&self, code: KeyCode) -> bool {
+        self.chords.contains_key(&code)
+    }
+
+    /// Unlike a character chosen on key-down, an explicit modifier follows
+    /// Shift changes while it is held, in either press/release order.
+    pub(crate) fn refresh_keyword(
+        &mut self,
+        keyword: KeywordModifier,
+        shift: bool,
+    ) -> Vec<InputEvent> {
+        if !self.contains(keyword.key) {
+            return Vec::new();
+        }
+        let before = self.names();
+        self.chords.insert(keyword.key, keyword.keys(shift));
+        let after = self.names();
+        Self::changes(&before, &after)
     }
 
     fn names(&self) -> BTreeSet<String> {
@@ -113,5 +226,184 @@ mod tests {
         assert_eq!(character(&Key::Character("é".into())), Some('é'));
         assert_eq!(character(&Key::Character("ab".into())), None);
         assert_eq!(character(&Key::Dead(Some('^'))), None);
+    }
+    fn spectrum_keyword() -> KeywordModifier {
+        KeywordModifier {
+            key: KeyCode::Tab,
+            keys: &["symbol"],
+            shifted_keys: &["caps", "symbol"],
+        }
+    }
+
+    #[test]
+    fn keyword_modifier_uses_physical_letters_then_restores_layout_typing() {
+        let keyword = spectrum_keyword();
+        let mut held = HeldKeys::default();
+        let route = route_host_key(
+            KeyCode::Tab,
+            &Key::Named(winit::keyboard::NamedKey::Tab),
+            true,
+            ModifiersState::empty(),
+            Some(keyword),
+            &held,
+        );
+        let HostKey::Keys(keys) = route else {
+            panic!("Tab must hold the target modifier")
+        };
+        assert_eq!(
+            changes(held.update(KeyCode::Tab, Some(keys))),
+            vec![("symbol".into(), true)]
+        );
+        // The logical character can differ from the physical keyword key.
+        assert!(matches!(
+            route_host_key(
+                KeyCode::KeyG,
+                &Key::Character("ɡ".into()),
+                true,
+                ModifiersState::empty(),
+                Some(keyword),
+                &held
+            ),
+            HostKey::Physical
+        ));
+        held.update(KeyCode::KeyG, chord(&["g"]));
+        assert!(matches!(
+            route_host_key(
+                KeyCode::Tab,
+                &Key::Named(winit::keyboard::NamedKey::Tab),
+                false,
+                ModifiersState::empty(),
+                Some(keyword),
+                &held
+            ),
+            HostKey::Release
+        ));
+        assert_eq!(
+            changes(held.update(KeyCode::Tab, None)),
+            vec![("symbol".into(), false)]
+        );
+        assert_eq!(
+            changes(held.update(KeyCode::KeyG, None)),
+            vec![("g".into(), false)]
+        );
+        assert!(matches!(
+            route_host_key(
+                KeyCode::Digit2,
+                &Key::Character("@".into()),
+                true,
+                ModifiersState::ALT,
+                Some(keyword),
+                &held
+            ),
+            HostKey::Character('@')
+        ));
+        assert!(matches!(
+            route_host_key(
+                KeyCode::KeyQ,
+                &Key::Character("@".into()),
+                true,
+                ModifiersState::ALT | ModifiersState::CONTROL,
+                Some(keyword),
+                &held
+            ),
+            HostKey::Character('@')
+        ));
+    }
+
+    #[test]
+    fn shifted_keyword_tracks_both_shift_orders_and_focus_loss() {
+        let keyword = spectrum_keyword();
+        let mut held = HeldKeys::default();
+        held.update(KeyCode::Tab, Some(keyword.keys(false)));
+        assert_eq!(
+            changes(held.refresh_keyword(keyword, true)),
+            vec![("caps".into(), true)]
+        );
+        assert_eq!(
+            changes(held.refresh_keyword(keyword, false)),
+            vec![("caps".into(), false)]
+        );
+        assert_eq!(
+            changes(held.update(KeyCode::Tab, None)),
+            vec![("symbol".into(), false)]
+        );
+        // Shift first, then Tab; release Tab before Shift.
+        let route = route_host_key(
+            KeyCode::Tab,
+            &Key::Named(winit::keyboard::NamedKey::Tab),
+            true,
+            ModifiersState::SHIFT,
+            Some(keyword),
+            &held,
+        );
+        let HostKey::Keys(keys) = route else {
+            panic!("Shift+Tab must hold both contacts")
+        };
+        assert_eq!(keys, vec!["caps", "symbol"]);
+        held.update(KeyCode::Tab, Some(keys));
+        assert_eq!(
+            changes(held.release_all()),
+            vec![("caps".into(), false), ("symbol".into(), false)]
+        );
+        assert!(held.refresh_keyword(keyword, false).is_empty());
+        assert!(!held.contains(KeyCode::Tab));
+    }
+
+    #[test]
+    fn explicit_and_character_symbol_chords_share_contact_ownership() {
+        let mut held = HeldKeys::default();
+        held.update(KeyCode::Quote, chord(&["symbol", "p"]));
+        assert!(
+            held.update(KeyCode::Tab, Some(spectrum_keyword().keys(false)))
+                .is_empty()
+        );
+        assert_eq!(
+            changes(held.update(KeyCode::Quote, None)),
+            vec![("p".into(), false)]
+        );
+        assert_eq!(
+            changes(held.update(KeyCode::Tab, None)),
+            vec![("symbol".into(), false)]
+        );
+    }
+
+    #[test]
+    fn unconfigured_systems_and_application_shortcuts_keep_existing_routes() {
+        let held = HeldKeys::default();
+        assert!(matches!(
+            route_host_key(
+                KeyCode::Tab,
+                &Key::Named(winit::keyboard::NamedKey::Tab),
+                true,
+                ModifiersState::empty(),
+                None,
+                &held
+            ),
+            HostKey::Control
+        ));
+        for modifiers in [ModifiersState::SUPER, ModifiersState::CONTROL] {
+            assert!(matches!(
+                route_host_key(
+                    KeyCode::Tab,
+                    &Key::Named(winit::keyboard::NamedKey::Tab),
+                    true,
+                    modifiers,
+                    Some(spectrum_keyword()),
+                    &held
+                ),
+                HostKey::Ignore
+            ));
+        }
+        assert!(matches!(
+            route_host_key(
+                KeyCode::KeyG,
+                &Key::Character("g".into()),
+                false,
+                ModifiersState::CONTROL,
+                Some(spectrum_keyword()),
+                &held
+            ),
+            HostKey::Release
+        ));
     }
 }

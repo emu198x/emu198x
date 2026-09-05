@@ -220,6 +220,14 @@ impl UiSystem for SpectrumSystem {
         })
     }
 
+    fn host_keyword_modifier(&self) -> Option<emu198x_ui::KeywordModifier> {
+        Some(emu198x_ui::KeywordModifier {
+            key: KeyCode::Tab,
+            keys: &["symbol"],
+            shifted_keys: &["caps", "symbol"],
+        })
+    }
+
     fn host_control_keys(&self, code: KeyCode) -> Option<&'static [&'static str]> {
         match code {
             KeyCode::Home => Some(&["caps", "1"]), // EDIT
@@ -632,6 +640,114 @@ mod tests {
                 .wait_for_query_text_contains("screen.text.lines", expected, 120)
                 .expect(expected);
         }
+    }
+
+    #[test]
+    fn host_keyword_modifier_is_tab_and_shift_tab() {
+        let system = SpectrumSystem {
+            current: MachineKind::Spectrum48K,
+        };
+        let keyword = system
+            .host_keyword_modifier()
+            .expect("Spectrum keyword modifier");
+        assert_eq!(keyword.key, KeyCode::Tab);
+        assert_eq!(keyword.keys, &["symbol"]);
+        assert_eq!(keyword.shifted_keys, &["caps", "symbol"]);
+        // Original Keyboard retains its physical mappings.
+        assert_eq!(system.map_keys(KeyCode::Tab), None);
+        assert_eq!(system.map_keys(KeyCode::AltLeft), Some(&["symbol"][..]));
+    }
+
+    #[test]
+    #[ignore = "FIXTURE: requires configured local Spectrum 48K ROM"]
+    fn host_keyword_chords_enter_then_not_equal_int_and_stop() {
+        std::thread::Builder::new()
+            .stack_size(8 * 1024 * 1024)
+            .spawn(check_host_keyword_chords)
+            .expect("test thread")
+            .join()
+            .expect("host keyword entry");
+    }
+
+    fn check_host_keyword_chords() {
+        use emu198x_shell::InputEvent;
+        type Session = HeadlessSession<SpectrumRuntimeKind, SpectrumSessionQueryProvider>;
+        fn tap(session: &mut Session, keys: &[String]) {
+            for name in keys {
+                session.queue_input(InputEvent::Key {
+                    name: name.clone().into(),
+                    pressed: true,
+                });
+            }
+            session.run_frames(3).expect("press");
+            for name in keys {
+                session.queue_input(InputEvent::Key {
+                    name: name.clone().into(),
+                    pressed: false,
+                });
+            }
+            session.run_frames(8).expect("release");
+        }
+        fn text(system: &SpectrumSystem, session: &mut Session, text: &str) {
+            for ch in text.chars() {
+                let keys = system
+                    .host_character_keys(session.machine(), ch)
+                    .expect("host character");
+                tap(session, &keys);
+                if ch == '\n' {
+                    session.run_frames(30).expect("enter");
+                }
+            }
+        }
+        fn keyword(system: &SpectrumSystem, session: &mut Session, code: KeyCode) {
+            let modifier = system.host_keyword_modifier().expect("keyword modifier");
+            let keys: Vec<String> = modifier
+                .keys
+                .iter()
+                .copied()
+                .chain(system.map_keys(code).expect("physical key").iter().copied())
+                .map(str::to_owned)
+                .collect();
+            tap(session, &keys);
+        }
+        let system = SpectrumSystem {
+            current: MachineKind::Spectrum48K,
+        };
+        let runtime =
+            build_runtime(&parse_cli(std::iter::empty::<String>())).expect("configured ROM");
+        let ticks = u64::from(runtime.frame_halfcycles());
+        let mut session =
+            HeadlessSession::new_with_query_provider(runtime, ticks, SpectrumSessionQueryProvider);
+        session
+            .wait_for_boot(DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES)
+            .expect("boot");
+        text(&system, &mut session, "10lg=7\n20ug=7");
+        keyword(&system, &mut session, KeyCode::KeyG); // Tab+G: THEN
+        text(&system, &mut session, "p\"Correct!\"\n30ug");
+        keyword(&system, &mut session, KeyCode::KeyW); // Tab+W: <>
+        text(&system, &mut session, "8");
+        keyword(&system, &mut session, KeyCode::KeyG);
+        text(&system, &mut session, "p\"Different\"\n40p");
+        let modifier = system.host_keyword_modifier().expect("keyword modifier");
+        let keys: Vec<String> = modifier
+            .shifted_keys
+            .iter()
+            .map(|s| (*s).to_owned())
+            .collect();
+        tap(&mut session, &keys); // Shift+Tab, released before R: extended mode
+        text(&system, &mut session, "r6.5\n50");
+        keyword(&system, &mut session, KeyCode::KeyA); // Tab+A: STOP
+        text(&system, &mut session, "\nr\n");
+        for expected in ["Correct!", "Different", "6", "9 STOP statement"] {
+            session
+                .wait_for_query_text_contains("screen.text.lines", expected, 120)
+                .expect(expected);
+        }
+        // Ordinary punctuation still works immediately after the keyword chord.
+        text(&system, &mut session, "p\"@#$\"\n");
+        session
+            .wait_for_query_text_contains("screen.text.lines", "@#$", 120)
+            .expect("normal host punctuation");
     }
 
     #[test]

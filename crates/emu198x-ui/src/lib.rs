@@ -50,6 +50,7 @@ pub use emu198x_shell::display::Display;
 pub use emu198x_shell::{
     AxisInputMap, AxisTarget, ButtonInputMap, ButtonTarget, HostAxis, HostControl,
 };
+pub use keyboard::KeywordModifier;
 pub use winit::event::MouseButton;
 pub use winit::keyboard::KeyCode;
 
@@ -182,6 +183,12 @@ pub trait UiSystem {
     /// Translate one host character to target key names, using the same names
     /// as `map_keys`. Unsupported characters must return `None`.
     fn host_character_keys(&self, _runtime: &Self::Runtime, _ch: char) -> Option<Vec<String>> {
+        None
+    }
+
+    /// Optional explicit target-key modifier in host character mode.
+    /// Holding it uses physical target keys; releasing it restores layout typing.
+    fn host_keyword_modifier(&self) -> Option<KeywordModifier> {
         None
     }
 
@@ -767,42 +774,40 @@ impl<S: UiSystem> App<S> {
     }
 
     fn queue_host_key(&mut self, code: KeyCode, logical: &Key, pressed: bool) {
-        // Release by physical identity even if Shift/layout changed after key-down.
-        let keys = if !pressed {
-            None
-        } else if matches!(
+        let keys = match keyboard::route_host_key(
             code,
-            KeyCode::ShiftLeft
-                | KeyCode::ShiftRight
-                | KeyCode::AltLeft
-                | KeyCode::AltRight
-                | KeyCode::ControlLeft
-                | KeyCode::ControlRight
-                | KeyCode::SuperLeft
-                | KeyCode::SuperRight
-                | KeyCode::CapsLock
-        ) || self.modifiers.super_key()
-            || self.modifiers.control_key() && !self.modifiers.alt_key()
-        {
-            return;
-        } else if let Some(ch) = keyboard::character(logical) {
-            match self.system.host_character_keys(&self.runner.runtime, ch) {
-                Some(keys) => Some(keys),
-                None => {
-                    self.keyboard_notice = Some(format!("Unsupported character: {ch}"));
-                    if let Some(window) = &self.window {
-                        window.set_title(&self.window_title());
+            logical,
+            pressed,
+            self.modifiers,
+            self.system.host_keyword_modifier(),
+            &self.held_target_keys,
+        ) {
+            keyboard::HostKey::Release => None,
+            keyboard::HostKey::Ignore => return,
+            keyboard::HostKey::Keys(keys) => Some(keys),
+            keyboard::HostKey::Physical => self
+                .system
+                .map_keys(code)
+                .map(|names| names.iter().map(|name| (*name).to_owned()).collect()),
+            keyboard::HostKey::Control => self
+                .system
+                .host_control_keys(code)
+                .map(|names| names.iter().map(|name| (*name).to_owned()).collect()),
+            keyboard::HostKey::Character(ch) => {
+                match self.system.host_character_keys(&self.runner.runtime, ch) {
+                    Some(keys) => Some(keys),
+                    None => {
+                        self.keyboard_notice = Some(format!("Unsupported character: {ch}"));
+                        if let Some(window) = &self.window {
+                            window.set_title(&self.window_title());
+                        }
+                        eprintln!(
+                            "keyboard: character {ch:?} is not supported by this target mapping"
+                        );
+                        return;
                     }
-                    eprintln!("keyboard: character {ch:?} is not supported by this target mapping");
-                    return;
                 }
             }
-        } else if matches!(logical, Key::Character(_) | Key::Dead(_)) {
-            return;
-        } else {
-            self.system
-                .host_control_keys(code)
-                .map(|names| names.iter().map(|name| (*name).to_owned()).collect())
         };
         if pressed
             && self.keyboard_notice.take().is_some()
@@ -1574,7 +1579,18 @@ impl<S: UiSystem> ApplicationHandler for App<S> {
         }
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),
-            WindowEvent::ModifiersChanged(modifiers) => self.modifiers = modifiers.state(),
+            WindowEvent::ModifiersChanged(modifiers) => {
+                self.modifiers = modifiers.state();
+                if self.host_keyboard
+                    && let Some(keyword) = self.system.host_keyword_modifier()
+                {
+                    self.pending_inputs.extend(
+                        self.held_target_keys
+                            .refresh_keyword(keyword, self.modifiers.shift_key()),
+                    );
+                    self.next_slice_at = Instant::now();
+                }
+            }
             WindowEvent::Focused(false) => {
                 self.modifiers = ModifiersState::empty();
                 self.release_all_keys();
