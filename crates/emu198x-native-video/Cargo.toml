@@ -9,7 +9,7 @@ repository.workspace = true
 
 [dependencies]
 bytemuck.workspace = true
-emu198x-shell = { path = "../emu198x-shell", version = "0.21.0" }
+emu198x-shell = { path = "../emu198x-shell", version = "0.22.0" }
 pollster.workspace = true
 thiserror.workspace = true
 wgpu.workspace = true

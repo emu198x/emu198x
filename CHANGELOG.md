@@ -4,6 +4,16 @@ All notable changes to Emu198x will be documented in this file.
 
 Format loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 not strictly. Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [0.22.0] - 2026-09-05
+
+
+### Added
+
+- *(web)* Load a tape the way the machine does, and not in real time
+- Export Spectrum tape recordings from the desktop UI
+- Translate host keyboard characters for Spectrum entry
+- *(web)* Let a page ask the machine what it is doing
+
 ## [0.21.0] - 2026-09-02
 
 

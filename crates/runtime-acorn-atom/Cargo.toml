@@ -8,12 +8,12 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-common-acorn-cassette = { path = "../common-acorn-cassette", version = "0.21.0" }
-emu198x-shell = { path = "../emu198x-shell", version = "0.21.0" }
-motorola-vdg-6847 = { path = "../motorola-vdg-6847", version = "0.21.0" }
-format-acorn-atom-atm = { path = "../format-acorn-atom-atm", version = "0.21.0" }
-format-acorn-uef = { path = "../format-acorn-uef", version = "0.21.0" }
-machine-acorn-atom = { path = "../machine-acorn-atom", version = "0.21.0" }
+common-acorn-cassette = { path = "../common-acorn-cassette", version = "0.22.0" }
+emu198x-shell = { path = "../emu198x-shell", version = "0.22.0" }
+motorola-vdg-6847 = { path = "../motorola-vdg-6847", version = "0.22.0" }
+format-acorn-atom-atm = { path = "../format-acorn-atom-atm", version = "0.22.0" }
+format-acorn-uef = { path = "../format-acorn-uef", version = "0.22.0" }
+machine-acorn-atom = { path = "../machine-acorn-atom", version = "0.22.0" }
 postcard = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

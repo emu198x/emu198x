@@ -7,7 +7,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-format-atari-8bit-atr = { path = "../format-atari-8bit-atr", version = "0.21.0" }
+format-atari-8bit-atr = { path = "../format-atari-8bit-atr", version = "0.22.0" }
 serde.workspace = true
 
 [lints]
