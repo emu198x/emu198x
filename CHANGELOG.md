@@ -4,6 +4,14 @@ All notable changes to Emu198x will be documented in this file.
 
 Format loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 not strictly. Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [0.22.1] - 2026-09-06
+
+
+### Fixed
+
+- Allow Spectrum keyword chords in host keyboard mode
+- Use left Option or Alt for Spectrum keyword chords
+
 ## [0.22.0] - 2026-09-05
 
 
