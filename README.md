@@ -83,11 +83,13 @@ on are translated into Spectrum key combinations. Host Shift is used to choose
 the character, not forwarded as an extra CAPS SHIFT press. Arrow keys and
 Backspace edit; Home is EDIT, and Pause is BREAK.
 
-Hold **Tab** for SYMBOL SHIFT: **Tab+G** enters THEN, **Tab+W** enters `<>`,
-and **Tab+A** enters STOP. Hold **Shift+Tab**, then release both keys to enter
-extended mode; R then enters INT. While Tab is held, keys use the Spectrum's
-physical mapping. Release it to resume normal host-layout typing. Option/AltGr
-remain available for characters produced by your keyboard layout.
+Hold **left Option/Alt** for SYMBOL SHIFT: **left Option/Alt+G** enters THEN,
+**left Option/Alt+W** enters `<>`, and **left Option/Alt+A** enters STOP.
+Hold **Shift+left Option/Alt**, then release both keys to enter extended mode;
+R then enters INT. While left Option/Alt is held, letters use the Spectrum's
+physical mapping, rather than characters such as macOS's `©`. Release it to
+resume normal host-layout typing. Right Option/Alt (including AltGr) remains
+available for layout-produced characters. Tab is not a Spectrum modifier.
 
 The ROM still interprets the keyboard. At the K cursor, P enters PRINT, L enters
 LET and R enters RUN; this mode does not let you spell out keywords or paste
