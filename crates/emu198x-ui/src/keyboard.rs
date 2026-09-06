@@ -13,7 +13,7 @@ pub(crate) fn character(key: &Key) -> Option<char> {
 }
 
 /// A host key reserved for deliberate target-key chords in character mode.
-/// Normal layout characters (including Option/AltGr output) remain unchanged.
+/// Other modifiers remain available for layout-produced characters.
 #[derive(Clone, Copy)]
 pub struct KeywordModifier {
     /// Physical host key that selects target-key chords.
@@ -54,7 +54,8 @@ pub(crate) fn route_host_key(
         return HostKey::Release;
     }
     // Let application shortcuts and layout-produced AltGr characters retain
-    // their existing meanings. In particular, Alt is not a target modifier.
+    // their existing meanings. The configured physical modifier alone selects
+    // target chords; an aggregate ALT flag must not capture right Alt/AltGr.
     if modifiers.super_key() || modifiers.control_key() && !modifiers.alt_key() {
         return HostKey::Ignore;
     }
@@ -229,7 +230,7 @@ mod tests {
     }
     fn spectrum_keyword() -> KeywordModifier {
         KeywordModifier {
-            key: KeyCode::Tab,
+            key: KeyCode::AltLeft,
             keys: &["symbol"],
             shifted_keys: &["caps", "symbol"],
         }
@@ -240,25 +241,25 @@ mod tests {
         let keyword = spectrum_keyword();
         let mut held = HeldKeys::default();
         let route = route_host_key(
-            KeyCode::Tab,
-            &Key::Named(winit::keyboard::NamedKey::Tab),
+            KeyCode::AltLeft,
+            &Key::Named(winit::keyboard::NamedKey::Alt),
             true,
             ModifiersState::empty(),
             Some(keyword),
             &held,
         );
         let HostKey::Keys(keys) = route else {
-            panic!("Tab must hold the target modifier")
+            panic!("Left Alt must hold the target modifier")
         };
         assert_eq!(
-            changes(held.update(KeyCode::Tab, Some(keys))),
+            changes(held.update(KeyCode::AltLeft, Some(keys))),
             vec![("symbol".into(), true)]
         );
         // The logical character can differ from the physical keyword key.
         assert!(matches!(
             route_host_key(
                 KeyCode::KeyG,
-                &Key::Character("ɡ".into()),
+                &Key::Character("©".into()),
                 true,
                 ModifiersState::empty(),
                 Some(keyword),
@@ -269,8 +270,8 @@ mod tests {
         held.update(KeyCode::KeyG, chord(&["g"]));
         assert!(matches!(
             route_host_key(
-                KeyCode::Tab,
-                &Key::Named(winit::keyboard::NamedKey::Tab),
+                KeyCode::AltLeft,
+                &Key::Named(winit::keyboard::NamedKey::Alt),
                 false,
                 ModifiersState::empty(),
                 Some(keyword),
@@ -279,7 +280,7 @@ mod tests {
             HostKey::Release
         ));
         assert_eq!(
-            changes(held.update(KeyCode::Tab, None)),
+            changes(held.update(KeyCode::AltLeft, None)),
             vec![("symbol".into(), false)]
         );
         assert_eq!(
@@ -314,7 +315,7 @@ mod tests {
     fn shifted_keyword_tracks_both_shift_orders_and_focus_loss() {
         let keyword = spectrum_keyword();
         let mut held = HeldKeys::default();
-        held.update(KeyCode::Tab, Some(keyword.keys(false)));
+        held.update(KeyCode::AltLeft, Some(keyword.keys(false)));
         assert_eq!(
             changes(held.refresh_keyword(keyword, true)),
             vec![("caps".into(), true)]
@@ -324,29 +325,29 @@ mod tests {
             vec![("caps".into(), false)]
         );
         assert_eq!(
-            changes(held.update(KeyCode::Tab, None)),
+            changes(held.update(KeyCode::AltLeft, None)),
             vec![("symbol".into(), false)]
         );
-        // Shift first, then Tab; release Tab before Shift.
+        // Shift first, then Left Alt; release Left Alt before Shift.
         let route = route_host_key(
-            KeyCode::Tab,
-            &Key::Named(winit::keyboard::NamedKey::Tab),
+            KeyCode::AltLeft,
+            &Key::Named(winit::keyboard::NamedKey::Alt),
             true,
             ModifiersState::SHIFT,
             Some(keyword),
             &held,
         );
         let HostKey::Keys(keys) = route else {
-            panic!("Shift+Tab must hold both contacts")
+            panic!("Shift+Left Alt must hold both contacts")
         };
         assert_eq!(keys, vec!["caps", "symbol"]);
-        held.update(KeyCode::Tab, Some(keys));
+        held.update(KeyCode::AltLeft, Some(keys));
         assert_eq!(
             changes(held.release_all()),
             vec![("caps".into(), false), ("symbol".into(), false)]
         );
         assert!(held.refresh_keyword(keyword, false).is_empty());
-        assert!(!held.contains(KeyCode::Tab));
+        assert!(!held.contains(KeyCode::AltLeft));
     }
 
     #[test]
@@ -354,7 +355,7 @@ mod tests {
         let mut held = HeldKeys::default();
         held.update(KeyCode::Quote, chord(&["symbol", "p"]));
         assert!(
-            held.update(KeyCode::Tab, Some(spectrum_keyword().keys(false)))
+            held.update(KeyCode::AltLeft, Some(spectrum_keyword().keys(false)))
                 .is_empty()
         );
         assert_eq!(
@@ -362,7 +363,7 @@ mod tests {
             vec![("p".into(), false)]
         );
         assert_eq!(
-            changes(held.update(KeyCode::Tab, None)),
+            changes(held.update(KeyCode::AltLeft, None)),
             vec![("symbol".into(), false)]
         );
     }
@@ -372,20 +373,20 @@ mod tests {
         let held = HeldKeys::default();
         assert!(matches!(
             route_host_key(
-                KeyCode::Tab,
-                &Key::Named(winit::keyboard::NamedKey::Tab),
+                KeyCode::AltLeft,
+                &Key::Named(winit::keyboard::NamedKey::Alt),
                 true,
                 ModifiersState::empty(),
                 None,
                 &held
             ),
-            HostKey::Control
+            HostKey::Ignore
         ));
         for modifiers in [ModifiersState::SUPER, ModifiersState::CONTROL] {
             assert!(matches!(
                 route_host_key(
-                    KeyCode::Tab,
-                    &Key::Named(winit::keyboard::NamedKey::Tab),
+                    KeyCode::AltLeft,
+                    &Key::Named(winit::keyboard::NamedKey::Alt),
                     true,
                     modifiers,
                     Some(spectrum_keyword()),
@@ -404,6 +405,84 @@ mod tests {
                 &held
             ),
             HostKey::Release
+        ));
+    }
+    #[test]
+    fn right_alt_keeps_layout_input_and_left_alt_overrides_option_characters() {
+        let keyword = spectrum_keyword();
+        let mut held = HeldKeys::default();
+        assert!(matches!(
+            route_host_key(
+                KeyCode::AltRight,
+                &Key::Named(winit::keyboard::NamedKey::Alt),
+                true,
+                ModifiersState::ALT,
+                Some(keyword),
+                &held
+            ),
+            HostKey::Ignore
+        ));
+        assert!(matches!(
+            route_host_key(
+                KeyCode::KeyG,
+                &Key::Character("©".into()),
+                true,
+                ModifiersState::ALT,
+                Some(keyword),
+                &held
+            ),
+            HostKey::Character('©')
+        ));
+        let HostKey::Keys(keys) = route_host_key(
+            KeyCode::AltLeft,
+            &Key::Named(winit::keyboard::NamedKey::Alt),
+            true,
+            ModifiersState::ALT,
+            Some(keyword),
+            &held,
+        ) else {
+            panic!("left Alt modifier")
+        };
+        held.update(KeyCode::AltLeft, Some(keys));
+        for (code, logical) in [
+            (KeyCode::KeyG, Key::Character("©".into())),
+            (KeyCode::KeyH, Key::Character("˙".into())),
+            (KeyCode::KeyE, Key::Dead(Some('´'))),
+        ] {
+            assert!(matches!(
+                route_host_key(
+                    code,
+                    &logical,
+                    true,
+                    ModifiersState::ALT,
+                    Some(keyword),
+                    &held
+                ),
+                HostKey::Physical
+            ));
+        }
+        held.update(KeyCode::AltLeft, None);
+        assert!(matches!(
+            route_host_key(
+                KeyCode::KeyQ,
+                &Key::Character("@".into()),
+                true,
+                ModifiersState::ALT | ModifiersState::CONTROL,
+                Some(keyword),
+                &held
+            ),
+            HostKey::Character('@')
+        ));
+        assert!(matches!(
+            route_host_key(
+                KeyCode::Tab,
+                &Key::Named(winit::keyboard::NamedKey::Tab),
+                true,
+                ModifiersState::empty(),
+                Some(keyword),
+                &held
+            ),
+            HostKey::Control
         ));
     }
 }

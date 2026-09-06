@@ -222,7 +222,7 @@ impl UiSystem for SpectrumSystem {
 
     fn host_keyword_modifier(&self) -> Option<emu198x_ui::KeywordModifier> {
         Some(emu198x_ui::KeywordModifier {
-            key: KeyCode::Tab,
+            key: KeyCode::AltLeft,
             keys: &["symbol"],
             shifted_keys: &["caps", "symbol"],
         })
@@ -643,14 +643,14 @@ mod tests {
     }
 
     #[test]
-    fn host_keyword_modifier_is_tab_and_shift_tab() {
+    fn host_keyword_modifier_is_left_alt_and_shift_left_alt() {
         let system = SpectrumSystem {
             current: MachineKind::Spectrum48K,
         };
         let keyword = system
             .host_keyword_modifier()
             .expect("Spectrum keyword modifier");
-        assert_eq!(keyword.key, KeyCode::Tab);
+        assert_eq!(keyword.key, KeyCode::AltLeft);
         assert_eq!(keyword.keys, &["symbol"]);
         assert_eq!(keyword.shifted_keys, &["caps", "symbol"]);
         // Original Keyboard retains its physical mappings.
@@ -722,9 +722,9 @@ mod tests {
             .wait_for_boot(DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES)
             .expect("boot");
         text(&system, &mut session, "10lg=7\n20ug=7");
-        keyword(&system, &mut session, KeyCode::KeyG); // Tab+G: THEN
+        keyword(&system, &mut session, KeyCode::KeyG); // Left Alt+G: THEN
         text(&system, &mut session, "p\"Correct!\"\n30ug");
-        keyword(&system, &mut session, KeyCode::KeyW); // Tab+W: <>
+        keyword(&system, &mut session, KeyCode::KeyW); // Left Alt+W: <>
         text(&system, &mut session, "8");
         keyword(&system, &mut session, KeyCode::KeyG);
         text(&system, &mut session, "p\"Different\"\n40p");
@@ -734,9 +734,9 @@ mod tests {
             .iter()
             .map(|s| (*s).to_owned())
             .collect();
-        tap(&mut session, &keys); // Shift+Tab, released before R: extended mode
+        tap(&mut session, &keys); // Shift+Left Alt, released before R: extended mode
         text(&system, &mut session, "r6.5\n50");
-        keyword(&system, &mut session, KeyCode::KeyA); // Tab+A: STOP
+        keyword(&system, &mut session, KeyCode::KeyA); // Left Alt+A: STOP
         text(&system, &mut session, "\nr\n");
         for expected in ["Correct!", "Different", "6", "9 STOP statement"] {
             session
