@@ -1192,6 +1192,61 @@ fn step_debug_target(target: &mut dyn DebugTarget) -> (u64, bool) {
     (ticks, completed)
 }
 
+/// Decode the AY-3-891x register file through the machine's query surface.
+///
+/// Every AY-bearing machine publishes `ay.registers` (the 16 raw registers)
+/// and `ay.selected_register`; a machine without an AY has no such path and
+/// gets the capability-missing error rather than a query error, so a script
+/// can tell "no chip" from "wrong path".
+fn query_ay<M: MachineCore, Q: SessionQueryProvider<M>>(
+    session: &HeadlessSession<M, Q>,
+) -> Result<ScriptObservation, ScriptError> {
+    let regs = match session.query("ay.registers") {
+        Ok(result) => result,
+        Err(crate::query::QueryError::UnknownPath { .. }) => {
+            return Err(ScriptError::SystemSpecificStep { step: "query_ay" });
+        }
+        Err(err) => return Err(ScriptError::Query(err)),
+    };
+    let raw: Vec<u8> =
+        serde_json::from_value(regs.value).map_err(|err| ScriptError::InvalidStep {
+            step: "query_ay",
+            reason: format!("malformed ay.registers value: {err}"),
+        })?;
+    if raw.len() != 16 {
+        return Err(ScriptError::InvalidStep {
+            step: "query_ay",
+            reason: format!("expected 16 AY registers, got {}", raw.len()),
+        });
+    }
+    let selected = session
+        .query("ay.selected_register")
+        .map_err(ScriptError::Query)?;
+    let selected_register: u8 =
+        serde_json::from_value(selected.value).map_err(|err| ScriptError::InvalidStep {
+            step: "query_ay",
+            reason: format!("malformed ay.selected_register value: {err}"),
+        })?;
+    let tone_period_a = u16::from(raw[0]) | (u16::from(raw[1] & 0x0F) << 8);
+    let tone_period_b = u16::from(raw[2]) | (u16::from(raw[3] & 0x0F) << 8);
+    let tone_period_c = u16::from(raw[4]) | (u16::from(raw[5] & 0x0F) << 8);
+    let envelope_period = u16::from(raw[11]) | (u16::from(raw[12]) << 8);
+    Ok(ScriptObservation::QueryAy {
+        selected_register,
+        raw: raw.clone(),
+        tone_period_a,
+        tone_period_b,
+        tone_period_c,
+        noise_period: raw[6] & 0x1F,
+        mixer: raw[7],
+        amplitude_a: raw[8] & 0x1F,
+        amplitude_b: raw[9] & 0x1F,
+        amplitude_c: raw[10] & 0x1F,
+        envelope_period,
+        envelope_shape: raw[13] & 0x0F,
+    })
+}
+
 impl ScriptStep {
     /// Executes one script step against one live headless session.
     ///
@@ -1330,7 +1385,7 @@ impl ScriptStep {
             Self::SetMachine { .. } => Err(ScriptError::SystemSpecificStep {
                 step: "set_machine",
             }),
-            Self::QueryAy => Err(ScriptError::SystemSpecificStep { step: "query_ay" }),
+            Self::QueryAy => query_ay(session).map(Some),
             // CPU/memory/disassembly debug verbs run generically through the
             // shared `DebugTarget`, so MCP and `--script` execute the identical
             // body (the MCP tools are `ScriptStepTool` wrappers over these).
@@ -1635,8 +1690,24 @@ impl ScriptStep {
                     instructions: decoded,
                 }))
             }
-            Self::PortRead { .. } => Err(ScriptError::SystemSpecificStep { step: "port_read" }),
-            Self::PortWrite { .. } => Err(ScriptError::SystemSpecificStep { step: "port_write" }),
+            // Port I/O runs through the machine's shared `PortIoTarget`, so
+            // MCP and `--script` execute one body on every machine that has a
+            // port space. Machines without one fall back to the
+            // capability-missing error.
+            Self::PortRead { port } => {
+                let Some(target) = session.machine_mut().port_io_target_mut() else {
+                    return Err(ScriptError::SystemSpecificStep { step: "port_read" });
+                };
+                let value = target.port_read(*port);
+                Ok(Some(ScriptObservation::PortRead { port: *port, value }))
+            }
+            Self::PortWrite { port, value } => {
+                let Some(target) = session.machine_mut().port_io_target_mut() else {
+                    return Err(ScriptError::SystemSpecificStep { step: "port_write" });
+                };
+                target.port_write(*port, *value);
+                Ok(None)
+            }
             // AY register-write watch runs generically through the shared
             // `WatchTarget`, so MCP and `--script` execute the identical body.
             // Machines with no AY surface fall back to the system-specific
@@ -2259,6 +2330,94 @@ mod tests {
             }
             self.step_ticks
         }
+    }
+
+    /// A machine with a port space and nothing else, for the port verbs.
+    struct Ported {
+        profile: MachineProfile,
+        ports: std::collections::HashMap<u16, u8>,
+    }
+
+    impl crate::port_io::PortIoTarget for Ported {
+        fn port_read(&mut self, port: u16) -> u8 {
+            self.ports.get(&port).copied().unwrap_or(0xFF)
+        }
+        fn port_write(&mut self, port: u16, value: u8) {
+            self.ports.insert(port, value);
+        }
+    }
+
+    impl MachineCore for Ported {
+        fn profile(&self) -> &MachineProfile {
+            &self.profile
+        }
+        fn time(&self) -> MachineTime {
+            MachineTime::default()
+        }
+        fn reset(&mut self, _kind: ResetKind) {}
+        fn load_media(&mut self, _media: &MediaSet<'_>) -> Result<(), MachineError> {
+            Ok(())
+        }
+        fn run_until(
+            &mut self,
+            target: MachineTime,
+            _host: &mut HostIo<'_>,
+        ) -> Result<RunResult, MachineError> {
+            Ok(RunResult::new(target, StopReason::ReachedTarget))
+        }
+        fn snapshot(&self) -> Result<Vec<u8>, MachineError> {
+            Ok(vec![])
+        }
+        fn restore(&mut self, _bytes: &[u8]) -> Result<(), MachineError> {
+            Ok(())
+        }
+        fn capabilities(&self) -> CapabilitySet {
+            CapabilitySet::new()
+        }
+        fn port_io_target(&self) -> Option<&dyn crate::port_io::PortIoTarget> {
+            Some(self)
+        }
+        fn port_io_target_mut(&mut self) -> Option<&mut dyn crate::port_io::PortIoTarget> {
+            Some(self)
+        }
+    }
+
+    #[test]
+    fn port_write_then_port_read_round_trips_through_the_port_target() {
+        let machine = Ported {
+            profile: DummyMachine::new().profile.clone(),
+            ports: std::collections::HashMap::new(),
+        };
+        let mut session = HeadlessSession::new(machine, 1_000);
+        let write = ScriptStep::PortWrite {
+            port: 0xFE,
+            value: 0x1F,
+        };
+        assert!(
+            write
+                .execute_collect(&mut session)
+                .expect("write")
+                .is_none()
+        );
+        let read = ScriptStep::PortRead { port: 0xFE };
+        match read.execute_collect(&mut session).expect("read") {
+            Some(ScriptObservation::PortRead { port, value }) => {
+                assert_eq!((port, value), (0xFE, 0x1F));
+            }
+            other => panic!("unexpected observation {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_machine_without_a_port_space_refuses_the_port_verbs() {
+        let mut session = HeadlessSession::new(DummyMachine::new(), 1_000);
+        let err = ScriptStep::PortRead { port: 0xFE }
+            .execute_collect(&mut session)
+            .expect_err("no port target");
+        assert!(matches!(
+            err,
+            ScriptError::SystemSpecificStep { step: "port_read" }
+        ));
     }
 
     impl MachineCore for DummyMachine {

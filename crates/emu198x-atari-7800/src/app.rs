@@ -2,10 +2,7 @@
 
 use std::path::PathBuf;
 
-use emu198x_shell::HeadlessSession;
 use emu198x_shell::launch::{Args, LaunchError, MachineApp, read_rom};
-use emu198x_shell::mcp::ToolRegistry;
-use emu198x_shell::mcp_tools::register_base_tools;
 use runtime_atari_7800::{Atari7800Runtime, Atari7800SessionQueryProvider, Model};
 use serde_json::{Map, Value};
 
@@ -129,16 +126,6 @@ impl MachineApp for Atari7800 {
         let frame_count = runtime.machine().map_or(0, |m| m.frame_count());
         report.insert("cart_loaded".to_owned(), cart_loaded.into());
         report.insert("frames_run".to_owned(), frame_count.into());
-    }
-
-    /// The 7800 has no keyboard: the base tools only.
-    fn register_mcp_tools(
-        &self,
-        registry: &mut ToolRegistry<
-            HeadlessSession<Atari7800Runtime, Atari7800SessionQueryProvider>,
-        >,
-    ) {
-        register_base_tools(registry);
     }
 }
 

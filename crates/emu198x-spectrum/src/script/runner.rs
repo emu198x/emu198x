@@ -29,7 +29,7 @@ use serde::Serialize;
 
 use crate::app::AppError;
 use crate::machine::{MachineKind, RomOverrides, resolved_rom_bundle, rom_override_entry};
-use crate::mcp::tools::{dispatch_live_step, execute_autoload_tape, execute_load_basic_program};
+use crate::mcp::tools::{execute_autoload_tape, execute_load_basic_program};
 use crate::portable_snapshot::{is_portable_snapshot_path, parse_portable_snapshot_at};
 
 const DEFAULT_TAPE_SLOT: &str = "tape-1";
@@ -263,10 +263,7 @@ pub(crate) fn execute_step(
         // queries, single-step, disassembly, watches) share one implementation
         // with MCP mode via `dispatch_live_step`, so the two can't drift. Only
         // steps it doesn't own fall through to the shell's generic executor.
-        other => match dispatch_live_step(other, session) {
-            Some(result) => result.map_err(map_tool_error),
-            None => other.execute_collect(session).map_err(map_script_error),
-        },
+        other => other.execute_collect(session).map_err(map_script_error),
     }
 }
 

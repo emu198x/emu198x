@@ -393,14 +393,16 @@ fn command_returns_unsupported_for_media_transport() {
 }
 
 /// `capabilities` reports the four capabilities the family declares
-/// in `profile_for`: keyboard-matrix, scripted-input, and snapshot
+/// in `profile_for`: controller-input, scripted-input, and snapshot
 /// import/export. Regression catches a profile-edit that silently
-/// strips one of them.
+/// strips one of them, or that hands the handheld a keyboard it does
+/// not have (the shell registers keyboard tools from this set).
 #[test]
 fn capabilities_reports_family_capability_set() {
     let runtime = GameBoyRuntime::blank(Model::Dmg);
     let caps: CapabilitySet = runtime.capabilities();
-    assert!(caps.contains(&known_capability("keyboard-matrix")));
+    assert!(caps.contains(&known_capability("controller-input")));
+    assert!(!caps.contains(&known_capability("keyboard-matrix")));
     assert!(caps.contains(&known_capability("scripted-input")));
     assert!(caps.contains(&known_capability("snapshot-export")));
     assert!(caps.contains(&known_capability("snapshot-import")));

@@ -362,8 +362,12 @@ impl MachineApp for Spectrum {
         crate::mcp::run(&self.rom).map_err(LaunchError::from)
     }
 
-    fn register_mcp_tools(&self, registry: &mut ToolRegistry<SpectrumSession>) {
-        crate::mcp::register_full_surface(registry);
+    fn register_mcp_tools(
+        &self,
+        registry: &mut ToolRegistry<SpectrumSession>,
+        session: &SpectrumSession,
+    ) {
+        crate::mcp::register_full_surface(registry, session);
     }
 }
 

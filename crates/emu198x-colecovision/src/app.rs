@@ -2,12 +2,9 @@
 
 use std::path::PathBuf;
 
-use emu198x_shell::HeadlessSession;
 use emu198x_shell::launch::{
     Args, LaunchError, MachineApp, conventional_rom_path, read_rom, read_rom_exact,
 };
-use emu198x_shell::mcp::ToolRegistry;
-use emu198x_shell::mcp_tools::register_base_tools;
 use runtime_coleco_colecovision::{CvRuntime, CvSessionQueryProvider, Model};
 use serde_json::{Map, Value};
 
@@ -181,14 +178,6 @@ impl MachineApp for ColecoVision {
             (bios_loaded && self.cart.is_some()).into(),
         );
         report.insert("frames_run".to_owned(), frame_count.into());
-    }
-
-    /// The ColecoVision has a keypad, not a keyboard: the base tools only.
-    fn register_mcp_tools(
-        &self,
-        registry: &mut ToolRegistry<HeadlessSession<CvRuntime, CvSessionQueryProvider>>,
-    ) {
-        register_base_tools(registry);
     }
 }
 

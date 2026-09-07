@@ -129,7 +129,7 @@ pub fn profile_for(model: Model) -> MachineProfile {
             WritebackPolicy::InMemoryOnly,
         )],
         capabilities: CapabilitySet::with_all([
-            known_capability("keyboard-matrix"),
+            known_capability("controller-input"),
             known_capability("scripted-input"),
             known_capability("snapshot-export"),
             known_capability("snapshot-import"),

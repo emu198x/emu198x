@@ -172,6 +172,8 @@ fn ay_capabilities() -> CapabilitySet {
         known_capability("tape-transport-control"),
         known_capability("snapshot-import"),
         known_capability("scripted-input"),
+        known_capability("memory-watch"),
+        known_capability("port-io"),
     ])
 }
 
@@ -204,6 +206,8 @@ pub fn profile_for(model: Model) -> MachineProfile {
                 known_capability("tape-transport-control"),
                 known_capability("snapshot-import"),
                 known_capability("scripted-input"),
+                known_capability("memory-watch"),
+                known_capability("port-io"),
             ]),
         },
         Model::Spectrum48KPal => MachineProfile {
@@ -235,6 +239,8 @@ pub fn profile_for(model: Model) -> MachineProfile {
                 known_capability("tape-transport-control"),
                 known_capability("snapshot-import"),
                 known_capability("scripted-input"),
+                known_capability("memory-watch"),
+                known_capability("port-io"),
             ]),
         },
         Model::SpectrumPlus => MachineProfile {
@@ -262,6 +268,8 @@ pub fn profile_for(model: Model) -> MachineProfile {
                 known_capability("tape-transport-control"),
                 known_capability("snapshot-import"),
                 known_capability("scripted-input"),
+                known_capability("memory-watch"),
+                known_capability("port-io"),
             ]),
         },
         Model::Spectrum128KPal => MachineProfile {
@@ -439,6 +447,8 @@ pub fn profile_for(model: Model) -> MachineProfile {
                 known_capability("tape-transport-control"),
                 known_capability("snapshot-import"),
                 known_capability("scripted-input"),
+                known_capability("memory-watch"),
+                known_capability("port-io"),
             ]),
         },
         Model::TimexTC2068 | Model::TimexTS2068 => MachineProfile {

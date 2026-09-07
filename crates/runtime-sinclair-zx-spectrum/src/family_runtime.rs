@@ -537,6 +537,14 @@ impl MachineCore for SpectrumRuntimeKind {
         Some(self)
     }
 
+    fn port_io_target(&self) -> Option<&dyn emu198x_shell::PortIoTarget> {
+        Some(self)
+    }
+
+    fn port_io_target_mut(&mut self) -> Option<&mut dyn emu198x_shell::PortIoTarget> {
+        Some(self)
+    }
+
     fn keyboard_target(&self) -> Option<&dyn emu198x_shell::KeyboardTarget> {
         Some(self)
     }
@@ -746,6 +754,19 @@ impl emu198x_shell::WatchTarget for SpectrumRuntimeKind {
                 })
                 .collect()
         })
+    }
+}
+
+/// The shell's port-space verbs (`port_read` / `port_write`) over the
+/// family's live bus access, so every variant gets them from the shared
+/// executor and MCP registrar rather than a binary-side intercept.
+impl emu198x_shell::PortIoTarget for SpectrumRuntimeKind {
+    fn port_read(&mut self, port: u16) -> u8 {
+        SpectrumLiveAccess::port_read(self, port)
+    }
+
+    fn port_write(&mut self, port: u16, value: u8) {
+        SpectrumLiveAccess::port_write(self, port, value);
     }
 }
 

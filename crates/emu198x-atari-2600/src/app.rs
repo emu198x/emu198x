@@ -3,9 +3,7 @@
 use std::path::{Path, PathBuf};
 
 use emu198x_shell::launch::{Args, LaunchError, MachineApp};
-use emu198x_shell::mcp::ToolRegistry;
-use emu198x_shell::mcp_tools::register_base_tools;
-use emu198x_shell::{HeadlessSession, MediaKind, read_media_asset};
+use emu198x_shell::{MediaKind, read_media_asset};
 use runtime_atari_2600::{Atari2600Runtime, Atari2600SessionQueryProvider, Model};
 use serde_json::{Map, Value};
 
@@ -118,16 +116,6 @@ impl MachineApp for Atari2600 {
         let frame_count = runtime.machine().map_or(0, |m| m.frame_count());
         report.insert("cart_loaded".to_owned(), cart_loaded.into());
         report.insert("frames_run".to_owned(), frame_count.into());
-    }
-
-    /// The 2600 has no keyboard: the base tools only.
-    fn register_mcp_tools(
-        &self,
-        registry: &mut ToolRegistry<
-            HeadlessSession<Atari2600Runtime, Atari2600SessionQueryProvider>,
-        >,
-    ) {
-        register_base_tools(registry);
     }
 }
 

@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 
 use emu198x_shell::launch::{Args, CommonCli, LaunchError, MachineApp, script_report};
 use emu198x_shell::mcp::ToolRegistry;
-use emu198x_shell::mcp_tools::register_base_tools;
+use emu198x_shell::mcp_tools::register_tools_for;
 use emu198x_shell::query::SessionQueryProvider;
 use emu198x_shell::{HeadlessSession, MachineCore, MediaKind, read_media_asset, startup_media};
 use runtime_nintendo_nes::{Model, NesRuntime, NesSessionQueryProvider};
@@ -388,8 +388,9 @@ impl MachineApp for Nes {
     fn register_mcp_tools(
         &self,
         registry: &mut ToolRegistry<HeadlessSession<NesRuntime, NesSessionQueryProvider>>,
+        session: &HeadlessSession<NesRuntime, NesSessionQueryProvider>,
     ) {
-        register_base_tools(registry);
+        register_tools_for(registry, session);
         register_nes_tools(registry);
     }
 }

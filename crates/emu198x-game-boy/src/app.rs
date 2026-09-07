@@ -4,8 +4,6 @@ use std::path::{Path, PathBuf};
 
 use common_nintendo_game_boy::MCYCLES_PER_FRAME;
 use emu198x_shell::launch::{Args, CommonCli, LaunchError, MachineApp, read_rom, script_report};
-use emu198x_shell::mcp::ToolRegistry;
-use emu198x_shell::mcp_tools::register_base_tools;
 use emu198x_shell::{HeadlessSession, MachineCore, MediaKind, read_media_asset, startup_media};
 use runtime_nintendo_game_boy::{GameBoyRuntime, GameBoySessionQueryProvider, Model};
 use serde_json::{Map, Value};
@@ -332,16 +330,6 @@ impl MachineApp for GameBoy {
             );
         }
         Ok(())
-    }
-
-    /// The base set only: the Game Boy has no keyboard. SM83 debug verbs
-    /// (query_cpu, memory_read, poke, disasm, step, run_until_pc) come with
-    /// it via the runtime's `DebugTarget`.
-    fn register_mcp_tools(
-        &self,
-        registry: &mut ToolRegistry<HeadlessSession<GameBoyRuntime, GameBoySessionQueryProvider>>,
-    ) {
-        register_base_tools(registry);
     }
 }
 

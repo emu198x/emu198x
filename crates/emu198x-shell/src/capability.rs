@@ -93,6 +93,27 @@ impl CapabilitySet {
 }
 
 /// Returns a well-known capability identifier.
+/// Capability ids the shell's MCP registrar reads from a machine profile.
+///
+/// A profile declares what the *machine* has; the registrar registers the
+/// tool tier for it, whether or not the live target exists yet (a machine
+/// that starts blank grows its targets when firmware loads, and the tools
+/// must already be there for the client to load it). The executor still
+/// checks the live target on every call, so a declared-but-not-yet-loaded
+/// capability fails with the capability-missing error, never silently.
+pub mod ids {
+    /// A typewriter keyboard the shell's `KeyboardTarget` verbs drive.
+    pub const KEYBOARD_INPUT: &str = "keyboard-input";
+    /// The older spelling some families use for the same thing.
+    pub const KEYBOARD_MATRIX: &str = "keyboard-matrix";
+    /// An AY-3-891x sound chip: the `watch_ay_*` tier.
+    pub const AY_AUDIO: &str = "ay-audio";
+    /// Memory-write capture through `WatchTarget`: the `watch_memory_*` tier.
+    pub const MEMORY_WATCH: &str = "memory-watch";
+    /// A CPU port space through `PortIoTarget`: `port_read` / `port_write`.
+    pub const PORT_IO: &str = "port-io";
+}
+
 #[must_use]
 pub fn known_capability(id: &'static str) -> CapabilityId {
     CapabilityId::from(id)

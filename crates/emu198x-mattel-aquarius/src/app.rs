@@ -3,13 +3,8 @@
 
 use std::path::PathBuf;
 
-use emu198x_shell::HeadlessSession;
 use emu198x_shell::launch::{
     Args, LaunchError, MachineApp, conventional_rom_path, read_rom, read_rom_exact,
-};
-use emu198x_shell::mcp::ToolRegistry;
-use emu198x_shell::mcp_tools::{
-    register_ay_watch_tools, register_base_tools, register_keyboard_tools,
 };
 use machine_mattel_aquarius::AquariusRegion;
 use runtime_mattel_aquarius::{AquariusRuntime, AquariusSessionQueryProvider, Model};
@@ -166,17 +161,6 @@ impl MachineApp for Aquarius {
         );
         report.insert("frames_run".to_owned(), frame_count.into());
         report.insert("expansion_kb".to_owned(), self.expansion_kb.into());
-    }
-
-    fn register_mcp_tools(
-        &self,
-        registry: &mut ToolRegistry<HeadlessSession<AquariusRuntime, AquariusSessionQueryProvider>>,
-    ) {
-        register_base_tools(registry);
-        // The machine has a keyboard, so the shared press_key / type_string apply.
-        register_keyboard_tools(registry);
-        // The Aquarius (Mini Expander) carries an AY-3-8910 (PSG), so the AY-watch verbs apply.
-        register_ay_watch_tools(registry);
     }
 }
 
