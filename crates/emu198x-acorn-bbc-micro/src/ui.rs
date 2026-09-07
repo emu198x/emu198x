@@ -21,9 +21,11 @@ use crate::app::{Bbc, FRAME_TICKS_PAL, load_teletext_font, optional_rom_path};
 
 const DEFAULT_SCALE: u32 = 3;
 const PAL_FRAME_HZ: f64 = 50.0;
-/// The window's conventional MOS image. The headless modes look for
-/// `os.rom`; aligning the two is a separate fix.
-const UI_MOS_RELATIVE: &str = "acorn-bbc-micro/mos.rom";
+/// The conventional MOS image, the same file the headless modes use.
+/// The window used to look for `mos.rom` while script and MCP modes looked
+/// for `os.rom`, so a machine with only the latter opened no window
+/// without `--mos`.
+const UI_MOS_RELATIVE: &str = "acorn-bbc-micro/os.rom";
 const BASIC_ENV: &str = "EMU198X_BBC_BASIC";
 const BASIC_RELATIVE: &str = "acorn-bbc-micro/basic.rom";
 
