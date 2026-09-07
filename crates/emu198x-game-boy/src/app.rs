@@ -192,6 +192,9 @@ impl MachineApp for GameBoy {
 
     const BIN_NAME: &'static str = "emu198x-game-boy";
     const VERSION: &'static str = env!("CARGO_PKG_VERSION");
+    /// Headless-only flags; their presence routes to script mode.
+    /// `--load-snapshot` is deliberately absent: the window restores one too.
+    const SCRIPT_FLAGS: &'static [&'static str] = &["--media", "--save-snapshot"];
     const MACHINE_OPTIONS: &'static str =
         "    --rom PATH      Game Boy ROM image or zip containing one ROM candidate
                     (also accepted as a bare positional path)
@@ -416,6 +419,16 @@ mod tests {
         assert_eq!(common.screenshot, Some(PathBuf::from("frame.png")));
         assert_eq!(common.audio_capture, Some(PathBuf::from("audio.wav")));
         assert_eq!(mode, Mode::Script);
+    }
+
+    #[test]
+    fn media_and_save_snapshot_route_headless_but_load_snapshot_does_not() {
+        let (.., mode) = parsed(&["--media", "cartridge:cartridge=game.gb"]);
+        assert_eq!(mode, Mode::Script);
+        let (.., mode) = parsed(&["--rom", "game.gb", "--save-snapshot", "later.pst"]);
+        assert_eq!(mode, Mode::Script);
+        let (.., mode) = parsed(&["--load-snapshot", "ready.gb.pst"]);
+        assert_eq!(mode, Mode::Ui);
     }
 
     #[test]
