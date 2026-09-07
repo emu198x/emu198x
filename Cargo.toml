@@ -340,4 +340,12 @@ pkg-config = { version = "*", stage = ["build"] }
 
 [profile.dist]
 inherits = "release"
-lto = "thin"
+# No cross-crate LTO for release archives. Every one of the 31 emulator
+# binaries links the same wgpu/winit/cpal UI stack, and with thin LTO each
+# link cost ~53 CPU-seconds locally (M2 Max); on 4-core runners that made the
+# link phase ~15 min per target, ~29 min on Windows, against ~2 min for the
+# dependency compile. With LTO off the same relink is ~6 CPU-seconds, the
+# binary is the same size (8.24 MB vs 8.35 MB for emu198x-spectrum), and a
+# 6000-frame headless 48K run measured within noise (19.3 s vs 18.9 s).
+# codegen-units = 1 stays: raising it added CPU (87 s) and 25% binary size.
+lto = false
