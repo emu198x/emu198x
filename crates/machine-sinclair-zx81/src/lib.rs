@@ -47,6 +47,7 @@ const AUDIO_SAMPLE_RATE: u32 = 48_000;
 /// T-states a second, which is what `master_clock` counts.
 const CPU_CLOCK_HZ: u64 = 3_250_000;
 
+use common_z80_machine::Z80Machine;
 use emu198x_zilog_z80::z80::{BusOp, Z80};
 use serde::{Deserialize, Serialize};
 
@@ -146,8 +147,18 @@ pub struct Zx81 {
     nmi_pending: bool,
     #[serde(default)]
     nmi_line_prev: bool,
+    /// Whether the ULA has the processor's clock this T-state. Decided once
+    /// at the T-state's start, as the hand-rolled loop decided it, so an
+    /// `OUT` on the first edge cannot gate the second; a restore lands on a
+    /// T-state boundary, so it is not part of the snapshot.
+    #[serde(skip)]
+    cpu_held: bool,
     keyboard: KeyboardState,
     master_clock: u64,
+    /// The cadence driver's half-cycle phase; a restore lands on a T-state
+    /// boundary, so it is not part of the snapshot.
+    #[serde(skip)]
+    cadence_hc: u64,
     frame_count: u64,
     /// `/REFRESH` last T-state, so its rising edge can be seen.
     prev_rfsh: bool,
@@ -201,8 +212,10 @@ impl Zx81 {
             video: Zx81Video::new(TelevisionStandard::default()),
             nmi_pending: false,
             nmi_line_prev: false,
+            cpu_held: false,
             keyboard: KeyboardState::new(),
             master_clock: 0,
+            cadence_hc: 0,
             frame_count: 0,
             prev_rfsh: false,
             television_standard: TelevisionStandard::default(),
@@ -365,74 +378,14 @@ impl Zx81 {
         self.master_clock - start
     }
 
+    /// Advance one Z80 T-state. The cadence — two CPU half-cycles, the
+    /// interrupt pins fed before each — is `common-z80-machine`'s; this
+    /// machine only orders its own logic around it (the ULA, speaker and
+    /// NMI edge detection ahead of the CPU, the refresh-driven /INT after
+    /// each edge, as the hand-rolled loop always had them) and gates the
+    /// processor's clock across the line sync.
     fn tick_tstate(&mut self) {
-        self.master_clock += 1;
-        self.video.tick();
-        self.tick_audio();
-
-        // Two CPU half-cycles per T-state. `Z80::tick` advances one
-        // half-cycle — `T1Rise` then `T1Fall` — so calling it once per
-        // T-state ran the CPU at half speed: a `NOP` cost 8 T-states against
-        // the Z80's 4.
-        // The NMI pin is presented whether or not the clock is gated.
-        //
-        // TR1 conducts when HALT is false and NMI is true (reference §1), so
-        // the processor is suspended for exactly the pulse that would have
-        // interrupted it. Gating the clock does not disconnect the pin: the
-        // Z80 latches the edge asynchronously and services it when the clock
-        // returns. Sampling the pin only on the ticks the ULA allows meant a
-        // running processor never saw one, so the ROM's SLOW probe at `$0207`
-        // always failed and the machine could not leave FAST. See #302.
-        let nmi_line = self.video.nmi_line();
-        if nmi_line && !self.nmi_line_prev {
-            self.nmi_pending = true;
-        }
-        self.nmi_line_prev = nmi_line;
-
-        // The ULA takes the processor's clock away across the line sync, which
-        // is what holds every line's characters at the same T-states. A
-        // halted CPU is already waiting for the interrupt, so it is not held.
-        if self.video.holds_cpu() && !self.cpu.halt {
-            return;
-        }
-
-        for _ in 0..2 {
-            // The generator's pulse, sampled before the tick because the Z80
-            // samples its interrupt inputs during its own. A pulse that began
-            // while the clock was gated is presented here instead, once, which
-            // is enough for the processor's own latch to take it.
-            self.cpu.nmi = nmi_line || self.nmi_pending;
-
-            self.cpu.tick();
-            self.handle_bus();
-
-            let rfsh = self.cpu.rfsh;
-            if rfsh {
-                // INT is wired to address line A6 (reference §1), so an
-                // interrupt is generated whenever the address on the bus has
-                // A6 low. The refresh address is `I:R` and `R` counts up as
-                // the display is fetched, so the interrupt arrives once per
-                // display line and the ROM's `$0038` handler moves to the
-                // next one.
-                self.cpu.irq = self.cpu.addr & 0x0040 == 0;
-            }
-            if rfsh && !self.prev_rfsh {
-                let rom = &self.rom;
-                let ram = &self.ram;
-                let mask = self.ram_mask;
-                self.video.refresh(self.cpu.addr, |addr| match addr {
-                    0x0000..=0x3FFF => rom[(addr & 0x1FFF) as usize],
-                    0x4000..=0x7FFF => ram[((addr - 0x4000) & mask) as usize],
-                    0x8000..=0xBFFF => rom[(addr & 0x1FFF) as usize],
-                    0xC000..=0xFFFF => ram[((addr - 0xC000) & mask) as usize],
-                });
-            }
-            self.prev_rfsh = rfsh;
-        }
-
-        // The processor has now ticked with the pin presented, so its own
-        // latch holds the edge and this one has done its job.
-        self.nmi_pending = false;
+        self.advance_tstates(1);
     }
 
     fn handle_bus(&mut self) {
@@ -595,6 +548,102 @@ impl Zx81 {
     #[must_use]
     pub fn frame_count(&self) -> u64 {
         self.frame_count
+    }
+}
+
+impl Z80Machine for Zx81 {
+    fn hc(&self) -> u64 {
+        self.cadence_hc
+    }
+
+    fn hc_mut(&mut self) -> &mut u64 {
+        &mut self.cadence_hc
+    }
+
+    fn before_tstate(&mut self) {
+        self.master_clock += 1;
+        self.video.tick();
+        self.tick_audio();
+
+        // The NMI pin is presented whether or not the clock is gated.
+        //
+        // TR1 conducts when HALT is false and NMI is true (reference §1), so
+        // the processor is suspended for exactly the pulse that would have
+        // interrupted it. Gating the clock does not disconnect the pin: the
+        // Z80 latches the edge asynchronously and services it when the clock
+        // returns. Sampling the pin only on the ticks the ULA allows meant a
+        // running processor never saw one, so the ROM's SLOW probe at `$0207`
+        // always failed and the machine could not leave FAST. See #302.
+        let nmi_line = self.video.nmi_line();
+        if nmi_line && !self.nmi_line_prev {
+            self.nmi_pending = true;
+        }
+        self.nmi_line_prev = nmi_line;
+
+        // The ULA takes the processor's clock away across the line sync, which
+        // is what holds every line's characters at the same T-states. A
+        // halted CPU is already waiting for the interrupt, so it is not held.
+        self.cpu_held = self.video.holds_cpu() && !self.cpu.halt;
+    }
+
+    fn cpu_clock_active(&self) -> bool {
+        !self.cpu_held
+    }
+
+    fn feed_interrupt_pins(&mut self) {
+        // Nothing is presented while the ULA holds the clock: the core
+        // latches `/NMI` only on a tick, so `nmi_pending` carries the edge
+        // across the hold and presents it on the first edge the clock
+        // returns, as the hand-rolled loop did.
+        if self.cpu_held {
+            return;
+        }
+        // The generator's pulse, sampled before the tick because the Z80
+        // samples its interrupt inputs during its own. A pulse that began
+        // while the clock was gated is presented here instead, once, which
+        // is enough for the processor's own latch to take it.
+        self.cpu.nmi = self.video.nmi_line() || self.nmi_pending;
+    }
+
+    fn tick_cpu_and_bus(&mut self) {
+        self.cpu.tick();
+        self.handle_bus();
+    }
+
+    fn tick_chips_halfcycle(&mut self) {
+        if self.cpu_held {
+            return;
+        }
+        let rfsh = self.cpu.rfsh;
+        if rfsh {
+            // INT is wired to address line A6 (reference §1), so an
+            // interrupt is generated whenever the address on the bus has
+            // A6 low. The refresh address is `I:R` and `R` counts up as
+            // the display is fetched, so the interrupt arrives once per
+            // display line and the ROM's `$0038` handler moves to the
+            // next one.
+            self.cpu.irq = self.cpu.addr & 0x0040 == 0;
+        }
+        if rfsh && !self.prev_rfsh {
+            let rom = &self.rom;
+            let ram = &self.ram;
+            let mask = self.ram_mask;
+            self.video.refresh(self.cpu.addr, |addr| match addr {
+                0x0000..=0x3FFF => rom[(addr & 0x1FFF) as usize],
+                0x4000..=0x7FFF => ram[((addr - 0x4000) & mask) as usize],
+                0x8000..=0xBFFF => rom[(addr & 0x1FFF) as usize],
+                0xC000..=0xFFFF => ram[((addr - 0xC000) & mask) as usize],
+            });
+        }
+        self.prev_rfsh = rfsh;
+    }
+
+    fn tick_chips(&mut self) {
+        // The processor has now ticked with the pin presented, so its own
+        // latch holds the edge and this one has done its job.
+        if !self.cpu_held {
+            self.nmi_pending = false;
+        }
     }
 }
 
