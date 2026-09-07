@@ -1,28 +1,22 @@
 //! Interactive UI mode — the default when no automation flag is present.
 //!
-//! The Sord M5's first native window, on the shared `emu198x-ui` harness: wgpu
+//! The Sord M5's native window, on the shared `emu198x-ui` harness: wgpu
 //! video with `raw`/`lcd`/`crt` filters and the keyboard routed through the
 //! harness's general-keyboard path ([`UiSystem::map_keys`]). The M5 is
 //! keyboard-led; its joystick carries only the four directions (the action
 //! buttons are keyboard keys), reached by a real gamepad through
-//! [`UiSystem::button_map`]. Compiled only with the `ui` Cargo feature;
-//! `main.rs` routes here when no automation flag is given.
+//! [`UiSystem::button_map`]. Compiled only with the `ui` Cargo feature; the
+//! shared launcher opens the window when no automation flag is given.
 
-use std::env;
-use std::path::PathBuf;
 use std::time::Duration;
 
-use emu198x_ui::{
-    ButtonInputMap, ButtonTarget, HostControl, KeyCode, UiError, UiSystem, VideoFilter,
-};
-use runtime_sord_m5::{M5Runtime, Model};
+use emu198x_ui::launch::UiApp;
+use emu198x_ui::{ButtonInputMap, ButtonTarget, HostControl, KeyCode, UiSystem};
+use runtime_sord_m5::M5Runtime;
+
+use crate::app::{Region, SordM5};
 
 const DEFAULT_SCALE: u32 = 3;
-/// CPU clocks per frame — `228 × lines`, matching the headless runner.
-const FRAME_TICKS_NTSC: u64 = 228 * 262;
-const FRAME_TICKS_PAL: u64 = 228 * 313;
-const NTSC_FRAME_HZ: f64 = 60.0;
-const PAL_FRAME_HZ: f64 = 50.0;
 
 /// Player-1 joystick: four directions only — the M5 has no joystick fire line
 /// (action buttons are keyboard keys), so the button map carries no fire. A
@@ -34,70 +28,21 @@ const SORD_M5_BUTTON_MAP: ButtonInputMap = ButtonInputMap::new(&[
     (HostControl::Right, ButtonTarget::new(1, "right")),
 ]);
 
-const USAGE: &str = "\
-Usage: emu198x-sord-m5 [OPTIONS]
-
-Options:
-    --rom PATH      Sord M5 BIOS ROM (monitor + BASIC-I); default
-                    ~/.emu198x/roms/sord-m5/sord-m5.rom (or set EMU198X_SORD_M5_ROM)
-    --cart PATH     cartridge ROM (optional)
-    --region MODE   ntsc | pal [default: ntsc]
-    --scale N       integer window scale, default 3
-    --video MODE    raw | lcd | crt [default: raw]
-    --help, -h      show this help
-
-Automation:
-    --script PATH   run a JSON session headlessly and print a report
-    --headless      run without a window (implied by --script)
-    --mcp           serve this machine over MCP on stdio
-
-Controls:
-    Esc             quit
-    F12             hard reset
-    A-Z 0-9 etc.    the M5 keyboard
-    Shift / Ctrl    the M5 SHIFT / CONTROL keys (Tab = FUNC)
-    Gamepad         joystick (player 1, directions)
-
-Examples:
-    emu198x-sord-m5
-    emu198x-sord-m5 --cart game.rom --scale 4
-";
-
-/// Display region — selects the model, frame tick budget, and refresh rate.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Region {
-    Ntsc,
-    Pal,
-}
-
-impl Region {
-    fn model(self) -> Model {
-        match self {
-            Self::Ntsc => Model::M5Ntsc,
-            Self::Pal => Model::M5Pal,
-        }
-    }
-
-    fn frame_ticks(self) -> u64 {
-        match self {
-            Self::Ntsc => FRAME_TICKS_NTSC,
-            Self::Pal => FRAME_TICKS_PAL,
-        }
-    }
-
-    fn frame_hz(self) -> f64 {
-        match self {
-            Self::Ntsc => NTSC_FRAME_HZ,
-            Self::Pal => PAL_FRAME_HZ,
-        }
-    }
-}
-
 /// The Sord M5 as a [`UiSystem`] for the shared harness. The region is fixed at
 /// construction; a hard reset rebuilds the machine from the firmware the
 /// runtime already holds.
-struct SordM5System {
+pub struct SordM5System {
     region: Region,
+}
+
+impl UiApp for SordM5 {
+    type System = SordM5System;
+
+    fn ui_system(&self) -> SordM5System {
+        SordM5System {
+            region: self.region,
+        }
+    }
 }
 
 impl UiSystem for SordM5System {
@@ -144,115 +89,6 @@ impl UiSystem for SordM5System {
     fn map_keys(&self, code: KeyCode) -> Option<&'static [&'static str]> {
         map_m5_keys(code)
     }
-}
-
-/// Parsed interactive CLI.
-#[derive(Debug, PartialEq, Eq)]
-pub struct Cli {
-    rom: Option<PathBuf>,
-    cart: Option<PathBuf>,
-    region: Region,
-    scale: u32,
-    video: VideoFilter,
-}
-
-impl Default for Cli {
-    fn default() -> Self {
-        Self {
-            rom: None,
-            cart: None,
-            region: Region::Ntsc,
-            scale: DEFAULT_SCALE,
-            video: VideoFilter::Raw,
-        }
-    }
-}
-
-/// Build the runtime from the CLI and open the window. Returns a string error
-/// for the `main.rs` dispatcher.
-pub fn run(cli: Cli) -> Result<(), String> {
-    let rom_path = cli
-        .rom
-        .clone()
-        .or_else(default_rom_path)
-        .ok_or_else(|| "no ROM: pass --rom PATH or set EMU198X_SORD_M5_ROM".to_owned())?;
-    let rom = std::fs::read(&rom_path)
-        .map_err(|err| format!("failed to read ROM {}: {err}", rom_path.display()))?;
-    let mut runtime = M5Runtime::new(cli.region.model(), rom);
-    if let Some(cart_path) = &cli.cart {
-        let cart = std::fs::read(cart_path)
-            .map_err(|err| format!("failed to read --cart {}: {err}", cart_path.display()))?;
-        runtime.insert_cartridge(cart);
-    }
-
-    println!(
-        "Controls: Esc quit, F12 reset, keyboard typed directly (Tab = FUNC), gamepad joystick directions."
-    );
-    emu198x_ui::run(
-        SordM5System { region: cli.region },
-        runtime,
-        cli.scale,
-        cli.video,
-    )
-    .map_err(|err: UiError| err.to_string())
-}
-
-/// Parse the interactive CLI. Exits the process on `--help` or a malformed flag.
-pub fn parse_cli<I>(args: I) -> Cli
-where
-    I: IntoIterator<Item = String>,
-{
-    let mut cli = Cli::default();
-    let mut iter = args.into_iter();
-    while let Some(arg) = iter.next() {
-        match arg.as_str() {
-            "--rom" => cli.rom = Some(PathBuf::from(next_arg(&mut iter, "--rom"))),
-            "--cart" => cli.cart = Some(PathBuf::from(next_arg(&mut iter, "--cart"))),
-            "--region" => {
-                cli.region = match next_arg(&mut iter, "--region").as_str() {
-                    "ntsc" => Region::Ntsc,
-                    "pal" => Region::Pal,
-                    other => die(&format!("--region expects ntsc|pal, got {other}")),
-                };
-            }
-            "--scale" => {
-                cli.scale = next_arg(&mut iter, "--scale")
-                    .parse()
-                    .unwrap_or_else(|_| die("--scale requires a positive integer"));
-            }
-            "--video" => {
-                cli.video = next_arg(&mut iter, "--video")
-                    .parse()
-                    .unwrap_or_else(|_| die("--video expects raw, lcd, or crt"));
-            }
-            "--help" | "-h" => {
-                println!("{USAGE}");
-                std::process::exit(0);
-            }
-            _ => die(&format!("unknown flag: {arg}")),
-        }
-    }
-    cli
-}
-
-fn default_rom_path() -> Option<PathBuf> {
-    if let Ok(path) = env::var("EMU198X_SORD_M5_ROM")
-        && !path.is_empty()
-    {
-        return Some(PathBuf::from(path));
-    }
-    let home = env::var("HOME").ok()?;
-    Some(PathBuf::from(home).join(".emu198x/roms/sord-m5/sord-m5.rom"))
-}
-
-fn next_arg<I: Iterator<Item = String>>(iter: &mut I, flag: &str) -> String {
-    iter.next()
-        .unwrap_or_else(|| die(&format!("missing value for {flag}")))
-}
-
-fn die(message: &str) -> ! {
-    eprintln!("error: {message}");
-    std::process::exit(1);
 }
 
 /// Map a physical host key to its M5 key name (matched by `runtime-sord-m5`'s
@@ -321,33 +157,6 @@ fn map_m5_keys(code: KeyCode) -> Option<&'static [&'static str]> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn parse_cli_accepts_rom_cart_region_scale_video() {
-        let cli = parse_cli([
-            "--rom".to_owned(),
-            "m5.rom".to_owned(),
-            "--cart".to_owned(),
-            "game.rom".to_owned(),
-            "--region".to_owned(),
-            "pal".to_owned(),
-            "--scale".to_owned(),
-            "4".to_owned(),
-            "--video".to_owned(),
-            "crt".to_owned(),
-        ]);
-        assert_eq!(cli.rom, Some(PathBuf::from("m5.rom")));
-        assert_eq!(cli.cart, Some(PathBuf::from("game.rom")));
-        assert_eq!(cli.region, Region::Pal);
-        assert_eq!(cli.scale, 4);
-        assert_eq!(cli.video, VideoFilter::Crt);
-    }
-
-    #[test]
-    fn region_frame_ticks_match() {
-        assert_eq!(Region::Ntsc.frame_ticks(), 228 * 262);
-        assert_eq!(Region::Pal.frame_ticks(), 228 * 313);
-    }
 
     #[test]
     fn maps_keys_func_and_shifts() {
