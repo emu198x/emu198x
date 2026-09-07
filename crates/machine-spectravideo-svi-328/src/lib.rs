@@ -66,6 +66,7 @@
 mod cassette;
 
 use cassette::Cassette;
+use common_z80_machine::Z80Machine;
 use emu198x_zilog_z80::{BusOp, Z80};
 use gi_ay_3_8912::{Ay3_8912, AyWriteRecord, AyWriteWatch};
 use intel_8255::Ppi8255;
@@ -134,6 +135,10 @@ pub struct Svi328 {
     cassette: Cassette,
     region: SviRegion,
     cpu_tstates: u64,
+    /// The cadence driver's half-cycle phase; a restore lands on a T-state
+    /// boundary, so it is not part of the snapshot.
+    #[serde(skip)]
+    cadence_hc: u64,
     tstates_per_frame: u64,
     vdp_phase: u32,
     psg_phase: u8,
@@ -177,6 +182,7 @@ impl Svi328 {
             cassette: Cassette::default(),
             region,
             cpu_tstates: 0,
+            cadence_hc: 0,
             tstates_per_frame,
             vdp_phase: 0,
             psg_phase: 0,
@@ -207,36 +213,13 @@ impl Svi328 {
         self.tstates_per_frame
     }
 
+    /// Advance one Z80 T-state. The cadence — two CPU half-cycles, the
+    /// interrupt pin fed before each — is `common-z80-machine`'s; the VDP
+    /// ticks on every half-cycle after the CPU, and the PSG, cassette and
+    /// T-state counter once per T-state, as the hand-rolled loop always
+    /// had them.
     fn tick_tstate(&mut self) {
-        // Two CPU half-cycles per T-state. `Z80::tick` advances one
-        // half-cycle — `T1Rise` then `T1Fall` — so calling it once per
-        // T-state ran the CPU at half speed: a `NOP` cost 8 T-states
-        // against the Z80's 4.
-        for _ in 0..2 {
-            // VDP INT → Z80 IRQ, fed before the tick. The Z80 samples
-            // `/INT` at an instruction boundary during its own tick, so
-            // setting the line afterwards hands it the previous
-            // half-cycle's state.
-            self.cpu.irq = self.vdp.interrupt;
-
-            self.cpu.tick();
-            self.handle_bus();
-
-            self.vdp_phase += VDP_DOT_PHASE_NUMERATOR;
-            while self.vdp_phase >= VDP_DOT_PHASE_DENOMINATOR {
-                self.vdp.tick();
-                self.vdp_phase -= VDP_DOT_PHASE_DENOMINATOR;
-            }
-        }
-
-        self.psg_phase ^= 1;
-        if self.psg_phase == 0 {
-            self.psg.tick();
-        }
-
-        self.cassette.tick_tstate();
-
-        self.cpu_tstates += 1;
+        self.advance_tstates(1);
     }
 
     fn handle_bus(&mut self) {
@@ -519,6 +502,48 @@ impl Svi328 {
     #[must_use]
     pub fn memory_control(&self) -> (bool, bool) {
         (self.bank_ram_low, self.bank_cart)
+    }
+}
+
+impl Z80Machine for Svi328 {
+    fn hc(&self) -> u64 {
+        self.cadence_hc
+    }
+
+    fn hc_mut(&mut self) -> &mut u64 {
+        &mut self.cadence_hc
+    }
+
+    fn feed_interrupt_pins(&mut self) {
+        // VDP INT → Z80 IRQ, fed before the tick. The Z80 samples
+        // `/INT` at an instruction boundary during its own tick, so
+        // setting the line afterwards hands it the previous
+        // half-cycle's state.
+        self.cpu.irq = self.vdp.interrupt;
+    }
+
+    fn tick_cpu_and_bus(&mut self) {
+        self.cpu.tick();
+        self.handle_bus();
+    }
+
+    fn tick_chips_halfcycle(&mut self) {
+        self.vdp_phase += VDP_DOT_PHASE_NUMERATOR;
+        while self.vdp_phase >= VDP_DOT_PHASE_DENOMINATOR {
+            self.vdp.tick();
+            self.vdp_phase -= VDP_DOT_PHASE_DENOMINATOR;
+        }
+    }
+
+    fn tick_chips(&mut self) {
+        self.psg_phase ^= 1;
+        if self.psg_phase == 0 {
+            self.psg.tick();
+        }
+
+        self.cassette.tick_tstate();
+
+        self.cpu_tstates += 1;
     }
 }
 

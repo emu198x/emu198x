@@ -85,6 +85,7 @@ pub mod screen_text;
 
 use amstrad_gate_array::GateArray;
 use common_tape::{TapePlayer, TapeSpan};
+use common_z80_machine::Z80Machine;
 use emu198x_zilog_z80::{BusOp, Z80};
 use gi_ay_3_8912::Ay3_8912;
 use intel_8255::Ppi8255;
@@ -395,6 +396,10 @@ pub struct AmstradCpc {
     /// Whether the machine has the cassette motor running.
     tape_motor: bool,
     cpu_tstates: u64,
+    /// The cadence driver's half-cycle phase; a restore lands on a T-state
+    /// boundary, so it is not part of the snapshot.
+    #[serde(skip)]
+    cadence_hc: u64,
     frame_count: u64,
 
     /// Visible display, ARGB32. Per
@@ -465,6 +470,7 @@ impl AmstradCpc {
             tape: TapePlayer::new(),
             tape_motor: false,
             cpu_tstates: 0,
+            cadence_hc: 0,
             frame_count: 0,
             framebuffer: vec![0xFF00_0000; (FB_WIDTH * FB_HEIGHT) as usize],
             // Active low: every key released.
@@ -587,9 +593,7 @@ impl AmstradCpc {
 
     /// Advance the machine by an exact number of CPU T-states.
     pub fn advance_tstates(&mut self, tstates: u32) {
-        for _ in 0..tstates {
-            self.tick_tstate();
-        }
+        Z80Machine::advance_tstates(self, u64::from(tstates));
     }
 
     /// The Gate Array, for inspecting video mode, palette and interrupt state.
@@ -791,50 +795,13 @@ impl AmstradCpc {
         self.cpu_tstates - start
     }
 
-    /// Advance one T-state.
+    /// Advance one Z80 T-state. The cadence — two CPU half-cycles, the
+    /// interrupt pin fed before each — is `common-z80-machine`'s; the Gate
+    /// Array's `/WAIT` is set before the first edge and the CRTC, PSG, tape
+    /// and T-state counter tick once per T-state after the CPU, as the
+    /// hand-rolled loop always had them.
     fn tick_tstate(&mut self) {
-        // The Gate Array holds `/WAIT` low for three T-states in every four,
-        // freeing the Z80 for one — Compendium §27.7.2. The Z80 samples the
-        // pin at `T2`, so an M-cycle reaching `T2` on a held T-state stalls
-        // until the free one, which is what quantises the CPU onto the 1 µs
-        // grid. `crtc_phase` is that grid already: four T-states to the
-        // character clock.
-        self.cpu.wait = amstrad_gate_array::wait_asserted(self.crtc_phase);
-
-        // Two CPU half-cycles per T-state. `Z80::tick` advances one half-cycle,
-        // so calling it once here would run the CPU at half speed — the defect
-        // the 2026-08-13 campaign found on nine machines. `cpu_rate.rs` holds
-        // this to 4 T-states per `NOP`.
-        for _ in 0..2 {
-            // Pins before the tick: the Z80 samples `/INT` at an instruction
-            // boundary during its own tick, so feeding the line afterwards
-            // hands it the previous half-cycle's state.
-            self.cpu.irq = self.gate_array.interrupt();
-            self.cpu.tick();
-            self.handle_bus();
-        }
-
-        self.crtc_phase += 1;
-        if self.crtc_phase >= TSTATES_PER_CRTC_TICK {
-            self.crtc_phase = 0;
-            self.crtc.tick();
-            self.track_beam();
-            self.draw_char();
-            // The Gate Array counts the CRTC's syncs; this is the whole of the
-            // CPC's interrupt source.
-            self.gate_array.set_hsync(self.crtc.hsync);
-            self.gate_array.set_vsync(self.crtc.vsync);
-            self.psg.tick();
-        }
-
-        // The tape runs on wall-clock time, not on anything the CPU asks for,
-        // so it advances every T-state the machine executes — but only while
-        // the motor is on, which is the firmware's decision.
-        if self.tape_motor {
-            self.tape.advance_tstates(1);
-        }
-
-        self.cpu_tstates += 1;
+        Z80Machine::advance_tstates(self, 1);
     }
 
     /// Move the beam in response to the CRTC's sync pulses.
@@ -1103,6 +1070,59 @@ impl AmstradCpc {
                 }
             }
         }
+    }
+}
+
+impl Z80Machine for AmstradCpc {
+    fn hc(&self) -> u64 {
+        self.cadence_hc
+    }
+
+    fn hc_mut(&mut self) -> &mut u64 {
+        &mut self.cadence_hc
+    }
+
+    fn before_tstate(&mut self) {
+        // The Gate Array holds `/WAIT` low for three T-states in every four,
+        // freeing the Z80 for one — Compendium §27.7.2. The Z80 samples the
+        // pin at `T2`, so an M-cycle reaching `T2` on a held T-state stalls
+        // until the free one, which is what quantises the CPU onto the 1 µs
+        // grid. `crtc_phase` is that grid already: four T-states to the
+        // character clock.
+        self.cpu.wait = amstrad_gate_array::wait_asserted(self.crtc_phase);
+    }
+
+    fn feed_interrupt_pins(&mut self) {
+        self.cpu.irq = self.gate_array.interrupt();
+    }
+
+    fn tick_cpu_and_bus(&mut self) {
+        self.cpu.tick();
+        self.handle_bus();
+    }
+
+    fn tick_chips(&mut self) {
+        self.crtc_phase += 1;
+        if self.crtc_phase >= TSTATES_PER_CRTC_TICK {
+            self.crtc_phase = 0;
+            self.crtc.tick();
+            self.track_beam();
+            self.draw_char();
+            // The Gate Array counts the CRTC's syncs; this is the whole of the
+            // CPC's interrupt source.
+            self.gate_array.set_hsync(self.crtc.hsync);
+            self.gate_array.set_vsync(self.crtc.vsync);
+            self.psg.tick();
+        }
+
+        // The tape runs on wall-clock time, not on anything the CPU asks for,
+        // so it advances every T-state the machine executes — but only while
+        // the motor is on, which is the firmware's decision.
+        if self.tape_motor {
+            self.tape.advance_tstates(1);
+        }
+
+        self.cpu_tstates += 1;
     }
 }
 

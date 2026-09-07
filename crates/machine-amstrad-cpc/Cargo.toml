@@ -10,6 +10,7 @@ repository.workspace = true
 [dependencies]
 common-tape = { path = "../common-tape", version = "0.22.0" }
 amstrad-gate-array = { path = "../amstrad-gate-array", version = "0.22.0" }
+common-z80-machine = { path = "../common-z80-machine", version = "0.22.0" }
 gi-ay-3-8912 = { path = "../gi-ay-3-8912", version = "0.22.0" }
 intel-8255 = { path = "../intel-8255", version = "0.22.0" }
 motorola-6845 = { path = "../motorola-6845", version = "0.22.0" }

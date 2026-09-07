@@ -81,6 +81,7 @@ mod cartridge;
 
 pub use cartridge::{CartridgeHeader, CartridgeTerritory, normalize_cartridge};
 
+use common_z80_machine::Z80Machine;
 use emu198x_zilog_z80::{BusOp, Z80};
 use sega_vdp::{SegaVdp, VdpRegion, VdpVariant};
 use serde::{Deserialize, Serialize};
@@ -281,6 +282,10 @@ pub struct Sms {
     phasers: [LightPhaser; 2],
     variant: SmsVariant,
     cpu_tstates: u64,
+    /// The cadence driver's half-cycle phase; a restore lands on a T-state
+    /// boundary, so it is not part of the snapshot.
+    #[serde(skip)]
+    cadence_hc: u64,
     tstates_per_frame: u64,
     /// VDP dot-clock phase accumulator (3 dots per 2 CPU T-states).
     vdp_phase: u32,
@@ -331,6 +336,7 @@ impl Sms {
             phasers: [LightPhaser::default(); 2],
             variant,
             cpu_tstates: 0,
+            cadence_hc: 0,
             tstates_per_frame: variant.tstates_per_frame(),
             vdp_phase: 0,
             frame_count: 0,
@@ -348,43 +354,12 @@ impl Sms {
         self.tstates_per_frame
     }
 
+    /// Advance one Z80 T-state. The cadence — two CPU half-cycles, the
+    /// interrupt pins fed before each — is `common-z80-machine`'s; the VDP
+    /// ticks on every half-cycle after the CPU and the PSG once per
+    /// T-state, as the hand-rolled loop always had them.
     fn tick_tstate(&mut self) {
-        // Two CPU half-cycles per T-state. `Z80::tick` advances one
-        // half-cycle — `T1Rise` then `T1Fall` — so calling it once per
-        // T-state ran the CPU at half speed: a `NOP` cost 8 T-states
-        // against the Z80's 4, and the machine executed half the work
-        // per frame that 228 T-states per scanline budgets for.
-        for _ in 0..2 {
-            // Pins before the tick, not after. The Z80 samples `/INT` at
-            // an instruction boundary during its own tick, so feeding the
-            // line afterwards hands it the VDP's state from the previous
-            // half-cycle. Same contract as the Spectrum driver; see
-            // `knowledge/decisions/zilog-z80-samples-int-at-the-instruction-boundary.md`.
-            self.cpu.irq = self.vdp.interrupt;
-            // Pause → NMI (level-driven; the host releases).
-            self.cpu.nmi = self.pause_pressed;
-
-            self.cpu.tick();
-            self.handle_bus();
-
-            // Interleave the VDP per dot, so the line and frame
-            // interrupts land at the correct scanline relative to CPU
-            // execution — Mode-4 raster splits depend on this.
-            self.vdp_phase += VDP_DOT_PHASE_NUMERATOR;
-            while self.vdp_phase >= VDP_DOT_PHASE_DENOMINATOR {
-                // Where the beam is *about* to draw, taken before the dot is
-                // drawn so the pixel read afterwards is the one it just lit.
-                let beam = self.vdp.beam_framebuffer_position();
-                self.vdp.tick();
-                self.tick_light_phasers(beam);
-                self.vdp_phase -= VDP_DOT_PHASE_DENOMINATOR;
-            }
-        }
-
-        // PSG ticks at the Z80 clock on SMS.
-        self.psg.tick();
-
-        self.cpu_tstates += 1;
+        self.advance_tstates(1);
     }
 
     fn handle_bus(&mut self) {
@@ -850,6 +825,54 @@ impl Sms {
     #[must_use]
     pub fn frame_count(&self) -> u64 {
         self.frame_count
+    }
+}
+
+impl Z80Machine for Sms {
+    fn hc(&self) -> u64 {
+        self.cadence_hc
+    }
+
+    fn hc_mut(&mut self) -> &mut u64 {
+        &mut self.cadence_hc
+    }
+
+    fn feed_interrupt_pins(&mut self) {
+        // Pins before the tick, not after. The Z80 samples `/INT` at
+        // an instruction boundary during its own tick, so feeding the
+        // line afterwards hands it the VDP's state from the previous
+        // half-cycle. Same contract as the Spectrum driver; see
+        // `knowledge/decisions/zilog-z80-samples-int-at-the-instruction-boundary.md`.
+        self.cpu.irq = self.vdp.interrupt;
+        // Pause → NMI (level-driven; the host releases).
+        self.cpu.nmi = self.pause_pressed;
+    }
+
+    fn tick_cpu_and_bus(&mut self) {
+        self.cpu.tick();
+        self.handle_bus();
+    }
+
+    fn tick_chips_halfcycle(&mut self) {
+        // Interleave the VDP per dot, so the line and frame
+        // interrupts land at the correct scanline relative to CPU
+        // execution — Mode-4 raster splits depend on this.
+        self.vdp_phase += VDP_DOT_PHASE_NUMERATOR;
+        while self.vdp_phase >= VDP_DOT_PHASE_DENOMINATOR {
+            // Where the beam is *about* to draw, taken before the dot is
+            // drawn so the pixel read afterwards is the one it just lit.
+            let beam = self.vdp.beam_framebuffer_position();
+            self.vdp.tick();
+            self.tick_light_phasers(beam);
+            self.vdp_phase -= VDP_DOT_PHASE_DENOMINATOR;
+        }
+    }
+
+    fn tick_chips(&mut self) {
+        // PSG ticks at the Z80 clock on SMS.
+        self.psg.tick();
+
+        self.cpu_tstates += 1;
     }
 }
 

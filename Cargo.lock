@@ -2376,6 +2376,7 @@ version = "0.22.2"
 dependencies = [
  "amstrad-gate-array",
  "common-tape",
+ "common-z80-machine",
  "emu198x-test-skip",
  "emu198x-zilog-z80",
  "format-amstrad-cpc-cdt",
@@ -2447,6 +2448,7 @@ dependencies = [
 name = "machine-coleco-colecovision"
 version = "0.22.2"
 dependencies = [
+ "common-z80-machine",
  "emu198x-zilog-z80",
  "postcard",
  "serde",
@@ -2647,6 +2649,7 @@ dependencies = [
 name = "machine-mattel-aquarius"
 version = "0.22.2"
 dependencies = [
+ "common-z80-machine",
  "emu198x-gi-ay-3-8910",
  "emu198x-zilog-z80",
  "postcard",
@@ -2658,6 +2661,7 @@ dependencies = [
 name = "machine-memotech-mtx"
 version = "0.22.2"
 dependencies = [
+ "common-z80-machine",
  "emu198x-zilog-z80",
  "postcard",
  "serde",
@@ -2670,6 +2674,7 @@ dependencies = [
 name = "machine-msx"
 version = "0.22.2"
 dependencies = [
+ "common-z80-machine",
  "emu198x-test-skip",
  "emu198x-zilog-z80",
  "gi-ay-3-8912",
@@ -2755,6 +2760,7 @@ dependencies = [
 name = "machine-sega-master-system"
 version = "0.22.2"
 dependencies = [
+ "common-z80-machine",
  "emu198x-zilog-z80",
  "postcard",
  "sega-vdp",
@@ -2767,6 +2773,7 @@ dependencies = [
 name = "machine-sega-sg-1000"
 version = "0.22.2"
 dependencies = [
+ "common-z80-machine",
  "emu198x-zilog-z80",
  "postcard",
  "serde",
@@ -2863,6 +2870,7 @@ dependencies = [
 name = "machine-sinclair-zx80"
 version = "0.22.2"
 dependencies = [
+ "common-z80-machine",
  "emu198x-test-skip",
  "emu198x-zilog-z80",
  "format-sinclair-zx80-o",
@@ -2876,6 +2884,7 @@ dependencies = [
 name = "machine-sinclair-zx81"
 version = "0.22.2"
 dependencies = [
+ "common-z80-machine",
  "emu198x-test-skip",
  "emu198x-zilog-z80",
  "format-sinclair-zx81-p",
@@ -2903,6 +2912,7 @@ dependencies = [
 name = "machine-spectravideo-svi-328"
 version = "0.22.2"
 dependencies = [
+ "common-z80-machine",
  "emu198x-zilog-z80",
  "gi-ay-3-8912",
  "intel-8255",
@@ -2915,6 +2925,7 @@ dependencies = [
 name = "machine-tatung-einstein"
 version = "0.22.2"
 dependencies = [
+ "common-z80-machine",
  "emu198x-gi-ay-3-8910",
  "emu198x-test-skip",
  "emu198x-zilog-z80",
