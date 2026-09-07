@@ -2376,6 +2376,7 @@ version = "0.22.2"
 dependencies = [
  "amstrad-gate-array",
  "common-tape",
+ "common-z80-machine",
  "emu198x-test-skip",
  "emu198x-zilog-z80",
  "format-amstrad-cpc-cdt",
