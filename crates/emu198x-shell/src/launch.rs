@@ -57,12 +57,22 @@ const SCRIPT_FLAGS: &[&str] = &[
 
 const MCP_FLAGS: &[&str] = &["--mcp", "--mcp-stdio"];
 
-/// Pick the mode from the raw arguments.
+/// Pick the mode from the raw arguments, with the shared flags only.
 #[must_use]
 pub fn detect_mode(args: &[String]) -> Mode {
+    detect_mode_with(args, &[])
+}
+
+/// Pick the mode from the raw arguments, with `extra_script_flags` also
+/// selecting script mode. [`parse`] passes the machine's
+/// [`MachineApp::SCRIPT_FLAGS`].
+#[must_use]
+pub fn detect_mode_with(args: &[String], extra_script_flags: &[&str]) -> Mode {
     if args.iter().any(|arg| MCP_FLAGS.contains(&arg.as_str())) {
         Mode::Mcp
-    } else if args.iter().any(|arg| SCRIPT_FLAGS.contains(&arg.as_str())) {
+    } else if args.iter().any(|arg| {
+        SCRIPT_FLAGS.contains(&arg.as_str()) || extra_script_flags.contains(&arg.as_str())
+    }) {
         Mode::Script
     } else {
         Mode::Ui
@@ -254,6 +264,10 @@ pub trait MachineApp: Default {
     /// Help lines for the machine's controls, one per line, indented four
     /// spaces. Shown under `Controls:` and printed when the window opens.
     const CONTROLS: &'static str;
+    /// Machine flags that, like `--script`, select script mode on their
+    /// own. For a headless harness whose callers never pass `--headless`
+    /// (the Dragon's smoke and XRoar comparison flags).
+    const SCRIPT_FLAGS: &'static [&'static str] = &[];
 
     /// Parse one machine-specific flag, reading its value from `args`.
     /// Returns `Ok(false)` when `flag` is not one the machine knows.
@@ -440,7 +454,7 @@ pub enum Parsed<A> {
 ///
 /// Returns a usage error for an unknown flag or a malformed value.
 pub fn parse<A: MachineApp>(args: &[String]) -> Result<Parsed<A>, LaunchError> {
-    let mode = detect_mode(args);
+    let mode = detect_mode_with(args, A::SCRIPT_FLAGS);
     let mut app = A::default();
     let mut common = CommonCli::default();
     let mut cursor = Args::new(args.to_vec());
@@ -665,6 +679,16 @@ mod tests {
                 "flag {flag} should be script"
             );
         }
+    }
+
+    #[test]
+    fn a_machine_can_add_its_own_script_flags() {
+        let extra = ["--smoke-root"];
+        assert_eq!(
+            detect_mode_with(&args(&["--smoke-root", "dir"]), &extra),
+            Mode::Script
+        );
+        assert_eq!(detect_mode(&args(&["--smoke-root", "dir"])), Mode::Ui);
     }
 
     #[test]
