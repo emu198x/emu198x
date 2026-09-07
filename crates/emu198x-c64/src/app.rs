@@ -193,6 +193,20 @@ impl MachineApp for C64 {
 
     const BIN_NAME: &'static str = "emu198x-c64";
     const VERSION: &'static str = env!("CARGO_PKG_VERSION");
+    /// Headless-only flags; their presence routes to script mode, so
+    /// `--wait-for-boot 200 --print-query boot.reason` runs without an
+    /// explicit `--headless`. Media, autoload, snapshot-restore and hardware
+    /// flags are shared with the window and do not.
+    const SCRIPT_FLAGS: &'static [&'static str] = &[
+        "--save-snapshot",
+        "--print-query",
+        "--print-screen-text",
+        "--trace-drive-rom",
+        "--trace-limit",
+        "--trace-vic-colours",
+        "--wait-for-boot",
+        "--wait-for-tape-stop",
+    ];
     const MACHINE_OPTIONS: &'static str =
         "    --rom-dir DIR        directory containing Commodore ROM images; default
                          EMU198X_C64_ROM_DIR, ~/.emu198x/roms/commodore-c64, or
@@ -225,19 +239,19 @@ impl MachineApp for C64 {
                          Ultimate 64 provides. Preferred over --esp-at-tcp: no
                          line rate, no framing
     --load-snapshot PATH restore a runtime snapshot before starting
-    --save-snapshot PATH write a runtime snapshot after a headless run
-    --wait-for-boot N    headless: run up to N frames until boot.detected is true
+    --save-snapshot PATH write a runtime snapshot after running (headless)
+    --wait-for-boot N    run up to N frames until boot.detected is true (headless)
     --wait-for-tape-stop N
-                         headless: run up to N frames until c64.tape.playing has
-                         started and then stops
-    --print-query PATH   headless: resolve one query path after running (repeatable)
-    --print-screen-text  headless: print decoded screen-text lines after running
-    --trace-vic-colours  headless: trace D020/D021 changes during autoload and the
-                         --frames run
+                         run up to N frames until c64.tape.playing has started
+                         and then stops (headless)
+    --print-query PATH   resolve one query path after running (repeatable, headless)
+    --print-screen-text  print decoded screen-text lines after running (headless)
+    --trace-vic-colours  trace D020/D021 changes during autoload and the --frames
+                         run (headless)
     --trace-drive-rom S E
-                         headless: trace drive-8 ROM activity for the inclusive hex
-                         window S..E during autoload and the --frames run
-    --trace-limit N      maximum traced events to retain [default: 512]";
+                         trace drive-8 ROM activity for the inclusive hex window
+                         S..E during autoload and the --frames run (headless)
+    --trace-limit N      maximum traced events to retain [default: 512] (headless)";
     const CONTROLS: &'static str = "    Esc                  quit
     F9 / F10 / F11       start / stop tape, toggle tape turbo
     F12                  hard reset
@@ -866,6 +880,34 @@ mod tests {
         assert!(parse_georam_size("640").is_err());
         assert!(parse_reu_size("1024").is_err());
         assert!(parse_mouse_port("3").is_err());
+    }
+
+    #[test]
+    fn headless_only_flags_route_to_script_mode() {
+        for flags in [
+            &["--rom-dir", "roms", "--wait-for-boot", "200"][..],
+            &["--print-query", "boot.reason"],
+            &["--print-screen-text"],
+            &["--save-snapshot", "out.c64.pst"],
+            &["--trace-vic-colours"],
+            &["--trace-drive-rom", "EC20", "ECA0"],
+            &["--trace-limit", "9"],
+            &["--tape", "game.tap", "--wait-for-tape-stop", "12000"],
+        ] {
+            let (.., mode) = parsed(flags);
+            assert_eq!(mode, Mode::Script, "{flags:?} should be script");
+        }
+        // Media, autoload and snapshot-restore flags are shared with the window.
+        let (.., mode) = parsed(&[
+            "--rom-dir",
+            "roms",
+            "--disk",
+            "game.d64",
+            "--autoload-disk",
+            "--load-snapshot",
+            "in.c64.pst",
+        ]);
+        assert_eq!(mode, Mode::Ui);
     }
 
     #[test]
