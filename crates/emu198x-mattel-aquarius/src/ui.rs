@@ -16,10 +16,9 @@ use emu198x_ui::launch::UiApp;
 use emu198x_ui::{ButtonInputMap, ButtonTarget, HostControl, KeyCode, UiSystem};
 use runtime_mattel_aquarius::AquariusRuntime;
 
-use crate::app::{Aquarius, FRAME_TICKS_PAL};
+use crate::app::{Aquarius, FRAME_TICKS, REGION};
 
 const DEFAULT_SCALE: u32 = 3;
-const PAL_FRAME_HZ: f64 = 50.0;
 
 /// Player-1 hand controller on the Mini Expander: four disc directions plus the
 /// first side button, named as `runtime-mattel-aquarius`'s controller mirror
@@ -73,11 +72,11 @@ impl UiSystem for AquariusSystem {
     }
 
     fn frame_ticks(&self, _runtime: &Self::Runtime) -> u64 {
-        FRAME_TICKS_PAL
+        FRAME_TICKS
     }
 
     fn frame_duration(&self, _runtime: &Self::Runtime) -> Duration {
-        Duration::from_secs_f64(1.0 / PAL_FRAME_HZ)
+        Duration::from_secs_f64(1.0 / REGION.frame_hz())
     }
 
     fn button_map(&self) -> &'static ButtonInputMap {

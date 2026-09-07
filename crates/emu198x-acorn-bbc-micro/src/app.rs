@@ -10,8 +10,7 @@ use runtime_acorn_bbc_micro::{BbcMicroRuntime, BbcMicroSessionQueryProvider, Mod
 use serde_json::{Map, Value};
 
 const MOS_ENV: &str = "EMU198X_BBC_MOS";
-/// The headless modes' conventional MOS image. The window looks for
-/// `mos.rom` instead; see [`crate::ui`]. Aligning the two is a separate fix.
+/// The conventional MOS image, shared by every mode.
 const MOS_RELATIVE: &str = "acorn-bbc-micro/os.rom";
 const MOS_SIZE: usize = 16 * 1024;
 const FONT_ENV: &str = "EMU198X_BBC_SAA5050";

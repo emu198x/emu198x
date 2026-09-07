@@ -25,7 +25,6 @@ motorola-68000 = { path = "../motorola-68000", version = "0.22.0" }
 runtime-commodore-amiga = { path = "../runtime-commodore-amiga", version = "0.22.0" }
 serde = { workspace = true }
 serde_json.workspace = true
-thiserror.workspace = true
 png = { workspace = true }
 zip = { workspace = true }
 
