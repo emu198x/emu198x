@@ -51,6 +51,7 @@ pub use input::MtxKey;
 pub use keyboard::KeyboardState;
 pub use ti_tms9918::Tms9918;
 
+use common_z80_machine::Z80Machine;
 use emu198x_zilog_z80::z80::{BusOp, Z80};
 use serde::{Deserialize, Serialize};
 use ti_sn76489::{NoiseLfsr, Sn76489};
@@ -110,6 +111,16 @@ pub struct Mtx {
     kbd_drive: u8,
     vdp_accum: i64,
     master_clock: u64,
+    /// The cadence driver's half-cycle phase; a restore lands on a T-state
+    /// boundary, so it is not part of the snapshot.
+    #[serde(skip)]
+    cadence_hc: u64,
+    /// Latched by `before_tstate` when the VDP raster wraps during the
+    /// current T-state, and read back by `tick_cpu` once the CPU has
+    /// ticked. Cleared at the start of every T-state, so it is not part of
+    /// the snapshot.
+    #[serde(skip)]
+    raster_wrapped: bool,
     frame_count: u64,
     /// Tracks whether the previous opcode-fetch byte was the `$ED` prefix, so a
     /// following `$4D` (RETI) can release the CTC daisy chain's in-service channel.
@@ -161,6 +172,8 @@ impl Mtx {
             kbd_drive: 0,
             vdp_accum: 0,
             master_clock: 0,
+            cadence_hc: 0,
+            raster_wrapped: false,
             frame_count: 0,
             prev_opcode_ed: false,
             io_trace: None,
@@ -179,42 +192,13 @@ impl Mtx {
     }
 
     /// Advance one Z80 T-state and report whether the VDP raster wrapped.
+    /// The cadence — two CPU half-cycles, the interrupt pin fed before each
+    /// — is `common-z80-machine`'s; the PSG, VDP and CTC tick once per
+    /// T-state ahead of the CPU, as the hand-rolled loop always had them.
     fn tick_cpu(&mut self) -> bool {
-        self.master_clock += 1;
-        self.psg.tick();
-
-        let mut frame_complete = false;
-        self.vdp_accum += VDP_CLOCK_HZ as i64;
-        while self.vdp_accum >= CPU_CLOCK_HZ as i64 {
-            self.vdp_accum -= CPU_CLOCK_HZ as i64;
-            frame_complete |= self.vdp.tick();
-        }
-
-        // VDP /INT feeds CTC channel 0's CLK/TRG input; the CTC edge-counts
-        // those frame interrupts and its own INT output — vectored through the
-        // OS's interrupt mode — is what drives the Z80 IRQ pin, not the raw VDP
-        // line. (MEMU `memu.c` `LoopZ80` → `ctc_trigger(0)`.)
-        self.ctc.set_trg(VDP_INT_CTC_CHANNEL, self.vdp.interrupt);
-        self.ctc.tick();
-
-        // Two CPU half-cycles per T-state. `Z80::tick` advances one
-        // half-cycle — `T1Rise` then `T1Fall` — so calling it once per
-        // T-state ran the CPU at half speed: a `NOP` cost 8 T-states against
-        // the Z80's 4.
-        //
-        // The CTC's INT output is fed before each tick, as it already was:
-        // the Z80 samples `/INT` at an instruction boundary during its own
-        // tick. The VDP is not re-denominated to half-cycles, because it does
-        // not reach the CPU directly — the CTC stands between them and ticks
-        // once per T-state, so a finer VDP interleave could not change when
-        // the interrupt arrives.
-        for _ in 0..2 {
-            self.cpu.irq = self.ctc.interrupt();
-            self.cpu.tick();
-            self.handle_bus();
-        }
-
-        frame_complete
+        self.raster_wrapped = false;
+        self.advance_tstates(1);
+        self.raster_wrapped
     }
 
     fn handle_bus(&mut self) {
@@ -479,13 +463,54 @@ impl Mtx {
     }
 }
 
+impl Z80Machine for Mtx {
+    fn hc(&self) -> u64 {
+        self.cadence_hc
+    }
+
+    fn hc_mut(&mut self) -> &mut u64 {
+        &mut self.cadence_hc
+    }
+
+    // The VDP is not re-denominated to half-cycles, because it does not
+    // reach the CPU directly — the CTC stands between them and ticks once
+    // per T-state, so a finer VDP interleave could not change when the
+    // interrupt arrives.
+    fn before_tstate(&mut self) {
+        self.master_clock += 1;
+        self.psg.tick();
+
+        self.vdp_accum += VDP_CLOCK_HZ as i64;
+        while self.vdp_accum >= CPU_CLOCK_HZ as i64 {
+            self.vdp_accum -= CPU_CLOCK_HZ as i64;
+            self.raster_wrapped |= self.vdp.tick();
+        }
+
+        // VDP /INT feeds CTC channel 0's CLK/TRG input; the CTC edge-counts
+        // those frame interrupts and its own INT output — vectored through the
+        // OS's interrupt mode — is what drives the Z80 IRQ pin, not the raw VDP
+        // line. (MEMU `memu.c` `LoopZ80` → `ctc_trigger(0)`.)
+        self.ctc.set_trg(VDP_INT_CTC_CHANNEL, self.vdp.interrupt);
+        self.ctc.tick();
+    }
+
+    fn feed_interrupt_pins(&mut self) {
+        self.cpu.irq = self.ctc.interrupt();
+    }
+
+    fn tick_cpu_and_bus(&mut self) {
+        self.cpu.tick();
+        self.handle_bus();
+    }
+}
+
 impl emu198x_zilog_z80::Z80Stepper for Mtx {
     fn z80_instructions_retired(&self) -> u64 {
         self.cpu.instructions_retired()
     }
 
     fn step_tick(&mut self) {
-        let _ = self.tick_cpu();
+        self.advance_tstates(1);
     }
 }
 
