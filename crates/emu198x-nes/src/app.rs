@@ -207,6 +207,16 @@ impl MachineApp for Nes {
 
     const BIN_NAME: &'static str = "emu198x-nes";
     const VERSION: &'static str = env!("CARGO_PKG_VERSION");
+    /// Headless-only flags; their presence routes to script mode, so
+    /// `--rom x --assert-blargg` and `--smoke-root DIR` work without an
+    /// explicit `--script`. `--rom` is shared with the window.
+    const SCRIPT_FLAGS: &'static [&'static str] = &[
+        "--media",
+        "--assert-blargg",
+        "--smoke-root",
+        "--smoke-report",
+        "--smoke-screenshot-dir",
+    ];
     const MACHINE_OPTIONS: &'static str =
         "    --rom PATH      iNES/NES 2.0 ROM image or zip containing one ROM candidate
                     (also accepted as a bare positional path)
@@ -214,11 +224,10 @@ impl MachineApp for Nes {
                     alias for --media cartridge-1:cartridge=PATH
     --battery-save PATH     load/write cartridge battery RAM sidecar (default <rom>.sav)
     --no-battery-save       disable automatic .sav load/write
-    --assert-blargg assert Blargg-style status output at $6000 after a
-                    headless run; a failing test exits non-zero
+    --assert-blargg assert Blargg-style status output at $6000 after the
+                    run; a failing test exits non-zero
     --smoke-root PATH       recursively smoke every .nes ROM under PATH
-                    (headless: add --headless or --frames N; 300 frames
-                    per ROM when --frames is 0)
+                    (300 frames per ROM when --frames is 0)
     --smoke-report PATH     write smoke matrix JSON to PATH instead of stdout
     --smoke-screenshot-dir PATH
                     write one PNG per successful smoke row";
@@ -721,6 +730,20 @@ mod tests {
         assert_eq!(common.screenshot, Some(PathBuf::from("frame.png")));
         assert_eq!(common.audio_capture, Some(PathBuf::from("audio.wav")));
         assert_eq!(mode, Mode::Script);
+    }
+
+    #[test]
+    fn headless_only_flags_route_to_script_mode() {
+        for flags in [
+            &["--media", "cartridge-1:cartridge=game.nes"][..],
+            &["--rom", "game.nes", "--assert-blargg"],
+            &["--smoke-root", "roms"],
+            &["--smoke-root", "roms", "--smoke-report", "matrix.json"],
+            &["--smoke-root", "roms", "--smoke-screenshot-dir", "shots"],
+        ] {
+            let (.., mode) = parsed(flags);
+            assert_eq!(mode, Mode::Script, "{flags:?} should be script");
+        }
     }
 
     #[test]
