@@ -2755,6 +2755,7 @@ dependencies = [
 name = "machine-sega-master-system"
 version = "0.22.2"
 dependencies = [
+ "common-z80-machine",
  "emu198x-zilog-z80",
  "postcard",
  "sega-vdp",
