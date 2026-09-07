@@ -2,16 +2,15 @@
 //!
 //! A native Atari 2600 window built on the shared `emu198x-ui` harness: wgpu
 //! video with `raw`/`lcd`/`crt` filters, framed TIA audio, and keyboard/gamepad
-//! input. Compiled only with the `ui` Cargo feature; `main.rs` routes here when
-//! no `--script`/`--mcp`/automation flag is given.
+//! input. Compiled only with the `ui` Cargo feature; the shared launcher
+//! opens the window when no automation flag is given.
 
-use std::path::PathBuf;
+use emu198x_shell::Region;
+use emu198x_ui::launch::UiApp;
+use emu198x_ui::{ButtonInputMap, ButtonTarget, HostControl, KeyCode, UiSystem};
+use runtime_atari_2600::Atari2600Runtime;
 
-use emu198x_shell::{MediaKind, Region, read_media_asset};
-use emu198x_ui::{
-    ButtonInputMap, ButtonTarget, HostControl, KeyCode, UiError, UiSystem, VideoFilter,
-};
-use runtime_atari_2600::{Atari2600Runtime, Model};
+use crate::app::Atari2600;
 
 const DEFAULT_SCALE: u32 = 3;
 const CLOCKS_PER_LINE: u64 = 228;
@@ -33,33 +32,16 @@ const ATARI_2600_BUTTON_MAP: ButtonInputMap = ButtonInputMap::new(&[
     (HostControl::Select, ButtonTarget::new(1, "select")),
 ]);
 
-const USAGE: &str = "\
-Usage: emu198x-atari-2600 [OPTIONS] [CART]
-
-Options:
-    --cart PATH     cartridge ROM (.a26/.bin, or a .zip). A multi-entry zip
-                    (e.g. a merged MAME software list) loads its root parent;
-                    append #NAME or #INDEX to pick another, e.g. game.zip#poleposc
-    --scale N       integer window scale, default 3
-    --video MODE    raw | lcd | crt [default: raw]
-    --region MODE   ntsc | pal [default: ntsc]
-    --help, -h      show this help
-
-Controls:
-    Esc             quit
-    F12             emulator hard reset
-    Arrow keys      joystick (player 1)
-    X / Z / Space   fire
-    Enter           console RESET switch
-    Right Shift     console SELECT switch
-
-Examples:
-    emu198x-atari-2600 frogger2.a26
-    emu198x-atari-2600 --cart pitfall2.zip --scale 4 --video crt
-";
-
 /// The Atari 2600 as a [`UiSystem`] for the shared harness.
-struct Atari2600System;
+pub struct Atari2600System;
+
+impl UiApp for Atari2600 {
+    type System = Atari2600System;
+
+    fn ui_system(&self) -> Atari2600System {
+        Atari2600System
+    }
+}
 
 impl UiSystem for Atari2600System {
     type Runtime = Atari2600Runtime;
@@ -144,123 +126,10 @@ impl UiSystem for Atari2600System {
     }
 }
 
-/// Parsed interactive CLI.
-#[derive(Debug, PartialEq, Eq)]
-pub struct Cli {
-    cart: Option<PathBuf>,
-    scale: u32,
-    video: VideoFilter,
-    region: Region,
-}
-
-impl Default for Cli {
-    fn default() -> Self {
-        Self {
-            cart: None,
-            scale: DEFAULT_SCALE,
-            video: VideoFilter::Raw,
-            region: Region::Ntsc,
-        }
-    }
-}
-
-/// Parse the interactive CLI. Exits the process on `--help` or a bad flag.
-pub fn parse_cli(args: Vec<String>) -> Cli {
-    let mut cli = Cli::default();
-    let mut iter = args.into_iter();
-    while let Some(arg) = iter.next() {
-        match arg.as_str() {
-            "--cart" => cli.cart = Some(PathBuf::from(next_arg(&mut iter, "--cart"))),
-            "--scale" => {
-                cli.scale = next_arg(&mut iter, "--scale")
-                    .parse()
-                    .unwrap_or_else(|_| die("--scale requires a positive integer"));
-            }
-            "--video" => {
-                cli.video = next_arg(&mut iter, "--video")
-                    .parse()
-                    .unwrap_or_else(|_| die("--video expects raw, lcd, or crt"));
-            }
-            "--region" => {
-                cli.region = match next_arg(&mut iter, "--region").as_str() {
-                    "ntsc" => Region::Ntsc,
-                    "pal" => Region::Pal,
-                    other => die(&format!("--region expects ntsc|pal, got {other}")),
-                };
-            }
-            "--help" | "-h" => {
-                println!("{USAGE}");
-                std::process::exit(0);
-            }
-            _ if arg.starts_with('-') => die(&format!("unknown flag: {arg}")),
-            _ if cli.cart.is_none() => cli.cart = Some(PathBuf::from(arg)),
-            _ => die("only one positional cart path is supported"),
-        }
-    }
-    cli
-}
-
-/// Build the runtime from the CLI and open the window. Returns a string error
-/// for the `main.rs` dispatcher.
-pub fn run(cli: Cli) -> Result<(), String> {
-    let Some(cart_path) = &cli.cart else {
-        return Err("provide a cartridge with --cart PATH or as a positional argument".to_owned());
-    };
-    let loaded = read_media_asset(cart_path, MediaKind::Cartridge)
-        .map_err(|err| format!("failed to load cart {}: {err}", cart_path.display()))?;
-    let model = match cli.region {
-        Region::Pal => Model::Vcs2600Pal,
-        _ => Model::Vcs2600Ntsc,
-    };
-    let runtime = Atari2600Runtime::new(model, loaded.bytes)
-        .map_err(|err| format!("failed to start cart {}: {err}", cart_path.display()))?;
-
-    println!(
-        "Controls: Esc quit, F12 reset, arrows joystick, X/Z/Space fire, Enter console RESET, Right Shift SELECT."
-    );
-    emu198x_ui::run(Atari2600System, runtime, cli.scale, cli.video)
-        .map_err(|err: UiError| err.to_string())
-}
-
-fn next_arg<I: Iterator<Item = String>>(iter: &mut I, flag: &str) -> String {
-    iter.next()
-        .unwrap_or_else(|| die(&format!("missing value for {flag}")))
-}
-
-fn die(message: &str) -> ! {
-    eprintln!("error: {message}");
-    std::process::exit(1);
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn parse_cli_accepts_positional_cart_and_scale() {
-        let cli = parse_cli(vec![
-            "--scale".to_owned(),
-            "2".to_owned(),
-            "game.a26".to_owned(),
-        ]);
-        assert_eq!(cli.cart, Some(PathBuf::from("game.a26")));
-        assert_eq!(cli.scale, 2);
-        assert_eq!(cli.video, VideoFilter::Raw);
-        assert_eq!(cli.region, Region::Ntsc);
-    }
-
-    #[test]
-    fn parse_cli_accepts_region_and_video() {
-        let cli = parse_cli(vec![
-            "--region".to_owned(),
-            "pal".to_owned(),
-            "--video".to_owned(),
-            "crt".to_owned(),
-            "game.a26".to_owned(),
-        ]);
-        assert_eq!(cli.region, Region::Pal);
-        assert_eq!(cli.video, VideoFilter::Crt);
-    }
+    use runtime_atari_2600::Model;
 
     #[test]
     fn system_frame_ticks_match_region() {
