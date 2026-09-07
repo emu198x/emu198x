@@ -12,21 +12,17 @@
 //! printed queries, decoded screen text, and VIC / drive-ROM traces — and
 //! prints a plain summary rather than JSON when no `--script` was given.
 
-use std::fs;
-use std::path::Path;
-
 use emu198x_shell::launch::{CommonCli, LaunchError, MachineApp};
 use emu198x_shell::{
     ControlCommand, HeadlessScript, HeadlessSession, MediaTransportAction, MediaTransportCommand,
-    ScriptObservation, ScriptStep, TraceEvent, TraceSink,
+    ScriptObservation, TraceEvent, TraceSink,
 };
 use runtime_commodore_c64::{
-    C64Runtime, C64SessionQueryProvider, DEFAULT_BASIC_LOADER_BOOT_FRAMES,
-    DEFAULT_DISK_AUTOLOAD_SLOT, DEFAULT_DISK_AUTOLOAD_WAIT_FRAMES,
-    DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES, DEFAULT_TAPE_AUTOLOAD_SLOT,
-    DEFAULT_TAPE_AUTOLOAD_WAIT_FRAMES, autoload_basic_disk, autoload_basic_disk_with_trace_sink,
-    autoload_basic_tape, autoload_basic_tape_with_trace_sink, file_loader::load_host_file,
-    load_basic_source,
+    C64Runtime, C64SessionQueryProvider, DEFAULT_DISK_AUTOLOAD_SLOT,
+    DEFAULT_DISK_AUTOLOAD_WAIT_FRAMES, DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES,
+    DEFAULT_TAPE_AUTOLOAD_SLOT, DEFAULT_TAPE_AUTOLOAD_WAIT_FRAMES, autoload_basic_disk,
+    autoload_basic_disk_with_trace_sink, autoload_basic_tape, autoload_basic_tape_with_trace_sink,
+    file_loader::load_host_file,
 };
 use serde::Serialize;
 use serde_json::Value;
@@ -268,26 +264,14 @@ fn run_cli(cli: &C64, common: &CommonCli) -> Result<RunnerReport, LaunchError> {
     if let Some(path) = &common.script {
         let script = HeadlessScript::from_path(path)
             .map_err(|err| format!("failed to load script {}: {err}", path.display()))?;
-        // Step by step rather than `execute_collect` on the whole script, so
-        // the C64's own steps can be intercepted before the shared executor
-        // sees them. `load_basic_program` is one: the shell has no handler for
-        // it and reports `requires a system-specific handler` *mid-run*, after
-        // a script has already booted and typed — a late failure on an action
-        // the parser had accepted. The C64 has had the loader all along, wired
-        // only into its MCP tool. See #914.
-        for step in &script.steps {
-            let emitted = match step {
-                ScriptStep::LoadBasicProgram { path, run } => {
-                    Some(execute_load_basic_program(&mut session, path, *run)?)
-                }
-                other => other
-                    .execute_collect(&mut session)
-                    .map_err(|err| format!("script execution failed: {err}"))?,
-            };
-            if let Some(observation) = emitted {
-                observations.push(observation);
-            }
-        }
+        // Every step runs through the shared executor; `load_basic_program`
+        // reaches the C64 loader through the runtime's `MachineCore` hook
+        // (#914 once intercepted it here).
+        observations.extend(
+            script
+                .execute_collect(&mut session)
+                .map_err(|err| format!("script execution failed: {err}"))?,
+        );
     }
 
     if cli.start_tape {
@@ -374,36 +358,6 @@ fn run_cli(cli: &C64, common: &CommonCli) -> Result<RunnerReport, LaunchError> {
         query_values,
         screen_text_lines,
         trace_lines,
-    })
-}
-
-/// Installs a plain-text BASIC program, as the MCP tool of the same name does.
-///
-/// Shares `load_basic_source` with `mcp_tools::LoadBasicProgramTool` rather
-/// than reimplementing the poke-and-relink: the tokeniser writes to `$0801`,
-/// relinks the line pointers and sets `VARTAB`, and optionally drives the
-/// editor to `RUN`.
-fn execute_load_basic_program(
-    session: &mut HeadlessSession<C64Runtime, C64SessionQueryProvider>,
-    path: &Path,
-    run: bool,
-) -> Result<ScriptObservation, String> {
-    let source = fs::read_to_string(path).map_err(|err| {
-        format!(
-            "load_basic_program: failed to read {}: {err}",
-            path.display()
-        )
-    })?;
-    let result = load_basic_source(session, &source, run, DEFAULT_BASIC_LOADER_BOOT_FRAMES)
-        .map_err(|err| {
-            format!(
-                "load_basic_program: BASIC loader failed for {}: {err}",
-                path.display()
-            )
-        })?;
-    Ok(ScriptObservation::LoadBasicProgram {
-        program_bytes: result.program_bytes,
-        ran: result.ran,
     })
 }
 

@@ -33,9 +33,14 @@ Three things enforce that:
    target (`debug_target`, `watch_target`, `keyboard_target`,
    `port_io_target`) or a query path (`ay.registers`), and fails with the
    capability-missing error when it is absent. `port_read`, `port_write`
-   and `query_ay` moved into the shell under this rule; `set_machine`,
-   `autoload_tape` and `load_basic_program` are the remaining arms still
-   intercepted per binary and follow under the same rule.
+   and `query_ay` moved into the shell under this rule. A step whose
+   body needs the whole session, not just the machine, goes through a
+   hook on `MachineCore` that takes the session: `load_basic_program`
+   and `autoload_tape` call `M::load_basic_program` / `M::autoload_tape`,
+   which the Spectrum family and the C64 implement over their own
+   tokeniser, memory map and prompt handling; the default refuses with
+   the same error the shell always gave. `set_machine` is the one arm
+   still intercepted per binary and follows under the same rule.
 2. **Registration reads the profile, not the binary.** `register_tools_for`
    registers the base set, then each optional tier when the machine
    profile declares the capability behind it, using the ids in
@@ -47,6 +52,8 @@ Three things enforce that:
    | `watch_memory_*` | `memory-watch` |
    | `watch_ay_*` | `ay-audio` |
    | `port_read` / `port_write` | `port-io` |
+   | `load_basic_program` | `basic-program-load` |
+   | `autoload_tape` | `tape-autoload` |
    | `query_ay` | the query surface lists `ay.registers` |
 
    The profile, not the live target, because a machine that starts blank
@@ -64,6 +71,19 @@ Three things enforce that:
    trait instead.
 
 ## What the diff showed
+
+Second pass (loader hooks): every binary's tool list is unchanged
+except the C64, which gains `autoload_tape` — it has had the helper
+since its `--autoload-tape` flag existed and only its MCP surface was
+missing it. Two MCP/script differences the Spectrum and C64 carried
+between their own tool and the shared step are gone: `max_boot_frames`
+of zero now means the machine's default in both modes (the Spectrum's
+MCP tool did that, its script path did not), and `run` defaults to true
+in both (the C64's MCP tool defaulted to false, its script step to
+true). Code198x's C64 and foundations captures are `--script` runs, so
+they already had the shell's default.
+
+First pass (capability-driven registration):
 
 Fleet-wide, the registered tool lists after the change equal the lists
 before it, plus `clear_audio_capture` on every machine and `query_ay` on
@@ -84,6 +104,9 @@ Stop and re-read this record if you find yourself:
 - registering a tool in a binary that reads through `DebugTarget`,
   `WatchTarget`, `KeyboardTarget`, `PortIoTarget` or the query surface
   alone — that is a shell tool waiting to be moved up;
+- writing a per-binary `execute_*` for a step that needs the session:
+  that is a `MachineCore` hook taking the session, with the profile
+  capability that registers its tool;
 - fixing "tool X is missing on machine Y" in the binary rather than in
   Y's profile.
 

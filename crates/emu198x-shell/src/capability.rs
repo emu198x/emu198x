@@ -112,6 +112,10 @@ pub mod ids {
     pub const MEMORY_WATCH: &str = "memory-watch";
     /// A CPU port space through `PortIoTarget`: `port_read` / `port_write`.
     pub const PORT_IO: &str = "port-io";
+    /// The machine can take a plain-text BASIC listing straight into RAM.
+    pub const BASIC_PROGRAM_LOAD: &str = "basic-program-load";
+    /// The machine can type its own tape-load command and start the tape.
+    pub const TAPE_AUTOLOAD: &str = "tape-autoload";
 }
 
 #[must_use]

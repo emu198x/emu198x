@@ -17,15 +17,12 @@
 
 use emu198x_shell::{
     FirmwareImage, FirmwareSet, HeadlessSession, MachineCore, ScriptObservation, ScriptStep,
-    SessionQueryProvider,
     mcp::{Tool, ToolError, ToolRegistry, ToolResponse},
     mcp_tools::ScriptStepTool,
     read_firmware_asset,
 };
-use format_sinclair_zx_spectrum_bas::tokenise;
 use runtime_sinclair_zx_spectrum::{
-    DEFAULT_BASIC_LOADER_BOOT_FRAMES, DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES, SpectrumLiveAccess,
-    SpectrumRuntimeKind, SpectrumSessionQueryProvider, autoload_basic_tape, load_basic_program,
+    SpectrumLiveAccess, SpectrumRuntimeKind, SpectrumSessionQueryProvider,
 };
 use serde_json::{Value, json};
 
@@ -65,34 +62,17 @@ fn add_step(
 ///   captured audio, last run result) is cleared via
 ///   [`HeadlessSession::reset`] so the new variant starts from a
 ///   clean session.
-/// - `AutoloadTape` / `LoadBasicProgram`: handled by shared generic
-///   helpers, which the `--script` runner calls too — one implementation
-///   per step, no MCP/script drift (#456).
-/// - `PressKey` / `TypeString` and everything else delegate to
-///   [`ScriptStep::execute_collect`] — the keyboard verbs run through the
-///   shared `KeyboardTarget` (RULES.md #30); the rest is generic.
+/// - `LoadSnapshot` of a portable `.sna` / `.z80`: routed through the
+///   Spectrum parser rather than the runtime save-state decoder.
+/// - Everything else delegates to [`ScriptStep::execute_collect`]: the
+///   keyboard verbs run through the shared `KeyboardTarget`, the tape and
+///   BASIC loaders through the `MachineCore` loader hooks (RULES.md #30).
 fn mcp_execute_step(
     step: &ScriptStep,
     session: &mut SpectrumSession,
 ) -> Result<Option<ScriptObservation>, ToolError> {
     match step {
         ScriptStep::SetMachine { machine } => execute_set_machine(machine, session).map(Some),
-        // press_key / type_string fall through to the shared `execute_collect`
-        // arms, which drive the machine's `KeyboardTarget` (RULES.md #30).
-        ScriptStep::AutoloadTape {
-            slot,
-            max_boot_frames,
-        } => {
-            let frames = if *max_boot_frames == 0 {
-                DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES
-            } else {
-                *max_boot_frames
-            };
-            execute_autoload_tape(session, slot, frames).map(Some)
-        }
-        ScriptStep::LoadBasicProgram { path, run } => {
-            execute_load_basic_program(session, path, *run).map(Some)
-        }
         ScriptStep::LoadSnapshot { path } if is_portable_snapshot_path(path) => {
             execute_load_portable_snapshot(session, path).map(|()| None)
         }
@@ -187,61 +167,6 @@ pub(crate) fn execute_set_machine(
     })
 }
 
-/// Type `LOAD ""` and start tape transport on the named slot. Generic
-/// over the session type so MCP and `--script` share one implementation
-/// (#456); the runtime helper already spans both session kinds.
-pub(crate) fn execute_autoload_tape<
-    M: MachineCore + SpectrumLiveAccess,
-    Q: SessionQueryProvider<M>,
->(
-    session: &mut HeadlessSession<M, Q>,
-    slot: &str,
-    max_boot_frames: u32,
-) -> Result<ScriptObservation, ToolError> {
-    let result = autoload_basic_tape(session, slot, max_boot_frames)
-        .map_err(|err| ToolError::Execution(format!("autoload_tape: {err}")))?;
-    Ok(ScriptObservation::AutoloadTape {
-        slot: result.slot,
-        boot_frames: result.boot.frames,
-    })
-}
-
-/// Read a `.bas` file, tokenise it, and install it as the live BASIC
-/// program (optionally RUN). Generic over the session type so MCP and
-/// `--script` share one implementation (#456).
-pub(crate) fn execute_load_basic_program<
-    M: MachineCore + SpectrumLiveAccess,
-    Q: SessionQueryProvider<M>,
->(
-    session: &mut HeadlessSession<M, Q>,
-    path: &std::path::Path,
-    run: bool,
-) -> Result<ScriptObservation, ToolError> {
-    let source = std::fs::read_to_string(path).map_err(|err| {
-        ToolError::Execution(format!(
-            "load_basic_program: failed to read {}: {err}",
-            path.display()
-        ))
-    })?;
-    let program = tokenise(&source).map_err(|err| {
-        ToolError::Execution(format!(
-            "load_basic_program: failed to tokenise {}: {err}",
-            path.display()
-        ))
-    })?;
-    let result = load_basic_program(session, &program, run, DEFAULT_BASIC_LOADER_BOOT_FRAMES)
-        .map_err(|err| {
-            ToolError::Execution(format!(
-                "load_basic_program: BASIC loader failed for {}: {err}",
-                path.display()
-            ))
-        })?;
-    Ok(ScriptObservation::LoadBasicProgram {
-        program_bytes: result.program_bytes,
-        ran: result.ran,
-    })
-}
-
 pub(crate) fn kind_to_model(kind: MachineKind) -> runtime_sinclair_zx_spectrum::Model {
     use runtime_sinclair_zx_spectrum::Model;
     match kind {
@@ -330,8 +255,6 @@ impl Tool<SpectrumSession> for SaveTapeTool {
 
 pub fn register_spectrum_tools(registry: &mut ToolRegistry<SpectrumSession>) {
     let string_field = || json!({"type": "string"});
-    let integer_field = || json!({"type": "integer", "minimum": 0});
-    let boolean_field = || json!({"type": "boolean"});
 
     add_step(
         registry,
@@ -344,33 +267,9 @@ pub fn register_spectrum_tools(registry: &mut ToolRegistry<SpectrumSession>) {
         }),
     );
 
-    add_step(
-        registry,
-        "autoload_tape",
-        "Wait for boot, type LOAD \"\", and start tape transport on the named slot.",
-        json!({
-            "type": "object",
-            "properties": {
-                "slot": string_field(),
-                "max_boot_frames": integer_field(),
-            },
-            "required": ["slot", "max_boot_frames"],
-        }),
-    );
-
-    add_step(
-        registry,
-        "load_basic_program",
-        "Tokenise a plain-text .bas file and install it as the live BASIC program (optionally RUN it).",
-        json!({
-            "type": "object",
-            "properties": {
-                "path": string_field(),
-                "run": boolean_field(),
-            },
-            "required": ["path"],
-        }),
-    );
+    // `autoload_tape` and `load_basic_program` come from the shared
+    // loader tiers over the family runtime's `MachineCore` hooks; the
+    // profile declares `tape-autoload` / `basic-program-load`.
 
     // Override the shared `load_snapshot` tool (register_common_tools)
     // with the Spectrum one so it dispatches through `mcp_execute_step`,
@@ -614,8 +513,8 @@ mod tests {
         register_spectrum_tools(&mut registry);
         let names: Vec<_> = registry.iter().map(|tool| tool.name().to_owned()).collect();
 
-        // Only genuinely Spectrum-specific tools live here — tape/BASIC
-        // loaders, `set_machine`, `save_tape`, and `load_snapshot` (an
+        // Only genuinely Spectrum-specific tools live here —
+        // `set_machine`, `save_tape`, and `load_snapshot` (an
         // intentional override so portable `.sna` / `.z80` route through
         // the Spectrum parser, gap #6). The generic CPU/memory/disassembly
         // verbs — `query_cpu`, `memory_read`, `disasm`, `step`, `poke_byte`,
@@ -623,16 +522,12 @@ mod tests {
         // shared `register_debug_tools` tier; the `watch_memory_*` /
         // `watch_ay_*` verbs from the shared watch tier; `port_read` /
         // `port_write` from the shared port-I/O tier behind `PortIoTarget`;
-        // and `clear_audio_capture` / `query_ay` from the common set. MCP
+        // `autoload_tape` / `load_basic_program` from the loader tiers over
+        // the `MachineCore` hooks; and `clear_audio_capture` / `query_ay`
+        // from the common set. MCP
         // and `--script` run one implementation (RULES.md #30, #456,
         // knowledge/decisions/tools-follow-the-machine-spec.md).
-        let expected = [
-            "set_machine",
-            "autoload_tape",
-            "load_basic_program",
-            "load_snapshot",
-            "save_tape",
-        ];
+        let expected = ["set_machine", "load_snapshot", "save_tape"];
         for name in expected {
             assert!(names.contains(&name.to_owned()), "missing {name}");
         }
@@ -661,6 +556,8 @@ mod tests {
             "port_write",
             "clear_audio_capture",
             "query_ay",
+            "autoload_tape",
+            "load_basic_program",
         ] {
             assert!(
                 !names.contains(&shared.to_owned()),

@@ -985,6 +985,56 @@ pub fn register_tools_for<M, Q>(
 /// variant a client can reach: a Spectrum that boots as a 48K must still
 /// advertise the AY tier the 128K it may become will need. Pass the family
 /// catalogue; the executor checks the live target on every call.
+/// Register `load_basic_program` for a machine whose profile declares
+/// `basic-program-load`: it tokenises for its own dialect through the
+/// `MachineCore::load_basic_program` hook.
+pub fn register_basic_program_tools<M, Q>(registry: &mut ToolRegistry<HeadlessSession<M, Q>>)
+where
+    M: MachineCore + 'static,
+    Q: SessionQueryProvider<M> + 'static,
+{
+    registry.register(Box::new(ScriptStepTool::<M, Q>::common(
+        "load_basic_program",
+        "Tokenise a plain-text .bas file and install it as the live BASIC \
+         program (optionally RUN it).",
+        json!({
+            "type": "object",
+            "required": ["path"],
+            "properties": {
+                "path": { "type": "string",
+                          "description": "Path to the plain-text BASIC source file." },
+                "run":  { "type": "boolean",
+                          "description": "RUN the program after installing it (default true)." }
+            }
+        }),
+    )));
+}
+
+/// Register `autoload_tape` for a machine whose profile declares
+/// `tape-autoload`: it types its own load command through the
+/// `MachineCore::autoload_tape` hook.
+pub fn register_tape_autoload_tools<M, Q>(registry: &mut ToolRegistry<HeadlessSession<M, Q>>)
+where
+    M: MachineCore + 'static,
+    Q: SessionQueryProvider<M> + 'static,
+{
+    registry.register(Box::new(ScriptStepTool::<M, Q>::common(
+        "autoload_tape",
+        "Wait for boot, type the machine's tape-load command, and start \
+         tape transport on the named slot.",
+        json!({
+            "type": "object",
+            "required": ["slot", "max_boot_frames"],
+            "properties": {
+                "slot": { "type": "string",
+                          "description": "Stable slot identifier carrying the tape, e.g. \"tape-1\"." },
+                "max_boot_frames": { "type": "integer", "minimum": 0,
+                          "description": "Frames to wait for boot; 0 uses the machine's default." }
+            }
+        }),
+    )));
+}
+
 pub fn register_tools_for_profiles<M, Q>(
     registry: &mut ToolRegistry<HeadlessSession<M, Q>>,
     session: &HeadlessSession<M, Q>,
@@ -1012,6 +1062,12 @@ pub fn register_tools_for_profiles<M, Q>(
     }
     if has(ids::PORT_IO) {
         register_port_io_tools(registry);
+    }
+    if has(ids::BASIC_PROGRAM_LOAD) {
+        register_basic_program_tools(registry);
+    }
+    if has(ids::TAPE_AUTOLOAD) {
+        register_tape_autoload_tools(registry);
     }
     if session
         .query_paths(None)
@@ -1112,6 +1168,8 @@ mod tests {
             "watch_ay_start",
             "port_read",
             "query_ay",
+            "load_basic_program",
+            "autoload_tape",
         ] {
             assert!(
                 !names.contains(&absent.to_owned()),
@@ -1124,7 +1182,14 @@ mod tests {
     fn tiers_follow_the_declared_capabilities_not_the_live_targets() {
         // No live target exists on this machine; the tiers come from the
         // profile alone, which is what a blank-start machine needs.
-        let names = registered(&["keyboard-input", "memory-watch", "ay-audio", "port-io"]);
+        let names = registered(&[
+            "keyboard-input",
+            "memory-watch",
+            "ay-audio",
+            "port-io",
+            "basic-program-load",
+            "tape-autoload",
+        ]);
         for present in [
             "press_key",
             "press_keys",
@@ -1135,6 +1200,8 @@ mod tests {
             "watch_ay_log",
             "port_read",
             "port_write",
+            "load_basic_program",
+            "autoload_tape",
         ] {
             assert!(
                 names.contains(&present.to_owned()),

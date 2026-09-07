@@ -10,6 +10,7 @@ use crate::asset::{AssetLoadError, read_media_asset};
 use crate::control::ControlCommand;
 use crate::debug::DebugTarget;
 use crate::debug_info::{DebugInfoError, DebugSymbols, SourceLine};
+use crate::loaders::LoaderError;
 use crate::machine::{MachineCore, ResetKind};
 use crate::media::{MediaImage, MediaKind, MediaSet};
 use crate::query::{QueryError, QueryPathsResult, QueryResult, SessionQueryProvider};
@@ -1198,6 +1199,15 @@ fn step_debug_target(target: &mut dyn DebugTarget) -> (u64, bool) {
 /// and `ay.selected_register`; a machine without an AY has no such path and
 /// gets the capability-missing error rather than a query error, so a script
 /// can tell "no chip" from "wrong path".
+/// Map a loader hook's refusal or failure onto the script error the step
+/// has always reported.
+fn loader_error(step: &'static str, err: LoaderError) -> ScriptError {
+    match err {
+        LoaderError::Unsupported { step } => ScriptError::SystemSpecificStep { step },
+        LoaderError::Failed(reason) => ScriptError::InvalidStep { step, reason },
+    }
+}
+
 fn query_ay<M: MachineCore, Q: SessionQueryProvider<M>>(
     session: &HeadlessSession<M, Q>,
 ) -> Result<ScriptObservation, ScriptError> {
@@ -1940,12 +1950,42 @@ impl ScriptStep {
                     reached: session.time(),
                 }))
             }
-            Self::AutoloadTape { .. } => Err(ScriptError::SystemSpecificStep {
-                step: "autoload_tape",
-            }),
-            Self::LoadBasicProgram { .. } => Err(ScriptError::SystemSpecificStep {
-                step: "load_basic_program",
-            }),
+            Self::AutoloadTape {
+                slot,
+                max_boot_frames,
+            } => {
+                // The machine's own helper does the typing; the shell only
+                // owns the step so MCP and `--script` share one body.
+                let loaded = M::autoload_tape(session, slot, *max_boot_frames)
+                    .map_err(|err| loader_error("autoload_tape", err))?;
+                Ok(Some(ScriptObservation::AutoloadTape {
+                    slot: loaded.slot,
+                    boot_frames: loaded.boot_frames,
+                }))
+            }
+            Self::LoadBasicProgram { path, run } => {
+                let source =
+                    std::fs::read_to_string(path).map_err(|err| ScriptError::InvalidStep {
+                        step: "load_basic_program",
+                        reason: format!("failed to read {}: {err}", path.display()),
+                    })?;
+                let loaded = M::load_basic_program(session, &source, *run).map_err(|err| {
+                    loader_error(
+                        "load_basic_program",
+                        match err {
+                            LoaderError::Failed(reason) => LoaderError::Failed(format!(
+                                "BASIC loader failed for {}: {reason}",
+                                path.display()
+                            )),
+                            other => other,
+                        },
+                    )
+                })?;
+                Ok(Some(ScriptObservation::LoadBasicProgram {
+                    program_bytes: loaded.program_bytes,
+                    ran: loaded.ran,
+                }))
+            }
             Self::MemoryRead { addr, len } => {
                 // Generic, side-effect-free read through the machine's shared
                 // DebugTarget bus view — works for every debug-capable family
@@ -2338,6 +2378,11 @@ mod tests {
         ports: std::collections::HashMap<u16, u8>,
     }
 
+    /// A loader hook records what the shell handed it, so the test can
+    /// check the file contents and flags went through unchanged.
+    static LAST_BASIC_SOURCE: std::sync::Mutex<Option<(String, bool)>> =
+        std::sync::Mutex::new(None);
+
     impl crate::port_io::PortIoTarget for Ported {
         fn port_read(&mut self, port: u16) -> u8 {
             self.ports.get(&port).copied().unwrap_or(0xFF)
@@ -2379,6 +2424,112 @@ mod tests {
         }
         fn port_io_target_mut(&mut self) -> Option<&mut dyn crate::port_io::PortIoTarget> {
             Some(self)
+        }
+        fn load_basic_program<Q: SessionQueryProvider<Self>>(
+            _session: &mut HeadlessSession<Self, Q>,
+            source: &str,
+            run: bool,
+        ) -> Result<crate::loaders::BasicProgramLoaded, LoaderError> {
+            if source.trim().is_empty() {
+                return Err(LoaderError::Failed("BASIC program is empty".to_owned()));
+            }
+            *LAST_BASIC_SOURCE.lock().expect("lock") = Some((source.to_owned(), run));
+            Ok(crate::loaders::BasicProgramLoaded {
+                program_bytes: source.len() as u16,
+                ran: run,
+            })
+        }
+        fn autoload_tape<Q: SessionQueryProvider<Self>>(
+            _session: &mut HeadlessSession<Self, Q>,
+            slot: &str,
+            max_boot_frames: u32,
+        ) -> Result<crate::loaders::TapeAutoloaded, LoaderError> {
+            Ok(crate::loaders::TapeAutoloaded {
+                slot: slot.to_owned(),
+                boot_frames: if max_boot_frames == 0 {
+                    250
+                } else {
+                    max_boot_frames
+                },
+            })
+        }
+    }
+
+    #[test]
+    fn load_basic_program_reads_the_file_and_runs_the_machine_loader() {
+        let path = std::env::temp_dir().join(format!(
+            "emu198x-shell-script-{}-hello.bas",
+            std::process::id()
+        ));
+        std::fs::write(&path, "10 PRINT \"HI\"\n").expect("write listing");
+        let machine = Ported {
+            profile: DummyMachine::new().profile.clone(),
+            ports: std::collections::HashMap::new(),
+        };
+        let mut session = HeadlessSession::new(machine, 1_000);
+        let step = ScriptStep::LoadBasicProgram {
+            path: path.clone(),
+            run: false,
+        };
+        let observation = step.execute_collect(&mut session).expect("loader ran");
+        let _ = std::fs::remove_file(&path);
+        assert!(matches!(
+            observation,
+            Some(ScriptObservation::LoadBasicProgram {
+                program_bytes: 14,
+                ran: false
+            })
+        ));
+        let seen = LAST_BASIC_SOURCE.lock().expect("lock").clone();
+        assert_eq!(seen, Some(("10 PRINT \"HI\"\n".to_owned(), false)));
+    }
+
+    #[test]
+    fn a_failing_machine_loader_is_reported_against_the_file() {
+        let path = std::env::temp_dir().join(format!(
+            "emu198x-shell-script-{}-empty.bas",
+            std::process::id()
+        ));
+        std::fs::write(&path, "   \n").expect("write listing");
+        let machine = Ported {
+            profile: DummyMachine::new().profile.clone(),
+            ports: std::collections::HashMap::new(),
+        };
+        let mut session = HeadlessSession::new(machine, 1_000);
+        let step = ScriptStep::LoadBasicProgram {
+            path: path.clone(),
+            run: true,
+        };
+        let err = step
+            .execute_collect(&mut session)
+            .expect_err("loader refuses");
+        let _ = std::fs::remove_file(&path);
+        match err {
+            ScriptError::InvalidStep { step, reason } => {
+                assert_eq!(step, "load_basic_program");
+                assert!(reason.contains("BASIC loader failed for"), "{reason}");
+                assert!(reason.contains("BASIC program is empty"), "{reason}");
+            }
+            other => panic!("unexpected error {other:?}"),
+        }
+    }
+
+    #[test]
+    fn autoload_tape_runs_the_machine_helper_and_zero_means_its_default() {
+        let machine = Ported {
+            profile: DummyMachine::new().profile.clone(),
+            ports: std::collections::HashMap::new(),
+        };
+        let mut session = HeadlessSession::new(machine, 1_000);
+        let step = ScriptStep::AutoloadTape {
+            slot: "tape-1".to_owned(),
+            max_boot_frames: 0,
+        };
+        match step.execute_collect(&mut session).expect("helper ran") {
+            Some(ScriptObservation::AutoloadTape { slot, boot_frames }) => {
+                assert_eq!((slot.as_str(), boot_frames), ("tape-1", 250));
+            }
+            other => panic!("unexpected observation {other:?}"),
         }
     }
 
@@ -3521,16 +3672,23 @@ mod tests {
 
     #[test]
     fn load_basic_program_step_returns_system_specific_error_from_shell_executor() {
+        let path = std::env::temp_dir().join(format!(
+            "emu198x-shell-script-{}-unsupported.bas",
+            std::process::id()
+        ));
+        std::fs::write(&path, "10 PRINT 1\n").expect("write listing");
         let mut session = HeadlessSession::new_with_query_provider(
             DummyMachine::new(),
             69_888,
             DummyQueryProvider,
         );
         let step = ScriptStep::LoadBasicProgram {
-            path: PathBuf::from("hello.bas"),
+            path: path.clone(),
             run: true,
         };
-        match step.execute_collect(&mut session) {
+        let result = step.execute_collect(&mut session);
+        let _ = std::fs::remove_file(&path);
+        match result {
             Err(ScriptError::SystemSpecificStep { step }) => {
                 assert_eq!(step, "load_basic_program");
             }

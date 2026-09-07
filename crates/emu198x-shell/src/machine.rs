@@ -348,6 +348,57 @@ pub trait MachineCore {
     fn port_io_target_mut(&mut self) -> Option<&mut dyn crate::port_io::PortIoTarget> {
         None
     }
+
+    /// Tokenise `source` for this machine's BASIC dialect, install it as
+    /// the live program and, when `run` is set, start it.
+    ///
+    /// Backs the shared `load_basic_program` step and MCP tool. The
+    /// default refuses; a machine with a loader overrides it and declares
+    /// the `basic-program-load` capability on its profile so the tool is
+    /// registered.
+    ///
+    /// # Errors
+    ///
+    /// [`LoaderError::Unsupported`] by default; a machine's own loader
+    /// reports its failures as [`LoaderError::Failed`].
+    fn load_basic_program<Q: crate::query::SessionQueryProvider<Self>>(
+        session: &mut crate::session::HeadlessSession<Self, Q>,
+        source: &str,
+        run: bool,
+    ) -> Result<crate::loaders::BasicProgramLoaded, crate::loaders::LoaderError>
+    where
+        Self: Sized,
+    {
+        let _ = (session, source, run);
+        Err(crate::loaders::LoaderError::Unsupported {
+            step: "load_basic_program",
+        })
+    }
+
+    /// Wait for boot, type the machine's tape-load command and start the
+    /// transport on `slot`. A `max_boot_frames` of zero asks for the
+    /// machine's own default budget.
+    ///
+    /// Backs the shared `autoload_tape` step and MCP tool; the profile
+    /// declares `tape-autoload` when a machine overrides this.
+    ///
+    /// # Errors
+    ///
+    /// [`LoaderError::Unsupported`] by default; a machine's own helper
+    /// reports its failures as [`LoaderError::Failed`].
+    fn autoload_tape<Q: crate::query::SessionQueryProvider<Self>>(
+        session: &mut crate::session::HeadlessSession<Self, Q>,
+        slot: &str,
+        max_boot_frames: u32,
+    ) -> Result<crate::loaders::TapeAutoloaded, crate::loaders::LoaderError>
+    where
+        Self: Sized,
+    {
+        let _ = (session, slot, max_boot_frames);
+        Err(crate::loaders::LoaderError::Unsupported {
+            step: "autoload_tape",
+        })
+    }
 }
 
 /// A runtime that is one of a system family's machine *variants* —

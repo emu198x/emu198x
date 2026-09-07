@@ -150,6 +150,8 @@ pub fn profile_for(model: Model) -> MachineProfile {
             known_capability("snapshot-import"),
             known_capability("scripted-input"),
             known_capability("tape-transport-control"),
+            known_capability("basic-program-load"),
+            known_capability("tape-autoload"),
         ]),
     }
 }
