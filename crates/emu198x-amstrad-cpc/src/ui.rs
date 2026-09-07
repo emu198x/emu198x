@@ -3,37 +3,27 @@
 //! The Amstrad CPC's first native window, on the shared `emu198x-ui` harness:
 //! wgpu video with `raw`/`lcd`/`crt` filters and the keyboard routed through
 //! the harness's general-keyboard path ([`UiSystem::map_keys`]). Compiled only
-//! with the `ui` Cargo feature; `main.rs` routes here when no automation flag
-//! is given.
+//! with the `ui` Cargo feature; the shared launcher opens the window when no
+//! automation flag is given.
 //!
 //! The CPC's joystick is not a separate device: it is row 9 of the keyboard
 //! matrix, which is why a gamepad here maps to the same key names the keyboard
 //! path uses rather than to a controller mirror.
 
-use std::env;
-use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use emu198x_shell::MachineCore;
-use emu198x_shell::{MediaImage, MediaKind, MediaSet};
-use emu198x_ui::{
-    ButtonInputMap, ButtonTarget, HostControl, KeyCode, UiError, UiSystem, VideoFilter,
-};
+use emu198x_ui::launch::UiApp;
+use emu198x_ui::{ButtonInputMap, ButtonTarget, HostControl, KeyCode, UiSystem};
 use machine_amstrad_cpc::{FB_HEIGHT, FB_WIDTH};
-use runtime_amstrad_cpc::{AmstradCpcRuntime, Model};
+use runtime_amstrad_cpc::AmstradCpcRuntime;
+
+use crate::app::{Cpc, FRAME_TICKS_PAL};
 
 const DEFAULT_SCALE: u32 = 2;
-
-/// One PAL frame: 64 character clocks per line x 312 lines x 4 T-states.
-/// Must match the headless runner's budget and not exceed the machine's own
-/// `run_frame`, or the harness runs two machine frames per displayed frame.
-const FRAME_TICKS_PAL: u64 = 64 * 312 * 4;
 
 /// 64 x 312 microseconds is 19,968 µs, so ~50.08 Hz — the CPC's actual
 /// refresh rather than a round 50.
 const PAL_FRAME_HZ: f64 = 1_000_000.0 / (64.0 * 312.0);
-
-const FIRMWARE_SIZE: usize = 32 * 1024;
 
 /// Joystick 0, which on a CPC is row 9 of the keyboard matrix. The names are
 /// the ones `runtime-amstrad-cpc`'s input layer resolves.
@@ -46,45 +36,18 @@ const CPC_BUTTON_MAP: ButtonInputMap = ButtonInputMap::new(&[
     (HostControl::East, ButtonTarget::new(1, "joyfire2")),
 ]);
 
-const USAGE: &str = "\
-Usage: emu198x-amstrad-cpc [OPTIONS]
-
-Options:
-    --rom PATH      CPC464 firmware (32 KB: 16 KB OS + 16 KB BASIC); default
-                    ~/.emu198x/roms/amstrad-cpc/cpc464.rom
-                    (or set EMU198X_CPC464_ROM)
-    --tape PATH     .cdt cassette image to insert at start
-    --scale N       integer window scale, default 2
-    --video MODE    raw | lcd | crt [default: raw]
-    --help, -h      show this help
-
-Automation:
-    --script PATH   run a JSON session headlessly and print a report
-    --headless      run without a window (implied by --script)
-    --mcp           serve this machine over MCP on stdio
-
-Controls:
-    Esc             quit
-    F12             hard reset
-    A-Z 0-9 etc.    the CPC keyboard
-    Shift / Ctrl    the CPC SHIFT / CONTROL keys
-    Arrows          the CPC cursor keys
-    Gamepad         joystick 0
-
-Loading a tape:
-    Insert it with --tape, then in BASIC type RUN\" and press RETURN twice.
-    The CPC drives the cassette motor itself, so playback follows the
-    firmware rather than a host transport control.
-
-Examples:
-    emu198x-amstrad-cpc
-    emu198x-amstrad-cpc --rom cpc464.rom --tape game.cdt --scale 3
-";
-
 /// The Amstrad CPC as a [`UiSystem`] for the shared harness. Single-model; a
 /// hard reset rebuilds the machine from the firmware the runtime holds, and
 /// keeps the cassette in the deck.
-struct CpcSystem;
+pub struct CpcSystem;
+
+impl UiApp for Cpc {
+    type System = CpcSystem;
+
+    fn ui_system(&self) -> CpcSystem {
+        CpcSystem
+    }
+}
 
 impl UiSystem for CpcSystem {
     type Runtime = AmstradCpcRuntime;
@@ -124,123 +87,6 @@ impl UiSystem for CpcSystem {
     fn map_keys(&self, code: KeyCode) -> Option<&'static [&'static str]> {
         map_cpc_keys(code)
     }
-}
-
-/// Parsed interactive CLI.
-#[derive(Debug, PartialEq, Eq)]
-pub struct Cli {
-    rom: Option<PathBuf>,
-    tape: Option<PathBuf>,
-    scale: u32,
-    video: VideoFilter,
-}
-
-impl Default for Cli {
-    fn default() -> Self {
-        Self {
-            rom: None,
-            tape: None,
-            scale: DEFAULT_SCALE,
-            video: VideoFilter::Raw,
-        }
-    }
-}
-
-/// Build the runtime from the CLI and open the window. Returns a string error
-/// for the `main.rs` dispatcher.
-pub fn run(cli: Cli) -> Result<(), String> {
-    let rom_path = cli
-        .rom
-        .clone()
-        .or_else(default_rom_path)
-        .ok_or_else(|| "no firmware: pass --rom PATH or set EMU198X_CPC464_ROM".to_owned())?;
-    let firmware = read_firmware(&rom_path)?;
-    let mut runtime = AmstradCpcRuntime::new(Model::Cpc464, firmware)
-        .map_err(|err| format!("failed to construct runtime: {err}"))?;
-
-    if let Some(path) = &cli.tape {
-        let bytes = std::fs::read(path)
-            .map_err(|err| format!("failed to read tape {}: {err}", path.display()))?;
-        let mut media = MediaSet::new();
-        media.push(MediaImage::new("tape-1", MediaKind::Tape, &bytes));
-        runtime
-            .load_media(&media)
-            .map_err(|err| format!("tape load failed: {err}"))?;
-        println!(
-            "Tape inserted: {}. In BASIC, type RUN\" then press RETURN twice.",
-            path.display()
-        );
-    }
-
-    println!(
-        "Controls: Esc quit, F12 reset, keyboard typed directly, Shift/Ctrl modifier keys, arrows for cursors, gamepad joystick."
-    );
-    emu198x_ui::run(CpcSystem, runtime, cli.scale, cli.video)
-        .map_err(|err: UiError| err.to_string())
-}
-
-/// Parse the interactive CLI. Exits the process on `--help` or a malformed flag.
-pub fn parse_cli<I>(args: I) -> Cli
-where
-    I: IntoIterator<Item = String>,
-{
-    let mut cli = Cli::default();
-    let mut iter = args.into_iter();
-    while let Some(arg) = iter.next() {
-        match arg.as_str() {
-            "--rom" => cli.rom = Some(PathBuf::from(next_arg(&mut iter, "--rom"))),
-            "--tape" => cli.tape = Some(PathBuf::from(next_arg(&mut iter, "--tape"))),
-            "--scale" => {
-                cli.scale = next_arg(&mut iter, "--scale")
-                    .parse()
-                    .unwrap_or_else(|_| die("--scale requires a positive integer"));
-            }
-            "--video" => {
-                cli.video = next_arg(&mut iter, "--video")
-                    .parse()
-                    .unwrap_or_else(|_| die("--video expects raw, lcd, or crt"));
-            }
-            "--help" | "-h" => {
-                println!("{USAGE}");
-                std::process::exit(0);
-            }
-            _ => die(&format!("unknown flag: {arg}")),
-        }
-    }
-    cli
-}
-
-fn default_rom_path() -> Option<PathBuf> {
-    if let Ok(path) = env::var("EMU198X_CPC464_ROM")
-        && !path.is_empty()
-    {
-        return Some(PathBuf::from(path));
-    }
-    let home = env::var("HOME").ok()?;
-    Some(PathBuf::from(home).join(".emu198x/roms/amstrad-cpc/cpc464.rom"))
-}
-
-fn read_firmware(path: &Path) -> Result<Vec<u8>, String> {
-    let bytes = std::fs::read(path)
-        .map_err(|err| format!("failed to read firmware {}: {err}", path.display()))?;
-    if bytes.len() != FIRMWARE_SIZE {
-        return Err(format!(
-            "firmware at {} is {} bytes; expected {FIRMWARE_SIZE} (16 KB OS + 16 KB BASIC)",
-            path.display(),
-            bytes.len()
-        ));
-    }
-    Ok(bytes)
-}
-
-fn next_arg<I: Iterator<Item = String>>(iter: &mut I, flag: &str) -> String {
-    iter.next()
-        .unwrap_or_else(|| die(&format!("missing value for {flag}")))
-}
-
-fn die(message: &str) -> ! {
-    eprintln!("error: {message}");
-    std::process::exit(1);
 }
 
 /// Map a physical host key to its CPC key name, as
@@ -334,32 +180,9 @@ mod tests {
     use runtime_amstrad_cpc::key_for_name;
 
     #[test]
-    fn parse_cli_accepts_rom_tape_scale_video() {
-        let cli = parse_cli(
-            [
-                "--rom",
-                "cpc464.rom",
-                "--tape",
-                "game.cdt",
-                "--scale",
-                "4",
-                "--video",
-                "crt",
-            ]
-            .map(ToOwned::to_owned),
-        );
-        assert_eq!(cli.rom, Some(PathBuf::from("cpc464.rom")));
-        assert_eq!(cli.tape, Some(PathBuf::from("game.cdt")));
-        assert_eq!(cli.scale, 4);
-        assert_eq!(cli.video, VideoFilter::Crt);
-    }
-
-    #[test]
-    fn parse_cli_defaults_to_raw_at_scale_two() {
-        let cli = parse_cli(Vec::<String>::new());
-        assert_eq!(cli, Cli::default());
-        assert_eq!(cli.scale, DEFAULT_SCALE);
-        assert_eq!(cli.video, VideoFilter::Raw);
+    fn the_window_defaults_to_scale_two() {
+        assert_eq!(CpcSystem.default_scale(), DEFAULT_SCALE);
+        assert_eq!(DEFAULT_SCALE, 2);
     }
 
     #[test]
@@ -397,9 +220,15 @@ mod tests {
 
     #[test]
     fn the_frame_budget_matches_the_headless_runner() {
-        // Two constants for one fact; if they drift, the window and the
-        // screenshot pipeline disagree about how fast the machine runs.
-        assert_eq!(FRAME_TICKS_PAL, 79_872);
+        // One constant for one fact, shared with the headless runner through
+        // `app`; the window and the screenshot pipeline cannot disagree about
+        // how fast the machine runs.
+        assert_eq!(
+            CpcSystem.frame_ticks(&AmstradCpcRuntime::blank(
+                runtime_amstrad_cpc::Model::Cpc464
+            )),
+            79_872
+        );
         // ~50.08 Hz, not a round 50.
         assert!((PAL_FRAME_HZ - 50.08).abs() < 0.01, "{PAL_FRAME_HZ}");
     }
