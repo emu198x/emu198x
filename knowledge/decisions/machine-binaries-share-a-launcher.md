@@ -84,15 +84,29 @@ The launcher itself is ~700 lines, paid once. What remains in a ported
 binary is the machine: its flags, its runtime construction, its report
 fields, its `UiSystem`, and its key map.
 
+## Hooks
+
+The first porting round (PET, Atari 800XL done; VIC-20, Game Boy, NES held
+back) showed what the shared loop could not express, and the launcher
+gained one hook per gap rather than a private loop per machine:
+
+| Hook | Runs | For |
+|---|---|---|
+| `before_prepare(session)` | after the session exists, before media | restoring a snapshot named by a flag |
+| `after_prepare(session)` | after media, before the script | autoloading a program by running to a prompt; loading battery save data |
+| `after_run(session)` | after the script and frame run, before captures | writing snapshots or save data; asserting on session queries so a failed corpus test exits non-zero |
+| `run_script(common, raw_args)` | instead of the shared loop | a corpus sweep or a different report shape; may still call `script_report` for the plain case |
+| `run_mcp(raw_args)` | instead of the shared server | a server that needs more than a session and a tool set |
+
 ## Porting the rest
 
 Port one binary per commit. Keep the machine's report keys and its MCP tool
 registrations exactly; the launcher has hooks for both. A binary whose
 script mode does more than the shared loop (the Spectrum, C64, Amiga, and
-Dragon carry bespoke script runners and tool sets) keeps that code and
-still gains the shared parsing, ROM lookup, and dispatch; if a hook is
-missing, add it to the launcher rather than keeping a private copy of the
-loop.
+Dragon carry bespoke script runners and tool sets) overrides `run_script`
+or `run_mcp`, keeps that body, and still gains the shared parsing, ROM
+lookup, and dispatch. If a hook is missing, add it here rather than keeping
+a private copy of the loop.
 
 ## Drift triggers
 

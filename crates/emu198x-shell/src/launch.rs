@@ -300,6 +300,73 @@ pub trait MachineApp: Default {
     /// adds `time` and `observations` itself.
     fn report(&self, runtime: &Self::Runtime, report: &mut Map<String, Value>);
 
+    /// Runs once the session exists and before startup media is prepared.
+    /// A machine that restores a snapshot from a flag does it here.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the step fails; script mode stops there.
+    fn before_prepare(
+        &self,
+        _session: &mut HeadlessSession<Self::Runtime, Self::Query>,
+    ) -> Result<(), LaunchError> {
+        Ok(())
+    }
+
+    /// Runs after startup media is prepared and before the script. A
+    /// machine that autoloads a program by running frames to a prompt, or
+    /// loads battery-backed save data, does it here so those frames count
+    /// in the report's `time`.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the step fails; script mode stops there.
+    fn after_prepare(
+        &self,
+        _session: &mut HeadlessSession<Self::Runtime, Self::Query>,
+    ) -> Result<(), LaunchError> {
+        Ok(())
+    }
+
+    /// Runs after the script and frame run, before captures and the
+    /// report. A machine writes snapshots or save data here, and a test
+    /// harness asserts on session queries here so a failure is an error.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when the step fails; script mode exits non-zero.
+    fn after_run(
+        &self,
+        _session: &mut HeadlessSession<Self::Runtime, Self::Query>,
+    ) -> Result<(), LaunchError> {
+        Ok(())
+    }
+
+    /// Run script mode and print its output. The default runs
+    /// [`script_report`] and prints the JSON; a machine with a script mode
+    /// the shared loop cannot express (a corpus sweep, a different report
+    /// shape) overrides this and may still call [`script_report`] for the
+    /// ordinary case. `raw_args` is the full command line.
+    ///
+    /// # Errors
+    ///
+    /// Returns the failure of whatever ran.
+    fn run_script(&self, common: &CommonCli, _raw_args: &[String]) -> Result<(), LaunchError> {
+        let report = script_report(self, common)?;
+        println!("{}", serde_json::to_string(&report).unwrap_or_default());
+        Ok(())
+    }
+
+    /// Run MCP mode. The default is [`serve_mcp`]; a machine whose server
+    /// needs more than a session and a tool set overrides it.
+    ///
+    /// # Errors
+    ///
+    /// Returns the failure of whatever ran.
+    fn run_mcp(&self, raw_args: &[String]) -> Result<(), LaunchError> {
+        serve_mcp(self, raw_args)
+    }
+
     /// Register the MCP tools this machine serves. The default is the base
     /// set plus the keyboard verbs, which is right for any machine with a
     /// keyboard; override to add family tools or drop the keyboard.
@@ -389,15 +456,18 @@ pub fn parse<A: MachineApp>(args: &[String]) -> Result<Parsed<A>, LaunchError> {
     Ok(Parsed::Run { app, common, mode })
 }
 
-/// Run script mode: build the runtime, load startup media, execute the
-/// script and frame run, write captures, and return the report.
+/// The shared script loop: build the runtime, run the machine's
+/// [`before_prepare`](MachineApp::before_prepare), load startup media, run
+/// [`after_prepare`](MachineApp::after_prepare), execute the script and
+/// frame run, run [`after_run`](MachineApp::after_run), write captures, and
+/// return the report.
 ///
 /// # Errors
 ///
 /// Returns a message for unreadable firmware or media, a capture request
-/// with nothing to capture, a script that fails to load or execute, or a
-/// capture that cannot be written.
-pub fn run_script<A: MachineApp>(app: &A, common: &CommonCli) -> Result<Value, LaunchError> {
+/// with nothing to capture, a script that fails to load or execute, a hook
+/// that fails, or a capture that cannot be written.
+pub fn script_report<A: MachineApp>(app: &A, common: &CommonCli) -> Result<Value, LaunchError> {
     if (common.screenshot.is_some() || common.audio_capture.is_some())
         && common.frames == 0
         && common.script.is_none()
@@ -412,11 +482,13 @@ pub fn run_script<A: MachineApp>(app: &A, common: &CommonCli) -> Result<Value, L
     let mut session =
         HeadlessSession::new_with_query_provider(runtime, app.frame_ticks(), app.query_provider());
 
+    app.before_prepare(&mut session)?;
     let loaded = app.startup_media()?;
     let media = startup_media::media_set(&loaded);
     session
         .prepare(&media, &[])
         .map_err(|err| LaunchError::Run(format!("machine preparation failed: {err}")))?;
+    app.after_prepare(&mut session)?;
 
     let mut observations: Vec<ScriptObservation> = Vec::new();
     if let Some(path) = &common.script {
@@ -435,6 +507,7 @@ pub fn run_script<A: MachineApp>(app: &A, common: &CommonCli) -> Result<Value, L
             .run_frames(common.frames)
             .map_err(|err| LaunchError::Run(format!("run failed: {err}")))?;
     }
+    app.after_run(&mut session)?;
     if let Some(path) = &common.screenshot {
         session.save_screenshot(path).map_err(|err| {
             LaunchError::Run(format!("failed to write {}: {err}", path.display()))
@@ -458,14 +531,15 @@ pub fn run_script<A: MachineApp>(app: &A, common: &CommonCli) -> Result<Value, L
     Ok(Value::Object(report))
 }
 
-/// Run MCP mode: build the runtime, load any media named on the command
-/// line, register the tools, and serve stdio until the client goes away.
+/// The shared MCP server: build the runtime, load any media named on the
+/// command line, register the tools, and serve stdio until the client goes
+/// away.
 ///
 /// # Errors
 ///
 /// Returns a message for unreadable firmware, a media flag the profile has
 /// no slot for, or an I/O failure on the JSON-RPC loop.
-pub fn run_mcp<A: MachineApp>(app: &A, raw_args: &[String]) -> Result<(), LaunchError> {
+pub fn serve_mcp<A: MachineApp>(app: &A, raw_args: &[String]) -> Result<(), LaunchError> {
     let runtime = app.build_mcp_runtime()?;
     let mut session =
         HeadlessSession::new_with_query_provider(runtime, app.frame_ticks(), app.query_provider());
@@ -513,12 +587,11 @@ pub fn run_headless<A: MachineApp>(args: Vec<String>) -> Result<Outcome<A>, Laun
             video: common.video,
         }),
         Mode::Script => {
-            let report = run_script(&app, &common)?;
-            println!("{}", serde_json::to_string(&report).unwrap_or_default());
+            app.run_script(&common, &args)?;
             Ok(Outcome::Done)
         }
         Mode::Mcp => {
-            run_mcp(&app, &args)?;
+            app.run_mcp(&args)?;
             Ok(Outcome::Done)
         }
     }
