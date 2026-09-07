@@ -95,6 +95,8 @@ gained one hook per gap rather than a private loop per machine:
 | `before_prepare(session)` | after the session exists, before media | restoring a snapshot named by a flag |
 | `after_prepare(session)` | after media, before the script | autoloading a program by running to a prompt; loading battery save data |
 | `after_run(session)` | after the script and frame run, before captures | writing snapshots or save data; asserting on session queries so a failed corpus test exits non-zero |
+| `requests_capture()` | in the "capture with nothing to run" guard | a machine flag that saves output (the Atom's tape and printer files) |
+| `UiApp::build_ui_runtime()` | when the window opens, instead of `build_runtime` | a window that boots differently from script mode (the BBC Micro installs BASIC for the window, boots the bare MOS headlessly) |
 | `run_script(common, raw_args)` | instead of the shared loop | a corpus sweep or a different report shape; may still call `script_report` for the plain case |
 | `run_mcp(raw_args)` | instead of the shared server | a server that needs more than a session and a tool set |
 

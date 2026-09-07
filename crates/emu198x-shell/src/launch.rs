@@ -328,6 +328,14 @@ pub trait MachineApp: Default {
         Ok(())
     }
 
+    /// Whether the machine's own flags ask for a capture (a saved tape or
+    /// printer output, say). Counted with `--screenshot` and
+    /// `--audio-capture` in the guard that rejects a capture request with
+    /// nothing to run.
+    fn requests_capture(&self) -> bool {
+        false
+    }
+
     /// Runs after the script and frame run, before captures and the
     /// report. A machine writes snapshots or save data here, and a test
     /// harness asserts on session queries here so a failure is an error.
@@ -468,7 +476,7 @@ pub fn parse<A: MachineApp>(args: &[String]) -> Result<Parsed<A>, LaunchError> {
 /// with nothing to capture, a script that fails to load or execute, a hook
 /// that fails, or a capture that cannot be written.
 pub fn script_report<A: MachineApp>(app: &A, common: &CommonCli) -> Result<Value, LaunchError> {
-    if (common.screenshot.is_some() || common.audio_capture.is_some())
+    if (common.screenshot.is_some() || common.audio_capture.is_some() || app.requests_capture())
         && common.frames == 0
         && common.script.is_none()
     {
