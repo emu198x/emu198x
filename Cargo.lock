@@ -679,6 +679,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "common-z80-machine"
+version = "0.22.2"
+
+[[package]]
 name = "concurrent-queue"
 version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2633,6 +2637,7 @@ dependencies = [
 name = "machine-jupiter-ace"
 version = "0.22.2"
 dependencies = [
+ "common-z80-machine",
  "emu198x-zilog-z80",
  "postcard",
  "serde",
@@ -2884,6 +2889,7 @@ dependencies = [
 name = "machine-sord-m5"
 version = "0.22.2"
 dependencies = [
+ "common-z80-machine",
  "emu198x-zilog-z80",
  "postcard",
  "serde",
