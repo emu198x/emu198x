@@ -334,7 +334,7 @@ impl Tool<C64Session> for SetPortDriveTool {
 
 /// Registers the C64-specific tools on the registry, after the shared
 /// `register_common_tools`. `press_key` / `type_string` now come from the
-/// shared keyboard tier (`register_keyboard_tools`, registered in `mcp.rs`)
+/// shared keyboard tier (`register_keyboard_tools`, registered in `app.rs`)
 /// over the C64's `KeyboardTarget` impl. RULES.md #30.
 pub fn register_c64_tools(registry: &mut ToolRegistry<C64Session>) {
     registry.register(Box::new(LoadBasicProgramTool));

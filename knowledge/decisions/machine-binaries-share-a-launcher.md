@@ -1,10 +1,13 @@
 # Machine binaries share a launcher
 
-**Status:** Adopted 2026-09-07. The launcher is in the tree
-(`emu198x-shell/src/launch.rs`, `emu198x-ui/src/launch.rs`) and the Sord M5
-and Jupiter Ace binaries run on it. The other binaries are ported one at a
-time; a binary is "on the launcher" when its `main.rs` is the three-line
-dispatch below and it has no `script.rs` or `mcp.rs` of its own.
+**Status:** Adopted 2026-09-07; every machine binary runs on it as of the
+same day. The launcher is in the tree (`emu198x-shell/src/launch.rs`,
+`emu198x-ui/src/launch.rs`). A binary is "on the launcher" when its
+`main.rs` is the three-line dispatch below, its flags are parsed through
+`MachineApp::parse_flag`, and it carries no parser or loop for the shared
+flags. The Spectrum, C64, Amiga and Dragon keep a `script.rs` (and the
+Amiga an `mcp/` tool set) because those are bespoke bodies behind the
+`run_script` / `register_mcp_tools` hooks, not copies of the shared loop.
 
 ## The problem
 
@@ -97,6 +100,7 @@ gained one hook per gap rather than a private loop per machine:
 | `after_run(session)` | after the script and frame run, before captures | writing snapshots or save data; asserting on session queries so a failed corpus test exits non-zero |
 | `SCRIPT_FLAGS` | in mode detection | machine flags that select script mode on their own, for a harness whose callers never pass `--headless` (the Dragon's smoke flags) |
 | `requests_capture()` | in the "capture with nothing to run" guard | a machine flag that saves output (the Atom's tape and printer files) |
+| `UiSystem::default_video()` | when the window opens without `--video` | a window that defaults to a filter other than raw (the Dragon opens on CRT) |
 | `UiApp::build_ui_runtime()` | when the window opens, instead of `build_runtime` | a window that boots differently from script mode (the BBC Micro installs BASIC for the window, boots the bare MOS headlessly) |
 | `run_script(common, raw_args)` | instead of the shared loop | a corpus sweep or a different report shape; may still call `script_report` for the plain case |
 | `run_mcp(raw_args)` | instead of the shared server | a server that needs more than a session and a tool set |
@@ -115,7 +119,9 @@ a private copy of the loop.
 
 Stop and re-read this record if you find yourself:
 
-- adding a `script.rs` or `mcp.rs` to a machine binary;
+- adding a `script.rs` or `mcp.rs` to a machine binary that parses the
+  shared flags or re-implements the shared loop or server, rather than a
+  bespoke body called from `run_script` / `run_mcp`;
 - writing `fn next_arg`, `fn die`, or `fn default_rom_path` in a binary;
 - parsing `--frames`, `--screenshot`, `--audio-capture`, `--script`,
   `--scale`, or `--video` anywhere but `emu198x-shell/src/launch.rs`;

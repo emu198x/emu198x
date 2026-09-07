@@ -130,6 +130,12 @@ pub trait UiSystem {
         3
     }
 
+    /// Default video filter when the CLI doesn't override it. Raw for
+    /// every machine but the Dragon, whose window opens on the CRT filter.
+    fn default_video(&self) -> VideoFilter {
+        VideoFilter::Raw
+    }
+
     /// What this machine's video output reached — a television, a monitor, or
     /// a panel. The harness derives the pixel aspect from it.
     ///

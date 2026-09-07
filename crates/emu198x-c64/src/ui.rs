@@ -24,53 +24,30 @@
 //! - **Tape**: F9/F10 transport + F11 turbo come free from the harness, gated on
 //!   the `tape-1` slot; [`tape_playing`](UiSystem::tape_playing) drives turbo.
 //!
-//! Compiled only with the `ui` Cargo feature; `main.rs` routes here when no
-//! headless-only flag is given.
+//! Compiled only with the `ui` Cargo feature; the shared launcher opens the
+//! window when no automation flag is given, with the runtime `app.rs` built.
 
 use std::borrow::Cow;
-use std::fs;
-use std::path::{Path, PathBuf};
-use std::process;
 use std::time::Duration;
 
 use common_commodore_c64::timing::{C64Timing, TIMING_NTSC_BREADBIN, TIMING_PAL_BREADBIN};
-use emu198x_shell::{
-    BootArtifacts, ControlCommand, FirmwareImage, FirmwareSet, HeadlessSession, MachineError,
-    MediaImage, MediaKind, MediaSet, MediaTransportAction, MediaTransportCommand, boot_machine,
-    read_firmware_asset, read_media_asset, read_program_asset,
-};
+use emu198x_shell::{FirmwareImage, FirmwareSet, MachineError};
+use emu198x_ui::launch::UiApp;
 use emu198x_ui::{
     ButtonInputMap, ButtonTarget, DriveOption, DrivePortInfo, HostControl, KeyCode, UiSystem,
-    VariantInfo, VideoFilter,
+    VariantInfo,
 };
-use runtime_commodore_c64::{
-    C64Runtime, C64SessionQueryProvider, DEFAULT_DISK_AUTOLOAD_SLOT,
-    DEFAULT_DISK_AUTOLOAD_WAIT_FRAMES, DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES,
-    DEFAULT_TAPE_AUTOLOAD_SLOT, DEFAULT_TAPE_AUTOLOAD_WAIT_FRAMES, DriveKind, Model,
-    autoload_basic_disk, autoload_basic_disk_and_run, autoload_basic_tape,
-    file_loader::load_host_file,
-};
+use runtime_commodore_c64::{C64Runtime, DriveKind, Model};
 
-const KERNAL_ID: &str = "commodore-c64-kernal-rom";
-const BASIC_ID: &str = "commodore-c64-basic-rom";
-const CHARACTER_ID: &str = "commodore-c64-character-rom";
-const DRIVE1541_ID: &str = "commodore-1541-dos-rom";
-const DRIVE1571_ID: &str = "commodore-1571-dos-rom";
-const DRIVE1581_ID: &str = "commodore-1581-dos-rom";
+use crate::app::{C64, FirmwareBundle};
+
 const DEFAULT_SCALE: u32 = 2;
-const DEFAULT_IMPORT_BOOT_FRAMES: u32 = 200;
 const INPUT_SLICES_PER_FRAME: u32 = 8;
-const DEFAULT_TAPE_SLOT: &str = "tape-1";
-const DEFAULT_DISK_SLOT: &str = "drive-8";
 
 const PAL_ID: &str = "pal";
 const NTSC_ID: &str = "ntsc";
 const C64C_PAL_ID: &str = "c64c-pal";
 const C64C_NTSC_ID: &str = "c64c-ntsc";
-
-/// A resolved firmware bundle: `(id, bytes)` per ROM image. Stashed on the
-/// [`C64System`] so a live variant switch can rebuild without re-reading ROMs.
-type FirmwareBundle = Vec<(String, Vec<u8>)>;
 
 // Seam-2 input port convention: port 0 = C64 gameport 2 (CIA1 PA,
 // the main "gameport"). See runtime-commodore-c64/src/input.rs for
@@ -185,7 +162,7 @@ fn map_c64_joystick_key(code: KeyCode) -> Option<HostControl> {
 /// Machine-menu radio follow live switches, the resolved firmware (so a variant
 /// switch can rebuild without re-reading ROMs), and whether the arrow keys /
 /// Space currently drive the gameport-2 joystick (Page Up).
-struct C64System {
+pub struct C64System {
     model: Model,
     firmware: FirmwareBundle,
     keyboard_joystick: bool,
@@ -416,719 +393,36 @@ fn model_for_variant(variant: &str) -> Option<Model> {
     }
 }
 
-// ---- Construction + CLI ----------------------------------------------------
+// ---- The launcher's window driver -------------------------------------------
 
-#[derive(Debug, Default, PartialEq, Eq)]
-pub struct Cli {
-    model: ModelArg,
-    rom_dir: Option<PathBuf>,
-    kernal: Option<PathBuf>,
-    basic: Option<PathBuf>,
-    chargen: Option<PathBuf>,
-    load: Option<PathBuf>,
-    disk: Option<PathBuf>,
-    tape: Option<PathBuf>,
-    autoload_disk: bool,
-    autoload_run: bool,
-    autoload_tape: bool,
-    start_tape: bool,
-    /// Accepted for CLI compatibility with the rest of the fleet, but not a
-    /// startup switch: tape fast-load (turbo) is a runtime toggle (F11) shared by
-    /// every harness system via [`emu198x_ui`], not an initial state. Arming it
-    /// from the CLI would mean a new parameter on the shared `emu198x_ui::run`
-    /// (all 28 callers) — deliberately declined here, matching the Spectrum.
-    turbo_tape: bool,
-    georam_kb: Option<usize>,
-    reu_kb: Option<usize>,
-    mouse_1351_port: Option<u8>,
-    load_snapshot: Option<PathBuf>,
-    scale: u32,
-    video: VideoFilter,
-}
+impl UiApp for C64 {
+    type System = C64System;
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-enum ModelArg {
-    #[default]
-    Pal,
-    Ntsc,
-    C64cPal,
-    C64cNtsc,
-}
-
-impl ModelArg {
-    const fn to_model(self) -> Model {
-        match self {
-            Self::Pal => Model::C64PalBreadbin,
-            Self::Ntsc => Model::C64NtscBreadbin,
-            Self::C64cPal => Model::C64cPal,
-            Self::C64cNtsc => Model::C64cNtsc,
-        }
-    }
-}
-
-impl From<ModelArg> for Model {
-    fn from(arg: ModelArg) -> Self {
-        arg.to_model()
-    }
-}
-
-#[derive(Debug)]
-struct LoadedFirmware {
-    id: &'static str,
-    bytes: Vec<u8>,
-}
-
-#[derive(Debug)]
-struct LoadedProgram {
-    name: String,
-    bytes: Vec<u8>,
-}
-
-const USAGE: &str = "\
-Usage: emu198x-c64 [OPTIONS]
-
-Options:
-    --rom-dir DIR        directory containing Commodore ROM images
-    --kernal PATH        override KERNAL ROM path
-    --basic PATH         override BASIC ROM path
-    --chargen PATH       override character ROM path
-    --model MODEL        pal, ntsc, c64c-pal, or c64c-ntsc [default: pal]
-                         (c64c models fit the MOS 8580 SID; breadbins the 6581)
-    --load PATH          import a program after boot: .prg, .bas, .t64, .d64,
-                         or .p00 (PC64 container)
-    --disk PATH          insert one D64 image into drive-8 at startup
-    --tape PATH          insert one TAP image into datasette slot at startup
-    --autoload-disk      wait for READY. and type LOAD\"*\",8,1 for drive-8
-    --autoload-run       after --autoload-disk loads, wait for it and type RUN
-    --autoload-tape      wait for READY., press SHIFT+RUN/STOP, and start tape-1
-    --start-tape         start the inserted tape immediately at startup
-    --turbo-tape         (accepted; arm tape fast-load in the UI with F11)
-    --georam KB          attach a GeoRAM RAM expansion (512, 1024, or 2048 KiB)
-    --reu KB             attach a 17xx REU RAM expansion (128, 256, or 512 KiB)
-    --mouse-1351 PORT    plug a 1351 proportional mouse into control port 1 or 2
-    --load-snapshot PATH restore a runtime snapshot before starting
-    --scale N            integer window scale, default 2
-    --video MODE         raw | lcd | crt [default: raw]
-    --help, -h           show this help
-
-Automation:
-    --script PATH   run a JSON session headlessly and print a report
-    --headless      run without a window (implied by --script)
-    --mcp           serve this machine over MCP on stdio
-
-Controls:
-    Esc                  quit
-    F9 / F10 / F11       start / stop tape, toggle tape turbo
-    F12                  hard reset
-    Cmd/Ctrl+S / +L      quick save / load state
-    Page Up              toggle arrow/space joystick mode for gameport 2
-    Arrow keys           C64 cursor keys
-    Arrow keys + Space   joystick gameport 2 when Page Up mode is enabled
-    F1-F8                C64 function keys
-    Alt / Command        Commodore key
-    Tab                  Run/Stop
-    Gamepad              maps to gameport 2
-    Machine menu         switch between PAL and NTSC live
-
-Examples:
-    emu198x-c64 --rom-dir ~/.emu198x/roms/commodore-c64
-    emu198x-c64 --rom-dir ~/.emu198x/roms/commodore-c64 --load demo.bas
-    emu198x-c64 --rom-dir ~/.emu198x/roms/commodore-c64 --disk game.d64
-    emu198x-c64 --rom-dir ~/.emu198x/roms/commodore-c64 --disk game.d64 --autoload-disk
-    emu198x-c64 --rom-dir ~/.emu198x/roms/commodore-c64 --tape game.tap --autoload-tape
-    emu198x-c64 --load-snapshot ready.c64.pst
-";
-
-/// Build the runtime from the CLI and open the window.
-pub fn run(cli: Cli) -> Result<(), String> {
-    println!(
-        "Controls: Esc quit, F9/F10 tape start/stop, F11 tape turbo, F12 reset, \
-         Cmd/Ctrl+S/L save/load state, Page Up toggles gameport-2 arrows/space, \
-         gamepad maps to gameport 2; Machine menu switches PAL/NTSC."
-    );
-    let (runtime, firmware) = build_runtime(&cli)?;
-    let model = cli.model.into();
-    emu198x_ui::run(
+    fn ui_system(&self) -> C64System {
+        // The launcher builds the window driver before the runtime and hands
+        // neither to the other, so the driver resolves the same firmware
+        // itself to stash for live variant switches. A failure here is left
+        // for `build_runtime`, which reports it a moment later.
+        let firmware = self
+            .load_firmware_bytes()
+            .map(|images| {
+                images
+                    .into_iter()
+                    .map(|image| (image.id.to_owned(), image.bytes))
+                    .collect()
+            })
+            .unwrap_or_default();
         C64System {
-            model,
+            model: self.model.to_model(),
             firmware,
             keyboard_joystick: false,
-        },
-        runtime,
-        cli.scale,
-        cli.video,
-    )
-    .map_err(|err| err.to_string())
-}
-
-/// Boot a [`C64Runtime`] and apply the CLI's media workflow. A temporary
-/// [`HeadlessSession`] is used for media load/autoload (reusing the shared
-/// helpers), then unwrapped into the bare runtime the harness drives. Returns
-/// the runtime *and* the resolved firmware bytes, so the [`C64System`] can stash
-/// them for live variant switching.
-fn build_runtime(cli: &Cli) -> Result<(C64Runtime, FirmwareBundle), String> {
-    if cli.autoload_disk && cli.autoload_tape {
-        return Err("--autoload-disk conflicts with --autoload-tape".to_owned());
-    }
-    if cli.autoload_run && !cli.autoload_disk {
-        return Err("--autoload-run requires --autoload-disk".to_owned());
-    }
-    if cli.autoload_tape && cli.start_tape {
-        return Err("--autoload-tape conflicts with --start-tape".to_owned());
-    }
-    if (cli.autoload_tape || cli.start_tape) && cli.tape.is_none() {
-        return Err("--autoload-tape and --start-tape require --tape PATH".to_owned());
-    }
-
-    let firmware_storage = load_firmware_bytes(cli)?;
-    let firmware_bytes: FirmwareBundle = firmware_storage
-        .iter()
-        .map(|image| (image.id.to_owned(), image.bytes.clone()))
-        .collect();
-    let mut firmware = FirmwareSet::new();
-    for image in &firmware_storage {
-        firmware.push(FirmwareImage::new(image.id, &image.bytes));
-    }
-
-    let snapshot_bytes = match &cli.load_snapshot {
-        Some(path) => Some(
-            fs::read(path).map_err(|err| format!("failed to read {}: {err}", path.display()))?,
-        ),
-        None => None,
-    };
-
-    let model = cli.model.to_model();
-    let mut machine = boot_machine(
-        &BootArtifacts {
-            firmware,
-            snapshot: snapshot_bytes.as_deref(),
-        },
-        |firmware| C64Runtime::from_firmware(model, firmware),
-        || C64Runtime::blank(model),
-    )
-    .map_err(|err| format!("boot failed: {err}"))?;
-
-    // Attach expansions only when requested, so a snapshot that restored its
-    // own expansion RAM is left intact when the flag is absent.
-    if let Some(kb) = cli.georam_kb {
-        machine.set_georam(Some(kb));
-    }
-    if let Some(kb) = cli.reu_kb {
-        machine.set_reu(Some(kb));
-    }
-    if let Some(port) = cli.mouse_1351_port {
-        machine.set_mouse_1351(Some(port));
-    }
-
-    let frame_ticks = u64::from(match cli.model {
-        ModelArg::Pal | ModelArg::C64cPal => TIMING_PAL_BREADBIN.cycles_per_frame,
-        ModelArg::Ntsc | ModelArg::C64cNtsc => TIMING_NTSC_BREADBIN.cycles_per_frame,
-    });
-    let mut session =
-        HeadlessSession::new_with_query_provider(machine, frame_ticks, C64SessionQueryProvider);
-
-    if let Some(path) = &cli.tape {
-        let loaded = read_media_asset(path, MediaKind::Tape)
-            .map_err(|err| format!("failed to load tape asset {}: {err}", path.display()))?;
-        let mut media = MediaSet::new();
-        media.push(MediaImage::new(
-            DEFAULT_TAPE_SLOT,
-            MediaKind::Tape,
-            &loaded.bytes,
-        ));
-        session
-            .load_media(&media)
-            .map_err(|err| format!("tape load failed: {err}"))?;
-    }
-
-    if let Some(path) = &cli.disk {
-        let loaded = read_media_asset(path, MediaKind::Disk)
-            .map_err(|err| format!("failed to load disk asset {}: {err}", path.display()))?;
-        let mut media = MediaSet::new();
-        media.push(MediaImage::new(
-            DEFAULT_DISK_SLOT,
-            MediaKind::Disk,
-            &loaded.bytes,
-        ));
-        session
-            .load_media(&media)
-            .map_err(|err| format!("disk load failed: {err}"))?;
-    }
-
-    if cli.autoload_tape {
-        autoload_basic_tape(
-            &mut session,
-            DEFAULT_TAPE_AUTOLOAD_SLOT,
-            DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES,
-            DEFAULT_TAPE_AUTOLOAD_WAIT_FRAMES,
-        )
-        .map_err(|err| format!("tape autoload failed: {err}"))?;
-    } else if cli.autoload_disk {
-        let autoload = if cli.autoload_run {
-            autoload_basic_disk_and_run
-        } else {
-            autoload_basic_disk
-        };
-        autoload(
-            &mut session,
-            DEFAULT_DISK_AUTOLOAD_SLOT,
-            DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES,
-            DEFAULT_DISK_AUTOLOAD_WAIT_FRAMES,
-        )
-        .map_err(|err| format!("disk autoload failed: {err}"))?;
-    } else if cli.start_tape {
-        session
-            .command(&ControlCommand::MediaTransport(MediaTransportCommand::new(
-                DEFAULT_TAPE_AUTOLOAD_SLOT,
-                MediaTransportAction::Start,
-            )))
-            .map_err(|err| format!("failed to start tape transport: {err}"))?;
-    }
-
-    if let Some(path) = &cli.load {
-        let _ = session
-            .wait_for_boot(DEFAULT_IMPORT_BOOT_FRAMES)
-            .map_err(|err| format!("wait for boot failed: {err}"))?;
-        let loaded = load_program_bytes(path)?;
-        let message = load_host_file(session.machine_mut(), &loaded.name, &loaded.bytes)?;
-        println!("{message}");
-    }
-
-    Ok((session.into_machine(), firmware_bytes))
-}
-
-fn load_firmware_bytes(cli: &Cli) -> Result<Vec<LoadedFirmware>, String> {
-    let rom_dir = resolve_rom_dir(cli)?;
-    let entries = [
-        (
-            KERNAL_ID,
-            resolve_rom_path(
-                cli.kernal.as_deref(),
-                rom_dir.as_deref(),
-                &["kernal.rom", "c64-kernal.rom"],
-            )?,
-        ),
-        (
-            BASIC_ID,
-            resolve_rom_path(
-                cli.basic.as_deref(),
-                rom_dir.as_deref(),
-                &["basic.rom", "c64-basic.rom"],
-            )?,
-        ),
-        (
-            CHARACTER_ID,
-            resolve_rom_path(
-                cli.chargen.as_deref(),
-                rom_dir.as_deref(),
-                &["chargen.rom", "c64-chargen.rom"],
-            )?,
-        ),
-        (
-            DRIVE1541_ID,
-            resolve_rom_path(
-                None,
-                rom_dir.as_deref(),
-                &["1541.rom", "dos1541.rom", "c1541.rom"],
-            )?,
-        ),
-        // The 1571 and 1581 DOS ROMs are optional: loaded when present so the
-        // per-port drive selector can offer those models, absent otherwise
-        // (`resolve_rom_path` returns `None`, and the profile marks both
-        // optional). No CLI override — they live beside the 1541 in the ROM dir.
-        (
-            DRIVE1571_ID,
-            resolve_rom_path(
-                None,
-                rom_dir.as_deref(),
-                &["1571.rom", "dos1571.rom", "c1571.rom"],
-            )?,
-        ),
-        (
-            DRIVE1581_ID,
-            resolve_rom_path(
-                None,
-                rom_dir.as_deref(),
-                &["1581.rom", "dos1581.rom", "c1581.rom"],
-            )?,
-        ),
-    ];
-
-    entries
-        .into_iter()
-        .filter_map(|(id, path)| path.map(|path| (id, path)))
-        .map(|(id, path)| {
-            read_firmware_asset(&path)
-                .map(|loaded| LoadedFirmware {
-                    id,
-                    bytes: loaded.bytes,
-                })
-                .map_err(|err| {
-                    format!(
-                        "failed to read firmware {id} from {}: {err}",
-                        path.display()
-                    )
-                })
-        })
-        .collect()
-}
-
-fn load_program_bytes(path: &Path) -> Result<LoadedProgram, String> {
-    let loaded = read_program_asset(path)
-        .map_err(|err| format!("failed to read program {}: {err}", path.display()))?;
-    let name = loaded.archive_member.unwrap_or_else(|| {
-        path.file_name()
-            .and_then(|value| value.to_str())
-            .map(str::to_owned)
-            .unwrap_or_else(|| path.display().to_string())
-    });
-
-    Ok(LoadedProgram {
-        name,
-        bytes: loaded.bytes,
-    })
-}
-
-fn resolve_rom_dir(cli: &Cli) -> Result<Option<PathBuf>, String> {
-    if let Some(dir) = &cli.rom_dir {
-        return Ok(Some(dir.clone()));
-    }
-
-    if let Ok(dir) = std::env::var("EMU198X_C64_ROM_DIR") {
-        return Ok(Some(PathBuf::from(dir)));
-    }
-
-    let Some(home) = std::env::var_os("HOME") else {
-        return Ok(None);
-    };
-    let commodore_dir = PathBuf::from(&home).join(".emu198x/roms/commodore-c64");
-    if commodore_dir.exists() {
-        return Ok(Some(commodore_dir));
-    }
-
-    let legacy_dir = PathBuf::from(home).join(".emu198x/roms/c64");
-    if legacy_dir.exists() {
-        return Ok(Some(legacy_dir));
-    }
-
-    if cli.kernal.is_some()
-        || cli.basic.is_some()
-        || cli.chargen.is_some()
-        || cli.load_snapshot.is_some()
-    {
-        return Ok(None);
-    }
-
-    Err(
-        "no C64 ROM directory found — pass --rom-dir DIR, set EMU198X_C64_ROM_DIR, or create ~/.emu198x/roms/commodore-c64".into(),
-    )
-}
-
-fn resolve_rom_path(
-    explicit: Option<&Path>,
-    rom_dir: Option<&Path>,
-    filenames: &[&str],
-) -> Result<Option<PathBuf>, String> {
-    if let Some(path) = explicit {
-        return Ok(Some(path.to_path_buf()));
-    }
-
-    let Some(rom_dir) = rom_dir else {
-        return Ok(None);
-    };
-
-    for filename in filenames {
-        let candidate = rom_dir.join(filename);
-        if candidate.exists() {
-            return Ok(Some(candidate));
         }
     }
-
-    Err(format!(
-        "missing required ROM in {} (looked for {})",
-        rom_dir.display(),
-        filenames.join(", ")
-    ))
-}
-
-/// Parses the interactive CLI. Exits the process on `--help` or a malformed
-/// flag.
-pub fn parse_cli<I>(args: I) -> Cli
-where
-    I: IntoIterator<Item = String>,
-{
-    let mut cli = Cli {
-        scale: DEFAULT_SCALE,
-        ..Cli::default()
-    };
-    let mut iter = args.into_iter();
-
-    while let Some(arg) = iter.next() {
-        match arg.as_str() {
-            "--rom-dir" => cli.rom_dir = Some(PathBuf::from(next_arg(&mut iter, "--rom-dir"))),
-            "--kernal" => cli.kernal = Some(PathBuf::from(next_arg(&mut iter, "--kernal"))),
-            "--basic" => cli.basic = Some(PathBuf::from(next_arg(&mut iter, "--basic"))),
-            "--chargen" => cli.chargen = Some(PathBuf::from(next_arg(&mut iter, "--chargen"))),
-            "--model" => cli.model = parse_model_arg(&next_arg(&mut iter, "--model")),
-            "--load" => cli.load = Some(PathBuf::from(next_arg(&mut iter, "--load"))),
-            "--disk" => cli.disk = Some(PathBuf::from(next_arg(&mut iter, "--disk"))),
-            "--tape" => cli.tape = Some(PathBuf::from(next_arg(&mut iter, "--tape"))),
-            "--autoload-disk" => cli.autoload_disk = true,
-            "--autoload-run" => cli.autoload_run = true,
-            "--autoload-tape" => cli.autoload_tape = true,
-            "--start-tape" => cli.start_tape = true,
-            "--turbo-tape" => cli.turbo_tape = true,
-            "--georam" => cli.georam_kb = Some(parse_georam_size(&next_arg(&mut iter, "--georam"))),
-            "--reu" => cli.reu_kb = Some(parse_reu_size(&next_arg(&mut iter, "--reu"))),
-            "--mouse-1351" => {
-                cli.mouse_1351_port = Some(parse_mouse_port(&next_arg(&mut iter, "--mouse-1351")));
-            }
-            "--load-snapshot" => {
-                cli.load_snapshot = Some(PathBuf::from(next_arg(&mut iter, "--load-snapshot")));
-            }
-            "--scale" => {
-                cli.scale = next_arg(&mut iter, "--scale")
-                    .parse()
-                    .unwrap_or_else(|_| die("--scale requires a positive integer"));
-            }
-            "--video" => {
-                cli.video = parse_video_arg(&next_arg(&mut iter, "--video"));
-            }
-            "--help" | "-h" => {
-                println!("{USAGE}");
-                process::exit(0);
-            }
-            _ => die(&format!("unknown flag: {arg}")),
-        }
-    }
-
-    cli
-}
-
-fn parse_video_arg(video: &str) -> VideoFilter {
-    video
-        .parse()
-        .unwrap_or_else(|_| die("--video expects raw, lcd, or crt"))
-}
-
-/// Parse a `--georam` size in KiB. Accepts the standard 512/1024/2048 units.
-fn parse_georam_size(value: &str) -> usize {
-    match value.parse::<usize>() {
-        Ok(kb @ (512 | 1024 | 2048)) => kb,
-        _ => die("--georam expects a size in KiB: 512, 1024, or 2048"),
-    }
-}
-
-/// Parse a `--mouse-1351` control-port number. The C64 has two control ports.
-fn parse_mouse_port(value: &str) -> u8 {
-    match value.parse::<u8>() {
-        Ok(port @ (1 | 2)) => port,
-        _ => die("--mouse-1351 expects a control port: 1 or 2"),
-    }
-}
-
-/// Parse a `--reu` size in KiB. Accepts the standard 128/256/512 REU units.
-fn parse_reu_size(value: &str) -> usize {
-    match value.parse::<usize>() {
-        Ok(kb @ (128 | 256 | 512)) => kb,
-        _ => die("--reu expects a size in KiB: 128, 256, or 512"),
-    }
-}
-
-fn parse_model_arg(value: &str) -> ModelArg {
-    match value {
-        "pal" => ModelArg::Pal,
-        "ntsc" => ModelArg::Ntsc,
-        "c64c-pal" | "c64c" => ModelArg::C64cPal,
-        "c64c-ntsc" => ModelArg::C64cNtsc,
-        _ => die("--model expects pal, ntsc, c64c-pal, or c64c-ntsc"),
-    }
-}
-
-fn next_arg<I>(iter: &mut I, flag: &str) -> String
-where
-    I: Iterator<Item = String>,
-{
-    iter.next()
-        .unwrap_or_else(|| die(&format!("missing value for {flag}")))
-}
-
-fn die(message: &str) -> ! {
-    eprintln!("error: {message}");
-    eprintln!();
-    eprintln!("{USAGE}");
-    process::exit(2);
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn parse_cli_accepts_expected_flags() {
-        let cli = parse_cli([
-            "--model".to_string(),
-            "ntsc".to_string(),
-            "--rom-dir".to_string(),
-            "roms".to_string(),
-            "--load".to_string(),
-            "demo.bas".to_string(),
-            "--load-snapshot".to_string(),
-            "ready.c64.pst".to_string(),
-            "--scale".to_string(),
-            "3".to_string(),
-        ]);
-
-        assert_eq!(
-            cli,
-            Cli {
-                model: ModelArg::Ntsc,
-                rom_dir: Some(PathBuf::from("roms")),
-                kernal: None,
-                basic: None,
-                chargen: None,
-                load: Some(PathBuf::from("demo.bas")),
-                disk: None,
-                tape: None,
-                autoload_disk: false,
-                autoload_run: false,
-                autoload_tape: false,
-                start_tape: false,
-                turbo_tape: false,
-                mouse_1351_port: None,
-                georam_kb: None,
-                reu_kb: None,
-                load_snapshot: Some(PathBuf::from("ready.c64.pst")),
-                scale: 3,
-                video: VideoFilter::Raw,
-            }
-        );
-    }
-
-    #[test]
-    fn parse_cli_accepts_tape_flags() {
-        let cli = parse_cli([
-            "--tape".to_string(),
-            "game.tap".to_string(),
-            "--autoload-tape".to_string(),
-        ]);
-
-        assert_eq!(
-            cli,
-            Cli {
-                model: ModelArg::Pal,
-                rom_dir: None,
-                kernal: None,
-                basic: None,
-                chargen: None,
-                load: None,
-                disk: None,
-                tape: Some(PathBuf::from("game.tap")),
-                autoload_disk: false,
-                autoload_run: false,
-                autoload_tape: true,
-                start_tape: false,
-                turbo_tape: false,
-                mouse_1351_port: None,
-                georam_kb: None,
-                reu_kb: None,
-                load_snapshot: None,
-                scale: DEFAULT_SCALE,
-                video: VideoFilter::Raw,
-            }
-        );
-    }
-
-    #[test]
-    fn parse_cli_accepts_tape_turbo_flag() {
-        let cli = parse_cli(["--turbo-tape".to_string()]);
-        assert!(cli.turbo_tape);
-    }
-
-    #[test]
-    fn parse_cli_accepts_georam_size() {
-        let cli = parse_cli(["--georam".to_string(), "512".to_string()]);
-        assert_eq!(cli.georam_kb, Some(512));
-        assert_eq!(parse_georam_size("2048"), 2048);
-    }
-
-    #[test]
-    fn parse_cli_accepts_reu_size() {
-        let cli = parse_cli(["--reu".to_string(), "512".to_string()]);
-        assert_eq!(cli.reu_kb, Some(512));
-        assert_eq!(parse_reu_size("128"), 128);
-    }
-
-    #[test]
-    fn parse_cli_accepts_mouse_1351_port() {
-        let cli = parse_cli(["--mouse-1351".to_string(), "1".to_string()]);
-        assert_eq!(cli.mouse_1351_port, Some(1));
-        assert_eq!(parse_mouse_port("2"), 2);
-    }
-
-    #[test]
-    fn parse_cli_accepts_autoload_run() {
-        let cli = parse_cli(["--autoload-disk".to_string(), "--autoload-run".to_string()]);
-        assert!(cli.autoload_disk);
-        assert!(cli.autoload_run);
-    }
-
-    #[test]
-    fn build_runtime_rejects_autoload_run_without_disk() {
-        let cli = parse_cli(["--autoload-run".to_string()]);
-        let err = build_runtime(&cli)
-            .map(|_| ())
-            .expect_err("autoload-run needs autoload-disk");
-        assert!(err.contains("--autoload-run requires --autoload-disk"));
-    }
-
-    /// The native firmware loader picks up the optional 1571 and 1581 DOS ROMs
-    /// when present, so the per-port drive selector can offer those models. This
-    /// is the enabling piece for the native-UI drive-type chooser: without the
-    /// ROMs retained, `set_port_drive` would reject 1571/1581 as MissingFirmware.
-    #[test]
-    #[ignore = "FIXTURE: requires local C64 + 1541/1571/1581 DOS ROMs at ~/.emu198x/roms/commodore-c64/"]
-    fn build_runtime_loads_the_optional_1571_and_1581_dos_roms() {
-        use runtime_commodore_c64::DriveKind;
-
-        let rom_dir = format!(
-            "{}/.emu198x/roms/commodore-c64",
-            std::env::var("HOME").expect("HOME set")
-        );
-        let cli = parse_cli(["--rom-dir".to_string(), rom_dir]);
-        let (mut runtime, _firmware) =
-            build_runtime(&cli).expect("build a runtime from the local ROM directory");
-
-        // The ROMs were retained iff selecting those models on a port succeeds.
-        runtime
-            .set_port_drive(10, Some(DriveKind::C1571))
-            .expect("1571 DOS ROM should have been loaded");
-        runtime
-            .set_port_drive(11, Some(DriveKind::C1581))
-            .expect("1581 DOS ROM should have been loaded");
-        assert_eq!(runtime.port_drive_kind(10), Some(DriveKind::C1571));
-        assert_eq!(runtime.port_drive_kind(11), Some(DriveKind::C1581));
-    }
-
-    #[test]
-    fn parse_cli_accepts_video_filter() {
-        let cli = parse_cli(["--video".to_string(), "crt".to_string()]);
-        assert_eq!(cli.video, VideoFilter::Crt);
-    }
-
-    #[test]
-    fn parse_cli_accepts_disk_flag() {
-        let cli = parse_cli(["--disk".to_string(), "game.d64".to_string()]);
-        assert_eq!(cli.disk, Some(PathBuf::from("game.d64")));
-        assert_eq!(cli.tape, None);
-    }
-
-    #[test]
-    fn parse_cli_accepts_disk_autoload_flag() {
-        let cli = parse_cli(["--autoload-disk".to_string()]);
-        assert!(cli.autoload_disk);
-        assert!(!cli.autoload_tape);
-    }
 
     #[test]
     fn key_map_covers_cursors_and_shifted_function_keys() {
@@ -1172,15 +466,6 @@ mod tests {
             assert_eq!(model_for_variant(variant_id(model)), Some(model));
         }
         assert_eq!(model_for_variant("nonsense"), None);
-    }
-
-    #[test]
-    fn model_arg_parses_all_variants() {
-        assert_eq!(parse_model_arg("pal").to_model(), Model::C64PalBreadbin);
-        assert_eq!(parse_model_arg("ntsc").to_model(), Model::C64NtscBreadbin);
-        assert_eq!(parse_model_arg("c64c-pal").to_model(), Model::C64cPal);
-        assert_eq!(parse_model_arg("c64c").to_model(), Model::C64cPal);
-        assert_eq!(parse_model_arg("c64c-ntsc").to_model(), Model::C64cNtsc);
     }
 
     #[test]

@@ -1,4 +1,5 @@
-//! MCP server mode.
+//! MCP server mode — the body behind
+//! [`MachineApp::run_mcp`](emu198x_shell::launch::MachineApp::run_mcp).
 //!
 //! Boots the same eager 48K runtime that script mode uses, builds a
 //! shell-side `Server` with one tool per `ScriptStep` variant, and
@@ -7,6 +8,10 @@
 //! AutoloadTape / LoadBasicProgram behave identically across both
 //! modes.
 //!
+//! The shared server is not used because it reads `--rom` as cartridge
+//! media; here `--rom ID=PATH` pins one ROM of the 48K boot bundle
+//! (#842).
+//!
 //! See `docs/brainstorms/2026-05-08-mcp-server-brainstorm.md` for the
 //! design and the SOLID criterion 5 acceptance bar.
 
@@ -14,7 +19,7 @@ pub(crate) mod tools;
 
 use emu198x_shell::{
     HeadlessSession,
-    mcp::{Server, ServerInfo, serve_stdio},
+    mcp::{Server, ServerInfo, ToolRegistry, serve_stdio},
     mcp_tools::{
         register_ay_watch_tools, register_base_tools, register_keyboard_tools,
         register_memory_watch_tools,
@@ -22,9 +27,23 @@ use emu198x_shell::{
 };
 use runtime_sinclair_zx_spectrum::{SpectrumRuntimeKind, SpectrumSessionQueryProvider};
 
-use crate::AppError;
+use crate::app::AppError;
 use crate::machine::{MachineKind, RomOverrides, rom_override_entry};
 use crate::script::runner::boot_eager_48k;
+
+/// Register the full MCP surface. Same uniform layering as the Amiga:
+/// shared common + debug + watch tools, then the Spectrum-specific
+/// surface. The Spectrum (memory + AY) implements `WatchTarget`, so both
+/// watch tiers register here. The bespoke tools are registered last,
+/// overriding any generic version by name and keeping the rich Z80
+/// curriculum output.
+pub(crate) fn register_full_surface(registry: &mut ToolRegistry<tools::SpectrumSession>) {
+    register_base_tools(registry);
+    register_memory_watch_tools(registry);
+    register_ay_watch_tools(registry);
+    register_keyboard_tools(registry);
+    tools::register_spectrum_tools(registry);
+}
 
 /// Runs MCP mode. Boots an eager 48K session wrapped in the
 /// family-level [`SpectrumRuntimeKind`] enum, registers every tool,
@@ -61,16 +80,7 @@ pub fn run(rom_specs: &[String]) -> Result<(), AppError> {
         "emu198x-spectrum",
         env!("CARGO_PKG_VERSION"),
     ));
-    // Same uniform layering as the Amiga: shared common + debug + watch
-    // tools, then the Spectrum-specific surface. The Spectrum (memory + AY)
-    // implements `WatchTarget`, so both watch tiers register here. The
-    // bespoke tools are registered last, overriding any generic version by
-    // name and keeping the rich Z80 curriculum output.
-    register_base_tools(server.registry_mut());
-    register_memory_watch_tools(server.registry_mut());
-    register_ay_watch_tools(server.registry_mut());
-    register_keyboard_tools(server.registry_mut());
-    tools::register_spectrum_tools(server.registry_mut());
+    register_full_surface(server.registry_mut());
 
     serve_stdio(&mut server, &mut session).map_err(AppError::from)?;
     Ok(())
@@ -133,20 +143,11 @@ mod tests {
         "watch_memory_start",
     ];
 
-    /// Register the full MCP surface exactly as `run()` does.
-    fn register_full_surface(server: &mut Server<tools::SpectrumSession>) {
-        register_base_tools(server.registry_mut());
-        register_memory_watch_tools(server.registry_mut());
-        register_ay_watch_tools(server.registry_mut());
-        register_keyboard_tools(server.registry_mut());
-        tools::register_spectrum_tools(server.registry_mut());
-    }
-
     #[test]
     fn full_surface_publishes_every_curriculum_tool() {
         let mut server: Server<tools::SpectrumSession> =
             Server::new(ServerInfo::new("emu198x-spectrum", "0.0.0"));
-        register_full_surface(&mut server);
+        register_full_surface(server.registry_mut());
         for name in REQUIRED_TOOLS {
             assert!(
                 server.registry().get(name).is_some(),
@@ -211,7 +212,7 @@ mod tests {
         );
         let mut server: Server<tools::SpectrumSession> =
             Server::new(ServerInfo::new("emu198x-spectrum", "test"));
-        register_full_surface(&mut server);
+        register_full_surface(server.registry_mut());
 
         // tools/list exposes every required tool.
         let list = call(&mut server, &mut session, 1, "tools/list", json!({}));
@@ -293,7 +294,7 @@ mod tests {
         );
         let mut server: Server<tools::SpectrumSession> =
             Server::new(ServerInfo::new("emu198x-spectrum", "test"));
-        register_full_surface(&mut server);
+        register_full_surface(server.registry_mut());
 
         // Minimal valid 48K .sna: 27-byte header + 49152 bytes of RAM
         // ($4000-$FFFF). Park SP at $6000 so the PC restore pops from
