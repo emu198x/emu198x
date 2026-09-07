@@ -1,10 +1,13 @@
 # Machine binaries share a launcher
 
-**Status:** Adopted 2026-09-07. The launcher is in the tree
-(`emu198x-shell/src/launch.rs`, `emu198x-ui/src/launch.rs`) and the Sord M5
-and Jupiter Ace binaries run on it. The other binaries are ported one at a
-time; a binary is "on the launcher" when its `main.rs` is the three-line
-dispatch below and it has no `script.rs` or `mcp.rs` of its own.
+**Status:** Adopted 2026-09-07; every machine binary runs on it as of the
+same day. The launcher is in the tree (`emu198x-shell/src/launch.rs`,
+`emu198x-ui/src/launch.rs`). A binary is "on the launcher" when its
+`main.rs` is the three-line dispatch below, its flags are parsed through
+`MachineApp::parse_flag`, and it carries no parser or loop for the shared
+flags. The Spectrum, C64, Amiga and Dragon keep a `script.rs` (and the
+Amiga an `mcp/` tool set) because those are bespoke bodies behind the
+`run_script` / `register_mcp_tools` hooks, not copies of the shared loop.
 
 ## The problem
 
@@ -116,7 +119,9 @@ a private copy of the loop.
 
 Stop and re-read this record if you find yourself:
 
-- adding a `script.rs` or `mcp.rs` to a machine binary;
+- adding a `script.rs` or `mcp.rs` to a machine binary that parses the
+  shared flags or re-implements the shared loop or server, rather than a
+  bespoke body called from `run_script` / `run_mcp`;
 - writing `fn next_arg`, `fn die`, or `fn default_rom_path` in a binary;
 - parsing `--frames`, `--screenshot`, `--audio-capture`, `--script`,
   `--scale`, or `--video` anywhere but `emu198x-shell/src/launch.rs`;
