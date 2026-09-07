@@ -6,11 +6,17 @@ Format loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 not strictly. Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [0.22.2] - 2026-09-07
 
-
 ### Fixed
 
-- *(bbc-micro)* Open the window on the same MOS file the headless modes use
-- *(aquarius)* Budget one NTSC frame per frame, not a PAL frame
+- *(aquarius)* One budgeted frame is one machine frame. The runtime built an NTSC machine while every mode budgeted a PAL frame, so `--frames N` ran and reported 2N frames and the window ran at double speed.
+- *(bbc-micro)* The window opens on `os.rom`, the MOS file the headless modes already used, instead of failing without `--mos`.
+
+### Changed
+
+- Every machine binary runs on one shared launcher, so flags, help layout, exit codes and mode selection are the same across all 30 machines. Usage errors exit 2 and point at `--help`. Every flag is accepted in every mode: region, model and firmware flags now reach MCP and windowed mode where some binaries ignored them, and positional cartridge paths work headlessly as well as in the window.
+- MCP `run_frames` on the MTX, Einstein, Oric, Electron, BBC Micro and Dragon uses each machine's real frame length; the old MCP-only budgets overshot the frame.
+- Amiga `--disk … --mcp` inserts the disk instead of warning that the flag has no effect.
+- Release archives are built without cross-crate LTO: same binary size and emulation speed within noise, and a fraction of the build time.
 
 ## [0.22.1] - 2026-09-06
 
