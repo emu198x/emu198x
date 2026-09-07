@@ -70,6 +70,7 @@
 //! (register 14) is player 2, port B (register 15) is player 1. Codes are
 //! transcribed from MAME `bus/aquarius/mini.cpp`.
 
+use common_z80_machine::Z80Machine;
 use emu198x_gi_ay_3_8910::{Ay3_8910, AyWriteRecord, AyWriteWatch};
 use emu198x_zilog_z80::{BusOp, Z80};
 use serde::{Deserialize, Serialize};
@@ -294,6 +295,10 @@ pub struct Aquarius {
     framebuffer: Vec<u32>,
     region: AquariusRegion,
     cpu_tstates: u64,
+    /// The cadence driver's half-cycle phase; a restore lands on a T-state
+    /// boundary, so it is not part of the snapshot.
+    #[serde(skip)]
+    cadence_hc: u64,
     /// Z80 T-states per frame for the active region.
     tstates_per_frame: u64,
     frame_count: u64,
@@ -345,6 +350,7 @@ impl Aquarius {
             framebuffer: vec![PALETTE[0]; (FB_WIDTH * FB_HEIGHT) as usize],
             region,
             cpu_tstates: 0,
+            cadence_hc: 0,
             tstates_per_frame,
             frame_count: 0,
             io_trace: None,
@@ -392,20 +398,12 @@ impl Aquarius {
         self.region
     }
 
+    /// Advance one Z80 T-state. The cadence — two CPU half-cycles, the
+    /// interrupt pins fed before each — is `common-z80-machine`'s; the
+    /// T-state counter and speaker below tick once per T-state after the
+    /// CPU, as the hand-rolled loop always had them.
     fn tick_tstate(&mut self) {
-        // Two CPU half-cycles per T-state. `Z80::tick` advances one
-        // half-cycle — `T1Rise` then `T1Fall` — so calling it once per
-        // T-state ran the CPU at half speed: a `NOP` cost 8 T-states
-        // against the Z80's 4, and the machine executed half the work per
-        // frame that `tstates_per_frame` budgets for. The Aquarius has no
-        // chip on the CPU clock and no interrupt source wired here, so the
-        // CPU tick is all there is to interleave.
-        for _ in 0..2 {
-            self.cpu.tick();
-            self.handle_bus();
-        }
-        self.cpu_tstates += 1;
-        self.tick_audio();
+        self.advance_tstates(1);
     }
 
     /// Sample the 1-bit speaker (port `$FC` bit 0) into the audio buffer,
@@ -785,6 +783,31 @@ impl Aquarius {
         if let Some(w) = &mut self.ay_watch {
             w.clear();
         }
+    }
+}
+
+impl Z80Machine for Aquarius {
+    fn hc(&self) -> u64 {
+        self.cadence_hc
+    }
+
+    fn hc_mut(&mut self) -> &mut u64 {
+        &mut self.cadence_hc
+    }
+
+    // The Aquarius has no chip on the CPU clock and no interrupt source
+    // wired here (IRQ0 and NMI are the expansion port's, and nothing on
+    // it is modelled), so the CPU tick is all there is to interleave.
+    fn feed_interrupt_pins(&mut self) {}
+
+    fn tick_cpu_and_bus(&mut self) {
+        self.cpu.tick();
+        self.handle_bus();
+    }
+
+    fn tick_chips(&mut self) {
+        self.cpu_tstates += 1;
+        self.tick_audio();
     }
 }
 

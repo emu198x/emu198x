@@ -2648,6 +2648,7 @@ dependencies = [
 name = "machine-mattel-aquarius"
 version = "0.22.2"
 dependencies = [
+ "common-z80-machine",
  "emu198x-gi-ay-3-8910",
  "emu198x-zilog-z80",
  "postcard",
