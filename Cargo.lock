@@ -2868,6 +2868,7 @@ dependencies = [
 name = "machine-sinclair-zx80"
 version = "0.22.2"
 dependencies = [
+ "common-z80-machine",
  "emu198x-test-skip",
  "emu198x-zilog-z80",
  "format-sinclair-zx80-o",
