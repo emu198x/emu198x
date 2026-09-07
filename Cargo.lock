@@ -2905,6 +2905,7 @@ dependencies = [
 name = "machine-spectravideo-svi-328"
 version = "0.22.2"
 dependencies = [
+ "common-z80-machine",
  "emu198x-zilog-z80",
  "gi-ay-3-8912",
  "intel-8255",
