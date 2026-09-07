@@ -30,8 +30,11 @@ impl Model {
     }
 
     #[must_use]
+    /// The runtime builds the Mattel US machine, which is NTSC (see
+    /// `rebuild_machine`); the profile said PAL until 2026-09-07 while
+    /// every host budget assumed PAL too, so one budgeted frame ran two.
     pub const fn region(self) -> Region {
-        Region::Pal
+        Region::Ntsc
     }
 }
 
@@ -88,7 +91,7 @@ mod tests {
     #[test]
     fn profile_uses_pal_region() {
         let p = profile_for(Model::Aquarius);
-        assert_eq!(p.region, Region::Pal);
+        assert_eq!(p.region, Region::Ntsc);
         assert_eq!(p.firmware.len(), 2);
         assert_eq!(p.firmware[0].id.as_ref(), BIOS_FIRMWARE_ID);
         assert_eq!(p.firmware[1].id.as_ref(), CHAR_FIRMWARE_ID);

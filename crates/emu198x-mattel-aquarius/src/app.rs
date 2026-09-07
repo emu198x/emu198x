@@ -11,6 +11,7 @@ use emu198x_shell::mcp::ToolRegistry;
 use emu198x_shell::mcp_tools::{
     register_ay_watch_tools, register_base_tools, register_keyboard_tools,
 };
+use machine_mattel_aquarius::AquariusRegion;
 use runtime_mattel_aquarius::{AquariusRuntime, AquariusSessionQueryProvider, Model};
 use serde_json::{Map, Value};
 
@@ -20,10 +21,15 @@ const BIOS_SIZE: usize = 8 * 1024;
 const CHAR_ENV: &str = "EMU198X_AQUARIUS_CHAR";
 const CHAR_RELATIVE: &str = "mattel-aquarius/aquarius-char.rom";
 
-/// Aquarius runs at ~3.58 MHz CPU; PAL frame = ~71,569 T-states.
-///
-/// Z80 @ ~3.58 MHz, ~50 Hz PAL → 71,590 t-states/frame.
-pub const FRAME_TICKS_PAL: u64 = 71_590;
+/// The video region the runtime builds: the Mattel US machine.
+pub const REGION: AquariusRegion = AquariusRegion::Ntsc;
+
+/// One NTSC frame in Z80 T-states (458 dots × 262 lines ÷ 2 = 59,998),
+/// taken from the machine so it cannot drift. A PAL budget of 71,590 sat
+/// here until 2026-09-07 while the runtime built an NTSC machine, so each
+/// budgeted frame ran two machine frames and the report's `frames_run` was
+/// twice `--frames`.
+pub const FRAME_TICKS: u64 = REGION.tstates_per_frame();
 
 /// The machine configuration the flags build up.
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -94,7 +100,7 @@ impl MachineApp for Aquarius {
     }
 
     fn frame_ticks(&self) -> u64 {
-        FRAME_TICKS_PAL
+        FRAME_TICKS
     }
 
     fn query_provider(&self) -> AquariusSessionQueryProvider {
@@ -177,6 +183,23 @@ impl MachineApp for Aquarius {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use emu198x_shell::HeadlessSession;
+
+    #[test]
+    fn one_budgeted_frame_is_one_machine_frame() {
+        let runtime = AquariusRuntime::new(Model::Aquarius, vec![0; 8 * 1024]).expect("blank BIOS");
+        let mut session = HeadlessSession::new(runtime, FRAME_TICKS);
+        session.run_frames(1).expect("one frame");
+        assert_eq!(
+            session.machine().machine().expect("machine").frame_count(),
+            1
+        );
+        session.run_frames(4).expect("four more");
+        assert_eq!(
+            session.machine().machine().expect("machine").frame_count(),
+            5
+        );
+    }
     use emu198x_shell::launch::{Mode, Parsed, parse};
     use std::path::Path;
 

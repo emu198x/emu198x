@@ -207,6 +207,28 @@ pub enum AquariusRegion {
     Pal,
 }
 
+impl AquariusRegion {
+    /// Z80 T-states in one video frame: the budget a host must give
+    /// `run_frame` so one budgeted frame is exactly one machine frame.
+    #[must_use]
+    pub const fn tstates_per_frame(self) -> u64 {
+        match self {
+            Self::Ntsc => NTSC_TSTATES_PER_FRAME,
+            Self::Pal => PAL_TSTATES_PER_FRAME,
+        }
+    }
+
+    /// Frames per second: the dot clock over the dots in one frame.
+    #[must_use]
+    pub const fn frame_hz(self) -> f64 {
+        let lines = match self {
+            Self::Ntsc => NTSC_LINES_PER_FRAME,
+            Self::Pal => PAL_LINES_PER_FRAME,
+        };
+        DOT_CLOCK_HZ as f64 / (DOTS_PER_LINE * lines) as f64
+    }
+}
+
 const CHAR_ROM_OFFSET: usize = 0x1800;
 const NUM_KEY_ROWS: usize = 8;
 
