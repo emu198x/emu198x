@@ -1,5 +1,13 @@
 name: CI
 
+# Read-only token for every job. The registry check reads labels and
+# milestones through the issues API; nothing here writes to the repo.
+# Accuracy corpora come from a separate release store through
+# ACCURACY_CORPORA_TOKEN, so restricting GITHUB_TOKEN does not touch them.
+permissions:
+  contents: read
+  issues: read
+
 on:
   push:
     branches:
