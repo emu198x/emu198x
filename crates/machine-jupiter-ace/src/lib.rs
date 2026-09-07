@@ -43,6 +43,7 @@ pub use display::{Display, FB_HEIGHT, FB_WIDTH, TSTATES_PER_FRAME};
 pub use input::JupiterAceKey;
 pub use keyboard::KeyboardState;
 
+use common_z80_machine::Z80Machine;
 use emu198x_zilog_z80::z80::{BusOp, Z80};
 use serde::{Deserialize, Serialize};
 
@@ -68,6 +69,10 @@ pub struct JupiterAce {
     audio_level_sum: i64,
     audio_level_ticks: u32,
     master_clock: u64,
+    /// The cadence driver's half-cycle phase; a restore lands on a T-state
+    /// boundary, so it is not part of the snapshot.
+    #[serde(skip)]
+    cadence_hc: u64,
     frame_count: u64,
     /// When `Some`, every I/O port access is appended here (debug trace).
     #[serde(skip)]
@@ -100,6 +105,7 @@ impl JupiterAce {
             audio_level_sum: 0,
             audio_level_ticks: 0,
             master_clock: 0,
+            cadence_hc: 0,
             frame_count: 0,
             io_trace: None,
         })
@@ -121,21 +127,12 @@ impl JupiterAce {
         self.master_clock - start
     }
 
+    /// Advance one Z80 T-state. The cadence — two CPU half-cycles, the
+    /// interrupt pin fed before each — is `common-z80-machine`'s; this
+    /// machine only orders its own chips around it (display and speaker
+    /// ahead of the CPU, as the hand-rolled loop always had them).
     fn tick_tstate(&mut self) {
-        self.master_clock += 1;
-        self.display.tick();
-        self.tick_audio();
-        // The `zilog-z80` core is a half-cycle state machine: it needs two
-        // ticks per T-state (the Spectrum drives it the same way — see
-        // `common-sinclair-zx-spectrum` `tick_one_halfcycle`). Driving it
-        // once per T-state under-clocked the CPU 2× and meant the IRQ was
-        // never sampled at an instruction boundary, so the Forth ROM spun
-        // forever waiting for its 50 Hz frame interrupt.
-        for _ in 0..2 {
-            self.cpu.irq = self.display.interrupt_active();
-            self.cpu.tick();
-            self.handle_bus();
-        }
+        self.advance_tstates(1);
     }
 
     fn tick_audio(&mut self) {
@@ -299,6 +296,31 @@ impl JupiterAce {
     #[must_use]
     pub fn frame_count(&self) -> u64 {
         self.frame_count
+    }
+}
+
+impl Z80Machine for JupiterAce {
+    fn hc(&self) -> u64 {
+        self.cadence_hc
+    }
+
+    fn hc_mut(&mut self) -> &mut u64 {
+        &mut self.cadence_hc
+    }
+
+    fn before_tstate(&mut self) {
+        self.master_clock += 1;
+        self.display.tick();
+        self.tick_audio();
+    }
+
+    fn feed_interrupt_pins(&mut self) {
+        self.cpu.irq = self.display.interrupt_active();
+    }
+
+    fn tick_cpu_and_bus(&mut self) {
+        self.cpu.tick();
+        self.handle_bus();
     }
 }
 
