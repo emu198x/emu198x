@@ -52,7 +52,7 @@ pub fn run_windowed<A: UiApp>(
         Some(mode) => mode.parse::<VideoFilter>().map_err(|_| {
             LaunchError::Usage(format!("--video expects raw, lcd, or crt, got {mode}"))
         })?,
-        None => VideoFilter::Raw,
+        None => system.default_video(),
     };
     let runtime = app.build_ui_runtime()?;
     println!("Controls:\n{}", A::CONTROLS);

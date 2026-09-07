@@ -97,6 +97,7 @@ gained one hook per gap rather than a private loop per machine:
 | `after_run(session)` | after the script and frame run, before captures | writing snapshots or save data; asserting on session queries so a failed corpus test exits non-zero |
 | `SCRIPT_FLAGS` | in mode detection | machine flags that select script mode on their own, for a harness whose callers never pass `--headless` (the Dragon's smoke flags) |
 | `requests_capture()` | in the "capture with nothing to run" guard | a machine flag that saves output (the Atom's tape and printer files) |
+| `UiSystem::default_video()` | when the window opens without `--video` | a window that defaults to a filter other than raw (the Dragon opens on CRT) |
 | `UiApp::build_ui_runtime()` | when the window opens, instead of `build_runtime` | a window that boots differently from script mode (the BBC Micro installs BASIC for the window, boots the bare MOS headlessly) |
 | `run_script(common, raw_args)` | instead of the shared loop | a corpus sweep or a different report shape; may still call `script_report` for the plain case |
 | `run_mcp(raw_args)` | instead of the shared server | a server that needs more than a session and a tool set |
