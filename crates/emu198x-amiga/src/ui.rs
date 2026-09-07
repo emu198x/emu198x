@@ -24,30 +24,26 @@
 //! - **Reset**: [`after_reset`](UiSystem::after_reset) re-inserts the DF0 ADF so
 //!   F12 keeps the disk (the bespoke runner dropped it).
 //!
-//! Compiled only with the `ui` Cargo feature; `main.rs` routes here when no
-//! headless-only flag is given.
+//! Compiled only with the `ui` Cargo feature; the shared launcher opens the
+//! window when no automation flag is given, with the runtime `app.rs` built.
 
 use std::borrow::Cow;
 use std::path::PathBuf;
-use std::process;
 use std::time::Duration;
 
 use emu198x_shell::{
     FamilyRuntime, FirmwareImage, FirmwareSet, MachineCore, MachineError, MediaImage, MediaKind,
     MediaSet, read_firmware_asset, read_media_asset,
 };
-use emu198x_ui::{
-    ButtonInputMap, ButtonTarget, HostControl, KeyCode, UiSystem, VariantInfo, VideoFilter,
-};
+use emu198x_ui::launch::UiApp;
+use emu198x_ui::{ButtonInputMap, ButtonTarget, HostControl, KeyCode, UiSystem, VariantInfo};
 use runtime_commodore_amiga::{
     A500_PAL_CCK_HZ, A500_PAL_FRAME_TICKS, AmigaRuntimeKind, DISPLAY_HEIGHT, DISPLAY_WIDTH,
 };
 
-use crate::{
-    ModelArg, USAGE, die, find_rom_path, firmware_id_for_model_arg, next_arg, parse_model_arg,
-};
+use crate::app::{Amiga, DEFAULT_FLOPPY_SLOT};
+use crate::model::{ModelArg, find_rom_path, firmware_id_for_model_arg};
 
-const DEFAULT_FLOPPY_SLOT: &str = "floppy-0";
 const DEFAULT_SCALE: u32 = 1;
 // `AmigaRuntime::run_until` publishes complete video fields. A sub-field
 // target therefore still advances one whole field, so the UI must issue one
@@ -138,7 +134,7 @@ fn map_amiga_joystick_key(code: KeyCode) -> Option<HostControl> {
 /// Machine-menu radio follow live switches, the DF0 disk path (so a hard reset
 /// can re-insert it), and whether the arrow keys / Space currently drive the
 /// port-2 joystick (Page Up).
-struct AmigaSystem {
+pub struct AmigaSystem {
     model: ModelArg,
     disk: Option<PathBuf>,
     keyboard_joystick: bool,
@@ -308,154 +304,24 @@ fn build_variant_runtime(model: ModelArg) -> Result<AmigaRuntimeKind, String> {
     AmigaRuntimeKind::from_firmware(model.to_model(), &firmware).map_err(|err| err.to_string())
 }
 
-// ---- Construction + CLI ----------------------------------------------------
+// ---- The launcher's window driver -------------------------------------------
 
-#[derive(Debug, Default, PartialEq, Eq)]
-pub struct Cli {
-    model: ModelArg,
-    rom_dir: Option<PathBuf>,
-    kickstart: Option<PathBuf>,
-    disk: Option<PathBuf>,
-    scale: u32,
-    video: VideoFilter,
-}
+impl UiApp for Amiga {
+    type System = AmigaSystem;
 
-/// Build the [`AmigaRuntimeKind`] from the CLI: resolve the model's Kickstart,
-/// build the chipset variant, and insert the DF0 ADF if `--disk` was given.
-/// Returns the bare runtime the harness drives (no tape autoload, so no
-/// `HeadlessSession` is needed).
-fn build_runtime(cli: &Cli) -> Result<AmigaRuntimeKind, String> {
-    let model = cli.model.to_model();
-    let firmware_path = find_rom_path(cli.model, cli.rom_dir.as_deref(), cli.kickstart.as_deref())?;
-    let firmware_bytes = read_firmware_asset(&firmware_path).map_err(|err| {
-        format!(
-            "failed to read Amiga firmware {}: {err}",
-            firmware_path.display()
-        )
-    })?;
-
-    let mut firmware = FirmwareSet::new();
-    firmware.push(FirmwareImage::new(
-        firmware_id_for_model_arg(cli.model),
-        &firmware_bytes.bytes,
-    ));
-    let mut runtime =
-        AmigaRuntimeKind::from_firmware(model, &firmware).map_err(|err| err.to_string())?;
-
-    if let Some(path) = &cli.disk {
-        let disk = read_media_asset(path, MediaKind::Disk)
-            .map_err(|err| format!("failed to read disk {}: {err}", path.display()))?;
-        let mut media = MediaSet::new();
-        media.push(MediaImage::new(
-            DEFAULT_FLOPPY_SLOT,
-            MediaKind::Disk,
-            &disk.bytes,
-        ));
-        runtime.load_media(&media).map_err(|err| err.to_string())?;
-    }
-
-    Ok(runtime)
-}
-
-/// Build the runtime from the CLI and open the window.
-pub fn run(cli: Cli) -> Result<(), String> {
-    println!(
-        "Controls: Esc quit, F12 reset (keeps disk), Cmd/Ctrl+S/L save/load state, \
-         mouse port 1, gamepad joystick port 2, Page Up toggles joystick arrows/space, \
-         A-Z/0-9/Space/Enter/Tab/Backspace keyboard; Machine menu switches model live."
-    );
-    let runtime = build_runtime(&cli)?;
-    emu198x_ui::run(
+    fn ui_system(&self) -> AmigaSystem {
         AmigaSystem {
-            model: cli.model,
-            disk: cli.disk.clone(),
+            model: self.model,
+            disk: self.disk.clone(),
             keyboard_joystick: false,
-        },
-        runtime,
-        cli.scale,
-        cli.video,
-    )
-    .map_err(|err| err.to_string())
-}
-
-pub fn parse_cli<I>(args: I) -> Cli
-where
-    I: IntoIterator<Item = String>,
-{
-    let mut cli = Cli {
-        scale: DEFAULT_SCALE,
-        ..Cli::default()
-    };
-    let mut iter = args.into_iter();
-
-    while let Some(arg) = iter.next() {
-        match arg.as_str() {
-            "--rom-dir" => cli.rom_dir = Some(PathBuf::from(next_arg(&mut iter, "--rom-dir"))),
-            "--kickstart" => {
-                cli.kickstart = Some(PathBuf::from(next_arg(&mut iter, "--kickstart")));
-            }
-            "--model" => cli.model = parse_model_arg(&next_arg(&mut iter, "--model")),
-            "--disk" => cli.disk = Some(PathBuf::from(next_arg(&mut iter, "--disk"))),
-            "--scale" => {
-                cli.scale = next_arg(&mut iter, "--scale")
-                    .parse()
-                    .unwrap_or_else(|_| die("--scale requires a positive integer"));
-            }
-            "--video" => {
-                cli.video = parse_video_arg(&next_arg(&mut iter, "--video"));
-            }
-            "--help" | "-h" => {
-                println!("{USAGE}");
-                process::exit(0);
-            }
-            _ => die(&format!("unknown flag: {arg}")),
         }
     }
-
-    cli
-}
-
-fn parse_video_arg(video: &str) -> VideoFilter {
-    video
-        .parse()
-        .unwrap_or_else(|_| die("--video expects raw, lcd, or crt"))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use runtime_commodore_amiga::Model;
-
-    #[test]
-    fn parse_cli_accepts_model_disk_and_scale() {
-        let cli = parse_cli([
-            "--model".to_owned(),
-            "a500-a501".to_owned(),
-            "--disk".to_owned(),
-            "workbench13.adf".to_owned(),
-            "--scale".to_owned(),
-            "2".to_owned(),
-        ]);
-
-        assert_eq!(
-            cli,
-            Cli {
-                model: ModelArg::A500A501,
-                rom_dir: None,
-                kickstart: None,
-                disk: Some(PathBuf::from("workbench13.adf")),
-                scale: 2,
-                video: VideoFilter::Raw,
-            }
-        );
-    }
-
-    #[test]
-    fn parse_cli_accepts_video_filter() {
-        let cli = parse_cli(["--video".to_owned(), "crt".to_owned()]);
-
-        assert_eq!(cli.video, VideoFilter::Crt);
-    }
 
     #[test]
     fn maps_basic_keyboard_keys() {
