@@ -46,6 +46,11 @@ impl MachineApp for Amiga {
 
     const BIN_NAME: &'static str = "emu198x-amiga";
     const VERSION: &'static str = env!("CARGO_PKG_VERSION");
+    /// Headless-only flags; their presence routes to script mode, so
+    /// `--wait-for-boot 300 --print-query boot.reason` runs without an
+    /// explicit `--headless`. `--disk` and the firmware flags are shared
+    /// with the window and do not.
+    const SCRIPT_FLAGS: &'static [&'static str] = &["--wait-for-boot", "--print-query"];
     const MACHINE_OPTIONS: &'static str =
         "    --rom-dir DIR        directory containing Amiga ROM images; default
                          EMU198X_AMIGA_ROM_DIR, ~/.emu198x/roms/commodore-amiga,
@@ -55,8 +60,8 @@ impl MachineApp for Amiga {
     --model MODEL        a1000 | a500 | a500-gvp-a530 | a500-a501 | a500-plus
                          | a500-maxed | a600 | a1200 | a2000 [default: a500]
     --disk PATH          insert one ADF image into DF0:
-    --wait-for-boot N    headless: run up to N frames until boot.detected is true
-    --print-query PATH   headless: resolve one query path after running (repeatable)";
+    --wait-for-boot N    run up to N frames until boot.detected is true (headless)
+    --print-query PATH   resolve one query path after running (repeatable, headless)";
     const CONTROLS: &'static str = "    Esc                  quit
     F12                  hard reset (keeps the inserted disk)
     Cmd/Ctrl+S / +L      quick save / load state
@@ -269,6 +274,20 @@ mod tests {
         assert_eq!(app.model.to_model(), Model::A500OcsPalMaxed);
         let (app, _, _) = parsed(&["--model", "a1000"]);
         assert_eq!(app.model.to_model(), Model::A1000OcsPal);
+    }
+
+    #[test]
+    fn headless_only_flags_route_to_script_mode() {
+        for flags in [
+            &["--wait-for-boot", "300"][..],
+            &["--disk", "wb.adf", "--print-query", "disk.inserted"],
+        ] {
+            let (.., mode) = parsed(flags);
+            assert_eq!(mode, Mode::Script, "{flags:?} should be script");
+        }
+        // --disk and the firmware flags are shared with the window.
+        let (.., mode) = parsed(&["--model", "a500-a501", "--disk", "wb.adf"]);
+        assert_eq!(mode, Mode::Ui);
     }
 
     #[test]
