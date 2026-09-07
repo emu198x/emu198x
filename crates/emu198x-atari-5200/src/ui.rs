@@ -8,21 +8,18 @@
 //! digital directions to the POKEY pot extremes — and the keypad keys
 //! (`start`/`pause`/`reset`/`0`-`9`/`*`/`#`) are momentary named key events,
 //! routed through [`UiSystem::map_keys`]. Compiled only with the `ui` Cargo
-//! feature; `main.rs` routes here when no automation flag is given.
+//! feature; the shared launcher opens the window when no automation flag is
+//! given.
 
-use std::env;
-use std::path::PathBuf;
 use std::time::Duration;
 
-use emu198x_ui::{
-    ButtonInputMap, ButtonTarget, HostControl, KeyCode, UiError, UiSystem, VideoFilter,
-};
-use runtime_atari_5200::{Atari5200Runtime, Model};
+use emu198x_ui::launch::UiApp;
+use emu198x_ui::{ButtonInputMap, ButtonTarget, HostControl, KeyCode, UiSystem};
+use runtime_atari_5200::Atari5200Runtime;
+
+use crate::app::{Atari5200, Region};
 
 const DEFAULT_SCALE: u32 = 3;
-/// CPU clocks per frame — `lines × 228`, matching the headless runner.
-const FRAME_TICKS_NTSC: u64 = 262 * 228;
-const NTSC_FRAME_HZ: f64 = 60.0;
 
 /// Player-1 controller: stick directions plus fire. The runtime snaps the
 /// digital directions to the analogue pot extremes; `fire` drives the trigger.
@@ -37,72 +34,21 @@ const ATARI_5200_BUTTON_MAP: ButtonInputMap = ButtonInputMap::new(&[
     (HostControl::East, ButtonTarget::new(1, "fire")),
 ]);
 
-const USAGE: &str = "\
-Usage: emu198x-atari-5200 [OPTIONS]
-
-Options:
-    --cart PATH     Atari 5200 cartridge ROM (required)
-    --bios PATH     Atari 5200 BIOS ROM (2 KB); default
-                    ~/.emu198x/roms/atari-5200/bios.rom or 5200.rom (or set EMU198X_A5200_BIOS)
-    --region MODE   ntsc (the only standard the 5200 shipped in) [default: ntsc]
-    --scale N       integer window scale, default 3
-    --video MODE    raw | lcd | crt [default: raw]
-    --help, -h      show this help
-
-Automation:
-    --script PATH   run a JSON session headlessly and print a report
-    --headless      run without a window (implied by --script)
-    --mcp           serve this machine over MCP on stdio
-
-Controls:
-    Esc             quit
-    F12             emulator hard reset
-    Arrow keys      analogue stick (player 1)
-    Z / X           fire
-    Enter           Start    Backspace  Pause    Delete  Reset (keypad)
-    0-9             keypad digits
-    Numpad * / /    keypad * and # keys
-
-Examples:
-    emu198x-atari-5200 --cart galaxian.a52
-    emu198x-atari-5200 --cart game.bin --scale 4
-";
-
-/// Display region — selects the model, frame tick budget, and refresh rate.
-///
-/// The 5200 shipped in one television standard, so this names the only
-/// one rather than offering a choice. See
-/// `crates/runtime-atari-5200/src/profiles.rs` for the citation.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Region {
-    Ntsc,
-}
-
-impl Region {
-    fn model(self) -> Model {
-        match self {
-            Self::Ntsc => Model::A5200Ntsc,
-        }
-    }
-
-    fn frame_ticks(self) -> u64 {
-        match self {
-            Self::Ntsc => FRAME_TICKS_NTSC,
-        }
-    }
-
-    fn frame_hz(self) -> f64 {
-        match self {
-            Self::Ntsc => NTSC_FRAME_HZ,
-        }
-    }
-}
-
 /// The Atari 5200 as a [`UiSystem`] for the shared harness. The region is fixed
 /// at construction; a hard reset rebuilds the machine from the cartridge and
 /// BIOS the runtime already holds.
-struct Atari5200System {
+pub struct Atari5200System {
     region: Region,
+}
+
+impl UiApp for Atari5200 {
+    type System = Atari5200System;
+
+    fn ui_system(&self) -> Atari5200System {
+        Atari5200System {
+            region: self.region,
+        }
+    }
 }
 
 impl UiSystem for Atari5200System {
@@ -180,172 +126,9 @@ impl UiSystem for Atari5200System {
     }
 }
 
-/// Parsed interactive CLI.
-#[derive(Debug, PartialEq, Eq)]
-pub struct Cli {
-    cart: Option<PathBuf>,
-    bios: Option<PathBuf>,
-    region: Region,
-    scale: u32,
-    video: VideoFilter,
-}
-
-impl Default for Cli {
-    fn default() -> Self {
-        Self {
-            cart: None,
-            bios: None,
-            region: Region::Ntsc,
-            scale: DEFAULT_SCALE,
-            video: VideoFilter::Raw,
-        }
-    }
-}
-
-/// Build the runtime from the CLI and open the window. Returns a string error
-/// for the `main.rs` dispatcher.
-pub fn run(cli: Cli) -> Result<(), String> {
-    let cart_path = cli
-        .cart
-        .as_ref()
-        .ok_or_else(|| "provide a cartridge with --cart PATH".to_owned())?;
-    let cart = std::fs::read(cart_path)
-        .map_err(|err| format!("failed to read --cart {}: {err}", cart_path.display()))?;
-    // The 5200 BIOS is optional — best-effort read like the headless runner.
-    let bios = cli
-        .bios
-        .clone()
-        .or_else(default_bios_path)
-        .and_then(|path| std::fs::read(path).ok())
-        .unwrap_or_default();
-    if bios.is_empty() {
-        eprintln!(
-            "warning: no 5200 BIOS found (pass --bios PATH or stage bios.rom / \
-             5200.rom in ~/.emu198x/roms/atari-5200/); the screen will be blank \
-             without it."
-        );
-    }
-    let runtime = Atari5200Runtime::new(cli.region.model(), cart, bios)
-        .map_err(|err| format!("failed to construct runtime: {err}"))?;
-
-    println!(
-        "Controls: Esc quit, F12 reset, arrows stick, Z/X fire, Enter Start, 0-9 keypad, Numpad */÷ for * and #."
-    );
-    emu198x_ui::run(
-        Atari5200System { region: cli.region },
-        runtime,
-        cli.scale,
-        cli.video,
-    )
-    .map_err(|err: UiError| err.to_string())
-}
-
-/// Parse the interactive CLI. Exits the process on `--help` or a malformed flag.
-pub fn parse_cli<I>(args: I) -> Cli
-where
-    I: IntoIterator<Item = String>,
-{
-    let mut cli = Cli::default();
-    let mut iter = args.into_iter();
-    while let Some(arg) = iter.next() {
-        match arg.as_str() {
-            "--cart" => cli.cart = Some(PathBuf::from(next_arg(&mut iter, "--cart"))),
-            "--bios" => cli.bios = Some(PathBuf::from(next_arg(&mut iter, "--bios"))),
-            "--region" => {
-                cli.region = match next_arg(&mut iter, "--region").as_str() {
-                    "ntsc" => Region::Ntsc,
-                    "pal" => die(
-                        "the Atari 5200 shipped NTSC only — Atari's CX5200 Field Service \
-                         Manual has a PAL GTIA in one as a part to replace, not a region \
-                         to select",
-                    ),
-                    other => die(&format!("--region expects ntsc, got {other}")),
-                };
-            }
-            "--scale" => {
-                cli.scale = next_arg(&mut iter, "--scale")
-                    .parse()
-                    .unwrap_or_else(|_| die("--scale requires a positive integer"));
-            }
-            "--video" => {
-                cli.video = next_arg(&mut iter, "--video")
-                    .parse()
-                    .unwrap_or_else(|_| die("--video expects raw, lcd, or crt"));
-            }
-            "--help" | "-h" => {
-                println!("{USAGE}");
-                std::process::exit(0);
-            }
-            _ if arg.starts_with('-') => die(&format!("unknown flag: {arg}")),
-            _ if cli.cart.is_none() => cli.cart = Some(PathBuf::from(arg)),
-            _ => die("only one positional cart path is supported"),
-        }
-    }
-    cli
-}
-
-fn default_bios_path() -> Option<PathBuf> {
-    if let Ok(path) = env::var("EMU198X_A5200_BIOS")
-        && !path.is_empty()
-    {
-        return Some(PathBuf::from(path));
-    }
-    let dir = PathBuf::from(env::var("HOME").ok()?).join(".emu198x/roms/atari-5200");
-    // The 5200 BIOS is staged under either name in the wild; return the first
-    // that actually exists so a conventionally-named `5200.rom` is found (the
-    // 5200 shows a black screen without its BIOS, so a constructed-but-missing
-    // path is worse than useless).
-    ["bios.rom", "5200.rom"]
-        .into_iter()
-        .map(|name| dir.join(name))
-        .find(|p| p.exists())
-}
-
-fn next_arg<I: Iterator<Item = String>>(iter: &mut I, flag: &str) -> String {
-    iter.next()
-        .unwrap_or_else(|| die(&format!("missing value for {flag}")))
-}
-
-fn die(message: &str) -> ! {
-    eprintln!("error: {message}");
-    std::process::exit(1);
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn parse_cli_accepts_cart_bios_region_scale_video() {
-        let cli = parse_cli([
-            "--cart".to_owned(),
-            "game.a52".to_owned(),
-            "--bios".to_owned(),
-            "5200.rom".to_owned(),
-            "--region".to_owned(),
-            "ntsc".to_owned(),
-            "--scale".to_owned(),
-            "4".to_owned(),
-            "--video".to_owned(),
-            "crt".to_owned(),
-        ]);
-        assert_eq!(cli.cart, Some(PathBuf::from("game.a52")));
-        assert_eq!(cli.bios, Some(PathBuf::from("5200.rom")));
-        assert_eq!(cli.region, Region::Ntsc);
-        assert_eq!(cli.scale, 4);
-        assert_eq!(cli.video, VideoFilter::Crt);
-    }
-
-    #[test]
-    fn parse_cli_accepts_positional_cart() {
-        let cli = parse_cli(["game.a52".to_owned()]);
-        assert_eq!(cli.cart, Some(PathBuf::from("game.a52")));
-    }
-
-    #[test]
-    fn region_frame_ticks_match() {
-        assert_eq!(Region::Ntsc.frame_ticks(), 262 * 228);
-    }
 
     #[test]
     fn stick_on_map_key_and_keypad_on_map_keys() {
