@@ -27,14 +27,14 @@ use runtime_sinclair_zx_spectrum::{
 };
 use serde::Serialize;
 
-use crate::AppError;
+use crate::app::AppError;
 use crate::machine::{MachineKind, RomOverrides, resolved_rom_bundle, rom_override_entry};
 use crate::mcp::tools::{dispatch_live_step, execute_autoload_tape, execute_load_basic_program};
 use crate::portable_snapshot::{is_portable_snapshot_path, parse_portable_snapshot_at};
 
 const DEFAULT_TAPE_SLOT: &str = "tape-1";
 
-/// Inputs passed from `script::run` into the script runner.
+/// Inputs passed from `app::Spectrum::run_script` into the script runner.
 #[derive(Debug, Default)]
 pub struct ScriptInputs {
     /// Optional JSON session file to execute.

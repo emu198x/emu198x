@@ -15,7 +15,7 @@ use std::path::Path;
 use common_sinclair_zx_spectrum::snapshot::Snapshot;
 use emu198x_shell::{MediaKind, read_media_asset};
 
-use crate::AppError;
+use crate::app::AppError;
 
 /// True for paths the shared portable-snapshot reader handles:
 /// `.sna`, `.z80`, or `.zip` (which `read_media_asset` unpacks to a
