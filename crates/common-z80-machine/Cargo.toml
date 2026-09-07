@@ -1,0 +1,13 @@
+[package]
+name = "common-z80-machine"
+description = "The Z80 cadence every Z80 machine shares: two CPU half-cycles per T-state, interrupt pins fed before each"
+edition.workspace = true
+version.workspace = true
+publish = false
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+
+[lints]
+workspace = true

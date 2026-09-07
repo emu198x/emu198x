@@ -15,6 +15,7 @@ members = [
     "crates/beta-disk-interface",
     "crates/common-sinclair-zx-spectrum",
     "crates/common-tape",
+    "crates/common-z80-machine",
     "crates/common-sinclair-zx-spectrum-48k-class",
     "crates/common-sinclair-zx-spectrum-128k-class",
     "crates/common-sinclair-zx-spectrum-amstrad-class",

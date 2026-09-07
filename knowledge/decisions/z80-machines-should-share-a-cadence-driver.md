@@ -1,11 +1,24 @@
 # Z80 machines should share a cadence driver, denominated in half-cycles
 
-**Status:** Proposal, 2026-08-13. Written after the nine half-speed machines
-were fixed and measured, per the order of work in
+**Status:** Adopted 2026-09-07; `common-z80-machine` is in the tree and the
+machines are moving onto it one per commit (Jupiter Ace and Sord M5 first,
+each byte-identical before and after on a 500-frame headless run with real
+ROMs). Proposed 2026-08-13 after the nine half-speed machines were fixed and
+measured, per the order of work in
 [`z80-validation-surface.md`](z80-validation-surface.md) — with twelve working
-loops to generalise from rather than a guess. The independent
-`Z80Stepper` unit correction and twelve-machine cadence gates are implemented;
-the shared cadence driver proposed here is not.
+loops to generalise from rather than a guess; the `Z80Stepper` unit
+correction and the per-machine cadence gates landed then.
+[`system-specific-run-loops.md`](system-specific-run-loops.md) admits the
+crate as a building block and states the line it must not cross.
+
+The built trait differs from the sketch below in one respect the loops
+forced: hook order. The hand-rolled loops disagreed on whether a machine's
+chips tick before its CPU (the Jupiter Ace's display) or after (everyone
+else's VDP and PSG), and a port must not move a chip by a T-state. So the
+trait runs `before_tstate`, then at each CPU edge `feed_interrupt_pins`,
+`tick_cpu_and_bus`, `tick_chips_halfcycle`, then `tick_chips` once — and a
+machine puts each chip in the slot its old loop had it. The trait owns no
+`run_frame`; machines keep theirs and call `advance_tstates`.
 
 ## The defect was a unit mismatch, not nine typos
 

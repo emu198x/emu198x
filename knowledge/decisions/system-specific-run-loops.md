@@ -28,6 +28,34 @@ Forcing these into one pattern would be inaccurate. The project's core principle
 
 What happens inside `run_frame()` is the system's business. The shared infrastructure doesn't know or care whether the frame was produced by clock-gating, bus arbitration, beam-racing, or any other mechanism.
 
+## CPU cadence is a building block, not a run loop
+
+**Amended 2026-09-07.** `common-z80-machine` provides a `Z80Machine` trait
+whose only job is the Z80's own cadence: two `Z80::tick` half-cycles per
+T-state, interrupt pins fed before each. Thirteen machines hand-rolled that
+pairing and nine got it wrong, which is the failure
+[`z80-machines-should-share-a-cadence-driver.md`](z80-machines-should-share-a-cadence-driver.md)
+records. This decision admits that trait under its own "building blocks"
+clause, and the line it must not cross is stated here so the drift
+triggers below keep their teeth:
+
+- The trait owns **no `run_frame`**. Every machine keeps its own frame loop
+  and calls `advance_tstates`; the ZX80's NMI-driven display, the
+  Einstein's raster-paced frame and the M5's fixed budget are as different
+  as they were.
+- The trait owns **no chip scheduling**. A VDP's 3:2 dot accumulator, an
+  exact-Hz accumulator or an AY phase toggle stays in the machine, inside
+  the hooks, in the order that machine's hardware runs them.
+- The trait is **per CPU, not per system**. It abstracts a property of the
+  Z80 core (its tick is a half-cycle), not clock-gating, bus arbitration or
+  beam-racing. `SpectrumDriver` is not generalised; the Spectrum family
+  keeps it.
+
+A second CPU with the same shape of defect (a core whose `tick` is finer
+than the machine's timing unit) earns its own cadence crate under the same
+three constraints. One that would need `run_frame` or chip scheduling to
+move does not.
+
 ## Drift triggers
 
 The temptation here is universality. Every time I propose "one pattern for all systems," I'm proposing to repeat the failure that drove the fresh start.
@@ -55,7 +83,7 @@ The temptation here is universality. Every time I propose "one pattern for all s
 
 - Treating all systems as variations of one model
 - Forcing beam-racing (Atari 2600) or NMI-driven display (ZX80) into a ULA-style clock-gating abstraction
-- Any "shared core" that takes ownership of the tick loop rather than providing building blocks
+- Any "shared core" that takes ownership of the tick loop rather than providing building blocks (a cadence trait that owns `run_frame` or schedules chips has crossed from building block to loop; see the section above)
 - `SpectrumDriver` generalized for any reason
 
 **What to do when triggered:** the shared boundary is `run_frame()` on the `System` trait, which returns a framebuffer + audio + metadata. Everything inside that function is the system's business. If I'm proposing to share code *below* that boundary, I'm proposing to re-create the "fit hardware into our abstractions" problem that started this rewrite. Accuracy comes from matching the hardware, not from abstraction.
