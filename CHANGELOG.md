@@ -4,6 +4,14 @@ All notable changes to Emu198x will be documented in this file.
 
 Format loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 not strictly. Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [0.22.2] - 2026-09-07
+
+
+### Fixed
+
+- *(bbc-micro)* Open the window on the same MOS file the headless modes use
+- *(aquarius)* Budget one NTSC frame per frame, not a PAL frame
+
 ## [0.22.1] - 2026-09-06
 
 
