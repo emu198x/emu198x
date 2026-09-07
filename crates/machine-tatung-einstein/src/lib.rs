@@ -124,6 +124,7 @@
 //! as the Memotech MTX (the other 4 MHz TMS9918 machine). PSG ticks
 //! every other T-state for the CPU ÷ 2 = 2 MHz AY clock.
 
+use common_z80_machine::Z80Machine;
 use emu198x_gi_ay_3_8910::{Ay3_8910, AyWriteRecord, AyWriteWatch};
 use emu198x_zilog_z80::{BusOp, Z80};
 use serde::{Deserialize, Serialize};
@@ -246,6 +247,16 @@ pub struct Einstein {
     /// (active low).
     fire: [bool; 2],
     cpu_tstates: u64,
+    /// The cadence driver's half-cycle phase; a restore lands on a T-state
+    /// boundary, so it is not part of the snapshot.
+    #[serde(skip)]
+    cadence_hc: u64,
+    /// Whether the VDP raster wrapped during the T-state just ticked.
+    /// `tick_chips` overwrites it every T-state and `run_frame` reads it
+    /// to pace the frame, so it never outlives one T-state and is not
+    /// part of the snapshot.
+    #[serde(skip)]
+    vdp_frame_wrapped: bool,
     /// VDP dot-clock accumulator (in CPU-Hz units). Each T-state adds
     /// [`VDP_CLOCK_HZ`]; every [`CPU_CLOCK_HZ`] accumulated ticks the VDP
     /// one dot — an exact 5.369318 MHz : 4 MHz ratio.
@@ -282,6 +293,8 @@ impl Einstein {
             adc: Adc0844::new(),
             fire: [false; 2],
             cpu_tstates: 0,
+            cadence_hc: 0,
+            vdp_frame_wrapped: false,
             vdp_accum: 0,
             psg_phase: 0,
             frame_count: 0,
@@ -310,7 +323,8 @@ impl Einstein {
         let cap = start + 160_000;
         let mut frame_complete = false;
         while !frame_complete && self.cpu_tstates < cap {
-            frame_complete = self.tick_tstate();
+            self.advance_tstates(1);
+            frame_complete = self.vdp_frame_wrapped;
         }
         if frame_complete {
             self.frame_count += 1;
@@ -318,42 +332,13 @@ impl Einstein {
         self.cpu_tstates - start
     }
 
-    /// Advance one Z80 T-state and report whether the VDP raster wrapped.
-    fn tick_tstate(&mut self) -> bool {
-        // Two CPU half-cycles per T-state. `Z80::tick` advances one
-        // half-cycle — `T1Rise` then `T1Fall` — so calling it once per
-        // T-state ran the CPU at half speed. This machine paces its frame
-        // off the VDP rather than a fixed T-state budget, so the symptom was
-        // not a short frame but a half-full one: the comment in `run_frame`
-        // about the CPU fitting "its true 4 MHz worth of T-states" into a
-        // VDP raster only became true with this fix.
-        //
-        // The keyboard interrupt is fed before each tick, not after: the Z80
-        // samples `/INT` at an instruction boundary during its own tick. The
-        // VDP is not re-denominated to half-cycles as the Sega machines' is,
-        // because on the Einstein it does not drive `/IRQ` at all.
-        for _ in 0..2 {
-            self.cpu.irq = self.kbd_int_pending;
-            self.cpu.tick();
-            self.handle_bus();
-        }
-
-        self.fdc.tick();
-
-        let mut frame_complete = false;
-        self.vdp_accum += VDP_CLOCK_HZ;
-        while self.vdp_accum >= CPU_CLOCK_HZ {
-            self.vdp_accum -= CPU_CLOCK_HZ;
-            frame_complete |= self.vdp.tick();
-        }
-
-        self.psg_phase ^= 1;
-        if self.psg_phase == 0 {
-            self.psg.tick();
-        }
-
-        self.cpu_tstates += 1;
-        frame_complete
+    /// Advance one Z80 T-state. The cadence — two CPU half-cycles, the
+    /// interrupt pin fed before each — is `common-z80-machine`'s; the chips
+    /// below tick once per T-state after the CPU, as the hand-rolled loop
+    /// always had them. Whether the VDP raster wrapped is left in
+    /// `vdp_frame_wrapped` for `run_frame`.
+    fn tick_tstate(&mut self) {
+        self.advance_tstates(1);
     }
 
     fn handle_bus(&mut self) {
@@ -756,13 +741,53 @@ impl Einstein {
     }
 }
 
+impl Z80Machine for Einstein {
+    fn hc(&self) -> u64 {
+        self.cadence_hc
+    }
+
+    fn hc_mut(&mut self) -> &mut u64 {
+        &mut self.cadence_hc
+    }
+
+    // The VDP is not re-denominated to half-cycles as the Sega machines' is,
+    // because on the Einstein it does not drive `/IRQ` at all.
+    fn feed_interrupt_pins(&mut self) {
+        self.cpu.irq = self.kbd_int_pending;
+    }
+
+    fn tick_cpu_and_bus(&mut self) {
+        self.cpu.tick();
+        self.handle_bus();
+    }
+
+    fn tick_chips(&mut self) {
+        self.fdc.tick();
+
+        let mut frame_complete = false;
+        self.vdp_accum += VDP_CLOCK_HZ;
+        while self.vdp_accum >= CPU_CLOCK_HZ {
+            self.vdp_accum -= CPU_CLOCK_HZ;
+            frame_complete |= self.vdp.tick();
+        }
+        self.vdp_frame_wrapped = frame_complete;
+
+        self.psg_phase ^= 1;
+        if self.psg_phase == 0 {
+            self.psg.tick();
+        }
+
+        self.cpu_tstates += 1;
+    }
+}
+
 impl emu198x_zilog_z80::Z80Stepper for Einstein {
     fn z80_instructions_retired(&self) -> u64 {
         self.cpu.instructions_retired()
     }
 
     fn step_tick(&mut self) {
-        let _ = self.tick_tstate();
+        self.tick_tstate();
     }
 }
 
