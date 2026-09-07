@@ -15,6 +15,7 @@
 
 mod export;
 mod keyboard;
+pub mod launch;
 mod menu;
 mod overlay;
 
