@@ -2,12 +2,7 @@
 
 use std::path::PathBuf;
 
-use emu198x_shell::HeadlessSession;
 use emu198x_shell::launch::{Args, LaunchError, MachineApp, read_rom_exact, resolve_rom};
-use emu198x_shell::mcp::ToolRegistry;
-use emu198x_shell::mcp_tools::{
-    register_ay_watch_tools, register_base_tools, register_keyboard_tools,
-};
 use runtime_oric_atmos::{Model, OricRuntime, OricSessionQueryProvider};
 use serde_json::{Map, Value};
 
@@ -102,17 +97,6 @@ impl MachineApp for Oric {
             }
             .into(),
         );
-    }
-
-    fn register_mcp_tools(
-        &self,
-        registry: &mut ToolRegistry<HeadlessSession<OricRuntime, OricSessionQueryProvider>>,
-    ) {
-        register_base_tools(registry);
-        // The machine has a keyboard, so the shared press_key / type_string apply.
-        register_keyboard_tools(registry);
-        // The Oric carries an AY-3-8912 (PSG), so the shared AY-watch verbs apply.
-        register_ay_watch_tools(registry);
     }
 }
 

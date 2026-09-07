@@ -15,7 +15,7 @@ use std::path::{Path, PathBuf};
 use common_commodore_c64::timing::{C64Timing, TIMING_NTSC_BREADBIN, TIMING_PAL_BREADBIN};
 use emu198x_shell::launch::{Args, CommonCli, LaunchError, MachineApp};
 use emu198x_shell::mcp::ToolRegistry;
-use emu198x_shell::mcp_tools::{register_base_tools, register_keyboard_tools};
+use emu198x_shell::mcp_tools::register_tools_for;
 use emu198x_shell::{
     BootArtifacts, ControlCommand, FirmwareImage, FirmwareSet, HeadlessSession, MediaImage,
     MediaKind, MediaSet, MediaTransportAction, MediaTransportCommand, boot_machine,
@@ -429,10 +429,9 @@ impl MachineApp for C64 {
     fn register_mcp_tools(
         &self,
         registry: &mut ToolRegistry<HeadlessSession<C64Runtime, C64SessionQueryProvider>>,
+        session: &HeadlessSession<C64Runtime, C64SessionQueryProvider>,
     ) {
-        register_base_tools(registry);
-        // The C64 has a keyboard, so the shared press_key / type_string apply.
-        register_keyboard_tools(registry);
+        register_tools_for(registry, session);
         register_c64_tools(registry);
     }
 }

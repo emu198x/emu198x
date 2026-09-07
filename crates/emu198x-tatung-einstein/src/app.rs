@@ -2,12 +2,7 @@
 
 use std::path::PathBuf;
 
-use emu198x_shell::HeadlessSession;
 use emu198x_shell::launch::{Args, LaunchError, MachineApp, read_rom_exact, resolve_rom};
-use emu198x_shell::mcp::ToolRegistry;
-use emu198x_shell::mcp_tools::{
-    register_ay_watch_tools, register_base_tools, register_keyboard_tools,
-};
 use runtime_tatung_einstein::{EinsteinRuntime, EinsteinSessionQueryProvider, Model};
 use serde_json::{Map, Value};
 
@@ -102,22 +97,12 @@ impl MachineApp for Einstein {
         report.insert("mos_loaded".to_owned(), runtime.machine().is_some().into());
         report.insert("frames_run".to_owned(), frames_run.into());
     }
-
-    fn register_mcp_tools(
-        &self,
-        registry: &mut ToolRegistry<HeadlessSession<EinsteinRuntime, EinsteinSessionQueryProvider>>,
-    ) {
-        register_base_tools(registry);
-        // The machine has a keyboard, so the shared press_key / type_string apply.
-        register_keyboard_tools(registry);
-        // The Einstein carries an AY-3-8910 (PSG), so the AY-watch verbs apply.
-        register_ay_watch_tools(registry);
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use emu198x_shell::HeadlessSession;
     use emu198x_shell::launch::{Mode, Parsed, parse};
 
     fn args(list: &[&str]) -> Vec<String> {

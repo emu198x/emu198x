@@ -28,6 +28,7 @@ pub mod machine;
 pub mod mcp;
 pub mod mcp_tools;
 pub mod media;
+pub mod port_io;
 pub mod query;
 pub mod script;
 pub mod session;
@@ -73,6 +74,7 @@ pub use machine::{
     RunResult, StopReason,
 };
 pub use media::{FirmwareRequirement, MediaImage, MediaKind, MediaSet, MediaSlot, WritebackPolicy};
+pub use port_io::PortIoTarget;
 pub use query::{
     NoAdditionalQueries, QueryError, QueryPathsResult, QueryResult, SESSION_QUERY_PATHS,
     SessionQueryProvider,

@@ -104,6 +104,7 @@ gained one hook per gap rather than a private loop per machine:
 | `UiApp::build_ui_runtime()` | when the window opens, instead of `build_runtime` | a window that boots differently from script mode (the BBC Micro installs BASIC for the window, boots the bare MOS headlessly) |
 | `run_script(common, raw_args)` | instead of the shared loop | a corpus sweep or a different report shape; may still call `script_report` for the plain case |
 | `run_mcp(raw_args)` | instead of the shared server | a server that needs more than a session and a tool set |
+| `register_mcp_tools(registry, session)` | after the session is built | machine-bound tools only; the shared tiers come from `register_tools_for` per [`tools-follow-the-machine-spec.md`](tools-follow-the-machine-spec.md) |
 
 ## Porting the rest
 

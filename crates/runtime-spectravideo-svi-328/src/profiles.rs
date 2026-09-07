@@ -90,6 +90,7 @@ pub fn profile_for(model: Model) -> MachineProfile {
         ],
         capabilities: CapabilitySet::with_all([
             known_capability("keyboard-input"),
+            known_capability("ay-audio"),
             known_capability("scripted-input"),
         ]),
     }

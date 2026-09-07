@@ -75,12 +75,6 @@ fn mcp_execute_step(
     step: &ScriptStep,
     session: &mut SpectrumSession,
 ) -> Result<Option<ScriptObservation>, ToolError> {
-    // Inspection / debug / live-memory steps are shared verbatim with the
-    // `--script` runner through `dispatch_live_step`, so the two dispatch
-    // tables can't drift apart (the gap that left these MCP-only).
-    if let Some(result) = dispatch_live_step(step, session) {
-        return result;
-    }
     match step {
         ScriptStep::SetMachine { machine } => execute_set_machine(machine, session).map(Some),
         // press_key / type_string fall through to the shared `execute_collect`
@@ -106,40 +100,6 @@ fn mcp_execute_step(
             .execute_collect(session)
             .map_err(|err| ToolError::Execution(format!("{err}"))),
     }
-}
-
-/// Execute the steps that are genuinely Z80/AY-specific — the AY register
-/// query and the Z80 I/O ports. Generic over the runtime, so MCP mode
-/// (`SpectrumRuntimeKind`) and the `--script` runner dispatch the *same*
-/// implementation. The CPU / memory / disassembly verbs and the
-/// `watch_memory_*` / `watch_ay_*` verbs are NOT here any more — they run
-/// through the shared `DebugTarget` / `WatchTarget` arms (RULES.md #30).
-/// Returns `None` for steps it doesn't own.
-pub(crate) fn dispatch_live_step<
-    M: SpectrumLiveAccess + MachineCore,
-    Q: SessionQueryProvider<M>,
->(
-    step: &ScriptStep,
-    session: &mut HeadlessSession<M, Q>,
-) -> Option<Result<Option<ScriptObservation>, ToolError>> {
-    Some(match step {
-        ScriptStep::QueryAy => execute_query_ay(session).map(Some),
-        // query_cpu / step / run_until_pc / disasm are no longer intercepted:
-        // they fall through to the shell's generic `execute_collect`, which
-        // runs them through the shared `DebugTarget` (RULES.md #30). Only the
-        // genuinely Z80/AY-specific verbs stay here.
-        ScriptStep::PortRead { port } => Ok(Some(execute_port_read(session, *port))),
-        ScriptStep::PortWrite { port, value } => {
-            execute_port_write(session, *port, *value);
-            Ok(None)
-        }
-        // memory_read / poke_byte / poke_word AND the watch verbs
-        // (watch_memory_* / watch_ay_*) now fall through to the shared
-        // `execute_collect` arms, which drive each machine's `WatchTarget`
-        // (RULES.md #30). Only the AY register query + Z80 I/O ports stay
-        // Spectrum-specific.
-        _ => return None,
-    })
 }
 
 /// MCP-side equivalent of
@@ -225,87 +185,6 @@ pub(crate) fn execute_set_machine(
         profile_id: profile.profile_id.as_str().to_owned(),
         display_name: profile.display_name.to_string(),
     })
-}
-
-pub(crate) fn execute_query_ay<M: SpectrumLiveAccess + MachineCore, Q: SessionQueryProvider<M>>(
-    session: &mut HeadlessSession<M, Q>,
-) -> Result<ScriptObservation, ToolError> {
-    // Look up the two low-level AY paths through the existing
-    // session query provider; on AY-bearing variants both resolve,
-    // on 48K-class variants `spectrum.ay.registers` is not in
-    // `variant_query_paths()` and the provider returns `Ok(None)` →
-    // QueryError::UnknownPath. We surface that as a clear "active
-    // variant has no AY" error rather than a generic UnknownPath.
-    let regs = session
-        .query("ay.registers")
-        .map_err(|err| ay_unsupported_error(&err))?;
-    let raw: Vec<u8> = serde_json::from_value(regs.value).map_err(|err| {
-        ToolError::Execution(format!(
-            "query_ay: malformed spectrum.ay.registers value: {err}"
-        ))
-    })?;
-    if raw.len() != 16 {
-        return Err(ToolError::Execution(format!(
-            "query_ay: expected 16 AY registers, got {}",
-            raw.len()
-        )));
-    }
-    let selected = session
-        .query("ay.selected_register")
-        .map_err(|err| ay_unsupported_error(&err))?;
-    let selected_register: u8 = serde_json::from_value(selected.value).map_err(|err| {
-        ToolError::Execution(format!(
-            "query_ay: malformed spectrum.ay.selected_register value: {err}"
-        ))
-    })?;
-
-    let tone_period_a = u16::from(raw[0]) | (u16::from(raw[1] & 0x0F) << 8);
-    let tone_period_b = u16::from(raw[2]) | (u16::from(raw[3] & 0x0F) << 8);
-    let tone_period_c = u16::from(raw[4]) | (u16::from(raw[5] & 0x0F) << 8);
-    let envelope_period = u16::from(raw[11]) | (u16::from(raw[12]) << 8);
-
-    Ok(ScriptObservation::QueryAy {
-        selected_register,
-        raw: raw.clone(),
-        tone_period_a,
-        tone_period_b,
-        tone_period_c,
-        noise_period: raw[6] & 0x1F,
-        mixer: raw[7],
-        amplitude_a: raw[8] & 0x1F,
-        amplitude_b: raw[9] & 0x1F,
-        amplitude_c: raw[10] & 0x1F,
-        envelope_period,
-        envelope_shape: raw[13] & 0x0F,
-    })
-}
-
-pub(crate) fn execute_port_read<M: SpectrumLiveAccess + MachineCore, Q: SessionQueryProvider<M>>(
-    session: &mut HeadlessSession<M, Q>,
-    port: u16,
-) -> ScriptObservation {
-    let value = session.machine_mut().port_read(port);
-    ScriptObservation::PortRead { port, value }
-}
-
-pub(crate) fn execute_port_write<
-    M: SpectrumLiveAccess + MachineCore,
-    Q: SessionQueryProvider<M>,
->(
-    session: &mut HeadlessSession<M, Q>,
-    port: u16,
-    value: u8,
-) {
-    session.machine_mut().port_write(port, value);
-}
-
-fn ay_unsupported_error(err: &emu198x_shell::QueryError) -> ToolError {
-    ToolError::Execution(format!(
-        "query_ay: active Spectrum variant does not have an AY-3-8912 chip \
-         (only 128K, +2, +2A, +2B, +3, Pentagon, Scorpion, and Timex TC2068 / \
-         TS2068 expose AY state). Switch to one of those variants via the \
-         `set_machine` tool first. Underlying error: {err}"
-    ))
 }
 
 /// Type `LOAD ""` and start tape transport on the named slot. Generic
@@ -456,16 +335,6 @@ pub fn register_spectrum_tools(registry: &mut ToolRegistry<SpectrumSession>) {
 
     add_step(
         registry,
-        "clear_audio_capture",
-        "Drop the session capture buffer without writing it to disk. Pair with save_audio_capture when you want save + buffer-reset in two explicit steps rather than the `reset_after` boolean. No effect on the start_audio_recording / stop_audio_recording path — that uses its own per-recording offset.",
-        json!({
-            "type": "object",
-            "properties": {},
-        }),
-    );
-
-    add_step(
-        registry,
         "set_machine",
         "Switch the live machine to the named variant (currently errors with `not yet supported`).",
         json!({
@@ -529,33 +398,6 @@ pub fn register_spectrum_tools(registry: &mut ToolRegistry<SpectrumSession>) {
     // `query_cpu` is served by the shared `register_debug_tools` via the
     // enriched `DebugTarget::dbg_cpu_state` (full Z80 file + decoded
     // flags), so there is no bespoke override here any more (#456).
-
-    add_step(
-        registry,
-        "port_read",
-        "Read one Z80 I/O port through the bus-level handler. Same value an IN A,(C) would observe (ULA $FE, Kempston $1F, AY $FFFD, …) without driving the CPU through the synthetic instruction.",
-        json!({
-            "type": "object",
-            "properties": {
-                "port": integer_field(),
-            },
-            "required": ["port"],
-        }),
-    );
-
-    add_step(
-        registry,
-        "port_write",
-        "Write one Z80 I/O port through the bus-level handler. Side-effects mirror OUT (C),A — border colour ($FE bits 0-2), beeper (bit 4), 128K paging ($7FFD), AY register select ($FFFD) and data ($BFFD). Silent.",
-        json!({
-            "type": "object",
-            "properties": {
-                "port": integer_field(),
-                "value": integer_field(),
-            },
-            "required": ["port", "value"],
-        }),
-    );
 
     // press_key / type_string now come from the shared keyboard tier
     // (`register_keyboard_tools`, registered in `mcp/mod.rs`) over the
@@ -772,24 +614,23 @@ mod tests {
         register_spectrum_tools(&mut registry);
         let names: Vec<_> = registry.iter().map(|tool| tool.name().to_owned()).collect();
 
-        // Only genuinely Spectrum-specific tools live here — Z80 port I/O,
-        // tape/BASIC loaders, keyboard helpers, `set_machine`, and
-        // `load_snapshot` (an intentional override so portable `.sna` /
-        // `.z80` route through the Spectrum parser, gap #6). The generic
-        // CPU/memory/disassembly verbs — `query_cpu`, `memory_read`,
-        // `disasm`, `step`, `poke_byte`, `poke_word`, `run_until_pc` — are
-        // NOT here: they come from the shared `register_debug_tools` tier,
-        // and the `watch_memory_*` / `watch_ay_*` verbs from the shared
-        // watch tier, so MCP and `--script` run one implementation (RULES.md
-        // #30, #456). `query_ay` folds into the `ay.*` query paths.
+        // Only genuinely Spectrum-specific tools live here — tape/BASIC
+        // loaders, `set_machine`, `save_tape`, and `load_snapshot` (an
+        // intentional override so portable `.sna` / `.z80` route through
+        // the Spectrum parser, gap #6). The generic CPU/memory/disassembly
+        // verbs — `query_cpu`, `memory_read`, `disasm`, `step`, `poke_byte`,
+        // `poke_word`, `run_until_pc` — are NOT here: they come from the
+        // shared `register_debug_tools` tier; the `watch_memory_*` /
+        // `watch_ay_*` verbs from the shared watch tier; `port_read` /
+        // `port_write` from the shared port-I/O tier behind `PortIoTarget`;
+        // and `clear_audio_capture` / `query_ay` from the common set. MCP
+        // and `--script` run one implementation (RULES.md #30, #456,
+        // knowledge/decisions/tools-follow-the-machine-spec.md).
         let expected = [
-            "clear_audio_capture",
             "set_machine",
             "autoload_tape",
             "load_basic_program",
             "load_snapshot",
-            "port_read",
-            "port_write",
             "save_tape",
         ];
         for name in expected {
@@ -816,6 +657,10 @@ mod tests {
             "watch_ay_log",
             "press_key",
             "type_string",
+            "port_read",
+            "port_write",
+            "clear_audio_capture",
+            "query_ay",
         ] {
             assert!(
                 !names.contains(&shared.to_owned()),

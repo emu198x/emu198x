@@ -12,9 +12,7 @@ use std::path::PathBuf;
 
 use emu198x_shell::launch::{Args, CommonCli, LaunchError, MachineApp};
 use emu198x_shell::mcp::ToolRegistry;
-use emu198x_shell::mcp_tools::{
-    register_base_tools, register_keyboard_tools, register_memory_watch_tools,
-};
+use emu198x_shell::mcp_tools::register_tools_for;
 use emu198x_shell::{
     FamilyRuntime, FirmwareImage, FirmwareSet, HeadlessSession, MachineCore, MediaImage, MediaKind,
     MediaSet, read_firmware_asset, read_media_asset,
@@ -174,17 +172,13 @@ impl MachineApp for Amiga {
     fn register_mcp_tools(
         &self,
         registry: &mut ToolRegistry<HeadlessSession<AmigaRuntimeKind, AmigaSessionQueryProvider>>,
+        session: &HeadlessSession<AmigaRuntimeKind, AmigaSessionQueryProvider>,
     ) {
-        // Shared uniform surface (run/input/capture/query/recording/reset) +
-        // shared debug verbs (CPU/memory/disasm/step via DebugTarget) + the
-        // shared memory-watch verbs (watch_memory_* via WatchTarget; no AY tier —
-        // the Amiga has Paula) + the bespoke Amiga chip/exec/copper tools — the
+        // The shared surface as the machine declares it (debug verbs via
+        // DebugTarget, memory watch via WatchTarget, keyboard; no AY tier,
+        // the Amiga has Paula), then the bespoke chip/exec/copper tools. The
         // richer Amiga overrides win on name collisions (last write).
-        register_base_tools(registry);
-        register_memory_watch_tools(registry);
-        // The Amiga has a keyboard (with a Shift-aware char table + the two Amiga
-        // keys), so the shared press_key / press_keys / type_string apply.
-        register_keyboard_tools(registry);
+        register_tools_for(registry, session);
         register_amiga_tools(registry);
     }
 }

@@ -336,6 +336,18 @@ pub trait MachineCore {
     fn keyboard_target(&self) -> Option<&dyn crate::keyboard::KeyboardTarget> {
         None
     }
+
+    /// The machine's CPU port space, when its processor has one (the Z80's
+    /// `IN`/`OUT`). Drives the `port_read` / `port_write` script steps and
+    /// MCP tools; a machine that returns `None` gets neither registered.
+    fn port_io_target(&self) -> Option<&dyn crate::port_io::PortIoTarget> {
+        None
+    }
+
+    /// Mutable port-space access for the executor.
+    fn port_io_target_mut(&mut self) -> Option<&mut dyn crate::port_io::PortIoTarget> {
+        None
+    }
 }
 
 /// A runtime that is one of a system family's machine *variants* —

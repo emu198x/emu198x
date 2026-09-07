@@ -25,7 +25,7 @@ use serde_json::{Map, Value};
 
 use crate::machine::MachineCore;
 use crate::mcp::{Server, ServerInfo, ToolRegistry, serve_stdio};
-use crate::mcp_tools::{register_base_tools, register_keyboard_tools};
+use crate::mcp_tools::register_tools_for;
 use crate::media::MediaKind;
 use crate::query::SessionQueryProvider;
 use crate::script::{HeadlessScript, ScriptObservation};
@@ -389,15 +389,19 @@ pub trait MachineApp: Default {
         serve_mcp(self, raw_args)
     }
 
-    /// Register the MCP tools this machine serves. The default is the base
-    /// set plus the keyboard verbs, which is right for any machine with a
-    /// keyboard; override to add family tools or drop the keyboard.
+    /// Register the MCP tools this machine serves. The default,
+    /// [`register_tools_for`], registers every shared tool the machine can
+    /// honour by asking the machine itself: the keyboard verbs if it has a
+    /// keyboard target, the watches its watch target supports, port I/O if
+    /// it has a port space, `query_ay` if it publishes the AY. A machine
+    /// with genuinely machine-bound tools overrides this, calls
+    /// [`register_tools_for`] first, and adds its own after.
     fn register_mcp_tools(
         &self,
         registry: &mut ToolRegistry<HeadlessSession<Self::Runtime, Self::Query>>,
+        session: &HeadlessSession<Self::Runtime, Self::Query>,
     ) {
-        register_base_tools(registry);
-        register_keyboard_tools(registry);
+        register_tools_for(registry, session);
     }
 }
 
@@ -569,7 +573,7 @@ pub fn serve_mcp<A: MachineApp>(app: &A, raw_args: &[String]) -> Result<(), Laun
     // same thing in MCP mode as in the other two (#1180).
     startup_media::load_into(&mut session, raw_args)?;
     let mut server = Server::new(ServerInfo::new(A::BIN_NAME, A::VERSION));
-    app.register_mcp_tools(server.registry_mut());
+    app.register_mcp_tools(server.registry_mut(), &session);
     serve_stdio(&mut server, &mut session).map_err(|err| LaunchError::Run(err.to_string()))
 }
 
