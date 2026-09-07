@@ -48,6 +48,7 @@
 //! which ran the VDP and wall-clock 1.5× too fast. Same model as the
 //! SG-1000 (identical TMS9918A + Z80 at the same clocks).
 
+use common_z80_machine::Z80Machine;
 use emu198x_zilog_z80::{BusOp, Z80};
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
@@ -192,6 +193,10 @@ pub struct ColecoVision {
     region: CvRegion,
     /// CPU T-state counter.
     cpu_cycles: u64,
+    /// The cadence driver's half-cycle phase; a restore lands on a T-state
+    /// boundary, so it is not part of the snapshot.
+    #[serde(skip)]
+    cadence_hc: u64,
     /// CPU T-states per frame for the active region.
     cpu_cycles_per_frame: u64,
     /// VDP dot-phase accumulator (numerator units); ticks the VDP 3
@@ -228,6 +233,7 @@ impl ColecoVision {
             joystick_mode: false,
             region,
             cpu_cycles: 0,
+            cadence_hc: 0,
             cpu_cycles_per_frame,
             vdp_phase: 0,
             frame_count: 0,
@@ -245,38 +251,13 @@ impl ColecoVision {
         self.cpu_cycles_per_frame
     }
 
-    /// Advance one Z80 T-state and the chips it drives.
+    /// Advance one Z80 T-state and the chips it drives. The cadence — two
+    /// CPU half-cycles, the interrupt pin fed before each — is
+    /// `common-z80-machine`'s; this machine only orders its own chips
+    /// around it (the VDP after each CPU edge, the PSG and T-state counter
+    /// once per T-state, as the hand-rolled loop always had them).
     fn tick_cpu_cycle(&mut self) {
-        // 1. Two CPU half-cycles per T-state. Per RULES.md rule 6 we drive
-        //    the Z80 by inspecting its pins; `Z80::tick` advances one
-        //    half-cycle — `T1Rise` then `T1Fall` — so calling it once per
-        //    T-state ran the CPU at half speed: a `NOP` cost 8 T-states
-        //    against the Z80's 4, and the machine executed half the work
-        //    per frame that `cpu_cycles_per_frame` budgets for.
-        for _ in 0..2 {
-            // 2. VDP INT pin drives the Z80 IRQ pin directly, fed before
-            //    the tick rather than after. The Z80 samples `/INT` at an
-            //    instruction boundary during its own tick, so setting the
-            //    line afterwards hands it the VDP's state from the
-            //    previous half-cycle.
-            self.cpu.irq = self.vdp.interrupt;
-
-            self.cpu.tick();
-            self.handle_bus();
-
-            // 3. VDP advances by 3/2 dots per T-state — phase counter,
-            //    now accumulated per half-cycle.
-            self.vdp_phase += VDP_DOT_PHASE_NUMERATOR;
-            while self.vdp_phase >= VDP_DOT_PHASE_DENOMINATOR {
-                self.vdp.tick();
-                self.vdp_phase -= VDP_DOT_PHASE_DENOMINATOR;
-            }
-        }
-
-        // 4. PSG advances one CPU clock (internal ÷ 16 divider).
-        self.psg.tick();
-
-        self.cpu_cycles += 1;
+        self.advance_tstates(1);
     }
 
     /// Inspect the Z80's bus request and route memory / I/O.
@@ -463,6 +444,47 @@ impl ColecoVision {
     #[must_use]
     pub fn peek(&self, addr: u16) -> u8 {
         self.mem_read(addr)
+    }
+}
+
+impl Z80Machine for ColecoVision {
+    fn hc(&self) -> u64 {
+        self.cadence_hc
+    }
+
+    fn hc_mut(&mut self) -> &mut u64 {
+        &mut self.cadence_hc
+    }
+
+    // Per RULES.md rule 6 we drive the Z80 by inspecting its pins.
+    fn feed_interrupt_pins(&mut self) {
+        // VDP INT pin drives the Z80 IRQ pin directly, fed before the tick
+        // rather than after. The Z80 samples `/INT` at an instruction
+        // boundary during its own tick, so setting the line afterwards
+        // hands it the VDP's state from the previous half-cycle.
+        self.cpu.irq = self.vdp.interrupt;
+    }
+
+    fn tick_cpu_and_bus(&mut self) {
+        self.cpu.tick();
+        self.handle_bus();
+    }
+
+    fn tick_chips_halfcycle(&mut self) {
+        // VDP advances by 3/2 dots per T-state — phase counter, accumulated
+        // per half-cycle.
+        self.vdp_phase += VDP_DOT_PHASE_NUMERATOR;
+        while self.vdp_phase >= VDP_DOT_PHASE_DENOMINATOR {
+            self.vdp.tick();
+            self.vdp_phase -= VDP_DOT_PHASE_DENOMINATOR;
+        }
+    }
+
+    fn tick_chips(&mut self) {
+        // PSG advances one CPU clock (internal ÷ 16 divider).
+        self.psg.tick();
+
+        self.cpu_cycles += 1;
     }
 }
 
