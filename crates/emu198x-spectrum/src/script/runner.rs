@@ -29,7 +29,6 @@ use serde::Serialize;
 
 use crate::app::AppError;
 use crate::machine::{MachineKind, RomOverrides, resolved_rom_bundle, rom_override_entry};
-use crate::mcp::tools::{execute_autoload_tape, execute_load_basic_program};
 use crate::portable_snapshot::{is_portable_snapshot_path, parse_portable_snapshot_at};
 
 const DEFAULT_TAPE_SLOT: &str = "tape-1";
@@ -225,8 +224,8 @@ pub fn run_script(inputs: ScriptInputs) -> Result<RunnerReport, AppError> {
 /// variants before delegating to the shell executor.
 ///
 /// Pub(crate) so the binary's MCP mode dispatches its tool calls
-/// through the same path script mode uses; SetMachine / AutoloadTape /
-/// LoadBasicProgram interception is shared across both modes.
+/// through the same path script mode uses; SetMachine and portable
+/// LoadSnapshot interception is shared across both modes.
 pub(crate) fn execute_step(
     step: &ScriptStep,
     session: &mut HeadlessSession<SpectrumRuntimeKind, SpectrumSessionQueryProvider>,
@@ -238,17 +237,6 @@ pub(crate) fn execute_step(
             // `HeadlessSession::swap_machine`. Script mode holds the family
             // enum now, so mid-script variant swaps work (#456).
             crate::mcp::tools::execute_set_machine(machine, session)
-                .map(Some)
-                .map_err(map_tool_error)
-        }
-        ScriptStep::AutoloadTape {
-            slot,
-            max_boot_frames,
-        } => execute_autoload_tape(session, slot, *max_boot_frames)
-            .map(Some)
-            .map_err(map_tool_error),
-        ScriptStep::LoadBasicProgram { path, run } => {
-            execute_load_basic_program(session, path, *run)
                 .map(Some)
                 .map_err(map_tool_error)
         }

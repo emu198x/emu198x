@@ -545,6 +545,45 @@ impl MachineCore for SpectrumRuntimeKind {
         Some(self)
     }
 
+    fn load_basic_program<Q: emu198x_shell::SessionQueryProvider<Self>>(
+        session: &mut emu198x_shell::HeadlessSession<Self, Q>,
+        source: &str,
+        run: bool,
+    ) -> Result<emu198x_shell::BasicProgramLoaded, emu198x_shell::LoaderError> {
+        let program = format_sinclair_zx_spectrum_bas::tokenise(source).map_err(|err| {
+            emu198x_shell::LoaderError::Failed(format!("failed to tokenise: {err}"))
+        })?;
+        let result = crate::basic_loader::load_basic_program(
+            session,
+            &program,
+            run,
+            crate::basic_loader::DEFAULT_BASIC_LOADER_BOOT_FRAMES,
+        )
+        .map_err(|err| emu198x_shell::LoaderError::Failed(err.to_string()))?;
+        Ok(emu198x_shell::BasicProgramLoaded {
+            program_bytes: result.program_bytes,
+            ran: result.ran,
+        })
+    }
+
+    fn autoload_tape<Q: emu198x_shell::SessionQueryProvider<Self>>(
+        session: &mut emu198x_shell::HeadlessSession<Self, Q>,
+        slot: &str,
+        max_boot_frames: u32,
+    ) -> Result<emu198x_shell::TapeAutoloaded, emu198x_shell::LoaderError> {
+        let frames = if max_boot_frames == 0 {
+            crate::autoload::DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES
+        } else {
+            max_boot_frames
+        };
+        let result = crate::autoload::autoload_basic_tape(session, slot, frames)
+            .map_err(|err| emu198x_shell::LoaderError::Failed(err.to_string()))?;
+        Ok(emu198x_shell::TapeAutoloaded {
+            slot: result.slot,
+            boot_frames: result.boot.frames,
+        })
+    }
+
     fn keyboard_target(&self) -> Option<&dyn emu198x_shell::KeyboardTarget> {
         Some(self)
     }

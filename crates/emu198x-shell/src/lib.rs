@@ -24,6 +24,7 @@ pub mod host;
 pub mod input;
 pub mod keyboard;
 pub mod launch;
+pub mod loaders;
 pub mod machine;
 pub mod mcp;
 pub mod mcp_tools;
@@ -69,6 +70,7 @@ pub use input::{
     NativeGamepadInput,
 };
 pub use keyboard::{KeyTiming, KeyboardTarget, STANDARD_KEY_TIMING, StandardKeyboard};
+pub use loaders::{BasicProgramLoaded, LoaderError, TapeAutoloaded};
 pub use machine::{
     Family, FamilyRuntime, MachineCore, MachineId, MachineProfile, ProfileId, Region, ResetKind,
     RunResult, StopReason,
