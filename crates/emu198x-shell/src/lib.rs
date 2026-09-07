@@ -23,6 +23,7 @@ pub mod host;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod input;
 pub mod keyboard;
+pub mod launch;
 pub mod machine;
 pub mod mcp;
 pub mod mcp_tools;
