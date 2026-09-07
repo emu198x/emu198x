@@ -4,6 +4,13 @@ All notable changes to Emu198x will be documented in this file.
 
 Format loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 not strictly. Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [0.23.0] - 2026-09-07
+
+### Changed
+
+- Release archives for Linux and macOS are `.tar.gz` instead of `.tar.xz`. Anything that downloads an archive by name needs the new extension; this is why the version moves a minor step. Windows stays on `.zip`. The archives are about half as large again and take seconds rather than minutes to build; `tar xf` handles either.
+- Every Z80 machine drives its CPU through one shared cadence (`common-z80-machine`) instead of a hand-rolled loop per machine, the loop nine machines once got wrong. No emulated behaviour changes: each of the thirteen machines was checked byte-for-byte against its previous binary with real firmware, reports and screenshots alike.
+
 ## [0.22.2] - 2026-09-07
 
 ### Fixed
