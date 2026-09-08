@@ -7,31 +7,35 @@
 //! Compiled only with the `ui` Cargo feature; the shared launcher opens the
 //! window when no automation flag is given.
 
+use std::borrow::Cow;
 use std::time::Duration;
 
-use emu198x_ui::launch::UiApp;
-use emu198x_ui::{ButtonInputMap, KeyCode, UiSystem};
-use runtime_sinclair_zx80::Zx80Runtime;
+use emu198x_shell::{FamilyRuntime, FirmwareOverrides, MachineCore, MachineError, build_variant};
 
-use crate::app::{FRAME_TICKS_PAL, Zx80};
+use emu198x_ui::launch::UiApp;
+use emu198x_ui::{ButtonInputMap, KeyCode, UiSystem, VariantInfo};
+use runtime_sinclair_zx80::{Model, Zx80Runtime};
+
+use crate::app::Zx80;
 
 const DEFAULT_SCALE: u32 = 3;
-const PAL_FRAME_HZ: f64 = 50.0;
 
 /// The ZX80 has no joystick; the harness still wants a button map, so an empty
 /// one. Every key flows through [`UiSystem::map_keys`].
 const ZX80_BUTTON_MAP: ButtonInputMap = ButtonInputMap::new(&[]);
 
 /// The ZX80 as a [`UiSystem`] for the shared harness. Keyboard-only and
-/// single-model, so it carries no state — a hard reset rebuilds the machine
-/// from the firmware the runtime already holds.
-pub struct Zx80System;
+/// carries the selected preset for the menu. A hard reset rebuilds the machine
+/// from its current firmware; switching installs a fresh configuration.
+pub struct Zx80System {
+    model: Model,
+}
 
 impl UiApp for Zx80 {
     type System = Zx80System;
 
     fn ui_system(&self) -> Zx80System {
-        Zx80System
+        Zx80System { model: self.model }
     }
 }
 
@@ -59,12 +63,45 @@ impl UiSystem for Zx80System {
             .unwrap_or((320, 288))
     }
 
-    fn frame_ticks(&self, _runtime: &Self::Runtime) -> u64 {
-        FRAME_TICKS_PAL
+    fn frame_ticks(&self, runtime: &Self::Runtime) -> u64 {
+        runtime.native_frame_ticks()
     }
 
-    fn frame_duration(&self, _runtime: &Self::Runtime) -> Duration {
-        Duration::from_secs_f64(1.0 / PAL_FRAME_HZ)
+    fn frame_duration(&self, runtime: &Self::Runtime) -> Duration {
+        let rate = &runtime.profile().clock.rate;
+        Duration::from_secs_f64(
+            runtime.native_frame_ticks() as f64 * rate.denominator_hz as f64
+                / rate.numerator_hz as f64,
+        )
+    }
+
+    fn variants(&self) -> Vec<VariantInfo> {
+        Model::ALL
+            .iter()
+            .map(|model| VariantInfo::new(model.profile_id(), model.menu_label()))
+            .collect()
+    }
+
+    fn current_variant(&self) -> Option<Cow<'static, str>> {
+        Some(Cow::Borrowed(self.model.profile_id()))
+    }
+
+    fn switch_variant(
+        &mut self,
+        runtime: &mut Self::Runtime,
+        variant: &str,
+    ) -> Result<(), MachineError> {
+        let model = Model::from_variant_id(variant).ok_or(MachineError::UnsupportedOperation {
+            operation: "unknown ZX80 variant",
+        })?;
+        *runtime =
+            build_variant::<Zx80Runtime>(model, &FirmwareOverrides::none()).map_err(|err| {
+                MachineError::Host {
+                    reason: err.to_string(),
+                }
+            })?;
+        self.model = model;
+        Ok(())
     }
 
     fn button_map(&self) -> &'static ButtonInputMap {
@@ -128,6 +165,34 @@ fn map_zx80_keys(code: KeyCode) -> Option<&'static [&'static str]> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn menu_and_pacing_follow_the_runtime_catalogue() {
+        let system = Zx80System { model: Model::Zx80 };
+        let choices = system.variants();
+        let ids: Vec<_> = choices.iter().map(|choice| choice.id.as_ref()).collect();
+        assert_eq!(ids, Model::VARIANT_IDS);
+        assert!(choices[2].label.contains("RAM pack"));
+        let pal = Zx80Runtime::blank(Model::Zx80);
+        let ntsc = Zx80Runtime::blank(Model::Zx80Usa);
+        assert_eq!(system.frame_ticks(&ntsc), ntsc.native_frame_ticks());
+        assert!(system.frame_duration(&ntsc) < system.frame_duration(&pal));
+    }
+
+    #[test]
+    fn an_unknown_variant_leaves_the_window_and_machine_unchanged() {
+        let mut system = Zx80System {
+            model: Model::Zx80RamPack,
+        };
+        let mut runtime = Zx80Runtime::blank(Model::Zx80RamPack);
+        assert!(system.switch_variant(&mut runtime, "unknown").is_err());
+        assert_eq!(runtime.model(), Model::Zx80RamPack);
+        assert_eq!(runtime.ram_bytes(), 16384);
+        assert_eq!(
+            system.current_variant().as_deref(),
+            Some("sinclair-zx80-16k")
+        );
+    }
 
     #[test]
     fn maps_membrane_keys_and_shift() {

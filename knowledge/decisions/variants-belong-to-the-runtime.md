@@ -1,6 +1,6 @@
 # Variants belong to the runtime
 
-**Status:** Adopted 2026-09-08 for the Spectrum, Amiga, C64 and ZX81 families.
+**Status:** Adopted 2026-09-08 for the Spectrum, Amiga, C64, ZX81 and ZX80 families.
 
 ## The problem
 
@@ -105,6 +105,15 @@ RAM and frame pacing; `--ram-bytes` overrides RAM at launch. Switching
 builds the selected model's default configuration, resolves firmware by
 convention, and drops launch-time overrides as on the other families.
 MCP retains its ability to start blank when firmware is unavailable.
+
+The ZX80 follows the same path for its existing stock, USA and RAM-pack
+profile ids. Its native labels describe region and configuration within one
+base machine. `--rom-dir`, `EMU198X_ZX80_ROM_DIR` and `--rom ID=PATH` use the
+shared resolver while `--rom PATH` and `EMU198X_ZX80_ROM` stay compatible.
+A switch ejects the tape and replaces launch-time RAM overrides with the
+selected preset's defaults; reports describe that live state. Blank MCP
+startup remains available when conventional firmware is absent, but invalid
+images and explicitly requested missing paths are errors.
 
 `FirmwareSource::with_env_var` describes a conventional variable naming
 one ROM file, preserving `EMU198X_ZX81_ROM` through every entry point.
