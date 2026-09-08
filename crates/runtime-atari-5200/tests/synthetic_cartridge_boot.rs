@@ -37,8 +37,15 @@ fn the_synthetic_cartridge_boots_through_the_handover_bios() {
     let cart = test_data("synthetic-cartridges/atari-5200-logo.bin");
     let bios = test_data("synthetic-firmware/atari-5200-bios-handover.rom");
 
+    let mut firmware = emu198x_shell::FirmwareSet::new();
+    firmware.push(emu198x_shell::FirmwareImage::new(
+        runtime_atari_5200::BIOS_FIRMWARE_ID,
+        &bios,
+    ));
     let mut runtime =
-        Atari5200Runtime::new(MODEL, cart, bios).expect("cartridge and BIOS should construct");
+        <Atari5200Runtime as emu198x_shell::FamilyRuntime>::from_firmware(MODEL, &firmware)
+            .expect("catalogue firmware");
+    runtime.insert_cartridge(cart).expect("cartridge");
 
     let (mut frames, mut audio, mut trace) = (NullFrameSink, NullAudioSink, NullTraceSink);
     let mut host = HostIo {

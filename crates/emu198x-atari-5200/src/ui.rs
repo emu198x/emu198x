@@ -11,13 +11,14 @@
 //! feature; the shared launcher opens the window when no automation flag is
 //! given.
 
+use emu198x_shell::FamilyRuntime;
 use std::time::Duration;
 
 use emu198x_ui::launch::UiApp;
 use emu198x_ui::{ButtonInputMap, ButtonTarget, HostControl, KeyCode, UiSystem};
 use runtime_atari_5200::Atari5200Runtime;
 
-use crate::app::{Atari5200, Region};
+use crate::app::Atari5200;
 
 const DEFAULT_SCALE: u32 = 3;
 
@@ -37,17 +38,13 @@ const ATARI_5200_BUTTON_MAP: ButtonInputMap = ButtonInputMap::new(&[
 /// The Atari 5200 as a [`UiSystem`] for the shared harness. The region is fixed
 /// at construction; a hard reset rebuilds the machine from the cartridge and
 /// BIOS the runtime already holds.
-pub struct Atari5200System {
-    region: Region,
-}
+pub struct Atari5200System;
 
 impl UiApp for Atari5200 {
     type System = Atari5200System;
 
     fn ui_system(&self) -> Atari5200System {
-        Atari5200System {
-            region: self.region,
-        }
+        Atari5200System
     }
 }
 
@@ -77,12 +74,12 @@ impl UiSystem for Atari5200System {
             .unwrap_or((374, 240))
     }
 
-    fn frame_ticks(&self, _runtime: &Self::Runtime) -> u64 {
-        self.region.frame_ticks()
+    fn frame_ticks(&self, runtime: &Self::Runtime) -> u64 {
+        runtime.native_frame_ticks()
     }
 
     fn frame_duration(&self, _runtime: &Self::Runtime) -> Duration {
-        Duration::from_secs_f64(1.0 / self.region.frame_hz())
+        Duration::from_secs_f64(1.0 / 60.0)
     }
 
     fn button_map(&self) -> &'static ButtonInputMap {
@@ -131,10 +128,38 @@ mod tests {
     use super::*;
 
     #[test]
-    fn stick_on_map_key_and_keypad_on_map_keys() {
-        let sys = Atari5200System {
-            region: Region::Ntsc,
+    fn window_loads_bios_and_cartridge_through_the_shared_launch_path() {
+        let dir = std::env::temp_dir().join(format!("a5200-ui-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("directory");
+        let bios = dir.join("bios.rom");
+        let cart = dir.join("cart.rom");
+        std::fs::write(&bios, vec![0x3c; 2048]).expect("BIOS");
+        std::fs::write(&cart, vec![0x5a; 32768]).expect("cartridge");
+        let mut firmware = emu198x_shell::FirmwareOverrides::none();
+        firmware.pin(runtime_atari_5200::BIOS_FIRMWARE_ID, bios);
+        let app = Atari5200 {
+            firmware,
+            cart: Some(cart.clone()),
         };
+        let runtime = app.build_ui_runtime().expect("window runtime");
+        let system = app.ui_system();
+        assert!(system.variants().is_empty());
+        assert_eq!(system.frame_ticks(&runtime), runtime.native_frame_ticks());
+        let machine = runtime.machine().expect("machine");
+        assert_eq!(machine.peek(0xf800), 0x3c);
+        assert_eq!(machine.peek(0x4000), 0x5a);
+        assert_eq!(
+            system.framebuffer_size(&runtime),
+            (machine.framebuffer_width(), machine.framebuffer_height())
+        );
+        std::fs::remove_file(cart).expect("remove source");
+        assert!(app.build_ui_runtime().is_err());
+        std::fs::remove_dir_all(dir).expect("cleanup");
+    }
+
+    #[test]
+    fn stick_on_map_key_and_keypad_on_map_keys() {
+        let sys = Atari5200System;
         assert_eq!(sys.map_key(KeyCode::ArrowLeft), Some(HostControl::Left));
         assert_eq!(sys.map_key(KeyCode::KeyZ), Some(HostControl::South));
         assert_eq!(sys.map_keys(KeyCode::Enter), Some(&["start"][..]));

@@ -20,6 +20,33 @@ pub enum Model {
 }
 
 impl Model {
+    pub const ALL: [Self; 1] = [Self::A5200Ntsc];
+    pub const VARIANT_IDS: [&'static str; 1] = [Self::A5200Ntsc.variant_id()];
+
+    #[must_use]
+    pub const fn variant_id(self) -> &'static str {
+        self.profile_id()
+    }
+
+    #[must_use]
+    pub fn from_variant_id(id: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|model| model.variant_id() == id)
+    }
+
+    #[must_use]
+    pub fn firmware_sources(self) -> Vec<emu198x_shell::FirmwareSource> {
+        vec![
+            emu198x_shell::FirmwareSource::optional(BIOS_FIRMWARE_ID, &["bios.rom", "5200.rom"])
+                .with_env_var("EMU198X_A5200_BIOS"),
+        ]
+    }
+
+    /// Existing native host budget, in colour clocks.
+    #[must_use]
+    pub const fn frame_ticks(self) -> u64 {
+        262 * 228
+    }
+
     #[must_use]
     pub const fn model_id(self) -> &'static str {
         match self {
@@ -48,7 +75,7 @@ pub const BIOS_FIRMWARE_ID: &str = "atari-5200-bios";
 
 #[must_use]
 pub fn profiles() -> Vec<MachineProfile> {
-    vec![profile_for(Model::A5200Ntsc)]
+    Model::ALL.into_iter().map(profile_for).collect()
 }
 
 #[must_use]
