@@ -3,44 +3,17 @@
 use std::path::{Path, PathBuf};
 
 use emu198x_shell::launch::{Args, LaunchError, MachineApp};
+use emu198x_shell::{FirmwareOverrides, build_variant};
 use emu198x_shell::{MediaKind, read_media_asset};
 use runtime_atari_2600::{Atari2600Runtime, Atari2600SessionQueryProvider, Model};
 use serde_json::{Map, Value};
-
-/// Atari 2600 NTSC frame = 262 lines × 228 colour clocks.
-const FRAME_TICKS_NTSC: u64 = 262 * 228;
-const FRAME_TICKS_PAL: u64 = 312 * 228;
-
-/// Display region — selects the model and the frame tick budget.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum Region {
-    #[default]
-    Ntsc,
-    Pal,
-}
-
-impl Region {
-    const fn model(self) -> Model {
-        match self {
-            Self::Ntsc => Model::Vcs2600Ntsc,
-            Self::Pal => Model::Vcs2600Pal,
-        }
-    }
-
-    const fn frame_ticks(self) -> u64 {
-        match self {
-            Self::Ntsc => FRAME_TICKS_NTSC,
-            Self::Pal => FRAME_TICKS_PAL,
-        }
-    }
-}
 
 /// The machine configuration the flags build up.
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct Atari2600 {
     /// `--cart PATH`, or the one positional argument.
     pub cart: Option<PathBuf>,
-    pub region: Region,
+    pub model: Model,
 }
 
 impl MachineApp for Atari2600 {
@@ -54,6 +27,7 @@ impl MachineApp for Atari2600 {
                     (e.g. a merged MAME software list) loads its root parent;
                     append #NAME or #INDEX to pick another, e.g. game.zip#poleposc
                     (a bare PATH is accepted too)
+    --model ID      atari-2600-ntsc | atari-2600-pal
     --region MODE   ntsc | pal [default: ntsc]";
     const CONTROLS: &'static str = "    Esc             quit
     F12             emulator hard reset
@@ -65,10 +39,19 @@ impl MachineApp for Atari2600 {
     fn parse_flag(&mut self, flag: &str, args: &mut Args) -> Result<bool, LaunchError> {
         match flag {
             "--cart" => self.cart = Some(args.path(flag)?),
+            "--model" => {
+                let id = args.value(flag)?;
+                self.model = Model::from_variant_id(&id).ok_or_else(|| {
+                    LaunchError::Usage(format!(
+                        "unknown Atari 2600 model `{id}`; expected {}",
+                        Model::VARIANT_IDS.join(", ")
+                    ))
+                })?;
+            }
             "--region" => {
-                self.region = match args.value(flag)?.as_str() {
-                    "ntsc" => Region::Ntsc,
-                    "pal" => Region::Pal,
+                self.model = match args.value(flag)?.as_str() {
+                    "ntsc" => Model::Vcs2600Ntsc,
+                    "pal" => Model::Vcs2600Pal,
                     other => {
                         return Err(LaunchError::Usage(format!(
                             "--region expects ntsc|pal, got {other}"
@@ -88,7 +71,7 @@ impl MachineApp for Atari2600 {
     }
 
     fn frame_ticks(&self) -> u64 {
-        self.region.frame_ticks()
+        self.model.frame_ticks()
     }
 
     fn query_provider(&self) -> Atari2600SessionQueryProvider {
@@ -96,19 +79,31 @@ impl MachineApp for Atari2600 {
     }
 
     fn build_runtime(&self) -> Result<Atari2600Runtime, LaunchError> {
-        let Some(cart_path) = &self.cart else {
+        if self.cart.is_none() {
             return Err(LaunchError::Run(
                 "provide a cartridge with --cart PATH or as a positional argument".to_owned(),
             ));
-        };
-        let cart = load_cart_bytes(cart_path)?;
-        Atari2600Runtime::new(self.region.model(), cart)
-            .map_err(|err| LaunchError::Run(format!("failed to construct runtime: {err}")))
+        }
+        self.build_mcp_runtime()
     }
 
-    /// MCP starts blank; the cartridge arrives via load_media.
     fn build_mcp_runtime(&self) -> Result<Atari2600Runtime, LaunchError> {
-        Ok(Atari2600Runtime::blank(self.region.model()))
+        let mut runtime = build_variant::<Atari2600Runtime>(self.model, &FirmwareOverrides::none())
+            .map_err(|err| LaunchError::Run(err.to_string()))?;
+        if let Some(path) = &self.cart {
+            runtime
+                .insert_cartridge(load_cart_bytes(path)?)
+                .map_err(|err| LaunchError::Run(err.to_string()))?;
+        }
+        Ok(runtime)
+    }
+
+    fn mcp_startup_media(
+        &self,
+        _slots: &[emu198x_shell::MediaSlot],
+        _raw_args: &[String],
+    ) -> Result<Vec<(String, emu198x_shell::MediaKind, Vec<u8>)>, LaunchError> {
+        self.startup_media()
     }
 
     fn report(&self, runtime: &Atari2600Runtime, report: &mut Map<String, Value>) {
@@ -147,7 +142,7 @@ mod tests {
     fn parse_cli_defaults() {
         let (app, _, _) = run(&[]);
         assert!(app.cart.is_none());
-        assert_eq!(app.region, Region::Ntsc);
+        assert_eq!(app.model, Model::Vcs2600Ntsc);
     }
 
     #[test]
@@ -155,7 +150,7 @@ mod tests {
         let (app, common, mode) =
             run(&["--cart", "/tmp/cart", "--region", "pal", "--frames", "30"]);
         assert_eq!(app.cart.as_deref(), Some(Path::new("/tmp/cart")));
-        assert_eq!(app.region, Region::Pal);
+        assert_eq!(app.model, Model::Vcs2600Pal);
         assert_eq!(common.frames, 30);
         assert_eq!(mode, Mode::Script);
     }
@@ -188,7 +183,7 @@ mod tests {
 
     #[test]
     fn region_frame_ticks_match() {
-        assert_eq!(Region::Ntsc.frame_ticks(), 262 * 228);
-        assert_eq!(Region::Pal.frame_ticks(), 312 * 228);
+        assert_eq!(Model::Vcs2600Ntsc.frame_ticks(), 262 * 228);
+        assert_eq!(Model::Vcs2600Pal.frame_ticks(), 312 * 228);
     }
 }

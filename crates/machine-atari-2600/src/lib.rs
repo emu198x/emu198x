@@ -124,14 +124,25 @@ pub struct Atari2600 {
 impl Atari2600 {
     /// Create a new Atari 2600 with the given cart ROM and region.
     pub fn new(rom: Vec<u8>, region: Atari2600Region) -> Result<Self, String> {
-        let mut cart = Cartridge::from_rom(&rom)?;
+        let cart = Cartridge::from_rom(&rom)?;
+        Ok(Self::from_cartridge(cart, region))
+    }
+
+    /// Cold-boot with the installed cartridge and a selected region.
+    /// ROM/configuration survive; cartridge banks and RAM return to power-on state.
+    #[must_use]
+    pub fn cold_boot(&self, region: Atari2600Region) -> Self {
+        Self::from_cartridge(self.cart.cold_boot(), region)
+    }
+
+    fn from_cartridge(mut cart: Cartridge, region: Atari2600Region) -> Self {
         cart.set_dpc_clock_rate(region.cpu_clock_hz());
         let mut cpu = M6502::new();
         cpu.reset();
         let tia = Tia::new(region.tia_region());
         let riot = Riot6532::new();
         let clocks_per_frame = u64::from(region.lines_per_frame()) * u64::from(CLOCKS_PER_LINE);
-        Ok(Self {
+        Self {
             cpu,
             tia,
             riot,
@@ -144,7 +155,7 @@ impl Atari2600 {
             keypad: [None, None],
             last_address: 0,
             distinct_accesses: 0,
-        })
+        }
     }
 
     /// Run one frame and return colour clocks consumed.

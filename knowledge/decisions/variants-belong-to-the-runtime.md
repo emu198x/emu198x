@@ -294,6 +294,20 @@ or lose snapshot-restored cartridges. Read-only machine accessors expose the
 installed BIOS and cartridge/mapper pairs for that synchronization; snapshot
 serialization and hardware execution remain unchanged.
 
+## Atari console cartridge retention
+
+Atari 2600 and 7800 regional replacement cold-boots the cartridge in the live
+machine. A separately cached launch image is insufficient: after snapshot
+restore it can describe a different cartridge, and a 7800's parsed A78 hardware
+configuration cannot be recovered from ROM payload bytes alone.
+
+Each machine shares its existing constructor setup with a `cold_boot` path.
+Cartridge ROM and configuration survive; banks, RAM and peripheral state use
+the existing power-on values. Runtime reset and `FamilyRuntime::replacement`
+use that path, removing redundant ROM caches without adding fields to snapshots.
+New cartridge insertion constructs successfully before replacing the live
+machine, so a failed parse leaves reset and switching usable.
+
 ## Drift triggers
 
 Stop and re-read this record if you find yourself:

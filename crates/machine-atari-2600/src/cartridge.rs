@@ -212,6 +212,14 @@ impl Cartridge {
                 other => return Err(format!("Unsupported ROM size: {other} bytes")),
             }
         };
+        Ok(Self::from_layout(data, scheme, bank_size))
+    }
+
+    pub(crate) fn cold_boot(&self) -> Self {
+        Self::from_layout(&self.rom, self.scheme, self.bank_size)
+    }
+
+    fn from_layout(data: &[u8], scheme: BankingScheme, bank_size: usize) -> Self {
         let num_banks = data.len().checked_div(bank_size).unwrap_or(1);
         // Power-on bank, per Stella's per-scheme `getStartBank`. Most multi-bank
         // schemes (F8/F6/F4/FA) boot from the last bank, but EF explicitly
@@ -245,7 +253,7 @@ impl Cartridge {
             _ if superchip => vec![0u8; 128],
             _ => Vec::new(),
         };
-        Ok(Self {
+        Self {
             rom: data.to_vec(),
             scheme,
             bank,
@@ -273,8 +281,8 @@ impl Cartridge {
             dpc_fractional: 0.0,
             // NTSC CPU clock by default; the machine overrides per region.
             dpc_clock_rate: 1_193_182.0,
-            supercharger: is_ar.then(|| Supercharger::new(data)),
-        })
+            supercharger: (scheme == BankingScheme::Supercharger).then(|| Supercharger::new(data)),
+        }
     }
 
     /// Starpath Supercharger (AR) read. Unlike the other schemes, AR needs the

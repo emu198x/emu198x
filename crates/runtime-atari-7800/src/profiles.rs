@@ -5,13 +5,42 @@ use emu198x_shell::{
     ProfileId, Region, WritebackPolicy, known_capability,
 };
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum Model {
+    #[default]
     A7800Ntsc,
     A7800Pal,
 }
 
 impl Model {
+    /// Existing regional presets.
+    pub const ALL: [Self; 2] = [Self::A7800Ntsc, Self::A7800Pal];
+    pub const VARIANT_IDS: [&'static str; 2] = ["atari-7800-ntsc", "atari-7800-pal"];
+    #[must_use]
+    pub const fn variant_id(self) -> &'static str {
+        self.model_id()
+    }
+    #[must_use]
+    pub fn from_variant_id(id: &str) -> Option<Self> {
+        match id {
+            "atari-7800-ntsc" | "ntsc" => Some(Self::A7800Ntsc),
+            "atari-7800-pal" | "pal" => Some(Self::A7800Pal),
+            _ => None,
+        }
+    }
+    /// Existing host budget in colour clocks.
+    #[must_use]
+    pub const fn frame_ticks(self) -> u64 {
+        match self {
+            Self::A7800Ntsc => 262 * 228,
+            Self::A7800Pal => 312 * 228,
+        }
+    }
+    #[must_use]
+    pub fn firmware_sources(self) -> Vec<emu198x_shell::FirmwareSource> {
+        Vec::new()
+    }
+
     #[must_use]
     pub const fn model_id(self) -> &'static str {
         match self {
@@ -64,6 +93,7 @@ pub fn profile_for(model: Model) -> MachineProfile {
             WritebackPolicy::InMemoryOnly,
         )],
         capabilities: CapabilitySet::with_all([
+            known_capability("variant-switch"),
             known_capability("controller-input"),
             known_capability("scripted-input"),
         ]),
