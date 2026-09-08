@@ -1,13 +1,13 @@
 # Native UI catalogue audit
 
 Source audit dated 2026-09-08, against main `9bc8471a` plus the CPC/Einstein
-and M5/SVI-328 migrations described here. This is a source-level coverage audit,
+M5/SVI-328 and Atom/Electron migrations described here. This is a source-level coverage audit,
 not a claim that every preset has booted or passed hardware validation.
 
 ## Coverage
 
 All 30 registered machine binaries have a native `UiApp` adapter and enable the
-UI feature by default. Ten expose a Machine-menu selector. Twelve other
+UI feature by default. Eleven expose a Machine-menu selector. Eleven other
 binaries have multiple runtime profiles without an in-window selector; the
 remaining eight have a single runtime profile.
 
@@ -25,7 +25,7 @@ select; “None” means the catalogue has alternatives but no menu to choose th
 
 | Binary (`emu198x-` prefix omitted) | Runtime profiles | Launch selection | Menu presets | Meaning of differences |
 |---|---:|---|---|---|
-| [acorn-atom](../../crates/emu198x-acorn-atom/src/app.rs) | 2 | `--ram-kb` | None | Base/full RAM presets |
+| [acorn-atom](../../crates/emu198x-acorn-atom/src/app.rs) | 2 | `--model` / `--ram-kb` | 2/2 | Base 2.5 KiB / expanded 32 KiB RAM presets |
 | [acorn-bbc-micro](../../crates/emu198x-acorn-bbc-micro/src/app.rs) | 1 | Single profile | — | Model B |
 | [acorn-electron](../../crates/emu198x-acorn-electron/src/app.rs) | 1 | Single profile | — | Electron |
 | [amiga](../../crates/emu198x-amiga/src/app.rs) | 18 | `--model` | 18/18 | Six base machines; RAM/accelerator presets × region |
@@ -255,3 +255,40 @@ are 280×240 NTSC and 278×288 PAL. MCP tool inventories add only `set_machine`
 (36→37 M5, 39→40 SVI); existing definitions are unchanged. A synthetic NES
 cartridge still loads through legacy MCP `--rom` discovery. These checks do not
 validate native menu interaction or audio output.
+
+## Atom and Electron follow-on
+
+Parent issue: [#1475](https://github.com/emu198x/emu198x/issues/1475).
+Broader epic: [#456](https://github.com/emu198x/emu198x/issues/456).
+
+Atom's two existing RAM presets now use a runtime-owned catalogue and shared
+script/MCP switching, with a native selector labelled by installed RAM. Legacy
+`--ram-kb` keeps its threshold: values below 12 select the base 2.5 KiB machine;
+12 or more select the full 32 KiB expansion. `--model` accepts the existing
+profile ids, and the last selector wins. The headless `ram_kb` report now describes
+the installed preset (2.5 or 32), rather than echoing the launch argument;
+`ram_bytes` gives its exact size. Cassette and printer capture flags remain intact.
+
+A switch boots a fresh Atom with conventional firmware and ejects the cassette
+and utility ROM. Reset retains media, and a failed switch leaves the current
+machine intact. Frame budgets are unchanged. Electron remains a single-profile
+family with no redundant selector or switch capability.
+
+Both launchers use shared `--rom-dir` and firmware pins while retaining Atom's
+`--rom PATH` and Electron's `--os` / `--basic` aliases. Directory variables are
+`EMU198X_ACORN_ATOM_ROM_DIR` and `EMU198X_ELECTRON_ROM_DIR`; legacy per-file
+variables still work. Electron requires named `--rom ID=PATH` pins because it
+has two required images. MCP loads available firmware and can start blank when
+conventional firmware is absent. An explicitly named partial firmware set is
+an error, including when a per-file environment variable names only one image.
+
+Catalogue adoption covers thirteen of 30 binaries, with 17 remaining. Eleven
+expose native selectors. Tests exercise actual RAM mapping, cassette and utility
+ROM lifecycle, legacy flags, firmware precedence and failure handling, and real
+CLI/script/MCP entry points. Menu click-through remains unverified.
+
+Local staged-ROM launches ran each of the three presets for exactly 300 requested
+frames. Inspected captures show both Atom prompts at 372×288 and Electron's BASIC
+prompt at 640×256. Atom's MCP inventory adds only `set_machine` (36→37 tools);
+Electron's 36 tool definitions are unchanged. These are headless boot/capture
+checks, not native menu or audio-device verification.

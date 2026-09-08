@@ -186,6 +186,45 @@ impl ElectronRuntime {
     }
 }
 
+impl emu198x_shell::FamilyRuntime for ElectronRuntime {
+    type Model = Model;
+
+    fn variant_ids() -> &'static [&'static str] {
+        &Model::VARIANT_IDS
+    }
+
+    fn model_from_id(id: &str) -> Option<Model> {
+        Model::from_variant_id(id)
+    }
+
+    fn variant_id(model: Model) -> &'static str {
+        model.variant_id()
+    }
+
+    fn profile_for(model: Model) -> MachineProfile {
+        profile_for(model)
+    }
+
+    fn rom_convention() -> emu198x_shell::RomConvention {
+        emu198x_shell::RomConvention {
+            env_var: Some("EMU198X_ELECTRON_ROM_DIR"),
+            dirs: &["acorn-electron"],
+        }
+    }
+
+    fn firmware_sources(model: Model) -> Vec<emu198x_shell::FirmwareSource> {
+        model.firmware_sources()
+    }
+
+    fn from_firmware(model: Model, firmware: &FirmwareSet<'_>) -> Result<Self, MachineError> {
+        Self::from_firmware(model, firmware)
+    }
+
+    fn native_frame_ticks(&self) -> u64 {
+        self.model.frame_ticks()
+    }
+}
+
 impl MachineCore for ElectronRuntime {
     fn profile(&self) -> &MachineProfile {
         &self.profile

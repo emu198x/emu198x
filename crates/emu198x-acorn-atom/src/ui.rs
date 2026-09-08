@@ -8,13 +8,15 @@
 //! feature; the shared launcher opens the window when no automation flag is
 //! given.
 
+use emu198x_shell::{FamilyRuntime, FirmwareOverrides, MachineError, build_variant};
+use std::borrow::Cow;
 use std::time::Duration;
 
 use emu198x_ui::launch::UiApp;
-use emu198x_ui::{ButtonInputMap, KeyCode, UiSystem};
-use runtime_acorn_atom::AtomRuntime;
+use emu198x_ui::{ButtonInputMap, KeyCode, UiSystem, VariantInfo};
+use runtime_acorn_atom::{AtomRuntime, Model};
 
-use crate::app::{Atom, FRAME_TICKS};
+use crate::app::Atom;
 
 const DEFAULT_SCALE: u32 = 3;
 const FRAME_HZ: f64 = 50.0;
@@ -25,14 +27,15 @@ const ATOM_BUTTON_MAP: ButtonInputMap = ButtonInputMap::new(&[]);
 
 /// The Acorn Atom as a [`UiSystem`] for the shared harness. Keyboard-only; a
 /// hard reset rebuilds the machine from the firmware the runtime already holds.
-/// The RAM size is fixed at construction.
-pub struct AtomSystem;
+pub struct AtomSystem {
+    model: Model,
+}
 
 impl UiApp for Atom {
     type System = AtomSystem;
 
     fn ui_system(&self) -> AtomSystem {
-        AtomSystem
+        AtomSystem { model: self.model }
     }
 }
 
@@ -62,12 +65,41 @@ impl UiSystem for AtomSystem {
             .unwrap_or((372, 288))
     }
 
-    fn frame_ticks(&self, _runtime: &Self::Runtime) -> u64 {
-        FRAME_TICKS
+    fn frame_ticks(&self, runtime: &Self::Runtime) -> u64 {
+        runtime.native_frame_ticks()
     }
 
     fn frame_duration(&self, _runtime: &Self::Runtime) -> Duration {
         Duration::from_secs_f64(1.0 / FRAME_HZ)
+    }
+
+    fn variants(&self) -> Vec<VariantInfo> {
+        Model::ALL
+            .iter()
+            .map(|model| VariantInfo::new(model.variant_id(), model.display_name()))
+            .collect()
+    }
+
+    fn current_variant(&self) -> Option<Cow<'static, str>> {
+        Some(Cow::Borrowed(self.model.variant_id()))
+    }
+
+    fn switch_variant(
+        &mut self,
+        runtime: &mut Self::Runtime,
+        id: &str,
+    ) -> Result<(), MachineError> {
+        let model = Model::from_variant_id(id).ok_or(MachineError::UnsupportedOperation {
+            operation: "unknown acorn-atom variant",
+        })?;
+        *runtime =
+            build_variant::<AtomRuntime>(model, &FirmwareOverrides::none()).map_err(|err| {
+                MachineError::Host {
+                    reason: err.to_string(),
+                }
+            })?;
+        self.model = model;
+        Ok(())
     }
 
     fn button_map(&self) -> &'static ButtonInputMap {
@@ -135,6 +167,29 @@ fn map_atom_keys(code: KeyCode) -> Option<&'static [&'static str]> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn menu_uses_runtime_ids_and_a_failed_switch_preserves_selection() {
+        let mut system = AtomSystem {
+            model: Model::AtomBase,
+        };
+        let choices = system.variants();
+        assert_eq!(
+            choices
+                .iter()
+                .map(|choice| choice.id.as_ref())
+                .collect::<Vec<_>>(),
+            Model::VARIANT_IDS
+        );
+        let mut runtime = <AtomSystem as UiSystem>::Runtime::blank(Model::AtomBase);
+        assert!(system.switch_variant(&mut runtime, "unknown").is_err());
+        assert_eq!(runtime.model(), Model::AtomBase);
+        assert_eq!(
+            system.current_variant().as_deref(),
+            Some(Model::AtomBase.variant_id())
+        );
+        assert_eq!(system.frame_ticks(&runtime), runtime.native_frame_ticks());
+    }
 
     #[test]
     fn maps_supported_keys() {

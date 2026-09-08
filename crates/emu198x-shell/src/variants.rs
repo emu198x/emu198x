@@ -444,13 +444,13 @@ pub fn build_variant<M: FamilyRuntime>(
 /// Build firmware when available, with an opt-in blank startup policy.
 ///
 /// Only absent conventional firmware permits the fallback. Explicit pins,
-/// directory flags/environment variables, unreadable files and rejected images
+/// directory or per-file environment overrides, unreadable files and rejected images
 /// remain errors. The caller supplies its family's blank constructor.
 ///
 /// # Errors
 ///
 /// Returns the error from [`build_variant`] unless conventional firmware is
-/// absent and no directory override was requested.
+/// absent and no firmware override was requested.
 pub fn build_variant_or_blank<M: FamilyRuntime>(
     model: M::Model,
     overrides: &FirmwareOverrides,
@@ -467,7 +467,10 @@ pub fn build_variant_or_blank<M: FamilyRuntime>(
             && M::rom_convention()
                 .env_var
                 .and_then(std::env::var_os)
-                .is_none() =>
+                .is_none()
+            && !M::firmware_sources(model)
+                .iter()
+                .any(|source| source.env_var.and_then(std::env::var_os).is_some()) =>
         {
             eprintln!("{}: {err} — starting blank", M::variant_id(model));
             Ok(blank(model))

@@ -11,6 +11,35 @@ pub enum Model {
 }
 
 impl Model {
+    pub const ALL: [Self; 1] = [Self::Electron];
+    pub const VARIANT_IDS: [&'static str; 1] = ["acorn-electron"];
+
+    #[must_use]
+    pub const fn variant_id(self) -> &'static str {
+        self.profile_id()
+    }
+
+    #[must_use]
+    pub fn from_variant_id(id: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|model| model.variant_id() == id)
+    }
+
+    #[must_use]
+    pub fn firmware_sources(self) -> Vec<emu198x_shell::FirmwareSource> {
+        vec![
+            emu198x_shell::FirmwareSource::required(OS_FIRMWARE_ID, &["os.rom"])
+                .with_env_var("EMU198X_ELECTRON_OS"),
+            emu198x_shell::FirmwareSource::required(BASIC_FIRMWARE_ID, &["basic.rom"])
+                .with_env_var("EMU198X_ELECTRON_BASIC"),
+        ]
+    }
+
+    /// Existing host frame budget in native machine ticks.
+    #[must_use]
+    pub const fn frame_ticks(self) -> u64 {
+        39_936
+    }
+
     #[must_use]
     pub const fn model_id(self) -> &'static str {
         "acorn-electron"
@@ -36,7 +65,7 @@ pub const BASIC_FIRMWARE_ID: &str = "acorn-electron-basic";
 
 #[must_use]
 pub fn profiles() -> Vec<MachineProfile> {
-    vec![profile_for(Model::Electron)]
+    Model::ALL.into_iter().map(profile_for).collect()
 }
 
 #[must_use]
