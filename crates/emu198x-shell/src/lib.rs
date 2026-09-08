@@ -90,7 +90,8 @@ pub use session::{HeadlessSession, QueryBoolWaitResult, QueryTextWaitResult, Ses
 pub use time::{ClockDesc, ClockRate, MachineTime};
 pub use variants::{
     FirmwareOverrides, FirmwareResolveError, FirmwareSource, RomConvention, VariantSwitched,
-    build_variant, build_variant_or_blank, read_firmware, resolve_firmware, swap_variant,
+    build_replacement, build_variant, build_variant_or_blank, read_firmware, resolve_firmware,
+    swap_variant,
 };
 pub use video::{
     DEFAULT_RECORDING_FADE_MS, VideoRecorder, VideoRecordingError, VideoRecordingSummary,

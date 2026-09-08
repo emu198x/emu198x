@@ -430,12 +430,38 @@ pub fn build_variant<M: FamilyRuntime>(
     model: M::Model,
     overrides: &FirmwareOverrides,
 ) -> Result<M, FirmwareResolveError> {
+    build_with_firmware::<M>(model, overrides, |firmware| {
+        M::from_firmware(model, firmware)
+    })
+}
+
+/// Build a cold-boot replacement using the runtime's media-retention policy.
+/// The current runtime is unchanged, including when construction fails.
+///
+/// # Errors
+///
+/// As [`build_variant`], including firmware and retained-media validation.
+pub fn build_replacement<M: FamilyRuntime>(
+    current: &M,
+    model: M::Model,
+    overrides: &FirmwareOverrides,
+) -> Result<M, FirmwareResolveError> {
+    build_with_firmware::<M>(model, overrides, |firmware| {
+        current.replacement(model, firmware)
+    })
+}
+
+fn build_with_firmware<M: FamilyRuntime>(
+    model: M::Model,
+    overrides: &FirmwareOverrides,
+    build: impl FnOnce(&FirmwareSet<'_>) -> Result<M, crate::MachineError>,
+) -> Result<M, FirmwareResolveError> {
     let images = read_firmware::<M>(model, overrides)?;
     let mut firmware = FirmwareSet::new();
     for (id, bytes) in &images {
         firmware.push(FirmwareImage::new(*id, bytes));
     }
-    M::from_firmware(model, &firmware).map_err(|err| FirmwareResolveError::Build {
+    build(&firmware).map_err(|err| FirmwareResolveError::Build {
         machine: M::variant_id(model).to_owned(),
         reason: err.to_string(),
     })

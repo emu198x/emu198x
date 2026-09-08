@@ -3,55 +3,24 @@
 use std::path::PathBuf;
 
 use emu198x_shell::launch::{Args, LaunchError, MachineApp, read_rom};
+use emu198x_shell::{FirmwareOverrides, MediaKind, build_variant};
 use runtime_sega_sg_1000::{Model, Sg1000Runtime, Sg1000SessionQueryProvider};
 use serde_json::{Map, Value};
 
-/// CPU clocks per frame — `228 × lines`.
-const FRAME_TICKS_NTSC: u64 = 228 * 262;
-const FRAME_TICKS_PAL: u64 = 228 * 313;
-#[cfg(feature = "ui")]
-const NTSC_FRAME_HZ: f64 = 60.0;
-#[cfg(feature = "ui")]
-const PAL_FRAME_HZ: f64 = 50.0;
-
-/// Display region — selects the model, frame tick budget, and refresh rate.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum Region {
-    #[default]
-    Ntsc,
-    Pal,
-}
-
-impl Region {
-    pub const fn model(self) -> Model {
-        match self {
-            Self::Ntsc => Model::Sg1000Ntsc,
-            Self::Pal => Model::Sg1000Pal,
-        }
-    }
-
-    pub const fn frame_ticks(self) -> u64 {
-        match self {
-            Self::Ntsc => FRAME_TICKS_NTSC,
-            Self::Pal => FRAME_TICKS_PAL,
-        }
-    }
-
-    #[cfg(feature = "ui")]
-    pub const fn frame_hz(self) -> f64 {
-        match self {
-            Self::Ntsc => NTSC_FRAME_HZ,
-            Self::Pal => PAL_FRAME_HZ,
-        }
-    }
-}
-
-/// The machine configuration the flags build up.
-#[derive(Debug, Default, PartialEq, Eq)]
+/// Parsed launch options; the runtime owns model and firmware definitions.
+#[derive(Debug, PartialEq, Eq)]
 pub struct Sg1000 {
-    /// `--cart PATH`, or the one positional argument.
     pub cart: Option<PathBuf>,
-    pub region: Region,
+    pub model: Model,
+}
+
+impl Default for Sg1000 {
+    fn default() -> Self {
+        Self {
+            cart: None,
+            model: Model::Sg1000Ntsc,
+        }
+    }
 }
 
 impl MachineApp for Sg1000 {
@@ -62,7 +31,8 @@ impl MachineApp for Sg1000 {
     const VERSION: &'static str = env!("CARGO_PKG_VERSION");
     const MACHINE_OPTIONS: &'static str =
         "    --cart PATH     cartridge ROM (required; a bare PATH is accepted too)
-    --region MODE   ntsc | pal [default: ntsc]";
+    --model ID      sega-sg-1000-ntsc | sega-sg-1000-pal
+    --region MODE   ntsc | pal [default: ntsc]; last selector wins";
     const CONTROLS: &'static str = "    Esc             quit
     F12             emulator hard reset
     Arrow keys      d-pad (player 1)
@@ -72,10 +42,19 @@ impl MachineApp for Sg1000 {
     fn parse_flag(&mut self, flag: &str, args: &mut Args) -> Result<bool, LaunchError> {
         match flag {
             "--cart" => self.cart = Some(args.path(flag)?),
+            "--model" => {
+                let id = args.value(flag)?;
+                self.model = Model::from_variant_id(&id).ok_or_else(|| {
+                    LaunchError::Usage(format!(
+                        "unknown sega-sg-1000 model `{id}`; expected {}",
+                        Model::VARIANT_IDS.join(", ")
+                    ))
+                })?;
+            }
             "--region" => {
-                self.region = match args.value(flag)?.as_str() {
-                    "ntsc" => Region::Ntsc,
-                    "pal" => Region::Pal,
+                self.model = match args.value(flag)?.as_str() {
+                    "ntsc" => Model::Sg1000Ntsc,
+                    "pal" => Model::Sg1000Pal,
                     other => {
                         return Err(LaunchError::Usage(format!(
                             "--region expects ntsc|pal, got {other}"
@@ -95,7 +74,7 @@ impl MachineApp for Sg1000 {
     }
 
     fn frame_ticks(&self) -> u64 {
-        self.region.frame_ticks()
+        self.model.frame_ticks()
     }
 
     fn query_provider(&self) -> Sg1000SessionQueryProvider {
@@ -103,22 +82,41 @@ impl MachineApp for Sg1000 {
     }
 
     fn build_runtime(&self) -> Result<Sg1000Runtime, LaunchError> {
-        let Some(cart_path) = &self.cart else {
+        if self.cart.is_none() {
             return Err(LaunchError::Run(
                 "provide a cartridge with --cart PATH".to_owned(),
             ));
-        };
-        let cart = read_rom(cart_path, "--cart")?;
-        Ok(Sg1000Runtime::new(self.region.model(), cart))
+        }
+        build_variant::<Sg1000Runtime>(self.model, &FirmwareOverrides::none())
+            .map_err(|err| LaunchError::Run(err.to_string()))
     }
 
-    /// MCP starts blank; the cartridge arrives via load_media.
     fn build_mcp_runtime(&self) -> Result<Sg1000Runtime, LaunchError> {
-        Ok(Sg1000Runtime::blank(self.region.model()))
+        build_variant::<Sg1000Runtime>(self.model, &FirmwareOverrides::none())
+            .map_err(|err| LaunchError::Run(err.to_string()))
+    }
+
+    fn startup_media(&self) -> Result<Vec<(String, MediaKind, Vec<u8>)>, LaunchError> {
+        let Some(path) = &self.cart else {
+            return Ok(Vec::new());
+        };
+        Ok(vec![(
+            "cartridge-1".to_owned(),
+            MediaKind::Cartridge,
+            read_rom(path, "--cart")?,
+        )])
+    }
+
+    fn mcp_startup_media(
+        &self,
+        _slots: &[emu198x_shell::MediaSlot],
+        _raw_args: &[String],
+    ) -> Result<Vec<(String, MediaKind, Vec<u8>)>, LaunchError> {
+        self.startup_media()
     }
 
     fn report(&self, runtime: &Sg1000Runtime, report: &mut Map<String, Value>) {
-        let cart_loaded = runtime.machine().is_some();
+        let cart_loaded = runtime.cartridge_loaded();
         let frame_count = runtime.machine().map_or(0, |m| m.frame_count());
         report.insert("cart_loaded".to_owned(), cart_loaded.into());
         report.insert("frames_run".to_owned(), frame_count.into());
@@ -141,7 +139,7 @@ mod tests {
             panic!("expected a run");
         };
         assert!(app.cart.is_none());
-        assert_eq!(app.region, Region::Ntsc);
+        assert_eq!(app.model, Model::Sg1000Ntsc);
         assert_eq!(common.frames, 0);
     }
 
@@ -160,7 +158,7 @@ mod tests {
             panic!("expected a run");
         };
         assert_eq!(app.cart.as_deref(), Some(Path::new("/tmp/cart")));
-        assert_eq!(app.region, Region::Pal);
+        assert_eq!(app.model, Model::Sg1000Pal);
         assert_eq!(common.frames, 60);
         assert_eq!(mode, Mode::Script);
     }
@@ -175,7 +173,7 @@ mod tests {
             panic!("expected a run");
         };
         assert_eq!(app.cart, Some(PathBuf::from("game.sg")));
-        assert_eq!(app.region, Region::Pal);
+        assert_eq!(app.model, Model::Sg1000Pal);
         assert_eq!(common.scale, Some(4));
         assert_eq!(common.video.as_deref(), Some("crt"));
         assert_eq!(mode, Mode::Ui);
@@ -187,12 +185,31 @@ mod tests {
             panic!("expected a run");
         };
         assert_eq!(app.cart, Some(PathBuf::from("game.sg")));
-        assert_eq!(app.region, Region::Ntsc);
+        assert_eq!(app.model, Model::Sg1000Ntsc);
+    }
+
+    #[test]
+    fn last_model_or_region_selector_wins() {
+        for (flags, expected) in [
+            (
+                vec!["--region", "pal", "--model", Model::Sg1000Ntsc.variant_id()],
+                Model::Sg1000Ntsc,
+            ),
+            (
+                vec!["--model", Model::Sg1000Ntsc.variant_id(), "--region", "pal"],
+                Model::Sg1000Pal,
+            ),
+        ] {
+            let Parsed::Run { app, .. } = parse::<Sg1000>(&args(&flags)).expect("parses") else {
+                panic!("run");
+            };
+            assert_eq!(app.model, expected);
+        }
     }
 
     #[test]
     fn region_frame_ticks_match() {
-        assert_eq!(Region::Ntsc.frame_ticks(), 228 * 262);
-        assert_eq!(Region::Pal.frame_ticks(), 228 * 313);
+        assert_eq!(Model::Sg1000Ntsc.frame_ticks(), 228 * 262);
+        assert_eq!(Model::Sg1000Pal.frame_ticks(), 228 * 313);
     }
 }

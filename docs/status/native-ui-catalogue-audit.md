@@ -1,13 +1,13 @@
 # Native UI catalogue audit
 
 Source audit dated 2026-09-08, against main `9bc8471a` plus the CPC/Einstein
-M5/SVI-328, Atom/Electron and Oric/Aquarius migrations described here. This is a source-level coverage audit,
+M5/SVI-328, Atom/Electron, Oric/Aquarius and SG-1000/ColecoVision migrations described here. This is a source-level coverage audit,
 not a claim that every preset has booted or passed hardware validation.
 
 ## Coverage
 
 All 30 registered machine binaries have a native `UiApp` adapter and enable the
-UI feature by default. Twelve expose a Machine-menu selector. Ten other
+UI feature by default. Fourteen expose a Machine-menu selector. Eight other
 binaries have multiple runtime profiles without an in-window selector; the
 remaining eight have a single runtime profile.
 
@@ -35,7 +35,7 @@ select; “None” means the catalogue has alternatives but no menu to choose th
 | [atari-7800](../../crates/emu198x-atari-7800/src/app.rs) | 2 | `--region` | None | Region |
 | [atari-800xl](../../crates/emu198x-atari-800xl/src/app.rs) | 2 | `--region` | None | Region |
 | [c64](../../crates/emu198x-c64/src/app.rs) | 4 | `--model` | 4/4 | Breadbin/C64C × region; RAM expansions independent |
-| [colecovision](../../crates/emu198x-colecovision/src/app.rs) | 2 | `--region` | None | Region |
+| [colecovision](../../crates/emu198x-colecovision/src/app.rs) | 2 | `--model` / `--region` | 2/2 | Region |
 | [commodore-pet](../../crates/emu198x-commodore-pet/src/app.rs) | 2 | `--columns` | None | 40/80-column hardware profiles |
 | [commodore-vic-20](../../crates/emu198x-commodore-vic-20/src/app.rs) | 2 | `--region` | None | Region; RAM expansion flags independent |
 | [dragon](../../crates/emu198x-dragon/src/app.rs) | 2 | `--model` | 2/2 | Dragon 32/64 |
@@ -48,7 +48,7 @@ select; “None” means the catalogue has alternatives but no menu to choose th
 | [oric-atmos](../../crates/emu198x-oric-atmos/src/app.rs) | 2 | `--model` | 2/2 | Oric-1/Atmos |
 | [sega-game-gear](../../crates/emu198x-sega-game-gear/src/app.rs) | 1 | `--variant` (one choice) | — | Game Gear |
 | [sega-master-system](../../crates/emu198x-sega-master-system/src/app.rs) | 5 | `--variant` | None | Hardware revisions/market/region |
-| [sega-sg-1000](../../crates/emu198x-sega-sg-1000/src/app.rs) | 2 | `--region` | None | Region |
+| [sega-sg-1000](../../crates/emu198x-sega-sg-1000/src/app.rs) | 2 | `--model` / `--region` | 2/2 | Region |
 | [sinclair-zx80](../../crates/emu198x-sinclair-zx80/src/app.rs) | 3 | `--model`; `--ram-bytes` override | 3/3 | One ZX80 base machine; USA strap and RAM-pack presets |
 | [sinclair-zx81](../../crates/emu198x-sinclair-zx81/src/app.rs) | 3 | `--model` | 3/3 | ZX81/16 KiB RAM pack/Timex TS1000 |
 | [sord-m5](../../crates/emu198x-sord-m5/src/app.rs) | 2 | `--model` / `--region` | 2/2 | Region |
@@ -339,3 +339,45 @@ Aquarius reaches its `Press RETURN` screen at 600 frames; a scripted Return
 followed by 300 more frames reaches BASIC `Ok` (352×232). Its earlier blank
 captures were during the startup display sequence. MCP inventories add only
 Oric's `set_machine` (39→40 tools); Aquarius's 39 definitions are unchanged.
+
+## SG-1000 and ColecoVision follow-on
+
+Parent issue: [#1475](https://github.com/emu198x/emu198x/issues/1475).
+Broader epic: [#456](https://github.com/emu198x/emu198x/issues/456).
+
+Both consoles now expose their existing PAL/NTSC profiles through the runtime
+catalogue, `--model`, shared script/MCP switching and native selectors. `--region`
+and both `--cart PATH` and positional cartridge paths remain available. The last
+model or region selector wins. Parsed cartridge startup now also works in MCP;
+reports read the runtime's installed cartridge state.
+
+A region switch cold-boots with the cartridge already held in memory. It resets
+CPU, RAM, video, audio and session state without rereading the cartridge file.
+`FamilyRuntime::replacement` owns this policy; `build_replacement` and session
+switching both use it. Other families retain their default fresh-machine policy.
+A rejected switch leaves the running machine intact, including rejection while
+video recording is active, which is now checked before installing a replacement.
+
+SG-1000 needs no BIOS and resolves an empty firmware catalogue without HOME or a
+ROM directory. Normal launch still requires a cartridge; MCP may start empty.
+ColecoVision uses the shared BIOS resolver, retaining `--bios` and
+`EMU198X_COLECO_BIOS`, and gains `--rom PATH|ID=PATH`, `--rom-dir` and
+`EMU198X_COLECO_ROM_DIR`. Its firmware id is `colecovision-bios`. Switches resolve
+the BIOS conventionally, dropping launch-time firmware pins. Missing conventional
+firmware allows blank MCP startup; explicitly missing or invalid BIOS images fail.
+The existing 8 KiB BIOS validation and cartridge handling are unchanged.
+
+Catalogue adoption covers seventeen of 30 binaries, with 13 remaining. Fourteen
+expose native selectors. Tests cover all four presets, live regional pacing and
+framebuffer dimensions, cartridge mapping after switches and resets, fresh RAM,
+failed-switch preservation, parsed window startup, and CLI/script/MCP errors.
+An interactive MCP test removes the cartridge file after loading it and confirms
+that switching still retains its bytes. Both MCP inventories add only
+`set_machine` (33→34 tools); existing definitions are unchanged.
+
+Local captures after 150 requested frames show SG-1000's committed synthetic
+cartridge producing its white backdrop and the staged ColecoVision BIOS displaying
+its no-cartridge screen. Both regions capture at their existing dimensions:
+280×240 NTSC and 278×288 PAL. This is headless boot/capture evidence; commercial
+cartridge gameplay, native menu click-through and audio-device output remain
+unverified by this slice.
