@@ -1,16 +1,12 @@
 //! The Memotech MTX as a [`MachineApp`]: its flags, runtime, and report fields.
 
-use std::path::{Path, PathBuf};
+#[cfg(test)]
+use std::path::PathBuf;
 
-use emu198x_shell::launch::{Args, LaunchError, MachineApp, read_rom, resolve_rom};
+use emu198x_shell::launch::{Args, LaunchError, MachineApp};
+use emu198x_shell::{FirmwareOverrides, FirmwareResolveError, build_variant};
 use runtime_memotech_mtx::{Model, MtxRuntime, MtxSessionQueryProvider};
 use serde_json::{Map, Value};
-
-const ROM_ENV: &str = "EMU198X_MTX_ROM";
-const ROM_RELATIVE: &str = "memotech-mtx/mtx.rom";
-/// 8 KB OS plus paged ROMs: any multiple of 8 KB, at least 16 KB.
-const MIN_ROM_SIZE: usize = 16 * 1024;
-const ROM_PAGE: usize = 0x2000;
 
 // The frame-granular runtime always finishes the current frame, so a budget
 // longer than one frame crosses the next boundary and emits two frames per
@@ -22,40 +18,23 @@ const ROM_PAGE: usize = 0x2000;
 // long as the budget, so `run_frames(n)` never overshoots, and the half-tick
 // shortfall only costs a frame once it accumulates past one full frame
 // (n > 159,492, roughly 53 minutes of emulated time).
-pub const FRAME_TICKS_PAL: u64 = 79_746;
+#[cfg(test)]
+pub const FRAME_TICKS_PAL: u64 = Model::Mtx500.frame_ticks();
 
 /// The machine configuration the flags build up.
 #[derive(Debug, PartialEq, Eq)]
 pub struct Mtx {
-    pub rom: Option<PathBuf>,
+    pub firmware: FirmwareOverrides,
     pub model: Model,
 }
 
 impl Default for Mtx {
     fn default() -> Self {
         Self {
-            rom: None,
+            firmware: FirmwareOverrides::none(),
             model: Model::Mtx500,
         }
     }
-}
-
-/// True when `len` is the 8 KB OS plus whole 8 KB paged ROMs.
-fn rom_size_is_valid(len: usize) -> bool {
-    len >= MIN_ROM_SIZE && len.is_multiple_of(ROM_PAGE)
-}
-
-fn read_mtx_rom(path: &Path) -> Result<Vec<u8>, LaunchError> {
-    let bytes = read_rom(path, "ROM")?;
-    if !rom_size_is_valid(bytes.len()) {
-        return Err(LaunchError::Run(format!(
-            "ROM at {} is {} bytes; expected the 8 KB OS plus 8 KB paged ROMs \
-             (a multiple of 8192, ≥ {MIN_ROM_SIZE})",
-            path.display(),
-            bytes.len()
-        )));
-    }
-    Ok(bytes)
 }
 
 impl MachineApp for Mtx {
@@ -65,8 +44,10 @@ impl MachineApp for Mtx {
     const BIN_NAME: &'static str = "emu198x-memotech-mtx";
     const VERSION: &'static str = env!("CARGO_PKG_VERSION");
     const MACHINE_OPTIONS: &'static str =
-        "    --rom PATH      MTX ROM: 8 KB OS + paged ROMs (BASIC, ASSEM…); default
+        "    --rom PATH|ID=PATH MTX ROM: 8 KB OS + paged ROMs (BASIC, ASSEM…); default
                     ~/.emu198x/roms/memotech-mtx/mtx.rom (or set EMU198X_MTX_ROM)
+    --rom-dir DIR   firmware directory (or set EMU198X_MTX_ROM_DIR)
+                    firmware ID: memotech-mtx-rom
     --model KIND    mtx500 | mtx512 [default: mtx500]";
     const CONTROLS: &'static str = "    Esc             quit
     F12             hard reset
@@ -76,17 +57,23 @@ impl MachineApp for Mtx {
 
     fn parse_flag(&mut self, flag: &str, args: &mut Args) -> Result<bool, LaunchError> {
         match flag {
-            "--rom" => self.rom = Some(args.path(flag)?),
+            "--rom" => self
+                .firmware
+                .add_spec(
+                    &args.value(flag)?,
+                    self.model.variant_id(),
+                    &self.model.firmware_sources(),
+                )
+                .map_err(|err| LaunchError::Usage(err.to_string()))?,
+            "--rom-dir" => self.firmware.dir = Some(args.path(flag)?),
             "--model" => {
-                self.model = match args.value(flag)?.as_str() {
-                    "mtx500" => Model::Mtx500,
-                    "mtx512" => Model::Mtx512,
-                    other => {
-                        return Err(LaunchError::Usage(format!(
-                            "--model expects mtx500|mtx512, got {other}"
-                        )));
-                    }
-                };
+                let id = args.value(flag)?;
+                self.model = Model::from_variant_id(&id).ok_or_else(|| {
+                    LaunchError::Usage(format!(
+                        "unknown memotech-mtx model `{id}`; expected {}",
+                        Model::VARIANT_IDS.join(", ")
+                    ))
+                })?;
             }
             _ => return Ok(false),
         }
@@ -94,7 +81,7 @@ impl MachineApp for Mtx {
     }
 
     fn frame_ticks(&self) -> u64 {
-        FRAME_TICKS_PAL
+        self.model.frame_ticks()
     }
 
     fn query_provider(&self) -> MtxSessionQueryProvider {
@@ -102,35 +89,28 @@ impl MachineApp for Mtx {
     }
 
     fn build_runtime(&self) -> Result<MtxRuntime, LaunchError> {
-        let rom_path = resolve_rom(self.rom.as_deref(), ROM_ENV, ROM_RELATIVE)?;
-        let rom = read_mtx_rom(&rom_path)?;
-        MtxRuntime::new(self.model, rom)
-            .map_err(|err| LaunchError::Run(format!("failed to construct runtime: {err}")))
+        build_variant::<MtxRuntime>(self.model, &self.firmware)
+            .map_err(|err| LaunchError::Run(err.to_string()))
     }
 
-    /// MCP starts blank and takes the ROM from its conventional location when
-    /// a well-sized image is there; a client can also hand it firmware later.
+    /// Conventional firmware is loaded when available. Missing conventional
+    /// firmware permits blank startup; invalid images and explicit paths fail.
     fn build_mcp_runtime(&self) -> Result<MtxRuntime, LaunchError> {
-        let mut runtime = MtxRuntime::blank(self.model);
-        if let Ok(path) = resolve_rom(self.rom.as_deref(), ROM_ENV, ROM_RELATIVE)
-            && let Ok(bytes) = std::fs::read(&path)
-        {
-            if rom_size_is_valid(bytes.len()) {
-                runtime
-                    .set_rom(bytes)
-                    .map_err(|err| LaunchError::Run(format!("ROM invalid: {err}")))?;
-                eprintln!("{} mcp: loaded ROM from {}", Self::BIN_NAME, path.display());
-            } else {
-                eprintln!(
-                    "{} mcp: ROM at {} is {} bytes; expected the 8 KB OS \
-                     plus 8 KB paged ROMs (a multiple of 8192) — starting blank",
-                    Self::BIN_NAME,
-                    path.display(),
-                    bytes.len()
-                );
+        match build_variant::<MtxRuntime>(self.model, &self.firmware) {
+            Ok(runtime) => Ok(runtime),
+            Err(
+                err @ (FirmwareResolveError::HomeUnset
+                | FirmwareResolveError::NoRomDir { .. }
+                | FirmwareResolveError::Missing { .. }),
+            ) if self.firmware.dir.is_none()
+                && self.firmware.by_id.is_empty()
+                && std::env::var_os("EMU198X_MTX_ROM_DIR").is_none() =>
+            {
+                eprintln!("{} mcp: {err} — starting blank", Self::BIN_NAME);
+                Ok(MtxRuntime::blank(self.model))
             }
+            Err(err) => Err(LaunchError::Run(err.to_string())),
         }
-        Ok(runtime)
     }
 
     fn report(&self, runtime: &MtxRuntime, report: &mut Map<String, Value>) {
@@ -155,7 +135,7 @@ mod tests {
         let Parsed::Run { app, .. } = parse::<Mtx>(&[]).expect("parses") else {
             panic!("expected a run");
         };
-        assert!(app.rom.is_none());
+        assert_eq!(app.firmware, FirmwareOverrides::none());
         assert_eq!(app.model, Model::Mtx500);
     }
 
@@ -168,7 +148,12 @@ mod tests {
         let Parsed::Run { app, common, mode } = parsed else {
             panic!("expected a run");
         };
-        assert_eq!(app.rom, Some(PathBuf::from("mtx.rom")));
+        assert_eq!(
+            app.firmware
+                .by_id
+                .get(runtime_memotech_mtx::ROM_FIRMWARE_ID),
+            Some(&PathBuf::from("mtx.rom"))
+        );
         assert_eq!(app.model, Model::Mtx512);
         assert_eq!(common.scale, Some(4));
         assert_eq!(common.video.as_deref(), Some("crt"));
@@ -180,7 +165,9 @@ mod tests {
         let err = parse::<Mtx>(&args(&["--model", "mtx1000"])).expect_err("rejects");
         assert_eq!(
             err,
-            LaunchError::Usage("--model expects mtx500|mtx512, got mtx1000".to_owned())
+            LaunchError::Usage(
+                "unknown memotech-mtx model `mtx1000`; expected mtx500, mtx512".to_owned()
+            )
         );
     }
 

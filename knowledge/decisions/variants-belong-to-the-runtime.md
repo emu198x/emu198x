@@ -1,6 +1,6 @@
 # Variants belong to the runtime
 
-**Status:** Adopted 2026-09-08 for the Spectrum, Amiga, C64, ZX81 and ZX80 families.
+**Status:** Adopted 2026-09-08 for the Spectrum, Amiga, C64, ZX81, ZX80, Jupiter Ace and MTX families.
 
 ## The problem
 
@@ -114,6 +114,16 @@ A switch ejects the tape and replaces launch-time RAM overrides with the
 selected preset's defaults; reports describe that live state. Blank MCP
 startup remains available when conventional firmware is absent, but invalid
 images and explicitly requested missing paths are errors.
+
+Jupiter Ace and MTX also use the shared catalogue. Ace uses its existing
+profile ids and preserves `--ram-kb` as a preset selector; MTX keeps `mtx500`
+and `mtx512` as canonical ids and accepts profile ids as aliases. Their native
+labels distinguish Ace expansion configurations from marketed MTX models.
+Both retain existing per-file environment conventions alongside shared
+`--rom-dir`, family directory variables and `--rom ID=PATH` pins. MCP loads
+available firmware and permits blank startup only when conventional firmware
+is absent. MTX ROM-size validation stays in its runtime, including larger
+combined images containing whole paged ROMs.
 
 `FirmwareSource::with_env_var` describes a conventional variable naming
 one ROM file, preserving `EMU198X_ZX81_ROM` through every entry point.
