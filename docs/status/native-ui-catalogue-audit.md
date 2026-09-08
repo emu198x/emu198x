@@ -7,8 +7,8 @@ preset has booted or passed hardware validation.
 ## Coverage
 
 All 30 registered machine binaries have a native `UiApp` adapter and enable the
-UI feature by default. Twenty-two expose a Machine-menu selector, covering
-every binary with multiple runtime profiles. The remaining eight have a single
+UI feature by default. Twenty-three expose a Machine-menu selector, covering
+every binary with multiple runtime profiles. The remaining seven have a single
 runtime profile.
 
 The shared native menu is currently attached on **macOS only**. Windows menu
@@ -44,7 +44,7 @@ select; “None” means the catalogue has alternatives but no menu to choose th
 | [mattel-aquarius](../../crates/emu198x-mattel-aquarius/src/app.rs) | 1 | Single profile | — | RAM expansion independent |
 | [memotech-mtx](../../crates/emu198x-memotech-mtx/src/app.rs) | 2 | `--model` | 2/2 | MTX500/512 marketed models |
 | [msx](../../crates/emu198x-msx/src/app.rs) | 2 | `--model` / `--region` | 2/2 | MSX1 region |
-| [nes](../../crates/emu198x-nes/src/app.rs) | 1 | Single profile | — | NTSC |
+| [nes](../../crates/emu198x-nes/src/app.rs) | 2 | `--model` / `--region` | 2/2 | NTSC/PAL |
 | [oric-atmos](../../crates/emu198x-oric-atmos/src/app.rs) | 2 | `--model` | 2/2 | Oric-1/Atmos |
 | [sega-game-gear](../../crates/emu198x-sega-game-gear/src/app.rs) | 1 | `--model` / `--variant` (one choice) | — | Game Gear |
 | [sega-master-system](../../crates/emu198x-sega-master-system/src/app.rs) | 5 | `--model` / `--variant` | 5/5 | Hardware revisions/market/region |
@@ -82,20 +82,17 @@ limited or research profiles. Menu presence is not evidence of boot usability.
 
 ## Remaining work
 
-1. Migrate families with alternate profiles to the existing runtime-owned
-   catalogue, firmware resolver and shared switch path. Dragon already has a
-   menu but retains its own switching path. ZX80 now exposes its USA profile
-   and RAM-pack configuration through the shared path. Continue with the other
-   Z80 families, retaining each family's existing firmware and media semantics.
-2. For cartridge systems, define and verify cartridge retention/reload on a
-   hardware switch before adding selectors. Rebuilding a core alone does not
-   establish that the running game remains usable.
-3. Use optional shared menu groups where a family needs model/configuration
-   separation. Keep firmware resolution and ids in the runtime. Avoid another
-   per-binary model enum or switch implementation.
-4. Wire the Windows and Linux selection surfaces, then verify actual native
-   windows, firmware/media loading, input, sound, switching and pacing on each
-   intended host. These checks are separate from catalogue completeness.
+All 30 registered binaries now boot through the runtime-owned catalogue.
+Every multi-profile binary exposes its implemented alternatives in the macOS
+Machine menu. Firmware conventions, legacy flags and media policies are
+recorded in the family sections below; catalogue presence is not a hardware
+compatibility rating.
+
+Remaining native UI work is to wire the Windows/Linux selection surfaces and
+verify window interaction, firmware/media loading, input, audio and switching
+on each intended host. Further machine variants require implementation and
+validation before joining the catalogue. Research and post-boot profiles retain
+the limitations described here.
 
 ## Verification of this slice
 
@@ -744,3 +741,37 @@ audio-device output remain unverified.
 
 Catalogue adoption covers twenty-nine of 30 binaries, leaving NES. All
 multi-profile binaries now expose a macOS selector (twenty-two in total).
+
+
+## NES regional catalogue and fleet completion
+
+The NES runtime exposes NTSC and PAL through `--model`, `--region`, scripts,
+MCP and the macOS Machine menu. PAL connects the machine core's existing
+regional CPU divider, PPU frame geometry and APU tables; no chip timing logic
+changes. The runtime owns each region's nominal dot budget and dot rate, and
+native pacing follows the live model. NTSC remains the default; media headers
+do not override an explicitly selected profile. The smoke matrix honours the
+selected region as well.
+
+`--rom` and `--media` remain cartridge inputs. Firmwareless construction needs
+no HOME or firmware directory. MCP honours cartridge and battery-save startup
+configuration once; normal window/script launch still requires media and blank
+MCP remains available. Region changes retain the cartridge, mapper save RAM and
+mixer settings while clearing machine state and restarting mapper registers.
+Hard reset retains save RAM too. The UI no longer caches and reloads launch
+cartridge bytes after reset, so restored or subsequently loaded media survives.
+
+Version-1 snapshots retain their layout. A loaded snapshot carries its machine
+region and is rejected atomically if it differs from the selected runtime;
+blank snapshots have no regional machine state. Restore also refreshes battery
+metadata so saves remain visible immediately and across reset/switch.
+
+The ten existing PAL APU tests and six NTSC/PAL geometry checks pass with the
+local test-ROM corpus. Runtime tests verify regional CPU division, native
+selection/pacing, save retention, failed cross-region restore, and MCP startup.
+Native menu click-through and audio-device output remain unverified.
+
+Catalogue adoption covers all thirty registered binaries. Twenty-three expose
+macOS selectors; the other seven have one implemented profile. The catalogue
+migration is complete, with cross-host UI integration and hardware validation
+tracked separately from source coverage.

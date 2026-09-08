@@ -64,10 +64,20 @@ pub(crate) fn decode(runtime: &mut NesRuntime, bytes: &[u8]) -> Result<(), Machi
         });
     }
 
+    let machine = snapshot.machine.map(Nes::from_snapshot);
+    if machine
+        .as_ref()
+        .is_some_and(|machine| machine.region() != runtime.model().machine_region())
+    {
+        return Err(MachineError::InvalidSnapshot {
+            reason: "snapshot region does not match the selected NES model".to_owned(),
+        });
+    }
+
     runtime.set_time(MachineTime::new(snapshot.time));
     runtime.set_cartridge_bytes(snapshot.cartridge_bytes);
     runtime.set_cartridge_mapper(snapshot.cartridge_mapper);
-    runtime.set_machine(snapshot.machine.map(Nes::from_snapshot));
+    runtime.set_machine(machine);
     runtime.refresh_rgba_framebuffer();
     Ok(())
 }
