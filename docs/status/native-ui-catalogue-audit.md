@@ -7,7 +7,7 @@ preset has booted or passed hardware validation.
 ## Coverage
 
 All 30 registered machine binaries have a native `UiApp` adapter and enable the
-UI feature by default. Eighteen expose a Machine-menu selector. Four other
+UI feature by default. Nineteen expose a Machine-menu selector. Three other
 binaries have multiple runtime profiles without an in-window selector; the
 remaining eight have a single runtime profile.
 
@@ -36,7 +36,7 @@ select; “None” means the catalogue has alternatives but no menu to choose th
 | [atari-800xl](../../crates/emu198x-atari-800xl/src/app.rs) | 2 | `--region` | None | Region |
 | [c64](../../crates/emu198x-c64/src/app.rs) | 4 | `--model` | 4/4 | Breadbin/C64C × region; RAM expansions independent |
 | [colecovision](../../crates/emu198x-colecovision/src/app.rs) | 2 | `--model` / `--region` | 2/2 | Region |
-| [commodore-pet](../../crates/emu198x-commodore-pet/src/app.rs) | 2 | `--columns` | None | 40/80-column hardware profiles |
+| [commodore-pet](../../crates/emu198x-commodore-pet/src/app.rs) | 2 | `--model` / `--columns` | 2/2 | 40/80-column hardware profiles |
 | [commodore-vic-20](../../crates/emu198x-commodore-vic-20/src/app.rs) | 2 | `--region` | None | Region; RAM expansion flags independent |
 | [dragon](../../crates/emu198x-dragon/src/app.rs) | 2 | `--model` | 2/2 | Dragon 32/64 |
 | [game-boy](../../crates/emu198x-game-boy/src/app.rs) | 5 | `--model` | None | DMG0/DMG/MGB/SGB/SGB2 post-boot profiles |
@@ -561,3 +561,45 @@ The 2600 captures are 160×240 and 160×288; the 7800 captures are 374×240 and
 368×288. Existing frame budgets and pacing are unchanged. These are synthetic
 boot/capture checks; commercial-game compatibility, native menu click-through
 and audio-device output remain unverified by this slice.
+
+## PET firmware catalogue and display profiles
+
+Parent issue: [#1475](https://github.com/emu198x/emu198x/issues/1475).
+Broader epic: [#456](https://github.com/emu198x/emu198x/issues/456).
+
+PET's existing 40- and 80-column profiles now use shared catalogue construction,
+script/MCP switching and a native selector. `--columns` remains compatible with
+`--model`; the last selection wins, and unsupported numeric column counts now
+fail instead of silently choosing 40 columns. Reports read the live model.
+
+The runtime declares all four required ROMs and their existing size constraints.
+Legacy flags and per-file environment variables remain supported alongside
+`--rom ID=PATH`, `--rom-dir` and `EMU198X_PET_ROM_DIR`. Firmware ids are
+`commodore-pet-kernal`, `commodore-pet-basic`, `commodore-pet-editor` and
+`commodore-pet-char`. The directory remains `commodore-pet` and filenames remain
+`kernal.rom`, `basic.rom`, `editor.rom` and `chargen.rom`. Both profiles retain
+the existing filename convention; selecting a profile does not supply a matching
+editor ROM automatically.
+
+MCP now uses strict shared resolution for explicit missing or malformed firmware,
+and can still start blank when conventional firmware is absent. Parsed PRG
+startup uses the same autoload path in native, script and MCP modes. A profile
+switch cold-boots conventional firmware and clears RAM and queued programs;
+a failed switch preserves the machine and queued PRG. Reset uses the ROMs
+installed in the live machine, including after snapshot restore, instead of
+redundant launch-ROM caches. The snapshot version-2 envelope, PRG autoload
+budget and native frame budget are unchanged.
+
+Catalogue adoption covers twenty-five of 30 binaries, with five remaining.
+Nineteen expose native selectors on macOS. Tests cover four-ROM precedence and
+errors, live profile reports, PRG injection and switch lifecycle, failed firmware
+switch preservation, snapshot/reset firmware retention and native construction
+at both display sizes. The MCP inventory adds only `set_machine` (36→37);
+all existing tool definitions are unchanged.
+
+With the local staged ROM set, a 300-frame 40-column capture reaches a clean
+BASIC `READY` prompt at 384×248. The 80-column capture reaches `READY` at 704×248
+but has display corruption; its PNG is byte-for-byte identical to a capture from
+the pre-migration build with the same ROM set. This confirms no rendering
+regression from the migration, not successful 80-column firmware validation.
+Native menu click-through remains unverified.

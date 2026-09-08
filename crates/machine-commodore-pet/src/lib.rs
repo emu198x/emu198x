@@ -100,6 +100,18 @@ pub struct Pet {
 }
 
 impl Pet {
+    /// Cold-boot with the installed firmware and the selected display profile.
+    #[must_use]
+    pub fn cold_boot(&self, screen_chars: u32) -> Self {
+        Self::new(
+            self.kernal_rom.clone(),
+            self.basic_rom.clone(),
+            self.editor_rom.clone(),
+            self.char_rom.clone(),
+            screen_chars,
+        )
+    }
+
     /// Create a new PET. ROM sizes: kernal 4 KB, basic 8 KB, editor 2 KB,
     /// char ROM 4 KB. `screen_chars` is 40 (PET 4032) or 80 (PET 8032).
     pub fn new(
