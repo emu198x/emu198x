@@ -13,8 +13,10 @@
 
 use std::path::PathBuf;
 
-use emu198x_shell::launch::{Args, CommonCli, LaunchError, MachineApp, resolve_rom, script_report};
-use emu198x_shell::{FirmwareImage, FirmwareSet, read_firmware_asset};
+use emu198x_shell::launch::{Args, CommonCli, LaunchError, MachineApp, script_report};
+use emu198x_shell::{
+    FirmwareOverrides, MediaKind, build_variant, read_media_asset, resolve_firmware,
+};
 use machine_dragon_32::{AddressRange, DRAGON_FRAME_CYCLES, MatrixKey};
 use runtime_dragon::{DragonRuntime, DragonSessionQueryProvider, Model};
 use serde_json::{Map, Value};
@@ -28,17 +30,13 @@ use crate::script::{
     parse_smoke_joystick_axis_sweep, parse_smoke_joystick_step, parse_u32, parse_u64, parse_usize,
 };
 
-/// The MCP server's firmware: the Dragon 32 BASIC ROM from the
-/// environment or the staged ROM directory.
-const ROM_ENV: &str = "EMU198X_DRAGON32_ROM";
-const ROM_RELATIVE: &str = "dragon/dragon32.rom";
-
 /// The machine configuration the flags build up. Every field is a flag;
 /// `screenshot` is the shared `--screenshot`, copied in from the launcher
 /// when the harness runs so its capture options keep their meaning.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Dragon {
     pub model: Model,
+    pub firmware: FirmwareOverrides,
     pub rom: Option<PathBuf>,
     /// `--rom64`: the Dragon 64's 64-mode BASIC ROM.
     pub mode_rom: Option<PathBuf>,
@@ -88,6 +86,7 @@ impl Default for Dragon {
     fn default() -> Self {
         Self {
             model: Model::Dragon32Pal,
+            firmware: FirmwareOverrides::none(),
             rom: None,
             mode_rom: None,
             tape: None,
@@ -140,6 +139,32 @@ fn usage(message: String) -> LaunchError {
     LaunchError::Usage(message)
 }
 
+impl Dragon {
+    fn firmware_overrides(&self) -> Result<FirmwareOverrides, String> {
+        if self.model == Model::Dragon32Pal && self.mode_rom.is_some() {
+            return Err("--rom64 requires --model dragon64".to_owned());
+        }
+        let mut overrides = self.firmware.clone();
+        if let Some(path) = &self.rom {
+            overrides.pin(self.model.firmware_id(), path);
+        }
+        if let Some(path) = &self.mode_rom {
+            overrides.pin("dragon64-basic-rom", path);
+        }
+        Ok(overrides)
+    }
+
+    pub(crate) fn firmware_paths(&self) -> Result<Vec<(&'static str, PathBuf)>, String> {
+        resolve_firmware::<DragonRuntime>(self.model, &self.firmware_overrides()?)
+            .map_err(|err| err.to_string())
+    }
+
+    pub(crate) fn catalogue_runtime(&self) -> Result<DragonRuntime, String> {
+        build_variant::<DragonRuntime>(self.model, &self.firmware_overrides()?)
+            .map_err(|err| err.to_string())
+    }
+}
+
 impl MachineApp for Dragon {
     type Runtime = DragonRuntime;
     type Query = DragonSessionQueryProvider;
@@ -188,7 +213,9 @@ impl MachineApp for Dragon {
     ];
     const MACHINE_OPTIONS: &'static str = "    --model MODEL       dragon32 | dragon64 [default: dragon32]
     --rom PATH          Dragon 32 BASIC ROM, or Dragon 64 compatible-mode ROM; .zip archives are accepted
-    --rom64 PATH        Dragon 64 64-mode BASIC ROM, required with --model dragon64
+    --rom ID=PATH       pin a catalogue firmware image (bare PATH still names compatible BASIC)
+    --rom-dir DIR       firmware directory (or EMU198X_DRAGON_ROM_DIR)
+    --rom64 PATH        Dragon 64 64-mode BASIC ROM; otherwise resolved conventionally
     --tape PATH         Dragon CAS tape image, or zip containing one .cas member (window)
     --cart PATH         Dragon cartridge ROM/DGN image; .zip archives are accepted
     --disk PATH         DragonDOS VDK disk image; .zip archives are accepted (headless)
@@ -275,7 +302,21 @@ Headless harness (each of these selects headless mode; --frames is not accepted)
     fn parse_flag(&mut self, flag: &str, args: &mut Args) -> Result<bool, LaunchError> {
         match flag {
             "--model" => self.model = parse_model(&args.value(flag)?).map_err(usage)?,
-            "--rom" => self.rom = Some(args.path(flag)?),
+            "--rom" => {
+                let spec = args.value(flag)?;
+                if spec.contains('=') {
+                    self.firmware
+                        .add_spec(
+                            &spec,
+                            self.model.variant_id(),
+                            &self.model.firmware_sources(),
+                        )
+                        .map_err(|err| usage(err.to_string()))?;
+                } else {
+                    self.rom = Some(PathBuf::from(spec));
+                }
+            }
+            "--rom-dir" => self.firmware.dir = Some(args.path(flag)?),
             "--rom64" => self.mode_rom = Some(args.path(flag)?),
             "--tape" => self.tape = Some(args.path(flag)?),
             "--cart" => self.cart = Some(args.path(flag)?),
@@ -388,23 +429,34 @@ Headless harness (each of these selects headless mode; --frames is not accepted)
         Ok(crate::script::runtime_from_firmware(&firmware)?)
     }
 
-    /// The Dragon boot ROM is firmware, not loadable media, so it must be
-    /// present at startup — the same way the Spectrum and Amiga MCP servers
-    /// resolve their ROMs. The server always boots a Dragon 32 from the
-    /// conventional location; media named on the command line is loaded by
-    /// the launcher.
     fn build_mcp_runtime(&self) -> Result<DragonRuntime, LaunchError> {
-        let rom_path = resolve_rom(None, ROM_ENV, ROM_RELATIVE)?;
-        let rom = read_firmware_asset(&rom_path).map_err(|err| {
-            LaunchError::Run(format!(
-                "failed to load Dragon 32 ROM {}: {err}",
-                rom_path.display()
-            ))
-        })?;
-        let mut firmware = FirmwareSet::new();
-        firmware.push(FirmwareImage::new("dragon32-basic-rom", &rom.bytes));
-        DragonRuntime::from_firmware(Model::Dragon32Pal, &firmware)
-            .map_err(|err| LaunchError::Run(format!("failed to build Dragon runtime: {err}")))
+        self.catalogue_runtime().map_err(LaunchError::Run)
+    }
+
+    fn startup_media(&self) -> Result<Vec<(String, MediaKind, Vec<u8>)>, LaunchError> {
+        [
+            ("tape-1", MediaKind::Tape, &self.tape),
+            ("cartridge-1", MediaKind::Cartridge, &self.cart),
+            ("drive-1", MediaKind::Disk, &self.disk),
+            ("program-1", MediaKind::Program, &self.bin),
+            ("snapshot-1", MediaKind::Snapshot, &self.snapshot),
+        ]
+        .into_iter()
+        .filter_map(|(slot, kind, path)| path.as_ref().map(|path| (slot, kind, path)))
+        .map(|(slot, kind, path)| {
+            read_media_asset(path, kind)
+                .map(|asset| (slot.to_owned(), kind, asset.bytes))
+                .map_err(|err| LaunchError::Run(err.to_string()))
+        })
+        .collect()
+    }
+
+    fn mcp_startup_media(
+        &self,
+        _slots: &[emu198x_shell::MediaSlot],
+        _raw_args: &[String],
+    ) -> Result<Vec<(String, MediaKind, Vec<u8>)>, LaunchError> {
+        self.startup_media()
     }
 
     /// The `--script` report is the shared `observations` and `time` alone.

@@ -693,3 +693,27 @@ to the pre-migration build: PAL reaches `READY` at 368×288; NTSC shows a blue
 screen and cursor at 374×240 with the installed ROMs. This establishes capture
 parity, not NTSC boot validation. Native menu click-through and audio-device
 output remain unverified.
+
+
+## Dragon runtime catalogue
+
+Dragon 32/64 launch, MCP, shared scripts, native menus and the smoke harness
+resolve firmware through the runtime catalogue. Existing `dragon32`/`dragon64`
+ids and aliases remain. Bare `--rom PATH`, positional firmware and `--rom64`
+remain supported alongside `--rom ID=PATH` and `--rom-dir`. The runtime owns
+the three existing filenames and per-image environment variables;
+`EMU198X_DRAGON_ROM_DIR` selects a directory. The smoke harness keeps its
+exact-size ZIP selection and cycle budget; native pacing keeps its existing
+894886/50-cycle budget and 50 Hz duration.
+
+MCP now honours the selected model and firmware. Shared scripts and MCP mount
+parsed startup media without mistaking firmware pins for cartridges. Native
+tape autoload and the existing smoke workflows remain in place. Model switches
+retain the existing fresh-machine policy: mounted media and RAM are discarded,
+and failed firmware resolution preserves the running machine. Firmware is
+required at startup, including MCP; there is no new blank-ROM fallback.
+
+Catalogue adoption covers twenty-eight of 30 binaries. Game Boy and NES remain;
+the macOS selector count stays at twenty-one. Targeted tests cover shared
+selection, startup media, missing firmware, existing ROM ZIP loading and real-ROM
+Dragon 32/64 boot workflows. Native menu click-through remains unverified.

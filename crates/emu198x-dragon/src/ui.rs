@@ -22,13 +22,12 @@
 //! window when no automation or harness flag is given.
 
 use std::borrow::Cow;
-use std::path::PathBuf;
 use std::time::Duration;
 
 use emu198x_shell::launch::LaunchError;
 use emu198x_shell::{
-    FirmwareImage, FirmwareSet, HeadlessSession, InputEvent, MachineError, MediaImage, MediaKind,
-    MediaSet, SessionError, read_firmware_asset, read_media_asset,
+    FamilyRuntime, FirmwareOverrides, HeadlessSession, InputEvent, MachineError, MediaImage,
+    MediaKind, MediaSet, SessionError, build_variant, read_media_asset,
 };
 use emu198x_ui::launch::UiApp;
 use emu198x_ui::{
@@ -42,16 +41,12 @@ use thiserror::Error;
 use crate::app::Dragon;
 
 const DEFAULT_SCALE: u32 = 2;
-const DRAGON_CPU_HZ: u64 = 894_886;
 const DRAGON_FRAME_HZ: u64 = 50;
-const DRAGON_FRAME_CYCLES: u64 = DRAGON_CPU_HZ / DRAGON_FRAME_HZ;
+const DRAGON_FRAME_CYCLES: u64 = Model::Dragon32Pal.native_frame_ticks();
 const INPUT_SLICES_PER_FRAME: u32 = 4;
 const AUTOLOAD_BOOT_FRAMES: u32 = 100;
 const AUTOLOAD_KEY_EDGE_FRAMES: u32 = 4;
 const AUTOLOAD_START_SETTLE_FRAMES: u32 = 60;
-
-const DRAGON32_ID: &str = "dragon32";
-const DRAGON64_ID: &str = "dragon64";
 
 // ---- Gamepad maps (lifted from the bespoke runner, unchanged) --------------
 
@@ -167,8 +162,8 @@ impl UiSystem for DragonSystem {
         )
     }
 
-    fn frame_ticks(&self, _runtime: &Self::Runtime) -> u64 {
-        DRAGON_FRAME_CYCLES
+    fn frame_ticks(&self, runtime: &Self::Runtime) -> u64 {
+        runtime.native_frame_ticks()
     }
 
     fn frame_duration(&self, _runtime: &Self::Runtime) -> Duration {
@@ -196,14 +191,14 @@ impl UiSystem for DragonSystem {
     }
 
     fn variants(&self) -> Vec<VariantInfo> {
-        vec![
-            VariantInfo::new(DRAGON32_ID, Model::Dragon32Pal.display_name()),
-            VariantInfo::new(DRAGON64_ID, Model::Dragon64Pal.display_name()),
-        ]
+        Model::ALL
+            .into_iter()
+            .map(|model| VariantInfo::new(model.variant_id(), model.display_name()))
+            .collect()
     }
 
     fn current_variant(&self) -> Option<Cow<'static, str>> {
-        Some(Cow::Borrowed(variant_id(self.current)))
+        Some(Cow::Borrowed(self.current.variant_id()))
     }
 
     fn switch_variant(
@@ -211,37 +206,17 @@ impl UiSystem for DragonSystem {
         runtime: &mut Self::Runtime,
         variant: &str,
     ) -> Result<(), MachineError> {
-        let model = model_for_variant(variant).ok_or(MachineError::UnsupportedOperation {
+        let model = Model::from_variant_id(variant).ok_or(MachineError::UnsupportedOperation {
             operation: "unknown Dragon variant",
         })?;
-        let firmware_images =
-            resolve_variant_firmware(model).map_err(|reason| MachineError::Host {
-                reason: format!("loading {} ROMs: {reason}", model.display_name()),
+        *runtime =
+            build_variant::<DragonRuntime>(model, &FirmwareOverrides::none()).map_err(|err| {
+                MachineError::Host {
+                    reason: err.to_string(),
+                }
             })?;
-        let mut firmware = FirmwareSet::new();
-        for (id, bytes) in &firmware_images {
-            firmware.push(FirmwareImage::new(*id, bytes));
-        }
-        *runtime = DragonRuntime::from_firmware(model, &firmware)?;
         self.current = model;
         Ok(())
-    }
-}
-
-/// The stable variant id for a model (round-trips through [`model_for_variant`]).
-fn variant_id(model: Model) -> &'static str {
-    match model {
-        Model::Dragon32Pal => DRAGON32_ID,
-        Model::Dragon64Pal => DRAGON64_ID,
-    }
-}
-
-/// Resolve a variant id from the Machine menu back to a [`Model`].
-fn model_for_variant(variant: &str) -> Option<Model> {
-    match variant {
-        DRAGON32_ID => Some(Model::Dragon32Pal),
-        DRAGON64_ID => Some(Model::Dragon64Pal),
-        _ => None,
     }
 }
 
@@ -256,10 +231,8 @@ impl UiApp for Dragon {
         }
     }
 
-    /// The window loads firmware through the shared asset reader (any
-    /// size, `.zip` accepted) and mounts the tape, cartridge, program and
-    /// snapshot flags before it opens; the headless runtime uses the
-    /// harness's exact-size loader and mounts nothing.
+    /// Resolve catalogue firmware, mount startup media, then perform the
+    /// window's existing tape-autoload sequence when requested.
     fn build_ui_runtime(&self) -> Result<DragonRuntime, LaunchError> {
         build_runtime(self).map_err(|err| LaunchError::Run(err.to_string()))
     }
@@ -290,49 +263,9 @@ fn build_runtime(cli: &Dragon) -> Result<DragonRuntime, AppError> {
         });
     }
 
-    let rom = cli.rom.as_ref().ok_or_else(|| AppError::Setup {
-        reason: "provide --rom PATH".to_owned(),
-    })?;
-    let loaded = read_firmware_asset(rom).map_err(|err| AppError::Setup {
-        reason: format!("failed to load Dragon ROM {}: {err}", rom.display()),
-    })?;
-    let loaded_mode_rom = if cli.model == Model::Dragon64Pal {
-        let mode_rom = cli.mode_rom.as_ref().ok_or_else(|| AppError::Setup {
-            reason: "--model dragon64 requires --rom64 PATH".to_owned(),
-        })?;
-        Some(
-            read_firmware_asset(mode_rom).map_err(|err| AppError::Setup {
-                reason: format!(
-                    "failed to load Dragon 64 mode ROM {}: {err}",
-                    mode_rom.display()
-                ),
-            })?,
-        )
-    } else {
-        None
-    };
-    let mut firmware = FirmwareSet::new();
-    match cli.model {
-        Model::Dragon32Pal => {
-            if cli.mode_rom.is_some() {
-                return Err(AppError::Setup {
-                    reason: "--rom64 requires --model dragon64".to_owned(),
-                });
-            }
-            firmware.push(FirmwareImage::new("dragon32-basic-rom", &loaded.bytes));
-        }
-        Model::Dragon64Pal => {
-            let loaded_mode_rom = loaded_mode_rom
-                .as_ref()
-                .expect("Dragon 64 mode ROM should be loaded before firmware construction");
-            firmware.push(FirmwareImage::new("dragon64-compatible-rom", &loaded.bytes));
-            firmware.push(FirmwareImage::new(
-                "dragon64-basic-rom",
-                &loaded_mode_rom.bytes,
-            ));
-        }
-    }
-    let runtime = DragonRuntime::from_firmware(cli.model, &firmware)?;
+    let runtime = cli
+        .catalogue_runtime()
+        .map_err(|reason| AppError::Setup { reason })?;
     let mut session = HeadlessSession::new_with_query_provider(
         runtime,
         DRAGON_FRAME_CYCLES,
@@ -420,73 +353,6 @@ fn build_runtime(cli: &Dragon) -> Result<DragonRuntime, AppError> {
     }
 
     Ok(session.into_machine())
-}
-
-// ---- Staged-ROM resolvers (for live variant switching) ---------------------
-
-/// Resolve the firmware bundle for a model from the staged ROM paths
-/// (`$EMU198X_*` overrides or `~/.emu198x/roms/dragon/`). The Dragon 32 needs
-/// one image; the Dragon 64 needs the compatible-mode ROM plus the 64-mode ROM.
-fn resolve_variant_firmware(model: Model) -> Result<Vec<(&'static str, Vec<u8>)>, String> {
-    match model {
-        Model::Dragon32Pal => {
-            let path = staged_dragon32_rom()
-                .ok_or_else(|| "Dragon 32 ROM is not staged (~/.emu198x/roms/dragon/dragon32.rom or $EMU198X_DRAGON32_ROM)".to_owned())?;
-            let bytes = read_firmware_asset(&path)
-                .map_err(|err| format!("{}: {err}", path.display()))?
-                .bytes
-                .to_vec();
-            Ok(vec![("dragon32-basic-rom", bytes)])
-        }
-        Model::Dragon64Pal => {
-            let compat_path = staged_dragon64_compat_rom()
-                .ok_or_else(|| "Dragon 64 compatible-mode ROM is not staged (~/.emu198x/roms/dragon/dragon64-compat.rom or $EMU198X_DRAGON64_COMPAT_ROM)".to_owned())?;
-            let mode_path = staged_dragon64_mode_rom()
-                .ok_or_else(|| "Dragon 64 64-mode ROM is not staged (~/.emu198x/roms/dragon/dragon64.rom or $EMU198X_DRAGON64_ROM)".to_owned())?;
-            let compat = read_firmware_asset(&compat_path)
-                .map_err(|err| format!("{}: {err}", compat_path.display()))?
-                .bytes
-                .to_vec();
-            let mode = read_firmware_asset(&mode_path)
-                .map_err(|err| format!("{}: {err}", mode_path.display()))?
-                .bytes
-                .to_vec();
-            Ok(vec![
-                ("dragon64-compatible-rom", compat),
-                ("dragon64-basic-rom", mode),
-            ])
-        }
-    }
-}
-
-fn staged_dragon32_rom() -> Option<PathBuf> {
-    if let Ok(path) = std::env::var("EMU198X_DRAGON32_ROM") {
-        return existing_file(path);
-    }
-    existing_file(home_path(".emu198x/roms/dragon/dragon32.rom")?)
-}
-
-fn staged_dragon64_compat_rom() -> Option<PathBuf> {
-    if let Ok(path) = std::env::var("EMU198X_DRAGON64_COMPAT_ROM") {
-        return existing_file(path);
-    }
-    existing_file(home_path(".emu198x/roms/dragon/dragon64-compat.rom")?)
-}
-
-fn staged_dragon64_mode_rom() -> Option<PathBuf> {
-    if let Ok(path) = std::env::var("EMU198X_DRAGON64_ROM") {
-        return existing_file(path);
-    }
-    existing_file(home_path(".emu198x/roms/dragon/dragon64.rom")?)
-}
-
-fn home_path(relative: &str) -> Option<PathBuf> {
-    Some(PathBuf::from(std::env::var("HOME").ok()?).join(relative))
-}
-
-fn existing_file(path: impl Into<PathBuf>) -> Option<PathBuf> {
-    let path = path.into();
-    path.is_file().then_some(path)
 }
 
 // ---- Autoload machinery (lifted from the bespoke runner) -------------------
@@ -690,14 +556,5 @@ mod tests {
     fn map_keys_ignores_unmapped_keys() {
         assert_eq!(map_dragon_keys(KeyCode::F5), None);
         assert_eq!(map_dragon_keys(KeyCode::Tab), None);
-    }
-
-    #[test]
-    fn variant_ids_round_trip_through_models() {
-        assert_eq!(model_for_variant(DRAGON32_ID), Some(Model::Dragon32Pal));
-        assert_eq!(model_for_variant(DRAGON64_ID), Some(Model::Dragon64Pal));
-        assert_eq!(model_for_variant("nonsense"), None);
-        assert_eq!(variant_id(Model::Dragon32Pal), DRAGON32_ID);
-        assert_eq!(variant_id(Model::Dragon64Pal), DRAGON64_ID);
     }
 }
