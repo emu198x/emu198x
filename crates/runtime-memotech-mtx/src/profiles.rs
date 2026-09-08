@@ -14,6 +14,44 @@ pub enum Model {
 }
 
 impl Model {
+    /// Existing presets in launch and menu order.
+    pub const ALL: [Self; 2] = [Self::Mtx500, Self::Mtx512];
+    pub const VARIANT_IDS: [&'static str; 2] = ["mtx500", "mtx512"];
+
+    #[must_use]
+    pub const fn variant_id(self) -> &'static str {
+        match self {
+            Self::Mtx500 => "mtx500",
+            Self::Mtx512 => "mtx512",
+        }
+    }
+
+    #[must_use]
+    pub fn from_variant_id(id: &str) -> Option<Self> {
+        Self::ALL
+            .into_iter()
+            .find(|model| model.variant_id() == id || model.profile_id() == id)
+    }
+
+    #[must_use]
+    pub fn firmware_sources(self) -> Vec<emu198x_shell::FirmwareSource> {
+        vec![
+            emu198x_shell::FirmwareSource::required(ROM_FIRMWARE_ID, &["mtx.rom"])
+                .with_env_var("EMU198X_MTX_ROM"),
+        ]
+    }
+
+    /// The existing host frame budget; emulated chip timing is unchanged.
+    #[must_use]
+    pub const fn frame_ticks(self) -> u64 {
+        79_746
+    }
+
+    #[must_use]
+    pub const fn menu_label(self) -> &'static str {
+        self.display_name()
+    }
+
     #[must_use]
     pub const fn model_id(self) -> &'static str {
         match self {
@@ -64,6 +102,7 @@ pub fn profile_for(model: Model) -> MachineProfile {
         )],
         media_slots: vec![],
         capabilities: CapabilitySet::with_all([
+            known_capability("variant-switch"),
             known_capability("keyboard-input"),
             known_capability("scripted-input"),
         ]),

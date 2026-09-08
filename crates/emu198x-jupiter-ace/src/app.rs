@@ -3,25 +3,23 @@
 use std::path::PathBuf;
 
 use emu198x_shell::MediaKind;
-use emu198x_shell::launch::{Args, LaunchError, MachineApp, read_rom, read_rom_exact, resolve_rom};
+use emu198x_shell::launch::{Args, LaunchError, MachineApp, read_rom};
+use emu198x_shell::{FirmwareOverrides, FirmwareResolveError, build_variant};
 use runtime_jupiter_ace::{JupiterAceRuntime, JupiterAceSessionQueryProvider, Model};
 use serde_json::{Map, Value};
-
-const ROM_ENV: &str = "EMU198X_JUPITER_ACE_ROM";
-const ROM_RELATIVE: &str = "jupiter-ace/ace.rom";
-const ROM_SIZE: usize = 8192;
 
 /// Z80 @ 3.25 MHz PAL: 312 lines x 208 T-states = 64,896 T-states/frame.
 /// Derived from the machine so it cannot drift: a budget longer than
 /// run_frame() makes the harness run two machine frames per displayed frame
 /// (~2x too fast). See docs/status/ui-boot-verification.
-pub const FRAME_TICKS: u64 = machine_jupiter_ace::TSTATES_PER_FRAME as u64;
+#[cfg(test)]
+pub const FRAME_TICKS: u64 = Model::Ace3k.frame_ticks();
 
 /// The machine configuration the flags build up.
 #[derive(Debug, PartialEq, Eq)]
 pub struct JupiterAce {
-    pub rom: Option<PathBuf>,
-    pub ram_kb: usize,
+    pub firmware: FirmwareOverrides,
+    pub model: Model,
     /// `--ace PATH`: an ACE32 snapshot restored before a script runs.
     pub ace: Option<PathBuf>,
 }
@@ -29,18 +27,10 @@ pub struct JupiterAce {
 impl Default for JupiterAce {
     fn default() -> Self {
         Self {
-            rom: None,
-            ram_kb: 3,
+            firmware: FirmwareOverrides::none(),
+            model: Model::Ace3k,
             ace: None,
         }
-    }
-}
-
-pub fn model_for(ram_kb: usize) -> Model {
-    match ram_kb {
-        n if n >= 48 => Model::Ace48k,
-        n if n >= 16 => Model::Ace16k,
-        _ => Model::Ace3k,
     }
 }
 
@@ -51,10 +41,14 @@ impl MachineApp for JupiterAce {
     const BIN_NAME: &'static str = "emu198x-jupiter-ace";
     const VERSION: &'static str = env!("CARGO_PKG_VERSION");
     const MACHINE_OPTIONS: &'static str =
-        "    --rom PATH      Jupiter Ace Forth ROM (8 KB); default
+        "    --rom PATH|ID=PATH Jupiter Ace Forth ROM (8 KB); default
                     ~/.emu198x/roms/jupiter-ace/ace.rom
                     (or set EMU198X_JUPITER_ACE_ROM)
-    --ram-kb N      base RAM in KB (3 / 16 / 48) [default: 3]
+    --rom-dir DIR   firmware directory (or set EMU198X_JUPITER_ACE_ROM_DIR)
+                    firmware ID: jupiter-ace-rom
+    --model ID      jupiter-ace-3k | jupiter-ace-16k | jupiter-ace-48k
+    --ram-kb N      legacy preset selection: <16 stock, 16..47 16 KiB expansion,
+                    ≥48 48 KiB expansion [default: stock]; last selector wins
     --ace PATH      restore an ACE32 .ace snapshot before running";
     const CONTROLS: &'static str = "    Esc             quit
     F12             hard reset
@@ -65,8 +59,27 @@ impl MachineApp for JupiterAce {
 
     fn parse_flag(&mut self, flag: &str, args: &mut Args) -> Result<bool, LaunchError> {
         match flag {
-            "--rom" => self.rom = Some(args.path(flag)?),
-            "--ram-kb" => self.ram_kb = args.parse(flag, "a non-negative integer")?,
+            "--rom" => self
+                .firmware
+                .add_spec(
+                    &args.value(flag)?,
+                    self.model.variant_id(),
+                    &self.model.firmware_sources(),
+                )
+                .map_err(|err| LaunchError::Usage(err.to_string()))?,
+            "--rom-dir" => self.firmware.dir = Some(args.path(flag)?),
+            "--model" => {
+                let id = args.value(flag)?;
+                self.model = Model::from_variant_id(&id).ok_or_else(|| {
+                    LaunchError::Usage(format!(
+                        "unknown jupiter-ace model `{id}`; expected {}",
+                        Model::VARIANT_IDS.join(", ")
+                    ))
+                })?;
+            }
+            "--ram-kb" => {
+                self.model = Model::from_ram_kb(args.parse(flag, "a non-negative integer")?)
+            }
             "--ace" => self.ace = Some(args.path(flag)?),
             _ => return Ok(false),
         }
@@ -74,7 +87,7 @@ impl MachineApp for JupiterAce {
     }
 
     fn frame_ticks(&self) -> u64 {
-        FRAME_TICKS
+        self.model.frame_ticks()
     }
 
     fn query_provider(&self) -> JupiterAceSessionQueryProvider {
@@ -82,15 +95,28 @@ impl MachineApp for JupiterAce {
     }
 
     fn build_runtime(&self) -> Result<JupiterAceRuntime, LaunchError> {
-        let rom_path = resolve_rom(self.rom.as_deref(), ROM_ENV, ROM_RELATIVE)?;
-        let rom = read_rom_exact(&rom_path, "Forth ROM", ROM_SIZE)?;
-        JupiterAceRuntime::new(model_for(self.ram_kb), rom)
-            .map_err(|err| LaunchError::Run(format!("failed to construct runtime: {err}")))
+        build_variant::<JupiterAceRuntime>(self.model, &self.firmware)
+            .map_err(|err| LaunchError::Run(err.to_string()))
     }
 
-    /// MCP starts blank — the ROM arrives via firmware load.
+    /// Conventional firmware is loaded when available. Missing conventional
+    /// firmware permits blank startup; invalid images and explicit paths fail.
     fn build_mcp_runtime(&self) -> Result<JupiterAceRuntime, LaunchError> {
-        Ok(JupiterAceRuntime::blank(model_for(self.ram_kb)))
+        match build_variant::<JupiterAceRuntime>(self.model, &self.firmware) {
+            Ok(runtime) => Ok(runtime),
+            Err(
+                err @ (FirmwareResolveError::HomeUnset
+                | FirmwareResolveError::NoRomDir { .. }
+                | FirmwareResolveError::Missing { .. }),
+            ) if self.firmware.dir.is_none()
+                && self.firmware.by_id.is_empty()
+                && std::env::var_os("EMU198X_JUPITER_ACE_ROM_DIR").is_none() =>
+            {
+                eprintln!("{} mcp: {err} — starting blank", Self::BIN_NAME);
+                Ok(JupiterAceRuntime::blank(self.model))
+            }
+            Err(err) => Err(LaunchError::Run(err.to_string())),
+        }
     }
 
     fn startup_media(&self) -> Result<Vec<(String, MediaKind, Vec<u8>)>, LaunchError> {
@@ -105,7 +131,7 @@ impl MachineApp for JupiterAce {
         let frames_run = runtime.machine().map_or(0, |m| m.frame_count());
         report.insert("rom_loaded".to_owned(), runtime.machine().is_some().into());
         report.insert("frames_run".to_owned(), frames_run.into());
-        report.insert("ram_kb".to_owned(), self.ram_kb.into());
+        report.insert("ram_kb".to_owned(), runtime.model().ram_kb().into());
     }
 }
 
@@ -126,15 +152,20 @@ mod tests {
         let Parsed::Run { app, .. } = parsed else {
             panic!("expected a run");
         };
-        assert_eq!(app.rom, Some(PathBuf::from("ace.rom")));
-        assert_eq!(app.ram_kb, 16);
+        assert_eq!(
+            app.firmware
+                .by_id
+                .get(runtime_jupiter_ace::BIOS_FIRMWARE_ID),
+            Some(&PathBuf::from("ace.rom"))
+        );
+        assert_eq!(app.model, Model::Ace16k);
     }
 
     #[test]
     fn model_selects_by_ram() {
-        assert_eq!(model_for(3), Model::Ace3k);
-        assert_eq!(model_for(16), Model::Ace16k);
-        assert_eq!(model_for(48), Model::Ace48k);
+        assert_eq!(Model::from_ram_kb(3), Model::Ace3k);
+        assert_eq!(Model::from_ram_kb(16), Model::Ace16k);
+        assert_eq!(Model::from_ram_kb(48), Model::Ace48k);
     }
 
     #[test]

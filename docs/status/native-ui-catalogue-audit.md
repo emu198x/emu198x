@@ -1,13 +1,13 @@
 # Native UI catalogue audit
 
-Source audit dated 2026-09-08, against main `330c9269` plus the Amiga catalogue,
-grouped-menu and ZX80 migration changes described here. This is a source-level coverage audit,
+Source audit dated 2026-09-08, against main `826bfa54` plus the Ace/MTX
+migrations described here. This is a source-level coverage audit,
 not a claim that every preset has booted or passed hardware validation.
 
 ## Coverage
 
 All 30 registered machine binaries have a native `UiApp` adapter and enable the
-UI feature by default. Six expose a Machine-menu selector. Sixteen other
+UI feature by default. Eight expose a Machine-menu selector. Fourteen other
 binaries have multiple runtime profiles without an in-window selector; the
 remaining eight have a single runtime profile.
 
@@ -40,9 +40,9 @@ select; “None” means the catalogue has alternatives but no menu to choose th
 | [commodore-vic-20](../../crates/emu198x-commodore-vic-20/src/app.rs) | 2 | `--region` | None | Region; RAM expansion flags independent |
 | [dragon](../../crates/emu198x-dragon/src/app.rs) | 2 | `--model` | 2/2 | Dragon 32/64 |
 | [game-boy](../../crates/emu198x-game-boy/src/app.rs) | 5 | `--model` | None | DMG0/DMG/MGB/SGB/SGB2 post-boot profiles |
-| [jupiter-ace](../../crates/emu198x-jupiter-ace/src/app.rs) | 3 | `--ram-kb` | None | 3/16/48 KiB RAM presets |
+| [jupiter-ace](../../crates/emu198x-jupiter-ace/src/app.rs) | 3 | `--model` / `--ram-kb` | 3/3 | Stock 3 KiB / 16 KiB expansion / 48 KiB expansion |
 | [mattel-aquarius](../../crates/emu198x-mattel-aquarius/src/app.rs) | 1 | Single profile | — | RAM expansion independent |
-| [memotech-mtx](../../crates/emu198x-memotech-mtx/src/app.rs) | 2 | `--model` | None | MTX500/512 marketed models |
+| [memotech-mtx](../../crates/emu198x-memotech-mtx/src/app.rs) | 2 | `--model` | 2/2 | MTX500/512 marketed models |
 | [msx](../../crates/emu198x-msx/src/app.rs) | 2 | `--region` | None | MSX1 region |
 | [nes](../../crates/emu198x-nes/src/app.rs) | 1 | Single profile | — | NTSC |
 | [oric-atmos](../../crates/emu198x-oric-atmos/src/app.rs) | 2 | `--model` | None | Oric-1/Atmos |
@@ -150,3 +150,40 @@ do not satisfy that gate.
 layout/legend metadata before a clickable renderer. That remains a separate
 step toward a usable native interface, using the same machine input events
 rather than adding a per-system keyboard UI.
+
+## Ace/MTX rollout slice
+
+Parent issue: [#1475](https://github.com/emu198x/emu198x/issues/1475).
+Broader epic: [#456](https://github.com/emu198x/emu198x/issues/456).
+
+Jupiter Ace and Memotech MTX now use runtime-owned ids, firmware sources and
+frame budgets through launch, script, MCP and native menu selection. Ace's
+three choices distinguish stock onboard RAM from fitted expansion RAM. MTX500
+and MTX512 retain their marketed model names and existing command-line ids;
+profile ids are also accepted as aliases.
+
+Both families retain their file environment variables and conventional ROM
+locations, and gain the shared directory and named-pin options. MTX's combined
+OS/paged-ROM image is still any whole number of 8 KiB pages totalling at least
+16 KiB. Its RS128 and additional firmware catalogue work remain tracked by
+[#269](https://github.com/emu198x/emu198x/issues/269).
+
+Ace's `--ram-kb` retains the existing thresholds: below 16 selects stock,
+16–47 selects the 16 KiB expansion, and 48 or more selects the 48 KiB expansion.
+It and `--model` select the same preset; the last flag wins. The report now
+reads the live preset's `ram_kb`, including after a switch. The existing
+`--ace` startup snapshot path remains in place. A hardware switch installs a
+fresh preset using conventional firmware, replacing the running machine and
+its snapshot state.
+
+MCP now loads available conventional firmware for both families, including
+Ace, which previously always started blank. Missing conventional firmware
+still permits blank startup; invalid images and explicitly requested missing
+paths fail. A before/after MCP tool-list comparison adds only `set_machine`
+to each binary's existing 36 tools and removes none.
+
+Tests exercise CLI/script/MCP selection, firmware options and failures, real
+memory-map differences after a swap, failed-switch preservation and frame
+budgets. Local staged-ROM launches ran all five presets for 150 frames;
+inspected captures show the Ace startup cursor and MTX's Ready prompt.
+Native menu click-through remains unverified.

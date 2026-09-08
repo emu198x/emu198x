@@ -10,13 +10,15 @@
 //! stick. Compiled only with the `ui` Cargo feature; the shared launcher opens
 //! the window when no automation flag is given.
 
+use emu198x_shell::{FamilyRuntime, FirmwareOverrides, MachineError, build_variant};
+use std::borrow::Cow;
 use std::time::Duration;
 
 use emu198x_ui::launch::UiApp;
-use emu198x_ui::{ButtonInputMap, ButtonTarget, HostControl, KeyCode, UiSystem};
-use runtime_memotech_mtx::MtxRuntime;
+use emu198x_ui::{ButtonInputMap, ButtonTarget, HostControl, KeyCode, UiSystem, VariantInfo};
+use runtime_memotech_mtx::{Model, MtxRuntime};
 
-use crate::app::{FRAME_TICKS_PAL, Mtx};
+use crate::app::Mtx;
 
 const DEFAULT_SCALE: u32 = 3;
 // Keep <= the machine's run_frame() size, or the harness runs two machine
@@ -36,16 +38,18 @@ const MTX_BUTTON_MAP: ButtonInputMap = ButtonInputMap::new(&[
     (HostControl::East, ButtonTarget::new(1, "fire")),
 ]);
 
-/// The Memotech MTX as a [`UiSystem`] for the shared harness. The model is
-/// fixed at construction; a hard reset rebuilds the machine from the firmware
+/// The Memotech MTX as a [`UiSystem`] for the shared harness. It tracks the selected model;
+/// a hard reset rebuilds the machine from the firmware
 /// the runtime already holds.
-pub struct MtxSystem;
+pub struct MtxSystem {
+    model: Model,
+}
 
 impl UiApp for Mtx {
     type System = MtxSystem;
 
     fn ui_system(&self) -> MtxSystem {
-        MtxSystem
+        MtxSystem { model: self.model }
     }
 }
 
@@ -78,12 +82,41 @@ impl UiSystem for MtxSystem {
             .unwrap_or((278, 288))
     }
 
-    fn frame_ticks(&self, _runtime: &Self::Runtime) -> u64 {
-        FRAME_TICKS_PAL
+    fn frame_ticks(&self, runtime: &Self::Runtime) -> u64 {
+        runtime.native_frame_ticks()
     }
 
     fn frame_duration(&self, _runtime: &Self::Runtime) -> Duration {
         Duration::from_secs_f64(1.0 / PAL_FRAME_HZ)
+    }
+
+    fn variants(&self) -> Vec<VariantInfo> {
+        Model::ALL
+            .iter()
+            .map(|model| VariantInfo::new(model.variant_id(), model.menu_label()))
+            .collect()
+    }
+
+    fn current_variant(&self) -> Option<Cow<'static, str>> {
+        Some(Cow::Borrowed(self.model.variant_id()))
+    }
+
+    fn switch_variant(
+        &mut self,
+        runtime: &mut Self::Runtime,
+        id: &str,
+    ) -> Result<(), MachineError> {
+        let model = Model::from_variant_id(id).ok_or(MachineError::UnsupportedOperation {
+            operation: "unknown memotech-mtx variant",
+        })?;
+        *runtime =
+            build_variant::<MtxRuntime>(model, &FirmwareOverrides::none()).map_err(|err| {
+                MachineError::Host {
+                    reason: err.to_string(),
+                }
+            })?;
+        self.model = model;
+        Ok(())
     }
 
     fn button_map(&self) -> &'static ButtonInputMap {
@@ -177,6 +210,29 @@ fn map_mtx_keys(code: KeyCode) -> Option<&'static [&'static str]> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn menu_uses_runtime_ids_and_a_failed_switch_preserves_selection() {
+        let mut system = MtxSystem {
+            model: Model::Mtx500,
+        };
+        let choices = system.variants();
+        assert_eq!(
+            choices
+                .iter()
+                .map(|choice| choice.id.as_ref())
+                .collect::<Vec<_>>(),
+            Model::VARIANT_IDS
+        );
+        let mut runtime = <MtxSystem as UiSystem>::Runtime::blank(Model::Mtx500);
+        assert!(system.switch_variant(&mut runtime, "unknown").is_err());
+        assert_eq!(runtime.model(), Model::Mtx500);
+        assert_eq!(
+            system.current_variant().as_deref(),
+            Some(Model::Mtx500.variant_id())
+        );
+        assert_eq!(system.frame_ticks(&runtime), runtime.native_frame_ticks());
+    }
 
     #[test]
     fn cursor_keys_are_keyboard_cells_not_joystick() {

@@ -16,6 +16,60 @@ pub enum Model {
 }
 
 impl Model {
+    /// Existing presets in launch and menu order.
+    pub const ALL: [Self; 3] = [Self::Ace3k, Self::Ace16k, Self::Ace48k];
+    pub const VARIANT_IDS: [&'static str; 3] =
+        ["jupiter-ace-3k", "jupiter-ace-16k", "jupiter-ace-48k"];
+
+    #[must_use]
+    pub const fn variant_id(self) -> &'static str {
+        match self {
+            Self::Ace3k => "jupiter-ace-3k",
+            Self::Ace16k => "jupiter-ace-16k",
+            Self::Ace48k => "jupiter-ace-48k",
+        }
+    }
+
+    #[must_use]
+    pub fn from_variant_id(id: &str) -> Option<Self> {
+        Self::ALL
+            .into_iter()
+            .find(|model| model.variant_id() == id || model.profile_id() == id)
+    }
+
+    #[must_use]
+    pub fn firmware_sources(self) -> Vec<emu198x_shell::FirmwareSource> {
+        vec![
+            emu198x_shell::FirmwareSource::required(BIOS_FIRMWARE_ID, &["ace.rom"])
+                .with_env_var("EMU198X_JUPITER_ACE_ROM"),
+        ]
+    }
+
+    /// The existing host frame budget; emulated chip timing is unchanged.
+    #[must_use]
+    pub const fn frame_ticks(self) -> u64 {
+        machine_jupiter_ace::TSTATES_PER_FRAME as u64
+    }
+
+    /// Preserve the historical `--ram-kb` thresholds as preset selection.
+    #[must_use]
+    pub const fn from_ram_kb(ram_kb: usize) -> Self {
+        match ram_kb {
+            48.. => Self::Ace48k,
+            16.. => Self::Ace16k,
+            _ => Self::Ace3k,
+        }
+    }
+
+    #[must_use]
+    pub const fn menu_label(self) -> &'static str {
+        match self {
+            Self::Ace3k => "Jupiter Ace: stock 3 KiB RAM",
+            Self::Ace16k => "Jupiter Ace: 16 KiB RAM expansion",
+            Self::Ace48k => "Jupiter Ace: 48 KiB RAM expansion",
+        }
+    }
+
     #[must_use]
     pub const fn model_id(self) -> &'static str {
         match self {
@@ -99,6 +153,7 @@ pub fn profile_for(model: Model) -> MachineProfile {
             WritebackPolicy::InMemoryOnly,
         )],
         capabilities: CapabilitySet::with_all([
+            known_capability("variant-switch"),
             known_capability("keyboard-input"),
             known_capability("scripted-input"),
         ]),

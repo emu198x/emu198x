@@ -6,25 +6,29 @@
 //! `ui` Cargo feature; the shared launcher opens the window when no
 //! automation flag is given.
 
+use emu198x_shell::{FamilyRuntime, FirmwareOverrides, MachineError, build_variant};
+use std::borrow::Cow;
 use std::time::Duration;
 
 use emu198x_ui::launch::UiApp;
-use emu198x_ui::{ButtonInputMap, KeyCode, UiSystem};
-use runtime_jupiter_ace::JupiterAceRuntime;
+use emu198x_ui::{ButtonInputMap, KeyCode, UiSystem, VariantInfo};
+use runtime_jupiter_ace::{JupiterAceRuntime, Model};
 
-use crate::app::{FRAME_TICKS, JupiterAce};
+use crate::app::JupiterAce;
 
 const DEFAULT_SCALE: u32 = 3;
 const PAL_FRAME_HZ: f64 = 50.0;
 const ACE_BUTTON_MAP: ButtonInputMap = ButtonInputMap::new(&[]);
 
-pub struct JupiterAceSystem;
+pub struct JupiterAceSystem {
+    model: Model,
+}
 
 impl UiApp for JupiterAce {
     type System = JupiterAceSystem;
 
     fn ui_system(&self) -> JupiterAceSystem {
-        JupiterAceSystem
+        JupiterAceSystem { model: self.model }
     }
 }
 
@@ -50,12 +54,40 @@ impl UiSystem for JupiterAceSystem {
             .unwrap_or((320, 288))
     }
 
-    fn frame_ticks(&self, _runtime: &Self::Runtime) -> u64 {
-        FRAME_TICKS
+    fn frame_ticks(&self, runtime: &Self::Runtime) -> u64 {
+        runtime.native_frame_ticks()
     }
 
     fn frame_duration(&self, _runtime: &Self::Runtime) -> Duration {
         Duration::from_secs_f64(1.0 / PAL_FRAME_HZ)
+    }
+
+    fn variants(&self) -> Vec<VariantInfo> {
+        Model::ALL
+            .iter()
+            .map(|model| VariantInfo::new(model.variant_id(), model.menu_label()))
+            .collect()
+    }
+
+    fn current_variant(&self) -> Option<Cow<'static, str>> {
+        Some(Cow::Borrowed(self.model.variant_id()))
+    }
+
+    fn switch_variant(
+        &mut self,
+        runtime: &mut Self::Runtime,
+        id: &str,
+    ) -> Result<(), MachineError> {
+        let model = Model::from_variant_id(id).ok_or(MachineError::UnsupportedOperation {
+            operation: "unknown jupiter-ace variant",
+        })?;
+        *runtime = build_variant::<JupiterAceRuntime>(model, &FirmwareOverrides::none()).map_err(
+            |err| MachineError::Host {
+                reason: err.to_string(),
+            },
+        )?;
+        self.model = model;
+        Ok(())
     }
 
     fn button_map(&self) -> &'static ButtonInputMap {
@@ -116,6 +148,29 @@ fn map_ace_keys(code: KeyCode) -> Option<&'static [&'static str]> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn menu_uses_runtime_ids_and_a_failed_switch_preserves_selection() {
+        let mut system = JupiterAceSystem {
+            model: Model::Ace3k,
+        };
+        let choices = system.variants();
+        assert_eq!(
+            choices
+                .iter()
+                .map(|choice| choice.id.as_ref())
+                .collect::<Vec<_>>(),
+            Model::VARIANT_IDS
+        );
+        let mut runtime = <JupiterAceSystem as UiSystem>::Runtime::blank(Model::Ace3k);
+        assert!(system.switch_variant(&mut runtime, "unknown").is_err());
+        assert_eq!(runtime.model(), Model::Ace3k);
+        assert_eq!(
+            system.current_variant().as_deref(),
+            Some(Model::Ace3k.variant_id())
+        );
+        assert_eq!(system.frame_ticks(&runtime), runtime.native_frame_ticks());
+    }
 
     #[test]
     fn maps_keys_and_both_shifts() {
