@@ -4,55 +4,40 @@
 //! video with `raw`/`lcd`/`crt` filters and the membrane keyboard routed
 //! through the harness's general-keyboard path ([`UiSystem::map_keys`]). Like
 //! its ZX81 sibling the ZX80 is keyboard-only — no sound, joystick, or mouse.
-//! Compiled only with the `ui` Cargo feature; `main.rs` routes here when no
-//! automation flag is given.
+//! Compiled only with the `ui` Cargo feature; the shared launcher opens the
+//! window when no automation flag is given.
 
-use std::env;
-use std::path::{Path, PathBuf};
+use std::borrow::Cow;
 use std::time::Duration;
 
-use emu198x_ui::{ButtonInputMap, KeyCode, UiError, UiSystem, VideoFilter};
+use emu198x_shell::{FamilyRuntime, FirmwareOverrides, MachineCore, MachineError, build_variant};
+
+use emu198x_ui::launch::UiApp;
+use emu198x_ui::{ButtonInputMap, KeyCode, UiSystem, VariantInfo};
 use runtime_sinclair_zx80::{Model, Zx80Runtime};
 
-const DEFAULT_SCALE: u32 = 3;
+use crate::app::Zx80;
 
-/// PAL TV-clock ticks per frame (207 per line × 312 lines), matching the
-/// headless runner's `FRAME_TICKS_PAL`.
-const FRAME_TICKS_PAL: u64 = 207 * 312;
-const PAL_FRAME_HZ: f64 = 50.0;
-/// The ZX80's monitor ROM is 4 KB (half the ZX81's).
-const ROM_SIZE: usize = 4 * 1024;
+const DEFAULT_SCALE: u32 = 3;
 
 /// The ZX80 has no joystick; the harness still wants a button map, so an empty
 /// one. Every key flows through [`UiSystem::map_keys`].
 const ZX80_BUTTON_MAP: ButtonInputMap = ButtonInputMap::new(&[]);
 
-const USAGE: &str = "\
-Usage: emu198x-sinclair-zx80 [OPTIONS]
-
-Options:
-    --rom PATH      ZX80 monitor ROM (4 KB); default ~/.emu198x/roms/sinclair-zx80/zx80.rom
-                    (or set EMU198X_ZX80_ROM)
-    --scale N       integer window scale, default 3
-    --video MODE    raw | lcd | crt [default: raw]
-    --help, -h      show this help
-
-Controls:
-    Esc             quit
-    F12             hard reset
-    A-Z 0-9 . Space the ZX80 membrane keyboard
-    Shift           SHIFT (the function/symbol layer — hold with another key)
-    Enter           NEWLINE
-
-Examples:
-    emu198x-sinclair-zx80
-    emu198x-sinclair-zx80 --rom zx80.rom --scale 4
-";
-
 /// The ZX80 as a [`UiSystem`] for the shared harness. Keyboard-only and
-/// single-model, so it carries no state — a hard reset rebuilds the machine
-/// from the firmware the runtime already holds.
-struct Zx80System;
+/// carries the selected preset for the menu. A hard reset rebuilds the machine
+/// from its current firmware; switching installs a fresh configuration.
+pub struct Zx80System {
+    model: Model,
+}
+
+impl UiApp for Zx80 {
+    type System = Zx80System;
+
+    fn ui_system(&self) -> Zx80System {
+        Zx80System { model: self.model }
+    }
+}
 
 impl UiSystem for Zx80System {
     type Runtime = Zx80Runtime;
@@ -78,12 +63,45 @@ impl UiSystem for Zx80System {
             .unwrap_or((320, 288))
     }
 
-    fn frame_ticks(&self, _runtime: &Self::Runtime) -> u64 {
-        FRAME_TICKS_PAL
+    fn frame_ticks(&self, runtime: &Self::Runtime) -> u64 {
+        runtime.native_frame_ticks()
     }
 
-    fn frame_duration(&self, _runtime: &Self::Runtime) -> Duration {
-        Duration::from_secs_f64(1.0 / PAL_FRAME_HZ)
+    fn frame_duration(&self, runtime: &Self::Runtime) -> Duration {
+        let rate = &runtime.profile().clock.rate;
+        Duration::from_secs_f64(
+            runtime.native_frame_ticks() as f64 * rate.denominator_hz as f64
+                / rate.numerator_hz as f64,
+        )
+    }
+
+    fn variants(&self) -> Vec<VariantInfo> {
+        Model::ALL
+            .iter()
+            .map(|model| VariantInfo::new(model.profile_id(), model.menu_label()))
+            .collect()
+    }
+
+    fn current_variant(&self) -> Option<Cow<'static, str>> {
+        Some(Cow::Borrowed(self.model.profile_id()))
+    }
+
+    fn switch_variant(
+        &mut self,
+        runtime: &mut Self::Runtime,
+        variant: &str,
+    ) -> Result<(), MachineError> {
+        let model = Model::from_variant_id(variant).ok_or(MachineError::UnsupportedOperation {
+            operation: "unknown ZX80 variant",
+        })?;
+        *runtime =
+            build_variant::<Zx80Runtime>(model, &FirmwareOverrides::none()).map_err(|err| {
+                MachineError::Host {
+                    reason: err.to_string(),
+                }
+            })?;
+        self.model = model;
+        Ok(())
     }
 
     fn button_map(&self) -> &'static ButtonInputMap {
@@ -93,106 +111,6 @@ impl UiSystem for Zx80System {
     fn map_keys(&self, code: KeyCode) -> Option<&'static [&'static str]> {
         map_zx80_keys(code)
     }
-}
-
-/// Parsed interactive CLI.
-#[derive(Debug, PartialEq, Eq)]
-pub struct Cli {
-    rom: Option<PathBuf>,
-    scale: u32,
-    video: VideoFilter,
-}
-
-impl Default for Cli {
-    fn default() -> Self {
-        Self {
-            rom: None,
-            scale: DEFAULT_SCALE,
-            video: VideoFilter::Raw,
-        }
-    }
-}
-
-/// Build the runtime from the CLI and open the window. Returns a string error
-/// for the `main.rs` dispatcher.
-pub fn run(cli: Cli) -> Result<(), String> {
-    let rom_path = cli
-        .rom
-        .clone()
-        .or_else(default_rom_path)
-        .ok_or_else(|| "no ROM: pass --rom PATH or set EMU198X_ZX80_ROM".to_owned())?;
-    let rom = read_rom(&rom_path)?;
-    let runtime = Zx80Runtime::new(Model::Zx80, rom)
-        .map_err(|err| format!("failed to construct runtime: {err}"))?;
-
-    println!(
-        "Controls: Esc quit, F12 reset, A-Z/0-9/./Space keyboard, Shift SHIFT, Enter NEWLINE."
-    );
-    emu198x_ui::run(Zx80System, runtime, cli.scale, cli.video)
-        .map_err(|err: UiError| err.to_string())
-}
-
-/// Parse the interactive CLI. Exits the process on `--help` or a malformed flag.
-pub fn parse_cli<I>(args: I) -> Cli
-where
-    I: IntoIterator<Item = String>,
-{
-    let mut cli = Cli::default();
-    let mut iter = args.into_iter();
-    while let Some(arg) = iter.next() {
-        match arg.as_str() {
-            "--rom" => cli.rom = Some(PathBuf::from(next_arg(&mut iter, "--rom"))),
-            "--scale" => {
-                cli.scale = next_arg(&mut iter, "--scale")
-                    .parse()
-                    .unwrap_or_else(|_| die("--scale requires a positive integer"));
-            }
-            "--video" => {
-                cli.video = next_arg(&mut iter, "--video")
-                    .parse()
-                    .unwrap_or_else(|_| die("--video expects raw, lcd, or crt"));
-            }
-            "--help" | "-h" => {
-                println!("{USAGE}");
-                std::process::exit(0);
-            }
-            _ => die(&format!("unknown flag: {arg}")),
-        }
-    }
-    cli
-}
-
-fn default_rom_path() -> Option<PathBuf> {
-    if let Ok(path) = env::var("EMU198X_ZX80_ROM")
-        && !path.is_empty()
-    {
-        return Some(PathBuf::from(path));
-    }
-    let home = env::var("HOME").ok()?;
-    Some(PathBuf::from(home).join(".emu198x/roms/sinclair-zx80/zx80.rom"))
-}
-
-fn read_rom(path: &Path) -> Result<Vec<u8>, String> {
-    let bytes = std::fs::read(path)
-        .map_err(|err| format!("failed to read ROM {}: {err}", path.display()))?;
-    if bytes.len() != ROM_SIZE {
-        return Err(format!(
-            "ROM at {} is {} bytes; expected {ROM_SIZE}",
-            path.display(),
-            bytes.len()
-        ));
-    }
-    Ok(bytes)
-}
-
-fn next_arg<I: Iterator<Item = String>>(iter: &mut I, flag: &str) -> String {
-    iter.next()
-        .unwrap_or_else(|| die(&format!("missing value for {flag}")))
-}
-
-fn die(message: &str) -> ! {
-    eprintln!("error: {message}");
-    std::process::exit(1);
 }
 
 /// Map a physical host key to its ZX80 membrane key name. The ZX80's symbols
@@ -249,18 +167,31 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parse_cli_accepts_rom_scale_video() {
-        let cli = parse_cli([
-            "--rom".to_owned(),
-            "zx80.rom".to_owned(),
-            "--scale".to_owned(),
-            "4".to_owned(),
-            "--video".to_owned(),
-            "crt".to_owned(),
-        ]);
-        assert_eq!(cli.rom, Some(PathBuf::from("zx80.rom")));
-        assert_eq!(cli.scale, 4);
-        assert_eq!(cli.video, VideoFilter::Crt);
+    fn menu_and_pacing_follow_the_runtime_catalogue() {
+        let system = Zx80System { model: Model::Zx80 };
+        let choices = system.variants();
+        let ids: Vec<_> = choices.iter().map(|choice| choice.id.as_ref()).collect();
+        assert_eq!(ids, Model::VARIANT_IDS);
+        assert!(choices[2].label.contains("RAM pack"));
+        let pal = Zx80Runtime::blank(Model::Zx80);
+        let ntsc = Zx80Runtime::blank(Model::Zx80Usa);
+        assert_eq!(system.frame_ticks(&ntsc), ntsc.native_frame_ticks());
+        assert!(system.frame_duration(&ntsc) < system.frame_duration(&pal));
+    }
+
+    #[test]
+    fn an_unknown_variant_leaves_the_window_and_machine_unchanged() {
+        let mut system = Zx80System {
+            model: Model::Zx80RamPack,
+        };
+        let mut runtime = Zx80Runtime::blank(Model::Zx80RamPack);
+        assert!(system.switch_variant(&mut runtime, "unknown").is_err());
+        assert_eq!(runtime.model(), Model::Zx80RamPack);
+        assert_eq!(runtime.ram_bytes(), 16384);
+        assert_eq!(
+            system.current_variant().as_deref(),
+            Some("sinclair-zx80-16k")
+        );
     }
 
     #[test]

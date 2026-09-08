@@ -16,38 +16,30 @@
 //!   keys + Space fall through to that port.
 //! - **Keyboard**: [`map_amiga_key`] maps each physical host key to one Amiga key
 //!   name.
-//! - **Variants**: all nine selectable PAL configurations (A1000 / A500 family,
-//!   including the A530 research profile / A600 / A1200 / A2000) as the
-//!   Machine-menu radio. Each switch resolves the target model's Kickstart via
-//!   the staged ROM resolution in `model.rs` and rebuilds the runtime with
-//!   `from_firmware` (the inserted disk is lost — a hardware swap).
+//! - **Variants**: all PAL and NTSC presets grouped by base machine, with
+//!   RAM expansions and accelerator configurations named separately. Each
+//!   switch resolves the runtime's conventional firmware and rebuilds the
+//!   machine; inserted disks and launch overrides are not carried across.
 //! - **Reset**: [`after_reset`](UiSystem::after_reset) re-inserts the DF0 ADF so
 //!   F12 keeps the disk (the bespoke runner dropped it).
 //!
-//! Compiled only with the `ui` Cargo feature; `main.rs` routes here when no
-//! headless-only flag is given.
+//! Compiled only with the `ui` Cargo feature; the shared launcher opens the
+//! window when no automation flag is given, with the runtime `app.rs` built.
 
 use std::borrow::Cow;
 use std::path::PathBuf;
-use std::process;
 use std::time::Duration;
 
 use emu198x_shell::{
-    FamilyRuntime, FirmwareImage, FirmwareSet, MachineCore, MachineError, MediaImage, MediaKind,
-    MediaSet, read_firmware_asset, read_media_asset,
+    FamilyRuntime, FirmwareOverrides, MachineCore, MachineError, MediaImage, MediaKind, MediaSet,
+    build_variant, read_media_asset,
 };
-use emu198x_ui::{
-    ButtonInputMap, ButtonTarget, HostControl, KeyCode, UiSystem, VariantInfo, VideoFilter,
-};
-use runtime_commodore_amiga::{
-    A500_PAL_CCK_HZ, A500_PAL_FRAME_TICKS, AmigaRuntimeKind, DISPLAY_HEIGHT, DISPLAY_WIDTH,
-};
+use emu198x_ui::launch::UiApp;
+use emu198x_ui::{ButtonInputMap, ButtonTarget, HostControl, KeyCode, UiSystem, VariantInfo};
+use runtime_commodore_amiga::{AmigaRuntimeKind, DISPLAY_HEIGHT, DISPLAY_WIDTH, Model};
 
-use crate::{
-    ModelArg, USAGE, die, find_rom_path, firmware_id_for_model_arg, next_arg, parse_model_arg,
-};
+use crate::app::{Amiga, DEFAULT_FLOPPY_SLOT};
 
-const DEFAULT_FLOPPY_SLOT: &str = "floppy-0";
 const DEFAULT_SCALE: u32 = 1;
 // `AmigaRuntime::run_until` publishes complete video fields. A sub-field
 // target therefore still advances one whole field, so the UI must issue one
@@ -138,8 +130,8 @@ fn map_amiga_joystick_key(code: KeyCode) -> Option<HostControl> {
 /// Machine-menu radio follow live switches, the DF0 disk path (so a hard reset
 /// can re-insert it), and whether the arrow keys / Space currently drive the
 /// port-2 joystick (Page Up).
-struct AmigaSystem {
-    model: ModelArg,
+pub struct AmigaSystem {
+    model: Model,
     disk: Option<PathBuf>,
     keyboard_joystick: bool,
 }
@@ -163,12 +155,16 @@ impl UiSystem for AmigaSystem {
         (DISPLAY_WIDTH, DISPLAY_HEIGHT)
     }
 
-    fn frame_ticks(&self, _runtime: &Self::Runtime) -> u64 {
-        A500_PAL_FRAME_TICKS
+    fn frame_ticks(&self, runtime: &Self::Runtime) -> u64 {
+        runtime.native_frame_ticks()
     }
 
-    fn frame_duration(&self, _runtime: &Self::Runtime) -> Duration {
-        Duration::from_secs_f64(A500_PAL_FRAME_TICKS as f64 / (A500_PAL_CCK_HZ * 2) as f64)
+    fn frame_duration(&self, runtime: &Self::Runtime) -> Duration {
+        let rate = &runtime.profile().clock.rate;
+        Duration::from_secs_f64(
+            runtime.native_frame_ticks() as f64 * rate.denominator_hz as f64
+                / rate.numerator_hz as f64,
+        )
     }
 
     fn input_slices_per_frame(&self) -> u32 {
@@ -241,17 +237,17 @@ impl UiSystem for AmigaSystem {
     }
 
     fn variants(&self) -> Vec<VariantInfo> {
-        ModelArg::IDS
+        Model::VARIANTS
             .iter()
-            .map(|id| {
-                let model = ModelArg::from_id(id).expect("advertised id parses");
-                VariantInfo::new(*id, model.to_model().display_name())
+            .map(|model| {
+                VariantInfo::new(model.variant_id(), model.menu_label())
+                    .in_group(model.base_model_label())
             })
             .collect()
     }
 
     fn current_variant(&self) -> Option<Cow<'static, str>> {
-        Some(Cow::Borrowed(model_arg_id(self.model)))
+        Some(Cow::Borrowed(self.model.variant_id()))
     }
 
     fn switch_variant(
@@ -259,203 +255,42 @@ impl UiSystem for AmigaSystem {
         runtime: &mut Self::Runtime,
         variant: &str,
     ) -> Result<(), MachineError> {
-        let model = ModelArg::from_id(variant).ok_or(MachineError::UnsupportedOperation {
+        let model = Model::from_variant_id(variant).ok_or(MachineError::UnsupportedOperation {
             operation: "unknown Amiga variant",
         })?;
-        // Resolve the target model's Kickstart by convention (env +
-        // `~/.emu198x/roms/…`), mirroring the MCP `set_machine` path, and rebuild
-        // the chipset variant. A launch-time --rom-dir / --kickstart override is
-        // not carried across a switch (it's model-specific). The inserted disk is
-        // lost — this is a hardware model change.
-        *runtime = build_variant_runtime(model).map_err(|reason| MachineError::Host {
-            reason: format!("switching to {}: {reason}", model.to_model().display_name()),
-        })?;
+        // The target model's Kickstart by convention (env +
+        // `~/.emu198x/roms/…`), the same resolution as the shell's
+        // `set_machine`, and the chipset variant rebuilt. A launch-time
+        // --rom-dir / --kickstart override is not carried across a switch
+        // (it's model-specific). The inserted disk is lost — this is a
+        // hardware model change.
+        *runtime = build_variant::<AmigaRuntimeKind>(model, &FirmwareOverrides::none()).map_err(
+            |err| MachineError::Host {
+                reason: format!("switching to {}: {err}", model.display_name()),
+            },
+        )?;
         self.model = model;
         Ok(())
     }
 }
 
-/// The stable variant id for a [`ModelArg`] (round-trips through
-/// [`ModelArg::from_id`]); matches the `--model` arg strings.
-fn model_arg_id(model: ModelArg) -> &'static str {
-    ModelArg::IDS[match model {
-        ModelArg::A1000 => 0,
-        ModelArg::A500 => 1,
-        ModelArg::A500GvpA530 => 2,
-        ModelArg::A500A501 => 3,
-        ModelArg::A500Plus => 4,
-        ModelArg::A500Maxed => 5,
-        ModelArg::A600 => 6,
-        ModelArg::A1200 => 7,
-        ModelArg::A2000 => 8,
-    }]
-}
+// ---- The launcher's window driver -------------------------------------------
 
-/// Resolve a model's Kickstart by convention (no CLI override) and build the
-/// chipset variant, as a live variant switch needs. Mirrors the MCP
-/// `set_machine` firmware resolution. `FirmwareSet` borrows the ROM bytes, so
-/// the runtime is built here (where the bytes live) rather than returning a
-/// borrowing firmware set.
-fn build_variant_runtime(model: ModelArg) -> Result<AmigaRuntimeKind, String> {
-    let path = find_rom_path(model, None, None)?;
-    let loaded = read_firmware_asset(&path)
-        .map_err(|err| format!("failed to read {}: {err}", path.display()))?;
-    let mut firmware = FirmwareSet::new();
-    firmware.push(FirmwareImage::new(
-        firmware_id_for_model_arg(model),
-        &loaded.bytes,
-    ));
-    AmigaRuntimeKind::from_firmware(model.to_model(), &firmware).map_err(|err| err.to_string())
-}
+impl UiApp for Amiga {
+    type System = AmigaSystem;
 
-// ---- Construction + CLI ----------------------------------------------------
-
-#[derive(Debug, Default, PartialEq, Eq)]
-pub struct Cli {
-    model: ModelArg,
-    rom_dir: Option<PathBuf>,
-    kickstart: Option<PathBuf>,
-    disk: Option<PathBuf>,
-    scale: u32,
-    video: VideoFilter,
-}
-
-/// Build the [`AmigaRuntimeKind`] from the CLI: resolve the model's Kickstart,
-/// build the chipset variant, and insert the DF0 ADF if `--disk` was given.
-/// Returns the bare runtime the harness drives (no tape autoload, so no
-/// `HeadlessSession` is needed).
-fn build_runtime(cli: &Cli) -> Result<AmigaRuntimeKind, String> {
-    let model = cli.model.to_model();
-    let firmware_path = find_rom_path(cli.model, cli.rom_dir.as_deref(), cli.kickstart.as_deref())?;
-    let firmware_bytes = read_firmware_asset(&firmware_path).map_err(|err| {
-        format!(
-            "failed to read Amiga firmware {}: {err}",
-            firmware_path.display()
-        )
-    })?;
-
-    let mut firmware = FirmwareSet::new();
-    firmware.push(FirmwareImage::new(
-        firmware_id_for_model_arg(cli.model),
-        &firmware_bytes.bytes,
-    ));
-    let mut runtime =
-        AmigaRuntimeKind::from_firmware(model, &firmware).map_err(|err| err.to_string())?;
-
-    if let Some(path) = &cli.disk {
-        let disk = read_media_asset(path, MediaKind::Disk)
-            .map_err(|err| format!("failed to read disk {}: {err}", path.display()))?;
-        let mut media = MediaSet::new();
-        media.push(MediaImage::new(
-            DEFAULT_FLOPPY_SLOT,
-            MediaKind::Disk,
-            &disk.bytes,
-        ));
-        runtime.load_media(&media).map_err(|err| err.to_string())?;
-    }
-
-    Ok(runtime)
-}
-
-/// Build the runtime from the CLI and open the window.
-pub fn run(cli: Cli) -> Result<(), String> {
-    println!(
-        "Controls: Esc quit, F12 reset (keeps disk), Cmd/Ctrl+S/L save/load state, \
-         mouse port 1, gamepad joystick port 2, Page Up toggles joystick arrows/space, \
-         A-Z/0-9/Space/Enter/Tab/Backspace keyboard; Machine menu switches model live."
-    );
-    let runtime = build_runtime(&cli)?;
-    emu198x_ui::run(
+    fn ui_system(&self) -> AmigaSystem {
         AmigaSystem {
-            model: cli.model,
-            disk: cli.disk.clone(),
+            model: self.model,
+            disk: self.disk.clone(),
             keyboard_joystick: false,
-        },
-        runtime,
-        cli.scale,
-        cli.video,
-    )
-    .map_err(|err| err.to_string())
-}
-
-pub fn parse_cli<I>(args: I) -> Cli
-where
-    I: IntoIterator<Item = String>,
-{
-    let mut cli = Cli {
-        scale: DEFAULT_SCALE,
-        ..Cli::default()
-    };
-    let mut iter = args.into_iter();
-
-    while let Some(arg) = iter.next() {
-        match arg.as_str() {
-            "--rom-dir" => cli.rom_dir = Some(PathBuf::from(next_arg(&mut iter, "--rom-dir"))),
-            "--kickstart" => {
-                cli.kickstart = Some(PathBuf::from(next_arg(&mut iter, "--kickstart")));
-            }
-            "--model" => cli.model = parse_model_arg(&next_arg(&mut iter, "--model")),
-            "--disk" => cli.disk = Some(PathBuf::from(next_arg(&mut iter, "--disk"))),
-            "--scale" => {
-                cli.scale = next_arg(&mut iter, "--scale")
-                    .parse()
-                    .unwrap_or_else(|_| die("--scale requires a positive integer"));
-            }
-            "--video" => {
-                cli.video = parse_video_arg(&next_arg(&mut iter, "--video"));
-            }
-            "--help" | "-h" => {
-                println!("{USAGE}");
-                process::exit(0);
-            }
-            _ => die(&format!("unknown flag: {arg}")),
         }
     }
-
-    cli
-}
-
-fn parse_video_arg(video: &str) -> VideoFilter {
-    video
-        .parse()
-        .unwrap_or_else(|_| die("--video expects raw, lcd, or crt"))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use runtime_commodore_amiga::Model;
-
-    #[test]
-    fn parse_cli_accepts_model_disk_and_scale() {
-        let cli = parse_cli([
-            "--model".to_owned(),
-            "a500-a501".to_owned(),
-            "--disk".to_owned(),
-            "workbench13.adf".to_owned(),
-            "--scale".to_owned(),
-            "2".to_owned(),
-        ]);
-
-        assert_eq!(
-            cli,
-            Cli {
-                model: ModelArg::A500A501,
-                rom_dir: None,
-                kickstart: None,
-                disk: Some(PathBuf::from("workbench13.adf")),
-                scale: 2,
-                video: VideoFilter::Raw,
-            }
-        );
-    }
-
-    #[test]
-    fn parse_cli_accepts_video_filter() {
-        let cli = parse_cli(["--video".to_owned(), "crt".to_owned()]);
-
-        assert_eq!(cli.video, VideoFilter::Crt);
-    }
 
     #[test]
     fn maps_basic_keyboard_keys() {
@@ -480,24 +315,24 @@ mod tests {
     }
 
     #[test]
-    fn variant_ids_round_trip_through_model_args() {
-        for id in ModelArg::IDS {
-            let model = ModelArg::from_id(id).expect("advertised id parses");
-            assert_eq!(model_arg_id(model), id, "id `{id}` must round-trip");
+    fn variant_ids_round_trip_through_the_runtime_catalogue() {
+        for (model, id) in Model::VARIANTS.into_iter().zip(Model::VARIANT_IDS) {
+            assert_eq!(model.variant_id(), id, "id `{id}` must round-trip");
+            assert_eq!(Model::from_variant_id(id), Some(model));
         }
     }
 
     #[test]
-    fn variants_list_covers_all_nine_models() {
+    fn variants_list_covers_every_runtime_preset() {
         let system = AmigaSystem {
-            model: ModelArg::A500,
+            model: Model::A500OcsPal,
             disk: None,
             keyboard_joystick: false,
         };
         let variants = system.variants();
-        assert_eq!(variants.len(), 9);
+        assert_eq!(variants.len(), runtime_commodore_amiga::profiles().len());
         let ids: Vec<_> = variants.iter().map(|v| v.id.as_ref()).collect();
-        assert_eq!(ids, ModelArg::IDS);
+        assert_eq!(ids, Model::VARIANT_IDS);
         assert_eq!(
             system.current_variant().as_deref(),
             Some("a500"),
@@ -506,9 +341,59 @@ mod tests {
     }
 
     #[test]
+    fn menu_groups_presets_under_six_base_machines() {
+        let system = AmigaSystem {
+            model: Model::A500OcsPal,
+            disk: None,
+            keyboard_joystick: false,
+        };
+        let variants = system.variants();
+        let mut groups: Vec<_> = variants
+            .iter()
+            .map(|v| v.group.as_deref().expect("base model"))
+            .collect();
+        groups.sort_unstable();
+        groups.dedup();
+        assert_eq!(
+            groups,
+            [
+                "Amiga 1000",
+                "Amiga 1200",
+                "Amiga 2000",
+                "Amiga 500",
+                "Amiga 500+",
+                "Amiga 600"
+            ]
+        );
+        let a500: Vec<_> = variants
+            .iter()
+            .filter(|v| v.group.as_deref() == Some("Amiga 500"))
+            .collect();
+        assert_eq!(a500.len(), 8, "four configurations in each region");
+        assert!(a500.iter().any(|v| v.id == "a500-a501-ntsc"
+            && v.label.contains("NTSC")
+            && v.label.contains("A501")));
+    }
+
+    #[test]
+    fn window_pacing_follows_the_live_region() {
+        // Even when the driver's launch model is PAL, the live runtime owns pacing.
+        let system = AmigaSystem {
+            model: Model::A500OcsPal,
+            disk: None,
+            keyboard_joystick: false,
+        };
+        let pal = AmigaRuntimeKind::blank(Model::A500OcsPal);
+        let ntsc = AmigaRuntimeKind::blank(Model::A500OcsNtsc);
+        assert_eq!(system.frame_ticks(&ntsc), ntsc.native_frame_ticks());
+        assert!(system.frame_ticks(&ntsc) < system.frame_ticks(&pal));
+        assert!(system.frame_duration(&ntsc) < system.frame_duration(&pal));
+    }
+
+    #[test]
     fn whole_field_runtime_uses_one_input_slice() {
         let system = AmigaSystem {
-            model: ModelArg::A500,
+            model: Model::A500OcsPal,
             disk: None,
             keyboard_joystick: false,
         };
@@ -519,7 +404,7 @@ mod tests {
     #[test]
     fn page_up_toggles_keyboard_joystick_on_keydown_only() {
         let mut system = AmigaSystem {
-            model: ModelArg::A500,
+            model: Model::A500OcsPal,
             disk: None,
             keyboard_joystick: false,
         };
@@ -538,7 +423,7 @@ mod tests {
     #[test]
     fn keyboard_joystick_mode_steals_arrows_and_space_from_keyboard() {
         let mut system = AmigaSystem {
-            model: ModelArg::A500,
+            model: Model::A500OcsPal,
             disk: None,
             keyboard_joystick: false,
         };
@@ -556,7 +441,7 @@ mod tests {
     #[test]
     fn window_title_reflects_keyboard_joystick_mode() {
         let mut system = AmigaSystem {
-            model: ModelArg::A500,
+            model: Model::A500OcsPal,
             disk: None,
             keyboard_joystick: false,
         };

@@ -334,6 +334,15 @@ where
         json!({ "type": "object" }),
     )));
     registry.register(Box::new(ScriptStepTool::common(
+        "clear_audio_capture",
+        "Drop the session capture buffer without writing it to disk. Pair with \
+         save_audio_capture when you want save and buffer-reset as two explicit \
+         steps rather than the `reset_after` boolean. No effect on the \
+         start_audio_recording / stop_audio_recording path, which keeps its own \
+         per-recording offset.",
+        json!({ "type": "object", "properties": {} }),
+    )));
+    registry.register(Box::new(ScriptStepTool::common(
         "reset",
         "Reset the machine. `kind` is \"hard\" (power-cycle, the \
                       default) or \"soft\" (machine-local). Clears queued input, \
@@ -885,9 +894,376 @@ where
     );
 }
 
+/// Register `port_read` / `port_write`, the CPU port-space verbs, as
+/// `ScriptStepTool` wrappers over the shared steps.
+///
+/// Opt-in like the other capability tiers: call for a machine whose
+/// [`MachineCore::port_io_target`] is `Some`. [`register_tools_for`] does
+/// that check for you.
+pub fn register_port_io_tools<M, Q>(registry: &mut ToolRegistry<HeadlessSession<M, Q>>)
+where
+    M: MachineCore + 'static,
+    Q: SessionQueryProvider<M> + 'static,
+{
+    registry.register(Box::new(ScriptStepTool::<M, Q>::common(
+        "port_read",
+        "Read one CPU I/O port through the live bus, with the hardware's own \
+         side effects (a keyboard row latch, a tape edge). Returns the byte.",
+        json!({
+            "type": "object",
+            "required": ["port"],
+            "properties": {
+                "port": { "type": "integer", "minimum": 0, "maximum": 65535,
+                          "description": "16-bit port address." }
+            }
+        }),
+    )));
+    registry.register(Box::new(ScriptStepTool::<M, Q>::common(
+        "port_write",
+        "Write one byte to a CPU I/O port through the live bus.",
+        json!({
+            "type": "object",
+            "required": ["port", "value"],
+            "properties": {
+                "port":  { "type": "integer", "minimum": 0, "maximum": 65535 },
+                "value": { "type": "integer", "minimum": 0, "maximum": 255 }
+            }
+        }),
+    )));
+}
+
+/// Register `query_ay`, the decoded AY-3-891x register read, as a
+/// `ScriptStepTool` over the shared step. Opt-in for machines whose query
+/// surface publishes `ay.registers`; [`register_tools_for`] checks.
+pub fn register_ay_query_tools<M, Q>(registry: &mut ToolRegistry<HeadlessSession<M, Q>>)
+where
+    M: MachineCore + 'static,
+    Q: SessionQueryProvider<M> + 'static,
+{
+    registry.register(Box::new(ScriptStepTool::<M, Q>::common(
+        "query_ay",
+        "Read the AY-3-891x sound chip: the 16 raw registers plus the decoded \
+         tone periods, noise period, mixer, amplitudes and envelope.",
+        json!({ "type": "object", "properties": {} }),
+    )));
+}
+
+/// Register every shared tool the machine in `session` declares, and
+/// nothing it does not.
+///
+/// The base set (run, media, capture, query, reset, and the `DebugTarget`
+/// verbs) goes on every machine. Each optional tier follows the machine
+/// **profile's** capability set, so a machine that starts blank and grows
+/// its live targets when firmware loads still advertises the tools a client
+/// needs to drive it; the executor checks the live target on every call:
+///
+/// | tier | registered when the profile declares |
+/// |---|---|
+/// | keyboard (`press_key`, `press_keys`, `type_string`) | `keyboard-input` or `keyboard-matrix` |
+/// | memory watch (`watch_memory_*`) | `memory-watch` |
+/// | AY watch (`watch_ay_*`) | `ay-audio` |
+/// | port I/O (`port_read`, `port_write`) | `port-io` |
+/// | `query_ay` | the query surface lists `ay.registers` |
+///
+/// A binary with genuinely machine-bound tools (Exec walks, PPU dumps)
+/// registers those *after* this call; it no longer lists the shared tiers.
+pub fn register_tools_for<M, Q>(
+    registry: &mut ToolRegistry<HeadlessSession<M, Q>>,
+    session: &HeadlessSession<M, Q>,
+) where
+    M: MachineCore + 'static,
+    Q: SessionQueryProvider<M> + 'static,
+{
+    let profile = session.machine().profile().clone();
+    register_tools_for_profiles(registry, session, &[profile]);
+}
+
+/// [`register_tools_for`] over the union of several profiles.
+///
+/// A family binary that can swap variants live (`set_machine`) registers
+/// its tools once, before any swap, so the declared set has to cover every
+/// variant a client can reach: a Spectrum that boots as a 48K must still
+/// advertise the AY tier the 128K it may become will need. Pass the family
+/// catalogue; the executor checks the live target on every call.
+/// Register `load_basic_program` for a machine whose profile declares
+/// `basic-program-load`: it tokenises for its own dialect through the
+/// `MachineCore::load_basic_program` hook.
+pub fn register_basic_program_tools<M, Q>(registry: &mut ToolRegistry<HeadlessSession<M, Q>>)
+where
+    M: MachineCore + 'static,
+    Q: SessionQueryProvider<M> + 'static,
+{
+    registry.register(Box::new(ScriptStepTool::<M, Q>::common(
+        "load_basic_program",
+        "Tokenise a plain-text .bas file and install it as the live BASIC \
+         program (optionally RUN it).",
+        json!({
+            "type": "object",
+            "required": ["path"],
+            "properties": {
+                "path": { "type": "string",
+                          "description": "Path to the plain-text BASIC source file." },
+                "run":  { "type": "boolean",
+                          "description": "RUN the program after installing it (default true)." }
+            }
+        }),
+    )));
+}
+
+/// Register `autoload_tape` for a machine whose profile declares
+/// `tape-autoload`: it types its own load command through the
+/// `MachineCore::autoload_tape` hook.
+pub fn register_tape_autoload_tools<M, Q>(registry: &mut ToolRegistry<HeadlessSession<M, Q>>)
+where
+    M: MachineCore + 'static,
+    Q: SessionQueryProvider<M> + 'static,
+{
+    registry.register(Box::new(ScriptStepTool::<M, Q>::common(
+        "autoload_tape",
+        "Wait for boot, type the machine's tape-load command, and start \
+         tape transport on the named slot.",
+        json!({
+            "type": "object",
+            "required": ["slot", "max_boot_frames"],
+            "properties": {
+                "slot": { "type": "string",
+                          "description": "Stable slot identifier carrying the tape, e.g. \"tape-1\"." },
+                "max_boot_frames": { "type": "integer", "minimum": 0,
+                          "description": "Frames to wait for boot; 0 uses the machine's default." }
+            }
+        }),
+    )));
+}
+
+/// Register `set_machine` for a family whose profiles declare
+/// `variant-switch`: it swaps the live variant through the
+/// `MachineCore::set_machine` hook, booting the new one from its
+/// conventional firmware.
+pub fn register_variant_switch_tools<M, Q>(registry: &mut ToolRegistry<HeadlessSession<M, Q>>)
+where
+    M: MachineCore + 'static,
+    Q: SessionQueryProvider<M> + 'static,
+{
+    registry.register(Box::new(ScriptStepTool::<M, Q>::common(
+        "set_machine",
+        "Switch the live machine to the named family variant, booted from \
+         its conventional firmware (~/.emu198x/roms). Hard-resets; re-load \
+         any media afterwards.",
+        json!({
+            "type": "object",
+            "anyOf": [{ "required": ["machine"] }, { "required": ["model"] }],
+            "properties": {
+                "machine": { "type": "string",
+                             "description": "Variant id, e.g. \"spectrum_128k\" or \"a1200\"." },
+                "model":   { "type": "string",
+                             "description": "The same as `machine`; the spelling the Amiga's tool used." }
+            }
+        }),
+    )));
+}
+
+pub fn register_tools_for_profiles<M, Q>(
+    registry: &mut ToolRegistry<HeadlessSession<M, Q>>,
+    session: &HeadlessSession<M, Q>,
+    profiles: &[crate::machine::MachineProfile],
+) where
+    M: MachineCore + 'static,
+    Q: SessionQueryProvider<M> + 'static,
+{
+    use crate::capability::{ids, known_capability};
+    register_base_tools(registry);
+    let has = |id: &'static str| {
+        let wanted = known_capability(id);
+        profiles
+            .iter()
+            .any(|profile| profile.capabilities.contains(&wanted))
+    };
+    if has(ids::KEYBOARD_INPUT) || has(ids::KEYBOARD_MATRIX) {
+        register_keyboard_tools(registry);
+    }
+    if has(ids::MEMORY_WATCH) {
+        register_memory_watch_tools(registry);
+    }
+    if has(ids::AY_AUDIO) {
+        register_ay_watch_tools(registry);
+    }
+    if has(ids::PORT_IO) {
+        register_port_io_tools(registry);
+    }
+    if has(ids::BASIC_PROGRAM_LOAD) {
+        register_basic_program_tools(registry);
+    }
+    if has(ids::TAPE_AUTOLOAD) {
+        register_tape_autoload_tools(registry);
+    }
+    if has(ids::VARIANT_SWITCH) {
+        register_variant_switch_tools(registry);
+    }
+    if session
+        .query_paths(None)
+        .paths
+        .iter()
+        .any(|path| path == "ay.registers")
+    {
+        register_ay_query_tools(registry);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::capability::{CapabilitySet, known_capability};
+    use crate::machine::{
+        Family, MachineId, MachineProfile, ProfileId, Region, ResetKind, RunResult, StopReason,
+    };
+    use crate::media::MediaSet;
+    use crate::time::{ClockDesc, ClockRate, MachineTime};
+    use crate::{HostIo, MachineError};
+
+    /// A machine whose only interesting property is what its profile
+    /// declares; it exposes no live targets at all, like a machine that
+    /// starts blank.
+    struct Declared {
+        profile: MachineProfile,
+    }
+
+    impl Declared {
+        fn with(capabilities: &[&'static str]) -> Self {
+            Self {
+                profile: MachineProfile {
+                    machine_id: MachineId::from("declared"),
+                    profile_id: ProfileId::from("declared"),
+                    display_name: "Declared".into(),
+                    family: Family::Spectrum,
+                    region: Region::Pal,
+                    release_year: 1982,
+                    summary: "test".into(),
+                    clock: ClockDesc::new("t", ClockRate::from_hz(1_000_000)),
+                    firmware: vec![],
+                    media_slots: vec![],
+                    capabilities: CapabilitySet::with_all(
+                        capabilities.iter().map(|id| known_capability(id)),
+                    ),
+                },
+            }
+        }
+    }
+
+    impl MachineCore for Declared {
+        fn profile(&self) -> &MachineProfile {
+            &self.profile
+        }
+        fn time(&self) -> MachineTime {
+            MachineTime::default()
+        }
+        fn reset(&mut self, _kind: ResetKind) {}
+        fn load_media(&mut self, _media: &MediaSet<'_>) -> Result<(), MachineError> {
+            Ok(())
+        }
+        fn run_until(
+            &mut self,
+            target: MachineTime,
+            _host: &mut HostIo<'_>,
+        ) -> Result<RunResult, MachineError> {
+            Ok(RunResult::new(target, StopReason::ReachedTarget))
+        }
+        fn snapshot(&self) -> Result<Vec<u8>, MachineError> {
+            Ok(vec![])
+        }
+        fn restore(&mut self, _bytes: &[u8]) -> Result<(), MachineError> {
+            Ok(())
+        }
+        fn capabilities(&self) -> CapabilitySet {
+            self.profile.capabilities.clone()
+        }
+    }
+
+    fn registered(capabilities: &[&'static str]) -> Vec<String> {
+        let session = HeadlessSession::new(Declared::with(capabilities), 1_000);
+        let mut registry = ToolRegistry::new();
+        register_tools_for(&mut registry, &session);
+        registry.iter().map(|tool| tool.name().to_owned()).collect()
+    }
+
+    #[test]
+    fn a_machine_that_declares_nothing_gets_the_base_set_only() {
+        let names = registered(&[]);
+        assert!(names.contains(&"run_frames".to_owned()));
+        assert!(names.contains(&"memory_read".to_owned()));
+        assert!(names.contains(&"clear_audio_capture".to_owned()));
+        for absent in [
+            "press_key",
+            "type_string",
+            "watch_memory_start",
+            "watch_ay_start",
+            "port_read",
+            "query_ay",
+            "load_basic_program",
+            "autoload_tape",
+            "set_machine",
+        ] {
+            assert!(
+                !names.contains(&absent.to_owned()),
+                "{absent} should not be registered"
+            );
+        }
+    }
+
+    #[test]
+    fn tiers_follow_the_declared_capabilities_not_the_live_targets() {
+        // No live target exists on this machine; the tiers come from the
+        // profile alone, which is what a blank-start machine needs.
+        let names = registered(&[
+            "keyboard-input",
+            "memory-watch",
+            "ay-audio",
+            "port-io",
+            "basic-program-load",
+            "tape-autoload",
+            "variant-switch",
+        ]);
+        for present in [
+            "press_key",
+            "press_keys",
+            "type_string",
+            "watch_memory_start",
+            "watch_memory_log",
+            "watch_ay_start",
+            "watch_ay_log",
+            "port_read",
+            "port_write",
+            "load_basic_program",
+            "autoload_tape",
+            "set_machine",
+        ] {
+            assert!(
+                names.contains(&present.to_owned()),
+                "{present} should be registered"
+            );
+        }
+    }
+
+    #[test]
+    fn either_keyboard_spelling_registers_the_keyboard_tier() {
+        assert!(registered(&["keyboard-matrix"]).contains(&"type_string".to_owned()));
+        assert!(registered(&["keyboard-input"]).contains(&"type_string".to_owned()));
+    }
+
+    #[test]
+    fn a_family_catalogue_registers_the_union_of_its_variants() {
+        let boot = Declared::with(&["keyboard-matrix"]);
+        let session = HeadlessSession::new(boot, 1_000);
+        let mut registry = ToolRegistry::new();
+        let catalogue = [
+            Declared::with(&["keyboard-matrix"]).profile,
+            Declared::with(&["keyboard-matrix", "ay-audio"]).profile,
+        ];
+        register_tools_for_profiles(&mut registry, &session, &catalogue);
+        assert!(
+            registry.get("watch_ay_start").is_some(),
+            "the 128K's AY tier must be there before set_machine"
+        );
+    }
 
     fn disasm_schema() -> Value {
         json!({

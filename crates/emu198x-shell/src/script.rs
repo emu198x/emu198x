@@ -10,6 +10,7 @@ use crate::asset::{AssetLoadError, read_media_asset};
 use crate::control::ControlCommand;
 use crate::debug::DebugTarget;
 use crate::debug_info::{DebugInfoError, DebugSymbols, SourceLine};
+use crate::loaders::LoaderError;
 use crate::machine::{MachineCore, ResetKind};
 use crate::media::{MediaImage, MediaKind, MediaSet};
 use crate::query::{QueryError, QueryPathsResult, QueryResult, SessionQueryProvider};
@@ -267,18 +268,19 @@ pub enum ScriptStep {
     /// Switch the live machine to the named variant, loading its
     /// default ROM bundle from the conventional on-disk location.
     ///
-    /// `machine` is a system-specific identifier (e.g.
-    /// `"spectrum_48k"`, `"spectrum_128k"`) that the binary translates
-    /// to its native machine kind and ROM-bundle resolver. The shell
-    /// crate stays system-agnostic and surfaces this step via
-    /// [`ScriptError::SystemSpecificStep`] when its built-in executor
-    /// is asked to run it without a binary-side handler.
+    /// `machine` is one of the family's variant ids (e.g.
+    /// `"spectrum_48k"`, `"a1200"`), resolved by the runtime's
+    /// `FamilyRuntime` catalogue and booted from its conventional
+    /// firmware through the `MachineCore::set_machine` hook. A machine
+    /// with no variants reports [`ScriptError::SystemSpecificStep`].
     ///
     /// Always resets in-progress state — loaded media, snapshots,
     /// frame counter, audio buffer. Use this as the first step of
     /// any script that targets a non-default variant.
     SetMachine {
-        /// Snake-case variant identifier (binary-defined vocabulary).
+        /// Variant identifier from the family's `variant_ids`. `model` is
+        /// accepted as a spelling too; the Amiga's MCP tool used it.
+        #[serde(alias = "model")]
         machine: String,
     },
     /// Wait for boot, then drive the BASIC editor to type `LOAD ""`
@@ -1192,6 +1194,70 @@ fn step_debug_target(target: &mut dyn DebugTarget) -> (u64, bool) {
     (ticks, completed)
 }
 
+/// Decode the AY-3-891x register file through the machine's query surface.
+///
+/// Every AY-bearing machine publishes `ay.registers` (the 16 raw registers)
+/// and `ay.selected_register`; a machine without an AY has no such path and
+/// gets the capability-missing error rather than a query error, so a script
+/// can tell "no chip" from "wrong path".
+/// Map a loader hook's refusal or failure onto the script error the step
+/// has always reported.
+fn loader_error(step: &'static str, err: LoaderError) -> ScriptError {
+    match err {
+        LoaderError::Unsupported { step } => ScriptError::SystemSpecificStep { step },
+        LoaderError::Failed(reason) => ScriptError::InvalidStep { step, reason },
+    }
+}
+
+fn query_ay<M: MachineCore, Q: SessionQueryProvider<M>>(
+    session: &HeadlessSession<M, Q>,
+) -> Result<ScriptObservation, ScriptError> {
+    let regs = match session.query("ay.registers") {
+        Ok(result) => result,
+        Err(crate::query::QueryError::UnknownPath { .. }) => {
+            return Err(ScriptError::SystemSpecificStep { step: "query_ay" });
+        }
+        Err(err) => return Err(ScriptError::Query(err)),
+    };
+    let raw: Vec<u8> =
+        serde_json::from_value(regs.value).map_err(|err| ScriptError::InvalidStep {
+            step: "query_ay",
+            reason: format!("malformed ay.registers value: {err}"),
+        })?;
+    if raw.len() != 16 {
+        return Err(ScriptError::InvalidStep {
+            step: "query_ay",
+            reason: format!("expected 16 AY registers, got {}", raw.len()),
+        });
+    }
+    let selected = session
+        .query("ay.selected_register")
+        .map_err(ScriptError::Query)?;
+    let selected_register: u8 =
+        serde_json::from_value(selected.value).map_err(|err| ScriptError::InvalidStep {
+            step: "query_ay",
+            reason: format!("malformed ay.selected_register value: {err}"),
+        })?;
+    let tone_period_a = u16::from(raw[0]) | (u16::from(raw[1] & 0x0F) << 8);
+    let tone_period_b = u16::from(raw[2]) | (u16::from(raw[3] & 0x0F) << 8);
+    let tone_period_c = u16::from(raw[4]) | (u16::from(raw[5] & 0x0F) << 8);
+    let envelope_period = u16::from(raw[11]) | (u16::from(raw[12]) << 8);
+    Ok(ScriptObservation::QueryAy {
+        selected_register,
+        raw: raw.clone(),
+        tone_period_a,
+        tone_period_b,
+        tone_period_c,
+        noise_period: raw[6] & 0x1F,
+        mixer: raw[7],
+        amplitude_a: raw[8] & 0x1F,
+        amplitude_b: raw[9] & 0x1F,
+        amplitude_c: raw[10] & 0x1F,
+        envelope_period,
+        envelope_shape: raw[13] & 0x0F,
+    })
+}
+
 impl ScriptStep {
     /// Executes one script step against one live headless session.
     ///
@@ -1327,10 +1393,16 @@ impl ScriptStep {
                 session.clear_audio_capture();
                 Ok(None)
             }
-            Self::SetMachine { .. } => Err(ScriptError::SystemSpecificStep {
-                step: "set_machine",
-            }),
-            Self::QueryAy => Err(ScriptError::SystemSpecificStep { step: "query_ay" }),
+            Self::SetMachine { machine } => {
+                let switched = M::set_machine(session, machine)
+                    .map_err(|err| loader_error("set_machine", err))?;
+                Ok(Some(ScriptObservation::SetMachine {
+                    machine: switched.machine,
+                    profile_id: switched.profile_id,
+                    display_name: switched.display_name,
+                }))
+            }
+            Self::QueryAy => query_ay(session).map(Some),
             // CPU/memory/disassembly debug verbs run generically through the
             // shared `DebugTarget`, so MCP and `--script` execute the identical
             // body (the MCP tools are `ScriptStepTool` wrappers over these).
@@ -1635,8 +1707,24 @@ impl ScriptStep {
                     instructions: decoded,
                 }))
             }
-            Self::PortRead { .. } => Err(ScriptError::SystemSpecificStep { step: "port_read" }),
-            Self::PortWrite { .. } => Err(ScriptError::SystemSpecificStep { step: "port_write" }),
+            // Port I/O runs through the machine's shared `PortIoTarget`, so
+            // MCP and `--script` execute one body on every machine that has a
+            // port space. Machines without one fall back to the
+            // capability-missing error.
+            Self::PortRead { port } => {
+                let Some(target) = session.machine_mut().port_io_target_mut() else {
+                    return Err(ScriptError::SystemSpecificStep { step: "port_read" });
+                };
+                let value = target.port_read(*port);
+                Ok(Some(ScriptObservation::PortRead { port: *port, value }))
+            }
+            Self::PortWrite { port, value } => {
+                let Some(target) = session.machine_mut().port_io_target_mut() else {
+                    return Err(ScriptError::SystemSpecificStep { step: "port_write" });
+                };
+                target.port_write(*port, *value);
+                Ok(None)
+            }
             // AY register-write watch runs generically through the shared
             // `WatchTarget`, so MCP and `--script` execute the identical body.
             // Machines with no AY surface fall back to the system-specific
@@ -1869,12 +1957,42 @@ impl ScriptStep {
                     reached: session.time(),
                 }))
             }
-            Self::AutoloadTape { .. } => Err(ScriptError::SystemSpecificStep {
-                step: "autoload_tape",
-            }),
-            Self::LoadBasicProgram { .. } => Err(ScriptError::SystemSpecificStep {
-                step: "load_basic_program",
-            }),
+            Self::AutoloadTape {
+                slot,
+                max_boot_frames,
+            } => {
+                // The machine's own helper does the typing; the shell only
+                // owns the step so MCP and `--script` share one body.
+                let loaded = M::autoload_tape(session, slot, *max_boot_frames)
+                    .map_err(|err| loader_error("autoload_tape", err))?;
+                Ok(Some(ScriptObservation::AutoloadTape {
+                    slot: loaded.slot,
+                    boot_frames: loaded.boot_frames,
+                }))
+            }
+            Self::LoadBasicProgram { path, run } => {
+                let source =
+                    std::fs::read_to_string(path).map_err(|err| ScriptError::InvalidStep {
+                        step: "load_basic_program",
+                        reason: format!("failed to read {}: {err}", path.display()),
+                    })?;
+                let loaded = M::load_basic_program(session, &source, *run).map_err(|err| {
+                    loader_error(
+                        "load_basic_program",
+                        match err {
+                            LoaderError::Failed(reason) => LoaderError::Failed(format!(
+                                "BASIC loader failed for {}: {reason}",
+                                path.display()
+                            )),
+                            other => other,
+                        },
+                    )
+                })?;
+                Ok(Some(ScriptObservation::LoadBasicProgram {
+                    program_bytes: loaded.program_bytes,
+                    ran: loaded.ran,
+                }))
+            }
             Self::MemoryRead { addr, len } => {
                 // Generic, side-effect-free read through the machine's shared
                 // DebugTarget bus view — works for every debug-capable family
@@ -2259,6 +2377,205 @@ mod tests {
             }
             self.step_ticks
         }
+    }
+
+    /// A machine with a port space and nothing else, for the port verbs.
+    struct Ported {
+        profile: MachineProfile,
+        ports: std::collections::HashMap<u16, u8>,
+    }
+
+    /// A loader hook records what the shell handed it, so the test can
+    /// check the file contents and flags went through unchanged.
+    static LAST_BASIC_SOURCE: std::sync::Mutex<Option<(String, bool)>> =
+        std::sync::Mutex::new(None);
+
+    impl crate::port_io::PortIoTarget for Ported {
+        fn port_read(&mut self, port: u16) -> u8 {
+            self.ports.get(&port).copied().unwrap_or(0xFF)
+        }
+        fn port_write(&mut self, port: u16, value: u8) {
+            self.ports.insert(port, value);
+        }
+    }
+
+    impl MachineCore for Ported {
+        fn profile(&self) -> &MachineProfile {
+            &self.profile
+        }
+        fn time(&self) -> MachineTime {
+            MachineTime::default()
+        }
+        fn reset(&mut self, _kind: ResetKind) {}
+        fn load_media(&mut self, _media: &MediaSet<'_>) -> Result<(), MachineError> {
+            Ok(())
+        }
+        fn run_until(
+            &mut self,
+            target: MachineTime,
+            _host: &mut HostIo<'_>,
+        ) -> Result<RunResult, MachineError> {
+            Ok(RunResult::new(target, StopReason::ReachedTarget))
+        }
+        fn snapshot(&self) -> Result<Vec<u8>, MachineError> {
+            Ok(vec![])
+        }
+        fn restore(&mut self, _bytes: &[u8]) -> Result<(), MachineError> {
+            Ok(())
+        }
+        fn capabilities(&self) -> CapabilitySet {
+            CapabilitySet::new()
+        }
+        fn port_io_target(&self) -> Option<&dyn crate::port_io::PortIoTarget> {
+            Some(self)
+        }
+        fn port_io_target_mut(&mut self) -> Option<&mut dyn crate::port_io::PortIoTarget> {
+            Some(self)
+        }
+        fn load_basic_program<Q: SessionQueryProvider<Self>>(
+            _session: &mut HeadlessSession<Self, Q>,
+            source: &str,
+            run: bool,
+        ) -> Result<crate::loaders::BasicProgramLoaded, LoaderError> {
+            if source.trim().is_empty() {
+                return Err(LoaderError::Failed("BASIC program is empty".to_owned()));
+            }
+            *LAST_BASIC_SOURCE.lock().expect("lock") = Some((source.to_owned(), run));
+            Ok(crate::loaders::BasicProgramLoaded {
+                program_bytes: source.len() as u16,
+                ran: run,
+            })
+        }
+        fn autoload_tape<Q: SessionQueryProvider<Self>>(
+            _session: &mut HeadlessSession<Self, Q>,
+            slot: &str,
+            max_boot_frames: u32,
+        ) -> Result<crate::loaders::TapeAutoloaded, LoaderError> {
+            Ok(crate::loaders::TapeAutoloaded {
+                slot: slot.to_owned(),
+                boot_frames: if max_boot_frames == 0 {
+                    250
+                } else {
+                    max_boot_frames
+                },
+            })
+        }
+    }
+
+    #[test]
+    fn load_basic_program_reads_the_file_and_runs_the_machine_loader() {
+        let path = std::env::temp_dir().join(format!(
+            "emu198x-shell-script-{}-hello.bas",
+            std::process::id()
+        ));
+        std::fs::write(&path, "10 PRINT \"HI\"\n").expect("write listing");
+        let machine = Ported {
+            profile: DummyMachine::new().profile.clone(),
+            ports: std::collections::HashMap::new(),
+        };
+        let mut session = HeadlessSession::new(machine, 1_000);
+        let step = ScriptStep::LoadBasicProgram {
+            path: path.clone(),
+            run: false,
+        };
+        let observation = step.execute_collect(&mut session).expect("loader ran");
+        let _ = std::fs::remove_file(&path);
+        assert!(matches!(
+            observation,
+            Some(ScriptObservation::LoadBasicProgram {
+                program_bytes: 14,
+                ran: false
+            })
+        ));
+        let seen = LAST_BASIC_SOURCE.lock().expect("lock").clone();
+        assert_eq!(seen, Some(("10 PRINT \"HI\"\n".to_owned(), false)));
+    }
+
+    #[test]
+    fn a_failing_machine_loader_is_reported_against_the_file() {
+        let path = std::env::temp_dir().join(format!(
+            "emu198x-shell-script-{}-empty.bas",
+            std::process::id()
+        ));
+        std::fs::write(&path, "   \n").expect("write listing");
+        let machine = Ported {
+            profile: DummyMachine::new().profile.clone(),
+            ports: std::collections::HashMap::new(),
+        };
+        let mut session = HeadlessSession::new(machine, 1_000);
+        let step = ScriptStep::LoadBasicProgram {
+            path: path.clone(),
+            run: true,
+        };
+        let err = step
+            .execute_collect(&mut session)
+            .expect_err("loader refuses");
+        let _ = std::fs::remove_file(&path);
+        match err {
+            ScriptError::InvalidStep { step, reason } => {
+                assert_eq!(step, "load_basic_program");
+                assert!(reason.contains("BASIC loader failed for"), "{reason}");
+                assert!(reason.contains("BASIC program is empty"), "{reason}");
+            }
+            other => panic!("unexpected error {other:?}"),
+        }
+    }
+
+    #[test]
+    fn autoload_tape_runs_the_machine_helper_and_zero_means_its_default() {
+        let machine = Ported {
+            profile: DummyMachine::new().profile.clone(),
+            ports: std::collections::HashMap::new(),
+        };
+        let mut session = HeadlessSession::new(machine, 1_000);
+        let step = ScriptStep::AutoloadTape {
+            slot: "tape-1".to_owned(),
+            max_boot_frames: 0,
+        };
+        match step.execute_collect(&mut session).expect("helper ran") {
+            Some(ScriptObservation::AutoloadTape { slot, boot_frames }) => {
+                assert_eq!((slot.as_str(), boot_frames), ("tape-1", 250));
+            }
+            other => panic!("unexpected observation {other:?}"),
+        }
+    }
+
+    #[test]
+    fn port_write_then_port_read_round_trips_through_the_port_target() {
+        let machine = Ported {
+            profile: DummyMachine::new().profile.clone(),
+            ports: std::collections::HashMap::new(),
+        };
+        let mut session = HeadlessSession::new(machine, 1_000);
+        let write = ScriptStep::PortWrite {
+            port: 0xFE,
+            value: 0x1F,
+        };
+        assert!(
+            write
+                .execute_collect(&mut session)
+                .expect("write")
+                .is_none()
+        );
+        let read = ScriptStep::PortRead { port: 0xFE };
+        match read.execute_collect(&mut session).expect("read") {
+            Some(ScriptObservation::PortRead { port, value }) => {
+                assert_eq!((port, value), (0xFE, 0x1F));
+            }
+            other => panic!("unexpected observation {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_machine_without_a_port_space_refuses_the_port_verbs() {
+        let mut session = HeadlessSession::new(DummyMachine::new(), 1_000);
+        let err = ScriptStep::PortRead { port: 0xFE }
+            .execute_collect(&mut session)
+            .expect_err("no port target");
+        assert!(matches!(
+            err,
+            ScriptError::SystemSpecificStep { step: "port_read" }
+        ));
     }
 
     impl MachineCore for DummyMachine {
@@ -3362,16 +3679,23 @@ mod tests {
 
     #[test]
     fn load_basic_program_step_returns_system_specific_error_from_shell_executor() {
+        let path = std::env::temp_dir().join(format!(
+            "emu198x-shell-script-{}-unsupported.bas",
+            std::process::id()
+        ));
+        std::fs::write(&path, "10 PRINT 1\n").expect("write listing");
         let mut session = HeadlessSession::new_with_query_provider(
             DummyMachine::new(),
             69_888,
             DummyQueryProvider,
         );
         let step = ScriptStep::LoadBasicProgram {
-            path: PathBuf::from("hello.bas"),
+            path: path.clone(),
             run: true,
         };
-        match step.execute_collect(&mut session) {
+        let result = step.execute_collect(&mut session);
+        let _ = std::fs::remove_file(&path);
+        match result {
             Err(ScriptError::SystemSpecificStep { step }) => {
                 assert_eq!(step, "load_basic_program");
             }

@@ -122,6 +122,17 @@ pub struct Atari7800 {
 impl Atari7800 {
     pub fn new(rom: Vec<u8>, region: Atari7800Region) -> Result<Self, String> {
         let cart = Cartridge::from_rom(&rom)?;
+        Ok(Self::from_cartridge(cart, region))
+    }
+
+    /// Cold-boot with the installed cartridge and a selected region.
+    /// ROM/configuration survive; cartridge banks and RAM return to power-on state.
+    #[must_use]
+    pub fn cold_boot(&self, region: Atari7800Region) -> Self {
+        Self::from_cartridge(self.cart.cold_boot(), region)
+    }
+
+    fn from_cartridge(cart: Cartridge, region: Atari7800Region) -> Self {
         let pokey_location = cart.pokey_location();
         let pokey = pokey_location.map(|_| Pokey::new(region.cpu_hz()));
         let mut cpu = M6502::new();
@@ -131,7 +142,7 @@ impl Atari7800 {
         riot.input_b = 0xFF;
         let clocks_per_frame =
             u64::from(region.lines_per_frame()) * u64::from(COLOUR_CLOCKS_PER_LINE);
-        Ok(Self {
+        Self {
             cpu,
             maria: Maria::new(region.maria_region()),
             riot,
@@ -148,7 +159,7 @@ impl Atari7800 {
             frame_count: 0,
             dma_budget: 0,
             line_cycle: 0,
-        })
+        }
     }
 
     pub fn run_frame(&mut self) -> u64 {

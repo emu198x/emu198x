@@ -17,6 +17,6 @@ mod runtime;
 mod snapshot;
 
 pub use machine_msx::{MapperType, MsxRegion};
-pub use profiles::{Model, profile_for, profiles};
+pub use profiles::{BIOS_FIRMWARE_ID, Model, profile_for, profiles};
 pub use queries::MsxSessionQueryProvider;
 pub use runtime::MsxRuntime;

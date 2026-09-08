@@ -17,6 +17,27 @@ pub enum Model {
 }
 
 impl Model {
+    pub const VARIANT_IDS: [&'static str; 1] = ["amstrad-cpc464"];
+
+    #[must_use]
+    pub fn from_variant_id(id: &str) -> Option<Self> {
+        (id == Self::Cpc464.profile_id()).then_some(Self::Cpc464)
+    }
+
+    #[must_use]
+    pub fn firmware_sources(self) -> Vec<emu198x_shell::FirmwareSource> {
+        vec![
+            emu198x_shell::FirmwareSource::required(ROM_FIRMWARE_ID, &["cpc464.rom"])
+                .with_env_var("EMU198X_CPC464_ROM"),
+        ]
+    }
+
+    /// Existing host frame budget; chip timing is unchanged.
+    #[must_use]
+    pub const fn frame_ticks(self) -> u64 {
+        64 * 312 * 4
+    }
+
     #[must_use]
     pub const fn model_id(self) -> &'static str {
         "amstrad-cpc464"

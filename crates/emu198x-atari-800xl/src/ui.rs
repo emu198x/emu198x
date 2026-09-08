@@ -8,27 +8,20 @@
 //! keys — through the console path ([`UiSystem::map_key`] +
 //! [`UiSystem::button_map`]). The three console keys (Start/Select/Option) are
 //! momentary named key events on F2/F3/F4. Compiled only with the `ui` Cargo
-//! feature; `main.rs` routes here when no automation flag is given.
-//!
-//! Chip timing (ANTIC/GTIA/POKEY) matches the 5200 sibling: a frame is
-//! `lines × 228` colour clocks; NTSC = 262 lines (~60 Hz), PAL = 312 (~50 Hz).
+//! feature; the shared launcher opens the window when no automation flag is
+//! given.
 
-use std::env;
-use std::path::PathBuf;
+use emu198x_shell::{FamilyRuntime, FirmwareOverrides, MachineError, build_replacement};
+use std::borrow::Cow;
 use std::time::Duration;
 
-use emu198x_shell::{MachineCore, MediaImage, MediaKind, MediaSet, read_media_asset};
-use emu198x_ui::{
-    ButtonInputMap, ButtonTarget, HostControl, KeyCode, UiError, UiSystem, VideoFilter,
-};
+use emu198x_ui::launch::UiApp;
+use emu198x_ui::{ButtonInputMap, ButtonTarget, HostControl, KeyCode, UiSystem, VariantInfo};
 use runtime_atari_800xl::{Atari800xlRuntime, Model};
 
+use crate::app::Atari800xl;
+
 const DEFAULT_SCALE: u32 = 3;
-/// Colour clocks per frame — `lines × 228`, matching the headless runner.
-const FRAME_TICKS_NTSC: u64 = 262 * 228;
-const FRAME_TICKS_PAL: u64 = 312 * 228;
-const NTSC_FRAME_HZ: f64 = 60.0;
-const PAL_FRAME_HZ: f64 = 50.0;
 
 /// Player-1 joystick: directions + fire, driven by a gamepad or the host arrow
 /// keys. The runtime maps these names onto the PIA port-A controller bits.
@@ -41,77 +34,17 @@ const ATARI_800XL_BUTTON_MAP: ButtonInputMap = ButtonInputMap::new(&[
     (HostControl::East, ButtonTarget::new(1, "fire")),
 ]);
 
-const USAGE: &str = "\
-Usage: emu198x-atari-800xl [OPTIONS]
-
-Options:
-    --os PATH       16 KB OS ROM; default
-                    ~/.emu198x/roms/atari-800xl/atarixl.rom (or EMU198X_A800XL_OS)
-    --basic PATH    8 KB Atari BASIC ROM; default
-                    ~/.emu198x/roms/atari-800xl/ataribas.rom (or EMU198X_A800XL_BASIC)
-    --cart PATH     cartridge image (flat, XEGS, MegaCart or OSS; .car headers honoured)
-    --disk PATH     ATR disk image for D1: (a .zip holding one .atr works too)
-    --no-basic      hold OPTION at boot to disable the built-in BASIC
-    --region MODE   ntsc | pal [default: ntsc]
-    --scale N       integer window scale, default 3
-    --video MODE    raw | lcd | crt [default: raw]
-    --help, -h      show this help
-
-Automation:
-    --script PATH   run a JSON session headlessly and print a report
-    --headless      run without a window (implied by --script)
-    --mcp           serve this machine over MCP on stdio
-
-Controls:
-    Esc             quit
-    F12             emulator hard reset
-    A-Z 0-9 etc.    the Atari keyboard
-    Enter / Space / Delete / Tab   the matching Atari keys
-    Arrow keys      joystick (player 1)
-    F2 / F3 / F4    Start / Select / Option console keys
-    Gamepad         joystick + fire (player 1)
-
-Examples:
-    emu198x-atari-800xl
-    emu198x-atari-800xl --cart game.bin --region pal --scale 4
-    emu198x-atari-800xl --disk dos.atr --no-basic
-";
-
-/// Display region — selects the model, frame tick budget, and refresh rate.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Region {
-    Ntsc,
-    Pal,
+/// Native adapter backed by the runtime's regional catalogue.
+pub struct Atari800xlSystem {
+    model: Model,
 }
 
-impl Region {
-    fn model(self) -> Model {
-        match self {
-            Self::Ntsc => Model::A800xlNtsc,
-            Self::Pal => Model::A800xlPal,
-        }
-    }
+impl UiApp for Atari800xl {
+    type System = Atari800xlSystem;
 
-    fn frame_ticks(self) -> u64 {
-        match self {
-            Self::Ntsc => FRAME_TICKS_NTSC,
-            Self::Pal => FRAME_TICKS_PAL,
-        }
+    fn ui_system(&self) -> Atari800xlSystem {
+        Atari800xlSystem { model: self.model }
     }
-
-    fn frame_hz(self) -> f64 {
-        match self {
-            Self::Ntsc => NTSC_FRAME_HZ,
-            Self::Pal => PAL_FRAME_HZ,
-        }
-    }
-}
-
-/// The Atari 800XL as a [`UiSystem`]. The region is fixed at construction; a
-/// hard reset rebuilds the machine from the OS / BASIC / cartridge the runtime
-/// already holds.
-struct Atari800xlSystem {
-    region: Region,
 }
 
 impl UiSystem for Atari800xlSystem {
@@ -142,12 +75,44 @@ impl UiSystem for Atari800xlSystem {
             .unwrap_or((374, 240))
     }
 
-    fn frame_ticks(&self, _runtime: &Self::Runtime) -> u64 {
-        self.region.frame_ticks()
+    fn frame_ticks(&self, runtime: &Self::Runtime) -> u64 {
+        runtime.native_frame_ticks()
     }
 
-    fn frame_duration(&self, _runtime: &Self::Runtime) -> Duration {
-        Duration::from_secs_f64(1.0 / self.region.frame_hz())
+    fn frame_duration(&self, runtime: &Self::Runtime) -> Duration {
+        Duration::from_secs_f64(match runtime.model() {
+            Model::A800xlPal => 1.0 / 50.0,
+            Model::A800xlNtsc => 1.0 / 60.0,
+        })
+    }
+
+    fn variants(&self) -> Vec<VariantInfo> {
+        Model::ALL
+            .iter()
+            .map(|model| VariantInfo::new(model.variant_id(), model.display_name()))
+            .collect()
+    }
+
+    fn current_variant(&self) -> Option<Cow<'static, str>> {
+        Some(Cow::Borrowed(self.model.variant_id()))
+    }
+
+    fn switch_variant(
+        &mut self,
+        runtime: &mut Self::Runtime,
+        id: &str,
+    ) -> Result<(), MachineError> {
+        let model = Model::from_variant_id(id).ok_or(MachineError::UnsupportedOperation {
+            operation: "unknown Atari 800XL variant",
+        })?;
+        *runtime =
+            build_replacement(runtime, model, &FirmwareOverrides::none()).map_err(|err| {
+                MachineError::Host {
+                    reason: err.to_string(),
+                }
+            })?;
+        self.model = model;
+        Ok(())
     }
 
     fn button_map(&self) -> &'static ButtonInputMap {
@@ -218,145 +183,54 @@ impl UiSystem for Atari800xlSystem {
     }
 }
 
-/// Parsed interactive CLI.
-#[derive(Debug, PartialEq, Eq)]
-pub struct Cli {
-    os: Option<PathBuf>,
-    basic: Option<PathBuf>,
-    cart: Option<PathBuf>,
-    disk: Option<PathBuf>,
-    basic_enabled: bool,
-    region: Region,
-    scale: u32,
-    video: VideoFilter,
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-impl Default for Cli {
-    fn default() -> Self {
-        Self {
-            os: None,
-            basic: None,
-            cart: None,
-            disk: None,
-            basic_enabled: true,
-            region: Region::Ntsc,
-            scale: DEFAULT_SCALE,
-            video: VideoFilter::Raw,
+    #[test]
+    fn native_startup_and_pacing_follow_the_runtime_catalogue() {
+        let dir = std::env::temp_dir().join(format!("a800xl-ui-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("directory");
+        std::fs::write(dir.join("atarixl.rom"), vec![0; 16384]).expect("OS");
+        for model in Model::ALL {
+            let app = Atari800xl {
+                model,
+                firmware: FirmwareOverrides {
+                    dir: Some(dir.clone()),
+                    ..FirmwareOverrides::none()
+                },
+                basic_enabled: false,
+                ..Atari800xl::default()
+            };
+            let mut runtime = app.build_ui_runtime().expect("runtime");
+            let mut system = app.ui_system();
+            assert_eq!(system.variants().len(), 2);
+            assert_eq!(
+                system.current_variant().as_deref(),
+                Some(model.variant_id())
+            );
+            assert!(!runtime.basic_enabled());
+            assert_eq!(system.frame_ticks(&runtime), model.frame_ticks());
+            assert!(system.switch_variant(&mut runtime, "unknown").is_err());
+            for other in Model::ALL {
+                runtime = Atari800xlRuntime::new(other, Some(vec![0; 16384]), None, None, false)
+                    .expect("live runtime");
+                assert_eq!(system.frame_ticks(&runtime), other.frame_ticks());
+                assert_eq!(
+                    system.frame_duration(&runtime),
+                    Duration::from_secs_f64(if other == Model::A800xlPal {
+                        1.0 / 50.0
+                    } else {
+                        1.0 / 60.0
+                    })
+                );
+                let machine = runtime.machine().expect("machine");
+                assert_eq!(
+                    system.framebuffer_size(&runtime),
+                    (machine.framebuffer_width(), machine.framebuffer_height())
+                );
+            }
         }
+        std::fs::remove_dir_all(dir).expect("cleanup");
     }
-}
-
-/// Build the runtime from the CLI and open the window.
-pub fn run(cli: Cli) -> Result<(), String> {
-    let os = cli
-        .os
-        .clone()
-        .or_else(|| default_rom("EMU198X_A800XL_OS", "atarixl.rom"))
-        .and_then(|p| std::fs::read(p).ok());
-    let basic = cli
-        .basic
-        .clone()
-        .or_else(|| default_rom("EMU198X_A800XL_BASIC", "ataribas.rom"))
-        .and_then(|p| std::fs::read(p).ok());
-    let cart = match &cli.cart {
-        Some(p) => Some(
-            std::fs::read(p)
-                .map_err(|err| format!("failed to read --cart {}: {err}", p.display()))?,
-        ),
-        None => None,
-    };
-    if os.is_none() && cart.is_none() {
-        return Err("no OS ROM found: pass --os PATH or stage atarixl.rom in \
-             ~/.emu198x/roms/atari-800xl/ (or boot a cart with --cart)"
-            .to_owned());
-    }
-
-    let mut runtime =
-        Atari800xlRuntime::new(cli.region.model(), os, basic, cart, cli.basic_enabled)
-            .map_err(|err| format!("failed to construct runtime: {err}"))?;
-    if let Some(path) = &cli.disk {
-        let loaded = read_media_asset(path, MediaKind::Disk)
-            .map_err(|err| format!("failed to load disk asset {}: {err}", path.display()))?;
-        let mut media = MediaSet::new();
-        media.push(MediaImage::new("disk-1", MediaKind::Disk, &loaded.bytes));
-        runtime
-            .load_media(&media)
-            .map_err(|err| format!("disk load failed: {err}"))?;
-    }
-
-    println!(
-        "Controls: Esc quit, F12 reset, A-Z/0-9 keyboard, arrows joystick, \
-         Z/X via gamepad fire, F2/F3/F4 Start/Select/Option."
-    );
-    emu198x_ui::run(
-        Atari800xlSystem { region: cli.region },
-        runtime,
-        cli.scale,
-        cli.video,
-    )
-    .map_err(|err: UiError| err.to_string())
-}
-
-/// Parse the interactive CLI. Exits the process on `--help` or a malformed flag.
-pub fn parse_cli<I>(args: I) -> Cli
-where
-    I: IntoIterator<Item = String>,
-{
-    let mut cli = Cli::default();
-    let mut iter = args.into_iter();
-    while let Some(arg) = iter.next() {
-        match arg.as_str() {
-            "--os" => cli.os = Some(PathBuf::from(next_arg(&mut iter, "--os"))),
-            "--basic" => cli.basic = Some(PathBuf::from(next_arg(&mut iter, "--basic"))),
-            "--cart" => cli.cart = Some(PathBuf::from(next_arg(&mut iter, "--cart"))),
-            "--disk" => cli.disk = Some(PathBuf::from(next_arg(&mut iter, "--disk"))),
-            "--no-basic" => cli.basic_enabled = false,
-            "--region" => {
-                cli.region = match next_arg(&mut iter, "--region").as_str() {
-                    "ntsc" => Region::Ntsc,
-                    "pal" => Region::Pal,
-                    other => die(&format!("--region expects ntsc|pal, got {other}")),
-                };
-            }
-            "--scale" => {
-                cli.scale = next_arg(&mut iter, "--scale")
-                    .parse()
-                    .unwrap_or_else(|_| die("--scale requires a positive integer"));
-            }
-            "--video" => {
-                cli.video = next_arg(&mut iter, "--video")
-                    .parse()
-                    .unwrap_or_else(|_| die("--video expects raw, lcd, or crt"));
-            }
-            "--help" | "-h" => {
-                println!("{USAGE}");
-                std::process::exit(0);
-            }
-            other => die(&format!("unknown flag: {other}")),
-        }
-    }
-    cli
-}
-
-fn next_arg<I: Iterator<Item = String>>(iter: &mut I, flag: &str) -> String {
-    iter.next()
-        .unwrap_or_else(|| die(&format!("{flag} requires a value")))
-}
-
-fn die(message: &str) -> ! {
-    eprintln!("error: {message}");
-    eprintln!();
-    eprintln!("{USAGE}");
-    std::process::exit(2);
-}
-
-fn default_rom(env_key: &str, default_file: &str) -> Option<PathBuf> {
-    if let Ok(p) = env::var(env_key)
-        && !p.is_empty()
-    {
-        return Some(PathBuf::from(p));
-    }
-    let path = PathBuf::from(env::var("HOME").ok()?)
-        .join(format!(".emu198x/roms/atari-800xl/{default_file}"));
-    path.exists().then_some(path)
 }

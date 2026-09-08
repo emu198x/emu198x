@@ -16,20 +16,15 @@
 //! break, a tool's schema here probably also needs an update.
 
 use emu198x_shell::{
-    FirmwareImage, FirmwareSet, HeadlessSession, MachineCore, ScriptObservation, ScriptStep,
-    SessionQueryProvider,
+    HeadlessSession, ScriptObservation, ScriptStep,
     mcp::{Tool, ToolError, ToolRegistry, ToolResponse},
     mcp_tools::ScriptStepTool,
-    read_firmware_asset,
 };
-use format_sinclair_zx_spectrum_bas::tokenise;
 use runtime_sinclair_zx_spectrum::{
-    DEFAULT_BASIC_LOADER_BOOT_FRAMES, DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES, SpectrumLiveAccess,
-    SpectrumRuntimeKind, SpectrumSessionQueryProvider, autoload_basic_tape, load_basic_program,
+    SpectrumLiveAccess, SpectrumRuntimeKind, SpectrumSessionQueryProvider,
 };
 use serde_json::{Value, json};
 
-use crate::machine::{MachineKind, rom_root, variant_rom_bundle};
 use crate::portable_snapshot::{is_portable_snapshot_path, parse_portable_snapshot_at};
 
 /// Live-session context every Spectrum MCP tool dispatches against.
@@ -60,45 +55,16 @@ fn add_step(
 
 /// Family-MCP dispatch for one `ScriptStep`.
 ///
-/// - `SetMachine`: rebuilds the inner runtime to the requested
-///   variant. The session-side state (queued input, latest frame,
-///   captured audio, last run result) is cleared via
-///   [`HeadlessSession::reset`] so the new variant starts from a
-///   clean session.
-/// - `AutoloadTape` / `LoadBasicProgram`: handled by shared generic
-///   helpers, which the `--script` runner calls too — one implementation
-///   per step, no MCP/script drift (#456).
-/// - `PressKey` / `TypeString` and everything else delegate to
-///   [`ScriptStep::execute_collect`] — the keyboard verbs run through the
-///   shared `KeyboardTarget` (RULES.md #30); the rest is generic.
+/// - `LoadSnapshot` of a portable `.sna` / `.z80`: routed through the
+///   Spectrum parser rather than the runtime save-state decoder.
+/// - Everything else delegates to [`ScriptStep::execute_collect`]: the
+///   keyboard verbs run through the shared `KeyboardTarget`, the tape and
+///   BASIC loaders through the `MachineCore` loader hooks (RULES.md #30).
 fn mcp_execute_step(
     step: &ScriptStep,
     session: &mut SpectrumSession,
 ) -> Result<Option<ScriptObservation>, ToolError> {
-    // Inspection / debug / live-memory steps are shared verbatim with the
-    // `--script` runner through `dispatch_live_step`, so the two dispatch
-    // tables can't drift apart (the gap that left these MCP-only).
-    if let Some(result) = dispatch_live_step(step, session) {
-        return result;
-    }
     match step {
-        ScriptStep::SetMachine { machine } => execute_set_machine(machine, session).map(Some),
-        // press_key / type_string fall through to the shared `execute_collect`
-        // arms, which drive the machine's `KeyboardTarget` (RULES.md #30).
-        ScriptStep::AutoloadTape {
-            slot,
-            max_boot_frames,
-        } => {
-            let frames = if *max_boot_frames == 0 {
-                DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES
-            } else {
-                *max_boot_frames
-            };
-            execute_autoload_tape(session, slot, frames).map(Some)
-        }
-        ScriptStep::LoadBasicProgram { path, run } => {
-            execute_load_basic_program(session, path, *run).map(Some)
-        }
         ScriptStep::LoadSnapshot { path } if is_portable_snapshot_path(path) => {
             execute_load_portable_snapshot(session, path).map(|()| None)
         }
@@ -106,40 +72,6 @@ fn mcp_execute_step(
             .execute_collect(session)
             .map_err(|err| ToolError::Execution(format!("{err}"))),
     }
-}
-
-/// Execute the steps that are genuinely Z80/AY-specific — the AY register
-/// query and the Z80 I/O ports. Generic over the runtime, so MCP mode
-/// (`SpectrumRuntimeKind`) and the `--script` runner dispatch the *same*
-/// implementation. The CPU / memory / disassembly verbs and the
-/// `watch_memory_*` / `watch_ay_*` verbs are NOT here any more — they run
-/// through the shared `DebugTarget` / `WatchTarget` arms (RULES.md #30).
-/// Returns `None` for steps it doesn't own.
-pub(crate) fn dispatch_live_step<
-    M: SpectrumLiveAccess + MachineCore,
-    Q: SessionQueryProvider<M>,
->(
-    step: &ScriptStep,
-    session: &mut HeadlessSession<M, Q>,
-) -> Option<Result<Option<ScriptObservation>, ToolError>> {
-    Some(match step {
-        ScriptStep::QueryAy => execute_query_ay(session).map(Some),
-        // query_cpu / step / run_until_pc / disasm are no longer intercepted:
-        // they fall through to the shell's generic `execute_collect`, which
-        // runs them through the shared `DebugTarget` (RULES.md #30). Only the
-        // genuinely Z80/AY-specific verbs stay here.
-        ScriptStep::PortRead { port } => Ok(Some(execute_port_read(session, *port))),
-        ScriptStep::PortWrite { port, value } => {
-            execute_port_write(session, *port, *value);
-            Ok(None)
-        }
-        // memory_read / poke_byte / poke_word AND the watch verbs
-        // (watch_memory_* / watch_ay_*) now fall through to the shared
-        // `execute_collect` arms, which drive each machine's `WatchTarget`
-        // (RULES.md #30). Only the AY register query + Z80 I/O ports stay
-        // Spectrum-specific.
-        _ => return None,
-    })
 }
 
 /// MCP-side equivalent of
@@ -163,223 +95,6 @@ pub(crate) fn execute_load_portable_snapshot(
         parse_portable_snapshot_at(path).map_err(|err| ToolError::Execution(format!("{err}")))?;
     SpectrumLiveAccess::apply_snapshot(session.machine_mut(), &snapshot);
     Ok(())
-}
-
-/// Build + install the requested Spectrum variant via the shared
-/// `HeadlessSession::swap_machine`. Shared with the `--script` runner so
-/// `set_machine` behaves identically in MCP and script mode (#456).
-pub(crate) fn execute_set_machine(
-    requested: &str,
-    session: &mut SpectrumSession,
-) -> Result<ScriptObservation, ToolError> {
-    let kind = MachineKind::from_script_id(requested).ok_or_else(|| {
-        ToolError::InvalidArguments(format!(
-            "set_machine: unknown machine id `{requested}`; expected one of {}",
-            MachineKind::script_id_list()
-        ))
-    })?;
-    let model = kind_to_model(kind);
-    let rom_root_dir = rom_root().ok_or_else(|| {
-        ToolError::Execution(
-            "set_machine: $HOME is unset; cannot locate ROM bundle root \
-             (~/.emu198x/roms)"
-                .to_owned(),
-        )
-    })?;
-
-    // Two-pass firmware load: read all ROM bytes into an owned vec,
-    // then borrow them into the `FirmwareSet`. Mirrors the pattern
-    // used by `script::runner::boot_eager_kind`.
-    let bundle = variant_rom_bundle(kind, &rom_root_dir);
-    let mut rom_bytes: Vec<(String, Vec<u8>)> = Vec::with_capacity(bundle.len());
-    for (id, path) in bundle {
-        if !path.is_file() {
-            return Err(ToolError::Execution(format!(
-                "set_machine: ROM not found at {}",
-                path.display()
-            )));
-        }
-        let loaded = read_firmware_asset(&path).map_err(|err| {
-            ToolError::Execution(format!(
-                "set_machine: failed to read {}: {err}",
-                path.display()
-            ))
-        })?;
-        rom_bytes.push((id.to_string(), loaded.bytes.to_vec()));
-    }
-    let mut firmware = FirmwareSet::new();
-    for (id, bytes) in &rom_bytes {
-        firmware.push(FirmwareImage::new(id.clone(), bytes));
-    }
-    // Build the new variant, install it, re-pace the session to its frame
-    // budget, and hard-reset session-side state — all via the shared
-    // `HeadlessSession::swap_machine`, the same generic swap the `--script`
-    // runner uses (#456).
-    session
-        .swap_machine(model, &firmware)
-        .map_err(|err| ToolError::Execution(format!("set_machine: {err}")))?;
-    let profile = session.machine().profile().clone();
-
-    Ok(ScriptObservation::SetMachine {
-        machine: requested.to_owned(),
-        profile_id: profile.profile_id.as_str().to_owned(),
-        display_name: profile.display_name.to_string(),
-    })
-}
-
-pub(crate) fn execute_query_ay<M: SpectrumLiveAccess + MachineCore, Q: SessionQueryProvider<M>>(
-    session: &mut HeadlessSession<M, Q>,
-) -> Result<ScriptObservation, ToolError> {
-    // Look up the two low-level AY paths through the existing
-    // session query provider; on AY-bearing variants both resolve,
-    // on 48K-class variants `spectrum.ay.registers` is not in
-    // `variant_query_paths()` and the provider returns `Ok(None)` →
-    // QueryError::UnknownPath. We surface that as a clear "active
-    // variant has no AY" error rather than a generic UnknownPath.
-    let regs = session
-        .query("ay.registers")
-        .map_err(|err| ay_unsupported_error(&err))?;
-    let raw: Vec<u8> = serde_json::from_value(regs.value).map_err(|err| {
-        ToolError::Execution(format!(
-            "query_ay: malformed spectrum.ay.registers value: {err}"
-        ))
-    })?;
-    if raw.len() != 16 {
-        return Err(ToolError::Execution(format!(
-            "query_ay: expected 16 AY registers, got {}",
-            raw.len()
-        )));
-    }
-    let selected = session
-        .query("ay.selected_register")
-        .map_err(|err| ay_unsupported_error(&err))?;
-    let selected_register: u8 = serde_json::from_value(selected.value).map_err(|err| {
-        ToolError::Execution(format!(
-            "query_ay: malformed spectrum.ay.selected_register value: {err}"
-        ))
-    })?;
-
-    let tone_period_a = u16::from(raw[0]) | (u16::from(raw[1] & 0x0F) << 8);
-    let tone_period_b = u16::from(raw[2]) | (u16::from(raw[3] & 0x0F) << 8);
-    let tone_period_c = u16::from(raw[4]) | (u16::from(raw[5] & 0x0F) << 8);
-    let envelope_period = u16::from(raw[11]) | (u16::from(raw[12]) << 8);
-
-    Ok(ScriptObservation::QueryAy {
-        selected_register,
-        raw: raw.clone(),
-        tone_period_a,
-        tone_period_b,
-        tone_period_c,
-        noise_period: raw[6] & 0x1F,
-        mixer: raw[7],
-        amplitude_a: raw[8] & 0x1F,
-        amplitude_b: raw[9] & 0x1F,
-        amplitude_c: raw[10] & 0x1F,
-        envelope_period,
-        envelope_shape: raw[13] & 0x0F,
-    })
-}
-
-pub(crate) fn execute_port_read<M: SpectrumLiveAccess + MachineCore, Q: SessionQueryProvider<M>>(
-    session: &mut HeadlessSession<M, Q>,
-    port: u16,
-) -> ScriptObservation {
-    let value = session.machine_mut().port_read(port);
-    ScriptObservation::PortRead { port, value }
-}
-
-pub(crate) fn execute_port_write<
-    M: SpectrumLiveAccess + MachineCore,
-    Q: SessionQueryProvider<M>,
->(
-    session: &mut HeadlessSession<M, Q>,
-    port: u16,
-    value: u8,
-) {
-    session.machine_mut().port_write(port, value);
-}
-
-fn ay_unsupported_error(err: &emu198x_shell::QueryError) -> ToolError {
-    ToolError::Execution(format!(
-        "query_ay: active Spectrum variant does not have an AY-3-8912 chip \
-         (only 128K, +2, +2A, +2B, +3, Pentagon, Scorpion, and Timex TC2068 / \
-         TS2068 expose AY state). Switch to one of those variants via the \
-         `set_machine` tool first. Underlying error: {err}"
-    ))
-}
-
-/// Type `LOAD ""` and start tape transport on the named slot. Generic
-/// over the session type so MCP and `--script` share one implementation
-/// (#456); the runtime helper already spans both session kinds.
-pub(crate) fn execute_autoload_tape<
-    M: MachineCore + SpectrumLiveAccess,
-    Q: SessionQueryProvider<M>,
->(
-    session: &mut HeadlessSession<M, Q>,
-    slot: &str,
-    max_boot_frames: u32,
-) -> Result<ScriptObservation, ToolError> {
-    let result = autoload_basic_tape(session, slot, max_boot_frames)
-        .map_err(|err| ToolError::Execution(format!("autoload_tape: {err}")))?;
-    Ok(ScriptObservation::AutoloadTape {
-        slot: result.slot,
-        boot_frames: result.boot.frames,
-    })
-}
-
-/// Read a `.bas` file, tokenise it, and install it as the live BASIC
-/// program (optionally RUN). Generic over the session type so MCP and
-/// `--script` share one implementation (#456).
-pub(crate) fn execute_load_basic_program<
-    M: MachineCore + SpectrumLiveAccess,
-    Q: SessionQueryProvider<M>,
->(
-    session: &mut HeadlessSession<M, Q>,
-    path: &std::path::Path,
-    run: bool,
-) -> Result<ScriptObservation, ToolError> {
-    let source = std::fs::read_to_string(path).map_err(|err| {
-        ToolError::Execution(format!(
-            "load_basic_program: failed to read {}: {err}",
-            path.display()
-        ))
-    })?;
-    let program = tokenise(&source).map_err(|err| {
-        ToolError::Execution(format!(
-            "load_basic_program: failed to tokenise {}: {err}",
-            path.display()
-        ))
-    })?;
-    let result = load_basic_program(session, &program, run, DEFAULT_BASIC_LOADER_BOOT_FRAMES)
-        .map_err(|err| {
-            ToolError::Execution(format!(
-                "load_basic_program: BASIC loader failed for {}: {err}",
-                path.display()
-            ))
-        })?;
-    Ok(ScriptObservation::LoadBasicProgram {
-        program_bytes: result.program_bytes,
-        ran: result.ran,
-    })
-}
-
-pub(crate) fn kind_to_model(kind: MachineKind) -> runtime_sinclair_zx_spectrum::Model {
-    use runtime_sinclair_zx_spectrum::Model;
-    match kind {
-        MachineKind::Spectrum16K => Model::Spectrum16KPal,
-        MachineKind::Spectrum48K => Model::Spectrum48KPal,
-        MachineKind::SpectrumPlus => Model::SpectrumPlus,
-        MachineKind::Spectrum128K => Model::Spectrum128KPal,
-        MachineKind::SpectrumPlus2 => Model::SpectrumPlus2,
-        MachineKind::SpectrumPlus2A => Model::SpectrumPlus2A,
-        MachineKind::SpectrumPlus2B => Model::SpectrumPlus2B,
-        MachineKind::SpectrumPlus3 => Model::SpectrumPlus3,
-        MachineKind::Pentagon128 => Model::Pentagon128,
-        MachineKind::ScorpionZS256 => Model::ScorpionZS256,
-        MachineKind::TimexTC2048 => Model::TimexTC2048,
-        MachineKind::TimexTC2068 => Model::TimexTC2068,
-        MachineKind::TimexTS2068 => Model::TimexTS2068,
-    }
 }
 
 /// Registers the Spectrum-specific MCP tools on the supplied registry:
@@ -451,57 +166,14 @@ impl Tool<SpectrumSession> for SaveTapeTool {
 
 pub fn register_spectrum_tools(registry: &mut ToolRegistry<SpectrumSession>) {
     let string_field = || json!({"type": "string"});
-    let integer_field = || json!({"type": "integer", "minimum": 0});
-    let boolean_field = || json!({"type": "boolean"});
 
-    add_step(
-        registry,
-        "clear_audio_capture",
-        "Drop the session capture buffer without writing it to disk. Pair with save_audio_capture when you want save + buffer-reset in two explicit steps rather than the `reset_after` boolean. No effect on the start_audio_recording / stop_audio_recording path — that uses its own per-recording offset.",
-        json!({
-            "type": "object",
-            "properties": {},
-        }),
-    );
+    // `set_machine` comes from the shared variant-switch tier over the
+    // family runtime's `MachineCore::set_machine` hook; the profiles
+    // declare `variant-switch`.
 
-    add_step(
-        registry,
-        "set_machine",
-        "Switch the live machine to the named variant (currently errors with `not yet supported`).",
-        json!({
-            "type": "object",
-            "properties": {"machine": string_field()},
-            "required": ["machine"],
-        }),
-    );
-
-    add_step(
-        registry,
-        "autoload_tape",
-        "Wait for boot, type LOAD \"\", and start tape transport on the named slot.",
-        json!({
-            "type": "object",
-            "properties": {
-                "slot": string_field(),
-                "max_boot_frames": integer_field(),
-            },
-            "required": ["slot", "max_boot_frames"],
-        }),
-    );
-
-    add_step(
-        registry,
-        "load_basic_program",
-        "Tokenise a plain-text .bas file and install it as the live BASIC program (optionally RUN it).",
-        json!({
-            "type": "object",
-            "properties": {
-                "path": string_field(),
-                "run": boolean_field(),
-            },
-            "required": ["path"],
-        }),
-    );
+    // `autoload_tape` and `load_basic_program` come from the shared
+    // loader tiers over the family runtime's `MachineCore` hooks; the
+    // profile declares `tape-autoload` / `basic-program-load`.
 
     // Override the shared `load_snapshot` tool (register_common_tools)
     // with the Spectrum one so it dispatches through `mcp_execute_step`,
@@ -529,33 +201,6 @@ pub fn register_spectrum_tools(registry: &mut ToolRegistry<SpectrumSession>) {
     // `query_cpu` is served by the shared `register_debug_tools` via the
     // enriched `DebugTarget::dbg_cpu_state` (full Z80 file + decoded
     // flags), so there is no bespoke override here any more (#456).
-
-    add_step(
-        registry,
-        "port_read",
-        "Read one Z80 I/O port through the bus-level handler. Same value an IN A,(C) would observe (ULA $FE, Kempston $1F, AY $FFFD, …) without driving the CPU through the synthetic instruction.",
-        json!({
-            "type": "object",
-            "properties": {
-                "port": integer_field(),
-            },
-            "required": ["port"],
-        }),
-    );
-
-    add_step(
-        registry,
-        "port_write",
-        "Write one Z80 I/O port through the bus-level handler. Side-effects mirror OUT (C),A — border colour ($FE bits 0-2), beeper (bit 4), 128K paging ($7FFD), AY register select ($FFFD) and data ($BFFD). Silent.",
-        json!({
-            "type": "object",
-            "properties": {
-                "port": integer_field(),
-                "value": integer_field(),
-            },
-            "required": ["port", "value"],
-        }),
-    );
 
     // press_key / type_string now come from the shared keyboard tier
     // (`register_keyboard_tools`, registered in `mcp/mod.rs`) over the
@@ -772,26 +417,21 @@ mod tests {
         register_spectrum_tools(&mut registry);
         let names: Vec<_> = registry.iter().map(|tool| tool.name().to_owned()).collect();
 
-        // Only genuinely Spectrum-specific tools live here — Z80 port I/O,
-        // tape/BASIC loaders, keyboard helpers, `set_machine`, and
-        // `load_snapshot` (an intentional override so portable `.sna` /
-        // `.z80` route through the Spectrum parser, gap #6). The generic
-        // CPU/memory/disassembly verbs — `query_cpu`, `memory_read`,
-        // `disasm`, `step`, `poke_byte`, `poke_word`, `run_until_pc` — are
-        // NOT here: they come from the shared `register_debug_tools` tier,
-        // and the `watch_memory_*` / `watch_ay_*` verbs from the shared
-        // watch tier, so MCP and `--script` run one implementation (RULES.md
-        // #30, #456). `query_ay` folds into the `ay.*` query paths.
-        let expected = [
-            "clear_audio_capture",
-            "set_machine",
-            "autoload_tape",
-            "load_basic_program",
-            "load_snapshot",
-            "port_read",
-            "port_write",
-            "save_tape",
-        ];
+        // Only genuinely Spectrum-specific tools live here —
+        // `save_tape`, and `load_snapshot` (an
+        // intentional override so portable `.sna` / `.z80` route through
+        // the Spectrum parser, gap #6). The generic CPU/memory/disassembly
+        // verbs — `query_cpu`, `memory_read`, `disasm`, `step`, `poke_byte`,
+        // `poke_word`, `run_until_pc` — are NOT here: they come from the
+        // shared `register_debug_tools` tier; the `watch_memory_*` /
+        // `watch_ay_*` verbs from the shared watch tier; `port_read` /
+        // `port_write` from the shared port-I/O tier behind `PortIoTarget`;
+        // `autoload_tape` / `load_basic_program` from the loader tiers over
+        // the `MachineCore` hooks; and `clear_audio_capture` / `query_ay`
+        // from the common set. MCP
+        // and `--script` run one implementation (RULES.md #30, #456,
+        // knowledge/decisions/tools-follow-the-machine-spec.md).
+        let expected = ["load_snapshot", "save_tape"];
         for name in expected {
             assert!(names.contains(&name.to_owned()), "missing {name}");
         }
@@ -816,6 +456,13 @@ mod tests {
             "watch_ay_log",
             "press_key",
             "type_string",
+            "port_read",
+            "port_write",
+            "clear_audio_capture",
+            "query_ay",
+            "autoload_tape",
+            "load_basic_program",
+            "set_machine",
         ] {
             assert!(
                 !names.contains(&shared.to_owned()),

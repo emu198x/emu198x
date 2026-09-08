@@ -35,6 +35,7 @@ pub use keyboard::KeyboardState;
 mod video;
 pub use video::{FB_WIDTH, Zx80Video};
 
+use common_z80_machine::Z80Machine;
 use emu198x_zilog_z80::z80::{BusOp, Z80};
 use serde::{Deserialize, Serialize};
 
@@ -75,6 +76,10 @@ pub struct Zx80 {
     prev_halt: bool,
     keyboard: KeyboardState,
     master_clock: u64,
+    /// The cadence driver's half-cycle phase; a restore lands on a T-state
+    /// boundary, so it is not part of the snapshot.
+    #[serde(skip)]
+    cadence_hc: u64,
     frame_count: u64,
     /// Cassette input: the times, in master-clock T-states, at which the
     /// line flips. It starts low, so an odd number of elapsed transitions
@@ -118,6 +123,7 @@ impl Zx80 {
             prev_halt: false,
             keyboard: KeyboardState::new(),
             master_clock: 0,
+            cadence_hc: 0,
             frame_count: 0,
             tape_in: Vec::new(),
             tape_pos: 0,
@@ -143,64 +149,13 @@ impl Zx80 {
         self.master_clock - start
     }
 
+    /// Advance one Z80 T-state. The cadence — two CPU half-cycles, the
+    /// interrupt pin fed before each — is `common-z80-machine`'s; this
+    /// machine only orders its own logic around it (the video ahead of the
+    /// CPU, the refresh-driven /INT and sync detection after each edge, as
+    /// the hand-rolled loop always had them).
     fn tick_tstate(&mut self) {
-        self.master_clock += 1;
-
-        self.video.tick();
-
-        // The ZX80 has no NMI generator — that is the ZX81's addition, and
-        // the reason this machine blanks while it thinks. Leave cpu.nmi
-        // alone.
-        //
-        // Two CPU half-cycles per T-state. `Z80::tick` advances one
-        // half-cycle — `T1Rise` then `T1Fall` — so calling it once per
-        // T-state ran the CPU at half speed: a `NOP` cost 8 T-states against
-        // the Z80's 4. The video above is denominated in T-states (207 per
-        // line, 3.25 MHz), so it was the CPU that was wrong — the machine
-        // ran a full 50 Hz field while executing half the code that belongs
-        // in one.
-        for _ in 0..2 {
-            self.cpu.tick();
-            self.handle_bus();
-
-            // /REFRESH taking the ROM address lines away from the CPU. The
-            // address bus holds `I:R`, and the multiplexers take A9-A12 of
-            // it. Refresh is not a no-op on this machine: ignoring it
-            // removes the display.
-            // A `HALT` ends a display line. The interrupt wired to A6
-            // releases it, and that release is the line sync — the vertical
-            // position is counted from these, not from a clock.
-            // The interrupt acknowledgement is the horizontal sync: the
-            // `HALT` releasing is the moment the beam starts a line. Entering
-            // the `HALT` is not — that is where the line's *characters* stop,
-            // and the video is blanked from there to the sync.
-            let halt = self.cpu.halt;
-            if !halt && self.prev_halt {
-                self.video.hsync();
-            }
-            self.prev_halt = halt;
-
-            let rfsh = self.cpu.rfsh;
-            if rfsh {
-                // INT is wired to address line A6, so an interrupt is
-                // generated whenever the address on the bus has A6 low. The
-                // refresh address is `I:R`, and `R` counts up as the display
-                // is fetched — so the interrupt arrives once per display
-                // line, ends the `HALT` that terminates the line, and the
-                // ROM's handler moves to the next one.
-                //
-                // Without this the CPU HALTs on the first line and never
-                // leaves: 92% of fetches were phantom NOPs when this was
-                // missing.
-                self.cpu.irq = self.cpu.addr & 0x0040 == 0;
-            }
-            if rfsh && !self.prev_rfsh {
-                let rom = &self.rom;
-                self.video
-                    .refresh(self.cpu.addr, |addr| rom[(addr & 0x0FFF) as usize]);
-            }
-            self.prev_rfsh = rfsh;
-        }
+        self.advance_tstates(1);
     }
 
     fn handle_bus(&mut self) {
@@ -464,6 +419,75 @@ impl Zx80 {
     #[must_use]
     pub fn frame_count(&self) -> u64 {
         self.frame_count
+    }
+}
+
+impl Z80Machine for Zx80 {
+    fn hc(&self) -> u64 {
+        self.cadence_hc
+    }
+
+    fn hc_mut(&mut self) -> &mut u64 {
+        &mut self.cadence_hc
+    }
+
+    fn before_tstate(&mut self) {
+        self.master_clock += 1;
+
+        self.video.tick();
+    }
+
+    // The ZX80 has no NMI generator — that is the ZX81's addition, and
+    // the reason this machine blanks while it thinks. Leave cpu.nmi
+    // alone. Its /INT is not a chip output either: it is address line A6
+    // of the refresh address the CPU itself puts on the bus, so it is
+    // latched onto the pin in `tick_chips_halfcycle`, after the edge that
+    // produced the refresh, and there is nothing to feed ahead of a tick.
+    fn feed_interrupt_pins(&mut self) {}
+
+    fn tick_cpu_and_bus(&mut self) {
+        self.cpu.tick();
+        self.handle_bus();
+    }
+
+    fn tick_chips_halfcycle(&mut self) {
+        // /REFRESH taking the ROM address lines away from the CPU. The
+        // address bus holds `I:R`, and the multiplexers take A9-A12 of
+        // it. Refresh is not a no-op on this machine: ignoring it
+        // removes the display.
+        // A `HALT` ends a display line. The interrupt wired to A6
+        // releases it, and that release is the line sync — the vertical
+        // position is counted from these, not from a clock.
+        // The interrupt acknowledgement is the horizontal sync: the
+        // `HALT` releasing is the moment the beam starts a line. Entering
+        // the `HALT` is not — that is where the line's *characters* stop,
+        // and the video is blanked from there to the sync.
+        let halt = self.cpu.halt;
+        if !halt && self.prev_halt {
+            self.video.hsync();
+        }
+        self.prev_halt = halt;
+
+        let rfsh = self.cpu.rfsh;
+        if rfsh {
+            // INT is wired to address line A6, so an interrupt is
+            // generated whenever the address on the bus has A6 low. The
+            // refresh address is `I:R`, and `R` counts up as the display
+            // is fetched — so the interrupt arrives once per display
+            // line, ends the `HALT` that terminates the line, and the
+            // ROM's handler moves to the next one.
+            //
+            // Without this the CPU HALTs on the first line and never
+            // leaves: 92% of fetches were phantom NOPs when this was
+            // missing.
+            self.cpu.irq = self.cpu.addr & 0x0040 == 0;
+        }
+        if rfsh && !self.prev_rfsh {
+            let rom = &self.rom;
+            self.video
+                .refresh(self.cpu.addr, |addr| rom[(addr & 0x0FFF) as usize]);
+        }
+        self.prev_rfsh = rfsh;
     }
 }
 

@@ -16,6 +16,55 @@ pub enum Model {
 }
 
 impl Model {
+    pub const ALL: [Self; 2] = [Self::Dragon32Pal, Self::Dragon64Pal];
+    pub const VARIANT_IDS: [&'static str; 2] = ["dragon32", "dragon64"];
+
+    #[must_use]
+    pub const fn variant_id(self) -> &'static str {
+        match self {
+            Self::Dragon32Pal => "dragon32",
+            Self::Dragon64Pal => "dragon64",
+        }
+    }
+
+    #[must_use]
+    pub fn from_variant_id(id: &str) -> Option<Self> {
+        match id {
+            "dragon32" | "dragon-32" | "dragon-32-pal" => Some(Self::Dragon32Pal),
+            "dragon64" | "dragon-64" | "dragon-64-pal" => Some(Self::Dragon64Pal),
+            _ => None,
+        }
+    }
+
+    #[must_use]
+    pub fn firmware_sources(self) -> Vec<emu198x_shell::FirmwareSource> {
+        use emu198x_shell::FirmwareSource;
+        match self {
+            Self::Dragon32Pal => vec![
+                FirmwareSource::required(self.firmware_id(), &["dragon32.rom"])
+                    .with_env_var("EMU198X_DRAGON32_ROM"),
+            ],
+            Self::Dragon64Pal => vec![
+                FirmwareSource::required(self.firmware_id(), &["dragon64-compat.rom"])
+                    .with_env_var("EMU198X_DRAGON64_COMPAT_ROM"),
+                FirmwareSource::required("dragon64-basic-rom", &["dragon64.rom"])
+                    .with_env_var("EMU198X_DRAGON64_ROM"),
+            ],
+        }
+    }
+
+    #[must_use]
+    pub const fn frame_ticks(self) -> u64 {
+        machine_dragon_32::DRAGON_FRAME_CYCLES
+    }
+
+    /// Existing native-window budget, retained independently of the harness's
+    /// completed-VDG-frame budget.
+    #[must_use]
+    pub const fn native_frame_ticks(self) -> u64 {
+        894_886 / 50
+    }
+
     /// Stable profile identifier.
     #[must_use]
     pub const fn profile_id(self) -> &'static str {
@@ -54,10 +103,7 @@ impl Model {
 /// Returns the Dragon family catalogue.
 #[must_use]
 pub fn profiles() -> Vec<MachineProfile> {
-    vec![
-        profile_for(Model::Dragon32Pal),
-        profile_for(Model::Dragon64Pal),
-    ]
+    Model::ALL.into_iter().map(profile_for).collect()
 }
 
 /// Returns one Dragon profile.
@@ -116,6 +162,7 @@ pub fn profile_for(model: Model) -> MachineProfile {
                 ),
             ],
             capabilities: CapabilitySet::with_all([
+                known_capability("variant-switch"),
                 known_capability("cassette-media"),
                 known_capability("cartridge-media"),
                 known_capability("disk-media"),
@@ -181,6 +228,7 @@ pub fn profile_for(model: Model) -> MachineProfile {
                 ),
             ],
             capabilities: CapabilitySet::with_all([
+                known_capability("variant-switch"),
                 known_capability("cassette-media"),
                 known_capability("cartridge-media"),
                 known_capability("disk-media"),

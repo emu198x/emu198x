@@ -948,6 +948,12 @@ impl Nes {
         ticks
     }
 
+    /// Region selected when constructing or restoring the machine.
+    #[must_use]
+    pub const fn region(&self) -> Region {
+        self.region
+    }
+
     /// Master clock count (PPU dots since construction).
     #[must_use]
     pub fn master_clock(&self) -> u64 {

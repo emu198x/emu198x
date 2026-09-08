@@ -30,6 +30,24 @@ pub enum Model {
 }
 
 impl Model {
+    /// Stable ids shared by the launcher, scripts, MCP and window menu.
+    pub const VARIANT_IDS: [&'static str; 3] =
+        ["sinclair-zx81", "sinclair-zx81-16k", "timex-ts1000"];
+
+    /// Resolve a published variant id.
+    #[must_use]
+    pub fn from_variant_id(id: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|model| model.profile_id() == id)
+    }
+
+    /// Every model uses the same monitor ROM.
+    #[must_use]
+    pub fn firmware_sources(self) -> Vec<emu198x_shell::FirmwareSource> {
+        vec![
+            emu198x_shell::FirmwareSource::required(ROM_FIRMWARE_ID, &["sinclair-zx81/zx81.rom"])
+                .with_env_var("EMU198X_ZX81_ROM"),
+        ]
+    }
     #[must_use]
     /// Both boards are the same machine, so they share a `machine_id`. The
     /// registry joins on this, and it is deliberately not the profile id.
@@ -119,6 +137,7 @@ pub fn profile_for(model: Model) -> MachineProfile {
         capabilities: CapabilitySet::with_all([
             known_capability("keyboard-input"),
             known_capability("scripted-input"),
+            known_capability("variant-switch"),
         ]),
     }
 }

@@ -15,6 +15,7 @@
 
 mod export;
 mod keyboard;
+pub mod launch;
 mod menu;
 mod overlay;
 
@@ -73,6 +74,9 @@ pub struct VariantInfo {
     pub id: Cow<'static, str>,
     /// Human-readable menu label.
     pub label: Cow<'static, str>,
+    /// Optional submenu label, such as a base model containing several presets.
+    /// Ungrouped entries remain directly under Machine.
+    pub group: Option<Cow<'static, str>>,
 }
 
 impl VariantInfo {
@@ -81,7 +85,15 @@ impl VariantInfo {
         Self {
             id: id.into(),
             label: label.into(),
+            group: None,
         }
+    }
+
+    /// Put this choice under a shared submenu, preserving its switch id.
+    #[must_use]
+    pub fn in_group(mut self, label: impl Into<Cow<'static, str>>) -> Self {
+        self.group = Some(label.into());
+        self
     }
 }
 
@@ -127,6 +139,12 @@ pub trait UiSystem {
     /// Default integer window scale when the CLI doesn't override it.
     fn default_scale(&self) -> u32 {
         3
+    }
+
+    /// Default video filter when the CLI doesn't override it. Raw for
+    /// every machine but the Dragon, whose window opens on the CRT filter.
+    fn default_video(&self) -> VideoFilter {
+        VideoFilter::Raw
     }
 
     /// What this machine's video output reached — a television, a monitor, or

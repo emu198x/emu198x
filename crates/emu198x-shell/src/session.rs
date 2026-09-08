@@ -337,7 +337,8 @@ impl<M, Q> HeadlessSession<M, Q> {
 
 impl<M: FamilyRuntime, Q: SessionQueryProvider<M>> HeadlessSession<M, Q> {
     /// Swap the active machine for a freshly-built family variant: build it
-    /// from `model` + `firmware`, install it, re-pace the session to the new
+    /// from `model` + `firmware` using its media-retention policy, install it,
+    /// re-pace the session to the new
     /// variant's frame length, and hard-reset session-side state (queued
     /// input, latest frame, captured audio, last run result).
     ///
@@ -355,7 +356,12 @@ impl<M: FamilyRuntime, Q: SessionQueryProvider<M>> HeadlessSession<M, Q> {
         model: M::Model,
         firmware: &crate::firmware::FirmwareSet<'_>,
     ) -> Result<(), SessionError> {
-        let new = M::from_firmware(model, firmware)?;
+        if self.recorder.is_some() {
+            return Err(SessionError::DisallowedDuringRecording {
+                operation: "set_machine",
+            });
+        }
+        let new = self.machine().replacement(model, firmware)?;
         let ticks = new.native_frame_ticks();
         *self.machine_mut() = new;
         self.set_native_frame_ticks(ticks);
@@ -1514,6 +1520,40 @@ mod tests {
     impl FamilyRuntime for DummyMachine {
         type Model = DummyModel;
 
+        fn variant_ids() -> &'static [&'static str] {
+            &["slow", "fast"]
+        }
+
+        fn model_from_id(id: &str) -> Option<DummyModel> {
+            match id {
+                "slow" => Some(DummyModel::Slow),
+                "fast" => Some(DummyModel::Fast),
+                _ => None,
+            }
+        }
+
+        fn variant_id(model: DummyModel) -> &'static str {
+            match model {
+                DummyModel::Slow => "slow",
+                DummyModel::Fast => "fast",
+            }
+        }
+
+        fn profile_for(_model: DummyModel) -> MachineProfile {
+            Self::new().profile.clone()
+        }
+
+        fn rom_convention() -> crate::variants::RomConvention {
+            crate::variants::RomConvention {
+                env_var: None,
+                dirs: &[""],
+            }
+        }
+
+        fn firmware_sources(_model: DummyModel) -> Vec<crate::variants::FirmwareSource> {
+            Vec::new()
+        }
+
         fn from_firmware(
             model: Self::Model,
             _firmware: &crate::firmware::FirmwareSet<'_>,
@@ -1967,6 +2007,19 @@ mod tests {
             .start_video_recording(path.clone())
             .expect("recording should start");
         assert!(session.is_recording());
+
+        let before = session.time();
+        let pacing = session.native_frame_ticks();
+        let machine_pacing = session.machine().pacing;
+        assert!(matches!(
+            session.swap_machine(DummyModel::Fast, &crate::FirmwareSet::new()),
+            Err(SessionError::DisallowedDuringRecording {
+                operation: "set_machine"
+            })
+        ));
+        assert_eq!(session.time(), before);
+        assert_eq!(session.native_frame_ticks(), pacing);
+        assert_eq!(session.machine().pacing, machine_pacing);
 
         let err = session
             .restore_snapshot(&[0x00])

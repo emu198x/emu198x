@@ -7,22 +7,21 @@
 //! plus the single Pause button, which the runtime takes as an
 //! [`InputEvent::Key`] (`pause` on the SMS, `start` on the Game Gear), routed
 //! through [`UiSystem::map_keys`]. Compiled only with the `ui` Cargo feature;
-//! `main.rs` routes here when no automation flag is given.
+//! the shared launcher opens the window when no automation flag is given.
 
+use emu198x_shell::FamilyRuntime;
+use emu198x_shell::{FirmwareOverrides, MachineCore, MachineError, build_replacement};
+use std::borrow::Cow;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use emu198x_ui::{
-    ButtonInputMap, ButtonTarget, HostControl, KeyCode, UiError, UiSystem, VideoFilter,
-};
-use runtime_sega_master_system::{Model, SmsRuntime, with_cartridge};
+use emu198x_ui::launch::UiApp;
+use emu198x_ui::{ButtonInputMap, ButtonTarget, HostControl, KeyCode, UiSystem, VariantInfo};
+use runtime_sega_master_system::{Model, SmsRuntime};
+
+use crate::app::{MasterSystem, default_battery_save_path};
 
 const DEFAULT_SCALE: u32 = 3;
-/// CPU clocks per frame — `228 × lines`, matching the headless runner.
-const FRAME_TICKS_NTSC: u64 = 228 * 262;
-const FRAME_TICKS_PAL: u64 = 228 * 313;
-const NTSC_FRAME_HZ: f64 = 60.0;
-const PAL_FRAME_HZ: f64 = 50.0;
 
 /// Player-1 control pad: directions plus the two face buttons. `south`/`east`
 /// are the names `runtime-sega-master-system`'s `controller_bit` maps to the
@@ -37,75 +36,28 @@ const SMS_BUTTON_MAP: ButtonInputMap = ButtonInputMap::new(&[
     (HostControl::East, ButtonTarget::new(1, "east")),
 ]);
 
-const USAGE: &str = "\
-Usage: emu198x-sega-master-system [OPTIONS]
-
-Options:
-    --cart PATH     cartridge ROM (required)
-    --variant KIND  sms-ntsc | sms-pal | sms1-ntsc | sms1-pal [default: sms-ntsc]
-                    sms1 selects the early 315-5124 VDP
-    --scale N       integer window scale, default 3
-    --video MODE    raw | lcd | crt [default: raw]
-    --help, -h      show this help
-
-Automation:
-    --script PATH   run a JSON session headlessly and print a report
-    --headless      run without a window (implied by --script)
-    --mcp           serve this machine over MCP on stdio
-
-Controls:
-    Esc             quit
-    F12             emulator hard reset
-    Arrow keys      d-pad (player 1)
-    Z / X           buttons 1 and 2
-    Enter           Pause
-
-Examples:
-    emu198x-sega-master-system --cart sonic.sms
-    emu198x-sega-master-system --cart sonic.sms --variant sms-pal --scale 4
-";
-
-/// Console variant — selects the model, frame tick budget and refresh rate.
-/// The Game Gear ships from `emu198x-sega-game-gear` (#998).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Variant {
-    SmsNtsc,
-    SmsPal,
-    Sms1Ntsc,
-    Sms1Pal,
-}
-
-impl Variant {
-    fn model(self) -> Model {
-        match self {
-            Self::SmsNtsc => Model::SmsNtsc,
-            Self::SmsPal => Model::SmsPal,
-            Self::Sms1Ntsc => Model::Sms1Ntsc,
-            Self::Sms1Pal => Model::Sms1Pal,
-        }
-    }
-
-    fn frame_ticks(self) -> u64 {
-        match self {
-            Self::SmsPal | Self::Sms1Pal => FRAME_TICKS_PAL,
-            Self::SmsNtsc | Self::Sms1Ntsc => FRAME_TICKS_NTSC,
-        }
-    }
-
-    fn frame_hz(self) -> f64 {
-        match self {
-            Self::SmsPal | Self::Sms1Pal => PAL_FRAME_HZ,
-            Self::SmsNtsc | Self::Sms1Ntsc => NTSC_FRAME_HZ,
-        }
-    }
-}
-
 /// The Sega Master System as a [`UiSystem`] for the shared harness.
-/// The variant is fixed at construction; a hard reset rebuilds the machine from
-/// the cartridge the runtime already holds.
-struct SmsSystem {
-    variant: Variant,
+/// Switching models cold-boots with the in-memory cartridge and its SRAM.
+pub struct SmsSystem {
+    model: Model,
     battery_save_path: PathBuf,
+}
+
+impl UiApp for MasterSystem {
+    type System = SmsSystem;
+
+    /// The save path follows the cartridge; without one the runtime build
+    /// fails before the window opens, so the placeholder is never written.
+    fn ui_system(&self) -> SmsSystem {
+        SmsSystem {
+            model: self.model,
+            battery_save_path: self
+                .cart
+                .as_deref()
+                .map(default_battery_save_path)
+                .unwrap_or_default(),
+        }
+    }
 }
 
 impl UiSystem for SmsSystem {
@@ -141,12 +93,44 @@ impl UiSystem for SmsSystem {
             .unwrap_or((280, 240))
     }
 
-    fn frame_ticks(&self, _runtime: &Self::Runtime) -> u64 {
-        self.variant.frame_ticks()
+    fn frame_ticks(&self, runtime: &Self::Runtime) -> u64 {
+        runtime.native_frame_ticks()
     }
 
-    fn frame_duration(&self, _runtime: &Self::Runtime) -> Duration {
-        Duration::from_secs_f64(1.0 / self.variant.frame_hz())
+    fn frame_duration(&self, runtime: &Self::Runtime) -> Duration {
+        Duration::from_secs_f64(match runtime.profile().region {
+            emu198x_shell::Region::Pal => 1.0 / 50.0,
+            _ => 1.0 / 60.0,
+        })
+    }
+
+    fn variants(&self) -> Vec<VariantInfo> {
+        Model::ALL
+            .iter()
+            .map(|model| VariantInfo::new(model.variant_id(), model.display_name()))
+            .collect()
+    }
+
+    fn current_variant(&self) -> Option<Cow<'static, str>> {
+        Some(Cow::Borrowed(self.model.variant_id()))
+    }
+
+    fn switch_variant(
+        &mut self,
+        runtime: &mut Self::Runtime,
+        id: &str,
+    ) -> Result<(), MachineError> {
+        let model = Model::from_variant_id(id).ok_or(MachineError::UnsupportedOperation {
+            operation: "unknown sega-master-system variant",
+        })?;
+        *runtime =
+            build_replacement(runtime, model, &FirmwareOverrides::none()).map_err(|err| {
+                MachineError::Host {
+                    reason: err.to_string(),
+                }
+            })?;
+        self.model = model;
+        Ok(())
     }
 
     fn button_map(&self) -> &'static ButtonInputMap {
@@ -187,163 +171,62 @@ impl UiSystem for SmsSystem {
     }
 }
 
-/// Parsed interactive CLI.
-#[derive(Debug, PartialEq, Eq)]
-pub struct Cli {
-    cart: Option<PathBuf>,
-    variant: Variant,
-    scale: u32,
-    video: VideoFilter,
-}
-
-impl Default for Cli {
-    fn default() -> Self {
-        Self {
-            cart: None,
-            variant: Variant::SmsNtsc,
-            scale: DEFAULT_SCALE,
-            video: VideoFilter::Raw,
-        }
-    }
-}
-
-/// Build the runtime from the CLI and open the window. Returns a string error
-/// for the `main.rs` dispatcher.
-pub fn run(cli: Cli) -> Result<(), String> {
-    let cart_path = cli
-        .cart
-        .as_ref()
-        .ok_or_else(|| "provide a cartridge with --cart PATH".to_owned())?;
-    let cart = std::fs::read(cart_path)
-        .map_err(|err| format!("failed to read --cart {}: {err}", cart_path.display()))?;
-    let battery_save_path = default_battery_save_path(cart_path);
-    let mut runtime = with_cartridge(cli.variant.model(), cart);
-    load_battery_save(&mut runtime, &battery_save_path)?;
-
-    println!("Controls: Esc quit, F12 reset, arrows d-pad, Z/X buttons, Enter Pause/Start.");
-    emu198x_ui::run(
-        SmsSystem {
-            variant: cli.variant,
-            battery_save_path,
-        },
-        runtime,
-        cli.scale,
-        cli.video,
-    )
-    .map_err(|err: UiError| err.to_string())
-}
-
-fn default_battery_save_path(cart_path: &std::path::Path) -> PathBuf {
-    let mut path = cart_path.to_path_buf();
-    path.set_extension("sav");
-    path
-}
-
-fn load_battery_save(runtime: &mut SmsRuntime, path: &std::path::Path) -> Result<(), String> {
-    match std::fs::read(path) {
-        Ok(bytes) => runtime
-            .restore_cartridge_save_image(&bytes)
-            .map_err(|err| format!("failed to restore battery save {}: {err}", path.display())),
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(err) => Err(format!(
-            "failed to read battery save {}: {err}",
-            path.display()
-        )),
-    }
-}
-
-/// Parse the interactive CLI. Exits the process on `--help` or a malformed flag.
-pub fn parse_cli<I>(args: I) -> Cli
-where
-    I: IntoIterator<Item = String>,
-{
-    let mut cli = Cli::default();
-    let mut iter = args.into_iter();
-    while let Some(arg) = iter.next() {
-        match arg.as_str() {
-            "--cart" => cli.cart = Some(PathBuf::from(next_arg(&mut iter, "--cart"))),
-            "--variant" => {
-                cli.variant = match next_arg(&mut iter, "--variant").as_str() {
-                    "sms-ntsc" | "sms" => Variant::SmsNtsc,
-                    "sms-pal" => Variant::SmsPal,
-                    "sms1-ntsc" | "sms1" => Variant::Sms1Ntsc,
-                    "sms1-pal" => Variant::Sms1Pal,
-                    other => die(&format!(
-                        "--variant expects sms-ntsc|sms-pal|sms1-ntsc|sms1-pal, got {other}"
-                    )),
-                };
-            }
-            "--scale" => {
-                cli.scale = next_arg(&mut iter, "--scale")
-                    .parse()
-                    .unwrap_or_else(|_| die("--scale requires a positive integer"));
-            }
-            "--video" => {
-                cli.video = next_arg(&mut iter, "--video")
-                    .parse()
-                    .unwrap_or_else(|_| die("--video expects raw, lcd, or crt"));
-            }
-            "--help" | "-h" => {
-                println!("{USAGE}");
-                std::process::exit(0);
-            }
-            _ if arg.starts_with('-') => die(&format!("unknown flag: {arg}")),
-            _ if cli.cart.is_none() => cli.cart = Some(PathBuf::from(arg)),
-            _ => die("only one positional cart path is supported"),
-        }
-    }
-    cli
-}
-
-fn next_arg<I: Iterator<Item = String>>(iter: &mut I, flag: &str) -> String {
-    iter.next()
-        .unwrap_or_else(|| die(&format!("missing value for {flag}")))
-}
-
-fn die(message: &str) -> ! {
-    eprintln!("error: {message}");
-    std::process::exit(1);
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
     #[test]
-    fn parse_cli_accepts_cart_variant_scale_video() {
-        let cli = parse_cli([
-            "--cart".to_owned(),
-            "sonic.sms".to_owned(),
-            "--variant".to_owned(),
-            "sms-pal".to_owned(),
-            "--scale".to_owned(),
-            "4".to_owned(),
-            "--video".to_owned(),
-            "crt".to_owned(),
-        ]);
-        assert_eq!(cli.cart, Some(PathBuf::from("sonic.sms")));
-        assert_eq!(cli.variant, Variant::SmsPal);
-        assert_eq!(cli.scale, 4);
-        assert_eq!(cli.video, VideoFilter::Crt);
-    }
-
-    #[test]
-    fn parse_cli_accepts_positional_cart() {
-        let cli = parse_cli(["sonic.sms".to_owned()]);
-        assert_eq!(cli.cart, Some(PathBuf::from("sonic.sms")));
-        assert_eq!(cli.variant, Variant::SmsNtsc);
-    }
-
-    #[test]
-    fn variant_frame_ticks_match() {
-        assert_eq!(Variant::SmsNtsc.frame_ticks(), 228 * 262);
-        assert_eq!(Variant::SmsPal.frame_ticks(), 228 * 313);
+    fn menu_switch_keeps_dirty_sram_and_tracks_live_pacing() {
+        let mut system = SmsSystem {
+            model: Model::SmsNtsc,
+            battery_save_path: PathBuf::from("game.sav"),
+        };
+        assert_eq!(
+            system
+                .variants()
+                .iter()
+                .map(|v| v.id.as_ref())
+                .collect::<Vec<_>>(),
+            Model::VARIANT_IDS
+        );
+        let mut runtime = SmsRuntime::new(Model::SmsNtsc, vec![0; 32768]);
+        let machine = runtime.machine_mut().expect("machine");
+        machine.poke(0xfffc, 0x08);
+        machine.poke(0x8123, 0x5a);
+        for model in Model::ALL {
+            system
+                .switch_variant(&mut runtime, model.variant_id())
+                .expect("switch");
+            assert_eq!(
+                system.current_variant().as_deref(),
+                Some(model.variant_id())
+            );
+            assert_eq!(system.frame_ticks(&runtime), model.frame_ticks());
+            let hz = if model.region() == emu198x_shell::Region::Pal {
+                50.0
+            } else {
+                60.0
+            };
+            assert_eq!(
+                system.frame_duration(&runtime),
+                Duration::from_secs_f64(1.0 / hz)
+            );
+            let machine = runtime.machine().expect("machine");
+            assert_eq!(
+                system.framebuffer_size(&runtime),
+                (machine.framebuffer_width(), machine.framebuffer_height())
+            );
+            assert_eq!(runtime.cartridge_save_image().expect("SRAM")[0x123], 0x5a);
+        }
+        let before = runtime.snapshot().expect("snapshot");
+        assert!(system.switch_variant(&mut runtime, "game-gear").is_err());
+        assert_eq!(runtime.snapshot().expect("snapshot"), before);
+        assert_eq!(system.battery_save_path, PathBuf::from("game.sav"));
     }
 
     #[test]
     fn pad_maps_and_console_button() {
         let sms = SmsSystem {
-            variant: Variant::SmsNtsc,
+            model: Model::SmsNtsc,
             battery_save_path: PathBuf::from("game.sav"),
         };
         assert_eq!(sms.map_key(KeyCode::ArrowLeft), Some(HostControl::Left));

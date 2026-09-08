@@ -32,6 +32,7 @@ const RUN_UNTIL_TOLERANCE_DOTS: u64 = 341;
 
 /// Firmwareless NES runtime over the concrete machine crate.
 pub struct NesRuntime {
+    model: Model,
     profile: MachineProfile,
     machine: Option<Nes>,
     time: MachineTime,
@@ -46,6 +47,7 @@ impl NesRuntime {
     #[must_use]
     pub fn blank(model: Model) -> Self {
         Self {
+            model,
             profile: profile_for(model),
             machine: None,
             time: MachineTime::default(),
@@ -54,6 +56,20 @@ impl NesRuntime {
             has_battery: false,
             rgba_framebuffer: vec![0; (FB_WIDTH * FB_HEIGHT * 4) as usize],
         }
+    }
+
+    #[must_use]
+    pub const fn model(&self) -> Model {
+        self.model
+    }
+
+    /// The NES catalogue has no separate firmware images.
+    pub fn from_firmware(
+        model: Model,
+        firmware: &emu198x_shell::FirmwareSet<'_>,
+    ) -> Result<Self, MachineError> {
+        firmware.validate_for_profile(&profile_for(model))?;
+        Ok(Self::blank(model))
     }
 
     /// Whether the loaded cartridge has battery-backed PRG-RAM — i.e. a
@@ -152,6 +168,12 @@ impl NesRuntime {
     }
 
     pub(crate) fn set_machine(&mut self, machine: Option<Nes>) {
+        self.has_battery = machine.is_some()
+            && self
+                .cartridge_bytes
+                .as_deref()
+                .and_then(|bytes| parse_ines(bytes).ok())
+                .is_some_and(|parsed| parsed.header.has_battery);
         self.machine = machine;
     }
 
@@ -169,7 +191,10 @@ impl NesRuntime {
         })?;
 
         self.has_battery = parsed.header.has_battery;
-        self.machine = Some(Nes::new(parsed.mapper));
+        self.machine = Some(Nes::new_with_region(
+            parsed.mapper,
+            self.model.machine_region(),
+        ));
         self.cartridge_bytes = Some(bytes.to_vec());
         self.cartridge_mapper = Some(parsed.header.mapper_number);
         self.time = MachineTime::default();
@@ -188,7 +213,12 @@ impl NesRuntime {
         match parse_ines(bytes) {
             Ok(parsed) => {
                 self.has_battery = parsed.header.has_battery;
-                self.machine = Some(Nes::new(parsed.mapper));
+                let mut machine = Nes::new_with_region(parsed.mapper, self.model.machine_region());
+                if let Some(previous) = &self.machine {
+                    machine.mapper.restore_save_ram(previous.mapper.save_ram());
+                    machine.set_audio_controls(previous.audio_controls());
+                }
+                self.machine = Some(machine);
                 self.cartridge_mapper = Some(parsed.header.mapper_number);
                 self.rgba_framebuffer.fill(0);
             }
@@ -217,7 +247,63 @@ impl NesRuntime {
     }
 }
 
+impl emu198x_shell::FamilyRuntime for NesRuntime {
+    type Model = Model;
+    fn variant_ids() -> &'static [&'static str] {
+        &Model::VARIANT_IDS
+    }
+    fn model_from_id(id: &str) -> Option<Model> {
+        Model::from_variant_id(id)
+    }
+    fn variant_id(model: Model) -> &'static str {
+        model.variant_id()
+    }
+    fn profile_for(model: Model) -> MachineProfile {
+        profile_for(model)
+    }
+    fn firmware_sources(_model: Model) -> Vec<emu198x_shell::FirmwareSource> {
+        Vec::new()
+    }
+    fn rom_convention() -> emu198x_shell::RomConvention {
+        emu198x_shell::RomConvention {
+            env_var: None,
+            dirs: &[],
+        }
+    }
+    fn from_firmware(
+        model: Model,
+        firmware: &emu198x_shell::FirmwareSet<'_>,
+    ) -> Result<Self, MachineError> {
+        Self::from_firmware(model, firmware)
+    }
+    fn replacement(
+        &self,
+        model: Model,
+        firmware: &emu198x_shell::FirmwareSet<'_>,
+    ) -> Result<Self, MachineError> {
+        let mut replacement = Self::from_firmware(model, firmware)?;
+        if let Some(bytes) = &self.cartridge_bytes {
+            replacement.load_cartridge_bytes("cartridge-1", bytes)?;
+            if let (Some(previous), Some(fresh)) = (&self.machine, &mut replacement.machine) {
+                fresh.mapper.restore_save_ram(previous.mapper.save_ram());
+                fresh.set_audio_controls(previous.audio_controls());
+            }
+        }
+        Ok(replacement)
+    }
+    fn native_frame_ticks(&self) -> u64 {
+        self.model.frame_ticks()
+    }
+}
+
 impl MachineCore for NesRuntime {
+    fn set_machine<Q: emu198x_shell::SessionQueryProvider<Self>>(
+        session: &mut emu198x_shell::HeadlessSession<Self, Q>,
+        machine: &str,
+    ) -> Result<emu198x_shell::VariantSwitched, emu198x_shell::LoaderError> {
+        emu198x_shell::swap_variant(session, machine)
+    }
+
     fn profile(&self) -> &MachineProfile {
         &self.profile
     }

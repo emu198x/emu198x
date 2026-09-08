@@ -7,20 +7,18 @@
 //! plus the single Pause button, which the runtime takes as an
 //! [`InputEvent::Key`] (`pause` on the SMS, `start` on the Game Gear), routed
 //! through [`UiSystem::map_keys`]. Compiled only with the `ui` Cargo feature;
-//! `main.rs` routes here when no automation flag is given.
+//! the shared launcher opens the window when no automation flag is given.
 
-use std::path::PathBuf;
+use emu198x_shell::FamilyRuntime;
 use std::time::Duration;
 
-use emu198x_ui::{
-    ButtonInputMap, ButtonTarget, HostControl, KeyCode, UiError, UiSystem, VideoFilter,
-};
-use runtime_sega_game_gear::{Model, SmsRuntime, with_cartridge};
+use emu198x_ui::launch::UiApp;
+use emu198x_ui::{ButtonInputMap, ButtonTarget, HostControl, KeyCode, UiSystem};
+use runtime_sega_game_gear::SmsRuntime;
+
+use crate::app::GameGear;
 
 const DEFAULT_SCALE: u32 = 3;
-/// CPU clocks per frame — `228 × lines`, matching the headless runner.
-const FRAME_TICKS: u64 = 228 * 262;
-const FRAME_HZ: f64 = 60.0;
 
 /// Player-1 control pad: directions plus the two face buttons. `south`/`east`
 /// are the names the class runtime's `controller_bit` maps to the pad's
@@ -35,66 +33,17 @@ const SMS_BUTTON_MAP: ButtonInputMap = ButtonInputMap::new(&[
     (HostControl::East, ButtonTarget::new(1, "east")),
 ]);
 
-const USAGE: &str = "\
-Usage: emu198x-sega-master-system [OPTIONS]
-
-Options:
-    --cart PATH     cartridge ROM (required)
-    --variant KIND  game-gear [default: game-gear]
-    --scale N       integer window scale, default 3
-    --video MODE    raw | lcd | crt [default: raw]
-    --help, -h      show this help
-
-Automation:
-    --script PATH   run a JSON session headlessly and print a report
-    --headless      run without a window (implied by --script)
-    --mcp           serve this machine over MCP on stdio
-
-Controls:
-    Esc             quit
-    F12             emulator hard reset
-    Arrow keys      d-pad (player 1)
-    Z / X           buttons 1 and 2
-    Enter           Start
-
-Examples:
-    emu198x-sega-game-gear --cart sonic.gg
-    emu198x-sega-game-gear --cart sonic.gg --scale 4
-";
-
-/// The Game Gear shipped in one hardware configuration. Kept as a flag so an
-/// invocation that used to read `emu198x-sega-master-system --variant
-/// game-gear` migrates by changing only the binary name (#998).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Variant {
-    GameGear,
-}
-
-impl Variant {
-    fn model(self) -> Model {
-        match self {
-            Self::GameGear => Model::GameGear,
-        }
-    }
-
-    fn frame_ticks(self) -> u64 {
-        match self {
-            Self::GameGear => FRAME_TICKS,
-        }
-    }
-
-    fn frame_hz(self) -> f64 {
-        match self {
-            Self::GameGear => FRAME_HZ,
-        }
-    }
-}
-
 /// The Sega Game Gear as a [`UiSystem`] for the shared harness.
 /// The variant is fixed at construction; a hard reset rebuilds the machine from
 /// the cartridge the runtime already holds.
-struct GameGearSystem {
-    variant: Variant,
+pub struct GameGearSystem;
+
+impl UiApp for GameGear {
+    type System = GameGearSystem;
+
+    fn ui_system(&self) -> GameGearSystem {
+        GameGearSystem
+    }
 }
 
 impl UiSystem for GameGearSystem {
@@ -123,12 +72,12 @@ impl UiSystem for GameGearSystem {
             .unwrap_or((160, 144))
     }
 
-    fn frame_ticks(&self, _runtime: &Self::Runtime) -> u64 {
-        self.variant.frame_ticks()
+    fn frame_ticks(&self, runtime: &Self::Runtime) -> u64 {
+        runtime.native_frame_ticks()
     }
 
     fn frame_duration(&self, _runtime: &Self::Runtime) -> Duration {
-        Duration::from_secs_f64(1.0 / self.variant.frame_hz())
+        Duration::from_secs_f64(1.0 / 60.0)
     }
 
     fn button_map(&self) -> &'static ButtonInputMap {
@@ -158,138 +107,15 @@ impl UiSystem for GameGearSystem {
     }
 }
 
-/// Parsed interactive CLI.
-#[derive(Debug, PartialEq, Eq)]
-pub struct Cli {
-    cart: Option<PathBuf>,
-    variant: Variant,
-    scale: u32,
-    video: VideoFilter,
-}
-
-impl Default for Cli {
-    fn default() -> Self {
-        Self {
-            cart: None,
-            variant: Variant::GameGear,
-            scale: DEFAULT_SCALE,
-            video: VideoFilter::Raw,
-        }
-    }
-}
-
-/// Build the runtime from the CLI and open the window. Returns a string error
-/// for the `main.rs` dispatcher.
-pub fn run(cli: Cli) -> Result<(), String> {
-    let cart_path = cli
-        .cart
-        .as_ref()
-        .ok_or_else(|| "provide a cartridge with --cart PATH".to_owned())?;
-    let cart = std::fs::read(cart_path)
-        .map_err(|err| format!("failed to read --cart {}: {err}", cart_path.display()))?;
-    let runtime = with_cartridge(cli.variant.model(), cart);
-
-    println!("Controls: Esc quit, F12 reset, arrows d-pad, Z/X buttons, Enter Pause/Start.");
-    emu198x_ui::run(
-        GameGearSystem {
-            variant: cli.variant,
-        },
-        runtime,
-        cli.scale,
-        cli.video,
-    )
-    .map_err(|err: UiError| err.to_string())
-}
-
-/// Parse the interactive CLI. Exits the process on `--help` or a malformed flag.
-pub fn parse_cli<I>(args: I) -> Cli
-where
-    I: IntoIterator<Item = String>,
-{
-    let mut cli = Cli::default();
-    let mut iter = args.into_iter();
-    while let Some(arg) = iter.next() {
-        match arg.as_str() {
-            "--cart" => cli.cart = Some(PathBuf::from(next_arg(&mut iter, "--cart"))),
-            "--variant" => {
-                cli.variant = match next_arg(&mut iter, "--variant").as_str() {
-                    "game-gear" | "gg" => Variant::GameGear,
-                    other => die(&format!("--variant expects game-gear, got {other}")),
-                };
-            }
-            "--scale" => {
-                cli.scale = next_arg(&mut iter, "--scale")
-                    .parse()
-                    .unwrap_or_else(|_| die("--scale requires a positive integer"));
-            }
-            "--video" => {
-                cli.video = next_arg(&mut iter, "--video")
-                    .parse()
-                    .unwrap_or_else(|_| die("--video expects raw, lcd, or crt"));
-            }
-            "--help" | "-h" => {
-                println!("{USAGE}");
-                std::process::exit(0);
-            }
-            _ if arg.starts_with('-') => die(&format!("unknown flag: {arg}")),
-            _ if cli.cart.is_none() => cli.cart = Some(PathBuf::from(arg)),
-            _ => die("only one positional cart path is supported"),
-        }
-    }
-    cli
-}
-
-fn next_arg<I: Iterator<Item = String>>(iter: &mut I, flag: &str) -> String {
-    iter.next()
-        .unwrap_or_else(|| die(&format!("missing value for {flag}")))
-}
-
-fn die(message: &str) -> ! {
-    eprintln!("error: {message}");
-    std::process::exit(1);
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn parse_cli_accepts_cart_variant_scale_video() {
-        let cli = parse_cli([
-            "--cart".to_owned(),
-            "game.gg".to_owned(),
-            "--variant".to_owned(),
-            "game-gear".to_owned(),
-            "--scale".to_owned(),
-            "4".to_owned(),
-            "--video".to_owned(),
-            "crt".to_owned(),
-        ]);
-        assert_eq!(cli.cart, Some(PathBuf::from("game.gg")));
-        assert_eq!(cli.variant, Variant::GameGear);
-        assert_eq!(cli.scale, 4);
-        assert_eq!(cli.video, VideoFilter::Crt);
-    }
-
-    #[test]
-    fn parse_cli_accepts_positional_cart() {
-        let cli = parse_cli(["sonic.gg".to_owned()]);
-        assert_eq!(cli.cart, Some(PathBuf::from("sonic.gg")));
-        assert_eq!(cli.variant, Variant::GameGear);
-    }
-
-    #[test]
-    fn variant_frame_ticks_match() {
-        assert_eq!(Variant::GameGear.frame_ticks(), 228 * 262);
-    }
 
     /// The Game Gear labels the console button Start, where its Master System
     /// sibling labels it Pause.
     #[test]
     fn pad_maps_and_console_button_is_start() {
-        let gg = GameGearSystem {
-            variant: Variant::GameGear,
-        };
+        let gg = GameGearSystem;
         assert_eq!(gg.map_key(KeyCode::ArrowLeft), Some(HostControl::Left));
         assert_eq!(gg.map_key(KeyCode::KeyZ), Some(HostControl::South));
         assert_eq!(gg.map_key(KeyCode::KeyX), Some(HostControl::East));

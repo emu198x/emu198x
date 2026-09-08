@@ -13,7 +13,7 @@
 //!   bearing machines, Sinclair Interface 2 (port 1) on +2A/+2B/+3, which can't
 //!   host a Kempston. Both [`button_map`](UiSystem::button_map) and
 //!   [`axis_map`](UiSystem::axis_map) switch with the active variant.
-//! - **Variants**: all 13 [`MachineKind`]s as the Machine-menu radio;
+//! - **Variants**: all 13 [`Model`]s as the Machine-menu radio;
 //!   [`switch_variant`](UiSystem::switch_variant) rebuilds the runtime via
 //!   `from_firmware`, the same recipe as the MCP `set_machine` tool.
 //! - **Tape**: F9/F10 transport + F11 turbo come free from the harness, gated on
@@ -21,36 +21,28 @@
 //! - **Snapshots**: File → Open State… loads `.sna`/`.z80` (parsed + applied) or
 //!   the internal `.emu198x-state` (restored), via [`load_state_file`].
 //!
-//! Compiled only with the `ui` Cargo feature; `main.rs` routes here when no
-//! automation flag is given.
+//! Compiled only with the `ui` Cargo feature; the shared launcher opens the
+//! window when no automation flag is given, booting the variant `--machine`
+//! names (48K by default) through [`crate::app::Spectrum::build_runtime`].
 
 use std::borrow::Cow;
-use std::path::{Path, PathBuf};
-use std::process;
+use std::path::Path;
 use std::time::Duration;
 
 use common_sinclair_zx_spectrum::timing::{SCREEN_HEIGHT, SCREEN_WIDTH};
 use emu198x_shell::{
-    ControlCommand, FamilyRuntime, FirmwareImage, FirmwareSet, HeadlessSession, MachineCore,
-    MachineError, MediaImage, MediaKind, MediaSet, MediaTransportAction, MediaTransportCommand,
-    read_firmware_asset, read_media_asset,
+    FirmwareOverrides, MachineCore, MachineError, MediaKind, build_variant, read_media_asset,
 };
+use emu198x_ui::launch::UiApp;
 use emu198x_ui::{
     AxisInputMap, AxisTarget, ButtonInputMap, ButtonTarget, HostAxis, HostControl, KeyCode,
-    UiSystem, VariantInfo, VideoFilter,
+    UiSystem, VariantInfo,
 };
-use runtime_sinclair_zx_spectrum::{
-    DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES, DEFAULT_TAPE_AUTOLOAD_SLOT, SpectrumLiveAccess,
-    SpectrumRuntimeKind, SpectrumSessionQueryProvider, autoload_basic_tape,
-};
+use runtime_sinclair_zx_spectrum::{Model, SpectrumLiveAccess, SpectrumRuntimeKind};
 
-use crate::machine::{
-    MachineKind, RomOverrides, read_variant_firmware, resolved_rom_bundle, rom_override_entry,
-};
-use crate::mcp::tools::kind_to_model;
+use crate::app::Spectrum;
 
 const DEFAULT_SCALE: u32 = 2;
-const DEFAULT_TAPE_SLOT: &str = "tape-1";
 
 // ---- Gamepad maps (lifted from the bespoke runner, unchanged) --------------
 
@@ -86,10 +78,10 @@ const IF2_AXES: AxisInputMap = AxisInputMap::new(&[
 ]);
 
 /// `true` for the Amstrad-class machines that route the gamepad through IF2.
-fn uses_if2(kind: MachineKind) -> bool {
+fn uses_if2(model: Model) -> bool {
     matches!(
-        kind,
-        MachineKind::SpectrumPlus2A | MachineKind::SpectrumPlus2B | MachineKind::SpectrumPlus3
+        model,
+        Model::SpectrumPlus2A | Model::SpectrumPlus2B | Model::SpectrumPlus3
     )
 }
 
@@ -154,15 +146,32 @@ fn map_spectrum_keys(code: KeyCode) -> Option<&'static [&'static str]> {
 
 /// The Spectrum as a [`UiSystem`]. Tracks the active variant so the gamepad
 /// routing, title, and Machine-menu radio follow live switches.
-struct SpectrumSystem {
-    current: MachineKind,
+pub struct SpectrumSystem {
+    current: Model,
+}
+
+impl UiApp for Spectrum {
+    type System = SpectrumSystem;
+
+    /// Starts on the variant `--machine` names, which is the one
+    /// [`Spectrum::build_runtime`] boots; an unknown id fails there, so
+    /// 48K here is only ever the default.
+    fn ui_system(&self) -> SpectrumSystem {
+        SpectrumSystem {
+            current: self
+                .machine
+                .as_deref()
+                .and_then(Model::from_variant_id)
+                .unwrap_or(Model::Spectrum48KPal),
+        }
+    }
 }
 
 impl UiSystem for SpectrumSystem {
     type Runtime = SpectrumRuntimeKind;
 
     fn window_title(&self) -> String {
-        format!("Emu198x | {}", self.current.label())
+        format!("Emu198x | {}", self.current.menu_label())
     }
 
     fn default_scale(&self) -> u32 {
@@ -256,14 +265,14 @@ impl UiSystem for SpectrumSystem {
     }
 
     fn variants(&self) -> Vec<VariantInfo> {
-        MachineKind::all()
+        Model::ALL
             .iter()
-            .map(|kind| VariantInfo::new(kind.script_id(), kind.label()))
+            .map(|model| VariantInfo::new(model.variant_id(), model.menu_label()))
             .collect()
     }
 
     fn current_variant(&self) -> Option<Cow<'static, str>> {
-        Some(Cow::Borrowed(self.current.script_id()))
+        Some(Cow::Borrowed(self.current.variant_id()))
     }
 
     fn switch_variant(
@@ -271,22 +280,18 @@ impl UiSystem for SpectrumSystem {
         runtime: &mut Self::Runtime,
         variant: &str,
     ) -> Result<(), MachineError> {
-        let kind =
-            MachineKind::from_script_id(variant).ok_or(MachineError::UnsupportedOperation {
-                operation: "unknown Spectrum variant",
-            })?;
-        // Same recipe as the MCP `set_machine`: load the variant's ROM bundle,
-        // then rebuild the family-enum runtime in place. The harness re-paces
-        // and refreshes; state/media are not preserved (a hardware swap).
-        let images = read_variant_firmware(kind).map_err(|err| MachineError::Host {
-            reason: format!("loading {} ROMs: {err}", kind.label()),
+        let model = Model::from_variant_id(variant).ok_or(MachineError::UnsupportedOperation {
+            operation: "unknown Spectrum variant",
         })?;
-        let mut firmware = FirmwareSet::new();
-        for (id, bytes) in &images {
-            firmware.push(FirmwareImage::new(*id, bytes));
-        }
-        *runtime = SpectrumRuntimeKind::from_firmware(kind_to_model(kind), &firmware)?;
-        self.current = kind;
+        // Same recipe as the shell's `set_machine`: the variant's ROM bundle
+        // from its conventional location, then the family-enum runtime
+        // rebuilt in place. The harness re-paces and refreshes; state/media
+        // are not preserved (a hardware swap).
+        *runtime = build_variant::<SpectrumRuntimeKind>(model, &FirmwareOverrides::none())
+            .map_err(|err| MachineError::Host {
+                reason: format!("switching to {}: {err}", model.menu_label()),
+            })?;
+        self.current = model;
         Ok(())
     }
 
@@ -343,233 +348,17 @@ fn load_any_snapshot(runtime: &mut SpectrumRuntimeKind, path: &Path) -> Result<(
     }
 }
 
-// ---- Construction + CLI ----------------------------------------------------
-
-/// Parsed interactive CLI (preserved from the bespoke runner).
-#[derive(Debug, Default, PartialEq, Eq)]
-pub struct Cli {
-    /// Raw `--rom` values, resolved against the boot variant's bundle.
-    pub rom: Vec<String>,
-    pub tape: Option<PathBuf>,
-    pub play_tape: bool,
-    pub autoload_tape: bool,
-    pub turbo_tape: bool,
-    pub scale: u32,
-    pub video: VideoFilter,
-}
-
-const USAGE: &str = "\
-Usage: emu198x-spectrum [OPTIONS]
-
-Options:
-    --rom PATH         ROM image or zip, for a single-ROM variant
-    --rom ID=PATH      one entry of a multi-ROM variant's bundle;
-                       repeatable, the rest still resolve conventionally
-    --tape PATH        TAP/TZX image or zip containing one tape candidate
-    --play-tape        start tape transport immediately after media load
-    --autoload-tape    wait for boot, type LOAD \"\", and start tape-1
-    --turbo-tape       (accepted; arm fast-load in the UI with F11)
-    --scale N          integer window scale, default 2
-    --video MODE       raw | lcd | crt [default: raw]
-    --help, -h         show this help
-
-Automation:
-    --script PATH   run a JSON session headlessly and print a report
-    --headless      run without a window (implied by --script)
-    --mcp           serve this machine over MCP on stdio
-
-Controls:
-    Esc                quit
-    F9 / F10 / F11     start / stop tape, toggle fast-load (turbo)
-    Cmd/Ctrl+Shift+E  export tape recording to a new .tap file
-    Cmd/Ctrl+Shift+K  toggle Host / Original keyboard (also Machine → Keyboard)
-    Home / Pause      EDIT / BREAK in Host keyboard mode
-    F12                hard reset
-    Cmd/Ctrl+S / +L    quick save / load state
-    Arrow keys         Spectrum cursor keys (Caps Shift + 5/6/7/8)
-    Alt                Symbol Shift
-    Gamepad            Kempston on 16K/48K/+/128K/+2; IF2 on +2A/+2B/+3
-    Machine menu       switch between the 13 variants live
-    File > Open State  load a .sna / .z80 / .emu198x-state file
-
-Examples:
-    emu198x-spectrum
-    emu198x-spectrum --rom 48.rom --tape manic_miner.zip
-    emu198x-spectrum --tape manic_miner.zip --autoload-tape
-";
-
-/// Build the runtime from the CLI and open the window.
-pub fn run(cli: Cli) -> Result<(), String> {
-    if cli.play_tape && cli.autoload_tape {
-        return Err("--play-tape and --autoload-tape are mutually exclusive".to_owned());
-    }
-    let runtime = build_runtime(&cli)?;
-    println!(
-        "Controls: Esc quit, F9/F10 tape start/stop, F11 fast-load, F12 reset, \
-         Cmd/Ctrl+S/L save/load state; Machine menu switches variant."
-    );
-    emu198x_ui::run(
-        SpectrumSystem {
-            current: MachineKind::Spectrum48K,
-        },
-        runtime,
-        cli.scale,
-        cli.video,
-    )
-    .map_err(|err| err.to_string())
-}
-
-/// Boot a 48K `SpectrumRuntimeKind` and apply the CLI's tape workflow. A
-/// temporary [`HeadlessSession`] is used for the tape load/autoload (reusing the
-/// shared helpers), then unwrapped into the bare runtime the harness drives.
-fn build_runtime(cli: &Cli) -> Result<SpectrumRuntimeKind, String> {
-    let kind = MachineKind::Spectrum48K;
-    let images = resolve_firmware(cli, kind)?;
-    let mut firmware = FirmwareSet::new();
-    for (id, bytes) in &images {
-        firmware.push(FirmwareImage::new(id.clone(), bytes));
-    }
-    let runtime = SpectrumRuntimeKind::from_firmware(kind_to_model(kind), &firmware)
-        .map_err(|e| e.to_string())?;
-
-    let frame_ticks = u64::from(runtime.frame_halfcycles());
-    let mut session = HeadlessSession::new_with_query_provider(
-        runtime,
-        frame_ticks,
-        SpectrumSessionQueryProvider,
-    );
-
-    if let Some(tape_path) = &cli.tape {
-        let tape = read_media_asset(tape_path, MediaKind::Tape).map_err(|e| e.to_string())?;
-        let mut media = MediaSet::new();
-        media.push(MediaImage::new(
-            DEFAULT_TAPE_SLOT,
-            MediaKind::Tape,
-            &tape.bytes,
-        ));
-        session.load_media(&media).map_err(|e| e.to_string())?;
-    }
-
-    if cli.autoload_tape {
-        if cli.tape.is_none() {
-            return Err("--autoload-tape needs a --tape".to_owned());
-        }
-        autoload_basic_tape(
-            &mut session,
-            DEFAULT_TAPE_AUTOLOAD_SLOT,
-            DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES,
-        )
-        .map_err(|e| e.to_string())?;
-    } else if cli.play_tape {
-        if cli.tape.is_none() {
-            return Err("--play-tape needs a --tape".to_owned());
-        }
-        session
-            .command(&ControlCommand::MediaTransport(MediaTransportCommand::new(
-                DEFAULT_TAPE_SLOT,
-                MediaTransportAction::Start,
-            )))
-            .map_err(|e| e.to_string())?;
-    }
-
-    Ok(session.into_machine())
-}
-
-/// The variant's firmware: every `--rom` override applied over the staged
-/// bundle.
-///
-/// This used to take the first bundle entry, read the one `--rom` file into
-/// it, and return a single-image set — which on a 128K handed a two-ROM
-/// machine one ROM. Routing through `resolved_rom_bundle` means every
-/// variant gets its whole bundle, with only the named entries replaced
-/// (#842).
-fn resolve_firmware(cli: &Cli, kind: MachineKind) -> Result<Vec<(String, Vec<u8>)>, String> {
-    let mut overrides = RomOverrides::new();
-    for spec in &cli.rom {
-        let (id, path) = rom_override_entry(spec, kind).map_err(|e| e.to_string())?;
-        overrides.insert(id, path);
-    }
-    if overrides.is_empty() {
-        return read_variant_firmware(kind)
-            .map(|images| {
-                images
-                    .into_iter()
-                    .map(|(id, b)| (id.to_owned(), b))
-                    .collect()
-            })
-            .map_err(|e| e.to_string());
-    }
-    let bundle = resolved_rom_bundle(kind, &overrides).map_err(|e| e.to_string())?;
-    let mut images = Vec::with_capacity(bundle.len());
-    for (id, path) in bundle {
-        let bytes = read_firmware_asset(&path)
-            .map_err(|e| e.to_string())?
-            .bytes
-            .to_vec();
-        images.push((id.to_owned(), bytes));
-    }
-    Ok(images)
-}
-
-/// Parse the interactive CLI. Exits the process on `--help` or a malformed flag.
-pub fn parse_cli<I>(args: I) -> Cli
-where
-    I: IntoIterator<Item = String>,
-{
-    let mut cli = Cli {
-        scale: DEFAULT_SCALE,
-        ..Cli::default()
-    };
-    let mut iter = args.into_iter();
-    while let Some(arg) = iter.next() {
-        match arg.as_str() {
-            "--rom" => cli.rom.push(next_arg(&mut iter, "--rom")),
-            "--tape" => cli.tape = Some(PathBuf::from(next_arg(&mut iter, "--tape"))),
-            "--play-tape" => cli.play_tape = true,
-            "--autoload-tape" => cli.autoload_tape = true,
-            "--turbo-tape" => cli.turbo_tape = true,
-            "--scale" => {
-                cli.scale = next_arg(&mut iter, "--scale")
-                    .parse()
-                    .unwrap_or_else(|_| die("--scale requires a positive integer"));
-            }
-            "--video" => {
-                cli.video = next_arg(&mut iter, "--video")
-                    .parse()
-                    .unwrap_or_else(|_| die("--video expects raw, lcd, or crt"));
-            }
-            "--help" | "-h" => {
-                println!("{USAGE}");
-                process::exit(0);
-            }
-            _ if arg.starts_with('-') => die(&format!("unknown flag: {arg}")),
-            _ => {
-                if cli.tape.is_none() {
-                    cli.tape = Some(PathBuf::from(arg));
-                } else {
-                    die("only one positional tape path is supported");
-                }
-            }
-        }
-    }
-    cli
-}
-
-fn next_arg<I: Iterator<Item = String>>(iter: &mut I, flag: &str) -> String {
-    iter.next()
-        .unwrap_or_else(|| die(&format!("missing value for {flag}")))
-}
-
-fn die(message: &str) -> ! {
-    eprintln!("error: {message}");
-    eprintln!();
-    eprintln!("{USAGE}");
-    process::exit(2);
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use emu198x_shell::launch::MachineApp;
+    use emu198x_shell::{HeadlessSession, MediaImage, MediaSet};
+    use runtime_sinclair_zx_spectrum::{
+        DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES, DEFAULT_TAPE_AUTOLOAD_SLOT,
+        SpectrumSessionQueryProvider, autoload_basic_tape,
+    };
+
+    const DEFAULT_TAPE_SLOT: &str = "tape-1";
 
     #[test]
     #[ignore = "FIXTURE: requires configured local Spectrum 48K ROM"]
@@ -585,10 +374,9 @@ mod tests {
     fn check_host_characters() {
         use emu198x_shell::InputEvent;
         let system = SpectrumSystem {
-            current: MachineKind::Spectrum48K,
+            current: Model::Spectrum48KPal,
         };
-        let runtime =
-            build_runtime(&parse_cli(std::iter::empty::<String>())).expect("configured ROM");
+        let runtime = Spectrum::default().build_runtime().expect("configured ROM");
         assert!(system.host_character_keys(&runtime, '€').is_none());
         assert!(system.host_character_keys(&runtime, '`').is_none());
         assert_eq!(
@@ -645,7 +433,7 @@ mod tests {
     #[test]
     fn host_keyword_modifier_is_left_alt_and_shift_left_alt() {
         let system = SpectrumSystem {
-            current: MachineKind::Spectrum48K,
+            current: Model::Spectrum48KPal,
         };
         let keyword = system
             .host_keyword_modifier()
@@ -711,10 +499,9 @@ mod tests {
             tap(session, &keys);
         }
         let system = SpectrumSystem {
-            current: MachineKind::Spectrum48K,
+            current: Model::Spectrum48KPal,
         };
-        let runtime =
-            build_runtime(&parse_cli(std::iter::empty::<String>())).expect("configured ROM");
+        let runtime = Spectrum::default().build_runtime().expect("configured ROM");
         let ticks = u64::from(runtime.frame_halfcycles());
         let mut session =
             HeadlessSession::new_with_query_provider(runtime, ticks, SpectrumSessionQueryProvider);
@@ -766,10 +553,10 @@ mod tests {
     fn check_desktop_tape_roundtrip() {
         use runtime_sinclair_zx_spectrum::{tap_key, tap_symbol_combo};
         let system = SpectrumSystem {
-            current: MachineKind::Spectrum48K,
+            current: Model::Spectrum48KPal,
         };
-        let cli = parse_cli(std::iter::empty::<String>());
-        let runtime = build_runtime(&cli).expect("configured 48K ROM");
+        let app = Spectrum::default();
+        let runtime = app.build_runtime().expect("configured 48K ROM");
         assert!(system.export_tape(&runtime).is_err());
         let ticks = u64::from(runtime.frame_halfcycles());
         let mut session =
@@ -798,7 +585,7 @@ mod tests {
             bytes,
             system.export_tape(session.machine()).expect("export again")
         );
-        let runtime = build_runtime(&cli).expect("fresh runtime");
+        let runtime = app.build_runtime().expect("fresh runtime");
         let mut loaded =
             HeadlessSession::new_with_query_provider(runtime, ticks, SpectrumSessionQueryProvider);
         let mut media = MediaSet::new();
@@ -822,31 +609,16 @@ mod tests {
     }
 
     #[test]
-    fn parse_cli_defaults_to_scale_two() {
-        let cli = parse_cli(std::iter::empty::<String>());
-        assert_eq!(cli.scale, 2);
-        assert_eq!(cli.video, VideoFilter::Raw);
-        assert_eq!(cli.tape, None);
-    }
-
-    #[test]
-    fn parse_cli_accepts_rom_tape_scale_and_positional() {
-        let cli = parse_cli([
-            "--rom".to_owned(),
-            "48.rom".to_owned(),
-            "--tape".to_owned(),
-            "manic.zip".to_owned(),
-            "--autoload-tape".to_owned(),
-            "--scale".to_owned(),
-            "3".to_owned(),
-        ]);
-        assert_eq!(cli.rom, vec!["48.rom".to_owned()]);
-        assert_eq!(cli.tape, Some(PathBuf::from("manic.zip")));
-        assert!(cli.autoload_tape);
-        assert_eq!(cli.scale, 3);
-
-        let positional = parse_cli(["manic.zip".to_owned()]);
-        assert_eq!(positional.tape, Some(PathBuf::from("manic.zip")));
+    fn the_window_opens_on_the_variant_machine_names() {
+        let app = Spectrum {
+            machine: Some("spectrum_plus3".to_owned()),
+            ..Spectrum::default()
+        };
+        assert_eq!(app.ui_system().current, Model::SpectrumPlus3);
+        assert_eq!(
+            Spectrum::default().ui_system().current,
+            Model::Spectrum48KPal
+        );
     }
 
     #[test]
@@ -864,9 +636,9 @@ mod tests {
 
     #[test]
     fn amstrad_class_uses_if2_others_kempston() {
-        assert!(uses_if2(MachineKind::SpectrumPlus2A));
-        assert!(uses_if2(MachineKind::SpectrumPlus3));
-        assert!(!uses_if2(MachineKind::Spectrum48K));
-        assert!(!uses_if2(MachineKind::Spectrum128K));
+        assert!(uses_if2(Model::SpectrumPlus2A));
+        assert!(uses_if2(Model::SpectrumPlus3));
+        assert!(!uses_if2(Model::Spectrum48KPal));
+        assert!(!uses_if2(Model::Spectrum128KPal));
     }
 }

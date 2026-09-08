@@ -13,6 +13,12 @@ name: Nightly Accuracy
 # manifest. The Lorenz asset contains the project's synthetic free KERNAL, not
 # a commercial ROM. See test-data/accuracy-corpora.md.
 
+# Read-only token for every job. The corpora come from a separate
+# release store through ACCURACY_CORPORA_TOKEN; GITHUB_TOKEN only
+# checks out the repo.
+permissions:
+  contents: read
+
 on:
   schedule:
     # 02:30 UTC nightly — off-peak for GitHub-hosted runners.

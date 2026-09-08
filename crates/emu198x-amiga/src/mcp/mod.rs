@@ -1,7 +1,9 @@
-//! MCP server mode for the Amiga binary (Stage Q).
+//! The Amiga MCP tool set (Stage Q).
 //!
-//! Mirrors the Spectrum MCP pattern: boots one machine, registers a
-//! small tool set, drives the JSON-RPC stdio loop until stdin closes.
+//! The server itself is the shared launcher's: `app.rs` registers these
+//! tools on it through `MachineApp::register_mcp_tools`, and the launcher
+//! boots one machine, loads any media named on the command line, and
+//! drives the JSON-RPC stdio loop until stdin closes.
 //!
 //! The Amiga MCP exists primarily as a *debugging surface* for the
 //! KS-internals investigation (Stage P onward). It exposes raw chip
@@ -21,88 +23,17 @@
 //! that vAmiga / FS-UAE / WinUAE also default to. Pass `--model a1200`
 //! for the AGA chipset.
 //!
-//! ROM resolution piggybacks on the windowed UI's helpers:
+//! ROM resolution is the same as the windowed and script modes':
 //!
 //!   1. `--kickstart PATH` explicit
 //!   2. `--rom-dir DIR` directory
 //!   3. `EMU198X_AMIGA_ROM_DIR` env var
 //!   4. `~/.emu198x/roms/commodore-amiga/` or `~/.emu198x/roms/amiga/`
 //!
-//! Per-model candidate ROM names live in
-//! [`crate::rom_candidates_for_model`].
+//! Per-model candidate ROM names live in the runtime's
+//! `Model::firmware_sources`.
 //!
 //! [`AmigaLiveAccess`]: runtime_commodore_amiga::AmigaLiveAccess
 
 mod lvo;
 pub(crate) mod tools;
-
-use std::path::PathBuf;
-
-use emu198x_shell::mcp::{Server, ServerInfo, serve_stdio};
-use emu198x_shell::mcp_tools::{
-    register_base_tools, register_keyboard_tools, register_memory_watch_tools,
-};
-use emu198x_shell::{HeadlessSession, MediaSet};
-use runtime_commodore_amiga::{A500_PAL_FRAME_TICKS, AmigaRuntimeKind, AmigaSessionQueryProvider};
-
-use crate::{AppError, ModelArg, find_rom_path};
-use tools::register_amiga_tools;
-
-/// The MCP session type — the shared headless session over the Amiga
-/// family runtime, identical to the one the `--script` path drives.
-type AmigaMcpSession = HeadlessSession<AmigaRuntimeKind, AmigaSessionQueryProvider>;
-
-/// MCP-mode CLI arguments. A trimmed subset of the windowed UI's
-/// `Cli` — only flags relevant to a headless JSON-RPC session.
-pub(crate) struct McpCli {
-    pub model: ModelArg,
-    pub rom_dir: Option<PathBuf>,
-    pub kickstart: Option<PathBuf>,
-}
-
-/// Runs MCP mode. Resolves the boot ROM for the chosen `model`, boots
-/// the matching chipset variant, registers every tool, and runs the
-/// stdio loop until stdin closes.
-///
-/// # Errors
-///
-/// Returns an error if the ROM cannot be found / loaded or the stdio
-/// loop hits an I/O failure.
-pub fn run(cli: McpCli) -> Result<(), AppError> {
-    let rom_path = find_rom_path(cli.model, cli.rom_dir.as_deref(), cli.kickstart.as_deref())
-        .map_err(|reason| AppError::MissingRom { path: reason })?;
-    let rom_bytes = std::fs::read(&rom_path).map_err(AppError::Io)?;
-    let machine =
-        AmigaRuntimeKind::new(cli.model.to_model(), rom_bytes).map_err(AppError::Machine)?;
-
-    // Same shared session the `--script` path builds. Frame length is
-    // the PAL constant (matching `script.rs`); media is injected at
-    // runtime via the `insert_media` / `load_media` tools.
-    let mut session: AmigaMcpSession = HeadlessSession::new_with_query_provider(
-        machine,
-        A500_PAL_FRAME_TICKS,
-        AmigaSessionQueryProvider,
-    );
-    session
-        .prepare(&MediaSet::new(), &[])
-        .map_err(|err| AppError::Setup {
-            reason: format!("session preparation failed: {err}"),
-        })?;
-
-    let mut server: Server<AmigaMcpSession> =
-        Server::new(ServerInfo::new("emu198x-amiga", env!("CARGO_PKG_VERSION")));
-    // Shared uniform surface (run/input/capture/query/recording/reset) +
-    // shared debug verbs (CPU/memory/disasm/step via DebugTarget) + the
-    // shared memory-watch verbs (watch_memory_* via WatchTarget; no AY tier —
-    // the Amiga has Paula) + the bespoke Amiga chip/exec/copper tools — the
-    // richer Amiga overrides win on name collisions (last write).
-    register_base_tools(server.registry_mut());
-    register_memory_watch_tools(server.registry_mut());
-    // The Amiga has a keyboard (with a Shift-aware char table + the two Amiga
-    // keys), so the shared press_key / press_keys / type_string apply.
-    register_keyboard_tools(server.registry_mut());
-    register_amiga_tools(server.registry_mut());
-
-    serve_stdio(&mut server, &mut session).map_err(AppError::from)?;
-    Ok(())
-}

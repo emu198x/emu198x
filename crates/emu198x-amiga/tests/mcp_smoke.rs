@@ -17,18 +17,12 @@
 use std::path::PathBuf;
 
 use emu198x_shell::mcp::{JsonRpcId, JsonRpcRequest, Server, ServerInfo};
-use emu198x_shell::mcp_tools::{register_common_tools, register_debug_tools};
+use emu198x_shell::mcp_tools::register_tools_for;
 use emu198x_shell::{HeadlessSession, MediaSet};
 use serde_json::{Value, json};
 
 #[path = "../src/mcp/lvo.rs"]
 mod lvo;
-// `tools.rs` resolves models + Kickstart ROMs through `crate::model::…`
-// (its `set_machine` impl); include the same module so the shared source
-// compiles in this second crate root, mirroring how the binary re-exports
-// it at its own root.
-#[path = "../src/model.rs"]
-mod model;
 #[path = "../src/mcp/tools.rs"]
 mod tools;
 
@@ -54,8 +48,7 @@ fn boot_server(rom_bytes: Vec<u8>) -> (Server<AmigaMcpSession>, AmigaMcpSession)
         .prepare(&MediaSet::new(), &[])
         .expect("session preparation");
     let mut server = Server::new(ServerInfo::new("emu198x-amiga", "test"));
-    register_common_tools(server.registry_mut());
-    register_debug_tools(server.registry_mut());
+    register_tools_for(server.registry_mut(), &session);
     register_amiga_tools(server.registry_mut());
     (server, session)
 }
@@ -197,22 +190,19 @@ fn set_machine_swaps_the_live_variant() {
     // Booted as the AGA A1200 (see boot_server); swap to the OCS A500.
     let (mut server, mut session) = boot_server(rom_bytes);
 
-    let swapped = unwrap_tool_text(&call(
-        &mut server,
-        &mut session,
-        2,
-        "tools/call",
-        json!({ "name": "set_machine", "arguments": { "model": "a500" } }),
-    ));
-    assert_eq!(swapped.get("model").and_then(Value::as_str), Some("a500"));
-    let profile_id = swapped
-        .get("profile_id")
-        .and_then(Value::as_str)
-        .expect("set_machine reports profile_id");
-    assert!(
-        profile_id.contains("a500"),
-        "swapped profile should be an A500 variant, got {profile_id}"
-    );
+    for model in [Model::A500OcsPal, Model::A500OcsNtscA501] {
+        let id = model.variant_id();
+        let swapped = unwrap_tool_text(&call(
+            &mut server,
+            &mut session,
+            2,
+            "tools/call",
+            json!({ "name": "set_machine", "arguments": { "model": id } }),
+        ));
+        assert_eq!(swapped.get("machine").and_then(Value::as_str), Some(id));
+        assert_eq!(session.machine().model(), model);
+        assert_eq!(session.native_frame_ticks(), model.frame_ticks());
+    }
 
     // The freshly-installed OCS machine drives: stepping advances it.
     let step = unwrap_tool_text(&call(

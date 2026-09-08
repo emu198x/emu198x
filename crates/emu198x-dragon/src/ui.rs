@@ -18,18 +18,18 @@
 //! - **Tape**: F9/F10 transport + F11 turbo come free from the harness, gated on
 //!   the `tape-1` slot; [`tape_playing`](UiSystem::tape_playing) drives turbo.
 //!
-//! Compiled only with the `ui` Cargo feature; `main.rs` routes here when no
-//! headless-only flag is given.
+//! Compiled only with the `ui` Cargo feature; the shared launcher opens the
+//! window when no automation or harness flag is given.
 
 use std::borrow::Cow;
-use std::path::PathBuf;
-use std::process;
 use std::time::Duration;
 
+use emu198x_shell::launch::LaunchError;
 use emu198x_shell::{
-    FirmwareImage, FirmwareSet, HeadlessSession, InputEvent, MachineError, MediaImage, MediaKind,
-    MediaSet, SessionError, read_firmware_asset, read_media_asset,
+    FamilyRuntime, FirmwareOverrides, HeadlessSession, InputEvent, MachineError, MediaImage,
+    MediaKind, MediaSet, SessionError, build_variant, read_media_asset,
 };
+use emu198x_ui::launch::UiApp;
 use emu198x_ui::{
     AxisInputMap, AxisTarget, ButtonInputMap, ButtonTarget, HostAxis, HostControl, KeyCode,
     UiSystem, VariantInfo, VideoFilter,
@@ -38,17 +38,15 @@ use motorola_vdg_6847::{VDG_PAL_OVERSCAN_FRAMEBUFFER_HEIGHT, VDG_PAL_OVERSCAN_FR
 use runtime_dragon::{DragonRuntime, DragonSessionQueryProvider, Model};
 use thiserror::Error;
 
+use crate::app::Dragon;
+
 const DEFAULT_SCALE: u32 = 2;
-const DRAGON_CPU_HZ: u64 = 894_886;
 const DRAGON_FRAME_HZ: u64 = 50;
-const DRAGON_FRAME_CYCLES: u64 = DRAGON_CPU_HZ / DRAGON_FRAME_HZ;
+const DRAGON_FRAME_CYCLES: u64 = Model::Dragon32Pal.native_frame_ticks();
 const INPUT_SLICES_PER_FRAME: u32 = 4;
 const AUTOLOAD_BOOT_FRAMES: u32 = 100;
 const AUTOLOAD_KEY_EDGE_FRAMES: u32 = 4;
 const AUTOLOAD_START_SETTLE_FRAMES: u32 = 60;
-
-const DRAGON32_ID: &str = "dragon32";
-const DRAGON64_ID: &str = "dragon64";
 
 // ---- Gamepad maps (lifted from the bespoke runner, unchanged) --------------
 
@@ -137,7 +135,7 @@ fn map_dragon_keys(code: KeyCode) -> Option<&'static [&'static str]> {
 
 /// The Dragon as a [`UiSystem`]. Tracks the active model so the title and the
 /// Machine-menu radio follow live switches.
-struct DragonSystem {
+pub struct DragonSystem {
     current: Model,
 }
 
@@ -152,6 +150,11 @@ impl UiSystem for DragonSystem {
         DEFAULT_SCALE
     }
 
+    /// The Dragon's window has always opened on the CRT filter.
+    fn default_video(&self) -> VideoFilter {
+        VideoFilter::Crt
+    }
+
     fn framebuffer_size(&self, _runtime: &Self::Runtime) -> (u32, u32) {
         (
             VDG_PAL_OVERSCAN_FRAMEBUFFER_WIDTH as u32,
@@ -159,8 +162,8 @@ impl UiSystem for DragonSystem {
         )
     }
 
-    fn frame_ticks(&self, _runtime: &Self::Runtime) -> u64 {
-        DRAGON_FRAME_CYCLES
+    fn frame_ticks(&self, runtime: &Self::Runtime) -> u64 {
+        runtime.native_frame_ticks()
     }
 
     fn frame_duration(&self, _runtime: &Self::Runtime) -> Duration {
@@ -188,14 +191,14 @@ impl UiSystem for DragonSystem {
     }
 
     fn variants(&self) -> Vec<VariantInfo> {
-        vec![
-            VariantInfo::new(DRAGON32_ID, Model::Dragon32Pal.display_name()),
-            VariantInfo::new(DRAGON64_ID, Model::Dragon64Pal.display_name()),
-        ]
+        Model::ALL
+            .into_iter()
+            .map(|model| VariantInfo::new(model.variant_id(), model.display_name()))
+            .collect()
     }
 
     fn current_variant(&self) -> Option<Cow<'static, str>> {
-        Some(Cow::Borrowed(variant_id(self.current)))
+        Some(Cow::Borrowed(self.current.variant_id()))
     }
 
     fn switch_variant(
@@ -203,76 +206,40 @@ impl UiSystem for DragonSystem {
         runtime: &mut Self::Runtime,
         variant: &str,
     ) -> Result<(), MachineError> {
-        let model = model_for_variant(variant).ok_or(MachineError::UnsupportedOperation {
+        let model = Model::from_variant_id(variant).ok_or(MachineError::UnsupportedOperation {
             operation: "unknown Dragon variant",
         })?;
-        let firmware_images =
-            resolve_variant_firmware(model).map_err(|reason| MachineError::Host {
-                reason: format!("loading {} ROMs: {reason}", model.display_name()),
+        *runtime =
+            build_variant::<DragonRuntime>(model, &FirmwareOverrides::none()).map_err(|err| {
+                MachineError::Host {
+                    reason: err.to_string(),
+                }
             })?;
-        let mut firmware = FirmwareSet::new();
-        for (id, bytes) in &firmware_images {
-            firmware.push(FirmwareImage::new(*id, bytes));
-        }
-        *runtime = DragonRuntime::from_firmware(model, &firmware)?;
         self.current = model;
         Ok(())
     }
 }
 
-/// The stable variant id for a model (round-trips through [`model_for_variant`]).
-fn variant_id(model: Model) -> &'static str {
-    match model {
-        Model::Dragon32Pal => DRAGON32_ID,
-        Model::Dragon64Pal => DRAGON64_ID,
-    }
-}
+// ---- Construction ----------------------------------------------------------
 
-/// Resolve a variant id from the Machine menu back to a [`Model`].
-fn model_for_variant(variant: &str) -> Option<Model> {
-    match variant {
-        DRAGON32_ID => Some(Model::Dragon32Pal),
-        DRAGON64_ID => Some(Model::Dragon64Pal),
-        _ => None,
-    }
-}
+impl UiApp for Dragon {
+    type System = DragonSystem;
 
-// ---- Construction + CLI ----------------------------------------------------
-
-/// Parsed interactive CLI (preserved from the bespoke runner).
-#[derive(Debug, PartialEq, Eq)]
-pub struct Cli {
-    pub model: Model,
-    pub rom: Option<PathBuf>,
-    pub mode_rom: Option<PathBuf>,
-    pub tape: Option<PathBuf>,
-    pub cart: Option<PathBuf>,
-    pub bin: Option<PathBuf>,
-    pub snapshot: Option<PathBuf>,
-    pub autoload: bool,
-    pub scale: u32,
-    pub video: VideoFilter,
-}
-
-impl Default for Cli {
-    fn default() -> Self {
-        Self {
-            model: Model::Dragon32Pal,
-            rom: None,
-            mode_rom: None,
-            tape: None,
-            cart: None,
-            bin: None,
-            snapshot: None,
-            autoload: false,
-            scale: DEFAULT_SCALE,
-            video: VideoFilter::Crt,
+    fn ui_system(&self) -> DragonSystem {
+        DragonSystem {
+            current: self.model,
         }
     }
+
+    /// Resolve catalogue firmware, mount startup media, then perform the
+    /// window's existing tape-autoload sequence when requested.
+    fn build_ui_runtime(&self) -> Result<DragonRuntime, LaunchError> {
+        build_runtime(self).map_err(|err| LaunchError::Run(err.to_string()))
+    }
 }
 
-/// Setup-phase errors building the runtime from the CLI. Surfaced to `main.rs`
-/// as a `String` via [`run`].
+/// Setup-phase errors building the runtime from the flags. Surfaced to the
+/// launcher as a run error.
 #[derive(Debug, Error)]
 enum AppError {
     #[error(transparent)]
@@ -285,115 +252,20 @@ enum AppError {
     Setup { reason: String },
 }
 
-const USAGE: &str = "\
-Usage: emu198x-dragon [OPTIONS] --rom PATH
-
-Options:
-    --model MODEL    dragon32 | dragon64 [default: dragon32]
-    --rom PATH       Dragon 32 BASIC ROM, or Dragon 64 compatible-mode ROM
-    --rom64 PATH     Dragon 64 64-mode BASIC ROM, required with --model dragon64
-    --tape PATH      Dragon CAS tape image, or zip containing one .cas member
-    --cart PATH      Dragon cartridge ROM/DGN image, or zip containing one cartridge member
-    --bin PATH       DragonDOS .BIN program, or zip containing one .bin member
-    --snapshot PATH  PC-Dragon PAK snapshot, or zip containing one .pak member
-    --autoload       type CLOAD/CLOADM, wait for load, then type RUN/EXEC
-    --scale N        integer window scale, default 2
-    --video MODE     raw | lcd | crt [default: crt]
-    --help, -h       show this help
-
-Automation:
-    --script PATH   run a JSON session headlessly and print a report
-    --headless      run without a window (implied by --script)
-    --mcp           serve this machine over MCP on stdio
-
-Controls:
-    Esc              quit
-    F9 / F10 / F11   start / stop tape, toggle fast-load (turbo)
-    F12              hard reset
-    Cmd/Ctrl+S / +L  quick save / load state
-    A-Z, 0-9         Dragon keyboard keys
-    @ : ; , - . /    Dragon punctuation keys (shifted symbols via host Shift)
-    Arrows           Dragon arrow keys
-    Enter            Dragon Enter
-    Space            Dragon Space
-    Shift            Dragon Shift
-    Backspace        Dragon Clear
-    F1               Dragon Break
-    Gamepad          left stick / d-pad drives Dragon joystick 1; South/East fire
-    Machine menu     switch between Dragon 32 and Dragon 64 live
-";
-
-/// Build the runtime from the CLI and open the window.
-pub fn run(cli: Cli) -> Result<(), String> {
-    println!(
-        "Controls: Esc quit, F9/F10 tape start/stop, F11 fast-load, F12 reset, \
-         Cmd/Ctrl+S/L save/load state; Dragon keys: A-Z, 0-9, punctuation, arrows, \
-         Enter, Clear, Break, Shift, Space; Machine menu switches variant."
-    );
-    let model = cli.model;
-    let runtime = build_runtime(&cli).map_err(|err| err.to_string())?;
-    emu198x_ui::run(
-        DragonSystem { current: model },
-        runtime,
-        cli.scale,
-        cli.video,
-    )
-    .map_err(|err| err.to_string())
-}
-
-/// Build a [`DragonRuntime`] from the CLI's launch model and media workflow. A
-/// temporary [`HeadlessSession`] is used for the media load/autoload (reusing
-/// the shared helpers), then unwrapped into the bare runtime the harness drives.
-fn build_runtime(cli: &Cli) -> Result<DragonRuntime, AppError> {
+/// Build a [`DragonRuntime`] from the flags' launch model and media workflow.
+/// A temporary [`HeadlessSession`] is used for the media load/autoload
+/// (reusing the shared helpers), then unwrapped into the bare runtime the
+/// harness drives.
+fn build_runtime(cli: &Dragon) -> Result<DragonRuntime, AppError> {
     if cli.autoload && cli.tape.is_none() {
         return Err(AppError::Setup {
             reason: "--autoload requires --tape PATH".to_owned(),
         });
     }
 
-    let rom = cli.rom.as_ref().ok_or_else(|| AppError::Setup {
-        reason: "provide --rom PATH".to_owned(),
-    })?;
-    let loaded = read_firmware_asset(rom).map_err(|err| AppError::Setup {
-        reason: format!("failed to load Dragon ROM {}: {err}", rom.display()),
-    })?;
-    let loaded_mode_rom = if cli.model == Model::Dragon64Pal {
-        let mode_rom = cli.mode_rom.as_ref().ok_or_else(|| AppError::Setup {
-            reason: "--model dragon64 requires --rom64 PATH".to_owned(),
-        })?;
-        Some(
-            read_firmware_asset(mode_rom).map_err(|err| AppError::Setup {
-                reason: format!(
-                    "failed to load Dragon 64 mode ROM {}: {err}",
-                    mode_rom.display()
-                ),
-            })?,
-        )
-    } else {
-        None
-    };
-    let mut firmware = FirmwareSet::new();
-    match cli.model {
-        Model::Dragon32Pal => {
-            if cli.mode_rom.is_some() {
-                return Err(AppError::Setup {
-                    reason: "--rom64 requires --model dragon64".to_owned(),
-                });
-            }
-            firmware.push(FirmwareImage::new("dragon32-basic-rom", &loaded.bytes));
-        }
-        Model::Dragon64Pal => {
-            let loaded_mode_rom = loaded_mode_rom
-                .as_ref()
-                .expect("Dragon 64 mode ROM should be loaded before firmware construction");
-            firmware.push(FirmwareImage::new("dragon64-compatible-rom", &loaded.bytes));
-            firmware.push(FirmwareImage::new(
-                "dragon64-basic-rom",
-                &loaded_mode_rom.bytes,
-            ));
-        }
-    }
-    let runtime = DragonRuntime::from_firmware(cli.model, &firmware)?;
+    let runtime = cli
+        .catalogue_runtime()
+        .map_err(|reason| AppError::Setup { reason })?;
     let mut session = HeadlessSession::new_with_query_provider(
         runtime,
         DRAGON_FRAME_CYCLES,
@@ -481,73 +353,6 @@ fn build_runtime(cli: &Cli) -> Result<DragonRuntime, AppError> {
     }
 
     Ok(session.into_machine())
-}
-
-// ---- Staged-ROM resolvers (for live variant switching) ---------------------
-
-/// Resolve the firmware bundle for a model from the staged ROM paths
-/// (`$EMU198X_*` overrides or `~/.emu198x/roms/dragon/`). The Dragon 32 needs
-/// one image; the Dragon 64 needs the compatible-mode ROM plus the 64-mode ROM.
-fn resolve_variant_firmware(model: Model) -> Result<Vec<(&'static str, Vec<u8>)>, String> {
-    match model {
-        Model::Dragon32Pal => {
-            let path = staged_dragon32_rom()
-                .ok_or_else(|| "Dragon 32 ROM is not staged (~/.emu198x/roms/dragon/dragon32.rom or $EMU198X_DRAGON32_ROM)".to_owned())?;
-            let bytes = read_firmware_asset(&path)
-                .map_err(|err| format!("{}: {err}", path.display()))?
-                .bytes
-                .to_vec();
-            Ok(vec![("dragon32-basic-rom", bytes)])
-        }
-        Model::Dragon64Pal => {
-            let compat_path = staged_dragon64_compat_rom()
-                .ok_or_else(|| "Dragon 64 compatible-mode ROM is not staged (~/.emu198x/roms/dragon/dragon64-compat.rom or $EMU198X_DRAGON64_COMPAT_ROM)".to_owned())?;
-            let mode_path = staged_dragon64_mode_rom()
-                .ok_or_else(|| "Dragon 64 64-mode ROM is not staged (~/.emu198x/roms/dragon/dragon64.rom or $EMU198X_DRAGON64_ROM)".to_owned())?;
-            let compat = read_firmware_asset(&compat_path)
-                .map_err(|err| format!("{}: {err}", compat_path.display()))?
-                .bytes
-                .to_vec();
-            let mode = read_firmware_asset(&mode_path)
-                .map_err(|err| format!("{}: {err}", mode_path.display()))?
-                .bytes
-                .to_vec();
-            Ok(vec![
-                ("dragon64-compatible-rom", compat),
-                ("dragon64-basic-rom", mode),
-            ])
-        }
-    }
-}
-
-fn staged_dragon32_rom() -> Option<PathBuf> {
-    if let Ok(path) = std::env::var("EMU198X_DRAGON32_ROM") {
-        return existing_file(path);
-    }
-    existing_file(home_path(".emu198x/roms/dragon/dragon32.rom")?)
-}
-
-fn staged_dragon64_compat_rom() -> Option<PathBuf> {
-    if let Ok(path) = std::env::var("EMU198X_DRAGON64_COMPAT_ROM") {
-        return existing_file(path);
-    }
-    existing_file(home_path(".emu198x/roms/dragon/dragon64-compat.rom")?)
-}
-
-fn staged_dragon64_mode_rom() -> Option<PathBuf> {
-    if let Ok(path) = std::env::var("EMU198X_DRAGON64_ROM") {
-        return existing_file(path);
-    }
-    existing_file(home_path(".emu198x/roms/dragon/dragon64.rom")?)
-}
-
-fn home_path(relative: &str) -> Option<PathBuf> {
-    Some(PathBuf::from(std::env::var("HOME").ok()?).join(relative))
-}
-
-fn existing_file(path: impl Into<PathBuf>) -> Option<PathBuf> {
-    let path = path.into();
-    path.is_file().then_some(path)
 }
 
 // ---- Autoload machinery (lifted from the bespoke runner) -------------------
@@ -675,191 +480,9 @@ fn tap_key(
     Ok(())
 }
 
-// ---- CLI parsing -----------------------------------------------------------
-
-/// Parses the interactive CLI. Exits the process on `--help` or a malformed flag.
-pub fn parse_cli<I>(args: I) -> Cli
-where
-    I: IntoIterator<Item = String>,
-{
-    let mut cli = Cli::default();
-    let mut iter = args.into_iter();
-
-    while let Some(arg) = iter.next() {
-        match arg.as_str() {
-            "--model" => cli.model = parse_model(&next_arg(&mut iter, "--model")),
-            "--rom" => cli.rom = Some(PathBuf::from(next_arg(&mut iter, "--rom"))),
-            "--rom64" => cli.mode_rom = Some(PathBuf::from(next_arg(&mut iter, "--rom64"))),
-            "--tape" => cli.tape = Some(PathBuf::from(next_arg(&mut iter, "--tape"))),
-            "--cart" => cli.cart = Some(PathBuf::from(next_arg(&mut iter, "--cart"))),
-            "--bin" => cli.bin = Some(PathBuf::from(next_arg(&mut iter, "--bin"))),
-            "--snapshot" => cli.snapshot = Some(PathBuf::from(next_arg(&mut iter, "--snapshot"))),
-            "--autoload" => cli.autoload = true,
-            "--scale" => {
-                cli.scale = next_arg(&mut iter, "--scale")
-                    .parse()
-                    .unwrap_or_else(|_| die("--scale requires a positive integer"));
-            }
-            "--video" => {
-                cli.video = next_arg(&mut iter, "--video")
-                    .parse()
-                    .unwrap_or_else(|_| die("--video expects raw, lcd, or crt"));
-            }
-            "--help" | "-h" => {
-                println!("{USAGE}");
-                process::exit(0);
-            }
-            _ if arg.starts_with('-') => die(&format!("unknown flag: {arg}")),
-            _ => {
-                if cli.rom.is_none() {
-                    cli.rom = Some(PathBuf::from(arg));
-                } else {
-                    die("only one positional ROM path is supported");
-                }
-            }
-        }
-    }
-
-    cli
-}
-
-fn parse_model(value: &str) -> Model {
-    match value {
-        "dragon32" | "dragon-32" | "dragon-32-pal" => Model::Dragon32Pal,
-        "dragon64" | "dragon-64" | "dragon-64-pal" => Model::Dragon64Pal,
-        _ => die("--model expects dragon32 or dragon64"),
-    }
-}
-
-fn next_arg<I>(iter: &mut I, flag: &str) -> String
-where
-    I: Iterator<Item = String>,
-{
-    iter.next()
-        .unwrap_or_else(|| die(&format!("missing value for {flag}")))
-}
-
-fn die(message: &str) -> ! {
-    eprintln!("error: {message}");
-    process::exit(1);
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn parse_cli_accepts_positional_rom_and_video() {
-        let cli = parse_cli([
-            "--scale".to_owned(),
-            "3".to_owned(),
-            "--video".to_owned(),
-            "raw".to_owned(),
-            "dragon32.rom".to_owned(),
-        ]);
-
-        assert_eq!(
-            cli,
-            Cli {
-                model: Model::Dragon32Pal,
-                rom: Some(PathBuf::from("dragon32.rom")),
-                mode_rom: None,
-                tape: None,
-                cart: None,
-                bin: None,
-                snapshot: None,
-                autoload: false,
-                scale: 3,
-                video: VideoFilter::Raw,
-            }
-        );
-    }
-
-    #[test]
-    fn parse_cli_accepts_dragon64_model_and_mode_rom() {
-        let cli = parse_cli([
-            "--model".to_owned(),
-            "dragon64".to_owned(),
-            "--rom".to_owned(),
-            "dragon64-compat.rom".to_owned(),
-            "--rom64".to_owned(),
-            "dragon64.rom".to_owned(),
-        ]);
-
-        assert_eq!(cli.model, Model::Dragon64Pal);
-        assert_eq!(cli.rom, Some(PathBuf::from("dragon64-compat.rom")));
-        assert_eq!(cli.mode_rom, Some(PathBuf::from("dragon64.rom")));
-    }
-
-    #[test]
-    fn parse_cli_accepts_tape_path() {
-        let cli = parse_cli([
-            "--rom".to_owned(),
-            "dragon32.rom".to_owned(),
-            "--tape".to_owned(),
-            "program.cas".to_owned(),
-        ]);
-
-        assert_eq!(cli.model, Model::Dragon32Pal);
-        assert_eq!(cli.rom, Some(PathBuf::from("dragon32.rom")));
-        assert_eq!(cli.tape, Some(PathBuf::from("program.cas")));
-        assert!(!cli.autoload);
-    }
-
-    #[test]
-    fn parse_cli_accepts_cart_path() {
-        let cli = parse_cli([
-            "--rom".to_owned(),
-            "dragon32.rom".to_owned(),
-            "--cart".to_owned(),
-            "game.dgn".to_owned(),
-        ]);
-
-        assert_eq!(cli.rom, Some(PathBuf::from("dragon32.rom")));
-        assert_eq!(cli.mode_rom, None);
-        assert_eq!(cli.cart, Some(PathBuf::from("game.dgn")));
-    }
-
-    #[test]
-    fn parse_cli_accepts_snapshot_path() {
-        let cli = parse_cli([
-            "--rom".to_owned(),
-            "dragon32.rom".to_owned(),
-            "--snapshot".to_owned(),
-            "game.pak".to_owned(),
-        ]);
-
-        assert_eq!(cli.rom, Some(PathBuf::from("dragon32.rom")));
-        assert_eq!(cli.snapshot, Some(PathBuf::from("game.pak")));
-    }
-
-    #[test]
-    fn parse_cli_accepts_bin_path() {
-        let cli = parse_cli([
-            "--rom".to_owned(),
-            "dragon32.rom".to_owned(),
-            "--bin".to_owned(),
-            "game.bin".to_owned(),
-        ]);
-
-        assert_eq!(cli.rom, Some(PathBuf::from("dragon32.rom")));
-        assert_eq!(cli.bin, Some(PathBuf::from("game.bin")));
-    }
-
-    #[test]
-    fn parse_cli_accepts_autoload_flag() {
-        let cli = parse_cli([
-            "--rom".to_owned(),
-            "dragon32.rom".to_owned(),
-            "--tape".to_owned(),
-            "program.cas".to_owned(),
-            "--autoload".to_owned(),
-        ]);
-
-        assert_eq!(cli.rom, Some(PathBuf::from("dragon32.rom")));
-        assert_eq!(cli.tape, Some(PathBuf::from("program.cas")));
-        assert!(cli.autoload);
-    }
 
     #[test]
     fn autoload_kind_commands_match_dragon_basic() {
@@ -933,14 +556,5 @@ mod tests {
     fn map_keys_ignores_unmapped_keys() {
         assert_eq!(map_dragon_keys(KeyCode::F5), None);
         assert_eq!(map_dragon_keys(KeyCode::Tab), None);
-    }
-
-    #[test]
-    fn variant_ids_round_trip_through_models() {
-        assert_eq!(model_for_variant(DRAGON32_ID), Some(Model::Dragon32Pal));
-        assert_eq!(model_for_variant(DRAGON64_ID), Some(Model::Dragon64Pal));
-        assert_eq!(model_for_variant("nonsense"), None);
-        assert_eq!(variant_id(Model::Dragon32Pal), DRAGON32_ID);
-        assert_eq!(variant_id(Model::Dragon64Pal), DRAGON64_ID);
     }
 }

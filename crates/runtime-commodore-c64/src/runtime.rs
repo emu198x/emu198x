@@ -779,7 +779,53 @@ impl C64Runtime {
     }
 }
 
+impl emu198x_shell::FamilyRuntime for C64Runtime {
+    type Model = Model;
+
+    fn from_firmware(model: Model, firmware: &FirmwareSet<'_>) -> Result<Self, MachineError> {
+        Self::from_firmware(model, firmware)
+    }
+
+    fn native_frame_ticks(&self) -> u64 {
+        u64::from(self.model.timing().cycles_per_frame)
+    }
+
+    fn variant_ids() -> &'static [&'static str] {
+        &Model::VARIANT_IDS
+    }
+
+    fn model_from_id(id: &str) -> Option<Model> {
+        Model::from_variant_id(id)
+    }
+
+    fn variant_id(model: Model) -> &'static str {
+        model.variant_id()
+    }
+
+    fn profile_for(model: Model) -> MachineProfile {
+        profile_for(model)
+    }
+
+    fn rom_convention() -> emu198x_shell::RomConvention {
+        emu198x_shell::RomConvention {
+            env_var: Some("EMU198X_C64_ROM_DIR"),
+            dirs: &["commodore-c64", "c64"],
+        }
+    }
+
+    fn firmware_sources(model: Model) -> Vec<emu198x_shell::FirmwareSource> {
+        model.firmware_sources()
+    }
+}
+
 impl MachineCore for C64Runtime {
+    fn set_machine<Q: emu198x_shell::SessionQueryProvider<Self>>(
+        session: &mut emu198x_shell::HeadlessSession<Self, Q>,
+        machine: &str,
+    ) -> Result<emu198x_shell::VariantSwitched, emu198x_shell::LoaderError> {
+        emu198x_shell::swap_variant(session, machine)
+    }
+
     fn profile(&self) -> &MachineProfile {
         &self.profile
     }
@@ -1112,6 +1158,47 @@ impl MachineCore for C64Runtime {
 
     fn keyboard_target(&self) -> Option<&dyn emu198x_shell::KeyboardTarget> {
         Some(self)
+    }
+
+    fn load_basic_program<Q: emu198x_shell::SessionQueryProvider<Self>>(
+        session: &mut emu198x_shell::HeadlessSession<Self, Q>,
+        source: &str,
+        run: bool,
+    ) -> Result<emu198x_shell::BasicProgramLoaded, emu198x_shell::LoaderError> {
+        let result = crate::basic_loader::load_basic_source(
+            session,
+            source,
+            run,
+            crate::basic_loader::DEFAULT_BASIC_LOADER_BOOT_FRAMES,
+        )
+        .map_err(|err| emu198x_shell::LoaderError::Failed(err.to_string()))?;
+        Ok(emu198x_shell::BasicProgramLoaded {
+            program_bytes: result.program_bytes,
+            ran: result.ran,
+        })
+    }
+
+    fn autoload_tape<Q: emu198x_shell::SessionQueryProvider<Self>>(
+        session: &mut emu198x_shell::HeadlessSession<Self, Q>,
+        slot: &str,
+        max_boot_frames: u32,
+    ) -> Result<emu198x_shell::TapeAutoloaded, emu198x_shell::LoaderError> {
+        let frames = if max_boot_frames == 0 {
+            crate::autoload::DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES
+        } else {
+            max_boot_frames
+        };
+        let result = crate::autoload::autoload_basic_tape(
+            session,
+            slot,
+            frames,
+            crate::autoload::DEFAULT_TAPE_AUTOLOAD_WAIT_FRAMES,
+        )
+        .map_err(|err| emu198x_shell::LoaderError::Failed(err.to_string()))?;
+        Ok(emu198x_shell::TapeAutoloaded {
+            slot: result.slot,
+            boot_frames: result.boot.frames,
+        })
     }
 }
 

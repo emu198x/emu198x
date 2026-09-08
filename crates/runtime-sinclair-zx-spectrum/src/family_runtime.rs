@@ -400,6 +400,35 @@ impl FamilyRuntime for SpectrumRuntimeKind {
     fn native_frame_ticks(&self) -> u64 {
         u64::from(self.frame_halfcycles())
     }
+
+    fn variant_ids() -> &'static [&'static str] {
+        &crate::Model::VARIANT_IDS
+    }
+
+    fn model_from_id(id: &str) -> Option<crate::Model> {
+        crate::Model::from_variant_id(id)
+    }
+
+    fn variant_id(model: crate::Model) -> &'static str {
+        model.variant_id()
+    }
+
+    fn profile_for(model: crate::Model) -> MachineProfile {
+        crate::profile_for(model)
+    }
+
+    fn rom_convention() -> emu198x_shell::RomConvention {
+        // The bundles sit directly under the root, each in its own
+        // directory, so the root is the ROM directory.
+        emu198x_shell::RomConvention {
+            env_var: Some("EMU198X_SPECTRUM_ROM_DIR"),
+            dirs: &[""],
+        }
+    }
+
+    fn firmware_sources(model: crate::Model) -> Vec<emu198x_shell::FirmwareSource> {
+        model.firmware_sources()
+    }
 }
 
 /// Forwards one method call to the active variant across all 13
@@ -535,6 +564,60 @@ impl MachineCore for SpectrumRuntimeKind {
     }
     fn watch_target_mut(&mut self) -> Option<&mut dyn emu198x_shell::WatchTarget> {
         Some(self)
+    }
+
+    fn port_io_target(&self) -> Option<&dyn emu198x_shell::PortIoTarget> {
+        Some(self)
+    }
+
+    fn port_io_target_mut(&mut self) -> Option<&mut dyn emu198x_shell::PortIoTarget> {
+        Some(self)
+    }
+
+    fn load_basic_program<Q: emu198x_shell::SessionQueryProvider<Self>>(
+        session: &mut emu198x_shell::HeadlessSession<Self, Q>,
+        source: &str,
+        run: bool,
+    ) -> Result<emu198x_shell::BasicProgramLoaded, emu198x_shell::LoaderError> {
+        let program = format_sinclair_zx_spectrum_bas::tokenise(source).map_err(|err| {
+            emu198x_shell::LoaderError::Failed(format!("failed to tokenise: {err}"))
+        })?;
+        let result = crate::basic_loader::load_basic_program(
+            session,
+            &program,
+            run,
+            crate::basic_loader::DEFAULT_BASIC_LOADER_BOOT_FRAMES,
+        )
+        .map_err(|err| emu198x_shell::LoaderError::Failed(err.to_string()))?;
+        Ok(emu198x_shell::BasicProgramLoaded {
+            program_bytes: result.program_bytes,
+            ran: result.ran,
+        })
+    }
+
+    fn autoload_tape<Q: emu198x_shell::SessionQueryProvider<Self>>(
+        session: &mut emu198x_shell::HeadlessSession<Self, Q>,
+        slot: &str,
+        max_boot_frames: u32,
+    ) -> Result<emu198x_shell::TapeAutoloaded, emu198x_shell::LoaderError> {
+        let frames = if max_boot_frames == 0 {
+            crate::autoload::DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES
+        } else {
+            max_boot_frames
+        };
+        let result = crate::autoload::autoload_basic_tape(session, slot, frames)
+            .map_err(|err| emu198x_shell::LoaderError::Failed(err.to_string()))?;
+        Ok(emu198x_shell::TapeAutoloaded {
+            slot: result.slot,
+            boot_frames: result.boot.frames,
+        })
+    }
+
+    fn set_machine<Q: emu198x_shell::SessionQueryProvider<Self>>(
+        session: &mut emu198x_shell::HeadlessSession<Self, Q>,
+        machine: &str,
+    ) -> Result<emu198x_shell::VariantSwitched, emu198x_shell::LoaderError> {
+        emu198x_shell::swap_variant(session, machine)
     }
 
     fn keyboard_target(&self) -> Option<&dyn emu198x_shell::KeyboardTarget> {
@@ -746,6 +829,19 @@ impl emu198x_shell::WatchTarget for SpectrumRuntimeKind {
                 })
                 .collect()
         })
+    }
+}
+
+/// The shell's port-space verbs (`port_read` / `port_write`) over the
+/// family's live bus access, so every variant gets them from the shared
+/// executor and MCP registrar rather than a binary-side intercept.
+impl emu198x_shell::PortIoTarget for SpectrumRuntimeKind {
+    fn port_read(&mut self, port: u16) -> u8 {
+        SpectrumLiveAccess::port_read(self, port)
+    }
+
+    fn port_write(&mut self, port: u16, value: u8) {
+        SpectrumLiveAccess::port_write(self, port, value);
     }
 }
 

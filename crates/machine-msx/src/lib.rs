@@ -76,6 +76,7 @@
 //! the phase counter advances by 3 and yields one VDP dot whenever
 //! it reaches 2. PSG ticks every other T-state (clock ÷ 2).
 
+use common_z80_machine::Z80Machine;
 use emu198x_zilog_z80::{BusOp, Z80};
 use gi_ay_3_8912::{Ay3_8912, AyWriteRecord, AyWriteWatch};
 use intel_8255::Ppi8255;
@@ -308,6 +309,10 @@ pub struct Msx {
     /// 3 = complete.
     m1_wait_phase: u8,
     cpu_tstates: u64,
+    /// The cadence driver's half-cycle phase; a restore lands on a T-state
+    /// boundary, so it is not part of the snapshot.
+    #[serde(skip)]
+    cadence_hc: u64,
     tstates_per_frame: u64,
     vdp_phase: u32,
     /// Toggles every T-state so the PSG ticks at CPU ÷ 2 (1.789 MHz).
@@ -359,6 +364,7 @@ impl Msx {
             region,
             m1_wait_phase: 0,
             cpu_tstates: 0,
+            cadence_hc: 0,
             tstates_per_frame,
             vdp_phase: 0,
             psg_phase: 0,
@@ -418,6 +424,24 @@ impl Msx {
         self.cart2 = CartridgeSlot::new(rom, mapper);
     }
 
+    /// Installed BIOS bytes, including firmware restored from a snapshot.
+    #[must_use]
+    pub fn bios_rom(&self) -> &[u8] {
+        &self.bios_rom
+    }
+
+    /// Installed cartridge bytes and mapper for physical slot 1 or 2.
+    /// Empty or unknown slots return `None`.
+    #[must_use]
+    pub fn cartridge(&self, slot: u8) -> Option<(&[u8], MapperType)> {
+        let cart = match slot {
+            1 => &self.cart1,
+            2 => &self.cart2,
+            _ => return None,
+        };
+        (!cart.rom.is_empty()).then_some((cart.rom.as_slice(), cart.mapper))
+    }
+
     /// Mapper currently selected for cartridge slot 1.
     #[must_use]
     pub fn cart1_mapper(&self) -> MapperType {
@@ -434,62 +458,13 @@ impl Msx {
         self.tstates_per_frame
     }
 
-    /// Advance one Z80 T-state.
+    /// Advance one Z80 T-state. The cadence — two CPU half-cycles, the
+    /// interrupt pin fed before each — is `common-z80-machine`'s; the M1
+    /// wait stretch wraps the CPU tick, the VDP accumulates per half-cycle
+    /// after it, and the PSG ticks once per T-state, as the hand-rolled
+    /// loop always had them.
     fn tick_tstate(&mut self) {
-        // Two CPU half-cycles per T-state. `Z80::tick` advances one
-        // half-cycle — `T1Rise` then `T1Fall` — so calling it once per
-        // T-state ran the CPU at half speed: a `NOP` cost 8 T-states
-        // against the Z80's 4, and the machine executed half the work
-        // per frame that `tstates_per_frame` budgets for.
-        for _ in 0..2 {
-            // VDP INT → Z80 IRQ, fed before the tick, not after. The Z80
-            // samples `/INT` at an instruction boundary during its own
-            // tick, so setting the line afterwards hands it the VDP's
-            // state from the previous half-cycle. MSX has no separate NMI
-            // source. See
-            // `knowledge/decisions/zilog-z80-samples-int-at-the-instruction-boundary.md`.
-            self.cpu.irq = self.vdp.interrupt;
-
-            // Standard MSX hardware stretches every opcode-fetch (M1) bus
-            // cycle by one T-state. The Z80 samples WAIT during T2; assert it
-            // for one T-state, then release it so the held phase can advance.
-            // Refresh is also marked M1, but is not a memory read, hence the
-            // MREQ + RD qualification. Sources: `reference/by-system/msx/
-            // msx-reference.md`; openMSX `src/cpu/Z80.hh::WAIT_CYCLES`.
-            if !self.cpu.m1 {
-                self.m1_wait_phase = 0;
-            }
-            if self.cpu.m1 && self.cpu.mreq && self.cpu.rd && self.m1_wait_phase == 0 {
-                // `Z80::tick` is a half-cycle, so a one-T-state wait holds
-                // T2Rise for two calls.
-                self.m1_wait_phase = 2;
-            }
-            self.cpu.wait = matches!(self.m1_wait_phase, 1 | 2);
-            self.cpu.tick();
-            if self.m1_wait_phase == 2 {
-                self.m1_wait_phase = 1;
-            } else if self.m1_wait_phase == 1 {
-                self.m1_wait_phase = 3;
-            }
-            self.handle_bus();
-
-            // VDP dots at 3:2 against T-states, accumulated per
-            // half-cycle so the frame interrupt lands at the correct
-            // scanline relative to CPU execution.
-            self.vdp_phase += VDP_DOT_PHASE_NUMERATOR;
-            while self.vdp_phase >= VDP_DOT_PHASE_DENOMINATOR {
-                self.vdp.tick();
-                self.vdp_phase -= VDP_DOT_PHASE_DENOMINATOR;
-            }
-        }
-
-        // PSG runs at CPU ÷ 2.
-        self.psg_phase ^= 1;
-        if self.psg_phase == 0 {
-            self.psg.tick();
-        }
-
-        self.cpu_tstates += 1;
+        self.advance_tstates(1);
     }
 
     fn handle_bus(&mut self) {
@@ -753,6 +728,72 @@ impl Msx {
         if let Some(w) = &mut self.ay_watch {
             w.clear();
         }
+    }
+}
+
+impl Z80Machine for Msx {
+    fn hc(&self) -> u64 {
+        self.cadence_hc
+    }
+
+    fn hc_mut(&mut self) -> &mut u64 {
+        &mut self.cadence_hc
+    }
+
+    // VDP INT → Z80 IRQ, fed before the tick, not after. The Z80
+    // samples `/INT` at an instruction boundary during its own
+    // tick, so setting the line afterwards hands it the VDP's
+    // state from the previous half-cycle. MSX has no separate NMI
+    // source. See
+    // `knowledge/decisions/zilog-z80-samples-int-at-the-instruction-boundary.md`.
+    fn feed_interrupt_pins(&mut self) {
+        self.cpu.irq = self.vdp.interrupt;
+    }
+
+    fn tick_cpu_and_bus(&mut self) {
+        // Standard MSX hardware stretches every opcode-fetch (M1) bus
+        // cycle by one T-state. The Z80 samples WAIT during T2; assert it
+        // for one T-state, then release it so the held phase can advance.
+        // Refresh is also marked M1, but is not a memory read, hence the
+        // MREQ + RD qualification. Sources: `reference/by-system/msx/
+        // msx-reference.md`; openMSX `src/cpu/Z80.hh::WAIT_CYCLES`.
+        if !self.cpu.m1 {
+            self.m1_wait_phase = 0;
+        }
+        if self.cpu.m1 && self.cpu.mreq && self.cpu.rd && self.m1_wait_phase == 0 {
+            // `Z80::tick` is a half-cycle, so a one-T-state wait holds
+            // T2Rise for two calls.
+            self.m1_wait_phase = 2;
+        }
+        self.cpu.wait = matches!(self.m1_wait_phase, 1 | 2);
+        self.cpu.tick();
+        if self.m1_wait_phase == 2 {
+            self.m1_wait_phase = 1;
+        } else if self.m1_wait_phase == 1 {
+            self.m1_wait_phase = 3;
+        }
+        self.handle_bus();
+    }
+
+    fn tick_chips_halfcycle(&mut self) {
+        // VDP dots at 3:2 against T-states, accumulated per
+        // half-cycle so the frame interrupt lands at the correct
+        // scanline relative to CPU execution.
+        self.vdp_phase += VDP_DOT_PHASE_NUMERATOR;
+        while self.vdp_phase >= VDP_DOT_PHASE_DENOMINATOR {
+            self.vdp.tick();
+            self.vdp_phase -= VDP_DOT_PHASE_DENOMINATOR;
+        }
+    }
+
+    fn tick_chips(&mut self) {
+        // PSG runs at CPU ÷ 2.
+        self.psg_phase ^= 1;
+        if self.psg_phase == 0 {
+            self.psg.tick();
+        }
+
+        self.cpu_tstates += 1;
     }
 }
 

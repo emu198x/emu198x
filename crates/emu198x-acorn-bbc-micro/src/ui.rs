@@ -6,26 +6,21 @@
 //! matrix cells, so they type. The analogue joystick's fire button is reached
 //! by a real gamepad through [`UiSystem::button_map`] (the proportional axes go
 //! through a μPD7002 ADC path the harness gamepad doesn't drive yet). Compiled
-//! only with the `ui` Cargo feature; `main.rs` routes here when no automation
-//! flag is given.
+//! only with the `ui` Cargo feature; the shared launcher opens the window when
+//! no automation flag is given.
 
-use std::env;
-use std::path::{Path, PathBuf};
+use emu198x_shell::FamilyRuntime;
 use std::time::Duration;
 
-use emu198x_ui::{
-    ButtonInputMap, ButtonTarget, HostControl, KeyCode, UiError, UiSystem, VideoFilter,
-};
-use runtime_acorn_bbc_micro::{BbcMicroRuntime, Model};
+use emu198x_shell::launch::LaunchError;
+use emu198x_ui::launch::UiApp;
+use emu198x_ui::{ButtonInputMap, ButtonTarget, HostControl, KeyCode, UiSystem};
+use runtime_acorn_bbc_micro::BbcMicroRuntime;
+
+use crate::app::Bbc;
 
 const DEFAULT_SCALE: u32 = 3;
-/// 6502 @ 2 MHz, 50 Hz → 40,000 cycles/frame, matching the headless runner.
-// Keep <= the machine's run_frame() size, or the harness runs two machine
-// frames per displayed frame (~2x too fast). See docs/status/ui-boot-verification.
-const FRAME_TICKS_PAL: u64 = 39_936;
 const PAL_FRAME_HZ: f64 = 50.0;
-const MOS_SIZE: usize = 16 * 1024;
-
 /// The analogue joystick's fire button. The proportional X/Y axes are read
 /// through the μPD7002 ADC (a separate `Axis` path the harness gamepad doesn't
 /// drive yet), so only fire is mapped here.
@@ -34,36 +29,27 @@ const BBC_BUTTON_MAP: ButtonInputMap = ButtonInputMap::new(&[
     (HostControl::East, ButtonTarget::new(1, "fire")),
 ]);
 
-const USAGE: &str = "\
-Usage: emu198x-acorn-bbc-micro [OPTIONS]
-
-Options:
-    --mos PATH      BBC MOS ROM (16 KB); default
-                    ~/.emu198x/roms/acorn-bbc-micro/mos.rom (or set EMU198X_BBC_MOS)
-    --scale N       integer window scale, default 3
-    --video MODE    raw | lcd | crt [default: raw]
-    --help, -h      show this help
-
-Automation:
-    --script PATH   run a JSON session headlessly and print a report
-    --headless      run without a window (implied by --script)
-    --mcp           serve this machine over MCP on stdio
-
-Controls:
-    Esc             quit
-    F12             hard reset
-    A-Z 0-9 etc.    the BBC keyboard (cursor keys are real BBC keys)
-    Shift / Ctrl    the BBC SHIFT / CTRL keys; F1-F10 are the red f0-f9 keys
-    Gamepad         joystick fire (player 1)
-
-Examples:
-    emu198x-acorn-bbc-micro
-    emu198x-acorn-bbc-micro --mos mos.rom --scale 2
-";
-
 /// The BBC Micro as a [`UiSystem`] for the shared harness. Single-model; a hard
 /// reset rebuilds the machine from the firmware the runtime already holds.
-struct BbcSystem;
+pub struct BbcSystem;
+
+impl UiApp for Bbc {
+    type System = BbcSystem;
+
+    fn ui_system(&self) -> BbcSystem {
+        BbcSystem
+    }
+
+    /// The window boots to a language: BASIC goes into the highest-priority
+    /// sideways bank (15) when a ROM is staged, so the machine comes up at
+    /// the BASIC prompt rather than the bare MOS. Explicit `--sideways`
+    /// banks are installed afterwards, so they win.
+    fn build_ui_runtime(&self) -> Result<BbcMicroRuntime, LaunchError> {
+        let mut runtime = self.build_with_basic()?;
+        self.insert_sideways_roms(&mut runtime)?;
+        Ok(runtime)
+    }
+}
 
 impl UiSystem for BbcSystem {
     type Runtime = BbcMicroRuntime;
@@ -91,8 +77,8 @@ impl UiSystem for BbcSystem {
             .unwrap_or((640, 256))
     }
 
-    fn frame_ticks(&self, _runtime: &Self::Runtime) -> u64 {
-        FRAME_TICKS_PAL
+    fn frame_ticks(&self, runtime: &Self::Runtime) -> u64 {
+        runtime.native_frame_ticks()
     }
 
     fn frame_duration(&self, _runtime: &Self::Runtime) -> Duration {
@@ -106,143 +92,6 @@ impl UiSystem for BbcSystem {
     fn map_keys(&self, code: KeyCode) -> Option<&'static [&'static str]> {
         map_bbc_keys(code)
     }
-}
-
-/// Parsed interactive CLI.
-#[derive(Debug, PartialEq, Eq)]
-pub struct Cli {
-    mos: Option<PathBuf>,
-    scale: u32,
-    video: VideoFilter,
-}
-
-impl Default for Cli {
-    fn default() -> Self {
-        Self {
-            mos: None,
-            scale: DEFAULT_SCALE,
-            video: VideoFilter::Raw,
-        }
-    }
-}
-
-/// Build the runtime from the CLI and open the window. Returns a string error
-/// for the `main.rs` dispatcher.
-pub fn run(cli: Cli) -> Result<(), String> {
-    let mos_path = cli
-        .mos
-        .clone()
-        .or_else(default_mos_path)
-        .ok_or_else(|| "no MOS ROM: pass --mos PATH or set EMU198X_BBC_MOS".to_owned())?;
-    let mos = read_rom(&mos_path)?;
-    let mut runtime = BbcMicroRuntime::new(Model::BbcModelB, mos)
-        .map_err(|err| format!("failed to construct runtime: {err}"))?;
-    // Best-effort: install BASIC as the default language in the highest-priority
-    // sideways bank (15) if a ROM is staged, so the machine boots to the BASIC
-    // prompt rather than the bare MOS. Headless callers pass `--sideways`
-    // explicitly instead.
-    if let Some(basic_path) = default_basic_path()
-        && let Ok(basic) = std::fs::read(&basic_path)
-    {
-        runtime.insert_sideways_rom(15, basic);
-    }
-    // Load the SAA5050 teletext character ROM (MODE 7) if one is available.
-    if let Some(font_path) = default_font_path()
-        && let Ok(font) = std::fs::read(&font_path)
-    {
-        runtime.set_teletext_font(font);
-    }
-
-    println!(
-        "Controls: Esc quit, F12 reset, keyboard typed directly (cursor keys are BBC keys), gamepad fire."
-    );
-    emu198x_ui::run(BbcSystem, runtime, cli.scale, cli.video)
-        .map_err(|err: UiError| err.to_string())
-}
-
-/// Parse the interactive CLI. Exits the process on `--help` or a malformed flag.
-pub fn parse_cli<I>(args: I) -> Cli
-where
-    I: IntoIterator<Item = String>,
-{
-    let mut cli = Cli::default();
-    let mut iter = args.into_iter();
-    while let Some(arg) = iter.next() {
-        match arg.as_str() {
-            "--mos" => cli.mos = Some(PathBuf::from(next_arg(&mut iter, "--mos"))),
-            "--scale" => {
-                cli.scale = next_arg(&mut iter, "--scale")
-                    .parse()
-                    .unwrap_or_else(|_| die("--scale requires a positive integer"));
-            }
-            "--video" => {
-                cli.video = next_arg(&mut iter, "--video")
-                    .parse()
-                    .unwrap_or_else(|_| die("--video expects raw, lcd, or crt"));
-            }
-            "--help" | "-h" => {
-                println!("{USAGE}");
-                std::process::exit(0);
-            }
-            _ => die(&format!("unknown flag: {arg}")),
-        }
-    }
-    cli
-}
-
-fn default_mos_path() -> Option<PathBuf> {
-    if let Ok(path) = env::var("EMU198X_BBC_MOS")
-        && !path.is_empty()
-    {
-        return Some(PathBuf::from(path));
-    }
-    let home = env::var("HOME").ok()?;
-    Some(PathBuf::from(home).join(".emu198x/roms/acorn-bbc-micro/mos.rom"))
-}
-
-fn default_basic_path() -> Option<PathBuf> {
-    if let Ok(path) = env::var("EMU198X_BBC_BASIC")
-        && !path.is_empty()
-    {
-        return Some(PathBuf::from(path));
-    }
-    let home = env::var("HOME").ok()?;
-    let path = PathBuf::from(home).join(".emu198x/roms/acorn-bbc-micro/basic.rom");
-    path.exists().then_some(path)
-}
-
-fn default_font_path() -> Option<PathBuf> {
-    if let Ok(path) = env::var("EMU198X_BBC_SAA5050")
-        && !path.is_empty()
-    {
-        return Some(PathBuf::from(path));
-    }
-    let home = env::var("HOME").ok()?;
-    let path = PathBuf::from(home).join(".emu198x/roms/acorn-bbc-micro/saa5050.rom");
-    path.exists().then_some(path)
-}
-
-fn read_rom(path: &Path) -> Result<Vec<u8>, String> {
-    let bytes = std::fs::read(path)
-        .map_err(|err| format!("failed to read MOS ROM {}: {err}", path.display()))?;
-    if bytes.len() != MOS_SIZE {
-        return Err(format!(
-            "MOS ROM at {} is {} bytes; expected {MOS_SIZE}",
-            path.display(),
-            bytes.len()
-        ));
-    }
-    Ok(bytes)
-}
-
-fn next_arg<I: Iterator<Item = String>>(iter: &mut I, flag: &str) -> String {
-    iter.next()
-        .unwrap_or_else(|| die(&format!("missing value for {flag}")))
-}
-
-fn die(message: &str) -> ! {
-    eprintln!("error: {message}");
-    std::process::exit(1);
 }
 
 /// Map a physical host key to its BBC key name (matched by
@@ -326,20 +175,42 @@ fn map_bbc_keys(code: KeyCode) -> Option<&'static [&'static str]> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use emu198x_shell::{FirmwareOverrides, MachineCore, ResetKind};
 
     #[test]
-    fn parse_cli_accepts_mos_scale_video() {
-        let cli = parse_cli([
-            "--mos".to_owned(),
-            "mos.rom".to_owned(),
-            "--scale".to_owned(),
-            "2".to_owned(),
-            "--video".to_owned(),
-            "crt".to_owned(),
-        ]);
-        assert_eq!(cli.mos, Some(PathBuf::from("mos.rom")));
-        assert_eq!(cli.scale, 2);
-        assert_eq!(cli.video, VideoFilter::Crt);
+    fn window_defaults_to_basic_and_explicit_sideways_roms_win() {
+        let dir = std::env::temp_dir().join(format!("bbc-ui-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("directory");
+        for (name, bytes) in [
+            ("os.rom", vec![0x4c; 16384]),
+            ("basic.rom", vec![0x42; 16384]),
+            ("saa5050.rom", vec![0x3c; 960]),
+            ("dfs.rom", vec![0x5a; 16384]),
+        ] {
+            std::fs::write(dir.join(name), bytes).expect("firmware");
+        }
+        let mut app = Bbc {
+            firmware: FirmwareOverrides {
+                dir: Some(dir.clone()),
+                ..FirmwareOverrides::none()
+            },
+            sideways: Vec::new(),
+        };
+        let mut runtime = app.build_ui_runtime().expect("window runtime");
+        assert!(app.ui_system().variants().is_empty());
+        assert_eq!(app.ui_system().frame_ticks(&runtime), 39_936);
+        let machine = runtime.machine_mut().expect("machine");
+        machine.poke(0xfe30, 15);
+        assert_eq!(machine.peek(0x8000), 0x42);
+        app.sideways.push((15, dir.join("dfs.rom")));
+        let mut runtime = app.build_ui_runtime().expect("overridden language");
+        runtime.reset(ResetKind::Hard);
+        let machine = runtime.machine_mut().expect("machine");
+        machine.poke(0xfe30, 15);
+        assert_eq!(machine.peek(0x8000), 0x5a);
+        std::fs::remove_file(dir.join("dfs.rom")).expect("remove sideways ROM");
+        assert!(app.build_ui_runtime().is_err());
+        std::fs::remove_dir_all(dir).expect("cleanup");
     }
 
     #[test]

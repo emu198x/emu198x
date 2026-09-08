@@ -6,8 +6,8 @@
 //! `spectrum_48k`, and `variants` — this module owns only metadata.
 
 use emu198x_shell::{
-    CapabilitySet, ClockDesc, ClockRate, Family, FirmwareRequirement, MachineId, MachineProfile,
-    MediaKind, MediaSlot, ProfileId, Region, WritebackPolicy, known_capability,
+    CapabilitySet, ClockDesc, ClockRate, Family, FirmwareRequirement, FirmwareSource, MachineId,
+    MachineProfile, MediaKind, MediaSlot, ProfileId, Region, WritebackPolicy, known_capability,
 };
 
 /// Supported Spectrum family models.
@@ -110,6 +110,185 @@ impl Model {
         }
     }
 
+    /// Every model in catalogue order: the SOLID 8 (16K → 48K → + →
+    /// 128K → +2 → +2A → +2B → +3) then the five exotics (Pentagon →
+    /// Scorpion → TC2048 → TC2068 → TS2068). Stable order matters for
+    /// the window's variant menu.
+    pub const ALL: [Self; 13] = [
+        Self::Spectrum16KPal,
+        Self::Spectrum48KPal,
+        Self::SpectrumPlus,
+        Self::Spectrum128KPal,
+        Self::SpectrumPlus2,
+        Self::SpectrumPlus2A,
+        Self::SpectrumPlus2B,
+        Self::SpectrumPlus3,
+        Self::Pentagon128,
+        Self::ScorpionZS256,
+        Self::TimexTC2048,
+        Self::TimexTC2068,
+        Self::TimexTS2068,
+    ];
+
+    /// Every variant id, in [`Self::ALL`] order.
+    pub const VARIANT_IDS: [&'static str; 13] = [
+        "spectrum_16k",
+        "spectrum_48k",
+        "spectrum_plus",
+        "spectrum_128k",
+        "spectrum_plus2",
+        "spectrum_plus2a",
+        "spectrum_plus2b",
+        "spectrum_plus3",
+        "pentagon_128",
+        "scorpion_zs256",
+        "timex_tc2048",
+        "timex_tc2068",
+        "timex_ts2068",
+    ];
+
+    /// The snake-case id `set_machine` steps, the `--machine` flag and the
+    /// window's variant menu use for this model.
+    #[must_use]
+    pub const fn variant_id(self) -> &'static str {
+        match self {
+            Self::Spectrum16KPal => "spectrum_16k",
+            Self::Spectrum48KPal => "spectrum_48k",
+            Self::SpectrumPlus => "spectrum_plus",
+            Self::Spectrum128KPal => "spectrum_128k",
+            Self::SpectrumPlus2 => "spectrum_plus2",
+            Self::SpectrumPlus2A => "spectrum_plus2a",
+            Self::SpectrumPlus2B => "spectrum_plus2b",
+            Self::SpectrumPlus3 => "spectrum_plus3",
+            Self::Pentagon128 => "pentagon_128",
+            Self::ScorpionZS256 => "scorpion_zs256",
+            Self::TimexTC2048 => "timex_tc2048",
+            Self::TimexTC2068 => "timex_tc2068",
+            Self::TimexTS2068 => "timex_ts2068",
+        }
+    }
+
+    /// The model a variant id names.
+    #[must_use]
+    pub fn from_variant_id(id: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|model| model.variant_id() == id)
+    }
+
+    /// The short label the window's Machine menu and title show.
+    #[must_use]
+    pub const fn menu_label(self) -> &'static str {
+        match self {
+            Self::Spectrum16KPal => "ZX Spectrum 16K",
+            Self::Spectrum48KPal => "ZX Spectrum 48K",
+            Self::SpectrumPlus => "ZX Spectrum+",
+            Self::Spectrum128KPal => "ZX Spectrum 128",
+            Self::SpectrumPlus2 => "ZX Spectrum +2",
+            Self::SpectrumPlus2A => "ZX Spectrum +2A",
+            Self::SpectrumPlus2B => "ZX Spectrum +2B",
+            Self::SpectrumPlus3 => "ZX Spectrum +3",
+            Self::Pentagon128 => "Pentagon 128",
+            Self::ScorpionZS256 => "Scorpion ZS-256",
+            Self::TimexTC2048 => "Timex TC2048",
+            Self::TimexTC2068 => "Timex TC2068",
+            Self::TimexTS2068 => "Timex TS2068",
+        }
+    }
+
+    /// The ROM images this model boots and their conventional file names
+    /// under `~/.emu198x/roms`.
+    ///
+    /// 16K/48K/+ share `sinclair-zx-spectrum-48k/48.rom`; 128K, +2, +2A/+3,
+    /// and +2B each have their own bundle directory. The +2A and +3 share
+    /// `amstrad-zx-spectrum-plus3/plus3-{0..3}.rom` (ROM v4.0); the +2B
+    /// uses its own `amstrad-zx-spectrum-plus2b/plus3-{0..3}.rom` (ROM
+    /// v4.1). The exotics live under `pentagon-128/`, `scorpion-zs256/`,
+    /// `timex-tc2048/`, and `timex-ts2068/`.
+    #[must_use]
+    pub fn firmware_sources(self) -> Vec<FirmwareSource> {
+        match self {
+            Self::Spectrum16KPal | Self::Spectrum48KPal | Self::SpectrumPlus => {
+                vec![FirmwareSource::required(
+                    "sinclair-zx-spectrum-48k-rom",
+                    &["sinclair-zx-spectrum-48k/48.rom"],
+                )]
+            }
+            Self::Spectrum128KPal => vec![
+                FirmwareSource::required(
+                    "sinclair-zx-spectrum-128k-rom-0",
+                    &["sinclair-zx-spectrum-128k/128-0.rom"],
+                ),
+                FirmwareSource::required(
+                    "sinclair-zx-spectrum-128k-rom-1",
+                    &["sinclair-zx-spectrum-128k/128-1.rom"],
+                ),
+            ],
+            Self::SpectrumPlus2 => vec![
+                FirmwareSource::required(
+                    "sinclair-zx-spectrum-plus2-rom-0",
+                    &["amstrad-zx-spectrum-plus2/plus2-0.rom"],
+                ),
+                FirmwareSource::required(
+                    "sinclair-zx-spectrum-plus2-rom-1",
+                    &["amstrad-zx-spectrum-plus2/plus2-1.rom"],
+                ),
+            ],
+            Self::SpectrumPlus2A | Self::SpectrumPlus3 => vec![
+                FirmwareSource::required(
+                    "sinclair-zx-spectrum-plus3-rom-0",
+                    &["amstrad-zx-spectrum-plus3/plus3-0.rom"],
+                ),
+                FirmwareSource::required(
+                    "sinclair-zx-spectrum-plus3-rom-1",
+                    &["amstrad-zx-spectrum-plus3/plus3-1.rom"],
+                ),
+                FirmwareSource::required(
+                    "sinclair-zx-spectrum-plus3-rom-2",
+                    &["amstrad-zx-spectrum-plus3/plus3-2.rom"],
+                ),
+                FirmwareSource::required(
+                    "sinclair-zx-spectrum-plus3-rom-3",
+                    &["amstrad-zx-spectrum-plus3/plus3-3.rom"],
+                ),
+            ],
+            Self::SpectrumPlus2B => vec![
+                FirmwareSource::required(
+                    "sinclair-zx-spectrum-plus3-rom-0",
+                    &["amstrad-zx-spectrum-plus2b/plus3-0.rom"],
+                ),
+                FirmwareSource::required(
+                    "sinclair-zx-spectrum-plus3-rom-1",
+                    &["amstrad-zx-spectrum-plus2b/plus3-1.rom"],
+                ),
+                FirmwareSource::required(
+                    "sinclair-zx-spectrum-plus3-rom-2",
+                    &["amstrad-zx-spectrum-plus2b/plus3-2.rom"],
+                ),
+                FirmwareSource::required(
+                    "sinclair-zx-spectrum-plus3-rom-3",
+                    &["amstrad-zx-spectrum-plus2b/plus3-3.rom"],
+                ),
+            ],
+            Self::Pentagon128 => vec![
+                FirmwareSource::required("pentagon-rom-0", &["pentagon-128/pentagon-0.rom"]),
+                FirmwareSource::required("pentagon-rom-1", &["pentagon-128/pentagon-1.rom"]),
+            ],
+            Self::ScorpionZS256 => vec![
+                FirmwareSource::required("scorpion-rom-0", &["scorpion-zs256/scorpion-0.rom"]),
+                FirmwareSource::required("scorpion-rom-1", &["scorpion-zs256/scorpion-1.rom"]),
+                FirmwareSource::required("scorpion-rom-2", &["scorpion-zs256/scorpion-2.rom"]),
+                FirmwareSource::required("scorpion-rom-3", &["scorpion-zs256/scorpion-3.rom"]),
+            ],
+            Self::TimexTC2048 => vec![FirmwareSource::required(
+                "timex-tc2048-rom",
+                &["timex-tc2048/tc2048.rom"],
+            )],
+            Self::TimexTC2068 | Self::TimexTS2068 => vec![
+                FirmwareSource::required("timex-ts2068-rom-0", &["timex-ts2068/ts2068.rom"]),
+                FirmwareSource::required("timex-ts2068-rom-1", &["timex-ts2068/exrom.rom"]),
+            ],
+        }
+    }
+
     /// Year of original release (for catalogue display).
     #[must_use]
     pub const fn release_year(self) -> u16 {
@@ -172,6 +351,11 @@ fn ay_capabilities() -> CapabilitySet {
         known_capability("tape-transport-control"),
         known_capability("snapshot-import"),
         known_capability("scripted-input"),
+        known_capability("memory-watch"),
+        known_capability("port-io"),
+        known_capability("basic-program-load"),
+        known_capability("tape-autoload"),
+        known_capability("variant-switch"),
     ])
 }
 
@@ -204,6 +388,11 @@ pub fn profile_for(model: Model) -> MachineProfile {
                 known_capability("tape-transport-control"),
                 known_capability("snapshot-import"),
                 known_capability("scripted-input"),
+                known_capability("memory-watch"),
+                known_capability("port-io"),
+                known_capability("basic-program-load"),
+                known_capability("tape-autoload"),
+                known_capability("variant-switch"),
             ]),
         },
         Model::Spectrum48KPal => MachineProfile {
@@ -235,6 +424,11 @@ pub fn profile_for(model: Model) -> MachineProfile {
                 known_capability("tape-transport-control"),
                 known_capability("snapshot-import"),
                 known_capability("scripted-input"),
+                known_capability("memory-watch"),
+                known_capability("port-io"),
+                known_capability("basic-program-load"),
+                known_capability("tape-autoload"),
+                known_capability("variant-switch"),
             ]),
         },
         Model::SpectrumPlus => MachineProfile {
@@ -262,6 +456,11 @@ pub fn profile_for(model: Model) -> MachineProfile {
                 known_capability("tape-transport-control"),
                 known_capability("snapshot-import"),
                 known_capability("scripted-input"),
+                known_capability("memory-watch"),
+                known_capability("port-io"),
+                known_capability("basic-program-load"),
+                known_capability("tape-autoload"),
+                known_capability("variant-switch"),
             ]),
         },
         Model::Spectrum128KPal => MachineProfile {
@@ -439,6 +638,11 @@ pub fn profile_for(model: Model) -> MachineProfile {
                 known_capability("tape-transport-control"),
                 known_capability("snapshot-import"),
                 known_capability("scripted-input"),
+                known_capability("memory-watch"),
+                known_capability("port-io"),
+                known_capability("basic-program-load"),
+                known_capability("tape-autoload"),
+                known_capability("variant-switch"),
             ]),
         },
         Model::TimexTC2068 | Model::TimexTS2068 => MachineProfile {
@@ -481,6 +685,40 @@ pub fn profile_for(model: Model) -> MachineProfile {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn variant_ids_round_trip_for_every_model() {
+        for (model, id) in Model::ALL.into_iter().zip(Model::VARIANT_IDS) {
+            assert_eq!(model.variant_id(), id);
+            assert_eq!(Model::from_variant_id(id), Some(model));
+        }
+        assert_eq!(Model::from_variant_id("spectrum_999k"), None);
+    }
+
+    #[test]
+    fn every_firmware_source_is_a_profile_requirement() {
+        // `from_firmware` validates the set against the profile, so a
+        // source the profile does not declare could never boot.
+        for model in Model::ALL {
+            let profile = profile_for(model);
+            let sources = model.firmware_sources();
+            assert!(!sources.is_empty(), "{} has no ROMs", model.variant_id());
+            for source in &sources {
+                assert!(
+                    profile.firmware.iter().any(|req| req.id == source.id),
+                    "{} source {} is not in its profile",
+                    model.variant_id(),
+                    source.id
+                );
+            }
+            assert_eq!(
+                sources.len(),
+                profile.firmware.len(),
+                "{} declares more firmware than it sources",
+                model.variant_id()
+            );
+        }
+    }
 
     #[test]
     fn profile_ids_are_unique() {

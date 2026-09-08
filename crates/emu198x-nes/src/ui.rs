@@ -2,28 +2,28 @@
 //!
 //! A native NES window built on the shared `emu198x-ui` harness: wgpu video
 //! with `raw`/`lcd`/`crt` filters, framed APU audio, and keyboard/gamepad
-//! controller input. Compiled only with the `ui` Cargo feature; `main.rs`
-//! routes here when no `--script`/`--mcp`/automation flag is given.
+//! controller input. Compiled only with the `ui` Cargo feature; the shared
+//! launcher opens the window when no automation flag is given.
 //!
 //! Beyond the harness defaults the NES adds two hooks: per-system shortcuts
 //! (the `1`-`5` / `6`-`0` APU channel debug controls) via
 //! [`UiSystem::handle_key`], and a teardown that flushes cartridge battery RAM
 //! to its `.sav` sidecar via [`UiSystem::on_exit`].
 
-use std::path::{Path, PathBuf};
+use emu198x_shell::{FamilyRuntime, FirmwareOverrides, build_replacement};
+use std::borrow::Cow;
+use std::path::PathBuf;
 
-use emu198x_shell::MachineCore;
-use emu198x_shell::{MachineError, MediaImage, MediaKind, MediaSet, read_media_asset};
-use emu198x_ui::{
-    ButtonInputMap, ButtonTarget, HostControl, KeyCode, UiError, UiSystem, VideoFilter,
-};
+use emu198x_shell::MachineError;
+use emu198x_ui::launch::UiApp;
+use emu198x_ui::{ButtonInputMap, ButtonTarget, HostControl, KeyCode, UiSystem, VariantInfo};
 use machine_nintendo_nes::{FB_HEIGHT, FB_WIDTH};
 use runtime_nintendo_nes::{ApuChannel, Model, NesRuntime};
 
+use crate::app::{Nes, resolve_battery_save_path, write_battery_save};
+
 const DEFAULT_SCALE: u32 = 3;
 const INPUT_SLICES_PER_FRAME: u32 = 4;
-const NES_FRAME_TICKS: u64 = 341 * 262;
-const NES_PPU_DOT_HZ: f64 = 5_369_318.0;
 
 const NES_BUTTON_MAP: ButtonInputMap = ButtonInputMap::new(&[
     (HostControl::Up, ButtonTarget::new(1, "up")),
@@ -37,38 +37,21 @@ const NES_BUTTON_MAP: ButtonInputMap = ButtonInputMap::new(&[
     (HostControl::Select, ButtonTarget::new(1, "select")),
 ]);
 
-const USAGE: &str = "\
-Usage: emu198x-nes [OPTIONS] [ROM]
-
-Options:
-    --rom PATH      iNES/NES 2.0 ROM image or zip containing one ROM candidate
-    --scale N       integer window scale, default 3
-    --video MODE    raw | lcd | crt [default: raw]
-    --battery-save PATH  load/write cartridge battery RAM sidecar (default <rom>.sav)
-    --no-battery-save    disable automatic .sav load/write
-    --help, -h      show this help
-
-Controls:
-    Esc             quit
-    F12             hard reset
-    Arrow keys      D-pad
-    Z               B
-    X               A
-    Right Shift     Select
-    Enter           Start
-    1-5             toggle Pulse 1, Pulse 2, Triangle, Noise, DMC
-    6-0             cycle Pulse 1, Pulse 2, Triangle, Noise, DMC gain
-
-Examples:
-    emu198x-nes smb.nes
-    emu198x-nes --rom nestest.nes --scale 2
-";
-
-/// The NES as a [`UiSystem`] for the shared harness. Holds the cartridge bytes
-/// (to re-insert on a hard reset) and the battery-save path (to flush on exit).
-struct NesSystem {
-    cartridge_media: Vec<u8>,
+/// Native region selection and the battery-save path (flushed on exit).
+pub struct NesSystem {
+    model: Model,
     battery_save_path: Option<PathBuf>,
+}
+
+impl UiApp for Nes {
+    type System = NesSystem;
+
+    fn ui_system(&self) -> NesSystem {
+        NesSystem {
+            model: self.model,
+            battery_save_path: resolve_battery_save_path(self),
+        }
+    }
 }
 
 impl UiSystem for NesSystem {
@@ -91,12 +74,14 @@ impl UiSystem for NesSystem {
         (FB_WIDTH, FB_HEIGHT)
     }
 
-    fn frame_ticks(&self, _runtime: &Self::Runtime) -> u64 {
-        NES_FRAME_TICKS
+    fn frame_ticks(&self, runtime: &Self::Runtime) -> u64 {
+        runtime.native_frame_ticks()
     }
 
-    fn frame_duration(&self, _runtime: &Self::Runtime) -> std::time::Duration {
-        std::time::Duration::from_secs_f64(NES_FRAME_TICKS as f64 / NES_PPU_DOT_HZ)
+    fn frame_duration(&self, runtime: &Self::Runtime) -> std::time::Duration {
+        std::time::Duration::from_secs_f64(
+            runtime.native_frame_ticks() as f64 / runtime.model().ppu_dot_hz() as f64,
+        )
     }
 
     fn button_map(&self) -> &'static ButtonInputMap {
@@ -107,9 +92,31 @@ impl UiSystem for NesSystem {
         map_nes_key(code)
     }
 
-    /// A hard reset drops the cartridge; re-insert it so the machine reboots.
-    fn after_reset(&mut self, runtime: &mut Self::Runtime) -> Result<(), MachineError> {
-        runtime.load_media(&cartridge_media_set(&self.cartridge_media))
+    fn variants(&self) -> Vec<VariantInfo> {
+        Model::ALL
+            .into_iter()
+            .map(|model| VariantInfo::new(model.variant_id(), model.display_name()))
+            .collect()
+    }
+    fn current_variant(&self) -> Option<Cow<'static, str>> {
+        Some(Cow::Borrowed(self.model.variant_id()))
+    }
+    fn switch_variant(
+        &mut self,
+        runtime: &mut Self::Runtime,
+        id: &str,
+    ) -> Result<(), MachineError> {
+        let model = Model::from_variant_id(id).ok_or(MachineError::UnsupportedOperation {
+            operation: "unknown NES region",
+        })?;
+        *runtime =
+            build_replacement(runtime, model, &FirmwareOverrides::none()).map_err(|err| {
+                MachineError::Host {
+                    reason: err.to_string(),
+                }
+            })?;
+        self.model = model;
+        Ok(())
     }
 
     /// The `1`-`5` / `6`-`0` digit row toggles / cycles APU channels for audio
@@ -136,14 +143,10 @@ impl UiSystem for NesSystem {
 
     /// Persist the cartridge's battery PRG-RAM to its `.sav` on the way out.
     fn on_exit(&mut self, runtime: &mut Self::Runtime) -> Result<(), String> {
-        let Some(path) = &self.battery_save_path else {
-            return Ok(());
-        };
-        let Some(ram) = runtime.cartridge_ram() else {
-            return Ok(());
-        };
-        std::fs::write(path, ram)
-            .map_err(|err| format!("failed to write battery save {}: {err}", path.display()))
+        match &self.battery_save_path {
+            Some(path) => write_battery_save(runtime, path),
+            None => Ok(()),
+        }
     }
 }
 
@@ -180,156 +183,6 @@ impl ApuShortcut {
     }
 }
 
-/// The single-cartridge media set the NES boots from.
-fn cartridge_media_set(bytes: &[u8]) -> MediaSet<'_> {
-    let mut media = MediaSet::new();
-    media.push(MediaImage::new("cartridge-1", MediaKind::Cartridge, bytes));
-    media
-}
-
-/// Parsed interactive CLI.
-#[derive(Debug, PartialEq, Eq)]
-pub struct Cli {
-    rom: Option<PathBuf>,
-    scale: u32,
-    video: VideoFilter,
-    battery_save: Option<PathBuf>,
-    no_battery_save: bool,
-}
-
-impl Default for Cli {
-    fn default() -> Self {
-        Self {
-            rom: None,
-            scale: DEFAULT_SCALE,
-            video: VideoFilter::Raw,
-            battery_save: None,
-            no_battery_save: false,
-        }
-    }
-}
-
-/// Build the runtime from the CLI and open the window. Returns a string error
-/// for the `main.rs` dispatcher.
-pub fn run(cli: Cli) -> Result<(), String> {
-    let Some(path) = &cli.rom else {
-        return Err("provide a ROM path with --rom PATH or as a positional argument".to_owned());
-    };
-    let loaded = read_media_asset(path, MediaKind::Cartridge)
-        .map_err(|err| format!("failed to load ROM {}: {err}", path.display()))?;
-    let mut runtime = NesRuntime::blank(Model::NesNtsc);
-    runtime
-        .load_media(&cartridge_media_set(&loaded.bytes))
-        .map_err(|err| format!("failed to start ROM {}: {err}", path.display()))?;
-
-    // Load a battery .sav sidecar (default <rom>.sav) into the cartridge's
-    // PRG-RAM before the first frame runs.
-    let battery_save_path = resolve_battery_save_path(&cli, path);
-    if let Some(save_path) = &battery_save_path {
-        load_battery_save(&mut runtime, save_path, cli.battery_save.is_some())?;
-    }
-
-    println!(
-        "Controls: Esc quit, F12 reset, arrows/gamepad D-pad, Z/gamepad east B, X/gamepad south A, Shift Select, Enter Start, 1-5 toggle APU channels, 6-0 cycle channel gain."
-    );
-    let system = NesSystem {
-        cartridge_media: loaded.bytes,
-        battery_save_path,
-    };
-    emu198x_ui::run(system, runtime, cli.scale, cli.video).map_err(|err: UiError| err.to_string())
-}
-
-/// Resolve the battery `.sav` sidecar path: `None` when disabled, an explicit
-/// `--battery-save` path, or `<rom>.sav` next to the cartridge.
-fn resolve_battery_save_path(cli: &Cli, rom_path: &Path) -> Option<PathBuf> {
-    if cli.no_battery_save {
-        return None;
-    }
-    cli.battery_save
-        .clone()
-        .or_else(|| Some(default_battery_save_path(rom_path)))
-}
-
-fn default_battery_save_path(rom_path: &Path) -> PathBuf {
-    let mut path = rom_path.to_path_buf();
-    path.set_extension("sav");
-    path
-}
-
-/// Load a battery `.sav` into the cartridge's PRG-RAM. A missing file is fine
-/// (fresh save). An explicit `--battery-save` on a non-battery cartridge is an
-/// error; the default path is silently skipped.
-fn load_battery_save(runtime: &mut NesRuntime, path: &Path, explicit: bool) -> Result<(), String> {
-    if !runtime.has_battery_backed_ram() {
-        if explicit {
-            return Err("loaded cartridge does not have battery-backed RAM".to_owned());
-        }
-        return Ok(());
-    }
-    match std::fs::read(path) {
-        Ok(bytes) => runtime
-            .restore_cartridge_ram(&bytes)
-            .map_err(|err| err.to_string()),
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(err) => Err(format!(
-            "failed to read battery save {}: {err}",
-            path.display()
-        )),
-    }
-}
-
-/// Parse the interactive CLI (`--rom`, `--scale`, `--video`, battery flags,
-/// positional ROM). Exits the process on `--help` or a malformed flag.
-pub fn parse_cli<I>(args: I) -> Cli
-where
-    I: IntoIterator<Item = String>,
-{
-    let mut cli = Cli::default();
-    let mut iter = args.into_iter();
-
-    while let Some(arg) = iter.next() {
-        match arg.as_str() {
-            "--rom" => cli.rom = Some(PathBuf::from(next_arg(&mut iter, "--rom"))),
-            "--scale" => {
-                cli.scale = next_arg(&mut iter, "--scale")
-                    .parse()
-                    .unwrap_or_else(|_| die("--scale requires a positive integer"));
-            }
-            "--video" => {
-                cli.video = next_arg(&mut iter, "--video")
-                    .parse()
-                    .unwrap_or_else(|_| die("--video expects raw, lcd, or crt"));
-            }
-            "--battery-save" => {
-                cli.battery_save = Some(PathBuf::from(next_arg(&mut iter, "--battery-save")));
-            }
-            "--no-battery-save" => cli.no_battery_save = true,
-            "--help" | "-h" => {
-                println!("{USAGE}");
-                std::process::exit(0);
-            }
-            _ if arg.starts_with('-') => die(&format!("unknown flag: {arg}")),
-            _ if cli.rom.is_none() => cli.rom = Some(PathBuf::from(arg)),
-            _ => die("only one positional ROM path is supported"),
-        }
-    }
-
-    cli
-}
-
-fn next_arg<I>(iter: &mut I, flag: &str) -> String
-where
-    I: Iterator<Item = String>,
-{
-    iter.next()
-        .unwrap_or_else(|| die(&format!("missing value for {flag}")))
-}
-
-fn die(message: &str) -> ! {
-    eprintln!("error: {message}");
-    std::process::exit(1);
-}
-
 fn next_audio_gain(gain: f32) -> f32 {
     if gain > 0.75 {
         0.5
@@ -361,65 +214,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parse_cli_accepts_positional_rom_and_scale() {
-        let cli = parse_cli(["--scale".to_owned(), "2".to_owned(), "game.nes".to_owned()]);
-
-        assert_eq!(
-            cli,
-            Cli {
-                rom: Some(PathBuf::from("game.nes")),
-                scale: 2,
-                video: VideoFilter::Raw,
-                battery_save: None,
-                no_battery_save: false,
-            }
-        );
-    }
-
-    #[test]
-    fn default_battery_save_path_replaces_rom_extension() {
-        assert_eq!(
-            default_battery_save_path(Path::new("zelda.nes")),
-            PathBuf::from("zelda.sav")
-        );
-    }
-
-    #[test]
-    fn parse_cli_accepts_battery_save_controls() {
-        let cli = parse_cli([
-            "--battery-save".to_owned(),
-            "slot.sav".to_owned(),
-            "game.nes".to_owned(),
-        ]);
-        assert_eq!(cli.battery_save, Some(PathBuf::from("slot.sav")));
-        assert_eq!(
-            resolve_battery_save_path(&cli, Path::new("game.nes")),
-            Some(PathBuf::from("slot.sav"))
-        );
-
-        let cli = parse_cli(["--no-battery-save".to_owned(), "game.nes".to_owned()]);
-        assert!(cli.no_battery_save);
-        assert_eq!(resolve_battery_save_path(&cli, Path::new("game.nes")), None);
-
-        // Default: <rom>.sav.
-        let cli = parse_cli(["game.nes".to_owned()]);
-        assert_eq!(
-            resolve_battery_save_path(&cli, Path::new("game.nes")),
-            Some(PathBuf::from("game.sav"))
-        );
-    }
-
-    #[test]
-    fn parse_cli_accepts_video_filter() {
-        let cli = parse_cli([
-            "--video".to_owned(),
-            "crt".to_owned(),
-            "game.nes".to_owned(),
-        ]);
-        assert_eq!(cli.video, VideoFilter::Crt);
-    }
-
-    #[test]
     fn maps_controls_to_controller_buttons() {
         assert_eq!(map_nes_key(KeyCode::KeyX), Some(HostControl::South));
         assert_eq!(map_nes_key(KeyCode::KeyZ), Some(HostControl::East));
@@ -434,5 +228,51 @@ mod tests {
         assert_eq!(next_audio_gain(0.5), 0.25);
         assert_eq!(next_audio_gain(0.25), 0.0);
         assert_eq!(next_audio_gain(0.0), 1.0);
+    }
+}
+
+#[cfg(test)]
+mod catalogue_tests {
+    use super::*;
+    use emu198x_shell::MediaKind;
+
+    #[test]
+    fn native_startup_and_switching_use_both_catalogue_regions() {
+        let mut app = Nes::default();
+        app.no_battery_save = true;
+        app.media.push(crate::app::MediaArg {
+            slot: "cartridge-1".to_owned(),
+            kind: MediaKind::Cartridge,
+            path: PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("../../test-data/synthetic-cartridges/nintendo-nes-logo.nes"),
+        });
+        let mut runtime = app.build_ui_runtime().expect("native runtime");
+        let mut system = app.ui_system();
+        assert_eq!(system.variants().len(), 2);
+        for model in Model::ALL {
+            system
+                .switch_variant(&mut runtime, model.variant_id())
+                .expect("switch");
+            assert_eq!(runtime.model(), model);
+            assert_eq!(
+                runtime.machine().expect("machine").region(),
+                model.machine_region()
+            );
+            assert_eq!(
+                system.current_variant().as_deref(),
+                Some(model.variant_id())
+            );
+            assert_eq!(system.frame_ticks(&runtime), model.frame_ticks());
+            assert_eq!(
+                system.frame_duration(&runtime),
+                std::time::Duration::from_secs_f64(
+                    model.frame_ticks() as f64 / model.ppu_dot_hz() as f64
+                )
+            );
+        }
+        assert!(system.switch_variant(&mut runtime, "dendy").is_err());
+        assert!(runtime.machine().is_some());
+        assert_eq!(system.frame_ticks(&runtime), runtime.model().frame_ticks());
+        assert_eq!(system.framebuffer_size(&runtime), (FB_WIDTH, FB_HEIGHT));
     }
 }

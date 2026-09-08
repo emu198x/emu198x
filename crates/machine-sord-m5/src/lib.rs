@@ -73,6 +73,7 @@
 //! to one Z80 T-state; per iteration the phase counter advances by 3
 //! and yields one VDP dot whenever it reaches 2.
 
+use common_z80_machine::Z80Machine;
 use emu198x_zilog_z80::{BusOp, Z80};
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
@@ -159,6 +160,10 @@ pub struct SordM5 {
     io_trace: Option<Vec<IoEvent>>,
     region: M5Region,
     cpu_tstates: u64,
+    /// The cadence driver's half-cycle phase; a restore lands on a T-state
+    /// boundary, so it is not part of the snapshot.
+    #[serde(skip)]
+    cadence_hc: u64,
     tstates_per_frame: u64,
     vdp_phase: u32,
     frame_count: u64,
@@ -204,6 +209,7 @@ impl SordM5 {
             io_trace: None,
             region,
             cpu_tstates: 0,
+            cadence_hc: 0,
             tstates_per_frame,
             vdp_phase: 0,
             frame_count: 0,
@@ -243,48 +249,12 @@ impl SordM5 {
         self.tstates_per_frame
     }
 
+    /// Advance one Z80 T-state. The cadence — two CPU half-cycles, the
+    /// interrupt pin fed before each — is `common-z80-machine`'s; the chips
+    /// below tick once per T-state after the CPU, as the hand-rolled loop
+    /// always had them.
     fn tick_tstate(&mut self) {
-        // Two CPU half-cycles per T-state. `Z80::tick` advances one
-        // half-cycle — `T1Rise` then `T1Fall` — so calling it once per
-        // T-state ran the CPU at half speed: a `NOP` cost 8 T-states
-        // against the Z80's 4.
-        //
-        // The IRQ line is fed before each tick, not after: the Z80 samples
-        // `/INT` at an instruction boundary during its own tick. Unlike the
-        // Sega machines the VDP is *not* re-denominated to half-cycles,
-        // because it does not reach the CPU directly — the CTC below stands
-        // between them and ticks once per T-state, so a finer VDP interleave
-        // could not change when the interrupt arrives.
-        for _ in 0..2 {
-            self.cpu.irq = self.ctc.interrupt();
-            self.cpu.tick();
-            self.handle_bus();
-        }
-
-        self.vdp_phase += VDP_DOT_PHASE_NUMERATOR;
-        while self.vdp_phase >= VDP_DOT_PHASE_DENOMINATOR {
-            self.vdp.tick();
-            self.vdp_phase -= VDP_DOT_PHASE_DENOMINATOR;
-        }
-
-        self.psg.tick();
-
-        // VDP /INT feeds the CTC channel's CLK/TRG input; the CTC ticks
-        // on the CPU clock and edge-counts those frame interrupts. The
-        // CTC's INT output (not the raw VDP line) drives the Z80 IRQ pin,
-        // so the interrupt is vectored through IM 2.
-        //
-        // The line is *inverted* into the trigger, matching MAME
-        // (`vdp.int_callback().set(m_ctc, trg3).invert()`). The BIOS arms this
-        // channel for the falling edge; with inversion that falling edge lands
-        // at VBlank (when the active-low /INT asserts), which is the frame sync
-        // the game waits on. Feeding the raw line instead put the falling edge
-        // at status-read time — inside the very handler the interrupt is meant
-        // to trigger — so the channel deadlocked and round logic never advanced.
-        self.ctc.set_trg(VDP_INT_CTC_CHANNEL, !self.vdp.interrupt);
-        self.ctc.tick();
-
-        self.cpu_tstates += 1;
+        self.advance_tstates(1);
     }
 
     fn handle_bus(&mut self) {
@@ -579,6 +549,56 @@ impl SordM5 {
     #[must_use]
     pub fn tstates_per_frame(&self) -> u64 {
         self.tstates_per_frame
+    }
+}
+
+impl Z80Machine for SordM5 {
+    fn hc(&self) -> u64 {
+        self.cadence_hc
+    }
+
+    fn hc_mut(&mut self) -> &mut u64 {
+        &mut self.cadence_hc
+    }
+
+    // The VDP is *not* re-denominated to half-cycles, because it does not
+    // reach the CPU directly — the CTC stands between them and ticks once
+    // per T-state, so a finer VDP interleave could not change when the
+    // interrupt arrives.
+    fn feed_interrupt_pins(&mut self) {
+        self.cpu.irq = self.ctc.interrupt();
+    }
+
+    fn tick_cpu_and_bus(&mut self) {
+        self.cpu.tick();
+        self.handle_bus();
+    }
+
+    fn tick_chips(&mut self) {
+        self.vdp_phase += VDP_DOT_PHASE_NUMERATOR;
+        while self.vdp_phase >= VDP_DOT_PHASE_DENOMINATOR {
+            self.vdp.tick();
+            self.vdp_phase -= VDP_DOT_PHASE_DENOMINATOR;
+        }
+
+        self.psg.tick();
+
+        // VDP /INT feeds the CTC channel's CLK/TRG input; the CTC ticks
+        // on the CPU clock and edge-counts those frame interrupts. The
+        // CTC's INT output (not the raw VDP line) drives the Z80 IRQ pin,
+        // so the interrupt is vectored through IM 2.
+        //
+        // The line is *inverted* into the trigger, matching MAME
+        // (`vdp.int_callback().set(m_ctc, trg3).invert()`). The BIOS arms this
+        // channel for the falling edge; with inversion that falling edge lands
+        // at VBlank (when the active-low /INT asserts), which is the frame sync
+        // the game waits on. Feeding the raw line instead put the falling edge
+        // at status-read time — inside the very handler the interrupt is meant
+        // to trigger — so the channel deadlocked and round logic never advanced.
+        self.ctc.set_trg(VDP_INT_CTC_CHANNEL, !self.vdp.interrupt);
+        self.ctc.tick();
+
+        self.cpu_tstates += 1;
     }
 }
 

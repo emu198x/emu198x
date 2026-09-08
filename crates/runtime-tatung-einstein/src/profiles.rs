@@ -11,6 +11,27 @@ pub enum Model {
 }
 
 impl Model {
+    pub const VARIANT_IDS: [&'static str; 1] = ["tatung-einstein"];
+
+    #[must_use]
+    pub fn from_variant_id(id: &str) -> Option<Self> {
+        (id == Self::Einstein.profile_id()).then_some(Self::Einstein)
+    }
+
+    #[must_use]
+    pub fn firmware_sources(self) -> Vec<emu198x_shell::FirmwareSource> {
+        vec![
+            emu198x_shell::FirmwareSource::required(ROM_FIRMWARE_ID, &["mos.rom"])
+                .with_env_var("EMU198X_EINSTEIN_MOS"),
+        ]
+    }
+
+    /// Existing host frame budget; chip timing is unchanged.
+    #[must_use]
+    pub const fn frame_ticks(self) -> u64 {
+        79_746
+    }
+
     #[must_use]
     pub const fn model_id(self) -> &'static str {
         "tatung-einstein"
@@ -61,6 +82,7 @@ pub fn profile_for(model: Model) -> MachineProfile {
         )],
         capabilities: CapabilitySet::with_all([
             known_capability("keyboard-input"),
+            known_capability("ay-audio"),
             known_capability("scripted-input"),
         ]),
     }

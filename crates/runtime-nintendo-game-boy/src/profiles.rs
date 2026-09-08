@@ -27,6 +27,33 @@ pub enum Model {
 }
 
 impl Model {
+    pub const ALL: [Self; 5] = [Self::Dmg0, Self::Dmg, Self::Mgb, Self::Sgb, Self::Sgb2];
+    pub const VARIANT_IDS: [&'static str; 5] = ["dmg0", "dmg", "mgb", "sgb", "sgb2"];
+
+    #[must_use]
+    pub const fn variant_id(self) -> &'static str {
+        match self {
+            Self::Dmg0 => "dmg0",
+            Self::Dmg => "dmg",
+            Self::Mgb => "mgb",
+            Self::Sgb => "sgb",
+            Self::Sgb2 => "sgb2",
+        }
+    }
+
+    #[must_use]
+    pub fn from_variant_id(id: &str) -> Option<Self> {
+        Self::ALL
+            .into_iter()
+            .find(|model| model.variant_id() == id || model.profile_id() == id)
+    }
+
+    /// Existing host budget in machine cycles; chip timing is unchanged.
+    #[must_use]
+    pub const fn frame_ticks(self) -> u64 {
+        common_nintendo_game_boy::MCYCLES_PER_FRAME as u64
+    }
+
     /// Stable model identifier.
     #[must_use]
     pub const fn model_id(self) -> &'static str {
@@ -58,8 +85,8 @@ impl Model {
             Self::Dmg0 => "Nintendo Game Boy (DMG0 boot profile)",
             Self::Dmg => "Nintendo Game Boy (DMG)",
             Self::Mgb => "Nintendo Game Boy Pocket (MGB)",
-            Self::Sgb => "Nintendo Super Game Boy",
-            Self::Sgb2 => "Nintendo Super Game Boy 2",
+            Self::Sgb => "Nintendo Super Game Boy (post-boot profile)",
+            Self::Sgb2 => "Nintendo Super Game Boy 2 (post-boot profile)",
         }
     }
 
@@ -90,13 +117,7 @@ impl Model {
 /// Returns the full Game Boy family catalogue.
 #[must_use]
 pub fn profiles() -> Vec<MachineProfile> {
-    vec![
-        profile_for(Model::Dmg0),
-        profile_for(Model::Dmg),
-        profile_for(Model::Mgb),
-        profile_for(Model::Sgb),
-        profile_for(Model::Sgb2),
-    ]
+    Model::ALL.into_iter().map(profile_for).collect()
 }
 
 /// Returns the metadata for one Game Boy model.
@@ -129,7 +150,8 @@ pub fn profile_for(model: Model) -> MachineProfile {
             WritebackPolicy::InMemoryOnly,
         )],
         capabilities: CapabilitySet::with_all([
-            known_capability("keyboard-matrix"),
+            known_capability("variant-switch"),
+            known_capability("controller-input"),
             known_capability("scripted-input"),
             known_capability("snapshot-export"),
             known_capability("snapshot-import"),
@@ -180,14 +202,20 @@ mod tests {
         let sgb = Model::Sgb;
         assert_eq!(sgb.model_id(), "nintendo-super-game-boy");
         assert_eq!(sgb.profile_id(), "nintendo-super-game-boy");
-        assert_eq!(sgb.display_name(), "Nintendo Super Game Boy");
+        assert_eq!(
+            sgb.display_name(),
+            "Nintendo Super Game Boy (post-boot profile)"
+        );
         assert_eq!(sgb.release_year(), 1994);
         assert_eq!(sgb.boot_profile(), BootProfile::Sgb);
 
         let sgb2 = Model::Sgb2;
         assert_eq!(sgb2.model_id(), "nintendo-super-game-boy-2");
         assert_eq!(sgb2.profile_id(), "nintendo-super-game-boy-2");
-        assert_eq!(sgb2.display_name(), "Nintendo Super Game Boy 2");
+        assert_eq!(
+            sgb2.display_name(),
+            "Nintendo Super Game Boy 2 (post-boot profile)"
+        );
         assert_eq!(sgb2.release_year(), 1998);
         assert_eq!(sgb2.boot_profile(), BootProfile::Sgb2);
     }

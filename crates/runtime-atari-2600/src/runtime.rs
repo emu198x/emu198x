@@ -20,7 +20,6 @@ pub struct Atari2600Runtime {
     profile: MachineProfile,
     model: Model,
     machine: Option<Atari2600>,
-    cart_bytes: Option<Vec<u8>>,
     time: MachineTime,
     rgba_framebuffer: Vec<u8>,
     rgba_width: u32,
@@ -35,7 +34,6 @@ impl Atari2600Runtime {
             profile: profile_for(model),
             model,
             machine: None,
-            cart_bytes: None,
             time: MachineTime::default(),
             rgba_framebuffer: Vec::new(),
             rgba_width: 0,
@@ -61,8 +59,14 @@ impl Atari2600Runtime {
     ///
     /// Returns `MachineError::InvalidMedia` if the cart fails to parse.
     pub fn insert_cartridge(&mut self, rom: Vec<u8>) -> Result<(), MachineError> {
-        self.cart_bytes = Some(rom);
-        self.rebuild_machine()
+        let machine = Atari2600::new(rom, self.machine_region()).map_err(|reason| {
+            MachineError::InvalidMedia {
+                slot: "cartridge-1".to_owned(),
+                reason,
+            }
+        })?;
+        self.set_machine(Some(machine));
+        Ok(())
     }
 
     #[must_use]
@@ -83,8 +87,10 @@ impl Atari2600Runtime {
         self.time = time;
     }
 
-    pub(crate) fn cart_bytes(&self) -> Option<&[u8]> {
-        self.cart_bytes.as_deref()
+    /// Whether a cartridge is installed, including one restored from a snapshot.
+    #[must_use]
+    pub fn cartridge_loaded(&self) -> bool {
+        self.machine.is_some()
     }
 
     /// Install a machine restored from a snapshot, re-deriving the host RGBA
@@ -103,30 +109,19 @@ impl Atari2600Runtime {
         self.update_rgba_framebuffer();
     }
 
-    fn rebuild_machine(&mut self) -> Result<(), MachineError> {
-        let Some(rom) = self.cart_bytes.clone() else {
-            self.machine = None;
-            return Ok(());
-        };
-        let region = match self.model.region() {
+    fn machine_region(&self) -> Atari2600Region {
+        match self.model.region() {
             emu198x_shell::Region::Pal => Atari2600Region::Pal,
             _ => Atari2600Region::Ntsc,
-        };
-        let machine = Atari2600::new(rom, region).map_err(|reason| MachineError::InvalidMedia {
-            slot: "cartridge-1".to_owned(),
-            reason,
-        })?;
-        // Display the visible window only. The TIA's framebuffer is the full
-        // 228-clock × full-frame raster, but the leading 68-clock HBLANK and the
-        // VSYNC/VBLANK/overscan lines are blanking that must not be shown (they
-        // would band the picture in black and shove it right). Crop to the 160
-        // visible columns and the region's visible scanline window.
-        self.rgba_width = machine.visible_framebuffer_width();
-        self.rgba_height = machine.visible_framebuffer_height();
-        self.rgba_framebuffer = vec![0; (self.rgba_width * self.rgba_height * 4) as usize];
-        self.machine = Some(machine);
-        self.update_rgba_framebuffer();
-        Ok(())
+        }
+    }
+
+    fn rebuild_machine(&mut self) {
+        let machine = self
+            .machine
+            .as_ref()
+            .map(|machine| machine.cold_boot(self.machine_region()));
+        self.set_machine(machine);
     }
 
     fn update_rgba_framebuffer(&mut self) {
@@ -154,7 +149,62 @@ impl Atari2600Runtime {
     }
 }
 
+impl emu198x_shell::FamilyRuntime for Atari2600Runtime {
+    type Model = Model;
+    fn variant_ids() -> &'static [&'static str] {
+        &Model::VARIANT_IDS
+    }
+    fn model_from_id(id: &str) -> Option<Model> {
+        Model::from_variant_id(id)
+    }
+    fn variant_id(model: Model) -> &'static str {
+        model.variant_id()
+    }
+    fn profile_for(model: Model) -> MachineProfile {
+        profile_for(model)
+    }
+    fn rom_convention() -> emu198x_shell::RomConvention {
+        emu198x_shell::RomConvention {
+            env_var: None,
+            dirs: &[],
+        }
+    }
+    fn firmware_sources(model: Model) -> Vec<emu198x_shell::FirmwareSource> {
+        model.firmware_sources()
+    }
+    fn from_firmware(
+        model: Model,
+        firmware: &emu198x_shell::FirmwareSet<'_>,
+    ) -> Result<Self, MachineError> {
+        firmware.validate_for_profile(&profile_for(model))?;
+        Ok(Self::blank(model))
+    }
+    fn replacement(
+        &self,
+        model: Model,
+        firmware: &emu198x_shell::FirmwareSet<'_>,
+    ) -> Result<Self, MachineError> {
+        let mut replacement = Self::from_firmware(model, firmware)?;
+        replacement.set_machine(
+            self.machine
+                .as_ref()
+                .map(|machine| machine.cold_boot(replacement.machine_region())),
+        );
+        Ok(replacement)
+    }
+    fn native_frame_ticks(&self) -> u64 {
+        self.model.frame_ticks()
+    }
+}
+
 impl MachineCore for Atari2600Runtime {
+    fn set_machine<Q: emu198x_shell::SessionQueryProvider<Self>>(
+        session: &mut emu198x_shell::HeadlessSession<Self, Q>,
+        machine: &str,
+    ) -> Result<emu198x_shell::VariantSwitched, emu198x_shell::LoaderError> {
+        emu198x_shell::swap_variant(session, machine)
+    }
+
     fn profile(&self) -> &MachineProfile {
         &self.profile
     }
@@ -164,7 +214,7 @@ impl MachineCore for Atari2600Runtime {
     }
 
     fn reset(&mut self, _kind: ResetKind) {
-        let _ = self.rebuild_machine();
+        self.rebuild_machine();
         self.time = MachineTime::default();
     }
 

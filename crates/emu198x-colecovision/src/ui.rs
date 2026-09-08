@@ -7,24 +7,22 @@
 //! harness's console path ([`UiSystem::map_key`] + [`UiSystem::button_map`]),
 //! and the keypad digits / `*` / `#` are named key events on controller 1,
 //! routed through [`UiSystem::map_keys`]. Compiled only with the `ui` Cargo
-//! feature; `main.rs` routes here when no automation flag is given.
+//! feature; the shared launcher opens the window when no automation flag is
+//! given.
 
-use std::env;
-use std::path::{Path, PathBuf};
+use emu198x_shell::{
+    FamilyRuntime, FirmwareOverrides, MachineCore, MachineError, build_replacement,
+};
+use std::borrow::Cow;
 use std::time::Duration;
 
-use emu198x_ui::{
-    ButtonInputMap, ButtonTarget, HostControl, KeyCode, UiError, UiSystem, VideoFilter,
-};
+use emu198x_ui::launch::UiApp;
+use emu198x_ui::{ButtonInputMap, ButtonTarget, HostControl, KeyCode, UiSystem, VariantInfo};
 use runtime_coleco_colecovision::{CvRuntime, Model};
 
+use crate::app::ColecoVision;
+
 const DEFAULT_SCALE: u32 = 3;
-/// CPU clocks per frame — `228 × lines`, matching the headless runner.
-const FRAME_TICKS_NTSC: u64 = 228 * 262;
-const FRAME_TICKS_PAL: u64 = 228 * 313;
-const NTSC_FRAME_HZ: f64 = 60.0;
-const PAL_FRAME_HZ: f64 = 50.0;
-const BIOS_SIZE: usize = 8 * 1024;
 
 /// Player-1 controller: joystick directions plus the two fire buttons.
 /// `south`/`east` are the names `runtime-coleco-colecovision`'s `apply_button`
@@ -39,72 +37,18 @@ const COLECO_BUTTON_MAP: ButtonInputMap = ButtonInputMap::new(&[
     (HostControl::East, ButtonTarget::new(1, "east")),
 ]);
 
-const USAGE: &str = "\
-Usage: emu198x-colecovision [OPTIONS]
-
-Options:
-    --bios PATH     ColecoVision BIOS ROM (8 KB); default
-                    ~/.emu198x/roms/coleco-colecovision/colecovision.rom
-                    (or set EMU198X_COLECO_BIOS)
-    --cart PATH     cartridge ROM image (optional — BIOS shows the splash)
-    --region MODE   ntsc | pal [default: ntsc]
-    --scale N       integer window scale, default 3
-    --video MODE    raw | lcd | crt [default: raw]
-    --help, -h      show this help
-
-Automation:
-    --script PATH   run a JSON session headlessly and print a report
-    --headless      run without a window (implied by --script)
-    --mcp           serve this machine over MCP on stdio
-
-Controls:
-    Esc             quit
-    F12             emulator hard reset
-    Arrow keys      joystick (player 1)
-    Z / X           left and right fire buttons
-    0-9             numeric keypad
-    Numpad * / /    keypad * and # keys
-
-Examples:
-    emu198x-colecovision --cart donkeykong.col
-    emu198x-colecovision --bios coleco.rom --cart game.col --scale 4
-";
-
-/// Display region — selects the model, frame tick budget, and refresh rate.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Region {
-    Ntsc,
-    Pal,
+/// Native window adapter for the runtime catalogue. Region switches cold-boot
+/// with the cartridge held in memory by the runtime.
+pub struct ColecoSystem {
+    model: Model,
 }
 
-impl Region {
-    fn model(self) -> Model {
-        match self {
-            Self::Ntsc => Model::CvNtsc,
-            Self::Pal => Model::CvPal,
-        }
-    }
+impl UiApp for ColecoVision {
+    type System = ColecoSystem;
 
-    fn frame_ticks(self) -> u64 {
-        match self {
-            Self::Ntsc => FRAME_TICKS_NTSC,
-            Self::Pal => FRAME_TICKS_PAL,
-        }
+    fn ui_system(&self) -> ColecoSystem {
+        ColecoSystem { model: self.model }
     }
-
-    fn frame_hz(self) -> f64 {
-        match self {
-            Self::Ntsc => NTSC_FRAME_HZ,
-            Self::Pal => PAL_FRAME_HZ,
-        }
-    }
-}
-
-/// The ColecoVision as a [`UiSystem`] for the shared harness. The region is
-/// fixed at construction; a hard reset rebuilds the machine from the BIOS and
-/// cartridge the runtime already holds.
-struct ColecoSystem {
-    region: Region,
 }
 
 impl UiSystem for ColecoSystem {
@@ -136,12 +80,44 @@ impl UiSystem for ColecoSystem {
             .unwrap_or((280, 240))
     }
 
-    fn frame_ticks(&self, _runtime: &Self::Runtime) -> u64 {
-        self.region.frame_ticks()
+    fn frame_ticks(&self, runtime: &Self::Runtime) -> u64 {
+        runtime.native_frame_ticks()
     }
 
-    fn frame_duration(&self, _runtime: &Self::Runtime) -> Duration {
-        Duration::from_secs_f64(1.0 / self.region.frame_hz())
+    fn frame_duration(&self, runtime: &Self::Runtime) -> Duration {
+        Duration::from_secs_f64(match runtime.profile().region {
+            emu198x_shell::Region::Pal => 1.0 / 50.0,
+            _ => 1.0 / 60.0,
+        })
+    }
+
+    fn variants(&self) -> Vec<VariantInfo> {
+        Model::ALL
+            .iter()
+            .map(|model| VariantInfo::new(model.variant_id(), model.display_name()))
+            .collect()
+    }
+
+    fn current_variant(&self) -> Option<Cow<'static, str>> {
+        Some(Cow::Borrowed(self.model.variant_id()))
+    }
+
+    fn switch_variant(
+        &mut self,
+        runtime: &mut Self::Runtime,
+        id: &str,
+    ) -> Result<(), MachineError> {
+        let model = Model::from_variant_id(id).ok_or(MachineError::UnsupportedOperation {
+            operation: "unknown colecovision variant",
+        })?;
+        *runtime =
+            build_replacement(runtime, model, &FirmwareOverrides::none()).map_err(|err| {
+                MachineError::Host {
+                    reason: err.to_string(),
+                }
+            })?;
+        self.model = model;
+        Ok(())
     }
 
     fn button_map(&self) -> &'static ButtonInputMap {
@@ -182,171 +158,94 @@ impl UiSystem for ColecoSystem {
     }
 }
 
-/// Parsed interactive CLI.
-#[derive(Debug, PartialEq, Eq)]
-pub struct Cli {
-    bios: Option<PathBuf>,
-    cart: Option<PathBuf>,
-    region: Region,
-    scale: u32,
-    video: VideoFilter,
-}
-
-impl Default for Cli {
-    fn default() -> Self {
-        Self {
-            bios: None,
-            cart: None,
-            region: Region::Ntsc,
-            scale: DEFAULT_SCALE,
-            video: VideoFilter::Raw,
-        }
-    }
-}
-
-/// Build the runtime from the CLI and open the window. Returns a string error
-/// for the `main.rs` dispatcher.
-pub fn run(cli: Cli) -> Result<(), String> {
-    let bios_path = cli
-        .bios
-        .clone()
-        .or_else(default_bios_path)
-        .ok_or_else(|| "no BIOS: pass --bios PATH or set EMU198X_COLECO_BIOS".to_owned())?;
-    let bios = read_rom(&bios_path, "BIOS", BIOS_SIZE)?;
-    let mut runtime = CvRuntime::new(cli.region.model(), bios)
-        .map_err(|err| format!("failed to construct runtime: {err}"))?;
-    if let Some(cart_path) = &cli.cart {
-        let cart = std::fs::read(cart_path)
-            .map_err(|err| format!("failed to read --cart {}: {err}", cart_path.display()))?;
-        runtime.insert_cartridge(cart);
-    }
-
-    println!(
-        "Controls: Esc quit, F12 reset, arrows joystick, Z/X fire, 0-9 keypad, Numpad */÷ for * and #."
-    );
-    emu198x_ui::run(
-        ColecoSystem { region: cli.region },
-        runtime,
-        cli.scale,
-        cli.video,
-    )
-    .map_err(|err: UiError| err.to_string())
-}
-
-/// Parse the interactive CLI. Exits the process on `--help` or a malformed flag.
-pub fn parse_cli<I>(args: I) -> Cli
-where
-    I: IntoIterator<Item = String>,
-{
-    let mut cli = Cli::default();
-    let mut iter = args.into_iter();
-    while let Some(arg) = iter.next() {
-        match arg.as_str() {
-            "--bios" => cli.bios = Some(PathBuf::from(next_arg(&mut iter, "--bios"))),
-            "--cart" => cli.cart = Some(PathBuf::from(next_arg(&mut iter, "--cart"))),
-            "--region" => {
-                cli.region = match next_arg(&mut iter, "--region").as_str() {
-                    "ntsc" => Region::Ntsc,
-                    "pal" => Region::Pal,
-                    other => die(&format!("--region expects ntsc|pal, got {other}")),
-                };
-            }
-            "--scale" => {
-                cli.scale = next_arg(&mut iter, "--scale")
-                    .parse()
-                    .unwrap_or_else(|_| die("--scale requires a positive integer"));
-            }
-            "--video" => {
-                cli.video = next_arg(&mut iter, "--video")
-                    .parse()
-                    .unwrap_or_else(|_| die("--video expects raw, lcd, or crt"));
-            }
-            "--help" | "-h" => {
-                println!("{USAGE}");
-                std::process::exit(0);
-            }
-            _ if arg.starts_with('-') => die(&format!("unknown flag: {arg}")),
-            _ if cli.cart.is_none() => cli.cart = Some(PathBuf::from(arg)),
-            _ => die("only one positional cart path is supported"),
-        }
-    }
-    cli
-}
-
-fn default_bios_path() -> Option<PathBuf> {
-    if let Ok(path) = env::var("EMU198X_COLECO_BIOS")
-        && !path.is_empty()
-    {
-        return Some(PathBuf::from(path));
-    }
-    let home = env::var("HOME").ok()?;
-    Some(PathBuf::from(home).join(".emu198x/roms/coleco-colecovision/colecovision.rom"))
-}
-
-fn read_rom(path: &Path, kind: &str, expected: usize) -> Result<Vec<u8>, String> {
-    let bytes = std::fs::read(path)
-        .map_err(|err| format!("failed to read {kind} ROM {}: {err}", path.display()))?;
-    if bytes.len() != expected {
-        return Err(format!(
-            "{kind} ROM at {} is {} bytes; expected {expected}",
-            path.display(),
-            bytes.len()
-        ));
-    }
-    Ok(bytes)
-}
-
-fn next_arg<I: Iterator<Item = String>>(iter: &mut I, flag: &str) -> String {
-    iter.next()
-        .unwrap_or_else(|| die(&format!("missing value for {flag}")))
-}
-
-fn die(message: &str) -> ! {
-    eprintln!("error: {message}");
-    std::process::exit(1);
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn parse_cli_accepts_bios_cart_region_scale_video() {
-        let cli = parse_cli([
-            "--bios".to_owned(),
-            "coleco.rom".to_owned(),
-            "--cart".to_owned(),
-            "dk.col".to_owned(),
-            "--region".to_owned(),
-            "pal".to_owned(),
-            "--scale".to_owned(),
-            "4".to_owned(),
-            "--video".to_owned(),
-            "crt".to_owned(),
-        ]);
-        assert_eq!(cli.bios, Some(PathBuf::from("coleco.rom")));
-        assert_eq!(cli.cart, Some(PathBuf::from("dk.col")));
-        assert_eq!(cli.region, Region::Pal);
-        assert_eq!(cli.scale, 4);
-        assert_eq!(cli.video, VideoFilter::Crt);
+    fn window_startup_loads_parsed_cartridge_and_rejects_missing_media() {
+        let dir =
+            std::env::temp_dir().join(format!("colecovision-ui-media-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("directory");
+        let cart = dir.join("cart.rom");
+        std::fs::write(&cart, vec![0x5a; 8192]).expect("cartridge");
+        let app = ColecoVision {
+            cart: Some(cart.clone()),
+            firmware: {
+                let bios = dir.join("bios.rom");
+                std::fs::write(&bios, vec![0; 8192]).expect("BIOS");
+                let mut firmware = FirmwareOverrides::none();
+                firmware.by_id.insert(
+                    runtime_coleco_colecovision::BIOS_FIRMWARE_ID.to_owned(),
+                    bios,
+                );
+                firmware
+            },
+            model: Model::CvNtsc,
+        };
+        let mut runtime = app.build_ui_runtime().expect("window runtime");
+        assert!(runtime.cartridge_loaded());
+        std::fs::remove_file(cart).expect("remove source");
+        assert!(app.build_ui_runtime().is_err());
+        runtime = build_replacement(&runtime, Model::CvPal, &app.firmware)
+            .expect("window replacement builder");
+        assert!(runtime.cartridge_loaded());
+        assert_eq!(runtime.machine().expect("cartridge").peek(32768), 0x5a);
+        std::fs::remove_dir_all(dir).expect("cleanup");
     }
 
     #[test]
-    fn parse_cli_accepts_positional_cart() {
-        let cli = parse_cli(["dk.col".to_owned()]);
-        assert_eq!(cli.cart, Some(PathBuf::from("dk.col")));
+    fn menu_uses_runtime_ids_and_a_failed_switch_preserves_selection() {
+        let mut system = ColecoSystem {
+            model: Model::CvNtsc,
+        };
+        let choices = system.variants();
+        assert_eq!(
+            choices
+                .iter()
+                .map(|choice| choice.id.as_ref())
+                .collect::<Vec<_>>(),
+            Model::VARIANT_IDS
+        );
+        let mut runtime = <ColecoSystem as UiSystem>::Runtime::blank(Model::CvNtsc);
+        assert!(system.switch_variant(&mut runtime, "unknown").is_err());
+        assert_eq!(runtime.model(), Model::CvNtsc);
+        assert_eq!(
+            system.current_variant().as_deref(),
+            Some(Model::CvNtsc.variant_id())
+        );
+        assert_eq!(system.frame_ticks(&runtime), runtime.native_frame_ticks());
     }
 
     #[test]
-    fn region_frame_ticks_match() {
-        assert_eq!(Region::Ntsc.frame_ticks(), 228 * 262);
-        assert_eq!(Region::Pal.frame_ticks(), 228 * 313);
+    fn pacing_and_dimensions_follow_the_runtime_region() {
+        let system = ColecoSystem {
+            model: Model::CvNtsc,
+        };
+        for model in Model::ALL {
+            let runtime = CvRuntime::new(model, vec![0; 8192]).expect("BIOS");
+            assert_eq!(system.frame_ticks(&runtime), model.frame_ticks());
+            let hz = if model.region() == emu198x_shell::Region::Pal {
+                50.0
+            } else {
+                60.0
+            };
+            assert_eq!(
+                system.frame_duration(&runtime),
+                Duration::from_secs_f64(1.0 / hz)
+            );
+            let machine = runtime.machine().expect("machine");
+            assert_eq!(
+                system.framebuffer_size(&runtime),
+                (machine.framebuffer_width(), machine.framebuffer_height())
+            );
+        }
     }
 
     #[test]
     fn joystick_on_map_key_and_keypad_on_map_keys() {
         let sys = ColecoSystem {
-            region: Region::Ntsc,
+            model: Model::CvNtsc,
         };
         // Joystick + fire on the console path.
         assert_eq!(sys.map_key(KeyCode::ArrowLeft), Some(HostControl::Left));

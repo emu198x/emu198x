@@ -23,15 +23,19 @@ pub mod host;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod input;
 pub mod keyboard;
+pub mod launch;
+pub mod loaders;
 pub mod machine;
 pub mod mcp;
 pub mod mcp_tools;
 pub mod media;
+pub mod port_io;
 pub mod query;
 pub mod script;
 pub mod session;
 pub mod startup_media;
 pub mod time;
+pub mod variants;
 pub mod video;
 pub mod watch;
 
@@ -67,11 +71,13 @@ pub use input::{
     NativeGamepadInput,
 };
 pub use keyboard::{KeyTiming, KeyboardTarget, STANDARD_KEY_TIMING, StandardKeyboard};
+pub use loaders::{BasicProgramLoaded, LoaderError, TapeAutoloaded};
 pub use machine::{
     Family, FamilyRuntime, MachineCore, MachineId, MachineProfile, ProfileId, Region, ResetKind,
     RunResult, StopReason,
 };
 pub use media::{FirmwareRequirement, MediaImage, MediaKind, MediaSet, MediaSlot, WritebackPolicy};
+pub use port_io::PortIoTarget;
 pub use query::{
     NoAdditionalQueries, QueryError, QueryPathsResult, QueryResult, SESSION_QUERY_PATHS,
     SessionQueryProvider,
@@ -82,6 +88,11 @@ pub use script::{
 };
 pub use session::{HeadlessSession, QueryBoolWaitResult, QueryTextWaitResult, SessionError};
 pub use time::{ClockDesc, ClockRate, MachineTime};
+pub use variants::{
+    FirmwareOverrides, FirmwareResolveError, FirmwareSource, RomConvention, VariantSwitched,
+    build_replacement, build_variant, build_variant_or_blank, build_variant_with, read_firmware,
+    resolve_firmware, swap_variant,
+};
 pub use video::{
     DEFAULT_RECORDING_FADE_MS, VideoRecorder, VideoRecordingError, VideoRecordingSummary,
     compute_fps, find_ffmpeg, trim_audio_after, trim_audio_after_with_fade,

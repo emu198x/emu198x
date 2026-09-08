@@ -2,21 +2,19 @@
 //!
 //! A native Atari 2600 window built on the shared `emu198x-ui` harness: wgpu
 //! video with `raw`/`lcd`/`crt` filters, framed TIA audio, and keyboard/gamepad
-//! input. Compiled only with the `ui` Cargo feature; `main.rs` routes here when
-//! no `--script`/`--mcp`/automation flag is given.
+//! input. Compiled only with the `ui` Cargo feature; the shared launcher
+//! opens the window when no automation flag is given.
 
-use std::path::PathBuf;
-
-use emu198x_shell::{MediaKind, Region, read_media_asset};
-use emu198x_ui::{
-    ButtonInputMap, ButtonTarget, HostControl, KeyCode, UiError, UiSystem, VideoFilter,
-};
+use emu198x_shell::Region;
+use emu198x_shell::{FamilyRuntime, FirmwareOverrides, MachineError, build_replacement};
+use emu198x_ui::launch::UiApp;
+use emu198x_ui::{ButtonInputMap, ButtonTarget, HostControl, KeyCode, UiSystem, VariantInfo};
 use runtime_atari_2600::{Atari2600Runtime, Model};
+use std::borrow::Cow;
+
+use crate::app::Atari2600;
 
 const DEFAULT_SCALE: u32 = 3;
-const CLOCKS_PER_LINE: u64 = 228;
-const NTSC_LINES: u64 = 262;
-const PAL_LINES: u64 = 312;
 const NTSC_COLOUR_HZ: f64 = 3_579_545.0;
 const PAL_COLOUR_HZ: f64 = 3_546_894.0;
 
@@ -33,33 +31,18 @@ const ATARI_2600_BUTTON_MAP: ButtonInputMap = ButtonInputMap::new(&[
     (HostControl::Select, ButtonTarget::new(1, "select")),
 ]);
 
-const USAGE: &str = "\
-Usage: emu198x-atari-2600 [OPTIONS] [CART]
-
-Options:
-    --cart PATH     cartridge ROM (.a26/.bin, or a .zip). A multi-entry zip
-                    (e.g. a merged MAME software list) loads its root parent;
-                    append #NAME or #INDEX to pick another, e.g. game.zip#poleposc
-    --scale N       integer window scale, default 3
-    --video MODE    raw | lcd | crt [default: raw]
-    --region MODE   ntsc | pal [default: ntsc]
-    --help, -h      show this help
-
-Controls:
-    Esc             quit
-    F12             emulator hard reset
-    Arrow keys      joystick (player 1)
-    X / Z / Space   fire
-    Enter           console RESET switch
-    Right Shift     console SELECT switch
-
-Examples:
-    emu198x-atari-2600 frogger2.a26
-    emu198x-atari-2600 --cart pitfall2.zip --scale 4 --video crt
-";
-
 /// The Atari 2600 as a [`UiSystem`] for the shared harness.
-struct Atari2600System;
+pub struct Atari2600System {
+    model: Model,
+}
+
+impl UiApp for Atari2600 {
+    type System = Atari2600System;
+
+    fn ui_system(&self) -> Atari2600System {
+        Atari2600System { model: self.model }
+    }
+}
 
 impl UiSystem for Atari2600System {
     type Runtime = Atari2600Runtime;
@@ -98,11 +81,7 @@ impl UiSystem for Atari2600System {
     }
 
     fn frame_ticks(&self, runtime: &Self::Runtime) -> u64 {
-        let lines = match runtime.model().region() {
-            Region::Pal => PAL_LINES,
-            _ => NTSC_LINES,
-        };
-        lines * CLOCKS_PER_LINE
+        runtime.native_frame_ticks()
     }
 
     fn frame_duration(&self, runtime: &Self::Runtime) -> std::time::Duration {
@@ -111,6 +90,35 @@ impl UiSystem for Atari2600System {
             _ => NTSC_COLOUR_HZ,
         };
         std::time::Duration::from_secs_f64(self.frame_ticks(runtime) as f64 / hz)
+    }
+
+    fn variants(&self) -> Vec<VariantInfo> {
+        Model::ALL
+            .iter()
+            .map(|model| VariantInfo::new(model.variant_id(), model.display_name()))
+            .collect()
+    }
+
+    fn current_variant(&self) -> Option<Cow<'static, str>> {
+        Some(Cow::Borrowed(self.model.variant_id()))
+    }
+
+    fn switch_variant(
+        &mut self,
+        runtime: &mut Self::Runtime,
+        id: &str,
+    ) -> Result<(), MachineError> {
+        let model = Model::from_variant_id(id).ok_or(MachineError::UnsupportedOperation {
+            operation: "unknown atari-2600 variant",
+        })?;
+        *runtime =
+            build_replacement(runtime, model, &FirmwareOverrides::none()).map_err(|err| {
+                MachineError::Host {
+                    reason: err.to_string(),
+                }
+            })?;
+        self.model = model;
+        Ok(())
     }
 
     fn button_map(&self) -> &'static ButtonInputMap {
@@ -144,127 +152,51 @@ impl UiSystem for Atari2600System {
     }
 }
 
-/// Parsed interactive CLI.
-#[derive(Debug, PartialEq, Eq)]
-pub struct Cli {
-    cart: Option<PathBuf>,
-    scale: u32,
-    video: VideoFilter,
-    region: Region,
-}
-
-impl Default for Cli {
-    fn default() -> Self {
-        Self {
-            cart: None,
-            scale: DEFAULT_SCALE,
-            video: VideoFilter::Raw,
-            region: Region::Ntsc,
-        }
-    }
-}
-
-/// Parse the interactive CLI. Exits the process on `--help` or a bad flag.
-pub fn parse_cli(args: Vec<String>) -> Cli {
-    let mut cli = Cli::default();
-    let mut iter = args.into_iter();
-    while let Some(arg) = iter.next() {
-        match arg.as_str() {
-            "--cart" => cli.cart = Some(PathBuf::from(next_arg(&mut iter, "--cart"))),
-            "--scale" => {
-                cli.scale = next_arg(&mut iter, "--scale")
-                    .parse()
-                    .unwrap_or_else(|_| die("--scale requires a positive integer"));
-            }
-            "--video" => {
-                cli.video = next_arg(&mut iter, "--video")
-                    .parse()
-                    .unwrap_or_else(|_| die("--video expects raw, lcd, or crt"));
-            }
-            "--region" => {
-                cli.region = match next_arg(&mut iter, "--region").as_str() {
-                    "ntsc" => Region::Ntsc,
-                    "pal" => Region::Pal,
-                    other => die(&format!("--region expects ntsc|pal, got {other}")),
-                };
-            }
-            "--help" | "-h" => {
-                println!("{USAGE}");
-                std::process::exit(0);
-            }
-            _ if arg.starts_with('-') => die(&format!("unknown flag: {arg}")),
-            _ if cli.cart.is_none() => cli.cart = Some(PathBuf::from(arg)),
-            _ => die("only one positional cart path is supported"),
-        }
-    }
-    cli
-}
-
-/// Build the runtime from the CLI and open the window. Returns a string error
-/// for the `main.rs` dispatcher.
-pub fn run(cli: Cli) -> Result<(), String> {
-    let Some(cart_path) = &cli.cart else {
-        return Err("provide a cartridge with --cart PATH or as a positional argument".to_owned());
-    };
-    let loaded = read_media_asset(cart_path, MediaKind::Cartridge)
-        .map_err(|err| format!("failed to load cart {}: {err}", cart_path.display()))?;
-    let model = match cli.region {
-        Region::Pal => Model::Vcs2600Pal,
-        _ => Model::Vcs2600Ntsc,
-    };
-    let runtime = Atari2600Runtime::new(model, loaded.bytes)
-        .map_err(|err| format!("failed to start cart {}: {err}", cart_path.display()))?;
-
-    println!(
-        "Controls: Esc quit, F12 reset, arrows joystick, X/Z/Space fire, Enter console RESET, Right Shift SELECT."
-    );
-    emu198x_ui::run(Atari2600System, runtime, cli.scale, cli.video)
-        .map_err(|err: UiError| err.to_string())
-}
-
-fn next_arg<I: Iterator<Item = String>>(iter: &mut I, flag: &str) -> String {
-    iter.next()
-        .unwrap_or_else(|| die(&format!("missing value for {flag}")))
-}
-
-fn die(message: &str) -> ! {
-    eprintln!("error: {message}");
-    std::process::exit(1);
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use runtime_atari_2600::Model;
 
     #[test]
-    fn parse_cli_accepts_positional_cart_and_scale() {
-        let cli = parse_cli(vec![
-            "--scale".to_owned(),
-            "2".to_owned(),
-            "game.a26".to_owned(),
-        ]);
-        assert_eq!(cli.cart, Some(PathBuf::from("game.a26")));
-        assert_eq!(cli.scale, 2);
-        assert_eq!(cli.video, VideoFilter::Raw);
-        assert_eq!(cli.region, Region::Ntsc);
-    }
-
-    #[test]
-    fn parse_cli_accepts_region_and_video() {
-        let cli = parse_cli(vec![
-            "--region".to_owned(),
-            "pal".to_owned(),
-            "--video".to_owned(),
-            "crt".to_owned(),
-            "game.a26".to_owned(),
-        ]);
-        assert_eq!(cli.region, Region::Pal);
-        assert_eq!(cli.video, VideoFilter::Crt);
+    fn selector_switches_live_region_and_preserves_cartridge() {
+        let app = Atari2600::default();
+        let mut system = app.ui_system();
+        let mut runtime =
+            Atari2600Runtime::new(Model::default(), vec![0x5a; 4096]).expect("runtime");
+        assert_eq!(system.variants().len(), 2);
+        for model in Model::ALL {
+            system
+                .switch_variant(&mut runtime, model.variant_id())
+                .expect("switch");
+            assert_eq!(
+                system.current_variant().as_deref(),
+                Some(model.variant_id())
+            );
+            assert_eq!(runtime.model(), model);
+            assert_eq!(system.frame_ticks(&runtime), model.frame_ticks());
+            let pal = model.region() == emu198x_shell::Region::Pal;
+            assert_eq!(
+                system.framebuffer_size(&runtime),
+                (160, if pal { 288 } else { 240 })
+            );
+            let expected_seconds =
+                (model.frame_ticks() as f64) / if pal { PAL_COLOUR_HZ } else { NTSC_COLOUR_HZ };
+            assert_eq!(
+                system.frame_duration(&runtime),
+                std::time::Duration::from_secs_f64(expected_seconds)
+            );
+            assert_eq!(runtime.machine().expect("machine").peek(4096), 0x5a);
+        }
+        let before = system.current_variant();
+        assert!(system.switch_variant(&mut runtime, "unknown").is_err());
+        assert_eq!(system.current_variant(), before);
     }
 
     #[test]
     fn system_frame_ticks_match_region() {
-        let sys = Atari2600System;
+        let sys = Atari2600System {
+            model: Model::Vcs2600Ntsc,
+        };
         let ntsc = Atari2600Runtime::blank(Model::Vcs2600Ntsc);
         let pal = Atari2600Runtime::blank(Model::Vcs2600Pal);
         assert_eq!(sys.frame_ticks(&ntsc), 262 * 228);
@@ -273,7 +205,9 @@ mod tests {
 
     #[test]
     fn maps_joystick_and_console_keys() {
-        let sys = Atari2600System;
+        let sys = Atari2600System {
+            model: Model::Vcs2600Ntsc,
+        };
         assert_eq!(sys.map_key(KeyCode::ArrowLeft), Some(HostControl::Left));
         assert_eq!(sys.map_key(KeyCode::KeyX), Some(HostControl::South));
         assert_eq!(sys.map_key(KeyCode::Enter), Some(HostControl::Start));

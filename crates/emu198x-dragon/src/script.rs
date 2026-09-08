@@ -1,11 +1,12 @@
-//! Headless Dragon runner — `--script` / `--headless` mode.
+//! Headless Dragon harness — every headless run that is not `--script`.
 //!
 //! The bring-up and verification harness: CAS/VDK/PAK smoke matrices,
 //! typed-command runs, direct DragonDOS `.BIN` loading, opcode-fetch /
 //! write trace watches, snapshot trace signatures, and optional
-//! patched-XRoar screenshot comparison. The non-interactive half of the
-//! `emu198x-dragon` binary; the dispatcher in `main.rs` routes here when
-//! a headless-only flag is present.
+//! patched-XRoar screenshot comparison. The shared launcher parses the
+//! flags into [`Dragon`] and routes here through `MachineApp::run_script`
+//! when a harness flag is present; `--script` itself runs on the shared
+//! session loop, which this module supplies the firmware loader for.
 
 use std::collections::BTreeMap;
 use std::env;
@@ -16,9 +17,10 @@ use std::process::{self, Command};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use emu198x_shell::StopReason as RuntimeStopReason;
+use emu198x_shell::launch::{CommonCli, LaunchError};
 use emu198x_shell::{
-    CapturedFrame, FirmwareImage, FirmwareSet, HeadlessScript, HeadlessSession, InputEvent,
-    MachineError, MachineTime, MediaImage, MediaKind, MediaSet, PixelFormat, TraceEvent, TraceSink,
+    CapturedFrame, FirmwareImage, FirmwareSet, HeadlessSession, InputEvent, MachineError,
+    MachineTime, MediaImage, MediaKind, MediaSet, PixelFormat, TraceEvent, TraceSink,
     read_media_asset,
 };
 use format_dragon_bin::{DragonBinImage, parse_dragon_bin};
@@ -44,11 +46,13 @@ use runtime_dragon::{DragonRuntime, DragonSessionQueryProvider, Model};
 use serde::Serialize;
 use zip::ZipArchive;
 
-const DEFAULT_CYCLES: u64 = 100_000;
-const DEFAULT_TRACE_LIMIT: usize = 64;
-const DEFAULT_SMOKE_RUN_LIMIT: usize = 8;
-const DEFAULT_XROAR_SETTLE_SECONDS: f32 = 3.0;
-const DEFAULT_XROAR_TIMEOUT_SECONDS: f32 = 45.0;
+use crate::app::Dragon;
+
+pub(crate) const DEFAULT_CYCLES: u64 = 100_000;
+pub(crate) const DEFAULT_TRACE_LIMIT: usize = 64;
+pub(crate) const DEFAULT_SMOKE_RUN_LIMIT: usize = 8;
+pub(crate) const DEFAULT_XROAR_SETTLE_SECONDS: f32 = 3.0;
+pub(crate) const DEFAULT_XROAR_TIMEOUT_SECONDS: f32 = 45.0;
 const XROAR_ZOOMED_WIDTH: u32 = 512;
 const XROAR_ZOOMED_HEIGHT: u32 = 384;
 const BOOT_FRAME_BUDGET: u32 = 100;
@@ -62,134 +66,7 @@ const KEY_EDGE_FRAMES: u32 = 8;
 const MAX_SAM_BUS_CYCLE_MASTER_TICKS: u64 = 25;
 const SMOKE_START_SETTLE_FRAMES: u32 = 60;
 
-const USAGE: &str = "\
-Usage: emu198x-dragon --headless --rom PATH [OPTIONS]   (add --no-default-features for graphics-free builds)
-
-Firmware:
-    --model MODEL       dragon32 | dragon64 [default: dragon32]
-    --rom PATH          Dragon 32 BASIC ROM, or Dragon 64 compatible-mode ROM; .zip archives are accepted
-    --rom64 PATH        Dragon 64 64-mode BASIC ROM, required with --model dragon64
-    --cart PATH         Dragon cartridge ROM/DGN image; .zip archives are accepted
-    --disk PATH         DragonDOS VDK disk image; .zip archives are accepted
-    --bin PATH          DragonDOS .BIN program image; .zip archives are accepted
-    --snapshot PATH     PC-Dragon PAK snapshot; .zip archives are accepted
-
-Shared:
-    --script PATH      execute shared JSON session steps
-
-Execution:
-    --cycles N         maximum MC6809 bus cycles to run [default: 100000]
-    --type-command S   boot through the runtime path, type a BASIC/DragonDOS command, then run --cycles
-    --trace-limit N    number of recent instruction fetches to retain [default: 64]
-    --watch-fetch A[-B]
-                       retain opcode fetches in inclusive hex/decimal address range A..B; may be repeated
-    --watch-write A[-B]
-                       retain bus writes to inclusive hex/decimal address range A..B; may be repeated
-    --press KEY        hold a named Dragon key closed; may be repeated
-    --press-matrix R,C hold a raw keyboard matrix switch closed; may be repeated
-    --dump-ram P       write the current 32 KiB RAM image as raw bytes
-    --disk-output P    write the current mutated drive-1 VDK image to PATH
-    --dump-text        print the current 32x16 MC6847 text snapshot
-    --dump-text-png P  write the current border-inclusive MC6847 text framebuffer as a PNG
-    --screenshot P     write the current border-inclusive MC6847 framebuffer as a PNG
-    --screenshot-format FORMAT
-                       screenshot format: diagnostic | xroar-zoomed [default: diagnostic]
-    --screenshot-phase PHASE
-                       screenshot capture phase: immediate | completed-frame [default: immediate]
-    --screenshot-source SOURCE
-                       screenshot source: beam | static [default: beam]
-    --smoke-root PATH  recursively scan .cas/.zip Dragon tape images
-    --bin-smoke-root PATH
-                       recursively scan .bin/.zip DragonDOS binary images
-    --snapshot-smoke-root PATH
-                       recursively scan .pak/.zip PC-Dragon snapshots
-    --disk-smoke-root PATH
-                       recursively scan .vdk/.zip DragonDOS disks and run DIR
-    --disk-smoke-launch
-                       with --disk-smoke-root, launch the first BASIC/BIN program instead of DIR
-    --smoke-run-limit N
-                       run real-ROM CLOAD/CLOADM or snapshot smoke for first N parsed media [default: 8]
-    --smoke-report P   write smoke matrix JSON to PATH
-    --smoke-screenshot-dir PATH
-                       write load/start screenshots for runtime-smoked tapes
-    --smoke-screenshot-format FORMAT
-                       screenshot format: diagnostic | xroar-zoomed [default: diagnostic]
-    --smoke-audio-dir PATH
-                       write load/start WAV audio captures for runtime-smoked tapes
-    --smoke-joystick PORT,CONTROL,FRAMES
-                       after start, hold joystick control on port 1/2 for N frames;
-                       CONTROL is up, down, left, right, fire, or idle; may be repeated
-    --smoke-joystick-axis PORT,AXIS,VALUE,FRAMES
-                       after start, hold analogue axis x/y on port 1/2 at VALUE for N frames;
-                       VALUE is normalized from -1.0 to 1.0; may be repeated
-    --smoke-joystick-axis-sweep PORT,AXIS,START,END,STEPS,FRAMES
-                       after start, sweep analogue axis x/y over normalized START..END;
-                       records whether each step changes visible output
-    --smoke-idle-after-start FRAMES
-                       after start, run N frames without extra input and capture idle output
-    --xroar-bin PATH   patched XRoar binary used to write reference PNGs
-    --xroar-reference-dir PATH
-                       write patched-XRoar reference PNGs for runtime-smoked media
-    --xroar-snapshot-out PATH
-                       write the synthetic XRoar v2 snapshot used for reference comparison
-    --xroar-motoroff N capture CAS reference on the Nth tape motor-off [default: auto]
-    --xroar-settle-seconds N
-                       wait N emulated seconds after CAS reference trigger before capture [default: 3];
-                       snapshot references instead use the local screenshot cycle count
-    --xroar-timeout-seconds N
-                       hard XRoar run timeout in emulated seconds [default: 45]
-
-Other:
-    --help             print this help text
-";
-
-#[derive(Debug, Clone, PartialEq)]
-struct Cli {
-    model: Model,
-    rom: PathBuf,
-    script: Option<PathBuf>,
-    mode_rom: Option<PathBuf>,
-    cart: Option<PathBuf>,
-    disk: Option<PathBuf>,
-    bin: Option<PathBuf>,
-    snapshot: Option<PathBuf>,
-    cycles: u64,
-    type_command: Option<String>,
-    trace_limit: usize,
-    fetch_watch: Vec<AddressRange>,
-    write_watch: Vec<AddressRange>,
-    pressed_keys: Vec<MatrixKey>,
-    dump_ram: Option<PathBuf>,
-    disk_output: Option<PathBuf>,
-    dump_text: bool,
-    dump_text_png: Option<PathBuf>,
-    screenshot: Option<PathBuf>,
-    screenshot_format: SmokeScreenshotFormat,
-    screenshot_phase: SmokeScreenshotPhase,
-    screenshot_source: ScreenshotSource,
-    smoke_root: Option<PathBuf>,
-    bin_smoke_root: Option<PathBuf>,
-    snapshot_smoke_root: Option<PathBuf>,
-    disk_smoke_root: Option<PathBuf>,
-    disk_smoke_launch: bool,
-    smoke_run_limit: usize,
-    smoke_report: Option<PathBuf>,
-    smoke_screenshot_dir: Option<PathBuf>,
-    smoke_screenshot_format: SmokeScreenshotFormat,
-    smoke_audio_dir: Option<PathBuf>,
-    smoke_joystick: Vec<SmokeJoystickStep>,
-    smoke_joystick_axis: Vec<SmokeJoystickAxisStep>,
-    smoke_joystick_axis_sweep: Vec<SmokeJoystickAxisSweep>,
-    smoke_idle_after_start: u32,
-    xroar_bin: Option<PathBuf>,
-    xroar_reference_dir: Option<PathBuf>,
-    xroar_snapshot_out: Option<PathBuf>,
-    xroar_motoroff: Option<usize>,
-    xroar_settle_seconds: f32,
-    xroar_timeout_seconds: f32,
-}
-
-struct LoadedDragonFirmware {
+pub(crate) struct LoadedDragonFirmware {
     model: Model,
     rom: [u8; ROM_SIZE],
     mode_rom: Option<[u8; ROM_SIZE]>,
@@ -655,32 +532,32 @@ struct XroarReferenceConfig {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum SmokeScreenshotFormat {
+pub enum SmokeScreenshotFormat {
     Diagnostic,
     XroarZoomed,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum SmokeScreenshotPhase {
+pub enum SmokeScreenshotPhase {
     Immediate,
     CompletedFrame,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ScreenshotSource {
+pub enum ScreenshotSource {
     Beam,
     Static,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-struct SmokeJoystickStep {
+pub struct SmokeJoystickStep {
     port: u8,
     control: SmokeJoystickControl,
     frames: u32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-struct SmokeJoystickAxisStep {
+pub struct SmokeJoystickAxisStep {
     port: u8,
     axis: SmokeJoystickAxis,
     value: i16,
@@ -688,7 +565,7 @@ struct SmokeJoystickAxisStep {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-struct SmokeJoystickAxisSweep {
+pub struct SmokeJoystickAxisSweep {
     port: u8,
     axis: SmokeJoystickAxis,
     start: i16,
@@ -797,45 +674,49 @@ struct DiskSmokeOptions<'a> {
 /// (smoke matrices, typed-command runs, XRoar comparison, direct MC6809
 /// harness). The dispatcher in `main.rs` routes here when a
 /// headless-only flag is present.
-pub fn run(args: Vec<String>) -> Result<(), String> {
-    if args.iter().any(|arg| arg == "--help" || arg == "-h") {
-        println!("{USAGE}");
-        return Ok(());
-    }
+/// Run the harness for `app`. The launcher has parsed the flags; the
+/// shared `--screenshot` is copied in so the harness's capture options
+/// (`--screenshot-format`, `--screenshot-phase`, `--screenshot-source`)
+/// keep their meaning.
+///
+/// # Errors
+///
+/// Returns the harness's failure: unreadable firmware or media, a flag
+/// that needs another, or a run or capture that fails.
+pub fn run(app: &Dragon, common: &CommonCli) -> Result<(), LaunchError> {
+    let mut cli = app.clone();
+    cli.screenshot = common.screenshot.clone();
+    run_cli(&cli).map_err(LaunchError::Run)
+}
 
-    let cli = parse_cli(args)?;
-    let firmware = load_dragon_firmware(&cli)?;
-
-    // The shared session surface, which every other frontend has taken since
-    // it existed. This one grew a harness of its own first — `--cycles`,
-    // `--type-command`, the smoke matrix — and never gained `--script`, so it
-    // sat outside anything built on the common query paths: MCP tooling,
-    // scripted capture, and the fleet audit in #1054, which had to read this
-    // machine's numbers out of its source instead of running it.
-    //
-    // Handled before the bespoke paths below because it is a complete run on
-    // its own: the script says what to do and the observations are the output.
-    if let Some(path) = &cli.script {
-        let mut session = runtime_session(&firmware)?;
-        let media = MediaSet::new();
-        session
-            .prepare(&media, &[])
-            .map_err(|err| format!("machine preparation failed: {err}"))?;
-        let script = HeadlessScript::from_path(path)
-            .map_err(|err| format!("failed to load script {}: {err}", path.display()))?;
-        let mut observations = script
-            .execute_collect(&mut session)
-            .map_err(|err| format!("script execution failed: {err}"))?;
-        observations.extend(session.blank_frame_observation());
-        println!(
-            "{}",
-            serde_json::json!({
-                "observations": observations,
-                "time": session.time().get(),
-            })
+/// The command-line checks the harness's parser used to make before
+/// anything ran: the smoke matrices are exclusive, and firmware is
+/// required.
+///
+/// # Errors
+///
+/// Returns the usage message for the first check that fails.
+pub(crate) fn validate(cli: &Dragon) -> Result<(), String> {
+    let smoke_modes = [
+        cli.smoke_root.is_some(),
+        cli.bin_smoke_root.is_some(),
+        cli.snapshot_smoke_root.is_some(),
+        cli.disk_smoke_root.is_some(),
+    ]
+    .into_iter()
+    .filter(|enabled| *enabled)
+    .count();
+    if smoke_modes > 1 {
+        return Err(
+            "--smoke-root, --bin-smoke-root, --snapshot-smoke-root, and --disk-smoke-root cannot be combined"
+                .to_owned(),
         );
-        return Ok(());
     }
+    Ok(())
+}
+
+fn run_cli(cli: &Dragon) -> Result<(), String> {
+    let firmware = load_dragon_firmware(cli)?;
 
     let rom = &firmware.rom;
     let cart = cli
@@ -855,15 +736,15 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
         .map(|path| load_snapshot(path))
         .transpose()?;
     if let Some(path) = &cli.xroar_snapshot_out {
-        ensure_dragon32_harness(&cli, "--xroar-snapshot-out")?;
+        ensure_dragon32_harness(cli, "--xroar-snapshot-out")?;
         let snapshot = snapshot
             .as_ref()
             .ok_or_else(|| "--xroar-snapshot-out requires --snapshot".to_owned())?;
-        write_xroar_snapshot_out(&cli, snapshot, path)?;
+        write_xroar_snapshot_out(cli, snapshot, path)?;
         println!("xroar snapshot: {}", path.display());
     }
     if cli.smoke_root.is_some() {
-        let report = run_smoke_matrix(&cli, &firmware)?;
+        let report = run_smoke_matrix(cli, &firmware)?;
         let json = serde_json::to_string_pretty(&report)
             .map_err(|err| format!("failed to serialize smoke matrix report: {err}"))?;
         if let Some(path) = &cli.smoke_report {
@@ -875,7 +756,7 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
         return Ok(());
     }
     if cli.bin_smoke_root.is_some() {
-        let report = run_bin_smoke_matrix(&cli, &firmware)?;
+        let report = run_bin_smoke_matrix(cli, &firmware)?;
         let json = serde_json::to_string_pretty(&report)
             .map_err(|err| format!("failed to serialize BIN smoke report: {err}"))?;
         if let Some(path) = &cli.smoke_report {
@@ -887,7 +768,7 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
         return Ok(());
     }
     if cli.snapshot_smoke_root.is_some() {
-        let report = run_snapshot_smoke_matrix(&cli, &firmware)?;
+        let report = run_snapshot_smoke_matrix(cli, &firmware)?;
         let json = serde_json::to_string_pretty(&report)
             .map_err(|err| format!("failed to serialize snapshot smoke report: {err}"))?;
         if let Some(path) = &cli.smoke_report {
@@ -899,7 +780,7 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
         return Ok(());
     }
     if cli.disk_smoke_root.is_some() {
-        let report = run_disk_smoke_matrix(&cli, &firmware)?;
+        let report = run_disk_smoke_matrix(cli, &firmware)?;
         let json = serde_json::to_string_pretty(&report)
             .map_err(|err| format!("failed to serialize disk smoke report: {err}"))?;
         if let Some(path) = &cli.smoke_report {
@@ -911,7 +792,7 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
         return Ok(());
     }
     if let Some(command) = &cli.type_command {
-        let report = run_typed_command(&cli, &firmware, command)?;
+        let report = run_typed_command(cli, &firmware, command)?;
         print_typed_command_report(&report);
         if let Some(path) = &cli.screenshot {
             fs::write(path, &report.screenshot_png)
@@ -924,7 +805,7 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
         return Ok(());
     }
 
-    ensure_dragon32_harness(&cli, "direct harness mode")?;
+    ensure_dragon32_harness(cli, "direct harness mode")?;
     let keyboard =
         DragonKeyboard::with_pressed_keys(&cli.pressed_keys).map_err(|err| err.to_string())?;
     let report = run_harness_with_keyboard(
@@ -985,326 +866,11 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
     Ok(())
 }
 
-fn parse_cli<I>(args: I) -> Result<Cli, String>
-where
-    I: IntoIterator<Item = String>,
-{
-    let mut model = Model::Dragon32Pal;
-    let mut rom = None;
-    let mut script = None;
-    let mut mode_rom = None;
-    let mut cart = None;
-    let mut disk = None;
-    let mut bin = None;
-    let mut snapshot = None;
-    let mut cycles = DEFAULT_CYCLES;
-    let mut type_command = None;
-    let mut trace_limit = DEFAULT_TRACE_LIMIT;
-    let mut fetch_watch = Vec::new();
-    let mut write_watch = Vec::new();
-    let mut pressed_keys = Vec::new();
-    let mut dump_ram = None;
-    let mut disk_output = None;
-    let mut dump_text = false;
-    let mut dump_text_png = None;
-    let mut screenshot = None;
-    let mut screenshot_format = SmokeScreenshotFormat::Diagnostic;
-    let mut screenshot_phase = SmokeScreenshotPhase::Immediate;
-    let mut screenshot_source = ScreenshotSource::Beam;
-    let mut smoke_root = None;
-    let mut bin_smoke_root = None;
-    let mut snapshot_smoke_root = None;
-    let mut disk_smoke_root = None;
-    let mut disk_smoke_launch = false;
-    let mut smoke_run_limit = DEFAULT_SMOKE_RUN_LIMIT;
-    let mut smoke_report = None;
-    let mut smoke_screenshot_dir = None;
-    let mut smoke_screenshot_format = SmokeScreenshotFormat::Diagnostic;
-    let mut smoke_audio_dir = None;
-    let mut smoke_joystick = Vec::new();
-    let mut smoke_joystick_axis = Vec::new();
-    let mut smoke_joystick_axis_sweep = Vec::new();
-    let mut smoke_idle_after_start = 0;
-    let mut xroar_bin = None;
-    let mut xroar_reference_dir = None;
-    let mut xroar_snapshot_out = None;
-    let mut xroar_motoroff = None;
-    let mut xroar_settle_seconds = DEFAULT_XROAR_SETTLE_SECONDS;
-    let mut xroar_timeout_seconds = DEFAULT_XROAR_TIMEOUT_SECONDS;
-    let mut iter = args.into_iter();
-
-    while let Some(arg) = iter.next() {
-        match arg.as_str() {
-            "--model" => {
-                model = parse_model(&next_value(&mut iter, "--model")?)?;
-            }
-            "--script" => {
-                script = Some(PathBuf::from(next_value(&mut iter, "--script")?));
-            }
-            "--rom" => {
-                rom = Some(PathBuf::from(next_value(&mut iter, "--rom")?));
-            }
-            "--rom64" => {
-                mode_rom = Some(PathBuf::from(next_value(&mut iter, "--rom64")?));
-            }
-            "--cart" => {
-                cart = Some(PathBuf::from(next_value(&mut iter, "--cart")?));
-            }
-            "--disk" => {
-                disk = Some(PathBuf::from(next_value(&mut iter, "--disk")?));
-            }
-            "--bin" => {
-                bin = Some(PathBuf::from(next_value(&mut iter, "--bin")?));
-            }
-            "--snapshot" => {
-                snapshot = Some(PathBuf::from(next_value(&mut iter, "--snapshot")?));
-            }
-            "--cycles" => {
-                cycles = parse_u64(&next_value(&mut iter, "--cycles")?, "--cycles")?;
-            }
-            "--type-command" => {
-                type_command = Some(next_value(&mut iter, "--type-command")?);
-            }
-            "--trace-limit" => {
-                trace_limit =
-                    parse_usize(&next_value(&mut iter, "--trace-limit")?, "--trace-limit")?;
-            }
-            "--watch-fetch" => {
-                fetch_watch.push(parse_address_range(
-                    &next_value(&mut iter, "--watch-fetch")?,
-                    "--watch-fetch",
-                )?);
-            }
-            "--watch-write" => {
-                write_watch.push(parse_address_range(
-                    &next_value(&mut iter, "--watch-write")?,
-                    "--watch-write",
-                )?);
-            }
-            "--press" => {
-                let key = parse_dragon_key(&next_value(&mut iter, "--press")?)?;
-                pressed_keys.push(MatrixKey::from_dragon_key(key));
-            }
-            "--press-matrix" => {
-                pressed_keys.push(parse_matrix_key(&next_value(&mut iter, "--press-matrix")?)?);
-            }
-            "--dump-ram" => {
-                dump_ram = Some(PathBuf::from(next_value(&mut iter, "--dump-ram")?));
-            }
-            "--disk-output" => {
-                disk_output = Some(PathBuf::from(next_value(&mut iter, "--disk-output")?));
-            }
-            "--dump-text" => {
-                dump_text = true;
-            }
-            "--dump-text-png" => {
-                dump_text_png = Some(PathBuf::from(next_value(&mut iter, "--dump-text-png")?));
-            }
-            "--screenshot" => {
-                screenshot = Some(PathBuf::from(next_value(&mut iter, "--screenshot")?));
-            }
-            "--screenshot-format" => {
-                screenshot_format = parse_screenshot_format(
-                    &next_value(&mut iter, "--screenshot-format")?,
-                    "--screenshot-format",
-                )?;
-            }
-            "--screenshot-phase" => {
-                screenshot_phase = parse_screenshot_phase(
-                    &next_value(&mut iter, "--screenshot-phase")?,
-                    "--screenshot-phase",
-                )?;
-            }
-            "--screenshot-source" => {
-                screenshot_source = parse_screenshot_source(
-                    &next_value(&mut iter, "--screenshot-source")?,
-                    "--screenshot-source",
-                )?;
-            }
-            "--smoke-root" => {
-                smoke_root = Some(PathBuf::from(next_value(&mut iter, "--smoke-root")?));
-            }
-            "--bin-smoke-root" => {
-                bin_smoke_root = Some(PathBuf::from(next_value(&mut iter, "--bin-smoke-root")?));
-            }
-            "--snapshot-smoke-root" => {
-                snapshot_smoke_root = Some(PathBuf::from(next_value(
-                    &mut iter,
-                    "--snapshot-smoke-root",
-                )?));
-            }
-            "--disk-smoke-root" => {
-                disk_smoke_root = Some(PathBuf::from(next_value(&mut iter, "--disk-smoke-root")?));
-            }
-            "--disk-smoke-launch" => {
-                disk_smoke_launch = true;
-            }
-            "--smoke-run-limit" => {
-                smoke_run_limit = parse_usize(
-                    &next_value(&mut iter, "--smoke-run-limit")?,
-                    "--smoke-run-limit",
-                )?;
-            }
-            "--smoke-report" => {
-                smoke_report = Some(PathBuf::from(next_value(&mut iter, "--smoke-report")?));
-            }
-            "--smoke-screenshot-dir" => {
-                smoke_screenshot_dir = Some(PathBuf::from(next_value(
-                    &mut iter,
-                    "--smoke-screenshot-dir",
-                )?));
-            }
-            "--smoke-screenshot-format" => {
-                smoke_screenshot_format = parse_screenshot_format(
-                    &next_value(&mut iter, "--smoke-screenshot-format")?,
-                    "--smoke-screenshot-format",
-                )?;
-            }
-            "--smoke-audio-dir" => {
-                smoke_audio_dir = Some(PathBuf::from(next_value(&mut iter, "--smoke-audio-dir")?));
-            }
-            "--smoke-joystick" => {
-                smoke_joystick.push(parse_smoke_joystick_step(&next_value(
-                    &mut iter,
-                    "--smoke-joystick",
-                )?)?);
-            }
-            "--smoke-joystick-axis" => {
-                smoke_joystick_axis.push(parse_smoke_joystick_axis_step(&next_value(
-                    &mut iter,
-                    "--smoke-joystick-axis",
-                )?)?);
-            }
-            "--smoke-joystick-axis-sweep" => {
-                smoke_joystick_axis_sweep.push(parse_smoke_joystick_axis_sweep(&next_value(
-                    &mut iter,
-                    "--smoke-joystick-axis-sweep",
-                )?)?);
-            }
-            "--smoke-idle-after-start" => {
-                smoke_idle_after_start = parse_u32(
-                    &next_value(&mut iter, "--smoke-idle-after-start")?,
-                    "--smoke-idle-after-start",
-                )?;
-            }
-            "--xroar-bin" => {
-                xroar_bin = Some(PathBuf::from(next_value(&mut iter, "--xroar-bin")?));
-            }
-            "--xroar-reference-dir" => {
-                xroar_reference_dir = Some(PathBuf::from(next_value(
-                    &mut iter,
-                    "--xroar-reference-dir",
-                )?));
-            }
-            "--xroar-snapshot-out" => {
-                xroar_snapshot_out = Some(PathBuf::from(next_value(
-                    &mut iter,
-                    "--xroar-snapshot-out",
-                )?));
-            }
-            "--xroar-motoroff" => {
-                xroar_motoroff = Some(parse_usize(
-                    &next_value(&mut iter, "--xroar-motoroff")?,
-                    "--xroar-motoroff",
-                )?);
-            }
-            "--xroar-settle-seconds" => {
-                xroar_settle_seconds = parse_f32(
-                    &next_value(&mut iter, "--xroar-settle-seconds")?,
-                    "--xroar-settle-seconds",
-                )?;
-            }
-            "--xroar-timeout-seconds" => {
-                xroar_timeout_seconds = parse_f32(
-                    &next_value(&mut iter, "--xroar-timeout-seconds")?,
-                    "--xroar-timeout-seconds",
-                )?;
-            }
-            "--help" | "-h" => return Err(USAGE.to_owned()),
-            "--headless" => {}
-            _ => return Err(format!("unknown argument: {arg}\n\n{USAGE}")),
-        }
-    }
-
-    let smoke_modes = [
-        smoke_root.is_some(),
-        bin_smoke_root.is_some(),
-        snapshot_smoke_root.is_some(),
-        disk_smoke_root.is_some(),
-    ]
-    .into_iter()
-    .filter(|enabled| *enabled)
-    .count();
-    if smoke_modes > 1 {
-        return Err(
-            "--smoke-root, --bin-smoke-root, --snapshot-smoke-root, and --disk-smoke-root cannot be combined"
-                .to_owned(),
-        );
-    }
-
-    Ok(Cli {
-        model,
-        rom: rom.ok_or_else(|| format!("missing required --rom PATH\n\n{USAGE}"))?,
-        script,
-        mode_rom,
-        cart,
-        disk,
-        bin,
-        snapshot,
-        cycles,
-        type_command,
-        trace_limit,
-        fetch_watch,
-        write_watch,
-        pressed_keys,
-        dump_ram,
-        disk_output,
-        dump_text,
-        dump_text_png,
-        screenshot,
-        screenshot_format,
-        screenshot_phase,
-        screenshot_source,
-        smoke_root,
-        bin_smoke_root,
-        snapshot_smoke_root,
-        disk_smoke_root,
-        disk_smoke_launch,
-        smoke_run_limit,
-        smoke_report,
-        smoke_screenshot_dir,
-        smoke_screenshot_format,
-        smoke_audio_dir,
-        smoke_joystick,
-        smoke_joystick_axis,
-        smoke_joystick_axis_sweep,
-        smoke_idle_after_start,
-        xroar_bin,
-        xroar_reference_dir,
-        xroar_snapshot_out,
-        xroar_motoroff,
-        xroar_settle_seconds,
-        xroar_timeout_seconds,
-    })
+pub(crate) fn parse_model(value: &str) -> Result<Model, String> {
+    Model::from_variant_id(value).ok_or_else(|| "--model expects dragon32 or dragon64".to_owned())
 }
 
-fn next_value<I>(iter: &mut I, flag: &str) -> Result<String, String>
-where
-    I: Iterator<Item = String>,
-{
-    iter.next()
-        .ok_or_else(|| format!("{flag} requires a value\n\n{USAGE}"))
-}
-
-fn parse_model(value: &str) -> Result<Model, String> {
-    match value {
-        "dragon32" | "dragon-32" | "dragon-32-pal" => Ok(Model::Dragon32Pal),
-        "dragon64" | "dragon-64" | "dragon-64-pal" => Ok(Model::Dragon64Pal),
-        _ => Err("--model expects dragon32 or dragon64".to_owned()),
-    }
-}
-
-fn parse_u64(value: &str, flag: &str) -> Result<u64, String> {
+pub(crate) fn parse_u64(value: &str, flag: &str) -> Result<u64, String> {
     if let Some(hex) = value
         .strip_prefix("0x")
         .or_else(|| value.strip_prefix("0X"))
@@ -1317,7 +883,7 @@ fn parse_u64(value: &str, flag: &str) -> Result<u64, String> {
     }
 }
 
-fn parse_usize(value: &str, flag: &str) -> Result<usize, String> {
+pub(crate) fn parse_usize(value: &str, flag: &str) -> Result<usize, String> {
     let parsed = parse_u64(value, flag)?;
     usize::try_from(parsed).map_err(|err| format!("{flag} value {value} is too large: {err}"))
 }
@@ -1332,12 +898,12 @@ fn parse_u16(value: &str, flag: &str) -> Result<u16, String> {
     u16::try_from(parsed).map_err(|err| format!("{flag} value {value} is too large: {err}"))
 }
 
-fn parse_u32(value: &str, flag: &str) -> Result<u32, String> {
+pub(crate) fn parse_u32(value: &str, flag: &str) -> Result<u32, String> {
     let parsed = parse_u64(value, flag)?;
     u32::try_from(parsed).map_err(|err| format!("{flag} value {value} is too large: {err}"))
 }
 
-fn parse_address_range(value: &str, flag: &str) -> Result<AddressRange, String> {
+pub(crate) fn parse_address_range(value: &str, flag: &str) -> Result<AddressRange, String> {
     let (start, end) = value
         .split_once('-')
         .map_or((value, value), |(start, end)| (start, end));
@@ -1354,7 +920,7 @@ fn parse_address_range(value: &str, flag: &str) -> Result<AddressRange, String> 
     Ok(AddressRange::new(start, end))
 }
 
-fn parse_f32(value: &str, flag: &str) -> Result<f32, String> {
+pub(crate) fn parse_f32(value: &str, flag: &str) -> Result<f32, String> {
     let parsed: f32 = value
         .parse()
         .map_err(|err| format!("invalid {flag} value {value}: {err}"))?;
@@ -1366,7 +932,10 @@ fn parse_f32(value: &str, flag: &str) -> Result<f32, String> {
     Ok(parsed)
 }
 
-fn parse_screenshot_format(value: &str, flag: &str) -> Result<SmokeScreenshotFormat, String> {
+pub(crate) fn parse_screenshot_format(
+    value: &str,
+    flag: &str,
+) -> Result<SmokeScreenshotFormat, String> {
     match value {
         "diagnostic" => Ok(SmokeScreenshotFormat::Diagnostic),
         "xroar-zoomed" => Ok(SmokeScreenshotFormat::XroarZoomed),
@@ -1376,7 +945,10 @@ fn parse_screenshot_format(value: &str, flag: &str) -> Result<SmokeScreenshotFor
     }
 }
 
-fn parse_screenshot_phase(value: &str, flag: &str) -> Result<SmokeScreenshotPhase, String> {
+pub(crate) fn parse_screenshot_phase(
+    value: &str,
+    flag: &str,
+) -> Result<SmokeScreenshotPhase, String> {
     match value {
         "immediate" => Ok(SmokeScreenshotPhase::Immediate),
         "completed-frame" => Ok(SmokeScreenshotPhase::CompletedFrame),
@@ -1386,7 +958,7 @@ fn parse_screenshot_phase(value: &str, flag: &str) -> Result<SmokeScreenshotPhas
     }
 }
 
-fn parse_screenshot_source(value: &str, flag: &str) -> Result<ScreenshotSource, String> {
+pub(crate) fn parse_screenshot_source(value: &str, flag: &str) -> Result<ScreenshotSource, String> {
     match value {
         "beam" => Ok(ScreenshotSource::Beam),
         "static" => Ok(ScreenshotSource::Static),
@@ -1396,7 +968,7 @@ fn parse_screenshot_source(value: &str, flag: &str) -> Result<ScreenshotSource, 
     }
 }
 
-fn parse_smoke_joystick_step(value: &str) -> Result<SmokeJoystickStep, String> {
+pub(crate) fn parse_smoke_joystick_step(value: &str) -> Result<SmokeJoystickStep, String> {
     let mut parts = value.split(',');
     let port = parts
         .next()
@@ -1446,7 +1018,7 @@ fn parse_smoke_joystick_control(value: &str) -> Result<SmokeJoystickControl, Str
     }
 }
 
-fn parse_smoke_joystick_axis_step(value: &str) -> Result<SmokeJoystickAxisStep, String> {
+pub(crate) fn parse_smoke_joystick_axis_step(value: &str) -> Result<SmokeJoystickAxisStep, String> {
     let mut parts = value.split(',');
     let port = parts
         .next()
@@ -1483,7 +1055,9 @@ fn parse_smoke_joystick_axis_step(value: &str) -> Result<SmokeJoystickAxisStep, 
     })
 }
 
-fn parse_smoke_joystick_axis_sweep(value: &str) -> Result<SmokeJoystickAxisSweep, String> {
+pub(crate) fn parse_smoke_joystick_axis_sweep(
+    value: &str,
+) -> Result<SmokeJoystickAxisSweep, String> {
     let mut parts = value.split(',');
     let port = parts
         .next()
@@ -1584,7 +1158,7 @@ fn axis_sweep_value(sweep: SmokeJoystickAxisSweep, step: u32) -> i16 {
     (value + 0.5).floor() as i16
 }
 
-fn parse_matrix_key(value: &str) -> Result<MatrixKey, String> {
+pub(crate) fn parse_matrix_key(value: &str) -> Result<MatrixKey, String> {
     let (row, column) = value
         .split_once(',')
         .ok_or_else(|| format!("invalid --press-matrix value {value}; expected R,C"))?;
@@ -1594,7 +1168,7 @@ fn parse_matrix_key(value: &str) -> Result<MatrixKey, String> {
     ))
 }
 
-fn parse_dragon_key(value: &str) -> Result<DragonKey, String> {
+pub(crate) fn parse_dragon_key(value: &str) -> Result<DragonKey, String> {
     DragonKey::from_label(value).ok_or_else(|| {
         format!(
             "unknown Dragon key {value:?}; use a Dragon key label such as A, 1, @, enter, clear, break, shift, space, up, down, left, or right"
@@ -1603,7 +1177,7 @@ fn parse_dragon_key(value: &str) -> Result<DragonKey, String> {
 }
 
 fn run_smoke_matrix(
-    cli: &Cli,
+    cli: &Dragon,
     firmware: &LoadedDragonFirmware,
 ) -> Result<SmokeMatrixReport, String> {
     let root = cli
@@ -1691,7 +1265,7 @@ fn run_smoke_matrix(
 }
 
 fn run_snapshot_smoke_matrix(
-    cli: &Cli,
+    cli: &Dragon,
     firmware: &LoadedDragonFirmware,
 ) -> Result<SnapshotSmokeMatrixReport, String> {
     let root = cli
@@ -1761,7 +1335,7 @@ fn run_snapshot_smoke_matrix(
 }
 
 fn run_bin_smoke_matrix(
-    cli: &Cli,
+    cli: &Dragon,
     firmware: &LoadedDragonFirmware,
 ) -> Result<BinSmokeMatrixReport, String> {
     let root = cli
@@ -1807,7 +1381,7 @@ fn run_bin_smoke_matrix(
 }
 
 fn run_disk_smoke_matrix(
-    cli: &Cli,
+    cli: &Dragon,
     firmware: &LoadedDragonFirmware,
 ) -> Result<DiskSmokeMatrixReport, String> {
     let root = cli
@@ -1851,7 +1425,7 @@ fn run_disk_smoke_matrix(
     })
 }
 
-fn xroar_reference_config(cli: &Cli) -> Result<Option<XroarReferenceConfig>, String> {
+fn xroar_reference_config(cli: &Dragon) -> Result<Option<XroarReferenceConfig>, String> {
     match (&cli.xroar_bin, &cli.xroar_reference_dir) {
         (None, None) => Ok(None),
         (Some(bin), Some(output_dir)) => Ok(Some(XroarReferenceConfig {
@@ -1964,7 +1538,7 @@ fn is_disk_candidate_path(path: &Path) -> bool {
 
 fn scan_disk_candidate(
     path: &Path,
-    cli: &Cli,
+    cli: &Dragon,
     firmware: &LoadedDragonFirmware,
     runtime_smokes: &mut usize,
     smoke: DiskSmokeOptions<'_>,
@@ -2044,7 +1618,7 @@ fn scan_disk_candidate(
 }
 
 fn run_disk_command_smoke(
-    cli: &Cli,
+    cli: &Dragon,
     firmware: &LoadedDragonFirmware,
     disk_bytes: &[u8],
     command: &str,
@@ -2060,7 +1634,7 @@ fn run_disk_command_smoke(
 }
 
 fn run_disk_command_smoke_inner(
-    cli: &Cli,
+    cli: &Dragon,
     firmware: &LoadedDragonFirmware,
     disk_bytes: &[u8],
     command: &str,
@@ -3030,7 +2604,7 @@ impl TraceSink for RecentTraceCollector {
 }
 
 fn run_typed_command(
-    cli: &Cli,
+    cli: &Dragon,
     firmware: &LoadedDragonFirmware,
     command: &str,
 ) -> Result<TypedCommandReport, String> {
@@ -4450,7 +4024,7 @@ fn capture_xroar_snapshot_reference(
 }
 
 fn write_xroar_snapshot_out(
-    cli: &Cli,
+    cli: &Dragon,
     snapshot: &PcDragonSnapshot,
     output_path: &Path,
 ) -> Result<(), String> {
@@ -4473,7 +4047,7 @@ fn write_xroar_snapshot_out(
     };
 
     let rom_path = output_path.with_extension("rom");
-    fs::write(&rom_path, load_rom(&cli.rom)?)
+    fs::write(&rom_path, load_rom(&required_rom(cli)?)?)
         .map_err(|err| format!("failed to write {}: {err}", rom_path.display()))?;
     let template_path = write_temp_path("snapshot-template", "sna")?;
     let template_result = run_xroar_snapshot_template_command(&config, &rom_path, &template_path)
@@ -5709,9 +5283,15 @@ fn wait_for_tape_load_stop(
     Ok(TapeLoadStop::FrameLimit)
 }
 
-fn runtime_session(
+/// A [`DragonRuntime`] booted from loaded firmware.
+///
+/// # Errors
+///
+/// Returns a message when a Dragon 64 has no mode ROM or the runtime
+/// cannot be built.
+pub(crate) fn runtime_from_firmware(
     firmware: &LoadedDragonFirmware,
-) -> Result<HeadlessSession<DragonRuntime, DragonSessionQueryProvider>, String> {
+) -> Result<DragonRuntime, String> {
     let mut firmware_set = FirmwareSet::new();
     match firmware.model {
         Model::Dragon32Pal => {
@@ -5726,10 +5306,15 @@ fn runtime_session(
             firmware_set.push(FirmwareImage::new("dragon64-basic-rom", mode_rom));
         }
     }
-    let runtime = DragonRuntime::from_firmware(firmware.model, &firmware_set)
-        .map_err(|err| format!("failed to build Dragon runtime: {err}"))?;
+    DragonRuntime::from_firmware(firmware.model, &firmware_set)
+        .map_err(|err| format!("failed to build Dragon runtime: {err}"))
+}
+
+fn runtime_session(
+    firmware: &LoadedDragonFirmware,
+) -> Result<HeadlessSession<DragonRuntime, DragonSessionQueryProvider>, String> {
     Ok(HeadlessSession::new_with_query_provider(
-        runtime,
+        runtime_from_firmware(firmware)?,
         DRAGON_FRAME_CYCLES,
         DragonSessionQueryProvider,
     ))
@@ -6182,22 +5767,28 @@ fn load_rom(path: &Path) -> Result<[u8; ROM_SIZE], String> {
     exact_rom_from_bytes(path, bytes)
 }
 
-fn load_dragon_firmware(cli: &Cli) -> Result<LoadedDragonFirmware, String> {
-    if cli.model == Model::Dragon32Pal && cli.mode_rom.is_some() {
-        return Err("--rom64 requires --model dragon64".to_owned());
-    }
+/// Resolve catalogue paths while preserving the smoke harness's ZIP selection.
+fn required_rom(cli: &Dragon) -> Result<PathBuf, String> {
+    cli.firmware_paths()?
+        .into_iter()
+        .find(|(id, _)| *id == cli.model.firmware_id())
+        .map(|(_, path)| path)
+        .ok_or_else(|| "missing BASIC ROM".to_owned())
+}
 
-    let mode_rom_path = match cli.model {
-        Model::Dragon32Pal => None,
-        Model::Dragon64Pal => Some(
-            cli.mode_rom
-                .as_deref()
-                .ok_or_else(|| "--model dragon64 requires --rom64 PATH".to_owned())?,
-        ),
-    };
-    let rom = load_rom(&cli.rom)?;
-    let mode_rom = mode_rom_path.map(load_rom).transpose()?;
-
+pub(crate) fn load_dragon_firmware(cli: &Dragon) -> Result<LoadedDragonFirmware, String> {
+    let paths = cli.firmware_paths()?;
+    let rom_path = paths
+        .iter()
+        .find(|(id, _)| *id == cli.model.firmware_id())
+        .map(|(_, path)| path)
+        .ok_or_else(|| "missing BASIC ROM".to_owned())?;
+    let rom = load_rom(rom_path)?;
+    let mode_rom = paths
+        .iter()
+        .find(|(id, _)| *id == "dragon64-basic-rom")
+        .map(|(_, path)| load_rom(path))
+        .transpose()?;
     Ok(LoadedDragonFirmware {
         model: cli.model,
         rom,
@@ -6205,7 +5796,7 @@ fn load_dragon_firmware(cli: &Cli) -> Result<LoadedDragonFirmware, String> {
     })
 }
 
-fn ensure_dragon32_harness(cli: &Cli, feature: &str) -> Result<(), String> {
+fn ensure_dragon32_harness(cli: &Dragon, feature: &str) -> Result<(), String> {
     if cli.model == Model::Dragon32Pal {
         return Ok(());
     }
@@ -6902,7 +6493,24 @@ fn format_device_region(device: DeviceRegion) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use emu198x_shell::launch::{Parsed, parse};
     use std::io::Write;
+
+    /// The harness's flags through the shared launcher, checked the way
+    /// the harness's own parser used to check them.
+    fn parse_cli<I>(args: I) -> Result<Dragon, String>
+    where
+        I: IntoIterator<Item = String>,
+    {
+        let args: Vec<String> = args.into_iter().collect();
+        let (mut app, common) = match parse::<Dragon>(&args).map_err(|err| err.to_string())? {
+            Parsed::Run { app, common, .. } => (app, common),
+            Parsed::Help => return Err("--help".to_owned()),
+        };
+        validate(&app)?;
+        app.screenshot = common.screenshot;
+        Ok(app)
+    }
 
     fn rom_with_reset_vector(pc: u16) -> [u8; ROM_SIZE] {
         let mut rom = [0; ROM_SIZE];
@@ -7104,27 +6712,11 @@ mod tests {
     }
 
     #[test]
-    fn cli_requires_rom_path() {
-        let err = parse_cli(Vec::<String>::new()).expect_err("missing ROM should fail");
-
-        assert!(err.contains("missing required --rom"));
-    }
-
-    #[test]
-    fn cli_takes_the_shared_script_flag() {
-        // `main.rs` has always routed `--script` here, and this parser has
-        // always rejected it — so the flag selected the headless lane and then
-        // died in it with "unknown argument". The Dragon was the one frontend
-        // of thirty outside the shared session surface (#1073).
-        let cli = parse_cli([
-            "--rom".to_owned(),
-            "dragon32.rom".to_owned(),
-            "--script".to_owned(),
-            "steps.json".to_owned(),
-        ])
-        .expect("the shared script flag should parse");
-
-        assert_eq!(cli.script, Some(PathBuf::from("steps.json")));
+    fn cli_allows_conventional_firmware() {
+        let cli =
+            parse_cli(Vec::<String>::new()).expect("default firmware resolves at construction");
+        assert!(cli.rom.is_none());
+        assert_eq!(cli.model, Model::Dragon32Pal);
     }
 
     #[test]
@@ -7142,26 +6734,9 @@ mod tests {
         .expect("Dragon 64 CLI should parse");
 
         assert_eq!(cli.model, Model::Dragon64Pal);
-        assert_eq!(cli.rom, PathBuf::from("dragon64-compat.rom"));
+        assert_eq!(cli.rom, Some(PathBuf::from("dragon64-compat.rom")));
         assert_eq!(cli.mode_rom, Some(PathBuf::from("dragon64.rom")));
         assert_eq!(cli.smoke_root, Some(PathBuf::from("tapes")));
-    }
-
-    #[test]
-    fn dragon64_firmware_requires_mode_rom() {
-        let cli = parse_cli([
-            "--model".to_owned(),
-            "dragon64".to_owned(),
-            "--rom".to_owned(),
-            "dragon64-compat.rom".to_owned(),
-        ])
-        .expect("CLI parsing should not require ROM files");
-
-        let err = match load_dragon_firmware(&cli) {
-            Ok(_) => panic!("missing --rom64 should fail"),
-            Err(err) => err,
-        };
-        assert!(err.contains("--model dragon64 requires --rom64"));
     }
 
     #[test]
@@ -7225,7 +6800,7 @@ mod tests {
         ])
         .expect("valid CLI should parse");
 
-        assert_eq!(cli.rom, PathBuf::from("dragon32.rom"));
+        assert_eq!(cli.rom, Some(PathBuf::from("dragon32.rom")));
         assert_eq!(cli.model, Model::Dragon32Pal);
         assert_eq!(cli.mode_rom, None);
         assert_eq!(cli.cycles, 32);

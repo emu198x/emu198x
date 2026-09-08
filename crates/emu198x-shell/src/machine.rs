@@ -336,6 +336,94 @@ pub trait MachineCore {
     fn keyboard_target(&self) -> Option<&dyn crate::keyboard::KeyboardTarget> {
         None
     }
+
+    /// The machine's CPU port space, when its processor has one (the Z80's
+    /// `IN`/`OUT`). Drives the `port_read` / `port_write` script steps and
+    /// MCP tools; a machine that returns `None` gets neither registered.
+    fn port_io_target(&self) -> Option<&dyn crate::port_io::PortIoTarget> {
+        None
+    }
+
+    /// Mutable port-space access for the executor.
+    fn port_io_target_mut(&mut self) -> Option<&mut dyn crate::port_io::PortIoTarget> {
+        None
+    }
+
+    /// Tokenise `source` for this machine's BASIC dialect, install it as
+    /// the live program and, when `run` is set, start it.
+    ///
+    /// Backs the shared `load_basic_program` step and MCP tool. The
+    /// default refuses; a machine with a loader overrides it and declares
+    /// the `basic-program-load` capability on its profile so the tool is
+    /// registered.
+    ///
+    /// # Errors
+    ///
+    /// [`LoaderError::Unsupported`] by default; a machine's own loader
+    /// reports its failures as [`LoaderError::Failed`].
+    fn load_basic_program<Q: crate::query::SessionQueryProvider<Self>>(
+        session: &mut crate::session::HeadlessSession<Self, Q>,
+        source: &str,
+        run: bool,
+    ) -> Result<crate::loaders::BasicProgramLoaded, crate::loaders::LoaderError>
+    where
+        Self: Sized,
+    {
+        let _ = (session, source, run);
+        Err(crate::loaders::LoaderError::Unsupported {
+            step: "load_basic_program",
+        })
+    }
+
+    /// Wait for boot, type the machine's tape-load command and start the
+    /// transport on `slot`. A `max_boot_frames` of zero asks for the
+    /// machine's own default budget.
+    ///
+    /// Backs the shared `autoload_tape` step and MCP tool; the profile
+    /// declares `tape-autoload` when a machine overrides this.
+    ///
+    /// # Errors
+    ///
+    /// [`LoaderError::Unsupported`] by default; a machine's own helper
+    /// reports its failures as [`LoaderError::Failed`].
+    fn autoload_tape<Q: crate::query::SessionQueryProvider<Self>>(
+        session: &mut crate::session::HeadlessSession<Self, Q>,
+        slot: &str,
+        max_boot_frames: u32,
+    ) -> Result<crate::loaders::TapeAutoloaded, crate::loaders::LoaderError>
+    where
+        Self: Sized,
+    {
+        let _ = (session, slot, max_boot_frames);
+        Err(crate::loaders::LoaderError::Unsupported {
+            step: "autoload_tape",
+        })
+    }
+
+    /// Swap the session onto the variant `machine` names, built from its
+    /// conventional firmware. Hard-resets; loaded media is not carried
+    /// across, as with a hardware swap.
+    ///
+    /// Backs the shared `set_machine` step and MCP tool; a family runtime
+    /// implements it as one call to [`crate::variants::swap_variant`] and
+    /// declares `variant-switch` on its profiles so the tool is registered.
+    ///
+    /// # Errors
+    ///
+    /// [`LoaderError::Unsupported`] by default; the family's resolver and
+    /// session report their failures as [`LoaderError::Failed`].
+    fn set_machine<Q: crate::query::SessionQueryProvider<Self>>(
+        session: &mut crate::session::HeadlessSession<Self, Q>,
+        machine: &str,
+    ) -> Result<crate::variants::VariantSwitched, crate::loaders::LoaderError>
+    where
+        Self: Sized,
+    {
+        let _ = (session, machine);
+        Err(crate::loaders::LoaderError::Unsupported {
+            step: "set_machine",
+        })
+    }
 }
 
 /// A runtime that is one of a system family's machine *variants* —
@@ -356,6 +444,25 @@ pub trait FamilyRuntime: MachineCore + Sized {
     /// The family's model selector (its `Model` enum).
     type Model: Copy;
 
+    /// Every variant id a script's `set_machine`, the `--machine` flag and
+    /// the window's variant menu accept, in catalogue order.
+    fn variant_ids() -> &'static [&'static str];
+
+    /// The model `id` names, if any.
+    fn model_from_id(id: &str) -> Option<Self::Model>;
+
+    /// The id for `model`; round-trips through [`model_from_id`](Self::model_from_id).
+    fn variant_id(model: Self::Model) -> &'static str;
+
+    /// The profile `model` boots as.
+    fn profile_for(model: Self::Model) -> MachineProfile;
+
+    /// Where the family keeps its ROMs by convention.
+    fn rom_convention() -> crate::variants::RomConvention;
+
+    /// The images `model` boots, by id, and their conventional file names.
+    fn firmware_sources(model: Self::Model) -> Vec<crate::variants::FirmwareSource>;
+
     /// Build the variant identified by `model` from already-loaded ROMs.
     ///
     /// # Errors
@@ -363,6 +470,23 @@ pub trait FamilyRuntime: MachineCore + Sized {
     /// Returns [`MachineError`] when the firmware is missing or invalid for
     /// the requested model.
     fn from_firmware(model: Self::Model, firmware: &FirmwareSet<'_>) -> Result<Self, MachineError>;
+
+    /// Construct a cold-boot replacement without changing the current runtime.
+    ///
+    /// The default starts fresh. Families that retain compatible media across
+    /// variants override this to copy their in-memory images into the replacement.
+    /// UI and session switches share this policy; retained media files are never reread.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MachineError`] if the target firmware or retained media is invalid.
+    fn replacement(
+        &self,
+        model: Self::Model,
+        firmware: &FirmwareSet<'_>,
+    ) -> Result<Self, MachineError> {
+        Self::from_firmware(model, firmware)
+    }
 
     /// Native master-clock ticks per video frame for the active variant —
     /// the value to feed [`crate::HeadlessSession::set_native_frame_ticks`]

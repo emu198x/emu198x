@@ -1,8 +1,8 @@
 //! Spectravideo SVI-328 family profile catalogue.
 
 use emu198x_shell::{
-    CapabilitySet, ClockDesc, ClockRate, Family, FirmwareRequirement, MachineId, MachineProfile,
-    MediaKind, MediaSlot, ProfileId, Region, WritebackPolicy, known_capability,
+    CapabilitySet, ClockDesc, ClockRate, Family, FirmwareRequirement, FirmwareSource, MachineId,
+    MachineProfile, MediaKind, MediaSlot, ProfileId, Region, WritebackPolicy, known_capability,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -14,6 +14,37 @@ pub enum Model {
 }
 
 impl Model {
+    pub const ALL: [Self; 2] = [Self::Svi328Ntsc, Self::Svi328Pal];
+    pub const VARIANT_IDS: [&'static str; 2] =
+        ["spectravideo-svi-328-ntsc", "spectravideo-svi-328-pal"];
+
+    #[must_use]
+    pub const fn variant_id(self) -> &'static str {
+        self.profile_id()
+    }
+
+    #[must_use]
+    pub fn from_variant_id(id: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|model| model.variant_id() == id)
+    }
+
+    #[must_use]
+    pub fn firmware_sources(self) -> Vec<FirmwareSource> {
+        vec![
+            FirmwareSource::required(BIOS_FIRMWARE_ID, &["svi-328.rom"])
+                .with_env_var("EMU198X_SVI_328_BIOS"),
+        ]
+    }
+
+    /// Existing host frame budget, in CPU clocks.
+    #[must_use]
+    pub const fn frame_ticks(self) -> u64 {
+        match self {
+            Self::Svi328Ntsc => 228 * 262,
+            Self::Svi328Pal => 228 * 313,
+        }
+    }
+
     #[must_use]
     pub const fn model_id(self) -> &'static str {
         match self {
@@ -48,10 +79,7 @@ pub const BIOS_FIRMWARE_ID: &str = "spectravideo-svi-328-rom";
 
 #[must_use]
 pub fn profiles() -> Vec<MachineProfile> {
-    vec![
-        profile_for(Model::Svi328Ntsc),
-        profile_for(Model::Svi328Pal),
-    ]
+    Model::ALL.into_iter().map(profile_for).collect()
 }
 
 #[must_use]
@@ -89,7 +117,9 @@ pub fn profile_for(model: Model) -> MachineProfile {
             ),
         ],
         capabilities: CapabilitySet::with_all([
+            known_capability("variant-switch"),
             known_capability("keyboard-input"),
+            known_capability("ay-audio"),
             known_capability("scripted-input"),
         ]),
     }

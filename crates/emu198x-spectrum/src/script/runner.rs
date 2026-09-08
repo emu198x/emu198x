@@ -17,30 +17,28 @@ use std::path::PathBuf;
 
 use common_sinclair_zx_spectrum::snapshot::SnapshotModel;
 use emu198x_shell::{
-    ControlCommand, FamilyRuntime, FirmwareImage, FirmwareSet, HeadlessScript, HeadlessSession,
-    MediaImage, MediaKind, MediaSet, MediaTransportAction, MediaTransportCommand, ScriptError,
-    ScriptObservation, ScriptStep, mcp::ToolError, read_firmware_asset, read_media_asset,
+    ControlCommand, FamilyRuntime, FirmwareOverrides, HeadlessScript, HeadlessSession, MediaImage,
+    MediaKind, MediaSet, MediaTransportAction, MediaTransportCommand, ScriptError,
+    ScriptObservation, ScriptStep, build_variant, mcp::ToolError, read_media_asset,
 };
 use runtime_sinclair_zx_spectrum::{
-    DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES, Spectrum48kRuntime, SpectrumLiveAccess, SpectrumRuntimeKind,
+    DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES, Model, SpectrumLiveAccess, SpectrumRuntimeKind,
     SpectrumSessionQueryProvider,
 };
 use serde::Serialize;
 
-use crate::AppError;
-use crate::machine::{MachineKind, RomOverrides, resolved_rom_bundle, rom_override_entry};
-use crate::mcp::tools::{dispatch_live_step, execute_autoload_tape, execute_load_basic_program};
+use crate::app::{AppError, firmware_overrides};
 use crate::portable_snapshot::{is_portable_snapshot_path, parse_portable_snapshot_at};
 
 const DEFAULT_TAPE_SLOT: &str = "tape-1";
 
-/// Inputs passed from `script::run` into the script runner.
+/// Inputs passed from `app::Spectrum::run_script` into the script runner.
 #[derive(Debug, Default)]
 pub struct ScriptInputs {
     /// Optional JSON session file to execute.
     pub script: Option<PathBuf>,
-    /// Variant to boot, as a `MachineKind` script identifier. `None`
-    /// keeps the default 48K boot policy.
+    /// Variant to boot, as a family variant id. `None` keeps the
+    /// default 48K boot policy.
     pub machine: Option<String>,
     /// Tape media to load before script execution.
     pub tape: Option<PathBuf>,
@@ -84,8 +82,8 @@ pub struct RunnerReport {
 /// a 128K-family snapshot to a 48K map would silently lose the upper
 /// banks, so we pick the variant up front. The session always holds the
 /// family enum (`SpectrumRuntimeKind`), so "picking the variant" is just
-/// choosing a `MachineKind`; mid-script `SetMachine` swaps follow the
-/// same enum and re-pace through `swap_machine` (#456).
+/// choosing a `Model`; mid-script `SetMachine` swaps follow the same
+/// enum and re-pace through `swap_machine` (#456).
 pub fn run_script(inputs: ScriptInputs) -> Result<RunnerReport, AppError> {
     let json_script = match &inputs.script {
         Some(path) => Some(HeadlessScript::from_path(path).map_err(|err| {
@@ -104,24 +102,18 @@ pub fn run_script(inputs: ScriptInputs) -> Result<RunnerReport, AppError> {
     // banks (128K-family) or paging state, and leave the CPU
     // executing against a hybrid memory map. The session holds the
     // family enum either way, so picking the variant is just a
-    // `MachineKind`; one boot path covers all of them.
+    // `Model`; one boot path covers all of them.
     let preload = detect_first_portable_snapshot(json_script.as_ref())?;
-    let boot_kind =
-        resolve_boot_kind(inputs.machine.as_deref(), preload.as_ref().map(|p| p.model))?;
+    let boot_model =
+        resolve_boot_model(inputs.machine.as_deref(), preload.as_ref().map(|p| p.model))?;
 
     // Resolve `--rom` now the boot variant is settled: `ID=PATH` is
     // checked against that variant's bundle, and a bare `PATH` only has a
     // meaning on a single-ROM one.
-    let mut rom_overrides = RomOverrides::new();
-    for spec in &inputs.rom {
-        let (id, path) =
-            rom_override_entry(spec, boot_kind).map_err(|err| AppError::MissingRom {
-                path: err.to_string(),
-            })?;
-        rom_overrides.insert(id, path);
-    }
+    let rom_overrides = firmware_overrides(&inputs.rom, boot_model)
+        .map_err(|path| AppError::MissingRom { path })?;
 
-    let runtime = boot_eager_kind(boot_kind, &rom_overrides)?;
+    let runtime = boot_variant(boot_model, &rom_overrides)?;
     let frame_ticks = runtime.native_frame_ticks();
     let mut session = HeadlessSession::new_with_query_provider(
         runtime,
@@ -225,33 +217,14 @@ pub fn run_script(inputs: ScriptInputs) -> Result<RunnerReport, AppError> {
 /// variants before delegating to the shell executor.
 ///
 /// Pub(crate) so the binary's MCP mode dispatches its tool calls
-/// through the same path script mode uses; SetMachine / AutoloadTape /
-/// LoadBasicProgram interception is shared across both modes.
+/// through the same path script mode uses; the portable LoadSnapshot
+/// interception is shared across both modes. `set_machine` runs in the
+/// shell through the family runtime's `MachineCore::set_machine` hook.
 pub(crate) fn execute_step(
     step: &ScriptStep,
     session: &mut HeadlessSession<SpectrumRuntimeKind, SpectrumSessionQueryProvider>,
 ) -> Result<Option<ScriptObservation>, AppError> {
     match step {
-        ScriptStep::SetMachine { machine } => {
-            // Shared with the MCP `set_machine` tool: resolve the variant's
-            // ROM bundle and swap the session's runtime via the generic
-            // `HeadlessSession::swap_machine`. Script mode holds the family
-            // enum now, so mid-script variant swaps work (#456).
-            crate::mcp::tools::execute_set_machine(machine, session)
-                .map(Some)
-                .map_err(map_tool_error)
-        }
-        ScriptStep::AutoloadTape {
-            slot,
-            max_boot_frames,
-        } => execute_autoload_tape(session, slot, *max_boot_frames)
-            .map(Some)
-            .map_err(map_tool_error),
-        ScriptStep::LoadBasicProgram { path, run } => {
-            execute_load_basic_program(session, path, *run)
-                .map(Some)
-                .map_err(map_tool_error)
-        }
         ScriptStep::LoadSnapshot { path } if is_portable_snapshot_path(path) => {
             // Shared with MCP — the family enum implements `SpectrumLiveAccess`,
             // so one `apply_snapshot` path covers every variant (#456).
@@ -263,10 +236,7 @@ pub(crate) fn execute_step(
         // queries, single-step, disassembly, watches) share one implementation
         // with MCP mode via `dispatch_live_step`, so the two can't drift. Only
         // steps it doesn't own fall through to the shell's generic executor.
-        other => match dispatch_live_step(other, session) {
-            Some(result) => result.map_err(map_tool_error),
-            None => other.execute_collect(session).map_err(map_script_error),
-        },
+        other => other.execute_collect(session).map_err(map_script_error),
     }
 }
 
@@ -281,72 +251,23 @@ fn map_tool_error(err: ToolError) -> AppError {
     AppError::Io(std::io::Error::other(err.to_string()))
 }
 
-/// Eager-boot the default 48K runtime from the conventional ROM path
-/// (`~/.emu198x/roms/sinclair-zx-spectrum-48k/48.rom`). Returns
-/// `AppError::MissingRom` if the ROM isn't present.
+/// Boot any Spectrum variant from its conventional ROM bundle
+/// (`~/.emu198x/roms/…`), pins applied, through the shared
+/// `FamilyRuntime` constructor — the same path the shell's `set_machine`
+/// swaps through, so a boot and a swap cannot disagree about where a
+/// variant's ROMs are.
 ///
-/// Pub(crate) so the binary's MCP mode reuses the same boot path —
-/// MCP's session lifecycle starts identically to script mode.
-pub(crate) fn boot_eager_48k(overrides: &RomOverrides) -> Result<Spectrum48kRuntime, AppError> {
-    let bundle = resolved_rom_bundle(MachineKind::Spectrum48K, overrides).map_err(|err| {
-        AppError::MissingRom {
-            path: err.to_string(),
-        }
-    })?;
-    let (id, path) = bundle
-        .into_iter()
-        .next()
-        .ok_or_else(|| AppError::MissingRom {
-            path: "48K bundle is empty (internal error)".to_owned(),
-        })?;
-    if !path.is_file() {
-        return Err(AppError::MissingRom {
-            path: path.display().to_string(),
-        });
-    }
-    let rom = read_firmware_asset(&path)?.bytes;
-    let mut firmware = FirmwareSet::new();
-    firmware.push(FirmwareImage::new(id, &rom));
-    Spectrum48kRuntime::from_firmware(&firmware).map_err(AppError::from)
-}
-
-/// Eager-boot the family-dispatch enum for any Spectrum variant from
-/// the conventional ROM path (`~/.emu198x/roms/sinclair-zx-spectrum-…`).
-///
-/// One path for every model: resolve the variant's ROM bundle, then
-/// build the active variant through the shared `FamilyRuntime`
-/// constructor — the same one the MCP `set_machine` tool drives via
-/// `HeadlessSession::swap_machine`. The script runner holds the family
-/// enum (`SpectrumRuntimeKind`), so the result slots straight into the
-/// session regardless of which model was picked (#456).
-fn boot_eager_kind(
-    kind: MachineKind,
-    overrides: &RomOverrides,
+/// Pub(crate) so the binary's MCP mode boots the same way.
+pub(crate) fn boot_variant(
+    model: Model,
+    overrides: &FirmwareOverrides,
 ) -> Result<SpectrumRuntimeKind, AppError> {
-    let bundle = resolved_rom_bundle(kind, overrides).map_err(|err| AppError::MissingRom {
+    build_variant::<SpectrumRuntimeKind>(model, overrides).map_err(|err| AppError::MissingRom {
         path: err.to_string(),
-    })?;
-    // Two-pass: read all ROM bytes first into a stable Vec<Vec<u8>>,
-    // then push borrows into the FirmwareSet. Avoids the borrow-checker
-    // conflict between mutating the holder and borrowing its entries.
-    let mut rom_bytes: Vec<(String, Vec<u8>)> = Vec::new();
-    for (id, path) in bundle {
-        if !path.is_file() {
-            return Err(AppError::MissingRom {
-                path: path.display().to_string(),
-            });
-        }
-        rom_bytes.push((id.to_string(), read_firmware_asset(&path)?.bytes.to_vec()));
-    }
-    let mut firmware = FirmwareSet::new();
-    for (id, bytes) in &rom_bytes {
-        firmware.push(FirmwareImage::new(id.clone(), bytes));
-    }
-    let model = crate::mcp::tools::kind_to_model(kind);
-    SpectrumRuntimeKind::from_firmware(model, &firmware).map_err(AppError::from)
+    })
 }
 
-/// Maps a portable snapshot's declared model onto the `MachineKind`
+/// Maps a portable snapshot's declared model onto the `Model`
 /// whose runtime should host it. 128K-family snapshots (`128K`, `+2`,
 /// `+2A`, `+3`) boot their own variant so the upper banks and paging
 /// state survive; everything else (48K plus the not-yet-script-wired
@@ -374,27 +295,25 @@ fn boot_eager_kind(
 /// then applying a snapshot built for a different one is the exact
 /// failure the snapshot pre-scan exists to prevent, so the conflict is
 /// refused rather than resolved by precedence.
-fn resolve_boot_kind(
+fn resolve_boot_model(
     requested: Option<&str>,
     preload_model: Option<SnapshotModel>,
-) -> Result<MachineKind, AppError> {
+) -> Result<Model, AppError> {
     let requested = match requested {
-        Some(id) => {
-            Some(
-                MachineKind::from_script_id(id).ok_or_else(|| AppError::InvalidMachine {
-                    reason: format!(
-                        "unknown machine id `{id}`; expected one of {}",
-                        MachineKind::script_id_list()
-                    ),
-                })?,
-            )
-        }
+        Some(id) => Some(
+            Model::from_variant_id(id).ok_or_else(|| AppError::InvalidMachine {
+                reason: format!(
+                    "unknown machine id `{id}`; expected one of {}",
+                    Model::VARIANT_IDS.join(", ")
+                ),
+            })?,
+        ),
         None => None,
     };
 
     match (requested, preload_model) {
         (Some(requested), Some(model)) => {
-            let implied = snapshot_model_to_kind(model);
+            let implied = snapshot_model_to_model(model);
             if implied == requested {
                 Ok(requested)
             } else {
@@ -402,26 +321,26 @@ fn resolve_boot_kind(
                     reason: format!(
                         "{} conflicts with the script's first portable snapshot, \
                          which is a {} image",
-                        requested.script_id(),
-                        implied.script_id()
+                        requested.variant_id(),
+                        implied.variant_id()
                     ),
                 })
             }
         }
         (Some(requested), None) => Ok(requested),
-        (None, Some(model)) => Ok(snapshot_model_to_kind(model)),
-        (None, None) => Ok(MachineKind::Spectrum48K),
+        (None, Some(model)) => Ok(snapshot_model_to_model(model)),
+        (None, None) => Ok(Model::Spectrum48KPal),
     }
 }
 
-fn snapshot_model_to_kind(model: SnapshotModel) -> MachineKind {
+fn snapshot_model_to_model(model: SnapshotModel) -> Model {
     match model {
-        SnapshotModel::Spectrum128K => MachineKind::Spectrum128K,
-        SnapshotModel::SpectrumPlus2 => MachineKind::SpectrumPlus2,
-        SnapshotModel::SpectrumPlus2A => MachineKind::SpectrumPlus2A,
-        SnapshotModel::SpectrumPlus3 => MachineKind::SpectrumPlus3,
+        SnapshotModel::Spectrum128K => Model::Spectrum128KPal,
+        SnapshotModel::SpectrumPlus2 => Model::SpectrumPlus2,
+        SnapshotModel::SpectrumPlus2A => Model::SpectrumPlus2A,
+        SnapshotModel::SpectrumPlus3 => Model::SpectrumPlus3,
         SnapshotModel::Spectrum48K | SnapshotModel::Pentagon128 | SnapshotModel::Scorpion256 => {
-            MachineKind::Spectrum48K
+            Model::Spectrum48KPal
         }
     }
 }
@@ -533,18 +452,18 @@ mod tests {
     use super::*;
 
     #[test]
-    fn boot_kind_defaults_to_48k() {
+    fn boot_model_defaults_to_48k() {
         assert_eq!(
-            resolve_boot_kind(None, None).expect("no inputs is always valid"),
-            MachineKind::Spectrum48K
+            resolve_boot_model(None, None).expect("no inputs is always valid"),
+            Model::Spectrum48KPal
         );
     }
 
     #[test]
     fn machine_flag_selects_boot_variant() {
         assert_eq!(
-            resolve_boot_kind(Some("spectrum_128k"), None).expect("known id"),
-            MachineKind::Spectrum128K
+            resolve_boot_model(Some("spectrum_128k"), None).expect("known id"),
+            Model::Spectrum128KPal
         );
     }
 
@@ -554,14 +473,14 @@ mod tests {
     #[test]
     fn machine_flag_accepts_the_exotics() {
         assert_eq!(
-            resolve_boot_kind(Some("pentagon_128"), None).expect("known id"),
-            MachineKind::Pentagon128
+            resolve_boot_model(Some("pentagon_128"), None).expect("known id"),
+            Model::Pentagon128
         );
     }
 
     #[test]
     fn unknown_machine_id_is_rejected_and_lists_the_accepted_ids() {
-        let err = resolve_boot_kind(Some("spectrum_999k"), None)
+        let err = resolve_boot_model(Some("spectrum_999k"), None)
             .expect_err("an unknown id must not fall back to 48K");
         let message = err.to_string();
         assert!(
@@ -578,17 +497,17 @@ mod tests {
     #[test]
     fn snapshot_model_selects_boot_variant_without_the_flag() {
         assert_eq!(
-            resolve_boot_kind(None, Some(SnapshotModel::Spectrum128K)).expect("valid"),
-            MachineKind::Spectrum128K
+            resolve_boot_model(None, Some(SnapshotModel::Spectrum128K)).expect("valid"),
+            Model::Spectrum128KPal
         );
     }
 
     #[test]
     fn machine_flag_agreeing_with_the_snapshot_is_accepted() {
         assert_eq!(
-            resolve_boot_kind(Some("spectrum_128k"), Some(SnapshotModel::Spectrum128K))
+            resolve_boot_model(Some("spectrum_128k"), Some(SnapshotModel::Spectrum128K))
                 .expect("agreement is not a conflict"),
-            MachineKind::Spectrum128K
+            Model::Spectrum128KPal
         );
     }
 
@@ -598,7 +517,7 @@ mod tests {
     /// rather than pick a winner.
     #[test]
     fn machine_flag_conflicting_with_the_snapshot_is_refused() {
-        let err = resolve_boot_kind(Some("spectrum_48k"), Some(SnapshotModel::Spectrum128K))
+        let err = resolve_boot_model(Some("spectrum_48k"), Some(SnapshotModel::Spectrum128K))
             .expect_err("a contradicted --machine must not be silently overridden");
         let message = err.to_string();
         assert!(
@@ -609,12 +528,13 @@ mod tests {
 
     #[test]
     fn machine_id_list_covers_every_variant() {
-        let list = MachineKind::script_id_list();
-        for kind in MachineKind::all() {
+        let err = resolve_boot_model(Some("nope"), None).expect_err("unknown");
+        let list = err.to_string();
+        for model in Model::ALL {
             assert!(
-                list.contains(kind.script_id()),
+                list.contains(model.variant_id()),
                 "{} missing from the accepted-id list",
-                kind.script_id()
+                model.variant_id()
             );
         }
     }
@@ -678,7 +598,7 @@ mod tests {
     /// the 48K or 128K ROM bundles are absent.
     #[test]
     fn set_machine_step_swaps_variant_in_script_mode() {
-        let runtime = match boot_eager_48k(&RomOverrides::new()) {
+        let kind = match boot_variant(Model::Spectrum48KPal, &FirmwareOverrides::none()) {
             Ok(rt) => rt,
             Err(_) => {
                 emu198x_test_skip::skip!(
@@ -686,7 +606,6 @@ mod tests {
                 );
             }
         };
-        let kind = SpectrumRuntimeKind::Spectrum48K(runtime);
         let ticks = kind.native_frame_ticks();
         let mut session =
             HeadlessSession::new_with_query_provider(kind, ticks, SpectrumSessionQueryProvider);

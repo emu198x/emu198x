@@ -11,6 +11,6 @@ mod runtime;
 mod snapshot;
 
 pub use machine_coleco_colecovision::CvRegion;
-pub use profiles::{Model, profile_for, profiles};
+pub use profiles::{BIOS_FIRMWARE_ID, Model, profile_for, profiles};
 pub use queries::CvSessionQueryProvider;
 pub use runtime::CvRuntime;

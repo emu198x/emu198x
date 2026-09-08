@@ -1,11 +1,16 @@
-//! MCP server mode.
+//! MCP server mode — the body behind
+//! [`MachineApp::run_mcp`](emu198x_shell::launch::MachineApp::run_mcp).
 //!
 //! Boots the same eager 48K runtime that script mode uses, builds a
 //! shell-side `Server` with one tool per `ScriptStep` variant, and
 //! drives the JSON-RPC stdio loop. Tool dispatch goes through the
-//! same `execute_step` interceptor as `--script`, so SetMachine /
-//! AutoloadTape / LoadBasicProgram behave identically across both
-//! modes.
+//! same `execute_step` interceptor as `--script`, so the portable
+//! snapshot loader behaves identically across both modes; every other
+//! step, `set_machine` included, runs in the shell.
+//!
+//! The shared server is not used because it reads `--rom` as cartridge
+//! media; here `--rom ID=PATH` pins one ROM of the 48K boot bundle
+//! (#842).
 //!
 //! See `docs/brainstorms/2026-05-08-mcp-server-brainstorm.md` for the
 //! design and the SOLID criterion 5 acceptance bar.
@@ -14,17 +19,30 @@ pub(crate) mod tools;
 
 use emu198x_shell::{
     HeadlessSession,
-    mcp::{Server, ServerInfo, serve_stdio},
-    mcp_tools::{
-        register_ay_watch_tools, register_base_tools, register_keyboard_tools,
-        register_memory_watch_tools,
-    },
+    mcp::{Server, ServerInfo, ToolRegistry, serve_stdio},
+    mcp_tools::register_tools_for_profiles,
 };
-use runtime_sinclair_zx_spectrum::{SpectrumRuntimeKind, SpectrumSessionQueryProvider};
+use runtime_sinclair_zx_spectrum::{Model, SpectrumSessionQueryProvider};
 
-use crate::AppError;
-use crate::machine::{MachineKind, RomOverrides, rom_override_entry};
-use crate::script::runner::boot_eager_48k;
+use crate::app::{AppError, firmware_overrides};
+use crate::script::runner::boot_variant;
+
+/// Register the full MCP surface. Same uniform layering as the Amiga:
+/// shared common + debug + watch tools, then the Spectrum-specific
+/// surface. The Spectrum (memory + AY) implements `WatchTarget`, so both
+/// watch tiers register here. The bespoke tools are registered last,
+/// overriding any generic version by name and keeping the rich Z80
+/// curriculum output.
+pub(crate) fn register_full_surface(
+    registry: &mut ToolRegistry<tools::SpectrumSession>,
+    session: &tools::SpectrumSession,
+) {
+    // The family catalogue, not the boot variant: MCP boots a 48K and a
+    // client may `set_machine` to a 128K, which needs the AY tier already
+    // registered.
+    register_tools_for_profiles(registry, session, &runtime_sinclair_zx_spectrum::profiles());
+    tools::register_spectrum_tools(registry);
+}
 
 /// Runs MCP mode. Boots an eager 48K session wrapped in the
 /// family-level [`SpectrumRuntimeKind`] enum, registers every tool,
@@ -39,17 +57,9 @@ pub fn run(rom_specs: &[String]) -> Result<(), AppError> {
     // MCP always boots 48K eagerly, so `--rom` resolves against that
     // bundle; a client that then swaps variant via `set_machine` gets the
     // conventional ROMs for the new one.
-    let mut rom_overrides = RomOverrides::new();
-    for spec in rom_specs {
-        let (id, path) = rom_override_entry(spec, MachineKind::Spectrum48K).map_err(|err| {
-            AppError::MissingRom {
-                path: err.to_string(),
-            }
-        })?;
-        rom_overrides.insert(id, path);
-    }
-    let runtime_48k = boot_eager_48k(&rom_overrides)?;
-    let kind = SpectrumRuntimeKind::Spectrum48K(runtime_48k);
+    let rom_overrides = firmware_overrides(rom_specs, Model::Spectrum48KPal)
+        .map_err(|path| AppError::MissingRom { path })?;
+    let kind = boot_variant(Model::Spectrum48KPal, &rom_overrides)?;
     let frame_halfcycles = u64::from(kind.frame_halfcycles());
     let mut session = HeadlessSession::new_with_query_provider(
         kind,
@@ -61,16 +71,7 @@ pub fn run(rom_specs: &[String]) -> Result<(), AppError> {
         "emu198x-spectrum",
         env!("CARGO_PKG_VERSION"),
     ));
-    // Same uniform layering as the Amiga: shared common + debug + watch
-    // tools, then the Spectrum-specific surface. The Spectrum (memory + AY)
-    // implements `WatchTarget`, so both watch tiers register here. The
-    // bespoke tools are registered last, overriding any generic version by
-    // name and keeping the rich Z80 curriculum output.
-    register_base_tools(server.registry_mut());
-    register_memory_watch_tools(server.registry_mut());
-    register_ay_watch_tools(server.registry_mut());
-    register_keyboard_tools(server.registry_mut());
-    tools::register_spectrum_tools(server.registry_mut());
+    register_full_surface(server.registry_mut(), &session);
 
     serve_stdio(&mut server, &mut session).map_err(AppError::from)?;
     Ok(())
@@ -80,6 +81,7 @@ pub fn run(rom_specs: &[String]) -> Result<(), AppError> {
 mod tests {
     use super::*;
     use emu198x_shell::mcp::{JsonRpcId, JsonRpcRequest};
+    use runtime_sinclair_zx_spectrum::{Spectrum48kRuntime, SpectrumRuntimeKind};
     use serde_json::{Value, json};
 
     /// Every MCP tool the launch curriculum pipeline may call by name.
@@ -133,20 +135,20 @@ mod tests {
         "watch_memory_start",
     ];
 
-    /// Register the full MCP surface exactly as `run()` does.
-    fn register_full_surface(server: &mut Server<tools::SpectrumSession>) {
-        register_base_tools(server.registry_mut());
-        register_memory_watch_tools(server.registry_mut());
-        register_ay_watch_tools(server.registry_mut());
-        register_keyboard_tools(server.registry_mut());
-        tools::register_spectrum_tools(server.registry_mut());
-    }
-
     #[test]
     fn full_surface_publishes_every_curriculum_tool() {
+        // Registration reads the family catalogue, not the live machine,
+        // so a zero-filled ROM is enough to stand in for the boot 48K.
+        let kind = SpectrumRuntimeKind::Spectrum48K(Spectrum48kRuntime::blank());
+        let frame_halfcycles = u64::from(kind.frame_halfcycles());
+        let session = HeadlessSession::new_with_query_provider(
+            kind,
+            frame_halfcycles,
+            SpectrumSessionQueryProvider,
+        );
         let mut server: Server<tools::SpectrumSession> =
             Server::new(ServerInfo::new("emu198x-spectrum", "0.0.0"));
-        register_full_surface(&mut server);
+        register_full_surface(server.registry_mut(), &session);
         for name in REQUIRED_TOOLS {
             assert!(
                 server.registry().get(name).is_some(),
@@ -194,7 +196,10 @@ mod tests {
     /// when the ROM is absent.
     #[test]
     fn mcp_tools_drive_a_real_boot() {
-        let runtime_48k = match boot_eager_48k(&RomOverrides::new()) {
+        let kind = match boot_variant(
+            Model::Spectrum48KPal,
+            &emu198x_shell::FirmwareOverrides::none(),
+        ) {
             Ok(rt) => rt,
             Err(_) => {
                 emu198x_test_skip::skip!(
@@ -202,7 +207,6 @@ mod tests {
                 );
             }
         };
-        let kind = SpectrumRuntimeKind::Spectrum48K(runtime_48k);
         let frame_halfcycles = u64::from(kind.frame_halfcycles());
         let mut session = HeadlessSession::new_with_query_provider(
             kind,
@@ -211,7 +215,7 @@ mod tests {
         );
         let mut server: Server<tools::SpectrumSession> =
             Server::new(ServerInfo::new("emu198x-spectrum", "test"));
-        register_full_surface(&mut server);
+        register_full_surface(server.registry_mut(), &session);
 
         // tools/list exposes every required tool.
         let list = call(&mut server, &mut session, 1, "tools/list", json!({}));
@@ -276,7 +280,10 @@ mod tests {
     /// applied. Skips when the 48K ROM is absent.
     #[test]
     fn load_snapshot_routes_portable_sna_not_postcard() {
-        let runtime_48k = match boot_eager_48k(&RomOverrides::new()) {
+        let kind = match boot_variant(
+            Model::Spectrum48KPal,
+            &emu198x_shell::FirmwareOverrides::none(),
+        ) {
             Ok(rt) => rt,
             Err(_) => {
                 emu198x_test_skip::skip!(
@@ -284,7 +291,6 @@ mod tests {
                 );
             }
         };
-        let kind = SpectrumRuntimeKind::Spectrum48K(runtime_48k);
         let frame_halfcycles = u64::from(kind.frame_halfcycles());
         let mut session = HeadlessSession::new_with_query_provider(
             kind,
@@ -293,7 +299,7 @@ mod tests {
         );
         let mut server: Server<tools::SpectrumSession> =
             Server::new(ServerInfo::new("emu198x-spectrum", "test"));
-        register_full_surface(&mut server);
+        register_full_surface(server.registry_mut(), &session);
 
         // Minimal valid 48K .sna: 27-byte header + 49152 bytes of RAM
         // ($4000-$FFFF). Park SP at $6000 so the PC restore pops from

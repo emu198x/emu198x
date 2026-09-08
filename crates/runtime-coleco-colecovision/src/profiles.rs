@@ -15,6 +15,37 @@ pub enum Model {
 }
 
 impl Model {
+    pub const ALL: [Self; 2] = [Self::CvNtsc, Self::CvPal];
+    pub const VARIANT_IDS: [&'static str; 2] =
+        [Self::CvNtsc.variant_id(), Self::CvPal.variant_id()];
+
+    #[must_use]
+    pub const fn variant_id(self) -> &'static str {
+        self.profile_id()
+    }
+
+    #[must_use]
+    pub fn from_variant_id(id: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|model| model.variant_id() == id)
+    }
+
+    #[must_use]
+    pub fn firmware_sources(self) -> Vec<emu198x_shell::FirmwareSource> {
+        vec![
+            emu198x_shell::FirmwareSource::required(BIOS_FIRMWARE_ID, &["colecovision.rom"])
+                .with_env_var("EMU198X_COLECO_BIOS"),
+        ]
+    }
+
+    /// Existing native host frame budget, in CPU clocks.
+    #[must_use]
+    pub const fn frame_ticks(self) -> u64 {
+        match self {
+            Self::CvNtsc => 228 * 262,
+            Self::CvPal => 228 * 313,
+        }
+    }
+
     /// Stable model identifier.
     #[must_use]
     pub const fn model_id(self) -> &'static str {
@@ -55,7 +86,7 @@ pub const BIOS_FIRMWARE_ID: &str = "colecovision-bios";
 /// Returns the initial ColecoVision family catalogue.
 #[must_use]
 pub fn profiles() -> Vec<MachineProfile> {
-    vec![profile_for(Model::CvNtsc), profile_for(Model::CvPal)]
+    Model::ALL.into_iter().map(profile_for).collect()
 }
 
 /// Returns the profile metadata for one model.
@@ -83,6 +114,7 @@ pub fn profile_for(model: Model) -> MachineProfile {
             WritebackPolicy::InMemoryOnly,
         )],
         capabilities: CapabilitySet::with_all([
+            known_capability("variant-switch"),
             known_capability("controller-input"),
             known_capability("scripted-input"),
         ]),

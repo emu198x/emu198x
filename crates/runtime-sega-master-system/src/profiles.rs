@@ -1,10 +1,11 @@
 //! Sega Master System profile catalogue.
 
+use crate::SmsRuntime;
 use emu198x_shell::{
     CapabilitySet, ClockDesc, ClockRate, Family, MachineId, MachineProfile, MediaKind, MediaSlot,
     ProfileId, Region, WritebackPolicy, known_capability,
 };
-use runtime_sega_master_system_class::{SmsRuntime, SmsVariant};
+use runtime_sega_master_system_class::{SmsModel, SmsVariant};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Model {
@@ -21,6 +22,52 @@ pub enum Model {
 }
 
 impl Model {
+    pub const ALL: [Self; 5] = [
+        Self::SmsNtsc,
+        Self::SmsJapanNtsc,
+        Self::SmsPal,
+        Self::Sms1Ntsc,
+        Self::Sms1Pal,
+    ];
+    pub const VARIANT_IDS: [&'static str; 5] = [
+        "sms-ntsc",
+        "sms-japan-ntsc",
+        "sms-pal",
+        "sms1-ntsc",
+        "sms1-pal",
+    ];
+
+    #[must_use]
+    pub const fn variant_id(self) -> &'static str {
+        match self {
+            Self::SmsNtsc => "sms-ntsc",
+            Self::SmsJapanNtsc => "sms-japan-ntsc",
+            Self::SmsPal => "sms-pal",
+            Self::Sms1Ntsc => "sms1-ntsc",
+            Self::Sms1Pal => "sms1-pal",
+        }
+    }
+
+    #[must_use]
+    pub fn from_variant_id(id: &str) -> Option<Self> {
+        match id {
+            "sms" => Some(Self::SmsNtsc),
+            "sms1" => Some(Self::Sms1Ntsc),
+            _ => Self::ALL
+                .into_iter()
+                .find(|model| model.variant_id() == id || model.profile_id() == id),
+        }
+    }
+
+    /// Existing native host frame budget, in CPU clocks.
+    #[must_use]
+    pub const fn frame_ticks(self) -> u64 {
+        match self {
+            Self::SmsPal | Self::Sms1Pal => 228 * 313,
+            _ => 228 * 262,
+        }
+    }
+
     #[must_use]
     pub const fn model_id(self) -> &'static str {
         match self {
@@ -121,13 +168,7 @@ const PAL_Z80_HZ: u64 = 3_546_893;
 
 #[must_use]
 pub fn profiles() -> Vec<MachineProfile> {
-    vec![
-        profile_for(Model::SmsNtsc),
-        profile_for(Model::SmsJapanNtsc),
-        profile_for(Model::SmsPal),
-        profile_for(Model::Sms1Ntsc),
-        profile_for(Model::Sms1Pal),
-    ]
+    Model::ALL.into_iter().map(profile_for).collect()
 }
 
 #[must_use]
@@ -150,6 +191,7 @@ pub fn profile_for(model: Model) -> MachineProfile {
             WritebackPolicy::SidecarOnly,
         )],
         capabilities: CapabilitySet::with_all([
+            known_capability("variant-switch"),
             known_capability("controller-input"),
             known_capability("scripted-input"),
         ]),
@@ -158,22 +200,38 @@ pub fn profile_for(model: Model) -> MachineProfile {
 
 /// A runtime with no cartridge inserted.
 ///
-/// A free function rather than an inherent constructor: `SmsRuntime` belongs
-/// to the class crate, so this crate cannot hang an `impl` off it.
+/// Convenience constructor for this system's concrete runtime alias.
 #[must_use]
 pub fn blank(model: Model) -> SmsRuntime {
-    SmsRuntime::blank(profile_for(model), model.variant(), model.model_id())
+    SmsRuntime::blank(model)
 }
 
 /// A runtime with `cart_rom` inserted.
 #[must_use]
 pub fn with_cartridge(model: Model, cart_rom: Vec<u8>) -> SmsRuntime {
-    SmsRuntime::new(
-        profile_for(model),
-        model.variant(),
-        model.model_id(),
-        cart_rom,
-    )
+    SmsRuntime::new(model, cart_rom)
+}
+
+impl SmsModel for Model {
+    const VARIANT_IDS: &'static [&'static str] = &Self::VARIANT_IDS;
+    fn from_variant_id(id: &str) -> Option<Self> {
+        Self::from_variant_id(id)
+    }
+    fn variant_id(self) -> &'static str {
+        self.variant_id()
+    }
+    fn model_id(self) -> &'static str {
+        self.model_id()
+    }
+    fn profile(self) -> MachineProfile {
+        profile_for(self)
+    }
+    fn variant(self) -> SmsVariant {
+        self.variant()
+    }
+    fn frame_ticks(self) -> u64 {
+        self.frame_ticks()
+    }
 }
 
 #[cfg(test)]

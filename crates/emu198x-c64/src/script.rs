@@ -3,100 +3,31 @@
 //! Boots the C64 from firmware (KERNAL/BASIC/chargen/1541), runs native
 //! frames, executes shared JSON session steps, imports PRG/BAS/disk/tape
 //! media, and captures screenshots / snapshots / screen-text / traces.
-//! The non-interactive half of the `emu198x-c64` binary; the dispatcher
-//! in `main.rs` routes here when a headless-only flag is present.
+//! The non-interactive half of the `emu198x-c64` binary; the shared
+//! launcher routes here through `MachineApp::run_script` when a headless
+//! flag is present. The launcher parses the flags; this module runs them.
 //!
-//! This binary is intentionally thin. It resolves ROM paths, optional
-//! snapshot/script inputs, and output captures, then hands execution to the
-//! shared headless session layer above `runtime-commodore-c64`.
+//! The shared script loop is not used because the C64's report carries
+//! more than it has a shape for: boot detection, the imported program,
+//! printed queries, decoded screen text, and VIC / drive-ROM traces — and
+//! prints a plain summary rather than JSON when no `--script` was given.
 
-use std::fs;
-use std::path::{Path, PathBuf};
-use std::process;
-
-use common_commodore_c64::timing::{TIMING_NTSC_BREADBIN, TIMING_PAL_BREADBIN};
+use emu198x_shell::launch::{CommonCli, LaunchError, MachineApp};
 use emu198x_shell::{
-    BootArtifacts, ControlCommand, FirmwareImage, FirmwareSet, HeadlessScript, HeadlessSession,
-    MediaImage, MediaKind, MediaSet, MediaTransportAction, MediaTransportCommand,
-    ScriptObservation, ScriptStep, TraceEvent, TraceSink, boot_machine, read_firmware_asset,
-    read_media_asset, read_program_asset,
+    ControlCommand, HeadlessScript, HeadlessSession, MediaTransportAction, MediaTransportCommand,
+    ScriptObservation, TraceEvent, TraceSink,
 };
 use runtime_commodore_c64::{
-    C64Runtime, C64SessionQueryProvider, DEFAULT_BASIC_LOADER_BOOT_FRAMES,
-    DEFAULT_DISK_AUTOLOAD_SLOT, DEFAULT_DISK_AUTOLOAD_WAIT_FRAMES,
-    DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES, DEFAULT_TAPE_AUTOLOAD_SLOT,
-    DEFAULT_TAPE_AUTOLOAD_WAIT_FRAMES, Model, autoload_basic_disk,
+    C64Runtime, C64SessionQueryProvider, DEFAULT_DISK_AUTOLOAD_SLOT,
+    DEFAULT_DISK_AUTOLOAD_WAIT_FRAMES, DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES,
+    DEFAULT_TAPE_AUTOLOAD_SLOT, DEFAULT_TAPE_AUTOLOAD_WAIT_FRAMES, autoload_basic_disk,
     autoload_basic_disk_with_trace_sink, autoload_basic_tape, autoload_basic_tape_with_trace_sink,
-    file_loader::load_host_file, load_basic_source,
+    file_loader::load_host_file,
 };
 use serde::Serialize;
 use serde_json::Value;
 
-const KERNAL_ID: &str = "commodore-c64-kernal-rom";
-const BASIC_ID: &str = "commodore-c64-basic-rom";
-const CHARACTER_ID: &str = "commodore-c64-character-rom";
-const DRIVE1541_ID: &str = "commodore-1541-dos-rom";
-const DEFAULT_IMPORT_BOOT_FRAMES: u32 = 200;
-const DEFAULT_TRACE_LIMIT: usize = 512;
-
-/// Baud the emulated modem answers at unless `--esp-at-baud` says otherwise.
-///
-/// A user-port modem is whatever rate the two ends agree on, and clients differ:
-/// the Rachel C64 client bit-bangs 2400, its VIC-20 sibling 9600. Guessing wrong
-/// does not fail loudly — the line simply decodes as garbage.
-const ESP_AT_DEFAULT_BAUD: u64 = 9600;
-
-/// RUBP's fixed frame size, which the bridge reassembles TCP reads into.
-const ESP_AT_FRAME_SIZE: usize = 64;
-
-#[derive(Debug, Default, PartialEq, Eq)]
-struct Cli {
-    model: ModelArg,
-    rom_dir: Option<PathBuf>,
-    kernal: Option<PathBuf>,
-    basic: Option<PathBuf>,
-    chargen: Option<PathBuf>,
-    load: Option<PathBuf>,
-    disk: Option<PathBuf>,
-    tape: Option<PathBuf>,
-    autoload_disk: bool,
-    autoload_tape: bool,
-    start_tape: bool,
-    esp_at_tcp: bool,
-    esp_at_baud: Option<u64>,
-    ultimate_net: bool,
-    load_snapshot: Option<PathBuf>,
-    save_snapshot: Option<PathBuf>,
-    screenshot: Option<PathBuf>,
-    script: Option<PathBuf>,
-    wait_for_boot: Option<u32>,
-    wait_for_tape_stop: Option<u32>,
-    print_queries: Vec<String>,
-    print_screen_text: bool,
-    trace_vic_colours: bool,
-    trace_drive_rom_window: Option<(u16, u16)>,
-    trace_limit: usize,
-    frames: u32,
-}
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-enum ModelArg {
-    #[default]
-    Pal,
-    Ntsc,
-}
-
-#[derive(Debug)]
-struct LoadedFirmware {
-    id: &'static str,
-    bytes: Vec<u8>,
-}
-
-#[derive(Debug)]
-struct LoadedProgram {
-    name: String,
-    bytes: Vec<u8>,
-}
+use crate::app::{C64, DEFAULT_IMPORT_BOOT_FRAMES, DEFAULT_TAPE_SLOT, load_program_bytes};
 
 #[derive(Debug, Serialize)]
 struct RunnerReport {
@@ -165,82 +96,16 @@ impl TraceSink for TraceCollector {
     }
 }
 
-const USAGE: &str = "\
-Usage: emu198x-c64 --headless [OPTIONS]
-
-Cold boot:
-    --rom-dir DIR             directory containing Commodore ROM images
-    --kernal PATH             override KERNAL ROM path
-    --basic PATH              override BASIC ROM path
-    --chargen PATH            override character ROM path
-    --model MODEL             pal or ntsc [default: pal]
-    --load PATH               import one .prg/.bas/.t64/.d64 file after boot
-    --disk PATH               insert one D64 image into drive-8
-    --tape PATH               insert one TAP image into datasette slot
-    --autoload-disk           wait for READY. and type LOAD\"*\",8,1 for drive-8
-    --autoload-tape           wait for READY., press SHIFT+RUN/STOP, and start tape-1
-    --start-tape              press PLAY on the inserted datasette image
-    --esp-at-tcp              plug a WiFi modem into the user port; dialling
-                              opens a real TCP connection (64-byte frame
-                              reassembly). Speaks both ESP-AT (AT+CIPSTART)
-                              and Hayes (ATD), latching whichever the client
-                              uses first
-    --esp-at-baud N           user-port line rate [default: 9600]
-    --ultimate-net            fit an Ultimate Command Interface, giving the
-                              machine the buffered network device a 1541
-                              Ultimate-II or Ultimate 64 provides. Preferred
-                              over --esp-at-tcp: no line rate, no framing
-
-State and automation:
-    --load-snapshot PATH      restore a runtime snapshot before running
-    --save-snapshot PATH      write a runtime snapshot after running
-    --script PATH             execute shared JSON session steps after boot
-    --wait-for-boot N         run up to N frames until boot.detected is true
-    --wait-for-tape-stop N    run up to N frames until c64.tape.playing has started and then stops
-    --print-query PATH        resolve one query path after running (repeatable)
-    --print-screen-text       print decoded screen-text lines after running
-    --trace-vic-colours       trace D020/D021 changes during autoload and the explicit --frames run
-    --trace-drive-rom S E     trace drive-8 ROM activity for inclusive hex window S..E during autoload and the explicit --frames run
-    --trace-limit N           maximum traced colour-write events to retain [default: 512]
-    --screenshot PATH         write the last emitted frame as PNG
-
-Execution:
-    --frames N                number of native video frames to run
-
-Other:
-    --help, -h                show this help
-
-ROM directory resolution (first match wins):
-    1. --rom-dir DIR
-    2. EMU198X_C64_ROM_DIR
-    3. ~/.emu198x/roms/commodore-c64
-    4. ~/.emu198x/roms/c64
-
-Filename resolution inside the ROM directory:
-    - kernal.rom or c64-kernal.rom
-    - basic.rom or c64-basic.rom
-    - chargen.rom or c64-chargen.rom
-    - 1541.rom or dos1541.rom or c1541.rom (optional, for live drive-8)
-
-Examples:
-    emu198x-c64 --headless --rom-dir ~/.emu198x/roms/commodore-c64 --wait-for-boot 200 --screenshot ready.png
-    emu198x-c64 --headless --rom-dir ~/.emu198x/roms/commodore-c64 --load demo.bas --save-snapshot demo.c64.pst
-    emu198x-c64 --headless --rom-dir ~/.emu198x/roms/commodore-c64 --load game.d64 --save-snapshot game.c64.pst
-    emu198x-c64 --headless --rom-dir ~/.emu198x/roms/commodore-c64 --disk game.d64 --wait-for-boot 200 --print-query c64.drive8.disk.name
-    emu198x-c64 --headless --rom-dir ~/.emu198x/roms/commodore-c64 --disk game.d64 --autoload-disk --frames 300
-    emu198x-c64 --headless --rom-dir ~/.emu198x/roms/commodore-c64 --tape game.tap --autoload-tape --wait-for-tape-stop 12000
-    emu198x-c64 --headless --load-snapshot ready.c64.pst --frames 25 --save-snapshot later.c64.pst
-    emu198x-c64 --headless --rom-dir ~/.emu198x/roms/commodore-c64 --tape game.tap --autoload-tape --frames 300 --trace-vic-colours
-    emu198x-c64 --headless --rom-dir ~/.emu198x/roms/commodore-c64 --disk game.d64 --autoload-disk --frames 1200 --trace-drive-rom EC20 ECA0
-    emu198x-c64 --headless --rom-dir ~/.emu198x/roms/commodore-c64 --script capture.json
-";
-
-/// Headless entry point. Parses the automation CLI, runs the session,
-/// and prints the JSON (script mode) or summary report.
-pub fn run(args: Vec<String>) -> Result<(), String> {
-    let cli = parse_cli(args);
-    let script_mode = cli.script.is_some();
-    let report = run_cli(cli)?;
+/// Headless entry point. Runs the session and prints the JSON (script
+/// mode) or summary report.
+///
+/// # Errors
+///
+/// Returns the failure of the boot, the media workflow, the script, a
+/// capture, or a query.
+pub fn run(app: &C64, common: &CommonCli) -> Result<(), LaunchError> {
+    let script_mode = common.script.is_some();
+    let report = run_cli(app, common)?;
     if script_mode {
         let json = serde_json::to_string(&report)
             .map_err(|err| format!("failed to serialize runner report: {err}"))?;
@@ -272,198 +137,24 @@ pub fn run(args: Vec<String>) -> Result<(), String> {
     Ok(())
 }
 
-/// Builds a booted C64 session for the MCP server, resolving firmware
-/// from the default ROM directory (`EMU198X_C64_ROM_DIR` or
-/// `~/.emu198x/roms/commodore-c64`). The client loads programs / media
-/// and drives the machine through the shared tools.
-///
-/// # Errors
-///
-/// Returns an error string if the C64 ROMs cannot be resolved or the
-/// machine fails to boot.
-pub fn mcp_session() -> Result<HeadlessSession<C64Runtime, C64SessionQueryProvider>, String> {
-    let cli = Cli::default();
-    let machine = boot_runtime(&cli)?;
-    let native_frame_ticks = u64::from(TIMING_PAL_BREADBIN.cycles_per_frame);
-    Ok(HeadlessSession::new_with_query_provider(
-        machine,
-        native_frame_ticks,
-        C64SessionQueryProvider,
-    ))
-}
+fn run_cli(cli: &C64, common: &CommonCli) -> Result<RunnerReport, LaunchError> {
+    cli.check_media_flags()?;
 
-fn parse_cli<I>(args: I) -> Cli
-where
-    I: IntoIterator<Item = String>,
-{
-    let mut cli = Cli {
-        trace_limit: DEFAULT_TRACE_LIMIT,
-        ..Cli::default()
-    };
-    let mut iter = args.into_iter();
-
-    while let Some(arg) = iter.next() {
-        match arg.as_str() {
-            "--rom-dir" => cli.rom_dir = Some(PathBuf::from(next_arg(&mut iter, "--rom-dir"))),
-            "--kernal" => cli.kernal = Some(PathBuf::from(next_arg(&mut iter, "--kernal"))),
-            "--basic" => cli.basic = Some(PathBuf::from(next_arg(&mut iter, "--basic"))),
-            "--chargen" => cli.chargen = Some(PathBuf::from(next_arg(&mut iter, "--chargen"))),
-            "--model" => cli.model = parse_model_arg(&next_arg(&mut iter, "--model")),
-            "--load" => cli.load = Some(PathBuf::from(next_arg(&mut iter, "--load"))),
-            "--disk" => cli.disk = Some(PathBuf::from(next_arg(&mut iter, "--disk"))),
-            "--tape" => cli.tape = Some(PathBuf::from(next_arg(&mut iter, "--tape"))),
-            "--autoload-disk" => cli.autoload_disk = true,
-            "--autoload-tape" => cli.autoload_tape = true,
-            "--start-tape" => cli.start_tape = true,
-            "--esp-at-tcp" => cli.esp_at_tcp = true,
-            "--ultimate-net" => cli.ultimate_net = true,
-            "--esp-at-baud" => {
-                cli.esp_at_baud = Some(
-                    next_arg(&mut iter, "--esp-at-baud")
-                        .parse()
-                        .unwrap_or_else(|_| die("--esp-at-baud requires a positive integer")),
-                );
-            }
-            "--load-snapshot" => {
-                cli.load_snapshot = Some(PathBuf::from(next_arg(&mut iter, "--load-snapshot")));
-            }
-            "--save-snapshot" => {
-                cli.save_snapshot = Some(PathBuf::from(next_arg(&mut iter, "--save-snapshot")));
-            }
-            "--script" => cli.script = Some(PathBuf::from(next_arg(&mut iter, "--script"))),
-            "--wait-for-boot" => {
-                cli.wait_for_boot = Some(
-                    next_arg(&mut iter, "--wait-for-boot")
-                        .parse()
-                        .unwrap_or_else(|_| die("--wait-for-boot requires a non-negative integer")),
-                );
-            }
-            "--wait-for-tape-stop" => {
-                cli.wait_for_tape_stop = Some(
-                    next_arg(&mut iter, "--wait-for-tape-stop")
-                        .parse()
-                        .unwrap_or_else(|_| {
-                            die("--wait-for-tape-stop requires a non-negative integer")
-                        }),
-                );
-            }
-            "--print-query" => cli.print_queries.push(next_arg(&mut iter, "--print-query")),
-            "--print-screen-text" => cli.print_screen_text = true,
-            "--trace-vic-colours" => cli.trace_vic_colours = true,
-            "--trace-drive-rom" => {
-                let start = parse_hex_u16(&next_arg(&mut iter, "--trace-drive-rom"))
-                    .unwrap_or_else(|| {
-                        die("--trace-drive-rom start must be a hexadecimal address")
-                    });
-                let end = parse_hex_u16(&next_arg(&mut iter, "--trace-drive-rom"))
-                    .unwrap_or_else(|| die("--trace-drive-rom end must be a hexadecimal address"));
-                if start > end {
-                    die("--trace-drive-rom start must be <= end");
-                }
-                cli.trace_drive_rom_window = Some((start, end));
-            }
-            "--trace-limit" => {
-                cli.trace_limit = next_arg(&mut iter, "--trace-limit")
-                    .parse()
-                    .unwrap_or_else(|_| die("--trace-limit requires a non-negative integer"));
-            }
-            "--screenshot" => {
-                cli.screenshot = Some(PathBuf::from(next_arg(&mut iter, "--screenshot")));
-            }
-            "--frames" => {
-                cli.frames = next_arg(&mut iter, "--frames")
-                    .parse()
-                    .unwrap_or_else(|_| die("--frames requires a non-negative integer"));
-            }
-            "--headless" => {}
-            "--help" | "-h" => {
-                println!("{USAGE}");
-                process::exit(0);
-            }
-            _ => die(&format!("unknown flag: {arg}")),
-        }
-    }
-
-    cli
-}
-
-fn parse_model_arg(value: &str) -> ModelArg {
-    match value {
-        "pal" => ModelArg::Pal,
-        "ntsc" => ModelArg::Ntsc,
-        _ => die("--model expects pal or ntsc"),
-    }
-}
-
-fn parse_hex_u16(value: &str) -> Option<u16> {
-    let trimmed = value
-        .strip_prefix("0x")
-        .or_else(|| value.strip_prefix("0X"))
-        .unwrap_or(value);
-    u16::from_str_radix(trimmed, 16).ok()
-}
-
-fn next_arg<I>(iter: &mut I, flag: &str) -> String
-where
-    I: Iterator<Item = String>,
-{
-    iter.next()
-        .unwrap_or_else(|| die(&format!("{flag} requires a path or value")))
-}
-
-fn die(message: &str) -> ! {
-    eprintln!("error: {message}");
-    eprintln!();
-    eprintln!("{USAGE}");
-    process::exit(2);
-}
-
-fn run_cli(cli: Cli) -> Result<RunnerReport, String> {
-    if cli.autoload_disk && cli.autoload_tape {
-        return Err("--autoload-disk conflicts with --autoload-tape".into());
-    }
-
-    if cli.autoload_tape && cli.start_tape {
-        return Err("--autoload-tape conflicts with --start-tape".into());
-    }
-
-    if cli.screenshot.is_some()
-        && cli.frames == 0
-        && cli.script.is_none()
+    if (common.screenshot.is_some() || common.audio_capture.is_some())
+        && common.frames == 0
+        && common.script.is_none()
         && cli.wait_for_boot.is_none()
     {
-        return Err(
+        return Err(LaunchError::Usage(
             "capture requests require --frames, --wait-for-boot, or --script so the machine emits output"
-                .into(),
-        );
+                .to_owned(),
+        ));
     }
 
-    let mut machine = boot_runtime(&cli)?;
-    if cli.esp_at_tcp {
-        // The modem keeps real baud time while the C64's phi2 clock differs by
-        // region, so the bit period is a cycle count rather than a constant.
-        let cpu_hz = match cli.model {
-            ModelArg::Pal => TIMING_PAL_BREADBIN.cpu_hz,
-            ModelArg::Ntsc => TIMING_NTSC_BREADBIN.cpu_hz,
-        };
-        let baud = cli.esp_at_baud.unwrap_or(ESP_AT_DEFAULT_BAUD);
-        if baud == 0 {
-            return Err("--esp-at-baud must be greater than zero".into());
-        }
-        let cycles_per_bit = u32::try_from(cpu_hz / baud)
-            .map_err(|_| "modem bit period does not fit in a cycle count".to_owned())?;
-        machine.attach_esp_at_tcp_bridge(cycles_per_bit, ESP_AT_FRAME_SIZE);
-    }
-    if cli.ultimate_net {
-        machine.attach_ultimate_uci();
-    }
-    let native_frame_ticks = match cli.model {
-        ModelArg::Pal => u64::from(TIMING_PAL_BREADBIN.cycles_per_frame),
-        ModelArg::Ntsc => u64::from(TIMING_NTSC_BREADBIN.cycles_per_frame),
-    };
+    let machine = cli.boot_runtime()?;
     let mut session = HeadlessSession::new_with_query_provider(
         machine,
-        native_frame_ticks,
+        cli.frame_ticks(),
         C64SessionQueryProvider,
     );
     let tracing_enabled = cli.trace_vic_colours || cli.trace_drive_rom_window.is_some();
@@ -493,25 +184,7 @@ fn run_cli(cli: Cli) -> Result<RunnerReport, String> {
         }
     }
 
-    if let Some(path) = &cli.tape {
-        let loaded = read_media_asset(path, MediaKind::Tape)
-            .map_err(|err| format!("failed to load tape asset {}: {err}", path.display()))?;
-        let mut media = MediaSet::new();
-        media.push(MediaImage::new("tape-1", MediaKind::Tape, &loaded.bytes));
-        session
-            .load_media(&media)
-            .map_err(|err| format!("tape load failed: {err}"))?;
-    }
-
-    if let Some(path) = &cli.disk {
-        let loaded = read_media_asset(path, MediaKind::Disk)
-            .map_err(|err| format!("failed to load disk asset {}: {err}", path.display()))?;
-        let mut media = MediaSet::new();
-        media.push(MediaImage::new("drive-8", MediaKind::Disk, &loaded.bytes));
-        session
-            .load_media(&media)
-            .map_err(|err| format!("disk load failed: {err}"))?;
-    }
+    cli.insert_media(&mut session)?;
 
     if cli.autoload_tape {
         if trace_collector.is_none() && tracing_enabled {
@@ -524,7 +197,9 @@ fn run_cli(cli: Cli) -> Result<RunnerReport, String> {
             trace_collector = Some(TraceCollector::with_limit(cli.trace_limit));
         }
         if !session.machine().machine().tape_is_loaded() {
-            return Err("--autoload-tape requires tape media in slot tape-1".into());
+            return Err(LaunchError::Run(
+                "--autoload-tape requires tape media in slot tape-1".to_owned(),
+            ));
         }
 
         if let Some(collector) = trace_collector.as_mut() {
@@ -586,35 +261,23 @@ fn run_cli(cli: Cli) -> Result<RunnerReport, String> {
         );
     }
 
-    if let Some(path) = &cli.script {
+    if let Some(path) = &common.script {
         let script = HeadlessScript::from_path(path)
             .map_err(|err| format!("failed to load script {}: {err}", path.display()))?;
-        // Step by step rather than `execute_collect` on the whole script, so
-        // the C64's own steps can be intercepted before the shared executor
-        // sees them. `load_basic_program` is one: the shell has no handler for
-        // it and reports `requires a system-specific handler` *mid-run*, after
-        // a script has already booted and typed — a late failure on an action
-        // the parser had accepted. The C64 has had the loader all along, wired
-        // only into its MCP tool. See #914.
-        for step in &script.steps {
-            let emitted = match step {
-                ScriptStep::LoadBasicProgram { path, run } => {
-                    Some(execute_load_basic_program(&mut session, path, *run)?)
-                }
-                other => other
-                    .execute_collect(&mut session)
-                    .map_err(|err| format!("script execution failed: {err}"))?,
-            };
-            if let Some(observation) = emitted {
-                observations.push(observation);
-            }
-        }
+        // Every step runs through the shared executor; `load_basic_program`
+        // reaches the C64 loader through the runtime's `MachineCore` hook
+        // (#914 once intercepted it here).
+        observations.extend(
+            script
+                .execute_collect(&mut session)
+                .map_err(|err| format!("script execution failed: {err}"))?,
+        );
     }
 
     if cli.start_tape {
         session
             .command(&ControlCommand::MediaTransport(MediaTransportCommand::new(
-                "tape-1",
+                DEFAULT_TAPE_SLOT,
                 MediaTransportAction::Start,
             )))
             .map_err(|err| format!("failed to start tape transport: {err}"))?;
@@ -628,14 +291,14 @@ fn run_cli(cli: Cli) -> Result<RunnerReport, String> {
     }
 
     if let Some(collector) = trace_collector.as_mut() {
-        if cli.frames > 0 {
+        if common.frames > 0 {
             session
-                .run_frames_with_trace_sink(cli.frames, collector)
+                .run_frames_with_trace_sink(common.frames, collector)
                 .map_err(|err| format!("run failed: {err}"))?;
         }
         session.machine_mut().set_trace_vic_colour_writes(false);
         session.machine_mut().set_trace_drive_rom_window(None);
-    } else if cli.frames > 0 {
+    } else if common.frames > 0 {
         if tracing_enabled {
             session
                 .machine_mut()
@@ -645,14 +308,14 @@ fn run_cli(cli: Cli) -> Result<RunnerReport, String> {
                 .set_trace_drive_rom_window(cli.trace_drive_rom_window);
             let mut collector = TraceCollector::with_limit(cli.trace_limit);
             session
-                .run_frames_with_trace_sink(cli.frames, &mut collector)
+                .run_frames_with_trace_sink(common.frames, &mut collector)
                 .map_err(|err| format!("run failed: {err}"))?;
             session.machine_mut().set_trace_vic_colour_writes(false);
             session.machine_mut().set_trace_drive_rom_window(None);
             trace_collector = Some(collector);
         } else {
             session
-                .run_frames(cli.frames)
+                .run_frames(common.frames)
                 .map_err(|err| format!("run failed: {err}"))?;
         }
     }
@@ -664,9 +327,15 @@ fn run_cli(cli: Cli) -> Result<RunnerReport, String> {
             .map_err(|err| format!("failed to write {}: {err}", path.display()))?;
     }
 
-    if let Some(path) = &cli.screenshot {
+    if let Some(path) = &common.screenshot {
         session
             .save_screenshot(path)
+            .map_err(|err| format!("failed to write {}: {err}", path.display()))?;
+    }
+
+    if let Some(path) = &common.audio_capture {
+        session
+            .save_audio_capture(path)
             .map_err(|err| format!("failed to write {}: {err}", path.display()))?;
     }
 
@@ -690,195 +359,6 @@ fn run_cli(cli: Cli) -> Result<RunnerReport, String> {
         screen_text_lines,
         trace_lines,
     })
-}
-
-fn boot_runtime(cli: &Cli) -> Result<C64Runtime, String> {
-    let firmware_storage = load_firmware_bytes(cli)?;
-    let mut firmware = FirmwareSet::new();
-    for image in &firmware_storage {
-        firmware.push(FirmwareImage::new(image.id, &image.bytes));
-    }
-
-    let snapshot_bytes = match &cli.load_snapshot {
-        Some(path) => Some(
-            fs::read(path).map_err(|err| format!("failed to read {}: {err}", path.display()))?,
-        ),
-        None => None,
-    };
-
-    boot_machine(
-        &BootArtifacts {
-            firmware,
-            snapshot: snapshot_bytes.as_deref(),
-        },
-        |firmware| C64Runtime::from_firmware(cli.model.to_model(), firmware),
-        || C64Runtime::blank(cli.model.to_model()),
-    )
-    .map_err(|err| format!("boot failed: {err}"))
-}
-
-fn load_firmware_bytes(cli: &Cli) -> Result<Vec<LoadedFirmware>, String> {
-    let rom_dir = resolve_rom_dir(cli)?;
-    let entries = [
-        (
-            KERNAL_ID,
-            resolve_rom_path(
-                cli.kernal.as_deref(),
-                rom_dir.as_deref(),
-                &["kernal.rom", "c64-kernal.rom"],
-            )?,
-        ),
-        (
-            BASIC_ID,
-            resolve_rom_path(
-                cli.basic.as_deref(),
-                rom_dir.as_deref(),
-                &["basic.rom", "c64-basic.rom"],
-            )?,
-        ),
-        (
-            CHARACTER_ID,
-            resolve_rom_path(
-                cli.chargen.as_deref(),
-                rom_dir.as_deref(),
-                &["chargen.rom", "c64-chargen.rom"],
-            )?,
-        ),
-        (
-            DRIVE1541_ID,
-            resolve_rom_path(
-                None,
-                rom_dir.as_deref(),
-                &["1541.rom", "dos1541.rom", "c1541.rom"],
-            )?,
-        ),
-    ];
-
-    entries
-        .into_iter()
-        .filter_map(|(id, path)| path.map(|path| (id, path)))
-        .map(|(id, path)| {
-            read_firmware_asset(&path)
-                .map(|loaded| LoadedFirmware {
-                    id,
-                    bytes: loaded.bytes,
-                })
-                .map_err(|err| {
-                    format!(
-                        "failed to read firmware {id} from {}: {err}",
-                        path.display()
-                    )
-                })
-        })
-        .collect()
-}
-
-/// Installs a plain-text BASIC program, as the MCP tool of the same name does.
-///
-/// Shares `load_basic_source` with `mcp_tools::LoadBasicProgramTool` rather
-/// than reimplementing the poke-and-relink: the tokeniser writes to `$0801`,
-/// relinks the line pointers and sets `VARTAB`, and optionally drives the
-/// editor to `RUN`.
-fn execute_load_basic_program(
-    session: &mut HeadlessSession<C64Runtime, C64SessionQueryProvider>,
-    path: &Path,
-    run: bool,
-) -> Result<ScriptObservation, String> {
-    let source = fs::read_to_string(path).map_err(|err| {
-        format!(
-            "load_basic_program: failed to read {}: {err}",
-            path.display()
-        )
-    })?;
-    let result = load_basic_source(session, &source, run, DEFAULT_BASIC_LOADER_BOOT_FRAMES)
-        .map_err(|err| {
-            format!(
-                "load_basic_program: BASIC loader failed for {}: {err}",
-                path.display()
-            )
-        })?;
-    Ok(ScriptObservation::LoadBasicProgram {
-        program_bytes: result.program_bytes,
-        ran: result.ran,
-    })
-}
-
-fn load_program_bytes(path: &Path) -> Result<LoadedProgram, String> {
-    let loaded = read_program_asset(path)
-        .map_err(|err| format!("failed to read program {}: {err}", path.display()))?;
-    let name = loaded.archive_member.unwrap_or_else(|| {
-        path.file_name()
-            .and_then(|value| value.to_str())
-            .map(str::to_owned)
-            .unwrap_or_else(|| path.display().to_string())
-    });
-
-    Ok(LoadedProgram {
-        name,
-        bytes: loaded.bytes,
-    })
-}
-
-fn resolve_rom_dir(cli: &Cli) -> Result<Option<PathBuf>, String> {
-    if let Some(dir) = &cli.rom_dir {
-        return Ok(Some(dir.clone()));
-    }
-
-    if let Ok(dir) = std::env::var("EMU198X_C64_ROM_DIR") {
-        return Ok(Some(PathBuf::from(dir)));
-    }
-
-    let Some(home) = std::env::var_os("HOME") else {
-        return Ok(None);
-    };
-    let commodore_dir = PathBuf::from(&home).join(".emu198x/roms/commodore-c64");
-    if commodore_dir.exists() {
-        return Ok(Some(commodore_dir));
-    }
-
-    let legacy_dir = PathBuf::from(home).join(".emu198x/roms/c64");
-    if legacy_dir.exists() {
-        return Ok(Some(legacy_dir));
-    }
-
-    if cli.kernal.is_some()
-        || cli.basic.is_some()
-        || cli.chargen.is_some()
-        || cli.load_snapshot.is_some()
-    {
-        return Ok(None);
-    }
-
-    Err(
-        "no C64 ROM directory found — pass --rom-dir DIR, set EMU198X_C64_ROM_DIR, or create ~/.emu198x/roms/commodore-c64".into(),
-    )
-}
-
-fn resolve_rom_path(
-    explicit: Option<&Path>,
-    rom_dir: Option<&Path>,
-    filenames: &[&str],
-) -> Result<Option<PathBuf>, String> {
-    if let Some(path) = explicit {
-        return Ok(Some(path.to_path_buf()));
-    }
-
-    let Some(rom_dir) = rom_dir else {
-        return Ok(None);
-    };
-
-    for filename in filenames {
-        let candidate = rom_dir.join(filename);
-        if candidate.exists() {
-            return Ok(Some(candidate));
-        }
-    }
-
-    Err(format!(
-        "missing required ROM in {} (looked for {})",
-        rom_dir.display(),
-        filenames.join(", ")
-    ))
 }
 
 fn query_bool(
@@ -984,171 +464,5 @@ fn wait_for_tape_motion_to_stop(
             .run_frames(1)
             .map_err(|err| format!("run failed while waiting for tape stop: {err}"))?;
         frames += 1;
-    }
-}
-
-impl ModelArg {
-    const fn to_model(self) -> Model {
-        match self {
-            Self::Pal => Model::C64PalBreadbin,
-            Self::Ntsc => Model::C64NtscBreadbin,
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn parse_cli_accepts_snapshot_boot_and_capture_flags() {
-        let cli = parse_cli([
-            "--model".to_string(),
-            "ntsc".to_string(),
-            "--rom-dir".to_string(),
-            "roms".to_string(),
-            "--load-snapshot".to_string(),
-            "in.c64.pst".to_string(),
-            "--save-snapshot".to_string(),
-            "out.c64.pst".to_string(),
-            "--wait-for-boot".to_string(),
-            "180".to_string(),
-            "--print-screen-text".to_string(),
-            "--frames".to_string(),
-            "12".to_string(),
-            "--screenshot".to_string(),
-            "ready.png".to_string(),
-        ]);
-
-        assert_eq!(
-            cli,
-            Cli {
-                model: ModelArg::Ntsc,
-                rom_dir: Some(PathBuf::from("roms")),
-                kernal: None,
-                basic: None,
-                chargen: None,
-                load: None,
-                disk: None,
-                tape: None,
-                autoload_disk: false,
-                autoload_tape: false,
-                start_tape: false,
-                esp_at_tcp: false,
-                esp_at_baud: None,
-                ultimate_net: false,
-                load_snapshot: Some(PathBuf::from("in.c64.pst")),
-                save_snapshot: Some(PathBuf::from("out.c64.pst")),
-                screenshot: Some(PathBuf::from("ready.png")),
-                script: None,
-                wait_for_boot: Some(180),
-                wait_for_tape_stop: None,
-                print_queries: vec![],
-                print_screen_text: true,
-                trace_vic_colours: false,
-                trace_drive_rom_window: None,
-                trace_limit: DEFAULT_TRACE_LIMIT,
-                frames: 12,
-            }
-        );
-    }
-
-    #[test]
-    fn parse_cli_accepts_tape_autoload_flag() {
-        let cli = parse_cli([
-            "--rom-dir".to_string(),
-            "roms".to_string(),
-            "--tape".to_string(),
-            "game.tap".to_string(),
-            "--autoload-tape".to_string(),
-            "--wait-for-tape-stop".to_string(),
-            "12000".to_string(),
-        ]);
-
-        assert_eq!(
-            cli,
-            Cli {
-                model: ModelArg::Pal,
-                rom_dir: Some(PathBuf::from("roms")),
-                kernal: None,
-                basic: None,
-                chargen: None,
-                load: None,
-                disk: None,
-                tape: Some(PathBuf::from("game.tap")),
-                autoload_disk: false,
-                autoload_tape: true,
-                start_tape: false,
-                esp_at_tcp: false,
-                esp_at_baud: None,
-                ultimate_net: false,
-                load_snapshot: None,
-                save_snapshot: None,
-                screenshot: None,
-                script: None,
-                wait_for_boot: None,
-                wait_for_tape_stop: Some(12000),
-                print_queries: vec![],
-                print_screen_text: false,
-                trace_vic_colours: false,
-                trace_drive_rom_window: None,
-                trace_limit: DEFAULT_TRACE_LIMIT,
-                frames: 0,
-            }
-        );
-    }
-
-    #[test]
-    fn parse_cli_accepts_drive_rom_trace_window() {
-        let cli = parse_cli([
-            "--disk".to_string(),
-            "game.d64".to_string(),
-            "--trace-drive-rom".to_string(),
-            "EC20".to_string(),
-            "ECA0".to_string(),
-        ]);
-
-        assert_eq!(cli.disk, Some(PathBuf::from("game.d64")));
-        assert_eq!(cli.trace_drive_rom_window, Some((0xEC20, 0xECA0)));
-    }
-
-    #[test]
-    fn resolve_rom_path_prefers_explicit_override() {
-        let resolved = resolve_rom_path(
-            Some(Path::new("override/kernal.rom")),
-            Some(Path::new("roms")),
-            &["kernal.rom", "c64-kernal.rom"],
-        )
-        .expect("explicit ROM path should resolve");
-
-        assert_eq!(resolved, Some(PathBuf::from("override/kernal.rom")));
-    }
-
-    #[test]
-    fn parse_cli_accepts_program_import() {
-        let cli = parse_cli([
-            "--rom-dir".to_string(),
-            "roms".to_string(),
-            "--load".to_string(),
-            "demo.bas".to_string(),
-        ]);
-
-        assert_eq!(cli.load, Some(PathBuf::from("demo.bas")));
-    }
-
-    #[test]
-    fn parse_cli_accepts_disk_flag() {
-        let cli = parse_cli(["--disk".to_string(), "game.d64".to_string()]);
-
-        assert_eq!(cli.disk, Some(PathBuf::from("game.d64")));
-        assert_eq!(cli.tape, None);
-    }
-
-    #[test]
-    fn parse_cli_accepts_disk_autoload_flag() {
-        let cli = parse_cli(["--autoload-disk".to_string()]);
-
-        assert!(cli.autoload_disk);
-        assert!(!cli.autoload_tape);
     }
 }

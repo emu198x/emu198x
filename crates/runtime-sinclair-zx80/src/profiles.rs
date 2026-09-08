@@ -26,6 +26,46 @@ pub enum Model {
 }
 
 impl Model {
+    /// Existing hardware presets in launcher and menu order.
+    pub const ALL: [Self; 3] = [Self::Zx80, Self::Zx80Usa, Self::Zx80RamPack];
+    pub const VARIANT_IDS: [&'static str; 3] =
+        ["sinclair-zx80", "sinclair-zx80-usa", "sinclair-zx80-16k"];
+
+    #[must_use]
+    pub fn from_variant_id(id: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|model| model.profile_id() == id)
+    }
+
+    #[must_use]
+    pub fn firmware_sources(self) -> Vec<emu198x_shell::FirmwareSource> {
+        vec![
+            emu198x_shell::FirmwareSource::required(ROM_FIRMWARE_ID, &["zx80.rom"])
+                .with_env_var("EMU198X_ZX80_ROM"),
+        ]
+    }
+
+    /// Host frame budget for the monitor's display loop, not a hardware timer.
+    /// MAME's Sinclair driver (`src/mame/sinclair/zx.cpp`) uses 64159 T-states
+    /// and records 54223 for NTSC; the machine's ROM boot test independently
+    /// measures the PAL field at approximately 310 × 207 T-states.
+    #[must_use]
+    pub const fn frame_ticks(self) -> u64 {
+        match self {
+            Self::Zx80 | Self::Zx80RamPack => 64_159,
+            Self::Zx80Usa => 54_223,
+        }
+    }
+
+    /// Region and RAM configuration within the single ZX80 base machine.
+    #[must_use]
+    pub const fn menu_label(self) -> &'static str {
+        match self {
+            Self::Zx80 => "50 Hz: standard 1 KiB RAM",
+            Self::Zx80Usa => "60 Hz (USA): standard 1 KiB RAM",
+            Self::Zx80RamPack => "50 Hz: 16 KiB RAM pack",
+        }
+    }
+
     #[must_use]
     pub const fn model_id(self) -> &'static str {
         "sinclair-zx80"
@@ -116,6 +156,7 @@ pub fn profile_for(model: Model) -> MachineProfile {
             WritebackPolicy::SidecarOnly,
         )],
         capabilities: CapabilitySet::with_all([
+            known_capability("variant-switch"),
             known_capability("keyboard-input"),
             known_capability("scripted-input"),
         ]),

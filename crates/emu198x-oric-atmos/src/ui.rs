@@ -7,27 +7,22 @@
 //! gamepad through [`UiSystem::button_map`] (the harness drains gamepad events
 //! through the button map regardless of the keyboard path). The cursor keys are
 //! genuine keyboard cells on the Oric, so they type — they don't drive the
-//! stick. Compiled only with the `ui` Cargo feature; `main.rs` routes here when
-//! no automation flag is given.
+//! stick. Compiled only with the `ui` Cargo feature; the shared launcher opens
+//! the window when no automation flag is given.
 
-use std::env;
-use std::path::{Path, PathBuf};
+use emu198x_shell::{FamilyRuntime, FirmwareOverrides, MachineError, build_variant};
+use std::borrow::Cow;
 use std::time::Duration;
 
-use emu198x_ui::{
-    ButtonInputMap, ButtonTarget, HostControl, KeyCode, UiError, UiSystem, VideoFilter,
-};
+use emu198x_ui::launch::UiApp;
+use emu198x_ui::{ButtonInputMap, ButtonTarget, HostControl, KeyCode, UiSystem, VariantInfo};
 use machine_oric_atmos::{FB_HEIGHT, FB_WIDTH};
 use runtime_oric_atmos::{Model, OricRuntime};
 
+use crate::app::Oric;
+
 const DEFAULT_SCALE: u32 = 3;
-/// 6502 @ 1 MHz, 50 Hz PAL → 20,000 cycles/frame, matching the headless
-/// runner's `FRAME_TICKS`.
-// Keep <= the machine's run_frame() size, or the harness runs two machine
-// frames per displayed frame (~2x too fast). See docs/status/ui-boot-verification.
-const FRAME_TICKS: u64 = 19_968;
 const PAL_FRAME_HZ: f64 = 50.0;
-const ROM_SIZE: usize = 16 * 1024;
 
 /// Player-1 IJK (left) stick: four directions plus fire, named as
 /// `runtime-oric-atmos`'s controller mirror expects. A real gamepad reaches
@@ -42,44 +37,24 @@ const ORIC_BUTTON_MAP: ButtonInputMap = ButtonInputMap::new(&[
     (HostControl::East, ButtonTarget::new(1, "fire")),
 ]);
 
-const USAGE: &str = "\
-Usage: emu198x-oric-atmos [OPTIONS]
+/// Native window adapter for the runtime's Oric model catalogue.
+pub struct OricSystem {
+    model: Model,
+}
 
-Options:
-    --rom PATH      16 KB BASIC + OS ROM; default
-                    ~/.emu198x/roms/oric/oric.rom (or set EMU198X_ORIC_ROM)
-    --model NAME    oric-1 | atmos [default: atmos]
-    --scale N       integer window scale, default 3
-    --video MODE    raw | lcd | crt [default: raw]
-    --help, -h      show this help
+impl UiApp for Oric {
+    type System = OricSystem;
 
-Automation:
-    --script PATH   run a JSON session headlessly and print a report
-    --headless      run without a window (implied by --script)
-    --mcp           serve this machine over MCP on stdio
-
-Controls:
-    Esc             quit
-    F12             hard reset
-    A-Z 0-9 etc.    the Oric keyboard (cursor keys are real Oric keys)
-    Shift / Ctrl    the Oric shift / control keys
-    Gamepad         IJK joystick (player 1, left stick)
-
-Examples:
-    emu198x-oric-atmos
-    emu198x-oric-atmos --model oric-1 --scale 4
-";
-
-/// The Oric-1 / Atmos as a [`UiSystem`] for the shared harness. The model is
-/// fixed at construction; a hard reset rebuilds the machine from the firmware
-/// the runtime already holds.
-struct OricSystem;
+    fn ui_system(&self) -> OricSystem {
+        OricSystem { model: self.model }
+    }
+}
 
 impl UiSystem for OricSystem {
     type Runtime = OricRuntime;
 
     fn window_title(&self) -> String {
-        "Emu198x Oric Atmos".to_owned()
+        format!("Emu198x {}", self.model.display_name())
     }
 
     fn default_scale(&self) -> u32 {
@@ -98,12 +73,41 @@ impl UiSystem for OricSystem {
         (FB_WIDTH, FB_HEIGHT)
     }
 
-    fn frame_ticks(&self, _runtime: &Self::Runtime) -> u64 {
-        FRAME_TICKS
+    fn frame_ticks(&self, runtime: &Self::Runtime) -> u64 {
+        runtime.native_frame_ticks()
     }
 
     fn frame_duration(&self, _runtime: &Self::Runtime) -> Duration {
         Duration::from_secs_f64(1.0 / PAL_FRAME_HZ)
+    }
+
+    fn variants(&self) -> Vec<VariantInfo> {
+        Model::ALL
+            .iter()
+            .map(|model| VariantInfo::new(model.variant_id(), model.display_name()))
+            .collect()
+    }
+
+    fn current_variant(&self) -> Option<Cow<'static, str>> {
+        Some(Cow::Borrowed(self.model.variant_id()))
+    }
+
+    fn switch_variant(
+        &mut self,
+        runtime: &mut Self::Runtime,
+        id: &str,
+    ) -> Result<(), MachineError> {
+        let model = Model::from_variant_id(id).ok_or(MachineError::UnsupportedOperation {
+            operation: "unknown oric variant",
+        })?;
+        *runtime =
+            build_variant::<OricRuntime>(model, &FirmwareOverrides::none()).map_err(|err| {
+                MachineError::Host {
+                    reason: err.to_string(),
+                }
+            })?;
+        self.model = model;
+        Ok(())
     }
 
     fn button_map(&self) -> &'static ButtonInputMap {
@@ -113,115 +117,6 @@ impl UiSystem for OricSystem {
     fn map_keys(&self, code: KeyCode) -> Option<&'static [&'static str]> {
         map_oric_keys(code)
     }
-}
-
-/// Parsed interactive CLI.
-#[derive(Debug, PartialEq, Eq)]
-pub struct Cli {
-    rom: Option<PathBuf>,
-    model: Model,
-    scale: u32,
-    video: VideoFilter,
-}
-
-impl Default for Cli {
-    fn default() -> Self {
-        Self {
-            rom: None,
-            model: Model::Atmos,
-            scale: DEFAULT_SCALE,
-            video: VideoFilter::Raw,
-        }
-    }
-}
-
-/// Build the runtime from the CLI and open the window. Returns a string error
-/// for the `main.rs` dispatcher.
-pub fn run(cli: Cli) -> Result<(), String> {
-    let rom_path = cli
-        .rom
-        .clone()
-        .or_else(default_rom_path)
-        .ok_or_else(|| "no ROM: pass --rom PATH or set EMU198X_ORIC_ROM".to_owned())?;
-    let rom = read_rom(&rom_path)?;
-    let runtime = OricRuntime::new(cli.model, rom)
-        .map_err(|err| format!("failed to construct runtime: {err}"))?;
-
-    println!(
-        "Controls: Esc quit, F12 reset, keyboard typed directly (cursor keys are Oric keys), gamepad IJK joystick."
-    );
-    emu198x_ui::run(OricSystem, runtime, cli.scale, cli.video)
-        .map_err(|err: UiError| err.to_string())
-}
-
-/// Parse the interactive CLI. Exits the process on `--help` or a malformed flag.
-pub fn parse_cli<I>(args: I) -> Cli
-where
-    I: IntoIterator<Item = String>,
-{
-    let mut cli = Cli::default();
-    let mut iter = args.into_iter();
-    while let Some(arg) = iter.next() {
-        match arg.as_str() {
-            "--rom" => cli.rom = Some(PathBuf::from(next_arg(&mut iter, "--rom"))),
-            "--model" => {
-                cli.model = match next_arg(&mut iter, "--model").as_str() {
-                    "oric-1" | "oric1" => Model::Oric1,
-                    "atmos" => Model::Atmos,
-                    other => die(&format!("--model expects oric-1|atmos, got {other}")),
-                };
-            }
-            "--scale" => {
-                cli.scale = next_arg(&mut iter, "--scale")
-                    .parse()
-                    .unwrap_or_else(|_| die("--scale requires a positive integer"));
-            }
-            "--video" => {
-                cli.video = next_arg(&mut iter, "--video")
-                    .parse()
-                    .unwrap_or_else(|_| die("--video expects raw, lcd, or crt"));
-            }
-            "--help" | "-h" => {
-                println!("{USAGE}");
-                std::process::exit(0);
-            }
-            _ => die(&format!("unknown flag: {arg}")),
-        }
-    }
-    cli
-}
-
-fn default_rom_path() -> Option<PathBuf> {
-    if let Ok(path) = env::var("EMU198X_ORIC_ROM")
-        && !path.is_empty()
-    {
-        return Some(PathBuf::from(path));
-    }
-    let home = env::var("HOME").ok()?;
-    Some(PathBuf::from(home).join(".emu198x/roms/oric/oric.rom"))
-}
-
-fn read_rom(path: &Path) -> Result<Vec<u8>, String> {
-    let bytes = std::fs::read(path)
-        .map_err(|err| format!("failed to read ROM {}: {err}", path.display()))?;
-    if bytes.len() != ROM_SIZE {
-        return Err(format!(
-            "ROM at {} is {} bytes; expected {ROM_SIZE}",
-            path.display(),
-            bytes.len()
-        ));
-    }
-    Ok(bytes)
-}
-
-fn next_arg<I: Iterator<Item = String>>(iter: &mut I, flag: &str) -> String {
-    iter.next()
-        .unwrap_or_else(|| die(&format!("missing value for {flag}")))
-}
-
-fn die(message: &str) -> ! {
-    eprintln!("error: {message}");
-    std::process::exit(1);
 }
 
 /// Map a physical host key to its Oric key name (matched by
@@ -296,21 +191,26 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parse_cli_accepts_rom_model_scale_video() {
-        let cli = parse_cli([
-            "--rom".to_owned(),
-            "oric.rom".to_owned(),
-            "--model".to_owned(),
-            "oric-1".to_owned(),
-            "--scale".to_owned(),
-            "4".to_owned(),
-            "--video".to_owned(),
-            "crt".to_owned(),
-        ]);
-        assert_eq!(cli.rom, Some(PathBuf::from("oric.rom")));
-        assert_eq!(cli.model, Model::Oric1);
-        assert_eq!(cli.scale, 4);
-        assert_eq!(cli.video, VideoFilter::Crt);
+    fn menu_uses_runtime_ids_and_a_failed_switch_preserves_selection() {
+        let mut system = OricSystem {
+            model: Model::Atmos,
+        };
+        let choices = system.variants();
+        assert_eq!(
+            choices
+                .iter()
+                .map(|choice| choice.id.as_ref())
+                .collect::<Vec<_>>(),
+            Model::VARIANT_IDS
+        );
+        let mut runtime = <OricSystem as UiSystem>::Runtime::blank(Model::Atmos);
+        assert!(system.switch_variant(&mut runtime, "unknown").is_err());
+        assert_eq!(runtime.model(), Model::Atmos);
+        assert_eq!(
+            system.current_variant().as_deref(),
+            Some(Model::Atmos.variant_id())
+        );
+        assert_eq!(system.frame_ticks(&runtime), runtime.native_frame_ticks());
     }
 
     #[test]

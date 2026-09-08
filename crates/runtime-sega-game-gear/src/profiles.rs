@@ -1,10 +1,11 @@
 //! Sega Game Gear profile catalogue.
 
+use crate::SmsRuntime;
 use emu198x_shell::{
     CapabilitySet, ClockDesc, ClockRate, Family, MachineId, MachineProfile, MediaKind, MediaSlot,
     ProfileId, Region, WritebackPolicy, known_capability,
 };
-use runtime_sega_master_system_class::{SmsRuntime, SmsVariant};
+use runtime_sega_master_system_class::{SmsModel, SmsVariant};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Model {
@@ -15,6 +16,32 @@ pub enum Model {
 }
 
 impl Model {
+    pub const ALL: [Self; 1] = [Self::GameGear];
+    pub const VARIANT_IDS: [&'static str; 1] = ["game-gear"];
+
+    #[must_use]
+    pub const fn variant_id(self) -> &'static str {
+        match self {
+            Self::GameGear => "game-gear",
+        }
+    }
+
+    #[must_use]
+    pub fn from_variant_id(id: &str) -> Option<Self> {
+        match id {
+            "gg" => Some(Self::GameGear),
+            _ => Self::ALL
+                .into_iter()
+                .find(|model| model.variant_id() == id || model.profile_id() == id),
+        }
+    }
+
+    /// Existing native host frame budget, in CPU clocks.
+    #[must_use]
+    pub const fn frame_ticks(self) -> u64 {
+        228 * 262
+    }
+
     #[must_use]
     pub const fn model_id(self) -> &'static str {
         match self {
@@ -51,7 +78,7 @@ impl Model {
 
 #[must_use]
 pub fn profiles() -> Vec<MachineProfile> {
-    vec![profile_for(Model::GameGear)]
+    Model::ALL.into_iter().map(profile_for).collect()
 }
 
 #[must_use]
@@ -85,22 +112,38 @@ pub fn profile_for(model: Model) -> MachineProfile {
 
 /// A runtime with no cartridge inserted.
 ///
-/// A free function rather than an inherent constructor: `SmsRuntime` belongs
-/// to the class crate, so this crate cannot hang an `impl` off it.
+/// Convenience constructor for this system's concrete runtime alias.
 #[must_use]
 pub fn blank(model: Model) -> SmsRuntime {
-    SmsRuntime::blank(profile_for(model), model.variant(), model.model_id())
+    SmsRuntime::blank(model)
 }
 
 /// A runtime with `cart_rom` inserted.
 #[must_use]
 pub fn with_cartridge(model: Model, cart_rom: Vec<u8>) -> SmsRuntime {
-    SmsRuntime::new(
-        profile_for(model),
-        model.variant(),
-        model.model_id(),
-        cart_rom,
-    )
+    SmsRuntime::new(model, cart_rom)
+}
+
+impl SmsModel for Model {
+    const VARIANT_IDS: &'static [&'static str] = &Self::VARIANT_IDS;
+    fn from_variant_id(id: &str) -> Option<Self> {
+        Self::from_variant_id(id)
+    }
+    fn variant_id(self) -> &'static str {
+        self.variant_id()
+    }
+    fn model_id(self) -> &'static str {
+        self.model_id()
+    }
+    fn profile(self) -> MachineProfile {
+        profile_for(self)
+    }
+    fn variant(self) -> SmsVariant {
+        self.variant()
+    }
+    fn frame_ticks(self) -> u64 {
+        self.frame_ticks()
+    }
 }
 
 #[cfg(test)]

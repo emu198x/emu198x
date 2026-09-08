@@ -21,7 +21,6 @@ use std::path::PathBuf;
 use emu198x_shell::HeadlessSession;
 use emu198x_shell::SessionQueryProvider;
 use emu198x_shell::mcp::{InlineTool, ToolError, ToolRegistry};
-use emu198x_shell::{FirmwareImage, FirmwareSet, MachineCore};
 use machine_commodore_amiga_a1200::Adf;
 use motorola_68000::disasm::disassemble;
 use runtime_commodore_amiga::{AmigaLiveAccess, AmigaRuntimeKind};
@@ -34,34 +33,11 @@ use super::lvo;
 /// shared `HeadlessSession<AmigaRuntimeKind, _>`; the trait stays so a tool
 /// body never names a concrete session and `live()` / `live_mut()` give it the
 /// active chipset variant under [`AmigaLiveAccess`].
-/// What a `set_machine` swap reports back: the new variant's profile, so
-/// callers (the MCP tool, the `--script` runner) can echo what they
-/// landed on without re-querying.
-pub(crate) struct SetMachineOutcome {
-    pub profile_id: String,
-    pub display_name: String,
-}
-
 pub(crate) trait AmigaCtx {
     /// Shared read view of the active chipset variant.
     fn live(&self) -> &dyn AmigaLiveAccess;
     /// Shared mutable view (memory pokes, tracer arming).
     fn live_mut(&mut self) -> &mut dyn AmigaLiveAccess;
-    /// Swap the session onto a different Amiga model, given its id
-    /// (`a1000`, `a500`, `a500-gvp-a530`, `a500-a501`, `a500-plus`,
-    /// `a500-maxed`, `a600`, `a1200`, `a2000`). Resolves the model's
-    /// Kickstart by convention
-    /// (`EMU198X_AMIGA_ROM_DIR` env + `~/.emu198x/roms/…`), builds the
-    /// matching OCS / ECS / AGA variant, installs it, re-paces the
-    /// session to its frame length, and hard-resets — all via the
-    /// shared `HeadlessSession::swap_machine`. A launch-time `--rom-dir`
-    /// / `--kickstart` override is *not* carried across a swap; the
-    /// kickstart override in particular is model-specific.
-    ///
-    /// # Errors
-    /// Unknown id, missing/unreadable ROM, or a variant-construction
-    /// failure — each as a human-readable message.
-    fn set_machine(&mut self, model_id: &str) -> Result<SetMachineOutcome, String>;
 }
 
 impl<Q> AmigaCtx for HeadlessSession<AmigaRuntimeKind, Q>
@@ -73,30 +49,6 @@ where
     }
     fn live_mut(&mut self) -> &mut dyn AmigaLiveAccess {
         self.machine_mut()
-    }
-
-    fn set_machine(&mut self, model_id: &str) -> Result<SetMachineOutcome, String> {
-        let model = crate::model::ModelArg::from_id(model_id).ok_or_else(|| {
-            format!(
-                "unknown model `{model_id}`; expected one of {}",
-                crate::model::ModelArg::IDS.join(", ")
-            )
-        })?;
-        let rom_path = crate::model::find_rom_path(model, None, None)?;
-        let rom_bytes = std::fs::read(&rom_path)
-            .map_err(|err| format!("failed to read {}: {err}", rom_path.display()))?;
-        let mut firmware = FirmwareSet::new();
-        firmware.push(FirmwareImage::new(
-            crate::model::firmware_id_for_model_arg(model),
-            &rom_bytes,
-        ));
-        self.swap_machine(model.to_model(), &firmware)
-            .map_err(|err| err.to_string())?;
-        let profile = self.machine().profile();
-        Ok(SetMachineOutcome {
-            profile_id: profile.profile_id.as_str().to_owned(),
-            display_name: profile.display_name.to_string(),
-        })
     }
 }
 
@@ -1903,21 +1855,6 @@ fn tool_cpu_trace_log(args: Value, s: &mut impl AmigaCtx) -> Result<Value, ToolE
     }))
 }
 
-fn tool_set_machine(args: Value, s: &mut impl AmigaCtx) -> Result<Value, ToolError> {
-    let model_id = args
-        .get("model")
-        .and_then(Value::as_str)
-        .ok_or_else(|| ToolError::InvalidArguments("missing string `model`".into()))?;
-    let outcome = s
-        .set_machine(model_id)
-        .map_err(|err| ToolError::Execution(format!("set_machine: {err}")))?;
-    Ok(json!({
-        "model": model_id,
-        "profile_id": outcome.profile_id,
-        "display_name": outcome.display_name,
-    }))
-}
-
 fn tool_insert_media(args: Value, s: &mut impl AmigaCtx) -> Result<Value, ToolError> {
     let path = args
         .get("path")
@@ -2487,15 +2424,6 @@ pub fn register_amiga_tools<C: AmigaCtx + 'static>(registry: &mut ToolRegistry<C
                           "description": "Write `path` in place instead of a sidecar. Only for a writable work disk; never an archive."}
         }
     });
-    let set_machine_schema = json!({
-        "type": "object",
-        "required": ["model"],
-        "properties": {
-            "model": {"type": "string", "enum": crate::model::ModelArg::IDS,
-                      "description": "Amiga model to swap to. Rebuilds the OCS/ECS/AGA variant, re-paces, and hard-resets — re-insert any disk afterwards. Kickstart resolved by convention (EMU198X_AMIGA_ROM_DIR + ~/.emu198x/roms/…)."}
-        }
-    });
-
     // run_until_pc / run_until_any_pc / run_until_mem_change / step are served
     // by the shared `register_debug_tools` tier (RULES.md #30) — the 68k runs
     // them through the same generic arms as every other CPU, so the Amiga's
@@ -2891,13 +2819,9 @@ pub fn register_amiga_tools<C: AmigaCtx + 'static>(registry: &mut ToolRegistry<C
         save_disk_schema,
         tool_save_disk,
     );
-    add(
-        registry,
-        "set_machine",
-        "Swap to a different Amiga model (a1000 / a500 / a500-gvp-a530 / a500-a501 / a500-plus / a500-maxed / a600 / a1200 / a2000), rebuilding the OCS/ECS/AGA variant. Hard-resets — re-insert any disk after.",
-        set_machine_schema,
-        tool_set_machine,
-    );
+    // `set_machine` comes from the shared variant-switch tier over the
+    // family runtime's `MachineCore::set_machine` hook; the profiles
+    // declare `variant-switch`.
 }
 
 #[cfg(test)]

@@ -1,9 +1,9 @@
 //! Commodore 64 family profile catalogue.
 
-use common_commodore_c64::timing::{TIMING_NTSC_BREADBIN, TIMING_PAL_BREADBIN};
+use common_commodore_c64::timing::{C64Timing, TIMING_NTSC_BREADBIN, TIMING_PAL_BREADBIN};
 use emu198x_shell::{
-    CapabilitySet, ClockDesc, ClockRate, Family, FirmwareRequirement, MachineId, MachineProfile,
-    MediaKind, MediaSlot, ProfileId, Region, WritebackPolicy, known_capability,
+    CapabilitySet, ClockDesc, ClockRate, Family, FirmwareRequirement, FirmwareSource, MachineId,
+    MachineProfile, MediaKind, MediaSlot, ProfileId, Region, WritebackPolicy, known_capability,
 };
 
 /// Supported C64 models in the fresh workspace bootstrap.
@@ -49,6 +49,90 @@ impl Model {
             Self::C64cPal => "Commodore 64C (PAL)",
             Self::C64cNtsc => "Commodore 64C (NTSC)",
         }
+    }
+
+    /// Every model in menu order.
+    pub const ALL: [Self; 4] = [
+        Self::C64PalBreadbin,
+        Self::C64NtscBreadbin,
+        Self::C64cPal,
+        Self::C64cNtsc,
+    ];
+
+    /// Every variant id, in [`Self::ALL`] order: the `--model` spellings.
+    pub const VARIANT_IDS: [&'static str; 4] = ["pal", "ntsc", "c64c-pal", "c64c-ntsc"];
+
+    /// The id `--model`, `set_machine` and the window's variant menu use.
+    #[must_use]
+    pub const fn variant_id(self) -> &'static str {
+        match self {
+            Self::C64PalBreadbin => "pal",
+            Self::C64NtscBreadbin => "ntsc",
+            Self::C64cPal => "c64c-pal",
+            Self::C64cNtsc => "c64c-ntsc",
+        }
+    }
+
+    /// The model a variant id names; `c64c` is accepted for the PAL C64C,
+    /// as `--model` always has.
+    #[must_use]
+    pub fn from_variant_id(id: &str) -> Option<Self> {
+        if id == "c64c" {
+            return Some(Self::C64cPal);
+        }
+        Self::ALL.into_iter().find(|model| model.variant_id() == id)
+    }
+
+    /// The short label the window's Machine menu and title show: region
+    /// and SID revision.
+    #[must_use]
+    pub const fn menu_label(self) -> &'static str {
+        match self {
+            Self::C64PalBreadbin => "PAL Breadbin (6581)",
+            Self::C64NtscBreadbin => "NTSC Breadbin (6581)",
+            Self::C64cPal => "PAL C64C (8580)",
+            Self::C64cNtsc => "NTSC C64C (8580)",
+        }
+    }
+
+    /// The region's timing: frame length and CPU clock.
+    #[must_use]
+    pub const fn timing(self) -> &'static C64Timing {
+        match self {
+            Self::C64PalBreadbin | Self::C64cPal => &TIMING_PAL_BREADBIN,
+            Self::C64NtscBreadbin | Self::C64cNtsc => &TIMING_NTSC_BREADBIN,
+        }
+    }
+
+    /// The ROMs every model boots and their conventional file names in the
+    /// family's ROM directory. KERNAL, BASIC and the character generator
+    /// are required; the drive DOS ROMs are optional and, when present,
+    /// let the per-port drive selector offer that model.
+    #[must_use]
+    pub fn firmware_sources(self) -> Vec<FirmwareSource> {
+        vec![
+            FirmwareSource::required(
+                "commodore-c64-kernal-rom",
+                &["kernal.rom", "c64-kernal.rom"],
+            ),
+            FirmwareSource::required("commodore-c64-basic-rom", &["basic.rom", "c64-basic.rom"]),
+            FirmwareSource::required(
+                "commodore-c64-character-rom",
+                &["chargen.rom", "c64-chargen.rom"],
+            ),
+            FirmwareSource::optional(
+                "commodore-1541-dos-rom",
+                &["1541.rom", "dos1541.rom", "c1541.rom"],
+            ),
+            FirmwareSource::optional(
+                "commodore-1571-dos-rom",
+                &["1571.rom", "dos1571.rom", "c1571.rom"],
+            ),
+            FirmwareSource::optional(
+                "commodore-1581-dos-rom",
+                &["1581.rom", "dos1581.rom", "c1581.rom"],
+            ),
+        ]
     }
 }
 
@@ -150,6 +234,9 @@ pub fn profile_for(model: Model) -> MachineProfile {
             known_capability("snapshot-import"),
             known_capability("scripted-input"),
             known_capability("tape-transport-control"),
+            known_capability("basic-program-load"),
+            known_capability("tape-autoload"),
+            known_capability("variant-switch"),
         ]),
     }
 }
@@ -157,6 +244,31 @@ pub fn profile_for(model: Model) -> MachineProfile {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn variant_ids_round_trip_for_every_model() {
+        for (model, id) in Model::ALL.into_iter().zip(Model::VARIANT_IDS) {
+            assert_eq!(model.variant_id(), id);
+            assert_eq!(Model::from_variant_id(id), Some(model));
+        }
+        assert_eq!(Model::from_variant_id("c64c"), Some(Model::C64cPal));
+        assert_eq!(Model::from_variant_id("secam"), None);
+    }
+
+    #[test]
+    fn every_firmware_source_is_a_profile_requirement_with_the_same_optionality() {
+        for model in Model::ALL {
+            let profile = profile_for(model);
+            for source in model.firmware_sources() {
+                let requirement = profile
+                    .firmware
+                    .iter()
+                    .find(|req| req.id == source.id)
+                    .unwrap_or_else(|| panic!("{} is not in the profile", source.id));
+                assert_eq!(requirement.optional, source.optional, "{}", source.id);
+            }
+        }
+    }
 
     #[test]
     fn profile_ids_are_unique() {

@@ -10,7 +10,7 @@ use emu198x_shell::{MachineCore, MachineError, MachineTime};
 use machine_sega_master_system::Sms;
 use serde::{Deserialize, Serialize};
 
-use crate::runtime::SmsRuntime;
+use crate::runtime::{SmsModel, SmsRuntime};
 
 /// Version 7 adds the cartridge SRAM writeback state to the live machine state.
 /// Earlier snapshots cannot reconstruct battery-backed memory, so the version
@@ -35,7 +35,7 @@ struct SmsRuntimeSnapshotV7 {
     machine: Option<Sms>,
 }
 
-pub(crate) fn encode(runtime: &SmsRuntime) -> Result<Vec<u8>, MachineError> {
+pub(crate) fn encode<M: SmsModel>(runtime: &SmsRuntime<M>) -> Result<Vec<u8>, MachineError> {
     let snapshot = SmsRuntimeSnapshotRefV7 {
         version: SNAPSHOT_VERSION,
         time: runtime.time().get(),
@@ -47,7 +47,10 @@ pub(crate) fn encode(runtime: &SmsRuntime) -> Result<Vec<u8>, MachineError> {
     })
 }
 
-pub(crate) fn decode(runtime: &mut SmsRuntime, bytes: &[u8]) -> Result<(), MachineError> {
+pub(crate) fn decode<M: SmsModel>(
+    runtime: &mut SmsRuntime<M>,
+    bytes: &[u8],
+) -> Result<(), MachineError> {
     let (version, _) = postcard::take_from_bytes::<u16>(bytes).map_err(|reason| {
         MachineError::InvalidSnapshot {
             reason: format!("decode failed: {reason}"),
@@ -84,7 +87,7 @@ pub(crate) fn decode(runtime: &mut SmsRuntime, bytes: &[u8]) -> Result<(), Machi
 #[cfg(test)]
 mod tests {
     use super::{SNAPSHOT_VERSION, decode};
-    use crate::runtime::SmsRuntime;
+    use crate::runtime::{SmsModel, SmsRuntime};
     use emu198x_shell::{
         CapabilitySet, ClockDesc, ClockRate, Family, MachineCore, MachineError, MachineId,
         MachineProfile, MediaKind, MediaSlot, ProfileId, Region, WritebackPolicy,
@@ -96,30 +99,52 @@ mod tests {
     /// The envelope is class-level behaviour, so these tests build their own
     /// profile rather than reaching for a machine crate's catalogue — the
     /// class crate must not depend on the machines layered on top of it.
-    fn test_runtime() -> SmsRuntime {
-        let profile = MachineProfile {
-            machine_id: MachineId::from("test-sega-class"),
-            profile_id: ProfileId::from("test-sega-class-ntsc"),
-            display_name: "Master System class test fixture".into(),
-            family: Family::Other,
-            region: Region::Ntsc,
-            release_year: 1985,
-            summary: "Fixture profile for envelope tests.".into(),
-            clock: ClockDesc::new("z80-tstate", ClockRate::from_hz(3_579_545)),
-            firmware: vec![],
-            media_slots: vec![MediaSlot::new(
-                "cartridge-1",
-                "Cartridge Slot",
-                MediaKind::Cartridge,
-                true,
-                WritebackPolicy::InMemoryOnly,
-            )],
-            capabilities: CapabilitySet::default(),
-        };
-        SmsRuntime::blank(profile, SmsVariant::SmsNtsc, "test-sega-class-ntsc")
+    #[derive(Clone, Copy)]
+    struct TestModel;
+    impl SmsModel for TestModel {
+        const VARIANT_IDS: &'static [&'static str] = &["test-sega-class-ntsc"];
+        fn from_variant_id(id: &str) -> Option<Self> {
+            (id == Self::VARIANT_IDS[0]).then_some(Self)
+        }
+        fn variant_id(self) -> &'static str {
+            Self::VARIANT_IDS[0]
+        }
+        fn model_id(self) -> &'static str {
+            self.variant_id()
+        }
+        fn variant(self) -> SmsVariant {
+            SmsVariant::SmsNtsc
+        }
+        fn frame_ticks(self) -> u64 {
+            228 * 262
+        }
+        fn profile(self) -> MachineProfile {
+            MachineProfile {
+                machine_id: MachineId::from("test-sega-class"),
+                profile_id: ProfileId::from("test-sega-class-ntsc"),
+                display_name: "Master System class test fixture".into(),
+                family: Family::Other,
+                region: Region::Ntsc,
+                release_year: 1985,
+                summary: "Fixture profile for envelope tests.".into(),
+                clock: ClockDesc::new("z80-tstate", ClockRate::from_hz(3_579_545)),
+                firmware: vec![],
+                media_slots: vec![MediaSlot::new(
+                    "cartridge-1",
+                    "Cartridge Slot",
+                    MediaKind::Cartridge,
+                    true,
+                    WritebackPolicy::InMemoryOnly,
+                )],
+                capabilities: CapabilitySet::default(),
+            }
+        }
+    }
+    fn test_runtime() -> SmsRuntime<TestModel> {
+        SmsRuntime::blank(TestModel)
     }
 
-    fn cartridge_runtime() -> SmsRuntime {
+    fn cartridge_runtime() -> SmsRuntime<TestModel> {
         let mut runtime = test_runtime();
         runtime.insert_cartridge(vec![0; 0x8000]);
         runtime

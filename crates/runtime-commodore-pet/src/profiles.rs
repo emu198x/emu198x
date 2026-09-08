@@ -14,6 +14,40 @@ pub enum Model {
 }
 
 impl Model {
+    pub const ALL: [Self; 2] = [Self::Pet40Col, Self::Pet80Col];
+    pub const VARIANT_IDS: [&'static str; 2] = ["commodore-pet-40col", "commodore-pet-80col"];
+    #[must_use]
+    pub const fn variant_id(self) -> &'static str {
+        self.model_id()
+    }
+    #[must_use]
+    pub fn from_variant_id(id: &str) -> Option<Self> {
+        match id {
+            "commodore-pet-40col" | "40" => Some(Self::Pet40Col),
+            "commodore-pet-80col" | "80" => Some(Self::Pet80Col),
+            _ => None,
+        }
+    }
+    /// Existing host frame budget in CPU cycles.
+    #[must_use]
+    pub const fn frame_ticks(self) -> u64 {
+        20_000
+    }
+    #[must_use]
+    pub fn firmware_sources(self) -> Vec<emu198x_shell::FirmwareSource> {
+        use emu198x_shell::FirmwareSource;
+        vec![
+            FirmwareSource::required(KERNAL_FIRMWARE_ID, &["kernal.rom"])
+                .with_env_var("EMU198X_PET_KERNAL"),
+            FirmwareSource::required(BASIC_FIRMWARE_ID, &["basic.rom"])
+                .with_env_var("EMU198X_PET_BASIC"),
+            FirmwareSource::required(EDITOR_FIRMWARE_ID, &["editor.rom"])
+                .with_env_var("EMU198X_PET_EDITOR"),
+            FirmwareSource::required(CHAR_FIRMWARE_ID, &["chargen.rom"])
+                .with_env_var("EMU198X_PET_CHAR"),
+        ]
+    }
+
     #[must_use]
     pub const fn model_id(self) -> &'static str {
         match self {
@@ -80,6 +114,7 @@ pub fn profile_for(model: Model) -> MachineProfile {
             WritebackPolicy::InMemoryOnly,
         )],
         capabilities: CapabilitySet::with_all([
+            known_capability("variant-switch"),
             known_capability("keyboard-input"),
             known_capability("scripted-input"),
         ]),

@@ -15,6 +15,42 @@ pub enum Model {
 }
 
 impl Model {
+    /// All existing regional presets.
+    pub const ALL: [Self; 2] = [Self::Msx1Ntsc, Self::Msx1Pal];
+    /// Stable selection ids shared by launchers, scripts and menus.
+    pub const VARIANT_IDS: [&'static str; 2] = ["microsoft-msx1-ntsc", "microsoft-msx1-pal"];
+
+    #[must_use]
+    pub const fn variant_id(self) -> &'static str {
+        self.model_id()
+    }
+
+    #[must_use]
+    pub fn from_variant_id(id: &str) -> Option<Self> {
+        match id {
+            "microsoft-msx1-ntsc" | "msx1-ntsc" | "ntsc" => Some(Self::Msx1Ntsc),
+            "microsoft-msx1-pal" | "msx1-pal" | "pal" => Some(Self::Msx1Pal),
+            _ => None,
+        }
+    }
+
+    /// Existing host frame budget in Z80 clocks.
+    #[must_use]
+    pub const fn frame_ticks(self) -> u64 {
+        match self {
+            Self::Msx1Ntsc => 228 * 262,
+            Self::Msx1Pal => 228 * 313,
+        }
+    }
+
+    #[must_use]
+    pub fn firmware_sources(self) -> Vec<emu198x_shell::FirmwareSource> {
+        vec![
+            emu198x_shell::FirmwareSource::required(BIOS_FIRMWARE_ID, &["msx.rom"])
+                .with_env_var("EMU198X_MSX_BIOS"),
+        ]
+    }
+
     /// Stable machine-local model identifier.
     #[must_use]
     pub const fn model_id(self) -> &'static str {
@@ -93,7 +129,9 @@ pub fn profile_for(model: Model) -> MachineProfile {
             ),
         ],
         capabilities: CapabilitySet::with_all([
+            known_capability("variant-switch"),
             known_capability("keyboard-input"),
+            known_capability("ay-audio"),
             known_capability("scripted-input"),
         ]),
     }

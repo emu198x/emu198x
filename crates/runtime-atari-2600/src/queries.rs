@@ -45,7 +45,7 @@ impl SessionQueryProvider<Atari2600Runtime> for Atari2600SessionQueryProvider {
         path: &str,
     ) -> Result<Option<QueryResult>, QueryError> {
         let value = match path {
-            "cartridge.loaded" => json!(machine.cart_bytes().is_some()),
+            "cartridge.loaded" => json!(machine.cartridge_loaded()),
             "machine.region" => json!(format!("{:?}", machine.model().region())),
             "machine.frame_count" => json!(machine.machine().map_or(0, Atari2600::frame_count)),
             "machine.master_clock" => {

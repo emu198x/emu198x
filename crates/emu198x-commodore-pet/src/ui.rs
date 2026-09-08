@@ -6,66 +6,40 @@
 //! keyboard-only — no joystick, no sound — so it carries an empty button map
 //! and routes every key through `map_keys`. Many PET symbols sit on dedicated
 //! keys that are shifted on a modern host, so only the physically-unshifted
-//! keys are mapped. Compiled only with the `ui` Cargo feature; `main.rs` routes
-//! here when no automation flag is given.
+//! keys are mapped. Compiled only with the `ui` Cargo feature; the shared
+//! launcher opens the window when no automation flag is given.
 
-use std::env;
-use std::path::PathBuf;
+use emu198x_shell::{FamilyRuntime, FirmwareOverrides, MachineError, build_variant};
+use std::borrow::Cow;
 use std::time::Duration;
 
-use emu198x_ui::{ButtonInputMap, KeyCode, UiError, UiSystem, VideoFilter};
+use emu198x_ui::launch::UiApp;
+use emu198x_ui::{ButtonInputMap, KeyCode, UiSystem, VariantInfo};
 use runtime_commodore_pet::{Model, PetRuntime};
 
+use crate::app::CommodorePet;
+
 const DEFAULT_SCALE: u32 = 3;
-/// 6502 @ 1 MHz, 50 Hz → 20,000 cycles/frame, matching the headless runner's
-/// `FRAME_TICKS`.
-const FRAME_TICKS: u64 = 20_000;
 const FRAME_HZ: f64 = 50.0;
-const KERNAL_SIZE: usize = 4096;
-const BASIC_SIZE: usize = 8192;
-const EDITOR_SIZE: usize = 2048;
-const CHAR_SIZE: usize = 4096;
 
 /// The PET has no joystick, but the harness still wants a button map — so an
 /// empty one. Every key flows through [`UiSystem::map_keys`] instead.
 const PET_BUTTON_MAP: ButtonInputMap = ButtonInputMap::new(&[]);
 
-const USAGE: &str = "\
-Usage: emu198x-commodore-pet [OPTIONS]
-
-ROMs (defaults: $EMU198X_PET_{KERNAL,BASIC,EDITOR,CHAR}, then
-~/.emu198x/roms/commodore-pet/{kernal,basic,editor,chargen}.rom):
-    --kernal PATH   KERNAL ROM (4 KB)
-    --basic PATH    BASIC ROM (8 KB)
-    --editor PATH   editor ROM (2 KB)
-    --char PATH     character ROM (4 KB)
-
-Display:
-    --columns N     40 or 80 [default: 40]
-    --scale N       integer window scale, default 3
-    --video MODE    raw | lcd | crt [default: raw]
-    --help, -h      show this help
-
-Automation:
-    --script PATH   run a JSON session headlessly and print a report
-    --headless      run without a window (implied by --script)
-    --mcp           serve this machine over MCP on stdio
-
-Controls:
-    Esc             quit
-    F12             hard reset
-    A-Z 0-9 etc.    the PET keyboard
-    Enter           RETURN
-
-Examples:
-    emu198x-commodore-pet
-    emu198x-commodore-pet --columns 80 --scale 2
-";
-
 /// The Commodore PET as a [`UiSystem`] for the shared harness. Keyboard-only; a
 /// hard reset rebuilds the machine from the firmware the runtime already holds.
-/// The column model is fixed at construction.
-struct PetSystem;
+/// The runtime catalogue supplies the column profiles.
+pub struct PetSystem {
+    model: Model,
+}
+
+impl UiApp for CommodorePet {
+    type System = PetSystem;
+
+    fn ui_system(&self) -> PetSystem {
+        PetSystem { model: self.model }
+    }
+}
 
 impl UiSystem for PetSystem {
     type Runtime = PetRuntime;
@@ -102,12 +76,41 @@ impl UiSystem for PetSystem {
             .unwrap_or((384, 248))
     }
 
-    fn frame_ticks(&self, _runtime: &Self::Runtime) -> u64 {
-        FRAME_TICKS
+    fn frame_ticks(&self, runtime: &Self::Runtime) -> u64 {
+        runtime.native_frame_ticks()
     }
 
     fn frame_duration(&self, _runtime: &Self::Runtime) -> Duration {
         Duration::from_secs_f64(1.0 / FRAME_HZ)
+    }
+
+    fn variants(&self) -> Vec<VariantInfo> {
+        Model::ALL
+            .iter()
+            .map(|model| VariantInfo::new(model.variant_id(), model.display_name()))
+            .collect()
+    }
+
+    fn current_variant(&self) -> Option<Cow<'static, str>> {
+        Some(Cow::Borrowed(self.model.variant_id()))
+    }
+
+    fn switch_variant(
+        &mut self,
+        runtime: &mut Self::Runtime,
+        id: &str,
+    ) -> Result<(), MachineError> {
+        let model = Model::from_variant_id(id).ok_or(MachineError::UnsupportedOperation {
+            operation: "unknown PET variant",
+        })?;
+        *runtime =
+            build_variant::<PetRuntime>(model, &FirmwareOverrides::none()).map_err(|err| {
+                MachineError::Host {
+                    reason: err.to_string(),
+                }
+            })?;
+        self.model = model;
+        Ok(())
     }
 
     fn button_map(&self) -> &'static ButtonInputMap {
@@ -117,154 +120,6 @@ impl UiSystem for PetSystem {
     fn map_keys(&self, code: KeyCode) -> Option<&'static [&'static str]> {
         map_pet_keys(code)
     }
-}
-
-/// Parsed interactive CLI.
-#[derive(Debug, PartialEq, Eq)]
-pub struct Cli {
-    kernal: Option<PathBuf>,
-    basic: Option<PathBuf>,
-    editor: Option<PathBuf>,
-    char_rom: Option<PathBuf>,
-    columns: u32,
-    scale: u32,
-    video: VideoFilter,
-}
-
-impl Default for Cli {
-    fn default() -> Self {
-        Self {
-            kernal: None,
-            basic: None,
-            editor: None,
-            char_rom: None,
-            columns: 40,
-            scale: DEFAULT_SCALE,
-            video: VideoFilter::Raw,
-        }
-    }
-}
-
-fn model_for(columns: u32) -> Model {
-    match columns {
-        80 => Model::Pet80Col,
-        _ => Model::Pet40Col,
-    }
-}
-
-/// Build the runtime from the CLI and open the window. Returns a string error
-/// for the `main.rs` dispatcher.
-pub fn run(cli: Cli) -> Result<(), String> {
-    let kernal = read_required(
-        cli.kernal.clone(),
-        "KERNAL",
-        "KERNAL",
-        "kernal.rom",
-        KERNAL_SIZE,
-    )?;
-    let basic = read_required(cli.basic.clone(), "BASIC", "BASIC", "basic.rom", BASIC_SIZE)?;
-    let editor = read_required(
-        cli.editor.clone(),
-        "editor",
-        "EDITOR",
-        "editor.rom",
-        EDITOR_SIZE,
-    )?;
-    let char_rom = read_required(
-        cli.char_rom.clone(),
-        "character",
-        "CHAR",
-        "chargen.rom",
-        CHAR_SIZE,
-    )?;
-    let runtime = PetRuntime::new(model_for(cli.columns), kernal, basic, editor, char_rom)
-        .map_err(|err| format!("failed to construct runtime: {err}"))?;
-
-    println!("Controls: Esc quit, F12 reset, A-Z/0-9 keyboard typed directly, Enter RETURN.");
-    emu198x_ui::run(PetSystem, runtime, cli.scale, cli.video)
-        .map_err(|err: UiError| err.to_string())
-}
-
-/// Parse the interactive CLI. Exits the process on `--help` or a malformed flag.
-pub fn parse_cli<I>(args: I) -> Cli
-where
-    I: IntoIterator<Item = String>,
-{
-    let mut cli = Cli::default();
-    let mut iter = args.into_iter();
-    while let Some(arg) = iter.next() {
-        match arg.as_str() {
-            "--kernal" => cli.kernal = Some(PathBuf::from(next_arg(&mut iter, "--kernal"))),
-            "--basic" => cli.basic = Some(PathBuf::from(next_arg(&mut iter, "--basic"))),
-            "--editor" => cli.editor = Some(PathBuf::from(next_arg(&mut iter, "--editor"))),
-            "--char" => cli.char_rom = Some(PathBuf::from(next_arg(&mut iter, "--char"))),
-            "--columns" => {
-                cli.columns = next_arg(&mut iter, "--columns")
-                    .parse()
-                    .unwrap_or_else(|_| die("--columns expects 40 or 80"));
-            }
-            "--scale" => {
-                cli.scale = next_arg(&mut iter, "--scale")
-                    .parse()
-                    .unwrap_or_else(|_| die("--scale requires a positive integer"));
-            }
-            "--video" => {
-                cli.video = next_arg(&mut iter, "--video")
-                    .parse()
-                    .unwrap_or_else(|_| die("--video expects raw, lcd, or crt"));
-            }
-            "--help" | "-h" => {
-                println!("{USAGE}");
-                std::process::exit(0);
-            }
-            _ => die(&format!("unknown flag: {arg}")),
-        }
-    }
-    cli
-}
-
-fn default_rom(kind: &str, default_file: &str) -> Option<PathBuf> {
-    if let Ok(path) = env::var(format!("EMU198X_PET_{kind}"))
-        && !path.is_empty()
-    {
-        return Some(PathBuf::from(path));
-    }
-    let home = env::var("HOME").ok()?;
-    Some(PathBuf::from(home).join(format!(".emu198x/roms/commodore-pet/{default_file}")))
-}
-
-fn read_required(
-    explicit: Option<PathBuf>,
-    kind: &str,
-    env_kind: &str,
-    default_file: &str,
-    expected: usize,
-) -> Result<Vec<u8>, String> {
-    // `kind` is the human label for errors; `env_kind` is the env-var suffix
-    // (EMU198X_PET_<env_kind>), which differs from `kind` for char/editor.
-    let path = explicit
-        .or_else(|| default_rom(env_kind, default_file))
-        .ok_or_else(|| format!("no {kind} ROM: pass its flag or set EMU198X_PET_{env_kind}"))?;
-    let bytes = std::fs::read(&path)
-        .map_err(|err| format!("failed to read {kind} ROM {}: {err}", path.display()))?;
-    if bytes.len() != expected {
-        return Err(format!(
-            "{kind} ROM at {} is {} bytes; expected {expected}",
-            path.display(),
-            bytes.len()
-        ));
-    }
-    Ok(bytes)
-}
-
-fn next_arg<I: Iterator<Item = String>>(iter: &mut I, flag: &str) -> String {
-    iter.next()
-        .unwrap_or_else(|| die(&format!("missing value for {flag}")))
-}
-
-fn die(message: &str) -> ! {
-    eprintln!("error: {message}");
-    std::process::exit(1);
 }
 
 /// Map a physical host key to its PET key name (matched by
@@ -328,27 +183,47 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parse_cli_accepts_roms_columns_scale_video() {
-        let cli = parse_cli([
-            "--kernal".to_owned(),
-            "k.rom".to_owned(),
-            "--columns".to_owned(),
-            "80".to_owned(),
-            "--scale".to_owned(),
-            "2".to_owned(),
-            "--video".to_owned(),
-            "crt".to_owned(),
-        ]);
-        assert_eq!(cli.kernal, Some(PathBuf::from("k.rom")));
-        assert_eq!(cli.columns, 80);
-        assert_eq!(cli.scale, 2);
-        assert_eq!(cli.video, VideoFilter::Crt);
-    }
-
-    #[test]
-    fn model_selects_by_columns() {
-        assert_eq!(model_for(40), Model::Pet40Col);
-        assert_eq!(model_for(80), Model::Pet80Col);
+    fn window_constructor_installs_catalogue_roms_and_sizes_both_profiles() {
+        let dir = std::env::temp_dir().join(format!("pet-ui-catalogue-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("directory");
+        for (name, size) in [
+            ("kernal.rom", 4096),
+            ("basic.rom", 8192),
+            ("editor.rom", 2048),
+            ("chargen.rom", 4096),
+        ] {
+            std::fs::write(dir.join(name), vec![0x3c; size]).expect("ROM");
+        }
+        for model in Model::ALL {
+            let app = CommodorePet {
+                model,
+                firmware: FirmwareOverrides {
+                    dir: Some(dir.clone()),
+                    ..FirmwareOverrides::none()
+                },
+                ..CommodorePet::default()
+            };
+            let mut runtime = app.build_ui_runtime().expect("window runtime");
+            let mut system = app.ui_system();
+            assert_eq!(system.variants().len(), 2);
+            assert_eq!(
+                system.current_variant().as_deref(),
+                Some(model.variant_id())
+            );
+            assert_eq!(
+                system.framebuffer_size(&runtime),
+                (model.screen_chars() * 8 + 64, 248)
+            );
+            assert_eq!(system.frame_ticks(&runtime), 20_000);
+            assert_eq!(
+                system.frame_duration(&runtime),
+                Duration::from_secs_f64(1.0 / 50.0)
+            );
+            assert_eq!(runtime.machine().expect("machine").peek(0xe000), 0x3c);
+            assert!(system.switch_variant(&mut runtime, "unknown").is_err());
+            assert_eq!(runtime.model(), model);
+        }
+        std::fs::remove_dir_all(dir).expect("cleanup");
     }
 
     #[test]

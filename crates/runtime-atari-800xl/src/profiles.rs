@@ -12,6 +12,43 @@ pub enum Model {
 }
 
 impl Model {
+    pub const ALL: [Self; 2] = [Self::A800xlNtsc, Self::A800xlPal];
+    pub const VARIANT_IDS: [&'static str; 2] =
+        [Self::A800xlNtsc.variant_id(), Self::A800xlPal.variant_id()];
+
+    #[must_use]
+    pub const fn variant_id(self) -> &'static str {
+        self.profile_id()
+    }
+
+    #[must_use]
+    pub fn from_variant_id(id: &str) -> Option<Self> {
+        match id {
+            "ntsc" => Some(Self::A800xlNtsc),
+            "pal" => Some(Self::A800xlPal),
+            _ => Self::ALL.into_iter().find(|model| model.variant_id() == id),
+        }
+    }
+
+    #[must_use]
+    pub fn firmware_sources(self) -> Vec<emu198x_shell::FirmwareSource> {
+        vec![
+            emu198x_shell::FirmwareSource::optional(OS_FIRMWARE_ID, &["atarixl.rom"])
+                .with_env_var("EMU198X_A800XL_OS"),
+            emu198x_shell::FirmwareSource::optional(BASIC_FIRMWARE_ID, &["ataribas.rom"])
+                .with_env_var("EMU198X_A800XL_BASIC"),
+        ]
+    }
+
+    /// Existing native host budget, in colour clocks.
+    #[must_use]
+    pub const fn frame_ticks(self) -> u64 {
+        match self {
+            Self::A800xlNtsc => 262 * 228,
+            Self::A800xlPal => 312 * 228,
+        }
+    }
+
     #[must_use]
     pub const fn model_id(self) -> &'static str {
         match self {
@@ -44,10 +81,7 @@ pub const BASIC_FIRMWARE_ID: &str = "atari-800xl-basic";
 
 #[must_use]
 pub fn profiles() -> Vec<MachineProfile> {
-    vec![
-        profile_for(Model::A800xlNtsc),
-        profile_for(Model::A800xlPal),
-    ]
+    Model::ALL.into_iter().map(profile_for).collect()
 }
 
 #[must_use]
@@ -89,6 +123,7 @@ pub fn profile_for(model: Model) -> MachineProfile {
             ),
         ],
         capabilities: CapabilitySet::with_all([
+            known_capability("variant-switch"),
             known_capability("keyboard-input"),
             known_capability("scripted-input"),
         ]),

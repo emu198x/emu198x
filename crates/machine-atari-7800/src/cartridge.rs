@@ -61,6 +61,16 @@ pub struct Cartridge {
 }
 
 impl Cartridge {
+    pub(crate) fn cold_boot(&self) -> Self {
+        Self {
+            rom: self.rom.clone(),
+            banking: self.banking,
+            bank: 0,
+            ram: vec![0; self.ram.len()],
+            pokey: self.pokey,
+        }
+    }
+
     pub fn from_rom(data: &[u8]) -> Result<Self, String> {
         let (body, header) = match parse_header(data)? {
             Some((header, body)) => (body, Some(header)),

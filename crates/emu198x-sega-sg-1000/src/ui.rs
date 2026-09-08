@@ -6,22 +6,22 @@
 //! console path ([`UiSystem::map_key`] + [`UiSystem::button_map`]) — plus the
 //! Pause button, which the runtime takes as an [`InputEvent::Key`] (`pause`),
 //! routed through [`UiSystem::map_keys`]. Compiled only with the `ui` Cargo
-//! feature; `main.rs` routes here when no automation flag is given.
+//! feature; the shared launcher opens the window when no automation flag is
+//! given.
 
-use std::path::PathBuf;
+use emu198x_shell::{
+    FamilyRuntime, FirmwareOverrides, MachineCore, MachineError, build_replacement,
+};
+use std::borrow::Cow;
 use std::time::Duration;
 
-use emu198x_ui::{
-    ButtonInputMap, ButtonTarget, HostControl, KeyCode, UiError, UiSystem, VideoFilter,
-};
+use emu198x_ui::launch::UiApp;
+use emu198x_ui::{ButtonInputMap, ButtonTarget, HostControl, KeyCode, UiSystem, VariantInfo};
 use runtime_sega_sg_1000::{Model, Sg1000Runtime};
 
+use crate::app::Sg1000;
+
 const DEFAULT_SCALE: u32 = 3;
-/// CPU clocks per frame — `228 × lines`, matching the headless runner.
-const FRAME_TICKS_NTSC: u64 = 228 * 262;
-const FRAME_TICKS_PAL: u64 = 228 * 313;
-const NTSC_FRAME_HZ: f64 = 60.0;
-const PAL_FRAME_HZ: f64 = 50.0;
 
 /// Player-1 control pad: directions plus the two face buttons. `south`/`east`
 /// are the names `runtime-sega-sg-1000`'s `apply_button` maps to the pad's
@@ -36,68 +36,18 @@ const SG1000_BUTTON_MAP: ButtonInputMap = ButtonInputMap::new(&[
     (HostControl::East, ButtonTarget::new(1, "east")),
 ]);
 
-const USAGE: &str = "\
-Usage: emu198x-sega-sg-1000 [OPTIONS]
-
-Options:
-    --cart PATH     cartridge ROM (required)
-    --region MODE   ntsc | pal [default: ntsc]
-    --scale N       integer window scale, default 3
-    --video MODE    raw | lcd | crt [default: raw]
-    --help, -h      show this help
-
-Automation:
-    --script PATH   run a JSON session headlessly and print a report
-    --headless      run without a window (implied by --script)
-    --mcp           serve this machine over MCP on stdio
-
-Controls:
-    Esc             quit
-    F12             emulator hard reset
-    Arrow keys      d-pad (player 1)
-    Z / X           buttons 1 and 2
-    Enter           Pause
-
-Examples:
-    emu198x-sega-sg-1000 --cart game.sg
-    emu198x-sega-sg-1000 game.sg --region pal --scale 4
-";
-
-/// Display region — selects the model, frame tick budget, and refresh rate.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Region {
-    Ntsc,
-    Pal,
+/// Native window adapter for the runtime catalogue. Region switches cold-boot
+/// with the cartridge held in memory by the runtime.
+pub struct Sg1000System {
+    model: Model,
 }
 
-impl Region {
-    fn model(self) -> Model {
-        match self {
-            Self::Ntsc => Model::Sg1000Ntsc,
-            Self::Pal => Model::Sg1000Pal,
-        }
-    }
+impl UiApp for Sg1000 {
+    type System = Sg1000System;
 
-    fn frame_ticks(self) -> u64 {
-        match self {
-            Self::Ntsc => FRAME_TICKS_NTSC,
-            Self::Pal => FRAME_TICKS_PAL,
-        }
+    fn ui_system(&self) -> Sg1000System {
+        Sg1000System { model: self.model }
     }
-
-    fn frame_hz(self) -> f64 {
-        match self {
-            Self::Ntsc => NTSC_FRAME_HZ,
-            Self::Pal => PAL_FRAME_HZ,
-        }
-    }
-}
-
-/// The Sega SG-1000 as a [`UiSystem`] for the shared harness. The region is
-/// fixed at construction; a hard reset rebuilds the machine from the cartridge
-/// the runtime already holds.
-struct Sg1000System {
-    region: Region,
 }
 
 impl UiSystem for Sg1000System {
@@ -129,12 +79,44 @@ impl UiSystem for Sg1000System {
             .unwrap_or((280, 240))
     }
 
-    fn frame_ticks(&self, _runtime: &Self::Runtime) -> u64 {
-        self.region.frame_ticks()
+    fn frame_ticks(&self, runtime: &Self::Runtime) -> u64 {
+        runtime.native_frame_ticks()
     }
 
-    fn frame_duration(&self, _runtime: &Self::Runtime) -> Duration {
-        Duration::from_secs_f64(1.0 / self.region.frame_hz())
+    fn frame_duration(&self, runtime: &Self::Runtime) -> Duration {
+        Duration::from_secs_f64(match runtime.profile().region {
+            emu198x_shell::Region::Pal => 1.0 / 50.0,
+            _ => 1.0 / 60.0,
+        })
+    }
+
+    fn variants(&self) -> Vec<VariantInfo> {
+        Model::ALL
+            .iter()
+            .map(|model| VariantInfo::new(model.variant_id(), model.display_name()))
+            .collect()
+    }
+
+    fn current_variant(&self) -> Option<Cow<'static, str>> {
+        Some(Cow::Borrowed(self.model.variant_id()))
+    }
+
+    fn switch_variant(
+        &mut self,
+        runtime: &mut Self::Runtime,
+        id: &str,
+    ) -> Result<(), MachineError> {
+        let model = Model::from_variant_id(id).ok_or(MachineError::UnsupportedOperation {
+            operation: "unknown sega-sg-1000 variant",
+        })?;
+        *runtime =
+            build_replacement(runtime, model, &FirmwareOverrides::none()).map_err(|err| {
+                MachineError::Host {
+                    reason: err.to_string(),
+                }
+            })?;
+        self.model = model;
+        Ok(())
     }
 
     fn button_map(&self) -> &'static ButtonInputMap {
@@ -162,135 +144,91 @@ impl UiSystem for Sg1000System {
     }
 }
 
-/// Parsed interactive CLI.
-#[derive(Debug, PartialEq, Eq)]
-pub struct Cli {
-    cart: Option<PathBuf>,
-    region: Region,
-    scale: u32,
-    video: VideoFilter,
-}
-
-impl Default for Cli {
-    fn default() -> Self {
-        Self {
-            cart: None,
-            region: Region::Ntsc,
-            scale: DEFAULT_SCALE,
-            video: VideoFilter::Raw,
-        }
-    }
-}
-
-/// Build the runtime from the CLI and open the window. Returns a string error
-/// for the `main.rs` dispatcher.
-pub fn run(cli: Cli) -> Result<(), String> {
-    let cart_path = cli
-        .cart
-        .as_ref()
-        .ok_or_else(|| "provide a cartridge with --cart PATH".to_owned())?;
-    let cart = std::fs::read(cart_path)
-        .map_err(|err| format!("failed to read --cart {}: {err}", cart_path.display()))?;
-    let runtime = Sg1000Runtime::new(cli.region.model(), cart);
-
-    println!("Controls: Esc quit, F12 reset, arrows d-pad, Z/X buttons, Enter Pause.");
-    emu198x_ui::run(
-        Sg1000System { region: cli.region },
-        runtime,
-        cli.scale,
-        cli.video,
-    )
-    .map_err(|err: UiError| err.to_string())
-}
-
-/// Parse the interactive CLI. Exits the process on `--help` or a malformed flag.
-pub fn parse_cli<I>(args: I) -> Cli
-where
-    I: IntoIterator<Item = String>,
-{
-    let mut cli = Cli::default();
-    let mut iter = args.into_iter();
-    while let Some(arg) = iter.next() {
-        match arg.as_str() {
-            "--cart" => cli.cart = Some(PathBuf::from(next_arg(&mut iter, "--cart"))),
-            "--region" => {
-                cli.region = match next_arg(&mut iter, "--region").as_str() {
-                    "ntsc" => Region::Ntsc,
-                    "pal" => Region::Pal,
-                    other => die(&format!("--region expects ntsc|pal, got {other}")),
-                };
-            }
-            "--scale" => {
-                cli.scale = next_arg(&mut iter, "--scale")
-                    .parse()
-                    .unwrap_or_else(|_| die("--scale requires a positive integer"));
-            }
-            "--video" => {
-                cli.video = next_arg(&mut iter, "--video")
-                    .parse()
-                    .unwrap_or_else(|_| die("--video expects raw, lcd, or crt"));
-            }
-            "--help" | "-h" => {
-                println!("{USAGE}");
-                std::process::exit(0);
-            }
-            _ if arg.starts_with('-') => die(&format!("unknown flag: {arg}")),
-            _ if cli.cart.is_none() => cli.cart = Some(PathBuf::from(arg)),
-            _ => die("only one positional cart path is supported"),
-        }
-    }
-    cli
-}
-
-fn next_arg<I: Iterator<Item = String>>(iter: &mut I, flag: &str) -> String {
-    iter.next()
-        .unwrap_or_else(|| die(&format!("missing value for {flag}")))
-}
-
-fn die(message: &str) -> ! {
-    eprintln!("error: {message}");
-    std::process::exit(1);
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn parse_cli_accepts_cart_region_scale_video() {
-        let cli = parse_cli([
-            "--cart".to_owned(),
-            "game.sg".to_owned(),
-            "--region".to_owned(),
-            "pal".to_owned(),
-            "--scale".to_owned(),
-            "4".to_owned(),
-            "--video".to_owned(),
-            "crt".to_owned(),
-        ]);
-        assert_eq!(cli.cart, Some(PathBuf::from("game.sg")));
-        assert_eq!(cli.region, Region::Pal);
-        assert_eq!(cli.scale, 4);
-        assert_eq!(cli.video, VideoFilter::Crt);
+    fn window_startup_loads_parsed_cartridge_and_rejects_missing_media() {
+        let dir =
+            std::env::temp_dir().join(format!("sega-sg-1000-ui-media-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("directory");
+        let cart = dir.join("cart.rom");
+        std::fs::write(&cart, vec![0x5a; 8192]).expect("cartridge");
+        let app = Sg1000 {
+            cart: Some(cart.clone()),
+            model: Model::Sg1000Ntsc,
+        };
+        let mut runtime = app.build_ui_runtime().expect("window runtime");
+        assert!(runtime.cartridge_loaded());
+        std::fs::remove_file(cart).expect("remove source");
+        assert!(app.build_ui_runtime().is_err());
+        let mut system = app.ui_system();
+        system
+            .switch_variant(&mut runtime, Model::Sg1000Pal.variant_id())
+            .expect("switch");
+        assert_eq!(
+            system.current_variant().as_deref(),
+            Some(Model::Sg1000Pal.variant_id())
+        );
+        assert_eq!(system.frame_ticks(&runtime), Model::Sg1000Pal.frame_ticks());
+        assert!(runtime.cartridge_loaded());
+        assert_eq!(runtime.machine().expect("cartridge").peek(0), 0x5a);
+        std::fs::remove_dir_all(dir).expect("cleanup");
     }
 
     #[test]
-    fn parse_cli_accepts_positional_cart() {
-        let cli = parse_cli(["game.sg".to_owned()]);
-        assert_eq!(cli.cart, Some(PathBuf::from("game.sg")));
-        assert_eq!(cli.region, Region::Ntsc);
+    fn menu_uses_runtime_ids_and_a_failed_switch_preserves_selection() {
+        let mut system = Sg1000System {
+            model: Model::Sg1000Ntsc,
+        };
+        let choices = system.variants();
+        assert_eq!(
+            choices
+                .iter()
+                .map(|choice| choice.id.as_ref())
+                .collect::<Vec<_>>(),
+            Model::VARIANT_IDS
+        );
+        let mut runtime = <Sg1000System as UiSystem>::Runtime::blank(Model::Sg1000Ntsc);
+        assert!(system.switch_variant(&mut runtime, "unknown").is_err());
+        assert_eq!(runtime.model(), Model::Sg1000Ntsc);
+        assert_eq!(
+            system.current_variant().as_deref(),
+            Some(Model::Sg1000Ntsc.variant_id())
+        );
+        assert_eq!(system.frame_ticks(&runtime), runtime.native_frame_ticks());
     }
 
     #[test]
-    fn region_frame_ticks_match() {
-        assert_eq!(Region::Ntsc.frame_ticks(), 228 * 262);
-        assert_eq!(Region::Pal.frame_ticks(), 228 * 313);
+    fn pacing_and_dimensions_follow_the_runtime_region() {
+        let system = Sg1000System {
+            model: Model::Sg1000Ntsc,
+        };
+        for model in Model::ALL {
+            let runtime = Sg1000Runtime::new(model, vec![0; 8192]);
+            assert_eq!(system.frame_ticks(&runtime), model.frame_ticks());
+            let hz = if model.region() == emu198x_shell::Region::Pal {
+                50.0
+            } else {
+                60.0
+            };
+            assert_eq!(
+                system.frame_duration(&runtime),
+                Duration::from_secs_f64(1.0 / hz)
+            );
+            let machine = runtime.machine().expect("machine");
+            assert_eq!(
+                system.framebuffer_size(&runtime),
+                (machine.framebuffer_width(), machine.framebuffer_height())
+            );
+        }
     }
 
     #[test]
     fn pad_and_pause_map() {
         let sys = Sg1000System {
-            region: Region::Ntsc,
+            model: Model::Sg1000Ntsc,
         };
         assert_eq!(sys.map_key(KeyCode::ArrowLeft), Some(HostControl::Left));
         assert_eq!(sys.map_key(KeyCode::KeyZ), Some(HostControl::South));
