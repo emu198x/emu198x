@@ -12,14 +12,13 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use common_commodore_c64::timing::{C64Timing, TIMING_NTSC_BREADBIN, TIMING_PAL_BREADBIN};
 use emu198x_shell::launch::{Args, CommonCli, LaunchError, MachineApp};
 use emu198x_shell::mcp::ToolRegistry;
 use emu198x_shell::mcp_tools::register_tools_for;
 use emu198x_shell::{
-    BootArtifacts, ControlCommand, FirmwareImage, FirmwareSet, HeadlessSession, MediaImage,
-    MediaKind, MediaSet, MediaTransportAction, MediaTransportCommand, boot_machine,
-    read_firmware_asset, read_media_asset, read_program_asset,
+    BootArtifacts, ControlCommand, FirmwareImage, FirmwareOverrides, FirmwareSet, HeadlessSession,
+    MediaImage, MediaKind, MediaSet, MediaTransportAction, MediaTransportCommand, boot_machine,
+    read_firmware_asset, read_media_asset, read_program_asset, resolve_firmware,
 };
 use runtime_commodore_c64::{
     C64Runtime, C64SessionQueryProvider, DEFAULT_DISK_AUTOLOAD_SLOT,
@@ -34,9 +33,6 @@ use crate::mcp_tools::register_c64_tools;
 pub(crate) const KERNAL_ID: &str = "commodore-c64-kernal-rom";
 pub(crate) const BASIC_ID: &str = "commodore-c64-basic-rom";
 pub(crate) const CHARACTER_ID: &str = "commodore-c64-character-rom";
-pub(crate) const DRIVE1541_ID: &str = "commodore-1541-dos-rom";
-pub(crate) const DRIVE1571_ID: &str = "commodore-1571-dos-rom";
-pub(crate) const DRIVE1581_ID: &str = "commodore-1581-dos-rom";
 pub(crate) const DEFAULT_IMPORT_BOOT_FRAMES: u32 = 200;
 pub(crate) const DEFAULT_TRACE_LIMIT: usize = 512;
 pub(crate) const DEFAULT_TAPE_SLOT: &str = "tape-1";
@@ -57,51 +53,6 @@ const ESP_AT_FRAME_SIZE: usize = 64;
 #[cfg(feature = "ui")]
 pub(crate) type FirmwareBundle = Vec<(String, Vec<u8>)>;
 
-/// `--model`: region and SID revision.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum ModelArg {
-    #[default]
-    Pal,
-    Ntsc,
-    C64cPal,
-    C64cNtsc,
-}
-
-impl ModelArg {
-    /// Parse a `--model` value; `None` for an unknown one.
-    pub(crate) fn from_id(value: &str) -> Option<Self> {
-        Some(match value {
-            "pal" => Self::Pal,
-            "ntsc" => Self::Ntsc,
-            "c64c-pal" | "c64c" => Self::C64cPal,
-            "c64c-ntsc" => Self::C64cNtsc,
-            _ => return None,
-        })
-    }
-
-    pub(crate) const fn to_model(self) -> Model {
-        match self {
-            Self::Pal => Model::C64PalBreadbin,
-            Self::Ntsc => Model::C64NtscBreadbin,
-            Self::C64cPal => Model::C64cPal,
-            Self::C64cNtsc => Model::C64cNtsc,
-        }
-    }
-
-    pub(crate) const fn timing(self) -> &'static C64Timing {
-        match self {
-            Self::Pal | Self::C64cPal => &TIMING_PAL_BREADBIN,
-            Self::Ntsc | Self::C64cNtsc => &TIMING_NTSC_BREADBIN,
-        }
-    }
-}
-
-impl From<ModelArg> for Model {
-    fn from(arg: ModelArg) -> Self {
-        arg.to_model()
-    }
-}
-
 #[derive(Debug)]
 pub(crate) struct LoadedFirmware {
     pub(crate) id: &'static str,
@@ -117,7 +68,7 @@ pub(crate) struct LoadedProgram {
 /// The machine configuration the flags build up.
 #[derive(Debug, PartialEq, Eq)]
 pub struct C64 {
-    pub model: ModelArg,
+    pub model: Model,
     pub rom_dir: Option<PathBuf>,
     pub kernal: Option<PathBuf>,
     pub basic: Option<PathBuf>,
@@ -155,7 +106,7 @@ pub struct C64 {
 impl Default for C64 {
     fn default() -> Self {
         Self {
-            model: ModelArg::default(),
+            model: Model::C64PalBreadbin,
             rom_dir: None,
             kernal: None,
             basic: None,
@@ -273,7 +224,7 @@ impl MachineApp for C64 {
             "--chargen" => self.chargen = Some(args.path(flag)?),
             "--model" => {
                 let value = args.value(flag)?;
-                self.model = ModelArg::from_id(&value).ok_or_else(|| {
+                self.model = Model::from_variant_id(&value).ok_or_else(|| {
                     LaunchError::Usage(
                         "--model expects pal, ntsc, c64c-pal, or c64c-ntsc".to_owned(),
                     )
@@ -470,7 +421,7 @@ impl C64 {
             None => None,
         };
 
-        let model = self.model.to_model();
+        let model = self.model;
         let mut machine = boot_machine(
             &BootArtifacts {
                 firmware,
@@ -549,66 +500,39 @@ impl C64 {
         Ok(())
     }
 
-    pub(crate) fn load_firmware_bytes(&self) -> Result<Vec<LoadedFirmware>, LaunchError> {
-        let rom_dir = self.resolve_rom_dir()?;
-        let entries = [
-            (
-                KERNAL_ID,
-                resolve_rom_path(
-                    self.kernal.as_deref(),
-                    rom_dir.as_deref(),
-                    &["kernal.rom", "c64-kernal.rom"],
-                )?,
-            ),
-            (
-                BASIC_ID,
-                resolve_rom_path(
-                    self.basic.as_deref(),
-                    rom_dir.as_deref(),
-                    &["basic.rom", "c64-basic.rom"],
-                )?,
-            ),
-            (
-                CHARACTER_ID,
-                resolve_rom_path(
-                    self.chargen.as_deref(),
-                    rom_dir.as_deref(),
-                    &["chargen.rom", "c64-chargen.rom"],
-                )?,
-            ),
-            (
-                DRIVE1541_ID,
-                resolve_rom_path(
-                    None,
-                    rom_dir.as_deref(),
-                    &["1541.rom", "dos1541.rom", "c1541.rom"],
-                )?,
-            ),
-            // The 1571 and 1581 DOS ROMs are optional: loaded when present so the
-            // per-port drive selector can offer those models, absent otherwise
-            // (`resolve_rom_path` returns `None`, and the profile marks both
-            // optional). No CLI override — they live beside the 1541 in the ROM dir.
-            (
-                DRIVE1571_ID,
-                resolve_rom_path(
-                    None,
-                    rom_dir.as_deref(),
-                    &["1571.rom", "dos1571.rom", "c1571.rom"],
-                )?,
-            ),
-            (
-                DRIVE1581_ID,
-                resolve_rom_path(
-                    None,
-                    rom_dir.as_deref(),
-                    &["1581.rom", "dos1581.rom", "c1581.rom"],
-                )?,
-            ),
-        ];
+    /// What the firmware flags add to the convention: `--rom-dir` as the
+    /// directory, and `--kernal` / `--basic` / `--chargen` pinning one ROM
+    /// each. The drive DOS ROMs have no flag; they live beside the others.
+    pub(crate) fn firmware_overrides(&self) -> FirmwareOverrides {
+        let mut overrides = FirmwareOverrides {
+            dir: self.rom_dir.clone(),
+            ..FirmwareOverrides::none()
+        };
+        for (id, path) in [
+            (KERNAL_ID, &self.kernal),
+            (BASIC_ID, &self.basic),
+            (CHARACTER_ID, &self.chargen),
+        ] {
+            if let Some(path) = path {
+                overrides.pin(id, path.clone());
+            }
+        }
+        overrides
+    }
 
-        entries
+    /// Every ROM the model boots, read from the conventional directory with
+    /// the flags' pins applied. A snapshot boot needs no firmware, so when
+    /// `--load-snapshot` is given and nothing resolves, the bundle is empty
+    /// and the machine restores from the snapshot alone.
+    pub(crate) fn load_firmware_bytes(&self) -> Result<Vec<LoadedFirmware>, LaunchError> {
+        let resolved = match resolve_firmware::<C64Runtime>(self.model, &self.firmware_overrides())
+        {
+            Ok(resolved) => resolved,
+            Err(_) if self.load_snapshot.is_some() => return Ok(Vec::new()),
+            Err(err) => return Err(LaunchError::Run(err.to_string())),
+        };
+        resolved
             .into_iter()
-            .filter_map(|(id, path)| path.map(|path| (id, path)))
             .map(|(id, path)| {
                 read_firmware_asset(&path)
                     .map(|loaded| LoadedFirmware {
@@ -624,72 +548,6 @@ impl C64 {
             })
             .collect()
     }
-
-    /// The ROM directory, first match wins: `--rom-dir`, `EMU198X_C64_ROM_DIR`,
-    /// `~/.emu198x/roms/commodore-c64`, `~/.emu198x/roms/c64`. `None` when
-    /// there is none but the boot does not need one (explicit ROM paths or a
-    /// snapshot).
-    fn resolve_rom_dir(&self) -> Result<Option<PathBuf>, LaunchError> {
-        if let Some(dir) = &self.rom_dir {
-            return Ok(Some(dir.clone()));
-        }
-
-        if let Ok(dir) = std::env::var("EMU198X_C64_ROM_DIR") {
-            return Ok(Some(PathBuf::from(dir)));
-        }
-
-        let Some(home) = std::env::var_os("HOME") else {
-            return Ok(None);
-        };
-        let commodore_dir = PathBuf::from(&home).join(".emu198x/roms/commodore-c64");
-        if commodore_dir.exists() {
-            return Ok(Some(commodore_dir));
-        }
-
-        let legacy_dir = PathBuf::from(home).join(".emu198x/roms/c64");
-        if legacy_dir.exists() {
-            return Ok(Some(legacy_dir));
-        }
-
-        if self.kernal.is_some()
-            || self.basic.is_some()
-            || self.chargen.is_some()
-            || self.load_snapshot.is_some()
-        {
-            return Ok(None);
-        }
-
-        Err(LaunchError::Run(
-            "no C64 ROM directory found — pass --rom-dir DIR, set EMU198X_C64_ROM_DIR, or create ~/.emu198x/roms/commodore-c64".to_owned(),
-        ))
-    }
-}
-
-pub(crate) fn resolve_rom_path(
-    explicit: Option<&Path>,
-    rom_dir: Option<&Path>,
-    filenames: &[&str],
-) -> Result<Option<PathBuf>, LaunchError> {
-    if let Some(path) = explicit {
-        return Ok(Some(path.to_path_buf()));
-    }
-
-    let Some(rom_dir) = rom_dir else {
-        return Ok(None);
-    };
-
-    for filename in filenames {
-        let candidate = rom_dir.join(filename);
-        if candidate.exists() {
-            return Ok(Some(candidate));
-        }
-    }
-
-    Err(LaunchError::Run(format!(
-        "missing required ROM in {} (looked for {})",
-        rom_dir.display(),
-        filenames.join(", ")
-    )))
 }
 
 pub(crate) fn load_program_bytes(path: &Path) -> Result<LoadedProgram, LaunchError> {
@@ -749,6 +607,7 @@ fn parse_hex_u16(value: &str) -> Option<u16> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use common_commodore_c64::timing::{TIMING_NTSC_BREADBIN, TIMING_PAL_BREADBIN};
     use emu198x_shell::launch::{Mode, Parsed, parse};
 
     fn args(list: &[&str]) -> Vec<String> {
@@ -785,7 +644,7 @@ mod tests {
         assert_eq!(
             app,
             C64 {
-                model: ModelArg::Ntsc,
+                model: Model::C64NtscBreadbin,
                 rom_dir: Some(PathBuf::from("roms")),
                 load_snapshot: Some(PathBuf::from("in.c64.pst")),
                 save_snapshot: Some(PathBuf::from("out.c64.pst")),
@@ -919,20 +778,24 @@ mod tests {
     }
 
     #[test]
-    fn model_arg_parses_all_variants() {
-        assert_eq!(ModelArg::from_id("pal"), Some(ModelArg::Pal));
-        assert_eq!(ModelArg::from_id("ntsc"), Some(ModelArg::Ntsc));
-        assert_eq!(ModelArg::from_id("c64c-pal"), Some(ModelArg::C64cPal));
-        assert_eq!(ModelArg::from_id("c64c"), Some(ModelArg::C64cPal));
-        assert_eq!(ModelArg::from_id("c64c-ntsc"), Some(ModelArg::C64cNtsc));
-        assert_eq!(ModelArg::C64cNtsc.to_model(), Model::C64cNtsc);
+    fn model_flag_parses_all_variants() {
+        for (flag, model) in [
+            ("pal", Model::C64PalBreadbin),
+            ("ntsc", Model::C64NtscBreadbin),
+            ("c64c-pal", Model::C64cPal),
+            ("c64c", Model::C64cPal),
+            ("c64c-ntsc", Model::C64cNtsc),
+        ] {
+            let (app, _, _) = parsed(&["--model", flag]);
+            assert_eq!(app.model, model, "--model {flag}");
+        }
     }
 
     #[test]
     fn model_timing_follows_the_region() {
         assert_eq!(
             C64 {
-                model: ModelArg::C64cPal,
+                model: Model::C64cPal,
                 ..C64::default()
             }
             .frame_ticks(),
@@ -940,7 +803,7 @@ mod tests {
         );
         assert_eq!(
             C64 {
-                model: ModelArg::Ntsc,
+                model: Model::C64NtscBreadbin,
                 ..C64::default()
             }
             .frame_ticks(),
@@ -962,15 +825,26 @@ mod tests {
     }
 
     #[test]
-    fn resolve_rom_path_prefers_explicit_override() {
-        let resolved = resolve_rom_path(
-            Some(Path::new("override/kernal.rom")),
-            Some(Path::new("roms")),
-            &["kernal.rom", "c64-kernal.rom"],
-        )
-        .expect("explicit ROM path should resolve");
-
-        assert_eq!(resolved, Some(PathBuf::from("override/kernal.rom")));
+    fn the_rom_flags_pin_their_images_and_the_dir_flag_sets_the_directory() {
+        let (app, _, _) = parsed(&[
+            "--rom-dir",
+            "roms",
+            "--kernal",
+            "override/kernal.rom",
+            "--chargen",
+            "override/chargen.rom",
+        ]);
+        let overrides = app.firmware_overrides();
+        assert_eq!(overrides.dir, Some(PathBuf::from("roms")));
+        assert_eq!(
+            overrides.by_id.get(KERNAL_ID),
+            Some(&PathBuf::from("override/kernal.rom"))
+        );
+        assert_eq!(
+            overrides.by_id.get(CHARACTER_ID),
+            Some(&PathBuf::from("override/chargen.rom"))
+        );
+        assert!(!overrides.by_id.contains_key(BASIC_ID));
     }
 
     /// The native firmware loader picks up the optional 1571 and 1581 DOS ROMs

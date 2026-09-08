@@ -1,7 +1,6 @@
 # Variants belong to the runtime
 
-**Status:** Adopted 2026-09-08 for the Spectrum and Amiga families; the
-C64 follows.
+**Status:** Adopted 2026-09-08 for the Spectrum, Amiga and C64 families.
 
 ## The problem
 
@@ -75,6 +74,18 @@ are `Model::firmware_sources` by chip stack, and `--rom-dir` /
 the shell's, which takes either spelling and answers with `machine`
 like every other family; the smoke test that read `model` back now
 reads `machine`.
+
+The C64's `ModelArg`, its ROM-directory search and its per-file
+candidate lists are gone the same way. `Model::firmware_sources` lists
+KERNAL, BASIC and the character generator as required and the three
+drive DOS ROMs as optional, which is why the shell only insists on a
+ROM directory when a required image is unpinned: a launch naming the
+three by hand works without one, and a `--load-snapshot` boot with no
+firmware at all still restores from the snapshot. `c64c` stays an
+accepted spelling of `c64c-pal`. The C64 gains `set_machine` over MCP
+and in scripts, which it never had; its window keeps rebuilding a
+switched variant from the firmware bytes it stashed at launch, so
+`--kernal` and friends survive a menu switch there as they always did.
 
 What did not move is the launch-time policy the flags express: which
 variant a `--machine`, `--model` or portable snapshot selects, and

@@ -30,7 +30,6 @@
 use std::borrow::Cow;
 use std::time::Duration;
 
-use common_commodore_c64::timing::{C64Timing, TIMING_NTSC_BREADBIN, TIMING_PAL_BREADBIN};
 use emu198x_shell::{FirmwareImage, FirmwareSet, MachineError};
 use emu198x_ui::launch::UiApp;
 use emu198x_ui::{
@@ -43,11 +42,6 @@ use crate::app::{C64, FirmwareBundle};
 
 const DEFAULT_SCALE: u32 = 2;
 const INPUT_SLICES_PER_FRAME: u32 = 8;
-
-const PAL_ID: &str = "pal";
-const NTSC_ID: &str = "ntsc";
-const C64C_PAL_ID: &str = "c64c-pal";
-const C64C_NTSC_ID: &str = "c64c-ntsc";
 
 // Seam-2 input port convention: port 0 = C64 gameport 2 (CIA1 PA,
 // the main "gameport"). See runtime-commodore-c64/src/input.rs for
@@ -168,20 +162,11 @@ pub struct C64System {
     keyboard_joystick: bool,
 }
 
-impl C64System {
-    fn timing(&self) -> &'static C64Timing {
-        match self.model {
-            Model::C64NtscBreadbin | Model::C64cNtsc => &TIMING_NTSC_BREADBIN,
-            Model::C64PalBreadbin | Model::C64cPal => &TIMING_PAL_BREADBIN,
-        }
-    }
-}
-
 impl UiSystem for C64System {
     type Runtime = C64Runtime;
 
     fn window_title(&self) -> String {
-        format!("Emu198x | Commodore 64 ({})", model_label(self.model))
+        format!("Emu198x | Commodore 64 ({})", self.model.menu_label())
     }
 
     fn default_scale(&self) -> u32 {
@@ -194,11 +179,11 @@ impl UiSystem for C64System {
     }
 
     fn frame_ticks(&self, _runtime: &Self::Runtime) -> u64 {
-        u64::from(self.timing().cycles_per_frame)
+        u64::from(self.model.timing().cycles_per_frame)
     }
 
     fn frame_duration(&self, _runtime: &Self::Runtime) -> Duration {
-        let timing = self.timing();
+        let timing = self.model.timing();
         Duration::from_secs_f64(f64::from(timing.cycles_per_frame) / timing.cpu_hz as f64)
     }
 
@@ -261,16 +246,14 @@ impl UiSystem for C64System {
     }
 
     fn variants(&self) -> Vec<VariantInfo> {
-        vec![
-            VariantInfo::new(PAL_ID, model_label(Model::C64PalBreadbin)),
-            VariantInfo::new(NTSC_ID, model_label(Model::C64NtscBreadbin)),
-            VariantInfo::new(C64C_PAL_ID, model_label(Model::C64cPal)),
-            VariantInfo::new(C64C_NTSC_ID, model_label(Model::C64cNtsc)),
-        ]
+        Model::ALL
+            .iter()
+            .map(|model| VariantInfo::new(model.variant_id(), model.menu_label()))
+            .collect()
     }
 
     fn current_variant(&self) -> Option<Cow<'static, str>> {
-        Some(Cow::Borrowed(variant_id(self.model)))
+        Some(Cow::Borrowed(self.model.variant_id()))
     }
 
     fn switch_variant(
@@ -278,7 +261,7 @@ impl UiSystem for C64System {
         runtime: &mut Self::Runtime,
         variant: &str,
     ) -> Result<(), MachineError> {
-        let model = model_for_variant(variant).ok_or(MachineError::UnsupportedOperation {
+        let model = Model::from_variant_id(variant).ok_or(MachineError::UnsupportedOperation {
             operation: "unknown Commodore 64 variant",
         })?;
         // All four variants (PAL/NTSC breadbin and C64C) share the same firmware
@@ -362,37 +345,6 @@ fn drive_option(runtime: &C64Runtime, kind: DriveKind, id: &'static str) -> Driv
     }
 }
 
-/// The Machine-menu label for a model (region + SID revision).
-fn model_label(model: Model) -> &'static str {
-    match model {
-        Model::C64PalBreadbin => "PAL Breadbin (6581)",
-        Model::C64NtscBreadbin => "NTSC Breadbin (6581)",
-        Model::C64cPal => "PAL C64C (8580)",
-        Model::C64cNtsc => "NTSC C64C (8580)",
-    }
-}
-
-/// The stable variant id for a model (round-trips through [`model_for_variant`]).
-fn variant_id(model: Model) -> &'static str {
-    match model {
-        Model::C64PalBreadbin => PAL_ID,
-        Model::C64NtscBreadbin => NTSC_ID,
-        Model::C64cPal => C64C_PAL_ID,
-        Model::C64cNtsc => C64C_NTSC_ID,
-    }
-}
-
-/// Resolve a variant id from the Machine menu back to a [`Model`].
-fn model_for_variant(variant: &str) -> Option<Model> {
-    match variant {
-        PAL_ID => Some(Model::C64PalBreadbin),
-        NTSC_ID => Some(Model::C64NtscBreadbin),
-        C64C_PAL_ID => Some(Model::C64cPal),
-        C64C_NTSC_ID => Some(Model::C64cNtsc),
-        _ => None,
-    }
-}
-
 // ---- The launcher's window driver -------------------------------------------
 
 impl UiApp for C64 {
@@ -413,7 +365,7 @@ impl UiApp for C64 {
             })
             .unwrap_or_default();
         C64System {
-            model: self.model.to_model(),
+            model: self.model,
             firmware,
             keyboard_joystick: false,
         }
@@ -456,16 +408,15 @@ mod tests {
     }
 
     #[test]
-    fn variant_ids_round_trip_through_models() {
-        for model in [
-            Model::C64PalBreadbin,
-            Model::C64NtscBreadbin,
-            Model::C64cPal,
-            Model::C64cNtsc,
-        ] {
-            assert_eq!(model_for_variant(variant_id(model)), Some(model));
-        }
-        assert_eq!(model_for_variant("nonsense"), None);
+    fn the_variant_menu_lists_every_model_by_its_id() {
+        let system = C64System {
+            model: Model::C64cNtsc,
+            firmware: Vec::new(),
+            keyboard_joystick: false,
+        };
+        let ids: Vec<_> = system.variants().iter().map(|v| v.id.to_string()).collect();
+        assert_eq!(ids, Model::VARIANT_IDS);
+        assert_eq!(system.current_variant().as_deref(), Some("c64c-ntsc"));
     }
 
     #[test]
