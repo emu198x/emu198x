@@ -8,13 +8,17 @@
 //! Cargo feature; the shared launcher opens the window when no automation
 //! flag is given.
 
+use emu198x_shell::{
+    FamilyRuntime, FirmwareOverrides, MachineCore, MachineError, build_replacement,
+};
+use std::borrow::Cow;
 use std::time::Duration;
 
 use emu198x_ui::launch::UiApp;
-use emu198x_ui::{ButtonInputMap, ButtonTarget, HostControl, KeyCode, UiSystem};
-use runtime_msx::MsxRuntime;
+use emu198x_ui::{ButtonInputMap, ButtonTarget, HostControl, KeyCode, UiSystem, VariantInfo};
+use runtime_msx::{Model, MsxRuntime};
 
-use crate::app::{Msx, Region};
+use crate::app::Msx;
 
 const DEFAULT_SCALE: u32 = 3;
 
@@ -30,20 +34,16 @@ const MSX_BUTTON_MAP: ButtonInputMap = ButtonInputMap::new(&[
     (HostControl::East, ButtonTarget::new(1, "fire")),
 ]);
 
-/// The MSX1 as a [`UiSystem`] for the shared harness. The region is fixed at
-/// construction; a hard reset rebuilds the machine from the firmware and
-/// cartridge the runtime already holds.
+/// Native adapter for the runtime's regional catalogue.
 pub struct MsxSystem {
-    region: Region,
+    model: Model,
 }
 
 impl UiApp for Msx {
     type System = MsxSystem;
 
     fn ui_system(&self) -> MsxSystem {
-        MsxSystem {
-            region: self.region,
-        }
+        MsxSystem { model: self.model }
     }
 }
 
@@ -76,12 +76,44 @@ impl UiSystem for MsxSystem {
             .unwrap_or((280, 240))
     }
 
-    fn frame_ticks(&self, _runtime: &Self::Runtime) -> u64 {
-        self.region.frame_ticks()
+    fn frame_ticks(&self, runtime: &Self::Runtime) -> u64 {
+        runtime.native_frame_ticks()
     }
 
-    fn frame_duration(&self, _runtime: &Self::Runtime) -> Duration {
-        Duration::from_secs_f64(1.0 / self.region.frame_hz())
+    fn frame_duration(&self, runtime: &Self::Runtime) -> Duration {
+        Duration::from_secs_f64(match runtime.profile().region {
+            emu198x_shell::Region::Pal => 1.0 / 50.0,
+            _ => 1.0 / 60.0,
+        })
+    }
+
+    fn variants(&self) -> Vec<VariantInfo> {
+        Model::ALL
+            .iter()
+            .map(|model| VariantInfo::new(model.variant_id(), model.display_name()))
+            .collect()
+    }
+
+    fn current_variant(&self) -> Option<Cow<'static, str>> {
+        Some(Cow::Borrowed(self.model.variant_id()))
+    }
+
+    fn switch_variant(
+        &mut self,
+        runtime: &mut Self::Runtime,
+        id: &str,
+    ) -> Result<(), MachineError> {
+        let model = Model::from_variant_id(id).ok_or(MachineError::UnsupportedOperation {
+            operation: "unknown MSX variant",
+        })?;
+        *runtime =
+            build_replacement(runtime, model, &FirmwareOverrides::none()).map_err(|err| {
+                MachineError::Host {
+                    reason: err.to_string(),
+                }
+            })?;
+        self.model = model;
+        Ok(())
     }
 
     fn button_map(&self) -> &'static ButtonInputMap {
@@ -174,6 +206,49 @@ fn map_msx_keys(code: KeyCode) -> Option<&'static [&'static str]> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn window_uses_catalogue_firmware_both_slots_and_live_regional_pacing() {
+        let dir = std::env::temp_dir().join(format!("msx-ui-catalogue-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("directory");
+        std::fs::write(dir.join("msx.rom"), vec![0x76; 32768]).expect("BIOS");
+        std::fs::write(dir.join("cart.rom"), vec![0x5a; 32768]).expect("cart");
+        let app = Msx {
+            firmware: FirmwareOverrides {
+                dir: Some(dir.clone()),
+                ..FirmwareOverrides::none()
+            },
+            cart: Some(dir.join("cart.rom")),
+            cart2: Some(dir.join("cart.rom")),
+            mapper: runtime_msx::MapperType::KonamiScc,
+            mapper2: runtime_msx::MapperType::Ascii16,
+            ..Msx::default()
+        };
+        let runtime = app.build_ui_runtime().expect("window runtime");
+        let mut system = app.ui_system();
+        assert_eq!(system.variants().len(), 2);
+        let mut replacement =
+            build_replacement(&runtime, Model::Msx1Pal, &app.firmware).expect("PAL");
+        assert_eq!(system.frame_ticks(&replacement), 228 * 313);
+        assert_eq!(
+            system.frame_duration(&replacement),
+            Duration::from_secs_f64(1.0 / 50.0)
+        );
+        assert_eq!(system.framebuffer_size(&replacement), (278, 288));
+        assert_eq!(system.framebuffer_size(&runtime), (280, 240));
+        assert_eq!(
+            replacement
+                .machine()
+                .expect("machine")
+                .cartridge(2)
+                .expect("slot 2")
+                .1,
+            runtime_msx::MapperType::Ascii16
+        );
+        assert!(system.switch_variant(&mut replacement, "unknown").is_err());
+        assert_eq!(replacement.model(), Model::Msx1Pal);
+        std::fs::remove_dir_all(dir).expect("cleanup");
+    }
 
     #[test]
     fn cursor_keys_are_keyboard_cells_and_graph_maps() {

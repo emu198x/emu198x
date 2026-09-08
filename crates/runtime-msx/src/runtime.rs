@@ -183,14 +183,14 @@ impl MsxRuntime {
     /// Cartridge slot 1 ROM image (when present). Used by the session query
     /// surface (`cartridge.cart1.loaded`).
     #[must_use]
-    pub(crate) fn cart1_bytes(&self) -> Option<&[u8]> {
+    pub fn cart1_bytes(&self) -> Option<&[u8]> {
         self.cart1_bytes.as_deref()
     }
 
     /// Cartridge slot 2 ROM image (when present). Used by the session query
     /// surface (`cartridge.cart2.loaded`).
     #[must_use]
-    pub(crate) fn cart2_bytes(&self) -> Option<&[u8]> {
+    pub fn cart2_bytes(&self) -> Option<&[u8]> {
         self.cart2_bytes.as_deref()
     }
 
@@ -212,6 +212,25 @@ impl MsxRuntime {
             self.rgba_height = height;
             self.rgba_framebuffer = vec![0; (width * height * 4) as usize];
         }
+        // Reset and regional replacement must use the restored media, not the
+        // firmware and cartridges from before the snapshot was loaded.
+        self.bios_bytes = machine.as_ref().map(|m| m.bios_rom().to_vec());
+        self.cart1_bytes = machine
+            .as_ref()
+            .and_then(|m| m.cartridge(1))
+            .map(|(rom, _)| rom.to_vec());
+        self.cart2_bytes = machine
+            .as_ref()
+            .and_then(|m| m.cartridge(2))
+            .map(|(rom, _)| rom.to_vec());
+        self.cart1_mapper = machine
+            .as_ref()
+            .and_then(|m| m.cartridge(1))
+            .map_or(MapperType::Plain, |(_, mapper)| mapper);
+        self.cart2_mapper = machine
+            .as_ref()
+            .and_then(|m| m.cartridge(2))
+            .map_or(MapperType::Plain, |(_, mapper)| mapper);
         self.machine = machine;
         self.update_rgba_framebuffer();
     }
@@ -275,7 +294,62 @@ impl MsxRuntime {
     }
 }
 
+impl emu198x_shell::FamilyRuntime for MsxRuntime {
+    type Model = Model;
+    fn variant_ids() -> &'static [&'static str] {
+        &Model::VARIANT_IDS
+    }
+    fn model_from_id(id: &str) -> Option<Model> {
+        Model::from_variant_id(id)
+    }
+    fn variant_id(model: Model) -> &'static str {
+        model.variant_id()
+    }
+    fn profile_for(model: Model) -> MachineProfile {
+        profile_for(model)
+    }
+    fn rom_convention() -> emu198x_shell::RomConvention {
+        emu198x_shell::RomConvention {
+            env_var: Some("EMU198X_MSX_ROM_DIR"),
+            dirs: &["microsoft-msx"],
+        }
+    }
+    fn firmware_sources(model: Model) -> Vec<emu198x_shell::FirmwareSource> {
+        model.firmware_sources()
+    }
+    fn from_firmware(
+        model: Model,
+        firmware: &emu198x_shell::FirmwareSet<'_>,
+    ) -> Result<Self, MachineError> {
+        Self::from_firmware(model, firmware)
+    }
+    fn replacement(
+        &self,
+        model: Model,
+        firmware: &emu198x_shell::FirmwareSet<'_>,
+    ) -> Result<Self, MachineError> {
+        let mut replacement = Self::from_firmware(model, firmware)?;
+        if let Some(cart) = &self.cart1_bytes {
+            replacement.insert_cartridge1(cart.clone(), self.cart1_mapper);
+        }
+        if let Some(cart) = &self.cart2_bytes {
+            replacement.insert_cartridge2(cart.clone(), self.cart2_mapper);
+        }
+        Ok(replacement)
+    }
+    fn native_frame_ticks(&self) -> u64 {
+        self.model.frame_ticks()
+    }
+}
+
 impl MachineCore for MsxRuntime {
+    fn set_machine<Q: emu198x_shell::SessionQueryProvider<Self>>(
+        session: &mut emu198x_shell::HeadlessSession<Self, Q>,
+        machine: &str,
+    ) -> Result<emu198x_shell::VariantSwitched, emu198x_shell::LoaderError> {
+        emu198x_shell::swap_variant(session, machine)
+    }
+
     fn profile(&self) -> &MachineProfile {
         &self.profile
     }

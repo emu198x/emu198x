@@ -7,7 +7,7 @@ preset has booted or passed hardware validation.
 ## Coverage
 
 All 30 registered machine binaries have a native `UiApp` adapter and enable the
-UI feature by default. Fifteen expose a Machine-menu selector. Seven other
+UI feature by default. Sixteen expose a Machine-menu selector. Six other
 binaries have multiple runtime profiles without an in-window selector; the
 remaining eight have a single runtime profile.
 
@@ -43,7 +43,7 @@ select; “None” means the catalogue has alternatives but no menu to choose th
 | [jupiter-ace](../../crates/emu198x-jupiter-ace/src/app.rs) | 3 | `--model` / `--ram-kb` | 3/3 | Stock 3 KiB / 16 KiB expansion / 48 KiB expansion |
 | [mattel-aquarius](../../crates/emu198x-mattel-aquarius/src/app.rs) | 1 | Single profile | — | RAM expansion independent |
 | [memotech-mtx](../../crates/emu198x-memotech-mtx/src/app.rs) | 2 | `--model` | 2/2 | MTX500/512 marketed models |
-| [msx](../../crates/emu198x-msx/src/app.rs) | 2 | `--region` | None | MSX1 region |
+| [msx](../../crates/emu198x-msx/src/app.rs) | 2 | `--model` / `--region` | 2/2 | MSX1 region |
 | [nes](../../crates/emu198x-nes/src/app.rs) | 1 | Single profile | — | NTSC |
 | [oric-atmos](../../crates/emu198x-oric-atmos/src/app.rs) | 2 | `--model` | 2/2 | Oric-1/Atmos |
 | [sega-game-gear](../../crates/emu198x-sega-game-gear/src/app.rs) | 1 | `--model` / `--variant` (one choice) | — | Game Gear |
@@ -484,4 +484,43 @@ window/headless language policy, explicit sideways overrides, reset retention,
 font installation and actual ROM mapping through script and MCP. All 36 existing
 MCP tool definitions are unchanged. A 150-frame staged-ROM capture reaches the
 BBC BASIC prompt at 640×256; native menu interaction and audio output remain
+unverified by this slice.
+
+## MSX regional catalogue and cartridge lifecycle
+
+Parent issue: [#1475](https://github.com/emu198x/emu198x/issues/1475).
+Broader epic: [#456](https://github.com/emu198x/emu198x/issues/456).
+
+MSX exposes its two existing regional profiles through the runtime catalogue,
+`--model`, script/MCP switching and a native selector. `--region` remains an
+alias; the last selector wins. The runtime owns the unchanged frame budgets,
+and native pacing follows the live runtime after switching.
+
+The shared BIOS resolver retains `--bios` and `EMU198X_MSX_BIOS`, and adds
+`--rom PATH|ID=PATH`, `--rom-dir` and `EMU198X_MSX_ROM_DIR`. The firmware id
+is `msx1-bios`, and the existing directory and filename are `microsoft-msx/msx.rom`.
+The 32 KiB BIOS size requirement is unchanged. Missing conventional firmware
+permits blank MCP startup; explicit missing or malformed firmware fails.
+
+Both cartridge slots and explicit mapper choices now load through parsed startup
+options in every mode. A region switch resolves conventional BIOS and cold-boots
+while retaining both in-memory cartridges and their mapper choices, without
+rereading source files. CPU, RAM, bank selections and peripheral state reset.
+Failed switches preserve the running machine. Snapshot restore refreshes the
+runtime's cached BIOS, cartridges and mappers from the installed machine, so
+subsequent resets and switches retain restored media rather than stale launch
+inputs. The version-5 snapshot envelope is unchanged. Cartridge reports describe
+the runtime's installed media.
+
+Catalogue adoption covers twenty-two of 30 binaries, with eight remaining.
+Sixteen expose native selectors on macOS. Tests cover BIOS precedence and errors,
+both mapped cartridges, snapshot/reset/replacement lifecycle, live regional
+pacing and dimensions, and CLI/script/MCP paths. An interactive MCP test removes
+both cartridge sources before switching, then removes the BIOS and verifies that
+the rejected next switch preserves live memory. The MCP inventory adds only
+`set_machine` (40→41 tools); all existing definitions are unchanged.
+
+Local 300-frame captures with staged firmware reach MSX BASIC `Ok` in both
+regions: 280×240 NTSC and 278×288 PAL. These are boot/capture checks; native
+menu click-through, commercial-cartridge gameplay and audio-device output remain
 unverified by this slice.

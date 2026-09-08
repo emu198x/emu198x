@@ -424,6 +424,24 @@ impl Msx {
         self.cart2 = CartridgeSlot::new(rom, mapper);
     }
 
+    /// Installed BIOS bytes, including firmware restored from a snapshot.
+    #[must_use]
+    pub fn bios_rom(&self) -> &[u8] {
+        &self.bios_rom
+    }
+
+    /// Installed cartridge bytes and mapper for physical slot 1 or 2.
+    /// Empty or unknown slots return `None`.
+    #[must_use]
+    pub fn cartridge(&self, slot: u8) -> Option<(&[u8], MapperType)> {
+        let cart = match slot {
+            1 => &self.cart1,
+            2 => &self.cart2,
+            _ => return None,
+        };
+        (!cart.rom.is_empty()).then_some((cart.rom.as_slice(), cart.mapper))
+    }
+
     /// Mapper currently selected for cartridge slot 1.
     #[must_use]
     pub fn cart1_mapper(&self) -> MapperType {
