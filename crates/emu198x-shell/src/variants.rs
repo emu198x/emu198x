@@ -284,13 +284,16 @@ pub fn resolve_firmware<M: FamilyRuntime>(
         });
     }
 
+    // A directory is only needed for a required image nothing pinned; an
+    // optional image with no directory to look in is simply absent, so a
+    // launch that names every required ROM by hand works without one.
     let needs_dir = sources
         .iter()
-        .any(|source| !overrides.by_id.contains_key(source.id));
+        .any(|source| !source.optional && !overrides.by_id.contains_key(source.id));
     let dir = if needs_dir {
         Some(rom_dir::<M>(overrides.dir.as_deref(), machine)?)
     } else {
-        None
+        rom_dir::<M>(overrides.dir.as_deref(), machine).ok()
     };
 
     let mut resolved = Vec::with_capacity(sources.len());
@@ -304,7 +307,11 @@ pub fn resolve_firmware<M: FamilyRuntime>(
             resolved.push((source.id, path.clone()));
             continue;
         }
-        let dir = dir.as_deref().unwrap_or_else(|| Path::new(""));
+        let Some(dir) = dir.as_deref() else {
+            // No directory and this image is not pinned: it is optional, or
+            // `needs_dir` would have insisted on one.
+            continue;
+        };
         match source
             .candidates
             .iter()
@@ -596,13 +603,14 @@ mod tests {
         }
     }
 
-    /// A fresh ROM directory with the named files in it.
+    /// A fresh ROM directory with the named files in it. Tests run in
+    /// parallel and several want the same files, so each gets its own
+    /// numbered directory.
     fn rom_dir(files: &[&str]) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!(
-            "emu198x-shell-variants-{}-{}",
-            std::process::id(),
-            files.join("_").replace('/', "-")
-        ));
+        static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let dir =
+            std::env::temp_dir().join(format!("emu198x-shell-variants-{}-{n}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         for file in files {
             let path = dir.join(file);
@@ -694,9 +702,10 @@ mod tests {
         let mut overrides = FirmwareOverrides::none();
         overrides.pin("rom-0", dir.join("x0.rom"));
         overrides.pin("rom-1", dir.join("x1.rom"));
-        overrides.pin("extra", dir.join("x1.rom"));
+        // The optional `extra` is not pinned and there is no directory to
+        // look in, so it is absent rather than an error.
         let resolved = resolve_firmware::<Fam>(FamModel::Two, &overrides).expect("no dir needed");
-        assert_eq!(resolved.len(), 3);
+        assert_eq!(resolved.len(), 2, "{resolved:?}");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
