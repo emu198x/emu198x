@@ -5,11 +5,9 @@
 //! surface. This crate holds that shared half so each machine can own its
 //! own runtime crate with a single `machine_id` (#998).
 //!
-//! The machine's identity arrives as data — a profile, a hardware variant
-//! and a model id — rather than as a type parameter. A generic
-//! `SmsRuntime<M>` would put `MachineCore` and `DebugPrimitives` impls out
-//! of reach of the per-machine crates: both traits are foreign, and
-//! `SmsRuntime<LocalModel>` is not a local type for the orphan rule.
+//! Each system supplies its model catalogue. The class owns the generic runtime
+//! and all trait implementations, so the per-system crates need only implement
+//! `SmsModel` and publish a concrete runtime alias.
 
 use emu198x_shell::{
     AudioPacket, CapabilitySet, ControlCommand, FramePacket, HostIo, MachineCore, MachineError,
@@ -24,12 +22,20 @@ use emu198x_shell::display::Display;
 
 const AUDIO_SAMPLE_RATE: u32 = 48_000;
 
-pub struct SmsRuntime {
+/// Model metadata supplied by each system's runtime catalogue.
+pub trait SmsModel: Copy + 'static {
+    const VARIANT_IDS: &'static [&'static str];
+    fn from_variant_id(id: &str) -> Option<Self>;
+    fn variant_id(self) -> &'static str;
+    fn model_id(self) -> &'static str;
+    fn profile(self) -> MachineProfile;
+    fn variant(self) -> SmsVariant;
+    fn frame_ticks(self) -> u64;
+}
+
+pub struct SmsRuntime<M: SmsModel> {
+    model: M,
     profile: MachineProfile,
-    variant: SmsVariant,
-    /// Stable per-model identifier, checked on snapshot restore so a Game
-    /// Gear state cannot be loaded into a Master System.
-    model_id: &'static str,
     machine: Option<Sms>,
     cart_bytes: Option<Vec<u8>>,
     time: MachineTime,
@@ -39,13 +45,12 @@ pub struct SmsRuntime {
     controller_cache: ControllerCache,
 }
 
-impl SmsRuntime {
+impl<M: SmsModel> SmsRuntime<M> {
     #[must_use]
-    pub fn blank(profile: MachineProfile, variant: SmsVariant, model_id: &'static str) -> Self {
+    pub fn blank(model: M) -> Self {
         Self {
-            profile,
-            variant,
-            model_id,
+            model,
+            profile: model.profile(),
             machine: None,
             cart_bytes: None,
             time: MachineTime::default(),
@@ -57,15 +62,15 @@ impl SmsRuntime {
     }
 
     #[must_use]
-    pub fn new(
-        profile: MachineProfile,
-        variant: SmsVariant,
-        model_id: &'static str,
-        cart_rom: Vec<u8>,
-    ) -> Self {
-        let mut runtime = Self::blank(profile, variant, model_id);
+    pub fn new(model: M, cart_rom: Vec<u8>) -> Self {
+        let mut runtime = Self::blank(model);
         runtime.insert_cartridge(cart_rom);
         runtime
+    }
+
+    #[must_use]
+    pub fn model(&self) -> M {
+        self.model
     }
 
     pub fn insert_cartridge(&mut self, rom: Vec<u8>) {
@@ -112,13 +117,13 @@ impl SmsRuntime {
     /// The hardware variant this runtime drives.
     #[must_use]
     pub fn variant(&self) -> SmsVariant {
-        self.variant
+        self.model.variant()
     }
 
     /// The model id recorded in snapshots.
     #[must_use]
     pub fn model_id(&self) -> &'static str {
-        self.model_id
+        self.model.model_id()
     }
 
     pub(crate) fn set_time(&mut self, time: MachineTime) {
@@ -156,7 +161,7 @@ impl SmsRuntime {
             self.machine = None;
             return;
         };
-        let mut machine = Sms::new(rom, self.variant);
+        let mut machine = Sms::new(rom, self.variant());
         if let Some((ram, dirty)) = preserved_ram {
             let restored = machine.restore_cartridge_ram(&ram, dirty);
             debug_assert!(restored);
@@ -185,7 +190,70 @@ impl SmsRuntime {
     }
 }
 
-impl MachineCore for SmsRuntime {
+impl<M: SmsModel> emu198x_shell::FamilyRuntime for SmsRuntime<M> {
+    type Model = M;
+    fn variant_ids() -> &'static [&'static str] {
+        M::VARIANT_IDS
+    }
+    fn model_from_id(id: &str) -> Option<M> {
+        M::from_variant_id(id)
+    }
+    fn variant_id(model: M) -> &'static str {
+        model.variant_id()
+    }
+    fn profile_for(model: M) -> MachineProfile {
+        model.profile()
+    }
+    fn rom_convention() -> emu198x_shell::RomConvention {
+        emu198x_shell::RomConvention {
+            env_var: None,
+            dirs: &[],
+        }
+    }
+    fn firmware_sources(_model: M) -> Vec<emu198x_shell::FirmwareSource> {
+        Vec::new()
+    }
+    fn from_firmware(
+        model: M,
+        firmware: &emu198x_shell::FirmwareSet<'_>,
+    ) -> Result<Self, MachineError> {
+        firmware.validate_for_profile(&model.profile())?;
+        Ok(Self::blank(model))
+    }
+    fn replacement(
+        &self,
+        model: M,
+        firmware: &emu198x_shell::FirmwareSet<'_>,
+    ) -> Result<Self, MachineError> {
+        let mut replacement = Self::from_firmware(model, firmware)?;
+        if let Some(cart) = &self.cart_bytes {
+            replacement.insert_cartridge(cart.clone());
+        }
+        if let (Some(old), Some(new)) = (self.machine(), replacement.machine_mut()) {
+            let restored =
+                new.restore_cartridge_ram(old.cartridge_ram(), old.cartridge_ram_dirty());
+            debug_assert!(restored);
+        }
+        Ok(replacement)
+    }
+    fn native_frame_ticks(&self) -> u64 {
+        self.model.frame_ticks()
+    }
+}
+
+impl<M: SmsModel> MachineCore for SmsRuntime<M> {
+    fn set_machine<Q: emu198x_shell::SessionQueryProvider<Self>>(
+        session: &mut emu198x_shell::HeadlessSession<Self, Q>,
+        machine: &str,
+    ) -> Result<emu198x_shell::VariantSwitched, emu198x_shell::LoaderError> {
+        if M::VARIANT_IDS.len() < 2 {
+            return Err(emu198x_shell::LoaderError::Unsupported {
+                step: "set_machine",
+            });
+        }
+        emu198x_shell::swap_variant(session, machine)
+    }
+
     fn profile(&self) -> &MachineProfile {
         &self.profile
     }
@@ -306,4 +374,4 @@ impl MachineCore for SmsRuntime {
     emu198x_shell::debug_target_hooks!();
 }
 
-emu198x_shell::impl_z80_debug_primitives!(SmsRuntime);
+emu198x_shell::impl_z80_debug_primitives!(impl<M: SmsModel> SmsRuntime<M>);

@@ -9,13 +9,14 @@
 //! through [`UiSystem::map_keys`]. Compiled only with the `ui` Cargo feature;
 //! the shared launcher opens the window when no automation flag is given.
 
+use emu198x_shell::FamilyRuntime;
 use std::time::Duration;
 
 use emu198x_ui::launch::UiApp;
 use emu198x_ui::{ButtonInputMap, ButtonTarget, HostControl, KeyCode, UiSystem};
 use runtime_sega_game_gear::SmsRuntime;
 
-use crate::app::{GameGear, Variant};
+use crate::app::GameGear;
 
 const DEFAULT_SCALE: u32 = 3;
 
@@ -35,17 +36,13 @@ const SMS_BUTTON_MAP: ButtonInputMap = ButtonInputMap::new(&[
 /// The Sega Game Gear as a [`UiSystem`] for the shared harness.
 /// The variant is fixed at construction; a hard reset rebuilds the machine from
 /// the cartridge the runtime already holds.
-pub struct GameGearSystem {
-    variant: Variant,
-}
+pub struct GameGearSystem;
 
 impl UiApp for GameGear {
     type System = GameGearSystem;
 
     fn ui_system(&self) -> GameGearSystem {
-        GameGearSystem {
-            variant: self.variant,
-        }
+        GameGearSystem
     }
 }
 
@@ -75,12 +72,12 @@ impl UiSystem for GameGearSystem {
             .unwrap_or((160, 144))
     }
 
-    fn frame_ticks(&self, _runtime: &Self::Runtime) -> u64 {
-        self.variant.frame_ticks()
+    fn frame_ticks(&self, runtime: &Self::Runtime) -> u64 {
+        runtime.native_frame_ticks()
     }
 
     fn frame_duration(&self, _runtime: &Self::Runtime) -> Duration {
-        Duration::from_secs_f64(1.0 / self.variant.frame_hz())
+        Duration::from_secs_f64(1.0 / 60.0)
     }
 
     fn button_map(&self) -> &'static ButtonInputMap {
@@ -118,9 +115,7 @@ mod tests {
     /// sibling labels it Pause.
     #[test]
     fn pad_maps_and_console_button_is_start() {
-        let gg = GameGearSystem {
-            variant: Variant::GameGear,
-        };
+        let gg = GameGearSystem;
         assert_eq!(gg.map_key(KeyCode::ArrowLeft), Some(HostControl::Left));
         assert_eq!(gg.map_key(KeyCode::KeyZ), Some(HostControl::South));
         assert_eq!(gg.map_key(KeyCode::KeyX), Some(HostControl::East));
