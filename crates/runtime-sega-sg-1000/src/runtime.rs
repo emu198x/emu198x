@@ -77,6 +77,12 @@ impl Sg1000Runtime {
         self.time = time;
     }
 
+    /// Whether an in-memory cartridge is installed, including in a blank runtime.
+    #[must_use]
+    pub fn cartridge_loaded(&self) -> bool {
+        self.cart_bytes.is_some()
+    }
+
     pub(crate) fn cart_bytes(&self) -> Option<&[u8]> {
         self.cart_bytes.as_deref()
     }
@@ -130,7 +136,60 @@ impl Sg1000Runtime {
     }
 }
 
+impl emu198x_shell::FamilyRuntime for Sg1000Runtime {
+    type Model = Model;
+    fn variant_ids() -> &'static [&'static str] {
+        &Model::VARIANT_IDS
+    }
+    fn model_from_id(id: &str) -> Option<Model> {
+        Model::from_variant_id(id)
+    }
+    fn variant_id(model: Model) -> &'static str {
+        model.variant_id()
+    }
+    fn profile_for(model: Model) -> MachineProfile {
+        profile_for(model)
+    }
+    fn rom_convention() -> emu198x_shell::RomConvention {
+        emu198x_shell::RomConvention {
+            env_var: None,
+            dirs: &[],
+        }
+    }
+    fn firmware_sources(model: Model) -> Vec<emu198x_shell::FirmwareSource> {
+        model.firmware_sources()
+    }
+    fn from_firmware(
+        model: Model,
+        firmware: &emu198x_shell::FirmwareSet<'_>,
+    ) -> Result<Self, MachineError> {
+        firmware.validate_for_profile(&profile_for(model))?;
+        Ok(Self::blank(model))
+    }
+    fn replacement(
+        &self,
+        model: Model,
+        firmware: &emu198x_shell::FirmwareSet<'_>,
+    ) -> Result<Self, MachineError> {
+        let mut replacement = Self::from_firmware(model, firmware)?;
+        if let Some(cart) = &self.cart_bytes {
+            replacement.insert_cartridge(cart.clone());
+        }
+        Ok(replacement)
+    }
+    fn native_frame_ticks(&self) -> u64 {
+        self.model.frame_ticks()
+    }
+}
+
 impl MachineCore for Sg1000Runtime {
+    fn set_machine<Q: emu198x_shell::SessionQueryProvider<Self>>(
+        session: &mut emu198x_shell::HeadlessSession<Self, Q>,
+        machine: &str,
+    ) -> Result<emu198x_shell::VariantSwitched, emu198x_shell::LoaderError> {
+        emu198x_shell::swap_variant(session, machine)
+    }
+
     fn profile(&self) -> &MachineProfile {
         &self.profile
     }

@@ -201,6 +201,24 @@ at the existing 16 KiB limit. Both normal and MCP launch apply it; parsed cartri
 loading is shared with the window and script paths. Reports describe live state.
 Neither migration changes emulated hardware timing or ROM validation policy.
 
+## Cartridge retention across console regions
+
+SG-1000 and ColecoVision use their existing PAL/NTSC profile ids as catalogue
+ids. Their region switches cold-boot while retaining the installed cartridge's
+in-memory bytes. The runtime owns this policy through `FamilyRuntime::replacement`;
+the default implementation builds fresh, preserving other families' existing
+media-ejection behaviour. UI switches call `build_replacement`; session swaps
+call the same runtime hook after resolving firmware. Construction must leave the
+source runtime unchanged, including on failure. Recording rejection occurs before
+replacement so a failed switch cannot silently replace the running machine.
+
+SG-1000's empty firmware catalogue needs no directory. Cartridge loading is media,
+not firmware resolution, and normal launch still requires it. ColecoVision retains
+its BIOS file convention and legacy flag alongside shared directory and named-pin
+options. Its switches resolve conventional BIOS firmware, dropping launch pins,
+while retaining cartridge bytes. Both launchers share parsed cartridge startup
+with script, MCP and window modes, including positional paths.
+
 ## Adding a variant or migrating a family
 
 For another variant of a migrated family, extend its runtime model and
@@ -212,7 +230,8 @@ remain unchanged. A window menu should enumerate the runtime catalogue.
 For an existing family joining this convention, implement `FamilyRuntime`
 and delegate its `MachineCore::set_machine` hook to `swap_variant`.
 Declare `variant-switch` in the profiles. Route launch-time firmware
-pins and the window switch through `build_variant`; keep CLI parsing
+pins through `build_variant` and window switches through `build_replacement`
+when the family retains media; keep CLI parsing
 and optional blank-start policy in the binary. Test the actual CLI and
 MCP entry points, including missing firmware and a failed switch that
 leaves the current model intact. The ZX81's `tests/variants.rs` files
@@ -228,7 +247,7 @@ Stop and re-read this record if you find yourself:
 - writing a path under `~/.emu198x/roms` in a binary — it belongs in
   the runtime's `firmware_sources`;
 - resolving firmware differently in the UI switch, the launcher and
-  the MCP swap — all three are `build_variant`;
+  the MCP swap — all three use the shared resolver;
 - intercepting `set_machine` in a binary.
 
 Related: [`tools-follow-the-machine-spec.md`](tools-follow-the-machine-spec.md),

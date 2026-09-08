@@ -471,6 +471,23 @@ pub trait FamilyRuntime: MachineCore + Sized {
     /// the requested model.
     fn from_firmware(model: Self::Model, firmware: &FirmwareSet<'_>) -> Result<Self, MachineError>;
 
+    /// Construct a cold-boot replacement without changing the current runtime.
+    ///
+    /// The default starts fresh. Families that retain compatible media across
+    /// variants override this to copy their in-memory images into the replacement.
+    /// UI and session switches share this policy; retained media files are never reread.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MachineError`] if the target firmware or retained media is invalid.
+    fn replacement(
+        &self,
+        model: Self::Model,
+        firmware: &FirmwareSet<'_>,
+    ) -> Result<Self, MachineError> {
+        Self::from_firmware(model, firmware)
+    }
+
     /// Native master-clock ticks per video frame for the active variant —
     /// the value to feed [`crate::HeadlessSession::set_native_frame_ticks`]
     /// so the session paces one native frame per `run_frames` call.

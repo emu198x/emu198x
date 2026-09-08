@@ -15,6 +15,34 @@ pub enum Model {
 }
 
 impl Model {
+    pub const ALL: [Self; 2] = [Self::Sg1000Ntsc, Self::Sg1000Pal];
+    pub const VARIANT_IDS: [&'static str; 2] =
+        [Self::Sg1000Ntsc.variant_id(), Self::Sg1000Pal.variant_id()];
+
+    #[must_use]
+    pub const fn variant_id(self) -> &'static str {
+        self.profile_id()
+    }
+
+    #[must_use]
+    pub fn from_variant_id(id: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|model| model.variant_id() == id)
+    }
+
+    #[must_use]
+    pub fn firmware_sources(self) -> Vec<emu198x_shell::FirmwareSource> {
+        Vec::new()
+    }
+
+    /// Existing native host frame budget, in CPU clocks.
+    #[must_use]
+    pub const fn frame_ticks(self) -> u64 {
+        match self {
+            Self::Sg1000Ntsc => 228 * 262,
+            Self::Sg1000Pal => 228 * 313,
+        }
+    }
+
     #[must_use]
     pub const fn model_id(self) -> &'static str {
         match self {
@@ -47,10 +75,7 @@ impl Model {
 
 #[must_use]
 pub fn profiles() -> Vec<MachineProfile> {
-    vec![
-        profile_for(Model::Sg1000Ntsc),
-        profile_for(Model::Sg1000Pal),
-    ]
+    Model::ALL.into_iter().map(profile_for).collect()
 }
 
 #[must_use]
@@ -73,6 +98,7 @@ pub fn profile_for(model: Model) -> MachineProfile {
             WritebackPolicy::InMemoryOnly,
         )],
         capabilities: CapabilitySet::with_all([
+            known_capability("variant-switch"),
             known_capability("controller-input"),
             known_capability("scripted-input"),
         ]),
