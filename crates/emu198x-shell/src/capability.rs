@@ -116,6 +116,8 @@ pub mod ids {
     pub const BASIC_PROGRAM_LOAD: &str = "basic-program-load";
     /// The machine can type its own tape-load command and start the tape.
     pub const TAPE_AUTOLOAD: &str = "tape-autoload";
+    /// The machine is one variant of a family and can be swapped for another live.
+    pub const VARIANT_SWITCH: &str = "variant-switch";
 }
 
 #[must_use]

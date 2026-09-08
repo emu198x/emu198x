@@ -6,8 +6,9 @@
 //! window (`src/ui.rs`), and the two headless bodies the shared loop
 //! cannot express: the script runner (`src/script/`), which picks the
 //! boot variant from the script and intercepts the family's steps, and
-//! the MCP server (`src/mcp/`) with the Spectrum tool set. Shared state:
-//! `src/machine.rs` (MachineKind, ROM resolver).
+//! the MCP server (`src/mcp/`) with the Spectrum tool set. The variant
+//! vocabulary and ROM conventions are the runtime crate's (`Model`),
+//! resolved by the shell.
 //!
 //! See `docs/brainstorms/2026-05-08-track-1b-single-binary-brainstorm.md`
 //! for the design that drove this layout.
@@ -23,7 +24,6 @@
 //!   build to skip the heavy graphics stack.
 
 mod app;
-mod machine;
 mod mcp;
 mod portable_snapshot;
 mod script;

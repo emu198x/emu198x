@@ -1514,6 +1514,40 @@ mod tests {
     impl FamilyRuntime for DummyMachine {
         type Model = DummyModel;
 
+        fn variant_ids() -> &'static [&'static str] {
+            &["slow", "fast"]
+        }
+
+        fn model_from_id(id: &str) -> Option<DummyModel> {
+            match id {
+                "slow" => Some(DummyModel::Slow),
+                "fast" => Some(DummyModel::Fast),
+                _ => None,
+            }
+        }
+
+        fn variant_id(model: DummyModel) -> &'static str {
+            match model {
+                DummyModel::Slow => "slow",
+                DummyModel::Fast => "fast",
+            }
+        }
+
+        fn profile_for(_model: DummyModel) -> MachineProfile {
+            Self::new().profile.clone()
+        }
+
+        fn rom_convention() -> crate::variants::RomConvention {
+            crate::variants::RomConvention {
+                env_var: None,
+                dirs: &[""],
+            }
+        }
+
+        fn firmware_sources(_model: DummyModel) -> Vec<crate::variants::FirmwareSource> {
+            Vec::new()
+        }
+
         fn from_firmware(
             model: Self::Model,
             _firmware: &crate::firmware::FirmwareSet<'_>,

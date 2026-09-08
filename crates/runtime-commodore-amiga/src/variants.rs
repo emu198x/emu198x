@@ -1974,6 +1974,33 @@ impl emu198x_shell::FamilyRuntime for AmigaRuntimeKind {
             Self::Aga(rt) => rt.machine().frame_ticks(),
         }
     }
+
+    fn variant_ids() -> &'static [&'static str] {
+        &Model::VARIANT_IDS
+    }
+
+    fn model_from_id(id: &str) -> Option<Model> {
+        Model::from_variant_id(id)
+    }
+
+    fn variant_id(model: Model) -> &'static str {
+        model.variant_id()
+    }
+
+    fn profile_for(model: Model) -> emu198x_shell::MachineProfile {
+        crate::profiles::profile_for(model)
+    }
+
+    fn rom_convention() -> emu198x_shell::RomConvention {
+        emu198x_shell::RomConvention {
+            env_var: Some("EMU198X_AMIGA_ROM_DIR"),
+            dirs: &["commodore-amiga", "amiga"],
+        }
+    }
+
+    fn firmware_sources(model: Model) -> Vec<emu198x_shell::FirmwareSource> {
+        model.firmware_sources()
+    }
 }
 
 impl emu198x_shell::MachineCore for AmigaRuntimeKind {
@@ -1983,6 +2010,13 @@ impl emu198x_shell::MachineCore for AmigaRuntimeKind {
             Self::Ecs(rt) => rt.profile(),
             Self::Aga(rt) => rt.profile(),
         }
+    }
+
+    fn set_machine<Q: emu198x_shell::SessionQueryProvider<Self>>(
+        session: &mut emu198x_shell::HeadlessSession<Self, Q>,
+        machine: &str,
+    ) -> Result<emu198x_shell::VariantSwitched, emu198x_shell::LoaderError> {
+        emu198x_shell::swap_variant(session, machine)
     }
 
     fn time(&self) -> emu198x_shell::MachineTime {

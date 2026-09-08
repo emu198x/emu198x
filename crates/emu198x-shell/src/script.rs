@@ -268,18 +268,19 @@ pub enum ScriptStep {
     /// Switch the live machine to the named variant, loading its
     /// default ROM bundle from the conventional on-disk location.
     ///
-    /// `machine` is a system-specific identifier (e.g.
-    /// `"spectrum_48k"`, `"spectrum_128k"`) that the binary translates
-    /// to its native machine kind and ROM-bundle resolver. The shell
-    /// crate stays system-agnostic and surfaces this step via
-    /// [`ScriptError::SystemSpecificStep`] when its built-in executor
-    /// is asked to run it without a binary-side handler.
+    /// `machine` is one of the family's variant ids (e.g.
+    /// `"spectrum_48k"`, `"a1200"`), resolved by the runtime's
+    /// `FamilyRuntime` catalogue and booted from its conventional
+    /// firmware through the `MachineCore::set_machine` hook. A machine
+    /// with no variants reports [`ScriptError::SystemSpecificStep`].
     ///
     /// Always resets in-progress state — loaded media, snapshots,
     /// frame counter, audio buffer. Use this as the first step of
     /// any script that targets a non-default variant.
     SetMachine {
-        /// Snake-case variant identifier (binary-defined vocabulary).
+        /// Variant identifier from the family's `variant_ids`. `model` is
+        /// accepted as a spelling too; the Amiga's MCP tool used it.
+        #[serde(alias = "model")]
         machine: String,
     },
     /// Wait for boot, then drive the BASIC editor to type `LOAD ""`
@@ -1392,9 +1393,15 @@ impl ScriptStep {
                 session.clear_audio_capture();
                 Ok(None)
             }
-            Self::SetMachine { .. } => Err(ScriptError::SystemSpecificStep {
-                step: "set_machine",
-            }),
+            Self::SetMachine { machine } => {
+                let switched = M::set_machine(session, machine)
+                    .map_err(|err| loader_error("set_machine", err))?;
+                Ok(Some(ScriptObservation::SetMachine {
+                    machine: switched.machine,
+                    profile_id: switched.profile_id,
+                    display_name: switched.display_name,
+                }))
+            }
             Self::QueryAy => query_ay(session).map(Some),
             // CPU/memory/disassembly debug verbs run generically through the
             // shared `DebugTarget`, so MCP and `--script` execute the identical

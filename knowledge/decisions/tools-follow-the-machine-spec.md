@@ -39,8 +39,10 @@ Three things enforce that:
    and `autoload_tape` call `M::load_basic_program` / `M::autoload_tape`,
    which the Spectrum family and the C64 implement over their own
    tokeniser, memory map and prompt handling; the default refuses with
-   the same error the shell always gave. `set_machine` is the one arm
-   still intercepted per binary and follows under the same rule.
+   the same error the shell always gave. `set_machine` follows the same
+   pattern through `M::set_machine`, once a family's variant catalogue
+   lives in its runtime crate
+   ([`variants-belong-to-the-runtime.md`](variants-belong-to-the-runtime.md)).
 2. **Registration reads the profile, not the binary.** `register_tools_for`
    registers the base set, then each optional tier when the machine
    profile declares the capability behind it, using the ids in
@@ -54,6 +56,7 @@ Three things enforce that:
    | `port_read` / `port_write` | `port-io` |
    | `load_basic_program` | `basic-program-load` |
    | `autoload_tape` | `tape-autoload` |
+   | `set_machine` | `variant-switch` |
    | `query_ay` | the query surface lists `ay.registers` |
 
    The profile, not the live target, because a machine that starts blank

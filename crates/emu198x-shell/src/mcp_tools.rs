@@ -1035,6 +1035,33 @@ where
     )));
 }
 
+/// Register `set_machine` for a family whose profiles declare
+/// `variant-switch`: it swaps the live variant through the
+/// `MachineCore::set_machine` hook, booting the new one from its
+/// conventional firmware.
+pub fn register_variant_switch_tools<M, Q>(registry: &mut ToolRegistry<HeadlessSession<M, Q>>)
+where
+    M: MachineCore + 'static,
+    Q: SessionQueryProvider<M> + 'static,
+{
+    registry.register(Box::new(ScriptStepTool::<M, Q>::common(
+        "set_machine",
+        "Switch the live machine to the named family variant, booted from \
+         its conventional firmware (~/.emu198x/roms). Hard-resets; re-load \
+         any media afterwards.",
+        json!({
+            "type": "object",
+            "anyOf": [{ "required": ["machine"] }, { "required": ["model"] }],
+            "properties": {
+                "machine": { "type": "string",
+                             "description": "Variant id, e.g. \"spectrum_128k\" or \"a1200\"." },
+                "model":   { "type": "string",
+                             "description": "The same as `machine`; the spelling the Amiga's tool used." }
+            }
+        }),
+    )));
+}
+
 pub fn register_tools_for_profiles<M, Q>(
     registry: &mut ToolRegistry<HeadlessSession<M, Q>>,
     session: &HeadlessSession<M, Q>,
@@ -1068,6 +1095,9 @@ pub fn register_tools_for_profiles<M, Q>(
     }
     if has(ids::TAPE_AUTOLOAD) {
         register_tape_autoload_tools(registry);
+    }
+    if has(ids::VARIANT_SWITCH) {
+        register_variant_switch_tools(registry);
     }
     if session
         .query_paths(None)
@@ -1170,6 +1200,7 @@ mod tests {
             "query_ay",
             "load_basic_program",
             "autoload_tape",
+            "set_machine",
         ] {
             assert!(
                 !names.contains(&absent.to_owned()),
@@ -1189,6 +1220,7 @@ mod tests {
             "port-io",
             "basic-program-load",
             "tape-autoload",
+            "variant-switch",
         ]);
         for present in [
             "press_key",
@@ -1202,6 +1234,7 @@ mod tests {
             "port_write",
             "load_basic_program",
             "autoload_tape",
+            "set_machine",
         ] {
             assert!(
                 names.contains(&present.to_owned()),
