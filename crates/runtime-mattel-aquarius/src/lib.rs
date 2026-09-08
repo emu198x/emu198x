@@ -6,6 +6,6 @@ mod queries;
 mod runtime;
 mod snapshot;
 
-pub use profiles::{Model, profile_for, profiles};
+pub use profiles::{BIOS_FIRMWARE_ID, CHAR_FIRMWARE_ID, Model, profile_for, profiles};
 pub use queries::AquariusSessionQueryProvider;
 pub use runtime::AquariusRuntime;

@@ -7,11 +7,44 @@ use emu198x_shell::{
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Model {
-    /// Mattel Aquarius (PAL — Aquarius was Europe-first).
+    /// Mattel Aquarius (NTSC).
     Aquarius,
 }
 
 impl Model {
+    pub const ALL: [Self; 1] = [Self::Aquarius];
+    pub const VARIANT_IDS: [&'static str; 1] = ["mattel-aquarius"];
+
+    #[must_use]
+    pub const fn variant_id(self) -> &'static str {
+        self.profile_id()
+    }
+
+    #[must_use]
+    pub fn from_variant_id(id: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|model| model.variant_id() == id)
+    }
+
+    #[must_use]
+    pub fn firmware_sources(self) -> Vec<emu198x_shell::FirmwareSource> {
+        vec![
+            emu198x_shell::FirmwareSource::required(BIOS_FIRMWARE_ID, &["aquarius.rom"])
+                .with_env_var("EMU198X_AQUARIUS_BIOS"),
+            emu198x_shell::FirmwareSource::required(CHAR_FIRMWARE_ID, &["aquarius-char.rom"])
+                .with_env_var("EMU198X_AQUARIUS_CHAR"),
+        ]
+    }
+
+    #[must_use]
+    pub const fn machine_region(self) -> machine_mattel_aquarius::AquariusRegion {
+        machine_mattel_aquarius::AquariusRegion::Ntsc
+    }
+
+    #[must_use]
+    pub const fn frame_ticks(self) -> u64 {
+        self.machine_region().tstates_per_frame()
+    }
+
     #[must_use]
     pub const fn model_id(self) -> &'static str {
         match self {
@@ -44,7 +77,7 @@ pub const CHAR_FIRMWARE_ID: &str = "mattel-aquarius-char-rom";
 
 #[must_use]
 pub fn profiles() -> Vec<MachineProfile> {
-    vec![profile_for(Model::Aquarius)]
+    Model::ALL.into_iter().map(profile_for).collect()
 }
 
 #[must_use]
@@ -90,7 +123,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn profile_uses_pal_region() {
+    fn profile_uses_ntsc_region() {
         let p = profile_for(Model::Aquarius);
         assert_eq!(p.region, Region::Ntsc);
         assert_eq!(p.firmware.len(), 2);

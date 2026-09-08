@@ -3,62 +3,20 @@
 
 use std::path::PathBuf;
 
-use emu198x_shell::launch::{
-    Args, LaunchError, MachineApp, conventional_rom_path, read_rom, read_rom_exact,
-};
-use machine_mattel_aquarius::AquariusRegion;
+use emu198x_shell::launch::{Args, LaunchError, MachineApp, read_rom};
+use emu198x_shell::{FirmwareOverrides, MediaKind, build_variant, build_variant_or_blank};
 use runtime_mattel_aquarius::{AquariusRuntime, AquariusSessionQueryProvider, Model};
 use serde_json::{Map, Value};
 
-const BIOS_ENV: &str = "EMU198X_AQUARIUS_BIOS";
-const BIOS_RELATIVE: &str = "mattel-aquarius/aquarius.rom";
-const BIOS_SIZE: usize = 8 * 1024;
-const CHAR_ENV: &str = "EMU198X_AQUARIUS_CHAR";
-const CHAR_RELATIVE: &str = "mattel-aquarius/aquarius-char.rom";
-
-/// The video region the runtime builds: the Mattel US machine.
-pub const REGION: AquariusRegion = AquariusRegion::Ntsc;
-
-/// One NTSC frame in Z80 T-states (458 dots × 262 lines ÷ 2 = 59,998),
-/// taken from the machine so it cannot drift. A PAL budget of 71,590 sat
-/// here until 2026-09-07 while the runtime built an NTSC machine, so each
-/// budgeted frame ran two machine frames and the report's `frames_run` was
-/// twice `--frames`.
-pub const FRAME_TICKS: u64 = REGION.tstates_per_frame();
+#[cfg(test)]
+pub const FRAME_TICKS: u64 = Model::Aquarius.frame_ticks();
 
 /// The machine configuration the flags build up.
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct Aquarius {
-    pub bios: Option<PathBuf>,
-    pub char_rom: Option<PathBuf>,
+    pub firmware: FirmwareOverrides,
     pub cart: Option<PathBuf>,
     pub expansion_kb: usize,
-}
-
-impl Aquarius {
-    /// `--bios`, else `$EMU198X_AQUARIUS_BIOS`, else the conventional path.
-    fn bios_path(&self) -> Result<PathBuf, LaunchError> {
-        self.bios
-            .clone()
-            .or_else(|| conventional_rom_path(BIOS_ENV, BIOS_RELATIVE))
-            .ok_or_else(|| {
-                LaunchError::Run(
-                    "no BIOS: pass --bios PATH or set EMU198X_AQUARIUS_BIOS".to_owned(),
-                )
-            })
-    }
-
-    /// `--char`, else `$EMU198X_AQUARIUS_CHAR`, else the conventional path.
-    fn char_path(&self) -> Result<PathBuf, LaunchError> {
-        self.char_rom
-            .clone()
-            .or_else(|| conventional_rom_path(CHAR_ENV, CHAR_RELATIVE))
-            .ok_or_else(|| {
-                LaunchError::Run(
-                    "no character ROM: pass --char PATH or set EMU198X_AQUARIUS_CHAR".to_owned(),
-                )
-            })
-    }
 }
 
 impl MachineApp for Aquarius {
@@ -73,6 +31,8 @@ impl MachineApp for Aquarius {
     --char PATH     Aquarius character ROM (2 KB); default
                     ~/.emu198x/roms/mattel-aquarius/aquarius-char.rom
                     (or set EMU198X_AQUARIUS_CHAR)
+    --rom ID=PATH   pin mattel-aquarius-rom or mattel-aquarius-char-rom (repeatable)
+    --rom-dir DIR   firmware directory (or set EMU198X_AQUARIUS_ROM_DIR)
     --cart PATH     cartridge ROM (mapped at $E000-$FFFF, up to 8 KB)
     --expansion-kb N
                     RAM expansion in KB (0..=16) [default: 0]";
@@ -85,8 +45,23 @@ impl MachineApp for Aquarius {
 
     fn parse_flag(&mut self, flag: &str, args: &mut Args) -> Result<bool, LaunchError> {
         match flag {
-            "--bios" => self.bios = Some(args.path(flag)?),
-            "--char" => self.char_rom = Some(args.path(flag)?),
+            "--bios" | "--char" => {
+                let id = if flag == "--bios" {
+                    runtime_mattel_aquarius::BIOS_FIRMWARE_ID
+                } else {
+                    runtime_mattel_aquarius::CHAR_FIRMWARE_ID
+                };
+                self.firmware.by_id.insert(id.to_owned(), args.path(flag)?);
+            }
+            "--rom" => self
+                .firmware
+                .add_spec(
+                    &args.value(flag)?,
+                    Model::Aquarius.variant_id(),
+                    &Model::Aquarius.firmware_sources(),
+                )
+                .map_err(|err| LaunchError::Usage(err.to_string()))?,
+            "--rom-dir" => self.firmware.dir = Some(args.path(flag)?),
             "--cart" => self.cart = Some(args.path(flag)?),
             "--expansion-kb" => self.expansion_kb = args.parse(flag, "a non-negative integer")?,
             _ => return Ok(false),
@@ -95,7 +70,7 @@ impl MachineApp for Aquarius {
     }
 
     fn frame_ticks(&self) -> u64 {
-        FRAME_TICKS
+        Model::Aquarius.frame_ticks()
     }
 
     fn query_provider(&self) -> AquariusSessionQueryProvider {
@@ -103,64 +78,46 @@ impl MachineApp for Aquarius {
     }
 
     fn build_runtime(&self) -> Result<AquariusRuntime, LaunchError> {
-        let bios_path = self.bios_path()?;
-        let bios = read_rom_exact(&bios_path, "BIOS", BIOS_SIZE)?;
-        let mut runtime = AquariusRuntime::new(Model::Aquarius, bios)
-            .map_err(|err| LaunchError::Run(format!("failed to construct runtime: {err}")))?;
-        // The 2 KB character-generator ROM is separate from the BASIC ROM;
-        // without it the display is garbage. Default to the standard install
-        // path.
-        let char_path = self.char_path()?;
-        let char_rom = read_rom(&char_path, "character ROM")?;
-        runtime
-            .set_char_rom(char_rom)
-            .map_err(|err| LaunchError::Run(format!("character ROM rejected: {err}")))?;
+        let mut runtime = build_variant::<AquariusRuntime>(Model::Aquarius, &self.firmware)
+            .map_err(|err| LaunchError::Run(err.to_string()))?;
         runtime.set_expansion_kb(self.expansion_kb);
-        if let Some(cart_path) = &self.cart {
-            runtime.insert_cartridge(read_rom(cart_path, "--cart")?);
-        }
         Ok(runtime)
     }
 
-    /// MCP starts blank and takes the BIOS from its conventional location
-    /// when one is there and is the right size; a client can also hand it
-    /// firmware later.
     fn build_mcp_runtime(&self) -> Result<AquariusRuntime, LaunchError> {
-        let mut runtime = AquariusRuntime::blank(Model::Aquarius);
-        if let Ok(path) = self.bios_path()
-            && let Ok(bytes) = std::fs::read(&path)
-        {
-            if bytes.len() == BIOS_SIZE {
-                runtime
-                    .set_bios(bytes)
-                    .map_err(|err| LaunchError::Run(format!("BIOS invalid: {err}")))?;
-                eprintln!(
-                    "{} mcp: loaded BIOS from {}",
-                    Self::BIN_NAME,
-                    path.display()
-                );
-            } else {
-                eprintln!(
-                    "{} mcp: BIOS at {} is {} bytes; expected {BIOS_SIZE} — starting blank",
-                    Self::BIN_NAME,
-                    path.display(),
-                    bytes.len()
-                );
-            }
-        }
+        let mut runtime =
+            build_variant_or_blank(Model::Aquarius, &self.firmware, AquariusRuntime::blank)
+                .map_err(|err| LaunchError::Run(err.to_string()))?;
+        runtime.set_expansion_kb(self.expansion_kb);
         Ok(runtime)
+    }
+
+    fn startup_media(&self) -> Result<Vec<(String, MediaKind, Vec<u8>)>, LaunchError> {
+        let Some(path) = &self.cart else {
+            return Ok(Vec::new());
+        };
+        Ok(vec![(
+            "cartridge-1".to_owned(),
+            MediaKind::Cartridge,
+            read_rom(path, "--cart")?,
+        )])
+    }
+
+    fn mcp_startup_media(
+        &self,
+        _slots: &[emu198x_shell::MediaSlot],
+        _raw_args: &[String],
+    ) -> Result<Vec<(String, MediaKind, Vec<u8>)>, LaunchError> {
+        self.startup_media()
     }
 
     fn report(&self, runtime: &AquariusRuntime, report: &mut Map<String, Value>) {
         let bios_loaded = runtime.machine().is_some();
         let frame_count = runtime.machine().map_or(0, |m| m.frame_count());
         report.insert("bios_loaded".to_owned(), bios_loaded.into());
-        report.insert(
-            "cart_loaded".to_owned(),
-            (bios_loaded && self.cart.is_some()).into(),
-        );
+        report.insert("cart_loaded".to_owned(), runtime.cartridge_loaded().into());
         report.insert("frames_run".to_owned(), frame_count.into());
-        report.insert("expansion_kb".to_owned(), self.expansion_kb.into());
+        report.insert("expansion_kb".to_owned(), runtime.expansion_kb().into());
     }
 }
 
@@ -196,8 +153,7 @@ mod tests {
         let Parsed::Run { app, .. } = parse::<Aquarius>(&[]).expect("parses") else {
             panic!("expected a run");
         };
-        assert!(app.bios.is_none());
-        assert!(app.char_rom.is_none());
+        assert!(app.firmware.by_id.is_empty());
         assert!(app.cart.is_none());
         assert_eq!(app.expansion_kb, 0);
     }
@@ -218,7 +174,13 @@ mod tests {
         let Parsed::Run { app, common, mode } = parsed else {
             panic!("expected a run");
         };
-        assert_eq!(app.bios.as_deref(), Some(Path::new("/tmp/aq.rom")));
+        assert_eq!(
+            app.firmware
+                .by_id
+                .get(runtime_mattel_aquarius::BIOS_FIRMWARE_ID)
+                .map(PathBuf::as_path),
+            Some(Path::new("/tmp/aq.rom"))
+        );
         assert_eq!(app.expansion_kb, 16);
         assert_eq!(common.frames, 60);
         assert_eq!(mode, Mode::Script);
@@ -244,8 +206,18 @@ mod tests {
         let Parsed::Run { app, common, mode } = parsed else {
             panic!("expected a run");
         };
-        assert_eq!(app.bios, Some(PathBuf::from("aq.rom")));
-        assert_eq!(app.char_rom, Some(PathBuf::from("aq-char.rom")));
+        assert_eq!(
+            app.firmware
+                .by_id
+                .get(runtime_mattel_aquarius::BIOS_FIRMWARE_ID),
+            Some(&PathBuf::from("aq.rom"))
+        );
+        assert_eq!(
+            app.firmware
+                .by_id
+                .get(runtime_mattel_aquarius::CHAR_FIRMWARE_ID),
+            Some(&PathBuf::from("aq-char.rom"))
+        );
         assert_eq!(app.cart, Some(PathBuf::from("game.bin")));
         assert_eq!(app.expansion_kb, 16);
         assert_eq!(common.scale, Some(4));

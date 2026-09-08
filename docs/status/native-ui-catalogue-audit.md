@@ -1,13 +1,13 @@
 # Native UI catalogue audit
 
 Source audit dated 2026-09-08, against main `9bc8471a` plus the CPC/Einstein
-M5/SVI-328 and Atom/Electron migrations described here. This is a source-level coverage audit,
+M5/SVI-328, Atom/Electron and Oric/Aquarius migrations described here. This is a source-level coverage audit,
 not a claim that every preset has booted or passed hardware validation.
 
 ## Coverage
 
 All 30 registered machine binaries have a native `UiApp` adapter and enable the
-UI feature by default. Eleven expose a Machine-menu selector. Eleven other
+UI feature by default. Twelve expose a Machine-menu selector. Ten other
 binaries have multiple runtime profiles without an in-window selector; the
 remaining eight have a single runtime profile.
 
@@ -45,7 +45,7 @@ select; “None” means the catalogue has alternatives but no menu to choose th
 | [memotech-mtx](../../crates/emu198x-memotech-mtx/src/app.rs) | 2 | `--model` | 2/2 | MTX500/512 marketed models |
 | [msx](../../crates/emu198x-msx/src/app.rs) | 2 | `--region` | None | MSX1 region |
 | [nes](../../crates/emu198x-nes/src/app.rs) | 1 | Single profile | — | NTSC |
-| [oric-atmos](../../crates/emu198x-oric-atmos/src/app.rs) | 2 | `--model` | None | Oric-1/Atmos |
+| [oric-atmos](../../crates/emu198x-oric-atmos/src/app.rs) | 2 | `--model` | 2/2 | Oric-1/Atmos |
 | [sega-game-gear](../../crates/emu198x-sega-game-gear/src/app.rs) | 1 | `--variant` (one choice) | — | Game Gear |
 | [sega-master-system](../../crates/emu198x-sega-master-system/src/app.rs) | 5 | `--variant` | None | Hardware revisions/market/region |
 | [sega-sg-1000](../../crates/emu198x-sega-sg-1000/src/app.rs) | 2 | `--region` | None | Region |
@@ -292,3 +292,50 @@ frames. Inspected captures show both Atom prompts at 372×288 and Electron's BAS
 prompt at 640×256. Atom's MCP inventory adds only `set_machine` (36→37 tools);
 Electron's 36 tool definitions are unchanged. These are headless boot/capture
 checks, not native menu or audio-device verification.
+
+## Oric and Aquarius follow-on
+
+Parent issue: [#1475](https://github.com/emu198x/emu198x/issues/1475).
+Broader epic: [#456](https://github.com/emu198x/emu198x/issues/456).
+
+Oric's two existing machine profiles now use runtime-owned firmware construction
+and shared script/MCP switching, with a native selector. Canonical launch ids
+remain `oric-1` and `atmos`; `oric1` and the `oric-atmos` profile id are aliases.
+Within the conventional directory, `oric-1.rom` and `atmos.rom` take precedence
+for their respective models, with `oric.rom` retained as a legacy fallback.
+Explicit pins and `EMU198X_ORIC_ROM` still take precedence over directory lookup.
+This is a filename convention, not ROM-version identification; the legacy
+shared file may contain either firmware version. Hash-based identification is
+still deferred under [#1476](https://github.com/emu198x/emu198x/issues/1476).
+
+An Oric switch boots fresh with the target's conventional firmware, ejects tape
+and drops launch overrides. Reset retains tape; failed switches retain the
+current machine. Reports read the installed model rather than the launch choice.
+
+Aquarius keeps its existing NTSC profile without a redundant selector. Its
+runtime now owns the BIOS/character-ROM conventions and the unchanged host frame
+budget. `--bios`, `--char` and their per-file environment variables remain
+compatible with shared directory options and named `--rom ID=PATH` pins.
+MCP now loads both physical ROMs and applies the requested RAM expansion;
+parsed cartridge media follows the same path as scripts and the default window.
+Reports describe live cartridge state and the runtime's capped expansion size.
+The existing 16 KiB expansion cap and cartridge handling are unchanged.
+
+Family directory variables are `EMU198X_ORIC_ROM_DIR` and
+`EMU198X_AQUARIUS_ROM_DIR`. Both use the shared blank-start policy: absent
+conventional firmware may start MCP blank, while explicit missing or malformed
+firmware is an error. Aquarius requires both named firmware images.
+
+Catalogue adoption covers fifteen of 30 binaries, with 15 remaining. Twelve
+expose native selectors. Automated tests cover actual model installation, tape
+lifecycle, firmware-name precedence, both-ROM loading and errors, cartridge
+mapping, expansion RAM and reset, and character-ROM rendering in the Aquarius
+window constructor. Native menu click-through remains unverified.
+
+Local staged-ROM captures show both Oric profiles at BASIC `Ready` after 300
+requested frames (240×224), using the same legacy `oric.rom`. This verifies the
+construction and capture paths, not independent firmware-version correctness.
+Aquarius reaches its `Press RETURN` screen at 600 frames; a scripted Return
+followed by 300 more frames reaches BASIC `Ok` (352×232). Its earlier blank
+captures were during the startup display sequence. MCP inventories add only
+Oric's `set_machine` (39→40 tools); Aquarius's 39 definitions are unchanged.

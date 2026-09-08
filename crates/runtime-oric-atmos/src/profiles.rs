@@ -14,6 +14,45 @@ pub enum Model {
 }
 
 impl Model {
+    pub const ALL: [Self; 2] = [Self::Oric1, Self::Atmos];
+    pub const VARIANT_IDS: [&'static str; 2] = ["oric-1", "atmos"];
+
+    #[must_use]
+    pub const fn variant_id(self) -> &'static str {
+        match self {
+            Self::Oric1 => "oric-1",
+            Self::Atmos => "atmos",
+        }
+    }
+
+    #[must_use]
+    pub fn from_variant_id(id: &str) -> Option<Self> {
+        match id {
+            "oric-1" | "oric1" => Some(Self::Oric1),
+            "atmos" | "oric-atmos" => Some(Self::Atmos),
+            _ => None,
+        }
+    }
+
+    #[must_use]
+    pub fn firmware_sources(self) -> Vec<emu198x_shell::FirmwareSource> {
+        // Prefer a model-specific image; preserve the legacy shared filename.
+        let candidates: &'static [&'static str] = match self {
+            Self::Oric1 => &["oric-1.rom", "oric.rom"],
+            Self::Atmos => &["atmos.rom", "oric.rom"],
+        };
+        vec![
+            emu198x_shell::FirmwareSource::required(BIOS_FIRMWARE_ID, candidates)
+                .with_env_var("EMU198X_ORIC_ROM"),
+        ]
+    }
+
+    /// Existing host budget, in 6502 clocks.
+    #[must_use]
+    pub const fn frame_ticks(self) -> u64 {
+        19_968
+    }
+
     #[must_use]
     pub const fn model_id(self) -> &'static str {
         match self {
@@ -45,7 +84,7 @@ pub const BIOS_FIRMWARE_ID: &str = "oric-rom";
 
 #[must_use]
 pub fn profiles() -> Vec<MachineProfile> {
-    vec![profile_for(Model::Oric1), profile_for(Model::Atmos)]
+    Model::ALL.into_iter().map(profile_for).collect()
 }
 
 #[must_use]
@@ -75,6 +114,7 @@ pub fn profile_for(model: Model) -> MachineProfile {
             WritebackPolicy::SidecarOnly,
         )],
         capabilities: CapabilitySet::with_all([
+            known_capability("variant-switch"),
             known_capability("keyboard-input"),
             known_capability("ay-audio"),
             known_capability("scripted-input"),

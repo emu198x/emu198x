@@ -12,7 +12,7 @@ use emu198x_shell::{
     MachineError, MachineProfile, MachineTime, MediaKind, MediaSet, PixelFormat, ResetKind,
     RunResult, StopReason,
 };
-use machine_mattel_aquarius::{Aquarius, AquariusRegion};
+use machine_mattel_aquarius::Aquarius;
 
 use crate::input::apply_input_event;
 use crate::profiles::{BIOS_FIRMWARE_ID, CHAR_FIRMWARE_ID, Model, profile_for};
@@ -207,11 +207,17 @@ impl AquariusRuntime {
         self.time = time;
     }
 
+    #[must_use]
+    pub fn cartridge_loaded(&self) -> bool {
+        self.cart_bytes.is_some()
+    }
+
     pub(crate) fn cart_bytes(&self) -> Option<&[u8]> {
         self.cart_bytes.as_deref()
     }
 
-    pub(crate) fn expansion_kb(&self) -> usize {
+    #[must_use]
+    pub fn expansion_kb(&self) -> usize {
         self.expansion_kb
     }
 
@@ -235,7 +241,7 @@ impl AquariusRuntime {
             self.machine = None;
             return;
         };
-        let mut machine = Aquarius::new(bios, self.expansion_kb, AquariusRegion::Ntsc);
+        let mut machine = Aquarius::new(bios, self.expansion_kb, self.model.machine_region());
         if let Some(char_rom) = self.char_rom_bytes.clone() {
             machine.set_char_rom(char_rom);
         }
@@ -263,6 +269,45 @@ impl AquariusRuntime {
             self.rgba_framebuffer[base + 2] = (pixel & 0xff) as u8;
             self.rgba_framebuffer[base + 3] = ((pixel >> 24) & 0xff) as u8;
         }
+    }
+}
+
+impl emu198x_shell::FamilyRuntime for AquariusRuntime {
+    type Model = Model;
+
+    fn variant_ids() -> &'static [&'static str] {
+        &Model::VARIANT_IDS
+    }
+
+    fn model_from_id(id: &str) -> Option<Model> {
+        Model::from_variant_id(id)
+    }
+
+    fn variant_id(model: Model) -> &'static str {
+        model.variant_id()
+    }
+
+    fn profile_for(model: Model) -> MachineProfile {
+        profile_for(model)
+    }
+
+    fn rom_convention() -> emu198x_shell::RomConvention {
+        emu198x_shell::RomConvention {
+            env_var: Some("EMU198X_AQUARIUS_ROM_DIR"),
+            dirs: &["mattel-aquarius"],
+        }
+    }
+
+    fn firmware_sources(model: Model) -> Vec<emu198x_shell::FirmwareSource> {
+        model.firmware_sources()
+    }
+
+    fn from_firmware(model: Model, firmware: &FirmwareSet<'_>) -> Result<Self, MachineError> {
+        Self::from_firmware(model, firmware)
+    }
+
+    fn native_frame_ticks(&self) -> u64 {
+        self.model.frame_ticks()
     }
 }
 
