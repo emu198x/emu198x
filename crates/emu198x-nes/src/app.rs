@@ -9,7 +9,10 @@ use emu198x_shell::launch::{Args, CommonCli, LaunchError, MachineApp, script_rep
 use emu198x_shell::mcp::ToolRegistry;
 use emu198x_shell::mcp_tools::register_tools_for;
 use emu198x_shell::query::SessionQueryProvider;
-use emu198x_shell::{HeadlessSession, MachineCore, MediaKind, read_media_asset, startup_media};
+use emu198x_shell::{
+    FirmwareOverrides, HeadlessSession, MachineCore, MediaKind, build_variant, read_media_asset,
+    startup_media,
+};
 use runtime_nintendo_nes::{Model, NesRuntime, NesSessionQueryProvider};
 use serde::Serialize;
 use serde_json::{Map, Value};
@@ -17,8 +20,6 @@ use serde_json::{Map, Value};
 use crate::mcp_tools::register_nes_tools;
 
 const DEFAULT_CARTRIDGE_SLOT: &str = "cartridge-1";
-/// PPU dots per NTSC frame — 341 dots × 262 lines.
-pub const NES_FRAME_TICKS: u64 = 341 * 262;
 
 /// One `--media SLOT:KIND=PATH` (or `--rom PATH`) from the command line.
 #[derive(Debug, PartialEq, Eq)]
@@ -41,6 +42,7 @@ impl MediaArg {
 /// The machine configuration the flags build up.
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct Nes {
+    pub model: Model,
     pub media: Vec<MediaArg>,
     /// `--assert-blargg`: fail the run unless the Blargg status at $6000 is 0.
     pub assert_blargg: bool,
@@ -201,6 +203,33 @@ fn load_media_bytes(
         .collect()
 }
 
+impl Nes {
+    fn configured_runtime(&self, require_media: bool) -> Result<NesRuntime, LaunchError> {
+        if self.no_battery_save && self.battery_save.is_some() {
+            return Err(LaunchError::Run(
+                "--battery-save conflicts with --no-battery-save".to_owned(),
+            ));
+        }
+        if require_media && self.media.is_empty() {
+            return Err(LaunchError::Run(
+                "a cartridge image is required; use --rom or --media cartridge-1:cartridge=PATH"
+                    .to_owned(),
+            ));
+        }
+
+        let loaded = load_media_bytes(&self.media)?;
+        let mut runtime = build_variant::<NesRuntime>(self.model, &FirmwareOverrides::none())
+            .map_err(|err| LaunchError::Run(err.to_string()))?;
+        runtime
+            .load_media(&startup_media::media_set(&loaded))
+            .map_err(|err| LaunchError::Run(format!("machine preparation failed: {err}")))?;
+        if let Some(path) = resolve_battery_save_path(self) {
+            load_battery_save(&mut runtime, &path, self.battery_save.is_some())?;
+        }
+        Ok(runtime)
+    }
+}
+
 impl MachineApp for Nes {
     type Runtime = NesRuntime;
     type Query = NesSessionQueryProvider;
@@ -220,6 +249,8 @@ impl MachineApp for Nes {
     const MACHINE_OPTIONS: &'static str =
         "    --rom PATH      iNES/NES 2.0 ROM image or zip containing one ROM candidate
                     (also accepted as a bare positional path)
+    --model ID      nintendo-nes-ntsc | nintendo-nes-pal [default: NTSC]
+    --region MODE   ntsc | pal
     --media SLOT:KIND=PATH  media image by slot and kind; --rom is an
                     alias for --media cartridge-1:cartridge=PATH
     --battery-save PATH     load/write cartridge battery RAM sidecar (default <rom>.sav)
@@ -243,6 +274,15 @@ impl MachineApp for Nes {
 
     fn parse_flag(&mut self, flag: &str, args: &mut Args) -> Result<bool, LaunchError> {
         match flag {
+            "--model" | "--region" => {
+                let id = args.value(flag)?;
+                self.model = Model::from_variant_id(&id).ok_or_else(|| {
+                    LaunchError::Usage(format!(
+                        "unknown NES model `{id}`; expected {}",
+                        Model::VARIANT_IDS.join(", ")
+                    ))
+                })?;
+            }
             "--media" => self.media.push(parse_media_arg(&args.value(flag)?)?),
             "--rom" => self.media.push(MediaArg::cartridge(args.path(flag)?)),
             "--assert-blargg" => self.assert_blargg = true,
@@ -267,7 +307,7 @@ impl MachineApp for Nes {
     }
 
     fn frame_ticks(&self) -> u64 {
-        NES_FRAME_TICKS
+        self.model.frame_ticks()
     }
 
     fn query_provider(&self) -> NesSessionQueryProvider {
@@ -277,32 +317,20 @@ impl MachineApp for Nes {
     /// Blank NTSC machine, then the media, then the battery `.sav`. The
     /// window and the headless loop both start from this.
     fn build_runtime(&self) -> Result<NesRuntime, LaunchError> {
-        if self.no_battery_save && self.battery_save.is_some() {
-            return Err(LaunchError::Run(
-                "--battery-save conflicts with --no-battery-save".to_owned(),
-            ));
-        }
-        if self.media.is_empty() {
-            return Err(LaunchError::Run(
-                "a cartridge image is required; use --rom or --media cartridge-1:cartridge=PATH"
-                    .to_owned(),
-            ));
-        }
-
-        let loaded = load_media_bytes(&self.media)?;
-        let mut runtime = NesRuntime::blank(Model::NesNtsc);
-        runtime
-            .load_media(&startup_media::media_set(&loaded))
-            .map_err(|err| LaunchError::Run(format!("machine preparation failed: {err}")))?;
-        if let Some(path) = resolve_battery_save_path(self) {
-            load_battery_save(&mut runtime, &path, self.battery_save.is_some())?;
-        }
-        Ok(runtime)
+        self.configured_runtime(true)
     }
 
-    /// MCP starts blank; the cartridge arrives via `load_media`.
     fn build_mcp_runtime(&self) -> Result<NesRuntime, LaunchError> {
-        Ok(NesRuntime::blank(Model::NesNtsc))
+        self.configured_runtime(false)
+    }
+
+    // Configuration above has already loaded media and its battery save.
+    fn mcp_startup_media(
+        &self,
+        _slots: &[emu198x_shell::MediaSlot],
+        _raw_args: &[String],
+    ) -> Result<Vec<(String, MediaKind, Vec<u8>)>, LaunchError> {
+        Ok(Vec::new())
     }
 
     /// Write the battery save, then assert the Blargg status so a failing
@@ -523,6 +551,7 @@ fn run_smoke_matrix(app: &Nes, common: &CommonCli) -> Result<SmokeMatrixReport, 
             .map(|dir| dir.join(format!("{index:04}-{}.png", safe_stem(rom))));
         let result = script_report(
             &Nes {
+                model: app.model,
                 media: vec![MediaArg::cartridge(rom.clone())],
                 assert_blargg: app.assert_blargg,
                 ..Nes::default()

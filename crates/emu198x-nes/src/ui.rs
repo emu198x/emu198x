@@ -10,19 +10,20 @@
 //! [`UiSystem::handle_key`], and a teardown that flushes cartridge battery RAM
 //! to its `.sav` sidecar via [`UiSystem::on_exit`].
 
+use emu198x_shell::{FamilyRuntime, FirmwareOverrides, build_replacement};
+use std::borrow::Cow;
 use std::path::PathBuf;
 
-use emu198x_shell::{MachineCore, MachineError, MediaImage, MediaKind, MediaSet, read_media_asset};
+use emu198x_shell::MachineError;
 use emu198x_ui::launch::UiApp;
-use emu198x_ui::{ButtonInputMap, ButtonTarget, HostControl, KeyCode, UiSystem};
+use emu198x_ui::{ButtonInputMap, ButtonTarget, HostControl, KeyCode, UiSystem, VariantInfo};
 use machine_nintendo_nes::{FB_HEIGHT, FB_WIDTH};
-use runtime_nintendo_nes::{ApuChannel, NesRuntime};
+use runtime_nintendo_nes::{ApuChannel, Model, NesRuntime};
 
-use crate::app::{NES_FRAME_TICKS, Nes, resolve_battery_save_path, write_battery_save};
+use crate::app::{Nes, resolve_battery_save_path, write_battery_save};
 
 const DEFAULT_SCALE: u32 = 3;
 const INPUT_SLICES_PER_FRAME: u32 = 4;
-const NES_PPU_DOT_HZ: f64 = 5_369_318.0;
 
 const NES_BUTTON_MAP: ButtonInputMap = ButtonInputMap::new(&[
     (HostControl::Up, ButtonTarget::new(1, "up")),
@@ -36,29 +37,18 @@ const NES_BUTTON_MAP: ButtonInputMap = ButtonInputMap::new(&[
     (HostControl::Select, ButtonTarget::new(1, "select")),
 ]);
 
-/// The NES as a [`UiSystem`] for the shared harness. Holds the cartridge bytes
-/// (to re-insert on a hard reset) and the battery-save path (to flush on exit).
+/// Native region selection and the battery-save path (flushed on exit).
 pub struct NesSystem {
-    cartridge_media: Vec<u8>,
+    model: Model,
     battery_save_path: Option<PathBuf>,
 }
 
 impl UiApp for Nes {
     type System = NesSystem;
 
-    /// The cartridge bytes are read here for the reset path; a file that
-    /// cannot be read leaves them empty, and `build_runtime` reports the
-    /// failure on the same path a moment later.
     fn ui_system(&self) -> NesSystem {
-        let cartridge_media = self
-            .media
-            .iter()
-            .find(|entry| entry.kind == MediaKind::Cartridge)
-            .and_then(|entry| read_media_asset(&entry.path, entry.kind).ok())
-            .map(|loaded| loaded.bytes)
-            .unwrap_or_default();
         NesSystem {
-            cartridge_media,
+            model: self.model,
             battery_save_path: resolve_battery_save_path(self),
         }
     }
@@ -84,12 +74,14 @@ impl UiSystem for NesSystem {
         (FB_WIDTH, FB_HEIGHT)
     }
 
-    fn frame_ticks(&self, _runtime: &Self::Runtime) -> u64 {
-        NES_FRAME_TICKS
+    fn frame_ticks(&self, runtime: &Self::Runtime) -> u64 {
+        runtime.native_frame_ticks()
     }
 
-    fn frame_duration(&self, _runtime: &Self::Runtime) -> std::time::Duration {
-        std::time::Duration::from_secs_f64(NES_FRAME_TICKS as f64 / NES_PPU_DOT_HZ)
+    fn frame_duration(&self, runtime: &Self::Runtime) -> std::time::Duration {
+        std::time::Duration::from_secs_f64(
+            runtime.native_frame_ticks() as f64 / runtime.model().ppu_dot_hz() as f64,
+        )
     }
 
     fn button_map(&self) -> &'static ButtonInputMap {
@@ -100,9 +92,31 @@ impl UiSystem for NesSystem {
         map_nes_key(code)
     }
 
-    /// A hard reset drops the cartridge; re-insert it so the machine reboots.
-    fn after_reset(&mut self, runtime: &mut Self::Runtime) -> Result<(), MachineError> {
-        runtime.load_media(&cartridge_media_set(&self.cartridge_media))
+    fn variants(&self) -> Vec<VariantInfo> {
+        Model::ALL
+            .into_iter()
+            .map(|model| VariantInfo::new(model.variant_id(), model.display_name()))
+            .collect()
+    }
+    fn current_variant(&self) -> Option<Cow<'static, str>> {
+        Some(Cow::Borrowed(self.model.variant_id()))
+    }
+    fn switch_variant(
+        &mut self,
+        runtime: &mut Self::Runtime,
+        id: &str,
+    ) -> Result<(), MachineError> {
+        let model = Model::from_variant_id(id).ok_or(MachineError::UnsupportedOperation {
+            operation: "unknown NES region",
+        })?;
+        *runtime =
+            build_replacement(runtime, model, &FirmwareOverrides::none()).map_err(|err| {
+                MachineError::Host {
+                    reason: err.to_string(),
+                }
+            })?;
+        self.model = model;
+        Ok(())
     }
 
     /// The `1`-`5` / `6`-`0` digit row toggles / cycles APU channels for audio
@@ -169,13 +183,6 @@ impl ApuShortcut {
     }
 }
 
-/// The single-cartridge media set the NES boots from.
-fn cartridge_media_set(bytes: &[u8]) -> MediaSet<'_> {
-    let mut media = MediaSet::new();
-    media.push(MediaImage::new("cartridge-1", MediaKind::Cartridge, bytes));
-    media
-}
-
 fn next_audio_gain(gain: f32) -> f32 {
     if gain > 0.75 {
         0.5
@@ -221,5 +228,51 @@ mod tests {
         assert_eq!(next_audio_gain(0.5), 0.25);
         assert_eq!(next_audio_gain(0.25), 0.0);
         assert_eq!(next_audio_gain(0.0), 1.0);
+    }
+}
+
+#[cfg(test)]
+mod catalogue_tests {
+    use super::*;
+    use emu198x_shell::MediaKind;
+
+    #[test]
+    fn native_startup_and_switching_use_both_catalogue_regions() {
+        let mut app = Nes::default();
+        app.no_battery_save = true;
+        app.media.push(crate::app::MediaArg {
+            slot: "cartridge-1".to_owned(),
+            kind: MediaKind::Cartridge,
+            path: PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("../../test-data/synthetic-cartridges/nintendo-nes-logo.nes"),
+        });
+        let mut runtime = app.build_ui_runtime().expect("native runtime");
+        let mut system = app.ui_system();
+        assert_eq!(system.variants().len(), 2);
+        for model in Model::ALL {
+            system
+                .switch_variant(&mut runtime, model.variant_id())
+                .expect("switch");
+            assert_eq!(runtime.model(), model);
+            assert_eq!(
+                runtime.machine().expect("machine").region(),
+                model.machine_region()
+            );
+            assert_eq!(
+                system.current_variant().as_deref(),
+                Some(model.variant_id())
+            );
+            assert_eq!(system.frame_ticks(&runtime), model.frame_ticks());
+            assert_eq!(
+                system.frame_duration(&runtime),
+                std::time::Duration::from_secs_f64(
+                    model.frame_ticks() as f64 / model.ppu_dot_hz() as f64
+                )
+            );
+        }
+        assert!(system.switch_variant(&mut runtime, "dendy").is_err());
+        assert!(runtime.machine().is_some());
+        assert_eq!(system.frame_ticks(&runtime), runtime.model().frame_ticks());
+        assert_eq!(system.framebuffer_size(&runtime), (FB_WIDTH, FB_HEIGHT));
     }
 }
