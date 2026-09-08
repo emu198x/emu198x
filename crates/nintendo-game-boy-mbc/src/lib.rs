@@ -135,6 +135,17 @@ impl Cartridge {
         }
     }
 
+    /// Restart mapper registers while retaining cartridge RAM and RTC state.
+    #[must_use]
+    pub fn cold_boot(&self) -> Self {
+        let mut cartridge = Self::new(self.rom.clone(), self.cart_type, self.ram.len());
+        cartridge.ram.clone_from(&self.ram);
+        if let Mbc::Mbc3(mbc) = &self.mbc {
+            cartridge.mbc = Mbc::Mbc3(mbc.cold_boot());
+        }
+        cartridge
+    }
+
     /// Cartridge type as decoded from the header.
     #[must_use]
     pub const fn cart_type(&self) -> CartType {

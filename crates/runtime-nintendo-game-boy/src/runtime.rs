@@ -51,6 +51,20 @@ impl GameBoyRuntime {
         }
     }
 
+    #[must_use]
+    pub const fn model(&self) -> Model {
+        self.model
+    }
+
+    /// These profiles start after the boot ROM; no firmware images are used.
+    pub fn from_firmware(
+        model: Model,
+        firmware: &emu198x_shell::FirmwareSet<'_>,
+    ) -> Result<Self, MachineError> {
+        firmware.validate_for_profile(&profile_for(model))?;
+        Ok(Self::blank(model))
+    }
+
     /// Returns the loaded machine, when a cartridge is inserted.
     #[must_use]
     pub fn machine(&self) -> Option<&GameBoy> {
@@ -249,18 +263,15 @@ impl GameBoyRuntime {
     }
 
     fn rebuild_machine(&mut self) {
-        let preserved_ram = self.cartridge_ram().map(|ram| ram.to_vec());
         let Some(bytes) = self.cartridge_bytes.clone() else {
             self.machine = None;
             return;
         };
         match GameBoy::from_rom_with_boot_profile(bytes, self.model.boot_profile()) {
             Ok((_, mut gb)) => {
-                if let Some(preserved_ram) = preserved_ram {
-                    let ram = gb.cartridge_mut().ram_mut();
-                    if ram.len() == preserved_ram.len() {
-                        ram.copy_from_slice(&preserved_ram);
-                    }
+                if let Some(machine) = &self.machine {
+                    *gb.cartridge_mut() = machine.cartridge().cold_boot();
+                    gb.set_audio_controls(machine.audio_controls());
                 }
                 self.machine = Some(gb);
             }
@@ -294,7 +305,65 @@ impl GameBoyRuntime {
     fn update_rgba_framebuffer(&mut self) {}
 }
 
+impl emu198x_shell::FamilyRuntime for GameBoyRuntime {
+    type Model = Model;
+    fn variant_ids() -> &'static [&'static str] {
+        &Model::VARIANT_IDS
+    }
+    fn model_from_id(id: &str) -> Option<Model> {
+        Model::from_variant_id(id)
+    }
+    fn variant_id(model: Model) -> &'static str {
+        model.variant_id()
+    }
+    fn profile_for(model: Model) -> MachineProfile {
+        profile_for(model)
+    }
+    fn firmware_sources(_model: Model) -> Vec<emu198x_shell::FirmwareSource> {
+        Vec::new()
+    }
+    fn rom_convention() -> emu198x_shell::RomConvention {
+        emu198x_shell::RomConvention {
+            env_var: None,
+            dirs: &[],
+        }
+    }
+    fn from_firmware(
+        model: Model,
+        firmware: &emu198x_shell::FirmwareSet<'_>,
+    ) -> Result<Self, MachineError> {
+        Self::from_firmware(model, firmware)
+    }
+    fn replacement(
+        &self,
+        model: Model,
+        firmware: &emu198x_shell::FirmwareSet<'_>,
+    ) -> Result<Self, MachineError> {
+        let mut replacement = Self::from_firmware(model, firmware)?;
+        if let Some(machine) = &self.machine {
+            let mut fresh = GameBoy::new_with_boot_profile(
+                machine.cartridge().cold_boot(),
+                model.boot_profile(),
+            );
+            fresh.set_audio_controls(machine.audio_controls());
+            replacement.cartridge_bytes = Some(machine.cartridge().rom().to_vec());
+            replacement.machine = Some(fresh);
+        }
+        Ok(replacement)
+    }
+    fn native_frame_ticks(&self) -> u64 {
+        self.model.frame_ticks()
+    }
+}
+
 impl MachineCore for GameBoyRuntime {
+    fn set_machine<Q: emu198x_shell::SessionQueryProvider<Self>>(
+        session: &mut emu198x_shell::HeadlessSession<Self, Q>,
+        machine: &str,
+    ) -> Result<emu198x_shell::VariantSwitched, emu198x_shell::LoaderError> {
+        emu198x_shell::swap_variant(session, machine)
+    }
+
     fn profile(&self) -> &MachineProfile {
         &self.profile
     }

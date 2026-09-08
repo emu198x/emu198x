@@ -97,6 +97,18 @@ impl Mbc3 {
         }
     }
 
+    /// Restart mapper selection without resetting the battery-powered clock
+    /// or replacing its wall-clock anchor.
+    pub(crate) fn cold_boot(&self) -> Self {
+        Self {
+            ram_enabled: false,
+            rom_bank: 1,
+            ram_bank: 0,
+            latch_prev: 0xff,
+            ..self.clone()
+        }
+    }
+
     /// Fold the real seconds elapsed since the host-clock anchor into the live
     /// registers, then move the anchor forward by exactly that many whole
     /// seconds (the sub-second remainder carries to the next sync). While the
