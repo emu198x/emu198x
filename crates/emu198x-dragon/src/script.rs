@@ -712,9 +712,6 @@ pub(crate) fn validate(cli: &Dragon) -> Result<(), String> {
                 .to_owned(),
         );
     }
-    if cli.rom.is_none() {
-        return Err("missing required --rom PATH".to_owned());
-    }
     Ok(())
 }
 
@@ -870,11 +867,7 @@ fn run_cli(cli: &Dragon) -> Result<(), String> {
 }
 
 pub(crate) fn parse_model(value: &str) -> Result<Model, String> {
-    match value {
-        "dragon32" | "dragon-32" | "dragon-32-pal" => Ok(Model::Dragon32Pal),
-        "dragon64" | "dragon-64" | "dragon-64-pal" => Ok(Model::Dragon64Pal),
-        _ => Err("--model expects dragon32 or dragon64".to_owned()),
-    }
+    Model::from_variant_id(value).ok_or_else(|| "--model expects dragon32 or dragon64".to_owned())
 }
 
 pub(crate) fn parse_u64(value: &str, flag: &str) -> Result<u64, String> {
@@ -4054,7 +4047,7 @@ fn write_xroar_snapshot_out(
     };
 
     let rom_path = output_path.with_extension("rom");
-    fs::write(&rom_path, load_rom(required_rom(cli)?)?)
+    fs::write(&rom_path, load_rom(&required_rom(cli)?)?)
         .map_err(|err| format!("failed to write {}: {err}", rom_path.display()))?;
     let template_path = write_temp_path("snapshot-template", "sna")?;
     let template_result = run_xroar_snapshot_template_command(&config, &rom_path, &template_path)
@@ -5774,37 +5767,28 @@ fn load_rom(path: &Path) -> Result<[u8; ROM_SIZE], String> {
     exact_rom_from_bytes(path, bytes)
 }
 
-/// `--rom` is required on every harness path; [`validate`] rejects its
-/// absence before anything runs, so this is the typed form of that check.
-fn required_rom(cli: &Dragon) -> Result<&Path, String> {
-    cli.rom
-        .as_deref()
-        .ok_or_else(|| "missing required --rom PATH".to_owned())
+/// Resolve catalogue paths while preserving the smoke harness's ZIP selection.
+fn required_rom(cli: &Dragon) -> Result<PathBuf, String> {
+    cli.firmware_paths()?
+        .into_iter()
+        .find(|(id, _)| *id == cli.model.firmware_id())
+        .map(|(_, path)| path)
+        .ok_or_else(|| "missing BASIC ROM".to_owned())
 }
 
-/// The firmware the flags name: `--rom` (exact ROM size, `.zip` accepted)
-/// and, with `--model dragon64`, `--rom64`.
-///
-/// # Errors
-///
-/// Returns a message when `--rom` is missing, `--rom64` does not match the
-/// model, or an image cannot be read.
 pub(crate) fn load_dragon_firmware(cli: &Dragon) -> Result<LoadedDragonFirmware, String> {
-    if cli.model == Model::Dragon32Pal && cli.mode_rom.is_some() {
-        return Err("--rom64 requires --model dragon64".to_owned());
-    }
-
-    let mode_rom_path = match cli.model {
-        Model::Dragon32Pal => None,
-        Model::Dragon64Pal => Some(
-            cli.mode_rom
-                .as_deref()
-                .ok_or_else(|| "--model dragon64 requires --rom64 PATH".to_owned())?,
-        ),
-    };
-    let rom = load_rom(required_rom(cli)?)?;
-    let mode_rom = mode_rom_path.map(load_rom).transpose()?;
-
+    let paths = cli.firmware_paths()?;
+    let rom_path = paths
+        .iter()
+        .find(|(id, _)| *id == cli.model.firmware_id())
+        .map(|(_, path)| path)
+        .ok_or_else(|| "missing BASIC ROM".to_owned())?;
+    let rom = load_rom(rom_path)?;
+    let mode_rom = paths
+        .iter()
+        .find(|(id, _)| *id == "dragon64-basic-rom")
+        .map(|(_, path)| load_rom(path))
+        .transpose()?;
     Ok(LoadedDragonFirmware {
         model: cli.model,
         rom,
@@ -6728,10 +6712,11 @@ mod tests {
     }
 
     #[test]
-    fn cli_requires_rom_path() {
-        let err = parse_cli(Vec::<String>::new()).expect_err("missing ROM should fail");
-
-        assert!(err.contains("missing required --rom"));
+    fn cli_allows_conventional_firmware() {
+        let cli =
+            parse_cli(Vec::<String>::new()).expect("default firmware resolves at construction");
+        assert!(cli.rom.is_none());
+        assert_eq!(cli.model, Model::Dragon32Pal);
     }
 
     #[test]
@@ -6752,23 +6737,6 @@ mod tests {
         assert_eq!(cli.rom, Some(PathBuf::from("dragon64-compat.rom")));
         assert_eq!(cli.mode_rom, Some(PathBuf::from("dragon64.rom")));
         assert_eq!(cli.smoke_root, Some(PathBuf::from("tapes")));
-    }
-
-    #[test]
-    fn dragon64_firmware_requires_mode_rom() {
-        let cli = parse_cli([
-            "--model".to_owned(),
-            "dragon64".to_owned(),
-            "--rom".to_owned(),
-            "dragon64-compat.rom".to_owned(),
-        ])
-        .expect("CLI parsing should not require ROM files");
-
-        let err = match load_dragon_firmware(&cli) {
-            Ok(_) => panic!("missing --rom64 should fail"),
-            Err(err) => err,
-        };
-        assert!(err.contains("--model dragon64 requires --rom64"));
     }
 
     #[test]
