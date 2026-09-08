@@ -8,13 +8,14 @@
 //! Compiled only with the `ui` Cargo feature; the shared launcher opens the
 //! window when no automation flag is given.
 
+use emu198x_shell::FamilyRuntime;
 use std::time::Duration;
 
 use emu198x_ui::launch::UiApp;
 use emu198x_ui::{ButtonInputMap, KeyCode, UiSystem};
 use runtime_acorn_electron::ElectronRuntime;
 
-use crate::app::{Electron, FRAME_TICKS_PAL};
+use crate::app::Electron;
 
 const DEFAULT_SCALE: u32 = 3;
 const PAL_FRAME_HZ: f64 = 50.0;
@@ -62,8 +63,8 @@ impl UiSystem for ElectronSystem {
             .unwrap_or((640, 256))
     }
 
-    fn frame_ticks(&self, _runtime: &Self::Runtime) -> u64 {
-        FRAME_TICKS_PAL
+    fn frame_ticks(&self, runtime: &Self::Runtime) -> u64 {
+        runtime.native_frame_ticks()
     }
 
     fn frame_duration(&self, _runtime: &Self::Runtime) -> Duration {

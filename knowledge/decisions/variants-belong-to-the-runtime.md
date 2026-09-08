@@ -172,6 +172,20 @@ avoiding a second interpretation of `--rom` as a cartridge. The default MCP hook
 retains raw media-flag discovery for unmigrated callers. New migrations should
 use parsed media consistently across all three entry points.
 
+## Acorn RAM presets and dual-ROM firmware
+
+Atom exposes its existing base 2.5 KiB and expanded 32 KiB presets using their
+profile ids. The runtime owns the legacy `--ram-kb` threshold mapping; report
+fields describe installed RAM. A switch boots fresh and ejects cassette and
+utility-ROM media, while reset and failed switches retain them. Electron uses
+the same catalogue contract with one entry and separate required OS/BASIC images;
+it does not advertise switching.
+
+Both families retain per-file firmware variables and legacy path flags alongside
+shared directory overrides and named pins. Blank-start fallback checks per-file
+environment overrides as well as CLI pins and directory choices: a partially
+specified dual-ROM set must fail, not appear to have launched successfully blank.
+
 ## Adding a variant or migrating a family
 
 For another variant of a migrated family, extend its runtime model and

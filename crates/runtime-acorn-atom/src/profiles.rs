@@ -9,11 +9,48 @@ use emu198x_shell::{
 pub enum Model {
     /// Base 2.5 KB-RAM Atom.
     AtomBase,
-    /// 12 KB-RAM expanded Atom.
+    /// Fully expanded 32 KB-RAM Atom.
     AtomFull,
 }
 
 impl Model {
+    pub const ALL: [Self; 2] = [Self::AtomBase, Self::AtomFull];
+    pub const VARIANT_IDS: [&'static str; 2] = ["acorn-atom-base", "acorn-atom-full"];
+
+    #[must_use]
+    pub const fn variant_id(self) -> &'static str {
+        self.profile_id()
+    }
+
+    #[must_use]
+    pub fn from_variant_id(id: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|model| model.variant_id() == id)
+    }
+
+    #[must_use]
+    pub fn firmware_sources(self) -> Vec<emu198x_shell::FirmwareSource> {
+        vec![
+            emu198x_shell::FirmwareSource::required(BIOS_FIRMWARE_ID, &["atom.rom"])
+                .with_env_var("EMU198X_ACORN_ATOM_ROM"),
+        ]
+    }
+
+    /// Existing host frame budget in native machine ticks.
+    #[must_use]
+    pub const fn frame_ticks(self) -> u64 {
+        20_000
+    }
+
+    /// Legacy `--ram-kb` selects presets: 12 or more requests the full expansion.
+    #[must_use]
+    pub const fn from_ram_kb(ram_kb: usize) -> Self {
+        if ram_kb >= 12 {
+            Self::AtomFull
+        } else {
+            Self::AtomBase
+        }
+    }
+
     #[must_use]
     pub const fn model_id(self) -> &'static str {
         match self {
@@ -56,7 +93,7 @@ pub const BIOS_FIRMWARE_ID: &str = "acorn-atom-rom";
 
 #[must_use]
 pub fn profiles() -> Vec<MachineProfile> {
-    vec![profile_for(Model::AtomBase), profile_for(Model::AtomFull)]
+    Model::ALL.into_iter().map(profile_for).collect()
 }
 
 #[must_use]
@@ -99,6 +136,7 @@ pub fn profile_for(model: Model) -> MachineProfile {
             ),
         ],
         capabilities: CapabilitySet::with_all([
+            known_capability("variant-switch"),
             known_capability("keyboard-input"),
             known_capability("scripted-input"),
         ]),
