@@ -2,9 +2,11 @@
 
 use std::path::{Path, PathBuf};
 
-use common_nintendo_game_boy::MCYCLES_PER_FRAME;
 use emu198x_shell::launch::{Args, CommonCli, LaunchError, MachineApp, read_rom, script_report};
-use emu198x_shell::{HeadlessSession, MachineCore, MediaKind, read_media_asset, startup_media};
+use emu198x_shell::{
+    FirmwareOverrides, HeadlessSession, MachineCore, MediaKind, build_variant, read_media_asset,
+    startup_media,
+};
 use runtime_nintendo_game_boy::{GameBoyRuntime, GameBoySessionQueryProvider, Model};
 use serde_json::{Map, Value};
 
@@ -58,17 +60,8 @@ impl Default for GameBoy {
 }
 
 fn parse_model_arg(model: &str) -> Result<Model, LaunchError> {
-    Ok(match model {
-        "dmg0" => Model::Dmg0,
-        "dmg" => Model::Dmg,
-        "mgb" => Model::Mgb,
-        "sgb" => Model::Sgb,
-        "sgb2" => Model::Sgb2,
-        _ => {
-            return Err(LaunchError::Usage(
-                "--model expects dmg0, dmg, mgb, sgb, or sgb2".to_owned(),
-            ));
-        }
+    Model::from_variant_id(model).ok_or_else(|| {
+        LaunchError::Usage("--model expects dmg0, dmg, mgb, sgb, or sgb2".to_owned())
     })
 }
 
@@ -184,6 +177,41 @@ fn load_media_bytes(
         .collect()
 }
 
+impl GameBoy {
+    fn configured_runtime(&self, require_media: bool) -> Result<GameBoyRuntime, LaunchError> {
+        if self.no_battery_save && self.battery_save.is_some() {
+            return Err(LaunchError::Run(
+                "--battery-save conflicts with --no-battery-save".to_owned(),
+            ));
+        }
+        if require_media && self.media.is_empty() && self.load_snapshot.is_none() {
+            return Err(LaunchError::Run(
+                "a cartridge image or snapshot is required; use --rom, --media cartridge:cartridge=PATH, or --load-snapshot"
+                    .to_owned(),
+            ));
+        }
+
+        let loaded = load_media_bytes(&self.media)?;
+        let mut runtime = build_variant::<GameBoyRuntime>(self.model, &FirmwareOverrides::none())
+            .map_err(|err| LaunchError::Run(err.to_string()))?;
+        if let Some(path) = &self.load_snapshot {
+            let bytes = read_rom(path, "snapshot")?;
+            runtime
+                .restore(&bytes)
+                .map_err(|err| LaunchError::Run(format!("snapshot restore failed: {err}")))?;
+        }
+        if !loaded.is_empty() {
+            runtime
+                .load_media(&startup_media::media_set(&loaded))
+                .map_err(|err| LaunchError::Run(format!("machine preparation failed: {err}")))?;
+        }
+        if let Some(path) = resolve_battery_save_path(self) {
+            load_battery_save(&mut runtime, &path, self.battery_save.is_some())?;
+        }
+        Ok(runtime)
+    }
+}
+
 impl MachineApp for GameBoy {
     type Runtime = GameBoyRuntime;
     type Query = GameBoySessionQueryProvider;
@@ -239,7 +267,7 @@ impl MachineApp for GameBoy {
     }
 
     fn frame_ticks(&self) -> u64 {
-        u64::from(MCYCLES_PER_FRAME)
+        self.model.frame_ticks()
     }
 
     fn query_provider(&self) -> GameBoySessionQueryProvider {
@@ -249,40 +277,20 @@ impl MachineApp for GameBoy {
     /// Blank machine, then in order: the snapshot, the media, the battery
     /// save. The window and the headless loop both start from this.
     fn build_runtime(&self) -> Result<GameBoyRuntime, LaunchError> {
-        if self.no_battery_save && self.battery_save.is_some() {
-            return Err(LaunchError::Run(
-                "--battery-save conflicts with --no-battery-save".to_owned(),
-            ));
-        }
-        if self.media.is_empty() && self.load_snapshot.is_none() {
-            return Err(LaunchError::Run(
-                "a cartridge image or snapshot is required; use --rom, --media cartridge:cartridge=PATH, or --load-snapshot"
-                    .to_owned(),
-            ));
-        }
-
-        let loaded = load_media_bytes(&self.media)?;
-        let mut runtime = GameBoyRuntime::blank(self.model);
-        if let Some(path) = &self.load_snapshot {
-            let bytes = read_rom(path, "snapshot")?;
-            runtime
-                .restore(&bytes)
-                .map_err(|err| LaunchError::Run(format!("snapshot restore failed: {err}")))?;
-        }
-        if !loaded.is_empty() {
-            runtime
-                .load_media(&startup_media::media_set(&loaded))
-                .map_err(|err| LaunchError::Run(format!("machine preparation failed: {err}")))?;
-        }
-        if let Some(path) = resolve_battery_save_path(self) {
-            load_battery_save(&mut runtime, &path, self.battery_save.is_some())?;
-        }
-        Ok(runtime)
+        self.configured_runtime(true)
     }
 
-    /// MCP starts blank; the cartridge arrives via `load_media`.
     fn build_mcp_runtime(&self) -> Result<GameBoyRuntime, LaunchError> {
-        Ok(GameBoyRuntime::blank(self.model))
+        self.configured_runtime(false)
+    }
+
+    // Configuration above has already loaded the parsed media and save image.
+    fn mcp_startup_media(
+        &self,
+        _slots: &[emu198x_shell::MediaSlot],
+        _raw_args: &[String],
+    ) -> Result<Vec<(String, MediaKind, Vec<u8>)>, LaunchError> {
+        Ok(Vec::new())
     }
 
     /// Write the snapshot and the battery save before captures.

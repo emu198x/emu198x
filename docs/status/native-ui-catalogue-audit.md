@@ -7,9 +7,9 @@ preset has booted or passed hardware validation.
 ## Coverage
 
 All 30 registered machine binaries have a native `UiApp` adapter and enable the
-UI feature by default. Twenty-one expose a Machine-menu selector. One other
-binary has multiple runtime profiles without an in-window selector; the
-remaining eight have a single runtime profile.
+UI feature by default. Twenty-two expose a Machine-menu selector, covering
+every binary with multiple runtime profiles. The remaining eight have a single
+runtime profile.
 
 The shared native menu is currently attached on **macOS only**. Windows menu
 attachment remains unwired (the code still references the closed #549), and
@@ -39,7 +39,7 @@ select; “None” means the catalogue has alternatives but no menu to choose th
 | [commodore-pet](../../crates/emu198x-commodore-pet/src/app.rs) | 2 | `--model` / `--columns` | 2/2 | 40/80-column hardware profiles |
 | [commodore-vic-20](../../crates/emu198x-commodore-vic-20/src/app.rs) | 2 | `--model` / `--region` | 2/2 | Region; RAM expansion flags independent |
 | [dragon](../../crates/emu198x-dragon/src/app.rs) | 2 | `--model` | 2/2 | Dragon 32/64 |
-| [game-boy](../../crates/emu198x-game-boy/src/app.rs) | 5 | `--model` | None | DMG0/DMG/MGB/SGB/SGB2 post-boot profiles |
+| [game-boy](../../crates/emu198x-game-boy/src/app.rs) | 5 | `--model` | 5/5 | DMG0/DMG/MGB/SGB/SGB2 post-boot profiles |
 | [jupiter-ace](../../crates/emu198x-jupiter-ace/src/app.rs) | 3 | `--model` / `--ram-kb` | 3/3 | Stock 3 KiB / 16 KiB expansion / 48 KiB expansion |
 | [mattel-aquarius](../../crates/emu198x-mattel-aquarius/src/app.rs) | 1 | Single profile | — | RAM expansion independent |
 | [memotech-mtx](../../crates/emu198x-memotech-mtx/src/app.rs) | 2 | `--model` | 2/2 | MTX500/512 marketed models |
@@ -717,3 +717,30 @@ Catalogue adoption covers twenty-eight of 30 binaries. Game Boy and NES remain;
 the macOS selector count stays at twenty-one. Targeted tests cover shared
 selection, startup media, missing firmware, existing ROM ZIP loading and real-ROM
 Dragon 32/64 boot workflows. Native menu click-through remains unverified.
+
+
+## Game Boy post-boot catalogue
+
+All five existing Game Boy profiles now share runtime-owned ids and frame
+budgets across launch, scripts, MCP and the macOS Machine menu. Short ids
+`dmg0`, `dmg`, `mgb`, `sgb` and `sgb2` remain, with canonical profile ids accepted
+as aliases. SGB menu labels explicitly identify post-boot profiles; boot-ROM
+execution, CGB and a complete SGB host are outside this catalogue.
+
+A profile change starts a fresh CPU, memory, video and input state while
+retaining the loaded cartridge, its RAM and RTC, and host mixer controls.
+Mapper selection registers restart; the RTC keeps its live/latched values and
+wall-clock anchor. Reset now follows the same preservation rule, fixing the
+previous loss of the RTC. Snapshot-restored cartridges retain their state too;
+the version-1 snapshot envelope is unchanged. Firmwareless construction needs
+no HOME or ROM directory. `--rom` remains cartridge media, not a firmware pin.
+
+MCP honours cartridge, snapshot and battery-save startup configuration once,
+rather than reloading the cartridge after its save state. Normal launch still
+requires a cartridge or snapshot; blank MCP remains available. Tests exercise
+all five script/native selectors, unknown-id preservation, save loading,
+RAM/RTC/mixer retention and snapshot/reset behaviour. Native click-through and
+audio-device output remain unverified.
+
+Catalogue adoption covers twenty-nine of 30 binaries, leaving NES. All
+multi-profile binaries now expose a macOS selector (twenty-two in total).

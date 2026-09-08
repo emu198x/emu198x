@@ -10,13 +10,15 @@
 //! teardown that flushes the cartridge save image (RAM + RTC footer) to its
 //! `.sav` sidecar via [`UiSystem::on_exit`].
 
+use emu198x_shell::{FamilyRuntime, FirmwareOverrides, MachineError, build_replacement};
+use std::borrow::Cow;
 use std::path::PathBuf;
 
 use common_nintendo_game_boy::timing::MCYCLE_HZ;
 use common_nintendo_game_boy::{MCYCLES_PER_FRAME, SCREEN_HEIGHT, SCREEN_WIDTH};
 use emu198x_ui::launch::UiApp;
-use emu198x_ui::{ButtonInputMap, ButtonTarget, HostControl, KeyCode, UiSystem};
-use runtime_nintendo_game_boy::{ApuChannel, AudioControls, GameBoyRuntime};
+use emu198x_ui::{ButtonInputMap, ButtonTarget, HostControl, KeyCode, UiSystem, VariantInfo};
+use runtime_nintendo_game_boy::{ApuChannel, AudioControls, GameBoyRuntime, Model};
 
 use crate::app::{GameBoy, resolve_battery_save_path, write_battery_save};
 
@@ -35,10 +37,9 @@ const GAME_BOY_BUTTON_MAP: ButtonInputMap = ButtonInputMap::new(&[
     (HostControl::Select, ButtonTarget::new(1, "select")),
 ]);
 
-/// The Game Boy as a [`UiSystem`] for the shared harness. A hard reset keeps
-/// the cartridge in the runtime, so the only state it carries is the
-/// battery-save path (flushed on exit).
+/// Native profile selection and cartridge battery-save path (flushed on exit).
 pub struct GameBoySystem {
+    model: Model,
     battery_save_path: Option<PathBuf>,
 }
 
@@ -47,6 +48,7 @@ impl UiApp for GameBoy {
 
     fn ui_system(&self) -> GameBoySystem {
         GameBoySystem {
+            model: self.model,
             battery_save_path: resolve_battery_save_path(self),
         }
     }
@@ -72,12 +74,39 @@ impl UiSystem for GameBoySystem {
         (SCREEN_WIDTH, SCREEN_HEIGHT)
     }
 
-    fn frame_ticks(&self, _runtime: &Self::Runtime) -> u64 {
-        u64::from(MCYCLES_PER_FRAME)
+    fn frame_ticks(&self, runtime: &Self::Runtime) -> u64 {
+        runtime.native_frame_ticks()
     }
 
     fn frame_duration(&self, _runtime: &Self::Runtime) -> std::time::Duration {
         std::time::Duration::from_secs_f64(f64::from(MCYCLES_PER_FRAME) / f64::from(MCYCLE_HZ))
+    }
+
+    fn variants(&self) -> Vec<VariantInfo> {
+        Model::ALL
+            .into_iter()
+            .map(|model| VariantInfo::new(model.variant_id(), model.display_name()))
+            .collect()
+    }
+    fn current_variant(&self) -> Option<Cow<'static, str>> {
+        Some(Cow::Borrowed(self.model.variant_id()))
+    }
+    fn switch_variant(
+        &mut self,
+        runtime: &mut Self::Runtime,
+        id: &str,
+    ) -> Result<(), MachineError> {
+        let model = Model::from_variant_id(id).ok_or(MachineError::UnsupportedOperation {
+            operation: "unknown Game Boy profile",
+        })?;
+        *runtime =
+            build_replacement(runtime, model, &FirmwareOverrides::none()).map_err(|err| {
+                MachineError::Host {
+                    reason: err.to_string(),
+                }
+            })?;
+        self.model = model;
+        Ok(())
     }
 
     fn button_map(&self) -> &'static ButtonInputMap {
@@ -206,5 +235,41 @@ mod tests {
         assert_eq!(next_audio_gain(0.5), 0.25);
         assert_eq!(next_audio_gain(0.25), 0.0);
         assert_eq!(next_audio_gain(0.0), 1.0);
+    }
+}
+
+#[cfg(test)]
+mod catalogue_tests {
+    use super::*;
+    use emu198x_shell::MediaKind;
+
+    #[test]
+    fn native_startup_and_switching_cover_every_post_boot_profile() {
+        let mut app = GameBoy::default();
+        app.no_battery_save = true;
+        app.media.push(crate::app::MediaArg {
+            slot: "cartridge".to_owned(),
+            kind: MediaKind::Cartridge,
+            path: PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("../../test-data/synthetic-cartridges/nintendo-game-boy-logo.gb"),
+        });
+        let mut runtime = app.build_ui_runtime().expect("native runtime");
+        let mut system = app.ui_system();
+        assert_eq!(system.variants().len(), 5);
+        for model in Model::ALL {
+            system
+                .switch_variant(&mut runtime, model.variant_id())
+                .expect("switch");
+            assert_eq!(runtime.model(), model);
+            assert_eq!(
+                system.current_variant().as_deref(),
+                Some(model.variant_id())
+            );
+            assert_eq!(system.frame_ticks(&runtime), model.frame_ticks());
+            assert_eq!(system.framebuffer_size(&runtime), (160, 144));
+            assert!(runtime.machine().is_some());
+        }
+        assert!(system.switch_variant(&mut runtime, "cgb").is_err());
+        assert_eq!(runtime.model(), Model::Sgb2);
     }
 }
