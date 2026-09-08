@@ -230,6 +230,23 @@ existing policy. Parsed cartridge loading is shared by window, script and MCP,
 and MCP now loads the available BIOS before a cartridge arrives. No alternate
 hardware profile or switch capability is introduced.
 
+## Catalogues over a shared Sega runtime
+
+Master System and Game Gear supply distinct `SmsModel` implementations to the
+class crate's generic `SmsRuntime<M>`. The class owns the `MachineCore`, debug,
+query, snapshot and `FamilyRuntime` implementations; each per-system crate owns
+its catalogue and exports a concrete alias. No foreign trait implementation is
+needed in a per-system crate, so Rust's orphan rule does not prevent this shape.
+The shared Z80 debug macro accepts a bounded generic runtime without duplicating
+its debug implementation.
+
+Master System switches retain cartridge SRAM and its dirty state as well as ROM
+bytes. This preserves clean loaded sidecars and pending writes across a cold boot.
+Snapshot ids and version remain unchanged. Game Gear's catalogue has no console
+ids, and its single profile publishes no switching capability. Both launchers
+retain their existing cartridge construction order; MCP reuses that parsed path
+so Master System restores a sidecar before executing requests.
+
 ## Adding a variant or migrating a family
 
 For another variant of a migrated family, extend its runtime model and

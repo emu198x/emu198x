@@ -9,14 +9,17 @@
 //! through [`UiSystem::map_keys`]. Compiled only with the `ui` Cargo feature;
 //! the shared launcher opens the window when no automation flag is given.
 
+use emu198x_shell::FamilyRuntime;
+use emu198x_shell::{FirmwareOverrides, MachineCore, MachineError, build_replacement};
+use std::borrow::Cow;
 use std::path::PathBuf;
 use std::time::Duration;
 
 use emu198x_ui::launch::UiApp;
-use emu198x_ui::{ButtonInputMap, ButtonTarget, HostControl, KeyCode, UiSystem};
-use runtime_sega_master_system::SmsRuntime;
+use emu198x_ui::{ButtonInputMap, ButtonTarget, HostControl, KeyCode, UiSystem, VariantInfo};
+use runtime_sega_master_system::{Model, SmsRuntime};
 
-use crate::app::{MasterSystem, Variant, default_battery_save_path};
+use crate::app::{MasterSystem, default_battery_save_path};
 
 const DEFAULT_SCALE: u32 = 3;
 
@@ -34,10 +37,9 @@ const SMS_BUTTON_MAP: ButtonInputMap = ButtonInputMap::new(&[
 ]);
 
 /// The Sega Master System as a [`UiSystem`] for the shared harness.
-/// The variant is fixed at construction; a hard reset rebuilds the machine from
-/// the cartridge the runtime already holds.
+/// Switching models cold-boots with the in-memory cartridge and its SRAM.
 pub struct SmsSystem {
-    variant: Variant,
+    model: Model,
     battery_save_path: PathBuf,
 }
 
@@ -48,7 +50,7 @@ impl UiApp for MasterSystem {
     /// fails before the window opens, so the placeholder is never written.
     fn ui_system(&self) -> SmsSystem {
         SmsSystem {
-            variant: self.variant,
+            model: self.model,
             battery_save_path: self
                 .cart
                 .as_deref()
@@ -91,12 +93,44 @@ impl UiSystem for SmsSystem {
             .unwrap_or((280, 240))
     }
 
-    fn frame_ticks(&self, _runtime: &Self::Runtime) -> u64 {
-        self.variant.frame_ticks()
+    fn frame_ticks(&self, runtime: &Self::Runtime) -> u64 {
+        runtime.native_frame_ticks()
     }
 
-    fn frame_duration(&self, _runtime: &Self::Runtime) -> Duration {
-        Duration::from_secs_f64(1.0 / self.variant.frame_hz())
+    fn frame_duration(&self, runtime: &Self::Runtime) -> Duration {
+        Duration::from_secs_f64(match runtime.profile().region {
+            emu198x_shell::Region::Pal => 1.0 / 50.0,
+            _ => 1.0 / 60.0,
+        })
+    }
+
+    fn variants(&self) -> Vec<VariantInfo> {
+        Model::ALL
+            .iter()
+            .map(|model| VariantInfo::new(model.variant_id(), model.display_name()))
+            .collect()
+    }
+
+    fn current_variant(&self) -> Option<Cow<'static, str>> {
+        Some(Cow::Borrowed(self.model.variant_id()))
+    }
+
+    fn switch_variant(
+        &mut self,
+        runtime: &mut Self::Runtime,
+        id: &str,
+    ) -> Result<(), MachineError> {
+        let model = Model::from_variant_id(id).ok_or(MachineError::UnsupportedOperation {
+            operation: "unknown sega-master-system variant",
+        })?;
+        *runtime =
+            build_replacement(runtime, model, &FirmwareOverrides::none()).map_err(|err| {
+                MachineError::Host {
+                    reason: err.to_string(),
+                }
+            })?;
+        self.model = model;
+        Ok(())
     }
 
     fn button_map(&self) -> &'static ButtonInputMap {
@@ -140,11 +174,59 @@ impl UiSystem for SmsSystem {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn menu_switch_keeps_dirty_sram_and_tracks_live_pacing() {
+        let mut system = SmsSystem {
+            model: Model::SmsNtsc,
+            battery_save_path: PathBuf::from("game.sav"),
+        };
+        assert_eq!(
+            system
+                .variants()
+                .iter()
+                .map(|v| v.id.as_ref())
+                .collect::<Vec<_>>(),
+            Model::VARIANT_IDS
+        );
+        let mut runtime = SmsRuntime::new(Model::SmsNtsc, vec![0; 32768]);
+        let machine = runtime.machine_mut().expect("machine");
+        machine.poke(0xfffc, 0x08);
+        machine.poke(0x8123, 0x5a);
+        for model in Model::ALL {
+            system
+                .switch_variant(&mut runtime, model.variant_id())
+                .expect("switch");
+            assert_eq!(
+                system.current_variant().as_deref(),
+                Some(model.variant_id())
+            );
+            assert_eq!(system.frame_ticks(&runtime), model.frame_ticks());
+            let hz = if model.region() == emu198x_shell::Region::Pal {
+                50.0
+            } else {
+                60.0
+            };
+            assert_eq!(
+                system.frame_duration(&runtime),
+                Duration::from_secs_f64(1.0 / hz)
+            );
+            let machine = runtime.machine().expect("machine");
+            assert_eq!(
+                system.framebuffer_size(&runtime),
+                (machine.framebuffer_width(), machine.framebuffer_height())
+            );
+            assert_eq!(runtime.cartridge_save_image().expect("SRAM")[0x123], 0x5a);
+        }
+        let before = runtime.snapshot().expect("snapshot");
+        assert!(system.switch_variant(&mut runtime, "game-gear").is_err());
+        assert_eq!(runtime.snapshot().expect("snapshot"), before);
+        assert_eq!(system.battery_save_path, PathBuf::from("game.sav"));
+    }
 
     #[test]
     fn pad_maps_and_console_button() {
         let sms = SmsSystem {
-            variant: Variant::SmsNtsc,
+            model: Model::SmsNtsc,
             battery_save_path: PathBuf::from("game.sav"),
         };
         assert_eq!(sms.map_key(KeyCode::ArrowLeft), Some(HostControl::Left));

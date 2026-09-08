@@ -1,13 +1,13 @@
 # Native UI catalogue audit
 
-Source audit dated 2026-09-08, against main `9bc8471a` plus the CPC/Einstein
-M5/SVI-328, Atom/Electron, Oric/Aquarius and SG-1000/ColecoVision and Atari 5200 migrations described here. This is a source-level coverage audit,
-not a claim that every preset has booted or passed hardware validation.
+Source audit dated 2026-09-08, covering the runtime catalogue migrations
+described here. This is a source-level coverage audit, not a claim that every
+preset has booted or passed hardware validation.
 
 ## Coverage
 
 All 30 registered machine binaries have a native `UiApp` adapter and enable the
-UI feature by default. Fourteen expose a Machine-menu selector. Eight other
+UI feature by default. Fifteen expose a Machine-menu selector. Seven other
 binaries have multiple runtime profiles without an in-window selector; the
 remaining eight have a single runtime profile.
 
@@ -46,8 +46,8 @@ select; “None” means the catalogue has alternatives but no menu to choose th
 | [msx](../../crates/emu198x-msx/src/app.rs) | 2 | `--region` | None | MSX1 region |
 | [nes](../../crates/emu198x-nes/src/app.rs) | 1 | Single profile | — | NTSC |
 | [oric-atmos](../../crates/emu198x-oric-atmos/src/app.rs) | 2 | `--model` | 2/2 | Oric-1/Atmos |
-| [sega-game-gear](../../crates/emu198x-sega-game-gear/src/app.rs) | 1 | `--variant` (one choice) | — | Game Gear |
-| [sega-master-system](../../crates/emu198x-sega-master-system/src/app.rs) | 5 | `--variant` | None | Hardware revisions/market/region |
+| [sega-game-gear](../../crates/emu198x-sega-game-gear/src/app.rs) | 1 | `--model` / `--variant` (one choice) | — | Game Gear |
+| [sega-master-system](../../crates/emu198x-sega-master-system/src/app.rs) | 5 | `--model` / `--variant` | 5/5 | Hardware revisions/market/region |
 | [sega-sg-1000](../../crates/emu198x-sega-sg-1000/src/app.rs) | 2 | `--model` / `--region` | 2/2 | Region |
 | [sinclair-zx80](../../crates/emu198x-sinclair-zx80/src/app.rs) | 3 | `--model`; `--ram-bytes` override | 3/3 | One ZX80 base machine; USA strap and RAM-pack presets |
 | [sinclair-zx81](../../crates/emu198x-sinclair-zx81/src/app.rs) | 3 | `--model` | 3/3 | ZX81/16 KiB RAM pack/Timex TS1000 |
@@ -412,3 +412,41 @@ The 33 existing MCP tool definitions are unchanged. A local 150-frame capture
 using the committed synthetic handover BIOS and cartridge displays the Emu198x
 plate at 374×240. This verifies the catalogue-to-boot path without private ROMs;
 native window interaction and audio output remain unverified by this slice.
+
+## Master System and Game Gear follow-on
+
+Parent issue: [#1475](https://github.com/emu198x/emu198x/issues/1475).
+Broader epic: [#456](https://github.com/emu198x/emu198x/issues/456).
+
+Both systems retain distinct catalogues while sharing `SmsRuntime<M>` in the
+Master System class crate. Each runtime crate supplies its `SmsModel` metadata
+and a concrete alias. Core execution, debug tools, input, queries, snapshots and
+replacement policy remain shared. Snapshot version 7 and its stored profile ids
+are unchanged; the generic model parameter is not part of the serialized envelope.
+
+Master System exposes all five existing profiles through launch, script, MCP and
+native selection, including the Japanese model previously missing from the CLI.
+Legacy `sms`, `sms1` and regional ids remain valid; full profile ids are aliases.
+Game Gear accepts `game-gear`, `gg` and its full profile id, with no redundant
+selector or switch tool. Both gain `--model` as an alias for `--variant` and use
+empty firmware catalogues without requiring HOME or a ROM directory.
+
+A Master System switch cold-boots while retaining the cartridge, all 32 KiB of
+SRAM and its dirty flag. Clean loaded saves remain clean; unsaved changes remain
+eligible for the existing sidecar writeback. The window's save path stays tied
+to the launch cartridge. Normal launch and MCP now share parsed cartridge
+construction; Master System MCP also restores the startup sidecar, and both
+MCP launchers accept positional cartridge paths. Source cartridges are not written.
+
+Catalogue adoption covers twenty of 30 binaries, with 10 remaining. Fifteen
+expose native selectors. Tests verify all hardware selections, catalogue isolation,
+SRAM lifecycle, snapshot round trips, failed-switch preservation, source-file
+removal, real CLI/script/MCP calls and native adapter pacing and dimensions.
+The Master System MCP inventory adds only `set_machine` (33→34 tools); Game
+Gear's 33 definitions are unchanged. Native menu click-through and audio output
+remain unverified by this slice.
+
+Local 150-frame captures with the committed synthetic cartridges show the
+expected green backdrop on all six profiles: 280×240 on NTSC Master Systems,
+278×288 on PAL models and 160×144 on Game Gear. These are boot/capture checks,
+not commercial-game compatibility evidence.

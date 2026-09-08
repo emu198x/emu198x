@@ -4,7 +4,7 @@ use emu198x_shell::{MachineCore, QueryError, QueryResult, SessionQueryProvider};
 use machine_sega_master_system::Sms;
 use serde_json::json;
 
-use crate::runtime::SmsRuntime;
+use crate::runtime::{SmsModel, SmsRuntime};
 
 pub(crate) const SMS_QUERY_PATHS: &[&str] = &[
     "cartridge.loaded",
@@ -27,8 +27,8 @@ pub(crate) const SMS_QUERY_PATHS: &[&str] = &[
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct SmsSessionQueryProvider;
 
-impl SessionQueryProvider<SmsRuntime> for SmsSessionQueryProvider {
-    fn query_paths(&self, _machine: &SmsRuntime, prefix: Option<&str>) -> Vec<String> {
+impl<M: SmsModel> SessionQueryProvider<SmsRuntime<M>> for SmsSessionQueryProvider {
+    fn query_paths(&self, _machine: &SmsRuntime<M>, prefix: Option<&str>) -> Vec<String> {
         let mut paths: Vec<String> = SMS_QUERY_PATHS
             .iter()
             .copied()
@@ -39,7 +39,11 @@ impl SessionQueryProvider<SmsRuntime> for SmsSessionQueryProvider {
         paths
     }
 
-    fn query(&self, machine: &SmsRuntime, path: &str) -> Result<Option<QueryResult>, QueryError> {
+    fn query(
+        &self,
+        machine: &SmsRuntime<M>,
+        path: &str,
+    ) -> Result<Option<QueryResult>, QueryError> {
         let value = match path {
             "cartridge.loaded" => json!(machine.cart_bytes().is_some()),
             "machine.region" => json!(format!("{:?}", machine.profile().region)),
@@ -86,7 +90,7 @@ impl SessionQueryProvider<SmsRuntime> for SmsSessionQueryProvider {
     }
 }
 
-fn loaded<'a>(runtime: &'a SmsRuntime, path: &str) -> Result<&'a Sms, QueryError> {
+fn loaded<'a, M: SmsModel>(runtime: &'a SmsRuntime<M>, path: &str) -> Result<&'a Sms, QueryError> {
     runtime
         .machine()
         .ok_or_else(|| QueryError::UnavailablePath {

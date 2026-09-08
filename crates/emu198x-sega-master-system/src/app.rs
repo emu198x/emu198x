@@ -6,62 +6,25 @@ use std::path::{Path, PathBuf};
 
 use emu198x_shell::HeadlessSession;
 use emu198x_shell::launch::{Args, LaunchError, MachineApp, read_rom};
-use runtime_sega_master_system::{
-    Model, SmsRuntime, SmsSessionQueryProvider, blank, with_cartridge,
-};
+use emu198x_shell::{FirmwareOverrides, build_variant};
+use runtime_sega_master_system::{Model, SmsRuntime, SmsSessionQueryProvider};
 use serde_json::{Map, Value};
 
-/// CPU clocks per frame — `228 × lines`.
-const FRAME_TICKS_NTSC: u64 = 228 * 262;
-const FRAME_TICKS_PAL: u64 = 228 * 313;
-#[cfg(feature = "ui")]
-const NTSC_FRAME_HZ: f64 = 60.0;
-#[cfg(feature = "ui")]
-const PAL_FRAME_HZ: f64 = 50.0;
-
-/// Console variant — selects the model, frame tick budget and refresh rate.
-/// The Game Gear ships from `emu198x-sega-game-gear` (#998).
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum Variant {
-    #[default]
-    SmsNtsc,
-    SmsPal,
-    Sms1Ntsc,
-    Sms1Pal,
-}
-
-impl Variant {
-    pub const fn model(self) -> Model {
-        match self {
-            Self::SmsNtsc => Model::SmsNtsc,
-            Self::SmsPal => Model::SmsPal,
-            Self::Sms1Ntsc => Model::Sms1Ntsc,
-            Self::Sms1Pal => Model::Sms1Pal,
-        }
-    }
-
-    pub const fn frame_ticks(self) -> u64 {
-        match self {
-            Self::SmsPal | Self::Sms1Pal => FRAME_TICKS_PAL,
-            Self::SmsNtsc | Self::Sms1Ntsc => FRAME_TICKS_NTSC,
-        }
-    }
-
-    #[cfg(feature = "ui")]
-    pub const fn frame_hz(self) -> f64 {
-        match self {
-            Self::SmsPal | Self::Sms1Pal => PAL_FRAME_HZ,
-            Self::SmsNtsc | Self::Sms1Ntsc => NTSC_FRAME_HZ,
-        }
-    }
-}
-
 /// The machine configuration the flags build up.
-#[derive(Debug, Default, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct MasterSystem {
     /// `--cart PATH`, or the one positional argument.
     pub cart: Option<PathBuf>,
-    pub variant: Variant,
+    pub model: Model,
+}
+
+impl Default for MasterSystem {
+    fn default() -> Self {
+        Self {
+            cart: None,
+            model: Model::SmsNtsc,
+        }
+    }
 }
 
 impl MasterSystem {
@@ -80,7 +43,8 @@ impl MachineApp for MasterSystem {
     const VERSION: &'static str = env!("CARGO_PKG_VERSION");
     const MACHINE_OPTIONS: &'static str =
         "    --cart PATH     cartridge ROM (required; a bare PATH is accepted too)
-    --variant KIND  sms-ntsc | sms-pal | sms1-ntsc | sms1-pal [default: sms-ntsc]
+    --model ID      canonical model id or full profile id (alias: --variant)
+    --variant KIND  sms-ntsc | sms-japan-ntsc | sms-pal | sms1-ntsc | sms1-pal [default: sms-ntsc]
                     sms1 selects the early 315-5124 VDP";
     const CONTROLS: &'static str = "    Esc             quit
     F12             emulator hard reset
@@ -91,18 +55,14 @@ impl MachineApp for MasterSystem {
     fn parse_flag(&mut self, flag: &str, args: &mut Args) -> Result<bool, LaunchError> {
         match flag {
             "--cart" => self.cart = Some(args.path(flag)?),
-            "--variant" => {
-                self.variant = match args.value(flag)?.as_str() {
-                    "sms-ntsc" | "sms" => Variant::SmsNtsc,
-                    "sms-pal" => Variant::SmsPal,
-                    "sms1-ntsc" | "sms1" => Variant::Sms1Ntsc,
-                    "sms1-pal" => Variant::Sms1Pal,
-                    other => {
-                        return Err(LaunchError::Usage(format!(
-                            "--variant expects sms-ntsc|sms-pal|sms1-ntsc|sms1-pal, got {other}"
-                        )));
-                    }
-                };
+            "--variant" | "--model" => {
+                let id = args.value(flag)?;
+                self.model = Model::from_variant_id(&id).ok_or_else(|| {
+                    LaunchError::Usage(format!(
+                        "{flag} expects {}, got {id}",
+                        Model::VARIANT_IDS.join("|")
+                    ))
+                })?;
             }
             _ if flag.starts_with('-') => return Ok(false),
             _ if self.cart.is_none() => self.cart = Some(PathBuf::from(flag)),
@@ -116,7 +76,7 @@ impl MachineApp for MasterSystem {
     }
 
     fn frame_ticks(&self) -> u64 {
-        self.variant.frame_ticks()
+        self.model.frame_ticks()
     }
 
     fn query_provider(&self) -> SmsSessionQueryProvider {
@@ -128,14 +88,30 @@ impl MachineApp for MasterSystem {
     fn build_runtime(&self) -> Result<SmsRuntime, LaunchError> {
         let cart_path = self.cart_path()?;
         let cart = read_rom(cart_path, "--cart")?;
-        let mut runtime = with_cartridge(self.variant.model(), cart);
+        let mut runtime = build_variant::<SmsRuntime>(self.model, &FirmwareOverrides::none())
+            .map_err(|err| LaunchError::Run(err.to_string()))?;
+        runtime.insert_cartridge(cart);
         load_battery_save(&mut runtime, &default_battery_save_path(cart_path))?;
         Ok(runtime)
     }
 
-    /// MCP starts blank; the cartridge arrives via load_media.
+    /// Use the same parsed cartridge and battery-save startup as normal launch.
+    /// Without a cartridge MCP starts empty and waits for load_media.
     fn build_mcp_runtime(&self) -> Result<SmsRuntime, LaunchError> {
-        Ok(blank(self.variant.model()))
+        if self.cart.is_some() {
+            return self.build_runtime();
+        }
+        build_variant::<SmsRuntime>(self.model, &FirmwareOverrides::none())
+            .map_err(|err| LaunchError::Run(err.to_string()))
+    }
+
+    fn mcp_startup_media(
+        &self,
+        _slots: &[emu198x_shell::MediaSlot],
+        _raw_args: &[String],
+    ) -> Result<Vec<(String, emu198x_shell::MediaKind, Vec<u8>)>, LaunchError> {
+        // build_mcp_runtime already loaded the parsed cartridge (and its SRAM).
+        self.startup_media()
     }
 
     /// Write the battery save back once the script and frames have run.
@@ -197,6 +173,7 @@ fn write_battery_save(runtime: &SmsRuntime, path: &Path) -> Result<(), LaunchErr
 mod tests {
     use super::*;
     use emu198x_shell::launch::{Mode, Parsed, parse};
+    use runtime_sega_master_system::with_cartridge;
 
     fn args(list: &[&str]) -> Vec<String> {
         list.iter().map(|s| (*s).to_owned()).collect()
@@ -219,7 +196,7 @@ mod tests {
             panic!("expected a run");
         };
         assert!(app.cart.is_none());
-        assert_eq!(app.variant, Variant::SmsNtsc);
+        assert_eq!(app.model, Model::SmsNtsc);
         assert_eq!(common.frames, 0);
     }
 
@@ -238,7 +215,7 @@ mod tests {
             panic!("expected a run");
         };
         assert_eq!(app.cart.as_deref(), Some(Path::new("/tmp/cart")));
-        assert_eq!(app.variant, Variant::SmsPal);
+        assert_eq!(app.model, Model::SmsPal);
         assert_eq!(common.frames, 60);
         assert_eq!(mode, Mode::Script);
     }
@@ -260,7 +237,7 @@ mod tests {
             panic!("expected a run");
         };
         assert_eq!(app.cart, Some(PathBuf::from("sonic.sms")));
-        assert_eq!(app.variant, Variant::SmsPal);
+        assert_eq!(app.model, Model::SmsPal);
         assert_eq!(common.scale, Some(4));
         assert_eq!(common.video.as_deref(), Some("crt"));
         assert_eq!(mode, Mode::Ui);
@@ -273,13 +250,13 @@ mod tests {
             panic!("expected a run");
         };
         assert_eq!(app.cart, Some(PathBuf::from("sonic.sms")));
-        assert_eq!(app.variant, Variant::SmsNtsc);
+        assert_eq!(app.model, Model::SmsNtsc);
     }
 
     #[test]
     fn variant_frame_ticks_match() {
-        assert_eq!(Variant::SmsNtsc.frame_ticks(), 228 * 262);
-        assert_eq!(Variant::SmsPal.frame_ticks(), 228 * 313);
+        assert_eq!(Model::SmsNtsc.frame_ticks(), 228 * 262);
+        assert_eq!(Model::SmsPal.frame_ticks(), 228 * 313);
     }
 
     #[test]

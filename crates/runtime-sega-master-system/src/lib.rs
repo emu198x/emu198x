@@ -10,4 +10,7 @@
 mod profiles;
 
 pub use profiles::{Model, blank, profile_for, profiles, with_cartridge};
-pub use runtime_sega_master_system_class::{Sms, SmsRuntime, SmsSessionQueryProvider, SmsVariant};
+pub use runtime_sega_master_system_class::{Sms, SmsSessionQueryProvider, SmsVariant};
+
+/// Shared implementation parameterised by this system's model catalogue.
+pub type SmsRuntime = runtime_sega_master_system_class::SmsRuntime<Model>;

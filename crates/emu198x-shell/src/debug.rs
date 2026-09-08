@@ -320,18 +320,24 @@ macro_rules! debug_target_hooks {
 /// Storage-agnostic like the 6502/6809 macros: the bare form serves a
 /// lazily-built `machine: Option<M>`, the `direct` form an eager `machine: M`.
 /// (No eager Z80 consumer today — present for parity.)
+/// A generic runtime can use `impl_z80_debug_primitives!(impl<M: ModelTrait> Runtime<M>)`;
+/// the implementation remains in the crate that owns the runtime.
 #[macro_export]
 macro_rules! impl_z80_debug_primitives {
+    (impl<$model:ident: $bound:path> $runtime:ty) => {
+        $crate::impl_z80_debug_primitives!(@impl [<$model: $bound>] $runtime,
+            $crate::debug::opt_ref, $crate::debug::opt_mut);
+    };
     ($runtime:ty) => {
-        $crate::impl_z80_debug_primitives!(@impl $runtime,
+        $crate::impl_z80_debug_primitives!(@impl [] $runtime,
             $crate::debug::opt_ref, $crate::debug::opt_mut);
     };
     ($runtime:ty, direct) => {
-        $crate::impl_z80_debug_primitives!(@impl $runtime,
+        $crate::impl_z80_debug_primitives!(@impl [] $runtime,
             $crate::debug::direct_ref, $crate::debug::direct_mut);
     };
-    (@impl $runtime:ty, $get:path, $get_mut:path) => {
-        impl $crate::DebugPrimitives for $runtime {
+    (@impl [$($generics:tt)*] $runtime:ty, $get:path, $get_mut:path) => {
+        impl $($generics)* $crate::DebugPrimitives for $runtime {
             fn dbg_pc(&self) -> u32 {
                 $get(&self.machine).map_or(0, |m| u32::from(m.cpu().regs.pc))
             }
