@@ -1,7 +1,7 @@
 # Native UI catalogue audit
 
 Source audit dated 2026-09-08, against main `9bc8471a` plus the CPC/Einstein
-M5/SVI-328, Atom/Electron, Oric/Aquarius and SG-1000/ColecoVision migrations described here. This is a source-level coverage audit,
+M5/SVI-328, Atom/Electron, Oric/Aquarius and SG-1000/ColecoVision and Atari 5200 migrations described here. This is a source-level coverage audit,
 not a claim that every preset has booted or passed hardware validation.
 
 ## Coverage
@@ -381,3 +381,34 @@ its no-cartridge screen. Both regions capture at their existing dimensions:
 280×240 NTSC and 278×288 PAL. This is headless boot/capture evidence; commercial
 cartridge gameplay, native menu click-through and audio-device output remain
 unverified by this slice.
+
+## Atari 5200 optional-firmware follow-on
+
+Parent issue: [#1475](https://github.com/emu198x/emu198x/issues/1475).
+Broader epic: [#456](https://github.com/emu198x/emu198x/issues/456).
+
+Atari 5200 now uses a single-entry runtime catalogue for its existing NTSC model,
+optional BIOS and unchanged native frame budget. Its legacy `--region ntsc` is
+accepted and PAL remains rejected; it gains no redundant menu or switch tool.
+Catalogue adoption covers eighteen of 30 binaries, with 12 remaining. Fourteen
+expose native selectors.
+
+`--bios` and `EMU198X_A5200_BIOS` remain available alongside shared
+`--rom PATH|ID=PATH`, `--rom-dir` and `EMU198X_A5200_ROM_DIR`. The firmware id is
+`atari-5200-bios`; directory lookup tries `bios.rom` before `5200.rom`. An explicit
+missing file is an error in every mode. Absent conventional BIOS remains optional,
+including with no HOME or ROM directory, and the existing permissive BIOS-size
+handling is unchanged. Reports expose live `bios_loaded` state.
+
+MCP now loads available BIOS firmware, which it previously ignored, and accepts
+both flagged and positional startup cartridges. The window and scripts use the
+same parsed cartridge path. Normal launch still requires a cartridge; MCP can
+wait for one. Tests verify actual BIOS and cartridge mapping, retention on reset,
+firmware precedence and errors, optional-firmware startup and the native window
+constructor. The existing synthetic handover-BIOS boot test now constructs its
+runtime through the catalogue before executing the cartridge.
+
+The 33 existing MCP tool definitions are unchanged. A local 150-frame capture
+using the committed synthetic handover BIOS and cartridge displays the Emu198x
+plate at 374×240. This verifies the catalogue-to-boot path without private ROMs;
+native window interaction and audio output remain unverified by this slice.

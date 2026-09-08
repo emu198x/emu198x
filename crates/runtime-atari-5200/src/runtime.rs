@@ -109,6 +109,12 @@ impl Atari5200Runtime {
         self.cart_bytes.as_deref()
     }
 
+    /// Whether the runtime holds a nonempty BIOS image, even before a cart arrives.
+    #[must_use]
+    pub fn bios_loaded(&self) -> bool {
+        !self.bios_bytes.is_empty()
+    }
+
     pub(crate) fn bios_bytes(&self) -> &[u8] {
         &self.bios_bytes
     }
@@ -150,6 +156,53 @@ impl Atari5200Runtime {
             self.rgba_framebuffer[base + 2] = (pixel & 0xff) as u8;
             self.rgba_framebuffer[base + 3] = ((pixel >> 24) & 0xff) as u8;
         }
+    }
+}
+
+impl emu198x_shell::FamilyRuntime for Atari5200Runtime {
+    type Model = Model;
+
+    fn variant_ids() -> &'static [&'static str] {
+        &Model::VARIANT_IDS
+    }
+
+    fn model_from_id(id: &str) -> Option<Model> {
+        Model::from_variant_id(id)
+    }
+
+    fn variant_id(model: Model) -> &'static str {
+        model.profile_id()
+    }
+
+    fn profile_for(model: Model) -> MachineProfile {
+        profile_for(model)
+    }
+
+    fn rom_convention() -> emu198x_shell::RomConvention {
+        emu198x_shell::RomConvention {
+            env_var: Some("EMU198X_A5200_ROM_DIR"),
+            dirs: &["atari-5200"],
+        }
+    }
+
+    fn firmware_sources(model: Model) -> Vec<emu198x_shell::FirmwareSource> {
+        model.firmware_sources()
+    }
+
+    fn from_firmware(
+        model: Model,
+        firmware: &emu198x_shell::FirmwareSet<'_>,
+    ) -> Result<Self, MachineError> {
+        firmware.validate_for_profile(&profile_for(model))?;
+        let mut runtime = Self::blank(model);
+        if let Some(bytes) = firmware.bytes(crate::BIOS_FIRMWARE_ID) {
+            runtime.set_bios(bytes.to_vec())?;
+        }
+        Ok(runtime)
+    }
+
+    fn native_frame_ticks(&self) -> u64 {
+        self.model.frame_ticks()
     }
 }
 

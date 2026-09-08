@@ -219,6 +219,17 @@ options. Its switches resolve conventional BIOS firmware, dropping launch pins,
 while retaining cartridge bytes. Both launchers share parsed cartridge startup
 with script, MCP and window modes, including positional paths.
 
+## Optional Atari 5200 BIOS
+
+Atari 5200's single NTSC model uses the shared resolver with an optional BIOS
+source. Both conventional filenames (`bios.rom`, then `5200.rom`) remain valid;
+explicit file pins and the legacy file environment variable take precedence.
+Missing conventional firmware does not require a HOME or ROM directory, while
+an explicitly missing BIOS is an error. BIOS-size handling remains the runtime's
+existing policy. Parsed cartridge loading is shared by window, script and MCP,
+and MCP now loads the available BIOS before a cartridge arrives. No alternate
+hardware profile or switch capability is introduced.
+
 ## Adding a variant or migrating a family
 
 For another variant of a migrated family, extend its runtime model and
