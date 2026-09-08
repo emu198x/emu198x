@@ -74,6 +74,9 @@ pub struct VariantInfo {
     pub id: Cow<'static, str>,
     /// Human-readable menu label.
     pub label: Cow<'static, str>,
+    /// Optional submenu label, such as a base model containing several presets.
+    /// Ungrouped entries remain directly under Machine.
+    pub group: Option<Cow<'static, str>>,
 }
 
 impl VariantInfo {
@@ -82,7 +85,15 @@ impl VariantInfo {
         Self {
             id: id.into(),
             label: label.into(),
+            group: None,
         }
+    }
+
+    /// Put this choice under a shared submenu, preserving its switch id.
+    #[must_use]
+    pub fn in_group(mut self, label: impl Into<Cow<'static, str>>) -> Self {
+        self.group = Some(label.into());
+        self
     }
 }
 

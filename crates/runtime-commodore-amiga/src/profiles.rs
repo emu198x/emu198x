@@ -137,48 +137,128 @@ impl Model {
         self.model_id()
     }
 
-    /// The PAL models a `--model` flag, a `set_machine` step or the
-    /// window's variant menu can name, in catalogue order. The NTSC
-    /// siblings are reachable through the profile catalogue only.
-    pub const VARIANTS: [Self; 9] = [
+    /// Every selectable preset, grouped by base model and configuration.
+    /// The historical unsuffixed ids keep their PAL meaning; NTSC presets
+    /// have a distinct `-ntsc` suffix.
+    pub const VARIANTS: [Self; 18] = [
         Self::A1000OcsPal,
+        Self::A1000OcsNtsc,
         Self::A500OcsPal,
-        Self::A500OcsPalGvpA530,
+        Self::A500OcsNtsc,
         Self::A500OcsPalA501,
-        Self::A500PlusEcsPal,
+        Self::A500OcsNtscA501,
         Self::A500OcsPalMaxed,
+        Self::A500OcsNtscMaxed,
+        Self::A500OcsPalGvpA530,
+        Self::A500OcsNtscGvpA530,
+        Self::A500PlusEcsPal,
+        Self::A500PlusEcsNtsc,
         Self::A600EcsPal,
+        Self::A600EcsNtsc,
         Self::A1200AgaPal,
+        Self::A1200AgaNtsc,
         Self::A2000OcsPal,
+        Self::A2000OcsNtsc,
     ];
 
-    /// Every variant id, in [`Self::VARIANTS`] order.
-    pub const VARIANT_IDS: [&'static str; 9] = [
+    /// Every selectable preset id, in [`Self::VARIANTS`] order.
+    pub const VARIANT_IDS: [&'static str; 18] = [
         "a1000",
+        "a1000-ntsc",
         "a500",
-        "a500-gvp-a530",
+        "a500-ntsc",
         "a500-a501",
-        "a500-plus",
+        "a500-a501-ntsc",
         "a500-maxed",
+        "a500-maxed-ntsc",
+        "a500-gvp-a530",
+        "a500-gvp-a530-ntsc",
+        "a500-plus",
+        "a500-plus-ntsc",
         "a600",
+        "a600-ntsc",
         "a1200",
+        "a1200-ntsc",
         "a2000",
+        "a2000-ntsc",
     ];
 
-    /// The id `set_machine`, `--model` and the variant menu use for this
-    /// model; the NTSC siblings share their PAL model's id.
+    /// Stable id shared by the launcher, scripts, MCP and the native menu.
     #[must_use]
     pub const fn variant_id(self) -> &'static str {
         match self {
-            Self::A1000OcsPal | Self::A1000OcsNtsc => "a1000",
-            Self::A500OcsPal | Self::A500OcsNtsc => "a500",
-            Self::A500OcsPalGvpA530 | Self::A500OcsNtscGvpA530 => "a500-gvp-a530",
-            Self::A500OcsPalA501 | Self::A500OcsNtscA501 => "a500-a501",
-            Self::A500PlusEcsPal | Self::A500PlusEcsNtsc => "a500-plus",
-            Self::A500OcsPalMaxed | Self::A500OcsNtscMaxed => "a500-maxed",
-            Self::A600EcsPal | Self::A600EcsNtsc => "a600",
-            Self::A1200AgaPal | Self::A1200AgaNtsc => "a1200",
-            Self::A2000OcsPal | Self::A2000OcsNtsc => "a2000",
+            Self::A1000OcsPal => "a1000",
+            Self::A1000OcsNtsc => "a1000-ntsc",
+            Self::A500OcsPal => "a500",
+            Self::A500OcsNtsc => "a500-ntsc",
+            Self::A500OcsPalA501 => "a500-a501",
+            Self::A500OcsNtscA501 => "a500-a501-ntsc",
+            Self::A500OcsPalMaxed => "a500-maxed",
+            Self::A500OcsNtscMaxed => "a500-maxed-ntsc",
+            Self::A500OcsPalGvpA530 => "a500-gvp-a530",
+            Self::A500OcsNtscGvpA530 => "a500-gvp-a530-ntsc",
+            Self::A500PlusEcsPal => "a500-plus",
+            Self::A500PlusEcsNtsc => "a500-plus-ntsc",
+            Self::A600EcsPal => "a600",
+            Self::A600EcsNtsc => "a600-ntsc",
+            Self::A1200AgaPal => "a1200",
+            Self::A1200AgaNtsc => "a1200-ntsc",
+            Self::A2000OcsPal => "a2000",
+            Self::A2000OcsNtsc => "a2000-ntsc",
+        }
+    }
+
+    /// Base machine name, independent of region and fitted expansions.
+    #[must_use]
+    pub const fn base_model_label(self) -> &'static str {
+        match self {
+            Self::A1000OcsPal | Self::A1000OcsNtsc => "Amiga 1000",
+            Self::A500PlusEcsPal | Self::A500PlusEcsNtsc => "Amiga 500+",
+            Self::A600EcsPal | Self::A600EcsNtsc => "Amiga 600",
+            Self::A1200AgaPal | Self::A1200AgaNtsc => "Amiga 1200",
+            Self::A2000OcsPal | Self::A2000OcsNtsc => "Amiga 2000",
+            Self::A500OcsPal
+            | Self::A500OcsNtsc
+            | Self::A500OcsPalA501
+            | Self::A500OcsNtscA501
+            | Self::A500OcsPalMaxed
+            | Self::A500OcsNtscMaxed
+            | Self::A500OcsPalGvpA530
+            | Self::A500OcsNtscGvpA530 => "Amiga 500",
+        }
+    }
+
+    /// Hardware configuration within the base model, independent of region.
+    #[must_use]
+    pub const fn configuration_label(self) -> &'static str {
+        match self {
+            Self::A500OcsPalA501 | Self::A500OcsNtscA501 => "A501 RAM expansion",
+            Self::A500OcsPalMaxed | Self::A500OcsNtscMaxed => {
+                "Expanded RAM (1 MiB chip, 512 KiB slow, 8 MiB fast)"
+            }
+            Self::A500OcsPalGvpA530 | Self::A500OcsNtscGvpA530 => {
+                "GVP A530 (40 MHz, 1 MiB; research)"
+            }
+            Self::A2000OcsPal | Self::A2000OcsNtsc => "8372A Agnus, 1 MiB chip RAM",
+            _ => "Standard configuration",
+        }
+    }
+
+    /// Region and configuration shown inside the base model's menu group.
+    #[must_use]
+    pub fn menu_label(self) -> String {
+        let region = if self.is_ntsc() { "NTSC" } else { "PAL" };
+        format!("{region}: {}", self.configuration_label())
+    }
+
+    /// Initial frame budget in machine ticks, from the existing board timing.
+    /// A live runtime remains authoritative after construction or a switch.
+    #[must_use]
+    pub const fn frame_ticks(self) -> u64 {
+        if self.is_ntsc() {
+            A500_NTSC_FRAME_TICKS
+        } else {
+            A500_PAL_FRAME_TICKS
         }
     }
 

@@ -190,22 +190,19 @@ fn set_machine_swaps_the_live_variant() {
     // Booted as the AGA A1200 (see boot_server); swap to the OCS A500.
     let (mut server, mut session) = boot_server(rom_bytes);
 
-    let swapped = unwrap_tool_text(&call(
-        &mut server,
-        &mut session,
-        2,
-        "tools/call",
-        json!({ "name": "set_machine", "arguments": { "model": "a500" } }),
-    ));
-    assert_eq!(swapped.get("machine").and_then(Value::as_str), Some("a500"));
-    let profile_id = swapped
-        .get("profile_id")
-        .and_then(Value::as_str)
-        .expect("set_machine reports profile_id");
-    assert!(
-        profile_id.contains("a500"),
-        "swapped profile should be an A500 variant, got {profile_id}"
-    );
+    for model in [Model::A500OcsPal, Model::A500OcsNtscA501] {
+        let id = model.variant_id();
+        let swapped = unwrap_tool_text(&call(
+            &mut server,
+            &mut session,
+            2,
+            "tools/call",
+            json!({ "name": "set_machine", "arguments": { "model": id } }),
+        ));
+        assert_eq!(swapped.get("machine").and_then(Value::as_str), Some(id));
+        assert_eq!(session.machine().model(), model);
+        assert_eq!(session.native_frame_ticks(), model.frame_ticks());
+    }
 
     // The freshly-installed OCS machine drives: stepping advances it.
     let step = unwrap_tool_text(&call(

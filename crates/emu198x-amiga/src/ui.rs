@@ -16,11 +16,10 @@
 //!   keys + Space fall through to that port.
 //! - **Keyboard**: [`map_amiga_key`] maps each physical host key to one Amiga key
 //!   name.
-//! - **Variants**: all nine selectable PAL configurations (A1000 / A500 family,
-//!   including the A530 research profile / A600 / A1200 / A2000) as the
-//!   Machine-menu radio. Each switch resolves the target model's Kickstart via
-//!   the staged ROM resolution in `model.rs` and rebuilds the runtime with
-//!   `from_firmware` (the inserted disk is lost — a hardware swap).
+//! - **Variants**: all PAL and NTSC presets grouped by base machine, with
+//!   RAM expansions and accelerator configurations named separately. Each
+//!   switch resolves the runtime's conventional firmware and rebuilds the
+//!   machine; inserted disks and launch overrides are not carried across.
 //! - **Reset**: [`after_reset`](UiSystem::after_reset) re-inserts the DF0 ADF so
 //!   F12 keeps the disk (the bespoke runner dropped it).
 //!
@@ -32,14 +31,12 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use emu198x_shell::{
-    FirmwareOverrides, MachineCore, MachineError, MediaImage, MediaKind, MediaSet, build_variant,
-    read_media_asset,
+    FamilyRuntime, FirmwareOverrides, MachineCore, MachineError, MediaImage, MediaKind, MediaSet,
+    build_variant, read_media_asset,
 };
 use emu198x_ui::launch::UiApp;
 use emu198x_ui::{ButtonInputMap, ButtonTarget, HostControl, KeyCode, UiSystem, VariantInfo};
-use runtime_commodore_amiga::{
-    A500_PAL_CCK_HZ, A500_PAL_FRAME_TICKS, AmigaRuntimeKind, DISPLAY_HEIGHT, DISPLAY_WIDTH, Model,
-};
+use runtime_commodore_amiga::{AmigaRuntimeKind, DISPLAY_HEIGHT, DISPLAY_WIDTH, Model};
 
 use crate::app::{Amiga, DEFAULT_FLOPPY_SLOT};
 
@@ -158,12 +155,16 @@ impl UiSystem for AmigaSystem {
         (DISPLAY_WIDTH, DISPLAY_HEIGHT)
     }
 
-    fn frame_ticks(&self, _runtime: &Self::Runtime) -> u64 {
-        A500_PAL_FRAME_TICKS
+    fn frame_ticks(&self, runtime: &Self::Runtime) -> u64 {
+        runtime.native_frame_ticks()
     }
 
-    fn frame_duration(&self, _runtime: &Self::Runtime) -> Duration {
-        Duration::from_secs_f64(A500_PAL_FRAME_TICKS as f64 / (A500_PAL_CCK_HZ * 2) as f64)
+    fn frame_duration(&self, runtime: &Self::Runtime) -> Duration {
+        let rate = &runtime.profile().clock.rate;
+        Duration::from_secs_f64(
+            runtime.native_frame_ticks() as f64 * rate.denominator_hz as f64
+                / rate.numerator_hz as f64,
+        )
     }
 
     fn input_slices_per_frame(&self) -> u32 {
@@ -238,7 +239,10 @@ impl UiSystem for AmigaSystem {
     fn variants(&self) -> Vec<VariantInfo> {
         Model::VARIANTS
             .iter()
-            .map(|model| VariantInfo::new(model.variant_id(), model.display_name()))
+            .map(|model| {
+                VariantInfo::new(model.variant_id(), model.menu_label())
+                    .in_group(model.base_model_label())
+            })
             .collect()
     }
 
@@ -319,14 +323,14 @@ mod tests {
     }
 
     #[test]
-    fn variants_list_covers_all_nine_models() {
+    fn variants_list_covers_every_runtime_preset() {
         let system = AmigaSystem {
             model: Model::A500OcsPal,
             disk: None,
             keyboard_joystick: false,
         };
         let variants = system.variants();
-        assert_eq!(variants.len(), 9);
+        assert_eq!(variants.len(), runtime_commodore_amiga::profiles().len());
         let ids: Vec<_> = variants.iter().map(|v| v.id.as_ref()).collect();
         assert_eq!(ids, Model::VARIANT_IDS);
         assert_eq!(
@@ -334,6 +338,56 @@ mod tests {
             Some("a500"),
             "current variant tracks the active model"
         );
+    }
+
+    #[test]
+    fn menu_groups_presets_under_six_base_machines() {
+        let system = AmigaSystem {
+            model: Model::A500OcsPal,
+            disk: None,
+            keyboard_joystick: false,
+        };
+        let variants = system.variants();
+        let mut groups: Vec<_> = variants
+            .iter()
+            .map(|v| v.group.as_deref().expect("base model"))
+            .collect();
+        groups.sort_unstable();
+        groups.dedup();
+        assert_eq!(
+            groups,
+            [
+                "Amiga 1000",
+                "Amiga 1200",
+                "Amiga 2000",
+                "Amiga 500",
+                "Amiga 500+",
+                "Amiga 600"
+            ]
+        );
+        let a500: Vec<_> = variants
+            .iter()
+            .filter(|v| v.group.as_deref() == Some("Amiga 500"))
+            .collect();
+        assert_eq!(a500.len(), 8, "four configurations in each region");
+        assert!(a500.iter().any(|v| v.id == "a500-a501-ntsc"
+            && v.label.contains("NTSC")
+            && v.label.contains("A501")));
+    }
+
+    #[test]
+    fn window_pacing_follows_the_live_region() {
+        // Even when the driver's launch model is PAL, the live runtime owns pacing.
+        let system = AmigaSystem {
+            model: Model::A500OcsPal,
+            disk: None,
+            keyboard_joystick: false,
+        };
+        let pal = AmigaRuntimeKind::blank(Model::A500OcsPal);
+        let ntsc = AmigaRuntimeKind::blank(Model::A500OcsNtsc);
+        assert_eq!(system.frame_ticks(&ntsc), ntsc.native_frame_ticks());
+        assert!(system.frame_ticks(&ntsc) < system.frame_ticks(&pal));
+        assert!(system.frame_duration(&ntsc) < system.frame_duration(&pal));
     }
 
     #[test]

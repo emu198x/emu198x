@@ -17,9 +17,7 @@ use emu198x_shell::{
     FirmwareOverrides, HeadlessSession, MachineCore, MediaImage, MediaKind, MediaSet,
     build_variant, read_media_asset, resolve_firmware,
 };
-use runtime_commodore_amiga::{
-    A500_PAL_FRAME_TICKS, AmigaRuntimeKind, AmigaSessionQueryProvider, Model,
-};
+use runtime_commodore_amiga::{AmigaRuntimeKind, AmigaSessionQueryProvider, Model};
 use serde_json::{Map, Value};
 
 use crate::mcp::tools::register_amiga_tools;
@@ -89,6 +87,7 @@ impl MachineApp for Amiga {
     --kickstart PATH     explicit ROM path (Kickstart on A500, bootstrap on A1000)
     --model MODEL        a1000 | a500 | a500-gvp-a530 | a500-a501 | a500-plus
                          | a500-maxed | a600 | a1200 | a2000 [default: a500]
+                         Unsuffixed ids select PAL; append -ntsc for NTSC.
     --disk PATH          insert one ADF image into DF0:
     --wait-for-boot N    run up to N frames until boot.detected is true (headless)
     --print-query PATH   resolve one query path after running (repeatable, headless)";
@@ -126,10 +125,9 @@ impl MachineApp for Amiga {
         Ok(true)
     }
 
-    /// The PAL constant for every model; the script and MCP sessions were
-    /// always paced this way.
+    /// Initial frame budget follows the selected preset's region.
     fn frame_ticks(&self) -> u64 {
-        A500_PAL_FRAME_TICKS
+        self.model.frame_ticks()
     }
 
     fn query_provider(&self) -> AmigaSessionQueryProvider {
@@ -270,6 +268,19 @@ mod tests {
         assert_eq!(app.wait_for_boot, Some(300));
         assert_eq!(app.print_queries, ["boot.detected", "disk.inserted"]);
         assert_eq!(app.rom_dir, Some(PathBuf::from("roms")));
+    }
+
+    #[test]
+    fn every_preset_launches_with_its_regional_frame_budget() {
+        use emu198x_shell::FamilyRuntime;
+        for model in Model::VARIANTS {
+            let (app, _, _) = parsed(&["--model", model.variant_id()]);
+            assert_eq!(app.model, model);
+            assert_eq!(
+                app.frame_ticks(),
+                AmigaRuntimeKind::blank(model).native_frame_ticks()
+            );
+        }
     }
 
     #[test]

@@ -469,3 +469,21 @@ silently coerced.
   not a chipset change.
 - **#102/#43 (storage), #100 (serial), accelerators:** all land as `peripherals`
   / `accelerator` config, additive.
+
+## Catalogue presentation (2026-09-08)
+
+The current catalogue describes six base machines (A1000, A500, A500+, A600,
+A1200 and A2000), nine configuration presets and eighteen regional presets.
+A501 and expanded-RAM A500 presets are configurations of the A500. The GVP
+A530 preset also selects an accelerator and remains a research configuration;
+its presence in a selector does not establish general accelerator usability.
+The A2000 preset specifically selects an 8372A Agnus with 1 MiB chip RAM.
+
+The native menu groups presets under their base machine and names the region
+and configuration within each group. Existing unsuffixed ids keep their PAL
+meaning; NTSC ids add `-ntsc`. The runtime owns these labels and ids, and the
+shared UI supplies optional submenu grouping. The serialized `Model` enum and
+hardware configuration types remain unchanged by this presentation work.
+
+See the [native UI catalogue audit](../../docs/status/native-ui-catalogue-audit.md)
+for the distinction between a selectable preset and validated machine support.

@@ -222,6 +222,7 @@ impl AppMenu {
         // Machine → variant radio (when the system declares variants) + Reset.
         let machine_menu = Submenu::new("Machine", true);
         let mut variant_items = Vec::new();
+        let mut variant_groups = HashMap::new();
         for variant in variants {
             let item = CheckMenuItem::new(
                 variant.label.as_ref(),
@@ -233,7 +234,16 @@ impl AppMenu {
                 item.id().clone(),
                 AppCommand::SwitchVariant(variant.id.clone()),
             );
-            machine_menu.append(&item).expect("append variant item");
+            if let Some(group) = &variant.group {
+                let submenu = variant_groups.entry(group.clone()).or_insert_with(|| {
+                    let submenu = Submenu::new(group.as_ref(), true);
+                    machine_menu.append(&submenu).expect("append variant group");
+                    submenu
+                });
+                submenu.append(&item).expect("append grouped variant");
+            } else {
+                machine_menu.append(&item).expect("append variant item");
+            }
             variant_items.push((variant.id.clone(), item));
         }
 

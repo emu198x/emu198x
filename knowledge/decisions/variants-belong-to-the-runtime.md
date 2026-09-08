@@ -66,9 +66,12 @@ override tests are the shell's. The window title and menu keep their
 short labels through `Model::menu_label`. The three boot paths in the
 binary each became one call to `build_variant`.
 
-The Amiga's `model.rs` is gone the same way: its nine ids are
-`Model::VARIANT_IDS` over the PAL models, its Kickstart candidate names
-are `Model::firmware_sources` by chip stack, and `--rom-dir` /
+The Amiga's `model.rs` is gone the same way. `Model::VARIANT_IDS` now
+exposes all eighteen regional presets: the nine original ids retain PAL
+semantics and their NTSC counterparts add `-ntsc`. The native menu groups
+these presets under six base machines, with RAM and accelerator
+configurations labelled separately. Its Kickstart candidate names are
+`Model::firmware_sources` by chip stack, and `--rom-dir` /
 `--kickstart` are a `FirmwareOverrides` directory and pin. Its MCP
 `set_machine` tool, which took `model` and answered with `model`, is
 the shell's, which takes either spelling and answers with `machine`
@@ -146,3 +149,8 @@ Stop and re-read this record if you find yourself:
 Related: [`tools-follow-the-machine-spec.md`](tools-follow-the-machine-spec.md),
 [`amiga-machine-catalogue.md`](amiga-machine-catalogue.md) (the model
 catalogue whose ids this exposes).
+
+The [native UI catalogue audit](../../docs/status/native-ui-catalogue-audit.md)
+records the remaining launcher and menu coverage gaps. `VariantInfo::in_group`
+lets the shared menu present runtime-owned configuration labels under a base
+machine; families without groups retain a flat menu.
