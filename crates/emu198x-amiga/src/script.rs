@@ -10,26 +10,24 @@
 //!
 //! The shared script loop is not used because the report carries boot
 //! detection and printed queries it has no shape for, prints a plain
-//! summary rather than JSON when no `--script` was given, and intercepts
-//! `set_machine` steps to swap the chipset variant mid-script.
+//! summary rather than JSON when no `--script` was given. Every step,
+//! `set_machine` included, runs in the shell.
 
 use emu198x_shell::launch::{CommonCli, LaunchError, MachineApp};
 use emu198x_shell::{
     BootArtifacts, FamilyRuntime, FirmwareImage, FirmwareSet, HeadlessScript, HeadlessSession,
-    MediaImage, MediaKind, MediaSet, ScriptObservation, ScriptStep, boot_machine,
-    read_firmware_asset, read_media_asset,
+    MediaImage, MediaKind, MediaSet, ScriptObservation, boot_machine, read_firmware,
+    read_media_asset,
 };
 use runtime_commodore_amiga::{AmigaRuntimeKind, AmigaSessionQueryProvider};
 use serde::Serialize;
 use serde_json::Value;
 
-// Model selection + Kickstart resolution are shared with the UI and MCP
-// modes (`crate::model`); script mode used to carry a parallel copy whose
-// ROM-candidate lists had drifted (A500+ tried KS1.3 before KS2.04). All
-// three modes now resolve through `crate::model::find_rom_path`.
+// Model selection + Kickstart resolution are the runtime's catalogue,
+// resolved by the shell for every mode; script mode used to carry a
+// parallel copy whose ROM-candidate lists had drifted (A500+ tried KS1.3
+// before KS2.04).
 use crate::app::{Amiga, DEFAULT_FLOPPY_SLOT};
-use crate::mcp::tools::AmigaCtx;
-use crate::model::{find_rom_path, firmware_id_for_model_arg};
 
 #[derive(Debug, Serialize)]
 struct RunnerReport {
@@ -83,20 +81,13 @@ fn run_cli(cli: &Amiga, common: &CommonCli) -> Result<RunnerReport, LaunchError>
         ));
     }
 
-    let model = cli.model.to_model();
-    let firmware_path = find_rom_path(cli.model, cli.rom_dir.as_deref(), cli.kickstart.as_deref())?;
-    let firmware_bytes = read_firmware_asset(&firmware_path).map_err(|err| {
-        format!(
-            "failed to read Amiga firmware {}: {err}",
-            firmware_path.display()
-        )
-    })?;
-
+    let model = cli.model;
+    let images = read_firmware::<AmigaRuntimeKind>(model, &cli.firmware_overrides())
+        .map_err(|err| err.to_string())?;
     let mut firmware = FirmwareSet::new();
-    firmware.push(FirmwareImage::new(
-        firmware_id_for_model_arg(cli.model),
-        &firmware_bytes.bytes,
-    ));
+    for (id, bytes) in &images {
+        firmware.push(FirmwareImage::new(*id, bytes));
+    }
     let artifacts = BootArtifacts {
         firmware,
         snapshot: None,
@@ -142,35 +133,14 @@ fn run_cli(cli: &Amiga, common: &CommonCli) -> Result<RunnerReport, LaunchError>
     if let Some(path) = &common.script {
         let script = HeadlessScript::from_path(path)
             .map_err(|err| format!("failed to load script {}: {err}", path.display()))?;
-        // Only `set_machine` is intercepted; everything else delegates to the
-        // shared executor. press_key / press_keys / type_string now run through
-        // the machine's `KeyboardTarget` there (the Amiga keymap is wired in).
-        for step in &script.steps {
-            match step {
-                // Shared with the MCP `set_machine` tool: resolve the model's
-                // Kickstart by convention and swap the session's variant via
-                // `HeadlessSession::swap_machine`. Script mode holds the family
-                // enum (`AmigaRuntimeKind`), so mid-script model swaps work (#456).
-                ScriptStep::SetMachine { machine } => {
-                    let outcome = session
-                        .set_machine(machine)
-                        .map_err(|err| format!("set_machine to `{machine}` failed: {err}"))?;
-                    observations.push(ScriptObservation::SetMachine {
-                        machine: machine.clone(),
-                        profile_id: outcome.profile_id,
-                        display_name: outcome.display_name,
-                    });
-                }
-                other => {
-                    if let Some(observation) = other
-                        .execute_collect(&mut session)
-                        .map_err(|err| format!("script execution failed: {err}"))?
-                    {
-                        observations.push(observation);
-                    }
-                }
-            }
-        }
+        // Every step runs in the shared executor: `set_machine` through the
+        // family runtime's `MachineCore::set_machine` hook, the keyboard
+        // verbs through its `KeyboardTarget`.
+        observations.extend(
+            script
+                .execute_collect(&mut session)
+                .map_err(|err| format!("script execution failed: {err}"))?,
+        );
     }
 
     if common.frames > 0 {
@@ -245,7 +215,7 @@ fn query_string(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::ModelArg;
+    use runtime_commodore_amiga::Model;
     use std::fs;
     use std::path::PathBuf;
 
@@ -266,9 +236,8 @@ mod tests {
         kickstart
     }
 
-    /// A `SetMachine` step in a `--script` run is intercepted and swaps
-    /// the live variant (it used to fall through to the shell executor
-    /// and error as `SystemSpecificStep`). Launches a dummy-ROM A500,
+    /// A `SetMachine` step in a `--script` run swaps the live variant
+    /// through the shell's `set_machine`. Launches a dummy-ROM A500,
     /// runs a one-step script swapping to the AGA A1200, and asserts the
     /// SetMachine observation lands. The swap resolves the A1200
     /// Kickstart by convention, so it skips when that ROM is absent.
@@ -296,7 +265,7 @@ mod tests {
 
         let result = run_cli(
             &Amiga {
-                model: ModelArg::A500,
+                model: Model::A500OcsPal,
                 kickstart: Some(kickstart_path.clone()),
                 ..Amiga::default()
             },
@@ -342,7 +311,7 @@ mod tests {
 
         let result = run_cli(
             &Amiga {
-                model: ModelArg::A500,
+                model: Model::A500OcsPal,
                 kickstart: Some(kickstart_path.clone()),
                 disk: Some(disk_path.clone()),
                 print_queries: vec!["disk.inserted".to_owned()],
