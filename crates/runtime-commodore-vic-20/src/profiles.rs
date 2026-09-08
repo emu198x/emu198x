@@ -14,6 +14,47 @@ pub enum Model {
 }
 
 impl Model {
+    /// All existing regional presets.
+    pub const ALL: [Self; 2] = [Self::Vic20Ntsc, Self::Vic20Pal];
+    /// Stable selection ids shared by launchers, scripts and menus.
+    pub const VARIANT_IDS: [&'static str; 2] = ["commodore-vic-20-ntsc", "commodore-vic-20-pal"];
+
+    #[must_use]
+    pub const fn variant_id(self) -> &'static str {
+        self.model_id()
+    }
+
+    #[must_use]
+    pub fn from_variant_id(id: &str) -> Option<Self> {
+        match id {
+            "commodore-vic-20-ntsc" | "vic20-ntsc" | "ntsc" => Some(Self::Vic20Ntsc),
+            "commodore-vic-20-pal" | "vic20-pal" | "pal" => Some(Self::Vic20Pal),
+            _ => None,
+        }
+    }
+
+    /// Existing host frame budget in CPU cycles.
+    #[must_use]
+    pub const fn frame_ticks(self) -> u64 {
+        match self {
+            Self::Vic20Ntsc => 65 * 261,
+            Self::Vic20Pal => 71 * 312,
+        }
+    }
+
+    #[must_use]
+    pub fn firmware_sources(self) -> Vec<emu198x_shell::FirmwareSource> {
+        use emu198x_shell::FirmwareSource;
+        vec![
+            FirmwareSource::required(KERNAL_FIRMWARE_ID, &["kernal.rom"])
+                .with_env_var("EMU198X_VIC20_KERNAL"),
+            FirmwareSource::required(BASIC_FIRMWARE_ID, &["basic.rom"])
+                .with_env_var("EMU198X_VIC20_BASIC"),
+            FirmwareSource::required(CHAR_FIRMWARE_ID, &["chargen.rom"])
+                .with_env_var("EMU198X_VIC20_CHAR"),
+        ]
+    }
+
     #[must_use]
     pub const fn model_id(self) -> &'static str {
         match self {
@@ -83,6 +124,7 @@ pub fn profile_for(model: Model) -> MachineProfile {
             ),
         ],
         capabilities: CapabilitySet::with_all([
+            known_capability("variant-switch"),
             known_capability("keyboard-input"),
             known_capability("scripted-input"),
         ]),
