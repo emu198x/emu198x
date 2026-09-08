@@ -13,22 +13,18 @@ use std::path::PathBuf;
 use emu198x_shell::launch::{Args, CommonCli, LaunchError, MachineApp};
 use emu198x_shell::mcp::ToolRegistry;
 use emu198x_shell::{
-    AssetLoadError, ControlCommand, FamilyRuntime, FirmwareImage, FirmwareSet, HeadlessSession,
-    MachineError, MediaImage, MediaKind, MediaSet, MediaTransportAction, MediaTransportCommand,
-    NativeAudioError, QueryError, read_firmware_asset, read_media_asset,
+    AssetLoadError, ControlCommand, FirmwareOverrides, HeadlessSession, MachineError, MediaImage,
+    MediaKind, MediaSet, MediaTransportAction, MediaTransportCommand, NativeAudioError, QueryError,
+    build_variant, read_media_asset,
 };
 use runtime_sinclair_zx_spectrum::{
-    DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES, DEFAULT_TAPE_AUTOLOAD_SLOT, SpectrumLiveAccess,
+    DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES, DEFAULT_TAPE_AUTOLOAD_SLOT, Model, SpectrumLiveAccess,
     SpectrumRuntimeKind, SpectrumSessionQueryProvider, autoload_basic_tape,
 };
 use serde_json::{Map, Value};
 use thiserror::Error;
 
-use crate::machine::{
-    FirmwareError, MachineKind, RomOverrides, read_variant_firmware, resolved_rom_bundle,
-    rom_override_entry,
-};
-use crate::mcp::tools::{SpectrumSession, kind_to_model};
+use crate::mcp::tools::SpectrumSession;
 use crate::script::runner::{ScriptInputs, run_script};
 
 const DEFAULT_TAPE_SLOT: &str = "tape-1";
@@ -68,9 +64,6 @@ pub enum AppError {
     // wrong the moment `--rom` could supply one (#842).
     #[error("Spectrum ROM unavailable: {path}")]
     MissingRom { path: String },
-
-    #[error(transparent)]
-    Firmware(#[from] FirmwareError),
 
     #[error("tape transport requested without tape media")]
     MissingTape,
@@ -123,11 +116,10 @@ pub struct Spectrum {
     /// it and a bare `PATH` only means anything on a single-ROM variant.
     /// Empty resolves the whole bundle under `~/.emu198x/roms`.
     pub rom: Vec<String>,
-    /// `--machine ID`: the variant to boot, as a `MachineKind` script
-    /// identifier. `None` keeps the default 48K boot policy. Not
-    /// validated at parse time — `script::runner` resolves it against
-    /// `MachineKind::from_script_id` so the error carries the
-    /// enum-derived list of accepted identifiers.
+    /// `--machine ID`: the variant to boot, as a family variant id.
+    /// `None` keeps the default 48K boot policy. Not validated at parse
+    /// time — the boot path resolves it against `Model::from_variant_id`
+    /// so the error carries the catalogue's list of accepted ids.
     pub machine: Option<String>,
     /// Tape media to load into `tape-1` before anything runs. A bare
     /// positional argument is the tape too, the UI's original spelling.
@@ -148,17 +140,37 @@ impl Spectrum {
     ///
     /// A usage error naming the accepted identifiers when the id is not
     /// a variant.
-    fn boot_kind(&self) -> Result<MachineKind, LaunchError> {
+    fn boot_model(&self) -> Result<Model, LaunchError> {
         match self.machine.as_deref() {
-            Some(id) => MachineKind::from_script_id(id).ok_or_else(|| {
+            Some(id) => Model::from_variant_id(id).ok_or_else(|| {
                 LaunchError::Usage(format!(
                     "--machine: unknown machine id `{id}`; expected one of {}",
-                    MachineKind::script_id_list()
+                    Model::VARIANT_IDS.join(", ")
                 ))
             }),
-            None => Ok(MachineKind::Spectrum48K),
+            None => Ok(Model::Spectrum48KPal),
         }
     }
+}
+
+/// The `--rom` values as firmware pins against `model`'s bundle.
+///
+/// # Errors
+///
+/// The resolver's message for a bare path on a multi-ROM variant or a
+/// malformed spec.
+pub(crate) fn firmware_overrides(
+    specs: &[String],
+    model: Model,
+) -> Result<FirmwareOverrides, String> {
+    let sources = model.firmware_sources();
+    let mut overrides = FirmwareOverrides::none();
+    for spec in specs {
+        overrides
+            .add_spec(spec, model.variant_id(), &sources)
+            .map_err(|err| err.to_string())?;
+    }
+    Ok(overrides)
 }
 
 impl MachineApp for Spectrum {
@@ -250,14 +262,10 @@ impl MachineApp for Spectrum {
                 "--play-tape and --autoload-tape are mutually exclusive".to_owned(),
             ));
         }
-        let kind = self.boot_kind()?;
-        let images = resolve_firmware(&self.rom, kind)?;
-        let mut firmware = FirmwareSet::new();
-        for (id, bytes) in &images {
-            firmware.push(FirmwareImage::new(id.clone(), bytes));
-        }
-        let runtime = SpectrumRuntimeKind::from_firmware(kind_to_model(kind), &firmware)
-            .map_err(|e| e.to_string())?;
+        let model = self.boot_model()?;
+        let overrides = firmware_overrides(&self.rom, model)?;
+        let runtime =
+            build_variant::<SpectrumRuntimeKind>(model, &overrides).map_err(|e| e.to_string())?;
 
         let frame_ticks = u64::from(runtime.frame_halfcycles());
         let mut session = HeadlessSession::new_with_query_provider(
@@ -371,45 +379,6 @@ impl MachineApp for Spectrum {
     }
 }
 
-/// The variant's firmware: every `--rom` override applied over the staged
-/// bundle.
-///
-/// This used to take the first bundle entry, read the one `--rom` file into
-/// it, and return a single-image set — which on a 128K handed a two-ROM
-/// machine one ROM. Routing through `resolved_rom_bundle` means every
-/// variant gets its whole bundle, with only the named entries replaced
-/// (#842).
-fn resolve_firmware(
-    specs: &[String],
-    kind: MachineKind,
-) -> Result<Vec<(String, Vec<u8>)>, LaunchError> {
-    let mut overrides = RomOverrides::new();
-    for spec in specs {
-        let (id, path) = rom_override_entry(spec, kind).map_err(|e| e.to_string())?;
-        overrides.insert(id, path);
-    }
-    if overrides.is_empty() {
-        return read_variant_firmware(kind)
-            .map(|images| {
-                images
-                    .into_iter()
-                    .map(|(id, b)| (id.to_owned(), b))
-                    .collect()
-            })
-            .map_err(|e| LaunchError::Run(e.to_string()));
-    }
-    let bundle = resolved_rom_bundle(kind, &overrides).map_err(|e| e.to_string())?;
-    let mut images = Vec::with_capacity(bundle.len());
-    for (id, path) in bundle {
-        let bytes = read_firmware_asset(&path)
-            .map_err(|e| e.to_string())?
-            .bytes
-            .to_vec();
-        images.push((id.to_owned(), bytes));
-    }
-    Ok(images)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -487,16 +456,13 @@ mod tests {
 
     #[test]
     fn machine_id_is_kept_raw_and_not_validated() {
-        // `script::runner` resolves it against `MachineKind::from_script_id`
-        // so the error carries the enum-derived list of accepted ids.
+        // The boot path resolves it against `Model::from_variant_id` so
+        // the error carries the catalogue's list of accepted ids.
         let (app, _, _) = parsed(&["--headless", "--machine", "spectrum_999k"]);
         assert_eq!(app.machine.as_deref(), Some("spectrum_999k"));
-        assert!(app.boot_kind().is_err());
+        assert!(app.boot_model().is_err());
         let (app, _, _) = parsed(&["--machine", "spectrum_128k"]);
-        assert_eq!(
-            app.boot_kind().expect("known id"),
-            MachineKind::Spectrum128K
-        );
+        assert_eq!(app.boot_model().expect("known id"), Model::Spectrum128KPal);
     }
 
     #[test]

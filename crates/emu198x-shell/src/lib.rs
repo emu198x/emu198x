@@ -35,6 +35,7 @@ pub mod script;
 pub mod session;
 pub mod startup_media;
 pub mod time;
+pub mod variants;
 pub mod video;
 pub mod watch;
 
@@ -87,6 +88,10 @@ pub use script::{
 };
 pub use session::{HeadlessSession, QueryBoolWaitResult, QueryTextWaitResult, SessionError};
 pub use time::{ClockDesc, ClockRate, MachineTime};
+pub use variants::{
+    FirmwareOverrides, FirmwareResolveError, FirmwareSource, RomConvention, VariantSwitched,
+    build_variant, read_firmware, resolve_firmware, swap_variant,
+};
 pub use video::{
     DEFAULT_RECORDING_FADE_MS, VideoRecorder, VideoRecordingError, VideoRecordingSummary,
     compute_fps, find_ffmpeg, trim_audio_after, trim_audio_after_with_fade,

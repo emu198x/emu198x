@@ -16,17 +16,15 @@
 //! break, a tool's schema here probably also needs an update.
 
 use emu198x_shell::{
-    FirmwareImage, FirmwareSet, HeadlessSession, MachineCore, ScriptObservation, ScriptStep,
+    HeadlessSession, ScriptObservation, ScriptStep,
     mcp::{Tool, ToolError, ToolRegistry, ToolResponse},
     mcp_tools::ScriptStepTool,
-    read_firmware_asset,
 };
 use runtime_sinclair_zx_spectrum::{
     SpectrumLiveAccess, SpectrumRuntimeKind, SpectrumSessionQueryProvider,
 };
 use serde_json::{Value, json};
 
-use crate::machine::{MachineKind, rom_root, variant_rom_bundle};
 use crate::portable_snapshot::{is_portable_snapshot_path, parse_portable_snapshot_at};
 
 /// Live-session context every Spectrum MCP tool dispatches against.
@@ -57,11 +55,6 @@ fn add_step(
 
 /// Family-MCP dispatch for one `ScriptStep`.
 ///
-/// - `SetMachine`: rebuilds the inner runtime to the requested
-///   variant. The session-side state (queued input, latest frame,
-///   captured audio, last run result) is cleared via
-///   [`HeadlessSession::reset`] so the new variant starts from a
-///   clean session.
 /// - `LoadSnapshot` of a portable `.sna` / `.z80`: routed through the
 ///   Spectrum parser rather than the runtime save-state decoder.
 /// - Everything else delegates to [`ScriptStep::execute_collect`]: the
@@ -72,7 +65,6 @@ fn mcp_execute_step(
     session: &mut SpectrumSession,
 ) -> Result<Option<ScriptObservation>, ToolError> {
     match step {
-        ScriptStep::SetMachine { machine } => execute_set_machine(machine, session).map(Some),
         ScriptStep::LoadSnapshot { path } if is_portable_snapshot_path(path) => {
             execute_load_portable_snapshot(session, path).map(|()| None)
         }
@@ -103,87 +95,6 @@ pub(crate) fn execute_load_portable_snapshot(
         parse_portable_snapshot_at(path).map_err(|err| ToolError::Execution(format!("{err}")))?;
     SpectrumLiveAccess::apply_snapshot(session.machine_mut(), &snapshot);
     Ok(())
-}
-
-/// Build + install the requested Spectrum variant via the shared
-/// `HeadlessSession::swap_machine`. Shared with the `--script` runner so
-/// `set_machine` behaves identically in MCP and script mode (#456).
-pub(crate) fn execute_set_machine(
-    requested: &str,
-    session: &mut SpectrumSession,
-) -> Result<ScriptObservation, ToolError> {
-    let kind = MachineKind::from_script_id(requested).ok_or_else(|| {
-        ToolError::InvalidArguments(format!(
-            "set_machine: unknown machine id `{requested}`; expected one of {}",
-            MachineKind::script_id_list()
-        ))
-    })?;
-    let model = kind_to_model(kind);
-    let rom_root_dir = rom_root().ok_or_else(|| {
-        ToolError::Execution(
-            "set_machine: $HOME is unset; cannot locate ROM bundle root \
-             (~/.emu198x/roms)"
-                .to_owned(),
-        )
-    })?;
-
-    // Two-pass firmware load: read all ROM bytes into an owned vec,
-    // then borrow them into the `FirmwareSet`. Mirrors the pattern
-    // used by `script::runner::boot_eager_kind`.
-    let bundle = variant_rom_bundle(kind, &rom_root_dir);
-    let mut rom_bytes: Vec<(String, Vec<u8>)> = Vec::with_capacity(bundle.len());
-    for (id, path) in bundle {
-        if !path.is_file() {
-            return Err(ToolError::Execution(format!(
-                "set_machine: ROM not found at {}",
-                path.display()
-            )));
-        }
-        let loaded = read_firmware_asset(&path).map_err(|err| {
-            ToolError::Execution(format!(
-                "set_machine: failed to read {}: {err}",
-                path.display()
-            ))
-        })?;
-        rom_bytes.push((id.to_string(), loaded.bytes.to_vec()));
-    }
-    let mut firmware = FirmwareSet::new();
-    for (id, bytes) in &rom_bytes {
-        firmware.push(FirmwareImage::new(id.clone(), bytes));
-    }
-    // Build the new variant, install it, re-pace the session to its frame
-    // budget, and hard-reset session-side state — all via the shared
-    // `HeadlessSession::swap_machine`, the same generic swap the `--script`
-    // runner uses (#456).
-    session
-        .swap_machine(model, &firmware)
-        .map_err(|err| ToolError::Execution(format!("set_machine: {err}")))?;
-    let profile = session.machine().profile().clone();
-
-    Ok(ScriptObservation::SetMachine {
-        machine: requested.to_owned(),
-        profile_id: profile.profile_id.as_str().to_owned(),
-        display_name: profile.display_name.to_string(),
-    })
-}
-
-pub(crate) fn kind_to_model(kind: MachineKind) -> runtime_sinclair_zx_spectrum::Model {
-    use runtime_sinclair_zx_spectrum::Model;
-    match kind {
-        MachineKind::Spectrum16K => Model::Spectrum16KPal,
-        MachineKind::Spectrum48K => Model::Spectrum48KPal,
-        MachineKind::SpectrumPlus => Model::SpectrumPlus,
-        MachineKind::Spectrum128K => Model::Spectrum128KPal,
-        MachineKind::SpectrumPlus2 => Model::SpectrumPlus2,
-        MachineKind::SpectrumPlus2A => Model::SpectrumPlus2A,
-        MachineKind::SpectrumPlus2B => Model::SpectrumPlus2B,
-        MachineKind::SpectrumPlus3 => Model::SpectrumPlus3,
-        MachineKind::Pentagon128 => Model::Pentagon128,
-        MachineKind::ScorpionZS256 => Model::ScorpionZS256,
-        MachineKind::TimexTC2048 => Model::TimexTC2048,
-        MachineKind::TimexTC2068 => Model::TimexTC2068,
-        MachineKind::TimexTS2068 => Model::TimexTS2068,
-    }
 }
 
 /// Registers the Spectrum-specific MCP tools on the supplied registry:
@@ -256,16 +167,9 @@ impl Tool<SpectrumSession> for SaveTapeTool {
 pub fn register_spectrum_tools(registry: &mut ToolRegistry<SpectrumSession>) {
     let string_field = || json!({"type": "string"});
 
-    add_step(
-        registry,
-        "set_machine",
-        "Switch the live machine to the named variant (currently errors with `not yet supported`).",
-        json!({
-            "type": "object",
-            "properties": {"machine": string_field()},
-            "required": ["machine"],
-        }),
-    );
+    // `set_machine` comes from the shared variant-switch tier over the
+    // family runtime's `MachineCore::set_machine` hook; the profiles
+    // declare `variant-switch`.
 
     // `autoload_tape` and `load_basic_program` come from the shared
     // loader tiers over the family runtime's `MachineCore` hooks; the
@@ -514,7 +418,7 @@ mod tests {
         let names: Vec<_> = registry.iter().map(|tool| tool.name().to_owned()).collect();
 
         // Only genuinely Spectrum-specific tools live here —
-        // `set_machine`, `save_tape`, and `load_snapshot` (an
+        // `save_tape`, and `load_snapshot` (an
         // intentional override so portable `.sna` / `.z80` route through
         // the Spectrum parser, gap #6). The generic CPU/memory/disassembly
         // verbs — `query_cpu`, `memory_read`, `disasm`, `step`, `poke_byte`,
@@ -527,7 +431,7 @@ mod tests {
         // from the common set. MCP
         // and `--script` run one implementation (RULES.md #30, #456,
         // knowledge/decisions/tools-follow-the-machine-spec.md).
-        let expected = ["set_machine", "load_snapshot", "save_tape"];
+        let expected = ["load_snapshot", "save_tape"];
         for name in expected {
             assert!(names.contains(&name.to_owned()), "missing {name}");
         }
@@ -558,6 +462,7 @@ mod tests {
             "query_ay",
             "autoload_tape",
             "load_basic_program",
+            "set_machine",
         ] {
             assert!(
                 !names.contains(&shared.to_owned()),

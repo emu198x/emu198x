@@ -2,8 +2,8 @@
 
 use commodore_agnus_ocs::{NTSC_CCKS_PER_FRAME, PAL_CCKS_PER_LINE, PAL_LINES_PER_FRAME};
 use emu198x_shell::{
-    CapabilitySet, ClockDesc, ClockRate, Family, FirmwareRequirement, MachineId, MachineProfile,
-    MediaKind, MediaSlot, ProfileId, Region, WritebackPolicy, known_capability,
+    CapabilitySet, ClockDesc, ClockRate, Family, FirmwareRequirement, FirmwareSource, MachineId,
+    MachineProfile, MediaKind, MediaSlot, ProfileId, Region, WritebackPolicy, known_capability,
 };
 use gvp_a530::{A530Config, A530RamSize};
 use machine_commodore_amiga_ocs::RamConfig;
@@ -135,6 +135,115 @@ impl Model {
     #[must_use]
     pub const fn profile_id(self) -> &'static str {
         self.model_id()
+    }
+
+    /// The PAL models a `--model` flag, a `set_machine` step or the
+    /// window's variant menu can name, in catalogue order. The NTSC
+    /// siblings are reachable through the profile catalogue only.
+    pub const VARIANTS: [Self; 9] = [
+        Self::A1000OcsPal,
+        Self::A500OcsPal,
+        Self::A500OcsPalGvpA530,
+        Self::A500OcsPalA501,
+        Self::A500PlusEcsPal,
+        Self::A500OcsPalMaxed,
+        Self::A600EcsPal,
+        Self::A1200AgaPal,
+        Self::A2000OcsPal,
+    ];
+
+    /// Every variant id, in [`Self::VARIANTS`] order.
+    pub const VARIANT_IDS: [&'static str; 9] = [
+        "a1000",
+        "a500",
+        "a500-gvp-a530",
+        "a500-a501",
+        "a500-plus",
+        "a500-maxed",
+        "a600",
+        "a1200",
+        "a2000",
+    ];
+
+    /// The id `set_machine`, `--model` and the variant menu use for this
+    /// model; the NTSC siblings share their PAL model's id.
+    #[must_use]
+    pub const fn variant_id(self) -> &'static str {
+        match self {
+            Self::A1000OcsPal | Self::A1000OcsNtsc => "a1000",
+            Self::A500OcsPal | Self::A500OcsNtsc => "a500",
+            Self::A500OcsPalGvpA530 | Self::A500OcsNtscGvpA530 => "a500-gvp-a530",
+            Self::A500OcsPalA501 | Self::A500OcsNtscA501 => "a500-a501",
+            Self::A500PlusEcsPal | Self::A500PlusEcsNtsc => "a500-plus",
+            Self::A500OcsPalMaxed | Self::A500OcsNtscMaxed => "a500-maxed",
+            Self::A600EcsPal | Self::A600EcsNtsc => "a600",
+            Self::A1200AgaPal | Self::A1200AgaNtsc => "a1200",
+            Self::A2000OcsPal | Self::A2000OcsNtsc => "a2000",
+        }
+    }
+
+    /// The model a variant id names.
+    #[must_use]
+    pub fn from_variant_id(id: &str) -> Option<Self> {
+        Self::VARIANTS
+            .into_iter()
+            .find(|model| model.variant_id() == id)
+    }
+
+    /// The ROM this model boots and the Kickstart file names to look for
+    /// in the family's ROM directory, first hit wins. The A1000 boots a
+    /// small bootstrap ROM and pulls Kickstart from disk; every later
+    /// model carries a resident Kickstart, whose shipping version differs
+    /// by chip stack.
+    #[must_use]
+    pub fn firmware_sources(self) -> Vec<FirmwareSource> {
+        let (id, candidates): (&'static str, &'static [&'static str]) = if self.is_a1000() {
+            (
+                "commodore-amiga-a1000-bootstrap-rom",
+                &[
+                    "a1000-bootstrap.rom",
+                    "a1000_bootstrap.rom",
+                    "bootstrap.rom",
+                ],
+            )
+        } else if self.is_aga() {
+            (
+                "commodore-amiga-kickstart-rom",
+                &[
+                    "kick31a1200.rom",
+                    "kick30a1200.rom",
+                    "kick31.rom",
+                    "kick30.rom",
+                    "kickstart.rom",
+                    "kick.rom",
+                ],
+            )
+        } else if self.is_ecs() {
+            (
+                "commodore-amiga-kickstart-rom",
+                &[
+                    "kick204.rom",
+                    "kick205.rom",
+                    "kick21.rom",
+                    "kick31.rom",
+                    "kick31a600.rom",
+                    "kickstart.rom",
+                    "kick.rom",
+                ],
+            )
+        } else {
+            (
+                "commodore-amiga-kickstart-rom",
+                &[
+                    "kick13.rom",
+                    "kick12.rom",
+                    "kick31.rom",
+                    "kickstart.rom",
+                    "kick.rom",
+                ],
+            )
+        };
+        vec![FirmwareSource::required(id, candidates)]
     }
 
     /// User-facing display name.
@@ -496,6 +605,7 @@ pub fn profile_for(model: Model) -> MachineProfile {
             known_capability("keyboard-input"),
             known_capability("memory-watch"),
             known_capability("scripted-input"),
+            known_capability("variant-switch"),
         ]),
     }
 }

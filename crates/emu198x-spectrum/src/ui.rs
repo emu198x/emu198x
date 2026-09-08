@@ -13,7 +13,7 @@
 //!   bearing machines, Sinclair Interface 2 (port 1) on +2A/+2B/+3, which can't
 //!   host a Kempston. Both [`button_map`](UiSystem::button_map) and
 //!   [`axis_map`](UiSystem::axis_map) switch with the active variant.
-//! - **Variants**: all 13 [`MachineKind`]s as the Machine-menu radio;
+//! - **Variants**: all 13 [`Model`]s as the Machine-menu radio;
 //!   [`switch_variant`](UiSystem::switch_variant) rebuilds the runtime via
 //!   `from_firmware`, the same recipe as the MCP `set_machine` tool.
 //! - **Tape**: F9/F10 transport + F11 turbo come free from the harness, gated on
@@ -31,19 +31,16 @@ use std::time::Duration;
 
 use common_sinclair_zx_spectrum::timing::{SCREEN_HEIGHT, SCREEN_WIDTH};
 use emu198x_shell::{
-    FamilyRuntime, FirmwareImage, FirmwareSet, MachineCore, MachineError, MediaKind,
-    read_media_asset,
+    FirmwareOverrides, MachineCore, MachineError, MediaKind, build_variant, read_media_asset,
 };
 use emu198x_ui::launch::UiApp;
 use emu198x_ui::{
     AxisInputMap, AxisTarget, ButtonInputMap, ButtonTarget, HostAxis, HostControl, KeyCode,
     UiSystem, VariantInfo,
 };
-use runtime_sinclair_zx_spectrum::{SpectrumLiveAccess, SpectrumRuntimeKind};
+use runtime_sinclair_zx_spectrum::{Model, SpectrumLiveAccess, SpectrumRuntimeKind};
 
 use crate::app::Spectrum;
-use crate::machine::{MachineKind, read_variant_firmware};
-use crate::mcp::tools::kind_to_model;
 
 const DEFAULT_SCALE: u32 = 2;
 
@@ -81,10 +78,10 @@ const IF2_AXES: AxisInputMap = AxisInputMap::new(&[
 ]);
 
 /// `true` for the Amstrad-class machines that route the gamepad through IF2.
-fn uses_if2(kind: MachineKind) -> bool {
+fn uses_if2(model: Model) -> bool {
     matches!(
-        kind,
-        MachineKind::SpectrumPlus2A | MachineKind::SpectrumPlus2B | MachineKind::SpectrumPlus3
+        model,
+        Model::SpectrumPlus2A | Model::SpectrumPlus2B | Model::SpectrumPlus3
     )
 }
 
@@ -150,7 +147,7 @@ fn map_spectrum_keys(code: KeyCode) -> Option<&'static [&'static str]> {
 /// The Spectrum as a [`UiSystem`]. Tracks the active variant so the gamepad
 /// routing, title, and Machine-menu radio follow live switches.
 pub struct SpectrumSystem {
-    current: MachineKind,
+    current: Model,
 }
 
 impl UiApp for Spectrum {
@@ -164,8 +161,8 @@ impl UiApp for Spectrum {
             current: self
                 .machine
                 .as_deref()
-                .and_then(MachineKind::from_script_id)
-                .unwrap_or(MachineKind::Spectrum48K),
+                .and_then(Model::from_variant_id)
+                .unwrap_or(Model::Spectrum48KPal),
         }
     }
 }
@@ -174,7 +171,7 @@ impl UiSystem for SpectrumSystem {
     type Runtime = SpectrumRuntimeKind;
 
     fn window_title(&self) -> String {
-        format!("Emu198x | {}", self.current.label())
+        format!("Emu198x | {}", self.current.menu_label())
     }
 
     fn default_scale(&self) -> u32 {
@@ -268,14 +265,14 @@ impl UiSystem for SpectrumSystem {
     }
 
     fn variants(&self) -> Vec<VariantInfo> {
-        MachineKind::all()
+        Model::ALL
             .iter()
-            .map(|kind| VariantInfo::new(kind.script_id(), kind.label()))
+            .map(|model| VariantInfo::new(model.variant_id(), model.menu_label()))
             .collect()
     }
 
     fn current_variant(&self) -> Option<Cow<'static, str>> {
-        Some(Cow::Borrowed(self.current.script_id()))
+        Some(Cow::Borrowed(self.current.variant_id()))
     }
 
     fn switch_variant(
@@ -283,22 +280,18 @@ impl UiSystem for SpectrumSystem {
         runtime: &mut Self::Runtime,
         variant: &str,
     ) -> Result<(), MachineError> {
-        let kind =
-            MachineKind::from_script_id(variant).ok_or(MachineError::UnsupportedOperation {
-                operation: "unknown Spectrum variant",
-            })?;
-        // Same recipe as the MCP `set_machine`: load the variant's ROM bundle,
-        // then rebuild the family-enum runtime in place. The harness re-paces
-        // and refreshes; state/media are not preserved (a hardware swap).
-        let images = read_variant_firmware(kind).map_err(|err| MachineError::Host {
-            reason: format!("loading {} ROMs: {err}", kind.label()),
+        let model = Model::from_variant_id(variant).ok_or(MachineError::UnsupportedOperation {
+            operation: "unknown Spectrum variant",
         })?;
-        let mut firmware = FirmwareSet::new();
-        for (id, bytes) in &images {
-            firmware.push(FirmwareImage::new(*id, bytes));
-        }
-        *runtime = SpectrumRuntimeKind::from_firmware(kind_to_model(kind), &firmware)?;
-        self.current = kind;
+        // Same recipe as the shell's `set_machine`: the variant's ROM bundle
+        // from its conventional location, then the family-enum runtime
+        // rebuilt in place. The harness re-paces and refreshes; state/media
+        // are not preserved (a hardware swap).
+        *runtime = build_variant::<SpectrumRuntimeKind>(model, &FirmwareOverrides::none())
+            .map_err(|err| MachineError::Host {
+                reason: format!("switching to {}: {err}", model.menu_label()),
+            })?;
+        self.current = model;
         Ok(())
     }
 
@@ -381,7 +374,7 @@ mod tests {
     fn check_host_characters() {
         use emu198x_shell::InputEvent;
         let system = SpectrumSystem {
-            current: MachineKind::Spectrum48K,
+            current: Model::Spectrum48KPal,
         };
         let runtime = Spectrum::default().build_runtime().expect("configured ROM");
         assert!(system.host_character_keys(&runtime, '€').is_none());
@@ -440,7 +433,7 @@ mod tests {
     #[test]
     fn host_keyword_modifier_is_left_alt_and_shift_left_alt() {
         let system = SpectrumSystem {
-            current: MachineKind::Spectrum48K,
+            current: Model::Spectrum48KPal,
         };
         let keyword = system
             .host_keyword_modifier()
@@ -506,7 +499,7 @@ mod tests {
             tap(session, &keys);
         }
         let system = SpectrumSystem {
-            current: MachineKind::Spectrum48K,
+            current: Model::Spectrum48KPal,
         };
         let runtime = Spectrum::default().build_runtime().expect("configured ROM");
         let ticks = u64::from(runtime.frame_halfcycles());
@@ -560,7 +553,7 @@ mod tests {
     fn check_desktop_tape_roundtrip() {
         use runtime_sinclair_zx_spectrum::{tap_key, tap_symbol_combo};
         let system = SpectrumSystem {
-            current: MachineKind::Spectrum48K,
+            current: Model::Spectrum48KPal,
         };
         let app = Spectrum::default();
         let runtime = app.build_runtime().expect("configured 48K ROM");
@@ -621,10 +614,10 @@ mod tests {
             machine: Some("spectrum_plus3".to_owned()),
             ..Spectrum::default()
         };
-        assert_eq!(app.ui_system().current, MachineKind::SpectrumPlus3);
+        assert_eq!(app.ui_system().current, Model::SpectrumPlus3);
         assert_eq!(
             Spectrum::default().ui_system().current,
-            MachineKind::Spectrum48K
+            Model::Spectrum48KPal
         );
     }
 
@@ -643,9 +636,9 @@ mod tests {
 
     #[test]
     fn amstrad_class_uses_if2_others_kempston() {
-        assert!(uses_if2(MachineKind::SpectrumPlus2A));
-        assert!(uses_if2(MachineKind::SpectrumPlus3));
-        assert!(!uses_if2(MachineKind::Spectrum48K));
-        assert!(!uses_if2(MachineKind::Spectrum128K));
+        assert!(uses_if2(Model::SpectrumPlus2A));
+        assert!(uses_if2(Model::SpectrumPlus3));
+        assert!(!uses_if2(Model::Spectrum48KPal));
+        assert!(!uses_if2(Model::Spectrum128KPal));
     }
 }

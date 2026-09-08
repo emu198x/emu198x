@@ -399,6 +399,31 @@ pub trait MachineCore {
             step: "autoload_tape",
         })
     }
+
+    /// Swap the session onto the variant `machine` names, built from its
+    /// conventional firmware. Hard-resets; loaded media is not carried
+    /// across, as with a hardware swap.
+    ///
+    /// Backs the shared `set_machine` step and MCP tool; a family runtime
+    /// implements it as one call to [`crate::variants::swap_variant`] and
+    /// declares `variant-switch` on its profiles so the tool is registered.
+    ///
+    /// # Errors
+    ///
+    /// [`LoaderError::Unsupported`] by default; the family's resolver and
+    /// session report their failures as [`LoaderError::Failed`].
+    fn set_machine<Q: crate::query::SessionQueryProvider<Self>>(
+        session: &mut crate::session::HeadlessSession<Self, Q>,
+        machine: &str,
+    ) -> Result<crate::variants::VariantSwitched, crate::loaders::LoaderError>
+    where
+        Self: Sized,
+    {
+        let _ = (session, machine);
+        Err(crate::loaders::LoaderError::Unsupported {
+            step: "set_machine",
+        })
+    }
 }
 
 /// A runtime that is one of a system family's machine *variants* —
@@ -418,6 +443,25 @@ pub trait MachineCore {
 pub trait FamilyRuntime: MachineCore + Sized {
     /// The family's model selector (its `Model` enum).
     type Model: Copy;
+
+    /// Every variant id a script's `set_machine`, the `--machine` flag and
+    /// the window's variant menu accept, in catalogue order.
+    fn variant_ids() -> &'static [&'static str];
+
+    /// The model `id` names, if any.
+    fn model_from_id(id: &str) -> Option<Self::Model>;
+
+    /// The id for `model`; round-trips through [`model_from_id`](Self::model_from_id).
+    fn variant_id(model: Self::Model) -> &'static str;
+
+    /// The profile `model` boots as.
+    fn profile_for(model: Self::Model) -> MachineProfile;
+
+    /// Where the family keeps its ROMs by convention.
+    fn rom_convention() -> crate::variants::RomConvention;
+
+    /// The images `model` boots, by id, and their conventional file names.
+    fn firmware_sources(model: Self::Model) -> Vec<crate::variants::FirmwareSource>;
 
     /// Build the variant identified by `model` from already-loaded ROMs.
     ///

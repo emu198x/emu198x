@@ -4,9 +4,9 @@
 //! Boots the same eager 48K runtime that script mode uses, builds a
 //! shell-side `Server` with one tool per `ScriptStep` variant, and
 //! drives the JSON-RPC stdio loop. Tool dispatch goes through the
-//! same `execute_step` interceptor as `--script`, so SetMachine /
-//! AutoloadTape / LoadBasicProgram behave identically across both
-//! modes.
+//! same `execute_step` interceptor as `--script`, so the portable
+//! snapshot loader behaves identically across both modes; every other
+//! step, `set_machine` included, runs in the shell.
 //!
 //! The shared server is not used because it reads `--rom` as cartridge
 //! media; here `--rom ID=PATH` pins one ROM of the 48K boot bundle
@@ -22,11 +22,10 @@ use emu198x_shell::{
     mcp::{Server, ServerInfo, ToolRegistry, serve_stdio},
     mcp_tools::register_tools_for_profiles,
 };
-use runtime_sinclair_zx_spectrum::{SpectrumRuntimeKind, SpectrumSessionQueryProvider};
+use runtime_sinclair_zx_spectrum::{Model, SpectrumSessionQueryProvider};
 
-use crate::app::AppError;
-use crate::machine::{MachineKind, RomOverrides, rom_override_entry};
-use crate::script::runner::boot_eager_48k;
+use crate::app::{AppError, firmware_overrides};
+use crate::script::runner::boot_variant;
 
 /// Register the full MCP surface. Same uniform layering as the Amiga:
 /// shared common + debug + watch tools, then the Spectrum-specific
@@ -58,17 +57,9 @@ pub fn run(rom_specs: &[String]) -> Result<(), AppError> {
     // MCP always boots 48K eagerly, so `--rom` resolves against that
     // bundle; a client that then swaps variant via `set_machine` gets the
     // conventional ROMs for the new one.
-    let mut rom_overrides = RomOverrides::new();
-    for spec in rom_specs {
-        let (id, path) = rom_override_entry(spec, MachineKind::Spectrum48K).map_err(|err| {
-            AppError::MissingRom {
-                path: err.to_string(),
-            }
-        })?;
-        rom_overrides.insert(id, path);
-    }
-    let runtime_48k = boot_eager_48k(&rom_overrides)?;
-    let kind = SpectrumRuntimeKind::Spectrum48K(runtime_48k);
+    let rom_overrides = firmware_overrides(rom_specs, Model::Spectrum48KPal)
+        .map_err(|path| AppError::MissingRom { path })?;
+    let kind = boot_variant(Model::Spectrum48KPal, &rom_overrides)?;
     let frame_halfcycles = u64::from(kind.frame_halfcycles());
     let mut session = HeadlessSession::new_with_query_provider(
         kind,
@@ -90,7 +81,7 @@ pub fn run(rom_specs: &[String]) -> Result<(), AppError> {
 mod tests {
     use super::*;
     use emu198x_shell::mcp::{JsonRpcId, JsonRpcRequest};
-    use runtime_sinclair_zx_spectrum::Spectrum48kRuntime;
+    use runtime_sinclair_zx_spectrum::{Spectrum48kRuntime, SpectrumRuntimeKind};
     use serde_json::{Value, json};
 
     /// Every MCP tool the launch curriculum pipeline may call by name.
@@ -205,7 +196,10 @@ mod tests {
     /// when the ROM is absent.
     #[test]
     fn mcp_tools_drive_a_real_boot() {
-        let runtime_48k = match boot_eager_48k(&RomOverrides::new()) {
+        let kind = match boot_variant(
+            Model::Spectrum48KPal,
+            &emu198x_shell::FirmwareOverrides::none(),
+        ) {
             Ok(rt) => rt,
             Err(_) => {
                 emu198x_test_skip::skip!(
@@ -213,7 +207,6 @@ mod tests {
                 );
             }
         };
-        let kind = SpectrumRuntimeKind::Spectrum48K(runtime_48k);
         let frame_halfcycles = u64::from(kind.frame_halfcycles());
         let mut session = HeadlessSession::new_with_query_provider(
             kind,
@@ -287,7 +280,10 @@ mod tests {
     /// applied. Skips when the 48K ROM is absent.
     #[test]
     fn load_snapshot_routes_portable_sna_not_postcard() {
-        let runtime_48k = match boot_eager_48k(&RomOverrides::new()) {
+        let kind = match boot_variant(
+            Model::Spectrum48KPal,
+            &emu198x_shell::FirmwareOverrides::none(),
+        ) {
             Ok(rt) => rt,
             Err(_) => {
                 emu198x_test_skip::skip!(
@@ -295,7 +291,6 @@ mod tests {
                 );
             }
         };
-        let kind = SpectrumRuntimeKind::Spectrum48K(runtime_48k);
         let frame_halfcycles = u64::from(kind.frame_halfcycles());
         let mut session = HeadlessSession::new_with_query_provider(
             kind,
