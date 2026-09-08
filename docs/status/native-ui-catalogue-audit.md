@@ -7,7 +7,7 @@ preset has booted or passed hardware validation.
 ## Coverage
 
 All 30 registered machine binaries have a native `UiApp` adapter and enable the
-UI feature by default. Sixteen expose a Machine-menu selector. Six other
+UI feature by default. Eighteen expose a Machine-menu selector. Four other
 binaries have multiple runtime profiles without an in-window selector; the
 remaining eight have a single runtime profile.
 
@@ -30,9 +30,9 @@ select; “None” means the catalogue has alternatives but no menu to choose th
 | [acorn-electron](../../crates/emu198x-acorn-electron/src/app.rs) | 1 | Single profile | — | Electron |
 | [amiga](../../crates/emu198x-amiga/src/app.rs) | 18 | `--model` | 18/18 | Six base machines; RAM/accelerator presets × region |
 | [amstrad-cpc](../../crates/emu198x-amstrad-cpc/src/app.rs) | 1 | Single profile | — | CPC 464 |
-| [atari-2600](../../crates/emu198x-atari-2600/src/app.rs) | 2 | `--region` | None | Region |
+| [atari-2600](../../crates/emu198x-atari-2600/src/app.rs) | 2 | `--model` / `--region` | 2/2 | Region |
 | [atari-5200](../../crates/emu198x-atari-5200/src/app.rs) | 1 | NTSC only | — | One model despite a region flag |
-| [atari-7800](../../crates/emu198x-atari-7800/src/app.rs) | 2 | `--region` | None | Region |
+| [atari-7800](../../crates/emu198x-atari-7800/src/app.rs) | 2 | `--model` / `--region` | 2/2 | Region |
 | [atari-800xl](../../crates/emu198x-atari-800xl/src/app.rs) | 2 | `--region` | None | Region |
 | [c64](../../crates/emu198x-c64/src/app.rs) | 4 | `--model` | 4/4 | Breadbin/C64C × region; RAM expansions independent |
 | [colecovision](../../crates/emu198x-colecovision/src/app.rs) | 2 | `--model` / `--region` | 2/2 | Region |
@@ -524,3 +524,40 @@ Local 300-frame captures with staged firmware reach MSX BASIC `Ok` in both
 regions: 280×240 NTSC and 278×288 PAL. These are boot/capture checks; native
 menu click-through, commercial-cartridge gameplay and audio-device output remain
 unverified by this slice.
+
+## Atari 2600 and 7800 regional catalogues
+
+Parent issue: [#1475](https://github.com/emu198x/emu198x/issues/1475).
+Broader epic: [#456](https://github.com/emu198x/emu198x/issues/456).
+
+Both consoles now expose their existing NTSC/PAL profiles through the runtime
+catalogue, `--model`, script/MCP switching and native selectors. `--region`
+remains accepted; the last selector wins. Both runtimes retain their BIOS-less
+boot policy and resolve empty firmware catalogues without HOME or ROM paths.
+Normal launch requires a cartridge; MCP can start empty. Parsed flagged and
+positional startup cartridges now load consistently in every mode, retaining
+the existing readers, including the 2600's archive-member selection.
+
+A region switch cold-boots the cartridge installed in the live machine without
+rereading its source. Machine constructors share their existing power-on setup
+with `cold_boot`; cartridge bank/RAM state resets while ROM and hardware
+configuration survive. The 7800 preserves parsed A78 mapper, RAM and POKEY
+configuration. The 2600 preserves its banking scheme and Supercharger image.
+Runtime ROM caches are removed, so reset and switching also use snapshot-restored
+cartridges. Snapshot envelopes remain unchanged (2600 version 2, 7800 version 4).
+Rejected cartridge insertion leaves the previous machine intact and cannot
+poison a subsequent reset or switch.
+
+Catalogue adoption covers twenty-four of 30 binaries, with six remaining.
+Eighteen expose native selectors on macOS. Tests cover actual ROM mapping through
+CLI/script/MCP, failed-switch preservation, removal of source files before
+switching, restored cartridge reset/replacement, A78 configuration, banked and
+Supercharger images, and native selection, pacing and dimensions. Both MCP
+inventories add only `set_machine` (33→34); existing definitions are unchanged.
+
+Local 150-frame captures with the committed synthetic cartridges produce their
+uniform backgrounds in all four profiles: yellow on NTSC and grey on PAL.
+The 2600 captures are 160×240 and 160×288; the 7800 captures are 374×240 and
+368×288. Existing frame budgets and pacing are unchanged. These are synthetic
+boot/capture checks; commercial-game compatibility, native menu click-through
+and audio-device output remain unverified by this slice.

@@ -11,11 +11,13 @@
 
 use std::time::Duration;
 
+use emu198x_shell::{FamilyRuntime, FirmwareOverrides, MachineError, build_replacement};
 use emu198x_ui::launch::UiApp;
-use emu198x_ui::{ButtonInputMap, ButtonTarget, HostControl, KeyCode, UiSystem};
-use runtime_atari_7800::Atari7800Runtime;
+use emu198x_ui::{ButtonInputMap, ButtonTarget, HostControl, KeyCode, UiSystem, VariantInfo};
+use runtime_atari_7800::{Atari7800Runtime, Model};
+use std::borrow::Cow;
 
-use crate::app::{Atari7800, Region};
+use crate::app::Atari7800;
 
 const DEFAULT_SCALE: u32 = 3;
 
@@ -33,20 +35,16 @@ const ATARI_7800_BUTTON_MAP: ButtonInputMap = ButtonInputMap::new(&[
     (HostControl::Select, ButtonTarget::new(1, "reset")),
 ]);
 
-/// The Atari 7800 as a [`UiSystem`] for the shared harness. The region is fixed
-/// at construction; a hard reset rebuilds the machine from the cartridge the
-/// runtime already holds.
+/// Native adapter for the runtime-owned regional catalogue.
 pub struct Atari7800System {
-    region: Region,
+    model: Model,
 }
 
 impl UiApp for Atari7800 {
     type System = Atari7800System;
 
     fn ui_system(&self) -> Atari7800System {
-        Atari7800System {
-            region: self.region,
-        }
+        Atari7800System { model: self.model }
     }
 }
 
@@ -76,12 +74,44 @@ impl UiSystem for Atari7800System {
             .unwrap_or((374, 240))
     }
 
-    fn frame_ticks(&self, _runtime: &Self::Runtime) -> u64 {
-        self.region.frame_ticks()
+    fn frame_ticks(&self, runtime: &Self::Runtime) -> u64 {
+        runtime.native_frame_ticks()
     }
 
-    fn frame_duration(&self, _runtime: &Self::Runtime) -> Duration {
-        Duration::from_secs_f64(1.0 / self.region.frame_hz())
+    fn frame_duration(&self, runtime: &Self::Runtime) -> Duration {
+        Duration::from_secs_f64(match runtime.model().region() {
+            emu198x_shell::Region::Pal => 1.0 / 50.0,
+            _ => 1.0 / 60.0,
+        })
+    }
+
+    fn variants(&self) -> Vec<VariantInfo> {
+        Model::ALL
+            .iter()
+            .map(|model| VariantInfo::new(model.variant_id(), model.display_name()))
+            .collect()
+    }
+
+    fn current_variant(&self) -> Option<Cow<'static, str>> {
+        Some(Cow::Borrowed(self.model.variant_id()))
+    }
+
+    fn switch_variant(
+        &mut self,
+        runtime: &mut Self::Runtime,
+        id: &str,
+    ) -> Result<(), MachineError> {
+        let model = Model::from_variant_id(id).ok_or(MachineError::UnsupportedOperation {
+            operation: "unknown atari-7800 variant",
+        })?;
+        *runtime =
+            build_replacement(runtime, model, &FirmwareOverrides::none()).map_err(|err| {
+                MachineError::Host {
+                    reason: err.to_string(),
+                }
+            })?;
+        self.model = model;
+        Ok(())
     }
 
     fn button_map(&self) -> &'static ButtonInputMap {
@@ -117,9 +147,43 @@ mod tests {
     use super::*;
 
     #[test]
+    fn selector_switches_live_region_and_preserves_cartridge() {
+        let app = Atari7800::default();
+        let mut system = app.ui_system();
+        let mut runtime =
+            Atari7800Runtime::new(Model::default(), vec![0x5a; 16384]).expect("runtime");
+        assert_eq!(system.variants().len(), 2);
+        for model in Model::ALL {
+            system
+                .switch_variant(&mut runtime, model.variant_id())
+                .expect("switch");
+            assert_eq!(
+                system.current_variant().as_deref(),
+                Some(model.variant_id())
+            );
+            assert_eq!(runtime.model(), model);
+            assert_eq!(system.frame_ticks(&runtime), model.frame_ticks());
+            let pal = model.region() == emu198x_shell::Region::Pal;
+            assert_eq!(
+                system.framebuffer_size(&runtime),
+                (if pal { 368 } else { 374 }, if pal { 288 } else { 240 })
+            );
+            let expected_seconds = if pal { 1.0 / 50.0 } else { 1.0 / 60.0 };
+            assert_eq!(
+                system.frame_duration(&runtime),
+                std::time::Duration::from_secs_f64(expected_seconds)
+            );
+            assert_eq!(runtime.machine().expect("machine").peek(49152), 0x5a);
+        }
+        let before = system.current_variant();
+        assert!(system.switch_variant(&mut runtime, "unknown").is_err());
+        assert_eq!(system.current_variant(), before);
+    }
+
+    #[test]
     fn pad_on_map_key_and_console_switches_on_map_keys() {
         let sys = Atari7800System {
-            region: Region::Ntsc,
+            model: Model::A7800Ntsc,
         };
         assert_eq!(sys.map_key(KeyCode::ArrowLeft), Some(HostControl::Left));
         assert_eq!(sys.map_key(KeyCode::KeyZ), Some(HostControl::South));

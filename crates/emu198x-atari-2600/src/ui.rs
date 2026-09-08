@@ -6,16 +6,15 @@
 //! opens the window when no automation flag is given.
 
 use emu198x_shell::Region;
+use emu198x_shell::{FamilyRuntime, FirmwareOverrides, MachineError, build_replacement};
 use emu198x_ui::launch::UiApp;
-use emu198x_ui::{ButtonInputMap, ButtonTarget, HostControl, KeyCode, UiSystem};
-use runtime_atari_2600::Atari2600Runtime;
+use emu198x_ui::{ButtonInputMap, ButtonTarget, HostControl, KeyCode, UiSystem, VariantInfo};
+use runtime_atari_2600::{Atari2600Runtime, Model};
+use std::borrow::Cow;
 
 use crate::app::Atari2600;
 
 const DEFAULT_SCALE: u32 = 3;
-const CLOCKS_PER_LINE: u64 = 228;
-const NTSC_LINES: u64 = 262;
-const PAL_LINES: u64 = 312;
 const NTSC_COLOUR_HZ: f64 = 3_579_545.0;
 const PAL_COLOUR_HZ: f64 = 3_546_894.0;
 
@@ -33,13 +32,15 @@ const ATARI_2600_BUTTON_MAP: ButtonInputMap = ButtonInputMap::new(&[
 ]);
 
 /// The Atari 2600 as a [`UiSystem`] for the shared harness.
-pub struct Atari2600System;
+pub struct Atari2600System {
+    model: Model,
+}
 
 impl UiApp for Atari2600 {
     type System = Atari2600System;
 
     fn ui_system(&self) -> Atari2600System {
-        Atari2600System
+        Atari2600System { model: self.model }
     }
 }
 
@@ -80,11 +81,7 @@ impl UiSystem for Atari2600System {
     }
 
     fn frame_ticks(&self, runtime: &Self::Runtime) -> u64 {
-        let lines = match runtime.model().region() {
-            Region::Pal => PAL_LINES,
-            _ => NTSC_LINES,
-        };
-        lines * CLOCKS_PER_LINE
+        runtime.native_frame_ticks()
     }
 
     fn frame_duration(&self, runtime: &Self::Runtime) -> std::time::Duration {
@@ -93,6 +90,35 @@ impl UiSystem for Atari2600System {
             _ => NTSC_COLOUR_HZ,
         };
         std::time::Duration::from_secs_f64(self.frame_ticks(runtime) as f64 / hz)
+    }
+
+    fn variants(&self) -> Vec<VariantInfo> {
+        Model::ALL
+            .iter()
+            .map(|model| VariantInfo::new(model.variant_id(), model.display_name()))
+            .collect()
+    }
+
+    fn current_variant(&self) -> Option<Cow<'static, str>> {
+        Some(Cow::Borrowed(self.model.variant_id()))
+    }
+
+    fn switch_variant(
+        &mut self,
+        runtime: &mut Self::Runtime,
+        id: &str,
+    ) -> Result<(), MachineError> {
+        let model = Model::from_variant_id(id).ok_or(MachineError::UnsupportedOperation {
+            operation: "unknown atari-2600 variant",
+        })?;
+        *runtime =
+            build_replacement(runtime, model, &FirmwareOverrides::none()).map_err(|err| {
+                MachineError::Host {
+                    reason: err.to_string(),
+                }
+            })?;
+        self.model = model;
+        Ok(())
     }
 
     fn button_map(&self) -> &'static ButtonInputMap {
@@ -132,8 +158,45 @@ mod tests {
     use runtime_atari_2600::Model;
 
     #[test]
+    fn selector_switches_live_region_and_preserves_cartridge() {
+        let app = Atari2600::default();
+        let mut system = app.ui_system();
+        let mut runtime =
+            Atari2600Runtime::new(Model::default(), vec![0x5a; 4096]).expect("runtime");
+        assert_eq!(system.variants().len(), 2);
+        for model in Model::ALL {
+            system
+                .switch_variant(&mut runtime, model.variant_id())
+                .expect("switch");
+            assert_eq!(
+                system.current_variant().as_deref(),
+                Some(model.variant_id())
+            );
+            assert_eq!(runtime.model(), model);
+            assert_eq!(system.frame_ticks(&runtime), model.frame_ticks());
+            let pal = model.region() == emu198x_shell::Region::Pal;
+            assert_eq!(
+                system.framebuffer_size(&runtime),
+                (160, if pal { 288 } else { 240 })
+            );
+            let expected_seconds =
+                (model.frame_ticks() as f64) / if pal { PAL_COLOUR_HZ } else { NTSC_COLOUR_HZ };
+            assert_eq!(
+                system.frame_duration(&runtime),
+                std::time::Duration::from_secs_f64(expected_seconds)
+            );
+            assert_eq!(runtime.machine().expect("machine").peek(4096), 0x5a);
+        }
+        let before = system.current_variant();
+        assert!(system.switch_variant(&mut runtime, "unknown").is_err());
+        assert_eq!(system.current_variant(), before);
+    }
+
+    #[test]
     fn system_frame_ticks_match_region() {
-        let sys = Atari2600System;
+        let sys = Atari2600System {
+            model: Model::Vcs2600Ntsc,
+        };
         let ntsc = Atari2600Runtime::blank(Model::Vcs2600Ntsc);
         let pal = Atari2600Runtime::blank(Model::Vcs2600Pal);
         assert_eq!(sys.frame_ticks(&ntsc), 262 * 228);
@@ -142,7 +205,9 @@ mod tests {
 
     #[test]
     fn maps_joystick_and_console_keys() {
-        let sys = Atari2600System;
+        let sys = Atari2600System {
+            model: Model::Vcs2600Ntsc,
+        };
         assert_eq!(sys.map_key(KeyCode::ArrowLeft), Some(HostControl::Left));
         assert_eq!(sys.map_key(KeyCode::KeyX), Some(HostControl::South));
         assert_eq!(sys.map_key(KeyCode::Enter), Some(HostControl::Start));

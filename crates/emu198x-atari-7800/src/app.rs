@@ -3,55 +3,16 @@
 use std::path::PathBuf;
 
 use emu198x_shell::launch::{Args, LaunchError, MachineApp, read_rom};
+use emu198x_shell::{FirmwareOverrides, build_variant};
 use runtime_atari_7800::{Atari7800Runtime, Atari7800SessionQueryProvider, Model};
 use serde_json::{Map, Value};
-
-/// CPU clocks per frame — `lines × 228`.
-const FRAME_TICKS_NTSC: u64 = 262 * 228;
-const FRAME_TICKS_PAL: u64 = 312 * 228;
-#[cfg(feature = "ui")]
-const NTSC_FRAME_HZ: f64 = 60.0;
-#[cfg(feature = "ui")]
-const PAL_FRAME_HZ: f64 = 50.0;
-
-/// Display region — selects the model, frame tick budget, and refresh rate.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum Region {
-    #[default]
-    Ntsc,
-    Pal,
-}
-
-impl Region {
-    pub const fn model(self) -> Model {
-        match self {
-            Self::Ntsc => Model::A7800Ntsc,
-            Self::Pal => Model::A7800Pal,
-        }
-    }
-
-    pub const fn frame_ticks(self) -> u64 {
-        match self {
-            Self::Ntsc => FRAME_TICKS_NTSC,
-            Self::Pal => FRAME_TICKS_PAL,
-        }
-    }
-
-    #[cfg(feature = "ui")]
-    pub const fn frame_hz(self) -> f64 {
-        match self {
-            Self::Ntsc => NTSC_FRAME_HZ,
-            Self::Pal => PAL_FRAME_HZ,
-        }
-    }
-}
 
 /// The machine configuration the flags build up.
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct Atari7800 {
     /// `--cart PATH`, or the one positional argument.
     pub cart: Option<PathBuf>,
-    pub region: Region,
+    pub model: Model,
 }
 
 impl MachineApp for Atari7800 {
@@ -63,6 +24,7 @@ impl MachineApp for Atari7800 {
     const MACHINE_OPTIONS: &'static str =
         "    --cart PATH     Atari 7800 cartridge ROM (.a78 / .bin) (required; a bare
                     PATH is accepted too)
+    --model ID      atari-7800-ntsc | atari-7800-pal
     --region MODE   ntsc | pal [default: ntsc]";
     const CONTROLS: &'static str = "    Esc             quit
     F12             emulator hard reset
@@ -75,10 +37,19 @@ impl MachineApp for Atari7800 {
     fn parse_flag(&mut self, flag: &str, args: &mut Args) -> Result<bool, LaunchError> {
         match flag {
             "--cart" => self.cart = Some(args.path(flag)?),
+            "--model" => {
+                let id = args.value(flag)?;
+                self.model = Model::from_variant_id(&id).ok_or_else(|| {
+                    LaunchError::Usage(format!(
+                        "unknown Atari 7800 model `{id}`; expected {}",
+                        Model::VARIANT_IDS.join(", ")
+                    ))
+                })?;
+            }
             "--region" => {
-                self.region = match args.value(flag)?.as_str() {
-                    "ntsc" => Region::Ntsc,
-                    "pal" => Region::Pal,
+                self.model = match args.value(flag)?.as_str() {
+                    "ntsc" => Model::A7800Ntsc,
+                    "pal" => Model::A7800Pal,
                     other => {
                         return Err(LaunchError::Usage(format!(
                             "--region expects ntsc|pal, got {other}"
@@ -98,7 +69,7 @@ impl MachineApp for Atari7800 {
     }
 
     fn frame_ticks(&self) -> u64 {
-        self.region.frame_ticks()
+        self.model.frame_ticks()
     }
 
     fn query_provider(&self) -> Atari7800SessionQueryProvider {
@@ -106,19 +77,31 @@ impl MachineApp for Atari7800 {
     }
 
     fn build_runtime(&self) -> Result<Atari7800Runtime, LaunchError> {
-        let Some(cart_path) = &self.cart else {
+        if self.cart.is_none() {
             return Err(LaunchError::Run(
-                "provide a cartridge with --cart PATH".to_owned(),
+                "provide a cartridge with --cart PATH or as a positional argument".to_owned(),
             ));
-        };
-        let cart = read_rom(cart_path, "--cart")?;
-        Atari7800Runtime::new(self.region.model(), cart)
-            .map_err(|err| LaunchError::Run(format!("failed to construct runtime: {err}")))
+        }
+        self.build_mcp_runtime()
     }
 
-    /// MCP starts blank — the cart arrives via load_media.
     fn build_mcp_runtime(&self) -> Result<Atari7800Runtime, LaunchError> {
-        Ok(Atari7800Runtime::blank(self.region.model()))
+        let mut runtime = build_variant::<Atari7800Runtime>(self.model, &FirmwareOverrides::none())
+            .map_err(|err| LaunchError::Run(err.to_string()))?;
+        if let Some(path) = &self.cart {
+            runtime
+                .insert_cartridge(read_rom(path, "--cart")?)
+                .map_err(|err| LaunchError::Run(err.to_string()))?;
+        }
+        Ok(runtime)
+    }
+
+    fn mcp_startup_media(
+        &self,
+        _slots: &[emu198x_shell::MediaSlot],
+        _raw_args: &[String],
+    ) -> Result<Vec<(String, emu198x_shell::MediaKind, Vec<u8>)>, LaunchError> {
+        self.startup_media()
     }
 
     fn report(&self, runtime: &Atari7800Runtime, report: &mut Map<String, Value>) {
@@ -144,7 +127,7 @@ mod tests {
             panic!("expected a run");
         };
         assert!(app.cart.is_none());
-        assert_eq!(app.region, Region::Ntsc);
+        assert_eq!(app.model, Model::A7800Ntsc);
     }
 
     #[test]
@@ -157,7 +140,7 @@ mod tests {
             panic!("expected a run");
         };
         assert_eq!(app.cart, Some(PathBuf::from("game.a78")));
-        assert_eq!(app.region, Region::Pal);
+        assert_eq!(app.model, Model::A7800Pal);
         assert_eq!(common.scale, Some(4));
         assert_eq!(common.video.as_deref(), Some("crt"));
         assert_eq!(mode, Mode::Ui);
@@ -183,7 +166,7 @@ mod tests {
 
     #[test]
     fn region_frame_ticks_match() {
-        assert_eq!(Region::Ntsc.frame_ticks(), 262 * 228);
-        assert_eq!(Region::Pal.frame_ticks(), 312 * 228);
+        assert_eq!(Model::A7800Ntsc.frame_ticks(), 262 * 228);
+        assert_eq!(Model::A7800Pal.frame_ticks(), 312 * 228);
     }
 }

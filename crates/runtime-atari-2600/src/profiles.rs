@@ -5,15 +5,44 @@ use emu198x_shell::{
     ProfileId, Region, WritebackPolicy, known_capability,
 };
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum Model {
     /// Atari 2600 NTSC.
+    #[default]
     Vcs2600Ntsc,
     /// Atari 2600 PAL.
     Vcs2600Pal,
 }
 
 impl Model {
+    /// Existing regional presets.
+    pub const ALL: [Self; 2] = [Self::Vcs2600Ntsc, Self::Vcs2600Pal];
+    pub const VARIANT_IDS: [&'static str; 2] = ["atari-2600-ntsc", "atari-2600-pal"];
+    #[must_use]
+    pub const fn variant_id(self) -> &'static str {
+        self.model_id()
+    }
+    #[must_use]
+    pub fn from_variant_id(id: &str) -> Option<Self> {
+        match id {
+            "atari-2600-ntsc" | "ntsc" => Some(Self::Vcs2600Ntsc),
+            "atari-2600-pal" | "pal" => Some(Self::Vcs2600Pal),
+            _ => None,
+        }
+    }
+    /// Existing host budget in colour clocks.
+    #[must_use]
+    pub const fn frame_ticks(self) -> u64 {
+        match self {
+            Self::Vcs2600Ntsc => 262 * 228,
+            Self::Vcs2600Pal => 312 * 228,
+        }
+    }
+    #[must_use]
+    pub fn firmware_sources(self) -> Vec<emu198x_shell::FirmwareSource> {
+        Vec::new()
+    }
+
     #[must_use]
     pub const fn model_id(self) -> &'static str {
         match self {
@@ -72,6 +101,7 @@ pub fn profile_for(model: Model) -> MachineProfile {
             WritebackPolicy::InMemoryOnly,
         )],
         capabilities: CapabilitySet::with_all([
+            known_capability("variant-switch"),
             known_capability("controller-input"),
             known_capability("scripted-input"),
         ]),
