@@ -83,9 +83,12 @@ ROM directory when a required image is unpinned: a launch naming the
 three by hand works without one, and a `--load-snapshot` boot with no
 firmware at all still restores from the snapshot. `c64c` stays an
 accepted spelling of `c64c-pal`. The C64 gains `set_machine` over MCP
-and in scripts, which it never had; its window keeps rebuilding a
-switched variant from the firmware bytes it stashed at launch, so
-`--kernal` and friends survive a menu switch there as they always did.
+and in scripts, which it never had. Its window used to rebuild a
+switched variant from firmware bytes stashed at launch, so `--kernal`
+survived a menu switch there and nowhere else; it now resolves by
+convention like the other two menus and the shell, so a switch means
+one thing on every family: the variant's conventional ROMs, launch-time
+pins not carried across.
 
 What did not move is the launch-time policy the flags express: which
 variant a `--machine`, `--model` or portable snapshot selects, and
