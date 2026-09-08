@@ -238,3 +238,27 @@ fn legacy_ram_thresholds_and_last_selector_wins() {
     );
     assert_eq!(report["ram_kb"], 48, "report follows the live preset");
 }
+
+#[test]
+fn valid_mcp_firmware_pins_are_not_reparsed_as_media() {
+    let fixture = Fixture::new();
+    for spec in [
+        fixture.0.join("monitor.rom").display().to_string(),
+        format!(
+            "{}={}",
+            runtime_jupiter_ace::BIOS_FIRMWARE_ID,
+            fixture.0.join("monitor.rom").display()
+        ),
+    ] {
+        let result = fixture
+            .command()
+            .args(["--mcp", "--rom", &spec])
+            .output()
+            .expect("MCP");
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+    }
+}

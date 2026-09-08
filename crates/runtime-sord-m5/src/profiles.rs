@@ -1,8 +1,8 @@
 //! Sord M5 family profile catalogue.
 
 use emu198x_shell::{
-    CapabilitySet, ClockDesc, ClockRate, Family, FirmwareRequirement, MachineId, MachineProfile,
-    MediaKind, MediaSlot, ProfileId, Region, WritebackPolicy, known_capability,
+    CapabilitySet, ClockDesc, ClockRate, Family, FirmwareRequirement, FirmwareSource, MachineId,
+    MachineProfile, MediaKind, MediaSlot, ProfileId, Region, WritebackPolicy, known_capability,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -14,6 +14,36 @@ pub enum Model {
 }
 
 impl Model {
+    pub const ALL: [Self; 2] = [Self::M5Ntsc, Self::M5Pal];
+    pub const VARIANT_IDS: [&'static str; 2] = ["sord-m5-ntsc", "sord-m5-pal"];
+
+    #[must_use]
+    pub const fn variant_id(self) -> &'static str {
+        self.profile_id()
+    }
+
+    #[must_use]
+    pub fn from_variant_id(id: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|model| model.variant_id() == id)
+    }
+
+    #[must_use]
+    pub fn firmware_sources(self) -> Vec<FirmwareSource> {
+        vec![
+            FirmwareSource::required(ROM_FIRMWARE_ID, &["sord-m5.rom"])
+                .with_env_var("EMU198X_SORD_M5_ROM"),
+        ]
+    }
+
+    /// Existing host frame budget, in CPU clocks.
+    #[must_use]
+    pub const fn frame_ticks(self) -> u64 {
+        match self {
+            Self::M5Ntsc => 228 * 262,
+            Self::M5Pal => 228 * 313,
+        }
+    }
+
     #[must_use]
     pub const fn model_id(self) -> &'static str {
         match self {
@@ -45,7 +75,7 @@ pub const ROM_FIRMWARE_ID: &str = "sord-m5-rom";
 
 #[must_use]
 pub fn profiles() -> Vec<MachineProfile> {
-    vec![profile_for(Model::M5Ntsc), profile_for(Model::M5Pal)]
+    Model::ALL.into_iter().map(profile_for).collect()
 }
 
 #[must_use]
@@ -72,6 +102,7 @@ pub fn profile_for(model: Model) -> MachineProfile {
             WritebackPolicy::InMemoryOnly,
         )],
         capabilities: CapabilitySet::with_all([
+            known_capability("variant-switch"),
             known_capability("keyboard-input"),
             known_capability("scripted-input"),
         ]),

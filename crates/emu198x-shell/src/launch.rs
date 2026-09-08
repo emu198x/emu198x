@@ -301,13 +301,30 @@ pub trait MachineApp: Default {
         self.build_runtime()
     }
 
-    /// Media to load before a script runs, as `(slot, kind, bytes)`.
+    /// Media to load before a script or the default UI starts, as `(slot, kind, bytes)`.
     ///
     /// # Errors
     ///
     /// Returns a message when an image cannot be read.
     fn startup_media(&self) -> Result<Vec<(String, MediaKind, Vec<u8>)>, LaunchError> {
         Ok(Vec::new())
+    }
+
+    /// Media to load at MCP startup. The default retains legacy media-flag
+    /// discovery. Apps that parse firmware and media separately should return
+    /// their [`startup_media`](Self::startup_media) here so `--rom` is not
+    /// reinterpreted as a cartridge.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when a media path or slot is invalid.
+    fn mcp_startup_media(
+        &self,
+        slots: &[crate::MediaSlot],
+        raw_args: &[String],
+    ) -> Result<Vec<(String, MediaKind, Vec<u8>)>, LaunchError> {
+        let resolved = startup_media::resolve(slots, raw_args)?;
+        Ok(startup_media::read_all(&resolved)?)
     }
 
     /// Add the machine-specific fields to the headless report. The launcher
@@ -569,9 +586,12 @@ pub fn serve_mcp<A: MachineApp>(app: &A, raw_args: &[String]) -> Result<(), Laun
     let runtime = app.build_mcp_runtime()?;
     let mut session =
         HeadlessSession::new_with_query_provider(runtime, app.frame_ticks(), app.query_provider());
-    // Media named on the command line is loaded here so `--rom` means the
-    // same thing in MCP mode as in the other two (#1180).
-    startup_media::load_into(&mut session, raw_args)?;
+    let loaded = app.mcp_startup_media(&session.machine().profile().media_slots, raw_args)?;
+    if !loaded.is_empty() {
+        session
+            .load_media(&startup_media::media_set(&loaded))
+            .map_err(|err| LaunchError::Run(format!("failed to load startup media: {err}")))?;
+    }
     let mut server = Server::new(ServerInfo::new(A::BIN_NAME, A::VERSION));
     app.register_mcp_tools(server.registry_mut(), &session);
     serve_stdio(&mut server, &mut session).map_err(|err| LaunchError::Run(err.to_string()))

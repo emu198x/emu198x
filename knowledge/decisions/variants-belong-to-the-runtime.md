@@ -151,6 +151,27 @@ CPC and Einstein use it; strict launch continues through `build_variant`.
 This keeps blank-start policy reusable without making it implicit for every
 family.
 
+## Regional computer families with cartridges
+
+Sord M5 and SVI-328 use their existing PAL/NTSC profile ids as catalogue ids.
+Their runtime owns firmware conventions and the unchanged host frame budgets;
+`--region` remains a launch alias for model selection. SVI's `--bios PATH` and
+both families' per-file environment variables remain compatible with shared
+firmware overrides. Missing conventional firmware permits blank MCP startup;
+explicit failures remain errors.
+
+A profile switch builds a fresh target using conventional firmware, ejecting
+cartridges and the SVI cassette. Reset keeps media, and a failed switch keeps the
+entire current runtime. UI pacing and dimensions follow the installed region.
+This policy describes these computer families; cartridge-only consoles still
+need an explicit retention/reload policy before migration.
+
+`MachineApp::startup_media` holds parsed media for scripts and the default window
+constructor. Firmware-based apps opt into it for MCP via `mcp_startup_media`,
+avoiding a second interpretation of `--rom` as a cartridge. The default MCP hook
+retains raw media-flag discovery for unmigrated callers. New migrations should
+use parsed media consistently across all three entry points.
+
 ## Adding a variant or migrating a family
 
 For another variant of a migrated family, extend its runtime model and

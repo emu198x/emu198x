@@ -196,3 +196,27 @@ fn single_model_mcp_loads_firmware_without_advertising_switching() {
     );
     assert_eq!(tool_body(&replies[1])["result"]["value"], true);
 }
+
+#[test]
+fn valid_mcp_firmware_pins_are_not_reparsed_as_media() {
+    let fixture = Fixture::new();
+    for spec in [
+        fixture.0.join("monitor.rom").display().to_string(),
+        format!(
+            "{}={}",
+            runtime_tatung_einstein::ROM_FIRMWARE_ID,
+            fixture.0.join("monitor.rom").display()
+        ),
+    ] {
+        let result = fixture
+            .command()
+            .args(["--mcp", "--rom", &spec])
+            .output()
+            .expect("MCP");
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+    }
+}
