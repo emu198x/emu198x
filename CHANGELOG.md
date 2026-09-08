@@ -4,6 +4,41 @@ All notable changes to Emu198x will be documented in this file.
 
 Format loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 not strictly. Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [0.24.0] - 2026-09-08
+
+
+### Added
+
+- *(shell)* Register MCP tools from the machine profile
+- *(shell)* Run load_basic_program and autoload_tape through machine hooks
+- *(shell)* Move the variant catalogue and firmware convention into the runtime
+- *(c64)* Resolve models and ROMs through the runtime catalogue, gaining set_machine
+- *(zx81)* Share the runtime variant catalogue across launch and automation
+- *(amiga)* Distinguish machine configurations and expose NTSC presets
+- *(zx80)* Share configuration selection across launch and automation
+- Share Ace and MTX runtime catalogues across launch and automation
+- Migrate CPC and Einstein to shared firmware catalogues
+- Migrate M5 and SVI-328 to runtime catalogues
+- Migrate Atom and Electron to runtime catalogues
+- Migrate Oric and Aquarius to runtime catalogues
+- Migrate SG-1000 and ColecoVision runtime catalogues
+- Migrate Atari 5200 to the runtime firmware catalogue
+- Share Sega runtime catalogues across console and handheld
+- Migrate BBC Micro to the runtime firmware catalogue
+- Migrate MSX regional profiles to the runtime catalogue
+- Migrate Atari console regional runtime catalogues
+- Migrate PET display profiles to the runtime catalogue
+- Migrate VIC-20 regional runtime catalogue
+- Migrate Atari 800XL to the runtime catalogue
+- Migrate Dragon to the runtime catalogue
+- Migrate Game Boy profiles to the runtime catalogue
+- Expose NES regions through the runtime catalogue
+
+
+### Fixed
+
+- *(c64)* Report invalid ROM overrides during snapshot startup
+
 ## [0.23.0] - 2026-09-07
 
 ### Changed
