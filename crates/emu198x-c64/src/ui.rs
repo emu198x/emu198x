@@ -30,7 +30,7 @@
 use std::borrow::Cow;
 use std::time::Duration;
 
-use emu198x_shell::{FirmwareImage, FirmwareSet, MachineError};
+use emu198x_shell::{FirmwareOverrides, MachineError, build_variant};
 use emu198x_ui::launch::UiApp;
 use emu198x_ui::{
     ButtonInputMap, ButtonTarget, DriveOption, DrivePortInfo, HostControl, KeyCode, UiSystem,
@@ -38,7 +38,7 @@ use emu198x_ui::{
 };
 use runtime_commodore_c64::{C64Runtime, DriveKind, Model};
 
-use crate::app::{C64, FirmwareBundle};
+use crate::app::C64;
 
 const DEFAULT_SCALE: u32 = 2;
 const INPUT_SLICES_PER_FRAME: u32 = 8;
@@ -153,12 +153,10 @@ fn map_c64_joystick_key(code: KeyCode) -> Option<HostControl> {
 // ---- The UiSystem ----------------------------------------------------------
 
 /// The C64 as a [`UiSystem`]. Tracks the active model so the title and the
-/// Machine-menu radio follow live switches, the resolved firmware (so a variant
-/// switch can rebuild without re-reading ROMs), and whether the arrow keys /
+/// Machine-menu radio follow live switches, and whether the arrow keys /
 /// Space currently drive the gameport-2 joystick (Page Up).
 pub struct C64System {
     model: Model,
-    firmware: FirmwareBundle,
     keyboard_joystick: bool,
 }
 
@@ -264,17 +262,17 @@ impl UiSystem for C64System {
         let model = Model::from_variant_id(variant).ok_or(MachineError::UnsupportedOperation {
             operation: "unknown Commodore 64 variant",
         })?;
-        // All four variants (PAL/NTSC breadbin and C64C) share the same firmware
-        // — KERNAL/BASIC/CHARGEN plus whatever drive DOS ROMs were loaded (1541,
-        // and the optional 1571/1581) — differing only in region and SID
-        // revision, so rebuild from the stashed bytes rather than re-reading the
-        // ROM files. The harness re-paces and refreshes; state/media are not
-        // preserved (a hardware swap).
-        let mut firmware = FirmwareSet::new();
-        for (id, bytes) in &self.firmware {
-            firmware.push(FirmwareImage::new(id.clone(), bytes));
-        }
-        *runtime = C64Runtime::from_firmware(model, &firmware)?;
+        // The model's ROMs by convention (env + `~/.emu198x/roms/…`), the
+        // same resolution as the shell's `set_machine` and the Spectrum's
+        // and Amiga's menus. A launch-time --rom-dir / --kernal pin is not
+        // carried across a switch. The harness re-paces and refreshes;
+        // state/media are not preserved (a hardware swap).
+        *runtime =
+            build_variant::<C64Runtime>(model, &FirmwareOverrides::none()).map_err(|err| {
+                MachineError::Host {
+                    reason: format!("switching to {}: {err}", model.menu_label()),
+                }
+            })?;
         self.model = model;
         Ok(())
     }
@@ -351,22 +349,8 @@ impl UiApp for C64 {
     type System = C64System;
 
     fn ui_system(&self) -> C64System {
-        // The launcher builds the window driver before the runtime and hands
-        // neither to the other, so the driver resolves the same firmware
-        // itself to stash for live variant switches. A failure here is left
-        // for `build_runtime`, which reports it a moment later.
-        let firmware = self
-            .load_firmware_bytes()
-            .map(|images| {
-                images
-                    .into_iter()
-                    .map(|image| (image.id.to_owned(), image.bytes))
-                    .collect()
-            })
-            .unwrap_or_default();
         C64System {
             model: self.model,
-            firmware,
             keyboard_joystick: false,
         }
     }
@@ -411,7 +395,6 @@ mod tests {
     fn the_variant_menu_lists_every_model_by_its_id() {
         let system = C64System {
             model: Model::C64cNtsc,
-            firmware: Vec::new(),
             keyboard_joystick: false,
         };
         let ids: Vec<_> = system.variants().iter().map(|v| v.id.to_string()).collect();
@@ -423,7 +406,6 @@ mod tests {
     fn page_up_toggles_keyboard_joystick_on_keydown_only() {
         let mut system = C64System {
             model: Model::C64PalBreadbin,
-            firmware: Vec::new(),
             keyboard_joystick: false,
         };
         // Key-down flips the mode and consumes the key.
@@ -451,7 +433,6 @@ mod tests {
     fn keyboard_joystick_mode_steals_arrows_and_space_from_keyboard() {
         let mut system = C64System {
             model: Model::C64PalBreadbin,
-            firmware: Vec::new(),
             keyboard_joystick: false,
         };
         // Off: arrows are keyboard keys, no host control.
@@ -469,7 +450,6 @@ mod tests {
     fn blank_system() -> C64System {
         C64System {
             model: Model::C64PalBreadbin,
-            firmware: Vec::new(),
             keyboard_joystick: false,
         }
     }

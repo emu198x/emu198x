@@ -48,11 +48,6 @@ const ESP_AT_DEFAULT_BAUD: u64 = 9600;
 /// RUBP's fixed frame size, which the bridge reassembles TCP reads into.
 const ESP_AT_FRAME_SIZE: usize = 64;
 
-/// A resolved firmware bundle: `(id, bytes)` per ROM image. Stashed on the
-/// window driver so a live variant switch can rebuild without re-reading ROMs.
-#[cfg(feature = "ui")]
-pub(crate) type FirmwareBundle = Vec<(String, Vec<u8>)>;
-
 #[derive(Debug)]
 pub(crate) struct LoadedFirmware {
     pub(crate) id: &'static str,
