@@ -430,7 +430,7 @@ pub fn build_variant<M: FamilyRuntime>(
     model: M::Model,
     overrides: &FirmwareOverrides,
 ) -> Result<M, FirmwareResolveError> {
-    build_with_firmware::<M>(model, overrides, |firmware| {
+    build_variant_with::<M>(model, overrides, |firmware| {
         M::from_firmware(model, firmware)
     })
 }
@@ -446,12 +446,18 @@ pub fn build_replacement<M: FamilyRuntime>(
     model: M::Model,
     overrides: &FirmwareOverrides,
 ) -> Result<M, FirmwareResolveError> {
-    build_with_firmware::<M>(model, overrides, |firmware| {
+    build_variant_with::<M>(model, overrides, |firmware| {
         current.replacement(model, firmware)
     })
 }
 
-fn build_with_firmware<M: FamilyRuntime>(
+/// Resolve the catalogue firmware and construct a runtime with a launch policy.
+/// This lets a window select its default language without duplicating ROM lookup.
+///
+/// # Errors
+///
+/// As [`build_variant`], including errors returned by the supplied constructor.
+pub fn build_variant_with<M: FamilyRuntime>(
     model: M::Model,
     overrides: &FirmwareOverrides,
     build: impl FnOnce(&FirmwareSet<'_>) -> Result<M, crate::MachineError>,

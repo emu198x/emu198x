@@ -78,7 +78,28 @@ impl BbcMicroRuntime {
                 .ok_or_else(|| MachineError::MissingFirmware {
                     id: MOS_FIRMWARE_ID.to_owned(),
                 })?;
-        Self::new(model, bytes.to_vec())
+        let mut runtime = Self::new(model, bytes.to_vec())?;
+        if let Some(font) = firmware.bytes(crate::FONT_FIRMWARE_ID) {
+            runtime.set_teletext_font(font.to_vec());
+        }
+        Ok(runtime)
+    }
+
+    /// Construct with BASIC as the default language in bank 15, when available.
+    /// Callers install explicit sideways banks afterwards so they take precedence.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::from_firmware`].
+    pub fn from_firmware_with_basic(
+        model: Model,
+        firmware: &FirmwareSet<'_>,
+    ) -> Result<Self, MachineError> {
+        let mut runtime = Self::from_firmware(model, firmware)?;
+        if let Some(basic) = firmware.bytes(crate::BASIC_FIRMWARE_ID) {
+            runtime.insert_sideways_rom(15, basic.to_vec());
+        }
+        Ok(runtime)
     }
 
     /// Replace the MOS and rebuild.
@@ -98,13 +119,13 @@ impl BbcMicroRuntime {
         Ok(())
     }
 
-    /// Install a sideways ROM into a slot (0..=15).
     /// Supply the SAA5050 teletext character ROM used to render MODE 7.
     pub fn set_teletext_font(&mut self, font: Vec<u8>) {
         self.teletext_font = font;
         self.rebuild_machine();
     }
 
+    /// Install a sideways ROM into a slot (0..=15).
     pub fn insert_sideways_rom(&mut self, bank: usize, rom: Vec<u8>) {
         self.sideways_roms.retain(|(b, _)| *b != bank);
         self.sideways_roms.push((bank, rom));
@@ -183,6 +204,45 @@ impl BbcMicroRuntime {
             self.rgba_framebuffer[base + 2] = (pixel & 0xff) as u8;
             self.rgba_framebuffer[base + 3] = ((pixel >> 24) & 0xff) as u8;
         }
+    }
+}
+
+impl emu198x_shell::FamilyRuntime for BbcMicroRuntime {
+    type Model = Model;
+
+    fn variant_ids() -> &'static [&'static str] {
+        &Model::VARIANT_IDS
+    }
+
+    fn model_from_id(id: &str) -> Option<Model> {
+        Model::from_variant_id(id)
+    }
+
+    fn variant_id(model: Model) -> &'static str {
+        model.profile_id()
+    }
+
+    fn profile_for(model: Model) -> MachineProfile {
+        profile_for(model)
+    }
+
+    fn rom_convention() -> emu198x_shell::RomConvention {
+        emu198x_shell::RomConvention {
+            env_var: Some("EMU198X_BBC_ROM_DIR"),
+            dirs: &["acorn-bbc-micro"],
+        }
+    }
+
+    fn firmware_sources(model: Model) -> Vec<emu198x_shell::FirmwareSource> {
+        model.firmware_sources()
+    }
+
+    fn from_firmware(model: Model, firmware: &FirmwareSet<'_>) -> Result<Self, MachineError> {
+        Self::from_firmware(model, firmware)
+    }
+
+    fn native_frame_ticks(&self) -> u64 {
+        self.model.frame_ticks()
     }
 }
 
@@ -328,3 +388,41 @@ impl MachineCore for BbcMicroRuntime {
 }
 
 emu198x_shell::impl_6502_debug_primitives!(BbcMicroRuntime);
+
+#[cfg(test)]
+mod catalogue_tests {
+    use super::*;
+    use emu198x_shell::{FamilyRuntime, FirmwareImage};
+
+    #[test]
+    fn firmware_constructor_installs_font_and_language_policy_survives_reset() {
+        let mos = vec![0; 16384];
+        let font = vec![0x3c; 960];
+        let basic = vec![0x42; 16384];
+        let mut firmware = FirmwareSet::new();
+        for (id, bytes) in [
+            (crate::MOS_FIRMWARE_ID, &mos),
+            (crate::FONT_FIRMWARE_ID, &font),
+            (crate::BASIC_FIRMWARE_ID, &basic),
+        ] {
+            firmware.push(FirmwareImage::new(id, bytes));
+        }
+        let mut bare =
+            BbcMicroRuntime::from_firmware(Model::BbcModelB, &firmware).expect("MOS/font");
+        assert_eq!(bare.teletext_font, font);
+        bare.machine_mut().expect("machine").poke(0xfe30, 15);
+        assert_eq!(bare.machine().expect("bare MOS").peek(0x8000), 0xff);
+        let mut language = BbcMicroRuntime::from_firmware_with_basic(Model::BbcModelB, &firmware)
+            .expect("language");
+        language.reset(ResetKind::Hard);
+        language.machine_mut().expect("machine").poke(0xfe30, 15);
+        assert_eq!(language.machine().expect("language").peek(0x8000), 0x42);
+        assert_eq!(language.teletext_font, font);
+        assert_eq!(language.native_frame_ticks(), 39_936);
+        assert!(
+            !language
+                .capabilities()
+                .contains(&emu198x_shell::known_capability("variant-switch"))
+        );
+    }
+}
