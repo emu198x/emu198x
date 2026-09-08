@@ -280,6 +280,20 @@ MCP entry points, including missing firmware and a failed switch that
 leaves the current model intact. The ZX81's `tests/variants.rs` files
 exercise this without external firmware.
 
+## MSX cartridge retention
+
+MSX regional switches use `FamilyRuntime::replacement` to retain both cartridge
+ROMs and explicit mapper choices while cold-booting the selected profile with
+conventional BIOS. Mapper bank state resets with the machine. The launcher
+installs parsed cartridges directly in every mode because generic media loading
+auto-detects mappers and would overwrite explicit choices.
+
+Snapshot restore must refresh the runtime's cached boot media from the restored
+machine. Otherwise reset and replacement would silently revive launch-time ROMs
+or lose snapshot-restored cartridges. Read-only machine accessors expose the
+installed BIOS and cartridge/mapper pairs for that synchronization; snapshot
+serialization and hardware execution remain unchanged.
+
 ## Drift triggers
 
 Stop and re-read this record if you find yourself:

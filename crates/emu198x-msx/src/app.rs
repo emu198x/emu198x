@@ -7,91 +7,44 @@
 
 use std::path::PathBuf;
 
-use emu198x_shell::launch::{
-    Args, LaunchError, MachineApp, conventional_rom_path, read_rom, read_rom_exact,
-};
-use runtime_msx::{MapperType, Model, MsxRuntime, MsxSessionQueryProvider};
+use emu198x_shell::launch::{Args, LaunchError, MachineApp, read_rom};
+use emu198x_shell::{FirmwareOverrides, build_variant, build_variant_or_blank};
+use runtime_msx::{BIOS_FIRMWARE_ID, MapperType, Model, MsxRuntime, MsxSessionQueryProvider};
 use serde_json::{Map, Value};
-
-const BIOS_ENV: &str = "EMU198X_MSX_BIOS";
-const BIOS_RELATIVE: &str = "microsoft-msx/msx.rom";
-const BIOS_SIZE: usize = 32 * 1024;
-
-/// CPU clocks per frame — `228 × lines`.
-///
-/// One MSX1 NTSC frame = 228 T-states × 262 scanlines.
-const FRAME_TICKS_NTSC: u64 = 228 * 262;
-const FRAME_TICKS_PAL: u64 = 228 * 313;
-#[cfg(feature = "ui")]
-const NTSC_FRAME_HZ: f64 = 60.0;
-#[cfg(feature = "ui")]
-const PAL_FRAME_HZ: f64 = 50.0;
-
-/// Display region — selects the model, frame tick budget, and refresh rate.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum Region {
-    #[default]
-    Ntsc,
-    Pal,
-}
-
-impl Region {
-    pub const fn model(self) -> Model {
-        match self {
-            Self::Ntsc => Model::Msx1Ntsc,
-            Self::Pal => Model::Msx1Pal,
-        }
-    }
-
-    pub const fn frame_ticks(self) -> u64 {
-        match self {
-            Self::Ntsc => FRAME_TICKS_NTSC,
-            Self::Pal => FRAME_TICKS_PAL,
-        }
-    }
-
-    #[cfg(feature = "ui")]
-    pub const fn frame_hz(self) -> f64 {
-        match self {
-            Self::Ntsc => NTSC_FRAME_HZ,
-            Self::Pal => PAL_FRAME_HZ,
-        }
-    }
-}
 
 /// The machine configuration the flags build up.
 #[derive(Debug, PartialEq, Eq)]
 pub struct Msx {
-    pub bios: Option<PathBuf>,
+    pub firmware: FirmwareOverrides,
     pub cart: Option<PathBuf>,
     pub mapper: MapperType,
     pub cart2: Option<PathBuf>,
     pub mapper2: MapperType,
-    pub region: Region,
+    pub model: Model,
 }
 
 impl Default for Msx {
     fn default() -> Self {
         Self {
-            bios: None,
+            firmware: FirmwareOverrides::none(),
             cart: None,
             mapper: MapperType::Plain,
             cart2: None,
             mapper2: MapperType::Plain,
-            region: Region::default(),
+            model: Model::Msx1Ntsc,
         }
     }
 }
 
 impl Msx {
-    /// `--bios`, else `$EMU198X_MSX_BIOS`, else the conventional path.
-    fn bios_path(&self) -> Result<PathBuf, LaunchError> {
-        self.bios
-            .clone()
-            .or_else(|| conventional_rom_path(BIOS_ENV, BIOS_RELATIVE))
-            .ok_or_else(|| {
-                LaunchError::Run("no BIOS: pass --bios PATH or set EMU198X_MSX_BIOS".to_owned())
-            })
+    fn install_cartridges(&self, runtime: &mut MsxRuntime) -> Result<(), LaunchError> {
+        if let Some(path) = &self.cart {
+            runtime.insert_cartridge1(read_rom(path, "--cart")?, self.mapper);
+        }
+        if let Some(path) = &self.cart2 {
+            runtime.insert_cartridge2(read_rom(path, "--cart2")?, self.mapper2);
+        }
+        Ok(())
     }
 }
 
@@ -118,6 +71,9 @@ impl MachineApp for Msx {
     const VERSION: &'static str = env!("CARGO_PKG_VERSION");
     const MACHINE_OPTIONS: &'static str = "    --bios PATH     MSX1 BIOS ROM (32 KB); default
                     ~/.emu198x/roms/microsoft-msx/msx.rom (or set EMU198X_MSX_BIOS)
+    --rom PATH|ID=PATH  pin BIOS firmware (msx1-bios)
+    --rom-dir DIR   firmware directory (or EMU198X_MSX_ROM_DIR)
+    --model ID      microsoft-msx1-ntsc | microsoft-msx1-pal
     --cart PATH     cartridge ROM (slot 1)
     --mapper KIND   cartridge mapper: plain | konami | konami-scc | ascii8 |
                     ascii16 [default: plain]
@@ -132,15 +88,33 @@ impl MachineApp for Msx {
 
     fn parse_flag(&mut self, flag: &str, args: &mut Args) -> Result<bool, LaunchError> {
         match flag {
-            "--bios" => self.bios = Some(args.path(flag)?),
+            "--bios" => self.firmware.pin(BIOS_FIRMWARE_ID, args.path(flag)?),
+            "--rom-dir" => self.firmware.dir = Some(args.path(flag)?),
+            "--rom" => self
+                .firmware
+                .add_spec(
+                    &args.value(flag)?,
+                    self.model.variant_id(),
+                    &self.model.firmware_sources(),
+                )
+                .map_err(|err| LaunchError::Usage(err.to_string()))?,
+            "--model" => {
+                let id = args.value(flag)?;
+                self.model = Model::from_variant_id(&id).ok_or_else(|| {
+                    LaunchError::Usage(format!(
+                        "unknown MSX model `{id}`; expected {}",
+                        Model::VARIANT_IDS.join(", ")
+                    ))
+                })?;
+            }
             "--cart" => self.cart = Some(args.path(flag)?),
             "--mapper" => self.mapper = parse_mapper(flag, &args.value(flag)?)?,
             "--cart2" => self.cart2 = Some(args.path(flag)?),
             "--mapper2" => self.mapper2 = parse_mapper(flag, &args.value(flag)?)?,
             "--region" => {
-                self.region = match args.value(flag)?.as_str() {
-                    "ntsc" => Region::Ntsc,
-                    "pal" => Region::Pal,
+                self.model = match args.value(flag)?.as_str() {
+                    "ntsc" => Model::Msx1Ntsc,
+                    "pal" => Model::Msx1Pal,
                     other => {
                         return Err(LaunchError::Usage(format!(
                             "--region expects ntsc|pal, got {other}"
@@ -154,7 +128,7 @@ impl MachineApp for Msx {
     }
 
     fn frame_ticks(&self) -> u64 {
-        self.region.frame_ticks()
+        self.model.frame_ticks()
     }
 
     fn query_provider(&self) -> MsxSessionQueryProvider {
@@ -162,54 +136,26 @@ impl MachineApp for Msx {
     }
 
     fn build_runtime(&self) -> Result<MsxRuntime, LaunchError> {
-        let bios_path = self.bios_path()?;
-        let bios = read_rom_exact(&bios_path, "BIOS", BIOS_SIZE)?;
-        let mut runtime = MsxRuntime::new(self.region.model(), bios)
-            .map_err(|err| LaunchError::Run(format!("failed to construct runtime: {err}")))?;
-        // The cart slots are inserted directly into the machine; the bytes
-        // don't need to round-trip through the session's MediaSet.
-        if let Some(cart_path) = &self.cart {
-            runtime.insert_cartridge1(read_rom(cart_path, "--cart")?, self.mapper);
-        }
-        if let Some(cart_path) = &self.cart2 {
-            runtime.insert_cartridge2(read_rom(cart_path, "--cart2")?, self.mapper2);
-        }
+        let mut runtime = build_variant::<MsxRuntime>(self.model, &self.firmware)
+            .map_err(|err| LaunchError::Run(err.to_string()))?;
+        self.install_cartridges(&mut runtime)?;
         Ok(runtime)
     }
 
-    /// MCP starts blank and takes the BIOS from its conventional location
-    /// when one is there and is the right size; otherwise the client can
-    /// drive the machine against a snapshot or hand it firmware later.
     fn build_mcp_runtime(&self) -> Result<MsxRuntime, LaunchError> {
-        let mut runtime = MsxRuntime::blank(self.region.model());
-        if let Ok(path) = self.bios_path() {
-            if let Ok(bytes) = std::fs::read(&path) {
-                if bytes.len() == BIOS_SIZE {
-                    runtime.set_bios(bytes).map_err(|err| {
-                        LaunchError::Run(format!("BIOS at {} invalid: {err}", path.display()))
-                    })?;
-                    eprintln!(
-                        "{} mcp: loaded BIOS from {}",
-                        Self::BIN_NAME,
-                        path.display()
-                    );
-                } else {
-                    eprintln!(
-                        "{} mcp: BIOS at {} is {} bytes; expected {BIOS_SIZE} — starting blank",
-                        Self::BIN_NAME,
-                        path.display(),
-                        bytes.len()
-                    );
-                }
-            } else {
-                eprintln!(
-                    "{} mcp: BIOS path {} not readable — starting blank",
-                    Self::BIN_NAME,
-                    path.display()
-                );
-            }
-        }
+        let mut runtime =
+            build_variant_or_blank::<MsxRuntime>(self.model, &self.firmware, MsxRuntime::blank)
+                .map_err(|err| LaunchError::Run(err.to_string()))?;
+        self.install_cartridges(&mut runtime)?;
         Ok(runtime)
+    }
+
+    fn mcp_startup_media(
+        &self,
+        _slots: &[emu198x_shell::MediaSlot],
+        _raw_args: &[String],
+    ) -> Result<Vec<(String, emu198x_shell::MediaKind, Vec<u8>)>, LaunchError> {
+        self.startup_media()
     }
 
     fn report(&self, runtime: &MsxRuntime, report: &mut Map<String, Value>) {
@@ -218,11 +164,11 @@ impl MachineApp for Msx {
         report.insert("bios_loaded".to_owned(), bios_loaded.into());
         report.insert(
             "cart1_loaded".to_owned(),
-            (bios_loaded && self.cart.is_some()).into(),
+            runtime.cart1_bytes().is_some().into(),
         );
         report.insert(
             "cart2_loaded".to_owned(),
-            (bios_loaded && self.cart2.is_some()).into(),
+            runtime.cart2_bytes().is_some().into(),
         );
         report.insert("frames_run".to_owned(), frame_count.into());
     }
@@ -243,12 +189,12 @@ mod tests {
         let Parsed::Run { app, common, .. } = parse::<Msx>(&[]).expect("parses") else {
             panic!("expected a run");
         };
-        assert!(app.bios.is_none());
+        assert!(app.firmware.by_id.is_empty());
         assert!(app.cart.is_none());
         assert!(matches!(app.mapper, MapperType::Plain));
         assert!(app.cart2.is_none());
         assert!(matches!(app.mapper2, MapperType::Plain));
-        assert_eq!(app.region, Region::Ntsc);
+        assert_eq!(app.model, Model::Msx1Ntsc);
         assert_eq!(common.frames, 0);
         assert!(common.script.is_none());
     }
@@ -281,12 +227,18 @@ mod tests {
         let Parsed::Run { app, common, mode } = parsed else {
             panic!("expected a run");
         };
-        assert_eq!(app.bios.as_deref(), Some(Path::new("/tmp/msx.rom")));
+        assert_eq!(
+            app.firmware
+                .by_id
+                .get(BIOS_FIRMWARE_ID)
+                .map(PathBuf::as_path),
+            Some(Path::new("/tmp/msx.rom"))
+        );
         assert_eq!(app.cart.as_deref(), Some(Path::new("/tmp/game.rom")));
         assert!(matches!(app.mapper, MapperType::KonamiScc));
         assert_eq!(app.cart2.as_deref(), Some(Path::new("/tmp/other.rom")));
         assert!(matches!(app.mapper2, MapperType::Ascii16));
-        assert_eq!(app.region, Region::Pal);
+        assert_eq!(app.model, Model::Msx1Pal);
         assert_eq!(common.frames, 120);
         assert_eq!(
             common.screenshot.as_deref(),
@@ -320,10 +272,13 @@ mod tests {
         let Parsed::Run { app, common, mode } = parsed else {
             panic!("expected a run");
         };
-        assert_eq!(app.bios, Some(PathBuf::from("msx.rom")));
+        assert_eq!(
+            app.firmware.by_id.get(BIOS_FIRMWARE_ID),
+            Some(&PathBuf::from("msx.rom"))
+        );
         assert_eq!(app.cart, Some(PathBuf::from("nemesis.rom")));
         assert_eq!(app.mapper, MapperType::Konami);
-        assert_eq!(app.region, Region::Pal);
+        assert_eq!(app.model, Model::Msx1Pal);
         assert_eq!(common.scale, Some(4));
         assert_eq!(common.video.as_deref(), Some("crt"));
         assert_eq!(mode, Mode::Ui);
@@ -342,7 +297,7 @@ mod tests {
 
     #[test]
     fn region_frame_ticks_match() {
-        assert_eq!(Region::Ntsc.frame_ticks(), 228 * 262);
-        assert_eq!(Region::Pal.frame_ticks(), 228 * 313);
+        assert_eq!(Model::Msx1Ntsc.frame_ticks(), 228 * 262);
+        assert_eq!(Model::Msx1Pal.frame_ticks(), 228 * 313);
     }
 }
