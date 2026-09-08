@@ -211,6 +211,25 @@ impl Atari800xl {
             Some(rom) => Some(Cartridge::from_rom(&rom)?),
             None => None,
         };
+        Ok(Self::with_cartridge(
+            os_rom,
+            basic_rom,
+            cart,
+            region,
+            basic_enabled,
+        ))
+    }
+
+    /// Cold boot with an already parsed cartridge, retaining its mapper type.
+    #[must_use]
+    pub fn with_cartridge(
+        os_rom: Option<Vec<u8>>,
+        basic_rom: Option<Vec<u8>>,
+        cart: Option<Cartridge>,
+        region: Atari800xlRegion,
+        basic_enabled: bool,
+    ) -> Self {
+        let cart = cart.map(|cart| cart.cold_boot());
         let mut cpu = M6502::new();
         cpu.reset();
         let mut pokey = Pokey::new(region.cpu_hz());
@@ -276,7 +295,22 @@ impl Atari800xl {
         let hi = sys.mem_read(0xFFFD);
         sys.cpu.regs.pc = u16::from(lo) | (u16::from(hi) << 8);
 
-        Ok(sys)
+        sys
+    }
+
+    #[must_use]
+    pub fn os_rom(&self) -> Option<&[u8]> {
+        self.os_rom.as_deref()
+    }
+
+    #[must_use]
+    pub fn basic_rom(&self) -> Option<&[u8]> {
+        self.basic_rom.as_deref()
+    }
+
+    #[must_use]
+    pub fn cartridge(&self) -> Option<&Cartridge> {
+        self.cart.as_ref()
     }
 
     pub fn run_frame(&mut self) -> u64 {

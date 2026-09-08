@@ -1,14 +1,14 @@
 //! Runtime wrapper for the Atari 800XL.
 
 use emu198x_shell::{
-    AudioPacket, CapabilitySet, ControlCommand, FramePacket, HostIo, MachineCore, MachineError,
-    MachineProfile, MachineTime, MediaKind, MediaSet, PixelFormat, ResetKind, RunResult,
-    StopReason,
+    AudioPacket, CapabilitySet, ControlCommand, FirmwareSet, FramePacket, HostIo, MachineCore,
+    MachineError, MachineProfile, MachineTime, MediaKind, MediaSet, PixelFormat, ResetKind,
+    RunResult, StopReason,
 };
 use format_atari_8bit_atr::AtrImage;
-use machine_atari_800xl::{Atari800xl, Atari800xlRegion};
+use machine_atari_800xl::{Atari800xl, Atari800xlRegion, Cartridge};
 
-use crate::profiles::{Model, profile_for};
+use crate::profiles::{BASIC_FIRMWARE_ID, Model, OS_FIRMWARE_ID, profile_for};
 use crate::snapshot;
 use emu198x_shell::display::Display;
 
@@ -25,7 +25,7 @@ pub struct Atari800xlRuntime {
     machine: Option<Atari800xl>,
     os_bytes: Option<Vec<u8>>,
     basic_bytes: Option<Vec<u8>>,
-    cart_bytes: Option<Vec<u8>>,
+    cartridge: Option<Cartridge>,
     xex_bytes: Option<Vec<u8>>,
     xex_pending: bool,
     /// A disk loaded before there was a machine to put it in. Once a machine
@@ -48,7 +48,7 @@ impl Atari800xlRuntime {
             machine: None,
             os_bytes: None,
             basic_bytes: None,
-            cart_bytes: None,
+            cartridge: None,
             xex_bytes: None,
             xex_pending: false,
             disk_1: None,
@@ -76,30 +76,54 @@ impl Atari800xlRuntime {
         let mut runtime = Self::blank(model);
         runtime.os_bytes = os;
         runtime.basic_bytes = basic;
-        runtime.cart_bytes = cart;
+        runtime.cartridge = cart
+            .as_deref()
+            .map(Cartridge::from_rom)
+            .transpose()
+            .map_err(cartridge_error)?;
         runtime.basic_enabled = basic_enabled;
-        runtime.rebuild_machine()?;
+        runtime.rebuild_machine();
         Ok(runtime)
+    }
+
+    /// Construct from the two optional catalogue firmware images.
+    pub fn from_firmware(model: Model, firmware: &FirmwareSet<'_>) -> Result<Self, MachineError> {
+        firmware.validate_for_profile(&profile_for(model))?;
+        Self::new(
+            model,
+            firmware.bytes(OS_FIRMWARE_ID).map(<[u8]>::to_vec),
+            firmware.bytes(BASIC_FIRMWARE_ID).map(<[u8]>::to_vec),
+            None,
+            true,
+        )
     }
 
     pub fn set_os(&mut self, os: Option<Vec<u8>>) -> Result<(), MachineError> {
         self.os_bytes = os;
-        self.rebuild_machine()
+        self.rebuild_machine();
+        Ok(())
     }
 
     pub fn set_basic(&mut self, basic: Option<Vec<u8>>) -> Result<(), MachineError> {
         self.basic_bytes = basic;
-        self.rebuild_machine()
+        self.rebuild_machine();
+        Ok(())
     }
 
     pub fn set_basic_enabled(&mut self, enabled: bool) -> Result<(), MachineError> {
         self.basic_enabled = enabled;
-        self.rebuild_machine()
+        self.rebuild_machine();
+        Ok(())
     }
 
     pub fn insert_cartridge(&mut self, rom: Option<Vec<u8>>) -> Result<(), MachineError> {
-        self.cart_bytes = rom;
-        self.rebuild_machine()
+        self.cartridge = rom
+            .as_deref()
+            .map(Cartridge::from_rom)
+            .transpose()
+            .map_err(cartridge_error)?;
+        self.rebuild_machine();
+        Ok(())
     }
 
     #[must_use]
@@ -126,6 +150,19 @@ impl Atari800xlRuntime {
     /// so a runtime whose `blank()` starts with an empty framebuffer Vec does
     /// not panic when the first frame paints.
     pub(crate) fn set_machine(&mut self, machine: Option<Atari800xl>) {
+        self.os_bytes = machine
+            .as_ref()
+            .and_then(|m| m.os_rom().map(<[u8]>::to_vec));
+        self.basic_bytes = machine
+            .as_ref()
+            .and_then(|m| m.basic_rom().map(<[u8]>::to_vec));
+        self.cartridge = machine.as_ref().and_then(|m| m.cartridge().cloned());
+        // Version-5 snapshots contain the live mapping, not the launch flag.
+        // Use that mapping as the BASIC boot policy for subsequent cold boots.
+        self.basic_enabled = machine
+            .as_ref()
+            .is_some_and(|m| m.pia().port_b_output() & 2 == 0);
+        self.disk_1 = None;
         if let Some(machine) = &machine {
             let width = machine.framebuffer_width();
             let height = machine.framebuffer_height();
@@ -143,8 +180,8 @@ impl Atari800xlRuntime {
     pub(crate) fn basic_bytes(&self) -> Option<&[u8]> {
         self.basic_bytes.as_deref()
     }
-    pub(crate) fn cart_bytes(&self) -> Option<&[u8]> {
-        self.cart_bytes.as_deref()
+    pub(crate) fn cartridge_loaded(&self) -> bool {
+        self.cartridge.is_some()
     }
     pub(crate) fn xex_bytes(&self) -> Option<&[u8]> {
         self.xex_bytes.as_deref()
@@ -166,7 +203,7 @@ impl Atari800xlRuntime {
         self.xex_bytes = bytes;
         self.xex_pending = pending;
     }
-    pub(crate) fn basic_enabled(&self) -> bool {
+    pub fn basic_enabled(&self) -> bool {
         self.basic_enabled
     }
 
@@ -178,7 +215,7 @@ impl Atari800xlRuntime {
         }
     }
 
-    fn rebuild_machine(&mut self) -> Result<(), MachineError> {
+    fn rebuild_machine(&mut self) {
         // The drive keeps its disk across a reset of the computer, so carry
         // the live image over rather than reloading the bytes it came from.
         let disk = self
@@ -187,26 +224,22 @@ impl Atari800xlRuntime {
             .and_then(|machine| machine.sio_mut().eject_disk(1))
             .or_else(|| self.disk_1.take());
         // The 800XL needs at least a cart OR an OS to boot meaningfully.
-        if self.cart_bytes.is_none() && self.os_bytes.is_none() {
+        if self.cartridge.is_none() && self.os_bytes.is_none() {
             self.machine = None;
             self.disk_1 = disk;
-            return Ok(());
+            return;
         }
         let region = match self.model.region() {
             emu198x_shell::Region::Pal => Atari800xlRegion::Pal,
             _ => Atari800xlRegion::Ntsc,
         };
-        let mut machine = Atari800xl::new(
+        let mut machine = Atari800xl::with_cartridge(
             self.os_bytes.clone(),
             self.basic_bytes.clone(),
-            self.cart_bytes.clone(),
+            self.cartridge.clone(),
             region,
             self.basic_enabled,
-        )
-        .map_err(|reason| MachineError::InvalidMedia {
-            slot: "cartridge-1".to_owned(),
-            reason,
-        })?;
+        );
         if let Some(disk) = disk {
             machine.sio_mut().insert_disk(1, disk);
         }
@@ -217,7 +250,6 @@ impl Atari800xlRuntime {
         self.rgba_framebuffer = vec![0; (width * height * 4) as usize];
         self.machine = Some(machine);
         self.update_rgba_framebuffer();
-        Ok(())
     }
 
     fn autoload_xex(&mut self) -> Result<(), MachineError> {
@@ -291,7 +323,66 @@ impl Atari800xlRuntime {
     }
 }
 
+fn cartridge_error(reason: String) -> MachineError {
+    MachineError::InvalidMedia {
+        slot: "cartridge-1".to_owned(),
+        reason,
+    }
+}
+
+impl emu198x_shell::FamilyRuntime for Atari800xlRuntime {
+    type Model = Model;
+    fn variant_ids() -> &'static [&'static str] {
+        &Model::VARIANT_IDS
+    }
+    fn model_from_id(id: &str) -> Option<Model> {
+        Model::from_variant_id(id)
+    }
+    fn variant_id(model: Model) -> &'static str {
+        model.variant_id()
+    }
+    fn profile_for(model: Model) -> MachineProfile {
+        profile_for(model)
+    }
+    fn rom_convention() -> emu198x_shell::RomConvention {
+        emu198x_shell::RomConvention {
+            env_var: Some("EMU198X_A800XL_ROM_DIR"),
+            dirs: &["atari-800xl"],
+        }
+    }
+    fn firmware_sources(model: Model) -> Vec<emu198x_shell::FirmwareSource> {
+        model.firmware_sources()
+    }
+    fn from_firmware(model: Model, firmware: &FirmwareSet<'_>) -> Result<Self, MachineError> {
+        Self::from_firmware(model, firmware)
+    }
+    fn replacement(&self, model: Model, firmware: &FirmwareSet<'_>) -> Result<Self, MachineError> {
+        let mut replacement = Self::from_firmware(model, firmware)?;
+        replacement.basic_enabled = self.basic_enabled;
+        replacement.cartridge = self.cartridge.clone();
+        replacement.disk_1 = self
+            .machine
+            .as_ref()
+            .and_then(|m| m.sio().drive(1))
+            .and_then(|d| d.disk())
+            .cloned()
+            .or_else(|| self.disk_1.clone());
+        replacement.rebuild_machine();
+        Ok(replacement)
+    }
+    fn native_frame_ticks(&self) -> u64 {
+        self.model.frame_ticks()
+    }
+}
+
 impl MachineCore for Atari800xlRuntime {
+    fn set_machine<Q: emu198x_shell::SessionQueryProvider<Self>>(
+        session: &mut emu198x_shell::HeadlessSession<Self, Q>,
+        machine: &str,
+    ) -> Result<emu198x_shell::VariantSwitched, emu198x_shell::LoaderError> {
+        emu198x_shell::swap_variant(session, machine)
+    }
+
     fn profile(&self) -> &MachineProfile {
         &self.profile
     }
@@ -299,7 +390,7 @@ impl MachineCore for Atari800xlRuntime {
         self.time
     }
     fn reset(&mut self, _kind: ResetKind) {
-        let _ = self.rebuild_machine();
+        self.rebuild_machine();
         self.xex_pending = self.xex_bytes.is_some();
         self.time = MachineTime::default();
     }

@@ -76,7 +76,7 @@ impl SessionQueryProvider<Atari800xlRuntime> for Atari800xlSessionQueryProvider 
             "os.loaded" => json!(machine.os_bytes().is_some()),
             "basic.loaded" => json!(machine.basic_bytes().is_some()),
             "basic.enabled" => json!(machine.basic_enabled()),
-            "cartridge.loaded" => json!(machine.cart_bytes().is_some()),
+            "cartridge.loaded" => json!(machine.cartridge_loaded()),
             "disk.loaded" => json!(machine.disk_in_d1()),
             "program.loaded" => json!(machine.xex_bytes().is_some()),
             "program.pending" => json!(machine.xex_pending()),

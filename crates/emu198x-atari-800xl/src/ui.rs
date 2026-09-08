@@ -11,13 +11,15 @@
 //! feature; the shared launcher opens the window when no automation flag is
 //! given.
 
+use emu198x_shell::{FamilyRuntime, FirmwareOverrides, MachineError, build_replacement};
+use std::borrow::Cow;
 use std::time::Duration;
 
 use emu198x_ui::launch::UiApp;
-use emu198x_ui::{ButtonInputMap, ButtonTarget, HostControl, KeyCode, UiSystem};
-use runtime_atari_800xl::Atari800xlRuntime;
+use emu198x_ui::{ButtonInputMap, ButtonTarget, HostControl, KeyCode, UiSystem, VariantInfo};
+use runtime_atari_800xl::{Atari800xlRuntime, Model};
 
-use crate::app::{Atari800xl, Region};
+use crate::app::Atari800xl;
 
 const DEFAULT_SCALE: u32 = 3;
 
@@ -32,20 +34,16 @@ const ATARI_800XL_BUTTON_MAP: ButtonInputMap = ButtonInputMap::new(&[
     (HostControl::East, ButtonTarget::new(1, "fire")),
 ]);
 
-/// The Atari 800XL as a [`UiSystem`]. The region is fixed at construction; a
-/// hard reset rebuilds the machine from the OS / BASIC / cartridge the runtime
-/// already holds.
+/// Native adapter backed by the runtime's regional catalogue.
 pub struct Atari800xlSystem {
-    region: Region,
+    model: Model,
 }
 
 impl UiApp for Atari800xl {
     type System = Atari800xlSystem;
 
     fn ui_system(&self) -> Atari800xlSystem {
-        Atari800xlSystem {
-            region: self.region,
-        }
+        Atari800xlSystem { model: self.model }
     }
 }
 
@@ -77,12 +75,44 @@ impl UiSystem for Atari800xlSystem {
             .unwrap_or((374, 240))
     }
 
-    fn frame_ticks(&self, _runtime: &Self::Runtime) -> u64 {
-        self.region.frame_ticks()
+    fn frame_ticks(&self, runtime: &Self::Runtime) -> u64 {
+        runtime.native_frame_ticks()
     }
 
-    fn frame_duration(&self, _runtime: &Self::Runtime) -> Duration {
-        Duration::from_secs_f64(1.0 / self.region.frame_hz())
+    fn frame_duration(&self, runtime: &Self::Runtime) -> Duration {
+        Duration::from_secs_f64(match runtime.model() {
+            Model::A800xlPal => 1.0 / 50.0,
+            Model::A800xlNtsc => 1.0 / 60.0,
+        })
+    }
+
+    fn variants(&self) -> Vec<VariantInfo> {
+        Model::ALL
+            .iter()
+            .map(|model| VariantInfo::new(model.variant_id(), model.display_name()))
+            .collect()
+    }
+
+    fn current_variant(&self) -> Option<Cow<'static, str>> {
+        Some(Cow::Borrowed(self.model.variant_id()))
+    }
+
+    fn switch_variant(
+        &mut self,
+        runtime: &mut Self::Runtime,
+        id: &str,
+    ) -> Result<(), MachineError> {
+        let model = Model::from_variant_id(id).ok_or(MachineError::UnsupportedOperation {
+            operation: "unknown Atari 800XL variant",
+        })?;
+        *runtime =
+            build_replacement(runtime, model, &FirmwareOverrides::none()).map_err(|err| {
+                MachineError::Host {
+                    reason: err.to_string(),
+                }
+            })?;
+        self.model = model;
+        Ok(())
     }
 
     fn button_map(&self) -> &'static ButtonInputMap {
@@ -150,5 +180,57 @@ impl UiSystem for Atari800xlSystem {
             KeyCode::F4 => &["option"],
             _ => return None,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn native_startup_and_pacing_follow_the_runtime_catalogue() {
+        let dir = std::env::temp_dir().join(format!("a800xl-ui-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("directory");
+        std::fs::write(dir.join("atarixl.rom"), vec![0; 16384]).expect("OS");
+        for model in Model::ALL {
+            let app = Atari800xl {
+                model,
+                firmware: FirmwareOverrides {
+                    dir: Some(dir.clone()),
+                    ..FirmwareOverrides::none()
+                },
+                basic_enabled: false,
+                ..Atari800xl::default()
+            };
+            let mut runtime = app.build_ui_runtime().expect("runtime");
+            let mut system = app.ui_system();
+            assert_eq!(system.variants().len(), 2);
+            assert_eq!(
+                system.current_variant().as_deref(),
+                Some(model.variant_id())
+            );
+            assert!(!runtime.basic_enabled());
+            assert_eq!(system.frame_ticks(&runtime), model.frame_ticks());
+            assert!(system.switch_variant(&mut runtime, "unknown").is_err());
+            for other in Model::ALL {
+                runtime = Atari800xlRuntime::new(other, Some(vec![0; 16384]), None, None, false)
+                    .expect("live runtime");
+                assert_eq!(system.frame_ticks(&runtime), other.frame_ticks());
+                assert_eq!(
+                    system.frame_duration(&runtime),
+                    Duration::from_secs_f64(if other == Model::A800xlPal {
+                        1.0 / 50.0
+                    } else {
+                        1.0 / 60.0
+                    })
+                );
+                let machine = runtime.machine().expect("machine");
+                assert_eq!(
+                    system.framebuffer_size(&runtime),
+                    (machine.framebuffer_width(), machine.framebuffer_height())
+                );
+            }
+        }
+        std::fs::remove_dir_all(dir).expect("cleanup");
     }
 }
