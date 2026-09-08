@@ -10,14 +10,16 @@
 //! stick. Compiled only with the `ui` Cargo feature; the shared launcher opens
 //! the window when no automation flag is given.
 
+use emu198x_shell::{FamilyRuntime, FirmwareOverrides, MachineError, build_variant};
+use std::borrow::Cow;
 use std::time::Duration;
 
 use emu198x_ui::launch::UiApp;
-use emu198x_ui::{ButtonInputMap, ButtonTarget, HostControl, KeyCode, UiSystem};
+use emu198x_ui::{ButtonInputMap, ButtonTarget, HostControl, KeyCode, UiSystem, VariantInfo};
 use machine_oric_atmos::{FB_HEIGHT, FB_WIDTH};
-use runtime_oric_atmos::OricRuntime;
+use runtime_oric_atmos::{Model, OricRuntime};
 
-use crate::app::{FRAME_TICKS, Oric};
+use crate::app::Oric;
 
 const DEFAULT_SCALE: u32 = 3;
 const PAL_FRAME_HZ: f64 = 50.0;
@@ -35,16 +37,16 @@ const ORIC_BUTTON_MAP: ButtonInputMap = ButtonInputMap::new(&[
     (HostControl::East, ButtonTarget::new(1, "fire")),
 ]);
 
-/// The Oric-1 / Atmos as a [`UiSystem`] for the shared harness. The model is
-/// fixed at construction; a hard reset rebuilds the machine from the firmware
-/// the runtime already holds.
-pub struct OricSystem;
+/// Native window adapter for the runtime's Oric model catalogue.
+pub struct OricSystem {
+    model: Model,
+}
 
 impl UiApp for Oric {
     type System = OricSystem;
 
     fn ui_system(&self) -> OricSystem {
-        OricSystem
+        OricSystem { model: self.model }
     }
 }
 
@@ -52,7 +54,7 @@ impl UiSystem for OricSystem {
     type Runtime = OricRuntime;
 
     fn window_title(&self) -> String {
-        "Emu198x Oric Atmos".to_owned()
+        format!("Emu198x {}", self.model.display_name())
     }
 
     fn default_scale(&self) -> u32 {
@@ -71,12 +73,41 @@ impl UiSystem for OricSystem {
         (FB_WIDTH, FB_HEIGHT)
     }
 
-    fn frame_ticks(&self, _runtime: &Self::Runtime) -> u64 {
-        FRAME_TICKS
+    fn frame_ticks(&self, runtime: &Self::Runtime) -> u64 {
+        runtime.native_frame_ticks()
     }
 
     fn frame_duration(&self, _runtime: &Self::Runtime) -> Duration {
         Duration::from_secs_f64(1.0 / PAL_FRAME_HZ)
+    }
+
+    fn variants(&self) -> Vec<VariantInfo> {
+        Model::ALL
+            .iter()
+            .map(|model| VariantInfo::new(model.variant_id(), model.display_name()))
+            .collect()
+    }
+
+    fn current_variant(&self) -> Option<Cow<'static, str>> {
+        Some(Cow::Borrowed(self.model.variant_id()))
+    }
+
+    fn switch_variant(
+        &mut self,
+        runtime: &mut Self::Runtime,
+        id: &str,
+    ) -> Result<(), MachineError> {
+        let model = Model::from_variant_id(id).ok_or(MachineError::UnsupportedOperation {
+            operation: "unknown oric variant",
+        })?;
+        *runtime =
+            build_variant::<OricRuntime>(model, &FirmwareOverrides::none()).map_err(|err| {
+                MachineError::Host {
+                    reason: err.to_string(),
+                }
+            })?;
+        self.model = model;
+        Ok(())
     }
 
     fn button_map(&self) -> &'static ButtonInputMap {
@@ -158,6 +189,29 @@ fn map_oric_keys(code: KeyCode) -> Option<&'static [&'static str]> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn menu_uses_runtime_ids_and_a_failed_switch_preserves_selection() {
+        let mut system = OricSystem {
+            model: Model::Atmos,
+        };
+        let choices = system.variants();
+        assert_eq!(
+            choices
+                .iter()
+                .map(|choice| choice.id.as_ref())
+                .collect::<Vec<_>>(),
+            Model::VARIANT_IDS
+        );
+        let mut runtime = <OricSystem as UiSystem>::Runtime::blank(Model::Atmos);
+        assert!(system.switch_variant(&mut runtime, "unknown").is_err());
+        assert_eq!(runtime.model(), Model::Atmos);
+        assert_eq!(
+            system.current_variant().as_deref(),
+            Some(Model::Atmos.variant_id())
+        );
+        assert_eq!(system.frame_ticks(&runtime), runtime.native_frame_ticks());
+    }
 
     #[test]
     fn cursor_keys_are_keyboard_cells_not_joystick() {

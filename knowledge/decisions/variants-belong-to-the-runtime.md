@@ -186,6 +186,21 @@ shared directory overrides and named pins. Blank-start fallback checks per-file
 environment overrides as well as CLI pins and directory choices: a partially
 specified dual-ROM set must fail, not appear to have launched successfully blank.
 
+## Oric firmware names and Aquarius launch configuration
+
+Oric retains `oric-1` and `atmos` as canonical ids, accepting `oric1` and
+`oric-atmos` as aliases. Its catalogue prefers the model-specific filenames
+`oric-1.rom` and `atmos.rom`, retaining `oric.rom` as a legacy fallback. This
+preserves existing installs without claiming that a generic file identifies a
+firmware version. Per-file environment choices and explicit pins take precedence.
+Switching builds a fresh target and ejects tape; reset and failed switches retain it.
+
+Aquarius has one existing NTSC catalogue entry with required BIOS and character
+ROMs. RAM expansion remains an independent launch setting, capped by the runtime
+at the existing 16 KiB limit. Both normal and MCP launch apply it; parsed cartridge
+loading is shared with the window and script paths. Reports describe live state.
+Neither migration changes emulated hardware timing or ROM validation policy.
+
 ## Adding a variant or migrating a family
 
 For another variant of a migrated family, extend its runtime model and

@@ -10,13 +10,14 @@
 //! only with the `ui` Cargo feature; the shared launcher opens the window
 //! when no automation flag is given.
 
+use emu198x_shell::FamilyRuntime;
 use std::time::Duration;
 
 use emu198x_ui::launch::UiApp;
 use emu198x_ui::{ButtonInputMap, ButtonTarget, HostControl, KeyCode, UiSystem};
 use runtime_mattel_aquarius::AquariusRuntime;
 
-use crate::app::{Aquarius, FRAME_TICKS, REGION};
+use crate::app::Aquarius;
 
 const DEFAULT_SCALE: u32 = 3;
 
@@ -71,12 +72,12 @@ impl UiSystem for AquariusSystem {
             .unwrap_or((352, 232))
     }
 
-    fn frame_ticks(&self, _runtime: &Self::Runtime) -> u64 {
-        FRAME_TICKS
+    fn frame_ticks(&self, runtime: &Self::Runtime) -> u64 {
+        runtime.native_frame_ticks()
     }
 
-    fn frame_duration(&self, _runtime: &Self::Runtime) -> Duration {
-        Duration::from_secs_f64(1.0 / REGION.frame_hz())
+    fn frame_duration(&self, runtime: &Self::Runtime) -> Duration {
+        Duration::from_secs_f64(1.0 / runtime.model().machine_region().frame_hz())
     }
 
     fn button_map(&self) -> &'static ButtonInputMap {
@@ -160,6 +161,42 @@ fn map_aquarius_keys(code: KeyCode) -> Option<&'static [&'static str]> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn window_startup_installs_character_rom_cartridge_and_expansion() {
+        let dir = std::env::temp_dir().join(format!("aquarius-ui-media-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("directory");
+        let mut app = Aquarius {
+            expansion_kb: 32,
+            ..Aquarius::default()
+        };
+        for (id, size, byte) in [
+            (runtime_mattel_aquarius::BIOS_FIRMWARE_ID, 8192, 0),
+            (runtime_mattel_aquarius::CHAR_FIRMWARE_ID, 2048, 0xff),
+        ] {
+            let path = dir.join(id);
+            std::fs::write(&path, vec![byte; size]).expect("ROM");
+            app.firmware.by_id.insert(id.to_owned(), path);
+        }
+        let cart = dir.join("cart.rom");
+        std::fs::write(&cart, vec![0x5a; 8192]).expect("cartridge");
+        app.cart = Some(cart.clone());
+        let mut runtime = app.build_ui_runtime().expect("window runtime");
+        assert_eq!(runtime.expansion_kb(), 16);
+        let machine = runtime.machine_mut().expect("machine");
+        assert_eq!(machine.peek(0xe000), 0x5a);
+        machine.poke(0x4000, 0x42);
+        assert_eq!(machine.peek(0x4000), 0x42);
+        machine.poke(0x3000, 0);
+        machine.poke(0x3400, 0xf0);
+        machine.run_frame();
+        // The border repeats cell zero. Its solid white glyph comes from
+        // the character ROM; the all-zero BIOS would render black here.
+        assert_eq!(machine.framebuffer()[0], 0xffff_ffff);
+        std::fs::remove_file(cart).expect("remove cartridge");
+        assert!(app.build_ui_runtime().is_err());
+        std::fs::remove_dir_all(dir).expect("cleanup");
+    }
 
     #[test]
     fn keyboard_and_controller_paths_do_not_clash() {
