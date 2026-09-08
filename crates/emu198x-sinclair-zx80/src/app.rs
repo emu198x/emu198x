@@ -127,6 +127,14 @@ impl MachineApp for Zx80 {
         Ok(vec![("tape-1".to_owned(), MediaKind::Tape, bytes)])
     }
 
+    fn mcp_startup_media(
+        &self,
+        _slots: &[emu198x_shell::MediaSlot],
+        _raw_args: &[String],
+    ) -> Result<Vec<(String, emu198x_shell::MediaKind, Vec<u8>)>, LaunchError> {
+        self.startup_media()
+    }
+
     fn report(&self, runtime: &Zx80Runtime, report: &mut Map<String, Value>) {
         let frames_run = runtime.machine().map_or(0, |m| m.frame_count());
         report.insert("rom_loaded".to_owned(), runtime.machine().is_some().into());

@@ -184,3 +184,27 @@ fn mcp_publishes_and_executes_the_shared_switch_tool() {
     .expect("observation");
     assert_eq!(body["profile_id"], "timex-ts1000", "{switched}");
 }
+
+#[test]
+fn valid_mcp_firmware_pins_are_not_reparsed_as_media() {
+    let fixture = Fixture::new();
+    for spec in [
+        fixture.0.join("monitor.rom").display().to_string(),
+        format!(
+            "{}={}",
+            runtime_sinclair_zx81::ROM_FIRMWARE_ID,
+            fixture.0.join("monitor.rom").display()
+        ),
+    ] {
+        let result = fixture
+            .command()
+            .args(["--mcp", "--rom", &spec])
+            .output()
+            .expect("MCP");
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+    }
+}

@@ -108,6 +108,14 @@ impl MachineApp for Cpc {
         Ok(runtime)
     }
 
+    fn mcp_startup_media(
+        &self,
+        _slots: &[emu198x_shell::MediaSlot],
+        _raw_args: &[String],
+    ) -> Result<Vec<(String, emu198x_shell::MediaKind, Vec<u8>)>, LaunchError> {
+        self.startup_media()
+    }
+
     fn report(&self, runtime: &AmstradCpcRuntime, report: &mut Map<String, Value>) {
         let machine = runtime.machine();
         report.insert("rom_loaded".to_owned(), machine.is_some().into());

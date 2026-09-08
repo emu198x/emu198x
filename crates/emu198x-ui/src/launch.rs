@@ -8,6 +8,7 @@
 use std::env;
 use std::process;
 
+use emu198x_shell::MachineCore;
 use emu198x_shell::launch::{self, LaunchError, MachineApp, Outcome};
 
 use crate::{UiSystem, VideoFilter};
@@ -20,7 +21,7 @@ pub trait UiApp: MachineApp {
     /// The window driver for this configuration.
     fn ui_system(&self) -> Self::System;
 
-    /// The runtime for the window. Defaults to the headless
+    /// The runtime for the window, including parsed startup media. Defaults to the headless
     /// [`MachineApp::build_runtime`]; a machine whose window boots a
     /// different default from its script mode (the BBC Micro installs
     /// BASIC for the window and boots the bare MOS headlessly) overrides
@@ -30,7 +31,14 @@ pub trait UiApp: MachineApp {
     ///
     /// Returns a message when firmware or media cannot be read.
     fn build_ui_runtime(&self) -> Result<Self::Runtime, LaunchError> {
-        self.build_runtime()
+        let mut runtime = self.build_runtime()?;
+        let loaded = self.startup_media()?;
+        if !loaded.is_empty() {
+            runtime
+                .load_media(&emu198x_shell::startup_media::media_set(&loaded))
+                .map_err(|err| LaunchError::Run(format!("failed to load startup media: {err}")))?;
+        }
+        Ok(runtime)
     }
 }
 

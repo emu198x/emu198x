@@ -1,13 +1,13 @@
 # Native UI catalogue audit
 
 Source audit dated 2026-09-08, against main `9bc8471a` plus the CPC/Einstein
-migrations described here. This is a source-level coverage audit,
+and M5/SVI-328 migrations described here. This is a source-level coverage audit,
 not a claim that every preset has booted or passed hardware validation.
 
 ## Coverage
 
 All 30 registered machine binaries have a native `UiApp` adapter and enable the
-UI feature by default. Eight expose a Machine-menu selector. Fourteen other
+UI feature by default. Ten expose a Machine-menu selector. Twelve other
 binaries have multiple runtime profiles without an in-window selector; the
 remaining eight have a single runtime profile.
 
@@ -51,8 +51,8 @@ select; “None” means the catalogue has alternatives but no menu to choose th
 | [sega-sg-1000](../../crates/emu198x-sega-sg-1000/src/app.rs) | 2 | `--region` | None | Region |
 | [sinclair-zx80](../../crates/emu198x-sinclair-zx80/src/app.rs) | 3 | `--model`; `--ram-bytes` override | 3/3 | One ZX80 base machine; USA strap and RAM-pack presets |
 | [sinclair-zx81](../../crates/emu198x-sinclair-zx81/src/app.rs) | 3 | `--model` | 3/3 | ZX81/16 KiB RAM pack/Timex TS1000 |
-| [sord-m5](../../crates/emu198x-sord-m5/src/app.rs) | 2 | `--region` | None | Region |
-| [spectravideo-svi-328](../../crates/emu198x-spectravideo-svi-328/src/app.rs) | 2 | `--region` | None | Region |
+| [sord-m5](../../crates/emu198x-sord-m5/src/app.rs) | 2 | `--model` / `--region` | 2/2 | Region |
+| [spectravideo-svi-328](../../crates/emu198x-spectravideo-svi-328/src/app.rs) | 2 | `--model` / `--region` | 2/2 | Region |
 | [spectrum](../../crates/emu198x-spectrum/src/app.rs) | 13 | `--machine` | 13/13 | Machine models and regional/revision profiles |
 | [tatung-einstein](../../crates/emu198x-tatung-einstein/src/app.rs) | 1 | Single profile | — | Einstein |
 
@@ -214,3 +214,44 @@ Verification covers the two binary/runtime suites, firmware options and
 errors, the shared helper and the existing ZX80/Ace/MTX subprocess contracts.
 Local staged-ROM captures after 150 frames show both machines at their Ready
 prompts. These are headless boot captures, not native-window visual checks.
+
+## Sord M5 and SVI-328 follow-on
+
+Parent issue: [#1475](https://github.com/emu198x/emu198x/issues/1475).
+Broader epic: [#456](https://github.com/emu198x/emu198x/issues/456).
+
+Both families expose their two existing PAL/NTSC profiles through runtime-owned
+ids, firmware sources and construction, shared script/MCP switching, and native
+selectors. `--region` remains compatible; `--model` accepts the existing profile
+ids. Shared `--rom-dir` and `--rom PATH|ID=PATH` options preserve the existing
+file conventions, with `EMU198X_SORD_M5_ROM_DIR` and `EMU198X_SVI_328_ROM_DIR`
+for family directory overrides. SVI-328 retains `--bios PATH`.
+
+Switching boots a fresh target with conventional firmware, ejecting cartridges
+and the SVI cassette and dropping launch overrides. Reset retains media; a failed
+switch preserves the installed machine. Reports read live cartridge state.
+Host frame budgets retain the existing values, pacing reads the live region,
+and the SVI window uses the selected VDP's dimensions instead of a fixed NTSC
+size. Sord's existing permissive ROM-size policy is unchanged; SVI still requires
+32 KiB system firmware and limits cartridges to 16 KiB.
+
+The shared window launcher now loads parsed startup media. An MCP startup-media
+hook lets firmware-based apps use the same parsed media without reinterpreting
+`--rom` as a cartridge. M5, SVI-328, ZX80, ZX81, Ace, MTX, CPC and Einstein opt in;
+other launchers retain legacy media-flag discovery. This fixes valid MCP firmware
+pins being rejected or loaded as cartridge data, and makes Ace/ZX80 snapshot
+startup hooks available to MCP as well as scripts and the default window path.
+
+Catalogue adoption covers eleven of 30 binaries, with 19 remaining. Ten expose
+native selectors. Automated tests cover all four regional presets, actual
+cartridge mapping, cassette presence, reset and failed-switch retention, live
+pacing and framebuffer dimensions, CLI/MCP firmware precedence and errors, and
+parsed cartridge loading into the window runtime. Native menu click-through
+remains a separate verification step.
+
+Local staged-ROM captures after 300 requested frames show the Dig Dug title
+screen on both M5 regions and the BASIC `Ok` prompt on both SVI regions. Captures
+are 280×240 NTSC and 278×288 PAL. MCP tool inventories add only `set_machine`
+(36→37 M5, 39→40 SVI); existing definitions are unchanged. A synthetic NES
+cartridge still loads through legacy MCP `--rom` discovery. These checks do not
+validate native menu interaction or audio output.

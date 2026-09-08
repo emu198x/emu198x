@@ -1,80 +1,43 @@
-//! The Spectravideo SVI-328 as a [`MachineApp`]: its flags, runtime, and
-//! report fields.
+//! The Spectravideo SVI-328 launcher: runtime-owned models and firmware, parsed cartridge media.
 
 use std::path::PathBuf;
 
-use emu198x_shell::launch::{
-    Args, LaunchError, MachineApp, conventional_rom_path, read_rom, read_rom_exact,
-};
+use emu198x_shell::launch::{Args, LaunchError, MachineApp, read_rom};
+use emu198x_shell::{FirmwareOverrides, MediaKind, build_variant, build_variant_or_blank};
 use runtime_spectravideo_svi_328::{Model, Svi328Runtime, Svi328SessionQueryProvider};
 use serde_json::{Map, Value};
 
-const BIOS_ENV: &str = "EMU198X_SVI_328_BIOS";
-const BIOS_RELATIVE: &str = "spectravideo-svi-328/svi-328.rom";
-const BIOS_SIZE: usize = 32 * 1024;
-
-/// CPU clocks per frame — `228 × lines`.
-///
-/// Z80 @ 3.58 MHz, 60 Hz NTSC → 228 * 262 = ~59,736 t-states/frame.
-const FRAME_TICKS_NTSC: u64 = 228 * 262;
-const FRAME_TICKS_PAL: u64 = 228 * 313;
-#[cfg(feature = "ui")]
-const NTSC_FRAME_HZ: f64 = 60.0;
-#[cfg(feature = "ui")]
-const PAL_FRAME_HZ: f64 = 50.0;
-
-/// Display region — selects the model, frame tick budget, and refresh rate.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum Region {
-    #[default]
-    Ntsc,
-    Pal,
-}
-
-impl Region {
-    pub const fn model(self) -> Model {
-        match self {
-            Self::Ntsc => Model::Svi328Ntsc,
-            Self::Pal => Model::Svi328Pal,
-        }
-    }
-
-    pub const fn frame_ticks(self) -> u64 {
-        match self {
-            Self::Ntsc => FRAME_TICKS_NTSC,
-            Self::Pal => FRAME_TICKS_PAL,
-        }
-    }
-
-    #[cfg(feature = "ui")]
-    pub const fn frame_hz(self) -> f64 {
-        match self {
-            Self::Ntsc => NTSC_FRAME_HZ,
-            Self::Pal => PAL_FRAME_HZ,
-        }
-    }
-}
-
-/// The machine configuration the flags build up.
-#[derive(Debug, Default, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct Svi328 {
-    pub bios: Option<PathBuf>,
+    pub firmware: FirmwareOverrides,
     pub cart: Option<PathBuf>,
-    pub region: Region,
+    pub model: Model,
+}
+
+impl Default for Svi328 {
+    fn default() -> Self {
+        Self {
+            firmware: FirmwareOverrides::none(),
+            cart: None,
+            model: Model::Svi328Ntsc,
+        }
+    }
 }
 
 impl MachineApp for Svi328 {
     type Runtime = Svi328Runtime;
     type Query = Svi328SessionQueryProvider;
-
     const BIN_NAME: &'static str = "emu198x-spectravideo-svi-328";
     const VERSION: &'static str = env!("CARGO_PKG_VERSION");
-    const MACHINE_OPTIONS: &'static str =
-        "    --bios PATH     32 KB system ROM (BASIC + OS); default
+    const MACHINE_OPTIONS: &'static str = "    --rom PATH|ID=PATH BASIC/OS ROM (32 KB); default
                     ~/.emu198x/roms/spectravideo-svi-328/svi-328.rom
                     (or set EMU198X_SVI_328_BIOS)
+    --rom-dir DIR   firmware directory (or set EMU198X_SVI_328_ROM_DIR)
+                    firmware ID: spectravideo-svi-328-rom
+    --model ID      spectravideo-svi-328-ntsc | spectravideo-svi-328-pal
+    --region MODE   ntsc | pal [default: ntsc]; last selector wins
     --cart PATH     cartridge ROM (up to 16 KB at $8000-$BFFF)
-    --region MODE   ntsc | pal [default: ntsc]";
+    --bios PATH     legacy alias for the system firmware path";
     const CONTROLS: &'static str = "    Esc             quit
     F12             hard reset
     A-Z 0-9 etc.    the SVI-328 keyboard (cursor keys are real SVI keys)
@@ -83,12 +46,35 @@ impl MachineApp for Svi328 {
 
     fn parse_flag(&mut self, flag: &str, args: &mut Args) -> Result<bool, LaunchError> {
         match flag {
-            "--bios" => self.bios = Some(args.path(flag)?),
+            "--rom" => self
+                .firmware
+                .add_spec(
+                    &args.value(flag)?,
+                    self.model.variant_id(),
+                    &self.model.firmware_sources(),
+                )
+                .map_err(|err| LaunchError::Usage(err.to_string()))?,
+            "--rom-dir" => self.firmware.dir = Some(args.path(flag)?),
+            "--bios" => {
+                self.firmware.by_id.insert(
+                    runtime_spectravideo_svi_328::BIOS_FIRMWARE_ID.to_owned(),
+                    args.path(flag)?,
+                );
+            }
             "--cart" => self.cart = Some(args.path(flag)?),
+            "--model" => {
+                let id = args.value(flag)?;
+                self.model = Model::from_variant_id(&id).ok_or_else(|| {
+                    LaunchError::Usage(format!(
+                        "unknown spectravideo-svi-328 model `{id}`; expected {}",
+                        Model::VARIANT_IDS.join(", ")
+                    ))
+                })?;
+            }
             "--region" => {
-                self.region = match args.value(flag)?.as_str() {
-                    "ntsc" => Region::Ntsc,
-                    "pal" => Region::Pal,
+                self.model = match args.value(flag)?.as_str() {
+                    "ntsc" => Model::Svi328Ntsc,
+                    "pal" => Model::Svi328Pal,
                     other => {
                         return Err(LaunchError::Usage(format!(
                             "--region expects ntsc|pal, got {other}"
@@ -102,7 +88,7 @@ impl MachineApp for Svi328 {
     }
 
     fn frame_ticks(&self) -> u64 {
-        self.region.frame_ticks()
+        self.model.frame_ticks()
     }
 
     fn query_provider(&self) -> Svi328SessionQueryProvider {
@@ -110,35 +96,42 @@ impl MachineApp for Svi328 {
     }
 
     fn build_runtime(&self) -> Result<Svi328Runtime, LaunchError> {
-        let bios_path = self
-            .bios
-            .clone()
-            .or_else(|| conventional_rom_path(BIOS_ENV, BIOS_RELATIVE))
-            .ok_or_else(|| {
-                LaunchError::Run("no BIOS: pass --bios PATH or set EMU198X_SVI_328_BIOS".to_owned())
-            })?;
-        let bios = read_rom_exact(&bios_path, "BIOS", BIOS_SIZE)?;
-        let mut runtime = Svi328Runtime::new(self.region.model(), bios)
-            .map_err(|err| LaunchError::Run(format!("failed to construct runtime: {err}")))?;
-        if let Some(cart_path) = &self.cart {
-            runtime
-                .insert_cartridge(read_rom(cart_path, "--cart")?)
-                .map_err(|err| LaunchError::Run(format!("failed to insert cart: {err}")))?;
-        }
-        Ok(runtime)
+        build_variant::<Svi328Runtime>(self.model, &self.firmware)
+            .map_err(|err| LaunchError::Run(err.to_string()))
     }
 
-    /// MCP starts blank — the ROM arrives via firmware load.
+    /// Missing conventional firmware permits blank MCP startup; explicit errors fail.
     fn build_mcp_runtime(&self) -> Result<Svi328Runtime, LaunchError> {
-        Ok(Svi328Runtime::blank(self.region.model()))
+        build_variant_or_blank(self.model, &self.firmware, Svi328Runtime::blank)
+            .map_err(|err| LaunchError::Run(err.to_string()))
+    }
+
+    fn startup_media(&self) -> Result<Vec<(String, MediaKind, Vec<u8>)>, LaunchError> {
+        let Some(path) = &self.cart else {
+            return Ok(Vec::new());
+        };
+        Ok(vec![(
+            "cartridge-1".to_owned(),
+            MediaKind::Cartridge,
+            read_rom(path, "--cart")?,
+        )])
+    }
+
+    fn mcp_startup_media(
+        &self,
+        _slots: &[emu198x_shell::MediaSlot],
+        _raw_args: &[String],
+    ) -> Result<Vec<(String, MediaKind, Vec<u8>)>, LaunchError> {
+        self.startup_media()
     }
 
     fn report(&self, runtime: &Svi328Runtime, report: &mut Map<String, Value>) {
-        let bios_loaded = runtime.machine().is_some();
-        let frame_count = runtime.machine().map_or(0, |m| m.frame_count());
-        report.insert("bios_loaded".to_owned(), bios_loaded.into());
-        report.insert("cart_loaded".to_owned(), self.cart.is_some().into());
-        report.insert("frames_run".to_owned(), frame_count.into());
+        report.insert("bios_loaded".to_owned(), runtime.machine().is_some().into());
+        report.insert("cart_loaded".to_owned(), runtime.cartridge_loaded().into());
+        report.insert(
+            "frames_run".to_owned(),
+            runtime.machine().map_or(0, |m| m.frame_count()).into(),
+        );
     }
 }
 
@@ -156,9 +149,9 @@ mod tests {
         let Parsed::Run { app, .. } = parse::<Svi328>(&[]).expect("parses") else {
             panic!("expected a run");
         };
-        assert!(app.bios.is_none());
+        assert!(app.firmware.by_id.is_empty());
         assert!(app.cart.is_none());
-        assert_eq!(app.region, Region::Ntsc);
+        assert_eq!(app.model, Model::Svi328Ntsc);
     }
 
     #[test]
@@ -171,9 +164,14 @@ mod tests {
         let Parsed::Run { app, common, mode } = parsed else {
             panic!("expected a run");
         };
-        assert_eq!(app.bios, Some(PathBuf::from("svi.rom")));
+        assert_eq!(
+            app.firmware
+                .by_id
+                .get(runtime_spectravideo_svi_328::BIOS_FIRMWARE_ID),
+            Some(&PathBuf::from("svi.rom"))
+        );
         assert_eq!(app.cart, Some(PathBuf::from("game.rom")));
-        assert_eq!(app.region, Region::Pal);
+        assert_eq!(app.model, Model::Svi328Pal);
         assert_eq!(common.scale, Some(4));
         assert_eq!(common.video.as_deref(), Some("crt"));
         assert_eq!(mode, Mode::Ui);
@@ -190,7 +188,7 @@ mod tests {
 
     #[test]
     fn region_frame_ticks_match() {
-        assert_eq!(Region::Ntsc.frame_ticks(), 228 * 262);
-        assert_eq!(Region::Pal.frame_ticks(), 228 * 313);
+        assert_eq!(Model::Svi328Ntsc.frame_ticks(), 228 * 262);
+        assert_eq!(Model::Svi328Pal.frame_ticks(), 228 * 313);
     }
 }

@@ -80,6 +80,14 @@ impl MachineApp for Einstein {
             .map_err(|err| LaunchError::Run(err.to_string()))
     }
 
+    fn mcp_startup_media(
+        &self,
+        _slots: &[emu198x_shell::MediaSlot],
+        _raw_args: &[String],
+    ) -> Result<Vec<(String, emu198x_shell::MediaKind, Vec<u8>)>, LaunchError> {
+        self.startup_media()
+    }
+
     fn report(&self, runtime: &EinsteinRuntime, report: &mut Map<String, Value>) {
         let frames_run = runtime.machine().map_or(0, |m| m.frame_count());
         report.insert("mos_loaded".to_owned(), runtime.machine().is_some().into());

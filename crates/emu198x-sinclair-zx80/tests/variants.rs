@@ -282,3 +282,27 @@ fn switching_ejects_the_tape_and_reports_the_live_configuration() {
     assert_eq!(switched["tape_loaded"], false);
     assert_eq!(switched["ram_bytes"], 16384);
 }
+
+#[test]
+fn valid_mcp_firmware_pins_are_not_reparsed_as_media() {
+    let fixture = Fixture::new();
+    for spec in [
+        fixture.0.join("monitor.rom").display().to_string(),
+        format!(
+            "{}={}",
+            runtime_sinclair_zx80::ROM_FIRMWARE_ID,
+            fixture.0.join("monitor.rom").display()
+        ),
+    ] {
+        let result = fixture
+            .command()
+            .args(["--mcp", "--rom", &spec])
+            .output()
+            .expect("MCP");
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+    }
+}

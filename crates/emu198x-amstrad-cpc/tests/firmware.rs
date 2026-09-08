@@ -225,3 +225,27 @@ fn startup_tape_is_loaded_in_scripts_and_mcp_and_survives_reset() {
         .expect("missing tape");
     assert!(!missing.status.success());
 }
+
+#[test]
+fn valid_mcp_firmware_pins_are_not_reparsed_as_media() {
+    let fixture = Fixture::new();
+    for spec in [
+        fixture.0.join("monitor.rom").display().to_string(),
+        format!(
+            "{}={}",
+            runtime_amstrad_cpc::ROM_FIRMWARE_ID,
+            fixture.0.join("monitor.rom").display()
+        ),
+    ] {
+        let result = fixture
+            .command()
+            .args(["--mcp", "--rom", &spec])
+            .output()
+            .expect("MCP");
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+    }
+}
