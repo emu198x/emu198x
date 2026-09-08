@@ -7,8 +7,8 @@ preset has booted or passed hardware validation.
 ## Coverage
 
 All 30 registered machine binaries have a native `UiApp` adapter and enable the
-UI feature by default. Twenty expose a Machine-menu selector. Two other
-binaries have multiple runtime profiles without an in-window selector; the
+UI feature by default. Twenty-one expose a Machine-menu selector. One other
+binary has multiple runtime profiles without an in-window selector; the
 remaining eight have a single runtime profile.
 
 The shared native menu is currently attached on **macOS only**. Windows menu
@@ -33,7 +33,7 @@ select; “None” means the catalogue has alternatives but no menu to choose th
 | [atari-2600](../../crates/emu198x-atari-2600/src/app.rs) | 2 | `--model` / `--region` | 2/2 | Region |
 | [atari-5200](../../crates/emu198x-atari-5200/src/app.rs) | 1 | NTSC only | — | One model despite a region flag |
 | [atari-7800](../../crates/emu198x-atari-7800/src/app.rs) | 2 | `--model` / `--region` | 2/2 | Region |
-| [atari-800xl](../../crates/emu198x-atari-800xl/src/app.rs) | 2 | `--region` | None | Region |
+| [atari-800xl](../../crates/emu198x-atari-800xl/src/app.rs) | 2 | `--model` / `--region` | 2/2 | Region; BASIC boot policy independent |
 | [c64](../../crates/emu198x-c64/src/app.rs) | 4 | `--model` | 4/4 | Breadbin/C64C × region; RAM expansions independent |
 | [colecovision](../../crates/emu198x-colecovision/src/app.rs) | 2 | `--model` / `--region` | 2/2 | Region |
 | [commodore-pet](../../crates/emu198x-commodore-pet/src/app.rs) | 2 | `--model` / `--columns` | 2/2 | 40/80-column hardware profiles |
@@ -650,3 +650,46 @@ and 230×288 PAL. The NTSC display clips its right edge with the staged KERNAL; 
 byte-for-byte identical to the pre-migration build with the same ROMs. This
 confirms no migration regression, while region-matched firmware validation and native menu click-through remain
 outstanding. Audio-device output and live TCP connectivity were not exercised.
+
+
+## Atari 800XL regional catalogue
+
+The [800XL runtime](../../crates/runtime-atari-800xl/src/runtime.rs) owns the
+NTSC/PAL catalogue, optional OS/BASIC firmware sources and existing native
+frame budgets. Launch, scripts, MCP and the macOS Machine menu share this
+selection path. Legacy `--region`, `--os`, `--basic`, `--cart`, `--disk` and
+`--no-basic` flags remain; `--model`, `--rom ID=PATH` and `--rom-dir` use the
+catalogue. The directory variable is `EMU198X_A800XL_ROM_DIR`; per-image
+`EMU198X_A800XL_OS` and `EMU198X_A800XL_BASIC` still take precedence over it.
+Files remain `atari-800xl/atarixl.rom` and `atari-800xl/ataribas.rom` under the
+conventional ROM root. Both regional profiles use the same filenames.
+
+MCP honours firmware, cartridge, disk and BASIC startup configuration. Absent
+optional firmware permits cartridge-only boot or a blank MCP session; an
+explicit missing image is an error. Interactive and script startup still
+require an OS or cartridge. Existing permissive ROM-size handling is unchanged.
+
+A region change cold-boots with freshly resolved firmware while retaining the
+parsed cartridge type, BASIC boot policy and live D1: image, including in-memory
+writes. It clears RAM, input state and mounted XEX autoload state. Failed
+resolution leaves the live machine intact. Cartridge validation precedes
+mutation, so an invalid insertion no longer poisons reset or ejects D1:.
+Reset and replacement retain snapshot-restored firmware and cartridge mapper
+metadata. Version-5 snapshots remain readable; they carry the live BASIC
+mapping rather than the original launch flag, so that mapping supplies the
+boot policy after restoration. Timing and chip execution are unchanged.
+
+Catalogue adoption covers twenty-seven of 30 binaries, with Dragon, Game Boy
+and NES remaining. Twenty-one expose native selectors on macOS. Automated
+checks cover firmware precedence, cartridge-only and blank startup, MCP disk
+configuration, failed-switch preservation, modified-disk retention, restored
+mapper/firmware reset and native startup/pacing.
+
+The local targeted suites pass (345 tests; 14 fixture-dependent tests ignored),
+as do the headless-only build/tests, workspace Clippy, formatting, doc links and
+registry checks. MCP adds only `set_machine` (36→37 tools), preserving every
+existing tool definition. Local 300-frame captures are byte-for-byte identical
+to the pre-migration build: PAL reaches `READY` at 368×288; NTSC shows a blue
+screen and cursor at 374×240 with the installed ROMs. This establishes capture
+parity, not NTSC boot validation. Native menu click-through and audio-device
+output remain unverified.

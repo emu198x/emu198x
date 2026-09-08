@@ -118,6 +118,16 @@ impl Cartridge {
         })
     }
 
+    /// Reset mapper latches while preserving the parsed cartridge type.
+    #[must_use]
+    pub fn cold_boot(&self) -> Self {
+        Self {
+            oss: OssWindow::Bank(0),
+            bank: 0,
+            ..self.clone()
+        }
+    }
+
     #[must_use]
     pub fn kind(&self) -> CartridgeKind {
         self.kind
