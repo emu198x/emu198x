@@ -1,6 +1,6 @@
 # Variants belong to the runtime
 
-**Status:** Adopted 2026-09-08 for the Spectrum, Amiga and C64 families.
+**Status:** Adopted 2026-09-08 for the Spectrum, Amiga, C64 and ZX81 families.
 
 ## The problem
 
@@ -95,9 +95,40 @@ variant a `--machine`, `--model` or portable snapshot selects, and
 which flags map onto which pins. That is the binary's, because it is
 the binary's command line.
 
+The ZX81 catalogue uses its existing profile ids (`sinclair-zx81`,
+`sinclair-zx81-16k`, `timex-ts1000`) in the window menu, `--model`, and
+shared `set_machine` tool and script step. A model supplies its default
+RAM and frame pacing; `--ram-bytes` overrides RAM at launch. Switching
+builds the selected model's default configuration, resolves firmware by
+convention, and drops launch-time overrides as on the other families.
+MCP retains its ability to start blank when firmware is unavailable.
+
+`FirmwareSource::with_env_var` describes a conventional variable naming
+one ROM file, preserving `EMU198X_ZX81_ROM` through every entry point.
+An explicit image pin wins over the file variable, which wins over
+conventional directory lookup. A missing file named by either is an
+error, not a reason to silently load a different ROM.
+
 The Spectrum profiles gained `variant-switch` and a family ROM
 directory variable, `EMU198X_SPECTRUM_ROM_DIR`, that the Amiga and C64
 already had in their own spelling.
+
+## Adding a variant or migrating a family
+
+For another variant of a migrated family, extend its runtime model and
+catalogue, supply its firmware requirements and constructor, and verify
+its profile, RAM or other configuration, and native frame pacing. The
+existing shared script executor, MCP switch tool and firmware resolver
+remain unchanged. A window menu should enumerate the runtime catalogue.
+
+For an existing family joining this convention, implement `FamilyRuntime`
+and delegate its `MachineCore::set_machine` hook to `swap_variant`.
+Declare `variant-switch` in the profiles. Route launch-time firmware
+pins and the window switch through `build_variant`; keep CLI parsing
+and optional blank-start policy in the binary. Test the actual CLI and
+MCP entry points, including missing firmware and a failed switch that
+leaves the current model intact. The ZX81's `tests/variants.rs` files
+exercise this without external firmware.
 
 ## Drift triggers
 

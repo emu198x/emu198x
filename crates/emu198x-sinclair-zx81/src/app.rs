@@ -2,13 +2,10 @@
 
 use std::path::PathBuf;
 
-use emu198x_shell::launch::{Args, LaunchError, MachineApp, read_rom_exact, resolve_rom};
-use runtime_sinclair_zx81::{Model, Zx81Runtime, Zx81SessionQueryProvider};
+use emu198x_shell::launch::{Args, LaunchError, MachineApp};
+use emu198x_shell::{FirmwareOverrides, build_variant};
+use runtime_sinclair_zx81::{Model, ROM_FIRMWARE_ID, Zx81Runtime, Zx81SessionQueryProvider};
 use serde_json::{Map, Value};
-
-const ROM_ENV: &str = "EMU198X_ZX81_ROM";
-const ROM_RELATIVE: &str = "sinclair-zx81/zx81.rom";
-const ROM_SIZE: usize = 8 * 1024;
 
 /// Frame budget for the board the runtime is configured as. The 60 Hz strap
 /// lays out a much shorter field, so this cannot be one shared constant.
@@ -20,22 +17,46 @@ pub fn frame_ticks(model: Model) -> u64 {
 #[derive(Debug, PartialEq, Eq)]
 pub struct Zx81 {
     pub rom: Option<PathBuf>,
-    pub ram_bytes: usize,
+    pub ram_bytes: Option<usize>,
+    pub model: Model,
 }
 
 impl Default for Zx81 {
     fn default() -> Self {
         Self {
             rom: None,
-            ram_bytes: 1024,
+            ram_bytes: None,
+            model: Model::Zx81,
         }
     }
 }
 
 impl Zx81 {
-    /// The board the binary starts on; the window can switch strap later.
+    fn firmware_overrides(&self) -> FirmwareOverrides {
+        let mut overrides = FirmwareOverrides::none();
+        if let Some(path) = &self.rom {
+            overrides.pin(ROM_FIRMWARE_ID, path);
+        }
+        overrides
+    }
+
+    fn apply_ram_override(&self, runtime: &mut Zx81Runtime) -> Result<(), LaunchError> {
+        if let Some(bytes) = self.ram_bytes {
+            if !bytes.is_power_of_two() || bytes > 16_384 {
+                return Err(LaunchError::Usage(
+                    "--ram-bytes must be a power of two between 1 and 16384".to_owned(),
+                ));
+            }
+            runtime
+                .set_ram_bytes(bytes)
+                .map_err(|err| LaunchError::Run(format!("invalid --ram-bytes: {err}")))?;
+        }
+        Ok(())
+    }
+
+    /// The model selected at launch.
     pub const fn model(&self) -> Model {
-        Model::Zx81
+        self.model
     }
 }
 
@@ -47,7 +68,9 @@ impl MachineApp for Zx81 {
     const VERSION: &'static str = env!("CARGO_PKG_VERSION");
     const MACHINE_OPTIONS: &'static str = "    --rom PATH      ZX81 monitor ROM (8 KB); default
                     ~/.emu198x/roms/sinclair-zx81/zx81.rom (or set EMU198X_ZX81_ROM)
-    --ram-bytes N   RAM size (power-of-two ≤ 16384) [default: 1024]";
+    --model ID      sinclair-zx81, sinclair-zx81-16k, or timex-ts1000
+                    [default: sinclair-zx81]
+    --ram-bytes N   RAM size (power-of-two ≤ 16384) [default: model RAM]";
     const CONTROLS: &'static str = "    Esc             quit
     F12             hard reset
     A-Z 0-9 . Space the ZX81 membrane keyboard
@@ -57,7 +80,16 @@ impl MachineApp for Zx81 {
     fn parse_flag(&mut self, flag: &str, args: &mut Args) -> Result<bool, LaunchError> {
         match flag {
             "--rom" => self.rom = Some(args.path(flag)?),
-            "--ram-bytes" => self.ram_bytes = args.parse(flag, "a positive integer")?,
+            "--ram-bytes" => self.ram_bytes = Some(args.parse(flag, "a positive integer")?),
+            "--model" => {
+                let id = args.value(flag)?;
+                self.model = Model::from_variant_id(&id).ok_or_else(|| {
+                    LaunchError::Usage(format!(
+                        "unknown ZX81 model `{id}`; expected {}",
+                        Model::VARIANT_IDS.join(", ")
+                    ))
+                })?;
+            }
             _ => return Ok(false),
         }
         Ok(true)
@@ -72,38 +104,23 @@ impl MachineApp for Zx81 {
     }
 
     fn build_runtime(&self) -> Result<Zx81Runtime, LaunchError> {
-        let rom_path = resolve_rom(self.rom.as_deref(), ROM_ENV, ROM_RELATIVE)?;
-        let rom = read_rom_exact(&rom_path, "ROM", ROM_SIZE)?;
-        let mut runtime = Zx81Runtime::new(self.model(), rom)
-            .map_err(|err| LaunchError::Run(format!("failed to construct runtime: {err}")))?;
-        runtime
-            .set_ram_bytes(self.ram_bytes)
-            .map_err(|err| LaunchError::Run(format!("invalid --ram-bytes: {err}")))?;
+        let mut runtime = build_variant::<Zx81Runtime>(self.model(), &self.firmware_overrides())
+            .map_err(|err| LaunchError::Run(err.to_string()))?;
+        self.apply_ram_override(&mut runtime)?;
         Ok(runtime)
     }
 
-    /// MCP starts blank and takes the monitor ROM from its conventional
-    /// location when an 8 KB image is there; a client can also hand it
-    /// firmware later.
+    /// MCP can start without firmware, allowing a client to load it later.
     fn build_mcp_runtime(&self) -> Result<Zx81Runtime, LaunchError> {
-        let mut runtime = Zx81Runtime::blank(self.model());
-        if let Ok(path) = resolve_rom(self.rom.as_deref(), ROM_ENV, ROM_RELATIVE)
-            && let Ok(bytes) = std::fs::read(&path)
-        {
-            if bytes.len() == ROM_SIZE {
-                runtime
-                    .set_rom(bytes)
-                    .map_err(|err| LaunchError::Run(format!("ROM invalid: {err}")))?;
-                eprintln!("{} mcp: loaded ROM from {}", Self::BIN_NAME, path.display());
-            } else {
-                eprintln!(
-                    "{} mcp: ROM at {} is {} bytes; expected {ROM_SIZE} — starting blank",
-                    Self::BIN_NAME,
-                    path.display(),
-                    bytes.len()
-                );
-            }
-        }
+        let mut runtime =
+            match build_variant::<Zx81Runtime>(self.model(), &self.firmware_overrides()) {
+                Ok(runtime) => runtime,
+                Err(err) => {
+                    eprintln!("{} mcp: {err} — starting blank", Self::BIN_NAME);
+                    Zx81Runtime::blank(self.model())
+                }
+            };
+        self.apply_ram_override(&mut runtime)?;
         Ok(runtime)
     }
 
@@ -111,7 +128,7 @@ impl MachineApp for Zx81 {
         let frames_run = runtime.machine().map_or(0, |m| m.frame_count());
         report.insert("rom_loaded".to_owned(), runtime.machine().is_some().into());
         report.insert("frames_run".to_owned(), frames_run.into());
-        report.insert("ram_bytes".to_owned(), self.ram_bytes.into());
+        report.insert("ram_bytes".to_owned(), runtime.ram_bytes().into());
     }
 }
 
@@ -129,7 +146,8 @@ mod tests {
         let Parsed::Run { app, .. } = parse::<Zx81>(&[]).expect("parses") else {
             panic!("expected a run");
         };
-        assert_eq!(app.ram_bytes, 1024);
+        assert_eq!(app.ram_bytes, None);
+        assert_eq!(app.model(), Model::Zx81);
     }
 
     #[test]
