@@ -64,9 +64,6 @@ pub struct Vic20Runtime {
     profile: MachineProfile,
     model: Model,
     machine: Option<Vic20>,
-    kernal_bytes: Option<Vec<u8>>,
-    basic_bytes: Option<Vec<u8>>,
-    char_bytes: Option<Vec<u8>>,
     ram_expansion: Vic20RamExpansion,
     time: MachineTime,
     rgba_framebuffer: Vec<u8>,
@@ -89,9 +86,6 @@ impl Vic20Runtime {
             profile: profile_for(model),
             model,
             machine: None,
-            kernal_bytes: None,
-            basic_bytes: None,
-            char_bytes: None,
             ram_expansion: Vic20RamExpansion::NONE,
             time: MachineTime::default(),
             rgba_framebuffer: Vec::new(),
@@ -183,10 +177,22 @@ impl Vic20Runtime {
                 ),
             });
         }
-        self.kernal_bytes = Some(kernal);
-        self.basic_bytes = Some(basic);
-        self.char_bytes = Some(char_rom);
-        self.rebuild_machine();
+        let mut machine = Vic20::new(
+            kernal,
+            basic,
+            char_rom,
+            self.machine_model(),
+            self.ram_expansion,
+        );
+        if let Some(image) = self.cartridge_image.as_deref() {
+            machine
+                .insert_cartridge_bytes(image)
+                .map_err(|reason| MachineError::InvalidMedia {
+                    slot: "cartridge-1".to_owned(),
+                    reason,
+                })?;
+        }
+        self.set_machine(Some(machine));
         Ok(())
     }
 
@@ -357,36 +363,26 @@ impl Vic20Runtime {
             self.rgba_height = height;
             self.rgba_framebuffer = vec![0; (width * height * 4) as usize];
         }
+        self.ram_expansion = machine
+            .as_ref()
+            .map_or(Vic20RamExpansion::NONE, Vic20::expansion);
         self.machine = machine;
         self.update_rgba_framebuffer();
     }
 
+    fn machine_model(&self) -> Vic20Model {
+        match self.model {
+            Model::Vic20Pal => Vic20Model::Pal,
+            Model::Vic20Ntsc => Vic20Model::Ntsc,
+        }
+    }
+
     fn rebuild_machine(&mut self) {
-        let (Some(kernal), Some(basic), Some(char_rom)) = (
-            self.kernal_bytes.clone(),
-            self.basic_bytes.clone(),
-            self.char_bytes.clone(),
-        ) else {
-            self.machine = None;
+        let Some(machine) = self.machine.as_ref() else {
             return;
         };
-        let vic_model = match self.model.region() {
-            emu198x_shell::Region::Pal => Vic20Model::Pal,
-            _ => Vic20Model::Ntsc,
-        };
-        let mut machine = Vic20::new(kernal, basic, char_rom, vic_model, self.ram_expansion);
-        if let Some(image) = self.cartridge_image.as_deref() {
-            machine
-                .insert_cartridge_bytes(image)
-                .expect("retained cartridge was validated when loaded");
-        }
-        let width = machine.framebuffer_width();
-        let height = machine.framebuffer_height();
-        self.rgba_width = width;
-        self.rgba_height = height;
-        self.rgba_framebuffer = vec![0; (width * height * 4) as usize];
-        self.machine = Some(machine);
-        self.update_rgba_framebuffer();
+        let machine = machine.cold_boot(self.machine_model(), self.ram_expansion);
+        self.set_machine(Some(machine));
     }
 
     fn update_rgba_framebuffer(&mut self) {
@@ -404,7 +400,62 @@ impl Vic20Runtime {
     }
 }
 
+impl emu198x_shell::FamilyRuntime for Vic20Runtime {
+    type Model = Model;
+    fn variant_ids() -> &'static [&'static str] {
+        &Model::VARIANT_IDS
+    }
+    fn model_from_id(id: &str) -> Option<Model> {
+        Model::from_variant_id(id)
+    }
+    fn variant_id(model: Model) -> &'static str {
+        model.variant_id()
+    }
+    fn profile_for(model: Model) -> MachineProfile {
+        profile_for(model)
+    }
+    fn rom_convention() -> emu198x_shell::RomConvention {
+        emu198x_shell::RomConvention {
+            env_var: Some("EMU198X_VIC20_ROM_DIR"),
+            dirs: &["commodore-vic-20"],
+        }
+    }
+    fn firmware_sources(model: Model) -> Vec<emu198x_shell::FirmwareSource> {
+        model.firmware_sources()
+    }
+    fn from_firmware(
+        model: Model,
+        firmware: &emu198x_shell::FirmwareSet<'_>,
+    ) -> Result<Self, MachineError> {
+        Self::from_firmware(model, firmware)
+    }
+    fn replacement(&self, model: Model, firmware: &FirmwareSet<'_>) -> Result<Self, MachineError> {
+        let mut replacement = Self::from_firmware(model, firmware)?;
+        replacement.set_ram_expansion(self.ram_expansion());
+        if let Some(image) = &self.cartridge_image {
+            let mut media = MediaSet::new();
+            media.push(emu198x_shell::MediaImage::new(
+                "cartridge-1",
+                MediaKind::Cartridge,
+                image,
+            ));
+            replacement.load_media(&media)?;
+        }
+        Ok(replacement)
+    }
+    fn native_frame_ticks(&self) -> u64 {
+        self.model.frame_ticks()
+    }
+}
+
 impl MachineCore for Vic20Runtime {
+    fn set_machine<Q: emu198x_shell::SessionQueryProvider<Self>>(
+        session: &mut emu198x_shell::HeadlessSession<Self, Q>,
+        machine: &str,
+    ) -> Result<emu198x_shell::VariantSwitched, emu198x_shell::LoaderError> {
+        emu198x_shell::swap_variant(session, machine)
+    }
+
     fn profile(&self) -> &MachineProfile {
         &self.profile
     }

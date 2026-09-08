@@ -320,6 +320,19 @@ Reset uses the firmware in the installed machine, including snapshot-restored
 ROMs. The machine's `cold_boot` delegates to its existing constructor; removing
 runtime ROM caches changes neither snapshot serialization nor hardware execution.
 
+## VIC-20 regional replacement
+
+VIC-20 region and RAM expansion are independent choices. A regional replacement
+retains the fitted block set, including PRG-driven additions, and the original
+cartridge container. It cold-boots with conventional target firmware and clears
+queued PRGs. Serial and modem attachments belong to the old runtime and are
+not transferred across a region change; construction failure leaves it intact.
+
+Reset and expansion reconfiguration use firmware and cartridge mappings from
+the installed machine. Restoring a snapshot updates the runtime's expansion
+selection, preventing later reset or replacement from reviving launch-time ROMs
+or RAM configuration. The existing snapshot format remains unchanged.
+
 ## Drift triggers
 
 Stop and re-read this record if you find yourself:

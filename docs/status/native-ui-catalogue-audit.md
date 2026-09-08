@@ -7,7 +7,7 @@ preset has booted or passed hardware validation.
 ## Coverage
 
 All 30 registered machine binaries have a native `UiApp` adapter and enable the
-UI feature by default. Nineteen expose a Machine-menu selector. Three other
+UI feature by default. Twenty expose a Machine-menu selector. Two other
 binaries have multiple runtime profiles without an in-window selector; the
 remaining eight have a single runtime profile.
 
@@ -37,7 +37,7 @@ select; “None” means the catalogue has alternatives but no menu to choose th
 | [c64](../../crates/emu198x-c64/src/app.rs) | 4 | `--model` | 4/4 | Breadbin/C64C × region; RAM expansions independent |
 | [colecovision](../../crates/emu198x-colecovision/src/app.rs) | 2 | `--model` / `--region` | 2/2 | Region |
 | [commodore-pet](../../crates/emu198x-commodore-pet/src/app.rs) | 2 | `--model` / `--columns` | 2/2 | 40/80-column hardware profiles |
-| [commodore-vic-20](../../crates/emu198x-commodore-vic-20/src/app.rs) | 2 | `--region` | None | Region; RAM expansion flags independent |
+| [commodore-vic-20](../../crates/emu198x-commodore-vic-20/src/app.rs) | 2 | `--model` / `--region` | 2/2 | Region; RAM expansion flags independent |
 | [dragon](../../crates/emu198x-dragon/src/app.rs) | 2 | `--model` | 2/2 | Dragon 32/64 |
 | [game-boy](../../crates/emu198x-game-boy/src/app.rs) | 5 | `--model` | None | DMG0/DMG/MGB/SGB/SGB2 post-boot profiles |
 | [jupiter-ace](../../crates/emu198x-jupiter-ace/src/app.rs) | 3 | `--model` / `--ram-kb` | 3/3 | Stock 3 KiB / 16 KiB expansion / 48 KiB expansion |
@@ -603,3 +603,50 @@ but has display corruption; its PNG is byte-for-byte identical to a capture from
 the pre-migration build with the same ROM set. This confirms no rendering
 regression from the migration, not successful 80-column firmware validation.
 Native menu click-through remains unverified.
+
+## VIC-20 regional catalogue and expansion policy
+
+Parent issue: [#1475](https://github.com/emu198x/emu198x/issues/1475).
+Broader epic: [#456](https://github.com/emu198x/emu198x/issues/456).
+
+VIC-20's existing PAL/NTSC profiles now use shared firmware construction,
+script/MCP switching and native selection. `--region` remains compatible with
+`--model`; PAL stays the launch default. Fitted RAM blocks remain independent
+configuration, including blocks added by the existing BASIC PRG load-address
+policy. A regional replacement retains fitted RAM and the installed cartridge,
+while cold-booting conventional firmware and clearing RAM contents and queued
+programs. Serial/modem attachments end with the old runtime. A failed switch
+preserves the running machine and queued PRG.
+
+The runtime owns the existing KERNAL, BASIC and character-ROM conventions and
+frame budgets. Legacy flags and per-file variables remain supported alongside
+`--rom ID=PATH`, `--rom-dir` and `EMU198X_VIC20_ROM_DIR`. Firmware ids are
+`commodore-vic-20-kernal`, `commodore-vic-20-basic` and `commodore-vic-20-char`;
+filenames remain `kernal.rom`, `basic.rom` and `chargen.rom` under
+`commodore-vic-20`. Both profiles retain the same filename convention; selecting
+a region does not itself supply a region-matched KERNAL.
+
+MCP now honours explicit RAM expansion, modem attachment and both PRG launch
+modes. `--prg-sys` startup also works in the window, using its existing
+150-frame boot/inject/SYS sequence. Ordinary BASIC PRGs retain their delayed
+shared media path. Explicit missing or malformed firmware fails in every mode;
+absent conventional firmware still permits blank MCP startup.
+
+Reset and RAM reconfiguration now cold-boot the live machine's installed ROMs
+and cartridge mappings, removing redundant firmware caches. Snapshot restore
+refreshes the runtime's expansion selection from the restored machine, so reset
+and replacement retain restored configuration. The version-5 snapshot envelope,
+cartridge container retention and hardware execution are unchanged.
+
+Catalogue adoption covers twenty-six of 30 binaries, with four remaining.
+Twenty expose native selectors on macOS. Tests cover firmware precedence and
+errors, PRG injection and launch commands, explicit and PRG-driven expansion,
+failed-switch preservation, restored firmware/RAM/cartridge retention, modem
+lifecycle and native startup. The MCP inventory adds only `set_machine` (36→37);
+all existing definitions are unchanged.
+
+Local 300-frame captures reach BASIC `READY` in both regions at 214×240 NTSC
+and 230×288 PAL. The NTSC display clips its right edge with the staged KERNAL; its PNG is
+byte-for-byte identical to the pre-migration build with the same ROMs. This
+confirms no migration regression, while region-matched firmware validation and native menu click-through remain
+outstanding. Audio-device output and live TCP connectivity were not exercised.

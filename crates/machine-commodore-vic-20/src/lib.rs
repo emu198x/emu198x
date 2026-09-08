@@ -325,6 +325,20 @@ const fn default_high() -> bool {
 }
 
 impl Vic20 {
+    /// Cold-boot installed ROMs and cartridge mappings with the selected hardware.
+    #[must_use]
+    pub fn cold_boot(&self, model: Vic20Model, expansion: Vic20RamExpansion) -> Self {
+        let mut machine = Self::new(
+            self.kernal_rom.clone(),
+            self.basic_rom.clone(),
+            self.char_rom.clone(),
+            model,
+            expansion,
+        );
+        machine.cartridge_rom = self.cartridge_rom.clone();
+        machine
+    }
+
     /// Create a new VIC-20. ROMs: `kernal` 8 KB, `basic` 8 KB, `char_rom` 4 KB.
     /// `expansion` names the RAM cartridges fitted to the expansion port; each
     /// is independent, so [`Vic20RamExpansion::EXP_8K`] installs BLK1 and
