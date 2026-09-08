@@ -1,6 +1,6 @@
 # Native UI catalogue audit
 
-Source audit dated 2026-09-08, against main `826bfa54` plus the Ace/MTX
+Source audit dated 2026-09-08, against main `9bc8471a` plus the CPC/Einstein
 migrations described here. This is a source-level coverage audit,
 not a claim that every preset has booted or passed hardware validation.
 
@@ -187,3 +187,30 @@ memory-map differences after a swap, failed-switch preservation and frame
 budgets. Local staged-ROM launches ran all five presets for 150 frames;
 inspected captures show the Ace startup cursor and MTX's Ready prompt.
 Native menu click-through remains unverified.
+
+## CPC/Einstein rollout slice
+
+Parent issue: [#1475](https://github.com/emu198x/emu198x/issues/1475).
+Broader epic: [#456](https://github.com/emu198x/emu198x/issues/456).
+
+CPC464 and Tatung Einstein now have single-entry runtime firmware catalogues.
+Both gain shared `--rom-dir` and `--rom ID=PATH` handling, retaining their
+existing file environment variables and paths. Einstein's `--mos PATH` remains
+an alias for pinning its MOS image. The new directory variables are
+`EMU198X_CPC_ROM_DIR` and `EMU198X_EINSTEIN_ROM_DIR`.
+
+Catalogue adoption now covers nine of 30 binaries, with 21 remaining. Selector
+coverage stays at eight: these two machines each have one current profile,
+so neither gains a selector or a `set_machine` tool. Before/after MCP tool
+lists are identical (36 CPC tools and 39 Einstein tools).
+
+The opt-in `build_variant_or_blank` shell helper centralises the existing
+missing-conventional-firmware policy for ZX80, Ace, MTX, CPC and Einstein.
+Explicit missing paths and invalid images still fail. CPC's `--tape` now
+loads through the same code in normal and MCP startup, including retaining
+the cassette across reset.
+
+Verification covers the two binary/runtime suites, firmware options and
+errors, the shared helper and the existing ZX80/Ace/MTX subprocess contracts.
+Local staged-ROM captures after 150 frames show both machines at their Ready
+prompts. These are headless boot captures, not native-window visual checks.

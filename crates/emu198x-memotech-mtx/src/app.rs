@@ -4,7 +4,7 @@
 use std::path::PathBuf;
 
 use emu198x_shell::launch::{Args, LaunchError, MachineApp};
-use emu198x_shell::{FirmwareOverrides, FirmwareResolveError, build_variant};
+use emu198x_shell::{FirmwareOverrides, build_variant, build_variant_or_blank};
 use runtime_memotech_mtx::{Model, MtxRuntime, MtxSessionQueryProvider};
 use serde_json::{Map, Value};
 
@@ -96,21 +96,8 @@ impl MachineApp for Mtx {
     /// Conventional firmware is loaded when available. Missing conventional
     /// firmware permits blank startup; invalid images and explicit paths fail.
     fn build_mcp_runtime(&self) -> Result<MtxRuntime, LaunchError> {
-        match build_variant::<MtxRuntime>(self.model, &self.firmware) {
-            Ok(runtime) => Ok(runtime),
-            Err(
-                err @ (FirmwareResolveError::HomeUnset
-                | FirmwareResolveError::NoRomDir { .. }
-                | FirmwareResolveError::Missing { .. }),
-            ) if self.firmware.dir.is_none()
-                && self.firmware.by_id.is_empty()
-                && std::env::var_os("EMU198X_MTX_ROM_DIR").is_none() =>
-            {
-                eprintln!("{} mcp: {err} — starting blank", Self::BIN_NAME);
-                Ok(MtxRuntime::blank(self.model))
-            }
-            Err(err) => Err(LaunchError::Run(err.to_string())),
-        }
+        build_variant_or_blank(self.model, &self.firmware, MtxRuntime::blank)
+            .map_err(|err| LaunchError::Run(err.to_string()))
     }
 
     fn report(&self, runtime: &MtxRuntime, report: &mut Map<String, Value>) {

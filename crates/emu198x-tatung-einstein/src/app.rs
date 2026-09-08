@@ -1,14 +1,12 @@
 //! The Tatung Einstein as a [`MachineApp`]: its flags, runtime, and report fields.
 
+#[cfg(test)]
 use std::path::PathBuf;
 
-use emu198x_shell::launch::{Args, LaunchError, MachineApp, read_rom_exact, resolve_rom};
+use emu198x_shell::launch::{Args, LaunchError, MachineApp};
+use emu198x_shell::{FirmwareOverrides, build_variant, build_variant_or_blank};
 use runtime_tatung_einstein::{EinsteinRuntime, EinsteinSessionQueryProvider, Model};
 use serde_json::{Map, Value};
-
-const MOS_ENV: &str = "EMU198X_EINSTEIN_MOS";
-const MOS_RELATIVE: &str = "tatung-einstein/mos.rom";
-const MOS_SIZE: usize = 8 * 1024;
 
 // The frame-granular runtime always finishes the current frame, so a budget
 // longer than one frame crosses the next boundary and emits two frames per
@@ -20,12 +18,12 @@ const MOS_SIZE: usize = 8 * 1024;
 // long as the budget, so `run_frames(n)` never overshoots, and the half-tick
 // shortfall only costs a frame once it accumulates past one full frame
 // (n > 159,492, roughly 53 minutes of emulated time).
-pub const FRAME_TICKS_PAL: u64 = 79_746;
+pub const FRAME_TICKS_PAL: u64 = Model::Einstein.frame_ticks();
 
 /// The machine configuration the flags build up.
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct Einstein {
-    pub mos: Option<PathBuf>,
+    pub firmware: FirmwareOverrides,
 }
 
 impl MachineApp for Einstein {
@@ -36,7 +34,9 @@ impl MachineApp for Einstein {
     const VERSION: &'static str = env!("CARGO_PKG_VERSION");
     const MACHINE_OPTIONS: &'static str = "    --mos PATH      Einstein MOS ROM (8 KB); default
                     ~/.emu198x/roms/tatung-einstein/mos.rom
-                    (or set EMU198X_EINSTEIN_MOS)";
+                    (or set EMU198X_EINSTEIN_MOS)
+    --rom PATH|ID=PATH pin the MOS image (firmware ID: tatung-einstein-mos)
+    --rom-dir DIR   firmware directory (or set EMU198X_EINSTEIN_ROM_DIR)";
     const CONTROLS: &'static str = "    Esc             quit
     F12             hard reset
     A-Z 0-9 etc.    the Einstein keyboard
@@ -45,7 +45,18 @@ impl MachineApp for Einstein {
 
     fn parse_flag(&mut self, flag: &str, args: &mut Args) -> Result<bool, LaunchError> {
         match flag {
-            "--mos" => self.mos = Some(args.path(flag)?),
+            "--rom" => self
+                .firmware
+                .add_spec(
+                    &args.value(flag)?,
+                    Model::Einstein.profile_id(),
+                    &Model::Einstein.firmware_sources(),
+                )
+                .map_err(|err| LaunchError::Usage(err.to_string()))?,
+            "--rom-dir" => self.firmware.dir = Some(args.path(flag)?),
+            "--mos" => self
+                .firmware
+                .pin(runtime_tatung_einstein::ROM_FIRMWARE_ID, args.path(flag)?),
             _ => return Ok(false),
         }
         Ok(true)
@@ -60,36 +71,13 @@ impl MachineApp for Einstein {
     }
 
     fn build_runtime(&self) -> Result<EinsteinRuntime, LaunchError> {
-        let mos_path = resolve_rom(self.mos.as_deref(), MOS_ENV, MOS_RELATIVE).map_err(|_| {
-            LaunchError::Run("no MOS ROM: pass --mos PATH or set EMU198X_EINSTEIN_MOS".to_owned())
-        })?;
-        let mos = read_rom_exact(&mos_path, "MOS ROM", MOS_SIZE)?;
-        EinsteinRuntime::new(Model::Einstein, mos)
-            .map_err(|err| LaunchError::Run(format!("failed to construct runtime: {err}")))
+        build_variant::<EinsteinRuntime>(Model::Einstein, &self.firmware)
+            .map_err(|err| LaunchError::Run(err.to_string()))
     }
 
-    /// MCP starts blank and takes the MOS from its conventional location when
-    /// an 8 KB image is there; a client can also hand it firmware later.
     fn build_mcp_runtime(&self) -> Result<EinsteinRuntime, LaunchError> {
-        let mut runtime = EinsteinRuntime::blank(Model::Einstein);
-        if let Ok(path) = resolve_rom(self.mos.as_deref(), MOS_ENV, MOS_RELATIVE)
-            && let Ok(bytes) = std::fs::read(&path)
-        {
-            if bytes.len() == MOS_SIZE {
-                runtime
-                    .set_rom(bytes)
-                    .map_err(|err| LaunchError::Run(format!("ROM invalid: {err}")))?;
-                eprintln!("{} mcp: loaded MOS from {}", Self::BIN_NAME, path.display());
-            } else {
-                eprintln!(
-                    "{} mcp: MOS at {} is {} bytes; expected {MOS_SIZE} — starting blank",
-                    Self::BIN_NAME,
-                    path.display(),
-                    bytes.len()
-                );
-            }
-        }
-        Ok(runtime)
+        build_variant_or_blank(Model::Einstein, &self.firmware, EinsteinRuntime::blank)
+            .map_err(|err| LaunchError::Run(err.to_string()))
     }
 
     fn report(&self, runtime: &EinsteinRuntime, report: &mut Map<String, Value>) {
@@ -114,7 +102,7 @@ mod tests {
         let Parsed::Run { app, .. } = parse::<Einstein>(&[]).expect("parses") else {
             panic!("expected a run");
         };
-        assert!(app.mos.is_none());
+        assert_eq!(app.firmware, FirmwareOverrides::none());
     }
 
     #[test]
@@ -126,7 +114,12 @@ mod tests {
         let Parsed::Run { app, common, mode } = parsed else {
             panic!("expected a run");
         };
-        assert_eq!(app.mos, Some(PathBuf::from("mos.rom")));
+        assert_eq!(
+            app.firmware
+                .by_id
+                .get(runtime_tatung_einstein::ROM_FIRMWARE_ID),
+            Some(&PathBuf::from("mos.rom"))
+        );
         assert_eq!(common.scale, Some(4));
         assert_eq!(common.video.as_deref(), Some("crt"));
         assert_eq!(mode, Mode::Ui);

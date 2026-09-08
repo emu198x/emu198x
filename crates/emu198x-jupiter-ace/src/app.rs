@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use emu198x_shell::MediaKind;
 use emu198x_shell::launch::{Args, LaunchError, MachineApp, read_rom};
-use emu198x_shell::{FirmwareOverrides, FirmwareResolveError, build_variant};
+use emu198x_shell::{FirmwareOverrides, build_variant, build_variant_or_blank};
 use runtime_jupiter_ace::{JupiterAceRuntime, JupiterAceSessionQueryProvider, Model};
 use serde_json::{Map, Value};
 
@@ -102,21 +102,8 @@ impl MachineApp for JupiterAce {
     /// Conventional firmware is loaded when available. Missing conventional
     /// firmware permits blank startup; invalid images and explicit paths fail.
     fn build_mcp_runtime(&self) -> Result<JupiterAceRuntime, LaunchError> {
-        match build_variant::<JupiterAceRuntime>(self.model, &self.firmware) {
-            Ok(runtime) => Ok(runtime),
-            Err(
-                err @ (FirmwareResolveError::HomeUnset
-                | FirmwareResolveError::NoRomDir { .. }
-                | FirmwareResolveError::Missing { .. }),
-            ) if self.firmware.dir.is_none()
-                && self.firmware.by_id.is_empty()
-                && std::env::var_os("EMU198X_JUPITER_ACE_ROM_DIR").is_none() =>
-            {
-                eprintln!("{} mcp: {err} — starting blank", Self::BIN_NAME);
-                Ok(JupiterAceRuntime::blank(self.model))
-            }
-            Err(err) => Err(LaunchError::Run(err.to_string())),
-        }
+        build_variant_or_blank(self.model, &self.firmware, JupiterAceRuntime::blank)
+            .map_err(|err| LaunchError::Run(err.to_string()))
     }
 
     fn startup_media(&self) -> Result<Vec<(String, MediaKind, Vec<u8>)>, LaunchError> {
