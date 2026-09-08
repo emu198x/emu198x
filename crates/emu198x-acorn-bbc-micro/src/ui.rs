@@ -9,7 +9,7 @@
 //! only with the `ui` Cargo feature; the shared launcher opens the window when
 //! no automation flag is given.
 
-use std::fs;
+use emu198x_shell::FamilyRuntime;
 use std::time::Duration;
 
 use emu198x_shell::launch::LaunchError;
@@ -17,18 +17,10 @@ use emu198x_ui::launch::UiApp;
 use emu198x_ui::{ButtonInputMap, ButtonTarget, HostControl, KeyCode, UiSystem};
 use runtime_acorn_bbc_micro::BbcMicroRuntime;
 
-use crate::app::{Bbc, FRAME_TICKS_PAL, load_teletext_font, optional_rom_path};
+use crate::app::Bbc;
 
 const DEFAULT_SCALE: u32 = 3;
 const PAL_FRAME_HZ: f64 = 50.0;
-/// The conventional MOS image, the same file the headless modes use.
-/// The window used to look for `mos.rom` while script and MCP modes looked
-/// for `os.rom`, so a machine with only the latter opened no window
-/// without `--mos`.
-const UI_MOS_RELATIVE: &str = "acorn-bbc-micro/os.rom";
-const BASIC_ENV: &str = "EMU198X_BBC_BASIC";
-const BASIC_RELATIVE: &str = "acorn-bbc-micro/basic.rom";
-
 /// The analogue joystick's fire button. The proportional X/Y axes are read
 /// through the μPD7002 ADC (a separate `Axis` path the harness gamepad doesn't
 /// drive yet), so only fire is mapped here.
@@ -53,18 +45,8 @@ impl UiApp for Bbc {
     /// the BASIC prompt rather than the bare MOS. Explicit `--sideways`
     /// banks are installed afterwards, so they win.
     fn build_ui_runtime(&self) -> Result<BbcMicroRuntime, LaunchError> {
-        let mut runtime = Bbc::new_runtime(self.read_mos(UI_MOS_RELATIVE)?)?;
-        // Best-effort: install BASIC as the default language in the highest-priority
-        // sideways bank (15) if a ROM is staged, so the machine boots to the BASIC
-        // prompt rather than the bare MOS. Headless callers pass `--sideways`
-        // explicitly instead.
-        if let Some(basic_path) = optional_rom_path(BASIC_ENV, BASIC_RELATIVE)
-            && let Ok(basic) = fs::read(&basic_path)
-        {
-            runtime.insert_sideways_rom(15, basic);
-        }
+        let mut runtime = self.build_with_basic()?;
         self.insert_sideways_roms(&mut runtime)?;
-        load_teletext_font(&mut runtime);
         Ok(runtime)
     }
 }
@@ -95,8 +77,8 @@ impl UiSystem for BbcSystem {
             .unwrap_or((640, 256))
     }
 
-    fn frame_ticks(&self, _runtime: &Self::Runtime) -> u64 {
-        FRAME_TICKS_PAL
+    fn frame_ticks(&self, runtime: &Self::Runtime) -> u64 {
+        runtime.native_frame_ticks()
     }
 
     fn frame_duration(&self, _runtime: &Self::Runtime) -> Duration {
@@ -193,6 +175,43 @@ fn map_bbc_keys(code: KeyCode) -> Option<&'static [&'static str]> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use emu198x_shell::{FirmwareOverrides, MachineCore, ResetKind};
+
+    #[test]
+    fn window_defaults_to_basic_and_explicit_sideways_roms_win() {
+        let dir = std::env::temp_dir().join(format!("bbc-ui-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("directory");
+        for (name, bytes) in [
+            ("os.rom", vec![0x4c; 16384]),
+            ("basic.rom", vec![0x42; 16384]),
+            ("saa5050.rom", vec![0x3c; 960]),
+            ("dfs.rom", vec![0x5a; 16384]),
+        ] {
+            std::fs::write(dir.join(name), bytes).expect("firmware");
+        }
+        let mut app = Bbc {
+            firmware: FirmwareOverrides {
+                dir: Some(dir.clone()),
+                ..FirmwareOverrides::none()
+            },
+            sideways: Vec::new(),
+        };
+        let mut runtime = app.build_ui_runtime().expect("window runtime");
+        assert!(app.ui_system().variants().is_empty());
+        assert_eq!(app.ui_system().frame_ticks(&runtime), 39_936);
+        let machine = runtime.machine_mut().expect("machine");
+        machine.poke(0xfe30, 15);
+        assert_eq!(machine.peek(0x8000), 0x42);
+        app.sideways.push((15, dir.join("dfs.rom")));
+        let mut runtime = app.build_ui_runtime().expect("overridden language");
+        runtime.reset(ResetKind::Hard);
+        let machine = runtime.machine_mut().expect("machine");
+        machine.poke(0xfe30, 15);
+        assert_eq!(machine.peek(0x8000), 0x5a);
+        std::fs::remove_file(dir.join("dfs.rom")).expect("remove sideways ROM");
+        assert!(app.build_ui_runtime().is_err());
+        std::fs::remove_dir_all(dir).expect("cleanup");
+    }
 
     #[test]
     fn cursor_keys_type_and_function_keys_map_to_red_keys() {

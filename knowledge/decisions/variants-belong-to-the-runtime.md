@@ -247,6 +247,21 @@ ids, and its single profile publishes no switching capability. Both launchers
 retain their existing cartridge construction order; MCP reuses that parsed path
 so Master System restores a sidecar before executing requests.
 
+## BBC Micro default language is launch policy
+
+The Model B catalogue declares required MOS and optional teletext-font and BASIC
+images. Their names and file environment variables belong to the runtime.
+`from_firmware` installs MOS and font; `from_firmware_with_basic` also installs
+BASIC into bank 15. The shared `build_variant_with` resolver supplies either
+constructor with the same firmware set.
+
+The window selects the BASIC constructor by default. Headless modes do so only
+for an explicit BASIC firmware pin, preserving their existing bare-MOS default.
+Explicit sideways banks are installed afterwards in every mode and therefore
+win over the default language. Firmware selection does not introduce a new
+hardware profile. Missing-file and MOS-validation errors use the shared policy;
+optional language/font byte validation retains existing behaviour.
+
 ## Adding a variant or migrating a family
 
 For another variant of a migrated family, extend its runtime model and

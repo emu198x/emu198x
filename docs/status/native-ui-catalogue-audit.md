@@ -450,3 +450,38 @@ Local 150-frame captures with the committed synthetic cartridges show the
 expected green backdrop on all six profiles: 280×240 on NTSC Master Systems,
 278×288 on PAL models and 160×144 on Game Gear. These are boot/capture checks,
 not commercial-game compatibility evidence.
+
+## BBC Micro firmware and language policy
+
+Parent issue: [#1475](https://github.com/emu198x/emu198x/issues/1475).
+Broader epic: [#456](https://github.com/emu198x/emu198x/issues/456).
+
+BBC Micro's single Model B catalogue now owns the MOS, SAA5050 font and BASIC
+file conventions and the unchanged native frame budget. MOS remains required;
+the font and default language are optional. `--mos PATH` remains compatible with
+`--rom ID=PATH`, `--rom-dir` and `EMU198X_BBC_ROM_DIR`. Existing per-file variables
+remain supported. Firmware ids are `acorn-bbc-mos`, `acorn-bbc-saa5050` and
+`acorn-bbc-basic`; directory filenames remain `os.rom`, `saa5050.rom` and `basic.rom`.
+Named pins are required for `--rom` because the catalogue has three images.
+
+The window installs staged BASIC into bank 15 by default; headless modes keep
+their bare-MOS default. An explicit BASIC firmware pin selects the language in
+all modes. Explicit `--sideways` banks are applied afterwards and win in the
+window, scripts and MCP. MCP now honours these banks and the teletext font,
+which its old startup ignored. Reports count occupied sideways banks in the live
+machine, including BASIC and snapshot-restored ROMs, rather than launch flags.
+
+The shell's existing firmware-construction helper is exposed as
+`build_variant_with` so the BBC window can select its runtime language constructor
+without duplicating the resolver. Missing conventional MOS still permits blank
+MCP startup; explicit missing files and invalid MOS images fail. Existing font,
+BASIC and sideways-ROM size handling is unchanged. No new hardware variant or
+selector is introduced.
+
+Catalogue adoption covers twenty-one of 30 binaries, with nine remaining.
+Fifteen expose native selectors. Tests cover firmware precedence and errors,
+window/headless language policy, explicit sideways overrides, reset retention,
+font installation and actual ROM mapping through script and MCP. All 36 existing
+MCP tool definitions are unchanged. A 150-frame staged-ROM capture reaches the
+BBC BASIC prompt at 640×256; native menu interaction and audio output remain
+unverified by this slice.

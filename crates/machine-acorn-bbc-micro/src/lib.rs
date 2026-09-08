@@ -649,6 +649,15 @@ impl BbcMicro {
         self.sideways_roms[bank] = rom;
     }
 
+    /// Number of sideways banks holding a nonempty ROM image.
+    #[must_use]
+    pub fn sideways_rom_count(&self) -> usize {
+        self.sideways_roms
+            .iter()
+            .filter(|rom| !rom.is_empty())
+            .count()
+    }
+
     /// Run one PAL frame.
     pub fn run_frame(&mut self) -> u64 {
         let start = self.master_ticks;

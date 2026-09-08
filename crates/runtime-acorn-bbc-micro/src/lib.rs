@@ -6,6 +6,8 @@ mod queries;
 mod runtime;
 mod snapshot;
 
-pub use profiles::{MOS_FIRMWARE_ID, Model, profile_for, profiles};
+pub use profiles::{
+    BASIC_FIRMWARE_ID, FONT_FIRMWARE_ID, MOS_FIRMWARE_ID, Model, profile_for, profiles,
+};
 pub use queries::BbcMicroSessionQueryProvider;
 pub use runtime::BbcMicroRuntime;
