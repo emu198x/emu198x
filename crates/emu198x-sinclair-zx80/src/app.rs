@@ -3,7 +3,7 @@
 use std::path::PathBuf;
 
 use emu198x_shell::launch::{Args, LaunchError, MachineApp, read_rom};
-use emu198x_shell::{FirmwareOverrides, FirmwareResolveError, MediaKind, build_variant};
+use emu198x_shell::{FirmwareOverrides, MediaKind, build_variant, build_variant_or_blank};
 use runtime_sinclair_zx80::{Model, Zx80Runtime, Zx80SessionQueryProvider};
 use serde_json::{Map, Value};
 
@@ -113,21 +113,8 @@ impl MachineApp for Zx80 {
     /// Missing conventional firmware permits blank MCP startup; invalid images
     /// and explicitly requested paths remain errors.
     fn build_mcp_runtime(&self) -> Result<Zx80Runtime, LaunchError> {
-        let mut runtime = match build_variant::<Zx80Runtime>(self.model, &self.firmware) {
-            Ok(runtime) => runtime,
-            Err(
-                err @ (FirmwareResolveError::HomeUnset
-                | FirmwareResolveError::NoRomDir { .. }
-                | FirmwareResolveError::Missing { .. }),
-            ) if self.firmware.dir.is_none()
-                && self.firmware.by_id.is_empty()
-                && std::env::var_os("EMU198X_ZX80_ROM_DIR").is_none() =>
-            {
-                eprintln!("{} mcp: {err} — starting blank", Self::BIN_NAME);
-                Zx80Runtime::blank(self.model)
-            }
-            Err(err) => return Err(LaunchError::Run(err.to_string())),
-        };
+        let mut runtime = build_variant_or_blank(self.model, &self.firmware, Zx80Runtime::blank)
+            .map_err(|err| LaunchError::Run(err.to_string()))?;
         self.apply_ram_override(&mut runtime)?;
         Ok(runtime)
     }

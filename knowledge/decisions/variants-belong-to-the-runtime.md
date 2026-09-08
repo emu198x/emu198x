@@ -1,6 +1,6 @@
 # Variants belong to the runtime
 
-**Status:** Adopted 2026-09-08 for the Spectrum, Amiga, C64, ZX81, ZX80, Jupiter Ace and MTX families.
+**Status:** Adopted 2026-09-08 for the Spectrum, Amiga, C64, ZX81, ZX80, Jupiter Ace, MTX, CPC and Einstein families.
 
 ## The problem
 
@@ -134,6 +134,22 @@ error, not a reason to silently load a different ROM.
 The Spectrum profiles gained `variant-switch` and a family ROM
 directory variable, `EMU198X_SPECTRUM_ROM_DIR`, that the Amiga and C64
 already had in their own spelling.
+
+## Single-model families and blank startup
+
+CPC464 and Tatung Einstein use the same firmware catalogue with one entry.
+Their existing single-model launch policy remains in the binary; they do not
+advertise `variant-switch` or add a redundant native selector. Runtime frame
+budgets preserve the existing values. CPC's `--tape` loads through the same
+path in normal launch and MCP, and reset keeps the cassette.
+
+`build_variant_or_blank` is an opt-in shell helper: the binary supplies the
+family's blank constructor. It falls back only for missing conventional
+firmware without explicit pin or directory overrides. Invalid images,
+unreadable files and missing explicit paths remain errors. ZX80, Ace, MTX,
+CPC and Einstein use it; strict launch continues through `build_variant`.
+This keeps blank-start policy reusable without making it implicit for every
+family.
 
 ## Adding a variant or migrating a family
 

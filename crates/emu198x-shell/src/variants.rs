@@ -441,6 +441,41 @@ pub fn build_variant<M: FamilyRuntime>(
     })
 }
 
+/// Build firmware when available, with an opt-in blank startup policy.
+///
+/// Only absent conventional firmware permits the fallback. Explicit pins,
+/// directory flags/environment variables, unreadable files and rejected images
+/// remain errors. The caller supplies its family's blank constructor.
+///
+/// # Errors
+///
+/// Returns the error from [`build_variant`] unless conventional firmware is
+/// absent and no directory override was requested.
+pub fn build_variant_or_blank<M: FamilyRuntime>(
+    model: M::Model,
+    overrides: &FirmwareOverrides,
+    blank: impl FnOnce(M::Model) -> M,
+) -> Result<M, FirmwareResolveError> {
+    match build_variant::<M>(model, overrides) {
+        Ok(runtime) => Ok(runtime),
+        Err(
+            err @ (FirmwareResolveError::HomeUnset
+            | FirmwareResolveError::NoRomDir { .. }
+            | FirmwareResolveError::Missing { .. }),
+        ) if overrides.dir.is_none()
+            && overrides.by_id.is_empty()
+            && M::rom_convention()
+                .env_var
+                .and_then(std::env::var_os)
+                .is_none() =>
+        {
+            eprintln!("{}: {err} — starting blank", M::variant_id(model));
+            Ok(blank(model))
+        }
+        Err(err) => Err(err),
+    }
+}
+
 /// What a variant switch reports.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct VariantSwitched {
@@ -839,5 +874,39 @@ mod tests {
         assert!(message.contains("boots 2 ROMs"), "{message}");
         assert!(message.contains("--rom ID=PATH"), "{message}");
         assert!(message.contains("rom-1"), "{message}");
+    }
+    #[test]
+    fn blank_start_is_opt_in_and_never_hides_explicit_firmware_errors() {
+        let runtime =
+            build_variant_or_blank::<Fam>(FamModel::One, &FirmwareOverrides::none(), |model| Fam {
+                model,
+                profile: profile(model),
+                images: Vec::new(),
+            })
+            .expect("absent conventional firmware permits blank startup");
+        assert!(runtime.images.is_empty());
+
+        let dir = rom_dir(&["one.rom"]);
+        let loaded = build_variant_or_blank::<Fam>(FamModel::One, &in_dir(&dir), |_| {
+            panic!("firmware exists")
+        })
+        .expect("load firmware");
+        assert_eq!(loaded.images, ["only"]);
+        let missing = in_dir(&dir.join("missing"));
+        assert!(
+            build_variant_or_blank::<Fam>(FamModel::One, &missing, |_| panic!(
+                "explicit directory must fail"
+            ))
+            .is_err()
+        );
+        let mut pinned = FirmwareOverrides::none();
+        pinned.pin("only", dir.join("missing.rom"));
+        assert!(matches!(
+            build_variant_or_blank::<Fam>(FamModel::One, &pinned, |_| panic!(
+                "explicit pin must fail"
+            )),
+            Err(FirmwareResolveError::PinnedMissing { .. })
+        ));
+        std::fs::remove_dir_all(dir).expect("cleanup");
     }
 }
