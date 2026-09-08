@@ -11,7 +11,7 @@
 use std::borrow::Cow;
 use std::time::Duration;
 
-use emu198x_shell::MachineError;
+use emu198x_shell::{FirmwareOverrides, MachineError, build_variant};
 use emu198x_ui::launch::UiApp;
 use emu198x_ui::{ButtonInputMap, KeyCode, UiSystem, VariantInfo};
 use runtime_sinclair_zx81::{Model, Zx81Runtime};
@@ -63,8 +63,7 @@ impl UiSystem for Zx81System {
         1
     }
 
-    /// The two boards. They differ only in the strap the ROM reads on port
-    /// bit 6, which is enough to move the machine between 50.65 and 59.93 Hz.
+    /// The runtime catalogue owns the RAM and television-standard variants.
     fn variants(&self) -> Vec<VariantInfo> {
         Model::ALL
             .iter()
@@ -76,26 +75,21 @@ impl UiSystem for Zx81System {
         Some(Cow::Borrowed(self.model.profile_id()))
     }
 
-    /// Rebuild on the other strap, reusing the ROM the runtime already holds —
-    /// both boards run the same 8 KB monitor.
+    /// Switch to the model's conventional ROM and RAM configuration.
     fn switch_variant(
         &mut self,
         runtime: &mut Self::Runtime,
         variant: &str,
     ) -> Result<(), MachineError> {
-        let model = Model::ALL
-            .into_iter()
-            .find(|m| m.profile_id() == variant)
-            .ok_or(MachineError::UnsupportedOperation {
-                operation: "unknown ZX81 variant",
+        let model = Model::from_variant_id(variant).ok_or(MachineError::UnsupportedOperation {
+            operation: "unknown ZX81 variant",
+        })?;
+        *runtime =
+            build_variant::<Zx81Runtime>(model, &FirmwareOverrides::none()).map_err(|err| {
+                MachineError::Host {
+                    reason: err.to_string(),
+                }
             })?;
-        let rom = runtime
-            .rom_bytes()
-            .ok_or(MachineError::UnsupportedOperation {
-                operation: "switch variant before a ROM is loaded",
-            })?
-            .to_vec();
-        *runtime = Zx81Runtime::new(model, rom)?;
         self.model = model;
         Ok(())
     }

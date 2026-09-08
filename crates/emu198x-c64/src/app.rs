@@ -520,10 +520,16 @@ impl C64 {
     /// `--load-snapshot` is given and nothing resolves, the bundle is empty
     /// and the machine restores from the snapshot alone.
     pub(crate) fn load_firmware_bytes(&self) -> Result<Vec<LoadedFirmware>, LaunchError> {
-        let resolved = match resolve_firmware::<C64Runtime>(self.model, &self.firmware_overrides())
-        {
+        let overrides = self.firmware_overrides();
+        let resolved = match resolve_firmware::<C64Runtime>(self.model, &overrides) {
             Ok(resolved) => resolved,
-            Err(_) if self.load_snapshot.is_some() => return Ok(Vec::new()),
+            Err(
+                emu198x_shell::FirmwareResolveError::NoRomDir { .. }
+                | emu198x_shell::FirmwareResolveError::HomeUnset
+                | emu198x_shell::FirmwareResolveError::Missing { .. },
+            ) if self.load_snapshot.is_some() && overrides == FirmwareOverrides::none() => {
+                return Ok(Vec::new());
+            }
             Err(err) => return Err(LaunchError::Run(err.to_string())),
         };
         resolved
@@ -817,6 +823,16 @@ mod tests {
             err.to_string()
                 .contains("--autoload-run requires --autoload-disk")
         );
+    }
+
+    #[test]
+    fn snapshot_boot_reports_a_missing_explicit_rom() {
+        let app = C64 {
+            load_snapshot: Some(PathBuf::from("snapshot.c64.pst")),
+            kernal: Some(PathBuf::from("missing-validation-kernal.rom")),
+            ..C64::default()
+        };
+        assert!(app.load_firmware_bytes().is_err());
     }
 
     #[test]

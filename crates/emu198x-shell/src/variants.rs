@@ -40,6 +40,9 @@ pub struct FirmwareSource {
     pub candidates: &'static [&'static str],
     /// Whether the variant boots without it.
     pub optional: bool,
+    /// An environment variable naming this image's file, before directory
+    /// lookup. An explicit pin takes precedence.
+    pub env_var: Option<&'static str>,
 }
 
 impl FirmwareSource {
@@ -50,6 +53,7 @@ impl FirmwareSource {
             id,
             candidates,
             optional: false,
+            env_var: None,
         }
     }
 
@@ -60,7 +64,15 @@ impl FirmwareSource {
             id,
             candidates,
             optional: true,
+            env_var: None,
         }
+    }
+
+    /// Accept a conventional environment variable naming the image file.
+    #[must_use]
+    pub const fn with_env_var(mut self, env_var: &'static str) -> Self {
+        self.env_var = Some(env_var);
+        self
     }
 }
 
@@ -272,6 +284,17 @@ pub fn resolve_firmware<M: FamilyRuntime>(
 ) -> Result<Vec<(&'static str, PathBuf)>, FirmwareResolveError> {
     let machine = M::variant_id(model);
     let sources = M::firmware_sources(model);
+    // Resolve file-level conventions once. Caller pins win over the
+    // environment, and both work without a conventional ROM directory.
+    let mut pins = BTreeMap::new();
+    for source in &sources {
+        if let Some(var) = source.env_var
+            && let Some(path) = std::env::var_os(var)
+        {
+            pins.insert(source.id.to_owned(), PathBuf::from(path));
+        }
+    }
+    pins.extend(overrides.by_id.clone());
     if let Some(unknown) = overrides
         .by_id
         .keys()
@@ -289,7 +312,7 @@ pub fn resolve_firmware<M: FamilyRuntime>(
     // launch that names every required ROM by hand works without one.
     let needs_dir = sources
         .iter()
-        .any(|source| !source.optional && !overrides.by_id.contains_key(source.id));
+        .any(|source| !source.optional && !pins.contains_key(source.id));
     let dir = if needs_dir {
         Some(rom_dir::<M>(overrides.dir.as_deref(), machine)?)
     } else {
@@ -298,7 +321,7 @@ pub fn resolve_firmware<M: FamilyRuntime>(
 
     let mut resolved = Vec::with_capacity(sources.len());
     for source in &sources {
-        if let Some(path) = overrides.by_id.get(source.id) {
+        if let Some(path) = pins.get(source.id) {
             if !path.is_file() {
                 return Err(FirmwareResolveError::PinnedMissing {
                     path: path.display().to_string(),

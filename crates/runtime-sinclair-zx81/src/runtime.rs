@@ -194,7 +194,9 @@ impl Zx81Runtime {
         self.time = time;
     }
 
-    pub(crate) fn ram_bytes(&self) -> usize {
+    /// RAM currently fitted, including launch overrides and restored state.
+    #[must_use]
+    pub fn ram_bytes(&self) -> usize {
         self.ram_bytes
     }
 
@@ -254,7 +256,53 @@ impl Zx81Runtime {
     }
 }
 
+impl emu198x_shell::FamilyRuntime for Zx81Runtime {
+    type Model = Model;
+
+    fn variant_ids() -> &'static [&'static str] {
+        &Model::VARIANT_IDS
+    }
+
+    fn model_from_id(id: &str) -> Option<Model> {
+        Model::from_variant_id(id)
+    }
+
+    fn variant_id(model: Model) -> &'static str {
+        model.profile_id()
+    }
+
+    fn profile_for(model: Model) -> MachineProfile {
+        profile_for(model)
+    }
+
+    fn rom_convention() -> emu198x_shell::RomConvention {
+        emu198x_shell::RomConvention {
+            env_var: None,
+            dirs: &[""],
+        }
+    }
+
+    fn firmware_sources(model: Model) -> Vec<emu198x_shell::FirmwareSource> {
+        model.firmware_sources()
+    }
+
+    fn from_firmware(model: Model, firmware: &FirmwareSet<'_>) -> Result<Self, MachineError> {
+        Self::from_firmware(model, firmware)
+    }
+
+    fn native_frame_ticks(&self) -> u64 {
+        u64::from(self.model.television_standard().slow_mode_frame_tstates())
+    }
+}
+
 impl MachineCore for Zx81Runtime {
+    fn set_machine<Q: emu198x_shell::SessionQueryProvider<Self>>(
+        session: &mut emu198x_shell::HeadlessSession<Self, Q>,
+        machine: &str,
+    ) -> Result<emu198x_shell::VariantSwitched, emu198x_shell::LoaderError> {
+        emu198x_shell::swap_variant(session, machine)
+    }
+
     fn profile(&self) -> &MachineProfile {
         &self.profile
     }
