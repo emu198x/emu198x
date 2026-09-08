@@ -32,17 +32,16 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use emu198x_shell::{
-    FamilyRuntime, FirmwareImage, FirmwareSet, MachineCore, MachineError, MediaImage, MediaKind,
-    MediaSet, read_firmware_asset, read_media_asset,
+    FirmwareOverrides, MachineCore, MachineError, MediaImage, MediaKind, MediaSet, build_variant,
+    read_media_asset,
 };
 use emu198x_ui::launch::UiApp;
 use emu198x_ui::{ButtonInputMap, ButtonTarget, HostControl, KeyCode, UiSystem, VariantInfo};
 use runtime_commodore_amiga::{
-    A500_PAL_CCK_HZ, A500_PAL_FRAME_TICKS, AmigaRuntimeKind, DISPLAY_HEIGHT, DISPLAY_WIDTH,
+    A500_PAL_CCK_HZ, A500_PAL_FRAME_TICKS, AmigaRuntimeKind, DISPLAY_HEIGHT, DISPLAY_WIDTH, Model,
 };
 
 use crate::app::{Amiga, DEFAULT_FLOPPY_SLOT};
-use crate::model::{ModelArg, find_rom_path, firmware_id_for_model_arg};
 
 const DEFAULT_SCALE: u32 = 1;
 // `AmigaRuntime::run_until` publishes complete video fields. A sub-field
@@ -135,7 +134,7 @@ fn map_amiga_joystick_key(code: KeyCode) -> Option<HostControl> {
 /// can re-insert it), and whether the arrow keys / Space currently drive the
 /// port-2 joystick (Page Up).
 pub struct AmigaSystem {
-    model: ModelArg,
+    model: Model,
     disk: Option<PathBuf>,
     keyboard_joystick: bool,
 }
@@ -237,17 +236,14 @@ impl UiSystem for AmigaSystem {
     }
 
     fn variants(&self) -> Vec<VariantInfo> {
-        ModelArg::IDS
+        Model::VARIANTS
             .iter()
-            .map(|id| {
-                let model = ModelArg::from_id(id).expect("advertised id parses");
-                VariantInfo::new(*id, model.to_model().display_name())
-            })
+            .map(|model| VariantInfo::new(model.variant_id(), model.display_name()))
             .collect()
     }
 
     fn current_variant(&self) -> Option<Cow<'static, str>> {
-        Some(Cow::Borrowed(model_arg_id(self.model)))
+        Some(Cow::Borrowed(self.model.variant_id()))
     }
 
     fn switch_variant(
@@ -255,53 +251,23 @@ impl UiSystem for AmigaSystem {
         runtime: &mut Self::Runtime,
         variant: &str,
     ) -> Result<(), MachineError> {
-        let model = ModelArg::from_id(variant).ok_or(MachineError::UnsupportedOperation {
+        let model = Model::from_variant_id(variant).ok_or(MachineError::UnsupportedOperation {
             operation: "unknown Amiga variant",
         })?;
-        // Resolve the target model's Kickstart by convention (env +
-        // `~/.emu198x/roms/…`), mirroring the MCP `set_machine` path, and rebuild
-        // the chipset variant. A launch-time --rom-dir / --kickstart override is
-        // not carried across a switch (it's model-specific). The inserted disk is
-        // lost — this is a hardware model change.
-        *runtime = build_variant_runtime(model).map_err(|reason| MachineError::Host {
-            reason: format!("switching to {}: {reason}", model.to_model().display_name()),
-        })?;
+        // The target model's Kickstart by convention (env +
+        // `~/.emu198x/roms/…`), the same resolution as the shell's
+        // `set_machine`, and the chipset variant rebuilt. A launch-time
+        // --rom-dir / --kickstart override is not carried across a switch
+        // (it's model-specific). The inserted disk is lost — this is a
+        // hardware model change.
+        *runtime = build_variant::<AmigaRuntimeKind>(model, &FirmwareOverrides::none()).map_err(
+            |err| MachineError::Host {
+                reason: format!("switching to {}: {err}", model.display_name()),
+            },
+        )?;
         self.model = model;
         Ok(())
     }
-}
-
-/// The stable variant id for a [`ModelArg`] (round-trips through
-/// [`ModelArg::from_id`]); matches the `--model` arg strings.
-fn model_arg_id(model: ModelArg) -> &'static str {
-    ModelArg::IDS[match model {
-        ModelArg::A1000 => 0,
-        ModelArg::A500 => 1,
-        ModelArg::A500GvpA530 => 2,
-        ModelArg::A500A501 => 3,
-        ModelArg::A500Plus => 4,
-        ModelArg::A500Maxed => 5,
-        ModelArg::A600 => 6,
-        ModelArg::A1200 => 7,
-        ModelArg::A2000 => 8,
-    }]
-}
-
-/// Resolve a model's Kickstart by convention (no CLI override) and build the
-/// chipset variant, as a live variant switch needs. Mirrors the MCP
-/// `set_machine` firmware resolution. `FirmwareSet` borrows the ROM bytes, so
-/// the runtime is built here (where the bytes live) rather than returning a
-/// borrowing firmware set.
-fn build_variant_runtime(model: ModelArg) -> Result<AmigaRuntimeKind, String> {
-    let path = find_rom_path(model, None, None)?;
-    let loaded = read_firmware_asset(&path)
-        .map_err(|err| format!("failed to read {}: {err}", path.display()))?;
-    let mut firmware = FirmwareSet::new();
-    firmware.push(FirmwareImage::new(
-        firmware_id_for_model_arg(model),
-        &loaded.bytes,
-    ));
-    AmigaRuntimeKind::from_firmware(model.to_model(), &firmware).map_err(|err| err.to_string())
 }
 
 // ---- The launcher's window driver -------------------------------------------
@@ -321,7 +287,6 @@ impl UiApp for Amiga {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use runtime_commodore_amiga::Model;
 
     #[test]
     fn maps_basic_keyboard_keys() {
@@ -346,24 +311,24 @@ mod tests {
     }
 
     #[test]
-    fn variant_ids_round_trip_through_model_args() {
-        for id in ModelArg::IDS {
-            let model = ModelArg::from_id(id).expect("advertised id parses");
-            assert_eq!(model_arg_id(model), id, "id `{id}` must round-trip");
+    fn variant_ids_round_trip_through_the_runtime_catalogue() {
+        for (model, id) in Model::VARIANTS.into_iter().zip(Model::VARIANT_IDS) {
+            assert_eq!(model.variant_id(), id, "id `{id}` must round-trip");
+            assert_eq!(Model::from_variant_id(id), Some(model));
         }
     }
 
     #[test]
     fn variants_list_covers_all_nine_models() {
         let system = AmigaSystem {
-            model: ModelArg::A500,
+            model: Model::A500OcsPal,
             disk: None,
             keyboard_joystick: false,
         };
         let variants = system.variants();
         assert_eq!(variants.len(), 9);
         let ids: Vec<_> = variants.iter().map(|v| v.id.as_ref()).collect();
-        assert_eq!(ids, ModelArg::IDS);
+        assert_eq!(ids, Model::VARIANT_IDS);
         assert_eq!(
             system.current_variant().as_deref(),
             Some("a500"),
@@ -374,7 +339,7 @@ mod tests {
     #[test]
     fn whole_field_runtime_uses_one_input_slice() {
         let system = AmigaSystem {
-            model: ModelArg::A500,
+            model: Model::A500OcsPal,
             disk: None,
             keyboard_joystick: false,
         };
@@ -385,7 +350,7 @@ mod tests {
     #[test]
     fn page_up_toggles_keyboard_joystick_on_keydown_only() {
         let mut system = AmigaSystem {
-            model: ModelArg::A500,
+            model: Model::A500OcsPal,
             disk: None,
             keyboard_joystick: false,
         };
@@ -404,7 +369,7 @@ mod tests {
     #[test]
     fn keyboard_joystick_mode_steals_arrows_and_space_from_keyboard() {
         let mut system = AmigaSystem {
-            model: ModelArg::A500,
+            model: Model::A500OcsPal,
             disk: None,
             keyboard_joystick: false,
         };
@@ -422,7 +387,7 @@ mod tests {
     #[test]
     fn window_title_reflects_keyboard_joystick_mode() {
         let mut system = AmigaSystem {
-            model: ModelArg::A500,
+            model: Model::A500OcsPal,
             disk: None,
             keyboard_joystick: false,
         };

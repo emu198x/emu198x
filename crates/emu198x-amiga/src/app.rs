@@ -14,28 +14,60 @@ use emu198x_shell::launch::{Args, CommonCli, LaunchError, MachineApp};
 use emu198x_shell::mcp::ToolRegistry;
 use emu198x_shell::mcp_tools::register_tools_for;
 use emu198x_shell::{
-    FamilyRuntime, FirmwareImage, FirmwareSet, HeadlessSession, MachineCore, MediaImage, MediaKind,
-    MediaSet, read_firmware_asset, read_media_asset,
+    FirmwareOverrides, HeadlessSession, MachineCore, MediaImage, MediaKind, MediaSet,
+    build_variant, read_media_asset, resolve_firmware,
 };
-use runtime_commodore_amiga::{A500_PAL_FRAME_TICKS, AmigaRuntimeKind, AmigaSessionQueryProvider};
+use runtime_commodore_amiga::{
+    A500_PAL_FRAME_TICKS, AmigaRuntimeKind, AmigaSessionQueryProvider, Model,
+};
 use serde_json::{Map, Value};
 
 use crate::mcp::tools::register_amiga_tools;
-use crate::model::{ModelArg, find_rom_path, firmware_id_for_model_arg};
 
 pub(crate) const DEFAULT_FLOPPY_SLOT: &str = "floppy-0";
 
 /// The machine configuration the flags build up. The default is the
 /// canonical Amiga — A500 OCS PAL with Kickstart 1.3 — that vAmiga /
 /// FS-UAE / WinUAE also default to.
-#[derive(Debug, Default, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct Amiga {
-    pub model: ModelArg,
+    pub model: Model,
     pub rom_dir: Option<PathBuf>,
     pub kickstart: Option<PathBuf>,
     pub disk: Option<PathBuf>,
     pub wait_for_boot: Option<u32>,
     pub print_queries: Vec<String>,
+}
+
+impl Default for Amiga {
+    fn default() -> Self {
+        Self {
+            model: Model::A500OcsPal,
+            rom_dir: None,
+            kickstart: None,
+            disk: None,
+            wait_for_boot: None,
+            print_queries: Vec::new(),
+        }
+    }
+}
+
+impl Amiga {
+    /// What the firmware flags add to the convention: `--rom-dir` as the
+    /// directory, `--kickstart` pinning the model's one ROM (Kickstart, or
+    /// the A1000's bootstrap).
+    pub(crate) fn firmware_overrides(&self) -> FirmwareOverrides {
+        let mut overrides = FirmwareOverrides {
+            dir: self.rom_dir.clone(),
+            ..FirmwareOverrides::none()
+        };
+        if let Some(path) = &self.kickstart {
+            for source in self.model.firmware_sources() {
+                overrides.pin(source.id, path.clone());
+            }
+        }
+        overrides
+    }
 }
 
 impl MachineApp for Amiga {
@@ -77,10 +109,10 @@ impl MachineApp for Amiga {
             "--kickstart" => self.kickstart = Some(args.path(flag)?),
             "--model" => {
                 let value = args.value(flag)?;
-                self.model = ModelArg::from_id(&value).ok_or_else(|| {
+                self.model = Model::from_variant_id(&value).ok_or_else(|| {
                     LaunchError::Usage(format!(
                         "--model expects one of {}, got {value}",
-                        ModelArg::IDS.join(", ")
+                        Model::VARIANT_IDS.join(", ")
                     ))
                 })?;
             }
@@ -109,26 +141,8 @@ impl MachineApp for Amiga {
     /// mode boots for itself in `script.rs` so its media load is part of the
     /// session it reports on.
     fn build_runtime(&self) -> Result<AmigaRuntimeKind, LaunchError> {
-        let model = self.model.to_model();
-        let firmware_path = find_rom_path(
-            self.model,
-            self.rom_dir.as_deref(),
-            self.kickstart.as_deref(),
-        )?;
-        let firmware_bytes = read_firmware_asset(&firmware_path).map_err(|err| {
-            format!(
-                "failed to read Amiga firmware {}: {err}",
-                firmware_path.display()
-            )
-        })?;
-
-        let mut firmware = FirmwareSet::new();
-        firmware.push(FirmwareImage::new(
-            firmware_id_for_model_arg(self.model),
-            &firmware_bytes.bytes,
-        ));
-        let mut runtime =
-            AmigaRuntimeKind::from_firmware(model, &firmware).map_err(|err| err.to_string())?;
+        let mut runtime = build_variant::<AmigaRuntimeKind>(self.model, &self.firmware_overrides())
+            .map_err(|err| err.to_string())?;
 
         if let Some(path) = &self.disk {
             let disk = read_media_asset(path, MediaKind::Disk)
@@ -149,15 +163,14 @@ impl MachineApp for Amiga {
     /// named on the command line is loaded by the launcher, and the
     /// `insert_media` / `set_machine` tools change it at runtime.
     fn build_mcp_runtime(&self) -> Result<AmigaRuntimeKind, LaunchError> {
-        let rom_path = find_rom_path(
-            self.model,
-            self.rom_dir.as_deref(),
-            self.kickstart.as_deref(),
-        )
-        .map_err(|reason| LaunchError::Run(format!("Kickstart ROM not found at {reason}")))?;
+        let resolved = resolve_firmware::<AmigaRuntimeKind>(self.model, &self.firmware_overrides())
+            .map_err(|err| LaunchError::Run(format!("Kickstart ROM not found: {err}")))?;
+        let (_, rom_path) = resolved
+            .into_iter()
+            .next()
+            .ok_or_else(|| LaunchError::Run("the model boots no ROM".to_owned()))?;
         let rom_bytes = std::fs::read(&rom_path).map_err(|err| err.to_string())?;
-        AmigaRuntimeKind::new(self.model.to_model(), rom_bytes)
-            .map_err(|err| err.to_string().into())
+        AmigaRuntimeKind::new(self.model, rom_bytes).map_err(|err| err.to_string().into())
     }
 
     /// The Amiga's report is built by `script::run`, which
@@ -187,7 +200,6 @@ impl MachineApp for Amiga {
 mod tests {
     use super::*;
     use emu198x_shell::launch::{Mode, Parsed, parse};
-    use runtime_commodore_amiga::Model;
 
     fn args(list: &[&str]) -> Vec<String> {
         list.iter().map(|s| (*s).to_owned()).collect()
@@ -220,7 +232,7 @@ mod tests {
         assert_eq!(
             app,
             Amiga {
-                model: ModelArg::A500A501,
+                model: Model::A500OcsPalA501,
                 kickstart: Some(PathBuf::from("kick13.rom")),
                 disk: Some(PathBuf::from("workbench.adf")),
                 ..Amiga::default()
@@ -235,7 +247,7 @@ mod tests {
     #[test]
     fn flags_cover_the_window_and_default_to_the_a500() {
         let (app, common, mode) = parsed(&["--disk", "workbench13.adf", "--scale", "2"]);
-        assert_eq!(app.model, ModelArg::A500);
+        assert_eq!(app.model, Model::A500OcsPal);
         assert!(app.rom_dir.is_none());
         assert!(app.kickstart.is_none());
         assert_eq!(app.disk, Some(PathBuf::from("workbench13.adf")));
@@ -263,11 +275,11 @@ mod tests {
     #[test]
     fn model_flag_covers_the_full_family() {
         let (app, _, _) = parsed(&["--model", "a1200"]);
-        assert_eq!(app.model.to_model(), Model::A1200AgaPal);
+        assert_eq!(app.model, Model::A1200AgaPal);
         let (app, _, _) = parsed(&["--model", "a500-maxed"]);
-        assert_eq!(app.model.to_model(), Model::A500OcsPalMaxed);
+        assert_eq!(app.model, Model::A500OcsPalMaxed);
         let (app, _, _) = parsed(&["--model", "a1000"]);
-        assert_eq!(app.model.to_model(), Model::A1000OcsPal);
+        assert_eq!(app.model, Model::A1000OcsPal);
     }
 
     #[test]

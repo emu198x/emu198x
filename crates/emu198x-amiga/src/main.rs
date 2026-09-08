@@ -2,21 +2,20 @@
 //!
 //! One binary, three modes: UI (default), headless script, and MCP. The
 //! modes themselves belong to the shared launcher in `emu198x-shell` and
-//! `emu198x-ui`; this crate supplies the machine (`src/app.rs`), model
-//! selection and Kickstart resolution (`src/model.rs`), its headless
-//! runner (`src/script.rs`), its MCP debugging tools (`src/mcp/`), and
-//! its window (`src/ui.rs`). Building with `--no-default-features` drops
-//! the `ui` feature (winit + wgpu) for the MCP debugging surface and the
-//! headless capture pipeline.
+//! `emu198x-ui`; this crate supplies the machine (`src/app.rs`), its
+//! headless runner (`src/script.rs`), its MCP debugging tools
+//! (`src/mcp/`), and its window (`src/ui.rs`). Model selection and
+//! Kickstart resolution are the runtime crate's catalogue, resolved by
+//! the shell. Building with `--no-default-features` drops the `ui`
+//! feature (winit + wgpu) for the MCP debugging surface and the headless
+//! capture pipeline.
 //!
-//! `model.rs` and `src/mcp/{tools,lvo}.rs` are also `#[path]`-included by
-//! the `mcp_smoke` integration test (a second crate root), so they refer
-//! to each other as `crate::model::…` and must not depend on the rest of
-//! the binary.
+//! `src/mcp/{tools,lvo}.rs` are also `#[path]`-included by the
+//! `mcp_smoke` integration test (a second crate root), so they must not
+//! depend on the rest of the binary.
 
 mod app;
 mod mcp;
-mod model;
 mod script;
 
 #[cfg(feature = "ui")]

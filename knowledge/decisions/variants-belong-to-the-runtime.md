@@ -1,7 +1,7 @@
 # Variants belong to the runtime
 
-**Status:** Adopted 2026-09-08 for the Spectrum family; the Amiga runtime
-declares its catalogue and its binary follows next, then the C64.
+**Status:** Adopted 2026-09-08 for the Spectrum and Amiga families; the
+C64 follows.
 
 ## The problem
 
@@ -66,6 +66,15 @@ The Spectrum's `machine.rs` is gone; its bundle table is
 override tests are the shell's. The window title and menu keep their
 short labels through `Model::menu_label`. The three boot paths in the
 binary each became one call to `build_variant`.
+
+The Amiga's `model.rs` is gone the same way: its nine ids are
+`Model::VARIANT_IDS` over the PAL models, its Kickstart candidate names
+are `Model::firmware_sources` by chip stack, and `--rom-dir` /
+`--kickstart` are a `FirmwareOverrides` directory and pin. Its MCP
+`set_machine` tool, which took `model` and answered with `model`, is
+the shell's, which takes either spelling and answers with `machine`
+like every other family; the smoke test that read `model` back now
+reads `machine`.
 
 What did not move is the launch-time policy the flags express: which
 variant a `--machine`, `--model` or portable snapshot selects, and

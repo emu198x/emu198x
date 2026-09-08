@@ -30,8 +30,8 @@
 //!   3. `EMU198X_AMIGA_ROM_DIR` env var
 //!   4. `~/.emu198x/roms/commodore-amiga/` or `~/.emu198x/roms/amiga/`
 //!
-//! Per-model candidate ROM names live in
-//! [`crate::model::rom_candidates_for_model`].
+//! Per-model candidate ROM names live in the runtime's
+//! `Model::firmware_sources`.
 //!
 //! [`AmigaLiveAccess`]: runtime_commodore_amiga::AmigaLiveAccess
 
