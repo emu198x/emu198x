@@ -9,13 +9,15 @@
 //! keys are mapped. Compiled only with the `ui` Cargo feature; the shared
 //! launcher opens the window when no automation flag is given.
 
+use emu198x_shell::{FamilyRuntime, FirmwareOverrides, MachineError, build_variant};
+use std::borrow::Cow;
 use std::time::Duration;
 
 use emu198x_ui::launch::UiApp;
-use emu198x_ui::{ButtonInputMap, KeyCode, UiSystem};
-use runtime_commodore_pet::PetRuntime;
+use emu198x_ui::{ButtonInputMap, KeyCode, UiSystem, VariantInfo};
+use runtime_commodore_pet::{Model, PetRuntime};
 
-use crate::app::{CommodorePet, FRAME_TICKS};
+use crate::app::CommodorePet;
 
 const DEFAULT_SCALE: u32 = 3;
 const FRAME_HZ: f64 = 50.0;
@@ -26,14 +28,16 @@ const PET_BUTTON_MAP: ButtonInputMap = ButtonInputMap::new(&[]);
 
 /// The Commodore PET as a [`UiSystem`] for the shared harness. Keyboard-only; a
 /// hard reset rebuilds the machine from the firmware the runtime already holds.
-/// The column model is fixed at construction.
-pub struct PetSystem;
+/// The runtime catalogue supplies the column profiles.
+pub struct PetSystem {
+    model: Model,
+}
 
 impl UiApp for CommodorePet {
     type System = PetSystem;
 
     fn ui_system(&self) -> PetSystem {
-        PetSystem
+        PetSystem { model: self.model }
     }
 }
 
@@ -72,12 +76,41 @@ impl UiSystem for PetSystem {
             .unwrap_or((384, 248))
     }
 
-    fn frame_ticks(&self, _runtime: &Self::Runtime) -> u64 {
-        FRAME_TICKS
+    fn frame_ticks(&self, runtime: &Self::Runtime) -> u64 {
+        runtime.native_frame_ticks()
     }
 
     fn frame_duration(&self, _runtime: &Self::Runtime) -> Duration {
         Duration::from_secs_f64(1.0 / FRAME_HZ)
+    }
+
+    fn variants(&self) -> Vec<VariantInfo> {
+        Model::ALL
+            .iter()
+            .map(|model| VariantInfo::new(model.variant_id(), model.display_name()))
+            .collect()
+    }
+
+    fn current_variant(&self) -> Option<Cow<'static, str>> {
+        Some(Cow::Borrowed(self.model.variant_id()))
+    }
+
+    fn switch_variant(
+        &mut self,
+        runtime: &mut Self::Runtime,
+        id: &str,
+    ) -> Result<(), MachineError> {
+        let model = Model::from_variant_id(id).ok_or(MachineError::UnsupportedOperation {
+            operation: "unknown PET variant",
+        })?;
+        *runtime =
+            build_variant::<PetRuntime>(model, &FirmwareOverrides::none()).map_err(|err| {
+                MachineError::Host {
+                    reason: err.to_string(),
+                }
+            })?;
+        self.model = model;
+        Ok(())
     }
 
     fn button_map(&self) -> &'static ButtonInputMap {
@@ -148,6 +181,50 @@ fn map_pet_keys(code: KeyCode) -> Option<&'static [&'static str]> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn window_constructor_installs_catalogue_roms_and_sizes_both_profiles() {
+        let dir = std::env::temp_dir().join(format!("pet-ui-catalogue-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("directory");
+        for (name, size) in [
+            ("kernal.rom", 4096),
+            ("basic.rom", 8192),
+            ("editor.rom", 2048),
+            ("chargen.rom", 4096),
+        ] {
+            std::fs::write(dir.join(name), vec![0x3c; size]).expect("ROM");
+        }
+        for model in Model::ALL {
+            let app = CommodorePet {
+                model,
+                firmware: FirmwareOverrides {
+                    dir: Some(dir.clone()),
+                    ..FirmwareOverrides::none()
+                },
+                ..CommodorePet::default()
+            };
+            let mut runtime = app.build_ui_runtime().expect("window runtime");
+            let mut system = app.ui_system();
+            assert_eq!(system.variants().len(), 2);
+            assert_eq!(
+                system.current_variant().as_deref(),
+                Some(model.variant_id())
+            );
+            assert_eq!(
+                system.framebuffer_size(&runtime),
+                (model.screen_chars() * 8 + 64, 248)
+            );
+            assert_eq!(system.frame_ticks(&runtime), 20_000);
+            assert_eq!(
+                system.frame_duration(&runtime),
+                Duration::from_secs_f64(1.0 / 50.0)
+            );
+            assert_eq!(runtime.machine().expect("machine").peek(0xe000), 0x3c);
+            assert!(system.switch_variant(&mut runtime, "unknown").is_err());
+            assert_eq!(runtime.model(), model);
+        }
+        std::fs::remove_dir_all(dir).expect("cleanup");
+    }
 
     #[test]
     fn maps_letters_digits_and_return() {

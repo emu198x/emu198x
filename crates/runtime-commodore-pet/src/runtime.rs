@@ -58,10 +58,6 @@ pub struct PetRuntime {
     profile: MachineProfile,
     model: Model,
     machine: Option<Pet>,
-    kernal_bytes: Option<Vec<u8>>,
-    basic_bytes: Option<Vec<u8>>,
-    editor_bytes: Option<Vec<u8>>,
-    char_bytes: Option<Vec<u8>>,
     time: MachineTime,
     rgba_framebuffer: Vec<u8>,
     rgba_width: u32,
@@ -77,10 +73,6 @@ impl PetRuntime {
             profile: profile_for(model),
             model,
             machine: None,
-            kernal_bytes: None,
-            basic_bytes: None,
-            editor_bytes: None,
-            char_bytes: None,
             time: MachineTime::default(),
             rgba_framebuffer: Vec::new(),
             rgba_width: 0,
@@ -186,11 +178,13 @@ impl PetRuntime {
                 ),
             });
         }
-        self.kernal_bytes = Some(kernal);
-        self.basic_bytes = Some(basic);
-        self.editor_bytes = Some(editor);
-        self.char_bytes = Some(char_rom);
-        self.rebuild_machine();
+        self.set_machine(Some(Pet::new(
+            kernal,
+            basic,
+            editor,
+            char_rom,
+            self.model.screen_chars(),
+        )));
         Ok(())
     }
 
@@ -282,23 +276,11 @@ impl PetRuntime {
     }
 
     fn rebuild_machine(&mut self) {
-        let (Some(kernal), Some(basic), Some(editor), Some(char_rom)) = (
-            self.kernal_bytes.clone(),
-            self.basic_bytes.clone(),
-            self.editor_bytes.clone(),
-            self.char_bytes.clone(),
-        ) else {
-            self.machine = None;
-            return;
-        };
-        let machine = Pet::new(kernal, basic, editor, char_rom, self.model.screen_chars());
-        let width = machine.framebuffer_width();
-        let height = machine.framebuffer_height();
-        self.rgba_width = width;
-        self.rgba_height = height;
-        self.rgba_framebuffer = vec![0; (width * height * 4) as usize];
-        self.machine = Some(machine);
-        self.update_rgba_framebuffer();
+        let machine = self
+            .machine
+            .as_ref()
+            .map(|machine| machine.cold_boot(self.model.screen_chars()));
+        self.set_machine(machine);
     }
 
     fn update_rgba_framebuffer(&mut self) {
@@ -316,7 +298,48 @@ impl PetRuntime {
     }
 }
 
+impl emu198x_shell::FamilyRuntime for PetRuntime {
+    type Model = Model;
+    fn variant_ids() -> &'static [&'static str] {
+        &Model::VARIANT_IDS
+    }
+    fn model_from_id(id: &str) -> Option<Model> {
+        Model::from_variant_id(id)
+    }
+    fn variant_id(model: Model) -> &'static str {
+        model.variant_id()
+    }
+    fn profile_for(model: Model) -> MachineProfile {
+        profile_for(model)
+    }
+    fn rom_convention() -> emu198x_shell::RomConvention {
+        emu198x_shell::RomConvention {
+            env_var: Some("EMU198X_PET_ROM_DIR"),
+            dirs: &["commodore-pet"],
+        }
+    }
+    fn firmware_sources(model: Model) -> Vec<emu198x_shell::FirmwareSource> {
+        model.firmware_sources()
+    }
+    fn from_firmware(
+        model: Model,
+        firmware: &emu198x_shell::FirmwareSet<'_>,
+    ) -> Result<Self, MachineError> {
+        Self::from_firmware(model, firmware)
+    }
+    fn native_frame_ticks(&self) -> u64 {
+        self.model.frame_ticks()
+    }
+}
+
 impl MachineCore for PetRuntime {
+    fn set_machine<Q: emu198x_shell::SessionQueryProvider<Self>>(
+        session: &mut emu198x_shell::HeadlessSession<Self, Q>,
+        machine: &str,
+    ) -> Result<emu198x_shell::VariantSwitched, emu198x_shell::LoaderError> {
+        emu198x_shell::swap_variant(session, machine)
+    }
+
     fn profile(&self) -> &MachineProfile {
         &self.profile
     }

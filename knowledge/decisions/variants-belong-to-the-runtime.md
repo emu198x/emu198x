@@ -308,6 +308,18 @@ use that path, removing redundant ROM caches without adding fields to snapshots.
 New cartridge insertion constructs successfully before replacing the live
 machine, so a failed parse leaves reset and switching usable.
 
+## PET display-profile switching
+
+PET 40- and 80-column selection uses the default fresh-machine replacement
+policy. Conventional firmware is resolved for the target; RAM and queued PRGs
+are discarded only after construction succeeds. Firmware paths remain the
+existing four filenames for both profiles, so profile selection alone does not
+guarantee that the staged editor ROM matches the display hardware.
+
+Reset uses the firmware in the installed machine, including snapshot-restored
+ROMs. The machine's `cold_boot` delegates to its existing constructor; removing
+runtime ROM caches changes neither snapshot serialization nor hardware execution.
+
 ## Drift triggers
 
 Stop and re-read this record if you find yourself:
