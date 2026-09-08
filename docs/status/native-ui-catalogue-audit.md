@@ -1,18 +1,19 @@
 # Native UI catalogue audit
 
-Source audit dated 2026-09-08, against main `330c9269` plus the Amiga catalogue
-and grouped-menu changes described here. This is a source-level coverage audit,
+Source audit dated 2026-09-08, against main `330c9269` plus the Amiga catalogue,
+grouped-menu and ZX80 migration changes described here. This is a source-level coverage audit,
 not a claim that every preset has booted or passed hardware validation.
 
 ## Coverage
 
 All 30 registered machine binaries have a native `UiApp` adapter and enable the
-UI feature by default. Five expose a Machine-menu selector. Seventeen other
+UI feature by default. Six expose a Machine-menu selector. Sixteen other
 binaries have multiple runtime profiles without an in-window selector; the
 remaining eight have a single runtime profile.
 
 The shared native menu is currently attached on **macOS only**. Windows menu
-attachment remains TODO #549, and Linux uses a stub. Therefore the selector
+attachment remains unwired (the code still references the closed #549), and
+Linux uses a stub. Therefore the selector
 counts below describe the macOS menu surface, not equivalent controls on every
 host. See [shared menu construction and attachment](../../crates/emu198x-ui/src/menu.rs).
 
@@ -48,7 +49,7 @@ select; “None” means the catalogue has alternatives but no menu to choose th
 | [sega-game-gear](../../crates/emu198x-sega-game-gear/src/app.rs) | 1 | `--variant` (one choice) | — | Game Gear |
 | [sega-master-system](../../crates/emu198x-sega-master-system/src/app.rs) | 5 | `--variant` | None | Hardware revisions/market/region |
 | [sega-sg-1000](../../crates/emu198x-sega-sg-1000/src/app.rs) | 2 | `--region` | None | Region |
-| [sinclair-zx80](../../crates/emu198x-sinclair-zx80/src/app.rs) | 3 | ZX80 fixed; `--ram-bytes` override | None | ZX80/USA/RAM pack; USA profile lacks a launch selector |
+| [sinclair-zx80](../../crates/emu198x-sinclair-zx80/src/app.rs) | 3 | `--model`; `--ram-bytes` override | 3/3 | One ZX80 base machine; USA strap and RAM-pack presets |
 | [sinclair-zx81](../../crates/emu198x-sinclair-zx81/src/app.rs) | 3 | `--model` | 3/3 | ZX81/16 KiB RAM pack/Timex TS1000 |
 | [sord-m5](../../crates/emu198x-sord-m5/src/app.rs) | 2 | `--region` | None | Region |
 | [spectravideo-svi-328](../../crates/emu198x-spectravideo-svi-328/src/app.rs) | 2 | `--region` | None | Region |
@@ -83,8 +84,9 @@ limited or research profiles. Menu presence is not evidence of boot usability.
 
 1. Migrate families with alternate profiles to the existing runtime-owned
    catalogue, firmware resolver and shared switch path. Dragon already has a
-   menu but retains its own switching path. Start with ROM-based families such
-   as ZX80; expose its USA profile and distinguish RAM-pack configuration.
+   menu but retains its own switching path. ZX80 now exposes its USA profile
+   and RAM-pack configuration through the shared path. Continue with the other
+   Z80 families, retaining each family's existing firmware and media semantics.
 2. For cartridge systems, define and verify cartridge retention/reload on a
    hardware switch before adding selectors. Rebuilding a core alone does not
    establish that the running game remains usable.
@@ -107,3 +109,44 @@ A local macOS Amiga process successfully started with native audio outside the
 sandbox. The UI automation provider could not identify the unbundled executable,
 so the actual menu appearance and click-through remain unverified. This audit
 does not claim a visual pass for it or for the other 29 binaries.
+
+## ZX80 follow-on and backlog alignment
+
+The ZX80 migration advances [#1475](https://github.com/emu198x/emu198x/issues/1475)
+and the UI/script/MCP parity goal in
+[#456](https://github.com/emu198x/emu198x/issues/456). Its three existing profile
+ids now select the same presets through launch, scripts, MCP and the native
+menu. `--rom-dir`, `EMU198X_ZX80_ROM_DIR` and `--rom ID=PATH` use the shared
+resolver. The existing `--rom PATH`, `EMU198X_ZX80_ROM` and conventional file
+location continue to work; removing file environment variables is unnecessary
+because the shared catalogue already supports them. Firmware pins win over the
+file environment variable, which wins over directory lookup.
+
+Switching constructs the target preset with conventional firmware and default
+RAM, ejecting the tape and dropping launch overrides. Reports read live RAM and
+tape state. Missing conventional firmware still allows blank MCP startup;
+invalid images and explicitly requested missing paths produce errors.
+
+In line with [#720](https://github.com/emu198x/emu198x/issues/720), verification
+checks actual installed model, RAM, television strap, display height and frame
+budget, rather than only the presence of a capability declaration. The audio
+vocabulary/conformance problem in
+[#1369](https://github.com/emu198x/emu198x/issues/1369) remains separate: this
+silent machine gains no audio capability declaration. Hash-based firmware
+lookup stays deferred under
+[#1476](https://github.com/emu198x/emu198x/issues/1476).
+
+Tests exercise the actual CLI, scripts and MCP with synthetic firmware,
+including tape ejection and errors. Local staged-ROM launches ran all three
+presets for 150 requested frames; inspected captures show the startup cursor
+at 384×288 for the two 50 Hz presets and 384×240 for USA. This verifies the
+headless boot/capture path, not native menu interaction or audio-device policy.
+
+Two related issues constrain later UI work:
+[#830](https://github.com/emu198x/emu198x/issues/830) requires truthful Amiga
+support evidence across hardware dimensions; configuration labels and selectors
+do not satisfy that gate.
+[#1042](https://github.com/emu198x/emu198x/issues/1042) proposes shared keyboard
+layout/legend metadata before a clickable renderer. That remains a separate
+step toward a usable native interface, using the same machine input events
+rather than adding a per-system keyboard UI.
