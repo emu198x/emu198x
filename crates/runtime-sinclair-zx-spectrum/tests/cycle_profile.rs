@@ -295,6 +295,7 @@ fn profiling_consumes_queued_keyboard_input_before_running() {
     ScriptStep::ProfileCycles {
         ticks: 72,
         routines: Vec::new(),
+        static_cycles: None,
     }
     .execute_collect(&mut session)
     .expect("capture with queued input");
@@ -315,7 +316,8 @@ fn active_recording_is_refused_without_advancing() {
     assert!(
         ScriptStep::ProfileCycles {
             ticks: 16,
-            routines: Vec::new()
+            routines: Vec::new(),
+            static_cycles: None
         }
         .execute_collect(&mut session)
         .is_err()

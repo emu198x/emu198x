@@ -382,6 +382,9 @@ pub enum ScriptStep {
         /// Explicit extents for exclusive and inclusive costs with observed call counts.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         routines: Vec<crate::routine_profile::RoutineDefinition>,
+        /// Same-build Asm198x listing for execution-weighted static comparison.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        static_cycles: Option<crate::static_cycles::StaticCycles>,
     },
     /// Single-step the CPU.
     ///
@@ -1430,7 +1433,41 @@ impl ScriptStep {
                     registers: target.cpu_state(),
                 }))
             }
-            Self::ProfileCycles { ticks, routines } => {
+            Self::ProfileCycles {
+                ticks,
+                routines,
+                static_cycles,
+            } => {
+                let comparison = static_cycles
+                    .as_ref()
+                    .map(|request| {
+                        crate::static_cycles::ComparisonPlan::new(
+                            request,
+                            session.machine().cycle_profile_timing(),
+                            routines,
+                        )
+                    })
+                    .transpose()
+                    .map_err(|err| ScriptError::InvalidStep {
+                        step: "profile_cycles",
+                        reason: err.to_string(),
+                    })?;
+                if comparison.is_some() && session.debug_symbols().is_none() {
+                    return Err(ScriptError::InvalidStep {
+                        step: "profile_cycles",
+                        reason: "load matching debug info before a static cycle comparison".into(),
+                    });
+                }
+                if let Some(request) = static_cycles
+                    && session
+                        .debug_symbols()
+                        .is_some_and(|symbols| symbols.header().cpu != request.cpu)
+                {
+                    return Err(ScriptError::InvalidStep {
+                        step: "profile_cycles",
+                        reason: "static cycle CPU must match the loaded debug info".into(),
+                    });
+                }
                 let mut call_profiler =
                     crate::call_profile::CallProfiler::new(routines).map_err(|err| {
                         ScriptError::InvalidStep {
@@ -1477,6 +1514,9 @@ impl ScriptStep {
                 let mut profile = counts.with_symbols(clock, session.debug_symbols());
                 if !routines.is_empty() {
                     call_profiler.finish(&mut profile);
+                }
+                if let Some(comparison) = comparison {
+                    comparison.apply(&mut profile);
                 }
                 Ok(Some(ScriptObservation::ProfileCycles { profile }))
             }

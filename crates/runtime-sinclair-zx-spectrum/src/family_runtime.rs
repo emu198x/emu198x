@@ -489,6 +489,10 @@ impl SpectrumRuntimeKind {
 }
 
 impl MachineCore for SpectrumRuntimeKind {
+    fn cycle_profile_timing(&self) -> Option<emu198x_shell::static_cycles::CycleTiming> {
+        match_kind!(self, |rt| rt.cycle_profile_timing())
+    }
+
     fn profile_cycles(
         &mut self,
         ticks: u32,

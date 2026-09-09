@@ -183,6 +183,11 @@ impl RunResult {
 
 /// Narrow shared contract implemented by machine runtimes.
 pub trait MachineCore {
+    /// Fixed CPU-cycle unit for static comparison, when the runtime can supply it.
+    fn cycle_profile_timing(&self) -> Option<crate::static_cycles::CycleTiming> {
+        None
+    }
+
     /// Run an exact, bounded window and collect execution costs. Unsupported
     /// machines must refuse without advancing. This debug operation does not
     /// deliver frame/audio packets to host sinks.
