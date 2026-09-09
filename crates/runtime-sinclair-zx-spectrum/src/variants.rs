@@ -1459,6 +1459,12 @@ impl<V: AmstradVariant> SpectrumMachine for SpectrumAmstradClassCore<V> {
 }
 
 impl SpectrumMachine for Pentagon128 {
+    fn capture_cycle_counts(
+        &mut self,
+        ticks: u32,
+    ) -> Result<emu198x_shell::cycle_profile::CycleCounts, emu198x_shell::MachineError> {
+        crate::profiling::capture(self, ticks)
+    }
     const FRAME_WIDTH: u32 = SCREEN_WIDTH as u32;
     const FRAME_HEIGHT: u32 = SCREEN_HEIGHT as u32;
 
@@ -1609,6 +1615,12 @@ impl SpectrumMachine for Pentagon128 {
 }
 
 impl SpectrumMachine for ScorpionZS256 {
+    fn capture_cycle_counts(
+        &mut self,
+        ticks: u32,
+    ) -> Result<emu198x_shell::cycle_profile::CycleCounts, emu198x_shell::MachineError> {
+        crate::profiling::capture(self, ticks)
+    }
     const FRAME_WIDTH: u32 = SCREEN_WIDTH as u32;
     const FRAME_HEIGHT: u32 = SCREEN_HEIGHT as u32;
 
