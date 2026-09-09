@@ -1,6 +1,6 @@
 use common_sinclair_zx_spectrum::driver::SpectrumDriver;
 use emu198x_shell::{MachineCore, cycle_profile::CycleCounts};
-use runtime_sinclair_zx_spectrum::{Spectrum48kRuntime, SpectrumMachine, SpectrumPlus3Runtime};
+use runtime_sinclair_zx_spectrum::{Pentagon128Runtime, Spectrum48kRuntime, SpectrumMachine};
 
 fn program(address: u16, bytes: &[u8]) -> Spectrum48kRuntime {
     let mut runtime = Spectrum48kRuntime::new_48k([0; 16 * 1024]);
@@ -139,7 +139,7 @@ fn unsupported_models_and_invalid_budgets_do_not_advance() {
         assert_eq!(runtime.time().get(), 0);
         assert_eq!(runtime.machine().hc(), 0);
     }
-    let mut banked = SpectrumPlus3Runtime::blank();
+    let mut banked = Pentagon128Runtime::blank();
     assert!(banked.profile_cycles(16).is_err());
     assert_eq!(banked.time().get(), 0);
 }

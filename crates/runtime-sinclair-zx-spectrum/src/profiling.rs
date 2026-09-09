@@ -54,6 +54,30 @@ banked_profile_machine!(
     machine_sinclair_zx_spectrum_plus2::SpectrumPlus2,
 );
 
+impl<V: common_sinclair_zx_spectrum_amstrad_class::AmstradVariant> ProfileMachine
+    for common_sinclair_zx_spectrum_amstrad_class::SpectrumAmstradClassCore<V>
+{
+    fn cpu(&self) -> &emu198x_zilog_z80::Z80 {
+        &self.z80
+    }
+    fn cpu_mut(&mut self) -> &mut emu198x_zilog_z80::Z80 {
+        &mut self.z80
+    }
+    fn mapping(&self, address: u16) -> Option<ProfileMapping> {
+        use common_sinclair_zx_spectrum_amstrad_class::memory::MappedBank;
+        let (memory, page) = match self.memory.mapped_bank(address) {
+            MappedBank::Ram(page) => (ProfileMemory::Ram, page),
+            MappedBank::Rom(page) => (ProfileMemory::Rom, page),
+        };
+        Some(ProfileMapping {
+            memory,
+            page: u16::from(page),
+            slot: (address >> 14) as u8,
+            base: u32::from(address & 0xc000),
+        })
+    }
+}
+
 // Mirror the existing driver's scheduled phases, including odd divisors.
 fn ticks_to_edge(hc: u32, divisor: u32) -> u32 {
     let phase = hc % divisor;
