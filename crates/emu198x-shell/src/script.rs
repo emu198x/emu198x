@@ -379,6 +379,9 @@ pub enum ScriptStep {
     ProfileCycles {
         /// Exact authoritative machine ticks to run; limited to MAX_PROFILE_TICKS.
         ticks: u32,
+        /// Explicit routine extents for exclusive costs; no call counts are inferred.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        routines: Vec<crate::routine_profile::RoutineDefinition>,
     },
     /// Single-step the CPU.
     ///
@@ -1427,7 +1430,14 @@ impl ScriptStep {
                     registers: target.cpu_state(),
                 }))
             }
-            Self::ProfileCycles { ticks } => {
+            Self::ProfileCycles { ticks, routines } => {
+                let routine_plan =
+                    crate::routine_profile::RoutinePlan::new(routines).map_err(|err| {
+                        ScriptError::InvalidStep {
+                            step: "profile_cycles",
+                            reason: err.to_string(),
+                        }
+                    })?;
                 crate::cycle_profile::validate_ticks(*ticks).map_err(|err| {
                     ScriptError::InvalidStep {
                         step: "profile_cycles",
@@ -1460,7 +1470,8 @@ impl ScriptStep {
                         step: "profile_cycles",
                         reason: err.to_string(),
                     })?;
-                let profile = counts.with_symbols(clock, session.debug_symbols());
+                let mut profile = counts.with_symbols(clock, session.debug_symbols());
+                routine_plan.apply(&mut profile);
                 Ok(Some(ScriptObservation::ProfileCycles { profile }))
             }
             Self::Step { instructions } => {

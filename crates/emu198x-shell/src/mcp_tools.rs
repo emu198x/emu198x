@@ -1099,11 +1099,12 @@ pub fn register_tools_for_profiles<M, Q>(
     if has("cycle-profile") {
         registry.register(Box::new(ScriptStepTool::<M, Q>::common(
             "profile_cycles",
-            "Run an exact window of machine ticks and report per-address/source-line execution costs, including contention and separate interrupt, HALT and partial intervals. Supported by all Spectrum-family catalogue models; banked reports preserve the mapping at instruction start.",
+            "Run an exact window of machine ticks and report per-address/source-line execution costs, including contention and separate interrupt, HALT and partial intervals. Supported by all Spectrum-family catalogue models; banked reports preserve the mapping at instruction start. Optional explicit routine ranges report exclusive instruction costs; ranges must not overlap and do not infer calls.",
             json!({
                 "type": "object", "required": ["ticks"], "additionalProperties": false,
                 "properties": { "ticks": { "type": "integer", "minimum": 1,
-                    "maximum": crate::cycle_profile::MAX_PROFILE_TICKS } }
+                    "maximum": crate::cycle_profile::MAX_PROFILE_TICKS },
+                    "routines": crate::routine_profile::schema() }
             }),
         )));
     }

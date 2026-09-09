@@ -154,5 +154,62 @@ At an uncontended boundary the four instruction addresses cost 28, 48, 136 and
 waiting. Source lines 5–8 receive those same costs. The runtime integration test
 checks the real sidecar and verifies identical script and MCP reports.
 
-This work does not close #1372: additional CPU/runtime adapters outside the Spectrum family, routine/call accounting and comparisons with
-Asm198x static ranges remain separate extensions.
+## Explicit routine costs
+
+`profile_cycles` optionally accepts named routine ranges. Debug198x has labels
+and line spans but no routine extents. Asm198x's static label-to-next-label totals
+can split a routine at internal labels, so the profiler does not infer boundaries
+from them. The caller declares the instruction starts each routine owns:
+
+```json
+{"action":"profile_cycles","ticks":552,"routines":[
+  {"name":"main","ranges":[{"start":49152,"end":49159}]},
+  {"name":"work","ranges":[{"start":49168,"end":49174}]}
+]}
+```
+
+The [routine fixture](../../test-data/sinclair/zx-spectrum/routine-profile/calls.asm)
+loads at `$C000`, calls `work` twice and halts. On the 48K at an uncontended
+boundary, `main` has 3 completed instructions and 152 exclusive master ticks;
+`work`, including its internal loop label, has 12 instructions and 368 ticks.
+The remaining 32 ticks are HALT waiting. The test loads the real Asm198x sidecar
+and checks identical script and MCP output.
+
+Ranges are half-open: `start` is inclusive and `end` exclusive. An instruction's
+first byte selects its owner even if later bytes cross the boundary. A routine
+may have multiple ranges. All ranges in the same coordinate space must be
+disjoint, including ranges of the same routine. Names must be unique, nonblank
+and at most 128 characters. Requests allow at most 128 routines and 512 ranges
+in total; invalid definitions are rejected before execution or queued input.
+
+The default coordinate space is flat CPU addresses, matching only flat captures.
+Banked captures require physical page offsets, for example:
+
+```json
+{"name":"bank5_work","ranges":[
+  {"start":16,"end":22,"space":{"kind":"page","memory":"ram","page":5}}
+]}
+```
+
+Page identity uses the captured memory namespace (`ram`, `rom`, `rom_overlay`
+or `unmapped`) and page number. Aliases in different CPU slots combine; different
+pages and namespaces remain separate. Source annotation is independent of these
+explicit declarations, so declaring a ROM range does not give it a source join.
+
+The report returns `routines` in request order with names, ranges, completed
+`instructions` and `exclusive_ticks`, including zero rows for unexecuted routines.
+These are costs of instructions in the declared extents: a caller owns its CALL
+instruction and a callee owns its RET. Callees outside the caller's ranges are
+excluded. This is not call tracking: instruction counts are not invocation counts,
+and the report does not infer inclusive costs, recursion or a call tree.
+
+`unassigned_routine_ticks` accounts for completed instructions outside every
+routine. Routine costs plus that value equal the completed-instruction total.
+Interrupt entry, HALT waiting and partial intervals retain their separate buckets.
+Omitting routines (or passing an empty list) omits both new report fields and
+preserves the existing report shape. Attribution indexes the bounded address
+report after capture; it adds no instruction trace or CPU/bus instrumentation.
+
+This work does not close #1372: additional CPU/runtime adapters outside the
+Spectrum family, call tracking and inclusive costs, and comparisons with Asm198x
+static ranges remain separate extensions.

@@ -100,3 +100,4 @@ pub use video::{
 pub use watch::{WatchAyRecord, WatchError, WatchMemoryRecord, WatchMemorySource, WatchTarget};
 
 pub mod cycle_profile;
+pub mod routine_profile;
