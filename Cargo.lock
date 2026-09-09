@@ -4493,6 +4493,7 @@ name = "runtime-sinclair-zx-spectrum"
 version = "0.24.0"
 dependencies = [
  "common-sinclair-zx-spectrum",
+ "common-sinclair-zx-spectrum-48k-class",
  "common-sinclair-zx-spectrum-amstrad-class",
  "common-tape",
  "criterion",

@@ -9,10 +9,11 @@
 `profile_cycles` runs an exact, bounded window of authoritative machine ticks
 and returns per-address execution costs plus Debug198x source-line totals.
 The shared shell owns the command, report and source join. The runtime owns
-measurement. Capture supports the PAL 48K, 128K, +2, +2A, +2B and +3 Spectrum.
+measurement. Capture supports all eight original PAL Spectrum models: 16K, 48K, Spectrum+,
+128K, +2, +2A, +2B and +3.
 
-The report includes its clock unit and rational frequency. The 48K Spectrum
-uses 14 MHz master ticks: four ticks per CPU T-state. These are elapsed emulated
+The report includes its clock unit and rational frequency. The 16K, 48K and Spectrum+
+use 14 MHz master ticks: four ticks per CPU T-state. These are elapsed emulated
 ticks, including contention, rather than host duration or instruction-table
 estimates. The 128K and all +2/+3 variants use 17,734,475 Hz master ticks, five per
 T-state. Capture follows the driver's existing two scheduled edges per T-state,
@@ -24,6 +25,12 @@ and its identity at retirement. Interrupt responses and HALT refresh intervals
 are distinct identities. It neither drives the bus nor changes the clock loop,
 and is excluded from snapshots. The runtime uses the existing master-clock
 advance path, including frame wrapping and machine audio flushing.
+
+The 16K, 48K and Spectrum+ share one adapter over their existing machine core
+and memory implementations. The 16K's disconnected upper 32 KiB remains
+disconnected: attempted writes are dropped and instruction fetches read `$FF`.
+Those executed instructions still accrue cost at their CPU addresses. Profiling
+does not substitute a 48K memory map or restrict execution to installed RAM.
 
 Retirement happens on a CPU edge. The interval closes before the next scheduled
 CPU edge so the retiring half-cycle includes its remaining master ticks. The

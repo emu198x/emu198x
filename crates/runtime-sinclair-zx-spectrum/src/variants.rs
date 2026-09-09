@@ -542,6 +542,12 @@ impl SpectrumMachine for Spectrum48k {
 }
 
 impl SpectrumMachine for Spectrum16K {
+    fn capture_cycle_counts(
+        &mut self,
+        ticks: u32,
+    ) -> Result<emu198x_shell::cycle_profile::CycleCounts, emu198x_shell::MachineError> {
+        crate::profiling::capture(self, ticks)
+    }
     const FRAME_WIDTH: u32 = SCREEN_WIDTH as u32;
     const FRAME_HEIGHT: u32 = SCREEN_HEIGHT as u32;
 
@@ -701,6 +707,12 @@ impl SpectrumMachine for Spectrum16K {
 // cross between the two and per-variant metadata can attach to the
 // marker rather than the runtime.
 impl SpectrumMachine for SpectrumPlus {
+    fn capture_cycle_counts(
+        &mut self,
+        ticks: u32,
+    ) -> Result<emu198x_shell::cycle_profile::CycleCounts, emu198x_shell::MachineError> {
+        crate::profiling::capture(self, ticks)
+    }
     const FRAME_WIDTH: u32 = SCREEN_WIDTH as u32;
     const FRAME_HEIGHT: u32 = SCREEN_HEIGHT as u32;
 

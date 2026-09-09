@@ -381,6 +381,7 @@ pub fn profile_for(model: Model) -> MachineProfile {
             )],
             media_slots: vec![tape_slot()],
             capabilities: CapabilitySet::with_all([
+                known_capability("cycle-profile"),
                 known_capability("beeper-audio"),
                 known_capability("keyboard-matrix"),
                 known_capability("snapshot-export"),
@@ -450,6 +451,7 @@ pub fn profile_for(model: Model) -> MachineProfile {
             )],
             media_slots: vec![tape_slot()],
             capabilities: CapabilitySet::with_all([
+                known_capability("cycle-profile"),
                 known_capability("beeper-audio"),
                 known_capability("keyboard-matrix"),
                 known_capability("snapshot-export"),
