@@ -648,6 +648,7 @@ pub fn profile_for(model: Model) -> MachineProfile {
             )],
             media_slots: vec![tape_slot()],
             capabilities: CapabilitySet::with_all([
+                known_capability("cycle-profile"),
                 known_capability("beeper-audio"),
                 known_capability("keyboard-matrix"),
                 known_capability("tape-input"),
@@ -693,7 +694,7 @@ pub fn profile_for(model: Model) -> MachineProfile {
                 })
                 .collect(),
             media_slots: vec![tape_slot()],
-            capabilities: ay_capabilities(),
+            capabilities: { let mut caps = ay_capabilities(); caps.insert(known_capability("cycle-profile")); caps },
         },
     }
 }

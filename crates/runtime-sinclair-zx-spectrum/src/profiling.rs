@@ -116,6 +116,43 @@ beta_profile_machine!(
     u16::from(machine_scorpion_zs256::memory::MemoryScorpion::TRDOS_ROM_BANK)
 );
 
+impl ProfileMachine for machine_timex_tc2048::TimexTC2048 {
+    fn cpu(&self) -> &emu198x_zilog_z80::Z80 {
+        &self.z80
+    }
+    fn cpu_mut(&mut self) -> &mut emu198x_zilog_z80::Z80 {
+        &mut self.z80
+    }
+    fn mapping(&self, _address: u16) -> Option<ProfileMapping> {
+        None
+    }
+}
+
+impl ProfileMachine for machine_timex_ts2068::TimexTS2068 {
+    fn cpu(&self) -> &emu198x_zilog_z80::Z80 {
+        &self.z80
+    }
+    fn cpu_mut(&mut self) -> &mut emu198x_zilog_z80::Z80 {
+        &mut self.z80
+    }
+    fn mapping(&self, address: u16) -> Option<ProfileMapping> {
+        use machine_timex_ts2068::memory::MemorySource;
+        let slot = (address >> 13) as u8;
+        let (memory, page) = match self.memory.mapped_source(address) {
+            MemorySource::HomeRam => (ProfileMemory::Ram, u16::from(slot)),
+            MemorySource::HomeRom => (ProfileMemory::Rom, u16::from(slot)),
+            MemorySource::Exrom => (ProfileMemory::RomOverlay, 0),
+            MemorySource::EmptyDock => (ProfileMemory::Unmapped, u16::from(slot)),
+        };
+        Some(ProfileMapping {
+            memory,
+            page,
+            slot,
+            base: u32::from(address & 0xe000),
+        })
+    }
+}
+
 // Mirror the existing driver's scheduled phases, including odd divisors.
 fn ticks_to_edge(hc: u32, divisor: u32) -> u32 {
     let phase = hc % divisor;

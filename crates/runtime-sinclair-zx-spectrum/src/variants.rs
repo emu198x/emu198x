@@ -1770,6 +1770,12 @@ impl SpectrumMachine for ScorpionZS256 {
 }
 
 impl SpectrumMachine for TimexTC2048 {
+    fn capture_cycle_counts(
+        &mut self,
+        ticks: u32,
+    ) -> Result<emu198x_shell::cycle_profile::CycleCounts, emu198x_shell::MachineError> {
+        crate::profiling::capture(self, ticks)
+    }
     const FRAME_WIDTH: u32 = SCREEN_WIDTH_HIRES as u32;
     const FRAME_HEIGHT: u32 = SCREEN_HEIGHT as u32;
 
@@ -1907,6 +1913,12 @@ impl SpectrumMachine for TimexTC2048 {
 }
 
 impl SpectrumMachine for TimexTS2068 {
+    fn capture_cycle_counts(
+        &mut self,
+        ticks: u32,
+    ) -> Result<emu198x_shell::cycle_profile::CycleCounts, emu198x_shell::MachineError> {
+        crate::profiling::capture(self, ticks)
+    }
     const FRAME_WIDTH: u32 = SCREEN_WIDTH_HIRES as u32;
     const FRAME_HEIGHT: u32 = SCREEN_HEIGHT as u32;
 
