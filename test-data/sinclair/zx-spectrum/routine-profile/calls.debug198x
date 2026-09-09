@@ -1,0 +1,15 @@
+{"t":"header","format":"debug198x","format_version":"0.1","tool":"asm198x","tool_version":"0.0.53","cpu":"z80","dialect":"pasmo","sources":["test-data/sinclair/zx-spectrum/routine-profile/calls.asm"]}
+{"t":"section","id":0,"name":"main","base":49152}
+{"t":"symbol","name":"main","kind":"entry","section":0,"offset":0}
+{"t":"symbol","name":"end_main","kind":"label","section":0,"offset":7}
+{"t":"symbol","name":"work","kind":"label","section":0,"offset":16}
+{"t":"symbol","name":".loop","kind":"label","section":0,"offset":18}
+{"t":"symbol","name":"end_work","kind":"label","section":0,"offset":22}
+{"t":"line","file":"test-data/sinclair/zx-spectrum/routine-profile/calls.asm","line":4,"section":0,"offset":0,"length":3}
+{"t":"line","file":"test-data/sinclair/zx-spectrum/routine-profile/calls.asm","line":5,"section":0,"offset":3,"length":3}
+{"t":"line","file":"test-data/sinclair/zx-spectrum/routine-profile/calls.asm","line":6,"section":0,"offset":6,"length":1}
+{"t":"line","file":"test-data/sinclair/zx-spectrum/routine-profile/calls.asm","line":8,"section":0,"offset":7,"length":9}
+{"t":"line","file":"test-data/sinclair/zx-spectrum/routine-profile/calls.asm","line":9,"section":0,"offset":16,"length":2}
+{"t":"line","file":"test-data/sinclair/zx-spectrum/routine-profile/calls.asm","line":10,"section":0,"offset":18,"length":1}
+{"t":"line","file":"test-data/sinclair/zx-spectrum/routine-profile/calls.asm","line":11,"section":0,"offset":19,"length":2}
+{"t":"line","file":"test-data/sinclair/zx-spectrum/routine-profile/calls.asm","line":12,"section":0,"offset":21,"length":1}

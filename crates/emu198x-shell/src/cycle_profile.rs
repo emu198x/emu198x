@@ -134,6 +134,13 @@ pub struct CycleProfile {
     pub addresses: Vec<ProfileAddress>,
     /// Source totals; excludes unmapped instructions and non-instruction buckets.
     pub lines: Vec<ProfileLine>,
+    /// Exclusive costs for explicitly requested routines; omitted when not requested.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub routines: Vec<crate::routine_profile::RoutineCost>,
+    /// Completed instruction ticks outside every declared routine. Non-instruction
+    /// buckets remain in `counts`; absent when routine reporting was not requested.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unassigned_routine_ticks: Option<u64>,
     /// Completed instruction ticks without a matching source line.
     pub unmapped_ticks: u64,
 }
@@ -198,6 +205,8 @@ impl CycleCounts {
                 })
                 .collect(),
             unmapped_ticks,
+            routines: Vec::new(),
+            unassigned_routine_ticks: None,
         }
     }
 }

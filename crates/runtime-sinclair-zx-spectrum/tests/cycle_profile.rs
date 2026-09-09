@@ -292,9 +292,12 @@ fn profiling_consumes_queued_keyboard_input_before_running() {
     }
     .execute_collect(&mut session)
     .expect("queue keyboard input");
-    ScriptStep::ProfileCycles { ticks: 72 }
-        .execute_collect(&mut session)
-        .expect("capture with queued input");
+    ScriptStep::ProfileCycles {
+        ticks: 72,
+        routines: Vec::new(),
+    }
+    .execute_collect(&mut session)
+    .expect("capture with queued input");
     assert_eq!(session.machine().machine().z80().regs.a() & 1, 0);
 }
 
@@ -310,9 +313,12 @@ fn active_recording_is_refused_without_advancing() {
         .start_audio_recording(path)
         .expect("start lazy audio recording");
     assert!(
-        ScriptStep::ProfileCycles { ticks: 16 }
-            .execute_collect(&mut session)
-            .is_err()
+        ScriptStep::ProfileCycles {
+            ticks: 16,
+            routines: Vec::new()
+        }
+        .execute_collect(&mut session)
+        .is_err()
     );
     assert_eq!(session.time().get(), 0);
 }
