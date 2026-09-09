@@ -4,6 +4,22 @@ All notable changes to Emu198x will be documented in this file.
 
 Format loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 not strictly. Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [0.25.0] - 2026-09-09
+
+
+### Added
+
+- Profile Spectrum execution costs by source line
+- Preserve Spectrum banks in cycle profiles
+- Profile Amstrad Spectrum all-RAM paging
+- Profile the Spectrum 16K and Spectrum+
+- Profile Pentagon and Scorpion ROM overlays
+- Profile Timex HOME and extension memory
+- Report exclusive routine execution costs
+- Expose Z80 call and return observation events
+- Report inclusive routine costs and observed calls
+- Compare static cycle ranges with measured execution
+
 ## [0.24.0] - 2026-09-08
 
 
