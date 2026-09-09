@@ -855,6 +855,12 @@ impl SpectrumMachine for SpectrumPlus {
 }
 
 impl SpectrumMachine for Spectrum128K {
+    fn capture_cycle_counts(
+        &mut self,
+        ticks: u32,
+    ) -> Result<emu198x_shell::cycle_profile::CycleCounts, emu198x_shell::MachineError> {
+        crate::profiling::capture(self, ticks)
+    }
     const FRAME_WIDTH: u32 = SCREEN_WIDTH as u32;
     const FRAME_HEIGHT: u32 = SCREEN_HEIGHT as u32;
 
@@ -1030,6 +1036,12 @@ impl SpectrumMachine for Spectrum128K {
 }
 
 impl SpectrumMachine for SpectrumPlus2 {
+    fn capture_cycle_counts(
+        &mut self,
+        ticks: u32,
+    ) -> Result<emu198x_shell::cycle_profile::CycleCounts, emu198x_shell::MachineError> {
+        crate::profiling::capture(self, ticks)
+    }
     const FRAME_WIDTH: u32 = SCREEN_WIDTH as u32;
     const FRAME_HEIGHT: u32 = SCREEN_HEIGHT as u32;
 

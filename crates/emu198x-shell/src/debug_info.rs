@@ -34,7 +34,7 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use debug198x::{BaseMap, DebugInfo, FORMAT, FORMAT_VERSION, Header, SectionId, Space};
+use debug198x::{BaseMap, DebugInfo, FORMAT, FORMAT_VERSION, Header, SectionId, Space, SymbolKind};
 use serde::{Deserialize, Serialize};
 
 /// Why a sidecar could not be loaded.
@@ -248,7 +248,7 @@ impl DebugSymbols {
         // happened to list its slots.
         self.bases = BaseMap::new();
         for slot in &self.slots {
-            for section in self.sections_in(*slot) {
+            for section in self.sections_in_page(slot.page) {
                 self.bases
                     .entry(section)
                     .and_modify(|base| *base = (*base).min(slot.base))
@@ -267,12 +267,12 @@ impl DebugSymbols {
     /// records where the assembler expected it, and matching on it would make
     /// a bank paged somewhere else invisible, and a bank live in two slots
     /// impossible.
-    fn sections_in(&self, live: PagedSlot) -> Vec<SectionId> {
+    fn sections_in_page(&self, live_page: u16) -> Vec<SectionId> {
         self.info
             .sections
             .iter()
             .filter(|section| {
-                matches!(section.space, Some(Space::Paged { page, .. }) if page == live.page)
+                matches!(section.space, Some(Space::Paged { page, .. }) if page == live_page)
             })
             .map(|section| section.id)
             .collect()
@@ -288,7 +288,7 @@ impl DebugSymbols {
         let addr = u64::from(addr);
         let live = self.slots.iter().find(|slot| slot.contains(addr))?;
         Some(
-            self.sections_in(*live)
+            self.sections_in_page(live.page)
                 .into_iter()
                 .map(|section| (section, live.base))
                 .collect(),
@@ -387,7 +387,7 @@ impl DebugSymbols {
         } else {
             for live in &self.slots {
                 let bases: BaseMap = self
-                    .sections_in(*live)
+                    .sections_in_page(live.page)
                     .into_iter()
                     .map(|section| (section, live.base))
                     .collect();
@@ -419,6 +419,46 @@ impl DebugSymbols {
                 file: span.file.clone(),
                 line: span.line,
             })
+    }
+
+    /// Resolve a historical physical page/offset, independently of live paging.
+    /// Only explicitly paged sections participate; flat sections cannot identify
+    /// which bank supplied an instruction.
+    #[must_use]
+    pub fn annotation_in_page(&self, page: u16, offset: u64) -> (Option<&str>, Option<SourceLine>) {
+        let sections = self.sections_in_page(page);
+        let symbol = self
+            .info
+            .symbols
+            .iter()
+            .find(|symbol| match symbol.kind {
+                SymbolKind::Label {
+                    section,
+                    offset: at,
+                    ..
+                }
+                | SymbolKind::Entry {
+                    section,
+                    offset: at,
+                    ..
+                } => sections.contains(&section) && at == offset,
+                SymbolKind::Const { .. } => false,
+            })
+            .map(|symbol| symbol.name.as_str());
+        let source = self
+            .info
+            .lines
+            .iter()
+            .find(|line| {
+                sections.contains(&line.section)
+                    && offset >= line.offset
+                    && offset - line.offset < line.length
+            })
+            .map(|line| SourceLine {
+                file: line.file.clone(),
+                line: line.line,
+            });
+        (symbol, source)
     }
 
     /// The lowest address produced by `file` line `line` — the address to put

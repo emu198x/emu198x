@@ -35,6 +35,41 @@ pub struct ExecutionCost {
     pub ticks: u64,
 }
 
+/// Physical memory supplying an instruction's first byte.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProfileMemory {
+    /// RAM pages use the Debug198x page namespace.
+    Ram,
+    /// ROM pages are kept separate and currently have no source join.
+    Rom,
+}
+
+/// Historical slot mapping at the first opcode fetch, not capture end.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+pub struct ProfileMapping {
+    /// Distinguishes RAM and ROM page namespaces.
+    pub memory: ProfileMemory,
+    /// Hardware slot containing the CPU address.
+    pub slot: u8,
+    /// Physical page selected in that slot.
+    pub page: u16,
+    /// CPU address at which the slot starts.
+    pub base: u32,
+}
+
+/// Per-bank decomposition of an address total.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MappedExecutionCost {
+    /// CPU address of the first opcode/prefix byte.
+    pub address: u32,
+    /// Mapping observed before that instruction ran.
+    pub mapping: ProfileMapping,
+    /// Completed executions in this mapping.
+    #[serde(flatten)]
+    pub cost: ExecutionCost,
+}
+
 /// Machine-collected costs before source mapping.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CycleCounts {
@@ -42,6 +77,10 @@ pub struct CycleCounts {
     pub ticks: u64,
     /// Costs keyed by the first opcode/prefix address, never the post-step PC.
     pub addresses: BTreeMap<u32, ExecutionCost>,
+    /// Optional complete decomposition of `addresses` by physical mapping.
+    /// These ticks are already included in `addresses`, never additional time.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub mapped_addresses: Vec<MappedExecutionCost>,
     /// Time spent accepting interrupts, excluding handler instructions.
     pub interrupt_ticks: u64,
     /// Time spent in completed HALT refresh intervals, excluding HALT itself.
@@ -57,6 +96,9 @@ pub struct CycleCounts {
 pub struct ProfileAddress {
     /// Instruction address in the captured address space.
     pub address: u32,
+    /// Historical mapping, absent for flat captures.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mapping: Option<ProfileMapping>,
     /// Cost for this instruction address.
     #[serde(flatten)]
     pub cost: ExecutionCost,
@@ -93,17 +135,37 @@ pub struct CycleProfile {
 }
 
 impl CycleCounts {
-    /// Join a flat-address capture to the loaded build's source map. The caller
-    /// must not use a final paging state to annotate a capture that changed banks.
+    /// Join captured identities to source records, independently of final paging.
     #[must_use]
     pub fn with_symbols(self, clock: ClockDesc, symbols: Option<&DebugSymbols>) -> CycleProfile {
         let mut lines = BTreeMap::<(String, u32), ExecutionCost>::new();
         let mut unmapped_ticks = 0;
-        let addresses = self
-            .addresses
-            .iter()
-            .map(|(&address, cost)| {
-                let source = symbols.and_then(|symbols| symbols.line_at(address));
+        let entries: Vec<_> = if self.mapped_addresses.is_empty() {
+            self.addresses
+                .iter()
+                .map(|(&address, cost)| (address, None, cost))
+                .collect()
+        } else {
+            self.mapped_addresses
+                .iter()
+                .map(|entry| (entry.address, Some(entry.mapping), &entry.cost))
+                .collect()
+        };
+        let addresses = entries
+            .into_iter()
+            .map(|(address, mapping, cost)| {
+                let (symbol, source) = match (symbols, mapping) {
+                    (Some(symbols), None) => (symbols.symbol_at(address), symbols.line_at(address)),
+                    (Some(symbols), Some(mapping)) if mapping.memory == ProfileMemory::Ram => {
+                        address
+                            .checked_sub(mapping.base)
+                            .map(|offset| {
+                                symbols.annotation_in_page(mapping.page, u64::from(offset))
+                            })
+                            .unwrap_or((None, None))
+                    }
+                    _ => (None, None),
+                };
                 if let Some(source) = &source {
                     let total = lines.entry((source.file.clone(), source.line)).or_default();
                     total.ticks += cost.ticks;
@@ -113,10 +175,9 @@ impl CycleCounts {
                 }
                 ProfileAddress {
                     address,
+                    mapping,
                     cost: cost.clone(),
-                    symbol: symbols
-                        .and_then(|symbols| symbols.symbol_at(address))
-                        .map(str::to_owned),
+                    symbol: symbol.map(str::to_owned),
                     source,
                 }
             })
