@@ -1,6 +1,6 @@
 use common_sinclair_zx_spectrum::driver::SpectrumDriver;
 use emu198x_shell::{MachineCore, cycle_profile::CycleCounts};
-use runtime_sinclair_zx_spectrum::{Spectrum48kRuntime, SpectrumMachine, TimexTC2048Runtime};
+use runtime_sinclair_zx_spectrum::{Spectrum48kRuntime, SpectrumMachine};
 
 fn program(address: u16, bytes: &[u8]) -> Spectrum48kRuntime {
     let mut runtime = Spectrum48kRuntime::new_48k([0; 16 * 1024]);
@@ -132,16 +132,13 @@ fn capture_is_observational_across_contention_frame_wrap_and_snapshot_restore() 
 }
 
 #[test]
-fn unsupported_models_and_invalid_budgets_do_not_advance() {
+fn invalid_budgets_do_not_advance() {
     let mut runtime = program(0xc000, &[0]);
     for ticks in [0, 14_000_001] {
         assert!(runtime.profile_cycles(ticks).is_err());
         assert_eq!(runtime.time().get(), 0);
         assert_eq!(runtime.machine().hc(), 0);
     }
-    let mut banked = TimexTC2048Runtime::blank();
-    assert!(banked.profile_cycles(16).is_err());
-    assert_eq!(banked.time().get(), 0);
 }
 
 #[test]

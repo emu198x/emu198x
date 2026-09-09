@@ -10,7 +10,8 @@
 and returns per-address execution costs plus Debug198x source-line totals.
 The shared shell owns the command, report and source join. The runtime owns
 measurement. Capture supports all eight original PAL Spectrum models: 16K, 48K, Spectrum+,
-128K, +2, +2A, +2B and +3. Pentagon 128 and Scorpion ZS-256 are also supported.
+128K, +2, +2A, +2B and +3. Pentagon 128, Scorpion ZS-256, Timex TC2048,
+TC2068 and TS2068 complete the thirteen-model Spectrum catalogue.
 
 The report includes its clock unit and rational frequency. The 16K, 48K and Spectrum+
 use 14 MHz master ticks: four ticks per CPU T-state. These are elapsed emulated
@@ -19,7 +20,9 @@ estimates. The 128K and all +2/+3 variants use 17,734,475 Hz master ticks, five 
 T-state. Capture follows the driver's existing two scheduled edges per T-state,
 including the unequal intervals of an odd divider. We do not claim a separate
 active-CPU/stall breakdown. Pentagon uses its 14,336,000 Hz clock and Scorpion
-uses 14 MHz; both have four master ticks per CPU T-state.
+uses 14 MHz; both have four master ticks per CPU T-state. Timex TC2048 and
+TC2068 use 14 MHz PAL timing; TS2068 uses 14.112 MHz NTSC timing. All three
+Timex models have four master ticks per CPU T-state.
 
 The optional Z80 observer records an instruction's first opcode/prefix address
 and its identity at retirement. Interrupt responses and HALT refresh intervals
@@ -85,6 +88,22 @@ registers. This slice changes none of those behaviours and does not establish
 them as hardware facts. The report measures the executed memory map; a matching
 sidecar must name those RAM pages.
 
+TC2048 uses a flat capture. TC2068/TS2068 capture their eight 8 KiB windows:
+HOME ROM is `rom` pages 0–1, HOME RAM is `ram` pages 2–7, and EXROM is
+`rom_overlay` page 0. The page number for HOME is its 8 KiB window number,
+not a 16 KiB Spectrum bank. RAM sidecars use that number in `space.page` and
+an offset relative to the window start. For example, HOME `$C123` is page 6,
+offset `$123`; a section's expected slot does not constrain this source join.
+
+The current TC2068/TS2068 core has no cartridge backing for DOCK windows.
+Selected DOCK reads return `$FF` and writes are ignored. These executions use
+`unmapped` with the window number as their page identifier and do not inherit
+HOME source annotations. The memory implementation gives DOCK selection
+priority over low-window EXROM, and maps EXROM at `$0000–$1FFF` when enabled
+by port `$FF` bit 7. Profiling follows those existing semantics, including
+paging changes caused by the executing instruction; it adds no cartridge or
+paging hardware behaviour. Neither EXROM nor empty DOCK joins to RAM sources.
+
 `counts.addresses` remains the CPU-address aggregate. `counts.mapped_addresses`
 is its complete per-mapping decomposition, not additional elapsed time. In banked
 reports, the annotated `addresses` list follows that decomposition. RAM source
@@ -108,7 +127,9 @@ address/mapping identities (including RAM aliases and both ROM pages). The
 Amstrad-class bound is 311,296 identities across its normal/all-RAM mappings and
 four ROM pages. Pentagon is bounded by 212,992 identities and Scorpion by
 376,832, including their distinct overlay namespaces. No instruction-by-instruction
-trace is retained.
+trace is retained. TC2048 has the flat 65,536-address bound; each TC2068/TS2068
+capture has at most 139,264 address/mapping identities across HOME, EXROM and
+empty DOCK.
 
 Queued input is applied before execution. The machine and runtime time advance,
 but this is a debug operation: it does not deliver host frame/audio captures.
@@ -133,6 +154,5 @@ At an uncontended boundary the four instruction addresses cost 28, 48, 136 and
 waiting. Source lines 5–8 receive those same costs. The runtime integration test
 checks the real sidecar and verifies identical script and MCP reports.
 
-This work does not close #1372: additional CPU/runtime adapters (including the
-remaining Timex variants), routine/call accounting and comparisons with
+This work does not close #1372: additional CPU/runtime adapters outside the Spectrum family, routine/call accounting and comparisons with
 Asm198x static ranges remain separate extensions.

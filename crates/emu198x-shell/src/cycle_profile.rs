@@ -45,6 +45,8 @@ pub enum ProfileMemory {
     Rom,
     /// A ROM supplied by an active overlay, separate from the base ROM map.
     RomOverlay,
+    /// An unbacked window whose reads follow the machine’s open-bus behaviour.
+    Unmapped,
 }
 
 /// Historical slot mapping at the first opcode fetch, not capture end.
@@ -54,7 +56,7 @@ pub struct ProfileMapping {
     pub memory: ProfileMemory,
     /// Hardware slot containing the CPU address.
     pub slot: u8,
-    /// Physical page selected in that slot.
+    /// Physical page selected in that slot, or the window number when unbacked.
     pub page: u16,
     /// CPU address at which the slot starts.
     pub base: u32,

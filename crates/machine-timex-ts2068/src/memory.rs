@@ -34,6 +34,19 @@ pub struct MemoryTimex {
     exrom_enabled: bool,
 }
 
+/// Source selected by the current Timex memory implementation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MemorySource {
+    /// The internal HOME ROM.
+    HomeRom,
+    /// The internal HOME RAM.
+    HomeRam,
+    /// The extension ROM in the low 8 KiB window.
+    Exrom,
+    /// A selected DOCK window with no cartridge backing.
+    EmptyDock,
+}
+
 impl MemoryTimex {
     pub fn new() -> Self {
         Self {
@@ -84,6 +97,20 @@ impl MemoryTimex {
     /// Read port $F4.
     pub fn read_f4(&self) -> u8 {
         self.dock_select
+    }
+
+    /// Observe the source of a read without accessing data or changing paging.
+    #[must_use]
+    pub fn mapped_source(&self, address: u16) -> MemorySource {
+        if self.is_dock(usize::from(address >> 13)) {
+            MemorySource::EmptyDock
+        } else if address < 0x2000 && self.exrom_enabled {
+            MemorySource::Exrom
+        } else if address < 0x4000 {
+            MemorySource::HomeRom
+        } else {
+            MemorySource::HomeRam
+        }
     }
 
     /// Is the given 8K chunk mapped to DOCK?
