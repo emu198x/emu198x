@@ -9,12 +9,12 @@
 `profile_cycles` runs an exact, bounded window of authoritative machine ticks
 and returns per-address execution costs plus Debug198x source-line totals.
 The shared shell owns the command, report and source join. The runtime owns
-measurement. Capture supports the PAL 48K, 128K and grey +2 Spectrum.
+measurement. Capture supports the PAL 48K, 128K, +2, +2A, +2B and +3 Spectrum.
 
 The report includes its clock unit and rational frequency. The 48K Spectrum
 uses 14 MHz master ticks: four ticks per CPU T-state. These are elapsed emulated
 ticks, including contention, rather than host duration or instruction-table
-estimates. The 128K and grey +2 use 17,734,475 Hz master ticks, five per
+estimates. The 128K and all +2/+3 variants use 17,734,475 Hz master ticks, five per
 T-state. Capture follows the driver's existing two scheduled edges per T-state,
 including the unequal intervals of an odd divider. We do not claim a separate
 active-CPU/stall breakdown.
@@ -49,10 +49,17 @@ Source records describe the loaded build. The caller must load the matching
 sidecar; this slice does not verify code hashes or reinterpret self-modified
 instructions as new source. Exact labels are annotations, not routine extents:
 Debug198x labels alone cannot establish inclusive function costs or a call tree.
-For the 128K and grey +2, the runtime records the slot, physical page and RAM/ROM
+For banked machines, the runtime records the slot, physical page and RAM/ROM
 namespace before the first opcode fetch. A paging instruction keeps its original
 mapping even if it replaces its own code bank. Prefix bytes remain part of that
 first-byte identity. The accumulator keys on CPU address plus this mapping.
+
+The +2A/+2B/+3 adapter asks the shared Amstrad memory implementation which
+physical bank is selected. All four all-RAM configurations participate, including
+RAM at address zero. Both paging registers and their lock are reflected in that
+answer. Entering or leaving all-RAM mode during an instruction cannot relabel the
+instruction's original bytes. Observation does not alter memory reads, writes,
+contention or the machine's bus handling.
 
 `counts.addresses` remains the CPU-address aggregate. `counts.mapped_addresses`
 is its complete per-mapping decomposition, not additional elapsed time. In banked
@@ -73,8 +80,9 @@ same implementation. Unsupported live models refuse before advancing, including
 when the Spectrum MCP catalogue advertises the tool for a supported alternative.
 Budgets are 1–14,000,000 ticks. The 48K address space bounds the accumulator to
 65,536 entries. The 128K-class mapping bounds the decomposition to 196,608
-address/mapping identities (including RAM aliases and both ROM pages); no
-instruction-by-instruction trace is retained.
+address/mapping identities (including RAM aliases and both ROM pages). The
+Amstrad-class bound is 311,296 identities across its normal/all-RAM mappings and
+four ROM pages. No instruction-by-instruction trace is retained.
 
 Queued input is applied before execution. The machine and runtime time advance,
 but this is a debug operation: it does not deliver host frame/audio captures.
@@ -100,5 +108,5 @@ waiting. Source lines 5–8 receive those same costs. The runtime integration te
 checks the real sidecar and verifies identical script and MCP reports.
 
 This work does not close #1372: additional CPU/runtime adapters (including the
-other banked Spectrum families), routine/call accounting and comparisons with
+remaining Spectrum clones), routine/call accounting and comparisons with
 Asm198x static ranges remain separate extensions.

@@ -54,6 +54,15 @@ pub struct MemoryPlus {
 /// The 4 special paging configurations: [bank at $0000, $4000, $8000, $C000].
 const SPECIAL_MODES: [[u8; 4]; 4] = [[0, 1, 2, 3], [4, 5, 6, 7], [4, 5, 6, 3], [4, 7, 6, 3]];
 
+/// Physical memory selected for a CPU address by the current paging registers.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MappedBank {
+    /// One of the eight RAM banks.
+    Ram(u8),
+    /// One of the four ROM banks.
+    Rom(u8),
+}
+
 impl MemoryPlus {
     pub fn new() -> Self {
         Self {
@@ -146,6 +155,21 @@ impl MemoryPlus {
 
     pub fn screen_bank(&self) -> u8 {
         if self.paging_7ffd & 0x08 != 0 { 7 } else { 5 }
+    }
+
+    /// Observe the current physical bank without reading memory or changing paging.
+    #[must_use]
+    pub fn mapped_bank(&self, address: u16) -> MappedBank {
+        if self.special_mode() {
+            MappedBank::Ram(SPECIAL_MODES[self.special_config()][usize::from(address >> 14)])
+        } else {
+            match address {
+                0x0000..=0x3fff => MappedBank::Rom(self.normal_rom() as u8),
+                0x4000..=0x7fff => MappedBank::Ram(5),
+                0x8000..=0xbfff => MappedBank::Ram(2),
+                _ => MappedBank::Ram(self.normal_bank() as u8),
+            }
+        }
     }
 
     /// Reads one byte from a specific ROM bank, ignoring the current
