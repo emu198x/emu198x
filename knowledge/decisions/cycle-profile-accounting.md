@@ -213,3 +213,30 @@ report after capture; it adds no instruction trace or CPU/bus instrumentation.
 This work does not close #1372: additional CPU/runtime adapters outside the
 Spectrum family, call tracking and inclusive costs, and comparisons with Asm198x
 static ranges remain separate extensions.
+
+
+## Call-tracking foundation
+
+The Z80's optional observer additionally exposes `completed_execution_event()`.
+It records taken CALL and RST operations with their pushed return address, RET
+and RETI/RETN operations, and accepted interrupt entries. Each event includes
+its existing interval identity, entry/exit stack pointers and retirement PC.
+Conditional operations emit a transfer only on the executed path. Calls whose
+target equals their fall-through PC remain calls; jumps are not inferred as calls.
+
+Transfer metadata is attached by the core's existing operation handlers and
+published at the canonical retirement point. This follows the existing staged
+push/pop paths, checked against FUSE's CALL/RET/RST macros. It does not decode
+memory again, alter the instruction sequence or consume bus edges. Prefixes
+retain the first-byte identity. Interrupt mode 0 records the implemented RST
+response or existing fallback, without broadening the CPU's IM 0 support.
+
+Only the latest event is retained. Partial starts have no event, and disabling
+observation or restoring a snapshot leaves no stale metadata. Tests compare
+serialized CPU state on every half-cycle and written memory against an
+unobserved CPU, alongside assertions for transfer identities and destinations.
+
+The script/MCP report still provides exclusive costs only. Building the bounded
+call stack, resolving destinations through the next actual fetch mapping, and
+handling recursion, interrupts, incomplete frames and stack discontinuities are
+the next layer; these raw CPU events do not establish inclusive costs by themselves.

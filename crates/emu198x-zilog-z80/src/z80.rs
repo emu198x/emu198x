@@ -167,10 +167,45 @@ pub enum ExecutionKind {
     Halt,
 }
 
+/// A taken stack-based control transfer, observed from the executing operation.
+/// Untaken conditional operations and ordinary jumps have no transfer event.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ExecutionFlow {
+    /// CALL pushed this return address.
+    Call { return_address: u16 },
+    /// RST pushed this return address.
+    Restart { return_address: u16 },
+    /// RET (including a taken conditional RET) popped its destination.
+    Return,
+    /// An accepted interrupt pushed the interrupted PC. IM 0 reports the
+    /// core's implemented response, including its fallback for unsupported bytes.
+    Interrupt { return_address: u16 },
+    /// RETI or RETN, including the core's undocumented aliases.
+    InterruptReturn,
+}
+
+/// Retirement metadata for optional host call tracking. Addresses are CPU
+/// coordinates; the machine must supply physical mapping at the actual fetch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ExecutionEvent {
+    /// First-byte instruction identity, interrupt response or HALT interval.
+    pub kind: ExecutionKind,
+    /// Taken call/return operation, if any. This does not infer tail calls.
+    pub flow: Option<ExecutionFlow>,
+    /// Stack pointer before the observed interval began.
+    pub stack_before: u16,
+    /// Stack pointer after retirement, including wrapping push/pop operations.
+    pub stack_after: u16,
+    /// CPU PC at retirement, before the next fetch or interrupt response.
+    pub next_pc: u16,
+}
+
 #[derive(Clone, Default)]
 struct ExecutionObserver {
     current: Option<ExecutionKind>,
-    completed: Option<ExecutionKind>,
+    flow: Option<ExecutionFlow>,
+    stack_before: u16,
+    completed: Option<ExecutionEvent>,
 }
 
 /// One bus transaction the Z80 is asking the host to perform. Returned
@@ -419,6 +454,23 @@ impl Z80 {
         self.execution_observer
             .as_ref()
             .and_then(|observer| observer.completed)
+            .map(|event| event.kind)
+    }
+
+    /// Metadata at the most recent retirement. Read when
+    /// `instructions_retired()` changes. A partial start has no event, even
+    /// if its call or return executes after observation begins.
+    #[must_use]
+    pub fn completed_execution_event(&self) -> Option<ExecutionEvent> {
+        self.execution_observer
+            .as_ref()
+            .and_then(|observer| observer.completed)
+    }
+
+    pub(crate) fn observe_flow(&mut self, flow: ExecutionFlow) {
+        if let Some(observer) = &mut self.execution_observer {
+            observer.flow = Some(flow);
+        }
     }
 
     /// Create a new Z80 in reset state.
@@ -630,6 +682,8 @@ impl Z80 {
                 if self.walker.prefix == crate::walker::Prefix::None
                     && let Some(observer) = &mut self.execution_observer
                 {
+                    observer.flow = None;
+                    observer.stack_before = self.regs.sp;
                     observer.current = Some(if self.halt {
                         ExecutionKind::Halt
                     } else {
@@ -1240,7 +1294,13 @@ impl Z80 {
         }
 
         if let Some(observer) = &mut self.execution_observer {
-            observer.completed = observer.current.take();
+            observer.completed = observer.current.take().map(|kind| ExecutionEvent {
+                kind,
+                flow: observer.flow.take(),
+                stack_before: observer.stack_before,
+                stack_after: self.regs.sp,
+                next_pc: self.regs.pc,
+            });
         }
         self.walker.instruction_complete = true;
         self.walker.prefix = crate::walker::Prefix::None;
@@ -1280,6 +1340,10 @@ impl Z80 {
         if nmi_edge {
             if let Some(observer) = &mut self.execution_observer {
                 observer.current = Some(ExecutionKind::Interrupt);
+                observer.stack_before = self.regs.sp;
+                observer.flow = Some(ExecutionFlow::Interrupt {
+                    return_address: self.regs.pc,
+                });
             }
             self.halt = false;
             self.regs.iff1 = false; // NMI disables IFF1 (but not IFF2)
@@ -1295,6 +1359,10 @@ impl Z80 {
         if self.irq && self.regs.iff1 && !self.ei_pending {
             if let Some(observer) = &mut self.execution_observer {
                 observer.current = Some(ExecutionKind::Interrupt);
+                observer.stack_before = self.regs.sp;
+                observer.flow = Some(ExecutionFlow::Interrupt {
+                    return_address: self.regs.pc,
+                });
             }
             self.halt = false;
             self.regs.iff1 = false;
