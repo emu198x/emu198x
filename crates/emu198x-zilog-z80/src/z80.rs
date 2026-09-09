@@ -151,6 +151,26 @@ pub struct Z80 {
     /// a host that samples it between ticks cannot count boundaries.
     #[serde(default)]
     instructions_retired: u64,
+    // Host instrumentation never belongs in a machine snapshot.
+    #[serde(skip)]
+    execution_observer: Option<ExecutionObserver>,
+}
+
+/// Identity of a completed execution interval, for optional host profiling.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ExecutionKind {
+    /// A real instruction, identified by its first opcode/prefix address.
+    Instruction(u16),
+    /// An accepted maskable or non-maskable interrupt response.
+    Interrupt,
+    /// A phantom fetch while the CPU is halted.
+    Halt,
+}
+
+#[derive(Clone, Default)]
+struct ExecutionObserver {
+    current: Option<ExecutionKind>,
+    completed: Option<ExecutionKind>,
 }
 
 /// One bus transaction the Z80 is asking the host to perform. Returned
@@ -366,11 +386,41 @@ impl Default for Z80 {
             prev_mw: false,
             prev_iorq: false,
             instructions_retired: 0,
+            execution_observer: None,
         }
     }
 }
 
 impl Z80 {
+    /// Whether the next CPU edge begins a new execution interval (possibly
+    /// interrupt entry or HALT waiting), rather than continuing an opcode.
+    #[must_use]
+    pub fn at_execution_boundary(&self) -> bool {
+        matches!(self.phase, Phase::M1(M1Phase::T1Rise))
+            && self.walker.prefix == crate::walker::Prefix::None
+    }
+
+    /// Begin bounded host observation. A partly executed instruction has no
+    /// identity until the next first opcode fetch, so consumers can keep its
+    /// remaining time unattributed. Does not change CPU execution.
+    pub fn start_execution_observation(&mut self) {
+        self.execution_observer = Some(ExecutionObserver::default());
+    }
+
+    /// Stop observation; instrumentation is never serialized.
+    pub fn stop_execution_observation(&mut self) {
+        self.execution_observer = None;
+    }
+
+    /// Identity at the most recent retirement, while observing. Read only
+    /// when `instructions_retired()` changes; `None` denotes a partial start.
+    #[must_use]
+    pub fn completed_execution(&self) -> Option<ExecutionKind> {
+        self.execution_observer
+            .as_ref()
+            .and_then(|observer| observer.completed)
+    }
+
     /// Create a new Z80 in reset state.
     pub fn new() -> Self {
         Self::default()
@@ -577,6 +627,15 @@ impl Z80 {
     fn tick_m1(&mut self, phase: M1Phase) {
         match phase {
             M1Phase::T1Rise => {
+                if self.walker.prefix == crate::walker::Prefix::None
+                    && let Some(observer) = &mut self.execution_observer
+                {
+                    observer.current = Some(if self.halt {
+                        ExecutionKind::Halt
+                    } else {
+                        ExecutionKind::Instruction(self.regs.pc)
+                    });
+                }
                 // While halted, PC remains at the byte following HALT. Each
                 // phantom M1 reads that address, discards the byte and forces
                 // NOP internally; T2Fall therefore does not advance PC.
@@ -1180,6 +1239,9 @@ impl Z80 {
             return;
         }
 
+        if let Some(observer) = &mut self.execution_observer {
+            observer.completed = observer.current.take();
+        }
         self.walker.instruction_complete = true;
         self.walker.prefix = crate::walker::Prefix::None;
         // One instruction (or accepted interrupt sequence) has retired. This
@@ -1216,6 +1278,9 @@ impl Z80 {
         let nmi_edge = std::mem::take(&mut self.nmi_latched);
 
         if nmi_edge {
+            if let Some(observer) = &mut self.execution_observer {
+                observer.current = Some(ExecutionKind::Interrupt);
+            }
             self.halt = false;
             self.regs.iff1 = false; // NMI disables IFF1 (but not IFF2)
             self.begin_new_instruction();
@@ -1228,6 +1293,9 @@ impl Z80 {
 
         // IRQ is level-triggered, checked if IFF1 is set
         if self.irq && self.regs.iff1 && !self.ei_pending {
+            if let Some(observer) = &mut self.execution_observer {
+                observer.current = Some(ExecutionKind::Interrupt);
+            }
             self.halt = false;
             self.regs.iff1 = false;
             self.regs.iff2 = false;

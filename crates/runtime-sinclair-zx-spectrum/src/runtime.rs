@@ -40,6 +40,16 @@ pub trait SpectrumMachine: Serialize + for<'de> Deserialize<'de> + SpectrumDrive
     /// Mono audio sample rate in Hz.
     const AUDIO_SAMPLE_RATE: u32 = 44_100;
 
+    /// Optional bounded execution profiling, with machine-specific accounting.
+    fn capture_cycle_counts(
+        &mut self,
+        _ticks: u32,
+    ) -> Result<emu198x_shell::cycle_profile::CycleCounts, MachineError> {
+        Err(MachineError::UnsupportedOperation {
+            operation: "profile_cycles",
+        })
+    }
+
     /// Returns the authoritative frame length in master-clock half-cycles.
     /// Exposed as a method so variants with a runtime-selected crystal
     /// (e.g. TC2068 vs TS2068) can return the correct value per-instance.
@@ -688,6 +698,26 @@ impl<M: SpectrumMachine> SpectrumRuntime<M> {
 }
 
 impl<M: SpectrumMachine> MachineCore for SpectrumRuntime<M> {
+    fn profile_cycles(
+        &mut self,
+        ticks: u32,
+    ) -> Result<emu198x_shell::cycle_profile::CycleCounts, MachineError> {
+        if !self
+            .profile
+            .capabilities
+            .contains(&emu198x_shell::known_capability("cycle-profile"))
+        {
+            return Err(MachineError::UnsupportedOperation {
+                operation: "profile_cycles",
+            });
+        }
+        emu198x_shell::cycle_profile::validate_ticks(ticks)?;
+        self.machine.set_keyboard_rows(self.keyboard.rows());
+        let counts = self.machine.capture_cycle_counts(ticks)?;
+        self.time = self.time.saturating_add(counts.ticks);
+        Ok(counts)
+    }
+
     fn profile(&self) -> &MachineProfile {
         &self.profile
     }

@@ -183,6 +183,21 @@ impl RunResult {
 
 /// Narrow shared contract implemented by machine runtimes.
 pub trait MachineCore {
+    /// Run an exact, bounded window and collect execution costs. Unsupported
+    /// machines must refuse without advancing. This debug operation does not
+    /// deliver frame/audio packets to host sinks.
+    ///
+    /// # Errors
+    /// Returns an error for unsupported machines or an invalid capture budget.
+    fn profile_cycles(
+        &mut self,
+        _ticks: u32,
+    ) -> Result<crate::cycle_profile::CycleCounts, MachineError> {
+        Err(MachineError::UnsupportedOperation {
+            operation: "profile_cycles",
+        })
+    }
+
     /// Returns the current machine profile.
     fn profile(&self) -> &MachineProfile;
 

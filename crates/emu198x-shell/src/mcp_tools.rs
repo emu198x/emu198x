@@ -1096,6 +1096,17 @@ pub fn register_tools_for_profiles<M, Q>(
     if has(ids::TAPE_AUTOLOAD) {
         register_tape_autoload_tools(registry);
     }
+    if has("cycle-profile") {
+        registry.register(Box::new(ScriptStepTool::<M, Q>::common(
+            "profile_cycles",
+            "Run an exact window of machine ticks and report per-address/source-line execution costs, including contention and separate interrupt, HALT and partial intervals. Currently supported by the 48K Spectrum.",
+            json!({
+                "type": "object", "required": ["ticks"], "additionalProperties": false,
+                "properties": { "ticks": { "type": "integer", "minimum": 1,
+                    "maximum": crate::cycle_profile::MAX_PROFILE_TICKS } }
+            }),
+        )));
+    }
     if has(ids::VARIANT_SWITCH) {
         register_variant_switch_tools(registry);
     }

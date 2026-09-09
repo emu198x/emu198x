@@ -505,6 +505,12 @@ impl SpectrumMachine for Spectrum48k {
     fn clear_memory_write_watch_records(&mut self) {
         Spectrum48k::clear_memory_write_watch_records(self);
     }
+    fn capture_cycle_counts(
+        &mut self,
+        ticks: u32,
+    ) -> Result<emu198x_shell::cycle_profile::CycleCounts, emu198x_shell::MachineError> {
+        crate::profiling::capture(self, ticks)
+    }
     fn z80_registers(&self) -> &emu198x_zilog_z80::Registers {
         &self.z80().regs
     }
