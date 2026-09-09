@@ -44,6 +44,7 @@ pub trait SpectrumMachine: Serialize + for<'de> Deserialize<'de> + SpectrumDrive
     fn capture_cycle_counts(
         &mut self,
         _ticks: u32,
+        _observer: Option<&mut dyn emu198x_shell::cycle_profile::CycleObserver>,
     ) -> Result<emu198x_shell::cycle_profile::CycleCounts, MachineError> {
         Err(MachineError::UnsupportedOperation {
             operation: "profile_cycles",
@@ -697,10 +698,11 @@ impl<M: SpectrumMachine> SpectrumRuntime<M> {
     }
 }
 
-impl<M: SpectrumMachine> MachineCore for SpectrumRuntime<M> {
-    fn profile_cycles(
+impl<M: SpectrumMachine> SpectrumRuntime<M> {
+    fn collect_profile(
         &mut self,
         ticks: u32,
+        observer: Option<&mut dyn emu198x_shell::cycle_profile::CycleObserver>,
     ) -> Result<emu198x_shell::cycle_profile::CycleCounts, MachineError> {
         if !self
             .profile
@@ -713,9 +715,25 @@ impl<M: SpectrumMachine> MachineCore for SpectrumRuntime<M> {
         }
         emu198x_shell::cycle_profile::validate_ticks(ticks)?;
         self.machine.set_keyboard_rows(self.keyboard.rows());
-        let counts = self.machine.capture_cycle_counts(ticks)?;
+        let counts = self.machine.capture_cycle_counts(ticks, observer)?;
         self.time = self.time.saturating_add(counts.ticks);
         Ok(counts)
+    }
+}
+
+impl<M: SpectrumMachine> MachineCore for SpectrumRuntime<M> {
+    fn profile_cycles(
+        &mut self,
+        ticks: u32,
+    ) -> Result<emu198x_shell::cycle_profile::CycleCounts, MachineError> {
+        self.collect_profile(ticks, None)
+    }
+    fn profile_cycles_observed(
+        &mut self,
+        ticks: u32,
+        observer: &mut dyn emu198x_shell::cycle_profile::CycleObserver,
+    ) -> Result<emu198x_shell::cycle_profile::CycleCounts, MachineError> {
+        self.collect_profile(ticks, Some(observer))
     }
 
     fn profile(&self) -> &MachineProfile {

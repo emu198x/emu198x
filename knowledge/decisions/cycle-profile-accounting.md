@@ -200,19 +200,20 @@ The report returns `routines` in request order with names, ranges, completed
 `instructions` and `exclusive_ticks`, including zero rows for unexecuted routines.
 These are costs of instructions in the declared extents: a caller owns its CALL
 instruction and a callee owns its RET. Callees outside the caller's ranges are
-excluded. This is not call tracking: instruction counts are not invocation counts,
-and the report does not infer inclusive costs, recursion or a call tree.
+excluded. Instruction counts are not invocation counts. The separate `call_cost` fields
+below use observed transfers rather than inferring calls from these ranges.
 
 `unassigned_routine_ticks` accounts for completed instructions outside every
 routine. Routine costs plus that value equal the completed-instruction total.
 Interrupt entry, HALT waiting and partial intervals retain their separate buckets.
-Omitting routines (or passing an empty list) omits both new report fields and
-preserves the existing report shape. Attribution indexes the bounded address
-report after capture; it adds no instruction trace or CPU/bus instrumentation.
+Omitting routines (or passing an empty list) omits routine and call-tracking fields and
+preserves the existing report shape. Exclusive attribution indexes the bounded
+address report after capture; call attribution consumes ordered events during
+capture. Neither retains an instruction trace.
 
 This work does not close #1372: additional CPU/runtime adapters outside the
-Spectrum family, call tracking and inclusive costs, and comparisons with Asm198x
-static ranges remain separate extensions.
+Spectrum family and comparisons with Asm198x static ranges remain separate
+extensions.
 
 
 ## Call-tracking foundation
@@ -236,7 +237,55 @@ observation or restoring a snapshot leaves no stale metadata. Tests compare
 serialized CPU state on every half-cycle and written memory against an
 unobserved CPU, alongside assertions for transfer identities and destinations.
 
-The script/MCP report still provides exclusive costs only. Building the bounded
-call stack, resolving destinations through the next actual fetch mapping, and
-handling recursion, interrupts, incomplete frames and stack discontinuities are
-the next layer; these raw CPU events do not establish inclusive costs by themselves.
+## Inclusive routine accounting
+
+Requests with nonempty `routines` now stream complete instruction and interrupt
+intervals into a shared call tracker. Each routine receives `call_cost` containing
+`inclusive_ticks`, `calls`, `completed_calls` and `incomplete_calls`, alongside its
+existing exclusive cost. The fixture above gives `main` 520 inclusive ticks and
+`work` 368, with two observed and completed calls to `work`. HALT waiting stays
+outside both routines. Captures without routines use the original accumulator
+and omit call fields.
+
+The tracker seeds a root at the first complete instruction. It does not know the
+pre-capture stack or count that root as a call. CALL/RST pushes a pending frame;
+the first complete destination instruction resolves its owner using the mapping
+of its actual first opcode read. This covers bank aliases and M1 overlays. A
+callee can be outside every declared range and still contribute to a known
+caller's inclusive cost. Each tick is charged once to each distinct active
+routine: recursive frames do not multiply the same routine's inclusive total.
+Different routines' inclusive totals overlap and must not be summed as elapsed
+time. CALL belongs to the caller and RET to the callee, as for exclusive costs.
+
+Interrupt entry creates a barrier. Its response ticks stay in `interrupt_ticks`;
+handler instructions and calls accrue within the handler segment without charging
+the interrupted routines. A matching return resumes the suspended chain. HALT
+waiting and partial intervals are excluded from inclusive costs just as they are
+from exclusive instruction costs.
+
+A return closes the top frame only when its destination CPU PC and restored SP
+match the observed call/interrupt entry. The next complete instruction checks
+routine ownership against its physical mapping, so a different return bank
+cannot silently inherit the previous routine's costs. A changed owner without a
+tracked transfer (including an unmodelled tail jump), unexpected destination or
+unmatched return discards the chain and seeds a fresh root at the next attributable
+instruction. It does not infer a tail call or guess missing frames. Stack
+manipulations are permitted inside a routine; a broken return chain is detected
+at its return, not guessed from every PUSH or POP.
+
+`calls` counts observed CALL/RST entries with a complete destination instruction;
+interrupt entries and capture roots are excluded. `completed_calls` counts those
+closed by matching returns. `incomplete_calls` includes known calls left open at
+capture end or discarded after uncertainty. These are capture-window costs, not
+whole-invocation durations. A CALL at the end without a complete destination
+instruction is unresolved and is not assigned a guessed routine or duration.
+
+The top-level `call_tracking` reports `max_depth`, `open_frames`,
+`discarded_frames`, `discontinuities`, `unresolved_calls`, `unassigned_calls` and
+`depth_limit_reached`. Open frames include capture roots and interrupt barriers.
+Discontinuities make ancestry-based totals incomplete even if individual call
+returns were observed. At 256 retained frames the tracker stops, flags depth
+exhaustion and marks outstanding known calls incomplete. Inclusive costs then
+cover only the tracked prefix; exclusive address/routine accounting continues
+for the entire exact capture window. No trace is retained, and range/stack bounds
+apply equally to scripts and MCP across all thirteen Spectrum-family profiles.
