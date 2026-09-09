@@ -146,6 +146,9 @@ pub struct CycleProfile {
     /// Completeness diagnostics for requested call tracking.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub call_tracking: Option<crate::call_profile::CallTracking>,
+    /// Optional execution-weighted static comparison.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub static_comparison: Option<Box<crate::static_cycles::StaticComparison>>,
 }
 
 impl CycleCounts {
@@ -209,6 +212,7 @@ impl CycleCounts {
                 .collect(),
             unmapped_ticks,
             call_tracking: None,
+            static_comparison: None,
             routines: Vec::new(),
             unassigned_routine_ticks: None,
         }

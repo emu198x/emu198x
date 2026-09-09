@@ -212,8 +212,7 @@ address report after capture; call attribution consumes ordered events during
 capture. Neither retains an instruction trace.
 
 This work does not close #1372: additional CPU/runtime adapters outside the
-Spectrum family and comparisons with Asm198x static ranges remain separate
-extensions.
+Spectrum family and bank-aware static comparisons remain separate extensions.
 
 
 ## Call-tracking foundation
@@ -289,3 +288,80 @@ exhaustion and marks outstanding known calls incomplete. Inclusive costs then
 cover only the tracked prefix; exclusive address/routine accounting continues
 for the entire exact capture window. No trace is retained, and range/stack bounds
 apply equally to scripts and MCP across all thirteen Spectrum-family profiles.
+
+
+## Execution-weighted static comparison
+
+`profile_cycles` accepts optional `static_cycles` with `cpu` and `listing` fields.
+`listing` is the JSON object produced by Asm198x `--listing-json`; `cpu` must match
+the runtime's declared CPU and loaded sidecar header (`z80` for this adapter). The listing does not include
+CPU identity, so the caller must declare it. Load the matching Debug198x sidecar
+first. The caller remains responsible for using the same assembled build; neither
+the sidecar nor this listing establishes a code hash or validates self-modified
+code. No assembler or ISA timing table is duplicated in the emulator.
+
+The runtime supplies machine ticks per static CPU cycle from its existing driver
+divisor: four ticks per Z80 T-state for the flat Spectrum models, five on the
+128K/Amstrad clock. Comparison uses integer machine ticks throughout. Divide
+`measured_ticks` by `ticks_per_cpu_cycle` for CPU-cycle equivalents and retain the
+remainder; this is elapsed emulated time, including stalls, not active CPU time.
+The conversion is not inferred from host time or oscillator frequency alone.
+
+Only an exact instruction-start address and file/line match participates. Each
+static min/max is multiplied by the completed execution count. The report returns
+`static_comparison` with the compared tick total, execution-weighted CPU-cycle
+range, per-address results and exclusive per-routine subtotals. Routine subtotals
+cover only comparable instructions and have a separate `uncomparable_ticks` value.
+Inclusive call costs and static label-to-next-label totals are not compared:
+they measure different spans and loop repetition is absent from straight-line
+static totals. Different outcomes of a conditional instruction remain a range.
+
+Per-address `relation` is `below_range`, `within_range` or `above_range`. An excess
+is not automatically labelled contention: it could also indicate a mismatched
+build, a spec problem or an emulator timing discrepancy. Static ranges are a
+comparison, not validation of every execution path. Interrupt entry, HALT waiting
+and capture partials remain outside the instruction comparison and retain their
+existing report buckets.
+
+Uncomparable instruction time is grouped into `banked`,
+`ambiguous_or_missing_row`, `missing_cycles` and `source_mismatch`. Flat listing
+addresses cannot establish physical bank identity. Native/linked section rows,
+repeated file/line records, overlapping byte spans and spans containing multiple
+executed instruction starts are also left uncomparable. Absence of a static
+estimate is never a zero-cost estimate. The `coverage`, `labels` and `areas`
+metadata are not used as evidence that individual rows can be compared.
+
+Requests allow at most 16,384 listing rows, 1,024 bytes per source path, positive
+byte spans within the u32 address space and positive min/max cycles up to
+1,000,000. Invalid bounds, CPU conversion mismatches and a missing loaded sidecar
+are rejected before execution. Comparisons are optional and captures without them
+omit `static_comparison`, preserving the prior report shape.
+
+### Reproduce the bridge
+
+Use Asm198x with `--listing-json` support (fixture generated with 0.0.57):
+
+```sh
+asm198x --dialect pasmo --listing-json=test-data/sinclair/zx-spectrum/routine-profile/calls.listing.json test-data/sinclair/zx-spectrum/routine-profile/calls.asm -o /tmp/calls.bin
+cmp /tmp/calls.bin test-data/sinclair/zx-spectrum/routine-profile/calls.bin
+cargo test -p runtime-sinclair-zx-spectrum --test routine_cycle_profile asm_listing_compares_execution_weighted_exclusive_costs_in_script_and_mcp
+```
+
+The test loads the [real listing](../../test-data/sinclair/zx-spectrum/routine-profile/calls.listing.json),
+program and sidecar, declares `main` and `work` as above and submits a 552-tick
+capture through both scripts and MCP. Its `static_cycles` field is formed as
+`{"cpu":"z80","listing":<the parsed listing object>}`; the rest of the request is
+unchanged. Expected results:
+
+| Span | Weighted static T-states | Measured ticks | Measured T-states |
+|---|---:|---:|---:|
+| main | 38–38 | 152 | 38 |
+| work | 82–102 | 368 | 92 |
+| All compared instructions | 120–140 | 520 | 130 |
+
+The other 32 ticks are HALT waiting. DJNZ executes four times across the two
+calls, contributing a static range of 32–52 T-states and a measured 42 T-states.
+The listing's standalone `work` label total is only 7 T-states because `.loop`
+starts the next static span; the explicit routine extents keep this distinction
+visible. Bank-aware static listings and additional CPU/runtime adapters remain
+follow-up work under #1372.

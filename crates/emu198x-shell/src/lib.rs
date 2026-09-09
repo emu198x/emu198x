@@ -102,3 +102,4 @@ pub use watch::{WatchAyRecord, WatchError, WatchMemoryRecord, WatchMemorySource,
 pub mod call_profile;
 pub mod cycle_profile;
 pub mod routine_profile;
+pub mod static_cycles;

@@ -722,6 +722,13 @@ impl<M: SpectrumMachine> SpectrumRuntime<M> {
 }
 
 impl<M: SpectrumMachine> MachineCore for SpectrumRuntime<M> {
+    fn cycle_profile_timing(&self) -> Option<emu198x_shell::static_cycles::CycleTiming> {
+        Some(emu198x_shell::static_cycles::CycleTiming {
+            cpu: "z80",
+            ticks_per_cycle: self.machine.frame_timing().cpu_divisor,
+        })
+    }
+
     fn profile_cycles(
         &mut self,
         ticks: u32,

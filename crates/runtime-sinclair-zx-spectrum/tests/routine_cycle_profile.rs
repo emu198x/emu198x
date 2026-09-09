@@ -285,3 +285,114 @@ fn interrupt_inside_a_call_suspends_its_cost_without_changing_execution() {
     );
     assert_eq!(report.call_tracking.expect("summary").discontinuities, 0);
 }
+
+#[test]
+fn asm_listing_compares_execution_weighted_exclusive_costs_in_script_and_mcp() {
+    let listing: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../test-data/sinclair/zx-spectrum/routine-profile/calls.listing.json"
+    ))
+    .expect("real Asm198x listing");
+    let args = serde_json::json!({"ticks":552,"routines":[
+        {"name":"main","ranges":[{"start":49152,"end":49159}]},
+        {"name":"work","ranges":[{"start":49168,"end":49174}]}
+    ],"static_cycles":{"cpu":"z80","listing":listing}});
+    let mut command = args.clone();
+    command["action"] = "profile_cycles".into();
+    let step: ScriptStep = serde_json::from_value(command).expect("comparison request");
+    let mut scripted = session();
+    let observation = step
+        .execute_collect(&mut scripted)
+        .expect("capture")
+        .expect("report");
+    let ScriptObservation::ProfileCycles { profile } = &observation else {
+        panic!("profile")
+    };
+    let comparison = profile.static_comparison.as_ref().expect("comparison");
+    assert_eq!(comparison.ticks_per_cpu_cycle, 4);
+    assert_eq!(comparison.compared_ticks, 520);
+    assert_eq!(
+        (
+            comparison.expected_cycles.min,
+            comparison.expected_cycles.max
+        ),
+        (120, 140)
+    );
+    let work = &comparison.routines[1];
+    assert_eq!((work.compared_ticks, work.uncomparable_ticks), (368, 0));
+    assert_eq!(
+        (work.expected_cycles.min, work.expected_cycles.max),
+        (82, 102)
+    );
+    assert_eq!(comparison.routines[0].expected_cycles.min, 38);
+    assert_eq!(profile.counts.halt_ticks, 32);
+    assert!(
+        comparison
+            .addresses
+            .iter()
+            .all(|row| row.relation == emu198x_shell::static_cycles::CycleRelation::WithinRange)
+    );
+    let djnz = comparison
+        .addresses
+        .iter()
+        .find(|row| row.address == 0xc013)
+        .expect("DJNZ");
+    assert_eq!(djnz.executions, 4);
+    assert_eq!(
+        (djnz.expected_cycles.min, djnz.expected_cycles.max),
+        (32, 52)
+    );
+    assert_eq!(djnz.measured_ticks, 168);
+    let mut automated = session();
+    let mut registry = emu198x_shell::mcp::ToolRegistry::new();
+    emu198x_shell::mcp_tools::register_tools_for_profiles(
+        &mut registry,
+        &automated,
+        &runtime_sinclair_zx_spectrum::profiles(),
+    );
+    let response = registry
+        .get("profile_cycles")
+        .expect("tool")
+        .call(args, &mut automated)
+        .expect("MCP capture");
+    let value = serde_json::to_value(response).expect("response");
+    let report: serde_json::Value =
+        serde_json::from_str(value["content"][0]["text"].as_str().expect("text")).expect("JSON");
+    assert_eq!(
+        report,
+        serde_json::to_value(observation).expect("script report")
+    );
+}
+
+#[test]
+fn static_comparison_refuses_wrong_cpu_and_missing_sidecar_before_execution() {
+    for (cpu, remove_symbols, wrong_header) in [
+        ("6502", false, false),
+        ("z80", true, false),
+        ("z80", false, true),
+    ] {
+        let mut session = session();
+        if remove_symbols {
+            session.set_debug_symbols(None);
+        }
+        if wrong_header {
+            let sidecar = include_str!(
+                "../../../test-data/sinclair/zx-spectrum/routine-profile/calls.debug198x"
+            )
+            .replace("\"cpu\":\"z80\"", "\"cpu\":\"6502\"");
+            session.set_debug_symbols(Some(
+                DebugSymbols::from_ndjson(&sidecar, "calls.debug198x").expect("sidecar"),
+            ));
+        }
+        let before = serde_json::to_value(session.machine().machine()).expect("before");
+        let step: ScriptStep =
+            serde_json::from_value(serde_json::json!({"action":"profile_cycles","ticks":552,
+            "static_cycles":{"cpu":cpu,"listing":{"lines":[]}}}))
+            .expect("request");
+        assert!(step.execute_collect(&mut session).is_err());
+        assert_eq!(session.time().get(), 0);
+        assert_eq!(
+            serde_json::to_value(session.machine().machine()).expect("after"),
+            before
+        );
+    }
+}

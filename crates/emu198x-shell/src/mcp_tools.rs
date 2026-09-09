@@ -1099,12 +1099,13 @@ pub fn register_tools_for_profiles<M, Q>(
     if has("cycle-profile") {
         registry.register(Box::new(ScriptStepTool::<M, Q>::common(
             "profile_cycles",
-            "Run an exact window of machine ticks and report per-address/source-line execution costs, including contention and separate interrupt, HALT and partial intervals. Supported by all Spectrum-family catalogue models; banked reports preserve the mapping at instruction start. Optional non-overlapping routine ranges report exclusive and inclusive instruction costs plus observed call counts. Interrupt handlers are separate; recursion counts ticks once per routine. Inspect call_tracking for incomplete frames, discontinuities and depth truncation.",
+            "Run an exact window of machine ticks and report per-address/source-line execution costs, including contention and separate interrupt, HALT and partial intervals. Supported by all Spectrum-family catalogue models; banked reports preserve the mapping at instruction start. Optional non-overlapping routine ranges report exclusive and inclusive instruction costs plus observed call counts. Interrupt handlers are separate; recursion counts ticks once per routine. Inspect call_tracking for incomplete frames, discontinuities and depth truncation. Optional static_cycles accepts a same-build Asm198x listing plus cpu, weights static ranges by observed executions, and reports unsafe joins as uncomparable. Load matching debug info first.",
             json!({
                 "type": "object", "required": ["ticks"], "additionalProperties": false,
                 "properties": { "ticks": { "type": "integer", "minimum": 1,
                     "maximum": crate::cycle_profile::MAX_PROFILE_TICKS },
-                    "routines": crate::routine_profile::schema() }
+                    "routines": crate::routine_profile::schema(),
+                    "static_cycles": crate::static_cycles::schema() }
             }),
         )));
     }
