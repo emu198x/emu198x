@@ -1,7 +1,7 @@
 # Cycle-profile accounting
 
 **Date:** 2026-09-09
-**Status:** Active, first implementation slice
+**Status:** Active
 **Scope:** [Emu198x #1372](https://github.com/emu198x/emu198x/issues/1372)
 
 ## Contract
@@ -9,12 +9,15 @@
 `profile_cycles` runs an exact, bounded window of authoritative machine ticks
 and returns per-address execution costs plus Debug198x source-line totals.
 The shared shell owns the command, report and source join. The runtime owns
-measurement. The first implementation supports the PAL 48K Spectrum.
+measurement. Capture supports the PAL 48K, 128K and grey +2 Spectrum.
 
 The report includes its clock unit and rational frequency. The 48K Spectrum
 uses 14 MHz master ticks: four ticks per CPU T-state. These are elapsed emulated
 ticks, including contention, rather than host duration or instruction-table
-estimates. We do not claim a separate active-CPU/stall breakdown.
+estimates. The 128K and grey +2 use 17,734,475 Hz master ticks, five per
+T-state. Capture follows the driver's existing two scheduled edges per T-state,
+including the unequal intervals of an odd divider. We do not claim a separate
+active-CPU/stall breakdown.
 
 The optional Z80 observer records an instruction's first opcode/prefix address
 and its identity at retirement. Interrupt responses and HALT refresh intervals
@@ -46,16 +49,32 @@ Source records describe the loaded build. The caller must load the matching
 sidecar; this slice does not verify code hashes or reinterpret self-modified
 instructions as new source. Exact labels are annotations, not routine extents:
 Debug198x labels alone cannot establish inclusive function costs or a call tree.
-Banked attribution must record mapping identity during execution before other
-Spectrum models can opt in. A final paging map cannot reconstruct that history.
+For the 128K and grey +2, the runtime records the slot, physical page and RAM/ROM
+namespace before the first opcode fetch. A paging instruction keeps its original
+mapping even if it replaces its own code bank. Prefix bytes remain part of that
+first-byte identity. The accumulator keys on CPU address plus this mapping.
+
+`counts.addresses` remains the CPU-address aggregate. `counts.mapped_addresses`
+is its complete per-mapping decomposition, not additional elapsed time. In banked
+reports, the annotated `addresses` list follows that decomposition. RAM source
+lookup uses captured page and offset directly, independently of live paging or
+manual section-base overrides. Aliases retain separate CPU addresses and slots;
+their costs combine when they resolve to the same source line.
+
+Only explicitly paged Debug198x sections participate in a banked source join.
+Flat sections cannot prove which physical bank supplied a byte. ROM counts carry
+their own namespace and page, but remain unmapped to source until the family has
+a ROM source-space contract; RAM page 0 must never label ROM page 0.
 
 ## Surface and resource bounds
 
 The `cycle-profile` capability registers the shared MCP tool. Scripts use the
 same implementation. Unsupported live models refuse before advancing, including
-when the Spectrum MCP catalogue advertises the tool for its 48K alternative.
+when the Spectrum MCP catalogue advertises the tool for a supported alternative.
 Budgets are 1–14,000,000 ticks. The 48K address space bounds the accumulator to
-65,536 entries; no instruction-by-instruction trace is retained.
+65,536 entries. The 128K-class mapping bounds the decomposition to 196,608
+address/mapping identities (including RAM aliases and both ROM pages); no
+instruction-by-instruction trace is retained.
 
 Queued input is applied before execution. The machine and runtime time advance,
 but this is a debug operation: it does not deliver host frame/audio captures.
@@ -80,6 +99,6 @@ At an uncontended boundary the four instruction addresses cost 28, 48, 136 and
 waiting. Source lines 5–8 receive those same costs. The runtime integration test
 checks the real sidecar and verifies identical script and MCP reports.
 
-The first slice does not close #1372: banked attribution, additional CPU/runtime
-adapters, routine/call accounting and comparisons with Asm198x static ranges
-remain separate extensions.
+This work does not close #1372: additional CPU/runtime adapters (including the
+other banked Spectrum families), routine/call accounting and comparisons with
+Asm198x static ranges remain separate extensions.

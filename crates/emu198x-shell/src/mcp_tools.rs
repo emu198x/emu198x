@@ -1099,7 +1099,7 @@ pub fn register_tools_for_profiles<M, Q>(
     if has("cycle-profile") {
         registry.register(Box::new(ScriptStepTool::<M, Q>::common(
             "profile_cycles",
-            "Run an exact window of machine ticks and report per-address/source-line execution costs, including contention and separate interrupt, HALT and partial intervals. Currently supported by the 48K Spectrum.",
+            "Run an exact window of machine ticks and report per-address/source-line execution costs, including contention and separate interrupt, HALT and partial intervals. Supported by the PAL 48K, 128K and grey +2 Spectrum; banked reports preserve the mapping at instruction start.",
             json!({
                 "type": "object", "required": ["ticks"], "additionalProperties": false,
                 "properties": { "ticks": { "type": "integer", "minimum": 1,

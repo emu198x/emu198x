@@ -488,7 +488,11 @@ pub fn profile_for(model: Model) -> MachineProfile {
                 ),
             ],
             media_slots: vec![tape_slot()],
-            capabilities: ay_capabilities(),
+            capabilities: {
+                let mut caps = ay_capabilities();
+                caps.insert(known_capability("cycle-profile"));
+                caps
+            },
         },
         Model::SpectrumPlus2 => MachineProfile {
             machine_id: MachineId::from("sinclair-zx-spectrum"),
@@ -514,7 +518,11 @@ pub fn profile_for(model: Model) -> MachineProfile {
                 ),
             ],
             media_slots: vec![tape_slot()],
-            capabilities: ay_capabilities(),
+            capabilities: {
+                let mut caps = ay_capabilities();
+                caps.insert(known_capability("cycle-profile"));
+                caps
+            },
         },
         Model::SpectrumPlus2A | Model::SpectrumPlus2B => MachineProfile {
             machine_id: MachineId::from("sinclair-zx-spectrum"),
