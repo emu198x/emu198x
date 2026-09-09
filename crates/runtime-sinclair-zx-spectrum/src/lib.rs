@@ -18,6 +18,7 @@ mod family_runtime;
 mod input;
 mod pentagon_128;
 mod profiles;
+mod profiling;
 mod queries;
 mod runtime;
 mod scorpion_zs256;

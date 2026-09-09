@@ -1,0 +1,9 @@
+{"t":"header","format":"debug198x","format_version":"0.1","tool":"asm198x","tool_version":"0.0.53","cpu":"z80","dialect":"pasmo","sources":["test-data/sinclair/zx-spectrum/cycle-profile/loop.asm"]}
+{"t":"section","id":0,"name":"main","base":49152}
+{"t":"symbol","name":"start","kind":"entry","section":0,"offset":0}
+{"t":"symbol","name":"loop","kind":"label","section":0,"offset":2}
+{"t":"symbol","name":"done","kind":"label","section":0,"offset":5}
+{"t":"line","file":"test-data/sinclair/zx-spectrum/cycle-profile/loop.asm","line":5,"section":0,"offset":0,"length":2}
+{"t":"line","file":"test-data/sinclair/zx-spectrum/cycle-profile/loop.asm","line":6,"section":0,"offset":2,"length":1}
+{"t":"line","file":"test-data/sinclair/zx-spectrum/cycle-profile/loop.asm","line":7,"section":0,"offset":3,"length":2}
+{"t":"line","file":"test-data/sinclair/zx-spectrum/cycle-profile/loop.asm","line":8,"section":0,"offset":5,"length":1}

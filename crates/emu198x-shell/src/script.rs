@@ -375,6 +375,11 @@ pub enum ScriptStep {
     /// (IM/IFF1/IFF2), and the decoded F flags (S/Z/5/H/3/P-V/N/C).
     /// Emits [`ScriptObservation::QueryCpu`].
     QueryCpu,
+    /// Run a bounded execution-cost capture and join it to loaded source symbols.
+    ProfileCycles {
+        /// Exact authoritative machine ticks to run; limited to MAX_PROFILE_TICKS.
+        ticks: u32,
+    },
     /// Single-step the CPU.
     ///
     /// System-specific step (binary-dispatched). Runs the machine
@@ -695,6 +700,12 @@ pub struct HeadlessScript {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ScriptObservation {
+    /// Execution costs with source-line totals and explicit non-instruction time.
+    ProfileCycles {
+        /// Captured profile, using the machine's authoritative clock.
+        profile: crate::cycle_profile::CycleProfile,
+    },
+
     /// The final frame held a single colour.
     ///
     /// Emitted once per report rather than per step, and only when the
@@ -1415,6 +1426,42 @@ impl ScriptStep {
                 Ok(Some(ScriptObservation::QueryCpu {
                     registers: target.cpu_state(),
                 }))
+            }
+            Self::ProfileCycles { ticks } => {
+                crate::cycle_profile::validate_ticks(*ticks).map_err(|err| {
+                    ScriptError::InvalidStep {
+                        step: "profile_cycles",
+                        reason: err.to_string(),
+                    }
+                })?;
+                if !session
+                    .machine()
+                    .capabilities()
+                    .contains(&crate::known_capability("cycle-profile"))
+                {
+                    return Err(ScriptError::SystemSpecificStep {
+                        step: "profile_cycles",
+                    });
+                }
+                if session.is_recording() || session.is_audio_recording() {
+                    return Err(ScriptError::InvalidStep {
+                        step: "profile_cycles",
+                        reason: "stop recording before a debug profile capture".to_owned(),
+                    });
+                }
+                // Apply queued input through the normal driver without advancing
+                // time before entering this debug capture.
+                session.run_until(session.time())?;
+                let clock = session.machine().profile().clock.clone();
+                let counts = session
+                    .machine_mut()
+                    .profile_cycles(*ticks)
+                    .map_err(|err| ScriptError::InvalidStep {
+                        step: "profile_cycles",
+                        reason: err.to_string(),
+                    })?;
+                let profile = counts.with_symbols(clock, session.debug_symbols());
+                Ok(Some(ScriptObservation::ProfileCycles { profile }))
             }
             Self::Step { instructions } => {
                 let count = instructions.unwrap_or(1).min(STEP_MAX);

@@ -98,3 +98,5 @@ pub use video::{
     compute_fps, find_ffmpeg, trim_audio_after, trim_audio_after_with_fade,
 };
 pub use watch::{WatchAyRecord, WatchError, WatchMemoryRecord, WatchMemorySource, WatchTarget};
+
+pub mod cycle_profile;

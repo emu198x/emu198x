@@ -15,7 +15,7 @@ runtime-sega-master-system-class = { path = "../runtime-sega-master-system-class
 [dev-dependencies]
 sega-vdp = { path = "../sega-vdp", version = "0.24.0" }
 serde_json = { workspace = true }
-emu198x-zilog-z80 = { path = "../emu198x-zilog-z80", version = "0.6.0" }
+emu198x-zilog-z80 = { path = "../emu198x-zilog-z80", version = "0.7.0" }
 
 [lints]
 workspace = true

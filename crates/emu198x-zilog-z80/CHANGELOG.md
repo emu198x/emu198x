@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Optional bounded execution observation identifies opcode starts, interrupt responses and HALT refresh intervals without changing CPU timing or serialized state.
+
 ### Changed
 
 - Define shared instruction-step accounting in machine-native timing units; current machines use one Z80 T-state per step
