@@ -508,8 +508,9 @@ impl SpectrumMachine for Spectrum48k {
     fn capture_cycle_counts(
         &mut self,
         ticks: u32,
+        observer: Option<&mut dyn emu198x_shell::cycle_profile::CycleObserver>,
     ) -> Result<emu198x_shell::cycle_profile::CycleCounts, emu198x_shell::MachineError> {
-        crate::profiling::capture(self, ticks)
+        crate::profiling::capture(self, ticks, observer)
     }
     fn z80_registers(&self) -> &emu198x_zilog_z80::Registers {
         &self.z80().regs
@@ -545,8 +546,9 @@ impl SpectrumMachine for Spectrum16K {
     fn capture_cycle_counts(
         &mut self,
         ticks: u32,
+        observer: Option<&mut dyn emu198x_shell::cycle_profile::CycleObserver>,
     ) -> Result<emu198x_shell::cycle_profile::CycleCounts, emu198x_shell::MachineError> {
-        crate::profiling::capture(self, ticks)
+        crate::profiling::capture(self, ticks, observer)
     }
     const FRAME_WIDTH: u32 = SCREEN_WIDTH as u32;
     const FRAME_HEIGHT: u32 = SCREEN_HEIGHT as u32;
@@ -710,8 +712,9 @@ impl SpectrumMachine for SpectrumPlus {
     fn capture_cycle_counts(
         &mut self,
         ticks: u32,
+        observer: Option<&mut dyn emu198x_shell::cycle_profile::CycleObserver>,
     ) -> Result<emu198x_shell::cycle_profile::CycleCounts, emu198x_shell::MachineError> {
-        crate::profiling::capture(self, ticks)
+        crate::profiling::capture(self, ticks, observer)
     }
     const FRAME_WIDTH: u32 = SCREEN_WIDTH as u32;
     const FRAME_HEIGHT: u32 = SCREEN_HEIGHT as u32;
@@ -870,8 +873,9 @@ impl SpectrumMachine for Spectrum128K {
     fn capture_cycle_counts(
         &mut self,
         ticks: u32,
+        observer: Option<&mut dyn emu198x_shell::cycle_profile::CycleObserver>,
     ) -> Result<emu198x_shell::cycle_profile::CycleCounts, emu198x_shell::MachineError> {
-        crate::profiling::capture(self, ticks)
+        crate::profiling::capture(self, ticks, observer)
     }
     const FRAME_WIDTH: u32 = SCREEN_WIDTH as u32;
     const FRAME_HEIGHT: u32 = SCREEN_HEIGHT as u32;
@@ -1051,8 +1055,9 @@ impl SpectrumMachine for SpectrumPlus2 {
     fn capture_cycle_counts(
         &mut self,
         ticks: u32,
+        observer: Option<&mut dyn emu198x_shell::cycle_profile::CycleObserver>,
     ) -> Result<emu198x_shell::cycle_profile::CycleCounts, emu198x_shell::MachineError> {
-        crate::profiling::capture(self, ticks)
+        crate::profiling::capture(self, ticks, observer)
     }
     const FRAME_WIDTH: u32 = SCREEN_WIDTH as u32;
     const FRAME_HEIGHT: u32 = SCREEN_HEIGHT as u32;
@@ -1235,8 +1240,9 @@ impl<V: AmstradVariant> SpectrumMachine for SpectrumAmstradClassCore<V> {
     fn capture_cycle_counts(
         &mut self,
         ticks: u32,
+        observer: Option<&mut dyn emu198x_shell::cycle_profile::CycleObserver>,
     ) -> Result<emu198x_shell::cycle_profile::CycleCounts, emu198x_shell::MachineError> {
-        crate::profiling::capture(self, ticks)
+        crate::profiling::capture(self, ticks, observer)
     }
     const FRAME_WIDTH: u32 = SCREEN_WIDTH as u32;
     const FRAME_HEIGHT: u32 = SCREEN_HEIGHT as u32;
@@ -1462,8 +1468,9 @@ impl SpectrumMachine for Pentagon128 {
     fn capture_cycle_counts(
         &mut self,
         ticks: u32,
+        observer: Option<&mut dyn emu198x_shell::cycle_profile::CycleObserver>,
     ) -> Result<emu198x_shell::cycle_profile::CycleCounts, emu198x_shell::MachineError> {
-        crate::profiling::capture(self, ticks)
+        crate::profiling::capture(self, ticks, observer)
     }
     const FRAME_WIDTH: u32 = SCREEN_WIDTH as u32;
     const FRAME_HEIGHT: u32 = SCREEN_HEIGHT as u32;
@@ -1618,8 +1625,9 @@ impl SpectrumMachine for ScorpionZS256 {
     fn capture_cycle_counts(
         &mut self,
         ticks: u32,
+        observer: Option<&mut dyn emu198x_shell::cycle_profile::CycleObserver>,
     ) -> Result<emu198x_shell::cycle_profile::CycleCounts, emu198x_shell::MachineError> {
-        crate::profiling::capture(self, ticks)
+        crate::profiling::capture(self, ticks, observer)
     }
     const FRAME_WIDTH: u32 = SCREEN_WIDTH as u32;
     const FRAME_HEIGHT: u32 = SCREEN_HEIGHT as u32;
@@ -1773,8 +1781,9 @@ impl SpectrumMachine for TimexTC2048 {
     fn capture_cycle_counts(
         &mut self,
         ticks: u32,
+        observer: Option<&mut dyn emu198x_shell::cycle_profile::CycleObserver>,
     ) -> Result<emu198x_shell::cycle_profile::CycleCounts, emu198x_shell::MachineError> {
-        crate::profiling::capture(self, ticks)
+        crate::profiling::capture(self, ticks, observer)
     }
     const FRAME_WIDTH: u32 = SCREEN_WIDTH_HIRES as u32;
     const FRAME_HEIGHT: u32 = SCREEN_HEIGHT as u32;
@@ -1916,8 +1925,9 @@ impl SpectrumMachine for TimexTS2068 {
     fn capture_cycle_counts(
         &mut self,
         ticks: u32,
+        observer: Option<&mut dyn emu198x_shell::cycle_profile::CycleObserver>,
     ) -> Result<emu198x_shell::cycle_profile::CycleCounts, emu198x_shell::MachineError> {
-        crate::profiling::capture(self, ticks)
+        crate::profiling::capture(self, ticks, observer)
     }
     const FRAME_WIDTH: u32 = SCREEN_WIDTH_HIRES as u32;
     const FRAME_HEIGHT: u32 = SCREEN_HEIGHT as u32;

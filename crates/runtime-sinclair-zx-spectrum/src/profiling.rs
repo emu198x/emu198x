@@ -168,6 +168,7 @@ fn ticks_to_edge(hc: u32, divisor: u32) -> u32 {
 pub(crate) fn capture(
     machine: &mut impl ProfileMachine,
     ticks: u32,
+    mut observer: Option<&mut dyn emu198x_shell::cycle_profile::CycleObserver>,
 ) -> Result<CycleCounts, MachineError> {
     validate_ticks(ticks)?;
     let mut counts = CycleCounts {
@@ -219,7 +220,7 @@ pub(crate) fn capture(
         let completed = machine.cpu().instructions_retired();
         if completed != retired {
             retired = completed;
-            completion = Some(machine.cpu().completed_execution());
+            completion = Some(machine.cpu().completed_execution_event());
         }
         // Retirement is observed on a CPU clock edge. Its half-cycle still
         // occupies the following master ticks. Close the interval at the next
@@ -232,7 +233,35 @@ pub(crate) fn capture(
         let Some(identity) = completion.take() else {
             continue;
         };
-        match identity {
+        if let Some(event) = identity
+            && let Some(observer) = observer.as_deref_mut()
+            && event.kind != ExecutionKind::Halt
+        {
+            use emu198x_shell::cycle_profile::{ProfileEvent, ProfileFlow};
+            use emu198x_zilog_z80::ExecutionFlow;
+            observer.observe(ProfileEvent {
+                address: match event.kind {
+                    ExecutionKind::Instruction(address) => Some(u32::from(address)),
+                    _ => None,
+                },
+                mapping,
+                ticks: pending,
+                flow: event.flow.map(|flow| match flow {
+                    ExecutionFlow::Call { return_address }
+                    | ExecutionFlow::Restart { return_address } => ProfileFlow::Call {
+                        return_address: u32::from(return_address),
+                    },
+                    ExecutionFlow::Interrupt { return_address } => ProfileFlow::Interrupt {
+                        return_address: u32::from(return_address),
+                    },
+                    ExecutionFlow::Return | ExecutionFlow::InterruptReturn => ProfileFlow::Return,
+                }),
+                stack_before: u32::from(event.stack_before),
+                stack_after: u32::from(event.stack_after),
+                next_pc: u32::from(event.next_pc),
+            });
+        }
+        match identity.map(|event| event.kind) {
             Some(ExecutionKind::Instruction(address)) => {
                 let cost = counts.addresses.entry(u32::from(address)).or_default();
                 cost.executions += 1;

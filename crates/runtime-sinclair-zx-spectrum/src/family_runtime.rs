@@ -496,6 +496,14 @@ impl MachineCore for SpectrumRuntimeKind {
         match_kind!(self, |rt| rt.profile_cycles(ticks))
     }
 
+    fn profile_cycles_observed(
+        &mut self,
+        ticks: u32,
+        observer: &mut dyn emu198x_shell::cycle_profile::CycleObserver,
+    ) -> Result<emu198x_shell::cycle_profile::CycleCounts, MachineError> {
+        match_kind!(self, |rt| rt.profile_cycles_observed(ticks, observer))
+    }
+
     fn profile(&self) -> &MachineProfile {
         match_kind!(self, |rt| rt.profile())
     }

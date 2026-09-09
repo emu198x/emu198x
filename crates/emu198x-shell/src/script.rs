@@ -379,7 +379,7 @@ pub enum ScriptStep {
     ProfileCycles {
         /// Exact authoritative machine ticks to run; limited to MAX_PROFILE_TICKS.
         ticks: u32,
-        /// Explicit routine extents for exclusive costs; no call counts are inferred.
+        /// Explicit extents for exclusive and inclusive costs with observed call counts.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         routines: Vec<crate::routine_profile::RoutineDefinition>,
     },
@@ -1431,8 +1431,8 @@ impl ScriptStep {
                 }))
             }
             Self::ProfileCycles { ticks, routines } => {
-                let routine_plan =
-                    crate::routine_profile::RoutinePlan::new(routines).map_err(|err| {
+                let mut call_profiler =
+                    crate::call_profile::CallProfiler::new(routines).map_err(|err| {
                         ScriptError::InvalidStep {
                             step: "profile_cycles",
                             reason: err.to_string(),
@@ -1463,15 +1463,21 @@ impl ScriptStep {
                 // time before entering this debug capture.
                 session.run_until(session.time())?;
                 let clock = session.machine().profile().clock.clone();
-                let counts = session
-                    .machine_mut()
-                    .profile_cycles(*ticks)
-                    .map_err(|err| ScriptError::InvalidStep {
-                        step: "profile_cycles",
-                        reason: err.to_string(),
-                    })?;
+                let counts = if routines.is_empty() {
+                    session.machine_mut().profile_cycles(*ticks)
+                } else {
+                    session
+                        .machine_mut()
+                        .profile_cycles_observed(*ticks, &mut call_profiler)
+                }
+                .map_err(|err| ScriptError::InvalidStep {
+                    step: "profile_cycles",
+                    reason: err.to_string(),
+                })?;
                 let mut profile = counts.with_symbols(clock, session.debug_symbols());
-                routine_plan.apply(&mut profile);
+                if !routines.is_empty() {
+                    call_profiler.finish(&mut profile);
+                }
                 Ok(Some(ScriptObservation::ProfileCycles { profile }))
             }
             Self::Step { instructions } => {

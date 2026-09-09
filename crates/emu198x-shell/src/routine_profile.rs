@@ -3,7 +3,7 @@
 
 use crate::{
     MachineError,
-    cycle_profile::{CycleProfile, ProfileMemory},
+    cycle_profile::{CycleProfile, ProfileMapping, ProfileMemory},
 };
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
@@ -64,6 +64,9 @@ pub struct RoutineCost {
     /// Authoritative ticks in this routine's own instructions, including stalls.
     /// Callees outside its ranges and non-instruction buckets are excluded.
     pub exclusive_ticks: u64,
+    /// Streaming call costs, when supported by the capture runtime.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub call_cost: Option<crate::call_profile::RoutineCallCost>,
 }
 
 #[derive(Clone, Copy)]
@@ -144,9 +147,31 @@ impl RoutinePlan {
                     ranges: routine.ranges,
                     instructions: 0,
                     exclusive_ticks: 0,
+                    call_cost: None,
                 })
                 .collect(),
             ranges,
+        })
+    }
+
+    pub(crate) fn owner(&self, address: u32, mapping: Option<ProfileMapping>) -> Option<usize> {
+        let coordinate = match mapping {
+            None => Some((RoutineSpace::Flat, address)),
+            Some(mapping) => address.checked_sub(mapping.base).map(|offset| {
+                (
+                    RoutineSpace::Page {
+                        memory: mapping.memory,
+                        page: mapping.page,
+                    },
+                    offset,
+                )
+            }),
+        };
+        coordinate.and_then(|(space, offset)| {
+            let ranges = self.ranges.get(&space)?;
+            let index = ranges.partition_point(|range| range.start <= offset);
+            let range = ranges.get(index.checked_sub(1)?)?;
+            (u64::from(offset) < range.end).then_some(range.owner)
         })
     }
 
@@ -156,24 +181,7 @@ impl RoutinePlan {
         }
         let mut unassigned = 0;
         for entry in &profile.addresses {
-            let coordinate = match entry.mapping {
-                None => Some((RoutineSpace::Flat, entry.address)),
-                Some(mapping) => entry.address.checked_sub(mapping.base).map(|offset| {
-                    (
-                        RoutineSpace::Page {
-                            memory: mapping.memory,
-                            page: mapping.page,
-                        },
-                        offset,
-                    )
-                }),
-            };
-            let owner = coordinate.and_then(|(space, offset)| {
-                let ranges = self.ranges.get(&space)?;
-                let index = ranges.partition_point(|range| range.start <= offset);
-                let range = ranges.get(index.checked_sub(1)?)?;
-                (u64::from(offset) < range.end).then_some(range.owner)
-            });
+            let owner = self.owner(entry.address, entry.mapping);
             if let Some(owner) = owner {
                 self.costs[owner].instructions += entry.cost.executions;
                 self.costs[owner].exclusive_ticks += entry.cost.ticks;

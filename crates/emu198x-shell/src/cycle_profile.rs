@@ -143,6 +143,9 @@ pub struct CycleProfile {
     pub unassigned_routine_ticks: Option<u64>,
     /// Completed instruction ticks without a matching source line.
     pub unmapped_ticks: u64,
+    /// Completeness diagnostics for requested call tracking.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub call_tracking: Option<crate::call_profile::CallTracking>,
 }
 
 impl CycleCounts {
@@ -205,8 +208,46 @@ impl CycleCounts {
                 })
                 .collect(),
             unmapped_ticks,
+            call_tracking: None,
             routines: Vec::new(),
             unassigned_routine_ticks: None,
         }
     }
+}
+
+/// CPU-coordinate transfer supplied by a runtime after a complete interval.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ProfileFlow {
+    /// CALL or restart pushed a return address.
+    Call { return_address: u32 },
+    /// A return popped the destination PC.
+    Return,
+    /// Interrupt entry, separating handler costs from the interrupted stack.
+    Interrupt { return_address: u32 },
+}
+
+/// A completed instruction or interrupt response. HALT waiting and partial
+/// intervals are excluded. Physical mapping is sampled at the first opcode read.
+#[derive(Clone, Copy, Debug)]
+pub struct ProfileEvent {
+    /// Instruction start; absent for interrupt entry.
+    pub address: Option<u32>,
+    /// Physical mapping of the instruction start, if banked.
+    pub mapping: Option<ProfileMapping>,
+    /// Authoritative completed interval ticks.
+    pub ticks: u64,
+    /// Executed stack transfer, if any.
+    pub flow: Option<ProfileFlow>,
+    /// Stack pointer at interval start.
+    pub stack_before: u32,
+    /// Stack pointer at retirement.
+    pub stack_after: u32,
+    /// PC at retirement.
+    pub next_pc: u32,
+}
+
+/// Streaming host accounting; runtimes retain no instruction trace.
+pub trait CycleObserver {
+    /// Observe one complete interval in execution order.
+    fn observe(&mut self, event: ProfileEvent);
 }

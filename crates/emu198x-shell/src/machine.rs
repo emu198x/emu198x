@@ -198,6 +198,20 @@ pub trait MachineCore {
         })
     }
 
+    /// Capture with ordered instruction events for host call accounting.
+    ///
+    /// # Errors
+    /// Unsupported runtimes refuse before advancing.
+    fn profile_cycles_observed(
+        &mut self,
+        _ticks: u32,
+        _observer: &mut dyn crate::cycle_profile::CycleObserver,
+    ) -> Result<crate::cycle_profile::CycleCounts, MachineError> {
+        Err(MachineError::UnsupportedOperation {
+            operation: "profile_cycles_observed",
+        })
+    }
+
     /// Returns the current machine profile.
     fn profile(&self) -> &MachineProfile;
 
