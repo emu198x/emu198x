@@ -2,7 +2,7 @@ use crate::alu;
 use crate::mcycle;
 use crate::registers::*;
 use crate::walker::Prefix;
-use crate::z80::Z80;
+use crate::z80::{ExecutionFlow, Z80};
 
 /// Execute the current instruction's operation using staged data.
 ///
@@ -413,6 +413,9 @@ fn execute_unprefixed(z80: &mut Z80) {
         // CALL nn
         0xCD => {
             let addr = u16::from_le_bytes([z80.walker.staged.data_lo, z80.walker.staged.data_hi]);
+            z80.observe_flow(ExecutionFlow::Call {
+                return_address: z80.regs.pc,
+            });
             z80.walker.staged.push_val = z80.regs.pc;
             z80.regs.pc = addr;
             z80.regs.wz = addr;
@@ -425,6 +428,9 @@ fn execute_unprefixed(z80: &mut Z80) {
             let cc = (opcode >> 3) & 0x07;
             if alu::condition(&z80.regs, cc) {
                 // Taken: continue to Internal(1) + PushHi + PushLo
+                z80.observe_flow(ExecutionFlow::Call {
+                    return_address: z80.regs.pc,
+                });
                 z80.walker.staged.push_val = z80.regs.pc;
                 z80.regs.pc = addr;
             } else {
@@ -436,6 +442,7 @@ fn execute_unprefixed(z80: &mut Z80) {
         // RET
         0xC9 => {
             let addr = u16::from_le_bytes([z80.walker.staged.data_lo, z80.walker.staged.data_hi]);
+            z80.observe_flow(ExecutionFlow::Return);
             z80.regs.pc = addr;
             z80.regs.wz = addr;
         }
@@ -453,6 +460,7 @@ fn execute_unprefixed(z80: &mut Z80) {
                 // After pops: set PC from popped address
                 let addr =
                     u16::from_le_bytes([z80.walker.staged.data_lo, z80.walker.staged.data_hi]);
+                z80.observe_flow(ExecutionFlow::Return);
                 z80.regs.pc = addr;
                 z80.regs.wz = addr;
             }
@@ -461,6 +469,9 @@ fn execute_unprefixed(z80: &mut Z80) {
         // RST p
         0xC7 | 0xCF | 0xD7 | 0xDF | 0xE7 | 0xEF | 0xF7 | 0xFF => {
             let addr = (opcode & 0x38) as u16;
+            z80.observe_flow(ExecutionFlow::Restart {
+                return_address: z80.regs.pc,
+            });
             z80.walker.staged.push_val = z80.regs.pc;
             z80.regs.pc = addr;
             z80.regs.wz = addr;
@@ -691,6 +702,7 @@ fn execute_ed(z80: &mut Z80) {
         // RETI / RETN
         0x45 | 0x4D | 0x55 | 0x5D | 0x65 | 0x6D | 0x75 | 0x7D => {
             let addr = u16::from_le_bytes([z80.walker.staged.data_lo, z80.walker.staged.data_hi]);
+            z80.observe_flow(ExecutionFlow::InterruptReturn);
             z80.regs.pc = addr;
             z80.regs.wz = addr;
             z80.regs.iff1 = z80.regs.iff2; // RETN restores IFF1 from IFF2

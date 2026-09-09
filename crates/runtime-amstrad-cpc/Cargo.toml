@@ -16,7 +16,7 @@ machine-amstrad-cpc = { path = "../machine-amstrad-cpc", version = "0.24.0" }
 postcard = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-emu198x-zilog-z80 = { path = "../emu198x-zilog-z80", version = "0.7.0" }
+emu198x-zilog-z80 = { path = "../emu198x-zilog-z80", version = "0.8.0" }
 
 [lints]
 workspace = true

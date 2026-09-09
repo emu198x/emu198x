@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Optional retirement events report taken calls, restarts, returns and interrupt transfers, with stack pointers and the actual next PC for host call tracking.
+
 - Optional bounded execution observation identifies opcode starts, interrupt responses and HALT refresh intervals without changing CPU timing or serialized state.
 
 ### Changed
