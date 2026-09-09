@@ -10,6 +10,7 @@ repository.workspace = true
 [dependencies]
 common-tape = { path = "../common-tape", version = "0.24.0" }
 common-sinclair-zx-spectrum = { path = "../common-sinclair-zx-spectrum", version = "0.24.0" }
+common-sinclair-zx-spectrum-48k-class = { path = "../common-sinclair-zx-spectrum-48k-class", version = "0.24.0" }
 common-sinclair-zx-spectrum-amstrad-class = { path = "../common-sinclair-zx-spectrum-amstrad-class", version = "0.24.0" }
 emu198x-shell = { path = "../emu198x-shell", version = "0.24.0" }
 format-amstrad-dsk = { path = "../format-amstrad-dsk", version = "0.24.0" }

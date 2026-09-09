@@ -2,6 +2,8 @@
 //! from disassembly: every elapsed tick includes the driver's contention.
 
 use common_sinclair_zx_spectrum::driver::SpectrumDriver;
+use common_sinclair_zx_spectrum::memory::MemoryBus;
+use common_sinclair_zx_spectrum_48k_class::{SpectrumMachineCore, Variant48kClass};
 use emu198x_shell::{
     MachineError,
     cycle_profile::{
@@ -10,7 +12,6 @@ use emu198x_shell::{
     },
 };
 use emu198x_zilog_z80::ExecutionKind;
-use machine_sinclair_zx_spectrum_48k::Spectrum48k;
 
 pub(crate) trait ProfileMachine: SpectrumDriver {
     fn cpu(&self) -> &emu198x_zilog_z80::Z80;
@@ -18,7 +19,7 @@ pub(crate) trait ProfileMachine: SpectrumDriver {
     fn mapping(&self, address: u16) -> Option<ProfileMapping>;
 }
 
-impl ProfileMachine for Spectrum48k {
+impl<M: MemoryBus, V: Variant48kClass> ProfileMachine for SpectrumMachineCore<M, V> {
     fn cpu(&self) -> &emu198x_zilog_z80::Z80 {
         self.z80()
     }
