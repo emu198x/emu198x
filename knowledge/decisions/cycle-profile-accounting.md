@@ -10,7 +10,7 @@
 and returns per-address execution costs plus Debug198x source-line totals.
 The shared shell owns the command, report and source join. The runtime owns
 measurement. Capture supports all eight original PAL Spectrum models: 16K, 48K, Spectrum+,
-128K, +2, +2A, +2B and +3.
+128K, +2, +2A, +2B and +3. Pentagon 128 and Scorpion ZS-256 are also supported.
 
 The report includes its clock unit and rational frequency. The 16K, 48K and Spectrum+
 use 14 MHz master ticks: four ticks per CPU T-state. These are elapsed emulated
@@ -18,7 +18,8 @@ ticks, including contention, rather than host duration or instruction-table
 estimates. The 128K and all +2/+3 variants use 17,734,475 Hz master ticks, five per
 T-state. Capture follows the driver's existing two scheduled edges per T-state,
 including the unequal intervals of an odd divider. We do not claim a separate
-active-CPU/stall breakdown.
+active-CPU/stall breakdown. Pentagon uses its 14,336,000 Hz clock and Scorpion
+uses 14 MHz; both have four master ticks per CPU T-state.
 
 The optional Z80 observer records an instruction's first opcode/prefix address
 and its identity at retirement. Interrupt responses and HALT refresh intervals
@@ -57,7 +58,7 @@ sidecar; this slice does not verify code hashes or reinterpret self-modified
 instructions as new source. Exact labels are annotations, not routine extents:
 Debug198x labels alone cannot establish inclusive function costs or a call tree.
 For banked machines, the runtime records the slot, physical page and RAM/ROM
-namespace before the first opcode fetch. A paging instruction keeps its original
+namespace after the machine supplies the first opcode byte. A paging instruction keeps its original
 mapping even if it replaces its own code bank. Prefix bytes remain part of that
 first-byte identity. The accumulator keys on CPU address plus this mapping.
 
@@ -67,6 +68,22 @@ RAM at address zero. Both paging registers and their lock are reflected in that
 answer. Entering or leaving all-RAM mode during an instruction cannot relabel the
 instruction's original bytes. Observation does not alter memory reads, writes,
 contention or the machine's bus handling.
+
+Pentagon and Scorpion can page TR-DOS in or out during an M1 fetch. Capture
+samples the actual mapping after the first opcode read strobe, after the machine
+handles its overlay trap. It observes raw pins without consuming bus transaction
+edges. Later prefix fetches can change the overlay without relabelling the
+instruction's first byte. `rom_overlay` is a separate memory namespace from base
+`rom`: Pentagon overlay page 0 is its dedicated TR-DOS image; Scorpion overlay
+page 1 is the ROM image its current implementation actually reads.
+
+Scorpion profiling follows the current emulator, including its documented
+unresolved differences from FUSE: `$1FFD` bit 0 selects the high RAM-bank bit,
+the base ROM index combines two selector bits, and the overlay reads ROM 1.
+The current machine I/O decoder also routes `$1FFD` writes to both paging
+registers. This slice changes none of those behaviours and does not establish
+them as hardware facts. The report measures the executed memory map; a matching
+sidecar must name those RAM pages.
 
 `counts.addresses` remains the CPU-address aggregate. `counts.mapped_addresses`
 is its complete per-mapping decomposition, not additional elapsed time. In banked
@@ -89,7 +106,9 @@ Budgets are 1–14,000,000 ticks. The 48K address space bounds the accumulator t
 65,536 entries. The 128K-class mapping bounds the decomposition to 196,608
 address/mapping identities (including RAM aliases and both ROM pages). The
 Amstrad-class bound is 311,296 identities across its normal/all-RAM mappings and
-four ROM pages. No instruction-by-instruction trace is retained.
+four ROM pages. Pentagon is bounded by 212,992 identities and Scorpion by
+376,832, including their distinct overlay namespaces. No instruction-by-instruction
+trace is retained.
 
 Queued input is applied before execution. The machine and runtime time advance,
 but this is a debug operation: it does not deliver host frame/audio captures.
@@ -115,5 +134,5 @@ waiting. Source lines 5–8 receive those same costs. The runtime integration te
 checks the real sidecar and verifies identical script and MCP reports.
 
 This work does not close #1372: additional CPU/runtime adapters (including the
-remaining Spectrum clones), routine/call accounting and comparisons with
+remaining Timex variants), routine/call accounting and comparisons with
 Asm198x static ranges remain separate extensions.

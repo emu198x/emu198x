@@ -605,7 +605,7 @@ pub fn profile_for(model: Model) -> MachineProfile {
                 FirmwareRequirement::new("pentagon-rom-1", "Pentagon ROM 1", false),
             ],
             media_slots: vec![tape_slot()],
-            capabilities: ay_capabilities(),
+            capabilities: { let mut caps = ay_capabilities(); caps.insert(known_capability("cycle-profile")); caps },
         },
         Model::ScorpionZS256 => MachineProfile {
             machine_id: MachineId::from("sinclair-zx-spectrum"),
@@ -628,7 +628,7 @@ pub fn profile_for(model: Model) -> MachineProfile {
                 })
                 .collect(),
             media_slots: vec![tape_slot()],
-            capabilities: ay_capabilities(),
+            capabilities: { let mut caps = ay_capabilities(); caps.insert(known_capability("cycle-profile")); caps },
         },
         Model::TimexTC2048 => MachineProfile {
             machine_id: MachineId::from("sinclair-zx-spectrum"),

@@ -39,6 +39,9 @@ pub struct MemoryScorpion {
 }
 
 impl MemoryScorpion {
+    /// ROM backing the current Beta overlay implementation.
+    pub const TRDOS_ROM_BANK: u8 = 1;
+
     pub fn new() -> Self {
         Self {
             rom: vec![Bank16K::zeroed(); 4],
@@ -86,7 +89,7 @@ impl MemoryScorpion {
     /// to read from `rom[3]` regressed the boot, so we keep the
     /// existing index until the ROM layout is verified.
     pub fn read_trdos_rom(&self, addr: u16) -> u8 {
-        self.rom[1][addr as usize & 0x3FFF]
+        self.rom[usize::from(Self::TRDOS_ROM_BANK)][addr as usize & 0x3FFF]
     }
 
     pub fn write_1ffd(&mut self, val: u8) {
@@ -105,7 +108,7 @@ impl MemoryScorpion {
     /// slots and the CPU never reaches `EI`. Tracked as a separate
     /// open question pending evidence on which Scorpion ROM
     /// distribution our files match.
-    fn current_bank(&self) -> usize {
+    pub fn current_bank(&self) -> usize {
         let low = (self.paging_7ffd & 0x07) as usize;
         let high = ((self.paging_1ffd & 0x01) as usize) << 3;
         low | high
@@ -117,7 +120,7 @@ impl MemoryScorpion {
     /// composite `($1FFD bit 1) << 1 | ($7FFD bit 4)` index that
     /// reaches all 4 ROM slots. Tracked as the same open question
     /// as `current_bank()` above.
-    fn current_rom(&self) -> usize {
+    pub fn current_rom(&self) -> usize {
         let low = ((self.paging_7ffd >> 4) & 0x01) as usize;
         let high = ((self.paging_1ffd >> 1) & 0x01) as usize;
         (high << 1) | low

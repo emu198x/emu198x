@@ -43,6 +43,8 @@ pub enum ProfileMemory {
     Ram,
     /// ROM pages are kept separate and currently have no source join.
     Rom,
+    /// A ROM supplied by an active overlay, separate from the base ROM map.
+    RomOverlay,
 }
 
 /// Historical slot mapping at the first opcode fetch, not capture end.
@@ -63,7 +65,7 @@ pub struct ProfileMapping {
 pub struct MappedExecutionCost {
     /// CPU address of the first opcode/prefix byte.
     pub address: u32,
-    /// Mapping observed before that instruction ran.
+    /// Mapping supplying the first opcode/prefix byte.
     pub mapping: ProfileMapping,
     /// Completed executions in this mapping.
     #[serde(flatten)]
