@@ -1,7 +1,8 @@
-//! The DOM boundary: the `Spectrum` class JavaScript sees.
+//! The browser boundary: the `Spectrum` class JavaScript sees.
 //!
 //! Compiled only for `wasm32`. Everything here names a browser type, so on a
-//! native build there is nothing to compile — but the key mapping in the
+//! native build there is nothing to compile. Canvas-free constructors also
+//! work in a Web Worker; canvas presentation stays optional. The key mapping in the
 //! parent module stays target-independent so its tests run everywhere.
 //!
 //! Presentation is a 2-D canvas blit. The GPU path renders through the same
@@ -10,11 +11,13 @@
 //! costs about 2.5 MB of wasm. This path works, is pixel-exact, and is the one
 //! a lesson page can afford.
 
-use emu198x_shell::{FamilyRuntime, FirmwareImage, FirmwareSet, MediaKind};
+use emu198x_shell::{
+    DebugPrimitives, FamilyRuntime, FirmwareImage, FirmwareSet, MediaKind, SessionDriver,
+};
 use emu198x_web::WebMachine;
 use runtime_sinclair_zx_spectrum::{
     Model, SpectrumLiveAccess, SpectrumRuntimeKind, SpectrumSessionQueryProvider,
-    autoload_basic_tape,
+    autoload_basic_tape, load_basic_program_with_writer, tap_key,
 };
 use wasm_bindgen::{Clamped, prelude::*};
 use web_sys::{CanvasRenderingContext2d, HtmlCanvasElement, ImageData};
@@ -24,10 +27,17 @@ use crate::{parse_snapshot, spectrum_key_name};
 /// Firmware id the 48K runtime expects for its ROM image.
 const ROM_ID: &str = "sinclair-zx-spectrum-48k-rom";
 
-/// A ZX Spectrum attached to a canvas.
+/// A ZX Spectrum with optional canvas presentation.
 #[wasm_bindgen]
 pub struct Spectrum {
     machine: WebMachine<SpectrumRuntimeKind, SpectrumSessionQueryProvider>,
+    presentation: Option<CanvasPresentation>,
+    trace_screen_writes: Option<(u16, u16)>,
+    routine_stop: Option<u16>,
+    routine_trace: serde_json::Value,
+}
+
+struct CanvasPresentation {
     canvas: HtmlCanvasElement,
     context: CanvasRenderingContext2d,
 }
@@ -50,10 +60,7 @@ impl Spectrum {
     /// canvas has no 2-D context.
     #[allow(clippy::unused_async)]
     pub async fn create(canvas: HtmlCanvasElement, rom: Vec<u8>) -> Result<Spectrum, JsError> {
-        let mut firmware = FirmwareSet::new();
-        firmware.push(FirmwareImage::new(ROM_ID, &rom));
-        let runtime = SpectrumRuntimeKind::from_firmware(Model::Spectrum48KPal, &firmware)
-            .map_err(|error| JsError::new(&format!("building the 48K: {error}")))?;
+        let mut spectrum = Self::create_headless(rom)?;
 
         let context = canvas
             .get_context("2d")
@@ -62,11 +69,43 @@ impl Spectrum {
             .dyn_into::<CanvasRenderingContext2d>()
             .map_err(|_| JsError::new("the canvas context is not a 2-D context"))?;
 
+        spectrum.presentation = Some(CanvasPresentation { canvas, context });
+        Ok(spectrum)
+    }
+
+    /// Builds a canvas-free 48K suitable for a Web Worker.
+    ///
+    /// Use `tick`, `frameSize` and `frameRgba` to run the same machine and
+    /// transfer completed frames to a presenter. No DOM object is accessed.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the supplied firmware cannot build a 48K machine.
+    #[wasm_bindgen(js_name = createHeadless)]
+    pub fn create_headless(rom: Vec<u8>) -> Result<Spectrum, JsError> {
+        let mut firmware = FirmwareSet::new();
+        firmware.push(FirmwareImage::new(ROM_ID, &rom));
+        let runtime = SpectrumRuntimeKind::from_firmware(Model::Spectrum48KPal, &firmware)
+            .map_err(|error| JsError::new(&format!("building the 48K: {error}")))?;
+
         Ok(Spectrum {
             machine: WebMachine::new_with_query_provider(runtime, SpectrumSessionQueryProvider),
-            canvas,
-            context,
+            presentation: None,
+            trace_screen_writes: None,
+            routine_stop: None,
+            routine_trace: serde_json::json!({"events": [], "complete": false}),
         })
+    }
+
+    /// Builds a canvas-free 48K with the package's bundled ROM.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the bundled firmware cannot build the machine.
+    #[cfg(feature = "bundled-rom")]
+    #[wasm_bindgen(js_name = createHeadlessBundled)]
+    pub fn create_headless_bundled() -> Result<Spectrum, JsError> {
+        Self::create_headless(crate::BUNDLED_ROM.to_vec())
     }
 
     /// Runs the machine for `elapsed_ms` of real time and draws the result.
@@ -171,6 +210,190 @@ impl Spectrum {
         Self::create(canvas, crate::BUNDLED_ROM.to_vec()).await
     }
 
+    /// Installs a numbered BASIC listing directly into RAM and asks the ROM
+    /// to RUN it. Call on a fresh 48K; no tape is mounted or played.
+    ///
+    /// # Errors
+    /// Returns conversion, boot or editor-prompt errors.
+    #[wasm_bindgen(js_name = runBasic)]
+    pub fn run_basic(&mut self, source: &str) -> Result<(), JsError> {
+        let program = format_sinclair_zx_spectrum_bas::tokenise_listing(source)
+            .map_err(|error| JsError::new(&error))?;
+        load_basic_program_with_writer(
+            &mut self.machine,
+            &program,
+            true,
+            400,
+            |host, addr, byte| host.runtime_mut().write_byte(addr, byte),
+        )
+        .map_err(|error| JsError::new(&error.to_string()))?;
+        Ok(())
+    }
+
+    /// Installs machine code in a fresh 48K and calls it through the ROM's
+    /// RANDOMIZE USR, with CLEAR reserving its RAM and a valid return stack.
+    ///
+    /// # Errors
+    /// Rejects empty code, overlap with BASIC/system RAM, overflow, entry
+    /// outside the code, and ROM boot or prompt failures.
+    #[wasm_bindgen(js_name = runCode)]
+    pub fn run_code(&mut self, bytes: &[u8], origin: u32, entry: u32) -> Result<(), JsError> {
+        let source = crate::code_launcher(bytes.len(), origin, entry)
+            .map_err(|error| JsError::new(&error))?;
+        let program = format_sinclair_zx_spectrum_bas::tokenise_listing(&source)
+            .map_err(|error| JsError::new(&error))?;
+        load_basic_program_with_writer(
+            &mut self.machine,
+            &program,
+            false,
+            400,
+            |host, addr, byte| host.runtime_mut().write_byte(addr, byte),
+        )
+        .map_err(|error| JsError::new(&error.to_string()))?;
+        for (i, byte) in bytes.iter().enumerate() {
+            self.machine
+                .runtime_mut()
+                .write_byte((origin as usize + i) as u16, *byte);
+        }
+        if let Some(stop) = self.routine_stop {
+            tap_key(&mut self.machine, "r").map_err(|error| JsError::new(&error.to_string()))?;
+            self.machine.queue_key("Enter", true);
+            self.machine
+                .apply_pending_input()
+                .map_err(|error| JsError::new(&error.to_string()))?;
+            let (reached, _, _) = self
+                .machine
+                .runtime_mut()
+                .run_until_pc(entry as u16, 14_000_000);
+            self.machine.queue_key("Enter", false);
+            self.machine
+                .apply_pending_input()
+                .map_err(|error| JsError::new(&error.to_string()))?;
+            if !reached {
+                return Err(JsError::new("The ROM did not reach the program entry."));
+            }
+            let runtime = self.machine.runtime_mut();
+            runtime
+                .start_memory_write_watch(0x4000, 0x800)
+                .map_err(JsError::new)?;
+            let mut events = Vec::new();
+            let mut complete = false;
+            for _ in 0..4096 {
+                let before = runtime.z80_registers().clone();
+                if before.pc == stop {
+                    complete = true;
+                    break;
+                }
+                if u32::from(before.pc) < origin
+                    || u32::from(before.pc) >= origin + bytes.len() as u32
+                {
+                    break;
+                }
+                let opcode = runtime.read_byte(before.pc);
+                let target = u16::from_le_bytes([
+                    runtime.read_byte(before.pc.wrapping_add(1)),
+                    runtime.read_byte(before.pc.wrapping_add(2)),
+                ]);
+                let stack_target = u16::from_le_bytes([
+                    runtime.read_byte(before.sp),
+                    runtime.read_byte(before.sp.wrapping_add(1)),
+                ]);
+                runtime.clear_memory_write_watch_records();
+                runtime.step_instructions(1);
+                let after = runtime.z80_registers().clone();
+                let before_state = serde_json::json!({"pc":before.pc,"sp":before.sp,"a":before.a(),"b":before.b(),"hl":before.hl,"de":before.de});
+                let after_state = serde_json::json!({"pc":after.pc,"sp":after.sp,"a":after.a(),"b":after.b(),"hl":after.hl,"de":after.de});
+                if opcode == 0xcd && after.sp == before.sp.wrapping_sub(2) && after.pc == target {
+                    let return_address = u16::from_le_bytes([
+                        runtime.read_byte(after.sp),
+                        runtime.read_byte(after.sp.wrapping_add(1)),
+                    ]);
+                    events.push(serde_json::json!({"kind":"call","pc":before.pc,"target":after.pc,"returnAddress":return_address,"before":before_state,"after":after_state}));
+                } else if opcode == 0xc9
+                    && after.sp == before.sp.wrapping_add(2)
+                    && after.pc == stack_target
+                {
+                    events.push(serde_json::json!({"kind":"return","pc":before.pc,"target":after.pc,"before":before_state,"after":after_state}));
+                }
+                for write in runtime.memory_write_watch_records().unwrap_or(&[]) {
+                    events.push(serde_json::json!({"kind":"write","pc":before.pc,"addr":write.addr,"value":write.value,"before":before_state,"after":after_state}));
+                }
+            }
+            runtime.stop_memory_write_watch();
+            self.routine_trace =
+                serde_json::json!({"events":events,"complete":complete,"stop":stop});
+            self.machine
+                .run_frames(2)
+                .map_err(|error| JsError::new(&error.to_string()))?;
+            return Ok(());
+        }
+        if let Some((address, length)) = self.trace_screen_writes {
+            self.machine
+                .runtime_mut()
+                .start_memory_write_watch(address, length)
+                .map_err(JsError::new)?;
+        }
+        tap_key(&mut self.machine, "r")
+            .and_then(|()| tap_key(&mut self.machine, "enter"))
+            .map_err(|error| JsError::new(&error.to_string()))?;
+        self.machine
+            .run_frames(30)
+            .map_err(|error| JsError::new(&error.to_string()))?;
+        Ok(())
+    }
+
+    /// Enables a bounded debugger recording of CALL nn, RET and bitmap writes,
+    /// stopping before the named hold address. Use on a fresh machine.
+    #[wasm_bindgen(js_name = enableRoutineTrace)]
+    pub fn enable_routine_trace(&mut self, stop: u16) {
+        self.routine_stop = Some(stop);
+    }
+
+    /// Returns the executed routine events and whether the stop was reached.
+    ///
+    /// # Errors
+    /// Returns a JSON serialisation error if the recording cannot be encoded.
+    #[wasm_bindgen(js_name = routineTrace)]
+    pub fn routine_trace(&self) -> Result<String, JsError> {
+        serde_json::to_string(&self.routine_trace).map_err(|error| JsError::new(&error.to_string()))
+    }
+
+    /// Records writes in a selected bitmap range during the next direct code run.
+    /// Call on a fresh machine. Narrow ranges leave room for the program's writes
+    /// after the ROM clears the display.
+    ///
+    /// # Errors
+    /// Rejects empty ranges or ranges outside bitmap RAM ($4000..$5800).
+    #[wasm_bindgen(js_name = enableScreenWriteTrace)]
+    pub fn enable_screen_write_trace(&mut self, address: u32, length: u32) -> Result<(), JsError> {
+        if !(0x4000..0x5800).contains(&address) || length == 0 || length > 0x5800 - address {
+            return Err(JsError::new(
+                "Trace range must fit inside bitmap RAM ($4000..$5800).",
+            ));
+        }
+        self.trace_screen_writes = Some((address as u16, length as u16));
+        Ok(())
+    }
+
+    /// Returns captured writes (including ROM writes) and saturation status.
+    /// Consumers can select the program's PC range without inventing a trace.
+    ///
+    /// # Errors
+    /// Returns a serialisation error if the capture cannot be encoded.
+    #[wasm_bindgen(js_name = screenWriteTrace)]
+    pub fn screen_write_trace(&self) -> Result<String, JsError> {
+        let records = self
+            .machine
+            .runtime()
+            .memory_write_watch_records()
+            .unwrap_or(&[]);
+        // The shared Spectrum tracer's documented default cap is 8192 records.
+        serde_json::to_string(
+            &serde_json::json!({"writes": records, "full": records.len() >= 8192}),
+        )
+        .map_err(|error| JsError::new(&error.to_string()))
+    }
+
     /// Loads a portable snapshot — `.sna` or `.z80` — from bytes.
     ///
     /// This is how a lesson runs the program it ships: the curriculum's
@@ -219,6 +442,68 @@ impl Spectrum {
             .map_err(|error| JsError::new(&format!("query {path:?}: {error}")))?;
         serde_json::to_string(&result.value)
             .map_err(|error| JsError::new(&format!("query {path:?} did not serialise: {error}")))
+    }
+
+    /// Inspect shared debugger registers and disassembly at PC.
+    ///
+    /// # Errors
+    /// Returns an error if state cannot be serialised.
+    #[wasm_bindgen(js_name = debugState)]
+    pub fn debug_state(&self) -> Result<String, JsError> {
+        let runtime = self.machine.runtime();
+        let pc = runtime.dbg_pc();
+        let instruction = runtime.dbg_disassemble(pc).map(|(text, length)| {
+            let bytes: Vec<u8> = (0..u32::from(length))
+                .map(|offset| runtime.dbg_peek((pc + offset) & 0xffff))
+                .collect();
+            serde_json::json!({"text": text, "bytes": bytes})
+        });
+        serde_json::to_string(&serde_json::json!({
+            "cpu": runtime.dbg_cpu_state(), "instruction": instruction
+        }))
+        .map_err(|error| JsError::new(&error.to_string()))
+    }
+
+    /// Use the existing bounded native step; suspend the host frame loop first.
+    ///
+    /// # Errors
+    /// Returns an error if pending input cannot be delivered.
+    #[wasm_bindgen(js_name = debugStep)]
+    pub fn debug_step(&mut self) -> Result<u64, JsError> {
+        self.machine
+            .apply_pending_input()
+            .map_err(|error| JsError::new(&error.to_string()))?;
+        Ok(self.machine.runtime_mut().dbg_step())
+    }
+
+    /// Run to an instruction boundary, bounded to 14 million half-cycles.
+    /// Suspend the host frame loop before calling this method.
+    ///
+    /// # Errors
+    /// Rejects invalid addresses and input delivery errors.
+    #[wasm_bindgen(js_name = debugRunTo)]
+    pub fn debug_run_to(&mut self, address: u32) -> Result<bool, JsError> {
+        let target = u16::try_from(address)
+            .map_err(|_| JsError::new("Breakpoint address must fit within 0..65535."))?;
+        self.machine
+            .apply_pending_input()
+            .map_err(|error| JsError::new(&error.to_string()))?;
+        let (reached, _, _) = self.machine.runtime_mut().run_until_pc(target, 14_000_000);
+        Ok(reached)
+    }
+
+    /// Reads visible memory for a lesson's live inspection panel.
+    ///
+    /// # Errors
+    /// Rejects ranges extending beyond the 64 KiB address space.
+    #[wasm_bindgen(js_name = readMemory)]
+    pub fn read_memory(&self, address: u32, length: u32) -> Result<Vec<u8>, JsError> {
+        if address > 0xffff || length > 0x10000 - address {
+            return Err(JsError::new("Memory range must fit within 0..65536."));
+        }
+        Ok((address..address + length)
+            .map(|addr| self.machine.runtime().read_byte(addr as u16))
+            .collect())
     }
 
     #[wasm_bindgen(js_name = mediaSlots)]
@@ -286,6 +571,9 @@ impl Spectrum {
 impl Spectrum {
     /// Blits the current frame to the canvas.
     fn draw(&mut self) -> Result<(), JsError> {
+        let Some(presentation) = &self.presentation else {
+            return Ok(());
+        };
         let (width, height) = self.machine.frame_size();
         if width == 0 || height == 0 {
             return Ok(());
@@ -294,9 +582,9 @@ impl Spectrum {
         // The machine's picture size is the drawing buffer. Setting it every
         // frame would reset the context, so only when it actually changes —
         // which it does when a Spectrum variant changes its border timing.
-        if self.canvas.width() != width || self.canvas.height() != height {
-            self.canvas.set_width(width);
-            self.canvas.set_height(height);
+        if presentation.canvas.width() != width || presentation.canvas.height() != height {
+            presentation.canvas.set_width(width);
+            presentation.canvas.set_height(height);
         }
 
         let pixels = self.machine.frame_rgba();
@@ -306,7 +594,8 @@ impl Spectrum {
 
         let image = ImageData::new_with_u8_clamped_array_and_sh(Clamped(pixels), width, height)
             .map_err(|_| JsError::new("the frame is not a valid image"))?;
-        self.context
+        presentation
+            .context
             .put_image_data(&image, 0.0, 0.0)
             .map_err(|_| JsError::new("the canvas rejected the frame"))
     }
@@ -319,4 +608,13 @@ impl Spectrum {
         }
         self.machine.key_event(code, pressed)
     }
+}
+
+/// Tokenise source and create an auto-starting BASIC TAP, without a machine.
+///
+/// # Errors
+/// Returns a JavaScript error for unsupported or malformed listing input.
+#[wasm_bindgen(js_name = basicTape)]
+pub fn basic_tape(source: &str, name: &str) -> Result<Vec<u8>, JsError> {
+    crate::basic_tape(source, name).map_err(|error| JsError::new(&error))
 }

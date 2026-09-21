@@ -1454,9 +1454,11 @@ version = "0.25.0"
 dependencies = [
  "emu198x-shell",
  "emu198x-web",
+ "format-sinclair-zx-spectrum-bas",
  "format-sinclair-zx-spectrum-sna",
  "format-sinclair-zx-spectrum-snapshot",
  "format-sinclair-zx-spectrum-z80",
+ "format198x-sinclair-zx-spectrum-tap",
  "js-sys",
  "runtime-sinclair-zx-spectrum",
  "serde_json",

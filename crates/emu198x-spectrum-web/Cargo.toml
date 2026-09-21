@@ -21,6 +21,8 @@ crate-type = ["cdylib", "rlib"]
 bundled-rom = []
 
 [dependencies]
+format-sinclair-zx-spectrum-bas = { path = "../format-sinclair-zx-spectrum-bas", version = "0.25.0" }
+format198x-sinclair-zx-spectrum-tap = "0.1.1"
 # The query layer's answers are already JSON values; this turns one into a
 # string for the page. Workspace-pinned, and already in this crate's tree
 # through the runtime.
@@ -60,4 +62,4 @@ workspace = true
 # one without seeing the other.
 [package.metadata.npm]
 name = "@emu198x/zx-spectrum"
-version = "0.3.0"
+version = "0.4.0"

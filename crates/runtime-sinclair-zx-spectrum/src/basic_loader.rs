@@ -14,7 +14,7 @@
 //! when each later variant lands a runtime.
 
 use emu198x_shell::{
-    HeadlessSession, MachineCore, MachineTime, SessionError, SessionQueryProvider,
+    HeadlessSession, MachineCore, MachineTime, SessionDriver, SessionError, SessionQueryProvider,
 };
 use format_sinclair_zx_spectrum_bas::BasicProgram;
 use thiserror::Error;
@@ -124,6 +124,30 @@ where
     R: MachineCore + SpectrumLiveAccess,
     Q: SessionQueryProvider<R>,
 {
+    load_basic_program_with_writer(
+        session,
+        program,
+        run,
+        max_boot_frames,
+        |session, addr, byte| {
+            session.machine_mut().write_byte(addr, byte);
+        },
+    )
+}
+
+/// Installs BASIC through any session driver with direct Spectrum RAM access.
+/// The writer must update the same machine that the driver runs and queries.
+/// This keeps browser and native hosts on the same ROM boot and RUN path.
+///
+/// # Errors
+/// Returns the same validation, boot and prompt errors as [`load_basic_program`].
+pub fn load_basic_program_with_writer<D: SessionDriver>(
+    session: &mut D,
+    program: &BasicProgram,
+    run: bool,
+    max_boot_frames: u32,
+    mut write: impl FnMut(&mut D, u16, u8),
+) -> Result<LoadBasicResult, LoadBasicError> {
     if program.bytes.is_empty() {
         return Err(LoadBasicError::EmptyProgram);
     }
@@ -151,14 +175,34 @@ where
         return Err(LoadBasicError::PromptNotReady { line: prompt });
     }
 
-    poke_program(session, program, program_len);
+    for (i, byte) in program
+        .bytes
+        .iter()
+        .chain(TRAILING_BYTES.iter())
+        .enumerate()
+    {
+        write(session, PROG_ADDR + i as u16, *byte);
+    }
 
     let trail_addr = PROG_ADDR.saturating_add(program_len);
     let vars = trail_addr;
     let e_line = vars.saturating_add(1);
     let worksp = e_line.saturating_add(2);
 
-    update_system_variables(session, vars, e_line, worksp);
+    // Keep the edit cursor with the relocated empty edit line; leaving it at
+    // its boot address would make the next key overwrite the program header.
+    for (addr, value) in [
+        (VARS_SYSVAR, vars),
+        (E_LINE_SYSVAR, e_line),
+        (K_CUR_SYSVAR, e_line),
+        (WORKSP_SYSVAR, worksp),
+        (STKBOT_SYSVAR, worksp),
+        (STKEND_SYSVAR, worksp),
+    ] {
+        let [low, high] = value.to_le_bytes();
+        write(session, addr, low);
+        write(session, addr + 1, high);
+    }
 
     let ran = if run {
         tap_key(session, "r")?;
@@ -176,52 +220,6 @@ where
         ran,
         reached: session.time(),
     })
-}
-
-fn poke_program<R, Q>(session: &mut HeadlessSession<R, Q>, program: &BasicProgram, program_len: u16)
-where
-    R: MachineCore + SpectrumLiveAccess,
-    Q: SessionQueryProvider<R>,
-{
-    let machine = session.machine_mut();
-    for (i, byte) in program.bytes.iter().enumerate() {
-        machine.write_byte(PROG_ADDR.saturating_add(i as u16), *byte);
-    }
-    let trail_addr = PROG_ADDR.saturating_add(program_len);
-    for (i, byte) in TRAILING_BYTES.iter().enumerate() {
-        machine.write_byte(trail_addr.saturating_add(i as u16), *byte);
-    }
-}
-
-fn update_system_variables<R, Q>(
-    session: &mut HeadlessSession<R, Q>,
-    vars: u16,
-    e_line: u16,
-    worksp: u16,
-) where
-    R: MachineCore + SpectrumLiveAccess,
-    Q: SessionQueryProvider<R>,
-{
-    let machine = session.machine_mut();
-    write_word_le(machine, VARS_SYSVAR, vars);
-    write_word_le(machine, E_LINE_SYSVAR, e_line);
-    // K_CUR is the editor's cursor inside the current edit-line buffer.
-    // After boot it points at E_LINE; if we move E_LINE without updating
-    // K_CUR, the next keypress lands at the OLD K_CUR position — which
-    // is now inside the program area — and the inserted byte corrupts
-    // the program's line header, with the LIST display then interpreting
-    // bytes 0..1 of the program as a wrong line number. Park it at the
-    // start of the now-empty edit area so the editor accepts new input
-    // there.
-    write_word_le(machine, K_CUR_SYSVAR, e_line);
-    write_word_le(machine, WORKSP_SYSVAR, worksp);
-    write_word_le(machine, STKBOT_SYSVAR, worksp);
-    write_word_le(machine, STKEND_SYSVAR, worksp);
-}
-
-fn write_word_le<A: SpectrumLiveAccess>(machine: &mut A, addr: u16, word: u16) {
-    machine.write_byte(addr, (word & 0xFF) as u8);
-    machine.write_byte(addr.saturating_add(1), (word >> 8) as u8);
 }
 
 #[cfg(test)]

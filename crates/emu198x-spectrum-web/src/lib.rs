@@ -137,3 +137,79 @@ mod tests {
         assert_eq!(spectrum_key_name("Enter"), None);
     }
 }
+
+/// Convert an editable numbered listing into a self-starting BASIC tape.
+///
+/// # Errors
+/// Returns listing errors without changing the source or starting a machine.
+pub fn basic_tape(source: &str, name: &str) -> Result<Vec<u8>, String> {
+    use format198x_sinclair_zx_spectrum_tap::{Header, HeaderKind, TapBlock, encode};
+    let program = format_sinclair_zx_spectrum_bas::tokenise_listing(source)?;
+    let length = u16::try_from(program.bytes.len()).map_err(|_| "BASIC program too large")?;
+    let start = u16::from_be_bytes([program.bytes[0], program.bytes[1]]);
+    Ok(encode(&[
+        Header::new(HeaderKind::Program, name, length, start, length).block(),
+        TapBlock::data(program.bytes),
+    ]))
+}
+
+#[cfg(test)]
+mod basic_tape_tests {
+    use super::basic_tape;
+    use format198x_sinclair_zx_spectrum_tap::{Header, HeaderKind, decode};
+
+    #[test]
+    fn tape_header_starts_at_first_sorted_line_and_has_no_variables() {
+        let tape = basic_tape("20 PRINT \"two\"\n10 PRINT \"one\"", "greeting").expect("tape");
+        let blocks = decode(&tape).expect("valid TAP blocks and checksums");
+        assert_eq!(blocks.len(), 2);
+        let header = Header::from_payload(&blocks[0].data).expect("header");
+        assert_eq!(header.kind, HeaderKind::Program);
+        assert_eq!(header.param1, 10);
+        assert_eq!(header.param2, header.length);
+        assert_eq!(usize::from(header.length), blocks[1].data.len());
+        assert_eq!(&blocks[1].data[..2], &[0, 10]);
+    }
+}
+
+/// BASIC launcher for a direct-to-RAM machine-code program.
+///
+/// # Errors
+/// Rejects code outside the supported RAM area or an entry outside its bytes.
+pub fn code_launcher(length: usize, origin: u32, entry: u32) -> Result<String, String> {
+    let end = u32::try_from(length)
+        .ok()
+        .and_then(|len| origin.checked_add(len));
+    if length == 0
+        || origin < 0x6000
+        || end.is_none_or(|end| end > 0x10000 || entry < origin || entry >= end)
+    {
+        return Err(
+            "Code must fit in RAM at 24576 or above, with its entry point inside the program."
+                .to_owned(),
+        );
+    }
+    Ok(format!("10 CLEAR {}: RANDOMIZE USR {}", origin - 1, entry))
+}
+
+#[cfg(test)]
+mod launcher_tests {
+    use super::code_launcher;
+    #[test]
+    fn launcher_reserves_code_and_preserves_the_requested_entry() {
+        assert_eq!(
+            code_launcher(8, 32768, 32770).expect("valid code"),
+            "10 CLEAR 32767: RANDOMIZE USR 32770"
+        );
+        assert!(code_launcher(1, 65535, 65535).is_ok());
+        for (length, origin, entry) in [
+            (0, 32768, 32768),
+            (8, 0x5ccb, 0x5ccb),
+            (8, 65535, 65535),
+            (8, 32768, 32776),
+            (8, u32::MAX, u32::MAX),
+        ] {
+            assert!(code_launcher(length, origin, entry).is_err());
+        }
+    }
+}

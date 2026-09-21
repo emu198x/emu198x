@@ -16,7 +16,9 @@
 //! Each line must start with a line number (1–9999).
 
 pub mod ast;
+mod listing;
 mod parser;
+pub use listing::tokenise_listing;
 mod serialize;
 mod tokens;
 
