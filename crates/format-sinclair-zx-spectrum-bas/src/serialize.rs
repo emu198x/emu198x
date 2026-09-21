@@ -555,7 +555,7 @@ fn format_number(val: f64) -> String {
     format!("{val}")
 }
 
-fn number_to_float5(val: f64) -> [u8; 5] {
+pub(crate) fn number_to_float5(val: f64) -> [u8; 5] {
     let int_val = val as i64;
     #[allow(clippy::float_cmp)]
     if val == int_val as f64 && (-65535..=65535).contains(&int_val) {

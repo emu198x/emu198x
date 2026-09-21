@@ -136,6 +136,24 @@ impl<R: FamilyRuntime, Q: SessionQueryProvider<R>> WebMachine<R, Q> {
         Ok(())
     }
 
+    /// Delivers pending input at the current machine time, without requesting
+    /// another frame. Debugger hosts can then advance to an instruction boundary.
+    ///
+    /// # Errors
+    /// Returns a machine error if input delivery fails.
+    pub fn apply_pending_input(&mut self) -> Result<(), MachineError> {
+        let mut trace = NullTraceSink;
+        let mut host = HostIo {
+            input_events: &self.pending_input,
+            frame_sink: &mut self.frame,
+            audio_sink: &mut self.audio,
+            trace_sink: &mut trace,
+        };
+        self.runtime.run_until(self.runtime.time(), &mut host)?;
+        self.pending_input.clear();
+        Ok(())
+    }
+
     /// Queues an input event for the next frame.
     pub fn queue_input(&mut self, event: InputEvent) {
         self.pending_input.push(event);

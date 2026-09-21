@@ -41,6 +41,7 @@ pub use autoload::{
 };
 pub use basic_loader::{
     DEFAULT_BASIC_LOADER_BOOT_FRAMES, LoadBasicError, LoadBasicResult, load_basic_program,
+    load_basic_program_with_writer,
 };
 pub use common_sinclair_zx_spectrum::{AudioControls, SpeakerChannel};
 pub use family_runtime::{SpectrumLiveAccess, SpectrumRuntimeKind};
