@@ -94,7 +94,14 @@ pub fn profile_for(model: Model) -> MachineProfile {
         region: model.region(),
         release_year: 1983,
         summary: "Atari 800XL — 6502C + ANTIC + GTIA + POKEY + PIA, 64 KB RAM, optional 16 KB OS ROM + 8 KB BASIC ROM, optional cartridge.".into(),
-        clock: ClockDesc::new("cpu-cycle", ClockRate::from_hz(1_790_000)),
+        // Runtime time and frame_ticks count colour clocks, two per CPU
+        // cycle (Atari 400/800 Hardware Manual, 1982, section II; vendored
+        // Atari800 src/antic.c uses 114 CPU cycles per 228-clock line).
+        // Keep the regional rates aligned with machine::Region::cpu_hz.
+        clock: ClockDesc::new("colour-clock", ClockRate::from_hz(match model {
+            Model::A800xlNtsc => 2 * 1_789_772,
+            Model::A800xlPal => 2 * 1_773_447,
+        })),
         firmware: vec![
             FirmwareRequirement::new(OS_FIRMWARE_ID, "Atari 800XL OS ROM (16 KB) — optional", true),
             FirmwareRequirement::new(BASIC_FIRMWARE_ID, "Atari BASIC ROM (8 KB) — optional", true),
