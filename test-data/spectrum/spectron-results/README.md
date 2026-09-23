@@ -38,8 +38,12 @@ different scale fails loudly rather than comparing blurred pixels.
 | `btime_48.png` | `machine-sinclair-zx-spectrum-48k` · `tape_smoke::btime_runs_to_completion` |
 | `floatspy_48.png` | `machine-sinclair-zx-spectrum-48k` · `tape_smoke::floatspy_selftest_ok` |
 | `halt2int_48.png` | `machine-sinclair-zx-spectrum-48k` · `tape_smoke::halt2int_runs_to_completion` |
-| `btime_128.png`, `floatspy_128.png`, `halt2int_129.png`, `ptime_128.png` | not yet wired — the 128K half of #10 |
-| `eihalt_49.png`, `eihalt_129.png` | no corresponding smoke in this workspace |
+| `btime_128.png` | `machine-sinclair-zx-spectrum-128k` · `tape_smoke::btime128_matches_spectron` |
+| `floatspy_128.png` | `machine-sinclair-zx-spectrum-128k` · `tape_smoke::floatspy128_matches_spectron` |
+| `halt2int_129.png` | `machine-sinclair-zx-spectrum-128k` · `tape_smoke::halt2int128_runs_to_completion` |
+| `ptime_128.png` | `machine-sinclair-zx-spectrum-128k` · `tape_smoke::ptime128_matches_spectron` |
+| `eihalt_49.png` | `machine-sinclair-zx-spectrum-48k` · `tape_smoke::eihalt48k_matches_spectron` |
+| `eihalt_129.png` | `machine-sinclair-zx-spectrum-128k` · `tape_smoke::eihalt128k_matches_spectron` |
 
 There is no `ptime_48.png` upstream, so `ptime`'s 48K smoke has no reference to
 be held to and compares against its self-locked golden only.
@@ -49,3 +53,19 @@ be held to and compares against its self-locked golden only.
 `EMU198X_SPECTRON_RESULTS_DIR` still wins when set, so the nightly keeps pulling
 from its own provisioned bundle. Unset — the developer default — the tests read
 this directory.
+
+The shared comparator lives in
+`crates/common-sinclair-zx-spectrum/test-support/spectron.rs`. It compares the
+256×192 active screen after palette normalisation and border alignment; border
+pixels themselves are outside this assertion. `halt2int_129.png` retains the
+upstream filename: it is the 128K diagnostic, whose test tape matches Spectron's
+`halt2int128.tap`. Nightly runs the 128K HALT2INT oracle in the 128K timing job
+and the other 128K comparisons and both EIHALT comparisons in the floating-bus job.
+
+EIHALT uses `eihalt.tap` from
+`zx-spectrum-tests/EIHALT (2021-10-23)(Woodmass, Mark)[!].zip`. Extract that member
+into `EMU198X_SPECTRUM_SYSTEM_TESTS_DIR` for local runs; nightly extracts it from
+the checksummed corpus bundle. The same TAP detects 48K and 128K frame lengths.
+Its source cautions that its timing targets are 48K even though 128K result
+images are supplied, so the 128K assertion establishes agreement with the
+external result, not a separate hardware-accuracy claim.
