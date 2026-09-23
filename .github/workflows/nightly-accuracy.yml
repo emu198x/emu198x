@@ -463,11 +463,15 @@ jobs:
           mkdir -p corpora
           cd corpora
           gh release download "${CORPORA_TAG}" -R "${CORPORA_REPO}" \
-            -p 'spectrum-system-tests.tar.zst' -p 'z80test.tar.zst' -p 'SHA256SUMS'
+            -p 'spectrum-system-tests.tar.zst' -p 'z80test.tar.zst' \
+            -p 'zx-spectrum-tests.tar.zst' -p 'SHA256SUMS'
           grep ' spectrum-system-tests.tar.zst$' SHA256SUMS | sha256sum -c -
           grep ' z80test.tar.zst$' SHA256SUMS | sha256sum -c -
           tar --zstd -xf 'spectrum-system-tests.tar.zst'
           tar --zstd -xf 'z80test.tar.zst'
+          grep ' zx-spectrum-tests.tar.zst$' SHA256SUMS | sha256sum -c -
+          tar --zstd -xf 'zx-spectrum-tests.tar.zst'
+          python3 -c 'import pathlib, zipfile; z = zipfile.ZipFile("zx-spectrum-tests/EIHALT (2021-10-23)(Woodmass, Mark)[!].zip"); pathlib.Path("spectrum-system-tests/tapes/eihalt.tap").write_bytes(z.read("eihalt.tap"))'
           echo "EMU198X_SPECTRUM_48K_ROM=$(pwd)/z80test/48.rom" >> "$GITHUB_ENV"
           echo "EMU198X_SPECTRUM_SYSTEM_TESTS_DIR=$(pwd)/spectrum-system-tests/tapes" >> "$GITHUB_ENV"
           echo "EMU198X_SPECTRON_RESULTS_DIR=$(pwd)/spectrum-system-tests/spectron-results" >> "$GITHUB_ENV"
@@ -486,6 +490,14 @@ jobs:
                    "${EMU198X_SPECTRUM_SYSTEM_TESTS_DIR}/Float128k.tap" \
                    "${EMU198X_SPECTRUM_SYSTEM_TESTS_DIR}/floatspy.tap" \
                    "${EMU198X_SPECTRON_RESULTS_DIR}/floatspy_48.png" \
+                   "${EMU198X_SPECTRUM_SYSTEM_TESTS_DIR}/btime.tap" \
+                   "${EMU198X_SPECTRUM_SYSTEM_TESTS_DIR}/ptime.tap" \
+                   "${EMU198X_SPECTRUM_SYSTEM_TESTS_DIR}/eihalt.tap" \
+                   "${EMU198X_SPECTRON_RESULTS_DIR}/eihalt_49.png" \
+                   "${EMU198X_SPECTRON_RESULTS_DIR}/eihalt_129.png" \
+                   "${EMU198X_SPECTRON_RESULTS_DIR}/floatspy_128.png" \
+                   "${EMU198X_SPECTRON_RESULTS_DIR}/btime_128.png" \
+                   "${EMU198X_SPECTRON_RESULTS_DIR}/ptime_128.png" \
                    "${EMU198X_SPECTRUM_128K_ROM0}" \
                    "${EMU198X_SPECTRUM_128K_ROM1}"; do
             if [ ! -f "$f" ]; then
@@ -509,6 +521,12 @@ jobs:
 
       - name: floatspy (golden + Spectron byte-compare)
         run: cargo test --release -p machine-sinclair-zx-spectrum-48k --test tape_smoke -- --include-ignored --nocapture floatspy
+
+      - name: 128K Spectron screens (FloatSpy, border timing, paging timing, EIHALT)
+        run: cargo test --release -p machine-sinclair-zx-spectrum-128k --test tape_smoke -- --include-ignored --nocapture matches_spectron
+
+      - name: 48K EIHALT Spectron screen
+        run: cargo test --release -p machine-sinclair-zx-spectrum-48k --test tape_smoke -- --include-ignored --nocapture eihalt
 
       - name: Live floating bus vs FUSE, frame-wide (48K)
         # Float48K and floatspy are *programs* reading the bus through the

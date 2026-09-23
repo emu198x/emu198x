@@ -1,29 +1,35 @@
-//! Golden-screenshot tests for 128K-specific ULA / timing TAPs.
+//! Spectrum 128K diagnostic screens compared with Spectron's external oracles.
 //!
-//! Same shape as the 48K equivalent
-//! (`machine-sinclair-zx-spectrum-48k/tests/tape_smoke.rs`):
-//! boot, press ENTER on the 128K firmware menu to select the Tape
-//! Loader, play the TAP, run the budget, encode the 352×296
-//! paletted framebuffer as a 16-colour indexed PNG, and compare to
-//! the checked-in golden in `tests/goldens/`. Re-run with
-//! `UPDATE_GOLDENS=1` to refresh after eyeballing a deliberate
-//! change. HALT2INT is a semantic exception: it decodes the finished
-//! screen and requires the diagnostic's complete `HALT: Early`
-//! classification instead of preserving an obsolete self-golden.
+//! Boot through the firmware Tape Loader, play each local TAP through the
+//! cycle-accurate pipeline and compare the finished 256×192 active screen.
+//! HALT2INT, btime, ptime, EIHALT and FloatSpy use the shared 48K/128K comparator;
+//! FloatSpy receives `T` to run its self-test before capture.
 //!
-//! Super HALT Invaders needs a second ENTER at its own prompt before it
-//! is running anything — see [`start_the_program`]. These screenshot
-//! goldens are change-detectors: they say the timing moved, not that it
-//! moved the right way. Only HALT2INT answers the second question.
+//! HALT2INT also decodes the ROM-font screen and requires `HALT: Early` and
+//! `Float: Early`. The upstream filename `halt2int_129.png` is preserved;
+//! its screen and Spectron's integration test identify the 128K diagnostic.
+//!
+//! Super HALT Invaders uses a self-locked golden as a change detector. It
+//! needs a second ENTER at its own prompt before running the game.
+//!
+//! Local inputs: `EMU198X_SPECTRUM_128K_ROM0`, `EMU198X_SPECTRUM_128K_ROM1`
+//! and `EMU198X_SPECTRUM_SYSTEM_TESTS_DIR`, defaulting to the corresponding
+//! `~/.emu198x/roms/sinclair-zx-spectrum-128k/` and test-data directories.
+//! Missing ROMs/tapes are reported through `emu198x_test_skip`. Spectron PNGs
+//! are checked in; `EMU198X_SPECTRON_RESULTS_DIR` overrides their location.
+//! Missing reference PNGs fail rather than skip.
 
 use common_sinclair_zx_spectrum::keyboard::SpectrumKey;
 use common_sinclair_zx_spectrum::memory::MemoryBus;
-use common_sinclair_zx_spectrum::palette::SPECTRUM_PALETTE;
 use common_sinclair_zx_spectrum::tape::TapeBlock;
 use common_sinclair_zx_spectrum::timing::{SCREEN_HEIGHT, SCREEN_WIDTH};
 use format198x_sinclair_zx_spectrum_tap::{TapBlock, decode};
 use machine_sinclair_zx_spectrum_128k::Spectrum128K;
 use std::path::{Path, PathBuf};
+
+#[path = "../../common-sinclair-zx-spectrum/test-support/spectron.rs"]
+mod spectron;
+use spectron::{assert_screen_matches_spectron, write_indexed_png};
 
 const ROM0_PATH_ENV: &str = "EMU198X_SPECTRUM_128K_ROM0";
 const ROM1_PATH_ENV: &str = "EMU198X_SPECTRUM_128K_ROM1";
@@ -129,33 +135,6 @@ fn start_the_program(machine: &mut Spectrum128K) {
 
 fn goldens_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/goldens")
-}
-
-fn palette_rgb() -> Vec<u8> {
-    let mut bytes = Vec::with_capacity(SPECTRUM_PALETTE.len() * 3);
-    for entry in &SPECTRUM_PALETTE {
-        let r = ((entry >> 24) & 0xFF) as u8;
-        let g = ((entry >> 16) & 0xFF) as u8;
-        let b = ((entry >> 8) & 0xFF) as u8;
-        bytes.extend_from_slice(&[r, g, b]);
-    }
-    bytes
-}
-
-fn write_indexed_png(path: &Path, framebuffer: &[u8]) {
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).expect("create goldens dir");
-    }
-    let file = std::fs::File::create(path).expect("create golden file");
-    let writer = std::io::BufWriter::new(file);
-    let mut encoder = png::Encoder::new(writer, SCREEN_WIDTH as u32, SCREEN_HEIGHT as u32);
-    encoder.set_color(png::ColorType::Indexed);
-    encoder.set_depth(png::BitDepth::Eight);
-    encoder.set_palette(palette_rgb());
-    let mut writer = encoder.write_header().expect("write png header");
-    writer
-        .write_image_data(framebuffer)
-        .expect("write png image data");
 }
 
 fn read_indexed_png(path: &Path) -> Vec<u8> {
@@ -290,6 +269,12 @@ fn halt2int128_runs_to_completion() {
         "HALT2INT128 should classify the complete HALT profile as Early; decoded screen:\n{}",
         lines.join("\n"),
     );
+    assert!(
+        lines.iter().any(|line| line.contains("Float: Early")),
+        "HALT2INT128 should classify the floating bus as Early; decoded screen:\n{}",
+        lines.join("\n"),
+    );
+    assert_screen_matches_spectron("halt2int_129.png", &machine.framebuffer);
 }
 
 /// Capture Super HALT Invaders **in its game**, not on its title screen.
@@ -316,4 +301,48 @@ fn super_halt_invaders_reaches_the_game() {
     };
     start_the_program(&mut machine);
     compare_or_update("super-halt-invaders", &machine.framebuffer);
+}
+
+#[test]
+#[ignore = "FIXTURE: requires local 128K ROMs and btime.tap"]
+fn btime128_matches_spectron() {
+    let Some(machine) = run_to_completion("btime.tap") else {
+        emu198x_test_skip::skip!("Spectrum 128K ROMs or btime.tap not staged");
+    };
+    assert_screen_matches_spectron("btime_128.png", &machine.framebuffer);
+}
+
+#[test]
+#[ignore = "FIXTURE: requires local 128K ROMs and ptime.tap"]
+fn ptime128_matches_spectron() {
+    let Some(machine) = run_to_completion("ptime.tap") else {
+        emu198x_test_skip::skip!("Spectrum 128K ROMs or ptime.tap not staged");
+    };
+    assert_screen_matches_spectron("ptime_128.png", &machine.framebuffer);
+}
+
+#[test]
+#[ignore = "FIXTURE: requires local 128K ROMs and floatspy.tap; long-running self-test"]
+fn floatspy128_matches_spectron() {
+    let Some(mut machine) = run_to_completion("floatspy.tap") else {
+        emu198x_test_skip::skip!("Spectrum 128K ROMs or floatspy.tap not staged");
+    };
+    set_key(&mut machine.keyboard, SpectrumKey::T, true);
+    for _ in 0..4 {
+        machine.run_frame();
+    }
+    set_key(&mut machine.keyboard, SpectrumKey::T, false);
+    for _ in 0..40_000 {
+        machine.run_frame();
+    }
+    assert_screen_matches_spectron("floatspy_128.png", &machine.framebuffer);
+}
+
+#[test]
+#[ignore = "FIXTURE: requires local 128k ROM and eihalt.tap"]
+fn eihalt128k_matches_spectron() {
+    let Some(machine) = run_to_completion("eihalt.tap") else {
+        emu198x_test_skip::skip!("Spectrum 128k ROM or eihalt.tap not staged");
+    };
+    assert_screen_matches_spectron("eihalt_129.png", &machine.framebuffer);
 }
