@@ -287,16 +287,9 @@ fn assert_passed(name: &str, outcome: &TestOutcome) {
     assert_passed_with_allowlist(name, outcome, &[]);
 }
 
-/// Assert with an allowlist of expected per-test failures (matching by
-/// substring on the printed test name). Used for [`z80memptr`] which has two
-/// permanently-failing cases that mirror the FUSE INIR/INDR disagreements
-/// already documented in `knowledge/tests/spectrum.md` — those disagreements come
-/// from a long-standing dispute in Z80 emulation references about MEMPTR
-/// behaviour after block I/O. Tom Harte agrees with our current behaviour;
-/// FUSE and Patrik Rak's z80memptr disagree on the same cases. Until the
-/// underlying behaviour question is resolved against silicon evidence, this
-/// test treats the named failures as acknowledged and fails loudly on any
-/// other shape of disagreement.
+/// Assert the result against an explicit allowlist, matching printed names.
+/// All current callers require a clean result. Use the pinned z80test 1.2a
+/// fixtures: older MEMPTR tapes have incorrect CRCs for cases 102 and 103.
 fn assert_passed_with_allowlist(name: &str, outcome: &TestOutcome, allowed_failures: &[&str]) {
     assert!(
         outcome.transcript.contains("Result: "),
@@ -424,11 +417,9 @@ fn z80ccf() {
     assert_passed("z80ccf", &outcome);
 }
 
-/// Allowlist for `z80memptr` failures. The 2026-05-31 fix to stop
-/// the INIR/INDR/OTIR/OTDR repeat path from clobbering WZ closed
-/// the `102 INIR->NOP'` and `103 INDR->NOP'` cases — they now pass
-/// cleanly along with the rest of the suite. Empty slice retained
-/// so the regression contract still flows through the assert.
+/// z80test 1.2a corrects the CRCs for `INIR->NOP'` and `INDR->NOP'`.
+/// All cases must pass; the fixture identity is recorded in
+/// `test-data/z80test/`, rather than allowing the stale-oracle failures.
 const Z80MEMPTR_ALLOWLIST: &[&str] = &[];
 
 #[test]

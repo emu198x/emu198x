@@ -29,7 +29,7 @@ locally; the workflow uses the same env-var contract.
 | AltirraOS (800XL) | `machine-atari-800xl` · `altirraos_boot` | `EMU198X_ROMS_ROOT` (joins `atari-800xl/`) | Avery Lee's XL/XE OS + Altirra BASIC, via atari800's vendored copy | all-permissive notice of its own — **not** the emulator's GPLv2; notice ships beside the ROMs | is firmware — a reimplemented Atari OS, not Atari's |
 | Open ROMs (C64) | `runtime-commodore-c64` · `openroms_boot` | `EMU198X_ROMS_ROOT` (joins `commodore-c64/`) | github.com/MEGA65/open-roms, prebuilt `bin/` images | GPL-3.0 / LGPL-3.0 — redistribution permitted, licence texts and a source pointer ship beside the ROMs | is firmware — a clean-room C64 BASIC and KERNAL, not Commodore's |
 | Spectrum ROMs (128K, +2, +3) | `machine-sinclair-zx-spectrum-128k` · `boot_test`; `-plus2`, `-plus2a`, `-plus2b`, `-plus3` · `boot_test` | `EMU198X_ROMS_ROOT` (firmware root; each machine joins its own directory onto it) | the machines' own firmware | free to distribute (Amstrad), the same permission the 48K ROM ships under | is firmware — these are the ROMs |
-| z80test | `machine-sinclair-zx-spectrum-48k` · `z80test` | `EMU198X_Z80TEST_DIR` (+ `EMU198X_SPECTRUM_48K_ROM`) | raxoft/z80test (`*.tap`) | MIT | 48K Spectrum ROM — free (Amstrad), shipped in the tarball |
+| z80test | `machine-sinclair-zx-spectrum-48k` · `z80test` | `EMU198X_Z80TEST_DIR` (+ `EMU198X_SPECTRUM_48K_ROM`) | pinned raxoft/z80test 1.2a (`*.tap`); see `test-data/z80test/` | MIT | 48K Spectrum ROM — free (Amstrad), shipped in the tarball |
 
 ## The Spectrum line boots its own firmware
 
@@ -240,6 +240,11 @@ registered revision `e0d5ece9670205cc84a0101081837deb446f86a3`. The nightly
 checks this manifest after extraction in addition to checking the mirror's
 tarball checksum. It covers the fixture inputs consumed by the harness, not
 the repository README files or opcode map.
+
+z80test now downloads its pinned 1.2a TAPs from upstream and verifies the archive
+and each tape against committed hashes. The private tarball supplies its 48K
+ROM only; its MEMPTR tape contains superseded CRCs. See
+[z80test fixture provenance](z80test/README.md).
 
 **ZEX and z80test moved here 2026-07-04** for consistency — every external
 corpus now runs from this one nightly. ZEX previously ran from checked-in
