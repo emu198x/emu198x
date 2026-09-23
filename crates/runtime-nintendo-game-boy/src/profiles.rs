@@ -137,9 +137,13 @@ pub fn profile_for(model: Model) -> MachineProfile {
             model.display_name()
         )
         .into(),
+        // run_until timestamps and native_frame_ticks count M-cycles, each
+        // four master ticks. See knowledge/systems/nintendo-game-boy/timing.md
+        // and SameBoy Core/sm83_cpu.c's four-cycle CPU advance. Describing
+        // these timestamps as master ticks makes generic hosts run 4x fast.
         clock: ClockDesc::new(
-            "master-cycle",
-            ClockRate::from_hz(common_nintendo_game_boy::DMG_MASTER_HZ.into()),
+            "m-cycle",
+            ClockRate::from_ratio(common_nintendo_game_boy::DMG_MASTER_HZ.into(), 4),
         ),
         firmware: vec![],
         media_slots: vec![MediaSlot::new(
