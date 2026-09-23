@@ -9,7 +9,8 @@ implementation. The local inline catalogue covers 30 families and 91 variants,
 with native/WASM execution parity checked separately from compilation. Broader
 software coverage and measured real-browser performance are follow-up checks, not
 publication gates: on 2026-09-23 Steve chose to publish all 30 families on Code198x
-system pages before they were complete. No proprietary firmware is bundled. Existing curriculum APIs
+system pages before they were complete, because letting readers play with the
+emulators demonstrates the project better than describing it. No proprietary firmware is bundled. Existing curriculum APIs
 remain supported. The historical estimates below predate the shared web host.
 
 **Date:** 2026-05-23
