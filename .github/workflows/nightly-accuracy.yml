@@ -386,7 +386,7 @@ jobs:
           echo "::error::apt failed after three bounded attempts"
           exit 1
 
-      - name: Provision corpus + 48K ROM from store
+      - name: Provision ROM and pinned upstream z80test
         env:
           GH_TOKEN: ${{ secrets.ACCURACY_CORPORA_TOKEN }}
         run: |
@@ -397,7 +397,15 @@ jobs:
             -p 'z80test.tar.zst' -p 'SHA256SUMS'
           grep ' z80test.tar.zst$' SHA256SUMS | sha256sum -c -
           tar --zstd -xf 'z80test.tar.zst'
-          echo "EMU198X_Z80TEST_DIR=$(pwd)/z80test" >> "$GITHUB_ENV"
+          # The private bundle's MEMPTR tape predates upstream's 1.2a CRC
+          # correction. Keep its ROM, but use the pinned upstream test suite.
+          curl --fail --location --retry 3 --connect-timeout 20 --max-time 120 \
+            https://github.com/raxoft/z80test/releases/download/v1.2a/z80test-1.2a.zip \
+            --output z80test-1.2a.zip
+          echo '7df0443d703e6b3114ea04b4cdef3e13b91421c62e37185c1036d06864cacbaf  z80test-1.2a.zip' | sha256sum -c -
+          python3 -m zipfile -e z80test-1.2a.zip .
+          (cd z80test-1.2a && sha256sum -c "$GITHUB_WORKSPACE/test-data/z80test/SHA256SUMS")
+          echo "EMU198X_Z80TEST_DIR=$(pwd)/z80test-1.2a" >> "$GITHUB_ENV"
           echo "EMU198X_SPECTRUM_48K_ROM=$(pwd)/z80test/48.rom" >> "$GITHUB_ENV"
 
       - name: Run z80test
