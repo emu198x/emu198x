@@ -1,5 +1,17 @@
 # Decision: WASM deferred — no system ships a WASM build until concrete demand
 
+**Current scope — 2026-09-22:** Steve authorised a shared browser-player
+rollout on Code198x system pages and the Emu198x site, following the C64/A500
+prototype. This supersedes the public-player/BYO-ROM deferral below. The
+[umbrella decision](../../../../decisions/browser-player-rollout.md) binds
+ownership and rollout; [the player](../../web-player/README.md) documents the
+implementation. The local inline catalogue covers 30 families and 91 variants,
+with native/WASM execution parity checked separately from compilation. Broader
+software coverage and measured real-browser performance are follow-up checks, not
+publication gates: on 2026-09-23 Steve chose to publish all 30 families on Code198x
+system pages before they were complete. No proprietary firmware is bundled. Existing curriculum APIs
+remain supported. The historical estimates below predate the shared web host.
+
 **Date:** 2026-05-23
 **Status:** SUPERSEDED IN PART, 2026-07-03 — see the Log. WASM is
 now strategic scope, **narrowly**: Code198x curriculum embeds
@@ -179,6 +191,17 @@ If I'm about to suggest any of these, stop and re-read this record.
   reasons apply.
 
 ## Log
+
+### 2026-09-22 — C64/A500 local prototype authorised
+
+Steve requested a prototype after a code-based feasibility assessment, and
+asked to consider Open ROMs. Both runtimes already passed a WASM target check;
+the existing generic browser host and Spectrum bindings provide the host
+infrastructure the original estimate assumed had to be built. Evaluate actual
+boot, media, input, audio and speed before considering a release. MEGA65 Open
+ROMs is an optional C64 firmware set, not evidence of original-ROM software
+compatibility. Amiga firmware is user-supplied Kickstart or an optional matching
+AROS m68k main/extended ROM pair, requested in the follow-up evaluation.
 
 ### 2026-07-03 — Superseded in part: curriculum embeds are in scope
 
