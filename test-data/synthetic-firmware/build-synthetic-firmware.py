@@ -808,6 +808,8 @@ SINGLE_MACHINE = {
     "commodore-pet-kernal.rom": commodore_pet_kernal,
     "commodore-pet-kernal-control.rom": commodore_pet_kernal_control,
     "commodore-pet-chargen.rom": commodore_pet_chargen,
+    # Browser/runtime firmware contract includes both 2 KiB character banks.
+    "commodore-pet-chargen-4k.rom": lambda: commodore_pet_chargen() * 2,
     "commodore-pet-basic.rom": lambda: zero_rom(0x2000),
     "commodore-pet-editor.rom": lambda: zero_rom(0x800),
     "dragon-32.rom": dragon_32,

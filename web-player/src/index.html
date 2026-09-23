@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>Emu198x browser player</title>
+<style>:root{color-scheme:light dark}body{font-family:system-ui,sans-serif;margin:0;padding:clamp(1rem,4vw,3rem);background:Canvas;color:CanvasText}main{max-width:760px;margin:auto}h1{font-size:1.5rem;margin:0 0 1rem}label{display:block;margin-bottom:1.5rem}select{font:inherit;min-height:44px;max-width:100%;margin-left:.5rem}</style></head>
+<body><main><h1>Emu198x browser player</h1><label>System <select id="system"></select></label><emu198x-player></emu198x-player><noscript>Enable JavaScript to use the emulator.</noscript></main>
+<script type="module">
+const catalog=await fetch('./catalog.json').then(response=>response.json());
+const select=document.getElementById('system');
+const requested=new URLSearchParams(location.search).get('system');
+const selected=catalog.find(entry=>entry.id===requested || entry.aliases.includes(requested)) || catalog[0];
+for(const entry of catalog){const option=document.createElement('option');option.value=entry.id;option.textContent=entry.name;select.append(option);}
+select.value=selected.id;
+const initial=document.querySelector('emu198x-player');initial.setAttribute('system',requested && selected.aliases.includes(requested)?requested:selected.id);
+select.onchange=()=>{const player=document.createElement('emu198x-player');player.setAttribute('system',select.value);document.querySelector('emu198x-player').replaceWith(player);const url=new URL(location.href);url.searchParams.set('system',select.value);history.replaceState(null,'',url);};
+await import('./embed.js');
+</script></body></html>

@@ -1,0 +1,27 @@
+[package]
+name = "emu198x-commodore-web"
+description = "C64 and A500 browser prototype using the shared web host"
+edition.workspace = true
+version.workspace = true
+publish = false
+license.workspace = true
+repository.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+emu198x-web = { path = "../emu198x-web", version = "0.25.0" }
+emu198x-shell = { path = "../emu198x-shell", version = "0.25.0" }
+runtime-commodore-c64 = { path = "../runtime-commodore-c64", version = "0.25.0" }
+runtime-commodore-amiga = { path = "../runtime-commodore-amiga", version = "0.25.0" }
+machine-commodore-amiga-ocs = { path = "../machine-commodore-amiga-ocs", version = "0.25.0" }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "0.2.127"
+
+[dev-dependencies]
+serde_json = { workspace = true }
+
+[lints]
+workspace = true

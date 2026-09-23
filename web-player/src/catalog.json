@@ -1,0 +1,7 @@
+[
+  {"id":"sinclair-zx-spectrum","aliases":["sinclair-zx-spectrum"],"name":"ZX Spectrum","kind":"spectrum","model":"48K PAL","media":".tap,.tzx,.sna,.z80","help":"Click the screen to type. Shift is CAPS SHIFT; Control or Alt is SYMBOL SHIFT. Tapes load automatically; allow time for loading to finish."},
+  {"id":"commodore-c64","aliases":["commodore-64"],"name":"Commodore 64","kind":"c64","model":"PAL breadbin","media":".prg,.d64,.g64","help":"Click the screen to type. Escape is RUN/STOP; Alt is Commodore. After loading a PRG, type RUN or the program’s SYS command. Disk images require the 1541 ROM."},
+  {"id":"commodore-amiga","aliases":["commodore-amiga"],"name":"Commodore Amiga","kind":"amiga","model":"A500 PAL + A501 · 1 MiB RAM and clock","media":".adf","help":"Click the screen to capture the mouse. Escape releases it. Select an ADF before starting to boot from disk. AROS compatibility differs from Kickstart."},
+  {"id":"nintendo-nes","aliases":["nintendo-entertainment-system"],"name":"Nintendo Entertainment System","kind":"nes","model":"NTSC","media":".nes","help":"Arrow keys move; X is A, Z is B, Enter is Start and right Shift is Select. A cartridge is required."},
+  {"id":"nintendo-game-boy","aliases":["game-boy"],"name":"Nintendo Game Boy","kind":"game-boy","model":"DMG · skipped boot ROM","media":".gb","help":"Arrow keys move; X is A, Z is B, Enter is Start and right Shift is Select. DMG cartridges only; this player starts after the boot-ROM sequence."}
+]

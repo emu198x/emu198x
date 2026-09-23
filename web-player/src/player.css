@@ -1,0 +1,61 @@
+:host {
+  display: block; max-width: 760px; margin-inline: auto;
+  color: var(--player-ink, inherit); font-family: inherit; font-size: 1rem;
+  --surface: var(--player-surface, Canvas);
+  --line: var(--player-line, GrayText);
+  --muted: var(--player-muted, inherit);
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+form { margin: 0; }
+.screen-wrap { position: relative; background: #11151a; overflow: hidden; border-radius: 3px; }
+canvas { display: block; width: 100%; height: auto; image-rendering: pixelated; }
+:host([system="nintendo-game-boy"]), :host([system="game-boy"]) { max-width: 480px; }
+:host([system="nintendo-nes"]) { max-width: 640px; }
+.standby { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1rem; padding: 1rem; color: #eef2f6; text-align: center; }
+.standby span { font-size: .875rem; max-width: 30ch; line-height: 1.5; }
+button, input { font: inherit; }
+button { min-height: 44px; padding: .55rem .8rem; border: 1px solid var(--line); border-radius: 3px; color: inherit; background: transparent; cursor: pointer; }
+button:disabled { opacity: .5; cursor: default; }
+.primary { background: #eef2f6; color: #11151a; border-color: #eef2f6; padding-inline: 1.2rem; }
+:focus-visible { outline: 3px solid var(--player-focus, #3988e8); outline-offset: 3px; }
+canvas:focus-visible { outline-offset: -3px; }
+.toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; margin-top: .75rem; }
+.sound { display: flex; align-items: center; gap: .5rem; min-height: 44px; padding-inline: .4rem; cursor: pointer; margin-left: auto; }
+.sound input { accent-color: var(--player-focus, #3988e8); width: 1rem; height: 1rem; }
+.caption { display: flex; flex-wrap: wrap; justify-content: space-between; gap: .25rem 1rem; margin-top: .65rem; min-height: 1.5em; font-size: .875rem; line-height: 1.5; color: var(--muted); }
+#status.error { color: var(--player-ink, inherit); font-weight: 600; }
+#firmware-settings { margin-top: 1rem; padding-top: .5rem; border-top: 1px solid var(--line); }
+summary { cursor: pointer; min-height: 44px; padding-block: .65rem; }
+p { line-height: 1.6; margin: .5rem 0 1rem; }
+#firmware { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,260px),1fr)); gap: 1rem; margin-bottom: 1rem; }
+#firmware label { display: flex; flex-direction: column; gap: .5rem; }
+input[type=file] { max-width: 100%; font-size: 1rem; }
+input::file-selector-button { min-height: 44px; font: inherit; padding: .4rem .7rem; background: var(--surface); color: var(--player-ink, CanvasText); border: 1px solid var(--line); border-radius: 3px; margin-right: .5rem; }
+.help { margin-top: .6rem; color: var(--muted); font-size: .875rem; }
+a { color: inherit; text-underline-offset: .15em; }
+#pad { margin-top: 1rem; gap: .8rem; align-items: center; flex-wrap: wrap; }
+#pad, #pad > div { display: flex; gap: .4rem; }
+#pad .system-buttons { margin-left: auto; }
+#pad button { touch-action: none; user-select: none; min-width: 44px; }
+#pad button[aria-pressed=true] { background: var(--player-ink, CanvasText); color: var(--surface); }
+/* Physical-keyboard users have the controls legend; touch gets a compact pad. */
+@media (hover: hover) and (pointer: fine) { #pad { display: none; } button:not(:disabled):hover { border-color: currentColor; } .primary:hover { background: white; } }
+@media (max-width: 420px) { .toolbar { gap: .35rem; } .toolbar button { padding-inline: .6rem; } .sound { margin-left: 0; } }
+
+.model-controls { display: flex; flex-wrap: wrap; gap: .5rem 1rem; margin-top: .5rem; }
+.model-controls label { display: flex; align-items: center; gap: .5rem; font-size: .875rem; }
+select { font: inherit; max-width: 100%; min-height: 44px; border: 1px solid var(--line); border-radius: 3px; color: inherit; background: var(--surface); padding: .4rem; }
+
+:host(:fullscreen) { max-width: none; width: 100%; height: 100%; overflow: auto; padding: 1rem; background: var(--surface); }
+:host(:fullscreen) canvas { max-height: 75dvh; object-fit: contain; }
+:host(:fullscreen) .screen-wrap { max-width: 1200px; margin-inline: auto; }
+#save-status, #firmware-storage-status { margin-top: .5rem; }
+
+#controls-summary { font-size: .875rem; margin-top: .75rem; }
+#example-description:empty { display: none; }
+#key-bindings { display: grid; grid-template-columns: repeat(auto-fit,minmax(150px,1fr)); gap: .75rem; }
+#key-bindings label { display: flex; flex-direction: column; gap: .25rem; }
+#report-text { width: 100%; font: inherit; }
+input[type=range] { vertical-align: middle; min-height: 44px; max-width: 100%; }
+#report-link, #example-source { display: inline-flex; align-items: center; min-height: 44px; }

@@ -1,0 +1,82 @@
+[package]
+name = "emu198x-fleet-web"
+description = "Feature-selected browser bindings for the Emu198x runtime catalogue"
+edition.workspace = true
+version.workspace = true
+publish = false
+license.workspace = true
+repository.workspace = true
+[lib]
+crate-type = ["cdylib", "rlib"]
+[features]
+default = ["nintendo-game-boy"]
+all-families = ["acorn-atom", "acorn-bbc-micro", "acorn-electron", "amstrad-cpc", "atari-2600", "atari-5200", "atari-7800", "atari-800xl", "coleco-colecovision", "commodore-amiga", "commodore-c64", "commodore-pet", "commodore-vic-20", "dragon", "jupiter-ace", "mattel-aquarius", "memotech-mtx", "msx", "nintendo-game-boy", "nintendo-nes", "oric-atmos", "sega-game-gear", "sega-master-system", "sega-sg-1000", "sinclair-zx-spectrum", "sinclair-zx80", "sinclair-zx81", "sord-m5", "spectravideo-svi-328", "tatung-einstein"]
+acorn-atom = ["dep:runtime-acorn-atom"]
+acorn-bbc-micro = ["dep:runtime-acorn-bbc-micro"]
+acorn-electron = ["dep:runtime-acorn-electron"]
+amstrad-cpc = ["dep:runtime-amstrad-cpc"]
+atari-2600 = ["dep:runtime-atari-2600"]
+atari-5200 = ["dep:runtime-atari-5200"]
+atari-7800 = ["dep:runtime-atari-7800"]
+atari-800xl = ["dep:runtime-atari-800xl"]
+coleco-colecovision = ["dep:runtime-coleco-colecovision"]
+commodore-amiga = ["dep:runtime-commodore-amiga"]
+commodore-c64 = ["dep:runtime-commodore-c64"]
+commodore-pet = ["dep:runtime-commodore-pet"]
+commodore-vic-20 = ["dep:runtime-commodore-vic-20"]
+dragon = ["dep:runtime-dragon"]
+jupiter-ace = ["dep:runtime-jupiter-ace"]
+mattel-aquarius = ["dep:runtime-mattel-aquarius"]
+memotech-mtx = ["dep:runtime-memotech-mtx"]
+msx = ["dep:runtime-msx"]
+nintendo-game-boy = ["dep:runtime-nintendo-game-boy"]
+nintendo-nes = ["dep:runtime-nintendo-nes"]
+oric-atmos = ["dep:runtime-oric-atmos"]
+sega-game-gear = ["dep:runtime-sega-game-gear"]
+sega-master-system = ["dep:runtime-sega-master-system"]
+sega-sg-1000 = ["dep:runtime-sega-sg-1000"]
+sinclair-zx-spectrum = ["dep:runtime-sinclair-zx-spectrum", "dep:emu198x-spectrum-web"]
+sinclair-zx80 = ["dep:runtime-sinclair-zx80"]
+sinclair-zx81 = ["dep:runtime-sinclair-zx81"]
+sord-m5 = ["dep:runtime-sord-m5"]
+spectravideo-svi-328 = ["dep:runtime-spectravideo-svi-328"]
+tatung-einstein = ["dep:runtime-tatung-einstein"]
+[dependencies]
+emu198x-spectrum-web = { path = "../emu198x-spectrum-web", version = "0.25.0", optional = true }
+emu198x-web = { path = "../emu198x-web", version = "0.25.0" }
+emu198x-shell = { path = "../emu198x-shell", version = "0.25.0" }
+serde_json.workspace = true
+runtime-acorn-atom = { path = "../runtime-acorn-atom", version = "0.25.0", optional = true }
+runtime-acorn-bbc-micro = { path = "../runtime-acorn-bbc-micro", version = "0.25.0", optional = true }
+runtime-acorn-electron = { path = "../runtime-acorn-electron", version = "0.25.0", optional = true }
+runtime-amstrad-cpc = { path = "../runtime-amstrad-cpc", version = "0.25.0", optional = true }
+runtime-atari-2600 = { path = "../runtime-atari-2600", version = "0.25.0", optional = true }
+runtime-atari-5200 = { path = "../runtime-atari-5200", version = "0.25.0", optional = true }
+runtime-atari-7800 = { path = "../runtime-atari-7800", version = "0.25.0", optional = true }
+runtime-atari-800xl = { path = "../runtime-atari-800xl", version = "0.25.0", optional = true }
+runtime-coleco-colecovision = { path = "../runtime-coleco-colecovision", version = "0.25.0", optional = true }
+runtime-commodore-amiga = { path = "../runtime-commodore-amiga", version = "0.25.0", optional = true }
+runtime-commodore-c64 = { path = "../runtime-commodore-c64", version = "0.25.0", optional = true }
+runtime-commodore-pet = { path = "../runtime-commodore-pet", version = "0.25.0", optional = true }
+runtime-commodore-vic-20 = { path = "../runtime-commodore-vic-20", version = "0.25.0", optional = true }
+runtime-dragon = { path = "../runtime-dragon", version = "0.25.0", optional = true }
+runtime-jupiter-ace = { path = "../runtime-jupiter-ace", version = "0.25.0", optional = true }
+runtime-mattel-aquarius = { path = "../runtime-mattel-aquarius", version = "0.25.0", optional = true }
+runtime-memotech-mtx = { path = "../runtime-memotech-mtx", version = "0.25.0", optional = true }
+runtime-msx = { path = "../runtime-msx", version = "0.25.0", optional = true }
+runtime-nintendo-game-boy = { path = "../runtime-nintendo-game-boy", version = "0.25.0", optional = true }
+runtime-nintendo-nes = { path = "../runtime-nintendo-nes", version = "0.25.0", optional = true }
+runtime-oric-atmos = { path = "../runtime-oric-atmos", version = "0.25.0", optional = true }
+runtime-sega-game-gear = { path = "../runtime-sega-game-gear", version = "0.25.0", optional = true }
+runtime-sega-master-system = { path = "../runtime-sega-master-system", version = "0.25.0", optional = true }
+runtime-sega-sg-1000 = { path = "../runtime-sega-sg-1000", version = "0.25.0", optional = true }
+runtime-sinclair-zx-spectrum = { path = "../runtime-sinclair-zx-spectrum", version = "0.25.0", optional = true }
+runtime-sinclair-zx80 = { path = "../runtime-sinclair-zx80", version = "0.25.0", optional = true }
+runtime-sinclair-zx81 = { path = "../runtime-sinclair-zx81", version = "0.25.0", optional = true }
+runtime-sord-m5 = { path = "../runtime-sord-m5", version = "0.25.0", optional = true }
+runtime-spectravideo-svi-328 = { path = "../runtime-spectravideo-svi-328", version = "0.25.0", optional = true }
+runtime-tatung-einstein = { path = "../runtime-tatung-einstein", version = "0.25.0", optional = true }
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "0.2.127"
+[lints]
+workspace = true

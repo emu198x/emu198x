@@ -581,6 +581,7 @@ dependencies = [
  "peripheral-commodore-amiga-keyboard",
  "postcard",
  "serde",
+ "web-time",
 ]
 
 [[package]]
@@ -1165,6 +1166,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "emu198x-commodore-web"
+version = "0.25.0"
+dependencies = [
+ "emu198x-shell",
+ "emu198x-web",
+ "machine-commodore-amiga-ocs",
+ "runtime-commodore-amiga",
+ "runtime-commodore-c64",
+ "serde_json",
+ "wasm-bindgen",
+]
+
+[[package]]
 name = "emu198x-dragon"
 version = "0.25.0"
 dependencies = [
@@ -1193,6 +1207,47 @@ dependencies = [
 ]
 
 [[package]]
+name = "emu198x-fleet-web"
+version = "0.25.0"
+dependencies = [
+ "emu198x-shell",
+ "emu198x-spectrum-web",
+ "emu198x-web",
+ "runtime-acorn-atom",
+ "runtime-acorn-bbc-micro",
+ "runtime-acorn-electron",
+ "runtime-amstrad-cpc",
+ "runtime-atari-2600",
+ "runtime-atari-5200",
+ "runtime-atari-7800",
+ "runtime-atari-800xl",
+ "runtime-coleco-colecovision",
+ "runtime-commodore-amiga",
+ "runtime-commodore-c64",
+ "runtime-commodore-pet",
+ "runtime-commodore-vic-20",
+ "runtime-dragon",
+ "runtime-jupiter-ace",
+ "runtime-mattel-aquarius",
+ "runtime-memotech-mtx",
+ "runtime-msx",
+ "runtime-nintendo-game-boy",
+ "runtime-nintendo-nes",
+ "runtime-oric-atmos",
+ "runtime-sega-game-gear",
+ "runtime-sega-master-system",
+ "runtime-sega-sg-1000",
+ "runtime-sinclair-zx-spectrum",
+ "runtime-sinclair-zx80",
+ "runtime-sinclair-zx81",
+ "runtime-sord-m5",
+ "runtime-spectravideo-svi-328",
+ "runtime-tatung-einstein",
+ "serde_json",
+ "wasm-bindgen",
+]
+
+[[package]]
 name = "emu198x-game-boy"
 version = "0.25.0"
 dependencies = [
@@ -1202,6 +1257,16 @@ dependencies = [
  "runtime-nintendo-game-boy",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "emu198x-game-boy-web"
+version = "0.25.0"
+dependencies = [
+ "emu198x-shell",
+ "emu198x-web",
+ "runtime-nintendo-game-boy",
+ "wasm-bindgen",
 ]
 
 [[package]]
@@ -1301,6 +1366,16 @@ dependencies = [
  "runtime-nintendo-nes",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "emu198x-nes-web"
+version = "0.25.0"
+dependencies = [
+ "emu198x-shell",
+ "emu198x-web",
+ "runtime-nintendo-nes",
+ "wasm-bindgen",
 ]
 
 [[package]]
