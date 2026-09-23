@@ -25,6 +25,7 @@
 //! Run:
 //!
 //! ```text
+//! EMU198X_SPECTRUM_48K_ROM=<48.rom> \
 //! EMU198X_SPECTRUM_TIMING_SUITE=<dir> \
 //!   cargo test --release -p runtime-sinclair-zx-spectrum \
 //!   --test timing_survey -- --ignored --nocapture
@@ -51,6 +52,7 @@ use machine_sinclair_zx_spectrum_48k::Spectrum48k;
 /// Directory holding `timingTests48k.sna`.
 const SUITE_DIR_ENV: &str = "EMU198X_SPECTRUM_TIMING_SUITE";
 const SUITE_FILE: &str = "timingTests48k.sna";
+const ROM_PATH_ENV: &str = "EMU198X_SPECTRUM_48K_ROM";
 
 /// Pinned identity of the suite image.
 ///
@@ -80,7 +82,9 @@ fn home() -> PathBuf {
 }
 
 fn rom_path() -> PathBuf {
-    home().join(".emu198x/roms/sinclair-zx-spectrum-48k/48.rom")
+    std::env::var_os(ROM_PATH_ENV)
+        .map(PathBuf::from)
+        .unwrap_or_else(|| home().join(".emu198x/roms/sinclair-zx-spectrum-48k/48.rom"))
 }
 
 fn suite_path() -> PathBuf {
