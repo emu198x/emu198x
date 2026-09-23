@@ -9,7 +9,11 @@
 
 use serde::de::Error as _;
 use serde::{Deserialize, Deserializer, Serialize};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
+#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+use std::time::{SystemTime, UNIX_EPOCH};
+#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+use web_time::{SystemTime, UNIX_EPOCH};
 
 pub const RTC_BASE: u32 = 0x00DC_0000;
 

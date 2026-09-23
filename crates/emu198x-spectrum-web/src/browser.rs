@@ -44,6 +44,18 @@ struct CanvasPresentation {
 
 #[wasm_bindgen]
 impl Spectrum {
+    /// Exports the current machine state.
+    pub fn save_state(&self) -> Result<Vec<u8>, JsError> {
+        self.machine
+            .save_state()
+            .map_err(|e| JsError::new(&e.to_string()))
+    }
+    /// Restores compatible machine state, clearing pending host input/audio.
+    pub fn restore_state(&mut self, bytes: &[u8]) -> Result<(), JsError> {
+        self.machine
+            .restore_state(bytes)
+            .map_err(|e| JsError::new(&e.to_string()))
+    }
     /// Builds a 48K attached to `canvas`, from ROM bytes the page supplies.
     ///
     /// Async even though nothing here awaits: restoring the GPU path (#1436)
@@ -135,6 +147,19 @@ impl Spectrum {
             self.draw()?;
         }
         Ok(ran)
+    }
+
+    /// Advances exactly one frame without drawing to a canvas.
+    /// # Errors
+    /// Returns the runtime's execution error.
+    pub fn step(&mut self) -> Result<(), JsError> {
+        self.machine
+            .run_one_frame()
+            .map_err(|e| JsError::new(&e.to_string()))
+    }
+    /// Frame period derived from the machine profile.
+    pub fn frame_ms(&self) -> f64 {
+        self.machine.frame_ms()
     }
 
     /// Loads a program into a media slot from bytes.

@@ -249,14 +249,60 @@ impl<R: FamilyRuntime, Q: SessionQueryProvider<R>> WebMachine<R, Q> {
         kind: MediaKind,
         bytes: &[u8],
     ) -> Result<(), MachineError> {
+        self.load_media_with_access(slot, kind, bytes, false)
+    }
+
+    /// Loads a writable in-memory working copy, never a source file handle.
+    /// # Errors
+    /// Reports unknown slots or malformed media.
+    pub fn load_media_copy(
+        &mut self,
+        slot: &str,
+        kind: MediaKind,
+        bytes: &[u8],
+    ) -> Result<(), MachineError> {
+        self.load_media_with_access(slot, kind, bytes, true)
+    }
+
+    fn load_media_with_access(
+        &mut self,
+        slot: &str,
+        kind: MediaKind,
+        bytes: &[u8],
+        writable: bool,
+    ) -> Result<(), MachineError> {
         if !self.has_slot(slot) {
             return Err(MachineError::UnsupportedOperation {
                 operation: "load_media_bytes: unknown slot",
             });
         }
         let mut media = MediaSet::new();
-        media.push(MediaImage::new(slot.to_owned(), kind, bytes));
+        media.push(MediaImage::new(slot.to_owned(), kind, bytes).writable(writable));
         self.runtime.load_media(&media)
+    }
+
+    /// Serialises the current runtime, including its in-memory media changes.
+    /// # Errors
+    /// Reports unsupported or failed runtime serialisation.
+    pub fn save_state(&self) -> Result<Vec<u8>, MachineError> {
+        self.runtime.snapshot()
+    }
+
+    /// Restores runtime state and discards stale host input, sound and pacing.
+    /// # Errors
+    /// Reports incompatible or malformed runtime state.
+    pub fn restore_state(&mut self, bytes: &[u8]) -> Result<(), MachineError> {
+        self.runtime.restore(bytes)?;
+        self.pending_input.clear();
+        let _ = self.audio.drain();
+        self.pacer = Pacer::new(frame_duration_ms(
+            &self.runtime,
+            self.runtime.native_frame_ticks(),
+        ));
+        self.frame_ticks = self.runtime.native_frame_ticks();
+        self.frame = RgbaFrame::new();
+        self.last_run_result = None;
+        Ok(())
     }
 
     /// Slot identifiers this machine's profile declares, such as `tape-1`.

@@ -1,0 +1,152 @@
+[
+  {
+    "family": "acorn-atom",
+    "runtime": "AtomRuntime",
+    "alias": "acorn-atom"
+  },
+  {
+    "family": "acorn-bbc-micro",
+    "runtime": "BbcMicroRuntime",
+    "alias": "bbc-micro"
+  },
+  {
+    "family": "acorn-electron",
+    "runtime": "ElectronRuntime",
+    "alias": "acorn-electron"
+  },
+  {
+    "family": "amstrad-cpc",
+    "runtime": "AmstradCpcRuntime",
+    "alias": "amstrad-cpc"
+  },
+  {
+    "family": "atari-2600",
+    "runtime": "Atari2600Runtime",
+    "alias": "atari-2600"
+  },
+  {
+    "family": "atari-5200",
+    "runtime": "Atari5200Runtime",
+    "alias": "atari-5200"
+  },
+  {
+    "family": "atari-7800",
+    "runtime": "Atari7800Runtime",
+    "alias": "atari-7800"
+  },
+  {
+    "family": "atari-800xl",
+    "runtime": "Atari800xlRuntime",
+    "alias": "atari-800"
+  },
+  {
+    "family": "coleco-colecovision",
+    "runtime": "CvRuntime",
+    "alias": "colecovision"
+  },
+  {
+    "family": "commodore-amiga",
+    "runtime": "AmigaRuntimeKind",
+    "alias": "commodore-amiga"
+  },
+  {
+    "family": "commodore-c64",
+    "runtime": "C64Runtime",
+    "alias": "commodore-64"
+  },
+  {
+    "family": "commodore-pet",
+    "runtime": "PetRuntime",
+    "alias": "commodore-pet"
+  },
+  {
+    "family": "commodore-vic-20",
+    "runtime": "Vic20Runtime",
+    "alias": "commodore-vic-20"
+  },
+  {
+    "family": "dragon",
+    "runtime": "DragonRuntime",
+    "alias": "dragon-32"
+  },
+  {
+    "family": "jupiter-ace",
+    "runtime": "JupiterAceRuntime",
+    "alias": "jupiter-ace"
+  },
+  {
+    "family": "mattel-aquarius",
+    "runtime": "AquariusRuntime",
+    "alias": "mattel-aquarius"
+  },
+  {
+    "family": "memotech-mtx",
+    "runtime": "MtxRuntime",
+    "alias": "memotech-mtx"
+  },
+  {
+    "family": "msx",
+    "runtime": "MsxRuntime",
+    "alias": "msx"
+  },
+  {
+    "family": "nintendo-game-boy",
+    "runtime": "GameBoyRuntime",
+    "alias": "game-boy"
+  },
+  {
+    "family": "nintendo-nes",
+    "runtime": "NesRuntime",
+    "alias": "nintendo-entertainment-system"
+  },
+  {
+    "family": "oric-atmos",
+    "runtime": "OricRuntime",
+    "alias": "oric-atmos"
+  },
+  {
+    "family": "sega-game-gear",
+    "runtime": "SmsRuntime",
+    "alias": "sega-game-gear"
+  },
+  {
+    "family": "sega-master-system",
+    "runtime": "SmsRuntime",
+    "alias": "sega-master-system"
+  },
+  {
+    "family": "sega-sg-1000",
+    "runtime": "Sg1000Runtime",
+    "alias": "sega-sg-1000"
+  },
+  {
+    "family": "sinclair-zx-spectrum",
+    "runtime": "SpectrumRuntimeKind",
+    "alias": "sinclair-zx-spectrum"
+  },
+  {
+    "family": "sinclair-zx80",
+    "runtime": "Zx80Runtime",
+    "alias": "sinclair-zx80"
+  },
+  {
+    "family": "sinclair-zx81",
+    "runtime": "Zx81Runtime",
+    "alias": "zx81"
+  },
+  {
+    "family": "sord-m5",
+    "runtime": "M5Runtime",
+    "alias": "sord-m5"
+  },
+  {
+    "family": "spectravideo-svi-328",
+    "runtime": "Svi328Runtime",
+    "alias": "spectravideo-svi-328"
+  },
+  {
+    "family": "tatung-einstein",
+    "runtime": "EinsteinRuntime",
+    "alias": "tatung-einstein"
+  }
+]

@@ -1,0 +1,10 @@
+[
+ {"family":"nintendo-game-boy","file":"synthetic-cartridges/nintendo-game-boy-logo.gb","title":"Emu198x title card","description":"A small, project-owned title card drawn by the Game Boy. This is a display demo, with no game controls."},
+ {"family":"nintendo-nes","file":"synthetic-cartridges/nintendo-nes-logo.nes","title":"Emu198x title card","description":"A small, project-owned title card drawn by the NES. This is a display demo, with no game controls."},
+ {"family":"atari-2600","file":"synthetic-cartridges/atari-2600-logo.bin","title":"Emu198x title card","description":"A project-owned Atari 2600 display demo, with no game controls."},
+ {"family":"atari-5200","file":"synthetic-cartridges/atari-5200-logo.bin","title":"Emu198x title card","description":"A project-owned Atari 5200 display demo, with no game controls."},
+ {"family":"atari-7800","file":"synthetic-cartridges/atari-7800-logo.bin","title":"Emu198x title card","description":"A project-owned Atari 7800 display demo, with no game controls."},
+ {"family":"sega-master-system","file":"sega/synthetic-cart/master-system-raster.sms","title":"Raster colours","description":"A project-owned display demo: the running program changes the backdrop colour partway down the screen."},
+ {"family":"sega-game-gear","file":"sega/synthetic-cart/game-gear.gg","title":"Colour screen","description":"A tiny project-owned program that sets the Game Gear backdrop colour. A solid colour is the expected result."},
+ {"family":"sega-sg-1000","file":"sega/synthetic-cart/sg-1000.sg","title":"Colour screen","description":"A tiny project-owned program that sets the SG-1000 backdrop colour. A solid colour is the expected result."}
+]

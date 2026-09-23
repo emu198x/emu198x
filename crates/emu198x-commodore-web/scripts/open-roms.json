@@ -1,0 +1,29 @@
+{
+  "revision": "ad178dbe4d48cd6a317737a8e0e7e662f7e33d32",
+  "files": {
+    "basic_generic.rom": {
+      "source": "bin/basic_generic.rom",
+      "sha256": "54a1464b4b27c9dc61bbd62a818fdd12ec99af9089111005a5add0ad0e6bd5ec"
+    },
+    "kernal_generic.rom": {
+      "source": "bin/kernal_generic.rom",
+      "sha256": "88e86ed3d0c710edab8f90ad146faa8de1ead11f43494b176c7b54724ca721c6"
+    },
+    "chargen_openroms.rom": {
+      "source": "bin/chargen_openroms.rom",
+      "sha256": "5e3451466841b93df7e01e4b635b07b8d8633351bae483b1961d96b3131186e7"
+    },
+    "LICENSE": {
+      "source": "LICENSE",
+      "sha256": "74f574b1ba42475929d9dec376d1c513eb14b237939474edcf1c48ef2d7faab2"
+    },
+    "OPEN-ROMS-README.md": {
+      "source": "bin/README.md",
+      "sha256": "f6ce414aed929b60d52646a21640e081487875817c31bfa6703003d1612b4de4"
+    },
+    "STATUS.md": {
+      "source": "STATUS.md",
+      "sha256": "6a36282f6c0f5131e357831771a1ae616bb83260618185efcfdd07346c4210f4"
+    }
+  }
+}

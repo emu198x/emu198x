@@ -1,0 +1,72 @@
+<form id="setup" novalidate>
+  <div class="screen-wrap">
+    <canvas id="screen" width="640" height="480" tabindex="0" aria-label="Emulator screen"></canvas>
+    <div id="standby" class="standby">
+      <button id="begin" type="button" class="primary">Choose a cartridge</button>
+      <span id="file-hint">Your files stay on this device.</span>
+    </div>
+  </div>
+  <div class="toolbar" aria-label="Player controls">
+    <input id="media" type="file" hidden>
+    <button id="choose-media" type="button">Choose a cartridge</button>
+    <button id="start" type="submit" hidden>Restart</button>
+    <button id="run-example" type="button" hidden>Try the demo</button>
+    <button id="pause" type="button" hidden>Pause</button>
+    <button id="fullscreen" type="button" hidden>Fullscreen</button>
+    <label class="sound"><input id="sound" type="checkbox"> Sound</label>
+    <button id="capture-mouse" type="button" hidden disabled aria-pressed="false" aria-describedby="mouse-hint">Capture mouse</button>
+  </div>
+  <div class="model-controls"><label id="variant-label" hidden>Model <select id="variant"></select></label><label id="slot-label" hidden>Media <select id="slot"></select></label></div>
+  <p id="example-description"></p><a id="example-source" hidden>Demo source &amp; licence</a>
+  <p id="controls-summary"></p>
+  <p id="error-help" hidden>Check the model, firmware and supported file formats. <a href="https://emu198x.github.io/downloads/">Download Emu198x for desktop</a>, or use Report a problem below.</p>
+  <div class="caption"><span id="model"></span><span id="status" role="status" aria-live="polite"></span></div>
+  <details id="firmware-settings" hidden>
+    <summary>Firmware</summary>
+    <p>Select the ROM files for this computer. They stay on your device.</p>
+    <div id="firmware"></div>
+    <p id="firmware-note"></p>
+    <label><input id="remember-firmware" type="checkbox"> Remember firmware on this device</label>
+    <p id="firmware-storage-status" role="status"></p>
+    <button id="forget-firmware" type="button" hidden>Forget remembered firmware</button>
+    <button id="boot" type="submit">Start computer</button>
+  </details>
+</form>
+<div id="pad" hidden aria-label="Controller">
+  <div class="directions"><button data-button="up" aria-label="Up">↑</button><button data-button="left" aria-label="Left">←</button><button data-button="down" aria-label="Down">↓</button><button data-button="right" aria-label="Right">→</button></div>
+  <div class="actions"><button data-button="b">B</button><button data-button="a">A</button></div>
+  <div class="system-buttons"><button data-button="select">Select</button><button data-button="start">Start</button></div>
+</div>
+<p id="mouse-hint" hidden></p>
+<details class="help" id="save-settings"><summary>Save &amp; resume</summary>
+  <p>Save your progress and supported disk changes before restarting or leaving. Saves include the loaded firmware and software. Device saves belong to this site and may be removed when browser data is cleared; export a file to keep a separate copy.</p>
+  <div class="toolbar">
+    <button id="save-device" type="button" disabled>Save on this device</button>
+    <button id="resume-device" type="button" disabled>Resume saved progress</button>
+    <button id="export-save" type="button" disabled>Export save file</button>
+    <button id="import-save" type="button">Import save file</button>
+    <input id="save-file" type="file" accept=".emu198x" hidden>
+    <button id="forget-save" type="button" hidden>Delete device save</button>
+    <button id="export-media" type="button" hidden>Export disk image</button>
+  </div>
+  <p id="save-status" role="status" aria-live="polite"></p>
+</details>
+<details class="help"><summary>Controls &amp; session information</summary>
+  <p id="help"></p>
+  <div id="tape-controls" hidden><p>Type the machine’s LOAD command, then play the tape.</p><button id="tape-play" type="button">Play tape</button> <button id="tape-stop" type="button">Stop tape</button></div>
+  <p>Unsaved progress and disk changes are discarded when you restart or leave. Save &amp; resume keeps a copy; exporting a disk always creates a new file.</p>
+  <button id="step" type="button" disabled>Step one frame</button>
+  <p class="credit">Powered by <a href="https://emu198x.github.io">Emu198x</a> · <a id="licence" href="./LICENSE.txt">Licence</a> · <a href="https://github.com/emu198x/emu198x/tree/main/web-player">Source</a></p>
+</details>
+
+<details class="help"><summary>Preferences</summary>
+ <label>Volume <input id="volume" type="range" min="0" max="100" step="1"> <output id="volume-value"></output></label>
+ <label>Display <select id="display"><option value="pixel">Sharp pixels</option><option value="smooth">Smooth</option></select></label>
+ <div id="input-settings" hidden><p>Select a control, then press its new key. Escape cancels. Changing a key pauses the machine; press Resume to continue.</p><div id="key-bindings"></div></div>
+ <p>Preferences are remembered on this device for this site.</p><p id="preferences-status" role="status"></p>
+</details>
+<details class="help"><summary>Report a problem</summary>
+ <p>Copy the machine, model, player build and browser details, then describe what happened. Firmware, software and save files are not included.</p>
+ <button id="copy-report" type="button">Copy diagnostic details</button> <a id="report-link" target="_blank" rel="noopener">Open a bug report</a>
+ <p id="report-status" role="status"></p><textarea id="report-text" rows="12" aria-label="Diagnostic details" readonly hidden></textarea>
+</details>

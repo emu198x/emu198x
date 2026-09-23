@@ -22,6 +22,10 @@ peripheral-commodore-amiga-floppy = { path = "../peripheral-commodore-amiga-flop
 peripheral-commodore-amiga-keyboard = { path = "../peripheral-commodore-amiga-keyboard", version = "0.25.0" }
 serde = { workspace = true }
 
+[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
+# RTC host time uses the browser clock; std::time::SystemTime::now panics here.
+web-time = "1.1"
+
 [dev-dependencies]
 postcard = { workspace = true }
 

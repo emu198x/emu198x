@@ -1,0 +1,12 @@
+import assert from 'node:assert/strict';
+import {encodeSave,decodeSave} from './src/save-file.js';
+const save={system:'test',variant:'pal',date:'2026-09-22T00:00:00Z',mounted:{},boot:['fleet',{rom:new Uint8Array([0,1,255])},{name:'disk.adf',format:'adf',bytes:new Uint8Array([8,9])},48000,{family:'test',id:'pal'}],state:new Uint8Array([6,7,8])};
+const blob=await encodeSave(save);const restored=await decodeSave(blob,'test','pal');
+assert.deepEqual(restored.boot,save.boot);assert.deepEqual(restored.state,save.state);
+await assert.rejects(decodeSave(blob,'other','pal'),/another system/);
+await assert.rejects(decodeSave(blob,'test','ntsc'),/another system/);
+const damaged=new Uint8Array(await blob.arrayBuffer());damaged[damaged.length-1]^=1;
+await assert.rejects(decodeSave(new Blob([damaged]),'test','pal'),/damaged/);
+await assert.rejects(decodeSave(new Blob([damaged.slice(0,15)]),'test','pal'),/header/);
+await assert.rejects(decodeSave(new Blob(['not a save file']),'test','pal'),/Choose an Emu198x/);
+console.log('Save container: binary round trip, model isolation, checksum and truncation validation passed.');

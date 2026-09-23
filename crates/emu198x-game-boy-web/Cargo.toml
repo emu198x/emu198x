@@ -1,0 +1,18 @@
+[package]
+name = "emu198x-game-boy-web"
+description = "Game Boy browser binding using the shared web host"
+edition.workspace = true
+version.workspace = true
+publish = false
+license.workspace = true
+repository.workspace = true
+[lib]
+crate-type = ["cdylib", "rlib"]
+[dependencies]
+emu198x-web = { path = "../emu198x-web", version = "0.25.0" }
+emu198x-shell = { path = "../emu198x-shell", version = "0.25.0" }
+runtime-nintendo-game-boy = { path = "../runtime-nintendo-game-boy", version = "0.25.0" }
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "0.2.127"
+[lints]
+workspace = true
