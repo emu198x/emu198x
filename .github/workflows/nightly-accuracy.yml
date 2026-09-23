@@ -474,7 +474,19 @@ jobs:
           python3 -c 'import pathlib, zipfile; z = zipfile.ZipFile("zx-spectrum-tests/EIHALT (2021-10-23)(Woodmass, Mark)[!].zip"); pathlib.Path("spectrum-system-tests/tapes/eihalt.tap").write_bytes(z.read("eihalt.tap"))'
           echo "EMU198X_SPECTRUM_48K_ROM=$(pwd)/z80test/48.rom" >> "$GITHUB_ENV"
           echo "EMU198X_SPECTRUM_SYSTEM_TESTS_DIR=$(pwd)/spectrum-system-tests/tapes" >> "$GITHUB_ENV"
-          echo "EMU198X_SPECTRON_RESULTS_DIR=$(pwd)/spectrum-system-tests/spectron-results" >> "$GITHUB_ENV"
+          # The private mirror predates btime/ptime. Fetch only these two
+          # public test programs from the same pinned Spectron revision as
+          # our checked-in reference screens, then verify their exact bytes.
+          spectron_revision=6e814e69ff0b7c8759de19001456010f09501a3d
+          for tape in btime ptime; do
+            curl --fail --location --retry 3 --connect-timeout 20 --max-time 120 \
+              "https://raw.githubusercontent.com/oldbit-com/Spectron/${spectron_revision}/tests/Spectron.Integration.Tests/TestFiles/${tape}.tap" \
+              --output "spectrum-system-tests/tapes/${tape}.tap"
+          done
+          echo '235f3ed166f819b4b743daf968dd06719aeb1b5cfbaea4635ed75790ddf959cd  spectrum-system-tests/tapes/btime.tap' | sha256sum -c -
+          echo 'b52a7e55ce47b01e3792d40050858918a022d3f4c66871bd6b74c988351cdce7  spectrum-system-tests/tapes/ptime.tap' | sha256sum -c -
+          (cd "$GITHUB_WORKSPACE/test-data/spectrum/spectron-results" && sha256sum -c SHA256SUMS)
+          echo "EMU198X_SPECTRON_RESULTS_DIR=$GITHUB_WORKSPACE/test-data/spectrum/spectron-results" >> "$GITHUB_ENV"
           echo "EMU198X_SPECTRUM_128K_ROM0=$(pwd)/spectrum-system-tests/roms/128-0.rom" >> "$GITHUB_ENV"
           echo "EMU198X_SPECTRUM_128K_ROM1=$(pwd)/spectrum-system-tests/roms/128-1.rom" >> "$GITHUB_ENV"
 
