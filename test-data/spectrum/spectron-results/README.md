@@ -69,3 +69,8 @@ the checksummed corpus bundle. The same TAP detects 48K and 128K frame lengths.
 Its source cautions that its timing targets are 48K even though 128K result
 images are supplied, so the 128K assertion establishes agreement with the
 external result, not a separate hardware-accuracy claim.
+
+Nightly fetches `btime.tap` and `ptime.tap` from the pinned Spectron revision
+above and verifies their SHA-256 hashes, because the private corpus mirror
+contains only the earlier floating-bus tapes. Reference PNGs come from this
+checkout and are checked against `SHA256SUMS` before the tests run.
