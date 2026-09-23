@@ -71,7 +71,7 @@ const TEST_COUNT: usize = 35;
 const BOOT_FRAMES: usize = 200;
 /// Frames to wait for one test to finish before giving up on it.
 const TEST_BUDGET_FRAMES: usize = 4_000;
-/// Frames between polls of the screen while a test runs.
+/// Frames between polls for tests whose results persist on screen.
 const POLL_FRAMES: usize = 25;
 
 /// The suite blocks here until a key is pressed.
@@ -190,6 +190,12 @@ fn timing_survey_records_every_case() {
         }
         tap_key(&mut machine, SpectrumKey::Enter);
 
+        // Test 35 clears the screen between modes. Its Uncontended result
+        // is visible for only three frames (162–164 after selecting it in
+        // the pinned fixture); a 25-frame poll misses it. Sample every
+        // frame for this destructive-screen test.
+        let poll_frames = if test_number == 35 { 1 } else { POLL_FRAMES };
+
         // {Uncontended} first, then a key, then {Contended}.
         let mut seen_modes = 0;
         for _ in 0..2 {
@@ -208,8 +214,8 @@ fn timing_survey_records_every_case() {
                     settled = true;
                     break;
                 }
-                run_frames(&mut machine, POLL_FRAMES);
-                waited += POLL_FRAMES;
+                run_frames(&mut machine, poll_frames);
+                waited += poll_frames;
             }
             if !settled {
                 break;
@@ -225,6 +231,7 @@ fn timing_survey_records_every_case() {
     }
 
     cases.sort_by_key(|c| (c.test, c.mode.clone()));
+    let missing = missing_cases(&cases);
     let failures: Vec<&CaseResult> = cases.iter().filter(|c| c.verdict == "fail").collect();
 
     let revision = revision();
@@ -239,6 +246,7 @@ fn timing_survey_records_every_case() {
         "cases_recorded": cases.len(),
         "cases_failing": failures.len(),
         "tests_incomplete": incomplete,
+        "cases_missing": missing,
         "cases": cases,
     });
 
@@ -323,21 +331,48 @@ fn timing_survey_records_every_case() {
         incomplete.is_empty(),
         "tests did not complete within budget: {incomplete:?}"
     );
-    let tests_covered: std::collections::BTreeSet<usize> = cases.iter().map(|c| c.test).collect();
-    assert_eq!(
-        tests_covered.len(),
-        TEST_COUNT,
-        "survey covered {} of {TEST_COUNT} tests. Under-coverage must fail \
-         loudly: a harness that reports success having measured a fraction is \
-         indistinguishable from one that measured everything. See \
-         knowledge/decisions/a-gate-nobody-runs-is-a-silent-gate.md",
-        tests_covered.len()
+    assert!(
+        missing.is_empty(),
+        "survey did not record every test/mode pair: {missing:?}"
     );
+}
+
+/// Count distinct test/mode pairs, not test numbers or raw row counts.
+fn missing_cases(cases: &[CaseResult]) -> Vec<(usize, &'static str)> {
+    (1..=TEST_COUNT)
+        .flat_map(|test| ["Uncontended", "Contended"].map(|mode| (test, mode)))
+        .filter(|(test, mode)| {
+            !cases
+                .iter()
+                .any(|case| case.test == *test && case.mode == *mode)
+        })
+        .collect()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn completeness_requires_both_modes_even_with_duplicate_rows() {
+        let mut cases: Vec<_> = (1..=TEST_COUNT)
+            .flat_map(|test| {
+                ["Uncontended", "Contended"].map(move |mode| CaseResult {
+                    test,
+                    mode: mode.to_owned(),
+                    description: String::new(),
+                    verdict: "pass".to_owned(),
+                    measured: Default::default(),
+                    expected: Default::default(),
+                })
+            })
+            .collect();
+        assert!(missing_cases(&cases).is_empty());
+        cases.retain(|case| !(case.test == 35 && case.mode == "Uncontended"));
+        cases.push(cases[0].clone());
+        assert_eq!(cases.len(), 70, "a row count alone would pass");
+        assert_eq!(missing_cases(&cases), [(35, "Uncontended")]);
+    }
 
     #[test]
     fn sha256_matches_known_vectors() {
