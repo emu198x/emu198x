@@ -375,17 +375,11 @@ fn timing_survey_128k_records_every_case() {
     // A ceiling, not a target: lower it in the commit that earns it, never
     // raise it silently.
     //
-    // 8 of 68. Was 10 of 67, and had been wrong for as long as the
-    // never-reported set above was: the two assertions ran in sequence, so
-    // the stale set failed first and this one was never reached (#947). The
-    // case count rose to 68 because test 2's contended pass now reports.
-    //
-    // The shape still mirrors the 48K's: the block I/O groups (`INI`/`INIR`,
-    // `OUTI`/`OTIR`) fail in both modes, and the arithmetic group — tests 4,
-    // 17, 18 and 26 — fails contended only. Note the 48K had 32 and 33 fixed
-    // by #880 and the 128K did not, which is a real difference between the
-    // two machines rather than a stale number.
-    const RATCHET_FAILURES: usize = 8;
+    // 5 of 68 after the page-aware I/O lookup correction (was 8).
+    // Tests 32 in both modes and 33 uncontended now pass. Test 33
+    // contended has the correct loop count but differs in R and SP;
+    // contended arithmetic tests 4, 17, 18 and 26 remain unchanged.
+    const RATCHET_FAILURES: usize = 5;
     if failures.len() > RATCHET_FAILURES {
         stale.push(format!(
             "128K timing survey regressed: {} of {} cases failing, was \

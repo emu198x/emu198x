@@ -33,3 +33,9 @@ This is selected reference-emulator and hardware-derived software evidence,
 not a physical-chip capture or proof for all bus histories. The grey +2 shares
 the wrapper but has no separate hardware capture here. Timex and Amstrad gates
 remain outside this correction.
+
+The complete 128K timing survey improves from 60/68 to **63/68** (458.06s).
+Test 32 passes in both modes; test 33 passes uncontended. Its contended loop
+count is now correct (196), but R/SP are 119/23315 versus 117/23313.
+Contended arithmetic tests 4, 17, 18 and 26 are unchanged. The failure ceiling
+is tightened from eight to five; no expected hardware readings are changed.
