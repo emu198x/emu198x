@@ -52,6 +52,36 @@ SpecIde/Emu198x probe also compared completed 21T iterations. This is not a
 full SpecIde differential corpus. The six accepted FUSE case names remain
 the same; OTIR/OTDR now explicitly pin WZ as well as AF.
 
+## Die-derived adjudication (2026-09-24)
+
+Original pin-driving adapters reproduced the instruction-relevant inputs of all
+five disputed block-repeat fixtures with Perfect Z80, hoglet67/perfect6502 branch
+Z80 revision `9b0d2e5e826c3a5fae3b5c6669bba1cd5d3b4217`. All five agree with
+Emu198x on AF, BC, HL, WZ and next-fetch address after 21T. In particular they
+confirm AF `8a00`, `3403`, `ffaf`, `2500`, `0903` for INIR, OTIR, CPDR, INDR,
+and OTDR respectively. The six precisely constrained exceptions remain; no
+CPU behaviour was changed to match the corpus.
+
+A minimal HALT-at-0000 probe fetches from 0001 after 4T and NMI pushes return
+address 0001, agreeing with our post-HALT address convention. This does not
+require FUSE's internal halted-PC representation to be the same.
+
+The simulator overlaps register writeback with the following M1. The adapter
+captures its fetch address and timing, forces NOP, then allows seven half-cycles
+for writeback before reading registers. Timing is measured between read strobes;
+the settling cycles are excluded. The adapter supplies the port-address high
+byte on input, as this harness does. These are selected fixture-shaped inputs,
+not a full-state fixture replay, exhaustive waveform check or new physical-chip
+measurement. Exact internal flag/WZ writeback timing remains a separate question.
+
+Reproduction and derived observations are retained privately in the umbrella at
+`ops/experiments/z80-fuse-disagreements/`, with the shared reference note
+`reference/by-topic/cpu-z80/z80-fuse-disagreement-evidence.md`. No third-party
+source or binaries are added to this repository. The ordinary integration tests
+`disputed_repeat_flags_match_die_derived_observations` and
+`halted_fetch_and_nmi_return_use_post_halt_address` preserve these observations
+without requiring external fixture files.
+
 ## Repeated-input WZ control experiment
 
 With the pinned z80test 1.2a MEMPTR tape (SHA-256

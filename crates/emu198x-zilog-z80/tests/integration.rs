@@ -2170,3 +2170,82 @@ fn block_output_wz_at_repeat_and_termination_boundaries() {
         }
     }
 }
+
+/// These completed-iteration values agree with a pinned die-derived Z80 model.
+/// FUSE's fixture differs on repeat flags/WZ; see test-data/fuse-z80-validation.md.
+#[test]
+fn disputed_repeat_flags_match_die_derived_observations() {
+    for (op, af, bc, hl, pc, data, expected_af, expected_bc, expected_hl) in [
+        (0xb2, 0x8a34, 0x0a40, 0x37ce, 0, 0, 0x8a00, 0x0940, 0x37cf),
+        (0xba, 0x2567, 0x069f, 0x6b55, 0, 0, 0x2500, 0x059f, 0x6b54),
+        (
+            0xb3, 0x34ab, 0x03e0, 0x1d7c, 0, 0x9d, 0x3403, 0x02e0, 0x1d7d,
+        ),
+        (
+            0xbb, 0x09c4, 0x043b, 0x1dd0, 0, 0xb6, 0x0903, 0x033b, 0x1dcf,
+        ),
+        (
+            0xb9, 0xffcd, 0x0008, 0xc749, 0x7a45, 0x6c, 0xffaf, 0x0007, 0xc748,
+        ),
+    ] {
+        let mut cpu = Z80::new();
+        let mut memory = [0u8; 65536];
+        cpu.regs.af = af;
+        cpu.regs.bc = bc;
+        cpu.regs.hl = hl;
+        cpu.regs.pc = pc;
+        memory[usize::from(pc)] = 0xed;
+        memory[usize::from(pc + 1)] = op;
+        memory[usize::from(hl)] = data;
+        assert_eq!(run(&mut cpu, &mut memory, 42), 42);
+        assert_eq!(cpu.instructions_retired(), 1);
+        assert_eq!(
+            (
+                cpu.regs.af,
+                cpu.regs.bc,
+                cpu.regs.hl,
+                cpu.regs.pc,
+                cpu.regs.wz
+            ),
+            (expected_af, expected_bc, expected_hl, pc, pc + 1),
+            "opcode {op:02x}"
+        );
+    }
+}
+
+#[test]
+fn halted_fetch_and_nmi_return_use_post_halt_address() {
+    let mut cpu = Z80::new();
+    let mut memory = [0u8; 65536];
+    cpu.regs.sp = 0x9002;
+    memory[0] = 0x76;
+    assert_eq!(run(&mut cpu, &mut memory, 8), 8);
+    assert!(cpu.halt);
+    let mut reads = Vec::new();
+    for _ in 0..8 {
+        cpu.tick();
+        if cpu.mreq && cpu.rd {
+            reads.push(cpu.addr);
+            cpu.data_in = memory[usize::from(cpu.addr)];
+        }
+    }
+    assert!(!reads.is_empty());
+    assert!(reads.iter().all(|addr| *addr == 1));
+    assert_eq!(cpu.regs.pc, 1);
+    let retired = cpu.instructions_retired();
+    cpu.nmi = true;
+    for _ in 0..100 {
+        cpu.tick();
+        if cpu.mreq && cpu.rd {
+            cpu.data_in = memory[usize::from(cpu.addr)];
+        } else if cpu.mreq && cpu.wr {
+            memory[usize::from(cpu.addr)] = cpu.data;
+        }
+        if cpu.instructions_retired() != retired {
+            assert_eq!((cpu.regs.pc, cpu.regs.sp), (0x66, 0x9000));
+            assert_eq!(&memory[0x9000..0x9002], &[1, 0]);
+            return;
+        }
+    }
+    panic!("NMI response did not retire");
+}
