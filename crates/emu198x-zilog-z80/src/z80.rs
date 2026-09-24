@@ -177,8 +177,8 @@ pub enum ExecutionFlow {
     Restart { return_address: u16 },
     /// RET (including a taken conditional RET) popped its destination.
     Return,
-    /// An accepted interrupt pushed the interrupted PC. IM 0 reports the
-    /// core's implemented response, including its fallback for unsupported bytes.
+    /// An accepted interrupt pushed this return address. In IM 0 only
+    /// device-supplied CALL/RST instructions produce this stack-flow event.
     Interrupt { return_address: u16 },
     /// RETI or RETN, including the core's undocumented aliases.
     InterruptReturn,
@@ -469,7 +469,17 @@ impl Z80 {
 
     pub(crate) fn observe_flow(&mut self, flow: ExecutionFlow) {
         if let Some(observer) = &mut self.execution_observer {
-            observer.flow = Some(flow);
+            observer.flow = Some(if self.walker.prefix.is_injected() {
+                match flow {
+                    ExecutionFlow::Call { return_address }
+                    | ExecutionFlow::Restart { return_address } => {
+                        ExecutionFlow::Interrupt { return_address }
+                    }
+                    other => other,
+                }
+            } else {
+                flow
+            });
         }
     }
 
@@ -510,7 +520,11 @@ impl Z80 {
     /// would have picked).
     pub fn rehydrate_walker_sequence(&mut self) {
         use crate::walker::Prefix;
-        self.walker.sequence = match self.walker.prefix {
+        if self.walker.prefix.is_injected() && matches!(self.phase, Phase::IntAck(_)) {
+            self.walker.sequence = mcycle::SEQ_IM0_FETCH;
+            return;
+        }
+        self.walker.sequence = match self.walker.prefix.opcode_prefix() {
             Prefix::None => self.decode_opcode(self.walker.opcode),
             Prefix::CB => self.decode_cb(self.walker.opcode),
             Prefix::ED => self.decode_ed(self.walker.opcode),
@@ -528,6 +542,7 @@ impl Z80 {
             Prefix::InterruptIm0 => mcycle::SEQ_INT_IM0,
             Prefix::InterruptIm1 => mcycle::SEQ_INT_IM1,
             Prefix::InterruptIm2 => mcycle::SEQ_INT_IM2,
+            _ => unreachable!("opcode_prefix removes injected variants"),
         };
     }
 
@@ -757,103 +772,126 @@ impl Z80 {
                 self.mreq = false;
                 let opcode = self.data;
 
-                match self.walker.prefix {
-                    crate::walker::Prefix::None => {
-                        match opcode {
-                            // Prefix bytes: start another M1 fetch
-                            0xCB => {
-                                self.walker.prefix = crate::walker::Prefix::CB;
-                                self.phase = Phase::M1(M1Phase::T1Rise);
-                            }
-                            0xED => {
-                                self.walker.prefix = crate::walker::Prefix::ED;
-                                self.phase = Phase::M1(M1Phase::T1Rise);
-                            }
-                            0xDD => {
-                                self.walker.prefix = crate::walker::Prefix::DD;
-                                self.phase = Phase::M1(M1Phase::T1Rise);
-                            }
-                            0xFD => {
-                                self.walker.prefix = crate::walker::Prefix::FD;
-                                self.phase = Phase::M1(M1Phase::T1Rise);
-                            }
-                            _ => {
-                                self.walker.opcode = opcode;
-                                self.begin_new_instruction();
-                                self.walker.sequence = self.decode_opcode(opcode);
-                                self.try_advance_walker();
-                            }
-                        }
+                self.decode_fetched_opcode(opcode);
+            }
+        }
+    }
+
+    /// Decode either an ordinary M1 byte or an IM 0 acknowledge byte.
+    /// See `test-data/z80-im0-validation.md` for timing and source evidence.
+    fn decode_fetched_opcode(&mut self, opcode: u8) {
+        match self.walker.prefix.opcode_prefix() {
+            crate::walker::Prefix::None => {
+                match opcode {
+                    // Prefix bytes: start another M1 fetch
+                    0xCB => {
+                        self.walker.prefix =
+                            self.walker.prefix.for_opcode(crate::walker::Prefix::CB);
+                        self.start_opcode_fetch();
                     }
-                    crate::walker::Prefix::CB => {
-                        // CB sub-opcode: decode CB instruction
-                        self.walker.opcode = opcode;
-                        // Keep prefix = CB so execute() dispatches correctly
-                        self.begin_new_instruction();
-                        self.walker.sequence = self.decode_cb(opcode);
-                        self.try_advance_walker();
+                    0xED => {
+                        self.walker.prefix =
+                            self.walker.prefix.for_opcode(crate::walker::Prefix::ED);
+                        self.start_opcode_fetch();
                     }
-                    crate::walker::Prefix::ED => {
-                        // ED sub-opcode: decode ED instruction
-                        self.walker.opcode = opcode;
-                        // Keep prefix = ED so execute() dispatches correctly
-                        self.begin_new_instruction();
-                        self.walker.sequence = self.decode_ed(opcode);
-                        self.try_advance_walker();
+                    0xDD => {
+                        self.walker.prefix =
+                            self.walker.prefix.for_opcode(crate::walker::Prefix::DD);
+                        self.start_opcode_fetch();
                     }
-                    crate::walker::Prefix::DD | crate::walker::Prefix::FD => {
-                        match opcode {
-                            // DD DD, DD FD, FD DD, FD FD: restart prefix
-                            0xDD => {
-                                self.walker.prefix = crate::walker::Prefix::DD;
-                                self.phase = Phase::M1(M1Phase::T1Rise);
-                            }
-                            0xFD => {
-                                self.walker.prefix = crate::walker::Prefix::FD;
-                                self.phase = Phase::M1(M1Phase::T1Rise);
-                            }
-                            // DD CB / FD CB: indexed bit ops
-                            // DDCB/FDCB is special: displacement byte comes BEFORE the sub-opcode
-                            // Sequence: DD CB <disp> <sub-opcode>
-                            // We fetch the disp+opcode via FetchDisp+FetchByte, then decode
-                            0xCB => {
-                                let new_prefix = if self.walker.prefix == crate::walker::Prefix::DD
-                                {
-                                    crate::walker::Prefix::DDCB
-                                } else {
-                                    crate::walker::Prefix::FDCB
-                                };
-                                self.walker.prefix = new_prefix;
-                                self.walker.opcode = 0;
-                                self.begin_new_instruction();
-                                // Fetch displacement, then sub-opcode
-                                self.walker.sequence = &DDCB_FETCH;
-                                self.walker.ddcb_fetch_phase = true;
-                                self.try_advance_walker();
-                            }
-                            // DD ED / FD ED: ED takes priority
-                            0xED => {
-                                self.walker.prefix = crate::walker::Prefix::ED;
-                                self.phase = Phase::M1(M1Phase::T1Rise);
-                            }
-                            _ => {
-                                // Regular instruction with IX/IY prefix
-                                self.walker.opcode = opcode;
-                                // Keep DD/FD prefix for execute dispatch
-                                self.begin_new_instruction();
-                                self.walker.sequence = self.decode_dd_fd(opcode);
-                                self.try_advance_walker();
-                            }
-                        }
+                    0xFD => {
+                        self.walker.prefix =
+                            self.walker.prefix.for_opcode(crate::walker::Prefix::FD);
+                        self.start_opcode_fetch();
                     }
                     _ => {
-                        // DDCB/FDCB are dispatched separately at the top of
-                        // this match — this arm is unreachable.
-                        self.walker.prefix = crate::walker::Prefix::None;
-                        self.phase = Phase::M1(M1Phase::T1Rise);
+                        self.walker.opcode = opcode;
+                        self.begin_new_instruction();
+                        self.walker.sequence = self.decode_opcode(opcode);
+                        self.try_advance_walker();
                     }
                 }
             }
+            crate::walker::Prefix::CB => {
+                // CB sub-opcode: decode CB instruction
+                self.walker.opcode = opcode;
+                // Keep prefix = CB so execute() dispatches correctly
+                self.begin_new_instruction();
+                self.walker.sequence = self.decode_cb(opcode);
+                self.try_advance_walker();
+            }
+            crate::walker::Prefix::ED => {
+                // ED sub-opcode: decode ED instruction
+                self.walker.opcode = opcode;
+                // Keep prefix = ED so execute() dispatches correctly
+                self.begin_new_instruction();
+                self.walker.sequence = self.decode_ed(opcode);
+                self.try_advance_walker();
+            }
+            crate::walker::Prefix::DD | crate::walker::Prefix::FD => {
+                match opcode {
+                    // DD DD, DD FD, FD DD, FD FD: restart prefix
+                    0xDD => {
+                        self.walker.prefix =
+                            self.walker.prefix.for_opcode(crate::walker::Prefix::DD);
+                        self.start_opcode_fetch();
+                    }
+                    0xFD => {
+                        self.walker.prefix =
+                            self.walker.prefix.for_opcode(crate::walker::Prefix::FD);
+                        self.start_opcode_fetch();
+                    }
+                    // DD CB / FD CB: indexed bit ops
+                    // DDCB/FDCB is special: displacement byte comes BEFORE the sub-opcode
+                    // Sequence: DD CB <disp> <sub-opcode>
+                    // We fetch the disp+opcode via FetchDisp+FetchByte, then decode
+                    0xCB => {
+                        let new_prefix =
+                            if self.walker.prefix.opcode_prefix() == crate::walker::Prefix::DD {
+                                crate::walker::Prefix::DDCB
+                            } else {
+                                crate::walker::Prefix::FDCB
+                            };
+                        self.walker.prefix = self.walker.prefix.for_opcode(new_prefix);
+                        self.walker.opcode = 0;
+                        self.begin_new_instruction();
+                        // Fetch displacement, then sub-opcode
+                        self.walker.sequence = &DDCB_FETCH;
+                        self.walker.ddcb_fetch_phase = true;
+                        self.try_advance_walker();
+                    }
+                    // DD ED / FD ED: ED takes priority
+                    0xED => {
+                        self.walker.prefix =
+                            self.walker.prefix.for_opcode(crate::walker::Prefix::ED);
+                        self.start_opcode_fetch();
+                    }
+                    _ => {
+                        // Regular instruction with IX/IY prefix
+                        self.walker.opcode = opcode;
+                        // Keep DD/FD prefix for execute dispatch
+                        self.begin_new_instruction();
+                        self.walker.sequence = self.decode_dd_fd(opcode);
+                        self.try_advance_walker();
+                    }
+                }
+            }
+            _ => {
+                // DDCB/FDCB are dispatched separately at the top of
+                // this match — this arm is unreachable.
+                self.walker.prefix = self.walker.prefix.for_opcode(crate::walker::Prefix::None);
+                self.start_opcode_fetch();
+            }
+        }
+    }
+
+    fn start_opcode_fetch(&mut self) {
+        if self.walker.prefix.is_injected() {
+            self.walker.sequence = mcycle::SEQ_IM0_FETCH;
+            self.walker.step_idx = 0;
+            self.phase = Phase::IntAck(IntAckPhase::T1Rise);
+        } else {
+            self.phase = Phase::M1(M1Phase::T1Rise);
         }
     }
 
@@ -1204,7 +1242,11 @@ impl Z80 {
                 self.phase = Phase::IntAck(IntAckPhase::T6Fall);
             }
             IntAckPhase::T6Fall => {
-                self.phase = Phase::IntAck(IntAckPhase::T7Rise);
+                if self.walker.prefix.is_injected() {
+                    self.decode_fetched_opcode(self.walker.staged.data_lo);
+                } else {
+                    self.phase = Phase::IntAck(IntAckPhase::T7Rise);
+                }
             }
             IntAckPhase::T7Rise => {
                 self.phase = Phase::IntAck(IntAckPhase::T7Fall);
@@ -1360,7 +1402,7 @@ impl Z80 {
             if let Some(observer) = &mut self.execution_observer {
                 observer.current = Some(ExecutionKind::Interrupt);
                 observer.stack_before = self.regs.sp;
-                observer.flow = Some(ExecutionFlow::Interrupt {
+                observer.flow = (self.regs.im != 0).then_some(ExecutionFlow::Interrupt {
                     return_address: self.regs.pc,
                 });
             }
@@ -1369,7 +1411,7 @@ impl Z80 {
             self.regs.iff2 = false;
             self.begin_new_instruction();
             let (sequence, identity) = match self.regs.im {
-                0 => (mcycle::SEQ_INT_IM0, crate::walker::Prefix::InterruptIm0),
+                0 => (mcycle::SEQ_IM0_FETCH, crate::walker::Prefix::InjectedNone),
                 1 => (mcycle::SEQ_INT_IM1, crate::walker::Prefix::InterruptIm1),
                 2 => (mcycle::SEQ_INT_IM2, crate::walker::Prefix::InterruptIm2),
                 _ => (mcycle::SEQ_INT_IM1, crate::walker::Prefix::InterruptIm1),
@@ -1397,8 +1439,10 @@ impl Z80 {
         // Q register: save the previous instruction's Q value for SCF/CCF,
         // then reset Q to 0. Flag-modifying instructions will set Q = F
         // via set_f_q() during their Execute step.
-        self.regs.prev_q = self.regs.q;
-        self.regs.q = 0;
+        if !self.walker.prefix.is_injected() {
+            self.regs.prev_q = self.regs.q;
+            self.regs.q = 0;
+        }
     }
 
     /// Decode an unprefixed opcode into its MStep sequence.
@@ -1885,7 +1929,7 @@ mod tests {
     #[test]
     fn maskable_interrupt_responses_round_trip_at_every_halfcycle() {
         for (mode, vector, response_halfcycles, identity, expected_pc) in [
-            (0, 0xCF, 26, crate::walker::Prefix::InterruptIm0, 0x0008),
+            (0, 0xCF, 26, crate::walker::Prefix::InjectedNone, 0x0008),
             (1, 0xFF, 26, crate::walker::Prefix::InterruptIm1, 0x0038),
             (2, 0x34, 38, crate::walker::Prefix::InterruptIm2, 0x5678),
         ] {

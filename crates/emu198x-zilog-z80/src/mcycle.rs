@@ -594,10 +594,12 @@ pub static SEQ_DDCB_BIT: &[MStep] = &[
 
 // --- Interrupt sequences ---
 
-/// IM 0 interrupt response: IntAck + execute + push PC. The interrupting device
-/// drives an instruction onto the bus during the ack; we model the `RST n`
-/// family (the realistic case — an un-driven bus reads 0xFF = `RST 38h`), so the
-/// timing matches an interrupt `RST`, identical to IM 1.
+/// Fetch one device-supplied IM 0 opcode or prefix. The six-T acknowledge
+/// tail dispatches through the ordinary decoder, without incrementing PC.
+pub static SEQ_IM0_FETCH: &[MStep] = &[MStep::IntAck];
+
+/// Legacy RST-only response, retained for snapshots taken inside it.
+/// New IM 0 interrupts enter `SEQ_IM0_FETCH` and the shared decoder.
 pub static SEQ_INT_IM0: &[MStep] = &[
     MStep::IntAck,
     MStep::Execute, // set PC from the RST n vector latched off the bus
