@@ -19,6 +19,9 @@
 //! 2. `~/.emu198x/test-data/z80test/<name>.tap` if present, otherwise
 //! 3. `~/Projects/Emu198x-Unclean/Zen/Other Images/<name>.tap` as a fallback.
 //!
+//! An explicit directory never falls back, even if its tape is missing. Missing
+//! fixtures are reported as skips, or failures under `EMU198X_STRICT_FIXTURES=1`.
+//!
 //! Each test is `#[ignore]`d by default because it requires both the ROM and
 //! the TAP corpus. Run with:
 //!
@@ -29,7 +32,7 @@
 use common_sinclair_zx_spectrum::memory::MemoryBus;
 use format198x_sinclair_zx_spectrum_tap::decode;
 use machine_sinclair_zx_spectrum_48k::Spectrum48k;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 const Z80TEST_DIR_ENV: &str = "EMU198X_Z80TEST_DIR";
 const ROM_PATH_ENV: &str = "EMU198X_SPECTRUM_48K_ROM";
@@ -66,20 +69,33 @@ fn rom_path() -> PathBuf {
 }
 
 fn z80test_tap_path(name: &str) -> Option<PathBuf> {
-    let filename = format!("{name}.tap");
+    let explicit = std::env::var_os(Z80TEST_DIR_ENV).map(PathBuf::from);
+    resolve_tap_path(name, explicit.as_deref(), home)
+}
 
-    let mut candidates = Vec::new();
-    if let Some(dir) = std::env::var_os(Z80TEST_DIR_ENV) {
-        candidates.push(PathBuf::from(dir).join(&filename));
+fn resolve_tap_path(
+    name: &str,
+    explicit: Option<&Path>,
+    default_home: impl FnOnce() -> PathBuf,
+) -> Option<PathBuf> {
+    let filename = format!("{name}.tap");
+    if let Some(dir) = explicit {
+        let path = dir.join(filename);
+        // An explicit corpus is authoritative. Falling back could silently
+        // substitute another version with different expected results.
+        return path.is_file().then_some(path);
     }
-    candidates.push(home().join(".emu198x/test-data/z80test").join(&filename));
-    candidates.push(
-        home()
+    let default_home = default_home();
+    [
+        default_home
+            .join(".emu198x/test-data/z80test")
+            .join(&filename),
+        default_home
             .join("Projects/Emu198x-Unclean/Zen/Other Images")
             .join(&filename),
-    );
-
-    candidates.into_iter().find(|path| path.is_file())
+    ]
+    .into_iter()
+    .find(|path| path.is_file())
 }
 
 /// Parses a z80test TAP into (`load_address`, `code_bytes`).
@@ -482,4 +498,50 @@ fn push_block(tap: &mut Vec<u8>, flag: u8, body: &[u8]) {
         sum ^= b;
     }
     tap.push(sum);
+}
+
+#[test]
+fn explicit_corpus_never_substitutes_a_default_tape() {
+    let unique = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("clock after epoch")
+        .as_nanos();
+    let root = std::env::temp_dir().join(format!("z80test-paths-{}-{unique}", std::process::id()));
+    std::fs::create_dir(&root).expect("create isolated fixture tree");
+    struct Cleanup(PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+    let _cleanup = Cleanup(root.clone());
+    let default_dir = root.join(".emu198x/test-data/z80test");
+    let legacy_dir = root.join("Projects/Emu198x-Unclean/Zen/Other Images");
+    let explicit_dir = root.join("chosen-corpus");
+    for dir in [&default_dir, &legacy_dir, &explicit_dir] {
+        std::fs::create_dir_all(dir).expect("create corpus directory");
+    }
+    let tape = "z80memptr.tap";
+    std::fs::write(default_dir.join(tape), b"default version").expect("write default fixture");
+    std::fs::write(legacy_dir.join(tape), b"legacy version").expect("write legacy fixture");
+    assert_eq!(
+        resolve_tap_path("z80memptr", None, || root.clone()),
+        Some(default_dir.join(tape))
+    );
+    assert_eq!(
+        resolve_tap_path("z80memptr", Some(&explicit_dir), || root.clone()),
+        None
+    );
+    std::fs::write(explicit_dir.join(tape), b"requested version").expect("write explicit fixture");
+    assert_eq!(
+        resolve_tap_path("z80memptr", Some(&explicit_dir), || panic!(
+            "explicit path must not need a home directory"
+        )),
+        Some(explicit_dir.join(tape))
+    );
+    std::fs::remove_file(default_dir.join(tape)).expect("remove default fixture");
+    assert_eq!(
+        resolve_tap_path("z80memptr", None, || root.clone()),
+        Some(legacy_dir.join(tape))
+    );
 }

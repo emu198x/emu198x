@@ -28,6 +28,10 @@ before running the exercisers with strict fixture handling. For local runs,
 extract the same archive and set `EMU198X_Z80TEST_DIR` to its `z80test-1.2a/`
 directory and `EMU198X_SPECTRUM_48K_ROM` to the local ROM.
 
+An explicit `EMU198X_Z80TEST_DIR` is authoritative: a missing tape is reported
+as missing rather than replaced by a default or legacy copy. In strict fixture
+mode this fails the test. Default discovery runs only when the variable is unset.
+
 From the extracted directory, verify the tapes with:
 
 ```sh
