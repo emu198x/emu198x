@@ -12,9 +12,9 @@ claim of perfect hardware accuracy.
 
 The [harness](../crates/emu198x-zilog-z80/tests/z80_fuse.rs) compares bus events,
 final registers, memory and T-state totals. Accepted cases must disagree on
-exactly the named fields. Their values are printed for diagnosis, but the
-allowlist does not pin those values: a different value within an accepted
-field can still pass. Empty corpora, unmatched named cases and zero case limits
+exactly the named fields and match both the observed and reference values
+listed below. A changed value, extra mismatch or resolved disagreement fails
+until its evidence and exception are reviewed. Values are printed for diagnosis. Empty corpora, unmatched named cases and zero case limits
 fail. A single selected case is valid partial coverage.
 
 ## Measured disagreements

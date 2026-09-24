@@ -128,17 +128,17 @@ struct FuseObserved {
     memory: [u8; 65_536],
 }
 
-// FUSE 1.7.0 differs from our repeat-flag model (also present in SpecIde)
-// and from our HALT PC representation. These are named, field-scoped
-// exceptions, not exact matches. See test-data/fuse-z80-validation.md for
-// measured values, flag-bit differences and the limits of this evidence.
-const ACCEPTED_FUSE_DISAGREEMENTS: &[(&str, &[&str])] = &[
-    ("76", &["PC"]),           // HALT: FUSE leaves PC on HALT; we retain the next PC.
-    ("edb2_1", &["AF", "WZ"]), // INIR: P/V + X, and repeated-input WZ.
-    ("edb3_1", &["AF"]),       // OTIR: H + P/V.
-    ("edb9_2", &["AF"]),       // CPDR: X from PC high byte on repeat.
-    ("edba_1", &["WZ"]),       // INDR: flags coincide for this input; WZ differs.
-    ("edbb_1", &["AF"]),       // OTDR: H + P/V.
+// Pin both sides of every accepted mismatch. Accepting a whole field would
+// hide unrelated errors (including accumulator changes inside AF).
+// See test-data/fuse-z80-validation.md for the evidence and its limits.
+type AcceptedMismatch = (&'static str, u16, u16); // field, observed, reference
+const ACCEPTED_FUSE_DISAGREEMENTS: &[(&str, &[AcceptedMismatch])] = &[
+    ("76", &[("PC", 0x0001, 0x0000)]),
+    ("edb2_1", &[("AF", 0x8a00, 0x8a0c), ("WZ", 0x0001, 0x0a41)]),
+    ("edb3_1", &[("AF", 0x3403, 0x3417)]),
+    ("edb9_2", &[("AF", 0xffaf, 0xffa7)]),
+    ("edba_1", &[("WZ", 0x0001, 0x069e)]),
+    ("edbb_1", &[("AF", 0x0903, 0x0917)]),
 ];
 
 fn parse_hex_u16(token: &str) -> u16 {
@@ -770,22 +770,19 @@ fn selected_case_limit() -> Option<usize> {
     }
 }
 
-fn accepted_disagreement_labels(case_name: &str) -> Option<&'static [&'static str]> {
+fn accepted_disagreement_errors(case_name: &str) -> Option<Vec<String>> {
     ACCEPTED_FUSE_DISAGREEMENTS
         .iter()
-        .find_map(|(name, labels)| (*name == case_name).then_some(*labels))
-}
-
-fn mismatch_labels(errors: &[String]) -> Vec<&str> {
-    errors
-        .iter()
-        .map(|error| {
-            error
-                .split(':')
-                .next()
-                .unwrap_or_else(|| panic!("malformed mismatch line: {error}"))
+        .find_map(|(name, mismatches)| {
+            (*name == case_name).then(|| {
+                mismatches
+                    .iter()
+                    .map(|(field, observed, reference)| {
+                        format!("{field}: got {observed:#06x}, expected {reference:#06x}")
+                    })
+                    .collect()
+            })
         })
-        .collect()
 }
 
 #[test]
@@ -865,7 +862,7 @@ fn run_fuse_cases(
 
     let expected_accepted = inputs
         .iter()
-        .filter(|case| accepted_disagreement_labels(&case.name).is_some())
+        .filter(|case| accepted_disagreement_errors(&case.name).is_some())
         .count();
 
     let mut pass = 0usize;
@@ -953,19 +950,17 @@ fn run_fuse_cases(
 
         if errors.is_empty() {
             pass += 1;
-        } else if let Some(expected_labels) = accepted_disagreement_labels(&input.name) {
-            let actual_labels = mismatch_labels(&errors);
-            if actual_labels == expected_labels {
+        } else if let Some(expected_errors) = accepted_disagreement_errors(&input.name) {
+            if errors == expected_errors {
                 eprintln!("accepted {}: {}", input.name, errors.join("; "));
                 accepted += 1;
             } else {
                 fail += 1;
                 if failures.len() < 16 {
                     failures.push(format!(
-                        "{}: expected accepted mismatch labels {:?}, got {:?}: {}",
+                        "{}: expected accepted mismatches {:?}, got {}",
                         input.name,
-                        expected_labels,
-                        actual_labels,
+                        expected_errors,
                         errors.join("; ")
                     ));
                 }
@@ -1028,4 +1023,59 @@ fn rejects_unmatched_fuse_selection() {
 fn single_fuse_case_is_valid_coverage() {
     let (inputs, expected) = inline_nop_case();
     run_fuse_cases(inputs, expected, Some("00"), Some(1));
+}
+
+fn inline_halt_case() -> (Vec<FuseInput>, Vec<FuseExpected>) {
+    (
+        parse_tests_in(
+            "76\n0200 cf98 90d8 a169 0000 0000 0000 0000 0000 0000 0000 0000 0000\n00 00 0 0 0 0 1\n0000 76 -1\na169 50 -1\n-1\n",
+        ),
+        parse_tests_expected(
+            "76\n    0 MC 0000\n    4 MR 0000 76\n0200 cf98 90d8 a169 0000 0000 0000 0000 0000 0000 0000 0000 0000\n00 01 0 0 0 1 4\n\n",
+        ),
+    )
+}
+
+#[test]
+fn accepts_documented_halt_pc_difference() {
+    let (inputs, expected) = inline_halt_case();
+    run_fuse_cases(inputs, expected, None, None);
+}
+
+#[test]
+#[should_panic(expected = "FUSE reported 1 failures")]
+fn rejects_changed_value_in_accepted_field() {
+    let (inputs, mut expected) = inline_halt_case();
+    expected[0].pc = 0x1234;
+    run_fuse_cases(inputs, expected, None, None);
+}
+
+#[test]
+#[should_panic(expected = "FUSE reported 1 failures")]
+fn rejects_extra_mismatch_in_accepted_case() {
+    let (inputs, mut expected) = inline_halt_case();
+    expected[0].af ^= 0x0100;
+    run_fuse_cases(inputs, expected, None, None);
+}
+
+#[test]
+#[should_panic(expected = "accepted FUSE disagreement count changed")]
+fn resolved_disagreement_requires_review() {
+    let (inputs, mut expected) = inline_halt_case();
+    expected[0].pc = 1;
+    run_fuse_cases(inputs, expected, None, None);
+}
+
+#[test]
+#[should_panic(expected = "FUSE reported 1 failures")]
+fn rejects_changed_observed_value_in_accepted_field() {
+    let (mut inputs, mut expected) = inline_halt_case();
+    // Move HALT to address 1, keeping the reference PC at 0. The observed
+    // PC becomes 2; only the already-accepted PC field disagrees.
+    inputs[0].pc = 1;
+    inputs[0].memory[0].start = 1;
+    for event in &mut expected[0].events {
+        event.address = 1;
+    }
+    run_fuse_cases(inputs, expected, None, None);
 }
