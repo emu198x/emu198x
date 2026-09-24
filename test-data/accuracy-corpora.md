@@ -55,6 +55,11 @@ Normal test runs leave these ignored. The nightly ZEX sweep excludes the
 checkpoint helpers with `--skip checkpoint`; use the full-suite tests when
 no checkpoint target is intended.
 
+Full ZEX validation always starts from cold boot; cached prefixes are used
+only for targeted debugging runs and must match the selected COM bytes.
+See [ZEX checkpoint provenance](zex-validation.md) for cache-version handling
+and the limits of resumed results.
+
 ## The Spectrum line boots its own firmware
 
 Almost every machine here needs its manufacturer's ROM to reach a prompt, and
