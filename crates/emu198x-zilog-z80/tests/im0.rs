@@ -46,6 +46,7 @@ impl Device {
 fn ready() -> Z80 {
     let mut cpu = Z80::new();
     let mut device = Device::new(&[]);
+    cpu.irq = true; // Present before the final T-state sampling deadline.
     for _ in 0..8 {
         device.tick(&mut cpu);
     } // retire NOP, arm boundary sample

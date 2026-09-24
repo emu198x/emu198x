@@ -1,3 +1,4 @@
+use crate::interrupt_sample::InterruptSample;
 use crate::mcycle::{self, MStep};
 use crate::nmi::NmiLatch;
 use crate::registers::Registers;
@@ -106,23 +107,12 @@ pub struct Z80 {
     /// EI was just executed — defer interrupt check by one instruction.
     pub(crate) ei_pending: bool,
 
-    /// An instruction has retired and the CPU is at an instruction
-    /// boundary whose interrupt sample has not been taken yet.
-    ///
-    /// `/INT` is sampled *at* the boundary — the `T1`↑ that starts the
-    /// next `M1` — not on the retiring instruction's last half-cycle.
-    /// The two are half a T-state apart, and the difference decides
-    /// whether an `/INT` asserted exactly on a boundary is taken now or
-    /// a whole instruction later. Deferring the sample costs nothing:
-    /// the accepted interrupt sequence still begins on this same tick,
-    /// because the check runs at the top of [`Z80::tick`] and the
-    /// dispatch below it executes whichever phase the check leaves.
-    ///
-    /// `#[serde(default)]` so snapshots written before this field
-    /// deserialise; `false` is the safe value, costing at most one
-    /// deferred sample immediately after a restore.
+    /// Boundary scheduling and the two prior IRQ levels. Dispatch occurs
+    /// at the next T1 rising edge, using the level sampled two half-cycles
+    /// earlier. This retains the legacy field position and byte width;
+    /// old false/true snapshots have no level history and restore it low.
     #[serde(default)]
-    interrupt_sample_pending: bool,
+    interrupt_sample_pending: InterruptSample,
     /// Previous NMI state for edge detection.
     nmi_prev: bool,
     /// Captured edge and its eligibility for the next boundary decision.
@@ -392,7 +382,7 @@ impl Default for Z80 {
             phase: Phase::M1(M1Phase::T1Rise),
             walker: Walker::default(),
             ei_pending: false,
-            interrupt_sample_pending: false,
+            interrupt_sample_pending: InterruptSample::default(),
             nmi_prev: false,
             nmi_latched: NmiLatch::Empty,
             prev_mr: false,
@@ -593,13 +583,9 @@ impl Z80 {
     /// - `iorq && wr`: I/O write — `io_write(addr, data)`
     /// - `iorq && m1`: interrupt acknowledge — set `data_in = vector_byte`
     pub fn tick(&mut self) {
-        // Sample `/NMI` and `/INT` at the instruction boundary, before
-        // the `T1`↑ that starts the next `M1` drives anything. An
-        // accepted interrupt leaves `self.phase` on the response's first
-        // half-cycle, which the dispatch below then runs on this tick —
-        // so the response begins exactly where it did when the sample
-        // was taken on the previous half-cycle, and no instruction
-        // changes cost.
+        // Dispatch an accepted interrupt at the next T1 rising edge using
+        // the earlier IRQ level and eligible NMI edge. The response starts
+        // on this tick, without changing any instruction or response length.
         // `/NMI` is edge-triggered and the silicon latches the edge the
         // moment it arrives, asynchronously. Sampling only at the boundary
         // drops any pulse shorter than the instruction in flight — which is
@@ -609,9 +595,9 @@ impl Z80 {
         self.nmi_latched.tick(self.nmi && !self.nmi_prev);
         self.nmi_prev = self.nmi;
 
-        if self.interrupt_sample_pending {
-            self.interrupt_sample_pending = false;
-            self.sample_interrupts_at_boundary();
+        let sampled_irq = self.interrupt_sample_pending.advance_irq(self.irq);
+        if self.interrupt_sample_pending.take_boundary() {
+            self.sample_interrupts_at_boundary(sampled_irq);
         }
 
         // Dispatch to the appropriate phase handler
@@ -1334,11 +1320,10 @@ impl Z80 {
         // instruction start (see begin_instruction below). So Q naturally
         // reflects whether this instruction modified flags.
 
-        // Interrupts are *not* sampled here. This runs on the retiring
-        // instruction's last half-cycle, and the boundary the CPU samples
-        // at is the `T1`↑ half a T-state later. Arm the sample and let
-        // `tick` take it — see `interrupt_sample_pending`.
-        self.interrupt_sample_pending = true;
+        // Retirement arms the next T1 dispatch. Its decision uses the
+        // stored IRQ level from the final T-state's rising edge and the
+        // independently captured, eligible NMI edge.
+        self.interrupt_sample_pending.arm_boundary();
 
         // Start the next M1 fetch. While halted, PC remains at the byte after
         // HALT; tick_m1 reads and discards that byte without advancing PC.
@@ -1346,14 +1331,13 @@ impl Z80 {
         self.phase = Phase::M1(M1Phase::T1Rise);
     }
 
-    /// Sample `/NMI` and `/INT` at an instruction boundary.
+    /// Decide interrupt acceptance at a boundary using the earlier inputs.
     ///
     /// Returns `true` when an interrupt was accepted, in which case
     /// `self.phase` already names the first half-cycle of the response
     /// sequence and the caller must dispatch it on this same tick — that
-    /// is what keeps the response starting exactly where it did when the
-    /// sample was taken half a T-state earlier.
-    fn sample_interrupts_at_boundary(&mut self) -> bool {
+    /// keeps response dispatch separate from the earlier sampling instant.
+    fn sample_interrupts_at_boundary(&mut self, sampled_irq: bool) -> bool {
         // The edge was latched when it arrived; see `tick`.
         let nmi_edge = self.nmi_latched.take_ready();
 
@@ -1375,8 +1359,8 @@ impl Z80 {
             return true;
         }
 
-        // IRQ is level-triggered, checked if IFF1 is set
-        if self.irq && self.regs.iff1 && !self.ei_pending {
+        // Qualify the earlier sampled level with IFF1 and EI inhibition.
+        if sampled_irq && self.regs.iff1 && !self.ei_pending {
             if let Some(observer) = &mut self.execution_observer {
                 observer.current = Some(ExecutionKind::Interrupt);
                 observer.stack_before = self.regs.sp;
@@ -1922,11 +1906,9 @@ mod tests {
             z80.regs.iff1 = true;
             z80.irq = true;
             step_one(&mut z80, &mut mem);
-            // `/INT` is sampled at the instruction boundary — the `T1`↑
-            // that starts the next `M1` — so the pin has to be held
-            // through the tick that takes the sample. That tick also runs
-            // the response's first half-cycle, so one fewer remains to
-            // snapshot across.
+            // The sampled `/INT` level is dispatched at the next `T1`↑
+            // that starts the next M1. That dispatch tick also runs the
+            // response's first half-cycle, leaving one fewer to snapshot.
             assert_eq!(z80.phase, Phase::M1(M1Phase::T1Rise));
             z80.tick();
             z80.irq = false;
@@ -1961,7 +1943,7 @@ mod tests {
         // instruction boundary. The interrupt response is a further M1
         // cycle, so its refresh increment must wrap only R's low seven bits.
         step_one(&mut z80, &mut mem);
-        // `/INT` is sampled at the boundary — the `T1`↑ starting the next
+        // The sampled `/INT` level is dispatched at the `T1`↑ starting the next
         // `M1` — not on the retiring instruction's last half-cycle, so the
         // CPU is here with the sample armed and takes it on the next tick.
         assert_eq!(z80.phase, Phase::M1(M1Phase::T1Rise));
@@ -2007,7 +1989,7 @@ mod tests {
         z80.regs.im = 2;
         z80.irq = true;
         step_one(&mut z80, &mut mem);
-        // The boundary tick takes the `/INT` sample and runs the
+        // The boundary tick consumes the earlier `/INT` sample and runs the
         // response's `T1`↑, so the loop below observes one half-cycle
         // fewer. Nothing is lost: `T1`↑ only presents the address.
         assert_eq!(z80.phase, Phase::M1(M1Phase::T1Rise));
@@ -2213,8 +2195,9 @@ mod tests {
 
         z80.irq = true;
         step_one(&mut z80, &mut mem);
-        assert!(!z80.halt);
+        assert!(z80.halt, "late IRQ permits one more phantom fetch");
         assert_eq!(z80.regs.r, 2, "final phantom HALT M1 fetch");
+        // The level at the earlier sampling instant survives release here.
         z80.irq = false;
 
         step_one(&mut z80, &mut mem);
