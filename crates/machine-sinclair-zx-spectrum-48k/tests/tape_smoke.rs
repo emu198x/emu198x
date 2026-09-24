@@ -220,10 +220,10 @@ fn run_and_compare_with_spectron(test_name: &str, spectron_png: Option<&str>) {
         emu198x_test_skip::skip!("Spectrum 48K ROM or {test_name}.tap not staged");
     };
 
-    compare_or_update(test_name, machine.framebuffer());
     if let Some(reference) = spectron_png {
         assert_screen_matches_spectron(reference, machine.framebuffer());
     }
+    compare_or_update(test_name, machine.framebuffer());
 }
 
 /// Loads and runs one system-test TAP to its fixed capture budget.

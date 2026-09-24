@@ -31,7 +31,7 @@ use common_sinclair_zx_spectrum::timing::{
     FramePosition, FrameTiming, SCREEN_HEIGHT, SCREEN_WIDTH, TIMING_48K,
 };
 use common_sinclair_zx_spectrum::ula::Ula;
-use emu198x_zilog_z80::{BusOp, IO_READ_DATA_LATCH_LEAD_HALF_CYCLES, Z80};
+use emu198x_zilog_z80::{BusOp, Z80};
 use ferranti_ula_6c001e::{FerrantiUla, UlaRevision};
 use peripheral_kempston_joystick::KempstonJoystick;
 
@@ -502,7 +502,13 @@ impl<M: MemoryBus, V: Variant48kClass> SpectrumMachineCore<M, V> {
                 self.memory.write(self.z80.addr, self.z80.data);
             }
             Some(BusOp::IoRead) => {
-                self.z80.data_in = self.io_read(self.z80.addr);
+                self.z80.data_in = if self.is_floating_bus_port(self.z80.addr) {
+                    // This value can change before the CPU latches it. Record
+                    // the completed read in tick_cpu_and_bus, not this edge.
+                    self.ula.floating_bus()
+                } else {
+                    self.io_read(self.z80.addr)
+                };
             }
             Some(BusOp::IoWrite) => {
                 self.io_write(self.z80.addr, self.z80.data);
@@ -521,6 +527,11 @@ impl<M: MemoryBus, V: Variant48kClass> SpectrumMachineCore<M, V> {
         value
     }
 
+    /// Whether no peripheral drives this port, leaving the ULA display bus visible.
+    fn is_floating_bus_port(&self, port: u16) -> bool {
+        port & 1 != 0 && !self.kempston.claims_port(port)
+    }
+
     fn io_read_untraced(&mut self, port: u16) -> u8 {
         if self.kempston.claims_port(port) {
             return self.kempston.read(port);
@@ -528,67 +539,8 @@ impl<M: MemoryBus, V: Variant48kClass> SpectrumMachineCore<M, V> {
         if port & 0x01 == 0 {
             self.read_fe(port)
         } else {
-            self.floating_bus_read()
+            self.ula.floating_bus()
         }
-    }
-
-    /// Read the floating bus for an unused odd-port `IN`.
-    ///
-    /// Our `io_read` fires when the I/O transaction resolves — the `/IORQ`
-    /// assertion edge — while the CPU latches the data bus at the end of the
-    /// M-cycle. The floating bus moves within that gap, so it has to be
-    /// read at the latch, not at the edge.
-    ///
-    /// Project the five CPU half-cycles in
-    /// [`IO_READ_DATA_LATCH_LEAD_HALF_CYCLES`] before rounding to a raster
-    /// T-state. Rounding the lead first loses a T-state when the request
-    /// begins on the second scheduled edge. This predicts an unstalled
-    /// clock; later contention still requires live sampling to model exactly.
-    ///
-    /// `ORIGIN` maps our frame T-state 0 onto FUSE's frame for **this read
-    /// path**. It was libspectrum's `top_left_pixel` for this ULA — 14336,
-    /// `timings_frame_ferranti_5c_6c` in `timings.c` — and is now 14335,
-    /// one earlier.
-    ///
-    /// Changed 2026-08-17 (#939, #940, #851) on three hardware-derived
-    /// witnesses, none of them FUSE:
-    ///
-    /// 1. **Woody's Float48K** reports 14338 on hardware. At 14336 we read
-    ///    14337; at 14335 we read 14338.
-    /// 2. **Spectron's `floatspy_48.png`** matches at 14335 and not at
-    ///    14336.
-    /// 3. **Spectron's `halt2int_48.png`** classifies the bus as `Early`.
-    ///    HALT2INT decides by stamping `$5800` and reading at a fixed
-    ///    instant; at 14336 the read misses the attribute slot and the
-    ///    suite prints `Unknown`. At 14335 the whole screen matches —
-    ///    49152 of 49152 pixels.
-    ///
-    /// **This moves when the CPU samples, not what the ULA drives.** The
-    /// bus *content* is unchanged and still byte-exact against FUSE across
-    /// the whole frame at 14336 — `float_bus_oracle`'s
-    /// `floating_bus_matches_fuse_at_every_tstate` compares the live ULA
-    /// capture and passes either side of this change. What moves is the
-    /// `IN` sample instant, which is why the two sample-instant
-    /// differentials in that file carry a `FUSE_SAMPLE_OFFSET` of 2 rather
-    /// than FUSE's 3.
-    ///
-    fn floating_bus_read(&self) -> u8 {
-        /// One earlier than libspectrum's `top_left_pixel`, on three
-        /// hardware oracles; see the note above.
-        const ORIGIN: u32 = 14_335;
-        const FLOAT_START: u32 = 14_338; // Spectron FloatingBusStartTicks (48K)
-        let frame = TIMING_48K.tstates_per_frame;
-        let t = (self
-            .frame_position()
-            .tstate_after_cpu_halfcycles(IO_READ_DATA_LATCH_LEAD_HALF_CYCLES, &TIMING_48K)
-            + ORIGIN)
-            % frame;
-        common_sinclair_zx_spectrum::ula_engine::floating_bus_byte(
-            t,
-            FLOAT_START,
-            TIMING_48K.tstates_per_line,
-            &self.memory,
-        )
     }
 
     fn io_write(&mut self, port: u16, data: u8) {
@@ -667,7 +619,22 @@ impl<M: MemoryBus, V: Variant48kClass> SpectrumDriver for SpectrumMachineCore<M,
 
     #[inline(always)]
     fn tick_cpu_and_bus(&mut self) {
+        let floating_read = self.z80.iorq
+            && self.z80.rd
+            && !self.z80.m1
+            && self.is_floating_bus_port(self.z80.addr);
+        let read_pc = self.z80.regs.pc;
+        let read_port = self.z80.addr;
+        if floating_read {
+            // ULA has ticked on this master edge. Supply its current pins
+            // before the CPU can latch them, including after contention.
+            self.z80.data_in = self.ula.floating_bus();
+        }
+        let read_data = self.z80.data_in;
         self.z80.tick();
+        if floating_read && !self.z80.iorq {
+            self.io_trace.record(read_pc, read_port, read_data, false);
+        }
         self.handle_bus();
     }
 
@@ -913,139 +880,91 @@ mod tests {
         );
     }
 
-    /// The live floating bus reproduces Spectron's model byte-for-byte
-    /// across a display scanline — both the idle window (data at the four
-    /// fetch slots of each 8-T group, idle elsewhere and past the 128-T
-    /// active region) and the byte *values* (the column Spectron predicts
-    /// for each data slot). This pins #10: our floating bus is correct vs
-    /// the Spectron oracle. The floatspy-tap discrepancy lives on a
-    /// different axis (interrupt-acknowledge / IM2 read phase), not the
-    /// bus model — see `knowledge/systems/spectrum/floating-bus-accuracy.md`.
-    ///
-    /// Method: drive the ULA directly (CPU parked on a HALT so it stays
-    /// off screen RAM) and read `IN A,($FF)` at each frame T-state. This
-    /// is deterministic and oracle-anchored — no tape, no interrupt
-    /// timing in the loop.
+    /// Physical counter coordinates, not an instruction-level emulator's
+    /// read-port timestamp: C3 gates the four fetches at C=8,10,12,14.
     #[test]
-    fn floating_bus_matches_spectron_model_across_a_scanline() {
-        const START: u32 = 14_330;
-        const SPAN: u32 = 160;
-        const FS: u32 = 14_338; // Spectron FloatingBusStartTicks (48K)
-
-        // Spectron's floating-bus model at frame T-state `t`, line 0.
-        let spectron = |t: u32| -> Option<(bool, u8)> {
-            // None = idle (0xFF); Some((is_attr, column)) = a data slot.
-            if t <= FS {
-                return None;
-            }
-            let rel = t - 1 - FS;
-            let col = rel % 224;
-            if col >= 128 {
-                return None;
-            }
-            let goff = col % 8;
-            if goff >= 4 {
-                return None;
-            }
-            let group = (col / 8) as u16;
-            let cc = (2 * group + (goff as u16 >> 1)) as u8;
-            Some((goff & 1 == 1, cc))
-        };
-
-        // Column-encoded screen so a fetched byte reveals its column
-        // regardless of which display line the float is reading:
-        // bitmap → column, attribute → 0x80 | column.
-        let mut m = Spectrum48k::new();
-        for addr in 0x4000u16..0x5800 {
-            m.write(addr, (addr & 0x1F) as u8);
+    fn live_bus_follows_counter_bits_across_every_pixel_of_the_frame() {
+        let mut machine = Spectrum48k::new();
+        for address in 0x4000..0x5b00 {
+            machine.write(address, ((address ^ (address >> 8)) & 0x7f) as u8);
         }
-        for addr in 0x5800u16..0x5B00 {
-            m.write(addr, 0x80 | (addr & 0x1F) as u8);
-        }
-        m.write(0x8000, 0x76); // HALT; IFF=0 after reset so it sticks
-        m.z80.regs.pc = 0x8000;
-        m.advance_tstates(START);
-
-        for i in 0..SPAN {
-            let t = START + i;
-            // The live beam bus. `io_read` adds the I/O M-cycle's
-            // edge-to-latch lead on top of this; see `floating_bus_read`.
-            let live = m.ula.floating_bus();
-            match spectron(t) {
-                None => assert_eq!(
-                    live, 0xFF,
-                    "T={t}: Spectron idle but live bus = {live:#04x}"
-                ),
-                Some((is_attr, col)) => {
-                    let expected = if is_attr { 0x80 | col } else { col };
-                    assert_eq!(
-                        live,
-                        expected,
-                        "T={t}: Spectron expects {} column {col} ({expected:#04x}), \
-                         live bus = {live:#04x}",
-                        if is_attr { "attribute" } else { "bitmap" },
-                    );
-                }
+        machine.write(0x8000, 0x76);
+        machine.z80.regs.pc = 0x8000;
+        for y in 0..312u16 {
+            for x in 0..448u16 {
+                machine.advance_halfcycles(2);
+                let expected = if y < 192 && (8..264).contains(&x) && x & 8 != 0 {
+                    let column = ((x - 8) / 16) * 2 + ((x & 4) >> 2);
+                    let address = if x & 2 == 0 {
+                        0x4000 | ((y & 0xc0) << 5) | ((y & 7) << 8) | ((y & 0x38) << 2) | column
+                    } else {
+                        0x5800 | ((y >> 3) << 5) | column
+                    };
+                    machine.read(address)
+                } else {
+                    0xff
+                };
+                assert_eq!(machine.ula.floating_bus(), expected, "scan={y} counter={x}");
+                assert_eq!(
+                    machine.io_read(0xffff),
+                    expected,
+                    "debug read is the live bus"
+                );
             }
-            m.advance_tstates(1);
         }
     }
 
-    /// The live floating bus matches Spectron's model across the *entire*
-    /// frame — every display line, the borders, vsync, and the interrupt
-    /// line — not just the one scanline the sibling test checks.
-    ///
-    /// One subtlety this test pins down (#62): our `tstate_in_frame()`
-    /// numbers the frame from the first display line (the ULA's `scan 0`,
-    /// `hc = 0`), whereas FUSE/Spectron number it from the interrupt, with
-    /// the display starting at T=14336. The interrupt itself fires at the
-    /// correct beam position (`int_scan = 248`), so this is purely an
-    /// internal-numbering convention: `FUSE_T = (our_T + 14336) mod frame`.
-    /// Feeding our raw T-states into Spectron's model therefore disagrees
-    /// (an artefact); applying the offset, the two agree on every one of
-    /// the 69,888 T-states. This is *why* floatspy — which times its read
-    /// from the interrupt — needs the interrupt-acknowledge phase right
-    /// (#62), even though the bus content is exact.
     #[test]
-    fn floating_bus_matches_spectron_model_across_the_whole_frame() {
-        const FS: u32 = 14_338;
-        // FUSE T=0 is the interrupt; our T=0 is the first display line, so
-        // the display sits +14336 later in FUSE's numbering than in ours.
-        const ORIGIN_OFFSET: u32 = 14_336;
-        let frame = TIMING_48K.tstates_per_frame;
-
-        let spectron_idle = |t: u32| -> bool {
-            if t <= FS {
-                return true;
+    fn floating_input_and_trace_take_the_live_byte_at_the_latch() {
+        let mut changing_reads = 0;
+        let mut stalled_reads = 0;
+        for port in [0x00ff, 0x40ff] {
+            for arrival in 0..32 {
+                let mut machine = Spectrum48k::new();
+                for address in 0x4000..0x5b00 {
+                    machine.write(address, ((address ^ (address >> 8)) & 0x7f) as u8);
+                }
+                machine.write(0x8000, 0xed); // IN A,(C)
+                machine.write(0x8001, 0x78);
+                machine.advance_halfcycles(arrival * 2);
+                machine.z80 = Z80::new();
+                machine.z80.regs.pc = 0x8000;
+                machine.z80.regs.bc = port;
+                machine.start_io_trace();
+                let mut requested = None;
+                let mut finished = false;
+                for _ in 0..256 {
+                    let was_read = machine.z80.iorq && machine.z80.rd;
+                    machine.advance_halfcycles(1);
+                    if machine.z80.iorq && machine.z80.rd {
+                        requested.get_or_insert(machine.ula.floating_bus());
+                        if !machine.ula.cpu_clock_active() {
+                            stalled_reads += 1;
+                        }
+                    }
+                    if was_read && !machine.z80.iorq {
+                        let expected = machine.ula.floating_bus();
+                        changing_reads += usize::from(requested != Some(expected));
+                        assert_eq!(
+                            machine.z80.regs.a(),
+                            expected,
+                            "port={port:04x} arrival={arrival}"
+                        );
+                        let trace = machine.take_io_trace();
+                        assert_eq!(trace.len(), 1);
+                        assert_eq!(trace[0].value, expected);
+                        finished = true;
+                        break;
+                    }
+                }
+                assert!(finished, "the IN must complete");
             }
-            let rel = t - 1 - FS;
-            if rel / 224 >= 192 {
-                return true; // below the 192-line display
-            }
-            let col = rel % 224;
-            col >= 128 || (col % 8) >= 4 // right border / idle half of each group
-        };
-
-        // Zeroed screen: the bus reads 0x00 at a data slot and 0xFF when
-        // idle, so the returned byte directly encodes our idle flag.
-        let mut m = Spectrum48k::new();
-        for addr in 0x4000u16..0x5B00 {
-            m.write(addr, 0x00);
         }
-        m.write(0x8000, 0x76); // HALT to keep the CPU off screen RAM
-        m.z80.regs.pc = 0x8000;
-
-        for t in 0..frame {
-            // The live beam bus (io_read adds a sample-lead correction).
-            let our_idle = m.ula.floating_bus() == 0xFF;
-            let fuse_t = (t + ORIGIN_OFFSET) % frame;
-            assert_eq!(
-                our_idle,
-                spectron_idle(fuse_t),
-                "our_T={t} (FUSE_T={fuse_t}): idle flag differs from Spectron"
-            );
-            m.advance_tstates(1);
-        }
+        assert!(changing_reads > 0, "exercise a byte transition during IN");
+        assert!(
+            stalled_reads > 0,
+            "exercise raster progress while the CPU is stalled"
+        );
     }
 
     #[test]
@@ -1103,13 +1022,12 @@ mod tests {
         // $FFFF has A5 set, so it's outside the Kempston decode mask, so
         // the read falls through to the floating bus regardless of whether
         // a Kempston is attached. At the reset beam position (frame T-state
-        // 0, display line 0) the floating-bus read samples bitmap column 0
-        // ($4000) — a sentinel here proves the port routes to the bus.
+        // 0, display line 0) advance to bitmap column 0
+        // ($4000) once the ULA has fetched it.
         let mut machine = Spectrum48k::new();
         machine.write(0x4000, 0xAB);
-        // The first fetch slot is at frame T-state 1: `ORIGIN` is 14335 and
-        // the bus opens at 14338, so T-state 0 reads idle.
-        machine.advance_tstates(1);
+        // Counter pixels 8/9 carry the first bitmap byte.
+        machine.advance_tstates(5);
         assert_eq!(machine.io_read(0xffff), 0xAB);
     }
 
@@ -1119,7 +1037,7 @@ mod tests {
         // through to the floating bus (bitmap column 0 at the reset beam).
         let mut machine = Spectrum48k::new();
         machine.write(0x4000, 0xAB);
-        machine.advance_tstates(1);
+        machine.advance_tstates(5);
         assert_eq!(machine.io_read(0x1F), 0xAB);
     }
 

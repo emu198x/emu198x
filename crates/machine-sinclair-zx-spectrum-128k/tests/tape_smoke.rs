@@ -346,3 +346,20 @@ fn eihalt128k_matches_spectron() {
     };
     assert_screen_matches_spectron("eihalt_129.png", &machine.framebuffer);
 }
+
+/// Fast check of the initial read before running the full burst sweep.
+#[test]
+#[ignore = "FIXTURE: requires local 128K ROMs and floatspy.tap"]
+fn floatspy128_initial_read_matches_hardware() {
+    let Some(machine) = run_to_completion("floatspy.tap") else {
+        emu198x_test_skip::skip!("128K ROMs or floatspy.tap not staged");
+    };
+    let lines = screen_text_lines(&machine);
+    let line = lines.iter().find(|line| line.contains("BYTE:"));
+    assert_eq!(
+        line.map(|s| s.split_whitespace().last()),
+        Some(Some("0")),
+        "{}",
+        lines.join("\n")
+    );
+}

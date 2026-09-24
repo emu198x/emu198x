@@ -65,36 +65,10 @@ impl Ula for SinclairUla {
         framebuffer: &mut [u8],
     ) {
         let e = &mut self.engine;
-        let next_scan = if e.scan + 1 == 311 { 0 } else { e.scan + 1 };
-        let contention_pixel = if next_scan < 192 && e.pixel >= 450 {
-            Some(e.pixel - 450)
-        } else if e.scan < 192 && e.pixel < 250 {
-            Some(e.pixel + 6)
-        } else {
-            None
-        };
-        // HALT2INT128's early-128K hardware profile fixes the delay-table
-        // origin against this logical /Border coordinate. The alternating
-        // Z80 clock level then produces the documented T-state contention
-        // ramp across the two-pixel CPU clock cells.
-        //
-        // The offset was `+1` while `DELAY_TABLE_48K` was a literal whose
-        // free run sat at half-cycles 15, 0, 1, 2. That table is now
-        // derived from the counter bits with its origin taken from the
-        // ULA's own fetch group, which moved the free run three pixels
-        // earlier to 12–15. This offset carries the same three pixels the
-        // other way, so the 128K's raster alignment is exactly the one
-        // HALT2INT128 pinned — unchanged, half-cycle for half-cycle.
-        //
-        // Two constants held the 128K's phase between them and only their
-        // sum was ever measured; splitting the change would have moved the
-        // sum, which is why they move together here. The 128K has no
-        // arrival-resolved memory differential of its own yet — when it
-        // does, this offset is the first thing it should be asked about,
-        // because the 48K needs no such term at all.
-        const HDL_TABLE_ORIGIN_SHIFT: usize = 3;
-        let phase = contention_pixel
-            .map(|pixel| ((pixel as usize) + 1 + 16 - HDL_TABLE_ORIGIN_SHIFT) & 0x0F);
+        // The 7K010E asserts /INT two T-states later than the 48K ULA.
+        // Its physical display counter still opens the contention window
+        // at C=0; the interrupt-relative 14361 coordinate is not C=-6.
+        let phase = (e.scan < 192 && e.pixel < 256).then_some((usize::from(e.pixel) + 1) & 0x0f);
 
         // Snow: a CPU refresh with I in screen-RAM range collides with
         // the video fetch (the Sinclair ULA ignores /RFSH). gap #12.
@@ -319,62 +293,43 @@ mod tests {
     }
 
     #[test]
-    fn contention_starts_before_video_fetch_with_phase_one_offset() {
+    fn contention_uses_the_counter_window_not_the_video_latch() {
         let mut ula = SinclairUla::new();
         let mut framebuffer = vec![0; timing::SCREEN_WIDTH * timing::SCREEN_HEIGHT];
-        // These two tests are about *where* the contention window opens
-        // relative to the border latch and the video fetch — not about
-        // which clock half arms the gate. Seed the arming half explicitly
-        // so they keep testing the window: a fresh engine starts
-        // `z80_clock_high` at `true`, which is the non-arming half, and
-        // leaving it implicit made them depend on a parity they are not
-        // about.
+        ula.engine.scan = 0;
+        ula.engine.pixel = 3;
         ula.engine.z80_clock_high = false;
-        assert!(ula.engine.gate_arms_this_halfcycle());
-        let tick = |ula: &mut SinclairUla, framebuffer: &mut [u8]| {
-            ula.tick(&ContendedMemory, 0x4000, false, false, false, framebuffer);
-        };
-
-        assert!(ula.engine.border_active);
-        tick(&mut ula, &mut framebuffer);
-        assert!(
-            !ula.engine.border_active,
-            "the active-display contention window must open at pixel 0"
+        ula.tick(
+            &ContendedMemory,
+            0x4000,
+            false,
+            false,
+            false,
+            &mut framebuffer,
         );
         assert!(
-            !ula.engine.video,
-            "video fetch must not start before pixel 4"
+            !ula.cpu_clock_active(),
+            "control phase 4 is busy before the first fetch"
         );
-        assert!(
-            !ula.engine.cpu_clock,
-            "the leading edge of the 128K contention window withholds the CPU clock"
+        assert!(!ula.engine.video, "fetches begin at counter 8");
+
+        ula.engine.pixel = 259;
+        ula.engine.video = true;
+        ula.engine.z80_clock_high = false;
+        ula.tick(
+            &ContendedMemory,
+            0x4000,
+            false,
+            false,
+            false,
+            &mut framebuffer,
         );
+        assert!(ula.cpu_clock_active(), "contention ends at counter 256");
+        assert!(ula.engine.video, "the final fetch pair is still in flight");
 
-        tick(&mut ula, &mut framebuffer);
-        assert!(!ula.engine.video);
-        assert!(!ula.engine.cpu_clock);
-
-        tick(&mut ula, &mut framebuffer);
-        assert!(!ula.engine.video, "video fetch has not started at pixel 2");
-        assert!(
-            !ula.engine.cpu_clock,
-            "phase-one contention must withhold the CPU clock before video fetch"
-        );
-    }
-
-    #[test]
-    fn contention_opens_before_the_active_line_border_latch() {
-        let mut ula = SinclairUla::new();
-        let mut framebuffer = vec![0; timing::SCREEN_WIDTH * timing::SCREEN_HEIGHT];
         ula.engine.scan = 310;
-        ula.engine.pixel = 449;
-        // Start on the half that does not arm the gate, so the assertions
-        // below are about the window's phase and not about parity. Which
-        // raw level means "not arming" moved when the polarity was
-        // derived; every expectation about the window is unchanged.
-        ula.engine.z80_clock_high = true;
-        assert!(!ula.engine.gate_arms_this_halfcycle());
-
+        ula.engine.pixel = 451;
+        ula.engine.z80_clock_high = false;
         ula.tick(
             &ContendedMemory,
             0x4000,
@@ -383,61 +338,9 @@ mod tests {
             false,
             &mut framebuffer,
         );
-        assert_eq!(ula.engine.pixel, 450);
-        assert!(ula.engine.cpu_clock);
-        // The tick was not withheld, so the clock advanced to the other
-        // half — the arming one.
-        assert!(ula.engine.gate_arms_this_halfcycle());
         assert!(
-            ula.engine.border_active,
-            "rendering border remains active before the next line",
-        );
-
-        ula.tick(
-            &ContendedMemory,
-            0x4000,
-            false,
-            false,
-            false,
-            &mut framebuffer,
-        );
-        assert_eq!(ula.engine.pixel, 451);
-        assert!(
-            ula.engine.cpu_clock,
-            "delay-table phase 1 does not yet withhold the CPU clock",
-        );
-        assert!(
-            ula.engine.border_active,
-            "contention phase selection must not depend on the rendering-border latch",
-        );
-
-        ula.tick(
-            &ContendedMemory,
-            0x4000,
-            false,
-            false,
-            false,
-            &mut framebuffer,
-        );
-        assert_eq!(ula.engine.pixel, 452);
-        assert!(ula.engine.cpu_clock);
-
-        ula.tick(
-            &ContendedMemory,
-            0x4000,
-            false,
-            false,
-            false,
-            &mut framebuffer,
-        );
-        assert_eq!(ula.engine.pixel, 453);
-        assert!(
-            !ula.engine.cpu_clock,
-            "the phase-3 delay must withhold the CPU before the next line",
-        );
-        assert!(
-            ula.engine.border_active,
-            "contention must not depend on the rendering-border latch",
+            ula.cpu_clock_active(),
+            "no contention on the preceding border line"
         );
     }
 }

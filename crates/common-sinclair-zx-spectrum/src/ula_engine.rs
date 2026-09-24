@@ -46,15 +46,20 @@ use crate::timing::{SCREEN_HEIGHT, SCREEN_WIDTH};
 /// granularity that border-effect demos exploit. Frame hashes that
 /// cover the border region during multi-colour effects will change.
 ///
-/// **Version 4** (2026-07-22, current): 128K-family rendering uses two
+/// **Version 4** (2026-07-22): 128K-family rendering uses two
 /// ULA edges per five master-clock ticks instead of one edge per two ticks.
 /// The version remains ahead of the Spectrum catalogue manifest until
 /// affected entries have been reviewed and re-captured.
 ///
+/// **Version 5**: Sinclair fetches use counter phases 8/10/12/14.
+/// The memory latch feeds SLoad at 12/20; VidEN delays the border gate,
+/// not the fetched byte by another character. IRQ and fetch signals are
+/// evaluated before advancing the counter. See z80-irq-deadline-validation.
+///
 /// Bumps planned: further versions per substantive rendering change.
 /// See the architecture review's Seam 4 for the re-capture discipline
 /// this constant enforces.
-pub const FRAME_ROUTING_VERSION: u32 = 4;
+pub const FRAME_ROUTING_VERSION: u32 = 5;
 
 /// Timing and layout constants for a specific ULA variant.
 #[derive(Clone, Debug)]
@@ -64,11 +69,9 @@ pub struct UlaConfig {
     /// Scanlines per frame (312 for 48K, 311 for 128K).
     pub lines_per_frame: u16,
 
-    /// Pixel position where video fetch begins (always 4 since Seam 1 —
-    /// prefetch cell; first CAS at phase 4 within the first 16-pixel cycle).
+    /// Pixel position where video fetch begins (8 for Sinclair ULAs).
     pub fetch_start: u16,
-    /// Pixel position where video fetch ends (always 260 since Seam 1 —
-    /// last CAS at phase 10 within the final 16-pixel cycle).
+    /// Exclusive end of the video-fetch window.
     pub fetch_end: u16,
     /// Pixel position where screen data starts rendering (always 12 — pipeline delay).
     pub screen_start: u16,
@@ -103,8 +106,8 @@ pub struct UlaConfig {
 pub const CONFIG_48K: UlaConfig = UlaConfig {
     pixels_per_line: 448,
     lines_per_frame: 312,
-    fetch_start: 4,
-    fetch_end: 260,
+    fetch_start: 8,
+    fetch_end: 264,
     screen_start: 12,
     screen_end: 12 + 256,
     int_scan: 248,
@@ -123,13 +126,13 @@ pub const CONFIG_48K: UlaConfig = UlaConfig {
 pub const CONFIG_128K: UlaConfig = UlaConfig {
     pixels_per_line: 456,
     lines_per_frame: 311,
-    fetch_start: 4,
-    fetch_end: 260,
+    fetch_start: 8,
+    fetch_end: 264,
     screen_start: 12,
     screen_end: 12 + 256,
     int_scan: 248,
-    int_start_pixel: 1,
-    int_end_pixel: 73,
+    int_start_pixel: 5,
+    int_end_pixel: 77,
     fb_x_offset: 36,
     fb_x_wrap_start: 420, // 456 - 36
     fb_x_wrap_offset: 420,
@@ -144,8 +147,19 @@ pub const CONFIG_128K: UlaConfig = UlaConfig {
 /// Display geometry matches the Sinclair 128K, but the Amstrad ASIC's
 /// interrupt pulse is 32 T-states rather than 36.
 pub const CONFIG_PLUS2A: UlaConfig = UlaConfig {
+    fetch_start: 4,
+    fetch_end: 260,
+    int_start_pixel: 1,
     int_end_pixel: 65,
     ..CONFIG_128K
+};
+
+/// PAL Timex timing, retaining the SCLD fetch and interrupt ordering.
+/// Sinclair ULA phase measurements do not establish SCLD timing.
+pub const CONFIG_TIMEX_PAL: UlaConfig = UlaConfig {
+    fetch_start: 4,
+    fetch_end: 260,
+    ..CONFIG_48K
 };
 
 /// TS2068 NTSC timing: 448 pixels/line, 262 lines, 14.112 MHz crystal.
@@ -377,38 +391,20 @@ pub struct UlaEngine {
     config: &'static UlaConfig,
 }
 
-/// VRAM read pattern: indexed by pixel & 0x0F.
-/// false = ULA reads from VRAM this clock.
-///
-/// Fetches happen at phases 4, 6, 8, 10 — four reads per 16-pixel cycle.
-/// Phases 4/8 read display bytes (phase & 0x02 == 0), phases 6/10 read
-/// attribute bytes (phase & 0x02 != 0). Per Smith Chapter 13 this matches
-/// the canonical two-RAS-CAS-pair continuous-fetch pattern: phases 0-3
-/// are the first RAS-CAS pair (display+attr byte N), phases 4-7 the
-/// second pair (display+attr byte N+1), in Smith's 8-phase numbering.
-/// In our 16-pixel-clock indexing, each Smith phase spans two of our
-/// pixels and the fetch happens at the first pixel of the CAS phase.
-///
-/// The pre-Seam-1 model fetched at phases 8, 10, 12, 14 — same
-/// continuous-fetch shape, but offset four pixels (two T-states) too
-/// late, producing the +4 T-state first-fetch offset documented in
-/// `knowledge/decisions/ula-first-fetch-tstate-offset.md`.
+/// Sinclair VRAM reads at counter phases 8, 10, 12 and 14.
+/// Smith chapter 14 p.132 gates DataLatch with C3; SpecIde's ULA and
+/// zx_ula's address multiplexer independently place the same four fetches.
+/// Configurations retaining the older phase translate their table index.
 pub const MEM_TABLE: [bool; 16] = [
-    true, true, true, true, false, true, false, true, false, true, false, true, true, true, true,
+    true, true, true, true, true, true, true, true, false, true, false, true, false, true, false,
     true,
 ];
 
-/// Idle table: indexed by pixel & 0x0F.
-/// true = ULA is idle (floating bus returns 0xFF).
-///
-/// The bus carries the most-recently-latched byte from phase 4 (first
-/// CAS) through phase 11 (latch settles after second-pair attr fetch).
-/// Outside that window the bus floats and returns 0xFF via the
-/// pull-ups, per Smith Chapter 19. Mirrors the four-pixel left-shift
-/// applied to `MEM_TABLE` and `fetch_start` for Seam 1.
+/// Sinclair display-bus exposure: C3 high, bitmap/attribute pairs in
+/// phases 8..15. The bus is pulled high outside the fetch window.
 pub const IDLE_TABLE: [bool; 16] = [
-    true, true, true, true, false, false, false, false, false, false, false, false, true, true,
-    true, true,
+    true, true, true, true, true, true, true, true, false, false, false, false, false, false,
+    false, false,
 ];
 
 /// Scan lines that carry contention — the display lines.
@@ -420,55 +416,21 @@ pub const CONTENDED_LINES: u16 = 192;
 /// The HDL's `Border_n` is `!hc[8]`: 256 `clk7` cycles, which is sixteen
 /// whole 16-pixel fetch cycles and 128 T-states. It begins at a fetch
 /// cycle boundary — `hc` 0, eight pixels ahead of that cycle's VRAM
-/// access at `hc` 8 — and so does ours, at pixel 0, four pixels ahead of
-/// the access at pixel 4.
+/// access at `hc` 8 — and so does ours, at pixel 0, eight pixels ahead of
+/// the access at pixel 8.
 ///
 /// The window is therefore **not** `UlaEngine::video`, which opens at
 /// `fetch_start` because it is the fetch window. The two differ by those
-/// four pixels at both ends of all 192 display lines.
+/// eight pixels at both ends of all 192 display lines.
 pub const CONTENDED_PIXELS_PER_LINE: u16 = 256;
 
-/// Pixels the ULA's counter runs ahead of the HDL's `hc` for the same
-/// point in the fetch cycle.
-///
-/// The HDL presents display addresses to VRAM at `hc[3:0]` 8, 9, 12, 13
-/// and attribute addresses at 10, 11, 14, 15 (`zx_ula`,
-/// `fpga_version/rtl/ula.v`, the "cycles 8 and 12" / "cycles 10 and 14"
-/// branches), so its fetch group is `hc` 8–15. Ours is pixels 4–11 —
-/// `MEM_TABLE` and `IDLE_TABLE` above, placed there by Seam 1 from Smith
-/// Chapter 13. Same four reads, same order, a counter origin four pixels
-/// apart.
-///
-/// This is the number that lets a signal the HDL expresses in *its*
-/// counter's bits be evaluated against ours. Without it the two counters
-/// are related only by assumption, and an assumption is what
-/// `DELAY_TABLE_48K` used to encode.
-pub const HDL_HC_LEAD_PIXELS: usize = 4;
+/// The physical fetch counter now agrees with the HDL's counter.
+pub const HDL_HC_LEAD_PIXELS: usize = 0;
 
-/// 48K/128K contention delay table, indexed by `pixel & 0x0F`.
-/// `true` = the ULA may withhold the CPU clock this half-cycle.
-///
-/// `CLKWAIT = C3 + C2` — Smith Chapter 18 p. 192, and `hc[2] | hc[3]` in
-/// the HDL. Two counter bits, not sixteen hand-written booleans, and the
-/// difference matters: the literal form carried a phase against the fetch
-/// cycle that nothing stated and nothing could check, and it was wrong by
-/// a T-state.
-///
-/// **The phase is the whole content of this constant.** `C2 | C3` fixes
-/// the window's *shape* — twelve asserted half-cycles then four free,
-/// giving `[6,5,4,3,2,1,0,0]` — but says nothing about where the free run
-/// falls against the display. Smith's Chapter 18 declines to pin the
-/// counter's absolute phase; the HDL does pin it, because one counter
-/// drives both its fetch and its `CLKWAIT`, and `HDL_HC_LEAD_PIXELS`
-/// carries that relationship across to ours. The free run lands on pixels
-/// 12–15: the two T-states after the ULA's fetch group ends and before
-/// the two-T-state wind-up to the next one.
-///
-/// Landing on whole T-states is itself a result. The previous literal was
-/// free at 15, 0, 1 and 2, straddling a T-state boundary at both ends, so
-/// which two T-states the CPU actually got depended on the parity of the
-/// half-cycle it happened to arrive on. This table cannot express that
-/// ambiguity.
+/// Raw `C2 | C3` wait window (Smith chapter 18, p.192).
+/// The Sinclair wrappers evaluate the upcoming control phase, one pixel
+/// ahead of the fetch phase: this reproduces SpecIde's 3..14 delay mask.
+/// Do not rotate the raw counter to make an instruction-level timestamp fit.
 pub const DELAY_TABLE_48K: [bool; 16] = clkwait_from_counter_bits();
 
 /// `C3 + C2` over one 16-pixel cycle, read on our counter's origin.
@@ -554,7 +516,7 @@ pub fn snow_address(cpu_rfsh: bool, cpu_addr: u16) -> Option<u16> {
 /// Spectron/FUSE floating-bus model byte at frame T-state `frame_tstate`
 /// (FUSE convention). Idle (`0xFF`) outside the four fetch slots of each
 /// 8-T group and outside the 192-line display; bitmap/attr otherwise.
-/// Proven byte-exact against the live ULA bus frame-wide (#10).
+/// This is an instruction-level reference helper, not live pin timing.
 #[must_use]
 pub fn floating_bus_byte(
     frame_tstate: u32,
@@ -703,21 +665,13 @@ impl UlaEngine {
             _ => {}
         }
 
-        // === Two-stage shifter pipeline transfers (Seam 1, Smith Ch 12 Fig 12-2) ===
-        // memory → pending → latch → reg, with three transfer points per
-        // 16-pixel cycle:
-        //   - p & 0x07 == 0 (pixels 0, 8): pending → latch (DataLatch)
-        //   - p & 0x07 == 4 (pixels 4, 12): latch → reg (SLoad)
-        //   - At each fetch (phases 4/6/8/10, gated by `video`): memory → pending
-        //
-        // The promote and SLoad transfers fire on every active scanline
-        // (scan < 192), even after `fetch_end` flips `video` false. This
-        // lets the byte fetched just before `fetch_end` propagate through
-        // the pipeline so the last visible character (column 31, pixels
-        // 260-267 of the screen) renders correctly. Fetches stay gated by
-        // `video` so no phantom reads happen past `fetch_end`.
+        // Sinclair: the first pair is fetched at 8/10 and consumed by
+        // SLoad at 12, before the next bitmap fetch overwrites its latch.
+        // Smith p.132 delays /Border until C3; it does not add an entire
+        // character of delay after DataLatch. Other variants retain their
+        // existing transfer phase until independently validated.
         if self.scan < 192 {
-            if (p & 0x07) == 0 {
+            if (p & 0x07) == usize::from((cfg.fetch_start + 4) & 7) {
                 self.data_latch = self.data_latch_pending;
                 self.data_latch2 = self.data_latch_pending2;
                 self.attr_latch = self.attr_latch_pending;
@@ -747,16 +701,17 @@ impl UlaEngine {
 
         // === Video fetch ===
         if self.video {
-            self.idle = IDLE_TABLE[phase];
+            let fetch_phase = (phase + 8 - usize::from(cfg.fetch_start)) & 0x0f;
+            self.idle = IDLE_TABLE[fetch_phase];
             let hires = self.scld_mode & 0x04 != 0;
             let hicolour = self.scld_mode & 0x02 != 0;
             let dual = self.scld_mode & 0x01 != 0;
 
-            // VRAM reads at phases 4, 6, 8, 10 (two RAS-CAS fetch pairs
+            // VRAM reads at the configured phases (two RAS-CAS fetch pairs
             // per 16-pixel cycle). bus_data is set at the moment of
             // each CAS strobe — this is the value `IN A,($FF)` samples
             // via the floating-bus path on the ULA.
-            if !MEM_TABLE[phase] {
+            if !MEM_TABLE[fetch_phase] {
                 if phase & 0x02 == 0 {
                     // Bitmap fetch (CAS-A or CAS-C falling)
                     let a = self.data_addr;
@@ -884,6 +839,10 @@ impl UlaEngine {
             }
         }
 
+        if cfg.fetch_start == 8 {
+            self.update_interrupt();
+        }
+
         // === Advance pixel counter ===
         self.pixel += 1;
         if self.pixel >= cfg.pixels_per_line {
@@ -894,7 +853,13 @@ impl UlaEngine {
             }
         }
 
-        // === Interrupt timing ===
+        if cfg.fetch_start != 8 {
+            self.update_interrupt();
+        }
+    }
+
+    fn update_interrupt(&mut self) {
+        let cfg = self.config;
         if self.scan == cfg.int_scan {
             if self.pixel == cfg.int_start_pixel {
                 self.int_active = true;
@@ -1154,14 +1119,14 @@ mod tests {
         let mem = AddrLowMemory;
         let mut fb = vec![0u8; SCREEN_WIDTH * SCREEN_HEIGHT];
 
-        // Pixel 8 is a bitmap-fetch phase (MEM_TABLE[8] == false,
-        // phase & 0x02 == 0) that is NOT `fetch_start` (4), so it doesn't
+        // Pixel 12 is a bitmap-fetch phase (MEM_TABLE[12] == false,
+        // phase & 0x02 == 0) that is NOT `fetch_start` (8), so it doesn't
         // recompute `data_addr` — letting us pin a known fetch address. A
         // visible scanline (scan < 192) keeps `video` set.
         let setup = |e: &mut UlaEngine| {
             e.video = true;
             e.scan = 100;
-            e.pixel = 8;
+            e.pixel = 12;
             e.data_addr = 0x0142;
             e.scld_mode = 0;
         };

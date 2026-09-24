@@ -37,7 +37,7 @@ pub struct TimexScld {
 impl TimexScld {
     pub fn new() -> Self {
         Self {
-            engine: UlaEngine::new_hires(&ula_engine::CONFIG_48K),
+            engine: UlaEngine::new_hires(&ula_engine::CONFIG_TIMEX_PAL),
             scld_reg: 0,
         }
     }
@@ -71,7 +71,7 @@ impl TimexScld {
     ///
     /// `UlaEngine::config` is `#[serde(skip)]` and deserialises to the
     /// 48K fallback. The SCLD serves both the PAL TC2048/TC2068
-    /// (`CONFIG_48K`) and the NTSC TS2068 (`CONFIG_TS2068`), which have
+    /// (`CONFIG_TIMEX_PAL`) and the NTSC TS2068 (`CONFIG_TS2068`), which have
     /// different frame geometry, so the caller — which knows the model —
     /// supplies the config. The hi-res framebuffer width is a serialised
     /// field and survives restore; only the config ref needs reattaching.
@@ -155,7 +155,7 @@ impl Ula for TimexScld {
             let io_contention = (cpu_iorq || e.z80_iorq_prev) && io_even_port && e.z80_clock_high;
 
             let contention = mem_contention || io_contention;
-            e.cpu_clock = !(contention && DELAY_TABLE_48K[phase]);
+            e.cpu_clock = !(contention && DELAY_TABLE_48K[(phase + 4) & 0x0f]);
         } else {
             e.cpu_clock = true;
         }

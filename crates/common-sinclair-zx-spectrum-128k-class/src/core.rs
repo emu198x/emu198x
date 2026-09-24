@@ -28,8 +28,7 @@ use common_sinclair_zx_spectrum::timing::{
     FramePosition, FrameTiming, SCREEN_HEIGHT, SCREEN_WIDTH, TIMING_128K,
 };
 use common_sinclair_zx_spectrum::ula::Ula;
-use common_sinclair_zx_spectrum::ula_engine::floating_bus_byte;
-use emu198x_zilog_z80::{BusOp, IO_READ_DATA_LATCH_LEAD_HALF_CYCLES, Z80};
+use emu198x_zilog_z80::{BusOp, Z80};
 use gi_ay_3_8912::Ay3_8912;
 use peripheral_kempston_joystick::KempstonJoystick;
 use sinclair_ula_7k010e::SinclairUla;
@@ -336,7 +335,13 @@ impl<V: Class128kVariant> Spectrum128kClassCore<V> {
                 self.memory.write(self.z80.addr, self.z80.data);
             }
             Some(BusOp::IoRead) => {
-                self.z80.data_in = self.io_read(self.z80.addr);
+                self.z80.data_in = if self.is_floating_bus_port(self.z80.addr) {
+                    // This value can change before the CPU latches it. Record
+                    // the completed read in tick_cpu_and_bus, not this edge.
+                    self.ula.floating_bus()
+                } else {
+                    self.io_read(self.z80.addr)
+                };
             }
             Some(BusOp::IoWrite) => {
                 self.io_write(self.z80.addr, self.z80.data);
@@ -353,6 +358,14 @@ impl<V: Class128kVariant> Spectrum128kClassCore<V> {
         let pc = self.z80.regs.pc;
         self.io_trace.record(pc, port, value, false);
         value
+    }
+
+    /// Whether no peripheral drives this port, leaving the ULA display bus visible.
+    fn is_floating_bus_port(&self, port: u16) -> bool {
+        port & 1 != 0
+            && !self.kempston.claims_port(port)
+            && port & 0xc002 != 0xc000
+            && port != 0x001f
     }
 
     fn io_read_untraced(&mut self, port: u16) -> u8 {
@@ -374,26 +387,7 @@ impl<V: Class128kVariant> Spectrum128kClassCore<V> {
             // ULA's display-bus phase.
             0xFF
         } else {
-            // The floating bus, sampled where the CPU latches it.
-            //
-            // Keep the established machine read origin (14363) and bus
-            // origin (14364). Project the five CPU half-cycles to the latch
-            // before rounding to a raster T-state, using the driver's two
-            // scheduled edges even with this machine's odd divisor of five.
-            // Rounding the lead first shifts Float128K from 14364 to 14365.
-            // As on the 48K, this does not predict subsequent clock stalls.
-            const READ_ORIGIN: u32 = 14_363;
-            let frame_tstate = (self
-                .frame_position()
-                .tstate_after_cpu_halfcycles(IO_READ_DATA_LATCH_LEAD_HALF_CYCLES, &TIMING_128K)
-                + READ_ORIGIN)
-                % TIMING_128K.tstates_per_frame;
-            floating_bus_byte(
-                frame_tstate,
-                14_364,
-                TIMING_128K.tstates_per_line,
-                &self.memory,
-            )
+            self.ula.floating_bus()
         }
     }
 
@@ -505,7 +499,22 @@ impl<V: Class128kVariant> SpectrumDriver for Spectrum128kClassCore<V> {
 
     #[inline(always)]
     fn tick_cpu_and_bus(&mut self) {
+        let floating_read = self.z80.iorq
+            && self.z80.rd
+            && !self.z80.m1
+            && self.is_floating_bus_port(self.z80.addr);
+        let read_pc = self.z80.regs.pc;
+        let read_port = self.z80.addr;
+        if floating_read {
+            // ULA has ticked on this master edge. Supply its current pins
+            // before the CPU can latch them, including after contention.
+            self.z80.data_in = self.ula.floating_bus();
+        }
+        let read_data = self.z80.data_in;
         self.z80.tick();
+        if floating_read && !self.z80.iorq {
+            self.io_trace.record(read_pc, read_port, read_data, false);
+        }
         self.handle_bus();
     }
 

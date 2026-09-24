@@ -133,7 +133,7 @@ impl TimexTC2048 {
     /// the config is passed in explicitly.
     pub fn restore_volatile_refs(&mut self) {
         self.z80.rehydrate_walker_sequence();
-        self.ula.reattach_config(&ula_engine::CONFIG_48K);
+        self.ula.reattach_config(&ula_engine::CONFIG_TIMEX_PAL);
     }
 
     /// Apply a parsed `.z80` snapshot. TC2048 shares the 48K's flat

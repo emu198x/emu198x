@@ -1,4 +1,4 @@
-# Z80 IRQ deadline investigation — draft, not ready to merge
+# Z80 IRQ deadline and Spectrum integration validation
 
 ## CPU finding
 
@@ -19,32 +19,51 @@ has **129 disagreements in 976 comparisons**. The public 976-case regression
 also checks snapshot continuation after both history updates. It fails on the
 baseline at NOP arrival 2, width 3: the old core misses an accepted pulse.
 
-## Why this remains a draft
+## Spectrum integration resolution
 
 The isolated baseline (`78f34c49`) passes Float48K at **14338** and Float128K
-at **14364**. With this candidate they read **14337** and **14363**. Those
-hardware-derived targets remain unchanged and failing. The two FUSE-based
-HALT acceptance/latency tests also fail on two of eight phases; acknowledge
-cost and the uncontended-window assertion still pass.
+at **14364**. The CPU-only candidate (`202f1f13`) regressed them to 14337/14363.
+The integrated correction restores both original hardware-derived targets.
 
-The CPU evidence challenges the settled decision
-[`zilog-z80-samples-int-at-the-instruction-boundary.md`](../knowledge/decisions/zilog-z80-samples-int-at-the-instruction-boundary.md).
-FUSE's instruction-boundary event processing is not an independent pin-level
-measurement. The cited CPC wording that the CPU is informed "at T4" does not,
-on its own, establish arrival *after* T4's rising edge. Nevertheless, this
-candidate must not replace that policy until the integrated observations are
-reconciled and the decision is explicitly superseded.
+Smith's *The ZX Spectrum ULA*, printed pp.124 and 132, gates fetches with C3.
+VidEN delays the border gate, not the fetched byte by another character.
+SpecIde revision `56bee623f18749d0d261d49c7dbdc2654d850bca` independently uses
+fetch counters 8/10/12/14, bus exposure 8..15 and a wait mask at 3..14.
+Its IRQ is evaluated before counter advance, and its I/O data before CPU latch.
+These observations replace compensating offsets in the integrated machine:
 
-Two local diagnostic experiments were discarded: refreshing the live ULA bus after each CPU tick did not restore the targets (48K 14337; 128K 14365), and generating the
-ULA interrupt before counter advance, as SpecIde does, left the candidate's
-14337/14363 results unchanged. No ULA or floating-bus changes are included.
-These failures do not establish which remaining integration assumption is wrong.
+- Sinclair fetches now use physical counters 8/10/12/14 and feed SLoad at 12/20.
+- The wait mask uses the upcoming control phase; 128K contention uses physical
+  counters 0..255, independently of video fetch and interrupt-relative timestamps.
+- Sinclair IRQ generation precedes counter advance; 128K starts at counter 5.
+- Floating I/O reads receive the live bus before each CPU tick, including after
+  stalls. The trace records the completed read's actual value. No fitted read
+  origin or future-data prediction remains in either Sinclair read path.
 
-The next experiment must record the two HALT synchronisation loops, /INT edge,
-CPU acceptance edge, final IN latch and ULA data slot in the same half-cycle
-coordinate system, then compare their relationships with primary ULA timing
-and a signal-level Spectrum reference. Do not fit a read origin or weaken a
-hardware target to accommodate the CPU change.
+FUSE's first-data timestamps map to physical C8 (T4), giving test-only pattern
+offsets 14334/14360. These are not IRQ origins. The HALT oracle now uses the
+measured CPU sampling deadline and exact master ticks, rather than rounding
+the IRQ edge to a T-state or treating FUSE's event loop as pin evidence.
+
+Full Floatspy and HALT2INT match hardware-derived screens on both machines.
+btime and ptime also match both hardware screen oracles. The 48K btime local
+golden changes only 16 top-border pixels, after passing its independent screen
+oracle. Contended floating-bus reads improve from 1,537 mismatches to **0 of
+57,602**. All IN/OUT contention classes agree; memory contention retains its
+existing **18 of 370,030** harness-tail residual and unchanged ceiling.
+Whole-frame bus patterns agree on both models. New hermetic regressions cover
+physical fetch slots and live I/O/trace values across changing data and stalls;
+both fail against the isolated pre-change implementation.
+
+Timex, Pentagon and Amstrad timing configurations retain their previous
+fetch/IRQ ordering. The shared Sinclair 128K/+2 model retains its 36-T-state
+pulse; SpecIde's different pulse end and distinct +2 start remain outside this
+correction. Frame routing version advances to 5 for changed raster timing.
+
+This supersedes the former
+[boundary-sampling decision](../knowledge/decisions/zilog-z80-samples-int-at-the-instruction-boundary.md).
+The CPC wording "at T4" did not establish arrival after its rising edge;
+instruction-level reference event loops do not resolve that distinction.
 
 ## Snapshot compatibility and validation
 
@@ -56,8 +75,11 @@ history tags need the new reader. Unknown states are rejected.
 
 202 ordinary CPU tests, all 1,604,000 Harte vectors, FUSE's 1,350 exact plus six
 pinned differences, six Rak 1.2a exercisers, and ordinary CPC machine tests pass.
-The two Spectrum tape probes and two HALT differential assertions fail as above.
-All-target CPU Clippy and formatting pass. Earlier ZEX results were not rerun.
+The integrated Spectrum probes and all four HALT assertions pass.
+All-target CPU and affected Spectrum/Timex Clippy and formatting pass.
+Spectrum runtime and Timex ordinary tests pass; all six Rak tapes were rerun
+on the integrated machine (240.76s). Earlier ZEX results were not rerun.
+The unavailable eihalt TAP was not run.
 
 Original adapters and dated measurements are retained privately in
 `ops/experiments/z80-irq-cutoff/`; interpretation lives in
