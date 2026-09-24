@@ -12,6 +12,7 @@ pub mod alu;
 pub mod disasm;
 mod execute;
 pub mod mcycle;
+mod nmi;
 pub mod registers;
 pub mod stepper;
 pub mod walker;

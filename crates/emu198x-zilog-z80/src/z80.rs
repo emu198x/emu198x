@@ -1,4 +1,5 @@
 use crate::mcycle::{self, MStep};
+use crate::nmi::NmiLatch;
 use crate::registers::Registers;
 use crate::walker::Walker;
 
@@ -124,9 +125,9 @@ pub struct Z80 {
     interrupt_sample_pending: bool,
     /// Previous NMI state for edge detection.
     nmi_prev: bool,
-    /// Set when a rising edge arrives on [`Self::nmi`], cleared when the
-    /// next instruction boundary services it.
-    nmi_latched: bool,
+    /// Captured edge and its eligibility for the next boundary decision.
+    /// The final two half-cycles defer acceptance without losing the pulse.
+    nmi_latched: NmiLatch,
 
     /// Edge-detection state for `bus_request()`. The bus signals
     /// (`mreq`, `iorq`, `rd`, `wr`) are level-driven and held high for
@@ -393,7 +394,7 @@ impl Default for Z80 {
             ei_pending: false,
             interrupt_sample_pending: false,
             nmi_prev: false,
-            nmi_latched: false,
+            nmi_latched: NmiLatch::Empty,
             prev_mr: false,
             prev_mw: false,
             prev_iorq: false,
@@ -603,10 +604,9 @@ impl Z80 {
         // moment it arrives, asynchronously. Sampling only at the boundary
         // drops any pulse shorter than the instruction in flight — which is
         // most of them: the ZX81's generator asserts for fifteen T-states.
-        // Latch here, consume at the boundary.
-        if self.nmi && !self.nmi_prev {
-            self.nmi_latched = true;
-        }
+        // Capture here, but an edge needs two further half-cycles before
+        // the boundary decision may consume it. Late pulses remain latched.
+        self.nmi_latched.tick(self.nmi && !self.nmi_prev);
         self.nmi_prev = self.nmi;
 
         if self.interrupt_sample_pending {
@@ -1355,7 +1355,7 @@ impl Z80 {
     /// sample was taken half a T-state earlier.
     fn sample_interrupts_at_boundary(&mut self) -> bool {
         // The edge was latched when it arrived; see `tick`.
-        let nmi_edge = std::mem::take(&mut self.nmi_latched);
+        let nmi_edge = self.nmi_latched.take_ready();
 
         if nmi_edge {
             if let Some(observer) = &mut self.execution_observer {
