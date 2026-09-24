@@ -52,3 +52,18 @@ fixture's cycle budget. It uses cycle data to supply reads but does not compare
 the bus-event trace. It is not evidence of complete cycle-level agreement.
 Nonempty directory/file guards do not establish corpus completeness; the file
 and case counts above describe this specific run.
+
+## Cycle input validation
+
+Each case must contain execution cycles. A nonempty case list alone is not
+sufficient: an unchanged initial/final state with an empty cycle list would
+otherwise pass without ticking the CPU.
+
+Cycle rows deserialize as exactly three values: nullable 16-bit address,
+nullable 8-bit data, and a signal string. Out-of-range numbers, malformed
+rows and missing/wrong-type signal fields fail parsing. Nullable values remain
+valid for idle bus periods. This validates row structure and numeric ranges;
+it does not validate signal spelling or compare the emitted bus trace.
+
+The full corpus passed with typed cycle rows and the nonempty-cycle guard on
+2026-09-24: 1,604,000 executed, 1,602,001 exact, 1,999 accepted, zero unexpected.

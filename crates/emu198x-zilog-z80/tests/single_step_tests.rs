@@ -18,9 +18,12 @@ struct TestCase {
     initial: State,
     #[serde(rename = "final")]
     final_state: State,
-    #[allow(dead_code)]
-    cycles: Vec<serde_json::Value>, // We don't verify per-cycle bus events yet
+    cycles: Vec<Cycle>, // Used for stimulus/budget, not bus-trace comparison
 }
+
+// Keep nullable bus values, but reject malformed rows and lossy integers.
+#[derive(Deserialize)]
+struct Cycle(Option<u16>, Option<u8>, String);
 
 #[derive(Deserialize)]
 struct State {
@@ -182,22 +185,23 @@ fn check_z80(z80: &Z80, expected: &State, mem: &[u8; 65536]) -> Vec<String> {
 
 /// Run a single test case: set up initial state, run one instruction, compare.
 fn run_test(test: &TestCase) -> Vec<String> {
+    assert!(
+        !test.cycles.is_empty(),
+        "{}: no execution cycles",
+        test.name
+    );
     let mut z80 = Z80::new();
     let mut mem = [0u8; 65536];
     // Separate I/O data map for port reads that differ from memory content.
     // Built from cycle data where signals contain 'i' (I/O read).
     let mut io_data: HashMap<u16, u8> = HashMap::new();
     for (i, cycle) in test.cycles.iter().enumerate() {
-        if let Some(signals) = cycle.get(2).and_then(|v| v.as_str())
-            && signals.contains('i') && signals.contains('r')
+        if cycle.2.contains('i') && cycle.2.contains('r')
             // The data for this I/O read appears on the NEXT cycle.
             && let Some(next) = test.cycles.get(i + 1)
-            && let (Some(addr), Some(data)) = (
-                next.get(0).and_then(|v| v.as_u64()),
-                next.get(1).and_then(|v| v.as_u64()),
-            )
+            && let (Some(addr), Some(data)) = (next.0, next.1)
         {
-            io_data.insert(addr as u16, data as u8);
+            io_data.insert(addr, data);
         }
     }
 
@@ -212,13 +216,10 @@ fn run_test(test: &TestCase) -> Vec<String> {
     // Simpler approach: populate from all cycles with non-null data that
     // are NOT writes (signals contain 'w').
     for cycle in &test.cycles {
-        if let (Some(addr), Some(data), Some(signals)) = (
-            cycle.get(0).and_then(|v| v.as_u64()),
-            cycle.get(1).and_then(|v| v.as_u64()),
-            cycle.get(2).and_then(|v| v.as_str()),
-        ) && !signals.contains('w')
+        if let (Some(addr), Some(data)) = (cycle.0, cycle.1)
+            && !cycle.2.contains('w')
         {
-            mem[addr as usize] = data as u8;
+            mem[addr as usize] = data;
         }
     }
 
@@ -445,7 +446,7 @@ fn synthetic_otir_case() -> TestCase {
     final_state["wz"] = 1.into();
     serde_json::from_value(serde_json::json!({
         "name": "synthetic repeating OTIR", "initial": initial, "final": final_state,
-        "cycles": vec![serde_json::Value::Null; 21]
+        "cycles": vec![serde_json::json!([0, null, "----"]); 21]
     }))
     .expect("synthetic fixture")
 }
@@ -478,7 +479,7 @@ fn wz_exception_requires_a_repeating_observation() {
     let errors = vec!["WZ: got 0x02E1, expected 0x0001".to_string()];
     test.cycles.pop();
     assert!(!accepted_wz_disagreement("ed b3", &test, &errors));
-    test.cycles.push(serde_json::Value::Null);
+    test.cycles.push(Cycle(Some(0), None, "----".to_string()));
     test.initial.b = 1;
     assert!(!accepted_wz_disagreement("ed b3", &test, &errors));
     test.initial.b = 3;
@@ -510,4 +511,41 @@ fn wz_exception_handles_otdr_and_wrapping_pc() {
         &test,
         &["WZ: got 0x0000, expected 0x0001".to_string()]
     ));
+}
+
+#[test]
+#[should_panic(expected = "no execution cycles")]
+fn rejects_case_that_executes_nothing() {
+    let mut test = synthetic_otir_case();
+    test.final_state.b = test.initial.b;
+    test.final_state.wz = test.initial.wz;
+    test.cycles.clear();
+    // All compared state is unchanged: without the guard this passes.
+    assert!(run_test(&test).is_empty());
+}
+
+#[test]
+fn cycle_rows_reject_malformed_or_lossy_data() {
+    for data in [
+        "null",
+        "[]",
+        "[0, null]",
+        "[0, null, 42]",
+        "[0, null, null]",
+        "[0, null, \"----\", 1]",
+        "[65536, null, \"----\"]",
+        "[-1, null, \"----\"]",
+        "[0, 256, \"----\"]",
+        "[0, -1, \"----\"]",
+        "[0, 1.5, \"----\"]",
+    ] {
+        assert!(
+            serde_json::from_str::<Cycle>(data).is_err(),
+            "accepted malformed cycle: {data}"
+        );
+    }
+    let cycle: Cycle = serde_json::from_str("[65535, 255, \"r-m-\"]").expect("maximum bus values");
+    assert_eq!((cycle.0, cycle.1), (Some(65535), Some(255)));
+    let idle: Cycle = serde_json::from_str("[null, null, \"----\"]").expect("nullable idle bus");
+    assert_eq!((idle.0, idle.1), (None, None));
 }
