@@ -272,10 +272,33 @@ fn run_test(test: &TestCase) -> Vec<String> {
     check_z80(&z80, &test.final_state, &mem)
 }
 
+fn parse_opcode_tests(data: &str, path: &Path) -> Vec<TestCase> {
+    let tests: Vec<TestCase> = serde_json::from_str(data).expect("Failed to parse JSON");
+    assert!(!tests.is_empty(), "no test cases in {}", path.display());
+    tests
+}
+
+#[test]
+#[should_panic(expected = "no test cases in empty.json")]
+fn rejects_empty_opcode_file() {
+    parse_opcode_tests("[]", Path::new("empty.json"));
+}
+
+#[test]
+fn rejects_empty_corpus_directory() {
+    let root = std::env::temp_dir().join(format!("emu198x-empty-harte-{}", std::process::id()));
+    std::fs::create_dir(&root).expect("create empty corpus directory");
+    let result = std::panic::catch_unwind(|| run_all_from_dir(&root));
+    std::fs::remove_dir(&root).expect("remove empty corpus directory");
+    let panic = result.expect_err("empty corpus must fail");
+    let message = panic.downcast_ref::<String>().expect("diagnostic string");
+    assert!(message.contains("no opcode JSON files"), "{message}");
+}
+
 /// Run all tests in a single JSON file.
 fn run_opcode_tests(path: &Path) -> (usize, usize, Vec<String>) {
     let data = std::fs::read_to_string(path).expect("Failed to read test file");
-    let tests: Vec<TestCase> = serde_json::from_str(&data).expect("Failed to parse JSON");
+    let tests = parse_opcode_tests(&data, path);
 
     let opcode_stem = path
         .file_stem()
@@ -330,7 +353,11 @@ fn run_all() {
     // oracle must be loud, not quietly green.
     let test_path = find_tom_harte_z80_dir().unwrap_or_else(|message| panic!("{message}"));
 
-    let read_dir = match std::fs::read_dir(&test_path) {
+    run_all_from_dir(&test_path);
+}
+
+fn run_all_from_dir(test_path: &Path) {
+    let read_dir = match std::fs::read_dir(test_path) {
         Ok(read_dir) => read_dir,
         Err(error) => panic!(
             "failed to read test directory {}: {error}",
@@ -339,10 +366,15 @@ fn run_all() {
     };
 
     let mut entries: Vec<_> = read_dir
-        .filter_map(Result::ok)
+        .map(|entry| entry.expect("failed to read corpus directory entry"))
         .filter(|entry| entry.path().extension().and_then(|s| s.to_str()) == Some("json"))
         .collect();
     entries.sort_by_key(|e| e.file_name());
+    assert!(
+        !entries.is_empty(),
+        "no opcode JSON files in {}",
+        test_path.display()
+    );
 
     let mut total_pass = 0usize;
     let mut total_fail = 0usize;
