@@ -2234,6 +2234,7 @@ fn halted_fetch_and_nmi_return_use_post_halt_address() {
     assert_eq!(cpu.regs.pc, 1);
     let retired = cpu.instructions_retired();
     cpu.nmi = true;
+    let mut saw_deferred_fetch = false;
     for _ in 0..100 {
         cpu.tick();
         if cpu.mreq && cpu.rd {
@@ -2241,7 +2242,13 @@ fn halted_fetch_and_nmi_return_use_post_halt_address() {
         } else if cpu.mreq && cpu.wr {
             memory[usize::from(cpu.addr)] = cpu.data;
         }
-        if cpu.instructions_retired() != retired {
+        if cpu.instructions_retired() == retired + 1 && !saw_deferred_fetch {
+            saw_deferred_fetch = true;
+            // This edge arrived after the deadline: one phantom HALT fetch
+            // retires before the interrupt response, without advancing PC.
+            assert_eq!((cpu.regs.pc, cpu.regs.sp), (1, 0x9002));
+        }
+        if cpu.instructions_retired() == retired + 2 {
             assert_eq!((cpu.regs.pc, cpu.regs.sp), (0x66, 0x9000));
             assert_eq!(&memory[0x9000..0x9002], &[1, 0]);
             return;

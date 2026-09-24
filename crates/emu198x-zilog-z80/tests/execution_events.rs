@@ -191,12 +191,21 @@ fn interrupt_entries_capture_the_interrupted_pc_and_actual_destination() {
             cpu.irq = !nmi;
             cpu.nmi = nmi;
         });
+        if nmi {
+            // The edge arrived after the last T-state's acceptance deadline.
+            assert_eq!(
+                pair.retire().0.expect("deferred instruction").kind,
+                ExecutionKind::Instruction(1)
+            );
+        }
         let event = pair.retire().0.expect("interrupt entry");
         assert_eq!(
             event,
             ExecutionEvent {
                 kind: ExecutionKind::Interrupt,
-                flow: Some(ExecutionFlow::Interrupt { return_address: 1 }),
+                flow: Some(ExecutionFlow::Interrupt {
+                    return_address: if nmi { 2 } else { 1 }
+                }),
                 stack_before: 0xff00,
                 stack_after: 0xfefe,
                 next_pc: destination,
