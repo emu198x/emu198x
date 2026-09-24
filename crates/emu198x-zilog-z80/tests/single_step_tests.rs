@@ -419,13 +419,9 @@ fn run_all_from_dir(test_path: &Path) {
 #[test]
 #[ignore = "FIXTURE: requires local Tom Harte Z80 corpus"]
 fn run_opcode_00() {
-    let path = match find_tom_harte_z80_dir() {
-        Ok(dir) => dir.join("00.json"),
-        Err(message) => {
-            eprintln!("{message}");
-            return;
-        }
-    };
+    let path = find_tom_harte_z80_dir()
+        .unwrap_or_else(|message| panic!("{message}"))
+        .join("00.json");
     let (pass, accepted, fail, failures) = run_opcode_tests(&path);
     println!("00 (NOP): {pass} exact, {accepted} accepted, {fail} unexpected");
     for f in &failures {
@@ -548,4 +544,30 @@ fn cycle_rows_reject_malformed_or_lossy_data() {
     assert_eq!((cycle.0, cycle.1), (Some(65535), Some(255)));
     let idle: Cycle = serde_json::from_str("[null, null, \"----\"]").expect("nullable idle bus");
     assert_eq!((idle.0, idle.1), (None, None));
+}
+
+#[test]
+fn explicit_opcode_run_requires_fixtures() {
+    let missing = std::env::temp_dir().join(format!(
+        "emu198x-missing-opcode-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("clock after epoch")
+            .as_nanos()
+    ));
+    assert!(!missing.exists());
+    let output = std::process::Command::new(std::env::current_exe().expect("test executable"))
+        .args(["--ignored", "--exact", "run_opcode_00", "--nocapture"])
+        .env("EMU198X_Z80_TOM_HARTE_DIR", &missing)
+        .env_remove("EMU198X_STRICT_FIXTURES")
+        .output()
+        .expect("run explicit opcode test");
+    assert!(
+        !output.status.success(),
+        "explicit test silently skipped missing fixtures"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("EMU198X_Z80_TOM_HARTE_DIR"), "{stderr}");
+    assert!(stderr.contains(&missing.display().to_string()), "{stderr}");
 }

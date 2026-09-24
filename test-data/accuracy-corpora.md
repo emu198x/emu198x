@@ -48,6 +48,13 @@ separately from its constrained OTIR/OTDR WZ exceptions.
 See [FUSE validation coverage](fuse-z80-validation.md) for the measured scope
 and accepted disagreements.
 
+Explicitly requested Z80 helper tests require their inputs: `run_opcode_00`
+fails if its corpus is missing; `run_zexdoc_checkpoint` and
+`run_zexall_checkpoint` require `EMU198X_ZEX_CHECKPOINT` in the range 1–67.
+Normal test runs leave these ignored. The nightly ZEX sweep excludes the
+checkpoint helpers with `--skip checkpoint`; use the full-suite tests when
+no checkpoint target is intended.
+
 ## The Spectrum line boots its own firmware
 
 Almost every machine here needs its manufacturer's ROM to reach a prompt, and
