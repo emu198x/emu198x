@@ -1,5 +1,15 @@
 # The I/O contention metric is settled: FUSE counts charges, our gate holds a level
 
+**Scope extended, 2026-09-24:** The Sinclair 128K/+2 wrapper now uses the
+same lookup rules, checked with its own page-aware oracle: IN and OUT, banks
+0/1/2/3, fixed and paged contended addresses, and even/odd ports. The short
+regression fails on the previous gate (984/10,596); the corrected gate agrees
+in all 1,894,368 full-frame samples. See
+`machine-sinclair-zx-spectrum-128k/tests/io_contention_oracle.rs`.
+Timex remains outside this evidence. The earlier 48K-only discussion below
+records the original rollout, before this prerequisite was satisfied.
+
+
 **Date:** 2026-08-12
 **Status:** SETTLED, and **implemented** — see "What happened" at the end.
 Answers the open question in
