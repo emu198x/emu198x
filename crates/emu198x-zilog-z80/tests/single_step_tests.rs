@@ -79,52 +79,38 @@ fn setup_z80(z80: &mut Z80, state: &State) {
     z80.regs.q = state.q.unwrap_or(0);
 }
 
-/// Per-opcode label allowlist for accepted Tom Harte disagreements.
-///
-/// Per `decisions/spectrum-test-oracle-priority.md`, Spectrum-validated
-/// oracles (FUSE + Patrik Rak's z80memptr) outrank Tom Harte for
-/// Spectrum work. The four block-I/O repeating instructions —
-/// `INIR (ED B2)`, `OTIR (ED B3)`, `INDR (ED BA)`, `OTDR (ED BB)` —
-/// have a WZ value at mid-repeat that FUSE expects to remain at
-/// `BC ± 1` (the value set during the IN/OUT portion) but Tom Harte's
-/// vectors record as `PC + 1`. Both oracles can't be right; we satisfy
-/// the Spectrum-priority side and document the disagreements here.
-///
-/// **`ed b2` (INIR) and `ed ba` (INDR) were removed 2026-08-17** (#949).
-/// Those two now set `WZ = PC + 1` again, because Patrik Rak's
-/// `z80memptr` requires it — `102 INIR->NOP'` and `103 INDR->NOP'` fail
-/// without it. Tom Harte wants the same value, so the disagreement is
-/// gone rather than accepted. `ed b3` (OTIR) and `ed bb` (OTDR) keep
-/// `BC ± 1` and stay listed: the OUT family passes `z80memptr` either
-/// way, so there is no Spectrum-side reason to move them.
-///
-/// Removing entries is the risk in this change. Neither this corpus nor
-/// FUSE's could be run locally when it landed, so CI adjudicates: if
-/// `ed b2` / `ed ba` still disagree, this job goes red and the two
-/// lines come back.
-const ACCEPTED_TOM_HARTE_DISAGREEMENTS: &[(&str, &[&str])] =
-    &[("ed b3", &["WZ"]), ("ed bb", &["WZ"])];
-
-fn accepted_labels_for(opcode_stem: &str) -> &'static [&'static str] {
-    ACCEPTED_TOM_HARTE_DISAGREEMENTS
-        .iter()
-        .find_map(|(stem, labels)| {
-            if *stem == opcode_stem.to_lowercase() {
-                Some(*labels)
-            } else {
-                None
-            }
-        })
-        .unwrap_or(&[])
-}
-
-/// True if every reported error's label is in the per-opcode allowlist.
-fn errors_within_allowlist(errors: &[String], allowed: &[&str]) -> bool {
-    !errors.is_empty()
-        && errors.iter().all(|err| {
-            let label = err.split(':').next().unwrap_or("");
-            allowed.contains(&label)
-        })
+/// Accept only the documented repeating OTIR/OTDR WZ disagreement:
+/// our BC-after-output ± 1 versus the corpus's initial PC + 1.
+/// All other state comparisons remain strict. See test-data/harte-z80-validation.md.
+fn accepted_wz_disagreement(opcode_stem: &str, test: &TestCase, errors: &[String]) -> bool {
+    let increment = match opcode_stem.to_ascii_lowercase().as_str() {
+        "ed b3" => true,
+        "ed bb" => false,
+        _ => return false,
+    };
+    if test.initial.b == 1 || test.cycles.len() != 21 {
+        return false; // terminating iterations and other observation points are not exempt
+    }
+    let b_after = test.initial.b.wrapping_sub(1);
+    let bc_after = u16::from_be_bytes([b_after, test.initial.c]);
+    let observed = if increment {
+        bc_after.wrapping_add(1)
+    } else {
+        bc_after.wrapping_sub(1)
+    };
+    let reference = test.initial.pc.wrapping_add(1);
+    if observed == reference
+        || test.final_state.pc != test.initial.pc
+        || test.final_state.b != b_after
+        || test.final_state.c != test.initial.c
+        || test.final_state.wz != reference
+    {
+        return false;
+    }
+    errors
+        == [format!(
+            "WZ: got {observed:#06X}, expected {reference:#06X}"
+        )]
 }
 
 fn check_z80(z80: &Z80, expected: &State, mem: &[u8; 65536]) -> Vec<String> {
@@ -296,7 +282,7 @@ fn rejects_empty_corpus_directory() {
 }
 
 /// Run all tests in a single JSON file.
-fn run_opcode_tests(path: &Path) -> (usize, usize, Vec<String>) {
+fn run_opcode_tests(path: &Path) -> (usize, usize, usize, Vec<String>) {
     let data = std::fs::read_to_string(path).expect("Failed to read test file");
     let tests = parse_opcode_tests(&data, path);
 
@@ -305,9 +291,9 @@ fn run_opcode_tests(path: &Path) -> (usize, usize, Vec<String>) {
         .and_then(|s| s.to_str())
         .unwrap_or("")
         .to_string();
-    let allowed = accepted_labels_for(&opcode_stem);
 
     let mut pass = 0;
+    let mut accepted = 0;
     let mut fail = 0;
     let mut first_failures = Vec::new();
 
@@ -317,10 +303,8 @@ fn run_opcode_tests(path: &Path) -> (usize, usize, Vec<String>) {
             Ok(errors) if errors.is_empty() => {
                 pass += 1;
             }
-            Ok(errors) if errors_within_allowlist(&errors, allowed) => {
-                // Disagreement is confined to per-opcode allowlist —
-                // count as a (documented) pass.
-                pass += 1;
+            Ok(errors) if accepted_wz_disagreement(&opcode_stem, test, &errors) => {
+                accepted += 1;
             }
             Ok(errors) => {
                 fail += 1;
@@ -337,7 +321,7 @@ fn run_opcode_tests(path: &Path) -> (usize, usize, Vec<String>) {
         }
     }
 
-    (pass, fail, first_failures)
+    (pass, accepted, fail, first_failures)
 }
 
 #[test]
@@ -377,6 +361,7 @@ fn run_all_from_dir(test_path: &Path) {
     );
 
     let mut total_pass = 0usize;
+    let mut total_accepted = 0usize;
     let mut total_fail = 0usize;
     let mut failed_opcodes: HashMap<String, Vec<String>> = HashMap::new();
 
@@ -389,29 +374,28 @@ fn run_all_from_dir(test_path: &Path) {
             panic!("non-utf8 file stem for {}", path.display());
         };
         let name = name.to_string();
-        let (pass, fail, failures) = run_opcode_tests(&path);
+        let (pass, accepted, fail, failures) = run_opcode_tests(&path);
         total_pass += pass;
+        total_accepted += accepted;
         total_fail += fail;
 
-        if fail > 0 {
-            println!("  {} — {}/{} pass ({} fail)", name, pass, pass + fail, fail);
+        if fail > 0 || accepted > 0 {
+            println!("  {name} — {pass} exact, {accepted} accepted, {fail} unexpected");
             for f in &failures {
                 println!("    {}", f);
             }
-            failed_opcodes.insert(name, failures);
+            if fail > 0 {
+                failed_opcodes.insert(name, failures);
+            }
         }
     }
 
-    let total = total_pass + total_fail;
-    let pct = if total > 0 {
-        (total_pass as f64 / total as f64) * 100.0
-    } else {
-        0.0
-    };
-
+    let total = total_pass + total_accepted + total_fail;
     println!();
     println!("=== Tom Harte Z80 Tests ===");
-    println!("Total: {}/{} pass ({:.2}%)", total_pass, total, pct);
+    println!(
+        "Total: {total} executed, {total_pass} exact, {total_accepted} accepted, {total_fail} unexpected"
+    );
     println!("Failed opcodes: {}", failed_opcodes.len());
 
     if total_fail > 0 {
@@ -425,8 +409,7 @@ fn run_all_from_dir(test_path: &Path) {
 
     assert_eq!(
         total_fail, 0,
-        "Expected 100% pass rate, got {}/{} ({:.2}%)",
-        total_pass, total, pct
+        "Tom Harte reported {total_fail} unexpected failures out of {total} cases"
     );
 }
 
@@ -442,10 +425,89 @@ fn run_opcode_00() {
             return;
         }
     };
-    let (pass, fail, failures) = run_opcode_tests(&path);
-    println!("00 (NOP): {}/{} pass", pass, pass + fail);
+    let (pass, accepted, fail, failures) = run_opcode_tests(&path);
+    println!("00 (NOP): {pass} exact, {accepted} accepted, {fail} unexpected");
     for f in &failures {
         println!("  {}", f);
     }
     assert_eq!(fail, 0);
+}
+
+fn synthetic_otir_case() -> TestCase {
+    let initial = serde_json::json!({
+        "pc": 0, "sp": 0, "a": 0, "b": 3, "c": 224, "d": 0, "e": 0,
+        "f": 0, "h": 0, "l": 0, "i": 0, "r": 0, "wz": 0,
+        "ix": 0, "iy": 0, "af_": 0, "bc_": 0, "de_": 0, "hl_": 0,
+        "im": 0, "p": 0, "iff1": 0, "iff2": 0, "ram": []
+    });
+    let mut final_state = initial.clone();
+    final_state["b"] = 2.into();
+    final_state["wz"] = 1.into();
+    serde_json::from_value(serde_json::json!({
+        "name": "synthetic repeating OTIR", "initial": initial, "final": final_state,
+        "cycles": vec![serde_json::Value::Null; 21]
+    }))
+    .expect("synthetic fixture")
+}
+
+#[test]
+fn wz_exception_requires_the_documented_values() {
+    let test = synthetic_otir_case();
+    let accepted = vec!["WZ: got 0x02E1, expected 0x0001".to_string()];
+    assert!(accepted_wz_disagreement("ed b3", &test, &accepted));
+    assert!(!accepted_wz_disagreement(
+        "ed b3",
+        &test,
+        &["WZ: got 0xDEAD, expected 0x0001".to_string()]
+    ));
+    assert!(!accepted_wz_disagreement(
+        "ed b3",
+        &test,
+        &["WZ: got 0x02E1, expected 0xDEAD".to_string()]
+    ));
+    assert!(!accepted_wz_disagreement("ed b3", &test, &[]));
+    let mut extra = accepted.clone();
+    extra.push("AF: got 0x0000, expected 0x0001".to_string());
+    assert!(!accepted_wz_disagreement("ed b3", &test, &extra));
+    assert!(!accepted_wz_disagreement("ed b2", &test, &accepted));
+}
+
+#[test]
+fn wz_exception_requires_a_repeating_observation() {
+    let mut test = synthetic_otir_case();
+    let errors = vec!["WZ: got 0x02E1, expected 0x0001".to_string()];
+    test.cycles.pop();
+    assert!(!accepted_wz_disagreement("ed b3", &test, &errors));
+    test.cycles.push(serde_json::Value::Null);
+    test.initial.b = 1;
+    assert!(!accepted_wz_disagreement("ed b3", &test, &errors));
+    test.initial.b = 3;
+    test.final_state.pc = 2;
+    assert!(!accepted_wz_disagreement("ed b3", &test, &errors));
+}
+
+#[test]
+fn wz_exception_handles_otdr_and_wrapping_pc() {
+    let mut test = synthetic_otir_case();
+    test.initial.pc = 0xffff;
+    test.final_state.pc = 0xffff;
+    test.final_state.wz = 0;
+    assert!(accepted_wz_disagreement(
+        "ed bb",
+        &test,
+        &["WZ: got 0x02DF, expected 0x0000".to_string()]
+    ));
+    // B=0 repeats after wrapping to 255; output WZ can also wrap.
+    test.initial.b = 0;
+    test.initial.c = 255;
+    test.initial.pc = 0;
+    test.final_state.pc = 0;
+    test.final_state.b = 255;
+    test.final_state.c = 255;
+    test.final_state.wz = 1;
+    assert!(accepted_wz_disagreement(
+        "ed b3",
+        &test,
+        &["WZ: got 0x0000, expected 0x0001".to_string()]
+    ));
 }
