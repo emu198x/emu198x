@@ -95,16 +95,10 @@ const TEST_COUNT: usize = 34;
 /// taken — and `4 Out of memory` is Sinclair BASIC's report for the stack
 /// growing into BASIC's space.
 ///
-/// The previous version of this comment asked that someone find out why
-/// before clearing the entry, on the grounds that an out-of-memory which
-/// stops happening is either a real fix or the engine handing the guest RAM
-/// it should not have. That was the right thing to insist on, and the answer
-/// is the former: `zilog-z80-samples-int-at-the-instruction-boundary.md` is
-/// settled on the CPC's evidence, where the CRTC Compendium's §27.7.2 shows
-/// a `/INT` arriving during the last T-state still being taken — which
-/// boundary sampling reproduces and the datasheet's literal reading does
-/// not. The suite gained room because interrupt timing became more correct,
-/// not less.
+/// The later die-derived IRQ deadline and integrated ULA correction
+/// preserve the complete case set. Instruction-boundary event processing
+/// is not evidence of the CPU pin's sampling edge; see
+/// `test-data/z80-irq-deadline-validation.md` for the measured deadline.
 ///
 /// Kept as an asserting list rather than deleted: a *new* gap is still a
 /// regression, and this is where it would be recorded.
