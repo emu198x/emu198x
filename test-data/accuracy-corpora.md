@@ -43,6 +43,8 @@ one case in every file. Directory enumeration errors fail the run. FUSE
 requires a nonempty corpus and a positive case limit; a named selection must
 match a case. Deliberate single-case runs remain supported. These checks
 prevent zero-case passes; they do not establish that a partial corpus is complete.
+The [Tom Harte coverage report](harte-z80-validation.md) records exact matches
+separately from its constrained OTIR/OTDR WZ exceptions.
 See [FUSE validation coverage](fuse-z80-validation.md) for the measured scope
 and accepted disagreements.
 
