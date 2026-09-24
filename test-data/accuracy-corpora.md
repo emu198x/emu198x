@@ -31,6 +31,13 @@ locally; the workflow uses the same env-var contract.
 | Spectrum ROMs (128K, +2, +3) | `machine-sinclair-zx-spectrum-128k` · `boot_test`; `-plus2`, `-plus2a`, `-plus2b`, `-plus3` · `boot_test` | `EMU198X_ROMS_ROOT` (firmware root; each machine joins its own directory onto it) | the machines' own firmware | free to distribute (Amstrad), the same permission the 48K ROM ships under | is firmware — these are the ROMs |
 | z80test | `machine-sinclair-zx-spectrum-48k` · `z80test` | `EMU198X_Z80TEST_DIR` (+ `EMU198X_SPECTRUM_48K_ROM`) | pinned raxoft/z80test 1.2a (`*.tap`); see `test-data/z80test/` | MIT | 48K Spectrum ROM — free (Amstrad), shipped in the tarball |
 
+The Z80 Tom Harte, FUSE and ZEX harnesses treat their explicit directory
+variables as authoritative. A missing path (or a file where a directory is
+required) reports a fixture error; it never substitutes a default local corpus.
+Default locations are searched only when the variable is unset. Existing
+harness failure/skip policies still apply; use `EMU198X_STRICT_FIXTURES=1`
+when reproducing nightly validation.
+
 ## The Spectrum line boots its own firmware
 
 Almost every machine here needs its manufacturer's ROM to reach a prompt, and
