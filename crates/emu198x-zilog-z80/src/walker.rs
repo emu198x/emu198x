@@ -46,12 +46,65 @@ pub enum Prefix {
     /// variants so existing postcard discriminants remain stable. They make
     /// the skipped static M-step sequence reconstructible after a snapshot.
     InterruptNmi,
-    /// Accepted maskable-interrupt response in mode 0.
+    /// Legacy RST-only mode 0 response, retained for snapshot restoration.
     InterruptIm0,
     /// Accepted maskable-interrupt response in mode 1.
     InterruptIm1,
     /// Accepted maskable-interrupt response in mode 2.
     InterruptIm2,
+    // Appended variants retain the original postcard discriminants and field
+    // layout while making a device-supplied instruction stream restorable.
+    InjectedNone,
+    InjectedCB,
+    InjectedED,
+    InjectedDD,
+    InjectedFD,
+    InjectedDDCB,
+    InjectedFDCB,
+}
+
+impl Prefix {
+    pub(crate) fn is_injected(self) -> bool {
+        matches!(
+            self,
+            Self::InjectedNone
+                | Self::InjectedCB
+                | Self::InjectedED
+                | Self::InjectedDD
+                | Self::InjectedFD
+                | Self::InjectedDDCB
+                | Self::InjectedFDCB
+        )
+    }
+
+    pub(crate) fn opcode_prefix(self) -> Self {
+        match self {
+            Self::InjectedNone => Self::None,
+            Self::InjectedCB => Self::CB,
+            Self::InjectedED => Self::ED,
+            Self::InjectedDD => Self::DD,
+            Self::InjectedFD => Self::FD,
+            Self::InjectedDDCB => Self::DDCB,
+            Self::InjectedFDCB => Self::FDCB,
+            other => other,
+        }
+    }
+
+    pub(crate) fn for_opcode(self, prefix: Self) -> Self {
+        if !self.is_injected() {
+            return prefix;
+        }
+        match prefix {
+            Self::None => Self::InjectedNone,
+            Self::CB => Self::InjectedCB,
+            Self::ED => Self::InjectedED,
+            Self::DD => Self::InjectedDD,
+            Self::FD => Self::InjectedFD,
+            Self::DDCB => Self::InjectedDDCB,
+            Self::FDCB => Self::InjectedFDCB,
+            other => other,
+        }
+    }
 }
 
 /// Walker state — tracks progress through an instruction's MStep sequence.
@@ -212,15 +265,21 @@ impl Walker {
         match step {
             MStep::FetchByte => {
                 self.staged.data_lo = data_in;
-                regs.pc = regs.pc.wrapping_add(1);
+                if !self.prefix.is_injected() {
+                    regs.pc = regs.pc.wrapping_add(1);
+                }
             }
             MStep::FetchByteHi => {
                 self.staged.data_hi = data_in;
-                regs.pc = regs.pc.wrapping_add(1);
+                if !self.prefix.is_injected() {
+                    regs.pc = regs.pc.wrapping_add(1);
+                }
             }
             MStep::FetchDisp => {
                 self.staged.disp = data_in as i8;
-                regs.pc = regs.pc.wrapping_add(1);
+                if !self.prefix.is_injected() {
+                    regs.pc = regs.pc.wrapping_add(1);
+                }
             }
             MStep::ReadAddr => {
                 self.staged.data_lo = data_in;

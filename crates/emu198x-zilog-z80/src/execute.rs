@@ -15,7 +15,7 @@ use crate::z80::{ExecutionFlow, Z80};
 /// two: one to stage the port address, one to store the result), the
 /// execute_idx tracks which Execute we're processing.
 pub(crate) fn execute(z80: &mut Z80) {
-    match z80.walker.prefix {
+    match z80.walker.prefix.opcode_prefix() {
         Prefix::CB => {
             execute_cb(z80);
             return;
@@ -51,6 +51,7 @@ pub(crate) fn execute(z80: &mut Z80) {
             return;
         }
         Prefix::None => {}
+        _ => unreachable!("opcode_prefix removes injected variants"),
     }
 
     execute_unprefixed(z80);
@@ -59,12 +60,9 @@ pub(crate) fn execute(z80: &mut Z80) {
 fn execute_int_im0(z80: &mut Z80) {
     let exec_count = count_executes_before(z80.walker.sequence, z80.walker.step_idx);
     if exec_count == 0 {
-        // In IM 0 the interrupting device drives an instruction onto the bus
-        // during the ack. We model the `RST n` family
-        // — the realistic case, and an un-driven bus reads 0xFF = `RST 38h`.
-        // `RST n` is encoded `11_ttt_111`, vectoring to `ttt * 8`. Any other
-        // opcode (e.g. a multi-byte CALL) is unsupported and falls back to the
-        // IM 1 behaviour (RST 38h), which is also what an open bus yields.
+        // Legacy snapshot continuation only: preserve the former RST-only
+        // response for saves taken inside it. New interrupts use the shared
+        // opcode decoder, including operands and prefixes.
         let ack = z80.walker.staged.data_lo;
         let target = if ack & 0xC7 == 0xC7 {
             (ack & 0x38) as u16
@@ -392,7 +390,7 @@ fn execute_unprefixed(z80: &mut Z80) {
                 let offset = z80.walker.staged.data_lo as i8;
                 z80.regs.pc = z80.regs.pc.wrapping_add_signed(offset as i16);
                 z80.regs.wz = z80.regs.pc;
-            } else {
+            } else if !z80.walker.prefix.is_injected() {
                 z80.regs.pc = z80.regs.pc.wrapping_add(1);
             }
         }
@@ -405,7 +403,7 @@ fn execute_unprefixed(z80: &mut Z80) {
                 let offset = z80.walker.staged.data_lo as i8;
                 z80.regs.pc = z80.regs.pc.wrapping_add_signed(offset as i16);
                 z80.regs.wz = z80.regs.pc;
-            } else {
+            } else if !z80.walker.prefix.is_injected() {
                 z80.regs.pc = z80.regs.pc.wrapping_add(1);
             }
         }
@@ -951,7 +949,7 @@ fn execute_ed(z80: &mut Z80) {
 
 /// Get the current index register value (IX for DD, IY for FD).
 fn index_reg(z80: &Z80) -> u16 {
-    match z80.walker.prefix {
+    match z80.walker.prefix.opcode_prefix() {
         Prefix::DD | Prefix::DDCB => z80.regs.ix,
         Prefix::FD | Prefix::FDCB => z80.regs.iy,
         _ => z80.regs.hl, // fallback
@@ -960,7 +958,7 @@ fn index_reg(z80: &Z80) -> u16 {
 
 /// Set the current index register.
 fn set_index_reg(z80: &mut Z80, val: u16) {
-    match z80.walker.prefix {
+    match z80.walker.prefix.opcode_prefix() {
         Prefix::DD | Prefix::DDCB => z80.regs.ix = val,
         Prefix::FD | Prefix::FDCB => z80.regs.iy = val,
         _ => z80.regs.hl = val,
@@ -1143,7 +1141,7 @@ fn execute_dd_fd(z80: &mut Z80) {
         {
             let src_idx = opcode & 0x07;
             let dst_idx = (opcode >> 3) & 0x07;
-            let is_ix = z80.walker.prefix == Prefix::DD;
+            let is_ix = z80.walker.prefix.opcode_prefix() == Prefix::DD;
             let val = alu::read_r8_ix(&z80.regs, src_idx, is_ix);
             alu::write_r8_ix(&mut z80.regs, dst_idx, val, is_ix);
         }
@@ -1151,7 +1149,7 @@ fn execute_dd_fd(z80: &mut Z80) {
         // LD r, n where r is H (4) or L (5)
         0x26 | 0x2E => {
             let dst = (opcode >> 3) & 0x07;
-            let is_ix = z80.walker.prefix == Prefix::DD;
+            let is_ix = z80.walker.prefix.opcode_prefix() == Prefix::DD;
             alu::write_r8_ix(&mut z80.regs, dst, z80.walker.staged.data_lo, is_ix);
         }
 
@@ -1159,7 +1157,7 @@ fn execute_dd_fd(z80: &mut Z80) {
         0x24 | 0x2C => {
             // INC IXH / INC IXL
             let r = (opcode >> 3) & 0x07;
-            let is_ix = z80.walker.prefix == Prefix::DD;
+            let is_ix = z80.walker.prefix.opcode_prefix() == Prefix::DD;
             let val = alu::read_r8_ix(&z80.regs, r, is_ix);
             let result = alu::inc8(&mut z80.regs, val);
             alu::write_r8_ix(&mut z80.regs, r, result, is_ix);
@@ -1167,7 +1165,7 @@ fn execute_dd_fd(z80: &mut Z80) {
         0x25 | 0x2D => {
             // DEC IXH / DEC IXL
             let r = (opcode >> 3) & 0x07;
-            let is_ix = z80.walker.prefix == Prefix::DD;
+            let is_ix = z80.walker.prefix.opcode_prefix() == Prefix::DD;
             let val = alu::read_r8_ix(&z80.regs, r, is_ix);
             let result = alu::dec8(&mut z80.regs, val);
             alu::write_r8_ix(&mut z80.regs, r, result, is_ix);
@@ -1177,7 +1175,7 @@ fn execute_dd_fd(z80: &mut Z80) {
         0x84 | 0x85 | 0x8C | 0x8D | 0x94 | 0x95 | 0x9C | 0x9D | 0xA4 | 0xA5 | 0xAC | 0xAD
         | 0xB4 | 0xB5 | 0xBC | 0xBD => {
             let src = opcode & 0x07;
-            let is_ix = z80.walker.prefix == Prefix::DD;
+            let is_ix = z80.walker.prefix.opcode_prefix() == Prefix::DD;
             let val = alu::read_r8_ix(&z80.regs, src, is_ix);
             execute_alu_op(&mut z80.regs, (opcode >> 3) & 0x07, val);
         }
