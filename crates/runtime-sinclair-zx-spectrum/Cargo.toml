@@ -38,6 +38,7 @@ thiserror = { workspace = true }
 emu198x-zilog-z80 = { path = "../emu198x-zilog-z80", version = "0.8.0" }
 
 [dev-dependencies]
+common-sinclair-zx-spectrum-128k-class = { path = "../common-sinclair-zx-spectrum-128k-class", version = "0.25.0" }
 emu198x-test-skip = { path = "../emu198x-test-skip", version = "0.25.0" }
 criterion = { workspace = true }
 format-sinclair-zx-spectrum-sna = { path = "../format-sinclair-zx-spectrum-sna", version = "0.25.0" }

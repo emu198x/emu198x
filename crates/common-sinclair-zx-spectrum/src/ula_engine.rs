@@ -122,7 +122,7 @@ pub const CONFIG_48K: UlaConfig = UlaConfig {
     vsync_end: 264,
 };
 
-/// 128K / +2 timing (Sinclair 7K010E): 456 pixels/line, 311 lines.
+/// Early Toastrack timing (Sinclair 7K010E): 456 pixels/line, 311 lines.
 pub const CONFIG_128K: UlaConfig = UlaConfig {
     pixels_per_line: 456,
     lines_per_frame: 311,
@@ -140,6 +140,16 @@ pub const CONFIG_128K: UlaConfig = UlaConfig {
     bottom_border_start: 192,
     vsync_start: 248,
     vsync_end: 263,
+};
+
+/// Grey +2 (Amstrad 40056): late interrupt phase, with a 36T pulse.
+/// Both edges precede the early Toastrack by one T-state (two ULA ticks).
+/// See `test-data/spectrum-grey-plus2-timing-validation.md` for hardware
+/// reports and the pinned SpecIde signal-level comparison.
+pub const CONFIG_PLUS2: UlaConfig = UlaConfig {
+    int_start_pixel: 3,
+    int_end_pixel: 75,
+    ..CONFIG_128K
 };
 
 /// +2A / +2B / +3 timing (Amstrad 40077).

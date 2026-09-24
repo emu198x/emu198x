@@ -825,11 +825,13 @@ jobs:
             --test tape_smoke -- --include-ignored --nocapture \
             halt2int128
 
-      - name: ZXSpectrum4.net timing survey, 128K (ratchet 8 of 68)
-        # The 128K's first graded real-software oracle. ~7 minutes.
+      - name: ZXSpectrum4.net timing survey, early Toastrack profile
+        # The provisioned corpus has Toastrack ROMs only. The grey +2
+        # survey is run locally with its own ROMs; do not substitute 128K ROMs.
         run: |
           cargo test --release -p runtime-sinclair-zx-spectrum \
-            --test timing_survey_128k -- --include-ignored --nocapture
+            --test timing_survey_128k -- --include-ignored --nocapture \
+            --skip timing_survey_plus2_records_every_case
 
       - name: Upload the 128K survey report
         if: always()

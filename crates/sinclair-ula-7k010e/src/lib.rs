@@ -46,6 +46,11 @@ impl SinclairUla {
     pub fn reattach_config(&mut self) {
         self.engine.set_config(&ula_engine::CONFIG_128K);
     }
+    /// Select the grey +2 interrupt phase at construction or state restore.
+    /// All raster and contention settings remain in the same ULA family.
+    pub fn reattach_plus2_config(&mut self) {
+        self.engine.set_config(&ula_engine::CONFIG_PLUS2);
+    }
 }
 
 impl Default for SinclairUla {

@@ -1,13 +1,9 @@
 //! Sinclair ZX Spectrum +2 (grey, Amstrad-built) machine wrapper.
 //!
-//! The grey +2 (1986) is electrically identical to the 128K — same
-//! Sinclair 7K010E ULA, same Z80, same Memory128K, same AY-3-8912, same
-//! crystal, same timing. Differences are above the chip layer:
-//! `plus2-{0,1}.rom` instead of `128-{0,1}.rom`, a different copyright
-//! banner ("©1986, ©1982 Amstrad Consumer Electronics plc"), and a
-//! different case with built-in cassette and Sinclair Interface 2-style
-//! joystick ports (joystick handling lives at the runtime/peripheral
-//! layer, not in the machine).
+//! The grey +2 shares the 128K memory map, AY and ULA-family composition.
+//! Its Amstrad 40056 interrupt pulse uses the late phase: both edges occur
+//! one T-state before the early Toastrack profile. It also has its own ROMs,
+//! built-in cassette and Sinclair Interface 2-style joystick ports.
 //!
 //! The hardware composition lives in
 //! [`common_sinclair_zx_spectrum_128k_class::Spectrum128kClassCore`] and

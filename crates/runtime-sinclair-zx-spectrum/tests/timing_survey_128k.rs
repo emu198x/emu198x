@@ -45,9 +45,11 @@ use std::path::{Path, PathBuf};
 use common_sinclair_zx_spectrum::MemoryBus;
 use common_sinclair_zx_spectrum::keyboard::SpectrumKey;
 use common_sinclair_zx_spectrum::screen_text::decode_screen_text;
+use common_sinclair_zx_spectrum_128k_class::{
+    AmstradPlus2Marker, Class128kVariant, Sinclair128KMarker, Spectrum128kClassCore,
+};
 use format_sinclair_zx_spectrum_snapshot::Snapshot;
 use format_sinclair_zx_spectrum_szx::parse_szx;
-use machine_sinclair_zx_spectrum_128k::Spectrum128K;
 
 /// Directory holding the extracted `zx-spectrum-tests` corpus.
 const TESTS_DIR_ENV: &str = "EMU198X_ZX_SPECTRUM_TESTS_DIR";
@@ -109,9 +111,9 @@ fn suite_path() -> PathBuf {
     PathBuf::from(std::env::var_os(TESTS_DIR_ENV).unwrap_or_default()).join(SUITE_FILE)
 }
 
-fn roms() -> Option<(Vec<u8>, Vec<u8>)> {
-    let rom0 = std::fs::read(std::env::var(ROM0_PATH_ENV).ok()?).ok()?;
-    let rom1 = std::fs::read(std::env::var(ROM1_PATH_ENV).ok()?).ok()?;
+fn roms(paths: [&str; 2]) -> Option<(Vec<u8>, Vec<u8>)> {
+    let rom0 = std::fs::read(std::env::var(paths[0]).ok()?).ok()?;
+    let rom1 = std::fs::read(std::env::var(paths[1]).ok()?).ok()?;
     Some((rom0, rom1))
 }
 
@@ -120,14 +122,14 @@ fn roms() -> Option<(Vec<u8>, Vec<u8>)> {
 /// The 128K-class core exposes a bare `[u8; 8]` matrix rather than the
 /// 48K's `KeyboardMatrix` wrapper, which is the only reason this is not
 /// shared with `timing_survey.rs`.
-fn tap_key(machine: &mut Spectrum128K, key: SpectrumKey) {
+fn tap_key<V: Class128kVariant>(machine: &mut Spectrum128kClassCore<V>, key: SpectrumKey) {
     set_key(&mut machine.keyboard, key, true);
     run_frames(machine, 6);
     set_key(&mut machine.keyboard, key, false);
     run_frames(machine, 6);
 }
 
-fn run_frames(machine: &mut Spectrum128K, frames: usize) {
+fn run_frames<V: Class128kVariant>(machine: &mut Spectrum128kClassCore<V>, frames: usize) {
     for _ in 0..frames {
         machine.run_frame();
     }
@@ -139,7 +141,7 @@ fn run_frames(machine: &mut Spectrum128K, frames: usize) {
 /// in 48K paging mode, but reading the font from whichever bank happens to
 /// be mapped at capture time makes the decode depend on state this harness
 /// does not control.
-fn screen(machine: &Spectrum128K) -> Vec<String> {
+fn screen<V: Class128kVariant>(machine: &Spectrum128kClassCore<V>) -> Vec<String> {
     decode_screen_text(
         |addr| machine.memory.read_rom_byte(1, addr),
         |addr| machine.memory.read(addr),
@@ -147,8 +149,11 @@ fn screen(machine: &Spectrum128K) -> Vec<String> {
 }
 
 /// A machine with the suite loaded and settled at its prompt.
-fn booted(roms: &(Vec<u8>, Vec<u8>), snapshot: &Snapshot) -> Spectrum128K {
-    let mut machine = Spectrum128K::new();
+fn booted<V: Class128kVariant>(
+    roms: &(Vec<u8>, Vec<u8>),
+    snapshot: &Snapshot,
+) -> Spectrum128kClassCore<V> {
+    let mut machine = Spectrum128kClassCore::<V>::new();
     machine.memory.load_roms(&roms.0, &roms.1);
     machine.reset();
     machine.apply_snapshot(snapshot);
@@ -164,11 +169,14 @@ fn booted(roms: &(Vec<u8>, Vec<u8>), snapshot: &Snapshot) -> Spectrum128K {
 #[test]
 #[ignore = "FIXTURE: needs the zx-spectrum-tests corpus and 128K ROMs"]
 fn the_suite_runs_in_48k_paging_mode() {
-    let (Some(roms), Ok(bytes)) = (roms(), std::fs::read(suite_path())) else {
+    let (Some(roms), Ok(bytes)) = (
+        roms([ROM0_PATH_ENV, ROM1_PATH_ENV]),
+        std::fs::read(suite_path()),
+    ) else {
         panic!("set {TESTS_DIR_ENV}, {ROM0_PATH_ENV} and {ROM1_PATH_ENV}");
     };
     let snapshot = parse_szx(&bytes).expect("parse the 128K timing suite");
-    let machine = booted(&roms, &snapshot);
+    let machine = booted::<Sinclair128KMarker>(&roms, &snapshot);
 
     let banner = screen(&machine);
     assert!(
@@ -280,9 +288,45 @@ fn early_profile_rejects_changed_readings_even_with_the_same_failure_count() {
 #[test]
 #[ignore = "FIXTURE: needs the zx-spectrum-tests corpus and 128K ROMs; ~5 min"]
 fn timing_survey_128k_records_every_case() {
-    let Some(roms) = roms() else {
-        panic!("set {ROM0_PATH_ENV} and {ROM1_PATH_ENV} to the 128K ROMs");
-    };
+    run_survey::<Sinclair128KMarker>(
+        [ROM0_PATH_ENV, ROM1_PATH_ENV],
+        "early-toastrack",
+        "spectrum-timing-survey-128k",
+        early_toastrack_mismatches,
+    );
+}
+
+/// Published grey +2 boards pass every case, unlike early Toastracks.
+#[test]
+#[ignore = "FIXTURE: needs the zx-spectrum-tests corpus and grey +2 ROMs; ~8 min"]
+fn timing_survey_plus2_records_every_case() {
+    run_survey::<AmstradPlus2Marker>(
+        ["EMU198X_SPECTRUM_PLUS2_ROM0", "EMU198X_SPECTRUM_PLUS2_ROM1"],
+        "late-grey-plus2",
+        "spectrum-timing-survey-plus2",
+        |cases| {
+            cases
+                .iter()
+                .filter(|case| case.verdict != "pass")
+                .map(|case| {
+                    format!(
+                        "grey +2 test {} {}: expected pass, got {}",
+                        case.test, case.mode, case.verdict
+                    )
+                })
+                .collect()
+        },
+    );
+}
+
+fn run_survey<V: Class128kVariant>(
+    rom_paths: [&str; 2],
+    profile: &str,
+    report_directory: &str,
+    check_profile: fn(&[CaseResult]) -> Vec<String>,
+) {
+    let roms =
+        roms(rom_paths).unwrap_or_else(|| panic!("set {} and {}", rom_paths[0], rom_paths[1]));
     let path = suite_path();
     if !path.is_file() {
         panic!(
@@ -312,7 +356,8 @@ fn timing_survey_128k_records_every_case() {
     let mut incomplete = Vec::new();
 
     for test_number in 1..=TEST_COUNT {
-        let mut machine = booted(&roms, &snapshot);
+        let mut machine = booted::<V>(&roms, &snapshot);
+        assert_eq!(snapshot.port_7ffd & PAGING_LOCKED, PAGING_LOCKED);
 
         for key in digit_keys(test_number) {
             tap_key(&mut machine, key);
@@ -356,30 +401,35 @@ fn timing_survey_128k_records_every_case() {
     cases.sort_by_key(|c| (c.test, c.mode.clone()));
     let failures: Vec<&CaseResult> = cases.iter().filter(|c| c.verdict == "fail").collect();
 
-    let profile_mismatches = early_toastrack_mismatches(&cases);
+    let profile_mismatches = check_profile(&cases);
     let revision = revision();
     let report = serde_json::json!({
         "survey": "zxspectrum4.net-timing-tests-128k",
         "revision": revision,
-        "machine": "sinclair-zx-spectrum-128k",
+        "machine": V::MODEL_ID,
+        "rom_sha256": [sha256_hex(&roms.0), sha256_hex(&roms.1)],
         "suite_sha256": actual_sha,
         "suite_file": SUITE_FILE,
         "tests_covered": TEST_COUNT,
         "cases_recorded": cases.len(),
         "cases_failing": failures.len(),
-        "hardware_profile": "early-toastrack",
+        "hardware_profile": profile,
         "hardware_profile_mismatches": profile_mismatches,
         "tests_incomplete": incomplete,
         "cases": cases,
     });
 
     let report_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../target/accuracy/spectrum-timing-survey-128k")
+        .join("../../target/accuracy")
+        .join(report_directory)
         .join(&revision)
         .join("report.json");
     write_report(&report_path, &report);
 
-    println!("\n=== ZXSpectrum4.net 128K timing survey @ {revision} ===");
+    println!(
+        "\n=== ZXSpectrum4.net {} timing survey @ {revision} ===",
+        V::MODEL_ID
+    );
     println!("  suite sha256: {actual_sha}");
     println!(
         "  cases recorded: {}  failing: {}",
