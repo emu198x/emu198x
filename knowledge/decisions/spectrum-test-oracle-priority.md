@@ -2,6 +2,22 @@
 
 **Status:** Accepted 2026-05-18. For ZX Spectrum verification work, **Spectrum-validated oracles outrank CPU-generic oracles when they disagree**. Patrik Rak's `z80test` (run on real 48K Spectrum hardware), FUSE's cycle traces, and real-hardware RZX recordings take precedence over Tom Harte's per-instruction vectors and Frank Cringle's ZEXALL when adjudicating Z80 behaviour. Supersedes the adjudication paragraph in [`concepts/test-methodology.md`](../concepts/test-methodology.md#reference-adjudication) for the Spectrum case.
 
+## Current evidence (2026-09-24)
+
+The priority policy applies to evidence that actually observes the disputed
+behaviour. The historical adjudications below are not current accuracy status.
+FUSE and the other models still disagree at the same completed 21T repeat
+boundary; different sampling times alone do not explain the WZ difference.
+
+The [output-repeat report](../../test-data/z80-output-repeat-wz.md) records a
+reproduced die-derived OTIR/OTDR observation supporting PC+1 on repeat.
+Rak 1.2a's input cases expose non-final WZ; its output cases run through
+termination and cannot discriminate the intermediate rules. Their pass is
+therefore not independent evidence for BC-derived WZ during output repeats.
+The corrected core passes all 1,604,000 Tom Harte vectors exactly and all
+six Rak tape exercisers. FUSE retains six explicitly pinned disagreements.
+See [current test results](../tests/spectrum.md) for versioned evidence.
+
 ## Context
 
 The Z80 test stack now has five oracles:
