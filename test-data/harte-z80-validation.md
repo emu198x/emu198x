@@ -67,3 +67,10 @@ it does not validate signal spelling or compare the emitted bus trace.
 
 The full corpus passed with typed cycle rows and the nonempty-cycle guard on
 2026-09-24: 1,604,000 executed, 1,602,001 exact, 1,999 accepted, zero unexpected.
+
+## Explicit single-opcode runs
+
+`run_opcode_00` is ignored by default. When explicitly requested, it requires
+its corpus and `00.json`; missing inputs fail with the selected path instead
+of reporting success after an early return. With the verified corpus, the
+2026-09-24 targeted run executed 1,000 NOP vectors, all exact.

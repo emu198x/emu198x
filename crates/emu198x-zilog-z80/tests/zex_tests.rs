@@ -269,19 +269,15 @@ fn load_zex_binary(suite: ZexSuite) -> Vec<u8> {
     }
 }
 
-fn zex_checkpoint_target_from_env(suite: ZexSuite) -> Option<usize> {
-    let raw = match std::env::var(ZEX_CHECKPOINT_ENV) {
-        Ok(value) => value,
-        Err(_) => {
-            eprintln!(
-                "{} targeted checkpoint test skipped: set {} to a value from 1 to {}",
-                suite.display_name(),
-                ZEX_CHECKPOINT_ENV,
-                ZEX_CHECKPOINT_LABELS.len()
-            );
-            return None;
-        }
-    };
+fn zex_checkpoint_target_from_env(suite: ZexSuite) -> usize {
+    let raw = std::env::var(ZEX_CHECKPOINT_ENV).unwrap_or_else(|error| {
+        panic!(
+            "{} checkpoint selection unavailable ({error}); set {} to a value from 1 to {}",
+            suite.display_name(),
+            ZEX_CHECKPOINT_ENV,
+            ZEX_CHECKPOINT_LABELS.len()
+        )
+    });
 
     let parsed = match raw.parse::<usize>() {
         Ok(value) => value,
@@ -298,7 +294,7 @@ fn zex_checkpoint_target_from_env(suite: ZexSuite) -> Option<usize> {
         ZEX_CHECKPOINT_LABELS.len()
     );
 
-    Some(parsed)
+    parsed
 }
 
 fn default_zex_snapshot_dir() -> PathBuf {
@@ -826,9 +822,7 @@ fn run_zexall() {
 #[test]
 #[ignore = "FIXTURE: requires local ZEX corpus and EMU198X_ZEX_CHECKPOINT to target one checkpoint"]
 fn run_zexdoc_checkpoint() {
-    let Some(target) = zex_checkpoint_target_from_env(ZexSuite::Doc) else {
-        emu198x_test_skip::skip!("ZEX corpus not staged");
-    };
+    let target = zex_checkpoint_target_from_env(ZexSuite::Doc);
 
     let result = run_zex_suite(
         ZexSuite::Doc,
@@ -843,9 +837,7 @@ fn run_zexdoc_checkpoint() {
 #[test]
 #[ignore = "FIXTURE: requires local ZEX corpus and EMU198X_ZEX_CHECKPOINT to target one checkpoint"]
 fn run_zexall_checkpoint() {
-    let Some(target) = zex_checkpoint_target_from_env(ZexSuite::All) else {
-        emu198x_test_skip::skip!("ZEX corpus not staged");
-    };
+    let target = zex_checkpoint_target_from_env(ZexSuite::All);
 
     let result = run_zex_suite(
         ZexSuite::All,
@@ -988,4 +980,23 @@ fn zex_snapshot_loader_prefers_highest_cached_checkpoint_below_target() {
     assert_eq!(restored.z80.regs.pc, 0x9999);
 
     let _ = std::fs::remove_dir_all(snapshot_dir);
+}
+
+#[test]
+fn explicit_checkpoint_runs_require_selection() {
+    for test in ["run_zexdoc_checkpoint", "run_zexall_checkpoint"] {
+        let output = std::process::Command::new(std::env::current_exe().expect("test executable"))
+            .args(["--ignored", "--exact", test, "--nocapture"])
+            .env_remove(ZEX_CHECKPOINT_ENV)
+            .env_remove("EMU198X_STRICT_FIXTURES")
+            .output()
+            .expect("run explicit checkpoint test");
+        assert!(
+            !output.status.success(),
+            "{test} silently skipped missing selection"
+        );
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(stderr.contains(ZEX_CHECKPOINT_ENV), "{stderr}");
+        assert!(stderr.contains("1 to 67"), "{stderr}");
+    }
 }
