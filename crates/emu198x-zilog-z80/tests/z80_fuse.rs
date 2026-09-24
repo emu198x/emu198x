@@ -128,73 +128,17 @@ struct FuseObserved {
     memory: [u8; 65_536],
 }
 
+// FUSE 1.7.0 differs from our repeat-flag model (also present in SpecIde)
+// and from our HALT PC representation. These are named, field-scoped
+// exceptions, not exact matches. See test-data/fuse-z80-validation.md for
+// measured values, flag-bit differences and the limits of this evidence.
 const ACCEPTED_FUSE_DISAGREEMENTS: &[(&str, &[&str])] = &[
-    ("76", &["PC"]),
-    // Four block-repeat instructions disagree only on the X/Y
-    // undocumented AF bits (F bits 3 and 5) — INIR (edb2), OTIR
-    // (edb3), CPDR (edb9) and OTDR (edbb). WZ now matches FUSE (and
-    // Patrik Rak's z80memptr) after the 2026-05-31 fix that stopped
-    // the repeat path from clobbering the WZ value (BC ± 1) set during
-    // the IN/OUT portion; everything except the undoc X/Y bits matches.
-    //
-    // Reclassified 2026-08-09. The previous note called these "the
-    // *final* repeat iteration" and "silicon-variable ... effectively
-    // unclosable". Both claims are wrong, and the second followed from
-    // the first:
-    //
-    // - FUSE runs each of these for 21 T-states with B = 0x0a, 0x03,
-    //   0x00 and 0x04 respectively (tests.in). 21 T-states is the
-    //   *repeating* cost; 16 is the terminating one. So every disputed
-    //   case observes a NON-final iteration, with PC rewound to
-    //   re-execute — not the final one.
-    // - `edba_1` INDR has the identical shape (B = 0x06, 21 T-states)
-    //   and passes every bit. We therefore do model the repeating-
-    //   iteration rule; it agrees with FUSE for one instruction and
-    //   disagrees for four siblings. That is an inconsistency in our
-    //   model, not silicon variance.
-    // - Patrik Rak's z80full / z80flags / z80memptr set `maskflags
-    //   equ 0` (src/*.asm), so they compare the full 0xFF flag mask
-    //   including bits 3 and 5, and every block instruction — INIR,
-    //   INDR, OTIR, OTDR, CPIR, CPDR, LDIR, LDDR and the ->NOP'
-    //   variants — passes against CRCs measured on a real 48K Zilog
-    //   board. The suite is not silent on these bits. It observes the
-    //   instruction after completion, so it does not obviously cover
-    //   FUSE's mid-repeat point, but it does constrain the rule.
-    //
-    // Still allowlisted: the disagreement is real and unexplained. But
-    // it is now a tractable question — why one of five siblings agrees
-    // — rather than a silicon mystery. Next step is a differential
-    // against the vendored SpecIde / Fuse / zesarux implementations of
-    // the repeat H/PV adjustment (see `repeat_block_io_flags` in
-    // src/execute.rs, which the I/O paths apply and the compare path
-    // does not).
-    //
-    // NB: `edb9` is CPDR (ED B9), a block-*compare*, not a block-I/O
-    // op — an earlier note mislabelled it INDR.
-    //
-    // WZ on `edb2_1` / `edba_1`, added 2026-08-17 (#949). The 2026-05-31
-    // change described above made WZ match FUSE by removing
-    // `WZ = PC + 1` from the INIR/INDR repeat path, on the stated
-    // grounds that Patrik Rak asserted the same value. He does not:
-    // without that line `z80memptr` fails `102 INIR->NOP'` and
-    // `103 INDR->NOP'`, and the commit's claim that the suite passed
-    // could not have been measured, because it could not reach its
-    // Result line until #948. The line is restored, `z80memptr` is
-    // 160 of 160, and these two FUSE cases disagree on WZ again.
-    //
-    // Not a defect being papered over. FUSE captures these mid-repeat
-    // at 21 T-states with PC rewound; Rak observes after the
-    // instruction completes. They are measuring different instants and
-    // may both be right about their own. This engine cannot yet hold
-    // both, and `decisions/spectrum-test-oracle-priority.md` ranks
-    // `z80test` above FUSE for Spectrum work. Holding both is the open
-    // question — the point of the note above about differentialling
-    // SpecIde / Fuse / zesarux on the repeat rule.
-    ("edb2_1", &["AF", "WZ"]), // INIR — WZ added 2026-08-17, see below
-    ("edb3_1", &["AF"]),       // OTIR
-    ("edb9_2", &["AF"]),       // CPDR
-    ("edba_1", &["WZ"]),       // INDR — WZ only
-    ("edbb_1", &["AF"]),       // OTDR
+    ("76", &["PC"]),           // HALT: FUSE leaves PC on HALT; we retain the next PC.
+    ("edb2_1", &["AF", "WZ"]), // INIR: P/V + X, and repeated-input WZ.
+    ("edb3_1", &["AF"]),       // OTIR: H + P/V.
+    ("edb9_2", &["AF"]),       // CPDR: X from PC high byte on repeat.
+    ("edba_1", &["WZ"]),       // INDR: flags coincide for this input; WZ differs.
+    ("edbb_1", &["AF"]),       // OTDR: H + P/V.
 ];
 
 fn parse_hex_u16(token: &str) -> u16 {
@@ -883,15 +827,28 @@ fn run_fuse_z80_reference_suite() {
             )
         });
 
-    let mut inputs = parse_tests_in(&inputs_data);
-    let mut expected = parse_tests_expected(&expected_data);
+    run_fuse_cases(
+        parse_tests_in(&inputs_data),
+        parse_tests_expected(&expected_data),
+        selected_case_name().as_deref(),
+        selected_case_limit(),
+    );
+}
+
+fn run_fuse_cases(
+    mut inputs: Vec<FuseInput>,
+    mut expected: Vec<FuseExpected>,
+    case_name: Option<&str>,
+    limit: Option<usize>,
+) {
     assert_eq!(
         inputs.len(),
         expected.len(),
         "input and expected counts differ"
     );
+    assert!(!inputs.is_empty(), "FUSE corpus contains no cases");
 
-    if let Some(case_name) = selected_case_name() {
+    if let Some(case_name) = case_name {
         inputs.retain(|case| case.name == case_name);
         expected.retain(|case| case.name == case_name);
         assert!(
@@ -900,7 +857,8 @@ fn run_fuse_z80_reference_suite() {
         );
     }
 
-    if let Some(limit) = selected_case_limit() {
+    if let Some(limit) = limit {
+        assert!(limit > 0, "FUSE case limit must be greater than zero");
         inputs.truncate(limit);
         expected.truncate(limit);
     }
@@ -998,6 +956,7 @@ fn run_fuse_z80_reference_suite() {
         } else if let Some(expected_labels) = accepted_disagreement_labels(&input.name) {
             let actual_labels = mismatch_labels(&errors);
             if actual_labels == expected_labels {
+                eprintln!("accepted {}: {}", input.name, errors.join("; "));
                 accepted += 1;
             } else {
                 fail += 1;
@@ -1032,4 +991,41 @@ fn run_fuse_z80_reference_suite() {
         accepted, expected_accepted,
         "accepted FUSE disagreement count changed"
     );
+}
+
+#[test]
+#[should_panic(expected = "FUSE corpus contains no cases")]
+fn rejects_empty_fuse_corpus() {
+    run_fuse_cases(parse_tests_in(""), parse_tests_expected(""), None, None);
+}
+
+fn inline_nop_case() -> (Vec<FuseInput>, Vec<FuseExpected>) {
+    (
+        parse_tests_in(
+            "00\n0000 0000 0000 0000 0000 0000 0000 0000 0000 0000 0000 0000 0000\n00 00 0 0 0 0 1\n0000 00 -1\n-1\n",
+        ),
+        parse_tests_expected(
+            "00\n    0 MC 0000\n    4 MR 0000 00\n0000 0000 0000 0000 0000 0000 0000 0000 0000 0000 0000 0001 0000\n00 01 0 0 0 0 4\n\n",
+        ),
+    )
+}
+
+#[test]
+#[should_panic(expected = "FUSE case limit must be greater than zero")]
+fn rejects_zero_fuse_limit() {
+    let (inputs, expected) = inline_nop_case();
+    run_fuse_cases(inputs, expected, None, Some(0));
+}
+
+#[test]
+#[should_panic(expected = "no FUSE case named 'missing' was found")]
+fn rejects_unmatched_fuse_selection() {
+    let (inputs, expected) = inline_nop_case();
+    run_fuse_cases(inputs, expected, Some("missing"), None);
+}
+
+#[test]
+fn single_fuse_case_is_valid_coverage() {
+    let (inputs, expected) = inline_nop_case();
+    run_fuse_cases(inputs, expected, Some("00"), Some(1));
 }

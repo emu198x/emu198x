@@ -38,6 +38,14 @@ Default locations are searched only when the variable is unset. Existing
 harness failure/skip policies still apply; use `EMU198X_STRICT_FIXTURES=1`
 when reproducing nightly validation.
 
+The Z80 Tom Harte gate requires at least one opcode JSON file and at least
+one case in every file. Directory enumeration errors fail the run. FUSE
+requires a nonempty corpus and a positive case limit; a named selection must
+match a case. Deliberate single-case runs remain supported. These checks
+prevent zero-case passes; they do not establish that a partial corpus is complete.
+See [FUSE validation coverage](fuse-z80-validation.md) for the measured scope
+and accepted disagreements.
+
 ## The Spectrum line boots its own firmware
 
 Almost every machine here needs its manufacturer's ROM to reach a prompt, and
