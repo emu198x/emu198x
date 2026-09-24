@@ -11,6 +11,7 @@
 pub mod alu;
 pub mod disasm;
 mod execute;
+mod interrupt_sample;
 pub mod mcycle;
 mod nmi;
 pub mod registers;
