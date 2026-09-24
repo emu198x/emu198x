@@ -21,5 +21,6 @@ pub use disasm::disassemble;
 pub use registers::Registers;
 pub use stepper::Z80Stepper;
 pub use z80::{
-    BusOp, ExecutionEvent, ExecutionFlow, ExecutionKind, IO_READ_DATA_LATCH_LEAD_TSTATES, Z80,
+    BusOp, ExecutionEvent, ExecutionFlow, ExecutionKind, IO_READ_DATA_LATCH_LEAD_HALF_CYCLES,
+    IO_READ_DATA_LATCH_LEAD_TSTATES, Z80,
 };

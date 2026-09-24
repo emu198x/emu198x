@@ -317,40 +317,17 @@ pub enum IoPhase {
     T4Fall,
 }
 
-/// T-states between the `/IORQ` assertion edge and the instant the CPU
-/// latches the data bus, for an I/O read.
-///
-/// A host that dispatches from [`Z80::bus_request`] is told about an I/O
-/// read on the `/IORQ` *rising* edge, because that is the one edge in the
-/// cycle a level-driven strobe can be collapsed to. A peripheral holding
-/// a steady value across the cycle does not care. A bus whose value moves
-/// within the cycle — the Spectrum's floating bus is the only one we
-/// model — does, and needs to know how far ahead of it the latch sits.
-///
-/// It is fixed M-cycle geometry, not a per-machine tuning. `/IORQ` and
-/// `/RD` drop on `T2`↓ (Zilog UM0080's input cycle; `tick_io_read`) and
-/// the cycle ends on its last half-cycle, where `advance_to_next_step`
-/// calls `Walker::latch_read`. In this state machine's phase names that
-/// is `T2Fall` to `T4Fall` — four half-cycles, **two T-states** — and
-/// nothing about the host, the variant or the port can change it.
-///
-/// Two independent references put the latch at the same place:
-///
-/// - **SpecIde**, the other signal-level Z80 in the tree, calls
-///   `readIo(d)` from `ST_IORD_T3L_DATARD`
-///   (`198x/emulators/zx-spectrum/SpecIde/source/src/Z80.cc`) — the low
-///   half of `T3`, which with the automatic wait state is the last
-///   half-cycle of the four.
-/// - **FUSE** charges `ula_contend_port_early` (one T-state) and
-///   `ula_contend_port_late` (two more) *before* calling
-///   `readport_internal`, and only then the closing `tstates++`
-///   (`fuse-emulator-fuse/periph.c`). So it samples at cycle start + 3
-///   where the `/IORQ` edge is at cycle start + 1: a gap of two.
-///
-/// Locked by `zilog-z80`'s `bus_pin_waveform` golden, which re-derives
-/// this number from the recorded I/O-read waveform rather than restating
-/// it.
-pub const IO_READ_DATA_LATCH_LEAD_TSTATES: u32 = 2;
+/// Half-cycles from I/O read assertion (T2 rising) to the data latch
+/// (final T3 falling, named T4Fall because of automatic TW).
+/// Derived from the pinned die-level waveform; see the bus-pin tests.
+pub const IO_READ_DATA_LATCH_LEAD_HALF_CYCLES: u32 = 5;
+
+/// Whole-T-state projection retained for existing coarse raster predictors.
+/// This truncates the five-half-cycle CPU lead; it is not an exact elapsed
+/// duration. Consumers requiring edge precision must retain half-cycle phase
+/// and use `IO_READ_DATA_LATCH_LEAD_HALF_CYCLES`. Contention can add raster
+/// time beyond either fixed CPU-time lead.
+pub const IO_READ_DATA_LATCH_LEAD_TSTATES: u32 = IO_READ_DATA_LATCH_LEAD_HALF_CYCLES / 2;
 
 #[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct InternalPhase {
@@ -916,18 +893,16 @@ impl Z80 {
                 self.phase = Phase::MemRead(MemPhase::T2Fall);
             }
             MemPhase::T2Fall => {
-                // data_in has been set by the machine. `/MREQ` and `/RD`
-                // stay low to the end of `T3` — Zilog UM0080's memory-read
-                // diagram releases them on the edge that ends the cycle,
-                // which is the next M-cycle's `T1`↑. SpecIde does the same:
-                // `ST_MEMRD_T1L_ADDRWR` asserts them and
-                // `ST_MEMRD_T3L_DATARD` is where they go back high.
+                // Keep strobes asserted until T3 falling. The machine has
+                // supplied data before that final edge latches the read.
                 self.phase = Phase::MemRead(MemPhase::T3Rise);
             }
             MemPhase::T3Rise => {
                 self.phase = Phase::MemRead(MemPhase::T3Fall);
             }
             MemPhase::T3Fall => {
+                self.mreq = false;
+                self.rd = false;
                 // M-cycle complete — advance walker
                 self.advance_to_next_step();
             }
@@ -965,11 +940,13 @@ impl Z80 {
                 self.phase = Phase::MemWrite(MemPhase::T3Rise);
             }
             MemPhase::T3Rise => {
-                // Both strobes run to the end of `T3`. The next M-cycle's
-                // `T1`↑ releases them.
+                // Release on T3 falling, half a T-state before the next
+                // cycle can change the address/data (Zilog UM0080).
                 self.phase = Phase::MemWrite(MemPhase::T3Fall);
             }
             MemPhase::T3Fall => {
+                self.mreq = false;
+                self.wr = false;
                 // M-cycle complete — advance walker (no data to latch for writes)
                 self.walker.advance();
                 self.try_advance_walker();
@@ -1012,6 +989,8 @@ impl Z80 {
                 self.phase = Phase::Contend(MemPhase::T3Fall);
             }
             MemPhase::T3Fall => {
+                self.mreq = false;
+                self.rd = false;
                 self.walker.advance();
                 self.try_advance_walker();
             }
@@ -1032,17 +1011,12 @@ impl Z80 {
                 self.phase = Phase::IoRead(IoPhase::T2Rise);
             }
             IoPhase::T2Rise => {
+                self.iorq = true;
+                self.rd = true;
                 self.phase = Phase::IoRead(IoPhase::T2Fall);
             }
             IoPhase::T2Fall => {
-                // `/IORQ` and `/RD` drop on `T2`↓ — half a clock later than
-                // a memory cycle's, which is what gives a peripheral the
-                // extra decode time the automatic wait state exists for.
-                // They run to the end of the cycle. Note the phase names:
-                // an I/O cycle is `T1`, `T2`, `TW`, `T3`, so `T3Rise` here
-                // is Zilog's `TW`↑ and `T4Fall` is `T3b`.
-                self.iorq = true;
-                self.rd = true;
+                // Strobes asserted at T2 rising remain active through TW.
                 if self.wait {
                     return; // I/O wait state
                 }
@@ -1058,6 +1032,8 @@ impl Z80 {
                 self.phase = Phase::IoRead(IoPhase::T4Fall);
             }
             IoPhase::T4Fall => {
+                self.iorq = false;
+                self.rd = false;
                 self.advance_to_next_step();
             }
         }
@@ -1078,12 +1054,12 @@ impl Z80 {
                 self.phase = Phase::IoWrite(IoPhase::T2Rise);
             }
             IoPhase::T2Rise => {
+                self.iorq = true;
+                self.wr = true;
                 self.phase = Phase::IoWrite(IoPhase::T2Fall);
             }
             IoPhase::T2Fall => {
-                // As for the read: `T2`↓ to the end of the cycle.
-                self.iorq = true;
-                self.wr = true;
+                // Strobes asserted at T2 rising remain active through TW.
                 if self.wait {
                     return;
                 }
@@ -1099,6 +1075,8 @@ impl Z80 {
                 self.phase = Phase::IoWrite(IoPhase::T4Fall);
             }
             IoPhase::T4Fall => {
+                self.iorq = false;
+                self.wr = false;
                 self.walker.advance();
                 self.try_advance_walker();
             }

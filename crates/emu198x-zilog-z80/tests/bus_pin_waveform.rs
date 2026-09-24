@@ -16,43 +16,27 @@
 //! on `T1Fall` is therefore low from the falling edge of `T1`, which is how
 //! Zilog draws it.
 //!
-//! A strobe that runs to *the end of* its last T-state has no handler of
-//! its own to release it: the releasing clock edge is the next M-cycle's
-//! `T1Rise`. So "still asserted on the last row of the cycle" is the
-//! correct rendering of "released at the end of `T3`", not a leak.
+//! ## Reference
 //!
-//! ## The reference
+//! Zilog UM0080 memory-cycle prose requires WR to release half a T-state
+//! before the address/data change. The pinned die-derived comparison in
+//! `test-data/z80-repeat-phase-validation.md` and SpecIde's explicit states
+//! corroborate memory release at T3 falling and I/O assertion at T2 rising.
 //!
-//! Zilog UM0080 (*Z80 CPU User Manual*), the timing diagrams for the
-//! opcode-fetch, memory read/write and input/output cycles.
+//! | cycle | strobe | asserted during |
+//! |---|---|---|
+//! | M1 opcode | MREQ, RD | T1b–T2b |
+//! | M1 refresh | RFSH | T3a–T4b |
+//! | M1 refresh | MREQ | T3b–T4a |
+//! | memory read | MREQ, RD | T1b–T3a |
+//! | memory write | MREQ | T1b–T3a |
+//! | memory write | WR | T2b–T3a |
+//! | I/O | IORQ and RD/WR | T2a–final T3a, including automatic TW |
 //!
-//! | cycle | strobe | Zilog | asserted during |
-//! |---|---|---|---|
-//! | `M1` opcode | `/MREQ`, `/RD` | `T1`↓ → `T3`↑ | `T1b`–`T2b` |
-//! | `M1` refresh | `/RFSH` | `T3`↑ → next `T1`↑ | `T3a`–`T4b` |
-//! | `M1` refresh | `/MREQ` | `T3`↓ → `T4`↓ | `T3b`–`T4a` |
-//! | memory read | `/MREQ`, `/RD` | `T1`↓ → end of `T3` | `T1b`–`T3b` |
-//! | memory write | `/MREQ` | `T1`↓ → end of `T3` | `T1b`–`T3b` |
-//! | memory write | `/WR` | `T2`↓ → end of `T3` | `T2b`–`T3b` |
-//! | I/O | `/IORQ` + `/RD`\|`/WR` | `T2`↓ → end of `T3` | `T2b`–`T3b`, over `T2`/`TW`/`T3` |
-//!
-//! The I/O cycle's automatic wait state means its four T-states are `T1`,
-//! `T2`, `TW`, `T3`; this state machine names them `T1`–`T4`, so a row
-//! reading `IoRead(T3Fall)` is Zilog's `TWb` and `IoRead(T4Fall)` is `T3b`.
-//!
-//! ## Departures
-//!
-//! None outstanding. Every strobe above matches the reference, each
-//! address is presented on its own cycle's `T1`↑, and an internal cycle
-//! drives nothing at all.
-//!
-//! Where the table and this engine disagree with SpecIde, the only other
-//! signal-level Z80 in the tree, it is in two places and Zilog governs both:
-//! SpecIde runs the `M1` `/MREQ` as one continuous pulse from `T1b` to
-//! `T4a` where Zilog has two, separated by `T3a`; and it drops `/IORQ` on
-//! `T2`↑ where Zilog draws `T2`↓. The first is invisible on a Spectrum,
-//! whose refresh address is uncontended; the second is half a T-state of
-//! I/O contention and is not.
+//! This engine names the I/O states T1–T4; T3 is the automatic TW and T4
+//! is the final T3. No cycle duration changes follow from correcting edges.
+//! Selected no-WAIT traces establish these strobes, not exhaustive silicon
+//! equivalence or exact internal register writeback timing.
 //!
 //! ```sh
 //! cargo test -p zilog-z80 --test bus_pin_waveform
@@ -137,11 +121,8 @@ fn memory_write_waveform() -> String {
 
 /// `INC BC` — `M1` then two internal T-states with no bus activity.
 ///
-/// The case that catches a leak. A strobe released "at the end of its last
-/// T-state" has no handler of its own to release it — the next M-cycle's
-/// `T1Rise` does that. An internal cycle has no `T1Rise`, so a strobe left
-/// asserted into one stays asserted, and on a Spectrum the ULA would go on
-/// reading it as a live access.
+/// Internal cycles must not extend memory or I/O strobes from the preceding
+/// cycle. Their address bus retains the last driven address.
 fn internal_cycle_waveform() -> String {
     waveform(&[0x03], |c| c.regs.pc = 0x4000, 14)
 }
@@ -251,7 +232,7 @@ fn memory_read_bus_pins() {
             "10  MemRead(T2Rise)    5000  MREQ RD\n",
             "11  MemRead(T2Fall)    5000  MREQ RD\n",
             "12  MemRead(T3Rise)    5000  MREQ RD\n",
-            "13  MemRead(T3Fall)    5000  MREQ RD\n",
+            "13  MemRead(T3Fall)    5000\n",
         )
     );
 }
@@ -274,7 +255,7 @@ fn memory_write_bus_pins() {
             "10  MemWrite(T2Rise)   5000  MREQ\n",
             "11  MemWrite(T2Fall)   5000  MREQ WR\n",
             "12  MemWrite(T3Rise)   5000  MREQ WR\n",
-            "13  MemWrite(T3Fall)   5000  MREQ WR\n",
+            "13  MemWrite(T3Fall)   5000\n",
         )
     );
 }
@@ -302,12 +283,12 @@ fn io_read_bus_pins() {
             "15  M1(T4Fall)         0001  RFSH\n",
             "16  IoRead(T1Rise)     C0FE\n",
             "17  IoRead(T1Fall)     C0FE\n",
-            "18  IoRead(T2Rise)     C0FE\n",
+            "18  IoRead(T2Rise)     C0FE  IORQ RD\n",
             "19  IoRead(T2Fall)     C0FE  IORQ RD\n",
             "20  IoRead(T3Rise)     C0FE  IORQ RD\n",
             "21  IoRead(T3Fall)     C0FE  IORQ RD\n",
             "22  IoRead(T4Rise)     C0FE  IORQ RD\n",
-            "23  IoRead(T4Fall)     C0FE  IORQ RD\n",
+            "23  IoRead(T4Fall)     C0FE\n",
         )
     );
 }
@@ -315,21 +296,11 @@ fn io_read_bus_pins() {
 /// The floating-bus sample instant, re-derived from the waveform above.
 ///
 /// A host dispatching from `bus_request` learns about an I/O read on the
-/// `/IORQ` rising edge, but the CPU latches the data bus at the end of the
-/// M-cycle. A bus whose value moves within the cycle — the Spectrum's
-/// floating bus — has to be read at the latch, so the gap between the two
-/// is a number the Spectrum crates depend on. It lived there for a year as
-/// two hand-fitted `SAMPLE_LEAD` constants, 2 on the 48K and 3 on the
-/// 128K, neither of which was derived and both of which were fitted
-/// against an `/IORQ` edge that has since moved.
-///
-/// So this reads it off the pins rather than restating it. The assertion
-/// is not "the constant is 2" — it is "the constant is what the recorded
-/// waveform says", which is a different claim and the one worth locking.
-/// If a later change to `tick_io_read` moves either edge, the golden above
-/// fails *and* this recomputes, so the constant cannot silently go stale.
+/// assertion edge precedes the latch by five half-cycles. The last tick
+/// consumes data supplied before the falling edge and releases IORQ/RD on
+/// that edge; the post-tick pins therefore show an inactive strobe.
 #[test]
-fn io_read_data_latch_lead_is_two_tstates() {
+fn io_read_data_latch_lead_is_five_halfcycles() {
     let rows: Vec<(usize, String, bool)> = io_read_waveform()
         .lines()
         .filter_map(|line| {
@@ -364,29 +335,14 @@ fn io_read_data_latch_lead_is_two_tstates() {
          not where the data is latched — re-derive this from `tick_io_read` \
          before trusting the lead below"
     );
+    assert!(!latch_iorq, "IORQ releases on the latch edge");
     assert!(
-        latch_iorq,
-        "/IORQ is released before the latch half-cycle, so the CPU would be \
-         latching a bus no peripheral is being asked to drive"
-    );
-
-    let halfcycles = latch - edge;
-    assert_eq!(
-        halfcycles % 2,
-        0,
-        "the edge and the latch fall on opposite clock phases ({halfcycles} \
-         half-cycles apart), so the gap is not a whole number of T-states \
-         and a T-state-resolution sample lead cannot express it"
+        rows[rows.len() - 2].2,
+        "data is driven before the latch edge"
     );
     assert_eq!(
-        (halfcycles / 2) as u32,
-        emu198x_zilog_z80::IO_READ_DATA_LATCH_LEAD_TSTATES,
-        "the waveform puts the data latch {} T-states after the /IORQ edge, \
-         not the {} `IO_READ_DATA_LATCH_LEAD_TSTATES` claims. The constant \
-         is derived from this cycle's geometry — update it here, in this \
-         commit, with the pin change that moved it.",
-        halfcycles / 2,
-        emu198x_zilog_z80::IO_READ_DATA_LATCH_LEAD_TSTATES,
+        (latch - edge) as u32,
+        emu198x_zilog_z80::IO_READ_DATA_LATCH_LEAD_HALF_CYCLES
     );
 }
 
@@ -413,12 +369,12 @@ fn io_write_bus_pins() {
             "15  M1(T4Fall)         0001  RFSH\n",
             "16  IoWrite(T1Rise)    C0FE\n",
             "17  IoWrite(T1Fall)    C0FE\n",
-            "18  IoWrite(T2Rise)    C0FE\n",
+            "18  IoWrite(T2Rise)    C0FE  IORQ WR\n",
             "19  IoWrite(T2Fall)    C0FE  IORQ WR\n",
             "20  IoWrite(T3Rise)    C0FE  IORQ WR\n",
             "21  IoWrite(T3Fall)    C0FE  IORQ WR\n",
             "22  IoWrite(T4Rise)    C0FE  IORQ WR\n",
-            "23  IoWrite(T4Fall)    C0FE  IORQ WR\n",
+            "23  IoWrite(T4Fall)    C0FE\n",
         )
     );
 }
@@ -464,7 +420,7 @@ fn contend_cycle_bus_pins() {
             "10  Contend(T2Rise)    4001  MREQ RD\n",
             "11  Contend(T2Fall)    4001  MREQ RD\n",
             "12  Contend(T3Rise)    4001  MREQ RD\n",
-            "13  Contend(T3Fall)    4001  MREQ RD\n",
+            "13  Contend(T3Fall)    4001\n",
         )
     );
 }
@@ -495,13 +451,13 @@ fn internal_after_write_bus_pins() {
             "18  MemRead(T2Rise)    5000  MREQ RD\n",
             "19  MemRead(T2Fall)    5000  MREQ RD\n",
             "20  MemRead(T3Rise)    5000  MREQ RD\n",
-            "21  MemRead(T3Fall)    5000  MREQ RD\n",
+            "21  MemRead(T3Fall)    5000\n",
             "22  MemWrite(T1Rise)   6000\n",
             "23  MemWrite(T1Fall)   6000  MREQ\n",
             "24  MemWrite(T2Rise)   6000  MREQ\n",
             "25  MemWrite(T2Fall)   6000  MREQ WR\n",
             "26  MemWrite(T3Rise)   6000  MREQ WR\n",
-            "27  MemWrite(T3Fall)   6000  MREQ WR\n",
+            "27  MemWrite(T3Fall)   6000\n",
             "28  Internal(4)        6000\n",
             "29  Internal(3)        6000\n",
             "30  Internal(2)        6000\n",

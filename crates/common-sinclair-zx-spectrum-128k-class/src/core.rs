@@ -380,12 +380,12 @@ impl<V: Class128kVariant> Spectrum128kClassCore<V> {
             // read path. It is one T-state later than libspectrum's
             // `top_left_pixel` (14362): Mark Woodmass's hardware-derived
             // table places the 128K's first floating-bus byte at 14364, and
-            // 14363 plus the Z80's two-T-state latch lead makes Float128K
+            // 14363 plus the whole-T-state projection of the CPU lead makes Float128K
             // observe that byte at 14364. The live ULA bus itself remains
             // anchored to libspectrum and is byte-exact there; this constant
             // describes when the CPU samples it, as the 48K core's separate
             // read origin does.
-            // The lead onto it is the I/O M-cycle's own geometry, shared
+            // The exact CPU lead is five half-cycles. This coarse projection is shared
             // with every other variant; see
             // `IO_READ_DATA_LATCH_LEAD_TSTATES` and the 48K-class core,
             // which applies the same two constants against
