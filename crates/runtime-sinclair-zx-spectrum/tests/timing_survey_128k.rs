@@ -1,23 +1,13 @@
 //! ZXSpectrum4.net timing survey, 128K edition.
 //!
-//! The 128K has had arrival-resolved differentials against FUSE since
-//! #864 — memory contention at 17 of 375,406, the floating bus byte-exact
-//! — and no program-level oracle at all. Everything real that has ever run
-//! against this machine's timing is HALT2INT128, which is one pass/fail.
+//! Runs the Butler 128K suite in locked 48K paging mode and preserves its
+//! own verdicts. The suite's five failures on early-timing Toastracks are
+//! also reported on physical machines: tests 4, 17, 18, 26 and 33.
+//! This harness requires those exact readings and passes everywhere else,
+//! rather than treating any five failures as acceptable.
 //!
-//! This is the counterpart of `timing_survey.rs`: the same suite, by the
-//! same authors (Richard and Tim Butler), built for the 128K. 35 tests,
-//! each timing a group of opcodes through a `JP (HL)` loop broken only by
-//! the frame interrupt, once through uncontended memory and once through
-//! contended, graded by the suite itself against values recorded on real
-//! hardware.
-//!
-//! Because the suite grades itself, a result here is a *disagreement with
-//! published real-hardware values*, not with a second emulator — rank 2 of
-//! `knowledge/decisions/spectrum-test-oracle-priority.md`, above FUSE.
-//! That matters more on the 128K than it did on the 48K, because the 128K
-//! is where our own two frame anchors disagree by two T-states and the
-//! only oracle spanning them is a community-reference constant.
+//! Hardware attribution, table selection and scope are documented in
+//! `test-data/spectrum-128k-timing-profile-validation.md`.
 //!
 //! Run:
 //!
@@ -212,13 +202,81 @@ fn the_suite_runs_in_48k_paging_mode() {
     );
 }
 
-/// Run all 35 tests and record every case, contended and uncontended.
-///
-/// Fails only on harness problems — a missing or altered fixture, a test
-/// that never completes. A *disagreement* is data, not an error: a graded
-/// survey exists to report where the machine differs, and turning any
-/// single case into an assertion here would collapse it into the binary
-/// gate it replaces.
+/// Published Issue 6K and 6U Toastrack results, attributed to Brendon Alford:
+/// https://github.com/redcode/ZXSpectrum/wiki/ZX-Spectrum-Timing-Tests-128K
+/// Tuples contain test number, R, loop count and saved IRQ return address.
+/// The suite labels the last field `sp`; it is not the live stack pointer.
+const EARLY_TOASTRACK_READINGS: [(usize, i64, i64, i64); 5] = [
+    (4, 6, 174, 23305),
+    (17, 22, 203, 23335),
+    (18, 22, 203, 23335),
+    (26, 75, 147, 23345),
+    (33, 119, 196, 23315),
+];
+
+/// Completeness is checked separately after the report is written.
+fn early_toastrack_mismatches(cases: &[CaseResult]) -> Vec<String> {
+    let mut mismatches = Vec::new();
+    for case in cases {
+        let expected = EARLY_TOASTRACK_READINGS
+            .iter()
+            .find(|(test, _, _, _)| case.mode == "Contended" && case.test == *test);
+        if let Some((_, r, loops, return_address)) = expected {
+            let readings = std::collections::BTreeMap::from([
+                ("r".to_owned(), *r),
+                ("loop".to_owned(), *loops),
+                ("sp".to_owned(), *return_address),
+            ]);
+            if case.verdict != "fail" || case.measured != readings {
+                mismatches.push(format!(
+                    "test {} {} differs from early Toastrack hardware: \
+                     {:?} {:?}, expected suite fail with {readings:?}",
+                    case.test, case.mode, case.verdict, case.measured
+                ));
+            }
+        } else if case.verdict != "pass" {
+            mismatches.push(format!(
+                "test {} {}: unexpected suite {:?} outside the early Toastrack exceptions",
+                case.test, case.mode, case.verdict
+            ));
+        }
+    }
+    mismatches
+}
+
+#[test]
+fn early_profile_rejects_changed_readings_even_with_the_same_failure_count() {
+    let mut cases: Vec<CaseResult> = EARLY_TOASTRACK_READINGS
+        .iter()
+        .map(|(test, r, loops, sp)| CaseResult {
+            test: *test,
+            mode: "Contended".to_owned(),
+            description: String::new(),
+            verdict: "fail".to_owned(),
+            measured: std::collections::BTreeMap::from([
+                ("r".to_owned(), *r),
+                ("loop".to_owned(), *loops),
+                ("sp".to_owned(), *sp),
+            ]),
+            expected: std::collections::BTreeMap::new(),
+        })
+        .collect();
+    assert!(early_toastrack_mismatches(&cases).is_empty());
+    cases[0].measured.insert("r".to_owned(), 7);
+    assert_eq!(early_toastrack_mismatches(&cases).len(), 1);
+    cases[0].measured.insert("r".to_owned(), 6);
+    cases[0].test = 5;
+    assert_eq!(early_toastrack_mismatches(&cases).len(), 1);
+    cases[0].test = 4;
+    cases[0].mode = "Uncontended".to_owned();
+    assert_eq!(early_toastrack_mismatches(&cases).len(), 1);
+    cases[0].mode = "Contended".to_owned();
+    cases[0].verdict = "pass".to_owned();
+    assert_eq!(early_toastrack_mismatches(&cases).len(), 1);
+}
+
+/// Record all 68 cases before checking completeness and the early Toastrack
+/// profile. Raw suite failures remain visible in the JSON and console output.
 #[test]
 #[ignore = "FIXTURE: needs the zx-spectrum-tests corpus and 128K ROMs; ~5 min"]
 fn timing_survey_128k_records_every_case() {
@@ -298,6 +356,7 @@ fn timing_survey_128k_records_every_case() {
     cases.sort_by_key(|c| (c.test, c.mode.clone()));
     let failures: Vec<&CaseResult> = cases.iter().filter(|c| c.verdict == "fail").collect();
 
+    let profile_mismatches = early_toastrack_mismatches(&cases);
     let revision = revision();
     let report = serde_json::json!({
         "survey": "zxspectrum4.net-timing-tests-128k",
@@ -308,6 +367,8 @@ fn timing_survey_128k_records_every_case() {
         "tests_covered": TEST_COUNT,
         "cases_recorded": cases.len(),
         "cases_failing": failures.len(),
+        "hardware_profile": "early-toastrack",
+        "hardware_profile_mismatches": profile_mismatches,
         "tests_incomplete": incomplete,
         "cases": cases,
     });
@@ -353,15 +414,6 @@ fn timing_survey_128k_records_every_case() {
         .iter()
         .map(|(t, m)| (*t, (*m).to_owned()))
         .collect();
-    // Both records are scored before either is asserted.
-    //
-    // These used to be two `assert!`s in a row, which meant the first stale
-    // constant hid the second: the never-reported set was wrong, so it
-    // failed, so the ratchet below it never ran — and the ratchet had been
-    // sitting at 10 while the survey scored 8 for long enough that nobody
-    // could say when it changed. A survey that costs ~6.5 minutes gets one
-    // run per night, and that run has to report everything it found, not
-    // the first thing.
     let mut stale = Vec::new();
 
     if missing != known {
@@ -372,33 +424,7 @@ fn timing_survey_128k_records_every_case() {
         ));
     }
 
-    // A ceiling, not a target: lower it in the commit that earns it, never
-    // raise it silently.
-    //
-    // 5 of 68 after the page-aware I/O lookup correction (was 8).
-    // Tests 32 in both modes and 33 uncontended now pass. Test 33
-    // contended has the correct loop count but differs in R and SP;
-    // contended arithmetic tests 4, 17, 18 and 26 remain unchanged.
-    const RATCHET_FAILURES: usize = 5;
-    if failures.len() > RATCHET_FAILURES {
-        stale.push(format!(
-            "128K timing survey regressed: {} of {} cases failing, was \
-             {RATCHET_FAILURES}. The failing cases are listed above. If this \
-             change is right and the suite's expectations are wrong, say which \
-             cases and why, and move the ratchet in the same commit.",
-            failures.len(),
-            cases.len(),
-        ));
-    } else if failures.len() < RATCHET_FAILURES {
-        // Not a failure, but not silent either: an improvement nobody
-        // records is an improvement nobody can defend later.
-        println!(
-            "  RATCHET: {} of {} failing — improved on {RATCHET_FAILURES}. \
-             Lower the constant in this commit.",
-            failures.len(),
-            cases.len()
-        );
-    }
+    stale.extend(profile_mismatches);
 
     assert!(
         stale.is_empty(),
