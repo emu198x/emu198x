@@ -135,10 +135,10 @@ type AcceptedMismatch = (&'static str, u16, u16); // field, observed, reference
 const ACCEPTED_FUSE_DISAGREEMENTS: &[(&str, &[AcceptedMismatch])] = &[
     ("76", &[("PC", 0x0001, 0x0000)]),
     ("edb2_1", &[("AF", 0x8a00, 0x8a0c), ("WZ", 0x0001, 0x0a41)]),
-    ("edb3_1", &[("AF", 0x3403, 0x3417)]),
+    ("edb3_1", &[("AF", 0x3403, 0x3417), ("WZ", 0x0001, 0x02e1)]),
     ("edb9_2", &[("AF", 0xffaf, 0xffa7)]),
     ("edba_1", &[("WZ", 0x0001, 0x069e)]),
-    ("edbb_1", &[("AF", 0x0903, 0x0917)]),
+    ("edbb_1", &[("AF", 0x0903, 0x0917), ("WZ", 0x0001, 0x033a)]),
 ];
 
 fn parse_hex_u16(token: &str) -> u16 {

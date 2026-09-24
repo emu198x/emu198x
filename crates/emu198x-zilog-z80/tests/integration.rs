@@ -2118,3 +2118,55 @@ fn interrupt_im0_open_bus_is_rst_38() {
         "IM 0 open bus (0xFF) should vector to RST 38h"
     );
 }
+
+/// Repeating output overwrites BC-derived WZ with the rewound PC + 1.
+/// Source: David Banks' die-derived OTIR probe, Z80Decoder issue #2;
+/// SpecIde Z80Otir.h/Z80Otdr.h case 8 agrees. Observe a completed 21T
+/// iteration, then let the terminating iteration establish its own WZ.
+#[test]
+fn block_output_wz_at_repeat_and_termination_boundaries() {
+    for (opcode, increment) in [(0xb3, true), (0xbb, false)] {
+        for pc in [0x000d_u16, 0x28ff, 0xffff] {
+            for b in [0_u8, 1, 2, 255] {
+                for c in [0_u8, 0xff] {
+                    let mut z80 = Z80::new();
+                    let mut memory = [0_u8; 65536];
+                    z80.regs.pc = pc;
+                    z80.regs.bc = u16::from_be_bytes([b, c]);
+                    z80.regs.hl = 0x8000;
+                    z80.regs.wz = 0xdead;
+                    memory[usize::from(pc)] = 0xed;
+                    memory[usize::from(pc.wrapping_add(1))] = opcode;
+                    let b_after = b.wrapping_sub(1);
+                    let repeating = b_after != 0;
+                    let hc = if repeating { 42 } else { 32 };
+                    assert_eq!(run(&mut z80, &mut memory, hc), hc);
+                    let final_wz = if increment {
+                        u16::from(c).wrapping_add(1)
+                    } else {
+                        u16::from(c).wrapping_sub(1)
+                    };
+                    assert_eq!(z80.regs.b(), b_after);
+                    assert_eq!(z80.regs.pc, if repeating { pc } else { pc.wrapping_add(2) });
+                    assert_eq!(
+                        z80.regs.wz,
+                        if repeating {
+                            pc.wrapping_add(1)
+                        } else {
+                            final_wz
+                        },
+                        "opcode={opcode:02x} pc={pc:04x} b={b:02x} c={c:02x}"
+                    );
+                    if repeating {
+                        // Continue each remaining iteration: the last takes 16T.
+                        let remaining_hc = (u32::from(b_after) - 1) * 42 + 32;
+                        assert_eq!(run(&mut z80, &mut memory, remaining_hc), remaining_hc);
+                        assert_eq!(z80.regs.b(), 0);
+                        assert_eq!(z80.regs.pc, pc.wrapping_add(2));
+                        assert_eq!(z80.regs.wz, final_wz);
+                    }
+                }
+            }
+        }
+    }
+}

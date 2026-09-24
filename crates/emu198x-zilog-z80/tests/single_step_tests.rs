@@ -82,40 +82,6 @@ fn setup_z80(z80: &mut Z80, state: &State) {
     z80.regs.q = state.q.unwrap_or(0);
 }
 
-/// Accept only the documented repeating OTIR/OTDR WZ disagreement:
-/// our BC-after-output ± 1 versus the corpus's initial PC + 1.
-/// All other state comparisons remain strict. See test-data/harte-z80-validation.md.
-fn accepted_wz_disagreement(opcode_stem: &str, test: &TestCase, errors: &[String]) -> bool {
-    let increment = match opcode_stem.to_ascii_lowercase().as_str() {
-        "ed b3" => true,
-        "ed bb" => false,
-        _ => return false,
-    };
-    if test.initial.b == 1 || test.cycles.len() != 21 {
-        return false; // terminating iterations and other observation points are not exempt
-    }
-    let b_after = test.initial.b.wrapping_sub(1);
-    let bc_after = u16::from_be_bytes([b_after, test.initial.c]);
-    let observed = if increment {
-        bc_after.wrapping_add(1)
-    } else {
-        bc_after.wrapping_sub(1)
-    };
-    let reference = test.initial.pc.wrapping_add(1);
-    if observed == reference
-        || test.final_state.pc != test.initial.pc
-        || test.final_state.b != b_after
-        || test.final_state.c != test.initial.c
-        || test.final_state.wz != reference
-    {
-        return false;
-    }
-    errors
-        == [format!(
-            "WZ: got {observed:#06X}, expected {reference:#06X}"
-        )]
-}
-
 fn check_z80(z80: &Z80, expected: &State, mem: &[u8; 65536]) -> Vec<String> {
     let mut errors = Vec::new();
 
@@ -287,14 +253,8 @@ fn run_opcode_tests(path: &Path) -> (usize, usize, usize, Vec<String>) {
     let data = std::fs::read_to_string(path).expect("Failed to read test file");
     let tests = parse_opcode_tests(&data, path);
 
-    let opcode_stem = path
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or("")
-        .to_string();
-
     let mut pass = 0;
-    let mut accepted = 0;
+    let accepted = 0; // No accepted differences: every compared value is strict.
     let mut fail = 0;
     let mut first_failures = Vec::new();
 
@@ -303,9 +263,6 @@ fn run_opcode_tests(path: &Path) -> (usize, usize, usize, Vec<String>) {
         match result {
             Ok(errors) if errors.is_empty() => {
                 pass += 1;
-            }
-            Ok(errors) if accepted_wz_disagreement(&opcode_stem, test, &errors) => {
-                accepted += 1;
             }
             Ok(errors) => {
                 fail += 1;
@@ -445,68 +402,6 @@ fn synthetic_otir_case() -> TestCase {
         "cycles": vec![serde_json::json!([0, null, "----"]); 21]
     }))
     .expect("synthetic fixture")
-}
-
-#[test]
-fn wz_exception_requires_the_documented_values() {
-    let test = synthetic_otir_case();
-    let accepted = vec!["WZ: got 0x02E1, expected 0x0001".to_string()];
-    assert!(accepted_wz_disagreement("ed b3", &test, &accepted));
-    assert!(!accepted_wz_disagreement(
-        "ed b3",
-        &test,
-        &["WZ: got 0xDEAD, expected 0x0001".to_string()]
-    ));
-    assert!(!accepted_wz_disagreement(
-        "ed b3",
-        &test,
-        &["WZ: got 0x02E1, expected 0xDEAD".to_string()]
-    ));
-    assert!(!accepted_wz_disagreement("ed b3", &test, &[]));
-    let mut extra = accepted.clone();
-    extra.push("AF: got 0x0000, expected 0x0001".to_string());
-    assert!(!accepted_wz_disagreement("ed b3", &test, &extra));
-    assert!(!accepted_wz_disagreement("ed b2", &test, &accepted));
-}
-
-#[test]
-fn wz_exception_requires_a_repeating_observation() {
-    let mut test = synthetic_otir_case();
-    let errors = vec!["WZ: got 0x02E1, expected 0x0001".to_string()];
-    test.cycles.pop();
-    assert!(!accepted_wz_disagreement("ed b3", &test, &errors));
-    test.cycles.push(Cycle(Some(0), None, "----".to_string()));
-    test.initial.b = 1;
-    assert!(!accepted_wz_disagreement("ed b3", &test, &errors));
-    test.initial.b = 3;
-    test.final_state.pc = 2;
-    assert!(!accepted_wz_disagreement("ed b3", &test, &errors));
-}
-
-#[test]
-fn wz_exception_handles_otdr_and_wrapping_pc() {
-    let mut test = synthetic_otir_case();
-    test.initial.pc = 0xffff;
-    test.final_state.pc = 0xffff;
-    test.final_state.wz = 0;
-    assert!(accepted_wz_disagreement(
-        "ed bb",
-        &test,
-        &["WZ: got 0x02DF, expected 0x0000".to_string()]
-    ));
-    // B=0 repeats after wrapping to 255; output WZ can also wrap.
-    test.initial.b = 0;
-    test.initial.c = 255;
-    test.initial.pc = 0;
-    test.final_state.pc = 0;
-    test.final_state.b = 255;
-    test.final_state.c = 255;
-    test.final_state.wz = 1;
-    assert!(accepted_wz_disagreement(
-        "ed b3",
-        &test,
-        &["WZ: got 0x0000, expected 0x0001".to_string()]
-    ));
 }
 
 #[test]
