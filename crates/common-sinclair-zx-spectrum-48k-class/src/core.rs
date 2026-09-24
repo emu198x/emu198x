@@ -539,8 +539,10 @@ impl<M: MemoryBus, V: Variant48kClass> SpectrumMachineCore<M, V> {
     /// M-cycle. The floating bus moves within that gap, so it has to be
     /// read at the latch, not at the edge.
     ///
-    /// The gap is [`IO_READ_DATA_LATCH_LEAD_TSTATES`], **derived from the
-    /// I/O M-cycle's geometry and shared by every variant**. It used to be
+    /// The coarse predictor uses [`IO_READ_DATA_LATCH_LEAD_TSTATES`], the
+    /// whole-T-state projection of a five-half-cycle CPU lead. It does not
+    /// retain sub-T-state phase or account for later contention stalls.
+    /// The projection is shared by every variant. It used to be
     /// a `SAMPLE_LEAD` fitted here and a second one fitted in the
     /// 128K-class core, which is how the same one-T-state error came to be
     /// hidden twice over (#851).

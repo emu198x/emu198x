@@ -2249,3 +2249,41 @@ fn halted_fetch_and_nmi_return_use_post_halt_address() {
     }
     panic!("NMI response did not retire");
 }
+
+#[test]
+fn repeat_snapshots_resume_from_every_halfcycle_with_identical_pins() {
+    for (op, af, bc, hl, pc, data) in [
+        (0xb2, 0x8a34, 0x0a40, 0x37ce, 0, 0),
+        (0xba, 0x2567, 0x069f, 0x6b55, 0, 0),
+        (0xb3, 0x34ab, 0x03e0, 0x1d7c, 0, 0x9d),
+        (0xbb, 0x09c4, 0x043b, 0x1dd0, 0, 0xb6),
+        (0xb9, 0xffcd, 0x0008, 0xc749, 0x7a45, 0x6c),
+    ] {
+        for offset in 0..=42 {
+            let mut cpu = Z80::new();
+            let mut memory = [0u8; 65536];
+            cpu.regs.af = af;
+            cpu.regs.bc = bc;
+            cpu.regs.hl = hl;
+            cpu.regs.pc = pc;
+            memory[usize::from(pc)] = 0xed;
+            memory[usize::from(pc + 1)] = op;
+            memory[usize::from(hl)] = data;
+            run(&mut cpu, &mut memory, offset);
+            let saved = postcard::to_allocvec(&cpu).expect("encode snapshot");
+            let mut restored: Z80 = postcard::from_bytes(&saved).expect("decode snapshot");
+            restored.rehydrate_walker_sequence();
+            let mut restored_memory = memory;
+            for _ in offset..84 {
+                run(&mut cpu, &mut memory, 1);
+                run(&mut restored, &mut restored_memory, 1);
+                assert_eq!(
+                    postcard::to_allocvec(&cpu).expect("encode control"),
+                    postcard::to_allocvec(&restored).expect("encode restored"),
+                    "opcode {op:02x}, snapshot at half-cycle {offset}"
+                );
+                assert_eq!(memory, restored_memory);
+            }
+        }
+    }
+}
