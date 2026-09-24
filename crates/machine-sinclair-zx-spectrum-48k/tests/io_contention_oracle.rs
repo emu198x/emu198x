@@ -32,7 +32,7 @@
 //!
 //! ## What it says now
 //!
-//! Zero of 297,222, all five classes, at the interrupt-pinned origin. The
+//! Zero of 297,222, all five classes, at the pattern-coordinate origin. The
 //! gate charges a *count* of lookups at FUSE's offsets rather than holding
 //! a level; see
 //! `knowledge/decisions/io-contention-is-a-count-not-a-level.md`.
@@ -353,30 +353,10 @@ fn mismatches(samples: &[(u32, u32)], port: u16, offset: i32) -> usize {
 /// A scored port class: name, port, FUSE shape, and its raw samples.
 type Scored = (&'static str, u16, &'static str, Vec<(u32, u32)>);
 
-/// Add this to an engine frame T-state to get FUSE's.
-///
-/// **Measured, not fitted.** `the_frame_origin_is_pinned_by_the_interrupt`
-/// establishes it from the one event both implementations define
-/// identically and neither derives from contention: the `/INT` edge. FUSE
-/// asserts the interrupt at frame T-state 0 — `spectrum_frame()` subtracts
-/// a frame from `tstates` and `z80_interrupt()` runs immediately after,
-/// with `/INT` held while `tstates < interrupt_length`. The engine asserts
-/// it at its own T-state 55553, and 69888 - 55553 = 14335.
-///
-/// This matters more than it looks. Fitting the offset makes it a free
-/// parameter, and a free parameter absorbs exactly the error this harness
-/// exists to find: a gate deciding one T-state late is indistinguishable
-/// from an origin one T-state early. That is not hypothetical — wiring the
-/// `MREQT23` latch moved the *fitted* winner from +14335 to +14334 while
-/// the raster it supposedly describes had not moved at all, and the shift
-/// was hiding a real +1 T-state regression on every contended `M1` pair.
-///
-/// Two further readings agree at the same anchor: the engine holds `/INT`
-/// for 32 T-states, which is `interrupt_length` for the Ferranti 5C/6C in
-/// libspectrum's `timings.c`; and +14335 puts the engine's T-state 1 at
-/// FUSE's `top_left_pixel` of 14336, one T-state after the contention
-/// window opens, which is where `FIRST_DISPLAY` already had it.
-const ORIGIN: i32 = 14335;
+/// FUSE's first bus byte is 14338; the physical counter exposes it at
+/// T=4 (C=8). Transaction coordinates therefore add 14338-4.
+/// This mapping is separate from the /INT pin edge.
+const ORIGIN: i32 = 14334;
 
 /// The origin to score against: pinned by default, fitted on request.
 ///
@@ -417,132 +397,24 @@ fn best_shared_offset(collected: &[Scored]) -> i32 {
         .expect("the fine window is not empty")
 }
 
-/// The frame origin, from the interrupt rather than from a best fit.
-///
-/// Everything phase-resolved in this file rests on mapping the engine's
-/// frame T-state to FUSE's, and for a while that mapping was whatever
-/// minimised disagreement — which is no measurement at all. The `/INT`
-/// edge is a measurement: FUSE's frame T-state 0 *is* the interrupt, and
-/// the engine's raster raises `int_active` at a T-state of its own that
-/// owes nothing to the contention gate.
-///
-/// Runs without a ROM-dependent instruction stream and asserts two things,
-/// either of which can fail: where the edge falls, and how long it lasts.
+/// Physical IRQ edge and pulse width, independent of FUSE pattern coordinates.
 #[test]
 #[ignore = "FIXTURE: needs EMU198X_SPECTRUM_48K_ROM"]
-fn the_frame_origin_is_pinned_by_the_interrupt() {
-    use common_sinclair_zx_spectrum::driver::SpectrumDriver;
+fn the_interrupt_pin_is_pinned_in_master_ticks() {
     use common_sinclair_zx_spectrum::ula::Ula;
-
-    /// `interrupt_length` for `timings_frame_ferranti_5c_6c`, libspectrum
-    /// `timings.c`. FUSE holds `/INT` while `tstates < interrupt_length`.
-    const FUSE_INTERRUPT_LENGTH: u32 = 32;
-
-    let Some(rom) = rom_bytes() else {
-        panic!("set {ROM_PATH_ENV} to the 48K ROM to run this harness");
-    };
     let mut machine = Spectrum48k::new();
-    machine.load_rom_bytes(&rom).expect("48K ROM should load");
-    machine.reset();
-    while machine.tstate_in_frame() != 0 {
-        machine.advance_tstates(1);
-    }
-
-    // Stepped a master tick at a time. Polling with `advance_tstates(1)`
-    // and reading `tstate_in_frame()` afterwards names the T-state *after*
-    // the one the edge fell in, and this test used to do exactly that: it
-    // reported an onset of 55553 where the pin rises at the first master
-    // tick of 55552, and then passed by comparing that one-too-high onset
-    // against an `ORIGIN` that is one too low. Two errors cancelling is
-    // not a measurement. See
-    // `knowledge/decisions/spectrum-contention-vs-floating-bus.md`.
-    let divisor = machine.frame_timing().cpu_divisor;
     let mut edges = Vec::new();
-    let mut prev = machine.ula().interrupt_active();
-    for _ in 0..(FRAME_TSTATES * divisor) {
+    let mut previous = false;
+    for tick in 0..FRAME_TSTATES * 4 {
         machine.advance_halfcycles(1);
-        let now = machine.ula().interrupt_active();
-        if now != prev {
-            // `hc` is already past the tick that moved the pin.
-            edges.push(((machine.hc() - 1) / divisor, now));
+        let active = machine.ula().interrupt_active();
+        if active != previous {
+            edges.push((tick, active));
         }
-        prev = now;
+        previous = active;
     }
-
-    assert_eq!(
-        edges.len(),
-        2,
-        "expected one interrupt assertion and one release per frame, got {edges:?}"
-    );
-    let (onset, rising) = edges[0];
-    let (release, falling) = edges[1];
-    assert!(rising && !falling, "edges out of order: {edges:?}");
-
-    assert_eq!(
-        release - onset,
-        FUSE_INTERRUPT_LENGTH,
-        "the engine holds /INT for {} T-states against FUSE's {FUSE_INTERRUPT_LENGTH}",
-        release - onset
-    );
-    // The interrupt-derived origin, measured rather than fitted.
-    //
-    // FUSE's frame T-state 0 *is* the interrupt: `spectrum_frame()`
-    // subtracts a frame and `z80_interrupt()` runs in the same handler.
-    // So whatever engine T-state raises `/INT` maps onto FUSE's 0, and
-    // the origin is the rest of the frame.
-    let interrupt_origin = FRAME_TSTATES as i32 - onset as i32;
-    println!(
-        "/INT rises at engine T-state {onset}; interrupt-derived origin \
-         {interrupt_origin}; this file scores contention against {ORIGIN}"
-    );
-    // The gap is real and it is recorded, not asserted away.
-    //
-    // This used to assert `interrupt_origin == ORIGIN` and could never pass,
-    // which cost the nightly `contention` job its ability to report anything
-    // else (#944). The two numbers genuinely differ by one T-state, and the
-    // question was always which side was wrong. It is now answered on the
-    // contention side, and the answer is that the contention side is not
-    // wrong:
-    //
-    // `the_arrival_label_and_the_raster_agree_on_the_tstate` scores every
-    // arrival against FUSE's own cost model at both candidate origins, and
-    // the split is not close —
-    //
-    //     $40FE   +14335 -> 0 wrong of 57600     +14336 -> 14592 wrong
-    //     $C0FF   +14335 -> 0 wrong of 63744     +14336 -> 18432 wrong
-    //
-    // Zero, frame-wide, on both a contended and an uncontended port. An
-    // origin that reproduces FUSE exactly is not the thing to move, so
-    // `ORIGIN` stays at 14335 and this test records where the `/INT` edge
-    // actually falls instead of demanding it agree.
-    //
-    // What remains open is which of three things carries the one T-state:
-    // the ULA's assertion instant, this test's convention for naming the
-    // T-state a half-cycle edge falls in, or FUSE's own alignment between
-    // its interrupt event and its contention table.
-    //
-    // Whichever it is, moving the `/INT` edge is not a free action. Every
-    // probe measured in T-states *after the interrupt* moves with it, and
-    // `Float48K` is already one T-state adrift in the other direction —
-    // real hardware prints 14338 (Woody, WoS 17551) where this engine prints
-    // 14337, a residual `float_bus.rs` records and anchors deliberately to
-    // floatspy. Shifting the edge one later to satisfy the contention origin
-    // would take Float48K to 14336, further from silicon rather than closer.
-    // So the cheap fix is ruled out, and this stays a recorded measurement
-    // until something can move all three together.
-    //
-    // Recorded exactly, so it fails in either direction: if the edge moves,
-    // that is news whether or not it moves the way someone hoped.
-    const INTERRUPT_DERIVED_ORIGIN: i32 = 14_336;
-    assert_eq!(
-        interrupt_origin, INTERRUPT_DERIVED_ORIGIN,
-        "the /INT edge moved. It rises at engine T-state {onset}, putting \
-         the interrupt-derived origin at {interrupt_origin}; this file has \
-         been recording {INTERRUPT_DERIVED_ORIGIN} against a contention \
-         `ORIGIN` of {ORIGIN} that scores 0 wrong frame-wide against FUSE \
-         (#944). If this is a fix, move the constant in the same commit and \
-         check `Float48K` with it."
-    );
+    // Counter phase 1, before advance; 32-T pulse.
+    assert_eq!(edges, [(55_552 * 4 + 2, true), (55_584 * 4 + 2, false)]);
 }
 
 /// The reference has to be checked before its readings mean anything.
@@ -669,8 +541,8 @@ fn io_contention_matches_fuse_across_the_whole_frame() {
     println!("\norigin offset {best:+} — {total} of {samples_total} samples disagree");
 
     // The best fit is computed but never adopted. A disagreement between it
-    // and the interrupt-pinned origin is itself the finding: it says the
-    // engine's contention phase has moved relative to its own interrupt.
+    // and the pattern-coordinate origin is itself the finding: it says the
+    // engine's contention phase has moved relative to its physical counter.
     let fitted = best_shared_offset(&collected);
     if fitted != best {
         let fitted_total: usize = collected
@@ -679,7 +551,7 @@ fn io_contention_matches_fuse_across_the_whole_frame() {
             .sum();
         println!(
             "  NOTE: best fit is {fitted:+} ({fitted_total} wrong), not the pinned \
-             {best:+}. The gate's phase has moved against its own interrupt — read \
+             {best:+}. The gate's phase has moved against the physical counter — read \
              that as the result, not as a reason to rescore."
         );
     }

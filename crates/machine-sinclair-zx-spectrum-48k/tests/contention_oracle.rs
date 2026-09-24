@@ -74,34 +74,11 @@ const PATTERN: [u32; 8] = [6, 5, 4, 3, 2, 1, 0, 0];
 /// C0 cycles (half T-states) in one contention period.
 const C0_PERIOD: usize = 16;
 
-/// Offset from the ULA's pixel counter to the canonical C0 index.
-///
-/// Smith derives the wait as `CLKWAIT = C3 + C2` but Chapter 18 declines
-/// to pin the counter's absolute phase, so this number cannot come from
-/// there. It comes from the HDL, where one counter drives both the fetch
-/// and `CLKWAIT`: `hc[3:0]` 8–15 presents display and attribute addresses
-/// to VRAM, ours fetches at pixels 4–11, and the four pixels between them
-/// carry every `hc`-indexed signal across. It is
-/// `ula_engine::HDL_HC_LEAD_PIXELS`, named again here rather than
-/// imported so that a drift between the two shows up as this file's
-/// derivation disagreeing with the gate rather than as both moving
-/// together in silence.
-///
-/// It was 1, pinned by `effective_delay_table` — which measures the gate
-/// against itself and so confirms whatever the table happens to hold. It
-/// held a phase this file's arrival-resolved differential scored 88,871
-/// samples against.
-const SEAM1_C0_ORIGIN: usize = 4;
-
-// No separate sampling correction is applied, and that is deliberate.
-//
-// The whole-T-state version of this harness needed one, because it
-// calibrated its phase against instruction costs. `SEAM1_C0_ORIGIN` is
-// instead pinned by `effective_delay_table`, which samples the gate the
-// same way this harness does — between ticks — so the sampling
-// convention is already inside the origin. Adding a second correction
-// on top double-counts it; measured, it moves every case one T-state
-// the wrong way.
+/// The control edge uses the upcoming counter phase. SpecIde independently
+/// asserts its delay mask at physical pixels 3..14; Smith's C2|C3 expression
+/// is high at phases 4..15. This maps the observation conventions, without
+/// claiming identical HDL scheduling semantics.
+const CONTROL_PHASE_LEAD: usize = 1;
 
 /// Is the wait asserted at canonical C0 index `c0`?
 ///
@@ -413,7 +390,7 @@ fn contention_cost_by_arrival_phase() {
         while spent < FRAME_TSTATES {
             let (_, pixel, video, _, _) = machine.ula().debug_raster();
             // Canonical C0 index, and the T-state phase it falls in.
-            let c0 = ((pixel as usize) + SEAM1_C0_ORIGIN) % C0_PERIOD;
+            let c0 = ((pixel as usize) + CONTROL_PHASE_LEAD) % C0_PERIOD;
             let phase = c0 / 2;
             let canonical = canonical_cost_c0(c0, case.mcycles);
             let measured = step_one_instruction(&mut machine);
@@ -637,26 +614,10 @@ fn measured_frame_runs_the_instruction_under_test() {
 // `contention_cost_by_arrival_phase` prints a table nobody has to read.
 // ---------------------------------------------------------------------
 
-/// Add this to an engine frame T-state to get FUSE's.
-///
-/// **Measured, not fitted**, and measured from the one event both
-/// implementations define identically and neither derives from
-/// contention: the `/INT` edge. FUSE's frame T-state 0 *is* the interrupt
-/// — `spectrum_frame()` subtracts a frame from `tstates` and
-/// `z80_interrupt()` runs immediately after — and the engine raises
-/// `int_active` at a T-state of its own that owes nothing to the gate.
-/// 69888 - 55553 = 14335.
-///
-/// `the_origin_is_pinned_by_the_interrupt` asserts it here rather than
-/// taking `io_contention_oracle`'s word for it; they are separate test
-/// binaries and a constant shared by copying is a constant that drifts.
-///
-/// Fitting this instead would make it a free parameter, and a free
-/// parameter absorbs exactly the error this differential exists to find:
-/// a gate charging one T-state late is indistinguishable from an origin
-/// one T-state early. See `fuse-governs-the-contended-window.md`, whose
-/// drift triggers name the fit by name.
-const ORIGIN: i32 = 14335;
+/// FUSE's first bus byte is 14338; the physical counter exposes it at
+/// T=4 (C=8). Transaction coordinates therefore add 14338-4.
+/// This mapping is separate from the /INT pin edge.
+const ORIGIN: i32 = 14334;
 
 /// FUSE's cost for an instruction arriving at FUSE frame T-state `t`.
 ///
@@ -720,59 +681,24 @@ fn mismatches(samples: &[(u32, u32)], mcycles: &[u32], offset: i32) -> usize {
         .count()
 }
 
-/// The origin, asserted from the interrupt rather than assumed.
-///
-/// Runs without an instruction stream and can fail two ways: where the
-/// edge falls, and how long it is held.
+/// Physical IRQ edge and pulse width, independent of FUSE pattern coordinates.
 #[test]
 #[ignore = "FIXTURE: needs EMU198X_SPECTRUM_48K_ROM"]
-fn the_origin_is_pinned_by_the_interrupt() {
-    /// `interrupt_length` for `timings_frame_ferranti_5c_6c`, libspectrum
-    /// `timings.c`. FUSE holds `/INT` while `tstates < interrupt_length`.
-    const FUSE_INTERRUPT_LENGTH: u32 = 32;
-
-    let Some(rom) = rom_bytes() else {
-        panic!("set {ROM_PATH_ENV} to the 48K ROM to run this harness");
-    };
+fn the_interrupt_pin_is_pinned_in_master_ticks() {
+    use common_sinclair_zx_spectrum::ula::Ula;
     let mut machine = Spectrum48k::new();
-    machine.load_rom_bytes(&rom).expect("48K ROM should load");
-    machine.reset();
-    while machine.tstate_in_frame() != 0 {
-        machine.advance_tstates(1);
-    }
-
     let mut edges = Vec::new();
-    let mut prev = machine.ula().interrupt_active();
-    for _ in 0..FRAME_TSTATES {
-        machine.advance_tstates(1);
-        let now = machine.ula().interrupt_active();
-        if now != prev {
-            edges.push((machine.tstate_in_frame(), now));
+    let mut previous = false;
+    for tick in 0..FRAME_TSTATES * 4 {
+        machine.advance_halfcycles(1);
+        let active = machine.ula().interrupt_active();
+        if active != previous {
+            edges.push((tick, active));
         }
-        prev = now;
+        previous = active;
     }
-
-    assert_eq!(
-        edges.len(),
-        2,
-        "expected one interrupt assertion and one release per frame, got {edges:?}"
-    );
-    let (onset, rising) = edges[0];
-    let (release, falling) = edges[1];
-    assert!(rising && !falling, "edges out of order: {edges:?}");
-    assert_eq!(
-        release - onset,
-        FUSE_INTERRUPT_LENGTH,
-        "the engine holds /INT for {} T-states against FUSE's {FUSE_INTERRUPT_LENGTH}",
-        release - onset
-    );
-    assert_eq!(
-        FRAME_TSTATES as i32 - onset as i32,
-        ORIGIN,
-        "/INT rises at engine T-state {onset}, which puts the origin at {}, \
-         not the {ORIGIN} this file scores against",
-        FRAME_TSTATES as i32 - onset as i32
-    );
+    // Counter phase 1, before advance; 32-T pulse.
+    assert_eq!(edges, [(55_552 * 4 + 2, true), (55_584 * 4 + 2, false)]);
 }
 
 /// Memory contention against FUSE, at every arrival T-state in the frame.

@@ -170,26 +170,14 @@ fn int_asserts_at_canonical_t_state_48k() -> Result<(), Box<dyn Error>> {
 fn int_asserts_at_canonical_t_state_128k() {
     let mut runtime = Spectrum128kRuntime::new(Model::Spectrum128KPal, Spectrum128K::new());
 
-    // Two ULA edges per five master-clock ticks means that after
-    // 282 720 ticks the ULA has advanced 113 088 pixels:
-    // 248 × 456, exactly one ULA edge shy of int_start_pixel = 1.
-    runtime.machine_mut().advance_halfcycles(282_720);
-    assert!(
-        !runtime.machine().z80.irq,
-        "INT must not be asserted before scan 248, pixel 1 on 128K"
-    );
-
-    // The next master-clock tick is phase 0 and fires ULA edge 113 089,
-    // incrementing the pixel counter to 1 and latching int_active. The
-    // engine's `feed_irq` runs in the same half-cycle and propagates
-    // the flag to `z80.irq`.
+    // Counter pixel 5 is evaluated before advance, on master tick 282733.
+    // This pins the physical IRQ edge independently of FUSE read timestamps.
+    runtime.machine_mut().advance_halfcycles(282_732);
+    assert!(!runtime.machine().z80.irq);
     runtime.machine_mut().advance_halfcycles(1);
-    assert!(
-        runtime.machine().z80.irq,
-        "INT must be asserted at scan 248, pixel ≥ 1 on 128K"
-    );
+    assert!(runtime.machine().z80.irq);
 
-    // Sixty-four further ULA edges reach pixel 65. The Sinclair 128K
+    // Sixty-four further ULA edges reach pixel 69. The Sinclair 128K
     // pulse is 36 T-states wide, so it remains asserted here; this is
     // where the Amstrad-class 32-T-state pulse deasserts.
     runtime.machine_mut().advance_halfcycles(160);
@@ -198,7 +186,7 @@ fn int_asserts_at_canonical_t_state_128k() {
         "Sinclair 128K INT must remain active for 36 T-states"
     );
 
-    // Eight more ULA edges reach int_end_pixel = 73. At two edges per
+    // Eight more ULA edges reach int_end_pixel = 77. At two edges per
     // five master ticks, those final four T-states consume 20 ticks.
     runtime.machine_mut().advance_halfcycles(20);
     assert!(
@@ -257,51 +245,16 @@ fn int_asserts_at_canonical_t_state_pentagon() {
     );
 }
 
-/// **Seam 5 waypoint #2:** First display fetch lands on the data bus
-/// at T-state 14338 (48K), the canonical Float48K sample point.
-///
-/// This is the Seam 1 fix made testable. Pre-Seam-1 the first fetch
-/// was at T-14342 (4 T-states late); post-Seam-1 it's at T-14338.
-/// The Float48K probe is the gold-standard third-party verifier and
-/// is now un-gated (no env-var) in
-/// `crates/machine-sinclair-zx-spectrum-48k/tests/float_bus.rs` —
-/// `#[ignore]`'d only because it needs the local 48K ROM and the
-/// `Float48k.tap` fixture. Run via
-/// `cargo test --release -p machine-sinclair-zx-spectrum-48k \
-///   --test float_bus -- --ignored`.
-/// This waypoint asserts the same invariant via the engine's own
-/// `MEM_TABLE` and `fetch_start` constants — a hermetic structural
-/// check that runs on every `cargo test` and doesn't depend on
-/// driving real BASIC code through the probe.
-///
-/// Catches regression: any reshuffle of `MEM_TABLE` /
-/// `IDLE_TABLE` / `fetch_start` that re-introduces the
-/// pre-Seam-1 +4 T-state offset.
+/// Smith's C3-gated fetches and the independent SpecIde memory table
+/// place Sinclair VRAM accesses at counter phases 8/10/12/14.
+/// Hardware tape probes separately validate the instruction-visible timing.
 #[test]
-fn first_display_fetch_phase_matches_seam_1_landed_state() {
+fn display_fetches_match_the_physical_counter() {
     use common_sinclair_zx_spectrum::ula_engine::{CONFIG_48K, MEM_TABLE};
-
-    // Seam 1 landed `fetch_start: 4` — first VRAM fetch happens at
-    // pixel 4 of scan 0, which is T-state 14338 from frame INT (the
-    // canonical Float48K sample point per Smith Chapter 21 p. 227).
-    assert_eq!(
-        CONFIG_48K.fetch_start, 4,
-        "Seam 1: CONFIG_48K.fetch_start must be 4 (pre-Seam-1 was 8); \
-         see knowledge/decisions/spectrum-architecture-review.md"
-    );
-    assert_eq!(
-        CONFIG_48K.fetch_end, 260,
-        "Seam 1: CONFIG_48K.fetch_end must be 260 (pre-Seam-1 was 264)"
-    );
-
-    // MEM_TABLE: fetches at phases 4, 6, 8, 10 (false = fetch active).
+    assert_eq!(CONFIG_48K.fetch_start, 8);
+    assert_eq!(CONFIG_48K.fetch_end, 264);
     let fetch_phases: Vec<usize> = (0..16).filter(|&i| !MEM_TABLE[i]).collect();
-    assert_eq!(
-        fetch_phases,
-        vec![4, 6, 8, 10],
-        "Seam 1: MEM_TABLE fetches must align at phases 4/6/8/10 — \
-         pre-Seam-1 was 8/10/12/14"
-    );
+    assert_eq!(fetch_phases, vec![8, 10, 12, 14]);
 }
 
 /// **Seam 5 waypoint #3:** Floating bus floats outside the active
@@ -551,19 +504,10 @@ fn kempston_attaches_on_first_gamepad_event_128k() -> Result<(), Box<dyn Error>>
 fn contention_table_matches_canonical_for_known_window() {
     use common_sinclair_zx_spectrum::ula_engine::{DELAY_TABLE_48K, DELAY_TABLE_PLUS2A};
 
-    // 48K/128K: contention active for 12 phases (indices 0-11), free on
-    // the 4 that follow the ULA's fetch group (12, 13, 14, 15). Produces
-    // `[6, 5, 4, 3, 2, 1, 0, 0]` once sampled at one entry per T-state —
-    // see contention.md §"48K".
-    //
-    // The free run was at 15, 0, 1, 2 until the table stopped being a
-    // literal and started being `C3 + C2` read on the counter origin the
-    // ULA's own fetch group fixes. Straddling the T-state boundary at
-    // both ends is what let the window's effective phase depend on which
-    // half-cycle the CPU arrived on; whole T-states cannot.
+    // Raw counter mask: C2|C3. Wrappers account for the control-edge phase.
     let expected_48k: [bool; 16] = [
-        true, true, true, true, true, true, true, true, true, true, true, true, false, false,
-        false, false,
+        false, false, false, false, true, true, true, true, true, true, true, true, true, true,
+        true, true,
     ];
     assert_eq!(
         DELAY_TABLE_48K, expected_48k,

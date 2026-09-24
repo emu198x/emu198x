@@ -1,13 +1,13 @@
 # The Z80 samples `/INT` at the instruction boundary
 
-**Status:** **Settled**, 2026-08-17. Adopted on the Spectrum's evidence
-in the first instance, then confirmed on the Amstrad CPC — a machine whose
-`/INT` comes from a gate array rather than a raster — by Longshot's CRTC
-Compendium and by two independent CPC reference emulators. See the two
-cross-machine sections below. It is recorded here, in the CPU's own decision
-folder rather than only in the Spectrum's, because `zilog-z80` is shared and
-the next machine to hit this will not read
-`spectrum-contention-vs-floating-bus.md`.
+**Status:** Superseded, 2026-09-24, by the measured last-T-state rising-edge
+deadline in [the IRQ validation report](../../test-data/z80-irq-deadline-validation.md).
+The implementation retains two half-cycles of IRQ level history and dispatches
+at the boundary. The integrated Spectrum hardware-derived targets pass.
+The CPC phrase "at T4" does not distinguish the rising edge from a later
+arrival within T4; instruction-level event loops do not establish pin timing.
+The following records the reasoning behind the former policy, not current
+CPU behaviour. NMI now has its separately measured eligibility deadline.
 
 ## The decision
 

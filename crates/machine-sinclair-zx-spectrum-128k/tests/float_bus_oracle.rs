@@ -1,78 +1,10 @@
-//! 128K floating-bus differential: the ULA's *live* data bus against
-//! FUSE's model, at every T-state in the frame, on the real machine.
+//! Frame-wide comparison of physical ULA bus bytes with FUSE's pattern.
 //!
-//! The 48K's version of this is what disconfirmed `IDLE_TABLE` and
-//! `MEM_TABLE` as the floatspy suspects and, more usefully, gave that
-//! machine a **second frame anchor** — one built from a frame of screen
-//! bytes, sharing nothing with the interrupt but the raster. The two
-//! agreed exactly, which is what settled the origin there.
-//!
-//! The 128K needs it for a question the 48K did not have.
-//! `contention_oracle`'s `the_origin_is_pinned_by_the_interrupt` measures
-//! the `/INT` edge at engine T-state 56544, giving an origin of
-//! 70908 - 56544 = **14364**. libspectrum's `top_left_pixel` for
-//! `timings_frame_ferranti_7c` is **14362**. Two T-states apart, where the
-//! 48K's two coincide.
-//!
-//! One anchor cannot say which is right. This is the other one, and it is
-//! unambiguous.
-//!
-//! ## What it found
-//!
-//! **The raster is right and the interrupt is two T-states early.** The
-//! live bus is byte-exact against FUSE — 0 of 70,908 — at `+14362` and
-//! nowhere else in the frame; at the `/INT` origin of `+14364` it
-//! disagrees at 18,432 T-states. So the live-bus origin is correct,
-//! `IDLE_TABLE` and `MEM_TABLE` are correct on this ULA too, and the two
-//! T-states belong to `CONFIG_128K.int_start_pixel`.
-//!
-//! That is what the 48K's version of this test found in reverse: there the
-//! two anchors agreed exactly, and the one T-state between the bus and the
-//! *contention* oracles turned out to be the harness's arrival label.
-//! Here the anchors genuinely disagree, and the bus is the one with a
-//! frame of independent evidence behind it.
-//!
-//! **Still not moved, and now for a measured reason rather than a
-//! cautious one.** Moving `int_start_pixel` from 1 to 5 — the four pixels
-//! that put the `/INT` edge on `top_left_pixel` — was tried:
-//! `Float128K` goes from **14364 to 14362** and fails strict. The probe
-//! tracks the interrupt one for one, so the two anchors trade off exactly
-//! and the correction cannot be landed on its own.
-//!
-//! The remaining read-path question was settled in #942 by Mark Woodmass's
-//! published hardware-derived table: the first 128K floating-bus byte is at
-//! 14364 relative to `/INT`. The CPU read path therefore uses its own 14363
-//! origin plus the Z80's two-T-state latch lead. That does not move the live
-//! bus measured here; it distinguishes when the ULA drives a byte from when
-//! the CPU samples it, following the same separation already used by the
-//! 48K core.
-//!
-//! `the_int_anchor_still_disagrees_with_the_bus` below is the marker: it
-//! fails when the two are reconciled, which is when this record needs
-//! rewriting.
-//!
-//! ```sh
-//! cargo test --release -p machine-sinclair-zx-spectrum-128k \
-//!     --test float_bus_oracle -- --ignored --nocapture
-//! ```
-//!
-//! ## Why this shape
-//!
-//! Ported from `machine-sinclair-zx-spectrum-48k`'s `float_bus_oracle`,
-//! with the geometry re-derived for `timings_frame_ferranti_7c` rather
-//! than translated, and the sampling loop rebuilt — see `record_frame`,
-//! because a five-half-cycle T-state does not step the ULA the way a
-//! four-half-cycle one does.
-//!
-//! - The reference is FUSE's `spectrum_unattached_port` transcribed whole
-//!   and re-checked against our own `floating_bus_byte`, not lifted from
-//!   it.
-//! - The subject is the engine's own `Ula::floating_bus()`, read on a real
-//!   machine tick by tick, not a second model of it.
-//! - **Every** T-state in the frame is scored, and the winning offset's
-//!   uniqueness across the whole frame is asserted. A sweep that reports a
-//!   winner without its rivals cannot tell a sharp minimum from a plateau.
-//! - The harness checks that it is driving what it claims to drive.
+//! FUSE's first data timestamp is 14364; physical counter C8 is T4.
+//! Thus the pattern coordinate offset is 14360. This is not the IRQ
+//! origin and is never used by the production I/O read path. CPU reads
+//! consume the live bus at their latch edge. Float128K and Floatspy
+//! independently validate the integrated interrupt/read timing.
 
 use common_sinclair_zx_spectrum::driver::SpectrumDriver;
 use common_sinclair_zx_spectrum::memory::MemoryBus;
@@ -99,17 +31,10 @@ const SCREEN_END: u16 = 0x5B00;
 /// and not the bank the ULA displays from.
 const PARK_ADDR: u16 = 0x8000;
 
-/// libspectrum's `timings_frame_ferranti_7c.top_left_pixel`, used to anchor
-/// the live ULA bus independently of the CPU read path.
-const TOP_LEFT_PIXEL_ORIGIN: i32 = 14_362;
-
-/// The origin `contention_oracle` measures from the `/INT` edge:
-/// 70908 - 56544.
-const INT_ORIGIN: i32 = 14_364;
-
-/// Spectron's `FloatingBusStartTicks` for this ULA, and the constant
-/// `io_read` parameterises `floating_bus_byte` with. `top_left_pixel + 2`,
-/// exactly as the 48K's 14338 is 14336 + 2.
+/// FUSE first data timestamp minus physical first data counter (C8 / 2).
+const PATTERN_ORIGIN: i32 = 14_360;
+/// FUSE's first data timestamp, not an offset from counter zero.
+const FIRST_DATA_TIMESTAMP: i32 = 14_364;
 const FLOAT_START: u32 = 14_364;
 
 /// A screen byte that identifies its own address and is never `0xFF`.
@@ -335,25 +260,25 @@ fn floating_bus_matches_fuse_at_every_tstate() {
     );
 
     // === The two anchors ===
-    let at_top_left = mismatches(&bus, &machine.memory, TOP_LEFT_PIXEL_ORIGIN);
-    let at_int = mismatches(&bus, &machine.memory, INT_ORIGIN);
+    let at_top_left = mismatches(&bus, &machine.memory, PATTERN_ORIGIN);
+    let at_int = mismatches(&bus, &machine.memory, FIRST_DATA_TIMESTAMP);
     println!(
-        "\norigin {TOP_LEFT_PIXEL_ORIGIN:+} (top_left_pixel / live bus) — {at_top_left} of {FRAME_TSTATES} disagree"
+        "\norigin {PATTERN_ORIGIN:+} (pattern coordinate) — {at_top_left} of {FRAME_TSTATES} disagree"
     );
     println!(
-        "origin {INT_ORIGIN:+} (/INT edge)                       — {at_int} of {FRAME_TSTATES} disagree"
+        "origin {FIRST_DATA_TIMESTAMP:+} (first-data timestamp)                       — {at_int} of {FRAME_TSTATES} disagree"
     );
 
     print!("\n{:<14}", "offset");
     for d in -4..=4i32 {
-        print!("{:>9}", format!("{:+}", TOP_LEFT_PIXEL_ORIGIN + d));
+        print!("{:>9}", format!("{:+}", PATTERN_ORIGIN + d));
     }
     println!();
     print!("{:<14}", "mismatches");
     for d in -4..=4i32 {
         print!(
             "{:>9}",
-            mismatches(&bus, &machine.memory, TOP_LEFT_PIXEL_ORIGIN + d)
+            mismatches(&bus, &machine.memory, PATTERN_ORIGIN + d)
         );
     }
     println!();
@@ -361,8 +286,7 @@ fn floating_bus_matches_fuse_at_every_tstate() {
     assert_eq!(
         at_top_left, 0,
         "the ULA's live floating bus disagrees with FUSE at {at_top_left} of \
-         {FRAME_TSTATES} T-states at `top_left_pixel`, the origin `io_read` \
-         reads the floating bus through"
+         {FRAME_TSTATES} T-states after mapping physical counters to FUSE timestamps"
     );
 
     // Uniqueness, which is what makes the zero a measurement rather than a
@@ -371,50 +295,27 @@ fn floating_bus_matches_fuse_at_every_tstate() {
     // frame is not one this harness needs to worry about.
     const STRIDE: usize = 97;
     let rivals: Vec<i32> = (0..FRAME_TSTATES as i32)
-        .filter(|&offset| offset != TOP_LEFT_PIXEL_ORIGIN)
+        .filter(|&offset| offset != PATTERN_ORIGIN)
         .filter(|&offset| mismatches_strided(&bus, &machine.memory, offset, STRIDE) == 0)
         .take(4)
         .collect();
     assert!(
         rivals.is_empty(),
         "the live bus also matches FUSE at {rivals:?}, so \
-         {TOP_LEFT_PIXEL_ORIGIN} is one of several origins rather than the \
+         {PATTERN_ORIGIN} is one of several origins rather than the \
          frame's"
     );
 }
 
-/// The finding, in a form that fails when it stops being true.
-///
-/// The two frame anchors disagree by two T-states and the bus is the exact
-/// one. Asserting the *disagreement* is deliberate: this is a known defect
-/// held open, and a test that merely documented it in prose would go on
-/// passing after someone fixed `CONFIG_128K.int_start_pixel` and left the
-/// record saying the opposite.
-///
-/// When this fails, the interrupt and the raster have been reconciled.
-/// `Float128K` moves with the interrupt one for one — measured, by setting
-/// `int_start_pixel` to 5 — so whatever change makes this test fail must
-/// say in the same breath what `Float128K` now reads and why that is the
-/// right number. See the module docs.
+/// A timestamp naming the first data slot cannot also name counter zero.
 #[test]
 #[ignore = "FIXTURE: differential harness; needs EMU198X_SPECTRUM_128K_ROM0 / ROM1"]
-fn the_int_anchor_still_disagrees_with_the_bus() {
+fn first_data_timestamp_is_not_the_counter_origin() {
     let Some(roms) = roms() else {
         panic!("set {ROM0_PATH_ENV} and {ROM1_PATH_ENV} to run this harness");
     };
     let mut machine = prepare(&roms);
     let bus = record_frame(&mut machine);
-
-    let at_int = mismatches(&bus, &machine.memory, INT_ORIGIN);
-    assert_ne!(
-        at_int, 0,
-        "the /INT origin {INT_ORIGIN} now matches the live bus, so the \
-         interrupt and the raster have been reconciled. Confirm Float128K \
-         still reads 14364 and rewrite this file's header."
-    );
-    println!(
-        "\n/INT origin {INT_ORIGIN:+} still disagrees with the bus at {at_int} \
-         of {FRAME_TSTATES} T-states; the bus is exact at \
-         {TOP_LEFT_PIXEL_ORIGIN:+}"
-    );
+    assert_ne!(mismatches(&bus, &machine.memory, FIRST_DATA_TIMESTAMP), 0);
+    assert_eq!(mismatches(&bus, &machine.memory, PATTERN_ORIGIN), 0);
 }

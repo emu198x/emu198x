@@ -182,7 +182,10 @@ impl Ula for FerrantiUla {
         framebuffer: &mut [u8],
     ) {
         let e = &mut self.engine;
-        let phase = (e.pixel as usize) & 0x0F;
+        let pixel = e.pixel;
+        // SpecIde's control mask is active at fetch-counter phases 3..14:
+        // evaluate C2|C3 for the upcoming control phase, not the fetch edge.
+        let phase = (usize::from(pixel) + 1) & 0x0f;
 
         // Diagnostic count of strobe-free falling edges. Before the
         // decision, and before `tick_rendering`, because it names *this*
@@ -193,25 +196,8 @@ impl Ula for FerrantiUla {
         // arrive with its position already correct.
         e.track_mcycle_fall(cpu_addr, cpu_mreq, cpu_iorq);
 
-        // The contention window, read from the counter before
-        // `tick_rendering` advances it — the same instant `phase` names.
-        //
-        // Not `e.video`. That flag opens at `fetch_start`, four pixels
-        // into the 16-pixel cycle the first fetch belongs to, because it
-        // is the *fetch* window. The HDL gates contention on `Border_n`,
-        // which is `!hc[8]` — 256 pixels, sixteen whole fetch cycles,
-        // beginning at a cycle boundary. Its first fetch sits at `hc` 8
-        // and its window opens at `hc` 0; ours sits at pixel 4 and its
-        // window opens at pixel 0. Same relationship, our counter.
-        //
-        // The four pixels are two T-states, and they were charged to the
-        // wrong side of every one of the 192 display lines: the engine
-        // began contending two T-states after FUSE did and stopped two
-        // T-states after it stopped. See
-        // `machine-sinclair-zx-spectrum-48k`'s
-        // `memory_contention_matches_fuse_at_every_arrival_tstate`, whose
-        // entire residual was at the line edges once the window's *phase*
-        // was fixed.
+        // /Border opens at counter 0; the first fetch is at counter 8.
+        // Use the physical counter, independent of the rendering latch.
         let contend_window =
             e.scan < ula_engine::CONTENDED_LINES && e.pixel < ula_engine::CONTENDED_PIXELS_PER_LINE;
 
@@ -226,13 +212,7 @@ impl Ula for FerrantiUla {
         // recorder. Cheap enough to take unconditionally; the push is what
         // is gated.
         let before = (
-            // The pixel the delay table is *indexed by*, not the counter's
-            // value after `tick_rendering` advanced it. Recording the
-            // post-advance value shifts the trace one pixel, which happens
-            // to cancel the known one-pixel rotation between
-            // `DELAY_TABLE_48K` and the HDL's `hc[2]|hc[3]` — and so
-            // reports perfect agreement that is not there.
-            phase as u16,
+            pixel & 0x0f,
             e.video,
             e.z80_clock_high,
             e.ioreq_tw3,
@@ -248,47 +228,9 @@ impl Ula for FerrantiUla {
         // Contention (48K model): memory + I/O + internal
         if contend_window {
             let contended_addr = memory.is_contended(cpu_addr);
-            // `/MREQT23` gates the wait so it cannot re-arm inside an
-            // M-cycle — Smith Chapter 18, p. 197: the circuit detects `T1`
-            // of a contended cycle by waiting for A14 high with A15 and
-            // MREQT23 low.
-            // `/MREQT23` — see `UlaEngine::mreq_t23`. Keying off
-            // `!cpu_mreq` alone lets the gate re-arm in `T3`, while the
-            // contended address is still on the bus, and charges a
-            // second full rotation to every M-cycle past `M1`.
-            // `/MREQT23` is computed and correct (see `UlaEngine::mreq_t23`)
-            // but **deliberately not wired in here yet**. Enabling it —
-            // swapping `!cpu_mreq` for `!e.mreq_t23` — fixes a real defect:
-            // the gate otherwise re-arms after an access has committed and
-            // over-charges every M-cycle past `M1` by a full 8-T-state
-            // rotation. That change took the ZXSpectrum4.net timing survey
-            // from 34/70 to 37/70.
-            //
-            // It also breaks the floating bus, and the two cannot currently
-            // be satisfied together. The old over-contention was being
-            // compensated by the floating-bus sample lead, and no value of
-            // that lead recovers both oracles once the contention is fixed:
-            // floatspy's self-test passes only at lead 0, where Float48K
-            // reads 14340 against a hardware-measured 14338, and the lead
-            // that makes Float48K exact leaves floatspy red. A third error
-            // in the floating-bus path is being masked, and it is not the
-            // sample lead or the pattern phase — both were tried.
-            //
-            // See `knowledge/decisions/spectrum-contention-vs-floating-bus.md`.
-            // **Both latches are maintained but not consulted.** Wiring
-            // them in makes the gate match the HDL exactly — verified
-            // half-cycle for half-cycle on the real machine by
-            // `machine-sinclair-zx-spectrum-48k`'s `ula_gate_vs_hdl` — and
-            // costs one T-state per contended M-cycle against FUSE. The
-            // HDL and FUSE genuinely disagree here; the engine can match
-            // one or the other, not both.
-            //
-            //     let contended_access = contended_addr && !e.mreq_t23;
-            //     let contention = !e.ioreq_tw3
-            //         && e.z80_clock_high
-            //         && (ula_io || contended_access);
-            //
-            // See `knowledge/decisions/spectrum-contention-vs-floating-bus.md`.
+            // The access-count gate below retains the established memory
+            // and port transaction rules. The stored MREQT23/IOREQTW3
+            // latches remain available for separate gate-level comparison.
 
             // Three lookups, not one level.
             //
@@ -458,197 +400,38 @@ mod tests {
         );
     }
 
-    /// Measure the gate's *effective* delay table and print it beside the
-    /// canonical one.
-    ///
-    /// Rather than argue from the table's contents, this ticks the ULA to
-    /// each arrival half-cycle in turn and counts how long the clock is
-    /// actually withheld.
-    ///
-    /// The measured ramp is `6, 5, 4, 3, 2, 1, 0, 0` T-states with its
-    /// phase origin at **half-cycle 0** — the canonical pattern, on the
-    /// canonical T-state grid, with no rotation constant between them.
-    /// That is what `DELAY_TABLE_48K` being derived from `C3 + C2` on the
-    /// fetch group's origin buys: the CPU's T-states and the ULA's pixel
-    /// counter start together, and each delay slot is two whole pixels of
-    /// one T-state rather than a pair straddling a boundary.
-    ///
-    /// The literal this replaced was free at half-cycles 15, 0, 1 and 2
-    /// and reproduced the same ramp at origin 3. It read as canonical
-    /// too, and the difference did not show up here — a single access
-    /// pays the same ramp either way. It showed up as a whole-T-state
-    /// shift of the window against the frame, which is what
-    /// `contention_oracle`'s arrival-resolved differential scores and
-    /// this probe cannot see.
-    ///
-    /// These numbers survived the change of arming polarity byte for
-    /// byte, once this probe stopped naming a clock *level* and started
-    /// asking the gate which half-cycle arms it. That is the useful
-    /// result: the polarity moved which edge is withheld, and moved the
-    /// delay ramp not at all.
-    ///
-    /// The non-arming column is the interesting one: it costs one C0
-    /// *less* than the arming one — half a T-state that can only be spent
-    /// as a whole one, because the gate withholds only on the arming
-    /// half. That is the shape of the residual the per-instruction oracle
-    /// still reports on multi-M-cycle instructions and not on
-    /// single-M-cycle ones, and it is something the canonical
-    /// whole-T-state model cannot represent.
-    ///
-    /// The two parities now agree on every slot of the ramp, where the
-    /// literal made them differ inside the free window. `h = 15` is the
-    /// one boundary case left: a non-arming arrival on the last free
-    /// half-cycle reaches the arming half only after the window has shut,
-    /// and pays the whole next rotation.
+    /// Independent control mask from SpecIde ULA.cc, tested for both
+    /// possible CPU edge parities at every physical counter phase.
     #[test]
     fn effective_delay_table() {
-        use common_sinclair_zx_spectrum::timing;
-        const CANONICAL: [u32; 8] = [6, 5, 4, 3, 2, 1, 0, 0];
-
-        /// The measured table, in C0 half-cycles, as `(arming, other)` per
-        /// arrival half-cycle.
-        const MEASURED: [(u32, u32); 16] = [
-            (12, 12),
-            (11, 11),
-            (10, 10),
-            (9, 9),
-            (8, 8),
-            (7, 7),
-            (6, 6),
-            (5, 5),
-            (4, 4),
-            (3, 3),
-            (2, 2),
-            (1, 1),
-            (0, 1),
-            (0, 1),
-            (0, 1),
-            (0, 13),
+        const REFERENCE: [bool; 16] = [
+            false, false, false, true, true, true, true, true, true, true, true, true, true, true,
+            true, false,
         ];
-
-        let mut measured = [(0u32, 0u32); 16];
-
-        println!("\n half-cycle  T-phase  stall@arming  stall@other  delta  canonical[T-phase]");
-        for h in 0..16u16 {
-            let mut stalls = [0u32; 2];
-            // Seed the *arming* parity, not the raw clock level. Which
-            // level arms the gate is a property of the gate and has moved
-            // once already; naming the level here is what made this probe
-            // need repairing when it did.
-            for (slot, arrives_arming) in [true, false].into_iter().enumerate() {
+        for arrival in 0..16u16 {
+            for arms_now in [false, true] {
                 let mut ula = FerrantiUla::new(UlaRevision::Ferranti6C);
-                let mut fb = vec![0; timing::SCREEN_WIDTH * timing::SCREEN_HEIGHT];
-
-                // `video` is latched as the line's fetch window opens, so
-                // the ULA has to be ticked in from the start of a line rather
-                // than parked mid-window — jumping straight to a pixel leaves
-                // the latch clear and no contention fires at all.
                 ula.engine.scan = 100;
-                ula.engine.pixel = 0;
-                for _ in 0..(128 + h) {
-                    Ula::tick(
-                        &mut ula,
-                        &ContendedMemory,
-                        0x4000,
-                        false,
-                        false,
-                        false,
-                        &mut fb,
-                    );
+                ula.engine.pixel = 128 + arrival;
+                ula.engine.z80_clock_high = !arms_now;
+                let mut fb = vec![0; timing::SCREEN_WIDTH * timing::SCREEN_HEIGHT];
+                let initial = u32::from(!arms_now);
+                let mut expected = initial;
+                while REFERENCE[(usize::from(arrival) + expected as usize) & 15] {
+                    expected += 1;
                 }
-
-                // Clear the MREQT23 latch and the clock phase so the arrival
-                // is defined by the pixel counter alone.
-                ula.engine.mreq_t23 = false;
-                ula.engine.z80_clock_high = !arrives_arming;
-
-                // Contended address, MREQ inactive. Count C0 cycles until
-                // the Z80 can advance past `T1`.
-                //
-                // The stop condition matters, and it has to follow the
-                // gate rather than restate it. The gate withholds only on
-                // the arming half-cycle, so a cycle arriving on the other
-                // one is never withheld — stopping at "first cycle the
-                // clock is active" reports zero for every such arrival,
-                // which is an artefact of the question. What the CPU is
-                // waiting for is an *arming* half-cycle that is not
-                // withheld, so that is what is counted. Asking
-                // `gate_arms_this_halfcycle` keeps this probe honest if the
-                // polarity is ever revisited; spelling the parity out here
-                // is what made it need repairing when it was.
-                let mut stall = 0u32;
-                for _ in 0..64 {
-                    let was_arming = ula.engine.gate_arms_this_halfcycle();
-                    Ula::tick(
-                        &mut ula,
-                        &ContendedMemory,
-                        0x4000,
-                        false,
-                        false,
-                        false,
-                        &mut fb,
-                    );
-                    if was_arming && ula.cpu_clock_active() {
+                let mut actual = 0;
+                loop {
+                    let arming = ula.engine.gate_arms_this_halfcycle();
+                    ula.tick(&ContendedMemory, 0x4000, false, false, false, &mut fb);
+                    if arming && ula.cpu_clock_active() {
                         break;
                     }
-                    stall += 1;
+                    actual += 1;
+                    assert!(actual < 32, "clock must resume");
                 }
-                stalls[slot] = stall;
+                assert_eq!(actual, expected, "counter={arrival} arms_now={arms_now}");
             }
-
-            let tphase = h / 2;
-            let delta = stalls[0] as i64 - stalls[1] as i64;
-            println!(
-                "{h:>10} {tphase:>8} {:>12} {:>12} {delta:>+6} {:>19}",
-                stalls[0], stalls[1], CANONICAL[tphase as usize]
-            );
-            measured[h as usize] = (stalls[0], stalls[1]);
-        }
-
-        assert_eq!(
-            measured, MEASURED,
-            "the gate's effective delay table changed; the printed table \
-             above shows how, and any change here moves contention for \
-             every contended access",
-        );
-
-        // The property the table above is evidence *for*, stated directly
-        // so a coincidental match cannot pass for the real thing: an
-        // arrival on the arming half of T-phase `p` stalls `CANONICAL[p]`
-        // T-states, with the phase origin at half-cycle 0.
-        //
-        // There is no rotation constant in that statement, and there was
-        // one before. A `slot` expression is where a phase error hides:
-        // it can be chosen to make any alignment read as canonical, which
-        // is exactly what it did.
-        for h in (0..16).step_by(2) {
-            let t_states = measured[h].0 / 2;
-            let slot = h / 2;
-            assert_eq!(
-                t_states, CANONICAL[slot],
-                "half-cycle {h} opens T-phase {slot} and should stall {} \
-                 T-states, not {t_states}",
-                CANONICAL[slot],
-            );
-        }
-
-        // And within a T-phase the second half-cycle costs one C0 less —
-        // half a T-state that can only be spent as a whole one, because
-        // the gate withholds the clock only on the arming half. This is
-        // the shape of the residual the per-instruction oracle reports on
-        // multi-M-cycle instructions.
-        //
-        // Bounded to the ramp. Inside the free window the relationship
-        // inverts: there is nothing left to withhold, so the second
-        // half-cycle costs one C0 *more* while it waits for an arming
-        // half to arrive.
-        for h in (0..12).step_by(2) {
-            assert_eq!(
-                measured[h].0,
-                measured[h + 1].0 + 1,
-                "half-cycle {h} should cost one C0 more than {}",
-                h + 1,
-            );
         }
     }
 

@@ -1,125 +1,10 @@
-//! `HALT`-to-interrupt differential: score the engine's interrupt
-//! acknowledge against FUSE's, at every phase of the `HALT` refetch grid.
+//! HALT interrupt timing at every phase of the refetch grid.
 //!
-//! ## Why this exists
-//!
-//! Float48K reads 14336 where FUSE and Woody's hardware read 14338, and
-//! the two T-states are not in the floating-bus read. That path has been
-//! eliminated at both ends:
-//!
-//! - the bus *pattern* matches FUSE at every T-state in the frame
-//!   (`floating_bus_matches_fuse_at_every_tstate`);
-//! - the *sample instant* matches FUSE for `IN A,(C)`
-//!   (`the_in_path_samples_the_bus_where_fuse_does`, 0 wrong) and for
-//!   `IN A,(n)` — the instruction Float48K actually uses — at every
-//!   arrival T-state (`the_in_a_n_sample_instant_matches_fuse`).
-//!
-//! And the probe's timed window is provably free of contention: the
-//! engine's cumulative contention-stall count is identical at the sync
-//! interrupt and at the `IN`, every iteration. So what is left is the
-//! **arrival** — where the `IN` lands relative to the interrupt — and
-//! Float48K reaches it through `HALT` twice.
-//!
-//! Two `HALT` syncs, two T-states missing. That is a coincidence worth
-//! measuring rather than believing, which is what this harness does.
-//!
-//! ## The reference
-//!
-//! FUSE 1.7.0, vendored at `198x/emulators/zx-spectrum/fuse-1.7.0` — the
-//! build the hardware comparison was taken under. Three pieces:
-//!
-//! `opcodes_base.c:523` — `HALT` is an ordinary four-T-state `M1` that
-//! refetches itself, with no special exit cost:
-//!
-//! ```c
-//! case 0x76:              /* HALT */
-//!   z80.halted=1;
-//!   PC--;
-//!   break;
-//! ```
-//!
-//! `spectrum.c:91` — the frame event wraps the T-state counter and calls
-//! `z80_interrupt()` immediately, and FUSE's event loop runs events only
-//! at instruction boundaries. So the interrupt is accepted at the first
-//! `HALT` refetch boundary at or after `/INT`, never inside one.
-//!
-//! `z80.c:202` — the acknowledge itself, and the line this harness is
-//! really about:
-//!
-//! ```c
-//! if( z80.halted ) { PC++; z80.halted = 0; }
-//! IFF1=IFF2=0;
-//! R++;
-//! tstates += 7;                                   /* Longer than usual M1 */
-//! writebyte( --SP, PCH ); writebyte( --SP, PCL ); /* 3 + 3 */
-//! /* IM 2: */ PCL = readbyte(inttemp++); PCH = readbyte(inttemp); /* 3 + 3 */
-//! ```
-//!
-//! **Leaving `HALT` costs nothing.** The flag is cleared, `PC` is stepped
-//! past the opcode, and the acknowledge is 7 + 3 + 3 + 3 + 3 = **19**
-//! T-states in IM 2 with everything uncontended. There is no phantom
-//! fetch between `/INT` and the acknowledge.
-//!
-//! ## Why it is shaped like this
-//!
-//! Two things separate a wrong acceptance *instant* from a wrong
-//! acknowledge *cost*, and only measuring both tells them apart. So the
-//! harness records pin-level `M1` **rising edges** — `/M1` is asserted
-//! across `T1`–`T2`, so a level test names whichever T-state the poll
-//! landed on — and scores the two intervals independently:
-//!
-//! | event | pins |
-//! |---|---|
-//! | the refetch grid's origin | `M1` edge, `addr == HALT_ADDR` |
-//! | each phantom refetch | `M1` edge with `halt` asserted |
-//! | the handler's first fetch | `M1` edge, `addr == ISR_ADDR` |
-//!
-//! The acknowledge's start is taken as the last refetch plus four —
-//! the instruction boundary — and deliberately **not** as the `/IORQ`
-//! edge: `/IORQ` falls a T-state into the acknowledge `M1`, so timing
-//! from it would understate the acknowledge by one and overstate the
-//! wait by one, turning one error into two.
-//!
-//! Everything is stated **relative to the engine's own `/INT`
-//! assertion**, which both implementations define and neither derives
-//! from contention. That keeps the harness clear of `ORIGIN` — the
-//! constant the floating-bus and contention paths still disagree about by
-//! one T-state — so a verdict here cannot be an artefact of picking a
-//! side in that argument.
-//!
-//! Every address in play is uncontended: `HALT` at `$9000`, the stack at
-//! `$A000`, the IM 2 table at `$C000`, the handler at `$C1C1`. A
-//! contention charge anywhere would confound the interval being measured,
-//! and `the_measured_window_is_free_of_contention` asserts it does not
-//! happen rather than assuming it.
-//!
-//! The `HALT` is reached by execution rather than by parking `PC` on it,
-//! and its `M1` is *measured* rather than assumed, because setting `PC`
-//! mid-M-cycle lands the CPU on whatever phase the skew leaves it on —
-//! which is the whole quantity under test.
-//!
-//! ## What it found
-//!
-//! On first run the acknowledge **cost** was FUSE-exact — 19 T-states on
-//! every phase — while the acceptance **instant** was four T-states late
-//! on the one phase in four where `/INT` goes active exactly on a refetch
-//! boundary. The engine required `/INT` asserted strictly *before* the
-//! boundary; FUSE accepts one asserted *at* it.
-//!
-//! That defect is fixed. The Z80 now samples `/INT` at the boundary and
-//! the Spectrum driver feeds the pin before ticking the CPU — two half-
-//! T-state lags on the same signal, which is why correcting either alone
-//! measured as no change at all. All four tests here pass, the
-//! ZXSpectrum4.net timing survey went from eight failing cases to zero,
-//! and Float48K moved onto its expected T-state. See
-//! `spectrum-contention-vs-floating-bus.md` and, for the Zilog-versus-FUSE
-//! question the fix settles by choosing FUSE,
-//! `zilog-z80-samples-int-at-the-instruction-boundary.md`.
-//!
-//! ```sh
-//! cargo test -p machine-sinclair-zx-spectrum-48k \
-//!     --test halt_interrupt_oracle -- --nocapture
-//! ```
+//! The die-derived IRQ sweep in `test-data/z80-irq-deadline-validation.md`
+//! places the level sample one T-state before response dispatch. FUSE's
+//! instruction-boundary event processing cannot represent this deadline.
+//! Keep its 19-T IM2 response-cost comparison, but score acceptance against
+//! the measured sample edge. No memory or I/O in this window is contended.
 
 use common_sinclair_zx_spectrum::driver::SpectrumDriver;
 use common_sinclair_zx_spectrum::memory::MemoryBus;
@@ -149,14 +34,15 @@ const HALT_REFETCH_TSTATES: u32 = 4;
 
 const FRAME_TSTATES: u32 = 69_888;
 
-/// One sample: what the pins said, in engine frame T-states.
+/// Pin-edge timestamps in master ticks (four per T-state). Never round
+/// away the half-T-state separating /INT and a CPU sampling edge.
 ///
 /// Every field is an `M1` **rising edge** rather than a level. `/M1` is
 /// asserted across `T1`–`T2`, so a level test names whichever T-state the
 /// poll happened to land on; the edge names the M-cycle.
 #[derive(Debug, Clone, Copy)]
 struct Sample {
-    /// Frame T-state at which `/INT` went active.
+    /// Master tick at which `/INT` went active.
     int_assert: u32,
     /// `M1` of the `HALT` opcode itself. The refetch grid runs on
     /// four-T-state centres from here.
@@ -181,34 +67,32 @@ impl Sample {
     /// the acknowledge `M1`, so timing from it would understate the
     /// acknowledge by one and overstate the wait by one.
     fn ack_boundary(&self) -> i64 {
-        i64::from(self.last_refetch) + i64::from(HALT_REFETCH_TSTATES)
+        i64::from(self.last_refetch) + 4 * i64::from(HALT_REFETCH_TSTATES)
     }
 
-    /// FUSE's acknowledge boundary: the first refetch grid point at or
-    /// after `/INT`. `spectrum.c:91` schedules the interrupt at the frame
-    /// wrap and FUSE runs events only between instructions, so the CPU
-    /// finishes the refetch it is in and acknowledges from there.
-    fn fuse_ack_boundary(&self) -> i64 {
+    /// First refetch boundary whose last-T-state rising edge sees /INT.
+    /// The sample precedes response dispatch by one T-state (two CPU edges).
+    fn sampled_ack_boundary(&self) -> i64 {
         let grid = i64::from(self.halt_fetch);
-        let int = i64::from(self.int_assert);
-        let step = i64::from(HALT_REFETCH_TSTATES);
-        // The grid runs `halt_fetch + 4k`; take the first at or after
-        // `/INT`. `HALT`'s own `M1` counts as `k = 0`.
+        let earliest = i64::from(self.int_assert) + 4;
+        let step = 4 * i64::from(HALT_REFETCH_TSTATES);
         grid + step
-            * ((int - grid).div_euclid(step) + i64::from((int - grid).rem_euclid(step) != 0))
+            * ((earliest - grid).div_euclid(step)
+                + i64::from((earliest - grid).rem_euclid(step) != 0))
     }
 
     /// The phase of the refetch grid relative to `/INT`, which is the
     /// only thing FUSE's wait depends on.
     fn grid_phase(&self) -> i64 {
         (i64::from(self.halt_fetch) - i64::from(self.int_assert))
-            .rem_euclid(i64::from(HALT_REFETCH_TSTATES))
+            .rem_euclid(4 * i64::from(HALT_REFETCH_TSTATES))
+            / 4
     }
 
     /// The acknowledge's own cost: instruction boundary to the handler's
     /// first opcode fetch.
     fn ack_cost(&self) -> i64 {
-        i64::from(self.isr_start) - self.ack_boundary()
+        (i64::from(self.isr_start) - self.ack_boundary()) / 4
     }
 }
 
@@ -326,7 +210,7 @@ fn sample(phase_fillers: u32, run_in: u32) -> Option<Sample> {
     for _ in 0..(4_000u32 * divisor) {
         machine.advance_halfcycles(1);
         // `hc` is already past the tick that produced this state.
-        let t = (machine.hc().wrapping_sub(1)) / divisor;
+        let t = machine.hc().wrapping_sub(1);
         let z80 = machine.z80();
         let m1_edge = z80.m1 && !prev_m1;
         prev_m1 = z80.m1;
@@ -443,25 +327,13 @@ fn the_measured_window_is_free_of_contention() {
     }
 }
 
-/// The acceptance instant: the acknowledge must begin at the first
-/// `HALT` refetch boundary at or after `/INT`.
-///
-/// Passes on all four grid phases. It failed on one in four until
-/// `56e8148b`: the engine required `/INT` to be asserted strictly before
-/// the boundary where FUSE accepts one asserted *at* it, so a `/INT`
-/// coinciding with a refetch boundary cost a whole extra refetch. It was
-/// `#[ignore]`d against that divergence rather than weakened, so
-/// re-landing was a one-line change.
-///
-/// The history is in
-/// `knowledge/decisions/spectrum-contention-vs-floating-bus.md`.
 #[test]
-fn the_acknowledge_begins_at_the_first_refetch_boundary() {
+fn the_acknowledge_begins_at_the_first_boundary_whose_sample_sees_int() {
     let samples = samples();
 
     println!(
         "\n{:>5} {:>6} {:>11} {:>11} {:>9} {:>11} {:>11}",
-        "case", "phase", "int_assert", "halt_fetch", "refetch", "boundary", "fuse"
+        "case", "phase", "int_assert", "halt_fetch", "refetch", "boundary", "sample"
     );
     for (i, s) in samples.iter().enumerate() {
         println!(
@@ -471,24 +343,17 @@ fn the_acknowledge_begins_at_the_first_refetch_boundary() {
             s.halt_fetch,
             s.refetches,
             s.ack_boundary(),
-            s.fuse_ack_boundary(),
+            s.sampled_ack_boundary(),
         );
     }
 
     let wrong: Vec<&Sample> = samples
         .iter()
-        .filter(|s| s.ack_boundary() != s.fuse_ack_boundary())
+        .filter(|s| s.ack_boundary() != s.sampled_ack_boundary())
         .collect();
     assert!(
         wrong.is_empty(),
-        "the acknowledge began at the wrong instant on {} of {} phases. \
-         FUSE accepts at the first `HALT` refetch boundary at or after \
-         `/INT`: `spectrum.c:91` wraps the frame and calls \
-         `z80_interrupt()` in the same event handler, and FUSE runs \
-         events only between instructions, so the CPU finishes the \
-         refetch it is in and acknowledges from there. A surplus of 4 is \
-         one extra phantom refetch taken after `/INT` was already \
-         asserted. Offenders: {wrong:?}",
+        "the acknowledge missed the measured last-T-state sample on {} of {} phases. Offenders: {wrong:?}",
         wrong.len(),
         samples.len(),
     );
@@ -531,35 +396,19 @@ fn the_acknowledge_costs_what_fuse_charges() {
     );
 }
 
-/// The whole quantity Float48K depends on, in one number: `/INT` to the
-/// handler's first opcode fetch. Stated separately because it is the
-/// interval the probe actually inherits, and because a compensating pair
-/// of errors in the two tests above would leave both failing and this
-/// one passing — which would itself be a finding.
-///
-/// Passed the same one phase in four as the test above, and re-landed
-/// with it in `56e8148b`: the acknowledge's cost was always exact, so
-/// the whole error was the wait in front of it.
-///
-/// That makes this the measurement that rules interrupt acceptance out
-/// as the cause of Float48K's remaining one-T-state shortfall (#939).
-/// Read it for what it is, though: it scores the engine against FUSE,
-/// not against silicon. If FUSE itself accepts one T-state late, every
-/// row here still matches and the probe is still off by one — which is
-/// why #939 needs hardware, per
-/// `knowledge/decisions/hardware-outranks-fuse.md`.
 #[test]
-fn the_int_to_handler_latency_matches_fuse() {
+fn the_int_to_handler_latency_matches_the_measured_deadline() {
     let samples = samples();
 
     println!(
         "\n{:>5} {:>6} {:>11} {:>11} {:>9} {:>9}",
-        "case", "phase", "int_assert", "isr_start", "latency", "fuse"
+        "case", "phase", "int_assert", "isr_start", "latency", "sample"
     );
     let mut wrong = Vec::new();
     for (i, s) in samples.iter().enumerate() {
         let latency = i64::from(s.isr_start) - i64::from(s.int_assert);
-        let want = s.fuse_ack_boundary() - i64::from(s.int_assert) + i64::from(FUSE_ACK_TSTATES);
+        let want =
+            s.sampled_ack_boundary() - i64::from(s.int_assert) + 4 * i64::from(FUSE_ACK_TSTATES);
         println!(
             "{i:>5} {:>6} {:>11} {:>11} {latency:>9} {want:>9}",
             s.grid_phase(),
@@ -573,7 +422,7 @@ fn the_int_to_handler_latency_matches_fuse() {
 
     assert!(
         wrong.is_empty(),
-        "`/INT` to the handler's first fetch disagreed with FUSE on {} of \
+        "`/INT` to the handler's first fetch missed the measured deadline on {} of \
          {} phases (case, got, want): {wrong:?}. This is the interval \
          Float48K's two `HALT` syncs each inherit.",
         wrong.len(),

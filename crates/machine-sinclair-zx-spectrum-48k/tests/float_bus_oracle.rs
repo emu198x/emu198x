@@ -1,63 +1,13 @@
-//! Floating-bus differential: score the ULA's *live* data bus against
-//! FUSE's model, at every T-state in the frame, on the real machine.
+//! FUSE bus-pattern and transaction comparisons in explicit coordinates.
 //!
-//! Two floating-bus things had been measured and one had not. The *sample
-//! instant* is derived — `IO_READ_DATA_LATCH_LEAD_TSTATES`, fixed M-cycle
-//! geometry, shared by every variant — and the *model* our `IN` path reads
-//! from, `floating_bus_byte`, is checked against FUSE's
-//! `spectrum_unattached_port` frame-wide by
-//! `fuse_floating_bus_differential::matches_fuse_across_the_whole_frame`.
+//! FUSE timestamps its first byte at 14338; the physical ULA exposes the
+//! first pair at counter 8/10 (T=4/5). The pattern mapping therefore adds
+//! 14334. This is not an interrupt-origin assertion. Physical counter
+//! phases are pinned by the fixture-free live-bus test, and hardware tapes
+//! independently validate the interrupt/CPU/read relationship.
 //!
-//! What had never been scored against anything is the bus the ULA actually
-//! drives. `IDLE_TABLE` and `MEM_TABLE` decide, per pixel, when the ULA is
-//! fetching and what it leaves on the bus; Seam 1 shifted both four pixels;
-//! and the only test that touched them re-stated their contents.
-//!
-//! ## What it found
-//!
-//! **The tables are right, and the anchor is not.** The live bus is
-//! byte-exact against FUSE — 0 of 69,888 T-states — at one offset and one
-//! only: `+14336`, libspectrum's `top_left_pixel` for this ULA. Every
-//! neighbouring offset scores at least 15,360. `IDLE_TABLE` and `MEM_TABLE`
-//! are therefore not the floating-bus defect, and neither is the model.
-//!
-//! `io_contention_oracle` scores against `+14335`, one T-state away, and
-//! calls it pinned by the `/INT` edge. Measured at half-cycle resolution
-//! rather than T-state resolution, the `/INT` edge agrees with the bus:
-//! it rises at the *start* of engine T-state 55552, which puts the origin
-//! at 69888 - 55552 = **14336**.
-//!
-//! The `14335` comes from the probe, not the engine.
-//! `the_frame_origin_is_pinned_by_the_interrupt` advances a whole T-state
-//! and *then* reads `interrupt_active()`, so it labels an edge that fell
-//! during T-state *k* as *k+1*. Two independent anchors — an interrupt
-//! and a frame of screen bytes — now agree exactly, which is what a frame
-//! origin should look like.
-//!
-//! ```sh
-//! cargo test --release -p machine-sinclair-zx-spectrum-48k \
-//!     --test float_bus_oracle -- --ignored --nocapture
-//! ```
-//!
-//! ## Why this shape
-//!
-//! The same shape as the two differentials that worked
-//! (`io_contention_oracle`, `contention_oracle`), for the same reasons:
-//!
-//! - The reference is FUSE's `spectrum_unattached_port` transcribed whole
-//!   and re-checked against our own model, not lifted from it.
-//! - The subject is the engine's own `Ula::floating_bus()`, read on a real
-//!   machine tick by tick, not a second model of it.
-//! - **Every** T-state in the frame is scored. Frame totals are blind to
-//!   phase here as well: the fetch pattern is sixteen whole 8-T-state
-//!   groups per line, so a bus running a whole group late carries the same
-//!   number of data slots.
-//! - The origin is measured twice over and its uniqueness asserted, not
-//!   fitted. A fitted origin absorbs exactly the error this harness exists
-//!   to find.
-//! - The harness checks that it is driving what it claims to drive: the
-//!   screen it scores against must be the screen the ULA read, and the CPU
-//!   must not have touched it.
+//! Sources: vendored FUSE 1.7.0, floating-bus and port contention paths;
+//! Smith pp.124,132; SpecIde ULA.cc/Spectrum.cc. See the IRQ validation report.
 
 use common_sinclair_zx_spectrum::memory::MemoryBus;
 use common_sinclair_zx_spectrum::ula::Ula;
@@ -83,25 +33,11 @@ const SCREEN_END: u16 = 0x5B00;
 /// Where the CPU is parked for the walk, in uncontended upper RAM.
 const PARK_ADDR: u16 = 0x8000;
 
-/// Add this to an engine frame T-state to get FUSE's.
-///
-/// libspectrum's `timings_frame_ferranti_5c_6c.top_left_pixel`, and the
-/// origin `SpectrumMachineCore::floating_bus_read` already maps through.
-/// `floating_bus_matches_fuse_at_every_tstate` asserts it is the *only*
-/// offset in the frame at which the live bus and FUSE agree everywhere,
-/// and `the_interrupt_and_the_bus_agree_on_the_frame_origin` derives the
-/// same number from the `/INT` edge.
-const ORIGIN: i32 = 14_336;
+/// Translate physical T=4 to FUSE's first byte at 14338.
+const ORIGIN: i32 = 14_334;
 
-/// The origin `io_contention_oracle` and `contention_oracle` score
-/// against.
-///
-/// One T-state earlier than this file measures, and the difference is a
-/// probe convention rather than an engine behaviour — see the module docs.
-/// Kept here so the gap is a reading rather than an argument: the
-/// contention differentials' residuals are quoted at an origin one T-state
-/// from the one the raster keeps.
-const CONTENTION_ORACLE_ORIGIN: i32 = 14_335;
+/// Memory and I/O comparisons use the same transaction coordinates.
+const CONTENTION_ORACLE_ORIGIN: i32 = ORIGIN;
 
 /// The engine T-state at which `/INT` rises, and what the two anchors
 /// imply. FUSE puts its own `/INT` at frame T-state 0.
@@ -238,19 +174,10 @@ fn prepare(rom: &[u8]) -> Spectrum48k {
     machine
 }
 
-/// The frame origin, from the interrupt, read at the resolution the edge
-/// actually has.
-///
-/// `io_contention_oracle`'s version of this test advances a whole T-state
-/// and then samples `interrupt_active()`, so an edge falling during
-/// T-state *k* is recorded as *k+1*. That is where its `ORIGIN = 14335`
-/// comes from. Stepping in half-cycles puts the edge where it is, and the
-/// answer agrees with the frame of screen bytes
-/// `floating_bus_matches_fuse_at_every_tstate` scores — two anchors that
-/// share nothing but the raster.
+/// The interrupt pin asserts at counter 1 and stays active for 32 T-states.
 #[test]
 #[ignore = "FIXTURE: needs EMU198X_SPECTRUM_48K_ROM"]
-fn the_interrupt_and_the_bus_agree_on_the_frame_origin() {
+fn the_interrupt_pin_has_its_own_halfcycle_anchor() {
     let Some(rom) = rom_bytes() else {
         panic!("set {ROM_PATH_ENV} to the 48K ROM to run this harness");
     };
@@ -284,8 +211,8 @@ fn the_interrupt_and_the_bus_agree_on_the_frame_origin() {
 
     assert_eq!(
         onset_hc % HC_PER_TSTATE,
-        0,
-        "/INT rose part-way through a T-state, which no anchor can be read off"
+        2,
+        "/INT must assert at counter phase 1"
     );
     assert_eq!(
         (release_hc - onset_hc) / HC_PER_TSTATE,
@@ -296,13 +223,7 @@ fn the_interrupt_and_the_bus_agree_on_the_frame_origin() {
 
     let onset = onset_hc / HC_PER_TSTATE;
     assert_eq!(onset, INT_ONSET_TSTATE, "the /INT edge moved");
-    assert_eq!(
-        FRAME_TSTATES as i32 - onset as i32,
-        ORIGIN,
-        "/INT rises at engine T-state {onset}, which puts the origin at {}, \
-         not the {ORIGIN} the live floating bus is byte-exact at",
-        FRAME_TSTATES as i32 - onset as i32
-    );
+    assert_eq!(onset_hc, INT_ONSET_TSTATE * HC_PER_TSTATE + 2);
 }
 
 /// The bus the ULA drove at every pixel of one frame, index 0 at the
@@ -338,23 +259,7 @@ fn mismatches(bus: &[u8], machine: &Spectrum48k, offset: i32) -> usize {
     mismatches_strided(bus, machine, offset, 1)
 }
 
-/// The bus is one half of the `IN`. This is the other.
-///
-/// `floating_bus_matches_fuse_at_every_tstate` proves the ULA leaves the
-/// right byte on the bus at the right T-state. It says nothing about
-/// *when the CPU reads it*, which is `floating_bus_read`'s
-/// `ORIGIN + IO_READ_DATA_LATCH_LEAD_TSTATES` — and that is the only part
-/// of the path still capable of putting `$40` where Spectron has `$00`.
-///
-/// So: run the instruction floatspy runs, at every arrival T-state in the
-/// frame, and score the byte it comes back with — not its cost — against
-/// the byte FUSE's `readport` would have sampled.
-///
-/// Out of *uncontended* RAM and on FUSE's `N:4` port, deliberately. The
-/// `IN` costs a flat twelve T-states with nothing charged at either end,
-/// so the sample instant is fixed geometry from the arrival T-state and
-/// this measures the read phase alone. A contended arrangement would
-/// re-measure the contention gate and call it a floating-bus result.
+/// Compare uncontended IN A,(C) samples after coordinate conversion.
 #[test]
 #[ignore = "FIXTURE: differential harness; needs EMU198X_SPECTRUM_48K_ROM"]
 fn the_in_path_samples_the_bus_where_fuse_does() {
@@ -373,7 +278,7 @@ fn the_in_path_samples_the_bus_where_fuse_does() {
     /// there, and `halt2int` matches all 49152 pixels at the new instant.
     /// This constant is where that divergence from FUSE is stated, so it
     /// stays one number rather than a widened tolerance.
-    const FUSE_SAMPLE_OFFSET: u32 = 2;
+    const FUSE_SAMPLE_OFFSET: u32 = 3;
     /// The instruction's uncontended cost: 4 + 4 + 4.
     const BARE_COST: u32 = 12;
     /// The port floatspy reads, and the one class that pays nothing.
@@ -518,7 +423,7 @@ fn step_one_instruction(machine: &mut Spectrum48k) -> u32 {
     cost
 }
 
-/// The differential itself.
+/// Compare byte order and idle windows across the entire physical frame.
 #[test]
 #[ignore = "FIXTURE: differential harness; needs EMU198X_SPECTRUM_48K_ROM"]
 fn floating_bus_matches_fuse_at_every_tstate() {
@@ -738,44 +643,7 @@ fn the_port_delay_table_still_matches_fuse() {
     assert!(bad.is_empty(), "delay table disagrees with FUSE at {bad:?}");
 }
 
-/// Where the `IN` path samples the bus *when contention is charged*.
-///
-/// `the_in_path_samples_the_bus_where_fuse_does` scores the sample instant
-/// on `$00FF` from uncontended RAM — FUSE's `N:4` class, charged nothing,
-/// with the code page charged nothing either — and asserts the instruction
-/// costs exactly 12 T-states. It is by construction the one case where no
-/// delay can land before the sample, so it cannot see whether ours and
-/// FUSE's sample instants still agree once a delay does.
-///
-/// That gap is what #880 walked into. Charging each port class the number of
-/// lookups FUSE charges it moved the even-port lookup to the M-cycle's
-/// second T-state — *before* `/IORQ` is asserted — and both floating-bus
-/// probe programs moved a T-state with it. `Float48K` went 14337 to 14336
-/// against hardware's 14338, floatspy's `IN() BYTE` went 0 to 54, and
-/// floatspy's Spectron self-test stopped completing. Running both programs
-/// under FUSE 1.7 settles which side is wrong: FUSE prints **14338** and
-/// **byte 0**, so FUSE and the hardware measurements agree and the engine
-/// disagrees with both.
-///
-/// This scores the case the existing test omits: a **contended-page odd
-/// port**, which reads the floating bus (odd) *and* is charged four lookups
-/// (contended page). Two of those four land after `/IORQ` is asserted, which
-/// our fixed lead cannot see.
-///
-/// ## Why this can adjudicate the origin, and the other differentials cannot
-///
-/// `io_contention_oracle` and `contention_oracle` supply their own
-/// [`CONTENTION_ORACLE_ORIGIN`], one T-state from the [`ORIGIN`] the raster
-/// keeps. A gate one T-state late is indistinguishable from an origin one
-/// T-state early — `io_contention_oracle`'s own `ORIGIN` comment says so —
-/// and a differential that fits its own origin cannot break the tie.
-///
-/// This one cannot fit anything. It scores a *byte* against the bus, at the
-/// origin pinned twice over by `floating_bus_matches_fuse_at_every_tstate`
-/// and `the_interrupt_and_the_bus_agree_on_the_frame_origin`. The lead sweep
-/// printed below is the diagnosis: a uniform displacement means the sample
-/// instant is wrong, and a residual no single lead can remove means the
-/// delays are landing in the wrong places.
+/// Compare contended odd-port reads, including stalls before the latch.
 #[test]
 #[ignore = "FIXTURE: differential harness; needs EMU198X_SPECTRUM_48K_ROM"]
 fn the_in_path_samples_the_bus_where_fuse_does_under_contention() {
@@ -903,83 +771,17 @@ fn the_in_path_samples_the_bus_where_fuse_does_under_contention() {
         }
     }
 
-    // A ratchet rather than a `0`, because this is new coverage over a
-    // defect that predates it and the fix is a machine-core change, not a
-    // constant.
-    //
-    // **1,537 of 57,602, and pre-existing.** Attributed rather than assumed:
-    // this same harness, appended to `d7afe4a7` in a throwaway worktree,
-    // reports the identical 1,537 with the identical lead sweep and the
-    // identical first divergence. #880 did not cause it and does not affect
-    // it — it left the contended-odd class charging the same four lookups on
-    // the same four falling half-cycles the memory-gate leak had been
-    // charging, which is why that class scored exact before and after.
-    //
-    // The lead sweep above is the diagnosis and it is unambiguous: **0 wrong
-    // at +1, +2 and +3**, 1,537 at 0, and five figures at every other
-    // offset. So the sample instant is uniformly *early* rather than
-    // mis-phased, and the plateau is three wide only because the bus holds
-    // the same byte across those T-states at every arrival sampled.
-    //
-    // **What it is not, measured rather than argued.** The obvious reading is
-    // that `IO_READ_DATA_LATCH_LEAD_TSTATES` is the culprit: it is 2 because
-    // `/IORQ` falls on `T2`↓ and the bus is latched on `T4`↓, which is right
-    // as *CPU* time and is what `bus_pin_waveform` pins, while the floating
-    // bus moves in *raster* time and a stall between those edges inserts
-    // raster T-states a CPU-time constant cannot see. FUSE has no such gap —
-    // its `readport` spends `contend_port_early` and `contend_port_late`
-    // before `readport_internal`.
-    //
-    // That reading was implemented and **it changes nothing**. Re-reading the
-    // bus on every half-cycle of the I/O read, so the value the CPU latches
-    // is taken at the latch itself and the constant disappears, leaves this
-    // count at 1,537 exactly and leaves `Float48K` at 14336 exactly. It was
-    // reverted: a behaviour change that moves no measurement is not a fix.
-    //
-    // The sweep says why, and it was there to be read: the residual is a
-    // *uniform* shift. Delay accumulation would be phase-dependent, showing
-    // as a residual no single lead could remove. A flat +1 is the shape of a
-    // one-T-state labelling error, which is the shape of the seam between
-    // this file's `ORIGIN` and the contention differentials'
-    // `CONTENTION_ORACLE_ORIGIN` — the same one T-state `Float48K` sits from
-    // hardware and `floating_bus_read`'s own comment calls unaccounted for.
-    // Look there, not at the lead.
-    //
-    // Lower it in the same commit that earns it; never raise it.
-    const RATCHET: usize = 1_537;
-    assert!(
-        total <= RATCHET,
-        "the `IN` path returned the wrong floating-bus byte at {total} of {} \
-         arrival T-states on a contended-page odd port, was {RATCHET}. The bus \
-         model itself is byte-exact against FUSE and so is the uncontended \
-         sample instant, so this is the contention delay charged after \
-         `/IORQ` is asserted, which a fixed lead from that assertion cannot \
-         include.",
+    // Live sampling includes stalls after IORQ assertion. All 1,537
+    // former mismatches are gone; every arrival must now agree.
+    assert_eq!(
+        total,
+        0,
+        "wrong byte at {total} of {} contended arrivals",
         samples.len()
     );
-    if total < RATCHET {
-        println!(
-            "\nRATCHET: {total} of {} — improved on {RATCHET}.",
-            samples.len()
-        );
-    }
 }
 
-/// The same differential as `the_in_path_samples_the_bus_where_fuse_does`,
-/// but driving `IN A,(n)` — **the instruction Float48K actually uses**.
-///
-/// That test covers `IN A,(C)` (`ED 78`), whose I/O M-cycle opens eight
-/// T-states after the instruction arrives: two `M1`s at four apiece.
-/// Float48K's probe reads through `DB FF`, one `M1` and a three-T-state
-/// operand fetch, so its I/O cycle opens at **seven**. Nothing said the
-/// engine placed the sample correctly relative to *that* geometry, and
-/// while Float48K was two T-states out against FUSE it was a live
-/// candidate for where the two went.
-///
-/// It is not: 0 wrong at every arrival T-state, same as `IN A,(C)`. The
-/// value of the test is that it closes the candidate, so the residual
-/// can be pursued in the arrival rather than in the read. See
-/// `knowledge/decisions/spectrum-contention-vs-floating-bus.md`.
+/// Exercise the distinct seven-T-state lead-in of IN A,(n).
 #[test]
 #[ignore = "FIXTURE: differential harness; needs EMU198X_SPECTRUM_48K_ROM"]
 fn the_in_a_n_sample_instant_matches_fuse() {
@@ -995,7 +797,7 @@ fn the_in_a_n_sample_instant_matches_fuse() {
     /// there, and `halt2int` matches all 49152 pixels at the new instant.
     /// This constant is where that divergence from FUSE is stated, so it
     /// stays one number rather than a widened tolerance.
-    const FUSE_SAMPLE_OFFSET: i64 = 2;
+    const FUSE_SAMPLE_OFFSET: i64 = 3;
     /// `IN A,(n)` uncontended: 4 + 3 + 4.
     const BARE_COST: u32 = 11;
     const PORT_LOW: u8 = 0xFF;

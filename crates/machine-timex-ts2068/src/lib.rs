@@ -108,7 +108,7 @@ impl TimexTS2068 {
     #[must_use]
     pub fn new(model: TimexModel) -> Self {
         let (timing, config) = match model {
-            TimexModel::TC2068 => (&TIMING_48K, &ula_engine::CONFIG_48K),
+            TimexModel::TC2068 => (&TIMING_48K, &ula_engine::CONFIG_TIMEX_PAL),
             TimexModel::TS2068 => (&TIMING_TS2068, &ula_engine::CONFIG_TS2068),
         };
         let cpu_hz = (timing.master_hz / u64::from(timing.cpu_divisor)) as u32;
@@ -194,7 +194,7 @@ impl TimexTS2068 {
     /// doesn't fall back to 48K timing on an NTSC machine.
     pub fn restore_volatile_refs(&mut self) {
         let config = match self.model {
-            TimexModel::TC2068 => &ula_engine::CONFIG_48K,
+            TimexModel::TC2068 => &ula_engine::CONFIG_TIMEX_PAL,
             TimexModel::TS2068 => &ula_engine::CONFIG_TS2068,
         };
         self.z80.rehydrate_walker_sequence();
