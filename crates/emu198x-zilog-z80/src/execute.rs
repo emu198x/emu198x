@@ -1424,33 +1424,9 @@ fn execute_ini_ind(z80: &mut Z80, increment: bool, repeat: bool) {
 
             z80.regs.set_f_q(f);
 
-            // Repeat logic.
-            //
-            // `WZ = PC + 1` on a repeating iteration. Measured, not
-            // reasoned: without this line Patrik Rak's `z80memptr`
-            // fails `102 INIR->NOP'` and `103 INDR->NOP'`; with it the
-            // suite is 160 of 160 and all eight exercisers pass.
-            //
-            // This line was removed on 2026-05-31 (`9e4bb020`) on the
-            // stated grounds that FUSE *and* Rak both assert
-            // `WZ == BC ± 1` here. Rak does not, and the commit's
-            // recorded "z80memptr: 6/6, no allowlisted failures" could
-            // not have been measured — the exerciser could not reach
-            // its Result line until #948, two months later. See #949.
-            //
-            // FUSE does want `BC ± 1`, and observes a genuinely
-            // different instant: its `edb2_1` / `edba_1` capture
-            // mid-repeat at 21 T-states, where Rak observes after the
-            // instruction completes. Both may be right about their own
-            // instant; this engine cannot yet hold both, and
-            // `decisions/spectrum-test-oracle-priority.md` ranks
-            // `z80test` above FUSE. The FUSE disagreement is recorded
-            // in that suite's allowlist rather than hidden.
-            //
-            // The OUT family needs no equivalent — `109 OTIR` and
-            // `110 OTDR` pass either way, which is what the documented
-            // MEMPTR rules imply by giving the IN and OUT families
-            // different clauses.
+            // The repeat cycle leaves WZ at the rewound PC + 1.
+            // Rak 1.2a's self-modifying INIR/INDR cases expose this value;
+            // see test-data/z80-output-repeat-wz.md for boundary evidence.
             if repeat {
                 if b_after != 0 {
                     z80.regs.pc = z80.regs.pc.wrapping_sub(2);
@@ -1530,12 +1506,14 @@ fn execute_outi_outd(z80: &mut Z80, increment: bool, repeat: bool) {
                 z80.regs.wz = z80.regs.bc.wrapping_sub(1);
             }
 
-            // Repeat logic. As with INI/IND, WZ was already set to
-            // `BC ± 1` just above and the repeat path must not stomp
-            // it — same FUSE / Patrik Rak observation point.
+            // A non-final iteration overwrites the port-derived value.
+            // The die-derived Perfect Z80 probe and SpecIde agree on PC + 1;
+            // the terminating iteration retains BC +/- 1 above.
+            // See test-data/z80-output-repeat-wz.md.
             if repeat {
                 if b_after != 0 {
                     z80.regs.pc = z80.regs.pc.wrapping_sub(2);
+                    z80.regs.wz = z80.regs.pc.wrapping_add(1);
                     repeat_block_io_flags(z80, b_after);
                 } else {
                     z80.walker.done = true;
