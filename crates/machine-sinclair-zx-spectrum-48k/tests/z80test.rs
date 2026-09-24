@@ -154,9 +154,16 @@ fn run_one(name: &str) -> Option<TestOutcome> {
     }
 
     let Some(tap_path) = z80test_tap_path(name) else {
-        emu198x_test_skip::record(&format!(
-            "{name}.tap not found (set {Z80TEST_DIR_ENV} or place under ~/.emu198x/test-data/z80test/) — skipping"
-        ));
+        let location = std::env::var_os(Z80TEST_DIR_ENV).map_or_else(
+            || format!("default locations; set {Z80TEST_DIR_ENV} to select a corpus"),
+            |dir| {
+                format!(
+                    "{} selected by {Z80TEST_DIR_ENV}; fallback is disabled",
+                    PathBuf::from(dir).join(format!("{name}.tap")).display()
+                )
+            },
+        );
+        emu198x_test_skip::record(&format!("{name}.tap not found at {location} — skipping"));
         return None;
     };
 
