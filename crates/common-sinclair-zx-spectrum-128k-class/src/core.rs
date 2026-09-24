@@ -46,9 +46,9 @@ const AUDIO_SAMPLES_PER_FRAME: usize = 882;
 /// 128K-class machine state.
 ///
 /// Shared between the Sinclair 128K (`V = Sinclair128KMarker`) and the
-/// Amstrad-built grey +2 (`V = AmstradPlus2Marker`). The two are the same
-/// hardware; the marker distinguishes catalogue identity and keeps
-/// snapshots type-bound.
+/// Amstrad-built grey +2 (`V = AmstradPlus2Marker`). The marker selects
+/// catalogue identity and the variant interrupt phase, and keeps snapshots
+/// type-bound.
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct Spectrum128kClassCore<V: Class128kVariant> {
     pub z80: Z80,
@@ -107,10 +107,12 @@ impl<V: Class128kVariant> Spectrum128kClassCore<V> {
     pub fn new() -> Self {
         let cpu_hz = (TIMING_128K.master_hz / u64::from(TIMING_128K.cpu_divisor)) as u32;
         let ay_hz = cpu_hz / 2;
+        let mut ula = SinclairUla::new();
+        V::configure_ula(&mut ula);
         Self {
             z80: Z80::new(),
             io_trace: IoTrace::default(),
-            ula: SinclairUla::new(),
+            ula,
             memory: Memory128K::new(),
             framebuffer: vec![0u8; SCREEN_WIDTH * SCREEN_HEIGHT],
             keyboard: [0xFF; 8],
@@ -267,7 +269,7 @@ impl<V: Class128kVariant> Spectrum128kClassCore<V> {
     /// 7K010E reverts to 48K timing on restore.
     pub fn restore_volatile_refs(&mut self) {
         self.z80.rehydrate_walker_sequence();
-        self.ula.reattach_config();
+        V::configure_ula(&mut self.ula);
     }
     pub fn load_tape_blocks(&mut self, blocks: Vec<TapeBlock>) {
         self.tape.load_blocks(blocks);
