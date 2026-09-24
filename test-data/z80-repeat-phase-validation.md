@@ -38,7 +38,11 @@ that requirement. Six revised waveform regressions fail against the old core.
 
 The exact I/O assertion-to-latch lead is five half-cycles, exported as
 `IO_READ_DATA_LATCH_LEAD_HALF_CYCLES`. The existing T-state constant remains a
-whole-T-state projection for coarse raster predictors, not an exact duration.
+whole-T-state projection, not an exact duration. The 48K and 128K floating-bus
+read paths now project all five CPU half-cycles before rounding to a raster
+T-state, preserving the request edge and the driver's odd-divisor scheduling.
+Rounding the lead first caused Float128K to read 14365; the pre-change baseline
+and phase-preserving implementation both read the expected 14364.
 The latch consumes data supplied before its edge; post-tick strobes are released.
 Existing raster origins are not recalibrated by this change.
 
@@ -61,7 +65,10 @@ On 2026-09-24: 196 ordinary Z80 tests pass; 1,604,000 Tom Harte cases are exact;
 FUSE retains 1,350 exact cases plus six pinned differences, zero unexpected.
 All six pinned Rak 1.2a tape exercisers pass. All five ROM-backed 48K
 floating-bus oracle tests pass, together with the three I/O contention oracles
-and the falling-edge lookup test. Formatting and affected-crate Clippy pass.
+and the falling-edge lookup test. Float48K reads 14338 and Float128K reads
+14364 through their full ROM/tape load paths. Projection tests cover both
+clock divisors, both edge phases and frame wrapping. Formatting and
+affected-crate Clippy pass.
 Earlier cold ZEX results are not claimed as a rerun of this change.
 
 Original adapters, transition records and log hashes are retained privately in
