@@ -24,7 +24,11 @@ RD/WR now release at T3 falling, half a T-state before the following cycle can
 change address/data. I/O IORQ and RD/WR assert at T2 rising and release at final
 T3 falling (called T4Fall in this engine because it counts automatic TW).
 Instruction durations, opcode/refresh timing and the WAIT-handling algorithm
-are unchanged.
+are unchanged. The 48K ULA's answered-port contention lookup now recognises
+the first visible IORQ arming edge through stalled-clock history. Its former
+second-strobe-free-edge test depended on the old CPU timing and missed 18,432
+full-frame oracle samples once IORQ moved. With the consumer corrected, the
+full-frame I/O contention oracle returns to zero differences.
 
 The five corrected traces match all 285 sampled rows of address, M1, MREQ,
 IORQ, RD and WR. SpecIde's explicit memory/I/O cycle states corroborate the
@@ -55,8 +59,9 @@ Delaying flag writeback does not correct that sampling/latching decision.
 
 On 2026-09-24: 196 ordinary Z80 tests pass; 1,604,000 Tom Harte cases are exact;
 FUSE retains 1,350 exact cases plus six pinned differences, zero unexpected.
-All six pinned Rak 1.2a tape exercisers pass (230.46s). All five ROM-backed 48K
-floating-bus oracle tests pass. Formatting and Z80 all-target Clippy pass.
+All six pinned Rak 1.2a tape exercisers pass. All five ROM-backed 48K
+floating-bus oracle tests pass, together with the three I/O contention oracles
+and the falling-edge lookup test. Formatting and affected-crate Clippy pass.
 Earlier cold ZEX results are not claimed as a rerun of this change.
 
 Original adapters, transition records and log hashes are retained privately in

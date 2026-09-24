@@ -333,9 +333,10 @@ pub struct UlaEngine {
     /// address with every strobe released, then drops `/MREQ` half a
     /// T-state later — so a memory cycle offers exactly one strobe-free
     /// falling edge and an I/O cycle, whose `/MREQ` never drops at all,
-    /// offers two before `/IORQ` arrives. **That second one is the whole
-    /// reason this counter exists**: it is FUSE's offset 1, and nothing
-    /// visible on the pins tells it apart from offset 0.
+    /// historically offered two before the old late `/IORQ` edge. With
+    /// corrected IORQ timing only the first is strobe-free; the answered
+    /// port's offset-1 lookup uses the first visible IORQ edge instead.
+    /// This counter remains for diagnostic traces, not contention gating.
     ///
     /// A new address restarts the count, which is what keeps an `Internal`
     /// M-cycle — strobe-free throughout, and carrying the previous cycle's

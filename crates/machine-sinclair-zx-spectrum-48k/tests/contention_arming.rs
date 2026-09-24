@@ -674,18 +674,18 @@ fn io_contention_matches_the_four_fuse_port_classes() {
 ///
 /// ## What it checks
 ///
-/// That `mcycle_fall` reads 1 on `T1Fall` and 2 on `T2Fall` — the two
-/// lookups that happen before `/IORQ` is visible and which therefore have
-/// nothing else to tell them apart — and that a reading of 2 happens *only*
-/// there, so the counter cannot hand a spurious lookup to a memory cycle.
+/// Offset 0 is the strobe-free T1 falling edge. Corrected IORQ timing makes
+/// the pin visible at offsets 1, 2 and 3; the answered-port gate recognises
+/// the first of these through frozen clock history. The old diagnostic
+/// strobe-free counter therefore reads zero at T2 falling, not two.
 #[test]
 #[ignore = "FIXTURE: needs EMU198X_SPECTRUM_48K_ROM"]
 fn the_io_lookup_offsets_are_pinned_to_the_falling_half_cycles() {
     /// The phase each FUSE offset's lookup must land on.
     const OFFSETS: [(&str, u8); 4] = [
         ("IoRead(T1Fall)", 1),
-        ("IoRead(T2Fall)", 2),
-        // Offsets 2 and 3 need no counter: `/IORQ` is visible by then, and
+        ("IoRead(T2Fall)", 0),
+        // Offsets 1, 2 and 3 need no counter: `/IORQ` is visible by then, and
         // both carry the same rule, so the gate reads the pin directly.
         ("IoRead(T3Fall)", 0),
         ("IoRead(T4Fall)", 0),
@@ -737,15 +737,14 @@ fn the_io_lookup_offsets_are_pinned_to_the_falling_half_cycles() {
                  table needs {want}. The counter's origin is off, and every \
                  offset below it moves with it."
             );
-            // The rule for offsets 2 and 3 is the `/IORQ` pin, so the pin
-            // has to be up by then and down before then — one T-state of
-            // slack either way would swap two lookups for two others.
+            // IORQ is visible on the three later falling edges. The first
+            // distinguishes answered ports; unanswered ports use all three.
             let iorq_wanted = want == 0;
             assert!(
                 entries.iter().all(|o| o.iorq == iorq_wanted),
                 "${port:04X}: {phase} disagrees about /IORQ — it must be \
                  {iorq_wanted} for the offsets the gate reads off the pin to \
-                 be offsets 2 and 3 and no others"
+                 be offsets 1, 2 and 3"
             );
         }
 
@@ -764,25 +763,6 @@ fn the_io_lookup_offsets_are_pinned_to_the_falling_half_cycles() {
             "${port:04X}: {misnamed:?} disagree about their own half-cycle — \
              a phase named `Fall` must be one the gate arms on, and the \
              offsets are placed on falling half-cycles by name."
-        );
-
-        // Exclusivity, over the half-cycles the gate can act on. A count of 2
-        // is the one reading nothing on the pins corroborates, so no other
-        // arming half-cycle may reach it — an `Internal` cycle sitting on a
-        // stale even address would otherwise be handed a lookup FUSE never
-        // makes. The count is only advanced on falling half-cycles and so
-        // still reads 2 on the rising one after `T2Fall`, where the gate's
-        // own arming term discards it.
-        let stray: std::collections::BTreeSet<&str> = observed
-            .iter()
-            .filter(|o| !o.clock_high && o.mcycle_fall >= 2 && o.phase != "IoRead(T2Fall)")
-            .map(|o| o.phase.as_str())
-            .collect();
-        assert!(
-            stray.is_empty(),
-            "${port:04X}: mcycle_fall reached 2 or more on arming half-cycles \
-             {stray:?}, not only on the I/O M-cycle's second T-state. Every \
-             one of those is a lookup charged where FUSE charges none."
         );
     }
 }
