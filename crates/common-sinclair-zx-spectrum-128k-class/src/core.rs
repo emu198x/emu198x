@@ -29,7 +29,7 @@ use common_sinclair_zx_spectrum::timing::{
 };
 use common_sinclair_zx_spectrum::ula::Ula;
 use common_sinclair_zx_spectrum::ula_engine::floating_bus_byte;
-use emu198x_zilog_z80::{BusOp, IO_READ_DATA_LATCH_LEAD_TSTATES, Z80};
+use emu198x_zilog_z80::{BusOp, IO_READ_DATA_LATCH_LEAD_HALF_CYCLES, Z80};
 use gi_ay_3_8912::Ay3_8912;
 use peripheral_kempston_joystick::KempstonJoystick;
 use sinclair_ula_7k010e::SinclairUla;
@@ -376,30 +376,17 @@ impl<V: Class128kVariant> Spectrum128kClassCore<V> {
         } else {
             // The floating bus, sampled where the CPU latches it.
             //
-            // `READ_ORIGIN` maps our frame T-state 0 onto the bus for this
-            // read path. It is one T-state later than libspectrum's
-            // `top_left_pixel` (14362): Mark Woodmass's hardware-derived
-            // table places the 128K's first floating-bus byte at 14364, and
-            // 14363 plus the whole-T-state projection of the CPU lead makes Float128K
-            // observe that byte at 14364. The live ULA bus itself remains
-            // anchored to libspectrum and is byte-exact there; this constant
-            // describes when the CPU samples it, as the 48K core's separate
-            // read origin does.
-            // The exact CPU lead is five half-cycles. This coarse projection is shared
-            // with every other variant; see
-            // `IO_READ_DATA_LATCH_LEAD_TSTATES` and the 48K-class core,
-            // which applies the same two constants against
-            // `timings_frame_ferranti_5c_6c`.
-            //
-            // This carried its own fitted `SAMPLE_LEAD = 3` against an
-            // origin of 14363 until #851. Neither was derived; together
-            // they read one T-state short of the reference, and the fix is
-            // not to move either of them again but to state the rule both
-            // machines follow.
+            // Keep the established machine read origin (14363) and bus
+            // origin (14364). Project the five CPU half-cycles to the latch
+            // before rounding to a raster T-state, using the driver's two
+            // scheduled edges even with this machine's odd divisor of five.
+            // Rounding the lead first shifts Float128K from 14364 to 14365.
+            // As on the 48K, this does not predict subsequent clock stalls.
             const READ_ORIGIN: u32 = 14_363;
-            let frame_tstate = (self.frame_position().tstate(&TIMING_128K)
-                + READ_ORIGIN
-                + IO_READ_DATA_LATCH_LEAD_TSTATES)
+            let frame_tstate = (self
+                .frame_position()
+                .tstate_after_cpu_halfcycles(IO_READ_DATA_LATCH_LEAD_HALF_CYCLES, &TIMING_128K)
+                + READ_ORIGIN)
                 % TIMING_128K.tstates_per_frame;
             floating_bus_byte(
                 frame_tstate,

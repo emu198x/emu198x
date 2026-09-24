@@ -150,6 +150,20 @@ impl FramePosition {
         timing.hc_to_tstates(self.halfcycles)
     }
 
+    /// Project scheduled CPU half-cycles before rounding to a raster T-state.
+    /// The driver schedules edges at master phases 0 and divisor / 2, including
+    /// odd divisors. This predicts an unstalled clock, not future contention.
+    #[must_use]
+    pub const fn tstate_after_cpu_halfcycles(self, lead: u32, timing: &FrameTiming) -> u32 {
+        let divisor = timing.cpu_divisor;
+        let edge = if self.halfcycles % divisor >= divisor / 2 {
+            1
+        } else {
+            0
+        };
+        ((self.halfcycles / divisor * 2 + edge + lead) / 2) % timing.tstates_per_frame
+    }
+
     #[must_use]
     pub const fn line(self, timing: &FrameTiming) -> u32 {
         self.tstate(timing) / timing.tstates_per_line
@@ -396,6 +410,28 @@ mod tests {
         assert_eq!(pos.tstate(&TIMING_128K), 240);
         assert_eq!(pos.line(&TIMING_128K), 1);
         assert_eq!(pos.tstate_in_line(&TIMING_128K), 12);
+    }
+
+    #[test]
+    fn cpu_lead_preserves_edge_phase_and_wraps_for_even_and_odd_divisors() {
+        for timing in [&TIMING_48K, &TIMING_128K] {
+            let start = timing.cpu_divisor * 100;
+            assert_eq!(
+                FramePosition::new(start, timing).tstate_after_cpu_halfcycles(5, timing),
+                102
+            );
+            assert_eq!(
+                FramePosition::new(start + timing.cpu_divisor / 2, timing)
+                    .tstate_after_cpu_halfcycles(5, timing),
+                103
+            );
+            let last_edge =
+                timing.halfcycles_per_frame - timing.cpu_divisor + timing.cpu_divisor / 2;
+            assert_eq!(
+                FramePosition::new(last_edge, timing).tstate_after_cpu_halfcycles(5, timing),
+                2
+            );
+        }
     }
 
     #[test]

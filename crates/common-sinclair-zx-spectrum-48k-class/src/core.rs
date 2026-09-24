@@ -31,7 +31,7 @@ use common_sinclair_zx_spectrum::timing::{
     FramePosition, FrameTiming, SCREEN_HEIGHT, SCREEN_WIDTH, TIMING_48K,
 };
 use common_sinclair_zx_spectrum::ula::Ula;
-use emu198x_zilog_z80::{BusOp, IO_READ_DATA_LATCH_LEAD_TSTATES, Z80};
+use emu198x_zilog_z80::{BusOp, IO_READ_DATA_LATCH_LEAD_HALF_CYCLES, Z80};
 use ferranti_ula_6c001e::{FerrantiUla, UlaRevision};
 use peripheral_kempston_joystick::KempstonJoystick;
 
@@ -535,17 +535,15 @@ impl<M: MemoryBus, V: Variant48kClass> SpectrumMachineCore<M, V> {
     /// Read the floating bus for an unused odd-port `IN`.
     ///
     /// Our `io_read` fires when the I/O transaction resolves — the `/IORQ`
-    /// rising edge — while the CPU latches the data bus at the end of the
+    /// assertion edge — while the CPU latches the data bus at the end of the
     /// M-cycle. The floating bus moves within that gap, so it has to be
     /// read at the latch, not at the edge.
     ///
-    /// The coarse predictor uses [`IO_READ_DATA_LATCH_LEAD_TSTATES`], the
-    /// whole-T-state projection of a five-half-cycle CPU lead. It does not
-    /// retain sub-T-state phase or account for later contention stalls.
-    /// The projection is shared by every variant. It used to be
-    /// a `SAMPLE_LEAD` fitted here and a second one fitted in the
-    /// 128K-class core, which is how the same one-T-state error came to be
-    /// hidden twice over (#851).
+    /// Project the five CPU half-cycles in
+    /// [`IO_READ_DATA_LATCH_LEAD_HALF_CYCLES`] before rounding to a raster
+    /// T-state. Rounding the lead first loses a T-state when the request
+    /// begins on the second scheduled edge. This predicts an unstalled
+    /// clock; later contention still requires live sampling to model exactly.
     ///
     /// `ORIGIN` maps our frame T-state 0 onto FUSE's frame for **this read
     /// path**. It was libspectrum's `top_left_pixel` for this ULA — 14336,
@@ -574,19 +572,17 @@ impl<M: MemoryBus, V: Variant48kClass> SpectrumMachineCore<M, V> {
     /// differentials in that file carry a `FUSE_SAMPLE_OFFSET` of 2 rather
     /// than FUSE's 3.
     ///
-    /// **Not the shared lead.** Taking
-    /// [`IO_READ_DATA_LATCH_LEAD_TSTATES`] from 2 to 1 produces the same
-    /// 48K result, and was measured: it moves Float128K from 14365 to
-    /// 14366, *away* from the 14364 that machine wants. So this is a 48K
-    /// read-origin fact rather than Z80 geometry, and the 128K's own
-    /// one-T-state gap (#942) is a separate question.
     fn floating_bus_read(&self) -> u8 {
         /// One earlier than libspectrum's `top_left_pixel`, on three
         /// hardware oracles; see the note above.
         const ORIGIN: u32 = 14_335;
         const FLOAT_START: u32 = 14_338; // Spectron FloatingBusStartTicks (48K)
         let frame = TIMING_48K.tstates_per_frame;
-        let t = (self.tstate_in_frame() + ORIGIN + IO_READ_DATA_LATCH_LEAD_TSTATES) % frame;
+        let t = (self
+            .frame_position()
+            .tstate_after_cpu_halfcycles(IO_READ_DATA_LATCH_LEAD_HALF_CYCLES, &TIMING_48K)
+            + ORIGIN)
+            % frame;
         common_sinclair_zx_spectrum::ula_engine::floating_bus_byte(
             t,
             FLOAT_START,
