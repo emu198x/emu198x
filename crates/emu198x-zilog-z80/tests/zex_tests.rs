@@ -86,7 +86,7 @@ const ZEX_CHECKPOINT_LABELS: [&str; 67] = [
 const ZEX_CHECKPOINT_ENV: &str = "EMU198X_ZEX_CHECKPOINT";
 const ZEX_SNAPSHOT_DIR_ENV: &str = "EMU198X_ZEX_SNAPSHOT_DIR";
 const ZEX_SNAPSHOT_MAGIC: &[u8; 8] = b"ZEXSNAP1";
-const ZEX_SNAPSHOT_VERSION: u32 = 1;
+const ZEX_SNAPSHOT_VERSION: u32 = 2;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 enum ZexSuite {
@@ -152,6 +152,8 @@ struct ZexRunResult {
 #[derive(serde::Serialize, serde::Deserialize)]
 struct ZexHarnessSnapshot {
     version: u32,
+    #[serde(default)]
+    source_com: Vec<u8>,
     suite: ZexSuite,
     checkpoint_index: usize,
     cycle_count: u64,
@@ -160,6 +162,7 @@ struct ZexHarnessSnapshot {
 }
 
 struct ZexHarnessState {
+    source_com: Vec<u8>,
     mem: CpmMemory,
     z80: Z80,
     console: ZexConsole,
@@ -204,6 +207,7 @@ impl ZexHarnessState {
         z80.regs.sp = 0xFFFE;
 
         Self {
+            source_com: com_data.to_vec(),
             mem: CpmMemory::new(com_data),
             z80,
             console: ZexConsole::default(),
@@ -325,6 +329,7 @@ fn save_zex_snapshot(
     let path = zex_snapshot_path(snapshot_dir, suite, checkpoint_index);
     let metadata = ZexHarnessSnapshot {
         version: ZEX_SNAPSHOT_VERSION,
+        source_com: state.source_com.clone(),
         suite,
         checkpoint_index,
         cycle_count: state.cycle_count,
@@ -378,7 +383,11 @@ fn save_zex_snapshot(
     })
 }
 
-fn load_zex_snapshot(path: &Path, suite: ZexSuite) -> Result<ZexHarnessState, String> {
+fn load_zex_snapshot(
+    path: &Path,
+    suite: ZexSuite,
+    com_data: &[u8],
+) -> Result<ZexHarnessState, String> {
     let bytes = std::fs::read(path).map_err(|error| {
         format!(
             "failed to read {} snapshot {}: {error}",
@@ -441,6 +450,13 @@ fn load_zex_snapshot(path: &Path, suite: ZexSuite) -> Result<ZexHarnessState, St
             ZEX_SNAPSHOT_VERSION
         ));
     }
+    if metadata.source_com != com_data {
+        return Err(format!(
+            "{} snapshot {} belongs to a different COM binary; rebuild checkpoints in a fresh snapshot directory",
+            suite.display_name(),
+            path.display()
+        ));
+    }
     if metadata.suite != suite {
         return Err(format!(
             "{} snapshot {} is tagged for {:?}",
@@ -465,6 +481,7 @@ fn load_zex_snapshot(path: &Path, suite: ZexSuite) -> Result<ZexHarnessState, St
     mem.copy_from_slice(memory_bytes);
 
     Ok(ZexHarnessState {
+        source_com: metadata.source_com,
         mem: CpmMemory { mem },
         z80: metadata.z80,
         console: ZexConsole::default(),
@@ -479,11 +496,12 @@ fn load_best_zex_snapshot(
     snapshot_dir: &Path,
     suite: ZexSuite,
     target_checkpoint: usize,
+    com_data: &[u8],
 ) -> Result<Option<(usize, ZexHarnessState)>, String> {
     for checkpoint_index in (1..=target_checkpoint).rev() {
         let path = zex_snapshot_path(snapshot_dir, suite, checkpoint_index);
         if path.exists() {
-            let state = load_zex_snapshot(&path, suite)?;
+            let state = load_zex_snapshot(&path, suite, com_data)?;
             return Ok(Some((checkpoint_index, state)));
         }
     }
@@ -492,6 +510,10 @@ fn load_best_zex_snapshot(
 }
 
 fn assert_full_zex_success(suite: ZexSuite, result: &ZexRunResult) {
+    assert!(
+        result.resumed_from_checkpoint.is_none(),
+        "full ZEX validation must start from cold boot"
+    );
     let tests_ok = result
         .checkpoints
         .iter()
@@ -636,12 +658,13 @@ impl CpmMemory {
 /// Run a ZEX .COM file, returning the console output and completion status.
 fn run_zex(suite: ZexSuite, com_data: &[u8], options: ZexRunOptions) -> ZexRunResult {
     let mut resumed_from_checkpoint = None;
-    let resume_target = options
-        .stop_after_checkpoint
-        .map(|target| target.saturating_sub(1))
-        .unwrap_or(ZEX_CHECKPOINT_LABELS.len());
-    let mut state = if let Some(snapshot_dir) = options.snapshot_dir.as_deref() {
-        match load_best_zex_snapshot(snapshot_dir, suite, resume_target) {
+    // A complete validation must execute every checkpoint in this run.
+    // Resuming is only a targeted debugging convenience, never a full-suite gate.
+    let mut state = if let (Some(snapshot_dir), Some(target)) = (
+        options.snapshot_dir.as_deref(),
+        options.stop_after_checkpoint,
+    ) {
+        match load_best_zex_snapshot(snapshot_dir, suite, target.saturating_sub(1), com_data) {
             Ok(Some((checkpoint_index, state))) => {
                 resumed_from_checkpoint = Some(checkpoint_index);
                 eprintln!(
@@ -926,7 +949,7 @@ fn zex_snapshot_roundtrip_restores_harness_state() {
     }
 
     let snapshot_path = zex_snapshot_path(&snapshot_dir, ZexSuite::Doc, 1);
-    let restored = match load_zex_snapshot(&snapshot_path, ZexSuite::Doc) {
+    let restored = match load_zex_snapshot(&snapshot_path, ZexSuite::Doc, &[0x00, 0x76]) {
         Ok(restored) => restored,
         Err(message) => panic!("{message}"),
     };
@@ -967,12 +990,12 @@ fn zex_snapshot_loader_prefers_highest_cached_checkpoint_below_target() {
         panic!("{message}");
     }
 
-    let (checkpoint_index, restored) = match load_best_zex_snapshot(&snapshot_dir, ZexSuite::Doc, 4)
-    {
-        Ok(Some(snapshot)) => snapshot,
-        Ok(None) => panic!("expected a cached snapshot"),
-        Err(message) => panic!("{message}"),
-    };
+    let (checkpoint_index, restored) =
+        match load_best_zex_snapshot(&snapshot_dir, ZexSuite::Doc, 4, &[0x00, 0x76]) {
+            Ok(Some(snapshot)) => snapshot,
+            Ok(None) => panic!("expected a cached snapshot"),
+            Err(message) => panic!("{message}"),
+        };
 
     assert_eq!(checkpoint_index, 3);
     assert_eq!(restored.cycle_count, 3_000);
@@ -999,4 +1022,82 @@ fn explicit_checkpoint_runs_require_selection() {
         assert!(stderr.contains(ZEX_CHECKPOINT_ENV), "{stderr}");
         assert!(stderr.contains("1 to 67"), "{stderr}");
     }
+}
+
+#[test]
+fn full_zex_run_ignores_previously_passed_checkpoints() {
+    let snapshot_dir = unique_test_snapshot_dir("full-cold-boot");
+    let com = [0x76]; // HALT cannot pass any ZEX checkpoints.
+    let mut state = ZexHarnessState::cold_boot(&com);
+    // A cached machine poised to print completion with 67 inherited OKs.
+    let print_completion = [0x0e, 9, 0x11, 0x09, 0x01, 0xcd, 5, 0, 0x76];
+    for (offset, byte) in print_completion
+        .iter()
+        .chain(b"Tests complete\r\n$")
+        .enumerate()
+    {
+        state.mem.write(0x0100 + offset as u16, *byte);
+    }
+    state.cycle_count = 1_000;
+    state.checkpoints = (1..=67).map(|index| ok_checkpoint(index, 1_000)).collect();
+    save_zex_snapshot(&snapshot_dir, ZexSuite::Doc, &state, 67)
+        .expect("save synthetic completed prefix");
+    let result = run_zex(
+        ZexSuite::Doc,
+        &com,
+        ZexRunOptions {
+            snapshot_dir: Some(snapshot_dir.clone()),
+            ..ZexRunOptions::default()
+        },
+    );
+    let _ = std::fs::remove_dir_all(snapshot_dir);
+    assert_eq!(result.resumed_from_checkpoint, None);
+    assert!(result.checkpoints.is_empty());
+    assert!(!result.completed);
+    assert!(result.cycle_count < 1_000);
+}
+
+#[test]
+fn zex_snapshot_requires_the_original_com_bytes() {
+    let snapshot_dir = unique_test_snapshot_dir("binary-identity");
+    let com = [0x00, 0x76];
+    let mut state = ZexHarnessState::cold_boot(&com);
+    state.checkpoints.push(ok_checkpoint(1, 100));
+    // Running programs can change their loaded RAM; identity is the original input.
+    state.mem.write(0x0100, 0xff);
+    save_zex_snapshot(&snapshot_dir, ZexSuite::Doc, &state, 1).expect("save fixture");
+    let path = zex_snapshot_path(&snapshot_dir, ZexSuite::Doc, 1);
+    let matching = load_zex_snapshot(&path, ZexSuite::Doc, &com).expect("same binary resumes");
+    assert_eq!(matching.mem.read(0x0100), 0xff);
+    let changed = load_best_zex_snapshot(&snapshot_dir, ZexSuite::Doc, 2, &[0x00, 0x77]);
+    let _ = std::fs::remove_dir_all(snapshot_dir);
+    assert!(matches!(changed, Err(message) if message.contains("different COM binary")));
+}
+
+#[test]
+fn legacy_zex_snapshot_without_binary_identity_is_rejected() {
+    let snapshot_dir = unique_test_snapshot_dir("legacy-identity");
+    let com = [0x76];
+    let mut state = ZexHarnessState::cold_boot(&com);
+    state.checkpoints.push(ok_checkpoint(1, 100));
+    save_zex_snapshot(&snapshot_dir, ZexSuite::Doc, &state, 1).expect("save fixture");
+    let path = zex_snapshot_path(&snapshot_dir, ZexSuite::Doc, 1);
+    let bytes = std::fs::read(&path).expect("read fixture");
+    let metadata_len = u32::from_le_bytes(bytes[8..12].try_into().expect("length header")) as usize;
+    let mut metadata: serde_json::Value =
+        serde_json::from_slice(&bytes[12..12 + metadata_len]).expect("metadata JSON");
+    metadata["version"] = 1.into();
+    metadata
+        .as_object_mut()
+        .expect("metadata object")
+        .remove("source_com");
+    let encoded = serde_json::to_vec(&metadata).expect("encode legacy metadata");
+    let mut legacy = ZEX_SNAPSHOT_MAGIC.to_vec();
+    legacy.extend_from_slice(&(encoded.len() as u32).to_le_bytes());
+    legacy.extend_from_slice(&encoded);
+    legacy.extend_from_slice(&bytes[12 + metadata_len..]);
+    std::fs::write(&path, legacy).expect("write legacy snapshot");
+    let result = load_zex_snapshot(&path, ZexSuite::Doc, &com);
+    let _ = std::fs::remove_dir_all(snapshot_dir);
+    assert!(matches!(result, Err(message) if message.contains("version 1 instead of 2")));
 }
