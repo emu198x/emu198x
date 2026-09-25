@@ -35,7 +35,12 @@ async function check(kind,roms,media) {
   assert([...frame.audio].every(Number.isFinite));
   const event=kind==='spectrum'?['code','KeyA']:['nes','game-boy'].includes(kind)?['button','a']:['key','A'];
   await rpc('input',[[...event,true]]);await rpc('step');await rpc('input',[[...event,false]]);
-  const saved=await rpc('save');assert(saved.length>0);const future=await rpc('step');await rpc('restore',saved);const replay=await rpc('step');assert.deepEqual(replay.pixels,future.pixels,`${kind} save/restore`);
+  const saved=await rpc('save');assert(saved.length>0);
+  // Spectrum snapshots omit transient ULA border latches, as in check-fleet:
+  // compare after their documented one-cell reseed has rendered a full frame.
+  let future=await rpc('step');if(kind==='spectrum')future=await rpc('step');
+  await rpc('restore',saved);let replay=await rpc('step');if(kind==='spectrum')replay=await rpc('step');
+  assert.deepEqual(replay.pixels,future.pixels,`${kind} save/restore`);
   await assert.rejects(rpc('unknown'),/Unknown player command/);
   if(kind==='amiga') { await rpc('input',[['move',13,-7],['mouse','left',true],['mouse','left',false]]); await assert.rejects(rpc('load','adf',new Uint8Array(5))); }
   console.log(`${kind}: boot, frames, stereo audio, input and error handling passed (${frame.width}×${frame.height})`);
@@ -44,6 +49,9 @@ async function check(kind,roms,media) {
 await check('game-boy',{}, {format:'gb',bytes:fixture('nintendo-game-boy-logo.gb')});
 await check('nes',{}, {format:'nes',bytes:fixture('nintendo-nes-logo.nes')});
 if(process.env.SPECTRUM_ROM)await check('spectrum',{rom:read(process.env.SPECTRUM_ROM)},null);
+// A build with the 48K ROM embedded must start the Spectrum with no firmware sent.
+const spectrum=JSON.parse(readFileSync(path.join(dist,'catalog.json'))).find(entry=>entry.id==='sinclair-zx-spectrum');
+if(spectrum.variants.find(variant=>variant.id==='spectrum_48k').firmware.some(firmware=>firmware.bundled))await check('spectrum',{},null);
 if(process.env.AMIGA_ROM)await check('amiga',{kickstart:read(process.env.AMIGA_ROM)},null);
 if(process.env.C64_ROM_DIR)await check('c64',Object.fromEntries(['kernal','basic','chargen'].map((name,i)=>[name,read(path.join(process.env.C64_ROM_DIR,['kernal_generic.rom','basic_generic.rom','chargen_openroms.rom'][i]))]).concat([['drive',new Uint8Array()]])),null);
 // Independently produced native checkpoints, same input schedule on WASM.

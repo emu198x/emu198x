@@ -18,7 +18,10 @@ const formats={
  'sinclair-zx-spectrum':{Tape:'.tap,.tzx',Disk:'.dsk'},'sinclair-zx80':{Tape:'.o'},'sinclair-zx81':{Tape:'.p,.81'},
  'spectravideo-svi-328':{Tape:'.cas'},'tatung-einstein':{Disk:'.dsk'},
 };
-export function makeCatalogue(profiles) {
+// `bundledSpectrum48k` is set only when the build embedded the verified 48K ROM
+// in the Spectrum module's wasm. It marks that one variant's firmware as
+// bundled; every other model keeps its bring-your-own firmware.
+export function makeCatalogue(profiles,{bundledSpectrum48k=false}={}) {
  return families.map(({family,alias})=>{
   const old=legacy.find(entry=>entry.id===family);
   const models=profiles.filter(p=>p.family===family);
@@ -29,6 +32,7 @@ export function makeCatalogue(profiles) {
     for(const slot of variant.slots)if(slot.kind==='Disk')slot.accept=slot.id==='drive-9'?'.d81':'.d64,.g64';
   }
   if(family==='sinclair-zx-spectrum')for(const variant of variants)variant.slots.push({id:'snapshot',kind:'Snapshot',display_name:'Snapshot',accept:'.sna,.z80',required:false});
+  if(family==='sinclair-zx-spectrum' && bundledSpectrum48k)for(const variant of variants)if(variant.id==='spectrum_48k')variant.firmware=variant.firmware.map(firmware=>({...firmware,bundled:true}));
   const defaultVariant=defaults[family] || variants[0].id;
   const consoleFamily=['atari-2600','atari-5200','atari-7800','coleco-colecovision','nintendo-game-boy','nintendo-nes','sega-game-gear','sega-master-system','sega-sg-1000'].includes(family);
   const variantAliases=family==='sinclair-zx-spectrum'?{'pentagon-128':'pentagon_128','scorpion-zs256':'scorpion_zs256','timex-tc2048':'timex_tc2048','timex-ts2068':'timex_ts2068'}:{};

@@ -17,8 +17,8 @@ pub use browser::Spectrum;
 
 /// The Sinclair 48K ROM, embedded at build time.
 ///
-/// Present only under the `bundled-rom` feature, which the npm publish step
-/// enables and nothing else does. The image is read from
+/// Present only under the `bundled-rom` feature, which only the npm publish
+/// step and the shared web player's build enable. The image is read from
 /// `EMU198X_SPECTRUM_48K_ROM` at compile time, so it never enters this
 /// repository — see `knowledge/decisions/test-rom-policy.md`
 /// § Firmware in a published browser build for why that distinction matters.

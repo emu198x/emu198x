@@ -38,7 +38,9 @@ async function handle({id, command, args = []}) {
         for(const [id,bytes] of Object.entries(roms))if(bytes.length)machine.firmware(id,bytes);
         machine.boot();
       }
-      else if (kind === 'spectrum') machine = module.Spectrum.createHeadless(roms.rom);
+      // A build with the verified 48K ROM embedded supplies it when the page
+      // sends none; otherwise the visitor's own file is required, as before.
+      else if (kind === 'spectrum') machine = roms.rom?.length || !module.Spectrum.createHeadlessBundled ? module.Spectrum.createHeadless(roms.rom) : module.Spectrum.createHeadlessBundled();
       else if (kind === 'c64') machine = module.Commodore.c64(roms.kernal,roms.basic,roms.chargen,roms.drive);
       else if (kind === 'amiga') machine = roms.extended?.length ? module.Commodore.amiga_aros(roms.kickstart,roms.extended) : module.Commodore.amiga(roms.kickstart);
       else if (kind === 'nes') machine = new module.Nes(media.bytes);
