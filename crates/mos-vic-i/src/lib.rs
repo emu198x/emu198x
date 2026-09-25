@@ -1138,6 +1138,85 @@ mod tests {
         );
     }
 
+    /// The display's bounding box in the framebuffer, as (left, top, right,
+    /// bottom) inclusive, after one frame with `origin` in registers 0 and 1
+    /// and the rest of the KERNAL's stock values.
+    fn display_box(pal: bool, origin: (u8, u8)) -> (u32, u32, u32, u32) {
+        let mut vic = Vic6560::new(pal);
+        stock(&mut vic);
+        vic.write(0x00, origin.0);
+        vic.write(0x01, origin.1);
+        for _ in 0..vic.cycles_per_line * lines_per_frame(pal) {
+            vic.tick(
+                |_| 1,
+                |_| 2,
+                |addr| if (8..32).contains(&addr) { 0xFF } else { 0x00 },
+            );
+        }
+
+        let (width, height) = (vic.framebuffer_width(), vic.framebuffer_height());
+        let (mut left, mut top, mut right, mut bottom) = (u32::MAX, u32::MAX, 0, 0);
+        for y in 0..height {
+            for x in 0..width {
+                if pixel(&vic, x, y) == VIC_PALETTE[2] {
+                    left = left.min(x);
+                    top = top.min(y);
+                    right = right.max(x);
+                    bottom = bottom.max(y);
+                }
+            }
+        }
+        (left, top, right, bottom)
+    }
+
+    /// #1536: each chip, given its own KERNAL's screen origin, shows the whole
+    /// 22×23 display with border on all four sides. NTSC's 5/25 is the
+    /// Programmer's Reference Guide's "normal value" (p.213); PAL's 12/38 is
+    /// what 901486-07 writes from its table at $EDE4.
+    #[test]
+    fn each_kernals_origin_frames_the_whole_display_in_border() {
+        for (pal, origin) in [(false, (5, 25)), (true, (12, 38))] {
+            let (width, height) = (framebuffer_width(pal), framebuffer_height(pal));
+            let (left, top, right, bottom) = display_box(pal, origin);
+
+            assert_eq!(
+                (right - left + 1, bottom - top + 1),
+                (ACTIVE_WIDTH, ACTIVE_HEIGHT),
+                "pal={pal}: all 22 columns and 23 rows are in the frame"
+            );
+            let (border_l, border_r) = (left, width - 1 - right);
+            let (border_t, border_b) = (top, height - 1 - bottom);
+            assert!(
+                border_l > 0 && border_r > 0 && border_t > 0 && border_b > 0,
+                "pal={pal}: border on every side, got l{border_l} r{border_r} t{border_t} b{border_b}"
+            );
+            // Near centre, not exactly: the origin moves in steps of four
+            // pixels and two lines, and the KERNAL's values were chosen for a
+            // set, not for this window. PAL comes out 28/26 and 52/52; NTSC
+            // 16/22 and 29/27, the six-pixel lean coming from MAME's window
+            // start (`window_first_pixel`). A PAL KERNAL on NTSC is 44/-6.
+            assert!(
+                border_l.abs_diff(border_r) <= 8 && border_t.abs_diff(border_b) <= 4,
+                "pal={pal}: off-centre, got l{border_l} r{border_r} t{border_t} b{border_b}"
+            );
+        }
+    }
+
+    /// The picture #1536 reported, for the record of what caused it: the PAL
+    /// KERNAL's origin on a 6560 runs the display off the right of the frame.
+    /// Not a fault of the chip — a real NTSC VIC-20 fitted with 901486-07 does
+    /// the same — which is why the fix is in which KERNAL a model loads.
+    #[test]
+    fn the_pal_kernals_origin_clips_an_ntsc_display() {
+        let (left, _, right, _) = display_box(false, (12, 38));
+        assert_eq!(left, 44);
+        assert_eq!(right, framebuffer_width(false) - 1, "cut by the frame edge");
+        assert!(
+            right - left + 1 < ACTIVE_WIDTH,
+            "the 22nd column is clipped"
+        );
+    }
+
     #[test]
     fn the_window_holds_the_field_and_opens_where_blanking_ends() {
         for pal in [true, false] {

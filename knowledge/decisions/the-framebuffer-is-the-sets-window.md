@@ -437,11 +437,14 @@ PAL 7800 screen describes a different display list rather than the same picture
 moved. Where PAL MARIA puts vertical sync would settle it, the way Altirra
 settles it for ANTIC.
 
-**And one is subordinate to a larger gap.** The VIC-20's screen origin is
-software: registers 0 and 1 set it, and the KERNAL's defaults are what put the
-picture where it sits. Our VIC-I ignores both and draws at a fixed border, so
-asking where its window sits is asking the wrong question until the registers
-are honoured. Filed rather than guessed.
+**And one depends on the firmware.** The VIC-20's screen origin is software:
+registers 0 and 1 set it, and the KERNAL's defaults are what put the picture
+where it sits. The VIC-I honours both (#1087), and the window start comes from
+MAME's `mos6560.h`. That makes the KERNAL part of the position, and the KERNAL
+is regional: 901486-06 writes 5/25 for the 6560, 901486-07 writes 12/38 for
+the 6561. Each centres its own chip's picture. The wrong one boots but moves
+the picture — a PAL KERNAL on NTSC runs the 22nd column off the right edge
+(#1536) — so each model looks for its own regional KERNAL file first.
 
 ## The ZX8x: subtracting from a frame the machine never emits
 
