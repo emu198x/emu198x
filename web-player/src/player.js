@@ -9,6 +9,9 @@ const listen = (target, type, handler) => target.addEventListener(type, handler,
 let disposed = false, animation;
 const variant=system.variants?.find(entry=>entry.id===(system.selectedVariant || system.defaultVariant));
 const fleet=system.kind==='fleet' || (variant && variant.id!==system.defaultVariant);
+// Only the Spectrum 48K can carry bundled firmware, and only in a build that
+// embedded the verified ROM in its wasm; the catalogue says which.
+const bundledFirmware=!fleet && system.kind==='spectrum' && Boolean(variant?.firmware?.some(entry=>entry.bundled));
 const cartridge = system.console ?? ['nes','game-boy'].includes(system.kind);
 let keymap={};
 const slots=fleet ? variant.slots : [];
@@ -221,14 +224,16 @@ canvas.setAttribute('aria-label',`${system.name} screen. ${system.help}`);
 const sizes = {'game-boy':[160,144],nes:[256,240],spectrum:[352,296],c64:[416,312],amiga:[768,576]};
 [canvas.width,canvas.height]=sizes[system.kind] || [640,480];
 $('media').accept=fleet ? slot()?.accept || '' : system.media; $('media').required=cartridge;
-$('pad').hidden=!cartridge; $('firmware-settings').hidden=fleet ? !variant.firmware.length : cartridge;
+$('pad').hidden=!cartridge; $('firmware-settings').hidden=fleet ? !variant.firmware.length : cartridge || bundledFirmware;
 $('choose-media').hidden=cartridge || (fleet && !slots.length);
-$('begin').textContent=cartridge ? 'Choose a cartridge' : (fleet && !variant.firmware.length) ? 'Start' : 'Choose firmware';
+$('begin').textContent=cartridge ? 'Choose a cartridge' : (fleet && !variant.firmware.length) || bundledFirmware ? 'Start' : 'Choose firmware';
 $('choose-media').textContent=cartridge ? 'Change cartridge' : system.kind==='amiga' ? 'Choose disk' : 'Choose program or disk';
-$('file-hint').textContent=cartridge ? `${system.media} · stays on your device` : 'Select your ROM files to start this computer.';
+$('file-hint').textContent=cartridge ? `${system.media} · stays on your device` : bundledFirmware ? 'The 48K ROM is included with this player.' : 'Select your ROM files to start this computer.';
+// Amstrad's permission asks for this acknowledgement wherever the ROM is used.
+if(bundledFirmware) { $('firmware-credit').textContent='This player includes the ZX Spectrum 48K ROM. Amstrad have kindly given their permission for the redistribution of their copyrighted material but retain that copyright.'; $('firmware-credit').hidden=false; }
 if(system.externalSource){$('begin').hidden=true;$('file-hint').textContent='Use Assemble & run in the source editor to start or update your program.';}
 $('licence').href=asset('LICENSE.txt');
-  if(!fleet && system.kind==='spectrum')firmwareInput('rom','48K firmware ROM (16 KiB)');
+  if(!fleet && system.kind==='spectrum' && !bundledFirmware)firmwareInput('rom','48K firmware ROM (16 KiB)');
   if(!fleet && system.kind==='c64') {
     firmwareInput('kernal','KERNAL ROM'); firmwareInput('basic','BASIC ROM'); firmwareInput('chargen','Character ROM'); firmwareInput('drive','1541 drive ROM (optional)',true);
     $('firmware-note').append('Original firmware or matching ');

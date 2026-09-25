@@ -1,6 +1,7 @@
 # Shared browser player
 
-Firmware-free player for Code198x system pages and Emu198x system pages.
+Player for Code198x system pages and Emu198x system pages. It carries no
+firmware, except that a site build may embed the Spectrum 48K ROM (below).
 Both sites mount the same inline custom element from their own copy of the
 static distribution. The player inherits site typography and theme colours;
 there is no iframe or separate player-page interface. Cartridge selection
@@ -27,9 +28,30 @@ node scripts/build-browser-player.mjs /path/to/site/public/emulators
 ```
 
 Run from the repository root with `wasm-pack` installed. Alternatively set
-`WASM_BINDGEN` to a wasm-bindgen CLI matching Cargo.lock. No bundled-ROM feature
-is enabled, no firmware is fetched, and only generated JS/WASM and player files
-are copied. `build.json` records the source revision and whether it was modified.
+`WASM_BINDGEN` to a wasm-bindgen CLI matching Cargo.lock. No firmware is
+fetched, and only generated JS/WASM and player files are copied. `build.json`
+records the source revision, whether it was modified, and whether the Spectrum
+48K firmware is bundled.
+
+### Bundled Spectrum 48K ROM
+
+Set `EMU198X_SPECTRUM_48K_ROM` to the path of the Sinclair 48K ROM and the
+builder compiles `emu198x-spectrum-web`, the module that runs the 48K model,
+with its `bundled-rom` feature. Sites supply the image from an encrypted CI
+secret; it never enters this repository. Before building, the builder checks
+the image is the unmodified ROM (SHA1 `5ea7c2b824672e914525d1d5c419d71b84a426a2`,
+16384 bytes) and stops on anything else, including patched 48K images. Unset
+or empty, the build is unchanged and the 48K asks for firmware as before.
+
+With the ROM bundled, the catalogue marks the 48K model's firmware as bundled,
+the 48K starts (and lesson `src` programs run) without a firmware prompt, and
+Controls & session information shows Amstrad's requested acknowledgement.
+The 16K, Spectrum+, 128K, +2 and +3 models, and every other family, still
+use the visitor's own firmware. The ROM is only ever inside the wasm; the
+build fails if any distribution file is a `.rom` or has the ROM's bytes.
+`node web-player/check-bundled-firmware.mjs [dist]` checks the guard without
+the ROM. See `knowledge/decisions/test-rom-policy.md`
+§ Firmware in a published browser build.
 The GPL licence and public source/build link travel with the distribution.
 
 The builder runs the executable worker checks, native/WASM Game Boy parity
@@ -56,7 +78,8 @@ released/held/released and repeated from a fresh machine. The native test also
 checks the frame duration and wall-clock pacing (M-cycles, not master ticks).
 
 Optional `SPECTRUM_ROM`, `AMIGA_ROM` and `C64_ROM_DIR` inputs extend the worker
-check to those three families; the C64 directory uses the prototype's Open ROMs
+check to those three families (a build with the bundled 48K ROM also boots
+the Spectrum with no firmware sent); the C64 directory uses the prototype's Open ROMs
 filenames. Existing Commodore parity, real-browser mouse and firmware checks
 remain documented in `crates/emu198x-commodore-web/README.md`.
 This worker check does not establish browser-specific performance or audible

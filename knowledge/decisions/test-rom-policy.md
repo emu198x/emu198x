@@ -43,7 +43,7 @@ outputs rather than redistributed ROMs.
 | Super Mario Bros. ROM (NES regression) | `EMU198X_NES_SMB_ROM` | Commercial, copyrighted (Nintendo) | No — never bundle |
 | Manic Miner / Jet Set Willy TZX (Spectrum regression) | `EMU198X_SPECTRUM_MANIC_MINER_TZX` / `…_JET_SET_WILLY_TZX` | Commercial (Bug-Byte / Software Projects); some titles have permissive distribution permission, varies | No — never bundle |
 | Mealybug Tearoom (mattcurrie, future use) | (env var TBD when first referenced) | MIT | Yes if we want |
-| Sinclair 48K ROM (firmware, npm package only) | `EMU198X_SPECTRUM_48K_ROM` | Commercial (Amstrad), permitted for redistribution with emulators | Not in this repo; embedded in the published `@emu198x/zx-spectrum` wasm only — see § Firmware in a published browser build |
+| Sinclair 48K ROM (firmware, browser builds only) | `EMU198X_SPECTRUM_48K_ROM` | Commercial (Amstrad), permitted for redistribution with emulators | Not in this repo; embedded in the published `@emu198x/zx-spectrum` wasm and in the Spectrum module of the shared web-player distribution, only as the verified unmodified image — see § Firmware in a published browser build |
 | ZEXDOC / ZEXALL | `EMU198X_ZEX_DIR` | No explicit grant; long-standing redistribution | No — referenced externally since 2026-07-04 |
 | Amiga Test Kit v1.12 | `EMU198X_AMIGA_TEST_KIT_ADF` | Public domain / Unlicense | Yes for the ADF; required Kickstart remains proprietary |
 | Amiga Test Kit v1.21 | `EMU198X_AMIGA_TEST_KIT_V121_ADF` | Public domain / Unlicense | Yes for the ADF; required Kickstart remains proprietary |
@@ -208,14 +208,27 @@ Obvious. Just naming it for completeness.
 ### Firmware in a published browser build (added 2026-09-02)
 
 The `@emu198x/zx-spectrum` npm package embeds the Sinclair 48K ROM in its
-wasm artifact. This is the documented special case the "bundle a commercial
-ROM with permission from the rights-holder" drift trigger asks for, and it is
-narrow.
+wasm artifact, and since 2026-09-25 so does the Spectrum module of the shared
+web-player distribution that Code198x and the Emu198x site build. This is the
+documented special case the "bundle a commercial ROM with permission from the
+rights-holder" drift trigger asks for, and it is narrow.
 
-**Scope.** The Spectrum 48K ROM, in the published browser package only. No
-other firmware, no other system, and not in this repository — see § How it
-reaches the artifact below. C64 KERNAL and Amiga Kickstart are unchanged:
-never bundled, no permission of this kind on record.
+**Scope.** One image: the Spectrum 48K ROM, byte-for-byte the published
+Sinclair ROM (SHA1 `5ea7c2b824672e914525d1d5c419d71b84a426a2`, CRC32
+`ddee531f`, 16384 bytes). Two artifacts may carry it:
+
+- the published `@emu198x/zx-spectrum` npm wasm; and
+- the Spectrum module of the shared web-player distribution, compiled by a
+  consuming site's CI from an encrypted build secret. It serves the player's
+  48K model only.
+
+In both it is embedded in wasm, never committed to this repository, and never
+served as a separate file — see § How it reaches the artifact below. The
+player's 16K, Spectrum+, 128K, +2, +2A, +2B and +3 models stay
+bring-your-own, even where the runtime would accept the same 48K image: a
+second model or a second image needs its own entry here, not a reading of this
+one. No other firmware, no other system. C64 KERNAL and Amiga Kickstart are
+unchanged: never bundled, no permission of this kind on record.
 
 **Basis.** Cliff Lawson of Amstrad plc, answering Andrew Owen on
 comp.sys.sinclair, 31 August 1999. Archived by World of Spectrum:
@@ -277,7 +290,8 @@ and tooling acts on that field without reading the prose beside it.
 2. *An acknowledgement is requested* in the program or manual, in specific
    words. Carried in the package README, which wasm-pack ships inside the
    published artifact, so it travels with the ROM rather than sitting only in
-   this repository.
+   this repository. The web player shows it on screen, in Controls & session
+   information, whenever the bundled ROM is in use.
 3. *No charging for the ROM code.* "No one should be charging for the ROM
    code." The package is free; if any part of this family is ever sold, the
    firmware cannot be part of what is charged for.
@@ -302,6 +316,17 @@ the same environment variable the tests already use. So a clone, a fork or a
 mirror of this repository carries no firmware, and only the published package
 does. `*.rom` stays in the crate's `.gitignore` to keep that true by
 construction.
+
+The web player reaches it the same way. `scripts/build-browser-player.mjs`
+reads `EMU198X_SPECTRUM_48K_ROM`, which a consuming site's CI writes from an
+encrypted secret, and compiles `emu198x-spectrum-web` with the same
+`bundled-rom` feature. Before any build starts it checks the image's SHA1 and
+refuses anything else, so a patched 48K image — one with different bytes in
+the spare area exists on the maintainer's machine — cannot reach a visitor.
+Unset, the build is the bring-your-own player it always was, so forks and CI
+without the secret still work. `build.json` records only whether the firmware
+was bundled, never the path, and the build's own check fails if any file in
+the distribution is a `.rom` or has the ROM's bytes.
 
 ## What we are NOT doing
 
@@ -355,9 +380,26 @@ When a new test ROM corpus is added:
   document it as a special case and revisit. Done once, narrowly:
   § Firmware in a published browser build. Reaching for that section
   to justify a second firmware image is the drift — it covers one ROM,
-  on one system, in one artifact.
+  on one system, in two named browser artifacts.
+- **"The 128K (or +2, +3, 16K, Spectrum+) model could use the bundled ROM
+  too"** — no. The web player bundles for its 48K model only. Widening it is
+  a new entry with its own reasoning, not a flag flip.
+- **"Serve the ROM beside the player" or "accept any 16 KiB image"** — no.
+  Embedded in wasm, and only the verified SHA1.
 
 ## Log
+
+### 2026-09-25 — Web player may embed the 48K ROM
+
+Steve approved extending § Firmware in a published browser build from the
+npm package to the Spectrum module of the shared web-player distribution, so
+Code198x lesson players start without asking a reader for firmware (umbrella
+`decisions/browser-player-rollout.md`). The scope stays one verified image,
+embedded in wasm, supplied by a consuming site's encrypted CI secret, never
+committed and never served as a file. Only the player's 48K model uses it;
+every other Spectrum model stays bring-your-own. The build refuses any image
+whose SHA1 differs from the genuine ROM, and the player shows Amstrad's
+acknowledgement whenever the bundled ROM is in use.
 
 ### 2026-08-01 — A1200 Test Kit video profile registered
 

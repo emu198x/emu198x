@@ -11,10 +11,11 @@ repository.workspace = true
 crate-type = ["cdylib", "rlib"]
 
 [features]
-# Embeds the 48K ROM in the artifact, for the published npm package only.
-# Off by default so this repository, and every clone and fork of it, builds
-# and ships without firmware. `scripts/build-npm.sh` turns it on and supplies
-# the image from EMU198X_SPECTRUM_48K_ROM.
+# Embeds the 48K ROM in the artifact, for the published npm package and the
+# shared web player's Spectrum module only. Off by default so this repository,
+# and every clone and fork of it, builds and ships without firmware.
+# `scripts/build-npm.sh` and `scripts/build-browser-player.mjs` turn it on and
+# supply the image from EMU198X_SPECTRUM_48K_ROM.
 #
 # See knowledge/decisions/test-rom-policy.md
 # § Firmware in a published browser build.

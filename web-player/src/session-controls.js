@@ -9,6 +9,8 @@ export function sessionControls({root,system,model,capture,restore,rpc,pause,med
   const names=Object.values(remembered).map(entry=>entry.name);
   $('firmware-storage-status').textContent=names.length?`Remembered: ${names.join(', ')}. Choose another file to replace it.`:'';
   $('forget-firmware').hidden=!names.length;
+  // No inputs means the model needs no firmware or carries its own; leave its prompt alone.
+  if(!firmwareInputs().length)return;
   if(!system.console && names.length && firmwareInputs().filter(input=>input.required).every(input=>input.files.length || remembered[input.id]?.bytes?.length)) { $('begin').textContent='Start'; $('file-hint').textContent='Using firmware remembered on this device.'; }
   else if(!system.console && !names.length){$('begin').textContent='Choose firmware';$('file-hint').textContent='Select your ROM files to start this computer.';}
  }
