@@ -1,0 +1,150 @@
+{
+  "version": 1,
+  "os_sha256": "64f13699592f2c068e468dfb22c245c63b1317fd0f871aca798c29688424955d",
+  "basic_sha256": "4988cb41121921f997ab17a59dd1909fece9273699eba0c6fbaafae104aa27b0",
+  "cases": [
+    {
+      "name": "gtia_default",
+      "xex_sha256": "4323246a144e01125b5add1390ffbc58d7d83fd70636505e65470c7a321274be",
+      "symbols_sha256": "56cbde5c302e2b4a946639a609ffa646c452e433b994fe0f6a2bcbcd2478dc44",
+      "ntsc": {
+        "verdict": "pass",
+        "failure_signature": null
+      },
+      "pal": {
+        "verdict": "pass",
+        "failure_signature": null
+      }
+    },
+    {
+      "name": "gtia_consol",
+      "xex_sha256": "dcfaca206977ba89c34b9e1f9936fe405b007e6942a451f6331bca3e39523655",
+      "symbols_sha256": "070f4a48469217cbbd8eac19cd5ae9ba0a83f34bf852ec3822bb191ed8fb63e2",
+      "ntsc": {
+        "verdict": "pass",
+        "failure_signature": null
+      },
+      "pal": {
+        "verdict": "pass",
+        "failure_signature": null
+      }
+    },
+    {
+      "name": "gtia_addrmirror",
+      "xex_sha256": "268251153ce22a432e84c1ca8b95efab98fcee2c0267b10b80cb22f0e0106190",
+      "symbols_sha256": "8822dcde13964997a92519b7a213e933880e4bab2a934b9ff06fcf783f0376ae",
+      "ntsc": {
+        "verdict": "pass",
+        "failure_signature": null
+      },
+      "pal": {
+        "verdict": "pass",
+        "failure_signature": null
+      }
+    },
+    {
+      "name": "gtia_collision",
+      "xex_sha256": "cf1c9d692c48298094807fd26ea6831adbf3abcb7b5486f553f9ec8ff16672e9",
+      "symbols_sha256": "63ec14f3f1d43078aa6c44c68f10dc8de13d3b3df170cf83e56b937556f5837f",
+      "ntsc": {
+        "verdict": "pass",
+        "failure_signature": null
+      },
+      "pal": {
+        "verdict": "fail",
+        "failure_signature": "Missing M/P collisions on left at $22."
+      }
+    },
+    {
+      "name": "gtia_collision2",
+      "xex_sha256": "1249620214e01570a608cc423bf2616c4b6bc249e38042033879205d86752185",
+      "symbols_sha256": "096e612f8e6b6c4bec71215ded95f79aa1890b9adba515edeab98b4cd8d33971",
+      "ntsc": {
+        "verdict": "pass",
+        "failure_signature": null
+      },
+      "pal": {
+        "verdict": "pass",
+        "failure_signature": null
+      }
+    },
+    {
+      "name": "gtia_phantomdma",
+      "xex_sha256": "9e20d36086398ecc03cd708c8dac9751db14b3f4036184893b986f96568751b2",
+      "symbols_sha256": "a379bc22dc08deb7ca76a154c3bf7a1572b656e8a7fec55a75dc50d2658cb536",
+      "ntsc": {
+        "verdict": "fail",
+        "failure_signature": "Phantom DMA byte #1 was not $AD (was $FF)."
+      },
+      "pal": {
+        "verdict": "fail",
+        "failure_signature": "Phantom DMA byte #1 was not $AD (was $FF)."
+      }
+    },
+    {
+      "name": "gtia_pmoverlap",
+      "xex_sha256": "bbe8c4c08034f0c625e1c357b302a3a289cb5fb9b9fd58442fa95ff86017f23e",
+      "symbols_sha256": "356006366382831490a60ffa633de21a71c91afc772ef52ac7d52cc78161a52f",
+      "ntsc": {
+        "verdict": "fail",
+        "failure_signature": "Pass 0.0: Pos=64, Expected F0, Got C0"
+      },
+      "pal": {
+        "verdict": "fail",
+        "failure_signature": "Pass 0.0: Pos=64, Expected F0, Got C0"
+      }
+    },
+    {
+      "name": "gtia_pmresize",
+      "xex_sha256": "1aa407b44177510b78167ab4c07fb2339b2f00f4b91ecd2e930e49109a0de0d6",
+      "symbols_sha256": "0417be6140a8dc6c8386880b5b9791404e54814fb437872bc5519d3b8e2bda56",
+      "ntsc": {
+        "verdict": "fail",
+        "failure_signature": "4x-to-1x failed at index 0: expected $80, got $00"
+      },
+      "pal": {
+        "verdict": "fail",
+        "failure_signature": "4x-to-1x failed at index 0: expected $80, got $00"
+      }
+    },
+    {
+      "name": "gtia_pmretrigger",
+      "xex_sha256": "a72e9a5e6c8471df5fc3716d0cb6cf5480f434e5e0a28ed944488276fbcc47a2",
+      "symbols_sha256": "5ad2e5cf1027dff1f6f5211065b9c447e3bc68484744f68d41181fc5fb6ddc4d",
+      "ntsc": {
+        "verdict": "fail",
+        "failure_signature": "Player retrigger timing test #2 failed: $04."
+      },
+      "pal": {
+        "verdict": "fail",
+        "failure_signature": "Player retrigger timing test #2 failed: $04."
+      }
+    },
+    {
+      "name": "gtia_psuedomodee",
+      "xex_sha256": "36f0bb09b7b1946fe627cb6c963ecdef610f335e13f57f75ef682271ea8b30f1",
+      "symbols_sha256": "6b2f956aede935eba9747e3a900a7936553118b465dedabb45a9e231a0fdce18",
+      "ntsc": {
+        "verdict": "fail",
+        "failure_signature": "Cycle 15 test failed: 04"
+      },
+      "pal": {
+        "verdict": "fail",
+        "failure_signature": "Cycle 15 test failed: 04"
+      }
+    },
+    {
+      "name": "gtia_vdelay",
+      "xex_sha256": "c116dff4050b335bc66adef5e3dc982e0ff702c6a5097a9b74bd5a2f6eeaf7ba",
+      "symbols_sha256": "8a791a66cf5fce7f68cc7e346ccdb2fa5b76df9c7a83c5abfbcac5c115e47236",
+      "ntsc": {
+        "verdict": "fail",
+        "failure_signature": "No delay 1/4 failed: 00 != $01"
+      },
+      "pal": {
+        "verdict": "fail",
+        "failure_signature": "No delay 1/4 failed: 00 != $01"
+      }
+    }
+  ]
+}
