@@ -73,7 +73,10 @@ The permission is Cliff Lawson's, for Amstrad plc, on comp.sys.sinclair,
 31 August 1999:
 <https://web.archive.org/web/20180828125931/http://www.worldofspectrum.org/permits/amstrad-roms.txt>
 
-The ROM image is included unmodified, and no charge is made for it. The
+The ROM image is included unmodified, and no charge is made for it. Versions
+0.1.0 to 0.4.0 carried a 48K image with 272 bytes changed in the ROM's unused
+area, from address `0x386E`; use 0.4.1 or later, which carries the unmodified
+image (SHA1 `5ea7c2b824672e914525d1d5c419d71b84a426a2`). The
 permission covers the Sinclair 48K and 128K ROMs and Amstrad's +2/+2A/+3
 machines. It does not extend to the ZX80, ZX81, Interface 1 or 2, Timex
 machines, or Spectrum clones.

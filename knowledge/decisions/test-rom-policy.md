@@ -389,6 +389,33 @@ When a new test ROM corpus is added:
 
 ## Log
 
+### 2026-09-26 — Every published npm version carried a patched 48K ROM
+
+`@emu198x/zx-spectrum` 0.1.0, 0.2.0, 0.3.0 and 0.4.0 all embed a 48K image
+with SHA1 `21e3676e80ab5b8e2c13eba820ea1df4405cba04`, not the genuine
+`5ea7c2b824672e914525d1d5c419d71b84a426a2`. It differs in 272 bytes of the
+spare area from `0x386E`, where the genuine ROM holds `0xFF`; the copyright
+message is intact, but condition 1 asks for the image unaltered and this
+section promised it verbatim. Established by running each published package
+rather than searching its wasm: a snapshot copies the ROM into the screen
+bitmap in three chunks and the rendered frame is decoded back to bytes, and
+0.4.0 also through `createHeadlessBundled()` and `readMemory(0, 0x4000)`. The
+two methods agree, and the same snapshot method run through `create()` on the
+genuine and patched local images reads each back exactly.
+
+The cause was a size-only check in `scripts/build-npm.sh`. 0.1.0 was published
+from the maintainer's machine, whose default path held the patched image;
+0.2.0 to 0.4.0 were published by `publish-npm.yml` from the accuracy-corpora
+store, whose `z80test.tar.zst` carries the same patched image as
+`z80test/48.rom`. `build-npm.sh` now applies the web player's SHA1 guard
+(`web-player/bundled-firmware.mjs`) before wasm-pack, and
+`check-bundled-firmware.mjs` proves, ROM-free and in CI, that it refuses a
+patched image. The package version moves to 0.4.1, built from the genuine
+image and read back as genuine by both methods. Until the store supplies the
+genuine image, the publish workflow refuses to build, which is the intended
+outcome: no further patched version can be published. The patched versions
+are to be deprecated in favour of 0.4.1 once it is live.
+
 ### 2026-09-25 — Web player may embed the 48K ROM
 
 Steve approved extending § Firmware in a published browser build from the

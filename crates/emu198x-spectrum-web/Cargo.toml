@@ -63,4 +63,4 @@ workspace = true
 # one without seeing the other.
 [package.metadata.npm]
 name = "@emu198x/zx-spectrum"
-version = "0.4.0"
+version = "0.4.1"
