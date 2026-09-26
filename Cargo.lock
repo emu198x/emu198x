@@ -2517,9 +2517,12 @@ dependencies = [
  "emu198x-mos-6502",
  "emu198x-test-skip",
  "format-atari-8bit-atr",
+ "format198x-atari-8bit-xex",
  "mos-pia-6520",
  "postcard",
  "serde",
+ "serde_json",
+ "sha2",
 ]
 
 [[package]]
