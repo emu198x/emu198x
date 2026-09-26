@@ -18,6 +18,9 @@ mos-pia-6520 = { path = "../mos-pia-6520", version = "0.25.0" }
 serde = { workspace = true }
 
 [dev-dependencies]
+sha2 = { workspace = true }
+serde_json = { workspace = true }
+format198x-atari-8bit-xex = "0.1.0"
 emu198x-test-skip = { path = "../emu198x-test-skip", version = "0.25.0" }
 postcard = { workspace = true }
 
