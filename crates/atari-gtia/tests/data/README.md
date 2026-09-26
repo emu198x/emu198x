@@ -65,3 +65,9 @@ Remaining timing questions are outside these static checks: register propagation
 delays, mid-line mode-transition latches and sprite shift-register behaviour when
 position/size/graphics change while shifting. They require beam-timed probes,
 not further changes to the static selector table.
+
+The CPU-driven 800XL register probe also checks Acid800's `gtia_consol.s`
+($0C/$0A/$09 writes produce low inputs $03/$05/$06) and `gtia_default.s`
+($15 reads $0F). It fails with the old reads, returning $07/$07/$07/$FF.
+The original Acid800 binaries were not run; these are mapped-bus sequences
+with the same expected register observations.
