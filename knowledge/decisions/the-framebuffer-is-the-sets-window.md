@@ -19,6 +19,16 @@ derivable rather than chosen. Everything outside that window is invisible on
 the hardware. Everything inside it is visible — including border the machine
 generates, and including black where the machine blanks.
 
+## GTIA full-picture exception
+
+GTIA retains its complete 376-pixel hardware picture, colour clocks [34,222),
+in both PAL and NTSC. Heights remain 288 and 240 respectively. This follows
+the user's 27 September 2026 direction to retain overscan and the original
+Acid800 collision probe: the prior PAL crop at clock 36 excluded valid
+collisions at clock 34. The reference is Altirra `ATGTIAEmulator::Render`.
+Any optional presentation crop belongs after chip processing. The historical
+audit figures below describe the earlier nominal television window.
+
 ## Why "no less" as well as "no more"
 
 Cropping tighter than the window looks harmless, because the extra is usually
