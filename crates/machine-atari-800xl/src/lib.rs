@@ -1217,6 +1217,44 @@ mod tests {
         );
     }
 
+    #[test]
+    fn gtia_register_probe_runs_through_cpu_bus() {
+        // Acid800 gtia_consol.s expects $03/$05/$06 after $0C/$0A/$09
+        // writes; gtia_default.s expects $0F at GTIA+$15. This
+        // cartridge performs those bus operations without requiring firmware.
+        let mut rom = trap_cart();
+        let mut program = Vec::new();
+        for (index, output) in [0x0c, 0x0a, 0x09].into_iter().enumerate() {
+            program.extend_from_slice(&[
+                0xa9,
+                output, // LDA #output
+                0x8d,
+                0x1f,
+                0xd0, // STA CONSOL
+                0xad,
+                0x1f,
+                0xd0, // LDA CONSOL
+                0x29,
+                7, // AND #7
+                0x8d,
+                index as u8,
+                6, // STA $0600+index
+            ]);
+        }
+        program.extend_from_slice(&[0xad, 0x15, 0xd0, 0x8d, 3, 6]);
+        let stop = 0xa000 + program.len() as u16;
+        let [lo, hi] = stop.to_le_bytes();
+        program.extend_from_slice(&[0x4c, lo, hi]);
+        rom[..program.len()].copy_from_slice(&program);
+        let mut machine = Atari800xl::new(None, None, Some(rom), Atari800xlRegion::Ntsc, false)
+            .expect("probe cartridge");
+        machine.run_frame();
+        assert_eq!(
+            (0..4).map(|n| machine.peek(0x0600 + n)).collect::<Vec<_>>(),
+            [3, 5, 6, 15]
+        );
+    }
+
     fn trap_cart() -> Vec<u8> {
         let mut rom = vec![0xEAu8; 8192];
         rom[0x0000] = 0x4C;
