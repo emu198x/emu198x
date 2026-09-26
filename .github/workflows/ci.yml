@@ -77,6 +77,12 @@ jobs:
       - name: Check --help lists the flags the binaries accept
         run: python3 scripts/check-help-lists-flags.py --self-test
 
+      # Both published browser builds must refuse any 48K ROM but the genuine
+      # image; the npm package shipped a patched one through 0.4.0 because its
+      # build checked only the size. ROM-free: it uses stand-in images.
+      - name: Check the firmware guards refuse a patched 48K ROM
+        run: node web-player/check-bundled-firmware.mjs
+
   registry:
     name: System registry
     runs-on: ubuntu-latest

@@ -112,9 +112,9 @@ jobs:
           grep " z80test.tar.zst\$" SHA256SUMS | sha256sum -c -
           tar --zstd -xf 'z80test.tar.zst'
           # The same image CI's firmware evidence runs against. The build
-          # script checks it is 16384 bytes before embedding it, because a
-          # wrong image compiles perfectly and then fails to boot in a browser
-          # with nothing on screen to explain why.
+          # script refuses it unless its SHA1 is the unmodified 48K ROM's,
+          # because the permission requires the image verbatim and a patched
+          # one compiles and boots perfectly well.
           echo "EMU198X_SPECTRUM_48K_ROM=$(pwd)/z80test/48.rom" >> "$GITHUB_ENV"
 
       - name: Build and publish
