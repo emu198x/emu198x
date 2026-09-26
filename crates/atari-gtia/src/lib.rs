@@ -717,30 +717,38 @@ impl Gtia {
 
             let colour = match (self.prior >> 6) & 0x03 {
                 0 => {
-                    // Collisions (independent of the final priority):
-                    // PM-vs-playfield where playfield is present, PM-vs-PM
-                    // wherever objects overlap.
+                    let in_pf = x >= self.sl_pf_span.0 && x < self.sl_pf_span.1;
+                    let hires_pixel = hires && in_pf;
+                    // PF2C is independent of PF2 priority: it is asserted if
+                    // either serialized bit in this colour clock is lit.
+                    let collision_field = if hires_pixel {
+                        if self.an_at(cc) != 0 { 3 } else { 0 }
+                    } else {
+                        pf_col_idx
+                    };
                     if pm_bits != 0 {
-                        self.record_collisions(pm_bits, pf_col_idx);
+                        self.record_collisions(pm_bits, collision_field);
                     }
 
-                    let in_pf = x >= self.sl_pf_span.0 && x < self.sl_pf_span.1;
-                    let playfield_colour = if hires && in_pf {
-                        if pf_col_idx != 0 {
-                            Some((self.colpf[2] & 0xF0) | (self.colpf[1] & 0x0F))
-                        } else {
-                            Some(self.colpf[2])
-                        }
+                    let playfield_colour = if hires_pixel {
+                        Some(self.colpf[2])
                     } else if pf_col_idx != 0 {
                         Some(self.playfield_register(pf_col_idx))
                     } else {
                         None
                     };
-                    // In 40-column modes ANTIC forces the PF2 priority
-                    // signal; the high-resolution bits are not PF0 coverage.
-                    let priority_field = if hires && in_pf { 3 } else { pf_col_idx };
-                    self.priority_colour(pm_bits, priority_field, playfield_colour)
-                        .unwrap_or(self.colbk)
+                    let priority_field = if hires_pixel { 3 } else { pf_col_idx };
+                    let colour = self
+                        .priority_colour(pm_bits, priority_field, playfield_colour)
+                        .unwrap_or(self.colbk);
+                    // The hires bit bypasses priority, replacing luminance
+                    // even when a player, missile or black conflict wins.
+                    // Altirra RenderMode8 performs this after palette lookup.
+                    if hires_pixel && pf_col_idx != 0 {
+                        (colour & 0xf0) | (self.colpf[1] & 0x0f)
+                    } else {
+                        colour
+                    }
                 }
                 gtia_mode => self.gtia_mode_colour(gtia_mode, cc, pm_bits),
             };
@@ -1813,6 +1821,68 @@ mod tests {
         gtia.prior = 0x18;
         assert_eq!(gtia.priority_colour(0x11, 0, None), Some(0x46));
         assert_eq!(gtia.priority_colour(0x11, 1, Some(0x94)), Some(0x94));
+    }
+
+    #[test]
+    fn hires_luminance_is_substituted_after_object_priority() {
+        // Altirra RenderMode8 resolves priority before replacing luminance.
+        for region in [GtiaRegion::Pal, GtiaRegion::Ntsc] {
+            for mode in [AnticMode::Mode2, AnticMode::Mode3, AnticMode::ModeF] {
+                for (prior, player, dark, lit) in
+                    [(1, 0, 0x46, 0x4a), (4, 0, 0x92, 0x9a), (3, 2, 0, 0x0a)]
+                {
+                    let mut gtia = Gtia::new(region);
+                    gtia.write(player, 60);
+                    gtia.write(0x0d + player, 0xff);
+                    gtia.write(0x12 + player, 0x46);
+                    gtia.write(0x17, 0x2a); // PF1 luminance
+                    gtia.write(0x18, 0x92); // PF2
+                    gtia.write(0x1b, prior);
+                    let mut pixels = [0; 320];
+                    pixels[25] = 1;
+                    gtia.render_line(0, &pixels, 160, mode);
+                    let x = usize::from(120 - gtia.fb_first_half_clock);
+                    let base = region.border_top() as usize * gtia.fb_width as usize;
+                    assert_eq!(gtia.framebuffer()[base + x], gtia.colour_to_argb32(dark));
+                    assert_eq!(gtia.framebuffer()[base + x + 1], gtia.colour_to_argb32(lit));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn hires_collision_uses_both_bits_and_reports_pf2() {
+        // GTIA's PF2C collision signal ORs both hires bits, before priority.
+        for region in [GtiaRegion::Pal, GtiaRegion::Ntsc] {
+            for mode in [AnticMode::Mode2, AnticMode::Mode3, AnticMode::ModeF] {
+                for missile in [false, true] {
+                    for pair in 0..4u8 {
+                        let mut gtia = Gtia::new(region);
+                        gtia.write(if missile { 4 } else { 0 }, 60);
+                        gtia.write(if missile { 0x11 } else { 0x0d }, 0xff);
+                        gtia.write(0x1b, 4); // object hidden behind playfield
+                        let mut pixels = [0; 320];
+                        pixels[24] = pair >> 1;
+                        pixels[25] = pair & 1;
+                        gtia.begin_scanline(0);
+                        gtia.set_playfield(&pixels, 160, mode);
+                        let x = usize::from(120 - gtia.fb_first_half_clock);
+                        gtia.composite_playfield(x + 1); // first half of pair
+                        assert_eq!(
+                            gtia.read(if missile { 0 } else { 4 }),
+                            if pair == 0 { 0 } else { 4 },
+                            "pair={pair}, missile={missile}, {region:?}, {mode:?}"
+                        );
+                        gtia.write(0x1e, 0);
+                        gtia.composite_playfield(x + 2);
+                        assert_eq!(
+                            gtia.read(if missile { 0 } else { 4 }),
+                            if pair == 0 { 0 } else { 4 }
+                        );
+                    }
+                }
+            }
+        }
     }
 
     #[test]
