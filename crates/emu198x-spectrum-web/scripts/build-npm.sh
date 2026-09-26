@@ -48,17 +48,24 @@ rom="${EMU198X_SPECTRUM_48K_ROM:-$HOME/.emu198x/roms/sinclair-zx-spectrum-48k/48
 
 if [ ! -f "$rom" ]; then
   echo "error: no 48K ROM at $rom" >&2
-  echo "Set EMU198X_SPECTRUM_48K_ROM to a 16 KiB Sinclair 48K image." >&2
+  echo "Set EMU198X_SPECTRUM_48K_ROM to the unmodified Sinclair 48K image." >&2
   exit 1
 fi
 
-# Checked here as well as in the crate's tests, because a wrong image compiles
-# perfectly and then fails to boot in a browser with nothing to explain why.
-size=$(wc -c < "$rom" | tr -d ' ')
-if [ "$size" -ne 16384 ]; then
-  echo "error: $rom is $size bytes; a 48K ROM is 16384" >&2
-  exit 1
-fi
+# Only the genuine image, byte for byte. The permission this package relies on
+# requires the copyright messages to be unaltered, and a patched 48K ROM is the
+# right size, compiles and boots, so size alone let one through: every version
+# up to 0.4.0 shipped an image with 272 changed bytes in the spare area. The
+# check is the web player's, so the two published artifacts accept exactly the
+# same image. It runs before wasm-pack so a refusal costs nothing.
+repo_root="$(cd "$crate_dir/../.." && pwd)"
+EMU198X_SPECTRUM_48K_ROM="$rom" \
+  GUARD="$repo_root/web-player/bundled-firmware.mjs" \
+  node --input-type=module -e '
+const {pathToFileURL} = await import("node:url");
+const {spectrum48kRom} = await import(pathToFileURL(process.env.GUARD).href);
+try { spectrum48kRom(); } catch (error) { console.error("error: " + error.message); process.exit(1); }
+'
 
 cd "$crate_dir"
 EMU198X_SPECTRUM_48K_ROM="$rom" \
