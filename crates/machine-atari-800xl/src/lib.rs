@@ -1186,6 +1186,7 @@ mod tests {
         sys.mem_write(0xD00D, 0x80); // GRAFP0: leftmost bit
         sys.mem_write(0xD012, 0x38); // COLPM0
         sys.mem_write(0xD016, 0x94); // COLPF0
+        sys.mem_write(0xD01B, 0x01); // PRIOR: players in front
         let mut playfield = vec![0u8; 160];
         playfield[12] = 1;
 
@@ -1195,15 +1196,24 @@ mod tests {
         sys.gtia
             .render_line(1, &playfield, 160, atari_gtia::AnticMode::ModeD);
 
+        sys.mem_write(0xD01B, 0x00); // PRIOR: mix P0 and PF0
+        sys.gtia
+            .render_line(2, &playfield, 160, atari_gtia::AnticMode::ModeD);
+
         let x = sys.gtia.border_left() as usize + ((60 - 48) * 2) as usize;
         let width = sys.framebuffer_width() as usize;
         let player_colour = atari_gtia::palette::NTSC_PALETTE[0x38];
         let playfield_colour = atari_gtia::palette::NTSC_PALETTE[0x94];
-        assert_eq!(sys.framebuffer()[x], player_colour, "default PRIOR");
+        assert_eq!(sys.framebuffer()[x], player_colour, "PRIOR=$01");
         assert_eq!(
             sys.framebuffer()[width + x],
             playfield_colour,
             "PRIOR=$04 should occlude player 0 with PF0"
+        );
+        assert_eq!(
+            sys.framebuffer()[2 * width + x],
+            atari_gtia::palette::NTSC_PALETTE[0x38 | 0x94],
+            "PRIOR=$00 mixes P0 and PF0 through the machine bus"
         );
     }
 
