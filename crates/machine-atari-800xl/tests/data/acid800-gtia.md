@@ -42,7 +42,7 @@ ignored when comparing wrapped diagnostic signatures.
 | default | pass | pass |
 | consol | pass | pass |
 | addrmirror | pass | pass |
-| collision | pass | fail: missing left-edge M/P collision at $22 |
+| collision | pass | pass |
 | collision2 | pass | pass |
 | phantomdma | fail | fail |
 | pmoverlap | fail | fail |
@@ -51,7 +51,7 @@ ignored when comparing wrapped diagnostic signatures.
 | psuedomodee | fail | fail |
 | vdelay | fail | fail |
 
-There are **9 guest passes and 13 guest failures**, across 22 executions.
+There are **10 guest passes and 12 guest failures**, across 22 executions.
 A passing baseline test means those exact observations were reproduced;
 it does not mean GTIA conformance. Set `EMU198X_ACID800_STRICT=1` to require
 all guests to pass instead. Strict mode still writes the reports before
@@ -61,6 +61,6 @@ until its expectation is reviewed and updated alongside the accuracy fix.
 These tests expose interacting CPU/ANTIC/GTIA behaviour. A guest failure
 identifies a reproducible symptom, not necessarily the chip responsible.
 The corpus stops each probe at its first failing assertion, so resolving a
-failure may reveal further failures within the same probe. PAL's extra
-collision failure is recorded separately; it must not be hidden by NTSC's
-passing result. This harness does not change emulator timing.
+failure may reveal further failures within the same probe. The full 376-pixel GTIA picture fixes PAL's former left-edge collision
+failure at $22. Both regions now pass the basic collision probe; the remaining
+six failing probes in each region retain their previous diagnostics.

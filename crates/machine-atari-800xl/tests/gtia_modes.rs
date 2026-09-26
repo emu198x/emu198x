@@ -23,9 +23,8 @@ use std::path::PathBuf;
 
 use machine_atari_800xl::{Atari800xl, Atari800xlRegion};
 
-/// The framebuffer's first pixel sits on half colour clock 69 on NTSC, so a
-/// colour clock `cc` lands at pixel `2 * cc - 69`.
-const FIRST_HALF_CLOCK: i32 = 69;
+/// Map chip colour clocks into the full GTIA picture's pixel coordinates.
+const FIRST_HALF_CLOCK: i32 = atari_gtia::GtiaRegion::Ntsc.first_half_clock() as i32;
 
 /// A normal playfield is displayed from colour clock 48 to 207.
 const PF_FIRST_CC: i32 = 48;
