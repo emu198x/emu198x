@@ -93,55 +93,26 @@ impl GtiaRegion {
         }
     }
 
-    /// Pixels a set displays along a line, which is the framebuffer's width.
+    /// Full GTIA picture between horizontal blanking edges, in hires pixels.
     ///
-    /// `pixel_clock x active_line_seconds`: 7.15909 MHz over 52.148 µs is 373
-    /// on NTSC, and 7.093788 MHz over 52.0 µs is 369 on PAL, rounded to leave
-    /// a whole border either side of the active 320.
-    ///
-    /// This used to be a fixed 32 pixels of border either side, giving 384 for
-    /// both regions — 103% of an NTSC window and 104% of a PAL one, which is
-    /// raster a set hides.
+    /// Altirra's GTIA Render processes colour clocks [34, 222), in both
+    /// television standards. Preserve this entire overscan range: a nominal
+    /// television crop also discards pixels that participate in collisions.
     #[must_use]
     pub const fn framebuffer_width(self) -> u32 {
-        ACTIVE_WIDTH + 2 * self.border_left()
+        376
     }
 
-    /// Pixels of border left of the active area — what the line has left over.
-    ///
-    /// Centring is exact here rather than merely close, which is worth saying
-    /// because it is not exact on every chip. Altirra's GTIA chapter gives the
-    /// 228-colour-clock line a visible range of `$22`-`$DD` — 188 colour
-    /// clocks — with the normal playfield at `$30`-`$CF`, so 14 colour clocks
-    /// of visible border sit either side of it and the visible range's
-    /// midpoint falls on the playfield centre at the `$7F`/`$80` boundary. The
-    /// chip's picture is centred in its own line, so ours is centred in the
-    /// window. 188 colour clocks is 376 pixels, two more than the 374 a set
-    /// shows.
+    /// Pixels between the hardware picture edge and the normal playfield.
     #[must_use]
     pub const fn border_left(self) -> u32 {
-        match self {
-            Self::Ntsc => 27,
-            Self::Pal => 24,
-        }
+        (PF_LEFT_CC as u32) * 2 - 68
     }
 
-    /// The half colour clock the framebuffer's first pixel sits on.
-    ///
-    /// The scan line is 228 colour clocks and the framebuffer holds the part
-    /// of it a set shows, so the two need a shared origin — otherwise every
-    /// question about where something lands has to be asked in a coordinate
-    /// space that only covers the normal playfield, which is how a wide one
-    /// came to be clipped to 320 pixels (#1086).
-    ///
-    /// A pixel is half a colour clock. The normal playfield runs `$30`-`$CF`
-    /// and its first pixel sits [`border_left`](Self::border_left) into the
-    /// window, so the window opens `border_left` half-clocks before colour
-    /// clock 48: 69 on NTSC and 72 on PAL. Both fall inside the `$22`-`$DD`
-    /// Altirra gives as the visible range, 68 to 444 in half-clocks.
+    /// First picture pixel: colour clock 34, before the playfield at 48.
     #[must_use]
     pub const fn first_half_clock(self) -> u16 {
-        PF_LEFT_CC * 2 - self.border_left() as u16
+        68
     }
 }
 
@@ -172,7 +143,7 @@ const fn playfield_origin_cc(width_cc: u16) -> u16 {
 ///
 /// So a wide playfield loses 12 colour clocks off its left edge to ANTIC and
 /// two off its right to horizontal blank — but the 178 that remain are 356
-/// pixels, and the window holds 374. Clipping it to the normal playfield's 320
+/// pixels, and the window holds 376. Clipping it to the normal playfield's 320
 /// lost 36 more and shifted what was left, because the leftmost 320 data
 /// pixels are not the 320 the hardware shows.
 const fn playfield_display_cc(width_cc: u16) -> (u16, u16) {
@@ -666,6 +637,7 @@ impl Gtia {
     /// fetches, so compositing can run from the line's left edge while ANTIC
     /// is still reading the playfield.
     pub fn begin_scanline(&mut self, line: u16) {
+        self.expand_legacy_picture();
         self.sl_x = 0;
         self.sl_mode = AnticMode::Blank;
         self.sl_pf_span = (0, 0);
@@ -710,6 +682,7 @@ impl Gtia {
     /// the beam. Calling with `end == ACTIVE_WIDTH` finishes the line; the
     /// beam-driven path calls it repeatedly with the beam position.
     pub fn composite_playfield(&mut self, end: usize) {
+        self.expand_legacy_picture();
         if !self.sl_visible {
             return;
         }
@@ -991,6 +964,45 @@ impl Gtia {
         pattern & (1 << (1 - bit)) != 0
     }
 
+    /// Older snapshots carry their cropped geometry. Keep the serialized
+    /// fields unchanged and expand that geometry on the first beam advance.
+    /// Already-rendered pixels and the beam cursor retain their chip positions;
+    /// absent historical pixels cannot be reconstructed from a snapshot.
+    fn expand_legacy_picture(&mut self) {
+        if !matches!(
+            (self.fb_width, self.fb_first_half_clock),
+            (374, 69) | (368, 72)
+        ) {
+            return;
+        }
+        let old_width = self.fb_width as usize;
+        let width = GtiaRegion::Ntsc.framebuffer_width() as usize;
+        let shift = usize::from(self.fb_first_half_clock - 68);
+        let rows = self.framebuffer.len() / old_width;
+        let mut picture = vec![self.colour_to_argb32(self.colbk); rows * width];
+        for (old, new) in self
+            .framebuffer
+            .chunks_exact(old_width)
+            .zip(picture.chunks_exact_mut(width))
+        {
+            new[shift..shift + old_width].copy_from_slice(old);
+        }
+        self.framebuffer = picture;
+        let mut line = vec![0; width];
+        line[shift..shift + old_width].copy_from_slice(&self.sl_line_buf);
+        self.sl_line_buf = line;
+        if self.sl_x != 0 {
+            self.sl_x += shift;
+        }
+        if self.sl_pf_span != (0, 0) {
+            self.sl_pf_span.0 += shift;
+            self.sl_pf_span.1 += shift;
+        }
+        self.sl_fb_offset = self.sl_fb_offset / old_width * width;
+        self.fb_width = width as u32;
+        self.fb_first_half_clock = 68;
+    }
+
     /// Composite the playfield up to the beam's current line colour-clock.
     ///
     /// `line_cc` is the beam position within the 228-colour-clock scan line
@@ -1001,6 +1013,7 @@ impl Gtia {
     /// past the right edge it finishes the line. The machine calls this every
     /// colour clock to drive beam-ordered compositing.
     pub fn composite_to_beam(&mut self, line_cc: u16) {
+        self.expand_legacy_picture();
         let target = usize::from((line_cc * 2).saturating_sub(self.fb_first_half_clock))
             .min(self.fb_width as usize);
         self.composite_playfield(target);
@@ -1011,6 +1024,7 @@ impl Gtia {
     /// `composite_playfield` at beam time (see `pm_at_cc`), so this just
     /// flushes the cursor — the machine calls it once the line completes.
     pub fn finish_scanline(&mut self) {
+        self.expand_legacy_picture();
         if !self.sl_visible {
             return;
         }
@@ -1302,6 +1316,85 @@ mod tests {
     fn pal_register_is_mirrored() {
         let gtia = Gtia::new(GtiaRegion::Ntsc);
         assert_eq!(gtia.read(0x34), 0x0F);
+    }
+
+    #[test]
+    fn old_cropped_snapshots_expand_without_moving_the_beam() {
+        for (region, old_width, old_first) in
+            [(GtiaRegion::Ntsc, 374, 69), (GtiaRegion::Pal, 368, 72)]
+        {
+            let mut old = Gtia::new(region);
+            old.fb_width = old_width;
+            old.fb_first_half_clock = old_first;
+            old.framebuffer = vec![0x12345678; (old_width * region.framebuffer_height()) as usize];
+            old.sl_line_buf = vec![1; old_width as usize];
+            old.sl_visible = true;
+            old.sl_x = usize::from(200 - old_first);
+            old.sl_pf_span = (30, 100);
+            old.sl_fb_offset = old_width as usize * 10;
+            let bytes = postcard::to_allocvec(&old).expect("old snapshot");
+            let mut restored: Gtia = postcard::from_bytes(&bytes).expect("restore old layout");
+            restored.composite_to_beam(100);
+            assert_eq!(restored.framebuffer_width(), 376);
+            assert_eq!(restored.fb_first_half_clock + restored.sl_x as u16, 200);
+            assert_eq!(restored.sl_fb_offset, 3760);
+            let shift = usize::from(old_first - 68);
+            assert_eq!(restored.sl_pf_span, (30 + shift, 100 + shift));
+            assert_eq!(restored.framebuffer[shift], 0x12345678);
+            assert_eq!(restored.sl_line_buf[shift], 1);
+            restored.begin_scanline(0);
+            restored.write(0, 34);
+            restored.write(1, 34);
+            restored.write(0x0d, 0x80);
+            restored.write(0x0e, 0x80);
+            restored.composite_to_beam(35);
+            assert_eq!(
+                restored.read(12),
+                2,
+                "restored picture includes the left edge"
+            );
+        }
+    }
+
+    #[test]
+    fn horizontal_blanking_does_not_record_collisions() {
+        for region in [GtiaRegion::Ntsc, GtiaRegion::Pal] {
+            for cc in [33, 222] {
+                let mut gtia = Gtia::new(region);
+                gtia.write(0, cc);
+                gtia.write(1, cc);
+                gtia.write(0x0d, 0x80);
+                gtia.write(0x0e, 0x80);
+                gtia.render_line(0, &[], 0, AnticMode::Blank);
+                assert_eq!(gtia.read(12), 0, "{region:?} blanking cc={cc}");
+            }
+        }
+    }
+
+    #[test]
+    fn collisions_cover_both_hardware_edges_at_beam_time() {
+        for region in [GtiaRegion::Ntsc, GtiaRegion::Pal] {
+            for cc in [34, 221] {
+                let mut gtia = Gtia::new(region);
+                for player in 0..4 {
+                    gtia.write(player, cc);
+                    gtia.write(0x0d + player, 0x80);
+                    gtia.write(4 + player, cc);
+                }
+                gtia.write(0x11, 0xaa);
+                gtia.begin_scanline(0);
+                gtia.composite_to_beam(u16::from(cc));
+                assert_eq!(gtia.read(8), 0, "collision before beam arrival");
+                gtia.composite_to_beam(u16::from(cc) + 1);
+                for missile in 0..4 {
+                    assert_eq!(gtia.read(8 + missile), 15, "{region:?} cc={cc}");
+                }
+                assert_eq!(gtia.read(12), 14);
+                gtia.write(0x1e, 0);
+                gtia.composite_to_beam(u16::from(cc) + 2);
+                assert_eq!(gtia.read(8), 0, "HITCLR must not replay the edge");
+            }
+        }
     }
 
     #[test]
@@ -1610,9 +1703,8 @@ mod tests {
         gtia.begin_scanline(0);
         gtia.set_playfield(&playfield, 160, AnticMode::ModeD);
 
-        // Composite only as far as active-x 50 — the beam has crossed the left
-        // part of the player/playfield overlap.
-        gtia.composite_playfield(50);
+        // Cross the first colour clock of the overlap, independently of crop.
+        gtia.composite_to_beam(61);
         assert_ne!(
             gtia.read(0x04) & 0x01,
             0,
@@ -2347,8 +2439,8 @@ mod tests {
         let row = gtia.border_top() as usize * region.framebuffer_width() as usize;
         let x = (88 - region.first_half_clock()) as usize;
         assert_eq!(
-            x, 19,
-            "the first displayed wide pixel is 19 into the window"
+            x, 20,
+            "the first displayed wide pixel is 20 into the window"
         );
         assert_eq!(
             gtia.framebuffer()[row + x],
@@ -2365,18 +2457,14 @@ mod tests {
     #[test]
     fn a_wide_playfield_fills_more_of_the_window_than_a_normal_one() {
         // The point of the fix, stated in pixels: 178 displayed colour clocks
-        // is 356 pixels of a 374-pixel window, against the normal playfield's
+        // is 356 pixels of a 376-pixel window, against the normal playfield's
         // 320. Clipping to ACTIVE_WIDTH threw away 36 of them.
         let region = GtiaRegion::Ntsc;
         let mut gtia = Gtia::new(region);
         gtia.begin_scanline(0);
         gtia.set_playfield(&[1u8; 192], 192, AnticMode::ModeD);
         let (start, end) = gtia.sl_pf_span;
-        assert_eq!(
-            end - start,
-            355,
-            "wide reaches all but the last window pixel"
-        );
+        assert_eq!(end - start, 356, "wide reaches the hardware picture edge");
         assert!(
             end - start > ACTIVE_WIDTH as usize,
             "a wide playfield must be wider than the normal one it was clipped to"
