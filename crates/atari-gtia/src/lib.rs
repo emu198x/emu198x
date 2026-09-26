@@ -860,8 +860,8 @@ impl Gtia {
     ///
     /// Ranks are the hardware's front-to-back order. Normal missiles share
     /// their associated player's colour and rank; combined missiles occupy the
-    /// PF3/fifth-player layer. Colour zero retains the existing transparent-PM
-    /// behaviour, while a conflicting PRIOR selection returns visible black.
+    /// PF3/fifth-player layer. Coverage determines presence, independently of
+    /// colour: $00 is opaque black, not a transparent player or missile.
     ///
     /// Returns the winning colour and whether the fifth player supplied it,
     /// which the GTIA modes need because they shade it like the background.
@@ -880,13 +880,12 @@ impl Gtia {
                 .iter()
                 .enumerate()
                 .filter(|&(player, _)| {
-                    self.colpm[player] != 0
-                        && ((pm_bits & (1 << player)) != 0
-                            || ((self.prior & 0x10) == 0 && (pm_bits & (1 << (player + 4))) != 0))
+                    (pm_bits & (1 << player)) != 0
+                        || ((self.prior & 0x10) == 0 && (pm_bits & (1 << (player + 4))) != 0)
                 })
                 .map(|(_, &rank)| rank)
                 .min();
-            let fifth = ((self.prior & 0x10) != 0 && (pm_bits & 0xF0) != 0 && self.colpf[3] != 0)
+            let fifth = ((self.prior & 0x10) != 0 && (pm_bits & 0xF0) != 0)
                 .then_some(playfield_ranks[scheme][3]);
             player.into_iter().chain(fifth).min()
         };
@@ -924,7 +923,7 @@ impl Gtia {
         for player in 0..NUM_PLAYERS {
             let player_or_missile = (pm_bits & (1 << player)) != 0
                 || ((self.prior & 0x10) == 0 && (pm_bits & (1 << (player + 4))) != 0);
-            if player_or_missile && self.colpm[player] != 0 {
+            if player_or_missile {
                 active |= 1 << player;
             }
         }
@@ -1790,6 +1789,57 @@ mod tests {
             fb[fb_idx], player_argb,
             "Player should be on top at default priority"
         );
+    }
+
+    // De Re Atari, pp. 4-6: PRIOR selects object order; collision detection
+    // uses coincident images. Altirra's ATInitGTIAPriorityTables likewise
+    // selects P/PF signals without testing their colour-register contents.
+    #[test]
+    fn black_players_and_missiles_remain_present() {
+        for region in [GtiaRegion::Pal, GtiaRegion::Ntsc] {
+            for missile in [false, true] {
+                for object in 0..4u8 {
+                    for prior in [0x01, 0x04] {
+                        let mut gtia = Gtia::new(region);
+                        if missile {
+                            gtia.write(0x04 + object, 60); // HPOSMx
+                            gtia.write(0x11, 0x03 << (object * 2)); // GRAFM
+                        } else {
+                            gtia.write(object, 60); // HPOSPx
+                            gtia.write(0x0D + object, 0x80); // GRAFPx
+                        }
+                        gtia.write(0x12 + object, 0x00); // COLPMx: black, not absent
+                        gtia.write(0x16, 0x94); // COLPF0
+                        gtia.write(0x1A, 0x46); // COLBK: distinguish absent objects
+                        gtia.write(0x1B, prior);
+                        let mut pixels = vec![0; 160];
+                        pixels[12] = 1;
+                        gtia.render_line(0, &pixels, 160, AnticMode::ModeD);
+                        let x = usize::from(120 - gtia.fb_first_half_clock);
+                        let base =
+                            region.border_top() as usize * region.framebuffer_width() as usize;
+                        let expected = if prior == 0x01 { 0x00 } else { 0x94 };
+                        assert_eq!(
+                            gtia.framebuffer()[base + x],
+                            gtia.colour_to_argb32(expected),
+                            "object {object}, missile={missile}, PRIOR={prior:02x}, {region:?}"
+                        );
+                        let collision = if missile { object } else { 0x04 + object };
+                        assert_eq!(gtia.read(collision) & 1, 1, "black objects still collide");
+
+                        gtia.render_line(0, &[], 160, AnticMode::Blank);
+                        assert_eq!(gtia.framebuffer()[base + x], gtia.colour_to_argb32(0));
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn black_player_still_participates_in_priority_conflicts() {
+        let mut gtia = Gtia::new(GtiaRegion::Pal);
+        gtia.write(0x1B, 0x05); // P0 above PF0 under bit 0, below under bit 2
+        assert_eq!(gtia.priority_colour(1, 1, Some(0x94)), Some((0, false)));
     }
 
     /// Put two players at the same colour clock and return the pixel there.
