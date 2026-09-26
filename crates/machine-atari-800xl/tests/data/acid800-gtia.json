@@ -51,8 +51,8 @@
         "failure_signature": null
       },
       "pal": {
-        "verdict": "fail",
-        "failure_signature": "Missing M/P collisions on left at $22."
+        "verdict": "pass",
+        "failure_signature": null
       }
     },
     {

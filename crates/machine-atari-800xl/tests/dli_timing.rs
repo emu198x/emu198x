@@ -26,9 +26,8 @@ use std::path::PathBuf;
 
 use machine_atari_800xl::{Atari800xl, Atari800xlRegion};
 
-/// The framebuffer's first pixel sits on half colour clock 69 on NTSC, so a
-/// colour clock `cc` lands at pixel `2 * cc - 69`.
-const FIRST_HALF_CLOCK: usize = 69;
+/// Map chip colour clocks into the full GTIA picture's pixel coordinates.
+const FIRST_HALF_CLOCK: usize = atari_gtia::GtiaRegion::Ntsc.first_half_clock() as usize;
 
 /// The display starts on scan line 8, which is framebuffer row 0; after 24
 /// blank lines the six text lines cover framebuffer rows 24-71, eight each.
