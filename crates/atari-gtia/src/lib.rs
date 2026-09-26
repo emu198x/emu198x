@@ -255,9 +255,12 @@ pub struct Gtia {
     pal: u8,
 
     // -- Colour registers --
+    #[serde(deserialize_with = "deserialize_colours")]
     colpm: [u8; 4], // COLPM0-3: player/missile colours
+    #[serde(deserialize_with = "deserialize_colours")]
     colpf: [u8; 4], // COLPF0-3: playfield colours
-    colbk: u8,      // COLBK: background
+    #[serde(deserialize_with = "deserialize_colour")]
+    colbk: u8, // COLBK: background
 
     // -- Player/missile position --
     hposp: [u8; 4], // HPOSPx: horizontal position of players
@@ -333,6 +336,18 @@ pub struct Gtia {
     fb_first_half_clock: u16,
 }
 
+// Preserve the snapshot wire layout while normalizing colours saved by
+// versions that retained bit zero. Mode 9's odd luminance is generated later.
+fn deserialize_colours<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<[u8; 4], D::Error> {
+    Ok(<[u8; 4]>::deserialize(deserializer)?.map(|colour| colour & 0xfe))
+}
+
+fn deserialize_colour<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<u8, D::Error> {
+    Ok(u8::deserialize(deserializer)? & 0xfe)
+}
+
 impl Gtia {
     /// Create a new GTIA in its power-on state, feeding `region`'s field.
     #[must_use]
@@ -394,9 +409,9 @@ impl Gtia {
             0x0C => self.sizem = value,
             0x0D..=0x10 => self.grafp[(reg - 0x0D) as usize] = value,
             0x11 => self.grafm = value,
-            0x12..=0x15 => self.colpm[(reg - 0x12) as usize] = value,
-            0x16..=0x19 => self.colpf[(reg - 0x16) as usize] = value,
-            0x1A => self.colbk = value,
+            0x12..=0x15 => self.colpm[(reg - 0x12) as usize] = value & 0xfe,
+            0x16..=0x19 => self.colpf[(reg - 0x16) as usize] = value & 0xfe,
+            0x1A => self.colbk = value & 0xfe,
             0x1B => self.prior = value,
             0x1C => self.vdelay = value,
             0x1D => {
@@ -423,8 +438,8 @@ impl Gtia {
                 self.p_pl = [0; 4];
             }
             0x1F => {
-                // CONSOL write — output latch (bit 3 = speaker). Does not
-                // affect the switch read; the OS pulses this every VBI.
+                // CONSOL output latch: asserted bits pull the read inputs
+                // low. Bit 3 drives the speaker; the OS pulses it every VBI.
                 self.consol_out = value & 0x0F;
             }
             _ => {}
@@ -452,11 +467,11 @@ impl Gtia {
             }
             // PAL register — which television standard this chip feeds.
             0x14 => self.pal,
-            // CONSOL — switch inputs (bits 0-2, active low); bit 3 reads back
-            // the speaker output latch.
-            0x1F => (self.consol_out & 0x08) | (self.console_switches & 0x07),
-            // All other read addresses return $FF (open bus)
-            _ => 0xFF,
+            // Outputs pull the corresponding inputs low, including the
+            // speaker line. Altirra ReadConsoleSwitches uses input & !output.
+            0x1F => ((self.console_switches & 7) | 8) & !self.consol_out,
+            // Unused register addresses drive $0F (Altirra ReadByte).
+            _ => 0x0F,
         }
     }
 
@@ -1138,7 +1153,7 @@ impl Gtia {
     ///
     /// Returns an error if the data is too short.
     pub fn load_state(&mut self, data: &[u8]) -> Result<usize, String> {
-        if data.len() < 51 {
+        if data.len() < 61 {
             return Err("GTIA state truncated".into());
         }
         let mut p = 0;
@@ -1146,7 +1161,10 @@ impl Gtia {
         p += 4;
         self.colpf.copy_from_slice(&data[p..p + 4]);
         p += 4;
-        self.colbk = data[p];
+        self.colbk = data[p] & 0xfe;
+        for colour in self.colpm.iter_mut().chain(self.colpf.iter_mut()) {
+            *colour &= 0xfe;
+        }
         p += 1;
         self.hposp.copy_from_slice(&data[p..p + 4]);
         p += 4;
@@ -1337,6 +1355,88 @@ mod tests {
     }
 
     use super::*;
+
+    #[test]
+    fn colour_registers_ignore_bit_zero_but_mode_9_retains_odd_luminance() {
+        let mut gtia = Gtia::new(GtiaRegion::Pal);
+        for register in 0x12..=0x1a {
+            for value in 0..=255u8 {
+                gtia.write(register, value);
+                let stored = match register {
+                    0x12..=0x15 => gtia.colpm[usize::from(register - 0x12)],
+                    0x16..=0x19 => gtia.colpf[usize::from(register - 0x16)],
+                    _ => gtia.colbk,
+                };
+                assert_eq!(stored, value & 0xfe);
+            }
+        }
+        gtia.write(0x1a, 0x81);
+        gtia.write(0x1b, 0x40);
+        gtia.render_line(0, &[1; 320], 160, AnticMode::ModeF);
+        let x = usize::from(120 - gtia.fb_first_half_clock);
+        let base = GtiaRegion::Pal.border_top() as usize * gtia.fb_width as usize;
+        assert_eq!(gtia.framebuffer()[base + x], gtia.colour_to_argb32(0x8f));
+    }
+
+    #[test]
+    fn unused_registers_read_low_nibble_high() {
+        let gtia = Gtia::new(GtiaRegion::Pal);
+        for register in 0x15..=0x1e {
+            assert_eq!(gtia.read(register), 0x0f);
+            assert_eq!(gtia.read(register + 0x20), 0x0f);
+        }
+    }
+
+    #[test]
+    fn console_outputs_pull_read_inputs_low() {
+        let mut gtia = Gtia::new(GtiaRegion::Pal);
+        for switches in 0..8 {
+            gtia.set_console_switches(switches);
+            for output in 0..16 {
+                gtia.write(0x1f, output);
+                assert_eq!(gtia.read(0x1f), (switches | 8) & !output);
+            }
+        }
+    }
+
+    #[test]
+    fn machine_snapshot_restore_normalizes_legacy_colour_bits() {
+        let mut old = Gtia::new(GtiaRegion::Pal);
+        old.colpm = [0xff; 4];
+        old.colpf = [0x95; 4];
+        old.colbk = 0x47;
+        let bytes = postcard::to_allocvec(&old).expect("legacy snapshot");
+        let restored: Gtia = postcard::from_bytes(&bytes).expect("restore legacy snapshot");
+        assert_eq!(restored.colpm, [0xfe; 4]);
+        assert_eq!(restored.colpf, [0x94; 4]);
+        assert_eq!(restored.colbk, 0x46);
+        assert_eq!(
+            postcard::to_allocvec(&restored).expect("snapshot").len(),
+            bytes.len()
+        );
+    }
+
+    #[test]
+    fn every_truncated_state_is_rejected_without_mutation() {
+        let mut gtia = Gtia::new(GtiaRegion::Pal);
+        gtia.write(0x12, 0x46);
+        let before = gtia.save_state();
+        assert_eq!(before.len(), 61);
+        for length in 0..before.len() {
+            assert!(
+                gtia.load_state(&before[..length]).is_err(),
+                "length={length}"
+            );
+            assert_eq!(gtia.save_state(), before);
+        }
+        assert_eq!(gtia.load_state(&before).expect("full state"), before.len());
+        assert_eq!(gtia.save_state(), before);
+        // Older snapshots may contain the previously retained unused bits.
+        let mut legacy = before.clone();
+        legacy[..9].fill(0xff);
+        gtia.load_state(&legacy).expect("legacy colour values");
+        assert_eq!(&gtia.save_state()[..9], &[0xfe; 9]);
+    }
 
     #[test]
     fn colour_register_write_read() {

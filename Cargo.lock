@@ -201,6 +201,7 @@ dependencies = [
 name = "atari-gtia"
 version = "0.25.0"
 dependencies = [
+ "postcard",
  "serde",
 ]
 
