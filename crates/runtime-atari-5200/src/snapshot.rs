@@ -25,7 +25,8 @@ use crate::runtime::Atari5200Runtime;
 /// Bumped to 5 when GTIA gained its PAL register. Postcard is not
 /// self-describing, so a version-4 payload decodes by misreading the
 /// chip state that follows.
-const SNAPSHOT_VERSION: u16 = 5;
+/// Version 6 adds GTIA sprite shift registers and divider phases.
+const SNAPSHOT_VERSION: u16 = 6;
 
 /// Borrowing envelope used during encode — avoids cloning the live machine.
 #[derive(Serialize)]
@@ -58,15 +59,23 @@ pub(crate) fn encode(runtime: &Atari5200Runtime) -> Result<Vec<u8>, MachineError
 }
 
 pub(crate) fn decode(runtime: &mut Atari5200Runtime, bytes: &[u8]) -> Result<(), MachineError> {
+    // Check the envelope before decoding positional machine fields. An older
+    // payload must not be interpreted using the new GTIA layout.
+    let (version, _) = postcard::take_from_bytes::<u16>(bytes).map_err(|reason| {
+        MachineError::InvalidSnapshot {
+            reason: format!("decode failed: {reason}"),
+        }
+    })?;
+    if version != SNAPSHOT_VERSION {
+        return Err(MachineError::InvalidSnapshot {
+            reason: format!("unsupported snapshot version {version}; expected {SNAPSHOT_VERSION}"),
+        });
+    }
     let snapshot: Atari5200RuntimeSnapshotV2 =
         postcard::from_bytes(bytes).map_err(|reason| MachineError::InvalidSnapshot {
             reason: format!("decode failed: {reason}"),
         })?;
-    if snapshot.version != SNAPSHOT_VERSION {
-        return Err(MachineError::InvalidSnapshot {
-            reason: format!("unsupported snapshot version {}", snapshot.version),
-        });
-    }
+    debug_assert_eq!(snapshot.version, SNAPSHOT_VERSION);
     if snapshot.model_id != runtime.model().model_id() {
         return Err(MachineError::InvalidSnapshot {
             reason: format!(
@@ -87,6 +96,16 @@ mod tests {
     use crate::profiles::Model;
     use crate::runtime::Atari5200Runtime;
     use emu198x_shell::MachineError;
+
+    #[test]
+    fn old_layout_is_rejected_before_decoding_its_body() {
+        let mut runtime = Atari5200Runtime::blank(Model::A5200Ntsc);
+        let bytes = postcard::to_allocvec(&5u16).expect("old version prefix");
+        let error = decode(&mut runtime, &bytes).expect_err("old format must reject");
+        assert!(
+            matches!(error, MachineError::InvalidSnapshot { reason } if reason.contains("unsupported snapshot version 5"))
+        );
+    }
 
     /// A future-version envelope is rejected before any state is touched.
     #[test]
