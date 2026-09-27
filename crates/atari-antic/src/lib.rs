@@ -453,6 +453,8 @@ pub struct Antic {
     scan_line: u16,
     mode_line: u8,
     current_mode: u8,
+    /// Display instruction latch; disabling list DMA replays it.
+    instruction_latch: u8,
     current_dli: bool,
     memory_scan: u16,
     /// First value `mode_line` takes in the current mode line. Zero, until
@@ -516,6 +518,7 @@ impl Antic {
             scan_line: 0,
             mode_line: 0,
             current_mode: 0,
+            instruction_latch: 0,
             current_dli: false,
             memory_scan: 0,
             row_start: 0,
@@ -816,7 +819,8 @@ impl Antic {
             self.current_mode = 0;
             self.row_start = 0;
             self.row_end = 0;
-            self.prev_vscrol = false;
+            // The previous instruction's scroll bit survives vertical blank.
+            // An oversized display list resumes its scrolling region next frame.
             self.dl_active = false;
         }
 
@@ -835,19 +839,6 @@ impl Antic {
         // switched off altogether.
         let (player_data, missile_data, pm_dma) = self.fetch_pm_data(mem);
         let pm_single_line = self.dmactl & 0x10 != 0;
-
-        // Display list DMA disabled?
-        let dl_dma = self.dmactl & 0x20 != 0;
-        if !dl_dma {
-            self.schedule_refresh();
-            let mut result = blank_result(self.dma_mask);
-            result.player_data = player_data;
-            result.missile_data = missile_data;
-            result.pm_dma = pm_dma;
-            result.pm_single_line = pm_single_line;
-            self.advance_scan_line(lines_per_frame);
-            return result;
-        }
 
         let width_bits = self.dmactl & 0x03;
 
@@ -954,9 +945,13 @@ impl Antic {
 
     /// Fetch and decode the next display list instruction.
     fn fetch_dl_instruction<M: AnticMemory + ?Sized>(&mut self, mem: &M) {
-        let instr = self.read_display_list_byte(mem);
-        self.dl_dma_bytes[0] = Some(instr);
-        self.claim(DL_INSTRUCTION_CYCLE);
+        let dl_dma = self.dmactl & 0x20 != 0;
+        if dl_dma {
+            self.instruction_latch = self.read_display_list_byte(mem);
+            self.dl_dma_bytes[0] = Some(self.instruction_latch);
+            self.claim(DL_INSTRUCTION_CYCLE);
+        }
+        let instr = self.instruction_latch;
 
         // Display-list instruction option bits (matches ANTIC hardware):
         //   bit 7 = DLI (display-list interrupt)
@@ -988,15 +983,15 @@ impl Antic {
             }
             0x01 => {
                 // Jump instruction
-                let lo = self.read_display_list_byte(mem);
-                let hi = self.read_display_list_byte(mem);
-                self.dl_dma_bytes[1] = Some(lo);
-                self.dl_dma_bytes[2] = Some(hi);
-                self.claim(DL_OPERAND_CYCLES.0);
-                self.claim(DL_OPERAND_CYCLES.1);
-
-                let target = u16::from(lo) | (u16::from(hi) << 8);
-                self.dlist = target;
+                if dl_dma {
+                    let lo = self.read_display_list_byte(mem);
+                    let hi = self.read_display_list_byte(mem);
+                    self.dl_dma_bytes[1] = Some(lo);
+                    self.dl_dma_bytes[2] = Some(hi);
+                    self.claim(DL_OPERAND_CYCLES.0);
+                    self.claim(DL_OPERAND_CYCLES.1);
+                    self.dlist = u16::from_le_bytes([lo, hi]);
+                }
 
                 if instr & 0x40 != 0 {
                     // JVB: jump and wait for vertical blank
@@ -1051,7 +1046,7 @@ impl Antic {
                 self.row_end = first_row + rows - 1;
                 self.prev_vscrol = has_vscrol;
 
-                if has_lms {
+                if has_lms && dl_dma {
                     let lo = self.read_display_list_byte(mem);
                     let hi = self.read_display_list_byte(mem);
                     self.dl_dma_bytes[1] = Some(lo);
@@ -1461,6 +1456,13 @@ impl Antic {
         p += 1;
         self.hscrol_enabled = data[p] != 0;
         p += 1;
+        self.instruction_latch = self.current_mode
+            | (u8::from(self.current_dli) << 7)
+            | if self.current_mode == 0 {
+                (self.row_end & 7) << 4
+            } else {
+                (u8::from(self.vscrol_enabled) << 5) | (u8::from(self.hscrol_enabled) << 4)
+            };
         self.dl_active = data[p] != 0;
         p += 1;
         self.vbi_pending = data[p] != 0;
@@ -1922,6 +1924,54 @@ mod tests {
 
         assert_eq!(antic.read(0x0F) & 0x80, 0x80);
         assert!(!antic.take_dli(), "NMIEN must still gate the NMI request");
+    }
+
+    #[test]
+    fn disabled_display_list_dma_replays_instruction_across_vblank() {
+        for region in [AnticRegion::Ntsc, AnticRegion::Pal] {
+            let mut ram = make_ram();
+            ram[0x4000] = 0xf0; // eight blank lines, DLI on last
+            let mut antic = Antic::new(region);
+            antic.write(0, 0x20);
+            antic.write(2, 0);
+            antic.write(3, 0x40);
+            antic.write(0x0e, 0x80);
+            antic.scan_line = VISIBLE_START;
+            antic.process_line(&ram[..]);
+            antic.write(0, 0);
+            let mut interrupts = 0;
+            for _ in 0..region.lines_per_frame() {
+                let line = antic.process_line(&ram[..]);
+                assert!(antic.dl_dma_bytes.iter().all(Option::is_none));
+                assert_eq!(line.mode, AnticMode::Blank);
+                interrupts += u32::from(antic.take_dli());
+            }
+            assert_eq!(antic.dlist_value(), 0x4001);
+            assert!(interrupts > 1, "the held instruction keeps generating DLIs");
+        }
+    }
+
+    #[test]
+    fn vertical_blank_preserves_scroll_region() {
+        let mut ram = make_ram();
+        ram[0x4000] = 0x22;
+        let mut antic = Antic::new(AnticRegion::Ntsc);
+        antic.write(0, 0x20);
+        antic.write(2, 0);
+        antic.write(3, 0x40);
+        antic.write(5, 12);
+        antic.prev_vscrol = true;
+        antic.scan_line = VISIBLE_END;
+        antic.process_line(&ram[..]);
+        while antic.scan_line != VISIBLE_START {
+            antic.process_line(&ram[..]);
+        }
+        antic.process_line(&ram[..]);
+        assert_eq!(
+            antic.row_start, 0,
+            "continuing region must not reapply VSCROL"
+        );
+        assert_eq!(antic.row_end, 7);
     }
 
     #[test]

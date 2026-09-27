@@ -73,12 +73,12 @@
       "xex_sha256": "3aaf3e2564ff68c0844407613d7a157ea908c8d40d291ce877f0c1df8dd3d731",
       "symbols_sha256": "7094d7334c323aa6921c962e254f5d57baa1d2dd6ba4e1a48837462215e60d67",
       "ntsc": {
-        "verdict": "fail",
-        "failure_signature": "DLI was not carried over around VBLANK ."
+        "verdict": "pass",
+        "failure_signature": null
       },
       "pal": {
-        "verdict": "fail",
-        "failure_signature": "DLI was not carried over around VBLANK ."
+        "verdict": "pass",
+        "failure_signature": null
       }
     },
     {
@@ -242,12 +242,12 @@
       "xex_sha256": "b16aca83f914b429a8504c3282f55940308aeb4a747d430ba8a74123694a0a93",
       "symbols_sha256": "c3a61a029fe17536a8f047651dd86be5eafc52fea60f71d558df59776ee2defd",
       "ntsc": {
-        "verdict": "fail",
-        "failure_signature": "Failed test #5: expected 15, got 19"
+        "verdict": "pass",
+        "failure_signature": null
       },
       "pal": {
-        "verdict": "fail",
-        "failure_signature": "Failed test #5: expected 15, got 19"
+        "verdict": "pass",
+        "failure_signature": null
       }
     },
     {

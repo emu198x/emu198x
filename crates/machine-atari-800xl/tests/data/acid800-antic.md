@@ -32,7 +32,7 @@ fails. The normal mode checks exact known outcomes without hiding failures.
 | blockednmi | fail | fail |
 | charcontrol | pass | pass |
 | default | pass | pass |
-| dlistwrap | fail | fail |
+| dlistwrap | pass | pass |
 | dlitiming | pass | pass |
 | dmapattern | pass | pass |
 | hiresbug | fail | fail |
@@ -45,10 +45,10 @@ fails. The normal mode checks exact known outcomes without hiding failures.
 | vcount | pass | pass |
 | virtdma | fail | fail |
 | vscroldli | fail | fail |
-| vscroll | fail | fail |
+| vscroll | pass | pass |
 | wsync | pass | pass |
 
-**20 passes and 20 failures across 40 executions.** The initial survey had
+**24 passes and 16 failures across 40 executions.** The initial survey had
 10 passes and 30 failures. Correcting the playfield counter's 4 KB wrap makes
 the full address-wrap guest pass in both regions. Cycle-7 NMIST latching,
 cycle-8/9 NMI assertion and NMI edge capture during RDY holds also make
@@ -64,3 +64,7 @@ Source trail: Mapping the Atari's screen-RAM/LMS restrictions; Altirra's
 separate playfield page and masked 12-bit offset; the original
 `antic_addresswrap.s` collision-based check. Detailed investigations and guest
 reports are retained in the private shared reference library.
+
+Retaining the display instruction when list DMA is disabled and preserving
+scroll-region state across vertical blank make the complete display-list-wrap
+and vertical-scroll guests pass. Cycle-specific VSCROL/DLI timing still fails.

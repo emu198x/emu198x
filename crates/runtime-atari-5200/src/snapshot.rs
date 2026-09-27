@@ -32,7 +32,8 @@ use crate::runtime::Atari5200Runtime;
 /// Version 10 adds the pending WSYNC assertion pipeline.
 /// Version 11 adds ANTIC interrupt-source and enable-sampling state.
 /// Version 12 adds POKEY RANDOM initialisation and restart phase.
-const SNAPSHOT_VERSION: u16 = 12;
+/// Version 13 retains the ANTIC display instruction across disabled DMA.
+const SNAPSHOT_VERSION: u16 = 13;
 
 /// Borrowing envelope used during encode — avoids cloning the live machine.
 #[derive(Serialize)]
