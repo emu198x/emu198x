@@ -47,7 +47,7 @@ mod cartridge;
 
 pub use cartridge::{Cartridge, CartridgeKind};
 
-use atari_antic::{Antic, AnticRegion, COLOUR_CLOCKS_PER_LINE, CYCLES_HSYNC, cpu_dma_stalled};
+use atari_antic::{Antic, AnticRegion, COLOUR_CLOCKS_PER_LINE, CYCLES_HSYNC};
 use atari_gtia::Gtia;
 use atari_pokey::Pokey;
 use atari_sio::SioBus;
@@ -170,14 +170,8 @@ pub struct Atari800xl {
     /// The SIO bus and the disk drives on it. The PIA's CB2 pin is the bus's
     /// command line, POKEY's serial port carries the bytes.
     sio: SioBus,
-    /// Which of the current scan line's cycles ANTIC is taking for DMA, from
-    /// its own fetch schedule. The CPU runs on the cycles left over.
-    dma_mask: u128,
-    /// CPU cycle counter within the current scan line, counting from 1.
+    /// CPU cycle counter within the current scan line, counting from 0.
     line_cycle: u16,
-    /// The cycle at which ANTIC reads this line's playfield, once it has
-    /// begun a line that has one.
-    playfield_fetch_cycle: Option<u16>,
     /// The frame OPTION stops being held down for the OS. The XL OS decides
     /// whether BASIC is in from OPTION during its cold start and writes PORTB
     /// itself, so presetting PORTB is not enough to boot without BASIC: the
@@ -286,9 +280,7 @@ impl Atari800xl {
             clocks_per_frame,
             frame_count: 0,
             sio: SioBus::new(),
-            dma_mask: 0,
             line_cycle: 0,
-            playfield_fetch_cycle: None,
             option_held_until_frame,
         };
 
@@ -424,7 +416,7 @@ impl Atari800xl {
                 self.dma_bus_data = byte;
             }
             self.cpu.rdy = !self.antic.wsync_halt();
-            if !cpu_dma_stalled(self.line_cycle, self.dma_mask) {
+            if !self.clock_playfield_dma() {
                 // Complete the exposed bus transaction before tick consumes
                 // its data and prepares the next one. In particular, a write
                 // must not reach GTIA one CPU slot before its actual bus slot.
@@ -441,19 +433,18 @@ impl Atari800xl {
                 };
                 self.cpu.tick();
             }
+            if let Some(sample) = self.antic.complete_virtual_dma(self.dma_bus_data) {
+                self.gtia
+                    .accept_playfield_sample(sample.colour_clock, &sample.pixels, sample.mode);
+            }
             self.pokey.tick();
             self.tick_sio();
             self.cpu.irq = self.pokey.irq_pending() || self.pia.irq_pending();
             self.line_cycle += 1;
-            if Some(self.line_cycle) == self.playfield_fetch_cycle {
-                self.fetch_playfield();
-            }
         }
     }
 
-    /// ANTIC reads the line's playfield and hands it to the GTIA, ahead of
-    /// the beam reaching it. Registers the CPU wrote earlier in the line —
-    /// CHBASE, CHACTL, HSCROL — shape this line; later writes shape the next.
+    /// Apply ANTIC's retained hires override during vertical blanking.
     fn update_vertical_blank(&mut self) {
         if let Some(output) = self.antic.vertical_blank_playfield() {
             self.gtia
@@ -463,7 +454,7 @@ impl Atari800xl {
         }
     }
 
-    fn fetch_playfield(&mut self) {
+    fn clock_playfield_dma(&mut self) -> bool {
         let view = AnticView {
             ram: &self.ram,
             os_rom: self.os_rom.as_deref(),
@@ -471,10 +462,15 @@ impl Atari800xl {
             cart: self.cart.as_ref(),
             portb: self.pia.port_b_output() | !self.pia.ddr_b(),
         };
-        if let Some(fetched) = self.antic.fetch_playfield(&view) {
-            self.gtia
-                .set_playfield(&fetched.playfield, fetched.playfield_width, fetched.mode);
+        let (taken, sample) = self.antic.clock_dma(self.line_cycle, &view);
+        if let Some((mode, width)) = self.antic.live_playfield_window() {
+            self.gtia.set_playfield_window(width, mode);
         }
+        if let Some(sample) = sample {
+            self.gtia
+                .accept_playfield_sample(sample.colour_clock, &sample.pixels, sample.mode);
+        }
+        taken
     }
 
     /// Carry one machine cycle of the SIO bus.
@@ -510,8 +506,7 @@ impl Atari800xl {
 
     /// Start a scan line: ANTIC reads the display list and the GTIA begins
     /// beam compositing for it. Player/missile DMA and the DLI/VBI NMI are
-    /// applied here, and the line's DMA schedule that gates the CPU is set.
-    /// The playfield itself is fetched later in the line (`fetch_playfield`).
+    /// applied here. Playfield DMA is clocked byte by byte alongside the CPU.
     /// The actual pixels are composited incrementally as the beam advances
     /// (`composite_to_beam`), then finished with the PM overlay at line end.
     fn start_scan_line(&mut self) {
@@ -524,7 +519,7 @@ impl Atari800xl {
             cart: self.cart.as_ref(),
             portb: self.pia.port_b_output() | !self.pia.ddr_b(),
         };
-        let result = self.antic.begin_line(&view);
+        let result = self.antic.begin_live_line(&view);
         if result.pm_dma {
             // GRACTL decides whether this DMA reaches the graphics registers,
             // and VDELAY whether an object is held back a line; both live in
@@ -538,9 +533,7 @@ impl Atari800xl {
         let line = self.antic.scan_line().saturating_sub(1);
         let visible_line = line.wrapping_sub(8);
         self.gtia.begin_scanline(visible_line);
-        self.dma_mask = result.dma_mask;
         self.line_cycle = 0;
-        self.playfield_fetch_cycle = self.antic.playfield_fetch_cycle();
     }
 
     fn effective_portb(&self) -> u8 {
@@ -935,6 +928,35 @@ mod tests {
         ];
         rom[..prog.len()].copy_from_slice(&prog);
         rom
+    }
+
+    #[test]
+    fn snapshot_preserves_partial_playfield_fetch_and_line_ram_replay() {
+        for region in [Atari800xlRegion::Ntsc, Atari800xlRegion::Pal] {
+            let mut sys = Atari800xl::new(None, None, None, region, false).expect("machine");
+            for (offset, value) in [0x48, 0, 0x20, 0x41, 0, 0x40].into_iter().enumerate() {
+                sys.poke(0x4000 + offset as u16, value);
+            }
+            for i in 0..10 {
+                sys.poke(0x2000 + i, 0xe4);
+            }
+            sys.antic.write(2, 0);
+            sys.antic.write(3, 0x40);
+            sys.antic.write(0, 0x22);
+            for _ in 0..8 * 228 + 101 {
+                sys.tick_colour_clock();
+            }
+            let bytes = postcard::to_allocvec(&sys).expect("during line RAM fill");
+            let mut restored: Atari800xl = postcard::from_bytes(&bytes).expect("restore");
+            for _ in 0..228 * 3 {
+                sys.tick_colour_clock();
+                restored.tick_colour_clock();
+            }
+            assert_eq!(
+                postcard::to_allocvec(&sys).expect("state"),
+                postcard::to_allocvec(&restored).expect("restored state")
+            );
+        }
     }
 
     #[test]

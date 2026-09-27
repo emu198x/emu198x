@@ -170,6 +170,30 @@ struct PendingLine {
     width_bits: u8,
 }
 
+/// One fetched group of pixels, positioned in colour clocks on the line.
+pub struct PlayfieldSample {
+    /// First colour clock of this group.
+    pub colour_clock: u16,
+    /// Pixel entries; hires entries occupy half a colour clock.
+    pub pixels: Vec<u8>,
+    /// Hardware interpretation of the entries.
+    pub mode: AnticMode,
+}
+
+#[derive(Clone, Default, Serialize, Deserialize)]
+struct LiveDma {
+    enabled: bool,
+    load: bool,
+    ring: u8,
+    write: usize,
+    read: usize,
+    buffer: Vec<u8>,
+    refresh: bool,
+    early_mask: u128,
+    virtual_write: Option<usize>,
+    virtual_output: Option<(PendingLine, u16, u8)>,
+}
+
 // ---------------------------------------------------------------------------
 // Mode descriptors
 // ---------------------------------------------------------------------------
@@ -498,6 +522,7 @@ pub struct Antic {
 
     // -- Character code buffer (reused across scan lines within a mode line) --
     char_codes: Vec<u8>,
+    live: LiveDma,
     /// The line begun by `begin_line` whose playfield `fetch_playfield` has
     /// yet to read.
     pending: Option<PendingLine>,
@@ -553,6 +578,7 @@ impl Antic {
             phantom_pm_dma: false,
 
             char_codes: Vec::new(),
+            live: LiveDma::default(),
             pending: None,
 
             region,
@@ -887,6 +913,8 @@ impl Antic {
         }
 
         if in_vblank {
+            self.live.early_mask = 0;
+            self.live.load = false;
             // Vertical blank has no display fetch, so all nine refresh cycles
             // land on their slots.
             self.schedule_refresh();
@@ -908,9 +936,12 @@ impl Antic {
         // The row counter cannot stand in for this test: vertical scrolling
         // starts a mode line partway down its glyph, so row zero is not
         // necessarily where a line begins.
+        self.live.load = !self.dl_active;
         if !self.dl_active {
             self.fetch_dl_instruction(mem);
         }
+
+        self.live.early_mask = self.dma_mask;
 
         // Claim the line's playfield DMA and note what the fetch has to read.
         let mut result = blank_result(0);
@@ -969,6 +1000,170 @@ impl Antic {
         let line = self.pending.take()?;
         let desc = mode_desc(line.mode)?;
         Some(self.render_mode_line(mem, &desc, &line))
+    }
+
+    /// Begin a line whose playfield accesses are clocked individually.
+    /// Pair with `clock_dma` and `complete_virtual_dma` for all 114 bus slots;
+    /// do not mix this path with the coarse `fetch_playfield` batch API.
+    pub fn begin_live_line<M: AnticMemory + ?Sized>(&mut self, mem: &M) -> LineResult {
+        self.live.enabled = true;
+        self.live.buffer.resize(48, 0);
+        self.live.write = 0;
+        self.live.read = 0;
+        self.live.refresh = false;
+        self.begin_line(mem)
+    }
+
+    /// Current display window, independent of whether the fetch clock is running.
+    #[must_use]
+    pub fn live_playfield_window(&self) -> Option<(AnticMode, u16)> {
+        self.pending
+            .and_then(|line| mode_desc(line.mode))
+            .map(|desc| (desc.antic_mode, playfield_width_cc(self.dmactl & 3)))
+    }
+
+    /// Clock one ANTIC bus slot. Virtual reads are completed separately after
+    /// the CPU bus transaction. The retained line RAM serves every mode.
+    pub fn clock_dma<M: AnticMemory + ?Sized>(
+        &mut self,
+        cycle: u16,
+        mem: &M,
+    ) -> (bool, Option<PlayfieldSample>) {
+        self.live.virtual_write = None;
+        self.live.virtual_output = None;
+        let mut taken = cpu_dma_stalled(cycle, self.live.early_mask);
+        let mut output = None;
+        let line = self.pending;
+        let mode = line.map_or(0, |line| line.mode);
+        let desc = mode_desc(mode);
+        let width = fetch_width_bits(self.dmactl & 3, self.hscrol_enabled);
+        let delay = if self.hscrol_enabled {
+            u16::from(self.hscrol / 2)
+        } else {
+            0
+        };
+        let (start, stop) = match width {
+            1 => (25 + delay, 89 + delay),
+            2 => (17 + delay, 97 + delay),
+            3 => (9 + delay, 105 + delay),
+            _ => (114, 114),
+        };
+        // Altirra's UpdateDMAPattern describes a retained eight-clock pattern:
+        // name, bitmap and glyph strobes are delayed views of that clock.
+        // Shorter modes feed back earlier taps; the lower stages still retain
+        // history for a later slow mode. Stop removes the returning pulse only
+        // on its comparator clock, so a mistimed HSCROL write can miss it.
+        let ring = self.live.ring;
+        let feedback_bit = match mode {
+            8 | 9 => 0,
+            6 | 7 | 10..=12 => 4,
+            _ => 6,
+        };
+        let feedback = ring >> feedback_bit & 1;
+        self.live.ring = (ring >> 1 & 0x3f)
+            | if line.is_some() {
+                (((ring & 0x80) >> 1) * u8::from(cycle != stop))
+                    | (u8::from(cycle == start) << 6)
+                    | (feedback << 7)
+            } else {
+                0
+            };
+        if let (Some(line), Some(desc)) = (line, desc) {
+            let real = self.dmactl & 3 != 0 && cycle <= PLAYFIELD_LAST_CYCLE;
+            let data_tick = ring & if desc.char_mode { 0x40 } else { 0x10 } != 0;
+            if data_tick && self.live.load {
+                if !real {
+                    self.live.virtual_write = Some(self.live.write);
+                }
+                if real {
+                    let data = mem.read(self.memory_scan);
+                    if let Some(slot) = self.live.buffer.get_mut(self.live.write) {
+                        *slot = data;
+                    }
+                }
+                self.live.write += 1;
+                self.memory_scan = playfield_address(self.memory_scan, 1);
+                taken |= real;
+            }
+            let output_tick = ring & if desc.char_mode { 8 } else { 0x10 } != 0;
+            if output_tick {
+                let data = self
+                    .live
+                    .buffer
+                    .get(self.live.read)
+                    .copied()
+                    .unwrap_or(0xff);
+                self.live.read += 1;
+                taken |= real && desc.char_mode;
+                if real {
+                    output = Some(self.make_sample(mem, &desc, line, cycle, data));
+                } else {
+                    self.live.virtual_output = Some((line, cycle, data));
+                }
+            }
+        }
+        if (REFRESH_FIRST_CYCLE..=REFRESH_FIRST_CYCLE + 8 * REFRESH_INTERVAL).contains(&cycle)
+            && (cycle - REFRESH_FIRST_CYCLE).is_multiple_of(REFRESH_INTERVAL)
+        {
+            self.live.refresh = true;
+        }
+        if self.live.refresh && !taken {
+            taken = true;
+            self.live.refresh = false;
+        }
+        (taken, output)
+    }
+
+    /// Complete virtual reads after the machine has serviced the CPU bus pins
+    /// for this slot. A virtual access does not own the bus or add a CPU tick.
+    pub fn complete_virtual_dma(&mut self, bus: u8) -> Option<PlayfieldSample> {
+        let wrote = self.live.virtual_write.take();
+        if let Some(index) = wrote
+            && let Some(slot) = self.live.buffer.get_mut(index)
+        {
+            *slot = bus;
+        }
+        let (line, cycle, code) = self.live.virtual_output.take()?;
+        let desc = mode_desc(line.mode)?;
+        let code = if !desc.char_mode && wrote.is_some() {
+            bus
+        } else {
+            code
+        };
+        Some(self.make_sample(&BusByte(bus), &desc, line, cycle, code))
+    }
+
+    fn make_sample<M: AnticMemory + ?Sized>(
+        &self,
+        mem: &M,
+        desc: &ModeDesc,
+        line: PendingLine,
+        cycle: u16,
+        code: u8,
+    ) -> PlayfieldSample {
+        let pixels = if desc.char_mode {
+            self.render_codes(mem, desc, &[code], line.row)
+        } else {
+            render_bitmap_line(&[code][..], desc, 1, 0)
+        };
+        let pixels = if desc.cc_per_pixel > 1 {
+            pixels
+                .iter()
+                .flat_map(|&px| std::iter::repeat_n(px, usize::from(desc.cc_per_pixel)))
+                .collect()
+        } else {
+            pixels
+        };
+        PlayfieldSample {
+            colour_clock: (cycle + if desc.char_mode { 3 } else { 4 }) * 2
+                + if self.hscrol_enabled {
+                    u16::from(self.hscrol & 1)
+                } else {
+                    0
+                },
+            pixels,
+            mode: desc.antic_mode,
+        }
     }
 
     /// Blanking output for the current beam line. A retained hires instruction
@@ -1154,6 +1349,7 @@ impl Antic {
                 // each scan line within this mode line row)
                 if let Some(desc) = mode_desc(mode)
                     && desc.char_mode
+                    && !self.live.enabled
                 {
                     let width_bits = fetch_width_bits(self.dmactl & 0x03, self.hscrol_enabled);
                     let bytes = adjust_bytes_for_width(desc.bytes_per_line, width_bits);
@@ -1193,7 +1389,7 @@ impl Antic {
             memory_scan: self.memory_scan,
             width_bits,
         });
-        if !desc.char_mode {
+        if !desc.char_mode && !self.live.enabled {
             self.bitmap_row_bytes = adjust_bytes_for_width(desc.bytes_per_line, fetch_bits);
         }
     }
@@ -1250,6 +1446,21 @@ impl Antic {
         bytes: u8,
         mode_row: u8,
     ) -> Vec<u8> {
+        self.render_codes(
+            mem,
+            desc,
+            &self.char_codes[..usize::min(self.char_codes.len(), bytes as usize)],
+            mode_row,
+        )
+    }
+
+    fn render_codes<M: AnticMemory + ?Sized>(
+        &self,
+        mem: &M,
+        desc: &ModeDesc,
+        codes: &[u8],
+        mode_row: u8,
+    ) -> Vec<u8> {
         let chbase_addr = u16::from(self.chbase) << 8;
         // CHACTL: bit 1 = inverse-video enable, bit 0 = blank, bit 2 = reflect.
         let inverse_video = self.chactl & 0x02 != 0;
@@ -1265,7 +1476,6 @@ impl Antic {
         // back to its top rather than reading into the next one.
         let row = mode_row & 0x0F;
         let raw_row = if double_height { row / 2 } else { row };
-        let count = usize::min(self.char_codes.len(), bytes as usize);
         let mut pixels = Vec::new();
 
         let glyph_byte = |glyph: u16, font_row: u8| -> u8 {
@@ -1275,8 +1485,7 @@ impl Antic {
             mem.read(addr)
         };
 
-        for i in 0..count {
-            let raw_code = self.char_codes[i];
+        for &raw_code in codes {
             // Mode 3's ten-line row still addresses an eight-byte glyph. The
             // hardware uses the low three row-counter bits, blanks rows 8-9
             // for ordinary characters, and blanks rows 0-1 for the $60-$7F
@@ -1502,6 +1711,9 @@ impl Antic {
         if data.len() < 41 {
             return Err("ANTIC state truncated".into());
         }
+        // Compact register snapshots have no in-flight DMA state. Full machine
+        // snapshots serialize LiveDma and are required for cycle-exact resume.
+        self.live = LiveDma::default();
         let mut p = 0;
         self.dmactl = data[p];
         p += 1;
@@ -1590,6 +1802,13 @@ impl Antic {
     }
 }
 
+struct BusByte(u8);
+impl AnticMemory for BusByte {
+    fn read(&self, _addr: u16) -> u8 {
+        self.0
+    }
+}
+
 /// ANTIC's playfield counter increments only its low twelve bits. LMS loads
 /// the upper page; neither a fetch nor line advancement carries into it.
 /// Mapping the Atari (screen RAM / LMS); Altirra PFRowDMAPtrBase + (offset & $FFF).
@@ -1656,6 +1875,90 @@ mod tests {
     /// Helper: create a minimal 64KB RAM array.
     fn make_ram() -> Vec<u8> {
         vec![0u8; 65536]
+    }
+
+    #[test]
+    fn live_bitmap_replay_keeps_line_ram_when_memory_changes() {
+        let mut ram = make_ram();
+        ram[0x6000..0x6003].copy_from_slice(&[0x48, 0, 0x20]);
+        ram[0x2000..0x200a].fill(0xe4);
+        let mut antic = Antic::new(AnticRegion::Ntsc);
+        antic.dlist = 0x6000;
+        antic.dmactl = 0x22;
+        antic.scan_line = 8;
+        antic.begin_live_line(&ram[..]);
+        let mut first = Vec::new();
+        for cycle in 0..114 {
+            let (_, sample) = antic.clock_dma(cycle, &ram[..]);
+            if let Some(sample) = sample {
+                first.extend(sample.pixels);
+            }
+            antic.complete_virtual_dma(0);
+        }
+        assert_eq!(antic.memory_scan, 0x200a);
+        assert_eq!(
+            &first[..16],
+            &[3, 3, 3, 3, 2, 2, 2, 2, 1, 1, 1, 1, 0, 0, 0, 0]
+        );
+        ram[0x2000..0x200a].fill(0);
+        antic.begin_live_line(&ram[..]);
+        let mut replay = Vec::new();
+        for cycle in 0..114 {
+            let (_, sample) = antic.clock_dma(cycle, &ram[..]);
+            if let Some(sample) = sample {
+                replay.extend(sample.pixels);
+            }
+            antic.complete_virtual_dma(0);
+        }
+        assert_eq!(replay, first);
+        assert_eq!(
+            antic.memory_scan, 0x200a,
+            "replay must not advance screen RAM"
+        );
+    }
+
+    #[test]
+    fn live_width_write_on_either_side_of_start_changes_fetch_count() {
+        for (write_cycle, bytes) in [(16, 32), (17, 36)] {
+            let mut ram = make_ram();
+            ram[0x6000..0x6003].copy_from_slice(&[0x46, 0, 0x20]);
+            let mut antic = Antic::new(AnticRegion::Ntsc);
+            antic.dlist = 0x6000;
+            antic.dmactl = 0x22;
+            antic.scan_line = 8;
+            antic.begin_live_line(&ram[..]);
+            for cycle in 0..114 {
+                antic.clock_dma(cycle, &ram[..]);
+                antic.complete_virtual_dma(0);
+                if cycle == write_cycle {
+                    antic.write(0, 0x21);
+                }
+            }
+            assert_eq!(antic.memory_scan, 0x2000 + bytes / 2);
+        }
+    }
+
+    #[test]
+    fn virtual_glyph_uses_cpu_bus_completion_without_stealing_a_clock() {
+        let mut ram = make_ram();
+        ram[0x6000..0x6003].copy_from_slice(&[0x57, 0, 0x20]);
+        let mut antic = Antic::new(AnticRegion::Ntsc);
+        antic.dlist = 0x6000;
+        antic.dmactl = 0x23;
+        antic.hscrol = 2;
+        antic.scan_line = 8;
+        antic.begin_live_line(&ram[..]);
+        for cycle in 0..106 {
+            antic.clock_dma(cycle, &ram[..]);
+            antic.complete_virtual_dma(0);
+        }
+        let (stolen, sample) = antic.clock_dma(106, &ram[..]);
+        assert!(!stolen);
+        assert!(sample.is_none(), "the CPU has not driven the bus yet");
+        let sample = antic.complete_virtual_dma(0x50).expect("virtual glyph");
+        assert_eq!(sample.colour_clock, 218);
+        assert_eq!(sample.pixels, [0, 1, 0, 1, 0, 0, 0, 0]);
+        assert!(antic.complete_virtual_dma(0xff).is_none());
     }
 
     #[test]

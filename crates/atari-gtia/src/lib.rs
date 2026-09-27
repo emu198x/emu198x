@@ -742,6 +742,32 @@ impl Gtia {
         self.sl_line_buf = line_buf;
     }
 
+    /// Set the live ANTIC display gate without replacing already fetched pixels.
+    pub fn set_playfield_window(&mut self, width: u16, mode: AnticMode) {
+        self.sl_mode = mode;
+        let (start, end) = playfield_display_cc(width);
+        let first = self.fb_first_half_clock;
+        self.sl_pf_span = (
+            usize::from((start * 2).saturating_sub(first)).min(self.sl_line_buf.len()),
+            usize::from((end * 2).saturating_sub(first)).min(self.sl_line_buf.len()),
+        );
+    }
+
+    /// Accept a fetched pixel group ahead of the beam at its physical position.
+    pub fn accept_playfield_sample(&mut self, clock: u16, pixels: &[u8], mode: AnticMode) {
+        let scale = if mode.is_hires() { 1 } else { 2 };
+        for (i, &pixel) in pixels.iter().enumerate() {
+            for sub in 0..scale {
+                let half_clock = usize::from(clock) * 2 + i * scale + sub;
+                if let Some(x) = half_clock.checked_sub(usize::from(self.fb_first_half_clock))
+                    && let Some(slot) = self.sl_line_buf.get_mut(x)
+                {
+                    *slot = pixel;
+                }
+            }
+        }
+    }
+
     /// Composite pixels from the cursor up to (but not including) active-x
     /// `end`, and advance the cursor. Each pixel resolves the playfield index
     /// and the player/missile coverage from the *live* registers at that pixel's
@@ -767,7 +793,11 @@ impl Gtia {
                 self.sl_x += 1;
                 continue;
             }
-            let mut pf_col_idx = self.sl_line_buf[x];
+            let mut pf_col_idx = if (self.sl_pf_span.0..self.sl_pf_span.1).contains(&x) {
+                self.sl_line_buf[x]
+            } else {
+                0
+            };
 
             // Players/missiles at this pixel's beam colour-clock, from the
             // propagated sprite registers. Mid-line HPOS/GRAFP writes enter
