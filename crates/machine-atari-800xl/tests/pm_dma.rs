@@ -227,6 +227,9 @@ fn player_dma_fetches_the_missiles_too() {
 }
 
 #[test]
-fn without_pm_dma_the_screen_is_bare() {
-    assert_lit(&lit_pixels(DMACTL_NO_PM, GRACTL_BOTH, 0), &BTreeSet::new());
+fn disabled_pm_dma_still_allows_phantom_capture_through_gractl() {
+    // Display-list DMA can clock CPU bus data into GTIA even without normal
+    // PM fetches. GRACTL, not DMACTL alone, blocks those phantom transfers.
+    assert!(!lit_pixels(DMACTL_NO_PM, GRACTL_BOTH, 0).is_empty());
+    assert_lit(&lit_pixels(DMACTL_NO_PM, 0, 0), &BTreeSet::new());
 }
