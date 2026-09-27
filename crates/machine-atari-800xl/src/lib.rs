@@ -922,6 +922,31 @@ mod tests {
     }
 
     #[test]
+    fn snapshot_preserves_antic_instruction_with_list_dma_disabled() {
+        let mut sys =
+            Atari800xl::new(None, None, None, Atari800xlRegion::Ntsc, false).expect("machine");
+        sys.poke(0x4000, 0xf0);
+        sys.antic.write(2, 0);
+        sys.antic.write(3, 0x40);
+        sys.antic.write(0, 0x20);
+        for _ in 0..9 * 228 {
+            sys.tick_colour_clock();
+        }
+        sys.antic.write(0, 0);
+        let bytes = postcard::to_allocvec(&sys).expect("held instruction");
+        let mut restored: Atari800xl = postcard::from_bytes(&bytes).expect("restore");
+        for _ in 0..262 * 228 {
+            sys.tick_colour_clock();
+            restored.tick_colour_clock();
+        }
+        assert_eq!(sys.antic.read(0x0f), restored.antic.read(0x0f));
+        assert_eq!(
+            postcard::to_allocvec(&sys).expect("state"),
+            postcard::to_allocvec(&restored).expect("state")
+        );
+    }
+
+    #[test]
     fn pokey_random_snapshot_preserves_shutdown_and_restart() {
         let mut sys =
             Atari800xl::new(None, None, None, Atari800xlRegion::Ntsc, false).expect("machine");
