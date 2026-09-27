@@ -229,12 +229,12 @@
       "xex_sha256": "b90e5c4ff85e0039e2a94d0f8b934f33eb35652aba394f148a87cead23c208d9",
       "symbols_sha256": "26dc2655bf027064dbfbc6161848531c5aa91a0c0f3ff3491f557c13cbbf4747",
       "ntsc": {
-        "verdict": "fail",
-        "failure_signature": "VSCROL took effect too early."
+        "verdict": "pass",
+        "failure_signature": null
       },
       "pal": {
-        "verdict": "fail",
-        "failure_signature": "VSCROL took effect too early."
+        "verdict": "pass",
+        "failure_signature": null
       }
     },
     {
