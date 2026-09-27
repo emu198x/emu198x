@@ -25,7 +25,8 @@ use crate::runtime::Atari800xlRuntime;
 /// Bumped to 5 when mounted XEX bytes and their pending-autoload state joined
 /// the runtime envelope.
 /// Version 6 adds GTIA sprite shift registers and divider phases.
-const SNAPSHOT_VERSION: u16 = 6;
+/// Version 7 adds active sprite registers and pending propagation.
+const SNAPSHOT_VERSION: u16 = 7;
 
 /// Borrowing envelope used during encode — avoids cloning the live machine.
 #[derive(Serialize)]
@@ -106,10 +107,10 @@ mod tests {
     #[test]
     fn old_layout_is_rejected_before_decoding_its_body() {
         let mut runtime = Atari800xlRuntime::blank(Model::A800xlNtsc);
-        let bytes = postcard::to_allocvec(&5u16).expect("old version prefix");
+        let bytes = postcard::to_allocvec(&6u16).expect("old version prefix");
         let error = decode(&mut runtime, &bytes).expect_err("old format must reject");
         assert!(
-            matches!(error, MachineError::InvalidSnapshot { reason } if reason.contains("unsupported snapshot version 5"))
+            matches!(error, MachineError::InvalidSnapshot { reason } if reason.contains("unsupported snapshot version 6"))
         );
     }
 

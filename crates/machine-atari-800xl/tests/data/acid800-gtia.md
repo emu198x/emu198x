@@ -47,11 +47,11 @@ ignored when comparing wrapped diagnostic signatures.
 | phantomdma | fail | fail |
 | pmoverlap | pass | pass |
 | pmresize | fail | fail |
-| pmretrigger | fail | fail |
+| pmretrigger | pass | pass |
 | psuedomodee | fail | fail |
 | vdelay | pass | pass |
 
-There are **14 guest passes and 8 guest failures**, across 22 executions.
+There are **16 guest passes and 6 guest failures**, across 22 executions.
 A passing baseline test means those exact observations were reproduced;
 it does not mean GTIA conformance. Set `EMU198X_ACID800_STRICT=1` to require
 all guests to pass instead. Strict mode still writes the reports before
@@ -63,6 +63,7 @@ identifies a reproducible symptom, not necessarily the chip responsible.
 The corpus stops each probe at its first failing assertion, so resolving a
 failure may reveal further failures within the same probe. Persistent sprite
 shift registers make the complete overlap probe pass in both regions. The
-remaining failures are phantom DMA, resizing, retrigger timing and pseudo mode
-E. Register propagation and CPU/ANTIC bus timing still need investigation;
+remaining failures are phantom DMA, resizing and pseudo mode E. RDY handling
+and sprite register propagation make retriggering pass in both regions; phantom
+DMA still fails, with the observed byte changing from $0F to $FF. Register propagation and CPU/ANTIC bus timing still need investigation;
 passing overlap does not establish complete dynamic sprite accuracy.
