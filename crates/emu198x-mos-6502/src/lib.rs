@@ -508,6 +508,38 @@ mod tests {
     }
 
     #[test]
+    fn nmi_vector_window_distinguishes_short_pulses_from_held_levels() {
+        for (edge_cycle, pulse_width, first_vector, eventually_nmi) in [
+            (3, 2, 0x4000, true),
+            (4, 2, 0x3000, false),
+            (4, 8, 0x3000, true),
+            (5, 2, 0x3000, true),
+            (6, 2, 0x3000, true),
+        ] {
+            let mut fixture = Fixture::with_program(0x0400, &[0x00, 0xea]);
+            fixture.mem[0x3000..0x3010].fill(0xea);
+            fixture.mem[0x4000..0x4010].fill(0xea);
+            fixture.mem[0xfffe..=0xffff].copy_from_slice(&[0, 0x30]);
+            fixture.mem[0xfffa..=0xfffb].copy_from_slice(&[0, 0x40]);
+            fixture.boot();
+            for cycle in 0..7 {
+                fixture.cpu.nmi = (edge_cycle..edge_cycle + pulse_width).contains(&cycle);
+                fixture.step();
+            }
+            assert_eq!(fixture.cpu.regs.pc, first_vector);
+            for cycle in 7..18 {
+                fixture.cpu.nmi = (edge_cycle..edge_cycle + pulse_width).contains(&cycle);
+                fixture.step();
+            }
+            assert_eq!(
+                fixture.cpu.regs.pc >= 0x4000,
+                eventually_nmi,
+                "edge={edge_cycle}, width={pulse_width}"
+            );
+        }
+    }
+
+    #[test]
     fn brk_pushes_state_and_reads_irq_vector() {
         let mut fixture = Fixture::with_program(0x0400, &[0x00, 0xEA]);
         fixture.mem[0xFFFE] = 0x00;
