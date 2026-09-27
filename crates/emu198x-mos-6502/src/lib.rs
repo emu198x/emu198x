@@ -668,6 +668,38 @@ mod tests {
     /// classic 6502 gotcha; `tick.rs` uses `nmi_prev` to implement the
     /// edge purely via the penultimate-cycle latch.
     #[test]
+    fn nmi_pulse_during_rdy_hold_survives_until_current_instruction_finishes() {
+        let mut fixture = Fixture::with_program(0x0400, &[0xea, 0xea]);
+        fixture.mem[0xfffa] = 0x00;
+        fixture.mem[0xfffb] = 0x40;
+        fixture.boot();
+        fixture.step(); // NOP opcode consumed; operand/dummy read is exposed
+        fixture.cpu.rdy = false;
+        let held = (
+            fixture.cpu.addr,
+            fixture.cpu.regs.pc,
+            fixture.cpu.total_cycles,
+        );
+        for level in [true, true, false, false] {
+            fixture.cpu.nmi = level;
+            fixture.step();
+            assert_eq!(
+                (
+                    fixture.cpu.addr,
+                    fixture.cpu.regs.pc,
+                    fixture.cpu.total_cycles
+                ),
+                held
+            );
+        }
+        fixture.cpu.rdy = true;
+        fixture.run_one(); // finish the already-started NOP, not the next one
+        assert_eq!(fixture.cpu.regs.pc, 0x0401);
+        fixture.run_one();
+        assert_eq!(fixture.cpu.regs.pc, 0x4000);
+    }
+
+    #[test]
     fn nmi_rising_edge_vectors_to_handler() {
         let mut fixture = Fixture::with_program(0x0400, &[0xEA]);
         fixture.mem[0xFFFA] = 0x00;

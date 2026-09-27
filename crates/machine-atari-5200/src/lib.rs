@@ -239,6 +239,10 @@ impl Atari5200 {
         if self.master_clock.is_multiple_of(2) {
             // ANTIC releases a WSYNC-halted CPU at HSYNC (end of the visible
             // region), not at the next line.
+            self.antic.clock_nmi(self.line_cycle);
+            if self.antic.take_vbi() | self.antic.take_dli() {
+                self.cpu.nmi = true;
+            }
             self.antic.advance_wsync(!self.cpu.rw);
             if self.line_cycle == CYCLES_HSYNC {
                 self.antic.clear_wsync();
@@ -341,19 +345,6 @@ impl Atari5200 {
         self.dma_mask = result.dma_mask;
         self.line_cycle = 0;
         self.playfield_fetch_cycle = self.antic.playfield_fetch_cycle();
-        // ANTIC pulses NMI; it does not hold it. Raise the line for any
-        // source that fired on this line — `tick_colour_clock` drops it
-        // again once the line ends, so the next source gets its own
-        // rising edge. Holding it high across two consecutive lines
-        // merges them into one edge and the second interrupt is lost,
-        // which is what happens to any program with a DLI on its last
-        // mode line: the DLI at the end of the picture and the VBI on
-        // the line after arrive as a single NMI, the OS handler sees
-        // both NMIST bits, services the DLI because bit 7 wins, and
-        // NMIRES clears the VBI bit unserviced.
-        if self.antic.take_vbi() | self.antic.take_dli() {
-            self.cpu.nmi = true;
-        }
     }
 
     fn mem_read(&mut self, addr: u16) -> u8 {
@@ -563,6 +554,35 @@ mod tests {
         rom[0x1FFE] = 0x00;
         rom[0x1FFF] = 0xA0;
         rom
+    }
+
+    #[test]
+    fn snapshot_between_nmist_and_nmi_preserves_the_sampled_enable() {
+        for region in [Atari5200Region::Ntsc, Atari5200Region::Pal] {
+            let mut sys = Atari5200::new(trap_rom_8k(), vec![], region).expect("machine");
+            sys.antic.write(0x0e, 0x40);
+            for _ in 0..(248 * 228 + 14) {
+                sys.tick_colour_clock();
+            }
+            assert_eq!(sys.antic.read(0x0f) & 0x40, 0);
+            sys.tick_colour_clock();
+            sys.tick_colour_clock(); // cycle 7 latches status and NMIEN
+            assert_eq!(sys.antic.read(0x0f) & 0x40, 0x40);
+            assert!(!sys.cpu.nmi);
+            sys.antic.write_from_cpu(0x0e, 0, 7);
+            let bytes = postcard::to_allocvec(&sys).expect("pending NMI");
+            let mut restored: Atari5200 =
+                postcard::from_bytes(&bytes).expect("restore pending NMI");
+            for machine in [&mut sys, &mut restored] {
+                machine.tick_colour_clock();
+                machine.tick_colour_clock(); // cycle 8 uses the sampled enable
+                assert!(machine.cpu.nmi);
+            }
+            assert_eq!(
+                postcard::to_allocvec(&sys).expect("state"),
+                postcard::to_allocvec(&restored).expect("state")
+            );
+        }
     }
 
     #[test]

@@ -471,6 +471,9 @@ pub struct Antic {
     dl_active: bool,
 
     // -- NMI outputs --
+    line_nmi: u8,
+    early_nmien: u8,
+    late_nmi: bool,
     vbi_pending: bool,
     dli_pending: bool,
 
@@ -522,6 +525,9 @@ impl Antic {
             hscrol_enabled: false,
             dl_active: false,
 
+            line_nmi: 0,
+            early_nmien: 0,
+            late_nmi: false,
             vbi_pending: false,
             dli_pending: false,
 
@@ -575,6 +581,9 @@ impl Antic {
             }
         } else {
             self.write(addr, value);
+            if addr & 0x0f == 0x0f && cycle == 7 {
+                self.nmist |= self.line_nmi;
+            }
         }
     }
 
@@ -701,6 +710,36 @@ impl Antic {
         self.wsync = false;
     }
 
+    /// Clock the NMIST latch and NMI enable sampling before the CPU slot.
+    /// Altirra: status/early enable at 7, assertion at 8, late enable at 9.
+    pub fn clock_nmi(&mut self, cycle: u16) {
+        match cycle {
+            7 => {
+                self.early_nmien = self.nmien;
+                if self.line_nmi != 0 {
+                    self.nmist = (self.nmist & !0xc0) | self.line_nmi;
+                }
+            }
+            8 => {
+                let enabled = self.line_nmi & self.early_nmien != 0;
+                self.late_nmi = !enabled && self.line_nmi & self.nmien != 0;
+                if enabled {
+                    self.raise_nmi();
+                }
+            }
+            9 if self.late_nmi => {
+                self.raise_nmi();
+                self.late_nmi = false;
+            }
+            _ => {}
+        }
+    }
+
+    fn raise_nmi(&mut self) {
+        self.vbi_pending |= self.line_nmi & 0x40 != 0;
+        self.dli_pending |= self.line_nmi & 0x80 != 0;
+    }
+
     /// Check and clear VBI pending flag.
     pub fn take_vbi(&mut self) -> bool {
         let pending = self.vbi_pending;
@@ -735,6 +774,11 @@ impl Antic {
     /// that do not run a CPU between the two.
     pub fn process_line<M: AnticMemory + ?Sized>(&mut self, mem: &M) -> LineResult {
         let mut result = self.begin_line(mem);
+        // Batch callers do not interleave CPU writes; complete the line's
+        // interrupt events as well as its playfield fetch.
+        for cycle in 7..=9 {
+            self.clock_nmi(cycle);
+        }
         if let Some(fetched) = self.fetch_playfield(mem) {
             result.mode = fetched.mode;
             result.playfield = fetched.playfield;
@@ -751,6 +795,8 @@ impl Antic {
     /// `playfield` is empty, and its `mode` and `playfield_width` describe the
     /// line the fetch will produce.
     pub fn begin_line<M: AnticMemory + ?Sized>(&mut self, mem: &M) -> LineResult {
+        self.line_nmi = 0;
+        self.late_nmi = false;
         self.dma_mask = 0;
         self.dl_dma_bytes = [None; 3];
         self.phantom_pm_dma = self.dmactl & 0x2c == 0x20;
@@ -759,15 +805,12 @@ impl Antic {
         let lines_per_frame = self.region.lines_per_frame();
         let in_vblank = self.scan_line < VISIBLE_START || self.scan_line >= VISIBLE_END;
 
-        // VBI at the start of vertical blank.
+        // Prepare the VBI source for cycle 7 of vertical blank.
         // NMIEN bit 6 = VBI enable (bit 7 is DLI). NMIST bit 6 records VBI.
         // Each NMI source clears the other's status bit as it sets its own
         // (Altirra `antic.cpp`: `mNMIST |= 0x40; mNMIST &= ~0x80;`).
         if self.scan_line == VISIBLE_END {
-            self.nmist = (self.nmist & !0x80) | 0x40;
-            if self.nmien & 0x40 != 0 {
-                self.vbi_pending = true;
-            }
+            self.line_nmi = 0x40;
             // Reset display list state for next frame
             self.mode_line = 0;
             self.current_mode = 0;
@@ -839,10 +882,7 @@ impl Antic {
             // End of this mode line — check for DLI.
             // NMIEN bit 7 = DLI enable. NMIST bit 7 records DLI.
             if self.current_dli {
-                self.nmist = (self.nmist & !0x40) | 0x80;
-                if self.nmien & 0x80 != 0 {
-                    self.dli_pending = true;
-                }
+                self.line_nmi = 0x80;
             }
             self.mode_line = 0;
             self.dl_active = false;
@@ -1393,6 +1433,9 @@ impl Antic {
         p += 1;
         self.wsync = data[p] != 0;
         self.wsync_pending = 0;
+        self.line_nmi = 0;
+        self.early_nmien = 0;
+        self.late_nmi = false;
         p += 1;
         self.nmien = data[p];
         p += 1;
@@ -1775,6 +1818,31 @@ mod tests {
                 assert!(!chip.wsync_halt());
                 chip.advance_wsync(false); // cycle 106
                 assert_eq!(chip.wsync_halt(), second_write == 104);
+            }
+        }
+    }
+
+    #[test]
+    fn nmi_status_reset_and_enable_sampling_use_separate_slots() {
+        for source in [0x40, 0x80] {
+            for late in [false, true] {
+                let mut antic = Antic::new(AnticRegion::Ntsc);
+                antic.line_nmi = source;
+                antic.nmien = if late { 0 } else { source };
+                antic.clock_nmi(6);
+                assert_eq!(antic.read(0x0f), 0x1f);
+                antic.clock_nmi(7);
+                assert_eq!(antic.read(0x0f), source | 0x1f);
+                antic.write_from_cpu(0x0f, 0, 7);
+                assert_eq!(antic.read(0x0f), source | 0x1f, "set wins at cycle 7");
+                antic.write_from_cpu(0x0e, if late { source } else { 0 }, 7);
+                antic.write_from_cpu(0x0f, 0, 8);
+                assert_eq!(antic.read(0x0f), 0x1f);
+                antic.clock_nmi(8);
+                assert_eq!(antic.take_vbi() | antic.take_dli(), !late);
+                antic.write_from_cpu(0x0e, 0, 8);
+                antic.clock_nmi(9);
+                assert_eq!(antic.take_vbi() | antic.take_dli(), late);
             }
         }
     }
