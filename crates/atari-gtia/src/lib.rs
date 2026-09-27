@@ -258,7 +258,7 @@ pub struct Gtia {
     sprite_pattern: [u8; 8],
     sprite_size: [u8; 8],
     // (remaining colour clocks, register, value), in write order.
-    sprite_writes: Vec<(u8, u8, u8)>,
+    register_writes: Vec<(u8, u8, u8)>,
     sprite_shift: [u8; 8],
     sprite_phase: [u8; 8],
     sprite_next_cc: u16,
@@ -298,8 +298,13 @@ pub struct Gtia {
     // colours using the *live* colour registers as the beam reaches each
     // pixel, so a mid-line COLBK/COLPF write changes only the pixels drawn
     // after it.
-    sl_visible: bool,           // false when the line is off-screen
-    sl_fb_offset: usize,        // framebuffer index of this line's first active pixel
+    sl_visible: bool,    // false when the line is off-screen
+    sl_fb_offset: usize, // framebuffer index of this line's first active pixel
+    // Hires admission is latched at ANTIC cycle 16 and cleared by any later
+    // GTIA-mode enable. PRIOR reaches this latch after two colour clocks;
+    // this is separate from the colour/priority renderer's register path.
+    hires_disabled: bool,
+    hires_prior: u8,
     sl_mode: AnticMode,         // ANTIC mode for the line
     sl_pf_span: (usize, usize), // active-x [start, end) the playfield occupies
     sl_line_buf: Vec<u8>,       // per-pixel playfield colour-register indices, one per window pixel
@@ -354,7 +359,7 @@ impl Gtia {
             sprite_position: [0; 8],
             sprite_pattern: [0; 8],
             sprite_size: [0; 8],
-            sprite_writes: Vec::new(),
+            register_writes: Vec::new(),
             sprite_shift: [0; 8],
             sprite_phase: [0; 8],
             sprite_next_cc: 0,
@@ -372,6 +377,8 @@ impl Gtia {
             console_switches: 0x07, // all buttons released (active low)
             sl_visible: false,
             sl_fb_offset: 0,
+            hires_disabled: false,
+            hires_prior: 0,
             sl_mode: AnticMode::Blank,
             sl_pf_span: (0, 0),
             sl_line_buf: vec![0; region.framebuffer_width() as usize],
@@ -394,8 +401,11 @@ impl Gtia {
     pub fn write(&mut self, addr: u8, value: u8) {
         let reg = addr & 0x1F;
         if reg <= 0x11 {
-            self.sprite_writes
+            self.register_writes
                 .push((if reg < 8 { 5 } else { 3 }, reg, value));
+        }
+        if reg == 0x1b {
+            self.register_writes.push((2, reg, value));
         }
         match reg {
             0x00..=0x03 => self.hposp[(reg) as usize] = value,
@@ -447,8 +457,8 @@ impl Gtia {
     /// Chip-level callers of `write` instead supply the current beam instant.
     pub fn write_from_cpu(&mut self, addr: u8, value: u8) {
         self.write(addr, value);
-        if addr & 0x1f <= 0x11
-            && let Some(write) = self.sprite_writes.last_mut()
+        if (addr & 0x1f <= 0x11 || addr & 0x1f == 0x1b)
+            && let Some(write) = self.register_writes.last_mut()
         {
             write.0 = write.0.saturating_sub(2);
         }
@@ -535,7 +545,7 @@ impl Gtia {
                 incoming
             };
             self.vdelay_pending_grafp[player] = incoming;
-            self.sprite_writes
+            self.register_writes
                 .push((3, 0x0d + player as u8, self.grafp[player]));
         }
     }
@@ -558,7 +568,7 @@ impl Gtia {
                 out |= source & mask;
             }
             self.grafm = out;
-            self.sprite_writes.push((3, 0x11, out));
+            self.register_writes.push((3, 0x11, out));
             self.vdelay_pending_grafm = missiles;
         }
     }
@@ -742,11 +752,10 @@ impl Gtia {
         // Hi-res 1.5-colour modes (2, 3, and F): the playfield background is
         // COLPF2 and lit pixels take COLPF2's hue with COLPF1's luminance.
         // Anything outside the playfield is COLBK border.
-        let hires = self.sl_mode.is_hires();
 
         while self.sl_x < end {
             let x = self.sl_x;
-            let pf_col_idx = self.sl_line_buf[x];
+            let mut pf_col_idx = self.sl_line_buf[x];
 
             // Players/missiles at this pixel's beam colour-clock, from the
             // propagated sprite registers. Mid-line HPOS/GRAFP writes enter
@@ -754,6 +763,14 @@ impl Gtia {
             let cc = (self.fb_first_half_clock + x as u16) / 2;
             let pm_bits = self.pm_bits_at_cc(cc);
 
+            let hires = self.sl_mode.is_hires() && !self.hires_disabled;
+            if self.sl_mode.is_hires()
+                && self.hires_disabled
+                && x >= self.sl_pf_span.0
+                && x < self.sl_pf_span.1
+            {
+                pf_col_idx = self.an_at(cc) + 1;
+            }
             let colour = match (self.prior >> 6) & 0x03 {
                 0 => {
                     let in_pf = x >= self.sl_pf_span.0 && x < self.sl_pf_span.1;
@@ -907,14 +924,20 @@ impl Gtia {
     fn advance_sprites_to(&mut self, end: u16) {
         while self.sprite_next_cc < end {
             let cc = self.sprite_next_cc;
+            // ANTIC starts GTIA's scanline at CPU cycle 16. A PRIOR change
+            // arriving at this clock follows the latch; turning a GTIA mode
+            // off later cannot restore hires until the next scanline.
+            if cc == 32 {
+                self.hires_disabled = self.hires_prior & 0xc0 != 0;
+            }
             let mut pending = 0;
-            while pending < self.sprite_writes.len() {
-                let (delay, register, value) = self.sprite_writes[pending];
+            while pending < self.register_writes.len() {
+                let (delay, register, value) = self.register_writes[pending];
                 if delay == 0 {
-                    self.sprite_writes.remove(pending);
-                    self.apply_sprite_register(register, value);
+                    self.register_writes.remove(pending);
+                    self.apply_delayed_register(register, value);
                 } else {
-                    self.sprite_writes[pending].0 -= 1;
+                    self.register_writes[pending].0 -= 1;
                     pending += 1;
                 }
             }
@@ -956,8 +979,14 @@ impl Gtia {
         }
     }
 
-    fn apply_sprite_register(&mut self, register: u8, value: u8) {
+    fn apply_delayed_register(&mut self, register: u8, value: u8) {
         match register {
+            0x1b => {
+                self.hires_prior = value;
+                if value & 0xc0 != 0 {
+                    self.hires_disabled = true;
+                }
+            }
             0..=7 => self.sprite_position[usize::from(register)] = value,
             8..=11 => self.sprite_size[usize::from(register - 8)] = value & 3,
             12 => {
@@ -1295,15 +1324,17 @@ impl Gtia {
         p += 1;
         self.console_switches = data[p];
         p += 1;
-        self.sprite_writes.clear();
+        self.register_writes.clear();
+        self.hires_prior = self.prior;
+        self.hires_disabled = self.prior & 0xc0 != 0;
         for i in 0..4 {
-            self.apply_sprite_register(i as u8, self.hposp[i]);
-            self.apply_sprite_register(4 + i as u8, self.hposm[i]);
-            self.apply_sprite_register(8 + i as u8, self.sizep[i]);
-            self.apply_sprite_register(13 + i as u8, self.grafp[i]);
+            self.apply_delayed_register(i as u8, self.hposp[i]);
+            self.apply_delayed_register(4 + i as u8, self.hposm[i]);
+            self.apply_delayed_register(8 + i as u8, self.sizep[i]);
+            self.apply_delayed_register(13 + i as u8, self.grafp[i]);
         }
-        self.apply_sprite_register(12, self.sizem);
-        self.apply_sprite_register(17, self.grafm);
+        self.apply_delayed_register(12, self.sizem);
+        self.apply_delayed_register(17, self.grafm);
         Ok(p)
     }
 }
@@ -1501,14 +1532,14 @@ mod tests {
     }
 
     #[test]
-    fn compact_register_restore_discards_pending_sprite_writes() {
+    fn compact_register_restore_discards_pending_register_writes() {
         let mut gtia = Gtia::new(GtiaRegion::Ntsc);
         gtia.write(0, 60);
         gtia.write(0x0d, 0x80);
         let saved = gtia.save_state();
         gtia.write(0x0d, 0);
         gtia.load_state(&saved).expect("register state");
-        assert!(gtia.sprite_writes.is_empty());
+        assert!(gtia.register_writes.is_empty());
         assert_eq!(gtia.pm_bits_at_cc(60), 1);
     }
 
@@ -2196,6 +2227,57 @@ mod tests {
         gtia.prior = 0x18;
         assert_eq!(gtia.priority_colour(0x11, 0, None), Some(0x46));
         assert_eq!(gtia.priority_colour(0x11, 1, Some(0x94)), Some(0x94));
+    }
+
+    #[test]
+    fn pseudo_mode_e_latches_at_cycle_16_and_restores_on_next_line() {
+        // Acid800 changes PRIOR at cycles 14 and 15. The latter leaves
+        // ANTIC hires pairs decoded as PF0..PF3 for the entire line.
+        for region in [GtiaRegion::Pal, GtiaRegion::Ntsc] {
+            for cycle in [14u16, 15] {
+                for pair in 0..4u8 {
+                    let mut gtia = Gtia::new(region);
+                    gtia.write(0, 60);
+                    gtia.write(0x0d, 0x80);
+                    gtia.write(0x1b, 0x80);
+                    gtia.colpf = [0x24, 0x46, 0x68, 0x8a];
+                    gtia.colbk = 0xb2;
+                    let mut pixels = [0; 320];
+                    pixels[24] = pair >> 1;
+                    pixels[25] = pair & 1;
+                    gtia.begin_scanline(0);
+                    gtia.advance_sprites_to((cycle + 1) * 2);
+                    gtia.write_from_cpu(0x1b, 4); // playfield wins priority
+                    // Preserve an in-flight PRIOR write and the previous latch.
+                    let bytes = postcard::to_allocvec(&gtia).expect("encode pending PRIOR");
+                    let mut restored: Gtia =
+                        postcard::from_bytes(&bytes).expect("restore pending PRIOR");
+                    for chip in [&mut gtia, &mut restored] {
+                        chip.set_playfield(&pixels, 160, AnticMode::ModeF);
+                        chip.finish_scanline();
+                        let expected = if cycle == 15 {
+                            1 << pair
+                        } else if pair != 0 {
+                            4
+                        } else {
+                            0
+                        };
+                        assert_eq!(chip.read(4), expected);
+                        let base = region.border_top() as usize * chip.fb_width as usize;
+                        assert_eq!(chip.framebuffer[base], chip.colour_to_argb32(0xb2));
+                        if cycle == 15 {
+                            let x = usize::from(120 - chip.fb_first_half_clock);
+                            let colour = chip.colour_to_argb32(chip.colpf[usize::from(pair)]);
+                            assert_eq!(&chip.framebuffer[base + x..base + x + 2], &[colour; 2]);
+                        }
+                        chip.write(0x1e, 0);
+                        chip.render_line(1, &pixels, 160, AnticMode::ModeF);
+                        assert_eq!(chip.read(4), if pair != 0 { 4 } else { 0 });
+                    }
+                    assert_eq!(gtia.framebuffer, restored.framebuffer);
+                }
+            }
+        }
     }
 
     #[test]
