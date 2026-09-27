@@ -1,28 +1,28 @@
-//! Original Acid800 GTIA probes. See tests/data/acid800-gtia.md.
+//! Original Acid800 ANTIC probes. See tests/data/acid800-antic.md.
 #[path = "common/acid800.rs"]
 mod acid800;
 use machine_atari_800xl::Atari800xlRegion;
 
 #[test]
 #[ignore = "FIXTURE: hash-pinned Acid800 standalone XEX/symbols and Atari XL OS/BASIC ROMs"]
-fn original_gtia_probes_ntsc() {
+fn original_antic_probes_ntsc() {
     acid800::survey(
         Atari800xlRegion::Ntsc,
         "ntsc",
-        "gtia",
-        include_str!("data/acid800-gtia.json"),
-        11,
+        "antic",
+        include_str!("data/acid800-antic.json"),
+        20,
     );
 }
 
 #[test]
 #[ignore = "FIXTURE: hash-pinned Acid800 standalone XEX/symbols and Atari XL OS/BASIC ROMs"]
-fn original_gtia_probes_pal() {
+fn original_antic_probes_pal() {
     acid800::survey(
         Atari800xlRegion::Pal,
         "pal",
-        "gtia",
-        include_str!("data/acid800-gtia.json"),
-        11,
+        "antic",
+        include_str!("data/acid800-antic.json"),
+        20,
     );
 }
