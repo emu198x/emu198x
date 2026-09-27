@@ -235,7 +235,6 @@ impl Atari5200 {
 
         // CPU + POKEY tick every 2nd colour clock.
         if self.master_clock.is_multiple_of(2) {
-            self.line_cycle += 1;
             // ANTIC releases a WSYNC-halted CPU at HSYNC (end of the visible
             // region), not at the next line.
             if self.line_cycle == CYCLES_HSYNC {
@@ -253,6 +252,9 @@ impl Atari5200 {
             }
             self.pokey.tick();
             self.cpu.irq = self.pokey.irq_pending();
+            // The DMA mask uses slots 0..113. Advance only after servicing
+            // this slot, matching the 800XL's shared ANTIC clock convention.
+            self.line_cycle += 1;
             if Some(self.line_cycle) == self.playfield_fetch_cycle {
                 self.fetch_playfield();
             }
@@ -528,6 +530,46 @@ mod tests {
         rom[0x1FFE] = 0x00;
         rom[0x1FFF] = 0xA0;
         rom
+    }
+
+    #[test]
+    fn missile_dma_and_refresh_halt_the_cpu_on_their_numbered_slots() {
+        for region in [Atari5200Region::Ntsc, Atari5200Region::Pal] {
+            let mut sys = Atari5200::new(trap_rom_8k(), vec![], region).expect("machine");
+            sys.antic.write(0, 4); // missiles, no display-list DMA
+            for _ in 0..(8 * 228) {
+                sys.tick_colour_clock();
+            }
+            for cycle in 0..114 {
+                let before = sys.cpu.total_cycles;
+                sys.tick_colour_clock();
+                sys.tick_colour_clock();
+                // Altirra ANTIC: missile fetch at 0, refresh at 25 + 4n.
+                let stolen = cycle == 0 || (25..=57).contains(&cycle) && (cycle - 25) % 4 == 0;
+                assert_eq!(
+                    sys.cpu.total_cycles - before,
+                    u64::from(!stolen),
+                    "{region:?} cycle {cycle}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn wsync_releases_on_cycle_105_not_the_preceding_slot() {
+        let mut sys =
+            Atari5200::new(trap_rom_8k(), vec![], Atari5200Region::Ntsc).expect("machine");
+        sys.antic.write(0x0a, 0);
+        for cycle in 0..106 {
+            let before = sys.cpu.total_cycles;
+            sys.tick_colour_clock();
+            sys.tick_colour_clock();
+            assert_eq!(
+                sys.cpu.total_cycles - before,
+                u64::from(cycle == 105),
+                "cycle {cycle}"
+            );
+        }
     }
 
     #[test]
