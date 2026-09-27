@@ -575,6 +575,33 @@ impl Antic {
         }
     }
 
+    /// Read a register at the machine's master colour-clock position.
+    ///
+    /// `completed_clocks` counts elapsed colour clocks. The last completed
+    /// clock identifies the bus cycle being sampled. Mapping the Atari ($D40B)
+    /// describes the currently generated line, divided by two. Unlike `scan_line`, which
+    /// advances when the next line is prepared, this is the live beam position.
+    /// Altirra ReadByte($0B) advances VCOUNT at CPU cycle 111, then resets the
+    /// frame-wrap value at cycle 112. Other registers use the ordinary read path.
+    #[must_use]
+    pub fn read_at_clock(&self, addr: u8, completed_clocks: u64) -> u8 {
+        if addr & 0x0f != 0x0b {
+            return self.read(addr);
+        }
+        let clocks_per_line = u64::from(COLOUR_CLOCKS_PER_LINE);
+        let lines = u64::from(self.region.lines_per_frame());
+        let clock = completed_clocks.saturating_sub(1);
+        let mut line = (clock / clocks_per_line) % lines;
+        let cycle = (clock % clocks_per_line) / 2;
+        if cycle >= 111 {
+            line += 1;
+            if cycle >= 112 && line == lines {
+                line = 0;
+            }
+        }
+        (line / 2) as u8
+    }
+
     // -----------------------------------------------------------------------
     // Status queries
     // -----------------------------------------------------------------------
@@ -1423,6 +1450,45 @@ mod tests {
         antic.write(0x02, 0x00); // DLISTL
         antic.write(0x03, 0x40); // DLISTH
         assert_eq!(antic.dlist, 0x4000);
+    }
+
+    #[test]
+    fn beam_vcount_changes_at_cycle_111_and_wraps_at_112() {
+        for (region, last_line, last_value, transient) in [
+            (AnticRegion::Ntsc, 261u64, 130, 131),
+            (AnticRegion::Pal, 311u64, 155, 156),
+        ] {
+            let antic = Antic::new(region);
+            for (line, cycle, expected) in [
+                (0, 110, 0),
+                (0, 111, 0),
+                (1, 0, 0),
+                (1, 110, 0),
+                (1, 111, 1),
+                (1, 112, 1),
+                (2, 0, 1),
+                (last_line, 110, last_value),
+                (last_line, 111, transient),
+                (last_line, 112, 0),
+                (last_line, 113, 0),
+                (last_line + 1, 0, 0),
+            ] {
+                for half in [1, 2] {
+                    let clock = line * 228 + cycle * 2 + half;
+                    assert_eq!(
+                        antic.read_at_clock(0x0b, clock),
+                        expected,
+                        "{region:?} line={line} cycle={cycle}"
+                    );
+                    assert_eq!(
+                        antic.read_at_clock(0x9b, clock),
+                        expected,
+                        "register mirror"
+                    );
+                }
+            }
+            assert_eq!(antic.read_at_clock(0x0e, 1), 0xff);
+        }
     }
 
     #[test]

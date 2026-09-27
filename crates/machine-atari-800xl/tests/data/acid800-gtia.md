@@ -49,9 +49,9 @@ ignored when comparing wrapped diagnostic signatures.
 | pmresize | fail | fail |
 | pmretrigger | fail | fail |
 | psuedomodee | fail | fail |
-| vdelay | fail | fail |
+| vdelay | pass | pass |
 
-There are **10 guest passes and 12 guest failures**, across 22 executions.
+There are **12 guest passes and 10 guest failures**, across 22 executions.
 A passing baseline test means those exact observations were reproduced;
 it does not mean GTIA conformance. Set `EMU198X_ACID800_STRICT=1` to require
 all guests to pass instead. Strict mode still writes the reports before
@@ -63,4 +63,6 @@ identifies a reproducible symptom, not necessarily the chip responsible.
 The corpus stops each probe at its first failing assertion, so resolving a
 failure may reveal further failures within the same probe. The full 376-pixel GTIA picture fixes PAL's former left-edge collision
 failure at $22. Both regions now pass the basic collision probe; the remaining
-six failing probes in each region retain their previous diagnostics.
+five failing probes in each region remain tracked. Correcting VCOUNT timing also makes the full VDELAY probe
+pass and changes phantom DMA’s first observed byte from $FF to $0F (expected
+$AD). The other four failing diagnostics are unchanged.
