@@ -33,12 +33,12 @@ fails. The normal mode checks exact known outcomes without hiding failures.
 | charcontrol | pass | pass |
 | default | pass | pass |
 | dlistwrap | fail | fail |
-| dlitiming | fail | fail |
+| dlitiming | pass | pass |
 | dmapattern | fail | fail |
 | hiresbug | fail | fail |
 | hscrolbug | fail | fail |
 | linebuffering | fail | fail |
-| nmist | fail | fail |
+| nmist | pass | pass |
 | pfstarttiming | fail | fail |
 | pfstoptiming | fail | fail |
 | pmdma | pass | pass |
@@ -48,10 +48,11 @@ fails. The normal mode checks exact known outcomes without hiding failures.
 | vscroll | fail | fail |
 | wsync | fail | fail |
 
-**12 passes and 28 failures across 40 executions.** The initial survey had
+**16 passes and 24 failures across 40 executions.** The initial survey had
 10 passes and 30 failures. Correcting the playfield counter's 4 KB wrap makes
-the full address-wrap guest pass in both regions; all other outcomes remain
-unchanged. The counter wraps for character-name and bitmap fetches and when
+the full address-wrap guest pass in both regions. Cycle-7 NMIST latching,
+cycle-8/9 NMI assertion and NMI edge capture during RDY holds also make
+the NMIST and complete DLI-timing probes pass. The counter wraps for character-name and bitmap fetches and when
 advancing between mode lines. LMS continues to select the upper four bits.
 
 A probe name does not isolate the failing chip. WSYNC currently stops at its

@@ -30,7 +30,8 @@ use crate::runtime::Atari5200Runtime;
 /// Version 8 adds display-list bus bytes and phantom DMA capture state.
 /// Version 9 adds GTIA hires admission and its delayed PRIOR latch.
 /// Version 10 adds the pending WSYNC assertion pipeline.
-const SNAPSHOT_VERSION: u16 = 10;
+/// Version 11 adds ANTIC interrupt-source and enable-sampling state.
+const SNAPSHOT_VERSION: u16 = 11;
 
 /// Borrowing envelope used during encode — avoids cloning the live machine.
 #[derive(Serialize)]
@@ -104,10 +105,10 @@ mod tests {
     #[test]
     fn old_layout_is_rejected_before_decoding_its_body() {
         let mut runtime = Atari5200Runtime::blank(Model::A5200Ntsc);
-        let bytes = postcard::to_allocvec(&9u16).expect("old version prefix");
+        let bytes = postcard::to_allocvec(&10u16).expect("old version prefix");
         let error = decode(&mut runtime, &bytes).expect_err("old format must reject");
         assert!(
-            matches!(error, MachineError::InvalidSnapshot { reason } if reason.contains("unsupported snapshot version 9"))
+            matches!(error, MachineError::InvalidSnapshot { reason } if reason.contains("unsupported snapshot version 10"))
         );
     }
 

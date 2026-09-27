@@ -86,12 +86,12 @@
       "xex_sha256": "58f2a1933f6935ede19fa3ebcc38b645ba4d099bcb254c2ae88313b029eae7cc",
       "symbols_sha256": "f52b3c19909a8ea3cc974d47ecab5eda536b49f2d1ade3bc165cebdd93233c80",
       "ntsc": {
-        "verdict": "fail",
-        "failure_signature": "Even count incorrect: $06 != $0a"
+        "verdict": "pass",
+        "failure_signature": null
       },
       "pal": {
-        "verdict": "fail",
-        "failure_signature": "Even count incorrect: $06 != $0a"
+        "verdict": "pass",
+        "failure_signature": null
       }
     },
     {
@@ -151,12 +151,12 @@
       "xex_sha256": "435f96791d4e4a233b429154a0701723ec44532cacbd1cc363b88fb2a0174f95",
       "symbols_sha256": "c854aa726d23a504622bb33dd20a2a9d39040fc2db0a6dd7fcc89fd7f7bb8eff",
       "ntsc": {
-        "verdict": "fail",
-        "failure_signature": "DLI bit set too early (<cycle 6)."
+        "verdict": "pass",
+        "failure_signature": null
       },
       "pal": {
-        "verdict": "fail",
-        "failure_signature": "DLI bit set too early (<cycle 6)."
+        "verdict": "pass",
+        "failure_signature": null
       }
     },
     {

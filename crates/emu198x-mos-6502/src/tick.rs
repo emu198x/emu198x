@@ -10,6 +10,9 @@ impl M6502 {
         // proceed normally on NMOS; RDY stalls only reads. The CMOS
         // 65C02 stalls both, but we model NMOS here.
         if !self.rdy && self.rw {
+            // RDY holds execution, not the NMI edge latch. Keep the edge
+            // pending without advancing instruction-boundary staging.
+            self.detect_nmi_edge();
             return false;
         }
 
@@ -215,6 +218,10 @@ impl M6502 {
         if self.branch_nmi_stage_skip > 0 {
             self.branch_nmi_stage_skip -= 1;
         }
+        self.detect_nmi_edge();
+    }
+
+    fn detect_nmi_edge(&mut self) {
         if self.nmi && !self.nmi_prev {
             self.pending_nmi = true;
         }

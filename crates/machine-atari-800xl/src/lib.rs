@@ -392,6 +392,10 @@ impl Atari800xl {
             // ANTIC releases a WSYNC-halted CPU at the start of horizontal
             // blank, not at the next line — so post-WSYNC writes land at the
             // right beam position.
+            self.antic.clock_nmi(self.line_cycle);
+            if self.antic.take_vbi() | self.antic.take_dli() {
+                self.cpu.nmi = true;
+            }
             self.antic.advance_wsync(!self.cpu.rw);
             if self.line_cycle == CYCLES_HSYNC {
                 self.antic.clear_wsync();
@@ -525,13 +529,6 @@ impl Atari800xl {
         self.dma_mask = result.dma_mask;
         self.line_cycle = 0;
         self.playfield_fetch_cycle = self.antic.playfield_fetch_cycle();
-        // ANTIC pulses NMI; it does not hold it. See the same wiring in
-        // `machine-atari-5200`: holding the line high across two
-        // consecutive lines merges a DLI on the last mode line with the
-        // VBI on the line after into one edge, and the OS loses the VBI.
-        if self.antic.take_vbi() | self.antic.take_dli() {
-            self.cpu.nmi = true;
-        }
     }
 
     fn effective_portb(&self) -> u8 {
@@ -922,6 +919,35 @@ mod tests {
         ];
         rom[..prog.len()].copy_from_slice(&prog);
         rom
+    }
+
+    #[test]
+    fn snapshot_between_nmist_and_nmi_preserves_the_sampled_enable() {
+        for region in [Atari800xlRegion::Ntsc, Atari800xlRegion::Pal] {
+            let mut sys = Atari800xl::new(None, None, None, region, false).expect("machine");
+            sys.antic.write(0x0e, 0x40);
+            for _ in 0..(248 * 228 + 14) {
+                sys.tick_colour_clock();
+            }
+            assert_eq!(sys.antic.read(0x0f) & 0x40, 0);
+            sys.tick_colour_clock();
+            sys.tick_colour_clock(); // cycle 7 latches status and NMIEN
+            assert_eq!(sys.antic.read(0x0f) & 0x40, 0x40);
+            assert!(!sys.cpu.nmi);
+            sys.antic.write_from_cpu(0x0e, 0, 7);
+            let bytes = postcard::to_allocvec(&sys).expect("pending NMI");
+            let mut restored: Atari800xl =
+                postcard::from_bytes(&bytes).expect("restore pending NMI");
+            for machine in [&mut sys, &mut restored] {
+                machine.tick_colour_clock();
+                machine.tick_colour_clock(); // cycle 8 uses the sampled enable
+                assert!(machine.cpu.nmi);
+            }
+            assert_eq!(
+                postcard::to_allocvec(&sys).expect("state"),
+                postcard::to_allocvec(&restored).expect("state")
+            );
+        }
     }
 
     #[test]
