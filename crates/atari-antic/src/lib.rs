@@ -847,10 +847,18 @@ impl Antic {
         Some(self.render_mode_line(mem, &desc, &line))
     }
 
+    /// The display-list counter increments only its low ten bits, including
+    /// operand fetches. Explicit jumps load all sixteen bits of the target.
+    /// Mapping the Atari SDLSTL; Altirra ANTIC instruction/LMS address fetches.
+    fn read_display_list_byte<M: AnticMemory + ?Sized>(&mut self, mem: &M) -> u8 {
+        let byte = mem.read(self.dlist);
+        self.dlist = (self.dlist & 0xfc00) | (self.dlist.wrapping_add(1) & 0x03ff);
+        byte
+    }
+
     /// Fetch and decode the next display list instruction.
     fn fetch_dl_instruction<M: AnticMemory + ?Sized>(&mut self, mem: &M) {
-        let instr = mem.read(self.dlist);
-        self.dlist = self.dlist.wrapping_add(1);
+        let instr = self.read_display_list_byte(mem);
         self.claim(DL_INSTRUCTION_CYCLE);
 
         // Display-list instruction option bits (matches ANTIC hardware):
@@ -883,10 +891,8 @@ impl Antic {
             }
             0x01 => {
                 // Jump instruction
-                let lo = mem.read(self.dlist);
-                self.dlist = self.dlist.wrapping_add(1);
-                let hi = mem.read(self.dlist);
-                self.dlist = self.dlist.wrapping_add(1);
+                let lo = self.read_display_list_byte(mem);
+                let hi = self.read_display_list_byte(mem);
                 self.claim(DL_OPERAND_CYCLES.0);
                 self.claim(DL_OPERAND_CYCLES.1);
 
@@ -904,11 +910,14 @@ impl Antic {
                     self.prev_vscrol = false;
                     self.dl_active = true;
                 } else {
-                    // Plain jump — immediately fetch from new address
-                    self.dl_active = false;
+                    // A plain jump occupies one blank scanline. Fetch its
+                    // target on the next line, not recursively on this one
+                    // (Altirra mode 1: mRowCount=1, mPFPushMode=kBlank).
+                    self.current_mode = 0;
                     self.mode_line = 0;
-                    // Re-fetch from the new address on this same call
-                    self.fetch_dl_instruction(mem);
+                    self.row_start = 0;
+                    self.row_end = 0;
+                    self.dl_active = true;
                 }
             }
             0x02..=0x0F => {
@@ -944,10 +953,8 @@ impl Antic {
                 self.prev_vscrol = has_vscrol;
 
                 if has_lms {
-                    let lo = mem.read(self.dlist);
-                    self.dlist = self.dlist.wrapping_add(1);
-                    let hi = mem.read(self.dlist);
-                    self.dlist = self.dlist.wrapping_add(1);
+                    let lo = self.read_display_list_byte(mem);
+                    let hi = self.read_display_list_byte(mem);
                     self.memory_scan = u16::from(lo) | (u16::from(hi) << 8);
                     self.claim(DL_OPERAND_CYCLES.0);
                     self.claim(DL_OPERAND_CYCLES.1);
@@ -1435,6 +1442,83 @@ mod tests {
     /// Helper: create a minimal 64KB RAM array.
     fn make_ram() -> Vec<u8> {
         vec![0u8; 65536]
+    }
+
+    #[test]
+    fn display_list_fetches_wrap_inside_one_kib() {
+        for region in [AnticRegion::Ntsc, AnticRegion::Pal] {
+            for (start, low, high) in [
+                (0x43ff, 0x4000, 0x4001),
+                (0x43fe, 0x43ff, 0x4000),
+                (0xffff, 0xfc00, 0xfc01),
+            ] {
+                for instruction in [0x42, 0x41] {
+                    // LMS and JVB
+                    let mut ram = make_ram();
+                    ram[start] = instruction;
+                    ram[low] = 0x34;
+                    ram[high] = 0x12;
+                    ram[0x1234] = 0xa5;
+                    let mut antic = Antic::new(region);
+                    antic.dmactl = 0x22;
+                    antic.scan_line = VISIBLE_START;
+                    antic.dlist = start as u16;
+                    antic.begin_line(&ram[..]);
+                    if instruction == 0x42 {
+                        assert_eq!(antic.char_codes[0], 0xa5, "LMS data at {start:04x}");
+                        assert_eq!(antic.memory_scan, 0x125c, "40 character bytes after LMS");
+                        assert_eq!(antic.dlist, high as u16 + 1);
+                    } else {
+                        assert_eq!(antic.dlist, 0x1234, "JVB at {start:04x}");
+                    }
+                }
+            }
+            for (start, wrapped) in [(0x03ff, 0x0000), (0x43ff, 0x4000), (0xffff, 0xfc00)] {
+                let mut ram = make_ram();
+                ram[start] = 0;
+                let mut antic = Antic::new(region);
+                antic.dmactl = 0x22;
+                antic.scan_line = VISIBLE_START;
+                antic.dlist = start as u16;
+                antic.begin_line(&ram[..]);
+                assert_eq!(antic.dlist, wrapped, "instruction at {start:04x}");
+            }
+        }
+    }
+
+    #[test]
+    fn self_jumping_display_list_advances_the_beam_without_recursion() {
+        for region in [AnticRegion::Ntsc, AnticRegion::Pal] {
+            let mut ram = make_ram();
+            ram[0x4000..0x4003].copy_from_slice(&[0x01, 0x00, 0x40]);
+            let mut antic = Antic::new(region);
+            antic.dmactl = 0x22;
+            antic.dlist = 0x4000;
+            for _ in 0..region.lines_per_frame() {
+                assert_eq!(antic.begin_line(&ram[..]).mode, AnticMode::Blank);
+                assert_eq!(antic.dlist, 0x4000);
+            }
+            assert!(antic.frame_complete());
+            assert_eq!(antic.scan_line(), 0);
+        }
+    }
+
+    #[test]
+    fn plain_jump_consumes_one_blank_scanline_before_its_target() {
+        let mut ram = make_ram();
+        ram[0x4000..0x4003].copy_from_slice(&[0x01, 0x00, 0x44]);
+        ram[0x4400..0x4403].copy_from_slice(&[0x42, 0x00, 0x80]);
+        let mut antic = Antic::new(AnticRegion::Ntsc);
+        antic.dmactl = 0x22;
+        antic.dlist = 0x4000;
+        antic.scan_line = VISIBLE_START;
+        let jump = antic.begin_line(&ram[..]);
+        assert_eq!(jump.mode, AnticMode::Blank);
+        assert_eq!(antic.dlist, 0x4400);
+        assert_eq!(cycles(jump.dma_mask, 0..10), vec![1, 6, 7]);
+        let target = antic.begin_line(&ram[..]);
+        assert_ne!(target.mode, AnticMode::Blank);
+        assert_eq!(antic.dlist, 0x4403);
     }
 
     #[test]
