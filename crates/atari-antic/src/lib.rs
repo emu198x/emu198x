@@ -483,6 +483,8 @@ pub struct Antic {
     line_nmi: u8,
     early_nmien: u8,
     late_nmi: bool,
+    /// ANTIC asserts NMI for two CPU clocks, not the rest of the line.
+    nmi_clocks: u8,
     vbi_pending: bool,
     dli_pending: bool,
 
@@ -542,6 +544,7 @@ impl Antic {
             line_nmi: 0,
             early_nmien: 0,
             late_nmi: false,
+            nmi_clocks: 0,
             vbi_pending: false,
             dli_pending: false,
 
@@ -728,6 +731,7 @@ impl Antic {
     /// Altirra: DLI scroll sample at 6, status/early enable at 7, assertion
     /// at 8, late enable at 9; row progression uses the scroll value at 109.
     pub fn clock_nmi(&mut self, cycle: u16) {
+        self.nmi_clocks = self.nmi_clocks.saturating_sub(1);
         match cycle {
             6 if self.row_advance_pending => {
                 self.line_nmi = if self.current_dli && self.at_row_stop() {
@@ -758,7 +762,14 @@ impl Antic {
         }
     }
 
+    /// Live output level; the CPU edge detector decides whether it is captured.
+    #[must_use]
+    pub fn nmi_active(&self) -> bool {
+        self.nmi_clocks != 0
+    }
+
     fn raise_nmi(&mut self) {
+        self.nmi_clocks = 2;
         self.vbi_pending |= self.line_nmi & 0x40 != 0;
         self.dli_pending |= self.line_nmi & 0x80 != 0;
     }
@@ -1480,6 +1491,7 @@ impl Antic {
         self.line_nmi = 0;
         self.early_nmien = 0;
         self.late_nmi = false;
+        self.nmi_clocks = 0;
         p += 1;
         self.nmien = data[p];
         p += 1;
@@ -1976,6 +1988,28 @@ mod tests {
 
         assert_eq!(antic.read(0x0F) & 0x80, 0x80);
         assert!(!antic.take_dli(), "NMIEN must still gate the NMI request");
+    }
+
+    #[test]
+    fn early_and_late_nmi_outputs_last_two_cpu_clocks() {
+        let ram = make_ram();
+        for late in [false, true] {
+            let mut antic = Antic::new(AnticRegion::Ntsc);
+            antic.scan_line = VISIBLE_END;
+            if !late {
+                antic.write(0x0e, 0x40);
+            }
+            antic.begin_line(&ram[..]);
+            antic.clock_nmi(7);
+            if late {
+                antic.write_from_cpu(0x0e, 0x40, 7);
+            }
+            for cycle in 8..=12 {
+                antic.clock_nmi(cycle);
+                let start = if late { 9 } else { 8 };
+                assert_eq!(antic.nmi_active(), (start..start + 2).contains(&cycle));
+            }
+        }
     }
 
     #[test]

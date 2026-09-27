@@ -29,7 +29,7 @@ fails. The normal mode checks exact known outcomes without hiding failures.
 |---|---|---|
 | addresswrap | pass | pass |
 | addrmirror | pass | pass |
-| blockednmi | fail | fail |
+| blockednmi | pass | pass |
 | charcontrol | pass | pass |
 | default | pass | pass |
 | dlistwrap | pass | pass |
@@ -48,7 +48,7 @@ fails. The normal mode checks exact known outcomes without hiding failures.
 | vscroll | pass | pass |
 | wsync | pass | pass |
 
-**26 passes and 14 failures across 40 executions.** The initial survey had
+**28 passes and 12 failures across 40 executions.** The initial survey had
 10 passes and 30 failures. Correcting the playfield counter's 4 KB wrap makes
 the full address-wrap guest pass in both regions. Cycle-7 NMIST latching,
 cycle-8/9 NMI assertion and NMI edge capture during RDY holds also make
@@ -69,3 +69,7 @@ Retaining the display instruction when list DMA is disabled and preserving
 scroll-region state across vertical blank make the complete display-list-wrap
 and vertical-scroll guests pass. Separate cycle-6 DLI and cycle-109 row-stop comparisons also make the
 VSCROL/DLI timing guest pass. Blank instructions can end scrolling regions.
+
+A two-clock ANTIC NMI pulse and the CPU detector's vector-window inhibit
+resolve the blocked-NMI guest. Longer NMI assertions remain pending, preserving
+the NES and C64 interrupt regression cases.

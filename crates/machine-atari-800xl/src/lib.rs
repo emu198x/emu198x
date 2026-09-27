@@ -393,9 +393,9 @@ impl Atari800xl {
             // blank, not at the next line — so post-WSYNC writes land at the
             // right beam position.
             self.antic.clock_nmi(self.line_cycle);
-            if self.antic.take_vbi() | self.antic.take_dli() {
-                self.cpu.nmi = true;
-            }
+            self.antic.take_vbi();
+            self.antic.take_dli();
+            self.cpu.nmi = self.antic.nmi_active();
             self.antic.advance_wsync(!self.cpu.rw);
             if self.line_cycle == CYCLES_HSYNC {
                 self.antic.clear_wsync();
@@ -919,6 +919,30 @@ mod tests {
         ];
         rom[..prog.len()].copy_from_slice(&prog);
         rom
+    }
+
+    #[test]
+    fn snapshot_preserves_the_remaining_nmi_pulse_width() {
+        let mut sys =
+            Atari800xl::new(None, None, None, Atari800xlRegion::Ntsc, false).expect("machine");
+        sys.antic.write(0x0e, 0x40);
+        for _ in 0..248 * 228 + 18 {
+            sys.tick_colour_clock();
+        }
+        assert!(sys.cpu.nmi);
+        let bytes = postcard::to_allocvec(&sys).expect("during pulse");
+        let mut restored: Atari800xl = postcard::from_bytes(&bytes).expect("restore");
+        for expected in [true, false, false] {
+            for machine in [&mut sys, &mut restored] {
+                machine.tick_colour_clock();
+                machine.tick_colour_clock();
+                assert_eq!(machine.cpu.nmi, expected);
+            }
+        }
+        assert_eq!(
+            postcard::to_allocvec(&sys).expect("state"),
+            postcard::to_allocvec(&restored).expect("state")
+        );
     }
 
     #[test]

@@ -16,6 +16,11 @@ impl M6502 {
             return false;
         }
 
+        // The detector cannot capture a new request during the status push
+        // and first vector read. A short pulse can disappear here; a level
+        // still asserted afterward is captured when the detector reopens.
+        let block_nmi_edge =
+            self.cs.opcode == 0 && matches!(self.cs.cycle, 4 | 5) && self.cs.data != 1;
         let done = self.run_cycle();
         // The NMI edge detector is clocked every cycle on real
         // silicon, independent of the instruction-boundary servicing
@@ -23,7 +28,7 @@ impl M6502 {
         // on an instruction's final cycle is still latched (and then
         // deferred one instruction via `prev_pending_nmi`) rather than
         // dropped.
-        self.poll_nmi_edge();
+        self.poll_nmi_edge(block_nmi_edge);
         done
     }
 
@@ -197,7 +202,7 @@ impl M6502 {
     /// value) sees an edge one cycle late — deferring a final-cycle
     /// edge by one instruction instead of dropping it. `pending_nmi`
     /// is the FF: once set by an edge it stays set until serviced.
-    fn poll_nmi_edge(&mut self) {
+    fn poll_nmi_edge(&mut self, block_edge: bool) {
         // The one-shot suppression is set at the end of `tick_brk`
         // so a still-pending NMI cannot immediately re-vector before
         // the first handler instruction runs. Edge detection continues
@@ -218,7 +223,9 @@ impl M6502 {
         if self.branch_nmi_stage_skip > 0 {
             self.branch_nmi_stage_skip -= 1;
         }
-        self.detect_nmi_edge();
+        if !block_edge || !self.nmi {
+            self.detect_nmi_edge();
+        }
     }
 
     fn detect_nmi_edge(&mut self) {

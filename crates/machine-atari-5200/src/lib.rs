@@ -240,9 +240,9 @@ impl Atari5200 {
             // ANTIC releases a WSYNC-halted CPU at HSYNC (end of the visible
             // region), not at the next line.
             self.antic.clock_nmi(self.line_cycle);
-            if self.antic.take_vbi() | self.antic.take_dli() {
-                self.cpu.nmi = true;
-            }
+            self.antic.take_vbi();
+            self.antic.take_dli();
+            self.cpu.nmi = self.antic.nmi_active();
             self.antic.advance_wsync(!self.cpu.rw);
             if self.line_cycle == CYCLES_HSYNC {
                 self.antic.clear_wsync();

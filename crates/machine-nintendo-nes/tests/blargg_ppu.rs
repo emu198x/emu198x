@@ -303,3 +303,16 @@ fn mmc3_5_mmc3() {
 fn ppu_read_buffer() {
     run_or_skip("ppu_read_buffer/test_ppu_read_buffer.nes");
 }
+
+// Shared NMOS interrupt detector regression: retain the NES hijack timing.
+#[test]
+#[ignore = "FIXTURE: blargg ROM run — requires test-suites/nes-test-roms"]
+fn cpu_interrupts_nmi_and_brk() {
+    run_or_skip("cpu_interrupts_v2/rom_singles/2-nmi_and_brk.nes");
+}
+
+#[test]
+#[ignore = "FIXTURE: blargg ROM run — requires test-suites/nes-test-roms"]
+fn cpu_interrupts_nmi_and_irq() {
+    run_or_skip("cpu_interrupts_v2/rom_singles/3-nmi_and_irq.nes");
+}

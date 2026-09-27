@@ -34,12 +34,12 @@
       "xex_sha256": "bbbedebbdef7d240b54313d1ce412a261ee5e20e284d9194ce3e404c60ac22ea",
       "symbols_sha256": "08801d73563946c24749859ad711a725f1206fbb9e84e538d99afac5efc6d9f1",
       "ntsc": {
-        "verdict": "fail",
-        "failure_signature": "VBI handler should not have executed."
+        "verdict": "pass",
+        "failure_signature": null
       },
       "pal": {
-        "verdict": "fail",
-        "failure_signature": "VBI handler should not have executed."
+        "verdict": "pass",
+        "failure_signature": null
       }
     },
     {

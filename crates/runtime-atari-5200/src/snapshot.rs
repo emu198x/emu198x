@@ -34,7 +34,8 @@ use crate::runtime::Atari5200Runtime;
 /// Version 12 adds POKEY RANDOM initialisation and restart phase.
 /// Version 13 retains the ANTIC display instruction across disabled DMA.
 /// Version 14 adds ANTIC live scroll-stop and deferred row advancement.
-const SNAPSHOT_VERSION: u16 = 14;
+/// Version 15 includes the remaining ANTIC NMI pulse width.
+const SNAPSHOT_VERSION: u16 = 15;
 
 /// Borrowing envelope used during encode — avoids cloning the live machine.
 #[derive(Serialize)]
