@@ -46,14 +46,14 @@ ignored when comparing wrapped diagnostic signatures.
 | collision2 | pass | pass |
 | phantomdma | pass | pass |
 | pmoverlap | pass | pass |
-| pmresize | fail | fail |
+| pmresize | pass | pass |
 | pmretrigger | pass | pass |
 | psuedomodee | pass | pass |
 | vdelay | pass | pass |
 
-There are **20 guest passes and 2 guest failures**, across 22 executions.
+There are **22 guest passes and no guest failures**, across 22 executions.
 A passing baseline test means those exact observations were reproduced;
-it does not mean GTIA conformance. Set `EMU198X_ACID800_STRICT=1` to require
+it does not establish conformance beyond this corpus. Set `EMU198X_ACID800_STRICT=1` to require
 all guests to pass instead. Strict mode still writes the reports before
 failing. A newly passing probe intentionally fails the baseline comparison
 until its expectation is reviewed and updated alongside the accuracy fix.
@@ -61,10 +61,12 @@ until its expectation is reviewed and updated alongside the accuracy fix.
 These tests expose interacting CPU/ANTIC/GTIA behaviour. A guest failure
 identifies a reproducible symptom, not necessarily the chip responsible.
 The corpus stops each probe at its first failing assertion, so resolving a
-failure may reveal further failures within the same probe. Persistent sprite
-shift registers make the complete overlap probe pass in both regions. The
-remaining failure is resizing. RDY handling and sprite
-register propagation make retriggering pass in both regions. Display-list
-triggered capture of the previous CPU bus byte makes phantom DMA pass.
-The cycle-16 hires latch makes pseudo mode E pass in both regions.
-These passes do not establish complete bus-fetch or register timing accuracy.
+failure may reveal further failures within the same probe.
+
+The corrected bus-transfer order and delayed WSYNC assertion make resizing
+pass without a SIZE-specific latency exception. Phantom DMA samples completed
+bus transfers, and the hires latch follows the cycle-16 renderer flush.
+
+All eleven original probes pass in both regions. This establishes conformance
+to this pinned GTIA corpus, not complete Atari hardware accuracy: ANTIC fetches
+are still partly prefetched, and not every GTIA pipeline transition is covered.

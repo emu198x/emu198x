@@ -239,6 +239,7 @@ impl Atari5200 {
         if self.master_clock.is_multiple_of(2) {
             // ANTIC releases a WSYNC-halted CPU at HSYNC (end of the visible
             // region), not at the next line.
+            self.antic.advance_wsync(!self.cpu.rw);
             if self.line_cycle == CYCLES_HSYNC {
                 self.antic.clear_wsync();
             }
@@ -264,19 +265,21 @@ impl Atari5200 {
             }
             self.cpu.rdy = !self.antic.wsync_halt();
             if !cpu_dma_stalled(self.line_cycle, self.dma_mask) {
-                // Sample the current pins before tick prepares the next bus
-                // transaction. Phantom DMA consumes this on the next slot.
+                // Complete the exposed bus transaction before tick consumes
+                // its data and prepares the next one. In particular, a write
+                // must not reach GTIA one CPU slot before its actual bus slot.
+                if self.cpu.rw {
+                    self.cpu.data_in = self.mem_read(self.cpu.addr);
+                } else {
+                    self.mem_write(self.cpu.addr, self.cpu.data);
+                }
+                // Phantom DMA in the next slot sees this completed transfer.
                 self.dma_bus_data = if self.cpu.rw {
                     self.cpu.data_in
                 } else {
                     self.cpu.data
                 };
                 self.cpu.tick();
-                if self.cpu.rw {
-                    self.cpu.data_in = self.mem_read(self.cpu.addr);
-                } else {
-                    self.mem_write(self.cpu.addr, self.cpu.data);
-                }
             }
             self.pokey.tick();
             self.cpu.irq = self.pokey.irq_pending();
@@ -390,7 +393,9 @@ impl Atari5200 {
             0x0000..=0x3FFF => self.ram[(addr & 0x3FFF) as usize] = value,
             0x4000..=0xBFFF => self.touch_bank_register(addr),
             0xC000..=0xCFFF => self.gtia.write_from_cpu(addr as u8, value),
-            0xD400..=0xD5FF => self.antic.write(addr as u8, value),
+            0xD400..=0xD5FF => self
+                .antic
+                .write_from_cpu(addr as u8, value, self.line_cycle),
             0xE800..=0xE9FF => self.pokey.write(addr as u8, value),
             _ => {}
         }
@@ -572,7 +577,9 @@ mod tests {
             assert_eq!(sys.line_cycle, 3);
             assert!(sys.antic.phantom_pm_active());
             sys.cpu.rw = true;
-            sys.cpu.data_in = 0xad;
+            sys.cpu.addr = 0x2000;
+            sys.ram[0x2000] = 0xad;
+            sys.cpu.data_in = 0x00; // previous read must not leak into the latch
             sys.tick_colour_clock();
             sys.tick_colour_clock();
             assert_eq!(sys.dma_bus_data, 0xad);
@@ -587,6 +594,51 @@ mod tests {
                 postcard::to_allocvec(&sys).expect("state"),
                 postcard::to_allocvec(&restored).expect("state")
             );
+        }
+    }
+
+    #[test]
+    fn wsync_holds_different_read_cycles_after_sta_and_inc() {
+        for region in [Atari5200Region::Ntsc, Atari5200Region::Pal] {
+            for opcode in [0x8d, 0xee] {
+                let mut cart = trap_rom_8k();
+                cart[..8].copy_from_slice(&[opcode, 0x0a, 0xd4, 0xa9, 0x42, 0x4c, 0x05, 0xa0]);
+                let mut sys = Atari5200::new(cart, vec![], region).expect("machine");
+                for _ in 0..64 {
+                    sys.tick_colour_clock();
+                    if !sys.cpu.rw && sys.cpu.addr == 0xd40a {
+                        break;
+                    }
+                }
+                assert!(!sys.cpu.rw);
+                assert_eq!(sys.cpu.addr, 0xd40a);
+                assert!(!sys.antic.wsync_halt(), "exposed write not yet serviced");
+                sys.tick_colour_clock();
+                sys.tick_colour_clock(); // first write is now serviced
+                let bytes = postcard::to_allocvec(&sys).expect("pending WSYNC");
+                let mut restored: Atari5200 =
+                    postcard::from_bytes(&bytes).expect("restore pending WSYNC");
+                for machine in [&mut sys, &mut restored] {
+                    for _ in 0..8 {
+                        machine.tick_colour_clock();
+                    }
+                    assert!(machine.antic.wsync_halt());
+                    assert!(machine.cpu.rw);
+                    assert_eq!(
+                        machine.cpu.addr,
+                        if opcode == 0x8d { 0xa004 } else { 0xa003 }
+                    );
+                    let cycles = machine.cpu.total_cycles;
+                    for _ in 0..8 {
+                        machine.tick_colour_clock();
+                    }
+                    assert_eq!(machine.cpu.total_cycles, cycles);
+                }
+                assert_eq!(
+                    postcard::to_allocvec(&sys).expect("state"),
+                    postcard::to_allocvec(&restored).expect("state")
+                );
+            }
         }
     }
 
@@ -664,7 +716,7 @@ mod tests {
             sys.tick_colour_clock();
             assert_eq!(
                 sys.cpu.total_cycles - before,
-                u64::from(cycle == 105),
+                u64::from(cycle == 0 || cycle == 105),
                 "cycle {cycle}"
             );
         }

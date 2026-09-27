@@ -444,6 +444,8 @@ pub struct Antic {
     pmbase: u8,
     chbase: u8,
     wsync: bool,
+    // CPU-slot countdown to RDY assertion; writes defer the final event.
+    wsync_pending: u8,
     nmien: u8,
     nmist: u8,
 
@@ -504,6 +506,7 @@ impl Antic {
             pmbase: 0,
             chbase: 0,
             wsync: false,
+            wsync_pending: 0,
             nmien: 0,
             nmist: 0,
 
@@ -551,11 +554,27 @@ impl Antic {
             0x07 => self.pmbase = value,
             // 0x08 unused
             0x09 => self.chbase = value,
-            0x0A => self.wsync = true,
+            0x0A => {
+                if self.wsync_pending == 0 {
+                    self.wsync_pending = 2;
+                }
+            }
             // 0x0B-0x0D are read-only
             0x0E => self.nmien = value,
             0x0F => self.nmist = 0, // NMIRES: write clears NMI status
             _ => {}
+        }
+    }
+
+    /// CPU write with the current ANTIC bus slot, needed for the WSYNC
+    /// cycle-104 rearm case (Altirra WriteByte / OnScheduledEvent).
+    pub fn write_from_cpu(&mut self, addr: u8, value: u8, cycle: u16) {
+        if addr & 0x0f == 0x0a {
+            if self.wsync_pending == 0 || (self.wsync_pending == 1 && cycle == 104) {
+                self.wsync_pending = 2;
+            }
+        } else {
+            self.write(addr, value);
         }
     }
 
@@ -666,7 +685,18 @@ impl Antic {
         self.wsync
     }
 
-    /// Clear the WSYNC halt at the end of a scan line.
+    /// Advance the WSYNC assertion pipeline before the current CPU bus slot.
+    /// NMOS writes must finish before RDY is asserted on the following read.
+    pub fn advance_wsync(&mut self, cpu_write: bool) {
+        if self.wsync_pending != 0 && !(self.wsync_pending == 1 && cpu_write) {
+            self.wsync_pending -= 1;
+            if self.wsync_pending == 0 {
+                self.wsync = true;
+            }
+        }
+    }
+
+    /// Release the active halt at cycle 105; pending assertions survive.
     pub fn clear_wsync(&mut self) {
         self.wsync = false;
     }
@@ -1362,6 +1392,7 @@ impl Antic {
         self.chbase = data[p];
         p += 1;
         self.wsync = data[p] != 0;
+        self.wsync_pending = 0;
         p += 1;
         self.nmien = data[p];
         p += 1;
@@ -1671,11 +1702,39 @@ mod tests {
         let mut antic = Antic::new(AnticRegion::Ntsc);
         assert!(!antic.wsync_halt());
 
-        antic.write(0x0A, 0x00); // Any write to WSYNC sets the flag
+        antic.write(0x0A, 0x00);
+        assert!(!antic.wsync_halt());
+        antic.advance_wsync(false);
+        assert!(!antic.wsync_halt());
+        antic.advance_wsync(true); // a write extends the last pending event
+        assert!(!antic.wsync_halt());
+        antic.advance_wsync(false);
         assert!(antic.wsync_halt());
 
         antic.clear_wsync();
         assert!(!antic.wsync_halt());
+    }
+
+    #[test]
+    fn wsync_rearm_at_104_survives_the_105_release() {
+        for second_write in [103, 104] {
+            let mut antic = Antic::new(AnticRegion::Ntsc);
+            antic.write_from_cpu(0x0a, 0, second_write - 1);
+            antic.advance_wsync(true);
+            antic.write_from_cpu(0x0a, 0, second_write);
+            {
+                let chip = &mut antic;
+                if second_write == 103 {
+                    chip.advance_wsync(false); // cycle 104 asserts RDY
+                    assert!(chip.wsync_halt());
+                }
+                chip.advance_wsync(false); // cycle 105, before release
+                chip.clear_wsync();
+                assert!(!chip.wsync_halt());
+                chip.advance_wsync(false); // cycle 106
+                assert_eq!(chip.wsync_halt(), second_write == 104);
+            }
+        }
     }
 
     #[test]
