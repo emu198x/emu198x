@@ -922,6 +922,37 @@ mod tests {
     }
 
     #[test]
+    fn snapshot_between_scroll_samples_preserves_row_decision() {
+        let mut sys =
+            Atari800xl::new(None, None, None, Atari800xlRegion::Ntsc, false).expect("machine");
+        sys.poke(0x4000, 0x28);
+        sys.poke(0x4001, 0xf0);
+        sys.antic.write(2, 0);
+        sys.antic.write(3, 0x40);
+        sys.antic.write(0, 0x20);
+        for _ in 0..16 * 228 + 16 {
+            sys.tick_colour_clock();
+        }
+        assert_eq!(sys.antic.read(0x0f) & 0x80, 0x80);
+        sys.antic.write_from_cpu(5, 1, 8);
+        let bytes = postcard::to_allocvec(&sys).expect("between scroll samples");
+        let mut restored: Atari800xl = postcard::from_bytes(&bytes).expect("restore");
+        for _ in 0..228 {
+            sys.tick_colour_clock();
+            restored.tick_colour_clock();
+        }
+        assert_eq!(
+            sys.antic.dlist_value(),
+            0x4002,
+            "row extended after DLI sample"
+        );
+        assert_eq!(
+            postcard::to_allocvec(&sys).expect("state"),
+            postcard::to_allocvec(&restored).expect("state")
+        );
+    }
+
+    #[test]
     fn snapshot_preserves_antic_instruction_with_list_dma_disabled() {
         let mut sys =
             Atari800xl::new(None, None, None, Atari800xlRegion::Ntsc, false).expect("machine");

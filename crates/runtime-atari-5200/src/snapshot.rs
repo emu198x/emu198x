@@ -33,7 +33,8 @@ use crate::runtime::Atari5200Runtime;
 /// Version 11 adds ANTIC interrupt-source and enable-sampling state.
 /// Version 12 adds POKEY RANDOM initialisation and restart phase.
 /// Version 13 retains the ANTIC display instruction across disabled DMA.
-const SNAPSHOT_VERSION: u16 = 13;
+/// Version 14 adds ANTIC live scroll-stop and deferred row advancement.
+const SNAPSHOT_VERSION: u16 = 14;
 
 /// Borrowing envelope used during encode — avoids cloning the live machine.
 #[derive(Serialize)]

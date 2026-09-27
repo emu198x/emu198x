@@ -463,6 +463,13 @@ pub struct Antic {
     /// Last value `mode_line` takes in the current mode line. One less than
     /// the mode's height, until vertical scrolling moves either end.
     row_end: u8,
+    /// Leaving a scrolling region uses VSCROL as a live stop comparator.
+    row_stop_vscroll: bool,
+    /// A displayed row awaiting the late stop comparison.
+    row_advance_pending: bool,
+    bitmap_row_bytes: u8,
+    /// JVB holds the blank instruction until the next display frame.
+    jvb_wait: bool,
     /// Whether the previous display-list mode line enabled vertical scrolling.
     /// A scrolling region's first and last lines are the ones where this
     /// disagrees with the current instruction, and those are the two that
@@ -523,6 +530,10 @@ impl Antic {
             memory_scan: 0,
             row_start: 0,
             row_end: 0,
+            row_stop_vscroll: false,
+            row_advance_pending: false,
+            bitmap_row_bytes: 0,
+            jvb_wait: false,
             prev_vscrol: false,
             vscrol_enabled: false,
             hscrol_enabled: false,
@@ -713,10 +724,19 @@ impl Antic {
         self.wsync = false;
     }
 
-    /// Clock the NMIST latch and NMI enable sampling before the CPU slot.
-    /// Altirra: status/early enable at 7, assertion at 8, late enable at 9.
+    /// Clock scroll comparisons, NMIST and NMI sampling before the CPU slot.
+    /// Altirra: DLI scroll sample at 6, status/early enable at 7, assertion
+    /// at 8, late enable at 9; row progression uses the scroll value at 109.
     pub fn clock_nmi(&mut self, cycle: u16) {
         match cycle {
+            6 if self.row_advance_pending => {
+                self.line_nmi = if self.current_dli && self.at_row_stop() {
+                    0x80
+                } else {
+                    0
+                };
+            }
+            109 => self.finish_mode_row(),
             7 => {
                 self.early_nmien = self.nmien;
                 if self.line_nmi != 0 {
@@ -779,7 +799,7 @@ impl Antic {
         let mut result = self.begin_line(mem);
         // Batch callers do not interleave CPU writes; complete the line's
         // interrupt events as well as its playfield fetch.
-        for cycle in 7..=9 {
+        for cycle in 6..=9 {
             self.clock_nmi(cycle);
         }
         if let Some(fetched) = self.fetch_playfield(mem) {
@@ -787,7 +807,34 @@ impl Antic {
             result.playfield = fetched.playfield;
             result.playfield_width = fetched.playfield_width;
         }
+        self.finish_mode_row();
         result
+    }
+
+    fn at_row_stop(&self) -> bool {
+        if self.row_stop_vscroll {
+            self.mode_line & 15 == self.vscrol & 15
+        } else {
+            self.mode_line >= self.row_end
+        }
+    }
+
+    fn finish_mode_row(&mut self) {
+        if !self.row_advance_pending {
+            return;
+        }
+        self.row_advance_pending = false;
+        if self.at_row_stop() {
+            self.memory_scan =
+                playfield_address(self.memory_scan, u16::from(self.bitmap_row_bytes));
+            self.mode_line = 0;
+            self.dl_active = self.jvb_wait;
+            if self.jvb_wait {
+                self.row_stop_vscroll = false;
+            }
+        } else {
+            self.mode_line = self.mode_line.wrapping_add(1);
+        }
     }
 
     /// Start one scan line: the VBI or DLI, player/missile DMA, the display
@@ -798,6 +845,9 @@ impl Antic {
     /// `playfield` is empty, and its `mode` and `playfield_width` describe the
     /// line the fetch will produce.
     pub fn begin_line<M: AnticMemory + ?Sized>(&mut self, mem: &M) -> LineResult {
+        // Batch users may begin another line without clocking its late slot.
+        self.finish_mode_row();
+        self.bitmap_row_bytes = 0;
         self.line_nmi = 0;
         self.late_nmi = false;
         self.dma_mask = 0;
@@ -815,6 +865,7 @@ impl Antic {
         if self.scan_line == VISIBLE_END {
             self.line_nmi = 0x40;
             // Reset display list state for next frame
+            self.jvb_wait = false;
             self.mode_line = 0;
             self.current_mode = 0;
             self.row_start = 0;
@@ -868,17 +919,11 @@ impl Antic {
         result.dma_mask = self.dma_mask;
         result.dma_cycles = self.dma_mask.count_ones() as u8;
 
-        // Advance the row counter, or close the mode line at its last row.
-        if self.mode_line >= self.row_end {
-            // End of this mode line — check for DLI.
-            // NMIEN bit 7 = DLI enable. NMIST bit 7 records DLI.
-            if self.current_dli {
-                self.line_nmi = 0x80;
-            }
-            self.mode_line = 0;
-            self.dl_active = false;
-        } else {
-            self.mode_line += 1;
+        // The interrupt compares the current row at cycle 6; the next-row
+        // decision uses the later VSCROL value at cycle 109.
+        self.row_advance_pending = true;
+        if self.current_dli && self.at_row_stop() {
+            self.line_nmi = 0x80;
         }
 
         self.advance_scan_line(lines_per_frame);
@@ -963,6 +1008,8 @@ impl Antic {
         let has_hscrol = instr & 0x10 != 0;
         let has_vscrol = instr & 0x20 != 0;
 
+        self.jvb_wait = false;
+        self.row_stop_vscroll = self.prev_vscrol && (mode < 2 || !has_vscrol);
         self.current_dli = has_dli;
         self.hscrol_enabled = has_hscrol;
         self.vscrol_enabled = has_vscrol;
@@ -996,11 +1043,10 @@ impl Antic {
                 if instr & 0x40 != 0 {
                     // JVB: jump and wait for vertical blank
                     self.current_mode = 0;
-                    // Fill remaining visible lines with blank
-                    let remaining = VISIBLE_END.saturating_sub(self.scan_line);
+                    self.jvb_wait = true;
                     self.mode_line = 0;
                     self.row_start = 0;
-                    self.row_end = (remaining.max(1) as u8) - 1;
+                    self.row_end = 0;
                     self.prev_vscrol = false;
                     self.dl_active = true;
                 } else {
@@ -1101,9 +1147,8 @@ impl Antic {
             memory_scan: self.memory_scan,
             width_bits,
         });
-        if !desc.char_mode && self.mode_line >= self.row_end {
-            let bytes = adjust_bytes_for_width(desc.bytes_per_line, fetch_bits);
-            self.memory_scan = playfield_address(self.memory_scan, u16::from(bytes));
+        if !desc.char_mode {
+            self.bitmap_row_bytes = adjust_bytes_for_width(desc.bytes_per_line, fetch_bits);
         }
     }
 
@@ -1428,6 +1473,10 @@ impl Antic {
         p += 1;
         self.wsync = data[p] != 0;
         self.wsync_pending = 0;
+        self.row_stop_vscroll = false;
+        self.row_advance_pending = false;
+        self.bitmap_row_bytes = 0;
+        self.jvb_wait = false;
         self.line_nmi = 0;
         self.early_nmien = 0;
         self.late_nmi = false;
@@ -1580,6 +1629,7 @@ mod tests {
                     antic.scan_line = VISIBLE_START;
                     antic.begin_line(&ram[..]);
                     let line = antic.fetch_playfield(&ram[..]).expect("playfield");
+                    antic.clock_nmi(109);
                     assert_eq!(line.playfield.len(), bytes * 8);
                     assert!(line.playfield[..128].iter().all(|&p| p == 0));
                     assert!(line.playfield[128..].iter().all(|&p| p == 1));
@@ -1587,9 +1637,11 @@ mod tests {
                     while antic.dl_active {
                         antic.begin_line(&ram[..]);
                         antic.fetch_playfield(&ram[..]);
+                        antic.clock_nmi(109);
                     }
                     antic.begin_line(&ram[..]);
                     let next = antic.fetch_playfield(&ram[..]).expect("next mode line");
+                    antic.clock_nmi(109);
                     assert!(next.playfield.iter().all(|&p| p == 1));
                     assert_eq!(antic.memory_scan, 0x2000 + 2 * bytes as u16 - 16);
                 }
@@ -1924,6 +1976,45 @@ mod tests {
 
         assert_eq!(antic.read(0x0F) & 0x80, 0x80);
         assert!(!antic.take_dli(), "NMIEN must still gate the NMI request");
+    }
+
+    #[test]
+    fn scrolling_exit_has_separate_dli_and_row_stop_samples() {
+        for early_write in [false, true] {
+            let mut ram = make_ram();
+            ram[0x4000..0x4002].copy_from_slice(&[0x28, 0xf0]);
+            let mut antic = Antic::new(AnticRegion::Ntsc);
+            antic.write(0, 0x20);
+            antic.write(2, 0);
+            antic.write(3, 0x40);
+            antic.scan_line = VISIBLE_START;
+            for _ in 0..8 {
+                antic.process_line(&ram[..]);
+            }
+            antic.begin_line(&ram[..]);
+            assert!(
+                antic.row_stop_vscroll,
+                "blank instruction exits scrolling region"
+            );
+            if early_write {
+                antic.write_from_cpu(5, 1, 5);
+            }
+            antic.clock_nmi(6);
+            // A write in slot 6 misses the interrupt comparison, but still
+            // changes whether this mode line ends at the late comparison.
+            antic.write_from_cpu(5, 1, 6);
+            antic.clock_nmi(7);
+            assert_eq!(antic.read(0x0f) & 0x80, if early_write { 0 } else { 0x80 });
+            antic.clock_nmi(109);
+            assert_eq!(antic.mode_line, 1);
+            assert!(antic.dl_active);
+            antic.write_from_cpu(5, 0, 110);
+            antic.begin_line(&ram[..]);
+            assert_eq!(
+                antic.mode_line, 1,
+                "late write cannot redo the previous row decision"
+            );
+        }
     }
 
     #[test]
