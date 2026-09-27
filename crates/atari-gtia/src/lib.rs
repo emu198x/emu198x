@@ -298,8 +298,10 @@ pub struct Gtia {
     // colours using the *live* colour registers as the beam reaches each
     // pixel, so a mid-line COLBK/COLPF write changes only the pixels drawn
     // after it.
-    sl_visible: bool,    // false when the line is off-screen
-    sl_fb_offset: usize, // framebuffer index of this line's first active pixel
+    sl_vblank_line: bool, // normal vertical-blank region, even if AN2 overrides it
+    sl_blanked: bool,     // ANTIC blanking, independent of framebuffer coverage
+    sl_visible: bool,     // false when the line is off-screen
+    sl_fb_offset: usize,  // framebuffer index of this line's first active pixel
     // Hires admission is latched at ANTIC cycle 16 and cleared by any later
     // GTIA-mode enable. PRIOR reaches this latch after two colour clocks;
     // this is separate from the colour/priority renderer's register path.
@@ -375,6 +377,8 @@ impl Gtia {
             trig_latched: [false; 4],
             consol_out: 0x00,
             console_switches: 0x07, // all buttons released (active low)
+            sl_vblank_line: true,
+            sl_blanked: true,
             sl_visible: false,
             sl_fb_offset: 0,
             hires_disabled: false,
@@ -703,13 +707,19 @@ impl Gtia {
         self.sl_mode = AnticMode::Blank;
         self.sl_pf_span = (0, 0);
         self.sl_line_buf.fill(0);
-        if line >= ACTIVE_HEIGHT as u16 {
-            self.sl_visible = false;
-            return;
-        }
-        self.sl_visible = true;
-        let fb_row = self.border_top() as usize + line as usize;
-        self.sl_fb_offset = fb_row * self.fb_width as usize;
+        self.sl_vblank_line = line >= ACTIVE_HEIGHT as u16;
+        self.sl_blanked = self.sl_vblank_line;
+        let frame_lines = if self.fb_border_top == 0 { 262 } else { 312 };
+        let row =
+            (i32::from(line as i16) + self.border_top() as i32).rem_euclid(frame_lines) as usize;
+        self.sl_visible = row < self.framebuffer.len() / self.fb_width as usize;
+        self.sl_fb_offset = row * self.fb_width as usize;
+    }
+
+    /// ANTIC's blanking signal gates pixel and collision processing, independently
+    /// of whether this scanline falls inside the selected framebuffer window.
+    pub fn set_vertical_blank(&mut self, blanked: bool) {
+        self.sl_blanked = blanked;
     }
 
     /// Give the current line its playfield: precompute the colour-register
@@ -719,9 +729,6 @@ impl Gtia {
     /// The cursor is left where it is, so this can be called partway through
     /// the line once ANTIC has fetched the data.
     pub fn set_playfield(&mut self, playfield: &[u8], pf_width: u16, mode: AnticMode) {
-        if !self.sl_visible {
-            return;
-        }
         self.sl_mode = mode;
 
         // Build the window-wide line of playfield colour-register indices.
@@ -744,10 +751,11 @@ impl Gtia {
     /// beam-driven path calls it repeatedly with the beam position.
     pub fn composite_playfield(&mut self, end: usize) {
         self.expand_legacy_picture();
-        if !self.sl_visible {
+        let end = end.min(self.fb_width as usize);
+        if self.sl_blanked {
+            self.sl_x = end;
             return;
         }
-        let end = end.min(self.fb_width as usize);
 
         // Hi-res 1.5-colour modes (2, 3, and F): the playfield background is
         // COLPF2 and lit pixels take COLPF2's hue with COLPF1's luminance.
@@ -755,6 +763,10 @@ impl Gtia {
 
         while self.sl_x < end {
             let x = self.sl_x;
+            if self.sl_vblank_line && !(self.sl_pf_span.0..self.sl_pf_span.1).contains(&x) {
+                self.sl_x += 1;
+                continue;
+            }
             let mut pf_col_idx = self.sl_line_buf[x];
 
             // Players/missiles at this pixel's beam colour-clock, from the
@@ -809,7 +821,9 @@ impl Gtia {
                 gtia_mode => self.gtia_mode_colour(gtia_mode, cc, pm_bits),
             };
 
-            self.framebuffer[self.sl_fb_offset + x] = self.colour_to_argb32(colour);
+            if self.sl_visible {
+                self.framebuffer[self.sl_fb_offset + x] = self.colour_to_argb32(colour);
+            }
             self.sl_x += 1;
         }
     }
@@ -1370,6 +1384,39 @@ mod tests {
     ///
     /// Answering `$00` — neither value — made Joust load an all-zero
     /// palette and render the whole game black on an NTSC machine.
+    #[test]
+    fn opened_vertical_blank_collides_even_outside_framebuffer() {
+        for region in [GtiaRegion::Ntsc, GtiaRegion::Pal] {
+            for (open, position, expected) in [(false, 128, 0), (true, 128, 2), (true, 40, 0)] {
+                let mut gtia = Gtia::new(region);
+                gtia.write(0, position);
+                gtia.write(1, position);
+                gtia.write(13, 0xff);
+                gtia.write(14, 0xff);
+                let before = gtia.framebuffer.clone();
+                gtia.begin_scanline(240);
+                gtia.set_vertical_blank(!open);
+                gtia.set_playfield(&[1; 320], 160, AnticMode::ModeF);
+                gtia.composite_to_beam(100);
+                let bytes = postcard::to_allocvec(&gtia).expect("opened blank snapshot");
+                let mut restored: Gtia = postcard::from_bytes(&bytes).expect("restore");
+                gtia.finish_scanline();
+                restored.finish_scanline();
+                assert_eq!(
+                    postcard::to_allocvec(&gtia).expect("state"),
+                    postcard::to_allocvec(&restored).expect("state")
+                );
+                assert_eq!(gtia.read(12) & 2, expected);
+                if region == GtiaRegion::Ntsc {
+                    assert_eq!(
+                        gtia.framebuffer, before,
+                        "off-window collisions must not overwrite another row"
+                    );
+                }
+            }
+        }
+    }
+
     #[test]
     fn pal_register_reports_the_television_standard() {
         assert_eq!(Gtia::new(GtiaRegion::Ntsc).read(0x14), 0x0F, "NTSC");

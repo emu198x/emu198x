@@ -34,7 +34,8 @@ use crate::runtime::Atari800xlRuntime;
 /// Version 13 retains the ANTIC display instruction across disabled DMA.
 /// Version 14 adds ANTIC live scroll-stop and deferred row advancement.
 /// Version 15 includes the remaining ANTIC NMI pulse width.
-const SNAPSHOT_VERSION: u16 = 15;
+/// Version 16 separates GTIA hardware blanking from framebuffer coverage.
+const SNAPSHOT_VERSION: u16 = 16;
 
 /// Borrowing envelope used during encode — avoids cloning the live machine.
 #[derive(Serialize)]

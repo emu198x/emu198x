@@ -35,7 +35,7 @@ fails. The normal mode checks exact known outcomes without hiding failures.
 | dlistwrap | pass | pass |
 | dlitiming | pass | pass |
 | dmapattern | pass | pass |
-| hiresbug | fail | fail |
+| hiresbug | pass | pass |
 | hscrolbug | fail | fail |
 | linebuffering | fail | fail |
 | nmist | pass | pass |
@@ -48,7 +48,7 @@ fails. The normal mode checks exact known outcomes without hiding failures.
 | vscroll | pass | pass |
 | wsync | pass | pass |
 
-**28 passes and 12 failures across 40 executions.** The initial survey had
+**30 passes and 10 failures across 40 executions.** The initial survey had
 10 passes and 30 failures. Correcting the playfield counter's 4 KB wrap makes
 the full address-wrap guest pass in both regions. Cycle-7 NMIST latching,
 cycle-8/9 NMI assertion and NMI edge capture during RDY holds also make
@@ -73,3 +73,7 @@ VSCROL/DLI timing guest pass. Blank instructions can end scrolling regions.
 A two-clock ANTIC NMI pulse and the CPU detector's vector-window inhibit
 resolve the blocked-NMI guest. Longer NMI assertions remain pending, preserving
 the NES and C64 interrupt regression cases.
+
+Retained hires instructions can override vertical blanking when playfield width
+is enabled. Pixel/collision processing now follows that signal independently of
+framebuffer coverage, making the original hires-bug probe pass in both regions.

@@ -112,12 +112,12 @@
       "xex_sha256": "380e30264b28e5022997ad7c32f6bb7b1219a68351ae32a5eed52b6cc67f72f6",
       "symbols_sha256": "0cbd5461eafa4d7993f8a498bbffe56358c41d90ce3e6b39f5b21333ff6bc13f",
       "ntsc": {
-        "verdict": "fail",
-        "failure_signature": "Collision not found with bug: $00"
+        "verdict": "pass",
+        "failure_signature": null
       },
       "pal": {
-        "verdict": "fail",
-        "failure_signature": "Collision not found with bug: $00"
+        "verdict": "pass",
+        "failure_signature": null
       }
     },
     {
