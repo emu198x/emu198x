@@ -585,7 +585,7 @@ impl Atari800xl {
             0xD100..=0xD1FF => 0xFF,
             0xD200..=0xD2FF => self.pokey.read(addr as u8),
             0xD300..=0xD3FF => self.pia.read(Self::bus_to_pia_addr(addr)),
-            0xD400..=0xD4FF => self.antic.read(addr as u8),
+            0xD400..=0xD4FF => self.antic.read_at_clock(addr as u8, self.master_clock),
             // The cartridge control select line: the cartridge decodes the
             // access itself, and nothing drives the data bus.
             0xD500..=0xD5FF => {
@@ -889,6 +889,20 @@ mod tests {
         ];
         rom[..prog.len()].copy_from_slice(&prog);
         rom
+    }
+
+    #[test]
+    fn vcount_tracks_the_beam_instead_of_the_prepared_line() {
+        let mut sys =
+            Atari800xl::new(None, None, None, Atari800xlRegion::Ntsc, false).expect("machine");
+        for _ in 0..(228 + 100) {
+            sys.tick_colour_clock();
+        }
+        assert_eq!(
+            sys.mem_read(0xd40b),
+            0,
+            "physical line 1, not prepared line 2"
+        );
     }
 
     #[test]

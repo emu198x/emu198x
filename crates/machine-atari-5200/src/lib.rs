@@ -333,7 +333,7 @@ impl Atari5200 {
                 self.cart.read(addr)
             }
             0xC000..=0xCFFF => self.gtia.read(addr as u8),
-            0xD400..=0xD5FF => self.antic.read(addr as u8),
+            0xD400..=0xD5FF => self.antic.read_at_clock(addr as u8, self.master_clock),
             0xE800..=0xE9FF => self.pokey.read(addr as u8),
             0xF800..=0xFFFF => {
                 if self.bios.is_empty() {
@@ -528,6 +528,20 @@ mod tests {
         rom[0x1FFE] = 0x00;
         rom[0x1FFF] = 0xA0;
         rom
+    }
+
+    #[test]
+    fn vcount_tracks_the_beam_instead_of_the_prepared_line() {
+        let mut sys =
+            Atari5200::new(vec![0; 0x8000], vec![], Atari5200Region::Ntsc).expect("machine");
+        for _ in 0..(228 + 100) {
+            sys.tick_colour_clock();
+        }
+        assert_eq!(
+            sys.mem_read(0xd40b),
+            0,
+            "physical line 1, not prepared line 2"
+        );
     }
 
     /// Save-state must capture the LIVE machine state — CPU, ANTIC, GTIA,

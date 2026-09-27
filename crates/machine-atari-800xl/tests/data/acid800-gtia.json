@@ -74,11 +74,11 @@
       "symbols_sha256": "a379bc22dc08deb7ca76a154c3bf7a1572b656e8a7fec55a75dc50d2658cb536",
       "ntsc": {
         "verdict": "fail",
-        "failure_signature": "Phantom DMA byte #1 was not $AD (was $FF)."
+        "failure_signature": "Phantom DMA byte #1 was not $AD (was $0F)."
       },
       "pal": {
         "verdict": "fail",
-        "failure_signature": "Phantom DMA byte #1 was not $AD (was $FF)."
+        "failure_signature": "Phantom DMA byte #1 was not $AD (was $0F)."
       }
     },
     {
@@ -138,12 +138,12 @@
       "xex_sha256": "c116dff4050b335bc66adef5e3dc982e0ff702c6a5097a9b74bd5a2f6eeaf7ba",
       "symbols_sha256": "8a791a66cf5fce7f68cc7e346ccdb2fa5b76df9c7a83c5abfbcac5c115e47236",
       "ntsc": {
-        "verdict": "fail",
-        "failure_signature": "No delay 1/4 failed: 00 != $01"
+        "verdict": "pass",
+        "failure_signature": null
       },
       "pal": {
-        "verdict": "fail",
-        "failure_signature": "No delay 1/4 failed: 00 != $01"
+        "verdict": "pass",
+        "failure_signature": null
       }
     }
   ]
