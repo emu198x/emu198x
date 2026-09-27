@@ -53,7 +53,7 @@ mod cartridge;
 
 pub use cartridge::{CartLayout, Cartridge};
 
-use atari_antic::{Antic, AnticRegion, COLOUR_CLOCKS_PER_LINE, CYCLES_HSYNC, cpu_dma_stalled};
+use atari_antic::{Antic, AnticRegion, COLOUR_CLOCKS_PER_LINE, CYCLES_HSYNC};
 use atari_gtia::Gtia;
 use atari_pokey::Pokey;
 use emu198x_mos_6502::M6502;
@@ -152,14 +152,8 @@ pub struct Atari5200 {
     dma_bus_data: u8,
     clocks_per_frame: u64,
     frame_count: u64,
-    /// Which of the current scan line's cycles ANTIC is taking for DMA, from
-    /// its own fetch schedule. The CPU runs on the cycles left over.
-    dma_mask: u128,
     /// CPU cycle counter within the current scan line.
     line_cycle: u16,
-    /// The cycle at which ANTIC reads this line's playfield, once it has
-    /// begun a line that has one.
-    playfield_fetch_cycle: Option<u16>,
 }
 
 impl Atari5200 {
@@ -187,9 +181,7 @@ impl Atari5200 {
             dma_bus_data: 0xff,
             clocks_per_frame,
             frame_count: 0,
-            dma_mask: 0,
             line_cycle: 0,
-            playfield_fetch_cycle: None,
         })
     }
 
@@ -271,7 +263,7 @@ impl Atari5200 {
                 self.dma_bus_data = byte;
             }
             self.cpu.rdy = !self.antic.wsync_halt();
-            if !cpu_dma_stalled(self.line_cycle, self.dma_mask) {
+            if !self.clock_playfield_dma() {
                 // Complete the exposed bus transaction before tick consumes
                 // its data and prepares the next one. In particular, a write
                 // must not reach GTIA one CPU slot before its actual bus slot.
@@ -288,20 +280,19 @@ impl Atari5200 {
                 };
                 self.cpu.tick();
             }
+            if let Some(sample) = self.antic.complete_virtual_dma(self.dma_bus_data) {
+                self.gtia
+                    .accept_playfield_sample(sample.colour_clock, &sample.pixels, sample.mode);
+            }
             self.pokey.tick();
             self.cpu.irq = self.pokey.irq_pending();
             // The DMA mask uses slots 0..113. Advance only after servicing
             // this slot, matching the 800XL's shared ANTIC clock convention.
             self.line_cycle += 1;
-            if Some(self.line_cycle) == self.playfield_fetch_cycle {
-                self.fetch_playfield();
-            }
         }
     }
 
-    /// ANTIC reads the line's playfield and hands it to the GTIA, ahead of
-    /// the beam reaching it. Registers the CPU wrote earlier in the line —
-    /// CHBASE, CHACTL, HSCROL — shape this line; later writes shape the next.
+    /// Apply ANTIC's retained hires override during vertical blanking.
     fn update_vertical_blank(&mut self) {
         if let Some(output) = self.antic.vertical_blank_playfield() {
             self.gtia
@@ -311,22 +302,26 @@ impl Atari5200 {
         }
     }
 
-    fn fetch_playfield(&mut self) {
+    fn clock_playfield_dma(&mut self) -> bool {
         let view = AnticView {
             ram: &self.ram,
             cart: &self.cart,
             bios: &self.bios,
         };
-        if let Some(fetched) = self.antic.fetch_playfield(&view) {
-            self.gtia
-                .set_playfield(&fetched.playfield, fetched.playfield_width, fetched.mode);
+        let (taken, sample) = self.antic.clock_dma(self.line_cycle, &view);
+        if let Some((mode, width)) = self.antic.live_playfield_window() {
+            self.gtia.set_playfield_window(width, mode);
         }
+        if let Some(sample) = sample {
+            self.gtia
+                .accept_playfield_sample(sample.colour_clock, &sample.pixels, sample.mode);
+        }
+        taken
     }
 
     /// Start a scan line: ANTIC reads the display list and the GTIA begins
     /// beam compositing for it. Player/missile DMA and the DLI/VBI NMI are
-    /// applied here, and the line's DMA schedule that gates the CPU is set.
-    /// The playfield itself is fetched later in the line (`fetch_playfield`).
+    /// applied here. Playfield DMA is clocked byte by byte alongside the CPU.
     /// Pixels are composited incrementally as the beam advances
     /// (`composite_to_beam`), then finished with the PM overlay at line end.
     fn start_scan_line(&mut self) {
@@ -337,7 +332,7 @@ impl Atari5200 {
             cart: &self.cart,
             bios: &self.bios,
         };
-        let result = self.antic.begin_line(&view);
+        let result = self.antic.begin_live_line(&view);
         if result.pm_dma {
             // GRACTL decides whether this DMA reaches the graphics registers,
             // and VDELAY whether an object is held back a line; both live in
@@ -354,9 +349,7 @@ impl Atari5200 {
         let line = self.antic.scan_line().saturating_sub(1);
         let visible_line = line.wrapping_sub(8);
         self.gtia.begin_scanline(visible_line);
-        self.dma_mask = result.dma_mask;
         self.line_cycle = 0;
-        self.playfield_fetch_cycle = self.antic.playfield_fetch_cycle();
     }
 
     fn mem_read(&mut self, addr: u16) -> u8 {

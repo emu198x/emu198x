@@ -125,12 +125,12 @@
       "xex_sha256": "caadb21cb841b0a1fa843b8ae82e36a8777745891ac4ea2bfd309ef0a3d81753",
       "symbols_sha256": "95d12abf2bd1fd2e4ba140bb36f3318b518f640d10d611ad56dbabb98282a08d",
       "ntsc": {
-        "verdict": "fail",
-        "failure_signature": "Unstopped PF DMA test failed: cl=02"
+        "verdict": "pass",
+        "failure_signature": null
       },
       "pal": {
-        "verdict": "fail",
-        "failure_signature": "Unstopped PF DMA test failed: cl=02"
+        "verdict": "pass",
+        "failure_signature": null
       }
     },
     {
@@ -138,12 +138,12 @@
       "xex_sha256": "8853225aee4f686b37b2c94cbb16f0b39e087897d414157e720528ecb82f5d82",
       "symbols_sha256": "2c0505dd956fecb010c5c7268b7b43a036319ba1e0f171649d47d7e5268d4940",
       "ntsc": {
-        "verdict": "fail",
-        "failure_signature": "Readout incorrect for aliased mode 8: 04040202"
+        "verdict": "pass",
+        "failure_signature": null
       },
       "pal": {
-        "verdict": "fail",
-        "failure_signature": "Readout incorrect for aliased mode 8: 04040202"
+        "verdict": "pass",
+        "failure_signature": null
       }
     },
     {
@@ -164,12 +164,12 @@
       "xex_sha256": "0c2b78c7008d2c286bc1f65cc64017c2320e8b295bd2248b7c7a44b4c1967cc8",
       "symbols_sha256": "8b8c15eea4dae3a18fb6494a1f1d173a0b73b114bafeac13b80253134ca228df",
       "ntsc": {
-        "verdict": "fail",
-        "failure_signature": "Character mode DMACTL early test faile d: stride=20"
+        "verdict": "pass",
+        "failure_signature": null
       },
       "pal": {
-        "verdict": "fail",
-        "failure_signature": "Character mode DMACTL early test faile d: stride=20"
+        "verdict": "pass",
+        "failure_signature": null
       }
     },
     {
@@ -177,12 +177,12 @@
       "xex_sha256": "2626671baa380ae04679c0d5cb779a480b25ad3aa64ff728ca5c8941aacac679",
       "symbols_sha256": "f3aea05b7daf2df7de67db246335999cde43cf7797b32a294eaacf3aca8f5f82",
       "ntsc": {
-        "verdict": "fail",
-        "failure_signature": "Character mode DMACTL early test faile d: stride=16"
+        "verdict": "pass",
+        "failure_signature": null
       },
       "pal": {
-        "verdict": "fail",
-        "failure_signature": "Character mode DMACTL early test faile d: stride=16"
+        "verdict": "pass",
+        "failure_signature": null
       }
     },
     {
@@ -216,12 +216,12 @@
       "xex_sha256": "a13fc357193683360c8c0c1fbd0eb2a016800549cd31070ca6a821b29e26354c",
       "symbols_sha256": "f017ff34d3d07ecc615d815eeb8e81a656fde20c1ca8e12f86b247b34e35b0ea",
       "ntsc": {
-        "verdict": "fail",
-        "failure_signature": "Pattern #2 was not correct: 00 != $05"
+        "verdict": "pass",
+        "failure_signature": null
       },
       "pal": {
-        "verdict": "fail",
-        "failure_signature": "Pattern #2 was not correct: 00 != $05"
+        "verdict": "pass",
+        "failure_signature": null
       }
     },
     {

@@ -20,8 +20,7 @@ cargo test -p machine-atari-800xl --test acid800_antic -- --ignored --nocapture
 ```
 
 Reports are `antic-ntsc.json` and `antic-pal.json`, separate from the GTIA
-reports. `EMU198X_ACID800_STRICT=1` requires every guest to pass and currently
-fails. The normal mode checks exact known outcomes without hiding failures.
+reports. `EMU198X_ACID800_STRICT=1` requires every guest to pass. The normal mode checks exact known outcomes without hiding failures.
 
 ## Recorded baseline
 
@@ -36,19 +35,19 @@ fails. The normal mode checks exact known outcomes without hiding failures.
 | dlitiming | pass | pass |
 | dmapattern | pass | pass |
 | hiresbug | pass | pass |
-| hscrolbug | fail | fail |
-| linebuffering | fail | fail |
+| hscrolbug | pass | pass |
+| linebuffering | pass | pass |
 | nmist | pass | pass |
-| pfstarttiming | fail | fail |
-| pfstoptiming | fail | fail |
+| pfstarttiming | pass | pass |
+| pfstoptiming | pass | pass |
 | pmdma | pass | pass |
 | vcount | pass | pass |
-| virtdma | fail | fail |
+| virtdma | pass | pass |
 | vscroldli | pass | pass |
 | vscroll | pass | pass |
 | wsync | pass | pass |
 
-**30 passes and 10 failures across 40 executions.** The initial survey had
+**40 passes across 40 executions.** The initial survey had
 10 passes and 30 failures. Correcting the playfield counter's 4 KB wrap makes
 the full address-wrap guest pass in both regions. Cycle-7 NMIST latching,
 cycle-8/9 NMI assertion and NMI edge capture during RDY holds also make
@@ -77,3 +76,10 @@ the NES and C64 interrupt regression cases.
 Retained hires instructions can override vertical blanking when playfield width
 is enabled. Pixel/collision processing now follows that signal independently of
 framebuffer coverage, making the original hires-bug probe pass in both regions.
+
+The live playfield clock fetches individual bytes, retains shared character/bitmap
+line RAM, and samples width/scroll start and stop comparisons during the line.
+Virtual DMA captures the CPU bus without stealing a CPU clock. These behaviours
+resolve the start/stop timing, line-buffering, horizontal-scroll overrun and
+virtual-DMA probes. This is full coverage of this twenty-probe corpus, not a
+claim that every ANTIC silicon behaviour has been validated.

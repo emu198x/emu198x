@@ -36,7 +36,8 @@ use crate::runtime::Atari5200Runtime;
 /// Version 14 adds ANTIC live scroll-stop and deferred row advancement.
 /// Version 15 includes the remaining ANTIC NMI pulse width.
 /// Version 16 separates GTIA hardware blanking from framebuffer coverage.
-const SNAPSHOT_VERSION: u16 = 16;
+/// Version 17 preserves the live DMA clock and shared playfield line RAM.
+const SNAPSHOT_VERSION: u16 = 17;
 
 /// Borrowing envelope used during encode — avoids cloning the live machine.
 #[derive(Serialize)]
