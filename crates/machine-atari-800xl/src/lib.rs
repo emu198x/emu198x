@@ -393,6 +393,9 @@ impl Atari800xl {
             // blank, not at the next line — so post-WSYNC writes land at the
             // right beam position.
             self.antic.clock_nmi(self.line_cycle);
+            if self.line_cycle == 10 {
+                self.update_vertical_blank();
+            }
             self.antic.take_vbi();
             self.antic.take_dli();
             self.cpu.nmi = self.antic.nmi_active();
@@ -451,6 +454,15 @@ impl Atari800xl {
     /// ANTIC reads the line's playfield and hands it to the GTIA, ahead of
     /// the beam reaching it. Registers the CPU wrote earlier in the line —
     /// CHBASE, CHACTL, HSCROL — shape this line; later writes shape the next.
+    fn update_vertical_blank(&mut self) {
+        if let Some(output) = self.antic.vertical_blank_playfield() {
+            self.gtia
+                .set_vertical_blank(output.mode == atari_gtia::AnticMode::Blank);
+            self.gtia
+                .set_playfield(&output.playfield, output.playfield_width, output.mode);
+        }
+    }
+
     fn fetch_playfield(&mut self) {
         let view = AnticView {
             ram: &self.ram,
@@ -640,9 +652,13 @@ impl Atari800xl {
             0xD100..=0xD1FF => {}
             0xD200..=0xD2FF => self.pokey.write(addr as u8, value),
             0xD300..=0xD3FF => self.pia.write(Self::bus_to_pia_addr(addr), value),
-            0xD400..=0xD4FF => self
-                .antic
-                .write_from_cpu(addr as u8, value, self.line_cycle),
+            0xD400..=0xD4FF => {
+                self.antic
+                    .write_from_cpu(addr as u8, value, self.line_cycle);
+                if addr & 15 == 0 {
+                    self.update_vertical_blank();
+                }
+            }
             0xD500..=0xD5FF => {
                 if let Some(ref mut cart) = self.cart {
                     cart.cctl_write(addr, value);

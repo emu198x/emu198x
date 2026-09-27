@@ -240,6 +240,9 @@ impl Atari5200 {
             // ANTIC releases a WSYNC-halted CPU at HSYNC (end of the visible
             // region), not at the next line.
             self.antic.clock_nmi(self.line_cycle);
+            if self.line_cycle == 10 {
+                self.update_vertical_blank();
+            }
             self.antic.take_vbi();
             self.antic.take_dli();
             self.cpu.nmi = self.antic.nmi_active();
@@ -299,6 +302,15 @@ impl Atari5200 {
     /// ANTIC reads the line's playfield and hands it to the GTIA, ahead of
     /// the beam reaching it. Registers the CPU wrote earlier in the line —
     /// CHBASE, CHACTL, HSCROL — shape this line; later writes shape the next.
+    fn update_vertical_blank(&mut self) {
+        if let Some(output) = self.antic.vertical_blank_playfield() {
+            self.gtia
+                .set_vertical_blank(output.mode == atari_gtia::AnticMode::Blank);
+            self.gtia
+                .set_playfield(&output.playfield, output.playfield_width, output.mode);
+        }
+    }
+
     fn fetch_playfield(&mut self) {
         let view = AnticView {
             ram: &self.ram,
@@ -384,9 +396,13 @@ impl Atari5200 {
             0x0000..=0x3FFF => self.ram[(addr & 0x3FFF) as usize] = value,
             0x4000..=0xBFFF => self.touch_bank_register(addr),
             0xC000..=0xCFFF => self.gtia.write_from_cpu(addr as u8, value),
-            0xD400..=0xD5FF => self
-                .antic
-                .write_from_cpu(addr as u8, value, self.line_cycle),
+            0xD400..=0xD5FF => {
+                self.antic
+                    .write_from_cpu(addr as u8, value, self.line_cycle);
+                if addr & 15 == 0 {
+                    self.update_vertical_blank();
+                }
+            }
             0xE800..=0xE9FF => self.pokey.write(addr as u8, value),
             _ => {}
         }

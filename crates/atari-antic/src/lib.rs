@@ -971,6 +971,41 @@ impl Antic {
         Some(self.render_mode_line(mem, &desc, &line))
     }
 
+    /// Blanking output for the current beam line. A retained hires instruction
+    /// lets AN2 override blanking inside the enabled playfield, even in VBLANK.
+    /// `None` means ordinary active-display output owns the line.
+    #[must_use]
+    pub fn vertical_blank_playfield(&self) -> Option<LinePlayfield> {
+        let line = if self.scan_line == 0 {
+            self.region.lines_per_frame() - 1
+        } else {
+            self.scan_line - 1
+        };
+        if (VISIBLE_START..VISIBLE_END).contains(&line) {
+            return None;
+        }
+        let width = playfield_width_cc(self.dmactl & 3);
+        if width == 0 || !matches!(self.instruction_latch & 15, 2 | 3 | 15) {
+            return Some(LinePlayfield {
+                mode: AnticMode::Blank,
+                playfield: Vec::new(),
+                playfield_width: 0,
+            });
+        }
+        let sync_start = match self.region {
+            AnticRegion::Ntsc => 251,
+            AnticRegion::Pal => 275,
+        };
+        let in_sync = (sync_start..sync_start + 3).contains(&line);
+        Some(LinePlayfield {
+            mode: AnticMode::ModeF,
+            playfield: (0..width * 2)
+                .map(|x| u8::from(!in_sync || x & 1 != 0))
+                .collect(),
+            playfield_width: width,
+        })
+    }
+
     /// Display-list data driven on one of the early DMA bus slots.
     /// Values currently come from the line scheduler's fetches.
     #[must_use]
@@ -1988,6 +2023,41 @@ mod tests {
 
         assert_eq!(antic.read(0x0F) & 0x80, 0x80);
         assert!(!antic.take_dli(), "NMIEN must still gate the NMI request");
+    }
+
+    #[test]
+    fn retained_hires_instruction_overrides_vertical_blanking() {
+        for region in [AnticRegion::Ntsc, AnticRegion::Pal] {
+            for mode in [0, 1, 2, 3, 4, 14, 15] {
+                let mut antic = Antic::new(region);
+                antic.instruction_latch = mode;
+                antic.scan_line = 249; // currently rendering line 248
+                antic.dmactl = 2; // list DMA off, playfield enabled
+                let output = antic.vertical_blank_playfield().expect("vblank");
+                assert_eq!(output.mode == AnticMode::ModeF, matches!(mode, 2 | 3 | 15));
+                antic.dmactl = 0;
+                assert_eq!(
+                    antic.vertical_blank_playfield().expect("vblank").mode,
+                    AnticMode::Blank
+                );
+            }
+            let mut antic = Antic::new(region);
+            antic.instruction_latch = 15;
+            antic.dmactl = 2;
+            antic.scan_line = match region {
+                AnticRegion::Ntsc => 252,
+                AnticRegion::Pal => 276,
+            };
+            let output = antic.vertical_blank_playfield().expect("sync");
+            assert!(
+                output
+                    .playfield
+                    .as_chunks::<2>()
+                    .0
+                    .iter()
+                    .all(|pair| *pair == [0, 1])
+            );
+        }
     }
 
     #[test]
