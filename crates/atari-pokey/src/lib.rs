@@ -181,6 +181,20 @@ fn build_poly_table(bits: u32, tap_high: u32, tap_low: u32) -> Vec<u8> {
     table
 }
 
+/// Long POKEY polynomial output, following Altirra's hardware-checked
+/// right-shifting XNOR sequence. RANDOM exposes the inverted output; the
+/// 17-bit chain adds eight stages ahead of the same output tap.
+fn build_long_poly_table(bits: u32) -> Vec<u8> {
+    let mut state = 0u32;
+    let mut table = Vec::with_capacity(((1u32 << bits) - 1) as usize);
+    for _ in 0..((1u32 << bits) - 1) {
+        let feedback = (!(state ^ (state >> 5))) & 1;
+        state = (state >> 1) | (feedback << (bits - 1));
+        table.push(((state >> (bits - 9)) & 1) as u8);
+    }
+    table
+}
+
 // ---------------------------------------------------------------------------
 // Audio channel
 // ---------------------------------------------------------------------------
@@ -329,6 +343,10 @@ pub struct Pokey {
 
     /// Global polynomial counter index (counts every CPU cycle).
     poly_counter: u32,
+    /// Clocks since entering SKCTL initialisation; RANDOM settles after 11.
+    random_init_clocks: u8,
+    /// The first clock after leaving initialisation retains phase zero.
+    poly_restart_delay: u8,
 
     // -- Base clock dividers --
     /// Divider for the 64 kHz / 15 kHz base clock.
@@ -405,9 +423,11 @@ impl Pokey {
             pot_line_counter: 0,
             poly4_table: build_poly_table(4, 3, 2),
             poly5_table: build_poly_table(5, 4, 2),
-            poly9_table: build_poly_table(9, 8, 4),
-            poly17_table: build_poly_table(17, 16, 4),
+            poly9_table: build_long_poly_table(9),
+            poly17_table: build_long_poly_table(17),
             poly_counter: 0,
+            random_init_clocks: 11,
+            poly_restart_delay: 0,
             base_divider: 0,
             accumulator: 0.0,
             channel_accumulators: [0.0; 4],
@@ -430,7 +450,14 @@ impl Pokey {
     /// Tick the POKEY for one CPU cycle.
     pub fn tick(&mut self) {
         // Advance polynomial counters (run at CPU clock rate).
-        self.poly_counter = self.poly_counter.wrapping_add(1);
+        if self.poly_restart_delay != 0 {
+            self.poly_restart_delay -= 1;
+        } else {
+            self.poly_counter = self.poly_counter.wrapping_add(1);
+        }
+        if self.skctl & 3 == 0 {
+            self.random_init_clocks = self.random_init_clocks.saturating_add(1).min(11);
+        }
 
         // Pot scan: one increment per scan line (114 CPU cycles).
         if self.pot_scanning {
@@ -518,14 +545,23 @@ impl Pokey {
 
             // RANDOM: read from polynomial counter.
             0x0A => {
-                if self.audctl & AUDCTL_POLY9 != 0 {
+                let force_mask = if self.skctl & 3 == 0 {
+                    if self.random_init_clocks > 10 {
+                        return 0xff;
+                    }
+                    (0xffe00u32 >> self.random_init_clocks) as u8
+                } else {
+                    0
+                };
+                let bits = if self.audctl & AUDCTL_POLY9 != 0 {
                     let idx = (self.poly_counter as usize) % (POLY9_PERIOD as usize);
                     // Read 8 consecutive bits from the 9-bit poly counter.
                     Self::read_poly_byte(&self.poly9_table, idx, POLY9_PERIOD)
                 } else {
                     let idx = (self.poly_counter as usize) % (POLY17_PERIOD as usize);
                     Self::read_poly_byte(&self.poly17_table, idx, POLY17_PERIOD)
-                }
+                };
+                !bits | force_mask
             }
 
             // $0B, $0C: unused read addresses, return $FF.
@@ -624,6 +660,14 @@ impl Pokey {
             // Selecting an external clock for both directions (bits 6-4 =
             // %000) resets the clock flip-flops.
             0x0F => {
+                let was_init = self.skctl & 3 == 0;
+                let is_init = value & 3 == 0;
+                if was_init && !is_init {
+                    self.poly_counter = 0;
+                    self.poly_restart_delay = 1;
+                } else if !was_init && is_init {
+                    self.random_init_clocks = 0;
+                }
                 self.skctl = value;
                 if value & 0x03 == 0 {
                     self.serial_out_bits = 0;
@@ -867,6 +911,9 @@ impl Pokey {
         p += 1;
         self.kbcode = data[p];
         p += 1;
+        // The legacy compact format has no in-flight initialisation phase.
+        self.random_init_clocks = if self.skctl & 3 == 0 { 11 } else { 0 };
+        self.poly_restart_delay = 0;
         self.poly_counter = u32::from_le_bytes([data[p], data[p + 1], data[p + 2], data[p + 3]]);
         p += 4;
         self.base_divider = u16::from_le_bytes([data[p], data[p + 1]]);
@@ -1720,20 +1767,54 @@ mod tests {
     }
 
     #[test]
-    fn random_register_produces_nonzero() {
+    fn random_initialisation_and_nine_bit_phase() {
         let mut pokey = ntsc_pokey();
-
-        // Tick a few hundred cycles to advance the poly counter.
-        for _ in 0..500 {
+        assert_eq!(pokey.read(0x0a), 0xff);
+        pokey.write(0x08, AUDCTL_POLY9);
+        pokey.write(0x0f, 3);
+        for _ in 0..114 {
             pokey.tick();
         }
+        // Original Acid800 WSYNC probe's independently observed phase.
+        assert_eq!(pokey.read(0x0a), 0x95);
+        for expected in [0x4a, 0xa5, 0x52, 0x29, 0x14] {
+            pokey.tick();
+            assert_eq!(pokey.read(0x0a), expected);
+        }
+        pokey.write(0x0f, 0);
+        for _ in 0..11 {
+            pokey.tick();
+        }
+        assert_eq!(pokey.read(0x0a), 0xff);
+        // Repeated init writes do not prevent the register settling.
+        pokey.write(0x0f, 0);
+        assert_eq!(pokey.read(0x0a), 0xff);
+        pokey.write(0x0f, 3);
+        for _ in 0..114 {
+            pokey.tick();
+        }
+        assert_eq!(pokey.read(0x0a), 0x95);
+    }
 
-        let random = pokey.read(0x0A);
-        // The poly counter is seeded with all-ones and produces a deterministic
-        // LFSR sequence. After 500 ticks it should not be all-zero.
-        // (Testing exact value is fragile, but testing non-zero is safe since
-        // the LFSR never reaches the all-zero state.)
-        assert_ne!(random, 0, "RANDOM should produce non-zero values");
+    #[test]
+    fn long_polynomials_have_full_periods() {
+        for (control, period) in [(AUDCTL_POLY9, 511), (0, 131_071)] {
+            let mut pokey = ntsc_pokey();
+            pokey.write(0x08, control);
+            pokey.write(0x0f, 3);
+            pokey.tick(); // restart delay
+            let mut bytes = Vec::new();
+            for _ in 0..period {
+                bytes.push(pokey.read(0x0a));
+                pokey.tick();
+            }
+            assert!(bytes.contains(&0));
+            assert!(bytes.contains(&0xff));
+            for expected in bytes {
+                assert_eq!(pokey.read(0x0a), expected);
+                pokey.tick();
+            }
+        }
     }
 
     #[test]

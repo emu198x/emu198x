@@ -16,7 +16,8 @@ use crate::runtime::Atari7800Runtime;
 /// 288-line buffer that a version-3 NTSC machine would never allocate.
 /// Restoring it would resume into a geometry the machine disagrees with, and
 /// silently — so the version check rejects it instead.
-const SNAPSHOT_VERSION: u16 = 4;
+/// Version 5 adds POKEY RANDOM initialisation and restart phase.
+const SNAPSHOT_VERSION: u16 = 5;
 
 /// Borrowing envelope used during encode — avoids cloning the live machine.
 #[derive(Serialize)]
@@ -49,15 +50,21 @@ pub(crate) fn encode(runtime: &Atari7800Runtime) -> Result<Vec<u8>, MachineError
 }
 
 pub(crate) fn decode(runtime: &mut Atari7800Runtime, bytes: &[u8]) -> Result<(), MachineError> {
+    let (version, _) = postcard::take_from_bytes::<u16>(bytes).map_err(|reason| {
+        MachineError::InvalidSnapshot {
+            reason: format!("decode failed: {reason}"),
+        }
+    })?;
+    if version != SNAPSHOT_VERSION {
+        return Err(MachineError::InvalidSnapshot {
+            reason: format!("unsupported snapshot version {version}; expected {SNAPSHOT_VERSION}"),
+        });
+    }
     let snapshot: Atari7800RuntimeSnapshotV2 =
         postcard::from_bytes(bytes).map_err(|reason| MachineError::InvalidSnapshot {
             reason: format!("decode failed: {reason}"),
         })?;
-    if snapshot.version != SNAPSHOT_VERSION {
-        return Err(MachineError::InvalidSnapshot {
-            reason: format!("unsupported snapshot version {}", snapshot.version),
-        });
-    }
+    debug_assert_eq!(snapshot.version, SNAPSHOT_VERSION);
     if snapshot.model_id != runtime.model().model_id() {
         return Err(MachineError::InvalidSnapshot {
             reason: format!(
@@ -78,6 +85,16 @@ mod tests {
     use crate::profiles::Model;
     use crate::runtime::Atari7800Runtime;
     use emu198x_shell::MachineError;
+
+    #[test]
+    fn old_version_is_rejected_before_decoding_machine_fields() {
+        let mut runtime = Atari7800Runtime::blank(Model::A7800Ntsc);
+        let bytes = postcard::to_allocvec(&4u16).expect("version prefix");
+        let err = decode(&mut runtime, &bytes).expect_err("old layout");
+        assert!(
+            matches!(err, MachineError::InvalidSnapshot { reason } if reason.contains("unsupported snapshot version 4"))
+        );
+    }
 
     /// A future-version envelope is rejected before any state is touched.
     #[test]

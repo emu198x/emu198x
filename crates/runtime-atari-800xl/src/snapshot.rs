@@ -30,7 +30,8 @@ use crate::runtime::Atari800xlRuntime;
 /// Version 9 adds GTIA hires admission and its delayed PRIOR latch.
 /// Version 10 adds the pending WSYNC assertion pipeline.
 /// Version 11 adds ANTIC interrupt-source and enable-sampling state.
-const SNAPSHOT_VERSION: u16 = 11;
+/// Version 12 adds POKEY RANDOM initialisation and restart phase.
+const SNAPSHOT_VERSION: u16 = 12;
 
 /// Borrowing envelope used during encode — avoids cloning the live machine.
 #[derive(Serialize)]

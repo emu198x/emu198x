@@ -99,12 +99,12 @@
       "xex_sha256": "7d725c67470094dfd9de97151d2a0d5f165c4fa97b800413e75eba5ee282f806",
       "symbols_sha256": "dbbcdfff349b7516e96077fd94d6361e858dd9b30695be3328617c4d62ce1898",
       "ntsc": {
-        "verdict": "fail",
-        "failure_signature": "Cannot decode random pair: 19 46"
+        "verdict": "pass",
+        "failure_signature": null
       },
       "pal": {
-        "verdict": "fail",
-        "failure_signature": "Cannot decode random pair: E1 95"
+        "verdict": "pass",
+        "failure_signature": null
       }
     },
     {
@@ -255,12 +255,12 @@
       "xex_sha256": "ef40b822126c72329345c5621dc2bc7c9a2837e41cf56b619a9207ab912df932",
       "symbols_sha256": "93eb9dff6b52411181a0e31d1b345a543e8e886fea459ac0731fa64d0a2343d2",
       "ntsc": {
-        "verdict": "fail",
-        "failure_signature": "Initial RANDOM incorrect: $E1 != $95."
+        "verdict": "pass",
+        "failure_signature": null
       },
       "pal": {
-        "verdict": "fail",
-        "failure_signature": "Initial RANDOM incorrect: $F8 != $95."
+        "verdict": "pass",
+        "failure_signature": null
       }
     }
   ]
