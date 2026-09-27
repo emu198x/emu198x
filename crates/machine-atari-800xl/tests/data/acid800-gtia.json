@@ -86,12 +86,12 @@
       "xex_sha256": "bbe8c4c08034f0c625e1c357b302a3a289cb5fb9b9fd58442fa95ff86017f23e",
       "symbols_sha256": "356006366382831490a60ffa633de21a71c91afc772ef52ac7d52cc78161a52f",
       "ntsc": {
-        "verdict": "fail",
-        "failure_signature": "Pass 0.0: Pos=64, Expected F0, Got C0"
+        "verdict": "pass",
+        "failure_signature": null
       },
       "pal": {
-        "verdict": "fail",
-        "failure_signature": "Pass 0.0: Pos=64, Expected F0, Got C0"
+        "verdict": "pass",
+        "failure_signature": null
       }
     },
     {

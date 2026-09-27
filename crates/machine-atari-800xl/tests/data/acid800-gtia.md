@@ -45,13 +45,13 @@ ignored when comparing wrapped diagnostic signatures.
 | collision | pass | pass |
 | collision2 | pass | pass |
 | phantomdma | fail | fail |
-| pmoverlap | fail | fail |
+| pmoverlap | pass | pass |
 | pmresize | fail | fail |
 | pmretrigger | fail | fail |
 | psuedomodee | fail | fail |
 | vdelay | pass | pass |
 
-There are **12 guest passes and 10 guest failures**, across 22 executions.
+There are **14 guest passes and 8 guest failures**, across 22 executions.
 A passing baseline test means those exact observations were reproduced;
 it does not mean GTIA conformance. Set `EMU198X_ACID800_STRICT=1` to require
 all guests to pass instead. Strict mode still writes the reports before
@@ -61,8 +61,8 @@ until its expectation is reviewed and updated alongside the accuracy fix.
 These tests expose interacting CPU/ANTIC/GTIA behaviour. A guest failure
 identifies a reproducible symptom, not necessarily the chip responsible.
 The corpus stops each probe at its first failing assertion, so resolving a
-failure may reveal further failures within the same probe. The full 376-pixel GTIA picture fixes PAL's former left-edge collision
-failure at $22. Both regions now pass the basic collision probe; the remaining
-five failing probes in each region remain tracked. Correcting VCOUNT timing also makes the full VDELAY probe
-pass and changes phantom DMA’s first observed byte from $FF to $0F (expected
-$AD). The other four failing diagnostics are unchanged.
+failure may reveal further failures within the same probe. Persistent sprite
+shift registers make the complete overlap probe pass in both regions. The
+remaining failures are phantom DMA, resizing, retrigger timing and pseudo mode
+E. Register propagation and CPU/ANTIC bus timing still need investigation;
+passing overlap does not establish complete dynamic sprite accuracy.

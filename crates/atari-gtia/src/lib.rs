@@ -252,6 +252,13 @@ pub struct Gtia {
     vdelay_pending_grafm: u8,
     grafm: u8, // GRAFM: 2-bit missile graphic patterns
 
+    // Shift registers and divider phase persist independently of the graphics
+    // latch, including across horizontal boundaries.
+    sprite_shift: [u8; 8],
+    sprite_phase: [u8; 8],
+    sprite_next_cc: u16,
+    sprite_output: u8,
+
     // -- Control --
     prior: u8,  // PRIOR: priority and GTIA mode select
     vdelay: u8, // VDELAY: vertical delay
@@ -339,6 +346,10 @@ impl Gtia {
             vdelay_pending_grafp: [0; 4],
             vdelay_pending_grafm: 0,
             grafm: 0,
+            sprite_shift: [0; 8],
+            sprite_phase: [0; 8],
+            sprite_next_cc: 0,
+            sprite_output: 0,
             prior: 0,
             vdelay: 0,
             gractl: 0,
@@ -638,6 +649,7 @@ impl Gtia {
     /// is still reading the playfield.
     pub fn begin_scanline(&mut self, line: u16) {
         self.expand_legacy_picture();
+        self.sprite_next_cc = 0;
         self.sl_x = 0;
         self.sl_mode = AnticMode::Blank;
         self.sl_pf_span = (0, 0);
@@ -844,19 +856,61 @@ impl Gtia {
     }
 
     /// Object-bit mask for every player and missile covering colour-clock `cc`.
-    fn pm_bits_at_cc(&self, cc: u16) -> u8 {
-        let mut bits = 0u8;
-        for m in 0..NUM_MISSILES {
-            if self.missile_covers(m, cc) {
-                bits |= 1 << (m + 4);
+    fn pm_bits_at_cc(&mut self, cc: u16) -> u8 {
+        self.advance_sprites_to(cc + 1);
+        self.sprite_output
+    }
+
+    /// Advance the hardware shift registers once per colour clock. Output is
+    /// sampled before the divider advances. Altirra SpriteState::Advance and
+    /// GenerateSpriteImages provide the reference for phase-preserving size
+    /// changes and retriggers; no image cache or host pixel coordinates enter it.
+    fn advance_sprites_to(&mut self, end: u16) {
+        while self.sprite_next_cc < end {
+            let cc = self.sprite_next_cc;
+            self.sprite_output = 0;
+            for i in 0..8 {
+                let (position, pattern, size) = if i < NUM_PLAYERS {
+                    (self.hposp[i], self.grafp[i], self.sizep[i] & 3)
+                } else {
+                    let missile = i - NUM_PLAYERS;
+                    (
+                        self.hposm[missile],
+                        ((self.grafm >> (missile * 2)) & 3) << 6,
+                        (self.sizem >> (missile * 2)) & 3,
+                    )
+                };
+                let mask = 1 << i;
+                let shift = &mut self.sprite_shift[i];
+                let phase = &mut self.sprite_phase[i];
+                if cc == u16::from(position) {
+                    if *phase != 0 {
+                        *shift <<= 1;
+                        *phase = 0;
+                    }
+                    *shift |= pattern;
+                }
+                if *shift & 0x80 != 0 {
+                    self.sprite_output |= mask;
+                }
+                *phase = match size {
+                    0 => 0,
+                    1 => (*phase ^ 1) & 1,
+                    2 => {
+                        if matches!(*phase, 1 | 2) {
+                            2
+                        } else {
+                            0
+                        }
+                    }
+                    _ => phase.wrapping_add(1) & 3,
+                };
+                if *phase == 0 {
+                    *shift <<= 1;
+                }
             }
+            self.sprite_next_cc += 1;
         }
-        for p in 0..NUM_PLAYERS {
-            if self.player_covers(p, cc) {
-                bits |= 1 << p;
-            }
-        }
-        bits
     }
 
     /// Resolve GTIA's colour-enable signals, then OR the selected colours.
@@ -922,48 +976,6 @@ impl Gtia {
         Some(colour)
     }
 
-    /// Whether player `p`'s graphic covers beam colour-clock `cc`, from the
-    /// live HPOS / SIZE / GRAFP. A player spans `8 × width` colour clocks from
-    /// its HPOS, each of its 8 graphic bits `width` clocks wide.
-    fn player_covers(&self, p: usize, cc: u16) -> bool {
-        let pattern = self.grafp[p];
-        if pattern == 0 {
-            return false;
-        }
-        let hpos = u16::from(self.hposp[p]);
-        if cc < hpos {
-            return false;
-        }
-        let width = player_pixel_width(self.sizep[p] & 0x03);
-        let offset = cc - hpos;
-        if offset >= 8 * width {
-            return false;
-        }
-        let bit = (offset / width) as u8; // 0..8, MSB first
-        pattern & (1 << (7 - bit)) != 0
-    }
-
-    /// Whether missile `m`'s graphic covers beam colour-clock `cc`, from the
-    /// live HPOS / SIZE / GRAFM. A missile is a 2-bit pattern, each bit
-    /// `width` colour clocks wide.
-    fn missile_covers(&self, m: usize, cc: u16) -> bool {
-        let pattern = (self.grafm >> (m * 2)) & 0x03;
-        if pattern == 0 {
-            return false;
-        }
-        let hpos = u16::from(self.hposm[m]);
-        if cc < hpos {
-            return false;
-        }
-        let width = missile_width((self.sizem >> (m * 2)) & 0x03);
-        let offset = cc - hpos;
-        if offset >= 2 * width {
-            return false;
-        }
-        let bit = (offset / width) as u8; // 0 or 1, MSB first
-        pattern & (1 << (1 - bit)) != 0
-    }
-
     /// Older snapshots carry their cropped geometry. Keep the serialized
     /// fields unchanged and expand that geometry on the first beam advance.
     /// Already-rendered pixels and the beam cursor retain their chip positions;
@@ -1017,6 +1029,7 @@ impl Gtia {
         let target = usize::from((line_cc * 2).saturating_sub(self.fb_first_half_clock))
             .min(self.fb_width as usize);
         self.composite_playfield(target);
+        self.advance_sprites_to(if line_cc == 0 { 228 } else { line_cc });
     }
 
     /// Finish the scan line by compositing any remaining pixels to the right
@@ -1025,10 +1038,8 @@ impl Gtia {
     /// flushes the cursor — the machine calls it once the line completes.
     pub fn finish_scanline(&mut self) {
         self.expand_legacy_picture();
-        if !self.sl_visible {
-            return;
-        }
         self.composite_playfield(self.fb_width as usize);
+        self.advance_sprites_to(228);
     }
 
     /// Fill the window-wide line buffer with playfield colour register indices.
@@ -1130,7 +1141,8 @@ impl Gtia {
 }
 
 impl Gtia {
-    /// Serialize GTIA register state for save states.
+    /// Serialize the compact register-only state. This omits live beam and
+    /// sprite-shifter state; machine snapshots use the full Serde representation.
     #[must_use]
     pub fn save_state(&self) -> Vec<u8> {
         let mut data = Vec::with_capacity(64);
@@ -1161,7 +1173,7 @@ impl Gtia {
         data
     }
 
-    /// Restore GTIA state from a save state.
+    /// Restore compact register state, leaving live beam/shifter state untouched.
     ///
     /// # Errors
     ///
@@ -1227,26 +1239,6 @@ impl Gtia {
 // No `Default`. There is no default television standard, and a chip that
 // guessed one would size its framebuffer wrong for half the machines that use
 // it — which is the bug this region parameter exists to fix.
-
-/// Player pixel width for a given size value (bits 0-1 of `SIZEPx`).
-const fn player_pixel_width(size_bits: u8) -> u16 {
-    match size_bits & 0x03 {
-        0x00 => 1, // normal
-        0x01 => 2, // double
-        0x03 => 4, // quad
-        _ => 1,    // $02 = normal
-    }
-}
-
-/// Missile width in colour clocks for a given 2-bit size value.
-const fn missile_width(size_bits: u8) -> u16 {
-    match size_bits & 0x03 {
-        0x00 => 1, // normal (2 px = 1 cc)
-        0x01 => 2, // double
-        0x03 => 4, // quad
-        _ => 1,    // $02 = normal
-    }
-}
 
 impl Gtia {
     /// Convert an Atari colour register value to ARGB32 using the palette for
@@ -1368,6 +1360,90 @@ mod tests {
                 gtia.render_line(0, &[], 0, AnticMode::Blank);
                 assert_eq!(gtia.read(12), 0, "{region:?} blanking cc={cc}");
             }
+        }
+    }
+
+    #[test]
+    fn missile_graphics_are_latched_until_shifted_out() {
+        let mut gtia = Gtia::new(GtiaRegion::Ntsc);
+        gtia.write(4, 60);
+        gtia.write(0x11, 3);
+        assert_eq!(gtia.pm_bits_at_cc(60), 0x10);
+        gtia.write(0x11, 0);
+        assert_eq!(gtia.pm_bits_at_cc(61), 0x10);
+        assert_eq!(gtia.pm_bits_at_cc(62), 0);
+    }
+
+    #[test]
+    fn size_two_holds_an_active_divider_until_size_changes() {
+        let mut gtia = Gtia::new(GtiaRegion::Ntsc);
+        gtia.write(0, 60);
+        gtia.write(8, 3);
+        gtia.write(0x0d, 0x80);
+        assert_eq!(gtia.pm_bits_at_cc(60), 1);
+        gtia.write(8, 2);
+        for cc in 61..100 {
+            assert_eq!(gtia.pm_bits_at_cc(cc), 1, "cc={cc}");
+        }
+        gtia.write(8, 0);
+        assert_eq!(gtia.pm_bits_at_cc(100), 1);
+        assert_eq!(gtia.pm_bits_at_cc(101), 0);
+    }
+
+    #[test]
+    fn active_shifts_survive_a_blank_scanline_boundary() {
+        let mut gtia = Gtia::new(GtiaRegion::Ntsc);
+        gtia.write(0, 226);
+        gtia.write(0x0d, 0xff);
+        gtia.begin_scanline(u16::MAX); // outside the picture, still clocked
+        gtia.finish_scanline();
+        gtia.write(0x0d, 0);
+        gtia.begin_scanline(0);
+        for cc in 0..6 {
+            assert_eq!(gtia.pm_bits_at_cc(cc), 1, "cc={cc}");
+        }
+        assert_eq!(gtia.pm_bits_at_cc(6), 0);
+    }
+
+    #[test]
+    fn snapshot_resumes_an_active_retriggered_player() {
+        let mut original = Gtia::new(GtiaRegion::Ntsc);
+        original.write(0, 60);
+        original.write(0x08, 3);
+        original.write(0x0d, 0x81);
+        original.write(0x12, 0x0e);
+        original.begin_scanline(0);
+        original.composite_to_beam(63);
+        original.write(0, 65);
+        original.write(0x08, 1);
+        let bytes = postcard::to_allocvec(&original).expect("active sprite snapshot");
+        let mut restored: Gtia = postcard::from_bytes(&bytes).expect("restore active sprite");
+        original.finish_scanline();
+        restored.finish_scanline();
+        assert_eq!(original.framebuffer(), restored.framebuffer());
+        assert_eq!(
+            postcard::to_allocvec(&original).expect("state"),
+            postcard::to_allocvec(&restored).expect("state")
+        );
+    }
+
+    #[test]
+    fn changing_the_graphics_latch_does_not_erase_an_active_player() {
+        let mut gtia = Gtia::new(GtiaRegion::Ntsc);
+        gtia.write(0, 60);
+        gtia.write(0x0d, 0xff);
+        gtia.write(0x12, 0x0e);
+        gtia.begin_scanline(0);
+        gtia.composite_to_beam(62);
+        gtia.write(0x0d, 0);
+        gtia.composite_to_beam(68);
+        for cc in 60..68 {
+            let x = (cc * 2 - 68) as usize;
+            assert_eq!(
+                gtia.framebuffer()[x],
+                gtia.colour_to_argb32(0x0e),
+                "cc={cc}"
+            );
         }
     }
 
