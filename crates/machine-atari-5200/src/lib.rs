@@ -240,9 +240,11 @@ impl Atari5200 {
             if self.line_cycle == CYCLES_HSYNC {
                 self.antic.clear_wsync();
             }
-            // CPU runs unless ANTIC is taking this cycle for a fetch, or it is
-            // held by WSYNC.
-            if !cpu_dma_stalled(self.line_cycle, self.dma_mask) && !self.antic.wsync_halt() {
+            // ANTIC DMA owns its clock slots. WSYNC instead drives RDY:
+            // NMOS writes must finish before the following read is held.
+            // RDY stalls reads only, including after both writes of INC WSYNC.
+            self.cpu.rdy = !self.antic.wsync_halt();
+            if !cpu_dma_stalled(self.line_cycle, self.dma_mask) {
                 self.cpu.tick();
                 if self.cpu.rw {
                     self.cpu.data_in = self.mem_read(self.cpu.addr);
@@ -361,7 +363,7 @@ impl Atari5200 {
         match addr {
             0x0000..=0x3FFF => self.ram[(addr & 0x3FFF) as usize] = value,
             0x4000..=0xBFFF => self.touch_bank_register(addr),
-            0xC000..=0xCFFF => self.gtia.write(addr as u8, value),
+            0xC000..=0xCFFF => self.gtia.write_from_cpu(addr as u8, value),
             0xD400..=0xD5FF => self.antic.write(addr as u8, value),
             0xE800..=0xE9FF => self.pokey.write(addr as u8, value),
             _ => {}
@@ -530,6 +532,46 @@ mod tests {
         rom[0x1FFE] = 0x00;
         rom[0x1FFF] = 0xA0;
         rom
+    }
+
+    #[test]
+    fn inc_wsync_completes_both_writes_before_the_read_stall() {
+        for region in [Atari5200Region::Ntsc, Atari5200Region::Pal] {
+            let mut cart = trap_rom_8k();
+            cart[..6].copy_from_slice(&[0xee, 0x0a, 0xd4, 0x4c, 0x03, 0xa0]);
+            let mut sys = Atari5200::new(cart, vec![], region).expect("machine");
+            let mut found = false;
+            for _ in 0..32 {
+                sys.tick_colour_clock();
+                sys.tick_colour_clock();
+                if !sys.cpu.rw && sys.cpu.addr == 0xd40a {
+                    found = true;
+                    break;
+                }
+            }
+            assert!(found, "first INC write");
+            let first = sys.cpu.data;
+            let cycles = sys.cpu.total_cycles;
+            sys.tick_colour_clock();
+            sys.tick_colour_clock();
+            assert_eq!(
+                sys.cpu.total_cycles,
+                cycles + 1,
+                "RDY must not stall the final write"
+            );
+            assert!(!sys.cpu.rw);
+            assert_eq!(sys.cpu.addr, 0xd40a);
+            assert_eq!(sys.cpu.data, first.wrapping_add(1));
+            // The next read may appear on the pins, then it must remain held.
+            sys.tick_colour_clock();
+            sys.tick_colour_clock();
+            assert!(sys.cpu.rw);
+            let held = (sys.cpu.addr, sys.cpu.regs.pc, sys.cpu.total_cycles);
+            for _ in 0..6 {
+                sys.tick_colour_clock();
+            }
+            assert_eq!((sys.cpu.addr, sys.cpu.regs.pc, sys.cpu.total_cycles), held);
+        }
     }
 
     #[test]

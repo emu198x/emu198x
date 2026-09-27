@@ -74,11 +74,11 @@
       "symbols_sha256": "a379bc22dc08deb7ca76a154c3bf7a1572b656e8a7fec55a75dc50d2658cb536",
       "ntsc": {
         "verdict": "fail",
-        "failure_signature": "Phantom DMA byte #1 was not $AD (was $0F)."
+        "failure_signature": "Phantom DMA byte #1 was not $AD (was $FF)."
       },
       "pal": {
         "verdict": "fail",
-        "failure_signature": "Phantom DMA byte #1 was not $AD (was $0F)."
+        "failure_signature": "Phantom DMA byte #1 was not $AD (was $FF)."
       }
     },
     {
@@ -112,12 +112,12 @@
       "xex_sha256": "a72e9a5e6c8471df5fc3716d0cb6cf5480f434e5e0a28ed944488276fbcc47a2",
       "symbols_sha256": "5ad2e5cf1027dff1f6f5211065b9c447e3bc68484744f68d41181fc5fb6ddc4d",
       "ntsc": {
-        "verdict": "fail",
-        "failure_signature": "Player retrigger timing test #2 failed: $04."
+        "verdict": "pass",
+        "failure_signature": null
       },
       "pal": {
-        "verdict": "fail",
-        "failure_signature": "Player retrigger timing test #2 failed: $04."
+        "verdict": "pass",
+        "failure_signature": null
       }
     },
     {

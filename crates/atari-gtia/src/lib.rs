@@ -254,6 +254,11 @@ pub struct Gtia {
 
     // Shift registers and divider phase persist independently of the graphics
     // latch, including across horizontal boundaries.
+    sprite_position: [u8; 8],
+    sprite_pattern: [u8; 8],
+    sprite_size: [u8; 8],
+    // (remaining colour clocks, register, value), in write order.
+    sprite_writes: Vec<(u8, u8, u8)>,
     sprite_shift: [u8; 8],
     sprite_phase: [u8; 8],
     sprite_next_cc: u16,
@@ -346,6 +351,10 @@ impl Gtia {
             vdelay_pending_grafp: [0; 4],
             vdelay_pending_grafm: 0,
             grafm: 0,
+            sprite_position: [0; 8],
+            sprite_pattern: [0; 8],
+            sprite_size: [0; 8],
+            sprite_writes: Vec::new(),
             sprite_shift: [0; 8],
             sprite_phase: [0; 8],
             sprite_next_cc: 0,
@@ -384,6 +393,10 @@ impl Gtia {
     /// Write a GTIA register. `addr` is masked to 5 bits ($00-$1F).
     pub fn write(&mut self, addr: u8, value: u8) {
         let reg = addr & 0x1F;
+        if reg <= 0x11 {
+            self.sprite_writes
+                .push((if reg < 8 { 5 } else { 3 }, reg, value));
+        }
         match reg {
             0x00..=0x03 => self.hposp[(reg) as usize] = value,
             0x04..=0x07 => self.hposm[(reg - 0x04) as usize] = value,
@@ -425,6 +438,19 @@ impl Gtia {
                 self.consol_out = value & 0x0F;
             }
             _ => {}
+        }
+    }
+
+    /// Accept a CPU write at the end of its two-colour-clock bus slot.
+    /// Altirra's GTIAGetXClock/WriteByte delays use the slot's starting clock;
+    /// both Atari machine loops have already composited those two clocks.
+    /// Chip-level callers of `write` instead supply the current beam instant.
+    pub fn write_from_cpu(&mut self, addr: u8, value: u8) {
+        self.write(addr, value);
+        if addr & 0x1f <= 0x11
+            && let Some(write) = self.sprite_writes.last_mut()
+        {
+            write.0 = write.0.saturating_sub(2);
         }
     }
 
@@ -502,6 +528,7 @@ impl Gtia {
                 } else {
                     incoming
                 };
+                self.sprite_writes.push((3, 0x0d + p as u8, self.grafp[p]));
                 self.vdelay_pending_grafp[p] = incoming;
             }
         }
@@ -520,6 +547,7 @@ impl Gtia {
                 out |= source & mask;
             }
             self.grafm = out;
+            self.sprite_writes.push((3, 0x11, out));
             self.vdelay_pending_grafm = missiles;
         }
     }
@@ -710,8 +738,8 @@ impl Gtia {
             let pf_col_idx = self.sl_line_buf[x];
 
             // Players/missiles at this pixel's beam colour-clock, from the
-            // *live* registers — so a mid-line HPOS/GRAFP rewrite (sprite
-            // multiplexing) and per-pixel collision timing land at the beam.
+            // propagated sprite registers. Mid-line HPOS/GRAFP writes enter
+            // the shifter only after their register delay has elapsed.
             let cc = (self.fb_first_half_clock + x as u16) / 2;
             let pm_bits = self.pm_bits_at_cc(cc);
 
@@ -868,18 +896,22 @@ impl Gtia {
     fn advance_sprites_to(&mut self, end: u16) {
         while self.sprite_next_cc < end {
             let cc = self.sprite_next_cc;
+            let mut pending = 0;
+            while pending < self.sprite_writes.len() {
+                let (delay, register, value) = self.sprite_writes[pending];
+                if delay == 0 {
+                    self.sprite_writes.remove(pending);
+                    self.apply_sprite_register(register, value);
+                } else {
+                    self.sprite_writes[pending].0 -= 1;
+                    pending += 1;
+                }
+            }
             self.sprite_output = 0;
             for i in 0..8 {
-                let (position, pattern, size) = if i < NUM_PLAYERS {
-                    (self.hposp[i], self.grafp[i], self.sizep[i] & 3)
-                } else {
-                    let missile = i - NUM_PLAYERS;
-                    (
-                        self.hposm[missile],
-                        ((self.grafm >> (missile * 2)) & 3) << 6,
-                        (self.sizem >> (missile * 2)) & 3,
-                    )
-                };
+                let position = self.sprite_position[i];
+                let pattern = self.sprite_pattern[i];
+                let size = self.sprite_size[i];
                 let mask = 1 << i;
                 let shift = &mut self.sprite_shift[i];
                 let phase = &mut self.sprite_phase[i];
@@ -910,6 +942,25 @@ impl Gtia {
                 }
             }
             self.sprite_next_cc += 1;
+        }
+    }
+
+    fn apply_sprite_register(&mut self, register: u8, value: u8) {
+        match register {
+            0..=7 => self.sprite_position[usize::from(register)] = value,
+            8..=11 => self.sprite_size[usize::from(register - 8)] = value & 3,
+            12 => {
+                for missile in 0..4 {
+                    self.sprite_size[missile + 4] = (value >> (missile * 2)) & 3;
+                }
+            }
+            13..=16 => self.sprite_pattern[usize::from(register - 13)] = value,
+            17 => {
+                for missile in 0..4 {
+                    self.sprite_pattern[missile + 4] = ((value >> (missile * 2)) & 3) << 6;
+                }
+            }
+            _ => {}
         }
     }
 
@@ -1173,7 +1224,8 @@ impl Gtia {
         data
     }
 
-    /// Restore compact register state, leaving live beam/shifter state untouched.
+    /// Restore compact registers immediately, discarding pending register writes.
+    /// Live beam and shift-register state remain untouched.
     ///
     /// # Errors
     ///
@@ -1232,6 +1284,15 @@ impl Gtia {
         p += 1;
         self.console_switches = data[p];
         p += 1;
+        self.sprite_writes.clear();
+        for i in 0..4 {
+            self.apply_sprite_register(i as u8, self.hposp[i]);
+            self.apply_sprite_register(4 + i as u8, self.hposm[i]);
+            self.apply_sprite_register(8 + i as u8, self.sizep[i]);
+            self.apply_sprite_register(13 + i as u8, self.grafp[i]);
+        }
+        self.apply_sprite_register(12, self.sizem);
+        self.apply_sprite_register(17, self.grafm);
         Ok(p)
     }
 }
@@ -1380,14 +1441,17 @@ mod tests {
         gtia.write(0, 60);
         gtia.write(8, 3);
         gtia.write(0x0d, 0x80);
+        gtia.pm_bits_at_cc(57);
+        gtia.write(8, 2); // reaches SIZEP at 61, while the divider is at phase 1
         assert_eq!(gtia.pm_bits_at_cc(60), 1);
-        gtia.write(8, 2);
         for cc in 61..100 {
             assert_eq!(gtia.pm_bits_at_cc(cc), 1, "cc={cc}");
         }
         gtia.write(8, 0);
-        assert_eq!(gtia.pm_bits_at_cc(100), 1);
-        assert_eq!(gtia.pm_bits_at_cc(101), 0);
+        for cc in 100..104 {
+            assert_eq!(gtia.pm_bits_at_cc(cc), 1);
+        }
+        assert_eq!(gtia.pm_bits_at_cc(104), 0);
     }
 
     #[test]
@@ -1406,6 +1470,38 @@ mod tests {
     }
 
     #[test]
+    fn cpu_slot_and_beam_writes_share_the_hpos_deadline() {
+        for position in [64, 65, 66] {
+            let mut beam = Gtia::new(GtiaRegion::Ntsc);
+            beam.write(0x0d, 0x80);
+            beam.advance_sprites_to(60);
+            let mut cpu = Gtia::new(GtiaRegion::Ntsc);
+            cpu.write(0x0d, 0x80);
+            cpu.advance_sprites_to(60);
+            beam.write(0, position); // slot begins at 60: HPOS applies at 65
+            cpu.advance_sprites_to(62);
+            cpu.write_from_cpu(0, position); // same slot, completed
+            for cc in 62..75 {
+                let expected = u8::from(position >= 65 && cc == u16::from(position));
+                assert_eq!(beam.pm_bits_at_cc(cc), expected, "beam cc={cc}");
+                assert_eq!(cpu.pm_bits_at_cc(cc), expected, "CPU cc={cc}");
+            }
+        }
+    }
+
+    #[test]
+    fn compact_register_restore_discards_pending_sprite_writes() {
+        let mut gtia = Gtia::new(GtiaRegion::Ntsc);
+        gtia.write(0, 60);
+        gtia.write(0x0d, 0x80);
+        let saved = gtia.save_state();
+        gtia.write(0x0d, 0);
+        gtia.load_state(&saved).expect("register state");
+        assert!(gtia.sprite_writes.is_empty());
+        assert_eq!(gtia.pm_bits_at_cc(60), 1);
+    }
+
+    #[test]
     fn snapshot_resumes_an_active_retriggered_player() {
         let mut original = Gtia::new(GtiaRegion::Ntsc);
         original.write(0, 60);
@@ -1414,7 +1510,7 @@ mod tests {
         original.write(0x12, 0x0e);
         original.begin_scanline(0);
         original.composite_to_beam(63);
-        original.write(0, 65);
+        original.write(0, 70);
         original.write(0x08, 1);
         let bytes = postcard::to_allocvec(&original).expect("active sprite snapshot");
         let mut restored: Gtia = postcard::from_bytes(&bytes).expect("restore active sprite");
