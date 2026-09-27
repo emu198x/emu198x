@@ -164,6 +164,7 @@ pub struct Atari800xl {
     cart: Option<Cartridge>,
     region: Atari800xlRegion,
     master_clock: u64,
+    dma_bus_data: u8,
     clocks_per_frame: u64,
     frame_count: u64,
     /// The SIO bus and the disk drives on it. The PIA's CB2 pin is the bus's
@@ -281,6 +282,7 @@ impl Atari800xl {
             cart,
             region,
             master_clock: 0,
+            dma_bus_data: 0xff,
             clocks_per_frame,
             frame_count: 0,
             sio: SioBus::new(),
@@ -396,8 +398,32 @@ impl Atari800xl {
             // ANTIC DMA owns its clock slots. WSYNC instead drives RDY:
             // NMOS writes must finish before the following read is held.
             // RDY stalls reads only, including after both writes of INC WSYNC.
+            if self.antic.phantom_pm_active() {
+                if self.line_cycle == 1 {
+                    if let Some(byte) = self.antic.display_list_bus_byte(1) {
+                        self.gtia
+                            .accept_missile_dma(byte, self.antic.dmactl_value() & 0x10 != 0);
+                    }
+                } else if (4..=7).contains(&self.line_cycle) {
+                    self.gtia.accept_player_dma(
+                        usize::from(self.line_cycle - 4),
+                        self.dma_bus_data,
+                        self.antic.dmactl_value() & 0x10 != 0,
+                    );
+                }
+            }
+            if let Some(byte) = self.antic.display_list_bus_byte(self.line_cycle) {
+                self.dma_bus_data = byte;
+            }
             self.cpu.rdy = !self.antic.wsync_halt();
             if !cpu_dma_stalled(self.line_cycle, self.dma_mask) {
+                // Sample the current pins before tick prepares the next bus
+                // transaction. Phantom DMA consumes this on the next slot.
+                self.dma_bus_data = if self.cpu.rw {
+                    self.cpu.data_in
+                } else {
+                    self.cpu.data
+                };
                 self.cpu.tick();
                 if self.cpu.rw {
                     self.cpu.data_in = self.mem_read(self.cpu.addr);
@@ -891,6 +917,36 @@ mod tests {
         ];
         rom[..prog.len()].copy_from_slice(&prog);
         rom
+    }
+
+    #[test]
+    fn phantom_capture_samples_current_pins_and_survives_snapshot() {
+        for region in [Atari800xlRegion::Ntsc, Atari800xlRegion::Pal] {
+            let mut sys = Atari800xl::new(None, None, None, region, false).expect("machine");
+            sys.antic.write(0, 0x20);
+            sys.gtia.write(0x1d, 2);
+            for _ in 0..(8 * 228 + 6) {
+                sys.tick_colour_clock();
+            }
+            assert_eq!(sys.line_cycle, 3);
+            assert!(sys.antic.phantom_pm_active());
+            sys.cpu.rw = true;
+            sys.cpu.data_in = 0xad;
+            sys.tick_colour_clock();
+            sys.tick_colour_clock();
+            assert_eq!(sys.dma_bus_data, 0xad);
+            let saved = postcard::to_allocvec(&sys).expect("mid-capture snapshot");
+            let mut restored: Atari800xl = postcard::from_bytes(&saved).expect("restore");
+            for machine in [&mut sys, &mut restored] {
+                machine.tick_colour_clock();
+                machine.tick_colour_clock();
+                assert_eq!(machine.gtia.grafp_value(0), 0xad);
+            }
+            assert_eq!(
+                postcard::to_allocvec(&sys).expect("state"),
+                postcard::to_allocvec(&restored).expect("state")
+            );
+        }
     }
 
     #[test]

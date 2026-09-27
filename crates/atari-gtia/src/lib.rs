@@ -519,19 +519,30 @@ impl Gtia {
     /// 0-3 missiles 0-3. A delayed object latches the previous line's byte and
     /// holds this one back, which is the shift.
     pub fn accept_pm_dma(&mut self, players: [u8; 4], missiles: u8, single_line: bool) {
-        let delay = !single_line;
-        if self.gractl & 0x02 != 0 {
-            for (p, &incoming) in players.iter().enumerate() {
-                let delayed = delay && (self.vdelay & (0x10 << p)) != 0;
-                self.grafp[p] = if delayed {
-                    self.vdelay_pending_grafp[p]
-                } else {
-                    incoming
-                };
-                self.sprite_writes.push((3, 0x0d + p as u8, self.grafp[p]));
-                self.vdelay_pending_grafp[p] = incoming;
-            }
+        for (player, byte) in players.into_iter().enumerate() {
+            self.accept_player_dma(player, byte, single_line);
         }
+        self.accept_missile_dma(missiles, single_line);
+    }
+
+    /// Accept one player transfer without modifying the other player latches.
+    pub fn accept_player_dma(&mut self, player: usize, incoming: u8, single_line: bool) {
+        if player < NUM_PLAYERS && self.gractl & 2 != 0 {
+            let delayed = !single_line && self.vdelay & (0x10 << player) != 0;
+            self.grafp[player] = if delayed {
+                self.vdelay_pending_grafp[player]
+            } else {
+                incoming
+            };
+            self.vdelay_pending_grafp[player] = incoming;
+            self.sprite_writes
+                .push((3, 0x0d + player as u8, self.grafp[player]));
+        }
+    }
+
+    /// Accept a missile transfer without modifying player latches.
+    pub fn accept_missile_dma(&mut self, missiles: u8, single_line: bool) {
+        let delay = !single_line;
         if self.gractl & 0x01 != 0 {
             // GRAFM packs all four missiles, two bits each, so a delayed
             // missile takes its own pair from the held byte.

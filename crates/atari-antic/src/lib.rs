@@ -476,6 +476,9 @@ pub struct Antic {
     /// Which of the line's 114 cycles ANTIC takes, bit N = cycle N in the
     /// hardware's numbering (cycle 0 is missile DMA).
     dma_mask: u128,
+    // Prefetched instruction, low operand, high operand for this line.
+    dl_dma_bytes: [Option<u8>; 3],
+    phantom_pm_dma: bool,
 
     // -- Character code buffer (reused across scan lines within a mode line) --
     char_codes: Vec<u8>,
@@ -520,6 +523,8 @@ impl Antic {
             dli_pending: false,
 
             dma_mask: 0,
+            dl_dma_bytes: [None; 3],
+            phantom_pm_dma: false,
 
             char_codes: Vec::new(),
             pending: None,
@@ -717,6 +722,8 @@ impl Antic {
     /// line the fetch will produce.
     pub fn begin_line<M: AnticMemory + ?Sized>(&mut self, mem: &M) -> LineResult {
         self.dma_mask = 0;
+        self.dl_dma_bytes = [None; 3];
+        self.phantom_pm_dma = self.dmactl & 0x2c == 0x20;
         self.pending = None;
 
         let lines_per_frame = self.region.lines_per_frame();
@@ -847,6 +854,25 @@ impl Antic {
         Some(self.render_mode_line(mem, &desc, &line))
     }
 
+    /// Display-list data driven on one of the early DMA bus slots.
+    /// Values currently come from the line scheduler's fetches.
+    #[must_use]
+    pub fn display_list_bus_byte(&self, cycle: u16) -> Option<u8> {
+        match cycle {
+            1 => self.dl_dma_bytes[0],
+            6 => self.dl_dma_bytes[1],
+            7 => self.dl_dma_bytes[2],
+            _ => None,
+        }
+    }
+
+    /// A display-list fetch can start phantom PM capture when normal PM DMA
+    /// is off. Altirra AdvanceScanline / AdvanceSpecial use this condition.
+    #[must_use]
+    pub fn phantom_pm_active(&self) -> bool {
+        self.phantom_pm_dma && self.dl_dma_bytes[0].is_some()
+    }
+
     /// The display-list counter increments only its low ten bits, including
     /// operand fetches. Explicit jumps load all sixteen bits of the target.
     /// Mapping the Atari SDLSTL; Altirra ANTIC instruction/LMS address fetches.
@@ -859,6 +885,7 @@ impl Antic {
     /// Fetch and decode the next display list instruction.
     fn fetch_dl_instruction<M: AnticMemory + ?Sized>(&mut self, mem: &M) {
         let instr = self.read_display_list_byte(mem);
+        self.dl_dma_bytes[0] = Some(instr);
         self.claim(DL_INSTRUCTION_CYCLE);
 
         // Display-list instruction option bits (matches ANTIC hardware):
@@ -893,6 +920,8 @@ impl Antic {
                 // Jump instruction
                 let lo = self.read_display_list_byte(mem);
                 let hi = self.read_display_list_byte(mem);
+                self.dl_dma_bytes[1] = Some(lo);
+                self.dl_dma_bytes[2] = Some(hi);
                 self.claim(DL_OPERAND_CYCLES.0);
                 self.claim(DL_OPERAND_CYCLES.1);
 
@@ -955,6 +984,8 @@ impl Antic {
                 if has_lms {
                     let lo = self.read_display_list_byte(mem);
                     let hi = self.read_display_list_byte(mem);
+                    self.dl_dma_bytes[1] = Some(lo);
+                    self.dl_dma_bytes[2] = Some(hi);
                     self.memory_scan = u16::from(lo) | (u16::from(hi) << 8);
                     self.claim(DL_OPERAND_CYCLES.0);
                     self.claim(DL_OPERAND_CYCLES.1);
@@ -1370,6 +1401,10 @@ impl Antic {
         p += 16;
         self.frame_complete = data[p] != 0;
         p += 1;
+        // The legacy compact form does not carry bus-capture state. Full
+        // machine snapshots use Serde and retain it for mid-line resume.
+        self.dl_dma_bytes = [None; 3];
+        self.phantom_pm_dma = false;
         Ok(p)
     }
 
@@ -1442,6 +1477,51 @@ mod tests {
     /// Helper: create a minimal 64KB RAM array.
     fn make_ram() -> Vec<u8> {
         vec![0u8; 65536]
+    }
+
+    #[test]
+    fn phantom_capture_requires_a_new_display_list_fetch_and_no_pm_dma() {
+        for region in [AnticRegion::Ntsc, AnticRegion::Pal] {
+            for dmactl in [0, 0x20, 0x24, 0x28, 0x2c] {
+                let mut ram = make_ram();
+                ram[0x4000] = 0x70; // eight blank lines, only one instruction fetch
+                let mut antic = Antic::new(region);
+                antic.dlist = 0x4000;
+                antic.dmactl = dmactl;
+                antic.scan_line = VISIBLE_START;
+                antic.begin_line(&ram[..]);
+                assert_eq!(antic.phantom_pm_active(), dmactl == 0x20);
+                antic.begin_line(&ram[..]);
+                assert!(
+                    !antic.phantom_pm_active(),
+                    "no instruction fetch on repeated line"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn display_list_bus_slots_retain_instruction_and_operand_bytes() {
+        let mut ram = make_ram();
+        ram[0x4000..0x4003].copy_from_slice(&[0x42, 0x34, 0x12]);
+        let mut antic = Antic::new(AnticRegion::Ntsc);
+        antic.dlist = 0x4000;
+        antic.dmactl = 0x20;
+        antic.scan_line = VISIBLE_START;
+        antic.begin_line(&ram[..]);
+        for cycle in 0..9 {
+            let expected = match cycle {
+                1 => Some(0x42),
+                6 => Some(0x34),
+                7 => Some(0x12),
+                _ => None,
+            };
+            assert_eq!(antic.display_list_bus_byte(cycle), expected);
+        }
+        let bytes = antic.save_state();
+        antic.load_state(&bytes).expect("compact state");
+        assert!(!antic.phantom_pm_active());
+        assert_eq!(antic.display_list_bus_byte(1), None);
     }
 
     #[test]

@@ -73,12 +73,12 @@
       "xex_sha256": "9e20d36086398ecc03cd708c8dac9751db14b3f4036184893b986f96568751b2",
       "symbols_sha256": "a379bc22dc08deb7ca76a154c3bf7a1572b656e8a7fec55a75dc50d2658cb536",
       "ntsc": {
-        "verdict": "fail",
-        "failure_signature": "Phantom DMA byte #1 was not $AD (was $FF)."
+        "verdict": "pass",
+        "failure_signature": null
       },
       "pal": {
-        "verdict": "fail",
-        "failure_signature": "Phantom DMA byte #1 was not $AD (was $FF)."
+        "verdict": "pass",
+        "failure_signature": null
       }
     },
     {
