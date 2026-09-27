@@ -922,6 +922,33 @@ mod tests {
     }
 
     #[test]
+    fn pokey_random_snapshot_preserves_shutdown_and_restart() {
+        let mut sys =
+            Atari800xl::new(None, None, None, Atari800xlRegion::Ntsc, false).expect("machine");
+        sys.pokey.write(0x08, 0x80);
+        sys.pokey.write(0x0f, 3);
+        for _ in 0..114 {
+            sys.pokey.tick();
+        }
+        sys.pokey.write(0x0f, 0);
+        for _ in 0..5 {
+            sys.pokey.tick();
+        }
+        for restarting in [false, true] {
+            if restarting {
+                sys.pokey.write(0x0f, 3);
+            }
+            let bytes = postcard::to_allocvec(&sys).expect("RANDOM transition");
+            let mut restored: Atari800xl = postcard::from_bytes(&bytes).expect("restore");
+            for _ in 0..600 {
+                assert_eq!(sys.pokey.read(0x0a), restored.pokey.read(0x0a));
+                sys.pokey.tick();
+                restored.pokey.tick();
+            }
+        }
+    }
+
+    #[test]
     fn snapshot_between_nmist_and_nmi_preserves_the_sampled_enable() {
         for region in [Atari800xlRegion::Ntsc, Atari800xlRegion::Pal] {
             let mut sys = Atari800xl::new(None, None, None, region, false).expect("machine");

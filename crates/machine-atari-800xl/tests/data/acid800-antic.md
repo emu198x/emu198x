@@ -34,7 +34,7 @@ fails. The normal mode checks exact known outcomes without hiding failures.
 | default | pass | pass |
 | dlistwrap | fail | fail |
 | dlitiming | pass | pass |
-| dmapattern | fail | fail |
+| dmapattern | pass | pass |
 | hiresbug | fail | fail |
 | hscrolbug | fail | fail |
 | linebuffering | fail | fail |
@@ -46,18 +46,18 @@ fails. The normal mode checks exact known outcomes without hiding failures.
 | virtdma | fail | fail |
 | vscroldli | fail | fail |
 | vscroll | fail | fail |
-| wsync | fail | fail |
+| wsync | pass | pass |
 
-**16 passes and 24 failures across 40 executions.** The initial survey had
+**20 passes and 20 failures across 40 executions.** The initial survey had
 10 passes and 30 failures. Correcting the playfield counter's 4 KB wrap makes
 the full address-wrap guest pass in both regions. Cycle-7 NMIST latching,
 cycle-8/9 NMI assertion and NMI edge capture during RDY holds also make
 the NMIST and complete DLI-timing probes pass. The counter wraps for character-name and bitmap fetches and when
 advancing between mode lines. LMS continues to select the upper four bits.
 
-A probe name does not isolate the failing chip. WSYNC currently stops at its
-initial POKEY RANDOM prerequisite; DMA-pattern decoding also relies on RANDOM
-values. Blocked-NMI tests exercise CPU interrupt sequencing as well as ANTIC.
+A probe name does not isolate the failing chip. Correcting POKEY RANDOM polarity, long-polynomial
+feedback and restart phase makes the complete WSYNC and DMA-pattern probes
+pass in both regions. Blocked-NMI tests exercise CPU interrupt sequencing as well as ANTIC.
 The first failing assertion can hide later failures in the same executable.
 
 Source trail: Mapping the Atari's screen-RAM/LMS restrictions; Altirra's
