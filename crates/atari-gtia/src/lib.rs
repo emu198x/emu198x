@@ -924,10 +924,11 @@ impl Gtia {
     fn advance_sprites_to(&mut self, end: u16) {
         while self.sprite_next_cc < end {
             let cc = self.sprite_next_cc;
-            // ANTIC starts GTIA's scanline at CPU cycle 16. A PRIOR change
-            // arriving at this clock follows the latch; turning a GTIA mode
-            // off later cannot restore hires until the next scanline.
-            if cc == 32 {
+            // ANTIC calls BeginScanline at cycle 16; Altirra GTIA Sync(-1)
+            // flushes through X*2+2 before sampling PRIOR for hires admission.
+            // Writes arriving at clock 34 follow that sample. Switching a
+            // GTIA mode off later cannot restore hires until the next line.
+            if cc == 34 {
                 self.hires_disabled = self.hires_prior & 0xc0 != 0;
             }
             let mut pending = 0;
@@ -2231,10 +2232,11 @@ mod tests {
 
     #[test]
     fn pseudo_mode_e_latches_at_cycle_16_and_restores_on_next_line() {
-        // Acid800 changes PRIOR at cycles 14 and 15. The latter leaves
+        // CPU callbacks on either side of the cycle-16 flush boundary.
+        // The latter leaves
         // ANTIC hires pairs decoded as PF0..PF3 for the entire line.
         for region in [GtiaRegion::Pal, GtiaRegion::Ntsc] {
-            for cycle in [14u16, 15] {
+            for callback_cc in [32u16, 34] {
                 for pair in 0..4u8 {
                     let mut gtia = Gtia::new(region);
                     gtia.write(0, 60);
@@ -2246,7 +2248,7 @@ mod tests {
                     pixels[24] = pair >> 1;
                     pixels[25] = pair & 1;
                     gtia.begin_scanline(0);
-                    gtia.advance_sprites_to((cycle + 1) * 2);
+                    gtia.advance_sprites_to(callback_cc);
                     gtia.write_from_cpu(0x1b, 4); // playfield wins priority
                     // Preserve an in-flight PRIOR write and the previous latch.
                     let bytes = postcard::to_allocvec(&gtia).expect("encode pending PRIOR");
@@ -2255,7 +2257,7 @@ mod tests {
                     for chip in [&mut gtia, &mut restored] {
                         chip.set_playfield(&pixels, 160, AnticMode::ModeF);
                         chip.finish_scanline();
-                        let expected = if cycle == 15 {
+                        let expected = if callback_cc == 34 {
                             1 << pair
                         } else if pair != 0 {
                             4
@@ -2265,7 +2267,7 @@ mod tests {
                         assert_eq!(chip.read(4), expected);
                         let base = region.border_top() as usize * chip.fb_width as usize;
                         assert_eq!(chip.framebuffer[base], chip.colour_to_argb32(0xb2));
-                        if cycle == 15 {
+                        if callback_cc == 34 {
                             let x = usize::from(120 - chip.fb_first_half_clock);
                             let colour = chip.colour_to_argb32(chip.colpf[usize::from(pair)]);
                             assert_eq!(&chip.framebuffer[base + x..base + x + 2], &[colour; 2]);

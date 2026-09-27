@@ -99,12 +99,12 @@
       "xex_sha256": "1aa407b44177510b78167ab4c07fb2339b2f00f4b91ecd2e930e49109a0de0d6",
       "symbols_sha256": "0417be6140a8dc6c8386880b5b9791404e54814fb437872bc5519d3b8e2bda56",
       "ntsc": {
-        "verdict": "fail",
-        "failure_signature": "4x-to-1x failed at index 0: expected $80, got $00"
+        "verdict": "pass",
+        "failure_signature": null
       },
       "pal": {
-        "verdict": "fail",
-        "failure_signature": "4x-to-1x failed at index 0: expected $80, got $00"
+        "verdict": "pass",
+        "failure_signature": null
       }
     },
     {

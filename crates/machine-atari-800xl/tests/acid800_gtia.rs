@@ -219,7 +219,7 @@ fn survey(region: Atari800xlRegion, region_name: &str) {
     }
     let report = serde_json::json!({"region":region_name, "results":results,
         "hardware_failures":hardware_failures, "strict":strict,
-        "note":"Known failures remain failures; the test checks a pinned baseline, not full conformance."});
+        "note":"Original guest verdicts for the pinned GTIA corpus; this is not complete Atari hardware conformance."});
     if let Some(directory) = std::env::var_os("EMU198X_ACID800_REPORT_DIR") {
         let directory = PathBuf::from(directory);
         std::fs::create_dir_all(&directory).expect("report directory");
