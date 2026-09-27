@@ -1,0 +1,267 @@
+{
+  "version": 1,
+  "os_sha256": "64f13699592f2c068e468dfb22c245c63b1317fd0f871aca798c29688424955d",
+  "basic_sha256": "4988cb41121921f997ab17a59dd1909fece9273699eba0c6fbaafae104aa27b0",
+  "cases": [
+    {
+      "name": "antic_addresswrap",
+      "xex_sha256": "18374382d66aa6a608057254f6ad00c7b32474f9db182c696e96135952ed6a9e",
+      "symbols_sha256": "67d6a96dca112ad48e8c710f54ccb7b89d2083b7401b398230885cb600542e0c",
+      "ntsc": {
+        "verdict": "pass",
+        "failure_signature": null
+      },
+      "pal": {
+        "verdict": "pass",
+        "failure_signature": null
+      }
+    },
+    {
+      "name": "antic_addrmirror",
+      "xex_sha256": "cab04637069a50c8ed890f1b05ab82783abac5a1d0e8d15bf9321c592df7f1b6",
+      "symbols_sha256": "9792c12ef659fcfac3b5b3d00a601ff7e08d9e95cfe782637ef829d96b820c23",
+      "ntsc": {
+        "verdict": "pass",
+        "failure_signature": null
+      },
+      "pal": {
+        "verdict": "pass",
+        "failure_signature": null
+      }
+    },
+    {
+      "name": "antic_blockednmi",
+      "xex_sha256": "bbbedebbdef7d240b54313d1ce412a261ee5e20e284d9194ce3e404c60ac22ea",
+      "symbols_sha256": "08801d73563946c24749859ad711a725f1206fbb9e84e538d99afac5efc6d9f1",
+      "ntsc": {
+        "verdict": "fail",
+        "failure_signature": "VBI handler should not have executed."
+      },
+      "pal": {
+        "verdict": "fail",
+        "failure_signature": "VBI handler should not have executed."
+      }
+    },
+    {
+      "name": "antic_charcontrol",
+      "xex_sha256": "7c5e3c6d1230c0b1259433a476398ded193edd7d368f8a34033042e6fa20500b",
+      "symbols_sha256": "ad9bc30d911dbfb1971d9c6ca6ac3838bf180d1a1042d2b76bbf8247ac573cde",
+      "ntsc": {
+        "verdict": "pass",
+        "failure_signature": null
+      },
+      "pal": {
+        "verdict": "pass",
+        "failure_signature": null
+      }
+    },
+    {
+      "name": "antic_default",
+      "xex_sha256": "d84577082dc185bdfb51e8ce6c3c4c6ac236829ad29b59a0a57d7c357477b064",
+      "symbols_sha256": "6f3408725f1e64d79bc9697cde9d81c61084313fa09c0d24f5af6eb4a2b3bdff",
+      "ntsc": {
+        "verdict": "pass",
+        "failure_signature": null
+      },
+      "pal": {
+        "verdict": "pass",
+        "failure_signature": null
+      }
+    },
+    {
+      "name": "antic_dlistwrap",
+      "xex_sha256": "3aaf3e2564ff68c0844407613d7a157ea908c8d40d291ce877f0c1df8dd3d731",
+      "symbols_sha256": "7094d7334c323aa6921c962e254f5d57baa1d2dd6ba4e1a48837462215e60d67",
+      "ntsc": {
+        "verdict": "fail",
+        "failure_signature": "DLI was not carried over around VBLANK ."
+      },
+      "pal": {
+        "verdict": "fail",
+        "failure_signature": "DLI was not carried over around VBLANK ."
+      }
+    },
+    {
+      "name": "antic_dlitiming",
+      "xex_sha256": "58f2a1933f6935ede19fa3ebcc38b645ba4d099bcb254c2ae88313b029eae7cc",
+      "symbols_sha256": "f52b3c19909a8ea3cc974d47ecab5eda536b49f2d1ade3bc165cebdd93233c80",
+      "ntsc": {
+        "verdict": "fail",
+        "failure_signature": "Even count incorrect: $06 != $0a"
+      },
+      "pal": {
+        "verdict": "fail",
+        "failure_signature": "Even count incorrect: $06 != $0a"
+      }
+    },
+    {
+      "name": "antic_dmapattern",
+      "xex_sha256": "7d725c67470094dfd9de97151d2a0d5f165c4fa97b800413e75eba5ee282f806",
+      "symbols_sha256": "dbbcdfff349b7516e96077fd94d6361e858dd9b30695be3328617c4d62ce1898",
+      "ntsc": {
+        "verdict": "fail",
+        "failure_signature": "Cannot decode random pair: 19 46"
+      },
+      "pal": {
+        "verdict": "fail",
+        "failure_signature": "Cannot decode random pair: E1 95"
+      }
+    },
+    {
+      "name": "antic_hiresbug",
+      "xex_sha256": "380e30264b28e5022997ad7c32f6bb7b1219a68351ae32a5eed52b6cc67f72f6",
+      "symbols_sha256": "0cbd5461eafa4d7993f8a498bbffe56358c41d90ce3e6b39f5b21333ff6bc13f",
+      "ntsc": {
+        "verdict": "fail",
+        "failure_signature": "Collision not found with bug: $00"
+      },
+      "pal": {
+        "verdict": "fail",
+        "failure_signature": "Collision not found with bug: $00"
+      }
+    },
+    {
+      "name": "antic_hscrolbug",
+      "xex_sha256": "caadb21cb841b0a1fa843b8ae82e36a8777745891ac4ea2bfd309ef0a3d81753",
+      "symbols_sha256": "95d12abf2bd1fd2e4ba140bb36f3318b518f640d10d611ad56dbabb98282a08d",
+      "ntsc": {
+        "verdict": "fail",
+        "failure_signature": "Unstopped PF DMA test failed: cl=02"
+      },
+      "pal": {
+        "verdict": "fail",
+        "failure_signature": "Unstopped PF DMA test failed: cl=02"
+      }
+    },
+    {
+      "name": "antic_linebuffering",
+      "xex_sha256": "8853225aee4f686b37b2c94cbb16f0b39e087897d414157e720528ecb82f5d82",
+      "symbols_sha256": "2c0505dd956fecb010c5c7268b7b43a036319ba1e0f171649d47d7e5268d4940",
+      "ntsc": {
+        "verdict": "fail",
+        "failure_signature": "Readout incorrect for aliased mode 8: 04040202"
+      },
+      "pal": {
+        "verdict": "fail",
+        "failure_signature": "Readout incorrect for aliased mode 8: 04040202"
+      }
+    },
+    {
+      "name": "antic_nmist",
+      "xex_sha256": "435f96791d4e4a233b429154a0701723ec44532cacbd1cc363b88fb2a0174f95",
+      "symbols_sha256": "c854aa726d23a504622bb33dd20a2a9d39040fc2db0a6dd7fcc89fd7f7bb8eff",
+      "ntsc": {
+        "verdict": "fail",
+        "failure_signature": "DLI bit set too early (<cycle 6)."
+      },
+      "pal": {
+        "verdict": "fail",
+        "failure_signature": "DLI bit set too early (<cycle 6)."
+      }
+    },
+    {
+      "name": "antic_pfstarttiming",
+      "xex_sha256": "0c2b78c7008d2c286bc1f65cc64017c2320e8b295bd2248b7c7a44b4c1967cc8",
+      "symbols_sha256": "8b8c15eea4dae3a18fb6494a1f1d173a0b73b114bafeac13b80253134ca228df",
+      "ntsc": {
+        "verdict": "fail",
+        "failure_signature": "Character mode DMACTL early test faile d: stride=20"
+      },
+      "pal": {
+        "verdict": "fail",
+        "failure_signature": "Character mode DMACTL early test faile d: stride=20"
+      }
+    },
+    {
+      "name": "antic_pfstoptiming",
+      "xex_sha256": "2626671baa380ae04679c0d5cb779a480b25ad3aa64ff728ca5c8941aacac679",
+      "symbols_sha256": "f3aea05b7daf2df7de67db246335999cde43cf7797b32a294eaacf3aca8f5f82",
+      "ntsc": {
+        "verdict": "fail",
+        "failure_signature": "Character mode DMACTL early test faile d: stride=16"
+      },
+      "pal": {
+        "verdict": "fail",
+        "failure_signature": "Character mode DMACTL early test faile d: stride=16"
+      }
+    },
+    {
+      "name": "antic_pmdma",
+      "xex_sha256": "50e73d720378452f8034a3e48f95aed207125e8ecff5106094ebd5307bd77ec0",
+      "symbols_sha256": "f8e005e29f0826fee3947f27f85689097f9b4b390332aa34dffcbd8bbba7e3d3",
+      "ntsc": {
+        "verdict": "pass",
+        "failure_signature": null
+      },
+      "pal": {
+        "verdict": "pass",
+        "failure_signature": null
+      }
+    },
+    {
+      "name": "antic_vcount",
+      "xex_sha256": "567e61c97191651793f8729f7931c71c643152f09af79e0d6dc76f0ff3a1e329",
+      "symbols_sha256": "f135b6a48cc0ffad0ff5a604f8074ad8e26ac67a35c73af691fe6d676a433dd4",
+      "ntsc": {
+        "verdict": "pass",
+        "failure_signature": null
+      },
+      "pal": {
+        "verdict": "pass",
+        "failure_signature": null
+      }
+    },
+    {
+      "name": "antic_virtdma",
+      "xex_sha256": "a13fc357193683360c8c0c1fbd0eb2a016800549cd31070ca6a821b29e26354c",
+      "symbols_sha256": "f017ff34d3d07ecc615d815eeb8e81a656fde20c1ca8e12f86b247b34e35b0ea",
+      "ntsc": {
+        "verdict": "fail",
+        "failure_signature": "Pattern #2 was not correct: 00 != $05"
+      },
+      "pal": {
+        "verdict": "fail",
+        "failure_signature": "Pattern #2 was not correct: 00 != $05"
+      }
+    },
+    {
+      "name": "antic_vscroldli",
+      "xex_sha256": "b90e5c4ff85e0039e2a94d0f8b934f33eb35652aba394f148a87cead23c208d9",
+      "symbols_sha256": "26dc2655bf027064dbfbc6161848531c5aa91a0c0f3ff3491f557c13cbbf4747",
+      "ntsc": {
+        "verdict": "fail",
+        "failure_signature": "VSCROL took effect too early."
+      },
+      "pal": {
+        "verdict": "fail",
+        "failure_signature": "VSCROL took effect too early."
+      }
+    },
+    {
+      "name": "antic_vscroll",
+      "xex_sha256": "b16aca83f914b429a8504c3282f55940308aeb4a747d430ba8a74123694a0a93",
+      "symbols_sha256": "c3a61a029fe17536a8f047651dd86be5eafc52fea60f71d558df59776ee2defd",
+      "ntsc": {
+        "verdict": "fail",
+        "failure_signature": "Failed test #5: expected 15, got 19"
+      },
+      "pal": {
+        "verdict": "fail",
+        "failure_signature": "Failed test #5: expected 15, got 19"
+      }
+    },
+    {
+      "name": "antic_wsync",
+      "xex_sha256": "ef40b822126c72329345c5621dc2bc7c9a2837e41cf56b619a9207ab912df932",
+      "symbols_sha256": "93eb9dff6b52411181a0e31d1b345a543e8e886fea459ac0731fa64d0a2343d2",
+      "ntsc": {
+        "verdict": "fail",
+        "failure_signature": "Initial RANDOM incorrect: $E1 != $95."
+      },
+      "pal": {
+        "verdict": "fail",
+        "failure_signature": "Initial RANDOM incorrect: $F8 != $95."
+      }
+    }
+  ]
+}

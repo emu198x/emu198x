@@ -1,0 +1,65 @@
+# Original Acid800 ANTIC probes
+
+`acid800_antic.rs` runs all twenty original ANTIC standalone probes in PAL and
+NTSC through the same hash-pinned runner as [GTIA](acid800-gtia.md). Avery Lee's
+guest executables remain unmodified. No ROMs, XEX files, symbol files or source
+material are distributed with the harness.
+
+The manifest pins each XEX and MADS symbol file plus the XL OS/BASIC firmware.
+Every guest starts from the same fresh BASIC READY snapshot and must return to
+`_testEnd` with the expected Y status and diagnostic. Timeouts, skips and unknown
+statuses cannot match the recorded pass/fail baseline. Failures are reported as
+hardware failures even when their signatures match; a green baseline test is
+not an ANTIC conformance claim. See the GTIA README for loader limits and setup.
+
+```sh
+EMU198X_ACID800_ROOT=/path/to/Acid800/standalone \
+EMU198X_ROMS_ROOT=/path/to/roms \
+EMU198X_ACID800_REPORT_DIR=/tmp/acid800-results \
+cargo test -p machine-atari-800xl --test acid800_antic -- --ignored --nocapture
+```
+
+Reports are `antic-ntsc.json` and `antic-pal.json`, separate from the GTIA
+reports. `EMU198X_ACID800_STRICT=1` requires every guest to pass and currently
+fails. The normal mode checks exact known outcomes without hiding failures.
+
+## Recorded baseline
+
+| Probe | NTSC | PAL |
+|---|---|---|
+| addresswrap | pass | pass |
+| addrmirror | pass | pass |
+| blockednmi | fail | fail |
+| charcontrol | pass | pass |
+| default | pass | pass |
+| dlistwrap | fail | fail |
+| dlitiming | fail | fail |
+| dmapattern | fail | fail |
+| hiresbug | fail | fail |
+| hscrolbug | fail | fail |
+| linebuffering | fail | fail |
+| nmist | fail | fail |
+| pfstarttiming | fail | fail |
+| pfstoptiming | fail | fail |
+| pmdma | pass | pass |
+| vcount | pass | pass |
+| virtdma | fail | fail |
+| vscroldli | fail | fail |
+| vscroll | fail | fail |
+| wsync | fail | fail |
+
+**12 passes and 28 failures across 40 executions.** The initial survey had
+10 passes and 30 failures. Correcting the playfield counter's 4 KB wrap makes
+the full address-wrap guest pass in both regions; all other outcomes remain
+unchanged. The counter wraps for character-name and bitmap fetches and when
+advancing between mode lines. LMS continues to select the upper four bits.
+
+A probe name does not isolate the failing chip. WSYNC currently stops at its
+initial POKEY RANDOM prerequisite; DMA-pattern decoding also relies on RANDOM
+values. Blocked-NMI tests exercise CPU interrupt sequencing as well as ANTIC.
+The first failing assertion can hide later failures in the same executable.
+
+Source trail: Mapping the Atari's screen-RAM/LMS restrictions; Altirra's
+separate playfield page and masked 12-bit offset; the original
+`antic_addresswrap.s` collision-based check. Detailed investigations and guest
+reports are retained in the private shared reference library.

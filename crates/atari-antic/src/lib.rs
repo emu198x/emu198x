@@ -1033,12 +1033,12 @@ impl Antic {
                     self.char_codes.clear();
                     for i in 0..u16::from(bytes) {
                         self.char_codes
-                            .push(mem.read(self.memory_scan.wrapping_add(i)));
+                            .push(mem.read(playfield_address(self.memory_scan, i)));
                     }
                     let (start, step, count) = playfield_schedule(&desc, width_bits, self.hscrol);
                     self.claim_playfield(start, step, count);
                     // Memory scan advances past character codes
-                    self.memory_scan = self.memory_scan.wrapping_add(u16::from(bytes));
+                    self.memory_scan = playfield_address(self.memory_scan, u16::from(bytes));
                 }
             }
             _ => unreachable!(),
@@ -1068,7 +1068,7 @@ impl Antic {
         });
         if !desc.char_mode && self.mode_line >= self.row_end {
             let bytes = adjust_bytes_for_width(desc.bytes_per_line, fetch_bits);
-            self.memory_scan = self.memory_scan.wrapping_add(u16::from(bytes));
+            self.memory_scan = playfield_address(self.memory_scan, u16::from(bytes));
         }
     }
 
@@ -1449,6 +1449,13 @@ impl Antic {
     }
 }
 
+/// ANTIC's playfield counter increments only its low twelve bits. LMS loads
+/// the upper page; neither a fetch nor line advancement carries into it.
+/// Mapping the Atari (screen RAM / LMS); Altirra PFRowDMAPtrBase + (offset & $FFF).
+fn playfield_address(base: u16, offset: u16) -> u16 {
+    (base & 0xf000) | (base.wrapping_add(offset) & 0x0fff)
+}
+
 /// Render a bitmap mode scan line from `bytes` bytes at `memory_scan`.
 fn render_bitmap_line<M: AnticMemory + ?Sized>(
     mem: &M,
@@ -1460,7 +1467,7 @@ fn render_bitmap_line<M: AnticMemory + ?Sized>(
 
     // Fetch playfield data bytes
     for i in 0..u16::from(bytes) {
-        let data = mem.read(memory_scan.wrapping_add(i));
+        let data = mem.read(playfield_address(memory_scan, i));
 
         if desc.bits_per_pixel == 1 {
             // 1 bit per pixel — 8 pixels per byte
@@ -1508,6 +1515,41 @@ mod tests {
     /// Helper: create a minimal 64KB RAM array.
     fn make_ram() -> Vec<u8> {
         vec![0u8; 65536]
+    }
+
+    #[test]
+    fn character_and_bitmap_playfields_wrap_within_the_lms_page() {
+        for region in [AnticRegion::Ntsc, AnticRegion::Pal] {
+            for mode in [2u8, 15] {
+                for (width, bytes) in [(1, 32usize), (2, 40), (3, 48)] {
+                    let mut ram = make_ram();
+                    ram[0x6000..0x6004].copy_from_slice(&[0x40 | mode, 0xf0, 0x2f, mode]);
+                    ram[0x2000..0x2100].fill(if mode == 2 { 1 } else { 0xff });
+                    // Crossing into $3000 would leave the second half blank.
+                    // Character 1 is solid; character 0 and page $3000 are empty.
+                    ram[0x4008..0x4010].fill(0xff);
+                    let mut antic = Antic::new(region);
+                    antic.dlist = 0x6000;
+                    antic.chbase = 0x40;
+                    antic.dmactl = 0x20 | width;
+                    antic.scan_line = VISIBLE_START;
+                    antic.begin_line(&ram[..]);
+                    let line = antic.fetch_playfield(&ram[..]).expect("playfield");
+                    assert_eq!(line.playfield.len(), bytes * 8);
+                    assert!(line.playfield[..128].iter().all(|&p| p == 0));
+                    assert!(line.playfield[128..].iter().all(|&p| p == 1));
+                    assert_eq!(antic.memory_scan, 0x2000 + bytes as u16 - 16);
+                    while antic.dl_active {
+                        antic.begin_line(&ram[..]);
+                        antic.fetch_playfield(&ram[..]);
+                    }
+                    antic.begin_line(&ram[..]);
+                    let next = antic.fetch_playfield(&ram[..]).expect("next mode line");
+                    assert!(next.playfield.iter().all(|&p| p == 1));
+                    assert_eq!(antic.memory_scan, 0x2000 + 2 * bytes as u16 - 16);
+                }
+            }
+        }
     }
 
     #[test]
