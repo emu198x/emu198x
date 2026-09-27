@@ -28,7 +28,8 @@ use crate::runtime::Atari5200Runtime;
 /// Version 6 adds GTIA sprite shift registers and divider phases.
 /// Version 7 adds active sprite registers and pending propagation.
 /// Version 8 adds display-list bus bytes and phantom DMA capture state.
-const SNAPSHOT_VERSION: u16 = 8;
+/// Version 9 adds GTIA hires admission and its delayed PRIOR latch.
+const SNAPSHOT_VERSION: u16 = 9;
 
 /// Borrowing envelope used during encode — avoids cloning the live machine.
 #[derive(Serialize)]
@@ -102,10 +103,10 @@ mod tests {
     #[test]
     fn old_layout_is_rejected_before_decoding_its_body() {
         let mut runtime = Atari5200Runtime::blank(Model::A5200Ntsc);
-        let bytes = postcard::to_allocvec(&7u16).expect("old version prefix");
+        let bytes = postcard::to_allocvec(&8u16).expect("old version prefix");
         let error = decode(&mut runtime, &bytes).expect_err("old format must reject");
         assert!(
-            matches!(error, MachineError::InvalidSnapshot { reason } if reason.contains("unsupported snapshot version 7"))
+            matches!(error, MachineError::InvalidSnapshot { reason } if reason.contains("unsupported snapshot version 8"))
         );
     }
 
