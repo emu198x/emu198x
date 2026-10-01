@@ -9,9 +9,10 @@
 # The firmware is a separate matter and still needs its own credential. The
 # published package embeds the 48K ROM, under the permission recorded in
 # knowledge/decisions/test-rom-policy.md § Firmware in a published browser
-# build, and the ROM is not in this repository. It comes from the same corpora
-# store CI already provisions from, verified by checksum before it is used.
-# Without that store configured this job does nothing rather than publishing a
+# build, and the ROM is not in this repository. It arrives as the encrypted
+# EMU198X_SPECTRUM_48K_ROM_B64 secret, the same one Code198x's deploy uses for
+# its player, and build-npm.sh refuses it unless its SHA1 is the unmodified
+# image's. Without the secret this job does nothing rather than publishing a
 # package with no machine in it.
 #
 # Reconciling rather than event-driven: it runs on every push to main and asks
@@ -40,22 +41,19 @@ jobs:
     permissions:
       contents: read
       id-token: write
-    env:
-      CORPORA_REPO: ${{ vars.ACCURACY_CORPORA_REPO }}
-      CORPORA_TAG: ${{ vars.ACCURACY_CORPORA_TAG || 'v1' }}
     steps:
       - uses: actions/checkout@v7
 
-      - name: Check the corpora store is configured
+      - name: Check the 48K ROM secret is set
         id: store
         env:
-          CORPORA_TOKEN: ${{ secrets.ACCURACY_CORPORA_TOKEN }}
+          ROM_B64: ${{ secrets.EMU198X_SPECTRUM_48K_ROM_B64 }}
         run: |
-          if [ -n "${CORPORA_TOKEN}" ] && [ -n "${CORPORA_REPO}" ]; then
+          if [ -n "${ROM_B64}" ]; then
             echo "configured=true" >> "$GITHUB_OUTPUT"
           else
             echo "configured=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::Corpora store not configured — the npm package was NOT published."
+            echo "::warning::EMU198X_SPECTRUM_48K_ROM_B64 not set — the npm package was NOT published."
           fi
 
       - name: Read the toolchain the repository pins
@@ -99,23 +97,17 @@ jobs:
         if: steps.store.outputs.configured == 'true'
         run: npm install -g npm@11
 
-      - name: Provision the 48K ROM from the store
+      # The accuracy-corpora store's z80test/48.rom is not the genuine image
+      # (272 bytes differ in the spare area from 0x386E), so publishing takes
+      # the ROM from the secret instead. It lives only in a runner temp file.
+      - name: Provide the 48K ROM
         if: steps.store.outputs.configured == 'true'
         env:
-          GH_TOKEN: ${{ secrets.ACCURACY_CORPORA_TOKEN }}
+          ROM_B64: ${{ secrets.EMU198X_SPECTRUM_48K_ROM_B64 }}
         run: |
           set -euo pipefail
-          mkdir -p corpora
-          cd corpora
-          gh release download "${CORPORA_TAG}" -R "${CORPORA_REPO}" \
-            -p 'z80test.tar.zst' -p 'SHA256SUMS'
-          grep " z80test.tar.zst\$" SHA256SUMS | sha256sum -c -
-          tar --zstd -xf 'z80test.tar.zst'
-          # The same image CI's firmware evidence runs against. The build
-          # script refuses it unless its SHA1 is the unmodified 48K ROM's,
-          # because the permission requires the image verbatim and a patched
-          # one compiles and boots perfectly well.
-          echo "EMU198X_SPECTRUM_48K_ROM=$(pwd)/z80test/48.rom" >> "$GITHUB_ENV"
+          printf '%s' "${ROM_B64}" | base64 -d > "${RUNNER_TEMP}/spectrum-48k.rom"
+          echo "EMU198X_SPECTRUM_48K_ROM=${RUNNER_TEMP}/spectrum-48k.rom" >> "$GITHUB_ENV"
 
       - name: Build and publish
         if: steps.store.outputs.configured == 'true'
