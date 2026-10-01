@@ -389,6 +389,17 @@ When a new test ROM corpus is added:
 
 ## Log
 
+### 2026-10-01 — npm publishing takes the 48K ROM from a secret
+
+`publish-npm.yml` no longer reads the ROM from the accuracy-corpora store,
+whose `z80test/48.rom` is the patched image, so 0.4.1 could not be built from
+it. Steve chose to give this repository the encrypted
+`EMU198X_SPECTRUM_48K_ROM_B64` secret that Code198x's deploy already uses for
+its player, decoded to a runner temp file. The SHA1 guard in `build-npm.sh` is
+unchanged, so only the genuine image can be published, and without the secret
+the job does nothing. The corpora store is left as it is; no record says who
+altered its image or why.
+
 ### 2026-09-26 — Every published npm version carried a patched 48K ROM
 
 `@emu198x/zx-spectrum` 0.1.0, 0.2.0, 0.3.0 and 0.4.0 all embed a 48K image
