@@ -812,6 +812,7 @@ jobs:
           for f in "${EMU198X_SPECTRUM_128K_ROM0}" \
                    "${EMU198X_SPECTRUM_128K_ROM1}" \
                    "${EMU198X_SPECTRUM_SYSTEM_TESTS_DIR}/halt2int128.tap" \
+                   "${EMU198X_SPECTRUM_SYSTEM_TESTS_DIR}/Super HALT Invaders Test (2021-10-07)(Woodmass, Mark)[!].tap" \
                    "${EMU198X_ZX_SPECTRUM_TESTS_DIR}/ZX Spectrum Timing Tests - 128K v1.0 (2015-03-30)(Butler, Richard; Butler, Tim)[!].szx"; do
             if [ ! -f "$f" ]; then
               echo "::error::missing corpus input: $f — the 128K oracles would skip"
@@ -835,6 +836,16 @@ jobs:
           cargo test --release -p machine-sinclair-zx-spectrum-128k \
             --test tape_smoke -- --include-ignored --nocapture \
             halt2int128
+
+      - name: Super HALT Invaders (128K in-game change detector)
+        # A self-locked golden, not an oracle: it says the 128K's timing
+        # moved, not whether the move is right. Selected by name because no
+        # other step's filter matches it, and a golden nobody runs drifts
+        # silently (#1585).
+        run: |
+          cargo test --release -p machine-sinclair-zx-spectrum-128k \
+            --test tape_smoke -- --include-ignored --nocapture \
+            super_halt_invaders
 
       - name: ZXSpectrum4.net timing survey, early Toastrack profile
         # The provisioned corpus has Toastrack ROMs only. The grey +2
