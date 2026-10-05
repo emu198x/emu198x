@@ -47,6 +47,7 @@ the browser will blur the pixels.
 | `tick(elapsedMs)` | Run elapsed real time and draw. Returns frames run. |
 | `loadSnapshot(bytes, format)` | Load a `.sna` or `.z80` snapshot. |
 | `load(slot, kind, bytes)` | Load media — for example a tape into `tape-1`. |
+| `autoload(maxBootFrames)` | Load the tape in `tape-1`: type `LOAD ""` and press play. A machine that has already run is reset first; the tape stays in. |
 | `keyDown(code)` / `keyUp(code)` | Feed a DOM `KeyboardEvent.code`. |
 | `setAudioEnabled(on)` | Start or stop audio. |
 | `configureAudio(rate, channels, capacity)` | Match the page's `AudioContext`. |

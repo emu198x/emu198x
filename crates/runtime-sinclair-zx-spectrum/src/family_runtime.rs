@@ -624,6 +624,16 @@ impl MachineCore for SpectrumRuntimeKind {
         } else {
             max_boot_frames
         };
+        // Autoload starts from power-on. A machine that has already run has
+        // usually cleared the copyright banner the helper waits for, and the
+        // wait timed out with "boot was not detected" (#1569). Reset it,
+        // keeping the tape in the deck; a machine that has not run yet is
+        // left alone, so a fresh session still boots once.
+        if session.time() != MachineTime::default() {
+            session
+                .reset(ResetKind::Hard)
+                .map_err(|err| emu198x_shell::LoaderError::Failed(err.to_string()))?;
+        }
         let result = crate::autoload::autoload_basic_tape(session, slot, frames)
             .map_err(|err| emu198x_shell::LoaderError::Failed(err.to_string()))?;
         Ok(emu198x_shell::TapeAutoloaded {

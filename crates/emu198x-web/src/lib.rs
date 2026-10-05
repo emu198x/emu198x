@@ -26,7 +26,7 @@ use emu198x_shell::query::{
 use emu198x_shell::session::SessionError;
 use emu198x_shell::{
     FamilyRuntime, HostIo, InputEvent, MachineError, MachineTime, MediaImage, MediaKind, MediaSet,
-    NullTraceSink, SessionDriver,
+    NullTraceSink, ResetKind, SessionDriver,
 };
 
 pub use audio::WebAudioOutput;
@@ -286,6 +286,16 @@ impl<R: FamilyRuntime, Q: SessionQueryProvider<R>> WebMachine<R, Q> {
     /// Reports unsupported or failed runtime serialisation.
     pub fn save_state(&self) -> Result<Vec<u8>, MachineError> {
         self.runtime.snapshot()
+    }
+
+    /// Resets the machine and discards host input and sound queued for the
+    /// machine it replaces, as the native session's reset does. Loaded media
+    /// stays in its slot.
+    pub fn reset(&mut self, kind: ResetKind) {
+        self.runtime.reset(kind);
+        self.pending_input.clear();
+        let _ = self.audio.drain();
+        self.last_run_result = None;
     }
 
     /// Restores runtime state and discards stale host input, sound and pacing.
