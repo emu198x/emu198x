@@ -94,7 +94,12 @@
 //! 16 896-cycle frames instead of 19 968 — on a 50 Hz set that is the
 //! "unstable display" the Atmos Handbook warns about.
 //!
-//! Same 8-colour 3-bit RGB palette as the Acorn / BBC family.
+//! **No CPU contention.** The ULA interleaves DRAM access within each 1 µs
+//! cycle — one half for the 6502, the other for the ULA's two video fetches,
+//! made in TEXT and HIRES alike — so the 6502 never waits and runs exactly
+//! 64 cycles a line in every mode (Mike Brown, *The Oric 1/Atmos Unofficial ULA Guide* v1.02,
+//! "Memory Multiplex"). Same 8-colour 3-bit RGB palette as the Acorn / BBC
+//! family.
 
 use emu198x_mos_6502::M6502;
 use gi_ay_3_8912::{Ay3_8912, AyWriteRecord, AyWriteWatch};
@@ -136,7 +141,8 @@ pub const FB_HEIGHT: u32 = 224;
 
 const CPU_CLOCK_HZ: u32 = 1_000_000;
 /// One line is one pass of the ULA's 6-bit horizontal counter, clocked at
-/// 1 MHz.
+/// 1 MHz. The 6502 is never held off the bus (see the module docs), so this
+/// holds in TEXT and HIRES alike.
 const CYCLES_PER_LINE: u32 = 64;
 /// Lines per frame with the mode register's 50 Hz bit set. Brown's ULA guide
 /// decodes the frame end as `V8 AND V5 AND V4 AND V3` — count 312 — and the
@@ -1005,6 +1011,35 @@ mod tests {
         sys.ram[0xBB80 + 10 * 40] = 0x40;
         sys.ram[0xA000 + 80 * 40] = 0x1E; // HIRES, 50 Hz
         assert_eq!(sys.run_frame(), 312 * 64);
+    }
+
+    /// The 6502 is never held off the bus: the ULA takes its DRAM slots in
+    /// the other half of each 1 µs cycle (Brown's ULA guide, "Memory
+    /// Multiplex"). So a CPU-bound loop gets 64 cycles a line in TEXT and in
+    /// HIRES alike — there is no contention to model (#340).
+    #[test]
+    fn the_cpu_runs_uncontended_in_text_and_hires() {
+        let measure = |mode: u8| {
+            let mut sys = OricAtmos::new(trap_rom(), OricModel::Atmos);
+            sys.ula_mode = mode;
+            sys.run_frame(); // past the reset sequence
+            let start = sys.cpu_cycles();
+            let mut jumps = 0u64;
+            while sys.frame_count() < 3 {
+                sys.step_instruction();
+                jumps += 1;
+            }
+            (sys.cpu_cycles() - start, jumps)
+        };
+        let (text_cycles, text_jumps) = measure(MODE_50HZ);
+        let (hires_cycles, hires_jumps) = measure(MODE_HIRES | MODE_50HZ);
+
+        assert_eq!((text_cycles, text_jumps), (hires_cycles, hires_jumps));
+        // Two frames of the three-cycle `JMP $C000` loop: one jump per three
+        // cycles, with no cycle lost to the ULA.
+        let frames = 2 * 312 * 64;
+        assert!(text_cycles.abs_diff(frames) < 3, "{text_cycles}");
+        assert!(text_jumps.abs_diff(text_cycles / 3) <= 1, "{text_jumps}");
     }
 
     #[test]
