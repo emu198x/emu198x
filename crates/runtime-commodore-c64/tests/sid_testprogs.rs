@@ -124,3 +124,22 @@ fn ringmod_inverts_the_triangle_on_a_clear_source_msb() {
         assert_eq!(border(&mut session), BORDER_PASS, "verdict on {model:?}");
     }
 }
+
+/// `busvalue`: write-only and undecoded registers read the last byte on the
+/// SID's data bus, refreshed by the OSC3 read just before.
+#[test]
+#[ignore = "FIXTURE: requires ~/.emu198x/roms/commodore-c64 + ~/.emu198x/test-suites/c64-sid"]
+fn busvalue_write_only_reads_return_the_bus_value() {
+    if !staged() {
+        emu198x_test_skip::skip!("C64 ROMs or VICE SID testprogs not staged");
+    }
+    for model in [Model::C64PalBreadbin, Model::C64cPal] {
+        let mut session = run_testprog("busvalue/busvalue.prg", model, 30);
+        assert_eq!(
+            screen(&mut session, 0x18),
+            0xA5,
+            "write-only read after a write on {model:?}"
+        );
+        assert_eq!(border(&mut session), BORDER_PASS, "verdict on {model:?}");
+    }
+}

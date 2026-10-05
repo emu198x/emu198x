@@ -127,8 +127,8 @@ fn snapshot_round_trip_is_fixed_point_after_warmup() -> Result<(), Box<dyn Error
 /// state became inspectable and restorable, and to 7 when the forced-badline
 /// C/V/G output-delay and bounded C-data carry became explicit snapshot state,
 /// to 8 when the fixture-specific saved matrix entry became the exact
-/// 12-bit C-data carry age and value, and to 9 when SID waveform-generator
-/// state (the TEST-held noise drift, #777) joined the voices.
+/// 12-bit C-data carry age and value, and to 9 when SID state (the TEST-held
+/// noise drift and the decaying data-bus value, #777) joined the envelope.
 #[test]
 fn snapshot_envelope_version_is_locked_at_v9() -> Result<(), Box<dyn Error>> {
     let runtime = C64Runtime::new(

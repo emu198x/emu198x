@@ -1244,7 +1244,7 @@ impl C64 {
                 if reg == 0x19 || reg == 0x1A {
                     self.refresh_paddle_pots();
                 }
-                self.sid.read(reg)
+                self.sid.cpu_read(reg)
             }
             // Colour RAM is 4-bit static RAM: the low nibble is the stored
             // colour, the high nibble is open bus — the last byte the VIC-II
@@ -2693,6 +2693,19 @@ mod tests {
         assert_eq!(machine.memory().ram_read(0xD400), 0xAA);
         assert_eq!(machine.memory().ram_read(0xD401), 0xBB);
         assert_eq!(machine.memory().ram_read(0xD418), 0xCC);
+    }
+
+    #[test]
+    fn sid_write_only_registers_read_back_the_data_bus() {
+        // VICE testprogs/SID/busvalue: a write-only SID register reads the
+        // last byte on the SID's data bus, refreshed by writes and by reads of
+        // the readable registers, through every 32-byte mirror.
+        let mut machine = stub_machine(C64Model::PalBreadbin);
+        machine.cpu_write(0xD410, 0xA5);
+        assert_eq!(machine.cpu_read(0xD400), 0xA5);
+        assert_eq!(machine.cpu_read(0xD7E0), 0xA5, "mirrored at $D7E0");
+        let env3 = machine.cpu_read(0xD41C);
+        assert_eq!(machine.cpu_read(0xD41D), env3, "undecoded $1D sees ENV3");
     }
 
     #[test]

@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `Sid6581::cpu_read`, the CPU read path that drives the SID data bus; `Sid6581::read` stays side-effect-free (#777)
 - allocation-free reusable mixed and per-voice audio drains for real-time consumers
 
 ### Fixed
@@ -21,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - ring modulation substitutes MSB EOR NOT source MSB, and sawtooth blocks it (#777)
 - ground the triangle waveform's DAC bit 0 (#777)
 - holding TEST drifts the noise register to all ones over reSID's per-model delay instead of reseeding it every cycle, and releasing TEST shifts it once (#777)
+- reads of write-only and undecoded registers return the last byte on the SID data bus, which discharges to zero after $1D00 (6581) or $A2000 (8580) cycles (#777)
 
 ## [0.2.0](https://github.com/emu198x/emu198x/releases/tag/mos-sid-6581-v0.2.0) - 2026-06-04
 

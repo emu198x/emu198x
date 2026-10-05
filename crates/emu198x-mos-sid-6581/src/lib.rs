@@ -70,6 +70,10 @@ use serde::{Deserialize, Serialize};
 /// the re-capture discipline this constant enforces.
 pub const AUDIO_ROUTING_VERSION: u32 = 5;
 
+/// Data-bus hold time in cycles (see [`Sid6581::drive_bus`]).
+const DATABUS_TTL_6581: u32 = 0x1D00;
+const DATABUS_TTL_8580: u32 = 0xA_2000;
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SidModel {
     #[default]
@@ -256,6 +260,13 @@ pub struct Sid6581 {
     pub voice3_off: bool,
     pub potx: u8,
     pub poty: u8,
+    /// The last value driven on the SID's internal data bus — by any write,
+    /// or by a read of a readable register. Reads of write-only or undecoded
+    /// registers return it.
+    bus_value: u8,
+    /// Cycles until the bus capacitance has discharged and `bus_value`
+    /// reads zero.
+    bus_value_ttl: u32,
     accumulator: f32,
     channel_accumulators: [f32; 3],
     sample_count: u32,
@@ -297,6 +308,8 @@ impl Sid6581 {
             voice3_off: false,
             potx: 0x80,
             poty: 0x80,
+            bus_value: 0,
+            bus_value_ttl: 0,
             accumulator: 0.0,
             channel_accumulators: [0.0; 3],
             sample_count: 0,
@@ -333,22 +346,61 @@ impl Sid6581 {
         self.audio_controls.set_channel_gain(channel, gain);
     }
 
+    /// The value a CPU read of `addr` would return, without the read's side
+    /// effect on the data bus. Debuggers and inspectors use this; the CPU
+    /// path is [`Self::cpu_read`].
+    ///
+    /// `$19`-`$1C` are the readable registers. Every other address is
+    /// write-only or undecoded and returns the decaying bus value.
     #[must_use]
     pub fn read(&self, addr: u8) -> u8 {
+        self.readable_register(addr).unwrap_or(self.bus_value)
+    }
+
+    /// CPU read of `addr`. A read of a readable register drives its value onto
+    /// the SID's data bus and recharges it, so a following read of a
+    /// write-only register returns the same byte (VICE `testprogs/SID/
+    /// busvalue`). Per reSID `sid.cc` `SID::read`.
+    pub fn cpu_read(&mut self, addr: u8) -> u8 {
+        if let Some(value) = self.readable_register(addr) {
+            self.drive_bus(value);
+        }
+        self.bus_value
+    }
+
+    fn readable_register(&self, addr: u8) -> Option<u8> {
         match addr & 0x1F {
-            0x19 => self.potx,
-            0x1A => self.poty,
+            0x19 => Some(self.potx),
+            0x1A => Some(self.poty),
             0x1B => {
                 let ring_src_msb = self.voices[1].msb();
                 let waveform = self.voices[2].waveform_output(ring_src_msb, self.model);
-                (waveform >> 4) as u8
+                Some((waveform >> 4) as u8)
             }
-            0x1C => self.envelopes[2].level,
-            _ => 0,
+            0x1C => Some(self.envelopes[2].level),
+            _ => None,
         }
     }
 
+    /// Latch `value` on the internal data bus and recharge its hold time.
+    ///
+    /// The SID's data bus holds the last byte driven on it in its capacitance
+    /// and discharges to zero after roughly $1D00 cycles on the 6581 and
+    /// $A2000 on the 8580. Values from reSID `sid.cc` (`databus_ttl`) and
+    /// reSIDfp `SID.cpp` (`BUS_TTL_*`), both from VICE's `testprogs/SID/
+    /// bitfade` `delayfrq0`, which reads about $1D00 on a real 6581 and
+    /// $7A000-$108000 on real 8580R5s. reSIDfp also halves the remaining hold
+    /// time on each write-only read; reSID does not, and neither does this.
+    fn drive_bus(&mut self, value: u8) {
+        self.bus_value = value;
+        self.bus_value_ttl = match self.model {
+            SidModel::Mos6581 => DATABUS_TTL_6581,
+            SidModel::Mos8580 => DATABUS_TTL_8580,
+        };
+    }
+
     pub fn write(&mut self, addr: u8, value: u8) {
+        self.drive_bus(value);
         let reg = addr & 0x1F;
         match reg {
             0x00 => {
@@ -498,6 +550,13 @@ impl Sid6581 {
         // master-volume ladder; the external filter is the C64 board's output
         // coupling, which strips the operating-point DC and passes volume
         // steps through as the classic 4-bit digi.
+        if self.bus_value_ttl != 0 {
+            self.bus_value_ttl -= 1;
+            if self.bus_value_ttl == 0 {
+                self.bus_value = 0;
+            }
+        }
+
         self.filter
             .clock(voice_values[0], voice_values[1], voice_values[2]);
         self.ext_filter.clock(self.filter.output());
@@ -759,6 +818,58 @@ mod tests {
             assert_eq!(sid.voices[0].noise_lfsr, 0x0000_1234, "{model:?}");
             sid.write(0x04, 0x80); // TEST falling
             assert_eq!(sid.voices[0].noise_lfsr, 0x0000_2469, "{model:?}");
+        }
+    }
+
+    #[test]
+    fn write_only_registers_read_the_last_bus_value() {
+        let mut sid = Sid6581::new(985_248, 48_000);
+        assert_eq!(sid.cpu_read(0x00), 0x00, "bus starts discharged");
+        sid.write(0x10, 0xA5);
+        for reg in [0x00, 0x10, 0x18, 0x1D, 0x1E, 0x1F] {
+            assert_eq!(sid.cpu_read(reg), 0xA5, "register ${reg:02X}");
+        }
+    }
+
+    #[test]
+    fn readable_register_reads_drive_the_bus() {
+        let mut sid = Sid6581::new(985_248, 48_000);
+        sid.write(0x10, 0xA5);
+        let env3 = sid.cpu_read(0x1C);
+        assert_eq!(env3, 0x00);
+        assert_eq!(
+            sid.cpu_read(0x05),
+            env3,
+            "write-only read sees the ENV3 byte"
+        );
+        sid.potx = 0x42;
+        assert_eq!(sid.cpu_read(0x19), 0x42);
+        assert_eq!(sid.cpu_read(0x1F), 0x42, "undecoded read sees POTX");
+    }
+
+    #[test]
+    fn side_effect_free_read_does_not_drive_the_bus() {
+        let mut sid = Sid6581::new(985_248, 48_000);
+        sid.write(0x10, 0xA5);
+        sid.potx = 0x42;
+        assert_eq!(sid.read(0x19), 0x42);
+        assert_eq!(sid.read(0x00), 0xA5, "peek left the bus value alone");
+    }
+
+    #[test]
+    fn bus_value_discharges_after_the_model_hold_time() {
+        for (model, ttl) in [
+            (SidModel::Mos6581, DATABUS_TTL_6581),
+            (SidModel::Mos8580, DATABUS_TTL_8580),
+        ] {
+            let mut sid = Sid6581::new_with_model(985_248, 48_000, model);
+            sid.write(0x00, 0x5A);
+            for _ in 0..ttl - 1 {
+                sid.tick();
+            }
+            assert_eq!(sid.read(0x00), 0x5A, "{model:?} still holds");
+            sid.tick();
+            assert_eq!(sid.read(0x00), 0x00, "{model:?} discharged");
         }
     }
 

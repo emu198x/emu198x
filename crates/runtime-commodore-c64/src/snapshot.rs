@@ -13,8 +13,8 @@ use serde::{Deserialize, Serialize};
 use crate::drives::IecDriveSnapshot;
 use crate::runtime::C64Runtime;
 
-/// Version 9 adds SID waveform-generator state for #777: each voice's
-/// TEST-held noise-register drift timer.
+/// Version 9 adds SID state for #777: each voice's TEST-held noise-register
+/// drift timer, and the decaying data-bus value that write-only reads return.
 ///
 /// Version 8 replaces the fixture-specific forced-badline saved entry with the
 /// live 12-bit C-data carry age and value. The carry can change the next
