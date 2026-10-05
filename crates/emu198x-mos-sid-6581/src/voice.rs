@@ -168,6 +168,11 @@ impl Voice {
         }
     }
 
+    /// Triangle connects accumulator bits 22..12 (inverted while the MSB is
+    /// set) to DAC inputs 11..1; DAC bit 0 is left at zero. Per the die
+    /// analysis in reSID `wave.h` ("DAC bit 0 = 0, DAC bit n = accumulator
+    /// bit n - 1") and its triangle table (`... >> 11) & 0xffe`). Same on the
+    /// 6581 and 8580.
     fn triangle_output(&self, ring_mod_source_msb: bool) -> u16 {
         let tri = self.ring_modulated_accumulator(ring_mod_source_msb);
         let value = if tri & 0x0080_0000 != 0 {
@@ -175,7 +180,7 @@ impl Voice {
         } else {
             tri >> 11
         };
-        (value & 0x0FFF) as u16
+        (value & 0x0FFE) as u16
     }
 
     fn noise_output(&self) -> u16 {
@@ -282,7 +287,7 @@ mod tests {
             v.accumulator = 0;
             assert_eq!(
                 v.waveform_output(false, model),
-                0xFFF,
+                0xFFE,
                 "clear source MSB inverts the triangle ({model:?})"
             );
             assert_eq!(
@@ -291,6 +296,19 @@ mod tests {
                 "set source MSB leaves the triangle unfolded ({model:?})"
             );
         }
+    }
+
+    #[test]
+    fn triangle_dac_bit_zero_is_grounded() {
+        // Accumulator bit 11 is below the 11 bits triangle routes to the DAC.
+        let mut v = Voice::new();
+        v.control = TRI;
+        v.accumulator = 0x0000_0800;
+        assert_eq!(v.waveform_output(false, SidModel::Mos6581), 0x000);
+        v.accumulator = 0x0000_1800; // bit 12 -> DAC bit 1
+        assert_eq!(v.waveform_output(false, SidModel::Mos6581), 0x002);
+        v.accumulator = 0x0080_0000; // falling half starts at the top
+        assert_eq!(v.waveform_output(false, SidModel::Mos8580), 0xFFE);
     }
 
     #[test]

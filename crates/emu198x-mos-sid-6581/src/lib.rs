@@ -60,7 +60,8 @@ use serde::{Deserialize, Serialize};
 /// the waveform generator. The pulse comparator drives the line high while
 /// `acc >= PW` (it was inverted), which changes every pulse voice. Ring
 /// modulation substitutes `MSB EOR NOT source-MSB` (the polarity was
-/// inverted) and is blocked when sawtooth is co-selected. Further #777 fixes
+/// inverted) and is blocked when sawtooth is co-selected. The triangle's DAC
+/// bit 0 is grounded (it carried accumulator bit 11). Further #777 fixes
 /// in the same series land under this version.
 ///
 /// See `knowledge/decisions/c64-architecture-review.md` Seam 4 for
