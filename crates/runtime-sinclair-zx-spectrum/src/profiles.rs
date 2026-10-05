@@ -344,6 +344,7 @@ fn tape_slot() -> MediaSlot {
 /// capabilities on top.
 fn ay_capabilities() -> CapabilitySet {
     CapabilitySet::with_all([
+        known_capability(emu198x_shell::capability::ids::AUDIO_OUTPUT),
         known_capability("ay-audio"),
         known_capability("banked-memory"),
         known_capability("keyboard-matrix"),
@@ -381,6 +382,7 @@ pub fn profile_for(model: Model) -> MachineProfile {
             )],
             media_slots: vec![tape_slot()],
             capabilities: CapabilitySet::with_all([
+                known_capability(emu198x_shell::capability::ids::AUDIO_OUTPUT),
                 known_capability("cycle-profile"),
                 known_capability("beeper-audio"),
                 known_capability("keyboard-matrix"),
@@ -418,6 +420,7 @@ pub fn profile_for(model: Model) -> MachineProfile {
                 WritebackPolicy::InMemoryOnly,
             )],
             capabilities: CapabilitySet::with_all([
+                known_capability(emu198x_shell::capability::ids::AUDIO_OUTPUT),
                 known_capability("cycle-profile"),
                 known_capability("beeper-audio"),
                 known_capability("keyboard-matrix"),
@@ -451,6 +454,7 @@ pub fn profile_for(model: Model) -> MachineProfile {
             )],
             media_slots: vec![tape_slot()],
             capabilities: CapabilitySet::with_all([
+                known_capability(emu198x_shell::capability::ids::AUDIO_OUTPUT),
                 known_capability("cycle-profile"),
                 known_capability("beeper-audio"),
                 known_capability("keyboard-matrix"),
@@ -648,6 +652,7 @@ pub fn profile_for(model: Model) -> MachineProfile {
             )],
             media_slots: vec![tape_slot()],
             capabilities: CapabilitySet::with_all([
+                known_capability(emu198x_shell::capability::ids::AUDIO_OUTPUT),
                 known_capability("cycle-profile"),
                 known_capability("beeper-audio"),
                 known_capability("keyboard-matrix"),

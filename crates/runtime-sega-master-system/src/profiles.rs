@@ -191,6 +191,7 @@ pub fn profile_for(model: Model) -> MachineProfile {
             WritebackPolicy::SidecarOnly,
         )],
         capabilities: CapabilitySet::with_all([
+            known_capability(emu198x_shell::capability::ids::AUDIO_OUTPUT),
             known_capability("variant-switch"),
             known_capability("controller-input"),
             known_capability("scripted-input"),

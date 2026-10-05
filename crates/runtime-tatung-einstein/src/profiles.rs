@@ -81,6 +81,7 @@ pub fn profile_for(model: Model) -> MachineProfile {
             WritebackPolicy::InMemoryOnly,
         )],
         capabilities: CapabilitySet::with_all([
+            known_capability(emu198x_shell::capability::ids::AUDIO_OUTPUT),
             known_capability("keyboard-input"),
             known_capability("ay-audio"),
             known_capability("scripted-input"),

@@ -96,6 +96,48 @@ declared no port space or memory watch although the runtime implements
 both. Those are fixed in the same change; the profile is the spec, so a
 wrong profile is a bug in the profile.
 
+## Declarations are checked against behaviour
+
+Added 2026-10-05 for emu198x/emu198x#1369. "The profile is the spec" only
+helps a consumer if the spec is true, and nothing in `CapabilitySet` makes
+it so: `known_capability` wraps any string. Audio showed the cost. 29 of
+the fleet's 30 families emitted samples and only the Spectrum declared any
+audio capability, so a host reading the set to decide whether to open an
+audio device got the wrong answer for 28 of them.
+
+**Vocabulary.** One machine-level id, `audio-output`
+(`capability::ids::AUDIO_OUTPUT`), means "this runtime pushes non-empty
+`AudioPacket`s". The sound hardware does not matter: a SID, an APU and a
+bare 1-bit speaker all declare it; the ZX80, which has no sound hardware,
+does not. Chip ids such as `ay-audio` exist only where a tool tier reads
+that chip, and they sit alongside `audio-output` rather than replacing it.
+A per-chip list (SID, POKEY, TIA, SN76489, Paula, ...) was considered and
+not adopted: no consumer reads it, and a vocabulary nobody reads is harder
+to withdraw than to add. `beeper-audio` survives as a descriptive id that
+no tier reads. It is not checked, and the 128K-class Spectrums, which have
+a beeper, do not declare it.
+
+**Declaring is mandatory, and CI checks it.**
+`crates/emu198x-fleet-web/tests/capability_conformance.rs` builds every
+variant of every family from synthetic firmware: zero-filled images, grown
+until the runtime accepts them, so no ROM is needed and the test runs in
+CI. A machine that will not run without one gets a synthetic cartridge.
+The test runs five frames and fails when:
+
+- a runtime emitted samples but does not declare `audio-output`, or
+  declares it and emitted none;
+- `profile_for` and the live `capabilities()` disagree (they are separate
+  code, and the Spectrum 48K builds its live set by hand);
+- a variant produced no frames, so its audio cannot be judged; or
+- the probed families differ from the compiled catalogue, or the probed
+  machine ids differ from `docs/status/systems.toml`, so a new system
+  cannot join the fleet unprobed.
+
+The same harness takes any capability whose truth shows up in a bounded
+run from synthetic firmware: add an observation and an assertion. Media
+slots and the other declared-but-unwired cases in #720 need loadable
+probe media, so they are not covered here.
+
 ## Drift triggers
 
 Stop and re-read this record if you find yourself:
@@ -111,7 +153,10 @@ Stop and re-read this record if you find yourself:
   that is a `MachineCore` hook taking the session, with the profile
   capability that registers its tool;
 - fixing "tool X is missing on machine Y" in the binary rather than in
-  Y's profile.
+  Y's profile;
+- adding a capability id that describes hardware without a check that
+  ties it to behaviour, or editing the conformance test's expectations to
+  match a profile rather than fixing the profile.
 
 Related: [`machine-binaries-share-a-launcher.md`](machine-binaries-share-a-launcher.md)
 (the `register_mcp_tools` hook), [`debug-surface-tiers.md`](debug-surface-tiers.md)

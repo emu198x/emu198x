@@ -71,6 +71,7 @@ impl SpectrumRuntime<Spectrum48k> {
 fn boots_profile_with_export() -> MachineProfile {
     let mut profile = profile_for(Model::Spectrum48KPal);
     profile.capabilities = CapabilitySet::with_all([
+        known_capability(emu198x_shell::capability::ids::AUDIO_OUTPUT),
         known_capability("cycle-profile"),
         known_capability("beeper-audio"),
         known_capability("keyboard-matrix"),

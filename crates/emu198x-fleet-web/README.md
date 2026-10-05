@@ -17,5 +17,12 @@ native frame/audio checkpoints; `web-player/check-fleet.mjs` compares the same
 inputs through the shipped WASM worker. Neither tool copies fixture contents
 or local paths into the public distribution.
 
+Because this crate links every family, it also hosts the fleet capability
+conformance test (`tests/capability_conformance.rs`). The test builds each
+variant from synthetic firmware and fails when a declared capability
+disagrees with what the runtime does. A dev-dependency on the crate itself
+turns on `all-families` for tests, so a plain `cargo test --workspace` runs
+the test over the whole fleet.
+
 See [the shared player](../../web-player/README.md) for builds, validation,
 site integration and model limits.

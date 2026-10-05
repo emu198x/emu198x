@@ -76,6 +76,11 @@ runtime-sinclair-zx81 = { path = "../runtime-sinclair-zx81", version = "0.26.0",
 runtime-sord-m5 = { path = "../runtime-sord-m5", version = "0.26.0", optional = true }
 runtime-spectravideo-svi-328 = { path = "../runtime-spectravideo-svi-328", version = "0.26.0", optional = true }
 runtime-tatung-einstein = { path = "../runtime-tatung-einstein", version = "0.26.0", optional = true }
+# The capability conformance test probes every family, so its build links them
+# all whichever features the caller selected. A dev-dependency on this crate
+# is how a plain `cargo test --workspace` gets that without a separate CI step.
+[dev-dependencies]
+emu198x-fleet-web = { path = ".", features = ["all-families"] }
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen = "0.2.127"
 [lints]

@@ -229,6 +229,7 @@ pub fn profile_for(model: Model) -> MachineProfile {
             ),
         ],
         capabilities: CapabilitySet::with_all([
+            known_capability(emu198x_shell::capability::ids::AUDIO_OUTPUT),
             known_capability("keyboard-matrix"),
             known_capability("snapshot-export"),
             known_capability("snapshot-import"),
