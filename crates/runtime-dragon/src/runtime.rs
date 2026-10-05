@@ -35,6 +35,11 @@ const DRAGON64_MODE_ROM_CRC32S: &[u32] = &[0x1789_3A42];
 const RUNTIME_TRACE_LIMIT: usize = 8_192;
 
 const DRAGON_QUERY_PATHS: &[&str] = &[
+    "acia.baud",
+    "acia.command",
+    "acia.control",
+    "acia.irq",
+    "acia.status",
     "boot.detected",
     "boot.reason",
     "screen.text.lines",
@@ -61,6 +66,8 @@ const DRAGON_QUERY_PATHS: &[&str] = &[
     "pia1.output_b",
     "sam.display_offset",
     "sam.video_mode",
+    "serial.input_pending",
+    "serial.present",
     "tape.blocks",
     "tape.checksums_valid",
     "tape.finished",
@@ -320,6 +327,26 @@ impl DragonRuntime {
             exec_address: program.exec_address,
             len: program.payload.len(),
         })
+    }
+
+    /// Host side of the Dragon 64 RS-232 port: queue bytes for the far end
+    /// of the cable to send. Returns `false` on a Dragon 32, which has no
+    /// port. Like the device it stands for, the queue is not saved in
+    /// snapshots and is dropped by a reset.
+    pub fn queue_serial_input(&mut self, bytes: &[u8]) -> bool {
+        self.machine.queue_serial_input(bytes)
+    }
+
+    /// Host side of the Dragon 64 RS-232 port: drain the bytes the machine
+    /// has finished transmitting.
+    pub fn drain_serial_output(&mut self) -> Vec<u8> {
+        self.machine.drain_serial_output()
+    }
+
+    /// Host side of the Dragon 64 RS-232 port: drive `CTS`, `DSR` and `DCD`
+    /// (`true` = asserted, the default). Returns `false` on a Dragon 32.
+    pub fn set_serial_modem_inputs(&mut self, cts: bool, dsr: bool, dcd: bool) -> bool {
+        self.machine.set_serial_modem_inputs(cts, dsr, dcd)
     }
 
     /// Serializes the current mutated VDK image from a zero-based DragonDOS drive.
@@ -1195,7 +1222,15 @@ impl SessionQueryProvider<DragonRuntime> for DragonSessionQueryProvider {
         machine: &DragonRuntime,
         path: &str,
     ) -> Result<Option<QueryResult>, QueryError> {
+        let acia = machine.machine.acia_registers();
         let value = match path {
+            "acia.baud" => json!(machine.machine.acia_baud_rate()),
+            "acia.command" => json!(acia.map(|acia| acia.command)),
+            "acia.control" => json!(acia.map(|acia| acia.control)),
+            "acia.irq" => json!(acia.map(|acia| acia.irq)),
+            "acia.status" => json!(acia.map(|acia| acia.status)),
+            "serial.present" => json!(machine.machine.has_serial_port()),
+            "serial.input_pending" => json!(machine.machine.serial_input_pending()),
             "boot.detected" => json!(machine.boot_status().detected),
             "boot.reason" => json!(machine.boot_status().reason),
             "screen.text.lines" => json!(machine.screen_text_lines()),
@@ -1817,6 +1852,32 @@ mod tests {
 
         assert_eq!(detected.value, json!(false));
         assert_eq!(reason.value, json!("waiting-for-basic-ok-prompt"));
+    }
+
+    #[test]
+    fn serial_queries_report_the_dragon64_acia_and_its_absence_on_the_dragon32() {
+        let provider = DragonSessionQueryProvider;
+        let value = |runtime: &DragonRuntime, path: &str| {
+            provider
+                .query(runtime, path)
+                .expect("query should not fail")
+                .expect("query should be owned")
+                .value
+        };
+
+        let dragon32 = DragonRuntime::blank(Model::Dragon32Pal);
+        assert_eq!(value(&dragon32, "serial.present"), json!(false));
+        assert_eq!(value(&dragon32, "acia.status"), json!(null));
+
+        let mut dragon64 = DragonRuntime::blank(Model::Dragon64Pal);
+        assert_eq!(value(&dragon64, "serial.present"), json!(true));
+        assert_eq!(value(&dragon64, "acia.status"), json!(0x10));
+        assert_eq!(value(&dragon64, "acia.command"), json!(0x02));
+        assert_eq!(value(&dragon64, "acia.control"), json!(0x00));
+        assert_eq!(value(&dragon64, "acia.irq"), json!(false));
+        assert_eq!(value(&dragon64, "acia.baud"), json!(null));
+        assert!(dragon64.queue_serial_input(b"AB"));
+        assert_eq!(value(&dragon64, "serial.input_pending"), json!(2));
     }
 
     #[test]
