@@ -1457,7 +1457,14 @@ impl Antic {
         mode_row: u8,
         chbase: u8,
     ) -> Vec<u8> {
-        let chbase_addr = u16::from(chbase) << 8;
+        // The font is 1 KB for modes 2-5 and 512 bytes for modes 6-7, aligned
+        // to its size, so CHBASE's low bits below that size are not address
+        // bits (Altirra Hardware Reference Manual, "Character set storage").
+        let font_mask = match desc.antic_mode {
+            AnticMode::Mode6 | AnticMode::Mode7 => 0xfe,
+            _ => 0xfc,
+        };
+        let chbase_addr = u16::from(chbase & font_mask) << 8;
         // CHACTL: bit 1 = inverse-video enable, bit 0 = blank, bit 2 = reflect.
         let inverse_video = self.chactl & 0x02 != 0;
         let blank = self.chactl & 0x01 != 0;
@@ -1960,6 +1967,40 @@ mod tests {
         );
         assert!(second[..11].iter().all(|&(_, solid)| solid));
         assert!(second[11..].iter().all(|&(_, solid)| !solid));
+    }
+
+    /// CHBASE's low bits do not address the font: modes 2-5 take a 1 KB
+    /// font from its top six bits, modes 6 and 7 a 512-byte font from its
+    /// top seven (Altirra Hardware Reference Manual, "Character set storage").
+    #[test]
+    fn chbase_low_bits_do_not_offset_the_font() {
+        for (mode, chbase, font) in [(2u8, 0x43u8, 0x4000usize), (6, 0x43, 0x4200)] {
+            let mut ram = make_ram();
+            ram[0x6000..0x6003].copy_from_slice(&[0x40 | mode, 0x00, 0x20]);
+            // Glyph 0 is solid in the font the top bits name and nowhere
+            // else, so an unmasked base reads an empty glyph.
+            ram[font..font + 8].fill(0xff);
+            let mut antic = Antic::new(AnticRegion::Ntsc);
+            antic.dlist = 0x6000;
+            antic.dmactl = 0x22;
+            antic.chbase = chbase;
+            antic.chbase_stage = chbase;
+            antic.chbase_fetch = chbase;
+            antic.scan_line = 8;
+            antic.begin_live_line(&ram[..]);
+            let mut pixels = Vec::new();
+            for cycle in 0..114 {
+                if let (_, Some(sample)) = antic.clock_dma(cycle, &ram[..]) {
+                    pixels.extend(sample.pixels);
+                }
+                antic.complete_virtual_dma(0);
+            }
+            assert!(!pixels.is_empty(), "mode {mode}");
+            assert!(
+                pixels.iter().all(|&px| px != 0),
+                "mode {mode}: CHBASE {chbase:#04x} must read the font at {font:#06x}"
+            );
+        }
     }
 
     /// DMACTL's width is read where the fetch comparators sample it, not at
