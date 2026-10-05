@@ -808,14 +808,20 @@ impl BbcMicro {
         // tick per master tick — one or two per 6502 cycle depending on
         // whether this access hit a 1 MHz peripheral.
         for tick in 0..cost {
+            let one_mhz_edge = Self::ends_one_mhz_cycle(self.master_ticks + tick);
             // The 6845 runs at 2 MHz in MODE 0-3 and 1 MHz in MODE 4-7:
             // Video ULA control bit 4 picks which (Advanced User Guide
             // §19.1.4). Both give a 64 µs line and a 50 Hz frame.
-            if self.video_ula.fast_clock() || (self.master_ticks + tick) & 1 == 0 {
+            if self.video_ula.fast_clock() || one_mhz_edge {
                 self.clock_video();
             }
-            self.system_via.tick();
-            self.user_via.tick();
+            // Both VIAs sit on the 1 MHz clock (Advanced User Guide §28.5),
+            // so their timers count microseconds: one VIA cycle per two
+            // master ticks.
+            if one_mhz_edge {
+                self.system_via.tick();
+                self.user_via.tick();
+            }
             self.psg.tick();
             // μPD7002 end-of-conversion is wired to System VIA CB1. Drive
             // the line low on the completion edge (the OS's CB1 is set for
@@ -858,6 +864,13 @@ impl BbcMicro {
             // signal the MOS tape filing system waits on before reading a block.
             CassetteEvent::HighTone => acia.set_carrier_detect(),
         });
+    }
+
+    /// Whether master tick `tick` is the second half of a 1 MHz cycle, at the
+    /// end of which the 1 MHz clock (1MHzE) falls. The 1 MHz peripherals —
+    /// both VIAs, and the 6845 in MODE 4-7 — are clocked on that edge.
+    const fn ends_one_mhz_cycle(tick: u64) -> bool {
+        tick & 1 == 0
     }
 
     /// Master ticks (2 MHz) a 6502 cycle accessing `addr` consumes — the
@@ -1499,6 +1512,41 @@ mod tests {
         sys.mem_write(0xFE43, 0xFF); // DDRA
         sys.mem_write(0xFE41, 0x77); // ORA
         assert_eq!(sys.system_via.ora(), 0x77);
+    }
+
+    /// Both VIAs are clocked by the 1 MHz clock, not the 2 MHz CPU clock
+    /// (Advanced User Guide §28.5: "All 1MHz peripherals are clocked by a
+    /// 1MHz 50% duty cycle square wave … to allow chips such as 6522 VIAs to
+    /// use their internal timing elements correctly"). A one-shot T1 loaded
+    /// with N times out N + 1.5 µs later — about 2N + 3 master ticks. Clocked
+    /// at 2 MHz it fired in half that, and the MOS's 100 Hz tick ran at 200.
+    #[test]
+    fn via_timers_count_at_one_megahertz() {
+        const LATCH: u64 = 100;
+        let mut sys = BbcMicro::new(trap_rom());
+        for via_base in [0xFE40u16, 0xFE60] {
+            sys.mem_write(via_base + 0x04, LATCH as u8); // T1 latch low
+            sys.mem_write(via_base + 0x05, 0); // T1 counter high: start
+        }
+        let start = sys.master_ticks;
+        let mut fired = [None, None];
+        while fired.contains(&None) && sys.master_ticks - start < 1_000 {
+            sys.tick_cpu_cycle();
+            for (slot, via_base) in fired.iter_mut().zip([0xFE40u16, 0xFE60]) {
+                if slot.is_none() && sys.mem_read(via_base + 0x0D) & 0x40 != 0 {
+                    *slot = Some(sys.master_ticks - start);
+                }
+            }
+        }
+        for (name, ticks) in ["System VIA", "User VIA"].iter().zip(fired) {
+            let ticks = ticks.unwrap_or(u64::MAX);
+            assert!(
+                (2 * LATCH..=2 * LATCH + 6).contains(&ticks),
+                "{name} T1 = {LATCH} should time out after ~{} master ticks \
+                 (1 MHz), took {ticks}",
+                2 * LATCH + 3
+            );
+        }
     }
 
     #[test]
