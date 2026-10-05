@@ -1,0 +1,14 @@
+[package]
+name = "mos-acia-6551"
+description = "MOS 6551 Asynchronous Communication Interface Adapter (ACIA)"
+edition.workspace = true
+version.workspace = true
+publish = false
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+
+[lints]
+workspace = true

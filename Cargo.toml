@@ -182,6 +182,7 @@ members = [
     "crates/atari-maria",
     "crates/atari-pokey",
     "crates/atari-tia",
+    "crates/mos-acia-6551",
     "crates/mos-riot-6532",
     "crates/motorola-sam-6883",
     "crates/motorola-vdg-6847",
