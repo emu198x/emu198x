@@ -21,11 +21,13 @@ An icon that fails to load is a warning, never a startup failure.
 
 `NSApplication.setApplicationIconImage` is `unsafe` in objc2-app-kit 0.3, and
 the workspace sets `unsafe_code = "forbid"`, which no crate can relax with an
-`allow`. The Dock tile's content view is reachable through safe bindings. The
-likely cost, not yet checked: places that read `applicationIconImage` rather
-than the Dock tile, such as the Cmd-Tab switcher and system alerts, may still
-show the generic icon. Accepting one `unsafe` call would need a crate-level
-lint exception, which is a separate decision.
+`allow`. The Dock tile's content view is reachable through safe bindings.
+
+The Cmd-Tab switcher shows the tile as well: checked by hand on the notarised
+v0.26.0 `emu198x-spectrum` on Apple silicon, so the switcher needs no `unsafe`
+call. System alerts are unchecked. If one ever shows the generic icon, the fix
+is a single `unsafe` call and a crate-level lint exception, which is a
+separate decision.
 
 The objc2 crates are the 0.6/0.3 line that muda and rfd already pull in.
 winit 0.30 uses the older 0.5/0.2 line, whose API is unsafe throughout, so
