@@ -38,11 +38,21 @@ fn scorpion(rom: &[u8]) -> ScorpionZS256Runtime {
         .load_roms(rom, &[0; 16384], &[0; 16384], &[0; 16384]);
     runtime
 }
+// Scorpion's Beta trap fires only while a non-zero ROM is selected (FUSE's
+// `NOT_128_TYPE_OR_IS_48_TYPE`), so its overlay checks run with the base image
+// in ROM 1 (48 BASIC) and that ROM selected.
+fn scorpion_48(rom: &[u8]) -> ScorpionZS256Runtime {
+    let mut runtime = ScorpionZS256Runtime::blank();
+    let memory = &mut runtime.machine_mut().memory;
+    memory.load_roms(&[0; 16384], rom, &[0; 16384], &[0; 16384]);
+    memory.write_7ffd(0x10);
+    runtime
+}
 
 // The overlay is zero-filled (NOP), while base ROM holds HALT at the trap.
 // Verify the identity of the byte actually read, not merely the paging flag.
 macro_rules! overlay_checks {
-    ($make:ident, $overlay_page:expr) => {{
+    ($make:ident, $overlay_page:expr, $base_page:expr) => {{
         let mut rom = [0; 16384];
         rom[0x3d00] = 0x76;
         let mut runtime = $make(&rom);
@@ -80,17 +90,50 @@ macro_rules! overlay_checks {
             prefix.mapped_addresses[0].mapping.memory,
             ProfileMemory::Rom
         );
-        assert_eq!(prefix.mapped_addresses[0].mapping.page, 0);
+        assert_eq!(prefix.mapped_addresses[0].mapping.page, $base_page);
     }};
 }
 
 #[test]
 fn pentagon_observes_overlay_after_the_first_fetch_only() {
-    overlay_checks!(pentagon, 0);
+    overlay_checks!(pentagon, 0, 0);
 }
 #[test]
-fn scorpion_observes_its_actual_overlay_backing_rom() {
-    overlay_checks!(scorpion, 1);
+fn scorpion_observes_its_tr_dos_overlay_rom() {
+    overlay_checks!(scorpion_48, 3, 1);
+}
+
+#[test]
+fn scorpion_rom_0_does_not_trap_into_the_overlay() {
+    let mut rom = [0; 16384];
+    rom[0x3d00] = 0x76;
+    let mut runtime = scorpion(&rom);
+    runtime.machine_mut().z80.regs.pc = 0x3d00;
+    let counts = runtime.profile_cycles(16).expect("ROM 0 fetch at the trap");
+    conserved(&counts);
+    assert!(!runtime.machine().beta.trdos_paged);
+    assert!(runtime.machine().z80.halt, "base ROM 0 HALT executes");
+    assert_eq!(
+        counts.mapped_addresses[0].mapping.memory,
+        ProfileMemory::Rom
+    );
+    assert_eq!(counts.mapped_addresses[0].mapping.page, 0);
+}
+
+#[test]
+fn scorpion_reports_ram_0_in_slot_0_under_1ffd_bit_0() {
+    let mut runtime = ScorpionZS256Runtime::blank();
+    let machine = runtime.machine_mut();
+    machine.memory.write_1ffd(0x01);
+    machine.memory.write(0x0000, 0x76);
+    machine.z80.regs.pc = 0x0000;
+    let counts = runtime.profile_cycles(16).expect("all-RAM slot 0");
+    conserved(&counts);
+    assert_eq!(
+        counts.mapped_addresses[0].mapping.memory,
+        ProfileMemory::Ram
+    );
+    assert_eq!(counts.mapped_addresses[0].mapping.page, 0);
 }
 
 fn sources() -> DebugSymbols {
@@ -113,13 +156,12 @@ fn sources() -> DebugSymbols {
 }
 
 #[test]
-fn scorpion_reports_all_sixteen_banks_using_the_current_memory_decoder() {
+fn scorpion_reports_all_sixteen_banks() {
     for page in 0..16u8 {
         let mut runtime = ScorpionZS256Runtime::blank();
         let machine = runtime.machine_mut();
-        // This intentionally follows the current core's documented bit-0 high
-        // bank selector, not the unresolved alternate hardware convention.
-        machine.memory.write_1ffd(page >> 3);
+        // $1FFD bit 4 is the high bank bit.
+        machine.memory.write_1ffd((page >> 3) << 4);
         machine.memory.write_7ffd(page & 7);
         machine.memory.write(0xc000, 0x76);
         machine.z80.regs.pc = 0xc000;
@@ -134,17 +176,15 @@ fn scorpion_reports_all_sixteen_banks_using_the_current_memory_decoder() {
 
 #[test]
 fn scorpion_paging_instruction_keeps_its_old_bank_and_lock_is_observed() {
-    // Current machine I/O decodes $1FFD as both paging registers, so OUT 1
-    // selects bank 9. Observe that behaviour without changing the decoder.
+    // OUT ($1FFD),$10 sets the high bank bit and leaves $7FFD alone, so
+    // execution continues in bank 8; the $7FFD lock also freezes $1FFD.
     for locked in [false, true] {
         let mut runtime = ScorpionZS256Runtime::blank();
         let machine = runtime.machine_mut();
-        machine.memory.write_1ffd(1);
-        machine.memory.write_7ffd(1);
-        machine.memory.write(0xc004, 0x76); // bank 9 continuation
+        machine.memory.write_1ffd(0x10);
+        machine.memory.write(0xc004, 0x76); // bank 8 continuation
         machine.memory.write_1ffd(0);
-        machine.memory.write_7ffd(0);
-        for (offset, byte) in [0x3e, 1, 0xed, 0x79, 0x76].into_iter().enumerate() {
+        for (offset, byte) in [0x3e, 0x10, 0xed, 0x79, 0x76].into_iter().enumerate() {
             machine
                 .memory
                 .write(0xc000 + u16::try_from(offset).expect("small program"), byte);
@@ -161,7 +201,7 @@ fn scorpion_paging_instruction_keeps_its_old_bank_and_lock_is_observed() {
         assert_eq!(counts.mapped_addresses[1].mapping.page, 0);
         assert_eq!(
             counts.mapped_addresses[2].mapping.page,
-            if locked { 0 } else { 9 }
+            if locked { 0 } else { 8 }
         );
     }
 }
@@ -211,7 +251,8 @@ fn pentagon_banks_and_scorpion_base_roms_remain_distinct() {
         assert_eq!(profile.clock.rate.numerator_hz, 14_336_000);
         assert_eq!(profile.lines[0].source.line, u32::from(bank) + 1);
     }
-    for rom in 0..4u8 {
+    // ROM 3 is reachable only as the Beta overlay, never as a base ROM.
+    for rom in 0..3u8 {
         let mut runtime = ScorpionZS256Runtime::blank();
         runtime.machine_mut().memory.write_7ffd((rom & 1) << 4);
         runtime.machine_mut().memory.write_1ffd(rom & 2);

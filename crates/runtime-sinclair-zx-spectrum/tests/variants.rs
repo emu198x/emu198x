@@ -1269,10 +1269,9 @@ fn variant_query_paths_include_boot_paths() {
 }
 
 #[test]
-fn scorpion_boot_status_returns_not_detected_until_banner_confirmed() {
-    // Scorpion ROM boots into TR-DOS with no disk inserted — screen
-    // stays blank, no banner to detect. Provider returns
-    // `detected = false` cleanly.
+fn scorpion_boot_status_is_not_detected_before_the_menu_draws() {
+    // A fresh machine has drawn nothing yet, so the menu's banner line is
+    // absent. Provider returns `detected = false` cleanly.
     let runtime = ScorpionZS256Runtime::new(Model::ScorpionZS256, ScorpionZS256::new());
     let provider = SpectrumSessionQueryProvider;
     let detected = provider
@@ -1489,16 +1488,9 @@ fn pentagon_128_boot_banner_is_detected_with_real_rom() {
     );
 }
 
-/// Probe the raw screen RAM after Scorpion boot. The screen-text
-/// decoder shows a uniformly empty screen, but the raw bitmap bytes
-/// at $4000-$57FF will tell us whether the Service ROM is painting
-/// anything at all. If non-zero bytes show up, the issue is decoder
-/// scope (we're missing a screen mode or screen address). If
-/// everything is zero, the issue is upstream — Service ROM never
-/// writes to screen.
 #[test]
-#[ignore = "DIAGNOSTIC: diagnostic — Scorpion screen-RAM dump (pixel bitmap + attributes)"]
-fn probe_scorpion_screen_ram() {
+#[ignore = "FIXTURE: requires ~/.emu198x/roms/scorpion-zs256/scorpion-{0..3}.rom"]
+fn scorpion_zs256_boot_banner_is_detected_with_real_rom() {
     let dir = rom_dir(".emu198x/roms/scorpion-zs256").expect("HOME set");
     let r0 = std::fs::read(dir.join("scorpion-0.rom"));
     let r1 = std::fs::read(dir.join("scorpion-1.rom"));
@@ -1510,37 +1502,19 @@ fn probe_scorpion_screen_ram() {
     let mut m = ScorpionZS256::new();
     m.memory.load_roms(&r0, &r1, &r2, &r3);
     let mut rt = ScorpionZS256Runtime::new(Model::ScorpionZS256, m);
+    run_frames(&mut rt, 300);
 
-    let mut total_frames = 0u32;
-    for &target_total in &[50u32, 200, 500, 1000, 2000] {
-        let delta = target_total - total_frames;
-        run_frames(&mut rt, delta);
-        total_frames = target_total;
-        let nonzero_pixels = (0x4000u16..0x5800)
-            .filter(|&a| rt.machine().read_byte(a) != 0)
-            .count();
-        let nonzero_attrs = (0x5800u16..0x5B00)
-            .filter(|&a| rt.machine().read_byte(a) != 0)
-            .count();
-        eprintln!(
-            "Scorpion @ {target_total} frames: pixel-nonzero={nonzero_pixels} / 6144,  attr-nonzero={nonzero_attrs} / 768"
-        );
-    }
-
-    // Sample some bytes from a few specific addresses that text
-    // would touch (top of screen, middle, near the bottom).
-    eprintln!("\nSample bytes at common text positions (visible at $4000-$5AFF):");
-    for addr in [
-        0x4000u16, 0x4020, 0x4400, 0x4800, 0x5000, 0x5800, 0x5820, 0x5A00,
-    ] {
-        eprintln!("  ${addr:04X} = ${:02X}", rt.machine().read_byte(addr));
-    }
-
-    // Where is the CPU actually stuck?
-    let regs = &rt.machine().z80.regs;
-    eprintln!("\nCPU state after 2000 frames:");
-    eprintln!("  PC=${:04X}  IFF1={}  IM={}", regs.pc, regs.iff1, regs.im);
-    eprintln!("  TR-DOS paged: {}", rt.machine().beta.trdos_paged);
+    let provider = SpectrumSessionQueryProvider;
+    let detected = provider
+        .query(&rt, "boot.detected")
+        .expect("boot.detected resolves")
+        .expect("provider owns boot.detected");
+    assert_eq!(detected.value, serde_json::json!(true));
+    let lines = screen_lines(&rt);
+    assert!(
+        lines.iter().any(|line| line.contains("48 TR-DOS")),
+        "Scorpion screen.text.lines should show the boot menu; got {lines:?}",
+    );
 }
 
 /// Probe the raw screen RAM after TS2068 boot. Standard Spectrum
