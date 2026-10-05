@@ -4,6 +4,18 @@ All notable changes to Emu198x will be documented in this file.
 
 Format loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 not strictly. Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [0.26.1] - 2026-10-05
+
+
+### Fixed
+
+- Draw the GPU presenter's picture on a browser canvas
+- *(nes)* A gated triangle holds its current step instead of outputting 0
+- Load a chosen tape on a Spectrum that has already run
+- *(nes)* APU emits the advertised 48 kHz, not ~1.9% sharp
+- Run silent when the host has no audio output device
+- Close ffmpeg's stdin without drop() so wasm clippy passes
+
 ## [0.26.0] - 2026-10-05
 
 ### Highlights
