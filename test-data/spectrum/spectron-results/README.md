@@ -59,8 +59,13 @@ The shared comparator lives in
 256×192 active screen after palette normalisation and border alignment; border
 pixels themselves are outside this assertion. `halt2int_129.png` retains the
 upstream filename: it is the 128K diagnostic, whose test tape matches Spectron's
-`halt2int128.tap`. Nightly runs the 128K HALT2INT oracle in the 128K timing job
-and the other 128K comparisons and both EIHALT comparisons in the floating-bus job.
+`halt2int128.tap`. Nightly runs the 128K HALT2INT oracle in the 128K timing job,
+and every other comparison — 48K and 128K — in the floating-bus job.
+
+The comparator checks itself: `spectron::comparator_self_test` runs in a plain
+`cargo test` of either machine's `tape_smoke`, needs no ROM or tape, and shows
+that it accepts `btime_48.png` reproduced exactly while rejecting the same
+screen with one pixel changed or shifted one pixel sideways.
 
 EIHALT uses `eihalt.tap` from
 `zx-spectrum-tests/EIHALT (2021-10-23)(Woodmass, Mark)[!].zip`. Extract that member
