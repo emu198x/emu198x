@@ -12,6 +12,7 @@ use std::error::Error;
 use std::fmt;
 
 use format_dragon_disk::DragonDiskImage;
+use mos_acia_6551::{Acia6551, Acia6551Registers, XTAL_HZ as ACIA_XTAL_HZ};
 use motorola_6809::{Mc6809, Mc6809ClockPhase};
 use motorola_pia_6821::{Pia6821, PiaPort, PiaSignal};
 use motorola_sam_6883::Sam6883;
@@ -66,7 +67,6 @@ const CART_IO_START: u16 = 0xFF40;
 const CART_IO_END: u16 = 0xFF5F;
 const NO_CARTRIDGE_BUS_VALUE: u8 = 0xFF;
 const CART_AUTORUN_FIRQ_CYCLES: u64 = DRAGON_CPU_HZ / 10;
-const ACIA_STATUS_TRANSMIT_DATA_REGISTER_EMPTY: u8 = 0x10;
 const DRAGON_DISK_DRIVES: usize = 4;
 const DRAGON_DOS_SIGNATURE: &[u8; 2] = b"DK";
 
@@ -1861,6 +1861,10 @@ struct DragonMemory {
     cartridge: Option<DragonCartridge>,
     disk_controller: Option<DragonDosController>,
     cartridge_sound_level: f32,
+    /// Dragon 64 onboard R6551 ACIA; absent on the Dragon 32.
+    acia: Option<Acia6551>,
+    /// Master-clock remainder carried into the ACIA's 1.8432 MHz crystal.
+    acia_xtal_remainder: u64,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -1882,6 +1886,8 @@ struct DragonMemorySnapshot {
     cartridge: Option<DragonCartridge>,
     disk_controller: Option<DragonDosController>,
     cartridge_sound_level: f32,
+    acia: Option<Acia6551>,
+    acia_xtal_remainder: u64,
 }
 
 /// A snapshot written before the deck gate existed had the deck running.
@@ -1911,6 +1917,8 @@ impl Serialize for DragonMemory {
             cartridge: self.cartridge.clone(),
             disk_controller: self.disk_controller.clone(),
             cartridge_sound_level: self.cartridge_sound_level,
+            acia: self.acia.clone(),
+            acia_xtal_remainder: self.acia_xtal_remainder,
         }
         .serialize(serializer)
     }
@@ -1945,6 +1953,8 @@ impl<'de> Deserialize<'de> for DragonMemory {
             cartridge: snapshot.cartridge,
             disk_controller: snapshot.disk_controller,
             cartridge_sound_level: snapshot.cartridge_sound_level,
+            acia: snapshot.acia,
+            acia_xtal_remainder: snapshot.acia_xtal_remainder,
         })
     }
 }
@@ -1972,11 +1982,11 @@ impl DragonMemory {
         keyboard: DragonKeyboard,
         model: DragonHardwareModel,
     ) -> Self {
-        let dragon64_compat_rom = matches!(
+        let dragon64 = matches!(
             model,
             DragonHardwareModel::Dragon64Compat | DragonHardwareModel::Dragon64Mode
-        )
-        .then(|| Box::new(*rom));
+        );
+        let dragon64_compat_rom = dragon64.then(|| Box::new(*rom));
         Self {
             ram: Box::new([0; FULL_RAM_SIZE]),
             rom: Box::new(*rom),
@@ -1994,7 +2004,28 @@ impl DragonMemory {
             cartridge: None,
             disk_controller: None,
             cartridge_sound_level: 0.0,
+            acia: dragon64.then(Acia6551::new),
+            acia_xtal_remainder: 0,
         }
+    }
+
+    /// Advance the ACIA's crystal by the master-clock time one bus cycle took.
+    ///
+    /// The ACIA runs from its own 1.8432 MHz crystal, unrelated to the
+    /// SAM's clock, so the master ticks are converted with a carried
+    /// remainder rather than rounded per cycle.
+    fn advance_acia(&mut self, master_ticks: u64) {
+        let Some(acia) = &mut self.acia else {
+            return;
+        };
+        let scaled = self.acia_xtal_remainder + master_ticks * u64::from(ACIA_XTAL_HZ);
+        self.acia_xtal_remainder = scaled % DRAGON_MASTER_HZ;
+        let xtal_ticks = u32::try_from(scaled / DRAGON_MASTER_HZ).unwrap_or(u32::MAX);
+        acia.advance(xtal_ticks);
+    }
+
+    fn acia_irq(&self) -> bool {
+        self.acia.as_ref().is_some_and(Acia6551::irq)
     }
 
     fn read_fetch(&self, addr: u16) -> u8 {
@@ -2032,8 +2063,10 @@ impl DragonMemory {
     }
 
     fn read_bus(&mut self, addr: u16) -> (u8, Option<MemoryEvent>) {
-        if decode_acia(self.model, addr).is_some() {
-            let value = acia_read(addr);
+        if let Some(rs) = decode_acia(self.model, addr)
+            && let Some(acia) = &mut self.acia
+        {
+            let value = acia.read(rs);
             return (
                 value,
                 Some(MemoryEvent::DeviceRead {
@@ -2095,7 +2128,10 @@ impl DragonMemory {
         if let Some(index) = self.mpu_ram_index(addr) {
             self.ram[index] = value;
             None
-        } else if decode_acia(self.model, addr).is_some() {
+        } else if let Some(rs) = decode_acia(self.model, addr)
+            && let Some(acia) = &mut self.acia
+        {
+            acia.write(rs, value);
             Some(MemoryEvent::DeviceWrite {
                 device: DeviceRegion::Acia,
                 addr,
@@ -3657,6 +3693,76 @@ impl Dragon32 {
         self.audio.drain_into(dest);
     }
 
+    /// Whether this machine has an RS-232 port: the Dragon 64's onboard
+    /// ACIA. The Dragon 32 has none.
+    #[must_use]
+    pub fn has_serial_port(&self) -> bool {
+        self.memory.acia.is_some()
+    }
+
+    /// Host side of the RS-232 port: queue bytes for the device at the far
+    /// end of the cable to send. Each arrives as a full frame at the ACIA's
+    /// programmed rate and format, and only while the Dragon holds `DTR`
+    /// asserted. Returns `false`, dropping nothing into the machine, when
+    /// there is no serial port.
+    pub fn queue_serial_input(&mut self, bytes: &[u8]) -> bool {
+        match &mut self.memory.acia {
+            Some(acia) => {
+                acia.queue_received(bytes);
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Host side of the RS-232 port: bytes queued by
+    /// [`Self::queue_serial_input`] that have not yet started on the line.
+    #[must_use]
+    pub fn serial_input_pending(&self) -> usize {
+        self.memory
+            .acia
+            .as_ref()
+            .map_or(0, Acia6551::pending_received)
+    }
+
+    /// Host side of the RS-232 port: drain the bytes the Dragon has finished
+    /// transmitting. Always empty on a Dragon 32.
+    pub fn drain_serial_output(&mut self) -> Vec<u8> {
+        self.memory
+            .acia
+            .as_mut()
+            .map(Acia6551::take_transmitted)
+            .unwrap_or_default()
+    }
+
+    /// Host side of the RS-232 port: drive the ACIA's modem-status inputs.
+    /// `true` means asserted (the pin pulled low by a ready device), which
+    /// is how a new machine starts. Returns `false` when there is no port.
+    pub fn set_serial_modem_inputs(&mut self, cts: bool, dsr: bool, dcd: bool) -> bool {
+        match &mut self.memory.acia {
+            Some(acia) => {
+                acia.set_cts(cts);
+                acia.set_dsr(dsr);
+                acia.set_dcd(dcd);
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Side-effect-free view of the Dragon 64 ACIA's registers.
+    #[must_use]
+    pub fn acia_registers(&self) -> Option<Acia6551Registers> {
+        self.memory.acia.as_ref().map(Acia6551::registers)
+    }
+
+    /// The Dragon 64 ACIA's programmed baud rate, or `None` when there is no
+    /// ACIA or it is set to the external clock.
+    #[must_use]
+    pub fn acia_baud_rate(&self) -> Option<f64> {
+        self.memory.acia.as_ref().and_then(Acia6551::baud_rate)
+    }
+
     /// Execute one bus cycle and return any observed memory/device event.
     pub fn step_cycle(&mut self) -> Option<MemoryEvent> {
         self.step_cycle_with_phase_windows(None)
@@ -3680,7 +3786,11 @@ impl Dragon32 {
         self.cpu.tick_phase();
 
         self.advance_phase_window(phase_ticks.e_high, diagnostics.as_deref_mut());
-        self.cpu.irq = self.memory.pia0.irq_a() || self.memory.pia0.irq_b();
+        // The Dragon 64 ACIA shares the CPU's IRQ line with PIA0: the 64K-mode
+        // IRQ wedge at `$FE18` reads ACIA status first (MAME wires it the same
+        // way, `dragon.cpp` `m_irqs` input 2).
+        self.cpu.irq =
+            self.memory.pia0.irq_a() || self.memory.pia0.irq_b() || self.memory.acia_irq();
         self.cpu.firq = self.memory.pia1.irq_a() || self.memory.pia1.irq_b();
         self.cpu.tick_phase();
 
@@ -3706,6 +3816,7 @@ impl Dragon32 {
         self.advance_phase_window(phase_ticks.e_low, diagnostics);
         self.cpu.tick_phase();
 
+        self.memory.advance_acia(master_ticks);
         self.audio.tick(&self.memory, master_ticks);
         self.cycles = self.cycles.saturating_add(1);
         self.master_ticks = self.master_ticks.saturating_add(master_ticks);
@@ -4340,25 +4451,23 @@ fn decode_pia(addr: u16) -> Option<(DeviceRegion, u8)> {
     }
 }
 
+/// Dragon 64 ACIA decode: inside PIA0's `$FF00-$FF1F` window, A2 selects
+/// the ACIA, so it answers at `$FF04-$FF07` and its mirrors `$FF0C`, `$FF14`
+/// and `$FF1C`, leaving PIA0 on the A2-low addresses. XRoar (`dragon64.c`,
+/// SAM S=4 with `A & 4`) and MAME (`dragon.cpp`, `mirror(0x18)`) agree.
 fn decode_acia(model: DragonHardwareModel, addr: u16) -> Option<u8> {
     (matches!(
         model,
         DragonHardwareModel::Dragon64Compat | DragonHardwareModel::Dragon64Mode
-    ) && (0xFF04..=0xFF07).contains(&addr))
-    .then_some((addr & 0x03) as u8)
+    ) && (0xFF00..=0xFF1F).contains(&addr)
+        && addr & 0x04 != 0)
+        .then_some((addr & 0x03) as u8)
 }
 
 fn decode_dragon_dos(addr: u16) -> Option<u8> {
     (CART_IO_START..=CART_IO_END)
         .contains(&addr)
         .then_some((addr & 0x1f) as u8)
-}
-
-fn acia_read(addr: u16) -> u8 {
-    match addr & 0x03 {
-        0x01 => ACIA_STATUS_TRANSMIT_DATA_REGISTER_EMPTY,
-        _ => 0x00,
-    }
 }
 
 fn decode_device_write(addr: u16) -> Option<DeviceRegion> {
@@ -4444,26 +4553,159 @@ mod tests {
         assert_eq!(memory.read_fetch(0xFFFF), 0x00);
     }
 
-    #[test]
-    fn dragon64_decodes_acia_before_pia0_mirror() {
-        let rom = rom_with_reset_vector(0xC000);
-        let mut memory = DragonMemory::new_with_keyboard_and_model(
-            &rom,
+    fn dragon64_memory() -> DragonMemory {
+        DragonMemory::new_with_keyboard_and_model(
+            &rom_with_reset_vector(0xC000),
             DragonKeyboard::new(),
             DragonHardwareModel::Dragon64Compat,
-        );
+        )
+    }
+
+    #[test]
+    fn dragon64_decodes_acia_before_pia0_mirror() {
+        let mut memory = dragon64_memory();
 
         let (value, event) = memory.read_bus(0xFF05);
 
-        assert_eq!(value, ACIA_STATUS_TRANSMIT_DATA_REGISTER_EMPTY);
+        // Hardware reset status: TDRE set, DCD/DSR asserted, no IRQ.
+        assert_eq!(value, mos_acia_6551::status::TDRE);
         assert_eq!(
             event,
             Some(MemoryEvent::DeviceRead {
                 device: DeviceRegion::Acia,
                 addr: 0xFF05,
-                value: ACIA_STATUS_TRANSMIT_DATA_REGISTER_EMPTY,
+                value: mos_acia_6551::status::TDRE,
             })
         );
+    }
+
+    #[test]
+    fn dragon64_acia_retains_command_and_control_writes() {
+        let mut memory = dragon64_memory();
+        assert_eq!(memory.read_bus(0xFF06).0, 0x02, "command reset value");
+        assert_eq!(memory.read_bus(0xFF07).0, 0x00, "control reset value");
+
+        // The Dragon 64 ROM's reset sequence: STD $FF06 with D = $0A98.
+        memory.write(0xFF06, 0x0A);
+        memory.write(0xFF07, 0x98);
+
+        assert_eq!(memory.read_bus(0xFF06).0, 0x0A);
+        assert_eq!(memory.read_bus(0xFF07).0, 0x98);
+    }
+
+    #[test]
+    fn dragon64_acia_answers_where_a2_is_set_and_pia0_where_it_is_clear() {
+        let mut memory = dragon64_memory();
+        memory.write(0xFF06, 0x0A);
+
+        for mirror in [0xFF0E, 0xFF16, 0xFF1E] {
+            let (value, event) = memory.read_bus(mirror);
+            assert_eq!(value, 0x0A, "${mirror:04X}");
+            assert!(matches!(
+                event,
+                Some(MemoryEvent::DeviceRead {
+                    device: DeviceRegion::Acia,
+                    ..
+                })
+            ));
+        }
+        for pia0 in [0xFF08, 0xFF10, 0xFF1B] {
+            let (_, event) = memory.read_bus(pia0);
+            assert!(
+                matches!(
+                    event,
+                    Some(MemoryEvent::DeviceRead {
+                        device: DeviceRegion::Pia0,
+                        ..
+                    })
+                ),
+                "${pia0:04X} should stay PIA0"
+            );
+        }
+    }
+
+    #[test]
+    fn dragon32_has_no_acia() {
+        let mut machine = Dragon32::new(&rom_with_reset_vector(0x8000));
+        assert!(!machine.has_serial_port());
+        assert!(!machine.queue_serial_input(b"x"));
+        assert!(!machine.set_serial_modem_inputs(true, true, true));
+        assert!(machine.drain_serial_output().is_empty());
+        assert!(machine.acia_registers().is_none());
+
+        let (_, event) = machine.memory.read_bus(0xFF05);
+        assert!(matches!(
+            event,
+            Some(MemoryEvent::DeviceRead {
+                device: DeviceRegion::Pia0,
+                ..
+            })
+        ));
+    }
+
+    /// A Dragon 64 spinning on `BRA *` at `$8000`, with the ACIA set the way
+    /// the ROM leaves it: 1200 baud, 8N2, DTR off.
+    fn idle_dragon64() -> Dragon32 {
+        let mut rom = rom_with_reset_vector(0x8000);
+        rom[0] = 0x20; // BRA *
+        rom[1] = 0xFE;
+        let mut machine = Dragon32::new_dragon64(&rom);
+        machine.memory.write(0xFF06, 0x0A);
+        machine.memory.write(0xFF07, 0x98);
+        machine
+    }
+
+    #[test]
+    fn dragon64_serial_byte_takes_one_frame_of_emulated_time() {
+        let mut machine = idle_dragon64();
+        machine.memory.write(0xFF04, 0x41);
+        let start = machine.master_ticks();
+
+        let mut sent = Vec::new();
+        while sent.is_empty() {
+            machine.step_cycle();
+            sent = machine.drain_serial_output();
+            assert!(
+                machine.master_ticks() - start < DRAGON_MASTER_HZ / 50,
+                "1200 baud byte never finished"
+            );
+        }
+
+        assert_eq!(sent, vec![0x41]);
+        // One start bit, eight data bits and two stop bits at 1200 baud,
+        // plus up to one 16x clock before the start bit begins.
+        let frame = 11 * DRAGON_MASTER_HZ / 1200;
+        let elapsed = machine.master_ticks() - start;
+        let bit_clock = DRAGON_MASTER_HZ / (16 * 1200);
+        assert!(
+            elapsed >= frame && elapsed <= frame + 2 * bit_clock,
+            "frame took {elapsed} master ticks, expected about {frame}"
+        );
+    }
+
+    #[test]
+    fn dragon64_acia_receive_interrupt_drives_the_cpu_irq_line() {
+        let mut machine = idle_dragon64();
+        // DTR on, receiver interrupt enabled.
+        machine.memory.write(0xFF06, 0x09);
+        assert!(machine.queue_serial_input(&[0x5A]));
+
+        let mut cycles = 0;
+        while !machine.cpu.irq {
+            machine.step_cycle();
+            cycles += 1;
+            assert!(cycles < 20_000, "ACIA never raised IRQ");
+        }
+        assert_eq!(machine.serial_input_pending(), 0);
+        let registers = machine.acia_registers().expect("Dragon 64 has an ACIA");
+        assert!(registers.irq);
+        assert_eq!(registers.receive_data, 0x5A);
+
+        // Reading status releases the line.
+        let (status, _) = machine.memory.read_bus(0xFF05);
+        assert_eq!(status & 0x88, 0x88, "IRQ and RDRF");
+        machine.step_cycle();
+        assert!(!machine.cpu.irq);
     }
 
     #[test]
