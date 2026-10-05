@@ -17,7 +17,7 @@ use emu198x_shell::{
 use emu198x_web::WebMachine;
 use runtime_sinclair_zx_spectrum::{
     Model, SpectrumLiveAccess, SpectrumRuntimeKind, SpectrumSessionQueryProvider,
-    autoload_basic_tape, load_basic_program_with_writer, tap_key,
+    load_basic_program_with_writer, tap_key,
 };
 use wasm_bindgen::{Clamped, prelude::*};
 use web_sys::{CanvasRenderingContext2d, HtmlCanvasElement, ImageData};
@@ -203,6 +203,9 @@ impl Spectrum {
     /// the editor prompt to be repainted before it is read, and for the 128K
     /// family's loader to be listening before the tape rolls.
     ///
+    /// A machine that has already run is reset first, keeping the tape, so
+    /// choosing a tape works however the machine has been used (#1569).
+    ///
     /// Returns the number of frames spent waiting for boot. Load a tape first.
     ///
     /// # Errors
@@ -211,9 +214,8 @@ impl Spectrum {
     /// not reach a boot prompt within `max_boot_frames`, or if the prompt
     /// never becomes ready for keyword entry.
     pub fn autoload(&mut self, max_boot_frames: u32) -> Result<u32, JsError> {
-        let result = autoload_basic_tape(&mut self.machine, "tape-1", max_boot_frames)
-            .map_err(|error| JsError::new(&format!("autoloading the tape: {error}")))?;
-        Ok(result.boot.frames)
+        crate::autoload_tape(&mut self.machine, max_boot_frames)
+            .map_err(|error| JsError::new(&format!("autoloading the tape: {error}")))
     }
 
     /// Builds a 48K on the ROM embedded in this package.

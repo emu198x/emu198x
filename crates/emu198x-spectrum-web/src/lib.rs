@@ -7,7 +7,13 @@
 //! the runtime, the model, the firmware id, and the Spectrum's own names for
 //! the keys a browser cannot express generically.
 
+use emu198x_shell::{MachineTime, ResetKind, SessionDriver};
+use emu198x_web::WebMachine;
 use format_sinclair_zx_spectrum_snapshot::Snapshot;
+use runtime_sinclair_zx_spectrum::{
+    DEFAULT_TAPE_AUTOLOAD_SLOT, SpectrumRuntimeKind, SpectrumSessionQueryProvider,
+    autoload_basic_tape,
+};
 
 #[cfg(target_arch = "wasm32")]
 mod browser;
@@ -32,6 +38,36 @@ pub use browser::Spectrum;
 /// includes in the published package.
 #[cfg(feature = "bundled-rom")]
 pub const BUNDLED_ROM: &[u8] = include_bytes!(env!("EMU198X_SPECTRUM_48K_ROM"));
+
+/// The browser's Spectrum: the generic host layer over the family runtime,
+/// answering the Spectrum's own query paths (`boot.detected` among them).
+pub type SpectrumWebMachine = WebMachine<SpectrumRuntimeKind, SpectrumSessionQueryProvider>;
+
+/// Loads the tape in `tape-1` the way a person would from power-on: boot,
+/// type `LOAD ""`, press play. Returns the frames spent waiting for boot.
+///
+/// A machine that has already run is reset first, keeping the tape in the
+/// deck (#1569). The autoload waits for the copyright banner before it types,
+/// and on a machine that has been used the banner is gone: a learner who
+/// started the player and typed a line got "boot was not detected" until they
+/// pressed Restart. A machine that has not run yet is left alone, so a page
+/// that loads a tape straight after creating the machine boots it once.
+///
+/// # Errors
+///
+/// Returns the autoload's message if no tape is loaded, the machine does not
+/// boot within `max_boot_frames`, or the editor prompt never becomes ready.
+pub fn autoload_tape(
+    machine: &mut SpectrumWebMachine,
+    max_boot_frames: u32,
+) -> Result<u32, String> {
+    if machine.time() != MachineTime::default() {
+        machine.reset(ResetKind::Hard);
+    }
+    autoload_basic_tape(machine, DEFAULT_TAPE_AUTOLOAD_SLOT, max_boot_frames)
+        .map(|result| result.boot.frames)
+        .map_err(|error| error.to_string())
+}
 
 /// Parses a portable Spectrum snapshot from bytes.
 ///

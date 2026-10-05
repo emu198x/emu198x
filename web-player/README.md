@@ -98,7 +98,8 @@ that every title or peripheral works.
 - Blur, hidden tabs, element removal, pause and restart release input and
   clear queued audio. Restart creates a new worker and discards the session.
 - Loading a cartridge requires restart. Computer media can be inserted during
-  execution. Select a boot disk before starting the Amiga. Initial C64 PRG
+  execution. Choosing a Spectrum tape resets a machine that has already run,
+  then types `LOAD ""` and plays the tape. Select a boot disk before starting the Amiga. Initial C64 PRG
   imports wait through boot; RUN/SYS remains the user's choice.
 - Save & resume stores one explicit device save per system/model in IndexedDB,
   or exports a versioned `.emu198x` file. Saves contain firmware, software and

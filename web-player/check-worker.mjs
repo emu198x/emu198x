@@ -22,6 +22,13 @@ global.fetch=async(input,...args)=>{
 };
 import(workerData).then(()=>parentPort.on('message',data=>self.onmessage({data})));
 `;
+// A self-starting Spectrum tape holding `10 PRINT 7`: header block, then data.
+function printSevenTape() {
+ const block=(flag,payload)=>{const bytes=[payload.length+2&255,payload.length+2>>8,flag,...payload];bytes.push(payload.reduce((sum,byte)=>sum^byte,flag));return bytes;};
+ const program=[0x00,0x0a,0x09,0x00,0xf5,0x37,0x0e,0x00,0x00,0x07,0x00,0x00,0x0d];
+ const header=[0x00,...[...'probe     '].map(c=>c.charCodeAt(0)),program.length,0,10,0,program.length,0];
+ return new Uint8Array([...block(0x00,header),...block(0xff,program)]);
+}
 async function check(kind,roms,media) {
  const worker=new Worker(bootstrap,{eval:true,workerData:pathToFileURL(path.join(dist,'worker.js')).href});
  let serial=0; const pending=new Map();
@@ -42,6 +49,16 @@ async function check(kind,roms,media) {
   await rpc('restore',saved);let replay=await rpc('step');if(kind==='spectrum')replay=await rpc('step');
   assert.deepEqual(replay.pixels,future.pixels,`${kind} save/restore`);
   await assert.rejects(rpc('unknown'),/Unknown player command/);
+  // Choosing a tape on a machine that has been used must still load it (#1569):
+  // typing a line clears the copyright banner the autoload used to wait for.
+  if(kind==='spectrum') {
+   for(let i=0;i<200;i++)await rpc('step');
+   for(const code of ['Enter']){await rpc('input',[['code',code,true]]);for(let i=0;i<3;i++)await rpc('step');await rpc('input',[['code',code,false]]);for(let i=0;i<20;i++)await rpc('step');}
+   for(const code of ['KeyP','Digit1','Enter']){await rpc('input',[['code',code,true]]);for(let i=0;i<3;i++)await rpc('step');await rpc('input',[['code',code,false]]);for(let i=0;i<3;i++)await rpc('step');}
+   for(let i=0;i<20;i++)await rpc('step');
+   await rpc('load','tap',printSevenTape());
+   for(let i=0;i<10;i++)await rpc('step');
+  }
   if(kind==='amiga') { await rpc('input',[['move',13,-7],['mouse','left',true],['mouse','left',false]]); await assert.rejects(rpc('load','adf',new Uint8Array(5))); }
   console.log(`${kind}: boot, frames, stereo audio, input and error handling passed (${frame.width}×${frame.height})`);
  } finally {for(const task of pending.values())clearTimeout(task.timer);await worker.terminate();}
