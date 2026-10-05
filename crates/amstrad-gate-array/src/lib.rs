@@ -81,11 +81,12 @@ use serde::{Deserialize, Serialize};
 /// quantises the CPU onto the microsecond grid.
 ///
 /// *Which* T-state is free is not in the Compendium, and it matters. SHAKER
-/// KILLER 2 settles it: at 2, all six of its interrupt measurements match the
-/// values it prints as expected, and `RST $38` from code costs the 16 T-states
-/// §27.4 gives. At 0 the same run reports `DEC DE` as `#58` — SHAKER's
-/// expectation for a CRTC 3 or 4, not the `#59` it wants from the CRTC 0 this
-/// machine is. One phase, measured rather than assumed.
+/// KILLER 2 narrows it to two: at 2 and at 3, all six of its interrupt
+/// measurements match the values it prints as expected, and `RST $38` from
+/// code costs the 16 T-states §27.4 gives. At 0 and 1 the same run reports
+/// `DEC DE` as `#58` — SHAKER's expectation for a CRTC 3 or 4, not the `#59`
+/// it wants from the CRTC 0 this machine is. Nothing measured so far separates
+/// 2 from 3, so 2 stays.
 pub const WAIT_FREE_TSTATE: u32 = 2;
 
 /// Whether `/WAIT` is asserted at the given T-state of the character clock.
