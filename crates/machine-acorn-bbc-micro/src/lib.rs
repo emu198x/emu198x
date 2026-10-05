@@ -829,6 +829,9 @@ impl BbcMicro {
                 self.system_via.tick();
                 self.user_via.tick();
             }
+            // The SN76489 runs off a 4 MHz clock (Advanced User Guide
+            // §23.3.1): two of its cycles per 2 MHz master tick.
+            self.psg.tick();
             self.psg.tick();
             // μPD7002 end-of-conversion is wired to System VIA CB1. Drive
             // the line low on the completion edge (the OS's CB1 is set for
@@ -1769,6 +1772,45 @@ mod tests {
             sys.mem_read(0xFE4D) & 0x10,
             0,
             "CB1 (ADC end-of-conversion) interrupt flag set"
+        );
+    }
+
+    /// The BBC's SN76489 runs off a 4 MHz clock: "frequency = 4 000 000/32 x
+    /// 10 bit binary number" (Advanced User Guide §23.3.1). A tone of N = 125
+    /// is 1 kHz, so one emulated second holds 48,000 samples crossing zero
+    /// 2,000 times. Ticked once per 2 MHz master tick it produced half the
+    /// samples, each pitched an octave low.
+    #[test]
+    fn psg_runs_off_a_four_megahertz_clock() {
+        const N: u16 = 125;
+        let mut sys = BbcMicro::new(trap_rom());
+        sys.psg.write(0x80 | (N & 0x0F) as u8); // tone 0, low four bits
+        sys.psg.write((N >> 4) as u8); // tone 0, high six bits
+        sys.psg.write(0x90); // tone 0 at full volume
+        for silence in [0xBF, 0xDF, 0xFF] {
+            sys.psg.write(silence);
+        }
+        // Let the DC blocker settle, then take one second.
+        for _ in 0..10 {
+            sys.run_frame();
+        }
+        sys.take_audio_buffer();
+        for _ in 0..50 {
+            sys.run_frame();
+        }
+        let samples = sys.take_audio_buffer();
+        assert!(
+            (47_900..=48_100).contains(&samples.len()),
+            "one second should hold 48,000 samples; got {}",
+            samples.len()
+        );
+        let crossings = samples
+            .windows(2)
+            .filter(|pair| (pair[0] < 0.0) != (pair[1] < 0.0))
+            .count();
+        assert!(
+            (1_980..=2_020).contains(&crossings),
+            "a 1 kHz tone crosses zero 2,000 times a second; got {crossings}"
         );
     }
 
