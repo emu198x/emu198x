@@ -154,8 +154,12 @@ Then check the result as a user gets it:
 3. Check the binary:
 
    ```sh
-   spctl -a -vv -t exec emu198x-spectrum
+   spctl -a -vv -t open --context context:primary-signature emu198x-spectrum
    ```
+
+   Use the `open` context, not `-t exec`: `-t exec` assesses only `.app`
+   bundles and rejects any bare executable, notarised or not, with "the code
+   is valid but does not seem to be an app".
 
    It should report:
 
