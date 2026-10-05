@@ -229,3 +229,76 @@ fn assert_screen_scores_against_spectron(
          expected {expected_matches}/{total}"
     );
 }
+
+/// The comparator's own check: it must accept a frame that *is* the
+/// reference and reject frames that are nearly the reference. Without this,
+/// every byte-equal result above is only as good as an unexamined loop.
+///
+/// The frames are built from the checked-in `btime_48.png`, so this runs in
+/// a plain `cargo test` with no ROM or tape staged.
+#[cfg(test)]
+mod comparator_self_test {
+    use super::*;
+
+    const REFERENCE: &str = "btime_48.png";
+
+    /// Our palette index for a Spectrum colour index (the inverse of
+    /// `our_pixel_to_spectrum_index` over the colours Spectron produces).
+    fn palette_index_for(spectrum_index: u8) -> u8 {
+        (0u8..16)
+            .find(|&p| our_pixel_to_spectrum_index(p) == spectrum_index)
+            .unwrap_or_else(|| panic!("no palette entry maps to Spectrum index {spectrum_index}"))
+    }
+
+    /// A framebuffer whose 256×192 screen is Spectron's reference, placed
+    /// at an arbitrary in-range vertical alignment, with the given
+    /// horizontal shift applied to the source column.
+    fn framebuffer_from_reference(shift_x: isize) -> Vec<u8> {
+        let (spec, sw, sh) = load_spectron_indices(&spectron_results_dir().join(REFERENCE));
+        let sbl = (sw - 256) / 2;
+        let sy = (sh - 192) / 2;
+        let mut fb = vec![0u8; SCREEN_WIDTH * SCREEN_HEIGHT];
+        for y in 0..192 {
+            for x in 0..256 {
+                let sx = (sbl + x).saturating_add_signed(shift_x);
+                fb[(52 + y) * SCREEN_WIDTH + 48 + x] = palette_index_for(spec[(sy + y) * sw + sx]);
+            }
+        }
+        fb
+    }
+
+    fn rejects(fb: Vec<u8>) -> bool {
+        std::panic::catch_unwind(|| assert_screen_matches_spectron(REFERENCE, &fb)).is_err()
+    }
+
+    #[test]
+    fn accepts_the_reference_itself() {
+        assert_screen_matches_spectron(REFERENCE, &framebuffer_from_reference(0));
+    }
+
+    #[test]
+    fn rejects_one_wrong_pixel() {
+        let mut fb = framebuffer_from_reference(0);
+        // A pixel inside btime's text, not on a uniform background.
+        let at = (52 + 100) * SCREEN_WIDTH + 48 + 128;
+        fb[at] = if our_pixel_to_spectrum_index(fb[at]) == 0 {
+            7
+        } else {
+            0
+        };
+        assert!(
+            rejects(fb),
+            "a single changed pixel must fail the comparison"
+        );
+    }
+
+    #[test]
+    fn rejects_a_one_pixel_horizontal_shift() {
+        // What a one-T-state-ish timing error looks like on these screens:
+        // the vertical search must not absorb a horizontal displacement.
+        assert!(
+            rejects(framebuffer_from_reference(1)),
+            "a screen shifted one pixel right must fail the comparison"
+        );
+    }
+}
