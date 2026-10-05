@@ -108,13 +108,41 @@ macro_rules! beta_profile_machine {
     };
 }
 
-// Pentagon has one dedicated TR-DOS ROM; Scorpion currently backs the overlay
-// with one of its ordinary ROM images. Keep overlay and base-ROM identities apart.
+// Pentagon has one dedicated TR-DOS ROM. Keep overlay and base-ROM identities
+// apart.
 beta_profile_machine!(machine_pentagon_128::Pentagon128, 0);
-beta_profile_machine!(
-    machine_scorpion_zs256::ScorpionZS256,
-    u16::from(machine_scorpion_zs256::memory::MemoryScorpion::TRDOS_ROM_BANK)
-);
+
+// Scorpion's overlay is its ROM 3, and `$1FFD` bit 0 can put RAM bank 0 in
+// slot 0 instead of a ROM.
+impl ProfileMachine for machine_scorpion_zs256::ScorpionZS256 {
+    fn cpu(&self) -> &emu198x_zilog_z80::Z80 {
+        &self.z80
+    }
+    fn cpu_mut(&mut self) -> &mut emu198x_zilog_z80::Z80 {
+        &mut self.z80
+    }
+    fn mapping(&self, address: u16) -> Option<ProfileMapping> {
+        use machine_scorpion_zs256::memory::MemoryScorpion;
+        let slot = (address >> 14) as u8;
+        let (memory, page) = match slot {
+            0 if self.beta.trdos_paged => (
+                ProfileMemory::RomOverlay,
+                u16::from(MemoryScorpion::TRDOS_ROM_BANK),
+            ),
+            0 if self.memory.ram_at_zero() => (ProfileMemory::Ram, 0),
+            0 => (ProfileMemory::Rom, self.memory.current_rom() as u16),
+            1 => (ProfileMemory::Ram, 5),
+            2 => (ProfileMemory::Ram, 2),
+            _ => (ProfileMemory::Ram, self.memory.current_bank() as u16),
+        };
+        Some(ProfileMapping {
+            memory,
+            page,
+            slot,
+            base: u32::from(address & 0xc000),
+        })
+    }
+}
 
 impl ProfileMachine for machine_timex_tc2048::TimexTC2048 {
     fn cpu(&self) -> &emu198x_zilog_z80::Z80 {

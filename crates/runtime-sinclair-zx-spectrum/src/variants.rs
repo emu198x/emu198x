@@ -173,28 +173,10 @@ const PENTAGON_128_BANNERS: &[&str] = &[
     "(C) 1993 Sinclair Research Ltd",
 ];
 
-// BLOCKED 2026-05-01 (refined 2026-05-01 by `probe_scorpion_screen_ram`):
-// the Scorpion's Service ROM (ROM 0 / ZSU monitor) boots silently
-// to a monitor in upper RAM. After 2000 frames the screen RAM at
-// $4000-$5AFF is **100% zero** but the CPU is alive (PC=$EB82,
-// IFF1=true, IM=1, TR-DOS not paged) — interrupts are firing every
-// frame, the monitor is just choosing not to paint anything until
-// you interact. This is standard Soviet-Scorpion behaviour, NOT a
-// TR-DOS implementation bug. The Beta-disk crate is fully
-// implemented (442 lines, no `todo!`/`unimplemented!`); TR-DOS
-// hasn't been paged in here because nothing has tried to read from
-// `$3D00..$3DFF` yet.
-//
-// Banner detection here genuinely cannot use a screen-text scan.
-// Three signal alternatives the next contributor could use:
-//   (a) Insert a known idle disk image and wait for TR-DOS to page
-//       in and paint its directory listing.
-//   (b) Send a Caps Shift / key press at boot and wait for the
-//       monitor's response screen.
-//   (c) Detect the boot via PC range or I/O register state rather
-//       than a screen scan (e.g. once PC enters the monitor's
-//       command-loop region).
-const SCORPION_ZS256_BANNERS: &[&str] = &[];
+// The Scorpion ROMs boot through the Service monitor and TR-DOS back to
+// ROM 0, which draws its boot menu above a "1992-94 Scorpion ZS 256" line
+// (`machine-scorpion-zs256/tests/boot_test.rs`).
+const SCORPION_ZS256_BANNERS: &[&str] = &["Scorpion ZS 256"];
 
 // Confirmed 2026-05-01 by booting `~/.emu198x/roms/timex-tc2048/tc2048.rom`
 // for 200 frames and inspecting `screen.text.lines`: row 23 reads

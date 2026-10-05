@@ -78,15 +78,14 @@ handles its overlay trap. It observes raw pins without consuming bus transaction
 edges. Later prefix fetches can change the overlay without relabelling the
 instruction's first byte. `rom_overlay` is a separate memory namespace from base
 `rom`: Pentagon overlay page 0 is its dedicated TR-DOS image; Scorpion overlay
-page 1 is the ROM image its current implementation actually reads.
+page 3 is its TR-DOS ROM, which no base-ROM selection reaches.
 
-Scorpion profiling follows the current emulator, including its documented
-unresolved differences from FUSE: `$1FFD` bit 0 selects the high RAM-bank bit,
-the base ROM index combines two selector bits, and the overlay reads ROM 1.
-The current machine I/O decoder also routes `$1FFD` writes to both paging
-registers. This slice changes none of those behaviours and does not establish
-them as hardware facts. The report measures the executed memory map; a matching
-sidecar must name those RAM pages.
+Scorpion profiling reports the machine's memory map as FUSE's
+`machines/scorpion.c` decodes it: `$1FFD` bit 4 is the high RAM-bank bit, base
+ROM is 2 when `$1FFD` bit 1 is set and otherwise 0 or 1 by `$7FFD` bit 4, and
+`$1FFD` bit 0 puts RAM page 0 in slot 0 (reported as `ram` page 0). `$7FFD` is
+decoded with A14 set, so a `$1FFD` write reaches only `$1FFD`. The report
+measures the executed memory map; a matching sidecar must name those RAM pages.
 
 TC2048 uses a flat capture. TC2068/TS2068 capture their eight 8 KiB windows:
 HOME ROM is `rom` pages 0–1, HOME RAM is `ram` pages 2–7, and EXROM is

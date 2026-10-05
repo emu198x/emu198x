@@ -8,7 +8,7 @@
 //! - Z80 @ 3.5 MHz (master / 4) — same crystal as the 48K
 //! - Scorpion ULA — no contention, 48K-style geometry
 //! - 256 KB RAM in 16 × 16 KB banks (paged via `$7FFD` + `$1FFD`)
-//! - 4 × 16 KB ROMs (Service / TR-DOS / 128 editor / 48 BASIC)
+//! - 4 × 16 KB ROMs (128 editor / 48 BASIC / Service monitor / TR-DOS overlay)
 //! - General Instrument AY-3-8912 PSG
 //! - Beta 128 disk interface
 
@@ -164,7 +164,11 @@ impl ScorpionZS256 {
         // once per IN rather than once per asserted phase.
         match self.z80.bus_request() {
             Some(BusOp::MemRead) => {
-                if self.z80.m1 {
+                // FUSE `z80_ops.c`: on a 128-type machine the Beta trap
+                // pages in and out only while a non-zero ROM is selected
+                // (`NOT_128_TYPE_OR_IS_48_TYPE`), so the 128 Editor in
+                // ROM 0 can run through $3D00-$3DFF without TR-DOS.
+                if self.z80.m1 && self.memory.current_rom() != 0 {
                     self.beta.on_m1(self.z80.addr);
                 }
                 if self.beta.trdos_paged && self.z80.addr < 0x4000 {
@@ -173,6 +177,9 @@ impl ScorpionZS256 {
                     self.z80.data_in = self.memory.read(self.z80.addr);
                 }
             }
+            // The overlay is ROM: while it is paged in, writes below
+            // $4000 reach neither ROM nor the RAM bank $1FFD bit 0 maps.
+            Some(BusOp::MemWrite) if self.beta.trdos_paged && self.z80.addr < 0x4000 => {}
             Some(BusOp::MemWrite) => self.memory.write(self.z80.addr, self.z80.data),
             Some(BusOp::IoRead) => self.z80.data_in = self.io_read(self.z80.addr),
             Some(BusOp::IoWrite) => self.io_write(self.z80.addr, self.z80.data),
@@ -234,7 +241,10 @@ impl ScorpionZS256 {
             // MIC (bit 3) carries the tape SAVE signal.
             self.recorder.set_mic_level(data & 0x08 != 0);
         }
-        if port & 0x8002 == 0x0000 {
+        // +3-style decoding (FUSE `plus3_memory_ports`; MAME maps $7FFD as
+        // `01xxxxxxxx1xxx01`): A14 separates $7FFD from $1FFD, so a write
+        // to $1FFD does not also land in $7FFD as 128K decoding would.
+        if port & 0xC002 == 0x4000 {
             self.memory.write_7ffd(data);
         }
         if port & 0xF002 == 0x1000 {
@@ -423,6 +433,66 @@ mod tests {
         m.z80.rd = true;
         m.handle_bus();
         assert_eq!(m.z80.data_in, 0xCD);
+    }
+
+    #[test]
+    fn port_1ffd_write_does_not_reach_7ffd() {
+        let mut m = ScorpionZS256::new();
+        m.port_write(0x1FFD, 0x12);
+        // $1FFD = $12 selects ROM 2 and the high bank bit; $7FFD stays 0.
+        assert_eq!(m.memory.current_rom(), 2);
+        assert_eq!(m.memory.current_bank(), 8);
+        assert_eq!(m.memory.screen_bank(), 5);
+
+        m.port_write(0x7FFD, 0x13);
+        assert_eq!(m.memory.current_bank(), 11);
+    }
+
+    fn fetch_m1(m: &mut ScorpionZS256, addr: u16) -> u8 {
+        m.z80.addr = addr;
+        m.z80.mreq = true;
+        m.z80.rd = true;
+        m.z80.m1 = true;
+        m.handle_bus();
+        m.z80.mreq = false;
+        m.z80.rd = false;
+        m.z80.m1 = false;
+        m.handle_bus();
+        m.z80.data_in
+    }
+
+    #[test]
+    fn beta_trap_pages_rom_3_only_outside_rom_0() {
+        let mut m = ScorpionZS256::new();
+        let roms: [Vec<u8>; 4] = std::array::from_fn(|i| vec![0x10 * i as u8 + 1; 16384]);
+        m.memory.load_roms(&roms[0], &roms[1], &roms[2], &roms[3]);
+
+        // ROM 0 (128 Editor): $3D00 is ordinary code, no trap.
+        assert_eq!(fetch_m1(&mut m, 0x3D00), 0x01);
+        assert!(!m.beta.trdos_paged);
+
+        // ROM 1 (48 BASIC): the trap pages TR-DOS from ROM 3.
+        m.port_write(0x7FFD, 0x10);
+        assert_eq!(fetch_m1(&mut m, 0x3D00), 0x31);
+        assert!(m.beta.trdos_paged);
+
+        // Overlay is ROM: writes below $4000 land nowhere, even with
+        // RAM bank 0 mapped there by $1FFD bit 0.
+        m.port_write(0x1FFD, 0x01);
+        m.z80.addr = 0x0100;
+        m.z80.data = 0xAA;
+        m.z80.mreq = true;
+        m.z80.wr = true;
+        m.handle_bus();
+        m.z80.mreq = false;
+        m.z80.wr = false;
+        m.handle_bus();
+        assert_eq!(fetch_m1(&mut m, 0x0100), 0x31);
+
+        // Leaving ROM space unpages the overlay, exposing RAM bank 0.
+        fetch_m1(&mut m, 0x8000);
+        assert!(!m.beta.trdos_paged);
+        assert_eq!(m.memory.read(0x0100), 0x00, "the overlay write was dropped");
     }
 
     #[test]

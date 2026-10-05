@@ -1,21 +1,16 @@
 //! Integration boot test for the Scorpion ZS-256.
 //!
 //! Loads the four Scorpion ROM banks from
-//! `~/.emu198x/roms/scorpion-zs256/{scorpion-0..3}.rom` and verifies
-//! that the Service ROM executes — CPU progresses past reset, runs
-//! instructions, ends up somewhere in ROM with interrupts enabled in
-//! IM 1, and writes scratch state into paged RAM banks.
-//!
-//! **Known gap.** The Scorpion's Service ROM does not currently paint
-//! to standard screen RAM at $4000-$5AFF during boot, so this test
-//! cannot use "nonzero bytes in screen RAM" as the boot signal like
-//! the other variants do. See `runtime-sinclair-zx-spectrum`'s
-//! `probe_scorpion_screen_ram` diagnostic for the full picture.
+//! `~/.emu198x/roms/scorpion-zs256/{scorpion-0..3}.rom` and verifies the
+//! machine reaches its boot menu: ROM 0 resets into the Service monitor
+//! (ROM 2), which clears the upper RAM banks, probes the Beta Disk through
+//! TR-DOS (ROM 3, overlay only), and returns to ROM 0 to draw the menu.
+//! Every step of that path depends on the `$7FFD`/`$1FFD` decoding, so a
+//! wrong paging bit leaves the screen blank or striped instead.
 //!
 //! `#[ignore]`d because not every developer has the ROMs locally — the
 //! runner prints a path hint and skips when they're missing.
 
-use common_sinclair_zx_spectrum::memory::MemoryBus;
 use machine_scorpion_zs256::ScorpionZS256;
 use std::path::PathBuf;
 
@@ -23,9 +18,40 @@ fn rom_dir() -> Option<PathBuf> {
     std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".emu198x/roms/scorpion-zs256"))
 }
 
+/// Address of one pixel line of a character cell in the screen bank.
+fn cell_line_addr(row: u16, col: u16, line: u16) -> u16 {
+    0x4000 | ((row & 0x18) << 8) | (line << 8) | ((row & 0x07) << 5) | col
+}
+
+/// Decodes one character row of the displayed screen against the 48 BASIC
+/// font at `$3D00` of ROM 1. Inverse-video cells match too; unmatched cells
+/// read as `?`.
+fn screen_row_text(machine: &ScorpionZS256, row: u16) -> String {
+    use common_sinclair_zx_spectrum::memory::MemoryBus;
+    (0..32)
+        .map(|col| {
+            let cell: Vec<u8> = (0..8)
+                .map(|line| machine.memory.read_screen(cell_line_addr(row, col, line)))
+                .collect();
+            (0x20u8..0x80)
+                .find(|&ch| {
+                    let glyph: Vec<u8> = (0..8)
+                        .map(|line| {
+                            machine
+                                .memory
+                                .read_rom_byte(1, 0x3D00 + (u16::from(ch) - 0x20) * 8 + line)
+                        })
+                        .collect();
+                    glyph == cell || glyph.iter().zip(&cell).all(|(g, c)| !g == *c)
+                })
+                .map_or('?', char::from)
+        })
+        .collect()
+}
+
 #[test]
 #[ignore = "FIXTURE: requires local Scorpion ROMs at ~/.emu198x/roms/scorpion-zs256/{scorpion-0..3}.rom"]
-fn boot_runs_service_rom() {
+fn boot_reaches_the_scorpion_menu() {
     let Some(dir) = rom_dir() else {
         emu198x_test_skip::skip!("HOME not set — cannot locate Scorpion ROMs");
     };
@@ -44,43 +70,29 @@ fn boot_runs_service_rom() {
             .unwrap_or_else(|e| panic!("Scorpion ROM {i} should load: {e}"));
     }
 
-    for _ in 0..400 {
+    for _ in 0..300 {
         machine.run_frame();
     }
 
-    // Liveness check 1: CPU should have moved off the reset vector.
-    let pc = machine.z80.regs.pc;
-    assert_ne!(
-        pc, 0x0000,
-        "Scorpion CPU stuck at reset vector after 400 frames"
-    );
-
-    // Liveness check 2: interrupts should be enabled in IM 1, which the
-    // Service ROM does early in its init.
-    assert!(
-        machine.z80.regs.iff1,
-        "Service ROM should have enabled interrupts (IFF1) by now"
-    );
-    assert_eq!(
-        machine.z80.regs.im, 1,
-        "Service ROM should run in IM 1, found {}",
-        machine.z80.regs.im
-    );
-
-    // Liveness check 3: at least one RAM bank should have non-trivial
-    // scratch state. We sweep every bank since the standard screen
-    // bank (5) is not painted during boot — a known upstream issue.
-    let mut total = 0usize;
-    for bank_idx in 0u8..16 {
-        machine.memory.write_7ffd(bank_idx & 0x07);
-        machine.memory.write_1ffd((bank_idx >> 3) & 0x01);
-        total += (0xC000u16..=0xFFFF)
-            .filter(|&addr| machine.memory.read(addr) != 0)
-            .count();
+    let screen: Vec<String> = (0..24).map(|row| screen_row_text(&machine, row)).collect();
+    let shows = |text: &str| screen.iter().any(|line| line.contains(text));
+    for item in [
+        "Scorpion ZS 256",
+        "128 TR-DOS",
+        "128 BASIC",
+        "48 BASIC",
+        "48 TR-DOS",
+    ] {
+        assert!(
+            shows(item),
+            "Scorpion boot menu should show {item:?} after 300 frames; screen reads:\n{}",
+            screen.join("\n")
+        );
     }
+
+    assert_eq!(machine.memory.current_rom(), 0, "menu runs from ROM 0");
     assert!(
-        total > 50,
-        "Scorpion should have written scratch state to RAM after boot \
-         (got {total} non-zero bytes across all 16 banks)"
+        machine.z80.regs.iff1 && machine.z80.regs.im == 1,
+        "menu waits for keys with interrupts on in IM 1"
     );
 }
