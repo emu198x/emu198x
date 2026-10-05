@@ -75,7 +75,8 @@ Its source cautions that its timing targets are 48K even though 128K result
 images are supplied, so the 128K assertion establishes agreement with the
 external result, not a separate hardware-accuracy claim.
 
-Nightly fetches `btime.tap` and `ptime.tap` from the pinned Spectron revision
-above and verifies their SHA-256 hashes, because the private corpus mirror
-contains only the earlier floating-bus tapes. Reference PNGs come from this
+Nightly fetches `btime.tap`, `ptime.tap` and the 48K `halt2int.tap` from the
+pinned Spectron revision above and verifies their SHA-256 hashes, because the
+private corpus mirror contains only the earlier floating-bus tapes and the 128K
+`halt2int128.tap`. Reference PNGs come from this
 checkout and are checked against `SHA256SUMS` before the tests run.
