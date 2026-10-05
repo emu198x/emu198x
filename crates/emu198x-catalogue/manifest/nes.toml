@@ -15,12 +15,13 @@ id = "nes"
 # re-capture instruction. See
 # knowledge/decisions/nes-architecture-review.md Seam 4.
 #
-# Audio re-blessed for version 2 (#1567, held triangle output). Only
-# contra's hash moved because of that fix; the other four had already
-# drifted from their committed values on main through earlier changes
-# that were never re-captured (this catalogue is #[ignore]'d in CI), and
-# take main's values unchanged.
-audio_routing_version = 2
+# Audio re-blessed for version 3 (#1568, the downsampler emits a true
+# 48 kHz). Every audio hash changes because each 2 s window now holds
+# 95,842 samples instead of ~94,044. super-mario-bros, tetris and
+# tmnt-2-arcade share one hash because all three windows are digital
+# silence (every sample 0); on version 2 they differed only by a one-
+# sample difference in window length.
+audio_routing_version = 3
 frame_routing_version = 1
 
 [[entry]]
@@ -43,10 +44,12 @@ wait_frames = 240
 frame_hash = "xxh64:45173ac7294ac723"
 
 [entry.audio]
-# Captures the title-screen 2A03 melody.
+# 2 s of silence: the title screen plays no music (the theme starts
+# with a game). Every sample in the window is 0, and was on every
+# earlier audio routing version too. Same shared-hash caveat as Tetris.
 from_frame = 60
 secs = 2.0
-hash = "xxh64:0ff9f48937cba7c6"
+hash = "xxh64:76717e4f51db9bbc"
 
 [[entry]]
 id = "contra"
@@ -69,7 +72,7 @@ frame_hash = "xxh64:929fb589e81e0143"
 [entry.audio]
 from_frame = 60
 secs = 2.0
-hash = "xxh64:6215e6c3e641e0b8"
+hash = "xxh64:f4550b0081340fc7"
 
 [[entry]]
 id = "zelda-2"
@@ -92,7 +95,7 @@ frame_hash = "xxh64:b5bb85e96c59462b"
 [entry.audio]
 from_frame = 60
 secs = 2.0
-hash = "xxh64:51b2dd456a7d64a8"
+hash = "xxh64:ab4df604c5b5dfc8"
 
 [[entry]]
 id = "tetris"
@@ -118,7 +121,7 @@ frame_hash = "xxh64:97b874e69eb923b9"
 # caveat as the silent-screen Spectrum entries.
 from_frame = 60
 secs = 2.0
-hash = "xxh64:195044baf046e9a9"
+hash = "xxh64:76717e4f51db9bbc"
 
 [[entry]]
 id = "tmnt-2-arcade"
@@ -143,4 +146,4 @@ frame_hash = "xxh64:14e09209ac82f45f"
 # 2 s of silence (legal screen). Same caveat as Tetris.
 from_frame = 60
 secs = 2.0
-hash = "xxh64:195044baf046e9a9"
+hash = "xxh64:76717e4f51db9bbc"
