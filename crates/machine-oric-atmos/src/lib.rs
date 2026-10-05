@@ -73,14 +73,28 @@
 //!
 //! **Per-scanline**: `run_frame` runs the CPU a raster line at a time and
 //! renders each visible display line from RAM ($BB80 TEXT, $A000 HIRES,
-//! $B400 charset) at the moment the beam scans it — so mid-frame changes
-//! (raster splits, per-line serial-attribute and TEXT/HIRES mode changes)
-//! land on the right rows. The 224-line display sits at raster lines
-//! 65..289 of the 312-line frame (Oricutron `vid_start = 65`). **Serial
-//! attributes**: bytes `$00-$1F` in the screen image change the ink/paper
-//! colour for the rest of the line rather than rendering a glyph, and
-//! reset at the start of each line. Same 8-colour 3-bit RGB palette as the
-//! Acorn / BBC family.
+//! $B400 / $9800 charset) at the moment the beam scans it — so mid-frame
+//! changes (raster splits, per-line serial-attribute and TEXT/HIRES mode
+//! changes) land on the right rows. `raster` is the ULA's vertical counter:
+//! the 224 display lines are counts 0..224 and blanking and sync follow, so
+//! the frame ends when the counter resets.
+//!
+//! **Serial attributes**: bytes `$00-$1F` in the screen image update one of
+//! the ULA's four 3-bit registers instead of rendering a glyph — ink, style
+//! (charset, double height, flash), paper, and mode. Ink, style and paper
+//! reset at the start of each line; **the mode register does not**. Codes
+//! 24-31 set it: bit 2 selects HIRES, bit 1 selects 50 Hz (clear = 60 Hz).
+//! The BASIC ROM's `HIRES` and `TEXT` write `$1E` / `$1A` into the last
+//! screen cell (`$BFDF`) for the ULA to scan, then overwrite it; the mode
+//! persists in the ULA, not in RAM.
+//!
+//! **Frame length** follows the mode register's 50/60 Hz bit: the vertical
+//! counter resets after 312 lines at 50 Hz and 264 at 60 Hz, 64 µs a line.
+//! A program that leaves a 60 Hz attribute on screen therefore runs
+//! 16 896-cycle frames instead of 19 968 — on a 50 Hz set that is the
+//! "unstable display" the Atmos Handbook warns about.
+//!
+//! Same 8-colour 3-bit RGB palette as the Acorn / BBC family.
 
 use emu198x_mos_6502::M6502;
 use gi_ay_3_8912::{Ay3_8912, AyWriteRecord, AyWriteWatch};
@@ -121,12 +135,36 @@ pub const FB_WIDTH: u32 = 240;
 pub const FB_HEIGHT: u32 = 224;
 
 const CPU_CLOCK_HZ: u32 = 1_000_000;
-const LINES_PER_FRAME: u32 = 312;
+/// One line is one pass of the ULA's 6-bit horizontal counter, clocked at
+/// 1 MHz.
 const CYCLES_PER_LINE: u32 = 64;
-const TICKS_PER_FRAME: u64 = (LINES_PER_FRAME * CYCLES_PER_LINE) as u64;
-/// First raster line of the visible display (top border height). The
-/// 224-line display occupies raster lines 65..289 (Oricutron `vid_start`).
-const DISPLAY_TOP: u32 = 65;
+/// Lines per frame with the mode register's 50 Hz bit set. Brown's ULA guide
+/// decodes the frame end as `V8 AND V5 AND V4 AND V3` — count 312 — and the
+/// 19 966-cycle VIA T1 period Oric software calibrates against real hardware
+/// is 312 × 64 less T1's two-cycle reload.
+const LINES_50HZ: u32 = 312;
+/// Lines per frame with the 50 Hz bit clear. Oricutron (`vid_maxrast =
+/// 260 + 4`) and Clock Signal (`PAL60Period = 264*64`) agree on 264. Brown's
+/// guide says 260 and prints no 60 Hz decode; no hardware measurement of the
+/// 60 Hz count is known, so 264 is the emulator consensus, not a verified
+/// fact.
+const LINES_60HZ: u32 = 264;
+#[cfg(test)]
+const TICKS_PER_FRAME: u64 = (LINES_50HZ * CYCLES_PER_LINE) as u64;
+/// Display lines at the top of the vertical count. Brown's guide decodes
+/// vertical blank as `V5 AND V6 AND V7` — count 224.
+const DISPLAY_LINES: u32 = FB_HEIGHT;
+/// HIRES bitmap lines; the rest of a HIRES display is the text window.
+const HIRES_LINES: usize = 200;
+
+/// Mode register (r3) bit: 50 Hz frame when set, 60 Hz when clear.
+const MODE_50HZ: u8 = 0x02;
+/// Mode register (r3) bit: HIRES when set, TEXT when clear.
+const MODE_HIRES: u8 = 0x04;
+/// Mode register at power-on: TEXT, 50 Hz. No source states the reset
+/// value; this is Oricutron's (`ula_powerup_default` decodes `$1A`), and the
+/// ROM writes `$1A` itself during cold start.
+const MODE_POWER_ON: u8 = MODE_50HZ;
 
 const AY_SAMPLE_RATE: u32 = 48_000;
 const AY_SAMPLES_PER_FRAME: usize = 1024;
@@ -213,6 +251,10 @@ pub struct OricAtmos {
     /// painted while the debugger stepped instructions (#1202).
     frame_start: u64,
     raster: u32,
+    /// The ULA's mode register (r3): bit 2 HIRES, bit 1 50 Hz. Set by serial
+    /// attributes 24-31 as the ULA scans them, and — unlike ink, style and
+    /// paper — never reset at the start of a line or frame.
+    ula_mode: u8,
     /// When `Some`, every write to the AY data register (via the VIA's
     /// BDIR/BC1 handshake) is captured for the shared `watch_ay_*` tools.
     /// Host-side debug only, not part of the snapshot.
@@ -247,6 +289,7 @@ impl OricAtmos {
             frame_count: 0,
             frame_start: 0,
             raster: 0,
+            ula_mode: MODE_POWER_ON,
             ay_watch: None,
             tape: None,
         }
@@ -280,13 +323,31 @@ impl OricAtmos {
         }
     }
 
-    /// Run one PAL frame.
+    /// Run to the end of the current frame and return the CPU cycles that
+    /// took: 19 968 for a whole 50 Hz frame, 16 896 for a 60 Hz one.
     pub fn run_frame(&mut self) -> u64 {
         let start = self.cpu_cycles;
-        while self.cpu_cycles - start < TICKS_PER_FRAME {
+        let frame = self.frame_count;
+        while self.frame_count == frame {
             self.tick_cpu_cycle();
         }
-        TICKS_PER_FRAME
+        self.cpu_cycles - start
+    }
+
+    /// The ULA's mode register: bit 2 HIRES, bit 1 50 Hz.
+    #[must_use]
+    pub fn ula_mode(&self) -> u8 {
+        self.ula_mode
+    }
+
+    /// Lines in the frame the mode register currently selects.
+    #[must_use]
+    pub fn frame_lines(&self) -> u32 {
+        if self.ula_mode & MODE_50HZ != 0 {
+            LINES_50HZ
+        } else {
+            LINES_60HZ
+        }
     }
 
     /// Paint the raster line the machine has just finished and step to the
@@ -295,21 +356,25 @@ impl OricAtmos {
     /// Lines are rendered as the beam scans them, reading display RAM at the
     /// moment each is scanned out, so mid-frame changes -- raster splits,
     /// serial-attribute and TEXT/HIRES mode changes per line -- land on the
-    /// right rows. The 224-line display occupies raster lines
-    /// `DISPLAY_TOP..DISPLAY_TOP + 224` of the 312-line frame (Oricutron
-    /// `vid_start = 65`).
+    /// right rows. The 224-line display is the first 224 counts of the
+    /// vertical counter.
+    ///
+    /// The frame ends when the counter reaches the length the mode register
+    /// selects *now*: the ULA decodes the frame end combinationally from the
+    /// counter and the mode (Brown's guide, "VFRAME"), so a 60 Hz attribute
+    /// scanned during the display shortens that same frame.
     ///
     /// This used to live in `run_frame`'s loop, so a machine driven by the
     /// debugger's instruction stepping painted nothing and handed back a
     /// stale framebuffer (#1202).
     fn finish_scanline(&mut self) {
-        if (DISPLAY_TOP..DISPLAY_TOP + FB_HEIGHT).contains(&self.raster) {
-            self.render_scanline((self.raster - DISPLAY_TOP) as usize);
+        if self.raster < DISPLAY_LINES {
+            self.render_scanline(self.raster as usize);
         }
         self.raster += 1;
-        if self.raster >= LINES_PER_FRAME {
+        if self.raster >= self.frame_lines() {
+            self.frame_start += u64::from(self.raster * CYCLES_PER_LINE);
             self.raster = 0;
-            self.frame_start += TICKS_PER_FRAME;
             self.frame_count += 1;
         }
     }
@@ -515,99 +580,59 @@ impl OricAtmos {
 
     /// Render the single display pixel-line `fb_y` (0..224) from the
     /// current RAM. Called once per visible raster line so mid-frame
-    /// changes land on the right rows. `$26A` bit 2 (HIRES) is read per
-    /// line, so a raster mode split takes effect at the right scanline.
+    /// changes land on the right rows.
+    ///
+    /// The address of each cell follows the mode register as it stands at
+    /// that cell, so a mode attribute part-way along a line switches the rest
+    /// of the line (Oricutron `ula_doraster` recomputes its pointer the same
+    /// way). HIRES reads the bitmap at `$A000` for lines 0..200; the last 24
+    /// lines are always text, which in HIRES puts the 3-row text window at
+    /// `$BF68` at the bottom of the screen (Brown's guide: "a signal which
+    /// identifies line 200 (the beginning of the text area)").
     fn render_scanline(&mut self, fb_y: usize) {
-        let hires = self.ram[0x026A] & 0x04 != 0;
-        if hires {
-            if fb_y < 24 {
-                // The top 3 text rows live at $BF68 in HIRES mode.
-                self.render_text_scanline(fb_y, 0xBF68, true);
-            } else {
-                self.render_bitmap_scanline(fb_y);
-            }
-        } else {
-            self.render_text_scanline(fb_y, 0xBB80, false);
-        }
-    }
-
-    /// One pixel-line of a 40×N character display. `base` is the screen
-    /// memory; the font row comes from the character generator at $B400.
-    /// Serial attributes reset at the start of the line — the ULA
-    /// re-scans the row's bytes for every one of its eight pixel lines.
-    fn render_text_scanline(&mut self, fb_y: usize, base: usize, hires_charset: bool) {
-        let char_row = fb_y / 8;
         let mut attrs = SerialAttributes::default();
         for col in 0..40 {
-            let byte = self.ram[base + char_row * 40 + col];
+            let hires_mode = self.ula_mode & MODE_HIRES != 0;
+            let bitmap = hires_mode && fb_y < HIRES_LINES;
+            let addr = if bitmap {
+                0xA000 + fb_y * 40 + col
+            } else {
+                0xBB80 + (fb_y / 8) * 40 + col
+            };
+            let byte = self.ram[addr];
             let inverse = byte & 0x80 != 0;
             let effective = byte & 0x7F;
             if effective < 32 {
-                Self::apply_serial_attribute(effective, &mut attrs);
+                self.apply_serial_attribute(effective, &mut attrs);
                 self.fill_scanline_cell(fb_y, col, attrs.paper);
+                continue;
+            }
+            let pattern = if bitmap {
+                effective
             } else {
-                let standard_base = if hires_charset { 0x9800 } else { 0xB400 };
+                // The character generator moves with the mode: $B400 in
+                // TEXT, $9800 in HIRES (the bitmap overlays $B400).
+                let standard_base = if hires_mode { 0x9800 } else { 0xB400 };
                 let charset_base = standard_base + usize::from(attrs.alternate_charset) * 0x400;
                 let font_row = if attrs.double_height {
                     (fb_y / 2) % 8
                 } else {
                     fb_y % 8
                 };
-                let pattern = self
-                    .ram
+                self.ram
                     .get(charset_base + effective as usize * 8 + font_row)
                     .copied()
                     .unwrap_or(0)
-                    & self.flash_mask(attrs.flash);
-                for bit in 0..6 {
-                    let fb_x = col * 6 + bit;
-                    if fb_x >= FB_WIDTH as usize {
-                        continue;
-                    }
-                    let (fg, bg) = if inverse {
-                        (attrs.paper, attrs.ink)
-                    } else {
-                        (attrs.ink, attrs.paper)
-                    };
-                    let pixel = if pattern & (0x20 >> bit) != 0 { fg } else { bg };
-                    self.framebuffer[fb_y * FB_WIDTH as usize + fb_x] = pixel;
-                }
-            }
-        }
-    }
-
-    /// One pixel-line of the HIRES bitmap (the 200 lines from $A000,
-    /// drawn below the 3-row text header at `fb_y` 24..224).
-    fn render_bitmap_scanline(&mut self, fb_y: usize) {
-        let bitmap_base = 0xA000usize;
-        let line = fb_y - 24;
-        let mut attrs = SerialAttributes::default();
-        for col in 0..40 {
-            let byte = self.ram[bitmap_base + line * 40 + col];
-            let inverse = byte & 0x80 != 0;
-            let effective = byte & 0x7F;
-            if effective < 32 {
-                Self::apply_serial_attribute(effective, &mut attrs);
-                self.fill_scanline_cell(fb_y, col, attrs.paper);
+            } & self.flash_mask(attrs.flash);
+            let (fg, bg) = if inverse {
+                (attrs.paper, attrs.ink)
             } else {
-                let effective = effective & self.flash_mask(attrs.flash);
-                for bit in 0..6 {
-                    let fb_x = col * 6 + bit;
-                    if fb_x >= FB_WIDTH as usize {
-                        continue;
-                    }
-                    let (fg, bg) = if inverse {
-                        (attrs.paper, attrs.ink)
-                    } else {
-                        (attrs.ink, attrs.paper)
-                    };
-                    let pixel = if effective & (0x20 >> bit) != 0 {
-                        fg
-                    } else {
-                        bg
-                    };
-                    self.framebuffer[fb_y * FB_WIDTH as usize + fb_x] = pixel;
-                }
+                (attrs.ink, attrs.paper)
+            };
+            for bit in 0..6 {
+                let fb_x = col * 6 + bit;
+                let pixel = if pattern & (0x20 >> bit) != 0 { fg } else { bg };
+                self.framebuffer[fb_y * FB_WIDTH as usize + fb_x] = pixel;
             }
         }
     }
@@ -631,7 +656,7 @@ impl OricAtmos {
         }
     }
 
-    fn apply_serial_attribute(attr: u8, attrs: &mut SerialAttributes) {
+    fn apply_serial_attribute(&mut self, attr: u8, attrs: &mut SerialAttributes) {
         match attr {
             0..=7 => attrs.ink = ORIC_PALETTE[attr as usize],
             8..=15 => {
@@ -640,7 +665,8 @@ impl OricAtmos {
                 attrs.flash = attr & 0x04 != 0;
             }
             16..=23 => attrs.paper = ORIC_PALETTE[(attr - 16) as usize],
-            _ => {}
+            // 24-31: the mode register. It outlives the line.
+            _ => self.ula_mode = attr & 0x07,
         }
     }
 
@@ -865,7 +891,7 @@ mod tests {
     fn render_scanline_reads_its_own_character_row() {
         // The per-scanline renderer must read each line's row from RAM
         // independently — the basis for raster effects. TEXT mode is the
-        // default ($26A bit 2 = 0). A "paper = colour 1" serial-attribute
+        // power-on mode. A "paper = colour 1" serial-attribute
         // byte ($11) as cell 0 of character row 5 paints that cell.
         let mut sys = OricAtmos::new(trap_rom(), OricModel::Atmos);
         sys.ram[0xBB80 + 5 * 40] = 0x11;
@@ -892,13 +918,93 @@ mod tests {
         assert_eq!(text.framebuffer[6], ORIC_PALETTE[7]);
 
         let mut hires = OricAtmos::new(trap_rom(), OricModel::Atmos);
-        hires.ram[0x026A] = 0x04;
+        hires.ula_mode = MODE_HIRES | MODE_50HZ;
         hires.ram[0xBF68] = 9;
         hires.ram[0xBF69] = glyph as u8;
         hires.ram[0x9800 + glyph * 8] = 0;
         hires.ram[0x9C00 + glyph * 8] = 0x20;
-        hires.render_scanline(0);
-        assert_eq!(hires.framebuffer[6], ORIC_PALETTE[7]);
+        hires.render_scanline(200);
+        assert_eq!(
+            hires.framebuffer[200 * FB_WIDTH as usize + 6],
+            ORIC_PALETTE[7]
+        );
+    }
+
+    /// The mode register is the ULA's, not RAM's. The ROM's `HIRES` writes
+    /// `$1E` into the last screen cell, lets the ULA scan it, and then
+    /// overwrites it — so the mode has to outlive the byte that set it, and
+    /// every line and frame after it (#341).
+    #[test]
+    fn a_scanned_mode_attribute_persists_after_the_byte_is_gone() {
+        let mut sys = OricAtmos::new(trap_rom(), OricModel::Atmos);
+        sys.ram[0xBFDF] = 0x1E; // HIRES, 50 Hz — the ROM's own choice of cell
+        sys.run_frame();
+        assert_eq!(sys.ula_mode(), MODE_HIRES | MODE_50HZ);
+
+        sys.ram[0xBFDF] = 0x20;
+        sys.ram[0xA000] = 0x7F; // six lit pixels at the top-left
+        sys.run_frame();
+        sys.run_frame();
+        assert_eq!(sys.ula_mode(), MODE_HIRES | MODE_50HZ);
+        assert_eq!(
+            sys.framebuffer()[0],
+            ORIC_PALETTE[7],
+            "the bitmap byte at $A000 is line 0 of a HIRES display"
+        );
+    }
+
+    /// HIRES is 200 bitmap lines with the 3-row text window *below* them:
+    /// the window at $BF68 is lines 200..224, not the top of the screen.
+    #[test]
+    fn hires_text_window_is_at_the_bottom() {
+        let glyph = 32usize;
+        let mut sys = OricAtmos::new(trap_rom(), OricModel::Atmos);
+        sys.ula_mode = MODE_HIRES | MODE_50HZ;
+        sys.ram[0xBF68] = glyph as u8;
+        sys.ram[0x9800 + glyph * 8] = 0x20;
+        sys.ram[0xA000] = 0x40; // blank bitmap byte
+
+        sys.render_scanline(200);
+        sys.render_scanline(0);
+        assert_eq!(sys.framebuffer[200 * FB_WIDTH as usize], ORIC_PALETTE[7]);
+        assert_eq!(sys.framebuffer[0], ORIC_PALETTE[0]);
+    }
+
+    /// A mode attribute switches the rest of its own line: a HIRES code at
+    /// column 0 of a TEXT line makes columns 1.. read the bitmap.
+    #[test]
+    fn a_mode_attribute_switches_the_rest_of_its_line() {
+        let mut sys = OricAtmos::new(trap_rom(), OricModel::Atmos);
+        sys.ram[0xBB80] = 0x1E; // HIRES, 50 Hz
+        sys.ram[0xA001] = 0x7F; // bitmap line 0, column 1
+        sys.render_scanline(0);
+        assert_eq!(sys.ula_mode(), MODE_HIRES | MODE_50HZ);
+        assert_eq!(sys.framebuffer[6], ORIC_PALETTE[7]);
+    }
+
+    /// Attributes 24/25 and 28/29 clear the 50 Hz bit and the vertical
+    /// counter resets after 264 lines instead of 312; 26/27 and 30/31 put it
+    /// back (#341).
+    #[test]
+    fn sixty_hertz_attributes_shorten_the_frame() {
+        let mut sys = OricAtmos::new(trap_rom(), OricModel::Atmos);
+        assert_eq!(sys.run_frame(), 312 * 64);
+
+        sys.ram[0xBB80 + 10 * 40] = 0x18; // TEXT, 60 Hz, on display row 10
+        assert_eq!(sys.run_frame(), 264 * 64, "the frame it is scanned in");
+        assert_eq!(sys.run_frame(), 264 * 64, "and every frame after");
+        assert_eq!(sys.frame_lines(), 264);
+
+        sys.ram[0xBB80 + 10 * 40] = 0x1A; // TEXT, 50 Hz
+        assert_eq!(sys.run_frame(), 312 * 64);
+
+        sys.ram[0xBB80 + 10 * 40] = 0x1C; // HIRES, 60 Hz
+        assert_eq!(sys.run_frame(), 264 * 64);
+        // In HIRES that cell is bitmap line 186; clear it and switch back
+        // from a bitmap line above it.
+        sys.ram[0xBB80 + 10 * 40] = 0x40;
+        sys.ram[0xA000 + 80 * 40] = 0x1E; // HIRES, 50 Hz
+        assert_eq!(sys.run_frame(), 312 * 64);
     }
 
     #[test]
@@ -936,16 +1042,16 @@ mod tests {
     #[test]
     fn flash_also_gates_hires_bitmap_data() {
         let mut sys = OricAtmos::new(trap_rom(), OricModel::Atmos);
-        sys.ram[0x026A] = 0x04;
+        sys.ula_mode = MODE_HIRES | MODE_50HZ;
         sys.ram[0xA000] = 12;
         sys.ram[0xA001] = 0x20;
 
         sys.frame_count = 0;
-        sys.render_scanline(24);
-        assert_eq!(sys.framebuffer[24 * FB_WIDTH as usize + 6], ORIC_PALETTE[0]);
+        sys.render_scanline(0);
+        assert_eq!(sys.framebuffer[6], ORIC_PALETTE[0]);
         sys.frame_count = 0x10;
-        sys.render_scanline(24);
-        assert_eq!(sys.framebuffer[24 * FB_WIDTH as usize + 6], ORIC_PALETTE[7]);
+        sys.render_scanline(0);
+        assert_eq!(sys.framebuffer[6], ORIC_PALETTE[7]);
     }
 
     #[test]
