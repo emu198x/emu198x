@@ -56,9 +56,14 @@ use serde::{Deserialize, Serialize};
 /// 46,916 Hz for a 48,000 Hz stream, ~2.3% sharp). The sample count per
 /// capture window changes, so v3 hashes are invalid.
 ///
+/// **Version 5** (2026-10-05, issue #777): residual reSID-fidelity fixes to
+/// the waveform generator. The pulse comparator drives the line high while
+/// `acc >= PW` (it was inverted), which changes every pulse voice. Further
+/// #777 fixes in the same series land under this version.
+///
 /// See `knowledge/decisions/c64-architecture-review.md` Seam 4 for
 /// the re-capture discipline this constant enforces.
-pub const AUDIO_ROUTING_VERSION: u32 = 4;
+pub const AUDIO_ROUTING_VERSION: u32 = 5;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SidModel {

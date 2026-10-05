@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - allocation-free reusable mixed and per-voice audio drains for real-time consumers
 
+### Fixed
+
+- drive the pulse waveform high while the accumulator is at or above the pulse width, not below it (#777)
+
 ## [0.2.0](https://github.com/emu198x/emu198x/releases/tag/mos-sid-6581-v0.2.0) - 2026-06-04
 
 ### Fixed

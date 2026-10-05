@@ -77,12 +77,18 @@ impl Voice {
 
         let tri12 = self.triangle_output(ring_mod_source_msb);
         let saw12 = ((self.accumulator >> 12) & 0xFFF) as u16;
+        // The 12-bit comparator drives the pulse line high once the upper
+        // accumulator bits reach the pulse width: high while `acc >= PW`.
+        // reSID `wave.h` (`pulse_output = (accumulator >> 12) >= pw`), reSIDfp
+        // alike, and VICE `testprogs/SID/osc3-wave0` on hardware: PW $000
+        // reads OSC3 $FF, PW $FFF reads $00. The datasheet's "0 or $FFF ...
+        // constant DC" holds for either polarity, so it cannot settle this.
         let pulse12 = if test_bit {
             0x0FFF
         } else {
             let pw12 = self.pulse_width & 0x0FFF;
             let acc12 = ((self.accumulator >> 12) & 0x0FFF) as u16;
-            if acc12 < pw12 { 0x0FFF } else { 0x0000 }
+            if acc12 >= pw12 { 0x0FFF } else { 0x0000 }
         };
         let noise12 = self.noise_output();
 
@@ -197,14 +203,31 @@ mod tests {
     }
 
     #[test]
-    fn pulse_is_high_below_the_pulse_width_and_low_above() {
+    fn pulse_is_high_from_the_pulse_width_up_and_low_below() {
+        for model in [SidModel::Mos6581, SidModel::Mos8580] {
+            let mut v = Voice::new();
+            v.control = PULSE;
+            v.pulse_width = 0x800;
+            v.accumulator = 0x0040_0000; // acc12 = 0x400 < 0x800
+            assert_eq!(v.waveform_output(false, model), 0x0000);
+            v.accumulator = 0x0080_0000; // acc12 = 0x800 == PW
+            assert_eq!(v.waveform_output(false, model), 0x0FFF);
+            v.accumulator = 0x00C0_0000; // acc12 = 0xC00 > 0x800
+            assert_eq!(v.waveform_output(false, model), 0x0FFF);
+        }
+    }
+
+    #[test]
+    fn pulse_width_extremes_match_the_osc3_wave0_testprog() {
+        // VICE testprogs/SID/osc3-wave0: PW $FFF reads OSC3 $00 and PW $000
+        // reads $FF with the oscillator stopped at zero.
         let mut v = Voice::new();
         v.control = PULSE;
-        v.pulse_width = 0x800;
-        v.accumulator = 0x0040_0000; // acc12 = 0x400 < 0x800
-        assert_eq!(v.waveform_output(false, SidModel::Mos6581), 0x0FFF);
-        v.accumulator = 0x00C0_0000; // acc12 = 0xC00 >= 0x800
+        v.accumulator = 0;
+        v.pulse_width = 0xFFF;
         assert_eq!(v.waveform_output(false, SidModel::Mos6581), 0x0000);
+        v.pulse_width = 0x000;
+        assert_eq!(v.waveform_output(false, SidModel::Mos6581), 0x0FFF);
     }
 
     #[test]
