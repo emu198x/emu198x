@@ -6,7 +6,7 @@
 //! text lines of glyph 0 from a font whose glyph 0 is solid, and a DLI on
 //! the second line switches CHBASE to a font whose glyph 0 is empty; a DLI
 //! on the fifth switches back. Zero page says how the interrupt makes the
-//! write: with or without `STA WSYNC` first, and after how many padding
+//! write: with no `STA WSYNC`, one or two first, and after how many padding
 //! stores.
 //!
 //! ANTIC fetches a text line's glyph data during the line, not at its start
@@ -21,6 +21,12 @@
 //! - Without WSYNC the write lands early in the interrupt's own line. On a
 //!   narrow playfield that is before the first glyph fetch, so the last
 //!   scan line of the interrupt's text line is drawn with the new font.
+//! - After two `STA WSYNC`s the stores spill into the *second* scan line of
+//!   the next text line, where ANTIC fetches only glyph data, one character
+//!   every two cycles. Enough padding puts the write among those fetches,
+//!   and the line splits: the characters fetched before ANTIC takes the
+//!   write keep the old font. ANTIC takes a CHBASE write two cycles after the
+//!   CPU makes it (same manual, "Character set storage").
 
 use std::path::PathBuf;
 
@@ -50,14 +56,15 @@ fn cartridge() -> Vec<u8> {
     std::fs::read(&path).unwrap_or_else(|err| panic!("read {}: {err}", path.display()))
 }
 
-/// Boot the probe with the given DLI shape and return, for each scan line
-/// of the text, whether every character on it is solid (`true`), empty
-/// (`false`), or mixed (a panic: the line-oriented model never draws one).
-fn font_rows(width: (u8, usize), wsync: bool, delay: u8) -> Vec<bool> {
+/// Boot the probe with the given DLI shape and return, for each character
+/// on each scan line of the text, whether it is solid (`true`, font A) or
+/// empty (`false`, font B). `waits` is how many times the interrupt writes
+/// WSYNC before its stores.
+fn screen(width: (u8, usize), waits: u8, delay: u8) -> Vec<Vec<bool>> {
     let mut machine = Atari800xl::new(None, None, Some(cartridge()), Atari800xlRegion::Ntsc, false)
         .expect("cartridge-only machine");
     machine.poke(0x80, width.0);
-    machine.poke(0x81, u8::from(wsync));
+    machine.poke(0x81, waits);
     machine.poke(0x82, delay);
     // The program sets up during the first frame; the third is whole.
     for _ in 0..3 {
@@ -72,7 +79,7 @@ fn font_rows(width: (u8, usize), wsync: bool, delay: u8) -> Vec<bool> {
     (0..TEXT_LINES * ROWS_PER_LINE)
         .map(|row| {
             let fb_row = FIRST_TEXT_ROW + row;
-            let solid: Vec<bool> = (0..chars)
+            (0..chars)
                 .map(|ch| {
                     // Each character is four colour clocks; sample its second.
                     let x = 2 * (width.1 + 4 * ch + 1) - FIRST_HALF_CLOCK;
@@ -83,7 +90,19 @@ fn font_rows(width: (u8, usize), wsync: bool, delay: u8) -> Vec<bool> {
                     );
                     pixel == lit
                 })
-                .collect();
+                .collect()
+        })
+        .collect()
+}
+
+/// The same, for a write that lands outside the glyph fetches: whether each
+/// scan line is solid or empty all the way across. A line that mixes fonts
+/// panics.
+fn font_rows(width: (u8, usize), wsync: bool, delay: u8) -> Vec<bool> {
+    screen(width, u8::from(wsync), delay)
+        .into_iter()
+        .enumerate()
+        .map(|(row, solid)| {
             assert!(
                 solid.iter().all(|&s| s == solid[0]),
                 "row {row} mixes fonts: {solid:?}"
@@ -134,4 +153,50 @@ fn a_write_spilling_past_wsync_shapes_the_line_it_lands_on() {
 fn a_write_without_wsync_shapes_the_interrupt_line_on_a_narrow_playfield() {
     let rows = font_rows(NARROW, false, 0);
     assert_rows(&rows, &expected(0), "no WSYNC, narrow");
+}
+
+#[test]
+fn a_write_among_the_glyph_fetches_splits_the_scan_line() {
+    // After two waits the stores run from cycle 105 of the first scan line
+    // of the next text line, so delay 5 writes at cycle 18 of its second,
+    // as the single-wait case writes on the first. Glyph data is fetched at
+    // cycles 21, 23, ... 99, one character each, and each later store takes
+    // the free cycles between them: delay 6 writes at cycle 24 (19, 20, 22,
+    // 24). Refresh then takes the even cycle after each of its slots at 25,
+    // 29, ..., which the glyph fetches block, so delay 7's store gets 28,
+    // 32, 36 and writes at cycle 40.
+    //
+    // A write at cycle W reaches the glyph fetch at W + 2 and later, so the
+    // first character in the new font is the first fetched from W + 2:
+    // cycle 21 for W = 18 (all of them), 27 for 24 (character 3), and 43 for
+    // 40 (character 11). The glyphs fetched on cycles 25 and 41, one cycle
+    // after the write, keep the old font.
+    for (delay, split) in [(5, 0), (6, 3), (7, 11)] {
+        let actual = screen(NORMAL, 2, delay);
+        let chars = actual[0].len();
+        // The first interrupt fires on the last scan line of text line 2
+        // (row 15) and the write lands on the second scan line of text line
+        // 3 (row 17); the second fires on row 39 and lands on row 41.
+        let expected: Vec<Vec<bool>> = (0..TEXT_LINES * ROWS_PER_LINE)
+            .map(|row| {
+                (0..chars)
+                    .map(|ch| match row {
+                        0..=16 => true,
+                        17 => ch < split,
+                        18..=40 => false,
+                        41 => ch >= split,
+                        _ => true,
+                    })
+                    .collect()
+            })
+            .collect();
+        let differ: Vec<usize> = (0..actual.len())
+            .filter(|&r| actual[r] != expected[r])
+            .collect();
+        assert!(
+            differ.is_empty(),
+            "delay {delay}: rows {differ:?} differ; row 17 is {:?}",
+            actual[17]
+        );
+    }
 }

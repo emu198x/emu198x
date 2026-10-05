@@ -11,7 +11,8 @@
 ; covers the cases the test wants:
 ;
 ;   $80  DMACTL — $22 for a normal playfield, $21 for a narrow one
-;   $81  WSYNC  — nonzero: STA WSYNC before the stores
+;   $81  WSYNC  — 0: no wait; 1: STA WSYNC before the stores;
+;                2: STA WSYNC twice before the stores
 ;   $82  DELAY  — 0-7 four-cycle stores before the CHBASE store
 ;
 ; With WSYNC the CHBASE store spills past the end of the interrupt's line
@@ -21,6 +22,15 @@
 ; Hardware Reference Manual, "Character mode playfield DMA": names from
 ; cycle 18 at normal width and 26 at narrow, glyph data three cycles
 ; later), so the line is drawn with the new font.
+;
+; Waiting twice lets the first scan line of the next text line go by and
+; spills the stores into its second. ANTIC fetches no names there, only
+; glyph data, one character every two cycles from cycle 21 at normal width,
+; so the CPU runs between the fetches and enough padding lands the CHBASE
+; write among them. ANTIC takes a CHBASE write two cycles after the CPU
+; makes it (Altirra Hardware Reference Manual, "Character set storage"), so the
+; characters whose glyphs it fetched before then keep the old font and the
+; rest take the new one: that scan line splits part-way across.
 ;
 ; The cartridge also carries the OS's run vector and flags at $BFFA-$BFFF,
 ; so it starts under the real OS as well as without one. The OS adds its
@@ -113,6 +123,10 @@ screen:
     beq install
     ldx #<dli_wsync
     ldy #>dli_wsync
+    cmp #2
+    bne install
+    ldx #<dli_wsync2
+    ldy #>dli_wsync2
 install:
     stx $FFFA
     stx VDSLST
@@ -142,6 +156,23 @@ dli_wsync:
     lda delays_hi,x
     sta ENTRY+1
     lda NEXT_FONT
+    sta WSYNC
+    jmp (ENTRY)
+
+; The same, waiting out one more scan line: the second wait starts at
+; cycle 108 and ends at cycle 105 of the next line, so the jump and the
+; stores keep the timing above one scan line later.
+dli_wsync2:
+    pha
+    txa
+    pha
+    ldx CFG_DELAY
+    lda delays_lo,x
+    sta ENTRY
+    lda delays_hi,x
+    sta ENTRY+1
+    lda NEXT_FONT
+    sta WSYNC
     sta WSYNC
     jmp (ENTRY)
 
