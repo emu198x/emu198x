@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - drive the pulse waveform high while the accumulator is at or above the pulse width, not below it (#777)
 - ring modulation substitutes MSB EOR NOT source MSB, and sawtooth blocks it (#777)
+- ground the triangle waveform's DAC bit 0 (#777)
 
 ## [0.2.0](https://github.com/emu198x/emu198x/releases/tag/mos-sid-6581-v0.2.0) - 2026-06-04
 
