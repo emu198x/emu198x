@@ -20,7 +20,7 @@ pub(crate) struct Datasette {
     write_line: bool,
     /// Cycles accumulated since the last recorded write-line edge.
     record_cycles: u32,
-    /// Set once the first falling edge has been seen, so the leading gap before
+    /// Set once the first rising edge has been seen, so the leading gap before
     /// the first pulse is not recorded.
     recording_started: bool,
     /// One-shot extra spin-up delay applied to the next motor start,
@@ -91,11 +91,18 @@ impl Datasette {
     }
 
     /// Feeds the current cassette WRITE line level (6510 port `$01` bit 3). While
-    /// recording, a falling edge closes the current pulse and appends its cycle
+    /// recording, a rising edge closes the current pulse and appends its cycle
     /// length to the tape.
+    ///
+    /// A KERNAL pulse is one full wave that starts on a rising edge: `$FBB1`
+    /// toggles bit 3, and the write IRQ only moves to the next pulse once the
+    /// toggle has taken the line low again, so the falling edge sits mid-wave.
+    /// Measuring rising edge to rising edge records whole waves; measuring
+    /// falling to falling would record the second half of one wave plus the
+    /// first half of the next, which the KERNAL loader cannot read.
     pub fn set_write_line(&mut self, high: bool) {
         let recording = self.writable && self.motor_running && self.play_pressed;
-        if recording && self.write_line && !high {
+        if recording && !self.write_line && high {
             if self.recording_started {
                 if let Some(tape) = self.tape.as_mut() {
                     tape.pulses.push(self.record_cycles.max(1));
@@ -286,25 +293,32 @@ mod tests {
         }
         assert!(datasette.motor_on());
 
-        // Baseline high, then a train of falling edges spaced by known intervals.
-        datasette.set_write_line(true);
-        let pulse = |datasette: &mut Datasette, cycles: u32| {
+        // Baseline low, then KERNAL-shaped waves: rise, half a wave high,
+        // fall, half a wave low. Each wave starts on its rising edge.
+        datasette.set_write_line(false);
+        let run = |datasette: &mut Datasette, cycles: u32| {
             for _ in 0..cycles {
                 let _ = datasette.advance_phi2_cycle();
             }
-            datasette.set_write_line(false);
-            datasette.set_write_line(true);
         };
-        pulse(&mut datasette, 200); // first falling edge — starts recording
-        pulse(&mut datasette, 200); // records ~200
-        pulse(&mut datasette, 400); // records ~400
+        let wave = |datasette: &mut Datasette, half: u32| {
+            datasette.set_write_line(true);
+            run(datasette, half);
+            datasette.set_write_line(false);
+            run(datasette, half);
+        };
+        run(&mut datasette, 500); // leading gap — not recorded
+        wave(&mut datasette, 100); // first rising edge starts recording
+        wave(&mut datasette, 200);
+        wave(&mut datasette, 50);
+        datasette.set_write_line(true); // closes the third wave
 
         let tap = datasette
             .recorded_tap_image()
             .expect("writable tape should expose its recording");
-        assert_eq!(tap.pulses.len(), 2);
-        assert!((199..=201).contains(&tap.pulses[0]), "{:?}", tap.pulses);
-        assert!((399..=401).contains(&tap.pulses[1]), "{:?}", tap.pulses);
+        // Unequal neighbours prove each pulse is one whole wave, not the
+        // second half of one wave plus the first half of the next.
+        assert_eq!(tap.pulses, vec![200, 400, 100]);
     }
 
     #[test]
