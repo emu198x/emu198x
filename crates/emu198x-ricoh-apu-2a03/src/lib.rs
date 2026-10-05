@@ -39,9 +39,15 @@ use serde::{Deserialize, Serialize};
 /// counter holds its current sequencer step instead of outputting 0
 /// (#1567).
 ///
+/// **Version 3** (2026-10-05, issue #1568): the downsampler carries its
+/// Bresenham remainder, so the stream is emitted at exactly 48,000 Hz
+/// instead of `cpu_hz / ceil(cpu_hz / 48,000)` (NTSC: 47,099 Hz, ~1.9%
+/// sharp; PAL: 47,503 Hz). The sample count per capture window changes,
+/// so v2 hashes are invalid.
+///
 /// See `knowledge/decisions/nes-architecture-review.md` Seam 4 for
 /// the re-capture discipline this constant enforces.
-pub const AUDIO_ROUTING_VERSION: u32 = 2;
+pub const AUDIO_ROUTING_VERSION: u32 = 3;
 
 // ---------------------------------------------------------------------------
 // Region
@@ -1046,8 +1052,16 @@ pub struct Apu {
 
     // Downsampling
     accumulator: f32,
+    /// CPU ticks accumulated into the sample being built; the averaging
+    /// divisor, so each sample is the mean of exactly the ticks it spans.
     sample_count: u32,
-    ticks_per_sample: f32,
+    /// Bresenham decimation accumulator: `+= SAMPLE_RATE` each CPU tick,
+    /// emit a sample when it reaches the region's CPU clock, then subtract
+    /// the clock to carry the remainder. Integer, so the long-run output
+    /// rate is exactly `SAMPLE_RATE` with no drift. `#[serde(default)]`:
+    /// snapshots from before #1568 restore with a fresh phase.
+    #[serde(default)]
+    sample_error: u32,
     buffer: Vec<f32>,
 
     // Per-channel downsampling (linear pre-mix levels, normalised to -1..1)
@@ -1081,7 +1095,6 @@ impl Apu {
     /// Create an APU with region-specific timing tables.
     #[must_use]
     pub fn new_with_region(region: ApuRegion) -> Self {
-        let cpu_freq = region.cpu_hz();
         let (noise_table, dmc_table, four_step, five_step) = match region {
             ApuRegion::Ntsc => (
                 &NOISE_PERIOD_TABLE_NTSC,
@@ -1120,7 +1133,7 @@ impl Apu {
             five_step_seq: five_step,
             accumulator: 0.0,
             sample_count: 0,
-            ticks_per_sample: cpu_freq as f32 / Self::SAMPLE_RATE as f32,
+            sample_error: 0,
             buffer: Vec::with_capacity(Self::SAMPLE_RATE as usize / 50 + 1),
             channel_accumulators: [0.0; 5],
             channel_buffers: [
@@ -1537,7 +1550,15 @@ impl Apu {
         self.accumulator += sample;
         self.sample_count += 1;
 
-        if self.sample_count as f32 >= self.ticks_per_sample {
+        // Integer Bresenham decimation: emit SAMPLE_RATE samples per
+        // cpu_hz ticks, carrying the remainder, so a sample spans 37 or 38
+        // ticks on NTSC (37.29 on average) and 34 or 35 on PAL (34.64).
+        // Resetting to 0 without the carry made every sample ceil() ticks
+        // long — 47,099 Hz on NTSC for a stream labelled 48 kHz (#1568).
+        self.sample_error += Self::SAMPLE_RATE;
+        let cpu_hz = self.region.cpu_hz();
+        if self.sample_error >= cpu_hz {
+            self.sample_error -= cpu_hz;
             let avg = self.accumulator / self.sample_count as f32;
             let count = self.sample_count as f32;
 
@@ -2293,6 +2314,52 @@ mod tests {
         let buf = apu.take_buffer();
         assert_eq!(buf.len(), len1);
         assert_eq!(apu.buffer_len(), 0, "Buffer should be empty after take");
+    }
+
+    /// #1568: one emulated second of CPU ticks must yield 48,000 samples.
+    /// Without the fractional carry every sample spanned
+    /// ceil(cpu_hz / 48,000) ticks — 38 on NTSC — so the stream ran at
+    /// about 47,099 Hz while being labelled 48 kHz (~1.9% sharp).
+    #[test]
+    fn downsampler_emits_the_advertised_sample_rate() {
+        for region in [ApuRegion::Ntsc, ApuRegion::Pal] {
+            let mut apu = Apu::new_with_region(region);
+            for _ in 0..region.cpu_hz() {
+                apu.tick();
+            }
+            let emitted = i64::try_from(apu.take_buffer().len()).expect("sample count fits i64");
+            let expected = i64::from(Apu::SAMPLE_RATE);
+            assert!(
+                (emitted - expected).abs() <= 1,
+                "{region:?}: emitted {emitted} samples per emulated second, expected {expected} ± 1"
+            );
+        }
+    }
+
+    /// #1568: a pulse at timer 253 is 1,789,773 / (16 × 254) = 440.4 Hz on
+    /// NTSC. Measured against the advertised 48 kHz rate, its rising edges
+    /// must land within 1 Hz of that.
+    #[test]
+    fn pulse_at_timer_253_measures_440_hz_at_48_khz() {
+        let mut apu = Apu::new();
+        apu.write(0x4015, 0x01); // enable pulse 1
+        apu.write(0x4000, 0xBF); // 50% duty, length halt, constant volume 15
+        apu.write(0x4001, 0x00); // sweep off
+        apu.write(0x4002, 253); // timer low
+        apu.write(0x4003, 0x08); // timer high 0, load length
+        for _ in 0..ApuRegion::Ntsc.cpu_hz() {
+            apu.tick();
+        }
+        let [pulse1, ..] = apu.take_channel_buffers();
+        let rising_edges = pulse1
+            .windows(2)
+            .filter(|pair| pair[0] < 0.0 && pair[1] >= 0.0)
+            .count();
+        let measured = rising_edges as f64 * f64::from(Apu::SAMPLE_RATE) / pulse1.len() as f64;
+        assert!(
+            (measured - 440.4).abs() < 1.0,
+            "pulse at timer 253 measured {measured:.1} Hz at 48 kHz, expected 440.4 Hz"
+        );
     }
 
     #[test]
