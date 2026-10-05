@@ -467,6 +467,11 @@ pub struct Antic {
     vscrol: u8,
     pmbase: u8,
     chbase: u8,
+    /// CHBASE one and two cycles after the CPU wrote it. The clocked glyph
+    /// fetch reads `chbase_fetch`, so a write reaches the fetch two cycles
+    /// later (Altirra Hardware Reference Manual, "Character set storage").
+    chbase_stage: u8,
+    chbase_fetch: u8,
     wsync: bool,
     // CPU-slot countdown to RDY assertion; writes defer the final event.
     wsync_pending: u8,
@@ -544,6 +549,8 @@ impl Antic {
             vscrol: 0,
             pmbase: 0,
             chbase: 0,
+            chbase_stage: 0,
+            chbase_fetch: 0,
             wsync: false,
             wsync_pending: 0,
             nmien: 0,
@@ -876,11 +883,15 @@ impl Antic {
 
     /// Start one scan line: the VBI or DLI, player/missile DMA, the display
     /// list instruction and the line's DMA schedule. The playfield itself is
-    /// not read yet; [`fetch_playfield`](Self::fetch_playfield) does that at
-    /// the cycle [`playfield_fetch_cycle`](Self::playfield_fetch_cycle) names,
-    /// so registers written earlier in the line shape it. The result's
-    /// `playfield` is empty, and its `mode` and `playfield_width` describe the
-    /// line the fetch will produce.
+    /// not read yet. A machine starts the line with
+    /// [`begin_live_line`](Self::begin_live_line) and clocks the fetch a byte
+    /// at a time through [`clock_dma`](Self::clock_dma), which reads DMACTL,
+    /// HSCROL, CHBASE and CHACTL as they stand at each fetch, so a write
+    /// during the fetch window changes the rest of the line.
+    /// [`fetch_playfield`](Self::fetch_playfield) is the coarse alternative:
+    /// it reads the whole line at once. The result's `playfield` is empty,
+    /// and its `mode` and `playfield_width` describe the line the fetch will
+    /// produce.
     pub fn begin_line<M: AnticMemory + ?Sized>(&mut self, mem: &M) -> LineResult {
         // Batch users may begin another line without clocking its late slot.
         self.finish_mode_row();
@@ -972,30 +983,11 @@ impl Antic {
         result
     }
 
-    /// The cycle of the line at which [`fetch_playfield`](Self::fetch_playfield)
-    /// should run, or `None` when the line begun has no playfield.
-    ///
-    /// The playfield is sampled as a whole at the cycle its first colour
-    /// clock is displayed: the three widths share a centre at clock 128, and
-    /// the wide one loses 12 clocks off its left edge (Altirra Hardware
-    /// Reference Manual, "Playfield width"), so clock 64 for narrow, 48 for
-    /// normal and 44 for wide — cycle 32, 24 or 22. Writes in the cycles
-    /// before it shape this line; writes from it onwards shape the next. The
-    /// hardware fetches the line a byte at a time from cycle 26, 18 or 10
-    /// (same manual, "Character mode playfield DMA"), so a write that lands
-    /// between the first fetch and the display is taken here and not there.
-    #[must_use]
-    pub fn playfield_fetch_cycle(&self) -> Option<u16> {
-        self.pending.map(|line| match line.width_bits {
-            1 => 32,
-            3 => 22,
-            _ => 24,
-        })
-    }
-
     /// Read the playfield for the line [`begin_line`](Self::begin_line)
-    /// started, with CHBASE, CHACTL and HSCROL as they stand now. Returns
-    /// `None` when the line has no playfield, or it has already been fetched.
+    /// started, all at once, with CHBASE, CHACTL and HSCROL as they stand now.
+    /// Returns `None` when the line has no playfield, or it has already been
+    /// fetched. This is the coarse batch path; the machines clock the fetch
+    /// through [`clock_dma`](Self::clock_dma) instead.
     pub fn fetch_playfield<M: AnticMemory + ?Sized>(&mut self, mem: &M) -> Option<LinePlayfield> {
         let line = self.pending.take()?;
         let desc = mode_desc(line.mode)?;
@@ -1031,6 +1023,8 @@ impl Antic {
     ) -> (bool, Option<PlayfieldSample>) {
         self.live.virtual_write = None;
         self.live.virtual_output = None;
+        self.chbase_fetch = self.chbase_stage;
+        self.chbase_stage = self.chbase;
         let mut taken = cpu_dma_stalled(cycle, self.live.early_mask);
         let mut output = None;
         let line = self.pending;
@@ -1142,7 +1136,7 @@ impl Antic {
         code: u8,
     ) -> PlayfieldSample {
         let pixels = if desc.char_mode {
-            self.render_codes(mem, desc, &[code], line.row)
+            self.render_codes(mem, desc, &[code], line.row, self.chbase_fetch)
         } else {
             render_bitmap_line(&[code][..], desc, 1, 0)
         };
@@ -1451,6 +1445,7 @@ impl Antic {
             desc,
             &self.char_codes[..usize::min(self.char_codes.len(), bytes as usize)],
             mode_row,
+            self.chbase,
         )
     }
 
@@ -1460,8 +1455,9 @@ impl Antic {
         desc: &ModeDesc,
         codes: &[u8],
         mode_row: u8,
+        chbase: u8,
     ) -> Vec<u8> {
-        let chbase_addr = u16::from(self.chbase) << 8;
+        let chbase_addr = u16::from(chbase) << 8;
         // CHACTL: bit 1 = inverse-video enable, bit 0 = blank, bit 2 = reflect.
         let inverse_video = self.chactl & 0x02 != 0;
         let blank = self.chactl & 0x01 != 0;
@@ -1728,6 +1724,8 @@ impl Antic {
         self.pmbase = data[p];
         p += 1;
         self.chbase = data[p];
+        self.chbase_stage = self.chbase;
+        self.chbase_fetch = self.chbase;
         p += 1;
         self.wsync = data[p] != 0;
         self.wsync_pending = 0;
@@ -1914,6 +1912,87 @@ mod tests {
         assert_eq!(
             antic.memory_scan, 0x200a,
             "replay must not advance screen RAM"
+        );
+    }
+
+    /// A CHBASE write reaches the glyph fetch two cycles after the CPU makes
+    /// it, not on the next cycle (Altirra Hardware Reference Manual,
+    /// "Character set storage": "the change will not take effect until two
+    /// cycles past when the register is changed"). On the second scan line of a mode 2 line only
+    /// glyph data is fetched, at odd cycles 21-99, so the CPU can write on
+    /// cycle 40: the glyph fetched on cycle 41 (character 10) still uses the
+    /// old font and the one on cycle 43 (character 11) the new.
+    #[test]
+    fn live_chbase_write_reaches_the_glyph_fetch_two_cycles_later() {
+        let mut ram = make_ram();
+        ram[0x6000..0x6003].copy_from_slice(&[0x42, 0x00, 0x20]);
+        // Font $4000: glyph 0 solid. Font $4400: glyph 0 empty.
+        ram[0x4000..0x4008].fill(0xff);
+        let mut antic = Antic::new(AnticRegion::Ntsc);
+        antic.dlist = 0x6000;
+        antic.dmactl = 0x22;
+        antic.chbase = 0x40;
+        antic.scan_line = 8;
+        let mut lines = Vec::new();
+        for (scan_line, write_cycle) in [(0, None), (1, Some(40))] {
+            antic.begin_live_line(&ram[..]);
+            let mut chars = Vec::new();
+            for cycle in 0..114 {
+                let (_, sample) = antic.clock_dma(cycle, &ram[..]);
+                if let Some(sample) = sample {
+                    chars.push((cycle, sample.pixels.iter().all(|&px| px == 1)));
+                }
+                antic.complete_virtual_dma(0);
+                if write_cycle == Some(cycle) {
+                    antic.write(0x09, 0x44);
+                }
+            }
+            assert_eq!(chars.len(), 40, "scan line {scan_line}");
+            lines.push(chars);
+        }
+        assert!(lines[0].iter().all(|&(_, solid)| solid));
+        let second = &lines[1];
+        assert_eq!(second[10], (41, true), "fetched one cycle after the write");
+        assert_eq!(
+            second[11],
+            (43, false),
+            "fetched three cycles after the write"
+        );
+        assert!(second[..11].iter().all(|&(_, solid)| solid));
+        assert!(second[11..].iter().all(|&(_, solid)| !solid));
+    }
+
+    /// DMACTL's width is read where the fetch comparators sample it, not at
+    /// the start of the line: a line begun narrow and widened to normal at
+    /// cycle 8, before the normal start deadline at cycle 16 (Altirra Hardware
+    /// Reference Manual, "Dynamic changes to playfield width"), takes the
+    /// same cycles from the CPU as a line begun normal.
+    #[test]
+    fn live_width_write_in_horizontal_blank_sets_the_lines_stall_pattern() {
+        let stolen = |widen_at: Option<u16>| {
+            let mut ram = make_ram();
+            ram[0x6000..0x6003].copy_from_slice(&[0x42, 0x00, 0x20]);
+            let mut antic = Antic::new(AnticRegion::Ntsc);
+            antic.dlist = 0x6000;
+            antic.dmactl = if widen_at.is_some() { 0x21 } else { 0x22 };
+            antic.scan_line = 8;
+            antic.begin_live_line(&ram[..]);
+            let mut mask = 0u128;
+            for cycle in 0..114 {
+                let (taken, _) = antic.clock_dma(cycle, &ram[..]);
+                mask |= u128::from(taken) << cycle;
+                antic.complete_virtual_dma(0);
+                if widen_at == Some(cycle) {
+                    antic.write(0, 0x22);
+                }
+            }
+            mask
+        };
+        let widened = stolen(Some(8));
+        assert_eq!(widened, stolen(None));
+        assert!(
+            widened >> 18 & 1 != 0,
+            "normal width fetches a name at cycle 18"
         );
     }
 

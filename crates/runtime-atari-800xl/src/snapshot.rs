@@ -36,7 +36,8 @@ use crate::runtime::Atari800xlRuntime;
 /// Version 15 includes the remaining ANTIC NMI pulse width.
 /// Version 16 separates GTIA hardware blanking from framebuffer coverage.
 /// Version 17 preserves the live DMA clock and shared playfield line RAM.
-const SNAPSHOT_VERSION: u16 = 17;
+/// Version 18 carries ANTIC's two-cycle CHBASE delay.
+const SNAPSHOT_VERSION: u16 = 18;
 
 /// Borrowing envelope used during encode — avoids cloning the live machine.
 #[derive(Serialize)]

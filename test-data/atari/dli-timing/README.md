@@ -27,16 +27,22 @@ starts, so one image covers every case:
 | Address | Meaning |
 |---|---|
 | `$80` | DMACTL: `$22` for a normal playfield, `$21` for a narrow one |
-| `$81` | Nonzero to `STA WSYNC` before the stores |
-| `$82` | Number of four-cycle padding stores (0-7) before the CHBASE store |
+| `$81` | `STA WSYNC`s before the stores: 0, 1 or 2 |
+| `$82` | Number of four-cycle padding stores (0-7) before the CHBASE store, after a wait |
 
 With WSYNC the CHBASE store spills past the end of the interrupt's line
 into the first cycles of the next, which is then drawn with the new font.
 Without WSYNC the write lands as early in the interrupt's own line as an
 interrupt can make one; on a narrow playfield that is before the glyph
-fetch, so the interrupt's own line changes font. A test pokes the three
-bytes, runs three frames, and reads one pixel of every character on every
-scan line of the text.
+fetch, so the interrupt's own line changes font. Two waits let the first scan
+line of the next text line go by, so the stores spill into its second,
+where ANTIC fetches only glyph data, one character every two cycles. Enough
+padding puts the write among those fetches, and that scan line splits at
+the first character whose glyph ANTIC fetches two or more cycles after the
+write (Altirra Hardware Reference Manual, "Character set storage": a CHBASE change
+takes effect two cycles after the write). A test pokes the three bytes,
+runs three frames, and reads one pixel of every character on every scan
+line of the text.
 
 The cartridge carries the OS's run vector and flags at `$BFFA-$BFFF`, so it
 also starts under the real OS, but the OS's own DLI dispatch moves the
