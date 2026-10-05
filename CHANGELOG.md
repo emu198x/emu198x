@@ -6,22 +6,23 @@ Format loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 not strictly. Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [0.27.0] - 2026-10-05
 
-
 ### Added
 
-- *(mos-acia-6551)* Model the 6551 ACIA
+- *(dragon)* The Dragon 64 has a working 6551 serial port. BASIC's `PRINT#-2` and the ROM's own serial routines send and receive through a host-side byte queue (#330)
+- Every machine that makes sound declares `audio-output`, and CI checks each declaration against the sound the machine actually emits (#1369)
 
+### Changed
+
+- Snapshots of the BBC Micro, Amstrad CPC, Commodore PET, Oric and Dragon saved by earlier versions no longer load, because those machines now save more state
 
 ### Fixed
 
-- *(c64)* Record tape SAVE pulses as whole waves so the KERNAL can load them back
-- Boot the Scorpion ZS-256 to its menu by decoding its paging as FUSE does
-- *(oric)* Latch the ULA mode register and run 60 Hz frames
-- *(6845)* Scan alternate lines per field in interlace sync and video mode
-- *(bbc)* Draw the display from the 6845's live outputs, with the scroll wrap
-- *(dragon)* Give the Dragon 64 a working serial port
-- Declare audio-output on every machine that emits sound, and check it in CI
-- Keep every Spectrum 48K profile capability on the live machine
+- *(c64)* A program SAVEd to tape loads back with the stock KERNAL; pulses were recorded half a wave out of phase (#1565)
+- *(bbc)* The display is drawn from the 6845's live outputs: scrolled screens keep their bottom rows, MODE 7 scrolls in order, and MODEs 4–6 run at 50 Hz instead of 100 (#163, #164)
+- *(bbc)* MODE 7 colour codes such as `CHR$129` colour teletext text instead of showing as spaces
+- *(oric)* HIRES displays at all, its text window sits below the bitmap, and serial attributes 24–31 switch between 50 Hz and 60 Hz frames (#341)
+- The Scorpion ZS-256 boots to its menu (#51)
+- *(spectrum)* The 48K keeps every capability its profile declares; the live machine dropped `basic-program-load`, `memory-watch`, `port-io`, `tape-autoload` and `variant-switch`
 
 ## [0.26.1] - 2026-10-05
 
