@@ -75,10 +75,17 @@ def independently_versioned() -> set[str]:
     other intra-workspace requirement — but their version does not move with
     the suite, and rewriting their requirement to a version they do not have
     is a resolution failure.
+
+    Only the `[package]` table counts. Other tables may carry a `version` of
+    their own -- emu198x-spectrum-web's `[package.metadata.npm]` holds the
+    npm package's -- and reading those made a suite-versioned crate look
+    independent, so its requirements were left behind on the old version.
     """
     own = set()
+    package_table = re.compile(r'^\[package\]\n(.*?)(?=^\[|\Z)', re.M | re.S)
     for manifest in sorted(ROOT.glob("crates/*/Cargo.toml")):
-        if re.search(r'^version = "', manifest.read_text(), re.M):
+        table = package_table.search(manifest.read_text())
+        if table and re.search(r'^version = "', table.group(1), re.M):
             own.add(manifest.parent.name)
     return own
 
