@@ -382,7 +382,7 @@ impl MachineApp for Spectrum {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use emu198x_shell::launch::{Mode, Parsed, parse};
+    use emu198x_shell::launch::{Mode, Outcome, Parsed, parse, run_headless, usage};
 
     fn args(list: &[&str]) -> Vec<String> {
         list.iter().map(|s| (*s).to_owned()).collect()
@@ -491,6 +491,25 @@ mod tests {
         assert_eq!(common.frames, 120);
         assert_eq!(common.screenshot, Some(PathBuf::from("boot.png")));
         assert_eq!(common.audio_capture, Some(PathBuf::from("boot.wav")));
+    }
+
+    /// #1576: `--no-audio` still opens the window, with sound turned off,
+    /// and `--help` lists it.
+    #[test]
+    fn no_audio_opens_the_window_without_sound() {
+        let (_, common, mode) = parsed(&["--rom", "48.rom", "--no-audio"]);
+        assert_eq!(mode, Mode::Ui);
+        assert!(common.no_audio);
+
+        match run_headless::<Spectrum>(args(&["--no-audio"])) {
+            Ok(Outcome::WantsUi { audio, .. }) => assert!(!audio),
+            other => panic!("expected the window, got {other:?}"),
+        }
+        match run_headless::<Spectrum>(args(&[])) {
+            Ok(Outcome::WantsUi { audio, .. }) => assert!(audio),
+            other => panic!("expected the window, got {other:?}"),
+        }
+        assert!(usage::<Spectrum>().contains("--no-audio"));
     }
 
     #[test]
