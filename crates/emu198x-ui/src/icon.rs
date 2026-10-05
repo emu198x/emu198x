@@ -79,14 +79,14 @@ fn icon_from_png(bytes: &[u8]) -> Option<Icon> {
     let image = match decode_rgba(bytes) {
         Ok(image) => image,
         Err(err) => {
-            eprintln!("warning: application icon not set: {err}");
+            eprintln!("warning: could not use the application icon: {err}");
             return None;
         }
     };
     match Icon::from_rgba(image.pixels, image.width, image.height) {
         Ok(icon) => Some(icon),
         Err(err) => {
-            eprintln!("warning: application icon not set: {err}");
+            eprintln!("warning: could not use the application icon: {err}");
             None
         }
     }
@@ -121,12 +121,12 @@ pub(crate) fn show_in_dock() {
     use objc2_foundation::{NSData, NSPoint, NSRect};
 
     let Some(mtm) = MainThreadMarker::new() else {
-        eprintln!("warning: Dock icon not set: not on the main thread");
+        eprintln!("warning: could not draw the Dock icon off the main thread");
         return;
     };
     let data = NSData::with_bytes(DOCK_PNG);
     let Some(image) = NSImage::initWithData(NSImage::alloc(), &data) else {
-        eprintln!("warning: Dock icon not set: AppKit could not read the PNG");
+        eprintln!("warning: could not draw the Dock icon: AppKit could not read the PNG");
         return;
     };
     let tile = NSApplication::sharedApplication(mtm).dockTile();
