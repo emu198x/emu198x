@@ -4,6 +4,25 @@ All notable changes to Emu198x will be documented in this file.
 
 Format loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 not strictly. Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [0.27.0] - 2026-10-05
+
+
+### Added
+
+- *(mos-acia-6551)* Model the 6551 ACIA
+
+
+### Fixed
+
+- *(c64)* Record tape SAVE pulses as whole waves so the KERNAL can load them back
+- Boot the Scorpion ZS-256 to its menu by decoding its paging as FUSE does
+- *(oric)* Latch the ULA mode register and run 60 Hz frames
+- *(6845)* Scan alternate lines per field in interlace sync and video mode
+- *(bbc)* Draw the display from the 6845's live outputs, with the scroll wrap
+- *(dragon)* Give the Dragon 64 a working serial port
+- Declare audio-output on every machine that emits sound, and check it in CI
+- Keep every Spectrum 48K profile capability on the live machine
+
 ## [0.26.1] - 2026-10-05
 
 ### Added
