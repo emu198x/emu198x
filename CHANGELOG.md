@@ -6,6 +6,19 @@ Format loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 not strictly. Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [0.26.0] - 2026-10-05
 
+### Highlights
+
+- **Signed and notarised macOS builds.** Every macOS emulator is signed with a
+  Developer ID and notarised by Apple, so a downloaded build opens without a
+  Gatekeeper warning.
+- **An application icon** on every desktop emulator: the 198x stacked tile in
+  the window, the Windows taskbar and `.exe`, the macOS Dock, and a PNG in the
+  Linux archives.
+- **A shared browser player** that needs no firmware from the reader. The ZX
+  Spectrum 48K starts on the genuine ROM, included with Amstrad's permission.
+- **Z80 and Spectrum timing** checked against die-derived traces: bus strobes,
+  contention, interrupts and the floating bus.
+- **Atari 8-bit and 5200 video accuracy** across ANTIC, GTIA and POKEY.
 
 ### Added
 
@@ -13,12 +26,12 @@ not strictly. Versions follow [Semantic Versioning](https://semver.org/spec/v2.0
 - *(web)* Add a shared firmware-free browser player
 - *(web-player)* Start the Spectrum 48K without asking readers for firmware
 - Give the desktop emulators an application icon
-
+- Sign and notarise the macOS release builds
 
 ### Fixed
 
-- *(runtime-nintendo-game-boy)* Describe run timestamps as M-cycles
-- *(runtime-atari-800xl)* Describe runtime time as colour clocks
+#### Z80 and ZX Spectrum
+
 - Preserve PC-derived WZ on repeated Z80 output
 - Execute complete Z80 IM 0 instruction streams
 - Align Z80 memory and I/O strobe edges with die-derived traces
@@ -29,9 +42,11 @@ not strictly. Versions follow [Semantic Versioning](https://semver.org/spec/v2.0
 - Reconcile Spectrum bus phases with Z80 IRQ deadline
 - Apply page-aware I/O contention lookups on Sinclair 128K
 - Select the grey +2 interrupt phase on construction and restore
-- *(vic20)* Load each region's own KERNAL so NTSC frames its picture
 - *(spectrum-web)* Refuse any 48K ROM but the genuine image in the npm build
 - *(spectrum-web)* Ship the unmodified 48K ROM as @emu198x/zx-spectrum 0.4.1
+
+#### Atari 8-bit and 5200
+
 - Retain black GTIA players and missiles in priority selection
 - Resolve GTIA priority through colour-enable signals
 - Apply GTIA hires luminance and paired PF2 collisions
@@ -53,8 +68,12 @@ not strictly. Versions follow [Semantic Versioning](https://semver.org/spec/v2.0
 - Model ANTIC NMI pulses through the CPU vector window
 - Preserve hires graphics and collisions through ANTIC vertical blank
 - Clock ANTIC playfield DMA and retain shared line RAM
-- Word the icon warnings so they don't read as skipped tests
-- Stop the release bump skipping emu198x-spectrum-web
+
+#### Other machines
+
+- *(vic20)* Load each region's own KERNAL so NTSC frames its picture
+- *(runtime-nintendo-game-boy)* Describe run timestamps as M-cycles
+- *(runtime-atari-800xl)* Describe runtime time as colour clocks
 
 ## [0.25.0] - 2026-09-09
 
