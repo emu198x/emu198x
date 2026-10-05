@@ -7,7 +7,7 @@
 //! everything below builds on that, not around it.
 
 use common_sinclair_zx_spectrum::error::RomImageError;
-use emu198x_shell::{CapabilitySet, FirmwareSet, MachineError, MachineProfile, known_capability};
+use emu198x_shell::{FirmwareSet, MachineError, MachineProfile, known_capability};
 use machine_sinclair_zx_spectrum_48k::{Spectrum48k, UlaRevision};
 
 use crate::runtime::SpectrumRuntime;
@@ -66,11 +66,12 @@ impl SpectrumRuntime<Spectrum48k> {
     }
 }
 
-/// 48K-only profile that advertises the snapshot-export capability the
-/// bespoke runtime used to declare.
+/// 48K-only profile: the base 48K profile plus the snapshot-export
+/// capability the bespoke runtime adds. It extends the base set rather than
+/// replacing it, so every capability the profile declares stays declared.
 fn boots_profile_with_export() -> MachineProfile {
     let mut profile = profile_for(Model::Spectrum48KPal);
-    profile.capabilities = CapabilitySet::with_all([
+    for capability in [
         known_capability(emu198x_shell::capability::ids::AUDIO_OUTPUT),
         known_capability("cycle-profile"),
         known_capability("beeper-audio"),
@@ -80,7 +81,9 @@ fn boots_profile_with_export() -> MachineProfile {
         known_capability("tape-input"),
         known_capability("tape-transport-control"),
         known_capability("scripted-input"),
-    ]);
+    ] {
+        profile.capabilities.insert(capability);
+    }
     profile
 }
 
@@ -154,5 +157,23 @@ mod tests {
         // The bespoke 48K profile advertises snapshot-export beyond the
         // base profile_for(...) bundle.
         assert!(caps.contains(&known_capability("snapshot-export")));
+    }
+
+    #[test]
+    fn live_profile_keeps_every_base_profile_capability() {
+        use emu198x_shell::MachineCore;
+        let runtime = Spectrum48kRuntime::blank();
+        let live = &runtime.profile().capabilities;
+        let base = profile_for(Model::Spectrum48KPal);
+        let missing: Vec<&str> = base
+            .capabilities
+            .iter()
+            .filter(|cap| !live.contains(cap))
+            .map(|cap| cap.as_str())
+            .collect();
+        assert!(
+            missing.is_empty(),
+            "the live 48K drops capabilities its profile declares: {missing:?}"
+        );
     }
 }
