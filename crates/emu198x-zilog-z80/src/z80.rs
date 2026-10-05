@@ -456,6 +456,40 @@ impl Z80 {
         Self::default()
     }
 
+    /// Abandons whatever the CPU was doing and parks it at an instruction
+    /// boundary, so the next `tick()` fetches the opcode at `regs.pc`.
+    ///
+    /// For loading a register-only snapshot (`.sna`, `.z80`) into a live
+    /// CPU: those formats describe a CPU between instructions and carry
+    /// no sequencer state. Without this, an instruction in flight when the
+    /// load happens finishes with the loaded registers — a `RET` pops the
+    /// new stack — and a HALT keeps the CPU halted.
+    ///
+    /// Clears the execution sequencer, HALT, the EI delay, latched
+    /// interrupt and NMI decisions, and the bus outputs. Keeps the
+    /// register file, the input pins the machine drives, the NMI edge
+    /// history, and the retired-instruction count.
+    pub fn restart_at_instruction_boundary(&mut self) {
+        let fresh = Self::new();
+        self.addr = fresh.addr;
+        self.data = fresh.data;
+        self.mreq = fresh.mreq;
+        self.iorq = fresh.iorq;
+        self.rd = fresh.rd;
+        self.wr = fresh.wr;
+        self.m1 = fresh.m1;
+        self.rfsh = fresh.rfsh;
+        self.halt = fresh.halt;
+        self.phase = fresh.phase;
+        self.walker = fresh.walker;
+        self.ei_pending = fresh.ei_pending;
+        self.interrupt_sample_pending = fresh.interrupt_sample_pending;
+        self.nmi_latched = fresh.nmi_latched;
+        self.prev_mr = fresh.prev_mr;
+        self.prev_mw = fresh.prev_mw;
+        self.prev_iorq = fresh.prev_iorq;
+    }
+
     /// Is the current instruction complete? True at instruction boundaries.
     pub fn instruction_complete(&self) -> bool {
         self.walker.instruction_complete

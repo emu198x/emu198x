@@ -356,4 +356,218 @@ mod tests {
 
         let _ = std::fs::remove_file(&path);
     }
+
+    /// A 48K `.sna` with interrupts disabled, SP at `$FFFC` holding the
+    /// stacked PC, and `$0000` in the word above it — the shape in #1564,
+    /// where a stray pop lands in the ROM. RAM holds two programs:
+    /// `$8000: CALL $8006 / NOP / JR $8000 / RET` and `$8010: HALT`.
+    fn issue_1564_sna(pc: u16) -> Vec<u8> {
+        let mut sna = vec![0u8; 49179];
+        sna[23..25].copy_from_slice(&0xFFFCu16.to_le_bytes()); // SP
+        sna[25] = 0x01; // IM 1; IFF2 (byte 19) clear
+        let ram = |addr: usize| 27 + addr - 0x4000;
+        sna[ram(0x8000)..ram(0x8007)].copy_from_slice(&[0xCD, 0x06, 0x80, 0x00, 0x18, 0xFA, 0xC9]);
+        sna[ram(0x8010)] = 0x76;
+        sna[ram(0xFFFC)..ram(0xFFFE)].copy_from_slice(&pc.to_le_bytes());
+        sna
+    }
+
+    fn step_pc_trace(
+        server: &mut Server<tools::SpectrumSession>,
+        session: &mut tools::SpectrumSession,
+        instructions: u64,
+    ) -> Vec<u64> {
+        let step = tool_text(&call(
+            server,
+            session,
+            90,
+            "tools/call",
+            json!({ "name": "step", "arguments": { "instructions": instructions } }),
+        ));
+        step.get("pc_trace")
+            .and_then(Value::as_array)
+            .unwrap_or_else(|| panic!("step reports pc_trace: {step}"))
+            .iter()
+            .filter_map(Value::as_u64)
+            .collect()
+    }
+
+    /// Regression for #1564: `load_snapshot` of a `.sna` must run from the
+    /// snapshot's PC whatever the previous program was doing. Stops the
+    /// running program at frame ends (as `run_frames` does in the issue)
+    /// many times over: its 43 T-state loop is co-prime with the 69,888
+    /// T-state frame, so the stops land inside CALL, RET, NOP and JR in
+    /// turn. Then stops it in HALT. Reloads after each stop. Pre-fix an in-flight RET popped `$0000` and the
+    /// next instructions ran in the ROM. Skips when the 48K ROM is absent.
+    #[test]
+    fn load_snapshot_runs_from_the_sna_pc_after_any_previous_state() {
+        let kind = match boot_variant(
+            Model::Spectrum48KPal,
+            &emu198x_shell::FirmwareOverrides::none(),
+        ) {
+            Ok(rt) => rt,
+            Err(_) => {
+                emu198x_test_skip::skip!(
+                    "48K ROM not staged (~/.emu198x/roms/sinclair-zx-spectrum-48k/48.rom)"
+                );
+            }
+        };
+        let frame_halfcycles = u64::from(kind.frame_halfcycles());
+        let mut session = HeadlessSession::new_with_query_provider(
+            kind,
+            frame_halfcycles,
+            SpectrumSessionQueryProvider,
+        );
+        let mut server: Server<tools::SpectrumSession> =
+            Server::new(ServerInfo::new("emu198x-spectrum", "test"));
+        register_full_surface(server.registry_mut(), &session);
+
+        let dir = std::env::temp_dir();
+        let running = dir.join(format!("emu198x_issue_1564_run_{}.sna", std::process::id()));
+        let halting = dir.join(format!(
+            "emu198x_issue_1564_halt_{}.sna",
+            std::process::id()
+        ));
+        std::fs::write(&running, issue_1564_sna(0x8000)).expect("write temp .sna");
+        std::fs::write(&halting, issue_1564_sna(0x8010)).expect("write temp .sna");
+
+        let load = |server: &mut Server<tools::SpectrumSession>,
+                    session: &mut tools::SpectrumSession,
+                    path: &std::path::Path| {
+            let result = call(
+                server,
+                session,
+                91,
+                "tools/call",
+                json!({ "name": "load_snapshot", "arguments": { "path": path.to_str().expect("temp path is valid UTF-8") } }),
+            );
+            assert_ne!(
+                result.get("isError").and_then(Value::as_bool),
+                Some(true),
+                "load_snapshot failed: {result}"
+            );
+        };
+        // CALL $8006 -> RET -> NOP, as PCs after each instruction.
+        let expected = vec![0x8006, 0x8003, 0x8004];
+
+        for attempt in 0..100 {
+            load(&mut server, &mut session, &running);
+            call(
+                &mut server,
+                &mut session,
+                92,
+                "tools/call",
+                json!({ "name": "run_frames", "arguments": { "frames": 1 } }),
+            );
+            load(&mut server, &mut session, &running);
+            assert_eq!(
+                step_pc_trace(&mut server, &mut session, 3),
+                expected,
+                "reload {attempt} after a frame of the running program"
+            );
+        }
+
+        load(&mut server, &mut session, &halting);
+        call(
+            &mut server,
+            &mut session,
+            93,
+            "tools/call",
+            json!({ "name": "run_frames", "arguments": { "frames": 1 } }),
+        );
+        load(&mut server, &mut session, &running);
+        assert_eq!(
+            step_pc_trace(&mut server, &mut session, 3),
+            expected,
+            "reload after the previous program halted"
+        );
+
+        let _ = std::fs::remove_file(&running);
+        let _ = std::fs::remove_file(&halting);
+    }
+
+    /// The save side of #1564. Emu198x writes its own save state, never a
+    /// `.sna` (`save_snapshot` refuses the extension), so the round trip
+    /// to check is save -> load of that state. Whether the CPU was
+    /// mid-instruction or halted, the reloaded machine must run exactly
+    /// as the saved one did. Skips when the 48K ROM is absent.
+    #[test]
+    fn save_snapshot_round_trips_running_and_halted_cpu() {
+        let kind = match boot_variant(
+            Model::Spectrum48KPal,
+            &emu198x_shell::FirmwareOverrides::none(),
+        ) {
+            Ok(rt) => rt,
+            Err(_) => {
+                emu198x_test_skip::skip!(
+                    "48K ROM not staged (~/.emu198x/roms/sinclair-zx-spectrum-48k/48.rom)"
+                );
+            }
+        };
+        let frame_halfcycles = u64::from(kind.frame_halfcycles());
+        let mut session = HeadlessSession::new_with_query_provider(
+            kind,
+            frame_halfcycles,
+            SpectrumSessionQueryProvider,
+        );
+        let mut server: Server<tools::SpectrumSession> =
+            Server::new(ServerInfo::new("emu198x-spectrum", "test"));
+        register_full_surface(server.registry_mut(), &session);
+
+        let dir = std::env::temp_dir();
+        let pid = std::process::id();
+        for (name, pc) in [("run", 0x8000u16), ("halt", 0x8010)] {
+            let sna = dir.join(format!("emu198x_issue_1564_save_{name}_{pid}.sna"));
+            let state = dir.join(format!(
+                "emu198x_issue_1564_save_{name}_{pid}.emu198x-state"
+            ));
+            std::fs::write(&sna, issue_1564_sna(pc)).expect("write temp .sna");
+            for (id, tool, args) in [
+                (
+                    94,
+                    "load_snapshot",
+                    json!({ "path": sna.to_str().expect("utf-8") }),
+                ),
+                (95, "run_frames", json!({ "frames": 1 })),
+                (
+                    96,
+                    "save_snapshot",
+                    json!({ "path": state.to_str().expect("utf-8") }),
+                ),
+            ] {
+                let result = call(
+                    &mut server,
+                    &mut session,
+                    id,
+                    "tools/call",
+                    json!({ "name": tool, "arguments": args }),
+                );
+                assert_ne!(
+                    result.get("isError").and_then(Value::as_bool),
+                    Some(true),
+                    "{tool} failed ({name}): {result}"
+                );
+            }
+            let saved_run = step_pc_trace(&mut server, &mut session, 8);
+            let result = call(
+                &mut server,
+                &mut session,
+                97,
+                "tools/call",
+                json!({ "name": "load_snapshot", "arguments": { "path": state.to_str().expect("utf-8") } }),
+            );
+            assert_ne!(
+                result.get("isError").and_then(Value::as_bool),
+                Some(true),
+                "reloading the saved state failed ({name}): {result}"
+            );
+            assert_eq!(
+                step_pc_trace(&mut server, &mut session, 8),
+                saved_run,
+                "the reloaded {name} state runs as the saved one did"
+            );
+            let _ = std::fs::remove_file(&sna);
+            let _ = std::fs::remove_file(&state);
+        }
+    }
 }
