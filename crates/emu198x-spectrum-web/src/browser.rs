@@ -7,9 +7,8 @@
 //!
 //! Presentation is a 2-D canvas blit. The GPU path renders through the same
 //! WGSL shader as the native app and would bring the CRT and LCD filters with
-//! it, but it currently attaches to a canvas and draws nothing (#1436), and it
-//! costs about 2.5 MB of wasm. This path works, is pixel-exact, and is the one
-//! a lesson page can afford.
+//! it, but it costs about 2.5 MB of wasm (#1414). This path is pixel-exact and
+//! is the one a lesson page can afford.
 
 use emu198x_shell::{
     DebugPrimitives, FamilyRuntime, FirmwareImage, FirmwareSet, MediaKind, SessionDriver,
@@ -58,7 +57,7 @@ impl Spectrum {
     }
     /// Builds a 48K attached to `canvas`, from ROM bytes the page supplies.
     ///
-    /// Async even though nothing here awaits: restoring the GPU path (#1436)
+    /// Async even though nothing here awaits: adopting the GPU path (#1414)
     /// needs an adapter, and acquiring one is async. Shipping this synchronous
     /// would make that a breaking change for every consumer.
     ///
