@@ -213,3 +213,35 @@ fn mode7_renders_the_banner() {
         "expected the banner as white teletext pixels; got {white}"
     );
 }
+
+/// The MOS's five-byte clock at `&0292`/`&0297` (two copies, swapped each
+/// tick), most significant byte first. The live copy is the larger.
+fn mos_time(sys: &BbcMicro) -> u64 {
+    let read = |base: u16| (0..5).fold(0u64, |acc, i| (acc << 8) | u64::from(sys.peek(base + i)));
+    read(0x0292).max(read(0x0297))
+}
+
+#[test]
+#[ignore = "FIXTURE: needs BBC Micro MOS + BASIC ROMs — run with --ignored"]
+fn mos_clock_counts_centiseconds() {
+    // The MOS drives TIME from System VIA T1, loaded for a 10 ms period at
+    // the VIA's 1 MHz clock. Ten emulated seconds must add 1000 centiseconds;
+    // with the VIAs clocked at 2 MHz they added 2000.
+    let (Some(os), Some(basic)) = (os_path(), basic_path()) else {
+        panic!("needs os.rom + basic.rom at ~/.emu198x/roms/acorn-bbc-micro/");
+    };
+    let mut sys = BbcMicro::new(fs::read(&os).expect("read OS"));
+    sys.insert_rom(15, fs::read(&basic).expect("read BASIC"));
+    for _ in 0..100 {
+        sys.run_frame();
+    }
+    let before = mos_time(&sys);
+    for _ in 0..500 {
+        sys.run_frame();
+    }
+    let elapsed = mos_time(&sys) - before;
+    assert!(
+        (998..=1002).contains(&elapsed),
+        "500 frames (10 s) should add 1000 centiseconds to TIME; added {elapsed}"
+    );
+}
