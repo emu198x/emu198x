@@ -693,6 +693,14 @@ jobs:
       - name: I/O contention differential vs FUSE (ratchet)
         run: cargo test --release -p machine-sinclair-zx-spectrum-48k --test io_contention_oracle -- --include-ignored --nocapture
 
+      - name: I/O contention differential vs FUSE, 128K page-aware
+        # The 128K's own I/O instrument: IN and OUT across banks 0-3 and
+        # even/odd ports, scored against FUSE's early/late lookups at every
+        # arrival T-state in the frame. ROM-free and about two seconds. Only
+        # its short case ran anywhere (in the ordinary test suite); the
+        # full-frame sweep is `#[ignore]`d and no step selected it.
+        run: cargo test --release -p machine-sinclair-zx-spectrum-128k --test io_contention_oracle -- --include-ignored --nocapture
+
       - name: ZXSpectrum4.net timing survey (ratchet)
         run: cargo test --release -p runtime-sinclair-zx-spectrum --test timing_survey -- --include-ignored --nocapture
 
