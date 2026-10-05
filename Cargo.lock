@@ -3153,6 +3153,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "mos-acia-6551"
+version = "0.26.1"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "mos-cia-6526"
 version = "0.26.1"
 dependencies = [
