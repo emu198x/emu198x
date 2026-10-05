@@ -23,7 +23,8 @@
 //!   devices — CRTC, ACIA, both VIAs, ADC). RAM and ROM stay at 2 MHz,
 //!   so unlike the Electron there is no display-fetch contention. The
 //!   frame is a fixed 312 × 128 master ticks at 2 MHz; a 1 MHz-bus
-//!   access costs two of them. Matches MAME `bbc_state::set_cpu_clock`.
+//!   access stretches to the end of a whole 1 MHz cycle, costing two or
+//!   three of them by phase (Advanced User Guide §28.5).
 //! - **CRTC:** Motorola 6845
 //! - **Video ULA:** Acorn custom (256-colour-pool→16-entry palette,
 //!   bpp + fast-clock selection)
@@ -582,9 +583,9 @@ pub struct BbcMicro {
     teletext_line: TeletextLine,
     cpu_cycles: u64,
     /// 2 MHz master-clock ticks since construction. The CPU runs at
-    /// 2 MHz (one tick per cycle) for RAM, ROM and fast I/O, but slows
-    /// to 1 MHz (two ticks) for the 1 MHz peripherals — the BBC bus
-    /// contention. The frame is a fixed 312 × 128 master ticks; the CPU
+    /// 2 MHz (one tick per cycle) for RAM, ROM and fast I/O, but stretches
+    /// to the end of a whole 1 MHz cycle (two or three ticks) for the 1 MHz
+    /// peripherals — the BBC bus contention. The frame is a fixed 312 × 128 master ticks; the CPU
     /// fits a variable number of cycles into it.
     master_ticks: u64,
     frame_count: u64,
@@ -773,7 +774,7 @@ impl BbcMicro {
     ///
     /// The frame is a fixed 312 x 128 = 39,936 master ticks at 2 MHz. Each
     /// line is 128 ticks; the CPU fits a variable number of 6502 cycles into
-    /// one because accesses to the 1 MHz peripherals cost two ticks. Anchor
+    /// one because accesses to the 1 MHz peripherals cost two or three. Anchor
     /// the boundaries to a frame base so a cycle that overruns one carries
     /// its extra tick into the next line rather than stretching the frame.
     fn finish_scanline(&mut self) {
@@ -798,16 +799,22 @@ impl BbcMicro {
         self.update_keyboard_ca2();
         self.update_joystick_fire();
         self.cpu.tick();
-        let cost = Self::access_master_ticks(self.cpu.addr);
-        if self.cpu.rw {
-            self.cpu.data_in = self.mem_read(self.cpu.addr);
-        } else {
-            self.mem_write(self.cpu.addr, self.cpu.data);
-        }
+        let cost = Self::access_master_ticks(self.cpu.addr, self.master_ticks);
         // The chips run off the constant 2 MHz clock, so they advance one
-        // tick per master tick — one or two per 6502 cycle depending on
-        // whether this access hit a 1 MHz peripheral.
+        // tick per master tick — one, two or three per 6502 cycle depending
+        // on whether this access hit a 1 MHz peripheral, and where in the
+        // 1 MHz cycle it started.
         for tick in 0..cost {
+            // A stretched cycle reaches its device in the 1 MHz cycle it
+            // ends with, so the access lands in the final tick, ahead of the
+            // edge that closes it. A 2 MHz cycle has only the one tick.
+            if tick + 1 == cost {
+                if self.cpu.rw {
+                    self.cpu.data_in = self.mem_read(self.cpu.addr);
+                } else {
+                    self.mem_write(self.cpu.addr, self.cpu.data);
+                }
+            }
             let one_mhz_edge = Self::ends_one_mhz_cycle(self.master_ticks + tick);
             // The 6845 runs at 2 MHz in MODE 0-3 and 1 MHz in MODE 4-7:
             // Video ULA control bit 4 picks which (Advanced User Guide
@@ -873,22 +880,45 @@ impl BbcMicro {
         tick & 1 == 0
     }
 
-    /// Master ticks (2 MHz) a 6502 cycle accessing `addr` consumes — the
-    /// BBC's 1 MHz-bus contention. The CPU runs at 2 MHz for RAM, ROM and
-    /// the fast SHEILA devices (one tick), but slows to 1 MHz (two ticks)
-    /// for the 1 MHz peripherals: FRED (`$FC00`), JIM (`$FD00`), and the
-    /// SHEILA slow devices — 6845 CRTC / ACIA / serial (`$FE00-$FE1F`),
-    /// System VIA (`$FE40-$FE5F`), User VIA (`$FE60-$FE7F`) and the ADC
-    /// (`$FEC0-$FEDF`). Mirrors MAME `bbc_state::set_cpu_clock`. The
-    /// half-cycle 2→1 MHz clock-resync penalty is not yet modelled.
-    fn access_master_ticks(addr: u16) -> u64 {
+    /// Whether `addr` is on the 1 MHz bus: FRED (`$FC00`), JIM (`$FD00`),
+    /// and the slow SHEILA devices — 6845 CRTC / ACIA / serial ULA
+    /// (`$FE00-$FE1F`), System VIA (`$FE40-$FE5F`), User VIA
+    /// (`$FE60-$FE7F`) and the ADC (`$FEC0-$FEDF`). RAM, ROM and the rest of
+    /// SHEILA (Video ULA, ROM latch, FDC, Econet, Tube) run at 2 MHz. Matches
+    /// MAME `bbc_state::set_cpu_clock`, b-em and jsbeeb's `FEslowdown` table,
+    /// and the MiSTer core's `mhz1_enable`.
+    const fn is_one_mhz(addr: u16) -> bool {
         match addr & 0xFF00 {
-            0xFC00 | 0xFD00 => 2,
-            0xFE00 => match addr & 0x00E0 {
-                0x00 | 0x40 | 0x60 | 0xC0 => 2,
-                _ => 1,
-            },
-            _ => 1,
+            0xFC00 | 0xFD00 => true,
+            0xFE00 => matches!(addr & 0x00E0, 0x00 | 0x40 | 0x60 | 0xC0),
+            _ => false,
+        }
+    }
+
+    /// Master ticks (2 MHz) a 6502 cycle accessing `addr`, starting at master
+    /// tick `start`, consumes — the BBC's 1 MHz-bus clock stretching.
+    ///
+    /// A 2 MHz access takes one tick. For a 1 MHz one the slow-down circuit
+    /// holds the CPU clock high "until the next coincident falling edge of
+    /// the 2MHz and 1MHz clocks", and the device needs a whole 1MHzE high
+    /// phase after the address is out (Advanced User Guide §28.4 pin 4,
+    /// §28.5.2 and figure 28.2). A cycle that starts as a 1 MHz cycle begins
+    /// runs to that cycle's end: two ticks. One that starts half-way through
+    /// has to let the rest of that cycle go and take the whole of the next:
+    /// three ticks.
+    ///
+    /// b-em (`do_readmem`: `polltime(2)` or `polltime(1)` on cycle parity)
+    /// and jsbeeb (`polltimeAddr`: `1 + ((cycles ^ currentCycles) & 1)`)
+    /// charge the same one or two extra ticks; the MiSTer core's
+    /// `cycle_stretch` masks one or two CPU slots on the 1 MHz enable.
+    /// MAME halves the clock instead, always two ticks, with no phase.
+    const fn access_master_ticks(addr: u16, start: u64) -> u64 {
+        if !Self::is_one_mhz(addr) {
+            1
+        } else if Self::ends_one_mhz_cycle(start) {
+            3
+        } else {
+            2
         }
     }
 
@@ -1391,24 +1421,131 @@ mod tests {
     }
 
     #[test]
-    fn one_mhz_bus_accesses_cost_two_ticks_rest_one() {
-        // RAM, ROM and the fast SHEILA devices run at 2 MHz (one tick);
-        // FRED/JIM and the slow SHEILA devices at 1 MHz (two ticks).
-        // Fast:
-        assert_eq!(BbcMicro::access_master_ticks(0x0000), 1); // RAM
-        assert_eq!(BbcMicro::access_master_ticks(0xC000), 1); // MOS ROM
-        assert_eq!(BbcMicro::access_master_ticks(0x8000), 1); // sideways ROM
-        assert_eq!(BbcMicro::access_master_ticks(0xFE20), 1); // video ULA
-        assert_eq!(BbcMicro::access_master_ticks(0xFE30), 1); // ROM-page latch
-        assert_eq!(BbcMicro::access_master_ticks(0xFE80), 1); // FDC (fast)
-        // Slow (1 MHz bus):
-        assert_eq!(BbcMicro::access_master_ticks(0xFC00), 2); // FRED
-        assert_eq!(BbcMicro::access_master_ticks(0xFD00), 2); // JIM
-        assert_eq!(BbcMicro::access_master_ticks(0xFE00), 2); // CRTC
-        assert_eq!(BbcMicro::access_master_ticks(0xFE40), 2); // System VIA
-        assert_eq!(BbcMicro::access_master_ticks(0xFE5F), 2); // System VIA top
-        assert_eq!(BbcMicro::access_master_ticks(0xFE60), 2); // User VIA
-        assert_eq!(BbcMicro::access_master_ticks(0xFEC0), 2); // ADC
+    fn one_mhz_bus_accesses_cost_two_or_three_ticks_rest_one() {
+        // Even and odd starts: a 1 MHz access costs two ticks when it starts
+        // as a 1 MHz cycle begins (odd here) and three half-way through one.
+        for start in [10u64, 11] {
+            let slow = if BbcMicro::ends_one_mhz_cycle(start) {
+                3
+            } else {
+                2
+            };
+            // Fast (2 MHz):
+            for addr in [
+                0x0000, 0xC000, 0x8000, 0xFE20, 0xFE30, 0xFE80, 0xFEA0, 0xFEE0,
+            ] {
+                assert_eq!(BbcMicro::access_master_ticks(addr, start), 1, "{addr:04X}");
+            }
+            // Slow (1 MHz bus): FRED, JIM, CRTC, ACIA, serial ULA, both
+            // VIAs, ADC.
+            for addr in [
+                0xFC00, 0xFD00, 0xFE00, 0xFE08, 0xFE10, 0xFE40, 0xFE5F, 0xFE60, 0xFEC0,
+            ] {
+                assert_eq!(
+                    BbcMicro::access_master_ticks(addr, start),
+                    slow,
+                    "{addr:04X}"
+                );
+            }
+        }
+        assert_eq!(BbcMicro::access_master_ticks(0xFE40, 11), 2);
+        assert_eq!(BbcMicro::access_master_ticks(0xFE40, 10), 3);
+    }
+
+    /// A 16 KB MOS ROM whose reset vector runs `program` at `$C000`.
+    fn rom_running(program: &[u8]) -> Vec<u8> {
+        let mut rom = trap_rom();
+        rom[..program.len()].copy_from_slice(program);
+        rom
+    }
+
+    /// Master ticks per pass of a loop of `instructions` instructions, once
+    /// the loop has settled onto its steady phase against the 1 MHz clock.
+    fn ticks_per_pass(program: &[u8], instructions: usize) -> u64 {
+        const PASSES: u64 = 64;
+        let mut sys = BbcMicro::new(rom_running(program));
+        // Reset, then a few passes to settle the phase.
+        for _ in 0..8 * instructions {
+            sys.step_instruction();
+        }
+        let start = sys.master_ticks;
+        for _ in 0..PASSES as usize * instructions {
+            sys.step_instruction();
+        }
+        let total = sys.master_ticks - start;
+        assert_eq!(
+            total % PASSES,
+            0,
+            "the loop should settle to a fixed period"
+        );
+        total / PASSES
+    }
+
+    /// The stretched cycle ends on a falling edge of the 1 MHz clock, and
+    /// a cycle that starts while that clock is high must wait out the low
+    /// half and a whole further high half before it can (Advanced User Guide
+    /// §28.4 pin 4 and §28.5.2). So a 1 MHz access costs two master ticks
+    /// when it starts as the 1 MHz cycle begins, and three when it starts
+    /// half-way through one.
+    ///
+    /// `LDA &FE4F : JMP loop` has six 2 MHz cycles between VIA reads, an even
+    /// number, so every read starts in phase: 6 + 2 = 8 ticks a pass. Add a
+    /// three-cycle `BIT &00` and the gap is odd, so every read starts half a
+    /// microsecond out and costs three: 9 + 3 = 12, not 11.
+    #[test]
+    fn one_mhz_access_waits_for_the_next_whole_one_mhz_cycle() {
+        // LDA &FE4F : JMP &C000
+        let in_phase = [0xAD, 0x4F, 0xFE, 0x4C, 0x00, 0xC0];
+        assert_eq!(ticks_per_pass(&in_phase, 2), 8);
+        // LDA &FE4F : BIT &00 : JMP &C000
+        let out_of_phase = [0xAD, 0x4F, 0xFE, 0x24, 0x00, 0x4C, 0x00, 0xC0];
+        assert_eq!(ticks_per_pass(&out_of_phase, 3), 12);
+        // The User VIA, the CRTC and FRED stretch the same way.
+        for page_and_offset in [[0x6F, 0xFE], [0x01, 0xFE], [0x00, 0xFC]] {
+            let program = [
+                0xAD,
+                page_and_offset[0],
+                page_and_offset[1],
+                0x24,
+                0x00,
+                0x4C,
+                0x00,
+                0xC0,
+            ];
+            assert_eq!(ticks_per_pass(&program, 3), 12, "{page_and_offset:02X?}");
+        }
+        // RAM, ROM and the fast SHEILA devices never stretch: LDA &FE30
+        // (the ROM latch) : BIT &00 : JMP is 4 + 3 + 3 = 10.
+        let fast = [0xAD, 0x30, 0xFE, 0x24, 0x00, 0x4C, 0x00, 0xC0];
+        assert_eq!(ticks_per_pass(&fast, 3), 10);
+    }
+
+    /// Whatever the phase it starts in, a cycle that touches the 1 MHz bus
+    /// ends as a 1 MHz cycle ends (Advanced User Guide §28.4: "The trailing
+    /// edges of the 1MHzE and 2MHz processor clock are then coincidental").
+    /// Exercise every phase with a read-modify-write, whose three VIA
+    /// accesses follow back to back, and an odd-length gap between passes.
+    #[test]
+    fn every_one_mhz_cycle_ends_on_the_one_mhz_clock() {
+        // INC &FE4F : BIT &00 : JMP &C000
+        let program = [0xEE, 0x4F, 0xFE, 0x24, 0x00, 0x4C, 0x00, 0xC0];
+        let mut sys = BbcMicro::new(rom_running(&program));
+        let mut slow_cycles = 0;
+        for _ in 0..2_000 {
+            let start = sys.master_ticks;
+            sys.tick_cpu_cycle();
+            let addr = sys.cpu.addr;
+            if BbcMicro::is_one_mhz(addr) {
+                slow_cycles += 1;
+                assert_eq!(
+                    sys.master_ticks % 2,
+                    1,
+                    "a 1 MHz access at {addr:04X} from tick {start} ended mid-way \
+                     through a 1 MHz cycle"
+                );
+            }
+        }
+        assert!(slow_cycles > 100, "the loop should hit the VIA");
     }
 
     #[test]
