@@ -35,9 +35,13 @@ use serde::{Deserialize, Serialize};
 /// pre-Seam-3 APU described in
 /// `knowledge/decisions/nes-architecture-review.md`.
 ///
+/// **Version 2** (2026-10-05): a triangle gated by its length or linear
+/// counter holds its current sequencer step instead of outputting 0
+/// (#1567).
+///
 /// See `knowledge/decisions/nes-architecture-review.md` Seam 4 for
 /// the re-capture discipline this constant enforces.
-pub const AUDIO_ROUTING_VERSION: u32 = 1;
+pub const AUDIO_ROUTING_VERSION: u32 = 2;
 
 // ---------------------------------------------------------------------------
 // Region
@@ -645,11 +649,18 @@ impl Triangle {
     }
 
     /// Current output (0–15).
+    ///
+    /// The length and linear counters gate the *sequencer* (see
+    /// [`Self::clock_timer`]), not the output: when either reaches zero
+    /// the sequencer freezes and the DAC keeps emitting the current
+    /// step, so a silenced triangle holds a DC level rather than
+    /// dropping to 0 (NESdev `APU_Triangle`; distilled in
+    /// `reference/by-topic/apu-2a03/apu-2a03-reference.md` §4.5).
     fn output(&self) -> u8 {
-        if !self.length.active() || self.linear_counter == 0 {
-            return 0;
-        }
-        // Silence ultrasonic frequencies to avoid aliasing
+        // Emulator choice, not hardware: a period below 2 steps the
+        // sequencer far above audibility, and the real console's
+        // filtering averages it to about 7.5. Without that analogue
+        // filtering the steps alias, so this core outputs 0 instead.
         if self.timer_period < 2 {
             return 0;
         }
@@ -2910,6 +2921,55 @@ mod tests {
         tri.control_flag = false;
         tri.clock_linear_counter();
         assert_eq!(tri.linear_counter, 4);
+    }
+
+    /// A triangle running at an audible period, stepped to sequence
+    /// position 5 (value 10) with one quarter-frame of linear counter
+    /// left.
+    fn triangle_at_step_5() -> Triangle {
+        let mut tri = Triangle::new();
+        tri.length.set_enabled(true);
+        tri.length.load(1);
+        tri.linear_counter = 1;
+        tri.linear_reload_flag = false;
+        tri.control_flag = false;
+        tri.timer_period = 0x100;
+        while tri.sequence_pos != 5 {
+            tri.clock_timer();
+        }
+        assert_eq!(tri.output(), 10, "step 5 of the sequence is 10");
+        tri
+    }
+
+    /// #1567: the linear counter gates the sequencer, not the output.
+    /// When it expires the triangle freezes on its current step and the
+    /// DAC keeps emitting that level (NESdev `APU_Triangle`, distilled in
+    /// `reference/by-topic/apu-2a03/apu-2a03-reference.md` §4.5).
+    #[test]
+    fn triangle_holds_its_step_when_linear_counter_expires() {
+        let mut tri = triangle_at_step_5();
+        tri.clock_linear_counter();
+        assert_eq!(tri.linear_counter, 0, "linear counter has expired");
+
+        for _ in 0..(0x101 * 64) {
+            tri.clock_timer();
+            assert_eq!(tri.sequence_pos, 5, "a gated sequencer must not step");
+            assert_eq!(tri.output(), 10, "a gated triangle holds its level");
+        }
+    }
+
+    /// #1567: the length counter gates the sequencer the same way.
+    #[test]
+    fn triangle_holds_its_step_when_length_counter_expires() {
+        let mut tri = triangle_at_step_5();
+        tri.length.set_enabled(false); // clears the length counter
+        assert!(!tri.length.active(), "length counter has expired");
+
+        for _ in 0..(0x101 * 64) {
+            tri.clock_timer();
+            assert_eq!(tri.sequence_pos, 5, "a gated sequencer must not step");
+            assert_eq!(tri.output(), 10, "a gated triangle holds its level");
+        }
     }
 
     // -----------------------------------------------------------------------
