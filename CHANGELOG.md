@@ -4,6 +4,58 @@ All notable changes to Emu198x will be documented in this file.
 
 Format loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 not strictly. Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [0.26.0] - 2026-10-05
+
+
+### Added
+
+- Publish browser program loading and assembly inspection APIs
+- *(web)* Add a shared firmware-free browser player
+- *(web-player)* Start the Spectrum 48K without asking readers for firmware
+- Give the desktop emulators an application icon
+
+
+### Fixed
+
+- *(runtime-nintendo-game-boy)* Describe run timestamps as M-cycles
+- *(runtime-atari-800xl)* Describe runtime time as colour clocks
+- Preserve PC-derived WZ on repeated Z80 output
+- Execute complete Z80 IM 0 instruction streams
+- Align Z80 memory and I/O strobe edges with die-derived traces
+- Preserve 48K I/O contention with corrected Z80 edges
+- Preserve CPU edge phase in Spectrum floating-bus reads
+- Defer late Z80 NMI edges without losing short pulses
+- Sample Z80 IRQ level at the measured deadline
+- Reconcile Spectrum bus phases with Z80 IRQ deadline
+- Apply page-aware I/O contention lookups on Sinclair 128K
+- Select the grey +2 interrupt phase on construction and restore
+- *(vic20)* Load each region's own KERNAL so NTSC frames its picture
+- *(spectrum-web)* Refuse any 48K ROM but the genuine image in the npm build
+- *(spectrum-web)* Ship the unmodified 48K ROM as @emu198x/zx-spectrum 0.4.1
+- Retain black GTIA players and missiles in priority selection
+- Resolve GTIA priority through colour-enable signals
+- Apply GTIA hires luminance and paired PF2 collisions
+- Correct GTIA register semantics and snapshot validation
+- Retain the full GTIA picture and edge collisions
+- Read ANTIC VCOUNT from the live master clock
+- Retain Atari GTIA sprite shift data and divider phase
+- Align Atari 5200 DMA checks with the current CPU slot
+- Preserve Atari WSYNC write cycles and GTIA propagation
+- Wrap ANTIC display-list reads and defer jump targets
+- Capture Atari phantom PM DMA from the previous bus slot
+- *(atari)* Retain GTIA hires admission across PRIOR transitions
+- Align Atari bus service and delayed WSYNC assertion
+- Wrap ANTIC playfield DMA within the LMS page
+- Clock ANTIC NMI events and retain edges during RDY holds
+- Correct POKEY RANDOM sequence and initialisation phase
+- Retain ANTIC display instruction and scroll state
+- Sample ANTIC vertical scrolling at separate timing slots
+- Model ANTIC NMI pulses through the CPU vector window
+- Preserve hires graphics and collisions through ANTIC vertical blank
+- Clock ANTIC playfield DMA and retain shared line RAM
+- Word the icon warnings so they don't read as skipped tests
+- Stop the release bump skipping emu198x-spectrum-web
+
 ## [0.25.0] - 2026-09-09
 
 
