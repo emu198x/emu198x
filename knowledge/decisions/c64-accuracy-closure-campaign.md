@@ -105,6 +105,14 @@ The PAL 6569 `greydot` reference does not establish 8565 grey-dot behaviour.
   envelope, register-bus or combined-waveform behaviour. The implementation
   and oracle share reSID lineage, and no physical-hardware waveform oracle is
   registered.
+- Register-surface behaviour is checked by VICE `testprogs/SID` programs whose
+  expected values were measured on real 6581 and 8580 chips, run by the
+  env-gated `runtime-commodore-c64` `sid_testprogs` suite: `ringmod`,
+  `busvalue`, `osc3-wave0` (both builds) and the CIA-timed `bitfade` delays
+  for data-bus hold and TEST noise drift. The drift and floating-DAC timings
+  are reSID's; reSIDfp's warm-chip figures differ and the programs' readmes
+  report wide chip-to-chip spread, so they bound the behaviour rather than
+  pin one chip.
 
 ### Determinism and compatibility
 
@@ -221,8 +229,11 @@ Other claim boundaries remain:
 
 - CIA timer and interrupt behaviour is well exercised, but external CNT, SP
   and CIA2 FLAG sources remain approximate or unattached.
-- SID open-bus decay, TEST ramp details, ring-modulation polarity and 8580
-  combined-waveform/noise interactions need stronger coverage.
+- SID 8580 combined waveforms and the noise lock-up from combined waveforms
+  (#769), the two-cycle noise shift pipeline, the one-cycle pulse compare
+  delay and the 8580's delayed OSC3 and register writes are not modelled.
+  Open-bus decay, TEST drift, ring-modulation polarity and the floating DAC
+  input follow reSID since #777.
 - Ultimax unmapped reads do not yet model the required open-bus behaviour.
 - Invalid matrix accesses deliberately do not update the simplified
   `last_bus_data` latch. The effect of disconnected Phi2 activity on that
@@ -331,6 +342,7 @@ evidence, or an explicit expansion of the supported configuration claim.
 | 2026-08-08 | 3. BA-to-AEC handover | Commit `9176e269` adds an explicit CPU-side Phi2 bus sample, derives AEC from consecutive aggregate BA-low cycles and stores `$FF` plus the supplied CPU nibble for the three invalid forced-badline c-accesses. All five registered `colorfetchbug` programs now match exactly. Snapshot envelope version 5 preserves a mid-handover state and runtime queries expose the bus and sequencer fields. All 13 catalogue entries retain their frame and audio hashes at `FRAME_ROUTING_VERSION` 4 and pass ordinary plus fresh-runtime replay verification. Normalised VICE and Emu198x traces rule out an upstream IRQ phase error at the critical `sequencer-bug` trigger, then expose a two-cycle late-window excess before the separate delayed C-data output question. |
 | 2026-08-08 | 3. Far-edge late-badline window | Commit `d140a36f` gives the cycle-53 `$D011` transition one remaining c-access and keeps the exhausted window distinct from the ordinary schedule. `sequencer-bug` rises from 96,266 to 104,394 matching pixels; all 16 other indexed planes remain unchanged. Snapshot version 6 preserves pending, exhausted and source-resolved states. All 13 catalogue hashes remain unchanged at routing version 5 and every entry passes ordinary plus fresh-runtime replay verification. The residual is 54 pixels across eight rows and is now isolated to delayed C-data output sequencing. |
 | 2026-08-13 | 3. Far-edge C-data and hidden-output counter state | Commit `70cd523b` keeps two resident output cells visually hidden; only the first following idle g-access suppresses VC/VMLI, while the active g-access behind the second advances them. A bounded 12-bit carry network replaces the fixture-specific displaced-slot repair. `sequencer-bug` rises from 104,394 to 104,418 matching pixels; the full survey confirms it is the only changed hash and all five `colorfetchbug` programs remain exact. The strict lane retains 30 disagreements: two colour-ring dots and a 28-pixel outline at the active-g-access/delayed-output boundary. The higher 104,446 two-suppression experiment is rejected because it contradicts Hoxs64's hidden counter state. Snapshot version 8 preserves the output delay and live carry, and frame-routing version 7 identifies the output contract. All 13 catalogue entries pass ordinary and fresh-runtime snapshot replay. The colour-resolution ring, output-stage split and separate post-badline `videomode` phase-accounting lead remain open. |
+| 2026-10-06 | SID waveform generator (#777) | The pulse comparator drives high while `acc >= PW` (it was inverted), ring modulation substitutes `MSB EOR NOT source-MSB` and is blocked by sawtooth, the triangle's DAC bit 0 is grounded, TEST lets the noise register drift to all ones instead of reseeding it each cycle, write-only reads return the decaying data-bus value, and a deselected waveform leaves the DAC input floating and fading. VICE `ringmod`, `busvalue`, `osc3-wave0` and `bitfade` programs pass on the 6581 and 8580 models. Snapshot version 9 carries the new state; audio routing version 5 re-captures the eight music entries' audio hashes, with every frame hash and the five silent entries unchanged. All 13 entries pass ordinary and fresh-runtime snapshot replay. |
 
 ## Related Documents
 

@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Advance C64 audio routing to version 5 for the SID waveform-generator
+  fixes in #777 and re-capture the eight music entries' audio hashes.
 - Advance C64 frame routing to version 7 for the PAL 6569 far-edge
   forced-badline C-data carry and hidden-cell counter sequencing.
 - Run all 13 C64 entries through byte-fixed-point snapshot re-encoding plus
