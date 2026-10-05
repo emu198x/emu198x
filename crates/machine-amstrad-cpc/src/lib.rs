@@ -42,7 +42,7 @@
 //! from the character-clock phase, leaving the Z80 core to produce whatever
 //! that yields. It went unmodelled for a long time for want of an oracle —
 //! none of MAME, Arnold or Caprice32 models `/WAIT` as a pin. SHAKER supplied
-//! one, and also chose which T-state is free; see
+//! one, and also narrows which T-state is free; see
 //! [`amstrad_gate_array::WAIT_FREE_TSTATE`].
 //!
 //! # What is not modelled yet

@@ -575,17 +575,25 @@ struct Measurement {
 /// strongest confirmation available that the stretching is right rather than
 /// merely different.
 ///
-/// This page also chose the free T-state. At `WAIT_FREE_TSTATE` of 0 the same
-/// run reports `DEC DE` as `#58`, SHAKER's expectation for a CRTC 3 or 4
-/// rather than the `#59` it wants from this machine's CRTC 0. Only 2 satisfies
-/// every line.
+/// `SET n,(IX+n')` and `CP (IX+n)` each have more than one accepted value,
+/// because real CPCs differ there. This machine reports `#44` and `C5/C5`.
+/// The Z80 core samples `/INT` at the final T-state's rising edge, one T-state
+/// before the instruction boundary (die-derived, #1531), and that moves the
+/// interrupt across these two instructions. Under boundary sampling the same
+/// run reported `#40` and `C2/C2`, which SHAKER also accepts.
+///
+/// This page narrows the free T-state but does not fix it. At
+/// `WAIT_FREE_TSTATE` of 0 or 1 the run reports `DEC DE` as `#58`, SHAKER's
+/// expectation for a CRTC 3 or 4, not the `#59` it wants from this machine's
+/// CRTC 0. At 2 and at 3 all six lines agree (3 gives `#40` and `C2/C2`), and
+/// so does every other CPC test. Nothing measured here tells 2 from 3.
 const MEASUREMENTS: &[Measurement] = &[
     Measurement {
-        line: "TEST INT ON INST SET n,(IX+n'):#40 (#40 0/16 or #44)",
+        line: "TEST INT ON INST SET n,(IX+n'):#44 (#40 0/16 or #44)",
         agreeing: 1,
     },
     Measurement {
-        line: "TEST INT ON INST CP (IX+n):#C2,#C2 (C2/C2 or C5/C5 or C2/C5)",
+        line: "TEST INT ON INST CP (IX+n):#C5,#C5 (C2/C2 or C5/C5 or C2/C5)",
         agreeing: 1,
     },
     Measurement {

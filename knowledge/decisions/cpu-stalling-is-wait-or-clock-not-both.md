@@ -81,6 +81,10 @@ scored. It regresses the best oracle this machine has:
 Six of six becomes four of six. **The model that provably cannot reproduce
 Caprice32's table is the one that reproduces the hardware.**
 
+The `/WAIT` values in this table predate #1531, which moved the Z80's `/INT`
+sample one T-state earlier on die evidence. The pin now reports `#44` and
+`C5,C5`, which SHAKER also accepts, so it still scores six of six.
+
 The resolution is that `cc_op` was the wrong target. It is a *per-instruction
 bookkeeping total*: what an instruction costs, start to finish. SHAKER measures
 something finer and more direct — where an interrupt lands **within** an
