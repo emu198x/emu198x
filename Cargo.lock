@@ -1246,6 +1246,7 @@ dependencies = [
 name = "emu198x-fleet-web"
 version = "0.26.1"
 dependencies = [
+ "emu198x-fleet-web",
  "emu198x-shell",
  "emu198x-spectrum-web",
  "emu198x-web",

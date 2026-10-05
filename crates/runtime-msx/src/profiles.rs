@@ -129,6 +129,7 @@ pub fn profile_for(model: Model) -> MachineProfile {
             ),
         ],
         capabilities: CapabilitySet::with_all([
+            known_capability(emu198x_shell::capability::ids::AUDIO_OUTPUT),
             known_capability("variant-switch"),
             known_capability("keyboard-input"),
             known_capability("ay-audio"),

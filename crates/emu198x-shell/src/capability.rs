@@ -106,6 +106,17 @@ pub mod ids {
     pub const KEYBOARD_INPUT: &str = "keyboard-input";
     /// The older spelling some families use for the same thing.
     pub const KEYBOARD_MATRIX: &str = "keyboard-matrix";
+    /// The machine emits audio samples, so a host should open an audio
+    /// device, offer recording and route a mixer for it.
+    ///
+    /// Declared exactly when the runtime pushes non-empty `AudioPacket`s,
+    /// whatever the sound hardware is: a SID, an APU and a bare 1-bit speaker
+    /// all declare it, and a machine with no sound hardware (the ZX80) does
+    /// not. Chip ids such as [`AY_AUDIO`] name a tool tier that reads one
+    /// chip; they are not a substitute for this. The fleet conformance test
+    /// in `emu198x-fleet-web` runs every variant and fails when a declaration
+    /// and the samples disagree.
+    pub const AUDIO_OUTPUT: &str = "audio-output";
     /// An AY-3-891x sound chip: the `watch_ay_*` tier.
     pub const AY_AUDIO: &str = "ay-audio";
     /// Memory-write capture through `WatchTarget`: the `watch_memory_*` tier.
