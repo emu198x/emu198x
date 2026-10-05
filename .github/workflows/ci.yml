@@ -642,3 +642,11 @@ jobs:
       # preinstalled on the runner; wasm-pack fetches its own chromedriver.
       - name: Native and browser must draw the same pixels
         run: wasm-pack test --headless --chrome --release crates/emu198x-web
+
+      # The GPU presenter, read back off a real canvas (#1436). The runner has
+      # no GPU, so Chrome offers no WebGPU adapter and this exercises the
+      # WebGL2 fallback; the crate's webdriver.json passes
+      # --enable-unsafe-swiftshader, without which Chrome refuses WebGL on a
+      # GPU-less host. Run it locally to cover the WebGPU path.
+      - name: The GPU presenter must draw on a browser canvas
+        run: wasm-pack test --headless --chrome --release crates/emu198x-native-video

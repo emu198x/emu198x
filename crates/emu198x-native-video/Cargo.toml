@@ -25,3 +25,21 @@ workspace = true
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wgpu = { workspace = true, features = ["web", "webgl"] }
 
+
+# Reads a real browser canvas back, because a presenter that compiles for wasm
+# and returns Ok is not one that draws (#1436). Same versions the browser
+# crates already carry.
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+js-sys = "0.3"
+wasm-bindgen = "0.2.127"
+wasm-bindgen-test = "0.3"
+web-sys = { version = "0.3", features = [
+    "CanvasRenderingContext2d",
+    "Document",
+    "Element",
+    "HtmlCanvasElement",
+    "HtmlElement",
+    "ImageData",
+    "Node",
+    "Window",
+] }

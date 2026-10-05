@@ -287,7 +287,15 @@ impl WgpuVideoPresenter {
         let width = surface_size.0.max(1);
         let height = surface_size.1.max(1);
 
-        let instance = wgpu::Instance::default();
+        // Detection rather than `Instance::default()`, which commits to WebGPU
+        // whenever `navigator.gpu` exists. A browser can expose it and then
+        // offer no adapter (wgpu names Chrome on Linux), and the presenter
+        // then failed with `NoAdapter` instead of falling back to WebGL2.
+        // Natively this builds the same instance `default()` does.
+        let instance = wgpu::util::new_instance_with_webgpu_detection(
+            wgpu::InstanceDescriptor::new_without_display_handle(),
+        )
+        .await;
         let surface = instance.create_surface(target)?;
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {

@@ -136,7 +136,12 @@ fn lottes_fetch(pos: vec2<f32>, off: vec2<f32>) -> vec3<f32> {
     if p.x < 0.0 || p.x > 1.0 || p.y < 0.0 || p.y > 1.0 {
         return vec3<f32>(0.0, 0.0, 0.0);
     }
-    return lottes_to_linear(textureSample(source_texture, source_sampler, p).rgb);
+    // `textureSampleLevel`, not `textureSample`: this runs after a branch on a
+    // per-pixel value, and WGSL allows implicit-derivative sampling only in
+    // uniform control flow. Native naga accepts it anyway; a browser's WebGPU
+    // rejects the whole module, so every filter, Raw included, drew nothing
+    // (#1436). The texture has one mip level, so level 0 is the same sample.
+    return lottes_to_linear(textureSampleLevel(source_texture, source_sampler, p, 0.0).rgb);
 }
 
 // Sign-flipped offset from the current source pixel's centre, in
