@@ -287,6 +287,15 @@ fn halt2int128_runs_to_completion() {
 /// `halt2int128_runs_to_completion`, which asserts the diagnostic's own
 /// `HALT: Early` classification.
 ///
+/// Expect a timing change to move *game state*, not only sprite positions. The
+/// game takes its random choices from `LD A,R`, and `R` counts every M1 —
+/// including the ones `HALT` spends waiting for the interrupt — so a cycle
+/// gained or lost anywhere changes what the invaders do and when the
+/// unplayed player dies. The red icons at the bottom right are reserve lives (lives
+/// minus one, drawn by the routine at `$959B`; the count lives at `$92E4`), so
+/// a different icon count is the expected shape of a timing change, not a
+/// rendering fault.
+///
 /// It previously captured the attract screen, because nothing ever answered
 /// the program's own prompt: the golden was a picture of a menu, and the
 /// 5,936-pixel diff it failed on was title-screen animation. A HALT suite that
