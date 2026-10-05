@@ -61,7 +61,9 @@ use serde::{Deserialize, Serialize};
 /// `acc >= PW` (it was inverted), which changes every pulse voice. Ring
 /// modulation substitutes `MSB EOR NOT source-MSB` (the polarity was
 /// inverted) and is blocked when sawtooth is co-selected. The triangle's DAC
-/// bit 0 is grounded (it carried accumulator bit 11). Further #777 fixes
+/// bit 0 is grounded (it carried accumulator bit 11). TEST no longer reseeds
+/// the noise register every cycle: its cells drift to all ones over tens of
+/// thousands of cycles and it shifts once when TEST falls. Further #777 fixes
 /// in the same series land under this version.
 ///
 /// See `knowledge/decisions/c64-architecture-review.md` Seam 4 for
@@ -364,7 +366,7 @@ impl Sid6581 {
                 self.voices[0].pulse_width =
                     (self.voices[0].pulse_width & 0x00FF) | ((u16::from(value) & 0x0F) << 8);
             }
-            0x04 => self.voices[0].control = value,
+            0x04 => self.voices[0].write_control(value, self.model),
             0x05 => {
                 self.envelopes[0].attack = (value >> 4) & 0x0F;
                 self.envelopes[0].decay = value & 0x0F;
@@ -388,7 +390,7 @@ impl Sid6581 {
                 self.voices[1].pulse_width =
                     (self.voices[1].pulse_width & 0x00FF) | ((u16::from(value) & 0x0F) << 8);
             }
-            0x0B => self.voices[1].control = value,
+            0x0B => self.voices[1].write_control(value, self.model),
             0x0C => {
                 self.envelopes[1].attack = (value >> 4) & 0x0F;
                 self.envelopes[1].decay = value & 0x0F;
@@ -412,7 +414,7 @@ impl Sid6581 {
                 self.voices[2].pulse_width =
                     (self.voices[2].pulse_width & 0x00FF) | ((u16::from(value) & 0x0F) << 8);
             }
-            0x12 => self.voices[2].control = value,
+            0x12 => self.voices[2].write_control(value, self.model),
             0x13 => {
                 self.envelopes[2].attack = (value >> 4) & 0x0F;
                 self.envelopes[2].decay = value & 0x0F;
@@ -441,7 +443,7 @@ impl Sid6581 {
         ];
 
         for voice in &mut self.voices {
-            voice.clock_accumulator();
+            voice.clock_accumulator(self.model);
         }
 
         for voice in &mut self.voices {
@@ -740,6 +742,24 @@ mod tests {
             sid.tick();
         }
         assert_eq!(sid.envelopes[0].level, 0);
+    }
+
+    #[test]
+    fn test_bit_drifts_the_noise_register_instead_of_reseeding_it() {
+        // A short TEST pulse must leave the noise register alone until its
+        // SRAM cells have had time to drift, then shift once on release with
+        // bit0 = !bit17 (reSID wave.cc writeCONTROL_REG).
+        for model in [SidModel::Mos6581, SidModel::Mos8580] {
+            let mut sid = Sid6581::new_with_model(985_248, 48_000, model);
+            sid.voices[0].noise_lfsr = 0x0000_1234;
+            sid.write(0x04, 0x88); // noise + TEST
+            for _ in 0..100 {
+                sid.tick();
+            }
+            assert_eq!(sid.voices[0].noise_lfsr, 0x0000_1234, "{model:?}");
+            sid.write(0x04, 0x80); // TEST falling
+            assert_eq!(sid.voices[0].noise_lfsr, 0x0000_2469, "{model:?}");
+        }
     }
 
     #[test]

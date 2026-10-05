@@ -11,6 +11,23 @@ use crate::combined_wave_tables::{
 };
 
 const NOISE_LFSR_SEED: u32 = 0x7F_FFFF;
+const NOISE_LFSR_MASK: u32 = 0x7F_FFFF;
+
+const CONTROL_TEST: u8 = 0x08;
+
+/// Cycles TEST must be held before the noise shift register's SRAM cells
+/// start reaching one, then the cycles between each further bit. While TEST
+/// is set the register bits are interconnected and the cells drift up towards
+/// one; after the full ramp the register reads all ones (`0x7FFFFF`). Values
+/// from reSID `wave.cc` (`SHIFT_REGISTER_RESET_*`). reSIDfp measures the
+/// same effect on warm chips with different figures (6581R3 50 000/15 000,
+/// 8580R5 986 000/314 300) and notes the times vary with temperature and chip;
+/// VICE's `testprogs/SID/bitfade` `delaynoise` reads about $8000 on reSID's
+/// 6581 and $950000 on a real 8580R5. The 8580 holds its bits far longer.
+const SHIFT_REGISTER_RESET_START_6581: u32 = 35_000;
+const SHIFT_REGISTER_RESET_BIT_6581: u32 = 1_000;
+const SHIFT_REGISTER_RESET_START_8580: u32 = 2_519_864;
+const SHIFT_REGISTER_RESET_BIT_8580: u32 = 315_000;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Voice {
@@ -20,6 +37,9 @@ pub struct Voice {
     pub control: u8,
     pub noise_lfsr: u32,
     pub prev_msb: bool,
+    /// Cycles until the next noise-register cell drifts to one while TEST is
+    /// held; zero once the register is all ones or TEST is clear.
+    shift_register_reset: u32,
 }
 
 impl Voice {
@@ -32,17 +52,66 @@ impl Voice {
             control: 0,
             noise_lfsr: NOISE_LFSR_SEED,
             prev_msb: false,
+            shift_register_reset: 0,
         }
     }
 
-    pub fn clock_accumulator(&mut self) {
-        if self.control & 0x08 != 0 {
+    /// Write the control register, applying the TEST-bit edges.
+    ///
+    /// TEST rising zeros the accumulator and starts the noise register's
+    /// drift towards all ones. TEST falling completes the shift that TEST
+    /// left half done: the SRAM write is enabled, so the register shifts once
+    /// with `bit0 = (bit22 | TEST) ^ bit17 = !bit17`. Per reSID `wave.cc`
+    /// `writeCONTROL_REG`; the datasheet (MOS 6581, Test bit 3) only says TEST
+    /// "resets and locks Oscillator 1 at zero" and resets the noise output.
+    pub fn write_control(&mut self, value: u8, model: SidModel) {
+        let test_prev = self.control & CONTROL_TEST != 0;
+        let test = value & CONTROL_TEST != 0;
+        self.control = value;
+
+        if !test_prev && test {
             self.accumulator = 0;
-            self.noise_lfsr = NOISE_LFSR_SEED;
+            self.shift_register_reset = match model {
+                SidModel::Mos6581 => SHIFT_REGISTER_RESET_START_6581,
+                SidModel::Mos8580 => SHIFT_REGISTER_RESET_START_8580,
+            };
+        } else if test_prev && !test {
+            let bit0 = (!self.noise_lfsr >> 17) & 1;
+            self.noise_lfsr = ((self.noise_lfsr << 1) | bit0) & NOISE_LFSR_MASK;
+            self.shift_register_reset = 0;
+        }
+    }
+
+    /// Advance the oscillator one cycle. While TEST is held the accumulator
+    /// stays at zero and the noise register drifts towards all ones.
+    pub fn clock_accumulator(&mut self, model: SidModel) {
+        if self.control & CONTROL_TEST != 0 {
+            self.accumulator = 0;
+            if self.shift_register_reset != 0 {
+                self.shift_register_reset -= 1;
+                if self.shift_register_reset == 0 {
+                    self.shift_register_bitfade(model);
+                }
+            }
             return;
         }
 
         self.accumulator = self.accumulator.wrapping_add(u32::from(self.frequency)) & 0x00FF_FFFF;
+    }
+
+    /// One step of the TEST-held drift: bit 0 reaches one and every set bit
+    /// pulls its upper neighbour up, so the ones fill upwards to `0x7FFFFF`.
+    /// reSID `shiftreg_bitfade`, masked to the 23-bit register (reSID leaves
+    /// bit 23 to accumulate, which only keeps its timer re-arming).
+    fn shift_register_bitfade(&mut self, model: SidModel) {
+        self.noise_lfsr |= 1;
+        self.noise_lfsr = (self.noise_lfsr | (self.noise_lfsr << 1)) & NOISE_LFSR_MASK;
+        if self.noise_lfsr != NOISE_LFSR_MASK {
+            self.shift_register_reset = match model {
+                SidModel::Mos6581 => SHIFT_REGISTER_RESET_BIT_6581,
+                SidModel::Mos8580 => SHIFT_REGISTER_RESET_BIT_8580,
+            };
+        }
     }
 
     pub fn clock_noise(&mut self) {
@@ -71,9 +140,8 @@ impl Voice {
             return 0;
         }
 
-        // TEST bit (control bit 3) holds pulse output HIGH, zeros the
-        // accumulator, and reseeds the noise LFSR. Per 6581 datasheet.
-        let test_bit = self.control & 0x08 != 0;
+        // TEST bit (control bit 3) holds pulse output HIGH. Per 6581 datasheet.
+        let test_bit = self.control & CONTROL_TEST != 0;
 
         let tri12 = self.triangle_output(ring_mod_source_msb);
         let saw12 = ((self.accumulator >> 12) & 0xFFF) as u16;
@@ -265,15 +333,86 @@ mod tests {
     }
 
     #[test]
-    fn test_bit_holds_pulse_high_and_resets_the_oscillator() {
+    fn test_bit_holds_pulse_high_and_zeros_the_accumulator() {
         let mut v = Voice::new();
-        v.control = PULSE | TEST;
-        v.accumulator = 0x00C0_0000; // would read low without TEST
-        v.noise_lfsr = 0x0000_1234;
+        v.accumulator = 0x0012_3456;
+        v.pulse_width = 0x800;
+        v.write_control(PULSE | TEST, SidModel::Mos6581);
+        assert_eq!(v.accumulator, 0, "TEST rising zeros the accumulator");
+        v.frequency = 0x1234;
+        v.clock_accumulator(SidModel::Mos6581);
+        assert_eq!(v.accumulator, 0, "TEST holds the accumulator at zero");
         assert_eq!(v.waveform_output(false, SidModel::Mos6581), 0x0FFF);
-        v.clock_accumulator();
-        assert_eq!(v.accumulator, 0, "TEST zeros the accumulator");
-        assert_eq!(v.noise_lfsr, NOISE_LFSR_SEED, "TEST reseeds the noise LFSR");
+    }
+
+    #[test]
+    fn test_bit_does_not_reseed_the_noise_register_at_once() {
+        // The SRAM cells drift towards one; a brief TEST pulse leaves most of
+        // the register as it was.
+        let mut v = Voice::new();
+        v.noise_lfsr = 0x0000_1234;
+        v.write_control(NOISE | TEST, SidModel::Mos6581);
+        for _ in 0..100 {
+            v.clock_accumulator(SidModel::Mos6581);
+        }
+        assert_eq!(v.noise_lfsr, 0x0000_1234);
+    }
+
+    /// Hold TEST from a cleared noise register and return the cycle count
+    /// at which it first reads all ones.
+    fn cycles_to_all_ones(model: SidModel) -> u32 {
+        let mut v = Voice::new();
+        v.noise_lfsr = 0;
+        v.write_control(NOISE | TEST, model);
+        let mut cycles = 0;
+        while v.noise_lfsr != 0x7F_FFFF {
+            v.clock_accumulator(model);
+            cycles += 1;
+            assert!(cycles < 20_000_000, "noise register never filled");
+        }
+        cycles
+    }
+
+    #[test]
+    fn held_test_bit_ramps_the_noise_register_to_all_ones() {
+        let mut v = Voice::new();
+        v.noise_lfsr = 0;
+        v.write_control(NOISE | TEST, SidModel::Mos6581);
+        for _ in 0..34_999 {
+            v.clock_accumulator(SidModel::Mos6581);
+        }
+        assert_eq!(v.noise_lfsr, 0, "nothing drifts before the start delay");
+        v.clock_accumulator(SidModel::Mos6581);
+        assert_eq!(v.noise_lfsr, 0b11, "first step sets bit 0 and smears up");
+        for _ in 0..1_000 {
+            v.clock_accumulator(SidModel::Mos6581);
+        }
+        assert_eq!(v.noise_lfsr, 0b111);
+
+        // Start delay plus 21 further steps fill the 23-bit register.
+        assert_eq!(cycles_to_all_ones(SidModel::Mos6581), 35_000 + 21 * 1_000);
+        assert_eq!(
+            cycles_to_all_ones(SidModel::Mos8580),
+            2_519_864 + 21 * 315_000
+        );
+    }
+
+    #[test]
+    fn test_bit_falling_shifts_in_the_inverse_of_bit_17() {
+        let mut v = Voice::new();
+        v.noise_lfsr = 0x0000_0001; // bit 17 clear -> bit0 = 1
+        v.write_control(NOISE | TEST, SidModel::Mos6581);
+        v.write_control(NOISE, SidModel::Mos6581);
+        assert_eq!(v.noise_lfsr, 0b11);
+
+        v.noise_lfsr = 1 << 17; // bit 17 set -> bit0 = 0
+        v.write_control(NOISE | TEST, SidModel::Mos6581);
+        v.write_control(NOISE, SidModel::Mos6581);
+        assert_eq!(v.noise_lfsr, 1 << 18);
+
+        // Writes that leave TEST unchanged do not shift.
+        v.write_control(NOISE | 0x01, SidModel::Mos6581);
+        assert_eq!(v.noise_lfsr, 1 << 18);
     }
 
     #[test]
