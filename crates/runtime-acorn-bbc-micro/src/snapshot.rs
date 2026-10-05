@@ -12,11 +12,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::runtime::BbcMicroRuntime;
 
-// Bumped to 4: the machine now carries its frame base and
-// current scanline, so instruction stepping crosses line
-// boundaries the way running does (#1202). postcard is not
-// self-describing, so added fields shift every byte after them.
-const SNAPSHOT_VERSION: u16 = 4;
+// Bumped to 5: the 6845 now carries its interlace field (#163). postcard is
+// not self-describing, so a field added to the CRTC shifts every byte after
+// it.
+const SNAPSHOT_VERSION: u16 = 5;
 
 /// Borrowing envelope used during encode — avoids cloning the live machine.
 #[derive(Serialize)]

@@ -109,6 +109,13 @@ pub struct Crtc6845 {
 
     /// Cursor output after address, raster-shape, and blink gating.
     pub cursor_active: bool,
+
+    /// Which interlace field is being scanned: `false` even, `true` odd. It
+    /// alternates every frame while R8 selects an interlace sync mode and
+    /// stays even otherwise. In interlace sync and video mode it is the low
+    /// bit of the raster address the chip drives (see [`Self::raster_address`]).
+    #[serde(default)]
+    odd_field: bool,
 }
 
 impl Crtc6845 {
@@ -134,6 +141,7 @@ impl Crtc6845 {
             vsync_counter: 0,
             cursor_blink_count: 0,
             cursor_active: false,
+            odd_field: false,
         }
     }
 
@@ -181,10 +189,42 @@ impl Crtc6845 {
         self.ma_output & 0x3FFF
     }
 
-    /// Current raster address (RA0-RA4, 5-bit).
+    /// Current raster address output (RA0-RA4, 5-bit).
+    ///
+    /// Normally this is the scanline counter itself. In interlace sync and
+    /// video mode (R8 bits 0-1 = `11`) the chip scans alternate lines of each
+    /// character row in alternate fields, so the counter steps once per line
+    /// and the address it drives is `counter × 2 + field`: `0, 2, 4…` on the
+    /// even field and `1, 3, 5…` on the odd. That is the BBC Advanced User
+    /// Guide's figure 18.2c (§18.6.1), and b-em's `video.c` composes the same
+    /// address from its per-field line count and `interlline`.
     #[must_use]
     pub fn raster_address(&self) -> u8 {
-        self.ra
+        if self.interlace_sync_and_video() {
+            ((self.ra << 1) | u8::from(self.odd_field)) & 0x1F
+        } else {
+            self.ra
+        }
+    }
+
+    /// The horizontal character counter: the column the next [`Self::tick`]
+    /// outputs. A consumer that places characters on a raster reads this
+    /// before ticking; zero marks the start of a scan line.
+    #[must_use]
+    pub const fn horizontal_counter(&self) -> u8 {
+        self.h_counter
+    }
+
+    /// Whether R8 selects interlace sync and video mode (bits 0-1 = `11`).
+    #[must_use]
+    pub const fn interlace_sync_and_video(&self) -> bool {
+        self.regs[8] & 0x03 == 0x03
+    }
+
+    /// Whether the chip is scanning the odd field of an interlaced frame.
+    #[must_use]
+    pub const fn odd_field(&self) -> bool {
+        self.odd_field
     }
 
     /// Display start address (R12:R13).
@@ -303,11 +343,14 @@ impl Crtc6845 {
             return false;
         }
 
+        // Compare against the address the chip drives, which in interlace
+        // sync and video mode is not the counter itself.
+        let ra = self.raster_address();
         match self.variant {
-            Crtc6845Variant::Mc6845 if start > end => self.ra <= end || self.ra >= start,
+            Crtc6845Variant::Mc6845 if start > end => ra <= end || ra >= start,
             Crtc6845Variant::Mc6845 if end > max => true,
             Crtc6845Variant::Mc6845 | Crtc6845Variant::Hd6845s => {
-                start <= end && self.ra >= start && self.ra <= end
+                start <= end && ra >= start && ra <= end
             }
         }
     }
@@ -315,7 +358,15 @@ impl Crtc6845 {
     /// Advance vertical counters at end of each horizontal line.
     /// Returns true at frame start.
     fn advance_vertical(&mut self) -> bool {
-        let max_scan = self.regs[9] & 0x1F;
+        // In interlace sync and video mode each field scans half of every
+        // character row, so the per-field counter ends the row at R9 / 2: the
+        // BBC's MODE 7 programs R9 = 18 and gets ten lines a field, 312 a
+        // field in all. b-em ends the row at `crtc[9] >> 1` in that mode.
+        let max_scan = if self.interlace_sync_and_video() {
+            (self.regs[9] & 0x1F) >> 1
+        } else {
+            self.regs[9] & 0x1F
+        };
         let v_total = self.regs[4] & 0x7F;
         let v_adjust = self.regs[5] & 0x1F;
         let v_sync_pos = self.regs[7] & 0x7F;
@@ -334,11 +385,7 @@ impl Crtc6845 {
             if self.v_adjust >= v_adjust {
                 // Frame complete — restart
                 self.in_v_adjust = false;
-                self.v_counter = 0;
-                self.ra = 0;
-                self.ma = self.start_address();
-                self.row_start = self.ma;
-                self.cursor_blink_count = self.cursor_blink_count.wrapping_add(1);
+                self.restart_frame();
                 return true;
             }
             return false;
@@ -375,11 +422,7 @@ impl Crtc6845 {
                     self.v_adjust = 0;
                 } else {
                     // No adjust — restart immediately
-                    self.v_counter = 0;
-                    self.ra = 0;
-                    self.ma = self.start_address();
-                    self.row_start = self.ma;
-                    self.cursor_blink_count = self.cursor_blink_count.wrapping_add(1);
+                    self.restart_frame();
                     return true;
                 }
             }
@@ -402,10 +445,23 @@ impl Crtc6845 {
 
         false
     }
+    /// Begin a new frame: counters to the top, the address back to R12/R13,
+    /// and the next field of an interlaced picture.
+    fn restart_frame(&mut self) {
+        self.v_counter = 0;
+        self.ra = 0;
+        self.ma = self.start_address();
+        self.row_start = self.ma;
+        self.cursor_blink_count = self.cursor_blink_count.wrapping_add(1);
+        // R8 bit 0 selects interlace sync, alone or with video; either way
+        // the fields alternate. Non-interlaced scanning repeats the even one.
+        self.odd_field = self.regs[8] & 0x01 != 0 && !self.odd_field;
+    }
+
     /// Serialize CRTC state for save states.
     #[must_use]
     pub fn save_state(&self) -> Vec<u8> {
-        let mut data = Vec::with_capacity(37);
+        let mut data = Vec::with_capacity(38);
         data.push(self.selected);
         data.extend_from_slice(&self.regs);
         data.push(self.h_counter);
@@ -423,6 +479,7 @@ impl Crtc6845 {
         data.push(self.vsync_counter);
         data.push(u8::from(self.cursor_active));
         data.push(self.cursor_blink_count);
+        data.push(u8::from(self.odd_field));
         data
     }
 
@@ -470,6 +527,8 @@ impl Crtc6845 {
         p += 1;
         self.cursor_blink_count = data.get(p).copied().unwrap_or(0);
         p += usize::from(data.len() > p);
+        self.odd_field = data.get(p).is_some_and(|&b| b != 0);
+        p += usize::from(data.len() > p);
         Ok(p)
     }
 }
@@ -484,7 +543,7 @@ impl Default for Crtc6845 {
 mod tests {
     use super::*;
 
-    fn setup_mode0(crtc: &mut Crtc6845) {
+    pub(super) fn setup_mode0(crtc: &mut Crtc6845) {
         // BBC Micro MODE 0: 80-column, 2 MHz CRTC clock
         let vals = [
             127, 80, 98, 0x28, 38, 0, 32, 34, 0, 7, 0, 0, 0x0C, 0x00, 0, 0, 0, 0,
@@ -817,5 +876,94 @@ mod variant_tests {
     fn the_default_is_the_old_behaviour() {
         assert_eq!(Crtc6845Variant::default(), Crtc6845Variant::Mc6845);
         assert!(!Crtc6845Variant::default().reads_back(12));
+    }
+
+    /// The BBC Micro's MODE 7 registers (Advanced User Guide §18): R8 = &93
+    /// selects interlace sync and video, with R9 = 18.
+    fn setup_mode7(crtc: &mut Crtc6845) {
+        let vals = [
+            63, 40, 51, 0x24, 30, 2, 25, 27, 0x93, 18, 0x72, 19, 0x28, 0x00, 0, 0, 0, 0,
+        ];
+        for (i, &v) in vals.iter().enumerate() {
+            crtc.write_address(i as u8);
+            crtc.write_data(v);
+        }
+    }
+
+    /// Scans one frame from a frame boundary and returns the raster address
+    /// driven on each displayed line of the first character row, then the
+    /// frame's length in scan lines.
+    fn scan_one_frame(crtc: &mut Crtc6845) -> (Vec<u8>, u32) {
+        let mut first_row = Vec::new();
+        let mut lines = 0_u32;
+        loop {
+            let column = crtc.horizontal_counter();
+            let frame_end = crtc.tick();
+            if column == 0 {
+                lines += 1;
+                if crtc.display_enable && crtc.memory_address() == crtc.start_address() {
+                    first_row.push(crtc.raster_address());
+                }
+            }
+            if frame_end {
+                return (first_row, lines);
+            }
+        }
+    }
+
+    /// Interlace sync and video scans alternate lines of each row in
+    /// alternate fields (Advanced User Guide figure 18.2c). MODE 7's R9 = 18
+    /// gives ten lines a row each field, so a field is 31 × 10 + 2 = 312
+    /// lines: the 50 Hz the BBC's teletext mode runs at. Counting the row
+    /// as R9 + 1 lines instead made it 591 lines.
+    #[test]
+    fn interlace_sync_and_video_scans_alternate_lines_in_alternate_fields() {
+        let mut crtc = Crtc6845::new();
+        setup_mode7(&mut crtc);
+        assert!(crtc.interlace_sync_and_video());
+        while !crtc.tick() {}
+
+        let (first, first_lines) = scan_one_frame(&mut crtc);
+        let (second, second_lines) = scan_one_frame(&mut crtc);
+        assert_eq!(first_lines, 312, "a MODE 7 field is 312 lines");
+        assert_eq!(second_lines, 312);
+
+        let even: Vec<u8> = (0..10).map(|n| n * 2).collect();
+        let odd: Vec<u8> = (0..10).map(|n| n * 2 + 1).collect();
+        // Which field comes first depends only on where the chip started.
+        assert!(
+            (first == even && second == odd) || (first == odd && second == even),
+            "fields should drive even then odd raster addresses; got {first:?} / {second:?}"
+        );
+    }
+
+    /// Interlace sync alone (R8 = 1) moves the sync but not the addresses:
+    /// every field scans every line.
+    #[test]
+    fn interlace_sync_alone_leaves_the_raster_address_alone() {
+        let mut crtc = Crtc6845::new();
+        super::tests::setup_mode0(&mut crtc);
+        crtc.write_address(8);
+        crtc.write_data(0x01);
+        while !crtc.tick() {}
+        let (first, lines) = scan_one_frame(&mut crtc);
+        assert_eq!(first, (0..8).collect::<Vec<u8>>());
+        assert_eq!(lines, 312);
+    }
+
+    /// The column a consumer reads before ticking is the one that tick
+    /// outputs: display enable follows it across R1.
+    #[test]
+    fn horizontal_counter_names_the_column_the_next_tick_outputs() {
+        let mut crtc = Crtc6845::new();
+        super::tests::setup_mode0(&mut crtc);
+        while !crtc.tick() {}
+        for expected in 0..128u8 {
+            let column = crtc.horizontal_counter();
+            assert_eq!(column, expected);
+            crtc.tick();
+            assert_eq!(crtc.display_enable, column < 80, "column {column}");
+        }
+        assert_eq!(crtc.horizontal_counter(), 0, "the line is R0 + 1 columns");
     }
 }
