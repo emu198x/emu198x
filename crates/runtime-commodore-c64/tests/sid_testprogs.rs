@@ -19,6 +19,9 @@ use runtime_commodore_c64::{
     Model, type_string,
 };
 
+/// Border colour the programs leave on success (light green).
+const BORDER_PASS: u8 = 5;
+
 /// The explicitly configured SID testprog directory, or the conventional
 /// per-user staging directory when no explicit path is supplied.
 fn testprogs_dir() -> Option<PathBuf> {
@@ -85,6 +88,10 @@ fn screen(session: &mut HeadlessSession<C64Runtime, C64SessionQueryProvider>, of
     session.machine_mut().machine_mut().peek(0x0400 + offset)
 }
 
+fn border(session: &mut HeadlessSession<C64Runtime, C64SessionQueryProvider>) -> u8 {
+    session.machine_mut().machine_mut().cpu_read(0xD020) & 0x0F
+}
+
 fn staged() -> bool {
     roms_present() && testprogs_dir().is_some()
 }
@@ -100,4 +107,20 @@ fn osc3_wave0_pulse_width_extremes() {
     let mut session = run_testprog("osc3-wave0/osc3-wave0.prg", Model::C64PalBreadbin, 30);
     assert_eq!(screen(&mut session, 0), 0x00, "OSC3 with PW $FFF");
     assert_eq!(screen(&mut session, 1), 0xFF, "OSC3 with PW $000");
+}
+
+/// `ringmod`: voices 2 and 3 stopped at zero, voice 3 a ring-modulated
+/// triangle. The MSB is substituted with `MSB EOR NOT source-MSB`, so with
+/// both MSBs clear the triangle is inverted and OSC3 reads $FF.
+#[test]
+#[ignore = "FIXTURE: requires ~/.emu198x/roms/commodore-c64 + ~/.emu198x/test-suites/c64-sid"]
+fn ringmod_inverts_the_triangle_on_a_clear_source_msb() {
+    if !staged() {
+        emu198x_test_skip::skip!("C64 ROMs or VICE SID testprogs not staged");
+    }
+    for model in [Model::C64PalBreadbin, Model::C64cPal] {
+        let mut session = run_testprog("ringmod/ringmodtest.prg", model, 30);
+        assert_eq!(screen(&mut session, 0), 0xFF, "OSC3 on {model:?}");
+        assert_eq!(border(&mut session), BORDER_PASS, "verdict on {model:?}");
+    }
 }

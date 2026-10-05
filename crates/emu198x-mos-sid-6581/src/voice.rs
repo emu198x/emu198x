@@ -110,7 +110,10 @@ impl Voice {
             // from real 6581 chips, indexed by the upper 12 bits of the
             // 24-bit accumulator. Pulse is a separate 0x000/0xFFF mask
             // ANDed with the table output (matches reSID wave.h:467).
-            let idx = ((self.accumulator >> 12) & 0x0FFF) as usize;
+            // The index carries the ring-modulated MSB, as reSID's does, so
+            // pulse+triangle with RING set reads the substituted half.
+            let idx =
+                ((self.ring_modulated_accumulator(ring_mod_source_msb) >> 12) & 0x0FFF) as usize;
             let lut_output = match non_noise {
                 0x03 => Some(COMBINED_TRI_SAW_6581[idx]),
                 0x05 => Some(COMBINED_P_T_6581[idx] & pulse12),
@@ -142,11 +145,31 @@ impl Voice {
         output
     }
 
-    fn triangle_output(&self, ring_mod_source_msb: bool) -> u16 {
-        let mut tri = self.accumulator;
-        if self.control & 0x04 != 0 && ring_mod_source_msb {
-            tri ^= 0x0080_0000;
+    /// The accumulator as the triangle XOR logic sees it.
+    ///
+    /// Ring modulation substitutes this voice's MSB with
+    /// `MSB EOR NOT source-MSB`. Die analysis gives the XOR input as
+    /// `TriXOR = !Saw & ((!V3 & Ring) ^ bit23)`, so the substitution is
+    /// suppressed when sawtooth is co-selected (sawtooth blocks the MSB out of
+    /// the EOR). Per reSID `wave.cc` `writeCONTROL_REG` (`ring_msb_mask`) and
+    /// `wave.h` `set_waveform_output` (`accumulator ^ (~sync_source &
+    /// ring_msb_mask)`), and VICE `testprogs/SID/ringmod`, which reads `$FF`
+    /// from OSC3 for a ring-modulated triangle with both oscillators at zero.
+    /// reSIDfp shares the expression. The datasheet only says RING "replaces
+    /// the Triangle waveform output ... with a Ring Modulated combination";
+    /// it does not give the polarity. Same on the 6581 and 8580.
+    fn ring_modulated_accumulator(&self, ring_mod_source_msb: bool) -> u32 {
+        let ring = self.control & 0x04 != 0;
+        let saw = self.control & 0x20 != 0;
+        if ring && !saw && !ring_mod_source_msb {
+            self.accumulator ^ 0x0080_0000
+        } else {
+            self.accumulator
         }
+    }
+
+    fn triangle_output(&self, ring_mod_source_msb: bool) -> u16 {
+        let tri = self.ring_modulated_accumulator(ring_mod_source_msb);
         let value = if tri & 0x0080_0000 != 0 {
             (tri ^ 0x007F_FFFF) >> 11
         } else {
@@ -249,14 +272,66 @@ mod tests {
     }
 
     #[test]
-    fn ring_mod_folds_the_triangle_on_the_source_msb() {
+    fn ring_mod_substitutes_msb_eor_not_source_msb() {
+        // TriXOR = !Saw & ((!V3 & Ring) ^ bit23): with both MSBs clear the
+        // triangle is inverted (VICE testprogs/SID/ringmod reads OSC3 = $FF),
+        // and a set source MSB leaves it unfolded.
+        for model in [SidModel::Mos6581, SidModel::Mos8580] {
+            let mut v = Voice::new();
+            v.control = TRI | RING;
+            v.accumulator = 0;
+            assert_eq!(
+                v.waveform_output(false, model),
+                0xFFF,
+                "clear source MSB inverts the triangle ({model:?})"
+            );
+            assert_eq!(
+                v.waveform_output(true, model),
+                0x000,
+                "set source MSB leaves the triangle unfolded ({model:?})"
+            );
+        }
+    }
+
+    #[test]
+    fn ring_mod_without_ring_bit_ignores_the_source() {
         let mut v = Voice::new();
-        v.control = TRI | RING;
-        v.accumulator = 0; // unfolded triangle = 0
-        let no_fold = v.waveform_output(false, SidModel::Mos6581);
-        let fold = v.waveform_output(true, SidModel::Mos6581);
-        assert_eq!(no_fold, 0x000);
-        assert_eq!(fold, 0xFFF, "source MSB folds the triangle");
+        v.control = TRI;
+        v.accumulator = 0;
+        assert_eq!(v.waveform_output(false, SidModel::Mos6581), 0x000);
+        assert_eq!(v.waveform_output(true, SidModel::Mos6581), 0x000);
+    }
+
+    #[test]
+    fn sawtooth_blocks_the_ring_mod_substitution() {
+        // With sawtooth co-selected the MSB never reaches the EOR, so the
+        // tri+saw table is indexed by the raw accumulator whatever the source.
+        let mut v = Voice::new();
+        v.control = TRI | SAW | RING;
+        v.accumulator = 0x0055_5000;
+        let raw = COMBINED_TRI_SAW_6581[0x555];
+        assert_eq!(v.waveform_output(false, SidModel::Mos6581), raw);
+        assert_eq!(v.waveform_output(true, SidModel::Mos6581), raw);
+    }
+
+    #[test]
+    fn ring_mod_flips_the_pulse_triangle_table_index() {
+        // reSID indexes every combined table with the ring-substituted
+        // accumulator; pulse+triangle has no sawtooth, so RING applies.
+        let mut v = Voice::new();
+        v.control = TRI | PULSE | RING;
+        v.pulse_width = 0x000; // pulse held high
+        v.accumulator = 0x009F_F000;
+        assert_eq!(
+            v.waveform_output(false, SidModel::Mos6581),
+            COMBINED_P_T_6581[0x1FF],
+            "clear source MSB reads the opposite half of the table"
+        );
+        assert_ne!(COMBINED_P_T_6581[0x1FF], COMBINED_P_T_6581[0x9FF]);
+        assert_eq!(
+            v.waveform_output(true, SidModel::Mos6581),
+            COMBINED_P_T_6581[0x9FF]
+        );
     }
 
     #[test]

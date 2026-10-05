@@ -58,8 +58,10 @@ use serde::{Deserialize, Serialize};
 ///
 /// **Version 5** (2026-10-05, issue #777): residual reSID-fidelity fixes to
 /// the waveform generator. The pulse comparator drives the line high while
-/// `acc >= PW` (it was inverted), which changes every pulse voice. Further
-/// #777 fixes in the same series land under this version.
+/// `acc >= PW` (it was inverted), which changes every pulse voice. Ring
+/// modulation substitutes `MSB EOR NOT source-MSB` (the polarity was
+/// inverted) and is blocked when sawtooth is co-selected. Further #777 fixes
+/// in the same series land under this version.
 ///
 /// See `knowledge/decisions/c64-architecture-review.md` Seam 4 for
 /// the re-capture discipline this constant enforces.
