@@ -206,6 +206,34 @@ impl AddressableLatch {
         Self { bits: [false; 8] }
     }
 
+    /// Bytes the hardware-scroll wrap takes off a screen address that has run
+    /// past `$7FFF`, chosen by latch outputs B4 and B5.
+    ///
+    /// The Advanced User Guide (§18.10, §23.2) describes the circuit: when the
+    /// 6845 asks for an address above `$7FFF` it adds a constant, which in a
+    /// 15-bit RAM address is the same as subtracting the screen's size. The
+    /// guide's own §23.2 table pairs the bit patterns with the wrong sizes for
+    /// the 20K and 10K modes. MOS 1.20 writes B5 = 1, B4 = 0 for MODE 0-2 and
+    /// sets both for MODE 4-5, so those are the patterns that must wrap by 20K
+    /// and 10K for the MOS's own scrolled screens to come back to their start.
+    /// b-em (`sysvia.c` `scrsize`, `video.c` `screenlen`) and jsbeeb
+    /// (`video.js` `screenAddrSubtract`) decode the bits the same way.
+    ///
+    /// | B5 | B4 | size | modes |
+    /// |----|----|------|-------|
+    /// | 0  | 0  | 16K  | 3     |
+    /// | 0  | 1  | 8K   | 6     |
+    /// | 1  | 0  | 20K  | 0-2   |
+    /// | 1  | 1  | 10K  | 4-5   |
+    const fn screen_wrap_size(&self) -> u16 {
+        match (self.bits[5], self.bits[4]) {
+            (false, false) => 0x4000,
+            (false, true) => 0x2000,
+            (true, false) => 0x5000,
+            (true, true) => 0x2800,
+        }
+    }
+
     fn write(&mut self, address: u8, data: bool) -> Option<u8> {
         let idx = (address & 0x07) as usize;
         let prev = self.bits[idx];
@@ -469,6 +497,52 @@ impl Mc6850 {
     }
 }
 
+/// The SAA5050's attribute state within one scan line.
+///
+/// Teletext control codes are "set-after": each changes how the characters
+/// that follow it are drawn, and the chip starts every line from the
+/// defaults. With the display fed one character per 6845 clock, the state has
+/// to live between clocks rather than inside a loop over a row.
+#[derive(Clone, Copy, Serialize, Deserialize)]
+struct TeletextLine {
+    fg: u8,
+    bg: u8,
+    graphics: bool,
+    separated: bool,
+    hold: bool,
+    held_pattern: u16,
+}
+
+impl TeletextLine {
+    const fn new() -> Self {
+        Self {
+            fg: 7,
+            bg: 0,
+            graphics: false,
+            separated: false,
+            hold: false,
+            held_pattern: 0,
+        }
+    }
+}
+
+/// Framebuffer pixels one 6845 character occupies at the 2 MHz (fast) clock:
+/// half a microsecond of the 16 MHz dot clock. The 1 MHz clock doubles it.
+const FAST_CHAR_PIXELS: usize = 8;
+
+/// MODE 7's character cell: twelve framebuffer pixels per 6845 column, the
+/// forty columns centred in the window.
+const TELETEXT_CELL_WIDTH: usize = 12;
+const TELETEXT_CELL_HEIGHT: usize = 10;
+const TELETEXT_X_BASE: usize = (FB_WIDTH as usize - 40 * TELETEXT_CELL_WIDTH) / 2;
+
+/// What the Video ULA and SAA5050 put out while the 6845 is not displaying.
+const BLANK: u32 = 0xFF00_0000;
+
+fn blank_frame() -> Vec<u32> {
+    vec![BLANK; (FB_WIDTH * FB_HEIGHT) as usize]
+}
+
 /// BBC Micro Model B machine.
 #[derive(Serialize, Deserialize)]
 pub struct BbcMicro {
@@ -489,7 +563,23 @@ pub struct BbcMicro {
     /// SAA5050 teletext character ROM (96 glyphs × 10 rows). Empty until a
     /// font is supplied; MODE 7 then renders blank.
     teletext_font: Vec<u8>,
+    /// The last complete frame the 6845 scanned out.
     framebuffer: Vec<u32>,
+    /// The frame being scanned out now. Swapped with `framebuffer` when the
+    /// 6845 starts a new frame, so a reader never sees half of one picture
+    /// over half of another — the 6845's frame need not begin where
+    /// [`Self::run_frame`]'s fixed tick budget does.
+    back_buffer: Vec<u32>,
+    /// Scan lines since the 6845's frame began: the beam's row in
+    /// `back_buffer`. The window's origin is the 6845's own — column 0, the
+    /// first line of the frame — so it is where R12/R13's first character
+    /// lands.
+    beam_line: u16,
+    /// The 6845 finished a frame; the next line it starts is line 0 of the
+    /// next.
+    video_frame_ended: bool,
+    /// SAA5050 attribute state for the line being scanned.
+    teletext_line: TeletextLine,
     cpu_cycles: u64,
     /// 2 MHz master-clock ticks since construction. The CPU runs at
     /// 2 MHz (one tick per cycle) for RAM, ROM and fast I/O, but slows
@@ -557,7 +647,11 @@ impl BbcMicro {
             latch: AddressableLatch::new(),
             keyboard: [[false; 8]; 10],
             teletext_font: Vec::new(),
-            framebuffer: vec![0xFF00_0000; (FB_WIDTH * FB_HEIGHT) as usize],
+            framebuffer: blank_frame(),
+            back_buffer: blank_frame(),
+            beam_line: 0,
+            video_frame_ended: true,
+            teletext_line: TeletextLine::new(),
             cpu_cycles: 0,
             master_ticks: 0,
             frame_count: 0,
@@ -667,14 +761,15 @@ impl BbcMicro {
         CYCLES_PER_FRAME
     }
 
-    /// Close off the scanline the machine has just finished: paint it, drive
-    /// the CRTC's VSYNC into the System VIA, and step to the next.
+    /// Close off the scanline the machine has just finished: drive the CRTC's
+    /// VSYNC into the System VIA and step to the next.
     ///
     /// This used to live in `run_frame`'s loop, so none of it happened when
     /// the debugger stepped instructions. The VIAs and the CRTC tick per
     /// cycle, so timer interrupts were fine, but the VSYNC line into CA1 was
-    /// never driven and nothing was painted -- a stepped machine ran without
-    /// its 50 Hz interrupt and handed back a stale framebuffer (#1202).
+    /// never driven -- a stepped machine ran without its 50 Hz interrupt
+    /// (#1202). Painting is no longer done here at all: the display is drawn
+    /// a character at a time as the 6845 produces it (#163).
     ///
     /// The frame is a fixed 312 x 128 = 39,936 master ticks at 2 MHz. Each
     /// line is 128 ticks; the CPU fits a variable number of 6502 cycles into
@@ -682,9 +777,6 @@ impl BbcMicro {
     /// the boundaries to a frame base so a cycle that overruns one carries
     /// its extra tick into the next line rather than stretching the frame.
     fn finish_scanline(&mut self) {
-        if self.scanline < FB_HEIGHT as u16 {
-            self.render_scanline(self.scanline as usize);
-        }
         // System VIA CA1 is wired to the CRTC's VSYNC. Drive the level so the
         // VIA's edge detector latches the interrupt.
         self.system_via.set_ca1_level(!self.crtc.vsync);
@@ -715,8 +807,13 @@ impl BbcMicro {
         // The chips run off the constant 2 MHz clock, so they advance one
         // tick per master tick — one or two per 6502 cycle depending on
         // whether this access hit a 1 MHz peripheral.
-        for _ in 0..cost {
-            self.crtc.tick();
+        for tick in 0..cost {
+            // The 6845 runs at 2 MHz in MODE 0-3 and 1 MHz in MODE 4-7:
+            // Video ULA control bit 4 picks which (Advanced User Guide
+            // §19.1.4). Both give a 64 µs line and a 50 Hz frame.
+            if self.video_ula.fast_clock() || (self.master_ticks + tick) & 1 == 0 {
+                self.clock_video();
+            }
             self.system_via.tick();
             self.user_via.tick();
             self.psg.tick();
@@ -890,10 +987,89 @@ impl BbcMicro {
         }
     }
 
-    fn render_scanline(&mut self, line: usize) {
-        let offset = line * FB_WIDTH as usize;
+    /// One 6845 character clock: tick the CRTC and draw what it addressed.
+    ///
+    /// Everything about the picture comes from the chip's own outputs — the
+    /// memory address (MA), raster address (RA) and display enable — the same
+    /// signals the BBC's video circuitry is wired to. Nothing is re-derived
+    /// from the line number or from the mode, so R1, R6, R9, R12/R13 and the
+    /// rest take effect exactly when the 6845 acts on them (#163).
+    fn clock_video(&mut self) {
+        // Read the column first: it names the character this tick puts out.
+        let column = self.crtc.horizontal_counter();
+        let frame_ended = self.crtc.tick();
+        if column == 0 {
+            self.start_video_line();
+        }
+        self.draw_character(column);
+        if frame_ended {
+            self.video_frame_ended = true;
+        }
+    }
+
+    /// The 6845 has begun a scan line. Advance the beam, present the frame
+    /// just finished if this is the first line of the next, and clear the
+    /// line: anything the 6845 does not display is black, because the BBC has
+    /// no border colour.
+    fn start_video_line(&mut self) {
+        if self.video_frame_ended {
+            self.video_frame_ended = false;
+            self.beam_line = 0;
+            core::mem::swap(&mut self.framebuffer, &mut self.back_buffer);
+        } else {
+            self.beam_line = self.beam_line.saturating_add(1);
+        }
+        self.teletext_line = TeletextLine::new();
+        let line = usize::from(self.beam_line);
+        if line < FB_HEIGHT as usize {
+            let offset = line * FB_WIDTH as usize;
+            self.back_buffer[offset..offset + FB_WIDTH as usize].fill(BLANK);
+        }
+    }
+
+    /// Where the video circuitry fetches the byte for a 6845 address.
+    ///
+    /// - **MA13 set: teletext.** The SAA5050 reads one byte per character
+    ///   from a 1K window; MA0-9 address it and MA11 picks `$7C00` or, on the
+    ///   Model B only, `$3C00`. That is why the Advanced User Guide's MODE 7
+    ///   start address is the RAM address "minus &74, EOR &20" (§18.11.3): it
+    ///   sets MA13 and MA11. jsbeeb's `readVideoMem` decodes the same bits.
+    /// - **Otherwise: bitmap.** Each character is eight consecutive bytes, so
+    ///   the address is MA × 8 plus RA0-2. Past `$7FFF` the hardware-scroll
+    ///   wrap brings it back into the screen (§18.10; see
+    ///   [`AddressableLatch::screen_wrap_size`]) (#164).
+    fn video_address(&self, ma: u16, ra: u8) -> u16 {
+        if ma & 0x2000 != 0 {
+            let bank = if ma & 0x0800 != 0 { 0x7C00 } else { 0x3C00 };
+            bank | (ma & 0x03FF)
+        } else {
+            let address = ((ma & 0x1FFF) << 3) | u16::from(ra & 0x07);
+            if address & 0x8000 == 0 {
+                address
+            } else {
+                address.wrapping_sub(self.latch.screen_wrap_size()) & 0x7FFF
+            }
+        }
+    }
+
+    /// Draw the character the 6845 is addressing at `column` of the current
+    /// line, if it is displaying one.
+    fn draw_character(&mut self, column: u8) {
+        let line = usize::from(self.beam_line);
+        if line >= FB_HEIGHT as usize {
+            return;
+        }
+        let ma = self.crtc.memory_address();
+        let ra = self.crtc.raster_address();
+        let byte = self.ram[usize::from(self.video_address(ma, ra))];
         if self.video_ula.teletext() {
-            self.render_teletext_scanline(line, offset);
+            self.draw_teletext_character(line, usize::from(column), byte, ra);
+            return;
+        }
+        // Display enable is masked by RA3, so a cell taller than eight lines
+        // blanks the rest: the gaps between rows in the gapped text modes 3
+        // and 6. R8 bits 4-5 = `11` turns the display off outright (§18.6.2).
+        if !self.crtc.display_enable || ra & 0x08 != 0 || self.crtc.regs()[8] & 0x30 == 0x30 {
             return;
         }
         // The ULA has no bit-depth setting and no per-mode decode: it loads a
@@ -907,131 +1083,101 @@ impl BbcMicro {
         // Decoding per depth instead, with a bespoke bit layout for each, is
         // what made MODE 0 and MODE 3 come out black: every pixel resolved to
         // logical colour 0, which those modes leave as the background (#1195).
+        let char_pixels = if self.video_ula.fast_clock() {
+            FAST_CHAR_PIXELS
+        } else {
+            FAST_CHAR_PIXELS * 2
+        };
         let pixels_per_byte = self.video_ula.pixels_per_byte();
-        // Bytes per line is the 6845's horizontal-displayed (R1), not
-        // something the ULA knows. Guessing it from the ULA clock bit gave
-        // MODE 2 and MODE 5 the wrong width.
-        let chars_per_line = usize::from(self.crtc.regs()[1]).max(1);
-        let pixel_width = (FB_WIDTH as usize / (chars_per_line * pixels_per_byte)).max(1);
-        let crtc_start = self.crtc.start_address() as usize;
-        // Character cell height is the 6845's R9 (max scanline address), not
-        // a fixed eight: the gapped text modes 3 and 6 use ten-line cells, and
-        // counting rows in eights walked off the end of their screen memory.
-        let cell_height = usize::from(self.crtc.regs()[9]) + 1;
-        let ra = line % cell_height;
-        let char_row = line / cell_height;
-        // Display enable is masked by RA3, so a cell taller than eight lines
-        // blanks the rest instead of showing anything. That is where the gap
-        // between rows in the gapped text modes 3 and 6 comes from.
-        if ra & 0x08 != 0 {
-            let blank = self.video_ula.palette_to_argb(0);
-            self.framebuffer[offset..offset + FB_WIDTH as usize].fill(blank);
-            return;
-        }
-        for col in 0..chars_per_line {
-            let ma = crtc_start + char_row * chars_per_line + col;
-            // Only RA0-RA2 reach the address bus, so a cell taller than eight
-            // lines repeats its first rows rather than reading past itself.
-            let ram_addr = ((ma & 0x3FFF) << 3) | (ra & 0x07);
-            let byte = if ram_addr < 0x8000 {
-                self.ram[ram_addr]
-            } else {
-                0
-            };
-            let mut shiftreg = byte;
-            for px in 0..pixels_per_byte {
-                let colour_idx = ((shiftreg >> 4) & 0x08)
-                    | ((shiftreg >> 3) & 0x04)
-                    | ((shiftreg >> 2) & 0x02)
-                    | ((shiftreg >> 1) & 0x01);
-                shiftreg = (shiftreg << 1) | 1;
-                let argb = self.video_ula.palette_to_argb(colour_idx);
-                let fb_x = (col * pixels_per_byte + px) * pixel_width;
-                for w in 0..pixel_width {
-                    if fb_x + w < FB_WIDTH as usize {
-                        self.framebuffer[offset + fb_x + w] = argb;
-                    }
-                }
+        let pixel_width = char_pixels / pixels_per_byte;
+        let x0 = usize::from(column) * char_pixels;
+        let offset = line * FB_WIDTH as usize;
+        let mut shiftreg = byte;
+        for px in 0..pixels_per_byte {
+            let colour_idx = ((shiftreg >> 4) & 0x08)
+                | ((shiftreg >> 3) & 0x04)
+                | ((shiftreg >> 2) & 0x02)
+                | ((shiftreg >> 1) & 0x01);
+            shiftreg = (shiftreg << 1) | 1;
+            let argb = self.video_ula.palette_to_argb(colour_idx);
+            let x = x0 + px * pixel_width;
+            for fb_x in x..(x + pixel_width).min(FB_WIDTH as usize) {
+                self.back_buffer[offset + fb_x] = argb;
             }
         }
     }
 
-    /// Render one MODE 7 (teletext) scanline through a model of the SAA5050.
+    /// Feed one character to a model of the SAA5050 (MODE 7).
     ///
-    /// Each of the 40 columns is a 12×10 cell. Control codes (`$00-$1F`) act
+    /// Each column is a 12×10 cell. Control codes (`$00-$1F`) act
     /// "set-after" — they show as a space (or the held mosaic) and change the
     /// state used by the *following* cells. Displayable codes are either
     /// alphanumeric glyphs from the character ROM or 2×3 mosaic blocks while in
     /// graphics mode. Colours are the fixed 3-bit teletext set, not the Video
     /// ULA palette.
-    fn render_teletext_scanline(&mut self, line: usize, offset: usize) {
-        const COLS: usize = 40;
-        const CELL_W: usize = 12;
-        const CELL_H: usize = 10;
-        const X_BASE: usize = (FB_WIDTH as usize - COLS * CELL_W) / 2;
-
-        self.framebuffer[offset..offset + FB_WIDTH as usize].fill(teletext_colour(0));
-
-        let char_row = line / CELL_H;
-        let font_row = line % CELL_H;
-        if char_row >= 25 {
+    ///
+    /// The glyph row is the 6845's raster address. MODE 7 runs the chip in
+    /// interlace sync and video mode, where each field scans every other line
+    /// of a twenty-line row, so halving the address gives the ten-row glyph.
+    fn draw_teletext_character(&mut self, line: usize, column: usize, byte: u8, ra: u8) {
+        if !self.crtc.display_enable || self.crtc.regs()[8] & 0x30 == 0x30 {
             return;
         }
-        let row_base = 0x7C00usize + char_row * COLS;
-
-        // State resets at the start of each character row.
-        let mut fg: u8 = 7;
-        let mut bg: u8 = 0;
-        let mut graphics = false;
-        let mut separated = false;
-        let mut hold = false;
-        let mut held_pattern: u16 = 0;
-
-        for col in 0..COLS {
-            let code = self.peek((row_base + col) as u16);
-            let mut pattern: u16 = 0;
-
-            if code < 0x20 {
-                if hold && graphics {
-                    pattern = held_pattern;
-                }
-                match code {
-                    0x01..=0x07 => {
-                        graphics = false;
-                        fg = code;
-                    }
-                    0x11..=0x17 => {
-                        graphics = true;
-                        fg = code & 0x07;
-                    }
-                    0x19 => separated = false,
-                    0x1A => separated = true,
-                    0x1C => bg = 0,
-                    0x1D => bg = fg,
-                    0x1E => hold = true,
-                    0x1F => hold = false,
-                    _ => {}
-                }
-            } else if graphics && (code & 0x20) == 0 {
-                // $40-$5F stay alphanumeric even in graphics mode.
-                pattern = self.teletext_alpha(code, font_row);
-            } else if graphics {
-                pattern = mosaic_pattern(code, font_row, separated);
-                held_pattern = pattern;
-            } else {
-                pattern = self.teletext_alpha(code, font_row);
+        // Only D0-D6 reach the SAA5050, so `$81` is the control code `$01`.
+        // That is how the MOS's coloured text works; b-em masks the same way.
+        let code = byte & 0x7F;
+        let font_row = usize::from(if self.crtc.interlace_sync_and_video() {
+            ra >> 1
+        } else {
+            ra
+        });
+        let mut state = self.teletext_line;
+        let mut pattern: u16 = 0;
+        if code < 0x20 {
+            if state.hold && state.graphics {
+                pattern = state.held_pattern;
             }
-
-            let fg_argb = teletext_colour(fg);
-            let bg_argb = teletext_colour(bg);
-            let x0 = X_BASE + col * CELL_W;
-            for px in 0..CELL_W {
-                let on = (pattern >> (CELL_W - 1 - px)) & 1 != 0;
-                let fb_x = x0 + px;
-                if fb_x < FB_WIDTH as usize {
-                    self.framebuffer[offset + fb_x] = if on { fg_argb } else { bg_argb };
+            match code {
+                0x01..=0x07 => {
+                    state.graphics = false;
+                    state.fg = code;
                 }
+                0x11..=0x17 => {
+                    state.graphics = true;
+                    state.fg = code & 0x07;
+                }
+                0x19 => state.separated = false,
+                0x1A => state.separated = true,
+                0x1C => state.bg = 0,
+                0x1D => state.bg = state.fg,
+                0x1E => state.hold = true,
+                0x1F => state.hold = false,
+                _ => {}
             }
+        } else if font_row >= TELETEXT_CELL_HEIGHT {
+            // A row taller than the glyph (MODE 7 without interlace) has
+            // nothing below it.
+        } else if state.graphics && (code & 0x20) != 0 {
+            // $40-$5F stay alphanumeric even in graphics mode; the rest are
+            // mosaics.
+            pattern = mosaic_pattern(code, font_row, state.separated);
+            state.held_pattern = pattern;
+        } else {
+            pattern = self.teletext_alpha(code, font_row);
+        }
+        self.teletext_line = state;
+        let (fg, bg) = (state.fg, state.bg);
+        let fg_argb = teletext_colour(fg);
+        let bg_argb = teletext_colour(bg);
+        let x0 = TELETEXT_X_BASE + column * TELETEXT_CELL_WIDTH;
+        let offset = line * FB_WIDTH as usize;
+        for px in 0..TELETEXT_CELL_WIDTH {
+            let fb_x = x0 + px;
+            if fb_x >= FB_WIDTH as usize {
+                break;
+            }
+            let on = (pattern >> (TELETEXT_CELL_WIDTH - 1 - px)) & 1 != 0;
+            self.back_buffer[offset + fb_x] = if on { fg_argb } else { bg_argb };
         }
     }
 
@@ -1477,6 +1623,208 @@ mod tests {
         sys.mem_write(0xFE08, 0x20);
         assert!(sys.acia.irq(), "TX-interrupt mode + TDRE asserts IRQ");
         assert_eq!(sys.mem_read(0xFE08) & 0x80, 0x80, "and shows in the status");
+    }
+
+    /// Program the 6845 the way the MOS does for a mode (Advanced User Guide
+    /// §18 register tables) and the Video ULA's control register.
+    fn program_mode(sys: &mut BbcMicro, crtc: [u8; 14], ula_control: u8) {
+        for (reg, value) in crtc.into_iter().enumerate() {
+            sys.mem_write(0xFE00, reg as u8);
+            sys.mem_write(0xFE01, value);
+        }
+        sys.mem_write(0xFE20, ula_control);
+    }
+
+    const MODE0_CRTC: [u8; 14] = [
+        127, 80, 98, 0x28, 38, 0, 32, 34, 0x01, 7, 0x67, 8, 0x06, 0x00,
+    ];
+    const MODE4_CRTC: [u8; 14] = [
+        63, 40, 49, 0x24, 38, 0, 32, 34, 0x01, 7, 0x67, 8, 0x0B, 0x00,
+    ];
+    const MODE7_CRTC: [u8; 14] = [
+        63, 40, 51, 0x24, 30, 2, 25, 27, 0x93, 18, 0x72, 19, 0x28, 0x00,
+    ];
+
+    /// MODE 0's two-colour palette: logical 0-7 black, 8-15 white, the way
+    /// the MOS sets it so a shifted-in `1` cannot change the colour.
+    fn mode0_palette(sys: &mut BbcMicro) {
+        for logical in 0..16u8 {
+            let physical = if logical >= 8 { 7 } else { 0 };
+            sys.mem_write(0xFE21, (logical << 4) | (physical ^ 7));
+        }
+    }
+
+    /// Set addressable-latch output `bit` to `on` through System VIA port B.
+    fn set_latch(sys: &mut BbcMicro, bit: u8, on: bool) {
+        sys.mem_write(0xFE40, bit | if on { 0x08 } else { 0 });
+    }
+
+    const WHITE: u32 = 0xFFFF_FFFF;
+
+    fn pixel(sys: &BbcMicro, x: usize, y: usize) -> u32 {
+        sys.framebuffer()[y * FB_WIDTH as usize + x]
+    }
+
+    /// A screen scrolled so its first row sits at the top of RAM carries on
+    /// from `$3000`, not from ROM: the wrap circuit takes MODE 0's 20K off
+    /// any address past `$7FFF` (Advanced User Guide §18.10) (#164). Before,
+    /// the second row read past RAM and came out black.
+    #[test]
+    fn a_scrolled_screen_wraps_past_the_top_of_ram() {
+        let mut sys = BbcMicro::new(trap_rom());
+        let mut crtc = MODE0_CRTC;
+        // Start one row (640 bytes) below the top of RAM.
+        let start = (0x8000u16 - 640) / 8;
+        crtc[12] = (start >> 8) as u8;
+        crtc[13] = start as u8;
+        program_mode(&mut sys, crtc, 0x9C);
+        mode0_palette(&mut sys);
+        // MODE 0's wrap: B5 = 1, B4 = 0, as the MOS sets it.
+        set_latch(&mut sys, 5, true);
+        set_latch(&mut sys, 4, false);
+        for offset in 0..8 {
+            sys.ram[0x7D80 + offset] = 0xFF; // row 0, first character
+            sys.ram[0x3000 + offset] = 0xFF; // row 1 after the wrap
+        }
+        for _ in 0..3 {
+            sys.run_frame();
+        }
+        for y in 0..16 {
+            for x in 0..8 {
+                assert_eq!(pixel(&sys, x, y), WHITE, "lit cell at ({x}, {y})");
+            }
+            assert_eq!(pixel(&sys, 8, y), BLANK, "unlit neighbour at (8, {y})");
+        }
+    }
+
+    /// Each latch setting wraps by its mode's screen size. Decoded from the
+    /// bits the MOS writes; see `screen_wrap_size`.
+    #[test]
+    fn the_latch_selects_each_modes_screen_size() {
+        let mut sys = BbcMicro::new(trap_rom());
+        for (b5, b4, size, mode) in [
+            (true, false, 0x5000u16, "0-2"),
+            (false, false, 0x4000, "3"),
+            (true, true, 0x2800, "4-5"),
+            (false, true, 0x2000, "6"),
+        ] {
+            set_latch(&mut sys, 5, b5);
+            set_latch(&mut sys, 4, b4);
+            // MA $1000 is RAM address $8000: the first byte past the top.
+            assert_eq!(
+                sys.video_address(0x1000, 0),
+                0x8000 - size,
+                "MODE {mode} wraps to its own start"
+            );
+        }
+    }
+
+    /// The displayed rows come from the 6845's R6, not from the framebuffer's
+    /// height: a 16-row display blanks everything below it (#163).
+    #[test]
+    fn rows_past_r6_are_not_displayed() {
+        let mut sys = BbcMicro::new(trap_rom());
+        let mut crtc = MODE0_CRTC;
+        crtc[6] = 16;
+        program_mode(&mut sys, crtc, 0x9C);
+        mode0_palette(&mut sys);
+        sys.ram[0x3000..0x8000].fill(0xFF);
+        for _ in 0..3 {
+            sys.run_frame();
+        }
+        assert_eq!(pixel(&sys, 0, 127), WHITE, "row 15 is displayed");
+        assert_eq!(pixel(&sys, 0, 128), BLANK, "row 16 is past R6");
+        assert_eq!(pixel(&sys, 320, 255), BLANK);
+    }
+
+    /// The slow-clock modes run the 6845 at 1 MHz, so their 64-character
+    /// lines take the same 64 µs as MODE 0's 128 and the frame is still
+    /// 50 Hz. Clocked at 2 MHz they produced VSYNC at 100 Hz (#163).
+    #[test]
+    fn slow_clock_modes_still_sync_at_fifty_hertz() {
+        for (crtc, control, name) in [(MODE0_CRTC, 0x9C, "MODE 0"), (MODE4_CRTC, 0x88, "MODE 4")] {
+            let mut sys = BbcMicro::new(trap_rom());
+            program_mode(&mut sys, crtc, control);
+            sys.run_frame();
+            let mut edges = 0;
+            let mut was = sys.crtc().vsync;
+            let start = sys.master_ticks;
+            while sys.master_ticks - start < CYCLES_PER_FRAME * 10 {
+                sys.tick_cpu_cycle();
+                let now = sys.crtc().vsync;
+                edges += u32::from(now && !was);
+                was = now;
+            }
+            assert_eq!(edges, 10, "{name}: one VSYNC per 20 ms frame");
+        }
+    }
+
+    /// A glyph ROM whose `A` lights every pixel of every row and whose other
+    /// glyphs are empty.
+    fn font_with_a_lit() -> Vec<u8> {
+        let mut font = vec![0u8; 96 * 10];
+        let a = usize::from(b'A' - 0x20) * 10;
+        font[a..a + 10].fill(0x3F);
+        font
+    }
+
+    /// MODE 7 reads the characters the 6845 addresses. Its hardware scroll
+    /// moves the start address, so the first character on screen is wherever
+    /// R12/R13 point; it used to be read from `$7C00` regardless (#163).
+    #[test]
+    fn mode7_follows_the_start_address() {
+        let mut sys = BbcMicro::new(trap_rom());
+        sys.set_teletext_font(font_with_a_lit());
+        let mut crtc = MODE7_CRTC;
+        crtc[13] = 40; // scrolled up one row: the screen starts at $7C28
+        program_mode(&mut sys, crtc, 0x4B);
+        sys.ram[0x7C00..0x8000].fill(b' ');
+        sys.ram[0x7C28] = b'A';
+        for _ in 0..3 {
+            sys.run_frame();
+        }
+        let x = TELETEXT_X_BASE;
+        assert_eq!(pixel(&sys, x, 0), WHITE, "$7C28 is the top-left cell");
+        assert_eq!(pixel(&sys, x, 10), BLANK, "and not the second row's");
+    }
+
+    /// MODE 7's 1K screen wraps on its own: MA0-9 address it, so the row
+    /// after `$7FFF` is `$7C00` (Advanced User Guide §18.11.3).
+    #[test]
+    fn mode7_wraps_within_its_kilobyte() {
+        let mut sys = BbcMicro::new(trap_rom());
+        sys.set_teletext_font(font_with_a_lit());
+        let mut crtc = MODE7_CRTC;
+        // Start at $7FD8: forty bytes short of the top of RAM, one row.
+        crtc[12] = 0x2B;
+        crtc[13] = 0xD8;
+        program_mode(&mut sys, crtc, 0x4B);
+        sys.ram[0x7C00..0x8000].fill(b' ');
+        sys.ram[0x7C00] = b'A';
+        for _ in 0..3 {
+            sys.run_frame();
+        }
+        assert_eq!(pixel(&sys, TELETEXT_X_BASE, 10), WHITE, "row 1 is $7C00");
+    }
+
+    /// Only D0-D6 reach the SAA5050, so the MOS's `CHR$129` is the
+    /// red-alphanumerics control code and the text after it is red.
+    #[test]
+    fn teletext_control_codes_ignore_bit_7() {
+        let mut sys = BbcMicro::new(trap_rom());
+        sys.set_teletext_font(font_with_a_lit());
+        program_mode(&mut sys, MODE7_CRTC, 0x4B);
+        sys.ram[0x7C00..0x8000].fill(b' ');
+        sys.ram[0x7C00] = 0x81;
+        sys.ram[0x7C01] = b'A';
+        for _ in 0..3 {
+            sys.run_frame();
+        }
+        assert_eq!(
+            pixel(&sys, TELETEXT_X_BASE + TELETEXT_CELL_WIDTH, 0),
+            0xFFFF_0000,
+            "the A after CHR$129 is red"
+        );
     }
 
     // Kansas-City encoding for the cassette wiring tests.

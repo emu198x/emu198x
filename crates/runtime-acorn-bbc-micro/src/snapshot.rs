@@ -12,9 +12,11 @@ use serde::{Deserialize, Serialize};
 
 use crate::runtime::BbcMicroRuntime;
 
-// Bumped to 5: the 6845 now carries its interlace field (#163). postcard is
-// not self-describing, so a field added to the CRTC shifts every byte after
-// it.
+// Bumped to 5: the display is drawn a character at a time from the 6845, so
+// the machine carries the frame being scanned out, the beam's line and the
+// SAA5050's line state, and the 6845 its interlace field (#163, #164).
+// postcard is not self-describing, so added fields shift every byte after
+// them.
 const SNAPSHOT_VERSION: u16 = 5;
 
 /// Borrowing envelope used during encode — avoids cloning the live machine.
