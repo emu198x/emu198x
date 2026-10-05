@@ -12,9 +12,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::runtime::OricRuntime;
 
-// Bumped to 4: the machine now carries the cassette transport. postcard is
+// Bumped to 5: the machine now carries the ULA mode register. postcard is
 // not self-describing, so added fields shift every byte after them.
-const SNAPSHOT_VERSION: u16 = 4;
+const SNAPSHOT_VERSION: u16 = 5;
 
 /// Borrowing envelope used during encode — avoids cloning the live machine.
 #[derive(Serialize)]
