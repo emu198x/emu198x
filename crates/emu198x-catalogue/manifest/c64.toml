@@ -14,7 +14,12 @@ id = "c64"
 # FRAME_ROUTING_VERSION (mos-vic-ii). Mismatch fails loud with a
 # re-capture instruction. See
 # knowledge/decisions/c64-architecture-review.md Seam 4.
-audio_routing_version = 4
+# Version 5 is the #777 waveform-generator series (pulse comparator and
+# ring-mod polarity, grounded triangle LSB, TEST-bit noise drift, floating
+# DAC input). Re-captured with `catalogue capture`: the eight music entries'
+# audio hashes changed; every frame hash and the five silent entries' audio
+# hashes stayed the same.
+audio_routing_version = 5
 # Version 7 adds the PAL 6569 far-edge forced-badline C-data carry network.
 # Two output cells remain hidden, while only the first following G-access
 # suppresses VC/VMLI advancement. The version is advanced even when catalogue
@@ -130,7 +135,7 @@ frame_hash = "xxh64:e0ff7f47c0d722c0"
 # Captures the in-game SID music.
 from_frame = 60
 secs = 2.0
-hash = "xxh64:9fe3cacaa9ee4efc"
+hash = "xxh64:3fcfdcb3f3ff9d6c"
 
 [[entry]]
 id = "aztec-challenge"
@@ -173,7 +178,7 @@ frame_hash = "xxh64:e69c66d47c38fe97"
 [entry.audio]
 from_frame = 60
 secs = 2.0
-hash = "xxh64:62177f8ed59627d0"
+hash = "xxh64:8a093c055b618429"
 
 [[entry]]
 id = "bomb-jack"
@@ -207,7 +212,7 @@ frame_hash = "xxh64:59cbde0e3e4589d8"
 [entry.audio]
 from_frame = 60
 secs = 2.0
-hash = "xxh64:56d4c8d09408532f"
+hash = "xxh64:01ec4e1750239c8e"
 
 [[entry]]
 id = "thing-on-a-spring"
@@ -237,7 +242,7 @@ frame_hash = "xxh64:76d04c00d01ea0d0"
 # music plays here — this window is no longer silent.
 from_frame = 60
 secs = 2.0
-hash = "xxh64:71161668fc91de12"
+hash = "xxh64:c76d821a616c38c9"
 
 [[entry]]
 id = "wizball"
@@ -285,7 +290,7 @@ frame_hash = "xxh64:6e834fb4e51ec3d6"
 # audio assertion of any disk-loaded C64 entry.
 from_frame = 60
 secs = 2.0
-hash = "xxh64:37b46f77b3452a77"
+hash = "xxh64:4e21c0b9064fa5b6"
 
 [[entry]]
 id = "monty-on-the-run"
@@ -328,7 +333,7 @@ frame_hash = "xxh64:d3547aa2257908ef"
 # over the 2s window at the 2026-07-03 re-bless).
 from_frame = 60
 secs = 2.0
-hash = "xxh64:58fd2f915df63ee1"
+hash = "xxh64:d42ff15b957d292c"
 
 [[entry]]
 id = "prince-of-persia"
@@ -398,7 +403,7 @@ frame_hash = "xxh64:b562e1cd4a4a3a34"
 # music plays before the boot waypoint).
 from_frame = 60
 secs = 2.0
-hash = "xxh64:7422993a23696560"
+hash = "xxh64:9d890f5c0ed37ff8"
 
 [[entry]]
 id = "final-cartridge-iii"
@@ -572,4 +577,4 @@ frame_hash = "xxh64:d4fe806e709b5f00"
 # Samples the title screen, where Mark Cooksey's SID tune is playing.
 from_frame = 60
 secs = 2.0
-hash = "xxh64:36fa7201d0a1bd33"
+hash = "xxh64:6ffb0c2dcf97ec30"
