@@ -6,15 +6,17 @@ Format loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 not strictly. Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [0.26.1] - 2026-10-05
 
+### Added
+
+- `--no-audio` runs any desktop emulator without opening an audio device
 
 ### Fixed
 
-- Draw the GPU presenter's picture on a browser canvas
-- *(nes)* A gated triangle holds its current step instead of outputting 0
-- Load a chosen tape on a Spectrum that has already run
-- *(nes)* APU emits the advertised 48 kHz, not ~1.9% sharp
-- Run silent when the host has no audio output device
-- Close ffmpeg's stdin without drop() so wasm clippy passes
+- Desktop emulators no longer exit when the host has no audio output device; they warn once and run silent at full speed (#1576)
+- Choosing a tape on a Spectrum that has already run now restarts it and loads the tape, in the browser player and through MCP and scripts (#1569)
+- *(nes)* A gated triangle holds its current step instead of dropping to 0 (#1567)
+- *(nes)* Audio is emitted at a true 48 kHz; it ran about 1.9% sharp on NTSC and 1% on PAL (#1568)
+- The GPU presenter draws on a browser canvas, and falls back to WebGL2 when WebGPU has no adapter (#1436)
 
 ## [0.26.0] - 2026-10-05
 
