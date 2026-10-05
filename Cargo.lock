@@ -952,6 +952,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "91622ff5e7162018101f2fea40d6ebf4a78bbe5a49736a2020649edf9693679e"
 
 [[package]]
+name = "embed-resource"
+version = "3.0.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fbfdaacccebec3b28e4866b8973543c7647797db5ada1bdab552e48fe665fbbd"
+dependencies = [
+ "cc",
+ "memchr",
+ "rustc_version",
+ "toml",
+ "vswhom",
+ "winreg",
+]
+
+[[package]]
 name = "embedded-io"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -967,6 +981,7 @@ checksum = "edd0f118536f44f5ccd48bcb8b111bdc3de888b58c74639dfb034a357d0f206d"
 name = "emu198x-acorn-atom"
 version = "0.25.0"
 dependencies = [
+ "emu198x-app-icon",
  "emu198x-shell",
  "emu198x-ui",
  "machine-acorn-atom",
@@ -980,6 +995,7 @@ dependencies = [
 name = "emu198x-acorn-bbc-micro"
 version = "0.25.0"
 dependencies = [
+ "emu198x-app-icon",
  "emu198x-shell",
  "emu198x-ui",
  "machine-acorn-bbc-micro",
@@ -992,6 +1008,7 @@ dependencies = [
 name = "emu198x-acorn-electron"
 version = "0.25.0"
 dependencies = [
+ "emu198x-app-icon",
  "emu198x-shell",
  "emu198x-ui",
  "machine-acorn-electron",
@@ -1004,6 +1021,7 @@ dependencies = [
 name = "emu198x-amiga"
 version = "0.25.0"
 dependencies = [
+ "emu198x-app-icon",
  "emu198x-shell",
  "emu198x-test-skip",
  "emu198x-ui",
@@ -1021,6 +1039,7 @@ dependencies = [
 name = "emu198x-amstrad-cpc"
 version = "0.25.0"
 dependencies = [
+ "emu198x-app-icon",
  "emu198x-shell",
  "emu198x-ui",
  "machine-amstrad-cpc",
@@ -1029,10 +1048,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "emu198x-app-icon"
+version = "0.25.0"
+dependencies = [
+ "embed-resource",
+]
+
+[[package]]
 name = "emu198x-atari-2600"
 version = "0.25.0"
 dependencies = [
  "atari-tia",
+ "emu198x-app-icon",
  "emu198x-shell",
  "emu198x-ui",
  "machine-atari-2600",
@@ -1046,6 +1073,7 @@ name = "emu198x-atari-5200"
 version = "0.25.0"
 dependencies = [
  "atari-gtia",
+ "emu198x-app-icon",
  "emu198x-shell",
  "emu198x-ui",
  "machine-atari-5200",
@@ -1059,6 +1087,7 @@ name = "emu198x-atari-7800"
 version = "0.25.0"
 dependencies = [
  "atari-maria",
+ "emu198x-app-icon",
  "emu198x-shell",
  "emu198x-ui",
  "machine-atari-7800",
@@ -1072,6 +1101,7 @@ name = "emu198x-atari-800xl"
 version = "0.25.0"
 dependencies = [
  "atari-gtia",
+ "emu198x-app-icon",
  "emu198x-shell",
  "emu198x-test-skip",
  "emu198x-ui",
@@ -1086,6 +1116,7 @@ name = "emu198x-c64"
 version = "0.25.0"
 dependencies = [
  "common-commodore-c64",
+ "emu198x-app-icon",
  "emu198x-shell",
  "emu198x-ui",
  "mos-vic-ii",
@@ -1125,6 +1156,7 @@ dependencies = [
 name = "emu198x-colecovision"
 version = "0.25.0"
 dependencies = [
+ "emu198x-app-icon",
  "emu198x-shell",
  "emu198x-ui",
  "machine-coleco-colecovision",
@@ -1145,6 +1177,7 @@ dependencies = [
 name = "emu198x-commodore-pet"
 version = "0.25.0"
 dependencies = [
+ "emu198x-app-icon",
  "emu198x-shell",
  "emu198x-ui",
  "machine-commodore-pet",
@@ -1157,6 +1190,7 @@ dependencies = [
 name = "emu198x-commodore-vic-20"
 version = "0.25.0"
 dependencies = [
+ "emu198x-app-icon",
  "emu198x-shell",
  "emu198x-ui",
  "machine-commodore-vic-20",
@@ -1183,6 +1217,7 @@ dependencies = [
 name = "emu198x-dragon"
 version = "0.25.0"
 dependencies = [
+ "emu198x-app-icon",
  "emu198x-shell",
  "emu198x-test-skip",
  "emu198x-ui",
@@ -1253,6 +1288,7 @@ name = "emu198x-game-boy"
 version = "0.25.0"
 dependencies = [
  "common-nintendo-game-boy",
+ "emu198x-app-icon",
  "emu198x-shell",
  "emu198x-ui",
  "runtime-nintendo-game-boy",
@@ -1281,6 +1317,7 @@ dependencies = [
 name = "emu198x-jupiter-ace"
 version = "0.25.0"
 dependencies = [
+ "emu198x-app-icon",
  "emu198x-shell",
  "emu198x-ui",
  "machine-jupiter-ace",
@@ -1293,6 +1330,7 @@ dependencies = [
 name = "emu198x-mattel-aquarius"
 version = "0.25.0"
 dependencies = [
+ "emu198x-app-icon",
  "emu198x-shell",
  "emu198x-ui",
  "machine-mattel-aquarius",
@@ -1305,6 +1343,7 @@ dependencies = [
 name = "emu198x-memotech-mtx"
 version = "0.25.0"
 dependencies = [
+ "emu198x-app-icon",
  "emu198x-shell",
  "emu198x-ui",
  "machine-memotech-mtx",
@@ -1335,6 +1374,7 @@ dependencies = [
 name = "emu198x-msx"
 version = "0.25.0"
 dependencies = [
+ "emu198x-app-icon",
  "emu198x-shell",
  "emu198x-ui",
  "machine-msx",
@@ -1360,6 +1400,7 @@ dependencies = [
 name = "emu198x-nes"
 version = "0.25.0"
 dependencies = [
+ "emu198x-app-icon",
  "emu198x-shell",
  "emu198x-ui",
  "machine-nintendo-nes",
@@ -1383,6 +1424,7 @@ dependencies = [
 name = "emu198x-oric-atmos"
 version = "0.25.0"
 dependencies = [
+ "emu198x-app-icon",
  "emu198x-shell",
  "emu198x-ui",
  "machine-oric-atmos",
@@ -1403,6 +1445,7 @@ dependencies = [
 name = "emu198x-sega-game-gear"
 version = "0.25.0"
 dependencies = [
+ "emu198x-app-icon",
  "emu198x-shell",
  "emu198x-ui",
  "machine-sega-master-system",
@@ -1415,6 +1458,7 @@ dependencies = [
 name = "emu198x-sega-master-system"
 version = "0.25.0"
 dependencies = [
+ "emu198x-app-icon",
  "emu198x-shell",
  "emu198x-ui",
  "machine-sega-master-system",
@@ -1428,6 +1472,7 @@ dependencies = [
 name = "emu198x-sega-sg-1000"
 version = "0.25.0"
 dependencies = [
+ "emu198x-app-icon",
  "emu198x-shell",
  "emu198x-ui",
  "machine-sega-sg-1000",
@@ -1458,6 +1503,7 @@ dependencies = [
 name = "emu198x-sinclair-zx80"
 version = "0.25.0"
 dependencies = [
+ "emu198x-app-icon",
  "emu198x-shell",
  "emu198x-ui",
  "machine-sinclair-zx80",
@@ -1470,6 +1516,7 @@ dependencies = [
 name = "emu198x-sinclair-zx81"
 version = "0.25.0"
 dependencies = [
+ "emu198x-app-icon",
  "emu198x-shell",
  "emu198x-ui",
  "machine-sinclair-zx81",
@@ -1482,6 +1529,7 @@ dependencies = [
 name = "emu198x-sord-m5"
 version = "0.25.0"
 dependencies = [
+ "emu198x-app-icon",
  "emu198x-shell",
  "emu198x-ui",
  "emu198x-zilog-z80",
@@ -1496,6 +1544,7 @@ dependencies = [
 name = "emu198x-spectravideo-svi-328"
 version = "0.25.0"
 dependencies = [
+ "emu198x-app-icon",
  "emu198x-shell",
  "emu198x-ui",
  "machine-spectravideo-svi-328",
@@ -1510,6 +1559,7 @@ name = "emu198x-spectrum"
 version = "0.25.0"
 dependencies = [
  "common-sinclair-zx-spectrum",
+ "emu198x-app-icon",
  "emu198x-shell",
  "emu198x-test-skip",
  "emu198x-ui",
@@ -1547,6 +1597,7 @@ dependencies = [
 name = "emu198x-tatung-einstein"
 version = "0.25.0"
 dependencies = [
+ "emu198x-app-icon",
  "emu198x-shell",
  "emu198x-ui",
  "machine-tatung-einstein",
@@ -1567,6 +1618,10 @@ dependencies = [
  "emu198x-native-video",
  "emu198x-shell",
  "muda",
+ "objc2 0.6.4",
+ "objc2-app-kit 0.3.2",
+ "objc2-foundation 0.3.2",
+ "png",
  "rfd",
  "thiserror 2.0.20",
  "winit",
@@ -5240,6 +5295,26 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
+name = "vswhom"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "be979b7f07507105799e854203b470ff7c78a1639e330a58f183b5fea574608b"
+dependencies = [
+ "libc",
+ "vswhom-sys",
+]
+
+[[package]]
+name = "vswhom-sys"
+version = "0.1.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fb067e4cbd1ff067d1df46c9194b5de0e98efd2810bbc95c5d5e5f25a3231150"
+dependencies = [
+ "cc",
+ "libc",
+]
+
+[[package]]
 name = "walkdir"
 version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5962,6 +6037,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0592e1c9d151f854e6fd382574c3a0855250e1d9b2f99d9281c6e6391af352f1"
 dependencies = [
  "memchr",
+]
+
+[[package]]
+name = "winreg"
+version = "0.55.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cb5a765337c50e9ec252c2069be9bf91c7df47afb103b642ba3a53bf8101be97"
+dependencies = [
+ "cfg-if",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]

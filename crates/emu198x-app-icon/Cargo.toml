@@ -1,0 +1,14 @@
+[package]
+name = "emu198x-app-icon"
+description = "Emu198x application icon artwork, and the build-script helper that embeds it in each Windows emulator binary"
+version.workspace = true
+publish = false
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+embed-resource = { workspace = true }
+
+[lints]
+workspace = true
