@@ -2,10 +2,15 @@
 //!
 //! Scorpion ships 4 × 16 KiB ROMs:
 //!
-//! - `scorpion-rom-0` — ZSU service / monitor
-//! - `scorpion-rom-1` — TR-DOS
-//! - `scorpion-rom-2` — 128 BASIC editor
-//! - `scorpion-rom-3` — 48 BASIC sub-ROM
+//! - `scorpion-rom-0` — the 128 menu and editor ("1992-94 Scorpion ZS 256")
+//! - `scorpion-rom-1` — 48 BASIC (the Sinclair ROM)
+//! - `scorpion-rom-2` — the service monitor
+//! - `scorpion-rom-3` — TR-DOS 5.03, paged in as the Beta Disk overlay
+//!
+//! The four files are the four 16 KiB blocks of the Scorpion ZS-256 TURBO+
+//! v2.95 64 KiB image catalogued by TOSEC (CRC32 0eb40a09, 9d513013,
+//! e484eca5, d734e841). ROMs 0 and 1 are the same in v2.92, MAME's
+//! `scorpio` set; its ROMs 2 and 3 are v2.92's and differ from these.
 
 use common_sinclair_zx_spectrum::error::RomImageError;
 use emu198x_shell::{FirmwareSet, MachineError};
