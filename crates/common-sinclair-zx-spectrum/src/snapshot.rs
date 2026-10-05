@@ -59,7 +59,14 @@ pub trait Paged128kMemory: MemoryBus {
 /// Handles every register the snapshot format stores: AF/BC/DE/HL and
 /// their primes, IX/IY, SP, PC, I, R, IM, IFF1, IFF2. Does not touch
 /// memory or peripherals.
+///
+/// The snapshot describes a CPU between instructions, so the live CPU is
+/// first parked at an instruction boundary and taken out of HALT: an
+/// instruction in flight must not finish with the loaded registers
+/// (#1564). FUSE gets the same effect by resetting the machine before
+/// every snapshot load (`snapshot_copy_from` in `fuse/snapshot.c`).
 pub fn apply_z80_registers(z80: &mut Z80, snap: &Snapshot) {
+    z80.restart_at_instruction_boundary();
     z80.regs.af = snap.af;
     z80.regs.bc = snap.bc;
     z80.regs.de = snap.de;
@@ -352,6 +359,109 @@ mod tests {
         assert_eq!(z80.regs.im, 2);
         assert!(z80.regs.iff1);
         assert!(!z80.regs.iff2);
+    }
+
+    /// One half-cycle of a bare Z80 on a flat 64K RAM, the same
+    /// tick-then-service order the Spectrum cores use.
+    fn tick_on_ram(z80: &mut Z80, ram: &mut [u8; 0x10000]) {
+        z80.tick();
+        match z80.bus_request() {
+            Some(emu198x_zilog_z80::BusOp::MemRead) => z80.data_in = ram[z80.addr as usize],
+            Some(emu198x_zilog_z80::BusOp::MemWrite) => ram[z80.addr as usize] = z80.data,
+            Some(_) => z80.data_in = 0xFF,
+            None => {}
+        }
+    }
+
+    /// Address of the next opcode fetch the CPU makes.
+    fn next_fetch_address(z80: &mut Z80, ram: &mut [u8; 0x10000]) -> u16 {
+        for _ in 0..1_000 {
+            tick_on_ram(z80, ram);
+            if z80.m1 && z80.mreq {
+                return z80.addr;
+            }
+        }
+        panic!("no opcode fetch within 1000 half-cycles");
+    }
+
+    /// The state a `.sna` in the issue restores: PC already popped from
+    /// the stack, SP left at `$FFFE`, whose word is `$0000`.
+    fn sna_like_snapshot() -> Snapshot {
+        Snapshot {
+            sp: 0xFFFE,
+            pc: 0x8000,
+            im: 1,
+            iff1: false,
+            iff2: false,
+            ..populated_snapshot()
+        }
+    }
+
+    /// RAM for #1564: the snapshot's program at `$8000` is `JR $`, and
+    /// the program the machine was running before the load sits at
+    /// `$9000`: `CALL $9005 / JR $9000 / RET`.
+    fn issue_1564_ram() -> Box<[u8; 0x10000]> {
+        let mut ram = Box::new([0u8; 0x10000]);
+        ram[0x8000..0x8002].copy_from_slice(&[0x18, 0xFE]); // JR $
+        ram[0x9000..0x9006].copy_from_slice(&[0xCD, 0x05, 0x90, 0x18, 0xFB, 0xC9]);
+        ram
+    }
+
+    /// Regression for #1564: loading a snapshot while the CPU is part
+    /// way through an instruction must not finish that instruction with
+    /// the snapshot's registers. A `RET` in flight popped the word at the
+    /// restored SP (`$0000`) and the machine ran the ROM from `$0000`.
+    #[test]
+    fn apply_z80_registers_mid_instruction_runs_from_the_snapshot_pc() {
+        let mut ram = issue_1564_ram();
+        let mut z80 = Z80::new();
+        z80.regs.pc = 0x9000;
+        z80.regs.sp = 0xA000;
+
+        // Stop inside the RET at $9005: its opcode is decoded and its
+        // stack reads are still to come.
+        let mut stopped_mid_ret = false;
+        for _ in 0..10_000 {
+            tick_on_ram(&mut z80, &mut ram);
+            if z80.walker.opcode == 0xC9
+                && z80.walker.prefix == emu198x_zilog_z80::walker::Prefix::None
+                && !z80.instruction_complete()
+                && !z80.at_execution_boundary()
+                && z80.regs.pc == 0x9006
+            {
+                stopped_mid_ret = true;
+                break;
+            }
+        }
+        assert!(stopped_mid_ret, "the old program reached the middle of RET");
+
+        apply_z80_registers(&mut z80, &sna_like_snapshot());
+
+        assert_eq!(z80.regs.pc, 0x8000);
+        assert_eq!(next_fetch_address(&mut z80, &mut ram), 0x8000);
+        assert_eq!(z80.regs.sp, 0xFFFE, "nothing popped the restored stack");
+    }
+
+    /// The halted half of #1564: a CPU halted before the load must run
+    /// the snapshot's program, not keep executing HALT's phantom NOPs.
+    #[test]
+    fn apply_z80_registers_while_halted_runs_from_the_snapshot_pc() {
+        let mut ram = issue_1564_ram();
+        ram[0x9100] = 0x76; // HALT, interrupts disabled: halted for good
+        let mut z80 = Z80::new();
+        z80.regs.pc = 0x9100;
+        z80.regs.sp = 0xA000;
+        for _ in 0..200 {
+            tick_on_ram(&mut z80, &mut ram);
+        }
+        assert!(z80.halt, "the old program is halted");
+
+        apply_z80_registers(&mut z80, &sna_like_snapshot());
+
+        assert!(!z80.halt, "a snapshot load leaves the CPU running");
+        assert_eq!(next_fetch_address(&mut z80, &mut ram), 0x8000);
+        assert_eq!(next_fetch_address(&mut z80, &mut ram), 0x8000);
+        assert_eq!(z80.regs.sp, 0xFFFE);
     }
 
     #[test]
