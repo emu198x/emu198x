@@ -43,7 +43,8 @@ pub trait UiApp: MachineApp {
 }
 
 /// Build the runtime and open the window. `scale` and `video` are the
-/// `--scale` / `--video` flags as parsed by the shell, still optional.
+/// `--scale` / `--video` flags as parsed by the shell, still optional;
+/// `audio` is `false` under `--no-audio`.
 ///
 /// # Errors
 ///
@@ -53,6 +54,7 @@ pub fn run_windowed<A: UiApp>(
     app: A,
     scale: Option<u32>,
     video: Option<String>,
+    audio: bool,
 ) -> Result<(), LaunchError> {
     let system = app.ui_system();
     let scale = scale.unwrap_or_else(|| system.default_scale());
@@ -64,7 +66,8 @@ pub fn run_windowed<A: UiApp>(
     };
     let runtime = app.build_ui_runtime()?;
     println!("Controls:\n{}", A::CONTROLS);
-    crate::run(system, runtime, scale, video).map_err(|err| LaunchError::Run(err.to_string()))
+    crate::run(system, runtime, scale, video, audio)
+        .map_err(|err| LaunchError::Run(err.to_string()))
 }
 
 /// `main` for a machine binary built with its `ui` feature: every mode,
@@ -73,7 +76,12 @@ pub fn main<A: UiApp>() -> ! {
     let args: Vec<String> = env::args().skip(1).collect();
     let result = match launch::run_headless::<A>(args) {
         Ok(Outcome::Done) => Ok(()),
-        Ok(Outcome::WantsUi { app, scale, video }) => run_windowed(app, scale, video),
+        Ok(Outcome::WantsUi {
+            app,
+            scale,
+            video,
+            audio,
+        }) => run_windowed(app, scale, video, audio),
         Err(err) => Err(err),
     };
     match result {

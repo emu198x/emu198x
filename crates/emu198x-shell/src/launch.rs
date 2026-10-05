@@ -230,6 +230,9 @@ pub struct CommonCli {
     pub scale: Option<u32>,
     /// `--video MODE`, unparsed: the filter type lives in the UI crate.
     pub video: Option<String>,
+    /// `--no-audio`: the window never opens the host audio device. Only the
+    /// window plays sound, so script and MCP modes accept and ignore it.
+    pub no_audio: bool,
     /// `--frames N` — frames to run headlessly after any script.
     pub frames: u32,
     /// `--screenshot PATH`.
@@ -433,6 +436,7 @@ Options:
 {machine}
     --scale N       integer window scale
     --video MODE    raw | lcd | crt [default: raw]
+    --no-audio      run the window without sound output
     --help, -h      show this help
 
 Automation:
@@ -484,6 +488,7 @@ pub fn parse<A: MachineApp>(args: &[String]) -> Result<Parsed<A>, LaunchError> {
             "--help" | "-h" => return Ok(Parsed::Help),
             "--scale" => common.scale = Some(cursor.parse("--scale", "a positive integer")?),
             "--video" => common.video = Some(cursor.value("--video")?),
+            "--no-audio" => common.no_audio = true,
             "--frames" => common.frames = cursor.parse("--frames", "a non-negative integer")?,
             "--screenshot" => common.screenshot = Some(cursor.path("--screenshot")?),
             "--audio-capture" => common.audio_capture = Some(cursor.path("--audio-capture")?),
@@ -610,6 +615,8 @@ pub enum Outcome<A> {
         scale: Option<u32>,
         /// `--video`, if given, still unparsed.
         video: Option<String>,
+        /// `false` when `--no-audio` was given.
+        audio: bool,
     },
 }
 
@@ -631,6 +638,7 @@ pub fn run_headless<A: MachineApp>(args: Vec<String>) -> Result<Outcome<A>, Laun
             app,
             scale: common.scale,
             video: common.video,
+            audio: !common.no_audio,
         }),
         Mode::Script => {
             app.run_script(&common, &args)?;

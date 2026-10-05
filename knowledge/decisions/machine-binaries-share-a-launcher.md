@@ -73,8 +73,13 @@ set is unchanged. Two things are now uniform where they varied:
 - Usage errors (unknown flag, bad value, capture with nothing to run) exit
   2 with a pointer at `--help`; runtime failures exit 1. Some binaries used
   1 for both and printed the whole usage text on every error.
-- `--scale` and `--video` are accepted in every mode rather than rejected
-  as unknown by the script parser. They only matter to the window.
+- `--scale`, `--video` and `--no-audio` are accepted in every mode rather
+  than rejected as unknown by the script parser. They only matter to the
+  window. `--no-audio` keeps the window from opening the host audio
+  device; without it, a device that fails to open is a warning and the
+  window runs silent (#1576). Pacing runs on the wall clock, so silence
+  does not change the machine's speed, and audio capture never uses the
+  device.
 
 ## What the port measured
 
@@ -125,5 +130,6 @@ Stop and re-read this record if you find yourself:
   bespoke body called from `run_script` / `run_mcp`;
 - writing `fn next_arg`, `fn die`, or `fn default_rom_path` in a binary;
 - parsing `--frames`, `--screenshot`, `--audio-capture`, `--script`,
-  `--scale`, or `--video` anywhere but `emu198x-shell/src/launch.rs`;
+  `--scale`, `--video`, or `--no-audio` anywhere but
+  `emu198x-shell/src/launch.rs`;
 - giving a new machine a `main.rs` longer than the dispatch above.

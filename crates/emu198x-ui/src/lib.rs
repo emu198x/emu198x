@@ -14,6 +14,7 @@
 //! variant switching (a live-runtime trait) and multi-slot save-states.
 
 mod export;
+mod host_audio;
 mod icon;
 mod keyboard;
 pub mod launch;
@@ -27,14 +28,15 @@ use std::sync::Arc;
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::time::{Duration, Instant};
 
+use host_audio::HostAudio;
 use menu::{AppCommand, AppMenu};
 
 use emu198x_native_video::{PresentationProfile, VideoPresenterError, WgpuVideoPresenter};
 use emu198x_shell::{
     CapturedFrame, ControlCommand, HostIo, InputEvent, LatestFrameCapture, MachineCore,
     MachineError, MachineTime, MediaImage, MediaKind, MediaSet, MediaTransportAction,
-    MediaTransportCommand, NativeAudioError, NativeAudioOutput, NativeGamepadInput, NullTraceSink,
-    PixelFormat, ResetKind, RunResult, read_media_asset,
+    MediaTransportCommand, NativeAudioOutput, NativeGamepadInput, NullTraceSink, PixelFormat,
+    ResetKind, RunResult, read_media_asset,
 };
 use thiserror::Error;
 use winit::application::ApplicationHandler;
@@ -420,8 +422,6 @@ pub enum UiError {
     EventLoop(#[from] EventLoopError),
     #[error(transparent)]
     Os(#[from] OsError),
-    #[error(transparent)]
-    Audio(#[from] NativeAudioError),
     #[error("invalid --scale value {value}")]
     InvalidScale { value: u32 },
     #[error("teardown failed: {0}")]
@@ -433,18 +433,20 @@ pub enum UiError {
 struct Runner<R: MachineCore> {
     runtime: R,
     frame_capture: LatestFrameCapture,
-    audio_output: NativeAudioOutput,
+    audio_output: HostAudio,
     last_run_result: Option<RunResult>,
 }
 
 impl<R: MachineCore> Runner<R> {
-    fn new(runtime: R) -> Result<Self, UiError> {
-        Ok(Self {
+    /// A runner playing through the host output device when `audio` is set
+    /// and the device opens; silent otherwise (see [`HostAudio::open`]).
+    fn new(runtime: R, audio: bool) -> Self {
+        Self {
             runtime,
             frame_capture: LatestFrameCapture::default(),
-            audio_output: NativeAudioOutput::new(MAX_AUDIO_BUFFER_MS)?,
+            audio_output: HostAudio::open(audio, || NativeAudioOutput::new(MAX_AUDIO_BUFFER_MS)),
             last_run_result: None,
-        })
+        }
     }
 
     fn run_ticks(&mut self, input_events: &[InputEvent], ticks: u64) -> Result<bool, UiError> {
@@ -1823,15 +1825,20 @@ fn state_root() -> Option<PathBuf> {
 /// The runtime should already be initialised (media loaded); the harness runs
 /// one frame up front so the first redraw has a picture.
 ///
+/// Sound plays through the host's default output device when `audio` is
+/// set. If that device cannot be opened the window warns once and runs
+/// silent; it never fails to start for want of sound.
+///
 /// # Errors
 ///
-/// Returns [`UiError`] for an invalid scale, audio/video init failure, a
-/// machine error, or an event-loop error.
+/// Returns [`UiError`] for an invalid scale, video init failure, a machine
+/// error, or an event-loop error.
 pub fn run<S: UiSystem>(
     system: S,
     runtime: S::Runtime,
     scale: u32,
     video: VideoFilter,
+    audio: bool,
 ) -> Result<(), UiError> {
     if scale == 0 {
         return Err(UiError::InvalidScale { value: scale });
@@ -1839,7 +1846,7 @@ pub fn run<S: UiSystem>(
     // Harness-global controls every system shares, printed once so each runner's
     // own per-machine controls line doesn't have to repeat them.
     println!("Save-state: Cmd/Ctrl+S quick-save, Cmd/Ctrl+L quick-load (one slot per machine).");
-    let mut runner = Runner::new(runtime)?;
+    let mut runner = Runner::new(runtime, audio);
     let frame_ticks = system.frame_ticks(&runner.runtime);
     runner.run_ticks(&[], frame_ticks)?;
 
