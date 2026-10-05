@@ -1390,8 +1390,12 @@ version = "0.26.0"
 dependencies = [
  "bytemuck",
  "emu198x-shell",
+ "js-sys",
  "pollster 1.0.1",
  "thiserror 2.0.20",
+ "wasm-bindgen",
+ "wasm-bindgen-test",
+ "web-sys",
  "wgpu",
  "winit",
 ]
