@@ -12,6 +12,8 @@ emu198x-shell = { path = "../emu198x-shell", version = "0.25.0" }
 emu198x-native-video = { path = "../emu198x-native-video", version = "0.25.0" }
 winit = { workspace = true }
 thiserror.workspace = true
+# Decodes the embedded application icon (src/icon.rs).
+png = { workspace = true }
 # Native file dialogs for the File → Open menu. Builds cross-platform (its Linux
 # backend is xdg-desktop-portal, no GTK), so unlike muda it isn't target-gated.
 rfd = { workspace = true }
@@ -22,6 +24,22 @@ rfd = { workspace = true }
 # `menu.rs`; the keyboard shortcuts cover every command regardless.
 [target.'cfg(not(target_os = "linux"))'.dependencies]
 muda = { workspace = true }
+
+# The Dock icon (src/icon.rs): winit ignores window icons on macOS.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = { workspace = true }
+objc2-app-kit = { workspace = true, features = [
+    "std",
+    "NSApplication",
+    "NSCell",
+    "NSControl",
+    "NSDockTile",
+    "NSImage",
+    "NSImageView",
+    "NSResponder",
+    "NSView",
+] }
+objc2-foundation = { workspace = true, features = ["std", "NSData", "NSGeometry"] }
 
 [lints]
 workspace = true

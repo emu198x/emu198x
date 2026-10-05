@@ -25,6 +25,10 @@ runtime-nintendo-nes = { path = "../runtime-nintendo-nes", version = "0.25.0" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 
+# Embeds the application icon in the Windows .exe (no-op elsewhere).
+[build-dependencies]
+emu198x-app-icon = { path = "../emu198x-app-icon", version = "0.25.0" }
+
 [lints]
 workspace = true
 

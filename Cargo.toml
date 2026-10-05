@@ -21,6 +21,7 @@ members = [
     "crates/common-sinclair-zx-spectrum-amstrad-class",
     "crates/emu198x-c64",
     "crates/emu198x-amiga",
+    "crates/emu198x-app-icon",
     "crates/emu198x-catalogue",
     "crates/emu198x-dragon",
     "crates/emu198x-game-boy",
@@ -264,6 +265,14 @@ gilrs = "0.11"
 # backend if muda upstream ships one. See
 # `knowledge/decisions/native-menu-shell.md`.
 muda = { version = "=0.19.3", default-features = false }
+# macOS-only AppKit bindings for the Dock icon (emu198x-ui/src/icon.rs). The
+# 0.6/0.3 line is the one muda and rfd already pull in; winit 0.30 is on the
+# older 0.5/0.2 line, so matching winit would mean the unsafe-only 0.2 API.
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", default-features = false }
+objc2-foundation = { version = "0.3", default-features = false }
+# Windows .exe icon resource, compiled by emu198x-app-icon's build helper.
+embed-resource = "3.0"
 pollster = "1.0"
 png = "0.18"
 rfd = "0.17"
@@ -328,6 +337,10 @@ pr-run-mode = "plan"
 # at ~3.0 MB. Windows stays on zip. The site's download matrix resolves the
 # archive name from the release manifest, so older xz releases keep working.
 unix-archive = ".tar.gz"
+# The application icon beside each binary, so a Linux .desktop entry has an
+# Icon= to point at. Small (6 KB) and harmless in the macOS and Windows
+# archives, so it is not split per target.
+include = ["crates/emu198x-app-icon/emu198x.png"]
 # Announce each release in Discord. A custom job rather than an `on: release`
 # workflow: the release is cut by `gh release create` with GITHUB_TOKEN, and a
 # release created with that token fires no `release: published` event for

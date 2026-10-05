@@ -14,6 +14,7 @@
 //! variant switching (a live-runtime trait) and multi-slot save-states.
 
 mod export;
+mod icon;
 mod keyboard;
 pub mod launch;
 mod menu;
@@ -635,11 +636,14 @@ impl<S: UiSystem> App<S> {
         self.presentation.pixel_aspect_ratio = self.current_pixel_aspect_ratio();
         let par = f64::from(self.presentation.pixel_aspect_ratio).max(f64::MIN_POSITIVE);
         let display_width = f64::from(fb_width) * par;
-        let attributes = WindowAttributes::default()
-            .with_title(self.window_title())
-            .with_inner_size(self.window_logical_size(self.scale))
-            .with_min_inner_size(LogicalSize::new(display_width, f64::from(fb_height)));
+        let attributes = icon::with_icon(
+            WindowAttributes::default()
+                .with_title(self.window_title())
+                .with_inner_size(self.window_logical_size(self.scale))
+                .with_min_inner_size(LogicalSize::new(display_width, f64::from(fb_height))),
+        );
         let window = Arc::new(event_loop.create_window(attributes)?);
+        icon::show_in_dock();
         let video = WgpuVideoPresenter::new(window.clone(), fb_width, fb_height)?;
         self.window = Some(window);
         self.video = Some(video);

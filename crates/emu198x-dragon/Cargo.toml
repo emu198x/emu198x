@@ -35,6 +35,10 @@ zip = { workspace = true }
 [dev-dependencies]
 emu198x-test-skip = { path = "../emu198x-test-skip", version = "0.25.0" }
 
+# Embeds the application icon in the Windows .exe (no-op elsewhere).
+[build-dependencies]
+emu198x-app-icon = { path = "../emu198x-app-icon", version = "0.25.0" }
+
 [lints]
 workspace = true
 
