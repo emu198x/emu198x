@@ -341,6 +341,17 @@ post-announce-jobs = ["./notify-discord"]
 # so without this its `plan` check fails on every PR ("release.yml out of date").
 # `allow-dirty = ["ci"]` tells dist to accept the externally-maintained CI file.
 allow-dirty = ["ci"]
+# Sign each macOS binary with the Developer ID certificate before dist archives
+# it. dist signs only when CODESIGN_IDENTITY, CODESIGN_CERTIFICATE and
+# CODESIGN_CERTIFICATE_PASSWORD are set; release.yml exports them (plus
+# CODESIGN_OPTIONS=runtime for the hardened runtime) only when every signing
+# and notarisation secret exists, so without the secrets the build is unsigned
+# exactly as before. Notarisation is a hand-written step in release.yml: dist
+# 0.32 signs but does not notarise. dist's template would instead set the
+# CODESIGN_* variables job-wide from the secrets, which sets them to empty
+# strings when a secret is missing and fails the build; keep the hand-written
+# gate if release.yml is ever regenerated. See .github/macos-signing.md.
+macos-sign = true
 
 # Linux build deps. cpal needs ALSA dev headers; gilrs needs libudev.
 # macOS and Windows pull native equivalents from the OS — no extra

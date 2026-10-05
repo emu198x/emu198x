@@ -147,6 +147,62 @@ jobs:
       - name: Install dependencies
         run: |
           ${{ matrix.packages_install }}
+      # Added by hand (allow-dirty = ["ci"]). macOS signing and notarisation
+      # switch on together, and only when all six secrets exist; with none of
+      # them the build is unsigned exactly as before, and a partial set fails
+      # rather than shipping something half-done. dist signs each binary
+      # before archiving it when the CODESIGN_* variables are set, so they are
+      # exported here only on that path: dist treats an empty variable as set
+      # and would try to sign with it. Secrets and setup:
+      # .github/macos-signing.md.
+      - name: Configure macOS signing
+        id: macos-signing
+        if: ${{ runner.os == 'macOS' }}
+        shell: bash
+        env:
+          CODESIGN_CERTIFICATE: ${{ secrets.CODESIGN_CERTIFICATE }}
+          CODESIGN_CERTIFICATE_PASSWORD: ${{ secrets.CODESIGN_CERTIFICATE_PASSWORD }}
+          CODESIGN_IDENTITY: ${{ secrets.CODESIGN_IDENTITY }}
+          NOTARYTOOL_KEY: ${{ secrets.NOTARYTOOL_KEY }}
+          NOTARYTOOL_KEY_ID: ${{ secrets.NOTARYTOOL_KEY_ID }}
+          NOTARYTOOL_ISSUER: ${{ secrets.NOTARYTOOL_ISSUER }}
+        run: |
+          set -euo pipefail
+
+          names=(CODESIGN_CERTIFICATE CODESIGN_CERTIFICATE_PASSWORD CODESIGN_IDENTITY NOTARYTOOL_KEY NOTARYTOOL_KEY_ID NOTARYTOOL_ISSUER)
+          missing=()
+          for name in "${names[@]}"; do
+            if [ -z "${!name:-}" ]; then
+              missing+=("$name")
+            fi
+          done
+
+          if [ ${#missing[@]} -eq ${#names[@]} ]; then
+            echo "::notice::macOS signing secrets not set; building unsigned binaries. See .github/macos-signing.md."
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ ${#missing[@]} -gt 0 ]; then
+            echo "::error::macOS signing is partly configured; missing secrets: ${missing[*]}. See .github/macos-signing.md."
+            exit 1
+          fi
+
+          # dist decodes the certificate as unwrapped base64; tolerate a value
+          # pasted with line breaks.
+          certificate=$(printf '%s' "$CODESIGN_CERTIFICATE" | tr -d '[:space:]')
+          delimiter="EOF_$(uuidgen)"
+          {
+            echo "CODESIGN_IDENTITY<<$delimiter"
+            printf '%s\n' "$CODESIGN_IDENTITY"
+            echo "$delimiter"
+            echo "CODESIGN_CERTIFICATE_PASSWORD<<$delimiter"
+            printf '%s\n' "$CODESIGN_CERTIFICATE_PASSWORD"
+            echo "$delimiter"
+            echo "CODESIGN_CERTIFICATE=$certificate"
+            # Hardened runtime, which notarisation requires.
+            echo "CODESIGN_OPTIONS=runtime"
+          } >> "$GITHUB_ENV"
+          echo "enabled=true" >> "$GITHUB_OUTPUT"
       - name: Build artifacts
         run: |
           # Actually do builds and make zips and whatnot
@@ -165,6 +221,125 @@ jobs:
           echo "EOF" >> "$GITHUB_OUTPUT"
 
           cp dist-manifest.json "$BUILD_MANIFEST_NAME"
+      # Added by hand (allow-dirty = ["ci"]); dist 0.32 signs but does not
+      # notarise. Checks every binary in this target's archives carries a
+      # Developer ID signature with the hardened runtime and a secure
+      # timestamp, then submits them to Apple in one zip and fails the release
+      # unless Apple accepts it. The archives are not changed: a bare
+      # executable cannot be stapled, so Gatekeeper finds the notarisation
+      # ticket online on first launch.
+      - name: Notarise macOS binaries
+        if: ${{ steps.macos-signing.outputs.enabled == 'true' }}
+        shell: bash
+        env:
+          NOTARYTOOL_KEY: ${{ secrets.NOTARYTOOL_KEY }}
+          NOTARYTOOL_KEY_ID: ${{ secrets.NOTARYTOOL_KEY_ID }}
+          NOTARYTOOL_ISSUER: ${{ secrets.NOTARYTOOL_ISSUER }}
+        run: |
+          set -euo pipefail
+
+          work="$RUNNER_TEMP/notarise"
+          rm -rf "$work"
+          mkdir -p "$work/extract" "$work/binaries"
+          key="$work/AuthKey.p8"
+          trap 'rm -f "$key"' EXIT
+          (umask 077 && printf '%s\n' "$NOTARYTOOL_KEY" > "$key")
+
+          archives=()
+          while IFS= read -r path; do
+            case "$path" in
+              *.tar.gz) archives+=("$path") ;;
+            esac
+          done < <(dist print-upload-files-from-manifest --manifest dist-manifest.json)
+          if [ ${#archives[@]} -eq 0 ]; then
+            echo "::error::no .tar.gz archives listed in dist-manifest.json"
+            exit 1
+          fi
+          for archive in "${archives[@]}"; do
+            tar -xzf "$archive" -C "$work/extract"
+          done
+
+          count=0
+          failed=0
+          while IFS= read -r -d '' binary; do
+            if [[ "$(file -b "$binary")" != *Mach-O* ]]; then
+              continue
+            fi
+            name=$(basename "$binary")
+            if ! codesign --verify --strict --verbose=2 "$binary"; then
+              echo "::error::$name: signature does not verify"
+              failed=1
+              continue
+            fi
+            details=$(codesign -dvv "$binary" 2>&1)
+            if ! grep -q '^Authority=Developer ID Application:' <<<"$details"; then
+              echo "::error::$name: not signed with a Developer ID Application certificate"
+              failed=1
+            fi
+            if ! grep -Eq 'flags=0x[0-9a-f]+\([^)]*runtime' <<<"$details"; then
+              echo "::error::$name: hardened runtime flag missing"
+              failed=1
+            fi
+            if ! grep -q '^Timestamp=' <<<"$details"; then
+              echo "::error::$name: no secure timestamp"
+              failed=1
+            fi
+            if [ -e "$work/binaries/$name" ]; then
+              echo "::error::$name appears in more than one archive"
+              failed=1
+            fi
+            cp "$binary" "$work/binaries/$name"
+            count=$((count + 1))
+          done < <(find "$work/extract" -type f -perm -u+x -print0)
+          if [ "$failed" -ne 0 ]; then
+            exit 1
+          fi
+          if [ "$count" -eq 0 ]; then
+            echo "::error::no Mach-O binaries found in ${archives[*]}"
+            exit 1
+          fi
+          echo "$count signed binaries verified"
+
+          zip="$work/binaries.zip"
+          ditto -c -k --keepParent "$work/binaries" "$zip"
+
+          status_rc=0
+          result=$(xcrun notarytool submit "$zip" \
+            --key "$key" --key-id "$NOTARYTOOL_KEY_ID" --issuer "$NOTARYTOOL_ISSUER" \
+            --wait --timeout 1h --output-format json) || status_rc=$?
+          echo "$result"
+          id=$(jq -r '.id // empty' <<<"$result" 2>/dev/null || true)
+          status=$(jq -r '.status // empty' <<<"$result" 2>/dev/null || true)
+          if [ "$status" != "Accepted" ]; then
+            echo "::error::notarisation ${status:-failed} (notarytool exit $status_rc)"
+            if [ -n "$id" ]; then
+              xcrun notarytool log "$id" \
+                --key "$key" --key-id "$NOTARYTOOL_KEY_ID" --issuer "$NOTARYTOOL_ISSUER" || true
+            fi
+            exit 1
+          fi
+          echo "Notarised: submission $id"
+      # dist deletes each temporary signing keychain's file when it finishes,
+      # but leaves it on the user search list and as the default keychain.
+      # Housekeeping only, so nothing here fails the release.
+      - name: Remove signing keychains
+        if: ${{ always() && steps.macos-signing.outputs.enabled == 'true' }}
+        shell: bash
+        run: |
+          security list-keychains -d user | tr -d '"' | sed 's/^ *//' | while read -r keychain; do
+            case "$keychain" in
+              */signing.keychain-db) security delete-keychain "$keychain" 2>/dev/null || true ;;
+            esac
+          done || true
+          remaining=()
+          while read -r keychain; do
+            case "$keychain" in
+              */signing.keychain-db) ;;
+              *) remaining+=("$keychain") ;;
+            esac
+          done < <(security list-keychains -d user | tr -d '"' | sed 's/^ *//')
+          security list-keychains -d user -s "${remaining[@]}" || true
+          security default-keychain -d user -s "$HOME/Library/Keychains/login.keychain-db" || true
       - name: "Upload artifacts"
         uses: actions/upload-artifact@v7
         with:
