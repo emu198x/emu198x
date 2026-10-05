@@ -206,13 +206,12 @@ case interrupt-adjacent instruction timing is part of it.
 
 ## Judgement calls that are not mine
 
-- **Super HALT Invaders' golden** is red at 5,936 of 104,192 pixels
-  against one blessed at `9d2ef79e`, the commit that pinned the 128K
-  contention — it predates the whole rework and the tape to re-check it
-  was absent throughout. The two captures are the same title screen at
-  different points in its animation, with the live one missing the title
-  line. Someone should eyeball it and decide; it is deliberately out of
-  the nightly until then.
+- **Super HALT Invaders' golden** — settled. The 5,936-pixel red was the
+  test capturing the title screen; since `905c5b3b` it plays into the game.
+  Its later 2,840-pixel drift (#1585) bisected to `73c00517`, the 128K's
+  FUSE-checked I/O contention fix, which moved `R` and so the game's random
+  choices; the golden was refreshed on that evidence and the nightly
+  128K job now runs it.
 - **The 128K suite's test 2** stops with `4 Out of memory, 5070:1` on its
   contended pass. Unknown whether that is the suite running out of room on
   a 128K in 48K mode or something this engine does to it. Recorded as an
@@ -228,8 +227,9 @@ case interrupt-adjacent instruction timing is part of it.
   72 px → 140. The one T-state between the contention oracles' origin and
   the raster's is the harness's arrival label, and it comes out the same
   on three machines with no shared geometry.
-- **Do not re-bless a golden to make a gate green.** Both surviving golden
-  disagreements — floatspy and Super HALT Invaders — are the only evidence
-  we have that something is wrong.
+- **Do not re-bless a golden to make a gate green.** A golden that
+  disagrees is the only evidence we have that something is wrong; refresh
+  one only after bisecting the move to a change an independent oracle
+  backs, as #1585 did.
 - **Do not fit a constant to a frame maximum.** That is what #856 spent
   four experiments learning.

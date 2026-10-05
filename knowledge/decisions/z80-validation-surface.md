@@ -110,9 +110,12 @@ asserting the diagnostic's own `HALT: Early` classification.
 
 Two cautions for whoever refreshes it next. `UPDATE_GOLDENS=1` accepts
 whatever was captured — the first attempt at this fix locked in a solid
-black frame and reported `ok` — so look at the PNG afterwards. And the
-test is `#[ignore]`d for a fixture CI does not have, so nothing will tell
-you when it goes stale; it was red for two weeks after `9a2d8697`.
+black frame and reported `ok` — so look at the PNG afterwards. And
+expect a timing change to move game state as well as sprites: the game
+draws its random choices from `R`, and the red icons are reserve lives, so
+a different icon count is a death on a different frame (#1585). The
+nightly `spectrum-128k-oracles` job runs it, so it no longer goes stale
+silently.
 
 **`tape_smoke` degrades to a pass when its oracle is absent.** The
 Spectron screen comparison is skipped entirely when
