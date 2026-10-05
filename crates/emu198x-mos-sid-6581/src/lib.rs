@@ -63,8 +63,11 @@ use serde::{Deserialize, Serialize};
 /// inverted) and is blocked when sawtooth is co-selected. The triangle's DAC
 /// bit 0 is grounded (it carried accumulator bit 11). TEST no longer reseeds
 /// the noise register every cycle: its cells drift to all ones over tens of
-/// thousands of cycles and it shifts once when TEST falls. Further #777 fixes
-/// in the same series land under this version.
+/// thousands of cycles and it shifts once when TEST falls. Deselecting every
+/// waveform leaves the DAC input floating at its last value, which fades bit
+/// by bit after about 200 ms (6581) or 5 s (8580) instead of dropping to
+/// zero at once; that changes any voice whose waveform is cleared while its
+/// envelope is still open.
 ///
 /// See `knowledge/decisions/c64-architecture-review.md` Seam 4 for
 /// the re-capture discipline this constant enforces.
@@ -372,11 +375,7 @@ impl Sid6581 {
         match addr & 0x1F {
             0x19 => Some(self.potx),
             0x1A => Some(self.poty),
-            0x1B => {
-                let ring_src_msb = self.voices[1].msb();
-                let waveform = self.voices[2].waveform_output(ring_src_msb, self.model);
-                Some((waveform >> 4) as u8)
-            }
+            0x1B => Some((self.voices[2].output() >> 4) as u8),
             0x1C => Some(self.envelopes[2].level),
             _ => None,
         }
@@ -399,6 +398,18 @@ impl Sid6581 {
         };
     }
 
+    /// Ring-modulation and sync source of each voice: voice 1 <- voice 3,
+    /// voice 2 <- voice 1, voice 3 <- voice 2.
+    const SOURCE_VOICE: [usize; 3] = [2, 0, 1];
+
+    fn write_control(&mut self, index: usize, value: u8) {
+        self.voices[index].write_control(value, self.model);
+        if value >> 4 != 0 {
+            let source_msb = self.voices[Self::SOURCE_VOICE[index]].msb();
+            self.voices[index].latch_output(source_msb, self.model);
+        }
+    }
+
     pub fn write(&mut self, addr: u8, value: u8) {
         self.drive_bus(value);
         let reg = addr & 0x1F;
@@ -418,7 +429,7 @@ impl Sid6581 {
                 self.voices[0].pulse_width =
                     (self.voices[0].pulse_width & 0x00FF) | ((u16::from(value) & 0x0F) << 8);
             }
-            0x04 => self.voices[0].write_control(value, self.model),
+            0x04 => self.write_control(0, value),
             0x05 => {
                 self.envelopes[0].attack = (value >> 4) & 0x0F;
                 self.envelopes[0].decay = value & 0x0F;
@@ -442,7 +453,7 @@ impl Sid6581 {
                 self.voices[1].pulse_width =
                     (self.voices[1].pulse_width & 0x00FF) | ((u16::from(value) & 0x0F) << 8);
             }
-            0x0B => self.voices[1].write_control(value, self.model),
+            0x0B => self.write_control(1, value),
             0x0C => {
                 self.envelopes[1].attack = (value >> 4) & 0x0F;
                 self.envelopes[1].decay = value & 0x0F;
@@ -466,7 +477,7 @@ impl Sid6581 {
                 self.voices[2].pulse_width =
                     (self.voices[2].pulse_width & 0x00FF) | ((u16::from(value) & 0x0F) << 8);
             }
-            0x12 => self.voices[2].write_control(value, self.model),
+            0x12 => self.write_control(2, value),
             0x13 => {
                 self.envelopes[2].attack = (value >> 4) & 0x0F;
                 self.envelopes[2].decay = value & 0x0F;
@@ -530,8 +541,12 @@ impl Sid6581 {
         let env_dac = dac::env_dac(self.model);
         let wave_zero = dac::wave_zero(self.model);
 
+        for (voice, &source_msb) in self.voices.iter_mut().zip(&ring_mod_msb) {
+            voice.clock_output(source_msb, self.model);
+        }
+
         for index in 0..3 {
-            let waveform = self.voices[index].waveform_output(ring_mod_msb[index], self.model);
+            let waveform = self.voices[index].output();
             let envelope = self.envelopes[index].level;
             // reSID voice output (20 bits): the 12-bit waveform and 8-bit
             // envelope each pass through their (nonlinear on the 6581) DAC,
@@ -870,6 +885,27 @@ mod tests {
             assert_eq!(sid.read(0x00), 0x5A, "{model:?} still holds");
             sid.tick();
             assert_eq!(sid.read(0x00), 0x00, "{model:?} discharged");
+        }
+    }
+
+    #[test]
+    fn osc3_holds_and_fades_after_the_waveform_is_deselected() {
+        // VICE testprogs/SID/osc3-wave0: pulse at PW $000 reads OSC3 $FF,
+        // deselecting every waveform keeps $FF, and it later fades to $00.
+        for model in [SidModel::Mos6581, SidModel::Mos8580] {
+            let mut sid = Sid6581::new_with_model(985_248, 48_000, model);
+            sid.write(0x12, 0x40);
+            sid.tick();
+            assert_eq!(sid.cpu_read(0x1B), 0xFF, "{model:?} pulse high");
+            sid.write(0x12, 0x00);
+            for _ in 0..1_000 {
+                sid.tick();
+            }
+            assert_eq!(sid.cpu_read(0x1B), 0xFF, "{model:?} floating input holds");
+            for _ in 0..6_000_000 {
+                sid.tick();
+            }
+            assert_eq!(sid.cpu_read(0x1B), 0x00, "{model:?} faded");
         }
     }
 
