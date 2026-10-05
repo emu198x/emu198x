@@ -14,7 +14,13 @@ id = "nes"
 # FRAME_ROUTING_VERSION (ricoh-ppu-2c02). Mismatch fails loud with a
 # re-capture instruction. See
 # knowledge/decisions/nes-architecture-review.md Seam 4.
-audio_routing_version = 1
+#
+# Audio re-blessed for version 2 (#1567, held triangle output). Only
+# contra's hash moved because of that fix; the other four had already
+# drifted from their committed values on main through earlier changes
+# that were never re-captured (this catalogue is #[ignore]'d in CI), and
+# take main's values unchanged.
+audio_routing_version = 2
 frame_routing_version = 1
 
 [[entry]]
@@ -40,7 +46,7 @@ frame_hash = "xxh64:45173ac7294ac723"
 # Captures the title-screen 2A03 melody.
 from_frame = 60
 secs = 2.0
-hash = "xxh64:89393e2c4184241a"
+hash = "xxh64:0ff9f48937cba7c6"
 
 [[entry]]
 id = "contra"
@@ -63,7 +69,7 @@ frame_hash = "xxh64:929fb589e81e0143"
 [entry.audio]
 from_frame = 60
 secs = 2.0
-hash = "xxh64:bc7c56728ebe5ee6"
+hash = "xxh64:6215e6c3e641e0b8"
 
 [[entry]]
 id = "zelda-2"
@@ -86,7 +92,7 @@ frame_hash = "xxh64:b5bb85e96c59462b"
 [entry.audio]
 from_frame = 60
 secs = 2.0
-hash = "xxh64:6c778f131ec536f1"
+hash = "xxh64:51b2dd456a7d64a8"
 
 [[entry]]
 id = "tetris"
@@ -112,7 +118,7 @@ frame_hash = "xxh64:97b874e69eb923b9"
 # caveat as the silent-screen Spectrum entries.
 from_frame = 60
 secs = 2.0
-hash = "xxh64:64cde9b38cba92c3"
+hash = "xxh64:195044baf046e9a9"
 
 [[entry]]
 id = "tmnt-2-arcade"
@@ -137,4 +143,4 @@ frame_hash = "xxh64:14e09209ac82f45f"
 # 2 s of silence (legal screen). Same caveat as Tetris.
 from_frame = 60
 secs = 2.0
-hash = "xxh64:64cde9b38cba92c3"
+hash = "xxh64:195044baf046e9a9"
