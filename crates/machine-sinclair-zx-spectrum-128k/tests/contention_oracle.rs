@@ -3,50 +3,25 @@
 //!
 //! The 48K has had this since #862 and the 128K has had nothing. That
 //! matters more here than it would on a variant that shared the 48K's
-//! geometry, because `sinclair-ula-7k010e` does not: it computes its own
-//! contention window from a logical `/Border` coordinate and then carries
-//! its own delay-table index offset on top.
+//! geometry, because `sinclair-ula-7k010e` does not: it opens its
+//! contention window from its own physical display counter, on a 228-T
+//! line, and raises `/INT` two T-states later than the 48K ULA.
 //!
-//! ```text
-//! let contention_pixel = if next_scan < 192 && e.pixel >= 450 {
-//!     Some(e.pixel - 450)                       // the /Border coordinate
-//! } else if e.scan < 192 && e.pixel < 250 {
-//!     Some(e.pixel + 6)
-//! } else { None };
-//! let phase = contention_pixel
-//!     .map(|p| (p + 1 + 16 - HDL_TABLE_ORIGIN_SHIFT) & 0x0F);   // the offset
-//! ```
-//!
-//! **Only their sum has ever been measured.** It was pinned against
-//! HALT2INT128, a whole-program pass/fail, and #862 moved one of them and
-//! compensated in the other precisely because splitting them would have
-//! moved behaviour with nothing to catch it. A frame total cannot see a
-//! phase error at all — the contended window is sixteen whole 8-T-state
-//! groups, so a walk starting a group late retires exactly as many
-//! instructions — and neither can a pass/fail.
+//! A frame total cannot see a phase error in that window — the contended
+//! window is sixteen whole 8-T-state groups, so a walk starting a group
+//! late retires exactly as many instructions — and neither can a whole-program
+//! pass/fail such as HALT2INT128.
 //!
 //! An arrival-resolved differential can, because it scores the shape of
 //! the gate as well as its total.
 //!
-//! ## What it found
+//! ## What it finds
 //!
 //! **Both constants are right, jointly and individually.** The sweep has a
-//! sharp isolated minimum of **17 of 375,406** and everything either side
-//! of it costs about 87,000. A window whose sum was right and whose parts
-//! were not would show a broad minimum or a displaced one; this shows
-//! neither. The sum HALT2INT128 pinned is the sum FUSE wants, and the
-//! delay-table index offset is not hiding an error in the `/Border`
-//! coordinate.
-//!
-//! The residual is the same order as the 48K's 18 of 370,024, and it sits
-//! the same one T-state below the machine's own `/INT` anchor — on a
-//! machine that shares no geometry with the 48K. That is what says the one
-//! T-state is the harness's arrival label rather than either engine; see
-//! `ARRIVAL_LABEL_LEAD_TSTATES`.
-//!
-//! Separately, and not a contention result: the 128K's `/INT` edge is two
-//! T-states from libspectrum's `top_left_pixel` for this ULA, where the
-//! 48K's falls exactly on it.
+//! sharp isolated minimum of **17 of 375,408** at the origin below, and
+//! everything either side of it costs about 85,000. A window whose sum was
+//! right and whose parts were not would show a broad minimum or a displaced
+//! one; this shows neither.
 //!
 //! ```sh
 //! cargo test --release -p machine-sinclair-zx-spectrum-128k \
@@ -62,10 +37,8 @@
 //! - The reference is FUSE's own `spectrum_contend_delay_65432100` walk,
 //!   transcribed and re-checked frame-wide against its geometry.
 //! - Every arrival T-state is scored, so a phase error cannot average out.
-//! - The origin is pinned to the `/INT` edge and measured at **half-cycle**
-//!   resolution. The 48K's version of that measurement advanced a whole
-//!   T-state before sampling and so read the edge one T-state late; see
-//!   `machine-sinclair-zx-spectrum-48k`'s `float_bus_oracle`.
+//! - The origin comes from the hardware-derived first floating-bus byte,
+//!   not from the `/INT` edge and not from a fit; see `ORIGIN`.
 //! - Several instruction shapes, so a shape-dependent error separates from
 //!   a global one.
 
@@ -112,50 +85,20 @@ const DATA_ADDR: u16 = 0x5000;
 
 /// Add this to an engine frame T-state to get FUSE's.
 ///
-/// FUSE's frame T-state 0 *is* the interrupt, and the engine raises
-/// `int_active` at a T-state of its own that owes nothing to the
-/// contention gate. `the_origin_is_pinned_by_the_interrupt` measures it
-/// here rather than asserting it, and measures it in **half-cycles**.
+/// The first non-idle floating-bus byte on a 128K is T-state **14364**:
+/// Mark Woodmass's hardware-derived table, adopted in
+/// `hardware-outranks-fuse.md`. The ULA's physical counter exposes that
+/// fetch at T=4 (counter 8), so transaction coordinates add 14364 - 4.
+/// This is the same derivation the 48K's `contention_oracle` uses
+/// (14338 - 4).
 ///
-/// That resolution is the whole point. The 48K's version of this constant
-/// advanced a full T-state and *then* sampled `interrupt_active()`, so it
-/// labelled an edge that fell during T-state *k* as *k+1* and came out one
-/// T-state low. Fitting the offset instead would be worse still: a free
-/// parameter absorbs exactly the error this differential exists to find,
-/// because a gate charging one T-state late is indistinguishable from an
-/// origin one T-state early.
-///
-/// **This is not `top_left_pixel`.** libspectrum gives
-/// `timings_frame_ferranti_7c` a `top_left_pixel` of 14362, and the
-/// interrupt lands two T-states away from it — where on the 48K the two
-/// coincide exactly. See `the_origin_is_pinned_by_the_interrupt` for what
-/// that says about `CONFIG_128K.int_start_pixel`, and why it is recorded
-/// rather than moved.
-const ORIGIN: i32 = 14_364;
-
-/// The harness labels an instruction's arrival one T-state later than the
-/// M-cycle FUSE charges, so the score is taken one T-state below `ORIGIN`.
-///
-/// This is a property of the measurement, not of the engine, and it is
-/// named rather than folded into `ORIGIN` because a silently-absorbed
-/// T-state is how this problem has gone wrong before. Three things say so:
-///
-/// - The 48K's differential needs the **same one T-state**, on a machine
-///   that shares no geometry with this one — 224-T lines against 228, a
-///   different frame length, a different ULA, and a contention window
-///   derived a completely different way. A per-machine fudge does not come
-///   out the same on both.
-/// - Removing it by moving the *engine* instead was tried on the 48K and
-///   rejected by both origin-independent oracles: the ZXSpectrum4.net
-///   survey went from 13 failing to 17 and floatspy's diff widened from 72
-///   pixels to 140.
-/// - The residual either side is what a correct gate looks like — 17 here,
-///   18 on the 48K — against roughly 87,000 one T-state away in either
-///   direction.
-const ARRIVAL_LABEL_LEAD_TSTATES: i32 = 1;
-
-/// The offset the differential is scored at.
-const SCORING_OFFSET: i32 = ORIGIN - ARRIVAL_LABEL_LEAD_TSTATES;
+/// The origin is deliberately not read off the `/INT` edge, which the
+/// physical counter places part-way through a T-state (see
+/// `the_interrupt_pin_is_pinned_in_master_ticks`), and it is never fitted:
+/// a free parameter absorbs exactly the error this differential exists to
+/// find, because a gate charging one T-state late is indistinguishable from
+/// an origin one T-state early.
+const ORIGIN: i32 = 14_364 - 4;
 
 /// `interrupt_length` for `timings_frame_ferranti_7c`, libspectrum
 /// `timings.c`.
@@ -404,31 +347,15 @@ fn the_delay_table_still_matches_fuse() {
     );
 }
 
-/// The origin, measured from the interrupt rather than assumed or fitted.
+/// The physical `/INT` edge and pulse width, in master-clock half-cycles,
+/// independent of the FUSE pattern coordinates `ORIGIN` maps.
 ///
-/// Two ways to fail: where the edge falls, and how long it is held.
-/// Stepping in half-cycles is deliberate — see `ORIGIN`.
-///
-/// ## The two T-states this records
-///
-/// The edge rises at engine T-state 56544, which is scan 248 pixel 0 —
-/// `CONFIG_128K`'s `int_scan` and `int_start_pixel`, the same pair the
-/// 48K uses. On the 48K that lands the interrupt exactly on
-/// `top_left_pixel`: 69888 - 55552 = 14336. Here it lands 14364, and
-/// libspectrum's `top_left_pixel` for `timings_frame_ferranti_7c` is
-/// 14362. The 228-T-state line does not put scan 248 where the 224-T-state
-/// one does, and `int_start_pixel` was never re-derived for it.
-///
-/// **Recorded, not moved.** `Float128K` reads 14364 and that is the figure
-/// this engine is held to; the probe counts from the interrupt, so moving
-/// the edge two T-states to sit on `top_left_pixel` would take the
-/// floating bus off its own oracle to satisfy a constant nothing else
-/// measures. Which of the two is right needs the 48K's `float_bus_oracle`
-/// ported to this machine — a frame of screen bytes is a second anchor and
-/// there is currently only one.
+/// The 7K010E raises `/INT` two half-cycles into engine T-state 56546 and
+/// holds it for libspectrum's `interrupt_length` of 36 T-states
+/// (`timings_frame_ferranti_7c`).
 #[test]
 #[ignore = "FIXTURE: needs EMU198X_SPECTRUM_128K_ROM0 / ROM1"]
-fn the_origin_is_pinned_by_the_interrupt() {
+fn the_interrupt_pin_is_pinned_in_master_ticks() {
     let Some(roms) = roms() else {
         panic!("set {ROM0_PATH_ENV} and {ROM1_PATH_ENV} to run this harness");
     };
@@ -450,40 +377,13 @@ fn the_origin_is_pinned_by_the_interrupt() {
         prev = now;
     }
 
+    let onset = 56_546 * HC_PER_TSTATE + 2;
     assert_eq!(
-        edges.len(),
-        2,
-        "expected one interrupt assertion and one release per frame, got {edges:?}"
-    );
-    let (onset_hc, rising) = edges[0];
-    let (release_hc, falling) = edges[1];
-    assert!(rising && !falling, "edges out of order: {edges:?}");
-
-    println!(
-        "\n/INT rises at half-cycle {onset_hc} = T-state {} phase {}",
-        onset_hc / HC_PER_TSTATE,
-        onset_hc % HC_PER_TSTATE
-    );
-
-    assert_eq!(
-        onset_hc % HC_PER_TSTATE,
-        0,
-        "/INT rose part-way through a T-state, which no anchor can be read off"
-    );
-    assert_eq!(
-        (release_hc - onset_hc) / HC_PER_TSTATE,
-        FUSE_INTERRUPT_LENGTH,
-        "the engine holds /INT for {} T-states against FUSE's {FUSE_INTERRUPT_LENGTH}",
-        (release_hc - onset_hc) / HC_PER_TSTATE
-    );
-
-    let onset = onset_hc / HC_PER_TSTATE;
-    assert_eq!(
-        FRAME_TSTATES as i32 - onset as i32,
-        ORIGIN,
-        "/INT rises at engine T-state {onset}, which puts the origin at {}, \
-         not the {ORIGIN} this file scores against",
-        FRAME_TSTATES as i32 - onset as i32
+        edges,
+        [
+            (onset, true),
+            (onset + FUSE_INTERRUPT_LENGTH * HC_PER_TSTATE, false)
+        ]
     );
 }
 
@@ -519,12 +419,9 @@ fn memory_contention_matches_fuse_at_every_arrival_tstate() {
             .sum()
     };
 
-    let total = score(SCORING_OFFSET);
+    let total = score(ORIGIN);
     let samples_total: usize = collected.iter().map(|(_, _, all)| all.len()).sum();
-    println!(
-        "\n/INT origin {ORIGIN:+}, scored at {SCORING_OFFSET:+} — {total} of \
-         {samples_total} samples disagree"
-    );
+    println!("\norigin {ORIGIN:+} — {total} of {samples_total} samples disagree");
 
     // The neighbourhood, so it is visible whether the pinned origin sits
     // in a plateau or beside a sharp minimum it is not on. On this machine
@@ -534,12 +431,12 @@ fn memory_contention_matches_fuse_at_every_arrival_tstate() {
     // between the raster and the gate.
     print!("\n{:<14}", "offset");
     for d in -8..=8i32 {
-        print!("{:>8}", format!("{:+}", SCORING_OFFSET + d));
+        print!("{:>8}", format!("{:+}", ORIGIN + d));
     }
     println!();
     print!("{:<14}", "mismatches");
     for d in -8..=8i32 {
-        print!("{:>8}", score(SCORING_OFFSET + d));
+        print!("{:>8}", score(ORIGIN + d));
     }
     println!();
 
@@ -555,7 +452,7 @@ fn memory_contention_matches_fuse_at_every_arrival_tstate() {
         let wrong: Vec<_> = all
             .iter()
             .filter_map(|&(arrival, measured)| {
-                let t = (arrival as i32 + SCORING_OFFSET).rem_euclid(FRAME_TSTATES as i32) as u32;
+                let t = (arrival as i32 + ORIGIN).rem_euclid(FRAME_TSTATES as i32) as u32;
                 let want = fuse_cost(t, mcycles);
                 (want != measured).then_some((t, measured, want))
             })
@@ -591,7 +488,7 @@ fn memory_contention_matches_fuse_at_every_arrival_tstate() {
         let mut wrong = [0u32; 8];
         let mut seen = [0u32; 8];
         for &(arrival, measured) in all {
-            let t = (arrival as i32 + SCORING_OFFSET).rem_euclid(FRAME_TSTATES as i32) as u32;
+            let t = (arrival as i32 + ORIGIN).rem_euclid(FRAME_TSTATES as i32) as u32;
             if delay_at(t) == 0 && delay_at(t + 4) == 0 {
                 continue;
             }
@@ -617,8 +514,7 @@ fn memory_contention_matches_fuse_at_every_arrival_tstate() {
         let quiet_wrong = all
             .iter()
             .filter(|&&(arrival, _)| {
-                let start =
-                    (arrival as i32 + SCORING_OFFSET).rem_euclid(FRAME_TSTATES as i32) as u32;
+                let start = (arrival as i32 + ORIGIN).rem_euclid(FRAME_TSTATES as i32) as u32;
                 (0..FIRST_DISPLAY.saturating_sub(64)).contains(&start)
             })
             .filter(|&&(_, measured)| measured != bare)

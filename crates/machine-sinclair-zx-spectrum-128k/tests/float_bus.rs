@@ -126,9 +126,8 @@ const FLOAT128K_EXPECTED_TSTATE: u32 = 14364;
 ///
 /// Moving the `/INT` edge instead was tried: `int_start_pixel: 5` on
 /// `CONFIG_128K` puts the anchor on 14362 and the probe on 14363, reproducing
-/// the 48K's relationship exactly — and breaks
-/// `contention_oracle::the_origin_is_pinned_by_the_interrupt`, because the
-/// contention origin then sits on the wrong side. One constant cannot satisfy
+/// the 48K's relationship exactly — and moves the physical `/INT` edge that
+/// `contention_oracle::the_interrupt_pin_is_pinned_in_master_ticks` pins. One constant cannot satisfy
 /// all three, and choosing one to make a probe read a particular number is
 /// the fit this file already paid for once (#851).
 ///
