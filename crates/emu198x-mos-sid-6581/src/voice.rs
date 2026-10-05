@@ -29,6 +29,18 @@ const SHIFT_REGISTER_RESET_BIT_6581: u32 = 1_000;
 const SHIFT_REGISTER_RESET_START_8580: u32 = 2_519_864;
 const SHIFT_REGISTER_RESET_BIT_8580: u32 = 315_000;
 
+/// Cycles a floating waveform DAC input holds its last value after the
+/// waveform is deselected, then the cycles between each further fade step.
+/// Values from reSID `wave.cc` (`FLOATING_OUTPUT_TTL_*`: about 200 ms on the
+/// 6581, 5 s on the 8580; reSID notes two samplings showing the DAC keeps its
+/// state for at least $14000 cycles). reSIDfp uses 54 000/1 400 (6581R3) and
+/// 800 000/50 000 (8580R5). VICE's `testprogs/SID/osc3-wave0` expects OSC3 to
+/// hold and then fade to zero within about 3 s.
+const FLOATING_OUTPUT_TTL_START_6581: u32 = 182_000;
+const FLOATING_OUTPUT_TTL_BIT_6581: u32 = 1_500;
+const FLOATING_OUTPUT_TTL_START_8580: u32 = 4_400_000;
+const FLOATING_OUTPUT_TTL_BIT_8580: u32 = 50_000;
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Voice {
     pub accumulator: u32,
@@ -40,6 +52,12 @@ pub struct Voice {
     /// Cycles until the next noise-register cell drifts to one while TEST is
     /// held; zero once the register is all ones or TEST is clear.
     shift_register_reset: u32,
+    /// The 12-bit waveform DAC input, latched each cycle. With no waveform
+    /// selected the input floats and keeps its last value; OSC3 reads it.
+    output: u16,
+    /// Cycles until the floating DAC input loses its next bit; zero while a
+    /// waveform is selected or once the input has faded to zero.
+    floating_output_ttl: u32,
 }
 
 impl Voice {
@@ -53,6 +71,8 @@ impl Voice {
             noise_lfsr: NOISE_LFSR_SEED,
             prev_msb: false,
             shift_register_reset: 0,
+            output: 0,
+            floating_output_ttl: 0,
         }
     }
 
@@ -64,10 +84,21 @@ impl Voice {
     /// with `bit0 = (bit22 | TEST) ^ bit17 = !bit17`. Per reSID `wave.cc`
     /// `writeCONTROL_REG`; the datasheet (MOS 6581, Test bit 3) only says TEST
     /// "resets and locks Oscillator 1 at zero" and resets the noise output.
+    ///
+    /// Deselecting every waveform leaves the DAC input floating: it holds its
+    /// last value and then fades (see [`Self::clock_output`]).
     pub fn write_control(&mut self, value: u8, model: SidModel) {
         let test_prev = self.control & CONTROL_TEST != 0;
         let test = value & CONTROL_TEST != 0;
+        let waveform_prev = self.control >> 4;
         self.control = value;
+
+        if value >> 4 == 0 && waveform_prev != 0 {
+            self.floating_output_ttl = match model {
+                SidModel::Mos6581 => FLOATING_OUTPUT_TTL_START_6581,
+                SidModel::Mos8580 => FLOATING_OUTPUT_TTL_START_8580,
+            };
+        }
 
         if !test_prev && test {
             self.accumulator = 0;
@@ -132,6 +163,47 @@ impl Voice {
         }
     }
 
+    /// The latched 12-bit waveform DAC input: what the voice feeds its DAC
+    /// and what OSC3 reads (top 8 bits) for voice 3.
+    #[must_use]
+    pub const fn output(&self) -> u16 {
+        self.output
+    }
+
+    /// Latch this cycle's DAC input. With a waveform selected it is the
+    /// generated waveform. With none selected the input floats: it keeps its
+    /// last value, and once the hold time runs out each step ANDs it with
+    /// itself shifted right, so the ones drain from the bottom until it reads
+    /// zero. Per reSID `wave.h` `set_waveform_output` and `wave.cc`
+    /// `wave_bitfade`; the "SID vicious" 8-bit digi method and OSC3 reads
+    /// after deselecting a waveform depend on it (VICE `testprogs/SID/
+    /// bitfade`, `osc3-wave0`). Same mechanism on the 6581 and 8580; the 8580
+    /// holds about 25 times longer.
+    pub fn clock_output(&mut self, ring_mod_source_msb: bool, model: SidModel) {
+        if self.control >> 4 != 0 {
+            self.latch_output(ring_mod_source_msb, model);
+        } else if self.floating_output_ttl != 0 {
+            self.floating_output_ttl -= 1;
+            if self.floating_output_ttl == 0 {
+                self.output &= self.output >> 1;
+                if self.output != 0 {
+                    self.floating_output_ttl = match model {
+                        SidModel::Mos6581 => FLOATING_OUTPUT_TTL_BIT_6581,
+                        SidModel::Mos8580 => FLOATING_OUTPUT_TTL_BIT_8580,
+                    };
+                }
+            }
+        }
+    }
+
+    /// Latch the generated waveform as the DAC input now (a control write
+    /// selecting a waveform takes effect at once, as in reSID).
+    pub fn latch_output(&mut self, ring_mod_source_msb: bool, model: SidModel) {
+        self.output = self.waveform_output(ring_mod_source_msb, model);
+    }
+
+    /// The waveform the generator drives this cycle, before the floating-
+    /// input behaviour: zero when no waveform is selected.
     #[must_use]
     pub fn waveform_output(&self, ring_mod_source_msb: bool, model: SidModel) -> u16 {
         let waveform_bits = (self.control >> 4) & 0x0F;
@@ -343,6 +415,51 @@ mod tests {
         v.clock_accumulator(SidModel::Mos6581);
         assert_eq!(v.accumulator, 0, "TEST holds the accumulator at zero");
         assert_eq!(v.waveform_output(false, SidModel::Mos6581), 0x0FFF);
+    }
+
+    #[test]
+    fn deselected_waveform_holds_then_fades_the_dac_input() {
+        for (model, start, step) in [
+            (SidModel::Mos6581, 182_000_u32, 1_500_u32),
+            (SidModel::Mos8580, 4_400_000, 50_000),
+        ] {
+            let mut v = Voice::new();
+            v.write_control(PULSE, model);
+            v.clock_output(false, model); // PW 0: pulse high
+            assert_eq!(v.output(), 0xFFF);
+
+            v.write_control(0x00, model);
+            for _ in 0..start - 1 {
+                v.clock_output(false, model);
+            }
+            assert_eq!(v.output(), 0xFFF, "{model:?} holds until the TTL");
+            v.clock_output(false, model);
+            assert_eq!(v.output(), 0x7FF, "{model:?} first fade step");
+            for _ in 0..step {
+                v.clock_output(false, model);
+            }
+            assert_eq!(v.output(), 0x3FF, "{model:?} second fade step");
+
+            let mut cycles = 0_u32;
+            while v.output() != 0 {
+                v.clock_output(false, model);
+                cycles += 1;
+            }
+            assert_eq!(cycles, 10 * step, "{model:?} drains one bit per step");
+        }
+    }
+
+    #[test]
+    fn reselecting_a_waveform_ends_the_float() {
+        let mut v = Voice::new();
+        v.write_control(PULSE, SidModel::Mos6581);
+        v.clock_output(false, SidModel::Mos6581);
+        v.write_control(0x00, SidModel::Mos6581);
+        v.clock_output(false, SidModel::Mos6581);
+        assert_eq!(v.output(), 0xFFF);
+        v.write_control(SAW, SidModel::Mos6581);
+        v.clock_output(false, SidModel::Mos6581);
+        assert_eq!(v.output(), 0x000, "sawtooth at accumulator zero");
     }
 
     #[test]

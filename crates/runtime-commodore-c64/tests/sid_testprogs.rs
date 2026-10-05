@@ -143,3 +143,80 @@ fn busvalue_write_only_reads_return_the_bus_value() {
         assert_eq!(border(&mut session), BORDER_PASS, "verdict on {model:?}");
     }
 }
+
+/// `osc3-wave0`: after deselecting the waveform OSC3 keeps reading $FF from
+/// the floating DAC input, then fades to $00. The `-new` build waits longer
+/// for the 8580's slower fade.
+#[test]
+#[ignore = "FIXTURE: requires ~/.emu198x/roms/commodore-c64 + ~/.emu198x/test-suites/c64-sid"]
+fn osc3_wave0_floating_dac_holds_then_fades() {
+    if !staged() {
+        emu198x_test_skip::skip!("C64 ROMs or VICE SID testprogs not staged");
+    }
+    for (prg, model, frames) in [
+        ("osc3-wave0/osc3-wave0.prg", Model::C64PalBreadbin, 120),
+        ("osc3-wave0/osc3-wave0-new.prg", Model::C64cPal, 600),
+    ] {
+        let mut session = run_testprog(prg, model, frames);
+        assert_eq!(
+            screen(&mut session, 2),
+            0xFF,
+            "OSC3 just after wave 0 on {model:?}"
+        );
+        assert_eq!(border(&mut session), BORDER_PASS, "verdict on {model:?}");
+    }
+}
+
+/// Read the 8-digit hex delay the `bitfade/delay*.prg` programs print at
+/// `$0428` (screen codes: digits `$30`-`$39`, letters A-F `$01`-`$06`).
+fn printed_delay(session: &mut HeadlessSession<C64Runtime, C64SessionQueryProvider>) -> u32 {
+    (0x28..0x30).fold(0, |value, offset| {
+        let code = screen(session, offset);
+        let digit = match code {
+            0x30..=0x39 => u32::from(code - 0x30),
+            0x01..=0x06 => u32::from(code) + 9,
+            other => panic!("unexpected screen code ${other:02X} in the delay readout"),
+        };
+        value << 4 | digit
+    })
+}
+
+/// `bitfade/delayfrq0` and `delaynoise`: CIA-timed hold times of the SID data
+/// bus after a write, and of the noise register's drift to all ones while
+/// TEST is held. Real chips: about $1D00 for the 6581 bus and $7A000-$108000
+/// for the 8580's (readme.txt); the noise drift follows reSID's per-model
+/// start delay plus one step per missing bit.
+#[test]
+#[ignore = "FIXTURE: requires ~/.emu198x/roms/commodore-c64 + ~/.emu198x/test-suites/c64-sid"]
+fn bitfade_delays_match_the_model_hold_times() {
+    if !staged() {
+        emu198x_test_skip::skip!("C64 ROMs or VICE SID testprogs not staged");
+    }
+    let mut session = run_testprog("bitfade/delayfrq0.prg", Model::C64PalBreadbin, 30);
+    let delay = printed_delay(&mut session);
+    assert!(
+        (0x1C00..=0x1E00).contains(&delay),
+        "6581 bus hold ${delay:X}"
+    );
+
+    let mut session = run_testprog("bitfade/delayfrq0.prg", Model::C64cPal, 120);
+    let delay = printed_delay(&mut session);
+    assert!(
+        (0xA1000..=0xA3000).contains(&delay),
+        "8580 bus hold ${delay:X}"
+    );
+
+    let mut session = run_testprog("bitfade/delaynoise.prg", Model::C64PalBreadbin, 60);
+    let delay = printed_delay(&mut session);
+    assert!(
+        (35_000..=56_000).contains(&delay),
+        "6581 noise drift {delay}"
+    );
+
+    let mut session = run_testprog("bitfade/delaynoise.prg", Model::C64cPal, 900);
+    let delay = printed_delay(&mut session);
+    assert!(
+        (2_519_864..=2_519_864 + 21 * 315_000).contains(&delay),
+        "8580 noise drift {delay}"
+    );
+}
