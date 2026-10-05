@@ -253,7 +253,8 @@ impl VideoRecorder {
         audio: Option<&CapturedAudio>,
     ) -> Result<VideoRecordingSummary, VideoRecordingError> {
         self.finished = true;
-        drop(self.stdin.take());
+        // Closing ffmpeg's stdin ends its input stream.
+        self.stdin = None;
 
         let process = self
             .process
@@ -300,7 +301,7 @@ impl Drop for VideoRecorder {
         if self.finished {
             return;
         }
-        drop(self.stdin.take());
+        self.stdin = None;
         if let Some(mut process) = self.process.take() {
             let _ = process.kill();
             let _ = process.wait();
