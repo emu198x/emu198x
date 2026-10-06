@@ -371,8 +371,23 @@ impl MachineCore for BbcMicroRuntime {
     /// 16 MHz, which is the framebuffer's clock in every screen mode: the core
     /// renders each mode into one 640-wide buffer, so the mode changes how
     /// many source pixels there are and not how fast the buffer fills.
+    ///
+    /// The buffer holds both fields of the interlaced picture, so twice the
+    /// set's active lines span its height.
     fn display(&self) -> Option<Display> {
-        Display::television_for_region(self.profile().region, PIXEL_CLOCK_HZ, PIXEL_CLOCK_HZ)
+        match Display::television_for_region(self.profile().region, PIXEL_CLOCK_HZ, PIXEL_CLOCK_HZ)?
+        {
+            Display::Television {
+                region,
+                pixel_clock_hz,
+                lines_per_tv_height,
+            } => Some(Display::Television {
+                region,
+                pixel_clock_hz,
+                lines_per_tv_height: lines_per_tv_height * 2.0,
+            }),
+            other => Some(other),
+        }
     }
 
     fn capabilities(&self) -> CapabilitySet {

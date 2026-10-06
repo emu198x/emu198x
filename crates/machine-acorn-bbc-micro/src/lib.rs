@@ -99,12 +99,23 @@ const MOTOR_BIT: u8 = 0x80;
 /// §6845.
 pub const FB_WIDTH: u32 = 640;
 
-/// Framebuffer height: the 256 scan lines MODE 0-2 display.
+/// Framebuffer height: the 256 scan lines MODE 0-2 display, in both fields.
 ///
-/// Blanked for the same reason. R4 = 38 and R9 = 7 give a 312-line frame, of
+/// Blanked for the same reason. R4 = 38 and R9 = 7 give a 312-line field, of
 /// which R6 = 32 character rows of 8 lines are displayed. A PAL set shows 288,
 /// so the audit reads 89% — again the chip, and again black outside it.
-pub const FB_HEIGHT: u32 = 256;
+///
+/// Every line is held twice, once for each field of the interlaced picture
+/// the MOS sets up (R8 bit 0, Advanced User Guide §18.6.1). In MODE 7's
+/// interlace sync and video mode the two fields carry different lines of each
+/// character, and the SAA5050's character rounding only exists across the
+/// pair, so a single field cannot show it. The other modes scan the same lines
+/// in both fields and fill both rows. jsbeeb and b-em weave the fields the
+/// same way, and the Amiga's 768×576 holds both of its fields too.
+pub const FB_HEIGHT: u32 = 512;
+
+/// Framebuffer rows per scan line of one field.
+const ROWS_PER_LINE: usize = 2;
 
 /// BBC Micro CPU clock: 2 MHz. Kept as a documented reference even
 /// though `CYCLES_PER_FRAME` is the only derived constant the engine
@@ -632,8 +643,8 @@ pub struct BbcMicro {
     /// over half of another — the 6845's frame need not begin where
     /// [`Self::run_frame`]'s fixed tick budget does.
     back_buffer: Vec<u32>,
-    /// Scan lines since the 6845's frame began: the beam's row in
-    /// `back_buffer`. The window's origin is the 6845's own — column 0, the
+    /// Scan lines since the 6845's frame began: the beam's line, which
+    /// [`Self::beam_rows`] places in `back_buffer`. The window's origin is the 6845's own — column 0, the
     /// first line of the frame — so it is where R12/R13's first character
     /// lands.
     beam_line: u16,
@@ -1126,23 +1137,58 @@ impl BbcMicro {
         }
     }
 
-    /// The 6845 has begun a scan line. Advance the beam, present the frame
+    /// The 6845 has begun a scan line. Advance the beam, present the field
     /// just finished if this is the first line of the next, and clear the
     /// line: anything the 6845 does not display is black, because the BBC has
     /// no border colour.
+    ///
+    /// The new field is drawn over the picture just presented, so the rows it
+    /// does not scan keep the other field's lines: that is the woven picture
+    /// an interlaced set shows (see [`FB_HEIGHT`]).
     fn start_video_line(&mut self) {
         if self.video_frame_ended {
             self.video_frame_ended = false;
             self.beam_line = 0;
             core::mem::swap(&mut self.framebuffer, &mut self.back_buffer);
+            self.back_buffer.copy_from_slice(&self.framebuffer);
         } else {
             self.beam_line = self.beam_line.saturating_add(1);
         }
         self.teletext_line = TeletextLine::new();
-        let line = usize::from(self.beam_line);
-        if line < FB_HEIGHT as usize {
-            let offset = line * FB_WIDTH as usize;
-            self.back_buffer[offset..offset + FB_WIDTH as usize].fill(BLANK);
+        if let Some(rows) = self.beam_rows() {
+            let width = FB_WIDTH as usize;
+            self.back_buffer[rows.start * width..rows.end * width].fill(BLANK);
+        }
+    }
+
+    /// The framebuffer rows the beam's current line lands on, or `None` below
+    /// the bottom of the window.
+    ///
+    /// In interlace sync and video mode (MODE 7) each field scans alternate
+    /// lines of every character row, the even field the even raster addresses
+    /// and the odd field the odd ones (Advanced User Guide figure 18.2c), so a
+    /// line fills only its own field's row. Otherwise both fields scan the same
+    /// lines and each fills both rows.
+    fn beam_rows(&self) -> Option<core::ops::Range<usize>> {
+        let first = usize::from(self.beam_line) * ROWS_PER_LINE;
+        if first >= FB_HEIGHT as usize {
+            return None;
+        }
+        Some(if self.crtc.interlace_sync_and_video() {
+            let row = first + usize::from(self.crtc.odd_field());
+            row..row + 1
+        } else {
+            first..first + ROWS_PER_LINE
+        })
+    }
+
+    /// Copy columns `x0..x1` of the first row in `rows` to the others.
+    fn repeat_span(&mut self, rows: core::ops::Range<usize>, x0: usize, x1: usize) {
+        let width = FB_WIDTH as usize;
+        let source = rows.start * width;
+        for row in rows.skip(1) {
+            self.back_buffer
+                .copy_within(source + x0..source + x1, row * width + x0);
         }
     }
 
@@ -1174,15 +1220,14 @@ impl BbcMicro {
     /// Draw the character the 6845 is addressing at `column` of the current
     /// line, if it is displaying one.
     fn draw_character(&mut self, column: u8) {
-        let line = usize::from(self.beam_line);
-        if line >= FB_HEIGHT as usize {
+        let Some(rows) = self.beam_rows() else {
             return;
-        }
+        };
         let ma = self.crtc.memory_address();
         let ra = self.crtc.raster_address();
         let byte = self.ram[usize::from(self.video_address(ma, ra))];
         if self.video_ula.teletext() {
-            self.draw_teletext_character(line, usize::from(column), byte, ra);
+            self.draw_teletext_character(rows, usize::from(column), byte, ra);
             return;
         }
         // Display enable is masked by RA3, so a cell taller than eight lines
@@ -1210,7 +1255,7 @@ impl BbcMicro {
         let pixels_per_byte = self.video_ula.pixels_per_byte();
         let pixel_width = char_pixels / pixels_per_byte;
         let x0 = usize::from(column) * char_pixels;
-        let offset = line * FB_WIDTH as usize;
+        let offset = rows.start * FB_WIDTH as usize;
         let mut shiftreg = byte;
         for px in 0..pixels_per_byte {
             let colour_idx = ((shiftreg >> 4) & 0x08)
@@ -1223,6 +1268,10 @@ impl BbcMicro {
             for fb_x in x..(x + pixel_width).min(FB_WIDTH as usize) {
                 self.back_buffer[offset + fb_x] = argb;
             }
+        }
+        let x1 = (x0 + char_pixels).min(FB_WIDTH as usize);
+        if x0 < x1 {
+            self.repeat_span(rows, x0, x1);
         }
     }
 
@@ -1247,10 +1296,12 @@ impl BbcMicro {
         }
         let stage = self.cursor_stage;
         self.cursor_stage = (stage + 1) % CURSOR_STAGES;
-        let line = usize::from(self.beam_line);
-        if !self.video_ula.cursor_segment(stage) || line >= FB_HEIGHT as usize {
+        if !self.video_ula.cursor_segment(stage) {
             return;
         }
+        let Some(rows) = self.beam_rows() else {
+            return;
+        };
         let (cell, width, x_base) = if self.video_ula.teletext() {
             let Some(cell) = column.checked_sub(TELETEXT_PICTURE_DELAY) else {
                 return;
@@ -1266,9 +1317,11 @@ impl BbcMicro {
             return;
         }
         let x1 = (x0 + width).min(FB_WIDTH as usize);
-        let offset = line * FB_WIDTH as usize;
-        for argb in &mut self.back_buffer[offset + x0..offset + x1] {
-            *argb ^= 0x00FF_FFFF;
+        for row in rows {
+            let offset = row * FB_WIDTH as usize;
+            for argb in &mut self.back_buffer[offset + x0..offset + x1] {
+                *argb ^= 0x00FF_FFFF;
+            }
         }
     }
 
@@ -1284,7 +1337,13 @@ impl BbcMicro {
     /// The glyph row is the 6845's raster address. MODE 7 runs the chip in
     /// interlace sync and video mode, where each field scans every other line
     /// of a twenty-line row, so halving the address gives the ten-row glyph.
-    fn draw_teletext_character(&mut self, line: usize, column: usize, byte: u8, ra: u8) {
+    fn draw_teletext_character(
+        &mut self,
+        rows: core::ops::Range<usize>,
+        column: usize,
+        byte: u8,
+        ra: u8,
+    ) {
         if !self.crtc.display_enable || self.crtc.regs()[8] & 0x30 == 0x30 {
             return;
         }
@@ -1335,7 +1394,7 @@ impl BbcMicro {
         let fg_argb = teletext_colour(fg);
         let bg_argb = teletext_colour(bg);
         let x0 = TELETEXT_X_BASE + column * TELETEXT_CELL_WIDTH;
-        let offset = line * FB_WIDTH as usize;
+        let offset = rows.start * FB_WIDTH as usize;
         for px in 0..TELETEXT_CELL_WIDTH {
             let fb_x = x0 + px;
             if fb_x >= FB_WIDTH as usize {
@@ -1343,6 +1402,10 @@ impl BbcMicro {
             }
             let on = (pattern >> (TELETEXT_CELL_WIDTH - 1 - px)) & 1 != 0;
             self.back_buffer[offset + fb_x] = if on { fg_argb } else { bg_argb };
+        }
+        let x1 = (x0 + TELETEXT_CELL_WIDTH).min(FB_WIDTH as usize);
+        if x0 < x1 {
+            self.repeat_span(rows, x0, x1);
         }
     }
 
@@ -1363,7 +1426,7 @@ impl BbcMicro {
         pattern
     }
 
-    /// Framebuffer (640×256 ARGB32).
+    /// Framebuffer (640×512 ARGB32): both fields, woven (see [`FB_HEIGHT`]).
     #[must_use]
     pub fn framebuffer(&self) -> &[u32] {
         &self.framebuffer
@@ -2054,7 +2117,8 @@ mod tests {
         for _ in 0..3 {
             sys.run_frame();
         }
-        for y in 0..16 {
+        // Two character rows of eight lines, each line on two rows.
+        for y in 0..32 {
             for x in 0..8 {
                 assert_eq!(pixel(&sys, x, y), WHITE, "lit cell at ({x}, {y})");
             }
@@ -2097,9 +2161,9 @@ mod tests {
         for _ in 0..3 {
             sys.run_frame();
         }
-        assert_eq!(pixel(&sys, 0, 127), WHITE, "row 15 is displayed");
-        assert_eq!(pixel(&sys, 0, 128), BLANK, "row 16 is past R6");
-        assert_eq!(pixel(&sys, 320, 255), BLANK);
+        assert_eq!(pixel(&sys, 0, 255), WHITE, "row 15 is displayed");
+        assert_eq!(pixel(&sys, 0, 256), BLANK, "row 16 is past R6");
+        assert_eq!(pixel(&sys, 320, 511), BLANK);
     }
 
     /// The slow-clock modes run the 6845 at 1 MHz, so their 64-character
@@ -2124,6 +2188,14 @@ mod tests {
         }
     }
 
+    /// Run until the picture holds a whole MODE 7 frame: both of its fields,
+    /// each started after the 6845 was programmed.
+    fn run_both_fields(sys: &mut BbcMicro) {
+        for _ in 0..4 {
+            sys.run_frame();
+        }
+    }
+
     /// A glyph ROM whose `A` lights every pixel of every row and whose other
     /// glyphs are empty.
     fn font_with_a_lit() -> Vec<u8> {
@@ -2145,12 +2217,10 @@ mod tests {
         program_mode(&mut sys, crtc, 0x4B);
         sys.ram[0x7C00..0x8000].fill(b' ');
         sys.ram[0x7C28] = b'A';
-        for _ in 0..3 {
-            sys.run_frame();
-        }
+        run_both_fields(&mut sys);
         let x = TELETEXT_X_BASE;
         assert_eq!(pixel(&sys, x, 0), WHITE, "$7C28 is the top-left cell");
-        assert_eq!(pixel(&sys, x, 10), BLANK, "and not the second row's");
+        assert_eq!(pixel(&sys, x, 20), BLANK, "and not the second row's");
     }
 
     /// MODE 7's 1K screen wraps on its own: MA0-9 address it, so the row
@@ -2166,10 +2236,29 @@ mod tests {
         program_mode(&mut sys, crtc, 0x4B);
         sys.ram[0x7C00..0x8000].fill(b' ');
         sys.ram[0x7C00] = b'A';
-        for _ in 0..3 {
-            sys.run_frame();
-        }
-        assert_eq!(pixel(&sys, TELETEXT_X_BASE, 10), WHITE, "row 1 is $7C00");
+        run_both_fields(&mut sys);
+        assert_eq!(pixel(&sys, TELETEXT_X_BASE, 20), WHITE, "row 1 is $7C00");
+    }
+
+    /// MODE 7's interlace sync and video mode scans the even raster addresses
+    /// in one field and the odd ones in the next (Advanced User Guide figure
+    /// 18.2c), and the picture holds both: framebuffer row 0 is the even
+    /// field's first line and row 1 the odd field's. Before, one 256-line
+    /// field overwrote the other, so a glyph's first line filled one row.
+    #[test]
+    fn mode7_weaves_its_two_fields() {
+        let mut sys = BbcMicro::new(trap_rom());
+        let mut font = vec![0u8; 96 * 10];
+        font[usize::from(b'A' - 0x20) * 10] = 0x3F; // only the glyph's top line
+        sys.set_teletext_font(font);
+        program_mode(&mut sys, MODE7_CRTC, 0x4B);
+        sys.ram[0x7C00..0x8000].fill(b' ');
+        sys.ram[0x7C00] = b'A';
+        run_both_fields(&mut sys);
+        let x = TELETEXT_X_BASE;
+        assert_eq!(pixel(&sys, x, 0), WHITE, "the even field's line");
+        assert_eq!(pixel(&sys, x, 1), WHITE, "the odd field's line");
+        assert_eq!(pixel(&sys, x, 2), BLANK, "the glyph's second line");
     }
 
     /// Only D0-D6 reach the SAA5050, so the MOS's `CHR$129` is the
@@ -2182,9 +2271,7 @@ mod tests {
         sys.ram[0x7C00..0x8000].fill(b' ');
         sys.ram[0x7C00] = 0x81;
         sys.ram[0x7C01] = b'A';
-        for _ in 0..3 {
-            sys.run_frame();
-        }
+        run_both_fields(&mut sys);
         assert_eq!(
             pixel(&sys, TELETEXT_X_BASE + TELETEXT_CELL_WIDTH, 0),
             0xFFFF_0000,
@@ -2237,7 +2324,7 @@ mod tests {
         sys
     }
 
-    /// The pixels of line `y` that are white, as a run `start..end`.
+    /// The pixels of framebuffer row `y` that are white, as a run `start..end`.
     fn white_run(sys: &BbcMicro, y: usize) -> Option<(usize, usize)> {
         let lit: Vec<usize> = (0..FB_WIDTH as usize)
             .filter(|&x| pixel(sys, x, y) == WHITE)
@@ -2260,11 +2347,13 @@ mod tests {
             (0xFC, 32, "bits 7, 6 and 5: MODE 2's four bytes"),
         ] {
             let sys = mode0_with_cursor(0x00, control, 2);
-            assert_eq!(white_run(&sys, 7), Some((16, 16 + width)), "{mode}");
-            assert_eq!(white_run(&sys, 6), None, "{mode}: raster 6 has none");
+            // Raster 7 of the first row is framebuffer rows 14 and 15.
+            assert_eq!(white_run(&sys, 14), Some((16, 16 + width)), "{mode}");
+            assert_eq!(white_run(&sys, 15), Some((16, 16 + width)), "{mode}");
+            assert_eq!(white_run(&sys, 13), None, "{mode}: raster 6 has none");
         }
         let sys = mode0_with_cursor(0x00, 0x1C, 2);
-        assert_eq!(white_run(&sys, 7), None, "bits 5-7 clear hide it");
+        assert_eq!(white_run(&sys, 14), None, "bits 5-7 clear hide it");
     }
 
     /// R8 bits 6-7 delay the cursor by none, one or two characters, or turn
@@ -2273,10 +2362,10 @@ mod tests {
     fn r8_skews_the_cursor_or_turns_it_off() {
         for (skew, start) in [(0u8, 16usize), (1, 24), (2, 32)] {
             let sys = mode0_with_cursor(skew << 6, 0x9C, 2);
-            assert_eq!(white_run(&sys, 7), Some((start, start + 8)), "skew {skew}");
+            assert_eq!(white_run(&sys, 14), Some((start, start + 8)), "skew {skew}");
         }
         let sys = mode0_with_cursor(0xC0, 0x9C, 2);
-        assert_eq!(white_run(&sys, 7), None, "skew 3 disables the cursor");
+        assert_eq!(white_run(&sys, 14), None, "skew 3 disables the cursor");
     }
 
     /// R10 = `&67`, the MOS's bitmap-mode cursor, blinks with a 32-field
@@ -2289,7 +2378,7 @@ mod tests {
         let shown: Vec<bool> = (0..96)
             .map(|_| {
                 sys.run_frame();
-                white_run(&sys, 7).is_some()
+                white_run(&sys, 14).is_some()
             })
             .collect();
         let changes: Vec<usize> = (1..shown.len())
@@ -2306,7 +2395,8 @@ mod tests {
     /// MODE 7's cursor: the MOS sets a two-character skew and enables only
     /// the second segment (`&4B`), which together land it on the character
     /// the 6845 matched, three clocks on, once the SAA5050 has drawn it. With
-    /// R10/R11 = 18-19 it underlines the cell's tenth line.
+    /// R10/R11 = 18-19 it underlines the cell's tenth line: raster 18 in the
+    /// even field and 19 in the odd, framebuffer rows 18 and 19.
     #[test]
     fn the_mode7_cursor_underlines_the_matched_cell() {
         let mut sys = BbcMicro::new(trap_rom());
@@ -2319,12 +2409,11 @@ mod tests {
         sys.mem_write(0xFE01, 0x28);
         sys.mem_write(0xFE00, 15);
         sys.mem_write(0xFE01, 0x05); // the sixth cell of row 0
-        for _ in 0..3 {
-            sys.run_frame();
-        }
+        run_both_fields(&mut sys);
         let x = TELETEXT_X_BASE + 5 * TELETEXT_CELL_WIDTH;
-        assert_eq!(white_run(&sys, 9), Some((x, x + TELETEXT_CELL_WIDTH)));
-        assert_eq!(white_run(&sys, 8), None, "only the bottom line");
+        assert_eq!(white_run(&sys, 18), Some((x, x + TELETEXT_CELL_WIDTH)));
+        assert_eq!(white_run(&sys, 19), Some((x, x + TELETEXT_CELL_WIDTH)));
+        assert_eq!(white_run(&sys, 17), None, "only the bottom line");
     }
 
     // Kansas-City encoding for the cassette wiring tests.

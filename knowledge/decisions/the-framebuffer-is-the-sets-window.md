@@ -92,7 +92,9 @@ reference library answers it where it covers the part.
 - The **BBC Micro** is the same picture from its 6845: R0 gives a 128-character
   line with R1 displaying 80, and R4/R9 a 312-line frame with R6 displaying 32
   rows of 8. Neither machine has a border colour register, so what a set shows
-  outside the display is black.
+  outside the display is black. The BBC holds both fields of its interlaced
+  picture, 640×512 against 832×576, so MODE 7's character rounding shows
+  (#383); the percentages are the same.
 
 **We cropped it** — fixed where the border was already being drawn:
 
@@ -147,7 +149,8 @@ the core draws.
 | NES (NTSC) | 256×240 | 280×240 | 91% † | 100% |
 | Mattel Aquarius (PAL) | 352×232 | 369×288 | 95% † | 81% † |
 | Atari 2600 (NTSC) | 160×240 | 187×240 | 86% † | 100% |
-| BBC Micro, Electron (PAL) | 640×256 | 832×288 | 77% † | 89% † |
+| BBC Micro (PAL), both fields | 640×512 | 832×576 | 77% † | 89% † |
+| Electron (PAL) | 640×256 | 832×288 | 77% † | 89% † |
 | Oric Atmos (PAL) | 240×224 | 312×288 | 77% † | 78% † |
 | VIC-20 (PAL) | 230×288 | 231×288 | 100% | 100% |
 
