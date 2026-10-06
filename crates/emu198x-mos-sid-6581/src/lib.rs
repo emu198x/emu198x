@@ -918,6 +918,28 @@ mod tests {
     }
 
     #[test]
+    fn power_on_osc3_reads_match_the_oscinit_testprog() {
+        // VICE testprogs/SID/oscinit `allinit`, measured on real chips right
+        // after power-up: no waveform $00, noise $FE, pulse $FF, sawtooth $55,
+        // triangle $AA. Each write is followed by the program's four-cycle
+        // `LDA $D41B`.
+        for model in [SidModel::Mos6581, SidModel::Mos8580] {
+            let mut sid = Sid6581::new_with_model(985_248, 48_000, model);
+            let reads: Vec<u8> = [0x00, 0x80, 0x40, 0x20, 0x10]
+                .into_iter()
+                .map(|control| {
+                    sid.write(0x12, control);
+                    for _ in 0..4 {
+                        sid.tick();
+                    }
+                    sid.cpu_read(0x1B)
+                })
+                .collect();
+            assert_eq!(reads, [0x00, 0xFE, 0xFF, 0x55, 0xAA], "{model:?}");
+        }
+    }
+
+    #[test]
     fn osc3_read_advances_with_oscillator() {
         let mut sid = Sid6581::new(985_248, 48_000);
         sid.write(0x0E, 0xFF);
