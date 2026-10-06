@@ -42,7 +42,7 @@ outputs rather than redistributed ROMs.
 | `nestest.nes` (Kevin Horton / kevtris) | (referenced in README example) | Implicit by 20+ years of universal redistribution; no explicit grant | No — don't bundle |
 | Super Mario Bros. ROM (NES regression) | `EMU198X_NES_SMB_ROM` | Commercial, copyrighted (Nintendo) | No — never bundle |
 | Manic Miner / Jet Set Willy TZX (Spectrum regression) | `EMU198X_SPECTRUM_MANIC_MINER_TZX` / `…_JET_SET_WILLY_TZX` | Commercial (Bug-Byte / Software Projects); some titles have permissive distribution permission, varies | No — never bundle |
-| Mealybug Tearoom (mattcurrie, future use) | (env var TBD when first referenced) | MIT | Yes if we want |
+| Mealybug Tearoom PPU tests (mattcurrie) | `EMU198X_GB_MEALYBUG_ROOT` (the `ppu/` directory: ROMs plus `*_dmg_blob.png` references) | MIT | Yes if we want; currently not bundled |
 | Sinclair 48K ROM (firmware, browser builds only) | `EMU198X_SPECTRUM_48K_ROM` | Commercial (Amstrad), permitted for redistribution with emulators | Not in this repo; embedded in the published `@emu198x/zx-spectrum` wasm and in the Spectrum module of the shared web-player distribution, only as the verified unmodified image — see § Firmware in a published browser build |
 | ZEXDOC / ZEXALL | `EMU198X_ZEX_DIR` | No explicit grant; long-standing redistribution | No — referenced externally since 2026-07-04 |
 | Amiga Test Kit v1.12 | `EMU198X_AMIGA_TEST_KIT_ADF` | Public domain / Unlicense | Yes for the ADF; required Kickstart remains proprietary |

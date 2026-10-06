@@ -1425,79 +1425,102 @@ fn write_shades_png(path: &std::path::Path, shades: &[u8]) {
     writer.write_image_data(&pixels).unwrap();
 }
 
-/// Mealybug Tearoom DMG ledger. Asserts every ROM in `PASSING` renders
-/// pixel-perfect against its `_dmg_blob.png` reference (a regression guard
-/// that grows as mid-mode-3 PPU timing is tightened) and flags any ROM that
-/// newly reaches pixel-perfect so it can be promoted into `PASSING`.
+/// Mealybug Tearoom DMG gate: every ROM with a `_dmg_blob.png` reference
+/// is scored against it, and its differing-pixel count must equal the
+/// baseline below. A regression fails; so does an improvement, so the
+/// table is ratcheted down in the same change that earns it.
 ///
-/// The full set is surveyed by `diagnostic_mealybug_dmg`. Gated on the ROMs:
-/// set `EMU198X_GB_MEALYBUG_ROOT` to the mealybug `ppu/` dir, run `--ignored`.
+/// The nine non-zero rows are pixel-identical to SameBoy 1.0.3 (DMG-B,
+/// its own boot ROM): our per-dot pipeline and SameBoy disagree with
+/// the reference in exactly the same pixels. The reference PNGs come
+/// from Matt Currie's emulator; his DMG-blob hardware photo of
+/// `m3_lcdc_bg_map_change` agrees with the PNG, so these are real
+/// hardware behaviours SameBoy and Pan Docs do not yet describe — mostly
+/// LCDC/SCY writes landing while an object at X phase 2 or 4 stalls the
+/// background fetcher. `m3_lcdc_bg_en_change` and
+/// `m3_lcdc_win_en_change_multiple_wx` also differ between CPU
+/// revisions (the suite ships separate DMG-CPU B references).
+///
+/// The per-ROM survey with image dumps is `diagnostic_mealybug_dmg`.
+/// Gated on the ROMs: set `EMU198X_GB_MEALYBUG_ROOT` to the mealybug
+/// `ppu/` dir, run `--ignored`.
 #[test]
 #[ignore = "FIXTURE: needs EMU198X_GB_MEALYBUG_ROOT (mealybug ppu/ dir) — run with --ignored"]
-fn mealybug_dmg_ppu_ledger() {
-    // Pixel-perfect against the DMG reference. Grow as the PPU tightens.
-    const PASSING: &[&str] = &[
-        "m2_win_en_toggle",
-        "m3_bgp_change",
-        "m3_bgp_change_sprites",
-        "m3_lcdc_obj_en_change",
-        "m3_lcdc_obj_en_change_variant",
-        "m3_lcdc_win_en_change_multiple",
-        "m3_obp0_change",
-        "m3_scx_high_5_bits",
-        "m3_scx_low_3_bits",
-        "m3_window_timing",
-        "m3_window_timing_wx_0",
-        "m3_wx_4_change",
-        "m3_wx_4_change_sprites",
-        "m3_wx_5_change",
-        "m3_wx_6_change",
+fn mealybug_dmg_ppu_gate() {
+    /// Differing pixels against the DMG-blob reference, per ROM.
+    const BASELINE: &[(&str, usize)] = &[
+        ("m2_win_en_toggle", 0),
+        ("m3_bgp_change", 0),
+        ("m3_bgp_change_sprites", 0),
+        ("m3_lcdc_bg_en_change", 232),
+        ("m3_lcdc_bg_map_change", 192),
+        ("m3_lcdc_obj_en_change", 0),
+        ("m3_lcdc_obj_en_change_variant", 0),
+        ("m3_lcdc_obj_size_change", 15),
+        ("m3_lcdc_obj_size_change_scx", 30),
+        ("m3_lcdc_tile_sel_change", 192),
+        ("m3_lcdc_tile_sel_win_change", 178),
+        ("m3_lcdc_win_en_change_multiple", 0),
+        ("m3_lcdc_win_en_change_multiple_wx", 43),
+        ("m3_lcdc_win_map_change", 122),
+        ("m3_obp0_change", 0),
+        ("m3_scx_high_5_bits", 0),
+        ("m3_scx_low_3_bits", 0),
+        ("m3_scy_change", 627),
+        ("m3_window_timing", 0),
+        ("m3_window_timing_wx_0", 0),
+        ("m3_wx_4_change", 0),
+        ("m3_wx_4_change_sprites", 0),
+        ("m3_wx_5_change", 0),
+        ("m3_wx_6_change", 0),
     ];
 
     let root = std::env::var("EMU198X_GB_MEALYBUG_ROOT")
         .expect("set EMU198X_GB_MEALYBUG_ROOT to the mealybug ppu/ dir");
     let dir = std::path::Path::new(&root);
 
-    let diff_for = |stem: &str| -> usize {
+    // Every DMG reference on disk must have a baseline row, so a ROM
+    // cannot drop out of the gate unnoticed.
+    let mut on_disk: Vec<String> = std::fs::read_dir(dir)
+        .unwrap()
+        .flatten()
+        .filter_map(|e| {
+            let name = e.file_name().to_string_lossy().to_string();
+            name.strip_suffix("_dmg_blob.png").map(str::to_string)
+        })
+        .collect();
+    on_disk.sort();
+    let listed: Vec<String> = BASELINE.iter().map(|(s, _)| (*s).to_string()).collect();
+    assert_eq!(
+        on_disk, listed,
+        "Mealybug DMG references and BASELINE differ"
+    );
+
+    let mut mismatches = Vec::new();
+    for &(stem, expected_diff) in BASELINE {
         let rom = std::fs::read(dir.join(format!("{stem}.gb"))).unwrap();
         let (_, mut gb) = GameBoy::from_rom_with_boot_profile(rom, BootProfile::DmgAbc).unwrap();
-        run_to_ld_b_b(&mut gb, 4_000_000);
+        assert!(
+            run_to_ld_b_b(&mut gb, 4_000_000),
+            "{stem}: never reached LD B,B"
+        );
         let expected = decode_mealybug_dmg_ref(&dir.join(format!("{stem}_dmg_blob.png")));
-        gb.framebuffer()
+        let diff = gb
+            .framebuffer()
             .iter()
             .zip(&expected)
             .filter(|(a, b)| a != b)
-            .count()
-    };
-
-    let regressed: Vec<_> = PASSING
-        .iter()
-        .filter(|stem| diff_for(stem) != 0)
-        .copied()
-        .collect();
-    assert!(
-        regressed.is_empty(),
-        "mealybug DMG regressions (were pixel-perfect): {regressed:?}"
-    );
-
-    // Surface any ROM that now passes but isn't yet ledgered.
-    let mut newly_passing = Vec::new();
-    for entry in std::fs::read_dir(dir).unwrap().flatten() {
-        let path = entry.path();
-        if path.extension().is_none_or(|x| x != "gb") {
-            continue;
-        }
-        let stem = path.file_stem().unwrap().to_string_lossy().to_string();
-        if PASSING.contains(&stem.as_str()) {
-            continue;
-        }
-        if dir.join(format!("{stem}_dmg_blob.png")).exists() && diff_for(&stem) == 0 {
-            newly_passing.push(stem);
+            .count();
+        if diff != expected_diff {
+            mismatches.push(format!("{stem}: {diff} px (baseline {expected_diff})"));
         }
     }
+    let exact = BASELINE.iter().filter(|(_, d)| *d == 0).count();
     assert!(
-        newly_passing.is_empty(),
-        "mealybug DMG tests now pixel-perfect — add to PASSING: {newly_passing:?}"
+        mismatches.is_empty(),
+        "Mealybug DMG ({exact}/{} exact at baseline) changed — fix a regression or ratchet BASELINE:\n  {}",
+        BASELINE.len(),
+        mismatches.join("\n  ")
     );
 }
 
