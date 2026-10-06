@@ -7,8 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `Voice::osc3`, the value OSC3 reads, which on the 8580 differs from `Voice::output` (#1606)
+
 ### Fixed
 
+- on the 8580, OSC3 reads triangle and sawtooth one cycle late, as the chip latches them half a cycle after OSC3 samples; the DAC input is not delayed (#1606)
 - a sync source that is itself synced on the cycle its MSB rises does not sync its destination, and every sync decision reads the edges from before any sync lands instead of depending on voice order (#1606)
 - power up with the accumulator at `0x555555` and the noise register at `0x7FFFFE`, as real chips read from OSC3 straight after power-up (#1606)
 - sample the noise waveform from shift-register bits 20, 18, 14, 11, 9, 5, 2 and 0, the die-photo positions reSID 1.0 and reSIDfp use, instead of reSID 0.16's 22, 20, 16, 13, 11, 7, 4 and 2 (#1606)
