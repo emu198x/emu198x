@@ -211,6 +211,60 @@ fn osc_topbit_combined_waveforms_pull_the_6581_msb_low() {
     assert!(failures.is_empty(), "osc_topbit failures: {failures:?}");
 }
 
+/// `writedelay`: FREQ `$1000`, PW `$003`, TEST, then pulse, and OSC3 read
+/// four cycles after the write reads `$FF`. The readme: "Register writes are
+/// not delayed one cycle on the 8580, from circuit analysis the control
+/// logic looks identical on both chips". With the pulse comparator's
+/// one-cycle delay, a delayed write would read `$00`. reSID delays 8580
+/// writes only in its non-cycle-exact `SAMPLE_FAST` mode, as a stand-in for
+/// the OSC3 delay; reSIDfp never does.
+#[test]
+#[ignore = "FIXTURE: requires ~/.emu198x/roms/commodore-c64 + ~/.emu198x/test-suites/c64-sid"]
+fn writedelay_register_writes_are_not_delayed() {
+    if !staged() {
+        emu198x_test_skip::skip!("C64 ROMs or VICE SID testprogs not staged");
+    }
+    for model in [Model::C64PalBreadbin, Model::C64cPal] {
+        let mut session = run_testprog("writedelay/writedelay.prg", model, 30);
+        assert_eq!(screen(&mut session, 0), 0xFF, "OSC3 on {model:?}");
+        assert_eq!(border(&mut session), BORDER_PASS, "verdict on {model:?}");
+    }
+}
+
+/// Border colour `noiselfsrinit` leaves on success (light green is 13
+/// here, not 5).
+const NOISELFSRINIT_PASS: u8 = 13;
+
+/// `noiselfsrinit` (VICE bug #1920): clear the noise register with
+/// noise+pulse+sawtooth+triangle under TEST, shift a set pattern in with
+/// TEST pulses, then run the oscillator to a phase fixed by cycle-counted
+/// code and read noise from OSC3. `simple` prints `7F`; `scan` repeats at
+/// every `$1000`th accumulator value and compares the half period with
+/// `reference.bin`. The readme gives both as consistent across ten real
+/// 8580s. They depend on the TEST-release write-back from all four
+/// waveforms into noise alone and on the noise taps; the readings are
+/// taken with the oscillator stopped, so the shift timing does not show.
+#[test]
+#[ignore = "FIXTURE: requires ~/.emu198x/roms/commodore-c64 + ~/.emu198x/test-suites/c64-sid"]
+fn noiselfsrinit_matches_real_8580s() {
+    if !staged() {
+        emu198x_test_skip::skip!("C64 ROMs or VICE SID testprogs not staged");
+    }
+    let mut session = run_testprog("noiselfsrinit/simple.prg", Model::C64cPal, 120);
+    let printed = [screen(&mut session, 0), screen(&mut session, 1)];
+    assert_eq!(printed, [0x37, 0x06], "simple prints 7F");
+    assert_eq!(border(&mut session), NOISELFSRINIT_PASS, "simple verdict");
+
+    let dir = testprogs_dir().expect("testprog dir checked by caller");
+    let reference =
+        std::fs::read(dir.join("noiselfsrinit/reference.bin")).expect("reference.bin should read");
+    let mut session = run_testprog("noiselfsrinit/scan.prg", Model::C64cPal, 600);
+    let machine = session.machine_mut().machine_mut();
+    let scanned: Vec<u8> = (0..0x7F0_u16).map(|i| machine.peek(0x2000 + i)).collect();
+    assert_eq!(scanned, reference[..0x7F0], "scan against reference.bin");
+    assert_eq!(border(&mut session), NOISELFSRINIT_PASS, "scan verdict");
+}
+
 /// `detect`: two SID-model detection routines, each built for the 6581
 /// (`-old`) and the 8580 (`-new`). `detect-1` looks for the 8580's
 /// triangle+sawtooth combination reaching OSC3 bit 7; `detect-2` starts the
