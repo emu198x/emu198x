@@ -114,6 +114,12 @@ improves its targeted case and preserves stronger gates, but an unexplained
 change in another indexed-plane hash remains a regression or a new
 disagreement to classify.
 
+To time CPU stores in VICE or capture a VICE frame headlessly, use the method
+recorded in
+[Stage 3a of the closure campaign](../decisions/c64-accuracy-closure-campaign.md#reproducing-the-evidence).
+The VICE monitor's line and cycle come from the CPU clock, so compare them
+only within one run.
+
 Vendored VICE 3.10 may explain an implementation technique. Hoxs64,
 VirtualC64 and MiSTer may provide additional independent evidence. Structural
 similarity does not make any implementation the specification.
