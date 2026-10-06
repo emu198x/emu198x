@@ -6,25 +6,24 @@ Format loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 not strictly. Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [0.28.0] - 2026-10-06
 
+### Highlights
 
-### Added
+- **C64C grey dot.** The PAL and NTSC C64C now use the HMOS-II VIC-II (8565/8562), which shows one light-grey dot where a colour register changes; VICE's `greydot` matches exactly on both chips, and 13 more of VICE's C64C test programs now match where none did (#796)
+- **Game Boy mid-scanline timing reaches 23 of 24 Mealybug tests** against the DMG-CPU B the emulator models, using the gate-level GateBoy simulation as a second reference (#316)
+- **BBC Micro teletext.** MODE 7 has the SAA5050's character rounding, double height, flashing and concealed text, with hold-graphics fixes; the BBC picture now holds both interlaced fields (#383)
 
-- *(bbc)* Show both fields of the interlaced picture, 640×512
-- *(bbc)* Round, double, flash and conceal MODE 7 text as the SAA5050 does
+### Changed
 
+- The BBC Micro's picture is 640×512 (both interlaced fields) and its window opens at scale 1, the same size relationship as the Amiga's
+- The `emu198x-mos-sid-6581` crate changes its public API (published separately as 0.9.0): `clock_noise` must follow `clock_accumulator` on the same cycle, and `set_pulse_width` and `osc3` are new
+- Snapshots saved by earlier versions of the C64, BBC Micro, Master System and Game Gear no longer load, because those machines now save more state
 
 ### Fixed
 
-- Land Game Boy LCDC and SCY writes where the fetchers read them
-- Stop the Game Boy window on the fetch after WIN_EN goes low
-- *(sega-vdp)* Lose VRAM and CRAM writes that outrun the access slots, as the chip does
-- *(c64)* Show the grey dot on the C64C's 8565 and 8562 VIC-II
-- Power the SID up with reSID's accumulator and noise-register state
-- Spare a SID sync destination when its source is synced as it rises
-- Make the 8580's OSC3 read triangle and sawtooth a cycle late
-- Delay the SID pulse comparator's result by one cycle
-- Shift the SID noise register two cycles after bit 19 rises
-- Let 6581 sawtooth combinations pull the oscillator MSB low
+- *(sid)* The noise register shifts two cycles after its clock edge, the pulse comparator answers a cycle late, the 8580's OSC3 reads triangle and sawtooth a cycle late, and the chip powers up with the accumulator and noise values real SIDs show; VICE's `noisewriteback`, `oscinit`, `detect` and `osc_topbit` programs now pass (#1606)
+- *(sid)* On the 6581, sawtooth combined with another waveform pulls the accumulator's top bit low, as real chips do (#1606)
+- *(master-system)* VRAM and CRAM writes that come faster than the VDP's free memory slots are lost, as on a real Master System II; Game Gear CRAM writes are unaffected (#1614)
+- *(game-boy)* Mid-scanline writes to SCY and the LCDC fetch bits reach the background fetcher a dot earlier, and a window-off write stops the fetch on the dot the hardware does (#316)
 
 ## [0.27.2] - 2026-10-06
 
