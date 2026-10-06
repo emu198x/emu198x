@@ -12,7 +12,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::runtime::BbcMicroRuntime;
 
-// Bumped to 7: the framebuffers hold both interlaced fields, 640×512 (#383).
+// Bumped to 7: the framebuffers hold both interlaced fields, 640×512, and the
+// machine carries the SAA5050's line, row and flash state (#383).
 // At 6 the machine carried the Video ULA's cursor-sequence stage
 // (#384). At 5 the display was drawn a character at a time from the 6845, so
 // the machine carried the frame being scanned out, the beam's line and the
