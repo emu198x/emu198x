@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - sample the noise waveform from shift-register bits 20, 18, 14, 11, 9, 5, 2 and 0, the die-photo positions reSID 1.0 and reSIDfp use, instead of reSID 0.16's 22, 20, 16, 13, 11, 7, 4 and 2 (#1606)
 - 8580 combined waveforms read reSID's OSC3 samples from a real 8580 instead of ANDing the selected waveforms (#769)
 - noise combined with pulse pulls further bits down, per model, as reSID's `noise_pulse6581`/`noise_pulse8580` do (#769)
+- noise combined with another waveform writes the selector's zeros back into the noise shift register, so it locks at zero until TEST refills it; releasing TEST from a combination writes back first on the transitions real chips show (#769)
 
 ## [0.8.0] - 2026-10-06
 

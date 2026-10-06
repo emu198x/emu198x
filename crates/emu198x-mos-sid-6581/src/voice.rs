@@ -99,6 +99,10 @@ impl Voice {
     /// `writeCONTROL_REG`; the datasheet (MOS 6581, Test bit 3) only says TEST
     /// "resets and locks Oscillator 1 at zero" and resets the noise output.
     ///
+    /// Before that shift, a release from a waveform combined with noise may
+    /// first write the selector output into the register's tapped bits; see
+    /// [`writes_back_on_test_release`].
+    ///
     /// Deselecting every waveform leaves the DAC input floating: it holds its
     /// last value and then fades (see [`Self::clock_output`]).
     pub fn write_control(&mut self, value: u8, model: SidModel) {
@@ -121,6 +125,9 @@ impl Voice {
                 SidModel::Mos8580 => SHIFT_REGISTER_RESET_START_8580,
             };
         } else if test_prev && !test {
+            if writes_back_on_test_release(waveform_prev, value >> 4, model) {
+                self.write_back_noise(self.output);
+            }
             let bit0 = (!self.noise_lfsr >> 17) & 1;
             self.noise_lfsr = ((self.noise_lfsr << 1) | bit0) & NOISE_LFSR_MASK;
             self.shift_register_reset = 0;
@@ -212,8 +219,47 @@ impl Voice {
 
     /// Latch the generated waveform as the DAC input now (a control write
     /// selecting a waveform takes effect at once, as in reSID).
+    ///
+    /// With noise combined with another waveform, and TEST clear, the
+    /// selector output is also written back into the noise register (see
+    /// [`Self::write_back_noise`]).
     pub fn latch_output(&mut self, ring_mod_source_msb: bool, model: SidModel) {
         self.output = self.waveform_output(ring_mod_source_msb, model);
+        if self.control >> 4 > 0x08 && self.control & CONTROL_TEST == 0 {
+            self.write_back_noise(self.output);
+        }
+    }
+
+    /// Pull down each tapped noise-register bit whose waveform DAC input is
+    /// low.
+    ///
+    /// The waveform selector connects each noise output straight to its DAC
+    /// input, and that same node is the input of the next register bit. When
+    /// noise is combined with another waveform, a zero from the other
+    /// waveform drives the node low and overwrites the register bit; a one
+    /// leaves it alone. So the zeros accumulate, the shifts carry them up to
+    /// the feedback taps (bits 22 and 17), and the register locks at zero:
+    /// noise falls silent and stays silent, even alone, until TEST lets the
+    /// cells drift back to ones. Per reSID `wave.h` `write_shift_register`
+    /// (die-photo analysis) and reSIDfp's `get_noise_writeback`; VICE
+    /// `testprogs/SID` `noisewriteback` and `wb_testsuite` check it on real
+    /// 6581s and 8580s. Same on both models.
+    ///
+    /// reSID skips the write on the one cycle of its two-cycle shift
+    /// pipeline where the bits are latched (`shift_pipeline != 1`); this
+    /// voice shifts on the same cycle bit 19 rises (#1606), so it writes
+    /// every cycle.
+    fn write_back_noise(&mut self, output: u16) {
+        let mask = NOISE_TAPS
+            .iter()
+            .fold(NOISE_LFSR_MASK, |mask, &(reg_bit, dac_bit)| {
+                if output & (1 << dac_bit) == 0 {
+                    mask & !(1 << reg_bit)
+                } else {
+                    mask
+                }
+            });
+        self.noise_lfsr &= mask;
     }
 
     /// The waveform the generator drives this cycle, before the floating-
@@ -348,6 +394,45 @@ impl Voice {
     pub fn msb(&self) -> bool {
         self.accumulator & 0x0080_0000 != 0
     }
+}
+
+/// Whether releasing TEST, from `waveform_prev` to `waveform` (control bits
+/// 7-4), writes the selector output into the noise register before the
+/// release's shift.
+///
+/// While TEST is held the register bits are interconnected for the first
+/// phase of a shift and the output does not reach them. On release the
+/// second phase completes, and the output of a combined waveform may land
+/// in the latched bits first. Which transitions do so is measured, not
+/// derived. The rules are reSIDfp `WaveformGenerator.cpp` `do_writeback`,
+/// whose comments name the VICE `testprogs/SID` `wb_testsuite` and
+/// `noisewriteback` programs (real 6581 and 8580 samplings) each rule
+/// fixes, except for releases from noise+pulse on the 8580. There reSIDfp
+/// never writes back, but reSID `wave.cc` `do_pre_writeback` writes back
+/// into noise+triangle and noise+pulse+sawtooth, and the real-8580
+/// `wb_testsuite` programs `C_to_9_new` and `C_to_E_new` side with reSID
+/// while `C_to_A_new` agrees with both.
+const fn writes_back_on_test_release(waveform_prev: u8, waveform: u8, model: SidModel) -> bool {
+    // No combined waveform before, or no noise after.
+    if waveform_prev <= 0x8 || waveform < 0x8 {
+        return false;
+    }
+    // Back to noise alone writes back only from all four waveforms.
+    if waveform == 0x8 && waveform_prev != 0xF {
+        return false;
+    }
+    // On the 6581, a swap between triangle and sawtooth does not.
+    let swaps_tri_saw = (waveform_prev & 0x3 == 0x1 && waveform & 0x3 == 0x2)
+        || (waveform_prev & 0x3 == 0x2 && waveform & 0x3 == 0x1);
+    if matches!(model, SidModel::Mos6581) && swaps_tri_saw {
+        return false;
+    }
+    // From noise+pulse, only the 8580 into noise+triangle or
+    // noise+pulse+sawtooth; into noise+pulse, never.
+    if waveform_prev == 0xC {
+        return matches!(model, SidModel::Mos8580) && (waveform == 0x9 || waveform == 0xE);
+    }
+    waveform != 0xC
 }
 
 /// Noise combined with pulse pulls further bits down than the AND gives,
@@ -757,6 +842,141 @@ mod tests {
         // At $FC0 and above the 8580 reads $FC0.
         v.noise_lfsr = NOISE_LFSR_MASK;
         assert_eq!(v.waveform_output(false, SidModel::Mos8580), 0xFC0);
+    }
+
+    /// The register bits the noise waveform reads (see `NOISE_TAPS`).
+    const TAP_BITS: u32 =
+        (1 << 20) | (1 << 18) | (1 << 14) | (1 << 11) | (1 << 9) | (1 << 5) | (1 << 2) | 1;
+
+    #[test]
+    fn noise_combined_with_another_waveform_writes_its_zeros_back() {
+        // Triangle at accumulator 0 is zero, so noise+triangle outputs zero
+        // and pulls every tapped register bit down; untapped bits keep their
+        // value. reSID `write_shift_register`.
+        for model in [SidModel::Mos6581, SidModel::Mos8580] {
+            let mut v = Voice::new();
+            v.noise_lfsr = NOISE_LFSR_MASK;
+            v.write_control(NOISE | TRI, model);
+            v.latch_output(false, model);
+            assert_eq!(v.output(), 0);
+            assert_eq!(v.noise_lfsr, NOISE_LFSR_MASK & !TAP_BITS, "{model:?}");
+        }
+    }
+
+    #[test]
+    fn write_back_only_clears_bits_the_output_drives_low() {
+        // Sawtooth $A50 ANDed with all-ones noise ($FF0) gives $A50: DAC bits
+        // 11, 9, 6 and 4 high, so register bits 20, 14, 5 and 0 survive and
+        // 18, 11, 9 and 2 are pulled down.
+        let mut v = Voice::new();
+        v.noise_lfsr = NOISE_LFSR_MASK;
+        v.write_control(NOISE | SAW, SidModel::Mos6581);
+        v.accumulator = 0x00A5_0000;
+        v.latch_output(false, SidModel::Mos6581);
+        assert_eq!(v.output(), 0xA50);
+        let cleared = (1 << 18) | (1 << 11) | (1 << 9) | (1 << 2);
+        assert_eq!(v.noise_lfsr, NOISE_LFSR_MASK & !cleared);
+    }
+
+    #[test]
+    fn noise_alone_and_test_held_do_not_write_back() {
+        let mut v = Voice::new();
+        v.noise_lfsr = 0x0012_3456;
+        v.write_control(NOISE, SidModel::Mos6581);
+        v.latch_output(false, SidModel::Mos6581);
+        assert_eq!(v.noise_lfsr, 0x0012_3456, "noise alone");
+
+        // With TEST held the register cells are interconnected for the shift
+        // and the selector output does not reach them.
+        v.write_control(NOISE | TRI | TEST, SidModel::Mos6581);
+        v.latch_output(false, SidModel::Mos6581);
+        assert_eq!(v.output(), 0);
+        assert_eq!(v.noise_lfsr, 0x0012_3456, "TEST held");
+    }
+
+    /// Clock one voice as the SID does each cycle, without a ring or sync
+    /// source.
+    fn clock(v: &mut Voice, model: SidModel) {
+        v.clock_accumulator(model);
+        v.clock_noise();
+        v.clock_output(false, model);
+    }
+
+    #[test]
+    fn combined_noise_locks_the_register_at_zero_until_test_refills_it() {
+        for model in [SidModel::Mos6581, SidModel::Mos8580] {
+            let mut v = Voice::new();
+            v.frequency = 0x2000;
+            v.write_control(NOISE | PULSE, model);
+            v.pulse_width = 0x800;
+            // Pulse is low for half of each cycle, so every tap is pulled
+            // down; the shifts carry the zeros up until the feedback, bits
+            // 22 and 17, is zero too.
+            for _ in 0..200_000 {
+                clock(&mut v, model);
+            }
+            assert_eq!(v.noise_lfsr, 0, "{model:?} register locked at zero");
+
+            // Back to noise alone: still silent, because zero feeds back zero.
+            v.write_control(NOISE, model);
+            for _ in 0..200_000 {
+                clock(&mut v, model);
+            }
+            assert_eq!(v.noise_lfsr, 0, "{model:?} stays locked");
+            assert_eq!(v.output(), 0);
+
+            // Only TEST revives it: held long enough, the cells drift to ones
+            // and noise resumes on release.
+            v.write_control(NOISE | TEST, model);
+            let mut held = 0_u32;
+            while v.noise_lfsr != NOISE_LFSR_MASK {
+                clock(&mut v, model);
+                held += 1;
+                assert!(held < 20_000_000, "{model:?} never refilled");
+            }
+            v.write_control(NOISE, model);
+            let mut seen = 0_u16;
+            for _ in 0..200_000 {
+                clock(&mut v, model);
+                seen |= v.output();
+            }
+            assert_eq!(seen, 0xFF0, "{model:?} noise runs again");
+        }
+    }
+
+    #[test]
+    fn test_release_write_back_follows_the_measured_transitions() {
+        // Release TEST from waveform `from` (with TEST) to `to`, starting
+        // from an all-ones register, and report whether the release wrote
+        // the output's zeros back before shifting. Without a write-back the
+        // release only shifts in !bit17 = 0, giving $7FFFFE.
+        fn writes_back(from: u8, to: u8, model: SidModel) -> bool {
+            let mut v = Voice::new();
+            v.noise_lfsr = NOISE_LFSR_MASK;
+            v.write_control(from | TEST, model);
+            v.latch_output(false, model);
+            assert_ne!(v.output(), 0xFF0, "${from:02X} drives a tap low");
+            v.write_control(to, model);
+            v.noise_lfsr != 0x7F_FFFE
+        }
+        use SidModel::{Mos6581, Mos8580};
+        // No noise after: nothing to write back.
+        assert!(!writes_back(NOISE | TRI, TRI, Mos6581));
+        // Back to noise alone only from all four waveforms.
+        assert!(!writes_back(NOISE | TRI, NOISE, Mos8580));
+        assert!(writes_back(NOISE | PULSE | SAW | TRI, NOISE, Mos8580));
+        // Into noise+pulse never writes back; out of it only the 8580 into
+        // noise+triangle or noise+pulse+sawtooth.
+        assert!(!writes_back(NOISE | TRI, NOISE | PULSE, Mos8580));
+        assert!(!writes_back(NOISE | PULSE, NOISE | TRI, Mos6581));
+        assert!(writes_back(NOISE | PULSE, NOISE | TRI, Mos8580));
+        assert!(writes_back(NOISE | PULSE, NOISE | PULSE | SAW, Mos8580));
+        assert!(!writes_back(NOISE | PULSE, NOISE | SAW, Mos8580));
+        assert!(!writes_back(NOISE | PULSE, NOISE | PULSE | TRI, Mos8580));
+        // The 6581 skips swaps between triangle and sawtooth; the 8580 does not.
+        assert!(!writes_back(NOISE | TRI, NOISE | SAW, Mos6581));
+        assert!(writes_back(NOISE | TRI, NOISE | SAW, Mos8580));
+        assert!(writes_back(NOISE | SAW | TRI, NOISE | SAW | TRI, Mos6581));
     }
 
     #[test]
