@@ -11,8 +11,21 @@ use crate::combined_wave_tables::{
     COMBINED_PST_8580, COMBINED_TRI_SAW_6581, COMBINED_TRI_SAW_8580,
 };
 
-const NOISE_LFSR_SEED: u32 = 0x7F_FFFF;
 const NOISE_LFSR_MASK: u32 = 0x7F_FFFF;
+
+/// The accumulator at power-up. Its cells come up with the even bits high
+/// (all ones, with the odd bits stored inverted), and a reset leaves the
+/// accumulator alone. reSID `wave.cc` (`WaveformGenerator()`, "Accumulator's
+/// even bits are high on powerup") and reSIDfp `WaveformGenerator.h` agree;
+/// VICE `testprogs/SID/oscinit` reads sawtooth `$55` and triangle `$AA` from
+/// OSC3 on real chips right after power-up.
+const ACCUMULATOR_POWER_ON: u32 = 0x55_5555;
+
+/// The noise register at power-up. Reset sets every bit, and releasing reset
+/// clocks the register once with `bit0 = (bit22 | reset) ^ bit17 = 0`. reSID
+/// `wave.cc` `reset()` and reSIDfp `WaveformGenerator.cpp` `reset()`; VICE
+/// `testprogs/SID/oscinit` reads noise `$FE` from OSC3 on real chips.
+const NOISE_LFSR_POWER_ON: u32 = 0x7F_FFFE;
 
 const CONTROL_TEST: u8 = 0x08;
 
@@ -78,11 +91,11 @@ impl Voice {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            accumulator: 0,
+            accumulator: ACCUMULATOR_POWER_ON,
             frequency: 0,
             pulse_width: 0,
             control: 0,
-            noise_lfsr: NOISE_LFSR_SEED,
+            noise_lfsr: NOISE_LFSR_POWER_ON,
             prev_msb: false,
             shift_register_reset: 0,
             output: 0,
@@ -570,6 +583,7 @@ mod tests {
     #[test]
     fn reselecting_a_waveform_ends_the_float() {
         let mut v = Voice::new();
+        v.accumulator = 0;
         v.write_control(PULSE, SidModel::Mos6581);
         v.clock_output(false, SidModel::Mos6581);
         v.write_control(0x00, SidModel::Mos6581);
@@ -855,6 +869,7 @@ mod tests {
         // value. reSID `write_shift_register`.
         for model in [SidModel::Mos6581, SidModel::Mos8580] {
             let mut v = Voice::new();
+            v.accumulator = 0;
             v.noise_lfsr = NOISE_LFSR_MASK;
             v.write_control(NOISE | TRI, model);
             v.latch_output(false, model);
@@ -1048,7 +1063,7 @@ mod tests {
     fn noise_waveform_selects_lfsr_bits() {
         let mut v = Voice::new();
         v.control = NOISE;
-        v.noise_lfsr = NOISE_LFSR_SEED; // all ones → all sampled bits set
+        v.noise_lfsr = NOISE_LFSR_MASK; // all ones → all sampled bits set
         // Sampled into output bits 11..=4, so 0xFF0.
         assert_eq!(v.waveform_output(false, SidModel::Mos6581), 0xFF0);
     }

@@ -11,8 +11,9 @@
 //! `https://svn.code.sf.net/p/vice-emu/code/testprogs/SID/` at revision
 //! 46281, is `bitfade`, `busvalue`, `ringmod`, `osc3-wave0`, `testwave00`
 //! and `noiselfsrinit` (#777), plus `noisewriteback`, `wb_testsuite`,
-//! `wf12nsr`, `waveforms` and the `noise-reset_*.asm` includes (#769). The
-//! staging directory's `SOURCE.txt` records the same.
+//! `wf12nsr`, `waveforms` and the `noise-reset_*.asm` includes (#769), and
+//! `oscinit`, `osc_topbit`, `writedelay` and `detect` (#1606). The staging
+//! directory's `SOURCE.txt` records the same.
 
 mod common;
 
@@ -101,6 +102,25 @@ fn border(session: &mut HeadlessSession<C64Runtime, C64SessionQueryProvider>) ->
 
 fn staged() -> bool {
     roms_present() && testprogs_dir().is_some()
+}
+
+/// `oscinit/allinit`: straight after power-up, OSC3 reads `$00` with no
+/// waveform, `$FE` for noise (reset leaves the register at `0x7FFFFE`), `$FF`
+/// for pulse at PW 0, and `$55`/`$AA` for sawtooth/triangle from the
+/// accumulator's power-on `0x555555`. Measured on real chips; the program
+/// stores the five readings at `$0400`.
+#[test]
+#[ignore = "FIXTURE: requires ~/.emu198x/roms/commodore-c64 + ~/.emu198x/test-suites/c64-sid"]
+fn oscinit_reads_the_power_on_oscillator_and_noise_register() {
+    if !staged() {
+        emu198x_test_skip::skip!("C64 ROMs or VICE SID testprogs not staged");
+    }
+    for model in [Model::C64PalBreadbin, Model::C64cPal] {
+        let mut session = run_testprog("oscinit/allinit.prg", model, 30);
+        let reads: Vec<u8> = (0..5).map(|offset| screen(&mut session, offset)).collect();
+        assert_eq!(reads, [0x00, 0xFE, 0xFF, 0x55, 0xAA], "OSC3 on {model:?}");
+        assert_eq!(border(&mut session), BORDER_PASS, "verdict on {model:?}");
+    }
 }
 
 /// `osc3-wave0`: pulse with PW $FFF reads OSC3 $00, PW $000 reads $FF (the
