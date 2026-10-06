@@ -4,6 +4,28 @@ All notable changes to Emu198x will be documented in this file.
 
 Format loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 not strictly. Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [0.28.0] - 2026-10-06
+
+
+### Added
+
+- *(bbc)* Show both fields of the interlaced picture, 640×512
+- *(bbc)* Round, double, flash and conceal MODE 7 text as the SAA5050 does
+
+
+### Fixed
+
+- Land Game Boy LCDC and SCY writes where the fetchers read them
+- Stop the Game Boy window on the fetch after WIN_EN goes low
+- *(sega-vdp)* Lose VRAM and CRAM writes that outrun the access slots, as the chip does
+- *(c64)* Show the grey dot on the C64C's 8565 and 8562 VIC-II
+- Power the SID up with reSID's accumulator and noise-register state
+- Spare a SID sync destination when its source is synced as it rises
+- Make the 8580's OSC3 read triangle and sawtooth a cycle late
+- Delay the SID pulse comparator's result by one cycle
+- Shift the SID noise register two cycles after bit 19 rises
+- Let 6581 sawtooth combinations pull the oscillator MSB low
+
 ## [0.27.2] - 2026-10-06
 
 ### Highlights
