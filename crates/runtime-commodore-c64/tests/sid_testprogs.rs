@@ -3,9 +3,16 @@
 //! The programs come from VICE's `testprogs/SID/` tree (external,
 //! env-gated, staged under `~/.emu198x/test-suites/c64-sid/` or
 //! `EMU198X_C64_SID_TESTPROGS_DIR`). Each one boots, pokes the SID, and leaves
-//! its readings in screen RAM and its verdict in the border colour: light
-//! green (5) for pass, red (2) for fail. Their expected values were measured
-//! on real 6581 and 8580 chips; see each program's `readme.txt`.
+//! its readings in screen RAM and, mostly, its verdict in the border colour:
+//! light green (5) for pass, red (2) for fail. Their expected values were
+//! measured on real 6581 and 8580 chips; see each program's `readme.txt`.
+//!
+//! Staging: the subset in use, fetched from
+//! `https://svn.code.sf.net/p/vice-emu/code/testprogs/SID/` at revision
+//! 46281, is `bitfade`, `busvalue`, `ringmod`, `osc3-wave0`, `testwave00`
+//! and `noiselfsrinit` (#777), plus `noisewriteback`, `wb_testsuite`,
+//! `wf12nsr`, `waveforms` and the `noise-reset_*.asm` includes (#769). The
+//! staging directory's `SOURCE.txt` records the same.
 
 mod common;
 
@@ -218,5 +225,215 @@ fn bitfade_delays_match_the_model_hold_times() {
     assert!(
         (2_519_864..=2_519_864 + 21 * 315_000).contains(&delay),
         "8580 noise drift {delay}"
+    );
+}
+
+/// The SID model a testprog build targets: `_old`/`-old` builds carry 6581
+/// reference values (C64 breadbin), `_new`/`-new` and `-8580` builds 8580
+/// values (C64C).
+fn model_for(prg: &str) -> Model {
+    if prg.contains("new") || prg.contains("8580") {
+        Model::C64cPal
+    } else {
+        Model::C64PalBreadbin
+    }
+}
+
+/// Run every `.prg` in `dir` (relative to the testprog dir) whose name
+/// starts with `prefix`, on the model its name targets, and return the
+/// names whose border verdict is not a pass.
+fn failing_border_verdicts(dir: &str, prefix: &str, frames: u32) -> (usize, Vec<String>) {
+    let root = testprogs_dir().expect("testprog dir checked by caller");
+    let mut names: Vec<String> = std::fs::read_dir(root.join(dir))
+        .expect("testprog subdirectory should list")
+        .filter_map(|entry| entry.ok()?.file_name().into_string().ok())
+        .filter(|name| name.starts_with(prefix) && name.ends_with(".prg"))
+        .collect();
+    names.sort();
+    assert!(!names.is_empty(), "no {prefix}*.prg in {dir}");
+    let failures = names
+        .iter()
+        .filter_map(|name| {
+            let mut session = run_testprog(&format!("{dir}/{name}"), model_for(name), frames);
+            (border(&mut session) != BORDER_PASS).then(|| name.clone())
+        })
+        .collect();
+    (names.len(), failures)
+}
+
+/// `wb_testsuite`: reset the noise register to all ones, select waveform X
+/// with TEST, release TEST into waveform Y (both including noise), then
+/// shift with TEST pulses and compare OSC3 with readings from real 6581s
+/// (`_old`) and 8580s (`_new`). Exercises the combined-waveform write-back
+/// into the noise register, both while a combination is selected and on
+/// the TEST release, and the noise taps.
+///
+/// 100 of the 110 programs pass. The ten that fail are a strict residual;
+/// VICE 3.10's reSID fails all ten too (and nine more). Seven are 6581
+/// releases into noise+pulse (`C`): reSIDfp notes that skipping the
+/// write-back while noise+pulse is selected fixes four of them but breaks
+/// `wf12nsr`, which this emulation passes on the 6581. `F_to_8_old`
+/// is the one transition reSIDfp's rule set gives up to pass the
+/// `noiselfsrinit` programs. `D_to_E_old` and `C_to_F_new` are unexplained
+/// in both references.
+#[test]
+#[ignore = "FIXTURE: requires ~/.emu198x/roms/commodore-c64 + ~/.emu198x/test-suites/c64-sid"]
+fn wb_testsuite_noise_write_back_matches_real_chips() {
+    if !staged() {
+        emu198x_test_skip::skip!("C64 ROMs or VICE SID testprogs not staged");
+    }
+    let (count, failures) = failing_border_verdicts("wb_testsuite", "noise_writeback_check_", 60);
+    assert_eq!(count, 110, "wb_testsuite programs staged");
+    assert_eq!(
+        failures,
+        [
+            "noise_writeback_check_8_to_C_old.prg",
+            "noise_writeback_check_9_to_C_old.prg",
+            "noise_writeback_check_A_to_C_old.prg",
+            "noise_writeback_check_C_to_C_old.prg",
+            "noise_writeback_check_C_to_F_new.prg",
+            "noise_writeback_check_D_to_C_old.prg",
+            "noise_writeback_check_D_to_E_old.prg",
+            "noise_writeback_check_E_to_C_old.prg",
+            "noise_writeback_check_F_to_8_old.prg",
+            "noise_writeback_check_F_to_C_old.prg",
+        ],
+        "wb_testsuite residual"
+    );
+}
+
+/// `noisewriteback/noise_writeback_test1` and `test2` (6581 `-old` and 8580
+/// `-new` builds): with the noise register full, release TEST from
+/// noise+triangle into noise alone and read OSC3 `$FE` twice (no write-back
+/// on that release); and release it from no waveform into noise+triangle,
+/// read `$00` (the write-back follows the shift), then start the oscillator
+/// and read the shifted-in ones. The directory's older
+/// `noise_writeback_check_*` programs are superseded by `wb_testsuite`.
+///
+/// `test2`'s second reading stays open: it lands on the cycle reSID's
+/// two-cycle shift pipeline completes a shift, before the selector can
+/// write zeros back. This voice shifts as bit 19 rises, so by the read two
+/// write-back cycles have cleared the new ones and OSC3 reads `$10` where
+/// the chips read `$14` (6581) and `$12` (8580). See #1606.
+#[test]
+#[ignore = "FIXTURE: requires ~/.emu198x/roms/commodore-c64 + ~/.emu198x/test-suites/c64-sid"]
+fn noisewriteback_tests_match_real_chips() {
+    if !staged() {
+        emu198x_test_skip::skip!("C64 ROMs or VICE SID testprogs not staged");
+    }
+    for prg in [
+        "noise_writeback_test1-old.prg",
+        "noise_writeback_test1-new.prg",
+    ] {
+        let mut session = run_testprog(&format!("noisewriteback/{prg}"), model_for(prg), 900);
+        assert_eq!(screen(&mut session, 0), 0xFE, "{prg} first read");
+        assert_eq!(screen(&mut session, 1), 0xFE, "{prg} second read");
+        assert_eq!(border(&mut session), BORDER_PASS, "{prg} verdict");
+    }
+    for prg in [
+        "noise_writeback_test2-old.prg",
+        "noise_writeback_test2-new.prg",
+    ] {
+        let mut session = run_testprog(&format!("noisewriteback/{prg}"), model_for(prg), 900);
+        assert_eq!(screen(&mut session, 0), 0x00, "{prg} first read");
+        assert_eq!(
+            screen(&mut session, 1),
+            0x10,
+            "{prg} second read: the known shift-pipeline residual (#1606)"
+        );
+    }
+}
+
+/// `wf12nsr`: for each waveform with noise, reset the register, read OSC3
+/// with TEST, without it and with it again, then read noise alone as it
+/// shifts, against readings from a real 6581 (`wf12nsr.prg`) and 8580
+/// (`wf12nsr-8580.prg`). It checks the noise+pulse pull-down, which reads
+/// `$FC` (252) with TEST held, and the write-back each combination leaves.
+///
+/// The 6581 build matches all 1000 cells. The 8580 build differs in two:
+/// noise+pulse over a full register reads `$FC` where the chip reads `$F8`.
+/// That is reSID's `noise_pulse8580` value; VICE's reSID fails the same
+/// build.
+#[test]
+#[ignore = "FIXTURE: requires ~/.emu198x/roms/commodore-c64 + ~/.emu198x/test-suites/c64-sid"]
+fn wf12nsr_noise_combinations_match_real_chips() {
+    if !staged() {
+        emu198x_test_skip::skip!("C64 ROMs or VICE SID testprogs not staged");
+    }
+    // Each reset waits for the TEST drift to refill the register, which
+    // takes about 9.1 million cycles on the 8580.
+    let mut session = run_testprog("wf12nsr/wf12nsr.prg", Model::C64PalBreadbin, 2000);
+    assert_eq!(border(&mut session), BORDER_PASS, "6581 verdict");
+
+    let mut session = run_testprog("wf12nsr/wf12nsr-8580.prg", Model::C64cPal, 8000);
+    let machine = session.machine_mut().machine_mut();
+    // The program colours each cell red ($2) where it differs from the
+    // reference.
+    let colours: Vec<u8> = (0..1000_u16)
+        .map(|cell| machine.cpu_read(0xD800 + cell))
+        .collect();
+    let mismatches: Vec<(u16, u8)> = (0..1000_u16)
+        .filter(|&cell| colours[usize::from(cell)] & 0x0F == 2)
+        .map(|cell| (cell, machine.peek(0x0400 + cell)))
+        .collect();
+    assert_eq!(
+        mismatches,
+        [(12 * 40 + 1, 0xFC), (12 * 40 + 2, 0xFC)],
+        "8580: only noise+pulse over a full register differs ($F8 on the chip)"
+    );
+}
+
+/// Agreement, out of 256 OSC3 samples one cycle apart, between this
+/// emulation and the readings `waveforms.asm` recorded from a real 6581 and
+/// 8580 (gpz's C64 and C64C), for each waveform 0-7. The interactive build
+/// samples every waveform before it waits for a key, storing its readings
+/// at `$5000 + 256 * waveform` beside the reference at `$4000 + 256 *
+/// waveform`. `lag` compares each sample with the reference one cycle
+/// later.
+fn waveform_agreement(prg: &str, model: Model, lag: u16) -> [usize; 8] {
+    let mut session = run_testprog(prg, model, 50);
+    // `currtest` ($FC) counts up through the waveforms; stop once 0-7 are in.
+    let mut frames = 0;
+    while session.machine_mut().machine_mut().peek(0xFC) < 8 {
+        session.run_frames(50).expect("testprog should run");
+        frames += 50;
+        assert!(frames < 2000, "waveforms 0-7 never finished on {model:?}");
+    }
+    let machine = session.machine_mut().machine_mut();
+    std::array::from_fn(|wave| {
+        let base = wave as u16 * 256;
+        (0..256 - lag)
+            .filter(|&i| machine.peek(0x5000 + base + i) == machine.peek(0x4000 + base + i + lag))
+            .count()
+    })
+}
+
+/// `waveforms`: combined waveforms against OSC3 readings from real chips.
+/// These are different chips from the ones reSID's tables were sampled on,
+/// and the readme warns combined waveforms vary between chips and drift, so
+/// the counts are a strict record of agreement, not a pass mark.
+///
+/// The 6581 matches triangle and sawtooth exactly. On the 8580 every
+/// waveform with triangle or sawtooth reads one cycle late on the chip
+/// (its half-cycle OSC3 delay, #1606), so it is compared one cycle on; the
+/// single waveforms then match exactly. Pulse is one sample off on both
+/// (the unmodelled one-cycle comparator delay, #1606).
+#[test]
+#[ignore = "FIXTURE: requires ~/.emu198x/roms/commodore-c64 + ~/.emu198x/test-suites/c64-sid"]
+fn waveforms_combined_agree_with_real_chips() {
+    if !staged() {
+        emu198x_test_skip::skip!("C64 ROMs or VICE SID testprogs not staged");
+    }
+    let agreement = waveform_agreement("waveforms/waveforms-6581.prg", Model::C64PalBreadbin, 0);
+    assert_eq!(
+        agreement,
+        [256, 256, 256, 242, 254, 245, 136, 253],
+        "6581 agreement per waveform 0-7"
+    );
+    let agreement = waveform_agreement("waveforms/waveforms-8580.prg", Model::C64cPal, 1);
+    assert_eq!(
+        agreement,
+        [255, 255, 255, 215, 255, 251, 182, 242],
+        "8580 agreement per waveform 0-7, one cycle on"
     );
 }
