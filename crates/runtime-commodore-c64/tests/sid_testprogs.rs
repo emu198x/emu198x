@@ -455,9 +455,9 @@ fn waveform_agreement(prg: &str, model: Model) -> [usize; 8] {
 /// and the readme warns combined waveforms vary between chips and drift, so
 /// the counts are a strict record of agreement, not a pass mark.
 ///
-/// Both models match triangle and sawtooth exactly; on the 8580 that
-/// depends on OSC3 reading them a cycle late. Pulse is one sample off on
-/// both (the unmodelled one-cycle comparator delay, #1606).
+/// Both models match triangle, sawtooth and pulse exactly; on the 8580
+/// that depends on OSC3 reading triangle and sawtooth a cycle late, and on
+/// both on the pulse comparator's one-cycle delay.
 #[test]
 #[ignore = "FIXTURE: requires ~/.emu198x/roms/commodore-c64 + ~/.emu198x/test-suites/c64-sid"]
 fn waveforms_combined_agree_with_real_chips() {
@@ -467,13 +467,13 @@ fn waveforms_combined_agree_with_real_chips() {
     let agreement = waveform_agreement("waveforms/waveforms-6581.prg", Model::C64PalBreadbin);
     assert_eq!(
         agreement,
-        [256, 256, 256, 242, 254, 245, 136, 253],
+        [256, 256, 256, 242, 256, 246, 136, 253],
         "6581 agreement per waveform 0-7"
     );
     let agreement = waveform_agreement("waveforms/waveforms-8580.prg", Model::C64cPal);
     assert_eq!(
         agreement,
-        [256, 256, 256, 216, 254, 251, 182, 241],
+        [256, 256, 256, 216, 256, 252, 183, 243],
         "8580 agreement per waveform 0-7"
     );
 }

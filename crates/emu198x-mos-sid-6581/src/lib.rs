@@ -430,12 +430,13 @@ impl Sid6581 {
                     (self.voices[0].frequency & 0x00FF) | (u16::from(value) << 8);
             }
             0x02 => {
-                self.voices[0].pulse_width =
-                    (self.voices[0].pulse_width & 0x0F00) | u16::from(value);
+                let pulse_width = (self.voices[0].pulse_width & 0x0F00) | u16::from(value);
+                self.voices[0].set_pulse_width(pulse_width);
             }
             0x03 => {
-                self.voices[0].pulse_width =
+                let pulse_width =
                     (self.voices[0].pulse_width & 0x00FF) | ((u16::from(value) & 0x0F) << 8);
+                self.voices[0].set_pulse_width(pulse_width);
             }
             0x04 => self.write_control(0, value),
             0x05 => {
@@ -454,12 +455,13 @@ impl Sid6581 {
                     (self.voices[1].frequency & 0x00FF) | (u16::from(value) << 8);
             }
             0x09 => {
-                self.voices[1].pulse_width =
-                    (self.voices[1].pulse_width & 0x0F00) | u16::from(value);
+                let pulse_width = (self.voices[1].pulse_width & 0x0F00) | u16::from(value);
+                self.voices[1].set_pulse_width(pulse_width);
             }
             0x0A => {
-                self.voices[1].pulse_width =
+                let pulse_width =
                     (self.voices[1].pulse_width & 0x00FF) | ((u16::from(value) & 0x0F) << 8);
+                self.voices[1].set_pulse_width(pulse_width);
             }
             0x0B => self.write_control(1, value),
             0x0C => {
@@ -478,12 +480,13 @@ impl Sid6581 {
                     (self.voices[2].frequency & 0x00FF) | (u16::from(value) << 8);
             }
             0x10 => {
-                self.voices[2].pulse_width =
-                    (self.voices[2].pulse_width & 0x0F00) | u16::from(value);
+                let pulse_width = (self.voices[2].pulse_width & 0x0F00) | u16::from(value);
+                self.voices[2].set_pulse_width(pulse_width);
             }
             0x11 => {
-                self.voices[2].pulse_width =
+                let pulse_width =
                     (self.voices[2].pulse_width & 0x00FF) | ((u16::from(value) & 0x0F) << 8);
+                self.voices[2].set_pulse_width(pulse_width);
             }
             0x12 => self.write_control(2, value),
             0x13 => {
@@ -979,6 +982,30 @@ mod tests {
             }
             assert_eq!(sid.cpu_read(0x1B), expected, "{model:?} OSC3");
             assert_eq!(sid.voices[2].output(), 0x03F, "{model:?} DAC input");
+        }
+    }
+
+    #[test]
+    fn pulse_comparator_reaches_osc3_one_cycle_late() {
+        // reSID `wave.h` `set_waveform_output`: "The result of the pulse width
+        // compare is delayed one cycle." From TEST release at accumulator 0,
+        // with FREQ $1000 and PW 3, the compare goes high on the third cycle
+        // and the output follows on the fourth. VICE testprogs/SID/writedelay
+        // reads OSC3 $FF on the fourth cycle on real chips.
+        for model in [SidModel::Mos6581, SidModel::Mos8580] {
+            let mut sid = Sid6581::new_with_model(985_248, 48_000, model);
+            sid.write(0x0F, 0x10); // voice 3 FREQ $1000
+            sid.write(0x10, 0x03); // voice 3 PW $003
+            sid.write(0x12, 0x08); // TEST
+            sid.tick();
+            sid.write(0x12, 0x41); // pulse, TEST released
+            let reads: Vec<u8> = (0..5)
+                .map(|_| {
+                    sid.tick();
+                    sid.cpu_read(0x1B)
+                })
+                .collect();
+            assert_eq!(reads, [0x00, 0x00, 0x00, 0xFF, 0xFF], "{model:?}");
         }
     }
 
