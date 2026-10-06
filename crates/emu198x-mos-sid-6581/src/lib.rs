@@ -521,14 +521,24 @@ impl Sid6581 {
             voice.clock_noise();
         }
 
-        if self.voices[0].control & 0x02 != 0 {
-            self.voices[0].apply_sync(prev_msb[2], self.voices[2].msb());
-        }
-        if self.voices[1].control & 0x02 != 0 {
-            self.voices[1].apply_sync(prev_msb[0], self.voices[0].msb());
-        }
-        if self.voices[2].control & 0x02 != 0 {
-            self.voices[2].apply_sync(prev_msb[1], self.voices[1].msb());
+        // Hard sync zeros a voice whose source's MSB rose this cycle, unless
+        // the source is itself being synced on the same cycle: then the
+        // destination is not synced. The voices run in parallel, so every
+        // decision reads the edges from before any sync lands. reSID `wave.h`
+        // `synchronize` ("verified by sampling OSC3"), reSIDfp alike.
+        let msb_rising: [bool; 3] =
+            std::array::from_fn(|index| !prev_msb[index] && self.voices[index].msb());
+        let syncs = |index: usize| self.voices[index].control & 0x02 != 0;
+        let synced: [bool; 3] = std::array::from_fn(|dest| {
+            let source = Self::SOURCE_VOICE[dest];
+            syncs(dest)
+                && msb_rising[source]
+                && !(syncs(source) && msb_rising[Self::SOURCE_VOICE[source]])
+        });
+        for (voice, synced) in self.voices.iter_mut().zip(synced) {
+            if synced {
+                voice.accumulator = 0;
+            }
         }
 
         for index in 0..3 {
@@ -915,6 +925,39 @@ mod tests {
             }
             assert_eq!(sid.cpu_read(0x1B), 0x00, "{model:?} faded");
         }
+    }
+
+    /// Voices 2 and 3 rise on the same cycle; voice 3 syncs to voice 2 and
+    /// voice 1 to voice 3. `voice2_rises` controls whether voice 2's MSB
+    /// rises too. Returns the accumulators of voices 1 and 3 after the tick.
+    fn sync_chain_tick(voice2_rises: bool) -> (u32, u32) {
+        let mut sid = Sid6581::new(985_248, 48_000);
+        sid.write(0x04, 0x22); // voice 1: sawtooth, synced to voice 3
+        sid.write(0x07, 0x01); // voice 2: frequency 1
+        sid.write(0x0E, 0x01); // voice 3: frequency 1
+        sid.write(0x12, 0x22); // voice 3: sawtooth, synced to voice 2
+        sid.voices[0].accumulator = 0x10_0000;
+        sid.voices[1].accumulator = if voice2_rises { 0x7F_FFFF } else { 0x10_0000 };
+        sid.voices[2].accumulator = 0x7F_FFFF;
+        sid.tick();
+        (sid.voices[0].accumulator, sid.voices[2].accumulator)
+    }
+
+    #[test]
+    fn a_sync_source_synced_on_its_msb_rise_does_not_sync_its_destination() {
+        // reSID `wave.h` `synchronize`, "verified by sampling OSC3": when a
+        // sync source is itself synced on the cycle its MSB rises, its
+        // destination is not synced. reSIDfp `WaveformGenerator.cpp` agrees.
+        let (voice1, voice3) = sync_chain_tick(true);
+        assert_eq!(voice3, 0, "voice 2's rising MSB syncs voice 3");
+        assert_eq!(
+            voice1, 0x10_0000,
+            "voice 3, synced as it rose, spares voice 1"
+        );
+
+        let (voice1, voice3) = sync_chain_tick(false);
+        assert_eq!(voice3, 0x80_0000, "voice 3 runs on");
+        assert_eq!(voice1, 0, "voice 3's rising MSB syncs voice 1");
     }
 
     #[test]
