@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-10-06
+
 ### Changed
 
 - **Breaking:** `Voice::clock_accumulator` takes the `SidModel`, and `Voice` carries private waveform-generator state, so it can no longer be built with a struct literal; use `Voice::new`. Control-register writes go through the new `Voice::write_control` to apply the TEST edges (#777)
@@ -15,7 +17,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `Voice::output`, `Voice::clock_output` and `Voice::latch_output`, the latched waveform DAC input (#777)
 - `Sid6581::cpu_read`, the CPU read path that drives the SID data bus; `Sid6581::read` stays side-effect-free (#777)
-- allocation-free reusable mixed and per-voice audio drains for real-time consumers
 
 ### Fixed
 
@@ -25,6 +26,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - holding TEST drifts the noise register to all ones over reSID's per-model delay instead of reseeding it every cycle, and releasing TEST shifts it once (#777)
 - reads of write-only and undecoded registers return the last byte on the SID data bus, which discharges to zero after $1D00 (6581) or $A2000 (8580) cycles (#777)
 - deselecting every waveform leaves the waveform DAC input floating: it holds its last value, which OSC3 reads, and fades bit by bit after about 200 ms (6581) or 5 s (8580) instead of dropping to zero (#777)
+
+## [0.7.0] - 2026-08-31
+
+### Added
+
+- allocation-free reusable mixed and per-voice audio drains for real-time consumers
 
 ## [0.2.0](https://github.com/emu198x/emu198x/releases/tag/mos-sid-6581-v0.2.0) - 2026-06-04
 
