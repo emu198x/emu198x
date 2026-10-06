@@ -211,12 +211,13 @@ fn snapshot_round_trip_preserves_exhausted_late_badline_window() {
         .expect("blank C64 firmware should construct a runtime");
     let machine = runtime.machine_mut();
     machine.cpu_write(0xD011, 0x11); // DEN on; line $30 is not initially bad
-    while machine.raster_line() != 0x30 || machine.cycle_in_line() != 53 {
+    // A write in cycle 54, the latest that keeps one matrix access.
+    while machine.raster_line() != 0x30 || machine.cycle_in_line() != 55 {
         machine.tick();
     }
 
     machine.cpu_write(0xD011, 0x10);
-    assert_eq!(machine.vic().pending_d011_write_cycle(), Some(53));
+    assert_eq!(machine.vic().pending_d011_write_cycle(), Some(54));
     let pending_snapshot = runtime
         .snapshot()
         .expect("pending late-badline write should snapshot");
@@ -226,7 +227,7 @@ fn snapshot_round_trip_preserves_exhausted_late_badline_window() {
         .expect("pending late-badline write should restore");
     assert_eq!(
         restored.machine().vic().pending_d011_write_cycle(),
-        Some(53)
+        Some(54)
     );
 
     restored.machine_mut().tick();
@@ -501,11 +502,11 @@ fn restore_rejects_old_schema_before_decoding_its_payload() {
     let mut runtime = C64Runtime::from_firmware(Model::C64PalBreadbin, &blank_firmware())
         .expect("blank C64 firmware should construct a runtime");
     let err = runtime
-        .restore(&[8])
-        .expect_err("version 8 snapshot should be rejected before payload decode");
+        .restore(&[9])
+        .expect_err("version 9 snapshot should be rejected before payload decode");
     assert!(
         matches!(err, MachineError::InvalidSnapshot { ref reason }
-            if reason == "unsupported snapshot version 8; expected 9"),
+            if reason == "unsupported snapshot version 9; expected 10"),
         "unexpected error variant: {err:?}",
     );
 }
