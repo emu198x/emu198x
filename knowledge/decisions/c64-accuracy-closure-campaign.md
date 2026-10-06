@@ -128,6 +128,17 @@ XSCROLL rows. There is no strict 6567R56A comparison yet.
   for each combination; the combined-waveform tables themselves are reSID's
   OSC3 samples (6581 R1/R3/R4, 8580 R5), so that agreement crosses chips
   rather than lineage.
+- Waveform-generator timing and power-on state are checked by the same
+  suite (#1606): `oscinit` (power-on accumulator and noise register),
+  `detect` (the 8580's one-cycle-late OSC3 triangle and sawtooth),
+  `osc_topbit` (the 6581's sawtooth-combined MSB pull-down),
+  `noise_writeback_test2` (the two-cycle noise shift), `writedelay` (no
+  register-write delay on either model) and `noiselfsrinit` (real-8580
+  noise-register initialisation) all pass. Against gpz's readings, the 6581
+  matches every sample of triangle, sawtooth, pulse, pulse+sawtooth and
+  pulse+sawtooth+triangle, and the 8580 every sample of triangle, sawtooth
+  and pulse. The hard-sync special case follows reSID and reSIDfp; no
+  staged program checks it.
 
 ### Determinism and compatibility
 
@@ -248,14 +259,22 @@ Other claim boundaries remain:
 
 - CIA timer and interrupt behaviour is well exercised, but external CNT, SP
   and CIA2 FLAG sources remain approximate or unattached.
-- The SID's two-cycle noise shift pipeline, one-cycle pulse compare delay,
-  the 8580's delayed OSC3 and register writes, and the 6581's
-  sawtooth-combined MSB pull-down are not modelled (#1606). The pipeline
-  keeps `noise_writeback_test2` and the timing-sensitive OSC3 samplings
-  short of the chips. Open-bus decay, TEST drift, ring-modulation polarity
-  and the floating DAC input follow reSID since #777; combined waveforms
-  for both models, the noise taps, the noise+pulse pull-down and the
-  combined-waveform noise write-back since #769.
+- The SID's waveform generator follows reSID 1.0's cycle-exact path: open-bus
+  decay, TEST drift, ring-modulation polarity and the floating DAC input
+  since #777; combined waveforms for both models, the noise taps, the
+  noise+pulse pull-down and the combined-waveform noise write-back since
+  #769; the two-cycle noise shift, the one-cycle pulse compare, the 8580's
+  late OSC3 triangle and sawtooth, the 6581's sawtooth-combined MSB
+  pull-down, the hard-sync special case and the power-on state since #1606.
+  8580 register writes are deliberately not delayed: reSID delays them only
+  in its non-cycle-exact mode, as a stand-in for the OSC3 delay, and
+  `writedelay` measures none. Two residuals stay against real chips, as
+  they do for VICE's reSID: ten `wb_testsuite` programs, seven of them
+  6581 releases into noise+pulse, where writing back the value before the
+  noise+pulse pull-down fixes four but breaks the 6581 `wf12nsr` build;
+  and two 8580 `wf12nsr` cells, noise+pulse over a full register, which
+  read `$FC` (reSID's value) where the chip reads `$F8`. reSIDfp's guessed
+  noise+pulse model gives `$FE`, so neither reference reaches it.
 - Ultimax unmapped reads do not yet model the required open-bus behaviour.
 - Invalid matrix accesses deliberately do not update the simplified
   `last_bus_data` latch. The effect of disconnected Phi2 activity on that
@@ -695,6 +714,7 @@ evidence, or an explicit expansion of the supported configuration claim.
 | 2026-10-06 | SID waveform generator (#777) | The pulse comparator drives high while `acc >= PW` (it was inverted), ring modulation substitutes `MSB EOR NOT source-MSB` and is blocked by sawtooth, the triangle's DAC bit 0 is grounded, TEST lets the noise register drift to all ones instead of reseeding it each cycle, write-only reads return the decaying data-bus value, and a deselected waveform leaves the DAC input floating and fading. VICE `ringmod`, `busvalue`, `osc3-wave0` and `bitfade` programs pass on the 6581 and 8580 models. Snapshot version 9 carries the new state; audio routing version 5 re-captures the eight music entries' audio hashes, with every frame hash and the five silent entries unchanged. All 13 entries pass ordinary and fresh-runtime snapshot replay. |
 | 2026-10-06 | 3a. Raster-edge phase (#796) | Planned. A dot-0 colour rule matched `greydot` on both chips but left 51 wrong pixels in each `colorfetchbug` program. The cause: the CPU sees the line edge and raster IRQ 2 cycles early, and colour writes reach the screen 2 cycles late. A prototype that fixed both took `screenpos` and `videomode` to 100% and regressed `dmadelay`, `sequencer-bug` and `spritefetchbug`. Stages A-D are recorded above; A-C merge as one unit. |
 | 2026-10-06 | SID combined waveforms and noise write-back (#769) | The noise waveform reads the die-photo shift-register taps (20, 18, 14, 11, 9, 5, 2, 0), the 8580 reads reSID's sampled 8580 combined-waveform tables instead of a bitwise AND (the 6581 tables were already reSID's samples, now checked entry by entry), noise+pulse pulls bits down per model, and noise combined with another waveform writes its zeros back into the shift register, locking it until TEST refills it. VICE `wb_testsuite` passes 100 of 110 (none before; VICE 3.10's reSID passes 91), `noise_writeback_test1` and the 6581 `wf12nsr` pass, and 8580 combined-waveform agreement with real-chip OSC3 readings rises from 23/128/169/127 to 215/251/182/242 of 255. Audio routing version 6 re-captures six music entries' audio hashes, five of them from the taps alone; every frame hash is unchanged and all 13 entries pass ordinary and fresh-runtime snapshot replay. |
+| 2026-10-06 | SID waveform-generator pipelines (#1606) | The accumulator powers up at `0x555555` and the noise register at `0x7FFFFE`; hard sync spares a destination whose source is synced as its MSB rises; the 8580's OSC3 reads triangle and sawtooth a cycle late; the pulse compare reaches the output a cycle late; the noise register shifts two cycles after bit 19 rises, with no write-back during the latch phase; 6581 sawtooth combinations pull the accumulator MSB low. 8580 register writes stay undelayed, as `writedelay` measures. VICE `oscinit`, `detect`, `osc_topbit`, `noise_writeback_test2`, `writedelay` and `noiselfsrinit` pass; `wb_testsuite` and the 8580 `wf12nsr` keep their residuals. Real-chip OSC3 agreement for pulse rises to 256 of 256 on both models, 6581 pulse+saw from 136 to 256 and pulse+saw+triangle from 253 to 256. Snapshot version 13 carries the pipeline state. Audio routing version 7 re-captures all eight music entries' audio hashes and Aztec Challenge's frame hash, which follows the game's OSC3 random numbers; the other twelve frame hashes are unchanged and all 13 entries pass ordinary and fresh-runtime snapshot replay. |
 | 2026-10-06 | 3a-A. CPU-visible raster edge | The raster counter that `$D011`, `$D012`, the raster compare, the badline comparator and the vertical border read now changes on cycle 1 (cycle 2 for line 0), as VICE's does. `greydot` stores at VICE's cycles and Lorenz's 14 runnable cases still pass. Alone, A regresses the `sequencer-bug` strict lane (92.235%), as planned; it merges with B and C. |
 | 2026-10-06 | 3a-B. Write phases, sprite DMA, light pen | `$D011` and `$D017` write rules are expressed in the CPU write's own cycle: a far-edge `$D011` write in cycle 54 keeps one matrix access, and a `$D017` write in cycle 15 crunches (VICE `ChkSprCrunch`). Sprite BA follows the fetch chain's DMA bits, so sprites re-matched on lines 306-311 steal cycles as in VICE, which sets `sequencer-bug`'s main-loop phase. The light pen latches from CIA 1 port B bit 4 at VICE's X positions, which `spritefetchbug` uses to stabilise. `dmadelay` and `spritecrunch` reach 100%; `sequencer-bug`'s CPU now matches VICE store for store; its remaining 30 pixels are two colour splits drawn two cycles late, which stage C fixes. |
 | 2026-10-06 | 3a-C. Colour and border stage | Colour registers and the side border are resolved two ticks after rendering, at VICE's phase, with the 6569 dot-0 rule; sprites sit under the border; zero graphics fill the side border. With A and B, every survey program reaches 100% except `border` (93.806%), `vicii_timing` (96.774%) and `spritefetchbug` (97.226%). `sequencer-bug` and `greydot` match exactly; `colorsplit` keeps only its XSCROLL rows. Frame-routing version 8 re-captures the C64 catalogue; snapshot version 11 carries the colour stage. |

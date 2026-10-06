@@ -25,7 +25,14 @@ id = "c64"
 # changed (five from the noise taps alone, Prince of Persia from the
 # write-back as well); every frame hash and the other seven entries' audio
 # hashes stayed the same.
-audio_routing_version = 6
+# Version 7 is #1606: the power-on accumulator (0x555555) and noise
+# register (0x7FFFFE), the one-cycle pulse compare, the two-cycle noise
+# shift, the hard-sync special case and the 6581 sawtooth-combined MSB
+# pull-down. Re-captured with `catalogue capture`: all eight music entries'
+# audio hashes changed, and Aztec Challenge's frame hash too (see its
+# entry); the other twelve frame hashes and the five silent entries' audio
+# hashes stayed the same.
+audio_routing_version = 7
 # Version 8 is stage 3a of the C64 accuracy closure campaign: the CPU sees
 # the raster edge and raster IRQ on cycle 1, VIC-II write rules, sprite DMA
 # and the light pen follow VICE's cycles, and a two-tick colour stage
@@ -146,7 +153,7 @@ frame_hash = "xxh64:e0ff7f47c0d722c0"
 # Captures the in-game SID music.
 from_frame = 60
 secs = 2.0
-hash = "xxh64:2fd954eb856c21cb"
+hash = "xxh64:41ed1062c919a1f7"
 
 [[entry]]
 id = "aztec-challenge"
@@ -183,13 +190,18 @@ press = "return"
 # text on row 3 via screen_text_lines (which reads character data),
 # confirming the screen IS at player-select even though pixels
 # render with custom CHARGEN.
+# The game reads OSC3 for random numbers (six `LDA $D41B` in RAM at the
+# waypoint), so SID changes move what frame 5000 shows. At audio routing
+# version 7 it is the in-game scene, as it already was at version 6 with the
+# player elsewhere; the SID power-on state alone gives player-select, and
+# the two-cycle noise shift moves it on again.
 wait_frames = 5000
-frame_hash = "xxh64:7174aa2b7c53f47f"
+frame_hash = "xxh64:a4c39c2a29913273"
 
 [entry.audio]
 from_frame = 60
 secs = 2.0
-hash = "xxh64:a887c0c47df52ff1"
+hash = "xxh64:fca3bd061cecfc27"
 
 [[entry]]
 id = "bomb-jack"
@@ -223,7 +235,7 @@ frame_hash = "xxh64:59cbde0e3e4589d8"
 [entry.audio]
 from_frame = 60
 secs = 2.0
-hash = "xxh64:0cba0a18dd16a9a1"
+hash = "xxh64:159d43efdc569f75"
 
 [[entry]]
 id = "thing-on-a-spring"
@@ -253,7 +265,7 @@ frame_hash = "xxh64:2fbd1db2965ae043"
 # music plays here — this window is no longer silent.
 from_frame = 60
 secs = 2.0
-hash = "xxh64:4bc4ca47927dada8"
+hash = "xxh64:09f29575c23df863"
 
 [[entry]]
 id = "wizball"
@@ -301,7 +313,7 @@ frame_hash = "xxh64:c9750adda8b914ca"
 # audio assertion of any disk-loaded C64 entry.
 from_frame = 60
 secs = 2.0
-hash = "xxh64:34fcc8471bacbe6d"
+hash = "xxh64:130f69cf25735692"
 
 [[entry]]
 id = "monty-on-the-run"
@@ -344,7 +356,7 @@ frame_hash = "xxh64:72144c497bd25d98"
 # over the 2s window at the 2026-07-03 re-bless).
 from_frame = 60
 secs = 2.0
-hash = "xxh64:6e3163d1ced01328"
+hash = "xxh64:49f62b1a7dc73f69"
 
 [[entry]]
 id = "prince-of-persia"
@@ -414,7 +426,7 @@ frame_hash = "xxh64:b562e1cd4a4a3a34"
 # music plays before the boot waypoint).
 from_frame = 60
 secs = 2.0
-hash = "xxh64:c7de2216448be19f"
+hash = "xxh64:ddf6cef5c78eeed6"
 
 [[entry]]
 id = "final-cartridge-iii"
@@ -588,4 +600,4 @@ frame_hash = "xxh64:bc17af9785ca0638"
 # Samples the title screen, where Mark Cooksey's SID tune is playing.
 from_frame = 60
 secs = 2.0
-hash = "xxh64:4c678af61db57f0e"
+hash = "xxh64:06f697538ac62ded"

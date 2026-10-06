@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Advance C64 audio routing to version 7 for the SID waveform-generator
+  pipelines and power-on state in #1606, and re-capture the eight music
+  entries' audio hashes and Aztec Challenge's frame hash, which follows the
+  game's OSC3 random numbers.
 - Advance C64 frame routing to version 8 for the VIC-II raster-edge,
   write-phase and colour-stage changes (stage 3a of the C64 accuracy closure
   campaign). Re-capture five entries' frame hashes and the eight music
