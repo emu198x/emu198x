@@ -6,22 +6,27 @@ Format loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 not strictly. Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [0.27.2] - 2026-10-06
 
+### Highlights
+
+- **C64 raster timing now matches VICE.** The CPU saw each raster line change two cycles early and colour writes reached the screen two cycles late; the two errors cancelled for raster-IRQ code and hid each other. Fixed together, VICE's `screenpos`, `videomode`, `sequencer-bug`, `gfxfetch`, `spritecrunch`, `spritedma` and `greydot` test programs now match exactly, and `vicii_timing` rises from 84.7% to 96.8%. The 8565 grey dot itself follows separately (#796)
+- **Game Boy mid-scanline effects.** The PPU's pixel pipeline is modelled per dot, so writes to SCX, SCY, the palettes and LCDC land on the right pixel; Mealybug's DMG tests go from 1 of 24 to 15 of 24 (#316)
+
+### Changed
+
+- Snapshots saved by earlier versions of the C64, BBC Micro, Game Boy, ColecoVision, MSX, SG-1000, Sord M5, SV-328, Memotech MTX and Tatung Einstein no longer load, because those machines now save more state
+- Built with Rust 1.99
 
 ### Fixed
 
-- *(6845)* Blink the cursor every 16 or 32 fields, not 32 or 64
-- *(bbc)* Flash the Video ULA's flashing colours and draw the hardware cursor
-- *(bbc)* Answer the Video ULA, ROM select and VIAs across their SHEILA blocks
-- *(game-boy)* Land mid-scanline PPU register writes on the right pixel
-- *(game-boy)* Leave the boot logo and ® tile in VRAM after a skipped boot
-- *(tms9918)* Lose VRAM writes that outrun the access windows, as the chip does
-- Sample SID noise from the die-photo shift-register taps
-- Give the 8580 its sampled combined waveforms
-- Pull SID noise+pulse bits down the way each model does
-- Lock SID noise up when it is combined with another waveform
-- *(c64)* Let the CPU see the raster line change on cycle 1, as VICE does
-- *(c64)* Time VIC-II write rules, sprite DMA and the light pen as VICE does
-- *(c64)* Resolve VIC-II colours and the side border two cycles late, as VICE does
+- *(c64)* The light pen is wired to CIA 1, as programs such as VICE's `spritefetchbug` expect
+- *(c64)* Sprites re-match on lines 306–311 and `$D011`/`$D017` writes take effect on the cycle the CPU writes them
+- *(sid)* The 8580's combined waveforms come from sampled chip tables instead of a bitwise AND, and noise output reads the die-photo register taps (#769)
+- *(sid)* Combining noise with another waveform writes zeros back into the noise register, which locks it until TEST refills it, as on real chips (#769)
+- *(bbc)* The hardware cursor is drawn, at its real width in each mode and in MODE 7, and flashing colours flash (#384)
+- *(bbc)* The 6845 cursor blinks every 16 or 32 fields; it blinked at half speed
+- *(bbc)* The Video ULA, ROM select and VIAs answer across their whole SHEILA blocks, not only at their first address
+- *(game-boy)* A game that skips the boot ROM finds the Nintendo logo and ® tile in VRAM, as the real boot ROM leaves them
+- *(tms9918)* A CPU that writes to VRAM faster than the chip's access windows allow loses the write, as on hardware; this covers the ColecoVision, MSX, SG-1000, Sord M5, SV-328, Memotech MTX and Einstein (#1145)
 
 ## [0.27.1] - 2026-10-06
 
