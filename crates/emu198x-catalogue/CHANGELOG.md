@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Advance Spectrum audio routing to version 4 for the beeper mixer's
+  per-bin averaging (#1634) and the tape input released a frame after the
+  tape stops (#1633). Re-capture 50 audio hashes. 12 128K-family idle windows
+  that carried a faint ripple are now exact silence, and 38 entries with sound
+  keep the same waveform (correlation at least 0.9987). No frame hash moved.
+  Drop the known-defect labels the routing-5 re-capture left on those entries.
 - Advance Spectrum frame routing to version 5 for the Sinclair ULA fetch,
   border-gate and IRQ phases of 7e8bcd1c, and re-capture the catalogue. 31
   frame hashes and 53 audio hashes moved since the last green run

@@ -32,14 +32,20 @@
 /// clean AC swing centred on zero. `volume` default raised 0.5 → 1.0 to keep
 /// the perceived loudness of a toggling tone unchanged across the remap.
 ///
-/// **Version 3** (2026-07-22, current): 128K-family beeper, EAR and AY
-/// events use the corrected divide-by-five CPU cadence. The version remains
-/// ahead of the Spectrum catalogue manifest until affected entries have been
-/// reviewed and re-captured.
+/// **Version 3** (2026-07-22): 128K-family beeper, EAR and AY events use
+/// the corrected divide-by-five CPU cadence.
+///
+/// **Version 4** (2026-10-06, current): `BeeperAudio` divides each sample by
+/// the T-states its own bin holds instead of the mean bin width, so a held
+/// speaker level is flat rather than a ~17.6 kHz ripple (#1634). Every
+/// sample with the speaker above zero changes by up to about half a percent.
+/// The same change releases the tape EAR input a frame after the tape stops
+/// (#1633), which takes the speaker's 0.2 EAR contribution out of the idle
+/// windows of tapes that ended high.
 ///
 /// See `knowledge/decisions/spectrum-architecture-review.md` Seam 4 for
 /// the re-capture discipline this constant enforces.
-pub const AUDIO_ROUTING_VERSION: u32 = 3;
+pub const AUDIO_ROUTING_VERSION: u32 = 4;
 
 /// Combined beeper + tape-EAR speaker line state with the canonical blend
 /// ratios (0.8 for the beeper output, 0.2 for the tape EAR input).
@@ -270,11 +276,17 @@ impl BeeperAudio {
     pub fn end_frame(&mut self, out: &mut [f32]) {
         self.flush_to(self.tstates_per_frame);
 
-        let tstates_per_sample = f64::from(self.tstates_per_frame) / self.samples_per_frame as f64;
         let len = out.len().min(self.samples_per_frame);
 
         for (index, sample) in out.iter_mut().take(len).enumerate() {
-            let fraction = (f64::from(self.accum[index]) / tstates_per_sample).clamp(0.0, 1.0);
+            // Each sample averages the level over exactly the T-states its
+            // bin holds. A frame rarely divides evenly (70,908 / 882 on the
+            // 128K), so bins are 80 or 81 T-states wide; dividing every one
+            // by the mean width turned a held level into a two-value ripple
+            // (#1634). The Jupiter Ace's downsampler divides by its own tick
+            // count for the same reason.
+            let width = self.sample_start(index + 1) - self.sample_start(index);
+            let fraction = (f64::from(self.accum[index]) / f64::from(width)).clamp(0.0, 1.0);
             // Unipolar level: silence → 0, full speaker → `volume`. The real
             // speaker is AC-coupled, so a DC-blocking high-pass removes the
             // offset — silence rests at 0, a held level decays away, and a
@@ -321,6 +333,15 @@ impl BeeperAudio {
         self.audio_controls.set_channel_gain(channel, gain);
     }
 
+    /// First T-state of sample bin `index`; `index == samples_per_frame` is
+    /// the end of the frame. Integer arithmetic, so the bins tile the frame
+    /// exactly and [`Self::end_frame`] sees the same widths this fills.
+    fn sample_start(&self, index: usize) -> u32 {
+        let start =
+            index as u64 * u64::from(self.tstates_per_frame) / self.samples_per_frame as u64;
+        u32::try_from(start).unwrap_or(u32::MAX)
+    }
+
     fn flush_to(&mut self, tstate: u32) {
         let from = self.last_tstate;
         let to = tstate.min(self.tstates_per_frame);
@@ -328,14 +349,21 @@ impl BeeperAudio {
             return;
         }
 
-        let tstates_per_sample = f64::from(self.tstates_per_frame) / self.samples_per_frame as f64;
-        let start_sample = (f64::from(from) / tstates_per_sample) as usize;
-        let end_sample =
-            ((f64::from(to) / tstates_per_sample).ceil() as usize).min(self.samples_per_frame);
+        // The bin holding `from`: the floor estimate can land one bin late
+        // where the integer edges round, so start a bin early and let the
+        // overlap test skip it.
+        let estimate =
+            u64::from(from) * self.samples_per_frame as u64 / u64::from(self.tstates_per_frame);
+        let first = usize::try_from(estimate)
+            .unwrap_or(usize::MAX)
+            .saturating_sub(1);
 
-        for sample_index in start_sample..end_sample {
-            let sample_start_ts = (sample_index as f64 * tstates_per_sample) as u32;
-            let sample_end_ts = ((sample_index + 1) as f64 * tstates_per_sample) as u32;
+        for sample_index in first..self.samples_per_frame {
+            let sample_start_ts = self.sample_start(sample_index);
+            if sample_start_ts >= to {
+                break;
+            }
+            let sample_end_ts = self.sample_start(sample_index + 1);
             let overlap_start = from.max(sample_start_ts);
             let overlap_end = to.min(sample_end_ts);
 
@@ -421,6 +449,71 @@ mod tests {
                 "held level should be silent by frame 2, got {sample}"
             );
         }
+    }
+
+    /// #1634: a level held for whole frames must come out flat. Before the
+    /// fix the 80- and 81-T-state bins were both divided by the mean width,
+    /// so a held level alternated between two values the DC blocker could
+    /// not remove: about 81 LSB peak to peak at the EAR's 0.2.
+    ///
+    /// The DC blocker's f32 state settles on a constant a few millionths
+    /// above zero rather than at zero itself, so the test asks for a flat
+    /// output below one 16-bit step, not for exact zero.
+    #[test]
+    fn a_held_level_settles_to_a_flat_silence() {
+        for (tstates_per_frame, cpu_hz) in [(69_888, 3_500_000), (70_908, 3_546_900)] {
+            for level in [0.2_f32, 0.8, 1.0] {
+                let mut audio = BeeperAudio::new(44_100, tstates_per_frame, cpu_hz);
+                audio.set_volume(1.0);
+                audio.set_level(0, level);
+                let mut out = vec![0.0; audio.samples_per_frame()];
+                for _ in 0..50 {
+                    audio.end_frame(&mut out);
+                }
+                let low = out.iter().copied().fold(f32::INFINITY, f32::min);
+                let high = out.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+                assert_eq!(
+                    low, high,
+                    "level {level} held at {tstates_per_frame} T-states a frame \
+                     ripples between {low} and {high}"
+                );
+                assert!(
+                    high.abs() < 1.0 / 32_768.0,
+                    "and settles below one 16-bit step, not at {high}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn the_sample_bins_tile_the_frame_exactly() {
+        for (tstates_per_frame, cpu_hz) in [(69_888, 3_500_000), (70_908, 3_546_900)] {
+            let audio = BeeperAudio::new(44_100, tstates_per_frame, cpu_hz);
+            let bins = audio.samples_per_frame();
+            assert_eq!(audio.sample_start(0), 0);
+            assert_eq!(audio.sample_start(bins), tstates_per_frame);
+            for index in 0..bins {
+                let width = audio.sample_start(index + 1) - audio.sample_start(index);
+                assert!(width > 0, "bin {index} is empty");
+            }
+        }
+    }
+
+    /// The width a bin is divided by is the width it was filled over, so a
+    /// level held over any whole bins averages to exactly that level.
+    #[test]
+    fn a_level_change_on_a_bin_edge_fills_whole_bins_exactly() {
+        let mut audio = BeeperAudio::new(44_100, 70_908, 3_546_900);
+        audio.set_volume(1.0);
+        let edge = audio.sample_start(441);
+        audio.set_level(edge, 1.0);
+        let mut out = vec![0.0; audio.samples_per_frame()];
+        audio.end_frame(&mut out);
+        assert!(
+            out[..441].iter().all(|s| *s == 0.0),
+            "before the edge: silence"
+        );
+        assert!(out[441] > 0.99, "the first full bin carries the whole step");
     }
 
     #[test]
