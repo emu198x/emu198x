@@ -258,7 +258,12 @@ fn key(c: char) -> (usize, usize) {
         ' ' => (2, 6),
         '0' => (7, 2),
         '1' => (0, 3),
+        '2' => (1, 3),
+        '3' => (1, 1),
         '4' => (2, 1),
+        '5' => (3, 1),
+        '6' => (4, 3),
+        '7' => (4, 2),
         '8' => (5, 1),
         '9' => (6, 2),
         ',' => (6, 6),
@@ -421,4 +426,99 @@ fn a_flashing_colour_flashes_at_the_mos_rate() {
         halves.iter().all(|&n| n == 25),
         "25-field halves: {halves:?}"
     );
+}
+
+/// The MODE 7 screen row whose first byte is `code`.
+fn mode7_row_starting(sys: &BbcMicro, code: u8) -> u16 {
+    (0..25)
+        .find(|&row| sys.peek(0x7C00 + row * 40) == code)
+        .unwrap_or_else(|| panic!("no row starts with {code:#04X}: {}", mode7_text(sys)))
+}
+
+/// The pixels of one framebuffer row of MODE 7 cell (`column`, `row`), for
+/// `line` 0-19 of the cell.
+fn mode7_cell_line(sys: &BbcMicro, column: usize, row: u16, line: usize) -> Vec<u32> {
+    let width = sys.framebuffer_width() as usize;
+    let y = usize::from(row) * 20 + line;
+    let x = 80 + column * 12;
+    sys.framebuffer()[y * width + x..y * width + x + 12].to_vec()
+}
+
+#[test]
+#[ignore = "FIXTURE: needs BBC MOS + BASIC + SAA5050 ROMs — run with --ignored"]
+fn mode7_draws_double_height_and_flashing_text_from_basic() {
+    // Two lines of double height (code 141), as the MOS needs them, then a
+    // flashing line (136). Double height draws each glyph line on both
+    // fields of a cell twice as tall, so the cell's framebuffer rows come in
+    // identical pairs; in normal height a diagonal makes them differ,
+    // because character rounding draws the two lines of a dot row apart.
+    // Flashing text is hidden for 16 fields in every 64; the even field's
+    // rows show that as 16 frames hidden and 48 shown. Before #383, MODE 7
+    // drew none of this.
+    let mut sys = booted();
+    type_line(
+        &mut sys,
+        "VDU 141,66,66,67,13,10,141,66,66,67,13,10,136,70,76,65,83,72,13,10\n",
+    );
+    let top = mode7_row_starting(&sys, 0x8D);
+    assert_eq!(sys.peek(0x7C00 + (top + 1) * 40), 0x8D, "the second row");
+    let flashing = mode7_row_starting(&sys, 0x88);
+
+    for row in [top, top + 1] {
+        let lines: Vec<Vec<u32>> = (0..20).map(|y| mode7_cell_line(&sys, 1, row, y)).collect();
+        for pair in lines.chunks(2) {
+            assert_eq!(
+                pair[0], pair[1],
+                "row {row}: double height repeats each line"
+            );
+        }
+        assert!(
+            lines.iter().flatten().any(|&px| px == 0xFFFF_FFFF),
+            "row {row}: B is drawn"
+        );
+    }
+    assert_ne!(
+        (0..20)
+            .map(|y| mode7_cell_line(&sys, 1, top, y))
+            .collect::<Vec<_>>(),
+        (0..20)
+            .map(|y| mode7_cell_line(&sys, 1, top + 1, y))
+            .collect::<Vec<_>>(),
+        "the top and bottom halves differ"
+    );
+    // The banner's "C" (row 1, column 2) has diagonals at its corners.
+    let rounded = (0..20)
+        .step_by(2)
+        .any(|y| mode7_cell_line(&sys, 2, 1, y) != mode7_cell_line(&sys, 2, 1, y + 1));
+    assert!(
+        rounded,
+        "normal height: the fields draw different lines of C"
+    );
+
+    let lit = |sys: &BbcMicro, row: u16| {
+        (0..20)
+            .step_by(2)
+            .any(|y| mode7_cell_line(sys, 1, row, y).contains(&0xFFFF_FFFF))
+    };
+    let mut shown = Vec::new();
+    for _ in 0..150 {
+        sys.run_frame();
+        shown.push(lit(&sys, flashing));
+        assert!(lit(&sys, top), "double-height text does not flash");
+    }
+    let mut runs = Vec::new();
+    let mut run = 1;
+    for pair in shown.windows(2) {
+        if pair[0] == pair[1] {
+            run += 1;
+        } else {
+            runs.push((pair[0], run));
+            run = 1;
+        }
+    }
+    let whole = runs.get(1..).unwrap_or_default();
+    assert!(whole.len() >= 2, "the text flashes: {shown:?}");
+    for &(on, frames) in whole {
+        assert_eq!(frames, if on { 48 } else { 16 }, "{runs:?}");
+    }
 }

@@ -28,6 +28,8 @@
 //! - **CRTC:** Motorola 6845
 //! - **Video ULA:** Acorn custom (16-entry palette with flashing colours,
 //!   pixel rate + fast-clock selection, the cursor's width)
+//! - **Teletext:** Mullard SAA5050 character generator for MODE 7
+//!   (character rounding, double height, flash, conceal, hold graphics)
 //! - **PSG:** SN76489 @ 4 MHz, fed via System VIA + addressable
 //!   latch IC32
 //! - **VIAs:** Two MOS 6522s — System VIA at `$FE40` (sound,
@@ -69,10 +71,13 @@
 //! port B write. When bit 0 of the latch transitions low, the
 //! current ORA value is latched into the PSG.
 
+mod saa5050;
+
 use common_acorn_cassette::{CassetteEvent, CassetteReceiver, TapePulse};
 use emu198x_mos_6502::M6502;
 use mos_via_6522::Via6522;
 use motorola_6845::{Crtc6845, Crtc6845Variant};
+use saa5050::Saa5050;
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
 use ti_sn76489::{NoiseLfsr, Sn76489};
@@ -415,34 +420,6 @@ fn teletext_colour(c: u8) -> u32 {
     0xFF00_0000 | (r << 16) | (g << 8) | b
 }
 
-/// One row of a 2×3 mosaic graphics block as a 12-bit pattern. The block bits
-/// in the code are: 0 top-left, 1 top-right, 2 mid-left, 3 mid-right,
-/// 4 bottom-left, 6 bottom-right. The cell splits into a left and right half
-/// (six pixels each); separated graphics blank the cell's right and bottom
-/// edges.
-fn mosaic_pattern(code: u8, font_row: usize, separated: bool) -> u16 {
-    let (left, right, last) = match font_row {
-        0..=2 => (0x01u8, 0x02u8, 2),
-        3..=6 => (0x04, 0x08, 6),
-        _ => (0x10, 0x40, 9),
-    };
-    let mut c = 0u16;
-    if code & left != 0 {
-        c |= 0xFC0;
-    }
-    if code & right != 0 {
-        c |= 0x03F;
-    }
-    if separated {
-        // Blank the right column of each half and the block's bottom row.
-        c &= 0x3CF;
-        if font_row == last {
-            c = 0;
-        }
-    }
-    c
-}
-
 /// Motorola 6850 ACIA — the BBC's serial chip at SHEILA `$FE08`/`$FE09`
 /// (cassette + RS423). No serial peripheral is wired in this core, so the
 /// receiver never fills and the transmitter is always ready; the chip sits idle
@@ -555,43 +532,13 @@ impl Mc6850 {
     }
 }
 
-/// The SAA5050's attribute state within one scan line.
-///
-/// Teletext control codes are "set-after": each changes how the characters
-/// that follow it are drawn, and the chip starts every line from the
-/// defaults. With the display fed one character per 6845 clock, the state has
-/// to live between clocks rather than inside a loop over a row.
-#[derive(Clone, Copy, Serialize, Deserialize)]
-struct TeletextLine {
-    fg: u8,
-    bg: u8,
-    graphics: bool,
-    separated: bool,
-    hold: bool,
-    held_pattern: u16,
-}
-
-impl TeletextLine {
-    const fn new() -> Self {
-        Self {
-            fg: 7,
-            bg: 0,
-            graphics: false,
-            separated: false,
-            hold: false,
-            held_pattern: 0,
-        }
-    }
-}
-
 /// Framebuffer pixels one 6845 character occupies at the 2 MHz (fast) clock:
 /// half a microsecond of the 16 MHz dot clock. The 1 MHz clock doubles it.
 const FAST_CHAR_PIXELS: usize = 8;
 
 /// MODE 7's character cell: twelve framebuffer pixels per 6845 column, the
 /// forty columns centred in the window.
-const TELETEXT_CELL_WIDTH: usize = 12;
-const TELETEXT_CELL_HEIGHT: usize = 10;
+const TELETEXT_CELL_WIDTH: usize = saa5050::CELL_WIDTH;
 const TELETEXT_X_BASE: usize = (FB_WIDTH as usize - 40 * TELETEXT_CELL_WIDTH) / 2;
 
 /// What the Video ULA and SAA5050 put out while the 6845 is not displaying.
@@ -651,8 +598,8 @@ pub struct BbcMicro {
     /// The 6845 finished a frame; the next line it starts is line 0 of the
     /// next.
     video_frame_ended: bool,
-    /// SAA5050 attribute state for the line being scanned.
-    teletext_line: TeletextLine,
+    /// The SAA5050 teletext character generator's state.
+    saa5050: Saa5050,
     /// Where the Video ULA is in its cursor sequence: 0 idle, otherwise the
     /// stage this character clock is at (see [`VideoUla::cursor_segment`]).
     cursor_stage: u8,
@@ -727,7 +674,7 @@ impl BbcMicro {
             back_buffer: blank_frame(),
             beam_line: 0,
             video_frame_ended: true,
-            teletext_line: TeletextLine::new(),
+            saa5050: Saa5050::new(),
             cursor_stage: 0,
             cpu_cycles: 0,
             master_ticks: 0,
@@ -1127,6 +1074,10 @@ impl BbcMicro {
         // Read the column first: it names the character this tick puts out.
         let column = self.crtc.horizontal_counter();
         let frame_ended = self.crtc.tick();
+        // The SAA5050 counts lines on DISPTMG and fields on VSYNC whatever
+        // mode the Video ULA is in. R8 bits 4-5 = `11` hold DISPTMG off.
+        let disptmg = self.crtc.display_enable && self.crtc.regs()[8] & 0x30 != 0x30;
+        self.saa5050.clock_timing(disptmg, self.crtc.vsync);
         if column == 0 {
             self.start_video_line();
         }
@@ -1154,7 +1105,6 @@ impl BbcMicro {
         } else {
             self.beam_line = self.beam_line.saturating_add(1);
         }
-        self.teletext_line = TeletextLine::new();
         if let Some(rows) = self.beam_rows() {
             let width = FB_WIDTH as usize;
             self.back_buffer[rows.start * width..rows.end * width].fill(BLANK);
@@ -1325,18 +1275,14 @@ impl BbcMicro {
         }
     }
 
-    /// Feed one character to a model of the SAA5050 (MODE 7).
+    /// Feed one character to the SAA5050 (MODE 7) and draw the cell it puts
+    /// out: twelve pixels of foreground and background in the fixed 3-bit
+    /// teletext colours, not the Video ULA palette. See [`saa5050`] for how
+    /// the chip decides them.
     ///
-    /// Each column is a 12×10 cell. Control codes (`$00-$1F`) act
-    /// "set-after" — they show as a space (or the held mosaic) and change the
-    /// state used by the *following* cells. Displayable codes are either
-    /// alphanumeric glyphs from the character ROM or 2×3 mosaic blocks while in
-    /// graphics mode. Colours are the fixed 3-bit teletext set, not the Video
-    /// ULA palette.
-    ///
-    /// The glyph row is the 6845's raster address. MODE 7 runs the chip in
-    /// interlace sync and video mode, where each field scans every other line
-    /// of a twenty-line row, so halving the address gives the ten-row glyph.
+    /// The character rounding select input is RA0, so in MODE 7's interlace
+    /// sync and video mode the even field draws the upper line of each pair
+    /// of glyph lines and the odd field the lower.
     fn draw_teletext_character(
         &mut self,
         rows: core::ops::Range<usize>,
@@ -1349,50 +1295,11 @@ impl BbcMicro {
         }
         // Only D0-D6 reach the SAA5050, so `$81` is the control code `$01`.
         // That is how the MOS's coloured text works; b-em masks the same way.
-        let code = byte & 0x7F;
-        let font_row = usize::from(if self.crtc.interlace_sync_and_video() {
-            ra >> 1
-        } else {
-            ra
-        });
-        let mut state = self.teletext_line;
-        let mut pattern: u16 = 0;
-        if code < 0x20 {
-            if state.hold && state.graphics {
-                pattern = state.held_pattern;
-            }
-            match code {
-                0x01..=0x07 => {
-                    state.graphics = false;
-                    state.fg = code;
-                }
-                0x11..=0x17 => {
-                    state.graphics = true;
-                    state.fg = code & 0x07;
-                }
-                0x19 => state.separated = false,
-                0x1A => state.separated = true,
-                0x1C => state.bg = 0,
-                0x1D => state.bg = state.fg,
-                0x1E => state.hold = true,
-                0x1F => state.hold = false,
-                _ => {}
-            }
-        } else if font_row >= TELETEXT_CELL_HEIGHT {
-            // A row taller than the glyph (MODE 7 without interlace) has
-            // nothing below it.
-        } else if state.graphics && (code & 0x20) != 0 {
-            // $40-$5F stay alphanumeric even in graphics mode; the rest are
-            // mosaics.
-            pattern = mosaic_pattern(code, font_row, state.separated);
-            state.held_pattern = pattern;
-        } else {
-            pattern = self.teletext_alpha(code, font_row);
-        }
-        self.teletext_line = state;
-        let (fg, bg) = (state.fg, state.bg);
-        let fg_argb = teletext_colour(fg);
-        let bg_argb = teletext_colour(bg);
+        let cell = self
+            .saa5050
+            .character(byte & 0x7F, ra & 0x01 != 0, &self.teletext_font);
+        let fg_argb = teletext_colour(cell.fg);
+        let bg_argb = teletext_colour(cell.bg);
         let x0 = TELETEXT_X_BASE + column * TELETEXT_CELL_WIDTH;
         let offset = rows.start * FB_WIDTH as usize;
         for px in 0..TELETEXT_CELL_WIDTH {
@@ -1400,30 +1307,13 @@ impl BbcMicro {
             if fb_x >= FB_WIDTH as usize {
                 break;
             }
-            let on = (pattern >> (TELETEXT_CELL_WIDTH - 1 - px)) & 1 != 0;
+            let on = (cell.pattern >> (TELETEXT_CELL_WIDTH - 1 - px)) & 1 != 0;
             self.back_buffer[offset + fb_x] = if on { fg_argb } else { bg_argb };
         }
         let x1 = (x0 + TELETEXT_CELL_WIDTH).min(FB_WIDTH as usize);
         if x0 < x1 {
             self.repeat_span(rows, x0, x1);
         }
-    }
-
-    /// One row of an alphanumeric glyph as a 12-bit pattern (the six source
-    /// columns each doubled). Font bit 0 is the rightmost pixel.
-    fn teletext_alpha(&self, code: u8, font_row: usize) -> u16 {
-        if !(0x20..0x80).contains(&code) {
-            return 0;
-        }
-        let idx = (code as usize - 0x20) * 10 + font_row;
-        let byte = self.teletext_font.get(idx).copied().unwrap_or(0);
-        let mut pattern = 0u16;
-        for c in 0..6u16 {
-            if byte & (1 << c) != 0 {
-                pattern |= 0b11 << (c * 2);
-            }
-        }
-        pattern
     }
 
     /// Framebuffer (640×512 ARGB32): both fields, woven (see [`FB_HEIGHT`]).
@@ -2277,6 +2167,181 @@ mod tests {
             0xFFFF_0000,
             "the A after CHR$129 is red"
         );
+    }
+
+    /// MODE 7 with `rows` of teletext, one string of codes per screen row,
+    /// and a font whose `A` has the dot rows `a`. Both fields are drawn.
+    fn teletext_screen(a: [u8; 10], rows: &[&[u8]]) -> BbcMicro {
+        let mut sys = BbcMicro::new(trap_rom());
+        let mut font = vec![0u8; 96 * 10];
+        let glyph = usize::from(b'A' - 0x20) * 10;
+        font[glyph..glyph + 10].copy_from_slice(&a);
+        sys.set_teletext_font(font);
+        program_mode(&mut sys, MODE7_CRTC, 0x4B);
+        sys.ram[0x7C00..0x8000].fill(b' ');
+        for (row, codes) in rows.iter().enumerate() {
+            let start = 0x7C00 + row * 40;
+            sys.ram[start..start + codes.len()].copy_from_slice(codes);
+        }
+        run_both_fields(&mut sys);
+        sys
+    }
+
+    /// Framebuffer rows of MODE 7 cell (`column`, `row`) that have any
+    /// pixel in `colour`, as offsets 0-19 from the top of the cell.
+    fn cell_rows_in(sys: &BbcMicro, column: usize, row: usize, colour: u32) -> Vec<usize> {
+        let x0 = TELETEXT_X_BASE + column * TELETEXT_CELL_WIDTH;
+        (0..20)
+            .filter(|&y| {
+                (x0..x0 + TELETEXT_CELL_WIDTH).any(|x| pixel(sys, x, row * 20 + y) == colour)
+            })
+            .collect()
+    }
+
+    /// The lit pixels of one framebuffer row of a MODE 7 cell, 0-11.
+    fn cell_line(sys: &BbcMicro, column: usize, y: usize) -> Vec<usize> {
+        let x0 = TELETEXT_X_BASE + column * TELETEXT_CELL_WIDTH;
+        (0..TELETEXT_CELL_WIDTH)
+            .filter(|&x| pixel(sys, x0 + x, y) != BLANK)
+            .collect()
+    }
+
+    /// Character rounding: a diagonal step from dot 2 on glyph row 1 to dot 3
+    /// on row 2 is smoothed by half a dot, the odd field's line of row 1
+    /// reaching towards row 2 and the even field's line of row 2 reaching
+    /// back. Before, each dot row was drawn square on whichever field came
+    /// last.
+    #[test]
+    fn mode7_rounds_diagonals_across_the_two_fields() {
+        let sys = teletext_screen([0, 0x04, 0x08, 0, 0, 0, 0, 0, 0, 0], &[b"A"]);
+        assert_eq!(cell_line(&sys, 0, 2), [6, 7], "row 1, even field");
+        assert_eq!(cell_line(&sys, 0, 3), [5, 6, 7], "row 1, odd field");
+        assert_eq!(cell_line(&sys, 0, 4), [4, 5, 6], "row 2, even field");
+        assert_eq!(cell_line(&sys, 0, 5), [4, 5], "row 2, odd field");
+    }
+
+    /// Double height (code 141, `$8D`) is set-after: the code's own cell is a
+    /// space, the characters after it draw their top half across the row,
+    /// each dot row four lines tall, and the row below draws the bottom
+    /// halves of its own double-height characters. The MOS repeats the line
+    /// to get that, as the Advanced Teletext System User Guide describes.
+    #[test]
+    fn double_height_draws_top_and_bottom_halves_on_two_rows() {
+        // Dot rows 1 and 6 lit: the top half shows row 1, the bottom row 6.
+        let a = [0, 0x3F, 0, 0, 0, 0, 0x3F, 0, 0, 0];
+        let sys = teletext_screen(a, &[b"\x8DA", b"\x8DA", b"A"]);
+        assert_eq!(
+            cell_rows_in(&sys, 0, 0, WHITE),
+            Vec::<usize>::new(),
+            "the code's cell"
+        );
+        assert_eq!(
+            cell_rows_in(&sys, 1, 0, WHITE),
+            [4, 5, 6, 7],
+            "row 1, doubled"
+        );
+        assert_eq!(
+            cell_rows_in(&sys, 1, 1, WHITE),
+            [4, 5, 6, 7],
+            "row 6, doubled"
+        );
+        assert_eq!(
+            cell_rows_in(&sys, 0, 2, WHITE),
+            [2, 3, 12, 13],
+            "the next row is normal"
+        );
+    }
+
+    /// The row after a double-height row shows only double-height characters.
+    /// If it has no double-height code at all, it is blank, whatever it
+    /// holds; and normal-height characters on it are blank too.
+    #[test]
+    fn the_row_under_double_height_shows_only_double_height_characters() {
+        let a = [0x3F; 10];
+        let sys = teletext_screen(a, &[b"\x8DA", b"A A\x8DA"]);
+        assert_eq!(
+            cell_rows_in(&sys, 0, 1, WHITE),
+            Vec::<usize>::new(),
+            "normal height"
+        );
+        assert_eq!(
+            cell_rows_in(&sys, 2, 1, WHITE),
+            Vec::<usize>::new(),
+            "normal height"
+        );
+        assert_eq!(cell_rows_in(&sys, 4, 1, WHITE).len(), 20, "double height");
+
+        let sys = teletext_screen(a, &[b"\x8DA", b"A"]);
+        assert_eq!(
+            cell_rows_in(&sys, 0, 1, WHITE),
+            Vec::<usize>::new(),
+            "no code: blank"
+        );
+    }
+
+    /// Flash (136, `$88`) hides the text after it for 16 fields in every 64;
+    /// steady (137, `$89`) stops it at its own cell. Watched on the even
+    /// field's rows, which change once a frame pair.
+    #[test]
+    fn flashing_teletext_hides_for_16_fields_in_64() {
+        let mut sys = teletext_screen([0x3F; 10], &[b"\x88A\x89A"]);
+        let x = TELETEXT_X_BASE + TELETEXT_CELL_WIDTH;
+        let steady = TELETEXT_X_BASE + 3 * TELETEXT_CELL_WIDTH;
+        let mut shown = Vec::new();
+        for _ in 0..150 {
+            sys.run_frame();
+            shown.push(pixel(&sys, x, 0) == WHITE);
+            assert_eq!(pixel(&sys, steady, 0), WHITE, "the steady A never flashes");
+        }
+        // Runs of frames shown or hidden, without the partial first and last.
+        let mut runs = Vec::new();
+        let mut run = 1;
+        for pair in shown.windows(2) {
+            if pair[0] == pair[1] {
+                run += 1;
+            } else {
+                runs.push((pair[0], run));
+                run = 1;
+            }
+        }
+        let whole = runs.get(1..).unwrap_or_default();
+        assert!(whole.len() >= 2, "it flashes: {shown:?}");
+        for &(lit, frames) in whole {
+            assert_eq!(frames, if lit { 48 } else { 16 }, "{runs:?}");
+        }
+    }
+
+    /// Conceal (152, `$98`) hides what follows until a colour code, which
+    /// reveals the text after it.
+    #[test]
+    fn conceal_hides_text_until_a_colour_code() {
+        let sys = teletext_screen([0x3F; 10], &[b"\x98A\x82A"]);
+        assert_eq!(
+            cell_rows_in(&sys, 1, 0, WHITE),
+            Vec::<usize>::new(),
+            "concealed"
+        );
+        assert_eq!(
+            cell_rows_in(&sys, 3, 0, 0xFF00_FF00).len(),
+            20,
+            "green, shown"
+        );
+    }
+
+    /// Hold graphics (158, `$9E`) is set-at, so its own cell repeats the last
+    /// mosaic; and a colour change under hold is set-after, so its cell
+    /// repeats the mosaic in the old colour. Before, the hold cell was a
+    /// space and the colour cell took the new colour.
+    #[test]
+    fn hold_graphics_repeats_the_mosaic_in_its_own_colour() {
+        let sys = teletext_screen([0; 10], &[b"\x97\x7F\x9E\x91\x7F"]);
+        assert_eq!(cell_rows_in(&sys, 2, 0, WHITE).len(), 20, "the hold cell");
+        assert_eq!(
+            cell_rows_in(&sys, 3, 0, WHITE).len(),
+            20,
+            "the colour cell, still white"
+        );
+        assert_eq!(cell_rows_in(&sys, 4, 0, 0xFFFF_0000).len(), 20, "then red");
     }
 
     /// Physical colour `&08` flashes black and white: the palette stores it
