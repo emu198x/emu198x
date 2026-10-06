@@ -207,7 +207,9 @@ the historical 54 disagreements.
 
 The remaining 30 pixels consist of two dot-zero colour-register transitions
 and one 8 x 8 character outline containing 28 foreground pixels. The two dots
-belong to the unimplemented PAL 6569 colour-resolution ring. The outline is
+belong to the unimplemented PAL 6569 colour-resolution ring, which
+[Stage 3a](#stage-3a-re-phase-the-raster-edge-796) traces to the raster-edge
+phase. The outline is
 the compressed direct renderer's unresolved separation between active
 g-access/counter state and delayed visual output. An experiment that
 suppressed both hidden counter advances reached 104,446 pixels but was
@@ -267,10 +269,10 @@ Work proceeds in this order:
    `d140a36f` closes the far-edge fetch-window length, and the 2026-08-13
    correction closes the bounded C-data and hidden-output counter state. Next model
    explicit separation between the active g-access/counter stage and delayed
-   visual output required by the 28-pixel `sequencer-bug` outline, then model
-   the PAL 6569 colour-resolution ring needed by its two dot-zero pixels.
-   Classify the post-badline phase-accounting lead in `videomode`, then address
-   `vicii_timing`. Introduce explicit dot or
+   visual output required by the 28-pixel `sequencer-bug` outline. The
+   colour-resolution ring and the `videomode` lead are one fault, the
+   raster-edge phase; [Stage 3a](#stage-3a-re-phase-the-raster-edge-796)
+   plans it. Then address `vicii_timing`. Introduce explicit dot or
    Phi1/Phi2 stages where the evidence requires them. A change must improve
    the targeted oracle without absorbing an unexplained regression in a
    stronger lane. Treat the testbench program and reference image as the
@@ -297,6 +299,263 @@ Work proceeds in this order:
 Bus, CIA, drive or peripheral work enters this campaign only when it is needed
 by a selected comparator or catalogue failure. Each implementation change is
 committed separately from evidence requalification.
+
+## Stage 3a: re-phase the raster edge (#796)
+
+Approved 2026-10-06. This stage replaces the "colour-resolution ring" and
+"`videomode` phase-accounting lead" items in step 3 above. Both turned out to
+be one fault, and it reaches further than colour.
+
+### Finding
+
+Two timing errors cancel in most test programs:
+
+- **The CPU sees the raster-line edge 2 cycles early.** Emu198x raises the
+  raster IRQ for the CPU access of engine cycle 62, and `$D012` (and `$D011`
+  bit 7) report the new line from that same access. VICE x64sc increments the
+  line and raises the IRQ in the Phi2 half of cycle 1 of the new line
+  (`viciisc/vicii-cycle.c`, `vicii_cycle`, "Handle end of line" and "Trigger
+  a raster IRQ"). With engine cycle N mapped to VICE cycle N, as the rest of
+  this crate does, the CPU sees the edge at cycle 62 instead of cycle 1.
+- **Colour-register writes reach the screen 2 cycles late.** Emu198x resolves
+  the colour registers for cell T with the writes made up to CPU cycle T-1.
+  VICE draws cell T in draw cycle T+1. That is where its border checks
+  (`ChkBrdL1` at cycle 17, `ChkBrdR1` at 57) land, given a one-draw
+  `border_state` lag in `draw_border8`. Dots 1-7 of that cell are resolved in
+  the next draw, with writes up to cycle T+1. On the 6569, dot 0 is resolved
+  one draw earlier, with writes up to cycle T (`draw_colors_6569`).
+
+In a program timed by the raster IRQ (`greydot`, `colorsplit`,
+`sequencer-bug`), the early CPU and the late output cancel, so
+every image matches. In a program timed by a CIA timer, the timer read absorbs
+the IRQ error, so the CPU runs at VICE's phase. `colorfetchbug` is one: its
+`$D011` store sits at cycle 16 and its `inc $d020` store at cycle 55 in both
+emulators. There the late output is visible only where a colour change meets a
+cell boundary. Until now the border hid it. A dot-0 colour rule exposes it, so
+no first-dot rule can be right in the current timing. A 6569 rule that makes
+`greydot` exact leaves 51 wrong pixels in each of the five `colorfetchbug`
+programs, all at the first right-border dot.
+
+The `sequencer_bug_d011_write_cycle_boundary` diagnostic records the same
+offset. The first `$D011` store has Emu198x pins at c52 and a VICE watchpoint
+at c54. It treats the gap as two observation conventions. The finding above
+shows it is a real 2-cycle lead of the CPU over the VIC-II.
+
+### Measurement on the prototype
+
+A throwaway prototype was built on revision `92892eaf`. It moved the
+CPU-visible line edge and the IRQ 2 cycles later and resolved colours two
+ticks after rendering, with the VICE dot-0 rule. The patches are kept outside
+the repository at `~/.emu198x/wip/796-vicii-raster-phase/`. They use
+environment hooks and are not mergeable. PAL 6569 survey, as matching
+pixels:
+
+| Case | Main | Prototype |
+| --- | ---: | ---: |
+| `screenpos` | 87.800% | 100.000% |
+| `videomode` | 88.980% | 100.000% |
+| `vicii_timing` | 84.720% | 86.929% |
+| `border` | 92.533% | 92.548% |
+| `sb_sprite_fetch` | 98.578% | 98.632% |
+| `gfxfetch` | 99.325% | 99.571% |
+| `greydot` | 99.993% | 100.000% |
+| `colorfetchbug` (all five) | 100.000% | 100.000% |
+| `spritedma` | 99.998% | 99.998% |
+| `spritecrunch` | 95.190% | 95.190% |
+| `dmadelay` | 100.000% | 89.103% |
+| `sequencer-bug` | 99.971% | 92.264% |
+| `spritefetchbug` | 97.004% | 92.671% |
+
+The three regressions all depend on when a CPU write reaches the badline or
+sprite-DMA logic. Their models were fitted against the early CPU, so they now
+need re-deriving. The far-edge `$D011` window keys on recorded cycle 53 or
+later, and that cycle moves by 2.
+
+### Reproducing the evidence
+
+The vendored source is `../../../../emulators/c64/vice-3.10/`. The Homebrew
+`vice` 3.10 build of `x64sc` runs headless:
+
+```sh
+x64sc -default -console -silent -sounddev dummy -VICIImodel 6569 \
+  -VICIIborders 0 -VICIIfilter 0 -warp -limitcycles 12000000 \
+  -exitscreenshot out.png -autostartprgmode 1 -autostart <program.prg>
+```
+
+The screenshot is 384 x 272, the same window as the references. Its palette
+differs, so classify its colours by majority vote against the reference at
+the same positions. On 2026-10-06 this reproduced the `greydot` (6569 and
+8565), `colorsplit` (6569 and 8565), `sequencer-bug` and `colorfetchbug-main`
+references with no disagreement.
+
+To time stores, add `-moncommands mon.txt` with:
+
+```text
+logname "mon.log"
+log on
+trace store d021
+x
+```
+
+The monitor prints `line/cycle` from `maincpu_clk` (`c64/c64.c`,
+`machine_get_line_cycle`), not from the VIC-II raster. In the `greydot` run it
+reads 96 lines away from the raster line. Compare cycles only within one run,
+or anchor them to a known event. The `colorfetchbug` readme anchors its
+`$D011` store: the program writes vscroll in cycle 15 counted from zero, and
+the monitor reports cycle 16.
+
+On the Emu198x side, `d020_write_cycle_boundary` in
+`crates/runtime-commodore-c64/tests/vicii_testbench.rs` lists every CPU write
+to `$D020` with its engine cycle. Stage A generalises it to any register.
+
+### Stages
+
+Every stage is its own PR, in this order. The family is rebase-merge only, so
+each PR's commits survive.
+
+**Merge unit.** A, B and C cannot land one at a time without regressing a
+strict lane, so they merge together:
+
+- A alone moves every raster-timed program's writes 2 cycles later while the
+  output stays 2 cycles late. The `sequencer-bug` exact signature and the
+  colour splits break.
+- C alone resolves colours 2 cycles early for raster-timed programs. The
+  prototype with C only took `colorsplit` from 1,008 to 1,960 disagreements
+  and changed the `sequencer-bug` signature.
+- A with C still regresses `sequencer-bug`, a strict lane, until B lands.
+
+So A, B and C are opened as three stacked PRs and reviewed one at a time.
+They merge in one sitting, once C is green on every gate below, retargeting
+each to `main` before its base merges. Only the merged result has to leave
+every strict lane at least as good as main. Each stacked PR states the lanes
+it leaves red and why. D depends only on C and merges on its own afterwards.
+
+#### A. CPU-visible line edge, raster IRQ, `$D011`/`$D012` reads
+
+Make the CPU's view of the line edge part of the model: a line number that
+changes in cycle 1, read by `$D011`, `$D012` and the raster compare. Keep the
+internal `raster_line` that drives badlines, borders and sprites where it is.
+Assert the raster IRQ in VICE's phase: cycle 1, or cycle 2 on line 0, where
+`vicii_cycle_start_of_frame` runs. Write the convention down as one named
+mapping in `Vic`, not as offsets scattered through the tick.
+
+- Files: `crates/mos-vic-ii/src/lib.rs` (`tick` IRQ assertion, `read` and
+  `peek` for `$11`/`$12`, the raster-IRQ unit tests);
+  `crates/runtime-commodore-c64/tests/vicii_testbench.rs`
+  (`sequencer_bug_d011_write_cycle_boundary` expectations and its comment, and
+  the generalised write diagnostic).
+- State: derived from `raster_line` and `raster_cycle`, so no snapshot change.
+  If a latched compare state turns out to be needed, it bumps the snapshot.
+- Gates:
+  - A new unit test asserts that the CPU sees the IRQ on engine cycle 1, and
+    that `$D012` reads the old line on engine cycles 62 and 0. It fails on
+    main.
+  - A new fixture test runs `greydot` and asserts the first `$D021` store of a
+    dot row at engine cycle 17, VICE's phase. It fails on main, which stores
+    at 15.
+  - Lorenz full-machine cases: all 14 runnable cases still pass.
+
+#### B. Re-derive the `$D011`, far-edge, C-data and sprite-DMA timing
+
+With A in place, trace `dmadelay`, `sequencer-bug` and `spritefetchbug`
+against VICE. Use the method above, one run per program, anchored to a known
+store. Re-derive the far-edge window threshold (recorded cycle 53), the
+pending `$D011` completion phase, the two hidden output cells and the 12-bit
+C-data carry origin, and the sprite-DMA and `$D017` write phases. Keep each
+retained rule only where the VICE trace still supports it.
+
+- Files: `crates/mos-vic-ii/src/lib.rs` (`check_badline`, far-edge window,
+  forced-output delay, C-data carry, sprite-chain write phases);
+  `crates/mos-vic-ii/src/sprite_fetch_chain.rs` if crunch timing moves;
+  `crates/runtime-commodore-c64/tests/vicii_testbench.rs` (the
+  `sequencer-bug` signature); the three records named below.
+- State: if the fields change shape, bump `SNAPSHOT_VERSION` in
+  `crates/runtime-commodore-c64/src/snapshot.rs`.
+- Gates:
+  - `colorfetchbug`: all five programs stay pixel- and hash-exact.
+  - `dmadelay` returns to 100.000%.
+  - `sequencer-bug` gets an exact retained signature no larger than main's
+    30 pixels.
+  - `spritefetchbug` is at least 97.004%.
+  - `spritedma` is at least 99.9%, and PAL `gfxfetch` at least 99.325%, which
+    replaces the old 99% floor.
+  - The revision-keyed survey report shows no other indexed hash change
+    without an entry in the progress log.
+
+#### C. Two-tick colour resolution
+
+Render symbolic colour sources (`$00`-`$0F` direct, `$20`-`$2E` registers) as
+now. Resolve each cell two ticks later, when the writes of the following two
+CPU cycles are visible. On the 6569, dot 0 is resolved one tick earlier,
+without the latest write. This is the general colour-ring contract the C-data
+record asks for, not a rule for one register. Flush the two pending cells at
+the frame edge so a captured frame is complete.
+
+- Files: `crates/mos-vic-ii/src/lib.rs` (`render_pixels`, a pending-cell ring,
+  `Vic::write` recording the colour write, `FRAME_ROUTING_VERSION` 7 → 8 with
+  its doc entry); `crates/runtime-commodore-c64/src/snapshot.rs`;
+  `crates/emu198x-catalogue/manifest/c64.toml`;
+  `crates/runtime-commodore-c64/tests/vicii_testbench.rs`.
+- State: the two pending cells and the last colour write are live pipeline
+  state. Bump `SNAPSHOT_VERSION`, and add a mid-cell snapshot round-trip
+  regression to the existing replay gates.
+- Gates:
+  - `colour_register_pipeline_matches_each_chip_reference`, written for this
+    stage. `greydot` is exact on the 6569. `colorsplit` keeps only the 952
+    disagreements on its 16 XSCROLL rows, where the renderer latches XSCROLL
+    once per line. It fails on main, which has 7 and 1,008.
+  - Every strict lane at least as good as main.
+  - Survey: `screenpos` and `videomode` at 100.000%.
+  - Catalogue: re-capture all 13 C64 entries at routing version 8 with
+    `catalogue capture`. Each changed frame hash is listed in the PR. All
+    entries must then pass ordinary and fresh-runtime replay. As a check that
+    can fail, run the replay before re-capture and confirm the version
+    mismatch fails loudly.
+
+#### D. 8565/8562 chip axis and grey dot (#796)
+
+Add `VicModel::Pal8565` and `VicModel::Ntsc8562`, with 6569 and 6567R8
+timing, and map `PalC64c` and `NtscC64c` to them in
+`crates/machine-commodore-c64/src/machine.rs`. On these chips, dot 0 of the
+cell after a colour-register write shows light grey (`$F`) when its source is
+the written register (`draw_colors_8565`). This closes #796.
+
+- Files: `crates/mos-vic-ii/src/lib.rs`,
+  `crates/machine-commodore-c64/src/machine.rs`,
+  `crates/runtime-commodore-c64/src/snapshot.rs` (the stored revision flag),
+  `crates/runtime-commodore-c64/tests/vicii_testbench.rs`.
+- Gates:
+  - `greydot` on the 8565 is exact against `greydot.prg-8565.png`. It fails
+    on main, with 400 missing dots.
+  - `colorsplit` on the 8565 keeps only its XSCROLL-row signature.
+  - All PAL breadbin lanes and catalogue hashes are unchanged. Every catalogue
+    entry is a breadbin, so no re-capture is expected. A changed hash fails the
+    PR.
+
+### Risks
+
+- **NTSC is unverified.** The prototype measured PAL only. A and C change the
+  6567R8, 6567R56A and 8562 paths too. Re-run `ntsc_gfxfetch_matches_vice_reference`
+  (at least 94%) at every stage. Compare `greydot` and `colorsplit` on NTSC in
+  VICE before claiming them. Line 0's late IRQ and the 6567R56A cycle table
+  need checking separately.
+- **The snapshot version is shared.** `SNAPSHOT_VERSION` in
+  `crates/runtime-commodore-c64/src/snapshot.rs` covers every C64 chip. The
+  SID work in #769 runs in parallel and may bump it too. Rebase onto whatever
+  lands first and take the next free number. Do not edit SID files from this
+  campaign.
+- **Catalogue re-capture.** A changes IRQ timing for every C64 program, so
+  frame hashes and possibly audio hashes move. A changed audio hash comes from
+  CPU timing, not SID routing, so `AUDIO_ROUTING_VERSION` stays with the SID
+  crate. Record the cause in `c64.toml` and coordinate with #769 if both
+  re-capture at once.
+- **Fitted models may not come back.** B may find that a retained rule from
+  the far-edge, C-data or BA-to-AEC records was fitted to the early CPU and
+  has no support at the corrected phase. The record is then amended in B's
+  PR, per "hardware reality beats the record".
+- **XSCROLL is a separate fault.** `colorsplit` keeps 952 disagreements,
+  because the renderer latches XSCROLL once per line. That is outside this
+  stage.
 
 ## Non-goals
 
@@ -343,6 +602,7 @@ evidence, or an explicit expansion of the supported configuration claim.
 | 2026-08-08 | 3. Far-edge late-badline window | Commit `d140a36f` gives the cycle-53 `$D011` transition one remaining c-access and keeps the exhausted window distinct from the ordinary schedule. `sequencer-bug` rises from 96,266 to 104,394 matching pixels; all 16 other indexed planes remain unchanged. Snapshot version 6 preserves pending, exhausted and source-resolved states. All 13 catalogue hashes remain unchanged at routing version 5 and every entry passes ordinary plus fresh-runtime replay verification. The residual is 54 pixels across eight rows and is now isolated to delayed C-data output sequencing. |
 | 2026-08-13 | 3. Far-edge C-data and hidden-output counter state | Commit `70cd523b` keeps two resident output cells visually hidden; only the first following idle g-access suppresses VC/VMLI, while the active g-access behind the second advances them. A bounded 12-bit carry network replaces the fixture-specific displaced-slot repair. `sequencer-bug` rises from 104,394 to 104,418 matching pixels; the full survey confirms it is the only changed hash and all five `colorfetchbug` programs remain exact. The strict lane retains 30 disagreements: two colour-ring dots and a 28-pixel outline at the active-g-access/delayed-output boundary. The higher 104,446 two-suppression experiment is rejected because it contradicts Hoxs64's hidden counter state. Snapshot version 8 preserves the output delay and live carry, and frame-routing version 7 identifies the output contract. All 13 catalogue entries pass ordinary and fresh-runtime snapshot replay. The colour-resolution ring, output-stage split and separate post-badline `videomode` phase-accounting lead remain open. |
 | 2026-10-06 | SID waveform generator (#777) | The pulse comparator drives high while `acc >= PW` (it was inverted), ring modulation substitutes `MSB EOR NOT source-MSB` and is blocked by sawtooth, the triangle's DAC bit 0 is grounded, TEST lets the noise register drift to all ones instead of reseeding it each cycle, write-only reads return the decaying data-bus value, and a deselected waveform leaves the DAC input floating and fading. VICE `ringmod`, `busvalue`, `osc3-wave0` and `bitfade` programs pass on the 6581 and 8580 models. Snapshot version 9 carries the new state; audio routing version 5 re-captures the eight music entries' audio hashes, with every frame hash and the five silent entries unchanged. All 13 entries pass ordinary and fresh-runtime snapshot replay. |
+| 2026-10-06 | 3a. Raster-edge phase (#796) | Planned. A dot-0 colour rule matched `greydot` on both chips but left 51 wrong pixels in each `colorfetchbug` program. The cause: the CPU sees the line edge and raster IRQ 2 cycles early, and colour writes reach the screen 2 cycles late. A prototype that fixed both took `screenpos` and `videomode` to 100% and regressed `dmadelay`, `sequencer-bug` and `spritefetchbug`. Stages A-D are recorded above; A-C merge as one unit. |
 
 ## Related Documents
 

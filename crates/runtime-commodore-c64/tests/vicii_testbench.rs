@@ -681,10 +681,11 @@ fn sequencer_bug_d011_write_cycle_boundary() {
         ]
     );
 
-    // The first store's c52 pins, c53 access and VICE c54 watchpoint are one
-    // execution event under three observation conventions. The second store is
-    // post-VIC access and VICE's next-opcode/store checkpoint agree at c55
-    // after the forced badline's remaining DMA window is constrained.
+    // These positions describe the current model, in which the CPU sees the
+    // raster-line edge 2 cycles before VICE does. The c52-pins/c54-watchpoint
+    // gap is that lead, not a difference of observation convention; see
+    // Stage 3a of knowledge/decisions/c64-accuracy-closure-campaign.md. The
+    // second store's post-VIC access and VICE's checkpoint agree at c55.
     assert_eq!(transitions.len(), 14);
     assert_eq!(
         transitions,

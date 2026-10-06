@@ -40,6 +40,11 @@ labels describe Emu198x's entering-cycle convention. They must not be read as
 a new claim about an otherwise unobserved physical BA transition between
 differently labelled VICE monitor phases.
 
+**Amended 2026-10-06:** the recorded-cycle-53 threshold was measured while
+the CPU saw the raster-line edge 2 cycles early. Stage B of
+[Stage 3a of the closure campaign](c64-accuracy-closure-campaign.md#stage-3a-re-phase-the-raster-edge-796)
+re-derives it against VICE once that phase is corrected.
+
 A broader experiment applied a shortened counter to every dynamically forced
 late badline. It fixed the far-edge instruction schedule but removed the
 rightmost eight pixels from all five exact `colorfetchbug` references. The

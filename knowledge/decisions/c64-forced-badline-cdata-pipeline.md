@@ -166,9 +166,12 @@ advancing the active g-access and counters behind it. That output-stage split
 must be modelled explicitly rather than suppressing the valid second counter
 advance.
 
-The `videomode` residual remains an independent post-badline phase-accounting
-lead. It is not evidence for changing the C-data carry or the specified
-counter phase behind the hidden cells.
+The `videomode` residual is not evidence for changing the C-data carry or the
+specified counter phase behind the hidden cells. **Amended 2026-10-06:** it is
+the raster-edge phase fault in
+[Stage 3a of the closure campaign](c64-accuracy-closure-campaign.md#stage-3a-re-phase-the-raster-edge-796).
+That stage re-derives the far-edge origin and this carry's timing, because
+both were measured against a CPU that saw the line edge 2 cycles early.
 
 The evidence is for the PAL 6569 profile. It does not establish the same
 pipeline for 6567R8, 6567R56A or 8565, and it does not define analogue colour
@@ -186,7 +189,10 @@ Reject changes that:
 - apply this far-edge state to ordinary or earlier forced badlines without
   preserving all five exact colour-fetch cases;
 - change machine cadence, CPU-write phase or BA-to-AEC ownership to repair the
-  retained colour-output signature;
+  retained colour-output signature. **Amended 2026-10-06:** the planned
+  exception is the Stage 3a re-phasing of the CPU-visible raster edge. It is
+  evidenced on its own, against VICE's raster cycle, and gated by every
+  strict lane;
 - introduce a register-specific colour-delay rule without a general PAL 6569
   colour-ring contract; or
 - extend the PAL 6569 result to another VIC-II model without model-specific

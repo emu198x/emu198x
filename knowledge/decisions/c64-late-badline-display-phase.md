@@ -206,10 +206,13 @@ exact-output lane. The selected `border-250` program is still not a complete
 oracle for the staged idle-bitmap, multicolour-bitmap and combined horizontal
 and vertical-border programs.
 
-Cross-emulator cycle traces rule out an instruction-timing or missing-stall
-explanation for the separate `sequencer-bug` case: the apparent lead came
-from comparing Emu198x's scheduled pre-tick CPU pins with VICE's post-access
-monitor phase. Revision `d140a36f` then removes the excess far-edge c-access
+Cross-emulator cycle traces rule out a missing-stall explanation for the
+separate `sequencer-bug` case. They were read as ruling out an
+instruction-timing lead too, on the grounds that the pins-against-monitor gap
+was a difference of observation convention. **Amended 2026-10-06:** that gap
+is a real 2-cycle lead. The CPU sees the raster-line edge and raster IRQ
+2 cycles early, and a 2-cycle-late colour output hides it. See
+[Stage 3a of the closure campaign](c64-accuracy-closure-campaign.md#stage-3a-re-phase-the-raster-edge-796). Revision `d140a36f` then removes the excess far-edge c-access
 and aligns the following store at cycle 55. The 2026-08-13 C-data follow-up
 resolves the hidden-output and carry state without changing the exact display
 phase, ownership or window-length results. Its retained 28-pixel character
@@ -220,8 +223,9 @@ of invalid activity on `last_bus_data` remain separate evidence-bounded
 questions.
 
 The breadth survey also retains a post-badline `videomode` phase-accounting
-lead. It is an independent continuation question; it does not reopen the
-entering-Phi1 ordering specified here or the far-edge C-data state.
+lead. It does not reopen the entering-Phi1 ordering specified here or the
+far-edge C-data state. **Amended 2026-10-06:** it is the raster-edge phase
+fault. The Stage 3a prototype took `videomode` to 100%.
 
 The decision is evidenced for the PAL 6569 profile. The implementation uses
 the same entering-state split for the existing 6567 variants, but no
