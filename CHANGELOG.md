@@ -6,21 +6,21 @@ Format loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 not strictly. Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [0.27.1] - 2026-10-06
 
+### Changed
+
+- The `emu198x-mos-sid-6581` crate changes its public API (published separately as 0.8.0): `clock_accumulator` takes the chip model, `Voice` gains state, and `write_control` is new
+- Snapshots of the C64, Atari 800XL and Atari 5200 saved by earlier versions no longer load, because those machines now save more state
 
 ### Fixed
 
-- Run the BBC Micro's VIA timers at 1 MHz, so TIME counts centiseconds
-- Stretch BBC Micro 1 MHz-bus cycles to the end of a whole 1 MHz cycle
-- Run a loaded Spectrum snapshot from its own PC, whatever the CPU was doing
-- Clock the BBC Micro's SN76489 at 4 MHz, so its audio is 48 kHz at true pitch
-- Split a text line at the right character when CHBASE changes mid-fetch
-- Read the ANTIC font from CHBASE's address bits only
-- Drive the SID pulse high once the oscillator reaches the pulse width
-- Give SID ring modulation reSID's polarity
-- Ground the SID triangle's lowest DAC bit
-- Let SID TEST drift the noise register instead of reseeding it
-- Return the SID's decaying data-bus value from write-only reads
-- Hold the SID waveform DAC input when no waveform is selected
+- *(spectrum)* Loading a `.sna` snapshot runs from the snapshot's PC, whatever the CPU was doing before; an instruction left in flight could jump to `$0000`, and a halted CPU stayed halted (#1564)
+- *(bbc)* An access to a 1 MHz device costs 2 or 3 CPU cycles depending on the 1 MHz clock's phase, as the Advanced User Guide describes (#385)
+- *(bbc)* The VIA timers count at 1 MHz; they ran at double speed, so `TIME` gained 1,996 centiseconds in 10 seconds (#1596)
+- *(bbc)* The SN76489 runs at its 4 MHz clock; it ran at half speed and produced half the samples it should (#1599)
+- *(sid)* Pulse output is high at or above the pulse width, not below it, so every pulse voice had its duty cycle inverted
+- *(sid)* Ring modulation folds the triangle when the source voice's top bit is clear, and sawtooth blocks it (#777)
+- *(sid)* The TEST bit fills the noise register with ones over time instead of resetting it; write-only registers read back the fading bus value; an idle voice holds then fades its last output (#777)
+- *(antic)* A mid-line CHBASE font change takes effect two cycles after the write, and glyphs use only the CHBASE bits the mode decodes (#1412)
 
 ## [0.27.0] - 2026-10-05
 
