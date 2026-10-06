@@ -27,6 +27,12 @@ use std::path::PathBuf;
 use machine_amstrad_cpc::AmstradCpc;
 
 fn firmware_path() -> Option<PathBuf> {
+    if let Ok(p) = env::var("EMU198X_CPC_ROM") {
+        let p = PathBuf::from(p);
+        if p.exists() {
+            return Some(p);
+        }
+    }
     let home = env::var("HOME").ok()?;
     let p = PathBuf::from(home).join(".emu198x/roms/amstrad-cpc/cpc464.rom");
     p.exists().then_some(p)
@@ -72,7 +78,9 @@ fn type_char(cpc: &mut AmstradCpc, c: char) {
 #[ignore = "FIXTURE: needs the CPC464 firmware and a .cdt — run with --ignored"]
 fn the_firmware_loads_a_game_from_tape() {
     let (Some(rom), Some(tape)) = (firmware_path(), tape_path()) else {
-        panic!("needs ~/.emu198x/roms/amstrad-cpc/cpc464.rom and a .cdt");
+        panic!(
+            "needs the CPC464 firmware (EMU198X_CPC_ROM or ~/.emu198x/roms/amstrad-cpc/cpc464.rom) and a .cdt"
+        );
     };
     let firmware = fs::read(&rom).expect("read firmware");
     let cdt = fs::read(&tape).expect("read tape");
