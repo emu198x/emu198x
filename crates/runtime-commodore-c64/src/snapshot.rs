@@ -14,7 +14,8 @@ use crate::drives::IecDriveSnapshot;
 use crate::runtime::C64Runtime;
 
 /// Version 13 adds SID waveform-generator pipeline state for #1606: each
-/// voice's OSC3 value and the 8580's one-cycle triangle/sawtooth stage.
+/// voice's OSC3 value, the 8580's one-cycle triangle/sawtooth stage, and
+/// the pulse level from last cycle's comparator.
 ///
 /// Version 12 adds the VIC-II's chip revision, which selects the colour
 /// stage's first-dot rule: the NMOS 6567/6569 keep the old colour, the

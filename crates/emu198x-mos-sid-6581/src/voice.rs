@@ -93,6 +93,10 @@ pub struct Voice {
     /// OSC3 reads this cycle. Powers up as `$555`, the accumulator's top
     /// bits.
     tri_saw_pipeline: u16,
+    /// The pulse level the comparator settled on last cycle: `$FFF` while
+    /// the accumulator was at or above the pulse width, else zero. The
+    /// pulse waveform outputs it this cycle (see [`Self::latch_output`]).
+    pulse_output: u16,
 }
 
 impl Voice {
@@ -110,6 +114,7 @@ impl Voice {
             floating_output_ttl: 0,
             osc3: 0,
             tri_saw_pipeline: (ACCUMULATOR_POWER_ON >> 12) as u16,
+            pulse_output: 0x0FFF,
         }
     }
 
@@ -143,6 +148,7 @@ impl Voice {
 
         if !test_prev && test {
             self.accumulator = 0;
+            self.pulse_output = 0x0FFF;
             self.shift_register_reset = match model {
                 SidModel::Mos6581 => SHIFT_REGISTER_RESET_START_6581,
                 SidModel::Mos8580 => SHIFT_REGISTER_RESET_START_8580,
@@ -162,6 +168,7 @@ impl Voice {
     pub fn clock_accumulator(&mut self, model: SidModel) {
         if self.control & CONTROL_TEST != 0 {
             self.accumulator = 0;
+            self.pulse_output = 0x0FFF;
             if self.shift_register_reset != 0 {
                 self.shift_register_reset -= 1;
                 if self.shift_register_reset == 0 {
@@ -187,6 +194,25 @@ impl Voice {
                 SidModel::Mos8580 => SHIFT_REGISTER_RESET_BIT_8580,
             };
         }
+    }
+
+    /// Write the 12-bit pulse width. The comparator settles on the new
+    /// width at once, so the pulse waveform shows it from the next cycle,
+    /// as reSID's `writePW_LO`/`writePW_HI` push the pulse pipeline.
+    pub fn set_pulse_width(&mut self, pulse_width: u16) {
+        self.pulse_width = pulse_width & 0x0FFF;
+        self.compare_pulse_width();
+    }
+
+    /// Settle the pulse comparator on the current accumulator: high while
+    /// its upper 12 bits are at or above the pulse width.
+    fn compare_pulse_width(&mut self) {
+        let acc12 = ((self.accumulator >> 12) & 0x0FFF) as u16;
+        self.pulse_output = if acc12 >= self.pulse_width & 0x0FFF {
+            0x0FFF
+        } else {
+            0x0000
+        };
     }
 
     pub fn clock_noise(&mut self) {
@@ -232,7 +258,9 @@ impl Voice {
     pub fn clock_output(&mut self, ring_mod_source_msb: bool, model: SidModel) {
         if self.control >> 4 != 0 {
             self.latch_output(ring_mod_source_msb, model);
-        } else if self.floating_output_ttl != 0 {
+            return;
+        }
+        if self.floating_output_ttl != 0 {
             self.floating_output_ttl -= 1;
             if self.floating_output_ttl == 0 {
                 self.output &= self.output >> 1;
@@ -245,6 +273,7 @@ impl Voice {
                 }
             }
         }
+        self.compare_pulse_width();
     }
 
     /// Latch the generated waveform as the DAC input now (a control write
@@ -264,6 +293,12 @@ impl Voice {
     /// (`tri_saw_pipeline`) and reSIDfp model it. reSID leaves the noise+pulse
     /// pull-down off the delayed OSC3 value; reSIDfp applies its pull-down
     /// there too, and so does this.
+    ///
+    /// The pulse comparator then settles on the current accumulator, and
+    /// the pulse waveform outputs that level on the next latch: the compare
+    /// reaches the output one cycle late. reSID `wave.h`
+    /// `set_waveform_output` ("The result of the pulse width compare is
+    /// delayed one cycle") and reSIDfp `WaveformGenerator.h` `output`.
     pub fn latch_output(&mut self, ring_mod_source_msb: bool, model: SidModel) {
         let (wave, masks) = self.selector_inputs(ring_mod_source_msb, model);
         self.output = self.selector_output(wave & masks, model);
@@ -277,6 +312,7 @@ impl Voice {
         if self.control >> 4 > 0x08 && self.control & CONTROL_TEST == 0 {
             self.write_back_noise(self.output);
         }
+        self.compare_pulse_width();
     }
 
     /// Pull down each tapped noise-register bit whose waveform DAC input is
@@ -340,13 +376,8 @@ impl Voice {
         // alike, and VICE `testprogs/SID/osc3-wave0` on hardware: PW $000
         // reads OSC3 $FF, PW $FFF reads $00. The datasheet's "0 or $FFF ...
         // constant DC" holds for either polarity, so it cannot settle this.
-        let pulse12 = if test_bit {
-            0x0FFF
-        } else {
-            let pw12 = self.pulse_width & 0x0FFF;
-            let acc12 = ((self.accumulator >> 12) & 0x0FFF) as u16;
-            if acc12 >= pw12 { 0x0FFF } else { 0x0000 }
-        };
+        // The level is last cycle's compare (see [`Self::latch_output`]).
+        let pulse12 = if test_bit { 0x0FFF } else { self.pulse_output };
         let noise12 = self.noise_output();
 
         // Per reSID `wave.h` `set_waveform_output`: the triangle, sawtooth or
@@ -550,18 +581,25 @@ mod tests {
         assert_eq!(v.waveform_output(false, SidModel::Mos6581), 0xABC);
     }
 
+    /// The pulse level once the comparator has settled on `accumulator`.
+    fn settled_pulse(v: &mut Voice, accumulator: u32, model: SidModel) -> u16 {
+        v.accumulator = accumulator;
+        v.set_pulse_width(v.pulse_width);
+        v.waveform_output(false, model)
+    }
+
     #[test]
     fn pulse_is_high_from_the_pulse_width_up_and_low_below() {
         for model in [SidModel::Mos6581, SidModel::Mos8580] {
             let mut v = Voice::new();
             v.control = PULSE;
             v.pulse_width = 0x800;
-            v.accumulator = 0x0040_0000; // acc12 = 0x400 < 0x800
-            assert_eq!(v.waveform_output(false, model), 0x0000);
-            v.accumulator = 0x0080_0000; // acc12 = 0x800 == PW
-            assert_eq!(v.waveform_output(false, model), 0x0FFF);
-            v.accumulator = 0x00C0_0000; // acc12 = 0xC00 > 0x800
-            assert_eq!(v.waveform_output(false, model), 0x0FFF);
+            // acc12 = 0x400 < 0x800
+            assert_eq!(settled_pulse(&mut v, 0x0040_0000, model), 0x0000);
+            // acc12 = 0x800 == PW
+            assert_eq!(settled_pulse(&mut v, 0x0080_0000, model), 0x0FFF);
+            // acc12 = 0xC00 > 0x800
+            assert_eq!(settled_pulse(&mut v, 0x00C0_0000, model), 0x0FFF);
         }
     }
 
@@ -571,11 +609,28 @@ mod tests {
         // reads $FF with the oscillator stopped at zero.
         let mut v = Voice::new();
         v.control = PULSE;
-        v.accumulator = 0;
         v.pulse_width = 0xFFF;
-        assert_eq!(v.waveform_output(false, SidModel::Mos6581), 0x0000);
+        assert_eq!(settled_pulse(&mut v, 0, SidModel::Mos6581), 0x0000);
         v.pulse_width = 0x000;
-        assert_eq!(v.waveform_output(false, SidModel::Mos6581), 0x0FFF);
+        assert_eq!(settled_pulse(&mut v, 0, SidModel::Mos6581), 0x0FFF);
+    }
+
+    #[test]
+    fn the_pulse_compare_reaches_the_output_one_cycle_late() {
+        for model in [SidModel::Mos6581, SidModel::Mos8580] {
+            let mut v = Voice::new();
+            v.frequency = 0x1000;
+            v.write_control(PULSE, model);
+            v.pulse_width = 0x800;
+            // acc12 $7FF: below the width.
+            assert_eq!(settled_pulse(&mut v, 0x7F_F000, model), 0x0000);
+            v.clock_accumulator(model); // acc12 $800: reaches it
+            v.clock_output(false, model);
+            assert_eq!(v.output(), 0x000, "{model:?}: last cycle's compare");
+            v.clock_accumulator(model);
+            v.clock_output(false, model);
+            assert_eq!(v.output(), 0xFFF, "{model:?}: this compare, one cycle on");
+        }
     }
 
     #[test]

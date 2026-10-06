@@ -9,10 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `Voice::set_pulse_width`, which writes the pulse width and settles the comparator on it (#1606)
 - `Voice::osc3`, the value OSC3 reads, which on the 8580 differs from `Voice::output` (#1606)
 
 ### Fixed
 
+- the pulse comparator's result reaches the waveform one cycle late, and a pulse-width write settles it at once (#1606)
 - on the 8580, OSC3 reads triangle and sawtooth one cycle late, as the chip latches them half a cycle after OSC3 samples; the DAC input is not delayed (#1606)
 - a sync source that is itself synced on the cycle its MSB rises does not sync its destination, and every sync decision reads the edges from before any sync lands instead of depending on voice order (#1606)
 - power up with the accumulator at `0x555555` and the noise register at `0x7FFFFE`, as real chips read from OSC3 straight after power-up (#1606)
