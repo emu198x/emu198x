@@ -283,17 +283,17 @@ fn sprite_priority_lets_bg_show_when_attr_bit_7_set_and_bg_nonzero() {
 // -- Window ---------------------------------------------------------
 
 #[test]
-fn window_disabled_does_not_advance_window_line() {
+fn window_disabled_does_not_advance_window_y() {
     let mut ppu = Ppu::new();
     let vram = blank_vram();
     let oam = blank_oam();
     ppu.lcdc = 0x91; // window disabled
     run_dots(&mut ppu, &vram, &oam, 456 * 50);
-    assert_eq!(ppu.window_line, 0);
+    assert_eq!(ppu.m3.window_y, 0xFF, "no window line has been drawn");
 }
 
 #[test]
-fn window_enable_with_wy_zero_advances_window_line() {
+fn window_enable_with_wy_zero_advances_window_y() {
     let mut vram = blank_vram();
     // Tile 0 row 0: low=0xFF, high=0x00 — index 1 everywhere.
     vram[0] = 0xFF;
@@ -307,5 +307,8 @@ fn window_enable_with_wy_zero_advances_window_line() {
     ppu.wy = 0;
 
     run_dots(&mut ppu, &vram, &oam, 456 * 5);
-    assert!(ppu.window_line >= 1, "window_line should have advanced");
+    assert!(
+        ppu.m3.window_y != 0xFF && ppu.m3.window_y >= 1,
+        "window_y should have advanced"
+    );
 }

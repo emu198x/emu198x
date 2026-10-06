@@ -365,6 +365,13 @@ impl GameBoy {
     /// collect IRQ sources, service the CPU's bus pins, then tick
     /// the CPU.
     pub fn step_m_cycle(&mut self) {
+        // The CPU's bus pins already hold this M-cycle's access. Some
+        // PPU registers take a write part-way through the M-cycle, so
+        // the PPU is handed those before its dots run.
+        let ppu_took_write = self.cpu.mreq
+            && self.cpu.wr
+            && !self.cpu.rd
+            && self.ppu.stage_cpu_write(self.cpu.addr, self.cpu.data);
         for _ in 0..4 {
             let serial_clock_before = self.serial_clock_bit();
             self.timer.tick_t();
@@ -392,7 +399,7 @@ impl GameBoy {
         }
         self.joypad_line_prev = joypad_line;
 
-        self.service_cpu();
+        self.service_cpu(ppu_took_write);
         self.tick_oam_dma();
     }
 
@@ -414,12 +421,12 @@ impl GameBoy {
         }
     }
 
-    fn service_cpu(&mut self) {
+    fn service_cpu(&mut self, ppu_took_write: bool) {
         if self.cpu.mreq {
             if self.cpu.rd {
                 let value = self.read(self.cpu.addr);
                 self.cpu.data_in = value;
-            } else if self.cpu.wr {
+            } else if self.cpu.wr && !ppu_took_write {
                 let addr = self.cpu.addr;
                 let data = self.cpu.data;
                 self.write(addr, data);
@@ -496,8 +503,8 @@ impl GameBoy {
             0xFF47 => self.ppu.bgp = value,
             0xFF48 => self.ppu.obp0 = value,
             0xFF49 => self.ppu.obp1 = value,
-            0xFF4A => self.ppu.wy = value,
-            0xFF4B => self.ppu.wx = value,
+            0xFF4A => self.ppu.write_wy(value),
+            0xFF4B => self.ppu.write_wx(value),
             _ => {}
         }
     }

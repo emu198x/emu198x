@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::runtime::GameBoyRuntime;
 
-const SNAPSHOT_VERSION: u32 = 1;
+const SNAPSHOT_VERSION: u32 = 2;
 
 /// Borrowing snapshot envelope used during encode. Avoids a clone of
 /// the cartridge bytes and the live `GameBoy` machine.

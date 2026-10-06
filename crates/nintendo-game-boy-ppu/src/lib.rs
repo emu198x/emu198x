@@ -1,12 +1,12 @@
 //! Game Boy DMG PPU.
 //!
 //! Pixel-FIFO renderer ticked at the master clock rate (one call per
-//! T-cycle / dot). The 4-state BG/window fetcher reads tile IDs and
-//! pattern data from VRAM, decodes 8 pixels per fetch into a 16-slot
-//! FIFO, and emits one shade per pixel per dot once the FIFO has
-//! data. OAM scan happens once at the mode-2 → mode-3 transition,
-//! limited to 10 sprites per scanline and sorted by X for DMG
-//! priority.
+//! T-cycle / dot). Mode 3 is modelled dot by dot (see [`mode3`]): the
+//! background/window fetcher, the object fetch stalls, the SCX
+//! fine-scroll discard and the shifter each read the PPU registers on
+//! the dot the hardware does, so mid-scanline register writes land on
+//! the right pixel. OAM scan happens once at the mode-2 → mode-3
+//! transition, limited to 10 objects per scanline.
 //!
 //! Framebuffer holds post-palette 2-bit shade values (0 = lightest,
 //! 3 = darkest); the runtime layer maps those to RGBA via the
@@ -19,17 +19,14 @@
 //! [`Ppu::consume_vblank_irq`] / [`Ppu::consume_stat_irq`] and OR's
 //! into `IF` bits 0 / 1.
 
-mod fetcher;
 mod fifo;
-mod sprite;
+mod mode3;
 
 use common_nintendo_game_boy::{SCREEN_HEIGHT, SCREEN_WIDTH};
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
 
-use crate::fetcher::{FetchCtx, Fetcher};
-use crate::fifo::Fifo;
-use crate::sprite::Sprite;
+use crate::mode3::{Mode3, POSITION_START};
 
 /// MMIO addresses for the PPU register block.
 pub const REG_LCDC: u16 = 0xFF40;
@@ -50,15 +47,14 @@ pub const IF_STAT_BIT: u8 = 1;
 
 const DOTS_PER_LINE: u16 = 456;
 const LINES_PER_FRAME: u8 = 154;
-const VBLANK_START: u8 = 144;
+pub(crate) const VBLANK_START: u8 = 144;
 const OAM_END: u16 = 80;
 const LCD_ENABLE_MODE0_DOTS: u16 = 80;
-/// Initial `position_in_line` at the start of mode 3 (SameBoy uses
-/// −16 = 240). Ours is calibrated against our fetcher's first-fill
-/// latency so the 160 drawn pixels still finish within `mode3_end_dot()`
-/// (which mooneye verifies); the warm-up drops then land mid-line writes
-/// at the correct pixel column.
-const POSITION_INIT: u8 = 0u8.wrapping_sub(16); // −16 = 240
+/// Dot at which the mode-3 pixel pipeline starts. SameBoy starts its
+/// pipeline five dots after STAT reports mode 3; this value places our
+/// pipeline against the CPU so that mid-line writes in the Mealybug
+/// Tearoom tests land on the pixels the DMG reference photos show.
+const MODE3_START: u16 = 85;
 
 const FRAMEBUFFER_LEN: usize = (SCREEN_WIDTH * SCREEN_HEIGHT) as usize;
 
@@ -70,7 +66,7 @@ const fn default_lyc_match() -> bool {
 /// constants so it doesn't need to share this module; the names
 /// here document the full bit field for the lib-side dispatch.
 #[allow(dead_code)]
-mod lcdc {
+pub(crate) mod lcdc {
     pub const ENABLE: u8 = 0x80;
     pub const WINDOW_TILE_MAP: u8 = 0x40;
     pub const WINDOW_ENABLE: u8 = 0x20;
@@ -91,6 +87,17 @@ mod stat {
     pub const WRITABLE_MASK: u8 = 0x78;
 }
 
+/// A CPU register write in flight within one M-cycle.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+struct StagedWrite {
+    addr: u16,
+    value: u8,
+    /// Register value before the write.
+    old: u8,
+    /// Dots of the M-cycle run so far.
+    dots: u8,
+}
+
 /// PPU state.
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Ppu {
@@ -105,20 +112,13 @@ pub struct Ppu {
     /// 0..159 are on-screen (drawn); 240..255 (= −16..−1) are the
     /// off-screen warm-up / SCX fine-discard zone (shifted but not
     /// drawn). Drives both the draw gate and the fetcher's tile column.
-    #[serde(default)]
     position_in_line: u8,
 
-    fifo: Fifo,
-    fetcher: Fetcher,
-
-    sprites: [Sprite; 10],
-    sprite_count: u8,
-
-    /// Internal scanline counter that only advances on lines where
-    /// the window was actually drawn — independent of the BG SCY.
-    window_line: u8,
-    /// `true` if the window triggered on the current scanline.
-    window_triggered: bool,
+    /// Mode-3 pixel pipeline.
+    m3: Mode3,
+    /// A CPU write to a PPU register that lands part-way through the
+    /// current M-cycle (see [`Ppu::stage_cpu_write`]).
+    staged_write: Option<StagedWrite>,
 
     pub lcdc: u8,
     /// STAT's three writable interrupt-enable bits + the LYC-enable
@@ -184,13 +184,9 @@ impl Ppu {
             dot: dot % DOTS_PER_LINE,
             ly: ly % LINES_PER_FRAME,
             lcd_x: 0,
-            position_in_line: 0,
-            fifo: Fifo::new(),
-            fetcher: Fetcher::new(),
-            sprites: [Sprite::EMPTY; 10],
-            sprite_count: 0,
-            window_line: 0,
-            window_triggered: false,
+            position_in_line: POSITION_START,
+            m3: Mode3::new(),
+            staged_write: None,
             lcdc: 0x91,
             stat: 0,
             lyc_match: true,
@@ -260,7 +256,7 @@ impl Ppu {
         // reads aligned to the machine's end-of-M-cycle bus sample.
         let mut bg_tile_sprite_counts = [0u8; 32];
         let mut offscreen_left_sprites = 0u16;
-        for sprite in self.sprites.iter().take(usize::from(self.sprite_count)) {
+        for sprite in self.m3.scanned_in_fetch_order() {
             if sprite.x == 0 {
                 offscreen_left_sprites += 1;
                 continue;
@@ -289,7 +285,7 @@ impl Ppu {
         let mut multi_unique_phase_2_tiles = 0u16;
         let mut multi_unique_phase_4_tiles = 0u16;
         let mut multi_sprite_phase_2_or_3_tiles = 0u16;
-        for sprite in self.sprites.iter().take(usize::from(self.sprite_count)) {
+        for sprite in self.m3.scanned_in_fetch_order() {
             if sprite.x == 0 {
                 continue;
             }
@@ -453,22 +449,133 @@ impl Ppu {
     pub fn write_lcdc(&mut self, value: u8) {
         let was_on = (self.lcdc & lcdc::ENABLE) != 0;
         let now_on = (value & lcdc::ENABLE) != 0;
+        // Clearing OBJ_EN while an object is being fetched abandons the
+        // fetch on the next dot.
+        if (self.lcdc & lcdc::SPRITES_ENABLE) != 0
+            && (value & lcdc::SPRITES_ENABLE) == 0
+            && self.m3.during_object_fetch
+        {
+            self.m3.object_fetch_aborted = true;
+            self.m3.wait = self.m3.wait.min(1);
+        }
         self.lcdc = value;
         if was_on && !now_on {
             self.dot = 0;
             self.ly = 0;
             self.lcd_x = 0;
-            self.window_line = 0;
-            self.window_triggered = false;
-            self.fifo.clear();
-            self.fetcher.reset();
+            self.position_in_line = POSITION_START;
+            self.m3 = Mode3::new();
+            self.staged_write = None;
             self.framebuffer.fill(0);
             self.stat_line_prev = false;
         } else if !was_on && now_on {
             self.lcd_enable_mode0_dots = LCD_ENABLE_MODE0_DOTS;
             self.lyc_match = self.ly == self.lyc;
         }
+        self.wy_check(self.ly);
         self.update_stat_line();
+    }
+
+    /// Writes WY ($FF4A) and re-arms the window's `WY = LY` latch.
+    pub fn write_wy(&mut self, value: u8) {
+        self.wy = value;
+        self.wy_check(self.ly);
+    }
+
+    /// Writes WX ($FF4B). On the DMG a write suppresses the one-pixel
+    /// early window trigger (`WX = position + 6`) on the following dot.
+    pub fn write_wx(&mut self, value: u8) {
+        self.wx = value;
+        self.m3.wx_just_changed = true;
+    }
+
+    /// Offers a CPU write the machine is about to perform at the end of
+    /// the coming M-cycle. Returns `true` if the PPU takes it over, in
+    /// which case the machine must not also write the register.
+    ///
+    /// On the DMG some PPU registers latch a CPU write before the end of
+    /// the M-cycle, and the palettes and LCDC pass through an
+    /// intermediate value for one dot. The dot offsets are SameBoy's
+    /// DMG access-conflict map (`dmg_conflict_map` and `cycle_write` in
+    /// `Core/sm83_cpu.c`): SCX two dots early; SCY one dot early;
+    /// BGP/OBP0/OBP1 `old | new` two dots early, then `new` one dot
+    /// early; LCDC `old | (new & BG_EN)` two dots early, then `new` one
+    /// dot early. A write that turns the LCD on or off is left to the
+    /// machine so LCD-enable timing is unchanged.
+    pub fn stage_cpu_write(&mut self, addr: u16, value: u8) -> bool {
+        if (self.lcdc & lcdc::ENABLE) == 0 {
+            return false;
+        }
+        let old = match addr {
+            REG_LCDC if (value & lcdc::ENABLE) != 0 => self.lcdc,
+            REG_SCY => self.scy,
+            REG_SCX => self.scx,
+            REG_BGP => self.bgp,
+            REG_OBP0 => self.obp0,
+            REG_OBP1 => self.obp1,
+            _ => return false,
+        };
+        self.staged_write = Some(StagedWrite {
+            addr,
+            value,
+            old,
+            dots: 0,
+        });
+        true
+    }
+
+    /// Applies the part of a staged write due after the dot just run.
+    fn apply_staged_write(&mut self) {
+        let Some(mut staged) = self.staged_write else {
+            return;
+        };
+        staged.dots += 1;
+        let StagedWrite {
+            addr,
+            value,
+            old,
+            dots,
+        } = staged;
+        let done = match (addr, dots) {
+            (REG_SCX, 2) => {
+                self.scx = value;
+                true
+            }
+            (REG_SCY, 3) => {
+                self.scy = value;
+                true
+            }
+            (REG_BGP | REG_OBP0 | REG_OBP1, 2 | 3) => {
+                let latched = if dots == 2 { old | value } else { value };
+                match addr {
+                    REG_BGP => self.bgp = latched,
+                    REG_OBP0 => self.obp0 = latched,
+                    _ => self.obp1 = latched,
+                }
+                dots == 3
+            }
+            (REG_LCDC, 2) => {
+                let mut held = self.lcdc;
+                if (value & lcdc::SPRITES_ENABLE) == 0
+                    && (self.position_in_line == 0 || self.m3.during_object_fetch)
+                {
+                    held &= !lcdc::SPRITES_ENABLE;
+                }
+                self.write_lcdc(held | (value & lcdc::BG_ENABLE));
+                false
+            }
+            (REG_LCDC, 3) => {
+                let window_switched_off =
+                    (old & lcdc::WINDOW_ENABLE) != 0 && (value & lcdc::WINDOW_ENABLE) == 0;
+                self.write_lcdc(value);
+                if window_switched_off && self.m3.window_is_being_fetched {
+                    self.m3.disable_window_pixel_insertion_glitch = true;
+                }
+                true
+            }
+            _ => dots >= 4,
+        };
+        self.staged_write = if done { None } else { Some(staged) };
     }
 
     /// Reads the framebuffer as a flat `width * height` slice of 2-bit
@@ -527,84 +634,22 @@ impl Ppu {
             // LCDC).
         } else {
             if self.dot == OAM_END {
-                self.scan_oam(vram, oam);
-                self.fetcher.reset();
-                self.fifo.clear();
-                self.lcd_x = 0;
-                self.position_in_line = POSITION_INIT;
-                self.window_triggered = false;
+                self.scan_oam(oam);
             }
-
-            if self.lcd_x < SCREEN_WIDTH as u8 {
-                // Window trigger check (once per pixel position). Keyed
-                // on `position_in_line` (the logical shift cursor), not
-                // `lcd_x`, so the warm-up zone doesn't spuriously trigger
-                // a low-WX window before the line starts drawing.
-                if !self.fetcher.is_window()
-                    && (self.lcdc & lcdc::WINDOW_ENABLE) != 0
-                    && self.ly >= self.wy
-                    && self.position_in_line < SCREEN_WIDTH as u8
-                    && self.position_in_line.wrapping_add(7) >= self.wx
-                {
-                    self.fetcher.switch_to_window();
-                    self.fifo.clear();
-                    self.window_triggered = true;
-                }
-
-                // Mode 3: pixel transfer.
-                let ctx = FetchCtx {
-                    lcdc: self.lcdc,
-                    ly: self.ly,
-                    scx: self.scx,
-                    scy: self.scy,
-                    window_line: self.window_line,
-                    position_in_line: self.position_in_line,
-                    _marker: core::marker::PhantomData,
-                };
-                self.fetcher.tick(ctx, &mut self.fifo, vram);
-
-                if self.fifo.len() > 0 {
-                    let bg_index = self.fifo.pop();
-                    // SCX fine-scroll discard: while in the off-screen
-                    // warm-up zone (−16..−9), jump to −8 once the low
-                    // three bits line up with SCX & 7.
-                    if self.position_in_line.wrapping_add(16) < 8
-                        && (self.position_in_line & 7) == (self.scx & 7)
-                    {
-                        self.position_in_line = 0u8.wrapping_sub(8); // −8 = 248
-                    }
-
-                    if self.position_in_line < SCREEN_WIDTH as u8 {
-                        // On-screen: draw. BG/window disabled on DMG
-                        // forces colour 0.
-                        let effective_index = if (self.lcdc & lcdc::BG_ENABLE) != 0 {
-                            bg_index
-                        } else {
-                            0
-                        };
-
-                        let mut final_shade = apply_palette(self.bgp, effective_index);
-                        if (self.lcdc & lcdc::SPRITES_ENABLE) != 0
-                            && let Some(sprite_shade) =
-                                self.sprite_pixel(self.lcd_x, effective_index)
-                        {
-                            final_shade = sprite_shade;
-                        }
-
-                        let pixel_idx =
-                            usize::from(self.ly) * SCREEN_WIDTH as usize + usize::from(self.lcd_x);
-                        self.framebuffer[pixel_idx] = final_shade;
-                        self.lcd_x += 1;
-                    }
-                    // Off-screen warm-up (≥160 as a u8): shifted, not drawn.
-                    self.position_in_line = self.position_in_line.wrapping_add(1);
-                }
+            if self.dot == MODE3_START {
+                self.start_mode3(vram, oam);
+            } else if self.dot > MODE3_START {
+                self.mode3_dot(vram, oam);
             }
-            // else: Mode 0 (HBlank) — idle until next scanline.
         }
 
+        let wx_was_just_changed = self.m3.wx_just_changed;
         self.advance_timing();
         self.update_stat_line();
+        if wx_was_just_changed {
+            self.m3.wx_just_changed = false;
+        }
+        self.apply_staged_write();
     }
 
     /// Tick four times — one CPU m-cycle.
@@ -619,17 +664,27 @@ impl Ppu {
         self.dot += 1;
         if self.dot >= DOTS_PER_LINE {
             self.dot = 0;
-            if self.window_triggered {
-                self.window_line = self.window_line.wrapping_add(1);
+            if self.m3.resume != mode3::Resume::Idle {
+                // The pipeline overran the line (SameBoy's mode-3
+                // abort): fill what is left and settle the window.
+                self.finish_mode3();
             }
+            let previous_line = self.ly;
             self.ly = self.ly.wrapping_add(1);
             if self.ly >= LINES_PER_FRAME {
                 self.ly = 0;
-                self.window_line = 0;
+                self.m3.wy_triggered = false;
+                self.m3.window_y = 0xFF;
             }
             self.lyc_match = self.ly == self.lyc;
             if self.ly < VBLANK_START {
                 self.lcd_x = 0;
+                // The DMG compares WY at the top of each line against
+                // the line just finished, then against the new LY as
+                // mode 2 starts (SameBoy `wy_check`, `ly_for_comparison`).
+                let comparison = if self.ly == 0 { 0 } else { previous_line };
+                self.wy_check(comparison);
+                self.wy_check(self.ly);
             }
         }
     }
@@ -640,7 +695,9 @@ impl Ppu {
         let mode = self.mode();
         let line = ((self.stat & stat::LYC_ENABLE) != 0 && self.effective_lyc_match())
             || ((self.stat & stat::MODE2_ENABLE) != 0 && self.mode2_stat_active(mode))
-            || ((self.stat & stat::MODE1_ENABLE) != 0 && mode == 1)
+            || ((self.stat & stat::MODE1_ENABLE) != 0
+                && mode == 1
+                && !(self.ly == VBLANK_START && self.dot == 0))
             || ((self.stat & stat::MODE0_ENABLE) != 0 && mode == 0);
         if line && !self.stat_line_prev {
             self.stat_irq_latched = true;
@@ -649,125 +706,14 @@ impl Ppu {
     }
 
     fn mode2_stat_active(&self, mode: u8) -> bool {
-        mode == 2 || (mode == 1 && self.ly == VBLANK_START && self.dot != 0)
-    }
-
-    /// Scan OAM for sprites visible on the current scanline. Decodes
-    /// each visible sprite's pixel row and applies DMG priority
-    /// sorting (lower X wins, OAM order is the tiebreaker).
-    fn scan_oam(&mut self, vram: &[u8], oam: &[u8]) {
-        self.sprite_count = 0;
-        let height: u8 = if (self.lcdc & lcdc::SPRITE_HEIGHT_16) != 0 {
-            16
-        } else {
-            8
-        };
-
-        for i in 0..40 {
-            if self.sprite_count >= 10 {
-                break;
-            }
-            let oam_y = oam[i * 4];
-            let oam_x = oam[i * 4 + 1];
-            let tile = oam[i * 4 + 2];
-            let attr = oam[i * 4 + 3];
-
-            let screen_y = i16::from(oam_y) - 16;
-            let ly_signed = i16::from(self.ly);
-            if ly_signed < screen_y || ly_signed >= screen_y + i16::from(height) {
-                continue;
-            }
-
-            let mut row = (ly_signed - screen_y) as u8;
-            if (attr & 0x40) != 0 {
-                row = height - 1 - row; // Y flip
-            }
-
-            // 8x16 sprites: lower bit of tile ignored, second tile = tile+1.
-            let mut tile_id = tile;
-            if height == 16 {
-                tile_id &= 0xFE;
-                if row >= 8 {
-                    tile_id |= 0x01;
-                    row -= 8;
-                }
-            }
-
-            // Sprites always use $8000 unsigned addressing.
-            let tile_addr = u16::from(tile_id) * 16 + u16::from(row) * 2;
-            let low = vram[usize::from(tile_addr)];
-            let high = vram[usize::from(tile_addr + 1)];
-
-            let mut sprite = Sprite {
-                y: screen_y.max(0) as u8,
-                x: oam_x,
-                tile: tile_id,
-                attr,
-                pixels: [0; 8],
-            };
-
-            for px in 0..8u8 {
-                let bit = if (attr & 0x20) != 0 {
-                    px // X flip: bit 0 is leftmost
-                } else {
-                    7 - px
-                };
-                let l = (low >> bit) & 1;
-                let h = (high >> bit) & 1;
-                sprite.pixels[usize::from(px)] = (h << 1) | l;
-            }
-
-            self.sprites[usize::from(self.sprite_count)] = sprite;
-            self.sprite_count += 1;
-        }
-
-        // Insertion sort by X — stable, so OAM order survives ties.
-        let mut j = 1u8;
-        while j < self.sprite_count {
-            let key = self.sprites[usize::from(j)];
-            let mut k = j;
-            while k > 0 && self.sprites[usize::from(k - 1)].x > key.x {
-                self.sprites[usize::from(k)] = self.sprites[usize::from(k - 1)];
-                k -= 1;
-            }
-            self.sprites[usize::from(k)] = key;
-            j += 1;
-        }
-    }
-
-    /// Composite a sprite pixel at `(lcd_x, ly)` if any visible sprite
-    /// covers it. Applies BG-priority and palette selection per the
-    /// sprite's attribute byte.
-    fn sprite_pixel(&self, lcd_x: u8, bg_index: u8) -> Option<u8> {
-        for i in 0..usize::from(self.sprite_count) {
-            let s = &self.sprites[i];
-            // Sprite OAM x is screen_x + 8; the sprite covers
-            // [x-8, x). Use wrapping math so off-screen sprites
-            // (x < 8 or x > 168) compare correctly.
-            let lcd_plus_8 = u16::from(lcd_x) + 8;
-            let sprite_x = u16::from(s.x);
-            if lcd_plus_8 < sprite_x || lcd_plus_8 >= sprite_x + 8 {
-                continue;
-            }
-            let px_in_sprite = (lcd_plus_8 - sprite_x) as usize;
-            let sprite_index = s.pixels[px_in_sprite];
-            if sprite_index == 0 {
-                continue; // transparent
-            }
-
-            // BG-priority bit: when set and BG index != 0, BG wins.
-            if (s.attr & 0x80) != 0 && bg_index != 0 {
-                continue;
-            }
-
-            let palette = if (s.attr & 0x10) != 0 {
-                self.obp1
-            } else {
-                self.obp0
-            };
-            return Some(apply_palette(palette, sprite_index));
-        }
-        None
+        // On every line but 0 the OAM STAT source rises a dot before
+        // STAT's mode bits change; on line 0 it rises with them, a dot
+        // later (SameBoy `GB_display_run`, "The OAM STAT interrupt
+        // occurs 1 T-cycle before STAT actually changes, except on line
+        // 0"; the Mealybug Tearoom tests compensate for the resulting
+        // 4-cycle later dispatch on line 0).
+        (mode == 2 && !(self.ly == 0 && self.dot == 0))
+            || (mode == 1 && self.ly == VBLANK_START && self.dot != 0)
     }
 }
 
