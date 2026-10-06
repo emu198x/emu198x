@@ -194,6 +194,29 @@ fn osc3_wave0_floating_dac_holds_then_fades() {
     }
 }
 
+/// `detect`: two SID-model detection routines, each built for the 6581
+/// (`-old`) and the 8580 (`-new`). `detect-1` looks for the 8580's
+/// triangle+sawtooth combination reaching OSC3 bit 7; `detect-2` starts the
+/// oscillator at FREQ `$FFFF` and reads OSC3 four cycles later, `3` on a
+/// 6581 and `2` on an 8580, whose OSC3 reads triangle and sawtooth a cycle
+/// late.
+#[test]
+#[ignore = "FIXTURE: requires ~/.emu198x/roms/commodore-c64 + ~/.emu198x/test-suites/c64-sid"]
+fn detect_tells_the_models_apart() {
+    if !staged() {
+        emu198x_test_skip::skip!("C64 ROMs or VICE SID testprogs not staged");
+    }
+    for prg in [
+        "detect-1-old.prg",
+        "detect-1-new.prg",
+        "detect-2-old.prg",
+        "detect-2-new.prg",
+    ] {
+        let mut session = run_testprog(&format!("detect/{prg}"), model_for(prg), 60);
+        assert_eq!(border(&mut session), BORDER_PASS, "{prg} verdict");
+    }
+}
+
 /// Read the 8-digit hex delay the `bitfade/delay*.prg` programs print at
 /// `$0428` (screen codes: digits `$30`-`$39`, letters A-F `$01`-`$06`).
 fn printed_delay(session: &mut HeadlessSession<C64Runtime, C64SessionQueryProvider>) -> u32 {
@@ -408,9 +431,8 @@ fn wf12nsr_noise_combinations_match_real_chips() {
 /// 8580 (gpz's C64 and C64C), for each waveform 0-7. The interactive build
 /// samples every waveform before it waits for a key, storing its readings
 /// at `$5000 + 256 * waveform` beside the reference at `$4000 + 256 *
-/// waveform`. `lag` compares each sample with the reference one cycle
-/// later.
-fn waveform_agreement(prg: &str, model: Model, lag: u16) -> [usize; 8] {
+/// waveform`.
+fn waveform_agreement(prg: &str, model: Model) -> [usize; 8] {
     let mut session = run_testprog(prg, model, 50);
     // `currtest` ($FC) counts up through the waveforms; stop once 0-7 are in.
     let mut frames = 0;
@@ -422,8 +444,8 @@ fn waveform_agreement(prg: &str, model: Model, lag: u16) -> [usize; 8] {
     let machine = session.machine_mut().machine_mut();
     std::array::from_fn(|wave| {
         let base = wave as u16 * 256;
-        (0..256 - lag)
-            .filter(|&i| machine.peek(0x5000 + base + i) == machine.peek(0x4000 + base + i + lag))
+        (0..256)
+            .filter(|&i| machine.peek(0x5000 + base + i) == machine.peek(0x4000 + base + i))
             .count()
     })
 }
@@ -433,27 +455,25 @@ fn waveform_agreement(prg: &str, model: Model, lag: u16) -> [usize; 8] {
 /// and the readme warns combined waveforms vary between chips and drift, so
 /// the counts are a strict record of agreement, not a pass mark.
 ///
-/// The 6581 matches triangle and sawtooth exactly. On the 8580 every
-/// waveform with triangle or sawtooth reads one cycle late on the chip
-/// (its half-cycle OSC3 delay, #1606), so it is compared one cycle on; the
-/// single waveforms then match exactly. Pulse is one sample off on both
-/// (the unmodelled one-cycle comparator delay, #1606).
+/// Both models match triangle and sawtooth exactly; on the 8580 that
+/// depends on OSC3 reading them a cycle late. Pulse is one sample off on
+/// both (the unmodelled one-cycle comparator delay, #1606).
 #[test]
 #[ignore = "FIXTURE: requires ~/.emu198x/roms/commodore-c64 + ~/.emu198x/test-suites/c64-sid"]
 fn waveforms_combined_agree_with_real_chips() {
     if !staged() {
         emu198x_test_skip::skip!("C64 ROMs or VICE SID testprogs not staged");
     }
-    let agreement = waveform_agreement("waveforms/waveforms-6581.prg", Model::C64PalBreadbin, 0);
+    let agreement = waveform_agreement("waveforms/waveforms-6581.prg", Model::C64PalBreadbin);
     assert_eq!(
         agreement,
         [256, 256, 256, 242, 254, 245, 136, 253],
         "6581 agreement per waveform 0-7"
     );
-    let agreement = waveform_agreement("waveforms/waveforms-8580.prg", Model::C64cPal, 1);
+    let agreement = waveform_agreement("waveforms/waveforms-8580.prg", Model::C64cPal);
     assert_eq!(
         agreement,
-        [255, 255, 255, 215, 255, 251, 182, 242],
-        "8580 agreement per waveform 0-7, one cycle on"
+        [256, 256, 256, 216, 254, 251, 182, 241],
+        "8580 agreement per waveform 0-7"
     );
 }

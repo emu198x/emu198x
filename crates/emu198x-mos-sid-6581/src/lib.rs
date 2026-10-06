@@ -383,7 +383,7 @@ impl Sid6581 {
         match addr & 0x1F {
             0x19 => Some(self.potx),
             0x1A => Some(self.poty),
-            0x1B => Some((self.voices[2].output() >> 4) as u8),
+            0x1B => Some((self.voices[2].osc3() >> 4) as u8),
             0x1C => Some(self.envelopes[2].level),
             _ => None,
         }
@@ -958,6 +958,28 @@ mod tests {
         let (voice1, voice3) = sync_chain_tick(false);
         assert_eq!(voice3, 0x80_0000, "voice 3 runs on");
         assert_eq!(voice1, 0, "voice 3's rising MSB syncs voice 1");
+    }
+
+    #[test]
+    fn mos8580_osc3_reads_triangle_and_sawtooth_one_cycle_late() {
+        // VICE testprogs/SID/detect `detect-2` on real chips: FREQ $FFFF,
+        // TEST, then sawtooth, and OSC3 four cycles later reads 3 on a 6581
+        // and 2 on an 8580. The 8580 latches its tri/saw output half a cycle
+        // late, after OSC3 has sampled (testprogs/SID/writedelay readme).
+        // The DAC input itself is not delayed.
+        for (model, expected) in [(SidModel::Mos6581, 0x03), (SidModel::Mos8580, 0x02)] {
+            let mut sid = Sid6581::new_with_model(985_248, 48_000, model);
+            sid.write(0x0E, 0xFF);
+            sid.write(0x0F, 0xFF);
+            sid.write(0x12, 0x08);
+            sid.tick();
+            sid.write(0x12, 0x20);
+            for _ in 0..4 {
+                sid.tick();
+            }
+            assert_eq!(sid.cpu_read(0x1B), expected, "{model:?} OSC3");
+            assert_eq!(sid.voices[2].output(), 0x03F, "{model:?} DAC input");
+        }
     }
 
     #[test]

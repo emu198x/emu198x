@@ -80,11 +80,19 @@ pub struct Voice {
     /// held; zero once the register is all ones or TEST is clear.
     shift_register_reset: u32,
     /// The 12-bit waveform DAC input, latched each cycle. With no waveform
-    /// selected the input floats and keeps its last value; OSC3 reads it.
+    /// selected the input floats and keeps its last value, which OSC3 reads.
     output: u16,
     /// Cycles until the floating DAC input loses its next bit; zero while a
     /// waveform is selected or once the input has faded to zero.
     floating_output_ttl: u32,
+    /// The 12-bit value OSC3 reads (top 8 bits) for voice 3. On the 6581 it
+    /// is the DAC input; on the 8580 its triangle and sawtooth lag a cycle
+    /// (see [`Self::latch_output`]).
+    osc3: u16,
+    /// The 8580's triangle/sawtooth selector input from last cycle, which
+    /// OSC3 reads this cycle. Powers up as `$555`, the accumulator's top
+    /// bits.
+    tri_saw_pipeline: u16,
 }
 
 impl Voice {
@@ -100,6 +108,8 @@ impl Voice {
             shift_register_reset: 0,
             output: 0,
             floating_output_ttl: 0,
+            osc3: 0,
+            tri_saw_pipeline: (ACCUMULATOR_POWER_ON >> 12) as u16,
         }
     }
 
@@ -197,11 +207,17 @@ impl Voice {
         }
     }
 
-    /// The latched 12-bit waveform DAC input: what the voice feeds its DAC
-    /// and what OSC3 reads (top 8 bits) for voice 3.
+    /// The latched 12-bit waveform DAC input: what the voice feeds its DAC.
     #[must_use]
     pub const fn output(&self) -> u16 {
         self.output
+    }
+
+    /// The 12-bit value OSC3 reads (top 8 bits) for voice 3: the DAC input,
+    /// except that the 8580's triangle and sawtooth reach it a cycle late.
+    #[must_use]
+    pub const fn osc3(&self) -> u16 {
+        self.osc3
     }
 
     /// Latch this cycle's DAC input. With a waveform selected it is the
@@ -220,6 +236,7 @@ impl Voice {
             self.floating_output_ttl -= 1;
             if self.floating_output_ttl == 0 {
                 self.output &= self.output >> 1;
+                self.osc3 = self.output;
                 if self.output != 0 {
                     self.floating_output_ttl = match model {
                         SidModel::Mos6581 => FLOATING_OUTPUT_TTL_BIT_6581,
@@ -236,8 +253,27 @@ impl Voice {
     /// With noise combined with another waveform, and TEST clear, the
     /// selector output is also written back into the noise register (see
     /// [`Self::write_back_noise`]).
+    ///
+    /// OSC3 samples the output in the first half of the clock. The 8580
+    /// latches its triangle and sawtooth in the second half, so on that model
+    /// OSC3 reads last cycle's triangle, sawtooth or combined sample, masked
+    /// by this cycle's pulse and noise; the DAC is not delayed. The VICE
+    /// `testprogs/SID/writedelay` readme gives the timing from the circuit,
+    /// `detect` (`detect-2`) and `noisewriteback` (`noise_writeback_test2`)
+    /// measure it on real 8580s, and reSID `wave.h` `set_waveform_output`
+    /// (`tri_saw_pipeline`) and reSIDfp model it. reSID leaves the noise+pulse
+    /// pull-down off the delayed OSC3 value; reSIDfp applies its pull-down
+    /// there too, and so does this.
     pub fn latch_output(&mut self, ring_mod_source_msb: bool, model: SidModel) {
-        self.output = self.waveform_output(ring_mod_source_msb, model);
+        let (wave, masks) = self.selector_inputs(ring_mod_source_msb, model);
+        self.output = self.selector_output(wave & masks, model);
+        self.osc3 = if matches!(model, SidModel::Mos8580) && self.control & 0x30 != 0 {
+            let osc3 = self.selector_output(self.tri_saw_pipeline & masks, model);
+            self.tri_saw_pipeline = wave;
+            osc3
+        } else {
+            self.output
+        };
         if self.control >> 4 > 0x08 && self.control & CONTROL_TEST == 0 {
             self.write_back_noise(self.output);
         }
@@ -279,11 +315,19 @@ impl Voice {
     /// input behaviour: zero when no waveform is selected.
     #[must_use]
     pub fn waveform_output(&self, ring_mod_source_msb: bool, model: SidModel) -> u16 {
-        let waveform_bits = (self.control >> 4) & 0x0F;
-
-        if waveform_bits == 0 {
+        if self.control >> 4 == 0 {
             return 0;
         }
+        let (wave, masks) = self.selector_inputs(ring_mod_source_msb, model);
+        self.selector_output(wave & masks, model)
+    }
+
+    /// The selector's two inputs this cycle: the triangle, sawtooth or
+    /// combined-waveform sample (`$FFF` when none of those is selected), and
+    /// the pulse line ANDed with the noise output, each `$FFF` when not
+    /// selected.
+    fn selector_inputs(&self, ring_mod_source_msb: bool, model: SidModel) -> (u16, u16) {
+        let waveform_bits = (self.control >> 4) & 0x0F;
 
         // TEST bit (control bit 3) holds pulse output HIGH. Per 6581 datasheet.
         let test_bit = self.control & CONTROL_TEST != 0;
@@ -337,11 +381,16 @@ impl Voice {
         } else {
             0x0FFF
         };
-        let output = wave & pulse_mask & noise_mask;
-        if waveform_bits & 0x0C == 0x0C {
-            noise_pulse(output, model)
+        (wave, pulse_mask & noise_mask)
+    }
+
+    /// The selector output for `anded`, the selected waveforms ANDed: noise
+    /// with pulse pulls further bits down (see [`noise_pulse`]).
+    const fn selector_output(&self, anded: u16, model: SidModel) -> u16 {
+        if self.control & 0xC0 == 0xC0 {
+            noise_pulse(anded, model)
         } else {
-            output
+            anded
         }
     }
 

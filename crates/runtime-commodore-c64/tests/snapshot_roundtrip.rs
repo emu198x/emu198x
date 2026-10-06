@@ -503,11 +503,11 @@ fn restore_rejects_old_schema_before_decoding_its_payload() {
     let mut runtime = C64Runtime::from_firmware(Model::C64PalBreadbin, &blank_firmware())
         .expect("blank C64 firmware should construct a runtime");
     let err = runtime
-        .restore(&[11])
-        .expect_err("version 11 snapshot should be rejected before payload decode");
+        .restore(&[12])
+        .expect_err("version 12 snapshot should be rejected before payload decode");
     assert!(
         matches!(err, MachineError::InvalidSnapshot { ref reason }
-            if reason == "unsupported snapshot version 11; expected 12"),
+            if reason == "unsupported snapshot version 12; expected 13"),
         "unexpected error variant: {err:?}",
     );
 }
