@@ -218,6 +218,109 @@ pub const NTSC_DOT_CLOCK_HZ: f64 = 5_369_318.0;
 /// a way its NTSC sibling does not.
 pub const PAL_DOT_CLOCK_HZ: f64 = 5_343_750.0;
 
+// ---------------------------------------------------------------------------
+// CPU access windows
+// ---------------------------------------------------------------------------
+//
+// The CPU does not reach VRAM itself. A data-port access hands the VDP a
+// request, and the VDP performs it in the next memory cycle the scan engine
+// leaves free — its "CPU access window" (data manual §2.1.5, Table 2-2). The
+// chip has no wait or ready output (§3.7, terminal assignments: INT is its
+// only output to the CPU), so the CPU is never held off. A program that comes back
+// before the last request was serviced simply overtakes it.
+//
+// What happens then the manual does not say. openMSX measured it on a real
+// MSX (`VDP::scheduleCpuVramAccess`): writes spaced N Z80 cycles apart in
+// Graphics II corrupt for N <= 26 and are clean for N >= 27. Its model is the
+// one here: the late request replaces the pending one — its byte goes to the
+// pending access's address, the earlier byte is lost, and the address
+// advances once for the two. (Where the boundary falls is one cycle out; see
+// `CPU_ACCESS_DELAY_DOTS`.)
+//
+// The windows themselves are openMSX's MSX1 tables (`VDPAccessSlots.cc`),
+// which its authors pieced together from Karl Guttag's timing diagram and the
+// manual (openMSX `doc/internal/vdp-vram-timing/vdp-timing-2.html`). They are
+// stored here in this crate's dot coordinates — dot 0 is the first active
+// pixel, half a dot after openMSX's left border ends — and agree with the
+// manual's worst cases: one window in 16 memory cycles in Graphics I/II
+// (32 dots, 5.96 µs against Table 2-2's 5.95), one in three in Text (6 dots,
+// 1.1 µs), and none to wait for while blanked or in the vertical border. The
+// manual's one-in-four for Multicolor holds across the active pixels; in the
+// horizontal border the sprite fetches leave a 15-cycle gap (30 dots), the
+// same as Graphics I/II, which the manual's table does not show. openMSX notes
+// the same disagreement and follows the diagram; so does this.
+
+/// Dots from a CPU data-port access to the earliest memory cycle that can
+/// service it — the manual's "approximately 2 microseconds" of VDP delay
+/// (§2.1.5), which openMSX takes as seven dots (1.3 µs).
+///
+/// This is the one figure here that disagrees with a measurement. A window
+/// six dots away is too close, so the longest wait is 6 + 32 = 38 dots in
+/// Graphics I/II: writes 26 Z80 cycles apart (39 dots) are always served.
+/// openMSX measured them corrupting on a real MSX, and found eight or nine
+/// dots reproduced that — but eight corrupted Chase HQ, so it settled on
+/// seven and left the question open. Seven is kept rather than tuned
+/// against one side of that.
+const CPU_ACCESS_DELAY_DOTS: u16 = 7;
+
+/// Dots in one scan line.
+const DOTS_PER_LINE: u16 = 342;
+
+/// The dot at which the access-window pattern of the *next* scan line begins.
+/// The sprite fetches for a line happen in the horizontal border before it,
+/// so a line's pattern starts 65 dots before its first pixel.
+const SLOT_LINE_START_DOT: u16 = DOTS_PER_LINE - 65;
+
+/// Windows while the display is blanked (R1 bit 6 = 0) or in the vertical
+/// border: the only competing memory cycles are refresh.
+const SLOTS_BLANK: [u16; 107] = [
+    2, 6, 10, 14, 18, 22, 26, 30, 34, 38, 42, 46, 50, 54, 58, 62, 66, 70, 74, 78, 82, 86, 90, 94,
+    98, 102, 106, 110, 114, 118, 122, 126, 130, 134, 138, 142, 146, 150, 154, 158, 162, 166, 170,
+    174, 178, 182, 186, 190, 194, 198, 202, 206, 210, 214, 218, 222, 226, 230, 234, 238, 242, 244,
+    246, 248, 250, 252, 254, 256, 258, 260, 262, 264, 266, 268, 270, 272, 274, 276, 278, 280, 282,
+    284, 286, 288, 290, 292, 294, 296, 298, 300, 302, 304, 306, 308, 310, 312, 314, 316, 318, 320,
+    322, 324, 326, 328, 332, 336, 340,
+];
+
+/// Windows on an active line in Graphics I and II — one memory cycle in 16
+/// while the pattern, name and colour fetches run.
+const SLOTS_GRAPHICS: [u16; 19] = [
+    22, 54, 86, 118, 150, 182, 214, 244, 246, 276, 278, 280, 282, 284, 306, 308, 310, 312, 332,
+];
+
+/// Windows on an active line in Multicolor, which has no colour fetch.
+const SLOTS_MULTICOLOR: [u16; 51] = [
+    0, 8, 16, 22, 24, 32, 40, 48, 54, 56, 64, 72, 80, 86, 88, 96, 104, 112, 118, 120, 128, 136,
+    144, 150, 152, 160, 168, 176, 182, 184, 192, 200, 208, 214, 216, 224, 232, 240, 244, 246, 276,
+    278, 280, 282, 284, 306, 308, 310, 312, 332, 334,
+];
+
+/// Windows on an active line in Text mode, which has no sprites.
+const SLOTS_TEXT: [u16; 91] = [
+    2, 8, 14, 20, 26, 32, 38, 44, 50, 56, 62, 68, 74, 80, 86, 92, 98, 104, 110, 116, 122, 128, 134,
+    140, 146, 152, 158, 164, 170, 176, 182, 188, 194, 200, 206, 212, 218, 224, 230, 234, 236, 238,
+    240, 242, 244, 246, 248, 250, 252, 254, 256, 258, 260, 262, 264, 266, 268, 270, 272, 274, 276,
+    278, 280, 282, 284, 286, 288, 290, 292, 294, 296, 298, 300, 302, 304, 306, 308, 310, 312, 314,
+    316, 318, 320, 322, 324, 326, 328, 330, 332, 334, 338,
+];
+
+/// Which CPU access the VDP is holding.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+enum CpuAccessKind {
+    /// Fetch `VRAM[address]` into the read-ahead latch.
+    Read,
+    /// Store the latch at `VRAM[address]`.
+    Write,
+}
+
+/// A CPU access accepted at the data port but not yet performed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+struct PendingAccess {
+    kind: CpuAccessKind,
+    /// Dots until the access window that performs it.
+    dots_left: u16,
+}
+
 /// TMS9918 Video Display Processor.
 #[derive(Serialize, Deserialize)]
 pub struct Tms9918 {
@@ -232,7 +335,10 @@ pub struct Tms9918 {
     status: u8,
 
     // I/O port state
-    /// Read-ahead buffer for data port reads.
+    /// The CPU data latch: the read-ahead byte for data-port reads, and the
+    /// byte a data-port write is waiting to store. One latch serves both, so
+    /// a read straight after a write returns the byte written (openMSX
+    /// measured this on the V9938; MAME's `vram_write` does the same).
     read_buffer: u8,
     /// 14-bit VRAM address register.
     address: u16,
@@ -240,6 +346,12 @@ pub struct Tms9918 {
     latch_first: bool,
     /// First byte stored during two-byte control write.
     latch_value: u8,
+    /// The CPU access waiting for an access window, if any.
+    pending_access: Option<PendingAccess>,
+    /// Accesses that arrived while another was still pending. Observation
+    /// only, for tests and debugging; not machine state.
+    #[serde(skip)]
+    access_overruns: u64,
 
     // Rendering state
     /// Current scanline (0-based).
@@ -278,6 +390,8 @@ impl Tms9918 {
             address: 0,
             latch_first: true,
             latch_value: 0,
+            pending_access: None,
+            access_overruns: 0,
             scanline: 0,
             dot: 0,
             region,
@@ -313,21 +427,112 @@ impl Tms9918 {
     // I/O ports
     // -----------------------------------------------------------------------
 
-    /// Read the data port. Returns the read-ahead buffer, then refills it
-    /// from VRAM[address] and increments the address.
+    /// Read the data port. Returns the read-ahead latch and asks for the
+    /// next byte, which arrives — and the address advances — at the next
+    /// access window.
     pub fn read_data(&mut self) -> u8 {
         self.latch_first = true;
         let result = self.read_buffer;
-        self.read_buffer = self.vram[self.address as usize & 0x3FFF];
-        self.address = (self.address + 1) & 0x3FFF;
+        self.request_cpu_access(CpuAccessKind::Read);
         result
     }
 
-    /// Write the data port. Writes to VRAM[address] and increments.
+    /// Write the data port. The byte is latched and stored at
+    /// `VRAM[address]`, and the address advanced, at the next access window.
     pub fn write_data(&mut self, value: u8) {
         self.latch_first = true;
-        self.vram[self.address as usize & 0x3FFF] = value;
         self.read_buffer = value;
+        self.request_cpu_access(CpuAccessKind::Write);
+    }
+
+    /// Data-port accesses that arrived before the previous one had been
+    /// performed, since this VDP was created or restored.
+    ///
+    /// Each one is a byte the real chip loses: a late write replaces the
+    /// pending one, and a late read returns a latch the VDP has not yet
+    /// refilled. Software of the period paces its accesses to keep this at
+    /// zero during active display.
+    #[must_use]
+    pub fn cpu_access_overruns(&self) -> u64 {
+        self.access_overruns
+    }
+
+    /// Accept a data-port access. If one is already waiting, the new request
+    /// replaces it in the same window: the access happens once, with the
+    /// latest kind and byte.
+    fn request_cpu_access(&mut self, kind: CpuAccessKind) {
+        if let Some(pending) = &mut self.pending_access {
+            pending.kind = kind;
+            self.access_overruns += 1;
+            return;
+        }
+        self.pending_access = Some(PendingAccess {
+            kind,
+            dots_left: self.dots_to_access_window(),
+        });
+    }
+
+    /// Dots from now to the first access window at least
+    /// [`CPU_ACCESS_DELAY_DOTS`] away, in the pattern the scan engine is
+    /// running at this dot.
+    fn dots_to_access_window(&self) -> u16 {
+        let dot = self.dot;
+        self.access_windows()
+            .iter()
+            .map(|&window| {
+                let ahead = (window + DOTS_PER_LINE - dot) % DOTS_PER_LINE;
+                if ahead >= CPU_ACCESS_DELAY_DOTS {
+                    ahead
+                } else {
+                    ahead + DOTS_PER_LINE
+                }
+            })
+            .min()
+            .unwrap_or(CPU_ACCESS_DELAY_DOTS)
+    }
+
+    /// The access windows of the line whose fetches are under way at this
+    /// dot. That line starts in the horizontal border before its first pixel,
+    /// so the last dots of a scan line belong to the next one.
+    fn access_windows(&self) -> &'static [u16] {
+        let mut line = self.scanline;
+        if self.dot >= SLOT_LINE_START_DOT {
+            line += 1;
+            if line >= self.region.lines_per_frame() {
+                line = 0;
+            }
+        }
+        if u32::from(line) >= ACTIVE_HEIGHT || !self.display_enabled() {
+            return &SLOTS_BLANK;
+        }
+        match self.mode() {
+            Mode::GraphicsI | Mode::GraphicsII => &SLOTS_GRAPHICS,
+            Mode::Multicolor => &SLOTS_MULTICOLOR,
+            Mode::Text => &SLOTS_TEXT,
+        }
+    }
+
+    /// Count down to the pending access's window, and perform it there.
+    fn service_cpu_access(&mut self) {
+        let Some(pending) = &mut self.pending_access else {
+            return;
+        };
+        if pending.dots_left > 0 {
+            pending.dots_left -= 1;
+            return;
+        }
+        let kind = pending.kind;
+        self.pending_access = None;
+        self.perform_cpu_access(kind);
+    }
+
+    /// Perform a CPU access in its window.
+    fn perform_cpu_access(&mut self, kind: CpuAccessKind) {
+        let addr = self.address as usize & 0x3FFF;
+        match kind {
+            CpuAccessKind::Read => self.read_buffer = self.vram[addr],
+            CpuAccessKind::Write => self.vram[addr] = self.read_buffer,
+        }
         self.address = (self.address + 1) & 0x3FFF;
     }
 
@@ -365,10 +570,10 @@ impl Tms9918 {
             // VRAM write setup
             self.address = u16::from(self.latch_value) | (u16::from(value & 0x3F) << 8);
         } else {
-            // VRAM read setup — pre-fetch into read buffer
+            // VRAM read setup starts a read cycle (§2.1.5): the byte is in the
+            // latch for the first data-port read once its window has passed.
             self.address = u16::from(self.latch_value) | (u16::from(value & 0x3F) << 8);
-            self.read_buffer = self.vram[self.address as usize & 0x3FFF];
-            self.address = (self.address + 1) & 0x3FFF;
+            self.request_cpu_access(CpuAccessKind::Read);
         }
     }
 
@@ -434,6 +639,10 @@ impl Tms9918 {
     /// this is byte-identical to the previous scanline-batched model, because
     /// every pixel shares the same `bg_pixel`/sprite logic.
     pub fn tick(&mut self) -> bool {
+        // A CPU access whose window has come round is performed before this
+        // dot's pixel is fetched.
+        self.service_cpu_access();
+
         // Start of each scanline: paint that line's border pixels from the live
         // backdrop, so a mid-frame VR7 write splits the border on this frame.
         // Active pixels overwrite the 256 x 192 interior as they are drawn.
@@ -475,6 +684,12 @@ impl Tms9918 {
 
     /// Run for one complete scanline (342 dots). Returns true at frame end.
     pub fn tick_scanline(&mut self) -> bool {
+        // Every access window is less than a line away, so a pending CPU
+        // access is performed within this one.
+        if let Some(pending) = self.pending_access.take() {
+            self.perform_cpu_access(pending.kind);
+        }
+
         // Paint this line's border from the live backdrop (see `tick`).
         self.paint_border_for_scanline();
 
@@ -996,7 +1211,8 @@ impl Tms9918 {
     ///
     /// Layout: regs (8) + status (1) + read_buffer (1) + address (2) +
     /// latch_first (1) + latch_value (1) + scanline (2) + dot (2) +
-    /// interrupt (1) + frame_count (8) + vram (16384) = 16411 bytes.
+    /// interrupt (1) + frame_count (8) + vram (16384) + pending access kind
+    /// (1: 0 none, 1 read, 2 write) + dots to its window (2) = 16414 bytes.
     pub fn save_state(&self, out: &mut Vec<u8>) {
         out.extend_from_slice(&self.regs);
         out.push(self.status);
@@ -1009,11 +1225,24 @@ impl Tms9918 {
         out.push(u8::from(self.interrupt));
         out.extend_from_slice(&self.frame_count.to_le_bytes());
         out.extend_from_slice(&self.vram);
+        let (kind, dots_left) = match self.pending_access {
+            None => (0, 0),
+            Some(PendingAccess {
+                kind: CpuAccessKind::Read,
+                dots_left,
+            }) => (1, dots_left),
+            Some(PendingAccess {
+                kind: CpuAccessKind::Write,
+                dots_left,
+            }) => (2, dots_left),
+        };
+        out.push(kind);
+        out.extend_from_slice(&dots_left.to_le_bytes());
     }
 
     /// Restore VDP state from a byte slice. Returns bytes consumed or error.
     pub fn load_state(&mut self, data: &[u8]) -> Result<usize, String> {
-        let needed = 8 + 1 + 1 + 2 + 1 + 1 + 2 + 2 + 1 + 8 + 16384;
+        let needed = 8 + 1 + 1 + 2 + 1 + 1 + 2 + 2 + 1 + 8 + 16384 + 1 + 2;
         if data.len() < needed {
             return Err("TMS9918 state truncated".into());
         }
@@ -1049,6 +1278,20 @@ impl Tms9918 {
         p += 8;
         self.vram.copy_from_slice(&data[p..p + 16384]);
         p += 16384;
+        let dots_left = u16::from_le_bytes([data[p + 1], data[p + 2]]);
+        self.pending_access = match data[p] {
+            0 => None,
+            1 => Some(PendingAccess {
+                kind: CpuAccessKind::Read,
+                dots_left,
+            }),
+            2 => Some(PendingAccess {
+                kind: CpuAccessKind::Write,
+                dots_left,
+            }),
+            other => return Err(format!("TMS9918 pending access kind {other} is not 0-2")),
+        };
+        p += 3;
         Ok(p)
     }
 }
@@ -1131,6 +1374,14 @@ mod tests {
         assert!(vdp.display_enabled());
     }
 
+    /// Give a data-port access time to reach its window. 40 dots covers the
+    /// worst case, Graphics I/II active display (6 + 32 dots).
+    fn settle(vdp: &mut Tms9918) {
+        for _ in 0..40 {
+            vdp.tick();
+        }
+    }
+
     #[test]
     fn vram_write_and_read() {
         let mut vdp = Tms9918::new(VdpRegion::Ntsc);
@@ -1139,9 +1390,10 @@ mod tests {
         vdp.write_control(0x40); // bit 6 set = write mode
 
         // Write bytes
-        vdp.write_data(0xAA);
-        vdp.write_data(0xBB);
-        vdp.write_data(0xCC);
+        for byte in [0xAA, 0xBB, 0xCC] {
+            vdp.write_data(byte);
+            settle(&mut vdp);
+        }
 
         assert_eq!(vdp.vram[0], 0xAA);
         assert_eq!(vdp.vram[1], 0xBB);
@@ -1150,11 +1402,103 @@ mod tests {
         // Set read address to $0000
         vdp.write_control(0x00);
         vdp.write_control(0x00); // bit 6 clear = read mode
+        settle(&mut vdp);
 
         // First read returns pre-fetched byte
-        assert_eq!(vdp.read_data(), 0xAA);
-        assert_eq!(vdp.read_data(), 0xBB);
-        assert_eq!(vdp.read_data(), 0xCC);
+        for byte in [0xAA, 0xBB, 0xCC] {
+            assert_eq!(vdp.read_data(), byte);
+            settle(&mut vdp);
+        }
+        assert_eq!(vdp.cpu_access_overruns(), 0);
+    }
+
+    #[test]
+    fn a_write_waits_for_its_access_window() {
+        // Blanked, the only competition is refresh: the byte lands within
+        // 11 dots from dot 0, and not before the 7-dot delay.
+        let mut vdp = Tms9918::new(VdpRegion::Ntsc);
+        vdp.write_control(0x00);
+        vdp.write_control(0x40);
+        vdp.write_data(0x5A);
+        assert_eq!(vdp.vram[0], 0x00, "the write cannot land at once");
+        for _ in 0..CPU_ACCESS_DELAY_DOTS {
+            vdp.tick();
+        }
+        assert_eq!(vdp.vram[0], 0x00, "nor inside the access delay");
+        for _ in 0..4 {
+            vdp.tick();
+        }
+        assert_eq!(vdp.vram[0], 0x5A);
+        assert_eq!(vdp.address, 1);
+    }
+
+    #[test]
+    fn a_write_that_overtakes_the_pending_one_replaces_it() {
+        // openMSX's model, which reproduces its real-MSX measurement: the late
+        // byte goes to the pending access's address, the earlier byte is lost
+        // and the address advances once for the two.
+        let mut vdp = Tms9918::new(VdpRegion::Ntsc);
+        vdp.write_control(0x00);
+        vdp.write_control(0x40);
+        vdp.write_data(0x11);
+        vdp.write_data(0x22);
+        settle(&mut vdp);
+        assert_eq!(vdp.vram[0], 0x22);
+        assert_eq!(vdp.vram[1], 0x00);
+        assert_eq!(vdp.address, 1);
+        assert_eq!(vdp.cpu_access_overruns(), 1);
+    }
+
+    #[test]
+    fn the_window_pattern_matches_the_manuals_worst_cases() {
+        // §2.1.5 and Table 2-2, in dots (a memory cycle is two). Graphics I/II:
+        // one window in 16 memory cycles, 5.95 µs. Text: one in three, 1.1 µs.
+        // Multicolor: one in four across the active pixels. Blanked: refresh
+        // only, no wait worth the name.
+        fn widest_gap(windows: &[u16], within: impl Fn(u16, u16) -> bool) -> u16 {
+            let mut widest = 0;
+            for (i, &window) in windows.iter().enumerate() {
+                let next = windows
+                    .get(i + 1)
+                    .copied()
+                    .unwrap_or(windows[0] + DOTS_PER_LINE);
+                if within(window, next) {
+                    widest = widest.max(next - window);
+                }
+            }
+            widest
+        }
+        let anywhere = |_: u16, _: u16| true;
+        let across_pixels = |from: u16, to: u16| to <= ACTIVE_WIDTH as u16 && from < to;
+
+        assert_eq!(widest_gap(&SLOTS_GRAPHICS, anywhere), 32);
+        assert_eq!(widest_gap(&SLOTS_TEXT, anywhere), 6);
+        assert_eq!(widest_gap(&SLOTS_MULTICOLOR, across_pixels), 8);
+        assert_eq!(widest_gap(&SLOTS_BLANK, anywhere), 4);
+        for windows in [
+            &SLOTS_GRAPHICS[..],
+            &SLOTS_TEXT,
+            &SLOTS_MULTICOLOR,
+            &SLOTS_BLANK,
+        ] {
+            assert!(windows.windows(2).all(|w| w[0] < w[1]), "sorted, unique");
+            assert!(windows.iter().all(|&w| w < DOTS_PER_LINE));
+        }
+    }
+
+    #[test]
+    fn a_pending_access_survives_the_state_round_trip() {
+        let mut vdp = Tms9918::new(VdpRegion::Ntsc);
+        vdp.write_control(0x00);
+        vdp.write_control(0x40);
+        vdp.write_data(0x77);
+        let mut state = Vec::new();
+        vdp.save_state(&mut state);
+
+        let mut restored = Tms9918::new(VdpRegion::Ntsc);
+        assert_eq!(restored.load_state(&state), Ok(state.len()));
+        settle(&mut restored);
+        assert_eq!(restored.vram[0], 0x77);
     }
 
     #[test]
@@ -1164,9 +1508,11 @@ mod tests {
         vdp.write_control(0xFE);
         vdp.write_control(0x7F); // $3FFE, write mode
 
-        vdp.write_data(0x11);
-        vdp.write_data(0x22);
-        vdp.write_data(0x33); // Should wrap to $0000
+        for byte in [0x11, 0x22, 0x33] {
+            // The third should wrap to $0000.
+            vdp.write_data(byte);
+            settle(&mut vdp);
+        }
 
         assert_eq!(vdp.vram[0x3FFE], 0x11);
         assert_eq!(vdp.vram[0x3FFF], 0x22);

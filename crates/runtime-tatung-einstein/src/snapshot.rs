@@ -12,10 +12,14 @@ use serde::{Deserialize, Serialize};
 
 use crate::runtime::EinsteinRuntime;
 
+/// Bumped to 6 when the TMS9918 began holding a CPU access until its VRAM
+/// access window. The live chip now carries that pending access, so an older
+/// payload decodes the fields after it at the wrong offsets.
+///
 /// Bumped to 5 when the fictional NTSC configuration and its serialised region
 /// field were removed. The TC-01 is a PAL-only machine; accepting a version-4
 /// payload would decode the following fields at the wrong offsets.
-const SNAPSHOT_VERSION: u16 = 5;
+const SNAPSHOT_VERSION: u16 = 6;
 
 /// Borrowing envelope used during encode — avoids cloning the live machine.
 #[derive(Serialize)]
