@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- sample the noise waveform from shift-register bits 20, 18, 14, 11, 9, 5, 2 and 0, the die-photo positions reSID 1.0 and reSIDfp use, instead of reSID 0.16's 22, 20, 16, 13, 11, 7, 4 and 2 (#1606)
+
 ## [0.8.0] - 2026-10-06
 
 ### Changed

@@ -15,6 +15,19 @@ const NOISE_LFSR_MASK: u32 = 0x7F_FFFF;
 
 const CONTROL_TEST: u8 = 0x08;
 
+/// Noise shift-register bit and the waveform DAC input it drives, for each
+/// of the eight noise outputs (see [`Voice::noise_output`]).
+const NOISE_TAPS: [(u32, u32); 8] = [
+    (20, 11),
+    (18, 10),
+    (14, 9),
+    (11, 8),
+    (9, 7),
+    (5, 6),
+    (2, 5),
+    (0, 4),
+];
+
 /// Cycles TEST must be held before the noise shift register's SRAM cells
 /// start reaching one, then the cycles between each further bit. While TEST
 /// is set the register bits are interconnected and the cells drift up towards
@@ -323,19 +336,24 @@ impl Voice {
         (value & 0x0FFE) as u16
     }
 
+    /// The noise waveform: shift-register bits 20, 18, 14, 11, 9, 5, 2 and 0
+    /// drive DAC inputs 11..4; the low four DAC inputs are grounded. Same on
+    /// the 6581 and 8580.
+    ///
+    /// These are the positions the die photographs give, per reSID 1.0
+    /// `wave.h` (`set_noise_output`) and reSIDfp `WaveformGenerator.cpp`,
+    /// which agree. reSID 0.16 and earlier sampled 22, 20, 16, 13, 11, 7, 4
+    /// and 2, the same pattern two shifts later. The difference shows the
+    /// moment a shift lands: from an all-ones register one TEST pulse shifts
+    /// a zero into bit 0, and VICE `testprogs/SID` `wb_testsuite` and
+    /// `noisewriteback` read OSC3 `$FE` on real 6581s and 8580s, which only
+    /// the bit-0 tap gives. The same bits take the combined-waveform
+    /// write-back ([`NOISE_TAPS`]).
     fn noise_output(&self) -> u16 {
-        // 6581 noise waveform samples LFSR bits
-        // 22, 20, 16, 13, 11, 7, 4, 2 into output bits 11..=4 (MSB-aligned
-        // 12-bit waveform). Per 6581 datasheet / reSID reference.
         let lfsr = self.noise_lfsr;
-        (((lfsr >> 22) & 1) << 11
-            | ((lfsr >> 20) & 1) << 10
-            | ((lfsr >> 16) & 1) << 9
-            | ((lfsr >> 13) & 1) << 8
-            | ((lfsr >> 11) & 1) << 7
-            | ((lfsr >> 7) & 1) << 6
-            | ((lfsr >> 4) & 1) << 5
-            | ((lfsr >> 2) & 1) << 4) as u16
+        NOISE_TAPS.iter().fold(0, |out, &(reg_bit, dac_bit)| {
+            out | ((((lfsr >> reg_bit) & 1) as u16) << dac_bit)
+        })
     }
 
     #[must_use]
@@ -652,6 +670,48 @@ mod tests {
         assert!(v.msb());
         v.accumulator = 0x007F_FFFF;
         assert!(!v.msb());
+    }
+
+    #[test]
+    fn noise_waveform_taps_register_bits_20_18_14_11_9_5_2_0() {
+        let mut v = Voice::new();
+        v.control = NOISE;
+        for (bit, out) in [
+            (20, 0x800),
+            (18, 0x400),
+            (14, 0x200),
+            (11, 0x100),
+            (9, 0x080),
+            (5, 0x040),
+            (2, 0x020),
+            (0, 0x010),
+        ] {
+            v.noise_lfsr = 1 << bit;
+            assert_eq!(
+                v.waveform_output(false, SidModel::Mos6581),
+                out,
+                "bit {bit}"
+            );
+        }
+        for bit in [22, 21, 19, 17, 16, 13, 7, 4] {
+            v.noise_lfsr = 1 << bit;
+            assert_eq!(v.waveform_output(false, SidModel::Mos6581), 0, "bit {bit}");
+        }
+    }
+
+    #[test]
+    fn test_falling_from_all_ones_reads_osc3_fe() {
+        // VICE testprogs/SID wb_testsuite `8_to_8` and noisewriteback
+        // `noise_writeback_test1` (real 6581 and 8580): with the register all
+        // ones, one TEST pulse shifts in !bit17 = 0, and OSC3 reads $FE. Bit
+        // 0 is a waveform tap, so the new zero shows at once.
+        for model in [SidModel::Mos6581, SidModel::Mos8580] {
+            let mut v = Voice::new();
+            v.noise_lfsr = NOISE_LFSR_MASK;
+            v.write_control(NOISE | TEST, model);
+            v.write_control(NOISE, model);
+            assert_eq!(v.waveform_output(false, model) >> 4, 0xFE, "{model:?}");
+        }
     }
 
     #[test]
