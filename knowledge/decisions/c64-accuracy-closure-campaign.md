@@ -95,8 +95,10 @@ all five PAL 6569 colour-fetch-bug programs, and another for `sequencer-bug`.
 `greydot` must match exactly and `colorsplit` keeps an exact 952-pixel
 signature on its XSCROLL rows. Fixture tests pin CPU store and opcode cycles
 in `greydot`, `colorfetchbug` and `sequencer-bug` to VICE x64sc's. (The 99%
-`gfxfetch` floor predates these results.) There is no strict 6567R56A or 8565 comparison yet.
-The PAL 6569 `greydot` reference does not establish 8565 grey-dot behaviour.
+`gfxfetch` floor predates these results.) The same colour lane runs `greydot`
+and `colorsplit` on the PAL C64C's 8565 against their `-8565` references:
+`greydot` matches exactly and `colorsplit` keeps 960 disagreements, all on its
+XSCROLL rows. There is no strict 6567R56A comparison yet.
 
 ### SID audio
 
@@ -146,8 +148,10 @@ The PAL 6569 `greydot` reference does not establish 8565 grey-dot behaviour.
   oracles, not independent hardware evidence. Every entry currently uses a
   PAL profile.
 - The runtime has PAL and NTSC breadbin profiles plus PAL and NTSC C64C
-  profiles. C64C selects the 8580 and 6526A, but its video profile still uses
-  the 6569 or 6567 implementation rather than a distinct 8565 model.
+  profiles. C64C selects the 8580, the 6526A and the HMOS-II VIC-II (8565 PAL,
+  8562 NTSC). The VIC-II models the HMOS-II chips' grey dot only; the other
+  HMOS-II differences listed under
+  [stage D](#d-85658562-chip-axis-and-grey-dot-796) are not modelled.
 
 ## Why a parity claim is not yet defensible
 
@@ -297,8 +301,9 @@ Work proceeds in this order:
    residual. VICE source is not itself the specification.
 4. Promote corrected representative cases to strict assertions and broaden
    within each category before making a category-level claim. Add strict
-   6567R56A and 8565 contracts only after suitable model-specific references
-   are registered.
+   6567R56A and further 8565 contracts only after suitable model-specific
+   references are registered. Stage 3a-D added the first 8565 contract
+   (`greydot` and `colorsplit`).
 5. Expand SID verification beyond the shared-lineage filter oracle. Record the
    allowed deviations for oscillator, envelope, register-bus and combined-wave
    behaviour, and prefer an independent implementation or hardware capture
@@ -572,10 +577,56 @@ the written register (`draw_colors_8565`). This closes #796.
     entry is a breadbin, so no re-capture is expected. A changed hash fails the
     PR.
 
+**As built (amended 2026-10-06):** the `Vic` stores its chip revision, so
+snapshot version 12 carries it. `colorsplit` on the 8565 keeps 960
+disagreements, eight more than the 6569's 952. All eight are at x = 192 on
+the XSCROLL rows: four rows show a grey dot the reference lacks and four lack
+one it shows, because those rows keep the previous test's scroll.
+`FRAME_ROUTING_VERSION` stays at 8, because no breadbin output changes and
+the catalogue has no C64C entry.
+
+A diagnostic run of the testbench programs that carry a `-8565` reference
+(2026-10-06, not a gate) compared 36 of them; the harness cannot decode the
+other two references, which are indexed-colour PNGs. Every breadbin result
+was unchanged. On the C64C, no program moved further from its 8565
+reference, and 13 now match it exactly where none did before: `greydot`,
+`screenpos`, `sequencer-bug`, `rmwtest`, `lp-trigger`, four `spriteenable`
+and four `spritesplit` programs. Besides `colorsplit`'s eight XSCROLL dots,
+two programs are further from the 8565 reference than the breadbin is from
+the 6569's: `ss-hires-mc` and `ss-hires-mc-exp`, by 44 pixels each.
+
+VICE's `color_latency` flag covers more than the grey dot. These HMOS-II
+differences are not modelled yet:
+
+- the sprite multicolour flag is updated at dot 6, not dot 7
+  (`update_sprite_mc_bits_8565`), the likely cause of the two `spritesplit`
+  residuals above;
+- the `$D011` mode bits enter the graphics pipeline once per cycle rather than
+  on rising and falling edges at dots 4 and 6 (`vmode11_pipe`);
+- an idle graphics fetch reads the delayed `$D011` (`vicii_fetch_idle_gfx`),
+  and the 6569's mixed-mode address latch (`vicii_fetch_graphics`) does not
+  apply;
+- the light pen latches one X unit earlier (`x_extra_bits`).
+
+**NTSC (8562).** `greydot` and `colorsplit` were compared with VICE x64sc 3.10
+screenshots (`-model ntsc` and `-model c64cntsc`), aligned at the NTSC
+`gfxfetch` crop. `colorsplit` matches on the 8562 except its XSCROLL rows,
+grey dots included. (On the 6567R8 it also differs in four 8-pixel blocks
+where VICE's window wraps the frame.) `greydot` matches exactly on the
+6567R8 but leaves 521 disagreements on the 8562, and they come from the CPU,
+not the grey-dot rule. `greydot` is a PAL program: its store loop is 63
+cycles long. On NTSC, VICE's monitor puts its `$D021` stores one cycle away
+from Emu198x's on every line, later in some bands and earlier in others, on
+both chips; `colorsplit`'s stores agree exactly. The program writes the same
+value over and over, so on the 6567R8 the shifted stores leave no trace. On
+the 8562 every grey dot follows its store: one mapping from store cycle to
+dot places all 236 grey dots in both emulators' images.
+
 ### Risks
 
 - **NTSC is unverified.** The prototype measured PAL only. A and C change the
-  6567R8, 6567R56A and 8562 paths too. Re-run `ntsc_gfxfetch_matches_vice_reference`
+  6567R8, 6567R56A and 8562 paths too. Stage D found `greydot`'s stores a
+  cycle away from VICE's on NTSC (see its as-built note). Re-run `ntsc_gfxfetch_matches_vice_reference`
   (at least 94%) at every stage. Compare `greydot` and `colorsplit` on NTSC in
   VICE before claiming them. Line 0's late IRQ and the 6567R56A cycle table
   need checking separately.
@@ -647,6 +698,7 @@ evidence, or an explicit expansion of the supported configuration claim.
 | 2026-10-06 | 3a-A. CPU-visible raster edge | The raster counter that `$D011`, `$D012`, the raster compare, the badline comparator and the vertical border read now changes on cycle 1 (cycle 2 for line 0), as VICE's does. `greydot` stores at VICE's cycles and Lorenz's 14 runnable cases still pass. Alone, A regresses the `sequencer-bug` strict lane (92.235%), as planned; it merges with B and C. |
 | 2026-10-06 | 3a-B. Write phases, sprite DMA, light pen | `$D011` and `$D017` write rules are expressed in the CPU write's own cycle: a far-edge `$D011` write in cycle 54 keeps one matrix access, and a `$D017` write in cycle 15 crunches (VICE `ChkSprCrunch`). Sprite BA follows the fetch chain's DMA bits, so sprites re-matched on lines 306-311 steal cycles as in VICE, which sets `sequencer-bug`'s main-loop phase. The light pen latches from CIA 1 port B bit 4 at VICE's X positions, which `spritefetchbug` uses to stabilise. `dmadelay` and `spritecrunch` reach 100%; `sequencer-bug`'s CPU now matches VICE store for store; its remaining 30 pixels are two colour splits drawn two cycles late, which stage C fixes. |
 | 2026-10-06 | 3a-C. Colour and border stage | Colour registers and the side border are resolved two ticks after rendering, at VICE's phase, with the 6569 dot-0 rule; sprites sit under the border; zero graphics fill the side border. With A and B, every survey program reaches 100% except `border` (93.806%), `vicii_timing` (96.774%) and `spritefetchbug` (97.226%). `sequencer-bug` and `greydot` match exactly; `colorsplit` keeps only its XSCROLL rows. Frame-routing version 8 re-captures the C64 catalogue; snapshot version 11 carries the colour stage. |
+| 2026-10-06 | 3a-D. 8565/8562 chip axis and grey dot | `VicModel` gains the HMOS-II 8565 and 8562, which the PAL and NTSC C64C now use. On them a colour-register write shows a light-grey dot where the 6569 keeps the old colour. `greydot` matches its 8565 reference exactly, and `colorsplit` keeps only its XSCROLL rows. Every breadbin lane and catalogue hash is unchanged. Snapshot version 12 carries the chip revision. On NTSC, `greydot`'s stores sit a cycle away from VICE's, which only the 8562's grey dots reveal. |
 
 ## Related Documents
 
