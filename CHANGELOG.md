@@ -4,6 +4,24 @@ All notable changes to Emu198x will be documented in this file.
 
 Format loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 not strictly. Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [0.27.1] - 2026-10-06
+
+
+### Fixed
+
+- Run the BBC Micro's VIA timers at 1 MHz, so TIME counts centiseconds
+- Stretch BBC Micro 1 MHz-bus cycles to the end of a whole 1 MHz cycle
+- Run a loaded Spectrum snapshot from its own PC, whatever the CPU was doing
+- Clock the BBC Micro's SN76489 at 4 MHz, so its audio is 48 kHz at true pitch
+- Split a text line at the right character when CHBASE changes mid-fetch
+- Read the ANTIC font from CHBASE's address bits only
+- Drive the SID pulse high once the oscillator reaches the pulse width
+- Give SID ring modulation reSID's polarity
+- Ground the SID triangle's lowest DAC bit
+- Let SID TEST drift the noise register instead of reseeding it
+- Return the SID's decaying data-bus value from write-only reads
+- Hold the SID waveform DAC input when no waveform is selected
+
 ## [0.27.0] - 2026-10-05
 
 ### Added
