@@ -26,12 +26,17 @@ id = "c64"
 # write-back as well); every frame hash and the other seven entries' audio
 # hashes stayed the same.
 audio_routing_version = 6
-# Version 7 adds the PAL 6569 far-edge forced-badline C-data carry network.
-# Two output cells remain hidden, while only the first following G-access
-# suppresses VC/VMLI advancement. The version is advanced even when catalogue
-# hashes stay unchanged because an arbitrary-cycle snapshot can observe the
-# corrected pipeline state.
-frame_routing_version = 7
+# Version 8 is stage 3a of the C64 accuracy closure campaign: the CPU sees
+# the raster edge and raster IRQ on cycle 1, VIC-II write rules, sprite DMA
+# and the light pen follow VICE's cycles, and a two-tick colour stage
+# resolves colour registers and the side border. Re-captured with
+# `catalogue capture`: frame hashes changed for Aztec Challenge, Thing on a
+# Spring, Wizball, Monty on the Run and Bomb Jack II (G64); the other eight
+# are unchanged. The eight music entries' audio hashes changed too. That
+# comes from CPU timing (the raster IRQ and sprite-DMA stalls now fall on
+# VICE's cycles), not from SID routing, so audio_routing_version stays at
+# the SID crate's value.
+frame_routing_version = 8
 
 [[system.firmware]]
 variant = "pal"
@@ -141,7 +146,7 @@ frame_hash = "xxh64:e0ff7f47c0d722c0"
 # Captures the in-game SID music.
 from_frame = 60
 secs = 2.0
-hash = "xxh64:cb79e47a9db65c7b"
+hash = "xxh64:2fd954eb856c21cb"
 
 [[entry]]
 id = "aztec-challenge"
@@ -179,12 +184,12 @@ press = "return"
 # confirming the screen IS at player-select even though pixels
 # render with custom CHARGEN.
 wait_frames = 5000
-frame_hash = "xxh64:e69c66d47c38fe97"
+frame_hash = "xxh64:7174aa2b7c53f47f"
 
 [entry.audio]
 from_frame = 60
 secs = 2.0
-hash = "xxh64:0f74133aab245adf"
+hash = "xxh64:a887c0c47df52ff1"
 
 [[entry]]
 id = "bomb-jack"
@@ -218,7 +223,7 @@ frame_hash = "xxh64:59cbde0e3e4589d8"
 [entry.audio]
 from_frame = 60
 secs = 2.0
-hash = "xxh64:29b2608f442e2232"
+hash = "xxh64:0cba0a18dd16a9a1"
 
 [[entry]]
 id = "thing-on-a-spring"
@@ -241,14 +246,14 @@ path = "commodore/c64/Games/Arcade/[TAP]/Thing on a Spring (1985)(Gremlin).zip"
 # screen (the test's 25000 captures a pre-menu state in the catalogue
 # context).
 wait_frames = 50000
-frame_hash = "xxh64:76d04c00d01ea0d0"
+frame_hash = "xxh64:2fbd1db2965ae043"
 
 [entry.audio]
 # Under the sprite sequencer (FRAME_ROUTING_VERSION 2) the menu's SID
 # music plays here — this window is no longer silent.
 from_frame = 60
 secs = 2.0
-hash = "xxh64:d530edeab0dd5b95"
+hash = "xxh64:4bc4ca47927dada8"
 
 [[entry]]
 id = "wizball"
@@ -289,14 +294,14 @@ press = "return"
 # capture frame (screenshot-verified as the same high-score/logo
 # screen), and the audio hash for AUDIO_ROUTING_VERSION 4 (#763).
 wait_frames = 16000
-frame_hash = "xxh64:6e834fb4e51ec3d6"
+frame_hash = "xxh64:c9750adda8b914ca"
 
 [entry.audio]
 # Captures the Rob Hubbard title-screen SID — first non-silent
 # audio assertion of any disk-loaded C64 entry.
 from_frame = 60
 secs = 2.0
-hash = "xxh64:4e21c0b9064fa5b6"
+hash = "xxh64:34fcc8471bacbe6d"
 
 [[entry]]
 id = "monty-on-the-run"
@@ -331,7 +336,7 @@ play_phase_cycles = 2688
 # play_phase_cycles nudge above; screenshot + non-silent audio
 # verified 2026-07-03.
 wait_frames = 62000
-frame_hash = "xxh64:d3547aa2257908ef"
+frame_hash = "xxh64:72144c497bd25d98"
 
 [entry.audio]
 # Captures Hubbard's "Monty on the Run" theme — first non-silent
@@ -339,7 +344,7 @@ frame_hash = "xxh64:d3547aa2257908ef"
 # over the 2s window at the 2026-07-03 re-bless).
 from_frame = 60
 secs = 2.0
-hash = "xxh64:d42ff15b957d292c"
+hash = "xxh64:6e3163d1ced01328"
 
 [[entry]]
 id = "prince-of-persia"
@@ -409,7 +414,7 @@ frame_hash = "xxh64:b562e1cd4a4a3a34"
 # music plays before the boot waypoint).
 from_frame = 60
 secs = 2.0
-hash = "xxh64:0c8eb1c9ea2d81da"
+hash = "xxh64:c7de2216448be19f"
 
 [[entry]]
 id = "final-cartridge-iii"
@@ -577,10 +582,10 @@ path = "commodore/c64/Games/Arcade/[G64]/Bomb Jack 2 (1986)(Elite).zip"
 # keyboard/joystick + 1/2-player menu, and the Elite logo -- all loaded from the
 # raw GCR bit-stream.
 wait_frames = 50000
-frame_hash = "xxh64:d4fe806e709b5f00"
+frame_hash = "xxh64:bc17af9785ca0638"
 
 [entry.audio]
 # Samples the title screen, where Mark Cooksey's SID tune is playing.
 from_frame = 60
 secs = 2.0
-hash = "xxh64:3788947a8bb4f2f0"
+hash = "xxh64:4c678af61db57f0e"

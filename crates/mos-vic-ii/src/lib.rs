@@ -85,7 +85,14 @@ use palette::PALETTE;
 /// bounded 12-bit C-data carry network instead of restoring one
 /// fixture-specific matrix byte. Two output cells remain hidden, while only
 /// the first following G-access suppresses the VC/VMLI advance.
-pub const FRAME_ROUTING_VERSION: u32 = 7;
+///
+/// **Version 8** (2026-10-06): the CPU sees the raster edge, raster IRQ and
+/// badline/vertical-border counter on cycle 1 (stage 3a-A), write rules,
+/// sprite DMA and the light pen follow VICE's cycles (3a-B), and a two-tick
+/// colour stage resolves colour registers and the side border at VICE's
+/// phase, with sprites under the border and zero graphics shifted out
+/// beside the fetch window (3a-C).
+pub const FRAME_ROUTING_VERSION: u32 = 8;
 
 /// CPU-side data visible during the VIC-II's Phi2 phase.
 ///
@@ -294,6 +301,26 @@ impl CellPixels {
     }
 }
 
+/// A CPU write to a colour register (`$D020`-`$D02E`) made after the most
+/// recent tick. The colour stage resolves the first dot of a cell one tick
+/// before its other seven, so it does not yet see this write.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+struct ColourRegisterWrite {
+    /// The register written, as its symbolic source `$20`-`$2E`.
+    register: u8,
+    /// The register's value before the write.
+    previous: u8,
+}
+
+/// One rendered cell waiting in the colour stage: its framebuffer offset and
+/// the source each dot selected, either a direct colour (`$00`-`$0F`) or a
+/// colour register (`$20`-`$2E`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+struct PendingCell {
+    fb_offset: usize,
+    sources: [Option<u8>; 8],
+}
+
 /// Bounded C-data carry state for a forced badline created at the end of the
 /// matrix-fetch window. Hoxs64's measured model propagates selected bits
 /// through paired 12-bit colour/screen entries during the next RC-zero line.
@@ -453,6 +480,19 @@ pub struct Vic {
     /// Idle state — gates the g-access VC/VMLI advance. Cleared by a badline,
     /// set when RC passes 7. Starts idle (top border before the first row).
     idle_state: bool,
+
+    /// VICE's main border flip-flop, set and cleared at its own check cycles
+    /// (`check_hborder`, `viciisc/vicii-cycle.c`).
+    display_border: bool,
+    /// `display_border` after each of the previous two ticks, oldest first:
+    /// the states VICE's `draw_border8` reads for the oldest pending cell.
+    display_border_history: [bool; 2],
+    /// Colour stage: the cells rendered by the previous two ticks, oldest
+    /// first, waiting for their colour registers to be resolved. See
+    /// [`Vic::resolve_oldest_cell`].
+    colour_stage: [Option<PendingCell>; 2],
+    /// The colour-register write made since the last tick.
+    colour_write: Option<ColourRegisterWrite>,
 }
 
 impl Vic {
@@ -524,6 +564,10 @@ impl Vic {
             rc: 0,
             vmli: 0,
             idle_state: true,
+            display_border: true,
+            display_border_history: [true; 2],
+            colour_stage: [None; 2],
+            colour_write: None,
         }
     }
 
@@ -547,7 +591,13 @@ impl Vic {
         self.run_sprite_draw_cycle();
 
         self.update_border_flip_flops();
-        self.render_pixels(memory, display_active_at_phi1);
+        self.update_display_border();
+        self.resolve_oldest_cell();
+        let rendered = self.render_pixels(memory, display_active_at_phi1);
+        self.colour_stage = [self.colour_stage[1], rendered];
+        // The write has reached the cell that resolves its first dot early;
+        // the CPU access after this tick may record the next.
+        self.colour_write = None;
         self.accumulate_sprite_collisions();
         self.advance_video_counters_after_g_access(display_active_at_phi1, forced_g_access_delayed);
         self.forced_badline_output_delay = self.forced_badline_output_delay.saturating_sub(1);
@@ -919,24 +969,27 @@ impl Vic {
             .position(|&(c, _)| (c + 1) % cpl == cycle)
     }
 
-    fn render_pixels(&mut self, memory: &dyn VicMemory, display_active_at_phi1: bool) {
+    fn render_pixels(
+        &mut self,
+        memory: &dyn VicMemory,
+        display_active_at_phi1: bool,
+    ) -> Option<PendingCell> {
         // Cleared every cycle so the collision pass sees no foreground off the
         // display window (borders, retrace); render_pixels re-latches it below
         // only where graphics data is actually shifted out.
         self.gfx_fg_mask = 0;
         if self.raster_line < self.first_visible_line || self.raster_line >= self.last_visible_line
         {
-            return;
+            return None;
         }
         if self.raster_cycle < FIRST_VISIBLE_CYCLE || self.raster_cycle >= LAST_VISIBLE_CYCLE {
-            return;
+            return None;
         }
 
         let fb_y = (self.raster_line - self.first_visible_line) as usize;
         let fb_x = (self.raster_cycle - FIRST_VISIBLE_CYCLE) as usize * 8;
         let fb_offset = fb_y * FB_WIDTH as usize + fb_x;
         let mut output_sources = [None; 8];
-        let border_colour = 0x20;
         let background_colour = 0x21;
         let in_horizontal_display =
             (DISPLAY_START_CYCLE..DISPLAY_END_CYCLE).contains(&self.raster_cycle);
@@ -949,6 +1002,11 @@ impl Vic {
         // behaviour and is deliberately left unchanged by this vertical fix.
         if in_horizontal_display {
             output_sources.fill(Some(background_colour));
+        } else {
+            // Outside the fetch window the sequencer shifts out zero graphics
+            // data (VICE clears `gbuf_pipe0_reg` there). The border normally
+            // covers it; an opened side border shows it, with any sprites.
+            output_sources.fill(Some(self.zero_graphics_source()));
         }
 
         let display_pipeline_visible = !self.border_vert_ff && in_horizontal_display;
@@ -1024,39 +1082,100 @@ impl Vic {
             }
         }
 
-        // Border overlay: paint border colour when the main FF is set.
-        // The FFs are updated per-cycle by update_border_flip_flops(),
-        // so this faithfully reproduces "open the border" tricks that
-        // software uses to keep the main FF clear across a line.
-        if self.border_main_ff {
-            output_sources.fill(Some(border_colour));
-            fg_mask = 0;
-        }
+        // Sprites sit above the graphics, subject to `$D01B`. The border is
+        // painted over both later, in the colour stage, where the VICE border
+        // phase is known (see `apply_border`).
+        self.composite_sprite_sources(&mut output_sources, fg_mask);
 
         // Latch this cycle's foreground mask for the every-cycle collision
-        // pass, then composite the sprite pixels into the framebuffer. The
+        // pass. No foreground collides under the main border flip-flop. The
         // collision accumulation itself lives in `accumulate_sprite_collisions`
         // (called from `tick`) so it runs in the border too.
-        self.gfx_fg_mask = fg_mask;
-        // The border covers sprites (VICE draws `draw_sprites8`, then
-        // `draw_border8`). That is applied here for the vertical border only:
-        // the side border keeps sprites above it until its flip-flop timing,
-        // which `spritefetchbug` exposes, is re-derived.
-        if !self.border_vert_ff {
-            self.composite_sprite_sources(&mut output_sources, fg_mask);
+        if self.border_main_ff {
+            fg_mask = 0;
         }
+        self.gfx_fg_mask = fg_mask;
 
-        // Resolve symbolic register sources only after graphics, border and
-        // sprites have selected the final source for each dot. The complete
-        // NMOS colour-resolution ring is a separate pipeline contract; this
-        // direct renderer deliberately uses the current register values.
-        for (px, source) in output_sources.into_iter().enumerate() {
+        // Colour registers are resolved later, in the colour stage.
+        Some(PendingCell {
+            fb_offset,
+            sources: output_sources,
+        })
+    }
+
+    /// Run VICE's main border checks (`check_hborder`): the left edge in cycle
+    /// 17 (40 columns) or 18 (38 columns), the right edge in cycle 57 or 56.
+    /// They run one cycle after the flip-flop the sequencer uses, and VICE
+    /// draws a cell one cycle after its checks, so a CPU write in the cycle
+    /// before a check still decides it: the side-border opening tricks.
+    fn update_display_border(&mut self) {
+        let csel = self.regs[0x16] & 0x08 != 0;
+        let c = self.raster_cycle;
+        let (left, right) = if csel { (17, 57) } else { (18, 56) };
+        if c == left && !self.border_vert_ff {
+            self.display_border = false;
+        }
+        if c == right {
+            self.display_border = true;
+        }
+        self.display_border_history = [self.display_border_history[1], self.display_border];
+    }
+
+    /// Paint the border over a pending cell as VICE's `draw_border8` does:
+    /// the whole cell while the border was already on, or, with 38 columns,
+    /// dots 0-6 from the earlier state and dot 7 from the later one.
+    fn apply_border(&self, sources: &mut [Option<u8>; 8]) {
+        let [earlier, later] = self.display_border_history;
+        let csel = self.regs[0x16] & 0x08 != 0;
+        let border = Some(0x20);
+        if earlier && later || (csel && earlier) {
+            sources.fill(border);
+        } else if !csel {
+            if earlier {
+                sources[..7].fill(border);
+            }
+            if later {
+                sources[7] = border;
+            }
+        }
+    }
+
+    /// Resolve both cells still waiting in the colour stage.
+    fn flush_colour_stage(&mut self) {
+        self.resolve_oldest_cell();
+        self.colour_stage = [self.colour_stage[1], None];
+        self.resolve_oldest_cell();
+    }
+
+    /// Resolve the cell rendered two ticks ago into the framebuffer.
+    ///
+    /// The VIC-II resolves a dot's colour register well after the sequencer
+    /// has chosen it. VICE x64sc draws a cell one cycle after the engine
+    /// renders it (its border checks, `ChkBrdL1` at cycle 17 and `ChkBrdR1`
+    /// at 57, land one cycle later through `draw_border8`'s `border_state`
+    /// lag) and resolves dots 1-7 in the cycle after that, so they see the
+    /// CPU writes of both following cycles. That is now: this tick has not
+    /// run its CPU access yet, so the registers hold every write up to the
+    /// previous cycle. The NMOS 6567/6569 resolve dot 0 one cycle earlier
+    /// (`draw_colors_6569` in `viciisc/vicii-draw-cycle.c`), so a dot naming
+    /// the register written in the previous cycle still shows its old value.
+    fn resolve_oldest_cell(&mut self) {
+        let Some(mut cell) = self.colour_stage[0].take() else {
+            return;
+        };
+        self.apply_border(&mut cell.sources);
+        for (px, source) in cell.sources.into_iter().enumerate() {
             let Some(source) = source else {
                 continue;
             };
-            let idx = fb_offset + px;
-            if idx < self.framebuffer.len() {
-                self.framebuffer[idx] = self.resolve_colour_source(source);
+            let colour = match self.colour_write {
+                Some(write) if px == 0 && write.register == source => {
+                    PALETTE[usize::from(write.previous & 0x0F)]
+                }
+                _ => self.resolve_colour_source(source),
+            };
+            if let Some(pixel) = self.framebuffer.get_mut(cell.fb_offset + px) {
+                *pixel = colour;
             }
         }
     }
@@ -1070,6 +1189,21 @@ impl Vic {
             source
         } & 0x0F;
         PALETTE[usize::from(colour_index)]
+    }
+
+    /// The colour source of a zero graphics bit pair in the current mode,
+    /// with the video-matrix and colour entries also zero: `$D021` in text
+    /// and multicolour bitmap modes, black in hires bitmap and the invalid
+    /// modes.
+    fn zero_graphics_source(&self) -> u8 {
+        let bmm = self.regs[0x11] & 0x20 != 0;
+        let ecm = self.regs[0x11] & 0x40 != 0;
+        let mcm = self.regs[0x16] & 0x10 != 0;
+        if ecm && (bmm || mcm) || bmm && !mcm {
+            0x00
+        } else {
+            0x21
+        }
     }
 
     /// Resolve the graphics value fetched while the display state is idle.
@@ -1706,6 +1840,19 @@ impl Vic {
             self.regs[r] = value;
         }
 
+        if (0x20..=0x2E).contains(&r) {
+            // Two writes between ticks (a debugger poke after the CPU's
+            // access) keep the value the colour stage still holds.
+            let previous = match self.colour_write {
+                Some(write) if usize::from(write.register) == r => write.previous,
+                _ => old,
+            };
+            self.colour_write = Some(ColourRegisterWrite {
+                register: r as u8,
+                previous,
+            });
+        }
+
         match reg & 0x3F {
             0x11 => {
                 self.pending_d011_write_cycle = Some(self.cpu_access_cycle());
@@ -1975,6 +2122,12 @@ impl Vic {
     pub fn take_frame_complete(&mut self) -> bool {
         let complete = self.frame_complete;
         self.frame_complete = false;
+        if complete {
+            // The frame's last two cells are still in the colour stage. The
+            // machine takes the frame after the final cycle's CPU access, so
+            // the registers are those the next ticks would use.
+            self.flush_colour_stage();
+        }
         complete
     }
 
@@ -2125,8 +2278,19 @@ mod tests {
         }
     }
 
+    /// The VIC-II two ticks later, once the colour stage has resolved every
+    /// cell rendered so far. The extra ticks read blank memory; they render
+    /// only later cells.
+    fn settled(vic: &Vic) -> Vic {
+        let mut vic = vic.clone();
+        let blank = TestMemory::new(&[0; 4096]);
+        tick_vic(&mut vic, &blank);
+        tick_vic(&mut vic, &blank);
+        vic
+    }
+
     fn fb_pixel(vic: &Vic, fb_x: usize, fb_y: usize) -> u32 {
-        vic.framebuffer()[fb_y * FB_WIDTH as usize + fb_x]
+        settled(vic).framebuffer()[fb_y * FB_WIDTH as usize + fb_x]
     }
 
     /// Render one display line (100) carrying three sprites — a hires sprite, a
@@ -2161,7 +2325,7 @@ mod tests {
             memory.ram_write(0x2080 + k, [0xC3, 0x66, 0xFF][k as usize]);
         }
         advance_to(&mut vic, &memory, 103, 0);
-        vic.framebuffer().to_vec()
+        settled(&vic).framebuffer().to_vec()
     }
 
     /// The draw-stage sequencer renders three coexisting sprites (hires +
@@ -2220,7 +2384,7 @@ mod tests {
         }
 
         advance_to(&mut vic, &memory, 311, 62); // a full PAL frame
-        vic.framebuffer().to_vec()
+        settled(&vic).framebuffer().to_vec()
     }
 
     fn fnv1a_u32(data: &[u32]) -> u64 {
@@ -2420,7 +2584,7 @@ mod tests {
     fn framebuffer_size() {
         let vic = Vic::new(VicModel::Pal6569);
         assert_eq!(
-            vic.framebuffer().len(),
+            settled(&vic).framebuffer().len(),
             FB_WIDTH as usize * FB_HEIGHT as usize
         );
     }
@@ -2492,7 +2656,7 @@ mod tests {
 
         let fb_y = (target_line - FIRST_VISIBLE_LINE) as usize;
         let idx = fb_y * FB_WIDTH as usize + 196;
-        assert_eq!(vic.framebuffer()[idx], PALETTE[1]);
+        assert_eq!(settled(&vic).framebuffer()[idx], PALETTE[1]);
     }
 
     #[test]
@@ -3445,7 +3609,7 @@ mod tests {
 
         tick_vic(&mut vic, &memory);
         assert_eq!(
-            &vic.framebuffer[offset..offset + 8],
+            &settled(&vic).framebuffer[offset..offset + 8],
             &[PALETTE[0]; 8],
             "an open vertical border must expose freshly generated idle pixels"
         );
@@ -3474,7 +3638,7 @@ mod tests {
         let offset = fb_y * FB_WIDTH as usize + fb_x;
         tick_vic(&mut vic, &memory);
         assert_eq!(
-            &vic.framebuffer[offset..offset + 8],
+            &settled(&vic).framebuffer[offset..offset + 8],
             &[PALETTE[0x0C]; 8],
             "an open vertical border must reveal the active display pipeline"
         );
@@ -3502,7 +3666,7 @@ mod tests {
         let offset = fb_y * FB_WIDTH as usize + fb_x;
         tick_vic(&mut vic, &memory);
         assert_eq!(
-            &vic.framebuffer[offset..offset + 8],
+            &settled(&vic).framebuffer[offset..offset + 8],
             &[PALETTE[0]; 8],
             "idle bitmap fetches use zeroed video-matrix colours, not D021"
         );
@@ -3530,7 +3694,7 @@ mod tests {
         let offset = fb_y * FB_WIDTH as usize + fb_x;
         tick_vic(&mut vic, &memory);
         assert_eq!(
-            &vic.framebuffer[offset..offset + 8],
+            &settled(&vic).framebuffer[offset..offset + 8],
             &[
                 PALETTE[6], PALETTE[6], PALETTE[0], PALETTE[0], PALETTE[0], PALETTE[0], PALETTE[0],
                 PALETTE[0],
@@ -3993,7 +4157,7 @@ mod tests {
         }
         let fb_y = (target_line - FIRST_VISIBLE_LINE) as usize;
         let idx = fb_y * FB_WIDTH as usize + 284;
-        assert_eq!(vic.framebuffer()[idx], PALETTE[5]);
+        assert_eq!(settled(&vic).framebuffer()[idx], PALETTE[5]);
     }
 
     #[test]
@@ -4026,16 +4190,16 @@ mod tests {
         let row_off = fb_y * FB_WIDTH as usize;
         // pair 0 (px 196,197): transparent → background (border colour 14 default).
         // pair 1 (px 198,199): mc0 → palette[4].
-        assert_eq!(vic.framebuffer()[row_off + 198], PALETTE[4]);
-        assert_eq!(vic.framebuffer()[row_off + 199], PALETTE[4]);
+        assert_eq!(settled(&vic).framebuffer()[row_off + 198], PALETTE[4]);
+        assert_eq!(settled(&vic).framebuffer()[row_off + 199], PALETTE[4]);
         // Tick another cycle to cover 200..208.
         tick_vic(&mut vic, &memory);
         // pair 2 (200,201): sprite_col palette[5].
-        assert_eq!(vic.framebuffer()[row_off + 200], PALETTE[5]);
-        assert_eq!(vic.framebuffer()[row_off + 201], PALETTE[5]);
+        assert_eq!(settled(&vic).framebuffer()[row_off + 200], PALETTE[5]);
+        assert_eq!(settled(&vic).framebuffer()[row_off + 201], PALETTE[5]);
         // pair 3 (202,203): mc1 palette[6].
-        assert_eq!(vic.framebuffer()[row_off + 202], PALETTE[6]);
-        assert_eq!(vic.framebuffer()[row_off + 203], PALETTE[6]);
+        assert_eq!(settled(&vic).framebuffer()[row_off + 202], PALETTE[6]);
+        assert_eq!(settled(&vic).framebuffer()[row_off + 203], PALETTE[6]);
     }
 
     #[test]
@@ -4070,7 +4234,7 @@ mod tests {
         let fb_y = (target_line - FIRST_VISIBLE_LINE) as usize;
         let row_off = fb_y * FB_WIDTH as usize;
         // FG is solid (0xFF chargen): sprite hidden, pixels remain text fg.
-        assert_eq!(vic.framebuffer()[row_off + 48], PALETTE[1]);
+        assert_eq!(settled(&vic).framebuffer()[row_off + 48], PALETTE[1]);
     }
 
     #[test]
@@ -4099,6 +4263,8 @@ mod tests {
         vic.write(0x01, 100); // Y
         vic.write(0x18, 0x14);
         vic.write(0x11, 0x1B);
+        // 40 columns: X = 24 is the first dot inside the side border.
+        vic.write(0x16, 0x08);
         vic.write(0x27, 0x05);
         memory.ram_write(0x07F8, 0x80);
         // data_line 0 (target_line - 100 == 1, /2 = 0) → bytes at 0x2000..2002.
@@ -4114,7 +4280,7 @@ mod tests {
         let fb_y = (target_line - FIRST_VISIBLE_LINE) as usize;
         let row_off = fb_y * FB_WIDTH as usize;
         // Sprite present at fb_x 48 since data byte 0 = 0xFF.
-        assert_eq!(vic.framebuffer()[row_off + 48], PALETTE[5]);
+        assert_eq!(settled(&vic).framebuffer()[row_off + 48], PALETTE[5]);
     }
 
     #[test]

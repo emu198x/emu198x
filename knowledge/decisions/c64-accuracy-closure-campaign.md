@@ -55,23 +55,26 @@ output rather than analogue colour reproduction.
 
 | Category | Matching pixels |
 | --- | ---: |
-| `vicii_timing` | 84.720% |
-| `screenpos` | 87.800% |
-| `videomode` | 88.980% |
-| `border` | 92.533% |
-| `spritecrunch` | 95.190% |
-| `spritefetchbug` | 97.004% |
-| `sb_sprite_fetch` | 98.578% |
-| `gfxfetch` | 99.325% |
-| `sequencer-bug` | 99.971% |
-| `greydot` | 99.993% |
-| `spritedma` | 99.998% |
+| `border` | 93.806% |
+| `vicii_timing` | 96.774% |
+| `spritefetchbug` | 97.226% |
+| `screenpos` | 100.000% |
+| `videomode` | 100.000% |
+| `spritecrunch` | 100.000% |
+| `sb_sprite_fetch` | 100.000% |
+| `gfxfetch` | 100.000% |
+| `sequencer-bug` | 100.000% |
+| `greydot` | 100.000% |
+| `spritedma` | 100.000% |
 | `dmadelay` | 100.000% |
 | `colorfetchbug` | 100.000% for each of five programs |
 
-The complete frame-routing-version-7 survey confirms these results. Relative
-to revision `d140a36f`, only the `sequencer-bug` indexed plane changes; every
-other registered score and hash is identical.
+These are the frame-routing-version-8 results, after stage 3a. At version 7
+the same programs measured `vicii_timing` 84.720%, `screenpos` 87.800%,
+`videomode` 88.980%, `border` 92.533%, `spritecrunch` 95.190%,
+`spritefetchbug` 97.004%, `sb_sprite_fetch` 98.578%, `gfxfetch` 99.325%,
+`sequencer-bug` 99.971%, `greydot` 99.993%, `spritedma` 99.998%,
+`dmadelay` and `colorfetchbug` 100%.
 
 These are pixel-match fractions, not test pass rates. Each row is one
 representative program except `colorfetchbug`, which reports all five selected
@@ -87,11 +90,12 @@ The strict lanes currently require at least 99 percent for PAL 6569
 `gfxfetch`, at least 99.9 percent for PAL 6569 `spritedma`, and at least 94
 percent overall for NTSC 6567R8 `gfxfetch`. The NTSC residual is concentrated
 in the viewport-wrapping rows; overlapping content is approximately 99.3
-percent. A separate strict lane now requires pixel and indexed-hash identity
-for all five PAL 6569 colour-fetch-bug programs; all five pass at revision
-`d140a36f` and remain exact after the far-edge C-data correction. The
-`sequencer-bug` lane retains its exact 30-pixel disagreement signature rather
-than a rounded threshold. There is no strict 6567R56A or 8565 comparison yet.
+percent. A separate strict lane requires pixel and indexed-hash identity for
+all five PAL 6569 colour-fetch-bug programs, and another for `sequencer-bug`.
+`greydot` must match exactly and `colorsplit` keeps an exact 952-pixel
+signature on its XSCROLL rows. Fixture tests pin CPU store and opcode cycles
+in `greydot`, `colorfetchbug` and `sequencer-bug` to VICE x64sc's. (The 99%
+`gfxfetch` floor predates these results.) There is no strict 6567R56A or 8565 comparison yet.
 The PAL 6569 `greydot` reference does not establish 8565 grey-dot behaviour.
 
 ### SID audio
@@ -516,6 +520,17 @@ without the latest write. This is the general colour-ring contract the C-data
 record asks for, not a rule for one register. Flush the two pending cells at
 the frame edge so a captured frame is complete.
 
+**As built (amended 2026-10-06):** the side border moved into the same stage.
+VICE checks the main border in cycles 17/18 and 56/57 and draws a cell one
+cycle after its checks (`draw_border8`'s `border_state`), so a CPU write in
+the cycle before a check still decides it. The engine's border flip-flop ran
+a cycle earlier. Only the 2-cycle-late output had kept the side-border
+tricks in `spritefetchbug` working. The colour stage now applies VICE's
+border, from its last two states, when it resolves a cell, and the border
+covers sprites, as `draw_border8` does after `draw_sprites8`. Outside the
+fetch window the sequencer shifts out zero graphics instead of leaving the
+previous frame's pixels, which an opened side border exposes.
+
 - Files: `crates/mos-vic-ii/src/lib.rs` (`render_pixels`, a pending-cell ring,
   `Vic::write` recording the colour write, `FRAME_ROUTING_VERSION` 7 → 8 with
   its doc entry); `crates/runtime-commodore-c64/src/snapshot.rs`;
@@ -631,6 +646,7 @@ evidence, or an explicit expansion of the supported configuration claim.
 | 2026-10-06 | SID combined waveforms and noise write-back (#769) | The noise waveform reads the die-photo shift-register taps (20, 18, 14, 11, 9, 5, 2, 0), the 8580 reads reSID's sampled 8580 combined-waveform tables instead of a bitwise AND (the 6581 tables were already reSID's samples, now checked entry by entry), noise+pulse pulls bits down per model, and noise combined with another waveform writes its zeros back into the shift register, locking it until TEST refills it. VICE `wb_testsuite` passes 100 of 110 (none before; VICE 3.10's reSID passes 91), `noise_writeback_test1` and the 6581 `wf12nsr` pass, and 8580 combined-waveform agreement with real-chip OSC3 readings rises from 23/128/169/127 to 215/251/182/242 of 255. Audio routing version 6 re-captures six music entries' audio hashes, five of them from the taps alone; every frame hash is unchanged and all 13 entries pass ordinary and fresh-runtime snapshot replay. |
 | 2026-10-06 | 3a-A. CPU-visible raster edge | The raster counter that `$D011`, `$D012`, the raster compare, the badline comparator and the vertical border read now changes on cycle 1 (cycle 2 for line 0), as VICE's does. `greydot` stores at VICE's cycles and Lorenz's 14 runnable cases still pass. Alone, A regresses the `sequencer-bug` strict lane (92.235%), as planned; it merges with B and C. |
 | 2026-10-06 | 3a-B. Write phases, sprite DMA, light pen | `$D011` and `$D017` write rules are expressed in the CPU write's own cycle: a far-edge `$D011` write in cycle 54 keeps one matrix access, and a `$D017` write in cycle 15 crunches (VICE `ChkSprCrunch`). Sprite BA follows the fetch chain's DMA bits, so sprites re-matched on lines 306-311 steal cycles as in VICE, which sets `sequencer-bug`'s main-loop phase. The light pen latches from CIA 1 port B bit 4 at VICE's X positions, which `spritefetchbug` uses to stabilise. `dmadelay` and `spritecrunch` reach 100%; `sequencer-bug`'s CPU now matches VICE store for store; its remaining 30 pixels are two colour splits drawn two cycles late, which stage C fixes. |
+| 2026-10-06 | 3a-C. Colour and border stage | Colour registers and the side border are resolved two ticks after rendering, at VICE's phase, with the 6569 dot-0 rule; sprites sit under the border; zero graphics fill the side border. With A and B, every survey program reaches 100% except `border` (93.806%), `vicii_timing` (96.774%) and `spritefetchbug` (97.226%). `sequencer-bug` and `greydot` match exactly; `colorsplit` keeps only its XSCROLL rows. Frame-routing version 8 re-captures the C64 catalogue; snapshot version 11 carries the colour stage. |
 
 ## Related Documents
 

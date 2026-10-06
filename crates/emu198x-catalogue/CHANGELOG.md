@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Advance C64 frame routing to version 8 for the VIC-II raster-edge,
+  write-phase and colour-stage changes (stage 3a of the C64 accuracy closure
+  campaign). Re-capture five entries' frame hashes and the eight music
+  entries' audio hashes, which move with CPU timing; audio routing stays at
+  version 6.
 - Advance C64 audio routing to version 6 for the SID noise taps, 8580
   combined waveforms and noise write-back in #769, and re-capture six music
   entries' audio hashes.
