@@ -4,6 +4,25 @@ All notable changes to Emu198x will be documented in this file.
 
 Format loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 not strictly. Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [0.27.2] - 2026-10-06
+
+
+### Fixed
+
+- *(6845)* Blink the cursor every 16 or 32 fields, not 32 or 64
+- *(bbc)* Flash the Video ULA's flashing colours and draw the hardware cursor
+- *(bbc)* Answer the Video ULA, ROM select and VIAs across their SHEILA blocks
+- *(game-boy)* Land mid-scanline PPU register writes on the right pixel
+- *(game-boy)* Leave the boot logo and ® tile in VRAM after a skipped boot
+- *(tms9918)* Lose VRAM writes that outrun the access windows, as the chip does
+- Sample SID noise from the die-photo shift-register taps
+- Give the 8580 its sampled combined waveforms
+- Pull SID noise+pulse bits down the way each model does
+- Lock SID noise up when it is combined with another waveform
+- *(c64)* Let the CPU see the raster line change on cycle 1, as VICE does
+- *(c64)* Time VIC-II write rules, sprite DMA and the light pen as VICE does
+- *(c64)* Resolve VIC-II colours and the side border two cycles late, as VICE does
+
 ## [0.27.1] - 2026-10-06
 
 ### Changed
