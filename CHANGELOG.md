@@ -6,11 +6,14 @@ Format loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 not strictly. Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [0.28.1] - 2026-10-06
 
+### Changed
+
+- Spectrum-family snapshots saved by earlier versions no longer load, because the machines now save the tape's end-of-tape state
 
 ### Fixed
 
-- Release the Spectrum's tape input a frame after the tape stops
-- Give a held Spectrum speaker level a flat output
+- *(spectrum)* After a tape stops, the EAR input is released a frame later, as FUSE does, on all seven Spectrum-family machines; before, the 48K dropped it instantly and the others held it high for ever, so games like Operation Wolf and Bubble Bobble played a faint ripple instead of silence (#1633)
+- *(spectrum)* A held beeper level gives a flat, silent output instead of a ~81-sample ripple from uneven sample bins (#1634)
 
 ## [0.28.0] - 2026-10-06
 
