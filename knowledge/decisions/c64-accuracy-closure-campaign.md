@@ -410,15 +410,18 @@ x
 ```
 
 The monitor prints `line/cycle` from `maincpu_clk` (`c64/c64.c`,
-`machine_get_line_cycle`), not from the VIC-II raster. In the `greydot` run it
-reads 96 lines away from the raster line. Compare cycles only within one run,
-or anchor them to a known event. The `colorfetchbug` readme anchors its
-`$D011` store: the program writes vscroll in cycle 15 counted from zero, and
-the monitor reports cycle 16.
+`machine_get_line_cycle`), not from the VIC-II raster. In practice the two
+agree: in the `greydot` run, `lda $d012` at monitor line 205 reads `$CD`.
+(An earlier version of this record said that run read 96 lines off. That
+compared the raster IRQ's line with a different dot row's.) The
+`colorfetchbug` readme anchors the cycle: the program writes vscroll in cycle
+15 counted from zero, and the monitor reports the store at 16. A store
+therefore appears at the engine cycle that writes it, and an opcode at the
+cycle before the engine cycle that fetches it.
 
-On the Emu198x side, `d020_write_cycle_boundary` in
+On the Emu198x side, `cpu_store_cycle_boundary` in
 `crates/runtime-commodore-c64/tests/vicii_testbench.rs` lists every CPU write
-to `$D020` with its engine cycle. Stage A generalises it to any register.
+to one register (`VICII_STORE_ADDR`, `VICII_STORE_PRG`) with its engine cycle.
 
 ### Stages
 
@@ -445,26 +448,36 @@ it leaves red and why. D depends only on C and merges on its own afterwards.
 #### A. CPU-visible line edge, raster IRQ, `$D011`/`$D012` reads
 
 Make the CPU's view of the line edge part of the model: a line number that
-changes in cycle 1, read by `$D011`, `$D012` and the raster compare. Keep the
-internal `raster_line` that drives badlines, borders and sprites where it is.
-Assert the raster IRQ in VICE's phase: cycle 1, or cycle 2 on line 0, where
+changes in cycle 1, read by `$D011`, `$D012` and the raster compare. Assert
+the raster IRQ in VICE's phase: cycle 1, or cycle 2 on line 0, where
 `vicii_cycle_start_of_frame` runs. Write the convention down as one named
 mapping in `Vic`, not as offsets scattered through the tick.
 
+**As built (amended 2026-10-06):** the badline comparator and the vertical
+border flip-flop read the same raster counter, so they also move to cycle 1.
+Engine cycle 0 is VICE's cycle 63 of the previous line, and VICE's
+`check_badline` and `check_vborder_*` run there with the old line. Keeping
+them on the engine's line number failed `dmadelay`: once its `$D011` stores
+landed at VICE's cycles, the store at engine 0 of line 48 made that line a
+badline and moved the whole screen up a character row.
+
 - Files: `crates/mos-vic-ii/src/lib.rs` (`tick` IRQ assertion, `read` and
-  `peek` for `$11`/`$12`, the raster-IRQ unit tests);
-  `crates/runtime-commodore-c64/tests/vicii_testbench.rs`
-  (`sequencer_bug_d011_write_cycle_boundary` expectations and its comment, and
-  the generalised write diagnostic).
+  `peek` for `$11`/`$12`, `check_badline`, the vertical border flip-flop, the
+  raster-IRQ and border unit tests); `crates/machine-commodore-c64/src/machine.rs`
+  (its IRQ test); `crates/runtime-commodore-c64/tests/vicii_testbench.rs`
+  (the VICE store-phase gate and the generalised write diagnostic). The
+  `sequencer-bug` diagnostic moves to stage B, because that program's phase
+  also depends on sprite DMA.
 - State: derived from `raster_line` and `raster_cycle`, so no snapshot change.
   If a latched compare state turns out to be needed, it bumps the snapshot.
 - Gates:
   - A new unit test asserts that the CPU sees the IRQ on engine cycle 1, and
     that `$D012` reads the old line on engine cycles 62 and 0. It fails on
     main.
-  - A new fixture test runs `greydot` and asserts the first `$D021` store of a
-    dot row at engine cycle 17, VICE's phase. It fails on main, which stores
-    at 15.
+  - A new fixture test, `cpu_store_phases_match_vice`, asserts `greydot`'s
+    `$D021` stores at engine cycles 17, 21, ... 53, VICE's phase, and that
+    `colorfetchbug`'s CIA-timed stores stay at 16 and 55/61. It fails on main,
+    which stores `greydot`'s at 15.
   - Lorenz full-machine cases: all 14 runnable cases still pass.
 
 #### B. Re-derive the `$D011`, far-edge, C-data and sprite-DMA timing
@@ -616,6 +629,7 @@ evidence, or an explicit expansion of the supported configuration claim.
 | 2026-10-06 | SID waveform generator (#777) | The pulse comparator drives high while `acc >= PW` (it was inverted), ring modulation substitutes `MSB EOR NOT source-MSB` and is blocked by sawtooth, the triangle's DAC bit 0 is grounded, TEST lets the noise register drift to all ones instead of reseeding it each cycle, write-only reads return the decaying data-bus value, and a deselected waveform leaves the DAC input floating and fading. VICE `ringmod`, `busvalue`, `osc3-wave0` and `bitfade` programs pass on the 6581 and 8580 models. Snapshot version 9 carries the new state; audio routing version 5 re-captures the eight music entries' audio hashes, with every frame hash and the five silent entries unchanged. All 13 entries pass ordinary and fresh-runtime snapshot replay. |
 | 2026-10-06 | 3a. Raster-edge phase (#796) | Planned. A dot-0 colour rule matched `greydot` on both chips but left 51 wrong pixels in each `colorfetchbug` program. The cause: the CPU sees the line edge and raster IRQ 2 cycles early, and colour writes reach the screen 2 cycles late. A prototype that fixed both took `screenpos` and `videomode` to 100% and regressed `dmadelay`, `sequencer-bug` and `spritefetchbug`. Stages A-D are recorded above; A-C merge as one unit. |
 | 2026-10-06 | SID combined waveforms and noise write-back (#769) | The noise waveform reads the die-photo shift-register taps (20, 18, 14, 11, 9, 5, 2, 0), the 8580 reads reSID's sampled 8580 combined-waveform tables instead of a bitwise AND (the 6581 tables were already reSID's samples, now checked entry by entry), noise+pulse pulls bits down per model, and noise combined with another waveform writes its zeros back into the shift register, locking it until TEST refills it. VICE `wb_testsuite` passes 100 of 110 (none before; VICE 3.10's reSID passes 91), `noise_writeback_test1` and the 6581 `wf12nsr` pass, and 8580 combined-waveform agreement with real-chip OSC3 readings rises from 23/128/169/127 to 215/251/182/242 of 255. Audio routing version 6 re-captures six music entries' audio hashes, five of them from the taps alone; every frame hash is unchanged and all 13 entries pass ordinary and fresh-runtime snapshot replay. |
+| 2026-10-06 | 3a-A. CPU-visible raster edge | The raster counter that `$D011`, `$D012`, the raster compare, the badline comparator and the vertical border read now changes on cycle 1 (cycle 2 for line 0), as VICE's does. `greydot` stores at VICE's cycles and Lorenz's 14 runnable cases still pass. Alone, A regresses the `sequencer-bug` strict lane (92.235%), as planned; it merges with B and C. |
 
 ## Related Documents
 
