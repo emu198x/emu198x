@@ -291,17 +291,33 @@ fn booted() -> BbcMicro {
     sys
 }
 
-/// Run `frames` frames and report which pixels changed against the first,
-/// as `(line, first x, last x + 1)` runs, and whether each frame matched it.
+/// One field's lines of the picture: the even framebuffer rows.
+///
+/// The framebuffer weaves both fields of the interlaced picture, so a change
+/// in one field shows on its rows a field before it reaches the other's.
+/// Watching one field's rows sees each change once, a frame at a time.
+fn even_field(sys: &BbcMicro) -> Vec<u32> {
+    let width = sys.framebuffer_width() as usize;
+    sys.framebuffer()
+        .chunks(width)
+        .step_by(2)
+        .flatten()
+        .copied()
+        .collect()
+}
+
+/// Run `frames` frames and report which pixels of the even field changed
+/// against the first, as `(line, first x, last x + 1)` runs, and whether each
+/// frame matched it.
 fn changes_over(sys: &mut BbcMicro, frames: usize) -> (Vec<(usize, usize, usize)>, Vec<bool>) {
     let width = sys.framebuffer_width() as usize;
     sys.run_frame();
-    let first = sys.framebuffer().to_vec();
+    let first = even_field(sys);
     let mut changed = vec![false; first.len()];
     let mut same = Vec::new();
     for _ in 0..frames {
         sys.run_frame();
-        let fb = sys.framebuffer();
+        let fb = even_field(sys);
         let mut matches = true;
         for (i, (&now, &was)) in fb.iter().zip(&first).enumerate() {
             if now != was {
@@ -390,7 +406,7 @@ fn a_flashing_colour_flashes_at_the_mos_rate() {
     let lit: Vec<usize> = (0..150)
         .map(|_| {
             sys.run_frame();
-            sys.framebuffer()[..8 * width]
+            sys.framebuffer()[..16 * width]
                 .iter()
                 .filter(|&&px| px == 0xFFFF_FFFF)
                 .count()

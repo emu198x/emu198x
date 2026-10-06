@@ -19,7 +19,10 @@ use runtime_acorn_bbc_micro::BbcMicroRuntime;
 
 use crate::app::Bbc;
 
-const DEFAULT_SCALE: u32 = 3;
+/// One framebuffer row per window row. The 512-row buffer holds both
+/// interlaced fields, so scale 1 already gives the picture its full height,
+/// and scale 2 would outgrow a laptop screen — as with the Amiga's 576 rows.
+const DEFAULT_SCALE: u32 = 1;
 const PAL_FRAME_HZ: f64 = 50.0;
 /// The analogue joystick's fire button. The proportional X/Y axes are read
 /// through the μPD7002 ADC (a separate `Axis` path the harness gamepad doesn't
@@ -74,7 +77,7 @@ impl UiSystem for BbcSystem {
         runtime
             .machine()
             .map(|machine| (machine.framebuffer_width(), machine.framebuffer_height()))
-            .unwrap_or((640, 256))
+            .unwrap_or((640, 512))
     }
 
     fn frame_ticks(&self, runtime: &Self::Runtime) -> u64 {
