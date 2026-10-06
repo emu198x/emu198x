@@ -1,12 +1,21 @@
-//! SID 6581 combined-waveform ROM lookup tables.
+//! SID combined-waveform lookup tables, one set per chip model.
 //!
-//! Data sampled from real MOS 6581 SID chips. Extracted from the
-//! reSID (GPL v2+) source files wave6581_{__ST,_P_T,_PS_,PST}.h by
-//! Dag Lem, converted to Rust const arrays by build process.
+//! A combined waveform is not the AND of its parts: the selected outputs
+//! short together through the waveform selector and pull neighbouring bits
+//! down in an analogue way. reSID therefore looks the output up in OSC3
+//! samples taken from real chips (reSID `wave.h`, "Combined waveforms"), and
+//! so does this crate. Each table has 4096 entries indexed by the upper 12
+//! bits of the 24-bit accumulator; the 8-bit OSC3 samples sit in the top
+//! eight bits of the 12-bit DAC input, as reSID's `samp2src.pl` puts them
+//! (`<< 4`). The table for the selected combination is ANDed with the pulse
+//! and noise outputs by the voice.
 //!
-//! Each table is 4096 entries, indexed by the upper 12 bits of the
-//! 24-bit oscillator accumulator. The combined waveform active for
-//! the voice selects which table to sample.
+//! The sample files are reSID's `wave6581_*.dat` and `wave8580_*.dat`
+//! (GPL v2+, Dag Lem), copied byte for byte from the reSID vendored with
+//! VICE into `../data/`; see `../data/README.md` for their provenance. The
+//! 6581 tables below were converted to Rust literals earlier; a unit test
+//! holds them equal to the `.dat` files. The 8580 tables are read from the
+//! `.dat` files at compile time.
 
 #![allow(clippy::unreadable_literal)]
 
@@ -1285,3 +1294,21 @@ pub(crate) const COMBINED_PST_6581: [u16; 4096] = [
     0x000, 0x000, 0x000, 0x000, 0x000, 0x300, 0x000, 0x000, 0x000, 0x780, 0x780, 0x7E0, 0x7F0,
     0x7F0,
 ];
+
+/// Widen 8-bit OSC3 samples to 12-bit DAC inputs (`sample << 4`).
+#[allow(clippy::cast_lossless)]
+const fn widen(samples: &[u8; 4096]) -> [u16; 4096] {
+    let mut table = [0_u16; 4096];
+    let mut i = 0;
+    while i < 4096 {
+        table[i] = (samples[i] as u16) << 4;
+        i += 1;
+    }
+    table
+}
+
+pub(crate) const COMBINED_TRI_SAW_8580: [u16; 4096] =
+    widen(include_bytes!("../data/wave8580__ST.dat"));
+pub(crate) const COMBINED_P_T_8580: [u16; 4096] = widen(include_bytes!("../data/wave8580_P_T.dat"));
+pub(crate) const COMBINED_PS_8580: [u16; 4096] = widen(include_bytes!("../data/wave8580_PS_.dat"));
+pub(crate) const COMBINED_PST_8580: [u16; 4096] = widen(include_bytes!("../data/wave8580_PST.dat"));

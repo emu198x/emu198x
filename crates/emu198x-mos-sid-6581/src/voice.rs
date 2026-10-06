@@ -7,7 +7,8 @@ use serde::{Deserialize, Serialize};
 use crate::SidModel;
 
 use crate::combined_wave_tables::{
-    COMBINED_P_T_6581, COMBINED_PS_6581, COMBINED_PST_6581, COMBINED_TRI_SAW_6581,
+    COMBINED_P_T_6581, COMBINED_P_T_8580, COMBINED_PS_6581, COMBINED_PS_8580, COMBINED_PST_6581,
+    COMBINED_PST_8580, COMBINED_TRI_SAW_6581, COMBINED_TRI_SAW_8580,
 };
 
 const NOISE_LFSR_SEED: u32 = 0x7F_FFFF;
@@ -245,57 +246,39 @@ impl Voice {
         };
         let noise12 = self.noise_output();
 
-        let non_noise = waveform_bits & 0x07;
-        let count = non_noise.count_ones();
-
-        if waveform_bits.is_power_of_two() {
-            return match waveform_bits {
-                0x01 => tri12,
-                0x02 => saw12,
-                0x04 => pulse12,
-                0x08 => noise12,
-                _ => 0,
-            };
-        }
-
-        if model == SidModel::Mos6581 && count >= 2 {
-            // reSID combined-waveform tables are 4096-entry ROM samples
-            // from real 6581 chips, indexed by the upper 12 bits of the
-            // 24-bit accumulator. Pulse is a separate 0x000/0xFFF mask
-            // ANDed with the table output (matches reSID wave.h:467).
-            // The index carries the ring-modulated MSB, as reSID's does, so
-            // pulse+triangle with RING set reads the substituted half.
-            let idx =
-                ((self.ring_modulated_accumulator(ring_mod_source_msb) >> 12) & 0x0FFF) as usize;
-            let lut_output = match non_noise {
-                0x03 => Some(COMBINED_TRI_SAW_6581[idx]),
-                0x05 => Some(COMBINED_P_T_6581[idx] & pulse12),
-                0x06 => Some(COMBINED_PS_6581[idx] & pulse12),
-                0x07 => Some(COMBINED_PST_6581[idx] & pulse12),
-                _ => None,
-            };
-            if let Some(value) = lut_output {
-                if waveform_bits & 0x08 != 0 {
-                    return value & noise12;
-                }
-                return value;
-            }
-        }
-
-        let mut output: u16 = 0x0FFF;
-        if waveform_bits & 0x01 != 0 {
-            output &= tri12;
-        }
-        if waveform_bits & 0x02 != 0 {
-            output &= saw12;
-        }
-        if waveform_bits & 0x04 != 0 {
-            output &= pulse12;
-        }
-        if waveform_bits & 0x08 != 0 {
-            output &= noise12;
-        }
-        output
+        // Per reSID `wave.h` `set_waveform_output`: the triangle, sawtooth or
+        // combined-waveform sample, ANDed with the pulse line and the noise
+        // output when those are selected. Combinations of two or more of
+        // triangle, sawtooth and pulse read the sampled OSC3 table for the
+        // chip model (see `combined_wave_tables`), indexed by the
+        // ring-substituted accumulator as reSID indexes every table. Noise
+        // combined with one other waveform is the plain AND, as in reSID.
+        let idx = ((self.ring_modulated_accumulator(ring_mod_source_msb) >> 12) & 0x0FFF) as usize;
+        let wave = match (waveform_bits & 0x07, model) {
+            (0x01, _) => tri12,
+            (0x02, _) => saw12,
+            (0x03, SidModel::Mos6581) => COMBINED_TRI_SAW_6581[idx],
+            (0x03, SidModel::Mos8580) => COMBINED_TRI_SAW_8580[idx],
+            (0x05, SidModel::Mos6581) => COMBINED_P_T_6581[idx],
+            (0x05, SidModel::Mos8580) => COMBINED_P_T_8580[idx],
+            (0x06, SidModel::Mos6581) => COMBINED_PS_6581[idx],
+            (0x06, SidModel::Mos8580) => COMBINED_PS_8580[idx],
+            (0x07, SidModel::Mos6581) => COMBINED_PST_6581[idx],
+            (0x07, SidModel::Mos8580) => COMBINED_PST_8580[idx],
+            // Pulse alone, or noise alone: the masks below give the output.
+            _ => 0x0FFF,
+        };
+        let pulse_mask = if waveform_bits & 0x04 != 0 {
+            pulse12
+        } else {
+            0x0FFF
+        };
+        let noise_mask = if waveform_bits & 0x08 != 0 {
+            noise12
+        } else {
+            0x0FFF
+        };
+        wave & pulse_mask & noise_mask
     }
 
     /// The accumulator as the triangle XOR logic sees it.
@@ -647,6 +630,64 @@ mod tests {
             COMBINED_TRI_SAW_6581[idx],
             "6581 combined waveform reads the sampled ROM table, not a bitwise AND"
         );
+    }
+
+    /// reSID's OSC3 samples for one model, in table order `__ST`, `_P_T`,
+    /// `_PS_`, `_PST` (control waveform bits 3, 5, 6, 7).
+    fn sampled_tables(model: SidModel) -> [&'static [u8; 4096]; 4] {
+        match model {
+            SidModel::Mos6581 => [
+                include_bytes!("../data/wave6581__ST.dat"),
+                include_bytes!("../data/wave6581_P_T.dat"),
+                include_bytes!("../data/wave6581_PS_.dat"),
+                include_bytes!("../data/wave6581_PST.dat"),
+            ],
+            SidModel::Mos8580 => [
+                include_bytes!("../data/wave8580__ST.dat"),
+                include_bytes!("../data/wave8580_P_T.dat"),
+                include_bytes!("../data/wave8580_PS_.dat"),
+                include_bytes!("../data/wave8580_PST.dat"),
+            ],
+        }
+    }
+
+    #[test]
+    fn combined_waveforms_read_each_models_sampled_osc3_table() {
+        // Every accumulator position of every non-noise combination, with
+        // the pulse held high (PW 0), reads reSID's 8-bit OSC3 sample for
+        // that model shifted up to the 12-bit DAC input.
+        for model in [SidModel::Mos6581, SidModel::Mos8580] {
+            for (waveform, table) in [0x30, 0x50, 0x60, 0x70]
+                .into_iter()
+                .zip(sampled_tables(model))
+            {
+                let mut v = Voice::new();
+                v.control = waveform;
+                v.pulse_width = 0;
+                for ix in 0..4096_u32 {
+                    v.accumulator = ix << 12;
+                    assert_eq!(
+                        v.waveform_output(true, model),
+                        u16::from(table[ix as usize]) << 4,
+                        "{model:?} waveform ${waveform:02X} index ${ix:03X}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn mos8580_tri_saw_is_not_a_bitwise_and() {
+        // At $8E4 triangle AND sawtooth is $824; the sampled 8580 reads 0.
+        let mut v = Voice::new();
+        v.control = TRI | SAW;
+        v.accumulator = 0x008E_4000;
+        assert_eq!(v.waveform_output(false, SidModel::Mos8580), 0x000);
+        // At $FFF the two models' samples differ: $FF0 on the 8580, $7F0 on
+        // the 6581.
+        v.accumulator = 0x00FF_F000;
+        assert_eq!(v.waveform_output(false, SidModel::Mos8580), 0xFF0);
+        assert_eq!(v.waveform_output(false, SidModel::Mos6581), 0x7F0);
     }
 
     #[test]
