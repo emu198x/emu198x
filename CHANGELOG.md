@@ -4,6 +4,14 @@ All notable changes to Emu198x will be documented in this file.
 
 Format loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 not strictly. Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [0.28.1] - 2026-10-06
+
+
+### Fixed
+
+- Release the Spectrum's tape input a frame after the tape stops
+- Give a held Spectrum speaker level a flat output
+
 ## [0.28.0] - 2026-10-06
 
 ### Highlights
