@@ -15,7 +15,29 @@ id = "spectrum"
 # FRAME_ROUTING_VERSION (common-sinclair-zx-spectrum::ula_engine).
 # Mismatch fails loud with a re-capture instruction. See
 # knowledge/decisions/spectrum-architecture-review.md Seam 4.
-audio_routing_version = 3
+#
+# Audio version 4 (2026-10-06) is two fixes. The beeper mixer now divides
+# each sample by the T-states its own bin holds, not the mean bin width
+# (#1634), so every sample with the speaker above zero moves by up to
+# about one percent of its level. And the tape input is released a frame after the
+# tape stops, as FUSE does (#1633), instead of holding the level the last
+# pulse left. Re-captured with `catalogue capture`; every frame hash and
+# 53 entries' audio hashes are unchanged. The 50 that moved:
+#
+# - 12 idle windows go from a faint ripple to exact silence
+#   (xxh64:7d335937455497a1, a single sample value throughout):
+#   operation-wolf, bubble-bobble and rainbow-islands on the 128K, +2,
+#   +2A and +2B. Their tapes end high, and the held EAR level came out
+#   of the old bins as a ~81 LSB ripple.
+# - 38 entries with sound keep the same waveform, correlation at least
+#   0.9987 at zero lag. Beeper entries move by at most 228 LSB, the size
+#   of the bin-width correction at the beeper's 0.8 level. robocop and
+#   out-run (128K family) lose only the same ~40 LSB rms ripple under
+#   their AY music.
+#
+# The +3 disk entries without beeper sound are unchanged, as are all the
+# silent 48K windows.
+audio_routing_version = 4
 # Version 5 is 7e8bcd1c (2026-09-24): Sinclair ULA fetch phases, the
 # SLoad/VidEN border gate, and IRQ evaluation before the counter advance.
 # The gate refused every entry from then until this re-capture
@@ -48,11 +70,9 @@ audio_routing_version = 3
 # - The TZX end-of-file terminating pulse (19e43599) un-wedged robocop
 #   on the 128K, +2, +2A and +2B, and moved
 #   bubble-bobble-tape-speedlock on from its title to the control menu.
-#   It also leaves the tape EAR input high once the tape ends, where
-#   FUSE drops it a frame after the tape stops. That turns the idle
-#   audio of operation-wolf and bubble-bobble (128K, +2, +2A, +2B) into
-#   a faint ripple instead of silence. Known defects (#1633, #1634),
-#   recorded as found: see the `operation-wolf` audio comment.
+#   It also left the tape EAR input high once the tape ended, which
+#   put a faint ripple into some 128K idle windows until audio version
+#   4 fixed both causes (#1633, #1634).
 # - back-to-skool-tape-microsphere's old hash came from a 48K ROM
 #   patched at $386E, and saboteur and saboteur-plus moved from a
 #   malformed TAP to the [a] dump. See each entry.
@@ -159,7 +179,7 @@ frame_hash = "xxh64:3849ef196db5a88f"
 # title screen.
 from_frame = 100
 secs = 2.0
-hash = "xxh64:bf7deefbe0a5ffa5"
+hash = "xxh64:6d792f2d2ceb0599"
 
 [[entry]]
 id = "knight-lore"
@@ -182,7 +202,7 @@ frame_hash = "xxh64:074e242db0720e42"
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:f7a1684e8d841771"
+hash = "xxh64:f399edb14f150a40"
 
 [[entry]]
 id = "jet-set-willy"
@@ -257,7 +277,7 @@ frame_hash = "xxh64:31f18ede38504e5b"
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:89729ec36b2b0cf7"
+hash = "xxh64:68afa2e77f120d89"
 
 [[entry]]
 id = "chuckie-egg"
@@ -280,7 +300,7 @@ frame_hash = "xxh64:3523e9cc4d817ded"
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:a3ace74b866ed109"
+hash = "xxh64:d397fd68c546570f"
 
 [[entry]]
 id = "saboteur"
@@ -336,7 +356,7 @@ frame_hash = "xxh64:0b7b5824e73f88e3"
 # the menu-silence hashes elsewhere.
 from_frame = 100
 secs = 2.0
-hash = "xxh64:cf62da40cda7d703"
+hash = "xxh64:1f5ec3216ebddf8c"
 
 [[entry]]
 id = "lords-of-midnight"
@@ -467,7 +487,7 @@ frame_hash = "xxh64:ce3545bb0a6c8172"
 # path is alive end-to-end through the Microsphere loader.
 from_frame = 100
 secs = 2.0
-hash = "xxh64:9bb6a916df5d5def"
+hash = "xxh64:c7a871c4f5c1c697"
 
 [[entry]]
 id = "back-to-the-future-tape-bleepload"
@@ -500,7 +520,7 @@ frame_hash = "xxh64:08e038c859ba3364"
 # clean enough for the AY to produce sound.
 from_frame = 100
 secs = 2.0
-hash = "xxh64:d351ec00f1c30c72"
+hash = "xxh64:6e9f8c9625bc69e8"
 
 # ─── Speedlock-tape cluster ─────────────────────────────────────
 # Unlocked 2026-05-13 by the TZX partial-last-byte parser fix (see
@@ -601,7 +621,7 @@ frame_hash = "xxh64:1d7411eccce6eccb"
 # waypoint, distinct from the canonical silence hash.
 from_frame = 100
 secs = 2.0
-hash = "xxh64:34849a14631c079b"
+hash = "xxh64:b803395f82e87e9b"
 
 [[entry]]
 id = "renegade-tape-speedlock"
@@ -629,7 +649,7 @@ frame_hash = "xxh64:805174e353503a99"
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:447b70449d0c119f"
+hash = "xxh64:4dcf926d1df91296"
 
 [[entry]]
 id = "combat-school-tape-speedlock"
@@ -658,7 +678,7 @@ frame_hash = "xxh64:9555472c791e2e9a"
 # Combat School's title-screen music plays at this waypoint.
 from_frame = 100
 secs = 2.0
-hash = "xxh64:9f0775c37e882a4c"
+hash = "xxh64:a81e6b371e275dbe"
 
 [[entry]]
 id = "rambo-tape-speedlock"
@@ -686,7 +706,7 @@ frame_hash = "xxh64:0ef5c4d4a22f56fb"
 # Rambo's attract music — distinct from the loader-silence hash.
 from_frame = 100
 secs = 2.0
-hash = "xxh64:c50f09d30feafc3b"
+hash = "xxh64:8e0a319635d2a85f"
 
 [[entry]]
 id = "star-wars-tape-speedlock"
@@ -713,7 +733,7 @@ frame_hash = "xxh64:1361c56d5e7e733e"
 # Star Wars title sting plays at this waypoint.
 from_frame = 100
 secs = 2.0
-hash = "xxh64:1bcd655e97fa673b"
+hash = "xxh64:7ca4185448186860"
 
 [[entry]]
 id = "mikie-tape-speedlock"
@@ -770,7 +790,7 @@ frame_hash = "xxh64:85bb2d88174c407f"
 # Title-screen music plays at this waypoint.
 from_frame = 100
 secs = 2.0
-hash = "xxh64:9c70edada8186726"
+hash = "xxh64:2386dbf59f2e2182"
 
 [[entry]]
 id = "salamander-tape-speedlock"
@@ -798,7 +818,7 @@ frame_hash = "xxh64:95c2a0a05d1d025d"
 # Salamander's title music plays at this waypoint.
 from_frame = 100
 secs = 2.0
-hash = "xxh64:ab23bc3dae528278"
+hash = "xxh64:4a4c0322a984d488"
 
 [[entry]]
 id = "bubble-bobble-tape-speedlock"
@@ -822,9 +842,9 @@ path = "Sinclair/ZX Spectrum/Games/[TZX]/ARCADE COLLECTION 30 - Bubble Bobble (1
 # end-of-file terminating pulse (19e43599, bisected) this re-release
 # held its title screen (BUBBLE BOBBLE logo, Bub and Bob, "BY MIKE
 # FOLLIN / SOFTWARE CREATIONS") through frame 12000 instead. The
-# change does not come from the tape EAR level the pulse leaves
-# behind: releasing that level a frame after the tape stops (#1633)
-# still gives this menu.
+# change does not come from the tape EAR level the pulse left behind:
+# with that level released a frame after the tape stops (#1633) the
+# frame is unchanged.
 wait_frames = 6000
 frame_hash = "xxh64:efbc1a70201a1b87"
 
@@ -938,7 +958,7 @@ frame_hash = "xxh64:3849ef196db5a88f"
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:bf7deefbe0a5ffa5"
+hash = "xxh64:6d792f2d2ceb0599"
 
 [[entry]]
 id = "knight-lore-plus"
@@ -959,7 +979,7 @@ frame_hash = "xxh64:074e242db0720e42"
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:f7a1684e8d841771"
+hash = "xxh64:f399edb14f150a40"
 
 [[entry]]
 id = "jet-set-willy-plus"
@@ -1022,7 +1042,7 @@ frame_hash = "xxh64:31f18ede38504e5b"
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:89729ec36b2b0cf7"
+hash = "xxh64:68afa2e77f120d89"
 
 [[entry]]
 id = "chuckie-egg-plus"
@@ -1043,7 +1063,7 @@ frame_hash = "xxh64:3523e9cc4d817ded"
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:a3ace74b866ed109"
+hash = "xxh64:d397fd68c546570f"
 
 [[entry]]
 id = "saboteur-plus"
@@ -1086,7 +1106,7 @@ frame_hash = "xxh64:0b7b5824e73f88e3"
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:cf62da40cda7d703"
+hash = "xxh64:1f5ec3216ebddf8c"
 
 [[entry]]
 id = "lords-of-midnight-plus"
@@ -1155,7 +1175,7 @@ frame_hash = "xxh64:920da4ca7b1f875d"
 # as a distinct release from the 48K version.
 from_frame = 100
 secs = 2.0
-hash = "xxh64:97dacd58cd806f6d"
+hash = "xxh64:c07b0f9dabad1ac4"
 
 [[entry]]
 id = "robocop"
@@ -1187,7 +1207,7 @@ frame_hash = "xxh64:4c33e2c06bca96e0"
 # (see above) this window carries its AY title music, not silence.
 from_frame = 100
 secs = 2.0
-hash = "xxh64:8d375d12aa8a9177"
+hash = "xxh64:2af23ca455d773e3"
 
 [[entry]]
 id = "operation-wolf"
@@ -1208,18 +1228,13 @@ wait_frames = 60
 frame_hash = "xxh64:43f4dd995e59fabe"
 
 [entry.audio]
-# No music yet at this waypoint. Not digital silence, though: the
-# tape EAR input stays high after the TZX end-of-file pulse
-# (19e43599), so the speaker line rests at the EAR level and the
-# mixer's 80/81-T-state sample bins turn that held level into a faint
-# ripple, about 81 LSB peak to peak. Same hash as Rainbow Islands and
-# the 128K Bubble Bobble, which rest the same way. Both are defects,
-# recorded here as found: FUSE drops the EAR level a frame after the
-# tape stops (#1633), and a held level should mix to silence (#1634).
-# Fixing either moves this hash back to exact silence.
+# No music yet at this waypoint: exact silence. Until audio version 4
+# this window carried a faint ripple, because the tape ended high, the
+# input stayed latched there (#1633) and the mixer turned the held
+# level into a ripple (#1634).
 from_frame = 100
 secs = 2.0
-hash = "xxh64:25e26fbe7fd02cf6"
+hash = "xxh64:7d335937455497a1"
 
 [[entry]]
 id = "out-run"
@@ -1247,7 +1262,7 @@ frame_hash = "xxh64:1838727d99e21182"
 # title music has started by this waypoint.
 from_frame = 100
 secs = 2.0
-hash = "xxh64:6d48593a4a1f1472"
+hash = "xxh64:265d2accded98a57"
 
 [[entry]]
 id = "rainbow-islands"
@@ -1268,12 +1283,11 @@ wait_frames = 60
 frame_hash = "xxh64:2248714b958d34ed"
 
 [entry.audio]
-# Tim Follin's music hasn't kicked in yet. The tape EAR rests high
-# after the tape ends, so this is the faint held-level ripple
-# described under `operation-wolf`, not digital silence.
+# Tim Follin's music hasn't kicked in yet: exact silence since audio
+# version 4 (see `operation-wolf`).
 from_frame = 100
 secs = 2.0
-hash = "xxh64:25e26fbe7fd02cf6"
+hash = "xxh64:7d335937455497a1"
 
 [[entry]]
 id = "bubble-bobble"
@@ -1294,12 +1308,11 @@ wait_frames = 60
 frame_hash = "xxh64:efbc1a70201a1b87"
 
 [entry.audio]
-# Chiptune driver hasn't started yet. Since the TZX end-of-file pulse
-# (19e43599) the tape EAR rests high, so this is the faint held-level
-# ripple described under `operation-wolf`, not digital silence.
+# Chiptune driver hasn't started yet: exact silence since audio
+# version 4 (see `operation-wolf`).
 from_frame = 100
 secs = 2.0
-hash = "xxh64:25e26fbe7fd02cf6"
+hash = "xxh64:7d335937455497a1"
 
 [[entry]]
 id = "where-time-stood-still"
@@ -1325,7 +1338,7 @@ frame_hash = "xxh64:076876874e1f4725"
 # in the set whose music driver is fully running by 3.2 s post-load.
 from_frame = 100
 secs = 2.0
-hash = "xxh64:37512d50c79c9284"
+hash = "xxh64:f506c442d633547a"
 
 [[entry]]
 id = "total-eclipse"
@@ -1429,7 +1442,7 @@ frame_hash = "xxh64:920da4ca7b1f875d"
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:d7436298a792842a"
+hash = "xxh64:48cc692724505906"
 
 [[entry]]
 id = "robocop-plus2"
@@ -1452,7 +1465,7 @@ frame_hash = "xxh64:4c33e2c06bca96e0"
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:c88528ba82e6a78e"
+hash = "xxh64:1dbf7ea0f8f457cd"
 
 [[entry]]
 id = "operation-wolf-plus2"
@@ -1473,7 +1486,7 @@ frame_hash = "xxh64:43f4dd995e59fabe"
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:25e26fbe7fd02cf6"
+hash = "xxh64:7d335937455497a1"
 
 [[entry]]
 id = "out-run-plus2"
@@ -1494,7 +1507,7 @@ frame_hash = "xxh64:1838727d99e21182"
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:ba4aaf98c483edf7"
+hash = "xxh64:84ab980a74f21690"
 
 [[entry]]
 id = "rainbow-islands-plus2"
@@ -1515,7 +1528,7 @@ frame_hash = "xxh64:2248714b958d34ed"
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:25e26fbe7fd02cf6"
+hash = "xxh64:7d335937455497a1"
 
 [[entry]]
 id = "bubble-bobble-plus2"
@@ -1536,7 +1549,7 @@ frame_hash = "xxh64:efbc1a70201a1b87"
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:25e26fbe7fd02cf6"
+hash = "xxh64:7d335937455497a1"
 
 [[entry]]
 id = "where-time-stood-still-plus2"
@@ -1557,7 +1570,7 @@ frame_hash = "xxh64:076876874e1f4725"
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:55ed35ffad36c3b7"
+hash = "xxh64:efdeaa28b1af47dd"
 
 [[entry]]
 id = "total-eclipse-plus2"
@@ -1671,7 +1684,7 @@ frame_hash = "xxh64:587a604f94d1ff74"
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:bf48fdeb4ed9419d"
+hash = "xxh64:d175d0946abcd29d"
 
 [[entry]]
 id = "operation-wolf-plus2a"
@@ -1692,7 +1705,7 @@ frame_hash = "xxh64:43f4dd995e59fabe"
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:25e26fbe7fd02cf6"
+hash = "xxh64:7d335937455497a1"
 
 [[entry]]
 id = "out-run-plus2a"
@@ -1713,7 +1726,7 @@ frame_hash = "xxh64:1838727d99e21182"
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:5ebf67e6ad6403b9"
+hash = "xxh64:56e8f046d843cf21"
 
 [[entry]]
 id = "rainbow-islands-plus2a"
@@ -1734,7 +1747,7 @@ frame_hash = "xxh64:bf9f85666def053c"
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:25e26fbe7fd02cf6"
+hash = "xxh64:7d335937455497a1"
 
 [[entry]]
 id = "bubble-bobble-plus2a"
@@ -1755,7 +1768,7 @@ frame_hash = "xxh64:184d0e0c05bd8db9"
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:25e26fbe7fd02cf6"
+hash = "xxh64:7d335937455497a1"
 
 [[entry]]
 id = "where-time-stood-still-plus2a"
@@ -1776,7 +1789,7 @@ frame_hash = "xxh64:076876874e1f4725"
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:7868be7e5171b2c6"
+hash = "xxh64:72247e53c91f6a20"
 
 [[entry]]
 id = "total-eclipse-plus2a"
@@ -1890,7 +1903,7 @@ frame_hash = "xxh64:587a604f94d1ff74"
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:bf48fdeb4ed9419d"
+hash = "xxh64:d175d0946abcd29d"
 
 [[entry]]
 id = "operation-wolf-plus2b"
@@ -1911,7 +1924,7 @@ frame_hash = "xxh64:43f4dd995e59fabe"
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:25e26fbe7fd02cf6"
+hash = "xxh64:7d335937455497a1"
 
 [[entry]]
 id = "out-run-plus2b"
@@ -1932,7 +1945,7 @@ frame_hash = "xxh64:1838727d99e21182"
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:5ebf67e6ad6403b9"
+hash = "xxh64:56e8f046d843cf21"
 
 [[entry]]
 id = "rainbow-islands-plus2b"
@@ -1953,7 +1966,7 @@ frame_hash = "xxh64:bf9f85666def053c"
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:25e26fbe7fd02cf6"
+hash = "xxh64:7d335937455497a1"
 
 [[entry]]
 id = "bubble-bobble-plus2b"
@@ -1974,7 +1987,7 @@ frame_hash = "xxh64:184d0e0c05bd8db9"
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:25e26fbe7fd02cf6"
+hash = "xxh64:7d335937455497a1"
 
 [[entry]]
 id = "where-time-stood-still-plus2b"
@@ -1995,7 +2008,7 @@ frame_hash = "xxh64:076876874e1f4725"
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:7868be7e5171b2c6"
+hash = "xxh64:72247e53c91f6a20"
 
 [[entry]]
 id = "total-eclipse-plus2b"
@@ -2117,7 +2130,7 @@ frame_hash = "xxh64:47fda6722c6032b2"
 # reach its post-load audio state.
 from_frame = 60
 secs = 2.0
-hash = "xxh64:87434408a7faa04a"
+hash = "xxh64:1173a13fcb7720a2"
 
 [[entry]]
 id = "rainbow-islands-plus3"
@@ -2550,7 +2563,7 @@ frame_hash = "xxh64:076876874e1f4725"
 [entry.audio]
 from_frame = 60
 secs = 2.0
-hash = "xxh64:5e8976f32b63df21"
+hash = "xxh64:b89c6f95d98b7924"
 
 [[entry]]
 id = "dragon-ninja-plus3"
@@ -2701,7 +2714,7 @@ frame_hash = "xxh64:56f8baad6167e79b"
 # the menu-silence hash elsewhere.
 from_frame = 100
 secs = 2.0
-hash = "xxh64:ffd870666e3c34a1"
+hash = "xxh64:c7a21db33bdf164a"
 
 [[entry]]
 id = "horace-goes-skiing"
@@ -2728,7 +2741,7 @@ frame_hash = "xxh64:e02315419c67b1bd"
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:02d190ee7b438747"
+hash = "xxh64:6ea59d87aa95e1f8"
 
 [[entry]]
 id = "penetrator"
@@ -2897,7 +2910,7 @@ frame_hash = "xxh64:8ad40f5c12dedf3a"
 [entry.audio]
 from_frame = 60
 secs = 2.0
-hash = "xxh64:0e01071f1ce529ed"
+hash = "xxh64:a63196961c51a6ac"
 
 [[entry]]
 id = "gulpman"
