@@ -124,6 +124,21 @@ runtime retains one compatibility boundary.
 The transfer contract is defined by
 [MC68020/MC68030 dynamic bus sizing](motorola-68020-dynamic-bus-sizing.md).
 
+## TMS9918 pending-access amendment
+
+The TMS9918 performs a CPU data-port access only in a free VRAM access
+window, up to 38 dots after the port is touched (#1145). Between the two the
+chip holds the access: its kind, and the dots left to its window. The byte a
+write stores is already in the serialised read-ahead latch. A snapshot taken
+in that gap and restored without the access would lose a VRAM write or a
+read-ahead byte, so the live chip carries it.
+
+The seven runtimes built on the chip advance their envelopes: ColecoVision,
+Memotech MTX, SG-1000 and Sord M5 from 4 to 5; MSX, Spectravideo SV-328 and
+Tatung Einstein from 5 to 6. Each rejects the previous version before
+decoding, because the positional payload gains a field mid-chip. The
+overrun counter beside it is observation only and is skipped.
+
 ## Atari (decided 2026-06-26): use serde, same as everyone else
 
 The Atari chips (TIA, RIOT/6532, ANTIC, GTIA, POKEY, MARIA) carry **hand-rolled
