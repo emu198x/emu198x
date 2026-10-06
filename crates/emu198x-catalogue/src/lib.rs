@@ -3388,6 +3388,86 @@ hash = "xxh64:0000000000000000"
         }
     }
 
+    /// Every checked-in manifest records the routing versions the code
+    /// runs now.
+    ///
+    /// `verify_routing_versions` only fires when a catalogue run starts,
+    /// and a run needs firmware and media that CI does not have. So a
+    /// routing bump that skipped its re-capture stayed invisible until
+    /// someone chose to start a run. This test reads the manifests alone,
+    /// needs no media, and is not ignored, so the workspace test suite
+    /// fails on the commit that leaves a manifest behind.
+    ///
+    /// A system the gate knows must also declare both versions: dropping
+    /// the line would otherwise turn the gate off for that system without
+    /// failing anything.
+    #[test]
+    fn checked_in_manifests_record_the_current_routing_versions() {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("manifest");
+        let mut paths: Vec<_> = std::fs::read_dir(&dir)
+            .unwrap_or_else(|err| panic!("reading {}: {err}", dir.display()))
+            .filter_map(Result::ok)
+            .map(|entry| entry.path())
+            .filter(|path| path.extension().is_some_and(|ext| ext == "toml"))
+            .collect();
+        paths.sort();
+
+        let mut systems = Vec::new();
+        let mut failures = Vec::new();
+        for path in &paths {
+            let manifest = load_manifest(path)
+                .unwrap_or_else(|err| panic!("loading {}: {err}", path.display()));
+            let id = manifest.system.id.clone();
+
+            // The gate knows a system's audio or frame routing when it
+            // rejects an impossible declared version for it.
+            let rejects = |audio, frame| {
+                let probe = Manifest {
+                    system: SystemMeta {
+                        id: id.clone(),
+                        audio_routing_version: audio,
+                        frame_routing_version: frame,
+                        firmware: vec![],
+                    },
+                    entry: vec![],
+                };
+                verify_routing_versions(&probe).is_err()
+            };
+            let gated_audio = rejects(Some(u32::MAX), None);
+            let gated_frame = rejects(None, Some(u32::MAX));
+
+            if gated_audio && manifest.system.audio_routing_version.is_none() {
+                failures.push(format!(
+                    "{}: system '{id}' has an audio routing version but the manifest declares none",
+                    path.display()
+                ));
+            }
+            if gated_frame && manifest.system.frame_routing_version.is_none() {
+                failures.push(format!(
+                    "{}: system '{id}' has a frame routing version but the manifest declares none",
+                    path.display()
+                ));
+            }
+            if let Err(err) = verify_routing_versions(&manifest) {
+                failures.push(format!("{}: {err}", path.display()));
+            }
+            systems.push(id);
+        }
+
+        for required in ["spectrum", "c64", "nes"] {
+            assert!(
+                systems.iter().any(|id| id == required),
+                "expected a {required} manifest under {}, found {systems:?}",
+                dir.display()
+            );
+        }
+        assert!(
+            failures.is_empty(),
+            "manifest routing versions disagree with the code:\n{}",
+            failures.join("\n")
+        );
+    }
+
     #[test]
     fn routing_version_check_passes_when_manifest_omits_versions() {
         let manifest = spectrum_manifest_with_versions(None, None);
