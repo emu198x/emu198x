@@ -12,12 +12,13 @@ use serde::{Deserialize, Serialize};
 
 use crate::runtime::BbcMicroRuntime;
 
-// Bumped to 5: the display is drawn a character at a time from the 6845, so
-// the machine carries the frame being scanned out, the beam's line and the
+// Bumped to 6: the machine carries the Video ULA's cursor-sequence stage
+// (#384). At 5 the display was drawn a character at a time from the 6845, so
+// the machine carried the frame being scanned out, the beam's line and the
 // SAA5050's line state, and the 6845 its interlace field (#163, #164).
 // postcard is not self-describing, so added fields shift every byte after
 // them.
-const SNAPSHOT_VERSION: u16 = 5;
+const SNAPSHOT_VERSION: u16 = 6;
 
 /// Borrowing envelope used during encode — avoids cloning the live machine.
 #[derive(Serialize)]
