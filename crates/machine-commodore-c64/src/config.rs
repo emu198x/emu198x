@@ -7,9 +7,11 @@ use serde::{Deserialize, Serialize};
 
 /// Supported fresh-workspace C64 machine variants.
 ///
-/// The breadbin and C64C variants share timing and VIC-II; they differ in the
-/// SID revision fitted — the original breadbin's MOS 6581 versus the cost-reduced
-/// C64C's MOS 8580. The video region (PAL/NTSC) is orthogonal to the SID.
+/// The breadbin and C64C variants share timing; they differ in the chip
+/// revisions fitted. The original breadbin carries the NMOS VIC-II (6569 PAL,
+/// 6567 NTSC), the MOS 6581 SID and the 6526 CIA; the cost-reduced C64C
+/// carries the HMOS-II VIC-II (8565 PAL, 8562 NTSC), the MOS 8580 and the
+/// 6526A. The video region (PAL/NTSC) is orthogonal to the revision.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum C64Model {
     /// Commodore 64 PAL breadbin (MOS 6581 SID).
