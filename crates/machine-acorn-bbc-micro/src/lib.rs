@@ -1046,8 +1046,12 @@ impl BbcMicro {
                 .and_then(|rom| rom.get((addr - 0x8000) as usize).copied())
                 .unwrap_or(0xFF),
             0xFE00..=0xFE07 if addr & 1 == 1 => self.crtc.read_data(),
-            0xFE40..=0xFE4F => self.system_via.read((addr & 0x0F) as u8),
-            0xFE60..=0xFE6F => self.user_via.read((addr & 0x0F) as u8),
+            // Each SHEILA device answers across its whole block, repeating
+            // its registers (the Advanced User Guide's SHEILA map, which
+            // opens its hardware section: "the same devices appear at
+            // several different Sheila addresses").
+            0xFE40..=0xFE5F => self.system_via.read((addr & 0x0F) as u8),
+            0xFE60..=0xFE7F => self.user_via.read((addr & 0x0F) as u8),
             0xFEC0..=0xFEDF => self.adc.read((addr & 0x03) as u8),
             0xFE08..=0xFE0F => self.acia.read(addr),
             0xFC00..=0xFEFF => 0xFF,
@@ -1064,13 +1068,16 @@ impl BbcMicro {
             0x0000..=0x7FFF => self.ram[addr as usize] = value,
             0xFE00..=0xFE07 if addr & 1 == 0 => self.crtc.write_address(value),
             0xFE00..=0xFE07 if addr & 1 == 1 => self.crtc.write_data(value),
-            0xFE20 => self.video_ula.write_control(value),
-            0xFE21 => self.video_ula.write_palette(value),
+            // SHEILA devices repeat across their blocks: the Video ULA's two
+            // registers through `&FE2F`, the ROM select through `&FE3F`, each
+            // VIA's sixteen through 32 bytes.
+            0xFE20..=0xFE2F if addr & 1 == 0 => self.video_ula.write_control(value),
+            0xFE20..=0xFE2F => self.video_ula.write_palette(value),
             0xFE08..=0xFE0F => self.acia.write(addr, value),
             // Serial ULA: RX/TX baud, RS423/cassette select, bit 7 motor relay.
             0xFE10..=0xFE1F => self.serial_ula = value,
-            0xFE30 => self.rom_bank = value & 0x0F,
-            0xFE40..=0xFE4F => {
+            0xFE30..=0xFE3F => self.rom_bank = value & 0x0F,
+            0xFE40..=0xFE5F => {
                 let reg = (addr & 0x0F) as u8;
                 self.system_via.write(reg, value);
                 // System VIA port B carries the IC32 addressable
@@ -1085,7 +1092,7 @@ impl BbcMicro {
                     }
                 }
             }
-            0xFE60..=0xFE6F => self.user_via.write((addr & 0x0F) as u8, value),
+            0xFE60..=0xFE7F => self.user_via.write((addr & 0x0F) as u8, value),
             // Only a write to the control register ($FEC0, reg 0) starts a
             // conversion. Beginning one releases EOC (CB1 high) until the
             // countdown completes and pulls it low again. Writes to the result
@@ -1704,6 +1711,25 @@ mod tests {
         assert_eq!(sys.mem_read(0x8000), 0xBB);
         sys.mem_write(0xFE30, 0);
         assert_eq!(sys.mem_read(0x8000), 0xAA);
+    }
+
+    /// SHEILA devices repeat across their blocks (the Advanced User Guide's
+    /// SHEILA map): the Video ULA at `&20-&2F`, the ROM select at
+    /// `&30-&3F`, the VIAs at `&40-&5F` and `&60-&7F`. Only the first
+    /// address of each used to answer.
+    #[test]
+    fn sheila_devices_answer_across_their_whole_blocks() {
+        let mut sys = BbcMicro::new(trap_rom());
+        sys.mem_write(0xFE2E, 0x9D);
+        assert_eq!(sys.video_ula.control, 0x9D, "&FE2E is the control register");
+        sys.mem_write(0xFE2F, 0x53);
+        assert_eq!(sys.video_ula.palette[5], 3, "&FE2F is the palette");
+        sys.mem_write(0xFE3F, 0x07);
+        assert_eq!(sys.rom_bank(), 7, "&FE3F selects a ROM");
+        sys.mem_write(0xFE52, 0xFF); // system VIA DDRB, at its mirror
+        assert_eq!(sys.mem_read(0xFE42), 0xFF);
+        sys.mem_write(0xFE73, 0xA5); // user VIA DDRA, at its mirror
+        assert_eq!(sys.mem_read(0xFE63), 0xA5);
     }
 
     #[test]
