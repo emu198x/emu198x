@@ -1430,15 +1430,21 @@ fn write_shades_png(path: &std::path::Path, shades: &[u8]) {
 /// baseline below. A regression fails; so does an improvement, so the
 /// table is ratcheted down in the same change that earns it.
 ///
-/// Two rows are non-zero. Neither reference has a second source that
-/// agrees with it:
+/// Two rows are non-zero. Both ROMs also ship a DMG-CPU B reference
+/// upstream (`expected/DMG-CPU B/` at mealybug-tearoom-tests
+/// `70e88fb`), which this gate does not read:
 ///
-/// - `m3_lcdc_bg_en_change` (232 px) and
-///   `m3_lcdc_win_en_change_multiple_wx` (43 px) differ between CPU
-///   revisions; the suite ships separate DMG-CPU B references.
-/// - GateBoy, a gate-level DMG model (`emulators/gameboy/GateBoy`),
-///   misses both too: 376 px and 3 px. Its notes say its BG_EN timing
-///   needs a one-pixel delay, and that the `_wx` image is wrong.
+/// - `m3_lcdc_win_en_change_multiple_wx` is 3 px off the DMG-blob
+///   image and matches the CPU-B image exactly. The two references
+///   differ in exactly those 3 px. GateBoy, a gate-level DMG-CPU B
+///   model (`emulators/gameboy/GateBoy`), renders the same frame.
+/// - `m3_lcdc_bg_en_change` is 232 px off DMG-blob and 4 px off CPU-B:
+///   x = 0 on lines 19-22. There the stall for the object at X = 2
+///   lands a BG_EN-off write on the first visible pixel. Both
+///   references, the CPU-B photo and GateBoy show that pixel light;
+///   we and SameBoy 1.0.3 draw it dark. GateBoy is 148 px off CPU-B
+///   elsewhere, so it is no oracle for BG_EN timing, and this pixel is
+///   still open (#316).
 ///
 /// SameBoy 1.0.3 scores 15/24. The seven ROMs we pass beyond it test
 /// LCDC and SCY writes that a fetch reads. They pass because those
@@ -1466,7 +1472,7 @@ fn mealybug_dmg_ppu_gate() {
         ("m3_lcdc_tile_sel_change", 0),
         ("m3_lcdc_tile_sel_win_change", 0),
         ("m3_lcdc_win_en_change_multiple", 0),
-        ("m3_lcdc_win_en_change_multiple_wx", 43),
+        ("m3_lcdc_win_en_change_multiple_wx", 3),
         ("m3_lcdc_win_map_change", 0),
         ("m3_obp0_change", 0),
         ("m3_scx_high_5_bits", 0),

@@ -530,6 +530,10 @@ impl Ppu {
     /// `m3_bgp_change` (its own notes need a one-pixel delay there);
     /// SameBoy's timing matches the references for those bits.
     ///
+    /// WIN_EN has a fetcher reader too: a tile fetch that starts while
+    /// WIN_EN is clear fetches background, not window. That check sees
+    /// WIN_EN when the fetcher bits land ([`Ppu::fetcher_window_enabled`]).
+    ///
     /// A write that turns the LCD on or off is left to the machine so
     /// LCD-enable timing is unchanged.
     pub fn stage_cpu_write(&mut self, addr: u16, value: u8) -> bool {
@@ -552,6 +556,33 @@ impl Ppu {
             dots: 0,
         });
         true
+    }
+
+    /// LCDC's WIN_EN as the background fetcher sees it.
+    ///
+    /// When WIN_EN goes low, the fetch that starts next is a background
+    /// fetch. GateBoy shows why: the write resets the window-mode latch
+    /// (`XOFO` clears `PYNU`) on the shared write strobe, the same edge
+    /// that latches the other LCDC bits. So the fetcher sees a staged
+    /// WIN_EN two dots before the M-cycle ends, with
+    /// [`LCDC_FETCHER_BITS`]. The window trigger and the blank-pixel
+    /// glitch keep reading `lcdc`, where WIN_EN lands a dot later.
+    ///
+    /// The result: `m3_lcdc_win_en_change_multiple_wx` renders exactly
+    /// as the DMG-CPU B reference image, and as GateBoy, a DMG-CPU B
+    /// model, renders it. It is 3 px off the DMG-blob image; the two
+    /// references differ in exactly those 3 px.
+    pub(crate) fn fetcher_window_enabled(&self) -> bool {
+        let lcdc = match self.staged_write {
+            Some(StagedWrite {
+                addr: REG_LCDC,
+                value,
+                dots,
+                ..
+            }) if dots >= 2 => value,
+            _ => self.lcdc,
+        };
+        (lcdc & lcdc::WINDOW_ENABLE) != 0
     }
 
     /// Applies the part of a staged write due after the dot just run.

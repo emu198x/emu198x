@@ -584,7 +584,7 @@ impl Ppu {
     fn advance_fetcher(&mut self, vram: &[u8]) {
         match self.m3.fetch {
             FetchStep::TileT1 => {
-                if (self.lcdc & lcdc::WINDOW_ENABLE) == 0 {
+                if !self.fetcher_window_enabled() {
                     self.m3.wx_triggered = false;
                 }
                 let window = self.m3.wx_triggered;
