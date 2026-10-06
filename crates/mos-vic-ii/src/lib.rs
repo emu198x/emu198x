@@ -211,8 +211,7 @@ struct SpriteTiming {
     /// previous line's tail). The s-access (data bytes 1-2) is the next cycle;
     /// the BA lead-in is the three cycles before the p-access.
     paccess: [(u8, bool); 8],
-    /// The two cycles the sprite-DMA check fires (VICE `ChkSprDma`). The first
-    /// is where the BA-path `evaluate_sprite_dma` runs.
+    /// The two cycles the sprite-DMA check fires (VICE `ChkSprDma`).
     chk_dma: [u8; 2],
     /// Y-expansion flip-flop toggle cycle (VICE `ChkSprExp`).
     chk_exp: u8,
@@ -386,9 +385,6 @@ pub struct Vic {
     #[serde(with = "BigArray")]
     colour_row: [u8; 40],
     vic_bank: u8,
-    /// Sprite DMA-active flags (the BA/CPU-stall path), set at cycle 55 by
-    /// `evaluate_sprite_dma`. Independent of the draw-stage sequencer.
-    sprite_dma_active: [bool; 8],
     /// Draw-stage sprite sequencer (VICE shift-register pixel pipeline). It is
     /// the sole sprite render path. Its shift registers and per-pixel flops
     /// persist across cycles, so snapshots preserve it at arbitrary phases.
@@ -427,6 +423,8 @@ pub struct Vic {
     first_visible_line: u16,
     last_visible_line: u16,
     lp_triggered: bool,
+    /// Light-pen input level: `true` while held low.
+    lp_line_low: bool,
     last_bus_data: u8,
     /// Vertical border flip-flop. Set at the last raster line of the
     /// display window, cleared at the first (DEN=1 required). Gates
@@ -497,7 +495,6 @@ impl Vic {
             screen_row: [0; 40],
             colour_row: [0; 40],
             vic_bank: 0,
-            sprite_dma_active: [false; 8],
             sprite_sequencer: SpriteSequencer::new(),
             chain: SpriteFetchChain::new(),
             chain_data: [[0; 3]; 8],
@@ -518,6 +515,7 @@ impl Vic {
             first_visible_line: first_vis,
             last_visible_line: last_vis,
             lp_triggered: false,
+            lp_line_low: false,
             last_bus_data: 0,
             border_vert_ff: true,
             border_main_ff: true,
@@ -540,10 +538,6 @@ impl Vic {
         // hidden cell is backed by an active access and advances VC/VMLI.
         let forced_g_access_delayed = self.forced_badline_output_delay == 2;
         self.resolve_forced_badline_cdata_carry(display_active_at_phi1);
-
-        if self.raster_cycle == self.timing.chk_dma[0] {
-            self.evaluate_sprite_dma();
-        }
 
         // Advance the MC/MCBASE/exp-flop chain + its MC-addressed fetch (chain
         // stage), then run the draw stage for this cycle's 8 pixels. The draw
@@ -597,6 +591,10 @@ impl Vic {
                 self.frame_complete = true;
                 self.den_latch = false;
                 self.lp_triggered = false;
+                // A light pen still held low retriggers as the frame starts.
+                if self.lp_line_low {
+                    self.latch_light_pen(true);
+                }
             }
         }
 
@@ -636,8 +634,12 @@ impl Vic {
 
         if let Some(write_cycle) = self.pending_d011_write_cycle.take() {
             if !was_badline && self.is_badline {
+                // A write in cycle 54 lands before that cycle's Phi2 matrix
+                // fetch, so it keeps that one access, which this engine makes
+                // on the following tick. A write in cycle 55 or later keeps
+                // none.
                 self.late_badline_fetches_remaining =
-                    (write_cycle >= 53).then_some(54u8.saturating_sub(write_cycle));
+                    (write_cycle >= 54).then_some(55u8.saturating_sub(write_cycle));
                 if self.late_badline_fetches_remaining.is_some() {
                     // At the post-VIC far edge, Phi1 and the current draw have
                     // already observed idle state. The two C/V/G cells behind
@@ -1036,7 +1038,13 @@ impl Vic {
         // collision accumulation itself lives in `accumulate_sprite_collisions`
         // (called from `tick`) so it runs in the border too.
         self.gfx_fg_mask = fg_mask;
-        self.composite_sprite_sources(&mut output_sources, fg_mask);
+        // The border covers sprites (VICE draws `draw_sprites8`, then
+        // `draw_border8`). That is applied here for the vertical border only:
+        // the side border keeps sprites above it until its flip-flop timing,
+        // which `spritefetchbug` exposes, is re-derived.
+        if !self.border_vert_ff {
+            self.composite_sprite_sources(&mut output_sources, fg_mask);
+        }
 
         // Resolve symbolic register sources only after graphics, border and
         // sprites have selected the final source for each dot. The complete
@@ -1365,7 +1373,7 @@ impl Vic {
         if c == 16 {
             self.chain.update_mcbase();
         }
-        if (c == self.timing.chk_dma[0] || c == self.timing.chk_dma[1]) && self.raster_line <= 255 {
+        if c == self.timing.chk_dma[0] || c == self.timing.chk_dma[1] {
             self.chain.check_dma(enable, y, raster_low);
         }
         if c == self.timing.chk_exp {
@@ -1499,27 +1507,6 @@ impl Vic {
         }
     }
 
-    fn evaluate_sprite_dma(&mut self) {
-        let sprite_enable = self.regs[0x15];
-        let y_expand = self.regs[0x17];
-
-        for i in 0..8usize {
-            if sprite_enable & (1 << i) == 0 {
-                self.sprite_dma_active[i] = false;
-                continue;
-            }
-
-            let sprite_y = u16::from(self.regs[1 + i * 2]);
-            let height = if y_expand & (1 << i) != 0 {
-                42u16
-            } else {
-                21u16
-            };
-            let offset = self.raster_line.wrapping_sub(sprite_y);
-            self.sprite_dma_active[i] = offset < height;
-        }
-    }
-
     #[cfg(test)]
     fn is_sprite_dma_stealing(&self) -> bool {
         let c = self.raster_cycle;
@@ -1530,7 +1517,7 @@ impl Vic {
             .paccess
             .iter()
             .enumerate()
-            .any(|(i, &(p, _))| self.sprite_dma_active[i] && (c == p || c == (p + 1) % cpl))
+            .any(|(i, &(p, _))| self.chain.dma_active(i) && (c == p || c == (p + 1) % cpl))
     }
 
     fn badline_ba_low(&self) -> bool {
@@ -1555,7 +1542,7 @@ impl Vic {
         // BA drops for the three cycles before a sprite's p-access through its
         // s-access (a 5-cycle window), per the model's schedule.
         self.timing.paccess.iter().enumerate().any(|(i, &(p, _))| {
-            if !self.sprite_dma_active[i] {
+            if !self.chain.dma_active(i) {
                 return false;
             }
             let ba_start = (p + cpl - 3) % cpl;
@@ -1593,6 +1580,15 @@ impl Vic {
     /// line" and `vicii_cycle_start_of_frame`, `viciisc/vicii-cycle.c`).
     const fn cpu_line_edge_cycle(&self) -> u8 {
         if self.raster_line == 0 { 2 } else { 1 }
+    }
+
+    /// The engine cycle of the CPU access that follows the latest tick.
+    const fn cpu_access_cycle(&self) -> u8 {
+        if self.raster_cycle == 0 {
+            self.cycles_per_line - 1
+        } else {
+            self.raster_cycle - 1
+        }
     }
 
     /// The raster counter during the current tick: the previous line on the
@@ -1712,7 +1708,7 @@ impl Vic {
 
         match reg & 0x3F {
             0x11 => {
-                self.pending_d011_write_cycle = Some(self.raster_cycle);
+                self.pending_d011_write_cycle = Some(self.cpu_access_cycle());
                 self.raster_compare =
                     (self.raster_compare & 0x00FF) | (u16::from(value & 0x80) << 1);
             }
@@ -1728,7 +1724,8 @@ impl Vic {
             // Sprite crunch: a `$D017` change feeds the fetch chain's crunch
             // bit-math (gated on the crunch cycle).
             0x17 if value != old => {
-                self.chain.write_d017(value, self.raster_cycle == 15);
+                // VICE crunches on a write in cycle 15 (`ChkSprCrunch`).
+                self.chain.write_d017(value, self.cpu_access_cycle() == 15);
             }
             _ => {}
         }
@@ -1880,14 +1877,72 @@ impl Vic {
         self.vic_bank
     }
 
-    /// Trigger the light-pen latch once per frame.
+    /// Trigger the light-pen latch once per frame, at the position of the
+    /// cycle after the latest tick.
+    ///
+    /// VICE x64sc latches the light pen one cycle after the input falls
+    /// (`vicii_set_light_pen`, `viciisc/vicii-lightpen.c`). LPX is half the
+    /// X coordinate of that cycle's Phi1 (the `xpos` column of
+    /// `viciisc/vicii-chip-model.c`) plus two on the NMOS 6567/6569, and the
+    /// latch raises the light-pen interrupt. The frame's last line latches
+    /// only on its first cycle.
     pub fn trigger_light_pen(&mut self) {
+        self.latch_light_pen(false);
+    }
+
+    /// Drive the light-pen input: `true` while the line is held low. On the
+    /// C64 the input is CIA 1 port B bit 4, which the keyboard matrix and the
+    /// control port 1 fire button also pull low.
+    pub fn set_light_pen_line(&mut self, low: bool) {
+        if low && !self.lp_line_low {
+            self.latch_light_pen(false);
+        }
+        self.lp_line_low = low;
+    }
+
+    fn latch_light_pen(&mut self, retrigger: bool) {
         if self.lp_triggered {
             return;
         }
         self.lp_triggered = true;
-        self.regs[0x13] = (u16::from(self.raster_cycle) * 4) as u8;
-        self.regs[0x14] = self.raster_line as u8;
+
+        let line = self.counter_line();
+        let cycle = if self.raster_cycle == 0 {
+            self.cycles_per_line
+        } else {
+            self.raster_cycle
+        };
+        if line == self.lines_per_frame - 1 && cycle > 1 {
+            return;
+        }
+        let x = if retrigger {
+            // VICE's start-of-frame retrigger position.
+            if self.cycles_per_line == 65 {
+                0xD5
+            } else {
+                0xD1
+            }
+        } else {
+            (self.phi1_xpos(cycle) / 2 + 2) as u8
+        };
+        self.regs[0x13] = x;
+        self.regs[0x14] = line as u8;
+        self.irq_status |= 0x08;
+        self.irq = (self.irq_status & self.irq_enable & 0x0F) != 0;
+    }
+
+    /// The X coordinate of a cycle's Phi1 half as VICE stores it in its cycle
+    /// table: the `xpos` column rounded down to a multiple of 8
+    /// (`cycle_get_xpos`, `viciisc/vicii-chip-model.h`), which makes cycle 1
+    /// `$190` on PAL and `$198` on NTSC, then 8 dots a cycle, wrapping at the
+    /// line's dot count. The 6567R8's cycles 62 and 63 share one coordinate.
+    fn phi1_xpos(&self, cycle: u8) -> u16 {
+        let n = u16::from(cycle) - 1;
+        match self.cycles_per_line {
+            63 => (0x190 + 8 * n) % 504,
+            65 => (0x198 + 8 * n - if cycle >= 63 { 8 } else { 0 }) % 512,
+            _ => (0x198 + 8 * n) % 512,
+        }
     }
 
     /// Borrow the ARGB32 framebuffer.
@@ -2754,7 +2809,7 @@ mod tests {
             // Y position 0 for whichever sprite we're testing.
             vic.write(0x01 + (i as u8) * 2, 0);
 
-            // Walk from (0, 0). evaluate_sprite_dma fires at cycle 55
+            // Walk from (0, 0). The sprite-DMA check fires at cycle 55
             // of line 0 (sprite_y=0, raster_line=0 → offset 0 < 21 →
             // ACTIVE). The DMA cycles fire at 58-59 of line 0 for
             // sprite 0, shifting through into line 1 for the rest.
@@ -2836,11 +2891,13 @@ mod tests {
         for _ in 0..20 {
             tick_vic(&mut vic, &memory);
         }
-        let cycle = vic.raster_cycle();
-        let line = vic.raster_line();
+        // 20 ticks leave the next cycle at 20, whose PAL Phi1 X is
+        // ($190 + 19 * 8) mod 504 = $30. LPX is half that plus two.
+        assert_eq!(vic.raster_cycle(), 20);
         vic.trigger_light_pen();
-        assert_eq!(vic.peek(0x14), line as u8);
-        assert_eq!(vic.peek(0x13), (cycle as u16 * 4) as u8);
+        assert_eq!(vic.peek(0x14), 0);
+        assert_eq!(vic.peek(0x13), 0x1A);
+        assert_ne!(vic.irq_status() & 0x08, 0, "the latch raises the LP IRQ");
     }
 
     #[test]
@@ -3019,7 +3076,7 @@ mod tests {
         // time, so the attempted Phi2 c-access stores the disconnected matrix
         // value and the CPU-side low nibble in slot zero.
         vic.write(0x11, 0x10);
-        assert_eq!(vic.pending_d011_write_cycle(), Some(16));
+        assert_eq!(vic.pending_d011_write_cycle(), Some(15));
         tick_vic_with_cpu_data(&mut vic, &memory, 0x8A);
         assert!(vic.is_badline());
         assert!(!vic.uses_late_badline_window());
@@ -3068,10 +3125,10 @@ mod tests {
     }
 
     #[test]
-    fn cycle_53_d011_write_leaves_one_late_badline_access() {
+    fn cycle_54_d011_write_leaves_one_late_badline_access() {
         let (mut vic, memory) = make_vic_and_memory();
         vic.raster_line = 0x30;
-        vic.raster_cycle = 53;
+        vic.raster_cycle = 55;
         vic.den_latch = true;
         vic.vc = 0x0120;
         vic.vmli = 0;
@@ -3079,11 +3136,11 @@ mod tests {
         vic.regs[0x11] = 0x11; // line $30 is not bad at YSCROLL 1
         vic.is_badline = false;
 
-        // The CPU completes this write after the VIC has consumed its cycle-52
-        // phase. The entering engine-cycle-53 tick is therefore the sole
-        // remaining matrix-DMA opportunity (physical cycle 54).
+        // The CPU writes in cycle 54, before that cycle's Phi2 matrix fetch
+        // (VICE stores at 54 in `sequencer-bug`). This engine makes that one
+        // remaining access on the following tick.
         vic.write(0x11, 0x10);
-        assert_eq!(vic.pending_d011_write_cycle(), Some(53));
+        assert_eq!(vic.pending_d011_write_cycle(), Some(54));
         tick_vic_with_cpu_data(&mut vic, &memory, 0x8A);
         assert!(vic.is_badline());
         assert!(vic.uses_late_badline_window());
@@ -3101,8 +3158,8 @@ mod tests {
             Some(40)
         );
 
-        // The ordinary cycle-54 slot would be a second attempt. A line created
-        // at CPU phase 53 has no such remaining c-access or badline BA source.
+        // A second attempt would exceed the window. A line created in cycle 54
+        // has no further c-access or badline BA source.
         tick_vic_with_cpu_data(&mut vic, &memory, 0x95);
         assert!(vic.is_badline());
         assert!(!vic.badline_ba_is_low());
@@ -3122,10 +3179,10 @@ mod tests {
     }
 
     #[test]
-    fn cycle_54_d011_write_has_no_late_badline_access() {
+    fn cycle_55_d011_write_has_no_late_badline_access() {
         let (mut vic, memory) = make_vic_and_memory();
         vic.raster_line = 0x30;
-        vic.raster_cycle = 54;
+        vic.raster_cycle = 56;
         vic.den_latch = true;
         vic.vc = 0x0120;
         vic.vmli = 0;
@@ -3145,7 +3202,7 @@ mod tests {
     }
 
     #[test]
-    fn forced_badline_keeps_two_following_cells_on_idle_output() {
+    fn forced_badline_hidden_cells_fall_behind_the_right_border() {
         let chargen = vec![0u8; 4096];
         let mut memory = TestMemory::new(&chargen);
         memory.ram_write(0x0900, 0xFF); // bitmap byte at VC $120, RC 0
@@ -3153,7 +3210,7 @@ mod tests {
 
         let mut vic = Vic::new(VicModel::Pal6569);
         vic.raster_line = 0x30;
-        vic.raster_cycle = 53;
+        vic.raster_cycle = 55;
         vic.den_latch = true;
         vic.vc = 0x0120;
         vic.vmli = 0;
@@ -3168,7 +3225,10 @@ mod tests {
         tick_vic_with_cpu_data(&mut vic, &memory, 0x8A);
         assert_eq!(vic.forced_badline_output_delay(), 2);
 
-        for (cycle, remaining) in [(54u8, 1u8), (55, 0)] {
+        // A write in cycle 54 is the latest that still creates the late
+        // badline, so the two hidden cells are cycles 56 and 57: behind the
+        // right border, which closes at cycle 56 with 40 columns.
+        for (cycle, remaining) in [(56u8, 1u8), (57, 0)] {
             tick_vic_with_cpu_data(&mut vic, &memory, 0x95);
             assert_eq!(vic.forced_badline_output_delay(), remaining);
             let fb_y = usize::from(vic.raster_line - FIRST_VISIBLE_LINE);
@@ -3176,18 +3236,18 @@ mod tests {
             for px in 0..8 {
                 assert_eq!(
                     fb_pixel(&vic, fb_x + px, fb_y),
-                    PALETTE[0],
-                    "cycle {cycle} pixel {px} should retain idle C/V output"
+                    PALETTE[usize::from(vic.regs[0x20] & 0x0F)],
+                    "cycle {cycle} pixel {px} is border"
                 );
             }
         }
     }
 
     #[test]
-    fn far_edge_output_delay_suppresses_only_the_first_hidden_g_access() {
+    fn far_edge_output_delay_suppresses_the_last_g_access() {
         let (mut vic, memory) = make_vic_and_memory();
         vic.raster_line = 0x30;
-        vic.raster_cycle = 53;
+        vic.raster_cycle = 55;
         vic.den_latch = true;
         vic.vc = 0x0120;
         vic.vmli = 0;
@@ -3200,12 +3260,15 @@ mod tests {
         assert_eq!((vic.vc(), vic.vmli()), (0x0120, 0));
         assert_eq!(vic.forced_badline_output_delay(), 2);
 
+        // The far-edge write is in cycle 54, so the suppressed g-access is
+        // the line's last (cycle 55). Cycles 56 and 57 make none, and the
+        // counters stay put until the next line's cycle 14.
         tick_vic(&mut vic, &memory);
         assert_eq!((vic.vc(), vic.vmli()), (0x0120, 0));
         assert_eq!(vic.forced_badline_output_delay(), 1);
 
         tick_vic(&mut vic, &memory);
-        assert_eq!((vic.vc(), vic.vmli()), (0x0121, 1));
+        assert_eq!((vic.vc(), vic.vmli()), (0x0120, 0));
         assert_eq!(vic.forced_badline_output_delay(), 0);
     }
 
@@ -3234,7 +3297,7 @@ mod tests {
     fn far_edge_cdata_carry_uses_the_hoxs_12_bit_merge_network() {
         let (mut vic, memory) = make_vic_and_memory();
         vic.raster_line = 0x30;
-        vic.raster_cycle = 53;
+        vic.raster_cycle = 55;
         vic.den_latch = true;
         vic.vc = 0x0120;
         vic.vmli = 0;
@@ -3253,26 +3316,26 @@ mod tests {
         assert_eq!(vic.rc(), 0);
         assert!(!vic.is_badline());
         assert!(vic.forced_badline_cdata_carry_pending());
-        assert_eq!(vic.forced_badline_cdata_carry_age(), Some(25));
+        assert_eq!(vic.forced_badline_cdata_carry_age(), Some(23));
         assert_eq!(vic.forced_badline_cdata_carry_value(), Some(0));
 
-        // First merge vector: elapsed=24, i0=23, i1=0, i2=24.
-        vic.set_packed_cdata(23, 0xA62);
+        // First merge vector: elapsed=22, i0=21, i1=0, i2=22.
+        vic.set_packed_cdata(21, 0xA62);
         vic.set_packed_cdata(0, 0x0FF);
-        vic.set_packed_cdata(24, 0x153);
+        vic.set_packed_cdata(22, 0x153);
 
         tick_vic(&mut vic, &memory);
         assert_eq!(vic.packed_cdata(0), 0x173);
-        assert_eq!(vic.packed_cdata(24), 0x173);
+        assert_eq!(vic.packed_cdata(22), 0x173);
         assert_eq!(vic.forced_badline_cdata_carry_value(), Some(0x822));
 
         // Next merge is carry-dependent: discarding 0x822 would produce 0x0A1
         // instead of the expected 0x8A1.
         vic.set_packed_cdata(1, 0x2A5);
-        vic.set_packed_cdata(25, 0x8E1);
+        vic.set_packed_cdata(23, 0x8E1);
         tick_vic(&mut vic, &memory);
         assert_eq!(vic.packed_cdata(1), 0x8A1);
-        assert_eq!(vic.packed_cdata(25), 0x8A1);
+        assert_eq!(vic.packed_cdata(23), 0x8A1);
         assert_eq!(vic.forced_badline_cdata_carry_value(), Some(0x822));
     }
 
@@ -3575,7 +3638,7 @@ mod tests {
         // Wind just past line 60 cycle 56 (NTSC ChkSprDma[0], processed at the
         // end of that cycle's tick) so DMA is evaluated.
         advance_until(&mut vic, &memory, 60, 57);
-        assert!(vic.sprite_dma_active[0], "sprite 0 should be DMA-active");
+        assert!(vic.chain.dma_active(0), "sprite 0 should be DMA-active");
         // Cycle 58 is a steal on PAL but not NTSC (checked before 59, forward).
         advance_until(&mut vic, &memory, 60, 58);
         assert!(
@@ -4017,12 +4080,12 @@ mod tests {
         vic.write(0x15, 0x01); // enable sprite 0
         vic.write(0x17, 0x01); // y-expand sprite 0
         vic.write(0x01, 0); // sprite Y = 0
-        // Walk to line 25, cycle 55: evaluate_sprite_dma runs at cycle 55.
+        // Walk to line 25, cycle 55, where the sprite-DMA check runs.
         advance_to(&mut vic, &memory, 25, 55);
         tick_vic(&mut vic, &memory);
         // Without y-expand, height = 21; so offset 25 would NOT be DMA-active.
         // With y-expand, height = 42; so offset 25 IS DMA-active.
-        assert!(vic.sprite_dma_active[0]);
+        assert!(vic.chain.dma_active(0));
     }
 
     #[test]
