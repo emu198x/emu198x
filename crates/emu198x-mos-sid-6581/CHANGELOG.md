@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-10-06
+
 ### Changed
 
 - **Breaking:** `Voice::clock_noise` advances the noise register's two-cycle shift pipeline from the bit-19 edge that `Voice::clock_accumulator` records, so it must follow `clock_accumulator` on the same cycle; it no longer detects the edge itself (#1606)
