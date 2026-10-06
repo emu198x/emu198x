@@ -324,12 +324,16 @@ impl Crtc6845 {
             return false;
         }
 
+        // The blink modes repeat every 16 or 32 fields, on for half of each.
+        // The Motorola datasheet's R10 description gives "16 times or 32
+        // times the field period"; the BBC Micro Advanced User Guide (§18.8)
+        // the same. b-em and jsbeeb gate on field-count bits 3 and 4.
         let mode = self.regs[10] & 0x60;
         let blink_visible = match mode {
             0x00 => true,
             0x20 => false,
-            0x40 => self.cursor_blink_count & 0x10 != 0,
-            0x60 => self.cursor_blink_count & 0x20 != 0,
+            0x40 => self.cursor_blink_count & 0x08 != 0,
+            0x60 => self.cursor_blink_count & 0x10 != 0,
             _ => unreachable!(),
         };
         if !blink_visible {
@@ -811,12 +815,16 @@ mod tests {
         for (mode, count, visible) in [
             (0x00, 0, true),
             (0x20, 0, false),
-            (0x40, 15, false),
-            (0x40, 16, true),
-            (0x40, 32, false),
-            (0x60, 31, false),
-            (0x60, 32, true),
-            (0x60, 64, false),
+            // A 16-field period: eight fields off, eight on.
+            (0x40, 7, false),
+            (0x40, 8, true),
+            (0x40, 15, true),
+            (0x40, 16, false),
+            // A 32-field period: sixteen off, sixteen on.
+            (0x60, 15, false),
+            (0x60, 16, true),
+            (0x60, 31, true),
+            (0x60, 32, false),
         ] {
             crtc.regs[10] = mode;
             assert_eq!(cursor_at(&mut crtc, 0, count), visible);
