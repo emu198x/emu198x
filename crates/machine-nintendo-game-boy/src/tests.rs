@@ -954,6 +954,38 @@ fn if_register_high_bits_read_high() {
 }
 
 #[test]
+fn skipped_bootrom_leaves_the_header_logo_and_trademark_in_vram() {
+    let mut rom = nop_rom();
+    // The first two bytes of the Nintendo logo form tile 1.
+    rom[0x0104] = 0xCE;
+    rom[0x0105] = 0xED;
+    let gb = boot_machine_with_profile(rom.clone(), BootProfile::DmgAbc);
+
+    // Each nibble becomes two identical rows of bitplane 0, every bit
+    // doubled: C -> F0, E -> FC, E -> FC, D -> F3. Bitplane 1 stays 0.
+    let rows: Vec<u8> = (0..8).map(|r| gb.peek(0x8010 + r * 2)).collect();
+    assert_eq!(rows, [0xF0, 0xF0, 0xFC, 0xFC, 0xFC, 0xFC, 0xF3, 0xF3]);
+    assert!((0..8).all(|r| gb.peek(0x8011 + r * 2) == 0));
+
+    // The ® glyph sits in tile $19, bitplane 0.
+    let trademark: Vec<u8> = (0..8).map(|r| gb.peek(0x8190 + r * 2)).collect();
+    assert_eq!(trademark, [0x3C, 0x42, 0xB9, 0xA5, 0xB9, 0xA5, 0x42, 0x3C]);
+
+    // Logo tilemap: tiles 1-12 and 13-24 in map rows 8 and 9, the ®
+    // to the right of the top row.
+    assert_eq!(gb.peek(0x9904), 1);
+    assert_eq!(gb.peek(0x990F), 12);
+    assert_eq!(gb.peek(0x9910), 0x19);
+    assert_eq!(gb.peek(0x9924), 13);
+    assert_eq!(gb.peek(0x992F), 24);
+    assert_eq!(gb.peek(0x9903), 0);
+
+    // The DMG0 boot ROM has no ®, and its exact VRAM is undocumented.
+    let dmg0 = boot_machine_with_profile(rom, BootProfile::Dmg0);
+    assert!((0x8000..0xA000u16).all(|addr| dmg0.peek(addr) == 0));
+}
+
+#[test]
 fn skipped_bootrom_sets_dmg_io_register_state() {
     let gb = boot_machine(jr_loop_rom());
     assert_eq!(gb.bus_read(0xFF00), 0xCF);
@@ -1407,8 +1439,13 @@ fn mealybug_dmg_ppu_ledger() {
     const PASSING: &[&str] = &[
         "m2_win_en_toggle",
         "m3_bgp_change",
+        "m3_bgp_change_sprites",
+        "m3_lcdc_obj_en_change",
+        "m3_lcdc_obj_en_change_variant",
         "m3_lcdc_win_en_change_multiple",
+        "m3_obp0_change",
         "m3_scx_high_5_bits",
+        "m3_scx_low_3_bits",
         "m3_window_timing",
         "m3_window_timing_wx_0",
         "m3_wx_4_change",

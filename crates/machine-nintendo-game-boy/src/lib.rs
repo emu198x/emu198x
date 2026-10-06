@@ -186,6 +186,54 @@ const fn mem_bus(addr: u16) -> MemBus {
     }
 }
 
+/// The ® glyph the DMG, MGB and SGB boot ROMs place in tile `$19`,
+/// one bitplane, top row first. The DMG0 boot ROM has no ® (Pan Docs,
+/// "Power Up Sequence"). Glyph as in SameBoy's MIT-licensed boot ROM
+/// (`emulators/gameboy/SameBoy/BootROMs/dmg_boot.asm`,
+/// `TrademarkSymbol`).
+const TRADEMARK_TILE: [u8; 8] = [0x3C, 0x42, 0xB9, 0xA5, 0xB9, 0xA5, 0x42, 0x3C];
+
+/// VRAM as the boot ROM leaves it. The monochrome boot ROMs unpack the
+/// cartridge header logo (`$0104-$0133`) into tiles 1-24, each nibble
+/// doubled to a byte and written to two rows of bitplane 0; add the ®
+/// in tile 25; and lay the logo out in the `$9800` map at rows 8-9
+/// (Pan Docs, "Power Up Sequence"; SameBoy `dmg_boot.asm`,
+/// `.loadLogoLoop` / `.tilemapLoop`). Games and test ROMs that skip
+/// clearing VRAM rely on this — the Mealybug Tearoom PPU tests draw
+/// tile `$19` as their sprite. The DMG0 boot ROM's exact VRAM is not
+/// documented, so that profile keeps VRAM clear.
+fn post_boot_vram(cartridge: &Cartridge, boot_profile: BootProfile) -> [u8; VRAM_SIZE] {
+    let mut vram = [0; VRAM_SIZE];
+    if boot_profile == BootProfile::Dmg0 {
+        return vram;
+    }
+    let mut row = 0x0010;
+    for addr in 0x0104..0x0134u16 {
+        let byte = cartridge.read_rom(addr);
+        for nibble in [byte >> 4, byte & 0x0F] {
+            let mut doubled = 0u8;
+            for bit in (0..4).rev() {
+                let set = (nibble >> bit) & 1;
+                doubled = (doubled << 2) | (set << 1) | set;
+            }
+            vram[row] = doubled;
+            vram[row + 2] = doubled;
+            row += 4;
+        }
+    }
+    for (i, &glyph_row) in TRADEMARK_TILE.iter().enumerate() {
+        vram[row + i * 2] = glyph_row;
+    }
+    // Map rows 8 and 9, columns 4-15: tiles 1-12 and 13-24; the ® at
+    // row 8, column 16.
+    for column in 0..12u8 {
+        vram[0x1904 + usize::from(column)] = column + 1;
+        vram[0x1924 + usize::from(column)] = column + 13;
+    }
+    vram[0x1910] = 0x19;
+    vram
+}
+
 const fn default_oam_dma_reg() -> u8 {
     0xFF
 }
@@ -209,6 +257,7 @@ impl GameBoy {
         cpu.reset_post_bootrom_with_state(boot_profile.cpu_state());
 
         let (ppu_ly, ppu_dot) = boot_profile.ppu_phase();
+        let vram = post_boot_vram(&cartridge, boot_profile);
 
         Self {
             cpu,
@@ -221,7 +270,7 @@ impl GameBoy {
             ),
             cartridge,
             wram: [0; WRAM_SIZE],
-            vram: [0; VRAM_SIZE],
+            vram,
             oam: [0; OAM_SIZE],
             hram: [0; HRAM_SIZE],
             if_reg: IF_VBLANK,
