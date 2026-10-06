@@ -25,6 +25,7 @@ fn poke_vram(vdp: &mut SegaVdp, addr: u16, bytes: &[u8]) {
     vdp.write_control(((addr >> 8) as u8 & 0x3F) | 0x40);
     for &b in bytes {
         vdp.write_data(b);
+        settle(vdp);
     }
 }
 
@@ -32,6 +33,15 @@ fn poke_cram(vdp: &mut SegaVdp, index: u8, value: u8) {
     vdp.write_control(index);
     vdp.write_control(0xC0);
     vdp.write_data(value);
+    settle(vdp);
+}
+
+/// Give a data-port write time to reach VRAM or CRAM. The chip performs it
+/// in a free memory cycle, at most 38 dots later.
+fn settle(vdp: &mut SegaVdp) {
+    for _ in 0..40 {
+        vdp.tick();
+    }
 }
 
 fn solid_tile(colour: u8) -> [u8; 32] {

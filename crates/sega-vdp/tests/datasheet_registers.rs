@@ -35,6 +35,7 @@ fn poke_vram(vdp: &mut SegaVdp, addr: u16, bytes: &[u8]) {
     set_vram_address(vdp, addr, true);
     for &b in bytes {
         vdp.write_data(b);
+        settle(vdp);
     }
 }
 
@@ -43,6 +44,15 @@ fn poke_cram(vdp: &mut SegaVdp, index: u8, value: u8) {
     vdp.write_control(index);
     vdp.write_control(0xC0);
     vdp.write_data(value);
+    settle(vdp);
+}
+
+/// Give a data-port write time to reach VRAM or CRAM. The chip performs it
+/// in a free memory cycle, at most 38 dots later.
+fn settle(vdp: &mut SegaVdp) {
+    for _ in 0..40 {
+        vdp.tick();
+    }
 }
 
 /// One tile row in Mode 4's four-plane format — one byte per bitplane, bit 7
@@ -576,6 +586,9 @@ fn the_ninth_sprite_on_a_line_is_dropped_and_flags_overflow() {
             poke_vram(&mut vdp, 0x3F80 + u16::from(i) * 2, &[i * 8, 1]);
         }
         poke_vram(&mut vdp, 0x3F00 + u16::from(count), &[0xD0]);
+        // The beam ran while the tables were half written; drop any flag it
+        // raised then.
+        let _ = vdp.read_status();
         vdp
     }
 

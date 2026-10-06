@@ -1160,6 +1160,29 @@ mod tests {
         );
     }
 
+    /// A data-port write waits for a free VDP memory cycle (#1614). A
+    /// snapshot taken in that gap must carry it, or the byte never lands.
+    #[test]
+    fn snapshot_carries_a_vram_write_still_waiting_for_its_window() {
+        let mut sys = Sms::new(trap_cart_64k(), SmsVariant::SmsNtsc);
+        sys.io_write(0xBF, 0x34);
+        sys.io_write(0xBF, 0x52); // VRAM write address $1234
+        sys.io_write(0xBE, 0x99);
+        assert_ne!(
+            sys.vdp().vram()[0x1234],
+            0x99,
+            "the window has not come yet"
+        );
+        let snapshot = postcard::to_allocvec(&sys).expect("encode snapshot");
+
+        let mut restored: Sms = postcard::from_bytes(&snapshot).expect("decode snapshot");
+        // 26 T-states is 39 dots, past the longest wait.
+        for _ in 0..26 {
+            restored.tick_tstate();
+        }
+        assert_eq!(restored.vdp().vram()[0x1234], 0x99);
+    }
+
     #[test]
     fn ntsc_frame_returns_expected_tstates() {
         let mut sys = Sms::new(trap_cart_64k(), SmsVariant::SmsNtsc);
@@ -1331,6 +1354,7 @@ mod tests {
         sys.io_write(0xBF, ((addr >> 8) as u8 & 0x3F) | 0x40);
         for &b in bytes {
             sys.io_write(0xBE, b);
+            phaser_settle(sys);
         }
     }
 
@@ -1338,6 +1362,15 @@ mod tests {
         sys.io_write(0xBF, index);
         sys.io_write(0xBF, 0xC0);
         sys.io_write(0xBE, value);
+        phaser_settle(sys);
+    }
+
+    /// Give a data-port write time to land: the VDP performs it in a free
+    /// memory cycle, at most 38 dots (26 T-states) later.
+    fn phaser_settle(sys: &mut Sms) {
+        for _ in 0..26 {
+            sys.tick_tstate();
+        }
     }
 
     /// A screen filled with one colour. `0x3F` is white and reads as bright;

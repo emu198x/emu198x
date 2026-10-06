@@ -12,14 +12,17 @@ use serde::{Deserialize, Serialize};
 
 use crate::runtime::{SmsModel, SmsRuntime};
 
-/// Version 7 adds the cartridge SRAM writeback state to the live machine state.
-/// Earlier snapshots cannot reconstruct battery-backed memory, so the version
-/// check rejects them instead of silently restoring an incomplete machine.
-const SNAPSHOT_VERSION: u16 = 7;
+/// Version 8 adds the VDP's pending CPU access (#1614): a data-port access
+/// waits up to 38 dots for a free memory cycle, and a snapshot taken in that
+/// gap would otherwise lose the write. Version 7 added the cartridge SRAM
+/// writeback state. Earlier snapshots cannot reconstruct either, so the
+/// version check rejects them instead of silently restoring an incomplete
+/// machine.
+const SNAPSHOT_VERSION: u16 = 8;
 
 /// Borrowing envelope used during encode — avoids cloning the live machine.
 #[derive(Serialize)]
-struct SmsRuntimeSnapshotRefV7<'a> {
+struct SmsRuntimeSnapshotRefV8<'a> {
     version: u16,
     time: u64,
     model_id: &'a str,
@@ -28,7 +31,7 @@ struct SmsRuntimeSnapshotRefV7<'a> {
 
 /// Owning envelope used during decode.
 #[derive(Deserialize)]
-struct SmsRuntimeSnapshotV7 {
+struct SmsRuntimeSnapshotV8 {
     version: u16,
     time: u64,
     model_id: String,
@@ -36,7 +39,7 @@ struct SmsRuntimeSnapshotV7 {
 }
 
 pub(crate) fn encode<M: SmsModel>(runtime: &SmsRuntime<M>) -> Result<Vec<u8>, MachineError> {
-    let snapshot = SmsRuntimeSnapshotRefV7 {
+    let snapshot = SmsRuntimeSnapshotRefV8 {
         version: SNAPSHOT_VERSION,
         time: runtime.time().get(),
         model_id: runtime.model_id(),
@@ -61,7 +64,7 @@ pub(crate) fn decode<M: SmsModel>(
             reason: format!("unsupported snapshot version {version}; expected {SNAPSHOT_VERSION}"),
         });
     }
-    let snapshot: SmsRuntimeSnapshotV7 =
+    let snapshot: SmsRuntimeSnapshotV8 =
         postcard::from_bytes(bytes).map_err(|reason| MachineError::InvalidSnapshot {
             reason: format!("decode failed: {reason}"),
         })?;
@@ -215,6 +218,24 @@ mod tests {
             MachineError::InvalidSnapshot { reason } => {
                 assert!(
                     reason.contains("unsupported snapshot version 6"),
+                    "unexpected reason: {reason}"
+                );
+            }
+            other => panic!("expected InvalidSnapshot, got {other:?}"),
+        }
+    }
+
+    /// Version 7 predates the VDP's pending CPU access.
+    #[test]
+    fn decode_rejects_version_7_before_payload_decode() {
+        let mut runtime = test_runtime();
+        let bytes = postcard::to_allocvec(&7_u16).expect("legacy version should encode");
+
+        let err = decode(&mut runtime, &bytes).expect_err("version 7 should reject");
+        match err {
+            MachineError::InvalidSnapshot { reason } => {
+                assert!(
+                    reason.contains("unsupported snapshot version 7"),
                     "unexpected reason: {reason}"
                 );
             }

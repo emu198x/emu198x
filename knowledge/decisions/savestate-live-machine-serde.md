@@ -139,6 +139,20 @@ Tatung Einstein from 5 to 6. Each rejects the previous version before
 decoding, because the positional payload gains a field mid-chip. The
 overrun counter beside it is observation only and is skipped.
 
+## Sega VDP pending-access amendment
+
+The Master System and Game Gear VDP performs a CPU data-port access in a free
+memory cycle, up to 38 dots after the port is touched (#1614). Between the two
+the chip holds the access: its kind, the address it was made at, and the dots
+left to its window. The byte a write stores is already in the serialised data
+buffer. A snapshot taken in that gap and restored without the access would
+lose a VRAM or CRAM write or a read-ahead byte, so the live chip carries it.
+
+The Master System class runtime, which serves both machines, advances its
+envelope from 7 to 8 and rejects version 7 before decoding, because the
+positional payload gains a field mid-chip. The overrun counter beside it is
+observation only and is skipped.
+
 ## Atari (decided 2026-06-26): use serde, same as everyone else
 
 The Atari chips (TIA, RIOT/6532, ANTIC, GTIA, POKEY, MARIA) carry **hand-rolled
