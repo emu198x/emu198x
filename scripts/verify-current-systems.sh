@@ -30,6 +30,7 @@ Environment:
     EMU198X_NES_APU_TEST_ROOT    NES Blargg APU rom_singles directory
     EMU198X_GB_BLARGG_ROOT       Game Boy Blargg test ROM root
     EMU198X_GB_MOONEYE_ROOT      Game Boy mooneye-gb test ROM root
+    EMU198X_GB_MEALYBUG_ROOT     Game Boy Mealybug Tearoom ppu/ directory
     EMU198X_DRAGON32_ROM         Dragon 32 BASIC ROM or zip archive
     EMU198X_DRAGON64_COMPAT_ROM  Dragon 64 compatible-mode ROM or zip archive
     EMU198X_DRAGON64_ROM         Dragon 64 64-mode BASIC ROM or zip archive
@@ -599,6 +600,16 @@ if [[ "${mode}" != "unit" ]]; then
                 mooneye_acceptance_gate_set_passes -- --ignored --exact
     else
         skip_step "game-boy-mooneye-gate" "missing mooneye root; set EMU198X_GB_MOONEYE_ROOT"
+    fi
+
+    gb_mealybug_root="${EMU198X_GB_MEALYBUG_ROOT:-}"
+    if [[ -n "${gb_mealybug_root}" && -d "${gb_mealybug_root}" ]]; then
+        run_step "game-boy-mealybug-gate" \
+            env EMU198X_GB_MEALYBUG_ROOT="${gb_mealybug_root}" \
+            cargo test -p machine-nintendo-game-boy --lib \
+                tests::mealybug_dmg_ppu_gate -- --ignored --exact
+    else
+        skip_step "game-boy-mealybug-gate" "missing Mealybug ppu/ directory; set EMU198X_GB_MEALYBUG_ROOT"
     fi
 
     dragon_rom="${EMU198X_DRAGON32_ROM:-}"
