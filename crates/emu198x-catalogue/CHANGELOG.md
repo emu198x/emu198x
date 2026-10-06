@@ -30,6 +30,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   manifest's routing versions disagree with the code or omit one the code
   defines. The Spectrum manifest sat two weeks behind routing 5 because only
   a catalogue run checked it.
+- Default the +3 disk-entry test's media root to the TOSEC library, as the
+  CLI and the full catalogue test do.
 - Advance C64 audio routing to version 7 for the SID waveform-generator
   pipelines and power-on state in #1606, and re-capture the eight music
   entries' audio hashes and Aztec Challenge's frame hash, which follows the
