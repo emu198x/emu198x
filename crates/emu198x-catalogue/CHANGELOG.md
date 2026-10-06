@@ -9,6 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Advance Spectrum frame routing to version 5 for the Sinclair ULA fetch,
+  border-gate and IRQ phases of 7e8bcd1c, and re-capture the catalogue. 31
+  frame hashes and 53 audio hashes moved since the last green run
+  (2026-08-10); each was compared with captures from that run and from
+  routing 4, and its cause bisected. Routing 5 itself moved one frame (Back
+  to the Future's icon animation) and the Sinclair-ULA audio. The Z80
+  bus-pin and contention corrections of August and September moved 21
+  frames of games drawing against a frame counter, and every entry with
+  sound. The TZX end-of-file pulse un-wedged RoboCop on the 128K family. The
+  manifest records each entry's reason.
+- Hold the Sabre Wulf Kempston-start menu keys for 25 frames; the menu no
+  longer acted on three-frame presses. Re-derive its with/without-FIRE
+  discriminator.
+- Point both Saboteur entries at the well-formed [a] TAP. The [a2] dump ends
+  in a stray byte that the published TAP decoder, like libspectrum, refuses.
+- Record that the 128K Operation Wolf and Bubble Bobble idle windows carry a
+  faint ripple, not silence, from two known defects (#1633, #1634).
 - Advance C64 audio routing to version 7 for the SID waveform-generator
   pipelines and power-on state in #1606, and re-capture the eight music
   entries' audio hashes and Aztec Challenge's frame hash, which follows the
