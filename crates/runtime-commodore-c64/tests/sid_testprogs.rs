@@ -194,6 +194,23 @@ fn osc3_wave0_floating_dac_holds_then_fades() {
     }
 }
 
+/// `osc_topbit`: run sawtooth until the accumulator's MSB rises, switch
+/// briefly to sawtooth combined with triangle, pulse or noise (each driving
+/// DAC bit 11 low), back to sawtooth, and read OSC3 bit 7. On a real 6581
+/// the combination pulls the MSB itself low (`_old` builds expect it clear);
+/// the 8580 buffers it (`_new` builds expect it set). With FREQ 1 the MSB
+/// takes 2^23 cycles, about 430 frames, to rise.
+#[test]
+#[ignore = "FIXTURE: requires ~/.emu198x/roms/commodore-c64 + ~/.emu198x/test-suites/c64-sid"]
+fn osc_topbit_combined_waveforms_pull_the_6581_msb_low() {
+    if !staged() {
+        emu198x_test_skip::skip!("C64 ROMs or VICE SID testprogs not staged");
+    }
+    let (count, failures) = failing_border_verdicts("osc_topbit", "osc_topbit_test_", 700);
+    assert_eq!(count, 6, "osc_topbit programs staged");
+    assert!(failures.is_empty(), "osc_topbit failures: {failures:?}");
+}
+
 /// `detect`: two SID-model detection routines, each built for the 6581
 /// (`-old`) and the 8580 (`-new`). `detect-1` looks for the 8580's
 /// triangle+sawtooth combination reaching OSC3 bit 7; `detect-2` starts the
@@ -454,7 +471,9 @@ fn waveform_agreement(prg: &str, model: Model) -> [usize; 8] {
 ///
 /// Both models match triangle, sawtooth and pulse exactly; on the 8580
 /// that depends on OSC3 reading triangle and sawtooth a cycle late, and on
-/// both on the pulse comparator's one-cycle delay.
+/// both on the pulse comparator's one-cycle delay. The 6581's pulse+saw and
+/// pulse+saw+triangle match exactly too, because the combination pulls the
+/// accumulator's MSB low halfway through the cycle.
 #[test]
 #[ignore = "FIXTURE: requires ~/.emu198x/roms/commodore-c64 + ~/.emu198x/test-suites/c64-sid"]
 fn waveforms_combined_agree_with_real_chips() {
@@ -464,7 +483,7 @@ fn waveforms_combined_agree_with_real_chips() {
     let agreement = waveform_agreement("waveforms/waveforms-6581.prg", Model::C64PalBreadbin);
     assert_eq!(
         agreement,
-        [256, 256, 256, 242, 256, 246, 136, 253],
+        [256, 256, 256, 242, 256, 246, 256, 256],
         "6581 agreement per waveform 0-7"
     );
     let agreement = waveform_agreement("waveforms/waveforms-8580.prg", Model::C64cPal);

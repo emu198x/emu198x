@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- on the 6581, sawtooth combined with another waveform pulls the accumulator's MSB low whenever the output's top bit is low (#1606)
 - the noise register shifts two cycles after accumulator bit 19 rises, not on the same cycle, and combined waveforms skip their write-back during the shift's latch phase (#1606)
 - the pulse comparator's result reaches the waveform one cycle late, and a pulse-width write settles it at once (#1606)
 - on the 8580, OSC3 reads triangle and sawtooth one cycle late, as the chip latches them half a cycle after OSC3 samples; the DAC input is not delayed (#1606)

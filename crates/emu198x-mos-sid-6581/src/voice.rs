@@ -318,6 +318,15 @@ impl Voice {
     /// pull-down off the delayed OSC3 value; reSIDfp applies its pull-down
     /// there too, and so does this.
     ///
+    /// On the 6581 the sawtooth switch connects accumulator bit 23 straight
+    /// to the selector, so when sawtooth is combined with another waveform
+    /// and the output drives DAC bit 11 low, it drives the accumulator's MSB
+    /// low too, and the next addition carries on from there. The 8580
+    /// buffers the bit in a flip-flop first. reSID `wave.h`
+    /// `set_waveform_output` and reSIDfp `WaveformGenerator.h` `output`; VICE
+    /// `testprogs/SID/osc_topbit` reads the MSB low after a brief
+    /// combination on a real 6581 and high on an 8580.
+    ///
     /// The pulse comparator then settles on the current accumulator, and
     /// the pulse waveform outputs that level on the next latch: the compare
     /// reaches the output one cycle late. reSID `wave.h`
@@ -333,6 +342,13 @@ impl Voice {
         } else {
             self.output
         };
+        if matches!(model, SidModel::Mos6581)
+            && self.control & 0x20 != 0
+            && self.control & 0xD0 != 0
+            && self.output & 0x800 == 0
+        {
+            self.accumulator &= 0x7F_FFFF;
+        }
         if self.control >> 4 > 0x08 && self.control & CONTROL_TEST == 0 && self.shift_pipeline != 1
         {
             self.write_back_noise(self.output);
@@ -1120,6 +1136,33 @@ mod tests {
         assert!(!writes_back(NOISE | TRI, NOISE | SAW, Mos6581));
         assert!(writes_back(NOISE | TRI, NOISE | SAW, Mos8580));
         assert!(writes_back(NOISE | SAW | TRI, NOISE | SAW | TRI, Mos6581));
+    }
+
+    #[test]
+    fn mos6581_sawtooth_combinations_pull_the_accumulator_msb_low() {
+        // reSID `wave.h` `set_waveform_output`: on the 6581 the sawtooth
+        // switch connects accumulator bit 23 straight to the selector, so a
+        // combination that drives DAC bit 11 low drives the MSB low too. The
+        // 8580 buffers the bit in a flip-flop (VICE testprogs/SID/osc_topbit
+        // readme). Sawtooth alone outputs the MSB itself.
+        for waveform in [SAW | TRI, SAW | PULSE, SAW | NOISE] {
+            for model in [SidModel::Mos6581, SidModel::Mos8580] {
+                let mut v = Voice::new();
+                v.pulse_width = 0xFFF; // pulse low
+                v.noise_lfsr = 0; // noise low
+                v.write_control(waveform, model);
+                v.accumulator = 0x80_0000;
+                v.latch_output(false, model);
+                assert_eq!(v.output() & 0x800, 0, "{waveform:02X} {model:?} output");
+                let msb = matches!(model, SidModel::Mos8580);
+                assert_eq!(v.msb(), msb, "{waveform:02X} {model:?} MSB");
+            }
+        }
+        let mut v = Voice::new();
+        v.write_control(SAW, SidModel::Mos6581);
+        v.accumulator = 0x80_0000;
+        v.latch_output(false, SidModel::Mos6581);
+        assert!(v.msb(), "sawtooth alone outputs its own MSB high");
     }
 
     #[test]
