@@ -230,6 +230,81 @@ impl Default for TapePlayer {
     }
 }
 
+/// Opt-in end-of-tape policy: release the tape-in level a fixed time after
+/// playback stops.
+///
+/// A bare [`TapePlayer`] holds the level its last span left on the pin for as
+/// long as the machine runs. A real deck's output is AC-coupled, so once the
+/// signal stops the input settles back to its idle level. The Spectrum family
+/// opts in with FUSE's behaviour: `tape_stop()` schedules `tape_stop_mic_off`,
+/// which clears the input one frame after the tape stops (`fuse-1.7.0/tape.c`).
+///
+/// It is off unless a machine holds one and drives its player through
+/// [`StopRelease::advance`]. Machines whose hardware nobody has checked keep
+/// calling [`TapePlayer::advance_tstates`] directly, so their behaviour and
+/// their snapshot layout are untouched.
+///
+/// A stop is noticed on the first `advance` that finds the player stopped, so
+/// the release can be late by up to the `tstates` of that call. The machines
+/// here advance one T-state at a time.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StopRelease {
+    /// T-states left before the release, while one is pending.
+    remaining: Option<u32>,
+    /// Whether the player was playing at the end of the previous advance.
+    was_playing: bool,
+}
+
+impl StopRelease {
+    /// Creates the policy with no release pending.
+    #[must_use]
+    pub const fn new() -> Self {
+        Self {
+            remaining: None,
+            was_playing: false,
+        }
+    }
+
+    /// Advances `player` by `tstates`, then releases its level to low once
+    /// `release_after` T-states have passed since playback stopped.
+    ///
+    /// Any stop counts: the stream running out, a `Stop` span, or an explicit
+    /// [`TapePlayer::stop`] between calls. Playing again before the release
+    /// is due cancels it. The delay is in the player's T-states; a machine
+    /// following FUSE passes its own frame length.
+    pub fn advance(&mut self, player: &mut TapePlayer, tstates: u32, release_after: u32) {
+        player.advance_tstates(tstates);
+
+        if player.playing {
+            self.was_playing = true;
+            self.remaining = None;
+            return;
+        }
+
+        if self.was_playing {
+            self.was_playing = false;
+            self.remaining = Some(release_after);
+            return;
+        }
+
+        if let Some(left) = self.remaining {
+            if left <= tstates {
+                self.remaining = None;
+                player.level = false;
+            } else {
+                self.remaining = Some(left - tstates);
+            }
+        }
+    }
+
+    /// Whether playback has stopped and the release is still to come. Until
+    /// then the input still carries the level the tape left on it.
+    #[must_use]
+    pub const fn pending(&self) -> bool {
+        self.remaining.is_some()
+    }
+}
+
 /// Appends one pulse and flips the level.
 ///
 /// A zero-length pulse flips without emitting a span. TZX produces these, and
@@ -319,6 +394,88 @@ pub fn append_pause_spans(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A tape whose last pulse leaves the level high, played to its end.
+    fn drained_high(release: &mut StopRelease, after: u32) -> TapePlayer {
+        let mut player = TapePlayer::new();
+        player.load_pulses(vec![10]);
+        player.play();
+        for _ in 0..10 {
+            release.advance(&mut player, 1, after);
+        }
+        assert!(!player.is_playing(), "the single pulse drained the tape");
+        assert!(player.ear_level(), "and its edge left the level high");
+        player
+    }
+
+    #[test]
+    fn a_bare_player_holds_the_level_after_the_tape_ends() {
+        // The default for every machine that does not opt in (the CPC).
+        let mut player = TapePlayer::new();
+        player.load_pulses(vec![10]);
+        player.play();
+        player.advance_tstates(10);
+        assert!(!player.is_playing());
+        for _ in 0..1_000_000 {
+            player.advance_tstates(1);
+        }
+        assert!(player.ear_level(), "nothing releases a bare player's level");
+    }
+
+    #[test]
+    fn stop_release_drops_the_level_exactly_its_delay_after_the_stop() {
+        let mut release = StopRelease::new();
+        let mut player = drained_high(&mut release, 69_888);
+        assert!(release.pending());
+        for t in 1..69_888 {
+            release.advance(&mut player, 1, 69_888);
+            assert!(player.ear_level(), "still held {t} T-states after the stop");
+        }
+        release.advance(&mut player, 1, 69_888);
+        assert!(!player.ear_level(), "released one frame after the stop");
+        assert!(!release.pending());
+    }
+
+    #[test]
+    fn stop_release_counts_an_explicit_stop() {
+        let mut release = StopRelease::new();
+        let mut player = TapePlayer::new();
+        player.load_pulses(vec![5, 1_000]);
+        player.play();
+        for _ in 0..5 {
+            release.advance(&mut player, 1, 100);
+        }
+        assert!(player.ear_level(), "the first pulse ended high");
+        player.stop();
+        for _ in 0..100 {
+            release.advance(&mut player, 1, 100);
+        }
+        assert!(player.ear_level(), "held through the delay");
+        release.advance(&mut player, 1, 100);
+        assert!(!player.ear_level(), "released after it");
+    }
+
+    #[test]
+    fn playing_again_before_the_release_cancels_it() {
+        let mut release = StopRelease::new();
+        let mut player = TapePlayer::new();
+        player.load_pulses(vec![5, 1_000]);
+        player.play();
+        for _ in 0..5 {
+            release.advance(&mut player, 1, 100);
+        }
+        player.stop();
+        for _ in 0..50 {
+            release.advance(&mut player, 1, 100);
+        }
+        player.play();
+        for _ in 0..200 {
+            release.advance(&mut player, 1, 100);
+        }
+        assert!(player.is_playing());
+        assert!(player.ear_level(), "a playing tape keeps its own level");
+        assert!(!release.pending());
+    }
 
     #[test]
     fn a_pulse_toggles_the_level_when_it_expires() {

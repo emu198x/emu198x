@@ -29,18 +29,23 @@ use crate::runtime::{DiskCacheEntry, SpectrumMachine, SpectrumRuntime};
 /// state alone); the runtime caches the raw bytes alongside and
 /// replays the insertion through `load_disk_image` after restore.
 ///
-/// **Version 3** (current): preserves the explicit identity of an
-/// accepted Z80 NMI or maskable-interrupt response. Version 2 could
-/// serialise a response in progress, but could not distinguish its
-/// skipped static walker sequence after decode, so it is rejected.
-const SNAPSHOT_VERSION: u32 = 3;
+/// **Version 3**: preserves the explicit identity of an accepted Z80
+/// NMI or maskable-interrupt response. Version 2 could serialise a
+/// response in progress, but could not distinguish its skipped static
+/// walker sequence after decode, so it is rejected.
+///
+/// **Version 4** (current): every Spectrum-family machine carries the
+/// tape's `StopRelease` state (#1633), so a snapshot taken in the frame
+/// after the tape stops still releases the input on time. Postcard is
+/// positional, so version 3 machines no longer decode and are rejected.
+const SNAPSHOT_VERSION: u32 = 4;
 
 /// Borrowed snapshot envelope used by [`encode`]. Generic over any
 /// `M: Serialize`; the `SpectrumMachine` bound is enforced at the
 /// `encode`/`decode` entry points so the envelope stays usable from
 /// pure-serde contexts.
 #[derive(Serialize)]
-struct SpectrumRuntimeSnapshotRefV3<'a, M: Serialize> {
+struct SpectrumRuntimeSnapshotRefV4<'a, M: Serialize> {
     version: u32,
     profile_id: &'a str,
     time: MachineTime,
@@ -52,7 +57,7 @@ struct SpectrumRuntimeSnapshotRefV3<'a, M: Serialize> {
 /// Owned snapshot envelope used by [`decode`]. Generic over any
 /// `M: Deserialize<'de>`.
 #[derive(Deserialize)]
-struct SpectrumRuntimeSnapshotV3<M> {
+struct SpectrumRuntimeSnapshotV4<M> {
     version: u32,
     profile_id: String,
     time: MachineTime,
@@ -70,7 +75,7 @@ struct SpectrumRuntimeSnapshotV3<M> {
 pub(crate) fn encode<M: SpectrumMachine>(
     runtime: &SpectrumRuntime<M>,
 ) -> Result<Vec<u8>, MachineError> {
-    postcard::to_allocvec(&SpectrumRuntimeSnapshotRefV3 {
+    postcard::to_allocvec(&SpectrumRuntimeSnapshotRefV4 {
         version: SNAPSHOT_VERSION,
         profile_id: runtime.profile().profile_id.as_str(),
         time: runtime.time_value(),
@@ -104,7 +109,7 @@ pub(crate) fn decode<M: SpectrumMachine>(
         });
     }
 
-    let snapshot: SpectrumRuntimeSnapshotV3<M> =
+    let snapshot: SpectrumRuntimeSnapshotV4<M> =
         postcard::from_bytes(bytes).map_err(|reason| MachineError::InvalidSnapshot {
             reason: format!("decode failed: {reason}"),
         })?;
@@ -150,7 +155,7 @@ mod tests {
         // the corresponding decode error paths without needing to touch
         // the real envelope schema.
         let machine = Spectrum128K::new();
-        postcard::to_allocvec(&SpectrumRuntimeSnapshotRefV3 {
+        postcard::to_allocvec(&SpectrumRuntimeSnapshotRefV4 {
             version,
             profile_id,
             time: MachineTime::default(),
