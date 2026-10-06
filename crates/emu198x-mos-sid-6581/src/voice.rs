@@ -278,7 +278,12 @@ impl Voice {
         } else {
             0x0FFF
         };
-        wave & pulse_mask & noise_mask
+        let output = wave & pulse_mask & noise_mask;
+        if waveform_bits & 0x0C == 0x0C {
+            noise_pulse(output, model)
+        } else {
+            output
+        }
     }
 
     /// The accumulator as the triangle XOR logic sees it.
@@ -342,6 +347,33 @@ impl Voice {
     #[must_use]
     pub fn msb(&self) -> bool {
         self.accumulator & 0x0080_0000 != 0
+    }
+}
+
+/// Noise combined with pulse pulls further bits down than the AND gives,
+/// differently on each model. reSID `wave.h` (`noise_pulse6581`,
+/// `noise_pulse8580`), applied after the AND to every combination that
+/// includes both noise and pulse. On a 6581 an output below `$F00` reads
+/// zero and a bit survives only if its two lower neighbours are set; an 8580
+/// keeps a bit only if its lower neighbour is set and reads `$FC0` from
+/// `$FC0` up. VICE `testprogs/SID/wf12nsr` reads OSC3 252 (`$FC`) for
+/// noise+pulse with TEST held on a real 6581.
+const fn noise_pulse(output: u16, model: SidModel) -> u16 {
+    match model {
+        SidModel::Mos6581 => {
+            if output < 0xF00 {
+                0x000
+            } else {
+                output & (output << 1) & (output << 2)
+            }
+        }
+        SidModel::Mos8580 => {
+            if output < 0xFC0 {
+                output & (output << 1)
+            } else {
+                0xFC0
+            }
+        }
     }
 }
 
@@ -688,6 +720,43 @@ mod tests {
         v.accumulator = 0x00FF_F000;
         assert_eq!(v.waveform_output(false, SidModel::Mos8580), 0xFF0);
         assert_eq!(v.waveform_output(false, SidModel::Mos6581), 0x7F0);
+    }
+
+    #[test]
+    fn noise_plus_pulse_reads_252_with_test_held() {
+        // VICE testprogs/SID wf12nsr (bug #1037): voice 3 on noise+pulse with
+        // TEST set and the noise register all ones settles at OSC3 252 on a
+        // real 6581, not 255. reSID `noise_pulse6581`/`noise_pulse8580`.
+        for model in [SidModel::Mos6581, SidModel::Mos8580] {
+            let mut v = Voice::new();
+            v.noise_lfsr = NOISE_LFSR_MASK;
+            v.control = NOISE | PULSE | TEST;
+            assert_eq!(v.waveform_output(false, model), 0xFC0, "{model:?}");
+        }
+    }
+
+    #[test]
+    fn noise_plus_pulse_pulls_bits_down_per_model() {
+        let mut v = Voice::new();
+        v.control = NOISE | PULSE;
+        v.pulse_width = 0; // pulse high
+        // Noise output $EA0 (bits 20, 18, 14, 9 and 2 set): the 6581 drops
+        // anything below $F00 to zero; the 8580 ANDs it with itself shifted
+        // up one.
+        v.noise_lfsr = (1 << 20) | (1 << 18) | (1 << 14) | (1 << 9) | (1 << 2);
+        assert_eq!(v.waveform_output(false, SidModel::Mos6581), 0x000);
+        assert_eq!(v.waveform_output(false, SidModel::Mos8580), 0xEA0 & 0xD40);
+        // Noise output $FB0: the 6581 keeps the bits whose two lower
+        // neighbours are set; the 8580 again ANDs it with itself shifted up.
+        v.noise_lfsr = (1 << 20) | (1 << 18) | (1 << 14) | (1 << 11) | (1 << 9) | (1 << 2) | 1;
+        assert_eq!(
+            v.waveform_output(false, SidModel::Mos6581),
+            0xFB0 & 0xF60 & 0xEC0
+        );
+        assert_eq!(v.waveform_output(false, SidModel::Mos8580), 0xFB0 & 0xF60);
+        // At $FC0 and above the 8580 reads $FC0.
+        v.noise_lfsr = NOISE_LFSR_MASK;
+        assert_eq!(v.waveform_output(false, SidModel::Mos8580), 0xFC0);
     }
 
     #[test]
