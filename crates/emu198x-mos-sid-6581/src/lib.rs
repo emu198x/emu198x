@@ -1010,6 +1010,37 @@ mod tests {
     }
 
     #[test]
+    fn osc3_catches_the_noise_shift_before_the_write_back() {
+        // VICE testprogs/SID/noisewriteback `noise_writeback_test2`, replayed
+        // with its cycle timing: from a full register, release TEST into
+        // noise+triangle (OSC3 $00: triangle 0 wrote zeros back), set FREQ
+        // $00FF then $FFFF, and read OSC3 on the cycle the shift lands, two
+        // cycles after bit 19 rises. The chips read $14 (6581) and $12
+        // (8580, whose OSC3 sees last cycle's triangle): the shifted-in ones
+        // ANDed with the triangle, before write-back can clear them.
+        for (model, expected) in [(SidModel::Mos6581, 0x14), (SidModel::Mos8580, 0x12)] {
+            let mut sid = Sid6581::new_with_model(985_248, 48_000, model);
+            sid.write(0x12, 0x08);
+            sid.voices[2].noise_lfsr = 0x7F_FFFF;
+            sid.tick();
+            let ticks = |sid: &mut Sid6581, count: usize| {
+                for _ in 0..count {
+                    sid.tick();
+                }
+            };
+            sid.write(0x12, 0x90);
+            ticks(&mut sid, 4);
+            assert_eq!(sid.cpu_read(0x1B), 0x00, "{model:?} first read");
+            ticks(&mut sid, 16);
+            sid.write(0x0E, 0xFF);
+            ticks(&mut sid, 4);
+            sid.write(0x0F, 0xFF);
+            ticks(&mut sid, 10);
+            assert_eq!(sid.cpu_read(0x1B), expected, "{model:?} second read");
+        }
+    }
+
+    #[test]
     fn power_on_osc3_reads_match_the_oscinit_testprog() {
         // VICE testprogs/SID/oscinit `allinit`, measured on real chips right
         // after power-up: no waveform $00, noise $FE, pulse $FF, sawtooth $55,

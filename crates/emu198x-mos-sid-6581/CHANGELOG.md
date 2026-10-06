@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Breaking:** `Voice::clock_noise` advances the noise register's two-cycle shift pipeline from the bit-19 edge that `Voice::clock_accumulator` records, so it must follow `clock_accumulator` on the same cycle; it no longer detects the edge itself (#1606)
+
 ### Added
 
 - `Voice::set_pulse_width`, which writes the pulse width and settles the comparator on it (#1606)
@@ -14,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- the noise register shifts two cycles after accumulator bit 19 rises, not on the same cycle, and combined waveforms skip their write-back during the shift's latch phase (#1606)
 - the pulse comparator's result reaches the waveform one cycle late, and a pulse-width write settles it at once (#1606)
 - on the 8580, OSC3 reads triangle and sawtooth one cycle late, as the chip latches them half a cycle after OSC3 samples; the DAC input is not delayed (#1606)
 - a sync source that is itself synced on the cycle its MSB rises does not sync its destination, and every sync decision reads the edges from before any sync lands instead of depending on voice order (#1606)

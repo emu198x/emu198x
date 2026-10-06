@@ -97,6 +97,12 @@ pub struct Voice {
     /// the accumulator was at or above the pulse width, else zero. The
     /// pulse waveform outputs it this cycle (see [`Self::latch_output`]).
     pulse_output: u16,
+    /// Whether accumulator bit 19 rose on the last oscillator clock.
+    bit19_rising: bool,
+    /// Cycles until a pending noise shift completes: 2 on the cycle bit 19
+    /// rises, 1 during shift phase 1, then the shift lands (see
+    /// [`Self::clock_noise`]).
+    shift_pipeline: u8,
 }
 
 impl Voice {
@@ -115,6 +121,8 @@ impl Voice {
             osc3: 0,
             tri_saw_pipeline: (ACCUMULATOR_POWER_ON >> 12) as u16,
             pulse_output: 0x0FFF,
+            bit19_rising: false,
+            shift_pipeline: 0,
         }
     }
 
@@ -149,6 +157,7 @@ impl Voice {
         if !test_prev && test {
             self.accumulator = 0;
             self.pulse_output = 0x0FFF;
+            self.shift_pipeline = 0;
             self.shift_register_reset = match model {
                 SidModel::Mos6581 => SHIFT_REGISTER_RESET_START_6581,
                 SidModel::Mos8580 => SHIFT_REGISTER_RESET_START_8580,
@@ -169,6 +178,7 @@ impl Voice {
         if self.control & CONTROL_TEST != 0 {
             self.accumulator = 0;
             self.pulse_output = 0x0FFF;
+            self.bit19_rising = false;
             if self.shift_register_reset != 0 {
                 self.shift_register_reset -= 1;
                 if self.shift_register_reset == 0 {
@@ -178,7 +188,9 @@ impl Voice {
             return;
         }
 
-        self.accumulator = self.accumulator.wrapping_add(u32::from(self.frequency)) & 0x00FF_FFFF;
+        let next = self.accumulator.wrapping_add(u32::from(self.frequency)) & 0x00FF_FFFF;
+        self.bit19_rising = !self.accumulator & next & 0x08_0000 != 0;
+        self.accumulator = next;
     }
 
     /// One step of the TEST-held drift: bit 0 reaches one and every set bit
@@ -215,15 +227,27 @@ impl Voice {
         };
     }
 
+    /// Advance the noise shift register's pipeline, after
+    /// [`Self::clock_accumulator`] on the same cycle.
+    ///
+    /// The register shifts two cycles after accumulator bit 19 rises: the
+    /// rise is detected, then shift phase 1 interconnects the bits and each
+    /// latches its neighbour's output, then phase 2 writes the latched values
+    /// back, with `bit0 = bit22 ^ bit17`. A rise during a pending shift
+    /// restarts the count. TEST rising flushes it, and while TEST is held
+    /// the register only drifts (see [`Self::write_control`]). Per reSID
+    /// `wave.h` `clock` (`shift_pipeline`) and `clock_shift_register`; reSIDfp
+    /// `WaveformGenerator.h` `clock` and the VICE `testprogs/SID/
+    /// noisewriteback` readme describe the same three cycles.
     pub fn clock_noise(&mut self) {
-        let msb19 = self.accumulator & (1 << 19) != 0;
-        let prev19 = self.accumulator.wrapping_sub(u32::from(self.frequency)) & (1 << 19) != 0;
-
-        if msb19 && !prev19 {
-            let bit17 = (self.noise_lfsr >> 17) & 1;
-            let bit22 = (self.noise_lfsr >> 22) & 1;
-            let feedback = bit17 ^ bit22;
-            self.noise_lfsr = ((self.noise_lfsr << 1) | feedback) & 0x7F_FFFF;
+        if self.bit19_rising {
+            self.shift_pipeline = 2;
+        } else if self.shift_pipeline != 0 {
+            self.shift_pipeline -= 1;
+            if self.shift_pipeline == 0 {
+                let feedback = ((self.noise_lfsr >> 22) ^ (self.noise_lfsr >> 17)) & 1;
+                self.noise_lfsr = ((self.noise_lfsr << 1) | feedback) & NOISE_LFSR_MASK;
+            }
         }
     }
 
@@ -309,7 +333,8 @@ impl Voice {
         } else {
             self.output
         };
-        if self.control >> 4 > 0x08 && self.control & CONTROL_TEST == 0 {
+        if self.control >> 4 > 0x08 && self.control & CONTROL_TEST == 0 && self.shift_pipeline != 1
+        {
             self.write_back_noise(self.output);
         }
         self.compare_pulse_width();
@@ -330,10 +355,9 @@ impl Voice {
     /// `testprogs/SID` `noisewriteback` and `wb_testsuite` check it on real
     /// 6581s and 8580s. Same on both models.
     ///
-    /// reSID skips the write on the one cycle of its two-cycle shift
-    /// pipeline where the bits are latched (`shift_pipeline != 1`); this
-    /// voice shifts on the same cycle bit 19 rises (#1606), so it writes
-    /// every cycle.
+    /// The write is skipped during shift phase 1, while the bits are
+    /// interconnected and latching (reSID `shift_pipeline != 1`; see
+    /// [`Self::clock_noise`]).
     fn write_back_noise(&mut self, output: u16) {
         let mask = NOISE_TAPS
             .iter()
@@ -1099,17 +1123,62 @@ mod tests {
     }
 
     #[test]
-    fn noise_lfsr_advances_only_on_the_bit19_rising_edge() {
+    fn the_noise_register_shifts_two_cycles_after_bit_19_rises() {
+        // reSID `wave.h` `clock`: "The shift is delayed 2 cycles" (detect
+        // the rising bit, shift phase 1, shift phase 2).
+        for model in [SidModel::Mos6581, SidModel::Mos8580] {
+            let mut v = Voice::new();
+            v.write_control(NOISE, model);
+            v.frequency = 0x1000;
+            v.accumulator = 0x07_F000;
+            v.noise_lfsr = 1;
+            let mut history = Vec::new();
+            for _ in 0..4 {
+                clock(&mut v, model);
+                history.push(v.noise_lfsr);
+            }
+            // Bit 19 rises on the first clock; bit 22 ^ bit 17 shifts in 0.
+            assert_eq!(history, [1, 1, 2, 2], "{model:?}");
+        }
+    }
+
+    #[test]
+    fn a_bit_19_rise_mid_shift_restarts_the_pipeline() {
+        // A frequency high enough to raise bit 19 again before the shift
+        // completes restarts the two-cycle count, and the pending shift is
+        // lost, as in reSID.
         let mut v = Voice::new();
-        v.frequency = 1;
-        v.accumulator = 0x0008_0000; // bit19 set, prev (acc-1) clear → rising
-        let before = v.noise_lfsr;
-        v.clock_noise();
-        assert_ne!(v.noise_lfsr, before, "LFSR clocks on the rising edge");
-        v.accumulator = 0x0008_0002; // bit19 stays set → no edge
-        let held = v.noise_lfsr;
-        v.clock_noise();
-        assert_eq!(v.noise_lfsr, held, "no clock without an edge");
+        v.write_control(NOISE, SidModel::Mos6581);
+        v.frequency = 0xFFFF;
+        v.accumulator = 0x07_0001; // bit 19 rises on the first clock
+        v.noise_lfsr = 1;
+        clock(&mut v, SidModel::Mos6581); // $080000: rises
+        clock(&mut v, SidModel::Mos6581); // $08FFFF: phase 1
+        v.accumulator = 0x07_FFFF;
+        clock(&mut v, SidModel::Mos6581); // $08FFFE: rises again
+        clock(&mut v, SidModel::Mos6581);
+        assert_eq!(v.noise_lfsr, 1, "the restarted shift is still pending");
+        clock(&mut v, SidModel::Mos6581);
+        assert_eq!(v.noise_lfsr, 2, "one shift, two cycles after the last rise");
+    }
+
+    #[test]
+    fn combined_noise_skips_the_write_back_while_the_shift_latches() {
+        // reSID `wave.h` `set_waveform_output` writes the selector output
+        // back on every cycle except shift phase 1 (`shift_pipeline != 1`),
+        // when the register bits are interconnected and latching.
+        let model = SidModel::Mos6581;
+        let mut v = Voice::new();
+        v.write_control(NOISE | TRI, model);
+        v.frequency = 0x1000;
+        v.accumulator = 0x07_F000;
+        v.noise_lfsr = NOISE_LFSR_MASK;
+        clock(&mut v, model); // bit 19 rises: triangle $100 clears most taps
+        let after_rise = v.noise_lfsr;
+        assert_ne!(after_rise, NOISE_LFSR_MASK, "write-back on the rise cycle");
+        v.noise_lfsr = NOISE_LFSR_MASK;
+        clock(&mut v, model); // shift phase 1
+        assert_eq!(v.noise_lfsr, NOISE_LFSR_MASK, "no write-back in phase 1");
     }
 
     #[test]
