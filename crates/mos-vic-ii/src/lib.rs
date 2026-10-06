@@ -600,7 +600,13 @@ impl Vic {
             }
         }
 
-        if self.raster_line == self.raster_compare && self.raster_cycle == 0 {
+        // The comparator sees the line the CPU sees, so the IRQ asserts as
+        // that line begins: on the Phi2 half of cycle 1, or cycle 2 on line
+        // 0. `raster_cycle` has already advanced past the cycle just run, so
+        // the CPU access that follows this tick is the first to see it.
+        if self.raster_cycle == self.cpu_line_edge_cycle() + 1
+            && self.raster_line == self.raster_compare
+        {
             self.irq_status |= 0x01;
         }
 
@@ -616,14 +622,17 @@ impl Vic {
         let was_badline = self.is_badline;
         let den = self.regs[0x11] & 0x10 != 0;
         let yscroll = u16::from(self.regs[0x11] & 0x07);
+        // The badline comparator reads the raster counter, which moves on to
+        // the new line at the line edge, not at engine cycle 0.
+        let line = self.counter_line();
 
-        if self.raster_line == DISPLAY_START_LINE && den {
+        if line == DISPLAY_START_LINE && den {
             self.den_latch = true;
         }
 
         self.is_badline = self.den_latch
-            && (DISPLAY_START_LINE..DISPLAY_END_LINE).contains(&self.raster_line)
-            && (self.raster_line & 7) == yscroll;
+            && (DISPLAY_START_LINE..DISPLAY_END_LINE).contains(&line)
+            && (line & 7) == yscroll;
 
         if let Some(write_cycle) = self.pending_d011_write_cycle.take() {
             if !was_badline && self.is_badline {
@@ -753,8 +762,8 @@ impl Vic {
         let den = self.regs[0x11] & 0x10 != 0;
         let csel = self.regs[0x16] & 0x08 != 0;
 
-        // Vertical FF transitions fire on a line's first cycle.
-        if self.raster_cycle == 0 {
+        // Vertical FF transitions fire as the raster counter reaches the line.
+        if self.raster_cycle == self.cpu_line_edge_cycle() {
             let last_display = if rsel { 251u16 } else { 247u16 };
             let first_display = if rsel { 51u16 } else { 55u16 };
             if self.raster_line == last_display {
@@ -1575,6 +1584,44 @@ impl Vic {
         }
     }
 
+    /// The engine cycle whose CPU access first sees the current line.
+    ///
+    /// The engine starts each line at its relabelled last cycle (engine 0,
+    /// VICE cycle 63), but the raster counter the CPU reads advances on the
+    /// Phi2 half of cycle 1, and on cycle 2 for line 0, where the frame
+    /// starts. VICE x64sc does the same in `vicii_cycle` ("Handle end of
+    /// line" and `vicii_cycle_start_of_frame`, `viciisc/vicii-cycle.c`).
+    const fn cpu_line_edge_cycle(&self) -> u8 {
+        if self.raster_line == 0 { 2 } else { 1 }
+    }
+
+    /// The raster counter during the current tick: the previous line on the
+    /// engine cycles before the line edge.
+    const fn counter_line(&self) -> u16 {
+        if self.raster_cycle >= self.cpu_line_edge_cycle() {
+            self.raster_line
+        } else if self.raster_line == 0 {
+            self.lines_per_frame - 1
+        } else {
+            self.raster_line - 1
+        }
+    }
+
+    /// The raster line as the CPU sees it during the access that follows
+    /// this tick: the previous line until the line edge.
+    #[must_use]
+    pub const fn cpu_visible_raster_line(&self) -> u16 {
+        // `raster_cycle` already names the next cycle, so the access just
+        // made belongs to `raster_cycle - 1` (engine 62 when it is 0).
+        if self.raster_cycle > self.cpu_line_edge_cycle() {
+            self.raster_line
+        } else if self.raster_line == 0 {
+            self.lines_per_frame - 1
+        } else {
+            self.raster_line - 1
+        }
+    }
+
     /// Read a VIC-II register.
     pub fn read(&mut self, reg: u8) -> u8 {
         // Per reference: $D019 bits 6:4 read as 1, $D01A bits 7:4 read
@@ -1582,13 +1629,13 @@ impl Vic {
         match reg & 0x3F {
             0x11 => {
                 (self.regs[0x11] & 0x7F)
-                    | if self.raster_line & 0x100 != 0 {
+                    | if self.cpu_visible_raster_line() & 0x100 != 0 {
                         0x80
                     } else {
                         0x00
                     }
             }
-            0x12 => (self.raster_line & 0xFF) as u8,
+            0x12 => (self.cpu_visible_raster_line() & 0xFF) as u8,
             0x19 => {
                 let composite = if (self.irq_status & self.irq_enable & 0x0F) != 0 {
                     0x80
@@ -1629,13 +1676,13 @@ impl Vic {
         match reg & 0x3F {
             0x11 => {
                 (self.regs[0x11] & 0x7F)
-                    | if self.raster_line & 0x100 != 0 {
+                    | if self.cpu_visible_raster_line() & 0x100 != 0 {
                         0x80
                     } else {
                         0x00
                     }
             }
-            0x12 => (self.raster_line & 0xFF) as u8,
+            0x12 => (self.cpu_visible_raster_line() & 0xFF) as u8,
             // peek() returns the same composite IRR, but we keep the
             // raw peek semantics — callers that want the canonical
             // silicon-observable read mask should use read() instead.
@@ -2200,7 +2247,8 @@ mod tests {
         vic.write(0x12, 1);
         vic.write(0x1A, 0x01);
 
-        for _ in 0..63 {
+        // Line 1 reaches the CPU on cycle 1 of line 1: 63 + 2 ticks.
+        for _ in 0..65 {
             tick_vic(&mut vic, &memory);
         }
         assert!(vic.irq_active());
@@ -2233,32 +2281,59 @@ mod tests {
         vic.write(0x12, 5);
         vic.write(0x1A, 0x01);
 
-        // Walk through line 4 cycle 62 (one tick before the IRQ).
+        // Engine 0 of line 5 is the relabelled last cycle of line 4 (VICE
+        // cycle 63), so the CPU access after it still belongs to line 4.
         advance_to(&mut vic, &memory, 4, 62);
-        // We're now at (line 4, cycle 62) post-advance: the next tick
-        // processes line 4 cycle 62. Confirm pre-state.
-        assert_eq!(vic.raster_line(), 4);
-        assert_eq!(vic.raster_cycle(), 62);
-        assert!(!vic.irq, "IRQ should not be asserted before compare line");
-
-        // Process line 4 cycle 62 — last cycle before the IRQ.
         tick_vic(&mut vic, &memory);
-        assert_eq!(vic.raster_line(), 5);
-        assert_eq!(vic.raster_cycle(), 0);
-        // The end-of-tick irq_status |= 0x01 happens *after* the line
-        // wrap, so vic.irq should already be high here.
-        assert!(
-            vic.irq,
-            "IRQ must assert at the phi2 boundary entering compare line"
-        );
+        assert_eq!((vic.raster_line(), vic.raster_cycle()), (5, 0));
+        assert!(!vic.irq, "the CPU access of engine 62 is still on line 4");
+        tick_vic(&mut vic, &memory);
+        assert_eq!(vic.raster_cycle(), 1);
+        assert!(!vic.irq, "engine 0 is VICE cycle 63 of line 4");
 
-        // Process line 5 cycle 0 — IRQ remains latched.
+        // Engine 1 is VICE cycle 1: its Phi2 half raises the IRQ, so the CPU
+        // access of that cycle is the first to see it.
+        tick_vic(&mut vic, &memory);
+        assert_eq!(vic.raster_cycle(), 2);
+        assert!(vic.irq, "IRQ must assert on the Phi2 half of cycle 1");
+
+        // It remains latched until acknowledged via $D019.
         tick_vic(&mut vic, &memory);
         assert!(vic.irq, "IRQ remains latched until ack");
-
-        // Ack via $D019 — write 1 to bit 0 to clear.
         vic.write(0x19, 0x01);
         assert!(!vic.irq, "IRQ cleared after ack");
+    }
+
+    #[test]
+    fn raster_irq_for_line_zero_asserts_on_cycle_two() {
+        // Line 0 starts the frame one cycle later (VICE
+        // `vicii_cycle_start_of_frame`), so its compare matches on cycle 2.
+        let (mut vic, memory) = make_vic_and_memory();
+        vic.write(0x12, 0);
+        vic.write(0x1A, 0x01);
+        advance_to(&mut vic, &memory, 1, 0);
+        vic.write(0x19, 0x01);
+        advance_until(&mut vic, &memory, 0, 2);
+        assert!(!vic.irq, "line 0 is not yet visible to the CPU at cycle 1");
+        tick_vic(&mut vic, &memory);
+        assert!(vic.irq, "line 0 matches on the Phi2 half of cycle 2");
+    }
+
+    #[test]
+    fn cpu_sees_the_line_edge_on_cycle_one() {
+        let (mut vic, memory) = make_vic_and_memory();
+        advance_to(&mut vic, &memory, 5, 62);
+        // The access after engine 62 of line 5 reads 5.
+        tick_vic(&mut vic, &memory);
+        assert_eq!(vic.raster_line(), 6, "the engine has wrapped");
+        assert_eq!(vic.read(0x12), 5, "engine 62 belongs to line 5");
+        // Engine 0 is VICE cycle 63 of line 5.
+        tick_vic(&mut vic, &memory);
+        assert_eq!(vic.read(0x12), 5, "engine 0 is the last cycle of line 5");
+        // Engine 1 is VICE cycle 1 of line 6.
+        tick_vic(&mut vic, &memory);
+        assert_eq!(vic.read(0x12), 6, "the CPU sees line 6 from cycle 1");
+        assert_eq!(vic.peek(0x12), 6, "peek agrees with the CPU read");
     }
 
     /// Seam 1 audit: with raster IRQ enabled but the compare value
@@ -2829,9 +2904,11 @@ mod tests {
     fn vertical_ff_clears_on_first_display_line_with_den() {
         let (mut vic, memory) = make_vic_and_memory();
         vic.write(0x11, 0x1B); // RSEL=1, DEN=1, YSCROLL=3
-        // advance_to(51, 0) leaves the next tick pointing at (51,0).
+        // Engine 0 of line 51 is still line 50 to the raster counter.
         advance_to(&mut vic, &memory, 51, 0);
-        tick_vic(&mut vic, &memory); // executes cycle 0 of line 51
+        tick_vic(&mut vic, &memory);
+        assert!(vic.border_vert_ff, "engine 0 still belongs to line 50");
+        tick_vic(&mut vic, &memory); // cycle 1: the counter reaches line 51
         assert!(!vic.border_vert_ff, "vert FF should clear at line 51");
     }
 
@@ -2840,7 +2917,9 @@ mod tests {
         let (mut vic, memory) = make_vic_and_memory();
         vic.write(0x11, 0x1B); // RSEL=1
         advance_to(&mut vic, &memory, 251, 0);
-        tick_vic(&mut vic, &memory); // executes cycle 0 of line 251
+        tick_vic(&mut vic, &memory);
+        assert!(!vic.border_vert_ff, "engine 0 still belongs to line 250");
+        tick_vic(&mut vic, &memory); // cycle 1: the counter reaches line 251
         assert!(vic.border_vert_ff, "vert FF should set at line 251");
     }
 
@@ -3544,8 +3623,9 @@ mod tests {
         new_regs[0x12] = 0x10;
         new_regs[0x1A] = 0x01;
         vic.set_registers(&new_regs);
-        // peek($D011) reports raster bit 8 in bit 7; raster_line is 0 here.
-        assert_eq!(vic.peek(0x11) & 0x80, 0x00);
+        // peek($D011) reports raster bit 8 in bit 7. At reset the CPU still
+        // sees the frame's last line, 311, until line 0 begins on cycle 2.
+        assert_eq!(vic.peek(0x11) & 0x80, 0x80);
         // The raw register bits read back via registers().
         assert_eq!(vic.registers()[0x11], 0x80);
         assert_eq!(vic.registers()[0x12], 0x10);
@@ -3569,9 +3649,7 @@ mod tests {
     fn read_d011_returns_high_bit_of_raster_line() {
         let (mut vic, memory) = make_vic_and_memory();
         // Advance to a line >= 256. PAL has 312 lines; line 256 is reachable.
-        while vic.raster_line() < 256 {
-            tick_vic(&mut vic, &memory);
-        }
+        advance_until(&mut vic, &memory, 256, 3);
         // Set CR1 lower bits (mode/yscroll) to a known non-zero pattern.
         vic.write(0x11, 0x1B);
         let v = vic.read(0x11);
@@ -3584,10 +3662,8 @@ mod tests {
     #[test]
     fn read_d012_returns_low_byte_of_raster_line() {
         let (mut vic, memory) = make_vic_and_memory();
-        // Advance to line 5.
-        while vic.raster_line() < 5 {
-            tick_vic(&mut vic, &memory);
-        }
+        // Advance past the CPU-visible edge of line 5.
+        advance_until(&mut vic, &memory, 5, 3);
         assert_eq!(vic.read(0x12), 5);
     }
 
@@ -3627,13 +3703,11 @@ mod tests {
     #[test]
     fn peek_d011_d012_match_raster() {
         let (mut vic, memory) = make_vic_and_memory();
-        while vic.raster_line() < 257 {
-            tick_vic(&mut vic, &memory);
-        }
+        advance_until(&mut vic, &memory, 257, 3);
         vic.write(0x11, 0x13);
         // peek($D011) should report raster bit 8 in bit 7 of the result.
         assert_eq!(vic.peek(0x11) & 0x80, 0x80);
-        assert_eq!(vic.peek(0x12), (vic.raster_line() & 0xFF) as u8);
+        assert_eq!(vic.peek(0x12), (vic.cpu_visible_raster_line() & 0xFF) as u8);
     }
 
     #[test]

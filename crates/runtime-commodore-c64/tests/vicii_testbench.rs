@@ -751,60 +751,134 @@ fn sequencer_bug_d011_write_cycle_boundary() {
     assert!(stalls[58..].iter().all(|s| s.addr == 0x0A04 && s.sync));
 }
 
-/// Diagnostic: report every CPU bus write to `$D020` during one settled frame
-/// of `VICII_D020_PRG` (default `colorfetchbug/main.prg`). RMW instructions
-/// drive the unmodified byte and then the modified byte on consecutive Phi2
-/// cycles, so inspecting only register changes hides half the timing evidence.
+/// One CPU bus write observed during a settled frame: the raster line and
+/// engine cycle of the VIC-II tick it follows, and the byte written.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct CpuStore {
+    line: u16,
+    cycle: u8,
+    value: u8,
+}
+
+/// Every CPU bus write to `addr` during the frame after `settle` frames of
+/// `rel`. RMW instructions drive the unmodified byte and then the modified
+/// byte on consecutive cycles, so both appear.
+///
+/// The engine cycle is the one VICE's monitor reports for the same store
+/// (`trace store <addr>`): `colorfetchbug`'s readme puts its `$D011` store
+/// in cycle 15 counted from zero, and VICE x64sc reports it at cycle 16.
+fn cpu_stores_to(rel: &str, model: Model, addr: u16, settle: u32) -> Vec<CpuStore> {
+    let cycles_per_frame = match model {
+        Model::C64PalBreadbin | Model::C64cPal => TIMING_PAL_BREADBIN.cycles_per_frame,
+        Model::C64NtscBreadbin | Model::C64cNtsc => TIMING_NTSC_BREADBIN.cycles_per_frame,
+    };
+    let mut session = prepare_testprog_on(rel, model, cycles_per_frame);
+    session.run_frames(settle).expect("steady raster loop");
+
+    let mut stores = Vec::new();
+    for _ in 0..cycles_per_frame {
+        let machine = session.machine_mut().machine_mut();
+        let cpu = machine.cpu();
+        let (line, cycle) = (machine.raster_line(), machine.cycle_in_line());
+        let (bus_addr, value, rw, total_cycles) = (cpu.addr, cpu.data, cpu.rw, cpu.total_cycles);
+        machine.tick();
+        if !rw && bus_addr == addr && machine.cpu().total_cycles != total_cycles {
+            stores.push(CpuStore { line, cycle, value });
+        }
+    }
+    stores
+}
+
+/// Diagnostic: report every CPU bus write to `VICII_STORE_ADDR` (hex,
+/// default `D020`) during one settled frame of `VICII_STORE_PRG` (default
+/// `colorfetchbug/main.prg`), for comparison with a VICE store trace.
 #[test]
-#[ignore = "DIAGNOSTIC: diagnostic: reports D020 CPU bus phases"]
-fn d020_write_cycle_boundary() {
+#[ignore = "DIAGNOSTIC: diagnostic: reports CPU store phases for one register"]
+fn cpu_store_cycle_boundary() {
     if !roms_present() || testbench_dir().is_none() {
         emu198x_test_skip::skip!("C64 ROMs or VIC-II testbench not staged");
     }
-
     let rel =
-        std::env::var("VICII_D020_PRG").unwrap_or_else(|_| "colorfetchbug/main.prg".to_owned());
-    let mut session = prepare_testprog_on(
-        &rel,
-        Model::C64PalBreadbin,
-        TIMING_PAL_BREADBIN.cycles_per_frame,
+        std::env::var("VICII_STORE_PRG").unwrap_or_else(|_| "colorfetchbug/main.prg".to_owned());
+    let addr = std::env::var("VICII_STORE_ADDR")
+        .ok()
+        .map(|hex| u16::from_str_radix(&hex, 16).expect("VICII_STORE_ADDR is hex"))
+        .unwrap_or(0xD020);
+    let stores = cpu_stores_to(&rel, Model::C64PalBreadbin, addr, 60);
+    eprintln!("${addr:04X} stores (line, engine cycle, value):");
+    for store in &stores {
+        eprintln!("{store:?}");
+    }
+    assert!(
+        !stores.is_empty(),
+        "settled frame should store to ${addr:04X}"
     );
-    session.run_frames(60).expect("steady raster loop");
+}
 
-    let mut writes = Vec::new();
-    for _ in 0..TIMING_PAL_BREADBIN.cycles_per_frame {
-        let machine = session.machine_mut().machine_mut();
-        let cpu = machine.cpu();
-        let before_line = machine.raster_line();
-        let before_cycle = machine.cycle_in_line();
-        let addr = cpu.addr;
-        let value = cpu.data;
-        let rw = cpu.rw;
-        let pc = cpu.regs.pc;
-        let sync = cpu.sync;
-        let total_cycles = cpu.total_cycles;
+/// The cycles at which test programs store to the VIC-II, as VICE x64sc 3.10
+/// reports them with `trace store` (2026-10-06; method in Stage 3a of
+/// `knowledge/decisions/c64-accuracy-closure-campaign.md`). `greydot` is
+/// timed by the raster IRQ and `colorfetchbug` by a CIA timer read.
+/// `sequencer-bug` is not listed here: its main loop's phase depends on the
+/// sprite DMA VICE performs on lines 306-35, which stage B models. Each entry is (program, register, first matching line's store
+/// cycles in order).
+const VICE_STORE_PHASES: &[(&str, u16, &[u8])] = &[
+    // `sta $d021` ten times per dot row.
+    (
+        "greydot/greydot.prg",
+        0xD021,
+        &[17, 21, 25, 29, 33, 37, 41, 45, 49, 53],
+    ),
+    // `inc $d020` / `dec $d020`: the modified bytes land on 55 and 61.
+    ("colorfetchbug/main.prg", 0xD020, &[55, 61]),
+    ("colorfetchbug/main.prg", 0xD011, &[16]),
+];
 
-        machine.tick();
-        let advanced = machine.cpu().total_cycles != total_cycles;
-        if !rw && addr == 0xD020 && advanced {
-            writes.push((
-                before_line,
-                before_cycle,
-                engine_to_canonical(before_cycle),
-                value & 0x0F,
-                pc,
-                sync,
+/// Programs timed by the raster IRQ store at VICE's cycles. The CPU sees the
+/// raster-line edge and the raster IRQ on cycle 1 of the line, not on the
+/// engine's relabelled cycle 0, and a CIA-timed program is unaffected.
+#[test]
+#[ignore = "FIXTURE: CPU store phases require C64 ROMs + VIC-II testbench"]
+fn cpu_store_phases_match_vice() {
+    if !roms_present() || testbench_dir().is_none() {
+        emu198x_test_skip::skip!("C64 ROMs or VIC-II testbench not staged");
+    }
+    let mut failures = Vec::new();
+    for &(rel, addr, vice) in VICE_STORE_PHASES {
+        let stores = cpu_stores_to(rel, Model::C64PalBreadbin, addr, 60);
+        // The modified byte of an RMW pair and every plain store: drop the
+        // first of two stores on consecutive cycles.
+        let effective: Vec<_> = stores
+            .iter()
+            .enumerate()
+            .filter(|&(i, store)| {
+                stores
+                    .get(i + 1)
+                    .is_none_or(|next| next.line != store.line || next.cycle != store.cycle + 1)
+            })
+            .map(|(_, store)| store)
+            .collect();
+        let Some(first) = effective.first() else {
+            failures.push(format!("{rel} ${addr:04X}: no stores"));
+            continue;
+        };
+        let line: Vec<u8> = effective
+            .iter()
+            .filter(|store| store.line == first.line)
+            .map(|store| store.cycle)
+            .take(vice.len())
+            .collect();
+        if line != vice {
+            failures.push(format!(
+                "{rel} ${addr:04X} line {}: engine {line:?}, VICE {vice:?}",
+                first.line
             ));
         }
     }
-
-    eprintln!("D020 writes (line, engine cycle, canonical cycle, value, pc, sync):");
-    for write in &writes {
-        eprintln!("{write:?}");
-    }
     assert!(
-        !writes.is_empty(),
-        "settled VIC-II diagnostic frame should write D020"
+        failures.is_empty(),
+        "store phases differ from VICE:\n{}",
+        failures.join("\n")
     );
 }
 

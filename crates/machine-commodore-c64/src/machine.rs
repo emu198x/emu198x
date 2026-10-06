@@ -2804,9 +2804,12 @@ mod tests {
         let mut machine = stub_machine(C64Model::PalBreadbin);
         machine.cpu_write(0xD012, 0x01);
         machine.cpu_write(0xD01A, 0x01);
-        for _ in 0..63 {
+        // Line 1 reaches the comparator on cycle 1 of line 1: 63 + 2 ticks.
+        for _ in 0..64 {
             machine.tick();
         }
+        assert!(!machine.vic().irq, "engine 0 still belongs to line 0");
+        machine.tick();
         assert!(machine.vic().irq);
         assert!(machine.cpu().irq);
     }
