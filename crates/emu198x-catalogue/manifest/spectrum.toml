@@ -16,7 +16,49 @@ id = "spectrum"
 # Mismatch fails loud with a re-capture instruction. See
 # knowledge/decisions/spectrum-architecture-review.md Seam 4.
 audio_routing_version = 3
-frame_routing_version = 4
+# Version 5 is 7e8bcd1c (2026-09-24): Sinclair ULA fetch phases, the
+# SLoad/VidEN border gate, and IRQ evaluation before the counter advance.
+# The gate refused every entry from then until this re-capture
+# (2026-10-06, `catalogue capture`, official ROMs). Each moved hash was
+# compared with captures from the last green commit (ad686cb6,
+# 2026-08-10) and from 7e8bcd1c^, and the first commit to move each kind
+# of change was bisected:
+#
+# - Routing 5 and 73c00517 (128K I/O contention) moved one frame,
+#   back-to-the-future-tape-bleepload's selected-icon animation
+#   (bisected to 7e8bcd1c), and the audio of 31 Sinclair-ULA entries.
+#   Most are the same waveform with its edges a few T-states apart; the
+#   128K music entries and Star Wars drift further in phase. No +2A,
+#   +2B or +3 hash moved, as expected: Amstrad timing kept its ordering.
+# - Most of the change predates routing 5. CPU timing bumps no routing
+#   version (knowledge/decisions/routing-versions-do-not-cover-cpu-timing.md),
+#   and the Z80 bus-pin and contention corrections of 2026-08-10 to
+#   2026-09-24 moved every music entry's audio and 21 frame hashes. Each
+#   of those frames is a game drawing against a frame counter, captured
+#   at another phase: jet-set-willy (+plus; code square from FRAMES,
+#   52573c1c), atic-atac and sabre-wulf (+plus; menu blink), skool-daze
+#   (+plus; post-load sequence about 30 frames later), mikie (title
+#   animation), rainbow-islands (128K, +2, +2A, +2B; logo colour cycle),
+#   rainbow-islands-plus3 (attract page), cybernoid-plus3,
+#   stormlord-plus3 and dragon-ninja-plus3 (menu colour cycle),
+#   turrican-plus3 (PRESS SPACE blink), tetris-plus3 (scroller),
+#   hungry-horace and horace-goes-skiing (INK cycle and scroller).
+#   sabre-wulf-kempston-start's three-frame presses stopped reaching the
+#   game (9a2d8697); it now holds them for 25 frames.
+# - The TZX end-of-file terminating pulse (19e43599) un-wedged robocop
+#   on the 128K, +2, +2A and +2B, and moved
+#   bubble-bobble-tape-speedlock on from its title to the control menu.
+#   It also leaves the tape EAR input high once the tape ends, where
+#   FUSE drops it a frame after the tape stops. That turns the idle
+#   audio of operation-wolf and bubble-bobble (128K, +2, +2A, +2B) into
+#   a faint ripple instead of silence. Known defects (#1633, #1634),
+#   recorded as found: see the `operation-wolf` audio comment.
+# - back-to-skool-tape-microsphere's old hash came from a 48K ROM
+#   patched at $386E, and saboteur and saboteur-plus moved from a
+#   malformed TAP to the [a] dump. See each entry.
+#
+# The other 36 entries are byte-identical to the 2026-08-10 capture.
+frame_routing_version = 5
 
 [[system.firmware]]
 variant = "48k"
@@ -117,7 +159,7 @@ frame_hash = "xxh64:3849ef196db5a88f"
 # title screen.
 from_frame = 100
 secs = 2.0
-hash = "xxh64:375ee829884bd3c9"
+hash = "xxh64:bf7deefbe0a5ffa5"
 
 [[entry]]
 id = "knight-lore"
@@ -140,7 +182,7 @@ frame_hash = "xxh64:074e242db0720e42"
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:d6588709ce228308"
+hash = "xxh64:f7a1684e8d841771"
 
 [[entry]]
 id = "jet-set-willy"
@@ -157,8 +199,12 @@ path = "Sinclair/ZX Spectrum/Games/[TAP]/Jet Set Willy (1984)(Software Projects)
 [entry.boot]
 # Different tape header to Manic Miner — exercises a second loader path.
 # Captures the famous "Enter Code at grid location" anti-piracy screen.
+# The game picks the grid square from FRAMES ($5C78) at 34547, so any
+# change in how many frames boot and load take moves it: Q4 at the
+# 2026-08-10 capture, R1 since the Z80 strobe timing corrections of
+# 2026-08-11 (bisected to 52573c1c).
 wait_frames = 60
-frame_hash = "xxh64:84755482f7074dbf"
+frame_hash = "xxh64:db47c647e9188f6c"
 
 [entry.audio]
 from_frame = 100
@@ -181,7 +227,7 @@ path = "Sinclair/ZX Spectrum/Games/[TAP]/Atic Atac (1983)(Ultimate Play The Game
 # Top-down arcade-adventure — different engine class to Knight Lore.
 # Captures the "ATICATAC GAME SELECTION" controls menu.
 wait_frames = 60
-frame_hash = "xxh64:81301d5c0b355bf9"
+frame_hash = "xxh64:df593b7c8ee0ce3c"
 
 [entry.audio]
 # 2 s of silence — the controls menu has no music; the hash here
@@ -206,12 +252,12 @@ path = "Sinclair/ZX Spectrum/Games/[TAP]/Skool Daze (1984)(Microsphere).zip"
 # Sandbox school sim with AI characters — wholly different game shape.
 # Captures the SKOOL DAZE title art (Eric being chased by a teacher).
 wait_frames = 60
-frame_hash = "xxh64:38cd0180bf456390"
+frame_hash = "xxh64:31f18ede38504e5b"
 
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:94ae4fa62616f624"
+hash = "xxh64:89729ec36b2b0cf7"
 
 [[entry]]
 id = "chuckie-egg"
@@ -234,7 +280,7 @@ frame_hash = "xxh64:3523e9cc4d817ded"
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:993f501a6d0f316a"
+hash = "xxh64:a3ace74b866ed109"
 
 [[entry]]
 id = "saboteur"
@@ -244,15 +290,21 @@ publisher = "Durell"
 variant = "48k"
 
 [entry.media]
+# The [a] dump. The [a2] dump this entry used until 2026-10-06 is a
+# pirate copy (its warning screen is signed "YU-pirats" / "D&D
+# software") padded with 499 zero bytes; the odd byte at the end is
+# not a TAP block. The published TAP decoder (ded3bbf9) refuses it,
+# as libspectrum does, where the old in-tree parser ignored it.
 kind = "tape"
 slot = "tape-1"
-path = "Sinclair/ZX Spectrum/Games/[TAP]/Saboteur! (1985)(Durell)[a2].zip"
+path = "Sinclair/ZX Spectrum/Games/[TAP]/Saboteur! (1985)(Durell)[a].zip"
 
 [entry.boot]
 # Late-period 48K with stealth mechanics — Clive Townsend.
-# Captures the famous "WATCH OUT!" anti-piracy warning screen.
+# Captures Durell's own anti-piracy screen: "£100 REWARD ... PRESS ANY
+# KEY TO CONTINUE". Static: the same hash at ad686cb6 and on main.
 wait_frames = 60
-frame_hash = "xxh64:0e1cacb0a7d6bea9"
+frame_hash = "xxh64:731e3797e105ed73"
 
 [entry.audio]
 # 2 s of silence (warning screen has no music). Same caveat as Atic Atac.
@@ -277,14 +329,14 @@ path = "Sinclair/ZX Spectrum/Games/[TAP]/Sabre Wulf (1984)(Ultimate Play The Gam
 # jungle adventure. Different shape to Knight Lore (Filmation isometric,
 # static screens). Captures the title screen.
 wait_frames = 60
-frame_hash = "xxh64:bbd9f61fd2d79daf"
+frame_hash = "xxh64:0b7b5824e73f88e3"
 
 [entry.audio]
 # 2 s of the title-screen jingle — non-trivial audio, distinct from
 # the menu-silence hashes elsewhere.
 from_frame = 100
 secs = 2.0
-hash = "xxh64:843f1028e0e1a59a"
+hash = "xxh64:cf62da40cda7d703"
 
 [[entry]]
 id = "lords-of-midnight"
@@ -399,11 +451,15 @@ slot = "tape-1"
 path = "Sinclair/ZX Spectrum/Games/[TZX]/Back to Skool (1985)(Microsphere).zip"
 
 [entry.boot]
-# Captures the in-game demo-mode attract loop: yellow classroom
-# scene with "I hate groan-ups" speech bubble, "DEMO MODE"
-# banner, bottom HUD showing SCORE / LINES / HI-SC counters.
+# Captures the in-game demo-mode attract loop: the school scrolling
+# past with the "DEMO MODE" banner and the SCORE / LINES / HI-SC HUD.
+# Where the scroll has reached at this waypoint follows CPU timing.
+# The 2026-05 hash was captured with a 48K ROM patched at $386E; the
+# official ROM gives a different demo position even on the code of
+# the time (ad686cb6), so this is the first capture of this entry on
+# the official ROM.
 wait_frames = 6000
-frame_hash = "xxh64:2c2358ec94044554"
+frame_hash = "xxh64:ce3545bb0a6c8172"
 
 [entry.audio]
 # Demo-mode has its own AY-driven walking-sound effect, distinct
@@ -411,7 +467,7 @@ frame_hash = "xxh64:2c2358ec94044554"
 # path is alive end-to-end through the Microsphere loader.
 from_frame = 100
 secs = 2.0
-hash = "xxh64:30772d86e5f91ef8"
+hash = "xxh64:9bb6a916df5d5def"
 
 [[entry]]
 id = "back-to-the-future-tape-bleepload"
@@ -436,7 +492,7 @@ path = "Sinclair/ZX Spectrum/Games/[TZX]/Back to the Future (1985)(Electric Drea
 # PAUSE/CONTINUE 4" with Doc and Marty character portraits, a
 # 00:00:00 clock display, and the "BY SOFTWARE IMAGES" credit.
 wait_frames = 6000
-frame_hash = "xxh64:84f0c9c00a18a47e"
+frame_hash = "xxh64:08e038c859ba3364"
 
 [entry.audio]
 # Bleepload's menu music — distinct from the canonical loader-
@@ -444,7 +500,7 @@ frame_hash = "xxh64:84f0c9c00a18a47e"
 # clean enough for the AY to produce sound.
 from_frame = 100
 secs = 2.0
-hash = "xxh64:6aaee9fdc4020c77"
+hash = "xxh64:d351ec00f1c30c72"
 
 # ─── Speedlock-tape cluster ─────────────────────────────────────
 # Unlocked 2026-05-13 by the TZX partial-last-byte parser fix (see
@@ -545,7 +601,7 @@ frame_hash = "xxh64:1d7411eccce6eccb"
 # waypoint, distinct from the canonical silence hash.
 from_frame = 100
 secs = 2.0
-hash = "xxh64:3899aef92d741517"
+hash = "xxh64:34849a14631c079b"
 
 [[entry]]
 id = "renegade-tape-speedlock"
@@ -573,7 +629,7 @@ frame_hash = "xxh64:805174e353503a99"
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:6057b29e34068d35"
+hash = "xxh64:447b70449d0c119f"
 
 [[entry]]
 id = "combat-school-tape-speedlock"
@@ -602,7 +658,7 @@ frame_hash = "xxh64:9555472c791e2e9a"
 # Combat School's title-screen music plays at this waypoint.
 from_frame = 100
 secs = 2.0
-hash = "xxh64:1ace5ac8c1dba78a"
+hash = "xxh64:9f0775c37e882a4c"
 
 [[entry]]
 id = "rambo-tape-speedlock"
@@ -630,7 +686,7 @@ frame_hash = "xxh64:0ef5c4d4a22f56fb"
 # Rambo's attract music — distinct from the loader-silence hash.
 from_frame = 100
 secs = 2.0
-hash = "xxh64:f3fa85a5f3ced684"
+hash = "xxh64:c50f09d30feafc3b"
 
 [[entry]]
 id = "star-wars-tape-speedlock"
@@ -657,7 +713,7 @@ frame_hash = "xxh64:1361c56d5e7e733e"
 # Star Wars title sting plays at this waypoint.
 from_frame = 100
 secs = 2.0
-hash = "xxh64:9e72abf6dc093af6"
+hash = "xxh64:1bcd655e97fa673b"
 
 [[entry]]
 id = "mikie-tape-speedlock"
@@ -681,7 +737,7 @@ path = "Sinclair/ZX Spectrum/Games/[TZX]/ARCADE COLLECTION 13 - Mikie (1990)(Hit
 # the title attract animates, so the captured moment is one frame
 # of that animation. Music driver hasn't started.
 wait_frames = 6000
-frame_hash = "xxh64:eeb8c01e6f30d891"
+frame_hash = "xxh64:d19ca545b9a8386f"
 
 [entry.audio]
 from_frame = 100
@@ -714,7 +770,7 @@ frame_hash = "xxh64:85bb2d88174c407f"
 # Title-screen music plays at this waypoint.
 from_frame = 100
 secs = 2.0
-hash = "xxh64:f8d19bee35ea8cfa"
+hash = "xxh64:9c70edada8186726"
 
 [[entry]]
 id = "salamander-tape-speedlock"
@@ -742,7 +798,7 @@ frame_hash = "xxh64:95c2a0a05d1d025d"
 # Salamander's title music plays at this waypoint.
 from_frame = 100
 secs = 2.0
-hash = "xxh64:a8df33fa3166a267"
+hash = "xxh64:ab23bc3dae528278"
 
 [[entry]]
 id = "bubble-bobble-tape-speedlock"
@@ -761,18 +817,20 @@ slot = "tape-1"
 path = "Sinclair/ZX Spectrum/Games/[TZX]/ARCADE COLLECTION 30 - Bubble Bobble (1992)(Hit Squad, The)(48K-128K)[SpeedLock 5][re-release].zip"
 
 [entry.boot]
-# Title screen with full BUBBLE BOBBLE logo in yellow cloud, the
-# Firebird and Taito badges, both bubble-dragon characters (green
-# Bub and blue Bob), and the credits "BY MIKE FOLLIN / SOFTWARE
-# CREATIONS / OM00S1".
+# Captures the "CHOOSE CONTROL FOR PLAYER 1" menu, the same screen the
+# Firebird release (`bubble-bobble`) reaches. Until the TZX
+# end-of-file terminating pulse (19e43599, bisected) this re-release
+# held its title screen (BUBBLE BOBBLE logo, Bub and Bob, "BY MIKE
+# FOLLIN / SOFTWARE CREATIONS") through frame 12000 instead. The
+# change does not come from the tape EAR level the pulse leaves
+# behind: releasing that level a frame after the tape stops (#1633)
+# still gives this menu.
 wait_frames = 6000
-frame_hash = "xxh64:a1fce5d9e562ae1c"
+frame_hash = "xxh64:efbc1a70201a1b87"
 
 [entry.audio]
-# Canonical attract-silence hash. The title screen is static and
-# silent — verified at wait_frames 8000 and 12000 (same hash both
-# times). Bubble Bobble's title music plays after the player
-# inserts a credit, which would need scripted input to reach.
+# Canonical attract-silence hash: the control menu is silent, as the
+# title screen was before it.
 from_frame = 100
 secs = 2.0
 hash = "xxh64:2f99db11eda56a85"
@@ -880,7 +938,7 @@ frame_hash = "xxh64:3849ef196db5a88f"
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:375ee829884bd3c9"
+hash = "xxh64:bf7deefbe0a5ffa5"
 
 [[entry]]
 id = "knight-lore-plus"
@@ -901,7 +959,7 @@ frame_hash = "xxh64:074e242db0720e42"
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:d6588709ce228308"
+hash = "xxh64:f7a1684e8d841771"
 
 [[entry]]
 id = "jet-set-willy-plus"
@@ -917,7 +975,7 @@ path = "Sinclair/ZX Spectrum/Games/[TAP]/Jet Set Willy (1984)(Software Projects)
 
 [entry.boot]
 wait_frames = 60
-frame_hash = "xxh64:84755482f7074dbf"
+frame_hash = "xxh64:db47c647e9188f6c"
 
 [entry.audio]
 from_frame = 100
@@ -938,7 +996,7 @@ path = "Sinclair/ZX Spectrum/Games/[TAP]/Atic Atac (1983)(Ultimate Play The Game
 
 [entry.boot]
 wait_frames = 60
-frame_hash = "xxh64:81301d5c0b355bf9"
+frame_hash = "xxh64:df593b7c8ee0ce3c"
 
 [entry.audio]
 from_frame = 100
@@ -959,12 +1017,12 @@ path = "Sinclair/ZX Spectrum/Games/[TAP]/Skool Daze (1984)(Microsphere).zip"
 
 [entry.boot]
 wait_frames = 60
-frame_hash = "xxh64:38cd0180bf456390"
+frame_hash = "xxh64:31f18ede38504e5b"
 
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:94ae4fa62616f624"
+hash = "xxh64:89729ec36b2b0cf7"
 
 [[entry]]
 id = "chuckie-egg-plus"
@@ -985,7 +1043,7 @@ frame_hash = "xxh64:3523e9cc4d817ded"
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:993f501a6d0f316a"
+hash = "xxh64:a3ace74b866ed109"
 
 [[entry]]
 id = "saboteur-plus"
@@ -995,13 +1053,14 @@ publisher = "Durell"
 variant = "plus"
 
 [entry.media]
+# The [a] dump; see `saboteur` for why not [a2].
 kind = "tape"
 slot = "tape-1"
-path = "Sinclair/ZX Spectrum/Games/[TAP]/Saboteur! (1985)(Durell)[a2].zip"
+path = "Sinclair/ZX Spectrum/Games/[TAP]/Saboteur! (1985)(Durell)[a].zip"
 
 [entry.boot]
 wait_frames = 60
-frame_hash = "xxh64:0e1cacb0a7d6bea9"
+frame_hash = "xxh64:731e3797e105ed73"
 
 [entry.audio]
 from_frame = 100
@@ -1022,12 +1081,12 @@ path = "Sinclair/ZX Spectrum/Games/[TAP]/Sabre Wulf (1984)(Ultimate Play The Gam
 
 [entry.boot]
 wait_frames = 60
-frame_hash = "xxh64:bbd9f61fd2d79daf"
+frame_hash = "xxh64:0b7b5824e73f88e3"
 
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:843f1028e0e1a59a"
+hash = "xxh64:cf62da40cda7d703"
 
 [[entry]]
 id = "lords-of-midnight-plus"
@@ -1096,7 +1155,7 @@ frame_hash = "xxh64:920da4ca7b1f875d"
 # as a distinct release from the 48K version.
 from_frame = 100
 secs = 2.0
-hash = "xxh64:c76dc1ae8e550913"
+hash = "xxh64:97dacd58cd806f6d"
 
 [[entry]]
 id = "robocop"
@@ -1111,27 +1170,24 @@ slot = "tape-1"
 path = "Sinclair/ZX Spectrum/Games/[TZX]/RoboCop (1988)(Ocean)(48K-128K).zip"
 
 [entry.boot]
-# KNOWN-WEDGE: captures the "SORRY LOAD ERROR" SpeedLock-7 anti-tamper
-# screen rather than Jonathan Dunn's title music, because the 48K-128K
-# combo TZX exercises a SpeedLock-7 path our loader still wedges on
-# (see knowledge/references/speedlock.md and
-# knowledge/decisions/speedlock-tape-incomplete.md — Speedlock-7
-# multi-layer fix covers eleven 48K entries but not this combo
-# release). The hash is intentionally a known-failure anchor: when
-# the SpeedLock-7 work fully lands, this entry's hash will change and
-# fail-loud here, signalling the wedge is gone.
+# Formerly a known-failure anchor: until 2026-08-31 this combo TZX
+# wedged on the SpeedLock "SORRY LOAD ERROR" anti-tamper screen. The
+# TZX end-of-file terminating pulse (19e43599, see
+# knowledge/decisions/speedlock-tape-incomplete.md) lets the loader's
+# final edge wait return, and the game now loads. At this waypoint the
+# 128K and +2 show the post-load handover (black paper, red border,
+# one yellow block); by frame 600 they reach the high-score table that
+# the +2A and +2B already show here. Verified 2026-10-06 at frames 60,
+# 600 and 3000.
 wait_frames = 60
-frame_hash = "xxh64:50965d46a26bbafc"
+frame_hash = "xxh64:4c33e2c06bca96e0"
 
 [entry.audio]
-# Captured at 60+100 = 3.2 s post-tape-stop. RoboCop's title fade /
-# loader pause means the music driver hasn't started yet at this
-# waypoint — same hash as Operation Wolf / Out Run / etc., which is
-# the reproducible "128K silence" hash. Worth bumping wait_frames to
-# capture the actual AY soundtrack in a later pass.
+# Captured at 60+100 = 3.2 s post-tape-stop. Since the game loads
+# (see above) this window carries its AY title music, not silence.
 from_frame = 100
 secs = 2.0
-hash = "xxh64:7d335937455497a1"
+hash = "xxh64:8d375d12aa8a9177"
 
 [[entry]]
 id = "operation-wolf"
@@ -1152,11 +1208,18 @@ wait_frames = 60
 frame_hash = "xxh64:43f4dd995e59fabe"
 
 [entry.audio]
-# Same "128K silence" hash as RoboCop — title music hasn't started
-# yet at this waypoint.
+# No music yet at this waypoint. Not digital silence, though: the
+# tape EAR input stays high after the TZX end-of-file pulse
+# (19e43599), so the speaker line rests at the EAR level and the
+# mixer's 80/81-T-state sample bins turn that held level into a faint
+# ripple, about 81 LSB peak to peak. Same hash as Rainbow Islands and
+# the 128K Bubble Bobble, which rest the same way. Both are defects,
+# recorded here as found: FUSE drops the EAR level a frame after the
+# tape stops (#1633), and a held level should mix to silence (#1634).
+# Fixing either moves this hash back to exact silence.
 from_frame = 100
 secs = 2.0
-hash = "xxh64:7d335937455497a1"
+hash = "xxh64:25e26fbe7fd02cf6"
 
 [[entry]]
 id = "out-run"
@@ -1184,7 +1247,7 @@ frame_hash = "xxh64:1838727d99e21182"
 # title music has started by this waypoint.
 from_frame = 100
 secs = 2.0
-hash = "xxh64:668d100b65aecee3"
+hash = "xxh64:6d48593a4a1f1472"
 
 [[entry]]
 id = "rainbow-islands"
@@ -1202,10 +1265,12 @@ path = "Sinclair/ZX Spectrum/Games/[TZX]/Rainbow Islands - The Story of Bubble B
 # Tim Follin's AY soundtrack on the 128K — bubbly, technically
 # accomplished arrangement that's a showpiece for the chip.
 wait_frames = 60
-frame_hash = "xxh64:51fd5828568a5393"
+frame_hash = "xxh64:2248714b958d34ed"
 
 [entry.audio]
-# 128K silence hash — Tim Follin's music hasn't kicked in yet.
+# Tim Follin's music hasn't kicked in yet. The tape EAR rests high
+# after the tape ends, so this is the faint held-level ripple
+# described under `operation-wolf`, not digital silence.
 from_frame = 100
 secs = 2.0
 hash = "xxh64:25e26fbe7fd02cf6"
@@ -1229,10 +1294,12 @@ wait_frames = 60
 frame_hash = "xxh64:efbc1a70201a1b87"
 
 [entry.audio]
-# 128K silence hash — chiptune driver hasn't started yet.
+# Chiptune driver hasn't started yet. Since the TZX end-of-file pulse
+# (19e43599) the tape EAR rests high, so this is the faint held-level
+# ripple described under `operation-wolf`, not digital silence.
 from_frame = 100
 secs = 2.0
-hash = "xxh64:7d335937455497a1"
+hash = "xxh64:25e26fbe7fd02cf6"
 
 [[entry]]
 id = "where-time-stood-still"
@@ -1258,7 +1325,7 @@ frame_hash = "xxh64:076876874e1f4725"
 # in the set whose music driver is fully running by 3.2 s post-load.
 from_frame = 100
 secs = 2.0
-hash = "xxh64:81759e534b8a082e"
+hash = "xxh64:37512d50c79c9284"
 
 [[entry]]
 id = "total-eclipse"
@@ -1362,7 +1429,7 @@ frame_hash = "xxh64:920da4ca7b1f875d"
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:c76dc1ae8e550913"
+hash = "xxh64:d7436298a792842a"
 
 [[entry]]
 id = "robocop-plus2"
@@ -1377,15 +1444,15 @@ slot = "tape-1"
 path = "Sinclair/ZX Spectrum/Games/[TZX]/RoboCop (1988)(Ocean)(48K-128K).zip"
 
 [entry.boot]
-# KNOWN-WEDGE — same SpeedLock-7 anti-tamper as `robocop` (128K). See
-# that entry's comment for context.
+# Loads since the TZX end-of-file pulse; same post-load handover frame
+# as `robocop` (128K). See that entry's comment.
 wait_frames = 60
-frame_hash = "xxh64:50965d46a26bbafc"
+frame_hash = "xxh64:4c33e2c06bca96e0"
 
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:7d335937455497a1"
+hash = "xxh64:c88528ba82e6a78e"
 
 [[entry]]
 id = "operation-wolf-plus2"
@@ -1406,7 +1473,7 @@ frame_hash = "xxh64:43f4dd995e59fabe"
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:7d335937455497a1"
+hash = "xxh64:25e26fbe7fd02cf6"
 
 [[entry]]
 id = "out-run-plus2"
@@ -1427,7 +1494,7 @@ frame_hash = "xxh64:1838727d99e21182"
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:668d100b65aecee3"
+hash = "xxh64:ba4aaf98c483edf7"
 
 [[entry]]
 id = "rainbow-islands-plus2"
@@ -1443,7 +1510,7 @@ path = "Sinclair/ZX Spectrum/Games/[TZX]/Rainbow Islands - The Story of Bubble B
 
 [entry.boot]
 wait_frames = 60
-frame_hash = "xxh64:51fd5828568a5393"
+frame_hash = "xxh64:2248714b958d34ed"
 
 [entry.audio]
 from_frame = 100
@@ -1469,7 +1536,7 @@ frame_hash = "xxh64:efbc1a70201a1b87"
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:7d335937455497a1"
+hash = "xxh64:25e26fbe7fd02cf6"
 
 [[entry]]
 id = "where-time-stood-still-plus2"
@@ -1490,7 +1557,7 @@ frame_hash = "xxh64:076876874e1f4725"
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:81759e534b8a082e"
+hash = "xxh64:55ed35ffad36c3b7"
 
 [[entry]]
 id = "total-eclipse-plus2"
@@ -1596,14 +1663,15 @@ slot = "tape-1"
 path = "Sinclair/ZX Spectrum/Games/[TZX]/RoboCop (1988)(Ocean)(48K-128K).zip"
 
 [entry.boot]
-# KNOWN-WEDGE — same SpeedLock-7 anti-tamper as `robocop` (128K).
+# Loads since the TZX end-of-file pulse and is already on the
+# high-score table at this waypoint. See `robocop` (128K).
 wait_frames = 60
-frame_hash = "xxh64:50965d46a26bbafc"
+frame_hash = "xxh64:587a604f94d1ff74"
 
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:7d335937455497a1"
+hash = "xxh64:bf48fdeb4ed9419d"
 
 [[entry]]
 id = "operation-wolf-plus2a"
@@ -1624,7 +1692,7 @@ frame_hash = "xxh64:43f4dd995e59fabe"
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:7d335937455497a1"
+hash = "xxh64:25e26fbe7fd02cf6"
 
 [[entry]]
 id = "out-run-plus2a"
@@ -1645,7 +1713,7 @@ frame_hash = "xxh64:1838727d99e21182"
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:9907d3d5d5d53da9"
+hash = "xxh64:5ebf67e6ad6403b9"
 
 [[entry]]
 id = "rainbow-islands-plus2a"
@@ -1661,7 +1729,7 @@ path = "Sinclair/ZX Spectrum/Games/[TZX]/Rainbow Islands - The Story of Bubble B
 
 [entry.boot]
 wait_frames = 60
-frame_hash = "xxh64:f2e02e1dc9c1cc40"
+frame_hash = "xxh64:bf9f85666def053c"
 
 [entry.audio]
 from_frame = 100
@@ -1687,7 +1755,7 @@ frame_hash = "xxh64:184d0e0c05bd8db9"
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:7d335937455497a1"
+hash = "xxh64:25e26fbe7fd02cf6"
 
 [[entry]]
 id = "where-time-stood-still-plus2a"
@@ -1708,7 +1776,7 @@ frame_hash = "xxh64:076876874e1f4725"
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:bc401958854d4588"
+hash = "xxh64:7868be7e5171b2c6"
 
 [[entry]]
 id = "total-eclipse-plus2a"
@@ -1814,14 +1882,15 @@ slot = "tape-1"
 path = "Sinclair/ZX Spectrum/Games/[TZX]/RoboCop (1988)(Ocean)(48K-128K).zip"
 
 [entry.boot]
-# KNOWN-WEDGE — same SpeedLock-7 anti-tamper as `robocop` (128K).
+# Loads since the TZX end-of-file pulse and is already on the
+# high-score table at this waypoint. See `robocop` (128K).
 wait_frames = 60
-frame_hash = "xxh64:50965d46a26bbafc"
+frame_hash = "xxh64:587a604f94d1ff74"
 
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:7d335937455497a1"
+hash = "xxh64:bf48fdeb4ed9419d"
 
 [[entry]]
 id = "operation-wolf-plus2b"
@@ -1842,7 +1911,7 @@ frame_hash = "xxh64:43f4dd995e59fabe"
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:7d335937455497a1"
+hash = "xxh64:25e26fbe7fd02cf6"
 
 [[entry]]
 id = "out-run-plus2b"
@@ -1863,7 +1932,7 @@ frame_hash = "xxh64:1838727d99e21182"
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:9907d3d5d5d53da9"
+hash = "xxh64:5ebf67e6ad6403b9"
 
 [[entry]]
 id = "rainbow-islands-plus2b"
@@ -1879,7 +1948,7 @@ path = "Sinclair/ZX Spectrum/Games/[TZX]/Rainbow Islands - The Story of Bubble B
 
 [entry.boot]
 wait_frames = 60
-frame_hash = "xxh64:f2e02e1dc9c1cc40"
+frame_hash = "xxh64:bf9f85666def053c"
 
 [entry.audio]
 from_frame = 100
@@ -1905,7 +1974,7 @@ frame_hash = "xxh64:184d0e0c05bd8db9"
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:7d335937455497a1"
+hash = "xxh64:25e26fbe7fd02cf6"
 
 [[entry]]
 id = "where-time-stood-still-plus2b"
@@ -1926,7 +1995,7 @@ frame_hash = "xxh64:076876874e1f4725"
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:bc401958854d4588"
+hash = "xxh64:7868be7e5171b2c6"
 
 [[entry]]
 id = "total-eclipse-plus2b"
@@ -2048,7 +2117,7 @@ frame_hash = "xxh64:47fda6722c6032b2"
 # reach its post-load audio state.
 from_frame = 60
 secs = 2.0
-hash = "xxh64:586b1fef81bb4138"
+hash = "xxh64:87434408a7faa04a"
 
 [[entry]]
 id = "rainbow-islands-plus3"
@@ -2066,13 +2135,14 @@ slot = "disk-a"
 path = "Sinclair/ZX Spectrum/Games/[DSK]/Rainbow Islands - The Story of Bubble Bobble 2 (1990)(Ocean)(+3).zip"
 
 [entry.boot]
-# Captures Graftgold's credits / scoreboard screen: "RAINBOW
-# PROJECT / PROGRAM BY DAVID O'CONNOR / GRAPHICS BY JOHN CUMMING /
-# PRODUCED BY GRAFTGOLD LTD" with the 1UP / HI SCORE / CREDIT
-# header. The Rainbow Islands loader cycles through this screen
-# before the actual title image.
+# Captures a page of the attract cycle under the 1UP / HI SCORE /
+# CREDIT header. Which page lands on this waypoint follows CPU timing:
+# the "RAINBOW ISLANDS / TAITO" title at the 2026-08-10 capture, the
+# "BEST 5" score table after the CPU-timing changes of 2026-08-10 to
+# 2026-09-24. (An earlier version of this comment named Graftgold's
+# credits page, which neither capture shows.)
 wait_frames = 6000
-frame_hash = "xxh64:5099b5dbc9f28210"
+frame_hash = "xxh64:9c88024738effebd"
 
 [entry.audio]
 from_frame = 60
@@ -2100,12 +2170,12 @@ path = "Sinclair/ZX Spectrum/Games/[DSK]/Cybernoid - The Fighting Machine (1988)
 # ("1 START GAME / 2 DEFINE KEYS / 3 INTERFACE 2 / 4 KEMPSTON /
 # S SOUND ON/OFF").
 wait_frames = 6000
-frame_hash = "xxh64:f6bb01176162f8ab"
+frame_hash = "xxh64:e3379987c3c223df"
 
 [entry.audio]
 from_frame = 60
 secs = 2.0
-hash = "xxh64:950fc51f488e439b"
+hash = "xxh64:41c9777709cb116f"
 
 [[entry]]
 id = "cybernoid-2-plus3"
@@ -2225,12 +2295,12 @@ path = "Sinclair/ZX Spectrum/Games/[DSK]/Stormlord (1989)(Hewson Consultants)(+3
 # (which doesn't replicate that delay) hashes a slightly earlier
 # frame of the title-screen animation.
 wait_frames = 6000
-frame_hash = "xxh64:3cee50fc8c327c09"
+frame_hash = "xxh64:fab02300caa68380"
 
 [entry.audio]
 from_frame = 60
 secs = 2.0
-hash = "xxh64:240c58aa37494976"
+hash = "xxh64:8f0493c37029a296"
 
 [[entry]]
 id = "starglider-2-plus3"
@@ -2261,7 +2331,7 @@ frame_hash = "xxh64:5c8dc6f976335002"
 [entry.audio]
 from_frame = 60
 secs = 2.0
-hash = "xxh64:9808c7e4445a42af"
+hash = "xxh64:f42fcebdf253d1b1"
 
 [[entry]]
 id = "lotus-esprit-plus3"
@@ -2293,7 +2363,7 @@ frame_hash = "xxh64:bfa8481a6e3a2d39"
 [entry.audio]
 from_frame = 60
 secs = 2.0
-hash = "xxh64:e9affc9f92fc3a04"
+hash = "xxh64:4677446a6698a8be"
 
 [[entry]]
 id = "combat-school-plus3"
@@ -2351,7 +2421,7 @@ path = "Sinclair/ZX Spectrum/Games/[DSK]/Turrican (1990)(Rainbow Arts)(+3)(Side 
 # on red graffiti background, armoured hero firing a beam weapon,
 # Rainbow Arts and Probe Software credits, "PRESS SPACE" prompt.
 wait_frames = 6000
-frame_hash = "xxh64:96bfd748d60dd83a"
+frame_hash = "xxh64:cb20ab0177ff27ff"
 
 [entry.audio]
 from_frame = 60
@@ -2381,14 +2451,15 @@ path = "Sinclair/ZX Spectrum/Games/[DSK]/Tetris (1988)(Mirrorsoft)(+3).zip"
 [entry.boot]
 # Captures the Mirrorsoft title screen: rainbow-coloured "TETRIS"
 # logo, "MIRROR Soft PRESSENTS" banner, scrolling credits ribbon
-# at the bottom showing "...N SOFTWARE AND ..."
+# at the bottom. The ribbon text at this waypoint follows CPU timing:
+# "0 FOR OPTIONS" at the 2026-08-10 capture, "SPACE TO" since.
 wait_frames = 6000
-frame_hash = "xxh64:44e86d7b2d68e978"
+frame_hash = "xxh64:0116d9b1a459a4bb"
 
 [entry.audio]
 from_frame = 60
 secs = 2.0
-hash = "xxh64:abffb9a23121b009"
+hash = "xxh64:4b1a41a4f2feeae8"
 
 # ─── Speedlock-6 cluster ────────────────────────────────────────
 # Four titles that share Ocean's Speedlock-6 protection: a weak-
@@ -2450,7 +2521,7 @@ frame_hash = "xxh64:3f225520cedc41e9"
 [entry.audio]
 from_frame = 60
 secs = 2.0
-hash = "xxh64:73e65c0beb12302d"
+hash = "xxh64:0358393c6b155f61"
 
 [[entry]]
 id = "where-time-stood-still-plus3"
@@ -2479,7 +2550,7 @@ frame_hash = "xxh64:076876874e1f4725"
 [entry.audio]
 from_frame = 60
 secs = 2.0
-hash = "xxh64:a29389ec537880b0"
+hash = "xxh64:5e8976f32b63df21"
 
 [[entry]]
 id = "dragon-ninja-plus3"
@@ -2503,12 +2574,12 @@ path = "Sinclair/ZX Spectrum/Games/[DSK]/Bad Dudes vs. Dragon Ninja (1988)(Imagi
 # PAUL OWENS" credit. The dragon-decorated frame border is the
 # tell — Imagine's standard title-screen styling.
 wait_frames = 6000
-frame_hash = "xxh64:3524d443b7b57aeb"
+frame_hash = "xxh64:188ca8e8398eb8b5"
 
 [entry.audio]
 from_frame = 60
 secs = 2.0
-hash = "xxh64:9181a9d024e8e254"
+hash = "xxh64:051d6003230710b4"
 
 # ─── 16K entries ────────────────────────────────────────────────
 # 1982-83 titles small enough to fit in 16K of RAM. All use the same
@@ -2623,14 +2694,14 @@ path = "Sinclair/ZX Spectrum/Games/[TAP]/Hungry Horace (1982)(Sinclair Research)
 # Sinclair Research's house-published Pac-Man-alike. Earliest era of
 # Spectrum gaming; shipped with the machine itself.
 wait_frames = 60
-frame_hash = "xxh64:cde3f51384af7e34"
+frame_hash = "xxh64:56f8baad6167e79b"
 
 [entry.audio]
 # Distinct title-screen jingle — non-trivial audio, distinct from
 # the menu-silence hash elsewhere.
 from_frame = 100
 secs = 2.0
-hash = "xxh64:e7dc7e936ce9db3e"
+hash = "xxh64:ffd870666e3c34a1"
 
 [[entry]]
 id = "horace-goes-skiing"
@@ -2646,14 +2717,18 @@ path = "Sinclair/ZX Spectrum/Games/[TAP]/Horace Goes Skiing (1983)(Sinclair Rese
 
 [entry.boot]
 # Sequel — road-cross + skiing in two phases. Different engine to
-# Hungry Horace despite shared protagonist.
+# Hungry Horace despite shared protagonist. The title cycles its INK
+# colour and scrolls a credit line; at this waypoint the INK is white
+# on white paper, so the big title is invisible. That is the cycle's
+# phase, not a rendering fault: frames 40, 80 and 120 show it green,
+# red and black.
 wait_frames = 60
-frame_hash = "xxh64:45acacd11172455f"
+frame_hash = "xxh64:e02315419c67b1bd"
 
 [entry.audio]
 from_frame = 100
 secs = 2.0
-hash = "xxh64:18db4a25c640db5c"
+hash = "xxh64:02d190ee7b438747"
 
 [[entry]]
 id = "penetrator"
@@ -2747,74 +2822,82 @@ variant = "48k"
 # Sabre Wulf's title screen presents a numeric control-method menu:
 #   1 PLAYER GAME / 2 PLAYER GAME / KEYBOARD / KEMPSTON JOYSTICK /
 #   CURSOR JOYSTICK / INTERFACE II / 0 START GAME
-# The script selects Kempston (option 4), starts the game (option 0),
+# The startup selects Kempston (option 4), starts the game (option 0),
 # and then presses Kempston FIRE — only this third press exercises
 # the Seam 2 routing path through `$1F`.
 kind = "tape"
 slot = "tape-1"
 path = "Sinclair/ZX Spectrum/Games/[TAP]/Sabre Wulf (1984)(Ultimate Play The Game).zip"
 
-[[entry.script]]
-# Select KEMPSTON JOYSTICK (option 4) from the control menu.
-at_frame = 60
-press = "4"
+[[entry.startup]]
+action = "wait_frames"
+frames = 60
 
-[[entry.script]]
+[[entry.startup]]
+# Select KEMPSTON JOYSTICK (option 4) from the control menu. Both
+# presses are held for 25 frames. Since the Z80 bus-pin timing
+# corrections of 2026-08-11 (bisected to 9a2d8697) the menu no longer
+# acted on the three-frame presses this entry used to make, and the
+# capture stayed on the menu; 25-frame holds reach the game.
+action = "press_key"
+key = "4"
+hold_frames = 25
+
+[[entry.startup]]
+action = "wait_frames"
+frames = 14
+
+[[entry.startup]]
 # Start the game (option 0).
-at_frame = 80
-press = "0"
+action = "press_key"
+key = "0"
+hold_frames = 25
 
-[[entry.script]]
-# Press Kempston FIRE during gameplay — the load-bearing event.
-# Catalogue routes this as
+[[entry.startup]]
+action = "wait_frames"
+frames = 174
+
+[[entry.startup]]
+# Press Kempston FIRE during gameplay, at frame 300 as before — the
+# load-bearing event. Catalogue routes this as
 # `InputEvent::Button { port: 0, name: "fire" }` →
 # `SpectrumMachine::set_kempston_button` → `$1F` state byte bit 4.
 # Sabre Wulf reads $1F continuously once gameplay starts; FIRE
 # swings the sabre, killing nearby enemies and changing the visible
 # game state.
-at_frame = 300
+action = "press_button"
 port = 0
 button = "fire"
 
 [entry.boot]
 # Captures a gameplay frame 600 frames after the FIRE press.
 #
-# The discriminator, re-derived 2026-08-09. The two runs are
-# byte-deterministic and differ in exactly one respect — whether the
-# FIRE event is delivered — so any difference in the captured frame is
-# caused by that event and nothing else. Verified live at that date by
-# capturing the entry with and without the FIRE step:
+# The discriminator, re-derived 2026-10-06 after the startup above
+# replaced the three-frame script. The two runs are byte-deterministic
+# and differ in exactly one respect — whether the FIRE press is
+# delivered (the without-FIRE run waits the same four frames instead)
+# — so any difference in the captured frame is caused by that event.
+# Verified by capturing both:
 #
-#   with FIRE:    xxh64:fc2686d16c6cee1a   1UP 001050, 2 lives
-#   without FIRE: xxh64:4bba69482c628a75   1UP 001050, 3 lives
+#   with FIRE:    xxh64:8ad40f5c12dedf3a   1UP 001100, 2 lives
+#   without FIRE: xxh64:b1e9fd80d9f92d2c   1UP 000700, 4 lives
 #
 # The frames differ, so routing through
 # `InputEvent::Button { port: 0, name: "fire" }` →
 # `SpectrumMachine::set_kempston_button` → `$1F` bit 4 is live.
 #
-# CAUTION — the original score-based anchor is void. It read
-# "without-FIRE 1UP 000545 vs with-FIRE 001070 from a sabre-swing
-# kill". Both runs now score 001050: the score converged, and the
-# visible discriminator is the lives counter. The all-variant Z80
-# interrupt-timing changes of 2026-07-26 (4284a55d, faecec34) shifted
-# long-run gameplay, and this is the only 48K-family entry that
-# captures live gameplay rather than a static screen, so it is the only
-# one that noticed. All 46 other 48K-family frame hashes were byte
-# identical across the same re-capture.
-#
-# A score is a poor anchor precisely because two runs can converge on
-# one by unrelated routes, as these did. If this entry is revised,
-# prefer asserting that the with- and without-FIRE hashes *differ* —
-# that tests the routing directly instead of a downstream consequence
-# of it. Note also that CPU-timing changes bump no routing version, so
-# nothing warns when they move a capture like this one.
+# Keep asserting that the two runs differ, not a particular score or
+# lives count: CPU-timing changes bump no routing version and move
+# long-run gameplay like this (the 2026-08-09 anchor read 001050 for
+# both runs, the 2026-05 one 000545 vs 001070), and a score is a value
+# two runs can reach by unrelated routes.
 wait_frames = 600
-frame_hash = "xxh64:fc2686d16c6cee1a"
+frame_hash = "xxh64:8ad40f5c12dedf3a"
 
 [entry.audio]
 from_frame = 60
 secs = 2.0
-hash = "xxh64:eb8a56ce7f3f7748"
+hash = "xxh64:0e01071f1ce529ed"
 
 [[entry]]
 id = "gulpman"
