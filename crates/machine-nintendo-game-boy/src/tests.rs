@@ -1430,16 +1430,21 @@ fn write_shades_png(path: &std::path::Path, shades: &[u8]) {
 /// baseline below. A regression fails; so does an improvement, so the
 /// table is ratcheted down in the same change that earns it.
 ///
-/// The nine non-zero rows are pixel-identical to SameBoy 1.0.3 (DMG-B,
-/// its own boot ROM): our per-dot pipeline and SameBoy disagree with
-/// the reference in exactly the same pixels. The reference PNGs come
-/// from Matt Currie's emulator; his DMG-blob hardware photo of
-/// `m3_lcdc_bg_map_change` agrees with the PNG, so these are real
-/// hardware behaviours SameBoy and Pan Docs do not yet describe — mostly
-/// LCDC/SCY writes landing while an object at X phase 2 or 4 stalls the
-/// background fetcher. `m3_lcdc_bg_en_change` and
-/// `m3_lcdc_win_en_change_multiple_wx` also differ between CPU
-/// revisions (the suite ships separate DMG-CPU B references).
+/// Two rows are non-zero. Neither reference has a second source that
+/// agrees with it:
+///
+/// - `m3_lcdc_bg_en_change` (232 px) and
+///   `m3_lcdc_win_en_change_multiple_wx` (43 px) differ between CPU
+///   revisions; the suite ships separate DMG-CPU B references.
+/// - GateBoy, a gate-level DMG model (`emulators/gameboy/GateBoy`),
+///   misses both too: 376 px and 3 px. Its notes say its BG_EN timing
+///   needs a one-pixel delay, and that the `_wx` image is wrong.
+///
+/// SameBoy 1.0.3 scores 15/24. The seven ROMs we pass beyond it test
+/// LCDC and SCY writes that a fetch reads. They pass because those
+/// writes land two dots before the M-cycle ends, with SCX, as
+/// GateBoy's shared write strobe has them
+/// (`Ppu::stage_cpu_write`). GateBoy renders the seven exactly too.
 ///
 /// The per-ROM survey with image dumps is `diagnostic_mealybug_dmg`.
 /// Gated on the ROMs: set `EMU198X_GB_MEALYBUG_ROOT` to the mealybug
@@ -1453,20 +1458,20 @@ fn mealybug_dmg_ppu_gate() {
         ("m3_bgp_change", 0),
         ("m3_bgp_change_sprites", 0),
         ("m3_lcdc_bg_en_change", 232),
-        ("m3_lcdc_bg_map_change", 192),
+        ("m3_lcdc_bg_map_change", 0),
         ("m3_lcdc_obj_en_change", 0),
         ("m3_lcdc_obj_en_change_variant", 0),
-        ("m3_lcdc_obj_size_change", 15),
-        ("m3_lcdc_obj_size_change_scx", 30),
-        ("m3_lcdc_tile_sel_change", 192),
-        ("m3_lcdc_tile_sel_win_change", 178),
+        ("m3_lcdc_obj_size_change", 0),
+        ("m3_lcdc_obj_size_change_scx", 0),
+        ("m3_lcdc_tile_sel_change", 0),
+        ("m3_lcdc_tile_sel_win_change", 0),
         ("m3_lcdc_win_en_change_multiple", 0),
         ("m3_lcdc_win_en_change_multiple_wx", 43),
-        ("m3_lcdc_win_map_change", 122),
+        ("m3_lcdc_win_map_change", 0),
         ("m3_obp0_change", 0),
         ("m3_scx_high_5_bits", 0),
         ("m3_scx_low_3_bits", 0),
-        ("m3_scy_change", 627),
+        ("m3_scy_change", 0),
         ("m3_window_timing", 0),
         ("m3_window_timing_wx_0", 0),
         ("m3_wx_4_change", 0),

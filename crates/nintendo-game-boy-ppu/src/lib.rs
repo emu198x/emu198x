@@ -77,6 +77,14 @@ pub(crate) mod lcdc {
     pub const BG_ENABLE: u8 = 0x01;
 }
 
+/// The LCDC bits only the background and object fetchers read. A CPU
+/// write lands them a dot before the bits the shifter and window
+/// trigger read (see [`Ppu::stage_cpu_write`]).
+const LCDC_FETCHER_BITS: u8 = lcdc::WINDOW_TILE_MAP
+    | lcdc::BG_TILE_DATA_UNSIGNED
+    | lcdc::BG_TILE_MAP
+    | lcdc::SPRITE_HEIGHT_16;
+
 /// STAT bit positions for the writable interrupt-enable bits.
 mod stat {
     pub const LYC_ENABLE: u8 = 0x40;
@@ -495,13 +503,35 @@ impl Ppu {
     ///
     /// On the DMG some PPU registers latch a CPU write before the end of
     /// the M-cycle, and the palettes and LCDC pass through an
-    /// intermediate value for one dot. The dot offsets are SameBoy's
-    /// DMG access-conflict map (`dmg_conflict_map` and `cycle_write` in
-    /// `Core/sm83_cpu.c`): SCX two dots early; SCY one dot early;
-    /// BGP/OBP0/OBP1 `old | new` two dots early, then `new` one dot
-    /// early; LCDC `old | (new & BG_EN)` two dots early, then `new` one
-    /// dot early. A write that turns the LCD on or off is left to the
-    /// machine so LCD-enable timing is unchanged.
+    /// intermediate value for one dot. The base is SameBoy's DMG
+    /// access-conflict map (`dmg_conflict_map` and `cycle_write` in
+    /// `Core/sm83_cpu.c`): BGP/OBP0/OBP1 `old | new` two dots early,
+    /// then `new` one dot early; SCX two dots early.
+    ///
+    /// What the background and object fetchers read lands two dots
+    /// early too: SCY, and LCDC's tile-map, tile-data, window-map and
+    /// object-size bits ([`LCDC_FETCHER_BITS`]). SameBoy has them one
+    /// dot early. GateBoy, a gate-level DMG model, latches SCX, SCY and
+    /// LCDC on one shared write strobe, so SCY and those LCDC bits land
+    /// with SCX. Our fetcher then reads them on the same dot, relative
+    /// to the write, as GateBoy's does, with or without an object
+    /// fetch stalling it. That timing renders
+    /// seven Mealybug Tearoom ROMs exactly as the DMG reference images
+    /// do (`m3_lcdc_bg_map_change`, `m3_lcdc_tile_sel_change`,
+    /// `m3_lcdc_tile_sel_win_change`, `m3_lcdc_win_map_change`,
+    /// `m3_lcdc_obj_size_change`, `m3_lcdc_obj_size_change_scx`,
+    /// `m3_scy_change`); GateBoy renders them identically.
+    ///
+    /// The bits the shifter and window trigger read keep SameBoy's
+    /// timing: BG_EN joins as `old | new` two dots early, and OBJ_EN
+    /// and WIN_EN land one dot early. GateBoy lands them with the rest
+    /// and then misplaces its output by one pixel on
+    /// `m3_lcdc_bg_en_change`, `m3_lcdc_obj_en_change` and
+    /// `m3_bgp_change` (its own notes need a one-pixel delay there);
+    /// SameBoy's timing matches the references for those bits.
+    ///
+    /// A write that turns the LCD on or off is left to the machine so
+    /// LCD-enable timing is unchanged.
     pub fn stage_cpu_write(&mut self, addr: u16, value: u8) -> bool {
         if (self.lcdc & lcdc::ENABLE) == 0 {
             return false;
@@ -541,7 +571,7 @@ impl Ppu {
                 self.scx = value;
                 true
             }
-            (REG_SCY, 3) => {
+            (REG_SCY, 2) => {
                 self.scy = value;
                 true
             }
@@ -555,7 +585,7 @@ impl Ppu {
                 dots == 3
             }
             (REG_LCDC, 2) => {
-                let mut held = self.lcdc;
+                let mut held = (value & LCDC_FETCHER_BITS) | (self.lcdc & !LCDC_FETCHER_BITS);
                 if (value & lcdc::SPRITES_ENABLE) == 0
                     && (self.position_in_line == 0 || self.m3.during_object_fetch)
                 {
