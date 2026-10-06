@@ -1425,32 +1425,36 @@ fn write_shades_png(path: &std::path::Path, shades: &[u8]) {
     writer.write_image_data(&pixels).unwrap();
 }
 
-/// Mealybug Tearoom DMG gate: every ROM with a `_dmg_blob.png` reference
-/// is scored against it, and its differing-pixel count must equal the
-/// baseline below. A regression fails; so does an improvement, so the
-/// table is ratcheted down in the same change that earns it.
+/// Mealybug Tearoom DMG gate. We model DMG-CPU B, so each ROM is scored
+/// against its `_dmg_cpu_b.png` reference where the suite has one, and
+/// against `_dmg_blob.png` otherwise. Its differing-pixel count must
+/// equal the baseline below. A regression fails; so does an
+/// improvement, so the table is ratcheted down in the same change that
+/// earns it. A CPU-B row whose reference is missing fails, as does a
+/// reference on disk with no row, so no ROM drops out unnoticed.
 ///
-/// Two rows are non-zero. Both ROMs also ship a DMG-CPU B reference
-/// upstream (`expected/DMG-CPU B/` at mealybug-tearoom-tests
-/// `70e88fb`), which this gate does not read:
+/// The CPU-B references are upstream mealybug-tearoom-tests `70e88fb`,
+/// `expected/DMG-CPU B/`. Only two ROMs have one, and both differ from
+/// DMG-blob: by 3 px on `m3_lcdc_win_en_change_multiple_wx` and by
+/// 228 px on `m3_lcdc_bg_en_change`. For those two the DMG-blob score
+/// is printed as a diagnostic, not gated.
 ///
-/// - `m3_lcdc_win_en_change_multiple_wx` is 3 px off the DMG-blob
-///   image and matches the CPU-B image exactly. The two references
-///   differ in exactly those 3 px. GateBoy, a gate-level DMG-CPU B
-///   model (`emulators/gameboy/GateBoy`), renders the same frame.
-/// - `m3_lcdc_bg_en_change` is 232 px off DMG-blob and 4 px off CPU-B:
-///   x = 0 on lines 19-22. There the stall for the object at X = 2
-///   lands a BG_EN-off write on the first visible pixel. Both
-///   references, the CPU-B photo and GateBoy show that pixel light;
-///   we and SameBoy 1.0.3 draw it dark. GateBoy is 148 px off CPU-B
-///   elsewhere, so it is no oracle for BG_EN timing, and this pixel is
-///   still open (#316).
+/// 23 of 24 match exactly. The one residual is `m3_lcdc_bg_en_change`,
+/// 4 px off CPU-B (232 px off DMG-blob): x = 0 on lines 19-22. There
+/// the stall for the object at X = 2 lands a BG_EN-off write on the
+/// first visible pixel. Both references, the CPU-B photo and GateBoy
+/// show that pixel light; we and SameBoy 1.0.3 draw it dark. GateBoy
+/// (`emulators/gameboy/GateBoy`, a gate-level DMG-CPU B model) is 148 px
+/// off CPU-B elsewhere, so it is no oracle for BG_EN timing. The pixel
+/// is still open (#316).
 ///
-/// SameBoy 1.0.3 scores 15/24. The seven ROMs we pass beyond it test
-/// LCDC and SCY writes that a fetch reads. They pass because those
-/// writes land two dots before the M-cycle ends, with SCX, as
-/// GateBoy's shared write strobe has them
-/// (`Ppu::stage_cpu_write`). GateBoy renders the seven exactly too.
+/// SameBoy 1.0.3 scores 15/24 against DMG-blob. The seven ROMs we pass
+/// beyond it test LCDC and SCY writes that a fetch reads. They pass
+/// because those writes land two dots before the M-cycle ends, with
+/// SCX, as GateBoy's shared write strobe has them
+/// (`Ppu::stage_cpu_write`). The eighth, the `_wx` CPU-B match, comes
+/// from the fetcher seeing WIN_EN on that edge too
+/// (`Ppu::fetcher_window_enabled`).
 ///
 /// The per-ROM survey with image dumps is `diagnostic_mealybug_dmg`.
 /// Gated on the ROMs: set `EMU198X_GB_MEALYBUG_ROOT` to the mealybug
@@ -1458,75 +1462,112 @@ fn write_shades_png(path: &std::path::Path, shades: &[u8]) {
 #[test]
 #[ignore = "FIXTURE: needs EMU198X_GB_MEALYBUG_ROOT (mealybug ppu/ dir) — run with --ignored"]
 fn mealybug_dmg_ppu_gate() {
-    /// Differing pixels against the DMG-blob reference, per ROM.
-    const BASELINE: &[(&str, usize)] = &[
-        ("m2_win_en_toggle", 0),
-        ("m3_bgp_change", 0),
-        ("m3_bgp_change_sprites", 0),
-        ("m3_lcdc_bg_en_change", 232),
-        ("m3_lcdc_bg_map_change", 0),
-        ("m3_lcdc_obj_en_change", 0),
-        ("m3_lcdc_obj_en_change_variant", 0),
-        ("m3_lcdc_obj_size_change", 0),
-        ("m3_lcdc_obj_size_change_scx", 0),
-        ("m3_lcdc_tile_sel_change", 0),
-        ("m3_lcdc_tile_sel_win_change", 0),
-        ("m3_lcdc_win_en_change_multiple", 0),
-        ("m3_lcdc_win_en_change_multiple_wx", 3),
-        ("m3_lcdc_win_map_change", 0),
-        ("m3_obp0_change", 0),
-        ("m3_scx_high_5_bits", 0),
-        ("m3_scx_low_3_bits", 0),
-        ("m3_scy_change", 0),
-        ("m3_window_timing", 0),
-        ("m3_window_timing_wx_0", 0),
-        ("m3_wx_4_change", 0),
-        ("m3_wx_4_change_sprites", 0),
-        ("m3_wx_5_change", 0),
-        ("m3_wx_6_change", 0),
+    /// The reference a ROM is gated against.
+    #[derive(Clone, Copy, PartialEq)]
+    enum Reference {
+        /// `_dmg_blob.png`, the suite's default DMG reference.
+        Blob,
+        /// `_dmg_cpu_b.png`, for the revision we model.
+        CpuB,
+    }
+    use Reference::{Blob, CpuB};
+
+    /// Differing pixels against the gated reference, per ROM.
+    const BASELINE: &[(&str, Reference, usize)] = &[
+        ("m2_win_en_toggle", Blob, 0),
+        ("m3_bgp_change", Blob, 0),
+        ("m3_bgp_change_sprites", Blob, 0),
+        ("m3_lcdc_bg_en_change", CpuB, 4),
+        ("m3_lcdc_bg_map_change", Blob, 0),
+        ("m3_lcdc_obj_en_change", Blob, 0),
+        ("m3_lcdc_obj_en_change_variant", Blob, 0),
+        ("m3_lcdc_obj_size_change", Blob, 0),
+        ("m3_lcdc_obj_size_change_scx", Blob, 0),
+        ("m3_lcdc_tile_sel_change", Blob, 0),
+        ("m3_lcdc_tile_sel_win_change", Blob, 0),
+        ("m3_lcdc_win_en_change_multiple", Blob, 0),
+        ("m3_lcdc_win_en_change_multiple_wx", CpuB, 0),
+        ("m3_lcdc_win_map_change", Blob, 0),
+        ("m3_obp0_change", Blob, 0),
+        ("m3_scx_high_5_bits", Blob, 0),
+        ("m3_scx_low_3_bits", Blob, 0),
+        ("m3_scy_change", Blob, 0),
+        ("m3_window_timing", Blob, 0),
+        ("m3_window_timing_wx_0", Blob, 0),
+        ("m3_wx_4_change", Blob, 0),
+        ("m3_wx_4_change_sprites", Blob, 0),
+        ("m3_wx_5_change", Blob, 0),
+        ("m3_wx_6_change", Blob, 0),
     ];
 
     let root = std::env::var("EMU198X_GB_MEALYBUG_ROOT")
         .expect("set EMU198X_GB_MEALYBUG_ROOT to the mealybug ppu/ dir");
     let dir = std::path::Path::new(&root);
 
-    // Every DMG reference on disk must have a baseline row, so a ROM
-    // cannot drop out of the gate unnoticed.
-    let mut on_disk: Vec<String> = std::fs::read_dir(dir)
-        .unwrap()
-        .flatten()
-        .filter_map(|e| {
-            let name = e.file_name().to_string_lossy().to_string();
-            name.strip_suffix("_dmg_blob.png").map(str::to_string)
-        })
-        .collect();
-    on_disk.sort();
-    let listed: Vec<String> = BASELINE.iter().map(|(s, _)| (*s).to_string()).collect();
+    // The references on disk must match the table in both directions,
+    // so a ROM or a CPU-B reference cannot drop out unnoticed.
+    let on_disk = |suffix: &str| -> Vec<String> {
+        let mut stems: Vec<String> = std::fs::read_dir(dir)
+            .unwrap()
+            .flatten()
+            .filter_map(|e| {
+                let name = e.file_name().to_string_lossy().to_string();
+                name.strip_suffix(suffix).map(str::to_string)
+            })
+            .collect();
+        stems.sort();
+        stems
+    };
+    let listed = |filter: &dyn Fn(Reference) -> bool| -> Vec<String> {
+        BASELINE
+            .iter()
+            .filter(|(_, r, _)| filter(*r))
+            .map(|(s, _, _)| (*s).to_string())
+            .collect()
+    };
     assert_eq!(
-        on_disk, listed,
-        "Mealybug DMG references and BASELINE differ"
+        on_disk("_dmg_blob.png"),
+        listed(&|_| true),
+        "Mealybug DMG-blob references and BASELINE differ"
+    );
+    assert_eq!(
+        on_disk("_dmg_cpu_b.png"),
+        listed(&|r| r == CpuB),
+        "Mealybug DMG-CPU B references and BASELINE's CpuB rows differ \
+         (a CpuB row needs <rom>_dmg_cpu_b.png in EMU198X_GB_MEALYBUG_ROOT)"
     );
 
+    let score = |frame: &[u8], reference: &str| -> usize {
+        let expected = decode_mealybug_dmg_ref(&dir.join(reference));
+        frame.iter().zip(&expected).filter(|(a, b)| a != b).count()
+    };
+
     let mut mismatches = Vec::new();
-    for &(stem, expected_diff) in BASELINE {
+    for &(stem, reference, expected_diff) in BASELINE {
         let rom = std::fs::read(dir.join(format!("{stem}.gb"))).unwrap();
         let (_, mut gb) = GameBoy::from_rom_with_boot_profile(rom, BootProfile::DmgAbc).unwrap();
         assert!(
             run_to_ld_b_b(&mut gb, 4_000_000),
             "{stem}: never reached LD B,B"
         );
-        let expected = decode_mealybug_dmg_ref(&dir.join(format!("{stem}_dmg_blob.png")));
-        let diff = gb
-            .framebuffer()
-            .iter()
-            .zip(&expected)
-            .filter(|(a, b)| a != b)
-            .count();
+        let frame = gb.framebuffer();
+        let gated = match reference {
+            Blob => format!("{stem}_dmg_blob.png"),
+            CpuB => format!("{stem}_dmg_cpu_b.png"),
+        };
+        let diff = score(frame, &gated);
+        if reference == CpuB {
+            // Diagnostic only: the other revision's reference.
+            let blob = score(frame, &format!("{stem}_dmg_blob.png"));
+            println!("{stem}: {diff} px vs DMG-CPU B (gated), {blob} px vs DMG-blob");
+        }
         if diff != expected_diff {
-            mismatches.push(format!("{stem}: {diff} px (baseline {expected_diff})"));
+            mismatches.push(format!(
+                "{stem}: {diff} px vs {gated} (baseline {expected_diff})"
+            ));
         }
     }
-    let exact = BASELINE.iter().filter(|(_, d)| *d == 0).count();
+    let exact = BASELINE.iter().filter(|(_, _, d)| *d == 0).count();
     assert!(
         mismatches.is_empty(),
         "Mealybug DMG ({exact}/{} exact at baseline) changed — fix a regression or ratchet BASELINE:\n  {}",
