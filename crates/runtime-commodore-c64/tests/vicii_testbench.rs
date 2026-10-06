@@ -19,7 +19,7 @@ use std::path::PathBuf;
 use common::local_rom_firmware;
 use common_commodore_c64::timing::{TIMING_NTSC_BREADBIN, TIMING_PAL_BREADBIN};
 use emu198x_shell::HeadlessSession;
-use mos_vic_ii::{FB_HEIGHT, FB_WIDTH, oracle::engine_to_canonical};
+use mos_vic_ii::{FB_HEIGHT, FB_WIDTH};
 use runtime_commodore_c64::{
     C64Runtime, C64SessionQueryProvider, DEFAULT_INTER_CHAR_FRAMES, DEFAULT_KEY_HOLD_FRAMES,
     DEFAULT_TYPE_SETTLE_FRAMES, Model, type_string,
@@ -490,76 +490,28 @@ fn dump_prg_framebuffer() {
     eprintln!("wrote /tmp/vicii_dump.png for {rel}");
 }
 
-/// Cycle-vocabulary regression for the two `$D011` stores in
-/// `sequencer-bug`. Scheduled CPU pins, the entering VIC phase, the post-VIC
-/// CPU access phase and VICE's store-watchpoint timestamp are intentionally
-/// separate: comparing them as if they were one phase creates false deltas.
+/// `sequencer-bug`'s CPU runs at VICE's phase through its stable-raster
+/// handler, the sprite-DMA stall and both `$D011` stores. VICE x64sc 3.10's
+/// monitor (`trace exec` / `trace store`, 2026-10-06) reports an opcode one
+/// cycle before the engine cycle that fetches it, and a store at the engine
+/// cycle that writes it.
 #[test]
-#[ignore = "DIAGNOSTIC: diagnostic: pins sequencer-bug D011 writes to the VIC-II cycle boundary"]
-fn sequencer_bug_d011_write_cycle_boundary() {
+#[ignore = "FIXTURE: sequencer-bug CPU phases require C64 ROMs + VIC-II testbench"]
+fn sequencer_bug_cpu_phases_match_vice() {
     if !roms_present() || testbench_dir().is_none() {
         emu198x_test_skip::skip!("C64 ROMs or VIC-II testbench not staged");
     }
-
-    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-    struct Position(u16, u8, u8);
-    let pos = |line, cycle| Position(line, cycle, engine_to_canonical(cycle));
-
-    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-    struct ExecPhase {
-        pc: u16,
-        scheduled_pins: Position,
-        cpu_access_phase: Position,
-    }
-
-    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-    struct D011Write {
-        value: u8,
-        scheduled_pins: Position,
-        vic_phase_consumed: Position,
-        cpu_access_phase: Position,
-        vice_monitor_observed: Position,
-    }
-
-    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-    struct BusTransition {
-        vic_phase: Position,
-        ba_low: bool,
-        aec_low: bool,
-        badline: bool,
-    }
-
-    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-    struct StallSample {
-        vic_phase: Position,
-        addr: u16,
-        sync: bool,
-    }
-
-    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-    struct SourceSample {
-        vic_phase: Position,
-        badline_ba_low: bool,
-        sprite_ba_low: bool,
-        c_access_active: bool,
-    }
-    let exec = |pc, line, scheduled, access| ExecPhase {
-        pc,
-        scheduled_pins: pos(line, scheduled),
-        cpu_access_phase: pos(line, access),
-    };
-    let bus = |line, cycle, ba_low, aec_low, badline| BusTransition {
-        vic_phase: pos(line, cycle),
-        ba_low,
-        aec_low,
-        badline,
-    };
-    let source = |line, cycle, badline_ba_low, sprite_ba_low, c_access_active| SourceSample {
-        vic_phase: pos(line, cycle),
-        badline_ba_low,
-        sprite_ba_low,
-        c_access_active,
-    };
+    // (pc, VICE monitor line, VICE monitor cycle)
+    const VICE_EXEC: &[(u16, u16, u8)] = &[
+        (0x0941, 48, 11),
+        (0x096D, 49, 9),
+        (0x0994, 50, 1),
+        (0x09B7, 50, 54),
+        (0x09BA, 51, 14),
+        (0x09CE, 51, 50),
+    ];
+    // (value, VICE monitor line, VICE monitor cycle)
+    const VICE_D011: &[(u8, u16, u8)] = &[(0x3B, 51, 54), (0x3C, 53, 55)];
 
     let mut session = prepare_testprog_on(
         "sequencer-bug/bug.prg",
@@ -568,187 +520,32 @@ fn sequencer_bug_d011_write_cycle_boundary() {
     );
     session.run_frames(60).expect("steady raster loop");
 
-    let mut execs = Vec::new();
-    let mut writes = Vec::new();
-    let mut transitions = Vec::new();
-    let mut stalls = Vec::new();
-    let mut source_samples = Vec::new();
-    let mut trace_bus = false;
+    let mut execs: Vec<(u16, u16, u8)> = Vec::new();
+    let mut stores: Vec<(u8, u16, u8)> = Vec::new();
     for _ in 0..TIMING_PAL_BREADBIN.cycles_per_frame {
         let machine = session.machine_mut().machine_mut();
         let cpu = machine.cpu();
-        let before = pos(machine.raster_line(), machine.cycle_in_line());
-        let addr = cpu.addr;
-        let value = cpu.data;
-        let rw = cpu.rw;
-        let sync = cpu.sync;
-        let cpu_cycles = cpu.total_cycles;
-        let ba_low = machine.vic().ba_is_low();
-        let aec_low = machine.vic().aec_is_low();
-        let target_exec =
-            sync && matches!(addr, 0x0941 | 0x096D | 0x0994 | 0x09B7 | 0x09BA | 0x09CE);
-        let target_write =
-            !rw && addr == 0xD011 && matches!((before.0, value), (51, 0x3B) | (53, 0x3C));
-        if sync && addr == 0x0994 {
-            trace_bus = true;
-        }
-
+        let (line, cycle) = (machine.raster_line(), machine.cycle_in_line());
+        let (addr, value, rw, sync, total) =
+            (cpu.addr, cpu.data, cpu.rw, cpu.sync, cpu.total_cycles);
         machine.tick();
-        let after = pos(machine.raster_line(), machine.cycle_in_line());
-        let cpu_advanced = machine.cpu().total_cycles != cpu_cycles;
-
-        if target_exec && cpu_advanced {
-            execs.push(ExecPhase {
-                pc: addr,
-                scheduled_pins: before,
-                cpu_access_phase: after,
-            });
+        let advanced = machine.cpu().total_cycles != total;
+        if sync
+            && VICE_EXEC.iter().any(|&(pc, _, _)| pc == addr)
+            && !execs.iter().any(|&(pc, _, _)| pc == addr)
+        {
+            // VICE reports the cycle before the fetch.
+            execs.push((addr, line, cycle - 1));
         }
-        if target_write {
-            let vice_monitor_observed = if value == 0x3B {
-                pos(51, 54)
-            } else {
-                pos(53, 55)
-            };
-            writes.push(D011Write {
-                value,
-                scheduled_pins: before,
-                vic_phase_consumed: before,
-                cpu_access_phase: after,
-                vice_monitor_observed,
-            });
+        if !rw && addr == 0xD011 && advanced && matches!(value, 0x3B | 0x3C) {
+            stores.push((value, line, cycle));
         }
-        if trace_bus {
-            let vic = machine.vic();
-            if before.0 == 51 && (50..=58).contains(&before.1) {
-                source_samples.push(SourceSample {
-                    vic_phase: before,
-                    badline_ba_low: vic.badline_ba_is_low(),
-                    sprite_ba_low: vic.sprite_ba_is_low(),
-                    c_access_active: vic.c_access_is_active(),
-                });
-            }
-            if vic.ba_is_low() != ba_low || vic.aec_is_low() != aec_low {
-                transitions.push(BusTransition {
-                    vic_phase: before,
-                    ba_low: vic.ba_is_low(),
-                    aec_low: vic.aec_is_low(),
-                    badline: vic.is_badline(),
-                });
-            }
-            if !cpu_advanced {
-                stalls.push(StallSample {
-                    vic_phase: before,
-                    addr,
-                    sync,
-                });
-            }
-        }
-        if trace_bus && sync && addr == 0x0A04 && cpu_advanced {
+        if execs.len() == VICE_EXEC.len() && stores.len() == VICE_D011.len() {
             break;
         }
     }
-
-    assert_eq!(
-        execs,
-        vec![
-            exec(0x0941, 48, 8, 9),
-            exec(0x096D, 49, 8, 9),
-            exec(0x0994, 50, 0, 1),
-            exec(0x09B7, 50, 53, 54),
-            exec(0x09BA, 51, 13, 14),
-            exec(0x09CE, 51, 49, 50),
-        ],
-        "steady handler and pre-write CPU phases should match VICE 3.10"
-    );
-    assert_eq!(
-        writes,
-        vec![
-            D011Write {
-                value: 0x3B,
-                scheduled_pins: pos(51, 52),
-                vic_phase_consumed: pos(51, 52),
-                cpu_access_phase: pos(51, 53),
-                vice_monitor_observed: pos(51, 54),
-            },
-            D011Write {
-                value: 0x3C,
-                scheduled_pins: pos(53, 54),
-                vic_phase_consumed: pos(53, 54),
-                cpu_access_phase: pos(53, 55),
-                vice_monitor_observed: pos(53, 55),
-            },
-        ]
-    );
-
-    // These positions describe the current model, in which the CPU sees the
-    // raster-line edge 2 cycles before VICE does. The c52-pins/c54-watchpoint
-    // gap is that lead, not a difference of observation convention; see
-    // Stage 3a of knowledge/decisions/c64-accuracy-closure-campaign.md. The
-    // second store's post-VIC access and VICE's checkpoint agree at c55.
-    assert_eq!(transitions.len(), 14);
-    assert_eq!(
-        transitions,
-        &[
-            bus(50, 55, true, false, false),
-            bus(50, 58, true, true, false),
-            bus(51, 11, false, false, false),
-            bus(51, 53, true, false, true),
-            bus(51, 54, false, false, true),
-            bus(51, 55, true, false, true),
-            bus(51, 58, true, true, true),
-            bus(52, 11, false, false, false),
-            bus(52, 55, true, false, false),
-            bus(52, 58, true, true, false),
-            bus(53, 11, false, false, false),
-            bus(53, 55, true, false, false),
-            bus(53, 58, true, true, false),
-            bus(54, 11, false, false, false),
-        ]
-    );
-    assert_eq!(
-        source_samples,
-        vec![
-            source(51, 50, false, false, false),
-            source(51, 51, false, false, false),
-            source(51, 52, false, false, false),
-            source(51, 53, true, false, true),
-            source(51, 54, false, false, false),
-            source(51, 55, false, true, false),
-            source(51, 56, false, true, false),
-            source(51, 57, false, true, false),
-            source(51, 58, false, true, false),
-        ]
-    );
-    assert_eq!(stalls.len(), 77);
-    assert_eq!(
-        (stalls[0].vic_phase, stalls[18].vic_phase),
-        (pos(50, 55), pos(51, 10))
-    );
-    assert!(stalls[..19].iter().all(|s| s.addr == 0x09B9 && !s.sync));
-    assert_eq!(
-        stalls[19],
-        StallSample {
-            vic_phase: pos(51, 53),
-            addr: 0x09D1,
-            sync: true,
-        }
-    );
-    assert_eq!(
-        (stalls[20].vic_phase, stalls[38].vic_phase),
-        (pos(51, 55), pos(52, 10))
-    );
-    assert!(stalls[20..39].iter().all(|s| s.addr == 0x09D2 && !s.sync));
-    assert_eq!(
-        (stalls[39].vic_phase, stalls[57].vic_phase),
-        (pos(52, 55), pos(53, 10))
-    );
-    assert!(stalls[39..58].iter().all(|s| s.addr == 0x09EC && s.sync));
-    assert_eq!(
-        (stalls[58].vic_phase, stalls[76].vic_phase),
-        (pos(53, 55), pos(54, 10))
-    );
-    assert!(stalls[58..].iter().all(|s| s.addr == 0x0A04 && s.sync));
+    assert_eq!(execs, VICE_EXEC, "opcode fetches should match VICE");
+    assert_eq!(stores, VICE_D011, "$D011 stores should match VICE");
 }
 
 /// One CPU bus write observed during a settled frame: the raster line and
@@ -1119,23 +916,13 @@ fn colorfetchbug_cases_match_vice_references_exactly() {
     );
 }
 
-/// The far-edge `$D011` C-data carry leaves two characterised residuals: one
-/// eight-row character at the direct renderer's unresolved G-access/output
-/// boundary, plus two dot-zero colour-register transitions that require the
-/// PAL 6569 colour-resolution ring. Keep both shapes exact so an unrelated
-/// timing change cannot trade one disagreement for another.
-#[test]
-#[ignore = "FIXTURE: strict sequencer-bug parity requires C64 ROMs + VIC-II testbench"]
-fn sequencer_bug_retains_only_the_known_pipeline_disagreements() {
-    if !roms_present() || testbench_dir().is_none() {
-        emu198x_test_skip::skip!("C64 ROMs or VIC-II testbench not staged");
-    }
-    let dir = testbench_dir().expect("checked");
-    let reference = decode_reference_png(&dir.join("sequencer-bug/references/bug.prg.png"));
-    let framebuffer = run_testprog("sequencer-bug/bug.prg", 60);
-    let comparison = compare_indexed(&framebuffer, &reference, VICE_CROP_X, VICE_CROP_Y);
-
-    let mismatches: Vec<_> = comparison
+/// Every reference pixel whose classified colour differs, as
+/// `(x, y, actual, expected)` in reference coordinates.
+fn indexed_mismatches(
+    comparison: &IndexedComparison,
+    reference: &RefImage,
+) -> Vec<(u32, u32, u8, u8)> {
+    comparison
         .actual
         .iter()
         .zip(&comparison.reference)
@@ -1150,24 +937,33 @@ fn sequencer_bug_retains_only_the_known_pipeline_disagreements() {
                 expected,
             )
         })
-        .collect();
-    let mut expected = vec![(32, 34, 11, 12), (64, 34, 12, 11)];
-    for x in 32..=39 {
-        expected.push((x, 36, 6, 15));
+        .collect()
+}
+
+/// `sequencer-bug` matches its VICE reference exactly. It used to retain 30
+/// pixels: a character outline at the far-edge forced badline and two dots
+/// at colour-register changes. Both came from the CPU seeing the raster edge
+/// two cycles early (Stage 3a of the C64 accuracy closure campaign).
+#[test]
+#[ignore = "FIXTURE: strict sequencer-bug parity requires C64 ROMs + VIC-II testbench"]
+fn sequencer_bug_matches_vice_reference_exactly() {
+    if !roms_present() || testbench_dir().is_none() {
+        emu198x_test_skip::skip!("C64 ROMs or VIC-II testbench not staged");
     }
-    for y in 37..=42 {
-        expected.push((32, y, 6, 15));
-        expected.push((39, y, 6, 15));
-    }
-    for x in 32..=39 {
-        expected.push((x, 43, 6, 15));
-    }
-    expected.sort_unstable();
-    let mut mismatches = mismatches;
-    mismatches.sort_unstable();
+    let dir = testbench_dir().expect("checked");
+    let reference = decode_reference_png(&dir.join("sequencer-bug/references/bug.prg.png"));
+    let framebuffer = run_testprog("sequencer-bug/bug.prg", 60);
+    let comparison = compare_indexed(&framebuffer, &reference, VICE_CROP_X, VICE_CROP_Y);
+    let mismatches = indexed_mismatches(&comparison, &reference);
+    assert!(
+        mismatches.is_empty(),
+        "sequencer-bug: {} disagreements, first {:?}",
+        mismatches.len(),
+        &mismatches[..mismatches.len().min(24)]
+    );
     assert_eq!(
-        mismatches, expected,
-        "sequencer-bug must retain only the characterised G/output and colour-ring residuals"
+        sha256_hex(&comparison.actual),
+        sha256_hex(&comparison.reference)
     );
 }
 

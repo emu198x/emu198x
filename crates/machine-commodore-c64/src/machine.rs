@@ -952,6 +952,7 @@ impl C64 {
             }
             self.cpu.tick();
         }
+        self.refresh_light_pen();
         self.sid.tick();
         self.memory.tick_easyflash();
 
@@ -989,6 +990,7 @@ impl C64 {
             }
             self.cpu.tick();
         }
+        self.refresh_light_pen();
         self.sid.tick();
         self.memory.tick_easyflash();
 
@@ -1301,6 +1303,18 @@ impl C64 {
             0xDE00..=0xDFFF => self.memory.expansion_io_write(addr, value),
             _ => {}
         }
+    }
+
+    /// Drive the VIC-II light-pen input from CIA 1 port B bit 4, which the
+    /// keyboard matrix and control port 1 also pull low. VICE x64sc wires it
+    /// the same way (`cia1_internal_lightpen_check`, `c64/c64cia1.c`). A
+    /// program can therefore latch the beam position by writing port B,
+    /// which some stable-raster routines do.
+    fn refresh_light_pen(&mut self) {
+        let pb = self.cia1.port_b_drive_state()
+            & self.keyboard.scan(self.cia1.pa)
+            & self.joystick_input(1);
+        self.vic.set_light_pen_line(pb & 0x10 == 0);
     }
 
     fn refresh_keyboard_scan(&mut self) {

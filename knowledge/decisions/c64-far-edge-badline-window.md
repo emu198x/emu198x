@@ -54,18 +54,29 @@ late-badline lengths.
 
 ## The decision
 
-A `$D011` write records the VIC-II engine cycle at which the CPU access
-completed. On the following VIC-II tick, a false-to-true badline transition at
-recorded cycle 53 or later creates an explicit far-edge window with:
+**Amended 2026-10-06 (stage 3a-B):** with the CPU at VICE's phase, a `$D011`
+write records the engine cycle of the CPU access itself, the cycle VICE's
+monitor reports for the store. On the following VIC-II tick, a false-to-true
+badline transition at write cycle 54 or later creates an explicit far-edge
+window with:
 
 ```text
-remaining c-accesses = max(54 - recorded cycle, 0)
+remaining c-accesses = max(55 - write cycle, 0)
 ```
+
+A write in cycle 54 lands before that cycle's Phi2 matrix fetch, which VICE
+makes after the CPU (`vicii_fetch_sprites` at the start of `vicii_cycle`), so
+it keeps that one access. This engine runs the VIC-II before the CPU, so it
+makes the access on the following tick. `sequencer-bug` stores at cycle 54 in
+both emulators, and with stage C's colour stage its image matches the
+reference exactly. The rule
+replaces "recorded cycle 53, remaining `54 - recorded`", which was fitted to a
+CPU that saw the raster edge two cycles early.
 
 Consequently:
 
-- a recorded cycle-53 write has one remaining c-access;
-- a recorded cycle-54-or-later write has none; and
+- a cycle-54 write has one remaining c-access;
+- a cycle-55-or-later write has none; and
 - an ordinary badline or an earlier forced badline continues to use the
   established schedule evidenced by the exact colour-fetch lane.
 
@@ -80,9 +91,9 @@ most recently completed VIC-II phase. Aggregate BA remains the logical OR of
 the two BA sources. This changes neither the aggregate BA-to-AEC handover nor
 the invalid matrix-data contract.
 
-The correction does not shift global CPU timing, change the machine's
-VIC-before-CPU scheduling order, delay badline activation, or change ordinary
-badline DMA. Those alternatives affect already exact output and solve the
+The correction does not change the machine's VIC-before-CPU scheduling
+order, delay badline activation, or change ordinary badline DMA. (Global CPU
+timing did move later, in stage 3a-A, on separate evidence.) Those alternatives affect already exact output and solve the
 wrong boundary.
 
 ## Persistence and inspection

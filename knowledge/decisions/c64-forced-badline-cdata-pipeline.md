@@ -177,6 +177,19 @@ The evidence is for the PAL 6569 profile. It does not establish the same
 pipeline for 6567R8, 6567R56A or 8565, and it does not define analogue colour
 output.
 
+## Amendment: stage 3a-B (2026-10-06)
+
+With the CPU at VICE's phase, the far-edge write that creates the forced
+badline is in cycle 54 (see the far-edge window record). The two hidden
+output cells are then cycles 56 and 57, behind the right border, and the only
+g-access the output delay suppresses is the line's last, in cycle 55. The
+carry network and its bounds are unchanged; its origin moves two cycles
+later with the write. With stages B and C, `sequencer-bug` matches its
+reference exactly. The
+28-pixel outline was this phase, not a missing output-stage split. Its
+remaining 30 pixels after stage B are two colour splits that the old colour
+output draws two cycles late; stage C's colour stage removes them.
+
 ## Drift triggers
 
 Reject changes that:
