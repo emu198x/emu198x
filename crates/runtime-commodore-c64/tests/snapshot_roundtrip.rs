@@ -502,11 +502,11 @@ fn restore_rejects_old_schema_before_decoding_its_payload() {
     let mut runtime = C64Runtime::from_firmware(Model::C64PalBreadbin, &blank_firmware())
         .expect("blank C64 firmware should construct a runtime");
     let err = runtime
-        .restore(&[9])
-        .expect_err("version 9 snapshot should be rejected before payload decode");
+        .restore(&[10])
+        .expect_err("version 10 snapshot should be rejected before payload decode");
     assert!(
         matches!(err, MachineError::InvalidSnapshot { ref reason }
-            if reason == "unsupported snapshot version 9; expected 10"),
+            if reason == "unsupported snapshot version 10; expected 11"),
         "unexpected error variant: {err:?}",
     );
 }
@@ -543,4 +543,39 @@ fn restore_rejects_snapshot_from_different_profile() {
         matches!(err, MachineError::InvalidSnapshot { ref reason } if reason.contains("profile")),
         "unexpected error variant: {err:?}",
     );
+}
+
+/// A snapshot taken between a colour-register write and the two ticks that
+/// resolve the cells already rendered keeps the colour stage: those cells
+/// and the write's first-dot exception come back identical.
+#[test]
+fn snapshot_round_trip_preserves_the_colour_stage() {
+    let mut runtime = C64Runtime::from_firmware(Model::C64PalBreadbin, &blank_firmware())
+        .expect("blank C64 firmware should construct a runtime");
+    let machine = runtime.machine_mut();
+    machine.cpu_write(0xD020, 0x02);
+    while machine.raster_line() != 100 || machine.cycle_in_line() != 61 {
+        machine.tick();
+    }
+    // The right-border cells of cycles 59 and 60 wait for their colours.
+    // This write changes them, except the first dot of the older one.
+    machine.cpu_write(0xD020, 0x05);
+
+    let snapshot = runtime
+        .snapshot()
+        .expect("mid-line C64 runtime should snapshot");
+    let mut expected = runtime.machine().clone();
+    let mut restored = C64Runtime::blank(Model::C64PalBreadbin);
+    restored
+        .restore(&snapshot)
+        .expect("mid-line snapshot should restore");
+
+    for _ in 0..4 {
+        assert_eq!(restored.machine_mut().tick(), expected.tick());
+        assert_eq!(restored.machine().framebuffer(), expected.framebuffer());
+    }
+    // Cycle 59's cell: dot 0 keeps the old colour, dots 1-7 take the new.
+    let row = 100 * 416 + (59 - 10) * 8;
+    let cell = &expected.framebuffer()[row..row + 8];
+    assert_ne!(cell[0], cell[1], "the write reached the pending cell");
 }

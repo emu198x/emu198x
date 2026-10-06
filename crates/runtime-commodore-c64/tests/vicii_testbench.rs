@@ -449,13 +449,10 @@ fn ntsc_gfxfetch_matches_vice_reference() {
 /// VICE's PAL 6569 reference, compared by C64 colour index (VICE's PNG uses a
 /// different palette, so raw RGB won't match).
 ///
-/// Our engine currently matches VICE at **99.33%**, stable across settle time.
-/// This locks that as a **regression floor** — it catches any change that
-/// makes the rewrite render this timing trick *worse*. It is deliberately
-/// **not** a 100%/"pass" claim: the residual ~0.7% sits in the in-line-fetch
-/// test region (a full-width raster stripe + the VSP test row), a genuine
-/// cycle-timing gap toward exactness that is open Increment 5 work. See
-/// `/tmp/vicii_gfxfetch_diff.png` from `calibrate_gfxfetch_alignment`.
+/// The engine matches every classified pixel. The last 0.7% (a full-width
+/// raster stripe and the VSP test row) closed when the CPU-visible raster
+/// edge and the colour stage moved to VICE's phase (stage 3a of the C64
+/// accuracy closure campaign).
 #[test]
 #[ignore = "FIXTURE: requires ~/.emu198x/roms/commodore-c64 + ~/.emu198x/test-suites/c64-vicii"]
 fn gfxfetch_matches_vice_reference() {
@@ -465,11 +462,13 @@ fn gfxfetch_matches_vice_reference() {
     let dir = testbench_dir().expect("checked");
     let reference = decode_reference_png(&dir.join("gfxfetch/references/gfxfetch.prg.png"));
     let fb = run_testprog("gfxfetch/gfxfetch.prg", 60);
-    let m = match_fraction(&fb, &reference, VICE_CROP_X, VICE_CROP_Y);
+    let comparison = compare_indexed(&fb, &reference, VICE_CROP_X, VICE_CROP_Y);
+    let mismatches = indexed_mismatches(&comparison, &reference);
     assert!(
-        m >= 0.99,
-        "gfxfetch vs VICE 6569 dropped below the 99% regression floor: {:.4}%",
-        m * 100.0
+        mismatches.is_empty(),
+        "gfxfetch must match VICE 6569 exactly: {} disagreements, first {:?}",
+        mismatches.len(),
+        &mismatches[..mismatches.len().min(24)]
     );
 }
 
@@ -988,10 +987,9 @@ fn row_match_fraction(fb: &[u32], reference: &RefImage, dx: u32, dy: u32, ry: u3
     matched as f64 / f64::from(reference.width)
 }
 
-/// Sequencer regression floor: on `spritedma` (the sprite-render anchor) the
-/// draw-stage sequencer matches VICE's PAL 6569 reference to ≥99.9 % (it landed
-/// at 99.998 % when it became the default). Guards against a future sprite-path
-/// change silently regressing the anchor.
+/// `spritedma`, the sprite-render anchor, matches VICE's PAL 6569 reference
+/// exactly since the border covers sprites in the colour stage (it was 99.998%
+/// before). Guards against a future sprite-path change regressing it.
 #[test]
 #[ignore = "FIXTURE: sequencer: spritedma floor vs VICE (requires ROMs + testbench)"]
 fn sprite_sequencer_spritedma_parity() {
@@ -1006,9 +1004,74 @@ fn sprite_sequencer_spritedma_parity() {
     eprintln!("spritedma: sequencer {:.3}% vs VICE", m_seq * 100.0);
 
     assert!(
-        m_seq >= 0.999,
-        "sequencer regressed spritedma vs VICE: {:.3}% < 99.9%",
+        (m_seq - 1.0).abs() < f64::EPSILON,
+        "spritedma must match VICE exactly: {:.3}%",
         m_seq * 100.0
+    );
+}
+
+/// Colour-register pipeline programs on the PAL 6569, each with the number
+/// of disagreements it retains against its VICE x64sc reference.
+const COLOUR_PIPELINE_CASES: &[(&str, &str, &str, usize)] = &[
+    (
+        "greydot 6569",
+        "greydot/greydot.prg",
+        "greydot/references/greydot.prg.png",
+        0,
+    ),
+    (
+        "colorsplit 6569",
+        "colorsplit/colorsplit.prg",
+        "colorsplit/references/colorsplit.prg.png",
+        952,
+    ),
+];
+
+/// The `colorsplit` rows whose raster routine rewrites `$D016` just before
+/// its `$D021` splits: the first line of each of the 16 text-mode tests. The
+/// renderer latches XSCROLL once per line, at the left edge of the display
+/// window, so these lines keep the previous test's scroll. That is a
+/// graphics-sequencer boundary, not a colour-stage one.
+fn colorsplit_xscroll_row(y: u32) -> bool {
+    ((44..=100).contains(&y) && (y - 44).is_multiple_of(8))
+        || ((140..=196).contains(&y) && (y - 140).is_multiple_of(8))
+}
+
+/// A colour-register write reaches the screen through the colour stage. On
+/// the 6569 the first dot of the cell it changes keeps the old colour,
+/// because that dot is resolved one cycle early. `greydot` matches its
+/// reference exactly; `colorsplit` matches at every colour transition, and
+/// its only disagreements sit on the rows that change XSCROLL mid-line.
+#[test]
+#[ignore = "FIXTURE: colour-register pipeline parity requires C64 ROMs + VIC-II testbench"]
+fn colour_register_pipeline_matches_vice_references() {
+    if !roms_present() || testbench_dir().is_none() {
+        emu198x_test_skip::skip!("C64 ROMs or VIC-II testbench not staged");
+    }
+    let dir = testbench_dir().expect("checked");
+    let mut failures = Vec::new();
+    for &(label, prg, refpng, retained) in COLOUR_PIPELINE_CASES {
+        let reference = decode_reference_png(&dir.join(refpng));
+        let framebuffer = run_testprog(prg, 60);
+        let comparison = compare_indexed(&framebuffer, &reference, VICE_CROP_X, VICE_CROP_Y);
+        let mismatches = indexed_mismatches(&comparison, &reference);
+        let outside: Vec<_> = mismatches
+            .iter()
+            .filter(|&&(x, y, _, _)| !(colorsplit_xscroll_row(y) && x >= 192))
+            .take(24)
+            .collect();
+        if mismatches.len() != retained || !outside.is_empty() {
+            failures.push(format!(
+                "{label}: {} disagreements (expected {retained}); outside the XSCROLL rows \
+                 (x, y, actual, expected): {outside:?}",
+                mismatches.len()
+            ));
+        }
+    }
+    assert!(
+        failures.is_empty(),
+        "colour pipeline disagrees:\n{}",
+        failures.join("\n")
     );
 }
 

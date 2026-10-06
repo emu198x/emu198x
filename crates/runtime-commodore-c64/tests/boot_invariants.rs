@@ -129,10 +129,11 @@ fn snapshot_round_trip_is_fixed_point_after_warmup() -> Result<(), Box<dyn Error
 /// to 8 when the fixture-specific saved matrix entry became the exact
 /// 12-bit C-data carry age and value, to 9 when SID state (the TEST-held
 /// noise drift and the decaying data-bus value, #777) joined the envelope,
-/// and to 10 when the VIC-II's sprite DMA moved onto the fetch chain and the
-/// light-pen input level joined it (stage 3a-B).
+/// to 10 when the VIC-II's sprite DMA moved onto the fetch chain and the
+/// light-pen input level joined it (stage 3a-B), and to 11 when the VIC-II's
+/// two-tick colour stage joined it (stage 3a-C).
 #[test]
-fn snapshot_envelope_version_is_locked_at_v10() -> Result<(), Box<dyn Error>> {
+fn snapshot_envelope_version_is_locked_at_v11() -> Result<(), Box<dyn Error>> {
     let runtime = C64Runtime::new(
         Model::C64PalBreadbin,
         vec![0; KERNAL_SIZE],
@@ -143,8 +144,8 @@ fn snapshot_envelope_version_is_locked_at_v10() -> Result<(), Box<dyn Error>> {
     let bytes = runtime.snapshot()?;
     assert!(!bytes.is_empty(), "snapshot must have a non-empty envelope");
     assert_eq!(
-        bytes[0], 10,
-        "C64 snapshot envelope version should be 10 (got {})",
+        bytes[0], 11,
+        "C64 snapshot envelope version should be 11 (got {})",
         bytes[0]
     );
     Ok(())

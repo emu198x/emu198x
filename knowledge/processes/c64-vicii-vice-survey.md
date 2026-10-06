@@ -96,15 +96,19 @@ classified colour index. It does not mean that the category, chip or emulator
 is 92.456 percent accurate. A case becomes a strict conformance assertion only
 through a separately reviewed threshold or exact reference contract.
 
-The strict PAL 6569 lanes retain two different contract shapes. All five
-registered `colorfetchbug` programs require complete pixel and indexed-hash
-identity. The `sequencer-bug` program requires an exact retained-disagreement
-signature, so a timing change cannot exchange one residual for another while
-preserving a rounded percentage. The 2026-08-13 literal far-edge C-data model
-changes only that indexed plane relative to revision `d140a36f`. It matches
-104,418 of 104,448 pixels and retains an exact 30-pixel signature: two
-colour-ring dots and a 28-pixel character outline at the
-active-g-access/delayed-output boundary.
+The strict PAL 6569 lanes take two contract shapes. All five registered
+`colorfetchbug` programs and `sequencer-bug` require complete pixel and
+indexed-hash identity. `colorsplit` (outside the 17-program survey) requires
+an exact retained-disagreement signature: 952 pixels, all on its 16 XSCROLL
+rows, so a timing change cannot exchange one residual for another while
+preserving a rounded percentage. `greydot` must match exactly.
+
+Until stage 3a of the closure campaign, `sequencer-bug` retained 30 pixels:
+two colour-ring dots and a 28-pixel character outline. Both came from the CPU
+seeing the raster edge two cycles early, hidden by a colour output two
+cycles late. Separate fixture tests now pin the CPU's store and opcode
+cycles in `greydot`, `colorfetchbug` and `sequencer-bug` to the cycles VICE
+x64sc reports, so the survey no longer depends on those errors cancelling.
 
 ## Interpreting changes
 
