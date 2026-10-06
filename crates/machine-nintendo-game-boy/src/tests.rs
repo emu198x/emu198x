@@ -1404,7 +1404,18 @@ fn write_shades_png(path: &std::path::Path, shades: &[u8]) {
 #[ignore = "FIXTURE: needs EMU198X_GB_MEALYBUG_ROOT (mealybug ppu/ dir) — run with --ignored"]
 fn mealybug_dmg_ppu_ledger() {
     // Pixel-perfect against the DMG reference. Grow as the PPU tightens.
-    const PASSING: &[&str] = &["m2_win_en_toggle"];
+    const PASSING: &[&str] = &[
+        "m2_win_en_toggle",
+        "m3_bgp_change",
+        "m3_lcdc_win_en_change_multiple",
+        "m3_scx_high_5_bits",
+        "m3_window_timing",
+        "m3_window_timing_wx_0",
+        "m3_wx_4_change",
+        "m3_wx_4_change_sprites",
+        "m3_wx_5_change",
+        "m3_wx_6_change",
+    ];
 
     let root = std::env::var("EMU198X_GB_MEALYBUG_ROOT")
         .expect("set EMU198X_GB_MEALYBUG_ROOT to the mealybug ppu/ dir");
