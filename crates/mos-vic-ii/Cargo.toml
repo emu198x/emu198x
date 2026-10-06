@@ -1,6 +1,6 @@
 [package]
 name = "mos-vic-ii"
-description = "MOS 6569 PAL / 6567 NTSC VIC-II video chip for Commodore systems"
+description = "MOS 6569/8565 PAL and 6567/8562 NTSC VIC-II video chip for Commodore systems"
 edition.workspace = true
 version.workspace = true
 publish = false

@@ -1010,20 +1010,40 @@ fn sprite_sequencer_spritedma_parity() {
     );
 }
 
-/// Colour-register pipeline programs on the PAL 6569, each with the number
-/// of disagreements it retains against its VICE x64sc reference.
-const COLOUR_PIPELINE_CASES: &[(&str, &str, &str, usize)] = &[
+/// Colour-register pipeline programs, each run on the PAL chip its reference
+/// was made for (the 6569 in the breadbin, the 8565 in the C64C) with the
+/// number of disagreements it retains against that reference. The 8565's
+/// `colorsplit` keeps eight more than the 6569's, all at x = 192 on the
+/// XSCROLL rows: four rows show a grey dot the reference lacks and four lack
+/// one it shows, because those rows keep the previous test's scroll.
+const COLOUR_PIPELINE_CASES: &[(&str, Model, &str, &str, usize)] = &[
     (
         "greydot 6569",
+        Model::C64PalBreadbin,
         "greydot/greydot.prg",
         "greydot/references/greydot.prg.png",
         0,
     ),
     (
+        "greydot 8565",
+        Model::C64cPal,
+        "greydot/greydot.prg",
+        "greydot/references/greydot.prg-8565.png",
+        0,
+    ),
+    (
         "colorsplit 6569",
+        Model::C64PalBreadbin,
         "colorsplit/colorsplit.prg",
         "colorsplit/references/colorsplit.prg.png",
         952,
+    ),
+    (
+        "colorsplit 8565",
+        Model::C64cPal,
+        "colorsplit/colorsplit.prg",
+        "colorsplit/references/colorsplit.prg-8565.png",
+        960,
     ),
 ];
 
@@ -1037,9 +1057,10 @@ fn colorsplit_xscroll_row(y: u32) -> bool {
         || ((140..=196).contains(&y) && (y - 140).is_multiple_of(8))
 }
 
-/// A colour-register write reaches the screen through the colour stage. On
-/// the 6569 the first dot of the cell it changes keeps the old colour,
-/// because that dot is resolved one cycle early. `greydot` matches its
+/// A colour-register write reaches the screen through the colour stage, and
+/// the first dot of the cell it changes is chip-specific. The 6569 keeps the
+/// old colour there, because it resolves that dot one cycle early. The 8565
+/// shows light grey (`$F`): the grey dot. `greydot` matches each chip's
 /// reference exactly; `colorsplit` matches at every colour transition, and
 /// its only disagreements sit on the rows that change XSCROLL mid-line.
 #[test]
@@ -1050,9 +1071,9 @@ fn colour_register_pipeline_matches_vice_references() {
     }
     let dir = testbench_dir().expect("checked");
     let mut failures = Vec::new();
-    for &(label, prg, refpng, retained) in COLOUR_PIPELINE_CASES {
+    for &(label, model, prg, refpng, retained) in COLOUR_PIPELINE_CASES {
         let reference = decode_reference_png(&dir.join(refpng));
-        let framebuffer = run_testprog(prg, 60);
+        let framebuffer = run_testprog_on(prg, 60, model, TIMING_PAL_BREADBIN.cycles_per_frame);
         let comparison = compare_indexed(&framebuffer, &reference, VICE_CROP_X, VICE_CROP_Y);
         let mismatches = indexed_mismatches(&comparison, &reference);
         let outside: Vec<_> = mismatches

@@ -13,6 +13,10 @@ use serde::{Deserialize, Serialize};
 use crate::drives::IecDriveSnapshot;
 use crate::runtime::C64Runtime;
 
+/// Version 12 adds the VIC-II's chip revision, which selects the colour
+/// stage's first-dot rule: the NMOS 6567/6569 keep the old colour, the
+/// HMOS-II 8562/8565 show the grey dot (stage 3a-D, #796).
+///
 /// Version 11 adds the VIC-II's two-tick colour stage: the two rendered cells
 /// awaiting colour-register and border resolution, the colour-register write
 /// since the last tick, and VICE's main border flip-flop with its two-tick
@@ -54,7 +58,7 @@ use crate::runtime::C64Runtime;
 /// Version 2 moved from the fixed 1541-plus-1581 pair to a per-port array of
 /// model-tagged drive snapshots (IEC devices 8–11), so a snapshot records
 /// whichever drive the user chose on each port.
-const SNAPSHOT_VERSION: u32 = 11;
+const SNAPSHOT_VERSION: u32 = 12;
 
 /// Persistable C64 runtime envelope. Wraps the machine's chip snapshot with the
 /// surrounding runtime context (model identifier, time, the live IEC bus state,

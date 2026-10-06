@@ -3,6 +3,7 @@
 mod common;
 
 use emu198x_shell::{HostIo, MachineCore, MachineError, MachineTime, NullAudioSink, NullTraceSink};
+use mos_vic_ii::palette::PALETTE;
 use runtime_commodore_c64::{C64Runtime, Model};
 
 use common::{FrameCollector, blank_firmware, blank_firmware_with_drive};
@@ -502,11 +503,11 @@ fn restore_rejects_old_schema_before_decoding_its_payload() {
     let mut runtime = C64Runtime::from_firmware(Model::C64PalBreadbin, &blank_firmware())
         .expect("blank C64 firmware should construct a runtime");
     let err = runtime
-        .restore(&[10])
-        .expect_err("version 10 snapshot should be rejected before payload decode");
+        .restore(&[11])
+        .expect_err("version 11 snapshot should be rejected before payload decode");
     assert!(
         matches!(err, MachineError::InvalidSnapshot { ref reason }
-            if reason == "unsupported snapshot version 10; expected 11"),
+            if reason == "unsupported snapshot version 11; expected 12"),
         "unexpected error variant: {err:?}",
     );
 }
@@ -547,35 +548,43 @@ fn restore_rejects_snapshot_from_different_profile() {
 
 /// A snapshot taken between a colour-register write and the two ticks that
 /// resolve the cells already rendered keeps the colour stage: those cells
-/// and the write's first-dot exception come back identical.
+/// and the write's first-dot exception come back identical, on the 6569's
+/// old colour and on the 8565's grey dot alike.
 #[test]
 fn snapshot_round_trip_preserves_the_colour_stage() {
-    let mut runtime = C64Runtime::from_firmware(Model::C64PalBreadbin, &blank_firmware())
-        .expect("blank C64 firmware should construct a runtime");
-    let machine = runtime.machine_mut();
-    machine.cpu_write(0xD020, 0x02);
-    while machine.raster_line() != 100 || machine.cycle_in_line() != 61 {
-        machine.tick();
-    }
-    // The right-border cells of cycles 59 and 60 wait for their colours.
-    // This write changes them, except the first dot of the older one.
-    machine.cpu_write(0xD020, 0x05);
+    // (model, the first dot of the written cell: old red or light grey)
+    for (model, first_dot) in [
+        (Model::C64PalBreadbin, PALETTE[0x02]),
+        (Model::C64cPal, PALETTE[0x0F]),
+    ] {
+        let mut runtime = C64Runtime::from_firmware(model, &blank_firmware())
+            .expect("blank C64 firmware should construct a runtime");
+        let machine = runtime.machine_mut();
+        machine.cpu_write(0xD020, 0x02);
+        while machine.raster_line() != 100 || machine.cycle_in_line() != 61 {
+            machine.tick();
+        }
+        // The right-border cells of cycles 59 and 60 wait for their colours.
+        // This write changes them, except the first dot of the older one.
+        machine.cpu_write(0xD020, 0x05);
 
-    let snapshot = runtime
-        .snapshot()
-        .expect("mid-line C64 runtime should snapshot");
-    let mut expected = runtime.machine().clone();
-    let mut restored = C64Runtime::blank(Model::C64PalBreadbin);
-    restored
-        .restore(&snapshot)
-        .expect("mid-line snapshot should restore");
+        let snapshot = runtime
+            .snapshot()
+            .expect("mid-line C64 runtime should snapshot");
+        let mut expected = runtime.machine().clone();
+        let mut restored = C64Runtime::blank(model);
+        restored
+            .restore(&snapshot)
+            .expect("mid-line snapshot should restore");
 
-    for _ in 0..4 {
-        assert_eq!(restored.machine_mut().tick(), expected.tick());
-        assert_eq!(restored.machine().framebuffer(), expected.framebuffer());
+        for _ in 0..4 {
+            assert_eq!(restored.machine_mut().tick(), expected.tick());
+            assert_eq!(restored.machine().framebuffer(), expected.framebuffer());
+        }
+        // Cycle 59's cell: dot 0 is chip-specific, dots 1-7 take the new.
+        let row = 100 * 416 + (59 - 10) * 8;
+        let cell = &expected.framebuffer()[row..row + 8];
+        assert_eq!(cell[0], first_dot, "{model:?}: first dot");
+        assert_eq!(cell[1..], [PALETTE[0x05]; 7], "{model:?}: dots 1-7");
     }
-    // Cycle 59's cell: dot 0 keeps the old colour, dots 1-7 take the new.
-    let row = 100 * 416 + (59 - 10) * 8;
-    let cell = &expected.framebuffer()[row..row + 8];
-    assert_ne!(cell[0], cell[1], "the write reached the pending cell");
 }

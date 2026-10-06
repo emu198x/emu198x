@@ -401,8 +401,12 @@ impl C64 {
         cia2.write(0x00, 0x03);
 
         let vic_model = match config.model {
-            C64Model::PalBreadbin | C64Model::PalC64c => VicModel::Pal6569,
-            C64Model::NtscBreadbin | C64Model::NtscC64c => VicModel::Ntsc6567,
+            C64Model::PalBreadbin => VicModel::Pal6569,
+            C64Model::NtscBreadbin => VicModel::Ntsc6567,
+            // The C64C carries the HMOS-II VIC-II: the 8565 in PAL machines
+            // and the 8562 in NTSC ones.
+            C64Model::PalC64c => VicModel::Pal8565,
+            C64Model::NtscC64c => VicModel::Ntsc8562,
         };
         let mut vic = Vic::new(vic_model);
         vic.set_bank(0);
@@ -1945,6 +1949,18 @@ mod tests {
         let c64c = stub_machine(C64Model::PalC64c);
         assert_eq!(c64c.cia1().model(), CiaModel::Mos6526A);
         assert_eq!(c64c.cia2().model(), CiaModel::Mos6526A);
+    }
+
+    #[test]
+    fn c64c_model_selects_the_hmos_vic_ii() {
+        for (model, vic) in [
+            (C64Model::PalBreadbin, VicModel::Pal6569),
+            (C64Model::NtscBreadbin, VicModel::Ntsc6567),
+            (C64Model::PalC64c, VicModel::Pal8565),
+            (C64Model::NtscC64c, VicModel::Ntsc8562),
+        ] {
+            assert_eq!(stub_machine(model).vic().model(), vic, "{model:?}");
+        }
     }
 
     #[test]

@@ -1,4 +1,4 @@
-//! MOS 6569 PAL / 6567 NTSC VIC-II video chip.
+//! MOS 6569/8565 PAL and 6567/8562 NTSC VIC-II video chip.
 //!
 //! The VIC-II is the C64's video chip. It drives the dot clock, owns
 //! video memory reads, renders text / bitmap / sprites to an ARGB
@@ -171,6 +171,12 @@ pub enum VicModel {
     Ntsc6567,
     /// NTSC 6567R56A (early NTSC): 262 lines, 64 cycles per line.
     Ntsc6567R56A,
+    /// PAL 8565 (HMOS-II, C64C): the 6569's timing with the grey-dot colour
+    /// stage.
+    Pal8565,
+    /// NTSC 8562 (HMOS-II, C64C): the 6567R8's timing with the grey-dot
+    /// colour stage.
+    Ntsc8562,
 }
 
 impl VicModel {
@@ -178,8 +184,8 @@ impl VicModel {
     #[must_use]
     pub const fn lines_per_frame(self) -> u16 {
         match self {
-            Self::Pal6569 => 312,
-            Self::Ntsc6567 => 263,
+            Self::Pal6569 | Self::Pal8565 => 312,
+            Self::Ntsc6567 | Self::Ntsc8562 => 263,
             Self::Ntsc6567R56A => 262,
         }
     }
@@ -188,8 +194,8 @@ impl VicModel {
     #[must_use]
     pub const fn cycles_per_line(self) -> u8 {
         match self {
-            Self::Pal6569 => 63,
-            Self::Ntsc6567 => 65,
+            Self::Pal6569 | Self::Pal8565 => 63,
+            Self::Ntsc6567 | Self::Ntsc8562 => 65,
             Self::Ntsc6567R56A => 64,
         }
     }
@@ -200,10 +206,26 @@ impl VicModel {
     /// because the NTSC variants' extra cycles are inserted there.
     const fn sprite_timing(self) -> SpriteTiming {
         match self {
-            Self::Pal6569 => SPRITE_TIMING_PAL,
-            Self::Ntsc6567 => SPRITE_TIMING_NTSC,
+            Self::Pal6569 | Self::Pal8565 => SPRITE_TIMING_PAL,
+            Self::Ntsc6567 | Self::Ntsc8562 => SPRITE_TIMING_NTSC,
             Self::Ntsc6567R56A => SPRITE_TIMING_NTSC_R56A,
         }
+    }
+
+    /// Whether a colour-register write shows the HMOS-II grey dot.
+    ///
+    /// Both families resolve dots 1-7 of a cell after the CPU writes of the
+    /// two following cycles; they differ on dot 0. The NMOS 6567/6569 resolve
+    /// it one cycle earlier, so a dot naming the register just written keeps
+    /// the old colour. The HMOS-II 8562/8565 resolve it with the other seven
+    /// but show light grey (`$F`) when its source is the register written in
+    /// that cycle. VICE x64sc models the split as `color_latency`
+    /// (`viciisc/vicii-chip-model.c`), drawn by `draw_colors_6569` and
+    /// `draw_colors_8565` (`viciisc/vicii-draw-cycle.c`); the testbench's
+    /// `greydot` and `colorsplit` programs carry a reference for each family.
+    #[must_use]
+    pub const fn has_grey_dot(self) -> bool {
+        matches!(self, Self::Pal8565 | Self::Ntsc8562)
     }
 }
 
@@ -302,8 +324,8 @@ impl CellPixels {
 }
 
 /// A CPU write to a colour register (`$D020`-`$D02E`) made after the most
-/// recent tick. The colour stage resolves the first dot of a cell one tick
-/// before its other seven, so it does not yet see this write.
+/// recent tick. The colour stage treats the first dot of the oldest cell
+/// specially when it names this register; see [`VicModel::has_grey_dot`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 struct ColourRegisterWrite {
     /// The register written, as its symbolic source `$20`-`$2E`.
@@ -493,6 +515,10 @@ pub struct Vic {
     colour_stage: [Option<PendingCell>; 2],
     /// The colour-register write made since the last tick.
     colour_write: Option<ColourRegisterWrite>,
+    /// The chip revision. It selects the first-dot rule of the colour stage
+    /// ([`VicModel::has_grey_dot`]); the timing it implies is held in the
+    /// fields above.
+    model: VicModel,
 }
 
 impl Vic {
@@ -500,10 +526,12 @@ impl Vic {
     #[must_use]
     pub fn new(model: VicModel) -> Self {
         let (first_vis, last_vis) = match model {
-            VicModel::Pal6569 => (PAL_FIRST_VISIBLE_LINE, PAL_LAST_VISIBLE_LINE),
-            // Both NTSC variants share the visible-line window; R56A has one
+            VicModel::Pal6569 | VicModel::Pal8565 => {
+                (PAL_FIRST_VISIBLE_LINE, PAL_LAST_VISIBLE_LINE)
+            }
+            // The NTSC variants share the visible-line window; R56A has one
             // fewer total line but the same displayed region.
-            VicModel::Ntsc6567 | VicModel::Ntsc6567R56A => {
+            VicModel::Ntsc6567 | VicModel::Ntsc6567R56A | VicModel::Ntsc8562 => {
                 (NTSC_FIRST_VISIBLE_LINE, NTSC_LAST_VISIBLE_LINE)
             }
         };
@@ -568,7 +596,14 @@ impl Vic {
             display_border_history: [true; 2],
             colour_stage: [None; 2],
             colour_write: None,
+            model,
         }
+    }
+
+    /// The chip revision this VIC-II models.
+    #[must_use]
+    pub const fn model(&self) -> VicModel {
+        self.model
     }
 
     /// Tick the VIC-II for one `phi2` cycle.
@@ -1156,9 +1191,11 @@ impl Vic {
     /// lag) and resolves dots 1-7 in the cycle after that, so they see the
     /// CPU writes of both following cycles. That is now: this tick has not
     /// run its CPU access yet, so the registers hold every write up to the
-    /// previous cycle. The NMOS 6567/6569 resolve dot 0 one cycle earlier
-    /// (`draw_colors_6569` in `viciisc/vicii-draw-cycle.c`), so a dot naming
-    /// the register written in the previous cycle still shows its old value.
+    /// previous cycle. Dot 0 differs by chip when it names the register
+    /// written in the previous cycle ([`VicModel::has_grey_dot`]). The NMOS
+    /// 6567/6569 resolve it one cycle earlier (`draw_colors_6569` in
+    /// `viciisc/vicii-draw-cycle.c`), so it still shows the old value. The
+    /// HMOS-II 8562/8565 show light grey there (`draw_colors_8565`).
     fn resolve_oldest_cell(&mut self) {
         let Some(mut cell) = self.colour_stage[0].take() else {
             return;
@@ -1170,7 +1207,12 @@ impl Vic {
             };
             let colour = match self.colour_write {
                 Some(write) if px == 0 && write.register == source => {
-                    PALETTE[usize::from(write.previous & 0x0F)]
+                    let colour_index = if self.model.has_grey_dot() {
+                        0x0F
+                    } else {
+                        write.previous & 0x0F
+                    };
+                    PALETTE[usize::from(colour_index)]
                 }
                 _ => self.resolve_colour_source(source),
             };
@@ -3711,6 +3753,73 @@ mod tests {
             assert_eq!(vic.resolve_colour_source(register), PALETTE[5]);
         }
         assert_eq!(vic.resolve_colour_source(0x07), PALETTE[7]);
+    }
+
+    /// Write `register` = `value` between two ticks in the top border, then
+    /// return the eight dots of the cell the next tick resolves.
+    fn border_cell_after_colour_write(model: VicModel, register: u8, value: u8) -> [u32; 8] {
+        let (mut vic, memory) = make_vic_and_memory_model(model);
+        vic.regs[0x20] = 0x02;
+        vic.regs[0x21] = 0x06;
+        advance_until(&mut vic, &memory, 10, 30);
+        vic.write(register, value);
+        let cell = vic.colour_stage[0].expect("a cell is waiting in the colour stage");
+        tick_vic(&mut vic, &memory);
+        let mut dots = [0; 8];
+        dots.copy_from_slice(&vic.framebuffer[cell.fb_offset..cell.fb_offset + 8]);
+        dots
+    }
+
+    #[test]
+    fn colour_write_first_dot_follows_the_chip_revision() {
+        let mut nmos = [PALETTE[5]; 8];
+        nmos[0] = PALETTE[2];
+        let mut hmos = [PALETTE[5]; 8];
+        hmos[0] = PALETTE[0x0F];
+        for (model, expected) in [
+            (VicModel::Pal6569, nmos),
+            (VicModel::Ntsc6567, nmos),
+            (VicModel::Ntsc6567R56A, nmos),
+            (VicModel::Pal8565, hmos),
+            (VicModel::Ntsc8562, hmos),
+        ] {
+            assert_eq!(
+                border_cell_after_colour_write(model, 0x20, 0x05),
+                expected,
+                "{model:?}: the 6567/6569 keep the old colour on dot 0, the 8562/8565 show grey"
+            );
+        }
+    }
+
+    #[test]
+    fn grey_dot_needs_the_written_register_not_a_new_value() {
+        // Rewriting the border's own colour still shows the grey dot.
+        let mut same = [PALETTE[2]; 8];
+        same[0] = PALETTE[0x0F];
+        assert_eq!(
+            border_cell_after_colour_write(VicModel::Pal8565, 0x20, 0x02),
+            same
+        );
+        // The border is chosen before the colour registers are resolved, so
+        // a write to the background register leaves a border dot alone.
+        assert_eq!(
+            border_cell_after_colour_write(VicModel::Pal8565, 0x21, 0x05),
+            [PALETTE[2]; 8]
+        );
+    }
+
+    #[test]
+    fn hmos_models_share_their_nmos_timing() {
+        for (hmos, nmos) in [
+            (VicModel::Pal8565, VicModel::Pal6569),
+            (VicModel::Ntsc8562, VicModel::Ntsc6567),
+        ] {
+            assert_eq!(hmos.lines_per_frame(), nmos.lines_per_frame());
+            assert_eq!(hmos.cycles_per_line(), nmos.cycles_per_line());
+            assert_eq!(hmos.sprite_timing().paccess, nmos.sprite_timing().paccess);
+            assert!(hmos.has_grey_dot() && !nmos.has_grey_dot());
+            assert_eq!(Vic::new(hmos).model(), hmos);
+        }
     }
 
     // ----- Cov-5c wave 2: directed coverage tests -----

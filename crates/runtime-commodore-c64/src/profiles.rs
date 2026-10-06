@@ -8,8 +8,9 @@ use emu198x_shell::{
 
 /// Supported C64 models in the fresh workspace bootstrap.
 ///
-/// The breadbin and C64C variants share timing and VIC-II; the C64C differs in
-/// carrying the MOS 8580 SID rather than the breadbin's 6581.
+/// The breadbin and C64C variants share timing; the C64C carries the HMOS-II
+/// VIC-II (8565 PAL, 8562 NTSC) and the MOS 8580 SID rather than the
+/// breadbin's 6569/6567 and 6581.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Model {
     /// Commodore 64 PAL breadbin (MOS 6581 SID).
