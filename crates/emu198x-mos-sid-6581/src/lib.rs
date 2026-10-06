@@ -69,9 +69,17 @@ use serde::{Deserialize, Serialize};
 /// zero at once; that changes any voice whose waveform is cleared while its
 /// envelope is still open.
 ///
+/// **Version 6** (2026-10-06, issue #769): the noise waveform reads the
+/// die-photo shift-register taps (bits 20, 18, 14, 11, 9, 5, 2, 0, not
+/// 22, 20, 16, 13, 11, 7, 4, 2), which moves every noise voice's sequence
+/// by two shifts. 8580 combined waveforms read the sampled 8580 tables
+/// instead of a bitwise AND. Noise+pulse pulls bits down per model, and
+/// noise combined with another waveform writes its zeros back into the
+/// shift register, locking it at zero until TEST refills it.
+///
 /// See `knowledge/decisions/c64-architecture-review.md` Seam 4 for
 /// the re-capture discipline this constant enforces.
-pub const AUDIO_ROUTING_VERSION: u32 = 5;
+pub const AUDIO_ROUTING_VERSION: u32 = 6;
 
 /// Data-bus hold time in cycles (see [`Sid6581::drive_bus`]).
 const DATABUS_TTL_6581: u32 = 0x1D00;

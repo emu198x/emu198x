@@ -113,6 +113,15 @@ The PAL 6569 `greydot` reference does not establish 8565 grey-dot behaviour.
   are reSID's; reSIDfp's warm-chip figures differ and the programs' readmes
   report wide chip-to-chip spread, so they bound the behaviour rather than
   pin one chip.
+- Combined waveforms and the noise write-back are checked by the same suite
+  against real-chip readings (#769). `wb_testsuite` passes 100 of 110
+  programs; the ten failures are a strict residual that VICE 3.10's reSID
+  shares (it fails 19). `noise_writeback_test1` and the 6581 `wf12nsr`
+  build pass; the 8580 `wf12nsr` build differs in two cells, as reSID's
+  does. `waveforms` records agreement with gpz's real-chip OSC3 readings
+  for each combination; the combined-waveform tables themselves are reSID's
+  OSC3 samples (6581 R1/R3/R4, 8580 R5), so that agreement crosses chips
+  rather than lineage.
 
 ### Determinism and compatibility
 
@@ -231,11 +240,14 @@ Other claim boundaries remain:
 
 - CIA timer and interrupt behaviour is well exercised, but external CNT, SP
   and CIA2 FLAG sources remain approximate or unattached.
-- SID 8580 combined waveforms and the noise lock-up from combined waveforms
-  (#769), the two-cycle noise shift pipeline, the one-cycle pulse compare
-  delay and the 8580's delayed OSC3 and register writes are not modelled.
-  Open-bus decay, TEST drift, ring-modulation polarity and the floating DAC
-  input follow reSID since #777.
+- The SID's two-cycle noise shift pipeline, one-cycle pulse compare delay,
+  the 8580's delayed OSC3 and register writes, and the 6581's
+  sawtooth-combined MSB pull-down are not modelled (#1606). The pipeline
+  keeps `noise_writeback_test2` and the timing-sensitive OSC3 samplings
+  short of the chips. Open-bus decay, TEST drift, ring-modulation polarity
+  and the floating DAC input follow reSID since #777; combined waveforms
+  for both models, the noise taps, the noise+pulse pull-down and the
+  combined-waveform noise write-back since #769.
 - Ultimax unmapped reads do not yet model the required open-bus behaviour.
 - Invalid matrix accesses deliberately do not update the simplified
   `last_bus_data` latch. The effect of disconnected Phi2 activity on that
@@ -603,6 +615,7 @@ evidence, or an explicit expansion of the supported configuration claim.
 | 2026-08-13 | 3. Far-edge C-data and hidden-output counter state | Commit `70cd523b` keeps two resident output cells visually hidden; only the first following idle g-access suppresses VC/VMLI, while the active g-access behind the second advances them. A bounded 12-bit carry network replaces the fixture-specific displaced-slot repair. `sequencer-bug` rises from 104,394 to 104,418 matching pixels; the full survey confirms it is the only changed hash and all five `colorfetchbug` programs remain exact. The strict lane retains 30 disagreements: two colour-ring dots and a 28-pixel outline at the active-g-access/delayed-output boundary. The higher 104,446 two-suppression experiment is rejected because it contradicts Hoxs64's hidden counter state. Snapshot version 8 preserves the output delay and live carry, and frame-routing version 7 identifies the output contract. All 13 catalogue entries pass ordinary and fresh-runtime snapshot replay. The colour-resolution ring, output-stage split and separate post-badline `videomode` phase-accounting lead remain open. |
 | 2026-10-06 | SID waveform generator (#777) | The pulse comparator drives high while `acc >= PW` (it was inverted), ring modulation substitutes `MSB EOR NOT source-MSB` and is blocked by sawtooth, the triangle's DAC bit 0 is grounded, TEST lets the noise register drift to all ones instead of reseeding it each cycle, write-only reads return the decaying data-bus value, and a deselected waveform leaves the DAC input floating and fading. VICE `ringmod`, `busvalue`, `osc3-wave0` and `bitfade` programs pass on the 6581 and 8580 models. Snapshot version 9 carries the new state; audio routing version 5 re-captures the eight music entries' audio hashes, with every frame hash and the five silent entries unchanged. All 13 entries pass ordinary and fresh-runtime snapshot replay. |
 | 2026-10-06 | 3a. Raster-edge phase (#796) | Planned. A dot-0 colour rule matched `greydot` on both chips but left 51 wrong pixels in each `colorfetchbug` program. The cause: the CPU sees the line edge and raster IRQ 2 cycles early, and colour writes reach the screen 2 cycles late. A prototype that fixed both took `screenpos` and `videomode` to 100% and regressed `dmadelay`, `sequencer-bug` and `spritefetchbug`. Stages A-D are recorded above; A-C merge as one unit. |
+| 2026-10-06 | SID combined waveforms and noise write-back (#769) | The noise waveform reads the die-photo shift-register taps (20, 18, 14, 11, 9, 5, 2, 0), the 8580 reads reSID's sampled 8580 combined-waveform tables instead of a bitwise AND (the 6581 tables were already reSID's samples, now checked entry by entry), noise+pulse pulls bits down per model, and noise combined with another waveform writes its zeros back into the shift register, locking it until TEST refills it. VICE `wb_testsuite` passes 100 of 110 (none before; VICE 3.10's reSID passes 91), `noise_writeback_test1` and the 6581 `wf12nsr` pass, and 8580 combined-waveform agreement with real-chip OSC3 readings rises from 23/128/169/127 to 215/251/182/242 of 255. Audio routing version 6 re-captures six music entries' audio hashes, five of them from the taps alone; every frame hash is unchanged and all 13 entries pass ordinary and fresh-runtime snapshot replay. |
 
 ## Related Documents
 

@@ -19,7 +19,13 @@ id = "c64"
 # DAC input). Re-captured with `catalogue capture`: the eight music entries'
 # audio hashes changed; every frame hash and the five silent entries' audio
 # hashes stayed the same.
-audio_routing_version = 5
+# Version 6 is #769: die-photo noise taps, 8580 combined-waveform tables,
+# the noise+pulse pull-down and the combined-waveform noise write-back.
+# Re-captured with `catalogue capture`: six music entries' audio hashes
+# changed (five from the noise taps alone, Prince of Persia from the
+# write-back as well); every frame hash and the other seven entries' audio
+# hashes stayed the same.
+audio_routing_version = 6
 # Version 7 adds the PAL 6569 far-edge forced-badline C-data carry network.
 # Two output cells remain hidden, while only the first following G-access
 # suppresses VC/VMLI advancement. The version is advanced even when catalogue
@@ -135,7 +141,7 @@ frame_hash = "xxh64:e0ff7f47c0d722c0"
 # Captures the in-game SID music.
 from_frame = 60
 secs = 2.0
-hash = "xxh64:3fcfdcb3f3ff9d6c"
+hash = "xxh64:cb79e47a9db65c7b"
 
 [[entry]]
 id = "aztec-challenge"
@@ -178,7 +184,7 @@ frame_hash = "xxh64:e69c66d47c38fe97"
 [entry.audio]
 from_frame = 60
 secs = 2.0
-hash = "xxh64:8a093c055b618429"
+hash = "xxh64:0f74133aab245adf"
 
 [[entry]]
 id = "bomb-jack"
@@ -212,7 +218,7 @@ frame_hash = "xxh64:59cbde0e3e4589d8"
 [entry.audio]
 from_frame = 60
 secs = 2.0
-hash = "xxh64:01ec4e1750239c8e"
+hash = "xxh64:29b2608f442e2232"
 
 [[entry]]
 id = "thing-on-a-spring"
@@ -242,7 +248,7 @@ frame_hash = "xxh64:76d04c00d01ea0d0"
 # music plays here — this window is no longer silent.
 from_frame = 60
 secs = 2.0
-hash = "xxh64:c76d821a616c38c9"
+hash = "xxh64:d530edeab0dd5b95"
 
 [[entry]]
 id = "wizball"
@@ -403,7 +409,7 @@ frame_hash = "xxh64:b562e1cd4a4a3a34"
 # music plays before the boot waypoint).
 from_frame = 60
 secs = 2.0
-hash = "xxh64:9d890f5c0ed37ff8"
+hash = "xxh64:0c8eb1c9ea2d81da"
 
 [[entry]]
 id = "final-cartridge-iii"
@@ -577,4 +583,4 @@ frame_hash = "xxh64:d4fe806e709b5f00"
 # Samples the title screen, where Mark Cooksey's SID tune is playing.
 from_frame = 60
 secs = 2.0
-hash = "xxh64:6ffb0c2dcf97ec30"
+hash = "xxh64:3788947a8bb4f2f0"
