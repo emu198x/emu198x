@@ -870,3 +870,82 @@ jobs:
           name: spectrum-timing-survey-128k
           path: target/accuracy/spectrum-timing-survey-128k/**/report.json
           if-no-files-found: warn
+
+  # The Amstrad CPC's fixture tests: firmware boot, keyboard and tape load,
+  # interrupt and microsecond-grid timing, and SHAKER. They are all
+  # fixture-gated `#[ignore]` tests, so until this job existed nothing ran
+  # them, and #1531's shared Z80 change moved two SHAKER results unseen
+  # (#1602). The ROMs are mirrored under a maintainer decision rather than a
+  # grant; see test-data/accuracy-corpora.md.
+  cpc-fixtures:
+    name: Amstrad CPC (firmware, timing, SHAKER)
+    runs-on: ubuntu-latest
+    needs: preflight
+    if: needs.preflight.outputs.configured == 'true'
+    timeout-minutes: 60
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Read pinned toolchain
+        id: toolchain
+        run: |
+          channel=$(awk -F'"' '/^channel/{print $2}' rust-toolchain.toml)
+          echo "channel=${channel}" >> "$GITHUB_OUTPUT"
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ steps.toolchain.outputs.channel }}
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: nightly-accuracy-cpc
+
+      - name: Install Linux build dependencies
+        # The CPC binary crate pulls in the host audio/input stack
+        # (cpal -> alsa, gilrs -> libudev).
+        run: |
+          apt_opts="-o Acquire::Retries=2 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20"
+          for attempt in 1 2 3; do
+            sudo timeout 120 apt-get $apt_opts update \
+              || echo "::warning::apt-get update attempt ${attempt} incomplete (mirror unreachable)"
+            if sudo timeout 180 apt-get $apt_opts install -y --no-install-recommends \
+                 pkg-config libasound2-dev libudev-dev; then
+              exit 0
+            fi
+            echo "::warning::apt-get install attempt ${attempt} failed; retrying"
+            sleep 10
+          done
+          echo "::error::apt failed after three bounded attempts"
+          exit 1
+
+      - name: Provision corpus from store
+        env:
+          GH_TOKEN: ${{ secrets.ACCURACY_CORPORA_TOKEN }}
+        run: |
+          set -euo pipefail
+          mkdir -p corpora
+          cd corpora
+          gh release download "${CORPORA_TAG}" -R "${CORPORA_REPO}" \
+            -p 'cpc-fixtures.tar.zst' -p 'SHA256SUMS'
+          grep ' cpc-fixtures.tar.zst$' SHA256SUMS | sha256sum -c -
+          tar --zstd -xf 'cpc-fixtures.tar.zst'
+          root="$(pwd)/cpc-fixtures"
+          {
+            echo "EMU198X_CPC_ROM=${root}/roms/cpc464.rom"
+            echo "EMU198X_CPC_6128_ROM=${root}/roms/cpc6128.rom"
+            echo "EMU198X_CPC_ROM_DIR=${root}/roms"
+            echo "EMU198X_CPC_SHAKER_DSK=${root}/shaker26.dsk"
+            echo "EMU198X_CPC_CDT=${root}/ascend.cdt"
+          } >> "$GITHUB_ENV"
+
+      - name: Run the CPC fixture tests
+        # Strict: a fixture that fails to resolve is a failure, not a skip,
+        # so a broken corpus cannot pass as a green night.
+        env:
+          EMU198X_STRICT_FIXTURES: "1"
+        run: |
+          cargo test --release -p machine-amstrad-cpc -p runtime-amstrad-cpc \
+            -p emu198x-amstrad-cpc -- --include-ignored

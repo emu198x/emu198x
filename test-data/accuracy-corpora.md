@@ -30,6 +30,7 @@ locally; the workflow uses the same env-var contract.
 | Open ROMs (C64) | `runtime-commodore-c64` · `openroms_boot` | `EMU198X_ROMS_ROOT` (joins `commodore-c64/`) | github.com/MEGA65/open-roms, prebuilt `bin/` images | GPL-3.0 / LGPL-3.0 — redistribution permitted, licence texts and a source pointer ship beside the ROMs | is firmware — a clean-room C64 BASIC and KERNAL, not Commodore's |
 | Spectrum ROMs (128K, +2, +3) | `machine-sinclair-zx-spectrum-128k` · `boot_test`; `-plus2`, `-plus2a`, `-plus2b`, `-plus3` · `boot_test` | `EMU198X_ROMS_ROOT` (firmware root; each machine joins its own directory onto it) | the machines' own firmware | free to distribute (Amstrad), the same permission the 48K ROM ships under | is firmware — these are the ROMs |
 | z80test | `machine-sinclair-zx-spectrum-48k` · `z80test` | `EMU198X_Z80TEST_DIR` (+ `EMU198X_SPECTRUM_48K_ROM`) | pinned raxoft/z80test 1.2a (`*.tap`); see `test-data/z80test/` | MIT | 48K Spectrum ROM — free (Amstrad), shipped in the tarball |
+| CPC fixtures | `machine-amstrad-cpc` · firmware, timing, `shaker`; `runtime-amstrad-cpc`; `emu198x-amstrad-cpc` | `EMU198X_CPC_ROM`, `EMU198X_CPC_6128_ROM`, `EMU198X_CPC_ROM_DIR`, `EMU198X_CPC_SHAKER_DSK`, `EMU198X_CPC_CDT` | official CPC 464/6128 OS + BASIC and AMSDOS dumps (TOSEC-verified); SHAKER 2.6 (Longshot); Inufuto's *Ascend* | ROMs: Amstrad grant plus a maintainer decision for Locomotive's part (see below), **private store only**; SHAKER and *Ascend* freely circulated | is firmware — these are the ROMs |
 
 The Z80 Tom Harte, FUSE and ZEX harnesses treat their explicit directory
 variables as authoritative. A missing path (or a file where a directory is
@@ -78,10 +79,15 @@ extensions it does not support:
   permission excludes them by name. Debian's review of this same permission
   draws the line in the same place: its `spectrum-roms` package covers 48K,
   128K, +2, +3 and TC2048, and no earlier machine.
-- **The CPC needs a second permission.** Amstrad's grant extends to the CPC
-  ROMs, but parts of that firmware are Locomotive Software's, whose terms
-  are their own and stricter. A CPC ROM is one image containing both, so it
-  cannot be split into the covered half.
+- **The CPC is carried on the maintainer's decision, not on a grant.**
+  Amstrad's grant extends to the CPC ROMs, but parts of that firmware are
+  Locomotive Software's, and no permission from Locomotive's successors is
+  recorded. The CPC 464/6128 ROMs and `shaker26.dsk` are mirrored in the
+  **private** store anyway, so the CPC's fixture tests can run nightly. This
+  is a deliberate exception, made on 2026-10-06 after
+  `shaker_killer_2_scores_on_a_6128` drifted unseen (#1602). It holds only
+  while the store stays private, and it is never a basis for shipping these
+  ROMs publicly.
 
 Neither is a claim that those ROMs may not be used — only that *this*
 permission is not what makes it so, and no other has been established here.
@@ -486,7 +492,7 @@ published or made more widely accessible without a rights review.
 - One `zstd` tarball asset per corpus, named `<artifact>.tar.zst`:
   `harte-6502`, `harte-z80`, `harte-68000`, `sm83`, `dormann-6502`,
   `fuse-z80`, `lorenz-6502` (the Lorenz tarball includes the KERNAL),
-  `z80test`, `spectrum-system-tests`, `zx-spectrum-tests`.
+  `z80test`, `spectrum-system-tests`, `zx-spectrum-tests`, `cpc-fixtures`.
 
   The last three carry ROMs as well as cases: `z80test` ships the free
   (Amstrad-permissioned) 48K ROM the exerciser boots on, and
