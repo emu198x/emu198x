@@ -244,6 +244,85 @@ const GG_ORIGIN_X: u32 = (ACTIVE_WIDTH - GG_WIDTH) / 2;
 const GG_ORIGIN_Y: u32 = (ACTIVE_HEIGHT - GG_HEIGHT) / 2;
 
 // ---------------------------------------------------------------------------
+// CPU access timing
+// ---------------------------------------------------------------------------
+//
+// The CPU does not reach VRAM itself. A data-port access hands the VDP a
+// request, which it performs in a memory cycle the scan engine leaves free.
+// The chip has no wait output, so a program that comes back before the last
+// request was served overtakes it, and a byte is lost. MacDonald saw this
+// with CRAM on an SMS 2 ("Sega Master System VDP documentation", 2002, §15:
+// data "written to the wrong address or [...] not written altogether").
+//
+// What is measured is the limit, not the slots behind it. Sega's Mark III
+// manual (1986, Hardware Reference Manual p. 12) allows 29 T-states between
+// accesses during active video and 16 in vertical blanking, for VRAM and CRAM
+// alike. Both are conservative. On SMS2s, writes 26 Z80 cycles apart are
+// clean (Maxim, SMS Power! topic 10523, 2007) and anything faster corrupts,
+// for VRAM and CRAM but not the address registers (sverx, topic 16298, on
+// tests from 2014). Outside the active display a Z80 cannot write fast enough
+// to lose anything (TmEE, topic 14599, 2013; Maxim, topic 10523).
+//
+// No source gives Mode 4's slot positions. The community figure is one CPU
+// slot every 32 pixels on an active line and one every 4 on a blank one
+// (TmEE, topic 14599; Eke, topic 13374, who calls it speculation carried over
+// from the TMS9918). Windows every 32 dots plus the 7-dot delay this crate's
+// TMS9918 ancestor uses give a longest wait of 6 + 32 = 38 dots: 25 Z80
+// cycles (37.5 dots) can be overtaken, 26 (39) cannot — the measured
+// boundary. The phase of the windows within the line is a choice: they sit
+// at multiples of 32 from the first active pixel. The legacy TMS9918 modes,
+// which this crate does not render, get the same windows.
+//
+// What a late access does is not measured either, and the lineage offers two
+// answers. This follows the Sega-specific evidence. The address register
+// advances at every data-port access: reads can be mixed in with writes "to
+// advance the VRAM address as much as you need", reading "faster than the VDP
+// can provide data", with the data read being garbage (MacDonald, topic
+// 13374, 2011). The pending access keeps the address it was made at, and
+// when its slot comes it stores whatever the one-byte buffer then holds — the
+// latest write's byte (PoorAussie's model, topic 11689, 2009). So a late
+// write lands at the earlier write's address, and its own address is
+// skipped. openMSX's TMS9918 model, used by `ti-tms9918`, instead advances
+// the address once for the pair; that would make fast reads useless for
+// skipping.
+//
+// The Game Gear's CRAM is the exception: MacDonald's program that lost CRAM
+// writes on the SMS 2 "runs fine on a Genesis and Game Gear", so Game Gear
+// CRAM writes land at once.
+
+/// Dots from a CPU data-port access to the earliest memory cycle that can
+/// serve it. With 32-dot windows this puts the boundary where the SMS2
+/// measurements do; see the section comment above.
+const CPU_ACCESS_DELAY_DOTS: u16 = 7;
+
+/// Dots between CPU access windows on an active Mode 4 line.
+const ACTIVE_WINDOW_SPACING: u16 = 32;
+
+/// Dots between CPU access windows on a blank line or with the display off.
+const BLANK_WINDOW_SPACING: u16 = 4;
+
+/// Which CPU access the VDP is holding.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+enum CpuAccessKind {
+    /// Fetch `VRAM[address]` into the buffer.
+    Read,
+    /// Store the buffer at `VRAM[address]`.
+    WriteVram,
+    /// Store the buffer at `CRAM[address]` (Master System only).
+    WriteCram,
+}
+
+/// A CPU access accepted at the data port but not yet performed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+struct PendingAccess {
+    kind: CpuAccessKind,
+    /// The address register as it stood when the access was made.
+    address: u16,
+    /// Dots until the access window that performs it.
+    dots_left: u16,
+}
+
+// ---------------------------------------------------------------------------
 // VDP
 // ---------------------------------------------------------------------------
 
@@ -266,11 +345,20 @@ pub struct SegaVdp {
     status: u8,
 
     // I/O state
+    /// The one-byte data-port buffer: the read-ahead byte for reads, and the
+    /// byte a write is waiting to store. A write loads it at once (MacDonald,
+    /// §3: "writing to the data port will also load the buffer").
     read_buffer: u8,
     address: u16,
     code: u8,
     latch_first: bool,
     latch_value: u8,
+    /// The CPU access waiting for an access window, if any.
+    pending_access: Option<PendingAccess>,
+    /// Data-port accesses that arrived while another was still pending.
+    /// Observation only, so not saved.
+    #[serde(skip)]
+    access_overruns: u64,
 
     // Counters
     v_counter: u16,
@@ -330,6 +418,8 @@ impl SegaVdp {
             code: 0,
             latch_first: true,
             latch_value: 0,
+            pending_access: None,
+            access_overruns: 0,
             v_counter: 0,
             h_counter: 0,
             line_counter: 0,
@@ -513,41 +603,125 @@ impl SegaVdp {
     // I/O
     // -----------------------------------------------------------------------
 
-    /// Read VDP data port ($BE).
+    /// Read VDP data port ($BE). Returns the buffer and asks for the next
+    /// byte, which arrives at the next access window. The address advances
+    /// now.
     pub fn read_data(&mut self) -> u8 {
         self.latch_first = true;
         let result = self.read_buffer;
-        self.read_buffer = self.vram[self.address as usize & 0x3FFF];
-        self.address = (self.address + 1) & 0x3FFF;
+        self.request_cpu_access(CpuAccessKind::Read);
         result
     }
 
-    /// Write VDP data port ($BE).
+    /// Write VDP data port ($BE). The byte goes into the buffer now and to
+    /// VRAM or CRAM at the next access window. The address advances now.
     pub fn write_data(&mut self, value: u8) {
         self.latch_first = true;
+        self.read_buffer = value;
 
-        match self.code {
-            3 => {
-                // CRAM write
-                if self.is_game_gear {
-                    let addr = self.address as usize & 0x3F;
-                    if addr & 1 == 0 {
-                        self.cram_latch = value;
-                    } else {
-                        self.cram[addr & 0xFE] = self.cram_latch;
-                        self.cram[addr] = value;
-                    }
-                } else {
-                    self.cram[self.address as usize & 0x1F] = value;
-                }
+        if self.code == 3 && self.is_game_gear {
+            // Game Gear CRAM takes writes at once (see "CPU access timing").
+            let addr = self.address as usize & 0x3F;
+            if addr & 1 == 0 {
+                self.cram_latch = value;
+            } else {
+                self.cram[addr & 0xFE] = self.cram_latch;
+                self.cram[addr] = value;
             }
-            _ => {
-                // VRAM write
-                self.vram[self.address as usize & 0x3FFF] = value;
+            self.address = (self.address + 1) & 0x3FFF;
+            return;
+        }
+
+        let kind = if self.code == 3 {
+            CpuAccessKind::WriteCram
+        } else {
+            CpuAccessKind::WriteVram
+        };
+        self.request_cpu_access(kind);
+    }
+
+    /// Data-port accesses that arrived before the previous one had been
+    /// performed, since this VDP was created or restored.
+    ///
+    /// Each is a byte the real chip loses or misplaces. Software that
+    /// writes during the active display paces its accesses to keep this at
+    /// zero.
+    #[must_use]
+    pub const fn cpu_access_overruns(&self) -> u64 {
+        self.access_overruns
+    }
+
+    /// Accept a data-port access at the current address, and advance the
+    /// address. If one is already waiting, this one is not performed: the
+    /// waiting access keeps its address and kind, and stores whatever the
+    /// buffer holds when its window comes.
+    fn request_cpu_access(&mut self, kind: CpuAccessKind) {
+        let address = self.address;
+        self.address = (address + 1) & 0x3FFF;
+        if self.pending_access.is_some() {
+            self.access_overruns += 1;
+            return;
+        }
+        self.pending_access = Some(PendingAccess {
+            kind,
+            address,
+            dots_left: self.dots_to_access_window(),
+        });
+    }
+
+    /// Whether the scan engine leaves `dot` of `line` free for the CPU.
+    fn is_access_window(&self, line: u16, dot: u16) -> bool {
+        let active = self.display_enabled() && u32::from(line) < self.active_height;
+        let spacing = if active {
+            ACTIVE_WINDOW_SPACING
+        } else {
+            BLANK_WINDOW_SPACING
+        };
+        dot.is_multiple_of(spacing)
+    }
+
+    /// Dots from now to the first access window at least
+    /// [`CPU_ACCESS_DELAY_DOTS`] away.
+    fn dots_to_access_window(&self) -> u16 {
+        let lines = self.lines_per_frame();
+        let mut line = self.scanline;
+        let mut dot = self.dot;
+        let mut ahead = 0;
+        loop {
+            if ahead >= CPU_ACCESS_DELAY_DOTS && self.is_access_window(line, dot) {
+                return ahead;
+            }
+            ahead += 1;
+            dot += 1;
+            if dot >= DOTS_PER_LINE {
+                dot = 0;
+                line = (line + 1) % lines;
             }
         }
-        self.read_buffer = value;
-        self.address = (self.address + 1) & 0x3FFF;
+    }
+
+    /// Count down to the pending access's window, and perform it there.
+    fn service_cpu_access(&mut self) {
+        let Some(pending) = &mut self.pending_access else {
+            return;
+        };
+        if pending.dots_left > 0 {
+            pending.dots_left -= 1;
+            return;
+        }
+        let pending = *pending;
+        self.pending_access = None;
+        self.perform_cpu_access(pending);
+    }
+
+    /// Perform a CPU access in its window.
+    fn perform_cpu_access(&mut self, access: PendingAccess) {
+        let addr = access.address as usize & 0x3FFF;
+        match access.kind {
+            CpuAccessKind::Read => self.read_buffer = self.vram[addr],
+            CpuAccessKind::WriteVram => self.vram[addr] = self.read_buffer,
+            CpuAccessKind::WriteCram => self.cram[addr & 0x1F] = self.read_buffer,
+        }
     }
 
     /// Read VDP control/status port ($BF).
@@ -586,9 +760,9 @@ impl SegaVdp {
 
         match self.code {
             0 => {
-                // VRAM read setup — pre-fetch
-                self.read_buffer = self.vram[self.address as usize & 0x3FFF];
-                self.address = (self.address + 1) & 0x3FFF;
+                // VRAM read setup. The pre-fetch waits for an access window
+                // like a data-port read.
+                self.request_cpu_access(CpuAccessKind::Read);
             }
             2 => {
                 // Register write
@@ -771,6 +945,10 @@ impl SegaVdp {
     /// correctly. For a static frame the framebuffer is identical to the old
     /// scanline-batched render (both route every pixel through `bg_pixel`).
     pub fn tick(&mut self) -> bool {
+        // A CPU access whose window has come round is performed before this
+        // dot's pixel is fetched.
+        self.service_cpu_access();
+
         if self.scanline == 0 && self.dot == 0 {
             self.fill_border();
             self.latch_frame_registers();
@@ -793,6 +971,11 @@ impl SegaVdp {
     /// Tick one whole scanline (batch render). Kept for tests and any per-line
     /// host; produces identical output to the per-dot path for a static frame.
     pub fn tick_scanline(&mut self) -> bool {
+        // Every access window is less than a line away, so a pending CPU
+        // access is performed within this one.
+        if let Some(pending) = self.pending_access.take() {
+            self.perform_cpu_access(pending);
+        }
         if self.scanline == 0 {
             self.fill_border();
             self.latch_frame_registers();
@@ -1212,7 +1395,9 @@ impl SegaVdp {
     /// code (1) + latch_first (1) + latch_value (1) + cram_latch (1) +
     /// v_counter (2) + h_counter (1) + line_counter (1) + line_irq_pending (1) +
     /// vscroll (1) + active_height (1) + scanline (2) + interrupt (1) +
-    /// frame_count (8) + vram (16384) + cram (64) = 16485 bytes.
+    /// frame_count (8) + vram (16384) + cram (64) + pending access kind
+    /// (1: 0 none, 1 read, 2 VRAM write, 3 CRAM write) + its address (2) +
+    /// dots to its window (2) = 16490 bytes.
     pub fn save_state(&self, out: &mut Vec<u8>) {
         out.extend_from_slice(&self.regs);
         out.push(self.status);
@@ -1234,12 +1419,30 @@ impl SegaVdp {
         out.extend_from_slice(&self.frame_count.to_le_bytes());
         out.extend_from_slice(&self.vram);
         out.extend_from_slice(&self.cram);
+        let (kind, address, dots_left) = match self.pending_access {
+            None => (0, 0, 0),
+            Some(PendingAccess {
+                kind,
+                address,
+                dots_left,
+            }) => {
+                let kind = match kind {
+                    CpuAccessKind::Read => 1,
+                    CpuAccessKind::WriteVram => 2,
+                    CpuAccessKind::WriteCram => 3,
+                };
+                (kind, address, dots_left)
+            }
+        };
+        out.push(kind);
+        out.extend_from_slice(&address.to_le_bytes());
+        out.extend_from_slice(&dots_left.to_le_bytes());
     }
 
     /// Restore VDP state from a byte slice. Returns bytes consumed or error.
     pub fn load_state(&mut self, data: &[u8]) -> Result<usize, String> {
         let needed =
-            11 + 1 + 1 + 2 + 1 + 1 + 1 + 1 + 2 + 1 + 1 + 1 + 1 + 1 + 2 + 1 + 8 + 16384 + 64;
+            11 + 1 + 1 + 2 + 1 + 1 + 1 + 1 + 2 + 1 + 1 + 1 + 1 + 1 + 2 + 1 + 8 + 16384 + 64 + 5;
         if data.len() < needed {
             return Err("SegaVdp state truncated".into());
         }
@@ -1284,6 +1487,23 @@ impl SegaVdp {
         p += 16384;
         self.cram.copy_from_slice(&data[p..p + 64]);
         p += 64;
+        let kind = match data[p] {
+            0 => None,
+            1 => Some(CpuAccessKind::Read),
+            2 => Some(CpuAccessKind::WriteVram),
+            3 => Some(CpuAccessKind::WriteCram),
+            other => return Err(format!("SegaVdp pending access kind {other} is not 0-3")),
+        };
+        p += 1;
+        let address = u16::from_le_bytes([data[p], data[p + 1]]);
+        p += 2;
+        let dots_left = u16::from_le_bytes([data[p], data[p + 1]]);
+        p += 2;
+        self.pending_access = kind.map(|kind| PendingAccess {
+            kind,
+            address,
+            dots_left,
+        });
         Ok(p)
     }
 
@@ -1355,6 +1575,14 @@ mod tests {
         assert_eq!(vdp.regs[1], 0x44);
     }
 
+    /// Give a data-port access time to reach its window. 40 dots covers the
+    /// longest wait, 38.
+    fn settle(vdp: &mut SegaVdp) {
+        for _ in 0..40 {
+            vdp.tick();
+        }
+    }
+
     #[test]
     fn vram_write_and_read() {
         let mut vdp = SegaVdp::new(VdpRegion::Ntsc, VdpVariant::Sms2);
@@ -1362,9 +1590,20 @@ mod tests {
         vdp.write_control(0x00);
         vdp.write_control(0x40);
         vdp.write_data(0xAB);
+        settle(&mut vdp);
         vdp.write_data(0xCD);
+        settle(&mut vdp);
         assert_eq!(vdp.vram[0], 0xAB);
         assert_eq!(vdp.vram[1], 0xCD);
+
+        // Read them back: the setup pre-fetches $0000, each read returns the
+        // buffer and fetches the next byte.
+        vdp.write_control(0x00);
+        vdp.write_control(0x00);
+        settle(&mut vdp);
+        assert_eq!(vdp.read_data(), 0xAB);
+        settle(&mut vdp);
+        assert_eq!(vdp.read_data(), 0xCD);
     }
 
     #[test]
@@ -1374,7 +1613,24 @@ mod tests {
         vdp.write_control(0x00);
         vdp.write_control(0xC0);
         vdp.write_data(0x3F); // White-ish (R=3, G=3, B=3)
+        settle(&mut vdp);
         assert_eq!(vdp.cram[0], 0x3F);
+    }
+
+    #[test]
+    fn a_pending_access_survives_the_legacy_state_bytes() {
+        let mut vdp = SegaVdp::new(VdpRegion::Ntsc, VdpVariant::Sms2);
+        vdp.write_control(0x34);
+        vdp.write_control(0x52); // write $1234
+        vdp.write_data(0x99);
+        assert!(vdp.pending_access.is_some());
+        let mut bytes = Vec::new();
+        vdp.save_state(&mut bytes);
+
+        let mut restored = SegaVdp::new(VdpRegion::Ntsc, VdpVariant::Sms2);
+        assert_eq!(restored.load_state(&bytes), Ok(bytes.len()));
+        settle(&mut restored);
+        assert_eq!(restored.vram[0x1234], 0x99);
     }
 
     #[test]
