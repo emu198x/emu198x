@@ -24,7 +24,7 @@ use common_sinclair_zx_spectrum::io_trace::{IoEvent, IoTrace};
 use common_sinclair_zx_spectrum::memory::MemoryBus;
 use common_sinclair_zx_spectrum::peripheral::Peripheral;
 use common_sinclair_zx_spectrum::snapshot::apply_z80_registers;
-use common_sinclair_zx_spectrum::tape::{TapeBlock, TapePlayer, TapeSpan};
+use common_sinclair_zx_spectrum::tape::{StopRelease, TapeBlock, TapePlayer, TapeSpan};
 use common_sinclair_zx_spectrum::tape_recorder::TapeRecorder;
 use common_sinclair_zx_spectrum::timing::{
     FrameTiming, SCREEN_HEIGHT, SCREEN_WIDTH_HIRES, TIMING_48K,
@@ -91,6 +91,9 @@ pub struct TimexTS2068 {
     /// Kempston Interface joystick. Defaults to unattached.
     pub kempston: KempstonJoystick,
     pub tape: TapePlayer,
+    /// Holds the tape input for one frame after playback stops, then
+    /// releases it to low, as FUSE's `tape_stop_mic_off` does.
+    tape_release: StopRelease,
     /// Captures the MIC line during a SAVE for tape write-back (mirrors the 48K
     /// class). `#[serde(default)]` keeps pre-SAVE snapshots loadable.
     #[serde(default)]
@@ -125,6 +128,7 @@ impl TimexTS2068 {
             keyboard: [0xFF; 8],
             kempston: KempstonJoystick::new(),
             tape: TapePlayer::new(),
+            tape_release: StopRelease::new(),
             recorder: TapeRecorder::new(),
             ay: Ay3_8912::new(ay_hz, AUDIO_SAMPLE_RATE, samples_per_frame),
             audio: BeeperAudio::new(AUDIO_SAMPLE_RATE, timing.tstates_per_frame, cpu_hz),
@@ -257,7 +261,7 @@ impl TimexTS2068 {
         match port & 0xFF {
             0xFE => {
                 let mut val = self.ula.read_fe(port, &self.keyboard);
-                if self.tape.is_playing() {
+                if self.tape.is_playing() || self.tape_release.pending() {
                     val = (val & !0x40) | if self.tape.ear_level() { 0x40 } else { 0x00 };
                 }
                 val
@@ -402,7 +406,8 @@ impl SpectrumDriver for TimexTS2068 {
 
     #[inline(always)]
     fn on_tstate(&mut self, position: common_sinclair_zx_spectrum::timing::FramePosition) {
-        self.tape.advance_tstates(1);
+        let release_after = self.timing().tstates_per_frame;
+        self.tape_release.advance(&mut self.tape, 1, release_after);
         self.recorder.advance(1);
         if position.halfcycles() % 8 == 2 {
             self.ay.tick();
@@ -429,6 +434,43 @@ impl SpectrumDriver for TimexTS2068 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// #1633: a tape that ends with its input high must not leave the
+    /// speaker's EAR input, or port `$FE` bit 6, latched there. FUSE's
+    /// `tape_stop_mic_off` releases it one frame after the tape stops.
+    #[test]
+    fn tape_input_is_released_one_frame_after_the_tape_stops() {
+        let idle_fe = TimexTS2068::new(TimexModel::TC2068).port_read(0x00FE) & 0x40;
+        let mut m = TimexTS2068::new(TimexModel::TC2068);
+        let frame = m.timing().tstates_per_frame;
+        m.load_tape_pulses(vec![1_000]);
+        m.tape_play();
+        m.advance_tstates(1_010);
+        assert!(
+            m.speaker.ear,
+            "the single pulse drained the tape and left the input high"
+        );
+        let held_fe = m.port_read(0x00FE) & 0x40;
+
+        m.advance_tstates(frame - 20);
+        assert!(
+            m.speaker.ear,
+            "the input is held for a frame after the stop"
+        );
+        assert_eq!(
+            m.port_read(0x00FE) & 0x40,
+            held_fe,
+            "and so is port $FE bit 6"
+        );
+
+        m.advance_tstates(20);
+        assert!(!m.speaker.ear, "one frame after the stop it is released");
+        assert_eq!(
+            m.port_read(0x00FE) & 0x40,
+            idle_fe,
+            "and port $FE bit 6 reads as it does with no tape"
+        );
+    }
 
     #[test]
     fn pal_variant_uses_48k_timing() {

@@ -1604,6 +1604,32 @@ mod tests {
     }
 
     #[test]
+    fn a_drained_tape_keeps_its_level_on_the_cassette_line() {
+        // The Spectrum family releases its tape input a frame after the
+        // tape stops (common-tape's `StopRelease`, after FUSE). The CPC does
+        // not opt in until someone checks the hardware, so a tape that ends
+        // high stays high on port B bit 7.
+        let mut cpc = AmstradCpc::new(&test_firmware()).expect("build");
+        cpc.insert_tape(vec![TapeSpan::Pulse(100)]);
+        cpc.io_write(0xF600, 0x10);
+        for _ in 0..200 {
+            cpc.tick_tstate();
+        }
+        assert!(
+            !cpc.tape().is_playing(),
+            "the single pulse drained the tape"
+        );
+        assert!(cpc.tape().ear_level(), "and left the level high");
+        for _ in 0..200_000 {
+            cpc.tick_tstate();
+        }
+        assert!(
+            cpc.tape().ear_level(),
+            "nearly three frames later the level is still held"
+        );
+    }
+
+    #[test]
     fn the_cassette_line_reaches_port_b_bit_7() {
         // Bit 7 is the only way a CPC hears its tape. A machine that never
         // presents the level boots and types perfectly and loads nothing.

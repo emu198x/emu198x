@@ -25,7 +25,7 @@ use common_sinclair_zx_spectrum::keyboard::KeyboardMatrix;
 use common_sinclair_zx_spectrum::memory::{MemoryBus, Spectrum16kMemory, Spectrum48kMemory};
 use common_sinclair_zx_spectrum::peripheral::Peripheral;
 use common_sinclair_zx_spectrum::snapshot::{Snapshot, apply_48k_pages, apply_z80_registers};
-use common_sinclair_zx_spectrum::tape::{TapeBlock, TapePlayer, TapeSpan};
+use common_sinclair_zx_spectrum::tape::{StopRelease, TapeBlock, TapePlayer, TapeSpan};
 use common_sinclair_zx_spectrum::tape_recorder::TapeRecorder;
 use common_sinclair_zx_spectrum::timing::{
     FramePosition, FrameTiming, SCREEN_HEIGHT, SCREEN_WIDTH, TIMING_48K,
@@ -74,6 +74,9 @@ pub struct SpectrumMachineCore<M: MemoryBus, V: Variant48kClass> {
     /// disconnected port reads floating bus, not zero).
     pub kempston: KempstonJoystick,
     tape: TapePlayer,
+    /// Holds the tape input for one frame after playback stops, then
+    /// releases it to low, as FUSE's `tape_stop_mic_off` does.
+    tape_release: StopRelease,
     /// Captures the MIC line during a `SAVE` so the signal can be flushed back
     /// to a writable tape file. `#[serde(default)]` keeps older snapshots
     /// (written before tape SAVE) loadable.
@@ -113,6 +116,7 @@ impl<M: MemoryBus, V: Variant48kClass> SpectrumMachineCore<M, V> {
             keyboard: KeyboardMatrix::new(),
             kempston: KempstonJoystick::new(),
             tape: TapePlayer::new(),
+            tape_release: StopRelease::new(),
             recorder: TapeRecorder::new(),
             tape_input: TapeInput::new(),
             audio,
@@ -558,7 +562,7 @@ impl<M: MemoryBus, V: Variant48kClass> SpectrumMachineCore<M, V> {
     fn current_tape_level(&self) -> Option<bool> {
         if self.tape_input.connected() {
             Some(self.tape_input.level())
-        } else if self.tape.is_playing() {
+        } else if self.tape.is_playing() || self.tape_release.pending() {
             Some(self.tape.ear_level())
         } else {
             None
@@ -645,7 +649,8 @@ impl<M: MemoryBus, V: Variant48kClass> SpectrumDriver for SpectrumMachineCore<M,
 
     #[inline(always)]
     fn on_tstate(&mut self, _position: common_sinclair_zx_spectrum::timing::FramePosition) {
-        self.tape.advance_tstates(1);
+        let release_after = TIMING_48K.tstates_per_frame;
+        self.tape_release.advance(&mut self.tape, 1, release_after);
         self.recorder.advance(1);
         self.sync_ear_level();
     }
@@ -759,6 +764,43 @@ impl Default for SpectrumMachineCore<Spectrum16kMemory, crate::variant::Spectrum
 mod tests {
     use super::*;
 
+    /// #1633: a tape that ends with its input high must not leave the
+    /// speaker's EAR input, or port `$FE` bit 6, latched there. FUSE's
+    /// `tape_stop_mic_off` releases it one frame after the tape stops.
+    #[test]
+    fn tape_input_is_released_one_frame_after_the_tape_stops() {
+        let idle_fe = Spectrum48k::new().read_fe(0x00FE) & 0x40;
+        let mut m = Spectrum48k::new();
+        let frame = TIMING_48K.tstates_per_frame;
+        m.load_tape_pulses(vec![1_000]);
+        m.play_tape();
+        m.advance_tstates(1_010);
+        assert!(
+            m.speaker.ear,
+            "the single pulse drained the tape and left the input high"
+        );
+        let held_fe = m.read_fe(0x00FE) & 0x40;
+
+        m.advance_tstates(frame - 20);
+        assert!(
+            m.speaker.ear,
+            "the input is held for a frame after the stop"
+        );
+        assert_eq!(
+            m.read_fe(0x00FE) & 0x40,
+            held_fe,
+            "and so is port $FE bit 6"
+        );
+
+        m.advance_tstates(20);
+        assert!(!m.speaker.ear, "one frame after the stop it is released");
+        assert_eq!(
+            m.read_fe(0x00FE) & 0x40,
+            idle_fe,
+            "and port $FE bit 6 reads as it does with no tape"
+        );
+    }
+
     use crate::variant::Spectrum48kMarker;
 
     type Spectrum48k = SpectrumMachineCore<Spectrum48kMemory, Spectrum48kMarker>;
@@ -833,7 +875,9 @@ mod tests {
             machine.z80.irq = machine.ula.interrupt_active();
 
             if machine.hc % 4 == 2 {
-                machine.tape.advance_tstates(1);
+                machine
+                    .tape_release
+                    .advance(&mut machine.tape, 1, TIMING_48K.tstates_per_frame);
                 machine.sync_ear_level();
             }
         }

@@ -45,7 +45,7 @@ pub const TSTATES_PER_MS: u32 = 3_500;
 // every pulse-encoded tape is written, not how the Spectrum writes one.
 // `append_pause_spans` gained an explicit T-states-per-millisecond argument
 // there, since a pause is the one part of a tape quoted in real time.
-pub use common_tape::{TapePlayer, TapeSpan, data_block_spans, push_pulse};
+pub use common_tape::{StopRelease, TapePlayer, TapeSpan, data_block_spans, push_pulse};
 
 /// One standard-speed tape block ready for playback.
 ///
