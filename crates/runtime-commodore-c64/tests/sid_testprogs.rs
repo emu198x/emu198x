@@ -353,11 +353,10 @@ fn wb_testsuite_noise_write_back_matches_real_chips() {
 /// and read the shifted-in ones. The directory's older
 /// `noise_writeback_check_*` programs are superseded by `wb_testsuite`.
 ///
-/// `test2`'s second reading stays open: it lands on the cycle reSID's
-/// two-cycle shift pipeline completes a shift, before the selector can
-/// write zeros back. This voice shifts as bit 19 rises, so by the read two
-/// write-back cycles have cleared the new ones and OSC3 reads `$10` where
-/// the chips read `$14` (6581) and `$12` (8580). See #1606.
+/// `test2`'s second reading lands on the cycle the shift completes, two
+/// cycles after bit 19 rises, before the selector can write zeros back:
+/// the chips read the new ones ANDed with the triangle, `$14` on the 6581
+/// and `$12` on the 8580, whose OSC3 sees last cycle's triangle.
 #[test]
 #[ignore = "FIXTURE: requires ~/.emu198x/roms/commodore-c64 + ~/.emu198x/test-suites/c64-sid"]
 fn noisewriteback_tests_match_real_chips() {
@@ -379,11 +378,9 @@ fn noisewriteback_tests_match_real_chips() {
     ] {
         let mut session = run_testprog(&format!("noisewriteback/{prg}"), model_for(prg), 900);
         assert_eq!(screen(&mut session, 0), 0x00, "{prg} first read");
-        assert_eq!(
-            screen(&mut session, 1),
-            0x10,
-            "{prg} second read: the known shift-pipeline residual (#1606)"
-        );
+        let expected = if prg.contains("new") { 0x12 } else { 0x14 };
+        assert_eq!(screen(&mut session, 1), expected, "{prg} second read");
+        assert_eq!(border(&mut session), BORDER_PASS, "{prg} verdict");
     }
 }
 
