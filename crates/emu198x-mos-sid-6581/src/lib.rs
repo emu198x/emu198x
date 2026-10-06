@@ -77,9 +77,18 @@ use serde::{Deserialize, Serialize};
 /// noise combined with another waveform writes its zeros back into the
 /// shift register, locking it at zero until TEST refills it.
 ///
+/// **Version 7** (2026-10-06, issue #1606): the waveform generator's
+/// pipelines and power-on state. Every voice powers up with its accumulator
+/// at `0x555555` instead of zero, which moves the phase of every oscillator
+/// that no program resets with TEST. The pulse comparator's result reaches
+/// the output a cycle late, the noise register shifts two cycles after bit
+/// 19 rises, hard sync spares a destination whose source is synced as it
+/// rises, and 6581 sawtooth combinations pull the accumulator MSB low. (The
+/// 8580's late OSC3 triangle and sawtooth change only OSC3, not the DAC.)
+///
 /// See `knowledge/decisions/c64-architecture-review.md` Seam 4 for
 /// the re-capture discipline this constant enforces.
-pub const AUDIO_ROUTING_VERSION: u32 = 6;
+pub const AUDIO_ROUTING_VERSION: u32 = 7;
 
 /// Data-bus hold time in cycles (see [`Sid6581::drive_bus`]).
 const DATABUS_TTL_6581: u32 = 0x1D00;
