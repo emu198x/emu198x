@@ -26,8 +26,8 @@
 //!   access stretches to the end of a whole 1 MHz cycle, costing two or
 //!   three of them by phase (Advanced User Guide §28.5).
 //! - **CRTC:** Motorola 6845
-//! - **Video ULA:** Acorn custom (256-colour-pool→16-entry palette,
-//!   bpp + fast-clock selection)
+//! - **Video ULA:** Acorn custom (16-entry palette with flashing colours,
+//!   pixel rate + fast-clock selection, the cursor's width)
 //! - **PSG:** SN76489 @ 4 MHz, fed via System VIA + addressable
 //!   latch IC32
 //! - **VIAs:** Two MOS 6522s — System VIA at `$FE40` (sound,
@@ -117,7 +117,13 @@ const CYCLES_PER_LINE: u64 = 128;
 
 const SN76489_CLOCK_HZ: u32 = 4_000_000;
 
-/// Video ULA — palette + control register.
+/// Video ULA — palette + control register (Advanced User Guide §19).
+///
+/// It has no scroll register of any kind. Scrolling on the BBC is the 6845's
+/// start address (R12/R13) with the addressable latch's wrap (§18.10), a
+/// character at a time. Pixel-level horizontal offset is a feature of the
+/// later VideoNuLA replacement board, which b-em emulates at `&FE22`; the
+/// Model B's own ULA decodes only `&FE20` and `&FE21`.
 #[derive(Serialize, Deserialize)]
 struct VideoUla {
     control: u8,
@@ -185,8 +191,48 @@ impl VideoUla {
         self.control & 0x10 != 0
     }
 
+    /// Control bit 0: which colour of each flashing pair is showing.
+    ///
+    /// The Advanced User Guide (§19.1.1): `0` the first colour, `1` the
+    /// second. The ULA does not time the flash; the MOS toggles this bit from
+    /// its vertical-sync interrupt, at the mark and space durations `*FX9` and
+    /// `*FX10` set.
+    const fn second_flash_colour(&self) -> bool {
+        self.control & 0x01 != 0
+    }
+
+    /// Whether the cursor segment `stage` of the ULA's cursor sequence is
+    /// enabled by control bits 5-7.
+    ///
+    /// The ULA widens the 6845's one-character CURSOR pulse into up to four
+    /// character clocks, each gated by a control bit: bit 7 the first, bit 6
+    /// the second, bit 5 the third and fourth. That is the Advanced User
+    /// Guide's "master cursor size" and "width of cursor in bytes" (§19.1.5,
+    /// §19.1.6): the MOS's values give one byte in MODE 0, 3, 4 and 6 (bit 7),
+    /// two in MODE 1 and 5 (bits 7 and 6), four in MODE 2 (bits 7, 6, 5), and
+    /// all three clear hide the cursor "under ALL conditions". Stages 0-2 come
+    /// before the first segment and are where the 6845's cursor skew
+    /// (R8 bits 6-7) starts the sequence; b-em's `cursorlook` and jsbeeb's
+    /// `cursorTable` are the same table.
+    const fn cursor_segment(&self, stage: u8) -> bool {
+        let mask = match stage {
+            3 => 0x80,
+            4 => 0x40,
+            5 | 6 => 0x20,
+            _ => 0,
+        };
+        self.control & mask != 0
+    }
+
     fn palette_to_argb(&self, index: u8) -> u32 {
-        let entry = self.palette[index as usize & 0x0F];
+        let mut entry = self.palette[index as usize & 0x0F];
+        // Bit 3 marks a flashing colour. While control bit 0 selects the
+        // second colour of the pair, the ULA inverts the three colour bits:
+        // physical `&08` is black then white, `&09` red then cyan (Advanced
+        // User Guide §19.2.3). b-em and jsbeeb apply the same inversion.
+        if entry & 0x08 != 0 && self.second_flash_colour() {
+            entry ^= 0x07;
+        }
         // Physical colour: bits 0-2 = ~R, ~G, ~B (active-low).
         let r = if entry & 0x01 == 0 { 255 } else { 0 };
         let g = if entry & 0x02 == 0 { 255 } else { 0 };
@@ -540,6 +586,21 @@ const TELETEXT_X_BASE: usize = (FB_WIDTH as usize - 40 * TELETEXT_CELL_WIDTH) / 
 /// What the Video ULA and SAA5050 put out while the 6845 is not displaying.
 const BLANK: u32 = 0xFF00_0000;
 
+/// Character clocks between the 6845 addressing a MODE 7 character and the
+/// SAA5050 putting it on screen.
+///
+/// The cell is drawn here at the column it was fetched in, but on the
+/// hardware it reaches the ULA three clocks later, which is why the MOS sets a
+/// two-character cursor skew in MODE 7 (Advanced User Guide §18.6.3) and
+/// enables only the second cursor segment (§19.1.7, `&4B`): skew 2 plus three
+/// segment stages lands the cursor three clocks after the match, on the
+/// character that matched. jsbeeb models the delay as the SAA5050's
+/// four-entry input queue.
+const TELETEXT_PICTURE_DELAY: u8 = 3;
+
+/// The ULA's cursor sequence is seven stages long; stage 0 is idle.
+const CURSOR_STAGES: u8 = 7;
+
 fn blank_frame() -> Vec<u32> {
     vec![BLANK; (FB_WIDTH * FB_HEIGHT) as usize]
 }
@@ -581,6 +642,9 @@ pub struct BbcMicro {
     video_frame_ended: bool,
     /// SAA5050 attribute state for the line being scanned.
     teletext_line: TeletextLine,
+    /// Where the Video ULA is in its cursor sequence: 0 idle, otherwise the
+    /// stage this character clock is at (see [`VideoUla::cursor_segment`]).
+    cursor_stage: u8,
     cpu_cycles: u64,
     /// 2 MHz master-clock ticks since construction. The CPU runs at
     /// 2 MHz (one tick per cycle) for RAM, ROM and fast I/O, but stretches
@@ -653,6 +717,7 @@ impl BbcMicro {
             beam_line: 0,
             video_frame_ended: true,
             teletext_line: TeletextLine::new(),
+            cursor_stage: 0,
             cpu_cycles: 0,
             master_ticks: 0,
             frame_count: 0,
@@ -1048,6 +1113,7 @@ impl BbcMicro {
             self.start_video_line();
         }
         self.draw_character(column);
+        self.draw_cursor(column);
         if frame_ended {
             self.video_frame_ended = true;
         }
@@ -1150,6 +1216,52 @@ impl BbcMicro {
             for fb_x in x..(x + pixel_width).min(FB_WIDTH as usize) {
                 self.back_buffer[offset + fb_x] = argb;
             }
+        }
+    }
+
+    /// Run the Video ULA's cursor sequence for the character clock at
+    /// `column`, inverting the picture where it is enabled.
+    ///
+    /// The 6845 raises CURSOR for the character at R14/R15 on the raster
+    /// lines R10-R11 pick, when R10's blink lets it (Advanced User Guide §18.8;
+    /// the chip model does this). R8 bits 6-7 skew it by none, one or two
+    /// characters, or switch it off (§18.6.3). The ULA then runs its own
+    /// sequence of character clocks from that pulse, each gated by a control
+    /// bit, and inverts the RGB output over the enabled ones. It works in
+    /// teletext too, since the SAA5050's output goes through the ULA; there
+    /// the picture runs [`TELETEXT_PICTURE_DELAY`] clocks behind the fetch.
+    fn draw_cursor(&mut self, column: u8) {
+        let skew = self.crtc.regs()[8] >> 6;
+        if self.crtc.cursor_active && skew != 3 {
+            self.cursor_stage = 3 - skew;
+        }
+        if self.cursor_stage == 0 {
+            return;
+        }
+        let stage = self.cursor_stage;
+        self.cursor_stage = (stage + 1) % CURSOR_STAGES;
+        let line = usize::from(self.beam_line);
+        if !self.video_ula.cursor_segment(stage) || line >= FB_HEIGHT as usize {
+            return;
+        }
+        let (cell, width, x_base) = if self.video_ula.teletext() {
+            let Some(cell) = column.checked_sub(TELETEXT_PICTURE_DELAY) else {
+                return;
+            };
+            (cell, TELETEXT_CELL_WIDTH, TELETEXT_X_BASE)
+        } else if self.video_ula.fast_clock() {
+            (column, FAST_CHAR_PIXELS, 0)
+        } else {
+            (column, FAST_CHAR_PIXELS * 2, 0)
+        };
+        let x0 = x_base + usize::from(cell) * width;
+        if x0 >= FB_WIDTH as usize {
+            return;
+        }
+        let x1 = (x0 + width).min(FB_WIDTH as usize);
+        let offset = line * FB_WIDTH as usize;
+        for argb in &mut self.back_buffer[offset + x0..offset + x1] {
+            *argb ^= 0x00FF_FFFF;
         }
     }
 
@@ -2052,6 +2164,141 @@ mod tests {
             0xFFFF_0000,
             "the A after CHR$129 is red"
         );
+    }
+
+    /// Physical colour `&08` flashes black and white: the palette stores it
+    /// EOR 7 as `&0F`, and Video ULA control bit 0 picks which of the pair is
+    /// showing (Advanced User Guide §19.1.1, §19.2.3). Before, the flash bit
+    /// was ignored and the colour was black whatever bit 0 said (#384).
+    #[test]
+    fn control_bit_0_selects_which_flashing_colour_shows() {
+        for (control, expected, phase) in [(0x9C, BLANK, "first"), (0x9D, WHITE, "second")] {
+            let mut sys = BbcMicro::new(trap_rom());
+            program_mode(&mut sys, MODE0_CRTC, control);
+            for logical in 0..16u8 {
+                let physical = if logical >= 8 { 0x08 } else { 0 };
+                sys.mem_write(0xFE21, (logical << 4) | (physical ^ 7));
+            }
+            sys.ram[0x3000..0x3008].fill(0xFF);
+            for _ in 0..3 {
+                sys.run_frame();
+            }
+            assert_eq!(
+                pixel(&sys, 0, 0),
+                expected,
+                "flashing black-white shows its {phase} colour"
+            );
+        }
+    }
+
+    /// A steady cursor on raster 7 of the character at `column` of row 0.
+    fn mode0_with_cursor(r8: u8, control: u8, column: u16) -> BbcMicro {
+        let mut sys = BbcMicro::new(trap_rom());
+        let mut crtc = MODE0_CRTC;
+        crtc[8] = r8;
+        crtc[10] = 0x07; // steady, starting on raster 7
+        crtc[11] = 7;
+        program_mode(&mut sys, crtc, control);
+        mode0_palette(&mut sys);
+        let cursor = 0x0600 + column;
+        sys.mem_write(0xFE00, 14);
+        sys.mem_write(0xFE01, (cursor >> 8) as u8);
+        sys.mem_write(0xFE00, 15);
+        sys.mem_write(0xFE01, cursor as u8);
+        for _ in 0..3 {
+            sys.run_frame();
+        }
+        sys
+    }
+
+    /// The pixels of line `y` that are white, as a run `start..end`.
+    fn white_run(sys: &BbcMicro, y: usize) -> Option<(usize, usize)> {
+        let lit: Vec<usize> = (0..FB_WIDTH as usize)
+            .filter(|&x| pixel(sys, x, y) == WHITE)
+            .collect();
+        let (&first, &last) = (lit.first()?, lit.last()?);
+        assert_eq!(last + 1 - first, lit.len(), "the lit pixels are one run");
+        Some((first, last + 1))
+    }
+
+    /// The 6845's CURSOR is one character wide; control bits 7, 6 and 5
+    /// widen it to the one, two or four bytes a mode's character takes
+    /// (Advanced User Guide §19.1.5-§19.1.7). It inverts the picture, so over
+    /// black it is white, and only on the rasters R10-R11 select. Before,
+    /// the BBC drew no cursor at all (#384).
+    #[test]
+    fn the_cursor_is_as_wide_as_control_bits_5_to_7_make_it() {
+        for (control, width, mode) in [
+            (0x9C, 8, "bit 7 alone: MODE 0's one byte"),
+            (0xDC, 16, "bits 7 and 6: MODE 1's two bytes"),
+            (0xFC, 32, "bits 7, 6 and 5: MODE 2's four bytes"),
+        ] {
+            let sys = mode0_with_cursor(0x00, control, 2);
+            assert_eq!(white_run(&sys, 7), Some((16, 16 + width)), "{mode}");
+            assert_eq!(white_run(&sys, 6), None, "{mode}: raster 6 has none");
+        }
+        let sys = mode0_with_cursor(0x00, 0x1C, 2);
+        assert_eq!(white_run(&sys, 7), None, "bits 5-7 clear hide it");
+    }
+
+    /// R8 bits 6-7 delay the cursor by none, one or two characters, or turn
+    /// it off (Advanced User Guide §18.6.3).
+    #[test]
+    fn r8_skews_the_cursor_or_turns_it_off() {
+        for (skew, start) in [(0u8, 16usize), (1, 24), (2, 32)] {
+            let sys = mode0_with_cursor(skew << 6, 0x9C, 2);
+            assert_eq!(white_run(&sys, 7), Some((start, start + 8)), "skew {skew}");
+        }
+        let sys = mode0_with_cursor(0xC0, 0x9C, 2);
+        assert_eq!(white_run(&sys, 7), None, "skew 3 disables the cursor");
+    }
+
+    /// R10 = `&67`, the MOS's bitmap-mode cursor, blinks with a 32-field
+    /// period: sixteen frames on, sixteen off (Advanced User Guide §18.8).
+    #[test]
+    fn the_mos_cursor_blinks_every_sixteen_fields() {
+        let mut sys = mode0_with_cursor(0x00, 0x9C, 2);
+        sys.mem_write(0xFE00, 10);
+        sys.mem_write(0xFE01, 0x67);
+        let shown: Vec<bool> = (0..96)
+            .map(|_| {
+                sys.run_frame();
+                white_run(&sys, 7).is_some()
+            })
+            .collect();
+        let changes: Vec<usize> = (1..shown.len())
+            .filter(|&i| shown[i] != shown[i - 1])
+            .collect();
+        assert!(changes.len() >= 5, "blinks: {shown:?}");
+        // The first change can come early: the phase was running while the
+        // cursor was steady.
+        for pair in changes[1..].windows(2) {
+            assert_eq!(pair[1] - pair[0], 16, "a 16-field half-period: {shown:?}");
+        }
+    }
+
+    /// MODE 7's cursor: the MOS sets a two-character skew and enables only
+    /// the second segment (`&4B`), which together land it on the character
+    /// the 6845 matched, three clocks on, once the SAA5050 has drawn it. With
+    /// R10/R11 = 18-19 it underlines the cell's tenth line.
+    #[test]
+    fn the_mode7_cursor_underlines_the_matched_cell() {
+        let mut sys = BbcMicro::new(trap_rom());
+        sys.set_teletext_font(font_with_a_lit());
+        let mut crtc = MODE7_CRTC;
+        crtc[10] = 0x12; // steady, from raster 18
+        program_mode(&mut sys, crtc, 0x4B);
+        sys.ram[0x7C00..0x8000].fill(b' ');
+        sys.mem_write(0xFE00, 14);
+        sys.mem_write(0xFE01, 0x28);
+        sys.mem_write(0xFE00, 15);
+        sys.mem_write(0xFE01, 0x05); // the sixth cell of row 0
+        for _ in 0..3 {
+            sys.run_frame();
+        }
+        let x = TELETEXT_X_BASE + 5 * TELETEXT_CELL_WIDTH;
+        assert_eq!(white_run(&sys, 9), Some((x, x + TELETEXT_CELL_WIDTH)));
+        assert_eq!(white_run(&sys, 8), None, "only the bottom line");
     }
 
     // Kansas-City encoding for the cassette wiring tests.

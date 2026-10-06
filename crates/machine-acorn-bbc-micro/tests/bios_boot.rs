@@ -245,3 +245,164 @@ fn mos_clock_counts_centiseconds() {
         "500 frames (10 s) should add 1000 centiseconds to TIME; added {elapsed}"
     );
 }
+
+/// The key-matrix position of each character the display tests type.
+fn key(c: char) -> (usize, usize) {
+    match c {
+        'M' => (5, 6),
+        'O' => (6, 3),
+        'D' => (2, 3),
+        'E' => (2, 2),
+        'V' => (3, 6),
+        'U' => (5, 3),
+        ' ' => (2, 6),
+        '0' => (7, 2),
+        '1' => (0, 3),
+        '4' => (2, 1),
+        '8' => (5, 1),
+        '9' => (6, 2),
+        ',' => (6, 6),
+        ';' => (7, 5),
+        '\n' => (9, 4),
+        _ => panic!("no key for {c:?}"),
+    }
+}
+
+fn type_line(sys: &mut BbcMicro, text: &str) {
+    for c in text.chars() {
+        let (col, row) = key(c);
+        tap(sys, col, row);
+    }
+    for _ in 0..30 {
+        sys.run_frame();
+    }
+}
+
+fn booted() -> BbcMicro {
+    let (Some(os), Some(basic), Some(font)) = (os_path(), basic_path(), font_path()) else {
+        panic!("needs os.rom + basic.rom + saa5050.rom at ~/.emu198x/roms/acorn-bbc-micro/");
+    };
+    let mut sys = BbcMicro::new(fs::read(&os).expect("read OS"));
+    sys.insert_rom(15, fs::read(&basic).expect("read BASIC"));
+    sys.set_teletext_font(fs::read(&font).expect("read font"));
+    for _ in 0..200 {
+        sys.run_frame();
+    }
+    sys
+}
+
+/// Run `frames` frames and report which pixels changed against the first,
+/// as `(line, first x, last x + 1)` runs, and whether each frame matched it.
+fn changes_over(sys: &mut BbcMicro, frames: usize) -> (Vec<(usize, usize, usize)>, Vec<bool>) {
+    let width = sys.framebuffer_width() as usize;
+    sys.run_frame();
+    let first = sys.framebuffer().to_vec();
+    let mut changed = vec![false; first.len()];
+    let mut same = Vec::new();
+    for _ in 0..frames {
+        sys.run_frame();
+        let fb = sys.framebuffer();
+        let mut matches = true;
+        for (i, (&now, &was)) in fb.iter().zip(&first).enumerate() {
+            if now != was {
+                changed[i] = true;
+                matches = false;
+            }
+        }
+        same.push(matches);
+    }
+    let mut runs = Vec::new();
+    for (line, row) in changed.chunks(width).enumerate() {
+        let mut x = 0;
+        while x < width {
+            if row[x] {
+                let start = x;
+                while x < width && row[x] {
+                    x += 1;
+                }
+                runs.push((line, start, x));
+            } else {
+                x += 1;
+            }
+        }
+    }
+    (runs, same)
+}
+
+/// Lengths of the complete runs of equal values, dropping the partial first
+/// and last.
+fn half_periods(states: &[bool]) -> Vec<usize> {
+    let mut lengths = Vec::new();
+    let mut run = 1;
+    for pair in states.windows(2) {
+        if pair[0] == pair[1] {
+            run += 1;
+        } else {
+            lengths.push(run);
+            run = 1;
+        }
+    }
+    lengths.into_iter().skip(1).collect()
+}
+
+#[test]
+#[ignore = "FIXTURE: needs BBC MOS + BASIC + SAA5050 ROMs — run with --ignored"]
+fn the_prompt_cursor_blinks_in_mode_7_and_in_a_bitmap_mode() {
+    // At the `>` prompt the MOS leaves R10 = &72 in MODE 7 and &67 in
+    // MODE 4: a 32-field blink, sixteen frames on and sixteen off (Advanced
+    // User Guide §18.8). The only pixels that change are the cursor's: one
+    // teletext cell's bottom line in MODE 7, one character's bottom line in
+    // MODE 4. Before #384 the BBC drew no cursor, so nothing changed.
+    let mut sys = booted();
+    let (runs, same) = changes_over(&mut sys, 96);
+    assert_eq!(runs.len(), 1, "MODE 7: one changing run; got {runs:?}");
+    let (_, start, end) = runs[0];
+    assert_eq!(end - start, 12, "MODE 7: one teletext cell wide");
+    assert!(
+        half_periods(&same).iter().all(|&n| n == 16),
+        "MODE 7 blink: {same:?}"
+    );
+
+    type_line(&mut sys, "MODE 4\n");
+    let (runs, same) = changes_over(&mut sys, 96);
+    assert_eq!(runs.len(), 1, "MODE 4: one changing run; got {runs:?}");
+    let (line, start, end) = runs[0];
+    assert_eq!(end - start, 16, "MODE 4: one character wide");
+    assert_eq!(line % 8, 7, "MODE 4: the character's bottom line");
+    assert!(
+        half_periods(&same).iter().all(|&n| n == 16),
+        "MODE 4 blink: {same:?}"
+    );
+}
+
+#[test]
+#[ignore = "FIXTURE: needs BBC MOS + BASIC + SAA5050 ROMs — run with --ignored"]
+fn a_flashing_colour_flashes_at_the_mos_rate() {
+    // `VDU 19,1,8;0;` makes logical colour 1, the text, flashing black and
+    // white. The MOS flips Video ULA control bit 0 from its vertical-sync
+    // interrupt, 25 fields each way by default (*FX9 and *FX10; Advanced
+    // User Guide §19.1.1). The text on the top row then goes from lit to
+    // dark every half second. Before #384 the ULA ignored the flash bit.
+    let mut sys = booted();
+    type_line(&mut sys, "MODE 4\n");
+    type_line(&mut sys, "VDU 19,1,8;0;\n");
+    let width = sys.framebuffer_width() as usize;
+    let lit: Vec<usize> = (0..150)
+        .map(|_| {
+            sys.run_frame();
+            sys.framebuffer()[..8 * width]
+                .iter()
+                .filter(|&&px| px == 0xFFFF_FFFF)
+                .count()
+        })
+        .collect();
+    assert!(lit.iter().any(|&n| n > 100), "the top row lights: {lit:?}");
+    assert!(lit.contains(&0), "and goes dark: {lit:?}");
+    let shown: Vec<bool> = lit.iter().map(|&n| n > 0).collect();
+    let halves = half_periods(&shown);
+    assert!(halves.len() >= 3, "several flashes: {lit:?}");
+    assert!(
+        halves.iter().all(|&n| n == 25),
+        "25-field halves: {halves:?}"
+    );
+}
