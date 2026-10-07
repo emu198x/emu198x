@@ -3,6 +3,11 @@ name: Linux packages
 on:
   pull_request:
   workflow_dispatch:
+    inputs:
+      release_run:
+        description: "Existing release run whose artifacts should be tested (blank builds locally)"
+        required: false
+        type: string
   workflow_call:
     inputs:
       plan:
@@ -15,6 +20,7 @@ concurrency:
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   install:
@@ -29,7 +35,6 @@ jobs:
             target: aarch64-unknown-linux-gnu
     runs-on: ${{ matrix.runner }}
     env:
-      RELEASE_PLAN: ${{ inputs.plan }}
       PACKAGE_TARGET: ${{ matrix.target }}
       HOMEBREW_NO_AUTO_UPDATE: '1'
       HOMEBREW_NO_INSTALL_CLEANUP: '1'
@@ -41,12 +46,12 @@ jobs:
       - name: Install emulator build dependencies
         run: sudo apt-get update && sudo apt-get install -y libasound2-dev libudev-dev pkg-config
       - name: Cache Rust artifacts
-        if: inputs.plan == ''
+        if: inputs.plan == '' && inputs.release_run == ''
         uses: Swatinem/rust-cache@v2
         with:
           cache-on-failure: true
       - name: Build packages for this native runner
-        if: inputs.plan == ''
+        if: inputs.plan == '' && inputs.release_run == ''
         shell: bash
         run: |
           set -euo pipefail
@@ -56,16 +61,20 @@ jobs:
           mkdir -p target
           dist build --artifacts=all --target "$PACKAGE_TARGET" --output-format=json > target/package-test-manifest.json
       - name: Fetch the actual release packages
-        if: inputs.plan != ''
+        if: inputs.plan != '' || inputs.release_run != ''
         uses: actions/download-artifact@v8
         with:
           pattern: artifacts-*
           path: target/distrib
           merge-multiple: true
+          run-id: ${{ inputs.release_run || github.run_id }}
+          github-token: ${{ github.token }}
       - name: Save the release plan
-        if: inputs.plan != ''
+        if: inputs.plan != '' || inputs.release_run != ''
         shell: bash
-        run: printf '%s\n' "$RELEASE_PLAN" > target/package-test-manifest.json
+        # The suite plan is larger than Linux's per-environment-entry limit.
+        # It is already an artifact; keep it on disk for every process launch.
+        run: cp target/distrib/plan-dist-manifest.json target/package-test-manifest.json
       - name: Set up Homebrew
         shell: bash
         run: |

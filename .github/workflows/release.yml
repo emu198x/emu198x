@@ -16,6 +16,7 @@
 name: Release
 permissions:
   "contents": "write"
+  "actions": "read"
 
 # The jobs that write to the repo use RELEASE_PLZ_TOKEN, falling back to
 # GITHUB_TOKEN, so no job depends on GITHUB_TOKEN carrying a write scope. The
