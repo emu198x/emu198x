@@ -53,7 +53,12 @@ audio_routing_version = 7
 # the shift register's output, and the g-access reads some mode bits a
 # cycle late. `catalogue run` changed one frame hash, Aztec Challenge's
 # (see its entry); every other frame and audio hash is unchanged.
-frame_routing_version = 10
+# Version 11 is #1661: outside the display window and under the vertical
+# border the sequencer keeps the last matrix and colour entries, so an
+# opened border shows the last character's background. `catalogue run`
+# passes all thirteen entries, ordinary and fresh-runtime replay, with the
+# version-10 hashes.
+frame_routing_version = 11
 
 [[system.firmware]]
 variant = "pal"

@@ -102,7 +102,12 @@ use palette::PALETTE;
 /// mode at the shift register's output, so a mid-line mode change takes
 /// effect at a fixed dot of the cycle instead of moving with XSCROLL, and
 /// the g-access address reads some mode bits a cycle late (#1660).
-pub const FRAME_ROUTING_VERSION: u32 = 10;
+///
+/// **Version 11** (2026-10-07): outside the display window and under the
+/// vertical border the sequencer keeps shifting out zero graphics with the
+/// last g-access's matrix and colour entries, so an opened border shows the
+/// last character's background instead of `$D021` (#1661).
+pub const FRAME_ROUTING_VERSION: u32 = 11;
 
 /// CPU-side data visible during the VIC-II's Phi2 phase.
 ///
@@ -526,9 +531,6 @@ struct GraphicsInput {
     data: GraphicsData,
     /// Whether this cycle's draw samples the next cell's XSCROLL.
     sample_xscroll: bool,
-    /// Whether the sequencer's output shows in this cell. Elsewhere the cell
-    /// keeps the fill `render_pixels` chose.
-    shown: bool,
 }
 
 /// A CPU write to a colour register (`$D020`-`$D02E`) made after the most
@@ -681,6 +683,9 @@ pub struct Vic {
     /// The graphics sequencer, as of the last cell to leave the colour
     /// stage.
     sequencer: GraphicsSequencer,
+    /// The matrix and colour entries of the last g-access in the display
+    /// window, which the sequencer keeps loading outside it.
+    last_matrix_entries: (u8, u8),
     /// `$D011` as it stood for the previous g-access (VICE `reg11_delay`).
     /// The g-access reads its mode bits through it; see
     /// [`Vic::fetch_display_graphics`].
@@ -796,6 +801,7 @@ impl Vic {
             sprite_sprite_irq_latched: false,
             sprite_bg_irq_latched: false,
             sequencer: GraphicsSequencer::default(),
+            last_matrix_entries: (0, 0),
             d011_delayed: 0,
             lines_per_frame: model.lines_per_frame(),
             cycles_per_line: model.cycles_per_line(),
@@ -1245,42 +1251,38 @@ impl Vic {
         let fb_y = (self.raster_line - self.first_visible_line) as usize;
         let fb_x = (self.raster_cycle - FIRST_VISIBLE_CYCLE) as usize * 8;
         let fb_offset = fb_y * FB_WIDTH as usize + fb_x;
-        let mut output_sources = [None; 8];
-        let background_colour = 0x21;
+        // A cell the sequencer does not draw (a g-access past column 39)
+        // shows `$D021`.
+        let output_sources = [Some(0x21); 8];
         let in_horizontal_display =
             (DISPLAY_START_CYCLE..DISPLAY_END_CYCLE).contains(&self.raster_cycle);
-
-        // Generate a fresh under-border value throughout the horizontal
-        // display region. When software keeps the vertical border flip-flop
-        // open beyond the ordinary line range, the live idle/display pipeline
-        // is exposed instead of stale pixels from the preceding frame.
-        // Horizontal side-border opening has its own continuing shifter/idle
-        // behaviour and is deliberately left unchanged by this vertical fix.
-        if in_horizontal_display {
-            output_sources.fill(Some(background_colour));
-        } else {
-            // Outside the fetch window the sequencer shifts out zero graphics
-            // data (VICE clears `gbuf_pipe0_reg` there). The border normally
-            // covers it; an opened side border shows it, with any sprites.
-            output_sources.fill(Some(self.zero_graphics_source()));
-        }
-
         let display_pipeline_visible = !self.border_vert_ff && in_horizontal_display;
 
-        let graphics = if display_pipeline_visible {
+        let data = if display_pipeline_visible {
             let data = if display_active_at_phi1 && self.forced_badline_output_delay == 0 {
                 let col = self.vmli as usize;
                 (col < 40).then(|| self.fetch_display_graphics(col, memory))
             } else {
                 Some(self.fetch_idle_graphics(memory))
             };
-            data.map(|data| (data, true))
+            if let Some(data) = data {
+                self.last_matrix_entries = (data.vbuf, data.cbuf);
+            }
+            data
         } else {
             // Beside the fetch window and under the vertical border the
-            // sequencer shifts out zero graphics; the fill above shows instead.
-            Some((GraphicsData::default(), false))
+            // sequencer keeps loading, with zero graphics and the matrix and
+            // colour entries of the last g-access: Bauer's "last current
+            // background color" (section 3.7.3). VICE updates `vbuf_pipe0_reg`
+            // and `cbuf_pipe0_reg` only in the window (`draw_graphics8`).
+            let (vbuf, cbuf) = self.last_matrix_entries;
+            Some(GraphicsData {
+                gbuf: 0,
+                vbuf,
+                cbuf,
+            })
         };
-        let graphics = graphics.map(|(data, shown)| GraphicsInput {
+        let graphics = data.map(|data| GraphicsInput {
             data,
             // Each draw samples the next cell's XSCROLL. VICE samples it
             // only as it admits a g-access to its pipe, two cells on, with
@@ -1288,7 +1290,6 @@ impl Vic {
             // window to column 37's. Column 39 keeps column 38's XSCROLL.
             sample_xscroll: !self.border_vert_ff
                 && (DISPLAY_START_CYCLE - 2..DISPLAY_END_CYCLE - 2).contains(&self.raster_cycle),
-            shown,
         });
 
         // The sequencer draws this cell once the CPU accesses of this cycle
@@ -1296,14 +1297,14 @@ impl Vic {
         // now, so they use the foreground the cell would have if neither
         // access changed `$D011` or `$D016`.
         let mut fg_mask = match graphics {
-            Some(input) if input.shown => {
+            Some(input) => {
                 let mut sequencer = self.sequencer;
                 if let Some(previous) = self.colour_stage[1].and_then(|cell| cell.graphics) {
                     self.draw_graphics_with(&mut sequencer, previous);
                 }
                 self.draw_graphics_with(&mut sequencer, input).1
             }
-            _ => 0,
+            None => 0,
         };
 
         // Sprites sit above the graphics, subject to `$D01B`; the colour
@@ -1378,10 +1379,8 @@ impl Vic {
             let mut sequencer = self.sequencer;
             let (sources, fg) = self.draw_graphics_with(&mut sequencer, input);
             self.sequencer = sequencer;
-            if input.shown {
-                cell.sources = sources.map(Some);
-                fg_mask = fg;
-            }
+            cell.sources = sources.map(Some);
+            fg_mask = fg;
         }
         for (px, output) in cell.sources.iter_mut().enumerate() {
             let Some(sprite) = cell.sprites[px] else {
@@ -1489,21 +1488,6 @@ impl Vic {
         } else {
             source
         }) & 0x0F
-    }
-
-    /// The colour source of a zero graphics bit pair in the current mode,
-    /// with the video-matrix and colour entries also zero: `$D021` in text
-    /// and multicolour bitmap modes, black in hires bitmap and the invalid
-    /// modes.
-    fn zero_graphics_source(&self) -> u8 {
-        let bmm = self.regs[0x11] & 0x20 != 0;
-        let ecm = self.regs[0x11] & 0x40 != 0;
-        let mcm = self.regs[0x16] & 0x10 != 0;
-        if ecm && (bmm || mcm) || bmm && !mcm {
-            0x00
-        } else {
-            0x21
-        }
     }
 
     /// The g-access of the idle display state.
@@ -3970,6 +3954,61 @@ mod tests {
         assert!(vic.ba_low);
         assert!(vic.aec_is_low());
         assert_eq!(vic.ba_low_cycles(), 4);
+    }
+
+    #[test]
+    fn opened_side_border_shows_the_last_characters_ecm_background() {
+        // ECM text whose every matrix entry selects `$D024` (bits 7-6 = 3).
+        // Switching to 38 columns after cycle 56's border check skips the
+        // 38-column check, so the side border stays open. Beyond the fetch
+        // window the sequencer shifts out zero bits with the last matrix
+        // entry, so the opened border shows `$D024`, not `$D021`.
+        let (mut vic, memory) = make_vic_and_memory();
+        vic.write(0x11, 0x5B);
+        vic.write(0x16, 0x08);
+        vic.write(0x18, 0x14);
+        vic.write(0x21, 0x06);
+        vic.write(0x24, 0x02);
+
+        let target_line = DISPLAY_START_LINE + 4;
+        advance_to(&mut vic, &memory, target_line, DISPLAY_START_CYCLE);
+        vic.screen_row = [0xC0; 40];
+        step_cycles(&mut vic, &memory, 41);
+        vic.write(0x16, 0x00);
+        step_cycles(&mut vic, &memory, 4);
+
+        let fb_y = (target_line - FIRST_VISIBLE_LINE) as usize;
+        let fb_x = usize::from(DISPLAY_END_CYCLE - FIRST_VISIBLE_CYCLE) * 8;
+        let frame = settled(&vic);
+        let row = &frame.framebuffer()[fb_y * FB_WIDTH as usize..];
+        assert_eq!(&row[fb_x..fb_x + 24], &[PALETTE[2]; 24]);
+    }
+
+    #[test]
+    fn vertical_border_keeps_the_last_matrix_entries() {
+        // Below the display window, with the vertical border set but the
+        // side border open, the display column shows the sequencer's zero
+        // bits. In hires bitmap mode they take the low nybble of the last
+        // matrix entry, which idle lines leave at zero: black, not `$D021`.
+        let (mut vic, memory) = make_vic_and_memory();
+        vic.write(0x11, 0x3B);
+        vic.write(0x16, 0x08);
+        vic.write(0x21, 0x06);
+        vic.raster_line = 0xFA;
+        vic.raster_cycle = 30;
+        vic.idle_state = true;
+        vic.border_vert_ff = true;
+        vic.display_border = false;
+        vic.display_border_history = [false; 2];
+        vic.last_matrix_entries = (0x00, 0x00);
+
+        step_cycles(&mut vic, &memory, 4);
+        let fb_x = usize::from(32 - FIRST_VISIBLE_CYCLE) * 8;
+        let offset = 0xFA * FB_WIDTH as usize + fb_x;
+        assert_eq!(
+            &settled(&vic).framebuffer[offset..offset + 8],
+            &[PALETTE[0]; 8]
+        );
     }
 
     #[test]
