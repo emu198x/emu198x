@@ -1008,3 +1008,133 @@ jobs:
         run: |
           cargo test --release -p machine-commodore-vic-20 \
             --test vici_vice_survey -- --include-ignored --nocapture
+
+  # The game catalogue: every entry in crates/emu198x-catalogue/manifest/
+  # boots its title and compares a frame hash and an audio hash, and the
+  # Spectrum, C64 and Amiga entries also check a snapshot round trip. The
+  # routing-version guard (#1635) catches a manifest that falls behind a
+  # routing constant, but CPU-timing changes bump no routing version and
+  # move hashes all the same; only a run sees them.
+  #
+  # Entries are dealt round-robin across legs with `catalogue run --shard
+  # i/n` so that no leg runs much past 45 minutes. Media and firmware are
+  # mirrored under a maintainer decision rather than a grant; see
+  # test-data/accuracy-corpora.md. A hash mismatch, a failed snapshot round
+  # trip or an entry that cannot run fails the leg and is annotated with the
+  # entry's id.
+  catalogue:
+    name: catalogue ${{ matrix.machine }} ${{ matrix.shard }}
+    runs-on: ubuntu-latest
+    needs: preflight
+    if: needs.preflight.outputs.configured == 'true'
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Shard counts come from local timings on an Apple-silicon Mac,
+          # allowing for a hosted runner up to three times slower: the
+          # Spectrum's ~95 minutes in eight legs, the C64's and Amiga's
+          # ~20-25 in two, the NES's seconds in one.
+          - machine: spectrum
+            shard: 1/8
+          - machine: spectrum
+            shard: 2/8
+          - machine: spectrum
+            shard: 3/8
+          - machine: spectrum
+            shard: 4/8
+          - machine: spectrum
+            shard: 5/8
+          - machine: spectrum
+            shard: 6/8
+          - machine: spectrum
+            shard: 7/8
+          - machine: spectrum
+            shard: 8/8
+          - machine: c64
+            shard: 1/2
+          - machine: c64
+            shard: 2/2
+          - machine: amiga
+            shard: 1/2
+          - machine: amiga
+            shard: 2/2
+          - machine: nes
+            shard: 1/1
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Read pinned toolchain
+        id: toolchain
+        run: |
+          channel=$(awk -F'"' '/^channel/{print $2}' rust-toolchain.toml)
+          echo "channel=${channel}" >> "$GITHUB_OUTPUT"
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ steps.toolchain.outputs.channel }}
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: nightly-accuracy-catalogue
+
+      - name: Install Linux build dependencies
+        # The catalogue links the shell, which pulls in the host audio and
+        # input stack (cpal -> alsa, gilrs -> libudev).
+        run: |
+          apt_opts="-o Acquire::Retries=2 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20"
+          for attempt in 1 2 3; do
+            sudo timeout 120 apt-get $apt_opts update \
+              || echo "::warning::apt-get update attempt ${attempt} incomplete (mirror unreachable)"
+            if sudo timeout 180 apt-get $apt_opts install -y --no-install-recommends \
+                 pkg-config libasound2-dev libudev-dev; then
+              exit 0
+            fi
+            echo "::warning::apt-get install attempt ${attempt} failed; retrying"
+            sleep 10
+          done
+          echo "::error::apt failed after three bounded attempts"
+          exit 1
+
+      - name: Provision media and firmware from store
+        env:
+          GH_TOKEN: ${{ secrets.ACCURACY_CORPORA_TOKEN }}
+          ARTIFACT: catalogue-${{ matrix.machine }}
+        run: |
+          set -euo pipefail
+          mkdir -p corpora
+          cd corpora
+          gh release download "${CORPORA_TAG}" -R "${CORPORA_REPO}" \
+            -p "${ARTIFACT}.tar.zst" -p 'SHA256SUMS'
+          grep " ${ARTIFACT}.tar.zst\$" SHA256SUMS | sha256sum -c -
+          tar --zstd -xf "${ARTIFACT}.tar.zst"
+          # Each file inside the tarball against the list packed with it.
+          (cd "${ARTIFACT}" && sha256sum -c --quiet FILES.sha256)
+          {
+            echo "EMU198X_CATALOGUE_MEDIA_ROOT=$(pwd)/${ARTIFACT}/media"
+            echo "EMU198X_CATALOGUE_FIRMWARE_ROOT=$(pwd)/${ARTIFACT}/roms"
+          } >> "$GITHUB_ENV"
+
+      - name: Build the catalogue runner
+        run: cargo build --release -p emu198x-catalogue --bin catalogue
+
+      - name: Run the ${{ matrix.machine }} catalogue (${{ matrix.shard }})
+        env:
+          MACHINE: ${{ matrix.machine }}
+          SHARD: ${{ matrix.shard }}
+        run: |
+          set -uo pipefail
+          status=0
+          target/release/catalogue run \
+            --manifest "crates/emu198x-catalogue/manifest/${MACHINE}.toml" \
+            --shard "${SHARD}" 2>&1 | tee catalogue.log || status=$?
+          # Name each failing entry in the run summary, not only in the log.
+          grep -E '^\[(FAIL|SNAP-FAIL|ERROR)\]' catalogue.log |
+            while IFS= read -r line; do
+              echo "::error title=catalogue ${MACHINE} ${SHARD}::${line}"
+            done
+          exit "${status}"
