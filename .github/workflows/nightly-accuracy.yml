@@ -1133,7 +1133,9 @@ jobs:
             --manifest "crates/emu198x-catalogue/manifest/${MACHINE}.toml" \
             --shard "${SHARD}" 2>&1 | tee catalogue.log || status=$?
           # Name each failing entry in the run summary, not only in the log.
-          grep -E '^\[(FAIL|SNAP-FAIL|ERROR)\]' catalogue.log |
+          # The step runs under `bash -e`, so a grep with no matches (a clean
+          # run) must not end the script before `exit "${status}"`.
+          { grep -E '^\[(FAIL|SNAP-FAIL|ERROR)\]' catalogue.log || true; } |
             while IFS= read -r line; do
               echo "::error title=catalogue ${MACHINE} ${SHARD}::${line}"
             done
