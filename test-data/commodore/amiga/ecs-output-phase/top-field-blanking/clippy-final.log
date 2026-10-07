@@ -1,0 +1,7 @@
+    Checking common-commodore-amiga v0.28.1 (/Users/stevehill/Projects/198x/Emu198x/emu198x/crates/common-commodore-amiga)
+    Checking commodore-denise-aga v0.28.1 (/Users/stevehill/Projects/198x/Emu198x/emu198x/crates/commodore-denise-aga)
+    Checking machine-commodore-amiga-ocs v0.28.1 (/Users/stevehill/Projects/198x/Emu198x/emu198x/crates/machine-commodore-amiga-ocs)
+    Checking machine-commodore-amiga-ecs v0.28.1 (/Users/stevehill/Projects/198x/Emu198x/emu198x/crates/machine-commodore-amiga-ecs)
+    Checking machine-commodore-amiga-a1200 v0.28.1 (/Users/stevehill/Projects/198x/Emu198x/emu198x/crates/machine-commodore-amiga-a1200)
+    Checking runtime-commodore-amiga v0.28.1 (/Users/stevehill/Projects/198x/Emu198x/emu198x/crates/runtime-commodore-amiga)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 6.18s

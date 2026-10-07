@@ -1,0 +1,33 @@
+{
+  "base_commit": "bed564d1981c2529cc75ac130e4aa03bac4d2104",
+  "snapshot_version": 55,
+  "source_sha256": {
+    "crates/commodore-denise-aga/src/lib.rs": "c85605ac6a3928da58775bba0a1e9a822148beda322dbdf60e880a1197c1f505",
+    "crates/common-commodore-amiga/src/denise.rs": "7f06ba1e3cdc4153f8f68891d1adf1946d16f7ec6c37f6ee4d4a890994021e11",
+    "crates/common-commodore-amiga/src/denise_chip.rs": "8226d30f29104a873e543ff06b59f4b138dd087aac446ffc80e821ec85c41927",
+    "crates/common-commodore-amiga/src/denise_counter.rs": "6a847a8145b89d572abf03099829b3a3ab62f46e73704594e476eafe3eba3c1e",
+    "crates/machine-commodore-amiga-a1200/src/lib.rs": "533aad3fa9447583e0be572044e6ec0d94d80c5d184caa089b2279e8b897e749",
+    "crates/runtime-commodore-amiga/src/live_access.rs": "65f2e3e0f31368e9c495d5907ab68b99013d529f1550bd1d3ededb0d1d14cac5",
+    "crates/runtime-commodore-amiga/src/queries.rs": "dc4a6ab29826af96f413c0ed94661ab206e1a7aeba1e30b61a6e96b12ba19cd8",
+    "crates/runtime-commodore-amiga/src/snapshot.rs": "fc3222d7cc17ba5216f80c2f37bbf93832ad2ff2fd262dd31adb07e8a2355b20",
+    "crates/runtime-commodore-amiga/src/variants.rs": "1a8289a2c245c5da50db3701810ae049ad5fb734582113a1c347be8fa3e879ff",
+    "crates/runtime-commodore-amiga/tests/snapshot_roundtrip.rs": "2be7ffb804a325ba944b1937b1cd43109a1a4d172fe2d184066caa938c4bb913"
+  },
+  "comparisons": {
+    "guests": 10,
+    "fields": 30,
+    "rgb_samples": 25967760,
+    "mismatches": 0,
+    "pre_fix_fields_with_1304_mismatches": 18,
+    "pre_fix_exact_controls": 12
+  },
+  "tests": {
+    "chip_board": 224,
+    "runtime_library": 56,
+    "display_register_pipeline": 10,
+    "snapshot_roundtrip": 57,
+    "new_restore_boundaries": 24,
+    "a1200_test_kit_exact_patterns": 6
+  },
+  "scope": "UAE-family software agreement; not silicon calibration; OCS far edge and counter-reset residuals remain separate"
+}

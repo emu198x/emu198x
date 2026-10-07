@@ -42,6 +42,10 @@ pub trait DeniseChip:
 
     fn new() -> Self;
 
+    /// Consume a strobe retiring from the board's existing normal RGA stage.
+    /// Lisa retains the vertical-blank transition independently of its counter.
+    fn retire_timing_strobe(&mut self, _strobe: crate::denise_counter::DeniseStrobe) {}
+
     /// Select when horizontal DIW comparator matches reach pixel output.
     /// OCS Denise and ECS Super Denise use the match for the current tick;
     /// All installed variants compose the level after the equality comparison.

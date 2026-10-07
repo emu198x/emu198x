@@ -1,0 +1,20 @@
+{
+  "fields": [
+    {
+      "field": "field-000186.bgra",
+      "sha256": "b1d6eecc07761c222fc776cffaeef8589035da77ddfa8cf771a8c05f2eceba88",
+      "byte_identical_to_archived_reference": true
+    },
+    {
+      "field": "field-000187.bgra",
+      "sha256": "b1d6eecc07761c222fc776cffaeef8589035da77ddfa8cf771a8c05f2eceba88",
+      "byte_identical_to_archived_reference": true
+    },
+    {
+      "field": "field-000188.bgra",
+      "sha256": "b1d6eecc07761c222fc776cffaeef8589035da77ddfa8cf771a8c05f2eceba88",
+      "byte_identical_to_archived_reference": true
+    }
+  ],
+  "instrumented_binary_sha256": "09fe8ed0404b1420fcdf1b73c55e7c127d02012cc143d064261a0fbe9620dfc3"
+}

@@ -171,3 +171,20 @@ input reaches palette selection after six native samples: counter 260 to
 261.5 in the retained guest. Lisa now reads tap 4 of its existing ten-sample
 history. History encoding/clocking and the raw BPLCON4 mirror are unchanged;
 snapshot 54 keeps its layout. Border and sprite output remain separate.
+
+## Strobe-driven Lisa vertical blanking (2026-10-07)
+
+The [top-field observations](../../../../reference/by-system/commodore-amiga/2026-ecs-colour-blanking-observations.md#aga-first-visible-line-vertical-blanking-2026-10-07)
+identify a missing Lisa vertical-blank latch. The existing normal RGA strobe
+now feeds Lisa before output blanking is composed. STRHOR requests release;
+leaving STRHOR requests blanking. Fixed and programmable comparator paths
+retain independent pending events and levels. A selected horizontal start
+consumes a pending start; its stop consumes a pending release. The final
+mask does not stall palette, HAM, sprite or serial advancement.
+
+The user approved saving this state in snapshot 55, rejecting version 54.
+The board's existing strobe descriptor and horizontal-counter stages remain
+authoritative; no additional clock or raster-derived vertical state is added.
+All ten retained AGA blanking guests now agree over thirty complete common
+rasters. The archive retains eighteen pre-fix failures as negative controls.
+This is UAE-family agreement; exact silicon timing remains unmeasured.

@@ -1,0 +1,42 @@
+--- a/drawing.cpp
++++ b/drawing.cpp
+@@ -3776,6 +3776,7 @@
+ 
+ static void handle_strobes(struct denise_rga *rd)
+ {
++    if (getenv("FSEMU_CODEX_TOP_FIELD") && this_line && (this_line->linear_vpos <= 27 || this_line->linear_vpos >= 310) && get_long(0x2ff00) == 0x53504858 && get_long(0x2ff08) >= 9 && get_long(0x2ff08) <= 11) write_log("TOP_FIELD event=handle_strobes guest=%u v=%d counter=%d x=%ld previous=%03x rga=%03x pending=%d fixed=%d programmed=%d selected=%d hb=%d active=%d\n", get_long(0x2ff08), this_line->linear_vpos, denise_hcounter, buf1 && xlinebuffer ? long(buf1-(uae_u32*)xlinebuffer) : -1L, previous_strobe, rd->rga, delayed_vblank_ecs, denise_vblank, denise_pvblank, exthblankon_aga, denise_phblank, denise_blank_active);
+ 	if (ecs_denise) {
+ 
+ 		if (rd->rga == 0x03c && previous_strobe != 0x03c) {
+@@ -4489,6 +4490,7 @@
+ 
+ static void do_hbstrt(int cnt)
+ {
++    if (getenv("FSEMU_CODEX_TOP_FIELD") && this_line && (this_line->linear_vpos <= 27 || this_line->linear_vpos >= 310) && get_long(0x2ff00) == 0x53504858 && get_long(0x2ff08) >= 9 && get_long(0x2ff08) <= 11) write_log("TOP_FIELD event=do_hbstrt guest=%u v=%d counter=%d x=%ld previous=%03x rga=%03x pending=%d fixed=%d programmed=%d selected=%d hb=%d active=%d\n", get_long(0x2ff08), this_line->linear_vpos, denise_hcounter, buf1 && xlinebuffer ? long(buf1-(uae_u32*)xlinebuffer) : -1L, previous_strobe, 0, delayed_vblank_ecs, denise_vblank, denise_pvblank, exthblankon_aga, denise_phblank, denise_blank_active);
+ 	// move denise hcounter used to match BPLCON1 reset in HB start to hide the glitch in right edge
+ 	if (!denise_accurate_mode) {
+ 		denise_hcounter_cmp = denise_hcounter;
+@@ -4521,6 +4523,7 @@
+ }
+ static void do_hbstop(int cnt)
+ {
++    if (getenv("FSEMU_CODEX_TOP_FIELD") && this_line && (this_line->linear_vpos <= 27 || this_line->linear_vpos >= 310) && get_long(0x2ff00) == 0x53504858 && get_long(0x2ff08) >= 9 && get_long(0x2ff08) <= 11) write_log("TOP_FIELD event=do_hbstop guest=%u v=%d counter=%d x=%ld previous=%03x rga=%03x pending=%d fixed=%d programmed=%d selected=%d hb=%d active=%d\n", get_long(0x2ff08), this_line->linear_vpos, denise_hcounter, buf1 && xlinebuffer ? long(buf1-(uae_u32*)xlinebuffer) : -1L, previous_strobe, 0, delayed_vblank_ecs, denise_vblank, denise_pvblank, exthblankon_aga, denise_phblank, denise_blank_active);
+ 	denise_hblank = false;
+ 	if (!exthblankon_ecs) {
+ 		hbstop_offset = internal_pixel_cnt;
+@@ -4545,6 +4548,7 @@
+ 
+ static void do_phbstrt_aga(int cnt)
+ {
++    if (getenv("FSEMU_CODEX_TOP_FIELD") && this_line && (this_line->linear_vpos <= 27 || this_line->linear_vpos >= 310) && get_long(0x2ff00) == 0x53504858 && get_long(0x2ff08) >= 9 && get_long(0x2ff08) <= 11) write_log("TOP_FIELD event=do_phbstrt_aga guest=%u v=%d counter=%d x=%ld previous=%03x rga=%03x pending=%d fixed=%d programmed=%d selected=%d hb=%d active=%d\n", get_long(0x2ff08), this_line->linear_vpos, denise_hcounter, buf1 && xlinebuffer ? long(buf1-(uae_u32*)xlinebuffer) : -1L, previous_strobe, 0, delayed_vblank_ecs, denise_vblank, denise_pvblank, exthblankon_aga, denise_phblank, denise_blank_active);
+ 	denise_phblank = true;
+ 	if (exthblankon_aga) {
+ 		hbstrt_offset = internal_pixel_cnt;
+@@ -4564,6 +4568,7 @@
+ }
+ static void do_phbstop_aga(int cnt)
+ {
++    if (getenv("FSEMU_CODEX_TOP_FIELD") && this_line && (this_line->linear_vpos <= 27 || this_line->linear_vpos >= 310) && get_long(0x2ff00) == 0x53504858 && get_long(0x2ff08) >= 9 && get_long(0x2ff08) <= 11) write_log("TOP_FIELD event=do_phbstop_aga guest=%u v=%d counter=%d x=%ld previous=%03x rga=%03x pending=%d fixed=%d programmed=%d selected=%d hb=%d active=%d\n", get_long(0x2ff08), this_line->linear_vpos, denise_hcounter, buf1 && xlinebuffer ? long(buf1-(uae_u32*)xlinebuffer) : -1L, previous_strobe, 0, delayed_vblank_ecs, denise_vblank, denise_pvblank, exthblankon_aga, denise_phblank, denise_blank_active);
+ 	denise_phblank = false;
+ 	if (exthblankon_aga) {
+ 		hbstop_offset = internal_pixel_cnt;

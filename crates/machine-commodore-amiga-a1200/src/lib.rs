@@ -2402,6 +2402,7 @@ impl AmigaDriver for AmigaA1200 {
     ) {
         let width_words = self.agnus.bpl_fetch_width();
         let vertical_diw_active = self.agnus.vertical_diw_active();
+        self.denise.prepare_output_timing_strobe();
         let denise_position = self
             .denise
             .output_comparator_position_for(&self.agnus, phase);
@@ -3713,6 +3714,43 @@ mod bus_plan_dispatch_tests {
             amiga.denise.framebuffer()[y * FB_WIDTH as usize + x],
             0xFF00_00FF
         );
+    }
+
+    #[test]
+    fn a1200_first_visible_line_waits_for_programmed_vertical_blank_release() {
+        let mut amiga = AmigaA1200::new(vec![0; 512 * 1024]);
+        for (register, value) in [
+            (0x100, 1),
+            (0x106, 1),
+            (0x180, 0x011),
+            (0x1DC, 0x28),
+            (0x1C4, 0x80),
+            (0x1C6, 0xA0),
+        ] {
+            amiga.poke_word(0x00DF_F000 + register, value);
+        }
+        let mut reached = false;
+        for _ in 0..500_000 {
+            amiga.tick();
+            if amiga.agnus.vbl_count == 2 && amiga.agnus.vpos == 28 {
+                reached = true;
+                break;
+            }
+        }
+        assert!(reached, "must cross a complete vertical-blank interval");
+        // Counter-qualified SPHX observation: native row 2 is beam line 26.
+        // HBSTRT/HBSTOP mask [668,924); vertical blank additionally masks
+        // [16,668) only on the first line. No content alignment or crop search.
+        for y in [2, 3, 4, 5] {
+            for x in 16..1524 {
+                let blank = (668..924).contains(&x) || (y < 4 && x < 668);
+                assert_eq!(
+                    amiga.denise.framebuffer()[y * FB_WIDTH as usize + x],
+                    if blank { 0xFF00_0000 } else { 0xFF00_1111 },
+                    "first-line vertical blank at ({x},{y})"
+                );
+            }
+        }
     }
 
     #[test]
