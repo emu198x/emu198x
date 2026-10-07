@@ -138,12 +138,13 @@ VIC20_SURVEY_CASE=raster-border VIC20_SURVEY_OUT=/tmp \
 
 ## Interpreting the results
 
-The table the survey prints, at the revision that introduced it:
+The table the survey prints, with what each shortfall is; a row that a fix
+moved says what it was:
 
 | Case | Matched of 66,240 | Where it disagrees, and why |
 |---|---:|---|
 | basic-boot, basic-boot-cursor, vic6561-test36867-1, vic-vert0 | 100% | — |
-| vic6561-test36867-2 | 65.990% | Emu198x shows all 23 rows. The program sets 7 rows only around line 0 and prints that "only 7 lines should be displayed"; VICE latches the row count at line 0. |
+| vic6561-test36867-2 | 100% | Was 65.990%: Emu198x showed all 23 rows. The program sets 7 rows only around line 0 and prints that "only 7 lines should be displayed"; the chip now reads the row count once, at the top of the frame, as VICE does. |
 | vic6561-test36866-1 | 99.227% | `$9002` written mid-line shortens the first two rows; the program says each line keeps 22 columns. VICE latches the column count at cycle 1 of every line. |
 | vic6561-test36866-2, testcharheigh-2 | 95.3%, 95.8% | Column count and character height changed mid-frame: VICE advances its screen pointer row by row by the columns actually fetched; Emu198x recomputes each row's address from the live registers. |
 | vic6561-test36864, test36865-1/2/3, testmemfetch-1/2, testcharheigh-1, vic-9000test | 99.4-99.98% | Origin, height and fetch registers written mid-line: VICE opens the display when the cycle counter equals `$9000` and keeps it open for the line; Emu198x re-reads every register for every pixel. |

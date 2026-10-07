@@ -192,6 +192,9 @@ pub struct Vic6560 {
     lines_per_frame: u32,
     /// Cycles per line (PAL: 71, NTSC: 65).
     cycles_per_line: u32,
+    /// Register 3's text-row count as the chip read it at the top of this
+    /// frame. See [`Vic6560::latch_counts`].
+    rows: u32,
 
     // ---- sound ----
     /// The three tone channels (0-2) and the noise channel (3).
@@ -278,6 +281,7 @@ impl Vic6560 {
             pixel_x: 0,
             lines_per_frame: lines,
             cycles_per_line: cycles,
+            rows: 0,
             sound_ch: [SoundChannel::default(); 4],
             noise_lfsr: 0,
             noise_lfsr0_old: 0,
@@ -338,9 +342,30 @@ impl Vic6560 {
             }
         }
 
+        self.latch_counts();
         self.render_cycle(&read_screen, &read_colour, &read_char_rom);
 
         false
+    }
+
+    /// Take the counts the chip reads once rather than continuously.
+    ///
+    /// The number of text rows is read once a frame, near the start of line 0,
+    /// so a frame keeps the row count it began with whatever register 3 says
+    /// later. VICE's `vic_cycle_latch_rows` takes it in raster cycle 2 of line
+    /// 0, which is this chip's cycle 1: the survey against VICE (#362) shows
+    /// its cycle numbers run one ahead of these for the same CPU write. VICE's
+    /// `vic6561/test36867-2` sets 7 rows only for a moment around line 0 and
+    /// prints that "only 7 lines should be displayed"; reading the register
+    /// for every line showed all 23.
+    ///
+    /// The Programmer's Reference Guide gives the register's meaning — bits
+    /// 1-6 of 36867 are the number of rows (pp. 213-214) — but not when the
+    /// chip reads it.
+    fn latch_counts(&mut self) {
+        if self.scanline == 0 && self.pixel_x == 1 {
+            self.rows = u32::from((self.regs[3] & 0x7E) >> 1);
+        }
     }
 
     /// Paint the four pixels this machine cycle covers.
@@ -401,7 +426,7 @@ impl Vic6560 {
     fn line_state(&self) -> LineState {
         let colours = self.regs[0x0F];
         let origin_y = u32::from(self.regs[1]) * 2;
-        let rows = u32::from((self.regs[3] & 0x7E) >> 1);
+        let rows = self.rows;
         let char_height = if self.regs[3] & 0x01 == 0 { 8 } else { 16 };
 
         LineState {
@@ -954,6 +979,7 @@ mod tests {
     fn registers_2_and_5_select_the_screen_and_colour_offsets_together() {
         let mut vic = Vic6560::new(PAL);
         stock(&mut vic);
+        run_frame(&mut vic); // latch the row count
         vic.scanline = 38 * 2;
 
         let stock_line = vic.line_state();
@@ -995,6 +1021,46 @@ mod tests {
             ),
             Some(VIC_PALETTE[2])
         );
+    }
+
+    /// Run `vic` on the solid-glyph screen of [`run_frame`] until it reaches
+    /// cycle `cycle` of line `line`.
+    fn run_to(vic: &mut Vic6560, line: u32, cycle: u32) {
+        while (vic.scanline, vic.pixel_x) != (line, cycle) {
+            vic.tick(
+                |_| 1,
+                |_| 2,
+                |addr| if (8..32).contains(&addr) { 0xFF } else { 0x00 },
+            );
+        }
+    }
+
+    /// #362: the row count is read once, at the top of the frame. A frame
+    /// that starts with 23 rows keeps them when register 3 is cut to five
+    /// partway down, and the next frame has five.
+    #[test]
+    fn the_row_count_is_read_at_the_top_of_the_frame() {
+        let mut vic = Vic6560::new(PAL);
+        stock(&mut vic);
+        run_frame(&mut vic); // a whole frame with 23 rows latched
+        let (x, y) = stock_origin();
+
+        run_to(&mut vic, 100, 0); // inside the display's third row
+        vic.write(0x03, 5 << 1);
+        run_to(&mut vic, 0, 0);
+        assert_eq!(
+            pixel(&vic, x, y + ACTIVE_HEIGHT - 1),
+            VIC_PALETTE[2],
+            "the frame that was under way keeps its 23 rows"
+        );
+
+        run_frame(&mut vic);
+        assert_eq!(
+            pixel(&vic, x, y + 39),
+            VIC_PALETTE[2],
+            "five rows next frame"
+        );
+        assert_eq!(pixel(&vic, x, y + 40), VIC_PALETTE[3], "and no more");
     }
 
     #[test]
