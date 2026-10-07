@@ -195,6 +195,9 @@ pub struct Vic6560 {
     /// Register 3's text-row count as the chip read it at the top of this
     /// frame. See [`Vic6560::latch_counts`].
     rows: u32,
+    /// Register 2's column count as the chip read it at the start of this
+    /// line. See [`Vic6560::latch_counts`].
+    columns: u32,
 
     // ---- sound ----
     /// The three tone channels (0-2) and the noise channel (3).
@@ -282,6 +285,7 @@ impl Vic6560 {
             lines_per_frame: lines,
             cycles_per_line: cycles,
             rows: 0,
+            columns: 0,
             sound_ch: [SoundChannel::default(); 4],
             noise_lfsr: 0,
             noise_lfsr0_old: 0,
@@ -338,6 +342,7 @@ impl Vic6560 {
             if self.scanline >= self.lines_per_frame {
                 self.scanline = 0;
                 self.frame_complete = true;
+                self.latch_counts();
                 return true;
             }
         }
@@ -350,6 +355,13 @@ impl Vic6560 {
 
     /// Take the counts the chip reads once rather than continuously.
     ///
+    /// The number of columns is read once a line, in its first cycle, so a
+    /// write to register 2 partway along a line takes effect on the next.
+    /// VICE's `vic_cycle_latch_columns` takes it in raster cycle 1, this
+    /// chip's cycle 0. VICE's `vic6561/test36866-1` changes the count mid-line
+    /// and prints that the screen "should display 22 columns in each line";
+    /// reading the register for every pixel cut its first two rows short.
+    ///
     /// The number of text rows is read once a frame, near the start of line 0,
     /// so a frame keeps the row count it began with whatever register 3 says
     /// later. VICE's `vic_cycle_latch_rows` takes it in raster cycle 2 of line
@@ -359,10 +371,13 @@ impl Vic6560 {
     /// prints that "only 7 lines should be displayed"; reading the register
     /// for every line showed all 23.
     ///
-    /// The Programmer's Reference Guide gives the register's meaning — bits
-    /// 1-6 of 36867 are the number of rows (pp. 213-214) — but not when the
-    /// chip reads it.
+    /// The Programmer's Reference Guide gives the registers' meaning — bits
+    /// 0-6 of 36866 are the number of columns and bits 1-6 of 36867 the number
+    /// of rows (pp. 213-214) — but not when the chip reads them.
     fn latch_counts(&mut self) {
+        if self.pixel_x == 0 {
+            self.columns = u32::from(self.regs[2] & 0x7F);
+        }
         if self.scanline == 0 && self.pixel_x == 1 {
             self.rows = u32::from((self.regs[3] & 0x7E) >> 1);
         }
@@ -431,7 +446,7 @@ impl Vic6560 {
 
         LineState {
             origin_x: u32::from(self.regs[0] & 0x7F) * PIXELS_PER_CYCLE,
-            columns: u32::from(self.regs[2] & 0x7F),
+            columns: self.columns,
             char_height,
             row: self
                 .scanline
@@ -1061,6 +1076,33 @@ mod tests {
             "five rows next frame"
         );
         assert_eq!(pixel(&vic, x, y + 40), VIC_PALETTE[3], "and no more");
+    }
+
+    /// #362: the column count is read once, at the start of the line. A
+    /// line that starts with 22 columns keeps them when register 2 is cut to
+    /// ten partway along it, and the next line has ten.
+    #[test]
+    fn the_column_count_is_read_at_the_start_of_the_line() {
+        let mut vic = Vic6560::new(PAL);
+        stock(&mut vic);
+        run_frame(&mut vic);
+        let (x, _) = stock_origin();
+
+        run_to(&mut vic, 100, 20); // a third of the way along a display line
+        vic.write(0x02, 0x80 | 10);
+        run_to(&mut vic, 102, 0);
+        let line = 100 - window_first_line(PAL);
+        assert_eq!(
+            pixel(&vic, x + ACTIVE_WIDTH - 1, line),
+            VIC_PALETTE[2],
+            "the line under way keeps its 22 columns"
+        );
+        assert_eq!(
+            pixel(&vic, x + 79, line + 1),
+            VIC_PALETTE[2],
+            "ten next line"
+        );
+        assert_eq!(pixel(&vic, x + 80, line + 1), VIC_PALETTE[3], "and no more");
     }
 
     #[test]
