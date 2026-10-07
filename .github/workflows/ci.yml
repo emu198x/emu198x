@@ -167,6 +167,11 @@ jobs:
       - name: Check the committed Atari DLI timing probe matches its source
         run: python3 test-data/atari/dli-timing/build.py --check
 
+      # The VIC-20 VIC-I survey's raster programs are pinned by SHA-256 in its
+      # manifest, so a stale image would survey the wrong program.
+      - name: Check the committed VIC-20 survey raster programs match their source
+        run: python3 test-data/commodore/vic-20/vici-vice-survey/programs/build.py --check
+
       # The GTIA palette is generated from atari800's colour model; a hand
       # edit would drift from the model the file claims to reproduce.
       - name: Check the committed GTIA palette matches its generator

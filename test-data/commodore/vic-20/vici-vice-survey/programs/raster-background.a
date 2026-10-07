@@ -1,0 +1,23 @@
+; VIC-I survey raster program 2: a background-colour band
+; (emu198x/emu198x#362).
+;
+; The screen is cleared to spaces, so the band's lines, 110 to 180, show
+; paper wherever the display is and border either side of it. The band is
+; paper colour 2 on paper colour 6; the border stays colour 3 throughout.
+
+SYNC_HALF   = 10
+TARGET_LINE = 110
+
+        !source "raster-band.a"
+        +header
+        ldx #0
+        lda #$20                ; screen code for a space
+-       sta SCREEN,x
+        sta SCREEN + $100,x
+        inx
+        bne -
+frame   jsr sync
+        +band $900f, $2b, $6b, $1b
+        jmp frame
+
+        !source "raster-sync.a"

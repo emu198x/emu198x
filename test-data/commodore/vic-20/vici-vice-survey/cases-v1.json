@@ -1,0 +1,356 @@
+{
+  "schema": "org.198x.emu198x.vic20-vici-vice-survey.v1",
+  "id": "vic20-vici-vice-survey-v1",
+  "issue": "emu198x/emu198x#362",
+  "sources": {
+    "vice_testprogs": {
+      "repository": "https://svn.code.sf.net/p/vice-emu/code/testprogs/VIC20/",
+      "svn_revision": 46281,
+      "fetched": "2026-10-07",
+      "staged_as": "<fixture-dir>/vice-testprogs/",
+      "directories": [
+        "split-tests",
+        "vic6561",
+        "vic_9000test",
+        "vic_line0",
+        "vic_vert0"
+      ]
+    }
+  },
+  "vice": {
+    "emulator": "xvic",
+    "version": "3.10 (Homebrew)",
+    "args": [
+      "-default",
+      "-console",
+      "-silent",
+      "-sounddev",
+      "dummy",
+      "-VICborders",
+      "2",
+      "-VICfilter",
+      "0",
+      "-warp",
+      "+autostart-delay-random"
+    ]
+  },
+  "models": {
+    "pal": {
+      "chip": "6561",
+      "vice_model": "vic20pal",
+      "kernal": "kernal.rom",
+      "cycles_per_line": 71,
+      "lines_per_frame": 312,
+      "cycles_per_frame": 22152,
+      "screenshot": {
+        "width": 568,
+        "height": 312,
+        "pixel_width": 2,
+        "first_line": 0
+      }
+    }
+  },
+  "firmware": {
+    "root": "EMU198X_VIC20_ROM_DIR (default ~/.emu198x/roms/commodore-vic-20)",
+    "note": "Byte-identical to the images VICE 3.10 ships for xvic (kernal.901486-07.bin, kernal.901486-06.bin, basic-901486-01.bin, chargen-901460-03.bin).",
+    "files": {
+      "kernal.rom": "ff6d1416b91a71f5240a5bb8adc9fdc1b955374c48322ca47b3e436334f168fb",
+      "kernal-ntsc.rom": "8fc94bd895f488ac0ae1a52abdc32988cd63c777770b89a9d415513098535cc2",
+      "basic.rom": "8be2d882e0eeb1c6923a43660236ea69d43ca8a3bd0613b1b6c910601584fbed",
+      "char.rom": "bda280726cfe069ca70ef5e2f2d95a29f69d3950c859a12e6979464963fcf502"
+    }
+  },
+  "injection": {
+    "pc": "e5ea",
+    "keys": "RUN\r"
+  },
+  "palette_calibration": {
+    "pal": {
+      "capture_frame": 100,
+      "background_sample": [
+        200,
+        250
+      ],
+      "border_sample": [
+        10,
+        10
+      ],
+      "sha256": {
+        "00": "96a0738cffbcf7c90d16ffa56bd58a54579e294ea07c6c0e4de7b4c93ede0a0a",
+        "01": "33ad9eda16a33a29ec3276c5272e00fe4a5d9dfd6d44813620bb25f9e0918300",
+        "02": "15bcd8b9f594faad23336e6324f44e25710d0747c6c2d58036dc55179bf330c0",
+        "03": "18bd2f1fc4f07a1042053e41e1d7c7cf096b0de6f34217b465f88fb0ee1842db",
+        "04": "4ff8e65ee0ce15a3e8034bcd2d42c9da0f9b56dfdd6d66ff6346fd336a3768af",
+        "05": "2fd7a4842fb0f39233ad3260ce548ce1d59677faef414760a2a2d01c152f3b20",
+        "06": "9ba902eb0e6c89490c7e79f1309c2e12ca32c82b01b3d6e4c69dbdf4ef93ad10",
+        "07": "3cbeecd569ab0b8fc0fd6912d6f0b0319bb8d61a7abeacab6532e29b81e830b1",
+        "08": "57cb46ed505dbee3055ddb49bf87c4a99587a8d3ff6123000cfc1a1d6ad136b4",
+        "09": "d2a211b1ae49d353bad554a19f6fc90531af3f4aa82f25bf373619b1e7747357",
+        "10": "efca4ef087dc3c88c9c0c4fbf0422bcc2f1578b011fd082820a2890399f2f824",
+        "11": "d8105d27b20ae199cd2a893f5fcf39108dd14edbc74625fa84e575963375ad61",
+        "12": "c5d88f534b391ffd3c606a805a2f2529c06837455de117ee3f50c3cd67f27cb9",
+        "13": "ed6395207606b6a42c8fa873fe2c384ba737a416706c3f3ff69ee71497ac05bb",
+        "14": "98343af33344f7f24fd65cfeba4245dba65ebd0a3a82653073d6fc3de7b516de",
+        "15": "750ec0b82173eef09f4ac7441eb590cb112f62f6916789d9181e11e3176b8787"
+      }
+    }
+  },
+  "cases": [
+    {
+      "id": "basic-boot",
+      "model": "pal",
+      "memory": "none",
+      "program": null,
+      "capture_frame": 150,
+      "reference_sha256": "d7ac58624502738d7255d17cdb6405114dc6aa129dfe391f48fb079863c34c9a"
+    },
+    {
+      "id": "basic-boot-cursor",
+      "model": "pal",
+      "memory": "none",
+      "program": null,
+      "capture_frame": 170,
+      "reference_sha256": "2eccb4fc723f95f1894f4a6624b2c2e30eedd9ce3012bf179ceaf5e8159c5fd9"
+    },
+    {
+      "id": "vic6561-test36864",
+      "model": "pal",
+      "memory": "none",
+      "program": {
+        "root": "fixture",
+        "path": "vice-testprogs/vic6561/test36864.prg",
+        "sha256": "dd3e0d2c873768a61eead5456ba6753d91e0af2e8ef2fa11433c43069b81b574"
+      },
+      "capture_frame": 300,
+      "reference_sha256": "56fbcf07897748fd1634d6c759b864b65a160cb78ddfaa3bb9a5ab359338b087"
+    },
+    {
+      "id": "vic6561-test36865-1",
+      "model": "pal",
+      "memory": "none",
+      "program": {
+        "root": "fixture",
+        "path": "vice-testprogs/vic6561/test36865-1.prg",
+        "sha256": "5f8297cf9653d8bac9ae7f7c3da208447f51928acd1fd8ae7fda43334c6a0c16"
+      },
+      "capture_frame": 300,
+      "reference_sha256": "73e2b00b5b173070fec1e0fa6627f83036a3777684002a4b279753153419e2ab"
+    },
+    {
+      "id": "vic6561-test36865-2",
+      "model": "pal",
+      "memory": "none",
+      "program": {
+        "root": "fixture",
+        "path": "vice-testprogs/vic6561/test36865-2.prg",
+        "sha256": "ff9b29f1bd44559a83352d294974a58d9a75ce06c8ae40c2bbdd6633d2971837"
+      },
+      "capture_frame": 300,
+      "reference_sha256": "ecdb7c56614f0a90b382a883c8d8edda6996431890b9f8dda2d454285806c05e"
+    },
+    {
+      "id": "vic6561-test36865-3",
+      "model": "pal",
+      "memory": "none",
+      "program": {
+        "root": "fixture",
+        "path": "vice-testprogs/vic6561/test36865-3.prg",
+        "sha256": "691859e0c7f2c042b4827c617e5a2390ae4695b991bdfc6bdaee382f50aebf0c"
+      },
+      "capture_frame": 300,
+      "reference_sha256": "8d6e7b9254bd91a8406fc96180d59cc945af427f66437a4ff72d20d7770b20ef"
+    },
+    {
+      "id": "vic6561-test36866-1",
+      "model": "pal",
+      "memory": "none",
+      "program": {
+        "root": "fixture",
+        "path": "vice-testprogs/vic6561/test36866-1.prg",
+        "sha256": "bbf50edad0919eacb8673a2b3d44faa4eeb9a08aa243d962f4cea9ee93e2fc02"
+      },
+      "capture_frame": 300,
+      "reference_sha256": "bf8557359b49110d77b0ff013014269e4d8f0dba37cf018071f74acd35e8748a"
+    },
+    {
+      "id": "vic6561-test36866-2",
+      "model": "pal",
+      "memory": "none",
+      "program": {
+        "root": "fixture",
+        "path": "vice-testprogs/vic6561/test36866-2.prg",
+        "sha256": "0fe9bb0843520eab4eac6d2a497f81a33745963859db504053cdead4bea2379a"
+      },
+      "capture_frame": 300,
+      "reference_sha256": "40dd49934ccda8dd5acc2d346ac4a66a909c57c75a66d255e3054431f2e79b08"
+    },
+    {
+      "id": "vic6561-test36867-1",
+      "model": "pal",
+      "memory": "none",
+      "program": {
+        "root": "fixture",
+        "path": "vice-testprogs/vic6561/test36867-1.prg",
+        "sha256": "c04608ff335672c32fb7f6dd39a38424c88656cc96ce4ef6b39fda0101f78bfe"
+      },
+      "capture_frame": 300,
+      "reference_sha256": "25eea3de77a2e7a2ca9afee90688114f83f664a39efdbaadef7164a343ea4571"
+    },
+    {
+      "id": "vic6561-test36867-2",
+      "model": "pal",
+      "memory": "none",
+      "program": {
+        "root": "fixture",
+        "path": "vice-testprogs/vic6561/test36867-2.prg",
+        "sha256": "4fd68acd007bb6085f3050a89f1ee01b9dd0f645b469972e029c2df45179d874"
+      },
+      "capture_frame": 300,
+      "reference_sha256": "31f03b3fdf06b4b10f89cdcece15d46b7cc15c88714d8514f1824ef85ece74c2"
+    },
+    {
+      "id": "vic6561-testback",
+      "model": "pal",
+      "memory": "none",
+      "program": {
+        "root": "fixture",
+        "path": "vice-testprogs/vic6561/testback.prg",
+        "sha256": "0454822802db70deb010473488b31e710fb4b12e450dedbca7d227fe531af7fb"
+      },
+      "capture_frame": 300,
+      "reference_sha256": "cba90699dc0503f80541265c21659d1c6d7bf0a386ff815079748c8372f856f2"
+    },
+    {
+      "id": "vic6561-testcharheigh-1",
+      "model": "pal",
+      "memory": "none",
+      "program": {
+        "root": "fixture",
+        "path": "vice-testprogs/vic6561/testcharheigh-1.prg",
+        "sha256": "8110e7ed07dc916e358454f3f5474b1aaeaaed2aa1064b919ae109f89d1a31e1"
+      },
+      "capture_frame": 300,
+      "reference_sha256": "50934b9c6a282749f1857fa648a052315fef45b2532389c822841d5d4d69071a"
+    },
+    {
+      "id": "vic6561-testcharheigh-2",
+      "model": "pal",
+      "memory": "none",
+      "program": {
+        "root": "fixture",
+        "path": "vice-testprogs/vic6561/testcharheigh-2.prg",
+        "sha256": "f8f7c3a1d508c666c4fff71f93565566c404debb97ea7239baf909f8a2e634f8"
+      },
+      "capture_frame": 300,
+      "reference_sha256": "b6edb5798f9bc0c0e0109e46d1accec61c6b281b428a537283a023ece9543f64"
+    },
+    {
+      "id": "vic6561-testmemfetch-1",
+      "model": "pal",
+      "memory": "none",
+      "program": {
+        "root": "fixture",
+        "path": "vice-testprogs/vic6561/testmemfetch-1.prg",
+        "sha256": "c96591b376975d668b2063b0e6844937bdeb41bfc9f3b1e40ceb04307879aab0"
+      },
+      "capture_frame": 300,
+      "reference_sha256": "fca26e7f6c70c7c1d1f0dd5c74717bb037a2094f65507a0b2eec899b6b69a436"
+    },
+    {
+      "id": "vic6561-testmemfetch-2",
+      "model": "pal",
+      "memory": "none",
+      "program": {
+        "root": "fixture",
+        "path": "vice-testprogs/vic6561/testmemfetch-2.prg",
+        "sha256": "6fe9efbfa9314ae05f79934102f8dfed0932d1a14252c2f67cd1a9f464bfb8b5"
+      },
+      "capture_frame": 300,
+      "reference_sha256": "161a395906eb1e628e442154d31f4fd9dbd8245769a3cb58da18165a1f189410"
+    },
+    {
+      "id": "vic-9000test",
+      "model": "pal",
+      "memory": "8k",
+      "program": {
+        "root": "fixture",
+        "path": "vice-testprogs/vic_9000test/testcase.prg",
+        "sha256": "281a96ca85852be4c53bf930ef95f854ba58213fc7886d8597bc818a970ae7d3"
+      },
+      "capture_frame": 300,
+      "reference_sha256": "6b83fd870d6f3944bac68a885e91f09dc610d0339a494bd3d262b2ff32d70f01"
+    },
+    {
+      "id": "vic-vert0",
+      "model": "pal",
+      "memory": "none",
+      "program": {
+        "root": "fixture",
+        "path": "vice-testprogs/vic_vert0/vert0test.prg",
+        "sha256": "ec0be84ea8e245f64f98213820f8e2332c7566479fe362f29a99ac2492fe912f"
+      },
+      "capture_frame": 300,
+      "reference_sha256": "923a22c191c7ba03b877a72d7d0e9422b0acc375b384fb94cb12a80178330c84"
+    },
+    {
+      "id": "split-timing",
+      "model": "pal",
+      "memory": "none",
+      "program": {
+        "root": "fixture",
+        "path": "vice-testprogs/split-tests/timing/timing.prg",
+        "sha256": "549618244e27838b7a7a2d996a3f09a4b49b1b4f18ba56449d51b6e326f9f4a1"
+      },
+      "capture_frame": 1400,
+      "reference_sha256": "ceea7919e4b8199c39a17833588329e322a4c638ce94e14485e8b1ddf46854ab"
+    },
+    {
+      "id": "raster-border",
+      "model": "pal",
+      "memory": "none",
+      "program": {
+        "root": "repo",
+        "path": "test-data/commodore/vic-20/vici-vice-survey/programs/raster-border.prg",
+        "sha256": "f83d6e4a0fed2727eae4cad1b853638af482de23b742f89c455686076cb63fce"
+      },
+      "capture_frame": 300,
+      "reference_sha256": "bdbc002c5d8cd405d7d8b6e334de058af92639481d76da8e620e34f1fb37f56f"
+    },
+    {
+      "id": "raster-background",
+      "model": "pal",
+      "memory": "none",
+      "program": {
+        "root": "repo",
+        "path": "test-data/commodore/vic-20/vici-vice-survey/programs/raster-background.prg",
+        "sha256": "12919b0e30e64d5a87efd3b84f17d43924f38e261c713629b014803339c2a09e"
+      },
+      "capture_frame": 300,
+      "reference_sha256": "df7ed4c76ea4445a57d0182f8a07a83bb496108ac913ebb578978690bd6cdfc3"
+    },
+    {
+      "id": "raster-reverse",
+      "model": "pal",
+      "memory": "none",
+      "program": {
+        "root": "repo",
+        "path": "test-data/commodore/vic-20/vici-vice-survey/programs/raster-reverse.prg",
+        "sha256": "c3f20c8f5f17fdde21cf3a79043918064870ec4c1d48493ab1fb6a39df47ff96"
+      },
+      "capture_frame": 300,
+      "reference_sha256": "4e92e3195c09b4d3d646464e2f36ea60474f465bf9d0a3c1b5f8dd71340773d1"
+    },
+    {
+      "id": "raster-auxiliary",
+      "model": "pal",
+      "memory": "none",
+      "program": {
+        "root": "repo",
+        "path": "test-data/commodore/vic-20/vici-vice-survey/programs/raster-auxiliary.prg",
+        "sha256": "2f2a390aab6838acb5d3d07781ef0ffe0908599e1cda409e40ad1852909bf077"
+      },
+      "capture_frame": 300,
+      "reference_sha256": "844a9d2500145c4e7e168da46a556fc9eef3cb622646511a5dde8fdb96e84e5f"
+    }
+  ]
+}

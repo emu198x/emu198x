@@ -2756,12 +2756,16 @@ name = "machine-commodore-vic-20"
 version = "0.28.1"
 dependencies = [
  "emu198x-mos-6502",
+ "emu198x-test-skip",
  "format-commodore-vic-20-crt",
  "mos-via-6522",
  "mos-vic-i",
+ "png",
  "postcard",
  "serde",
  "serde-big-array",
+ "serde_json",
+ "sha2",
 ]
 
 [[package]]

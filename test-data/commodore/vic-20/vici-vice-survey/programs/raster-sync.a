@@ -1,0 +1,65 @@
+; Cycle-exact raster lock for the PAL 6561 (71 cycles a line), shared by
+; the VIC-I survey's raster programs (emu198x/emu198x#362).
+;
+; The lock reads $9003 every 72 cycles - one cycle more than a line - so
+; each read lands one cycle later in its line than the last. Bit 7 of
+; $9003 is the raster line's low bit, so consecutive reads normally see
+; it flip. The first pair that sees no flip has skipped a line: the earlier
+; read fell in the last cycle of one line and the later read in the first
+; cycle, as the CPU sees it, of the line after next. Everything after
+; `locked` runs at a fixed cycle relative to that edge, whatever the phase
+; the program started in. No VIA timer is involved.
+;
+; Call with interrupts disabled. Returns at a fixed cycle of line
+; TARGET_LINE, which must be more than 73 lines below 2 * SYNC_HALF so
+; that the lock always finishes above it. Uses A, X, Y and zero page
+; LAST and TMP.
+
+LAST    = $fb
+TMP     = $fc
+
+sync    lda $9004               ; coarse: wait for raster line 2*SYNC_HALF
+        cmp #SYNC_HALF
+        bne sync
+        lda $9003               ; prime: read 72 cycles before the loop's
+        nop                     ; first read
+        bit $00
+        jmp slide_enter
+slide   lda $9003               ; 4  (reads on its 4th cycle)
+        eor LAST                ; 3
+        bpl locked              ; 2  (3 taken: no flip, so locked)
+        eor LAST                ; 3
+slide_enter
+        sta LAST                ; 3
+        ldx #10                 ; 2
+-       dex                     ; 10 * 5 - 1 = 49
+        bne -
+        bit $00                 ; 3
+        jmp slide               ; 3   = 72 cycles a pass
+
+locked  lda $9004               ; the line the lock landed on: 2 * $9004
+        asl                     ; plus bit 7 of $9003 (both read on the
+        sta TMP                 ; same line, early in it)
+        lda $9003
+        asl
+        lda TMP
+        adc #0
+        sta TMP
+        lda #TARGET_LINE
+        sec
+        sbc TMP
+        tax                     ; X = lines to wait, never zero
+-       ldy #13                 ; 2
+--      dey                     ; 13 * 5 - 1 = 64
+        bne --
+        dex                     ; 2
+        bne -                   ; 3   = 71 cycles a line
+        rts
+
+; Every timed loop above and in raster-band.a relies on its branches not
+; crossing a page, which would add a cycle. The programs are small enough
+; to sit wholly in page $10; keep it that way.
+program_end
+!if program_end > $1100 {
+        !error "raster program leaves page $10; timed branches would cross a page"
+}

@@ -1,0 +1,22 @@
+; VIC-I survey raster program 4: an auxiliary-colour band
+; (emu198x/emu198x#362).
+;
+; The band writes auxiliary colour 7 and then auxiliary colour 4 to $900e
+; over lines 110 to 180: rows 4 to 8 of the display are multicolour, whose
+; pair 11 takes the auxiliary colour, and rows 9 to 13 hi-res, which never
+; shows it (raster-glyph.a).
+
+SYNC_HALF   = 10
+TARGET_LINE = 110
+
+        !source "raster-band.a"
+        !source "raster-glyph.a"
+        +header
+        +glyph_screen
+        lda #$40
+        sta $900e
+frame   jsr sync
+        +band $900e, $70, $40, $40
+        jmp frame
+
+        !source "raster-sync.a"
