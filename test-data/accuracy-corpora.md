@@ -31,6 +31,7 @@ locally; the workflow uses the same env-var contract.
 | Spectrum ROMs (128K, +2, +3) | `machine-sinclair-zx-spectrum-128k` · `boot_test`; `-plus2`, `-plus2a`, `-plus2b`, `-plus3` · `boot_test` | `EMU198X_ROMS_ROOT` (firmware root; each machine joins its own directory onto it) | the machines' own firmware | free to distribute (Amstrad), the same permission the 48K ROM ships under | is firmware — these are the ROMs |
 | z80test | `machine-sinclair-zx-spectrum-48k` · `z80test` | `EMU198X_Z80TEST_DIR` (+ `EMU198X_SPECTRUM_48K_ROM`) | pinned raxoft/z80test 1.2a (`*.tap`); see `test-data/z80test/` | MIT | 48K Spectrum ROM — free (Amstrad), shipped in the tarball |
 | CPC fixtures | `machine-amstrad-cpc` · firmware, timing, `shaker`; `runtime-amstrad-cpc`; `emu198x-amstrad-cpc` | `EMU198X_CPC_ROM`, `EMU198X_CPC_6128_ROM`, `EMU198X_CPC_ROM_DIR`, `EMU198X_CPC_SHAKER_DSK`, `EMU198X_CPC_CDT` | official CPC 464/6128 OS + BASIC and AMSDOS dumps (TOSEC-verified); SHAKER 2.6 (Longshot); Inufuto's *Ascend* | ROMs: Amstrad grant plus a maintainer decision for Locomotive's part (see below), **private store only**; SHAKER and *Ascend* freely circulated | is firmware — these are the ROMs |
+| VIC-20 survey | `machine-commodore-vic-20` · `vici_vice_survey` | `EMU198X_VIC20_VICE_SURVEY_DIR` (the extracted dir), `EMU198X_VIC20_ROM_DIR` (its `roms/`) | official VIC-20 KERNAL 901486-07 and -06, BASIC 901486-01 and character 901460-03 dumps (MAME- and VICE-verified); VICE `testprogs/VIC20` at SVN r46281; VICE xvic 3.10 reference captures | ROMs: maintainer decision, no grant, **private store only**; test programs freely circulated with VICE; captures are VICE output | is firmware — these are the ROMs; no free VIC-20 firmware exists (see below) |
 
 The Z80 Tom Harte, FUSE and ZEX harnesses treat their explicit directory
 variables as authoritative. A missing path (or a file where a directory is
@@ -377,7 +378,7 @@ observations and a strict consumer are added.
 | Amiga Test Kit v1.21 A1200 video | `runtime-commodore-amiga` · `amiga_test_kit_video` | `EMU198X_AMIGA_TEST_KIT_V121_ADF` | keirf/amiga-stuff tag `testkit-v1.21` | Public domain / Unlicense | A1200 Kickstart 3.1 r40.068 through `EMU198X_AMIGA_KICKSTART_31_A1200_ROM` |
 | A1000 Kickstart disk v1.2 r33.180 | `machine-commodore-amiga-ocs` · `a1000_bootstrap_trace`; `runtime-commodore-amiga` · `diag_a1000_bootstrap_swap`, `golden_matrix` | `EMU198X_AMIGA_A1000_KICKSTART_DISK` | Commodore; the disk an A1000 loads into WOM at boot | Commercial — not redistributable, supplied externally like Kickstart itself | A1000 bootstrap ROM at `~/.emu198x/roms/commodore-amiga/a1000-bootstrap.rom` |
 | C64 VIC-II PAL 6569 survey | `runtime-commodore-c64` · `vicii_testbench` | `EMU198X_C64_VICII_TESTBENCH_DIR` | VICE VIC-II testbench staging; exact upstream revision unresolved | Unresolved; externally supplied | C64 KERNAL, BASIC and character ROMs through `EMU198X_C64_ROM_DIR` |
-| VIC-20 VIC-I 6561/6560 survey against VICE | `machine-commodore-vic-20` · `vici_vice_survey` | `EMU198X_VIC20_VICE_SURVEY_DIR` | VICE `testprogs/VIC20` at SVN revision 46281, plus reference captures from VICE xvic 3.10 | Per program, as each states; captures are VICE output | VIC-20 KERNALs 901486-07 and -06, BASIC and character ROMs through `EMU198X_VIC20_ROM_DIR` |
+| VIC-20 VIC-I 6561/6560 survey against VICE | `machine-commodore-vic-20` · `vici_vice_survey` | `EMU198X_VIC20_VICE_SURVEY_DIR` | VICE `testprogs/VIC20` at SVN revision 46281, plus reference captures from VICE xvic 3.10; mirrored as `vic20-survey` | Per program, as each states; captures are VICE output | VIC-20 KERNALs 901486-07 and -06, BASIC and character ROMs through `EMU198X_VIC20_ROM_DIR` |
 | SHAKER 2.6 (CPC) | `machine-amstrad-cpc` · `shaker` | `EMU198X_CPC_SHAKER_DSK` | shaker.logonsystem.eu (`Shaker_CSL/shaker26.dsk`) | Creative Commons; attribution requested — cite the CRTC Compendium | CPC464 firmware through `EMU198X_CPC_ROM`; CPC6128 firmware through `EMU198X_CPC_6128_ROM` |
 
 The Test Kit ADFs and their profile-specific Kickstart images are pinned by
@@ -410,6 +411,25 @@ regenerates the captures from a local VICE and checks them against it. The
 results are exact matched-pixel counts against VICE, not a hardware
 conformance claim; `knowledge/processes/vic20-vici-vice-survey.md` says what
 each shortfall is.
+
+The nightly `vic20-survey` job runs it from the store's
+`vic20-survey.tar.zst`, which carries the staged test programs, the
+reference captures and, under `roms/`, the four official ROMs. Each ROM
+matches the CRC32 and SHA-1 MAME declares for its part
+(`src/mame/commodore/vic20.cpp`, sets `vic20` and `vic20p`) and is
+byte-identical to the image VICE 3.10 ships for xvic. The ROMs have no
+redistribution grant and are mirrored under the maintainer's standing
+decision (§ The mirror), in the private store only.
+
+**The VIC-20 has no free-firmware lane, because there is no free firmware.**
+A search on 2026-10-07 found no clean-room or freely licensed VIC-20 KERNAL
+or BASIC. [Open ROMs](https://github.com/MEGA65/open-roms), the C64's
+replacement, targets the C64 and C65 only, and its `bin/` has no VIC-20
+build. What circulates for the VIC-20 is Commodore's own source and
+disassemblies (the [funet `cbm/src/vic20`](https://bio.nic.funet.fi/pub/cbm/src/vic20/index.html)
+archive), JiffyDOS, which is commercial, and replacement chips burned with
+the original images. If a free implementation appears, it gets a lane
+beside the official ROMs, as Open ROMs has for the C64.
 
 SHAKER is Longshot's CPC hardware-accuracy suite, aimed at the Gate Array and
 the CRTC across their manufacturing variants. It ships as an Extended DSK, and
@@ -529,7 +549,8 @@ machine works without them, and it is what public CI and readers can use.
 - One `zstd` tarball asset per corpus, named `<artifact>.tar.zst`:
   `harte-6502`, `harte-z80`, `harte-68000`, `sm83`, `dormann-6502`,
   `fuse-z80`, `lorenz-6502` (the Lorenz tarball includes the KERNAL),
-  `z80test`, `spectrum-system-tests`, `zx-spectrum-tests`, `cpc-fixtures`.
+  `z80test`, `spectrum-system-tests`, `zx-spectrum-tests`, `cpc-fixtures`,
+  `vic20-survey`.
 
   The last three carry ROMs as well as cases: `z80test` ships the free
   (Amstrad-permissioned) 48K ROM the exerciser boots on, and
