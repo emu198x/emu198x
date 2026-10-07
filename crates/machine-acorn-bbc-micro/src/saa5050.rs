@@ -33,8 +33,9 @@
 
 use serde::{Deserialize, Serialize};
 
-/// Pixels across a cell: six dots, each split in two so character rounding
-/// can light half of one.
+/// Half-dots across a cell: six dots, each split in two so character
+/// rounding can light half of one. This module calls them pixels; the machine
+/// draws the twelve across a microsecond of its framebuffer, sixteen pixels.
 pub(crate) const CELL_WIDTH: usize = 12;
 
 /// Lines of a character row the chip scans in one field.
@@ -129,8 +130,8 @@ impl Attributes {
     }
 }
 
-/// One cell of output: a 12-pixel line, leftmost pixel in bit 11, and its
-/// colours as three-bit RGB.
+/// One cell of output: a line of twelve half-dots, leftmost in bit 11, and
+/// its colours as three-bit RGB.
 pub(crate) struct Cell {
     pub(crate) pattern: u16,
     pub(crate) fg: u8,

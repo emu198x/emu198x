@@ -212,6 +212,30 @@ fn mode7_renders_the_banner() {
         (200..40_000).contains(&white),
         "expected the banner as white teletext pixels; got {white}"
     );
+
+    // "BBC Computer 32K" is the first sixteen cells of its row, and a cell is
+    // the sixteen pixels of a microsecond, so it is lit from the first cell
+    // to the sixteenth: x 0-255. Drawn twelve pixels a cell and centred, it
+    // was x 80-271 (#1623).
+    let width = sys.framebuffer_width() as usize;
+    let banner_row = (0..25)
+        .find(|&row| {
+            let start = 0x7C00 + row as u16 * 40;
+            (0..12).all(|i| sys.peek(start + i) == b"BBC Computer"[usize::from(i)])
+        })
+        .expect("the banner row");
+    let lit: Vec<usize> = (banner_row * 20..banner_row * 20 + 20)
+        .flat_map(|y| (0..width).filter(move |&x| fb[y * width + x] != 0xFF00_0000))
+        .collect();
+    let (first, last) = (lit.iter().min(), lit.iter().max());
+    assert!(
+        first.is_some_and(|&x| x < 16),
+        "the banner starts in the first cell: {first:?}"
+    );
+    assert!(
+        last.is_some_and(|&x| (240..256).contains(&x)),
+        "and ends in the sixteenth: {last:?}"
+    );
 }
 
 /// The MOS's five-byte clock at `&0292`/`&0297` (two copies, swapped each
@@ -378,7 +402,7 @@ fn the_prompt_cursor_blinks_in_mode_7_and_in_a_bitmap_mode() {
     let (runs, same) = changes_over(&mut sys, 96);
     assert_eq!(runs.len(), 1, "MODE 7: one changing run; got {runs:?}");
     let (_, start, end) = runs[0];
-    assert_eq!(end - start, 12, "MODE 7: one teletext cell wide");
+    assert_eq!(end - start, 16, "MODE 7: one teletext cell wide");
     assert!(
         half_periods(&same).iter().all(|&n| n == 16),
         "MODE 7 blink: {same:?}"
@@ -440,8 +464,8 @@ fn mode7_row_starting(sys: &BbcMicro, code: u8) -> u16 {
 fn mode7_cell_line(sys: &BbcMicro, column: usize, row: u16, line: usize) -> Vec<u32> {
     let width = sys.framebuffer_width() as usize;
     let y = usize::from(row) * 20 + line;
-    let x = 80 + column * 12;
-    sys.framebuffer()[y * width + x..y * width + x + 12].to_vec()
+    let x = column * 16;
+    sys.framebuffer()[y * width + x..y * width + x + 16].to_vec()
 }
 
 #[test]
