@@ -18,6 +18,19 @@ use serde_json::{Value, json};
 use common::{dummy_a1000_bootstrap_rom, dummy_kickstart};
 
 #[test]
+fn zero_audio_period_is_not_truncated_in_grouped_or_leaf_queries() {
+    let mut runtime = AmigaOcsRuntime::blank(Model::A500OcsPal);
+    runtime.machine_mut().poke_word(0x00DF_F0A6, 0);
+    runtime.machine_mut().poke_word(0x00DF_F0AA, 0x7F01);
+    let grouped = query_value(&runtime, "paula.audio.channels.channel0");
+    for field in ["effective_period", "period_counter"] {
+        let leaf = query_value(&runtime, &format!("paula.audio.channels.channel0.{field}"));
+        assert_eq!(leaf, json!(65_536), "{field} must retain the full period");
+        assert_eq!(grouped[field], leaf, "grouped and leaf values must agree");
+    }
+}
+
+#[test]
 fn query_provider_returns_declared_paths() {
     let runtime = AmigaOcsRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime init");
     let provider = AmigaSessionQueryProvider;

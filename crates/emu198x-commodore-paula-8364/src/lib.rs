@@ -134,8 +134,8 @@ pub mod bits {
     pub const ADKCON_USE_VOL: [u16; 4] = [0x0001, 0x0002, 0x0004, 0x0008];
 
     // Timing constants for Paula's audio + disk paths.
-    /// HRM minimum playback period — below this the DMA slot cannot
-    /// deliver in time. Writes below 124 are preserved for read-back.
+    /// HRM recommended minimum DMA sampling period. This is not a hardware
+    /// counter floor: shorter periods run even when DMA cannot keep up.
     pub const AUDIO_MIN_PERIOD_CCK: u16 = 124;
     /// Encoded-byte interval in FAST's normal 2 µs MFM bit-cell mode.
     ///
@@ -469,7 +469,7 @@ struct AudioChannel {
     current_word: Option<u16>,
     next_word: Option<u16>,
     next_byte_is_hi: bool,
-    period_counter: u16,
+    period_counter: u32,
     output_sample: i8,
     state: AudioState,
     dma_active: bool,
@@ -490,7 +490,7 @@ impl Default for AudioChannel {
             current_word: None,
             next_word: None,
             next_byte_is_hi: true,
-            period_counter: AUDIO_MIN_PERIOD_CCK,
+            period_counter: u32::from(AUDIO_MIN_PERIOD_CCK),
             output_sample: 0,
             state: AudioState::Idle,
             dma_active: false,
@@ -501,8 +501,14 @@ impl Default for AudioChannel {
 }
 
 impl AudioChannel {
-    fn effective_period(&self) -> u16 {
-        self.per.max(AUDIO_MIN_PERIOD_CCK)
+    fn effective_period(&self) -> u32 {
+        // The recommended DMA sampling period is not a counter floor.
+        // Paula reloads the full 16-bit value, with zero denoting 65,536.
+        if self.per == 0 {
+            65_536
+        } else {
+            u32::from(self.per)
+        }
     }
 
     fn programmed_length_words(&self) -> u32 {
@@ -779,8 +785,8 @@ pub struct PaulaAudioChannelDiagnosticSnapshot {
     pub words_remaining: u32,
     /// Raw AUDxPER period register.
     pub period: u16,
-    /// Period used by playback after applying Paula's minimum.
-    pub effective_period: u16,
+    /// Playback period in CCKs; a zero register value represents 65,536.
+    pub effective_period: u32,
     /// Clamped AUDxVOL value.
     pub volume: u8,
     /// Stored AUDxDAT register/latch.
@@ -792,7 +798,7 @@ pub struct PaulaAudioChannelDiagnosticSnapshot {
     /// Whether the next output transition selects the current word's high byte.
     pub next_byte_is_high: bool,
     /// CCKs remaining until the next output transition.
-    pub period_counter: u16,
+    pub period_counter: u32,
     /// Current signed eight-bit DAC sample latch.
     pub output_sample: i8,
     /// Current DMA/playback state-machine state.

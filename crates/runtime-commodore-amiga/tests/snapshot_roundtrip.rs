@@ -45,6 +45,102 @@ use runtime_commodore_amiga::{
 const BLTCON0: u32 = 0x00DF_F040;
 
 #[test]
+fn paula_zero_and_short_periods_survive_live_restore() -> Result<(), Box<dyn Error>> {
+    fn check<M: AmigaMachine + AmigaLiveAccess + AmigaDriver>(
+        mut original: AmigaRuntime<M>,
+        mut restored: AmigaRuntime<M>,
+        period: u16,
+    ) -> Result<(), Box<dyn Error>> {
+        let expected = if period == 0 {
+            65_536
+        } else {
+            u32::from(period)
+        };
+        AmigaDriver::dispatch_custom_write(original.machine_mut(), 0x0A6, period);
+        AmigaDriver::dispatch_custom_write(original.machine_mut(), 0x0A8, 64);
+        AmigaDriver::dispatch_custom_write(original.machine_mut(), 0x0AA, 0x7F01);
+        let targets = if period == 0 {
+            vec![65_536, 65_535, 32_768, 2, 1]
+        } else {
+            (1..=expected).rev().collect()
+        };
+        let mut total_ticks = 0;
+        for target in targets {
+            while AmigaDriver::paula(original.machine())
+                .audio_diagnostic_snapshot()
+                .channels[0]
+                .period_counter
+                != target
+            {
+                AmigaMachine::tick(original.machine_mut());
+                total_ticks += 1;
+                assert!(total_ticks < 140_000, "counter must reach {target}");
+            }
+            let before = AmigaDriver::paula(original.machine()).audio_diagnostic_snapshot();
+            assert_eq!(before.channels[0].period, period);
+            assert_eq!(before.channels[0].effective_period, expected);
+            let saved = original.snapshot()?;
+            restored.restore(&saved)?;
+            assert_eq!(
+                before,
+                AmigaDriver::paula(restored.machine()).audio_diagnostic_snapshot()
+            );
+            assert!(
+                saved == restored.snapshot()?,
+                "snapshot fixed point at {target}"
+            );
+            let mut transition_seen = false;
+            let mut previous_sample = before.channels[0].output_sample;
+            for _ in 0..8 {
+                AmigaMachine::tick(original.machine_mut());
+                AmigaMachine::tick(restored.machine_mut());
+                let observed = AmigaDriver::paula(original.machine()).audio_diagnostic_snapshot();
+                assert_eq!(
+                    observed,
+                    AmigaDriver::paula(restored.machine()).audio_diagnostic_snapshot()
+                );
+                assert_eq!(
+                    AmigaDriver::paula(original.machine()).mix_audio_stereo(),
+                    AmigaDriver::paula(restored.machine()).mix_audio_stereo(),
+                );
+                transition_seen |= observed.channels[0].output_sample != previous_sample;
+                previous_sample = observed.channels[0].output_sample;
+            }
+            if target == 1 {
+                assert!(
+                    transition_seen,
+                    "restore must cross a real sample transition"
+                );
+            }
+            assert!(
+                original.snapshot()? == restored.snapshot()?,
+                "forward replay at {target}"
+            );
+            original.restore(&saved)?;
+        }
+        Ok(())
+    }
+    for period in [0, 1, 3] {
+        check(
+            AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?,
+            AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?,
+            period,
+        )?;
+        check(
+            AmigaEcsRuntime::new(Model::A500PlusEcsPal, blank_kickstart())?,
+            AmigaEcsRuntime::new(Model::A500PlusEcsPal, blank_kickstart())?,
+            period,
+        )?;
+        check(
+            AmigaA1200Runtime::new(Model::A1200AgaPal, blank_kickstart())?,
+            AmigaA1200Runtime::new(Model::A1200AgaPal, blank_kickstart())?,
+            period,
+        )?;
+    }
+    Ok(())
+}
+
+#[test]
 fn horizontal_display_window_survives_strobe_reset_and_half_cck_restore()
 -> Result<(), Box<dyn Error>> {
     fn check<M: AmigaMachine + AmigaLiveAccess + AmigaDriver>(
@@ -3663,10 +3759,10 @@ fn ecs_snapshot_restore_preserves_model_specific_gayle_composition() -> Result<(
 }
 
 /// Take a real snapshot, hand-patch the leading postcard varint version
-/// field back to 55, and confirm the version-mismatch arm fires with a
+/// field back to 56, and confirm the version-mismatch arm fires with a
 /// human-readable reason naming the snapshot version. The first byte
-/// of a `SnapshotEnvelopeV56` is the postcard varint encoding of
-/// `version`; for `SNAPSHOT_VERSION = 56` that byte is `0x38`.
+/// of a `SnapshotEnvelopeV57` is the postcard varint encoding of
+/// `version`; for `SNAPSHOT_VERSION = 57` that byte is `0x39`.
 /// Replacing it with another single-byte value keeps the envelope
 /// length stable and lands us inside the explicit version-mismatch
 /// branch instead of the postcard-parse-error branch above.
@@ -3675,20 +3771,20 @@ fn restore_rejects_mismatched_snapshot_version() -> Result<(), Box<dyn Error>> {
     let runtime = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
     let mut bytes = runtime.snapshot()?;
     assert_eq!(
-        bytes[0], 56,
-        "postcard varint for SNAPSHOT_VERSION = 56 should be 0x38"
+        bytes[0], 57,
+        "postcard varint for SNAPSHOT_VERSION = 57 should be 0x39"
     );
-    bytes[0] = 55;
+    bytes[0] = 56;
 
     let mut other = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
     let err = other
         .restore(&bytes)
-        .expect_err("version-55 snapshot should be rejected before payload decode");
+        .expect_err("version-56 snapshot should be rejected before payload decode");
     assert!(
         matches!(
             err,
             MachineError::InvalidSnapshot { ref reason }
-                if reason == "unsupported snapshot version 55; expected 56"
+                if reason == "unsupported snapshot version 56; expected 57"
         ),
         "expected version-mismatch reason, got {err:?}"
     );
@@ -4094,7 +4190,7 @@ fn a1200_prefetch_transfer_and_holding_register_survive_runtime_restore()
         }
         assert!(reached, "prefetch boundary not reached: holding={held}");
         let bytes = original.snapshot()?;
-        assert_eq!(bytes[0], 56);
+        assert_eq!(bytes[0], 57);
         let mut restored = AmigaA1200Runtime::new(Model::A1200AgaPal, rom.clone())?;
         restored.restore(&bytes)?;
         assert_eq!(bytes, restored.snapshot()?);
@@ -4252,7 +4348,7 @@ fn area_channel_fill_holding_and_drain_stages_survive_runtime_restore() -> Resul
             });
             if state.execution.startup_ccks_remaining == 0 && visited.insert(key) {
                 let bytes = original.snapshot()?;
-                assert_eq!(bytes[0], 56);
+                assert_eq!(bytes[0], 57);
                 let mut restored = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
                 restored.restore(&bytes)?;
                 assert_eq!(bytes, restored.snapshot()?);
