@@ -1,0 +1,12 @@
+   Compiling common-commodore-amiga v0.28.1 (/Users/stevehill/Projects/198x/Emu198x/emu198x/crates/common-commodore-amiga)
+   Compiling machine-commodore-amiga-ocs v0.28.1 (/Users/stevehill/Projects/198x/Emu198x/emu198x/crates/machine-commodore-amiga-ocs)
+   Compiling commodore-denise-aga v0.28.1 (/Users/stevehill/Projects/198x/Emu198x/emu198x/crates/commodore-denise-aga)
+   Compiling machine-commodore-amiga-a1200 v0.28.1 (/Users/stevehill/Projects/198x/Emu198x/emu198x/crates/machine-commodore-amiga-a1200)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.50s
+     Running unittests src/lib.rs (target/debug/deps/machine_commodore_amiga_a1200-8e59895ec2959321)
+
+running 1 test
+test bus_plan_dispatch_tests::lisa_programmed_blank_observes_the_pending_counter_reset ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 31 filtered out; finished in 0.08s
+

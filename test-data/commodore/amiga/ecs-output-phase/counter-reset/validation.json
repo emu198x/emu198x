@@ -1,0 +1,16 @@
+{
+  "library_tests": 227,
+  "snapshot_tests": 59,
+  "new_exact_fields": 60,
+  "ordinary_exact_fields": 30,
+  "exact_rgb_samples": 77903280,
+  "baseline_failing_fields": 24,
+  "baseline_exact_fields": 36,
+  "test_kit_patterns": 6,
+  "snapshot_version": 56,
+  "rebuild_identical_guests": 20,
+  "negative_controls": [
+    "Altered PNG rejected by hash check",
+    "Altered PNG with updated hash rejected by reference comparison"
+  ]
+}

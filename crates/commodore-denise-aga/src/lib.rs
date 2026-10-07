@@ -447,9 +447,27 @@ impl DeniseAga {
         hbstrt: u16,
         hbstop: u16,
     ) -> HorizontalBlanking {
+        debug_assert!(phase < 2);
+        self.programmed_hblank_for_next_counter(
+            ((hpos & 0x00FF) * 2 + u16::from(phase) + 1) & 511,
+            bplcon0,
+            hbstrt,
+            hbstop,
+        )
+    }
+
+    /// Compose blanking using the next counter selected by the live strobe
+    /// stage. At a reset it differs from the current output counter plus one.
+    #[must_use]
+    pub fn programmed_hblank_for_next_counter(
+        &mut self,
+        next_counter: u16,
+        bplcon0: u16,
+        hbstrt: u16,
+        hbstop: u16,
+    ) -> HorizontalBlanking {
         const OUTPUT_SAMPLES_PER_CCK: u16 = 8;
 
-        debug_assert!(phase < 2);
         self.bplcon0_input = bplcon0;
         self.set_programmed_hblank_input(hbstrt, hbstop);
         let selectors_enabled =
@@ -458,12 +476,10 @@ impl DeniseAga {
             |word: u16| (word & 0x00FF) * OUTPUT_SAMPLES_PER_CCK + ((word >> 8) & 0x0007);
         let start_sample = fine_sample(self.programmed_hblank_visible.hbstrt);
         let stop_sample = fine_sample(self.programmed_hblank_visible.hbstop);
-        let phase_sample = (hpos & 0x00FF) * OUTPUT_SAMPLES_PER_CCK + u16::from(phase) * 4;
         let mut output_samples = [false; 4];
 
         for (subpixel, output) in output_samples.iter_mut().enumerate() {
-            let sample = phase_sample + subpixel as u16;
-            let next_sample = (sample + 4) & 0x07FF;
+            let next_sample = (next_counter & 511) * 4 + subpixel as u16;
             if !selectors_enabled {
                 self.programmed_hblank_active = false;
                 if next_sample == 0x10 * 4 {
@@ -1281,6 +1297,37 @@ mod tests {
         assert!(!at_hstart.quad_is_sprite[0]);
         assert!(following.quad_is_sprite[0]);
         assert!(!second.quad_is_sprite[0]);
+    }
+
+    #[test]
+    fn lisa_reset_comparison_retains_all_eight_fine_edge_positions() {
+        for fine in 0..8 {
+            for stop in [false, true] {
+                let mut denise = DeniseAga::new();
+                denise.write_word(0x106, 1);
+                let edge = 1 | (fine << 8);
+                let (start, end) = if stop { (0x80, edge) } else { (edge, 0xA0) };
+                settle_programmed_hblank_inputs(&mut denise, 1, start, end);
+                if stop {
+                    assert_eq!(
+                        denise.programmed_hblank_for_next_counter(256, 1, start, end),
+                        HorizontalBlanking::from_level(true),
+                    );
+                }
+                // Reset selects next=2 during the preceding counter's output;
+                // next=3 is the first output after the reset commits.
+                for (half, next) in [2, 3].into_iter().enumerate() {
+                    let expected = std::array::from_fn(|sample| {
+                        ((half * 4 + sample) >= usize::from(fine)) != stop
+                    });
+                    assert_eq!(
+                        denise.programmed_hblank_for_next_counter(next, 1, start, end),
+                        HorizontalBlanking::from_superhires_samples(expected),
+                        "fine={fine}, stop={stop}, next={next}",
+                    );
+                }
+            }
+        }
     }
 
     #[test]

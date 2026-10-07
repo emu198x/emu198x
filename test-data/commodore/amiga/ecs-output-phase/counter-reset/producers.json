@@ -1,0 +1,8 @@
+{
+  "baseline_code_commit": "b4405efddd0b7ae909cd4359194bd5d787c44ffe",
+  "native_baseline_sha256": "ecacfe201c142fdcf03c09ce339894ef16c60ecb65e4e0c9854e8701bc5ba873",
+  "reference_executable_sha256": "4e305e67f5b386aa0c2d534a4c148d172e597eff5edf89581f820eb3ac1871d1",
+  "reference_drawing_source_sha256": "fed3379133daa5257821f8ff2e39ad52e630b708c3ff87db20caf1036bdb15f1",
+  "kickstart_sha256": "6d43840d4099a74170ea0f0425b6257c3891ebcaa39c4d1840075a9ab22b5707",
+  "native_corrected_sha256": "2b0b559e6aa4ef229a65f116b8ae38059e5bb9941c716b768fa521388ba414c0"
+}
