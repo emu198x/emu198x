@@ -13,6 +13,11 @@ use serde::{Deserialize, Serialize};
 use crate::drives::IecDriveSnapshot;
 use crate::runtime::C64Runtime;
 
+/// Version 15 replaces the VIC-II's once-per-line XSCROLL latch with the
+/// graphics sequencer's most recent load (#1620): the cell, the shift
+/// register's carry before it and the XSCROLL it was loaded at. The cell
+/// also records the colour its zero bits select.
+///
 /// Version 14 replaces the 6526's two-underflows-per-bit shift register with
 /// the serial-port pipeline, CNT/SP pins and /PC strobe for #797 (in both
 /// CIAs and any 1571 or 1581 drive): the SDR and shifter, the bit counter,
@@ -69,7 +74,7 @@ use crate::runtime::C64Runtime;
 /// Version 2 moved from the fixed 1541-plus-1581 pair to a per-port array of
 /// model-tagged drive snapshots (IEC devices 8–11), so a snapshot records
 /// whichever drive the user chose on each port.
-const SNAPSHOT_VERSION: u32 = 14;
+const SNAPSHOT_VERSION: u32 = 15;
 
 /// Persistable C64 runtime envelope. Wraps the machine's chip snapshot with the
 /// surrounding runtime context (model identifier, time, the live IEC bus state,

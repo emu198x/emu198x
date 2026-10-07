@@ -43,7 +43,13 @@ audio_routing_version = 7
 # comes from CPU timing (the raster IRQ and sprite-DMA stalls now fall on
 # VICE's cycles), not from SID routing, so audio_routing_version stays at
 # the SID crate's value.
-frame_routing_version = 8
+# Version 9 is #1620: the graphics sequencer loads each cell at the XSCROLL
+# that stands after the CPU access of its g-access cycle, so a mid-line
+# $D016 write moves the rest of the line instead of waiting for the next.
+# Before the bump, `catalogue run` passed all thirteen entries with the fix
+# in place; at version 9 it passes them again, so every frame and audio
+# hash is unchanged.
+frame_routing_version = 9
 
 [[system.firmware]]
 variant = "pal"
