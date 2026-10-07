@@ -1077,6 +1077,7 @@ pub(crate) fn denise_snapshot(m: &dyn AmigaLiveAccess) -> Value {
         "framebuffer_pixels": core.framebuffer_pixels,
         "interlace_active": core.interlace_active,
         "long_frame": core.long_frame,
+        "fixed_hblank_active": core.fixed_hblank_active,
         "maximum_bitplanes": core.maximum_bitplanes,
         "active_bitplanes": core.active_bitplanes,
         "bplcon0": core.bplcon0,

@@ -1,0 +1,9 @@
+{
+  "libraries.log": 373,
+  "ocs-chip.log": 134,
+  "snapshots.log": 58,
+  "runtime-output-green.log": 61,
+  "duplicate_ocs_library_tests": 6,
+  "unique_checks": 620,
+  "negative_control": "Altered corrected PNG rejected: artifact hash mismatch: ocs-edge-after-doubled.png"
+}

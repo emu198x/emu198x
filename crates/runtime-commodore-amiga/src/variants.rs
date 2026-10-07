@@ -602,6 +602,7 @@ macro_rules! amiga_variant_query_paths {
     "denise.sprite_width",
     "denise.sprites",
     "denise.sprite_bpl1dat_enabled",
+    "denise.fixed_hblank_active",
     "denise.sprite_runtime_line_valid",
     "denise.sprite_runtime_beam_x",
     "denise.sprite_runtime_beam_y",

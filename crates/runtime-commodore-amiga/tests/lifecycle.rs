@@ -237,9 +237,16 @@ fn run_until_publishes_pal_frame_after_raster_carry_reaches_right_edge() {
     for y in first_row..=first_row + 1 {
         for x in 732..768 {
             let offset = ((y * frame_sink.width + x) * 4) as usize;
+            // OCS counter 14 asserts fixed blank at native column 760.
+            // Publication still has to finish the coloured carry before it.
+            let expected = if x < 760 {
+                [0xFF, 0x00, 0x00, 0xFF]
+            } else {
+                [0x00, 0x00, 0x00, 0xFF]
+            };
             assert_eq!(
                 &frame_sink.pixels[offset..offset + 4],
-                &[0xFF, 0x00, 0x00, 0xFF],
+                &expected,
                 "published PAL framebuffer tail at ({x}, {y}) must be current",
             );
         }

@@ -1,0 +1,153 @@
+{
+  "scope": "OCS fixed HBLANK at right edge; software-reference observation, not hardware calibration",
+  "guest_sha256": "dfdaefa90e5f5f52f5ebf89344b39a25d5029fc51f54f8f43144e98504416075",
+  "native_executable_sha256": "799785e641bf25b38c7bdda114459cb9f1d00bc410b3388ff44b038ff8d95127",
+  "reference_original_executable_sha256": "ba59b04326a6477cdf6dd4220d9298263641d59c2eaad2e6bc98fbb109e4a898",
+  "reference_traced_executable_sha256": "e6a20985286243ff52bca21e2d13b30a092f0658bf2bc18208b511999e5d4224",
+  "reference_original_source_sha256": "673b8bd3ea9c90511a2f4e1455a0693c84bbdd837696c42b1a21735da8dbcfe6",
+  "reference_traced_source_sha256": "62f2a990641003951894d84fd3649af65c1068e6985702676f11aba9d75174e2",
+  "rom_sha256": "ee05862d8102a08436ac4056da7d549db31625c7d47b24dfb7b3c9a5c113ca53",
+  "fields": [
+    {
+      "raw_sha256": "f503830824fee872a53efdb60a71f545500ab0232e99ced2873241c21f54d6e7",
+      "metadata": {
+        "schema": "org.198x.fs-uae.raw-capture/v1",
+        "core_field": 308,
+        "guest_field_counter": 9,
+        "ready": {
+          "magic": "SPHX",
+          "case_number": 1,
+          "schema_version": 1,
+          "identity": "amiga-counter-color-v1/color-moves",
+          "spr0pos": "0x8064",
+          "spr0ctl": "0x9000",
+          "spr0data": "0xffff",
+          "spr0datb": "0x0000",
+          "sample_beam_line": 132
+        },
+        "framebuffer": {
+          "stage": "completed UAE chipset video_memory before FS-UAE compatibility crop and frontend processing",
+          "width": 1512,
+          "height": 576,
+          "stride_bytes": 8192,
+          "depth_bits": 32,
+          "pixel_format": "BGRA8888",
+          "packed_output_stride_bytes": 6048,
+          "inbuffer_xoffset": 368,
+          "inbuffer_yoffset": 52,
+          "host_resolution": 2,
+          "complete": true
+        },
+        "frontend_compatibility_view": {
+          "width": 1512,
+          "height": 572,
+          "partial": 572,
+          "limits": {
+            "x": 48,
+            "y": 22,
+            "width": 692,
+            "height": 540
+          }
+        }
+      }
+    },
+    {
+      "raw_sha256": "f503830824fee872a53efdb60a71f545500ab0232e99ced2873241c21f54d6e7",
+      "metadata": {
+        "schema": "org.198x.fs-uae.raw-capture/v1",
+        "core_field": 309,
+        "guest_field_counter": 10,
+        "ready": {
+          "magic": "SPHX",
+          "case_number": 1,
+          "schema_version": 1,
+          "identity": "amiga-counter-color-v1/color-moves",
+          "spr0pos": "0x8064",
+          "spr0ctl": "0x9000",
+          "spr0data": "0xffff",
+          "spr0datb": "0x0000",
+          "sample_beam_line": 132
+        },
+        "framebuffer": {
+          "stage": "completed UAE chipset video_memory before FS-UAE compatibility crop and frontend processing",
+          "width": 1512,
+          "height": 576,
+          "stride_bytes": 8192,
+          "depth_bits": 32,
+          "pixel_format": "BGRA8888",
+          "packed_output_stride_bytes": 6048,
+          "inbuffer_xoffset": 368,
+          "inbuffer_yoffset": 52,
+          "host_resolution": 2,
+          "complete": true
+        },
+        "frontend_compatibility_view": {
+          "width": 1512,
+          "height": 572,
+          "partial": 572,
+          "limits": {
+            "x": 48,
+            "y": 22,
+            "width": 692,
+            "height": 540
+          }
+        }
+      }
+    },
+    {
+      "raw_sha256": "f503830824fee872a53efdb60a71f545500ab0232e99ced2873241c21f54d6e7",
+      "metadata": {
+        "schema": "org.198x.fs-uae.raw-capture/v1",
+        "core_field": 310,
+        "guest_field_counter": 11,
+        "ready": {
+          "magic": "SPHX",
+          "case_number": 1,
+          "schema_version": 1,
+          "identity": "amiga-counter-color-v1/color-moves",
+          "spr0pos": "0x8064",
+          "spr0ctl": "0x9000",
+          "spr0data": "0xffff",
+          "spr0datb": "0x0000",
+          "sample_beam_line": 132
+        },
+        "framebuffer": {
+          "stage": "completed UAE chipset video_memory before FS-UAE compatibility crop and frontend processing",
+          "width": 1512,
+          "height": 576,
+          "stride_bytes": 8192,
+          "depth_bits": 32,
+          "pixel_format": "BGRA8888",
+          "packed_output_stride_bytes": 6048,
+          "inbuffer_xoffset": 368,
+          "inbuffer_yoffset": 52,
+          "host_resolution": 2,
+          "complete": true
+        },
+        "frontend_compatibility_view": {
+          "width": 1512,
+          "height": 572,
+          "partial": 572,
+          "limits": {
+            "x": 48,
+            "y": 22,
+            "width": 692,
+            "height": 540
+          }
+        }
+      }
+    }
+  ],
+  "complete_active_trace_rows": 3000,
+  "active_beam_lines_per_field": 200,
+  "fields_observed": [
+    9,
+    10,
+    11
+  ],
+  "last_visible_counter": 13,
+  "first_blank_counter": 14,
+  "first_blank_buffer_x": 1508,
+  "blank_samples_per_line_inside_comparison": 4,
+  "unchanged_reference_bytes": true
+}

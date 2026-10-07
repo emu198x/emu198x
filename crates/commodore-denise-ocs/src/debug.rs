@@ -129,6 +129,7 @@ pub struct DeniseDiagnosticSnapshot {
     pub framebuffer_pixels: usize,
     pub interlace_active: bool,
     pub long_frame: bool,
+    pub fixed_hblank_active: bool,
     pub maximum_bitplanes: u8,
     pub active_bitplanes: usize,
     pub bplcon0: u16,

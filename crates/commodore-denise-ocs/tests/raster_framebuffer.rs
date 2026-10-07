@@ -13,6 +13,41 @@ use commodore_denise_ocs::{
 };
 
 #[test]
+fn ocs_fixed_blank_edges_repeat_through_nine_bit_wrap() {
+    let mut denise = DeniseOcs::new();
+    let mut edges = Vec::new();
+    for tick in 0..1024 {
+        let before = denise.fixed_hblank_active();
+        denise.advance_fixed_hblank(tick & 511);
+        if before != denise.fixed_hblank_active() {
+            edges.push((tick, denise.fixed_hblank_active()));
+        }
+    }
+    assert_eq!(edges, [(14, true), (92, false), (526, true), (604, false)]);
+}
+
+#[test]
+fn ocs_fixed_blank_changes_only_when_an_edge_is_observed() {
+    let mut denise = DeniseOcs::new();
+    // Skip the start. Landing inside the nominal blank interval cannot set it.
+    for counter in [13, 16, 40, 91, 92] {
+        denise.advance_fixed_hblank(counter);
+        assert!(!denise.fixed_hblank_active());
+    }
+    denise.advance_fixed_hblank(14);
+    assert!(denise.fixed_hblank_active());
+    // STRHOR resets the comparison counter, not the retained blank level.
+    // Nor does the host's line-local reset clear it.
+    denise.begin_beam_line();
+    for counter in [2, 13, 93, 511, 0, 14, 91] {
+        denise.advance_fixed_hblank(counter);
+        assert!(denise.fixed_hblank_active());
+    }
+    denise.advance_fixed_hblank(92);
+    assert!(!denise.fixed_hblank_active());
+}
+
+#[test]
 fn write_raster_pixel_non_interlaced_writes_both_rows_of_pair() {
     let mut d = DeniseOcs::new();
     // Pick a CCK and sub well within the standard bounds.
