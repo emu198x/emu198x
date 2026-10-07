@@ -133,8 +133,9 @@ VIC20_SURVEY_CASE=raster-border VIC20_SURVEY_OUT=/tmp \
   `references/` directory holds photographs of a real VIC-20.
 - `vic-vert0`, `ntsc-vic-vert0`: what the VIC-I fetches on the lines below
   the text area.
-- `ntsc-vic-line0`: tokra's NTSC test of when `$9004` reports line 0, with
-  `N` queued to answer its interlace question.
+- `ntsc-vic-line0`: an NTSC test, from a sleepingelephant.com forum post, of
+  when `$9004` reports line 0, with `N` queued to answer its interlace
+  question.
 - `split-timing`: tlr's `split-tests/timing`, which reads `$9003`, `$9004`
   and the open bus at every cycle of a line and keeps the results at
   `$17C0`-`$1BFF`; its `dumps/` hold the same results from four real
@@ -159,13 +160,13 @@ moved says what it was:
 | basic-boot, basic-boot-cursor, vic6561-test36867-1, vic-vert0, ntsc-basic-boot, ntsc-vic-vert0 | 100% | — |
 | vic6561-test36867-2 | 100% | Was 65.990%: Emu198x showed all 23 rows. The program sets 7 rows only around line 0 and prints that "only 7 lines should be displayed"; the chip now reads the row count once, at the top of the frame, as VICE does. |
 | vic6561-test36866-1 | 100% | Was 99.227%: `$9002` written mid-line cut the first two rows short, where the program says each line keeps 22 columns. The chip now reads the column count once, in the first cycle of each line, as VICE does. Reading it at cycle 2 instead loses 716 pixels of test36866-2, so the survey pins the cycle. |
-| vic6561-test36866-2, testcharheigh-2 | 95.494%, 95.829% | Column count and character height changed mid-frame: VICE advances its screen pointer row by row by the columns actually fetched; Emu198x recomputes each row's address from the live registers. |
-| vic6561-test36864, test36865-1/2/3, testmemfetch-1/2, testcharheigh-1, vic-9000test | 99.4-99.98% | Origin, height and fetch registers written mid-line: VICE opens the display when the cycle counter equals `$9000` and keeps it open for the line; Emu198x re-reads every register for every pixel. |
-| raster-border, raster-background, raster-reverse, raster-auxiliary | 95.3-99.6% | Colour-register writes: VICE shows a `$900F` or `$900E` write made in cycle *n* from pixel 4(*n*-7)+1 (reverse mode from 4(*n*-7)+3); Emu198x applies it to the very next pixels. Every band edge is 27 pixels (reverse, 25) left of VICE's. |
-| vic6561-testback | 97.348% | The same colour-register delay in a VIA-timed program: its stripes sit 23 pixels left of VICE's, the 27 less the one cycle of VIA timing below. |
-| split-timing | 43.034% | Emu198x's VIA-timed stable raster does not settle. The program's own measurement of the line reads 72 cycles where VICE reads 71, and it is still mid-run at the capture frame. A VIA timer 1 read a fixed time after loading the counter returns one count lower than VICE's. VICE's results at `$17C0`-`$1BFF` match all four hardware dumps for `$9003` and `$9004`. |
-| ntsc-raster-border, ntsc-raster-background, ntsc-raster-reverse, ntsc-raster-auxiliary | 82.8-98.2% | The colour-register delay as on PAL, plus a second shift: on NTSC VICE's CPU sees the raster line change 37 cycles before its drawn line does (`VIC20_NTSC_CYCLE_OFFSET`), where Emu198x's are the same. The first band line starts at raster pixel 41 in VICE and 216 here: 148 pixels (37 cycles) for the offset, less VICE's 27-pixel colour delay. |
-| ntsc-vic-line0 | 99.965% | The same NTSC raster-read offset, and VICE also reports line 261 for the first 33 cycles of line 0, which the program's notes describe on real hardware. |
+| vic6561-test36866-2, testcharheigh-2 | 95.494%, 95.829% | Column count and character height changed mid-frame: VICE advances its screen pointer row by row by the columns actually fetched; Emu198x recomputes each row's address from the live registers (#1644). |
+| vic6561-test36864, test36865-1/2/3, testmemfetch-1/2, testcharheigh-1, vic-9000test | 99.4-99.98% | Origin, height and fetch registers written mid-line: VICE opens the display when the cycle counter equals `$9000` and keeps it open for the line; Emu198x re-reads every register for every pixel (#1644). |
+| raster-border, raster-background, raster-reverse, raster-auxiliary | 95.3-99.6% | Colour-register writes: VICE shows a `$900F` or `$900E` write made in cycle *n* from pixel 4(*n*-7)+1 (reverse mode from 4(*n*-7)+3); Emu198x applies it to the very next pixels. Every band edge is 27 pixels (reverse, 25) left of VICE's (#1644). |
+| vic6561-testback | 97.348% | The same colour-register delay in a VIA-timed program: its stripes sit 23 pixels left of VICE's, not 27, consistent with the one-cycle VIA timer difference below. |
+| split-timing | 43.034% | Emu198x's VIA-timed stable raster does not settle. The program's own measurement of the line reads 72 cycles where VICE reads 71, and it is still mid-run at the capture frame. A VIA timer 1 read a fixed time after loading the counter returns one count lower than VICE's. VICE's results at `$17C0`-`$1BFF` match both PAL hardware dumps in their `$9003` and `$9004` columns (and its run of `timing_ntsc.prg` both NTSC ones); see #1642. |
+| ntsc-raster-border, ntsc-raster-background, ntsc-raster-reverse, ntsc-raster-auxiliary | 82.8-98.2% | The colour-register delay as on PAL, plus a second shift: on NTSC VICE's CPU sees the raster line change 37 cycles before its drawn line does (`VIC20_NTSC_CYCLE_OFFSET`), where Emu198x's are the same. The first band line starts at raster pixel 41 in VICE and 216 here: 148 pixels (37 cycles) for the offset, less VICE's 27-pixel colour delay (#1643). |
+| ntsc-vic-line0 | 99.965% | The same NTSC raster-read offset, and VICE also reports line 261 for the first 33 cycles of line 0, which the program's notes describe on real hardware (#1643). |
 
 The colour-register delay and the display-opening behaviour are one
 mechanism in VICE: the chip fetches a character two cycles at a time several
@@ -173,7 +174,8 @@ cycles before it shows it, and the colour registers act at the output. The
 data sheet and the Programmer's Reference Guide describe the registers but
 give no cycle timing, so for these the evidence is VICE, the expectations the
 `vic6561` programs print, and the hardware photographs and dumps where they
-exist.
+exist. #1644 is the work to model it; #1643 the NTSC raster-read phase; #1642
+the VIA timer.
 
 Where the primary sources and VICE disagree:
 
