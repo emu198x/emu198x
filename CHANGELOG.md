@@ -4,6 +4,27 @@ All notable changes to Emu198x will be documented in this file.
 
 Format loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 not strictly. Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [0.29.0] - 2026-10-07
+
+
+### Added
+
+- *(atari-800xl)* Name a cartridge's banking scheme with --cart-type, a script or MCP
+- *(video)* Retain electrical sources alongside captured frames
+- *(video)* Decode electrical output for the first four machines
+- Offer per-machine Homebrew packages on ARM Linux
+
+
+### Fixed
+
+- *(atari-800xl)* Run headerless OSS cartridges on the board they were built for
+- *(vic-20)* Read the text-row count once, at the top of the frame
+- *(vic-20)* Read the column count once, at the start of each line
+- *(68020)* Retain prefetched longwords across instruction and bus cycles
+- **Breaking** — *(amiga)* Preserve chip timing through DMA and display output. Amiga snapshots use version 54 and explicitly reject earlier layouts. The additional timed chip and CPU state cannot be recovered from older snapshots; the user approved the schema changes during the campaign.
+- *(c64)* Restore electrical output before the next rendered pixel
+- Supply metadata for each emulator formula
+
 ## [0.28.1] - 2026-10-06
 
 ### Changed
