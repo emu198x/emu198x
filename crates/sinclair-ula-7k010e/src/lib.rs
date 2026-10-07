@@ -36,6 +36,12 @@ impl SinclairUla {
         self.engine.border
     }
 
+    /// The speaker bit (bit 4) of the last write to port `$FE`.
+    #[must_use]
+    pub fn speaker(&self) -> bool {
+        self.engine.beeper
+    }
+
     /// Reinstall the 128K timing config after a snapshot restore.
     ///
     /// `UlaEngine::config` is `#[serde(skip)]` and falls back to the
