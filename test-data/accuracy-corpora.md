@@ -498,6 +498,29 @@ SingleStepTests `680x0` revision contains no tracked licence, so its
 redistribution remains unknown. Its existing private delivery asset must not be
 published or made more widely accessible without a rights review.
 
+**Standing maintainer decision (2026-10-07).** Any fixture a nightly or
+fixture-gated test needs, including firmware with no recorded redistribution
+grant, is mirrored in the private store on the maintainer's standing authority.
+It doesn't need a request per asset. Each asset still gets:
+
+- a provenance README inside its tarball: what each file is, its checksum,
+  where it came from, and that it was verified against an official dump where
+  one exists;
+- a row in this record's table, naming its basis as "maintainer decision" where
+  no grant exists;
+- a `SHA256SUMS` line and a download round-trip check.
+
+The condition from the CPC decision applies to every such asset. It is mirrored
+only while the store stays private, and this is never a basis for shipping it
+publicly. Official, unmodified dumps only.
+
+**Free replacement firmware is an additional lane, not a substitute.** Where a
+free replacement exists (C-BIOS for the MSX, AROS for the Amiga, AltirraOS for
+the 800XL, Open ROMs for the C64, and any found later), a machine's
+firmware-dependent tests run against it as well as against the official ROMs.
+The official ROMs are the accuracy reference. The free firmware proves the
+machine works without them, and it is what public CI and readers can use.
+
 **Store contract** (what the workflow expects):
 
 - A repo named by the `ACCURACY_CORPORA_REPO` Actions **variable** (e.g.
