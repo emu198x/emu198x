@@ -8,8 +8,8 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-emu198x-shell = { path = "../emu198x-shell", version = "0.30.0" }
-emu198x-native-video = { path = "../emu198x-native-video", version = "0.30.0" }
+emu198x-shell = { path = "../emu198x-shell", version = "0.31.0" }
+emu198x-native-video = { path = "../emu198x-native-video", version = "0.31.0" }
 winit = { workspace = true }
 thiserror.workspace = true
 # Decodes the embedded application icon (src/icon.rs).
