@@ -465,10 +465,10 @@ impl OricAtmos {
                 self.scan_keyboard();
             }
             BusTarget::Ram => self.write_ram(addr, value),
-            // Writes under the ROM have always reached the DRAM here.
-            BusTarget::Rom | BusTarget::Expansion if addr >= 0xC000 => {
-                self.write_ram(addr, value);
-            }
+            // The ULA asserts the DRAM's CAS, which is what performs a write,
+            // "only if this is actually a RAM write" (Brown's ULA guide), and
+            // the top 16 KB is a RAM address only with MAP asserted. A write
+            // under the ROM is therefore lost, as RULES.md rule 13 has it.
             BusTarget::Rom | BusTarget::Expansion => {}
         }
     }
@@ -1100,17 +1100,25 @@ mod tests {
         assert_eq!(sys.framebuffer[6], ORIC_PALETTE[7]);
     }
 
+    /// With MAP released the top 16 KB is not a RAM address, so the ULA
+    /// never strobes CAS for a write there (Brown's ULA guide, "Address
+    /// Decode" and the write cycle). The RAM under the ROM keeps what it
+    /// held, and only a write under MAP changes it.
     #[test]
-    fn writes_go_to_ram_under_rom_on_atmos() {
+    fn a_write_under_the_rom_reaches_ram_only_under_map() {
         let mut sys = OricAtmos::new(trap_rom(), OricModel::Atmos);
-        // ROM read at $C000.
-        assert_eq!(sys.mem_read(0xC000), 0x4C);
-        // Write to RAM underneath at $C000.
         sys.mem_write(0xC000, 0x42);
-        // ROM still wins on reads.
-        assert_eq!(sys.mem_read(0xC000), 0x4C);
-        // RAM was updated underneath.
-        assert_eq!(sys.ram[0xC000], 0x42);
+        assert_eq!(sys.mem_read(0xC000), 0x4C, "the ROM still answers");
+        assert_eq!(sys.ram[0xC000], 0x00, "no RAM write without MAP");
+
+        sys.set_expansion_romdis(true);
+        sys.mem_write(0xC000, 0x43);
+        assert_eq!(sys.ram[0xC000], 0x00, "nor with ROMDIS alone");
+
+        sys.set_expansion_map(true);
+        sys.mem_write(0xC000, 0x44);
+        assert_eq!(sys.ram[0xC000], 0x44);
+        assert_eq!(sys.mem_read(0xC000), 0x44);
     }
 
     #[test]
