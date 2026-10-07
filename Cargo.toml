@@ -315,6 +315,13 @@ split-debuginfo = "unpacked"
 [profile.dev.package.emu198x-mos-sid-6581]
 opt-level = 3
 
+# Amiga phase-replay tests serialize full RAM and superhires framebuffers at
+# each pending chip stage. Optimize the runtime's serializer instantiations
+# and test targets, following the SID setting above. Debug assertions and
+# overflow checks remain enabled; all cases still run in the default suite.
+[profile.dev.package.runtime-commodore-amiga]
+opt-level = 3
+
 [profile.release]
 lto = "thin"
 codegen-units = 1
