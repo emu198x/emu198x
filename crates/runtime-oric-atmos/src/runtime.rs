@@ -297,6 +297,7 @@ impl MachineCore for OricRuntime {
             self.time = self.time.saturating_add(ticks);
             self.update_rgba_framebuffer();
             host.frame_sink.push_frame(FramePacket {
+                signal: None,
                 timestamp: self.time,
                 format: PixelFormat::Rgba8888,
                 width: FB_WIDTH,

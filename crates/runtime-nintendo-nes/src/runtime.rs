@@ -360,6 +360,7 @@ impl MachineCore for NesRuntime {
             self.update_rgba_framebuffer();
 
             host.frame_sink.push_frame(FramePacket {
+                signal: None,
                 timestamp: self.time,
                 format: emu198x_shell::PixelFormat::Rgba8888,
                 width: FB_WIDTH,
@@ -412,6 +413,7 @@ impl MachineCore for NesRuntime {
         // the latest-frame query reflect post-tick state, and drain any
         // audio produced during the ticks.
         host.frame_sink.push_frame(FramePacket {
+            signal: None,
             timestamp: self.time,
             format: emu198x_shell::PixelFormat::Rgba8888,
             width: FB_WIDTH,

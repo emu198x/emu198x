@@ -98,6 +98,7 @@ mod tests {
         height: u32,
     ) -> FramePacket<'a> {
         FramePacket {
+            signal: None,
             timestamp: MachineTime::new(0),
             format,
             width,

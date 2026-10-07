@@ -311,6 +311,7 @@ impl<M: SmsModel> MachineCore for SmsRuntime<M> {
             self.update_rgba_framebuffer();
 
             host.frame_sink.push_frame(FramePacket {
+                signal: None,
                 timestamp: self.time,
                 format: PixelFormat::Rgba8888,
                 width: self.rgba_width,

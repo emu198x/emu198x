@@ -692,6 +692,7 @@ impl C64Runtime {
     fn emit_frame(&mut self, host: &mut HostIo<'_>) -> Result<(), MachineError> {
         repack_rgba8888(self.machine.framebuffer(), &mut self.rgba_framebuffer);
         host.frame_sink.push_frame(FramePacket {
+            signal: None,
             timestamp: self.time,
             format: emu198x_shell::PixelFormat::Rgba8888,
             width: self.machine.vic().framebuffer_width(),

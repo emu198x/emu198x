@@ -1467,6 +1467,7 @@ mod tests {
                 self.frames_run += 1;
                 emitted += 1;
                 host.frame_sink.push_frame(FramePacket {
+                    signal: None,
                     timestamp: self.time,
                     format: PixelFormat::Indexed8,
                     width: 32,
@@ -1480,6 +1481,7 @@ mod tests {
             }
             if emitted == 0 {
                 host.frame_sink.push_frame(FramePacket {
+                    signal: None,
                     timestamp: self.time,
                     format: PixelFormat::Indexed8,
                     width: 32,

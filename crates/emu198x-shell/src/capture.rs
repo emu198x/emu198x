@@ -58,11 +58,28 @@ pub enum CaptureError {
     Io(#[from] std::io::Error),
 }
 
+/// Owned electrical source preserved through the latest-frame handoff.
+#[derive(Clone, Debug, PartialEq)]
+pub struct CapturedSignal {
+    /// Completed field identity copied from the machine.
+    pub field: Option<crate::VideoField>,
+    /// Source representation.
+    pub encoding: crate::host::SignalEncoding,
+    /// Raster timing and phase.
+    pub timing: crate::host::SignalTiming,
+    /// Pre-RGB colour codes.
+    pub codes: Vec<u16>,
+    /// Electrical palette or periodic waveform table.
+    pub levels: Vec<[f32; 4]>,
+}
+
 /// Owned copy of one emitted frame.
 #[derive(Clone, Debug, PartialEq)]
 pub struct CapturedFrame {
     /// Machine timestamp associated with the frame.
     pub timestamp: MachineTime,
+    /// Optional electrical source; raw capture continues to use `pixels`.
+    pub signal: Option<CapturedSignal>,
     /// Pixel layout.
     pub format: PixelFormat,
     /// Frame width in pixels.
@@ -81,6 +98,13 @@ impl CapturedFrame {
     pub fn from_packet(packet: FramePacket<'_>) -> Self {
         Self {
             timestamp: packet.timestamp,
+            signal: packet.signal.map(|signal| CapturedSignal {
+                field: signal.field,
+                encoding: signal.encoding,
+                timing: signal.timing,
+                codes: signal.codes.to_vec(),
+                levels: signal.levels.to_vec(),
+            }),
             format: packet.format,
             width: packet.width,
             height: packet.height,
@@ -534,6 +558,7 @@ mod tests {
         pixels: &[u8],
     ) -> CapturedFrame {
         CapturedFrame::from_packet(FramePacket {
+            signal: None,
             timestamp: MachineTime::new(1),
             format,
             width,
@@ -611,6 +636,7 @@ mod tests {
 
         capture
             .push_frame(FramePacket {
+                signal: None,
                 timestamp: MachineTime::new(1),
                 format: PixelFormat::Indexed8,
                 width: 2,
@@ -623,6 +649,7 @@ mod tests {
 
         capture
             .push_frame(FramePacket {
+                signal: None,
                 timestamp: MachineTime::new(2),
                 format: PixelFormat::Indexed8,
                 width: 2,
@@ -645,6 +672,7 @@ mod tests {
         for timestamp in 1..4 {
             capture
                 .push_frame(FramePacket {
+                    signal: None,
                     timestamp: MachineTime::new(timestamp),
                     format: PixelFormat::Indexed8,
                     width: 2,
@@ -664,6 +692,7 @@ mod tests {
         let mut capture = LatestFrameCapture::default();
         capture
             .push_frame(FramePacket {
+                signal: None,
                 timestamp: MachineTime::new(1),
                 format: PixelFormat::Rgba8888,
                 width: 0,
@@ -676,10 +705,43 @@ mod tests {
     }
 
     #[test]
+    fn owned_capture_preserves_completed_field_identity() {
+        let field = crate::VideoField {
+            sequence: 12,
+            parity: crate::FieldParity::Odd,
+        };
+        let pixels = [0_u8; 16];
+        let frame = CapturedFrame::from_packet(FramePacket {
+            timestamp: MachineTime::new(100),
+            format: PixelFormat::Rgba8888,
+            width: 2,
+            height: 2,
+            palette: None,
+            pixels: &pixels,
+            signal: Some(crate::SignalFrame {
+                field: Some(field),
+                encoding: crate::SignalEncoding::Rgb,
+                timing: crate::SignalTiming {
+                    pixel_hz: 14_187_580.0,
+                    carrier_hz: 0.0,
+                    line_pixels: 2,
+                    first_pixel: 0,
+                    first_line: 0,
+                    phase_cycles: 0.0,
+                },
+                codes: &[],
+                levels: &[],
+            }),
+        });
+        assert_eq!(frame.signal.expect("signal").field, Some(field));
+    }
+
+    #[test]
     fn latest_frame_capture_encodes_indexed_png() {
         let mut capture = LatestFrameCapture::default();
         capture
             .push_frame(FramePacket {
+                signal: None,
                 timestamp: MachineTime::new(1),
                 format: PixelFormat::Indexed8,
                 width: 2,
@@ -716,6 +778,7 @@ mod tests {
         let mut capture = LatestFrameCapture::default();
         capture
             .push_frame(FramePacket {
+                signal: None,
                 timestamp: MachineTime::new(1),
                 format: PixelFormat::Indexed8,
                 width: 1,

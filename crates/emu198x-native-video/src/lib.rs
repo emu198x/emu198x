@@ -771,6 +771,7 @@ mod tests {
     #[test]
     fn indexed_frames_expand_to_rgba() {
         let frame = CapturedFrame {
+            signal: None,
             timestamp: MachineTime::new(0),
             format: PixelFormat::Indexed8,
             width: 2,

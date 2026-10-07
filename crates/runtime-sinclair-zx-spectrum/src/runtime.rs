@@ -835,6 +835,7 @@ impl<M: SpectrumMachine> MachineCore for SpectrumRuntime<M> {
                 .saturating_add(u64::from(self.machine.frame_halfcycles()));
 
             host.frame_sink.push_frame(FramePacket {
+                signal: None,
                 timestamp: self.time,
                 format: PixelFormat::Indexed8,
                 width: M::FRAME_WIDTH,
