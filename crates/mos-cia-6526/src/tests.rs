@@ -481,10 +481,12 @@ fn novaload_pulse_measurement_loop() {
 fn sp_output_mode_raises_the_sdr_interrupt_after_eight_bits() {
     let mut cia = Cia6526::new();
     cia.write(0x0D, 0x88); // enable the SDR interrupt (bit 3)
-    cia.write(0x0C, 0xA5); // load the shift register
     cia.write(0x04, 2); // Timer A latch low
     cia.write(0x05, 0); // Timer A latch high
     cia.write(0x0E, 0x41); // CRA: SP output (bit 6) + start Timer A (bit 0)
+    // Transmission starts with a write to the SDR while it is an output
+    // (datasheet); a byte written in input mode is only stored.
+    cia.write(0x0C, 0xA5);
 
     let mut raised = false;
     for _ in 0..400 {
@@ -503,4 +505,179 @@ fn sp_output_mode_raises_the_sdr_interrupt_after_eight_bits() {
         0,
         "the SDR flag (bit 3) is the interrupt source"
     );
+}
+
+/// Datasheet, "Serial Port": in output mode the data "is shifted out on the
+/// SP pin at ½ the underflow rate of TIMER A", MSB first, valid from each
+/// falling CNT edge; "after the 8th CNT pulse, CNT will return high and SP
+/// will remain at the level of the last data bit transmitted".
+#[test]
+fn sp_output_shifts_msb_first_on_falling_cnt_edges() {
+    let mut cia = Cia6526::new();
+    cia.write(0x04, 3);
+    cia.write(0x05, 0);
+    cia.write(0x0E, 0x51); // SP output, force load, start
+    cia.write(0x0C, 0b1011_0010);
+
+    let mut bits = Vec::new();
+    let mut prev_cnt = cia.cnt_line();
+    let mut falling_edges = 0;
+    for _ in 0..200 {
+        cia.tick();
+        let cnt = cia.cnt_line();
+        if prev_cnt && !cnt {
+            falling_edges += 1;
+        }
+        if !prev_cnt && cnt {
+            // Sample on the rising edge, as a receiver does.
+            bits.push(u8::from(cia.sp_line()));
+        }
+        prev_cnt = cnt;
+    }
+    assert_eq!(falling_edges, 8, "eight CNT pulses per byte, then idle");
+    assert_eq!(bits, vec![1, 0, 1, 1, 0, 0, 1, 0]);
+    assert!(cia.cnt_line(), "CNT returns high");
+    assert!(!cia.sp_line(), "SP holds the last bit");
+    assert_ne!(cia.icr_status() & 0x08, 0, "SDR interrupt flag");
+}
+
+/// Two Timer A underflows per bit: latch L gives a CNT period of 2(L+1).
+#[test]
+fn sp_output_cnt_period_is_two_timer_a_underflows() {
+    let mut cia = Cia6526::new();
+    cia.write(0x04, 5);
+    cia.write(0x05, 0);
+    cia.write(0x0E, 0x51);
+    cia.write(0x0C, 0x00);
+
+    let mut falls = Vec::new();
+    let mut prev = cia.cnt_line();
+    for cycle in 0..300u32 {
+        cia.tick();
+        let cnt = cia.cnt_line();
+        if prev && !cnt {
+            falls.push(cycle);
+        }
+        prev = cnt;
+    }
+    let periods: Vec<u32> = falls.windows(2).map(|w| w[1] - w[0]).collect();
+    assert_eq!(periods, vec![12; 7]);
+}
+
+/// Datasheet: "In input mode, data on the SP pin is shifted into the shift
+/// register on the rising edge of the signal applied to the CNT pin. After
+/// 8 CNT pulses, the data in the shift register is dumped into the Serial
+/// Data Register and an interrupt is generated."
+#[test]
+fn sp_input_shifts_on_rising_cnt_and_loads_the_sdr_after_eight() {
+    let mut cia = Cia6526::new();
+    cia.write(0x0D, 0x88);
+    let byte = 0xC5u8;
+    for bit in (0..8).rev() {
+        cia.cnt_in = false;
+        cia.sp_in = byte & (1 << bit) != 0;
+        cia.tick();
+        cia.tick();
+        assert_eq!(cia.icr_status() & 0x08, 0, "no interrupt mid-byte");
+        cia.cnt_in = true;
+        cia.tick();
+        cia.tick();
+    }
+    assert_ne!(
+        cia.icr_status() & 0x08,
+        0,
+        "SDR flag after the eighth pulse"
+    );
+    cia.tick();
+    assert!(cia.irq, "and the interrupt, when enabled");
+    assert_eq!(cia.read(0x0C), byte);
+}
+
+/// In input mode the chip does not drive SP or CNT.
+#[test]
+fn input_mode_releases_sp_and_cnt() {
+    let mut cia = Cia6526::new();
+    cia.write(0x04, 1);
+    cia.write(0x05, 0);
+    cia.write(0x0E, 0x51);
+    cia.write(0x0C, 0x00); // all-zero bits pull SP low
+    for _ in 0..12 {
+        cia.tick();
+    }
+    assert!(!cia.sp_line());
+    cia.write(0x0E, 0x01); // back to input
+    cia.tick();
+    assert!(cia.sp_line());
+    assert!(cia.cnt_line());
+}
+
+/// CRB INMODE 11: Timer B counts Timer A underflows only while CNT is high.
+#[test]
+fn timer_b_counts_timer_a_underflows_only_while_cnt_is_high() {
+    let mut cia = Cia6526::new();
+    cia.write(0x04, 0);
+    cia.write(0x05, 0);
+    cia.write(0x0E, 0x01);
+    cia.write(0x06, 0xFF);
+    cia.write(0x07, 0xFF);
+    cia.write(0x0F, 0x61);
+    for _ in 0..10 {
+        cia.tick();
+    }
+    let counting = cia.timer_b();
+    assert!(counting < 0xFFFF, "CNT high: counting");
+
+    cia.cnt_in = false;
+    for _ in 0..4 {
+        cia.tick();
+    }
+    let held = cia.timer_b();
+    for _ in 0..10 {
+        cia.tick();
+    }
+    assert_eq!(cia.timer_b(), held, "CNT low: held");
+}
+
+/// CRA INMODE 1 counts rising CNT edges, not CNT levels.
+#[test]
+fn timer_a_counts_rising_cnt_edges() {
+    let mut cia = Cia6526::new();
+    cia.write(0x04, 0x20);
+    cia.write(0x05, 0);
+    cia.write(0x0E, 0x31); // count CNT, force load, start
+    for _ in 0..10 {
+        cia.tick();
+    }
+    assert_eq!(cia.timer_a(), 0x20);
+    for _ in 0..3 {
+        cia.cnt_in = false;
+        for _ in 0..3 {
+            cia.tick();
+        }
+        cia.cnt_in = true;
+        for _ in 0..3 {
+            cia.tick();
+        }
+    }
+    for _ in 0..6 {
+        cia.tick();
+    }
+    assert_eq!(cia.timer_a(), 0x20 - 3);
+}
+
+/// Datasheet, "Handshaking": "/PC will go low for one cycle following a
+/// read or write of PORT B."
+#[test]
+fn pc_pulses_low_for_one_cycle_after_a_port_b_access() {
+    let mut cia = Cia6526::new();
+    cia.tick();
+    assert!(cia.pc);
+    cia.write(0x01, 0x00);
+    cia.tick();
+    assert!(!cia.pc);
+    cia.tick();
+    assert!(cia.pc);
+    cia.read(0x00); // port A does not strobe
+    cia.tick();
+    assert!(cia.pc);
 }

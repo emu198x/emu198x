@@ -257,8 +257,12 @@ pixels. The retained `sequencer-bug` output signature and the
 
 Other claim boundaries remain:
 
-- CIA timer and interrupt behaviour is well exercised, but external CNT, SP
-  and CIA2 FLAG sources remain approximate or unattached.
+- CIA timer and interrupt behaviour is well exercised. Since #797 the serial
+  port follows VICE's output pipeline and shifts input on CNT, CNT clocks
+  the timers, and CNT1/SP1/CNT2/SP2, PC2 and FLAG2 are user-port pins a host
+  device drives. Nothing drives them on a bare machine, and serial-bus SRQ
+  (CIA1 FLAG on the C64) stays unattached: only the C128's fast serial uses
+  it, and there is no C128.
 - The SID's waveform generator follows reSID 1.0's cycle-exact path: open-bus
   decay, TEST drift, ring-modulation polarity and the floating DAC input
   since #777; combined waveforms for both models, the noise taps, the
@@ -719,6 +723,7 @@ evidence, or an explicit expansion of the supported configuration claim.
 | 2026-10-06 | 3a-B. Write phases, sprite DMA, light pen | `$D011` and `$D017` write rules are expressed in the CPU write's own cycle: a far-edge `$D011` write in cycle 54 keeps one matrix access, and a `$D017` write in cycle 15 crunches (VICE `ChkSprCrunch`). Sprite BA follows the fetch chain's DMA bits, so sprites re-matched on lines 306-311 steal cycles as in VICE, which sets `sequencer-bug`'s main-loop phase. The light pen latches from CIA 1 port B bit 4 at VICE's X positions, which `spritefetchbug` uses to stabilise. `dmadelay` and `spritecrunch` reach 100%; `sequencer-bug`'s CPU now matches VICE store for store; its remaining 30 pixels are two colour splits drawn two cycles late, which stage C fixes. |
 | 2026-10-06 | 3a-C. Colour and border stage | Colour registers and the side border are resolved two ticks after rendering, at VICE's phase, with the 6569 dot-0 rule; sprites sit under the border; zero graphics fill the side border. With A and B, every survey program reaches 100% except `border` (93.806%), `vicii_timing` (96.774%) and `spritefetchbug` (97.226%). `sequencer-bug` and `greydot` match exactly; `colorsplit` keeps only its XSCROLL rows. Frame-routing version 8 re-captures the C64 catalogue; snapshot version 11 carries the colour stage. |
 | 2026-10-06 | 3a-D. 8565/8562 chip axis and grey dot | `VicModel` gains the HMOS-II 8565 and 8562, which the PAL and NTSC C64C now use. On them a colour-register write shows a light-grey dot where the 6569 keeps the old colour. `greydot` matches its 8565 reference exactly, and `colorsplit` keeps only its XSCROLL rows. Every breadbin lane and catalogue hash is unchanged. Snapshot version 12 carries the chip revision. On NTSC, `greydot`'s stores sit a cycle away from VICE's, which only the 8562's grey dots reveal. |
+| 2026-10-07 | CIA serial port and user-port signals (#797) | The 6526's two-underflows-per-bit shift register becomes VICE's `sdr_delay` pipeline: CNT toggles about 1.5 cycles after each Timer A underflow, SP changes on falling CNT edges, a byte written mid-transfer chains on, and the SDR interrupt lands two cycles after the eighth bit. Input mode shifts SP in on rising CNT edges and loads the SDR after eight. Timer A and B count rising CNT edges (MiSTer's pipeline latency; VICE leaves it a TODO) and Timer B mode 11 gates on CNT. /PC strobes low for the cycle after a port B access. VICE `cia-sp-test` one-shot (old and new CIA) and all four `cia-icr-test` programs move from fail to pass; `cia-sp-test` continuous, `cia-icr-test2`, `cia-sdr-init`/`load`/`delay`, `ciavarious` 1–14 and Lorenz `cntdef`/`cnto2` pass. A user-port loopback (SP1/CNT1 to SP2/CNT2) carries every byte value from CIA1 to CIA2. Snapshot version 14. |
 
 ## Related Documents
 
