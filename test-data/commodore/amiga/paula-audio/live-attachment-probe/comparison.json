@@ -1,0 +1,25 @@
+{
+  "rows": 60928,
+  "differences_by_observable": [
+    0,
+    0,
+    0,
+    8304,
+    0,
+    0,
+    0,
+    0,
+    0
+  ],
+  "observables": [
+    "state",
+    "irq",
+    "buffer",
+    "sample",
+    "target_period",
+    "target_volume",
+    "request",
+    "loop",
+    "delivered"
+  ]
+}
