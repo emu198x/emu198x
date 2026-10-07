@@ -1,0 +1,10 @@
+   Compiling machine-commodore-amiga-a1200 v0.28.1 (/Users/stevehill/Projects/198x/Emu198x/emu198x/crates/machine-commodore-amiga-a1200)
+   Compiling runtime-commodore-amiga v0.28.1 (/Users/stevehill/Projects/198x/Emu198x/emu198x/crates/runtime-commodore-amiga)
+    Finished `release` profile [optimized] target(s) in 28.10s
+     Running tests/snapshot_roundtrip.rs (target/release/deps/snapshot_roundtrip-66a2a55bcb0d0da5)
+
+running 1 test
+test lisa_vertical_blank_strobes_and_edges_survive_runtime_restore ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 56 filtered out; finished in 2.19s
+

@@ -16,6 +16,13 @@ pub struct DeniseHorizontalCounter {
 }
 
 impl DeniseHorizontalCounter {
+    /// Strobe retiring from the normal RGA stage before this CCK's output.
+    /// The second lores tick must not deliver it again.
+    #[must_use]
+    pub const fn output_strobe(&self) -> Option<DeniseStrobe> {
+        if self.second_tick { None } else { self.pending }
+    }
+
     /// Capture a strobe actually serviced on the RGA bus, before output.
     pub fn service_strobe(&mut self, strobe: DeniseStrobe) {
         assert!(

@@ -1,0 +1,12 @@
+   Compiling common-commodore-amiga v0.28.1 (/Users/stevehill/Projects/198x/Emu198x/emu198x/crates/common-commodore-amiga)
+   Compiling machine-commodore-amiga-ocs v0.28.1 (/Users/stevehill/Projects/198x/Emu198x/emu198x/crates/machine-commodore-amiga-ocs)
+   Compiling commodore-denise-aga v0.28.1 (/Users/stevehill/Projects/198x/Emu198x/emu198x/crates/commodore-denise-aga)
+   Compiling machine-commodore-amiga-a1200 v0.28.1 (/Users/stevehill/Projects/198x/Emu198x/emu198x/crates/machine-commodore-amiga-a1200)
+    Finished `release` profile [optimized] target(s) in 24.79s
+     Running unittests src/lib.rs (target/release/deps/machine_commodore_amiga_a1200-93275649ee899941)
+
+running 1 test
+test bus_plan_dispatch_tests::a1200_first_visible_line_waits_for_programmed_vertical_blank_release ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 30 filtered out; finished in 0.08s
+

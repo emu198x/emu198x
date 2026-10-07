@@ -961,6 +961,14 @@ crates.io may hit their own 1.0 on their own schedules.
 
 ## [Unreleased]
 
+### Fixed
+
+- *(amiga)* Lisa retains vertical blanking until the selected horizontal edge, preventing border colour from appearing early on the first visible line in AGA programmed-blanking modes.
+
+### Changed
+
+- Amiga saves use version 55 to preserve Lisa's pending vertical-blank transitions. Version 54 saves no longer load.
+
 ## [0.2.1](https://github.com/emu198x/emu198x/compare/v0.2.0...v0.2.1) - 2026-08-11
 
 ### Added

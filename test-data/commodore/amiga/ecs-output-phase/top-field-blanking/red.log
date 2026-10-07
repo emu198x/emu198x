@@ -1,0 +1,24 @@
+   Compiling machine-commodore-amiga-a1200 v0.28.1 (/Users/stevehill/Projects/198x/Emu198x/emu198x/crates/machine-commodore-amiga-a1200)
+    Finished `release` profile [optimized] target(s) in 11.68s
+     Running unittests src/lib.rs (target/release/deps/machine_commodore_amiga_a1200-93275649ee899941)
+
+running 1 test
+test bus_plan_dispatch_tests::a1200_first_visible_line_waits_for_programmed_vertical_blank_release ... FAILED
+
+failures:
+
+---- bus_plan_dispatch_tests::a1200_first_visible_line_waits_for_programmed_vertical_blank_release stdout ----
+
+thread 'bus_plan_dispatch_tests::a1200_first_visible_line_waits_for_programmed_vertical_blank_release' (66421675) panicked at crates/machine-commodore-amiga-a1200/src/lib.rs:3746:17:
+assertion `left == right` failed: first-line vertical blank at (16,2)
+  left: 4278194449
+ right: 4278190080
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    bus_plan_dispatch_tests::a1200_first_visible_line_waits_for_programmed_vertical_blank_release
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 30 filtered out; finished in 0.08s
+
+error: test failed, to rerun pass `-p machine-commodore-amiga-a1200 --lib`

@@ -1616,6 +1616,7 @@ pub(crate) fn aga_snapshot(m: &dyn AmigaLiveAccess) -> Option<Value> {
         "spr_width": aga.spr_width,
         "ham_prev_rgb24": aga.ham_prev_rgb24,
         "programmed_hblank_active": aga.programmed_hblank_active,
+        "vertical_blanking": aga.vertical_blanking,
         "delayed_color_write": aga.delayed_color_write,
         "pending_early_color_write": aga.pending_early_color_write,
         "programmed_hblank_input": aga.programmed_hblank_input,

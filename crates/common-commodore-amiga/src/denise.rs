@@ -426,6 +426,15 @@ impl<C: DeniseChip> Denise<C> {
         self.horizontal_counter.service_strobe(strobe);
     }
 
+    /// Deliver the normal-stage strobe before composing chip blanking levels.
+    /// Called once per output tick by boards with a strobe-driven blank latch;
+    /// `begin_counter_output_tick` then consumes this same retained descriptor.
+    pub fn prepare_output_timing_strobe(&mut self) {
+        if let Some(strobe) = self.horizontal_counter.output_strobe() {
+            self.ocs.retire_timing_strobe(strobe);
+        }
+    }
+
     /// Comparison position for the output tick about to run. Blanking
     /// selectors consume this same counter, independently of host storage.
     #[must_use]

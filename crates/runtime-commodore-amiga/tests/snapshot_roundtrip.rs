@@ -3663,10 +3663,10 @@ fn ecs_snapshot_restore_preserves_model_specific_gayle_composition() -> Result<(
 }
 
 /// Take a real snapshot, hand-patch the leading postcard varint version
-/// field back to 53, and confirm the version-mismatch arm fires with a
+/// field back to 54, and confirm the version-mismatch arm fires with a
 /// human-readable reason naming the snapshot version. The first byte
-/// of a `SnapshotEnvelopeV54` is the postcard varint encoding of
-/// `version`; for `SNAPSHOT_VERSION = 54` that byte is `0x36`.
+/// of a `SnapshotEnvelopeV55` is the postcard varint encoding of
+/// `version`; for `SNAPSHOT_VERSION = 55` that byte is `0x37`.
 /// Replacing it with another single-byte value keeps the envelope
 /// length stable and lands us inside the explicit version-mismatch
 /// branch instead of the postcard-parse-error branch above.
@@ -3675,22 +3675,86 @@ fn restore_rejects_mismatched_snapshot_version() -> Result<(), Box<dyn Error>> {
     let runtime = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
     let mut bytes = runtime.snapshot()?;
     assert_eq!(
-        bytes[0], 54,
-        "postcard varint for SNAPSHOT_VERSION = 54 should be 0x36"
+        bytes[0], 55,
+        "postcard varint for SNAPSHOT_VERSION = 55 should be 0x37"
     );
-    bytes[0] = 53;
+    bytes[0] = 54;
 
     let mut other = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
     let err = other
         .restore(&bytes)
-        .expect_err("version-53 snapshot should be rejected before payload decode");
+        .expect_err("version-54 snapshot should be rejected before payload decode");
     assert!(
         matches!(
             err,
             MachineError::InvalidSnapshot { ref reason }
-                if reason == "unsupported snapshot version 53; expected 54"
+                if reason == "unsupported snapshot version 54; expected 55"
         ),
         "expected version-mismatch reason, got {err:?}"
+    );
+    Ok(())
+}
+
+#[test]
+fn lisa_vertical_blank_strobes_and_edges_survive_runtime_restore() -> Result<(), Box<dyn Error>> {
+    let mut original = AmigaA1200Runtime::new(Model::A1200AgaPal, blank_kickstart())?;
+    for (register, value) in [(0x100, 1), (0x106, 1), (0x1C4, 0x80), (0x1C6, 0x07A0)] {
+        original
+            .machine_mut()
+            .poke_word(0x00DF_F000 + register, value);
+    }
+    let mut visited = std::collections::BTreeSet::new();
+    let mut pending_start = false;
+    let mut pending_stop = false;
+    let mut retained_blank = false;
+    for _ in 0..300_000 {
+        original.machine_mut().tick();
+        let m = original.machine();
+        let (v, h) = (m.agnus().vpos, m.agnus().hpos);
+        let phase = m.scheduler_diagnostic_snapshot().cck_phase;
+        if m.agnus().vbl_count != 1
+            || ![0, 26].contains(&v)
+            || ![3, 4, 5, 132, 164, 165].contains(&h)
+            || !visited.insert((v, h, phase))
+        {
+            continue;
+        }
+        let state = m.denise_aga().diagnostic_snapshot().vertical_blanking;
+        pending_start |= state.pending_programmed == Some(true);
+        pending_stop |= state.pending_programmed == Some(false);
+        retained_blank |= state.programmed_active;
+        let bytes = original.snapshot()?;
+        let mut restored = AmigaA1200Runtime::new(Model::A1200AgaPal, blank_kickstart())?;
+        restored.restore(&bytes)?;
+        assert_eq!(
+            state,
+            restored
+                .machine()
+                .denise_aga()
+                .diagnostic_snapshot()
+                .vertical_blanking
+        );
+        assert!(
+            bytes == restored.snapshot()?,
+            "restore must retain every saved byte at {v}:{h}.{phase}"
+        );
+        for _ in 0..400 {
+            original.machine_mut().tick();
+            restored.machine_mut().tick();
+        }
+        assert!(
+            original.snapshot()? == restored.snapshot()?,
+            "forward replay at {v}:{h}.{phase}"
+        );
+        original.restore(&bytes)?;
+        if visited.len() == 24 {
+            break;
+        }
+    }
+    assert_eq!(visited.len(), 24, "all half-CCK strobe and edge boundaries");
+    assert!(
+        pending_start && pending_stop && retained_blank,
+        "must save real pending transitions and a retained blank level"
     );
     Ok(())
 }
@@ -3933,7 +3997,7 @@ fn a1200_prefetch_transfer_and_holding_register_survive_runtime_restore()
         }
         assert!(reached, "prefetch boundary not reached: holding={held}");
         let bytes = original.snapshot()?;
-        assert_eq!(bytes[0], 54);
+        assert_eq!(bytes[0], 55);
         let mut restored = AmigaA1200Runtime::new(Model::A1200AgaPal, rom.clone())?;
         restored.restore(&bytes)?;
         assert_eq!(bytes, restored.snapshot()?);
@@ -4091,7 +4155,7 @@ fn area_channel_fill_holding_and_drain_stages_survive_runtime_restore() -> Resul
             });
             if state.execution.startup_ccks_remaining == 0 && visited.insert(key) {
                 let bytes = original.snapshot()?;
-                assert_eq!(bytes[0], 54);
+                assert_eq!(bytes[0], 55);
                 let mut restored = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
                 restored.restore(&bytes)?;
                 assert_eq!(bytes, restored.snapshot()?);
