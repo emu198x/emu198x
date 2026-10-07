@@ -49,7 +49,12 @@ audio_routing_version = 7
 # Before the bump, `catalogue run` passed all thirteen entries with the fix
 # in place; at version 9 it passes them again, so every frame and audio
 # hash is unchanged.
-frame_routing_version = 9
+# Version 10 is #1660: the graphics sequencer decodes the display mode at
+# the shift register's output, and the g-access reads some mode bits a
+# cycle late. Not yet replayed at version 10: the TOSEC media was not
+# mounted when the version moved, so the first `catalogue run` decides
+# whether any hash moved.
+frame_routing_version = 10
 
 [[system.firmware]]
 variant = "pal"
