@@ -36,3 +36,5 @@ pub use typing::{
     DEFAULT_INTER_CHAR_FRAMES, DEFAULT_KEY_HOLD_FRAMES, DEFAULT_TYPE_SETTLE_FRAMES,
     MAX_KEY_HOLD_FRAMES, press_key, type_string,
 };
+
+mod signal;

@@ -181,6 +181,8 @@ pub struct Ppu {
 
     // ── Output ──────────────────────────────────────────────────
     framebuffer: Vec<u32>,
+    #[serde(skip)]
+    signal_codes: Vec<u16>,
 
     // ── NMI state ───────────────────────────────────────────────
     nmi_occurred: bool,
@@ -390,6 +392,7 @@ impl Ppu {
             prev_rendering_enabled: false,
 
             framebuffer: vec![0; (FB_WIDTH * FB_HEIGHT) as usize],
+            signal_codes: vec![0; (FB_WIDTH * FB_HEIGHT) as usize],
 
             nmi_occurred: false,
             nmi_output: false,
@@ -601,7 +604,7 @@ impl Ppu {
             let x = (self.dot - 1) as usize;
             let y = self.scanline as usize;
             if y < FB_HEIGHT as usize && x < FB_WIDTH as usize {
-                self.framebuffer[y * FB_WIDTH as usize + x] = self.apply_mask_effects(bg_colour);
+                self.store_pixel(y * FB_WIDTH as usize + x, bg_colour);
             }
         }
     }
@@ -714,7 +717,7 @@ impl Ppu {
             (u16::from(palette) << 2) | u16::from(pixel)
         };
         let palette_index = self.palette_ram[(colour_addr as usize) & 0x1F] & 0x3F;
-        self.framebuffer[y * FB_WIDTH as usize + x] = self.apply_mask_effects(palette_index);
+        self.store_pixel(y * FB_WIDTH as usize + x, palette_index);
     }
 
     fn get_bg_pixel(&self) -> (u8, u8) {
@@ -1391,6 +1394,26 @@ impl Ppu {
 
     fn bg_and_sprites_enabled(&self) -> bool {
         self.mask & 0x08 != 0 && self.mask & 0x10 != 0
+    }
+
+    fn store_pixel(&mut self, position: usize, colour: u8) {
+        if self.signal_codes.len() != self.framebuffer.len() {
+            self.signal_codes.resize(self.framebuffer.len(), 0);
+        }
+        let colour = if self.mask & 1 != 0 {
+            colour & 0x30
+        } else {
+            colour
+        };
+        self.signal_codes[position] = u16::from(colour) | (u16::from(self.mask >> 5) << 6);
+        self.framebuffer[position] = self.apply_mask_effects(colour);
+    }
+
+    /// Colour plus per-pixel emphasis, retained before RGB conversion.
+    /// After restore, a complete field must be rendered before using this mirror.
+    #[must_use]
+    pub fn signal_codes(&self) -> &[u16] {
+        &self.signal_codes
     }
 
     fn apply_mask_effects(&self, palette_index: u8) -> u32 {
@@ -2465,6 +2488,22 @@ mod tests {
             let m = ppu.mirror_nametable_addr(addr, Mirroring::SingleScreenUpper);
             assert!((0x400..0x800).contains(&m));
         }
+    }
+
+    #[test]
+    fn electrical_codes_retain_per_pixel_emphasis_and_greyscale() {
+        let mut ppu = Ppu::new();
+        ppu.mask = 0x20;
+        ppu.store_pixel(0, 0x15);
+        ppu.mask = 0x81;
+        ppu.store_pixel(1, 0x15);
+        assert_eq!(&ppu.signal_codes()[..2], &[0x55, 0x110]);
+        // Two raw colours that alias to black must retain distinct codes.
+        ppu.mask = 0;
+        ppu.store_pixel(2, 0x0e);
+        ppu.store_pixel(3, 0x0f);
+        assert_eq!(ppu.framebuffer()[2], ppu.framebuffer()[3]);
+        assert_ne!(ppu.signal_codes()[2], ppu.signal_codes()[3]);
     }
 
     // ─── Mask / emphasis ──────────────────────────────────────────

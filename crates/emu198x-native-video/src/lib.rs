@@ -14,6 +14,15 @@ use winit::window::Window;
 // target without `wgpu::SurfaceTarget`.
 pub use wgpu;
 
+mod phosphor;
+pub use phosphor::{PhosphorHistory, PhosphorSettings};
+
+/// Provisional short-persistence CRT decay, not a calibrated monitor profile.
+pub const DEFAULT_PHOSPHOR_TAU_MS: f32 = 6.0;
+
+mod signal;
+pub use signal::SignalDecoder;
+
 const SHADER: &str = include_str!("shader.wgsl");
 
 /// How native frames should be scaled onto the host window.
@@ -37,14 +46,60 @@ pub enum VideoFilter {
     Lcd,
     /// Simple CRT-style scanline and phosphor mask.
     Crt,
+    /// Machine electrical source decoded through a composite receiver, or RGB
+    /// when the machine supplies an RGB monitor output. RF is not modelled.
+    Signal,
+    /// Direct RGB or separate luma/chroma monitor connection.
+    Monitor,
+    /// Decoded composite (or native RGB) on a modern integer-scaled display.
+    Modern,
+    /// Direct RGB or separate luma/chroma on a modern integer-scaled display.
+    ModernMonitor,
+    /// Compatibility name for the stable modern composite/native RGB display.
+    ModernWeave,
+    /// Compatibility name for the stable modern monitor display.
+    ModernMonitorWeave,
 }
 
 impl VideoFilter {
+    /// Whether this display receives the machine's electrical video source.
+    pub fn uses_signal(self) -> bool {
+        matches!(
+            self,
+            Self::Signal
+                | Self::Monitor
+                | Self::Modern
+                | Self::ModernMonitor
+                | Self::ModernWeave
+                | Self::ModernMonitorWeave
+        )
+    }
+
+    /// Whether the receiver uses a direct RGB or separate luma/chroma connection.
+    pub fn uses_monitor_connection(self) -> bool {
+        matches!(
+            self,
+            Self::Monitor | Self::ModernMonitor | Self::ModernMonitorWeave
+        )
+    }
+
+    /// Whether the decoded raster is displayed without CRT presentation effects.
+    pub fn is_modern(self) -> bool {
+        matches!(
+            self,
+            Self::Modern | Self::ModernMonitor | Self::ModernWeave | Self::ModernMonitorWeave
+        )
+    }
+
     fn shader_value(self) -> f32 {
         match self {
-            Self::Raw => 0.0,
+            Self::Raw
+            | Self::Modern
+            | Self::ModernMonitor
+            | Self::ModernWeave
+            | Self::ModernMonitorWeave => 0.0,
             Self::Lcd => 1.0,
-            Self::Crt => 2.0,
+            Self::Crt | Self::Signal | Self::Monitor => 2.0,
         }
     }
 }
@@ -55,6 +110,12 @@ impl fmt::Display for VideoFilter {
             Self::Raw => "raw",
             Self::Lcd => "lcd",
             Self::Crt => "crt",
+            Self::Signal => "signal",
+            Self::Monitor => "monitor",
+            Self::Modern => "modern",
+            Self::ModernMonitor => "modern-monitor",
+            Self::ModernWeave => "modern-weave",
+            Self::ModernMonitorWeave => "modern-monitor-weave",
         };
         f.write_str(value)
     }
@@ -62,7 +123,9 @@ impl fmt::Display for VideoFilter {
 
 /// Parsing failure for a host video filter argument.
 #[derive(Clone, Debug, Error, PartialEq, Eq)]
-#[error("expected raw, lcd, or crt")]
+#[error(
+    "expected raw, lcd, crt, signal, monitor, modern, modern-monitor, modern-weave, or modern-monitor-weave"
+)]
 pub struct ParseVideoFilterError;
 
 impl FromStr for VideoFilter {
@@ -73,6 +136,12 @@ impl FromStr for VideoFilter {
             "raw" => Ok(Self::Raw),
             "lcd" => Ok(Self::Lcd),
             "crt" => Ok(Self::Crt),
+            "signal" => Ok(Self::Signal),
+            "monitor" => Ok(Self::Monitor),
+            "modern" => Ok(Self::Modern),
+            "modern-monitor" => Ok(Self::ModernMonitor),
+            "modern-weave" => Ok(Self::ModernWeave),
+            "modern-monitor-weave" => Ok(Self::ModernMonitorWeave),
             _ => Err(ParseVideoFilterError),
         }
     }
@@ -92,6 +161,11 @@ pub struct PresentationProfile {
     /// pixels span a 4:3 picture. The presenter stretches width by this so the
     /// image displays with its true proportions instead of looking too narrow.
     pub pixel_aspect_ratio: f32,
+    /// Authoritative frequency of frame timestamps. Zero bypasses persistence.
+    pub clock_hz: f64,
+    /// Exponential phosphor light-decay time (1/e), in milliseconds.
+    /// Zero disables persistence; applies only to CRT presentation.
+    pub phosphor_tau_ms: f32,
 }
 
 impl Default for PresentationProfile {
@@ -101,6 +175,8 @@ impl Default for PresentationProfile {
             clear_color: wgpu::Color::BLACK,
             filter: VideoFilter::Raw,
             pixel_aspect_ratio: 1.0,
+            clock_hz: 0.0,
+            phosphor_tau_ms: DEFAULT_PHOSPHOR_TAU_MS,
         }
     }
 }
@@ -137,6 +213,15 @@ impl PresentationProfile {
             VideoFilter::Raw => Self::raw(),
             VideoFilter::Lcd => Self::lcd_dmg(),
             VideoFilter::Crt => Self::crt(),
+            VideoFilter::Signal
+            | VideoFilter::Monitor
+            | VideoFilter::Modern
+            | VideoFilter::ModernMonitor
+            | VideoFilter::ModernWeave
+            | VideoFilter::ModernMonitorWeave => Self {
+                filter,
+                ..Self::default()
+            },
         }
     }
 }
@@ -147,7 +232,7 @@ struct ShaderUniforms {
     filter: f32,
     frame_width: f32,
     frame_height: f32,
-    _pad: f32,
+    field_mode: f32,
 }
 
 impl ShaderUniforms {
@@ -156,7 +241,7 @@ impl ShaderUniforms {
             filter: filter.shader_value(),
             frame_width: frame_width as f32,
             frame_height: frame_height as f32,
-            _pad: 0.0,
+            field_mode: 0.0,
         }
     }
 }
@@ -164,6 +249,16 @@ impl ShaderUniforms {
 /// Native video presentation failure.
 #[derive(Debug, Error)]
 pub enum VideoPresenterError {
+    /// The selected receiver needs a machine-supplied electrical frame.
+    #[error("this machine or variant does not supply an electrical video source")]
+    MissingSignal,
+    /// Electrical palette, geometry or connection is malformed or unsupported.
+    #[error("invalid or unsupported electrical video source or monitor connection")]
+    InvalidSignal,
+    /// The backend cannot execute the signal receiver's compute passes.
+    #[error("signal display requires a compute-capable GPU backend")]
+    SignalGpuUnsupported,
+
     /// No compatible GPU adapter could present to this window surface.
     #[error("no compatible GPU adapter found for native video surface")]
     NoAdapter,
@@ -238,6 +333,10 @@ pub struct WgpuVideoPresenter {
     frame_width: u32,
     frame_height: u32,
     rgba_scratch: Vec<u8>,
+    signal_decoder: Option<SignalDecoder>,
+    signal_bind_group: Option<wgpu::BindGroup>,
+    phosphor: Option<PhosphorHistory>,
+    phosphor_bindings: Option<[wgpu::BindGroup; 2]>,
 }
 
 impl WgpuVideoPresenter {
@@ -453,6 +552,10 @@ impl WgpuVideoPresenter {
             frame_width,
             frame_height,
             rgba_scratch: Vec::new(),
+            signal_decoder: None,
+            signal_bind_group: None,
+            phosphor: None,
+            phosphor_bindings: None,
         })
     }
 
@@ -477,8 +580,57 @@ impl WgpuVideoPresenter {
         frame: &CapturedFrame,
         profile: &PresentationProfile,
     ) -> Result<(), VideoPresenterError> {
-        self.upload_frame(frame)?;
-        self.render(profile)
+        self.present_with_status(frame, profile).map(|_| ())
+    }
+
+    /// Present a frame and report whether it was submitted to the surface.
+    /// Returns `false` for occlusion, timeout or a surface being reconfigured.
+    /// A successful submission does not imply GPU completion or monitor scanout.
+    ///
+    /// # Errors
+    /// Returns an error for malformed frame data or an unrecoverable surface.
+    pub fn present_with_status(
+        &mut self,
+        frame: &CapturedFrame,
+        profile: &PresentationProfile,
+    ) -> Result<bool, VideoPresenterError> {
+        if profile.filter.uses_signal() {
+            if self.device.limits().max_storage_buffers_per_shader_stage < 5 {
+                return Err(VideoPresenterError::SignalGpuUnsupported);
+            }
+            let separated = profile.filter.uses_monitor_connection();
+            if !self
+                .signal_decoder
+                .as_ref()
+                .is_some_and(|decoder| decoder.matches(frame, separated))
+            {
+                let decoder = SignalDecoder::new(&self.device, &self.queue, frame, separated)?;
+                let view = decoder.texture().create_view(&Default::default());
+                self.signal_bind_group = Some(create_frame_bind_group(
+                    &self.device,
+                    &self.bind_group_layout,
+                    &self.sampler,
+                    &self.uniform_buffer,
+                    &view,
+                ));
+                self.signal_decoder = Some(decoder);
+            }
+            self.frame_width = frame.width;
+            self.frame_height = frame.height;
+        } else {
+            // Signal dimensions may differ from the last raw texture's size.
+            self.frame_width = self.frame_texture.width();
+            self.frame_height = self.frame_texture.height();
+            self.upload_frame(frame)?;
+        }
+        self.render(profile, frame)
+    }
+
+    /// Discard retained light after an explicit reset, restore or
+    /// machine switch, including restores whose timestamps move forwards.
+    pub fn reset_temporal_history(&mut self) {
+        self.phosphor = None;
+        self.phosphor_bindings = None;
     }
 
     fn upload_frame(&mut self, frame: &CapturedFrame) -> Result<(), VideoPresenterError> {
@@ -521,24 +673,27 @@ impl WgpuVideoPresenter {
         Ok(())
     }
 
-    fn render(&mut self, profile: &PresentationProfile) -> Result<(), VideoPresenterError> {
+    fn render(
+        &mut self,
+        profile: &PresentationProfile,
+        frame: &CapturedFrame,
+    ) -> Result<bool, VideoPresenterError> {
         let output = match self.surface.get_current_texture() {
             wgpu::CurrentSurfaceTexture::Success(output)
             | wgpu::CurrentSurfaceTexture::Suboptimal(output) => output,
             wgpu::CurrentSurfaceTexture::Outdated | wgpu::CurrentSurfaceTexture::Lost => {
                 self.surface.configure(&self.device, &self.config);
-                return Ok(());
+                return Ok(false);
             }
             wgpu::CurrentSurfaceTexture::Timeout | wgpu::CurrentSurfaceTexture::Occluded => {
-                return Ok(());
+                return Ok(false);
             }
             wgpu::CurrentSurfaceTexture::Validation => {
                 return Err(VideoPresenterError::SurfaceUnrecoverable);
             }
         };
-        let uniforms = ShaderUniforms::new(profile.filter, self.frame_width, self.frame_height);
-        self.queue
-            .write_buffer(&self.uniform_buffer, 0, bytemuck::bytes_of(&uniforms));
+        let mut uniforms = ShaderUniforms::new(profile.filter, self.frame_width, self.frame_height);
+
         let view = output
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
@@ -547,6 +702,66 @@ impl WgpuVideoPresenter {
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("emu198x-native-video encoder"),
             });
+        let electrical = profile.filter.uses_signal();
+        if electrical {
+            self.signal_decoder
+                .as_mut()
+                .ok_or(VideoPresenterError::MissingSignal)?
+                .encode(&self.queue, &mut encoder, frame)?;
+        }
+        let persistent = profile.filter.shader_value() > 1.5
+            && profile.clock_hz.is_finite()
+            && profile.clock_hz > 0.0
+            && profile.phosphor_tau_ms.is_finite()
+            && profile.phosphor_tau_ms > 0.0;
+        if persistent {
+            if !self.phosphor.as_ref().is_some_and(|history| {
+                history.texture().width() == frame.width
+                    && history.texture().height() == frame.height
+            }) {
+                let history = PhosphorHistory::new(&self.device, frame.width, frame.height);
+                self.phosphor_bindings = Some(std::array::from_fn(|index| {
+                    let view = history.textures()[index].create_view(&Default::default());
+                    create_frame_bind_group(
+                        &self.device,
+                        &self.bind_group_layout,
+                        &self.sampler,
+                        &self.uniform_buffer,
+                        &view,
+                    )
+                }));
+                self.phosphor = Some(history);
+            }
+            let source = if electrical {
+                self.signal_decoder
+                    .as_ref()
+                    .ok_or(VideoPresenterError::MissingSignal)?
+                    .texture()
+            } else {
+                &self.frame_texture
+            };
+            if let Some(history) = self.phosphor.as_mut() {
+                history.encode(
+                    &self.device,
+                    &self.queue,
+                    &mut encoder,
+                    source,
+                    frame,
+                    PhosphorSettings {
+                        filter: profile.filter,
+                        clock_hz: profile.clock_hz,
+                        tau_ms: profile.phosphor_tau_ms,
+                    },
+                );
+            }
+            // Values >=10 select linear phosphor input in the shared shader.
+            uniforms.field_mode += 10.0;
+        } else {
+            self.phosphor = None;
+            self.phosphor_bindings = None;
+        }
+        self.queue
+            .write_buffer(&self.uniform_buffer, 0, bytemuck::bytes_of(&uniforms));
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("emu198x-native-video render pass"),
@@ -581,12 +796,23 @@ impl WgpuVideoPresenter {
                 1.0,
             );
             pass.set_pipeline(&self.pipeline);
-            pass.set_bind_group(0, &self.bind_group, &[]);
+            let bindings = if let (Some(history), Some(bindings)) =
+                (&self.phosphor, &self.phosphor_bindings)
+            {
+                &bindings[history.current_index()]
+            } else if electrical {
+                self.signal_bind_group
+                    .as_ref()
+                    .ok_or(VideoPresenterError::MissingSignal)?
+            } else {
+                &self.bind_group
+            };
+            pass.set_bind_group(0, bindings, &[]);
             pass.draw(0..6, 0..1);
         }
         self.queue.submit(Some(encoder.finish()));
         self.queue.present(output);
-        Ok(())
+        Ok(true)
     }
 }
 
@@ -621,13 +847,25 @@ fn create_frame_texture(
         view_formats: &[],
     });
     let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-    let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+    let bind_group =
+        create_frame_bind_group(device, bind_group_layout, sampler, uniform_buffer, &view);
+    (texture, view, bind_group)
+}
+
+fn create_frame_bind_group(
+    device: &wgpu::Device,
+    bind_group_layout: &wgpu::BindGroupLayout,
+    sampler: &wgpu::Sampler,
+    uniform_buffer: &wgpu::Buffer,
+    view: &wgpu::TextureView,
+) -> wgpu::BindGroup {
+    device.create_bind_group(&wgpu::BindGroupDescriptor {
         label: Some("emu198x-native-video bind group"),
         layout: bind_group_layout,
         entries: &[
             wgpu::BindGroupEntry {
                 binding: 0,
-                resource: wgpu::BindingResource::TextureView(&view),
+                resource: wgpu::BindingResource::TextureView(view),
             },
             wgpu::BindGroupEntry {
                 binding: 1,
@@ -638,8 +876,7 @@ fn create_frame_texture(
                 resource: uniform_buffer.as_entire_binding(),
             },
         ],
-    });
-    (texture, view, bind_group)
+    })
 }
 
 fn frame_rgba_pixels<'a>(
@@ -750,10 +987,22 @@ fn viewport_for(
     let effective_width = frame_width as f32 * par;
     let x_scale = surface_width as f32 / effective_width;
     let y_scale = surface_height as f32 / frame_height as f32;
-    let scale = x_scale.min(y_scale);
-    let scale = if scale >= 1.0 { scale.floor() } else { scale };
-    let width = effective_width * scale;
-    let height = frame_height as f32 * scale;
+    let fractional_scale = x_scale.min(y_scale);
+    // The host rounds aspect-corrected window widths to physical pixels.
+    // Allow that half-pixel rounding before choosing an integer scale;
+    // otherwise a requested 4× window can accidentally select 3×.
+    let integer_scale = ((surface_width as f32 + 0.5) / effective_width)
+        .floor()
+        .min(y_scale.floor());
+    let scale = if integer_scale >= 1.0 {
+        integer_scale
+    } else {
+        fractional_scale
+    };
+    let width = (effective_width * scale).round().min(surface_width as f32);
+    let height = (frame_height as f32 * scale)
+        .round()
+        .min(surface_height as f32);
 
     Viewport {
         x: (surface_width as f32 - width) * 0.5,
@@ -811,6 +1060,26 @@ mod tests {
     }
 
     #[test]
+    fn modern_displays_decode_the_connection_without_crt_effects() {
+        for (modern, crt) in [
+            (VideoFilter::Modern, VideoFilter::Signal),
+            (VideoFilter::ModernMonitor, VideoFilter::Monitor),
+        ] {
+            assert!(modern.uses_signal());
+            assert_eq!(
+                modern.uses_monitor_connection(),
+                crt.uses_monitor_connection()
+            );
+            assert_eq!(modern.shader_value(), VideoFilter::Raw.shader_value());
+            assert_ne!(modern.shader_value(), crt.shader_value());
+            assert_eq!(
+                PresentationProfile::for_filter(modern).scaling,
+                ScalingMode::Integer
+            );
+        }
+    }
+
+    #[test]
     fn integer_viewport_centres_with_whole_scale() {
         let viewport = viewport_for(800, 600, 160, 144, ScalingMode::Integer, 1.0);
 
@@ -841,6 +1110,43 @@ mod tests {
                 height: 576.0,
             }
         );
+    }
+
+    #[test]
+    fn rounded_window_width_does_not_lose_an_integer_scale_step() {
+        // Aspect-corrected windows rounded to whole physical pixels.
+        // Previously their width fit was just below the requested scale,
+        // leaving an entire source row count of black space vertically.
+        for (frame_width, frame_height, par, scale, surface_width) in [
+            (352, 296, 1.054_945_1, 4, 1485),
+            (416, 312, 0.936_898_05, 3, 1169),
+            (256, 240, 1.142_860_4, 4, 1170),
+        ] {
+            let surface_height = frame_height * scale;
+            let viewport = viewport_for(
+                surface_width,
+                surface_height,
+                frame_width,
+                frame_height,
+                ScalingMode::Integer,
+                par,
+            );
+            assert_eq!(viewport.height, surface_height as f32);
+            assert_eq!(viewport.width, surface_width as f32);
+            assert_eq!(viewport.x, 0.0);
+            assert_eq!(viewport.y, 0.0);
+
+            // A genuinely narrower window still selects the smaller scale.
+            let narrower = viewport_for(
+                surface_width - 2,
+                surface_height,
+                frame_width,
+                frame_height,
+                ScalingMode::Integer,
+                par,
+            );
+            assert_eq!(narrower.height, (frame_height * (scale - 1)) as f32);
+        }
     }
 
     #[test]

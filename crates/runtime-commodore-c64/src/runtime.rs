@@ -691,8 +691,44 @@ impl C64Runtime {
 
     fn emit_frame(&mut self, host: &mut HostIo<'_>) -> Result<(), MachineError> {
         repack_rgba8888(self.machine.framebuffer(), &mut self.rgba_framebuffer);
+        let pal = matches!(self.model, Model::C64PalBreadbin | Model::C64cPal);
+        let pixel_hz = if pal {
+            mos_vic_ii::PAL_DOT_CLOCK_HZ
+        } else {
+            mos_vic_ii::NTSC_DOT_CLOCK_HZ
+        };
+        let carrier_hz = if pal { 4_433_618.75 } else { 3_579_545.454_545 };
+        let line_pixels = self.machine.vic().signal_line_pixels();
+        let raster = u64::from(self.machine.vic().raster_line()) * u64::from(line_pixels)
+            + u64::from(self.machine.vic().raster_cycle()) * 8;
+        let phase_cycles = ((self.time.get().saturating_mul(8).saturating_sub(raster) as f64)
+            * carrier_hz
+            / pixel_hz)
+            .fract();
+        let signal = (self.machine.vic().signal_codes().len() == self.machine.framebuffer().len())
+            .then_some(emu198x_shell::SignalFrame {
+                field: None,
+                encoding: emu198x_shell::SignalEncoding::Yuv {
+                    pal,
+                    separate_chroma: true,
+                },
+                timing: emu198x_shell::SignalTiming {
+                    pixel_hz,
+                    carrier_hz,
+                    line_pixels,
+                    first_pixel: 80,
+                    first_line: 0,
+                    phase_cycles,
+                },
+                codes: self.machine.vic().signal_codes(),
+                levels: if pal {
+                    &*crate::signal::LEVELS
+                } else {
+                    &*crate::signal::NTSC_LEVELS
+                },
+            });
         host.frame_sink.push_frame(FramePacket {
-            signal: None,
+            signal,
             timestamp: self.time,
             format: emu198x_shell::PixelFormat::Rgba8888,
             width: self.machine.vic().framebuffer_width(),

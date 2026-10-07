@@ -429,6 +429,8 @@ pub struct Vic {
     den_latch: bool,
     frame_complete: bool,
     framebuffer: Vec<u32>,
+    #[serde(skip)]
+    signal_codes: Vec<u16>,
     #[serde(with = "BigArray")]
     screen_row: [u8; 40],
     #[serde(with = "BigArray")]
@@ -560,6 +562,7 @@ impl Vic {
             den_latch: false,
             frame_complete: false,
             framebuffer: vec![0xFF00_0000; fb_size],
+            signal_codes: vec![0; fb_size],
             screen_row: [0; 40],
             colour_row: [0; 40],
             vic_bank: 0,
@@ -1201,36 +1204,43 @@ impl Vic {
             return;
         };
         self.apply_border(&mut cell.sources);
+        if self.signal_codes.len() != self.framebuffer.len() {
+            // Reconstruct the transient mirror after restoring a save state.
+            self.signal_codes = self
+                .framebuffer
+                .iter()
+                .map(|rgb| PALETTE.iter().position(|entry| entry == rgb).unwrap_or(0) as u16)
+                .collect();
+        }
         for (px, source) in cell.sources.into_iter().enumerate() {
             let Some(source) = source else {
                 continue;
             };
-            let colour = match self.colour_write {
+            let colour_index = match self.colour_write {
                 Some(write) if px == 0 && write.register == source => {
-                    let colour_index = if self.model.has_grey_dot() {
+                    if self.model.has_grey_dot() {
                         0x0F
                     } else {
                         write.previous & 0x0F
-                    };
-                    PALETTE[usize::from(colour_index)]
+                    }
                 }
-                _ => self.resolve_colour_source(source),
+                _ => self.resolve_colour_index(source),
             };
             if let Some(pixel) = self.framebuffer.get_mut(cell.fb_offset + px) {
-                *pixel = colour;
+                *pixel = PALETTE[usize::from(colour_index)];
+                self.signal_codes[cell.fb_offset + px] = u16::from(colour_index);
             }
         }
     }
 
     /// Resolve one direct colour index or symbolic `$D020`-`$D02E` source at
     /// the final composite stage.
-    fn resolve_colour_source(&self, source: u8) -> u32 {
-        let colour_index = if (0x20..=0x2E).contains(&source) {
+    fn resolve_colour_index(&self, source: u8) -> u8 {
+        (if (0x20..=0x2E).contains(&source) {
             self.regs[usize::from(source)]
         } else {
             source
-        } & 0x0F;
-        PALETTE[usize::from(colour_index)]
+        }) & 0x0F
     }
 
     /// The colour source of a zero graphics bit pair in the current mode,
@@ -2138,6 +2148,18 @@ impl Vic {
     #[must_use]
     pub fn framebuffer(&self) -> &[u32] {
         &self.framebuffer
+    }
+
+    /// Electrical colour codes captured at the final VIC pixel mux.
+    #[must_use]
+    pub fn signal_codes(&self) -> &[u16] {
+        &self.signal_codes
+    }
+
+    /// Physical line length in dots, including blanking.
+    #[must_use]
+    pub fn signal_line_pixels(&self) -> u32 {
+        u32::from(self.cycles_per_line) * 8
     }
 
     /// Framebuffer width in pixels.
@@ -3750,9 +3772,9 @@ mod tests {
         let (mut vic, _) = make_vic_and_memory();
         for register in 0x20u8..=0x2E {
             vic.regs[usize::from(register)] = 0x05;
-            assert_eq!(vic.resolve_colour_source(register), PALETTE[5]);
+            assert_eq!(vic.resolve_colour_index(register), 5);
         }
-        assert_eq!(vic.resolve_colour_source(0x07), PALETTE[7]);
+        assert_eq!(vic.resolve_colour_index(0x07), 7);
     }
 
     /// Write `register` = `value` between two ticks in the top border, then
@@ -3767,6 +3789,13 @@ mod tests {
         tick_vic(&mut vic, &memory);
         let mut dots = [0; 8];
         dots.copy_from_slice(&vic.framebuffer[cell.fb_offset..cell.fb_offset + 8]);
+        for (dot, &rgb) in dots.iter().enumerate() {
+            assert_eq!(
+                PALETTE[usize::from(vic.signal_codes[cell.fb_offset + dot])],
+                rgb,
+                "electrical colour must retain the final {model:?} dot {dot}"
+            );
+        }
         dots
     }
 

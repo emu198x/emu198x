@@ -48,7 +48,15 @@ pub struct MachineMenu<'a> {
 pub const SCALE_OPTIONS: &[u32] = &[1, 2, 3, 4];
 
 /// Video-filter values offered in the View menu's radio group, in order.
-pub const FILTER_OPTIONS: &[VideoFilter] = &[VideoFilter::Raw, VideoFilter::Lcd, VideoFilter::Crt];
+pub const FILTER_OPTIONS: &[VideoFilter] = &[
+    VideoFilter::Raw,
+    VideoFilter::Lcd,
+    VideoFilter::Crt,
+    VideoFilter::Signal,
+    VideoFilter::Monitor,
+    VideoFilter::Modern,
+    VideoFilter::ModernMonitor,
+];
 
 /// Commands the App processes at frame boundaries. Pushed by both menu clicks
 /// and keyboard shortcuts, so the two converge on one handler. Defined on every
@@ -114,6 +122,12 @@ fn filter_label(filter: VideoFilter) -> &'static str {
         VideoFilter::Raw => "Video Filter: Raw",
         VideoFilter::Lcd => "Video Filter: LCD",
         VideoFilter::Crt => "Video Filter: CRT",
+        VideoFilter::Signal => "Video Filter: Signal",
+        VideoFilter::Monitor => "Video Filter: Monitor",
+        VideoFilter::Modern => "Video Filter: Modern display",
+        VideoFilter::ModernMonitor => "Video Filter: Modern monitor",
+        VideoFilter::ModernWeave => "Video Filter: Modern display",
+        VideoFilter::ModernMonitorWeave => "Video Filter: Modern monitor",
         _ => "Video Filter",
     }
 }

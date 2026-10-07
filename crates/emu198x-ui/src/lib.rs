@@ -14,6 +14,7 @@
 //! variant switching (a live-runtime trait) and multi-slot save-states.
 
 mod export;
+mod frame_stats;
 mod host_audio;
 mod icon;
 mod keyboard;
@@ -424,6 +425,8 @@ pub enum UiError {
     Os(#[from] OsError),
     #[error("invalid --scale value {value}")]
     InvalidScale { value: u32 },
+    #[error("phosphor decay must be finite and non-negative, got {value}")]
+    InvalidPhosphorDecay { value: f32 },
     #[error("teardown failed: {0}")]
     Teardown(String),
 }
@@ -499,6 +502,7 @@ struct App<S: UiSystem> {
     window: Option<Arc<Window>>,
     video: Option<WgpuVideoPresenter>,
     presentation: PresentationProfile,
+    frame_stats: Option<frame_stats::FrameStats>,
     fatal_error: Option<UiError>,
     halt_message: Option<String>,
     /// Tape fast-load (turbo) armed by the user (F11 / Tape → Fast Load). Only
@@ -567,6 +571,7 @@ impl<S: UiSystem> App<S> {
             window: None,
             video: None,
             presentation,
+            frame_stats: std::env::var_os("EMU198X_FRAME_STATS").map(|_| Default::default()),
             fatal_error: None,
             halt_message: None,
             turbo_armed: false,
@@ -727,7 +732,9 @@ impl<S: UiSystem> App<S> {
                 pixels,
             };
             if let Some(video) = self.video.as_mut() {
-                video.present(&frame, &self.presentation)?;
+                let mut profile = self.presentation;
+                profile.filter = VideoFilter::Raw;
+                video.present(&frame, &profile)?;
             }
             return Ok(());
         }
@@ -735,7 +742,35 @@ impl<S: UiSystem> App<S> {
         let (Some(frame), Some(video)) = (self.runner.frame(), self.video.as_mut()) else {
             return Ok(());
         };
-        video.present(frame, &self.presentation)?;
+        // Debug stepping and a switch to a variant without an electrical
+        // source must still display their raw state, rather than end the UI.
+        if frame.signal.is_none() && self.presentation.filter.uses_signal() {
+            let fallback = if self.presentation.filter.is_modern() {
+                VideoFilter::Raw
+            } else {
+                VideoFilter::Crt
+            };
+            self.presentation.filter = fallback;
+            self.app_menu.set_current_filter(fallback);
+            eprintln!("electrical video is unavailable for this frame; using {fallback} display");
+        }
+        let clock = self.runner.runtime.profile().clock.rate;
+        self.presentation.clock_hz = clock.numerator_hz as f64 / clock.denominator_hz as f64;
+        let started = Instant::now();
+        let presented = video.present_with_status(frame, &self.presentation)?;
+        if let Some(stats) = self.frame_stats.as_mut() {
+            if !presented {
+                stats.suspend();
+                return Ok(());
+            }
+            stats.observe(
+                frame.timestamp,
+                self.presentation.clock_hz,
+                self.presentation.filter,
+                started.elapsed(),
+                self.system.frame_duration(&self.runner.runtime),
+            );
+        }
         Ok(())
     }
 
@@ -998,12 +1033,19 @@ impl<S: UiSystem> App<S> {
         self.next_slice_at = Instant::now();
     }
 
+    fn reset_video_history(&mut self) {
+        if let Some(video) = self.video.as_mut() {
+            video.reset_temporal_history();
+        }
+    }
+
     /// Hard-reset the machine: reset the runtime, run the system's re-init
     /// hook, clear capture/audio, and run one frame so a picture is ready.
     fn reset_machine(&mut self) -> Result<(), UiError> {
         self.release_all_keys();
         self.runner.runtime.reset(ResetKind::Hard);
         self.system.after_reset(&mut self.runner.runtime)?;
+        self.reset_video_history();
         self.runner.frame_capture = LatestFrameCapture::default();
         self.runner.audio_output.clear();
         self.runner.last_run_result = None;
@@ -1079,6 +1121,7 @@ impl<S: UiSystem> App<S> {
         // Drop held keys and stale capture/audio, then run one frame so the
         // restored picture is on screen immediately.
         self.release_all_keys();
+        self.reset_video_history();
         self.runner.frame_capture = LatestFrameCapture::default();
         self.runner.audio_output.clear();
         self.runner.last_run_result = None;
@@ -1254,6 +1297,7 @@ impl<S: UiSystem> App<S> {
             return Ok(());
         }
         self.release_all_keys();
+        self.reset_video_history();
         self.runner.frame_capture = LatestFrameCapture::default();
         self.runner.audio_output.clear();
         self.runner.last_run_result = None;
@@ -1460,6 +1504,7 @@ impl<S: UiSystem> App<S> {
         // Re-pace from the new machine's timing and drop stale input + capture.
         self.recompute_pacing();
         self.release_all_keys();
+        self.reset_video_history();
         self.runner.frame_capture = LatestFrameCapture::default();
         self.runner.audio_output.clear();
         self.runner.last_run_result = None;
@@ -1566,12 +1611,33 @@ impl<S: UiSystem> App<S> {
         self.app_menu.set_current_scale(scale);
     }
 
-    /// Switch the post-framebuffer video filter, preserving the derived
-    /// pixel-aspect ratio (which `PresentationProfile::for_filter` resets).
+    /// Switch display mode while preserving geometry, timebase and phosphor settings.
     fn set_video_filter(&mut self, filter: VideoFilter) {
-        let par = self.presentation.pixel_aspect_ratio;
-        self.presentation = PresentationProfile::for_filter(filter);
-        self.presentation.pixel_aspect_ratio = par;
+        if filter.uses_signal() {
+            let supported = self
+                .runner
+                .frame()
+                .and_then(|frame| frame.signal.as_ref())
+                .is_some_and(|signal| {
+                    !filter.uses_monitor_connection()
+                        || matches!(
+                            signal.encoding,
+                            emu198x_shell::SignalEncoding::Rgb
+                                | emu198x_shell::SignalEncoding::Yuv {
+                                    separate_chroma: true,
+                                    ..
+                                }
+                        )
+                });
+            if !supported {
+                eprintln!(
+                    "the selected video connection is unavailable for this machine or variant"
+                );
+                return;
+            }
+        }
+        // Display geometry, timebase and phosphor choice survive mode changes.
+        self.presentation.filter = filter;
         self.app_menu.set_current_filter(filter);
         if let Some(window) = &self.window {
             window.request_redraw();
@@ -1841,8 +1907,34 @@ pub fn run<S: UiSystem>(
     video: VideoFilter,
     audio: bool,
 ) -> Result<(), UiError> {
+    run_with_phosphor(
+        system,
+        runtime,
+        scale,
+        video,
+        emu198x_native_video::DEFAULT_PHOSPHOR_TAU_MS,
+        audio,
+    )
+}
+
+/// Open a window with a chosen CRT phosphor 1/e decay time in milliseconds.
+/// Zero disables persistence; other video modes bypass it.
+///
+/// # Errors
+/// Returns [`UiError`] for invalid scale/decay, machine or host failures.
+pub fn run_with_phosphor<S: UiSystem>(
+    system: S,
+    runtime: S::Runtime,
+    scale: u32,
+    video: VideoFilter,
+    phosphor_ms: f32,
+    audio: bool,
+) -> Result<(), UiError> {
     if scale == 0 {
         return Err(UiError::InvalidScale { value: scale });
+    }
+    if !phosphor_ms.is_finite() || phosphor_ms < 0.0 {
+        return Err(UiError::InvalidPhosphorDecay { value: phosphor_ms });
     }
     // Harness-global controls every system shares, printed once so each runner's
     // own per-machine controls line doesn't have to repeat them.
@@ -1852,6 +1944,7 @@ pub fn run<S: UiSystem>(
     runner.run_ticks(&[], frame_ticks)?;
 
     let mut app = App::new(system, runner, scale, video);
+    app.presentation.phosphor_tau_ms = phosphor_ms;
     let event_loop = EventLoop::new()?;
     event_loop.run_app(&mut app)?;
 
