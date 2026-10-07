@@ -160,6 +160,18 @@ mod tests {
         }
     }
 
+    /// "A 48K Oric-1 actually has 64K of RAM, 16K of which is overlaid by
+    /// the ROM" (*The Oric-1 Companion*, p. 111): MAP reaches it there too.
+    #[test]
+    fn the_48k_oric_1_has_ram_under_its_rom_too() {
+        let mut sys = OricAtmos::new(rom(), OricModel::Oric1);
+        fill_shadow_ram(&mut sys);
+        sys.set_expansion_map(true);
+        for addr in PROBES {
+            assert_eq!(sys.mem_read(addr), shadow_byte(addr), "{addr:04X}");
+        }
+    }
+
     /// ROMDIS only silences the ROM. The ULA still decodes the top 16 KB as
     /// ROM, so no RAM cycle runs and nothing on the board drives the bus.
     #[test]
