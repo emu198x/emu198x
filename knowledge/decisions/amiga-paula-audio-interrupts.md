@@ -102,3 +102,19 @@ and deterministic restore at all 48 OCS/ECS/AGA checkpoints. The existing
 version-60 fields hold this state; this correction changes no snapshot schema.
 It does not establish physical ADKCON latency, full DMAL timing or analogue/PWM
 response.
+
+
+At the existing output phase, process channel transitions in ascending channel
+order and apply each transition's modulation before evaluating the next
+channel. If a source period transfer coincides with receiver expiry, the
+receiver reloads the newly written period. Do not defer all attachment effects
+until after all counters reload. Keep the same begin/end phases and pending
+IRQ/request stages; this ordering correction adds no clock or saved field.
+
+The [active-target observations](../../../../reference/by-system/commodore-amiga/2026-paula-active-target-observations.md)
+record agreement on 88,704 channel observations for state, period, byte
+deadline, buffer, volume register, request and IRQ across both references.
+Raw DAC samples use WinUAE; vAmiga's sampler is scaled and suppresses repeated
+edges. The regression covers simultaneous/adjacent deadlines and chains.
+Volume-register agreement does not establish the timing of gain at the DAC;
+volume output-latch timing remains a separate investigation.
