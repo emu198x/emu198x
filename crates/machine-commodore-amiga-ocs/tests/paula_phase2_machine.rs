@@ -663,3 +663,61 @@ fn retained_audio_dma_delivers_startup_irq_at_the_next_cck_boundary() {
         );
     }
 }
+
+#[test]
+fn manual_audio_retains_the_early_stop_decision_on_the_board_clock() {
+    use emu198x_commodore_paula_8364::PaulaAudioDmaState;
+    for channel in 0..4u16 {
+        for stop in [false, true] {
+            let mut amiga = AmigaOcs::new(zero_rom());
+            let base = 0x00DF_F0A0 + u32::from(channel) * 16;
+            let irq = 0x80 << channel;
+            amiga.poke_word(base + 6, 8);
+            amiga.poke_word(base + 10, 0x1122);
+            assert_eq!(
+                amiga.paula().audio_diagnostic_snapshot().channels[channel as usize].output_sample,
+                0x11
+            );
+            assert_eq!(amiga.intreq() & irq, 0);
+            for _ in 0..2 {
+                amiga.tick();
+            }
+            assert_ne!(amiga.intreq() & irq, 0);
+            if !stop {
+                amiga.poke_word(0x00DF_F09C, irq);
+            }
+            for _ in 0..27 {
+                amiga.tick();
+            }
+            let ch = amiga.paula().audio_diagnostic_snapshot().channels[channel as usize];
+            assert_eq!(ch.output_sample, 0x22);
+            assert_eq!(ch.manual_stop_pending, Some(stop));
+            // Reverse INTREQ after sampling, then replace only the holding word.
+            amiga.poke_word(0x00DF_F09C, irq | if stop { 0 } else { 0x8000 });
+            amiga.poke_word(base + 10, 0x3344);
+            amiga.tick();
+            assert_eq!(
+                amiga.paula().audio_diagnostic_snapshot().channels[channel as usize]
+                    .manual_stop_pending,
+                Some(stop)
+            );
+            amiga.tick();
+            let ch = amiga.paula().audio_diagnostic_snapshot().channels[channel as usize];
+            assert_eq!(
+                ch.state,
+                if stop {
+                    PaulaAudioDmaState::Idle
+                } else {
+                    PaulaAudioDmaState::Playing
+                }
+            );
+            assert_eq!(ch.output_sample, if stop { 0x22 } else { 0x33 });
+            assert!(ch.interrupt_request_pending);
+            amiga.poke_word(0x00DF_F09C, irq);
+            amiga.tick();
+            assert_eq!(amiga.intreq() & irq, 0);
+            amiga.tick();
+            assert_ne!(amiga.intreq() & irq, 0);
+        }
+    }
+}

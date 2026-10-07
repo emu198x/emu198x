@@ -1,4 +1,4 @@
-//! Research probe for the separately tracked CPU-fed playback faults.
+//! CPU-fed startup/holding regression against the original vAmiga schedule.
 use emu198x_commodore_paula_8364::{AudioField, Paula8364, bits::*};
 
 fn expected(kind: &str) -> Vec<Vec<i32>> {
@@ -14,7 +14,7 @@ fn expected(kind: &str) -> Vec<Vec<i32>> {
         .collect()
 }
 
-fn main() {
+pub fn main() {
     let reference = expected("manual,");
     assert_eq!(reference.len(), 480);
     let mut rows = 0;
@@ -31,6 +31,7 @@ fn main() {
             p.write_audio(source as u8, AudioField::Dat, 0x1122);
             for time in 0..=23 {
                 if time != 0 {
+                    p.begin_audio_cck();
                     if ((scenario == 2 || scenario == 3) && time == 7)
                         || (scenario == 4 && time == 17)
                     {
@@ -42,7 +43,7 @@ fn main() {
                     {
                         p.write_audio(source as u8, AudioField::Dat, 0x3344);
                     }
-                    p.tick_audio_cck(0, None, |_| 0);
+                    p.finish_audio_cck(0, None, |_| panic!("manual playback requested DMA"));
                 }
                 let row = vec![
                     source as i32,

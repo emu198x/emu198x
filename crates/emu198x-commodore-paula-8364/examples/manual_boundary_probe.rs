@@ -1,4 +1,4 @@
-//! Research reproduction: CPU-fed playback against pinned WinUAE transitions.
+//! Enforced regression: CPU-fed playback against pinned WinUAE transitions.
 //! Exits nonzero while any observed output, IRQ or playback state disagrees.
 
 use std::collections::BTreeSet;
@@ -34,7 +34,7 @@ fn apply(p: &mut Paula8364, source: u8, scenario: u32, time: u32, period: u32) {
     }
 }
 
-fn main() {
+pub fn main() {
     let reference: Vec<Vec<i32>> =
         include_str!("../../../test-data/commodore/amiga/paula-audio/manual-probe/winuae.csv")
             .lines()
