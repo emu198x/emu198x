@@ -1,0 +1,128 @@
+   Compiling commodore-denise-aga v0.25.0 (/Users/stevehill/Projects/198x/Emu198x/emu198x/crates/commodore-denise-aga)
+    Finished `release` profile [optimized] target(s) in 7.45s
+     Running unittests src/lib.rs (target/release/deps/commodore_denise_aga-f180a565923e1f6d)
+
+running 46 tests
+test tests::aga_color_delay_expires_on_a_different_palette_index ... ok
+test tests::bplcon3_write_via_trait_lands_on_ecs_layer ... ok
+test tests::color_write_loct_only_updates_low_nybble ... ok
+test tests::consecutive_aga_color_writes_flush_the_earlier_delay ... ok
+test tests::bplcon4_write_via_trait_lands_on_aga_state ... ok
+test tests::aga_killehb_uses_the_full_palette_address ... ok
+test tests::aga_ehb_uses_delayed_full_24bit_palette_with_loct_precision ... ok
+test tests::aga_color_delay_expires_outside_the_recorded_viewport ... ok
+test tests::color_write_high_mirrors_into_low_nybble ... ok
+test tests::aga_denise_supports_eight_bitplanes ... ok
+test tests::deref_exposes_inner_ecs_state ... ok
+test tests::deniseid_returns_lisa_marker ... ok
+test tests::copper_color_write_retains_only_the_lisa_hires_output_delay ... ok
+test tests::color_write_reaches_aga_output_one_hires_pixel_late ... ok
+test tests::color_write_bank_offset_into_palette_24 ... ok
+test tests::diagnostic_snapshot_reports_complete_lisa_state_without_using_core_mirrors ... ok
+test tests::disabling_a_lisa_selector_clears_the_active_level ... ok
+test tests::ehb_sprite_bank_bypasses_half_brite_and_observes_color_delay ... ok
+test tests::fmode_write_via_trait_updates_sprite_width ... ok
+test tests::fractional_window_gates_playfield_sprite_and_xor_per_sample ... ok
+test tests::ham6_uses_delayed_24bit_palette_and_eight_bit_hold_channels ... ok
+test tests::ham6_sprite_overlays_the_advancing_playfield_hold ... ok
+test tests::full_sample_clock_keeps_one_hires_period_color_delay ... ok
+test tests::ham8_control00_reads_24bit_color_register ... ok
+test tests::ham8_direct_color_observes_the_aga_output_delay ... ok
+test tests::ham8_line_start_resets_hold_to_color00 ... ok
+test tests::ham8_sprite_overlays_the_advancing_playfield_hold ... ok
+test tests::ham8_modify_replaces_top6_holds_low2_and_other_channels ... ok
+test tests::killehb_retains_all_eight_post_xor_address_bits_and_color_delay ... ok
+test tests::lisa_ecsena_enable_after_start_waits_for_the_next_start ... ok
+test tests::lisa_extblken_enable_after_start_waits_for_the_next_start ... ok
+test tests::lisa_fixed_hblank_compares_the_next_counter ... ok
+test tests::lisa_equal_hblank_edges_leave_level_clear ... ok
+test tests::lisa_hblank_fine_stop_retains_all_four_output_samples ... ok
+test tests::lisa_hbstop_write_ahead_after_stop_does_not_reassert ... ok
+test tests::lisa_hbstrt_write_behind_beam_does_not_synthesize_start ... ok
+test tests::lisa_parallel_copy_reaches_output_on_the_following_counter ... ok
+test tests::new_starts_with_aga_register_defaults ... ok
+test tests::normal_mode_resolves_through_24bit_palette ... ok
+test tests::lisa_sprite_emits_one_lores_period_after_the_comparator ... ok
+test tests::lisa_window_matches_reach_output_at_the_counter_equality ... ok
+test tests::non_aga_register_writes_delegate_to_inner_ocs ... ok
+test tests::rdram_protected_color_write_changes_neither_palette_nor_output_delay ... ok
+test tests::superhires_ham8_decodes_each_35ns_playfield_sample ... ok
+test tests::rdram_reads_the_selected_bank_and_loct_half ... ok
+test tests::six_plane_killehb_output_uses_serial_pixels_and_bplam ... ok
+
+test result: ok. 46 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/border_sprites.rs (target/release/deps/border_sprites-006d3ff1ae3e9017)
+
+running 6 tests
+test border_sprite_resolves_its_banked_palette_and_keeps_border_color_zero ... ok
+test toggling_border_visibility_does_not_restart_the_sprite_serial_stream ... ok
+test border_sprites_collide_against_other_sprites_and_zero_playfield_data ... ok
+test ordinary_display_sprites_do_not_require_the_border_switch ... ok
+test ocs_and_ecs_do_not_gain_lisas_border_sprite_switch ... ok
+test border_sprite_requires_bit_one_and_ecsena_but_bypasses_bpl1dat ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/collisions.rs (target/release/deps/collisions-b3bf478c28e7b6dc)
+
+running 8 tests
+test base_register_write_clears_extension_without_clearing_latched_collisions ... ok
+test hires_pixels_cannot_manufacture_a_simultaneous_playfield_collision ... ok
+test hires_and_superhires_extra_planes_match_each_actual_sample_including_zero ... ok
+test single_playfield_odd_collision_requires_the_even_planes_to_match ... ok
+test disabled_and_reserved_extension_bits_do_not_override_the_base_planes ... ok
+test ocs_and_ecs_do_not_decode_the_aga_extension ... ok
+test manual_bpl8dat_write_reaches_the_eighth_shifter_on_bpl1dat_strobe ... ok
+test seventh_and_eighth_planes_extend_independent_collision_truth_tables ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/display_register_stage.rs (target/release/deps/display_register_stage-c7c3db2cebb1cfa4)
+
+running 5 tests
+test changing_serial_rate_keeps_the_preceding_lores_bit_for_its_full_native_period ... ok
+test resolution_reaches_the_same_normal_stage_as_the_existing_selectors ... ok
+test fetch_width_crosses_normal_rga_then_latches_on_bpl1dat ... ok
+test reducing_the_serial_rate_preserves_the_partly_completed_shift_period ... ok
+test wide_hires_copy_uses_the_physical_counter_independently_of_ddf_origin ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/dual_playfield.rs (target/release/deps/dual_playfield-8c29977c8307faa0)
+
+running 3 tests
+test ocs_and_ecs_keep_the_fixed_playfield_two_offset ... ok
+test pf2_offsets_reach_each_hires_and_superhires_sample ... ok
+test all_pf2_offsets_apply_after_transparency_and_priority_before_xor ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.12s
+
+     Running tests/midline_scroll.rs (target/release/deps/midline_scroll-3197301b9ba381a5)
+
+running 3 tests
+test scroll_mirror_updates_before_the_normal_stage_selector ... ok
+test pending_wide_copy_keeps_its_head_and_tail_from_the_same_bpl1dat_group ... ok
+test changing_scroll_retargets_pending_copy_without_loading_the_other_group ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/sprite_resolution.rs (target/release/deps/sprite_resolution-2407f7f68d32359b)
+
+running 5 tests
+test priority_and_collisions_use_simultaneous_hires_sprite_codes ... ok
+test collisions_and_priority_distinguish_adjacent_35ns_sprite_bits ... ok
+test automatic_resolution_retains_lores_for_lores_and_hires_playfields ... ok
+test hires_sprite_serial_bits_and_half_lores_position_are_independent_of_playfield ... ok
+test serial_bits_and_quarter_positions_are_independent_of_playfield ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/xor_output_phase.rs (target/release/deps/xor_output_phase-c1fad53977ff01ae)
+
+running 2 tests
+test pending_playfield_xor_does_not_recolour_the_border ... ok
+test playfield_xor_crosses_the_output_stage_ten_native_samples_after_the_write ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

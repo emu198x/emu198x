@@ -127,15 +127,16 @@ fn clxdat_read_is_wired_not_open_bus() {
     // read fell through to the `_ => 0xFFFF` open-bus default — every
     // collision bit set on every read, forever. The fix routes $00E to
     // Denise's collision latch. At reset, with no collision latched, the
-    // register must read back $0000 — emphatically not $FFFF.
+    // register reads $8000: bit 15 is fixed high in both registered
+    // FS-UAE CLXDAT and vAmiga DeniseRegs.cpp implementations.
     //
     // A dummy (zero) Kickstart is enough: this drives no CPU, it only
     // exercises the custom-register read dispatch.
     let amiga = AmigaOcs::new(vec![0u8; 512 * 1024]);
     let clxdat = amiga.read_word(0x00DFF00E);
     assert_eq!(
-        clxdat, 0x0000,
-        "CLXDAT must route to Denise (clear at reset), not open-bus $FFFF"
+        clxdat, 0x8000,
+        "CLXDAT must expose the clear collision latch and fixed high bit"
     );
     assert_ne!(
         clxdat, 0xFFFF,

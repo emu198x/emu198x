@@ -239,6 +239,14 @@ fn a1000_kickstart_disk_path() -> Option<PathBuf> {
         }
     }
 
+    // Current private media workspace, alongside the Workbench disks.
+    if let Some(media) = media_dir() {
+        let path = media.join("kickstart-1.2.adf");
+        if path.exists() {
+            return Some(path);
+        }
+    }
+
     let repo_root = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .and_then(Path::parent)
@@ -300,7 +308,7 @@ fn disk_asset_path(spec: DiskAsset, row: &str) -> Option<PathBuf> {
             let Some(path) = a1000_kickstart_disk_path() else {
                 report_missing_artifact(
                     row,
-                    "A1000 Kickstart disk missing; set EMU198X_AMIGA_A1000_KICKSTART_DISK",
+                    "A1000 Kickstart disk missing; place kickstart-1.2.adf in the private media directory or set EMU198X_AMIGA_A1000_KICKSTART_DISK",
                 );
                 return None;
             };
@@ -343,20 +351,22 @@ fn capture_fsuae_rgb(rt: &AmigaOcsRuntime) -> Vec<u8> {
     crop_fsuae_rgb(rt.machine().denise().framebuffer())
 }
 
-/// Crop a full 768×576 PAL Standard framebuffer to FS-UAE's default
-/// PAL region and return it as RGB bytes. Chipset-agnostic — OCS, ECS
-/// and AGA all render to the same `DISPLAY_WIDTH × DISPLAY_HEIGHT`
-/// buffer, so the same crop applies.
+/// Compare the historical hires reference view of the fixed PAL window.
+/// Lisa's native buffer retains twice the horizontal samples; this legacy
+/// golden selects its even samples without searching for an alignment.
+/// Native 35 ns output is covered separately by the DMA sprite probes.
 fn crop_fsuae_rgb(fb: &[u32]) -> Vec<u8> {
-    assert_eq!(fb.len(), (DISPLAY_WIDTH * DISPLAY_HEIGHT) as usize);
+    let width = fb.len() as u32 / DISPLAY_HEIGHT;
+    assert!(width == DISPLAY_WIDTH || width == DISPLAY_WIDTH * 2);
+    let horizontal_step = width / DISPLAY_WIDTH;
     let x_off = (DISPLAY_WIDTH - FSUAE_W) / 2;
     let y_off = (DISPLAY_HEIGHT - FSUAE_H) / 2;
     let mut rgb = Vec::with_capacity((FSUAE_W * FSUAE_H * 3) as usize);
     for y in 0..FSUAE_H {
         let src_row = y_off + y;
-        let row_start = (src_row * DISPLAY_WIDTH + x_off) as usize;
+        let row_start = (src_row * width + x_off * horizontal_step) as usize;
         for x in 0..FSUAE_W as usize {
-            let pixel = fb[row_start + x];
+            let pixel = fb[row_start + x * horizontal_step as usize];
             rgb.push(((pixel >> 16) & 0xFF) as u8); // R
             rgb.push(((pixel >> 8) & 0xFF) as u8); // G
             rgb.push((pixel & 0xFF) as u8); // B
@@ -503,7 +513,7 @@ fn run_row(row: &GoldenRow) {
             // AGA (A1200) boots through the Lisa chip stack, so it needs
             // the AGA runtime rather than the OCS one. The boot shape is
             // otherwise identical to the OCS Direct path: optional disk,
-            // tick to settle, crop the same 768×576 framebuffer.
+            // tick to settle, then select the registered historical hires view.
             let mut rt = AmigaA1200Runtime::new(row.model, rom_bytes)
                 .unwrap_or_else(|e| panic!("{}: build runtime: {e:?}", row.name));
             if let Some(spec) = disk {

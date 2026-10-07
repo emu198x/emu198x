@@ -60,18 +60,18 @@ searching for an alignment:
 - write the resulting 752 × 286 RGB8 image without scaling, filtering, colour
   correction, palette conversion, or tolerance.
 
-The corresponding Emu198x crop is `(10, 2)` in its 768 × 576 runtime
-framebuffer. The fixed horizontal transform is
-`Emu x = FS-UAE raw x + 8`: the retained FS-UAE beam mapping places raw
-`x=0` at horizontal-blank coarse coordinate 46, while the Emu198x framebuffer
-places `x=0` at CCK 44. No alignment search is permitted.
+The corresponding Emu198x crop is `(8, 2)` in historical hires coordinates
+(the native AGA framebuffer retains all 1536 horizontal samples). The transform
+is `Emu x = FS-UAE raw x + 6`. A read-only reference trace maps counter 100 to
+raw hires x18 on all 600 active observations. Raw x0 therefore represents
+counter 91, while native x0 represents counter 88. The reported producer
+origin omits two hires samples of retained line padding. No image content or
+alignment search determines this transform.
 
-Manifest schema 2 replaces the earlier content-derived `(8, 2)` runtime crop.
-That `+6` mapping aligned the bitplane-only checkerboard, dots, and crosshatch
-while hiding a two-host-sample-early bitplane parallel-load phase. It then
-made correctly beam-timed `COLORxx` transitions appear two samples late.
-Correcting the bitplane phase and the runtime crop changes no producer pixel,
-PNG, or decoded RGB checksum.
+The counter-origin evidence and previous manifest/contract are retained in
+`test-data/commodore/amiga/ecs-output-phase/lisa-correction/`. Requalification
+changes the consumer transform and the manifest binding only; all producer
+PNGs, RGB checksums, exact assertions and comparison dimensions are retained.
 
 All retained producer pixels have opaque alpha. Alpha is validated and then
 discarded; it is not part of the RGB comparison. The AGA reference preserves

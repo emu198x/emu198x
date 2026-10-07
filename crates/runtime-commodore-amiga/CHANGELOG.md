@@ -9,6 +9,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Verify adjacent video fields and acknowledged guest labels in both HBLANK
+  consumers; separate registered comparator agreement from counter-qualified
+  UAE phase, and reject altered reference captures
+
+- Preserve and expose ECS CSYNC blanking stages in snapshot 54; reject version 53 and verify both signal edges at every in-flight restore boundary
+
+- Preserve effective DDF comparators and pending register writes in version-51
+  saves, rejecting version 50; verify CPU delivery and replay across both phases
+  and line wrap on OCS, ECS and AGA
+
+- Verify live strobe service, retained ownership and counter commits across
+  runtime restores on OCS/ECS/AGA; reject saved targets whose adapter is not connected
+
+- Preserve Denise counter and pending strobe/commit state in the ongoing
+  version-50 payload; verify OCS, ECS and AGA restoration at each output boundary
+
+- Expose retained DMA reservation/address/service descriptors and validate their
+  saved channel identities before restoring any Amiga chipset variant
+
+- Retain the Copper's fetched first instruction word and actual cell ownership in version-50 saves; verify live replay after intervening RAM writes and half-CCK CPU contention
+- Persist and expose the complete Agnus DMA service stage in the approved version-50 envelope
+- Persist and expose the Copper completion-wake state in snapshot version 50, rejecting version 49 and replaying both blocked and pending-comparison boundaries
+
+- Check complete native sprite/playfield diagnostic rasters at captured reference origins and locate A1000 Kickstart media in the current private media directory
+
+- Verify native superhires bitplane streams, all fetch widths, quarter-sample
+  scroll steps and in-flight restoration against resolution-sized DMA inputs
+
 - Cover writable DF0 snapshot reattachment across OCS, ECS and AGA runtimes
   with a live guest-modified ADF, deasserted write protection and a byte-level
   restore fixed point
@@ -83,6 +111,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Agnus and blitter query leaves
 
 ### Changed
+
+- [breaking] Bump Amiga postcard snapshots to version 37 to retain Lisa's
+  serial scroll history, cursor and fetch-width selector; version 36 cannot
+  represent this in-flight output state.
+
+- [breaking] Bump Amiga postcard snapshots to version 36 to retain the
+  bitplane DMA transfer crossing Denise’s normal RGA stage; version 35
+  cannot represent this in-flight word.
 
 - [breaking] Bump Amiga postcard snapshots to version 35 so in-flight
   Denise/Lisa display-register propagation survives restore; version 34
@@ -214,6 +250,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   vertical-blank and current-CCK sprite-arbitration state; version 1 is rejected
 
 ### Fixed
+
+- Measure programmable blanking from full native framebuffers and counter-derived reference origins, rejecting hidden fine-sample differences in hires comparisons.
+
+- Save timed Denise window delivery and per-sample output gates in version 53, rejecting version 52; verify pending writes and half-CCK replay.
+
+- Preserve the horizontal Denise display-window latch in version-52 saves and reject version 51; restore both matched and unmatched stops through strobe reset on OCS, ECS and AGA
+
+- Save area-blitter phase, shifted holding registers, pending result and
+  output row counters in snapshot version 49; reject version 48 states before
+  decoding their incompatible payload.
+
+- Preserve both free Copper WAIT idle stages before live comparison, preventing
+  the next instruction from running two CCKs early (snapshot schema 48 rejects 47)
+
+- Retain complete MC68020 instruction-prefetch long words through the signal-driven
+  SIZ/DSACK stages, including cache-disabled execution and snapshot replay (Amiga schema 47 rejects schema 46)
+
+- Preserve in-flight line-blitter stages and pending results in snapshot
+  version 46, reject version 45 before decoding, and expose the saved line
+  phase, B fetch and pending write through diagnostics.
+
+- Preserve independent playfield clocks, complete pending words and scroll selector stages in snapshot v45; reject v44 saves explicitly.
+
+- Persist Lisa’s retained upper shifter bits in Amiga save-state version 44 and expose them in diagnostic queries
+
+- Persist mid-line display-register stages in Amiga snapshot v43 and explicitly reject older snapshot versions
+
+- [breaking] Persist Lisa collision controls in snapshot version 39; verify CLXCON2 writes through the MC68020 guest bus
+
+- [breaking] Persist the pending Lisa sprite output code in snapshot version 38; require exact OCS/AGA Test Kit video agreement
+
+- Persist the Lisa serial scroller and fetch-width selector in snapshot version 37; add DMA-rendered OCS/ECS/AGA scroll-mode regressions
 
 - Advance Denise's bitplane, sprite, HAM and colour-output pipelines across the
   complete projected raster while clipping only host-framebuffer storage, so

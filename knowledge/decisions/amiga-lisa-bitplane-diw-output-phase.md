@@ -1,7 +1,7 @@
 # Decision: Model Lisa's additional bitplane and display-window output phase
 
 **Date:** 2026-08-08
-**Status:** BINDING
+**Status:** BINDING — phase policy superseded by the approved counter-origin correction below
 
 ## The question
 
@@ -40,8 +40,8 @@ The OCS/ECS pixel core retains these phases:
 
 Lisa adds one lores output tick without changing absolute sprite coordinates:
 
-- the AGA adapter presents `beam_x - 1` to the shared bitplane comparator,
-  giving an effective `beam_x - 2` phase; and
+- Lisa retains an additional serial bitplane output tick before sprite/priority
+  composition; and
 - Lisa's horizontal display gate is active on `(HSTART, HSTOP]`.
 
 This is a variant timing policy, not a framebuffer offset. The runtime crop
@@ -61,12 +61,18 @@ programmable-HBLANK cases constrain blanking and Copper colour timing, not an
 ECS bitplane parallel-load edge. A future ECS bitplane probe may refine that
 default without changing the AGA observation.
 
-The registered Test Kit patterns program `DIWSTRT` and `DIWSTOP` before the
-captured steady state. The current interval policy therefore records the
-observed stable-boundary transfer relation; it is not a serialized
-history-sensitive comparator latch for mid-line window-register rewrites.
-Write-ahead, write-behind and same-position DIW changes require a focused
-probe before that behaviour is claimed.
+The horizontal display gate retains a saved latch between start and stop
+equality events. The user approved this extension and snapshot version 52 on
+2026-10-06 after the live Test Kit trace showed that a counter reset before
+HSTOP falsely closed the former interval predicate. This supersedes that
+stateless predicate, while preserving the established before/after-output
+phases. See the [primary edge observations](../../../../reference/by-system/commodore-amiga/2026-test-kit-display-edge-observations.md).
+
+Neither the horizontal counter's strobe reset nor the physical line reset
+clears the latch. Register changes behind the counter do not synthesize
+matches. The current register delivery and low-byte comparator decode remain
+unchanged; this does not calibrate mid-line DIW register propagation or add
+horizontal DIWHIGH fine-position support.
 
 The A1200 Test Kit pointer remains a separate sprite-position question. It is
 not evidence for moving Lisa bitplanes, DIW comparators or the shared sprite
@@ -111,3 +117,58 @@ Reject these patterns:
 - [Advance the Denise pipeline across the full projected raster](amiga-denise-full-raster-pipeline.md)
 - [Amiga sprite horizontal output phase](amiga-sprite-horizontal-output-phase.md)
 - [Amiga Test Kit v1.21 video conformance](../processes/amiga-test-kit-video-conformance.md)
+
+## 2026-10-04 scrolling correction
+
+The former adapter implemented the extra output tick by subtracting one from
+Lisa's bitplane comparator coordinate. A DMA-rendered regression exposed a
+word-boundary discontinuity at PF1H/PF2H=15. That coordinate subtraction is
+superseded by the actual serial scroller/output stage described in
+[the scroll-mode decision](amiga-denise-scroll-modes.md). The absolute crop,
+DIW equality convention, independently clocked sprites and COLOR stage remain
+the decisions here. The static reference gate retains its previous exact
+matches and explicitly registered sprite-phase disagreements.
+
+## 2026-10-06 timed window registers and fractional Lisa edges
+
+The user approved Denise-local DIWSTRT/DIWSTOP/DIWHIGH delivery, sample-level
+window state, and snapshot version 53 (rejecting 52). This supersedes the
+low-byte-only and immediate-Agnus-register model boundary above. It preserves
+the installed chip's existing comparison phase and the beam-absolute crop.
+
+`common-commodore-amiga::denise_window` retains the normal RGA register
+stage separately from Agnus's vertical window. DIWSTRT/DIWSTOP delivery
+clears explicit-high mode; a subsequent DIWHIGH delivery selects coarse
+horizontal bits 5/13 and, on Lisa, fine bits 4:3/12:11. ECS ignores the fine
+bits. Its DIWHIGH stage retains the additional half-CCK described by the
+reference's unaligned ECS path; this is software-reference precedent.
+
+Lisa compares each existing 35 ns sample and retains the four levels through
+its established one-lores output stage. Playfield selection, sprite
+visibility/priority, collisions, BPLAM, HAM and border blanking consume those
+sample levels. Masking the final framebuffer would leave those internal
+operations inconsistent with the image.
+
+The seventeen A1200 diagnostics and their failing baseline are retained in
+`test-data/commodore/amiga/horizontal-window/`. Consult its validation record
+for completed results and limits; additional ECS observations do not justify
+claiming that every chipset's absolute window phase is calibrated.
+
+## 2026-10-06 approved counter-origin correction
+
+The [ECS output-origin investigation](../../../../reference/by-system/commodore-amiga/2026-ecs-output-phase-observations.md)
+finds that the exploratory UAE capture's reported origin omits four samples of
+line-output padding. OCS and ECS controls agree with native output in counter
+space. Two AGA controls establish the same reference origin and expose a native
+window/data edge one lores tick late. Thus the absolute-image rationale for
+Lisa's additional tick above is no longer reliable.
+
+The user approved the bounded correction on 2026-10-06. Lisa now composes
+DIW equality on the matching sample, including fractional edges, and emits
+the held serializer sample without another four-sample delay. This supersedes
+the additional-tick policy and its absolute-image verification claims above.
+The history fields remain in snapshot 53; register delivery and fine decoding
+are unchanged. Independent sprite and COLOR controls also confirmed an extra
+lores tick; their separate decisions record those corrections. All 72 final
+diagnostic fields and both strict Test Kit lanes now agree.
+Native coordinates and framebuffer geometry remain unchanged.

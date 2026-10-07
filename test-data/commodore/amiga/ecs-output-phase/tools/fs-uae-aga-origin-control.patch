@@ -1,0 +1,28 @@
+--- a/drawing.cpp
++++ b/drawing.cpp
+@@ -4850,6 +4850,12 @@
+ 
+ static bool checkhorizontal1_ecs(int cnt, int cnt_next, int h)
+ {
++    if (getenv("FSEMU_CODEX_ECS_PHASE") && this_line && cnt == 100 && this_line->linear_vpos >= 26 && this_line->linear_vpos < 312 && get_long(0x2ff00) == 0x53504858 && get_long(0x2ff08) >= 9 && get_long(0x2ff08) <= 12 && buf1 && xlinebuffer) {
++        write_log("ECS_ORIGIN guest=%u line=%u v=%d counter=%d x=%ld shift=%d lol=%d ecs=%d\n", get_long(0x2ff08), denise_linecnt, this_line->linear_vpos, cnt, long(buf1 - (uae_u32*)xlinebuffer), denise_lol_shift_prev, lol, ecs_denise);
++    }
++	if (getenv("FSEMU_CODEX_ECS_PHASE") && this_line && this_line->linear_vpos == 132 && get_long(0x2ff00) == 0x53504858 && get_long(0x2ff08) >= 9 && get_long(0x2ff08) <= 12 && cnt >= 100 && cnt <= 455) {
++        write_log("ECS_PHASE line=%u cck=%d half=%d cnt=%d cmp=%d next=%d x=%ld hdiw=%d start=%d stop=%d trigger=%d copy=%d scroll=%d lastpix=%d lol=%d agnuslol=%d shift=%d ecs=%d prev=%08x\n", denise_linecnt, denise_cck, h, cnt, denise_hcounter_cmp, cnt_next, buf1 && xlinebuffer ? long(buf1 - (uae_u32*)xlinebuffer) : -1L, denise_hdiw, denise_hstrt_lores, denise_hstop_lores, bpl1dat_trigger, bpldat_copy[0], bplcon1_shift[0], last_bpl_pix, lol, agnus_lol, denise_lol_shift_prev, ecs_denise, buf1 && xlinebuffer && buf1 > (uae_u32*)xlinebuffer ? buf1[-1] : 0);
++    }
+ 	denise_cycle_half = h;
+ 	if (reswitch_unalign) {
+ 		lts_unaligned_ecs(cnt, cnt_next, h);
+@@ -4909,6 +4915,12 @@
+ 
+ static bool checkhorizontal1_aga(int cnt, int cnt_next, int h)
+ {
++    if (getenv("FSEMU_CODEX_AGA_PHASE") && this_line && cnt == 100 && this_line->linear_vpos >= 26 && this_line->linear_vpos < 312 && get_long(0x2ff00) == 0x53504858 && get_long(0x2ff08) >= 9 && get_long(0x2ff08) <= 12 && buf1 && xlinebuffer) {
++        write_log("AGA_ORIGIN guest=%u line=%u v=%d counter=%d x=%ld shift=%d lol=%d ecs=%d\n", get_long(0x2ff08), denise_linecnt, this_line->linear_vpos, cnt, long(buf1 - (uae_u32*)xlinebuffer), denise_lol_shift_prev, lol, ecs_denise);
++    }
++	if (getenv("FSEMU_CODEX_AGA_PHASE") && this_line && this_line->linear_vpos == 132 && get_long(0x2ff00) == 0x53504858 && get_long(0x2ff08) >= 9 && get_long(0x2ff08) <= 12 && cnt >= 100 && cnt <= 455) {
++        write_log("AGA_PHASE line=%u cck=%d half=%d cnt=%d cmp=%d next=%d x=%ld hdiw=%d start=%d stop=%d trigger=%d copy=%d scroll=%d lastpix=%d lol=%d agnuslol=%d shift=%d ecs=%d prev=%08x\n", denise_linecnt, denise_cck, h, cnt, denise_hcounter_cmp, cnt_next, buf1 && xlinebuffer ? long(buf1 - (uae_u32*)xlinebuffer) : -1L, denise_hdiw, denise_hstrt_lores, denise_hstop_lores, bpl1dat_trigger, bpldat_copy[0], bplcon1_shift[0], last_bpl_pix, lol, agnus_lol, denise_lol_shift_prev, ecs_denise, buf1 && xlinebuffer && buf1 > (uae_u32*)xlinebuffer ? buf1[-1] : 0);
++    }
+ 	denise_cycle_half = h;
+ #if DEBUG_ALWAYS_UNALIGNED_DRAWING
+ 	lts_unaligned_aga(cnt, cnt_next, h);

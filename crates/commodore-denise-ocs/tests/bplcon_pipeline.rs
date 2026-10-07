@@ -9,18 +9,13 @@
 //! Covers task #151 from knowledge/amiga/denise-ocs-porting-gap-list.md:
 //!   - LORES vs HIRES source-pixels-per-output-call
 //!   - BPLCON1 odd/even barrel-shift scroll
-//!   - BPLCON1 hires ignores low bit of each nibble
+//!   - BPLCON1 hires masks each delay to seven lores clocks
 //!   - BPLCON1 prev-word carry across loads
 //!   - BPLCON2 PF2PRI selects front playfield in DPF
 //!   - DIW playfield-visible gate blanks to COLOR00
 //!
-//! **Archive semantics gotcha.** The archive reads the BPLCON1 scroll
-//! nibbles "swapped" relative to HRM 3-9: it takes bits 7:4 as the
-//! scroll that applies to plane 0 (BPL1, PF1-odd), and bits 3:0 as
-//! the scroll for plane 1 (BPL2, PF2-even). HRM says the opposite.
-//! These tests lock the archive's current behaviour so the Phase 2
-//! port preserves it verbatim; whether the archive's mapping matches
-//! real silicon is a separate investigation for the port.
+//! PF1H uses bits 3:0, PF2H bits 7:4. Hires uses the low three
+//! bits of each nibble, measured in two hires pixels per lores clock.
 //!
 //! Sprite+collision behaviour belongs to task #153.
 //! HAM/EHB/DPF colour-resolve belongs to task #152.
@@ -69,13 +64,11 @@ fn hires_emits_two_source_pixels_per_output_call() {
 }
 
 #[test]
-fn bplcon1_hi_nibble_delays_plane_0() {
-    // Archive semantics: BPLCON1 bits 7:4 supply `odd_scroll`, which
-    // applies to plane 0 (BPL1). (Inverted vs. HRM's documented
-    // PF1H/PF2H fields — see module-level gotcha note.)
+fn bplcon1_lo_nibble_delays_plane_0() {
+    // PF1H delays BPL1 (odd-numbered planes).
     let mut d = DeniseOcs::new();
     d.bplcon0 = 0x1000; // BPU=1 LORES
-    d.bplcon1 = 0x0040; // "odd" scroll = 4 px for plane 0
+    d.bplcon1 = 0x0004; // odd scroll = 4 px for plane 0
     d.set_palette(0, 0x000);
     d.set_palette(1, 0xF00);
     d.begin_beam_line();
@@ -93,12 +86,11 @@ fn bplcon1_hi_nibble_delays_plane_0() {
 }
 
 #[test]
-fn bplcon1_lo_nibble_delays_plane_1() {
-    // Archive semantics: BPLCON1 bits 3:0 supply `even_scroll`, which
-    // applies to plane 1 (BPL2).
+fn bplcon1_hi_nibble_delays_plane_1() {
+    // PF2H delays BPL2 (even-numbered planes).
     let mut d = DeniseOcs::new();
     d.bplcon0 = 0x2000; // BPU=2 LORES
-    d.bplcon1 = 0x0003; // "even" scroll = 3 px for plane 1
+    d.bplcon1 = 0x0030; // even scroll = 3 px for plane 1
     d.set_palette(0, 0x000);
     d.set_palette(2, 0x0F0); // plane-1-only -> colour index 2
     d.begin_beam_line();
@@ -117,23 +109,20 @@ fn bplcon1_lo_nibble_delays_plane_1() {
 }
 
 #[test]
-fn hires_bplcon1_ignores_low_bit_of_nibble() {
-    // HRM 3-9: in HIRES each nibble bit represents 2 lores pixels;
-    // the low bit has no effect. Archive clamps `scroll &= !1`.
-    let mut d = DeniseOcs::new();
-    d.bplcon0 = 0x9000; // HIRES + BPU=1
-    d.bplcon1 = 0x0050; // plane-0 scroll = 5 -> should act as 4
-    d.set_palette(0, 0x000);
-    d.set_palette(1, 0x00F);
-    d.begin_beam_line();
-    d.bpl_data[0] = 0x8000;
-    d.trigger_shift_load();
-
-    // With a 4-pixel scroll, the first hires call (2 source pixels,
-    // sub-beam 0+1) falls inside the delay region.
-    let dbg = d.output_pixel_with_beam(0, 0, 0, 0);
-    assert_eq!(dbg.quad_samples[0].raw_color_idx, 0);
-    assert_eq!(dbg.quad_samples[1].raw_color_idx, 0);
+fn hires_bplcon1_masks_high_bit_and_keeps_two_pixel_steps() {
+    for delay in [1, 9] {
+        let mut d = DeniseOcs::new();
+        d.bplcon0 = 0x9000;
+        d.bplcon1 = delay;
+        d.begin_beam_line();
+        d.bpl_data[0] = 0x8000;
+        d.trigger_shift_load();
+        let first = d.output_pixel_with_beam(0, 0, 0, 0);
+        let second = d.output_pixel_with_beam(1, 0, 1, 0);
+        assert_eq!(first.quad_samples[0].raw_color_idx, 0);
+        assert_eq!(first.quad_samples[1].raw_color_idx, 0);
+        assert_eq!(second.quad_samples[0].raw_color_idx, 1);
+    }
 }
 
 #[test]
@@ -143,7 +132,7 @@ fn bplcon1_prev_word_carries_into_next_load() {
     // bits from the previously loaded word.
     let mut d = DeniseOcs::new();
     d.bplcon0 = 0x1000;
-    d.bplcon1 = 0x0010; // plane-0 scroll = 1 lores pixel
+    d.bplcon1 = 0x0001; // plane-0 scroll = 1 lores pixel
     d.set_palette(0, 0x000);
     d.set_palette(1, 0xFFF);
     d.begin_beam_line();

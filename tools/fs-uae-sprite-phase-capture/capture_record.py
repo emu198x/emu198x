@@ -66,8 +66,8 @@ PROFILES: dict[str, dict[str, Any]] = {
         "chipset": "AGA",
         "chip_ram_bytes": 2_097_152,
         "firmware_revision": "Kickstart 3.1 revision 40.068",
-        "marker_bgra": bytes((0, 240, 0, 255)),
-        "sprite_bgra": bytes((0, 0, 240, 255)),
+        "marker_bgra": bytes((0, 255, 0, 255)),
+        "sprite_bgra": bytes((0, 0, 255, 255)),
         "config": {
             "chipset": "aga",
             "chipset_compatible": "A1200",

@@ -1,0 +1,391 @@
+   Compiling commodore-denise-ecs v0.25.0 (/Users/stevehill/Projects/198x/Emu198x/emu198x/crates/commodore-denise-ecs)
+   Compiling common-commodore-amiga v0.25.0 (/Users/stevehill/Projects/198x/Emu198x/emu198x/crates/common-commodore-amiga)
+   Compiling commodore-denise-aga v0.25.0 (/Users/stevehill/Projects/198x/Emu198x/emu198x/crates/commodore-denise-aga)
+    Finished `release` profile [optimized] target(s) in 25.98s
+     Running unittests src/lib.rs (target/release/deps/commodore_denise_aga-7bd86557c3ccf41b)
+
+running 47 tests
+test tests::aga_color_delay_expires_outside_the_recorded_viewport ... ok
+test tests::aga_color_delay_expires_on_a_different_palette_index ... ok
+test tests::aga_denise_supports_eight_bitplanes ... ok
+test tests::aga_killehb_uses_the_full_palette_address ... ok
+test tests::bplcon3_write_via_trait_lands_on_ecs_layer ... ok
+test tests::bplcon4_write_via_trait_lands_on_aga_state ... ok
+test tests::color_write_bank_offset_into_palette_24 ... ok
+test tests::consecutive_aga_color_writes_flush_the_earlier_delay ... ok
+test tests::copper_color_write_retains_only_the_lisa_hires_output_delay ... ok
+test tests::deniseid_returns_lisa_marker ... ok
+test tests::deref_exposes_inner_ecs_state ... ok
+test tests::disabling_a_lisa_selector_clears_the_active_level ... ok
+test tests::color_write_reaches_aga_output_one_hires_pixel_late ... ok
+test tests::color_write_loct_only_updates_low_nybble ... ok
+test tests::fmode_write_via_trait_updates_sprite_width ... ok
+test tests::full_sample_clock_keeps_one_hires_period_color_delay ... ok
+test tests::aga_ehb_uses_delayed_full_24bit_palette_with_loct_precision ... ok
+test tests::color_write_high_mirrors_into_low_nybble ... ok
+test tests::diagnostic_snapshot_reports_complete_lisa_state_without_using_core_mirrors ... ok
+test tests::ehb_sprite_bank_bypasses_half_brite_and_observes_color_delay ... ok
+test tests::fractional_window_gates_playfield_sprite_and_xor_per_sample ... ok
+test tests::ham6_sprite_overlays_the_advancing_playfield_hold ... ok
+test tests::ham8_line_start_resets_hold_to_color00 ... ok
+test tests::ham8_direct_color_observes_the_aga_output_delay ... ok
+test tests::ham6_uses_delayed_24bit_palette_and_eight_bit_hold_channels ... ok
+test tests::ham8_control00_reads_24bit_color_register ... ok
+test tests::lisa_fixed_hblank_compares_the_next_counter ... ok
+test tests::lisa_hbstrt_write_behind_beam_does_not_synthesize_start ... ok
+test tests::ham8_modify_replaces_top6_holds_low2_and_other_channels ... ok
+test tests::ham8_sprite_overlays_the_advancing_playfield_hold ... ok
+test tests::lisa_equal_hblank_edges_leave_level_clear ... ok
+test tests::killehb_retains_all_eight_post_xor_address_bits_and_color_delay ... ok
+test tests::lisa_extblken_enable_after_start_waits_for_the_next_start ... ok
+test tests::lisa_hblank_fine_stop_retains_all_four_output_samples ... ok
+test tests::lisa_ecsena_enable_after_start_waits_for_the_next_start ... ok
+test tests::lisa_hbstop_write_ahead_after_stop_does_not_reassert ... ok
+test tests::lisa_parallel_copy_reaches_output_on_the_following_counter ... ok
+test tests::lisa_programmed_hblank_matches_counter_traced_edges ... ok
+test tests::lisa_sprite_emits_one_lores_period_after_the_comparator ... ok
+test tests::lisa_window_matches_reach_output_at_the_counter_equality ... ok
+test tests::new_starts_with_aga_register_defaults ... ok
+test tests::non_aga_register_writes_delegate_to_inner_ocs ... ok
+test tests::normal_mode_resolves_through_24bit_palette ... ok
+test tests::rdram_reads_the_selected_bank_and_loct_half ... ok
+test tests::rdram_protected_color_write_changes_neither_palette_nor_output_delay ... ok
+test tests::superhires_ham8_decodes_each_35ns_playfield_sample ... ok
+test tests::six_plane_killehb_output_uses_serial_pixels_and_bplam ... ok
+
+test result: ok. 47 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/border_sprites.rs (target/release/deps/border_sprites-e9bf033b3372dc72)
+
+running 6 tests
+test border_sprite_resolves_its_banked_palette_and_keeps_border_color_zero ... ok
+test ordinary_display_sprites_do_not_require_the_border_switch ... ok
+test border_sprites_collide_against_other_sprites_and_zero_playfield_data ... ok
+test toggling_border_visibility_does_not_restart_the_sprite_serial_stream ... ok
+test ocs_and_ecs_do_not_gain_lisas_border_sprite_switch ... ok
+test border_sprite_requires_bit_one_and_ecsena_but_bypasses_bpl1dat ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/collisions.rs (target/release/deps/collisions-9f16efa5bd8bd34e)
+
+running 8 tests
+test hires_pixels_cannot_manufacture_a_simultaneous_playfield_collision ... ok
+test single_playfield_odd_collision_requires_the_even_planes_to_match ... ok
+test hires_and_superhires_extra_planes_match_each_actual_sample_including_zero ... ok
+test manual_bpl8dat_write_reaches_the_eighth_shifter_on_bpl1dat_strobe ... ok
+test ocs_and_ecs_do_not_decode_the_aga_extension ... ok
+test disabled_and_reserved_extension_bits_do_not_override_the_base_planes ... ok
+test base_register_write_clears_extension_without_clearing_latched_collisions ... ok
+test seventh_and_eighth_planes_extend_independent_collision_truth_tables ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/display_register_stage.rs (target/release/deps/display_register_stage-f27b583db8a08b4e)
+
+running 5 tests
+test changing_serial_rate_keeps_the_preceding_lores_bit_for_its_full_native_period ... ok
+test fetch_width_crosses_normal_rga_then_latches_on_bpl1dat ... ok
+test resolution_reaches_the_same_normal_stage_as_the_existing_selectors ... ok
+test wide_hires_copy_uses_the_physical_counter_independently_of_ddf_origin ... ok
+test reducing_the_serial_rate_preserves_the_partly_completed_shift_period ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/dual_playfield.rs (target/release/deps/dual_playfield-f863bc522b5d0509)
+
+running 3 tests
+test pf2_offsets_reach_each_hires_and_superhires_sample ... ok
+test ocs_and_ecs_keep_the_fixed_playfield_two_offset ... ok
+test all_pf2_offsets_apply_after_transparency_and_priority_before_xor ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.14s
+
+     Running tests/midline_scroll.rs (target/release/deps/midline_scroll-105ebe57a7f37142)
+
+running 3 tests
+test scroll_mirror_updates_before_the_normal_stage_selector ... ok
+test pending_wide_copy_keeps_its_head_and_tail_from_the_same_bpl1dat_group ... ok
+test changing_scroll_retargets_pending_copy_without_loading_the_other_group ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/sprite_resolution.rs (target/release/deps/sprite_resolution-7027508c866c4df6)
+
+running 5 tests
+test collisions_and_priority_distinguish_adjacent_35ns_sprite_bits ... ok
+test priority_and_collisions_use_simultaneous_hires_sprite_codes ... ok
+test automatic_resolution_retains_lores_for_lores_and_hires_playfields ... ok
+test hires_sprite_serial_bits_and_half_lores_position_are_independent_of_playfield ... ok
+test serial_bits_and_quarter_positions_are_independent_of_playfield ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/xor_output_phase.rs (target/release/deps/xor_output_phase-5c3baf39745e6cba)
+
+running 2 tests
+test playfield_xor_crosses_the_output_stage_ten_native_samples_after_the_write ... ok
+test pending_playfield_xor_does_not_recolour_the_border ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/release/deps/commodore_denise_ecs-f56ee11d81077540)
+
+running 14 tests
+test tests::ecs_register_dispatch_ignores_aga_only_bplcon4 ... ok
+test tests::deniseid_matches_ecs_winuae_value ... ok
+test tests::ecs_bplcon0_mode_bits_are_exposed_via_helpers ... ok
+test tests::as_inner_mut_routes_mutations_to_wrapped_core ... ok
+test tests::ecs_bplcon3_state_does_not_perturb_current_ocs_rendering_baseline ... ok
+test tests::from_ocs_preserves_wrapped_core_state ... ok
+test tests::ecs_wrapper_matches_ocs_sprite_overlay_behavior ... ok
+test tests::into_inner_returns_mutated_wrapped_core ... ok
+test tests::programmable_blanking_selectors_cross_three_output_ticks ... ok
+test tests::killehb_is_a_bplcon2_control_and_disables_halfbrite_when_active ... ok
+test tests::wrapper_uses_ocs_raster_framebuffer_and_palette_baseline ... ok
+test tests::shres_shifts_four_source_pixels_per_output_call ... ok
+test tests::border_flags_require_enbplcn3_and_blanking_takes_precedence ... ok
+test tests::killehb_does_not_override_dual_playfield_or_ham_decode ... ok
+
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/release/deps/common_commodore_amiga-d3f6807035caecfa)
+
+running 141 tests
+test board::tests::synchronized_bridge_advances_only_on_motherboard_slots ... ok
+test cia::tests::address_decoding ... ok
+test board::tests::synchronized_bridge_reset_discards_an_in_flight_response ... ok
+test cia::tests::ovl_default_high_when_ddra_input ... ok
+test cia::tests::ovl_follows_pra_when_ddra_output ... ok
+test board::tests::synchronized_bridge_diagnostics_track_phase_and_latched_response ... ok
+test cia::tests::power_led_is_active_low_when_ddra_output ... ok
+test board::tests::synchronized_bridge_retries_an_unanswered_access ... ok
+test board::tests::synchronized_bridge_rejects_a_serialized_wait_response ... ok
+test board::tests::synchronized_bridge_serializes_a_pending_response ... ok
+test clock::tests::chunking_matches_one_tick_at_a_time_from_a_nonzero_phase ... ok
+test cia::tests::power_led_off_when_ddra_input ... ok
+test clock::tests::cpu_domain_phase_retains_unconsumed_edges ... ok
+test clock::tests::fractional_phase_produces_the_exact_edge_sequence ... ok
+test clock::tests::motherboard_slot_can_be_observed_without_consuming_an_edge ... ok
+test clock::tests::one_complete_ratio_period_has_no_drift ... ok
+test clock::tests::ratios_are_reduced_without_losing_frequency ... ok
+test clock::tests::snapshot_coherence_rejects_clock_phase_unrelated_to_machine_ticks ... ok
+test clock::tests::snapshot_coherence_rejects_unconsumed_first_slot_and_excess_edges ... ok
+test clock::tests::snapshot_coherence_rejects_unreachable_integer_ratio_progress ... ok
+test clock::tests::serde_preserves_fractional_phase ... ok
+test clock::tests::zero_cpu_rate_is_a_canonical_stopped_clock ... ok
+test clock::tests::zero_edge_tick_remains_idle ... ok
+test copper::tests::beam_match_hp_bit0_is_ignored ... ok
+test copper::tests::beam_match_masks_per_hrm ... ok
+test copper::tests::beam_match_uses_the_comparator_visible_horizontal_position ... ok
+test copper::tests::beam_match_vp_bit7_is_always_compared ... ok
+test copper::tests::both_instruction_fetch_cells_are_reported_as_bus_use ... ok
+test copper::tests::copjmp2_strobe_inside_list_jumps_to_cop2lc ... ok
+test copper::tests::bfd0_wait_blocks_until_blitter_idle ... ok
+test copper::tests::ffdf_line255_crossing_waits_for_the_real_target_line ... ok
+test copper::tests::safe_register_threshold_is_exactly_dollar_80 ... ok
+test copper::tests::satisfied_wait_has_two_free_idle_cells_before_next_move ... ok
+test copper::tests::dangerous_move_stops_copper ... ok
+test copper::tests::move_writes_chipset_register ... ok
+test copper::tests::move_blocked_when_bitplane_steals_every_copper_cell ... ok
+test copper::tests::skip_consumes_next_instruction_when_condition_met ... ok
+test copper::tests::skip_does_not_consume_when_beam_before_target ... ok
+test copper::tests::skip_applies_the_same_bfd_blitter_condition_as_wait ... ok
+test copper::tests::skip_samples_visible_busy_in_its_deferred_comparison_phase ... ok
+test copper::tests::wait_idle_stalls_without_a_free_cell_and_comparison_samples_live_busy ... ok
+test copper::tests::move_does_not_run_when_slot_never_granted ... ok
+test cpu::tests::constructed_variant_cache_shapes_are_coherent ... ok
+test cpu::tests::deref_exposes_shared_cpu_state ... ok
+test cpu::tests::diagnostic_snapshots_preserve_every_active_model_distinction ... ok
+test copper::tests::wait_with_horizontal_mask_ignores_hpos ... ok
+test cpu::tests::reset_and_tick_dispatch_to_every_variant ... ok
+test cpu::tests::supported_models_construct_the_matching_variant ... ok
+test cpu::tests::variants_report_their_configured_model ... ok
+test copper::tests::wait_fetches_then_consumes_two_idle_cells_before_pausing ... ok
+test cpu::tests::serde_preserves_every_variant_discriminant_and_state ... ok
+test cpu::tests::variant_state_rejects_a_cache_on_an_mc68000 ... ok
+test copper::tests::wait_pauses_until_beam_target ... ok
+test denise::tests::aga_fine_hblank_can_split_one_output_pair ... ok
+test denise::tests::board_pipeline_snapshot_tracks_fetch_and_prior_line_context ... ok
+test denise::tests::ddf_window_masks_to_fetch_alignment ... ok
+test denise::tests::clxdat_register_reads_include_fixed_high_bit_without_storing_it ... ok
+test denise::tests::diw_vertical_window_ntsc_nominal ... ok
+test denise::tests::diw_vertical_window_pal_nominal ... ok
+test denise::tests::color_write_after_output_is_ready_for_the_next_tick ... ok
+test denise::tests::early_ddf_primes_bitplane_shifter_before_framebuffer_viewport ... ok
+test denise::tests::completed_display_field_waits_for_wrapped_raster_carry ... ok
+test denise::tests::ddfstrt_rewrite_after_match_does_not_rephase_pixels ... ok
+test denise::tests::ecs_copper_color_reaches_the_dispatch_output_tick ... ok
+test denise::tests::hires_overfetch_keeps_identical_plane_streams_pixel_aligned ... ok
+test denise::tests::horizontal_blanking_carries_composed_output_levels_only ... ok
+test denise::tests::horizontal_diw_gate_obeys_the_variant_comparator_phase ... ok
+test denise::tests::horizontal_diw_retains_only_matches_across_counter_reset_and_register_rewrites ... ok
+test denise::tests::external_hblank_masks_output_without_stalling_the_pixel_pipeline ... ok
+test denise::tests::line_local_denise_state_resets_at_hblank_start_not_counter_wrap ... ok
+test denise::tests::lisa_output_stage_preserves_16_32_and_64_pixel_payloads ... ok
+test denise::tests::narrow_fetch_advances_pointer_by_one_word_per_access ... ok
+test denise::tests::dma_fine_scroll_delays_the_same_stream_for_all_sixteen_values ... ok
+test denise::tests::noninterlaced_host_row_duplication_does_not_advance_ham_twice ... ok
+test denise::tests::ocs_copper_color_is_visible_on_the_dispatch_output_tick ... ok
+test denise::tests::lost_strobe_does_not_move_the_physical_host_scan ... ok
+test denise::tests::pending_dma_validation_rejects_invalid_plane_and_width ... ok
+test denise::tests::rgb12_conversion ... ok
+test denise::tests::sprite_first_pixel_follows_hstart_load_in_board_framebuffer ... ok
+test denise::tests::sprite_index_bypasses_ham_while_the_playfield_stream_advances ... ok
+test denise::tests::startup_hpos_zero_without_prior_context_does_not_consume_video_state ... ok
+test denise::tests::wide_fetch_advances_pointer_by_width_words_per_line ... ok
+test denise::tests::wrapped_pixels_keep_the_previous_fields_interlace_row ... ok
+test denise::tests::wrapped_hpos_zero_uses_the_previous_lines_actual_length ... ok
+test denise_chip::tests::ecs_live_output_adapter_honors_killehb ... ok
+test denise_counter::tests::malformed_saved_counters_are_rejected ... ok
+test denise_counter::tests::ocs_equalisation_free_runs_through_nine_bit_wrap ... ok
+test denise_counter::tests::reference_refresh_service_at_three_reaches_counter_two_at_five ... ok
+test denise_counter::tests::serviced_strobe_crosses_normal_rga_then_commits_after_two_output_ticks ... ok
+test denise_window::tests::explicit_high_changes_both_halves_and_legacy_write_clears_it ... ok
+test denise_window::tests::fractional_edges_retain_a_whole_lores_output_stage ... ok
+test denise_window::tests::normal_stage_preserves_match_before_a_start_rewrite_arrives ... ok
+test denise_chip::tests::ocs_and_ecs_use_current_tick_horizontal_diw_matches ... ok
+test memory::tests::a1000_bootstrap_reads_boot_rom_before_switch ... ok
+test memory::tests::a1000_memory_diagnostic_snapshot_exposes_both_rom_regions ... ok
+test memory::tests::a1000_peeks_follow_boot_rom_and_wom_without_driving_bus ... ok
+test memory::tests::a1000_wom_is_writable_before_switch ... ok
+test memory::tests::a1000_write_to_boot_rom_range_switches_to_locked_wom ... ok
+test memory::tests::an_extended_rom_answers_in_its_window_and_mirrors ... ok
+test memory::tests::chip_ram_1m_decodes_full_range_without_aliasing ... ok
+test memory::tests::chip_ram_512k_still_aliases_at_eighty_k_boundary ... ok
+test memory::tests::an_extended_rom_survives_a_snapshot_round_trip ... ok
+test memory::tests::chip_ram_sizes_cover_all_agnus_variants ... ok
+test memory::tests::cia_and_custom_writes_via_memory_are_silent ... ok
+test memory::tests::dma_reads_agree_with_dma_writes_after_address_wrap ... ok
+test memory::tests::dma_word_read_updates_floating_bus ... ok
+test memory::tests::dropped_write_cannot_fake_extra_slow_ram ... ok
+test memory::tests::new_with_ram_installs_requested_chip_size ... ok
+test memory::tests::no_extended_rom_is_fitted_by_default ... ok
+test memory::tests::normal_reads_still_drive_bus_after_non_driving_peeks ... ok
+test memory::tests::invalid_slow_ram_size_panics - should panic ... ok
+test memory::tests::invalid_chip_ram_size_panics - should panic ... ok
+test memory::tests::odd_chip_ram_long_read_starts_at_the_requested_byte ... ok
+test memory::tests::odd_chip_ram_word_read_starts_at_the_requested_byte ... ok
+test memory::tests::odd_chip_ram_word_write_preserves_surrounding_bytes ... ok
+test memory::tests::ovl_maps_rom_at_zero_for_reads ... ok
+test memory::tests::read_chip_ram_byte_is_silent_backdoor ... ok
+test memory::tests::rom_anchored_at_high_address ... ok
+test memory::tests::rom_mirrors_to_fill_512k_window ... ok
+test memory::tests::slow_ram_sizes_match_a501_family ... ok
+test memory::tests::standard_memory_diagnostic_snapshot_exposes_topology_without_payload ... ok
+test memory::tests::standard_memory_peeks_follow_active_mappings_without_driving_bus ... ok
+test memory::tests::unmapped_reads_return_open_bus_ff ... ok
+test memory::tests::writes_to_an_extended_rom_are_ignored ... ok
+test memory::tests::writes_to_low_memory_land_in_chip_ram_even_when_ovl_is_on ... ok
+test rtc::tests::calendar_round_trip_preserves_date_time ... ok
+test rtc::tests::diagnostic_snapshot_reports_stored_effective_calendar_and_controls ... ok
+test rtc::tests::emulated_snapshot_round_trip_preserves_exact_phase ... ok
+test rtc::tests::emulated_ticks_roll_over_at_the_exact_calendar_boundary ... ok
+test rtc::tests::fixed_seed_is_stable_until_emulated_ticks_advance ... ok
+test rtc::tests::hold_and_stop_pause_both_seconds_and_subsecond_phase ... ok
+test rtc::tests::host_snapshot_normalizes_visible_time_at_capture ... ok
+test rtc::tests::maximum_tick_batch_from_negative_epoch_uses_the_full_unsigned_range ... ok
+test rtc::tests::maximum_tick_batch_saturates_seconds_without_overflow ... ok
+test rtc::tests::mode_switch_retains_visible_seconds_and_resets_phase ... ok
+test rtc::tests::reads_expected_nibbles_for_fixed_time ... ok
+test rtc::tests::tick_rate_change_rescales_fractional_progress_exactly ... ok
+test denise::tests::lisa_pending_sprite_code_survives_restore_and_collides_at_visible_output ... ok
+test denise::tests::ecs_dispatched_copper_color_survives_serialization ... ok
+test denise::tests::pending_dma_roundtrip_preserves_fetched_words_and_wide_tails ... ok
+test denise::tests::aga_bitplane_dma_selects_word_lanes_before_the_pending_stage ... ok
+
+test result: ok. 141 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.23s
+
+     Running tests/blitter_dma_stages.rs (target/release/deps/blitter_dma_stages-ee2f05bb98e8c246)
+
+running 2 tests
+test all_reference_channel_programs_retire_one_cck_after_admission ... ok
+test accepted_d_words_retire_once_from_retained_addresses_and_replay ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/copper_blitter_wake.rs (target/release/deps/copper_blitter_wake-ba17cc421060bb6d)
+
+running 3 tests
+test completion_wake_rechecks_live_busy_and_jump_cancels_it ... ok
+test beam_only_bfd0_wait_does_not_acquire_a_completion_wake ... ok
+test completion_wake_compares_in_a_free_cell_before_fetching ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/copper_dma_stages.rs (target/release/deps/copper_dma_stages-3d75799e11707c49)
+
+running 3 tests
+test captured_fetch_address_and_serviced_ir1_survive_ram_and_pointer_changes ... ok
+test jump_after_admission_keeps_the_owned_read_but_discards_its_decode ... ok
+test parked_wait_only_releases_on_a_free_copper_polarity_and_compares_once_after_finish ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/copper_word_transfers.rs (target/release/deps/copper_word_transfers-85c87277d440c6d6)
+
+running 3 tests
+test first_word_is_retained_but_second_word_is_read_in_its_own_cell ... ok
+test restore_between_words_retains_the_word_actually_fetched ... ok
+test jump_cancels_the_partial_instruction ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/display_dma_sequencer.rs (target/release/deps/display_dma_sequencer-81449dce186574d9)
+
+running 1 test
+test all_registered_reservations_transitions_and_wraps_match_with_snapshot_replay ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+     Running tests/dma_request_stages.rs (target/release/deps/dma_request_stages-4cf36add2612bacb)
+
+running 11 tests
+test a_display_reservation_blocks_replacement_before_and_after_addressing ... ok
+test connected_bplcon0_copies_after_two_edges_without_replacing_selected_display ... ok
+test connected_fmode_changes_reservations_immediately_but_keeps_selected_identity ... ok
+test a_missed_addressing_stage_cannot_silently_drop_the_reserved_transfer - should panic ... ok
+test malformed_saved_dma_targets_are_rejected_before_array_access_or_service ... ok
+test stage_service_cannot_be_repeated_in_the_second_master_phase - should panic ... ok
+test display_samples_the_middle_pointer_and_retains_it_through_service ... ok
+test every_other_client_enters_addressing_and_services_once_on_the_next_cck ... ok
+test an_unserviced_admitted_transfer_cannot_silently_disappear - should panic ... ok
+test bitplane_address_sampling_matches_all_registered_ptmod_rows ... ok
+test bitplane_service_matches_registered_live_fmode_width_and_lane_rows ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/dma_service_stage.rs (target/release/deps/dma_service_stage-a837f6b31775e68d)
+
+running 2 tests
+test a_cell_cannot_be_admitted_again_after_its_registers_change - should panic ... ok
+test every_dma_owner_survives_register_changes_and_serialization ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/rga_conflicts.rs (target/release/deps/rga_conflicts-5b4c12197ec4a781)
+
+running 2 tests
+test combined_sprite_refresh_service_matches_all_compiled_reference_rows ... ok
+test combined_bitplane_refresh_service_matches_all_compiled_reference_rows ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+   Doc-tests commodore_denise_aga
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests commodore_denise_ecs
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests common_commodore_amiga
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

@@ -123,3 +123,55 @@ impl AudioSink for AudioCollector {
         Ok(())
     }
 }
+
+/// Complete exactly one video field, including when the previous label was
+/// sampled inside vertical blank rather than at the display boundary.
+pub fn next_hblank_capture_field(
+    session: &mut emu198x_shell::HeadlessSession<
+        runtime_commodore_amiga::AmigaRuntimeKind,
+        runtime_commodore_amiga::AmigaSessionQueryProvider,
+    >,
+) -> Result<u64, String> {
+    use runtime_commodore_amiga::AmigaLiveAccess;
+    let previous = session.machine().agnus().vbl_count;
+    session
+        .run_until(session.time().saturating_add(1))
+        .map_err(|error| format!("run capture field: {error}"))?;
+    let current = session.machine().agnus().vbl_count;
+    if current != previous + 1 {
+        return Err(format!(
+            "video fields are not adjacent: {previous} then {current}"
+        ));
+    }
+    Ok(current)
+}
+
+/// Read the neutral HBLANK guest's label after it acknowledges VERTB.
+/// Capture the completed image before calling: publication at h=21..33
+/// straddles the display-completion boundary at h=22. Bounded debugger
+/// stepping reaches line one and keeps runtime clock/audio state coherent.
+pub fn settled_hblank_field_counter(
+    session: &mut emu198x_shell::HeadlessSession<
+        runtime_commodore_amiga::AmigaRuntimeKind,
+        runtime_commodore_amiga::AmigaSessionQueryProvider,
+    >,
+    video_field: u64,
+) -> Result<u32, String> {
+    use emu198x_shell::DebugTarget;
+    use runtime_commodore_amiga::AmigaLiveAccess;
+    let deadline = session.machine().tick_count()
+        + u64::from(session.machine().agnus().current_line_ccks()) * 2;
+    for _ in 0..1_024 {
+        if session.machine().agnus().vpos != 0 || session.machine().tick_count() >= deadline {
+            break;
+        }
+        session.machine_mut().step_instruction();
+    }
+    if session.machine().agnus().vbl_count != video_field
+        || session.machine().agnus().vpos != 1
+        || session.machine().intreq() & 0x20 != 0
+    {
+        return Err("guest field label was not acknowledged inside line one".to_owned());
+    }
+    Ok(session.machine().read_long(0x0002_FF08))
+}

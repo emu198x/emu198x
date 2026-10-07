@@ -1,0 +1,20 @@
+{
+  "source_sha256": "75bb300ba2798913997f82dde988db465746e9b7f22699bbc275690c8ae227e5",
+  "fragment_sha256": {
+    "pipeline_type": "7d1fd7f592b4b2e3a2dc16d0d65c5b96285203daae5d3a42df2f52ab5e198056",
+    "pipeline": "b5ebab377fc0f6627c4e73098aee5af45033f0edb9c27d197e7ccc0bddea7cf2",
+    "writes": "8cd9430af10e6faccb9fe7632d70f5756d7b143ebdb4d56297465507e0ca0c44"
+  },
+  "probe_sha256": "e2e0d12477f78279de2951edf2c6722e680cbb64ca9ec059adf5439d5829411d",
+  "cases": 1128,
+  "requests": 23478,
+  "static_controls": 24,
+  "successive_write_queue_checks": 3,
+  "immediate_write_mismatching_cases": 76,
+  "cases_sha256": "86489fe3ff35aed4361cae766526b9c102e4db7da120c305e644f13074288f6a",
+  "events_sha256": "818b354915837b324e3945d1b600cd65a41301969941173e66e4d8a5e73ed696",
+  "connected_cases": 9,
+  "connected_probe_sha256": "62f8a082c7e9e667f881f8409c5343d51c982b5dbc3188f6ec049aeab48ca7a1",
+  "connected_events_sha256": "0aed94b9389dacd6bce467a762daa3c1de3edc2796c568316d760219ab087026",
+  "scope": "Compiled reference register handlers and reservation sequencer; external write phase; no CPU pin timing, RGA arbitration or pixels"
+}

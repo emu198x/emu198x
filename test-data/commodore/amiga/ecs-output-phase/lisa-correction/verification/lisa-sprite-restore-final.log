@@ -1,0 +1,20 @@
+   Compiling runtime-commodore-amiga v0.25.0 (/Users/stevehill/Projects/198x/Emu198x/emu198x/crates/runtime-commodore-amiga)
+    Finished `release` profile [optimized] target(s) in 4.85s
+     Running tests/collisions.rs (target/release/deps/collisions-a67f9ab4dc812eea)
+
+running 4 tests
+test guest_cpu_write_reaches_lisas_extended_collision_controls ... ok
+test guest_cpu_write_reaches_bpl8dat_holding_register ... ok
+test guest_cpu_reads_clxdat_with_bit_fifteen_set ... ok
+test pending_sprite_and_extended_plane_comparison_resume_together ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/sprite_resolution.rs (target/release/deps/sprite_resolution-297a4d1de469cc6e)
+
+running 2 tests
+test pending_hires_sprite_clock_and_wide_data_survive_restore ... ok
+test pending_quarter_position_superhires_wide_sprite_survives_restore ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s
+

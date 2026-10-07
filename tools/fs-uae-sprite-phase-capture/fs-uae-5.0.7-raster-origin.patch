@@ -1,0 +1,22 @@
+--- a/od-fs/video-fs.cpp
++++ b/od-fs/video-fs.cpp
+@@ -2679,6 +2679,9 @@
+ 		"    \"depth_bits\": 32,\n"
+ 		"    \"pixel_format\": \"BGRA8888\",\n"
+ 		"    \"packed_output_stride_bytes\": %d,\n"
++		"    \"inbuffer_xoffset\": %d,\n"
++		"    \"inbuffer_yoffset\": %d,\n"
++		"    \"host_resolution\": %d,\n"
+ 		"    \"complete\": true\n"
+ 		"  },\n"
+ 		"  \"frontend_compatibility_view\": {\n"
+@@ -2703,6 +2706,9 @@
+ 		height,
+ 		stride,
+ 		width * 4,
++		adisplays[0].gfxvidinfo.inbuffer->xoffset,
++		adisplays[0].gfxvidinfo.inbuffer->yoffset,
++		currprefs.gfx_resolution,
+ 		frontend_frame->width,
+ 		frontend_frame->height,
+ 		frontend_frame->partial,

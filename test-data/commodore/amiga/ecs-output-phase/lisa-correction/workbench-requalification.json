@@ -1,0 +1,11 @@
+{
+  "old_png_sha256": "30e54594b467e2d2b22a9c02412476234fff84c647e4c1cf3d8160ed606b6aaa",
+  "new_png_sha256": "c66929ec4537c380b816f7e0adafd8d92fda623ef700b8ecba1bb467ae5d7c8c",
+  "reason": "Independently counter-traced Lisa phase correction removes one lores output tick",
+  "predetermined_phase_difference_hires_samples": 2,
+  "overlap_compared_rgb_pixels": 429000,
+  "overlap_mismatches": 0,
+  "full_image_inspected": true,
+  "native_geometry_changed": false,
+  "source": "Emu198x regression baseline; independent accuracy evidence is the 72 diagnostic fields and strict Test Kit gate"
+}

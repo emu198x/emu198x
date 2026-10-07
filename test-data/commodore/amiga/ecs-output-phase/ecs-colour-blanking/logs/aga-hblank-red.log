@@ -1,0 +1,25 @@
+   Compiling common-commodore-amiga v0.25.0 (/Users/stevehill/Projects/198x/Emu198x/emu198x/crates/common-commodore-amiga)
+   Compiling commodore-denise-aga v0.25.0 (/Users/stevehill/Projects/198x/Emu198x/emu198x/crates/commodore-denise-aga)
+    Finished `release` profile [optimized] target(s) in 7.31s
+     Running unittests src/lib.rs (target/release/deps/commodore_denise_aga-f180a565923e1f6d)
+
+running 1 test
+test tests::lisa_programmed_hblank_matches_counter_traced_edges ... FAILED
+
+failures:
+
+---- tests::lisa_programmed_hblank_matches_counter_traced_edges stdout ----
+
+thread 'tests::lisa_programmed_hblank_matches_counter_traced_edges' (65237056) panicked at crates/commodore-denise-aga/src/lib.rs:1321:17:
+assertion `left == right` failed: counter CCK 0x7f half 1
+  left: HorizontalBlanking { output_samples: [false, false, false, false] }
+ right: HorizontalBlanking { output_samples: [true, true, true, true] }
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    tests::lisa_programmed_hblank_matches_counter_traced_edges
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 46 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p commodore-denise-aga --lib`

@@ -1,0 +1,12 @@
+{
+  "native_binary_sha256": "ac67c9313491f3fa85d4da9fcb93b5f39c1b4888eddc5f1866b2e06748aeb4a6",
+  "binary_unchanged_across_capture": true,
+  "source_sha256": {
+    "crates/commodore-denise-ecs/src/lib.rs": "738d4d272d91078a390c23e7e29982e7eed072b60162b691d0ce649e0248fa17",
+    "crates/machine-commodore-amiga-ecs/src/lib.rs": "b45cd28c92b5a922ff721aba74fef316f6926915fe987eab577f6a731eb7185a",
+    "crates/runtime-commodore-amiga/src/snapshot.rs": "cc424d48f64a58196855716334727d86e04bc527ac0697634d8fef1169f14c33"
+  },
+  "reference_producer": "../producers.json",
+  "reference_input_manifest": "../identities.json",
+  "retained_reference_inputs_verified": 8
+}

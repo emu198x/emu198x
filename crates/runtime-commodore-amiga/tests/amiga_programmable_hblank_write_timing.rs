@@ -6,6 +6,8 @@
 //! Emu198x at fixed beam and output coordinates. Agreement is evidence of
 //! UAE-family compatibility; it is not a physical-hardware conformance claim.
 
+mod common;
+
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Component, Path, PathBuf};
@@ -60,13 +62,18 @@ const PAL_VIEWPORT_V_START_LINE: u32 = 0x19;
 const OUTPUT_ROWS_PER_BEAM_LINE: u32 = 2;
 const FS_RAW_WIDTH: usize = 756;
 const FS_STORAGE_EXCLUSION_END: usize = 2;
-const FS_TO_EMU_OUTPUT_X: usize = 8;
+// Counter-traced origin: reference x0 is Denise 91, native x0 is 88.
+// On this host-HIRES grid their difference is six samples. The producer's
+// two leading storage samples remain excluded; no image alignment is used.
+const FS_TO_EMU_OUTPUT_X: usize = 6;
 const EMU_COMPARISON_START: usize = FS_STORAGE_EXCLUSION_END + FS_TO_EMU_OUTPUT_X;
 const EMU_COMPARISON_END: usize = FS_RAW_WIDTH + FS_TO_EMU_OUTPUT_X;
 const COLOR00_OFFSET: u16 = 0x0180;
 const MARKER_WORD: u16 = 0x0F0F;
-const MARKER_MOVE_HPOS_CCK: u16 = 138;
-const TESTED_MOVE_HPOS_CCK: u16 = 142;
+// The serviced RGA counter replaced the old four-CCK-early scheduler view
+// in snapshot 50; see amiga-denise-horizontal-counter.md.
+const MARKER_MOVE_HPOS_CCK: u16 = 142;
+const TESTED_MOVE_HPOS_CCK: u16 = 146;
 
 const CASE_IDS: &[&str] = &[
     "midline-hbstrt-past",
@@ -614,6 +621,7 @@ struct ReadyEvidence {
 #[derive(Clone)]
 struct CapturedField {
     field_counter: u32,
+    width: u32,
     rgba: Vec<u8>,
     sha256: String,
 }
@@ -621,6 +629,7 @@ struct CapturedField {
 #[derive(Clone, Debug, Serialize)]
 struct CapturedFieldEvidence {
     field_counter: u32,
+    width: u32,
     rgba_sha256: String,
 }
 
@@ -1636,11 +1645,7 @@ fn execute_case(
 
     for capture_index in 0..case.settle_capture.capture_fields {
         let copper_start = session.machine().copper_move_log().len();
-        session
-            .run_frames(1)
-            .map_err(|error| format!("run capture field {capture_index}: {error}"))?;
-        let copper_end = session.machine().copper_move_log().len();
-        let field_counter = session.machine().read_long(READY_FIELD_COUNTER);
+        let video_field = common::next_hblank_capture_field(session)?;
         let frame = session
             .latest_frame()
             .ok_or_else(|| format!("capture field {capture_index} emitted no framebuffer"))?;
@@ -1650,9 +1655,11 @@ fn execute_case(
                 frame.format
             ));
         }
-        if frame.width != DISPLAY_WIDTH || frame.height != DISPLAY_HEIGHT {
+        if ![DISPLAY_WIDTH, DISPLAY_WIDTH * 2].contains(&frame.width)
+            || frame.height != DISPLAY_HEIGHT
+        {
             return Err(format!(
-                "capture field {capture_index} is {}x{}, expected {}x{}",
+                "capture field {capture_index} is {}x{}, expected {} or twice that width, height {}",
                 frame.width, frame.height, DISPLAY_WIDTH, DISPLAY_HEIGHT
             ));
         }
@@ -1670,8 +1677,12 @@ fn execute_case(
                 "capture field {capture_index} pixel {pixel} has alpha {alpha:#04x}"
             ));
         }
+        let width = frame.width;
+        let field_counter = common::settled_hblank_field_counter(session, video_field)?;
+        let copper_end = session.machine().copper_move_log().len();
         state.captured.push(CapturedField {
             field_counter,
+            width,
             sha256: sha256_hex(&rgba),
             rgba,
         });
@@ -1726,7 +1737,9 @@ fn execute_case(
     ];
     let actual_lines = role_lines
         .into_iter()
-        .map(|(role, beam_line)| measure_semantic_line(&first.rgba, beam_line, role, guard, marker))
+        .map(|(role, beam_line)| {
+            measure_semantic_line(&first.rgba, first.width, beam_line, role, guard, marker)
+        })
         .collect::<Result<Vec<_>, _>>()?;
     state.actual_lines = Some(actual_lines.clone());
 
@@ -1939,13 +1952,14 @@ fn validate_copper_field(
 
 fn measure_semantic_line(
     rgba: &[u8],
+    width: u32,
     beam_line: u32,
     role: &str,
     guard: [u8; 3],
     marker: [u8; 3],
 ) -> Result<SemanticLine, String> {
     let row = output_row_for_beam_line(beam_line)?;
-    let row_bytes = DISPLAY_WIDTH as usize * 4;
+    let row_bytes = width as usize * 4;
     let first_start = row as usize * row_bytes;
     let second_start = first_start + row_bytes;
     let first = rgba
@@ -1963,7 +1977,19 @@ fn measure_semantic_line(
 
     let mut classes = Vec::with_capacity(EMU_COMPARISON_END - EMU_COMPARISON_START);
     for x in EMU_COMPARISON_START..EMU_COMPARISON_END {
-        let pixel = &first[x * 4..x * 4 + 4];
+        let scale = (width / DISPLAY_WIDTH) as usize;
+        let group = &first[x * scale * 4..(x + 1) * scale * 4];
+        let pixel = &group[..4];
+        if group
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .any(|sample| sample != pixel)
+        {
+            return Err(format!(
+                "{role} native samples within hires period {x} differ"
+            ));
+        }
         let rgb = [pixel[0], pixel[1], pixel[2]];
         let class = if rgb == [0, 0, 0] {
             PixelClass::Black
@@ -2083,6 +2109,7 @@ fn build_case_report(
             .iter()
             .map(|field| CapturedFieldEvidence {
                 field_counter: field.field_counter,
+                width: field.width,
                 rgba_sha256: field.sha256.clone(),
             })
             .collect(),
@@ -2102,7 +2129,7 @@ fn coordinate_mapping(case: &Case) -> Result<CoordinateMapping, String> {
         reference_domain_end_exclusive: FS_RAW_WIDTH,
         emu_domain_start: EMU_COMPARISON_START,
         emu_domain_end_exclusive: EMU_COMPARISON_END,
-        horizontal_formula: "emu_output_pixel = fs_uae_raw_sample + 8",
+        horizontal_formula: "emu_hires_period = fs_uae_raw_sample + 6",
         baseline_beam_line: case.timed_write.reset_beam_line,
         baseline_output_rows: [baseline_row, baseline_row + 1],
         mutation_beam_line: case.timed_write.beam_line,
@@ -2508,9 +2535,9 @@ mod tests {
 
     #[test]
     fn fixed_horizontal_mapping_preserves_aga_half_lores_marker_edges() {
-        assert_eq!(FS_STORAGE_EXCLUSION_END + FS_TO_EMU_OUTPUT_X, 10);
-        assert_eq!(371 + FS_TO_EMU_OUTPUT_X, 379);
-        assert_eq!(FS_RAW_WIDTH + FS_TO_EMU_OUTPUT_X, 764);
+        assert_eq!(FS_STORAGE_EXCLUSION_END + FS_TO_EMU_OUTPUT_X, 8);
+        assert_eq!(371 + FS_TO_EMU_OUTPUT_X, 377);
+        assert_eq!(FS_RAW_WIDTH + FS_TO_EMU_OUTPUT_X, 762);
     }
 
     #[test]
@@ -2518,6 +2545,34 @@ mod tests {
         assert_eq!(output_row_for_beam_line(127), Ok(204));
         assert_eq!(output_row_for_beam_line(128), Ok(206));
         assert_eq!(output_row_for_beam_line(129), Ok(208));
+    }
+
+    #[test]
+    fn full_resolution_measurement_rejects_a_hidden_half_hires_difference() {
+        let width = DISPLAY_WIDTH * 2;
+        let mut rgba = vec![0xFF; (width * DISPLAY_HEIGHT * 4) as usize];
+        let guard = [255; 3];
+        let marker = [255, 0, 255];
+        let baseline = measure_semantic_line(&rgba, width, 128, "probe", guard, marker)
+            .expect("identical superhires samples form hires periods");
+        assert_eq!(
+            baseline.guard_runs,
+            vec![SemanticRun {
+                start: EMU_COMPARISON_START,
+                end_exclusive: EMU_COMPARISON_END,
+            }]
+        );
+        let row = output_row_for_beam_line(128).expect("retained row");
+        for y in [row, row + 1] {
+            let second_sample = ((y * width + (EMU_COMPARISON_START as u32 * 2 + 1)) * 4) as usize;
+            rgba[second_sample + 1] = 0;
+        }
+        let error = measure_semantic_line(&rgba, width, 128, "probe", guard, marker)
+            .expect_err("projection must not silently discard a differing fine sample");
+        assert!(
+            error.contains("native samples within hires period"),
+            "{error}"
+        );
     }
 
     #[test]

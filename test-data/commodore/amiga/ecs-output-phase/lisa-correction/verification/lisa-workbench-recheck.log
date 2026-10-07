@@ -1,0 +1,9 @@
+   Compiling runtime-commodore-amiga v0.25.0 (/Users/stevehill/Projects/198x/Emu198x/emu198x/crates/runtime-commodore-amiga)
+    Finished `release` profile [optimized] target(s) in 9.92s
+     Running tests/golden_matrix.rs (target/release/deps/golden_matrix-fdf2d4fb06c8f5b8)
+
+running 1 test
+test a1200_ks31_wb31 ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 7 filtered out; finished in 49.35s
+

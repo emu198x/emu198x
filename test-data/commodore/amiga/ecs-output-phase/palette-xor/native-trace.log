@@ -1,0 +1,305 @@
+   Compiling commodore-denise-ecs v0.25.0 (/Users/stevehill/Projects/198x/Emu198x/emu198x/crates/commodore-denise-ecs)
+   Compiling common-commodore-amiga v0.25.0 (/Users/stevehill/Projects/198x/Emu198x/emu198x/crates/common-commodore-amiga)
+   Compiling machine-commodore-amiga-ocs v0.25.0 (/Users/stevehill/Projects/198x/Emu198x/emu198x/crates/machine-commodore-amiga-ocs)
+   Compiling commodore-denise-aga v0.25.0 (/Users/stevehill/Projects/198x/Emu198x/emu198x/crates/commodore-denise-aga)
+   Compiling machine-commodore-amiga-a1200 v0.25.0 (/Users/stevehill/Projects/198x/Emu198x/emu198x/crates/machine-commodore-amiga-a1200)
+   Compiling machine-commodore-amiga-ecs v0.25.0 (/Users/stevehill/Projects/198x/Emu198x/emu198x/crates/machine-commodore-amiga-ecs)
+   Compiling runtime-commodore-amiga v0.25.0 (/Users/stevehill/Projects/198x/Emu198x/emu198x/crates/runtime-commodore-amiga)
+    Finished `release` profile [optimized] target(s) in 17.33s
+     Running `target/release/examples/xor_output_phase_trace aga ../roms/kick31_40_068_a1200.rom /private/tmp/emu198x-xor-phase/guests/constant/probe.adf`
+tick,vpos,hpos,next_counter,bplcon4,xor_pipeline
+51053447,132,120,233,0011,[0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+51053448,132,120,234,0011,[0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+51053449,132,121,235,0011,[0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+51053450,132,121,236,0011,[0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+51053451,132,122,237,0011,[0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+51053452,132,122,238,0011,[0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+51053453,132,123,239,0011,[0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+51053454,132,123,240,0011,[0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+51053455,132,124,241,0011,[0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+51053456,132,124,242,0011,[0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+51053457,132,125,243,0011,[0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+51053458,132,125,244,0011,[0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+51053459,132,126,245,0011,[0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+51053460,132,126,246,0011,[0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+51053461,132,127,247,0011,[0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+51053462,132,127,248,0011,[0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+51053463,132,128,249,0011,[0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+51053464,132,128,250,0011,[0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+51053465,132,129,251,0011,[0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+51053466,132,129,252,0011,[0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+51053467,132,130,253,0011,[0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+51053468,132,130,254,0011,[0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+51053469,132,131,255,0011,[0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+51053470,132,131,256,0011,[0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+51053471,132,132,257,0011,[0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+51053472,132,132,258,0011,[0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+51053473,132,133,259,0011,[0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+51053474,132,133,260,0011,[0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+51053475,132,134,261,0111,[0, 0, 0, 0, 0, 0, 1, 1, 1, 1]
+51053476,132,134,262,0111,[0, 0, 1, 1, 1, 1, 1, 1, 1, 1]
+51053477,132,135,263,0111,[1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+51053478,132,135,264,0111,[1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+51053479,132,136,265,0111,[1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+51053480,132,136,266,0111,[1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+51053481,132,137,267,0111,[1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+51053482,132,137,268,0111,[1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+51053483,132,138,269,0111,[1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+51053484,132,138,270,0111,[1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+51053485,132,139,271,0111,[1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+51053486,132,139,272,0111,[1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+51053487,132,140,273,0111,[1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+51053488,132,140,274,0111,[1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+51053489,132,141,275,0111,[1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+51053490,132,141,276,0111,[1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+51053491,132,142,277,0111,[1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+51053492,132,142,278,0111,[1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+51053493,132,143,279,0111,[1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+51053494,132,143,280,0111,[1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+51053495,132,144,281,0111,[1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+51053496,132,144,282,0111,[1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+PIXEL_EDGE x=0 argb=ff000000
+PIXEL_EDGE x=16 argb=ff000011
+PIXEL_EDGE x=164 argb=ff00ff00
+PIXEL_EDGE x=168 argb=ff000011
+PIXEL_EDGE x=172 argb=ff00ff00
+PIXEL_EDGE x=176 argb=ff000011
+PIXEL_EDGE x=184 argb=ff00ff00
+PIXEL_EDGE x=188 argb=ff000011
+PIXEL_EDGE x=192 argb=ff00ff00
+PIXEL_EDGE x=200 argb=ff000011
+PIXEL_EDGE x=204 argb=ff00ff00
+PIXEL_EDGE x=208 argb=ff000011
+PIXEL_EDGE x=216 argb=ff00ff00
+PIXEL_EDGE x=220 argb=ff000011
+PIXEL_EDGE x=224 argb=ff00ff00
+PIXEL_EDGE x=232 argb=ff000011
+PIXEL_EDGE x=236 argb=ff00ff00
+PIXEL_EDGE x=240 argb=ff000011
+PIXEL_EDGE x=248 argb=ff00ff00
+PIXEL_EDGE x=252 argb=ff000011
+PIXEL_EDGE x=256 argb=ff00ff00
+PIXEL_EDGE x=264 argb=ff000011
+PIXEL_EDGE x=268 argb=ff00ff00
+PIXEL_EDGE x=272 argb=ff000011
+PIXEL_EDGE x=280 argb=ff00ff00
+PIXEL_EDGE x=284 argb=ff000011
+PIXEL_EDGE x=288 argb=ff00ff00
+PIXEL_EDGE x=296 argb=ff000011
+PIXEL_EDGE x=300 argb=ff00ff00
+PIXEL_EDGE x=304 argb=ff000011
+PIXEL_EDGE x=312 argb=ff00ff00
+PIXEL_EDGE x=316 argb=ff000011
+PIXEL_EDGE x=320 argb=ff00ff00
+PIXEL_EDGE x=328 argb=ff000011
+PIXEL_EDGE x=332 argb=ff00ff00
+PIXEL_EDGE x=336 argb=ff000011
+PIXEL_EDGE x=344 argb=ff00ff00
+PIXEL_EDGE x=348 argb=ff000011
+PIXEL_EDGE x=352 argb=ff00ff00
+PIXEL_EDGE x=360 argb=ff000011
+PIXEL_EDGE x=364 argb=ff00ff00
+PIXEL_EDGE x=368 argb=ff000011
+PIXEL_EDGE x=376 argb=ff00ff00
+PIXEL_EDGE x=380 argb=ff000011
+PIXEL_EDGE x=384 argb=ff00ff00
+PIXEL_EDGE x=392 argb=ff000011
+PIXEL_EDGE x=396 argb=ff00ff00
+PIXEL_EDGE x=400 argb=ff000011
+PIXEL_EDGE x=408 argb=ff00ff00
+PIXEL_EDGE x=412 argb=ff000011
+PIXEL_EDGE x=416 argb=ff00ff00
+PIXEL_EDGE x=424 argb=ff000011
+PIXEL_EDGE x=428 argb=ff00ff00
+PIXEL_EDGE x=432 argb=ff000011
+PIXEL_EDGE x=440 argb=ff00ff00
+PIXEL_EDGE x=444 argb=ff000011
+PIXEL_EDGE x=448 argb=ff00ff00
+PIXEL_EDGE x=456 argb=ff000011
+PIXEL_EDGE x=460 argb=ff00ff00
+PIXEL_EDGE x=464 argb=ff000011
+PIXEL_EDGE x=472 argb=ff00ff00
+PIXEL_EDGE x=476 argb=ff000011
+PIXEL_EDGE x=480 argb=ff00ff00
+PIXEL_EDGE x=488 argb=ff000011
+PIXEL_EDGE x=492 argb=ff00ff00
+PIXEL_EDGE x=496 argb=ff000011
+PIXEL_EDGE x=504 argb=ff00ff00
+PIXEL_EDGE x=508 argb=ff000011
+PIXEL_EDGE x=512 argb=ff00ff00
+PIXEL_EDGE x=520 argb=ff000011
+PIXEL_EDGE x=524 argb=ff00ff00
+PIXEL_EDGE x=528 argb=ff000011
+PIXEL_EDGE x=536 argb=ff00ff00
+PIXEL_EDGE x=540 argb=ff000011
+PIXEL_EDGE x=544 argb=ff00ff00
+PIXEL_EDGE x=552 argb=ff000011
+PIXEL_EDGE x=556 argb=ff00ff00
+PIXEL_EDGE x=560 argb=ff000011
+PIXEL_EDGE x=568 argb=ff00ff00
+PIXEL_EDGE x=572 argb=ff000011
+PIXEL_EDGE x=576 argb=ff00ff00
+PIXEL_EDGE x=584 argb=ff000011
+PIXEL_EDGE x=588 argb=ff00ff00
+PIXEL_EDGE x=592 argb=ff000011
+PIXEL_EDGE x=600 argb=ff00ff00
+PIXEL_EDGE x=604 argb=ff000011
+PIXEL_EDGE x=608 argb=ff00ff00
+PIXEL_EDGE x=616 argb=ff000011
+PIXEL_EDGE x=620 argb=ff00ff00
+PIXEL_EDGE x=624 argb=ff000011
+PIXEL_EDGE x=632 argb=ff00ff00
+PIXEL_EDGE x=636 argb=ff000011
+PIXEL_EDGE x=640 argb=ff00ff00
+PIXEL_EDGE x=648 argb=ff000011
+PIXEL_EDGE x=652 argb=ff00ff00
+PIXEL_EDGE x=656 argb=ff000011
+PIXEL_EDGE x=664 argb=ff00ff00
+PIXEL_EDGE x=668 argb=ff000011
+PIXEL_EDGE x=672 argb=ff00ff00
+PIXEL_EDGE x=680 argb=ff000011
+PIXEL_EDGE x=684 argb=ff00ff00
+PIXEL_EDGE x=688 argb=ff000011
+PIXEL_EDGE x=696 argb=ff00ff00
+PIXEL_EDGE x=698 argb=ff000011
+PIXEL_EDGE x=700 argb=ff00ff00
+PIXEL_EDGE x=704 argb=ff000011
+PIXEL_EDGE x=712 argb=ff00ff00
+PIXEL_EDGE x=716 argb=ff000011
+PIXEL_EDGE x=720 argb=ff00ff00
+PIXEL_EDGE x=728 argb=ff000011
+PIXEL_EDGE x=732 argb=ff00ff00
+PIXEL_EDGE x=736 argb=ff000011
+PIXEL_EDGE x=744 argb=ff00ff00
+PIXEL_EDGE x=748 argb=ff000011
+PIXEL_EDGE x=752 argb=ff00ff00
+PIXEL_EDGE x=760 argb=ff000011
+PIXEL_EDGE x=764 argb=ff00ff00
+PIXEL_EDGE x=768 argb=ff000011
+PIXEL_EDGE x=776 argb=ff00ff00
+PIXEL_EDGE x=780 argb=ff000011
+PIXEL_EDGE x=784 argb=ff00ff00
+PIXEL_EDGE x=792 argb=ff000011
+PIXEL_EDGE x=796 argb=ff00ff00
+PIXEL_EDGE x=800 argb=ff000011
+PIXEL_EDGE x=808 argb=ff00ff00
+PIXEL_EDGE x=812 argb=ff000011
+PIXEL_EDGE x=816 argb=ff00ff00
+PIXEL_EDGE x=824 argb=ff000011
+PIXEL_EDGE x=828 argb=ff00ff00
+PIXEL_EDGE x=832 argb=ff000011
+PIXEL_EDGE x=840 argb=ff00ff00
+PIXEL_EDGE x=844 argb=ff000011
+PIXEL_EDGE x=848 argb=ff00ff00
+PIXEL_EDGE x=856 argb=ff000011
+PIXEL_EDGE x=860 argb=ff00ff00
+PIXEL_EDGE x=864 argb=ff000011
+PIXEL_EDGE x=872 argb=ff00ff00
+PIXEL_EDGE x=876 argb=ff000011
+PIXEL_EDGE x=880 argb=ff00ff00
+PIXEL_EDGE x=888 argb=ff000011
+PIXEL_EDGE x=892 argb=ff00ff00
+PIXEL_EDGE x=896 argb=ff000011
+PIXEL_EDGE x=904 argb=ff00ff00
+PIXEL_EDGE x=908 argb=ff000011
+PIXEL_EDGE x=912 argb=ff00ff00
+PIXEL_EDGE x=920 argb=ff000011
+PIXEL_EDGE x=924 argb=ff00ff00
+PIXEL_EDGE x=928 argb=ff000011
+PIXEL_EDGE x=936 argb=ff00ff00
+PIXEL_EDGE x=940 argb=ff000011
+PIXEL_EDGE x=944 argb=ff00ff00
+PIXEL_EDGE x=952 argb=ff000011
+PIXEL_EDGE x=956 argb=ff00ff00
+PIXEL_EDGE x=960 argb=ff000011
+PIXEL_EDGE x=968 argb=ff00ff00
+PIXEL_EDGE x=972 argb=ff000011
+PIXEL_EDGE x=976 argb=ff00ff00
+PIXEL_EDGE x=984 argb=ff000011
+PIXEL_EDGE x=988 argb=ff00ff00
+PIXEL_EDGE x=992 argb=ff000011
+PIXEL_EDGE x=1000 argb=ff00ff00
+PIXEL_EDGE x=1004 argb=ff000011
+PIXEL_EDGE x=1008 argb=ff00ff00
+PIXEL_EDGE x=1016 argb=ff000011
+PIXEL_EDGE x=1020 argb=ff00ff00
+PIXEL_EDGE x=1024 argb=ff000011
+PIXEL_EDGE x=1032 argb=ff00ff00
+PIXEL_EDGE x=1036 argb=ff000011
+PIXEL_EDGE x=1040 argb=ff00ff00
+PIXEL_EDGE x=1048 argb=ff000011
+PIXEL_EDGE x=1052 argb=ff00ff00
+PIXEL_EDGE x=1056 argb=ff000011
+PIXEL_EDGE x=1064 argb=ff00ff00
+PIXEL_EDGE x=1068 argb=ff000011
+PIXEL_EDGE x=1072 argb=ff00ff00
+PIXEL_EDGE x=1080 argb=ff000011
+PIXEL_EDGE x=1084 argb=ff00ff00
+PIXEL_EDGE x=1088 argb=ff000011
+PIXEL_EDGE x=1096 argb=ff00ff00
+PIXEL_EDGE x=1100 argb=ff000011
+PIXEL_EDGE x=1104 argb=ff00ff00
+PIXEL_EDGE x=1112 argb=ff000011
+PIXEL_EDGE x=1116 argb=ff00ff00
+PIXEL_EDGE x=1120 argb=ff000011
+PIXEL_EDGE x=1128 argb=ff00ff00
+PIXEL_EDGE x=1132 argb=ff000011
+PIXEL_EDGE x=1136 argb=ff00ff00
+PIXEL_EDGE x=1144 argb=ff000011
+PIXEL_EDGE x=1148 argb=ff00ff00
+PIXEL_EDGE x=1152 argb=ff000011
+PIXEL_EDGE x=1160 argb=ff00ff00
+PIXEL_EDGE x=1164 argb=ff000011
+PIXEL_EDGE x=1168 argb=ff00ff00
+PIXEL_EDGE x=1176 argb=ff000011
+PIXEL_EDGE x=1180 argb=ff00ff00
+PIXEL_EDGE x=1184 argb=ff000011
+PIXEL_EDGE x=1192 argb=ff00ff00
+PIXEL_EDGE x=1196 argb=ff000011
+PIXEL_EDGE x=1200 argb=ff00ff00
+PIXEL_EDGE x=1208 argb=ff000011
+PIXEL_EDGE x=1212 argb=ff00ff00
+PIXEL_EDGE x=1216 argb=ff000011
+PIXEL_EDGE x=1224 argb=ff00ff00
+PIXEL_EDGE x=1228 argb=ff000011
+PIXEL_EDGE x=1232 argb=ff00ff00
+PIXEL_EDGE x=1240 argb=ff000011
+PIXEL_EDGE x=1244 argb=ff00ff00
+PIXEL_EDGE x=1248 argb=ff000011
+PIXEL_EDGE x=1256 argb=ff00ff00
+PIXEL_EDGE x=1260 argb=ff000011
+PIXEL_EDGE x=1264 argb=ff00ff00
+PIXEL_EDGE x=1272 argb=ff000011
+PIXEL_EDGE x=1276 argb=ff00ff00
+PIXEL_EDGE x=1280 argb=ff000011
+PIXEL_EDGE x=1288 argb=ff00ff00
+PIXEL_EDGE x=1292 argb=ff000011
+PIXEL_EDGE x=1296 argb=ff00ff00
+PIXEL_EDGE x=1304 argb=ff000011
+PIXEL_EDGE x=1308 argb=ff00ff00
+PIXEL_EDGE x=1312 argb=ff000011
+PIXEL_EDGE x=1320 argb=ff00ff00
+PIXEL_EDGE x=1324 argb=ff000011
+PIXEL_EDGE x=1328 argb=ff00ff00
+PIXEL_EDGE x=1336 argb=ff000011
+PIXEL_EDGE x=1340 argb=ff00ff00
+PIXEL_EDGE x=1344 argb=ff000011
+PIXEL_EDGE x=1352 argb=ff00ff00
+PIXEL_EDGE x=1356 argb=ff000011
+PIXEL_EDGE x=1360 argb=ff00ff00
+PIXEL_EDGE x=1368 argb=ff000011
+PIXEL_EDGE x=1372 argb=ff00ff00
+PIXEL_EDGE x=1376 argb=ff000011
+PIXEL_EDGE x=1384 argb=ff00ff00
+PIXEL_EDGE x=1388 argb=ff000011
+PIXEL_EDGE x=1392 argb=ff00ff00
+PIXEL_EDGE x=1400 argb=ff000011
+PIXEL_EDGE x=1404 argb=ff00ff00
+PIXEL_EDGE x=1408 argb=ff000011
+PIXEL_EDGE x=1416 argb=ff00ff00
+PIXEL_EDGE x=1420 argb=ff000011
+PIXEL_EDGE x=1424 argb=ff00ff00
+PIXEL_EDGE x=1432 argb=ff000011
+PIXEL_EDGE x=1436 argb=ff00ff00
+PIXEL_EDGE x=1440 argb=ff000011
+PIXEL_EDGE x=1524 argb=ff000000

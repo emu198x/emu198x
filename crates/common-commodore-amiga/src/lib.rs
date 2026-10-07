@@ -21,6 +21,8 @@ pub mod copper;
 pub mod cpu;
 pub mod denise;
 pub mod denise_chip;
+pub mod denise_counter;
+pub mod denise_window;
 pub mod driver;
 pub mod memory;
 pub mod rtc;

@@ -9,6 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Connect addressed bitplane transfers to live service and saved ownership,
+  retaining the sampled pointer/modulo and bus lanes through Denise's normal
+  RGA delay; automatic display request generation remains pending
+
+- Retain equalisation and vertical-blank sync latches for automatic refresh timing-register admission
+
+- Derive service-cell ownership from an admitted timing-strobe descriptor so
+  CPU and other DMA cannot reuse that cell after the strobe retires
+
+- Carry typed STRHOR, STRVBL and STREQU identity in the shared DMA stages for
+  Denise counter propagation
+
+- Retain typed display reservation, address and service descriptors on the
+  ordinary CCK clock, rejecting duplicate advancement and occupied-cell replacement;
+  live DMA adapter integration remains separate
+
+- Retain and serialize the complete DMA service plan across both halves of a CCK, rejecting duplicate service admission
 - Expose side-effect-free Agnus identity, beam, original-chipset latch,
   fixed-sync event and complete sprite-DMA diagnostic snapshots
 - Add side-effect-free arbitration, DDF-sequencer and complete implemented
@@ -34,6 +51,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   authoritative for later CPU arbitration in the same cell
 
 ### Fixed
+
+- Admit the final free odd Copper request cell, preventing line-end MOVEs from slipping into the next line
+
+- Preserve DDFSTRT suppression and the old DDFSTOP comparison during register
+  writes, committing their shared pending entry after comparator evaluation
+
+- Clock Alice's area-blit source finish independently of a blocked final D
+  write, preserving the pending transfer and one-shot interrupt through restore
+
+- Preserve area-blitter channel/fill idle and holding stages: prime D before
+  writing, overlap source reads with the previous held result, and apply
+  channel modulos at their own row ends. Idle cells remain available to CPU
+  transfers while occupied DMA cells stall the pipeline.
+
+- Preserve the four CCK stages of standard line drawing, service optional B
+  DMA with its modulo and reserved cycle, and save generated D results until
+  their write stage. Internal stages leave the CPU bus available; C-enable
+  gates line writes and later pixels use the C destination pointer.
+
+- Preserve Alice register and arbitration stages across mid-line BPLCON0/FMODE writes, separating slot cadence from live transfer width
+
+- Select AGA sprite DMA word lanes by FMODE/address and advance control fetches over full transfer padding
 
 - Project the physical horizontal beam into the Copper comparator's two-CCK
   lead and PAL/NTSC line-parity wrap

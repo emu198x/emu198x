@@ -104,8 +104,8 @@ fn a1000_machine_hides_busy_until_first_grant_without_completing_or_interrupting
     assert!(a1000.agnus().blitter_busy);
     assert_eq!(
         a1000.agnus().blitter_ccks_remaining,
-        1,
-        "first startup CCK must not consume the internal operation",
+        2,
+        "first startup CCK must not consume either main idle cell",
     );
     assert_eq!(
         a1000.read_word(INTREQR) & INT_BLIT,

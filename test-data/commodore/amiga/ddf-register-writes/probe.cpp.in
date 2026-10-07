@@ -1,0 +1,74 @@
+// External writes are placed either at RGA service before the comparator (0),
+// or after end-of-CCK pipeline retirement (1). The latter isolates a pending
+// CPU-side write; it does not claim a CPU model's pin-to-register latency.
+int main(int argc, char **argv) {
+ const bool immediate = argc == 2;
+ // The shared queue flushes its previous entry on a second write. In the
+ // repeated-start case that flush follows the second write's suppression.
+ ddf_mask = 0xfc; ddfstrt = 64; ddfstop = 128;
+ DDFSTRT(80); DDFSTRT(96);
+ if (ddfstrt != 80) return 5;
+ empty_pipeline();
+ if (ddfstrt != 96) return 5;
+ DDFSTRT(80); DDFSTOP(144);
+ if (ddfstrt != 80 || ddfstop != 128) return 5;
+ empty_pipeline();
+ if (ddfstop != 144) return 5;
+ DDFSTOP(160); DDFSTRT(96);
+ if (ddfstop != 160 || ddfstrt != 0xffff) return 5;
+ empty_pipeline();
+ if (ddfstrt != 96) return 5;
+ int id = 0;
+ std::puts("case,line,h,plane,mod");
+ for (int chip = 0; chip < 3; chip++)
+ for (int length = 227; length <= 228; length++)
+ for (int phase = 0; phase < 2; phase++)
+ for (int reg = 0; reg < 2; reg++)
+ for (int scenario = 0; scenario < 7; scenario++)
+ for (int offset = -4; offset <= 4; offset++) {
+  if (scenario >= 5 && offset != 0) continue;
+  // Six ordinary rewrites plus a no-write control. Scenario 5 crosses wrap.
+  const int at = scenario == 5 ? length - 1 : 64 + offset;
+  const int replacement = scenario == 0 ? 60 : scenario == 1 ? 64 :
+   scenario == 2 ? 68 : scenario == 3 ? 128 : scenario == 4 ? 67 : 0;
+  ecs_agnus = chip != 0; aga_mode = chip == 2; harddis_h = false;
+  ddf_mask = chip == 0 ? 0xfc : 0xfe;
+  maxhpos = maxhpos_long = length;
+  fetchunit_mask = fetchstart_mask = 7; fm_maxplane = 8;
+  bpl_sequence = bpl_sequence_8;
+  bplcon0_planes = bplcon0_planes_limit = 1;
+  bprun = bprun_cycle = ddf_stopping = ddf_enable_on = 0;
+  ddf_limit = ddfstrt_match = hwi_old = false;
+  plfstrt_sprite = 0x100; ddflastword_total = 0; ddffirstword_total = 0x100;
+  dmacon_bpl = true; vdiwstate = diw_states::DIW_waiting_stop;
+  ddfstrt = reg == 0 ? 64 : 56; ddfstop = reg == 0 ? 208 : 64;
+  if (scenario == 5) { ddfstrt = reg == 0 ? 0 : 216; ddfstop = 0; }
+  ddfstrt_saved = ddfstrt; ddfstop_saved = ddfstop; preg = {};
+  std::fprintf(stderr, "%d,%d,%d,%d,%d,%d,%d,%d,%d,%d\n",
+   id, chip, length, phase, reg, scenario, at, replacement, ddfstrt, ddfstop);
+  auto write = [&]() {
+   if (scenario == 6) return;
+   if (immediate) {
+    if (reg == 0) ddfstrt = replacement & ddf_mask;
+    else ddfstop = replacement & ddf_mask;
+   } else {
+    if (reg == 0) DDFSTRT(replacement); else DDFSTOP(replacement);
+   }
+  };
+  for (linear_vpos = 0; linear_vpos < 2; linear_vpos++)
+  for (agnus_hpos = 0; agnus_hpos < length; agnus_hpos++) {
+   bool writing = linear_vpos == 0 && agnus_hpos == at;
+   get_cck_clock();
+   if (writing && phase == 0) write();
+   requested_plane = -1; request = {};
+   generate_bpl(cck_clock);
+   decide_bpl(agnus_hpos);
+   if (requested_plane >= 0) std::printf("%d,%d,%d,%d,%d\n",
+    id, linear_vpos, agnus_hpos, requested_plane, (request.bpldat & 8) != 0);
+   empty_pipeline();
+   if (writing && phase == 1) write();
+  }
+  id++;
+ }
+ return id == 1128 ? 0 : 4;
+}

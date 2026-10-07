@@ -85,8 +85,8 @@ The lanes execute sequentially in this fixed order:
 | `amiga-regressions` | Hermetic common-chip, chipset, peripheral, machine and runtime library regressions plus the bounded integration set below. |
 | `snapshot-roundtrip` | Snapshot byte fixed points and identical forward execution across the exercised OCS, ECS and AGA profiles. |
 | `test-kit-v1.12` | Guest-reported Test Kit v1.12 execution and the selected A500/A530 assertions. |
-| `test-kit-v1.21-ocs` | Mixed A500+A501 OCS PAL contract: four exact video cases and two exact registered comparator-disagreement signatures. |
-| `test-kit-v1.21-aga` | Mixed A1200 AGA PAL contract: three exact video cases and exact registered pointer-disagreement signatures in the remaining cases. |
+| `test-kit-v1.21-ocs` | A500+A501 OCS PAL contract: all six video cases require exact reference equality. |
+| `test-kit-v1.21-aga` | A1200 AGA PAL contract: all six video cases require exact reference equality. |
 | `paula-audio` | Registered Paula routing, cadence and paired-volume comparison. |
 | `programmable-hblank` | Steady-state consensus assertions and retained measurement-only cases. |
 | `programmable-hblank-write-timing` | Independently remeasured mid-line write observations against the registered UAE-family package. |
@@ -214,9 +214,9 @@ The current registry covers:
 | ID | Classification | Boundary |
 | --- | --- | --- |
 | `paula-stereo-channel-assignment` | `fixed` | Primary documentation adjudicated the vAmiga disagreement and the mixer was corrected. |
-| `lisa-color-output-delay` | `fixed` | The one-hires-sample delay aligns the registered A1200 colour-transition boundaries; EBU bars are exact and gradients retain only the separately tracked pointer disagreement. |
-| `denise-ocs-color-output-phase` | `blocked-stronger-evidence` | vAmiga OCS omits the early Copper colour stage observed in the UAE ECS/AGA family; the A500 gate pins rather than conceals the resulting gradients and EBU signatures. |
-| `aga-sprite-horizontal-output-phase` | `blocked-stronger-evidence` | The A1200 pointer-local footprint is consistent with a two-host-sample displacement under the absolute crop, while audited UAE source still specifies the shared one-lores start delay; the machine-neutral probe is pending. |
+| `lisa-color-output-delay` | `fixed` | The one-hires-sample delay aligns the registered A1200 colour-transition boundaries; EBU bars and gradients are exact after the separate sprite-output correction. |
+| `denise-ocs-color-output-phase` | `fixed` | Neutral COLOR00 edges agree across vAmiga and FS-UAE OCS; all six A500 Test Kit cases require exact equality. |
+| `aga-sprite-horizontal-output-phase` | `fixed` | Neutral OCS/AGA sprite separation agrees with FS-UAE after retaining Lisa's sprite output code; all six A1200 Test Kit cases require exact equality. |
 | `a1000-workbench-pointer-golden-baseline` | `fixed` | The stale Workbench 1.2 golden omitted the current pointer; the reviewed rebaseline retains those pointer pixels as an unmasked exact assertion. |
 | `a1000-workbench-free-memory-readout` | `scoped-out` | The exact 60 x 18 mask excludes only six allocator-derived digits. Reviewed captures vary in 16-byte allocator quanta; one comparison moved from 131288 to 131224 bytes, or four quanta. |
 | `disk-read-dma-request-stage` | `blocked-stronger-evidence` | WinUAE and vAmiga select different read stages; direct hardware evidence remains desirable. |

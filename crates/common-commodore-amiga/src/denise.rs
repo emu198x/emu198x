@@ -13,8 +13,9 @@
 //!     framebuffer for display.
 //!
 //! DDF / legacy OCS DIW decoding helpers (`ddf_window`,
-//! `diw_vertical_window`) live here because Agnus owns those registers
-//! on real silicon. The live vertical gate is supplied by the concrete
+//! `diw_vertical_window`) live here; Agnus owns the DMA and vertical-window
+//! decisions, while Denise retains its own horizontal window registers.
+//! The live vertical gate is supplied by the concrete
 //! Agnus/Alice variant so ECS/AGA `DIWHIGH` and comparator-latch state
 //! cannot be lost through an OCS base view. The per-CCK DMA slot schedule
 //! itself lives in Agnus's `current_slot` / `cck_bus_plan` (#30).
@@ -22,7 +23,11 @@
 //! HIRES / HAM / EHB / DPF / sprites / collisions all flow through
 //! the chip's `output_pixel_with_beam_and_playfield_gate` unchanged.
 
-use crate::denise_chip::{DeniseChip, HorizontalDiwComparatorPhase};
+use crate::denise_chip::DeniseChip;
+#[cfg(test)]
+use crate::denise_chip::HorizontalDiwComparatorPhase;
+use crate::denise_counter::{DeniseHorizontalCounter, DeniseStrobe};
+use crate::denise_window::DeniseWindow;
 use crate::memory::Memory;
 
 /// Display dimensions for PAL Standard (line-doubled, lores → 4:3).
@@ -39,6 +44,8 @@ use crate::memory::Memory;
 /// reads it as 104%; see
 /// `knowledge/decisions/the-framebuffer-is-the-sets-window.md`.
 pub const FB_WIDTH: u32 = 768;
+/// Same retained raster window at Lisa's 35 ns sample clock.
+pub const SUPERHIRES_FB_WIDTH: u32 = FB_WIDTH * 2;
 pub const FB_HEIGHT: u32 = 576;
 
 /// One Agnus-granted bitplane transfer for the current CCK.
@@ -48,15 +55,31 @@ pub struct BitplaneDmaFetch {
     pub width_words: u8,
 }
 
-/// External horizontal-blank levels for the two output samples emitted by one
-/// master/4 tick.
+/// Memory input for the existing output tick. The granted path remains until
+/// automatic reservations are connected; serviced input never resamples PT.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BitplaneDmaInput {
+    Granted(BitplaneDmaFetch),
+    Serviced(commodore_agnus_ocs::DmaTransfer),
+}
+
+/// One bitplane transfer crossing the normal (one-CCK) Denise RGA stage.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct PendingBitplaneDma {
+    pub plane: u8,
+    pub width_words: u8,
+    pub words: [u16; 4],
+}
+
+/// External horizontal-blank levels at the four 35 ns positions in one
+/// lores output tick. Hires callers supply levels held over each pair.
 ///
 /// The machine layer advances the chipset-specific comparator latches and
 /// supplies their resulting levels. The renderer therefore has no register,
 /// comparator, or selector policy of its own.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct HorizontalBlanking {
-    output_samples: [bool; 2],
+    output_samples: [bool; 4],
 }
 
 impl HorizontalBlanking {
@@ -70,7 +93,7 @@ impl HorizontalBlanking {
     #[must_use]
     pub const fn from_level(active: bool) -> Self {
         Self {
-            output_samples: [active; 2],
+            output_samples: [active; 4],
         }
     }
 
@@ -79,12 +102,24 @@ impl HorizontalBlanking {
     /// pair.
     #[must_use]
     pub const fn from_output_samples(output_samples: [bool; 2]) -> Self {
+        Self {
+            output_samples: [
+                output_samples[0],
+                output_samples[0],
+                output_samples[1],
+                output_samples[1],
+            ],
+        }
+    }
+
+    /// Independent blank levels at each 35 ns boundary in a lores period.
+    #[must_use]
+    pub const fn from_superhires_samples(output_samples: [bool; 4]) -> Self {
         Self { output_samples }
     }
 
-    fn contains_output_sample(self, subpixel: u8) -> bool {
-        debug_assert!(subpixel < 2);
-        self.output_samples[usize::from(subpixel)]
+    fn contains_output_sample(self, subpixel: u8, samples_per_lores: u32) -> bool {
+        self.output_samples[usize::from(subpixel) * 4 / samples_per_lores as usize]
     }
 }
 
@@ -120,6 +155,8 @@ impl DeniseOutputSignals {
 struct PriorLineRasterContext {
     vpos: u16,
     line_ccks: u16,
+    /// Linear scan position at physical wrap, retained through counter reset.
+    horizontal_origin: u16,
     /// Raw Agnus field count while this physical line was current.
     vbl_count: u64,
     ddf_start: Option<u16>,
@@ -151,11 +188,15 @@ pub struct DenisePriorLineRasterDiagnosticSnapshot {
 /// copied into this snapshot.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct DeniseBoardPipelineDiagnosticSnapshot {
+    pub horizontal_counter: DeniseHorizontalCounter,
+    pub horizontal_diw_active: bool,
+    pub horizontal_window: DeniseWindow,
     pub bytes_this_line: u32,
     pub last_begin_line: Option<u16>,
     pub prior_line_raster: Option<DenisePriorLineRasterDiagnosticSnapshot>,
     /// Early-stage COLOR writes waiting for the current output tick to retire.
     pub pending_early_writes: Vec<DenisePendingRegisterWrite>,
+    pub pending_bitplane_dma: Option<PendingBitplaneDma>,
 }
 
 /// One Denise/Lisa register write retained until the early output stage.
@@ -203,31 +244,6 @@ pub fn ddf_window(ddfstrt: u16, ddfstop: u16) -> (u16, u16) {
     (ddfstrt & 0x00FC, ddfstop & 0x00FC)
 }
 
-/// Return whether the horizontal display-window gate is active for one
-/// lores output tick.
-///
-/// OCS/ECS comparator matches control the current tick (`[HSTART, HSTOP)`).
-/// Lisa's additional output stage applies each match after the current tick
-/// (`(HSTART, HSTOP]`). This is the steady-state transfer relation for stable
-/// window registers; it does not claim a history-sensitive latch model for
-/// mid-line DIWSTRT or DIWSTOP rewrites.
-#[inline]
-fn horizontal_diw_active(
-    beam_x_lores: u32,
-    diwstrt: u16,
-    diwstop: u16,
-    comparator_phase: HorizontalDiwComparatorPhase,
-) -> bool {
-    let hstart = u32::from(diwstrt & 0x00FF);
-    let hstop = 0x0100u32 | u32::from(diwstop & 0x00FF);
-    match comparator_phase {
-        HorizontalDiwComparatorPhase::BeforeOutput => {
-            beam_x_lores >= hstart && beam_x_lores < hstop
-        }
-        HorizontalDiwComparatorPhase::AfterOutput => beam_x_lores > hstart && beam_x_lores <= hstop,
-    }
-}
-
 /// Board-level Denise wrapper, generic over the concrete chip
 /// variant via [`DeniseChip`]. Each per-chipset machine crate
 /// instantiates this with its specific Denise type
@@ -240,10 +256,10 @@ pub struct Denise<C: DeniseChip> {
     /// sprite registers, shift registers, HAM prev-RGB, collision
     /// state.
     pub ocs: C,
-    /// ARGB8888 framebuffer (FB_WIDTH × FB_HEIGHT pixels) for the
-    /// frontend. We resolve the chip's `final_color_idx` through
-    /// its palette for each pixel and fill a 2×2 block here (pixel-
-    /// doubling + line-doubling for square-pixel 4:3 output).
+    /// ARGB8888 framebuffer at the chip's fixed retained sample clock.
+    /// Lisa keeps four samples per lores period; OCS/ECS keep two. The
+    /// non-interlaced output duplicates composed samples onto two rows.
+    /// Physical aspect ratio is supplied by the runtime's sample clock.
     pub framebuffer: Vec<u32>,
     /// Bytes fetched on the current line (used to decide when to
     /// apply the end-of-line modulo).
@@ -257,6 +273,11 @@ pub struct Denise<C: DeniseChip> {
     /// COLOR writes cross Denise's early RGA stage after the current output
     /// tick. Lisa then applies its own one-hires-sample palette-output delay.
     pending_early_writes: Vec<DenisePendingRegisterWrite>,
+    pending_bitplane_dma: Option<PendingBitplaneDma>,
+    horizontal_counter: DeniseHorizontalCounter,
+    /// Set/reset by horizontal DIW equality, independent of counter strobes.
+    horizontal_diw_active: bool,
+    horizontal_window: DeniseWindow,
 }
 
 impl<C: DeniseChip> Default for Denise<C> {
@@ -266,33 +287,57 @@ impl<C: DeniseChip> Default for Denise<C> {
 }
 
 impl<C: DeniseChip> Denise<C> {
+    /// Width at this chip's native retained output sample clock.
+    pub const FRAMEBUFFER_WIDTH: u32 = FB_WIDTH * C::OUTPUT_SAMPLES_PER_LORES / 2;
+
     #[must_use]
     pub fn new() -> Self {
         Self {
             ocs: C::new(),
-            framebuffer: vec![0xFF00_0000; (FB_WIDTH * FB_HEIGHT) as usize],
+            framebuffer: vec![0xFF00_0000; (Self::FRAMEBUFFER_WIDTH * FB_HEIGHT) as usize],
             bytes_this_line: 0,
             last_begin_line: None,
             prior_line_raster: None,
             pending_early_writes: Vec::new(),
+            pending_bitplane_dma: None,
+            horizontal_counter: DeniseHorizontalCounter::default(),
+            horizontal_diw_active: false,
+            horizontal_window: DeniseWindow::default(),
         }
     }
 
     /// CPU or debugger write to a Denise-owned custom register after the
-    /// current output tick. The register is therefore available to the next
-    /// output tick immediately; Lisa retains its own one-hires-sample COLOR
-    /// delay inside the concrete chip.
+    /// current output tick. Window writes enter the normal RGA stage;
+    /// other registers retain their concrete-chip propagation rules, including
+    /// Lisa's one-hires-sample COLOR delay.
     pub fn write_word(&mut self, offset: u16, val: u16) {
-        self.ocs.write_word(offset, val);
+        if !self.horizontal_window.queue_write(
+            offset,
+            val,
+            false,
+            C::SUPPORTS_DIWHIGH,
+            C::OUTPUT_SAMPLES_PER_LORES == 4,
+        ) {
+            self.ocs.write_word(offset, val);
+        }
     }
 
     /// Copper write to a Denise-owned custom register before the current
-    /// output tick. COLOR writes cross Denise's early display-side RGA stage,
-    /// so the current output retains the previous colour. Other registers
-    /// retain their existing concrete-chip propagation rules.
+    /// output tick. OCS colour is visible on that tick; ECS and Lisa retain
+    /// their separately measured display-side stages. Other registers keep
+    /// their existing concrete-chip propagation rules.
     pub fn write_word_before_output_tick(&mut self, offset: u16, val: u16) {
+        if self.horizontal_window.queue_write(
+            offset,
+            val,
+            true,
+            C::SUPPORTS_DIWHIGH,
+            C::OUTPUT_SAMPLES_PER_LORES == 4,
+        ) {
+            return;
+        }
         if (0x0180..=0x01BE).contains(&offset) && offset.is_multiple_of(2) {
-            if !self.ocs.write_color_with_early_output_delay(offset, val) {
+            if !self.ocs.write_color_before_output_tick(offset, val) {
                 self.pending_early_writes.push(DenisePendingRegisterWrite {
                     register: offset,
                     value: val,
@@ -312,23 +357,23 @@ impl<C: DeniseChip> Denise<C> {
     }
 
     /// CLXDAT register read ($DFF00E) — latched sprite/playfield
-    /// collision bits, cleared on read. Forwarded to the concrete
-    /// chip's collision latch.
+    /// collision bits, cleared on read, with the fixed high bit set.
+    /// The concrete chip keeps only the underlying collision latch.
     pub fn read_clxdat(&mut self) -> u16 {
-        self.ocs.read_clxdat()
+        self.ocs.read_clxdat() | 0x8000
     }
 
     /// Non-destructive CLXDAT read for the debug / inspection bus
     /// (`&self`); does not clear the latch.
     #[must_use]
     pub fn peek_clxdat(&self) -> u16 {
-        self.ocs.peek_clxdat()
+        self.ocs.peek_clxdat() | 0x8000
     }
 
     /// Framebuffer dimensions (width, height).
     #[must_use]
     pub fn framebuffer_size(&self) -> (u32, u32) {
-        (FB_WIDTH, FB_HEIGHT)
+        (Self::FRAMEBUFFER_WIDTH, FB_HEIGHT)
     }
 
     /// Read-only framebuffer access.
@@ -342,6 +387,9 @@ impl<C: DeniseChip> Denise<C> {
     #[must_use]
     pub fn board_pipeline_diagnostic_snapshot(&self) -> DeniseBoardPipelineDiagnosticSnapshot {
         DeniseBoardPipelineDiagnosticSnapshot {
+            horizontal_counter: self.horizontal_counter,
+            horizontal_diw_active: self.horizontal_diw_active,
+            horizontal_window: self.horizontal_window.clone(),
             bytes_this_line: self.bytes_this_line,
             last_begin_line: self.last_begin_line,
             prior_line_raster: self.prior_line_raster.map(|prior| {
@@ -356,7 +404,59 @@ impl<C: DeniseChip> Denise<C> {
                 }
             }),
             pending_early_writes: self.pending_early_writes.clone(),
+            pending_bitplane_dma: self.pending_bitplane_dma,
         }
+    }
+
+    /// Validate saved DMA, horizontal-counter and window-delivery stages.
+    pub fn validate_pending_bitplane_dma(&self) -> Result<(), String> {
+        self.horizontal_counter.validate()?;
+        self.horizontal_window
+            .validate(C::SUPPORTS_DIWHIGH, C::OUTPUT_SAMPLES_PER_LORES == 4)?;
+        if let Some(pending) = self.pending_bitplane_dma
+            && (pending.plane >= 8 || !matches!(pending.width_words, 1 | 2 | 4))
+        {
+            return Err("invalid pending Denise bitplane DMA transfer".into());
+        }
+        Ok(())
+    }
+
+    /// Capture the timing strobe actually delivered by the shared RGA service.
+    pub fn service_timing_strobe(&mut self, strobe: DeniseStrobe) {
+        self.horizontal_counter.service_strobe(strobe);
+    }
+
+    /// Comparison position for the output tick about to run. Blanking
+    /// selectors consume this same counter, independently of host storage.
+    #[must_use]
+    pub const fn output_comparator_position(&self) -> u16 {
+        self.horizontal_counter.position()
+    }
+
+    /// Standalone endpoint calls provide a beam coordinate directly; a
+    /// connected machine always obtains comparisons from the strobe counter.
+    #[must_use]
+    pub fn output_comparator_position_for(
+        &self,
+        agnus: &commodore_agnus_ocs::Agnus,
+        phase: u8,
+    ) -> u16 {
+        if agnus.dma_pipeline().stages_started() {
+            self.output_comparator_position()
+        } else {
+            agnus.hpos * 2 + u16::from(phase)
+        }
+    }
+
+    /// Start an existing lores output tick in Denise's counter domain.
+    pub fn begin_counter_output_tick(&mut self) -> u16 {
+        self.horizontal_counter
+            .begin_output_tick(C::RESETS_COUNTER_ON_EQUALISATION)
+    }
+
+    /// Commit this tick's counter state on the existing output clock.
+    pub fn end_counter_output_tick(&mut self) {
+        self.horizontal_counter.end_output_tick();
     }
 
     /// Number of fields whose final displayed raster row is complete.
@@ -428,10 +528,38 @@ impl<C: DeniseChip> Denise<C> {
         memory: &Memory,
         line_ccks: u16,
     ) {
+        self.tick_with_dma_output_signals(
+            phase,
+            bitplane_dma_fetch.map(BitplaneDmaInput::Granted),
+            output_signals,
+            agnus,
+            memory,
+            line_ccks,
+        );
+    }
+
+    /// Retire an addressed transfer on the ordinary output tick, then preserve
+    /// its fetched words through the existing one-CCK normal RGA stage.
+    pub fn tick_with_dma_output_signals(
+        &mut self,
+        phase: u8,
+        bitplane_dma_fetch: Option<BitplaneDmaInput>,
+        output_signals: DeniseOutputSignals,
+        agnus: &mut commodore_agnus_ocs::Agnus,
+        memory: &Memory,
+        line_ccks: u16,
+    ) {
+        assert!(
+            phase == 0 || !matches!(bitplane_dma_fetch, Some(BitplaneDmaInput::Serviced(_))),
+            "bitplane DMA serviced twice in a CCK"
+        );
         let DeniseOutputSignals {
             vertical_diw_active,
             horizontal_blanking,
         } = output_signals;
+        let denise_position = self.output_comparator_position_for(agnus, phase);
+        self.begin_counter_output_tick();
+        self.horizontal_window.begin_output_tick();
         let vpos = agnus.vpos;
         let hpos = agnus.hpos;
         let dmacon = agnus.dmacon;
@@ -446,10 +574,9 @@ impl<C: DeniseChip> Denise<C> {
         // it and one additional unit; Agnus derives that unit from the
         // installed fetch mode. Agnus also owns fixed-limit termination
         // and passes only actual grants here.
-        // Keep the chip's BPLCON0 copy in lockstep with Agnus's —
-        // Agnus owns the primary storage (it consumes BPU for the DMA
-        // scheduler); Denise reads HIRES/HOMOD/DBLPF/LACE from it.
-        self.ocs.set_bplcon0(agnus.bplcon0);
+        // Present the raw board mirror; Lisa retains a normal-stage copy
+        // for serial output independently of Alice's DMA copy.
+        self.ocs.sync_bplcon0_input(agnus.bplcon0);
         // Mirror interlace state: Agnus toggles `lof` each frame when
         // BPLCON0 LACE (bit 2) is set; Denise consumes both for
         // per-field row interleaving.
@@ -457,8 +584,19 @@ impl<C: DeniseChip> Denise<C> {
         self.ocs.set_interlace_active(lace);
         self.ocs.set_lof(agnus.lof);
 
+        let retired_bitplane_dma = if phase == 0 {
+            self.pending_bitplane_dma.take()
+        } else {
+            None
+        };
+
         // ── CCK-boundary events (phase 0 only) ──────────────────
         if phase == 0 {
+            // Host scan rows follow the physical signal, even if a collided
+            // STRHOR leaves Denise's comparator counter free-running.
+            if agnus.dma_pipeline().stages_started() && hpos >= HBLANK_START_CCK + 4 {
+                self.prior_line_raster = None;
+            }
             // Denise's display line begins at fixed HBLANK start, not when
             // Agnus's horizontal counter wraps. Until $12, physical pixels
             // still complete the preceding displayed row. Perform the
@@ -466,8 +604,10 @@ impl<C: DeniseChip> Denise<C> {
             // enhanced-chipset DDF comparator coincident with the boundary
             // contributes to the new line rather than being cleared as
             // previous-line state.
-            if hpos >= HBLANK_START_CCK {
-                self.prior_line_raster = None;
+            if hpos >= HBLANK_START_CCK && denise_position >= HBLANK_START_CCK * 2 {
+                if !agnus.dma_pipeline().stages_started() {
+                    self.prior_line_raster = None;
+                }
                 if in_visible_line && self.last_begin_line != Some(vpos) {
                     self.ocs.begin_beam_line();
                     self.last_begin_line = Some(vpos);
@@ -480,26 +620,94 @@ impl<C: DeniseChip> Denise<C> {
             // incorporates DMA enable, DDF cadence, and its variant's
             // vertical display-window decode.
             if let Some(fetch) = bitplane_dma_fetch {
-                let plane = fetch.plane as usize;
-                let width = u32::from(fetch.width_words);
-                let addr = agnus.bpl_pt[plane];
-                // First word feeds the normal shift-register load path.
-                let word = memory.read_chip_ram_word(addr);
-                self.ocs.load_bitplane(plane, word);
+                let (plane, width_words, addr, fmode, pointer_increment, legacy) = match fetch {
+                    BitplaneDmaInput::Granted(fetch) => (
+                        usize::from(fetch.plane),
+                        fetch.width_words,
+                        agnus.bpl_pt[usize::from(fetch.plane)],
+                        agnus.fmode,
+                        2 * i32::from(fetch.width_words),
+                        true,
+                    ),
+                    BitplaneDmaInput::Serviced(transfer) => {
+                        let (reservation, increment) = match transfer.target {
+                            commodore_agnus_ocs::DmaTransferTarget::Display {
+                                reservation,
+                                pointer_modulo,
+                            } => (
+                                reservation,
+                                2 * i32::from(agnus.bpl_fetch_width()) + pointer_modulo,
+                            ),
+                            commodore_agnus_ocs::DmaTransferTarget::DisplayRefresh {
+                                reservation,
+                                ..
+                            } => (reservation, 0),
+                            _ => panic!("non-display transfer passed to Denise bitplane service"),
+                        };
+                        let commodore_agnus_ocs::DisplayDmaChannel::Bitplane(plane) =
+                            reservation.channel
+                        else {
+                            panic!("non-bitplane transfer passed to Denise bitplane service");
+                        };
+                        (
+                            usize::from(plane),
+                            agnus.bpl_fetch_width(),
+                            transfer.address,
+                            agnus.fmode,
+                            increment,
+                            false,
+                        )
+                    }
+                };
+                assert!(
+                    plane < 8 && matches!(width_words, 1 | 2 | 4),
+                    "invalid bitplane service"
+                );
+                let width = u32::from(width_words);
+                // WinUAE separates early BPL1DAT sprite enable from the copy;
+                // the parallel-copy enable follows via normal RGA in idx1.
                 if plane == 0 {
-                    self.ocs.queue_shift_load_from_bpl1dat();
+                    self.ocs.enable_sprites_from_bpl1dat();
                 }
-                // AGA wide fetch (FMODE > 0): a single DMA slot transfers
-                // 2 (32-bit) or 4 (64-bit) words. The extra words queue in
-                // Denise's per-plane FIFO and reload the shift register as
-                // it drains. Width 1 (OCS / ECS) skips this loop entirely.
-                for w in 1..width {
-                    let extra = memory.read_chip_ram_word(addr.wrapping_add(2 * w));
-                    self.ocs.push_bpl_fifo(plane, extra);
+                let mut words = [0; 4];
+                for (index, word) in words.iter_mut().take(width as usize).enumerate() {
+                    // Alice selects lanes within aligned bus transfers;
+                    // a word-aligned wide fetch need not read consecutive
+                    // words. FMODE=2 also repeats a 16-bit lane in page mode.
+                    // See the primary video-output observations and reference
+                    // custom.cpp::fetch32_bpl/fetch64.
+                    let index = index as u32;
+                    let word_addr = match width {
+                        2 => {
+                            let lane = if addr & 2 != 0 {
+                                2
+                            } else if fmode & 2 != 0 {
+                                0
+                            } else {
+                                index * 2
+                            };
+                            (addr & !3).wrapping_add(lane)
+                        }
+                        4 => {
+                            let pair = if addr & 4 != 0 { 4 } else { (index / 2) * 4 };
+                            let lane = if addr & 2 != 0 { 2 } else { (index % 2) * 2 };
+                            (addr & !7).wrapping_add(pair + lane)
+                        }
+                        _ => addr.wrapping_add(index * 2),
+                    };
+                    *word = memory.read_chip_ram_word(word_addr);
                 }
-                let bytes = 2 * width;
-                agnus.bpl_pt[plane] = agnus.bpl_pt[plane].wrapping_add(bytes);
-                self.bytes_this_line += bytes;
+                self.pending_bitplane_dma = Some(PendingBitplaneDma {
+                    plane: plane as u8,
+                    width_words,
+                    words,
+                });
+                agnus.bpl_pt[plane] = addr.wrapping_add(pointer_increment as u32);
+                // Staged transfers include their captured terminal MOD. Only
+                // the legacy path still needs the line-wrap fallback below.
+                if legacy {
+                    self.bytes_this_line += 2 * width;
+                }
             }
 
             // End-of-line modulo — applied the moment hpos wraps to
@@ -539,26 +747,26 @@ impl<C: DeniseChip> Denise<C> {
             None
         };
 
-        // vAmiga's registered raster mapping treats physical positions before
-        // HBLANK start as the tail of the preceding displayed row. Extend the
-        // horizontal coordinate by that line's actual length while retaining
-        // its vertical, DDF and interlace context. Agnus time and bus ownership
-        // remain on the current physical position.
-        let projection = if hpos < HBLANK_START_CCK {
-            self.prior_line_raster.map(|prior| {
-                (
-                    prior.vpos,
-                    prior.line_ccks.saturating_add(hpos),
-                    prior.ddf_start,
-                    prior.pipeline_y,
-                    prior.vertical_diw_active,
-                    prior.interlace_row,
-                )
-            })
+        // Drawing's linear scan continues through a timing-strobe counter
+        // reset. Retain the actual position at physical wrap until horizontal
+        // blank starts the new row; comparisons still use Denise's counter.
+        let projection = if let Some(prior) = self.prior_line_raster {
+            Some((
+                prior.vpos,
+                prior.horizontal_origin.saturating_add(hpos * 2) / 2,
+                prior.ddf_start,
+                prior.pipeline_y,
+                prior.vertical_diw_active,
+                prior.interlace_row,
+            ))
         } else {
             Some((
                 vpos,
-                hpos,
+                if agnus.dma_pipeline().stages_started() {
+                    hpos.saturating_sub(4)
+                } else {
+                    denise_position / 2
+                },
                 ddf_start,
                 pipeline_y,
                 in_visible_line,
@@ -588,14 +796,14 @@ impl<C: DeniseChip> Denise<C> {
             // Horizontal visibility uses the extended Denise coordinate,
             // not the wrapped physical counter. This lets genuine bitplane
             // and sprite tails reach the right edge.
-            let beam_x_lores = u32::from(raster_hpos) * 2 + u32::from(phase);
-            let in_visible_h = horizontal_diw_active(
-                beam_x_lores,
-                agnus.diwstrt,
-                agnus.diwstop,
+            let beam_x_lores = u32::from(denise_position);
+            let horizontal_gates = self.horizontal_window.output_gates(
+                &mut self.horizontal_diw_active,
+                denise_position,
+                C::OUTPUT_SAMPLES_PER_LORES == 4,
                 self.ocs.horizontal_diw_comparator_phase(),
             );
-            let playfield_gate = raster_vertical_diw_active && in_visible_h;
+            let playfield_gates = horizontal_gates.map(|gate| raster_vertical_diw_active && gate);
 
             // The Denise pipeline runs across the complete projected raster,
             // including positions outside the host framebuffer. Early DDF
@@ -604,60 +812,43 @@ impl<C: DeniseChip> Denise<C> {
             // pending word. Only framebuffer storage is viewport-clipped.
             // The bitplane pipeline uses DDF-relative coordinates, while the
             // sprite comparator consumes the extended absolute beam position.
-            let dbg = self.ocs.output_pixel_with_beam_sprite_coords(
+            let dbg = self.ocs.output_pixel_with_sample_gates(
                 pipeline_x,
                 raster_pipeline_y,
                 pipeline_x,
                 raster_pipeline_y,
                 beam_x_lores,
                 u32::from(raster_vpos),
-                playfield_gate,
+                playfield_gates,
             );
-            let samples = if dbg.called {
-                match dbg.source_pixels_per_fb_pixel.min(2) {
-                    0 => [(0, 0, false), (0, 0, false)],
-                    1 => [
+            // Resolve all retained samples, including the odd 35 ns samples
+            // that the hires transport used to discard. A slower source is
+            // held for the corresponding number of output samples.
+            let mut composed_pixels = [0xFF00_0000; 4];
+            for (sample, pixel) in composed_pixels
+                .iter_mut()
+                .enumerate()
+                .take(C::OUTPUT_SAMPLES_PER_LORES as usize)
+            {
+                let source = sample * usize::from(dbg.output_samples_per_fb_pixel)
+                    / C::OUTPUT_SAMPLES_PER_LORES as usize;
+                let (playfield, output, sprite) =
+                    if dbg.called && dbg.output_samples_per_fb_pixel != 0 {
                         (
-                            dbg.quad_playfield_color_idx[0],
-                            dbg.final_color_idx,
-                            dbg.quad_is_sprite[0],
-                        ),
-                        (
-                            dbg.quad_playfield_color_idx[0],
-                            dbg.final_color_idx,
-                            dbg.quad_is_sprite[0],
-                        ),
-                    ],
-                    _ => [
-                        (
-                            dbg.quad_playfield_color_idx[0],
-                            dbg.quad_color_idx[0],
-                            dbg.quad_is_sprite[0],
-                        ),
-                        (
-                            dbg.quad_playfield_color_idx[1],
-                            dbg.quad_color_idx[1],
-                            dbg.quad_is_sprite[1],
-                        ),
-                    ],
-                }
-            } else {
-                [(0, 0, false), (0, 0, false)]
-            };
-
-            // Resolve each hires output sample once even when it is not
-            // retained. HAM and Lisa's delayed COLOR-write path are stateful,
-            // so composition is part of raster advancement rather than host
-            // framebuffer storage.
-            let composed_pixels =
-                samples.map(|(playfield_color_idx, output_color_idx, is_sprite)| {
-                    self.ocs.resolve_output_color_argb(
-                        playfield_color_idx,
-                        output_color_idx,
-                        is_sprite,
-                    )
-                });
+                            dbg.quad_playfield_color_idx[source],
+                            dbg.quad_color_idx[source],
+                            dbg.quad_is_sprite[source],
+                        )
+                    } else {
+                        (0, 0, false)
+                    };
+                *pixel =
+                    self.ocs
+                        .resolve_output_sample_argb(playfield, output, sprite, sample as u8);
+            }
             output_samples_advanced = true;
+            let border_blanking =
+                playfield_gates.map(|gate| self.ocs.border_blanking_for_output(gate));
 
             if in_viewport_h && in_viewport_v {
                 let local_y = u32::from(raster_vpos - VIEWPORT_V_START_LINE) * 2;
@@ -672,14 +863,23 @@ impl<C: DeniseChip> Denise<C> {
                 // samples onto two host rows without advancing them twice.
                 for &row_offset in row_offsets {
                     let dy = local_y + row_offset;
-                    for (dx, composed_pixel) in composed_pixels.iter().copied().enumerate() {
-                        let pixel = if horizontal_blanking.contains_output_sample(dx as u8) {
+                    for (dx, composed_pixel) in composed_pixels
+                        [..C::OUTPUT_SAMPLES_PER_LORES as usize]
+                        .iter()
+                        .copied()
+                        .enumerate()
+                    {
+                        let pixel = if border_blanking
+                            [dx * 4 / C::OUTPUT_SAMPLES_PER_LORES as usize]
+                            || horizontal_blanking
+                                .contains_output_sample(dx as u8, C::OUTPUT_SAMPLES_PER_LORES)
+                        {
                             0xFF00_0000
                         } else {
                             composed_pixel
                         };
-                        let x = local_x * 2 + dx as u32;
-                        let idx = (dy * FB_WIDTH + x) as usize;
+                        let x = local_x * C::OUTPUT_SAMPLES_PER_LORES + dx as u32;
+                        let idx = (dy * Self::FRAMEBUFFER_WIDTH + x) as usize;
                         if idx < self.framebuffer.len() {
                             self.framebuffer[idx] = pixel;
                         }
@@ -693,9 +893,28 @@ impl<C: DeniseChip> Denise<C> {
         // output to consume. Still advance the standalone colour-output
         // delay so a register write cannot remain pending indefinitely.
         if !output_samples_advanced {
-            self.ocs.advance_color_output_samples(2);
+            self.ocs
+                .advance_color_output_samples(C::OUTPUT_SAMPLES_PER_LORES as u8);
         }
 
+        // DMA owns the current Agnus slot, but its data reaches Denise's
+        // normal RGA stage one CCK later. WinUAE drawing.cpp:
+        // do_denise_cck consumes expand_drga at idx1 (current slot - 1),
+        // and expand_drga handles BPLxDAT / bpldat_docopy. Making the
+        // BPL1DAT copy eligible in the fetch slot lets scroll 13..15
+        // select the preceding word, producing a 16-pixel wrap jump.
+        // Retire after this tick's pixel: WinUAE tests the copy comparator
+        // after output, while our chip checks before the following pixel.
+        if let Some(pending) = retired_bitplane_dma {
+            let plane = usize::from(pending.plane);
+            self.ocs.load_bitplane(plane, pending.words[0]);
+            for &word in &pending.words[1..usize::from(pending.width_words)] {
+                self.ocs.push_bpl_fifo(plane, word);
+            }
+            if plane == 0 {
+                self.ocs.queue_shift_load_from_bpl1dat();
+            }
+        }
         // COLOR writes become chip-visible only after this output tick. This
         // is Denise's early RGA stage; AGA Lisa's existing colour-output
         // delay remains inside `DeniseAga::handle_color_write`.
@@ -714,6 +933,11 @@ impl<C: DeniseChip> Denise<C> {
             self.prior_line_raster = Some(PriorLineRasterContext {
                 vpos,
                 line_ccks,
+                horizontal_origin: if agnus.dma_pipeline().stages_started() {
+                    line_ccks.saturating_sub(4) * 2
+                } else {
+                    denise_position + 1
+                },
                 vbl_count: agnus.vbl_count,
                 ddf_start,
                 pipeline_y,
@@ -721,6 +945,7 @@ impl<C: DeniseChip> Denise<C> {
                 interlace_row,
             });
         }
+        self.end_counter_output_tick();
     }
 }
 
@@ -736,7 +961,88 @@ pub(crate) fn rgb12_to_argb(c12: u16) -> u32 {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn lost_strobe_does_not_move_the_physical_host_scan() {
+        use super::{Denise, DeniseOutputSignals, FB_WIDTH};
+        use crate::memory::Memory;
+        use commodore_agnus_ocs::Agnus;
+        use commodore_denise_ocs::DeniseOcs;
+
+        for counter_ticks in [0, 140, 510] {
+            let mut agnus = Agnus::new();
+            agnus.hpos = 60;
+            agnus.vpos = 50;
+            assert!(agnus.begin_dma_cck().is_none());
+            let mut denise = Denise::<DeniseOcs>::new();
+            for _ in 0..counter_ticks {
+                denise.begin_counter_output_tick();
+                denise.end_counter_output_tick();
+            }
+            denise.ocs.set_palette(0, 0xABC);
+            for _ in 0..4 {
+                denise.ocs.advance_register_output_pipeline();
+            }
+            let memory = Memory::new(vec![0; 256 * 1024]);
+            denise.tick_with_dma_output_signals(
+                0,
+                None,
+                DeniseOutputSignals::unblanked(false),
+                &mut agnus,
+                &memory,
+                227,
+            );
+            // The retained PAL scan origin is h4; counters affect chip
+            // comparisons, while the physical output sample has a fixed x.
+            let x = (60 - 4 - 0x2C) * 4;
+            let y = (50 - 0x19) * 2;
+            assert_eq!(
+                denise.framebuffer[(y * FB_WIDTH + x) as usize],
+                0xFFAA_BBCC,
+                "host sample moved with the chip counter at {counter_ticks}"
+            );
+
+            // A lost reset must also leave the preceding physical row's
+            // post-wrap tail in place. Check both PAL line lengths with a
+            // visible border sample so two clipped black results cannot pass.
+            for line_ccks in [227, 228] {
+                agnus.hpos = line_ccks - 1;
+                agnus.vpos = 50;
+                denise.tick_with_dma_output_signals(
+                    1,
+                    None,
+                    DeniseOutputSignals::unblanked(false),
+                    &mut agnus,
+                    &memory,
+                    line_ccks,
+                );
+                agnus.hpos = 0;
+                agnus.vpos = 51;
+                denise.tick_with_dma_output_signals(
+                    0,
+                    None,
+                    DeniseOutputSignals::unblanked(false),
+                    &mut agnus,
+                    &memory,
+                    line_ccks,
+                );
+                let tail_x = u32::from(line_ccks - 4 - 0x2C) * 4;
+                assert_eq!(
+                    denise.framebuffer[(y * FB_WIDTH + tail_x) as usize],
+                    0xFFAA_BBCC,
+                    "post-wrap host sample moved with counter {counter_ticks}, line {line_ccks}"
+                );
+            }
+        }
+    }
     use super::*;
+
+    fn settle_window<C: DeniseChip>(denise: &mut Denise<C>, start: u16, stop: u16) {
+        denise.write_word(0x08E, start);
+        denise.write_word(0x090, stop);
+        for _ in 0..2 {
+            denise.horizontal_window.begin_output_tick();
+        }
+    }
 
     fn capture_prior_line_tail(
         denise: &mut Denise<commodore_denise_ocs::DeniseOcs>,
@@ -835,49 +1141,89 @@ mod tests {
 
     #[test]
     fn horizontal_diw_gate_obeys_the_variant_comparator_phase() {
-        let diwstrt = 0x2C81;
-        let diwstop = 0x2CC1;
-
-        let before = |beam_x| {
-            horizontal_diw_active(
-                beam_x,
-                diwstrt,
-                diwstop,
+        for (phase, positions, expected) in [
+            (
                 HorizontalDiwComparatorPhase::BeforeOutput,
-            )
-        };
-        assert!(!before(0x080));
-        assert!(before(0x081));
-        assert!(before(0x1C0));
-        assert!(!before(0x1C1));
-
-        let after = |beam_x| {
-            horizontal_diw_active(
-                beam_x,
-                diwstrt,
-                diwstop,
+                [0x80, 0x81, 0x1C0, 0x1C1],
+                [false, true, true, false],
+            ),
+            (
                 HorizontalDiwComparatorPhase::AfterOutput,
-            )
-        };
-        assert!(!after(0x081));
-        assert!(after(0x082));
-        assert!(after(0x1C1));
-        assert!(!after(0x1C2));
+                [0x81, 0x82, 0x1C1, 0x1C2],
+                [false, true, true, false],
+            ),
+        ] {
+            let mut window = DeniseWindow::default();
+            window.queue_write(0x08E, 0x2C81, false, true, true);
+            window.queue_write(0x090, 0x2CC1, false, true, true);
+            window.begin_output_tick();
+            window.begin_output_tick();
+            let mut active = false;
+            for (position, expected) in positions.into_iter().zip(expected) {
+                assert_eq!(
+                    window.output_gates(&mut active, position, true, phase),
+                    [expected; 4]
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn horizontal_diw_retains_only_matches_across_counter_reset_and_register_rewrites() {
+        for phase in [
+            HorizontalDiwComparatorPhase::BeforeOutput,
+            HorizontalDiwComparatorPhase::AfterOutput,
+        ] {
+            for stop in [0xC1, 0xD1] {
+                let mut window = DeniseWindow::default();
+                window.queue_write(0x08E, 0x51, false, true, true);
+                window.queue_write(0x090, stop, false, true, true);
+                window.begin_output_tick();
+                window.begin_output_tick();
+                let mut active = false;
+                for position in 0..456 {
+                    window.output_gates(&mut active, position, true, phase);
+                }
+                assert_eq!(active, stop == 0xD1);
+                for position in 2..36 {
+                    assert_eq!(
+                        window.output_gates(&mut active, position, true, phase),
+                        [stop == 0xD1; 4],
+                        "counter reset is not a stop event"
+                    );
+                }
+                window.queue_write(0x08E, 0x81, false, true, true);
+                window.begin_output_tick();
+                window.begin_output_tick();
+                window.output_gates(&mut active, 0x81, true, phase);
+                assert!(active);
+                window.queue_write(0x090, 0xB0, false, true, true);
+                window.begin_output_tick();
+                window.begin_output_tick();
+                window.output_gates(&mut active, 0x1D0, true, phase);
+                assert!(active, "a stop rewritten behind the beam cannot match");
+                window.queue_write(0x090, 0xD1, false, true, true);
+                window.begin_output_tick();
+                window.begin_output_tick();
+                window.output_gates(&mut active, 0x1D1, true, phase);
+                assert!(!active, "a future stop must match");
+            }
+        }
     }
 
     #[test]
     fn horizontal_blanking_carries_composed_output_levels_only() {
         let disabled = HorizontalBlanking::disabled();
-        assert!(!disabled.contains_output_sample(0));
-        assert!(!disabled.contains_output_sample(1));
+        assert!(!disabled.contains_output_sample(0, 2));
+        assert!(!disabled.contains_output_sample(1, 2));
 
         let enabled = HorizontalBlanking::from_level(true);
-        assert!(enabled.contains_output_sample(0));
-        assert!(enabled.contains_output_sample(1));
+        assert!(enabled.contains_output_sample(0, 2));
+        assert!(enabled.contains_output_sample(1, 2));
 
         let split = HorizontalBlanking::from_output_samples([true, false]);
-        assert!(split.contains_output_sample(0));
-        assert!(!split.contains_output_sample(1));
+        assert!(split.contains_output_sample(0, 2));
+        assert!(!split.contains_output_sample(1, 2));
     }
 
     #[test]
@@ -976,6 +1322,9 @@ mod tests {
         agnus.bplcon0 = 0xE800; // HIRES, six planes, HAM
 
         let mut denise = Denise::<DeniseOcs>::new();
+        // This isolated pixel fixture starts after the horizontal start match.
+        settle_window(&mut denise, agnus.diwstrt, agnus.diwstop);
+        denise.horizontal_diw_active = true;
         denise.ocs.set_palette(0, 0x000);
         // Emit HAM indices $2F (modify red) then $3F (modify green).
         // Re-resolving the pair for the doubled host row would retain the
@@ -1107,10 +1456,14 @@ mod tests {
         assert_eq!(
             denise.board_pipeline_diagnostic_snapshot(),
             DeniseBoardPipelineDiagnosticSnapshot {
+                horizontal_counter: DeniseHorizontalCounter::default(),
+                horizontal_diw_active: false,
+                horizontal_window: DeniseWindow::default(),
                 bytes_this_line: 0,
                 last_begin_line: None,
                 prior_line_raster: None,
                 pending_early_writes: Vec::new(),
+                pending_bitplane_dma: None,
             },
         );
 
@@ -1131,21 +1484,37 @@ mod tests {
             &memory,
             line_ccks,
         );
+        let mut expected_counter = DeniseHorizontalCounter::default();
+        expected_counter.begin_output_tick(false);
+        expected_counter.end_output_tick();
         assert_eq!(
             denise.board_pipeline_diagnostic_snapshot(),
             DeniseBoardPipelineDiagnosticSnapshot {
+                horizontal_counter: expected_counter,
+                horizontal_diw_active: false,
+                horizontal_window: DeniseWindow::default(),
                 bytes_this_line: 2,
                 last_begin_line: Some(0x002C),
                 prior_line_raster: None,
                 pending_early_writes: Vec::new(),
+                pending_bitplane_dma: Some(PendingBitplaneDma {
+                    plane: 0,
+                    width_words: 1,
+                    words: [0; 4]
+                }),
             },
         );
 
         agnus.hpos = line_ccks - 1;
         denise.tick(1, None, true, &mut agnus, &memory, line_ccks);
+        expected_counter.begin_output_tick(false);
+        expected_counter.end_output_tick();
         assert_eq!(
             denise.board_pipeline_diagnostic_snapshot(),
             DeniseBoardPipelineDiagnosticSnapshot {
+                horizontal_counter: expected_counter,
+                horizontal_diw_active: false,
+                horizontal_window: DeniseWindow::default(),
                 bytes_this_line: 2,
                 last_begin_line: Some(0x002C),
                 prior_line_raster: Some(DenisePriorLineRasterDiagnosticSnapshot {
@@ -1158,6 +1527,11 @@ mod tests {
                     interlace_row: None,
                 }),
                 pending_early_writes: Vec::new(),
+                pending_bitplane_dma: Some(PendingBitplaneDma {
+                    plane: 0,
+                    width_words: 1,
+                    words: [0; 4]
+                }),
             },
         );
 
@@ -1170,38 +1544,119 @@ mod tests {
     }
 
     #[test]
-    fn color_write_crosses_the_early_output_stage() {
-        use commodore_agnus_ocs::Agnus;
+    fn clxdat_register_reads_include_fixed_high_bit_without_storing_it() {
         use commodore_denise_ocs::DeniseOcs;
-
-        let memory = Memory::new(vec![0; 2]);
-        let mut agnus = Agnus::new();
         let mut denise = Denise::<DeniseOcs>::new();
-        denise.ocs.set_palette(0, 0x0123);
+        for latch in [0, 1, 0x0267, 0x7FFF] {
+            denise.ocs.clxdat = latch;
+            assert_eq!(denise.peek_clxdat(), latch | 0x8000);
+            assert_eq!(
+                denise.ocs.peek_clxdat(),
+                latch,
+                "inspection must not clear raw latch bits"
+            );
+            assert_eq!(denise.read_clxdat(), latch | 0x8000);
+            assert_eq!(denise.ocs.peek_clxdat(), 0);
+            assert_eq!(denise.peek_clxdat(), 0x8000);
+            assert_eq!(denise.read_clxdat(), 0x8000);
+        }
+    }
 
-        denise.write_word_before_output_tick(0x0180, 0x0ABC);
-
-        assert_eq!(denise.color(0), 0x0123);
-        assert_eq!(
-            denise
-                .board_pipeline_diagnostic_snapshot()
-                .pending_early_writes,
-            vec![DenisePendingRegisterWrite {
-                register: 0x0180,
-                value: 0x0ABC,
-            }],
-        );
-
-        let line_ccks = agnus.current_line_ccks();
-        denise.tick(0, None, false, &mut agnus, &memory, line_ccks);
-
-        assert_eq!(denise.color(0), 0x0ABC);
+    #[test]
+    fn ocs_copper_color_is_visible_on_the_dispatch_output_tick() {
+        use commodore_denise_ocs::DeniseOcs;
+        let mut denise = Denise::<DeniseOcs>::new();
+        denise.write_word(0x180, 0x123);
+        denise.write_word_before_output_tick(0x180, 0xABC);
+        // Observe the chip's output before the board can retire queued writes.
+        assert_eq!(denise.ocs.output_pixel_color(0, 0), rgb12_to_argb(0xABC));
         assert!(
             denise
                 .board_pipeline_diagnostic_snapshot()
                 .pending_early_writes
-                .is_empty(),
+                .is_empty()
         );
+    }
+
+    #[test]
+    fn lisa_output_stage_preserves_16_32_and_64_pixel_payloads() {
+        use commodore_denise_ocs::DeniseOcs;
+        for width in [16, 32, 64] {
+            let mut denise = DeniseOcs::new();
+            denise.max_bitplanes = 8;
+            denise.spr_width = width;
+            denise.begin_beam_line();
+            denise.write_sprite_pos(0, 0);
+            denise.write_sprite_ctl(0, 1); // odd HSTART=1
+            denise.write_sprite_datb_wide(0, 0);
+            denise.write_sprite_data_wide(0, u64::MAX >> (64 - width));
+            denise.queue_shift_load_from_bpl1dat();
+            for x in 0..u32::from(width) + 5 {
+                let output = denise.output_pixel_with_beam(x, 0, x, 0);
+                assert_eq!(
+                    output.quad_is_sprite[0],
+                    (2..2 + u32::from(width)).contains(&x),
+                    "width={width}, x={x}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn lisa_pending_sprite_code_survives_restore_and_collides_at_visible_output() {
+        use commodore_denise_ocs::DeniseOcs;
+        let mut original = DeniseOcs::new();
+        original.max_bitplanes = 8;
+        original.clxcon = 0xFFFF;
+        original.begin_beam_line();
+        for sprite in [0, 2] {
+            original.write_sprite_pos(sprite, 0);
+            original.write_sprite_ctl(sprite, 0);
+            original.write_sprite_datb(sprite, 0);
+            original.write_sprite_data(sprite, 0x8000);
+        }
+        original.queue_shift_load_from_bpl1dat();
+        let _ = original.output_pixel_with_beam(0, 0, 0, 0);
+        assert_eq!(original.diagnostic_snapshot().sprites[0].shift_count, 16);
+        // Save after the match, before the first serial code. AGA shares
+        // the one-lores load period; no additional output queue intervenes.
+        assert_eq!(original.read_clxdat() & (1 << 9), 0);
+        let encoded = postcard::to_allocvec(&original).expect("serialize pending Lisa sprite");
+        let mut restored: DeniseOcs =
+            postcard::from_bytes(&encoded).expect("restore pending Lisa sprite");
+        for x in 1..20 {
+            let expected = original.output_pixel_with_beam(x, 0, x, 0);
+            let actual = restored.output_pixel_with_beam(x, 0, x, 0);
+            assert_eq!(actual, expected);
+            assert_eq!(actual.quad_is_sprite[0], x == 1);
+            let collision = original.read_clxdat() & (1 << 9);
+            assert_eq!(collision != 0, x == 1);
+            assert_eq!(restored.read_clxdat() & (1 << 9), collision);
+        }
+        original.begin_beam_line();
+        assert_eq!(
+            original.diagnostic_snapshot().sprites[0].pending_output_code,
+            0
+        );
+    }
+
+    #[test]
+    fn ecs_copper_color_reaches_the_dispatch_output_tick() {
+        use commodore_denise_ecs::DeniseEcs;
+        let mut denise = Denise::<DeniseEcs>::new();
+        denise.ocs.set_palette(0, 0x0123);
+        // Counter-traced ECS control: four successive MOVEs appear at
+        // 292, 300, 308 and 316, without a further lores output tick.
+        for value in [0x0F00, 0x00F0, 0x000F, 0x0FF0] {
+            denise.write_word_before_output_tick(0x0180, value);
+            assert_eq!(denise.ocs.output_pixel_color(0, 0), rgb12_to_argb(value));
+            assert!(
+                denise
+                    .board_pipeline_diagnostic_snapshot()
+                    .pending_early_writes
+                    .is_empty()
+            );
+        }
     }
 
     #[test]
@@ -1223,21 +1678,21 @@ mod tests {
     }
 
     #[test]
-    fn pending_early_color_write_survives_serialization() {
-        use commodore_denise_ocs::DeniseOcs;
+    fn ecs_dispatched_copper_color_survives_serialization() {
+        use commodore_denise_ecs::DeniseEcs;
 
-        let mut denise = Denise::<DeniseOcs>::new();
+        let mut denise = Denise::<DeniseEcs>::new();
         denise.write_word_before_output_tick(0x0180, 0x0ABC);
 
         let encoded = postcard::to_allocvec(&denise).expect("serialize Denise pipeline");
-        let restored: Denise<DeniseOcs> =
+        let restored: Denise<DeniseEcs> =
             postcard::from_bytes(&encoded).expect("deserialize Denise pipeline");
 
         assert_eq!(
             restored.board_pipeline_diagnostic_snapshot(),
             denise.board_pipeline_diagnostic_snapshot(),
         );
-        assert_eq!(restored.color(0), 0);
+        assert_eq!(restored.color(0), 0x0ABC);
     }
 
     #[test]
@@ -1360,6 +1815,9 @@ mod tests {
         agnus.diwstop = 0xF4FF;
 
         let mut denise = Denise::<DeniseOcs>::new();
+        // This isolated pixel fixture starts after the horizontal start match.
+        settle_window(&mut denise, agnus.diwstrt, agnus.diwstop);
+        denise.horizontal_diw_active = true;
         denise.ocs.set_palette(0, 0x000);
         denise.ocs.set_palette(17, 0xF00);
         denise.ocs.write_sprite_pos(0, 0x3264); // HSTART=200
@@ -1410,6 +1868,9 @@ mod tests {
         agnus.bplcon0 = 0x6800; // six planes, HAM
 
         let mut denise = Denise::<DeniseOcs>::new();
+        // This isolated pixel fixture starts after the horizontal start match.
+        settle_window(&mut denise, agnus.diwstrt, agnus.diwstop);
+        denise.horizontal_diw_active = true;
         denise.ocs.set_palette(0, 0x123);
         denise.ocs.set_palette(17, 0xF00);
         denise.ocs.write_sprite_pos(0, 0x3264); // HSTART=200
@@ -1562,6 +2023,239 @@ mod tests {
     }
 
     #[test]
+    fn aga_bitplane_dma_selects_word_lanes_before_the_pending_stage() {
+        use commodore_agnus_ocs::Agnus;
+        use commodore_denise_ocs::DeniseOcs;
+
+        // Reference custom.cpp::fetch32_bpl/fetch64. Distinct data in every
+        // lane distinguishes address selection from consecutive reads.
+        let lanes = [0x1234, 0x5678, 0x9ABC, 0xDEF0, 0x1357, 0x2468, 0x369A];
+        let cases = [
+            (0, 0, &[0][..]),
+            (0, 2, &[1][..]),
+            (0, 4, &[2][..]),
+            (0, 6, &[3][..]),
+            (1, 0, &[0, 1][..]),
+            (1, 2, &[1, 1][..]),
+            (1, 4, &[2, 3][..]),
+            (1, 6, &[3, 3][..]),
+            (2, 0, &[0, 0][..]),
+            (2, 2, &[1, 1][..]),
+            (2, 4, &[2, 2][..]),
+            (2, 6, &[3, 3][..]),
+            (3, 0, &[0, 1, 2, 3][..]),
+            (3, 2, &[1, 1, 3, 3][..]),
+            (3, 4, &[2, 3, 2, 3][..]),
+            (3, 6, &[3, 3, 3, 3][..]),
+        ];
+        for (mode, offset, expected) in cases {
+            let mut agnus = Agnus::new();
+            agnus.agnus_id = 0x2300;
+            agnus.fmode = mode;
+            agnus.bpl_pt[0] = 0x1000 + offset;
+            agnus.hpos = 0x60;
+            agnus.vpos = 0x30;
+            let width = agnus.bpl_fetch_width();
+            let mut memory = Memory::new(vec![0; 256 * 1024]);
+            for (index, word) in lanes.into_iter().enumerate() {
+                memory.write_word(0x1000 + index as u32 * 2, word);
+            }
+            let mut denise = Denise::<DeniseOcs>::new();
+            let ccks = agnus.current_line_ccks();
+            denise.tick(
+                0,
+                Some(BitplaneDmaFetch {
+                    plane: 0,
+                    width_words: width,
+                }),
+                true,
+                &mut agnus,
+                &memory,
+                ccks,
+            );
+            let pending = denise
+                .pending_bitplane_dma
+                .expect("granted DMA enters pending stage");
+            let expected: Vec<_> = expected.iter().map(|&lane| lanes[lane]).collect();
+            assert_eq!(
+                &pending.words[..usize::from(width)],
+                expected,
+                "FMODE={mode}, address offset={offset}"
+            );
+            assert_eq!(agnus.bpl_pt[0], 0x1000 + offset + u32::from(width) * 2);
+            // The chosen words must survive pending-stage serialization,
+            // later RAM writes and a different FMODE at retirement.
+            let encoded = postcard::to_allocvec(&denise).expect("serialize selected DMA lanes");
+            let mut restored: Denise<DeniseOcs> =
+                postcard::from_bytes(&encoded).expect("restore selected DMA lanes");
+            for index in 0..lanes.len() {
+                memory.write_word(0x1000 + index as u32 * 2, 0);
+            }
+            assert_eq!(restored.pending_bitplane_dma, Some(pending));
+            agnus.fmode = 0;
+            agnus.hpos += 1;
+            restored.tick(0, None, true, &mut agnus, &memory, ccks);
+            assert!(restored.pending_bitplane_dma.is_none());
+            assert_eq!(
+                restored.ocs.diagnostic_snapshot().bitplanes.holding_data[0],
+                pending.words[0]
+            );
+        }
+    }
+
+    #[test]
+    fn pending_dma_roundtrip_preserves_fetched_words_and_wide_tails() {
+        use commodore_agnus_ocs::Agnus;
+        use commodore_denise_ocs::DeniseOcs;
+
+        for width in [1, 2, 4] {
+            let mut agnus = Agnus::new();
+            agnus.dmacon = 0x0300;
+            agnus.bplcon0 = 0x1000;
+            agnus.ddfstrt = 0x30;
+            agnus.diwstrt = 0x2C81;
+            agnus.diwstop = 0x2CC1;
+            agnus.vpos = 0x30;
+            agnus.bpl_pt[0] = 0x1000;
+            let mut memory = Memory::new(vec![0; 256 * 1024]);
+            let words = [0x8000, 0x1234, 0x5678, 0x9ABC];
+            for (index, word) in words.into_iter().enumerate() {
+                memory.write_word(0x1000 + index as u32 * 2, word);
+            }
+            observe_ddf_start(&mut agnus);
+            agnus.hpos = 0x37;
+            let mut denise = Denise::<DeniseOcs>::new();
+            let line_ccks = agnus.current_line_ccks();
+            denise.tick(
+                0,
+                Some(BitplaneDmaFetch {
+                    plane: 0,
+                    width_words: width,
+                }),
+                true,
+                &mut agnus,
+                &memory,
+                line_ccks,
+            );
+            assert_eq!(agnus.bpl_pt[0], 0x1000 + u32::from(width) * 2);
+            assert!(
+                denise.ocs.sprite_bpl1dat_enabled(),
+                "early sprite enable must not wait for parallel copy"
+            );
+            assert_eq!(
+                denise.ocs.diagnostic_snapshot().bitplanes.holding_data[0],
+                0,
+                "DMA fetch must not immediately reach the Denise latch"
+            );
+            let encoded = postcard::to_allocvec(&denise).expect("serialize pending DMA");
+            let mut restored: Denise<DeniseOcs> =
+                postcard::from_bytes(&encoded).expect("restore pending DMA");
+            memory.write_word(0x1000, 0xFFFF);
+            denise.tick(1, None, true, &mut agnus, &memory, line_ccks);
+            restored.tick(1, None, true, &mut agnus, &memory, line_ccks);
+            assert!(restored.pending_bitplane_dma.is_some());
+            agnus.hpos += 1;
+            let mut restored_agnus = agnus.clone();
+            for phase in 0..2 {
+                denise.tick(phase, None, true, &mut agnus, &memory, line_ccks);
+                restored.tick(phase, None, true, &mut restored_agnus, &memory, line_ccks);
+                assert_eq!(
+                    denise.ocs.diagnostic_snapshot(),
+                    restored.ocs.diagnostic_snapshot()
+                );
+                assert_eq!(denise.framebuffer, restored.framebuffer);
+            }
+            assert_eq!(
+                restored.ocs.diagnostic_snapshot().bitplanes.holding_data[0],
+                words[0],
+                "in-flight DMA must retain the fetched word, not reread changed RAM"
+            );
+            assert!(restored.pending_bitplane_dma.is_none());
+            assert_eq!(
+                restored
+                    .ocs
+                    .diagnostic_snapshot()
+                    .bitplanes
+                    .active_fifo_lengths[0],
+                width - 1
+            );
+        }
+    }
+
+    #[test]
+    fn pending_dma_validation_rejects_invalid_plane_and_width() {
+        use commodore_denise_ocs::DeniseOcs;
+        let mut denise = Denise::<DeniseOcs>::new();
+        for (plane, width) in [(8, 1), (0, 0), (0, 3), (0, 5)] {
+            denise.pending_bitplane_dma = Some(PendingBitplaneDma {
+                plane,
+                width_words: width,
+                words: [0; 4],
+            });
+            assert!(denise.validate_pending_bitplane_dma().is_err());
+        }
+    }
+
+    #[test]
+    fn dma_fine_scroll_delays_the_same_stream_for_all_sixteen_values() {
+        use commodore_agnus_ocs::Agnus;
+        use commodore_denise_ocs::DeniseOcs;
+
+        let render =
+            |scroll: u16| {
+                let mut agnus = Agnus::new();
+                agnus.dmacon = 0x0300;
+                agnus.bplcon0 = 0x1000;
+                agnus.ddfstrt = 0x0030;
+                agnus.ddfstop = 0x00D0;
+                agnus.diwstrt = 0x2C81;
+                agnus.diwstop = 0x2CC1;
+                agnus.vpos = 0x0030;
+                agnus.bpl_pt[0] = 0x1000;
+                let mut memory = Memory::new(vec![0; 256 * 1024]);
+                for word in 0..64u32 {
+                    memory.write_word(
+                        0x1000 + word * 2,
+                        (word as u16).wrapping_mul(0x9E37) ^ 0xA55A,
+                    );
+                }
+                let mut denise = Denise::<DeniseOcs>::new();
+                settle_window(&mut denise, agnus.diwstrt, agnus.diwstop);
+                denise.ocs.bplcon1 = scroll * 0x11;
+                denise.ocs.set_palette(1, 0xFFF);
+                observe_ddf_start(&mut agnus);
+                loop {
+                    let fetch = agnus.cck_bus_plan().bitplane_dma_fetch_plane.map(|plane| {
+                        BitplaneDmaFetch {
+                            plane,
+                            width_words: 1,
+                        }
+                    });
+                    let line_ccks = agnus.current_line_ccks();
+                    denise.tick(0, fetch, true, &mut agnus, &memory, line_ccks);
+                    denise.tick(1, None, true, &mut agnus, &memory, line_ccks);
+                    if agnus.hpos == 0xE2 {
+                        break;
+                    }
+                    agnus.tick_cck();
+                }
+                let row = (0x30 - 0x19) * 2 * FB_WIDTH as usize;
+                denise.framebuffer[row..row + FB_WIDTH as usize].to_vec()
+            };
+        let baseline = render(0);
+        assert!(baseline[200..500].windows(2).any(|pair| pair[0] != pair[1]));
+        for scroll in 1..16 {
+            let pixels = render(scroll);
+            let delay = usize::from(scroll) * 2;
+            assert_eq!(
+                &pixels[200 + delay..500 + delay],
+                &baseline[200..500],
+                "scroll {scroll} must delay the identical stream without selecting a neighbouring word"
+            );
+        }
+    }
+
+    #[test]
     fn ddfstrt_rewrite_after_match_does_not_rephase_pixels() {
         use commodore_agnus_ocs::Agnus;
         use commodore_denise_ocs::DeniseOcs;
@@ -1591,6 +2285,8 @@ mod tests {
 
         let mut reference = Denise::<DeniseOcs>::new();
         let mut after_write = Denise::<DeniseOcs>::new();
+        settle_window(&mut reference, matched.diwstrt, matched.diwstop);
+        settle_window(&mut after_write, matched.diwstrt, matched.diwstop);
         reference.ocs.set_palette(1, 0xFFF);
         after_write.ocs.set_palette(1, 0xFFF);
 
@@ -1673,6 +2369,7 @@ mod tests {
         memory.write_word(0x0000_1002, 0x0000);
 
         let mut denise = Denise::<DeniseOcs>::new();
+        settle_window(&mut denise, agnus.diwstrt, agnus.diwstop);
         denise.ocs.write_word(0x102, 0); // BPLCON1
         denise.ocs.set_palette(0, 0x000);
         denise.ocs.set_palette(1, 0xFFF);
@@ -1737,6 +2434,7 @@ mod tests {
         }
 
         let mut denise = Denise::<DeniseOcs>::new();
+        settle_window(&mut denise, agnus.diwstrt, agnus.diwstop);
         denise.ocs.set_palette(0, 0x000);
         denise.ocs.set_palette(1, 0xF00);
         denise.ocs.set_palette(2, 0x0F0);
@@ -1773,6 +2471,10 @@ mod tests {
             let row = usize::from(vpos - 0x19) * 2;
             let first_visible = row * FB_WIDTH as usize + 82;
             let visible = &denise.framebuffer[first_visible..first_visible + 640];
+            assert!(
+                visible.contains(&0xFF00_00FF),
+                "both planes must contribute foreground on line {vpos}"
+            );
             assert!(
                 visible
                     .iter()

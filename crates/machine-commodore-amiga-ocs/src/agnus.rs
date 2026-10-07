@@ -51,6 +51,17 @@ pub(crate) enum ExtendedBlitterWrite {
 }
 
 impl InstalledAgnus {
+    pub(crate) fn service_retained_sprite_dma(
+        &mut self,
+        transfer: commodore_agnus_ocs::DmaTransfer,
+        width: u8,
+        read: impl FnMut(u32) -> u16,
+    ) -> (bool, u64) {
+        match self {
+            Self::EarlyOcs(agnus) => agnus.service_retained_sprite_dma(transfer, width, read),
+            Self::Fat8372A(agnus) => agnus.service_retained_sprite_dma(transfer, width, read),
+        }
+    }
     #[must_use]
     pub(crate) fn a1000(region: AgnusRegion) -> Self {
         Self::EarlyOcs(Agnus::new_a1000_with_region(region))
@@ -164,6 +175,13 @@ impl InstalledAgnus {
             Self::Fat8372A(agnus) => {
                 agnus.service_sprite_dma_cyc(channel, second_word, width, read)
             }
+        }
+    }
+
+    pub(crate) fn generate_display_dma(&mut self) {
+        match self {
+            Self::EarlyOcs(agnus) => agnus.generate_display_dma(),
+            Self::Fat8372A(agnus) => agnus.generate_display_dma(),
         }
     }
 

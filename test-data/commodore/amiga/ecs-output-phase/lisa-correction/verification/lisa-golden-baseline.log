@@ -1,0 +1,33 @@
+    Blocking waiting for file lock on build directory
+   Compiling runtime-commodore-amiga v0.25.0 (/Users/stevehill/Projects/198x/Emu198x/emu198x/crates/runtime-commodore-amiga)
+    Finished `release` profile [optimized] target(s) in 42.07s
+     Running tests/golden_matrix.rs (target/release/deps/golden_matrix-fdf2d4fb06c8f5b8)
+
+running 8 tests
+test workbench_masks_cover_only_the_allocator_readouts ... ok
+test ignored_frame_regions_exclude_only_their_own_pixels ... ok
+test a1000_ks12_no_disk ... ok
+test a500_ks13_a501_no_disk ... ok
+test a500_ks13_no_disk ... ok
+test a1000_ks12_wb12 has been running for over 60 seconds
+test a1200_ks31_wb31 has been running for over 60 seconds
+test a500_ks13_wb13 has been running for over 60 seconds
+
+thread 'a1200_ks31_wb31' (64219612) panicked at crates/runtime-commodore-amiga/tests/golden_matrix.rs:664:5:
+a1200-ks31-wb31: framebuffer doesn't match golden (15858/430144 px differ, 3.7%).
+  golden:  /Users/stevehill/Projects/198x/Emu198x/emu198x/crates/runtime-commodore-amiga/tests/goldens/a1200-ks31-wb31.png
+  actual:  /Users/stevehill/Projects/198x/Emu198x/emu198x/crates/runtime-commodore-amiga/tests/goldens/a1200-ks31-wb31.actual.png
+  diff:    /Users/stevehill/Projects/198x/Emu198x/emu198x/crates/runtime-commodore-amiga/tests/goldens/a1200-ks31-wb31.diff.png
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test a1200_ks31_wb31 ... FAILED
+test a500_ks13_wb13 ... ok
+test a1000_ks12_wb12 ... ok
+
+failures:
+
+failures:
+    a1200_ks31_wb31
+
+test result: FAILED. 7 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 119.29s
+
+error: test failed, to rerun pass `-p runtime-commodore-amiga --test golden_matrix`

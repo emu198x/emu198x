@@ -67,9 +67,11 @@ It records:
 The instruction does not sample the beam or visible blitter-busy input
 at decode.
 
-On the next eligible modeled Copper decision CCK, the Copper evaluates
-the stored position condition against the live beam and applies BFD to
-the live externally visible blitter-busy signal.
+WAIT first consumes a free idle cell, then evaluates its stored condition
+on the following eligible free comparison cell. SKIP retains its existing
+next-eligible-cell comparison pending its separate timing audit. Both
+comparisons sample the live beam and externally visible blitter-busy signal.
+Neither WAIT idle cell allocates the bus.
 
 For the horizontal part of that comparison, the effective position is:
 
@@ -126,12 +128,43 @@ kind alongside the shared Agnus blitter-startup phase. Version 15 is
 rejected before payload decoding. Raw machine and chip postcards remain
 unversioned and change positional layout.
 
+The user approved the additional WAIT idle phase and snapshot schema 48 on
+2026-10-05. Schema 47 is rejected before positional payload decoding.
+Both pending WAIT stages survive runtime replay. Source observations and
+full-raster control evidence are recorded in
+`../../../../reference/by-system/commodore-amiga/2026-copper-wait-idle-observations.md`.
+
+## Completion-dependent wake
+
+The version-50 extension preserves whether a persistent WAIT reached its
+beam target while the live BFD input still reported busy. A vertical/beam-only
+wait does not acquire that blocked reason merely because a blit was active
+earlier. Completion returns a blocked WAIT to the saved eligible comparison
+stage; it does not return directly to instruction fetch or repeat the first
+post-decode idle. The comparison yields the bus and rechecks the live beam
+and BFD inputs. COPJMP1 and COPJMP2 cancel both the blocked reason and the
+pending comparison.
+
+The paired AGA PAL trace checks all 96 programmed MOVE intervals. Its 48
+BFD=1 controls remain exact and the 48 BFD=0 MOVE intervals become exact.
+Six formerly invisible timing errors were inside blanking, so the event trace
+is required in addition to the image. The independent DMA/BFD check still
+finds four early busy boundaries and does not admit them as correct merely
+because the following MOVE matches. See the primary
+[completion-dependent wake observations](../../../../reference/by-system/commodore-amiga/2026-copper-blitter-wake-observations.md).
+
+`wait_blitter_blocked` is saved alongside the existing pending comparison
+fields and exposed through the common Copper diagnostic query. Version 50
+rejects version 49 before payload decoding; the older snapshot cannot recover
+the historical blocked reason from its instantaneous busy or beam inputs.
+
 ## Model boundary
 
-The current Copper represents the post-fetch comparison as one pending
-eligible decision CCK. This fixes which live inputs determine the
-instruction without claiming that one field reproduces every internal
-idle, request and wake state of a physical Agnus.
+The current Copper represents WAIT with a saved idle phase followed by a
+pending eligible comparison cell. SKIP retains one pending comparison cell.
+This does not reproduce every internal request and persistent wake state
+of physical Agnus. The version-48 WAIT extension closes the demonstrated
+already-satisfied AGA PAL boundary; broader timing remains bounded below.
 
 ## Deferred behaviour
 
@@ -143,8 +176,8 @@ This decision does not define:
   ECS programmable horizontal totals;
 - the exact relationship between Copper wake-up, a yielded bus request
   and the following first-word fetch;
-- the first Copper fetch after a completion-dependent wait becomes
-  eligible; or
+- exact completion-dependent wake under general DMA contention and
+  unvalidated chip revisions; or
 - undocumented revision differences.
 
 Those questions require bus traces or a separately bounded

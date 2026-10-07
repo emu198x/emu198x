@@ -43,6 +43,802 @@ use runtime_commodore_amiga::{
 };
 
 const BLTCON0: u32 = 0x00DF_F040;
+
+#[test]
+fn horizontal_display_window_survives_strobe_reset_and_half_cck_restore()
+-> Result<(), Box<dyn Error>> {
+    fn check<M: AmigaMachine + AmigaLiveAccess + AmigaDriver>(
+        mut original: AmigaRuntime<M>,
+        mut restored: AmigaRuntime<M>,
+        stop: u16,
+    ) -> Result<(), Box<dyn Error>> {
+        AmigaDriver::dispatch_custom_write(original.machine_mut(), 0x08E, 0x2051);
+        AmigaDriver::dispatch_custom_write(original.machine_mut(), 0x090, 0x40_00 | stop);
+        let mut ticks = 0;
+        while {
+            let a = AmigaDriver::agnus(original.machine());
+            (a.vpos, a.hpos) != (0x21, 3)
+        } {
+            AmigaMachine::tick(original.machine_mut());
+            ticks += 1;
+            assert!(ticks < 16_000, "beam must reach the retained right edge");
+        }
+        let expected = stop == 0xD1;
+        assert_eq!(
+            original
+                .machine()
+                .denise_board_pipeline_diagnostic_snapshot()
+                .horizontal_diw_active,
+            expected,
+            "only the ordinary stop has matched before counter reset"
+        );
+        for _ in 0..10 {
+            restored.restore(&original.snapshot()?)?;
+            AmigaMachine::tick(original.machine_mut());
+            AmigaMachine::tick(restored.machine_mut());
+            assert_eq!(
+                original
+                    .machine()
+                    .denise_board_pipeline_diagnostic_snapshot()
+                    .horizontal_diw_active,
+                expected,
+                "a strobe cannot close an unmatched overscan window"
+            );
+            assert_eq!(original.snapshot()?, restored.snapshot()?);
+        }
+        assert!(
+            original
+                .machine()
+                .denise_board_pipeline_diagnostic_snapshot()
+                .horizontal_counter
+                .position()
+                < 16
+        );
+        Ok(())
+    }
+    for stop in [0xC1, 0xD1] {
+        check(
+            AmigaOcsRuntime::blank(Model::A500OcsPal),
+            AmigaOcsRuntime::blank(Model::A500OcsPal),
+            stop,
+        )?;
+        check(
+            AmigaEcsRuntime::blank(Model::A500PlusEcsPal),
+            AmigaEcsRuntime::blank(Model::A500PlusEcsPal),
+            stop,
+        )?;
+        check(
+            AmigaA1200Runtime::blank(Model::A1200AgaPal),
+            AmigaA1200Runtime::blank(Model::A1200AgaPal),
+            stop,
+        )?;
+    }
+    Ok(())
+}
+
+#[test]
+fn malformed_combined_refresh_restore_preserves_the_destination() -> Result<(), Box<dyn Error>> {
+    use commodore_agnus_ocs::{
+        DisplayDmaChannel, DisplayDmaReservation, DmaTransfer, DmaTransferTarget,
+    };
+    fn check<M: AmigaMachine + AmigaLiveAccess + AmigaDriver>(
+        mut original: AmigaRuntime<M>,
+        mut destination: AmigaRuntime<M>,
+    ) -> Result<(), Box<dyn Error>> {
+        AmigaDriver::agnus_mut(original.machine_mut()).hpos = 60;
+        for _ in 0..2 {
+            AmigaMachine::tick(original.machine_mut());
+        }
+        let reservation = DisplayDmaReservation {
+            channel: DisplayDmaChannel::Bitplane(0),
+            width_words: 1,
+            fmode: 0,
+            add_modulo: false,
+        };
+        assert!(
+            AmigaDriver::agnus_mut(original.machine_mut()).admit_dma_transfer(DmaTransfer {
+                target: DmaTransferTarget::DisplayRefresh {
+                    reservation,
+                    fixed_register: 0,
+                },
+                address: 0x2000,
+            })
+        );
+        let before = destination.snapshot()?;
+        let error = destination
+            .restore(&original.snapshot()?)
+            .expect_err("invalid fixed RGA signal");
+        assert!(
+            error
+                .to_string()
+                .contains("invalid saved DMA transfer target"),
+            "{error}"
+        );
+        assert_eq!(
+            destination.snapshot()?,
+            before,
+            "candidate rejection is transactional"
+        );
+        Ok(())
+    }
+    check(
+        AmigaOcsRuntime::blank(Model::A500OcsPal),
+        AmigaOcsRuntime::blank(Model::A500OcsPal),
+    )?;
+    check(
+        AmigaEcsRuntime::blank(Model::A500PlusEcsPal),
+        AmigaEcsRuntime::blank(Model::A500PlusEcsPal),
+    )?;
+    check(
+        AmigaA1200Runtime::blank(Model::A1200AgaPal),
+        AmigaA1200Runtime::blank(Model::A1200AgaPal),
+    )
+}
+
+#[test]
+fn combined_refresh_display_replays_through_live_service_on_every_chipset()
+-> Result<(), Box<dyn Error>> {
+    use commodore_agnus_ocs::{
+        DisplayDmaChannel, DisplayDmaReservation, DmaAddressStage, DmaTransferTarget, SlotOwner,
+    };
+    fn check<M: AmigaMachine + AmigaLiveAccess + AmigaDriver>(
+        mut original: AmigaRuntime<M>,
+        mut restored: AmigaRuntime<M>,
+    ) -> Result<(), Box<dyn Error>> {
+        // At h2, the timing register suppresses the display data strobe.
+        // At h4, refresh's $1fe leaves BPL1DAT selected, using refresh's PT.
+        for (reservation_hpos, data_selected) in [(1, false), (3, true)] {
+            AmigaDriver::agnus_mut(original.machine_mut()).hpos = reservation_hpos - 1;
+            for _ in 0..2 {
+                AmigaMachine::tick(original.machine_mut());
+            }
+            let captured = AmigaDriver::agnus(original.machine()).refresh_dma_pointer();
+            AmigaDriver::memory_mut(original.machine_mut()).write_word(captured, 0xABCD);
+            let a = AmigaDriver::agnus_mut(original.machine_mut());
+            a.bpl_pt[0] = 0x9000;
+            a.bpl1mod = -6;
+            let reservation = DisplayDmaReservation {
+                channel: DisplayDmaChannel::Bitplane(0),
+                width_words: 1,
+                fmode: 0,
+                add_modulo: true,
+            };
+            assert!(a.reserve_display_dma(reservation));
+            restored.restore(&original.snapshot()?)?;
+            for elapsed in 1..=6 {
+                AmigaMachine::tick(original.machine_mut());
+                AmigaMachine::tick(restored.machine_mut());
+                let a = AmigaDriver::agnus(original.machine());
+                if elapsed <= 2 {
+                    let Some(DmaAddressStage::Transfer(t)) = a.dma_pipeline().address() else {
+                        panic!("live addressing must retain the combined request");
+                    };
+                    assert!(matches!(t.target, DmaTransferTarget::DisplayRefresh { .. }));
+                    assert_eq!(t.address, captured);
+                    assert_eq!(
+                        a.bpl_pt[0], 0x9000,
+                        "fixed admission skips display pointer sampling"
+                    );
+                } else if elapsed <= 4 {
+                    let plan = a.dma_service_plan().expect("retained combined service");
+                    assert_eq!(plan.slot_owner, SlotOwner::Refresh);
+                    assert!(!plan.cpu_chip_bus_granted);
+                    let increment = if a.max_bitplanes == 8 {
+                        0
+                    } else if a.agnus_id >= 0x2000 {
+                        0x200
+                    } else {
+                        2
+                    };
+                    assert_eq!(
+                        a.refresh_dma_pointer(),
+                        captured + increment,
+                        "combined bitplane refresh retains REFPTR authority"
+                    );
+                    let payload = original
+                        .machine()
+                        .denise_board_pipeline_diagnostic_snapshot()
+                        .pending_bitplane_dma;
+                    if data_selected {
+                        assert_eq!(
+                            payload.expect("actual refresh-addressed RAM").words[0],
+                            0xABCD
+                        );
+                        assert_eq!(
+                            a.bpl_pt[0], captured,
+                            "refresh suppresses display increment"
+                        );
+                    } else {
+                        assert!(
+                            payload.is_none(),
+                            "combined timing register suppresses data"
+                        );
+                        assert_eq!(
+                            a.bpl_pt[0],
+                            captured + 2,
+                            "combined bitplane skips MOD sampling"
+                        );
+                    }
+                } else if data_selected {
+                    assert_eq!(
+                        original
+                            .machine()
+                            .denise_diagnostic_snapshot()
+                            .bitplanes
+                            .holding_data[0],
+                        0xABCD,
+                        "real RGA latch receives payload"
+                    );
+                }
+                assert_eq!(original.snapshot()?, restored.snapshot()?);
+                if elapsed == 2 {
+                    let a = AmigaDriver::agnus_mut(original.machine_mut());
+                    a.bpl_pt[0] = 0x1234;
+                    a.bpl1mod = 100;
+                }
+                restored.restore(&original.snapshot()?)?;
+            }
+        }
+        Ok(())
+    }
+    check(
+        AmigaOcsRuntime::blank(Model::A500OcsPal),
+        AmigaOcsRuntime::blank(Model::A500OcsPal),
+    )?;
+    check(
+        AmigaEcsRuntime::blank(Model::A500PlusEcsPal),
+        AmigaEcsRuntime::blank(Model::A500PlusEcsPal),
+    )?;
+    check(
+        AmigaA1200Runtime::blank(Model::A1200AgaPal),
+        AmigaA1200Runtime::blank(Model::A1200AgaPal),
+    )
+}
+
+#[test]
+fn overlapping_display_address_samples_before_outgoing_pointer_service()
+-> Result<(), Box<dyn Error>> {
+    use commodore_agnus_ocs::{
+        DisplayDmaChannel, DisplayDmaReservation, DmaAddressStage, DmaTransfer, DmaTransferTarget,
+        SlotOwner,
+    };
+    fn check<M: AmigaMachine + AmigaLiveAccess + AmigaDriver>(
+        mut original: AmigaRuntime<M>,
+        mut restored: AmigaRuntime<M>,
+    ) -> Result<(), Box<dyn Error>> {
+        AmigaDriver::agnus_mut(original.machine_mut()).hpos = 60;
+        for _ in 0..2 {
+            AmigaMachine::tick(original.machine_mut());
+        }
+        AmigaDriver::memory_mut(original.machine_mut()).write_word(0x2000, 0x1111);
+        AmigaDriver::memory_mut(original.machine_mut()).write_word(0x3000, 0x3333);
+        let request = DisplayDmaReservation {
+            channel: DisplayDmaChannel::Bitplane(0),
+            width_words: 1,
+            fmode: 0,
+            add_modulo: true,
+        };
+        let transfer = |address, pointer_modulo| DmaTransfer {
+            address,
+            target: DmaTransferTarget::Display {
+                reservation: request,
+                pointer_modulo,
+            },
+        };
+        let a = AmigaDriver::agnus_mut(original.machine_mut());
+        a.bpl_pt[0] = 0x2000;
+        a.bpl1mod = -4;
+        assert!(a.reserve_display_dma(request));
+        AmigaMachine::tick(original.machine_mut());
+        assert_eq!(
+            AmigaDriver::agnus(original.machine())
+                .dma_pipeline()
+                .address(),
+            Some(DmaAddressStage::Transfer(transfer(0x2000, -4)))
+        );
+        let a = AmigaDriver::agnus_mut(original.machine_mut());
+        assert!(a.reserve_display_dma(request));
+        a.bpl_pt[0] = 0x3000;
+        a.bpl1mod = 6;
+        AmigaMachine::tick(original.machine_mut()); // second output of A's address CCK
+        restored.restore(&original.snapshot()?)?;
+        for elapsed in 1..=6 {
+            AmigaMachine::tick(original.machine_mut());
+            AmigaMachine::tick(restored.machine_mut());
+            let a = AmigaDriver::agnus(original.machine());
+            if elapsed <= 2 {
+                assert_eq!(
+                    a.dma_pipeline().address(),
+                    Some(DmaAddressStage::Transfer(transfer(0x3000, 6))),
+                    "next display PT must be sampled before the outgoing pointer update"
+                );
+                assert_eq!(a.dma_pipeline().service(), Some(transfer(0x2000, -4)));
+                assert_eq!(
+                    a.bpl_pt[0], 0x1FFE,
+                    "outgoing A still updates its captured PT"
+                );
+            } else if elapsed <= 4 {
+                assert_eq!(a.dma_pipeline().service(), Some(transfer(0x3000, 6)));
+                assert_eq!(a.bpl_pt[0], 0x3008);
+                assert_eq!(
+                    original
+                        .machine()
+                        .denise_diagnostic_snapshot()
+                        .bitplanes
+                        .holding_data[0],
+                    0x1111,
+                    "A reaches the normal RGA latch"
+                );
+            } else {
+                assert!(a.dma_pipeline().service().is_none());
+                assert_eq!(a.bpl_pt[0], 0x3008);
+                assert_eq!(
+                    original
+                        .machine()
+                        .denise_diagnostic_snapshot()
+                        .bitplanes
+                        .holding_data[0],
+                    0x3333,
+                    "B fetches its separately captured source"
+                );
+            }
+            if elapsed <= 4 {
+                assert_eq!(
+                    a.dma_service_plan().expect("outgoing owner").slot_owner,
+                    SlotOwner::Bitplane(0)
+                );
+                let pending = original
+                    .machine()
+                    .denise_board_pipeline_diagnostic_snapshot()
+                    .pending_bitplane_dma
+                    .expect("actual outgoing memory data");
+                assert_eq!(pending.words[0], if elapsed <= 2 { 0x1111 } else { 0x3333 });
+            }
+            assert_eq!(original.snapshot()?, restored.snapshot()?);
+            restored.restore(&original.snapshot()?)?;
+        }
+        Ok(())
+    }
+    check(
+        AmigaOcsRuntime::blank(Model::A500OcsPal),
+        AmigaOcsRuntime::blank(Model::A500OcsPal),
+    )?;
+    check(
+        AmigaEcsRuntime::blank(Model::A500PlusEcsPal),
+        AmigaEcsRuntime::blank(Model::A500PlusEcsPal),
+    )?;
+    check(
+        AmigaA1200Runtime::blank(Model::A1200AgaPal),
+        AmigaA1200Runtime::blank(Model::A1200AgaPal),
+    )
+}
+
+#[test]
+fn bitplane_reservation_samples_ptmod_then_reads_memory_at_live_service()
+-> Result<(), Box<dyn Error>> {
+    use commodore_agnus_ocs::{
+        DisplayDmaChannel, DisplayDmaReservation, DmaAddressStage, DmaTransfer, DmaTransferTarget,
+    };
+    fn check<M: AmigaMachine + AmigaLiveAccess + AmigaDriver>(
+        mut original: AmigaRuntime<M>,
+        mut restored: AmigaRuntime<M>,
+        widths: &[u8],
+    ) -> Result<(), Box<dyn Error>> {
+        AmigaDriver::agnus_mut(original.machine_mut()).hpos = 60;
+        for _ in 0..2 {
+            AmigaMachine::tick(original.machine_mut());
+        }
+        for &width in widths {
+            let request = DisplayDmaReservation {
+                channel: DisplayDmaChannel::Bitplane(0),
+                width_words: width,
+                fmode: 0,
+                add_modulo: true,
+            };
+            let a = AmigaDriver::agnus_mut(original.machine_mut());
+            a.bpl_pt[0] = 0x1000;
+            a.bpl1mod = 100;
+            assert!(a.reserve_display_dma(request));
+            restored.restore(&original.snapshot()?)?;
+            // Change the source before the address edge: this must be sampled.
+            let a = AmigaDriver::agnus_mut(original.machine_mut());
+            a.bpl_pt[0] = 0x2000;
+            a.bpl1mod = -4;
+            restored.restore(&original.snapshot()?)?;
+            let addressed = DmaTransfer {
+                address: 0x2000,
+                target: DmaTransferTarget::Display {
+                    reservation: request,
+                    pointer_modulo: -4,
+                },
+            };
+            for elapsed in 1..=6 {
+                AmigaMachine::tick(original.machine_mut());
+                AmigaMachine::tick(restored.machine_mut());
+                let a = AmigaDriver::agnus(original.machine());
+                if elapsed <= 2 {
+                    assert_eq!(
+                        a.dma_pipeline().address(),
+                        Some(DmaAddressStage::Transfer(addressed))
+                    );
+                    assert!(a.dma_pipeline().service().is_none());
+                    assert!(
+                        original
+                            .machine()
+                            .denise_board_pipeline_diagnostic_snapshot()
+                            .pending_bitplane_dma
+                            .is_none(),
+                        "addressing must not read RAM"
+                    );
+                } else if elapsed <= 4 {
+                    assert_eq!(a.dma_pipeline().service(), Some(addressed));
+                    let payload = original
+                        .machine()
+                        .denise_board_pipeline_diagnostic_snapshot()
+                        .pending_bitplane_dma
+                        .expect("actual service payload");
+                    assert_eq!(
+                        payload.width_words, 2,
+                        "FMODE rewrite after addressing controls service width"
+                    );
+                    assert_eq!(
+                        payload.words[0], 0xABCD,
+                        "read RAM at service, after addressing"
+                    );
+                    assert_eq!(a.bpl_pt[0], 0x2000);
+                } else {
+                    assert!(
+                        original
+                            .machine()
+                            .denise_board_pipeline_diagnostic_snapshot()
+                            .pending_bitplane_dma
+                            .is_none()
+                    );
+                    assert_eq!(
+                        original
+                            .machine()
+                            .denise_diagnostic_snapshot()
+                            .bitplanes
+                            .holding_data[0],
+                        0xABCD,
+                        "addressed service must reach the real holding latch"
+                    );
+                }
+                assert_eq!(original.snapshot()?, restored.snapshot()?);
+                if elapsed == 1 {
+                    let a = AmigaDriver::agnus_mut(original.machine_mut());
+                    a.bpl_pt[0] = 0x9000;
+                    a.bpl1mod = 200;
+                    a.fmode = 2;
+                    AmigaDriver::memory_mut(original.machine_mut()).write_word(0x2000, 0xABCD);
+                }
+                restored.restore(&original.snapshot()?)?;
+            }
+        }
+        Ok(())
+    }
+    check(
+        AmigaOcsRuntime::blank(Model::A500OcsPal),
+        AmigaOcsRuntime::blank(Model::A500OcsPal),
+        &[1],
+    )?;
+    check(
+        AmigaEcsRuntime::blank(Model::A500PlusEcsPal),
+        AmigaEcsRuntime::blank(Model::A500PlusEcsPal),
+        &[1],
+    )?;
+    check(
+        AmigaA1200Runtime::blank(Model::A1200AgaPal),
+        AmigaA1200Runtime::blank(Model::A1200AgaPal),
+        &[1, 2, 4],
+    )
+}
+
+#[test]
+fn addressed_bitplane_service_uses_saved_memory_and_replays_on_every_chipset()
+-> Result<(), Box<dyn Error>> {
+    use commodore_agnus_ocs::{
+        DisplayDmaChannel, DisplayDmaReservation, DmaTransfer, DmaTransferTarget, SlotOwner,
+    };
+    fn check<M: AmigaMachine + AmigaLiveAccess + AmigaDriver>(
+        mut original: AmigaRuntime<M>,
+        mut restored: AmigaRuntime<M>,
+        widths: &[u8],
+    ) -> Result<(), Box<dyn Error>> {
+        AmigaDriver::agnus_mut(original.machine_mut()).hpos = 60;
+        for _ in 0..2 {
+            AmigaMachine::tick(original.machine_mut());
+        }
+        for &width in widths {
+            let address = 0x2000;
+            for (index, value) in [0x1111, 0x2222, 0x3333, 0x4444].into_iter().enumerate() {
+                AmigaDriver::memory_mut(original.machine_mut())
+                    .write_word(address + index as u32 * 2, value);
+            }
+            AmigaDriver::memory_mut(original.machine_mut()).write_word(0x9000, 0xEEEE);
+            let a = AmigaDriver::agnus_mut(original.machine_mut());
+            a.bpl_pt[0] = 0x9000;
+            a.fmode = match width {
+                1 => 0,
+                2 => 2,
+                4 => 3,
+                _ => unreachable!(),
+            };
+            a.dmacon = 0; // An admitted transfer survives later DMA disable.
+            let request = DmaTransfer {
+                target: DmaTransferTarget::Display {
+                    reservation: DisplayDmaReservation {
+                        channel: DisplayDmaChannel::Bitplane(0),
+                        width_words: 1,
+                        fmode: 0,
+                        add_modulo: false,
+                    },
+                    pointer_modulo: -4,
+                },
+                address,
+            };
+            assert!(a.admit_dma_transfer(request));
+            for elapsed in 1..=4 {
+                if elapsed == 1 {
+                    AmigaMachine::tick(original.machine_mut());
+                    restored.restore(&original.snapshot()?)?;
+                } else {
+                    AmigaMachine::tick(original.machine_mut());
+                    AmigaMachine::tick(restored.machine_mut());
+                }
+                let a = AmigaDriver::agnus(original.machine());
+                let pending = original
+                    .machine()
+                    .denise_board_pipeline_diagnostic_snapshot()
+                    .pending_bitplane_dma;
+                if elapsed <= 2 {
+                    assert_eq!(a.dma_pipeline().service(), Some(request));
+                    let plan = a.dma_service_plan().expect("retained bitplane owner");
+                    assert_eq!(plan.slot_owner, SlotOwner::Bitplane(0));
+                    assert!(!plan.cpu_chip_bus_granted);
+                    let payload = pending.expect("serviced words in the normal RGA stage");
+                    assert_eq!(payload.width_words, width);
+                    let expected: &[u16] = match width {
+                        1 => &[0x1111],
+                        2 => &[0x1111, 0x1111], // Service-time FMODE page-mode lane.
+                        4 => &[0x1111, 0x2222, 0x3333, 0x4444],
+                        _ => unreachable!(),
+                    };
+                    assert_eq!(&payload.words[..usize::from(width)], expected);
+                } else {
+                    assert!(pending.is_none(), "normal RGA data retired once");
+                    assert_eq!(
+                        original
+                            .machine()
+                            .denise_diagnostic_snapshot()
+                            .bitplanes
+                            .holding_data[0],
+                        0x1111,
+                        "normal RGA must load the serviced word, despite a later RAM rewrite"
+                    );
+                }
+                assert_eq!(
+                    a.bpl_pt[0],
+                    if elapsed == 1 {
+                        address + u32::from(width) * 2 - 4
+                    } else {
+                        0xA000
+                    }
+                );
+                assert_eq!(original.snapshot()?, restored.snapshot()?);
+                // A post-service RAM change cannot replace the retained payload;
+                // a pointer rewrite cannot be overwritten by duplicate retirement.
+                if elapsed == 1 {
+                    AmigaDriver::memory_mut(original.machine_mut()).write_word(address, 0xFFFF);
+                    AmigaDriver::agnus_mut(original.machine_mut()).bpl_pt[0] = 0xA000;
+                    AmigaDriver::agnus_mut(original.machine_mut()).fmode = 0;
+                }
+                restored.restore(&original.snapshot()?)?;
+            }
+        }
+        Ok(())
+    }
+    check(
+        AmigaOcsRuntime::blank(Model::A500OcsPal),
+        AmigaOcsRuntime::blank(Model::A500OcsPal),
+        &[1],
+    )?;
+    check(
+        AmigaEcsRuntime::blank(Model::A500PlusEcsPal),
+        AmigaEcsRuntime::blank(Model::A500PlusEcsPal),
+        &[1],
+    )?;
+    check(
+        AmigaA1200Runtime::blank(Model::A1200AgaPal),
+        AmigaA1200Runtime::blank(Model::A1200AgaPal),
+        &[1, 2, 4],
+    )
+}
+
+#[test]
+fn automatic_strobes_cross_the_live_pipeline_and_reset_denise() -> Result<(), Box<dyn Error>> {
+    use commodore_agnus_ocs::{DmaAddressStage, DmaStrobe, DmaTransferTarget};
+    use common_commodore_amiga::driver::AmigaDriver;
+    fn check<M: AmigaMachine + AmigaLiveAccess + AmigaDriver>(
+        mut runtime: AmigaRuntime<M>,
+        enhanced: bool,
+    ) -> Result<(), Box<dyn Error>> {
+        while AmigaDriver::agnus(runtime.machine()).vbl_count < 1 {
+            AmigaMachine::tick(runtime.machine_mut());
+        }
+        // Observe every steady-field request, including the blank-start edge.
+        for line in 0..312 {
+            while AmigaDriver::agnus(runtime.machine()).vpos == line {
+                AmigaMachine::tick(runtime.machine_mut());
+                let a = AmigaDriver::agnus(runtime.machine());
+                let strobe = if (enhanced && line == 0) || (1..=7).contains(&line) {
+                    DmaStrobe::Equalisation
+                } else if line <= 25 {
+                    DmaStrobe::VerticalBlank
+                } else {
+                    DmaStrobe::Horizontal
+                };
+                if a.hpos == 2 {
+                    assert!(
+                        matches!(a.dma_pipeline().address(), Some(DmaAddressStage::Transfer(t))
+                        if t.target == DmaTransferTarget::Strobe(strobe)),
+                        "line {line}: automatic request absent or wrong"
+                    );
+                }
+                if a.hpos == 3 {
+                    assert!(
+                        matches!(a.dma_pipeline().service(), Some(t)
+                        if t.target == DmaTransferTarget::Strobe(strobe)),
+                        "line {line}: serviced strobe absent or wrong"
+                    );
+                }
+                // Two existing output ticks complete each CCK. At h=4 the
+                // preceding serviced strobe commits after its normal stage.
+                if a.hpos == 4
+                    && AmigaDriver::cck_phase(runtime.machine()) == 0
+                    && (enhanced || strobe != DmaStrobe::Equalisation)
+                {
+                    assert_eq!(
+                        runtime
+                            .machine()
+                            .denise_board_pipeline_diagnostic_snapshot()
+                            .horizontal_counter
+                            .position(),
+                        2,
+                        "line {line}: reset commit"
+                    );
+                }
+                if !(27..309).contains(&line)
+                    && matches!(AmigaDriver::agnus(runtime.machine()).hpos, 2..=4)
+                {
+                    let saved = runtime.snapshot()?;
+                    runtime.restore(&saved)?;
+                    assert_eq!(runtime.snapshot()?, saved);
+                }
+            }
+        }
+        Ok(())
+    }
+    check(AmigaOcsRuntime::blank(Model::A500OcsPal), false)?;
+    check(AmigaEcsRuntime::blank(Model::A500PlusEcsPal), true)?;
+    check(AmigaA1200Runtime::blank(Model::A1200AgaPal), true)
+}
+
+#[test]
+fn live_strobe_service_and_denise_counter_replay_on_every_chipset() -> Result<(), Box<dyn Error>> {
+    use commodore_agnus_ocs::{DmaStrobe, DmaTransfer, DmaTransferTarget, SlotOwner};
+    use common_commodore_amiga::driver::AmigaDriver;
+
+    fn check<M: AmigaMachine + AmigaLiveAccess + AmigaDriver>(
+        mut original: AmigaRuntime<M>,
+        mut restored: AmigaRuntime<M>,
+        enhanced: bool,
+    ) -> Result<(), Box<dyn Error>> {
+        AmigaDriver::agnus_mut(original.machine_mut()).hpos = 20;
+        for _ in 0..40 {
+            AmigaMachine::tick(original.machine_mut());
+        }
+        assert_eq!(
+            original
+                .machine()
+                .denise_board_pipeline_diagnostic_snapshot()
+                .horizontal_counter
+                .position(),
+            40,
+            "Denise must advance on the actual master-derived output ticks"
+        );
+        for strobe in [
+            DmaStrobe::Horizontal,
+            DmaStrobe::VerticalBlank,
+            DmaStrobe::Equalisation,
+        ] {
+            let before = original
+                .machine()
+                .denise_board_pipeline_diagnostic_snapshot()
+                .horizontal_counter
+                .position();
+            let request = DmaTransfer {
+                target: DmaTransferTarget::Strobe(strobe),
+                address: 0,
+            };
+            assert!(AmigaDriver::agnus_mut(original.machine_mut()).admit_dma_transfer(request));
+            let bytes = original.snapshot()?;
+            restored.restore(&bytes)?;
+            for elapsed in 1..=6 {
+                AmigaMachine::tick(original.machine_mut());
+                AmigaMachine::tick(restored.machine_mut());
+                let counter = original
+                    .machine()
+                    .denise_board_pipeline_diagnostic_snapshot()
+                    .horizontal_counter;
+                let reset = enhanced || strobe != DmaStrobe::Equalisation;
+                let expected = if reset && elapsed >= 4 {
+                    elapsed - 2
+                } else {
+                    (before + elapsed) & 511
+                };
+                assert_eq!(
+                    counter.position(),
+                    expected,
+                    "{strobe:?}, output tick {elapsed}"
+                );
+                if elapsed <= 2 {
+                    assert_eq!(
+                        AmigaDriver::agnus(original.machine())
+                            .dma_pipeline()
+                            .service(),
+                        Some(request)
+                    );
+                    assert_eq!(
+                        AmigaDriver::agnus(original.machine())
+                            .dma_service_plan()
+                            .expect("retained service owner")
+                            .slot_owner,
+                        SlotOwner::Refresh
+                    );
+                    assert!(
+                        !AmigaDriver::agnus(original.machine())
+                            .dma_service_plan()
+                            .expect("retained service owner")
+                            .cpu_chip_bus_granted
+                    );
+                } else {
+                    assert!(
+                        AmigaDriver::agnus(original.machine())
+                            .dma_pipeline()
+                            .service()
+                            .is_none()
+                    );
+                }
+                assert_eq!(
+                    original.snapshot()?,
+                    restored.snapshot()?,
+                    "replay at output tick {elapsed}"
+                );
+                // Restore each populated boundary, including the half-CCK owner
+                // and the pending counter commit, through the real envelope.
+                restored.restore(&original.snapshot()?)?;
+            }
+        }
+        Ok(())
+    }
+    check(
+        AmigaOcsRuntime::blank(Model::A500OcsPal),
+        AmigaOcsRuntime::blank(Model::A500OcsPal),
+        false,
+    )?;
+    check(
+        AmigaEcsRuntime::blank(Model::A500PlusEcsPal),
+        AmigaEcsRuntime::blank(Model::A500PlusEcsPal),
+        true,
+    )?;
+    check(
+        AmigaA1200Runtime::blank(Model::A1200AgaPal),
+        AmigaA1200Runtime::blank(Model::A1200AgaPal),
+        true,
+    )?;
+    Ok(())
+}
 const BLTCON1: u32 = 0x00DF_F042;
 const BLTCPTH: u32 = 0x00DF_F048;
 const BLTCPTL: u32 = 0x00DF_F04A;
@@ -904,7 +1700,13 @@ fn a1000_blitter_startup_phase_survives_postcard_round_trip() -> Result<(), Box<
         machine.poke_word(BLTCON0, 0);
         machine.poke_word(INTREQ, INT_BLIT); // clear first-blit completion
         assert!(!machine.agnus().blitter_dzero);
+        // Hold DMA while the separate BLTSIZE write stage reaches Agnus.
+        // This snapshots startup before either admitted startup operation.
+        machine.poke_word(DMACON, 0x0040);
         machine.poke_word(BLTSIZE, (1 << 6) | 1);
+        assert!(!machine.agnus().blitter_busy, "size strobe is still queued");
+        machine.tick();
+        machine.tick();
     }
 
     assert!(original.machine().agnus().blitter_busy);
@@ -964,7 +1766,7 @@ fn a1000_blitter_startup_phase_survives_postcard_round_trip() -> Result<(), Box<
         original.machine().agnus().blitter_dzero,
         "first accepted startup CCK must reload BZERO",
     );
-    assert_eq!(original.machine().agnus().blitter_ccks_remaining, 1);
+    assert_eq!(original.machine().agnus().blitter_ccks_remaining, 2);
     assert_eq!(original.machine().intreq() & INT_BLIT, 0);
     assert_eq!(original.snapshot()?, restored_before.snapshot()?);
 
@@ -981,7 +1783,7 @@ fn a1000_blitter_startup_phase_survives_postcard_round_trip() -> Result<(), Box<
             .blitter_startup_ccks_remaining(),
         1,
     );
-    assert_eq!(restored_after.machine().agnus().blitter_ccks_remaining, 1);
+    assert_eq!(restored_after.machine().agnus().blitter_ccks_remaining, 2);
     assert_eq!(restored_after.machine().intreq() & INT_BLIT, 0);
 
     while original.machine().agnus().blitter_busy {
@@ -1135,7 +1937,7 @@ fn ecs_blitter_startup_phase_survives_nested_snapshot() -> Result<(), Box<dyn Er
         original.machine().agnus().blitter_startup_ccks_remaining(),
         1,
     );
-    assert_eq!(original.machine().agnus().blitter_ccks_remaining, 1);
+    assert_eq!(original.machine().agnus().blitter_ccks_remaining, 2);
 
     let snapshot = original.snapshot()?;
     let mut restored = AmigaEcsRuntime::new(Model::A500PlusEcsPal, blank_kickstart())?;
@@ -1245,6 +2047,98 @@ fn pre_aga_blitter_completion_pipeline_survives_postcard_round_trip() -> Result<
         restored_before_final_d.snapshot()?,
         "final-write restore must preserve final-D continuation",
     );
+    Ok(())
+}
+
+#[test]
+fn every_line_stage_and_pending_result_survive_snapshot_restore() -> Result<(), Box<dyn Error>> {
+    for use_b in [false, true] {
+        for target_phase in 0..6 {
+            if !use_b && matches!(target_phase, 1 | 4) {
+                continue;
+            }
+            let mut original = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
+            {
+                let machine = original.machine_mut();
+                machine.poke_word(0x1000, 1);
+                machine.poke_word(DMACON, DMACON_SET_DMA_BLITTER_NASTY);
+                machine.poke_word(BLTCON0, 0x0BCA | if use_b { 0x0400 } else { 0 });
+                machine.poke_word(BLTCON1, 0x0019);
+                machine.poke_word(BLTAPTL, 0xFFFE);
+                machine.poke_word(BLTBMOD, 0);
+                machine.poke_word(BLTAMOD, 0);
+                machine.poke_word(BLTCMOD, 0);
+                machine.poke_word(BLTBDAT, 1);
+                machine.poke_word(0x00DF_F04C, 0); // BLTBPTH
+                machine.poke_word(0x00DF_F04E, 0x1000); // BLTBPTL
+                machine.poke_word(BLTCPTH, 0);
+                machine.poke_word(BLTCPTL, 0x2000);
+                machine.poke_word(BLTDPTH, 0);
+                machine.poke_word(BLTDPTL, 0x3000);
+                machine.poke_word(BLTSIZE, (1 << 6) | 2);
+            }
+            let mut reached = false;
+            for _ in 0..1_000 {
+                let state = original.machine().agnus().blitter_diagnostic_snapshot();
+                if state.execution.startup_ccks_remaining == 0
+                    && state
+                        .line
+                        .as_ref()
+                        .is_some_and(|line| line.phase == target_phase)
+                {
+                    reached = true;
+                    break;
+                }
+                original.machine_mut().tick();
+            }
+            assert!(reached, "line stage {target_phase} never became visible");
+            if target_phase == 5 {
+                let line = original
+                    .machine()
+                    .agnus()
+                    .blitter_diagnostic_snapshot()
+                    .line
+                    .ok_or("pending line absent")?;
+                if use_b {
+                    assert_eq!(line.pending_result, 0x8000);
+                } else {
+                    // Without B's reserved phase, D is selected while the
+                    // preceding calculation is still in the address stage.
+                    // Its result settles at service before D is admitted.
+                    assert_eq!(line.pending_result, 0);
+                    assert!(matches!(
+                        original.machine().agnus().dma_pipeline().address(),
+                        Some(commodore_agnus_ocs::DmaAddressStage::Transfer(
+                            commodore_agnus_ocs::DmaTransfer {
+                                target: commodore_agnus_ocs::DmaTransferTarget::BlitterInternal {
+                                    operation: BlitterDmaOp::Internal,
+                                    ..
+                                },
+                                ..
+                            }
+                        ))
+                    ));
+                }
+                assert_eq!(line.pending_addr, 0x3000);
+                assert_eq!(original.machine().read_chip_ram_byte(0x3000), 0);
+            }
+            let snapshot = original.snapshot()?;
+            let mut restored = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
+            restored.restore(&snapshot)?;
+            assert_eq!(snapshot, restored.snapshot()?);
+            for _ in 0..100 {
+                original.machine_mut().tick();
+                restored.machine_mut().tick();
+                assert_eq!(
+                    original.snapshot()?,
+                    restored.snapshot()?,
+                    "line stage {target_phase} diverged after restore"
+                );
+            }
+            assert!(!original.machine().agnus().blitter_busy);
+            assert_eq!(original.machine().read_chip_ram_byte(0x3000), 0x80);
+        }
+    }
     Ok(())
 }
 
@@ -1365,6 +2259,77 @@ fn alice_blitter_completion_pipeline_survives_postcard_round_trip() -> Result<()
 }
 
 #[test]
+fn alice_source_finish_with_pending_d_survives_postcard_round_trip() -> Result<(), Box<dyn Error>> {
+    const DESTINATION: u32 = 0x0000_2000;
+    const DMA_BLITTER: u16 = 0x0040;
+
+    let mut original = AmigaA1200Runtime::blank(Model::A1200AgaPal);
+    {
+        let machine = original.machine_mut();
+        machine.poke_word(DMACON, DMACON_SET_DMA_BLITTER_NASTY);
+        machine.poke_word(BLTCON0, 0x01FF);
+        machine.poke_word(BLTDPTH, (DESTINATION >> 16) as u16);
+        machine.poke_word(BLTDPTL, DESTINATION as u16);
+        machine.poke_word(BLTSIZV, 1);
+        machine.poke_word(BLTSIZH, 1);
+    }
+    let mut guard = 0;
+    while original.machine().agnus().blitter_completion_phase() != "final-write" {
+        original.machine_mut().tick();
+        guard += 1;
+        assert!(guard < 1_000, "Alice final result never settled");
+    }
+    original.machine_mut().poke_word(DMACON, DMA_BLITTER);
+    while !original.machine().agnus().blitter_finish_emitted() {
+        original.machine_mut().tick();
+        guard += 1;
+        assert!(
+            guard < 2_000,
+            "Alice source finish waited for disabled D DMA"
+        );
+    }
+    assert!(original.machine().agnus().blitter_busy);
+    assert_eq!(
+        original.machine().agnus().blitter_completion_phase(),
+        "final-write"
+    );
+    assert_eq!(original.machine().read_chip_ram_byte(DESTINATION), 0);
+    assert_ne!(original.machine().intreq() & INT_BLIT, 0);
+
+    let snapshot = original.snapshot()?;
+    let mut restored = AmigaA1200Runtime::blank(Model::A1200AgaPal);
+    restored.restore(&snapshot)?;
+    assert_eq!(snapshot, restored.snapshot()?);
+    for _ in 0..32 {
+        original.machine_mut().tick();
+        restored.machine_mut().tick();
+        assert_eq!(original.snapshot()?, restored.snapshot()?);
+        assert_eq!(original.machine().read_chip_ram_byte(DESTINATION), 0);
+    }
+    assert!(original.machine().agnus().blitter_busy);
+    assert!(!original.machine().agnus().blitter_busy_visible());
+    assert!(!original.machine().agnus().blitter_busy_copper());
+    for runtime in [&mut original, &mut restored] {
+        // A later D admission must not reassert the already acknowledged IRQ.
+        runtime.machine_mut().poke_word(INTREQ, INT_BLIT);
+        runtime
+            .machine_mut()
+            .poke_word(DMACON, 0x8000 | DMA_BLITTER);
+    }
+    while original.machine().agnus().blitter_busy {
+        original.machine_mut().tick();
+        restored.machine_mut().tick();
+        guard += 1;
+        assert!(guard < 3_000, "Alice pending D never drained");
+        assert_eq!(original.snapshot()?, restored.snapshot()?);
+    }
+    assert_eq!(original.machine().read_chip_ram_byte(DESTINATION), 0xFF);
+    assert_eq!(original.machine().read_chip_ram_byte(DESTINATION + 1), 0xFF);
+    assert_eq!(original.machine().intreq() & INT_BLIT, 0);
+    Ok(())
+}
+
+#[test]
 fn a1200_dynamic_bus_phase_survives_runtime_postcard_round_trip() -> Result<(), Box<dyn Error>> {
     const DESTINATION: u32 = 0x0000_1001;
 
@@ -1425,9 +2390,9 @@ fn a1200_dynamic_bus_phase_survives_runtime_postcard_round_trip() -> Result<(), 
     for _ in 0..100 {
         original.machine_mut().tick();
         restored.machine_mut().tick();
-        if original.machine().cpu().active_bus_transfer.is_none()
-            && original.machine().read_chip_ram_byte(DESTINATION + 3) == 0xEF
-        {
+        // The CPU may already have begun its next prefetch when the final
+        // byte retires. Completion is the destination write, not bus idleness.
+        if original.machine().read_chip_ram_byte(DESTINATION + 3) == 0xEF {
             completed = true;
             break;
         }
@@ -1520,6 +2485,8 @@ fn ocs_closed_ddf_hard_start_gate_survives_postcard_round_trip() -> Result<(), B
 
 #[test]
 fn ocs_open_ddf_hard_start_gate_survives_postcard_round_trip() -> Result<(), Box<dyn Error>> {
+    use commodore_agnus_ocs::{DisplayDmaChannel, DmaTransferTarget};
+
     let mut original = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
     {
         let machine = original.machine_mut();
@@ -1584,21 +2551,72 @@ fn ocs_open_ddf_hard_start_gate_survives_postcard_round_trip() -> Result<(), Box
 
     assert_eq!(original.machine().agnus().ddf_start_match(), Some(0x0010),);
     assert_eq!(restored.machine().agnus().ddf_start_match(), Some(0x0010),);
-    assert_eq!(
+    // The comparator is not a memory service. Registered boundary case 2
+    // requests BPL4 at $12; its retained address reaches memory at $14.
+    assert!(
         original
             .machine()
             .agnus()
-            .cck_bus_plan()
-            .bitplane_dma_fetch_plane,
-        Some(3),
+            .dma_pipeline()
+            .reservation()
+            .is_none()
     );
-    assert_eq!(
+    assert!(
         restored
             .machine()
             .agnus()
-            .cck_bus_plan()
-            .bitplane_dma_fetch_plane,
-        Some(3),
+            .dma_pipeline()
+            .reservation()
+            .is_none()
+    );
+    let bases = original.machine().agnus().bpl_pt;
+    let mut requests = Vec::new();
+    let mut services = Vec::new();
+    for _ in 0..14 {
+        let previous_h = original.machine().agnus().hpos;
+        original.machine_mut().tick();
+        restored.machine_mut().tick();
+        assert_eq!(
+            original.snapshot()?,
+            restored.snapshot()?,
+            "half-CCK replay"
+        );
+        let agnus = original.machine().agnus();
+        if agnus.hpos == previous_h {
+            continue;
+        }
+        if let Some(request) = agnus.dma_pipeline().reservation()
+            && let DisplayDmaChannel::Bitplane(plane) = request.channel
+        {
+            requests.push((agnus.hpos, plane));
+        }
+        if let Some(transfer) = agnus.dma_pipeline().service()
+            && let DmaTransferTarget::Display { reservation, .. } = transfer.target
+            && let DisplayDmaChannel::Bitplane(plane) = reservation.channel
+        {
+            services.push((agnus.hpos, plane, transfer.address));
+            assert_eq!(agnus.bpl_pt[usize::from(plane)], transfer.address + 2);
+        }
+    }
+    assert_eq!(
+        requests,
+        [
+            (0x12, 3),
+            (0x13, 1),
+            (0x14, 2),
+            (0x15, 0),
+            (0x16, 3),
+            (0x17, 1)
+        ]
+    );
+    assert_eq!(
+        services,
+        [
+            (0x14, 3, bases[3]),
+            (0x15, 1, bases[1]),
+            (0x16, 2, bases[2]),
+            (0x17, 0, bases[0])
+        ]
     );
     assert_eq!(
         original.snapshot()?,
@@ -1734,6 +2752,47 @@ fn a2000_fat_agnus_snapshot_round_trips_extension_state() -> Result<(), Box<dyn 
 }
 
 #[test]
+fn enhanced_vertical_close_replays_across_both_post_wrap_cells() -> Result<(), Box<dyn Error>> {
+    fn check<M: AmigaMachine + AmigaLiveAccess + AmigaDriver>(
+        mut original: AmigaRuntime<M>,
+        mut restored: AmigaRuntime<M>,
+        vertical: fn(&M) -> bool,
+    ) -> Result<(), Box<dyn Error>> {
+        let a = AmigaDriver::agnus_mut(original.machine_mut());
+        a.vpos = 0xF3;
+        a.hpos = 226;
+        AmigaDriver::dispatch_custom_write(original.machine_mut(), 0x090, 0xF4C1);
+        AmigaDriver::dispatch_custom_write(original.machine_mut(), 0x08E, 0xF381);
+        assert!(vertical(original.machine()));
+        let mut observed = [0; 2];
+        for _ in 0..8 {
+            restored.restore(&original.snapshot()?)?;
+            AmigaMachine::tick(original.machine_mut());
+            AmigaMachine::tick(restored.machine_mut());
+            let a = AmigaDriver::agnus(original.machine());
+            assert_eq!(a.vpos, 0xF4);
+            let active = a.hpos < 2;
+            observed[usize::from(active)] += 1;
+            assert_eq!(vertical(original.machine()), active);
+            assert_eq!(vertical(restored.machine()), active);
+            assert_eq!(original.snapshot()?, restored.snapshot()?);
+        }
+        assert_eq!(observed, [4, 4], "must cross the actual comparator edge");
+        Ok(())
+    }
+    check(
+        AmigaEcsRuntime::blank(Model::A500PlusEcsPal),
+        AmigaEcsRuntime::blank(Model::A500PlusEcsPal),
+        |m| m.agnus_ecs().vertical_diw_active(),
+    )?;
+    check(
+        AmigaA1200Runtime::blank(Model::A1200AgaPal),
+        AmigaA1200Runtime::blank(Model::A1200AgaPal),
+        |m| m.agnus_aga().vertical_diw_active(),
+    )
+}
+
+#[test]
 fn ecs_vertical_diw_latch_survives_snapshot_round_trip() -> Result<(), Box<dyn Error>> {
     let mut original = AmigaEcsRuntime::new(Model::A500PlusEcsPal, blank_kickstart())?;
     original.machine_mut().poke_word(0x00DF_F090, 0x10C1);
@@ -1754,6 +2813,140 @@ fn ecs_vertical_diw_latch_survives_snapshot_round_trip() -> Result<(), Box<dyn E
         snapshot,
         restored.snapshot()?,
         "the hidden vertical-DIW latch must be byte-stable through postcard",
+    );
+    Ok(())
+}
+
+#[test]
+fn ecs_blanking_selector_edges_replay_at_both_normal_rga_stages() -> Result<(), Box<dyn Error>> {
+    for register in [0x100, 0x106] {
+        let mut original = AmigaEcsRuntime::blank(Model::A500PlusEcsPal);
+        let partner = if register == 0x100 { 0x106 } else { 0x100 };
+        original.machine_mut().poke_word(0x00DF_F000 + partner, 1);
+        for _ in 0..4 {
+            original.machine_mut().tick();
+        }
+        for enabled in [true, false, true, false] {
+            original
+                .machine_mut()
+                .poke_word(0x00DF_F000 + register, u16::from(enabled));
+            for retired_ticks in 1..=2 {
+                let bytes = original.snapshot()?;
+                let mut restored = AmigaEcsRuntime::blank(Model::A500PlusEcsPal);
+                restored.restore(&bytes)?;
+                assert!(
+                    bytes == restored.snapshot()?,
+                    "selector state must survive restore"
+                );
+                original.machine_mut().tick();
+                restored.machine_mut().tick();
+                let expected = if retired_ticks == 2 {
+                    enabled
+                } else {
+                    !enabled
+                };
+                let selectors = original.machine().denise_ecs().output_selectors();
+                assert_eq!(
+                    selectors.ecsena_enabled && selectors.extblken_enabled,
+                    expected
+                );
+                assert!(
+                    original.snapshot()? == restored.snapshot()?,
+                    "selector replay diverged"
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn ecs_csync_blanking_in_flight_stages_survive_both_clock_phases() -> Result<(), Box<dyn Error>> {
+    let mut original = AmigaEcsRuntime::new(Model::A500PlusEcsPal, blank_kickstart())?;
+    for (register, value) in [
+        (0x1C4, 0x40),
+        (0x1C6, 0x48),
+        (0x100, 1),
+        (0x106, 1),
+        (0x1DC, 0x28),
+        (0x180, 0xFFF),
+    ] {
+        original
+            .machine_mut()
+            .poke_word(0x00DF_F000 + register, value);
+    }
+    // Restore during visible scanlines so the output comparison exercises
+    // coloured and blank framebuffer samples, not only vertical blank.
+    for _ in 0..25_000 {
+        if original.machine().agnus_ecs().vpos == 44 && original.machine().agnus_ecs().hpos == 0 {
+            break;
+        }
+        original.machine_mut().tick();
+    }
+    assert_eq!(original.machine().agnus_ecs().vpos, 44);
+    let mut seen = std::collections::BTreeSet::new();
+    let mut rising = false;
+    let mut falling = false;
+    for _ in 0..2_048 {
+        let stages = original.machine().denise_ecs().csync_blanking();
+        let key = (
+            stages.cck_samples,
+            stages.half_cck_sample,
+            stages.output_level,
+            AmigaDriver::cck_phase(original.machine()),
+        );
+        let levels = [
+            stages.cck_samples[0],
+            stages.cck_samples[1],
+            stages.cck_samples[2],
+            stages.half_cck_sample,
+            stages.output_level,
+        ];
+        if levels.iter().all(|level| *level == levels[0]) || !seen.insert(key) {
+            original.machine_mut().tick();
+            continue;
+        }
+        rising |= stages.cck_samples[2] && !stages.output_level;
+        falling |= !stages.cck_samples[2] && stages.output_level;
+        let snapshot = original.snapshot()?;
+        let mut replay = AmigaEcsRuntime::new(Model::A500PlusEcsPal, blank_kickstart())?;
+        replay.restore(&snapshot)?;
+        // Direct chip ticks leave host framebuffer statistics stale; restore
+        // refreshes those statistics. Compare the complete machine payload.
+        assert!(
+            postcard::to_allocvec(&original.machine().snapshot_state())?
+                == postcard::to_allocvec(&replay.machine().snapshot_state())?,
+            "machine payload changed on restore at {key:?}"
+        );
+        assert_eq!(stages, replay.machine().denise_ecs().csync_blanking());
+        original.machine_mut().tick();
+        replay.machine_mut().tick();
+        assert_eq!(
+            original.machine().denise().framebuffer(),
+            replay.machine().denise().framebuffer()
+        );
+        assert!(
+            postcard::to_allocvec(&original.machine().snapshot_state())?
+                == postcard::to_allocvec(&replay.machine().snapshot_state())?,
+            "machine payload diverged after restore at {key:?}"
+        );
+    }
+    assert!(
+        rising && falling,
+        "both signal edges must cross the retained stages"
+    );
+    for phase in 0..=1 {
+        assert!(
+            seen.iter().any(|state| state.3 == phase),
+            "missing half-CCK phase {phase}"
+        );
+    }
+    // Three pending CCK samples at both phases, plus the final half-CCK
+    // boundary, for each edge: seven rising and seven falling states.
+    assert_eq!(
+        seen.len(),
+        14,
+        "missing in-flight restore boundary: {seen:?}"
     );
     Ok(())
 }
@@ -1881,23 +3074,21 @@ fn aga_programmed_hblank_latch_survives_snapshot_round_trip() -> Result<(), Box<
 }
 
 #[test]
-fn ocs_copper_color_stage_survives_snapshot_round_trip() -> Result<(), Box<dyn Error>> {
+fn ecs_dispatched_copper_color_survives_snapshot_round_trip() -> Result<(), Box<dyn Error>> {
     const NEW_COLOR: u16 = 0x0ABC;
 
-    let mut original = AmigaOcsRuntime::blank(Model::A500OcsPal);
+    let mut original = AmigaEcsRuntime::blank(Model::A500PlusEcsPal);
     AmigaDriver::dispatch_copper_write(original.machine_mut(), 0x0180, NEW_COLOR);
 
     let board_before = original
         .machine()
         .denise()
         .board_pipeline_diagnostic_snapshot();
-    assert_eq!(board_before.pending_early_writes.len(), 1);
-    assert_eq!(board_before.pending_early_writes[0].register, 0x0180);
-    assert_eq!(board_before.pending_early_writes[0].value, NEW_COLOR);
-    assert_eq!(original.machine().denise().color(0), 0);
+    assert!(board_before.pending_early_writes.is_empty());
+    assert_eq!(original.machine().denise().color(0), NEW_COLOR);
 
     let snapshot = original.snapshot()?;
-    let mut restored = AmigaOcsRuntime::blank(Model::A500OcsPal);
+    let mut restored = AmigaEcsRuntime::blank(Model::A500PlusEcsPal);
     restored.restore(&snapshot)?;
 
     assert_eq!(
@@ -1987,11 +3178,15 @@ fn aga_delayed_color_write_survives_snapshot_round_trip() -> Result<(), Box<dyn 
 
     let framebuffer_width = original.machine().denise().framebuffer_size().0 as usize;
     let row = usize::from(TARGET_VPOS - VIEWPORT_V_START) * 2;
-    let phase_zero_x = usize::from(TARGET_HPOS - VIEWPORT_H_START) * 4;
+    // Denise's serviced strobe drives its output position independently of
+    // the Agnus beam. Phase zero is the preceding (even) output position.
+    let position = original.machine().denise().output_comparator_position();
+    assert_eq!(position, TARGET_HPOS * 2 - 7);
+    let phase_zero_x = usize::from(position / 2 - VIEWPORT_H_START) * 8;
     let phase_zero_offset = row * framebuffer_width + phase_zero_x;
     assert_eq!(
-        &original.machine().denise().framebuffer()[phase_zero_offset..phase_zero_offset + 2],
-        &[OLD_ARGB, OLD_ARGB],
+        &original.machine().denise().framebuffer()[phase_zero_offset..phase_zero_offset + 4],
+        &[OLD_ARGB, OLD_ARGB, OLD_ARGB, OLD_ARGB],
         "phase zero must already be rendering the old visible colour",
     );
 
@@ -2057,12 +3252,12 @@ fn aga_delayed_color_write_survives_snapshot_round_trip() -> Result<(), Box<dyn 
     original.machine_mut().tick();
     restored.machine_mut().tick();
 
-    let phase_one_offset = phase_zero_offset + 2;
+    let phase_one_offset = phase_zero_offset + 4;
     for (name, runtime) in [("original", &original), ("restored", &restored)] {
         assert_eq!(
-            &runtime.machine().denise().framebuffer()[phase_one_offset..phase_one_offset + 2],
-            &[OLD_ARGB, NEW_ARGB],
-            "{name} phase one must retain the old colour for one Lisa sample",
+            &runtime.machine().denise().framebuffer()[phase_one_offset..phase_one_offset + 4],
+            &[OLD_ARGB, OLD_ARGB, NEW_ARGB, NEW_ARGB],
+            "{name} phase one must retain the old colour for two 35 ns Lisa samples",
         );
         assert!(
             runtime
@@ -2080,19 +3275,19 @@ fn aga_delayed_color_write_survives_snapshot_round_trip() -> Result<(), Box<dyn 
                 .diagnostic_snapshot()
                 .delayed_color_write
                 .is_none(),
-            "{name} Lisa delay must retire after one output sample",
+            "{name} Lisa delay must retire after one hires period",
         );
     }
 
     original.machine_mut().tick();
     restored.machine_mut().tick();
 
-    let next_phase_zero_offset = phase_zero_offset + 4;
+    let next_phase_zero_offset = phase_zero_offset + 8;
     for (name, runtime) in [("original", &original), ("restored", &restored)] {
         assert_eq!(
             &runtime.machine().denise().framebuffer()
-                [next_phase_zero_offset..next_phase_zero_offset + 2],
-            &[NEW_ARGB, NEW_ARGB],
+                [next_phase_zero_offset..next_phase_zero_offset + 4],
+            &[NEW_ARGB, NEW_ARGB, NEW_ARGB, NEW_ARGB],
             "{name} next phase must use the new colour throughout",
         );
         assert!(
@@ -2171,11 +3366,13 @@ fn aga_copper_color_stages_survive_snapshot_round_trip() -> Result<(), Box<dyn E
 
     let framebuffer_width = original.machine().denise().framebuffer_size().0 as usize;
     let row = usize::from(TARGET_VPOS - VIEWPORT_V_START) * 2;
-    let phase_zero_x = usize::from(TARGET_HPOS - VIEWPORT_H_START) * 4;
+    let position = original.machine().denise().output_comparator_position();
+    assert_eq!(position, TARGET_HPOS * 2 - 7);
+    let phase_zero_x = usize::from(position / 2 - VIEWPORT_H_START) * 8;
     let phase_zero_offset = row * framebuffer_width + phase_zero_x;
     assert_eq!(
-        &original.machine().denise().framebuffer()[phase_zero_offset..phase_zero_offset + 2],
-        &[OLD_ARGB, OLD_ARGB],
+        &original.machine().denise().framebuffer()[phase_zero_offset..phase_zero_offset + 4],
+        &[OLD_ARGB, OLD_ARGB, OLD_ARGB, OLD_ARGB],
     );
 
     AmigaDriver::dispatch_copper_write(original.machine_mut(), 0x0180, 0x8ABC);
@@ -2183,8 +3380,8 @@ fn aga_copper_color_stages_survive_snapshot_round_trip() -> Result<(), Box<dyn E
         .machine()
         .denise_aga()
         .diagnostic_snapshot()
-        .pending_early_color_write
-        .expect("Copper COLOR00 must remain in the pre-output stage");
+        .delayed_color_write
+        .expect("Copper COLOR00 must retain the two-sample Lisa palette stage");
     assert_eq!(early.palette_index, 0);
     assert_eq!(early.previous_rgb24, 0x0011_2233);
     assert_eq!(early.previous_rgb12, Some(0x0123));
@@ -2194,7 +3391,7 @@ fn aga_copper_color_stages_survive_snapshot_round_trip() -> Result<(), Box<dyn E
             .machine()
             .denise_aga()
             .diagnostic_snapshot()
-            .delayed_color_write
+            .pending_early_color_write
             .is_none(),
     );
     assert!(
@@ -2204,7 +3401,7 @@ fn aga_copper_color_stages_survive_snapshot_round_trip() -> Result<(), Box<dyn E
             .board_pipeline_diagnostic_snapshot()
             .pending_early_writes
             .is_empty(),
-        "Lisa owns the selector-aware pre-output COLOR stage",
+        "Lisa owns the selector-aware palette delay",
     );
 
     let snapshot = original.snapshot()?;
@@ -2215,7 +3412,7 @@ fn aga_copper_color_stages_survive_snapshot_round_trip() -> Result<(), Box<dyn E
             .machine()
             .denise_aga()
             .diagnostic_snapshot()
-            .pending_early_color_write,
+            .delayed_color_write,
         Some(early),
     );
     assert_eq!(
@@ -2225,27 +3422,27 @@ fn aga_copper_color_stages_survive_snapshot_round_trip() -> Result<(), Box<dyn E
 
     original.machine_mut().tick();
     restored.machine_mut().tick();
-    let phase_one_offset = phase_zero_offset + 2;
+    let phase_one_offset = phase_zero_offset + 4;
     for (name, runtime) in [("original", &original), ("restored", &restored)] {
         assert_eq!(
-            &runtime.machine().denise().framebuffer()[phase_one_offset..phase_one_offset + 2],
-            &[OLD_ARGB, OLD_ARGB],
-            "{name} current board tick must retain the old colour",
+            &runtime.machine().denise().framebuffer()[phase_one_offset..phase_one_offset + 4],
+            &[OLD_ARGB, OLD_ARGB, NEW_ARGB, NEW_ARGB],
+            "{name} current tick must retain two 35 ns Lisa samples",
         );
         let diagnostic = runtime.machine().denise_aga().diagnostic_snapshot();
         assert!(diagnostic.pending_early_color_write.is_none());
-        assert_eq!(diagnostic.delayed_color_write, Some(early));
+        assert!(diagnostic.delayed_color_write.is_none());
     }
 
     original.machine_mut().tick();
     restored.machine_mut().tick();
-    let next_phase_zero_offset = phase_zero_offset + 4;
+    let next_phase_zero_offset = phase_zero_offset + 8;
     for (name, runtime) in [("original", &original), ("restored", &restored)] {
         assert_eq!(
             &runtime.machine().denise().framebuffer()
-                [next_phase_zero_offset..next_phase_zero_offset + 2],
-            &[OLD_ARGB, NEW_ARGB],
-            "{name} next tick must retain one additional Lisa sample",
+                [next_phase_zero_offset..next_phase_zero_offset + 4],
+            &[NEW_ARGB; 4],
+            "{name} next tick must use the new palette",
         );
         assert!(
             runtime
@@ -2259,12 +3456,12 @@ fn aga_copper_color_stages_survive_snapshot_round_trip() -> Result<(), Box<dyn E
 
     original.machine_mut().tick();
     restored.machine_mut().tick();
-    let next_phase_one_offset = phase_zero_offset + 6;
+    let next_phase_one_offset = phase_zero_offset + 12;
     for (name, runtime) in [("original", &original), ("restored", &restored)] {
         assert_eq!(
             &runtime.machine().denise().framebuffer()
-                [next_phase_one_offset..next_phase_one_offset + 2],
-            &[NEW_ARGB, NEW_ARGB],
+                [next_phase_one_offset..next_phase_one_offset + 4],
+            &[NEW_ARGB, NEW_ARGB, NEW_ARGB, NEW_ARGB],
             "{name} later output must use the new colour throughout",
         );
     }
@@ -2466,10 +3663,10 @@ fn ecs_snapshot_restore_preserves_model_specific_gayle_composition() -> Result<(
 }
 
 /// Take a real snapshot, hand-patch the leading postcard varint version
-/// field back to 34, and confirm the version-mismatch arm fires with a
+/// field back to 53, and confirm the version-mismatch arm fires with a
 /// human-readable reason naming the snapshot version. The first byte
-/// of a `SnapshotEnvelopeV35` is the postcard varint encoding of
-/// `version`; for `SNAPSHOT_VERSION = 35` that byte is `0x23`.
+/// of a `SnapshotEnvelopeV54` is the postcard varint encoding of
+/// `version`; for `SNAPSHOT_VERSION = 54` that byte is `0x36`.
 /// Replacing it with another single-byte value keeps the envelope
 /// length stable and lands us inside the explicit version-mismatch
 /// branch instead of the postcard-parse-error branch above.
@@ -2478,20 +3675,20 @@ fn restore_rejects_mismatched_snapshot_version() -> Result<(), Box<dyn Error>> {
     let runtime = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
     let mut bytes = runtime.snapshot()?;
     assert_eq!(
-        bytes[0], 35,
-        "postcard varint for SNAPSHOT_VERSION = 35 should be 0x23"
+        bytes[0], 54,
+        "postcard varint for SNAPSHOT_VERSION = 54 should be 0x36"
     );
-    bytes[0] = 34;
+    bytes[0] = 53;
 
     let mut other = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
     let err = other
         .restore(&bytes)
-        .expect_err("version-34 snapshot should be rejected before payload decode");
+        .expect_err("version-53 snapshot should be rejected before payload decode");
     assert!(
         matches!(
             err,
             MachineError::InvalidSnapshot { ref reason }
-                if reason == "unsupported snapshot version 34; expected 35"
+                if reason == "unsupported snapshot version 53; expected 54"
         ),
         "expected version-mismatch reason, got {err:?}"
     );
@@ -2641,5 +3838,345 @@ fn restore_preserves_writable_live_floppy_image_across_chipset_tiers() -> Result
         AmigaA1200Runtime::blank(Model::A1200AgaPal),
         AmigaA1200Runtime::blank(Model::A1200AgaPal),
     )?;
+    Ok(())
+}
+
+#[test]
+fn aga_collision_extension_survives_restore_and_base_write_resets_it() -> Result<(), Box<dyn Error>>
+{
+    let mut original = AmigaA1200Runtime::blank(Model::A1200AgaPal);
+    original.machine_mut().poke_word(0x00DF_F098, 0x0FFF);
+    original.machine_mut().poke_word(0x00DF_F10E, 0x00C3);
+    assert_eq!(
+        original
+            .machine()
+            .denise_aga()
+            .as_inner()
+            .as_inner()
+            .diagnostic_snapshot()
+            .clxcon2,
+        0x00C3
+    );
+    let bytes = original.snapshot()?;
+    let mut restored = AmigaA1200Runtime::blank(Model::A1200AgaPal);
+    restored.restore(&bytes)?;
+    assert_eq!(restored.snapshot()?, bytes);
+    assert_eq!(
+        restored
+            .machine()
+            .denise_aga()
+            .as_inner()
+            .as_inner()
+            .diagnostic_snapshot()
+            .clxcon2,
+        0x00C3
+    );
+    for _ in 0..512 {
+        original.machine_mut().tick();
+        restored.machine_mut().tick();
+    }
+    assert_eq!(original.snapshot()?, restored.snapshot()?);
+    for runtime in [&mut original, &mut restored] {
+        runtime.machine_mut().poke_word(0x00DF_F098, 0x0000);
+        assert_eq!(
+            runtime
+                .machine()
+                .denise_aga()
+                .as_inner()
+                .as_inner()
+                .diagnostic_snapshot()
+                .clxcon2,
+            0
+        );
+    }
+    assert_eq!(original.snapshot()?, restored.snapshot()?);
+    Ok(())
+}
+
+#[test]
+fn a1200_prefetch_transfer_and_holding_register_survive_runtime_restore()
+-> Result<(), Box<dyn Error>> {
+    let mut rom = blank_kickstart();
+    rom[4..8].copy_from_slice(&0x00F8_0008u32.to_be_bytes());
+    rom[8..10].copy_from_slice(&0x4E71u16.to_be_bytes());
+    rom[10..12].copy_from_slice(&0x7E01u16.to_be_bytes()); // MOVEQ #1,D7
+    rom[12..14].copy_from_slice(&0x60FEu16.to_be_bytes());
+    for held in [false, true] {
+        let mut original = AmigaA1200Runtime::new(Model::A1200AgaPal, rom.clone())?;
+        let mut reached = false;
+        for _ in 0..10_000 {
+            original.machine_mut().tick();
+            let cpu = original.machine().cpu();
+            let boundary = if held {
+                cpu.next_fetch_addr == 0x00F8_000A
+                    && cpu
+                        .variant_icache
+                        .as_ref()
+                        .and_then(|cache| cache.holding_word(0x00F8_000A, true))
+                        == Some(0x7E01)
+            } else {
+                matches!(
+                    cpu.state,
+                    State::BusCycle {
+                        op: MicroOp::FetchIRC,
+                        addr: 0x00F8_000A,
+                        ..
+                    }
+                ) && cpu
+                    .active_bus_transfer
+                    .is_some_and(|transfer| transfer.remaining == TransferSize::Word)
+            };
+            if boundary {
+                reached = true;
+                break;
+            }
+        }
+        assert!(reached, "prefetch boundary not reached: holding={held}");
+        let bytes = original.snapshot()?;
+        assert_eq!(bytes[0], 54);
+        let mut restored = AmigaA1200Runtime::new(Model::A1200AgaPal, rom.clone())?;
+        restored.restore(&bytes)?;
+        assert_eq!(bytes, restored.snapshot()?);
+        for _ in 0..1_000 {
+            original.machine_mut().tick();
+            restored.machine_mut().tick();
+            assert_eq!(original.snapshot()?, restored.snapshot()?);
+        }
+        assert_eq!(original.machine().cpu().regs.d[7], 1);
+    }
+    Ok(())
+}
+
+#[test]
+fn both_pending_copper_wait_stages_survive_runtime_restore() -> Result<(), Box<dyn Error>> {
+    for initial_idle in [true, false] {
+        let mut original = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
+        {
+            let machine = original.machine_mut();
+            for (address, value) in [
+                (0x1000, 0x0001),
+                (0x1002, 0xFFFE),
+                (0x1004, 0x0180),
+                (0x1006, 0x0F00),
+                (0x1008, 0xFFFF),
+                (0x100A, 0xFFFE),
+                (COP1LCH, 0),
+                (COP1LCL, 0x1000),
+                (COPJMP1, 0),
+                (DMACON, 0x8280),
+            ] {
+                machine.poke_word(address, value);
+            }
+        }
+        let mut reached = false;
+        for _ in 0..1_000 {
+            original.machine_mut().tick();
+            let copper = original.machine().copper();
+            if copper.pending_wait_delay && copper.pending_wait_idle == initial_idle {
+                reached = true;
+                break;
+            }
+        }
+        assert!(
+            reached,
+            "pending WAIT stage not reached: idle={initial_idle}"
+        );
+        assert!(!original.machine().copper().pending_wait_is_skip);
+        let bytes = original.snapshot()?;
+        let mut restored = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
+        restored.restore(&bytes)?;
+        assert_eq!(bytes, restored.snapshot()?);
+        for _ in 0..64 {
+            original.machine_mut().tick();
+            restored.machine_mut().tick();
+            assert_eq!(original.snapshot()?, restored.snapshot()?);
+        }
+        assert_eq!(original.machine().color(0) & 0x0FFF, 0x0F00);
+    }
+    Ok(())
+}
+
+#[test]
+fn copper_first_word_survives_runtime_restore_and_later_ram_writes() -> Result<(), Box<dyn Error>> {
+    let mut original = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
+    for (address, value) in [
+        (0x1000, 0x0180),
+        (0x1002, 0x0F00),
+        (0x1004, 0xFFFF),
+        (0x1006, 0xFFFE),
+        (COP1LCH, 0),
+        (COP1LCL, 0x1000),
+        (COPJMP1, 0),
+        (DMACON, 0x8280),
+    ] {
+        original.machine_mut().poke_word(address, value);
+    }
+    let mut reached = false;
+    for _ in 0..1_000 {
+        original.machine_mut().tick();
+        if original.machine().copper().cck_phase == 1 {
+            reached = true;
+            break;
+        }
+    }
+    assert!(reached, "the live driver must service IR1 before saving");
+    assert_eq!(original.machine().copper().pc, 0x1002);
+    let bytes = original.snapshot()?;
+    let mut restored = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
+    restored.restore(&bytes)?;
+    assert_eq!(bytes, restored.snapshot()?);
+    for runtime in [&mut original, &mut restored] {
+        runtime.machine_mut().poke_word(0x1000, 0x0182);
+        runtime.machine_mut().poke_word(0x1002, 0x00F0);
+    }
+    for _ in 0..64 {
+        original.machine_mut().tick();
+        restored.machine_mut().tick();
+        assert_eq!(original.snapshot()?, restored.snapshot()?);
+    }
+    assert_eq!(original.machine().color(0) & 0x0FFF, 0x00F0);
+    assert_eq!(original.machine().color(1) & 0x0FFF, 0);
+    Ok(())
+}
+
+#[test]
+fn area_channel_fill_holding_and_drain_stages_survive_runtime_restore() -> Result<(), Box<dyn Error>>
+{
+    use std::collections::BTreeSet;
+    // ABCD reaches all four channel stages; ABD fill and D-only fill also
+    // exercise trailing idle and the displaced A-hold stage.
+    for (mode, fill) in [(15u16, false), (13, true), (1, true)] {
+        let mut original = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
+        {
+            let machine = original.machine_mut();
+            for (address, value) in [
+                (0x1000, 0x8123),
+                (0x1002, 0x4567),
+                (0x1004, 0x89ab),
+                (0x2000, 0xffff),
+                (0x2002, 0xffff),
+                (0x2004, 0xffff),
+                (0x3000, 0x1111),
+                (0x3002, 0x2222),
+                (0x3004, 0x3333),
+                (BLTCON0, 0x3000 | (mode << 8) | 0xca),
+                (BLTCON1, if fill { 0x18 } else { 0 }),
+                (0x00dff044, 0x0fff),
+                (0x00dff046, 0xfff0),
+                (0x00dff050, 0),
+                (BLTAPTL, 0x1000),
+                (0x00dff04c, 0),
+                (0x00dff04e, 0x2000),
+                (BLTCPTH, 0),
+                (BLTCPTL, 0x3000),
+                (BLTDPTH, 0),
+                (BLTDPTL, 0x4000),
+                (DMACON, DMACON_SET_DMA_BLITTER_NASTY),
+                (BLTSIZE, 0x0043),
+            ] {
+                machine.poke_word(address, value);
+            }
+        }
+        let mut visited = BTreeSet::new();
+        let mut completed = false;
+        for _ in 0..2_000 {
+            let state = original.machine().agnus().blitter_diagnostic_snapshot();
+            if !state.execution.busy {
+                completed = true;
+                break;
+            }
+            let completion = original.machine().agnus().blitter_completion_phase();
+            let key = state.area.map_or((u8::MAX, true, completion), |area| {
+                (area.phase, area.pipeline_primed, completion)
+            });
+            if state.execution.startup_ccks_remaining == 0 && visited.insert(key) {
+                let bytes = original.snapshot()?;
+                assert_eq!(bytes[0], 54);
+                let mut restored = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
+                restored.restore(&bytes)?;
+                assert_eq!(bytes, restored.snapshot()?);
+                for _ in 0..64 {
+                    original.machine_mut().tick();
+                    restored.machine_mut().tick();
+                    assert_eq!(
+                        original.snapshot()?,
+                        restored.snapshot()?,
+                        "mode={mode},fill={fill},stage={key:?}"
+                    );
+                }
+                // Continue the sampling walk from the original boundary so
+                // replay verification cannot skip subsequent saved stages.
+                original.restore(&bytes)?;
+            }
+            original.machine_mut().tick();
+        }
+        assert!(
+            completed,
+            "area blit never drained: mode={mode},fill={fill}"
+        );
+        let phases = if mode == 1 { 3 } else { 4 };
+        for phase in 0..phases {
+            for primed in [false, true] {
+                assert!(
+                    visited.contains(&(phase, primed, "running")),
+                    "unvisited saved stage mode={mode},fill={fill},phase={phase},primed={primed}"
+                );
+            }
+        }
+        assert!(visited.iter().any(|key| key.2 == "final-result"));
+        assert!(visited.iter().any(|key| key.2 == "final-write"));
+    }
+    Ok(())
+}
+
+#[test]
+fn blocked_blitter_wait_and_wake_comparison_survive_restore() -> Result<(), Box<dyn Error>> {
+    for wake_pending in [false, true] {
+        let mut original = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
+        {
+            let m = original.machine_mut();
+            for (address, value) in [
+                (0x1000, 1),
+                (0x1002, 0x7ffe),
+                (0x1004, 0x180),
+                (0x1006, 0xf00),
+                (0x1008, 0xffff),
+                (0x100a, 0xfffe),
+                (COP1LCH, 0),
+                (COP1LCL, 0x1000),
+                (COPJMP1, 0),
+                (DMACON, 0x8280),
+            ] {
+                m.poke_word(address, value);
+            }
+            // Exercise the live Copper chip directly to isolate the saved
+            // boundary from board DMA timing. Runtime replay remains live.
+            for h in 0..8 {
+                let memory = m.memory().clone();
+                assert_eq!(
+                    m.copper_mut().tick_cck(&memory, 0, h + 2, h % 2 == 0, true),
+                    None
+                );
+            }
+            if wake_pending {
+                let memory = m.memory().clone();
+                assert_eq!(m.copper_mut().tick_cck(&memory, 0, 12, true, false), None);
+            }
+        }
+        assert_eq!(
+            original.machine().copper().wait_blitter_blocked,
+            !wake_pending
+        );
+        assert_eq!(original.machine().copper().pending_wait_delay, wake_pending);
+        let bytes = original.snapshot()?;
+        let mut restored = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
+        restored.restore(&bytes)?;
+        for _ in 0..64 {
+            original.machine_mut().tick();
+            restored.machine_mut().tick();
+            assert_eq!(original.snapshot()?, restored.snapshot()?);
+        }
+        assert_eq!(original.machine().color(0) & 0x0fff, 0xf00);
+    }
     Ok(())
 }

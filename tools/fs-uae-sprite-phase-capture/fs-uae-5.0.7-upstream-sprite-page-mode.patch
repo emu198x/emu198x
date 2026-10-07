@@ -1,0 +1,11 @@
+--- a/custom.cpp
++++ b/custom.cpp
+@@ -12077,7 +12077,7 @@
+ 					write_drga_dat_spr(r->reg, pt, dat << 16);
+ 				}
+ 				sdat = dat;
+-			} else if (fetchmode_fmode_spr == 1) {
++			} else if (fetchmode_fmode_spr < 3) {
+ 				uae_u32 dat = fetch32_spr(r);
+ 				sdat = dat >> 16;
+ 				if (!dmastate) {

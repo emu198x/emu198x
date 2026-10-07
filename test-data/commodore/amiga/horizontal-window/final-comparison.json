@@ -1,0 +1,101 @@
+{
+  "scope": "Final production executable after uniform-gate forwarding and saved-state cleanup; earlier 51-field corpus is retained separately",
+  "warmup_frames": 210,
+  "compared_fields": 9,
+  "failed_fields": 0,
+  "results": [
+    {
+      "case": "rewrite-start",
+      "native_sha256": "07dd59f53ea2558548379ce2babb674d3704bdeab8b0b4ec5785cfa4b7111810",
+      "adf_sha256": "2b83673e1a7101eced4fecd75d2d65aeb9305947a12ae62e8d7cc5a2a4f66f11",
+      "fields": [
+        {
+          "guest_field": 9,
+          "compared_rgb_pixels": 867888,
+          "mismatched_rgb_pixels": 0,
+          "mismatch_bounds": null,
+          "raw_sha256": "a4d81557714c1309c60edf4c885c114f970265fc78847619f736e15d027a11c7",
+          "metadata_sha256": "485b67f4405f612286096e12f4870d2aaf3e40f80c5eb1abb863523b42f5c4c0"
+        },
+        {
+          "guest_field": 10,
+          "compared_rgb_pixels": 867888,
+          "mismatched_rgb_pixels": 0,
+          "mismatch_bounds": null,
+          "raw_sha256": "a4d81557714c1309c60edf4c885c114f970265fc78847619f736e15d027a11c7",
+          "metadata_sha256": "edb4e2fcda5387018d5f4bc70f2e75ae213cdbf63af1fe0c0223713baae2a236"
+        },
+        {
+          "guest_field": 11,
+          "compared_rgb_pixels": 867888,
+          "mismatched_rgb_pixels": 0,
+          "mismatch_bounds": null,
+          "raw_sha256": "a4d81557714c1309c60edf4c885c114f970265fc78847619f736e15d027a11c7",
+          "metadata_sha256": "8870ce948418a2a5b9b550c450d608cffd3d41dfde86eb5805fd2c907492ccdb"
+        }
+      ]
+    },
+    {
+      "case": "start-fine-3",
+      "native_sha256": "100b146950dd0652bb5cef1a5cf36e65e42eaf489e4489e3fc90ff83fa3f6891",
+      "adf_sha256": "4708c9059f93031e61c68470c697f8a3b91b20e872923505a036ff015937bea6",
+      "fields": [
+        {
+          "guest_field": 9,
+          "compared_rgb_pixels": 867888,
+          "mismatched_rgb_pixels": 0,
+          "mismatch_bounds": null,
+          "raw_sha256": "1cd40533570ca2c931867024f0f472a33b75aba5f917beb93f84bc35d3533055",
+          "metadata_sha256": "64a4c6cc0f0733245b23bb01d65a6694c6b25c95820231e12dbf9200cb985eb9"
+        },
+        {
+          "guest_field": 10,
+          "compared_rgb_pixels": 867888,
+          "mismatched_rgb_pixels": 0,
+          "mismatch_bounds": null,
+          "raw_sha256": "1cd40533570ca2c931867024f0f472a33b75aba5f917beb93f84bc35d3533055",
+          "metadata_sha256": "61b882d0cd7bf9ebb5fd9be70d9e2b93b484c9adb211cba6fa30ff07fd4e2695"
+        },
+        {
+          "guest_field": 11,
+          "compared_rgb_pixels": 867888,
+          "mismatched_rgb_pixels": 0,
+          "mismatch_bounds": null,
+          "raw_sha256": "1cd40533570ca2c931867024f0f472a33b75aba5f917beb93f84bc35d3533055",
+          "metadata_sha256": "808d99e0c5300b1df0ff4fde47669df83a621e31a53fb5c57c73578b8421fed2"
+        }
+      ]
+    },
+    {
+      "case": "visible-stop-3",
+      "native_sha256": "46c8707985629c3d7aecf103a5499888901652d7af5dc594ae4cc783d7c8bd71",
+      "adf_sha256": "28a38b0eb4a789247ab544161b868c2c7ad41f10019b1d78c7b939ec5d0967b8",
+      "fields": [
+        {
+          "guest_field": 9,
+          "compared_rgb_pixels": 867888,
+          "mismatched_rgb_pixels": 0,
+          "mismatch_bounds": null,
+          "raw_sha256": "93c120accee124409bf134108609111bd909a90ada0527635fb64301671772be",
+          "metadata_sha256": "070a86976a64cb83d1536f47f8827dda8a899c13efb0be1ff39956bf1536c0d7"
+        },
+        {
+          "guest_field": 10,
+          "compared_rgb_pixels": 867888,
+          "mismatched_rgb_pixels": 0,
+          "mismatch_bounds": null,
+          "raw_sha256": "93c120accee124409bf134108609111bd909a90ada0527635fb64301671772be",
+          "metadata_sha256": "ba82e232fb94ed2512d46e6fad111ac534ba9e9674c5eaac41b3905cfe61f945"
+        },
+        {
+          "guest_field": 11,
+          "compared_rgb_pixels": 867888,
+          "mismatched_rgb_pixels": 0,
+          "mismatch_bounds": null,
+          "raw_sha256": "93c120accee124409bf134108609111bd909a90ada0527635fb64301671772be",
+          "metadata_sha256": "a896ac8350b640853da9209f2929fbb805c62c5d07fbc056cee4ca907b970e3a"
+        }
+      ]
+    }
+  ]
+}

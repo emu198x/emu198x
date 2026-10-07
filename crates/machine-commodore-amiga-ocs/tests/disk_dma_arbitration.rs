@@ -44,7 +44,9 @@ fn read_fifo_reaches_chip_ram_only_on_agnus_disk_cells() {
         }
     }
 
-    assert_eq!(service_hpos, [0x07, 0x09, 0x0B]);
+    // Registered generate_dmal admits D0/D1/D2 at h10/12/14. The
+    // retained address reaches physical memory one CCK later.
+    assert_eq!(service_hpos, [0x0B, 0x0D, 0x0F]);
     assert_eq!(amiga.memory().read_chip_ram_word(base), 0x1111);
     assert_eq!(amiga.memory().read_chip_ram_word(base + 2), 0x2222);
     assert_eq!(amiga.memory().read_chip_ram_word(base + 4), 0x3333);
@@ -54,7 +56,7 @@ fn read_fifo_reaches_chip_ram_only_on_agnus_disk_cells() {
 
 #[test]
 fn partial_read_fifo_uses_the_trailing_fixed_cells() {
-    let cases: &[(u16, &[u16])] = &[(1, &[0x0B]), (2, &[0x09, 0x0B])];
+    let cases: &[(u16, &[u16])] = &[(1, &[0x0F]), (2, &[0x0D, 0x0F])];
 
     for &(word_count, expected_hpos) in cases {
         let mut amiga = AmigaOcs::new(halt_rom());
@@ -103,12 +105,13 @@ fn idle_paula_releases_enabled_disk_cells_to_the_cpu() {
     let mut amiga = AmigaOcs::new(halt_rom());
     amiga.poke_word(0x00DF_F096, 0x8000 | 0x0200 | 0x0010);
 
-    while amiga.agnus().hpos != 0x07 {
+    while amiga.agnus().hpos != 0x0B {
         amiga.tick();
     }
 
     let scheduled = amiga.agnus().cck_bus_plan();
-    assert!(scheduled.disk_dma_slot_granted);
+    assert!(!scheduled.disk_dma_slot_granted);
+    assert_eq!(scheduled.slot_owner, commodore_agnus_ocs::SlotOwner::Cpu);
 
     let requested = amiga
         .agnus()

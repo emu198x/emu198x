@@ -1,0 +1,10 @@
+{
+  "rows": 800,
+  "source_sha256": "75bb300ba2798913997f82dde988db465746e9b7f22699bbc275690c8ae227e5",
+  "fragment_sha256": {
+    "write_rga": "b47e126fbfde61f13dd805802f2430d88a99d157f96b23b997e1b9e1b8ad2fb1",
+    "refresh_service": "5662436b1549d6f85d9b71735e81749648e24b872700a8529fd308e114a108c1",
+    "sprite_service": "9aa5cfe7508640eec1b1d24df2a189eba4b83c945b725a5bcabcace57a3cd89d"
+  },
+  "boundary": "Compiled registered RGA and outgoing refresh/sprite fragments; stubbed memory payloads; no live raster or silicon claim"
+}

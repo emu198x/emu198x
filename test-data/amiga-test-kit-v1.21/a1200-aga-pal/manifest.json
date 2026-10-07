@@ -320,13 +320,13 @@
     "producer_y": 0,
     "runtime_height": 576,
     "runtime_width": 768,
-    "runtime_x": 10,
+    "runtime_x": 8,
     "runtime_y": 2,
     "vertical_decimation": 2,
     "width": 752,
     "horizontal_mapping": {
-      "formula": "runtime_x = producer_raw_x + 8",
-      "basis": "beam-absolute PAL host-HIRES mapping: producer raw x=0 is HB coarse coordinate 46; Emu198x x=0 is CCK 44"
+      "formula": "runtime_x = producer_raw_x + 6",
+      "basis": "counter-traced PAL host-HIRES mapping: producer raw x=0 is Denise counter 91 (reported origin 92 minus one lores output-padding tick); Emu198x x=0 is counter 88"
     }
   }
 }

@@ -1,0 +1,173 @@
+--- a/custom.cpp
++++ b/custom.cpp
+@@ -11983,6 +11983,14 @@
+ 	}
+ }
+ 
++
++static void codex_rga_live_trace(const char *event, rgabuf *r)
++{
++ if (!getenv("FSEMU_CODEX_RGA_TRACE") || vpos < 242 || vpos > 245 || (agnus_hpos > 28 && agnus_hpos < 218)) return;
++ if (chipmem_wget_indirect(0x2ff00)!=0x5350 || chipmem_wget_indirect(0x2ff02)!=0x4858 ||
++     chipmem_wget_indirect(0x2ff08)!=0 || chipmem_wget_indirect(0x2ff0a)!=9) return;
++ fprintf(stderr,"RGA %s v=%d h=%d reg=%x type=%x pv=%x live=%x ref=%x mod=%d plane=%d b0=%x b1=%x b2=%x b3=%x diw=%d run=%d cycle=%d stop=%d\n",event,vpos,agnus_hpos,r->reg,r->type,r->pv,r->p?*r->p:0,refptr,r->bplmod,r->bpldat&7,bplpt[0],bplpt[1],bplpt[2],bplpt[3],vdiwstate == diw_states::DIW_waiting_stop,bprun,bprun_cycle,ddf_stopping);
++}
+ static void handle_rga_out(void)
+ {
+ 	if (dmal_next) {
+@@ -11995,6 +12003,7 @@
+ 		struct rgabuf *r = read_rga_out();
+ 		bool done = false;
+ 		bool disinc = false;
++		codex_rga_live_trace("out",r);
+ 
+ 		last_rga_cycle = get_cycles();
+ 
+@@ -12162,6 +12171,7 @@
+ 			bplpt[num] = r->pv;
+ 		}
+ 
++		codex_rga_live_trace("after-display",r);
+ 		if (r->type & CYCLE_BLITTER) {
+ 			process_blitter(r);
+ 			done = true;
+@@ -12283,9 +12293,11 @@
+ 
+ 	if (!custom_disabled) {
+ 		bitplane_rga_ptmod();
++		codex_rga_live_trace("address",read_rga_in());
+ 	}
+ 
+ 	handle_rga_out();
++	codex_rga_live_trace("after-dmal",read_rga_in());
+ 
+ 	generate_dma_requests();
+ 	if (!custom_disabled) {
+--- a/drawing.cpp
++++ b/drawing.cpp
+@@ -5524,6 +5524,29 @@
+ static uae_u32 *bufdt;
+ static uae_u8 *bufg;
+ 
++static void codex_scan_trace(const char *event)
++{
++ if (!getenv("FSEMU_CODEX_SCAN_TRACE") || !buf1t || !buf1 ||
++     chipmem_wget_indirect(0x2ff00) != 0x5350 ||
++     chipmem_wget_indirect(0x2ff02) != 0x4858 ||
++     chipmem_wget_indirect(0x2ff08) != 0 || chipmem_wget_indirect(0x2ff0a) != 9) return;
++ const struct vidbuffer *vb=adisplays[0].gfxvidinfo.inbuffer;
++ if (!vb || !vb->bufmem || vb->rowbytes != 8192) return;
++ const long long offset=(long long)(uintptr_t)buf1t-(long long)(uintptr_t)vb->bufmem;
++ if (offset<0 || offset >= (long long)vb->rowbytes*vb->height_allocated) return;
++ const int row=offset/vb->rowbytes;
++ const int col=(offset%vb->rowbytes)/4;
++ const uae_u32 *pixels=(const uae_u32 *)(vb->bufmem+row*vb->rowbytes);
++ fprintf(stderr,"SCAN2 %s row=%d col=%d n=%d v=%d ctr=%d cnt=%d pad=%d hb=%d vb=%d hs=%d he=%d bpl=%d diw=%d head=",
++  event,row,col,(int)(buf1-buf1t),this_line?this_line->linear_vpos:-1,
++  denise_hcounter,internal_pixel_cnt,denise_lol_shift_prev,
++  denise_hblank_active,denise_vblank_active,hbstrt_offset,hbstop_offset,bpl1dat_trigger,denise_hdiw);
++ for(int i=0;i<16;i++) fprintf(stderr,"%08x,",pixels[i]);
++ fprintf(stderr," tail=");
++ for(int i=1448;i<1512;i++) fprintf(stderr,"%08x,",pixels[i]);
++ fprintf(stderr,"\n");
++}
++
+ static void draw_denise_line(int gfx_ypos, enum nln_how how, uae_u32 linecnt, int startpos, int startcycle, int endcycle, int skip, int skip2, int dtotal, int calib_start, int calib_len, bool lol, int hdelay, bool blanked, bool finalseg, struct linestate *ls)
+ {
+ 	bool fullline = false;
+@@ -5571,6 +5594,8 @@
+ 		bufdt = buf_d;
+ 		bufg = gbuf;
+ 	}
++
++	codex_scan_trace("start");
+ 
+ 	bool blankedline = (this_line->linear_vpos >= denise_vblank_extra_bottom || this_line->linear_vpos < denise_vblank_extra_top) && currprefs.gfx_overscanmode < OVERSCANMODE_EXTREME && !programmedmode;
+ 	bool line_is_blanked = false;
+@@ -5662,6 +5687,8 @@
+ 		if (!finalseg) {
+ 			return;
+ 		}
++
++		codex_scan_trace("before-host-blank");
+ 
+ #if 0
+ 		static int testtoggle[1000];
+@@ -5887,6 +5914,7 @@
+ 	if (!line_is_blanked && denise_planes > 0) {
+ 		resolution_count[denise_res]++;
+ 	}
++	codex_scan_trace("after-host-blank");
+ 	lines_count++;
+ }
+ 
+--- a/linetoscr_aga_fm0.cpp
++++ b/linetoscr_aga_fm0.cpp
+@@ -65753,6 +65753,16 @@
+ 			}
+ 			loaded_pixs[3] = loaded_pix;
+ 			internal_pixel_cnt += 1;
++            if (getenv("FSEMU_CODEX_SCAN_TRACE") && denise_pixtotal >= -1 && denise_pixtotal <= 0 && buf1t &&
++                chipmem_wget_indirect(0x2ff00)==0x5350 && chipmem_wget_indirect(0x2ff02)==0x4858 &&
++                chipmem_wget_indirect(0x2ff08)==0 && chipmem_wget_indirect(0x2ff0a)==9) {
++                const struct vidbuffer *vb=adisplays[0].gfxvidinfo.inbuffer;
++                const long long offset=(long long)(uintptr_t)buf1t-(long long)(uintptr_t)vb->bufmem;
++                if (vb->rowbytes==8192 && offset>=0 && offset<(long long)vb->rowbytes*vb->height_allocated)
++                    fprintf(stderr,"SIGNAL row=%d col=%d pixtotal=%d half=%d lol=%d ctr=%d rgb=%08x,%08x,%08x,%08x\n",
++                        (int)(offset/vb->rowbytes),(int)(offset%vb->rowbytes)/4,denise_pixtotal,h,(int)lol,denise_hcounter,
++                        dpix_val0,dpix_val1,dpix_val2,dpix_val3);
++            }
+ 			if (denise_pixtotal >= 0 && denise_pixtotal < denise_pixtotal_max) {
+ 				dtbuf[h][0] = dpix_val0;
+ 				dtbuf[h][1] = dpix_val1;
+@@ -65970,6 +65980,16 @@
+ 			}
+ 			loaded_pixs[3] = loaded_pix;
+ 			internal_pixel_cnt += 1;
++            if (getenv("FSEMU_CODEX_SCAN_TRACE") && denise_pixtotal >= -1 && denise_pixtotal <= 0 && buf1t &&
++                chipmem_wget_indirect(0x2ff00)==0x5350 && chipmem_wget_indirect(0x2ff02)==0x4858 &&
++                chipmem_wget_indirect(0x2ff08)==0 && chipmem_wget_indirect(0x2ff0a)==9) {
++                const struct vidbuffer *vb=adisplays[0].gfxvidinfo.inbuffer;
++                const long long offset=(long long)(uintptr_t)buf1t-(long long)(uintptr_t)vb->bufmem;
++                if (vb->rowbytes==8192 && offset>=0 && offset<(long long)vb->rowbytes*vb->height_allocated)
++                    fprintf(stderr,"SIGNAL row=%d col=%d pixtotal=%d half=%d lol=%d ctr=%d rgb=%08x,%08x,%08x,%08x\n",
++                        (int)(offset/vb->rowbytes),(int)(offset%vb->rowbytes)/4,denise_pixtotal,h,(int)lol,denise_hcounter,
++                        dpix_val0,dpix_val1,dpix_val2,dpix_val3);
++            }
+ 			if (denise_pixtotal >= 0 && denise_pixtotal < denise_pixtotal_max) {
+ 				dtbuf[h][0] = dpix_val0;
+ 				dtbuf[h][1] = dpix_val1;
+@@ -71229,6 +71249,16 @@
+ 			}
+ 			loaded_pixs[3] = loaded_pix;
+ 			internal_pixel_cnt += 1;
++            if (getenv("FSEMU_CODEX_SCAN_TRACE") && denise_pixtotal >= -1 && denise_pixtotal <= 0 && buf1t &&
++                chipmem_wget_indirect(0x2ff00)==0x5350 && chipmem_wget_indirect(0x2ff02)==0x4858 &&
++                chipmem_wget_indirect(0x2ff08)==0 && chipmem_wget_indirect(0x2ff0a)==9) {
++                const struct vidbuffer *vb=adisplays[0].gfxvidinfo.inbuffer;
++                const long long offset=(long long)(uintptr_t)buf1t-(long long)(uintptr_t)vb->bufmem;
++                if (vb->rowbytes==8192 && offset>=0 && offset<(long long)vb->rowbytes*vb->height_allocated)
++                    fprintf(stderr,"SIGNAL row=%d col=%d pixtotal=%d half=%d lol=%d ctr=%d rgb=%08x,%08x,%08x,%08x\n",
++                        (int)(offset/vb->rowbytes),(int)(offset%vb->rowbytes)/4,denise_pixtotal,h,(int)lol,denise_hcounter,
++                        dpix_val0,dpix_val1,dpix_val2,dpix_val3);
++            }
+ 			if (denise_pixtotal >= 0 && denise_pixtotal < denise_pixtotal_max) {
+ 				if (sv0) {
+ 					uae_u32 spix0 = denise_render_sprites2(pix0, sv0);
+@@ -71506,6 +71536,16 @@
+ 			}
+ 			loaded_pixs[3] = loaded_pix;
+ 			internal_pixel_cnt += 1;
++            if (getenv("FSEMU_CODEX_SCAN_TRACE") && denise_pixtotal >= -1 && denise_pixtotal <= 0 && buf1t &&
++                chipmem_wget_indirect(0x2ff00)==0x5350 && chipmem_wget_indirect(0x2ff02)==0x4858 &&
++                chipmem_wget_indirect(0x2ff08)==0 && chipmem_wget_indirect(0x2ff0a)==9) {
++                const struct vidbuffer *vb=adisplays[0].gfxvidinfo.inbuffer;
++                const long long offset=(long long)(uintptr_t)buf1t-(long long)(uintptr_t)vb->bufmem;
++                if (vb->rowbytes==8192 && offset>=0 && offset<(long long)vb->rowbytes*vb->height_allocated)
++                    fprintf(stderr,"SIGNAL row=%d col=%d pixtotal=%d half=%d lol=%d ctr=%d rgb=%08x,%08x,%08x,%08x\n",
++                        (int)(offset/vb->rowbytes),(int)(offset%vb->rowbytes)/4,denise_pixtotal,h,(int)lol,denise_hcounter,
++                        dpix_val0,dpix_val1,dpix_val2,dpix_val3);
++            }
+ 			if (denise_pixtotal >= 0 && denise_pixtotal < denise_pixtotal_max) {
+ 				if (sv0) {
+ 					uae_u32 spix0 = denise_render_sprites2(pix0, sv0);

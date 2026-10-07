@@ -1,0 +1,101 @@
+{
+  "case": "programmed-central",
+  "baseline": {
+    "case": "programmed-central",
+    "native_sha256": "81b041dc70305c376f55d8ab53d58a60438416c8c44c2a8e4a3b45dd8dd82a87",
+    "adf_sha256": "b9c6deb5d84d07a7596e326b22177674d44bab2129ee70ce87bc1ad4f8ec7681",
+    "fields": [
+      {
+        "guest_field": 9,
+        "compared_rgb_pixels": 867888,
+        "mismatched_rgb_pixels": 3592,
+        "mismatch_bounds": [
+          0,
+          0,
+          656,
+          572
+        ],
+        "raw_sha256": "b1d6eecc07761c222fc776cffaeef8589035da77ddfa8cf771a8c05f2eceba88",
+        "metadata_sha256": "d7f322d02b4d9cba3dae7a2284a35aebb132a7af0eb341dd671cc432e910f5e6"
+      },
+      {
+        "guest_field": 10,
+        "compared_rgb_pixels": 867888,
+        "mismatched_rgb_pixels": 3592,
+        "mismatch_bounds": [
+          0,
+          0,
+          656,
+          572
+        ],
+        "raw_sha256": "b1d6eecc07761c222fc776cffaeef8589035da77ddfa8cf771a8c05f2eceba88",
+        "metadata_sha256": "d762e71eb51d9bee82c7d63093fea578f9a319f2aaa3080c0367c9266149a053"
+      },
+      {
+        "guest_field": 11,
+        "compared_rgb_pixels": 867888,
+        "mismatched_rgb_pixels": 3592,
+        "mismatch_bounds": [
+          0,
+          0,
+          656,
+          572
+        ],
+        "raw_sha256": "b1d6eecc07761c222fc776cffaeef8589035da77ddfa8cf771a8c05f2eceba88",
+        "metadata_sha256": "abc0ec0e79529f20dd0cd7524dae2ebb81ad4036e22cd361cfd4342be9cc5ff1"
+      }
+    ]
+  },
+  "trace_sha256": "99a2682621c9d5b4da609ea469a1e85f505b75154a8487929a4589b1313a361e",
+  "reference_counter_origin": 364,
+  "reported_origin": 368,
+  "output_padding_samples": 4,
+  "active_origin_observations": 600,
+  "common_raster": {
+    "native_origin": [
+      16,
+      2
+    ],
+    "reference_origin": [
+      4,
+      0
+    ],
+    "width": 1508,
+    "height": 574
+  },
+  "fields": [
+    {
+      "raw_sha256": "b1d6eecc07761c222fc776cffaeef8589035da77ddfa8cf771a8c05f2eceba88",
+      "mismatched_rgb_pixels": 5880,
+      "compared_rgb_pixels": 865592,
+      "mismatch_bounds": [
+        0,
+        0,
+        912,
+        572
+      ]
+    },
+    {
+      "raw_sha256": "b1d6eecc07761c222fc776cffaeef8589035da77ddfa8cf771a8c05f2eceba88",
+      "mismatched_rgb_pixels": 5880,
+      "compared_rgb_pixels": 865592,
+      "mismatch_bounds": [
+        0,
+        0,
+        912,
+        572
+      ]
+    },
+    {
+      "raw_sha256": "b1d6eecc07761c222fc776cffaeef8589035da77ddfa8cf771a8c05f2eceba88",
+      "mismatched_rgb_pixels": 5880,
+      "compared_rgb_pixels": 865592,
+      "mismatch_bounds": [
+        0,
+        0,
+        912,
+        572
+      ]
+    }
+  ]
+}

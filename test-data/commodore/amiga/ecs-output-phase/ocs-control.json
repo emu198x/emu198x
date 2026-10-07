@@ -1,0 +1,86 @@
+{
+  "case": "hires-legacy",
+  "baseline": {
+    "case": "hires-legacy",
+    "native_sha256": "4d28e80a56911b08023f46803ce5c7ff8ddcde1affa8f54aaac2aac55a232347",
+    "adf_sha256": "235c24805054e534c1246e24579c6e21873aa805e110ebf3b5aa90f5196d7894",
+    "fields": [
+      {
+        "guest_field": 9,
+        "compared_rgb_pixels": 867888,
+        "mismatched_rgb_pixels": 3200,
+        "mismatch_bounds": [
+          148,
+          36,
+          1400,
+          436
+        ],
+        "raw_sha256": "77eb882f634540e325c4c83c05a6b366a45f26d81aa77770c29648188b7c5105",
+        "metadata_sha256": "80e603970bc45c2eb868ec2ebe29c745b94cb116f1341e672a8054da4106642f"
+      },
+      {
+        "guest_field": 10,
+        "compared_rgb_pixels": 867888,
+        "mismatched_rgb_pixels": 3200,
+        "mismatch_bounds": [
+          148,
+          36,
+          1400,
+          436
+        ],
+        "raw_sha256": "77eb882f634540e325c4c83c05a6b366a45f26d81aa77770c29648188b7c5105",
+        "metadata_sha256": "eabac0afe7cc2a506d806e8b288f73142319a1b7a6eecae0e8439ed425991a74"
+      },
+      {
+        "guest_field": 11,
+        "compared_rgb_pixels": 867888,
+        "mismatched_rgb_pixels": 3200,
+        "mismatch_bounds": [
+          148,
+          36,
+          1400,
+          436
+        ],
+        "raw_sha256": "77eb882f634540e325c4c83c05a6b366a45f26d81aa77770c29648188b7c5105",
+        "metadata_sha256": "51c6ed0004da2546c311a9064b644b477090266a3c0cbdc9e1a65a322c8cecc4"
+      }
+    ]
+  },
+  "trace_sha256": "dbd7ab6f48017a7253d826cb867d7d3827aa9c53fd13f95b23c8b04950fd3f36",
+  "reference_counter_origin": 364,
+  "reported_origin": 368,
+  "output_padding_samples": 4,
+  "active_origin_observations": 600,
+  "common_raster": {
+    "native_origin": [
+      16,
+      2
+    ],
+    "reference_origin": [
+      4,
+      0
+    ],
+    "width": 1508,
+    "height": 574
+  },
+  "fields": [
+    {
+      "raw_sha256": "77eb882f634540e325c4c83c05a6b366a45f26d81aa77770c29648188b7c5105",
+      "mismatched_rgb_pixels": 0,
+      "compared_rgb_pixels": 865592,
+      "mismatch_bounds": null
+    },
+    {
+      "raw_sha256": "77eb882f634540e325c4c83c05a6b366a45f26d81aa77770c29648188b7c5105",
+      "mismatched_rgb_pixels": 0,
+      "compared_rgb_pixels": 865592,
+      "mismatch_bounds": null
+    },
+    {
+      "raw_sha256": "77eb882f634540e325c4c83c05a6b366a45f26d81aa77770c29648188b7c5105",
+      "mismatched_rgb_pixels": 0,
+      "compared_rgb_pixels": 865592,
+      "mismatch_bounds": null
+    }
+  ]
+}

@@ -22,7 +22,8 @@ When explicit ROM paths are absent, the script reads kick204.rom and
 kick31a1200.rom from EMU198X_AMIGA_ROM_DIR, or from
 ~/.emu198x/roms/commodore-amiga by default.
 
-The corpus build requires python3, m68k-elf-as, and m68k-elf-ld. Missing or
+The corpus build and reference verification require python3, Pillow,
+m68k-elf-as, and m68k-elf-ld. Missing or
 mismatched inputs fail the gate.
 USAGE
 }
@@ -139,6 +140,10 @@ if [[ ! -f "${dist_dir}/suite-v1.json" ]]; then
     echo "error: corpus build did not produce ${dist_dir}/suite-v1.json" >&2
     exit 1
 fi
+
+python3 "${repo_root}/tools/amiga-hblank-validation/requalify.py" \
+    --output "${work_dir}/qualified-references.json"
+export EMU198X_AMIGA_HBLANK_QUALIFIED_REFERENCES="${work_dir}/qualified-references.json"
 
 export EMU198X_AMIGA_PROGRAMMABLE_HBLANK_DIST="${dist_dir}"
 export EMU198X_AMIGA_KICKSTART_204_ROM="${normalized_kickstart_204}"

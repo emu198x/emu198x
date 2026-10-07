@@ -631,8 +631,11 @@ impl AudioChannel {
         let Some((word, wrapped)) = self.fetch_dma_word(read_chip_byte) else {
             return false;
         };
-        self.dma_requests_pending = self.dma_requests_pending.saturating_sub(1);
+        self.accept_dma_word(word, wrapped)
+    }
 
+    fn accept_dma_word(&mut self, word: u16, wrapped: bool) -> bool {
+        self.dma_requests_pending = self.dma_requests_pending.saturating_sub(1);
         match self.state {
             AudioState::WaitWord1 => {
                 // 001 → 101: word 1 is a dummy fetch. Discard the data,
@@ -1307,6 +1310,44 @@ impl Paula8364 {
     /// `audio_dma_slot`, if `Some(ch)`, indicates this CCK is channel
     /// `ch`'s dedicated DMA slot — Paula services a pending fetch and
     /// the word arrives this CCK (the slot grant *is* the bus latency).
+    /// Current request's memory address and length-reload decision, sampled
+    /// by Agnus at admission without reading chip RAM.
+    #[must_use]
+    pub fn audio_dma_request(&self, channel: u8) -> Option<(u32, bool)> {
+        let channel = self.audio.get(usize::from(channel))?;
+        if !channel.dma_active
+            || channel.dma_requests_pending == 0
+            || (channel.current_word.is_some() && channel.next_word.is_some())
+        {
+            return None;
+        }
+        let reload = channel.words_remaining == 0;
+        Some((
+            if reload {
+                channel.lc & 0x00FF_FFFE
+            } else {
+                channel.ptr
+            },
+            reload,
+        ))
+    }
+
+    /// Retire a word read at the retained DMA address. Playback is clocked
+    /// separately once by `tick_audio_cck`; this does not tick the engine.
+    pub fn service_audio_dma_word(&mut self, channel: u8, address: u32, reload: bool, word: u16) {
+        let Some(audio) = self.audio.get_mut(usize::from(channel)) else {
+            panic!("invalid admitted audio channel");
+        };
+        if reload {
+            audio.words_remaining = audio.programmed_length_words();
+        }
+        audio.ptr = address.wrapping_add(2);
+        audio.words_remaining = audio.words_remaining.saturating_sub(1);
+        if audio.accept_dma_word(word, reload) {
+            self.intreq |= INT_AUD0 << channel;
+        }
+    }
+
     pub fn tick_audio_cck<F>(
         &mut self,
         dmacon: u16,

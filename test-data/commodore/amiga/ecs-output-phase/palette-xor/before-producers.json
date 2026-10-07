@@ -1,0 +1,7 @@
+{
+  "target/release/emu198x-amiga": "e217bad8f65a03f9ab6d97ac4ca241f4fa391989bc96a46cd761349d2090bda2",
+  "crates/commodore-denise-aga/src/lib.rs": "6f81999d15d1d0e5d095c0f9f7296a31140d8786cd9f60e50541ca7290fb09f8",
+  "/private/tmp/emu198x-xor-phase/guests/reset/probe.adf": "71d5ee33f3a6c042517419cbc7acd560acf99a4d5954a61b3dab26eafb1c9408",
+  "/private/tmp/emu198x-xor-phase/guests/constant/probe.adf": "16b1b739c6693da0cfe76cc0de41ad7a569e231e05fe3f0852506aa905a1e4ac",
+  "/private/tmp/emu198x-xor-phase/guests/varying/probe.adf": "6eec3c64919f14ea95946b7ef924d8e66928d4856e6b25911a7860335ad3fa30"
+}

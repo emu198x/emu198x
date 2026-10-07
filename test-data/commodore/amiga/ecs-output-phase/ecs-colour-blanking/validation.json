@@ -1,0 +1,93 @@
+{
+  "status": "Two bounded fixes validated; ECS signal-stage design awaits approval; broader accuracy remains open.",
+  "snapshot_version": 53,
+  "snapshot_layout_changed": false,
+  "framebuffer_geometry_changed": false,
+  "reference_pixels_changed": false,
+  "completed_fixes": [
+    "ECS Copper colour early dispatch",
+    "Lisa programmed horizontal blanking next-counter comparison"
+  ],
+  "checks": {
+    "chip_and_integration_tests": 261,
+    "snapshot_replay_tests": 54,
+    "measurement_unit_tests": 4,
+    "test_kit_exact_cases": {
+      "a500": 6,
+      "a1200": 6
+    },
+    "clippy": "Six affected packages, release, all targets, -D warnings: passed",
+    "rustfmt": "Six touched Rust sources checked",
+    "python": "Ruff check and format passed; seventeen guest ADFs rebuilt byte-identically",
+    "archived_controls_replayed": 19
+  },
+  "timed_blanking_gate": {
+    "passed_aga_cases": 5,
+    "failed_ecs_cases": 5,
+    "failures": {
+      "semantic_edges": 3,
+      "nonadjacent_guest_fields": 2
+    },
+    "reference_transform": "raw + 6 hires periods, derived from traced counters",
+    "producer_pixels_unchanged": true
+  },
+  "static_blanking_gate": {
+    "passed": false,
+    "failure": "fixed-control / a1200-aga-pal programmable-HBLANK measurement failed: measured black runs [BlackRun { start: 0, end_exclusive: 4 }, BlackRun { start: 381, end_exclusive: 384 }]; registered cross-family consensus is []",
+    "interpretation": "Old full-viewport consensus coordinates are not requalified. The independent counter-traced fixed control is exact over the common raster."
+  },
+  "remaining": [
+    "ECS BLANKEN/CSYNC three-CCK plus half-CCK signal stages absent; seven lores ticks early",
+    "AGA one-line vertical blanking residual in six programmed controls",
+    "OCS far-right fixed-blank edge residual",
+    "Mid-line palette-XOR residual in three wider-corpus guests",
+    "ECS adjacent guest-field capture rejection in two timed cases",
+    "Low programmed edges at strobe reset not yet probed; source suggests pending next counter matters"
+  ],
+  "software_reference_boundary": "One UAE implementation family, not physical hardware calibration.",
+  "source_sha256": {
+    "crates/common-commodore-amiga/src/denise.rs": "fc5043e49e896d9e53641bf1df6400f12f608c3618468a9d26d02820ba03a55e",
+    "crates/common-commodore-amiga/src/denise_chip.rs": "ffe58d388069c70a5b548a5d973c0e555f8e578aa9ecf6cb918049fa9336e462",
+    "crates/commodore-denise-aga/src/lib.rs": "6f81999d15d1d0e5d095c0f9f7296a31140d8786cd9f60e50541ca7290fb09f8",
+    "crates/runtime-commodore-amiga/tests/snapshot_roundtrip.rs": "bb30b20230e2ea2077a8dd9e0abe3a37904b4445388e2a5b1b9d6aa2cd7927bf",
+    "crates/runtime-commodore-amiga/tests/amiga_programmable_hblank.rs": "e3ff1014b763546b351486646506cb47e823f324b090a4fd39b39d03641e28b9",
+    "crates/runtime-commodore-amiga/tests/amiga_programmable_hblank_write_timing.rs": "db790ff8c61b66603e074090d26ff148c5228dd63010087ee5c25d72918d55e2",
+    "target/release/emu198x-amiga": "c8c26db7780e57a2cd6e22c69198e7dc5975ad9afa008ff6bd0cf871c87d16de"
+  },
+  "broad_sweep": {
+    "guests": 128,
+    "exact_guests": 125,
+    "compared_fields": 384,
+    "exact_fields": 375,
+    "failed_fields": 9,
+    "compared_rgb_pixels": 332387328,
+    "failed_guests": [
+      {
+        "path": "/private/tmp/emu198x-midline-display/guests/palette-xor",
+        "mismatched_rgb_pixels": [
+          128,
+          128,
+          128
+        ]
+      },
+      {
+        "path": "/private/tmp/emu198x-midline-display/varying/palette-xor",
+        "mismatched_rgb_pixels": [
+          128,
+          128,
+          128
+        ]
+      },
+      {
+        "path": "/private/tmp/emu198x-midline-display/reset/palette-xor",
+        "mismatched_rgb_pixels": [
+          128,
+          128,
+          128
+        ]
+      }
+    ],
+    "producer_and_input_hashes_unchanged_during_capture": true,
+    "origin_boundary": "Retained corpus uses shared source-established output padding; fresh counter traces cover mode controls and two failing XOR guests, not every retained field."
+  }
+}

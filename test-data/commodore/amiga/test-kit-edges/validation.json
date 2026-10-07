@@ -1,0 +1,180 @@
+{
+  "scope": "Terminal Copper admission and retained horizontal Denise display-window latch; unchanged framebuffer geometry and strict reference contracts",
+  "snapshot_version": 52,
+  "rejected_previous_version": 51,
+  "strict_test_kit": {
+    "a500-a501-ocs-pal": {
+      "patterns": 6,
+      "before": {
+        "gradients": 6
+      },
+      "after_mismatched_pixels": 0,
+      "exit_code": 0
+    },
+    "a1200-aga-pal": {
+      "patterns": 6,
+      "before": {
+        "gradients": 9,
+        "crosshatch": 280
+      },
+      "after_mismatched_pixels": 0,
+      "exit_code": 0
+    },
+    "alternating_checkerboard": "Both phases checked by the unchanged gate",
+    "gate_source_unchanged": true,
+    "reference_contracts": {
+      "registered_fsuae_custom.cpp": "75bb300ba2798913997f82dde988db465746e9b7f22699bbc275690c8ae227e5",
+      "registered_fsuae_drawing.cpp": "668ff58b6382f328ac9f851c1ef297620b4942792c3f37a580e171af3cc7a5f7",
+      "testkit_v121_video.c": "5d385ae6ce1e04cf69c0c13d7d7f769f8ac77bf4f96d60c263fa57821852c7f4",
+      "minimig_denise.v": "06dfa15698cf696d4494a5cd5321ade5c38079e942f298530f8d8db6a71b81f4",
+      "a500-a501-ocs-pal/manifest.json": "f9ca5fac9cabfc9406e4ae69aaad0ba599506061fb60c37ed5e913db8b428436",
+      "a500-a501-ocs-pal/assertions.json": "c0e55505ef2667d666c1deb80f577e581a0292b9f05ee2c4fa68a1f6b7acd172",
+      "a1200-aga-pal/manifest.json": "a31402d76eda3fe262dd3fcc31b58610be9b0f18a174b57b1f1af4f2ae26a679",
+      "a1200-aga-pal/assertions.json": "c063d2b1f62192934603a586b66f7e8605098d01e1958b054e223b7aa1f894a8"
+    }
+  },
+  "full_release_sweep": {
+    "exit_code": 0,
+    "packages": [
+      "commodore-agnus-ocs",
+      "commodore-agnus-ecs",
+      "commodore-agnus-aga",
+      "commodore-denise-ocs",
+      "commodore-denise-ecs",
+      "commodore-denise-aga",
+      "common-commodore-amiga",
+      "machine-commodore-amiga-ocs",
+      "machine-commodore-amiga-ecs",
+      "machine-commodore-amiga-a1200",
+      "runtime-commodore-amiga"
+    ],
+    "target_results_including_doc_tests": 189,
+    "passed": 1253,
+    "failed": 0,
+    "ignored": 121,
+    "measured": 0,
+    "filtered_out": 0,
+    "snapshot_roundtrip_passed": 54,
+    "golden_matrix_passed": 8,
+    "golden_assets_required": true,
+    "golden_updates_enabled": false
+  },
+  "clippy": {
+    "exit_code": 0,
+    "release": true,
+    "all_targets": true,
+    "deny_warnings": true,
+    "packages": [
+      "commodore-agnus-ocs",
+      "common-commodore-amiga",
+      "machine-commodore-amiga-ocs",
+      "machine-commodore-amiga-ecs",
+      "machine-commodore-amiga-a1200",
+      "runtime-commodore-amiga"
+    ]
+  },
+  "registered_raster_regression": {
+    "guests": 128,
+    "fields": 384,
+    "compared_rgb_pixels": 333268992,
+    "mismatched_rgb_pixels": 0,
+    "guest_ready_and_identity_checked": true,
+    "producer_and_inputs_stable": true
+  },
+  "copper_blitter_timing": {
+    "compared_rows": 96,
+    "compared_writes": 3060,
+    "failing_rows": 0
+  },
+  "copper_wait_raster": {
+    "guests": 2,
+    "fields": 6,
+    "compared_rgb_pixels": 5207328,
+    "mismatched_rgb_pixels": 0
+  },
+  "regression_controls": {
+    "copper_line_end": "Six actual MOVE timing cases: WAIT D8/DC/DE on PAL and NTSC",
+    "latch_replay": "Both latch states across strobe reset, saved each half CCK on OCS/ECS/AGA",
+    "isolated_latch_negative_control": {
+      "latch": {
+        "exit_code": 0,
+        "harness_sha256": "5578d8d422adc6dc9056883a67669bc0c27615923369c67a025aa817af91ab6c"
+      },
+      "interval-mutant": {
+        "exit_code": 101,
+        "harness_sha256": "ff279aedc7ecfc38ec126755e2e18ac85d74f845db363cc561b27d85b8af3bf4"
+      },
+      "source_sha256": "0fd7e63eadd9763ff1f471626444578000486ff6e6bcf031dbabac079251a1d4"
+    }
+  },
+  "initial_release_sweep": {
+    "passed": 1251,
+    "failed": 2,
+    "ignored": 121,
+    "failures": [
+      "border_blank_replaces_color_zero_only_when_enabled_and_outside_display",
+      "denise_board_pipeline_exposes_complete_bounded_state_on_every_chipset"
+    ],
+    "repairs": "Clock the horizontal start in the mid-line fixture; include and verify the approved new diagnostic latch field"
+  },
+  "checks": {
+    "cargo_fmt": "pass",
+    "ruff_check_and_format": "pass",
+    "git_diff_check": "pass"
+  },
+  "limits": [
+    "Software-reference and RTL evidence; no new physical-hardware validation.",
+    "The 121 ignored release tests are not counted as passed. Both dedicated strict Test Kit profile gates ran separately.",
+    "Horizontal DIWHIGH fine positions and mid-line register propagation are outside this correction.",
+    "The prior strict HARDDIS wrap capture had 492 host-padding differences. That capture was not rerun and is not claimed fixed here.",
+    "The separate A1000 archive media-identity limitation remains open."
+  ],
+  "log_directory": "/private/tmp/emu198x-test-kit-edges",
+  "logs_sha256": {
+    "aga-after.log": "83e3672a915618e628ae3293d2fc770c7c8b34719c1a8075c67a0518f4377705",
+    "aga-before.log": "c70996a2a54263bd0516f83174e18773a170896bf5c6167ff04817c7ce5eeccb",
+    "aga-trace.log": "7c06dae966d5634b29f691baf4b24e9a722881932b9bafed090db573a52f5cc5",
+    "clippy-final.log": "763736ac150cd80c1766e0b1120e1951f83faa0a515a7ff7dea3e7bfc3896593",
+    "clippy.log": "10a58093e4a4eb66a174901666f93f63f479a0ee38f7f7f16bc97ef52fd81694",
+    "copper-after.log": "c8d8e79c104df5d5920b3552b0ef96c4affcbd21bc80e177c20386fecd4f90f9",
+    "copper-before.log": "d2fbe718087685175932b498be27fe1bda95cd5d9ae88b05ac017d7e4b2de32f",
+    "copper-boundaries.log": "087cbb82f771374ff4c9ed7a036ddce3ffd26c7357438084552567e2b0c37748",
+    "denise-after.log": "cd9afb14baf65c90dca07c1f422222c80f655852d87d5d38c60d9afac62832d9",
+    "denise-first.log": "8b1cefd4f32bf8991acb5143208c8fb3885ea1c895dfba565d05f6cf9def3947",
+    "full-sweep-final.log": "cc7ac946270bdbe7cb7890fe0d13bb2b60cda3d4af2a880927769bbdd27743e1",
+    "full-sweep.log": "14ef85a08c393180727c21eddfadfb9c95afde12134fa8bf779f77e1659b4cce",
+    "interval-mutant.log": "b8e551c86e7f3d5dfd3ae5e94d9ab7acfa6ef0393a0bec58d067070dd7e7a89d",
+    "latch.log": "4f64f9b0c0991e24b40a80d3b90c9058907fef752976899ea6f87dae2cea91bc",
+    "machine-libs.log": "08d26917d98e1972ee4c80960aed09ab08b7cd5581b8f47cdbd7fe40ed20d3e7",
+    "native-build.log": "d6eefe8b9aa4d965a667a78b5055e41a18f0bd7bd27621c47cb3fa4d0ca85312",
+    "ocs-after.log": "ec385d7fe97a1b908461792270f59abaa8c14cd05d17b1ed4f80ab62bede7439",
+    "ocs-before.log": "3e0791eba4ff52055f4017ee60cd232a5c755fdf260736b3d4388c07664d5551",
+    "raster-capture.log": "8f440ce61b52e8e68637e89c769c665200c5d4251ef4af96efb5d4c38f5486bf",
+    "runtime-fixtures-after.log": "b92ef0eb19ef4f1f03976880f490cd5f412c4a8e7a68551bc53ab469beda818d",
+    "runtime-fixtures-final.log": "e7159ca9d1b2d3c02075dcc292ad5e2374f50f86f152b887877a8ff4c2ac60c2",
+    "runtime-fixtures-verified.log": "d7eccfc7aa97b73f4f855b1073dd3e4de71853dc6730e6097882eae64fdf1aff",
+    "timing-build.log": "09a646c15e7a83f407fd1234a0ad1dae317c926c08039c6e0ec3a1b155c41361",
+    "timing-capture.log": "d8f51689fb812d0a228d83980fa91c485f267322b89f9d3346421d32bd4df205",
+    "wait-capture.log": "c77051bf6ff4be61fa0fb502df3ade58efff74908280ccecf061c61a8096554a",
+    "window-replay.log": "559a57a69d738551831e8c582da6faecb18142652141ef8709393b5bf693e5d8"
+  },
+  "regression_reports_sha256": {
+    "bfd-ignore-verification.json": "96b3082aa99b0dace93639853e42d87549d45c750e44e82e192b1f7d07f1a885",
+    "bfd-wait-verification.json": "0a080d2d2c9a03cf882365635041b0105867ba8e81a4746f966fc1350a779f70",
+    "prior-video-ready.json": "35f0b531b7e8acd0e7ae9d617f54991d8e26d900738b579fc000af5bf3fa68bf",
+    "producers.json": "ab01c0f6c33925713c9e14f857fb69e517eb68b03f0ab7a105c794c184e8989e",
+    "raster-producers.json": "004cf29a883c37c09ab68f1dcc36cf12df1f7e15e4fd2a7ed5ca2147980a0201",
+    "raster-ready-check.json": "e136b459f7e5ba41e31fbb7adacfd1b74ce378eebbebf59c6d9c4788c95d1519",
+    "timing-verification.json": "605bb365b91d332b34698e78e6ca40664067cacbb05ef8987ea5f270bb16ca0e",
+    "trace-producers.json": "67f61472e5dd71a1eb35da3c01d904a9098f98b55c24fc9b5d8c976e63652228"
+  },
+  "production_sources_sha256": {
+    "crates/commodore-agnus-ocs/src/agnus.rs": "b7f838e924c0261d65d3e8129ffd3a9ac0f5f1058678ebe2e1f07b9417dd5fd4",
+    "crates/common-commodore-amiga/src/denise.rs": "0fd7e63eadd9763ff1f471626444578000486ff6e6bcf031dbabac079251a1d4",
+    "crates/runtime-commodore-amiga/src/snapshot.rs": "3ffd41d59e3254f91ac906c89a07b38879bd04a044e4697c3582e5aae7e99df1"
+  },
+  "producer_identities": {
+    "emu198x-amiga": "dd09adf3ce5180929f08a975cd5d49453543a10c1c41a0616726cd274f852a04",
+    "kick31_40_068_a1200.rom": "6d43840d4099a74170ea0f0425b6257c3891ebcaa39c4d1840075a9ab22b5707"
+  }
+}

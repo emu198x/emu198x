@@ -13,6 +13,46 @@ owner for the same cell.
 
 ## The decision
 
+### Connected request and service stages
+
+The final odd Copper input cell is eligible when DMA is enabled and the
+address stage is free. The old positional terminal exclusion must not be
+applied to this connected request stage: PAL h=$E1 can feed service at $E2,
+and NTSC's long-line h=$E3 can feed service at next-line h=0. The
+[Test Kit edge observations](../../../../reference/by-system/commodore-amiga/2026-test-kit-display-edge-observations.md)
+record the source and guest evidence. This changes no output crop or clock.
+
+The approved version-50 integration replaces the positional decoder below
+for connected machines. Agnus's saved `DmaPipeline` is the sole authority:
+`current_slot` reports its outgoing service descriptor throughout both CPU
+phases. Completing a FIFO word or changing DMA enable cannot replace that
+owner. The positional tables remain a standalone chip-inspection fallback.
+
+Copper enters the future address stage on an eligible odd CCK and services
+that word on the next CCK. Display reservations take two CCKs, with PT/MOD
+sampling in between. Fixed refresh, disk, audio and blitter transfers enter
+addressing directly and service on the next CCK. Thus another client's future
+admission may coexist with the current physical owner; admission itself does
+not read or write memory. Copper wins against the blitter at their shared input
+stage. A mature CPU request denies non-nasty blitter admission; outgoing
+internal and suppressed-D phases leave the physical bus available to the CPU.
+
+The connected fixed DMAL admissions are refresh at 4/6/8, disk at 10/12/14
+and audio at 16/18/20/22. Their actual services are one CCK later. Timing
+strobes and combined display/refresh descriptors follow the existing shared
+pipeline. These positions supersede the earlier compressed slot table below,
+not its single-authority or retained-ownership invariants. The
+[measured integration](../../../../reference/by-system/commodore-amiga/2026-copper-blitter-wake-observations.md#shared-stage-live-integration-2026-10-06)
+and `bus-ownership` fixture record the source and verification boundaries.
+
+### Earlier positional decoder and retained invariants
+
+The [DDF register-write stage](amiga-ddf-register-write-stage.md) supersedes
+the earlier compressed same-cell DDF write assumptions below. Live DDF
+comparators consume saved effective copies: start writes suppress their
+delivery-cell comparator, while stop writes retain the old comparison.
+The single-authority and retained-service rules remain binding.
+
 Agnus owns **one** function that decides who holds the chip bus on each
 CCK: `Agnus::current_slot() -> SlotOwner`. `cck_bus_plan()` is a thin
 derivation of it (per-consumer grant booleans). Every consumer — copper,
@@ -49,9 +89,12 @@ non-nasty blitter, while a nasty blitter takes the cell before the CPU.
 therefore keys the second-stage choice off `Copper::bus_used_this_cck`,
 mirroring vAmiga's `busOwner`, which a waiting Copper never sets.
 
-An active Copper instruction owns both modeled fetch cells. The common Copper
-abstraction reads the instruction pair when its second accepted fetch cell
-completes, but the first phase is still a real bus allocation. Marking only the
+An active Copper instruction owns both modeled fetch cells. Each accepted fetch cell reads one instruction word and advances the PC by
+two bytes. IR1 is retained across denied cells and save/restore until IR2
+arrives. Later RAM writes cannot replace IR1; IR2 samples memory only in its
+own cell, following registered FS-UAE `custom.cpp::COP_read1/COP_read2` in
+[the primary observations](../../../../reference/by-system/commodore-amiga/2026-copper-blitter-wake-observations.md#copper-instruction-words-are-separate-transfers).
+Marking only the
 second phase allowed a nasty blitter or CPU to reuse the first cell and changed
 real-software output.
 
@@ -60,7 +103,14 @@ disk, sprite, Copper or blitter DMA can change the live state from which a new
 plan would be computed, but that change cannot retroactively give an
 already-consumed cell to another master. The scheduler therefore retains
 actual-use latches across both CPU phases of the CCK and clears them only when
-the next CCK starts. It also retains the pre-Copper plan for fixed, audio,
+the next CCK starts. The complete pre-service plan is also saved in Agnus
+and used by CPU arbitration for both phases. Live request decoding remains
+available separately in diagnostics, but a DMA disable after service cannot
+replace the saved owner. Half-CCK snapshots retain that decision. A regression
+performs a real bitplane fetch before disabling DMA and verifies that chip-RAM
+CPU service waits until the next CCK, including after restore. This retention
+is the service-stage foundation; it does not yet add future request admission.
+ It also retains the pre-Copper plan for fixed, audio,
 bitplane, sprite, disk and yielded-cell arbitration during that CCK. A Copper
 write changes register state immediately where the receiving chip permits it,
 but only the next physical cell can acquire newly enabled DMA ownership.

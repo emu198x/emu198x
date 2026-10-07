@@ -33,6 +33,11 @@ def synthetic_field(
 
 
 class SpritePhaseMeasurementTests(unittest.TestCase):
+    def test_aga_full_nibble_colours_use_captured_bgra_encoding(self) -> None:
+        # FS-UAE 5.0.7's raw AGA video buffer expands full nibbles to 255.
+        self.assertEqual(PROFILES["aga"]["marker_bgra"], bytes((0, 255, 0, 255)))
+        self.assertEqual(PROFILES["aga"]["sprite_bgra"], bytes((0, 0, 255, 255)))
+
     def test_measures_ocs_intervals_and_signed_deltas(self) -> None:
         result = measure_field(
             synthetic_field("ocs"),

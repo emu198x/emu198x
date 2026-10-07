@@ -1,0 +1,33 @@
+// External signals reproduce the connected boundary tests; memory/RGA is not simulated.
+int main(int argc, char **) {
+ const bool reverse = argc > 1;
+ std::puts("case,line,h,plane,mod");
+ for (int id=0;id<7;id++) {
+  ecs_agnus=id>=3; aga_mode=false; harddis_h=id==4 || id==6;
+  ddf_mask=ecs_agnus?0xfe:0xfc; maxhpos=maxhpos_long=227;
+  bool hires=id>=2;
+  fetchunit_mask=7; fetchstart_mask=hires?3:7; fm_maxplane=hires?4:8;
+  bpl_sequence=hires?bpl_sequence_4:bpl_sequence_8;
+  bplcon0_planes=bplcon0_planes_limit=hires?4:1;
+  bprun=bprun_cycle=ddf_stopping=ddf_enable_on=0;
+  ddf_limit=ddfstrt_match=hwi_old=false;
+  plfstrt_sprite=0x100; ddflastword_total=0; ddffirstword_total=0x100;
+  dmacon_bpl=true; vdiwstate=diw_states::DIW_waiting_stop;
+  ddfstrt=ddfstrt_saved=id==2?24:id>=5?56:24;
+  ddfstop=ddfstop_saved=id>=5?56:id>=3?224:id==2?208:216; preg={};
+  for(linear_vpos=0;linear_vpos<(id==2?3:2);linear_vpos++)
+  for(agnus_hpos=0;agnus_hpos<227;agnus_hpos++) {
+   get_cck_clock();
+   if(id==0 && linear_vpos==0 && agnus_hpos==216) DDFSTOP(16);
+   if(id==2) {
+    if(linear_vpos==0 && agnus_hpos==215) { dmacon_bpl=false; DDFSTRT(16); }
+    if(linear_vpos==2 && agnus_hpos==0) dmacon_bpl=true;
+   }
+   requested_plane=-1; request={};
+   if (reverse) { decide_bpl(agnus_hpos); generate_bpl(cck_clock); }
+   else { generate_bpl(cck_clock); decide_bpl(agnus_hpos); }
+   if(requested_plane>=0) std::printf("%d,%d,%d,%d,%d\n",id,linear_vpos,agnus_hpos,requested_plane,(request.bpldat&8)!=0);
+   empty_pipeline();
+  }
+ }
+}

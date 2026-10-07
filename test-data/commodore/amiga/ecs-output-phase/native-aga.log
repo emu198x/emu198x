@@ -1,0 +1,3 @@
+PIXEL_EDGE x=0 argb=ff000000
+PIXEL_EDGE x=168 argb=ffffffff
+PIXEL_EDGE x=1400 argb=ff000000

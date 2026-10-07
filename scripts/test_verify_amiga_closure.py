@@ -240,11 +240,11 @@ class VerifyAmigaClosureTests(unittest.TestCase):
         )
         self.assertEqual(
             registry["denise-ocs-color-output-phase"],
-            "blocked-stronger-evidence",
+            "fixed",
         )
         self.assertEqual(
             registry["aga-sprite-horizontal-output-phase"],
-            "blocked-stronger-evidence",
+            "fixed",
         )
 
         missing_row = closure.DISAGREEMENT_REGISTRY[:-1]

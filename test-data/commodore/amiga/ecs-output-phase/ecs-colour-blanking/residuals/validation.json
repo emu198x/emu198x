@@ -1,0 +1,43 @@
+{
+  "snapshot_version": 54,
+  "snapshot_layout_changed": false,
+  "timed_cases_passed": 10,
+  "timed_fields_compared": 30,
+  "static_cases_passed": 14,
+  "static_fields_compared": 42,
+  "reference_fields_redecoded": 84,
+  "comparator_consensus_pairs": 9,
+  "comparator_disagreements_retained": 5,
+  "absolute_phase_authority": "counter-qualified UAE software observation, not hardware",
+  "chip_tests_passed": 205,
+  "existing_snapshot_tests_passed": 55,
+  "additional_selector_snapshot_test_passed": 1,
+  "query_tests_passed": 44,
+  "measurement_tests_passed": 5,
+  "reference_admission_tests_passed": 2,
+  "clippy": "six packages / all targets / -D warnings passed",
+  "test_kit": "six exact OCS cases and six exact AGA cases",
+  "native_binary_sha256": "e217bad8f65a03f9ab6d97ac4ca241f4fa391989bc96a46cd761349d2090bda2",
+  "baseline_trace_binary_sha256": "070adb4aa298dfb975b3f5ed8e9d6ae2079a67f24ce5956f55ce74928c08921d",
+  "source_sha256": {
+    "crates/commodore-denise-ecs/src/lib.rs": "8362807e3e2b374e49f82a22d10559533b30e41ce29a162a2930da3b59e51893",
+    "crates/runtime-commodore-amiga/tests/common/mod.rs": "25becd392ca9776603dbf6f2529abf31777c3d19a2d58ef51c7019534616d54d",
+    "crates/runtime-commodore-amiga/tests/amiga_programmable_hblank.rs": "3089f1897df810fe8fa43a14ee14523094ae00f7a8d8ddc1a821abeea6c7a774",
+    "crates/runtime-commodore-amiga/tests/amiga_programmable_hblank_write_timing.rs": "cfae914fef1006e3e177805d12dbabd84673ac4b9869b531f5c0be76b641bf9c",
+    "tools/amiga-hblank-validation/requalify.py": "eaf134d6b5b5ae0411cff68560c916a05c7cb5ef20cfd7b42884a420aef49a30"
+  },
+  "logs_sha256": {
+    "blank-reference-validation-tests.log": "5070a91edd43fe993aaad3ff514c30fec01f428acd5995026afba9199e06dda4",
+    "blank-residual-build-native.log": "c752e7aef6a0363414d0c13cfa43b0aae37781e74859734ef829f2f05b8853b7",
+    "blank-residual-clippy-final.log": "3f36c8a99b526785778f5dfcceb69a6a7f1fa21084c25ecca9eaa39c9da120c7",
+    "blank-residual-selector-replay.log": "f55d2fe1acacd477de25e5ce8be802f5b2db4206f28db0a13094d54c981048e4",
+    "blank-residual-static-final.log": "e8823cb250d06337ad3c76a5f4c0432a93ab3b7b87ed52129331895d3fceb9ea",
+    "blank-residual-testkit-aga.log": "61fc85a87a93ac7a4f04f848e1094bff1249fb7e79518ed370204393314c4d66",
+    "blank-residual-testkit-ocs.log": "dc29f0b2d0a1fda4121d60d96474ed71c6ebfcda5b9cb2f06173247dece7f960",
+    "blank-residual-tests.log": "60a9452dd7b33bb2e9de9a2e9cb054c31f7612d2006ea3a818d0b47d0d96810a",
+    "blank-residual-timed-final.log": "818857dc859d45dadc69f9ebb86c03c3895f857bdc5c0d975eb7e5a8465f49aa",
+    "blank-residual-trace.log": "6534fee3043515d4a174fac07b52447fdedbc3df4b76284a1b21c70bb87a90ce",
+    "blank-selector-red.log": "119b207b8dcb8bf0d91b461ff8e2443adccd933fd7b4e5cf58b3e19d52bb91b1",
+    "blank-selectors-green.log": "9abc41f5130443377563936c113803b496641135c989c89af3d73abd8e1ae4fb"
+  }
+}

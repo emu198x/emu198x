@@ -22,11 +22,12 @@ timed colour edge appear late. Correcting the bitplane phase and using the
 beam-absolute crop makes the A1200 EBU bars exact without changing any
 producer pixel.
 
-The registered OCS family disagrees. vAmiga applies a Copper colour change at
-its current Agnus pixel position, and the A500 Test Kit gradients and EBU bars
-retain the corresponding two-sample difference. Its checkerboards, dots and
-crosshatch remain exact. This is an implementation-family disagreement, not
-evidence that either family represents physical OCS hardware.
+The neutral COLOR00 program independently places the OCS edges at marker-relative
+hires samples 262, 278, 294 and 310 in both vAmiga and FS-UAE. Emu198x's
+common pre-output queue placed them two samples later. See the
+[primary observation record](../../../../reference/by-system/commodore-amiga/2026-neutral-video-output-phase-observations.md).
+This resolves the implementation-family question for the tested OCS profile;
+it does not establish physical hardware timing.
 
 CPU and debugger writes are a different scheduling case. They are dispatched
 after the current output work in the machine tick and must be available to the
@@ -37,10 +38,14 @@ next tick without crossing the Copper's pre-output stage.
 The machine driver distinguishes a Copper MOVE from an ordinary custom-register
 write.
 
-A Copper `COLORxx` MOVE dispatched before output enters the early Denise-side
-RGA stage. The current lores output tick retains the preceding colour and the
+An ECS or AGA Copper `COLORxx` MOVE dispatched before output enters the early
+Denise-side RGA stage. The current lores output tick retains the preceding colour and the
 write becomes chip-visible after that tick. On AGA, the resulting Lisa palette
 write then crosses the additional one-hires-sample stage defined separately.
+
+On OCS, the pre-output write updates the chip before the current output tick.
+It bypasses the ECS/AGA queue. This is a concrete-chip dispatch policy; neither
+the beam coordinate nor the framebuffer crop changes.
 
 A CPU or debugger colour write dispatched after output updates the concrete
 chip immediately. It does not enter the pre-output queue. Lisa still applies
@@ -65,22 +70,18 @@ Copper writes disappear from inspection.
 
 ## OCS evidence boundary
 
-Emu198x retains the common early stage while the OCS conclusion is unresolved.
-The A500 gate treats gradients and EBU bars as exact registered disagreement
-signatures and continues to require exact reference agreement for the four
-non-raced cases. A passing mixed contract therefore means that the known
-disagreement is unchanged; it does not mean that Emu198x matches vAmiga or
-physical OCS output for those colour transitions.
-
-Physical capture or another independent implementation family is required to
-resolve the OCS phase. Rebaselining the vAmiga images, moving their absolute
-crop, or dropping the two cases would destroy the disagreement evidence.
+Both independent implementation families agree on the neutral program's
+marker-relative colour phase. The A500 Test Kit gradients and EBU bars now
+require exact equality with the unchanged producer images. Physical capture
+could still overturn the model. No reference image, absolute crop or channel
+normalisation was changed to obtain agreement.
 
 ## Verification
 
 Focused tests establish that:
 
-- a Copper colour write remains pending through the current output tick;
+- OCS pre-output colour is present on the dispatch output tick;
+- ECS/AGA Copper colour remains pending through the current output tick;
 - a post-output CPU or debugger write is ready for the next tick;
 - the board pending stage survives serialization;
 - AGA crosses the common stage and then Lisa's one-hires-sample stage;
@@ -88,8 +89,8 @@ Focused tests establish that:
 - all ten programmable-HBLANK write-timing observations retain their exact
   registered UAE-family signatures.
 
-The profile Test Kit contracts separately pin exact matches and known
-comparator disagreements.
+Both profile Test Kit contracts require exact agreement for all six cases,
+including both alternating-checkerboard phases.
 
 ## Related Documents
 
@@ -98,3 +99,33 @@ comparator disagreements.
 - [Amiga Test Kit v1.21 video conformance](../processes/amiga-test-kit-video-conformance.md)
 - [Amiga programmable-HBLANK conformance](../processes/amiga-programmable-hblank-conformance.md)
 - [Amiga accuracy closure campaign](amiga-accuracy-closure-campaign.md)
+
+## Lisa counter-origin correction (2026-10-06)
+
+The approved counter-origin investigation supersedes the AGA early-queue
+policy above. A separate COLOR00 guest emits four adjacent Copper MOVEs. The
+reference changes at counters 292.5, 300.5, 308.5 and 316.5; the native queue
+added one lores tick to every edge. Lisa's early handler now enters its
+existing two-sample palette stage directly. CPU/post-output handling and the
+one-hires delay remain unchanged. Snapshot 53 retains the old pending field.
+
+The evidence does not independently recalibrate ECS Copper colour timing;
+that policy remains unchanged. The original raw-reference comparisons retain
+their historical results but their uncorrected origin cannot prove absolute
+phase. The counter-origin observations in the shared reference library record
+the measured origin and control identities.
+
+## ECS counter-origin correction (2026-10-07)
+
+The independently traced A500+ colour control also disproves the ECS early
+queue. All four edges are one lores tick late, with 256 differing samples per
+field in all three captured fields. The shared reference observation record
+`2026-ecs-colour-blanking-observations.md` identifies the guest and counters.
+The user approved this investigation and bounded correction on 2026-10-07.
+
+ECS now handles the pre-output write in its existing concrete-chip hook,
+matching the reference's immediate early-RGA palette update. OCS is unchanged;
+Lisa retains its independently verified one-hires palette delay. This
+supersedes the ECS queue policy and associated absolute-phase claims above.
+The saved board queue remains in snapshot 53 for layout compatibility; no new
+write enters it on the installed OCS/ECS/AGA variants.

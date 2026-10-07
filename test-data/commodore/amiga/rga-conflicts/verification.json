@@ -1,0 +1,11 @@
+{
+  "rows": 200,
+  "source_sha256": "75bb300ba2798913997f82dde988db465746e9b7f22699bbc275690c8ae227e5",
+  "fragment_sha256": {
+    "write_rga": "b47e126fbfde61f13dd805802f2430d88a99d157f96b23b997e1b9e1b8ad2fb1",
+    "refresh_service": "5662436b1549d6f85d9b71735e81749648e24b872700a8529fd308e114a108c1",
+    "bitplane_service": "5c07b55b4166dc420db95476250c54a0a6cc423579483795aad7cf570f2b7b69"
+  },
+  "negative_exit": 1,
+  "boundary": "Compiled registered RGA and outgoing refresh/bitplane fragments; stubbed memory payloads; no live raster or silicon claim"
+}

@@ -136,7 +136,7 @@ fn bpl1dat_queue_with_nonzero_odd_scroll_delays_commit_by_phase_count() {
     // Earlier pixels see the previous (zero) shifter content.
     let mut d = DeniseOcs::new();
     d.write_word(0x100, 0x1000); // LORES, BPU=1
-    d.write_word(0x102, 0x0040); // odd_scroll=4
+    d.write_word(0x102, 0x0004); // odd_scroll=4
     d.write_word(0x180, 0x000);
     d.write_word(0x182, 0xFFF);
     d.begin_beam_line();
@@ -161,12 +161,12 @@ fn bpl1dat_queue_with_nonzero_odd_scroll_delays_commit_by_phase_count() {
 
 #[test]
 fn bpl1dat_queue_in_hires_uses_phase_mask_07() {
-    // Hires BPLCON1 nibble drops the low bit (2-pixel granularity) and the
+    // Hires BPLCON1 masks the high nibble bit (two hires pixels per unit); the
     // phase mask is 0x07 (8-cycle window). odd_scroll=2 -> commit at
     // (beam_x-1) & 0x07 == 2 -> beam_x = 3.
     let mut d = DeniseOcs::new();
     d.write_word(0x100, 0x9000); // HIRES + BPU=1
-    d.write_word(0x102, 0x0030); // odd nibble=3 -> hires drops to 2
+    d.write_word(0x102, 0x000A); // PF1H=10 -> hires masks to 2
     d.write_word(0x180, 0x000);
     d.write_word(0x182, 0xFFF);
     d.begin_beam_line();
@@ -191,7 +191,7 @@ fn bpl1dat_queue_split_phases_for_odd_and_even_planes() {
     // has already drained one MSB by then so it stays low.
     let mut d = DeniseOcs::new();
     d.write_word(0x100, 0x2000); // LORES, BPU=2 (planes 0 + 1)
-    d.write_word(0x102, 0x0013); // odd=1, even=3
+    d.write_word(0x102, 0x0031); // odd=1, even=3
     d.write_word(0x180, 0x000);
     d.write_word(0x182, 0xFFF); // index 1 (plane 0 only)
     d.write_word(0x184, 0xF00); // index 2 (plane 1 only)

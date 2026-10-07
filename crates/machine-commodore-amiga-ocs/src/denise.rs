@@ -9,7 +9,9 @@
 //! shared `AmigaDriver` body, not here.
 
 use commodore_denise_ocs::DeniseOcs;
-pub use common_commodore_amiga::denise::{BitplaneDmaFetch, FB_HEIGHT, FB_WIDTH};
+pub use common_commodore_amiga::denise::{
+    BitplaneDmaFetch, BitplaneDmaInput, DeniseOutputSignals, FB_HEIGHT, FB_WIDTH,
+};
 
 pub type Denise = common_commodore_amiga::denise::Denise<DeniseOcs>;
 

@@ -36,6 +36,23 @@ use crate::{
     A500_NTSC_CCK_HZ, A500_PAL_CCK_HZ, Accelerator, AmigaConfig, AmigaRuntime, CpuTraceEntry, Model,
 };
 
+/// Candidate states may contain only targets connected to the live driver.
+/// Keep identity validation separate: component stages support the complete
+/// approved pipeline while its machine adapters are connected incrementally.
+fn validate_live_dma_pipeline(agnus: &commodore_agnus_ocs::Agnus) -> Result<(), String> {
+    agnus.validate_timing_strobes()?;
+    agnus.validate_display_dma_sequencer()?;
+    agnus.validate_ddf_register_stage()?;
+    agnus.validate_pending_blitter_start()?;
+    let pipeline = agnus.dma_pipeline();
+    pipeline.validate()?;
+    // A snapshot cannot interrupt the atomic chipset work preceding CPU edges.
+    if pipeline.service().is_some() && !pipeline.service_was_claimed() {
+        return Err("saved DMA service has not retired".into());
+    }
+    Ok(())
+}
+
 /// Per-variant machine surface for the Amiga family.
 ///
 /// Implemented by every concrete machine type that wants to plug
@@ -531,9 +548,16 @@ macro_rules! amiga_variant_query_paths {
     "agnus.sync_pin_blank",
     "denise.board_pipeline",
     "denise.board_pipeline.bytes_this_line",
+    "denise.board_pipeline.horizontal_counter",
+    "denise.board_pipeline.horizontal_counter.current",
+    "denise.board_pipeline.horizontal_counter.next",
+    "denise.board_pipeline.horizontal_counter.incoming",
+    "denise.board_pipeline.horizontal_counter.pending",
+    "denise.board_pipeline.horizontal_counter.second_tick",
     "denise.board_pipeline.last_begin_line",
     "denise.board_pipeline.prior_line_raster",
     "denise.board_pipeline.pending_early_writes",
+    "denise.board_pipeline.pending_bitplane_dma",
     "denise.palette_12",
     "denise.palette_24",
     "denise.palette_genlock",
@@ -552,12 +576,21 @@ macro_rules! amiga_variant_query_paths {
     "denise.clxdat",
     "denise.bitplanes",
     "denise.bitplanes.holding_data",
+    "denise.bitplanes.bitplane_fmode",
+    "denise.bitplanes.serial_scroll_history",
+    "denise.bitplanes.serial_scroll_cursor",
+    "denise.bitplanes.serial_clock_phase",
+    "denise.bitplanes.serial_clock_phase_even",
+    "denise.bitplanes.serial_held_sample",
     "denise.bitplanes.shift_data",
+    "denise.bitplanes.shift_data_32",
     "denise.bitplanes.aggregate_shift_count",
     "denise.bitplanes.shift_counts",
     "denise.bitplanes.shift_delays",
     "denise.bitplanes.previous_data",
     "denise.bitplanes.pending_data",
+    "denise.bitplanes.pending_fetch_tails",
+    "denise.bitplanes.pending_fetch_tail_lengths",
     "denise.bitplanes.pending_copy_odd_planes",
     "denise.bitplanes.pending_copy_even_planes",
     "denise.bitplanes.scroll_pending_line",
@@ -592,6 +625,7 @@ macro_rules! amiga_variant_query_paths {
     "denise.output_ecsena_enabled",
     "denise.output_extblken_enabled",
     "denise.output_selector_pipeline",
+    "denise.csync_blanking",
     "denise.shres_enabled",
     "denise.bplhwrm_enabled",
     "denise.sprhwrm_enabled",
@@ -609,6 +643,7 @@ macro_rules! amiga_variant_query_paths {
     "copper.wait_bfd",
     "copper.cck_phase",
     "copper.pending_wait_delay",
+    "copper.pending_wait_idle",
     "copper.pending_wait_target",
     "copper.pending_wait_mask",
     "copper.pending_wait_bfd",
@@ -684,6 +719,7 @@ macro_rules! amiga_variant_query_paths {
     "dma.ddf.comparator_mask",
     "dma.ddf.effective_ddfstrt",
     "dma.ddf.effective_ddfstop",
+    "dma.ddf.pending_write",
     "dma.ddf.start_match",
     "dma.ddf.stop_match",
     "dma.ddf.fetch_end",
@@ -761,6 +797,14 @@ macro_rules! amiga_variant_query_paths {
     "blitter.word.internal_done",
     "blitter.line",
     "blitter.line.present",
+    "blitter.line.phase",
+    "blitter.line.use_b",
+    "blitter.line.use_c",
+    "blitter.line.bpt",
+    "blitter.line.bmod",
+    "blitter.line.pending_result",
+    "blitter.line.pending_addr",
+    "blitter.line.pending_write",
     "blitter.line.steps_remaining",
     "blitter.line.error",
     "blitter.line.error_add",
@@ -781,6 +825,14 @@ macro_rules! amiga_variant_query_paths {
     "blitter.line.have_c_word",
     "blitter.area",
     "blitter.area.present",
+    "blitter.area.phase",
+    "blitter.area.pipeline_primed",
+    "blitter.area.a_hold",
+    "blitter.area.b_hold",
+    "blitter.area.pending_result",
+    "blitter.area.destination_words_remaining_in_row",
+    "blitter.area.result_words_remaining_in_row",
+
     "blitter.area.rows_remaining",
     "blitter.area.width_words",
     "blitter.area.words_remaining_in_row",
@@ -1325,6 +1377,8 @@ impl AmigaMachine for AmigaOcs {
     }
 
     fn validate_configuration(&self, config: AmigaConfig) -> Result<(), String> {
+        validate_live_dma_pipeline(self.agnus())?;
+        self.denise().validate_pending_bitplane_dma()?;
         validate_machine_configuration(
             config,
             MachineConfigurationState {
@@ -1518,6 +1572,8 @@ impl AmigaMachine for AmigaEcs {
     }
 
     fn validate_configuration(&self, config: AmigaConfig) -> Result<(), String> {
+        validate_live_dma_pipeline(self.agnus())?;
+        self.denise().validate_pending_bitplane_dma()?;
         validate_machine_configuration(
             config,
             MachineConfigurationState {
@@ -1620,6 +1676,8 @@ const AGA_VARIANT_QUERY_PATHS: &[&str] = amiga_variant_query_paths!(
     "aga.programmed_hblank_input",
     "aga.programmed_hblank_visible",
     "aga.programmed_hblank_pipeline",
+    "aga.bplcon1_visible",
+    "aga.bplcon1_pipeline",
     "aga.palette_24_nonzero_per_bank",
     "aga.palette_24",
     "aga.palette_genlock",
@@ -1628,7 +1686,7 @@ const AGA_VARIANT_QUERY_PATHS: &[&str] = amiga_variant_query_paths!(
 );
 
 impl AmigaMachine for AmigaA1200 {
-    const CHIPSET_FB_WIDTH: u32 = FB_WIDTH;
+    const CHIPSET_FB_WIDTH: u32 = machine_commodore_amiga_a1200::FB_WIDTH;
     const CHIPSET_FB_HEIGHT: u32 = FB_HEIGHT;
 
     type Snapshot = AmigaA1200Snapshot;
@@ -1731,6 +1789,8 @@ impl AmigaMachine for AmigaA1200 {
     }
 
     fn validate_configuration(&self, config: AmigaConfig) -> Result<(), String> {
+        validate_live_dma_pipeline(self.agnus())?;
+        self.denise().validate_pending_bitplane_dma()?;
         validate_machine_configuration(
             config,
             MachineConfigurationState {

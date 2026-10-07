@@ -15,8 +15,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Delay routed CSYNC blanking through three CCK samples and the final half-CCK stage, preserving both edges and in-flight state
+
 - Propagate BPLCON0.ECSENA and BPLCON3.EXTBLKEN through the normal
-  three-half-CCK display path
+  one-CCK display path; the saved output mirror adds no extra half-CCK
 
 ## [0.2.0](https://github.com/emu198x/emu198x/releases/tag/commodore-denise-ecs-v0.2.0) - 2026-06-04
 

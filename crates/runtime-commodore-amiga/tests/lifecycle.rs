@@ -21,10 +21,13 @@ use common::{
 };
 
 /// A reset machine starts at raw line-zero rather than at Denise's display
-/// boundary. Its first completed frame therefore includes the fixed `$12`
+/// boundary. Its first completed frame therefore includes the strobe-driven
 /// post-wrap interval before subsequent publications settle to the nominal
 /// field period.
-const FIRST_FRAME_PUBLICATION_DELAY_TICKS: u64 = 0x12 * 2;
+// STRHOR is admitted at h2, serviced at h3, and resets Denise to position 2
+// for h5. Its position-36 blank edge is therefore h22. The preceding row's
+// scan must finish before publication; subsequent field intervals are stable.
+const FIRST_FRAME_PUBLICATION_DELAY_TICKS: u64 = (5 + (36 - 2) / 2) * 2;
 
 #[derive(Default)]
 struct FrameCollector {
@@ -32,10 +35,13 @@ struct FrameCollector {
     width: u32,
     height: u32,
     pixels: Vec<u8>,
+    fields: Vec<Option<emu198x_shell::VideoField>>,
 }
 
 impl FrameSink for FrameCollector {
     fn push_frame(&mut self, frame: FramePacket<'_>) -> Result<(), MachineError> {
+        self.fields
+            .push(frame.signal.and_then(|signal| signal.field));
         self.timestamp = frame.timestamp;
         self.width = frame.width;
         self.height = frame.height;
@@ -224,7 +230,7 @@ fn run_until_publishes_pal_frame_after_raster_carry_reaches_right_edge() {
         MachineTime::new(A500_PAL_FRAME_TICKS + FIRST_FRAME_PUBLICATION_DELAY_TICKS),
     );
     assert_eq!(runtime.machine().agnus().vpos, 0);
-    assert_eq!(runtime.machine().agnus().hpos, 0x12);
+    assert_eq!(runtime.machine().agnus().hpos, 0x16);
 
     let final_vpos = runtime.machine().agnus().lines_per_frame - 1;
     let first_row = u32::from(final_vpos - 0x19) * 2;
@@ -268,7 +274,7 @@ fn run_until_emits_on_actual_long_interlace_field_boundary() {
     assert_eq!(runtime.time(), expected_time);
     assert_eq!(runtime.machine().agnus().vbl_count, 1);
     assert_eq!(runtime.machine().agnus().vpos, 0);
-    assert_eq!(runtime.machine().agnus().hpos, 0x12);
+    assert_eq!(runtime.machine().agnus().hpos, 0x16);
     assert_eq!(audio_sink.packets, 1);
     assert_eq!(audio_sink.last_timestamp, expected_time);
     assert_eq!(
@@ -1042,4 +1048,82 @@ fn profile_clock_derives_field_rate_recording_fps() {
 
     let ntsc = profile_for(Model::A500OcsNtsc);
     assert_eq!(compute_fps(ntsc.clock.rate, A500_NTSC_FRAME_TICKS), 60);
+}
+
+#[test]
+fn host_fields_identify_completed_rows_before_agnus_toggles_lof() {
+    use emu198x_shell::{FieldParity, VideoField};
+    let mut runtime = AmigaOcsRuntime::new(Model::A500OcsPal, dummy_kickstart()).expect("runtime");
+    runtime.machine_mut().poke_word(0x00DF_F100, 4);
+    let mut frames = FrameCollector::default();
+    let mut audio = NullAudioSink;
+    let mut trace = NullTraceSink;
+    for index in 0..3 {
+        runtime
+            .machine_mut()
+            .poke_word(0x00DF_F180, if index == 1 { 0x000F } else { 0x0F00 });
+        runtime
+            .run_until(
+                runtime.time().saturating_add(1),
+                &mut HostIo {
+                    input_events: &[],
+                    frame_sink: &mut frames,
+                    audio_sink: &mut audio,
+                    trace_sink: &mut trace,
+                },
+            )
+            .expect("field");
+        let pixel = |y: u32| {
+            let offset = ((y * frames.width + frames.width / 2) * 4) as usize;
+            &frames.pixels[offset..offset + 4]
+        };
+        assert_eq!(
+            pixel(100),
+            &[255, 0, 0, 255],
+            "even rows retain the long field"
+        );
+        assert_eq!(
+            pixel(101),
+            if index == 0 {
+                &[0, 0, 0, 255]
+            } else {
+                &[0, 0, 255, 255]
+            },
+            "odd rows retain only the short field"
+        );
+    }
+    assert_eq!(
+        frames.fields,
+        vec![
+            Some(VideoField {
+                sequence: 0,
+                parity: FieldParity::Even
+            }),
+            Some(VideoField {
+                sequence: 1,
+                parity: FieldParity::Odd
+            }),
+            Some(VideoField {
+                sequence: 2,
+                parity: FieldParity::Even
+            }),
+        ]
+    );
+    assert!(
+        !runtime.machine().agnus().lof,
+        "Agnus already belongs to the next field"
+    );
+    runtime.machine_mut().poke_word(0x00DF_F100, 0);
+    runtime
+        .run_until(
+            runtime.time().saturating_add(1),
+            &mut HostIo {
+                input_events: &[],
+                frame_sink: &mut frames,
+                audio_sink: &mut audio,
+                trace_sink: &mut trace,
+            },
+        )
+        .expect("progressive field");
+    assert_eq!(frames.fields.last(), Some(&None));
 }

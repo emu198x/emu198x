@@ -1,0 +1,24 @@
+   Compiling common-commodore-amiga v0.25.0 (/Users/stevehill/Projects/198x/Emu198x/emu198x/crates/common-commodore-amiga)
+    Finished `release` profile [optimized] target(s) in 9.99s
+     Running unittests src/lib.rs (target/release/deps/common_commodore_amiga-d3f6807035caecfa)
+
+running 1 test
+test denise::tests::ecs_copper_color_reaches_the_dispatch_output_tick ... FAILED
+
+failures:
+
+---- denise::tests::ecs_copper_color_reaches_the_dispatch_output_tick stdout ----
+
+thread 'denise::tests::ecs_copper_color_reaches_the_dispatch_output_tick' (65195642) panicked at crates/common-commodore-amiga/src/denise.rs:1652:13:
+assertion `left == right` failed
+  left: 4279312947
+ right: 4294901760
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    denise::tests::ecs_copper_color_reaches_the_dispatch_output_tick
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 140 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p common-commodore-amiga --lib`

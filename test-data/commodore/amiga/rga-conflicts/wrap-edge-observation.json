@@ -1,0 +1,218 @@
+{
+  "reference_revision": "f362278ccd4c60991caac3b4d240d4a3f751bea2",
+  "source_sha256": {
+    "custom.cpp": "75bb300ba2798913997f82dde988db465746e9b7f22699bbc275690c8ae227e5",
+    "drawing.cpp": "668ff58b6382f328ac9f851c1ef297620b4942792c3f37a580e171af3cc7a5f7",
+    "linetoscr_aga_fm0.cpp": "e1de8b92da69ca73683c2277b5dacf508fb6de76c3c8bceccd160e1d3b5394c5"
+  },
+  "instrumented_source_sha256": {
+    "custom.cpp": "10ce73a4bba75cb57bd6f60177fe3f1c36c97da1b46bc1e4b9580090977d12cc",
+    "drawing.cpp": "875392d70e909cd57b5e790e92dd2b632ca9053d4bae9270eaecc23a74f7290e",
+    "linetoscr_aga_fm0.cpp": "af5c03766e737d534ae9bee45882a466413ffc9f5122b98f830c9c7cbed35485"
+  },
+  "trace_patch_sha256": "b02796df97e24e493ee95b498942f34b6cbc2e50082b06ec4645beef3815639b",
+  "changed_cpp_compile_flags": "-O1",
+  "reference_capture_unchanged": {
+    "control": {
+      "field-000173.bgra": "d82b243b6018eed7481dc737069a9b6651d5f944b78b3a71fbacfaf7810a893e",
+      "field-000174.bgra": "d82b243b6018eed7481dc737069a9b6651d5f944b78b3a71fbacfaf7810a893e",
+      "field-000175.bgra": "d82b243b6018eed7481dc737069a9b6651d5f944b78b3a71fbacfaf7810a893e"
+    },
+    "harddis": {
+      "field-000173.bgra": "4d90746c888a1b074ad4406988eb943be591ef679dfd54d2d147ba6528782e6d",
+      "field-000174.bgra": "4d90746c888a1b074ad4406988eb943be591ef679dfd54d2d147ba6528782e6d",
+      "field-000175.bgra": "4d90746c888a1b074ad4406988eb943be591ef679dfd54d2d147ba6528782e6d"
+    }
+  },
+  "prefix_trace": {
+    "control": {
+      "rows": 283,
+      "bad_final_capture_rows": [],
+      "prefix_counts": [
+        [
+          [
+            4,
+            4
+          ],
+          283
+        ]
+      ],
+      "last_window_services": [
+        "RGA out v=244 h=3 reg=3c type=4 pv=1ffffe live=1ffffe ref=1ffffe mod=0 plane=2 b0=350c8 b1=350c8 b2=350c8 b3=350c8 diw=0 run=0 cycle=200 stop=0",
+        "RGA out v=244 h=5 reg=1fe type=2 pv=1ffffe live=1ffffe ref=1ffffe mod=0 plane=3 b0=350c8 b1=350c8 b2=350c8 b3=350c8 diw=0 run=0 cycle=200 stop=0",
+        "RGA out v=244 h=7 reg=1fe type=2 pv=1ffffe live=1ffffe ref=1ffffe mod=0 plane=2 b0=350c8 b1=350c8 b2=350c8 b3=350c8 diw=0 run=0 cycle=200 stop=0",
+        "RGA out v=244 h=9 reg=1fe type=2 pv=1ffffe live=1ffffe ref=1ffffe mod=0 plane=3 b0=350c8 b1=350c8 b2=350c8 b3=350c8 diw=0 run=0 cycle=200 stop=0"
+      ]
+    },
+    "harddis": {
+      "rows": 283,
+      "bad_final_capture_rows": [],
+      "prefix_counts": [
+        [
+          [
+            4,
+            4
+          ],
+          283
+        ]
+      ],
+      "last_window_services": [
+        "RGA out v=244 h=2 reg=116 type=1 pv=35380 live=35382 ref=1ffffe mod=0 plane=3 b0=200062 b1=200062 b2=35380 b3=35382 diw=0 run=1 cycle=202 stop=2",
+        "RGA out v=244 h=3 reg=10 type=5 pv=1ffffe live=1ffffe ref=1ffffe mod=0 plane=1 b0=200062 b1=200062 b2=35380 b3=35382 diw=0 run=2 cycle=203 stop=2",
+        "RGA out v=244 h=4 reg=114 type=1 pv=35380 live=35380 ref=1ffffe mod=0 plane=2 b0=200062 b1=200000 b2=35380 b3=35382 diw=0 run=0 cycle=204 stop=2",
+        "RGA out v=244 h=5 reg=110 type=3 pv=1ffffe live=1ffffe ref=1ffffe mod=0 plane=0 b0=200062 b1=200000 b2=35382 b3=35382 diw=0 run=0 cycle=204 stop=2",
+        "RGA out v=244 h=7 reg=1fe type=2 pv=1ffffe live=1ffffe ref=1ffffe mod=0 plane=1 b0=1ffffe b1=200000 b2=35382 b3=35382 diw=0 run=0 cycle=204 stop=2",
+        "RGA out v=244 h=9 reg=1fe type=2 pv=1ffffe live=1ffffe ref=1ffffe mod=0 plane=0 b0=1ffffe b1=200000 b2=35382 b3=35382 diw=0 run=0 cycle=204 stop=2"
+      ]
+    }
+  },
+  "native": {
+    "control": {
+      "before_png_sha256": "e889237b92753ddf1bc5bc3456cf03d2a2833a0e3d1cd600a3c3971dd5e34108",
+      "after_png_sha256": "e889237b92753ddf1bc5bc3456cf03d2a2833a0e3d1cd600a3c3971dd5e34108",
+      "changed_full_native_pixels": 0,
+      "changed_full_native_bounds": null,
+      "strict_mismatches_by_field": [
+        0,
+        0,
+        0
+      ]
+    },
+    "harddis": {
+      "before_png_sha256": "0ed4acd35e39e5d67371a30626636dc8f867f7e66109c8ef612c041ccc90bc7d",
+      "after_png_sha256": "77aa48753e5ad4c6b11f92813286b6019aa82c1a78a17722275b4c18fbd443f2",
+      "changed_full_native_pixels": 32,
+      "changed_full_native_bounds": [
+        1496,
+        436,
+        1527,
+        437
+      ],
+      "strict_mismatches_by_field": [
+        492,
+        492,
+        492
+      ]
+    }
+  },
+  "reference_producer_inputs": {
+    "/private/tmp/emu198x-rga-live-reference-source/od-fs/fs-uae": "ee8f61c98b6172665642b13c5fc393dbad096d32e18818b01e7cb7daba72c9be",
+    "/Users/stevehill/Projects/198x/Emu198x/emu198x/../roms/kick31_40_068_a1200.rom": "6d43840d4099a74170ea0f0425b6257c3891ebcaa39c4d1840075a9ab22b5707",
+    "/private/tmp/emu198x-rga-edge-trace/late-guests/control/probe.adf": "96ac6568536166e85c2d9f9603c674376b0bd4d7f0da86a4a1b1469623ea7a85",
+    "/private/tmp/emu198x-rga-edge-trace/late-guests/harddis/probe.adf": "d4dbae38b82443085505639764af7361a45588f8652c13484f773af468821ebd"
+  },
+  "native_producer_inputs": {
+    "/Users/stevehill/Projects/198x/Emu198x/emu198x/target/release/emu198x-amiga": "daad482f508b49d8157bc24248fb15b25c93ebdccc4008f5d57e6393a26bb63b",
+    "/Users/stevehill/Projects/198x/Emu198x/emu198x/../roms/kick31_40_068_a1200.rom": "6d43840d4099a74170ea0f0425b6257c3891ebcaa39c4d1840075a9ab22b5707",
+    "/private/tmp/emu198x-rga-edge-trace/native-guests/control/probe.adf": "96ac6568536166e85c2d9f9603c674376b0bd4d7f0da86a4a1b1469623ea7a85",
+    "/private/tmp/emu198x-rga-edge-trace/native-guests/harddis/probe.adf": "d4dbae38b82443085505639764af7361a45588f8652c13484f773af468821ebd"
+  },
+  "pre_clipping_signal": {
+    "display_optimizations": "none",
+    "mapping": "x = initial buffer column + pixtotal * 8 + half * 4; existing native origin (16,2), lores samples expanded by the source emitter",
+    "comparison": {
+      "control": {
+        "signal_samples_compared": 6840,
+        "native_signal_mismatches": 0,
+        "native_signal_examples": [],
+        "retained_anchor_mismatches": 0,
+        "padded_image_mismatches": 0,
+        "padded_mismatches_with_signal_record": 0,
+        "rows_with_signal": 570,
+        "negative_control_shift_one_pixel_mismatches": 0
+      },
+      "harddis": {
+        "signal_samples_compared": 6784,
+        "native_signal_mismatches": 0,
+        "native_signal_examples": [],
+        "retained_anchor_mismatches": 0,
+        "padded_image_mismatches": 492,
+        "padded_mismatches_with_signal_record": 492,
+        "rows_with_signal": 566,
+        "negative_control_shift_one_pixel_mismatches": 1234
+      }
+    },
+    "reference_producer_inputs": {
+      "/private/tmp/emu198x-rga-live-reference-source/od-fs/fs-uae": "e941bf05379b70b319bf97d5b87adaf23b6a40aae3bf6cfd1dfe9586c9dc09bd",
+      "/Users/stevehill/Projects/198x/Emu198x/emu198x/../roms/kick31_40_068_a1200.rom": "6d43840d4099a74170ea0f0425b6257c3891ebcaa39c4d1840075a9ab22b5707",
+      "/private/tmp/emu198x-rga-edge-trace/signal-all-guests/control/probe.adf": "96ac6568536166e85c2d9f9603c674376b0bd4d7f0da86a4a1b1469623ea7a85",
+      "/private/tmp/emu198x-rga-edge-trace/signal-all-guests/harddis/probe.adf": "d4dbae38b82443085505639764af7361a45588f8652c13484f773af468821ebd"
+    },
+    "raw_fields_unchanged": true,
+    "raw_field_count": 6,
+    "single_non_sprite_hook_rejected_for_zero_coverage": true
+  },
+  "validation": {
+    "boundary": "registered software-reference validation; integrated accuracy gates remain open",
+    "raster_fields": 384,
+    "raster_rgb_pixels": 333268992,
+    "raster_mismatches": 0,
+    "timing_cases": 96,
+    "dma_writes": 3060,
+    "wait_fields": 6,
+    "wait_rgb_pixels": 5207328,
+    "wrap_mismatches_before": 524,
+    "wrap_mismatches_after": 492,
+    "signal_covered_padding_differences": 492,
+    "signal_mismatches": 0,
+    "shifted_signal_negative_control_mismatches": 1234,
+    "ecs_aga_chip_tests_passed": 93,
+    "new_vertical_boundary_snapshot_replay": "passes for ECS and AGA, both CPU phases",
+    "broader_failed_targets": [
+      "-p machine-commodore-amiga-a1200 --lib",
+      "-p machine-commodore-amiga-ecs --lib",
+      "-p machine-commodore-amiga-ocs --lib",
+      "-p machine-commodore-amiga-ocs --test blitter_completion",
+      "-p machine-commodore-amiga-ocs --test ddf_hard_stop",
+      "-p machine-commodore-amiga-ocs --test fat_agnus_8372a_extensions",
+      "-p runtime-commodore-amiga --test collisions",
+      "-p runtime-commodore-amiga --test snapshot_roundtrip"
+    ],
+    "broader_failed_tests": [
+      "bus_plan_dispatch_tests::alice_hblank_reset_precedes_a_coincident_wide_bitplane_fetch",
+      "bus_plan_dispatch_tests::copper_can_reschedule_an_unreached_future_ddfstop_comparator",
+      "bus_plan_dispatch_tests::copper_can_reschedule_an_unreached_future_ddfstrt_comparator",
+      "bus_plan_dispatch_tests::copper_cannot_cancel_a_ddfstop_match_from_the_same_beam_entry",
+      "bus_plan_dispatch_tests::copper_ddfstop_write_cannot_retroactively_stop_current_line_dma",
+      "bus_plan_dispatch_tests::copper_ddfstrt_write_cannot_retroactively_start_current_line_dma",
+      "copper_bfd_and_final_d_follow_distinct_pre_aga_completion_edges",
+      "equal_ddf_boundaries_are_not_an_empty_machine_fetch_window",
+      "fat_agnus_diwhigh_gates_bitplane_dma_in_the_mixed_machine",
+      "fat_agnus_harddis_keeps_the_post_df_slots_available",
+      "guest_cpu_reads_clxdat_with_bit_fifteen_set",
+      "ocs_hard_stop_precedes_a_same_cck_copper_ddfstop_write",
+      "ocs_open_ddf_hard_start_gate_survives_postcard_round_trip",
+      "tests::active_copper_fetch_keeps_its_cell_from_nasty_blitter_and_cpu",
+      "tests::copper_bplcon0_move_cannot_reallocate_its_cell_to_bitplane_dma",
+      "tests::copper_first_fetch_keeps_its_cell_owned_after_half_cck_restore",
+      "tests::cpu_reuses_line_internal_and_suppressed_d_cells_in_nasty_mode",
+      "tests::final_disk_word_keeps_the_cpu_stalled_for_the_whole_cck",
+      "tests::ordinary_cpu_cell_allows_non_nasty_blitter_when_cpu_is_idle",
+      "tests::parked_copper_yields_idle_cpu_cell_to_non_nasty_blitter",
+      "tests::parked_copper_yields_its_free_cell_to_nasty_blitter_before_cpu",
+      "tests::scheduler_dispatches_copper_color_before_current_output",
+      "tests::serviced_bitplane_cell_survives_a_later_dma_disable_and_restore"
+    ],
+    "new_failures_against_baseline": [],
+    "broader_execution": "ten chip/common/machine packages completed in debug; unoptimised runtime attempt interrupted during golden_matrix, then complete runtime suite rerun in release; ten non-runtime doc-test packages checked separately",
+    "test_kit_residuals": {
+      "ocs_gradients": 6,
+      "aga_gradients": 9,
+      "aga_crosshatch": 280
+    },
+    "test_kit_registered_media_sha256": "abe7426c93619a7bb61ce10e3e66a4747fcaf22acd1d1876310033faa700ad28",
+    "clippy": "passes affected packages and runtime all targets with -D warnings",
+    "format": "cargo fmt --all --check passes",
+    "logs": {
+      "vertical-before.log": "7d1f8cb587436515361daed9946a56e435df1c6645151cedceb3b36bc0dd1991",
+      "vertical-after.log": "894508e1c044863a8f88b7bc3adf6da97a9b1ce941f9996ef4ef7b3ca8255306",
+      "replay.log": "624fa5e0e5d8568e275d8929e00e42e8f3c931e116d808ee076e087789eda9f5",
+      "regressions.log": "0c13ecc2c894fbb3380d3e3bdc38262aeda092e2efaa81e48f2bc55338c1f883",
+      "runtime-release-regressions.log": "8fecfeb12e2a95e7f42408add785959800a35aba510028dd81bf19cdfa8f00db",
+      "test-kit-ocs.log": "f0fa54df5a590e6edecba53567c3f4653cff4a1d2193de1ea153cc917c039aad",
+      "test-kit-aga.log": "4cb753ec3be2386784d0374d04e541f61bf3f3155c68f603f937b411ab8070ce",
+      "clippy.log": "2b844f50527e493f95af366b23df7292e0dc9df9e9e749d6dc5235b2393899a7",
+      "doc-tests.log": "70f66ad0e0b7f40e9bf61bf404edd37bc7080cc61b7775868921039662c56ff7"
+    }
+  }
+}

@@ -64,28 +64,13 @@ EXPECTED_CATALOGUE_IDS = (
 )
 
 EXPECTED_TEST_KIT_V121_MARKERS = {
-    "test-kit-v1.21-ocs": (
-        "Amiga Test Kit v1.21 A500+A501 OCS PAL video: gradients matched "
-        "registered disagreement signature(s): denise-ocs-color-output-phase",
-        "Amiga Test Kit v1.21 A500+A501 OCS PAL video: static-checkerboard "
-        "matched exactly",
-        "Amiga Test Kit v1.21 A500+A501 OCS PAL video: alternating-checkerboard "
-        "matched exactly",
-        "Amiga Test Kit v1.21 A500+A501 OCS PAL video: ebu-bars matched "
-        "registered disagreement signature(s): denise-ocs-color-output-phase",
-        "Amiga Test Kit v1.21 A500+A501 OCS PAL video: dots matched exactly",
-        "Amiga Test Kit v1.21 A500+A501 OCS PAL video: crosshatch matched exactly",
+    "test-kit-v1.21-ocs": tuple(
+        f"Amiga Test Kit v1.21 A500+A501 OCS PAL video: {case} matched exactly"
+        for case in ("gradients", "static-checkerboard", "alternating-checkerboard", "ebu-bars", "dots", "crosshatch")
     ),
-    "test-kit-v1.21-aga": (
-        "Amiga Test Kit v1.21 A1200 AGA PAL video: gradients matched registered "
-        "disagreement signature(s): aga-sprite-horizontal-output-phase",
-        "Amiga Test Kit v1.21 A1200 AGA PAL video: static-checkerboard matched "
-        "registered disagreement signature(s): aga-sprite-horizontal-output-phase",
-        "Amiga Test Kit v1.21 A1200 AGA PAL video: alternating-checkerboard matched "
-        "registered disagreement signature(s): aga-sprite-horizontal-output-phase",
-        "Amiga Test Kit v1.21 A1200 AGA PAL video: ebu-bars matched exactly",
-        "Amiga Test Kit v1.21 A1200 AGA PAL video: dots matched exactly",
-        "Amiga Test Kit v1.21 A1200 AGA PAL video: crosshatch matched exactly",
+    "test-kit-v1.21-aga": tuple(
+        f"Amiga Test Kit v1.21 A1200 AGA PAL video: {case} matched exactly"
+        for case in ("gradients", "static-checkerboard", "alternating-checkerboard", "ebu-bars", "dots", "crosshatch")
     ),
 }
 
@@ -125,12 +110,9 @@ DISAGREEMENT_REGISTRY = [
     {
         "id": "denise-ocs-color-output-phase",
         "kind": "comparator-disagreement",
-        "classification": "blocked-stronger-evidence",
+        "classification": "fixed",
         "summary": (
-            "The A500 gradients and EBU bars retain exact registered "
-            "disagreement signatures: vAmiga applies OCS Copper COLOR writes "
-            "without the early stage observed in the UAE ECS/AGA family. "
-            "Physical OCS evidence or another independent family is required."
+            "Neutral COLOR00 probe: vAmiga and FS-UAE OCS agree on marker-relative edges. OCS bypasses the ECS/AGA early Copper colour stage; all six A500 Test Kit cases now require exact equality."
         ),
         "documents": [
             "test-data/amiga-test-kit-v1.21/a500-a501-ocs-pal/assertions.json",
@@ -141,13 +123,9 @@ DISAGREEMENT_REGISTRY = [
     {
         "id": "aga-sprite-horizontal-output-phase",
         "kind": "comparator-disagreement",
-        "classification": "blocked-stronger-evidence",
+        "classification": "fixed",
         "summary": (
-            "The A1200 Test Kit retains an exact pointer-local disagreement "
-            "footprint consistent with a two-host-sample displacement under "
-            "the beam-absolute crop. Audited UAE source does not support "
-            "adding a Lisa-only start delay; the machine-neutral sprite probe "
-            "remains the adjudication path."
+            "Neutral fixed-lores probe: FS-UAE OCS and AGA retain a 16-hires-sample sprite/bitplane separation. Lisa retains a serial output code for one extra tick without moving HSTART; all six A1200 Test Kit cases now require exact equality."
         ),
         "documents": [
             "test-data/amiga-test-kit-v1.21/a1200-aga-pal/assertions.json",

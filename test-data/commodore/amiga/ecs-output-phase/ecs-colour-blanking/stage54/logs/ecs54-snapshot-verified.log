@@ -1,0 +1,115 @@
+   Compiling machine-commodore-amiga-ecs v0.25.0 (/Users/stevehill/Projects/198x/Emu198x/emu198x/crates/machine-commodore-amiga-ecs)
+   Compiling runtime-commodore-amiga v0.25.0 (/Users/stevehill/Projects/198x/Emu198x/emu198x/crates/runtime-commodore-amiga)
+    Finished `release` profile [optimized] target(s) in 23.05s
+     Running tests/queries.rs (target/release/deps/queries-b923a1d20dd76880)
+
+running 44 tests
+test a1000_blitter_queries_distinguish_internal_activity_from_visible_busy ... ok
+test a1000_queries_report_bootstrap_state ... ok
+test boot_status_reports_no_visible_output_on_fresh_runtime ... ok
+test aga_killehb_query_uses_bplcon2_instead_of_bplcon3_loct ... ok
+test completion_queries_distinguish_dmacon_copper_and_final_d ... ok
+test cpu_group_exposes_the_complete_bounded_schema ... ok
+test accelerator_configuration_paths_are_model_specific_and_complete ... ok
+test agnus_queries_distinguish_early_ocs_from_a2000_fat_8372a ... ok
+test debug_dsk_log_query_reports_zero_when_empty ... ok
+test agnus_group_exposes_complete_non_blitter_state_and_live_ocs_values ... ok
+test debugger_peek_does_not_drive_the_floating_bus ... ok
+test cpu_group_distinguishes_stock_ocs_ecs_aga_and_accelerated_models ... ok
+test disk_queries_flip_after_load_media ... ok
+test disk_queries_expose_the_complete_dma_fifo_state ... ok
+test aga_queries_expose_lisa_and_composed_hblank_state ... ok
+test ecs_killehb_query_uses_bplcon2_instead_of_bplcon3 ... ok
+test audio_filter_queries_are_complete_dynamic_and_side_effect_free ... ok
+test ecs_queries_expose_raw_routed_and_composed_hblank_state ... ok
+test expansion_query_tracks_autoconfig_state_transitions_and_discovers_live_fields ... ok
+test expansion_queries_distinguish_generic_fast_ram_a530_and_absent_devices ... ok
+test gary_group_exposes_every_persisted_configuration_flag ... ok
+test gayle_discovery_matches_the_configured_board ... ok
+test installed_agnus_query_names_cover_enhanced_machine_variants ... ok
+test keyboard_queries_expose_complete_protocol_state_and_legacy_aliases ... ok
+test ecs_queries_expose_csync_samples_before_and_after_output ... ok
+test query_cpu_pc_returns_initial_reset_vector ... ok
+test memory_queries_distinguish_standard_and_a1000_rom_topologies ... ok
+test query_paths_returns_full_catalogue_when_prefix_missing ... ok
+test query_paths_filters_by_prefix ... ok
+test query_provider_returns_declared_paths ... ok
+test rtc_queries_expose_a_stable_deterministic_clock_and_subsecond_phase ... ok
+test runtime_kind_forwards_a2000_fat_agnus_timing_diagnostics ... ok
+test runtime_configuration_queries_expose_complete_immutable_construction_intent ... ok
+test scheduler_queries_do_not_drain_pending_cpu_boundaries ... ok
+test unknown_path_returns_ok_none ... ok
+test every_ecs_query_path_resolves ... ok
+test frame_count_query_advances_after_run_until ... ok
+test every_advertised_query_path_resolves_with_floppy_loaded ... ok
+test every_a600_query_path_resolves ... ok
+test every_a1200_query_path_resolves ... ok
+test every_advertised_query_path_resolves_without_floppy ... ok
+test boot_status_reports_monochrome_after_running_some_frames ... ok
+test denise_board_pipeline_exposes_complete_bounded_state_on_every_chipset ... ok
+test grouped_snapshot_fields_are_all_discoverable_as_leaves ... ok
+
+test result: ok. 44 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.14s
+
+     Running tests/snapshot_roundtrip.rs (target/release/deps/snapshot_roundtrip-03cc98e15b371352)
+
+running 55 tests
+test a530_snapshot_is_a_fixed_point_with_clock_bridge_and_local_ram ... ok
+test aga_delayed_color_write_survives_snapshot_round_trip ... ok
+test aga_copper_color_stages_survive_snapshot_round_trip ... ok
+test accepted_interrupt_acknowledge_survives_postcard_round_trip ... ok
+test a2000_fat_agnus_snapshot_round_trips_extension_state ... ok
+test aga_programmed_hblank_latch_survives_snapshot_round_trip ... ok
+test alice_blitter_completion_pipeline_survives_postcard_round_trip ... ok
+test a1200_dynamic_bus_phase_survives_runtime_postcard_round_trip ... ok
+test aga_display_register_pipelines_survive_snapshot_round_trip ... ok
+test a1000_hard_vertical_blank_identity_survives_postcard_round_trip ... ok
+test aga_collision_extension_survives_restore_and_base_write_resets_it ... ok
+test a1000_blitter_startup_phase_survives_postcard_round_trip ... ok
+test ecs_blitter_startup_phase_survives_nested_snapshot ... ok
+test ecs_dispatched_copper_color_survives_snapshot_round_trip ... ok
+test ecs_programmed_hblank_latch_survives_snapshot_round_trip ... ok
+test ecs_snapshot_restore_preserves_model_specific_gayle_composition ... ok
+test ecs_vertical_diw_latch_survives_snapshot_round_trip ... ok
+test enhanced_vertical_close_replays_across_both_post_wrap_cells ... ok
+test alice_source_finish_with_pending_d_survives_postcard_round_trip ... ok
+test ecs_csync_blanking_in_flight_stages_survive_both_clock_phases ... ok
+test addressed_bitplane_service_uses_saved_memory_and_replays_on_every_chipset ... ok
+test fat_agnus_hard_ddfstop_endpoint_survives_postcard_round_trip ... ok
+test group1_handler_prefetch_context_survives_postcard_round_trip ... ok
+test line_onedot_suppression_survives_postcard_round_trip ... ok
+test malformed_combined_refresh_restore_preserves_the_destination ... ok
+test ocs_aborted_ddf_run_survives_postcard_round_trip ... ok
+test ocs_closed_ddf_hard_start_gate_survives_postcard_round_trip ... ok
+test ocs_hard_ddfstop_endpoint_survives_postcard_round_trip ... ok
+test ocs_open_ddf_hard_start_gate_survives_postcard_round_trip ... ok
+test copper_first_word_survives_runtime_restore_and_later_ram_writes ... ok
+test ocs_phase_shifted_terminal_wrap_survives_postcard_round_trip ... ok
+test ocs_rewritten_future_ddf_start_survives_postcard_round_trip ... ok
+test ocs_vertical_diw_history_survives_postcard_round_trip ... ok
+test partial_disk_dma_fifo_is_a_snapshot_fixed_point ... ok
+test combined_refresh_display_replays_through_live_service_on_every_chipset ... ok
+test pending_copper_skip_kind_survives_postcard_round_trip ... ok
+test restore_preserves_writable_live_floppy_image_across_chipset_tiers ... ok
+test pre_aga_blitter_completion_pipeline_survives_postcard_round_trip ... ok
+test restore_rejects_unknown_version ... ok
+test restore_rejects_mismatched_snapshot_version ... ok
+test restore_rejects_wrong_model ... ok
+test restore_remounts_persisted_floppy_image ... ok
+test bitplane_reservation_samples_ptmod_then_reads_memory_at_live_service ... ok
+test rtc_time_and_subsecond_phase_survive_restore_and_forward_replay ... ok
+test snapshot_then_restore_then_snapshot_is_a_fixed_point ... ok
+test snapshot_then_restore_yields_bit_identical_forward_run ... ok
+test overlapping_display_address_samples_before_outgoing_pointer_service ... ok
+test both_pending_copper_wait_stages_survive_runtime_restore ... ok
+test blocked_blitter_wait_and_wake_comparison_survive_restore ... ok
+test horizontal_display_window_survives_strobe_reset_and_half_cck_restore ... ok
+test live_strobe_service_and_denise_counter_replay_on_every_chipset ... ok
+test automatic_strobes_cross_the_live_pipeline_and_reset_denise ... ok
+test every_line_stage_and_pending_result_survive_snapshot_restore ... ok
+test area_channel_fill_holding_and_drain_stages_survive_runtime_restore ... ok
+test a1200_prefetch_transfer_and_holding_register_survive_runtime_restore has been running for over 60 seconds
+test a1200_prefetch_transfer_and_holding_register_survive_runtime_restore ... ok
+
+test result: ok. 55 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 68.30s
+

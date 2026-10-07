@@ -25,6 +25,17 @@ pub struct DeniseEcsOutputSelectors {
     pub extblken_enabled: bool,
 }
 
+/// Retained ECS CSYNC blanking levels, before display-side selectors.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct DeniseEcsBlankingStages {
+    /// Three CCK samples, oldest first.
+    pub cck_samples: [bool; 3],
+    /// Sample awaiting the second half of the current CCK.
+    pub half_cck_sample: bool,
+    /// Level delivered at the most recent output tick.
+    pub output_level: bool,
+}
+
 /// Thin ECS wrapper that currently reuses the OCS Denise implementation.
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct DeniseEcs {
@@ -37,9 +48,10 @@ pub struct DeniseEcs {
     pub bplcon3: u16,
     /// Selector levels currently visible to the external blanking path.
     output_selectors: DeniseEcsOutputSelectors,
-    /// Two normal-stage propagation copies between register mirrors and
-    /// display-visible selector state.
+    /// Normal RGA history, oldest first. The output mirror duplicates the
+    /// retiring entry; it is not an additional propagation delay.
     output_selector_pipeline: [DeniseEcsOutputSelectors; 2],
+    csync_blanking: DeniseEcsBlankingStages,
 }
 
 impl DeniseEcs {
@@ -51,6 +63,7 @@ impl DeniseEcs {
             bplcon3: 0,
             output_selectors: DeniseEcsOutputSelectors::default(),
             output_selector_pipeline: [DeniseEcsOutputSelectors::default(); 2],
+            csync_blanking: DeniseEcsBlankingStages::default(),
         }
     }
 
@@ -67,6 +80,7 @@ impl DeniseEcs {
             bplcon3: 0,
             output_selectors: selectors,
             output_selector_pipeline: [selectors; 2],
+            csync_blanking: DeniseEcsBlankingStages::default(),
         }
     }
 
@@ -124,19 +138,21 @@ impl DeniseEcs {
         self.output_selectors
     }
 
-    /// Pending normal-stage selector copies, nearest output stage first.
+    /// Normal-stage selector history, retiring entry first.
     #[must_use]
     pub const fn output_selector_pipeline(&self) -> [DeniseEcsOutputSelectors; 2] {
         self.output_selector_pipeline
     }
 
-    /// Advance register-mirror selector values through the three-half-CCK
-    /// display path. A write preceding the current output tick is visible only
-    /// after that tick and the following two ticks have retired.
+    /// Retire one half-CCK of the normal RGA path after pixel output.
+    /// `do_denise_cck` consumes BPLCON0/3 from the preceding CCK's cell:
+    /// a pre-output write becomes visible after two ticks, not three.
+    /// Keep the saved output mirror and two history entries in their existing
+    /// layout, but do not turn the output mirror into a third delay stage.
     pub fn advance_output_selector_pipeline(&mut self) {
-        self.output_selectors = self.output_selector_pipeline[0];
         self.output_selector_pipeline[0] = self.output_selector_pipeline[1];
         self.output_selector_pipeline[1] = self.raw_output_selectors();
+        self.output_selectors = self.output_selector_pipeline[0];
     }
 
     /// Whether BPLCON0.ECSENA is visible at the display output stage.
@@ -149,6 +165,35 @@ impl DeniseEcs {
     #[must_use]
     pub const fn output_extblken_enabled(&self) -> bool {
         self.output_selectors.extblken_enabled
+    }
+
+    /// Sample the routed Agnus signal on the existing CCK clock, then
+    /// deliver it after three CCKs and the following half-CCK boundary.
+    /// Reference: ECS `do_denise_cck`'s -3 flag cell and
+    /// `checkhorizontal1_ecs`'s retained `denise_csync_blanken2` level.
+    pub fn advance_csync_blanking(&mut self, phase: u8, routed_level: bool) {
+        if phase == 0 {
+            self.csync_blanking.output_level = self.csync_blanking.half_cck_sample;
+            self.csync_blanking.half_cck_sample = self.csync_blanking.cck_samples[0];
+            self.csync_blanking.cck_samples.rotate_left(1);
+            self.csync_blanking.cck_samples[2] = routed_level;
+        } else {
+            self.csync_blanking.output_level = self.csync_blanking.half_cck_sample;
+        }
+    }
+
+    /// In-flight CSYNC levels for diagnostics and save-state replay.
+    #[must_use]
+    pub const fn csync_blanking(&self) -> DeniseEcsBlankingStages {
+        self.csync_blanking
+    }
+
+    /// Delayed external blanking selected by Denise-visible control bits.
+    #[must_use]
+    pub const fn programmed_hblank_active(&self) -> bool {
+        self.csync_blanking.output_level
+            && self.output_selectors.ecsena_enabled
+            && self.output_selectors.extblken_enabled
     }
 
     /// Whether ECS SuperHires mode is requested in BPLCON0.
@@ -304,7 +349,48 @@ mod tests {
     }
 
     #[test]
-    fn programmable_blanking_selectors_cross_three_output_ticks() {
+    fn csync_blanking_delays_both_edges_by_seven_output_ticks() {
+        let mut denise = DeniseEcs::new();
+        denise.write_word(0x100, 1);
+        denise.write_word(0x106, 1);
+        for _ in 0..3 {
+            denise.advance_output_selector_pipeline();
+        }
+        // A four-CCK pulse must retain its width through both clock stages.
+        for tick in 0..24_u8 {
+            denise.advance_csync_blanking(tick & 1, tick < 8);
+            assert_eq!(
+                denise.programmed_hblank_active(),
+                (7..15).contains(&tick),
+                "output tick {tick}"
+            );
+        }
+    }
+
+    #[test]
+    fn selectors_gate_delayed_csync_without_erasing_in_flight_samples() {
+        let mut denise = DeniseEcs::new();
+        for tick in 0..8 {
+            denise.advance_csync_blanking(tick & 1, true);
+        }
+        assert!(denise.csync_blanking().output_level);
+        assert!(!denise.programmed_hblank_active());
+        denise.write_word(0x100, 1);
+        denise.write_word(0x106, 1);
+        for _ in 0..3 {
+            denise.advance_output_selector_pipeline();
+        }
+        assert!(denise.programmed_hblank_active());
+        denise.write_word(0x106, 0);
+        for _ in 0..3 {
+            denise.advance_output_selector_pipeline();
+        }
+        assert!(!denise.programmed_hblank_active());
+        assert!(denise.csync_blanking().output_level);
+    }
+
+    #[test]
+    fn programmable_blanking_selectors_cross_one_normal_rga_cck() {
         let mut denise = DeniseEcs::new();
         denise.write_word(0x0100, 0x0001); // ECSENA
         denise.write_word(0x0106, 0x0001); // EXTBLKEN
@@ -323,11 +409,31 @@ mod tests {
         assert_eq!(denise.output_selector_pipeline(), [disabled, enabled]);
 
         denise.advance_output_selector_pipeline();
-        assert_eq!(denise.output_selectors(), disabled);
+        assert_eq!(denise.output_selectors(), enabled);
         assert_eq!(denise.output_selector_pipeline(), [enabled; 2]);
 
         denise.advance_output_selector_pipeline();
         assert_eq!(denise.output_selectors(), enabled);
+    }
+
+    #[test]
+    fn each_blanking_selector_enables_and_disables_after_one_cck() {
+        for register in [0x100, 0x106] {
+            let mut denise = DeniseEcs::new();
+            denise.write_word(if register == 0x100 { 0x106 } else { 0x100 }, 1);
+            for tick in 0..8 {
+                denise.advance_csync_blanking(tick & 1, true);
+                denise.advance_output_selector_pipeline();
+            }
+            for enabled in [true, false, true, false] {
+                denise.write_word(register, u16::from(enabled));
+                assert_eq!(denise.programmed_hblank_active(), !enabled);
+                denise.advance_output_selector_pipeline();
+                assert_eq!(denise.programmed_hblank_active(), !enabled);
+                denise.advance_output_selector_pipeline();
+                assert_eq!(denise.programmed_hblank_active(), enabled);
+            }
+        }
     }
 
     #[test]

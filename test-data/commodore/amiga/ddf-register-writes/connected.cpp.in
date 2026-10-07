@@ -1,0 +1,36 @@
+// Exact register schedules used by the connected native Copper regressions.
+int main() {
+ struct Case { int reg, start, stop, value, hires; };
+ const Case cases[] = {
+  {0x92,128,208,56,1}, {0x92,128,208,64,1}, {0x92,128,208,72,1},
+  {0x92,64,208,64,0}, {0x94,56,128,60,0}, {0x94,56,128,64,0},
+  {0x94,56,64,128,0}, {0x94,56,128,72,0}, {0x94,56,64,64,0}
+ };
+ std::puts("case,line,h,plane,mod");
+ for (int id = 0; id < 9; id++) {
+  const auto &c = cases[id];
+  ecs_agnus = true; aga_mode = false; harddis_h = false; ddf_mask = 0xfe;
+  maxhpos = maxhpos_long = 227;
+  fetchunit_mask = 7; fetchstart_mask = c.hires ? 3 : 7;
+  fm_maxplane = c.hires ? 4 : 8;
+  bpl_sequence = c.hires ? bpl_sequence_4 : bpl_sequence_8;
+  bplcon0_planes = bplcon0_planes_limit = c.hires ? 4 : 1;
+  bprun = bprun_cycle = ddf_stopping = ddf_enable_on = 0;
+  ddf_limit = ddfstrt_match = hwi_old = false;
+  plfstrt_sprite = 0x100; ddflastword_total = 0; ddffirstword_total = 0x100;
+  dmacon_bpl = true; vdiwstate = diw_states::DIW_waiting_stop;
+  ddfstrt = ddfstrt_saved = c.start; ddfstop = ddfstop_saved = c.stop; preg = {};
+  linear_vpos = 0;
+  for (agnus_hpos = 0; agnus_hpos < 227; agnus_hpos++) {
+   get_cck_clock();
+   if (agnus_hpos == 64) {
+    if (c.reg == 0x92) DDFSTRT(c.value); else DDFSTOP(c.value);
+   }
+   requested_plane = -1; request = {};
+   generate_bpl(cck_clock); decide_bpl(agnus_hpos);
+   if (requested_plane >= 0) std::printf("%d,0,%d,%d,%d\n", id, agnus_hpos,
+    requested_plane, (request.bpldat & 8) != 0);
+   empty_pipeline();
+  }
+ }
+}

@@ -2,6 +2,13 @@
 
 use serde::{Deserialize, Serialize};
 
+/// Shared DDF write holding entry; commits after the request/comparator stage.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+enum DdfRegisterWrite {
+    Start(u16),
+    Stop(u16),
+}
+
 /// Named bit masks for the DMACON register (HRM Appendix A.3 +
 /// Chapter 6). These describe DMA-channel enables; Paula reads the
 /// same bits for its own slot gating.
@@ -283,6 +290,11 @@ pub struct AgnusBusDiagnosticSnapshot {
     pub hpos: u16,
     /// Complete current Agnus arbitration plan.
     pub plan: CckBusPlan,
+    /// Saved service-stage plan, when the running driver has admitted this
+    /// cell. `plan` remains the live request decoder for comparison.
+    pub service_plan: Option<CckBusPlan>,
+    /// Retained future reservations, addressed requests and current descriptor.
+    pub dma_pipeline: crate::DmaPipeline,
     /// Whether disk DMA actually drove the chip bus in this CCK.
     pub disk_bus_used_this_cck: bool,
     /// Effective disk ownership after combining the live plan with recorded
@@ -426,10 +438,12 @@ pub struct AgnusDdfDiagnosticSnapshot {
     pub ddfstop: u16,
     /// Comparator mask selected by the installed Agnus generation.
     pub comparator_mask: u16,
-    /// Masked DDFSTRT comparator value.
+    /// Effective DDFSTRT comparator, or $FFFF while a write suppresses it.
     pub effective_ddfstrt: u16,
-    /// Masked DDFSTOP comparator value.
+    /// Effective DDFSTOP comparator, retaining the old value during a write.
     pub effective_ddfstop: u16,
+    /// Register offset and masked value awaiting comparator-stage retirement.
+    pub pending_write: Option<(u16, u16)>,
     /// Current line's observed start comparator and frozen fetch origin.
     pub start_match: Option<u16>,
     /// Current line's observed ordinary stop comparator.
@@ -590,7 +604,7 @@ pub enum BlitterProgress {
 pub struct BlitterCckOutcome {
     /// The Agnus blitter-finished source fired during this CCK.
     pub interrupt: bool,
-    /// A blitter A/B/C read or D write drove the chip bus during this CCK.
+    /// A blitter transfer or reserved line cycle occupied the chip bus.
     pub bus_used: bool,
 }
 
@@ -637,13 +651,13 @@ impl BlitterWordState {
         }
     }
 
-    fn new_line() -> Self {
+    fn new_line(use_b: bool, use_c: bool) -> Self {
         Self {
             need_a: false,
-            need_b: false,
-            need_c: true,
-            need_d: true,
-            reads_done: false,
+            need_b: use_b,
+            need_c: use_c,
+            need_d: use_c,
+            reads_done: !use_b && !use_c,
             internal_only: false,
             internal_done: false,
         }
@@ -658,7 +672,25 @@ impl BlitterWordState {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+enum BlitterLinePhase {
+    A,
+    B,
+    C,
+    Result,
+    Reserved,
+    D,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 struct BlitterLineRuntime {
+    phase: BlitterLinePhase,
+    use_b: bool,
+    use_c: bool,
+    bpt: u32,
+    bmod: i16,
+    pending_result: u16,
+    pending_addr: u32,
+    pending_write: bool,
     steps_remaining: u32,
     error: i16,
     error_add: i16,
@@ -687,6 +719,13 @@ struct BlitterLineRuntime {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 struct BlitterAreaRuntime {
+    phase: u8,
+    pipeline_primed: bool,
+    a_hold: u16,
+    b_hold: u16,
+    pending_result: u16,
+    destination_words_remaining_in_row: u32,
+    result_words_remaining_in_row: u32,
     rows_remaining: u32,
     width_words: u32,
     words_remaining_in_row: u32,
@@ -718,6 +757,105 @@ struct BlitterAreaRuntime {
     a_raw: u16,
     b_raw: u16,
     c_val: u16,
+}
+
+impl BlitterAreaRuntime {
+    fn phases_per_word(self) -> u8 {
+        2 + u8::from(self.use_b)
+            + u8::from(self.use_c && self.use_d)
+            + u8::from(self.fill_enabled && self.use_d && !self.use_c)
+    }
+
+    fn operation_at(self, phase: u8) -> BlitterDmaOp {
+        if phase == 0 {
+            return if self.use_a {
+                BlitterDmaOp::ReadA
+            } else {
+                BlitterDmaOp::Internal
+            };
+        }
+        if self.use_b && phase == 1 {
+            return BlitterDmaOp::ReadB;
+        }
+        let after_b = 1 + u8::from(self.use_b);
+        if self.use_c && phase == after_b {
+            return BlitterDmaOp::ReadC;
+        }
+        if self.use_d && phase == after_b + u8::from(self.use_c) {
+            return BlitterDmaOp::WriteD;
+        }
+        BlitterDmaOp::Internal
+    }
+
+    fn shift_word(self, raw: u16, previous: u16, shift: u16) -> u16 {
+        if self.desc {
+            (((u32::from(raw) << 16) | u32::from(previous)) >> (16 - shift)) as u16
+        } else {
+            (((u32::from(previous) << 16) | u32::from(raw)) >> shift) as u16
+        }
+    }
+
+    fn hold_a(&mut self, first_mask: u16, last_mask: u16) {
+        let mut masked = self.a_raw;
+        if self.words_remaining_in_row == self.width_words {
+            masked &= first_mask;
+        }
+        if self.words_remaining_in_row == 1 {
+            masked &= last_mask;
+        }
+        self.a_hold = self.shift_word(masked, self.a_prev, self.a_shift);
+        self.a_prev = masked;
+    }
+
+    fn hold_b(&mut self) {
+        self.b_hold = self.shift_word(self.b_raw, self.b_prev, self.b_shift);
+        self.b_prev = self.b_raw;
+    }
+
+    fn hold_result(&mut self) -> u16 {
+        let mut result = 0;
+        for bit in 0..16u16 {
+            let index = (((self.a_hold >> bit) & 1) << 2)
+                | (((self.b_hold >> bit) & 1) << 1)
+                | ((self.c_val >> bit) & 1);
+            if (self.lf >> index) & 1 != 0 {
+                result |= 1 << bit;
+            }
+        }
+        if self.fill_enabled {
+            let mut filled = 0;
+            for bit in 0..16u16 {
+                let input = (result >> bit) & 1;
+                self.fill_carry ^= input;
+                let output = if self.efe {
+                    self.fill_carry ^ input
+                } else if self.ife {
+                    self.fill_carry
+                } else {
+                    input
+                };
+                filled |= output << bit;
+            }
+            result = filled;
+        }
+        self.pending_result = result;
+        self.result_words_remaining_in_row -= 1;
+        if self.result_words_remaining_in_row == 0 {
+            self.result_words_remaining_in_row = self.width_words;
+            self.fill_carry = self.fill_carry_init;
+        }
+        result
+    }
+
+    fn advance_pointer(&self, pointer: u32, modulo: i16, row_end: bool) -> u32 {
+        (pointer as i32
+            + self.ptr_step
+            + if row_end {
+                i32::from(modulo) * self.mod_dir
+            } else {
+                0
+            }) as u32
+    }
 }
 
 /// Side-effect-free view of every implemented blitter register.
@@ -857,6 +995,22 @@ pub struct AgnusBlitterWordDiagnosticSnapshot {
 /// Side-effect-free view of the implemented line-mode runtime.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AgnusBlitterLineDiagnosticSnapshot {
+    /// Next stage: 0=A/internal, 1=B, 2=C, 3=result, 4=reserved, 5=D.
+    pub phase: u8,
+    /// Optional B DMA enable.
+    pub use_b: bool,
+    /// C DMA and line-write enable.
+    pub use_c: bool,
+    /// Current B pointer.
+    pub bpt: u32,
+    /// Signed B pointer modulo.
+    pub bmod: i16,
+    /// Generated D word.
+    pub pending_result: u16,
+    /// Destination captured during result generation.
+    pub pending_addr: u32,
+    /// Whether the pending D stage writes memory.
+    pub pending_write: bool,
     /// Remaining pixel steps.
     pub steps_remaining: u32,
     /// Current Bresenham error accumulator.
@@ -898,6 +1052,20 @@ pub struct AgnusBlitterLineDiagnosticSnapshot {
 /// Side-effect-free view of the implemented area-mode runtime.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AgnusBlitterAreaDiagnosticSnapshot {
+    /// Next admitted channel/fill phase within the word.
+    pub phase: u8,
+    /// Whether the first source word has reached the holding pipeline.
+    pub pipeline_primed: bool,
+    /// Masked and shifted A holding register.
+    pub a_hold: u16,
+    /// Shifted B holding register.
+    pub b_hold: u16,
+    /// Result retained until the following D transfer.
+    pub pending_result: u16,
+    /// Destination transfers left before D modulo.
+    pub destination_words_remaining_in_row: u32,
+    /// Results left before fill carry reload.
+    pub result_words_remaining_in_row: u32,
     /// Rows not yet completed.
     pub rows_remaining: u32,
     /// Captured width in words.
@@ -989,6 +1157,12 @@ pub struct Agnus {
     // DMA Registers
     pub dmacon: u16,
     pub bplcon0: u16,
+    // Alice retains a separately timed DMA-side BPLCON0 copy. None allows
+    // the existing direct-initialization surface until the first bus write.
+    bplcon0_dma: Option<u16>,
+    bplcon0_dma_pipeline: [Option<u16>; 4],
+    fmode_dma: Option<u16>,
+    fmode_dma_pipeline: [Option<u16>; 2],
     /// Maximum bitplane count: 6 for OCS/ECS, 8 for AGA.
     ///
     /// Controls whether BPLCON0 bit 4 extends the BPU field to 4 bits (8 planes).
@@ -997,6 +1171,10 @@ pub struct Agnus {
     pub bpl_pt: [u32; 8],
     pub ddfstrt: u16,
     pub ddfstop: u16,
+    // None retains direct chip initialization until that register's first write.
+    ddfstrt_comparator: Option<u16>,
+    ddfstop_comparator: Option<u16>,
+    pending_ddf_write: Option<DdfRegisterWrite>,
     /// Current line's observed DDFSTRT comparator and frozen fetch-phase
     /// origin. `None` means the comparator has not matched this line.
     ddf_start_match: Option<u16>,
@@ -1008,6 +1186,7 @@ pub struct Agnus {
     /// termination. `None` means no terminal endpoint has been latched
     /// for an active fetch region this line.
     ddf_fetch_end: Option<u16>,
+    display_dma_sequencer: crate::DisplayDmaSequencer,
     /// Original-Agnus current-line run-abort latch. Losing effective
     /// bitplane eligibility through DMA disable or a vertical display-window
     /// stop before a terminal request ends the active sequencer without
@@ -1046,6 +1225,10 @@ pub struct Agnus {
     /// additionally keeps external BBUSY clear while this is `2`, then asserts
     /// it when the first accepted startup CCK decrements the value to `1`.
     blitter_startup_ccks_remaining: u8,
+    pending_blitter_start: Option<(u32, u32)>,
+    /// Refresh's actual DMA pointer, shared by normal and colliding RGA cells.
+    /// None preserves the installed variant's reset value until first use.
+    refresh_pointer: Option<u32>,
     /// Pending final-result/final-D drain for a normal D-enabled area blit.
     blitter_completion_phase: Option<BlitterCompletionPhase>,
     /// One-shot main-finish source for the current blit.
@@ -1132,6 +1315,20 @@ pub struct Agnus {
     /// newly computed plan look idle; CPU arbitration must still honour the
     /// original use for both master/4 phases of that CCK.
     disk_bus_used_this_cck: bool,
+    /// Frozen service-stage ownership for both halves of the current CCK.
+    /// The live request decoder may change after a register write or transfer.
+    /// It must not replace the cell already admitted for service.
+    dma_service_plan: Option<CckBusPlan>,
+    dma_pipeline: crate::DmaPipeline,
+    // Sync-generator latches sampled by the refresh timing-register request.
+    strobe_ve: bool,
+    strobe_p_ve: bool,
+    strobe_vb: u8,
+    strobe_vb_end_line: bool,
+    strobe_blank_start_line: bool,
+    strobe_programmed_blank: Option<bool>,
+    strobe_equalisation_disabled: bool,
+    strobe_fixed_blank_stop: u16,
     /// Record that sprite DMA drove the chip bus during the current CCK.
     /// A second control-word fetch can change VSTOP and make a newly
     /// computed plan look idle; CPU arbitration must still honour the
@@ -1214,6 +1411,16 @@ pub struct Agnus {
     pub vbl_count: u64,
 }
 
+struct FinalResultBus;
+impl BlitterBus for FinalResultBus {
+    fn read_word(&mut self, _: u32) -> u16 {
+        panic!("internal final result read memory");
+    }
+    fn write_word(&mut self, _: u32, _: u16) {
+        panic!("internal final result wrote memory");
+    }
+}
+
 impl Agnus {
     pub fn new() -> Self {
         Self {
@@ -1221,13 +1428,21 @@ impl Agnus {
             hpos: 0,
             dmacon: 0,
             bplcon0: 0,
+            bplcon0_dma: None,
+            bplcon0_dma_pipeline: [None; 4],
+            fmode_dma: None,
+            fmode_dma_pipeline: [None; 2],
             max_bitplanes: 6,
             bpl_pt: [0; 8],
             ddfstrt: 0,
             ddfstop: 0,
+            ddfstrt_comparator: None,
+            ddfstop_comparator: None,
+            pending_ddf_write: None,
             ddf_start_match: None,
             ddf_stop_match: None,
             ddf_fetch_end: None,
+            display_dma_sequencer: crate::DisplayDmaSequencer::default(),
             ocs_ddf_run_aborted: false,
             // Preserve the established first-line behavior. The bounded
             // hardware contract begins once `$18` or a terminal completion
@@ -1240,6 +1455,8 @@ impl Agnus {
             bltsizh_ecs: 0,
             blitter_busy: false,
             blitter_startup_ccks_remaining: 0,
+            pending_blitter_start: None,
+            refresh_pointer: None,
             blitter_completion_phase: None,
             blitter_finish_emitted: false,
             blitter_dmacon_busy_hold_ccks: 0,
@@ -1278,6 +1495,16 @@ impl Agnus {
             spr_vstop: [0; 8],
             spr_dma_on: [false; 8],
             disk_bus_used_this_cck: false,
+            dma_service_plan: None,
+            dma_pipeline: crate::DmaPipeline::default(),
+            strobe_ve: false,
+            strobe_p_ve: false,
+            strobe_vb: 0,
+            strobe_vb_end_line: false,
+            strobe_blank_start_line: false,
+            strobe_programmed_blank: None,
+            strobe_equalisation_disabled: false,
+            strobe_fixed_blank_stop: 25,
             sprite_bus_used_this_cck: false,
             blitter_bus_used_this_cck: false,
             blitter_nasty_owned_this_cck: false,
@@ -1330,6 +1557,7 @@ impl Agnus {
                 agnus.region = AgnusRegion::Ntsc;
                 agnus.lines_per_frame = NTSC_LINES_PER_FRAME;
                 agnus.agnus_id = 0x1000;
+                agnus.strobe_fixed_blank_stop = 20;
                 agnus.lol = false;
                 agnus.lol_toggle = true;
             }
@@ -1406,12 +1634,12 @@ impl Agnus {
     pub fn num_bitplanes(&self) -> u8 {
         if self.max_bitplanes > 6 {
             // AGA: 4-bit BPU from bits 14-12 (3 bits) + bit 4 (extra high bit).
-            let bpu_hi3 = ((self.bplcon0 >> 12) & 0x07) as u8;
-            let bpu_bit3 = ((self.bplcon0 >> 4) & 0x01) as u8;
+            let bpu_hi3 = ((self.dma_bplcon0() >> 12) & 0x07) as u8;
+            let bpu_bit3 = ((self.dma_bplcon0() >> 4) & 0x01) as u8;
             let bpu = (bpu_bit3 << 3) | bpu_hi3;
             bpu.min(self.max_bitplanes)
         } else {
-            let bpl_bits = (self.bplcon0 >> 12) & 0x07;
+            let bpl_bits = (self.dma_bplcon0() >> 12) & 0x07;
             if bpl_bits > 6 { 6 } else { bpl_bits as u8 }
         }
     }
@@ -1612,16 +1840,46 @@ impl Agnus {
         self.blitter_ccks_remaining = self.count_total_blitter_ops();
     }
 
+    /// Capture the size-register strobe for the next ordinary CCK edge.
+    pub fn queue_blitter_start(&mut self, height: u32, width: u32) {
+        self.pending_blitter_start = Some((height, width));
+    }
+
+    pub fn validate_pending_blitter_start(&self) -> Result<(), String> {
+        if self.pending_blitter_start.is_some_and(|(height, width)| {
+            height == 0 || height > 0x8000 || width == 0 || width > 0x800
+        }) {
+            return Err("invalid saved blitter size strobe".into());
+        }
+        Ok(())
+    }
+
     /// Return the next DMA operation the blitter wants, without consuming it.
     ///
     /// The bus plan queries this to decide whether to grant the blitter a slot.
-    /// Reads are offered first (A, B, C in priority order), then WriteD once
-    /// all reads are done. For line mode, the strict ReadC→WriteD sequence is
-    /// preserved.
+    /// Area mode follows saved channel/fill phases, including free idle cells
+    /// and a locked first D cell. Source holds overlap the preceding result
+    /// and D write. Line mode follows its internal/read/result/D stages, with
+    /// optional B DMA and a reserved cycle.
     #[must_use]
     pub fn next_blitter_dma_request(&self) -> Option<BlitterDmaOp> {
         if !self.blitter_exec_pending || !self.blitter_busy {
             return None;
+        }
+        if let Some(line) = self.blitter_line_runtime {
+            return Some(match line.phase {
+                BlitterLinePhase::B => BlitterDmaOp::ReadB,
+                BlitterLinePhase::C => BlitterDmaOp::ReadC,
+                BlitterLinePhase::D => BlitterDmaOp::WriteD,
+                _ => BlitterDmaOp::Internal,
+            });
+        }
+        if let Some(area) = self.blitter_area_runtime {
+            return Some(if area.rows_remaining == 0 {
+                BlitterDmaOp::WriteD
+            } else {
+                area.operation_at(area.phase)
+            });
         }
         let ws = self.blitter_word_state.as_ref()?;
         if ws.internal_only {
@@ -1651,6 +1909,32 @@ impl Agnus {
     /// Startup consumption belongs to [`Agnus::tick_blitter_scheduler_op`],
     /// keeping this low-level mutation operation-only.
     fn consume_blitter_dma_op(&mut self, op: BlitterDmaOp) {
+        if let Some(line) = &mut self.blitter_line_runtime {
+            line.phase = match line.phase {
+                BlitterLinePhase::A if line.use_b => BlitterLinePhase::B,
+                BlitterLinePhase::A | BlitterLinePhase::B => BlitterLinePhase::C,
+                BlitterLinePhase::C => BlitterLinePhase::Result,
+                BlitterLinePhase::Result if line.use_b => BlitterLinePhase::Reserved,
+                BlitterLinePhase::Result | BlitterLinePhase::Reserved => BlitterLinePhase::D,
+                BlitterLinePhase::D => BlitterLinePhase::A,
+            };
+            if let Some(word) = &mut self.blitter_word_state {
+                match op {
+                    BlitterDmaOp::ReadB => word.need_b = false,
+                    BlitterDmaOp::ReadC => word.need_c = false,
+                    BlitterDmaOp::WriteD => word.need_d = false,
+                    _ => {}
+                }
+                word.reads_done = !word.need_b && !word.need_c;
+            }
+            self.blitter_ccks_remaining = self.blitter_ccks_remaining.saturating_sub(1);
+            return;
+        }
+        if let Some(area) = &mut self.blitter_area_runtime
+            && area.rows_remaining != 0
+        {
+            area.phase = (area.phase + 1) % area.phases_per_word();
+        }
         if let Some(ws) = &mut self.blitter_word_state {
             match op {
                 BlitterDmaOp::ReadA => ws.need_a = false,
@@ -1667,6 +1951,9 @@ impl Agnus {
     /// Check if the current word's channel ops are all serviced.
     #[must_use]
     pub fn blitter_word_complete(&self) -> bool {
+        if self.blitter_line_runtime.is_some() || self.blitter_area_runtime.is_some() {
+            return false;
+        }
         self.blitter_word_state
             .as_ref()
             .is_some_and(|ws| ws.is_complete())
@@ -1762,6 +2049,14 @@ impl Agnus {
             line: self
                 .blitter_line_runtime
                 .map(|line| AgnusBlitterLineDiagnosticSnapshot {
+                    phase: line.phase as u8,
+                    use_b: line.use_b,
+                    use_c: line.use_c,
+                    bpt: line.bpt,
+                    bmod: line.bmod,
+                    pending_result: line.pending_result,
+                    pending_addr: line.pending_addr,
+                    pending_write: line.pending_write,
                     steps_remaining: line.steps_remaining,
                     error: line.error,
                     error_add: line.error_add,
@@ -1784,6 +2079,13 @@ impl Agnus {
             area: self
                 .blitter_area_runtime
                 .map(|area| AgnusBlitterAreaDiagnosticSnapshot {
+                    phase: area.phase,
+                    pipeline_primed: area.pipeline_primed,
+                    a_hold: area.a_hold,
+                    b_hold: area.b_hold,
+                    pending_result: area.pending_result,
+                    destination_words_remaining_in_row: area.destination_words_remaining_in_row,
+                    result_words_remaining_in_row: area.result_words_remaining_in_row,
                     rows_remaining: area.rows_remaining,
                     width_words: area.width_words,
                     words_remaining_in_row: area.words_remaining_in_row,
@@ -1925,109 +2227,125 @@ impl Agnus {
     {
         if let Some(mut line) = self.blitter_line_runtime {
             return match op {
+                BlitterDmaOp::ReadB => {
+                    line.texture = read_word(line.bpt);
+                    self.blt_bdat = line.texture;
+                    line.bpt = line.bpt.wrapping_add_signed(i32::from(line.bmod));
+                    self.blt_bpt = line.bpt;
+                    self.blitter_line_runtime = Some(line);
+                    false
+                }
                 BlitterDmaOp::ReadC => {
-                    let c_val = read_word(line.cpt);
-                    self.blt_cdat = c_val;
-                    line.last_c_word = c_val;
+                    if line.use_c {
+                        line.last_c_word = read_word(line.cpt);
+                        self.blt_cdat = line.last_c_word;
+                    } else {
+                        line.last_c_word = self.blt_cdat;
+                    }
                     line.have_c_word = true;
                     self.blitter_line_runtime = Some(line);
                     false
                 }
+                BlitterDmaOp::Internal => {
+                    // The scheduler has advanced to the following stage.
+                    if line.phase == BlitterLinePhase::Reserved
+                        || (!line.use_b && line.phase == BlitterLinePhase::D)
+                    {
+                        let c_val = line.last_c_word;
+                        let pixel_mask: u16 = 0x8000 >> line.pixel_bit;
+                        let a_val = pixel_mask;
+                        let b_val = if line.texture & (1 << line.texture_bit) != 0 {
+                            0xFFFF
+                        } else {
+                            0x0000
+                        };
+
+                        let mut result: u16 = 0;
+                        for bit in 0..16u16 {
+                            let a_bit = (a_val >> bit) & 1;
+                            let b_bit = (b_val >> bit) & 1;
+                            let c_bit = (c_val >> bit) & 1;
+                            let index = (a_bit << 2) | (b_bit << 1) | c_bit;
+                            if (line.lf >> index) & 1 != 0 {
+                                result |= 1 << bit;
+                            }
+                        }
+                        if result != 0 {
+                            self.blitter_dzero = false; // BZERO: a non-zero D word
+                        }
+                        line.pending_result = result;
+                        line.pending_addr = line.dpt;
+                        line.pending_write = line.use_c && (!line.sing || !line.one_dot_drawn);
+
+                        line.texture_bit = line.texture_bit.wrapping_sub(1) & 0x0F;
+
+                        let step_x = |line: &mut BlitterLineRuntime| {
+                            if line.x_neg {
+                                line.pixel_bit = line.pixel_bit.wrapping_sub(1) & 0xF;
+                                if line.pixel_bit == 15 {
+                                    line.cpt = line.cpt.wrapping_sub(2);
+                                    line.dpt = line.dpt.wrapping_sub(2);
+                                }
+                            } else {
+                                line.pixel_bit = (line.pixel_bit + 1) & 0xF;
+                                if line.pixel_bit == 0 {
+                                    line.cpt = line.cpt.wrapping_add(2);
+                                    line.dpt = line.dpt.wrapping_add(2);
+                                }
+                            }
+                        };
+                        let step_y = |line: &mut BlitterLineRuntime| {
+                            if line.y_neg {
+                                line.cpt = (line.cpt as i32 + line.row_mod as i32) as u32;
+                                line.dpt = (line.dpt as i32 + line.row_mod as i32) as u32;
+                            } else {
+                                line.cpt = (line.cpt as i32 - line.row_mod as i32) as u32;
+                                line.dpt = (line.dpt as i32 - line.row_mod as i32) as u32;
+                            }
+                        };
+
+                        let moved_y = if line.error >= 0 {
+                            if line.major_is_y {
+                                step_y(&mut line);
+                                step_x(&mut line);
+                            } else {
+                                step_x(&mut line);
+                                step_y(&mut line);
+                            }
+                            line.error = line.error.wrapping_add(line.error_sub);
+                            true
+                        } else {
+                            if line.major_is_y {
+                                step_y(&mut line);
+                            } else {
+                                step_x(&mut line);
+                            }
+                            line.error = line.error.wrapping_add(line.error_add);
+                            line.major_is_y
+                        };
+
+                        if line.sing {
+                            // ONEDOT permits the first D transfer in each
+                            // horizontal row. A Y transition during this step
+                            // arms the next row; otherwise this row remains
+                            // suppressed.
+                            line.one_dot_drawn = !moved_y;
+                        }
+
+                        line.dpt = line.cpt;
+                    }
+                    self.blitter_line_runtime = Some(line);
+                    false
+                }
                 BlitterDmaOp::WriteD => {
-                    let c_val = if line.have_c_word {
-                        line.last_c_word
-                    } else {
-                        // Defensive fallback; queue should always present ReadC first.
-                        let c_val = read_word(line.cpt);
-                        self.blt_cdat = c_val;
-                        c_val
-                    };
-
-                    let pixel_mask: u16 = 0x8000 >> line.pixel_bit;
-                    let a_val = pixel_mask;
-                    let b_val = if line.texture & (1 << line.texture_bit) != 0 {
-                        0xFFFF
-                    } else {
-                        0x0000
-                    };
-
-                    let mut result: u16 = 0;
-                    for bit in 0..16u16 {
-                        let a_bit = (a_val >> bit) & 1;
-                        let b_bit = (b_val >> bit) & 1;
-                        let c_bit = (c_val >> bit) & 1;
-                        let index = (a_bit << 2) | (b_bit << 1) | c_bit;
-                        if (line.lf >> index) & 1 != 0 {
-                            result |= 1 << bit;
-                        }
+                    if line.pending_write {
+                        write_word(line.pending_addr, line.pending_result);
                     }
-                    if result != 0 {
-                        self.blitter_dzero = false; // BZERO: a non-zero D word
-                    }
-                    let write_d = !line.sing || !line.one_dot_drawn;
-                    if write_d {
-                        write_word(line.dpt, result);
-                    }
-
-                    line.texture_bit = line.texture_bit.wrapping_sub(1) & 0x0F;
-
-                    let step_x = |line: &mut BlitterLineRuntime| {
-                        if line.x_neg {
-                            line.pixel_bit = line.pixel_bit.wrapping_sub(1) & 0xF;
-                            if line.pixel_bit == 15 {
-                                line.cpt = line.cpt.wrapping_sub(2);
-                                line.dpt = line.dpt.wrapping_sub(2);
-                            }
-                        } else {
-                            line.pixel_bit = (line.pixel_bit + 1) & 0xF;
-                            if line.pixel_bit == 0 {
-                                line.cpt = line.cpt.wrapping_add(2);
-                                line.dpt = line.dpt.wrapping_add(2);
-                            }
-                        }
-                    };
-                    let step_y = |line: &mut BlitterLineRuntime| {
-                        if line.y_neg {
-                            line.cpt = (line.cpt as i32 + line.row_mod as i32) as u32;
-                            line.dpt = (line.dpt as i32 + line.row_mod as i32) as u32;
-                        } else {
-                            line.cpt = (line.cpt as i32 - line.row_mod as i32) as u32;
-                            line.dpt = (line.dpt as i32 - line.row_mod as i32) as u32;
-                        }
-                    };
-
-                    let moved_y = if line.error >= 0 {
-                        if line.major_is_y {
-                            step_y(&mut line);
-                            step_x(&mut line);
-                        } else {
-                            step_x(&mut line);
-                            step_y(&mut line);
-                        }
-                        line.error = line.error.wrapping_add(line.error_sub);
-                        true
-                    } else {
-                        if line.major_is_y {
-                            step_y(&mut line);
-                        } else {
-                            step_x(&mut line);
-                        }
-                        line.error = line.error.wrapping_add(line.error_add);
-                        line.major_is_y
-                    };
-
-                    if line.sing {
-                        // ONEDOT permits the first D transfer in each
-                        // horizontal row. A Y transition during this step
-                        // arms the next row; otherwise this row remains
-                        // suppressed.
-                        line.one_dot_drawn = !moved_y;
-                    }
-
                     line.have_c_word = false;
                     line.steps_remaining = line.steps_remaining.saturating_sub(1);
                     if line.steps_remaining == 0 {
                         self.blt_apt = line.error as u16 as u32;
+                        self.blt_bpt = line.bpt;
                         self.blt_cpt = line.cpt;
                         self.blt_dpt = line.dpt;
                         self.blt_bdat = line.texture;
@@ -2040,14 +2358,12 @@ impl Agnus {
                     } else {
                         self.blitter_line_runtime = Some(line);
                         // Reset word state for next line step.
-                        self.blitter_word_state = Some(BlitterWordState::new_line());
+                        self.blitter_word_state =
+                            Some(BlitterWordState::new_line(line.use_b, line.use_c));
                         false
                     }
                 }
-                BlitterDmaOp::ReadA | BlitterDmaOp::ReadB | BlitterDmaOp::Internal => {
-                    self.blitter_line_runtime = Some(line);
-                    false
-                }
+                BlitterDmaOp::ReadA => false,
             };
         }
 
@@ -2055,142 +2371,107 @@ impl Agnus {
             return false;
         };
 
+        // The completion stage computes the final held word independently
+        // of bus admission; tick_blitter_cck buffers its D transfer.
+        if area.rows_remaining == 0 {
+            let result = area.hold_result();
+            if result != 0 {
+                self.blitter_dzero = false;
+            }
+            write_word(area.dpt, result);
+            area.dpt = area.advance_pointer(
+                area.dpt,
+                area.dmod,
+                area.destination_words_remaining_in_row == 1,
+            );
+            self.blt_apt = area.apt;
+            self.blt_bpt = area.bpt;
+            self.blt_cpt = area.cpt;
+            self.blt_dpt = area.dpt;
+            self.blitter_area_runtime = None;
+            self.blitter_word_state = None;
+            self.blitter_exec_pending = false;
+            return true;
+        }
+
+        // consume_blitter_dma_op has advanced the saved phase. Data effects
+        // belong to the admitted phase, not to the next offered request.
+        let phase = (area.phase + area.phases_per_word() - 1) % area.phases_per_word();
+        let row_end = area.words_remaining_in_row == 1;
+        if phase == 0 && area.pipeline_primed && area.hold_result() != 0 {
+            self.blitter_dzero = false;
+        }
         match op {
             BlitterDmaOp::ReadA => {
-                let w = read_word(area.apt);
-                area.apt = (area.apt as i32 + area.ptr_step) as u32;
-                self.blt_adat = w;
-                area.a_raw = w;
+                area.a_raw = read_word(area.apt);
+                self.blt_adat = area.a_raw;
+                area.apt = area.advance_pointer(area.apt, area.amod, row_end);
             }
             BlitterDmaOp::ReadB => {
-                let w = read_word(area.bpt);
-                area.bpt = (area.bpt as i32 + area.ptr_step) as u32;
-                self.blt_bdat = w;
-                area.b_raw = w;
+                area.b_raw = read_word(area.bpt);
+                self.blt_bdat = area.b_raw;
+                area.bpt = area.advance_pointer(area.bpt, area.bmod, row_end);
             }
             BlitterDmaOp::ReadC => {
-                let w = read_word(area.cpt);
-                area.cpt = (area.cpt as i32 + area.ptr_step) as u32;
-                self.blt_cdat = w;
-                area.c_val = w;
+                area.c_val = read_word(area.cpt);
+                self.blt_cdat = area.c_val;
+                area.cpt = area.advance_pointer(area.cpt, area.cmod, row_end);
+            }
+            BlitterDmaOp::WriteD if area.pipeline_primed => {
+                write_word(area.dpt, area.pending_result);
+                area.dpt = area.advance_pointer(
+                    area.dpt,
+                    area.dmod,
+                    area.destination_words_remaining_in_row == 1,
+                );
+                area.destination_words_remaining_in_row -= 1;
+                if area.destination_words_remaining_in_row == 0 {
+                    area.destination_words_remaining_in_row = area.width_words;
+                }
             }
             BlitterDmaOp::WriteD | BlitterDmaOp::Internal => {}
         }
-
-        // Word processing happens when all channel ops are complete.
-        if !self.blitter_word_complete() {
-            self.blitter_area_runtime = Some(area);
-            return false;
+        // D-only fill moves A hold to the trailing free cell. Otherwise A
+        // holds after the first source stage; B holds after its fetch.
+        let a_phase =
+            if !area.use_a && !area.use_b && !area.use_c && area.use_d && area.fill_enabled {
+                2
+            } else {
+                1
+            };
+        if phase == a_phase {
+            area.hold_a(self.blt_afwm, self.blt_alwm);
+        }
+        if area.use_b && phase == 2 {
+            area.hold_b();
         }
 
-        let current_col = area.width_words - area.words_remaining_in_row;
-        let mut a_masked = area.a_raw;
-        if current_col == 0 {
-            a_masked &= self.blt_afwm;
-        }
-        if area.words_remaining_in_row == 1 {
-            a_masked &= self.blt_alwm;
-        }
-
-        let a_combined = if area.desc {
-            (u32::from(a_masked) << 16) | u32::from(area.a_prev)
-        } else {
-            (u32::from(area.a_prev) << 16) | u32::from(a_masked)
-        };
-        let a_shifted = if area.desc {
-            (a_combined >> (16 - area.a_shift)) as u16
-        } else {
-            (a_combined >> area.a_shift) as u16
-        };
-
-        let b_combined = if area.desc {
-            (u32::from(area.b_raw) << 16) | u32::from(area.b_prev)
-        } else {
-            (u32::from(area.b_prev) << 16) | u32::from(area.b_raw)
-        };
-        let b_shifted = if area.desc {
-            (b_combined >> (16 - area.b_shift)) as u16
-        } else {
-            (b_combined >> area.b_shift) as u16
-        };
-
-        area.a_prev = a_masked;
-        area.b_prev = area.b_raw;
-
-        let mut result: u16 = 0;
-        for bit in 0..16u16 {
-            let a_bit = (a_shifted >> bit) & 1;
-            let b_bit = (b_shifted >> bit) & 1;
-            let c_bit = (area.c_val >> bit) & 1;
-            let index = (a_bit << 2) | (b_bit << 1) | c_bit;
-            if (area.lf >> index) & 1 != 0 {
-                result |= 1 << bit;
+        if area.phase == 0 {
+            self.blitter_word_state = Some(BlitterWordState::new_area(
+                area.use_a, area.use_b, area.use_c, area.use_d,
+            ));
+            area.pipeline_primed = true;
+            area.words_remaining_in_row -= 1;
+            if area.words_remaining_in_row == 0 {
+                area.rows_remaining -= 1;
+                if area.rows_remaining != 0 {
+                    area.words_remaining_in_row = area.width_words;
+                }
             }
-        }
-
-        if area.fill_enabled {
-            let mut filled: u16 = 0;
-            for bit in 0..16u16 {
-                let d_bit = (result >> bit) & 1;
-                area.fill_carry ^= d_bit;
-                let out = if area.efe {
-                    area.fill_carry ^ d_bit
-                } else if area.ife {
-                    area.fill_carry
-                } else {
-                    d_bit
-                };
-                filled |= out << bit;
-            }
-            result = filled;
-        }
-
-        // BZERO observes every generated destination result, whether or not
-        // D DMA is enabled. USED controls the memory transfer, not the
-        // minterm/zero-detection path.
-        if result != 0 {
-            self.blitter_dzero = false;
-        }
-        if area.use_d {
-            write_word(area.dpt, result);
-            area.dpt = (area.dpt as i32 + area.ptr_step) as u32;
-        }
-
-        area.words_remaining_in_row = area.words_remaining_in_row.saturating_sub(1);
-        if area.words_remaining_in_row == 0 {
-            if area.use_a {
-                area.apt = (area.apt as i32 + i32::from(area.amod) * area.mod_dir) as u32;
-            }
-            if area.use_b {
-                area.bpt = (area.bpt as i32 + i32::from(area.bmod) * area.mod_dir) as u32;
-            }
-            if area.use_c {
-                area.cpt = (area.cpt as i32 + i32::from(area.cmod) * area.mod_dir) as u32;
-            }
-            if area.use_d {
-                area.dpt = (area.dpt as i32 + i32::from(area.dmod) * area.mod_dir) as u32;
-            }
-
-            area.rows_remaining = area.rows_remaining.saturating_sub(1);
-            if area.rows_remaining == 0 {
+            if area.rows_remaining == 0 && !area.use_d {
+                // No D drain: final BZERO retires with the last main cell.
+                if area.hold_result() != 0 {
+                    self.blitter_dzero = false;
+                }
                 self.blt_apt = area.apt;
                 self.blt_bpt = area.bpt;
                 self.blt_cpt = area.cpt;
-                self.blt_dpt = area.dpt;
                 self.blitter_area_runtime = None;
                 self.blitter_word_state = None;
                 self.blitter_exec_pending = false;
                 return true;
             }
-
-            area.words_remaining_in_row = area.width_words;
-            area.fill_carry = area.fill_carry_init;
         }
-
-        // Reset word state for the next word.
-        self.blitter_word_state = Some(BlitterWordState::new_area(
-            area.use_a, area.use_b, area.use_c, area.use_d,
-        ));
         self.blitter_area_runtime = Some(area);
         false
     }
@@ -2198,8 +2479,11 @@ impl Agnus {
     /// Initialise the per-word state machine for the first word of the blit.
     fn init_blitter_word_state(&mut self) {
         if (self.bltcon1 & 0x0001) != 0 {
-            // LINE mode: strict ReadC → WriteD per pixel step.
-            self.blitter_word_state = Some(BlitterWordState::new_line());
+            // The serialized line runtime supplies the actual phase sequence.
+            self.blitter_word_state = Some(BlitterWordState::new_line(
+                self.bltcon0 & 0x0400 != 0,
+                self.bltcon0 & 0x0200 != 0,
+            ));
             return;
         }
 
@@ -2210,7 +2494,7 @@ impl Agnus {
         self.blitter_word_state = Some(BlitterWordState::new_area(use_a, use_b, use_c, use_d));
     }
 
-    /// Count the total blitter DMA ops for the entire blit (for BLTBUSY timing).
+    /// Count accepted main-program CCKs, excluding startup and the D drain.
     fn count_total_blitter_ops(&self) -> u32 {
         // Effective size set by start_blit / start_blit_with_size — full
         // width for ECS large blits, legacy-decoded otherwise (#36).
@@ -2218,20 +2502,19 @@ impl Agnus {
         let width_words = self.blt_width_words;
 
         if (self.bltcon1 & 0x0001) != 0 {
-            // LINE mode: 2 ops per step (ReadC + WriteD).
-            return height * 2;
+            // Four stages per standard pixel; optional B adds two.
+            return height * if self.bltcon0 & 0x0400 != 0 { 6 } else { 4 };
         }
 
-        let use_a = (self.bltcon0 & 0x0800) != 0;
         let use_b = (self.bltcon0 & 0x0400) != 0;
         let use_c = (self.bltcon0 & 0x0200) != 0;
         let use_d = (self.bltcon0 & 0x0100) != 0;
-        let ops_per_word =
-            u32::from(use_a) + u32::from(use_b) + u32::from(use_c) + u32::from(use_d);
-
-        // When no external channels are enabled, each word takes one Internal op.
-        let ops_per_word = ops_per_word.max(1);
-        height * width_words * ops_per_word
+        let fill_enabled = self.bltcon1 & 0x0018 != 0;
+        let phases = 2
+            + u32::from(use_b)
+            + u32::from(use_c && use_d)
+            + u32::from(fill_enabled && use_d && !use_c);
+        height * width_words * phases
     }
 
     fn init_incremental_blitter_runtime(&mut self) {
@@ -2252,6 +2535,17 @@ impl Agnus {
             let efe = (self.bltcon1 & 0x0010) != 0;
             let fill_enabled = ife || efe;
             self.blitter_area_runtime = Some(BlitterAreaRuntime {
+                phase: 0,
+                pipeline_primed: false,
+                a_hold: 0,
+                b_hold: if desc {
+                    (u32::from(self.blt_bdat) << ((self.bltcon1 >> 12) & 0xF)) as u16
+                } else {
+                    self.blt_bdat >> ((self.bltcon1 >> 12) & 0xF)
+                },
+                pending_result: 0,
+                destination_words_remaining_in_row: width_words,
+                result_words_remaining_in_row: width_words,
                 rows_remaining: height,
                 width_words,
                 words_remaining_in_row: width_words,
@@ -2322,6 +2616,14 @@ impl Agnus {
         };
 
         self.blitter_line_runtime = Some(BlitterLineRuntime {
+            phase: BlitterLinePhase::A,
+            use_b: self.bltcon0 & 0x0400 != 0,
+            use_c: self.bltcon0 & 0x0200 != 0,
+            bpt: self.blt_bpt,
+            bmod: self.blt_bmod,
+            pending_result: 0,
+            pending_addr: self.blt_dpt,
+            pending_write: false,
             steps_remaining: length,
             error: self.blt_apt as i16,
             error_add: self.blt_bmod,
@@ -2434,6 +2736,12 @@ impl Agnus {
         sprite_timing: SpriteDmaVerticalTiming,
         fixed_ddf_right_stop_enabled: bool,
     ) {
+        self.dma_service_plan = None;
+        self.dma_pipeline.clock_boundary();
+        if let Some((height, width)) = self.pending_blitter_start.take() {
+            self.start_blit_with_size(height, width);
+        }
+        self.advance_timing_strobe_sync(short_field_lines);
         debug_assert!(
             line_ccks > 0 && line_ccks < u16::MAX,
             "line total must fit the beam counter"
@@ -2442,6 +2750,16 @@ impl Agnus {
             short_field_lines > 0 && short_field_lines < u16::MAX,
             "field total must leave room for the interlace extension"
         );
+        if let Some(value) = self.bplcon0_dma_pipeline[0] {
+            self.bplcon0_dma = Some(value);
+        }
+        self.bplcon0_dma_pipeline.copy_within(1.., 0);
+        self.bplcon0_dma_pipeline[3] = None;
+        if let Some(value) = self.fmode_dma_pipeline[0] {
+            self.fmode_dma = Some(value);
+        }
+        self.fmode_dma_pipeline[0] = self.fmode_dma_pipeline[1];
+        self.fmode_dma_pipeline[1] = None;
         self.blitter_dmacon_busy_hold_ccks = self.blitter_dmacon_busy_hold_ccks.saturating_sub(1);
         self.blitter_copper_busy_hold_ccks = self.blitter_copper_busy_hold_ccks.saturating_sub(1);
         self.hpos += 1;
@@ -2670,9 +2988,10 @@ impl Agnus {
     ///
     /// The control-vs-data decision — VSTOP wins over the DMA-on flag —
     /// and the VSTART/VSTOP latch follow vAmiga's `executeFirst/Second
-    /// SpriteCycle` (Agnus.cpp:559-641). The pointer advances one word
-    /// per fetched word; there is no automatic reload (the copper/CPU
-    /// rewrite SPRxPT each frame).
+    /// SpriteCycle` (Agnus.cpp:559-641). Each transfer advances by its
+    /// full FMODE width, including discarded control padding. Wide data
+    /// selects Alice word lanes before assembling the Lisa payload.
+    /// There is no automatic reload (the copper/CPU rewrite SPRxPT each frame).
     pub fn service_sprite_dma_cyc(
         &mut self,
         channel: usize,
@@ -2698,41 +3017,169 @@ impl Agnus {
         second_word: bool,
         width: u8,
         sprite_timing: SpriteDmaVerticalTiming,
-        mut read: impl FnMut(u32) -> u16,
+        read: impl FnMut(u32) -> u16,
     ) -> Option<(bool, u64)> {
         // Sprite DMA is suppressed during vertical blank, and an idle
         // channel does not consume its scheduled bus opportunity.
         if !self.sprite_dma_cycle_requested_with_vertical_timing(channel, sprite_timing) {
             return None;
         }
+        let control = self.sprite_control_fetch_due_with_vertical_timing(channel, sprite_timing);
+        Some(self.service_addressed_sprite_dma_with_vertical_timing(
+            crate::DisplayDmaChannel::Sprite {
+                channel: channel as u8,
+                second_word,
+                control,
+            },
+            self.spr_pt[channel],
+            width,
+            sprite_timing,
+            read,
+        ))
+    }
+
+    /// Consume an already admitted sprite word regardless of later enable writes.
+    pub fn service_addressed_sprite_dma(
+        &mut self,
+        channel: usize,
+        second_word: bool,
+        control: bool,
+        address: u32,
+        width: u8,
+        read: impl FnMut(u32) -> u16,
+    ) -> (bool, u64) {
+        self.service_addressed_sprite_dma_with_vertical_timing(
+            crate::DisplayDmaChannel::Sprite {
+                channel: channel as u8,
+                second_word,
+                control,
+            },
+            address,
+            width,
+            self.fixed_sprite_dma_vertical_timing(),
+            read,
+        )
+    }
+
+    #[doc(hidden)]
+    pub fn service_addressed_sprite_dma_with_vertical_timing(
+        &mut self,
+        identity: crate::DisplayDmaChannel,
+        address: u32,
+        width: u8,
+        sprite_timing: SpriteDmaVerticalTiming,
+        read: impl FnMut(u32) -> u16,
+    ) -> (bool, u64) {
+        self.service_sprite_dma_word(identity, address, width, sprite_timing, true, read)
+    }
+
+    pub fn service_retained_sprite_dma(
+        &mut self,
+        transfer: crate::DmaTransfer,
+        width: u8,
+        read: impl FnMut(u32) -> u16,
+    ) -> (bool, u64) {
+        self.service_retained_sprite_dma_with_vertical_timing(
+            transfer,
+            width,
+            self.fixed_sprite_dma_vertical_timing(),
+            read,
+        )
+    }
+
+    #[doc(hidden)]
+    pub fn service_retained_sprite_dma_with_vertical_timing(
+        &mut self,
+        transfer: crate::DmaTransfer,
+        width: u8,
+        timing: SpriteDmaVerticalTiming,
+        read: impl FnMut(u32) -> u16,
+    ) -> (bool, u64) {
+        let (reservation, increment) = match transfer.target {
+            crate::DmaTransferTarget::Display { reservation, .. } => (reservation, true),
+            crate::DmaTransferTarget::DisplayRefresh { reservation, .. } => (reservation, false),
+            _ => panic!("non-display transfer reached retained sprite service"),
+        };
+        self.service_sprite_dma_word(
+            reservation.channel,
+            transfer.address,
+            width,
+            timing,
+            increment,
+            read,
+        )
+    }
+
+    fn service_sprite_dma_word(
+        &mut self,
+        identity: crate::DisplayDmaChannel,
+        address: u32,
+        width: u8,
+        sprite_timing: SpriteDmaVerticalTiming,
+        increment_pointer: bool,
+        mut read: impl FnMut(u32) -> u16,
+    ) -> (bool, u64) {
+        let crate::DisplayDmaChannel::Sprite {
+            channel,
+            second_word,
+            control,
+        } = identity
+        else {
+            panic!("non-sprite identity reached the sprite adapter");
+        };
+        let channel = usize::from(channel);
         self.sprite_bus_used_this_cck = true;
-        if self.sprite_control_fetch_due_with_vertical_timing(channel, sprite_timing) {
-            // Control fetch (SPRxPOS / SPRxCTL): always a single word —
-            // FMODE widens the data fetch, not the control words.
+        if control {
+            // Control latches consume the first selected word, but the DMA
+            // pointer skips the complete FMODE transfer, including padding.
             self.spr_dma_on[channel] = false;
-            let word = read(self.spr_pt[channel]);
-            self.spr_pt[channel] = self.spr_pt[channel].wrapping_add(2);
+            let word = read(address);
+            self.spr_pt[channel] = address.wrapping_add(if increment_pointer {
+                2 * u32::from(width.max(1))
+            } else {
+                0
+            });
             if second_word {
                 self.latch_sprite_ctl_with_vertical_timing(channel, word, sprite_timing);
             } else {
                 self.latch_sprite_pos_with_vertical_timing(channel, word, sprite_timing);
             }
-            Some((true, u64::from(word)))
-        } else if self.spr_dma_on[channel] {
-            // Data fetch (SPRxDATA / SPRxDATB): FMODE makes the access
-            // fetch `width` (1/2/4) consecutive words, assembled MSB-first
-            // into the 64-bit serial-shifter payload — the first word
-            // holds the leftmost pixels (#99). width 1 keeps OCS/ECS at
-            // the historical single-word, low-16-bit behaviour.
-            let mut data = 0u64;
-            for _ in 0..width.max(1) {
-                let word = read(self.spr_pt[channel]);
-                self.spr_pt[channel] = self.spr_pt[channel].wrapping_add(2);
-                data = (data << 16) | u64::from(word);
-            }
-            Some((false, data))
+            (true, u64::from(word))
         } else {
-            None
+            // Alice selects lanes within aligned bus transfers, as in
+            // reference custom.cpp::fetch32_spr/fetch64. Address bits and
+            // the sprite page-mode bit can repeat a lane instead of reading
+            // consecutive words. Assemble the selected lanes MSB-first.
+            let addr = address;
+            let width = width.max(1);
+            let mut data = 0u64;
+            for index in 0..u32::from(width) {
+                let word_addr = match width {
+                    2 => {
+                        let lane = if addr & 2 != 0 {
+                            2
+                        } else if self.fmode & 8 != 0 {
+                            0
+                        } else {
+                            index * 2
+                        };
+                        (addr & !3).wrapping_add(lane)
+                    }
+                    4 => {
+                        let pair = if addr & 4 != 0 { 4 } else { (index / 2) * 4 };
+                        let lane = if addr & 2 != 0 { 2 } else { (index % 2) * 2 };
+                        (addr & !7).wrapping_add(pair + lane)
+                    }
+                    _ => addr.wrapping_add(index * 2),
+                };
+                data = (data << 16) | u64::from(read(word_addr));
+            }
+            self.spr_pt[channel] = addr.wrapping_add(if increment_pointer {
+                2 * u32::from(width)
+            } else {
+                0
+            });
+            (false, data)
         }
     }
 
@@ -2981,9 +3428,9 @@ impl Agnus {
     }
 
     fn ddf_terminal_fetch_end(&self, matched_start: u16, stop: u16) -> u16 {
-        let hires = (self.bplcon0 & 0x8000) != 0;
-        let shres = (self.bplcon0 & 0x0040) != 0;
-        let fetch_width = self.bpl_fetch_width();
+        let hires = (self.dma_bplcon0() & 0x8000) != 0;
+        let shres = (self.dma_bplcon0() & 0x0040) != 0;
+        let fetch_width = self.bpl_dma_cadence_width();
         let fetchunit = if fetch_width <= 1 {
             8
         } else {
@@ -3093,8 +3540,12 @@ impl Agnus {
             ddfstrt: self.ddfstrt,
             ddfstop: self.ddfstop,
             comparator_mask,
-            effective_ddfstrt: self.ddfstrt & comparator_mask,
-            effective_ddfstop: self.ddfstop & comparator_mask,
+            effective_ddfstrt: self.effective_ddfstrt(),
+            effective_ddfstop: self.effective_ddfstop(),
+            pending_write: self.pending_ddf_write.map(|write| match write {
+                DdfRegisterWrite::Start(value) => (0x092, value),
+                DdfRegisterWrite::Stop(value) => (0x094, value),
+            }),
             start_match: self.ddf_start_match,
             stop_match: self.ddf_stop_match,
             fetch_end: self.ddf_fetch_end,
@@ -3118,6 +3569,47 @@ impl Agnus {
         sprite_timing: SpriteDmaVerticalTiming,
         disk_dma_slot_request_mask: u8,
     ) -> SlotOwner {
+        // An already-admitted timing register owns its outgoing RGA cell.
+        // Live register/beam changes cannot replace that service descriptor.
+        if let Some(transfer) = self.dma_pipeline.service() {
+            match transfer.target {
+                crate::DmaTransferTarget::Strobe(_)
+                | crate::DmaTransferTarget::Refresh
+                | crate::DmaTransferTarget::DisplayRefresh { .. } => {
+                    return SlotOwner::Refresh;
+                }
+                crate::DmaTransferTarget::Disk { .. } => return SlotOwner::Disk,
+                crate::DmaTransferTarget::Audio { channel, .. } => {
+                    return SlotOwner::Audio(channel);
+                }
+                crate::DmaTransferTarget::Copper { .. } => return SlotOwner::Copper,
+                crate::DmaTransferTarget::Display {
+                    reservation:
+                        crate::DisplayDmaReservation {
+                            channel: crate::DisplayDmaChannel::Sprite { channel, .. },
+                            ..
+                        },
+                    ..
+                } => return SlotOwner::Sprite(channel),
+                crate::DmaTransferTarget::Blitter { .. }
+                | crate::DmaTransferTarget::BlitterInternal { .. }
+                | crate::DmaTransferTarget::BlitterFinalWrite { .. } => return SlotOwner::Cpu,
+                crate::DmaTransferTarget::Display {
+                    reservation:
+                        crate::DisplayDmaReservation {
+                            channel: crate::DisplayDmaChannel::Bitplane(plane),
+                            ..
+                        },
+                    ..
+                } => return SlotOwner::Bitplane(plane),
+            }
+        }
+        // A connected machine's physical owner comes only from its retained
+        // outgoing descriptor. Standalone legacy chip calls have not started
+        // the stages and retain their direct positional inspection API.
+        if self.dma_pipeline.stages_started() {
+            return SlotOwner::Cpu;
+        }
         // Hardware-correct OCS PAL DMA time-slot allocation (vAmiga
         // `SequencerDas.cpp` + Minimig `agnus.v` priority chain). Every
         // fixed chipset slot sits on an ODD hpos; the CPU gets the even
@@ -3181,9 +3673,9 @@ impl Agnus {
     /// the validated, vAmiga-identical grids (unchanged by #30).
     fn bitplane_slot_at(&self) -> Option<u8> {
         let num_bpl = self.num_bitplanes();
-        let hires = (self.bplcon0 & 0x8000) != 0;
-        let shres = (self.bplcon0 & 0x0040) != 0;
-        let fetch_width = self.bpl_fetch_width();
+        let hires = (self.dma_bplcon0() & 0x8000) != 0;
+        let shres = (self.dma_bplcon0() & 0x0040) != 0;
+        let fetch_width = self.bpl_dma_cadence_width();
         let ddfstrt = self.ddf_start_match?;
         if self.agnus_id < 0x2000 && self.ocs_ddf_run_aborted {
             return None;
@@ -3284,6 +3776,467 @@ impl Agnus {
         )
     }
 
+    /// Retain the single service decision before any client mutates registers.
+    /// The driver publishes it once after advancing into a new CCK.
+    pub fn record_dma_service_plan(&mut self, plan: CckBusPlan) {
+        assert!(self.dma_service_plan.is_none(), "DMA cell admitted twice");
+        self.dma_service_plan = Some(plan);
+    }
+
+    /// Admitted service ownership. `None` means the phase-zero driver has not
+    /// yet run; standalone chip callers may then use the live request decoder.
+    #[must_use]
+    pub const fn dma_service_plan(&self) -> Option<CckBusPlan> {
+        self.dma_service_plan
+    }
+
+    /// Inspect the same retained stages used by DMA admission and service.
+    #[must_use]
+    pub const fn dma_pipeline(&self) -> &crate::DmaPipeline {
+        &self.dma_pipeline
+    }
+
+    /// Sample the existing ECS/AGA event-generator inputs before the CCK edge.
+    /// The programmed blank value includes its line-held stop/start events.
+    #[doc(hidden)]
+    pub fn set_timing_strobe_inputs(
+        &mut self,
+        programmed_blank: Option<bool>,
+        equalisation_disabled: bool,
+        fixed_blank_stop: u16,
+    ) {
+        self.strobe_programmed_blank = programmed_blank;
+        self.strobe_equalisation_disabled = equalisation_disabled;
+        self.strobe_fixed_blank_stop = fixed_blank_stop;
+    }
+
+    fn advance_timing_strobe_sync(&mut self, short_field_lines: u16) {
+        // Registered FS-UAE check_hsyncs runs before inc_cck. The h=2
+        // request therefore samples the preceding sync position's latches.
+        let field_lines =
+            short_field_lines + u16::from(self.bplcon0 & bits::BPLCON0_LACE != 0 && self.lof);
+        // BSVB is line-held, even if programmable field totals change.
+        if self.agnus_id >= 0x2000 && self.strobe_blank_start_line {
+            self.strobe_p_ve = true;
+        }
+        let vr1 = self.hpos == 9;
+        let vr2 = self.hpos == 115;
+        let rsve_n = self.lof && vr1 || vr2;
+        let rsve_p = self.lof && vr2;
+        if self.vpos == 0 && rsve_n {
+            self.strobe_ve = true;
+        }
+        if self.vpos == 9 && rsve_n
+            || self.vpos == 8 && vr1
+            || self.vpos == 7 && rsve_p
+            || self.strobe_equalisation_disabled
+        {
+            self.strobe_ve = false;
+            self.strobe_p_ve = false;
+        }
+        if self.hpos == 2 && self.strobe_vb > 1 {
+            self.strobe_vb -= 1;
+        }
+        // custom_trigger_start/check_vsyncs follow horizontal sync at h=1.
+        // The h=2 request sees the new VB event but the preceding P_VE latch.
+        if self.hpos == 1 {
+            let blank_start = if self.original_revision == OriginalAgnusRevision::A1000
+                && self.agnus_id < 0x2000
+            {
+                self.vpos == 0
+            } else {
+                self.vpos + 1 == field_lines
+            };
+            self.strobe_blank_start_line = blank_start;
+            if blank_start {
+                self.strobe_vb = 2;
+            }
+            self.strobe_vb_end_line = self.vpos == self.strobe_fixed_blank_stop;
+            if self.strobe_vb_end_line {
+                self.strobe_vb = 0;
+            }
+        }
+    }
+
+    /// Admit refresh's timing register after advancing the shared address stages.
+    /// The descriptor is immutable until actual service on the next CCK.
+    pub fn admit_timing_strobe(&mut self) {
+        if self.hpos != 2 {
+            return;
+        }
+        let equalisation = if self.agnus_id >= 0x2000 {
+            self.strobe_p_ve
+        } else {
+            self.strobe_ve
+        };
+        let blank = self
+            .strobe_programmed_blank
+            .unwrap_or(self.strobe_vb == 1 || self.strobe_vb_end_line);
+        let strobe = if equalisation {
+            crate::DmaStrobe::Equalisation
+        } else if blank {
+            crate::DmaStrobe::VerticalBlank
+        } else {
+            crate::DmaStrobe::Horizontal
+        };
+        assert!(
+            self.admit_refresh_dma(crate::DmaTransfer {
+                target: crate::DmaTransferTarget::Strobe(strobe),
+                address: self.refresh_dma_pointer(),
+            }),
+            "refresh timing request collided with an occupied address stage"
+        );
+    }
+
+    /// Reject malformed saved sync state before installing a candidate.
+    pub fn validate_timing_strobes(&self) -> Result<(), String> {
+        // A pointer conflict can copy an unmasked display PT into REFPTR.
+        // Its concrete bus mask applies at the next fixed admission/service.
+        if self.strobe_vb > 2 || !matches!(self.strobe_fixed_blank_stop, 20 | 25) {
+            return Err("invalid saved timing-strobe sync state".into());
+        }
+        Ok(())
+    }
+
+    /// Advance request/address/service entries on this ordinary CCK edge.
+    /// The returned display reservation owns the addressing cell until sampled.
+    pub fn begin_dma_cck(&mut self) -> Option<crate::DisplayDmaReservation> {
+        self.dma_pipeline.begin_cck()
+    }
+
+    pub fn reserve_display_dma(&mut self, request: crate::DisplayDmaReservation) -> bool {
+        self.dma_pipeline.reserve_display(request)
+    }
+
+    /// Clock the display generator on the existing CCK, after outgoing stage
+    /// advance. The installed wrapper supplies its actual vertical/hard gates.
+    /// This produces a reservation, not a memory grant or an early RAM read.
+    pub fn generate_display_dma_request(
+        &mut self,
+        vertical: bool,
+        hard_limit_disabled: bool,
+        line_ccks: u16,
+    ) {
+        let width_words = self.bpl_dma_cadence_width();
+        let con0 = self.dma_bplcon0();
+        let (fetch_unit, fetch_start) =
+            fetch_cadence(width_words, con0 & 0x8000 != 0, con0 & 0x0040 != 0);
+        let max_planes = fetch_start.min(8) as u8;
+        let next_h = if self.hpos + 1 >= line_ccks {
+            0
+        } else {
+            self.hpos + 1
+        };
+        let planes = self.num_bitplanes();
+        let request = self.display_dma_sequencer.tick(crate::DisplayDmaInputs {
+            hpos: self.hpos,
+            clock: self.hpos & 1 != next_h & 1,
+            enhanced: self.agnus_id >= 0x2000,
+            alice: self.is_alice(),
+            dma: self.dma_enabled(0x0100),
+            vertical,
+            hard_limit_disabled,
+            start: self.effective_ddfstrt(),
+            stop: self.effective_ddfstop(),
+            fetch_unit: fetch_unit as u8,
+            fetch_start: fetch_start as u8,
+            max_planes,
+            planes: if planes > max_planes { 0 } else { planes },
+            width_words,
+            fmode: self.fmode,
+        });
+        if let Some(request) = request {
+            assert!(
+                self.reserve_display_dma(request),
+                "two display reservations in one CCK"
+            );
+        }
+        // Registered do_cck retires this entry after decide_bpl. Copper RGA
+        // service precedes that comparison; CPU delivery follows it and must
+        // remain pending through the next comparison, including across wrap.
+        self.retire_ddf_write();
+    }
+
+    /// Generate display identities using this installed original Agnus's gates.
+    pub fn generate_display_dma(&mut self) {
+        let vertical = self.vertical_diw_active();
+        let line_ccks = self.current_line_ccks();
+        self.generate_display_dma_request(vertical, false, line_ccks);
+        self.generate_sprite_dma_request(self.fixed_sprite_dma_vertical_timing());
+    }
+
+    /// Sprite DMAL requests cross the same display reservation stage as BPL.
+    #[doc(hidden)]
+    pub fn generate_sprite_dma_request(&mut self, timing: SpriteDmaVerticalTiming) {
+        let h = self.hpos;
+        if !self.dma_enabled(0x0020) || !(23..=53).contains(&h) || h & 1 == 0 {
+            return;
+        }
+        let channel = ((h - 23) / 4) as usize;
+        if !self.sprite_dma_cycle_requested_with_vertical_timing(channel, timing)
+            || self.dma_pipeline.reservation().is_some()
+        {
+            return;
+        }
+        let request = crate::DisplayDmaReservation {
+            channel: crate::DisplayDmaChannel::Sprite {
+                channel: channel as u8,
+                second_word: ((h - 23) / 2) & 1 != 0,
+                control: self.sprite_control_fetch_due_with_vertical_timing(channel, timing),
+            },
+            width_words: self.spr_fetch_width(),
+            fmode: self.fmode,
+            add_modulo: false,
+        };
+        assert!(self.reserve_display_dma(request));
+    }
+
+    /// Fixed DMAL positions describe admission, never outgoing ownership.
+    #[must_use]
+    pub fn fixed_dma_admission(&self, disk_request_mask: u8) -> Option<crate::DmaTransferTarget> {
+        use crate::DmaTransferTarget;
+        match self.hpos {
+            4 | 6 | 8 => Some(DmaTransferTarget::Refresh),
+            h @ (10 | 12 | 14) if self.dma_enabled(0x0010) => {
+                let slot = ((h - 10) / 2) as u8;
+                (disk_request_mask & (1 << slot) != 0)
+                    .then_some(DmaTransferTarget::Disk { slot, write: false })
+            }
+            h @ (16 | 18 | 20 | 22) => {
+                let channel = ((h - 16) / 2) as u8;
+                self.dma_enabled(1 << channel)
+                    .then_some(DmaTransferTarget::Audio {
+                        channel,
+                        reload: false,
+                    })
+            }
+            _ => None,
+        }
+    }
+
+    /// Copper's request polarity is odd; its accepted word retires next CCK.
+    #[must_use]
+    pub fn copper_dma_admission_available(&self) -> bool {
+        self.dma_enabled(0x0080) && self.hpos & 1 != 0 && self.dma_pipeline.address().is_none()
+    }
+
+    pub fn validate_display_dma_sequencer(&self) -> Result<(), String> {
+        self.display_dma_sequencer.validate()
+    }
+
+    /// Sample the display addressing cell without reading memory. Registered
+    /// FS-UAE bitplane_rga_ptmod captures PT and MOD one CCK after reservation.
+    pub fn sample_bitplane_dma_address(&mut self, reservation: crate::DisplayDmaReservation) {
+        let plane = match reservation.channel {
+            crate::DisplayDmaChannel::Bitplane(plane) => plane,
+            crate::DisplayDmaChannel::Sprite { channel, .. } => {
+                self.dma_pipeline
+                    .address_display(self.spr_pt[usize::from(channel)], 0);
+                return;
+            }
+        };
+        let modulo = if !reservation.add_modulo {
+            0
+        } else if self.fmode & 0x4000 != 0 {
+            if ((self.diwstrt >> 8) ^ (self.vpos ^ 1)) & 1 != 0 {
+                i32::from(self.bpl1mod)
+            } else {
+                i32::from(self.bpl2mod)
+            }
+        } else if plane & 1 == 0 {
+            i32::from(self.bpl1mod)
+        } else {
+            i32::from(self.bpl2mod)
+        };
+        self.address_display_dma(self.bpl_pt[usize::from(plane)], modulo);
+    }
+
+    pub fn address_display_dma(&mut self, address: u32, pointer_modulo: i32) {
+        self.dma_pipeline.address_display(address, pointer_modulo);
+    }
+
+    pub fn admit_dma_transfer(&mut self, transfer: crate::DmaTransfer) -> bool {
+        self.dma_pipeline.admit(transfer)
+    }
+
+    #[must_use]
+    pub fn refresh_dma_pointer(&self) -> u32 {
+        self.refresh_pointer
+            .unwrap_or(if self.is_alice() { 0x1ffffe } else { 0 })
+            & self.refresh_dma_mask()
+    }
+
+    /// REFPTR's chip-specific DRAM address wiring. A write one CCK before
+    /// any fixed refresh service is ignored by the registered reference.
+    pub fn write_refptr(&mut self, value: u16) {
+        if matches!(self.hpos, 2 | 4 | 6 | 8) {
+            return;
+        }
+        let pointer = if self.is_alice() {
+            const WIRES: [u32; 16] = [
+                0x020000, 0x040001, 0x000102, 0x080004, 0x000208, 0x000010, 0x000020, 0x000040,
+                0x000080, 0x000400, 0x000800, 0x001000, 0x002000, 0x004000, 0x008000, 0x010000,
+            ];
+            WIRES
+                .into_iter()
+                .enumerate()
+                .fold(0, |pointer, (bit, wire)| {
+                    pointer
+                        | if value & (1 << bit) != 0 {
+                            wire << 1
+                        } else {
+                            0
+                        }
+                })
+        } else {
+            let low = u32::from(value & 0xfffe);
+            let wires = if self.agnus_id >= 0x2000 { 4 } else { 3 };
+            (0..wires).fold(low, |pointer, bit| {
+                pointer
+                    | if value & (1 << bit) != 0 {
+                        1 << (16 + bit)
+                    } else {
+                        0
+                    }
+            })
+        };
+        self.refresh_pointer = Some(pointer);
+    }
+
+    fn refresh_dma_mask(&self) -> u32 {
+        if self.is_alice() {
+            0x1fffff
+        } else if self.agnus_id >= 0x2000 {
+            0xfffff
+        } else {
+            0x7ffff
+        }
+    }
+
+    /// Fixed DMAL precedes the next PT sample; only sprite reservations
+    /// already carry a pointer that combines with REFPTR.
+    pub fn admit_refresh_dma(&mut self, mut transfer: crate::DmaTransfer) -> bool {
+        let register = match transfer.target {
+            crate::DmaTransferTarget::Strobe(crate::DmaStrobe::Equalisation) => 0x38,
+            crate::DmaTransferTarget::Strobe(crate::DmaStrobe::VerticalBlank) => 0x3a,
+            crate::DmaTransferTarget::Strobe(crate::DmaStrobe::Horizontal) => 0x3c,
+            crate::DmaTransferTarget::Refresh => {
+                if self.hpos == 4 && self.lol {
+                    0x3e
+                } else {
+                    0x1fe
+                }
+            }
+            _ => panic!("non-refresh transfer entered fixed RGA admission"),
+        };
+        let display = match self.dma_pipeline.address() {
+            Some(crate::DmaAddressStage::Transfer(crate::DmaTransfer {
+                target: crate::DmaTransferTarget::Display { reservation, .. },
+                ..
+            })) => match reservation.channel {
+                crate::DisplayDmaChannel::Sprite { .. } => Some(reservation.channel),
+                crate::DisplayDmaChannel::Bitplane(_) => None,
+            },
+            _ => None,
+        };
+        if let Some(channel) = display {
+            let pointer = match channel {
+                crate::DisplayDmaChannel::Bitplane(plane) => self.bpl_pt[usize::from(plane)],
+                crate::DisplayDmaChannel::Sprite { channel, .. } => {
+                    self.spr_pt[usize::from(channel)]
+                }
+            };
+            transfer.address |= pointer;
+        }
+        if !self.dma_pipeline.admit_refresh(transfer, register) {
+            return false;
+        }
+        if let Some(channel) = display {
+            match channel {
+                crate::DisplayDmaChannel::Bitplane(plane) => {
+                    self.bpl_pt[usize::from(plane)] = transfer.address
+                }
+                crate::DisplayDmaChannel::Sprite { channel, .. } => {
+                    self.spr_pt[usize::from(channel)] = transfer.address
+                }
+            }
+            self.refresh_pointer = Some(transfer.address);
+        }
+        true
+    }
+
+    /// Refresh increments the retained display pointer, then mirrors that
+    /// result to REFPTR. Outgoing display service may subsequently change PT.
+    pub fn service_combined_refresh_dma(&mut self, transfer: crate::DmaTransfer) {
+        let crate::DmaTransferTarget::DisplayRefresh { reservation, .. } = transfer.target else {
+            panic!("non-combined request reached combined refresh service");
+        };
+        if matches!(reservation.channel, crate::DisplayDmaChannel::Bitplane(_)) {
+            self.service_refresh_dma();
+            return;
+        }
+        let increment = if self.is_alice() {
+            0
+        } else if self.agnus_id >= 0x2000 {
+            0x200
+        } else {
+            2
+        };
+        let pointer = match reservation.channel {
+            crate::DisplayDmaChannel::Bitplane(plane) => self.bpl_pt[usize::from(plane)],
+            crate::DisplayDmaChannel::Sprite { channel, .. } => self.spr_pt[usize::from(channel)],
+        };
+        let pointer = pointer.wrapping_add(increment) & self.refresh_dma_mask();
+        match reservation.channel {
+            crate::DisplayDmaChannel::Bitplane(plane) => self.bpl_pt[usize::from(plane)] = pointer,
+            crate::DisplayDmaChannel::Sprite { channel, .. } => {
+                self.spr_pt[usize::from(channel)] = pointer
+            }
+        }
+        self.refresh_pointer = Some(pointer);
+    }
+
+    /// Advance the shared live refresh pointer at actual outgoing service.
+    pub fn service_refresh_dma(&mut self) {
+        let increment = if self.is_alice() {
+            0
+        } else if self.agnus_id >= 0x2000 {
+            0x200
+        } else {
+            2
+        };
+        self.refresh_pointer =
+            Some(self.refresh_dma_pointer().wrapping_add(increment) & self.refresh_dma_mask());
+    }
+
+    /// The combined register can suppress a display data strobe while its
+    /// type still updates the channel's pointer. No memory is read in this case.
+    pub fn service_displaced_display_dma(&mut self, transfer: crate::DmaTransfer) {
+        let crate::DmaTransferTarget::DisplayRefresh { reservation, .. } = transfer.target else {
+            panic!("non-colliding display reached displaced service");
+        };
+        match reservation.channel {
+            crate::DisplayDmaChannel::Bitplane(plane) => {
+                self.bpl_pt[usize::from(plane)] = transfer
+                    .address
+                    .wrapping_add(2 * u32::from(self.bpl_fetch_width()));
+            }
+            crate::DisplayDmaChannel::Sprite { channel, .. } => {
+                // The no-data sprite branch increments the live pointer,
+                // which refresh has already advanced in this service cell.
+                let pointer = self.spr_pt[usize::from(channel)]
+                    .wrapping_add(2 * u32::from(self.spr_fetch_width()));
+                self.spr_pt[usize::from(channel)] = pointer;
+            }
+        }
+    }
+
+    /// Claim the current memory action exactly once; retain its service
+    /// descriptor for both CPU phases and half-CCK restoration.
+    pub fn claim_dma_service(&mut self) -> Option<crate::DmaTransfer> {
+        self.dma_pipeline.claim_service()
+    }
+
     /// Return a side-effect-free diagnostic snapshot of the current OCS bus
     /// plan and the recorded per-CCK use latches.
     ///
@@ -3303,6 +4256,8 @@ impl Agnus {
     /// the owner of the actual-use latches and diagnostic representation.
     #[must_use]
     pub fn bus_diagnostic_snapshot_for_plan(&self, plan: CckBusPlan) -> AgnusBusDiagnosticSnapshot {
+        let live_plan = plan;
+        let plan = self.dma_service_plan.unwrap_or(plan);
         let (blitter_authority, blitter_holds_bus) = if self.blitter_cck_bus_state_recorded {
             (
                 BlitterBusDiagnosticAuthority::RecordedCckState,
@@ -3318,7 +4273,9 @@ impl Agnus {
         AgnusBusDiagnosticSnapshot {
             vpos: self.vpos,
             hpos: self.hpos,
-            plan,
+            plan: live_plan,
+            service_plan: self.dma_service_plan,
+            dma_pipeline: self.dma_pipeline,
             disk_bus_used_this_cck: self.disk_bus_used_this_cck,
             disk_holds_bus: self.disk_bus_used_this_cck
                 || matches!(plan.slot_owner, SlotOwner::Disk),
@@ -3378,8 +4335,10 @@ impl Agnus {
             _ => None,
         };
         let copper_dma_slot_granted = matches!(slot_owner, SlotOwner::Copper);
-        let blitter_dma_progress_granted =
-            matches!(slot_owner, SlotOwner::Cpu) && self.blitter_busy && self.dma_enabled(0x0040);
+        let blitter_dma_progress_granted = !self.dma_pipeline.stages_started()
+            && matches!(slot_owner, SlotOwner::Cpu)
+            && self.blitter_busy
+            && self.dma_enabled(0x0040);
         let blitter_nasty_active = self.blitter_nasty_active();
         let blitter_chip_bus_granted = blitter_dma_progress_granted && blitter_nasty_active;
         let cpu_chip_bus_granted =
@@ -3433,14 +4392,111 @@ impl Agnus {
     /// Write BPLCON0 ($DFF100). Straight store; Denise sees the same
     /// value for mode bits.
     pub fn write_bplcon0(&mut self, val: u16) {
+        if self.max_bitplanes == 8 {
+            // The connected RGA stages already retain selected display cells.
+            // BPLCON0_delayed copies the register after two ordinary edges;
+            // only the direct endpoint API folds in the two selected cells.
+            self.bplcon0_dma.get_or_insert(self.bplcon0);
+            let stage = if self.dma_pipeline.stages_started() {
+                1
+            } else {
+                3
+            };
+            self.bplcon0_dma_pipeline[stage] = Some(val);
+        }
         self.bplcon0 = val;
+    }
+
+    /// Write Alice's immediate transfer-width mirror while preserving slots
+    /// already selected under the preceding FMODE cadence.
+    pub fn write_fmode(&mut self, value: u16) {
+        self.fmode_dma.get_or_insert(self.fmode);
+        if self.dma_pipeline.stages_started() {
+            // setup_fmodes changes reservation cadence at the write. Pending
+            // identities carry the old selection through address and service.
+            self.fmode_dma = Some(value);
+            self.fmode_dma_pipeline = [None; 2];
+        } else {
+            self.fmode_dma_pipeline[1] = Some(value);
+        }
+        self.fmode = value;
+    }
+
+    fn bpl_dma_cadence_width(&self) -> u8 {
+        match self.fmode_dma.unwrap_or(self.fmode) & 3 {
+            0 => 1,
+            1 | 2 => 2,
+            _ => 4,
+        }
+    }
+
+    /// BPLCON0 copy currently controlling the DMA sequencer.
+    #[must_use]
+    pub fn dma_bplcon0(&self) -> u16 {
+        self.bplcon0_dma.unwrap_or(self.bplcon0)
     }
 
     pub fn write_ddfstrt(&mut self, val: u16) {
         self.ddfstrt = val;
+        self.ddfstrt_comparator = Some(0xFFFF);
+        // Suppression precedes the shared queue's old-entry flush. Two start
+        // writes before retirement therefore expose the first queued value.
+        self.retire_ddf_write();
+        self.pending_ddf_write = Some(DdfRegisterWrite::Start(val & self.ddf_mask()));
     }
     pub fn write_ddfstop(&mut self, val: u16) {
+        let previous = self.effective_ddfstop();
+        self.ddfstop_comparator = Some(previous);
         self.ddfstop = val;
+        self.retire_ddf_write();
+        self.pending_ddf_write = Some(DdfRegisterWrite::Stop(val & self.ddf_mask()));
+    }
+
+    fn effective_ddfstrt(&self) -> u16 {
+        self.ddfstrt_comparator
+            .unwrap_or(self.ddfstrt & self.ddf_mask())
+    }
+
+    fn effective_ddfstop(&self) -> u16 {
+        self.ddfstop_comparator
+            .unwrap_or(self.ddfstop & self.ddf_mask())
+    }
+
+    fn retire_ddf_write(&mut self) {
+        match self.pending_ddf_write.take() {
+            Some(DdfRegisterWrite::Start(value)) => self.ddfstrt_comparator = Some(value),
+            Some(DdfRegisterWrite::Stop(value)) => self.ddfstop_comparator = Some(value),
+            None => {}
+        }
+    }
+
+    /// Reject comparator values or pending writes that cannot be produced by
+    /// this installed chip's register stage before accepting a saved machine.
+    pub fn validate_ddf_register_stage(&self) -> Result<(), String> {
+        let mask = self.ddf_mask();
+        let masked = |value: u16| value & !mask == 0;
+        if self
+            .ddfstrt_comparator
+            .is_some_and(|value| value != 0xFFFF && !masked(value))
+            || self.ddfstop_comparator.is_some_and(|value| !masked(value))
+            || self.ddfstrt_comparator == Some(0xFFFF)
+                && !matches!(self.pending_ddf_write, Some(DdfRegisterWrite::Start(_)))
+        {
+            return Err("invalid saved DDF comparator stage".into());
+        }
+        let valid = match self.pending_ddf_write {
+            Some(DdfRegisterWrite::Start(value)) => {
+                self.ddfstrt_comparator.is_some() && masked(value) && value == self.ddfstrt & mask
+            }
+            Some(DdfRegisterWrite::Stop(value)) => {
+                self.ddfstop_comparator.is_some() && masked(value) && value == self.ddfstop & mask
+            }
+            None => true,
+        };
+        if !valid {
+            return Err("invalid saved pending DDF register write".into());
+        }
+        Ok(())
     }
     pub fn write_diwstrt(&mut self, val: u16) {
         self.diwstrt = val;
@@ -3503,7 +4559,16 @@ impl Agnus {
             0x056 => self.blt_dpt = (self.blt_dpt & 0xFFFF_0000) | u32::from(val & 0xFFFE),
             0x058 => {
                 self.bltsize = val;
-                self.start_blit();
+                if self.dma_pipeline.stages_started() {
+                    let height = u32::from(val >> 6);
+                    let width = u32::from(val & 63);
+                    self.queue_blitter_start(
+                        if height == 0 { 1024 } else { height },
+                        if width == 0 { 64 } else { width },
+                    );
+                } else {
+                    self.start_blit();
+                }
             }
             0x060 => self.blt_cmod = val as i16,
             0x062 => self.blt_bmod = val as i16,
@@ -3532,30 +4597,6 @@ impl Agnus {
         self.blitter_dmacon_busy_hold_ccks = 1;
         self.blitter_copper_busy_hold_ccks = 2;
         true
-    }
-
-    /// Whether the next scheduler request is the final D of a normal area
-    /// blit. That request is split into main-finish, result and write stages.
-    #[must_use]
-    fn final_area_d_requested(&self) -> bool {
-        self.blitter_startup_ccks_remaining == 0
-            && matches!(
-                (
-                    self.blitter_line_runtime,
-                    self.blitter_area_runtime,
-                    self.next_blitter_dma_request(),
-                ),
-                (
-                    None,
-                    Some(BlitterAreaRuntime {
-                        rows_remaining: 1,
-                        words_remaining_in_row: 1,
-                        use_d: true,
-                        ..
-                    }),
-                    Some(BlitterDmaOp::WriteD),
-                )
-            )
     }
 
     /// Clear internal activity after every pipeline stage has drained.
@@ -3590,11 +4631,18 @@ impl Agnus {
     /// does not perform a D transfer.
     fn blitter_operation_uses_bus(&self, op: BlitterDmaOp) -> bool {
         match op {
-            BlitterDmaOp::Internal => false,
-            BlitterDmaOp::WriteD => !self
+            BlitterDmaOp::Internal => self
                 .blitter_line_runtime
-                .is_some_and(|line| line.sing && line.one_dot_drawn),
-            BlitterDmaOp::ReadA | BlitterDmaOp::ReadB | BlitterDmaOp::ReadC => true,
+                .is_some_and(|line| line.phase == BlitterLinePhase::Reserved),
+            BlitterDmaOp::WriteD => self.blitter_line_runtime.map_or_else(
+                || {
+                    self.blitter_area_runtime
+                        .is_none_or(|area| area.pipeline_primed)
+                },
+                |line| line.pending_write,
+            ),
+            BlitterDmaOp::ReadC => self.blitter_line_runtime.is_none_or(|line| line.use_c),
+            BlitterDmaOp::ReadA | BlitterDmaOp::ReadB => true,
         }
     }
 
@@ -3609,6 +4657,174 @@ impl Agnus {
         }
         self.next_blitter_dma_request()
             .is_none_or(|op| self.blitter_operation_uses_bus(op))
+    }
+
+    /// Admit one logical blitter phase to the shared future RGA cell.
+    /// Memory is read or written only by `service_blitter_dma` on the next CCK.
+    pub fn admit_blitter_dma_cck(&mut self, progress_granted: bool) -> BlitterCckOutcome {
+        use crate::{DmaTransfer, DmaTransferTarget};
+        if !self.blitter_busy {
+            return BlitterCckOutcome::default();
+        }
+        if let Some(phase) = self.blitter_completion_phase {
+            return match phase {
+                BlitterCompletionPhase::FinalResult => {
+                    // The last admitted main operation has now retired. Compute
+                    // its final held word independently of further admission.
+                    let mut discarded_bus = FinalResultBus;
+                    self.tick_blitter_cck(false, &mut discarded_bus)
+                }
+                BlitterCompletionPhase::FinalWrite { addr, value } => {
+                    let interrupt = self.is_alice() && self.emit_blitter_finish();
+                    if progress_granted {
+                        assert!(
+                            self.admit_dma_transfer(DmaTransfer {
+                                target: DmaTransferTarget::BlitterFinalWrite { value },
+                                address: addr,
+                            }),
+                            "final D entered an occupied address stage"
+                        );
+                    }
+                    BlitterCckOutcome {
+                        interrupt,
+                        bus_used: false,
+                    }
+                }
+            };
+        }
+        if !progress_granted {
+            return BlitterCckOutcome::default();
+        }
+        if self.blitter_startup_ccks_remaining != 0 {
+            let phase = self.tick_blitter_scheduler_op(true);
+            debug_assert_eq!(phase, BlitterProgress::Startup);
+            return BlitterCckOutcome::default();
+        }
+        let Some(operation) = self.next_blitter_dma_request() else {
+            return BlitterCckOutcome::default();
+        };
+        let allocated = self.blitter_operation_uses_bus(operation);
+        let (address, write_value) = if let Some(area) = self.blitter_area_runtime {
+            match operation {
+                BlitterDmaOp::ReadA => (area.apt, None),
+                BlitterDmaOp::ReadB => (area.bpt, None),
+                BlitterDmaOp::ReadC => (area.cpt, None),
+                BlitterDmaOp::WriteD => (area.dpt, Some(area.pending_result)),
+                BlitterDmaOp::Internal => (0, None),
+            }
+        } else if let Some(line) = self.blitter_line_runtime {
+            match operation {
+                BlitterDmaOp::ReadB => (line.bpt, None),
+                BlitterDmaOp::ReadC => (line.cpt, None),
+                BlitterDmaOp::WriteD => (line.pending_addr, Some(line.pending_result)),
+                _ => (0, None),
+            }
+        } else {
+            panic!("admitted blitter phase has no incremental runtime");
+        };
+        let main_finishes = self.blitter_area_runtime.is_some_and(|area| {
+            area.rows_remaining == 1
+                && area.words_remaining_in_row == 1
+                && area.phase + 1 == area.phases_per_word()
+        });
+        let target = if operation == BlitterDmaOp::Internal || !allocated {
+            DmaTransferTarget::BlitterInternal {
+                operation,
+                allocated,
+            }
+        } else {
+            DmaTransferTarget::Blitter {
+                operation,
+                write_value,
+            }
+        };
+        let phase = self.tick_blitter_scheduler_op(true);
+        debug_assert_eq!(phase, BlitterProgress::Operation(operation));
+        assert!(
+            self.admit_dma_transfer(DmaTransfer {
+                target,
+                address: if matches!(target, DmaTransferTarget::BlitterInternal { .. }) {
+                    0
+                } else {
+                    address
+                },
+            }),
+            "blitter entered an occupied address stage"
+        );
+        let interrupt = if main_finishes && self.blitter_area_runtime.is_some_and(|area| area.use_d)
+        {
+            self.blitter_completion_phase = Some(BlitterCompletionPhase::FinalResult);
+            !self.is_alice() && self.emit_blitter_finish()
+        } else {
+            false
+        };
+        BlitterCckOutcome {
+            interrupt,
+            bus_used: false,
+        }
+    }
+
+    /// Retire one immutable blitter descriptor, before this CCK's admission.
+    pub fn service_blitter_dma(
+        &mut self,
+        transfer: crate::DmaTransfer,
+        bus: &mut dyn BlitterBus,
+    ) -> BlitterCckOutcome {
+        use crate::DmaTransferTarget;
+        if let DmaTransferTarget::BlitterFinalWrite { value } = transfer.target {
+            bus.write_word(transfer.address, value);
+            self.finish_blitter_pipeline();
+            return BlitterCckOutcome {
+                interrupt: self.emit_blitter_finish(),
+                bus_used: true,
+            };
+        }
+        let (operation, allocated, write_value) = match transfer.target {
+            DmaTransferTarget::Blitter {
+                operation,
+                write_value,
+            } => (operation, true, write_value),
+            DmaTransferTarget::BlitterInternal {
+                operation,
+                allocated,
+            } => (operation, allocated, None),
+            _ => panic!("non-blitter descriptor reached the blitter adapter"),
+        };
+        let done = if !allocated {
+            self.execute_incremental_blitter_op(operation, |_| 0, |_, _| {})
+        } else {
+            match operation {
+                BlitterDmaOp::WriteD => self.execute_incremental_blitter_op(
+                    operation,
+                    |_| 0,
+                    |_, _| {
+                        bus.write_word(transfer.address, write_value.expect("validated D value"))
+                    },
+                ),
+                BlitterDmaOp::Internal => {
+                    self.execute_incremental_blitter_op(operation, |_| 0, |_, _| {})
+                }
+                _ => self.execute_incremental_blitter_op(
+                    operation,
+                    |_| bus.read_word(transfer.address),
+                    |_, _| {},
+                ),
+            }
+        };
+        if self.blitter_completion_phase.is_none() && self.blitter_word_complete() && !done {
+            self.advance_blitter_word();
+        }
+        if done && self.blitter_completion_phase.is_none() {
+            self.finish_blitter_pipeline();
+            return BlitterCckOutcome {
+                interrupt: self.emit_blitter_finish(),
+                bus_used: allocated,
+            };
+        }
+        BlitterCckOutcome {
+            interrupt: false,
+            bus_used: allocated,
+        }
     }
 
     /// Advance the blitter by one CCK.
@@ -3649,13 +4865,19 @@ impl Agnus {
                     BlitterCckOutcome::default()
                 }
                 BlitterCompletionPhase::FinalWrite { addr, value } => {
+                    // Alice's source finish advances at F+2 even when the
+                    // buffered D transfer cannot yet enter the bus.
+                    let interrupt = self.is_alice() && self.emit_blitter_finish();
                     if !progress_granted {
-                        return BlitterCckOutcome::default();
+                        return BlitterCckOutcome {
+                            interrupt,
+                            bus_used: false,
+                        };
                     }
                     bus.write_word(addr, value);
                     self.finish_blitter_pipeline();
                     BlitterCckOutcome {
-                        interrupt: self.emit_blitter_finish(),
+                        interrupt: interrupt || self.emit_blitter_finish(),
                         bus_used: true,
                     }
                 }
@@ -3666,11 +4888,18 @@ impl Agnus {
             return BlitterCckOutcome::default();
         }
 
-        // The existing scheduler presents final D as one operation. Hardware
-        // first retires the last main cycle, then computes BZERO/result, then
-        // writes D. Split only the final area word here; earlier pipelined D
-        // operations retain the established execution model.
-        if self.final_area_d_requested() {
+        let bus_used = self.next_blitter_progress_uses_bus();
+        let op = match self.tick_blitter_scheduler_op(true) {
+            BlitterProgress::Startup | BlitterProgress::NoProgress => {
+                return BlitterCckOutcome::default();
+            }
+            BlitterProgress::Operation(op) => op,
+        };
+        let done = self.execute_blitter_bus_op(op, bus);
+        if self
+            .blitter_area_runtime
+            .is_some_and(|area| area.rows_remaining == 0 && area.use_d)
+        {
             self.blitter_completion_phase = Some(BlitterCompletionPhase::FinalResult);
             return BlitterCckOutcome {
                 interrupt: if self.is_alice() {
@@ -3678,18 +4907,9 @@ impl Agnus {
                 } else {
                     self.emit_blitter_finish()
                 },
-                bus_used: false,
+                bus_used,
             };
         }
-
-        let op = match self.tick_blitter_scheduler_op(true) {
-            BlitterProgress::Startup | BlitterProgress::NoProgress => {
-                return BlitterCckOutcome::default();
-            }
-            BlitterProgress::Operation(op) => op,
-        };
-        let bus_used = self.blitter_operation_uses_bus(op);
-        let done = self.execute_blitter_bus_op(op, bus);
         if self.blitter_word_complete() && !done {
             self.advance_blitter_word();
         }
@@ -5329,20 +6549,20 @@ mod tests {
     #[test]
     fn blitter_scheduler_ops_count_down_and_require_progress() {
         let mut agnus = Agnus::new();
-        agnus.bltcon0 = 0x0100; // D write only => 1 DMA op/word
-        agnus.bltsize = (1 << 6) | 2; // height=1, width=2 => budget=2
+        agnus.bltcon0 = 0x0100; // D write and free cell => 2 main cells/word
+        agnus.bltsize = (1 << 6) | 2; // height=1, width=2 => budget=4
         agnus.start_blit();
 
         assert!(agnus.blitter_busy);
         assert!(agnus.blitter_exec_pending);
-        assert_eq!(agnus.blitter_ccks_remaining, 2);
+        assert_eq!(agnus.blitter_ccks_remaining, 4);
 
         assert_eq!(
             agnus.tick_blitter_scheduler_op(false),
             BlitterProgress::NoProgress,
             "no progress when bus grant is withheld",
         );
-        assert_eq!(agnus.blitter_ccks_remaining, 2);
+        assert_eq!(agnus.blitter_ccks_remaining, 4);
 
         assert_eq!(
             agnus.tick_blitter_scheduler_op(true),
@@ -5353,15 +6573,15 @@ mod tests {
             BlitterProgress::Startup,
         );
         assert_eq!(
-            agnus.blitter_ccks_remaining, 2,
+            agnus.blitter_ccks_remaining, 4,
             "two accepted startup CCKs must not consume D operations",
         );
 
         assert_eq!(
             agnus.tick_blitter_scheduler_op(true),
-            BlitterProgress::Operation(BlitterDmaOp::WriteD),
+            BlitterProgress::Operation(BlitterDmaOp::Internal),
         );
-        assert_eq!(agnus.blitter_ccks_remaining, 1);
+        assert_eq!(agnus.blitter_ccks_remaining, 3);
 
         assert!(
             agnus.blitter_busy,
@@ -5390,21 +6610,27 @@ mod tests {
     }
 
     #[test]
-    fn blitter_line_mode_requests_c_then_d_per_step() {
+    fn blitter_line_mode_preserves_internal_c_result_d_stages() {
         let mut agnus = Agnus::new();
+        agnus.bltcon0 = 0x0B00;
         agnus.bltcon1 = 0x0001; // LINE mode
         agnus.bltsize = (4 << 6) | 2; // length=4, width field ignored in line mode
         agnus.start_blit();
 
         assert_eq!(
-            agnus.blitter_ccks_remaining, 8,
-            "4 line steps * (C read + D write) => 8 DMA-op grants"
+            agnus.blitter_ccks_remaining, 16,
+            "4 line steps * four CCK stages"
         );
 
-        // First line step should request ReadC, then WriteD.
-        assert_eq!(agnus.next_blitter_dma_request(), Some(BlitterDmaOp::ReadC));
-        agnus.consume_blitter_dma_op(BlitterDmaOp::ReadC);
-        assert_eq!(agnus.next_blitter_dma_request(), Some(BlitterDmaOp::WriteD));
+        for op in [
+            BlitterDmaOp::Internal,
+            BlitterDmaOp::ReadC,
+            BlitterDmaOp::Internal,
+            BlitterDmaOp::WriteD,
+        ] {
+            assert_eq!(agnus.next_blitter_dma_request(), Some(op));
+            agnus.consume_blitter_dma_op(op);
+        }
     }
 
     #[test]
@@ -5913,22 +7139,97 @@ mod tests {
     }
 
     #[test]
+    fn sprite_dma_wide_data_selects_addressed_word_lanes() {
+        let words = [0x1234u16, 0x5678, 0x9ABC, 0xDEF0, 0x1357, 0x2468, 0x369A];
+        let expected = [
+            [0x1234, 0x5678, 0x9ABC, 0xDEF0],
+            [0x1234_5678, 0x5678_5678, 0x9ABC_DEF0, 0xDEF0_DEF0],
+            [0x1234_1234, 0x5678_5678, 0x9ABC_9ABC, 0xDEF0_DEF0],
+            [
+                0x1234_5678_9ABC_DEF0,
+                0x5678_5678_DEF0_DEF0,
+                0x9ABC_DEF0_9ABC_DEF0,
+                0xDEF0_DEF0_DEF0_DEF0,
+            ],
+        ];
+        for mode in 0..4u16 {
+            for offset in [0, 2, 4, 6] {
+                let mut agnus = sprite_dma_agnus();
+                agnus.agnus_id = 0x2300;
+                agnus.fmode = mode << 2;
+                agnus.spr_pt[0] = 0x1000 + offset;
+                agnus.vpos = 45;
+                agnus.spr_vstop[0] = 50;
+                agnus.spr_dma_on[0] = true;
+                let width = agnus.spr_fetch_width();
+                let fetched = agnus.service_sprite_dma_cyc(0, false, width, |addr| {
+                    words[((addr - 0x1000) / 2) as usize]
+                });
+                assert_eq!(
+                    fetched,
+                    Some((false, expected[mode as usize][offset as usize / 2])),
+                    "sprite FMODE={mode}, offset={offset}"
+                );
+                assert_eq!(agnus.spr_pt[0], 0x1000 + offset + u32::from(width) * 2);
+                assert!(agnus.sprite_bus_used_this_cck());
+            }
+        }
+    }
+
+    #[test]
+    fn sprite_dma_wide_control_selects_first_lane_and_skips_padding() {
+        for mode in 0..4u16 {
+            for offset in [0, 2, 4, 6] {
+                let mut agnus = sprite_dma_agnus();
+                agnus.agnus_id = 0x2300;
+                agnus.fmode = mode << 2;
+                agnus.spr_pt[0] = 0x1000 + offset;
+                agnus.vpos = 30;
+                agnus.spr_vstop[0] = 30;
+                let width = agnus.spr_fetch_width();
+                let mut addresses = Vec::new();
+                let first = agnus.service_sprite_dma_cyc(0, false, width, |addr| {
+                    addresses.push(addr);
+                    if addr == 0x1000 + offset {
+                        0x2864
+                    } else {
+                        0xDEAD
+                    }
+                });
+                assert_eq!(first, Some((true, 0x2864)));
+                assert_eq!(
+                    agnus.spr_pt[0],
+                    0x1000 + offset + u32::from(width) * 2,
+                    "control padding, sprite FMODE={mode}, offset={offset}"
+                );
+                let ctl_address = agnus.spr_pt[0];
+                let second = agnus.service_sprite_dma_cyc(0, true, width, |addr| {
+                    if addr == ctl_address { 0x3200 } else { 0xDEAD }
+                });
+                assert_eq!(second, Some((true, 0x3200)));
+                assert_eq!(agnus.sprite_vstart(0), 40);
+                assert_eq!(agnus.sprite_vstop(0), 50);
+                assert_eq!(agnus.spr_pt[0], 0x1000 + offset + u32::from(width) * 4);
+                assert!(!addresses.is_empty());
+            }
+        }
+    }
+
+    #[test]
     fn wide_sprite_data_fetch_assembles_fmode_words_msb_first() {
-        // #99: an FMODE 32-bit sprite fetches 2 consecutive words per
+        // An aligned FMODE 32-bit sprite fetches 2 consecutive words per
         // SPRxDATA access, assembled MSB-first (first word = leftmost
         // pixels) into the 64-bit serial-shifter payload.
         let mut agnus = sprite_dma_agnus();
+        agnus.agnus_id = 0x2300;
+        agnus.fmode = 0x0004;
         agnus.spr_pt[1] = 0x2000;
         agnus.vpos = 45;
         agnus.spr_vstop[1] = 50;
         agnus.spr_dma_on[1] = true;
         let words = [0xAAAAu16, 0xBBBBu16];
-        let mut i = 0;
-        let fetched = agnus.service_sprite_dma_cyc(1, false, 2, |_addr| {
-            let w = words[i];
-            i += 1;
-            w
-        });
+        let fetched =
+            agnus.service_sprite_dma_cyc(1, false, 2, |addr| words[((addr - 0x2000) / 2) as usize]);
         assert_eq!(
             fetched,
             Some((false, 0xAAAA_BBBB)),
@@ -5938,17 +7239,15 @@ mod tests {
 
         // 64-bit (width 4): four words fill the full u64.
         let mut agnus = sprite_dma_agnus();
+        agnus.agnus_id = 0x2300;
+        agnus.fmode = 0x000C;
         agnus.spr_pt[2] = 0x3000;
         agnus.vpos = 45;
         agnus.spr_vstop[2] = 50;
         agnus.spr_dma_on[2] = true;
         let words = [0x1111u16, 0x2222, 0x3333, 0x4444];
-        let mut i = 0;
-        let fetched = agnus.service_sprite_dma_cyc(2, false, 4, |_addr| {
-            let w = words[i];
-            i += 1;
-            w
-        });
+        let fetched =
+            agnus.service_sprite_dma_cyc(2, false, 4, |addr| words[((addr - 0x3000) / 2) as usize]);
         assert_eq!(fetched, Some((false, 0x1111_2222_3333_4444)));
         assert_eq!(agnus.spr_pt[2], 0x3008, "pointer advances by 4 words");
     }
@@ -6054,6 +7353,66 @@ mod tests {
             assert!(agnus.vertb_level());
             agnus.vpos = end_line;
             assert!(!agnus.vertb_level());
+        }
+    }
+
+    #[test]
+    fn ddf_shared_write_queue_preserves_registered_flush_order() {
+        for identity in [0, 0x2000, 0x2300] {
+            let mut agnus = Agnus::new();
+            agnus.agnus_id = identity;
+            agnus.ddfstrt = 64;
+            agnus.ddfstop = 128;
+            // Same three sequences as the independently compiled source probe.
+            agnus.write_ddfstrt(80);
+            agnus.write_ddfstrt(96);
+            assert_eq!(agnus.effective_ddfstrt(), 80);
+            assert!(agnus.validate_ddf_register_stage().is_ok());
+            agnus.generate_display_dma_request(false, false, 227);
+            assert_eq!(agnus.effective_ddfstrt(), 96);
+            agnus.write_ddfstrt(80);
+            agnus.write_ddfstop(144);
+            assert_eq!(
+                (agnus.effective_ddfstrt(), agnus.effective_ddfstop()),
+                (80, 128)
+            );
+            assert!(agnus.validate_ddf_register_stage().is_ok());
+            agnus.generate_display_dma_request(false, false, 227);
+            assert_eq!(agnus.effective_ddfstop(), 144);
+            agnus.write_ddfstop(160);
+            agnus.write_ddfstrt(96);
+            assert_eq!(
+                (agnus.effective_ddfstrt(), agnus.effective_ddfstop()),
+                (0xFFFF, 160)
+            );
+            assert!(agnus.validate_ddf_register_stage().is_ok());
+            agnus.generate_display_dma_request(false, false, 227);
+            assert_eq!(agnus.effective_ddfstrt(), 96);
+            assert_eq!(agnus.ddf_diagnostic_snapshot().pending_write, None);
+        }
+    }
+
+    #[test]
+    fn malformed_ddf_register_stages_are_rejected() {
+        for identity in [0, 0x2000, 0x2300] {
+            let mut agnus = Agnus::new();
+            agnus.agnus_id = identity;
+            assert!(agnus.validate_ddf_register_stage().is_ok());
+            agnus.ddfstrt_comparator = Some(1);
+            assert!(agnus.validate_ddf_register_stage().is_err());
+            agnus.ddfstrt_comparator = Some(0xFFFF);
+            assert!(agnus.validate_ddf_register_stage().is_err());
+            agnus.pending_ddf_write = Some(DdfRegisterWrite::Start(0));
+            assert!(agnus.validate_ddf_register_stage().is_ok());
+            agnus.pending_ddf_write = Some(DdfRegisterWrite::Start(1));
+            assert!(agnus.validate_ddf_register_stage().is_err());
+            agnus.write_ddfstrt(64);
+            agnus.retire_ddf_write();
+            agnus.ddfstop_comparator = Some(0xFFFF);
+            assert!(agnus.validate_ddf_register_stage().is_err());
+            agnus.ddfstop_comparator = None;
+            agnus.pending_ddf_write = Some(DdfRegisterWrite::Stop(0));
+            assert!(agnus.validate_ddf_register_stage().is_err());
         }
     }
 }

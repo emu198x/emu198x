@@ -1,0 +1,58 @@
+   Compiling commodore-agnus-ocs v0.25.0 (/Users/stevehill/Projects/198x/Emu198x/emu198x/crates/commodore-agnus-ocs)
+   Compiling commodore-denise-ocs v0.25.0 (/Users/stevehill/Projects/198x/Emu198x/emu198x/crates/commodore-denise-ocs)
+   Compiling commodore-denise-ecs v0.25.0 (/Users/stevehill/Projects/198x/Emu198x/emu198x/crates/commodore-denise-ecs)
+   Compiling common-commodore-amiga v0.25.0 (/Users/stevehill/Projects/198x/Emu198x/emu198x/crates/common-commodore-amiga)
+   Compiling commodore-denise-aga v0.25.0 (/Users/stevehill/Projects/198x/Emu198x/emu198x/crates/commodore-denise-aga)
+warning: unused import: `HorizontalDiwComparatorPhase`
+    --> crates/commodore-denise-aga/src/lib.rs:1103:35
+     |
+1103 |         denise_chip::{DeniseChip, HorizontalDiwComparatorPhase},
+     |                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: `commodore-denise-aga` (lib test) generated 1 warning (run `cargo fix --lib -p commodore-denise-aga --tests` to apply 1 suggestion)
+    Finished `release` profile [optimized] target(s) in 7.01s
+     Running unittests src/lib.rs (target/release/deps/commodore_denise_aga-f180a565923e1f6d)
+
+running 14 tests
+test tests::copper_color_write_crosses_early_rga_and_lisa_output_stages ... ok
+test tests::lisa_fixed_hblank_ends_at_the_newtek_lores_counter ... ok
+test tests::diagnostic_snapshot_reports_complete_lisa_state_without_using_core_mirrors ... ok
+test tests::lisa_hblank_fine_stop_retains_all_four_output_samples ... ok
+test tests::disabling_a_lisa_selector_clears_the_active_level ... ok
+test tests::lisa_equal_hblank_edges_leave_level_clear ... ok
+test tests::lisa_extblken_enable_after_start_waits_for_the_next_start ... ok
+test tests::deniseid_returns_lisa_marker ... ok
+test tests::lisa_ecsena_enable_after_start_waits_for_the_next_start ... ok
+test tests::lisa_sprite_output_stage_keeps_the_comparator_and_delays_visible_code ... ok
+test tests::lisa_hbstop_write_ahead_after_stop_does_not_reassert ... ok
+test tests::lisa_hbstrt_write_behind_beam_does_not_synthesize_start ... ok
+test tests::lisa_window_matches_reach_output_at_the_counter_equality ... FAILED
+test tests::lisa_parallel_copy_reaches_output_on_the_following_counter ... FAILED
+
+failures:
+
+---- tests::lisa_window_matches_reach_output_at_the_counter_equality stdout ----
+
+thread 'tests::lisa_window_matches_reach_output_at_the_counter_equality' (64168354) panicked at crates/commodore-denise-aga/src/lib.rs:1150:13:
+assertion `left == right` failed: counter 129
+  left: [false, false, false, false]
+ right: [true, true, true, true]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- tests::lisa_parallel_copy_reaches_output_on_the_following_counter stdout ----
+
+thread 'tests::lisa_parallel_copy_reaches_output_on_the_following_counter' (64168351) panicked at crates/commodore-denise-aga/src/lib.rs:1202:9:
+assertion `left == right` failed
+  left: [0, 0, 0, 0]
+ right: [1, 1, 1, 1]
+
+
+failures:
+    tests::lisa_parallel_copy_reaches_output_on_the_following_counter
+    tests::lisa_window_matches_reach_output_at_the_counter_equality
+
+test result: FAILED. 12 passed; 2 failed; 0 ignored; 0 measured; 32 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p commodore-denise-aga --lib`

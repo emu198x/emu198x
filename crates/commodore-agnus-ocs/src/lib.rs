@@ -6,6 +6,8 @@
 
 mod agnus;
 mod copper;
+mod ddf;
+mod dma;
 
 pub use agnus::bits;
 pub use agnus::{
@@ -23,3 +25,8 @@ pub use agnus::{
     PaulaReturnProgressPolicy, SlotOwner, SpriteDmaVerticalTiming, VBL_END_LINE,
 };
 pub use copper::{Copper, State as CopperState};
+pub use ddf::{DisplayDmaInputs, DisplayDmaSequencer};
+pub use dma::{
+    DisplayDmaChannel, DisplayDmaReservation, DmaAddressStage, DmaPipeline, DmaStrobe, DmaTransfer,
+    DmaTransferTarget,
+};

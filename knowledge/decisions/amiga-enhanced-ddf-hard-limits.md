@@ -2,6 +2,14 @@
 
 **Date:** July 2026
 
+The approved [shared Agnus stages](amiga-single-slot-authority.md) and
+[DDF register-write stage](amiga-ddf-register-write-stage.md) supersede the
+compressed comparator-to-fetch timing described below. The legacy match and
+endpoint fields remain diagnostics; live reservations, addressed transfers and
+memory services are distinct. The connected `ddf-boundaries` fixture verifies
+those boundaries, including service across line wrap. See the
+[measured schedules](../../../../reference/by-system/commodore-amiga/2026-copper-blitter-wake-observations.md#connected-ddf-boundary-checks-2026-10-06).
+
 ## The question
 
 When should enhanced Agnus and Alice apply the fixed horizontal data-fetch

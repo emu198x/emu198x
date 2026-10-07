@@ -1,0 +1,131 @@
+{
+  "evidence_scope": "UAE absolute phase; cross-family comparator semantics only",
+  "package_sha256": {
+    "fs-uae-5.0.7-f362278c": "def3500455db110dd7027454dd042e754124ab2910477ae5e2e3459c83e20be1",
+    "copperline-0.13.0-eec5806": "2221be40ca162c2bf03b87f81b178cbc2ae9ac05d495ebb135f2b990f1d44e78"
+  },
+  "compared_reference_frames": 84,
+  "native_lores_interval": [
+    4,
+    381
+  ],
+  "runs": [
+    {
+      "profile": "ecs",
+      "case": "fixed-control",
+      "comparator_consensus": true,
+      "native_black_runs": []
+    },
+    {
+      "profile": "ecs",
+      "case": "ecsena-gate",
+      "comparator_consensus": false,
+      "native_black_runs": []
+    },
+    {
+      "profile": "ecs",
+      "case": "extblken-gate",
+      "comparator_consensus": false,
+      "native_black_runs": []
+    },
+    {
+      "profile": "ecs",
+      "case": "blanken-path",
+      "comparator_consensus": true,
+      "native_black_runs": []
+    },
+    {
+      "profile": "ecs",
+      "case": "programmed-central",
+      "comparator_consensus": true,
+      "native_black_runs": [
+        {
+          "start": 167,
+          "end_exclusive": 231
+        }
+      ]
+    },
+    {
+      "profile": "ecs",
+      "case": "programmed-wrap",
+      "comparator_consensus": true,
+      "native_black_runs": [
+        {
+          "start": 4,
+          "end_exclusive": 39
+        },
+        {
+          "start": 327,
+          "end_exclusive": 381
+        }
+      ]
+    },
+    {
+      "profile": "ecs",
+      "case": "programmed-equal",
+      "comparator_consensus": true,
+      "native_black_runs": []
+    },
+    {
+      "profile": "aga",
+      "case": "fixed-control",
+      "comparator_consensus": true,
+      "native_black_runs": []
+    },
+    {
+      "profile": "aga",
+      "case": "ecsena-gate",
+      "comparator_consensus": false,
+      "native_black_runs": []
+    },
+    {
+      "profile": "aga",
+      "case": "extblken-gate",
+      "comparator_consensus": false,
+      "native_black_runs": []
+    },
+    {
+      "profile": "aga",
+      "case": "blanken-path",
+      "comparator_consensus": false,
+      "native_black_runs": [
+        {
+          "start": 167,
+          "end_exclusive": 231
+        }
+      ]
+    },
+    {
+      "profile": "aga",
+      "case": "programmed-central",
+      "comparator_consensus": true,
+      "native_black_runs": [
+        {
+          "start": 167,
+          "end_exclusive": 231
+        }
+      ]
+    },
+    {
+      "profile": "aga",
+      "case": "programmed-wrap",
+      "comparator_consensus": true,
+      "native_black_runs": [
+        {
+          "start": 4,
+          "end_exclusive": 39
+        },
+        {
+          "start": 327,
+          "end_exclusive": 381
+        }
+      ]
+    },
+    {
+      "profile": "aga",
+      "case": "programmed-equal",
+      "comparator_consensus": true,
+      "native_black_runs": []
+    }
+  ]
+}

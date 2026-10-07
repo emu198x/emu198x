@@ -16,6 +16,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Remove an extra lores period from mid-line BPLCON4 palette-XOR timing, using the independently traced Lisa counter phase while preserving snapshot 54.
+
+- Compare programmed horizontal blanking against the next lores counter, including all four fine samples, matching counter-traced coarse and fractional edges.
+
+- Align window, bitplane, sprite, Copper colour and fixed blanking output with
+  independently traced Denise counters, removing a reference-padding offset
+  from Lisa timing while retaining fractional edges and snapshot 53 layout
+
+- Gate fractional display-window edges through native composition and palette XOR before resolving HAM and sprite colours.
+
+- Propagate BPLCON1 through Lisa’s normal selector stage while retaining its immediate register mirror.
+
+- Propagate Lisa display controls through normal output stages, latch bitplane width on BPL1DAT, and delay playfield XOR at native palette selection
+
+- Restore fixed horizontal blanking through the $05D lores edge when programmable blanking is not selected
+
+- Preserve all 35 ns output samples, palette-write delay and fine horizontal-blank edges in the full Lisa framebuffer
+
+- Render explicit superhires sprites and SPRxCTL quarter-lores positioning at 35 ns boundaries, including priority and collision timing
+
+- Render explicit/automatic hires sprites independently of playfield resolution and honour SPRxCTL bit 4 positioning
+
+- Honour ECSENA-gated BRDRBLNK as a final black output mask while retaining hidden colour, sprite and collision advancement
+
+- Honour ECSENA-gated BRDRSPRT, allowing sprites outside DIW and before BPL1DAT while preserving their serial phase
+
+- Decode BPLCON3.PF2OF for dual-playfield colour selection and reset Lisa to the compatible offset 8
+
+- Preserve the full palette address when KILLEHB selects ordinary six-plane indexed output
+
+- Route manual BPL8DAT writes to the eighth bitplane holding register and retain BPL1DAT as the copy strobe
+
+- Decode CLXCON2 so BP7/BP8 participate in collision matching; base CLXCON writes clear the extension
+
+- Align Lisa sprite output with its bitplane phase using retained codes rather than an HSTART coordinate offset
+
+- Apply AGA extended and fractional scroll delays to a retained serial stream, preserving the extra output tick without shifting its copy comparator
+
 - Drive Lisa programmable horizontal blanking from a serialized fine-phase
   comparator latch, with ECSENA and EXTBLKEN sampled at the event boundary
 - Preserve immediate AGA colour-register reads while delaying display output

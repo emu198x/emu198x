@@ -1,0 +1,17 @@
+amiga-test-kit-v1.21.adf: OK
+kickstart-3.1-a1200-r40.68.rom: OK
+    Blocking waiting for file lock on build directory
+    Finished `release` profile [optimized] target(s) in 41.37s
+     Running tests/amiga_test_kit_video.rs (target/release/deps/amiga_test_kit_video-3fb4668f2183523a)
+
+running 1 test
+test amiga_test_kit_v121_a1200_aga_pal_matches_reference ... Amiga Test Kit v1.21 A1200 AGA PAL video: gradients matched exactly
+Amiga Test Kit v1.21 A1200 AGA PAL video: static-checkerboard matched exactly
+Amiga Test Kit v1.21 A1200 AGA PAL video: alternating-checkerboard matched exactly
+Amiga Test Kit v1.21 A1200 AGA PAL video: ebu-bars matched exactly
+Amiga Test Kit v1.21 A1200 AGA PAL video: dots matched exactly
+Amiga Test Kit v1.21 A1200 AGA PAL video: crosshatch matched exactly
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 5 filtered out; finished in 63.44s
+

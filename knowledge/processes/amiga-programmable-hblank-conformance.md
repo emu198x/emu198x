@@ -135,13 +135,31 @@ booting a case. It must run the declared machine profile, wait in emulated
 fields, capture three adjacent settled fields, and confirm that a static case
 is stable.
 
-Assertions consume semantic observations on which the registered UAE and
-Copperline implementation families agree. The current CCK-aligned gate checks
-the fixed-control, programmed-central, programmed-wrap, and programmed-equal
-cases on ECS and AGA, plus the ECS `BLANKEN`-clear case. `ECSENA`,
-`EXTBLKEN`, and AGA `BLANKEN` remain measurement-only disagreements. This
-consumer-side table does not modify the neutral corpus or turn either emulator
-family into hardware truth.
+The static consumer separates two claims. The retained FS-UAE and Copperline
+packages are hash-verified and their 84 APNG fields are re-decoded. In their
+declared HB-register coordinates, nine case/profile pairs agree and five
+remain disagreements. Copperline's post-render mask cannot establish UAE's
+signal propagation phase; comparator-coordinate agreement is not absolute
+pixel-phase consensus.
+
+Absolute native pixel checks use the independently traced UAE counter origin:
+native=raw+6 host-hires samples. The complete shared interval is native lores
+[4,381), excluding only the producer's two leading storage samples and absent
+native margins. All fourteen static cases must match their decoded UAE
+observations. ECSENA, EXTBLKEN and AGA BLANKEN retain their cross-family
+**disagreement** label even when the native UAE-phase check passes. This is
+single-family phase evidence, not a new hardware or consensus classification.
+
+`tools/amiga-hblank-validation/requalify.py` derives the observations from the
+unchanged producer packages; the wrapper supplies them to the Rust consumer.
+A tampered capture fails admission. A shifted native edge, missing samples or
+an unclassified colour fails measurement. The complete native captures remain
+available in failure diagnostics; no image alignment search is performed.
+
+Both static and timed consumers retain each completed image before sampling
+the guest label in line one. Guest VERTB publication can straddle the display
+completion point. The consumer requires acknowledgement inside the same
+video field, exactly one video-field advance, and adjacent guest labels.
 
 A failure records the Emu198x frame, edge measurements, relevant
 custom-register writes, and comparison details below
@@ -169,9 +187,10 @@ itself certify their complete monitor geometry.
 
 ## Result interpretation
 
-A passing case establishes only that Emu198x matched the asserted cross-family
-consensus observations for the declared corpus version, artifact, machine
-profile, firmware identity, capture grid, and field rule.
+A passing case establishes that Emu198x matched the counter-qualified UAE
+phase observation for the declared corpus version, artifact, machine profile,
+firmware identity, capture grid and field rule. Cross-family comparator
+agreement or disagreement is reported separately.
 
 It does not establish general Amiga video accuracy, another chipset revision,
 another region, untested register-write timing, analogue output, or physical
@@ -187,3 +206,15 @@ case.
 - [Amiga Test Kit verification](amiga-test-kit-verification.md)
 - [Accuracy corpora](../../test-data/accuracy-corpora.md)
 - [Test ROM bundling policy](../decisions/test-rom-policy.md)
+
+## Current counter-origin boundary (2026-10-07)
+
+The consumer now accepts and records both native widths and verifies every
+sample in a declared lores duplicate group. Its older absolute consensus
+assertions still need requalification: the fixed AGA case expects no black
+samples over the full viewport, while the counter-traced common reference
+raster excludes the retained native blank margins. The gate remains red;
+its expectations have not been replaced with native output. Use the separate
+counter-traced SPHX observations for the bounded horizontal-phase correction,
+with full-field residuals retained. This is not a claim that the old portable
+static gate now passes or that two software families agree on absolute phase.

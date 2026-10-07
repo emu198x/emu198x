@@ -1,0 +1,62 @@
+{
+  "scope": "Test/fixture corrections only; no production or snapshot schema changes",
+  "snapshot_version": 51,
+  "reference": {
+    "source_sha256": "75bb300ba2798913997f82dde988db465746e9b7f22699bbc275690c8ae227e5",
+    "probe_sha256": "cb29275cfca9bac558e2a770ec40aac1dfa094e5a8cd9727d1d7fafa0f8adb83",
+    "events_sha256": "511bd59816dcdd3b7311ddb2b09f97f8f349b7be0c3fd94614b676c774f1985c",
+    "cases": 7,
+    "requests": 1556,
+    "reversed_order_mismatching_cases": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6
+    ],
+    "scope": "Unchanged reference handlers and sequencer; external signals; no RGA/memory or silicon claim"
+  },
+  "closed_baseline_failures": [
+    "equal_ddf_boundaries_are_not_an_empty_machine_fetch_window",
+    "fat_agnus_harddis_keeps_the_post_df_slots_available",
+    "ocs_hard_stop_precedes_a_same_cck_copper_ddfstop_write",
+    "ocs_open_ddf_hard_start_gate_survives_postcard_round_trip"
+  ],
+  "renamed_copper_test": "ocs_hard_stop_survives_a_copper_ddfstop_write_at_d8",
+  "boundary_target": {
+    "passed": 5,
+    "failed": 0
+  },
+  "snapshot_roundtrip_target": {
+    "passed": 53,
+    "failed": 0
+  },
+  "clippy": "release all-targets, machine-commodore-amiga-ocs and runtime-commodore-amiga, -D warnings: pass",
+  "fixture_reproduction": "registered-events.csv and verification.json byte-identical",
+  "remaining_prior_failures_not_rerun": [
+    "bus_plan_dispatch_tests::alice_hblank_reset_precedes_a_coincident_wide_bitplane_fetch",
+    "copper_bfd_and_final_d_follow_distinct_pre_aga_completion_edges",
+    "fat_agnus_diwhigh_gates_bitplane_dma_in_the_mixed_machine",
+    "guest_cpu_reads_clxdat_with_bit_fifteen_set",
+    "tests::active_copper_fetch_keeps_its_cell_from_nasty_blitter_and_cpu",
+    "tests::copper_bplcon0_move_cannot_reallocate_its_cell_to_bitplane_dma",
+    "tests::copper_first_fetch_keeps_its_cell_owned_after_half_cck_restore",
+    "tests::cpu_reuses_line_internal_and_suppressed_d_cells_in_nasty_mode",
+    "tests::final_disk_word_keeps_the_cpu_stalled_for_the_whole_cck",
+    "tests::ordinary_cpu_cell_allows_non_nasty_blitter_when_cpu_is_idle",
+    "tests::parked_copper_yields_idle_cpu_cell_to_non_nasty_blitter",
+    "tests::parked_copper_yields_its_free_cell_to_nasty_blitter_before_cpu",
+    "tests::scheduler_dispatches_copper_color_before_current_output",
+    "tests::serviced_bitplane_cell_survives_a_later_dma_disable_and_restore"
+  ],
+  "raster_gates": "Not rerun for test-only changes; previous production pixel evidence and open Test Kit mismatches still apply",
+  "logs_sha256": {
+    "native-before.log": "998aa5282c5c1af68d53051922f720e4ae71c9a0e2bf6f3ea3de7d7438dc9413",
+    "snapshot-before.log": "69628e6d99eeaa7fb968034638cc4834d8d7b8e69129e96769347131b75a6bf3",
+    "boundaries-final.log": "24b82a92b62e40788453b2f072151c852e243d039e2e78cbea9d4ef472b20710",
+    "snapshot-full.log": "2f3b97fddacb61d409adeca1490355494b2573f2832e667ffbbf133913506ea2",
+    "clippy.log": "dca78ec9884a0bc1a341dcd20534f86119d2c2dff9a51282bb9acc711744f270"
+  }
+}

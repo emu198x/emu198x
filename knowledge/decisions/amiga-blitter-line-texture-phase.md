@@ -71,11 +71,26 @@ rejected rather than restoring a line with a different texture phase.
 
 ## Model boundary
 
-The implementation covers the standard manual setup with SRCB clear.
-It retains the existing C-read and logical-D line schedule.
+The standard manual setup with SRCB clear uses four saved CCK stages:
+internal A, C read/B selection, internal result generation, then logical D.
+Optional B DMA uses six stages: internal A, B read, C read/B selection,
+internal result, reserved bus cycle, then logical D. A B read replaces the
+texture and advances BLTBPT by signed BLTBMOD without an area-mode increment.
 
-Optional B DMA in line mode is not yet represented as an additional
-bus request. This does not alter the standard preloaded-texture rule.
+The result, destination and write eligibility are saved before D. Internal
+stages leave the chip bus available to the CPU; the reserved B-enabled stage
+occupies it without a memory transfer. C-enable gates both C reads and line
+writes. The first D uses BLTDPT and subsequent pixels use the line C pointer.
+
+The user approved extending the existing stages and rejecting version-45
+runtime saves with version 46. The earlier version-18 description records
+the initial texture/ONEDOT state; version 46 additionally preserves the
+line phase, B fetch state and pending D result.
+
+Primary evidence and limits: [line-blitter stage observations](../../../../reference/by-system/commodore-amiga/2026-line-blitter-stage-observations.md).
+The optional-B order is source-derived, including a compiled registered
+vAmiga table adapter. Full reference-engine timing, nonstandard widths and
+active line control/pointer writes are not established by that adapter.
 
 ## Verification
 

@@ -11,23 +11,13 @@
     {
       "case": "gradients",
       "phase": "static",
-      "expectation": "registered-disagreement",
-      "disagreement_id": "denise-ocs-color-output-phase",
-      "normalized_actual_channel_bytes_sha256": "87e28f45462b2307bf14ade554083057e424f19f0c6719bb4600466f591d041a",
-      "diff_mask_sha256": "02d251f4c53f0339700740ffa57b2d5a56c2f72af46d852243a4ee8532c25a97",
-      "differing_pixels": 1920,
-      "first_difference": {
-        "x": 148,
-        "y": 42,
-        "expected_rgb": [0, 0, 0],
-        "actual_rgb": [15, 15, 15]
-      },
-      "bounding_box": {
-        "min_x": 148,
-        "min_y": 42,
-        "max_x": 613,
-        "max_y": 201
-      }
+      "expectation": "exact",
+      "disagreement_id": null,
+      "normalized_actual_channel_bytes_sha256": "bc291bbf58ebdfa8991723c98aab4744c513cd06ca3bd46311b1a1dfc9037921",
+      "diff_mask_sha256": "b94a1224894a03833a68f4b4d0a9b9ceb241e4384c1b1424ce688034ff1d69f1",
+      "differing_pixels": 0,
+      "first_difference": null,
+      "bounding_box": null
     },
     {
       "case": "static-checkerboard",
@@ -65,23 +55,13 @@
     {
       "case": "ebu-bars",
       "phase": "static",
-      "expectation": "registered-disagreement",
-      "disagreement_id": "denise-ocs-color-output-phase",
-      "normalized_actual_channel_bytes_sha256": "e7a7144a61028e20716f5912356be3507f16c8c81e6f27eb325aac4e4b385433",
-      "diff_mask_sha256": "0f6169a4811fbb84aff743627af93807ad2eed924034af2040d989e9a6eb0041",
-      "differing_pixels": 3990,
-      "first_difference": {
-        "x": 108,
-        "y": 0,
-        "expected_rgb": [15, 15, 0],
-        "actual_rgb": [15, 15, 15]
-      },
-      "bounding_box": {
-        "min_x": 108,
-        "min_y": 0,
-        "max_x": 637,
-        "max_y": 284
-      }
+      "expectation": "exact",
+      "disagreement_id": null,
+      "normalized_actual_channel_bytes_sha256": "90876e95ca52f5679940191a2bb13ad676792accd8d413742585f526061d9f5e",
+      "diff_mask_sha256": "b94a1224894a03833a68f4b4d0a9b9ceb241e4384c1b1424ce688034ff1d69f1",
+      "differing_pixels": 0,
+      "first_difference": null,
+      "bounding_box": null
     },
     {
       "case": "dots",

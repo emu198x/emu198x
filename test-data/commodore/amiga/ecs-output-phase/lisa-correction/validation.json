@@ -1,0 +1,44 @@
+{
+  "status": "Complete: approved Lisa phase correction validated",
+  "snapshot_version": 53,
+  "snapshot_layout_changed": false,
+  "native_geometry_changed": false,
+  "reference_images_changed": false,
+  "window_fields_exact": 51,
+  "independent_control_fields_exact": 21,
+  "compared_rgb_pixels": 62322624,
+  "active_full_resolution_origin_observations": 14400,
+  "hires_origin_observations": 600,
+  "checks": {
+    "common_amiga_tests": 141,
+    "ocs_ecs_denise_tests": 146,
+    "aga_denise_tests": 78,
+    "runtime_graphics_and_restore_tests": 146,
+    "total_focused_rust_tests": 511,
+    "snapshot_tests_included": 54,
+    "golden_matrix_checks": 8,
+    "strict_test_kit_cases": {
+      "a500": 6,
+      "a1200": 6
+    },
+    "clippy": "release, seven affected packages, all targets, -D warnings; final changed-test recheck passed",
+    "rustfmt": "all sixteen edited Rust files checked",
+    "python": "Ruff check/format; three origin-validator tests; colour control rebuild byte-identical",
+    "execution_note": "Broad runs retained failures from tests pinning the superseded phase. Repaired targets passed focused reruns. All 54 snapshot tests and eight boot-matrix checks passed across those runs; no skip or ignored-region additions."
+  },
+  "current_sha256": {
+    "crates/commodore-denise-aga/src/lib.rs": "3248dbc603e2b047d6ab172713ec5a76df86e9cc861e55f10eeb5fd4accca109",
+    "crates/commodore-denise-ocs/src/chip.rs": "2a3b064cc3d07ae7fe7ef78cc11a9ef733859e245005438ab107142dc0c324e1",
+    "crates/common-commodore-amiga/src/denise.rs": "c759e1b9a53654d3a22a3d3297ad9d1fb402bbcbd0a54194c99c6eea8b19dea5",
+    "crates/common-commodore-amiga/src/denise_chip.rs": "c15400fc056bd13b7170aa7c0b946b13a1b0c31f60e8b5f0f7b889abcfe59481",
+    "crates/common-commodore-amiga/src/denise_window.rs": "0fa4c657910d147b7f141b796517e9af5f50ed2ed821122b9205ee1a05ff0515",
+    "target/release/emu198x-amiga": "8183a0f01de36a402dbd4f66f353266d1b94c31dbfdd5389cf5693b1225699ed",
+    "test-data/amiga-test-kit-v1.21/a1200-aga-pal/manifest.json": "0171ec1116ff280b64f5e7ac3b876d15bae3f657829499721ae9e99aa66a1881",
+    "test-data/amiga-test-kit-v1.21/a1200-aga-pal/assertions.json": "8c3e09faa6903cad3a7e55d8e292ef67c7e2a0c741c5d32039778d7b2249bc93"
+  },
+  "limitations": [
+    "One UAE reference family, not hardware consensus.",
+    "ECS Copper colour and untested programmable blanking modes are not recalibrated by these AGA controls.",
+    "The prior 128-guest graphics combination corpus was not rerun; this bounded pass covers the 24 listed guests and strict Test Kit lanes."
+  ]
+}

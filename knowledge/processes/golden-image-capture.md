@@ -131,6 +131,15 @@ The complete corrected Workbench image was reviewed and retained as the new
 Emu198x regression baseline. It is not an external Workbench capture, and no
 pointer mask was added; subsequent runs must reproduce every pixel exactly.
 
+The neutral sprite probe subsequently supports retaining Lisa's sprite code
+for one additional lores output step. The reviewed 2026-10-04 capture differs
+from the preceding Workbench baseline only at 184 pixels in x=76–97, y=36–57.
+The pointer moves two hires samples right; every surrounding pixel is identical.
+The complete desktop and pointer were reviewed. The mutable Emu198x golden
+now records this corrected pointer position without an ignored pointer region.
+Both independent Test Kit profiles require exact equality after this change;
+their producer images and absolute crops remain untouched.
+
 ## Volatile Workbench memory readouts
 
 Workbench computes the free-memory figure shown in the title bar from live
@@ -193,3 +202,23 @@ Horizontal placement. MAME puts the ZX80's picture 26 pixels right of the
 ZX81's; we place both in the same column, because `FIRST_CHAR_TSTATE` is fitted
 per machine to a window already chosen. The tests assert the vertical agreement
 and deliberately do not assert the horizontal. See #1123.
+
+
+## Reviewed fixed Lisa blanking and current A1000 media
+
+On 2026-10-05, restoring Lisa's fixed $05D blanking stop changes only the
+A1200 Workbench golden's first two hires columns: 1,144 of 430,144 pixels
+become black. The primary Lisa revision note and full native reference guests
+verify this edge. Every other golden pixel is unchanged, and the complete
+actual image was inspected before retaining the Emu198x-produced baseline.
+The golden remains a regression image, not a reference-machine capture.
+
+A1000 lookup now checks `~/.emu198x/media/commodore-amiga/kickstart-1.2.adf`
+after the explicit `EMU198X_AMIGA_A1000_KICKSTART_DISK` override. The old archive
+path remains a compatibility fallback. The current local disk was recovered
+from the existing 256 KiB Kickstart 33.180 ROM: a zeroed 512-byte sector with
+`KICK` in its first four bytes precedes the unchanged ROM bytes, padded to a
+standard 901,120-byte ADF. This matches registered FS-UAE's `ADF_KICK` sector
+layout. A private `.source.json` sidecar records ROM and output hashes. No
+licensed firmware/media was added to the repository. Strict asset mode passes
+all eight matrix tests, including A1000 loading/locking WOM and booting WB1.2.

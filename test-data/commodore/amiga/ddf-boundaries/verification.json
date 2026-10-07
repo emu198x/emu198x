@@ -1,0 +1,17 @@
+{
+  "source_sha256": "75bb300ba2798913997f82dde988db465746e9b7f22699bbc275690c8ae227e5",
+  "probe_sha256": "cb29275cfca9bac558e2a770ec40aac1dfa094e5a8cd9727d1d7fafa0f8adb83",
+  "events_sha256": "511bd59816dcdd3b7311ddb2b09f97f8f349b7be0c3fd94614b676c774f1985c",
+  "cases": 7,
+  "requests": 1556,
+  "reversed_order_mismatching_cases": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6
+  ],
+  "scope": "Unchanged reference handlers and sequencer; external signals; no RGA/memory or silicon claim"
+}

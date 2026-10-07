@@ -4,7 +4,8 @@
 //! custom-register read dispatch, so CLXDAT fell through to the
 //! `_ => 0xFFFF` open-bus default (every collision bit set, every read).
 //! The fix routes `$00E` to AGA Lisa's collision latch (via the shared
-//! OCS core). At reset, with nothing latched, CLXDAT must read `$0000`.
+//! OCS core). At reset, with nothing latched, CLXDAT reads `$8000`: bit 15
+//! is fixed high (registered FS-UAE custom.cpp::CLXDAT).
 
 use machine_commodore_amiga_a1200::AmigaA1200;
 
@@ -15,8 +16,8 @@ fn clxdat_read_is_wired_not_open_bus() {
     let amiga = AmigaA1200::new(vec![0u8; 512 * 1024]);
     let clxdat = amiga.read_word(0x00DFF00E);
     assert_eq!(
-        clxdat, 0x0000,
-        "CLXDAT must route to Denise (clear at reset), not open-bus $FFFF"
+        clxdat, 0x8000,
+        "CLXDAT must expose the clear collision latch and fixed high bit"
     );
     assert_ne!(
         clxdat, 0xFFFF,

@@ -1,0 +1,1926 @@
+{
+  "compared_fields": 72,
+  "failed_fields": 0,
+  "results": [
+    {
+      "case": "control",
+      "native_sha256": "9c04258df5588428bb91fb6d2be4cb689f3b7ccfa60c71207df8751a8ee73d16",
+      "adf_sha256": "b63e9928aac5dbc3a528f76de6944eadea527341adcbbe46275b632619e0e586",
+      "fields": [
+        {
+          "raw_sha256": "718d94f0a9849862d316674cd5796e61c8d91cc36388920457ca7f93c3d45b60",
+          "mismatched_rgb_pixels": 0,
+          "compared_rgb_pixels": 865592,
+          "mismatch_bounds": null
+        },
+        {
+          "raw_sha256": "718d94f0a9849862d316674cd5796e61c8d91cc36388920457ca7f93c3d45b60",
+          "mismatched_rgb_pixels": 0,
+          "compared_rgb_pixels": 865592,
+          "mismatch_bounds": null
+        },
+        {
+          "raw_sha256": "718d94f0a9849862d316674cd5796e61c8d91cc36388920457ca7f93c3d45b60",
+          "mismatched_rgb_pixels": 0,
+          "compared_rgb_pixels": 865592,
+          "mismatch_bounds": null
+        }
+      ],
+      "path": "/private/tmp/emu198x-midline-display/guests/control",
+      "historical_mapping_fields": [
+        {
+          "guest_field": 9,
+          "compared_rgb_pixels": 867888,
+          "mismatched_rgb_pixels": 391776,
+          "mismatch_bounds": [
+            0,
+            0,
+            1512,
+            572
+          ],
+          "raw_sha256": "718d94f0a9849862d316674cd5796e61c8d91cc36388920457ca7f93c3d45b60",
+          "metadata_sha256": "d28163bfa75b4b255d426311b518518e2dfee1afb1f78d0250a77b18b3dfdb05"
+        },
+        {
+          "guest_field": 10,
+          "compared_rgb_pixels": 867888,
+          "mismatched_rgb_pixels": 391776,
+          "mismatch_bounds": [
+            0,
+            0,
+            1512,
+            572
+          ],
+          "raw_sha256": "718d94f0a9849862d316674cd5796e61c8d91cc36388920457ca7f93c3d45b60",
+          "metadata_sha256": "0a86228fed3b231e54909c3a918f43eb1248c8dd364ba37d83b6e69b3c2715dd"
+        },
+        {
+          "guest_field": 11,
+          "compared_rgb_pixels": 867888,
+          "mismatched_rgb_pixels": 391776,
+          "mismatch_bounds": [
+            0,
+            0,
+            1512,
+            572
+          ],
+          "raw_sha256": "718d94f0a9849862d316674cd5796e61c8d91cc36388920457ca7f93c3d45b60",
+          "metadata_sha256": "d3fdedd9b85063ef2ab710ddc6676bbe88bb1377ae6c9f271fe183f9fa48f27c"
+        }
+      ],
+      "origin_evidence": "Shared registered producer output padding, independently counter-traced on ECS/Lisa controls across lores/hires/superhires; retained corpus fields do not contain per-case counter traces.",
+      "common_raster": {
+        "native_origin": [
+          16,
+          2
+        ],
+        "reference_origin": [
+          4,
+          0
+        ],
+        "width": 1508,
+        "height": 574
+      }
+    },
+    {
+      "case": "lores-hires",
+      "native_sha256": "c9df9b83af5e47189e0f4ba6a6e4af0e4fb238a6c38249a9319f92746eba696c",
+      "adf_sha256": "4553338d67d3c19d82080f1acdfc7915b5a2281f90ec655b7ba03a863db4aa5f",
+      "fields": [
+        {
+          "raw_sha256": "05684d9d9eb2c4322763f8d33fb9b5b7808787954d5ed19405c0436843ad3fb8",
+          "mismatched_rgb_pixels": 0,
+          "compared_rgb_pixels": 865592,
+          "mismatch_bounds": null
+        },
+        {
+          "raw_sha256": "05684d9d9eb2c4322763f8d33fb9b5b7808787954d5ed19405c0436843ad3fb8",
+          "mismatched_rgb_pixels": 0,
+          "compared_rgb_pixels": 865592,
+          "mismatch_bounds": null
+        },
+        {
+          "raw_sha256": "05684d9d9eb2c4322763f8d33fb9b5b7808787954d5ed19405c0436843ad3fb8",
+          "mismatched_rgb_pixels": 0,
+          "compared_rgb_pixels": 865592,
+          "mismatch_bounds": null
+        }
+      ],
+      "path": "/private/tmp/emu198x-midline-display/guests/lores-hires",
+      "historical_mapping_fields": [
+        {
+          "guest_field": 9,
+          "compared_rgb_pixels": 867888,
+          "mismatched_rgb_pixels": 384864,
+          "mismatch_bounds": [
+            0,
+            0,
+            1512,
+            572
+          ],
+          "raw_sha256": "05684d9d9eb2c4322763f8d33fb9b5b7808787954d5ed19405c0436843ad3fb8",
+          "metadata_sha256": "e6fd6490141dca2dfc81eae83cecf717a01ba64feec48d5137a2ad2bf6a40eec"
+        },
+        {
+          "guest_field": 10,
+          "compared_rgb_pixels": 867888,
+          "mismatched_rgb_pixels": 384864,
+          "mismatch_bounds": [
+            0,
+            0,
+            1512,
+            572
+          ],
+          "raw_sha256": "05684d9d9eb2c4322763f8d33fb9b5b7808787954d5ed19405c0436843ad3fb8",
+          "metadata_sha256": "5789451244e4424cebd29fc9921dcb3a182942a10190a953b5a8b8267668c3fb"
+        },
+        {
+          "guest_field": 11,
+          "compared_rgb_pixels": 867888,
+          "mismatched_rgb_pixels": 384864,
+          "mismatch_bounds": [
+            0,
+            0,
+            1512,
+            572
+          ],
+          "raw_sha256": "05684d9d9eb2c4322763f8d33fb9b5b7808787954d5ed19405c0436843ad3fb8",
+          "metadata_sha256": "3ac149cfc0b817fbcc01281ab96b31327408104b38b30248dea75b60aec8b43a"
+        }
+      ],
+      "origin_evidence": "Shared registered producer output padding, independently counter-traced on ECS/Lisa controls across lores/hires/superhires; retained corpus fields do not contain per-case counter traces.",
+      "common_raster": {
+        "native_origin": [
+          16,
+          2
+        ],
+        "reference_origin": [
+          4,
+          0
+        ],
+        "width": 1508,
+        "height": 574
+      }
+    },
+    {
+      "case": "hires-lores",
+      "native_sha256": "930bd0686f92e191c2de518c1f75e5346e98ac2860f8ca3121fb54d085d51311",
+      "adf_sha256": "91551c18a954ff3cc4a4e62ccab87f9f38a748ab7cdbe9357e9a9666366d0667",
+      "fields": [
+        {
+          "raw_sha256": "81c0a3912ef9e76736ef845e1aba321e7f0e3f20a6099e27c3594e2c3487e4b7",
+          "mismatched_rgb_pixels": 0,
+          "compared_rgb_pixels": 865592,
+          "mismatch_bounds": null
+        },
+        {
+          "raw_sha256": "81c0a3912ef9e76736ef845e1aba321e7f0e3f20a6099e27c3594e2c3487e4b7",
+          "mismatched_rgb_pixels": 0,
+          "compared_rgb_pixels": 865592,
+          "mismatch_bounds": null
+        },
+        {
+          "raw_sha256": "81c0a3912ef9e76736ef845e1aba321e7f0e3f20a6099e27c3594e2c3487e4b7",
+          "mismatched_rgb_pixels": 0,
+          "compared_rgb_pixels": 865592,
+          "mismatch_bounds": null
+        }
+      ],
+      "path": "/private/tmp/emu198x-midline-display/guests/hires-lores",
+      "historical_mapping_fields": [
+        {
+          "guest_field": 9,
+          "compared_rgb_pixels": 867888,
+          "mismatched_rgb_pixels": 260448,
+          "mismatch_bounds": [
+            0,
+            0,
+            1512,
+            572
+          ],
+          "raw_sha256": "81c0a3912ef9e76736ef845e1aba321e7f0e3f20a6099e27c3594e2c3487e4b7",
+          "metadata_sha256": "ea28d3606b60322ecdd8bb12289750fac53ef1ba20ba709a274e3900d830c065"
+        },
+        {
+          "guest_field": 10,
+          "compared_rgb_pixels": 867888,
+          "mismatched_rgb_pixels": 260448,
+          "mismatch_bounds": [
+            0,
+            0,
+            1512,
+            572
+          ],
+          "raw_sha256": "81c0a3912ef9e76736ef845e1aba321e7f0e3f20a6099e27c3594e2c3487e4b7",
+          "metadata_sha256": "c6068cc1d16feea222df12771dccb3db3e3bb643e3d106d92019ec567dcf2f3b"
+        },
+        {
+          "guest_field": 11,
+          "compared_rgb_pixels": 867888,
+          "mismatched_rgb_pixels": 260448,
+          "mismatch_bounds": [
+            0,
+            0,
+            1512,
+            572
+          ],
+          "raw_sha256": "81c0a3912ef9e76736ef845e1aba321e7f0e3f20a6099e27c3594e2c3487e4b7",
+          "metadata_sha256": "37bac38655e5ef58f22b7995faa2296543b4b501db2f164ff75b623829114cca"
+        }
+      ],
+      "origin_evidence": "Shared registered producer output padding, independently counter-traced on ECS/Lisa controls across lores/hires/superhires; retained corpus fields do not contain per-case counter traces.",
+      "common_raster": {
+        "native_origin": [
+          16,
+          2
+        ],
+        "reference_origin": [
+          4,
+          0
+        ],
+        "width": 1508,
+        "height": 574
+      }
+    },
+    {
+      "case": "hires-shres",
+      "native_sha256": "41cceeda7dde604d42929b34047b2f51168eb1dc6883a000831992bb76253304",
+      "adf_sha256": "430026df08ca4a54056fa76bc6e7fe133734d2468e444f2b7411191c5626cc7f",
+      "fields": [
+        {
+          "raw_sha256": "0734259b45f27ccb33b8182e49084ee91338d602592690d468ab4d06e12001b9",
+          "mismatched_rgb_pixels": 0,
+          "compared_rgb_pixels": 865592,
+          "mismatch_bounds": null
+        },
+        {
+          "raw_sha256": "0734259b45f27ccb33b8182e49084ee91338d602592690d468ab4d06e12001b9",
+          "mismatched_rgb_pixels": 0,
+          "compared_rgb_pixels": 865592,
+          "mismatch_bounds": null
+        },
+        {
+          "raw_sha256": "0734259b45f27ccb33b8182e49084ee91338d602592690d468ab4d06e12001b9",
+          "mismatched_rgb_pixels": 0,
+          "compared_rgb_pixels": 865592,
+          "mismatch_bounds": null
+        }
+      ],
+      "path": "/private/tmp/emu198x-midline-display/guests/hires-shres",
+      "historical_mapping_fields": [
+        {
+          "guest_field": 9,
+          "compared_rgb_pixels": 867888,
+          "mismatched_rgb_pixels": 264352,
+          "mismatch_bounds": [
+            0,
+            0,
+            1512,
+            572
+          ],
+          "raw_sha256": "0734259b45f27ccb33b8182e49084ee91338d602592690d468ab4d06e12001b9",
+          "metadata_sha256": "287676cfe5bbe6ece52fbbaa43ae05b38ff85bd37aa9fc5e093e06a24a575cb7"
+        },
+        {
+          "guest_field": 10,
+          "compared_rgb_pixels": 867888,
+          "mismatched_rgb_pixels": 264352,
+          "mismatch_bounds": [
+            0,
+            0,
+            1512,
+            572
+          ],
+          "raw_sha256": "0734259b45f27ccb33b8182e49084ee91338d602592690d468ab4d06e12001b9",
+          "metadata_sha256": "c2b35db1d85a01a0cc35b9aaeaf9446922d53f8b6b37d83d7394fbe65092e25f"
+        },
+        {
+          "guest_field": 11,
+          "compared_rgb_pixels": 867888,
+          "mismatched_rgb_pixels": 264352,
+          "mismatch_bounds": [
+            0,
+            0,
+            1512,
+            572
+          ],
+          "raw_sha256": "0734259b45f27ccb33b8182e49084ee91338d602592690d468ab4d06e12001b9",
+          "metadata_sha256": "ad88a38748593cc96edede2b41563ce3595e733c6ffbd57522cf5aa99eca092d"
+        }
+      ],
+      "origin_evidence": "Shared registered producer output padding, independently counter-traced on ECS/Lisa controls across lores/hires/superhires; retained corpus fields do not contain per-case counter traces.",
+      "common_raster": {
+        "native_origin": [
+          16,
+          2
+        ],
+        "reference_origin": [
+          4,
+          0
+        ],
+        "width": 1508,
+        "height": 574
+      }
+    },
+    {
+      "case": "shres-hires",
+      "native_sha256": "f0b4b13aa10b50d8f5baf252116d0329987c6f3f55f7207d9d31a4a507aae430",
+      "adf_sha256": "40a7f5506d246fba5ae3510477bd053bdff74a2f89922b6e25aebd96d3eb1d63",
+      "fields": [
+        {
+          "raw_sha256": "90ea3e9de0339bbc96eed7e2db92406809f797d3332e0d14696d378986d25ccd",
+          "mismatched_rgb_pixels": 0,
+          "compared_rgb_pixels": 865592,
+          "mismatch_bounds": null
+        },
+        {
+          "raw_sha256": "90ea3e9de0339bbc96eed7e2db92406809f797d3332e0d14696d378986d25ccd",
+          "mismatched_rgb_pixels": 0,
+          "compared_rgb_pixels": 865592,
+          "mismatch_bounds": null
+        },
+        {
+          "raw_sha256": "90ea3e9de0339bbc96eed7e2db92406809f797d3332e0d14696d378986d25ccd",
+          "mismatched_rgb_pixels": 0,
+          "compared_rgb_pixels": 865592,
+          "mismatch_bounds": null
+        }
+      ],
+      "path": "/private/tmp/emu198x-midline-display/guests/shres-hires",
+      "historical_mapping_fields": [
+        {
+          "guest_field": 9,
+          "compared_rgb_pixels": 867888,
+          "mismatched_rgb_pixels": 486432,
+          "mismatch_bounds": [
+            0,
+            0,
+            1512,
+            572
+          ],
+          "raw_sha256": "90ea3e9de0339bbc96eed7e2db92406809f797d3332e0d14696d378986d25ccd",
+          "metadata_sha256": "32039e3799812e05b8f8ba47f2a4aa44563c97b9a2ec4a905e23aabfc1e9f315"
+        },
+        {
+          "guest_field": 10,
+          "compared_rgb_pixels": 867888,
+          "mismatched_rgb_pixels": 486432,
+          "mismatch_bounds": [
+            0,
+            0,
+            1512,
+            572
+          ],
+          "raw_sha256": "90ea3e9de0339bbc96eed7e2db92406809f797d3332e0d14696d378986d25ccd",
+          "metadata_sha256": "0794c340e9aa059d509d33e8ff1e9dd38450f5f948df2e1734ebbb5a229b126c"
+        },
+        {
+          "guest_field": 11,
+          "compared_rgb_pixels": 867888,
+          "mismatched_rgb_pixels": 486432,
+          "mismatch_bounds": [
+            0,
+            0,
+            1512,
+            572
+          ],
+          "raw_sha256": "90ea3e9de0339bbc96eed7e2db92406809f797d3332e0d14696d378986d25ccd",
+          "metadata_sha256": "ef32647989f69aacec8a773dc96448d383c829946405cecacd2d7a19f7aed199"
+        }
+      ],
+      "origin_evidence": "Shared registered producer output padding, independently counter-traced on ECS/Lisa controls across lores/hires/superhires; retained corpus fields do not contain per-case counter traces.",
+      "common_raster": {
+        "native_origin": [
+          16,
+          2
+        ],
+        "reference_origin": [
+          4,
+          0
+        ],
+        "width": 1508,
+        "height": 574
+      }
+    },
+    {
+      "case": "fetch-0-1",
+      "native_sha256": "4bd8bce3968fa9f45e65fd40482be5ba030680c040a400759d7b7f50146ec1c2",
+      "adf_sha256": "c3facf6b2de58af85b638694b615165ff6cbd1cbf3b783354e20de30275b6bc4",
+      "fields": [
+        {
+          "raw_sha256": "fdf0df9c194d98417afab9c61e6135cd614260c73f04fc265ba4025513aec3f4",
+          "mismatched_rgb_pixels": 0,
+          "compared_rgb_pixels": 865592,
+          "mismatch_bounds": null
+        },
+        {
+          "raw_sha256": "fdf0df9c194d98417afab9c61e6135cd614260c73f04fc265ba4025513aec3f4",
+          "mismatched_rgb_pixels": 0,
+          "compared_rgb_pixels": 865592,
+          "mismatch_bounds": null
+        },
+        {
+          "raw_sha256": "fdf0df9c194d98417afab9c61e6135cd614260c73f04fc265ba4025513aec3f4",
+          "mismatched_rgb_pixels": 0,
+          "compared_rgb_pixels": 865592,
+          "mismatch_bounds": null
+        }
+      ],
+      "path": "/private/tmp/emu198x-midline-display/guests/fetch-0-1",
+      "historical_mapping_fields": [
+        {
+          "guest_field": 9,
+          "compared_rgb_pixels": 867888,
+          "mismatched_rgb_pixels": 497888,
+          "mismatch_bounds": [
+            0,
+            0,
+            1512,
+            572
+          ],
+          "raw_sha256": "fdf0df9c194d98417afab9c61e6135cd614260c73f04fc265ba4025513aec3f4",
+          "metadata_sha256": "255ba92b4fa328d7426fd2c40c6c3cb7de77ae4358b2fe72b83eda5cc2ee8dcb"
+        },
+        {
+          "guest_field": 10,
+          "compared_rgb_pixels": 867888,
+          "mismatched_rgb_pixels": 497888,
+          "mismatch_bounds": [
+            0,
+            0,
+            1512,
+            572
+          ],
+          "raw_sha256": "fdf0df9c194d98417afab9c61e6135cd614260c73f04fc265ba4025513aec3f4",
+          "metadata_sha256": "f10d1fba5c044385bcb7c36ad06ae92d6cba04198875697588e9542bb6788ec0"
+        },
+        {
+          "guest_field": 11,
+          "compared_rgb_pixels": 867888,
+          "mismatched_rgb_pixels": 497888,
+          "mismatch_bounds": [
+            0,
+            0,
+            1512,
+            572
+          ],
+          "raw_sha256": "fdf0df9c194d98417afab9c61e6135cd614260c73f04fc265ba4025513aec3f4",
+          "metadata_sha256": "61a1417c1dcf91e8a3abb42cb7afacedf04f83861affdcaeb065af80e85164b6"
+        }
+      ],
+      "origin_evidence": "Shared registered producer output padding, independently counter-traced on ECS/Lisa controls across lores/hires/superhires; retained corpus fields do not contain per-case counter traces.",
+      "common_raster": {
+        "native_origin": [
+          16,
+          2
+        ],
+        "reference_origin": [
+          4,
+          0
+        ],
+        "width": 1508,
+        "height": 574
+      }
+    },
+    {
+      "case": "fetch-1-3",
+      "native_sha256": "d1f3085d85615e73efbe563d83e22b464033b0713c0cfee69f4290bb2b2bc661",
+      "adf_sha256": "33254d5c391b07889ac9df44caf5bdc9f0edde4d0a0d2b3b608c9a5e49349f58",
+      "fields": [
+        {
+          "raw_sha256": "5c2f39503bf9af2d56dd7d58a7cd486340f08326f42ee23166bf36a1ebcab214",
+          "mismatched_rgb_pixels": 0,
+          "compared_rgb_pixels": 865592,
+          "mismatch_bounds": null
+        },
+        {
+          "raw_sha256": "5c2f39503bf9af2d56dd7d58a7cd486340f08326f42ee23166bf36a1ebcab214",
+          "mismatched_rgb_pixels": 0,
+          "compared_rgb_pixels": 865592,
+          "mismatch_bounds": null
+        },
+        {
+          "raw_sha256": "5c2f39503bf9af2d56dd7d58a7cd486340f08326f42ee23166bf36a1ebcab214",
+          "mismatched_rgb_pixels": 0,
+          "compared_rgb_pixels": 865592,
+          "mismatch_bounds": null
+        }
+      ],
+      "path": "/private/tmp/emu198x-midline-display/guests/fetch-1-3",
+      "historical_mapping_fields": [
+        {
+          "guest_field": 9,
+          "compared_rgb_pixels": 867888,
+          "mismatched_rgb_pixels": 503776,
+          "mismatch_bounds": [
+            0,
+            0,
+            1512,
+            572
+          ],
+          "raw_sha256": "5c2f39503bf9af2d56dd7d58a7cd486340f08326f42ee23166bf36a1ebcab214",
+          "metadata_sha256": "fe9ecd299bb1edc25e794178faf276af92fa21fdbf457cfe6b2d08327bb14823"
+        },
+        {
+          "guest_field": 10,
+          "compared_rgb_pixels": 867888,
+          "mismatched_rgb_pixels": 503776,
+          "mismatch_bounds": [
+            0,
+            0,
+            1512,
+            572
+          ],
+          "raw_sha256": "5c2f39503bf9af2d56dd7d58a7cd486340f08326f42ee23166bf36a1ebcab214",
+          "metadata_sha256": "fcc94654eb63a38f37ba653c49a997fa2d7a4263709cc8f2533b02fce5fd82aa"
+        },
+        {
+          "guest_field": 11,
+          "compared_rgb_pixels": 867888,
+          "mismatched_rgb_pixels": 503776,
+          "mismatch_bounds": [
+            0,
+            0,
+            1512,
+            572
+          ],
+          "raw_sha256": "5c2f39503bf9af2d56dd7d58a7cd486340f08326f42ee23166bf36a1ebcab214",
+          "metadata_sha256": "36bf6f5d75235d448a1785651b9a21e70fb26922cf7aaac1e2a3e42cdd5ab4f2"
+        }
+      ],
+      "origin_evidence": "Shared registered producer output padding, independently counter-traced on ECS/Lisa controls across lores/hires/superhires; retained corpus fields do not contain per-case counter traces.",
+      "common_raster": {
+        "native_origin": [
+          16,
+          2
+        ],
+        "reference_origin": [
+          4,
+          0
+        ],
+        "width": 1508,
+        "height": 574
+      }
+    },
+    {
+      "case": "palette-xor",
+      "native_sha256": "920c93c94059360f1a737e44510c2ddc02446e28a35dba1763604e84970f7771",
+      "adf_sha256": "16b1b739c6693da0cfe76cc0de41ad7a569e231e05fe3f0852506aa905a1e4ac",
+      "fields": [
+        {
+          "raw_sha256": "cf70015a2cb429add2722b637fc36b592f645ebe00247f084042782238d91002",
+          "mismatched_rgb_pixels": 0,
+          "compared_rgb_pixels": 865592,
+          "mismatch_bounds": null
+        },
+        {
+          "raw_sha256": "cf70015a2cb429add2722b637fc36b592f645ebe00247f084042782238d91002",
+          "mismatched_rgb_pixels": 0,
+          "compared_rgb_pixels": 865592,
+          "mismatch_bounds": null
+        },
+        {
+          "raw_sha256": "cf70015a2cb429add2722b637fc36b592f645ebe00247f084042782238d91002",
+          "mismatched_rgb_pixels": 0,
+          "compared_rgb_pixels": 865592,
+          "mismatch_bounds": null
+        }
+      ],
+      "path": "/private/tmp/emu198x-midline-display/guests/palette-xor",
+      "historical_mapping_fields": [
+        {
+          "guest_field": 9,
+          "compared_rgb_pixels": 867888,
+          "mismatched_rgb_pixels": 391648,
+          "mismatch_bounds": [
+            0,
+            0,
+            1512,
+            572
+          ],
+          "raw_sha256": "cf70015a2cb429add2722b637fc36b592f645ebe00247f084042782238d91002",
+          "metadata_sha256": "e4ce3816b79c8fb5e1be485532ba8c00618fba7361ddc74a290625947263c4ef"
+        },
+        {
+          "guest_field": 10,
+          "compared_rgb_pixels": 867888,
+          "mismatched_rgb_pixels": 391648,
+          "mismatch_bounds": [
+            0,
+            0,
+            1512,
+            572
+          ],
+          "raw_sha256": "cf70015a2cb429add2722b637fc36b592f645ebe00247f084042782238d91002",
+          "metadata_sha256": "fbaf1df0c5b4011d811b1ef718eb205c6349402f5f6fdf36a367fcb00bd01143"
+        },
+        {
+          "guest_field": 11,
+          "compared_rgb_pixels": 867888,
+          "mismatched_rgb_pixels": 391648,
+          "mismatch_bounds": [
+            0,
+            0,
+            1512,
+            572
+          ],
+          "raw_sha256": "cf70015a2cb429add2722b637fc36b592f645ebe00247f084042782238d91002",
+          "metadata_sha256": "604d2a1b1a92357ace4d4c1cd84ffc9d2930943bb845d4e72936712aca1508dc"
+        }
+      ],
+      "origin_evidence": "Shared registered producer output padding, independently counter-traced on ECS/Lisa controls across lores/hires/superhires; retained corpus fields do not contain per-case counter traces.",
+      "common_raster": {
+        "native_origin": [
+          16,
+          2
+        ],
+        "reference_origin": [
+          4,
+          0
+        ],
+        "width": 1508,
+        "height": 574
+      }
+    },
+    {
+      "case": "control",
+      "native_sha256": "7ba5dea090b3fb2a386830c306e747811c47a808c4a2e5f7e00335c47bfb9a68",
+      "adf_sha256": "480af7e0792c6e02cdad2dee5329ac8d23e1a2a9fc936207f87571eecda3446a",
+      "fields": [
+        {
+          "raw_sha256": "2f62de8ffa2b85bd5d0effba911ef8bd45edd56abdfd1ba8fe0e0a737910619c",
+          "mismatched_rgb_pixels": 0,
+          "compared_rgb_pixels": 865592,
+          "mismatch_bounds": null
+        },
+        {
+          "raw_sha256": "2f62de8ffa2b85bd5d0effba911ef8bd45edd56abdfd1ba8fe0e0a737910619c",
+          "mismatched_rgb_pixels": 0,
+          "compared_rgb_pixels": 865592,
+          "mismatch_bounds": null
+        },
+        {
+          "raw_sha256": "2f62de8ffa2b85bd5d0effba911ef8bd45edd56abdfd1ba8fe0e0a737910619c",
+          "mismatched_rgb_pixels": 0,
+          "compared_rgb_pixels": 865592,
+          "mismatch_bounds": null
+        }
+      ],
+      "path": "/private/tmp/emu198x-midline-display/varying/control",
+      "historical_mapping_fields": [
+        {
+          "guest_field": 9,
+          "compared_rgb_pixels": 867888,
+          "mismatched_rgb_pixels": 261376,
+          "mismatch_bounds": [
+            0,
+            0,
+            1512,
+            572
+          ],
+          "raw_sha256": "2f62de8ffa2b85bd5d0effba911ef8bd45edd56abdfd1ba8fe0e0a737910619c",
+          "metadata_sha256": "8185c92924b2462a8a92117f15ecb57c7de2e1b66cf4c43f58c19b007bd5336a"
+        },
+        {
+          "guest_field": 10,
+          "compared_rgb_pixels": 867888,
+          "mismatched_rgb_pixels": 261376,
+          "mismatch_bounds": [
+            0,
+            0,
+            1512,
+            572
+          ],
+          "raw_sha256": "2f62de8ffa2b85bd5d0effba911ef8bd45edd56abdfd1ba8fe0e0a737910619c",
+          "metadata_sha256": "83efcc41dbe6db50b0dce18fc279fd92edeeffaceef7d9fda0b3ed5f6c86e88b"
+        },
+        {
+          "guest_field": 11,
+          "compared_rgb_pixels": 867888,
+          "mismatched_rgb_pixels": 261376,
+          "mismatch_bounds": [
+            0,
+            0,
+            1512,
+            572
+          ],
+          "raw_sha256": "2f62de8ffa2b85bd5d0effba911ef8bd45edd56abdfd1ba8fe0e0a737910619c",
+          "metadata_sha256": "6ef47841e93d4ffbc65c7af63cffa9918e2bc9f3b0ceadbf8a97d28096fb0f8a"
+        }
+      ],
+      "origin_evidence": "Shared registered producer output padding, independently counter-traced on ECS/Lisa controls across lores/hires/superhires; retained corpus fields do not contain per-case counter traces.",
+      "common_raster": {
+        "native_origin": [
+          16,
+          2
+        ],
+        "reference_origin": [
+          4,
+          0
+        ],
+        "width": 1508,
+        "height": 574
+      }
+    },
+    {
+      "case": "lores-hires",
+      "native_sha256": "cd275cfa488a395ea10e7c8b4f3097a94c60f21c70512c8c652f505575cc1aed",
+      "adf_sha256": "bbb06a21e2e19e01ad78eca3c2f56b1f26bbe3a996e2ec5c77168758026e9ded",
+      "fields": [
+        {
+          "raw_sha256": "13faf372c07e5b4e7513d7c1a9e5b6b7ccc04b30c5ab5b73fce334a53b107f2f",
+          "mismatched_rgb_pixels": 0,
+          "compared_rgb_pixels": 865592,
+          "mismatch_bounds": null
+        },
+        {
+          "raw_sha256": "13faf372c07e5b4e7513d7c1a9e5b6b7ccc04b30c5ab5b73fce334a53b107f2f",
+          "mismatched_rgb_pixels": 0,
+          "compared_rgb_pixels": 865592,
+          "mismatch_bounds": null
+        },
+        {
+          "raw_sha256": "13faf372c07e5b4e7513d7c1a9e5b6b7ccc04b30c5ab5b73fce334a53b107f2f",
+          "mismatched_rgb_pixels": 0,
+          "compared_rgb_pixels": 865592,
+          "mismatch_bounds": null
+        }
+      ],
+      "path": "/private/tmp/emu198x-midline-display/varying/lores-hires",
+      "historical_mapping_fields": [
+        {
+          "guest_field": 9,
+          "compared_rgb_pixels": 867888,
+          "mismatched_rgb_pixels": 260656,
+          "mismatch_bounds": [
+            0,
+            0,
+            1512,
+            572
+          ],
+          "raw_sha256": "13faf372c07e5b4e7513d7c1a9e5b6b7ccc04b30c5ab5b73fce334a53b107f2f",
+          "metadata_sha256": "c3f02ae41b2f617f9cfda1144f37fc6b80a3919ccd8c01d4cfcd25a8747ee1a0"
+        },
+        {
+          "guest_field": 10,
+          "compared_rgb_pixels": 867888,
+          "mismatched_rgb_pixels": 260656,
+          "mismatch_bounds": [
+            0,
+            0,
+            1512,
+            572
+          ],
+          "raw_sha256": "13faf372c07e5b4e7513d7c1a9e5b6b7ccc04b30c5ab5b73fce334a53b107f2f",
+          "metadata_sha256": "319b6fbd3d97be0aaba468a003bd519ba4112ef3f10f973fa0e71f28164fbf9c"
+        },
+        {
+          "guest_field": 11,
+          "compared_rgb_pixels": 867888,
+          "mismatched_rgb_pixels": 260656,
+          "mismatch_bounds": [
+            0,
+            0,
+            1512,
+            572
+          ],
+          "raw_sha256": "13faf372c07e5b4e7513d7c1a9e5b6b7ccc04b30c5ab5b73fce334a53b107f2f",
+          "metadata_sha256": "20425e0b794383588580a33f5ea1df5ec84adf30e2d8262efdd1fc40266c3d52"
+        }
+      ],
+      "origin_evidence": "Shared registered producer output padding, independently counter-traced on ECS/Lisa controls across lores/hires/superhires; retained corpus fields do not contain per-case counter traces.",
+      "common_raster": {
+        "native_origin": [
+          16,
+          2
+        ],
+        "reference_origin": [
+          4,
+          0
+        ],
+        "width": 1508,
+        "height": 574
+      }
+    },
+    {
+      "case": "hires-lores",
+      "native_sha256": "aa96c9ce3503af590a1d02edbacf3570e491eb5f5be8cb4cc927923375a7f70f",
+      "adf_sha256": "ba15f980d5b93d7c9b3eda01d51640f0cef8dee17394f6754a2aa61de93f781c",
+      "fields": [
+        {
+          "raw_sha256": "5c94e7e7957465b1e288098580c0f7e1553089d4c9efdb189869237fb80d55b2",
+          "mismatched_rgb_pixels": 0,
+          "compared_rgb_pixels": 865592,
+          "mismatch_bounds": null
+        },
+        {
+          "raw_sha256": "5c94e7e7957465b1e288098580c0f7e1553089d4c9efdb189869237fb80d55b2",
+          "mismatched_rgb_pixels": 0,
+          "compared_rgb_pixels": 865592,
+          "mismatch_bounds": null
+        },
+        {
+          "raw_sha256": "5c94e7e7957465b1e288098580c0f7e1553089d4c9efdb189869237fb80d55b2",
+          "mismatched_rgb_pixels": 0,
+          "compared_rgb_pixels": 865592,
+          "mismatch_bounds": null
+        }
+      ],
+      "path": "/private/tmp/emu198x-midline-display/varying/hires-lores",
+      "historical_mapping_fields": [
+        {
+          "guest_field": 9,
+          "compared_rgb_pixels": 867888,
+          "mismatched_rgb_pixels": 256696,
+          "mismatch_bounds": [
+            0,
+            0,
+            1512,
+            572
+          ],
+          "raw_sha256": "5c94e7e7957465b1e288098580c0f7e1553089d4c9efdb189869237fb80d55b2",
+          "metadata_sha256": "0b968829f702c25993b627ba06206049ab86bc1a5cbadf8ed91df3fd85d05815"
+        },
+        {
+          "guest_field": 10,
+          "compared_rgb_pixels": 867888,
+          "mismatched_rgb_pixels": 256696,
+          "mismatch_bounds": [
+            0,
+            0,
+            1512,
+            572
+          ],
+          "raw_sha256": "5c94e7e7957465b1e288098580c0f7e1553089d4c9efdb189869237fb80d55b2",
+          "metadata_sha256": "efcb5ee1ffa23a68c65ec69958127249bb048e700bac6025d69c5aaa27c586bd"
+        },
+        {
+          "guest_field": 11,
+          "compared_rgb_pixels": 867888,
+          "mismatched_rgb_pixels": 256696,
+          "mismatch_bounds": [
+            0,
+            0,
+            1512,
+            572
+          ],
+          "raw_sha256": "5c94e7e7957465b1e288098580c0f7e1553089d4c9efdb189869237fb80d55b2",
+          "metadata_sha256": "bdd681da07ed073d486e98628d273116a2578c0b4791bf11a0f100f9aeeef57a"
+        }
+      ],
+      "origin_evidence": "Shared registered producer output padding, independently counter-traced on ECS/Lisa controls across lores/hires/superhires; retained corpus fields do not contain per-case counter traces.",
+      "common_raster": {
+        "native_origin": [
+          16,
+          2
+        ],
+        "reference_origin": [
+          4,
+          0
+        ],
+        "width": 1508,
+        "height": 574
+      }
+    },
+    {
+      "case": "hires-shres",
+      "native_sha256": "44c8505fca678d32c0f0a1e5fc659b8359ac018f0307a9408040d397d9d86c5b",
+      "adf_sha256": "22f47b925593b215dd2b020117f94c4b3cfb4bb5832b9d9456f209f614352c72",
+      "fields": [
+        {
+          "raw_sha256": "520293c382d05161425f567d6ea00aab1962fb57a3a4572a7bc23d3629fd5296",
+          "mismatched_rgb_pixels": 0,
+          "compared_rgb_pixels": 865592,
+          "mismatch_bounds": null
+        },
+        {
+          "raw_sha256": "520293c382d05161425f567d6ea00aab1962fb57a3a4572a7bc23d3629fd5296",
+          "mismatched_rgb_pixels": 0,
+          "compared_rgb_pixels": 865592,
+          "mismatch_bounds": null
+        },
+        {
+          "raw_sha256": "520293c382d05161425f567d6ea00aab1962fb57a3a4572a7bc23d3629fd5296",
+          "mismatched_rgb_pixels": 0,
+          "compared_rgb_pixels": 865592,
+          "mismatch_bounds": null
+        }
+      ],
+      "path": "/private/tmp/emu198x-midline-display/varying/hires-shres",
+      "historical_mapping_fields": [
+        {
+          "guest_field": 9,
+          "compared_rgb_pixels": 867888,
+          "mismatched_rgb_pixels": 255888,
+          "mismatch_bounds": [
+            0,
+            0,
+            1512,
+            572
+          ],
+          "raw_sha256": "520293c382d05161425f567d6ea00aab1962fb57a3a4572a7bc23d3629fd5296",
+          "metadata_sha256": "4a7d722552ef4e8517b5b3366ff5a169acc060823e9a76903f02b50ac74cda3c"
+        },
+        {
+          "guest_field": 10,
+          "compared_rgb_pixels": 867888,
+          "mismatched_rgb_pixels": 255888,
+          "mismatch_bounds": [
+            0,
+            0,
+            1512,
+            572
+          ],
+          "raw_sha256": "520293c382d05161425f567d6ea00aab1962fb57a3a4572a7bc23d3629fd5296",
+          "metadata_sha256": "010fedfb974cfda32d56b8226d4235ead4a85528d292cb00bbab67439ab66aaf"
+        },
+        {
+          "guest_field": 11,
+          "compared_rgb_pixels": 867888,
+          "mismatched_rgb_pixels": 255888,
+          "mismatch_bounds": [
+            0,
+            0,
+            1512,
+            572
+          ],
+          "raw_sha256": "520293c382d05161425f567d6ea00aab1962fb57a3a4572a7bc23d3629fd5296",
+          "metadata_sha256": "7ab6b56967472f81b64a6050231a724cf0c6ae060c6e83e77dfea921a4cba44d"
+        }
+      ],
+      "origin_evidence": "Shared registered producer output padding, independently counter-traced on ECS/Lisa controls across lores/hires/superhires; retained corpus fields do not contain per-case counter traces.",
+      "common_raster": {
+        "native_origin": [
+          16,
+          2
+        ],
+        "reference_origin": [
+          4,
+          0
+        ],
+        "width": 1508,
+        "height": 574
+      }
+    },
+    {
+      "case": "shres-hires",
+      "native_sha256": "fd1111f78cef10ab0e31597a4214539e53a0fdb53fac15165cd8a25c66e47734",
+      "adf_sha256": "a81a7df1c018d754fc90b8451bf026f9c0e3c5e822ba25a01aaf11c14c97efed",
+      "fields": [
+        {
+          "raw_sha256": "bcd817c74dfbb8285aa8377f83d108abd4f507932a339af3bd8dddc196d0dd00",
+          "mismatched_rgb_pixels": 0,
+          "compared_rgb_pixels": 865592,
+          "mismatch_bounds": null
+        },
+        {
+          "raw_sha256": "bcd817c74dfbb8285aa8377f83d108abd4f507932a339af3bd8dddc196d0dd00",
+          "mismatched_rgb_pixels": 0,
+          "compared_rgb_pixels": 865592,
+          "mismatch_bounds": null
+        },
+        {
+          "raw_sha256": "bcd817c74dfbb8285aa8377f83d108abd4f507932a339af3bd8dddc196d0dd00",
+          "mismatched_rgb_pixels": 0,
+          "compared_rgb_pixels": 865592,
+          "mismatch_bounds": null
+        }
+      ],
+      "path": "/private/tmp/emu198x-midline-display/varying/shres-hires",
+      "historical_mapping_fields": [
+        {
+          "guest_field": 9,
+          "compared_rgb_pixels": 867888,
+          "mismatched_rgb_pixels": 247536,
+          "mismatch_bounds": [
+            0,
+            0,
+            1512,
+            572
+          ],
+          "raw_sha256": "bcd817c74dfbb8285aa8377f83d108abd4f507932a339af3bd8dddc196d0dd00",
+          "metadata_sha256": "8755279bcbb22bc916d99c4c84472cf41395e9776f052951bf1a240df6949cc2"
+        },
+        {
+          "guest_field": 10,
+          "compared_rgb_pixels": 867888,
+          "mismatched_rgb_pixels": 247536,
+          "mismatch_bounds": [
+            0,
+            0,
+            1512,
+            572
+          ],
+          "raw_sha256": "bcd817c74dfbb8285aa8377f83d108abd4f507932a339af3bd8dddc196d0dd00",
+          "metadata_sha256": "aff6037a35a2733c57bdc3b526f26a4011188424b0bb3648b07a3fed514b356a"
+        },
+        {
+          "guest_field": 11,
+          "compared_rgb_pixels": 867888,
+          "mismatched_rgb_pixels": 247536,
+          "mismatch_bounds": [
+            0,
+            0,
+            1512,
+            572
+          ],
+          "raw_sha256": "bcd817c74dfbb8285aa8377f83d108abd4f507932a339af3bd8dddc196d0dd00",
+          "metadata_sha256": "bc9d64edc1c557e44f15b465d2e204ea525c6d831fdede14625c0b7a19c8fb7f"
+        }
+      ],
+      "origin_evidence": "Shared registered producer output padding, independently counter-traced on ECS/Lisa controls across lores/hires/superhires; retained corpus fields do not contain per-case counter traces.",
+      "common_raster": {
+        "native_origin": [
+          16,
+          2
+        ],
+        "reference_origin": [
+          4,
+          0
+        ],
+        "width": 1508,
+        "height": 574
+      }
+    },
+    {
+      "case": "fetch-0-1",
+      "native_sha256": "64f8cc7040fabc10db22b79fcd730cb7523b82254ec4035996ef9ed25f754de6",
+      "adf_sha256": "a4f44623934cdf9cb5037f16ff1714df1ecc357fefbc9b01d1fbe7119913d503",
+      "fields": [
+        {
+          "raw_sha256": "83f6bf2238cb4a619cb0abbbb9adc4926971f39de2845d1d0a9a429254a13833",
+          "mismatched_rgb_pixels": 0,
+          "compared_rgb_pixels": 865592,
+          "mismatch_bounds": null
+        },
+        {
+          "raw_sha256": "83f6bf2238cb4a619cb0abbbb9adc4926971f39de2845d1d0a9a429254a13833",
+          "mismatched_rgb_pixels": 0,
+          "compared_rgb_pixels": 865592,
+          "mismatch_bounds": null
+        },
+        {
+          "raw_sha256": "83f6bf2238cb4a619cb0abbbb9adc4926971f39de2845d1d0a9a429254a13833",
+          "mismatched_rgb_pixels": 0,
+          "compared_rgb_pixels": 865592,
+          "mismatch_bounds": null
+        }
+      ],
+      "path": "/private/tmp/emu198x-midline-display/varying/fetch-0-1",
+      "historical_mapping_fields": [
+        {
+          "guest_field": 9,
+          "compared_rgb_pixels": 867888,
+          "mismatched_rgb_pixels": 248048,
+          "mismatch_bounds": [
+            0,
+            0,
+            1512,
+            572
+          ],
+          "raw_sha256": "83f6bf2238cb4a619cb0abbbb9adc4926971f39de2845d1d0a9a429254a13833",
+          "metadata_sha256": "9e7b8f3296a681db71518955cde5a78b01ee95457085e4640d4367002dcca379"
+        },
+        {
+          "guest_field": 10,
+          "compared_rgb_pixels": 867888,
+          "mismatched_rgb_pixels": 248048,
+          "mismatch_bounds": [
+            0,
+            0,
+            1512,
+            572
+          ],
+          "raw_sha256": "83f6bf2238cb4a619cb0abbbb9adc4926971f39de2845d1d0a9a429254a13833",
+          "metadata_sha256": "85810778d7fbb4312ab2a2bc8a4118276d4d6ffbed889ef91fae4c5eff38e096"
+        },
+        {
+          "guest_field": 11,
+          "compared_rgb_pixels": 867888,
+          "mismatched_rgb_pixels": 248048,
+          "mismatch_bounds": [
+            0,
+            0,
+            1512,
+            572
+          ],
+          "raw_sha256": "83f6bf2238cb4a619cb0abbbb9adc4926971f39de2845d1d0a9a429254a13833",
+          "metadata_sha256": "ead53ebee79942ac3b111110101bfb07c398c997027c2c52495bc60f3e7c75ec"
+        }
+      ],
+      "origin_evidence": "Shared registered producer output padding, independently counter-traced on ECS/Lisa controls across lores/hires/superhires; retained corpus fields do not contain per-case counter traces.",
+      "common_raster": {
+        "native_origin": [
+          16,
+          2
+        ],
+        "reference_origin": [
+          4,
+          0
+        ],
+        "width": 1508,
+        "height": 574
+      }
+    },
+    {
+      "case": "fetch-1-3",
+      "native_sha256": "44e9fab2149b2f3469516c4375038c8e5de51ac2e6b5a38a87a926ef8a1e8e73",
+      "adf_sha256": "d7ae401a8359fee5db4db120efbb7a76a18465a851f90ab7c09d1c1bdf8d6b89",
+      "fields": [
+        {
+          "raw_sha256": "59ef6cb27dbad4d76217bd446be884ed346327d5606bafd63612de50ac42b6d7",
+          "mismatched_rgb_pixels": 0,
+          "compared_rgb_pixels": 865592,
+          "mismatch_bounds": null
+        },
+        {
+          "raw_sha256": "59ef6cb27dbad4d76217bd446be884ed346327d5606bafd63612de50ac42b6d7",
+          "mismatched_rgb_pixels": 0,
+          "compared_rgb_pixels": 865592,
+          "mismatch_bounds": null
+        },
+        {
+          "raw_sha256": "59ef6cb27dbad4d76217bd446be884ed346327d5606bafd63612de50ac42b6d7",
+          "mismatched_rgb_pixels": 0,
+          "compared_rgb_pixels": 865592,
+          "mismatch_bounds": null
+        }
+      ],
+      "path": "/private/tmp/emu198x-midline-display/varying/fetch-1-3",
+      "historical_mapping_fields": [
+        {
+          "guest_field": 9,
+          "compared_rgb_pixels": 867888,
+          "mismatched_rgb_pixels": 249176,
+          "mismatch_bounds": [
+            0,
+            0,
+            1512,
+            572
+          ],
+          "raw_sha256": "59ef6cb27dbad4d76217bd446be884ed346327d5606bafd63612de50ac42b6d7",
+          "metadata_sha256": "b986448aec62a6e498a14e594027da01b5aecd6057d572bdf7ad5f763e8c382a"
+        },
+        {
+          "guest_field": 10,
+          "compared_rgb_pixels": 867888,
+          "mismatched_rgb_pixels": 249176,
+          "mismatch_bounds": [
+            0,
+            0,
+            1512,
+            572
+          ],
+          "raw_sha256": "59ef6cb27dbad4d76217bd446be884ed346327d5606bafd63612de50ac42b6d7",
+          "metadata_sha256": "ce5feeaaf52daa71b60eaf02dd6137f6358b903863ae3d68555b4dfd9fdb7db1"
+        },
+        {
+          "guest_field": 11,
+          "compared_rgb_pixels": 867888,
+          "mismatched_rgb_pixels": 249176,
+          "mismatch_bounds": [
+            0,
+            0,
+            1512,
+            572
+          ],
+          "raw_sha256": "59ef6cb27dbad4d76217bd446be884ed346327d5606bafd63612de50ac42b6d7",
+          "metadata_sha256": "0800f0a858ece1d0cc90d65c85ea6dfa352d7ed9805b98c37af062075ca16c28"
+        }
+      ],
+      "origin_evidence": "Shared registered producer output padding, independently counter-traced on ECS/Lisa controls across lores/hires/superhires; retained corpus fields do not contain per-case counter traces.",
+      "common_raster": {
+        "native_origin": [
+          16,
+          2
+        ],
+        "reference_origin": [
+          4,
+          0
+        ],
+        "width": 1508,
+        "height": 574
+      }
+    },
+    {
+      "case": "palette-xor",
+      "native_sha256": "5641fd64d9a6784429f175f8b4cdaf9580378f5b7197fc4d4f388d770976aadb",
+      "adf_sha256": "6eec3c64919f14ea95946b7ef924d8e66928d4856e6b25911a7860335ad3fa30",
+      "fields": [
+        {
+          "raw_sha256": "aa43ea536e1eb681264ec46f8fa32a2dc367eb2f355b5fd316749c7fb116e14e",
+          "mismatched_rgb_pixels": 0,
+          "compared_rgb_pixels": 865592,
+          "mismatch_bounds": null
+        },
+        {
+          "raw_sha256": "aa43ea536e1eb681264ec46f8fa32a2dc367eb2f355b5fd316749c7fb116e14e",
+          "mismatched_rgb_pixels": 0,
+          "compared_rgb_pixels": 865592,
+          "mismatch_bounds": null
+        },
+        {
+          "raw_sha256": "aa43ea536e1eb681264ec46f8fa32a2dc367eb2f355b5fd316749c7fb116e14e",
+          "mismatched_rgb_pixels": 0,
+          "compared_rgb_pixels": 865592,
+          "mismatch_bounds": null
+        }
+      ],
+      "path": "/private/tmp/emu198x-midline-display/varying/palette-xor",
+      "historical_mapping_fields": [
+        {
+          "guest_field": 9,
+          "compared_rgb_pixels": 867888,
+          "mismatched_rgb_pixels": 261536,
+          "mismatch_bounds": [
+            0,
+            0,
+            1512,
+            572
+          ],
+          "raw_sha256": "aa43ea536e1eb681264ec46f8fa32a2dc367eb2f355b5fd316749c7fb116e14e",
+          "metadata_sha256": "824a08c5c6cfefea17579b467cc35b28fc89276c30c39b6e1f238bbe6e70191c"
+        },
+        {
+          "guest_field": 10,
+          "compared_rgb_pixels": 867888,
+          "mismatched_rgb_pixels": 261536,
+          "mismatch_bounds": [
+            0,
+            0,
+            1512,
+            572
+          ],
+          "raw_sha256": "aa43ea536e1eb681264ec46f8fa32a2dc367eb2f355b5fd316749c7fb116e14e",
+          "metadata_sha256": "984d78ab9f7e1c4afbe47987d5cb5990f7ebc41ca9a2aa808a0a3b635dcc7454"
+        },
+        {
+          "guest_field": 11,
+          "compared_rgb_pixels": 867888,
+          "mismatched_rgb_pixels": 261536,
+          "mismatch_bounds": [
+            0,
+            0,
+            1512,
+            572
+          ],
+          "raw_sha256": "aa43ea536e1eb681264ec46f8fa32a2dc367eb2f355b5fd316749c7fb116e14e",
+          "metadata_sha256": "d1d6be0adc471985eaacd8173ce303379c7b01638cb52243e89554d81e23b32f"
+        }
+      ],
+      "origin_evidence": "Shared registered producer output padding, independently counter-traced on ECS/Lisa controls across lores/hires/superhires; retained corpus fields do not contain per-case counter traces.",
+      "common_raster": {
+        "native_origin": [
+          16,
+          2
+        ],
+        "reference_origin": [
+          4,
+          0
+        ],
+        "width": 1508,
+        "height": 574
+      }
+    },
+    {
+      "case": "control",
+      "native_sha256": "e54a27e895b9df5a6aac39dbf78471d3400e9be8fce5210094f36bd912689a62",
+      "adf_sha256": "64318025c4478fb77ab852dc1f475caaeb3cf42e67a5570baba3d2c2e531c222",
+      "fields": [
+        {
+          "raw_sha256": "aff673af99efed39430b4cf14ad823e0d22c4dee42f1ce2992869bd46f76af46",
+          "mismatched_rgb_pixels": 0,
+          "compared_rgb_pixels": 865592,
+          "mismatch_bounds": null
+        },
+        {
+          "raw_sha256": "aff673af99efed39430b4cf14ad823e0d22c4dee42f1ce2992869bd46f76af46",
+          "mismatched_rgb_pixels": 0,
+          "compared_rgb_pixels": 865592,
+          "mismatch_bounds": null
+        },
+        {
+          "raw_sha256": "aff673af99efed39430b4cf14ad823e0d22c4dee42f1ce2992869bd46f76af46",
+          "mismatched_rgb_pixels": 0,
+          "compared_rgb_pixels": 865592,
+          "mismatch_bounds": null
+        }
+      ],
+      "path": "/private/tmp/emu198x-midline-display/reset/control",
+      "historical_mapping_fields": [
+        {
+          "guest_field": 9,
+          "compared_rgb_pixels": 867888,
+          "mismatched_rgb_pixels": 260576,
+          "mismatch_bounds": [
+            0,
+            0,
+            1512,
+            572
+          ],
+          "raw_sha256": "aff673af99efed39430b4cf14ad823e0d22c4dee42f1ce2992869bd46f76af46",
+          "metadata_sha256": "64883b9cd06001e3c359d8f311e52843b2b2c94692cc613082ef956a110d25d6"
+        },
+        {
+          "guest_field": 10,
+          "compared_rgb_pixels": 867888,
+          "mismatched_rgb_pixels": 260576,
+          "mismatch_bounds": [
+            0,
+            0,
+            1512,
+            572
+          ],
+          "raw_sha256": "aff673af99efed39430b4cf14ad823e0d22c4dee42f1ce2992869bd46f76af46",
+          "metadata_sha256": "e8b20cb72c40e219c827e5f84a13c0bf17186e7b6fdfe89f106805b225fb0606"
+        },
+        {
+          "guest_field": 11,
+          "compared_rgb_pixels": 867888,
+          "mismatched_rgb_pixels": 260576,
+          "mismatch_bounds": [
+            0,
+            0,
+            1512,
+            572
+          ],
+          "raw_sha256": "aff673af99efed39430b4cf14ad823e0d22c4dee42f1ce2992869bd46f76af46",
+          "metadata_sha256": "d57776d44896b7fcb1ab7b8ee5e2de9db788a48daf18ef93b26299258e8a62db"
+        }
+      ],
+      "origin_evidence": "Shared registered producer output padding, independently counter-traced on ECS/Lisa controls across lores/hires/superhires; retained corpus fields do not contain per-case counter traces.",
+      "common_raster": {
+        "native_origin": [
+          16,
+          2
+        ],
+        "reference_origin": [
+          4,
+          0
+        ],
+        "width": 1508,
+        "height": 574
+      }
+    },
+    {
+      "case": "lores-hires",
+      "native_sha256": "c92cec907619c825d6b40034092aafdb845db55fce398eacbe8cf3c705e3108e",
+      "adf_sha256": "4750b3926bd86668d3d18ec02cd0422a9aa5ac6dafe397725edddadf52cd498b",
+      "fields": [
+        {
+          "raw_sha256": "0377c6ec1ba0487104d61e010ac42161319e5bab99943ddd3c9d7a20e9e211f9",
+          "mismatched_rgb_pixels": 0,
+          "compared_rgb_pixels": 865592,
+          "mismatch_bounds": null
+        },
+        {
+          "raw_sha256": "0377c6ec1ba0487104d61e010ac42161319e5bab99943ddd3c9d7a20e9e211f9",
+          "mismatched_rgb_pixels": 0,
+          "compared_rgb_pixels": 865592,
+          "mismatch_bounds": null
+        },
+        {
+          "raw_sha256": "0377c6ec1ba0487104d61e010ac42161319e5bab99943ddd3c9d7a20e9e211f9",
+          "mismatched_rgb_pixels": 0,
+          "compared_rgb_pixels": 865592,
+          "mismatch_bounds": null
+        }
+      ],
+      "path": "/private/tmp/emu198x-midline-display/reset/lores-hires",
+      "historical_mapping_fields": [
+        {
+          "guest_field": 9,
+          "compared_rgb_pixels": 867888,
+          "mismatched_rgb_pixels": 260192,
+          "mismatch_bounds": [
+            0,
+            0,
+            1512,
+            572
+          ],
+          "raw_sha256": "0377c6ec1ba0487104d61e010ac42161319e5bab99943ddd3c9d7a20e9e211f9",
+          "metadata_sha256": "990a223468b4638fc2b55e9d86c0821998ce1e55add54ae23141f9ad5df34d2a"
+        },
+        {
+          "guest_field": 10,
+          "compared_rgb_pixels": 867888,
+          "mismatched_rgb_pixels": 260192,
+          "mismatch_bounds": [
+            0,
+            0,
+            1512,
+            572
+          ],
+          "raw_sha256": "0377c6ec1ba0487104d61e010ac42161319e5bab99943ddd3c9d7a20e9e211f9",
+          "metadata_sha256": "3bc678f7e1b2aba5832632ec9220f7514807fcc53bc5e518b8c3c556b878e56e"
+        },
+        {
+          "guest_field": 11,
+          "compared_rgb_pixels": 867888,
+          "mismatched_rgb_pixels": 260192,
+          "mismatch_bounds": [
+            0,
+            0,
+            1512,
+            572
+          ],
+          "raw_sha256": "0377c6ec1ba0487104d61e010ac42161319e5bab99943ddd3c9d7a20e9e211f9",
+          "metadata_sha256": "0a0357df79d6db28654835b49a5a65858dadcd4e4879f138157b098ad7d153dd"
+        }
+      ],
+      "origin_evidence": "Shared registered producer output padding, independently counter-traced on ECS/Lisa controls across lores/hires/superhires; retained corpus fields do not contain per-case counter traces.",
+      "common_raster": {
+        "native_origin": [
+          16,
+          2
+        ],
+        "reference_origin": [
+          4,
+          0
+        ],
+        "width": 1508,
+        "height": 574
+      }
+    },
+    {
+      "case": "hires-lores",
+      "native_sha256": "d88043d560680316287dc9aa9e5bc2f83a567c6034421a5533c9f17fa928eb9b",
+      "adf_sha256": "6edaeeaabe28d2a3dc3e7d8c9f9e1b44810f21c906126b42de182e645c8cbbd9",
+      "fields": [
+        {
+          "raw_sha256": "d9fc5b580e50e8c8cc436c51dbc1709b7ac3009a08b74aed951b40892468d43d",
+          "mismatched_rgb_pixels": 0,
+          "compared_rgb_pixels": 865592,
+          "mismatch_bounds": null
+        },
+        {
+          "raw_sha256": "d9fc5b580e50e8c8cc436c51dbc1709b7ac3009a08b74aed951b40892468d43d",
+          "mismatched_rgb_pixels": 0,
+          "compared_rgb_pixels": 865592,
+          "mismatch_bounds": null
+        },
+        {
+          "raw_sha256": "d9fc5b580e50e8c8cc436c51dbc1709b7ac3009a08b74aed951b40892468d43d",
+          "mismatched_rgb_pixels": 0,
+          "compared_rgb_pixels": 865592,
+          "mismatch_bounds": null
+        }
+      ],
+      "path": "/private/tmp/emu198x-midline-display/reset/hires-lores",
+      "historical_mapping_fields": [
+        {
+          "guest_field": 9,
+          "compared_rgb_pixels": 867888,
+          "mismatched_rgb_pixels": 259360,
+          "mismatch_bounds": [
+            0,
+            0,
+            1512,
+            572
+          ],
+          "raw_sha256": "d9fc5b580e50e8c8cc436c51dbc1709b7ac3009a08b74aed951b40892468d43d",
+          "metadata_sha256": "bf05345b431320c73aca00e3b5466df1c45d8c1af2173e5f1db868e1b44db396"
+        },
+        {
+          "guest_field": 10,
+          "compared_rgb_pixels": 867888,
+          "mismatched_rgb_pixels": 259360,
+          "mismatch_bounds": [
+            0,
+            0,
+            1512,
+            572
+          ],
+          "raw_sha256": "d9fc5b580e50e8c8cc436c51dbc1709b7ac3009a08b74aed951b40892468d43d",
+          "metadata_sha256": "8a7a48fdc218194682a3408622f5357e6b1065f32acd3b8b7289bd2a5f683b6b"
+        },
+        {
+          "guest_field": 11,
+          "compared_rgb_pixels": 867888,
+          "mismatched_rgb_pixels": 259360,
+          "mismatch_bounds": [
+            0,
+            0,
+            1512,
+            572
+          ],
+          "raw_sha256": "d9fc5b580e50e8c8cc436c51dbc1709b7ac3009a08b74aed951b40892468d43d",
+          "metadata_sha256": "d58eeb85c0b096f470e613e847d8f6402b340084d3c0551e97dea4a9b0f3db19"
+        }
+      ],
+      "origin_evidence": "Shared registered producer output padding, independently counter-traced on ECS/Lisa controls across lores/hires/superhires; retained corpus fields do not contain per-case counter traces.",
+      "common_raster": {
+        "native_origin": [
+          16,
+          2
+        ],
+        "reference_origin": [
+          4,
+          0
+        ],
+        "width": 1508,
+        "height": 574
+      }
+    },
+    {
+      "case": "hires-shres",
+      "native_sha256": "54d9b92efc3d81be69b2dca44e6f477cb16072a0de335b38942458c4bb8b1f88",
+      "adf_sha256": "e651fa1f5cd02f08340210509eb03c9778f37d8b28af1c804864ba3d07a0f0ef",
+      "fields": [
+        {
+          "raw_sha256": "235ff90961f5579202697c644ffdf0d316387a31a899a7431034ccfa05b8b45b",
+          "mismatched_rgb_pixels": 0,
+          "compared_rgb_pixels": 865592,
+          "mismatch_bounds": null
+        },
+        {
+          "raw_sha256": "235ff90961f5579202697c644ffdf0d316387a31a899a7431034ccfa05b8b45b",
+          "mismatched_rgb_pixels": 0,
+          "compared_rgb_pixels": 865592,
+          "mismatch_bounds": null
+        },
+        {
+          "raw_sha256": "235ff90961f5579202697c644ffdf0d316387a31a899a7431034ccfa05b8b45b",
+          "mismatched_rgb_pixels": 0,
+          "compared_rgb_pixels": 865592,
+          "mismatch_bounds": null
+        }
+      ],
+      "path": "/private/tmp/emu198x-midline-display/reset/hires-shres",
+      "historical_mapping_fields": [
+        {
+          "guest_field": 9,
+          "compared_rgb_pixels": 867888,
+          "mismatched_rgb_pixels": 257120,
+          "mismatch_bounds": [
+            0,
+            0,
+            1512,
+            572
+          ],
+          "raw_sha256": "235ff90961f5579202697c644ffdf0d316387a31a899a7431034ccfa05b8b45b",
+          "metadata_sha256": "4fa3d381c080b81ea88294571b59d20a31d8ae217a82326ce696f0b80e10360d"
+        },
+        {
+          "guest_field": 10,
+          "compared_rgb_pixels": 867888,
+          "mismatched_rgb_pixels": 257120,
+          "mismatch_bounds": [
+            0,
+            0,
+            1512,
+            572
+          ],
+          "raw_sha256": "235ff90961f5579202697c644ffdf0d316387a31a899a7431034ccfa05b8b45b",
+          "metadata_sha256": "e77adca07b376e181a63c1a34b1af2f8d05ec916b43055c6b1cec51f2aef9a26"
+        },
+        {
+          "guest_field": 11,
+          "compared_rgb_pixels": 867888,
+          "mismatched_rgb_pixels": 257120,
+          "mismatch_bounds": [
+            0,
+            0,
+            1512,
+            572
+          ],
+          "raw_sha256": "235ff90961f5579202697c644ffdf0d316387a31a899a7431034ccfa05b8b45b",
+          "metadata_sha256": "859190b9500473080dee79bd393847d867fd72207fe0a950de2a8e02ce4d6126"
+        }
+      ],
+      "origin_evidence": "Shared registered producer output padding, independently counter-traced on ECS/Lisa controls across lores/hires/superhires; retained corpus fields do not contain per-case counter traces.",
+      "common_raster": {
+        "native_origin": [
+          16,
+          2
+        ],
+        "reference_origin": [
+          4,
+          0
+        ],
+        "width": 1508,
+        "height": 574
+      }
+    },
+    {
+      "case": "shres-hires",
+      "native_sha256": "ef7e6fffc38402b3976dedd7ce0f32a176f459f59da54291222c06bbd88ad14c",
+      "adf_sha256": "bd96fdb7c6fea3e10af6d9caa017e664d0c75f4eb921b00b011d8a7e21db06b4",
+      "fields": [
+        {
+          "raw_sha256": "41ed5eb91f34dd5e185bee2d62eb0c5bcf3a0ef0cb5ad4f49ca84d923ac39d87",
+          "mismatched_rgb_pixels": 0,
+          "compared_rgb_pixels": 865592,
+          "mismatch_bounds": null
+        },
+        {
+          "raw_sha256": "41ed5eb91f34dd5e185bee2d62eb0c5bcf3a0ef0cb5ad4f49ca84d923ac39d87",
+          "mismatched_rgb_pixels": 0,
+          "compared_rgb_pixels": 865592,
+          "mismatch_bounds": null
+        },
+        {
+          "raw_sha256": "41ed5eb91f34dd5e185bee2d62eb0c5bcf3a0ef0cb5ad4f49ca84d923ac39d87",
+          "mismatched_rgb_pixels": 0,
+          "compared_rgb_pixels": 865592,
+          "mismatch_bounds": null
+        }
+      ],
+      "path": "/private/tmp/emu198x-midline-display/reset/shres-hires",
+      "historical_mapping_fields": [
+        {
+          "guest_field": 9,
+          "compared_rgb_pixels": 867888,
+          "mismatched_rgb_pixels": 248000,
+          "mismatch_bounds": [
+            0,
+            0,
+            1512,
+            572
+          ],
+          "raw_sha256": "41ed5eb91f34dd5e185bee2d62eb0c5bcf3a0ef0cb5ad4f49ca84d923ac39d87",
+          "metadata_sha256": "b3ac2106e0d5fef4f3a104dac36a3d32c03a14fd8804149cc0500cb691babfe4"
+        },
+        {
+          "guest_field": 10,
+          "compared_rgb_pixels": 867888,
+          "mismatched_rgb_pixels": 248000,
+          "mismatch_bounds": [
+            0,
+            0,
+            1512,
+            572
+          ],
+          "raw_sha256": "41ed5eb91f34dd5e185bee2d62eb0c5bcf3a0ef0cb5ad4f49ca84d923ac39d87",
+          "metadata_sha256": "fcde1692219a3b1a10df0de6bbfdbb475279a25f605df98b824a50039924a214"
+        },
+        {
+          "guest_field": 11,
+          "compared_rgb_pixels": 867888,
+          "mismatched_rgb_pixels": 248000,
+          "mismatch_bounds": [
+            0,
+            0,
+            1512,
+            572
+          ],
+          "raw_sha256": "41ed5eb91f34dd5e185bee2d62eb0c5bcf3a0ef0cb5ad4f49ca84d923ac39d87",
+          "metadata_sha256": "0b3d142273105d4c0633393bc55ca8265973903ecaf7e60374307c12023cc27c"
+        }
+      ],
+      "origin_evidence": "Shared registered producer output padding, independently counter-traced on ECS/Lisa controls across lores/hires/superhires; retained corpus fields do not contain per-case counter traces.",
+      "common_raster": {
+        "native_origin": [
+          16,
+          2
+        ],
+        "reference_origin": [
+          4,
+          0
+        ],
+        "width": 1508,
+        "height": 574
+      }
+    },
+    {
+      "case": "fetch-0-1",
+      "native_sha256": "4b6b69fb5d783dcada79ffc7d91ae490f23b9d9e94a564d2961066da43a767f7",
+      "adf_sha256": "032e0a41659133b637ff708b88510dd591779be9c609c4d38ccc6fdb4affea40",
+      "fields": [
+        {
+          "raw_sha256": "812c91ccb24fb2bb01f88c8053a3866f336d21c35e335bb497c303ae01216a1b",
+          "mismatched_rgb_pixels": 0,
+          "compared_rgb_pixels": 865592,
+          "mismatch_bounds": null
+        },
+        {
+          "raw_sha256": "812c91ccb24fb2bb01f88c8053a3866f336d21c35e335bb497c303ae01216a1b",
+          "mismatched_rgb_pixels": 0,
+          "compared_rgb_pixels": 865592,
+          "mismatch_bounds": null
+        },
+        {
+          "raw_sha256": "812c91ccb24fb2bb01f88c8053a3866f336d21c35e335bb497c303ae01216a1b",
+          "mismatched_rgb_pixels": 0,
+          "compared_rgb_pixels": 865592,
+          "mismatch_bounds": null
+        }
+      ],
+      "path": "/private/tmp/emu198x-midline-display/reset/fetch-0-1",
+      "historical_mapping_fields": [
+        {
+          "guest_field": 9,
+          "compared_rgb_pixels": 867888,
+          "mismatched_rgb_pixels": 247232,
+          "mismatch_bounds": [
+            0,
+            0,
+            1512,
+            572
+          ],
+          "raw_sha256": "812c91ccb24fb2bb01f88c8053a3866f336d21c35e335bb497c303ae01216a1b",
+          "metadata_sha256": "f0f5a2773ab337cda9e5331872afbd2b064a28d436d6637dac79da2aca156e2e"
+        },
+        {
+          "guest_field": 10,
+          "compared_rgb_pixels": 867888,
+          "mismatched_rgb_pixels": 247232,
+          "mismatch_bounds": [
+            0,
+            0,
+            1512,
+            572
+          ],
+          "raw_sha256": "812c91ccb24fb2bb01f88c8053a3866f336d21c35e335bb497c303ae01216a1b",
+          "metadata_sha256": "b2578e342cd5ecc78ac111d8718475fcd3e20fc1007067bd1531914ba270630d"
+        },
+        {
+          "guest_field": 11,
+          "compared_rgb_pixels": 867888,
+          "mismatched_rgb_pixels": 247232,
+          "mismatch_bounds": [
+            0,
+            0,
+            1512,
+            572
+          ],
+          "raw_sha256": "812c91ccb24fb2bb01f88c8053a3866f336d21c35e335bb497c303ae01216a1b",
+          "metadata_sha256": "8378c9dc4f0815914c62a7ee785eae8332885edb6f7da6fb183c82cc54aebce2"
+        }
+      ],
+      "origin_evidence": "Shared registered producer output padding, independently counter-traced on ECS/Lisa controls across lores/hires/superhires; retained corpus fields do not contain per-case counter traces.",
+      "common_raster": {
+        "native_origin": [
+          16,
+          2
+        ],
+        "reference_origin": [
+          4,
+          0
+        ],
+        "width": 1508,
+        "height": 574
+      }
+    },
+    {
+      "case": "fetch-1-3",
+      "native_sha256": "841bb11d2091e86653205efb286c3e7c10b8aab6f24ee645fa09d4166be6a91d",
+      "adf_sha256": "e65d5c2c892a748c88afeb842beb79e48ee9dda6fbea458c4af0183672231c02",
+      "fields": [
+        {
+          "raw_sha256": "d38edaf581d5129a867fa7029c23c8f72f34c1186c0b82461363d68ce497be39",
+          "mismatched_rgb_pixels": 0,
+          "compared_rgb_pixels": 865592,
+          "mismatch_bounds": null
+        },
+        {
+          "raw_sha256": "d38edaf581d5129a867fa7029c23c8f72f34c1186c0b82461363d68ce497be39",
+          "mismatched_rgb_pixels": 0,
+          "compared_rgb_pixels": 865592,
+          "mismatch_bounds": null
+        },
+        {
+          "raw_sha256": "d38edaf581d5129a867fa7029c23c8f72f34c1186c0b82461363d68ce497be39",
+          "mismatched_rgb_pixels": 0,
+          "compared_rgb_pixels": 865592,
+          "mismatch_bounds": null
+        }
+      ],
+      "path": "/private/tmp/emu198x-midline-display/reset/fetch-1-3",
+      "historical_mapping_fields": [
+        {
+          "guest_field": 9,
+          "compared_rgb_pixels": 867888,
+          "mismatched_rgb_pixels": 247968,
+          "mismatch_bounds": [
+            0,
+            0,
+            1512,
+            572
+          ],
+          "raw_sha256": "d38edaf581d5129a867fa7029c23c8f72f34c1186c0b82461363d68ce497be39",
+          "metadata_sha256": "253361e2233c98f016e3fe80a4a37e599fa3cccf04257a6200df529e4a20a587"
+        },
+        {
+          "guest_field": 10,
+          "compared_rgb_pixels": 867888,
+          "mismatched_rgb_pixels": 247968,
+          "mismatch_bounds": [
+            0,
+            0,
+            1512,
+            572
+          ],
+          "raw_sha256": "d38edaf581d5129a867fa7029c23c8f72f34c1186c0b82461363d68ce497be39",
+          "metadata_sha256": "b6694d49ccce1c89025bf722a2a9c7356ae93450b4d054108aae44497a9ffe44"
+        },
+        {
+          "guest_field": 11,
+          "compared_rgb_pixels": 867888,
+          "mismatched_rgb_pixels": 247968,
+          "mismatch_bounds": [
+            0,
+            0,
+            1512,
+            572
+          ],
+          "raw_sha256": "d38edaf581d5129a867fa7029c23c8f72f34c1186c0b82461363d68ce497be39",
+          "metadata_sha256": "8c120f454e194b87072dd723559adf133b752e49005df1ac0d4cf50052d09b14"
+        }
+      ],
+      "origin_evidence": "Shared registered producer output padding, independently counter-traced on ECS/Lisa controls across lores/hires/superhires; retained corpus fields do not contain per-case counter traces.",
+      "common_raster": {
+        "native_origin": [
+          16,
+          2
+        ],
+        "reference_origin": [
+          4,
+          0
+        ],
+        "width": 1508,
+        "height": 574
+      }
+    },
+    {
+      "case": "palette-xor",
+      "native_sha256": "3e1fb8a96d95931a7966f73caab170ea1330fa32f98a5e651eac9124ababebeb",
+      "adf_sha256": "71d5ee33f3a6c042517419cbc7acd560acf99a4d5954a61b3dab26eafb1c9408",
+      "fields": [
+        {
+          "raw_sha256": "b51a8c6045929f39b35f63af9127a6ed491cdd6b39da81e467dbf63c5ddd3ed7",
+          "mismatched_rgb_pixels": 0,
+          "compared_rgb_pixels": 865592,
+          "mismatch_bounds": null
+        },
+        {
+          "raw_sha256": "b51a8c6045929f39b35f63af9127a6ed491cdd6b39da81e467dbf63c5ddd3ed7",
+          "mismatched_rgb_pixels": 0,
+          "compared_rgb_pixels": 865592,
+          "mismatch_bounds": null
+        },
+        {
+          "raw_sha256": "b51a8c6045929f39b35f63af9127a6ed491cdd6b39da81e467dbf63c5ddd3ed7",
+          "mismatched_rgb_pixels": 0,
+          "compared_rgb_pixels": 865592,
+          "mismatch_bounds": null
+        }
+      ],
+      "path": "/private/tmp/emu198x-midline-display/reset/palette-xor",
+      "historical_mapping_fields": [
+        {
+          "guest_field": 9,
+          "compared_rgb_pixels": 867888,
+          "mismatched_rgb_pixels": 260832,
+          "mismatch_bounds": [
+            0,
+            0,
+            1512,
+            572
+          ],
+          "raw_sha256": "b51a8c6045929f39b35f63af9127a6ed491cdd6b39da81e467dbf63c5ddd3ed7",
+          "metadata_sha256": "a5be93f140c736a1fbffc2b82253adad7666b7ca8ed74146c627fc26abb6a7fc"
+        },
+        {
+          "guest_field": 10,
+          "compared_rgb_pixels": 867888,
+          "mismatched_rgb_pixels": 260832,
+          "mismatch_bounds": [
+            0,
+            0,
+            1512,
+            572
+          ],
+          "raw_sha256": "b51a8c6045929f39b35f63af9127a6ed491cdd6b39da81e467dbf63c5ddd3ed7",
+          "metadata_sha256": "00e4871c763fbe6e8762a6aa3dce4de8ae879c6ec632112064eb7a09378417bf"
+        },
+        {
+          "guest_field": 11,
+          "compared_rgb_pixels": 867888,
+          "mismatched_rgb_pixels": 260832,
+          "mismatch_bounds": [
+            0,
+            0,
+            1512,
+            572
+          ],
+          "raw_sha256": "b51a8c6045929f39b35f63af9127a6ed491cdd6b39da81e467dbf63c5ddd3ed7",
+          "metadata_sha256": "45c9e691c8f6f8675c7f88fcb38849fc93de5994e1cb96a9cd1194ab28d640b1"
+        }
+      ],
+      "origin_evidence": "Shared registered producer output padding, independently counter-traced on ECS/Lisa controls across lores/hires/superhires; retained corpus fields do not contain per-case counter traces.",
+      "common_raster": {
+        "native_origin": [
+          16,
+          2
+        ],
+        "reference_origin": [
+          4,
+          0
+        ],
+        "width": 1508,
+        "height": 574
+      }
+    }
+  ]
+}
