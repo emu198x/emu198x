@@ -236,10 +236,10 @@ mod tests {
         machine.write_fe(0x10);
         machine.set_tape_connected(true);
         machine.set_tape_level(false);
-        assert_eq!(machine.read_fe(0xfffe) & 0x40, 0x40);
+        assert_eq!(machine.read_fe(0xfffe) & 0x40, 0x00);
 
         machine.set_tape_level(true);
-        assert_eq!(machine.read_fe(0xfffe) & 0x40, 0x00);
+        assert_eq!(machine.read_fe(0xfffe) & 0x40, 0x40);
     }
 
     #[test]
@@ -262,17 +262,17 @@ mod tests {
         machine.play_tape();
         assert!(machine.tape_is_loaded());
         assert!(machine.tape_is_playing());
-        assert_eq!(machine.read_fe(0xfffe) & 0x40, 0x40);
-
-        machine.advance_halfcycles(3);
         assert_eq!(machine.read_fe(0xfffe) & 0x40, 0x00);
 
-        machine.advance_halfcycles(4);
+        machine.advance_halfcycles(3);
         assert_eq!(machine.read_fe(0xfffe) & 0x40, 0x40);
+
+        machine.advance_halfcycles(4);
+        assert_eq!(machine.read_fe(0xfffe) & 0x40, 0x00);
 
         machine.advance_halfcycles(8);
         assert!(!machine.tape_is_playing());
-        assert_eq!(machine.read_fe(0xfffe) & 0x40, 0x00);
+        assert_eq!(machine.read_fe(0xfffe) & 0x40, 0x40);
     }
 
     #[test]
@@ -293,11 +293,11 @@ mod tests {
         machine.load_tape_pulses(vec![1, 2]);
         machine.play_tape();
         machine.advance_halfcycles(3);
-        assert_eq!(machine.read_fe(0xfffe) & 0x40, 0x00);
+        assert_eq!(machine.read_fe(0xfffe) & 0x40, 0x40);
 
         machine.set_tape_connected(true);
         machine.set_tape_level(false);
-        assert_eq!(machine.read_fe(0xfffe) & 0x40, 0x40);
+        assert_eq!(machine.read_fe(0xfffe) & 0x40, 0x00);
     }
 
     #[test]
