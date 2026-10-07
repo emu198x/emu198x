@@ -6,24 +6,49 @@ Format loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 not strictly. Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [0.29.0] - 2026-10-07
 
-
 ### Added
 
-- *(atari-800xl)* Name a cartridge's banking scheme with --cart-type, a script or MCP
-- *(video)* Retain electrical sources alongside captured frames
-- *(video)* Decode electrical output for the first four machines
-- Offer per-machine Homebrew packages on ARM Linux
+- Install each of the 30 released machines separately through Homebrew, for
+  example `brew install emu198x/tap/emu198x-spectrum`. Packages cover macOS and
+  Linux on ARM64 and x86-64. Both Linux architectures install and exercise the
+  generated formulae before the tap is updated.
+  ([#1651](https://github.com/emu198x/emu198x/pull/1651))
+- Select signal, monitor and modern-display modes for Spectrum, C64, NES and
+  Amiga output. Captures retain electrical source timing alongside frames;
+  raw screenshot pixels and default display behaviour remain unchanged.
+  ([video output](https://github.com/emu198x/emu198x/commit/473d10c9c98f71a9bdd229859165a585c4484306))
+- Choose an Atari 800XL cartridge's banking scheme with `--cart-type`, or the
+  `cart_type` field in scripts and MCP. The explicit choice takes precedence
+  over the cartridge header, known-image lookup and size-based default.
+  ([#1401](https://github.com/emu198x/emu198x/issues/1401))
 
+### Changed
+
+- **Snapshot compatibility:** Amiga snapshots now use layout 54 and VIC-20
+  snapshots use layout 7. Earlier layouts are rejected because they lack the
+  timed chip state needed to resume accurately.
+  ([Amiga timing](https://github.com/emu198x/emu198x/commit/e773c9c144e06d370cc496ff17ae1b03980d0a2e),
+  [VIC-20 timing](https://github.com/emu198x/emu198x/issues/362))
 
 ### Fixed
 
-- *(atari-800xl)* Run headerless OSS cartridges on the board they were built for
-- *(vic-20)* Read the text-row count once, at the top of the frame
-- *(vic-20)* Read the column count once, at the start of each line
-- *(68020)* Retain prefetched longwords across instruction and bus cycles
-- **Breaking** — *(amiga)* Preserve chip timing through DMA and display output. Amiga snapshots use version 54 and explicitly reject earlier layouts. The additional timed chip and CPU state cannot be recovered from older snapshots; the user approved the schema changes during the campaign.
-- *(c64)* Restore electrical output before the next rendered pixel
-- Supply metadata for each emulator formula
+- Preserve Amiga chip timing through DMA arbitration, register delivery and
+  display output, including the full superhires raster and stable interlace
+  presentation. The 68020 also retains prefetched longwords across instruction
+  and bus cycles.
+  ([Amiga timing](https://github.com/emu198x/emu198x/commit/e773c9c144e06d370cc496ff17ae1b03980d0a2e),
+  [68020 prefetch](https://github.com/emu198x/emu198x/commit/f872003c7fb7bcb1bf8ea6e0dc1a101cef3eeaa6))
+- Recognise known headerless Atari OSS cartridges and apply their board's bank
+  switching and reset state, so BASIC XL/XE, MAC/65 and Action! reach their
+  prompt or editor instead of running the wrong bank.
+  ([#1401](https://github.com/emu198x/emu198x/issues/1401))
+- Latch the VIC-20 text-row count at the top of the frame and its column count
+  at the start of each line. Mid-frame and mid-line writes no longer alter
+  portions of the picture that should retain the earlier count.
+  ([#362](https://github.com/emu198x/emu198x/issues/362))
+- Restore C64 electrical output immediately when loading a snapshot, without
+  waiting for rendering to resume.
+  ([snapshot restore](https://github.com/emu198x/emu198x/commit/bed564d1981c2529cc75ac130e4aa03bac4d2104))
 
 ## [0.28.1] - 2026-10-06
 
