@@ -239,14 +239,15 @@ where
     )));
     registry.register(Box::new(ScriptStepTool::common(
         "load_media",
-        "Load a media image (cartridge / disk / tape / program) into a named slot. Set `writable` to allow the machine to persist a SAVE to this image (archive media must stay read-only; default false).",
+        "Load a media image (cartridge / disk / tape / program) into a named slot. Set `writable` to allow the machine to persist a SAVE to this image (archive media must stay read-only; default false). Set `cart_type` to name the banking scheme of a headerless cartridge the machine cannot identify; an unknown name fails with the list the machine accepts, and a machine that takes no cartridge type refuses it.",
         json!({
             "type": "object",
             "properties": {
                 "slot": { "type": "string" },
                 "kind": { "type": "string" },
                 "path": { "type": "string" },
-                "writable": { "type": "boolean" }
+                "writable": { "type": "boolean" },
+                "cart_type": { "type": "string" }
             },
             "required": ["slot", "kind", "path"]
         }),

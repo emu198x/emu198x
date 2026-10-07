@@ -107,6 +107,12 @@ pub struct MediaImage<'a> {
     /// so archive media stays read-only; a learner's work disk opts in. See
     /// `knowledge/decisions/disk-save-write-back.md`.
     pub writable: bool,
+    /// The cartridge's banking scheme, by the name the machine lists in
+    /// [`crate::MachineCore::cartridge_types`], for an image whose bytes do
+    /// not say (a headerless dump). `None` lets the machine identify it.
+    /// [`crate::HeadlessSession::load_media`] refuses a name the machine
+    /// does not list, so a machine that ignores the field never sees one.
+    pub cart_type: Option<Cow<'static, str>>,
 }
 
 impl<'a> MediaImage<'a> {
@@ -118,6 +124,7 @@ impl<'a> MediaImage<'a> {
             kind,
             bytes,
             writable: false,
+            cart_type: None,
         }
     }
 
@@ -127,6 +134,45 @@ impl<'a> MediaImage<'a> {
         self.writable = writable;
         self
     }
+
+    /// Names the cartridge's banking scheme (see [`Self::cart_type`]).
+    #[must_use]
+    pub fn cart_type(mut self, cart_type: impl Into<Cow<'static, str>>) -> Self {
+        self.cart_type = Some(cart_type.into());
+        self
+    }
+}
+
+/// Refuse a [`MediaImage::cart_type`] the
+/// machine does not list in `accepted`, naming the ones it does. A machine
+/// that never reads the field lists none, so the request fails here instead
+/// of loading the image under a guess the caller asked to override.
+pub(crate) fn check_cart_types(
+    media: &MediaSet<'_>,
+    accepted: &[&str],
+) -> Result<(), crate::MachineError> {
+    for image in &media.images {
+        let Some(name) = image.cart_type.as_deref() else {
+            continue;
+        };
+        let reason = if accepted.is_empty() {
+            format!("this machine takes no cartridge type, got `{name}`")
+        } else if image.kind != MediaKind::Cartridge {
+            format!("a cartridge type applies to cartridge media only, got `{name}`")
+        } else if accepted.contains(&name) {
+            continue;
+        } else {
+            format!(
+                "unknown cartridge type `{name}`; expected {}",
+                accepted.join(" | ")
+            )
+        };
+        return Err(crate::MachineError::InvalidMedia {
+            slot: image.slot.to_string(),
+            reason,
+        });
+    }
+    Ok(())
 }
 
 /// One machine load request containing zero or more media images.

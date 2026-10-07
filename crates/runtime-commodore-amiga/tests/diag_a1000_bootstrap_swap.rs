@@ -102,6 +102,7 @@ fn script_swaps_after_a1000_wom_lock() {
                 kind: emu198x_shell::ScriptMediaKind::Disk,
                 path: kickstart_disk_path,
                 writable: false,
+                cart_type: None,
             },
             ScriptStep::WaitForQueryBool {
                 path: "a1000.wom_locked".to_owned(),
@@ -118,6 +119,7 @@ fn script_swaps_after_a1000_wom_lock() {
                 kind: emu198x_shell::ScriptMediaKind::Disk,
                 path: workbench_disk_path,
                 writable: false,
+                cart_type: None,
             },
             ScriptStep::RunFrames { frames: 3000 },
             ScriptStep::SaveScreenshot {

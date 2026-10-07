@@ -561,6 +561,7 @@ fn run_row(row: &GoldenRow) {
                         kind: ScriptMediaKind::Disk,
                         path: kickstart_path,
                         writable: false,
+                        cart_type: None,
                     },
                     ScriptStep::WaitForQueryBool {
                         path: "a1000.wom_locked".to_owned(),
@@ -577,6 +578,7 @@ fn run_row(row: &GoldenRow) {
                         kind: ScriptMediaKind::Disk,
                         path: workbench_path,
                         writable: false,
+                        cart_type: None,
                     },
                     ScriptStep::RunFrames {
                         frames: post_swap_frames

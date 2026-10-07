@@ -148,6 +148,12 @@ pub enum ScriptStep {
         /// `knowledge/decisions/disk-save-write-back.md`.
         #[serde(default)]
         writable: bool,
+        /// The cartridge's banking scheme, for a headerless image the
+        /// machine cannot identify from its bytes. Must be one of the
+        /// machine's [`crate::MachineCore::cartridge_types`]; omitted, the
+        /// machine identifies the image itself.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        cart_type: Option<String>,
     },
     /// Start or stop media transport on a named slot.
     MediaTransport {
@@ -1305,13 +1311,16 @@ impl ScriptStep {
                 kind,
                 path,
                 writable,
+                cart_type,
             } => {
                 let loaded = read_media_asset(path, (*kind).into())?;
+                let mut image = MediaImage::new(slot.clone(), (*kind).into(), &loaded.bytes)
+                    .writable(*writable);
+                if let Some(cart_type) = cart_type {
+                    image = image.cart_type(cart_type.clone());
+                }
                 let mut media = MediaSet::new();
-                media.push(
-                    MediaImage::new(slot.clone(), (*kind).into(), &loaded.bytes)
-                        .writable(*writable),
-                );
+                media.push(image);
                 session.load_media(&media)?;
                 Ok(None)
             }
@@ -3483,6 +3492,42 @@ mod tests {
         );
     }
 
+    /// `cart_type` is optional, round-trips, and is left out of the JSON when
+    /// absent so existing scripts serialise as they always have.
+    #[test]
+    fn load_media_takes_an_optional_cart_type() {
+        let script = HeadlessScript::from_json_str(
+            r#"
+            [
+              {"action":"load_media","slot":"cartridge-1","kind":"cartridge","path":"bxl.bin","cart_type":"oss-m091"},
+              {"action":"load_media","slot":"tape-1","kind":"tape","path":"demo.tap"}
+            ]
+            "#,
+        )
+        .expect("script json should parse");
+        assert_eq!(
+            script.steps,
+            vec![
+                ScriptStep::LoadMedia {
+                    slot: "cartridge-1".to_owned(),
+                    kind: ScriptMediaKind::Cartridge,
+                    path: PathBuf::from("bxl.bin"),
+                    writable: false,
+                    cart_type: Some("oss-m091".to_owned()),
+                },
+                ScriptStep::LoadMedia {
+                    slot: "tape-1".to_owned(),
+                    kind: ScriptMediaKind::Tape,
+                    path: PathBuf::from("demo.tap"),
+                    writable: false,
+                    cart_type: None,
+                },
+            ]
+        );
+        let json = serde_json::to_value(&script.steps[1]).expect("serialise");
+        assert!(json.get("cart_type").is_none(), "{json}");
+    }
+
     #[test]
     fn headless_script_executes_media_run_capture_and_snapshot_steps() {
         let temp_dir = std::env::temp_dir();
@@ -3511,6 +3556,7 @@ mod tests {
                     kind: ScriptMediaKind::Tape,
                     path: media_path.clone(),
                     writable: false,
+                    cart_type: None,
                 },
                 ScriptStep::MediaTransport {
                     slot: "tape-1".to_owned(),
