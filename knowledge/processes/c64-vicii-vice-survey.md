@@ -96,12 +96,13 @@ classified colour index. It does not mean that the category, chip or emulator
 is 92.456 percent accurate. A case becomes a strict conformance assertion only
 through a separately reviewed threshold or exact reference contract.
 
-The strict PAL 6569 lanes take two contract shapes. All five registered
+The strict PAL lanes require exact matches. All five registered
 `colorfetchbug` programs and `sequencer-bug` require complete pixel and
-indexed-hash identity. `colorsplit` (outside the 17-program survey) requires
-an exact retained-disagreement signature: 952 pixels, all on its 16 XSCROLL
-rows, so a timing change cannot exchange one residual for another while
-preserving a rounded percentage. `greydot` must match exactly.
+indexed-hash identity on the 6569. `greydot` and `colorsplit` (both outside
+the 17-program survey) must match their 6569 and 8565 references exactly.
+`colorsplit` kept 952 disagreements on its 16 XSCROLL rows (960 on the 8565)
+until #1620 let a mid-line `$D016` write reach the graphics sequencer at its
+next load.
 
 Until stage 3a of the closure campaign, `sequencer-bug` retained 30 pixels:
 two colour-ring dots and a 28-pixel character outline. Both came from the CPU

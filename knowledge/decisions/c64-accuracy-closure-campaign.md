@@ -56,8 +56,8 @@ output rather than analogue colour reproduction.
 | Category | Matching pixels |
 | --- | ---: |
 | `border` | 93.806% |
-| `vicii_timing` | 96.774% |
-| `spritefetchbug` | 97.226% |
+| `spritefetchbug` | 98.211% |
+| `vicii_timing` | 98.468% |
 | `screenpos` | 100.000% |
 | `videomode` | 100.000% |
 | `spritecrunch` | 100.000% |
@@ -69,7 +69,9 @@ output rather than analogue colour reproduction.
 | `dmadelay` | 100.000% |
 | `colorfetchbug` | 100.000% for each of five programs |
 
-These are the frame-routing-version-8 results, after stage 3a. At version 7
+These are the frame-routing-version-9 results, after stage 3a and the
+mid-line XSCROLL fix (#1620). Version 8 measured `vicii_timing` 96.774% and
+`spritefetchbug` 97.226%, with every other row as now. At version 7
 the same programs measured `vicii_timing` 84.720%, `screenpos` 87.800%,
 `videomode` 88.980%, `border` 92.533%, `spritecrunch` 95.190%,
 `spritefetchbug` 97.004%, `sb_sprite_fetch` 98.578%, `gfxfetch` 99.325%,
@@ -92,13 +94,12 @@ percent overall for NTSC 6567R8 `gfxfetch`. The NTSC residual is concentrated
 in the viewport-wrapping rows; overlapping content is approximately 99.3
 percent. A separate strict lane requires pixel and indexed-hash identity for
 all five PAL 6569 colour-fetch-bug programs, and another for `sequencer-bug`.
-`greydot` must match exactly and `colorsplit` keeps an exact 952-pixel
-signature on its XSCROLL rows. Fixture tests pin CPU store and opcode cycles
-in `greydot`, `colorfetchbug` and `sequencer-bug` to VICE x64sc's. (The 99%
-`gfxfetch` floor predates these results.) The same colour lane runs `greydot`
-and `colorsplit` on the PAL C64C's 8565 against their `-8565` references:
-`greydot` matches exactly and `colorsplit` keeps 960 disagreements, all on its
-XSCROLL rows. There is no strict 6567R56A comparison yet.
+`greydot` and `colorsplit` must match exactly. Fixture tests pin CPU store
+and opcode cycles in `greydot`, `colorfetchbug`, `sequencer-bug` and
+`colorsplit` to VICE x64sc's. (The 99% `gfxfetch` floor predates these
+results.) The same colour lane runs `greydot` and `colorsplit` on the PAL
+C64C's 8565 against their `-8565` references, and both match exactly. There
+is no strict 6567R56A comparison yet.
 
 ### SID audio
 
@@ -634,7 +635,8 @@ differences are not modelled yet:
 **NTSC (8562).** `greydot` and `colorsplit` were compared with VICE x64sc 3.10
 screenshots (`-model ntsc` and `-model c64cntsc`), aligned at the NTSC
 `gfxfetch` crop. `colorsplit` matches on the 8562 except its XSCROLL rows,
-grey dots included. (On the 6567R8 it also differs in four 8-pixel blocks
+grey dots included. (Measured before #1620; the NTSC XSCROLL rows have not
+been compared since.) (On the 6567R8 it also differs in four 8-pixel blocks
 where VICE's window wraps the frame.) `greydot` matches exactly on the
 6567R8 but leaves 521 disagreements on the 8562, and they come from the CPU,
 not the grey-dot rule. `greydot` is a PAL program: its store loop is 63
@@ -669,7 +671,89 @@ dot places all 236 grey dots in both emulators' images.
   PR, per "hardware reality beats the record".
 - **XSCROLL is a separate fault.** `colorsplit` keeps 952 disagreements,
   because the renderer latches XSCROLL once per line. That is outside this
-  stage.
+  stage. (Fixed by #1620; see the next section.)
+
+## Mid-line XSCROLL (#1620)
+
+### Finding
+
+The graphics sequencer reloads its shift register after every g-access,
+delayed by XSCROLL dots (Bauer, section 3.7.3). The renderer latched XSCROLL
+once per line, at cycle 16, so a mid-line `$D016` write waited for the next
+line. VICE x64sc applies it at the next load (`viciisc/vicii-draw-cycle.c`,
+`draw_graphics8` and `draw_graphics`):
+
+- At the end of draw cycle N, VICE moves the g-access of cycle N-1 into
+  `gbuf_pipe1_reg` and samples `xscroll_pipe` from `$D016`. Draw cycle N+1
+  loads that data into the shift register at dot `xscroll_pipe`.
+- `vicii_cycle` draws after the CPU access of the previous cycle. So the
+  XSCROLL a cell loads at is the one that stands after the CPU access of the
+  cell's own g-access cycle. A write in cycle N moves column N-16 onwards.
+- Dots before the load show the previous cell's remaining pixels, then zero
+  bits. A larger XSCROLL leaves a gap of zero-bit colour; a smaller one cuts
+  the previous cell short.
+- `xscroll_pipe` is sampled only while the fetch window is open, and VICE
+  has closed it by the sample for column 39. A write in cycle 55 therefore
+  misses column 39. VICE's own comment calls that gating a convenience;
+  Emu198x follows it anyway.
+
+The engine renders a cell before the CPU access of its cycle, so `Vic`
+keeps the load it just made, and a `$D016` write in the same cycle re-loads
+that cell. `colorsplit` stores `$D016` in cycle 21 in both emulators (VICE
+`trace store`), which moves column 5 onwards.
+
+The re-load recomposites the cell's sprites. The cycle's sprite-background
+collisions keep the foreground from before the write; no program in the
+survey depends on that cycle.
+
+### Measurement
+
+- `colorsplit`: 952 disagreements to 0 on the 6569, and 960 to 0 on the
+  8565. It cannot tell the two phases apart: sampling XSCROLL when the cell
+  renders, one cycle late, also gives 0.
+- `modesplit` (`split-tests`, reference matched against a real breadbin) does
+  tell them apart. Against VICE x64sc 3.10's screenshot it has 7,106
+  disagreements on main, 6,086 when sampled at render, and 5,990 at VICE's
+  phase. Its `$D016` stores agree with VICE's cycle for cycle (11, 19, 25 and
+  44). The rest is mode bits; see below.
+- Unit tests pin the phase: a write in column 5's g-access cycle moves
+  column 5, a smaller XSCROLL cuts the previous cell short, and a write in
+  cycle 55 misses column 39. Each fails without the re-load or the cycle-55
+  rule.
+- Survey: `vicii_timing` 96.774% to 98.468% and `spritefetchbug` 97.226% to
+  98.211%. Every other indexed hash is unchanged, `border` included.
+  `vicii_timing`'s gain is its "open border with" rows, which change
+  `$D016` with read-modify-write instructions, and its `BC0`-`BC3` text.
+
+### What remains
+
+`border` (93.806%) does not share the cause. VICE x64sc reproduces its
+reference exactly, and Emu198x differs from VICE by 6,470 pixels, all on the
+lines below the display window where the program has opened the side
+border. There the vertical border is set and the display state is idle.
+VICE keeps loading zero graphics with the last matrix data, which the idle
+lines before left at zero, so hires bitmap mode shows black. Emu198x fills
+the display column with `$D021`.
+
+`vicii_timing` (98.468%) differs from VICE by 1,584 pixels (VICE differs
+from the reference by 7):
+
+| Rows | Pixels | Cause |
+| --- | ---: | --- |
+| `BC0`-`BC3`, right side border | 525 | The opened side border shows the last character's ECM background ("continuation of last character bg", per the program's source). VICE keeps the last matrix and colour entries; Emu198x uses zero ones. Same class as `border`. |
+| Sprite X-position timing | 336 | Mid-line sprite X writes. |
+| X-expand | 157 | Mid-line `$D01D` writes. |
+| `MCM`, `BMM`, `ECM`, `E+B` | 550 | Mode-bit changes mid-cell (and the same side-border fill at the right edge). |
+| `INC` | 16 | Unclassified: light grey in VICE, orange in Emu198x, at x = 352-358. |
+
+The mode bits are a separate fault, visible in `modesplit`. VICE applies
+them to the shifter's output during the draw cycle (`vmode16_pipe` from dot
+4, `vmode11_pipe` after dot 7 on the 6569). Emu198x applies them when it renders the
+cell, so with XSCROLL above 0 a mode boundary moves with the graphics.
+
+Not modelled, with no program to check it against: with the side border
+open and XSCROLL above 0, column 39's last pixels should spill into the
+border, followed by zero bits.
 
 ## Non-goals
 
@@ -724,6 +808,7 @@ evidence, or an explicit expansion of the supported configuration claim.
 | 2026-10-06 | 3a-C. Colour and border stage | Colour registers and the side border are resolved two ticks after rendering, at VICE's phase, with the 6569 dot-0 rule; sprites sit under the border; zero graphics fill the side border. With A and B, every survey program reaches 100% except `border` (93.806%), `vicii_timing` (96.774%) and `spritefetchbug` (97.226%). `sequencer-bug` and `greydot` match exactly; `colorsplit` keeps only its XSCROLL rows. Frame-routing version 8 re-captures the C64 catalogue; snapshot version 11 carries the colour stage. |
 | 2026-10-06 | 3a-D. 8565/8562 chip axis and grey dot | `VicModel` gains the HMOS-II 8565 and 8562, which the PAL and NTSC C64C now use. On them a colour-register write shows a light-grey dot where the 6569 keeps the old colour. `greydot` matches its 8565 reference exactly, and `colorsplit` keeps only its XSCROLL rows. Every breadbin lane and catalogue hash is unchanged. Snapshot version 12 carries the chip revision. On NTSC, `greydot`'s stores sit a cycle away from VICE's, which only the 8562's grey dots reveal. |
 | 2026-10-07 | CIA serial port and user-port signals (#797) | The 6526's two-underflows-per-bit shift register becomes VICE's `sdr_delay` pipeline: CNT toggles about 1.5 cycles after each Timer A underflow, SP changes on falling CNT edges, a byte written mid-transfer chains on, and the SDR interrupt lands two cycles after the eighth bit. Input mode shifts SP in on rising CNT edges and loads the SDR after eight. Timer A and B count rising CNT edges (MiSTer's pipeline latency; VICE leaves it a TODO) and Timer B mode 11 gates on CNT. /PC strobes low for the cycle after a port B access. VICE `cia-sp-test` one-shot (old and new CIA) and all four `cia-icr-test` programs move from fail to pass; `cia-sp-test` continuous, `cia-icr-test2`, `cia-sdr-init`/`load`/`delay`, `ciavarious` 1–14 and Lorenz `cntdef`/`cnto2` pass. A user-port loopback (SP1/CNT1 to SP2/CNT2) carries every byte value from CIA1 to CIA2. Snapshot version 14. |
+| 2026-10-07 | Mid-line XSCROLL (#1620) | The graphics sequencer loads each cell at the XSCROLL that stands after the CPU access of its g-access cycle, as VICE does, instead of one value latched per line; a write in cycle 55 misses column 39. `colorsplit` matches exactly on the 6569 and 8565 (952 and 960 disagreements before). `vicii_timing` rises from 96.774% to 98.468% and `spritefetchbug` from 97.226% to 98.211%; every other survey hash is unchanged. `border` does not share the cause; its residual and `vicii_timing`'s are classified under [Mid-line XSCROLL](#mid-line-xscroll-1620). Snapshot version 15 carries the sequencer's last load. Frame-routing version 9; all 13 catalogue entries pass ordinary and fresh-runtime replay with unchanged hashes. |
 
 ## Related Documents
 
