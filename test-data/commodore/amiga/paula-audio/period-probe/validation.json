@@ -1,0 +1,49 @@
+{
+  "date": "2026-10-07",
+  "native_base": "277957646cf041c343daf503d8d32d3e24e20eeb",
+  "reference_revision": "60fd1e6b69dcd77c9f44d1291bd37ec715362ab0",
+  "reference_boundary": "Unmodified component methods executed with a scheduler recorder; not a full reference machine or hardware trace.",
+  "timing_rows": {
+    "total": 23,
+    "before_mismatches": 15,
+    "after_mismatches": 0
+  },
+  "passing_tests": {
+    "paula_component": 104,
+    "runtime_library": 56,
+    "snapshot_roundtrip": 60,
+    "queries": 45,
+    "board_paula": 39,
+    "full_machine_audio": 1
+  },
+  "snapshot_restore_checkpoints": 27,
+  "snapshot_profiles": [
+    "A500 OCS PAL",
+    "A500+ ECS PAL",
+    "A1200 AGA PAL"
+  ],
+  "initial_verification_failure": "runtime-final.log.gz records two stale snapshot-version assertions (expected 56, observed 57). Corrected to 57; snapshot-queries-final.log.gz records the complete passing rerun.",
+  "other_checks": [
+    "strict targeted release Clippy, all targets",
+    "release emu198x-amiga build",
+    "cargo fmt --all --check",
+    "Ruff check/format of reference.py",
+    "reference CSV rebuilt byte-identically"
+  ],
+  "sha256": {
+    "audio-baseline.log.gz": "deec53b27240973ebb4426176120438dc1a6b68a407a7ae2cb99a708414f7dff",
+    "audio-final.log.gz": "a1a9e3c53b5f17a6d50c496f86b3bab07d808fbf7c6929c196e822e5c6fd51f8",
+    "board-final.log.gz": "1a31245ca81a2da6a0cbe165b13dbf7d27b483f84add3bf6c9f0151fa00927a2",
+    "build-final.log.gz": "f9092b4c21f04cce6159cb0301fff97e25a14e7c2effa5f15eda53d30d250ad2",
+    "clippy-final.log.gz": "50167e192c7a6e2601a0d665f27a354f2cff562749fee59e192465873769b13d",
+    "native-after.log.gz": "6346209f669daceede57d7a986f5301b4422f74509698eddcb0d4bc820511c0d",
+    "native-before.log.gz": "f5a8230fb9db7be9ae99197c9457b25bb716f330bfc969270bbccbe03bbe74f1",
+    "paula-after.log.gz": "5dddf26c6dc041de74d18d72f011a77e639338a160134097b11c104ffa9bc289",
+    "reference.csv": "3efb8a9e74373f957d59119023d7814ccb91d0f93dd03cba8a46dfdc3c63f73d",
+    "reference.py": "c3e5addca52eaac23bec07a85d630532a2e49378b9043bac224f285a60ca5879",
+    "runtime-final.log.gz": "b4a23b2e853eef5ef1ab32373e2715c4c27d8b0fdfd8d4794495bfcc6c37d8f3",
+    "snapshot-queries-final.log.gz": "637af48a01cd5030162a5d21c9648735bc3d4b8d082bda18fdfbd585130c0752",
+    "source-hashes.json": "feaba6cbbeff3a3743fd9141fb14a46b8d43a04a9bd93d6f02d1f827ac94c467",
+    "reference.cpp.gz": "2f4640f4fe66945d190c3a8acb7ad7ce19942fd4c8f186ea7a03085b777803b3"
+  }
+}

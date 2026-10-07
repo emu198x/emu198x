@@ -65,7 +65,7 @@ fn channel_volume_scales_output_linearly_across_the_6_bit_range() {
     // AUDxVOL and saturates at 64 — the same `sample * audvol` model
     // vAmiga and WinUAE use. This is the "6-bit volume" half of #38;
     // the period-driven sample-and-hold resampling (the other half) is
-    // exercised by `audx_per_below_minimum_clamps_byte_duration_*`.
+    // exercised by `period_reloads_match_compiled_reference_including_zero_and_short_values`.
     fn output_at_volume(vol: u16) -> f32 {
         let mut p = Paula8364::new();
         p.write_audio(0, AudioField::LcHi, 0);
@@ -99,7 +99,7 @@ fn channel_volume_scales_output_linearly_across_the_6_bit_range() {
 }
 
 // ────────────────────────────────────────────────────────────────
-// AUDxPER minimum period clamp
+// AUDxPER values below the recommended DMA period
 // ────────────────────────────────────────────────────────────────
 
 #[test]
@@ -110,18 +110,16 @@ fn audx_per_below_minimum_readback_preserves_written_value() {
 }
 
 #[test]
-fn audx_per_below_minimum_clamps_byte_duration_to_the_minimum() {
-    // `AUDxPER` below the HRM minimum (124) is clamped to 124 for
-    // *playback timing* (the raw value is still preserved on read-back,
-    // tested separately). The clamp is observable as the duration each
-    // sample byte is held: with PER=1 the high byte is held for the
-    // clamped minimum, not a single colour-clock.
+fn audx_per_below_recommended_dma_period_uses_programmed_byte_duration() {
+    // The DMA recommendation does not clamp the counter. Keep data available
+    // here so this test measures the sample hold rather than DMA starvation.
+    const PERIOD: u16 = 60;
     let mut p = Paula8364::new();
     let dmacon = DMA_MASTER | DMA_AUD0;
     p.write_audio(0, AudioField::LcHi, 0);
     p.write_audio(0, AudioField::LcLo, 0x1000);
     p.write_audio(0, AudioField::Len, 1);
-    p.write_audio(0, AudioField::Per, 1); // below minimum
+    p.write_audio(0, AudioField::Per, PERIOD);
     p.write_audio(0, AudioField::Vol, 64);
 
     // Distinct high/low bytes so the byte step is observable: high byte
@@ -140,9 +138,8 @@ fn audx_per_below_minimum_clamps_byte_duration_to_the_minimum() {
     }
     assert!(started, "playback should begin within a few DMA slots");
 
-    // Hold the high byte and count colour-clocks until it steps to the
-    // low byte. The step must take the clamped minimum, not PER=1. (The
-    // ±1 tolerance absorbs the startup phase of the period counter.)
+    // The combined component helper also clocks the output on the service
+    // call, so the first observed sample has already used up one tick.
     let mut held = 0u16;
     loop {
         p.tick_audio_cck(dmacon, Some(0), sample);
@@ -150,11 +147,14 @@ fn audx_per_below_minimum_clamps_byte_duration_to_the_minimum() {
         if p.mix_audio_stereo().1.abs() < 0.05 {
             break; // stepped to the low byte
         }
-        assert!(held < 200, "high byte never stepped — period clamp broken");
+        assert!(
+            held < 200,
+            "high byte never stepped — period counter stalled"
+        );
     }
     assert!(
-        (AUDIO_MIN_PERIOD_CCK - 1..=AUDIO_MIN_PERIOD_CCK).contains(&held),
-        "byte duration clamps to the minimum ({AUDIO_MIN_PERIOD_CCK}); held {held} CCK"
+        (PERIOD - 1..=PERIOD).contains(&held),
+        "byte duration uses the programmed period ({PERIOD}); held {held} CCK"
     );
 }
 

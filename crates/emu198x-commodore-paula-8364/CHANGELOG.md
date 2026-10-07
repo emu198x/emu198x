@@ -19,8 +19,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Widen the saved audio period counter and the public `effective_period` and
+  `period_counter` diagnostic fields to `u32` so 65,536 is represented exactly.
 - Stage disk read-DMA requests by FIFO occupancy: one queued word requests D2,
   two request D1/D2, and three request D0/D1/D2.
+
+### Fixed
+
+- Honour periods below 124 and reload zero as 65,536 CCKs. The recommended
+  DMA sampling period no longer clamps the digital countdown.
 
 ## [0.2.0](https://github.com/emu198x/emu198x/releases/tag/commodore-paula-8364-v0.2.0) - 2026-06-04
 
