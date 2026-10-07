@@ -44,6 +44,7 @@
 //! its DMA budget.
 
 mod cartridge;
+mod oss_carts;
 
 pub use cartridge::{Cartridge, CartridgeKind};
 
@@ -191,8 +192,9 @@ impl Atari800xl {
     ///
     /// `os_rom` should be 16 KB (covers `$C000-$FFFF` with a `$D000-$D7FF`
     /// I/O gap baked into the ROM). `basic_rom` is 8 KB. `cart` is a flat 8
-    /// or 16 KB image, a banked image with its `CART` header, or a headerless
-    /// 32 KB+ XEGS image (see [`Cartridge`]); a cart shadows BASIC at
+    /// or 16 KB image, a banked image with its `CART` header, a known
+    /// headerless OSS dump, or a headerless 32 KB+ XEGS image (see
+    /// [`Cartridge::from_rom`]); a cart shadows BASIC at
     /// `$A000-$BFFF`. With no OS ROM, the reset vector is fetched from the
     /// cart entry point.
     pub fn new(
