@@ -155,3 +155,12 @@ record agreement from both compiled references on all 2,048 forced-full-volume
 cases and 2,040 native failures before correction. Real chip-specific DAC
 nonlinearity needs a measured transfer curve; this does not assert physically
 perfect DACs. Timing, filters, volume semantics and snapshot v61 stay unchanged.
+
+The [host-bandwidth observations](../../../../reference/by-system/commodore-amiga/2026-paula-host-bandwidth-observations.md)
+now reproduce 54 ultrasonic alias failures in 108 real runtime observations.
+The separate windowed-sinc step prototype passes 66 tone and four pulse-area
+cases, with a working bypass negative control. It remains research code;
+the shared helper, delayed LED control and snapshot v62 are proposed, not
+yet an adopted production design. The WinUAE extraction has an unresolved
+queue-time-unit discrepancy and is not silently promoted into an oracle.
+Physical PWM and continuous switched-analogue response remain separate gaps.

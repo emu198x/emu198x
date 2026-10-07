@@ -1,0 +1,18 @@
+{
+  "revision": "c32694e338fa5f34977f522eb4898adb069d2e73",
+  "source_sha256": {
+    "audio.cpp": "2699601febc6d62c96a79018d0bbe94d47501621a9f7483309f86d3b3ee4ead7",
+    "sinctable.cpp": "b357a6bafa173758487569d4f3d666eb5c78a04bf48f1f7e1f2dec53a7e800bd",
+    "include/sysdeps.h": "deaf4bf79a62ddf4ffe17bfc3fdcae957fbc3b769cbb0599276562b4e5cbabee"
+  },
+  "observations": 10,
+  "negative_controls": [
+    "empty",
+    "non-finite amplitude"
+  ],
+  "units": {
+    "1": "deliberately normalised CCK queue age; exploratory, not the pinned caller",
+    "512": "CYCLE_UNIT from pinned sysdeps.h and update_audio best_evtime call"
+  },
+  "limitations": "Isolated kernel, PAL, vanilla table, no board filter, 8-CCK held synthetic sine; not a live WinUAE or physical hardware capture. Do not silently normalise caller units into an oracle."
+}
