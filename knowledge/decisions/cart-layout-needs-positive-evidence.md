@@ -3,8 +3,9 @@
 **Date:** 2026-08-25
 **Status:** Active. Governs how a machine picks a cartridge layout or
 mapper when the image itself does not say. Written from the Atari 5200,
-which is the first case; the SMS (#204) and SG-1000 (#223) have the same
-shape and should follow it.
+which is the first case; the Atari 800XL followed it for the OSS boards
+(#1401), and the SMS (#204) and SG-1000 (#223) have the same shape and
+should follow it.
 
 ## The problem
 
@@ -47,6 +48,13 @@ the plain one.** Concretely:
    the format has one, or a table of known images keyed by hash.
 3. Where a header exists, it outranks the table. The 5200's `.a52` /
    `.car` cart-type byte (#419) will do this directly.
+4. A caller who knows better can say so. Where a machine has more than one
+   exotic layout to choose between, it lists them in
+   `MachineCore::cartridge_types`, and the CLI (`--cart-type`), a script
+   or MCP `load_media` step (`cart_type`), and the runtime
+   (`insert_cartridge_as`) can name one. The caller's name outranks the
+   header, the table and the size. A machine that lists none refuses the
+   field rather than ignoring it.
 
 The asymmetry is deliberate. A wrong plain-layout guess on an unknown
 homebrew cart is one broken title nobody has tested; a wrong exotic-layout
@@ -96,3 +104,34 @@ machine.
   titles still render.
 - Missile Command's blank frame was filed as the same bug and is not: its
   8 KB map is byte-for-byte MAME's. Split out rather than fixed here.
+
+## The Atari 800XL (#1401)
+
+OSS sold BASIC XL/XE, MAC/65 and Action! on three bank-switched 16 KB
+boards (M091, 043M, and the 034M image order of the same two-chip board)
+and The Writer's Tool on an 8 KB one. TOSEC ships them headerless, and a
+16 KB OSS image is the size of a flat 16 KB cartridge. The 800XL now takes
+the same four steps:
+
+- `tools/a800-oss-cart-types.py` distils MAME's `hash/a800.xml` (CC0-1.0)
+  into `crates/machine-atari-800xl/src/oss_carts.rs`: 14 OSS titles keyed
+  by CRC32, each mapped to its board. Neither Altirra nor atari800 ships a
+  cartridge database to take the table from.
+- An image the table does not know keeps the plain layout for its size:
+  flat up to 16 KB, XEGS from 32 KB. The caller names any other board.
+- Every headerless OSS-board dump in TOSEC's `Applications/[BIN]` matches
+  a MAME entry. Under the official XL OS the eleven headerless language
+  dumps boot to their prompt or editor, the `CART`-headered MAC/65 still
+  boots through its header, and The Writer's Tool runs its editor from its
+  program disk. An `#[ignore]`d fixture test holds this
+  (`crates/machine-atari-800xl/tests/oss_cartridges.rs`).
+
+**Considered and not done: refusing an unidentified 16 KB image.** An
+error naming `--cart-type` would stop an unknown OSS dump booting into
+garbage, but it would also stop every flat 16 KB cartridge MAME does not
+list, which is most homebrew and many TOSEC dumps. That trades one class
+of silent failure for a louder, larger one. A content scan (a `$D5xx`
+access means the cartridge banks) could make the refusal narrow, but it
+needs validating against the whole TOSEC set before it can be trusted, and
+that has not been done.
+
