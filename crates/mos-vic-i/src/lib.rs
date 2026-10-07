@@ -144,6 +144,40 @@ pub const fn lines_per_frame(pal: bool) -> u32 {
     if pal { 312 } else { 261 }
 }
 
+/// Cycles by which the 6560's reported raster line leads the line it draws.
+///
+/// tlr's `split-tests/timing` reads `$9003` and the open bus (`$9100`, which
+/// returns what the VIC-I last fetched) at every cycle of a line, and its
+/// `dumps/` hold the results from two NTSC and two PAL machines. On both
+/// 6561s, `$9003` bit 7 changes 16 cycles before the fetch of the row's first
+/// character, with register 0 at the KERNAL's 12. On both 6560s it changes 46
+/// cycles before that fetch, with register 0 at 5: the CPU sees the new line
+/// while the chip is still fetching the tenth column of the old one. Register
+/// 0 moves the fetch and the picture together, so take it out: 16 - 12 leaves
+/// 4 cycles on the 6561 and 46 - 5 leaves 41 on the 6560, the line changing 37
+/// cycles earlier in the line. This chip draws the 6561's relationship, its
+/// reported line changing with the drawn one, so the 6560 reports its line 37
+/// cycles before the drawn line changes. The figure assumes the two parts take
+/// equally long from the origin match to the first fetch, as one design with
+/// different counts would.
+///
+/// tokra's photographs in VICE's `vic_line0` test agree: on a real 6560, a
+/// write whole lines and 48 cycles after `$9004` first shows a new line lands
+/// at the left edge of the display, not near its right edge where the drawn
+/// line puts it. VICE has the same 37 (`VIC20_NTSC_CYCLE_OFFSET`, unexplained
+/// since 2001). Why the 6560 steps its line counter there is not known; the
+/// data sheet (Programmer's Reference Guide pp. 211-217) gives no timing.
+const NTSC_RASTER_LEAD: u32 = 37;
+
+/// Cycles for which the 6560 still reports the last line once line 0 begins.
+///
+/// tokra's `vic_line0` test, on a real NTSC VIC-20: a program that waits for
+/// `$9004` to read 0 acts 33 cycles later in the line than for any other value,
+/// "the reporting to `$9004` is delayed for 33 cycles when a new frame starts".
+/// What register 3's bit 7 shows meanwhile is VICE's choice, not a measurement:
+/// `vic_read_rasterline` reports line 261 ("confirm this"), so bit 7 is set.
+const NTSC_LINE_0_DELAY: u32 = 33;
+
 use serde::{Deserialize, Serialize};
 
 /// VIC-20 machine-cycle clock — the rate the sound oscillators are clocked at
@@ -310,9 +344,37 @@ impl Vic6560 {
             // The raster counter is split across these two registers. VICE's
             // `vic_read` and the MiSTer m6561 core both expose bit 0 in
             // register 3 bit 7 and the remaining bits in register 4.
-            0x03 => ((self.scanline as u8 & 1) << 7) | (self.regs[reg] & 0x7F),
-            0x04 => (self.scanline >> 1) as u8,
+            0x03 => ((self.raster_line() as u8 & 1) << 7) | (self.regs[reg] & 0x7F),
+            0x04 => (self.raster_line() >> 1) as u8,
             _ => self.regs[reg],
+        }
+    }
+
+    /// The raster line registers 3 and 4 report, which on the 6560 is not
+    /// the line being drawn.
+    ///
+    /// The 6561 changes its reported line where the drawn line changes. The
+    /// 6560 changes it [`NTSC_RASTER_LEAD`] cycles earlier, in the middle of
+    /// the line before, and holds line 0 back for [`NTSC_LINE_0_DELAY`] cycles,
+    /// reporting line 261 meanwhile. See those constants for the evidence.
+    #[must_use]
+    fn raster_line(&self) -> u32 {
+        if self.lines_per_frame == lines_per_frame(true) {
+            return self.scanline;
+        }
+        let ahead = self.pixel_x + NTSC_RASTER_LEAD;
+        let (line, cycle) = if ahead >= self.cycles_per_line {
+            (
+                (self.scanline + 1) % self.lines_per_frame,
+                ahead - self.cycles_per_line,
+            )
+        } else {
+            (self.scanline, ahead)
+        };
+        if line == 0 && cycle < NTSC_LINE_0_DELAY {
+            self.lines_per_frame
+        } else {
+            line
         }
     }
 
@@ -844,6 +906,7 @@ mod sound_tests {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::BTreeMap;
 
     const PAL: bool = true;
 
@@ -924,6 +987,59 @@ mod tests {
         }
         assert_eq!(vic.read(0x03), 0x2F, "line 2 clears the raster low bit");
         assert_eq!(vic.read(0x04), 1, "the divided raster advances on line 2");
+    }
+
+    /// The full raster value registers 3 and 4 report.
+    fn reported_line(vic: &Vic6560) -> u32 {
+        u32::from(vic.read(0x04)) << 1 | u32::from(vic.read(0x03) >> 7)
+    }
+
+    /// #1643: the 6561 reports a new line in the cycle its drawn line
+    /// changes, the 6560 37 cycles before, in cycle 28 of the line before.
+    #[test]
+    fn the_6560_reports_a_line_37_cycles_before_drawing_it() {
+        let mut ntsc = Vic6560::new(!PAL);
+        run_to(&mut ntsc, 10, 27);
+        assert_eq!(reported_line(&ntsc), 10);
+        run_to(&mut ntsc, 10, 28);
+        assert_eq!(reported_line(&ntsc), 11, "65 - 37 cycles into line 10");
+
+        let mut pal = Vic6560::new(PAL);
+        run_to(&mut pal, 10, 70);
+        assert_eq!(reported_line(&pal), 10);
+        run_to(&mut pal, 11, 0);
+        assert_eq!(reported_line(&pal), 11, "the 6561 has no lead");
+    }
+
+    /// #1643: on the 6560, `$9004` reads 0 only 33 cycles after the line
+    /// count wraps; until then the chip reports line 261. Every other line
+    /// lasts a whole line, so the frame the CPU sees is as long as the one
+    /// drawn.
+    #[test]
+    fn the_6560_holds_line_0_back_for_33_cycles() {
+        let mut vic = Vic6560::new(!PAL);
+        run_to(&mut vic, 260, 27);
+        assert_eq!(reported_line(&vic), 260);
+        run_to(&mut vic, 260, 28);
+        assert_eq!(reported_line(&vic), 261, "the line count wrapped");
+        assert_eq!(vic.read(0x04), 130);
+        run_to(&mut vic, 260, 60);
+        assert_eq!(reported_line(&vic), 261);
+        run_to(&mut vic, 260, 61);
+        assert_eq!(reported_line(&vic), 0, "33 cycles after the wrap");
+
+        let mut cycles = BTreeMap::new();
+        for _ in 0..vic.cycles_per_line * vic.lines_per_frame {
+            *cycles.entry(reported_line(&vic)).or_insert(0) += 1;
+            vic.tick(|_| 0, |_| 0, |_| 0);
+        }
+        assert_eq!(cycles.len(), 262, "lines 0-261 are each reported");
+        assert_eq!(cycles[&0], 32);
+        assert_eq!(cycles[&261], 33);
+        assert!(
+            (1..=260).all(|line| cycles[&line] == 65),
+            "every other line lasts a whole line"
+        );
     }
 
     /// #1087: the display was drawn at a fixed border offset and the origin

@@ -162,11 +162,11 @@ moved says what it was:
 | vic6561-test36866-1 | 100% | Was 99.227%: `$9002` written mid-line cut the first two rows short, where the program says each line keeps 22 columns. The chip now reads the column count once, in the first cycle of each line, as VICE does. Reading it at cycle 2 instead loses 716 pixels of test36866-2, so the survey pins the cycle. |
 | vic6561-test36866-2, testcharheigh-2 | 95.494%, 95.829% | Column count and character height changed mid-frame: VICE advances its screen pointer row by row by the columns actually fetched; Emu198x recomputes each row's address from the live registers (#1644). |
 | vic6561-test36864, test36865-1/2/3, testmemfetch-1/2, testcharheigh-1, vic-9000test | 99.4-99.98% | Origin, height and fetch registers written mid-line: VICE opens the display when the cycle counter equals `$9000` and keeps it open for the line; Emu198x re-reads every register for every pixel (#1644). |
-| raster-border, raster-background, raster-reverse, raster-auxiliary | 95.3-99.6% | Colour-register writes: VICE shows a `$900F` or `$900E` write made in cycle *n* from pixel 4(*n*-7)+1 (reverse mode from 4(*n*-7)+3); Emu198x applies it to the very next pixels. Every band edge is 27 pixels (reverse, 25) left of VICE's (#1644). |
+| raster-border, raster-background, raster-reverse, raster-auxiliary | 95.3-99.6% | Colour-register writes: VICE shows a `$900F` or `$900E` write made in cycle *n* from pixel 4(*n*-7)+1 (reverse mode from 4(*n*-7)+3); Emu198x applies it to the very next pixels, 31 pixels to the right for a write in the same cycle. Every band edge is 27 pixels (reverse, 25) right of VICE's, not 31, because Emu198x's CPU sees each new line one cycle sooner than VICE's: traced in both emulators' monitors, the raster lock lands one cycle earlier here on PAL and NTSC alike, and the band with it (#1644). |
 | vic6561-testback | 97.348% | The same colour-register delay in a VIA-timed program: its stripes sit 23 pixels left of VICE's, not 27, consistent with the one-cycle VIA timer difference below. |
 | split-timing | 43.034% | Emu198x's VIA-timed stable raster does not settle. The program's own measurement of the line reads 72 cycles where VICE reads 71, and it is still mid-run at the capture frame. A VIA timer 1 read a fixed time after loading the counter returns one count lower than VICE's. VICE's results at `$17C0`-`$1BFF` match both PAL hardware dumps in their `$9003` and `$9004` columns (and its run of `timing_ntsc.prg` both NTSC ones); see #1642. |
-| ntsc-raster-border, ntsc-raster-background, ntsc-raster-reverse, ntsc-raster-auxiliary | 82.8-98.2% | The colour-register delay as on PAL, plus a second shift: on NTSC VICE's CPU sees the raster line change 37 cycles before its drawn line does (`VIC20_NTSC_CYCLE_OFFSET`), where Emu198x's are the same. The first band line starts at raster pixel 41 in VICE and 216 here: 148 pixels (37 cycles) for the offset, less VICE's 27-pixel colour delay (#1643). |
-| ntsc-vic-line0 | 99.965% | The same NTSC raster-read offset, and VICE also reports line 261 for the first 33 cycles of line 0, which the program's notes describe on real hardware (#1643). |
+| ntsc-raster-border, ntsc-raster-background, ntsc-raster-reverse, ntsc-raster-auxiliary | 94.3-99.4% | The colour-register delay as on PAL: every band edge is 27 pixels right of VICE's. Were 82.8-98.2%: the 6560 reports a new line 37 cycles before it draws it (see below), and Emu198x reported the line it drew, so its band started 148 pixels (37 cycles) further right again (#1643). |
+| ntsc-vic-line0 | 99.938% | The colour-register delay alone, at its full 31 pixels: the program polls `$9004` every 7 cycles, and both emulators catch the change on the same read, so the one-cycle lock difference above does not hide 4 of them. Was 99.965% before #1643, when the 37-cycle error and the missing line-0 delay happened to land the 16-pixel mark partly on VICE's. |
 
 The colour-register delay and the display-opening behaviour are one
 mechanism in VICE: the chip fetches a character two cycles at a time several
@@ -174,8 +174,30 @@ cycles before it shows it, and the colour registers act at the output. The
 data sheet and the Programmer's Reference Guide describe the registers but
 give no cycle timing, so for these the evidence is VICE, the expectations the
 `vic6561` programs print, and the hardware photographs and dumps where they
-exist. #1644 is the work to model it; #1643 the NTSC raster-read phase; #1642
-the VIA timer.
+exist. #1644 is the work to model it; #1642 the VIA timer.
+
+**The 6560's raster phase (#1643).** On the 6560 registers 3 and 4 report
+a new line 37 cycles before the chip draws it, and report line 261 for the
+first 33 cycles of line 0. Two hardware sources support this, besides VICE's
+`VIC20_NTSC_CYCLE_OFFSET`:
+
+- tlr's `split-tests/timing` dumps read `$9003` and the open bus, which holds
+  the VIC-I's last fetch, at every cycle of a line. On both 6561 dumps bit 7
+  changes 16 cycles before the row's first character fetch, with `$9000` at
+  12; on both 6560 dumps, 46 cycles before it, with `$9000` at 5. Register 0
+  moves the fetch and the picture together, so taking it out leaves 4 cycles
+  on the 6561 and 41 on the 6560: the 6560's line changes 37 cycles earlier
+  relative to its own picture. This assumes the two chips take equally long
+  from the origin match to the first fetch.
+- tokra's photographs in `vic_line0` show a write whole lines and 48 cycles
+  after `$9004` first shows a new line landing at the display's left edge for
+  every value but 0, and 33 cycles further right for 0.
+
+Why the 6560 steps its line counter there is not known; the data sheet gives
+no timing. What register 3's bit 7 shows during the 33 cycles is VICE's
+choice (line 261, so set), not a measurement. Emu198x does not model the
+6560's interlace mode, in which the same test found the delay on one field
+only.
 
 Where the primary sources and VICE disagree:
 
