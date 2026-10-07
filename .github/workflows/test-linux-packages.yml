@@ -9,6 +9,10 @@ on:
         required: true
         type: string
 
+concurrency:
+  group: linux-packages-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
