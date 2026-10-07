@@ -530,6 +530,11 @@ It doesn't need a request per asset. Each asset still gets:
   no grant exists;
 - a `SHA256SUMS` line and a download round-trip check.
 
+`SHA256SUMS` is a single shared asset that more than one session edits. Always
+download the current copy immediately before changing it, change only your own
+line, check the line count is what you expect, and re-upload. A stale copy
+re-uploaded drops other people's lines.
+
 The condition from the CPC decision applies to every such asset. It is mirrored
 only while the store stays private, and this is never a basis for shipping it
 publicly. Official, unmodified dumps only.
