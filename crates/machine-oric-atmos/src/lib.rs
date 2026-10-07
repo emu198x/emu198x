@@ -40,9 +40,9 @@
 //! | `$B400-$BBFF` | Character generator (read by ULA)              |
 //! | `$C000-$FFFF` | 16 KB BASIC + OS ROM                           |
 //!
-//! On the Atmos the full 64 KB RAM lives beneath; ROM remains the
-//! visible image at `$C000-$FFFF` for reads, and writes always land
-//! in RAM (so the OS can move the BASIC working area underneath).
+//! On the Atmos the full 64 KB RAM lives beneath. The ROM is the visible
+//! image at `$C000-$FFFF` until an expansion peripheral drives the port's
+//! ROMDIS and MAP lines; `expansion_port.rs` says what each one does.
 //!
 //! # AY-via-VIA scheme
 //!
@@ -107,7 +107,9 @@ use mos_via_6522::Via6522;
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
 
+mod expansion_port;
 mod tape;
+use expansion_port::{BusTarget, ExpansionLines};
 use tape::TapeDeck;
 
 /// Framebuffer width: 240 pixels, 40 columns of 6.
@@ -261,6 +263,9 @@ pub struct OricAtmos {
     /// attributes 24-31 as the ULA scans them, and — unlike ink, style and
     /// paper — never reset at the start of a line or frame.
     ula_mode: u8,
+    /// The expansion port's ROMDIS and MAP inputs, as the peripheral drives
+    /// them. See [`expansion_port`].
+    expansion: ExpansionLines,
     /// When `Some`, every write to the AY data register (via the VIA's
     /// BDIR/BC1 handshake) is captured for the shared `watch_ay_*` tools.
     /// Host-side debug only, not part of the snapshot.
@@ -296,6 +301,7 @@ impl OricAtmos {
             frame_start: 0,
             raster: 0,
             ula_mode: MODE_POWER_ON,
+            expansion: ExpansionLines::default(),
             ay_watch: None,
             tape: None,
         }
@@ -409,32 +415,43 @@ impl OricAtmos {
     }
 
     fn mem_read(&mut self, addr: u16) -> u8 {
-        match addr {
-            0x0300..=0x03FF => {
+        match self.expansion.decode(addr) {
+            BusTarget::Via => {
                 // The IJK joystick drives the VIA port-A input lines; refresh
                 // them before the register read resolves.
                 self.update_ijk_joystick();
                 self.via.read((addr & 0x0F) as u8)
             }
-            0xC000..=0xFFFF => self
+            target => self.peek_target(target, addr),
+        }
+    }
+
+    /// The byte a non-VIA access reads, with no side effects.
+    fn peek_target(&self, target: BusTarget, addr: u16) -> u8 {
+        match target {
+            BusTarget::Rom => self
                 .rom
                 .get((addr - 0xC000) as usize)
                 .copied()
                 .unwrap_or(0xFF),
-            _ => {
-                let idx = addr as usize;
-                if idx < self.ram_size {
-                    self.ram[idx]
-                } else {
-                    0xFF
-                }
-            }
+            BusTarget::Ram => self.ram_byte(addr),
+            BusTarget::Via | BusTarget::Expansion => 0xFF,
+        }
+    }
+
+    /// DRAM at `addr`, or `$FF` where the model has none fitted.
+    fn ram_byte(&self, addr: u16) -> u8 {
+        let idx = addr as usize;
+        if idx < self.ram_size {
+            self.ram[idx]
+        } else {
+            0xFF
         }
     }
 
     fn mem_write(&mut self, addr: u16, value: u8) {
-        match addr {
-            0x0300..=0x03FF => {
+        match self.expansion.decode(addr) {
+            BusTarget::Via => {
                 let reg = (addr & 0x0F) as u8;
                 self.via.write(reg, value);
                 // PCR (reg $0C) or port A (reg $01/$0F) writes can
@@ -447,12 +464,19 @@ impl OricAtmos {
                 // port-A row mask — either alters which key is sensed.
                 self.scan_keyboard();
             }
-            _ => {
-                let idx = addr as usize;
-                if idx < self.ram_size {
-                    self.ram[idx] = value;
-                }
+            BusTarget::Ram => self.write_ram(addr, value),
+            // Writes under the ROM have always reached the DRAM here.
+            BusTarget::Rom | BusTarget::Expansion if addr >= 0xC000 => {
+                self.write_ram(addr, value);
             }
+            BusTarget::Rom | BusTarget::Expansion => {}
+        }
+    }
+
+    fn write_ram(&mut self, addr: u16, value: u8) {
+        let idx = addr as usize;
+        if idx < self.ram_size {
+            self.ram[idx] = value;
         }
     }
 
@@ -758,25 +782,12 @@ impl OricAtmos {
         self.tape.as_ref().map(TapeDeck::position)
     }
 
-    /// Read one byte with no side effects (RAM / ROM; `$FF` for the VIA).
+    /// Read one byte with no side effects, through the same decode the 6502
+    /// sees: RAM or ROM as the expansion lines select, `$FF` for the VIA and
+    /// for an access nothing on the board answers.
     #[must_use]
     pub fn peek(&self, addr: u16) -> u8 {
-        match addr {
-            0xC000..=0xFFFF => self
-                .rom
-                .get((addr - 0xC000) as usize)
-                .copied()
-                .unwrap_or(0xFF),
-            0x0300..=0x03FF => 0xFF,
-            _ => {
-                let idx = addr as usize;
-                if idx < self.ram_size {
-                    self.ram[idx]
-                } else {
-                    0xFF
-                }
-            }
-        }
+        self.peek_target(self.expansion.decode(addr), addr)
     }
 
     /// Write one byte through the bus (RAM accepts it; ROM ignores it).
