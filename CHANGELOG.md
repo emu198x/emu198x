@@ -6,27 +6,58 @@ Format loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 not strictly. Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [0.30.0] - 2026-10-07
 
-
 ### Added
 
-- *(mos-cia-6526)* Model the serial port, CNT input and /PC strobe
-- *(machine-commodore-c64)* Expose the user port's CIA lines to host devices
+- Drive the C64 user port from host devices. Every pin is exposed, the CIA
+  serial port shifts in both directions, and CNT can clock the timers. VICE's
+  `cia-sp-test` and `cia-icr-test` programs now pass.
+  ([#797](https://github.com/emu198x/emu198x/issues/797))
 
+### Changed
+
+- **Snapshot compatibility:** Amiga snapshots now use layout 59 and C64
+  snapshots use layout 15. Earlier layouts are rejected because they lack the
+  new display-blanking, Paula, CIA serial and VIC-II scroll state.
+  ([Amiga blanking](https://github.com/emu198x/emu198x/commit/97aa2afeb8ed0272030ac787f4a54e4f9f598d0f),
+  [Paula](https://github.com/emu198x/emu198x/commit/b3891bf1),
+  [#797](https://github.com/emu198x/emu198x/issues/797),
+  [#1620](https://github.com/emu198x/emu198x/issues/1620))
 
 ### Fixed
 
-- Keep AGA vertical blanking until the horizontal release edge
-- Blank the OCS right edge at the Denise comparator
-- Honor Lisa blanking edges during counter resets
-- Honour short and zero Paula audio periods
-- Align Paula modulation and DMA requests with byte transitions
-- *(c64)* Apply a mid-line XSCROLL write at the VIC-II's next load
-- Deliver Paula DMA interrupts on their scheduled sample edges
-- Read the Timex machines' unused port $FE bits as 0
-- Preserve Paula manual playback and early stop timing
-- Read the 48K's tape input the right way up in port $FE bit 6
-- Give the 128K-family Spectrums their real port $FE bit 6 with no tape
-- Keep the Spectrum's tape bit high while the speaker bit is set
+- Read the Spectrum's tape input in port `$FE` bit 6 the right way up on the
+  16K/48K, and give each later model its real level with no tape: Issue 3
+  read-back on the 128K and +2, and 0 on the +2A, +2B and +3, whose EAR input is
+  separate from MIC and the speaker. The speaker bit now holds the tape bit high,
+  as the ULA's bias does.
+  ([#1637](https://github.com/emu198x/emu198x/issues/1637))
+- Read bits 7 and 5 of port `$FE` as 0 on the Timex TC2048, TC2068 and TS2068,
+  as the TS2068 Technical Manual specifies.
+  ([#1640](https://github.com/emu198x/emu198x/pull/1640))
+- Apply a mid-line write to the C64's horizontal scroll register at the
+  VIC-II's next character load, so split-screen scroll effects match VICE exactly
+  on both the 6569 and 8565.
+  ([#1620](https://github.com/emu198x/emu198x/issues/1620))
+- Blank the Amiga's display edges where the real chips do: the OCS right edge
+  at the Denise comparator, AGA vertical blanking until the horizontal release
+  edge, and Lisa's blanking across counter resets.
+  ([OCS](https://github.com/emu198x/emu198x/commit/97aa2afeb8ed0272030ac787f4a54e4f9f598d0f),
+  [AGA](https://github.com/emu198x/emu198x/commit/c40c45de),
+  [Lisa](https://github.com/emu198x/emu198x/commit/27795764))
+- Time Paula's audio as the hardware does: short and zero periods, modulation
+  and DMA requests on byte transitions, DMA interrupts on their scheduled sample
+  edges, and manual playback with early stops.
+  ([periods](https://github.com/emu198x/emu198x/commit/aee06be2),
+  [modulation](https://github.com/emu198x/emu198x/commit/7f2538ec),
+  [interrupts](https://github.com/emu198x/emu198x/commit/b3891bf1),
+  [manual playback](https://github.com/emu198x/emu198x/commit/78b12624))
+
+### Known issues
+
+- Seven Amiga game-catalogue entries moved with the display and audio timing
+  changes above and have not yet been re-captured, so the nightly catalogue
+  reports them.
+  ([#1662](https://github.com/emu198x/emu198x/issues/1662))
 
 ## [0.29.0] - 2026-10-07
 
