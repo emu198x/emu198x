@@ -1197,9 +1197,9 @@ fn tool_read_task_stack(args: Value, s: &mut impl AmigaCtx) -> Result<Value, Too
 }
 
 fn tool_dump_framebuffer(args: Value, s: &mut impl AmigaCtx) -> Result<Value, ToolError> {
-    use machine_commodore_amiga_a1200::{FB_HEIGHT, FB_WIDTH};
+    let (width, height) = s.live().framebuffer_dims();
     let fb = s.live().framebuffer();
-    let total_pixels = (FB_WIDTH * FB_HEIGHT) as usize;
+    let total_pixels = (width * height) as usize;
 
     // Histogram top colours so the caller can see "what's on screen" without
     // saving anything to disk — useful when running headlessly.
@@ -1243,7 +1243,7 @@ fn tool_dump_framebuffer(args: Value, s: &mut impl AmigaCtx) -> Result<Value, To
         }
         let file = std::fs::File::create(&path_buf)
             .map_err(|err| ToolError::Execution(format!("create png: {err}")))?;
-        let mut encoder = png::Encoder::new(file, FB_WIDTH, FB_HEIGHT);
+        let mut encoder = png::Encoder::new(file, width, height);
         encoder.set_color(png::ColorType::Rgba);
         encoder.set_depth(png::BitDepth::Eight);
         let mut writer = encoder
@@ -1265,8 +1265,8 @@ fn tool_dump_framebuffer(args: Value, s: &mut impl AmigaCtx) -> Result<Value, To
     }
 
     Ok(json!({
-        "width": FB_WIDTH,
-        "height": FB_HEIGHT,
+        "width": width,
+        "height": height,
         "unique_colors": unique,
         "top_colors": top,
         "hash_fnv1a64": format!("${:016X}", hash),

@@ -25,6 +25,7 @@ pub use agnus::{
 };
 pub use cia::{Cia, CiaExt};
 pub use commodore_amiga_autoconfig::{AutoconfigBoard, AutoconfigState};
+pub use commodore_denise_ecs::DeniseEcsBlankingStages;
 pub use commodore_gary::{ChipSelect, Gary};
 pub use commodore_gayle::{Gayle, GayleDiagnosticSnapshot};
 pub use copper::Copper;
@@ -1171,6 +1172,17 @@ impl AmigaEcs {
 
     /// Dispatch a Copper MOVE before Denise renders the current output tick.
     fn dispatch_copper_write(&mut self, offset: u16, val: u16) {
+        if matches!(offset, 0x08E | 0x090 | 0x1E4) {
+            self.denise.write_word_before_output_tick(offset, val);
+            match offset {
+                0x08E => self.agnus.write_diwstrt(val),
+                0x090 => self.agnus.write_diwstop(val),
+                _ => {
+                    self.agnus.write_timing_register(offset, val);
+                }
+            }
+            return;
+        }
         if (0x0180..=0x01BE).contains(&offset) && offset.is_multiple_of(2) {
             self.denise.write_word_before_output_tick(offset, val);
             self.record_palette_write(offset, val);
@@ -1202,6 +1214,9 @@ impl AmigaEcs {
     /// Dispatch a custom-register word write to the right submodule.
     /// Shared between `poke_word` and the CPU bus servicer.
     fn dispatch_custom_write(&mut self, offset: u16, val: u16) {
+        if matches!(offset, 0x08E | 0x090 | 0x1E4) {
+            self.denise.write_word(offset, val);
+        }
         if self.agnus.write_timing_register(offset, val) {
             return;
         }
@@ -1339,6 +1354,7 @@ impl AmigaEcs {
             // Agnus-owned bitplane + display-window + DSK pointer.
             0x020 => self.agnus.write_dsk_pointer(true, val),
             0x022 => self.agnus.write_dsk_pointer(false, val),
+            0x028 => self.agnus.write_refptr(val),
             0x08E => self.agnus.write_diwstrt(val),
             0x090 => self.agnus.write_diwstop(val),
             0x092 => self.agnus.write_ddfstrt(val),
@@ -2176,6 +2192,54 @@ impl AmigaDriver for AmigaEcs {
         outcome
     }
 
+    fn service_blitter_dma(
+        &mut self,
+        transfer: commodore_agnus_ocs::DmaTransfer,
+    ) -> BlitterCckOutcome {
+        let mut bus = WatchingChipRamBus::new(&mut self.memory);
+        let outcome = self.agnus.service_blitter_dma(transfer, &mut bus);
+        let write = bus.take_write();
+        if let Some((addr, value)) = write {
+            self.record_memory_watch_write(AmigaMemoryWriteSource::Blitter, addr, value, true);
+        }
+        outcome
+    }
+
+    fn generate_display_dma(&mut self) {
+        self.agnus.generate_display_dma();
+    }
+
+    fn service_addressed_sprite_dma(&mut self, transfer: commodore_agnus_ocs::DmaTransfer) {
+        let (commodore_agnus_ocs::DmaTransferTarget::Display { reservation, .. }
+        | commodore_agnus_ocs::DmaTransferTarget::DisplayRefresh { reservation, .. }) =
+            transfer.target
+        else {
+            panic!("non-display descriptor reached sprite adapter");
+        };
+        let commodore_agnus_ocs::DisplayDmaChannel::Sprite {
+            channel,
+            second_word,
+            control: _,
+        } = reservation.channel
+        else {
+            panic!("non-sprite display descriptor reached sprite adapter");
+        };
+        let width = self.agnus.spr_fetch_width();
+        let memory = &self.memory;
+        let (is_control, value) = self
+            .agnus
+            .service_retained_sprite_dma(transfer, width, |addr| memory.read_chip_ram_word(addr));
+        let channel = usize::from(channel);
+        if is_control {
+            let reg = 0x140 + (channel as u16) * 8 + if second_word { 2 } else { 0 };
+            self.denise.write_word(reg, value as u16);
+        } else if second_word {
+            self.denise.ocs.write_sprite_datb_wide(channel, value);
+        } else {
+            self.denise.ocs.write_sprite_data_wide(channel, value);
+        }
+    }
+
     fn record_disk_dma_memory_write(&mut self, addr: u32, value: u16) {
         self.record_memory_watch_write(AmigaMemoryWriteSource::DiskDma, addr, value, true);
     }
@@ -2207,19 +2271,42 @@ impl AmigaDriver for AmigaEcs {
         }
     }
 
-    fn denise_tick(&mut self, phase: u8, bitplane_dma_fetch_plane: Option<u8>) {
+    fn service_denise_timing_strobe(&mut self, strobe: commodore_agnus_ocs::DmaStrobe) {
+        self.denise.service_timing_strobe(strobe);
+    }
+
+    fn denise_tick_with_dma(
+        &mut self,
+        phase: u8,
+        bitplane_dma_fetch_plane: Option<u8>,
+        serviced_bitplane: Option<commodore_agnus_ocs::DmaTransfer>,
+    ) {
         let width_words = self.agnus.bpl_fetch_width();
         let vertical_diw_active = self.agnus.vertical_diw_active();
-        let horizontal_blanking_active = self.agnus.programmed_hblank_routed_active()
-            && self.agnus.blanken_enabled()
-            && self.denise.ocs.output_ecsena_enabled()
-            && self.denise.ocs.output_extblken_enabled();
+        let routed_blanking =
+            self.agnus.programmed_hblank_routed_active() && self.agnus.blanken_enabled();
+        self.denise
+            .ocs
+            .advance_csync_blanking(phase, routed_blanking);
+        let horizontal_blanking_active = self.denise.ocs.programmed_hblank_active();
         let horizontal_blanking =
             denise::HorizontalBlanking::from_level(horizontal_blanking_active);
         let line_ccks = self.agnus.current_line_ccks();
-        let bitplane_dma_fetch =
-            bitplane_dma_fetch_plane.map(|plane| denise::BitplaneDmaFetch { plane, width_words });
-        self.denise.tick_with_output_signals(
+        let bitplane_dma_fetch = serviced_bitplane
+            .map(denise::BitplaneDmaInput::Serviced)
+            .or_else(|| {
+                bitplane_dma_fetch_plane.map(|plane| {
+                    denise::BitplaneDmaInput::Granted(denise::BitplaneDmaFetch {
+                        plane,
+                        width_words,
+                    })
+                })
+            });
+        assert!(
+            serviced_bitplane.is_none() || bitplane_dma_fetch_plane.is_none(),
+            "duplicate bitplane memory service"
+        );
+        self.denise.tick_with_dma_output_signals(
             phase,
             bitplane_dma_fetch,
             denise::DeniseOutputSignals::new(vertical_diw_active, horizontal_blanking),
@@ -2353,19 +2440,20 @@ mod bus_plan_dispatch_tests {
     }
 
     #[test]
-    fn copper_and_post_output_color_writes_keep_distinct_phases_and_diagnostics() {
+    fn copper_and_post_output_color_writes_reach_ecs_without_board_delay() {
         let mut amiga = machine();
         amiga.denise.ocs.set_palette(0, 0x0123);
 
         amiga.dispatch_copper_write(0x0180, 0x0ABC);
-        assert_eq!(amiga.denise.color(0), 0x0123);
+        // Super Denise accepts the early Copper colour at this delivery stage.
+        assert_eq!(amiga.denise.color(0), 0x0ABC);
         assert_eq!(
             amiga
                 .denise
                 .board_pipeline_diagnostic_snapshot()
                 .pending_early_writes
                 .len(),
-            1,
+            0,
         );
         assert_eq!(
             amiga.debug_palette_log.last().map(|entry| entry.2),
@@ -2878,6 +2966,23 @@ mod bus_plan_dispatch_tests {
         assert_eq!(amiga.debug_watch_writes.len(), 1);
     }
 
+    fn run_copper_ddf_move(amiga: &mut AmigaEcs, register: u16, replacement: u16) {
+        // Both words must cross the real admission/service stages. Fifteen
+        // colour MOVEs put the tested write at h=64, as in the connected probe.
+        amiga.cpu.state = State::Stopped;
+        for instruction in 0..15 {
+            amiga.poke_word(0x1000 + instruction * 4, 0x0180);
+            amiga.poke_word(0x1002 + instruction * 4, 0);
+        }
+        amiga.poke_word(0x103C, register);
+        amiga.poke_word(0x103E, replacement);
+        amiga.poke_word(0x1040, 0xFFFF);
+        amiga.poke_word(0x1042, 0xFFFE);
+        amiga.copper.cop1lc = 0x1000;
+        amiga.copper.jump1();
+        tick_until_hpos(amiga, 64);
+    }
+
     fn machine_after_copper_ddfstrt_move(replacement: u16) -> AmigaEcs {
         let mut amiga = machine();
         amiga.agnus.vpos = 0x0020;
@@ -2889,14 +2994,7 @@ mod bus_plan_dispatch_tests {
         amiga.agnus.write_diwstop(0xA020);
         amiga.agnus.bpl_pt = [0x2000, 0x3000, 0x4000, 0x5000, 0, 0, 0, 0];
 
-        amiga.poke_word(0x0000_1000, 0x0092);
-        amiga.poke_word(0x0000_1002, replacement);
-        amiga.copper.pc = 0x0000_1000;
-        amiga.copper.cck_phase = 1;
-        amiga.agnus.hpos = 0x003F;
-        amiga.cck_phase = 0;
-
-        amiga.tick();
+        run_copper_ddf_move(&mut amiga, 0x0092, replacement);
 
         assert!(matches!(
             amiga.debug_copper_move_log.last(),
@@ -2908,7 +3006,8 @@ mod bus_plan_dispatch_tests {
     #[test]
     fn copper_ddfstrt_write_cannot_retroactively_start_current_line_dma() {
         for replacement in [0x0038, 0x0040] {
-            let amiga = machine_after_copper_ddfstrt_move(replacement);
+            let mut amiga = machine_after_copper_ddfstrt_move(replacement);
+            tick_until_hpos(&mut amiga, 224);
             assert_eq!(
                 amiga.agnus.cck_bus_plan().bitplane_dma_fetch_plane,
                 None,
@@ -2928,18 +3027,17 @@ mod bus_plan_dispatch_tests {
         assert_eq!(amiga.agnus.ddf_start_match(), None);
         assert_eq!(amiga.agnus.bpl_pt[3], 0x0000_5000);
 
-        while amiga.agnus.hpos < 0x0047 {
-            amiga.agnus.tick_cck();
-            assert_eq!(amiga.agnus.cck_bus_plan().bitplane_dma_fetch_plane, None);
-        }
-        amiga.agnus.tick_cck();
-
-        assert_eq!(amiga.agnus.hpos, 0x0048);
-        assert_eq!(amiga.agnus.ddf_start_match(), Some(0x0048));
-        let fetch = amiga.agnus.cck_bus_plan().bitplane_dma_fetch_plane;
-        assert_eq!(fetch, Some(3));
-        <AmigaEcs as AmigaDriver>::denise_tick(&mut amiga, 0, fetch);
-        assert_eq!(amiga.agnus.bpl_pt[3], 0x0000_5002);
+        // The reference enables the run at h=73, reserves BPL4 at h=74,
+        // addresses it at h=75, then performs the actual memory read at h=76.
+        tick_until_hpos(&mut amiga, 74);
+        assert_eq!(
+            amiga.agnus.dma_pipeline().reservation().map(|r| r.channel),
+            Some(commodore_agnus_ocs::DisplayDmaChannel::Bitplane(3))
+        );
+        assert_eq!(amiga.agnus.bpl_pt[3], 0x5000);
+        tick_until_hpos(&mut amiga, 76);
+        assert_eq!(amiga.agnus.cck_bus_plan().bitplane_dma_fetch_plane, Some(3));
+        assert_eq!(amiga.agnus.bpl_pt[3], 0x5002);
     }
 
     fn machine_after_copper_ddfstop_move(initial_stop: u16, replacement: u16) -> AmigaEcs {
@@ -2952,16 +3050,8 @@ mod bus_plan_dispatch_tests {
         amiga.agnus.write_diwstrt(0x2010);
         amiga.agnus.write_diwstop(0xA020);
         amiga.agnus.bpl_pt[0] = 0x0000_2000;
-        observe_ddf_start(&mut amiga);
 
-        amiga.poke_word(0x0000_1000, 0x0094);
-        amiga.poke_word(0x0000_1002, replacement);
-        amiga.copper.pc = 0x0000_1000;
-        amiga.copper.cck_phase = 1;
-        amiga.agnus.hpos = 0x003F;
-        amiga.cck_phase = 0;
-
-        amiga.tick();
+        run_copper_ddf_move(&mut amiga, 0x0094, replacement);
 
         assert!(matches!(
             amiga.debug_copper_move_log.last(),
@@ -2984,7 +3074,7 @@ mod bus_plan_dispatch_tests {
         for replacement in [0x003C, 0x0040] {
             let mut amiga = machine_after_copper_ddfstop_move(0x0080, replacement);
 
-            tick_until_hpos(&mut amiga, 0x004F);
+            tick_until_hpos(&mut amiga, 83);
 
             assert_eq!(
                 amiga.agnus.cck_bus_plan().bitplane_dma_fetch_plane,
@@ -2992,7 +3082,7 @@ mod bus_plan_dispatch_tests {
                 "DDFSTOP={replacement:#06x} missed its current-line comparator"
             );
             assert_eq!(
-                amiga.agnus.bpl_pt[0], 0x0000_2004,
+                amiga.agnus.bpl_pt[0], 0x0000_2006,
                 "a missed DDFSTOP comparator cannot truncate the active fetch run"
             );
         }
@@ -3002,42 +3092,42 @@ mod bus_plan_dispatch_tests {
     fn copper_cannot_cancel_a_ddfstop_match_from_the_same_beam_entry() {
         let mut amiga = machine_after_copper_ddfstop_move(0x0040, 0x0080);
 
-        tick_until_hpos(&mut amiga, 0x0047);
+        tick_until_hpos(&mut amiga, 75);
         assert_eq!(
             amiga.agnus.cck_bus_plan().bitplane_dma_fetch_plane,
             Some(0),
             "the matched stop still permits its terminal fetch unit"
         );
-        assert_eq!(amiga.agnus.bpl_pt[0], 0x0000_2002);
+        assert_eq!(amiga.agnus.bpl_pt[0], 0x0000_2004);
 
-        tick_until_hpos(&mut amiga, 0x004F);
+        tick_until_hpos(&mut amiga, 83);
         assert_eq!(
             amiga.agnus.cck_bus_plan().bitplane_dma_fetch_plane,
             None,
             "the Copper rewrite must not cancel the already observed stop"
         );
-        assert_eq!(amiga.agnus.bpl_pt[0], 0x0000_2002);
+        assert_eq!(amiga.agnus.bpl_pt[0], 0x0000_2004);
     }
 
     #[test]
     fn copper_can_reschedule_an_unreached_future_ddfstop_comparator() {
         let mut amiga = machine_after_copper_ddfstop_move(0x0080, 0x0048);
 
-        tick_until_hpos(&mut amiga, 0x004F);
+        tick_until_hpos(&mut amiga, 83);
         assert_eq!(
             amiga.agnus.cck_bus_plan().bitplane_dma_fetch_plane,
             Some(0),
             "the future stop retains its terminal fetch unit"
         );
-        assert_eq!(amiga.agnus.bpl_pt[0], 0x0000_2004);
+        assert_eq!(amiga.agnus.bpl_pt[0], 0x0000_2006);
 
-        tick_until_hpos(&mut amiga, 0x0057);
+        tick_until_hpos(&mut amiga, 91);
         assert_eq!(
             amiga.agnus.cck_bus_plan().bitplane_dma_fetch_plane,
             None,
             "the fetch run must end after the future stop's terminal unit"
         );
-        assert_eq!(amiga.agnus.bpl_pt[0], 0x0000_2004);
+        assert_eq!(amiga.agnus.bpl_pt[0], 0x0000_2006);
     }
 
     #[test]
@@ -3081,14 +3171,16 @@ mod bus_plan_dispatch_tests {
         amiga.agnus.hpos = amiga.agnus.current_line_ccks() - 1;
         amiga.agnus.tick_cck();
         assert!(amiga.agnus.programmed_vblank_stop_event());
-        amiga.agnus.hpos = 0x14;
+        amiga.agnus.hpos = 0x16; // reserve SPR0 at h23, address h24, service h25
         amiga.agnus.spr_pt[0] = 0x0000_2000;
         amiga.poke_word(0x0000_2000, 0x4100);
         amiga.cck_phase = 0;
 
-        amiga.tick();
+        for _ in 0..5 {
+            amiga.tick();
+        }
 
-        assert_eq!(amiga.agnus.hpos, 0x15);
+        assert_eq!(amiga.agnus.hpos, 0x19);
         assert_eq!(amiga.agnus.vbstop(), 40);
         assert_eq!(amiga.agnus.spr_pt[0], 0x0000_2002);
         assert_eq!(amiga.agnus.sprite_vstart(0), 0x41);
@@ -3098,12 +3190,21 @@ mod bus_plan_dispatch_tests {
     fn sprite_control_fetch_keeps_the_cpu_stalled_for_the_whole_cck() {
         let mut amiga = machine();
         amiga.agnus.vpos = 30;
-        amiga.agnus.hpos = 0x16; // phase-0 beam advance enters SPR0's second cell
+        amiga.agnus.hpos = 0x18; // SPR0 second reservation h25, address h26, service h27
         amiga.agnus.dmacon = 0x0220; // DMAEN | SPREN
         amiga.agnus.poke_sprite_ctl(0, 30 << 8);
         amiga.agnus.spr_pt[0] = 0x0000_2000;
         amiga.poke_word(0x0000_2000, 50 << 8); // fetched SPR0CTL changes VSTOP
         amiga.cck_phase = 0;
+
+        for _ in 0..4 {
+            amiga.tick();
+        }
+        assert_eq!(amiga.agnus.hpos, 26);
+        assert_eq!(
+            amiga.agnus.spr_pt[0], 0x2000,
+            "addressing does not read RAM"
+        );
 
         amiga.cpu.state = State::BusCycle {
             op: MicroOp::WriteWord,
@@ -3118,13 +3219,13 @@ mod bus_plan_dispatch_tests {
 
         amiga.tick();
 
-        assert_eq!(amiga.agnus.hpos, 0x17);
+        assert_eq!(amiga.agnus.hpos, 0x1B);
         assert_eq!(amiga.agnus.spr_pt[0], 0x0000_2002);
         assert_eq!(amiga.agnus.sprite_vstop(0), 50);
         assert_eq!(
             amiga.agnus.cck_bus_plan().slot_owner,
-            SlotOwner::Cpu,
-            "the fetched control word makes a fresh plan look idle"
+            SlotOwner::Sprite(0),
+            "outgoing identity retains ownership after VSTOP changes"
         );
         assert_eq!(amiga.cpu.bus_status, BusStatus::Wait);
         assert_eq!(amiga.memory.read_chip_ram_word(0x1000), 0);
@@ -3204,12 +3305,23 @@ mod bus_plan_dispatch_tests {
     fn concrete_ecs_vertical_latch_drives_denise_in_diwhigh_extended_window() {
         let mut amiga = machine();
         amiga.agnus.vpos = 0x0110;
-        amiga.agnus.write_diwstrt(0x1010);
-        amiga.agnus.write_diwstop(0xA020);
-        amiga.agnus.write_diwhigh(0x0101); // VSTART=$110, VSTOP=$1A0
+        amiga.dispatch_custom_write(0x08E, 0x1010);
+        amiga.dispatch_custom_write(0x090, 0xA020);
+        // VSTART=$110, VSTOP=$1A0; retain HSTOP=$120 explicitly.
+        amiga.dispatch_custom_write(0x1E4, 0x2101);
         assert!(amiga.agnus.vertical_diw_active());
 
         amiga.agnus.vpos = 0x0120;
+        for hpos in 0..2 {
+            amiga.agnus.hpos = hpos;
+            for phase in 0..2 {
+                <AmigaEcs as AmigaDriver>::denise_tick(&mut amiga, phase, None);
+            }
+        }
+        // This endpoint fixture jumps to a mid-line pixel. First deliver its
+        // horizontal start comparison; a vertical gate cannot open that latch.
+        amiga.agnus.hpos = 0x0008;
+        <AmigaEcs as AmigaDriver>::denise_tick(&mut amiga, 0, None);
         amiga.agnus.hpos = 0x0038;
         amiga.agnus.dmacon = 0x0300;
         amiga.agnus.ddfstrt = 0x0038;
@@ -3243,9 +3355,11 @@ mod bus_plan_dispatch_tests {
         amiga.agnus.hpos = 0x0022;
         amiga.cck_phase = 0;
 
-        amiga.tick();
+        for _ in 0..5 {
+            amiga.tick();
+        }
 
-        assert_eq!(amiga.agnus.hpos, 0x0023);
+        assert_eq!(amiga.agnus.hpos, 0x0025);
         assert_eq!(amiga.agnus.spr_pt[3], 0x0002_0002);
         assert_eq!(amiga.agnus.bpl_pt[0], 0x0003_0000);
     }

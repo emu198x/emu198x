@@ -1,0 +1,1 @@
+reference constant {'stage': 'completed UAE chipset video_memory before FS-UAE compatibility crop and frontend processing', 'width': 1512, 'height': 576, 'stride_bytes': 8192, 'depth_bits': 32, 'pixel_format': 'BGRA8888', 'packed_output_stride_bytes': 6048, 'inbuffer_xoffset': 368, 'inbuffer_yoffset': 52, 'host_resolution': 2, 'complete': True}

@@ -31,11 +31,20 @@ pub enum HorizontalDiwComparatorPhase {
 pub trait DeniseChip:
     Clone + serde::Serialize + serde::de::DeserializeOwned + Send + Sync + 'static
 {
+    /// Retained output samples per lores pixel, independent of the live mode.
+    const OUTPUT_SAMPLES_PER_LORES: u32 = 2;
+
+    /// OCS free-runs through STREQU; enhanced Denise/Lisa reset on all strobes.
+    const RESETS_COUNTER_ON_EQUALISATION: bool = false;
+
+    /// Installed display chip decodes the horizontal DIWHIGH extension.
+    const SUPPORTS_DIWHIGH: bool = false;
+
     fn new() -> Self;
 
     /// Select when horizontal DIW comparator matches reach pixel output.
     /// OCS Denise and ECS Super Denise use the match for the current tick;
-    /// AGA Lisa overrides this with its additional output stage.
+    /// All installed variants compose the level after the equality comparison.
     fn horizontal_diw_comparator_phase(&self) -> HorizontalDiwComparatorPhase {
         HorizontalDiwComparatorPhase::BeforeOutput
     }
@@ -51,6 +60,8 @@ pub trait DeniseChip:
     /// (always width 1) never touch the FIFO.
     fn push_bpl_fifo(&mut self, idx: usize, val: u16);
     fn queue_shift_load_from_bpl1dat(&mut self);
+    /// BPL1DAT's early sprite-enable stage, before bitplane parallel copy.
+    fn enable_sprites_from_bpl1dat(&mut self);
     fn write_sprite_pos(&mut self, sprite: usize, val: u16);
     fn write_sprite_ctl(&mut self, sprite: usize, val: u16);
     fn write_sprite_data(&mut self, sprite: usize, val: u16);
@@ -85,6 +96,24 @@ pub trait DeniseChip:
         spr_beam_y: u32,
         playfield_visible_gate: bool,
     ) -> DeniseOutputPixelDebug;
+    /// Window levels at the four 35 ns positions in the existing output tick.
+    /// OCS/ECS compare coarse positions; Lisa overrides for fractional edges.
+    #[allow(clippy::too_many_arguments)]
+    fn output_pixel_with_sample_gates(
+        &mut self,
+        x: u32,
+        y: u32,
+        beam_x: u32,
+        beam_y: u32,
+        spr_beam_x: u32,
+        spr_beam_y: u32,
+        gates: [bool; 4],
+    ) -> DeniseOutputPixelDebug {
+        assert!(gates.iter().all(|&gate| gate == gates[0]));
+        self.output_pixel_with_beam_sprite_coords(
+            x, y, beam_x, beam_y, spr_beam_x, spr_beam_y, gates[0],
+        )
+    }
     fn resolve_color_rgb12(&mut self, color_idx: u8) -> u16;
 
     /// Resolve a playfield colour index to a final ARGB8888 pixel. The
@@ -115,6 +144,27 @@ pub trait DeniseChip:
         }
     }
 
+    /// Resolve one retained output sample. `sample` is its position within
+    /// the lores period; concrete chips preserve their colour propagation
+    /// time when the framebuffer uses a faster sample clock.
+    fn resolve_output_sample_argb(
+        &mut self,
+        playfield_color_idx: u8,
+        output_color_idx: u8,
+        is_sprite: bool,
+        sample: u8,
+    ) -> u32 {
+        let _ = sample;
+        self.resolve_output_color_argb(playfield_color_idx, output_color_idx, is_sprite)
+    }
+
+    /// Mask the final output in the border without stopping colour or sprite
+    /// advancement. Lisa overrides this for ECSENA-gated BRDRBLNK.
+    fn border_blanking_for_output(&self, playfield_visible_gate: bool) -> bool {
+        let _ = playfield_visible_gate;
+        false
+    }
+
     /// Advance colour-output timing without resolving a visible pixel.
     ///
     /// OCS and ECS have no deferred colour-output state. AGA Lisa overrides
@@ -125,10 +175,10 @@ pub trait DeniseChip:
         let _ = samples;
     }
 
-    /// Apply a COLOR write while retaining the previous value for the current
-    /// output tick. Returns `true` when the concrete chip owns this early
-    /// stage; the board wrapper otherwise queues the complete register write.
-    fn write_color_with_early_output_delay(&mut self, offset: u16, value: u16) -> bool {
+    /// Handle a pre-output COLOR write in the concrete chip. OCS makes it
+    /// visible immediately; Lisa retains its hires palette delay. Returns true
+    /// when handled, or false to use the retained board write stage.
+    fn write_color_before_output_tick(&mut self, offset: u16, value: u16) -> bool {
         let _ = (offset, value);
         false
     }
@@ -154,21 +204,29 @@ pub trait DeniseChip:
     /// reads this to discriminate chipset generation during init.
     fn deniseid(&self) -> u16;
 
-    /// CLXDAT register read ($DFF00E): the latched sprite/playfield
-    /// collision bits, cleared on read. Collision state lives in the
-    /// shared OCS core for every chipset, so each variant forwards
-    /// to it.
+    /// Read and clear the raw 15-bit sprite/playfield collision latch.
+    /// The board register surface adds CLXDAT's fixed high bit. Collision
+    /// state lives in the shared OCS core for every chipset.
     fn read_clxdat(&mut self) -> u16;
-    /// Non-destructive CLXDAT read for the debug / inspection bus.
+    /// Inspect the raw collision latch without clearing it.
     fn peek_clxdat(&self) -> u16;
 
     // ── Field mutators used by the wrapper ──
     fn set_bplcon0(&mut self, v: u16);
+    /// Present the board's raw BPLCON0 mirror to the chip input. Enhanced
+    /// output stages can retain a distinct copy currently driving pixels.
+    fn sync_bplcon0_input(&mut self, value: u16) {
+        self.set_bplcon0(value);
+    }
     fn set_interlace_active(&mut self, v: bool);
     fn set_lof(&mut self, v: bool);
 }
 
 impl DeniseChip for DeniseOcs {
+    fn write_color_before_output_tick(&mut self, offset: u16, value: u16) -> bool {
+        self.write_word(offset, value);
+        true
+    }
     fn new() -> Self {
         DeniseOcs::new()
     }
@@ -183,6 +241,10 @@ impl DeniseChip for DeniseOcs {
     }
     fn queue_shift_load_from_bpl1dat(&mut self) {
         self.queue_shift_load_from_bpl1dat();
+    }
+
+    fn enable_sprites_from_bpl1dat(&mut self) {
+        self.enable_sprites_from_bpl1dat();
     }
     fn write_sprite_pos(&mut self, sprite: usize, val: u16) {
         self.write_sprite_pos(sprite, val);
@@ -268,6 +330,8 @@ impl DeniseChip for DeniseOcs {
 // DeniseEcs wraps DeniseOcs via Deref<Target = DeniseOcs>; field
 // accesses and method calls dispatch through to the inner OCS core.
 impl DeniseChip for DeniseEcs {
+    const SUPPORTS_DIWHIGH: bool = true;
+    const RESETS_COUNTER_ON_EQUALISATION: bool = true;
     fn new() -> Self {
         DeniseEcs::new()
     }
@@ -275,6 +339,12 @@ impl DeniseChip for DeniseEcs {
         // Route through the ECS-aware write so $106 (BPLCON3) lands
         // on the ECS storage; other offsets fall through to OCS.
         DeniseEcs::write_word(self, offset, val);
+    }
+    fn write_color_before_output_tick(&mut self, offset: u16, value: u16) -> bool {
+        // ECS applies COLOR on the early RGA phase. A further board tick
+        // made each independently traced Copper colour edge one lores late.
+        DeniseEcs::write_word(self, offset, value);
+        true
     }
     fn load_bitplane(&mut self, idx: usize, val: u16) {
         self.as_inner_mut().load_bitplane(idx, val);
@@ -284,6 +354,10 @@ impl DeniseChip for DeniseEcs {
     }
     fn queue_shift_load_from_bpl1dat(&mut self) {
         self.as_inner_mut().queue_shift_load_from_bpl1dat();
+    }
+
+    fn enable_sprites_from_bpl1dat(&mut self) {
+        self.as_inner_mut().enable_sprites_from_bpl1dat();
     }
     fn write_sprite_pos(&mut self, sprite: usize, val: u16) {
         self.as_inner_mut().write_sprite_pos(sprite, val);

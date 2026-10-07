@@ -1,0 +1,15 @@
+{
+  "ecs": {
+    "od-fs/fs-uae": "ba59b04326a6477cdf6dd4220d9298263641d59c2eaad2e6bc98fbb109e4a898",
+    "drawing.cpp": "673b8bd3ea9c90511a2f4e1455a0693c84bbdd837696c42b1a21735da8dbcfe6",
+    "custom.cpp": "75bb300ba2798913997f82dde988db465746e9b7f22699bbc275690c8ae227e5",
+    "od-fs/video-fs.cpp": "4e84e2c4dbf84b3c338420e461fc1b452a5ead73a0ded74b92378112f563f89c"
+  },
+  "aga": {
+    "od-fs/fs-uae": "8af82dd86be16e67a85d13df58f051159cb1c3b361c3ad0ad3d5669c3f22f591",
+    "drawing.cpp": "afab7308f64adf551bd15acbb11150b2a589db7773c8c7071b78580c91ec18f3",
+    "custom.cpp": "75bb300ba2798913997f82dde988db465746e9b7f22699bbc275690c8ae227e5",
+    "od-fs/video-fs.cpp": "4e84e2c4dbf84b3c338420e461fc1b452a5ead73a0ded74b92378112f563f89c"
+  },
+  "native_binary_sha256": "c8c26db7780e57a2cd6e22c69198e7dc5975ad9afa008ff6bd0cf871c87d16de"
+}

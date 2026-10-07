@@ -14,6 +14,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Apply Lisa window visibility to each native playfield, sprite-priority and collision sample while retaining uniform-gate entry points.
+
+- Clock Lisa’s two playfield copies independently and freeze complete pending wide words at BPL1DAT.
+
+- Retain Lisa’s full 32-bit shifter when switching between its 16- and 32-bit output taps, preserving bits exposed by mid-line widening
+
+- Preserve Lisa serial phase across resolution changes, clock scroll history in 35 ns periods, and replace complete wide holding groups before fetch-width parallel copy
+
+- Retain chipset-selected framebuffer sampling through shared board composition; Lisa uses four samples and OCS/ECS keep two
+
+- Extend Lisa's serialized sprite clock and output queue to four 35 ns samples per lores period; OCS/ECS sequencing is unchanged
+
+- Compose Lisa sprite priority and collisions from simultaneous hires sample codes while retaining the OCS/ECS lores sequencer
+
+- Accept Lisa border-sprite eligibility as an output control while OCS/ECS retain their display-window and BPL1DAT gates
+
+- Let Lisa supply its dual-playfield palette offset while OCS/ECS retain the fixed offset 8
+
+- Compare collision conditions per actual source pixel and require the even group for single-playfield odd-group sprite collisions
+
+- Retain Lisa sprite output codes for one further lores step, preserving comparator timing and aligning visible/collision output
+
+- Correct independent playfield scroll fields and hires delay masking; retain Lisa serial scroll history for AGA wide fetches
+
 - Require a current-line `BPL1DAT` arrival before normal sprite display and
   collision contribution while continuing to advance hidden sprite shifters
 - Delay newly loaded sprite display and collision data by one low-resolution

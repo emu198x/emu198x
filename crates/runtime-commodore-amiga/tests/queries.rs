@@ -1298,7 +1298,7 @@ fn denise_board_pipeline_exposes_complete_bounded_state_on_every_chipset() {
     assert_denise_board_pipeline(&mut aga);
 }
 
-fn assert_denise_board_pipeline<M: AmigaMachine>(runtime: &mut AmigaRuntime<M>) {
+fn assert_denise_board_pipeline<M: AmigaMachine + AmigaLiveAccess>(runtime: &mut AmigaRuntime<M>) {
     let initial = query_value(runtime, "denise.board_pipeline");
     let initial = initial
         .as_object()
@@ -1309,19 +1309,35 @@ fn assert_denise_board_pipeline<M: AmigaMachine>(runtime: &mut AmigaRuntime<M>) 
         initial_fields,
         [
             "bytes_this_line",
+            "horizontal_counter",
+            "horizontal_diw_active",
+            "horizontal_window",
             "last_begin_line",
+            "pending_bitplane_dma",
             "pending_early_writes",
             "prior_line_raster",
         ],
     );
     assert_eq!(initial["bytes_this_line"], json!(0));
+    assert_eq!(initial["horizontal_diw_active"], json!(false));
     assert_eq!(initial["last_begin_line"], Value::Null);
     assert_eq!(initial["pending_early_writes"], json!([]));
+    assert_eq!(initial["pending_bitplane_dma"], Value::Null);
     assert_eq!(initial["prior_line_raster"], Value::Null);
+    assert_eq!(
+        initial["horizontal_counter"],
+        json!({
+            "current": 0,
+            "next": 0,
+            "incoming": null,
+            "pending": null,
+            "second_tick": false,
+        }),
+    );
 
     let provider = AmigaSessionQueryProvider;
     for _ in 0..2_000 {
-        runtime.machine_mut().tick();
+        AmigaMachine::tick(runtime.machine_mut());
         if !query_value(runtime, "denise.board_pipeline.prior_line_raster").is_null() {
             break;
         }
@@ -1353,6 +1369,23 @@ fn assert_denise_board_pipeline<M: AmigaMachine>(runtime: &mut AmigaRuntime<M>) 
     );
 
     let paths = provider.query_paths(runtime, Some("denise.board_pipeline"));
+    assert!(paths.contains(&"denise.board_pipeline.horizontal_diw_active".to_owned()));
+    assert_eq!(
+        query_value(runtime, "denise.board_pipeline.horizontal_diw_active"),
+        runtime
+            .machine()
+            .denise_board_pipeline_diagnostic_snapshot()
+            .horizontal_diw_active,
+    );
+    let counter = query_value(runtime, "denise.board_pipeline.horizontal_counter");
+    for field in ["current", "next", "incoming", "pending", "second_tick"] {
+        let path = format!("denise.board_pipeline.horizontal_counter.{field}");
+        assert!(
+            paths.contains(&path),
+            "saved counter stage should be discoverable: {path}"
+        );
+        assert_eq!(query_value(runtime, &path), counter[field]);
+    }
     assert!(
         paths.contains(&"denise.board_pipeline.prior_line_raster.vpos".to_owned()),
         "active optional context fields should become discoverable",
@@ -1491,6 +1524,42 @@ fn ecs_queries_expose_raw_routed_and_composed_hblank_state() {
     assert_eq!(
         query_value(&runtime, "chipset.programmed_hblank_output_active"),
         json!(false),
+    );
+}
+
+#[test]
+fn ecs_queries_expose_csync_samples_before_and_after_output() {
+    let mut runtime = AmigaEcsRuntime::blank(Model::A500PlusEcsPal);
+    for (register, value) in [
+        (0x1C4, 0x40),
+        (0x1C6, 0x48),
+        (0x100, 1),
+        (0x106, 1),
+        (0x1DC, 0x28),
+    ] {
+        runtime
+            .machine_mut()
+            .poke_word(0x00DF_F000 + register, value);
+    }
+    let mut pending_rise = false;
+    let mut pending_fall = false;
+    for _ in 0..2_048 {
+        runtime.machine_mut().tick();
+        let state = runtime.machine().denise_ecs().csync_blanking();
+        if state.cck_samples[2] == state.output_level {
+            continue;
+        }
+        assert_eq!(query_value(&runtime, "denise.csync_blanking"), json!(state));
+        assert_eq!(
+            query_value(&runtime, "chipset.programmed_hblank_output_active"),
+            json!(state.output_level)
+        );
+        pending_rise |= state.cck_samples[2];
+        pending_fall |= !state.cck_samples[2];
+    }
+    assert!(
+        pending_rise && pending_fall,
+        "queries must distinguish both delayed edges from live Agnus"
     );
 }
 

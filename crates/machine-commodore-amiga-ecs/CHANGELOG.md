@@ -41,6 +41,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Deliver ECS programmable blanking through Super Denise's retained signal stages instead of consuming the live Agnus level
+
 - Re-encode the current floppy track after a successful writable DMA flush so
   subsequent reads observe persisted sectors without losing rotational phase
 - Preserve inherited nasty-mode CPU stalls when a parked Copper yields one of

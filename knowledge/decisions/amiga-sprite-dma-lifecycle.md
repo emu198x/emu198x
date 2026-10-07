@@ -252,3 +252,18 @@ Reject these patterns:
 - [Original Agnus vertical display-window latch](amiga-ocs-vertical-diw-latch.md)
 - [Original Agnus hard vertical-blank close](amiga-original-agnus-hard-vertical-blank.md)
 - [Amiga full-family architecture review](amiga-full-family-architecture-review.md)
+
+
+## AGA wide-transfer payload and pointer stride
+
+The [primary wide sprite observations](../../../../reference/by-system/commodore-amiga/2026-neutral-video-output-phase-observations.md#wide-sprite-dma-and-full-raster-origins--2026-10-05)
+constrain the transfer payload independently of request/comparator state.
+Each granted transfer selects the FMODE/address-dependent word lanes. Control
+fetches latch the selected first word and advance over all transfer padding;
+data fetches assemble every selected word MSB first. Pointer increments are
+2/4/4/8 bytes for sprite FMODE 0/1/2/3. Request timing, VSTOP precedence,
+vertical reset, DMA enable gating and bus ownership retain the lifecycle above.
+The sixteen address-sensitive regressions and padded boot guests exercise
+these invariants. FS-UAE 5.0.7's page-mode producer defect and the separately
+ported WinUAE correction are recorded in the primary evidence, not hidden by
+changing expected pixels or native lane selection.

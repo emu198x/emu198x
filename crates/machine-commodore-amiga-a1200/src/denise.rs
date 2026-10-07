@@ -9,7 +9,8 @@
 
 use commodore_denise_aga::DeniseAga;
 pub use common_commodore_amiga::denise::{
-    BitplaneDmaFetch, DeniseOutputSignals, FB_HEIGHT, FB_WIDTH,
+    BitplaneDmaFetch, BitplaneDmaInput, DeniseOutputSignals, FB_HEIGHT,
+    SUPERHIRES_FB_WIDTH as FB_WIDTH,
 };
 
 pub type Denise = common_commodore_amiga::denise::Denise<DeniseAga>;

@@ -9,6 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Sample an overlapping display PT/MOD entry before outgoing memory service
+  so its captured address cannot be replaced by that service's pointer result
+
+- Connect addressed bitplane transfers to live service and saved ownership,
+  retaining the sampled pointer/modulo and bus lanes through Denise's normal
+  RGA delay; automatic display request generation remains pending
+
+- Admit automatic timing strobes after the shared address-stage boundary so they retire on the following CCK
+
+- Clock the saved Denise counter on actual output ticks and retire admitted
+  timing strobes once through the shared driver and all three chipset adapters
+
+- Retain Denise's nine-bit horizontal counter, normal RGA strobe and two-tick
+  commit stages, with OCS STREQU free-running and enhanced-chip reset policy;
+  live display-coordinate integration remains part of the shared DMA correction
+
 - Add a source-aware Amiga memory-write record and the narrow shared-driver
   hook for observing disk read-DMA writes into chip RAM
 - Add non-driving active-map memory peeks and a payload-free diagnostic snapshot
@@ -38,6 +54,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   active-CPU clock-domain state and instruction-boundary recording
 
 ### Fixed
+
+- Apply ECS Copper colours on their early RGA output tick, removing an extra board-stage delay without changing snapshot 53.
+
+- Retain timed Denise window registers and sample-level Lisa window history; decode horizontal DIWHIGH without sampling Agnus mirrors early.
+
+- Retain the horizontal display-window latch across counter resets, preserving overscan pixels when HSTOP has not matched
+
+- Read each Copper instruction word in its own granted cell, retaining the first word across denied cells, later RAM writes and restore, and preserving actual ownership across half-CCK restore
+- Keep CPU chip-RAM arbitration on the saved service owner after live DMA registers change
+- Return a blitter-blocked Copper WAIT through a free live comparison before fetching, preserving its blocked reason and cancelling it on either Copper jump
+
+- Preserve both free Copper WAIT idle stages before live comparison, preventing
+  the next instruction from running two CCKs early
+
+- Feed raw BPLCON0 inputs without overwriting Lisa output stages and advance unprojected colour stages at the chipset native sample rate
+
+- Select and repeat Alice's bitplane DMA word lanes for misaligned wide
+  pointers and FMODE=2 page-mode transfers, preserving grant timing,
+  pointer increments and the pending transfer stage
+
+- Include the fixed high bit on CPU and debug CLXDAT reads without changing the underlying collision latch
+
+- Apply pre-output OCS Copper colour writes on the dispatch tick while preserving ECS/AGA colour stages
+
+- Stage bitplane DMA through Denise’s normal display-side RGA path before
+  enabling parallel copies, preventing a one-word jump at fine-scroll wraps.
+  Retain wide-fetch tails and the in-flight transfer across save states.
 
 - Freeze the current CCK's Agnus DMA ownership before dispatching a Copper
   write, so that write cannot reallocate its own bus cell to bitplane DMA

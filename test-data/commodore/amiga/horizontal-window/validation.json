@@ -1,0 +1,475 @@
+{
+  "status": "Version-53 timed/fine window correction and subsequent Lisa counter-origin recalibration implemented; 51 AGA fields exact in traced counter space",
+  "snapshot_version": 53,
+  "rejected_snapshot_version": 52,
+  "baseline": {
+    "status": "Reproduced failures; production unchanged; proposed saved-stage correction awaits approval",
+    "snapshot_version": 52,
+    "producer": {
+      "reference_base_revision": "f362278ccd4c60991caac3b4d240d4a3f751bea2",
+      "reference_scope": "Existing extracted exploratory full-resolution producer, not a Git checkout or an independent hardware reference",
+      "sha256": {
+        "/private/tmp/emu198x-superhires-playfield/reference-source/custom.cpp": "75bb300ba2798913997f82dde988db465746e9b7f22699bbc275690c8ae227e5",
+        "/private/tmp/emu198x-superhires-playfield/reference-source/drawing.cpp": "668ff58b6382f328ac9f851c1ef297620b4942792c3f37a580e171af3cc7a5f7",
+        "/private/tmp/emu198x-superhires-playfield/reference-source/od-fs/fs-uae": "328bd3edec09382e3c1409cd1d04c6c6417527bac1797386dac74b929644169f",
+        "/Users/stevehill/Projects/198x/Emu198x/emu198x/target/release/emu198x-amiga": "dd09adf3ce5180929f08a975cd5d49453543a10c1c41a0616726cd274f852a04",
+        "/Users/stevehill/Projects/198x/Emu198x/emu198x/../roms/kick31_40_068_a1200.rom": "6d43840d4099a74170ea0f0425b6257c3891ebcaa39c4d1840075a9ab22b5707",
+        "/Users/stevehill/Projects/198x/Emu198x/emu198x/tools/fs-uae-sprite-phase-capture/config.uae.in": "4baf5718b092d3a3d6fd16d54188c2ef8a9c90b77c1b745cf99036366079aebd"
+      }
+    },
+    "compared_fields": 51,
+    "failed_fields": 33,
+    "passed_fields": 18,
+    "compared_rgb_pixels": 44262288,
+    "comparison_exit_code": 1,
+    "deterministic_rebuild": "All 17 ADFs byte-identical; original first 13 ADFs also unchanged after adding stop-edge controls",
+    "guest_ready_checks": "SPHX signature, matching case identity and field counter >=9; reference fields exactly 9,10,11",
+    "measurements": [
+      {
+        "case": "legacy",
+        "mismatched_pixels_per_field": [
+          0,
+          0,
+          0
+        ],
+        "bounds": null,
+        "adf_sha256": "71a4837e36985d59e05b14df54eb1852521b34cc9117c1e1c098103ad1912b46",
+        "config_sha256": "75b3d3963e557bf43c79f59e30ce7aed1647a478edf798d36ff64c38553488d3"
+      },
+      {
+        "case": "explicit-legacy",
+        "mismatched_pixels_per_field": [
+          0,
+          0,
+          0
+        ],
+        "bounds": null,
+        "adf_sha256": "3ae6a8c9c6adcd1139eabb716c4d96f959141decc8bf884abcc88d125c9b262d",
+        "config_sha256": "50642d64b658e0fb9f684a4ec0f96a2a23413754db5f00ca134d6c2111512eb9"
+      },
+      {
+        "case": "stop-low-half",
+        "mismatched_pixels_per_field": [
+          390400,
+          390400,
+          390400
+        ],
+        "bounds": [
+          408,
+          36,
+          1384,
+          436
+        ],
+        "adf_sha256": "636588098905ea590a31e73ee73f92876820ce06a5cc433aaa3d0ae76ea95aab",
+        "config_sha256": "0005cebbe70878f3636d0ba914cad6faf385379369e30235e76e5782223a3c67"
+      },
+      {
+        "case": "start-high-half",
+        "mismatched_pixels_per_field": [
+          409600,
+          409600,
+          409600
+        ],
+        "bounds": [
+          152,
+          36,
+          1176,
+          436
+        ],
+        "adf_sha256": "c4b43a4b1ae408bc5e6429251988dfd1696d1db9e8b44bbde510790ca0d3876c",
+        "config_sha256": "44e3496bc804856632b16d160333f223de54264d546bb9b9c9ab72a1dba6c812"
+      },
+      {
+        "case": "start-fine-1",
+        "mismatched_pixels_per_field": [
+          400,
+          400,
+          400
+        ],
+        "bounds": [
+          152,
+          36,
+          153,
+          436
+        ],
+        "adf_sha256": "a7e85688ad9f13a16afe7f67cd84e2ec20b76d2dbb2a5ae772a6b015c9229023",
+        "config_sha256": "51b8fd542a50d5581df446a7621437c2f1a64af2d11bc2fbfe533a7da1233d2f"
+      },
+      {
+        "case": "start-fine-2",
+        "mismatched_pixels_per_field": [
+          800,
+          800,
+          800
+        ],
+        "bounds": [
+          152,
+          36,
+          154,
+          436
+        ],
+        "adf_sha256": "bd260cc1bd4c725fac8daa532f9221c4caf334a48e852f42d0a89ad7be3aa7c3",
+        "config_sha256": "7e675ac35ced96c74600564fa7923a7680695138011711e0b8b82735223dc17e"
+      },
+      {
+        "case": "start-fine-3",
+        "mismatched_pixels_per_field": [
+          1200,
+          1200,
+          1200
+        ],
+        "bounds": [
+          152,
+          36,
+          155,
+          436
+        ],
+        "adf_sha256": "4708c9059f93031e61c68470c697f8a3b91b20e872923505a036ff015937bea6",
+        "config_sha256": "26a0f43f0ebed8f11436b7966deb9fdeb72b0e39b2722bb0793eee0d31192e61"
+      },
+      {
+        "case": "stop-fine-1",
+        "mismatched_pixels_per_field": [
+          0,
+          0,
+          0
+        ],
+        "bounds": null,
+        "adf_sha256": "1c7cfc3cd1a3ffd2cebfc6fee47888594fb2700bab9dd49205b32d393e8b37f7",
+        "config_sha256": "97402f2cf1c2a39649eac535ec0d550c19bc7b844df355b916dc7ec2e5a21861"
+      },
+      {
+        "case": "stop-fine-2",
+        "mismatched_pixels_per_field": [
+          0,
+          0,
+          0
+        ],
+        "bounds": null,
+        "adf_sha256": "c9b6e02e48fc7a63217fb1f0c1d32fb5b97bef36028f360b35df824f45b5c2a7",
+        "config_sha256": "eea6512d445526ae83c70de24f7b32f09567a244708357f498299c61b016e723"
+      },
+      {
+        "case": "stop-fine-3",
+        "mismatched_pixels_per_field": [
+          0,
+          0,
+          0
+        ],
+        "bounds": null,
+        "adf_sha256": "d2778048872eee39a33c58068c40c55568baf4994d4e89f2cad378c6bb05a977",
+        "config_sha256": "ac16c5c9eac704b9cf1d152d61c741259f28ca79b0a780569bff0293080d106c"
+      },
+      {
+        "case": "visible-stop-0",
+        "mismatched_pixels_per_field": [
+          0,
+          0,
+          0
+        ],
+        "bounds": null,
+        "adf_sha256": "61e3edd32be86c12bd17327af7744c5bab9efd34b3d2a1c8385e9049e7999834",
+        "config_sha256": "7ac9e312e3b1793aff15353e7ceab9ce090ac3981fd434174afe9ef11dd3a960"
+      },
+      {
+        "case": "visible-stop-1",
+        "mismatched_pixels_per_field": [
+          400,
+          400,
+          400
+        ],
+        "bounds": [
+          1304,
+          36,
+          1305,
+          436
+        ],
+        "adf_sha256": "2a5bf5b77e85fbd3962189efb04f97cbd8d250a132387f79e33899dd94ad53f5",
+        "config_sha256": "6d9b5d36d7bafb4070f3d2b1633da7b8e2fe7090ba0d054d1b2f8cbfd8a1b0b9"
+      },
+      {
+        "case": "visible-stop-2",
+        "mismatched_pixels_per_field": [
+          800,
+          800,
+          800
+        ],
+        "bounds": [
+          1304,
+          36,
+          1306,
+          436
+        ],
+        "adf_sha256": "29e49ff1d4d8178d0d73111e3c55c37f594a52cc877c27fc2f604696346250b6",
+        "config_sha256": "26d5b3048dcc3e2c9c0ea38a3535d2138c7751464f23802278c24663097af4cc"
+      },
+      {
+        "case": "visible-stop-3",
+        "mismatched_pixels_per_field": [
+          1200,
+          1200,
+          1200
+        ],
+        "bounds": [
+          1304,
+          36,
+          1307,
+          436
+        ],
+        "adf_sha256": "28a38b0eb4a789247ab544161b868c2c7ad41f10019b1d78c7b939ec5d0967b8",
+        "config_sha256": "f2d72bdb8a8c144615fc90723016c582c8e756cc80fc451ff5c59cd171781754"
+      },
+      {
+        "case": "rewrite-start",
+        "mismatched_pixels_per_field": [
+          1952,
+          1952,
+          1952
+        ],
+        "bounds": [
+          408,
+          218,
+          1384,
+          220
+        ],
+        "adf_sha256": "2b83673e1a7101eced4fecd75d2d65aeb9305947a12ae62e8d7cc5a2a4f66f11",
+        "config_sha256": "ea93e2fc0c26ccc20795e7fdaa27ff9074d9f3f2f04696f9c4d404283b0d655b"
+      },
+      {
+        "case": "rewrite-stop",
+        "mismatched_pixels_per_field": [
+          1536,
+          1536,
+          1536
+        ],
+        "bounds": [
+          104,
+          218,
+          1384,
+          222
+        ],
+        "adf_sha256": "6191ca8e768d8b693702d5c758e00da87c4875dec81ce4fd51ccf7da732686d1",
+        "config_sha256": "db94680bbc7f834d0754351997010f0e60bf5e38a3141034054e34eb25eeda29"
+      },
+      {
+        "case": "rewrite-high",
+        "mismatched_pixels_per_field": [
+          14528,
+          14528,
+          14528
+        ],
+        "bounds": [
+          104,
+          204,
+          1384,
+          238
+        ],
+        "adf_sha256": "416e0a3e4d4a7e2e19c96ff54053d95d966c9ca17af65eddefaa30dd5fd2e4e8",
+        "config_sha256": "5e27cc2bcbd016db4b6b6ae6ace8d49db9748cc19521f83f54461775bc9853f4"
+      }
+    ],
+    "native_traces": {
+      "rows_per_trace": 440,
+      "vpos": [
+        134,
+        135,
+        136,
+        137
+      ],
+      "counter_semantics": "state after tick; counter is next output position",
+      "source_sha256": "c25ddd1884cf3bd24c7526ba9a7af8f8e4609fd0bc7bcb53e5610d26a28c815c",
+      "executable_sha256": "8958792236da66b4a49f21692829473a10ae5af219a5210969a379525b08f2f3",
+      "build_exit_code": 0,
+      "capture_exit_codes": [
+        0,
+        0
+      ],
+      "clippy_exit_code": 0
+    },
+    "source_sha256": {
+      "/Users/stevehill/Projects/198x/Emu198x/emu198x/../../emulators/amiga/WinUAE/drawing.cpp": "f66270d618b987d24fa44e83af2fb23276257077eb64286534b1b16dba6f28d3",
+      "/Users/stevehill/Projects/198x/Emu198x/emu198x/../../emulators/amiga/vAmiga/Core/Components/Denise/DeniseRegs.cpp": "6f0be42d4b58e637ac44d2ab7ffb964e23ec7cb07cfdab59b2c115b398f44a1b",
+      "/Users/stevehill/Projects/198x/Emu198x/emu198x/../../emulators/amiga/Minimig-AGA_MiSTer/rtl/denise.v": "06dfa15698cf696d4494a5cd5321ade5c38079e942f298530f8d8db6a71b81f4",
+      "/Volumes/Data/Reference-PDFs/by-system/commodore-amiga/amiga-hardware-reference-manual-3rd-edition.pdf": "888f28e899dddb46ee7ac543b7b63efe0d0cec4be85633214783fef4efafe7f2"
+    },
+    "evidence_limits": [
+      "AGA captures only; ECS register timing needs its own live calibration.",
+      "The original stop-fine cases run out of data before HSTOP and cannot validate stop fine positioning.",
+      "Registered FS-UAE and WinUAE are one software family; no physical-hardware claim.",
+      "No production stages or snapshot schema changed in this diagnostic pass."
+    ],
+    "logs_directory": "/private/tmp/emu198x-horizontal-window",
+    "logs_sha256": {
+      "trace-build-final.log": "09ca774c9a8d92579a12326b96828b8926b76724ef80fb31c34ca4d58331a405",
+      "reference-visible-stop.log": "da68caf0a2e90e7cd7dc32e74ea27ba66dc133da0df6917d8b34fbc9436742ec",
+      "compare17.log": "6b015183ff2b9351281a21656117573b7390181b8f6e58e64e3907894cc2cb35",
+      "build17.log": "a522ad1887e45557836d90ac4b30f64c2bdb7566a2c24d7c1284029702cfd5b7",
+      "rewrite-start-trace.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "rebuild.log": "35f6dfdfaa0b49915a773be4948c2ea1875ebf22d2a12ffecead3c9abd176992",
+      "native-visible-stop.log": "40a670e92416a13e65c249b49bc3fce6326f6ca3b01f63c3aed8236b2892e973",
+      "reference.log": "6003116a3aa3f4dc21308aa932769ead01d1cd7fda1c4ce2268098b7ff05a894",
+      "native-before.log": "e282c827624023bb4e368b270305e90a8acf7b8cd14a4c3d1364af0bfc3b9ee5",
+      "trace-clippy.log": "bd2cdfa9f8c868541da7b54ac06c5e4f483b82352e634654b5662d18ae51b703",
+      "rebuild17.log": "637b386122547f9876282dfc3253d9c8a22c35264aec335d0561a475b319cf8a",
+      "rebuild17-formatted.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "trace-build.log": "37ae3e83f061440ba85d64840b12fbaaaac3178a98718a68eb1fb2788fed95f0",
+      "rewrite-stop-trace.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "checks": {
+      "rustfmt": "pass",
+      "ruff_check": "pass",
+      "ruff_format": "pass",
+      "git_diff_check": "pass"
+    },
+    "builder_sha256": "524595b77827cc1b5ca05ed08c4701d3b30dff1e8bcf073545390118b178cd90"
+  },
+  "aga_candidate": {
+    "compared_fields": 51,
+    "failed_fields": 0,
+    "compared_rgb_pixels": 44262288,
+    "comparison_exit_code": 0,
+    "report": "after-comparison.json",
+    "producer": {
+      "native_sha256": "b804a6841a0ed1246a0767ce2044d3815f99c6b2d6285a20a0e5d59d1c38968b",
+      "stage": "First version-53 render candidate, before redundant scalar gate cleanup; final executable separately rebuilt and rechecked in final_executable"
+    }
+  },
+  "ecs_follow_up": {
+    "lores_guests": 7,
+    "hires_guests": 4,
+    "compared_fields": 33,
+    "failed_fields": 33,
+    "reports": [
+      "ecs-lores-comparison.json",
+      "ecs-hires-comparison.json"
+    ],
+    "native_transport": "Repeat each 70 ns native sample twice; retain the unchanged beam-origin crop",
+    "rom_sha256": "d0b70e8a1772614b897f92c33cb299bed3fc8e3de488fc12f67f97fc2486eb79",
+    "status": "Resolved in counter-domain diagnostics: reported UAE buffer origin omits four samples of output padding; no ECS chip-delay fix justified",
+    "follow_up": "../ecs-output-phase/validation.json"
+  },
+  "limits": [
+    "Software-reference evidence, not physical-hardware calibration.",
+    "Initial stop-fine probes are masking controls; visible-stop cases establish fine-stop correctness.",
+    "No ECS full-raster pass is claimed.",
+    "The original wider graphics-combination investigation follows this bounded window correction.",
+    "The older 128-guest/384-field graphics corpus was not rerun in this correction; the new window corpus and strict Test Kit gates provide the live image checks.",
+    "Subsequent counter-origin tracing exposes a one-lores-tick native AGA window/data delay hidden by the old reference mapping; old exact raw-image matches do not prove absolute chip phase. See ../ecs-output-phase/aga-controls.json."
+  ],
+  "completed_checks": {
+    "strict_clippy": "pass; all targets for the seven affected chip/board/machine/runtime packages",
+    "strict_test_kit_ocs": "six exact patterns; registered input identities verified",
+    "snapshot_roundtrip": "54 passed, 0 failed",
+    "new_window_replay": "3 passed, 0 failed",
+    "cargo_fmt": "pass",
+    "ruff": "pass",
+    "adf_rebuild": "17 original ADFs byte-identical after adding resolution controls",
+    "corrected_fixture_rerun": "141 common-board tests and 30 ECS-machine tests pass; no pixel assertions removed",
+    "strict_test_kit_aga": "six exact patterns; registered input identities verified",
+    "native_build": "pass",
+    "final_native_capture": "nine exact reference fields for timed rewrite and fine-start/fine-stop rechecks",
+    "golden_matrix": "8 passed, 0 failed; all seven distinct ROM/disk inputs independently read and hashed; no golden updates",
+    "scroll_dma": "8 passed, 0 failed after programming both chips; foreground texture required",
+    "border_blanking": "2 passed, 0 failed after programming both chips",
+    "common_board_final": "141 passed, 0 failed, including positive foreground check in hires overfetch alignment fixture",
+    "superhires_dma": "6 passed, 0 failed after programming both chips; positive foreground required",
+    "final_fixture_clippy": "pass; common-board library/tests and runtime tests, release profile, -D warnings"
+  },
+  "golden_inputs": {
+    "all_inputs_read_and_hashed": true,
+    "distinct_inputs": 7,
+    "update_mode_enabled": false,
+    "require_assets_flag_set": false,
+    "source_manifest_sha256": "bd80e7d47a2ad8b34b734300e281fc391e582cecb27eb62301bc7c41acd171b5"
+  },
+  "final_executable": {
+    "compared_fields": 9,
+    "failed_fields": 0,
+    "report": "final-comparison.json",
+    "warmup_frames": 210,
+    "producer_sha256": {
+      "/Users/stevehill/Projects/198x/Emu198x/emu198x/target/release/emu198x-amiga": "435aedf26aa43115d3b190e0d5d293bb2c27731c900aa2499aa736935285ac12",
+      "/Users/stevehill/Projects/198x/Emu198x/emu198x/crates/common-commodore-amiga/src/denise.rs": "160c7e478db5fefff8c809ad18b689c29d3bf36a1cdc3d7b0d72f26686aa8260",
+      "/Users/stevehill/Projects/198x/Emu198x/emu198x/crates/common-commodore-amiga/src/denise_window.rs": "ee05f09bc8d9504330744453f6dcd5c5251366fd663e5c724f1a29ec877c5e80",
+      "/Users/stevehill/Projects/198x/Emu198x/emu198x/crates/common-commodore-amiga/src/denise_chip.rs": "c2829de982ed3dfe43dd7d51ae5450b849538939bee12675671a05238b2afcce",
+      "/Users/stevehill/Projects/198x/Emu198x/emu198x/crates/commodore-denise-ocs/src/chip.rs": "9b91fdacfc80d48c73eb0cfaeffa99d6721bc5ca917a437b8dadb26b17db22ad",
+      "/Users/stevehill/Projects/198x/Emu198x/emu198x/crates/commodore-denise-aga/src/lib.rs": "2f76faa771aa465d8353a02595980f2136a2fd33bea75f874465aa02964d81ce",
+      "/Users/stevehill/Projects/198x/Emu198x/emu198x/crates/runtime-commodore-amiga/src/snapshot.rs": "24ce4d6c7902da1d7de1cf3f01fe64956063d97d64723705e537841a33097dd9",
+      "/Users/stevehill/Projects/198x/Emu198x/emu198x/crates/machine-commodore-amiga-ocs/src/lib.rs": "6945fb5f46cb2359a4962e5477b19ccb154793114331f64904971adfdf674220",
+      "/Users/stevehill/Projects/198x/Emu198x/emu198x/crates/machine-commodore-amiga-ecs/src/lib.rs": "9b94e0713577046254807b23fb524eaa6d362b536b9b65e6ae7a43baf25beb4d",
+      "/Users/stevehill/Projects/198x/Emu198x/emu198x/crates/machine-commodore-amiga-a1200/src/lib.rs": "bb2e220cf1dd830e29a0502bd72b815cccb359fc45f3108d7bafe9e9c91e5ede"
+    },
+    "native_build": "passed",
+    "scope": "Recheck the timed start rewrite and maximum fine start/stop offsets after saved-state cleanup; full initial 51-field comparison remains in aga_candidate.",
+    "post_capture_test_only_changes": {
+      "scope": "Only the cfg(test) hires-overfetch fixture changed in captured production-source files after the final native recheck. Reversing those two test additions reconstructs the exact capture-time source hash. Standalone scroll/border/superhires fixtures are also test-only.",
+      "current_denise_source_sha256": "24cb00b85e128e00e077c2b3006778bff29b9f88451af205f9ac208e468a8356",
+      "capture_denise_source_sha256": "160c7e478db5fefff8c809ad18b689c29d3bf36a1cdc3d7b0d72f26686aa8260",
+      "production_prefix_sha256": "7f4dc911d86add8f37e8b12592bd7cdd1dc768db2fe33919dabfb1cc11902e60",
+      "other_captured_sources_and_binary_unchanged": true
+    }
+  },
+  "broad_regression": {
+    "command": "cargo test --locked --release --no-fail-fast -p commodore-agnus-ocs -p commodore-agnus-ecs -p commodore-agnus-aga -p commodore-denise-ocs -p commodore-denise-ecs -p commodore-denise-aga -p common-commodore-amiga -p machine-commodore-amiga-ocs -p machine-commodore-amiga-ecs -p machine-commodore-amiga-a1200 -p runtime-commodore-amiga",
+    "initial_exit_code": 101,
+    "completed_target_results": 190,
+    "initial_passed": 1250,
+    "initial_failed": 10,
+    "ignored": 121,
+    "failed_tests": [
+      "bus_plan_dispatch_tests::concrete_ecs_vertical_latch_drives_denise_in_diwhigh_extended_window",
+      "ocs_dual_playfield_scroll",
+      "ecs_hires_and_dual_playfield_scroll",
+      "midline_scroll_changes_only_the_selected_dma_playfield",
+      "ocs_hires_scroll",
+      "aga_scroll_fetch_widths",
+      "midline_32_to_64_bit_fetch_waits_for_the_new_parallel_copy_boundary",
+      "superhires_dma_preserves_every_bit_at_all_fetch_widths",
+      "delayed_parallel_copy_keeps_all_words_from_the_latest_wide_transfer",
+      "widening_to_32_bits_reveals_the_retained_upper_half_of_the_previous_word"
+    ],
+    "failure_summary_verbatim": "error: 3 targets failed:\n    `-p machine-commodore-amiga-ecs --lib`\n    `-p runtime-commodore-amiga --test scroll_dma`\n    `-p runtime-commodore-amiga --test superhires_dma`",
+    "resolution": "Standalone fixtures only programmed Agnus window registers. Send the intended writes to Denise as well, retaining expected pixels. ECS vertical fixture explicitly retains its intended horizontal stop high bit and settles normal delivery. No production changes were made in response to these broad-sweep failures.",
+    "corrected_targets": {
+      "machine-commodore-amiga-ecs --lib": {
+        "passed": 30,
+        "failed": 0
+      },
+      "runtime-commodore-amiga --test scroll_dma": {
+        "passed": 8,
+        "failed": 0
+      },
+      "runtime-commodore-amiga --test superhires_dma": {
+        "passed": 6,
+        "failed": 0
+      }
+    },
+    "coverage_after_reruns": "All 1,260 executed tests covered by passing original results or corrected-target reruns; 121 ignored tests remain unclaimed. This is not a second complete sweep.",
+    "snapshot_roundtrip": "54 passed in the broad sweep as well as the earlier focused run"
+  },
+  "implementation_logs": {
+    "directory": "/private/tmp/emu198x-horizontal-window",
+    "sha256": {
+      "full53.log": "41c30d97dd0e82888e819d919a9ed1ff47af324494bd0f39e7140e574d5d6fd4",
+      "fixtures53-final.log": "0940e0bcdf483cb4e3068684209165b34f4ad236ffb0eb972ff9931b2cedcb55",
+      "scroll53-final.log": "9d092e2829e31479ef4309af3d841965f5839c8cb51f3028a0569878791532f9",
+      "superhires53-before.log": "af849e841452a5fa1c5f135beee7257d3092eabfff3bb6b02c5e1798e47255f2",
+      "superhires53-final.log": "e9a1f91869765dabb250cad07ed5c3da960a60129299c1d29166bf6734f21770",
+      "border53-final.log": "58dffc2503c8e51866b82a79345836eacec3d9afe2d47645b3f6c65cc1e840ea",
+      "common53-texture.log": "87d763473552b1cd8e0236c19c6c2ef75feda5f5218a8097ed7b06b3018f6663",
+      "clippy53.log": "02921d1b2a3d9e45925594845932483186f85c6dac51dba141c6afc9589b4f0a",
+      "clippy53-fixtures.log": "b490a0ec9c1623669a41cd3e703b2cb8a49fc6af69a7873d16cf81a51560eaa7",
+      "test-kit-ocs53.log": "f1438983abd3936e7f96ddc10068aa8d41eb4a03e2a992331b42dbfea94ecf00",
+      "test-kit-aga53.log": "8c3dfaa529d4e302ea32f72eade5421427fcadf82562f081991128922274312d",
+      "replay53-final.log": "30cf92dc94ef6a72f41cfa90ca6c19b818fa86ca6b2e17e4e8ef290e69b319bd",
+      "build53-final.log": "94df5c9f1b3db70623f7f6b7abef9545f038f80994e6200b5d4a7a42ac3cfd03"
+    }
+  },
+  "counter_phase_correction": {
+    "record": "../ecs-output-phase/lisa-correction/",
+    "window_fields_exact": 51,
+    "sprite_color_scroll_control_fields_exact": 21,
+    "snapshot_layout_changed": false,
+    "reference_images_changed": false
+  }
+}

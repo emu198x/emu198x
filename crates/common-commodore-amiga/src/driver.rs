@@ -48,7 +48,10 @@ use crate::clock::{CpuClock, CpuDomainPhase};
 use crate::copper::Copper;
 use crate::memory::Memory;
 use crate::rtc::Msm6242Rtc;
-use commodore_agnus_ocs::{Agnus, AgnusRegion, BlitterCckOutcome, CckBusPlan, SlotOwner, bits};
+use commodore_agnus_ocs::{
+    Agnus, AgnusRegion, BlitterCckOutcome, CckBusPlan, DmaStrobe, DmaTransferTarget, SlotOwner,
+    bits,
+};
 use emu198x_commodore_paula_8364::{IntSource, Paula8364};
 use motorola_68000::Cpu68000;
 use motorola_68000::bus::{BusStatus, FunctionCode, interrupt_acknowledge_level};
@@ -273,6 +276,18 @@ pub trait AmigaDriver {
     /// split borrow.
     fn blitter_dma_step(&mut self, progress_granted: bool) -> BlitterCckOutcome;
 
+    /// Retire a captured blitter transfer through the machine's watched RAM.
+    fn service_blitter_dma(
+        &mut self,
+        transfer: commodore_agnus_ocs::DmaTransfer,
+    ) -> BlitterCckOutcome;
+
+    /// Generate display reservations through the concrete installed Agnus.
+    fn generate_display_dma(&mut self);
+
+    /// Retire a sprite descriptor through the concrete installed Agnus/Denise.
+    fn service_addressed_sprite_dma(&mut self, transfer: commodore_agnus_ocs::DmaTransfer);
+
     /// Record a disk read-DMA word after Agnus has transferred it into chip
     /// RAM. The concrete machine owns the optional watch range and log.
     fn record_disk_dma_memory_write(&mut self, addr: u32, value: u16);
@@ -318,11 +333,23 @@ pub trait AmigaDriver {
     /// `Denise<C>` never appears in the shared trait surface.
     fn service_sprite_dma(&mut self, channel: u8, second_word: bool);
 
+    /// Deliver an Agnus-serviced timing register over the existing RGA path.
+    fn service_denise_timing_strobe(&mut self, strobe: DmaStrobe);
+
     /// Tick Denise for this sub-CCK phase. Encapsulates the simultaneous
     /// `&mut denise`, `&mut agnus`, and `&memory` split borrow. The
     /// bitplane grant comes from the post-Copper concrete Agnus plan so
     /// Denise cannot silently recompute it through the OCS base view.
-    fn denise_tick(&mut self, phase: u8, bitplane_dma_fetch_plane: Option<u8>);
+    fn denise_tick(&mut self, phase: u8, bitplane_dma_fetch_plane: Option<u8>) {
+        self.denise_tick_with_dma(phase, bitplane_dma_fetch_plane, None);
+    }
+
+    fn denise_tick_with_dma(
+        &mut self,
+        phase: u8,
+        bitplane_dma_fetch_plane: Option<u8>,
+        serviced_bitplane: Option<commodore_agnus_ocs::DmaTransfer>,
+    );
 
     // ---------- per-tick scalar bookkeeping ----------
 
@@ -468,7 +495,8 @@ pub trait AmigaDriver {
     fn advance_cpu_domain(&mut self, stop_at_cpu_boundary: bool) -> bool {
         if self.cpu_domain_phase().is_idle() {
             let phase = self.cck_phase();
-            let mut bitplane_dma_fetch_plane = None;
+            let bitplane_dma_fetch_plane = None;
+            let mut serviced_bitplane = None;
 
             // ── CCK-granular events (phase 0 only) ───────────────────
             if phase == 0 {
@@ -478,8 +506,118 @@ pub trait AmigaDriver {
                 self.agnus_mut().reset_sprite_bus_usage();
                 self.agnus_mut().reset_blitter_cck_bus_state();
 
+                self.copper_mut().bus_used_this_cck = false;
                 // Advance the beam.
                 self.advance_agnus_cck();
+
+                // Retire retained RGA timing traffic before output. The
+                // outgoing descriptor remains visible to the single Agnus
+                // slot authority for both CPU phases, even after claiming it.
+                // Other transfer adapters join this same boundary as they
+                // are connected; no unsupported request may disappear.
+                // Registered do_cck samples PT/MOD before handle_rga_out.
+                // An overlapping address must see the register input, not
+                // a pointer result produced by this CCK's outgoing service.
+                if let Some(reservation) = self.agnus_mut().begin_dma_cck() {
+                    self.agnus_mut().sample_bitplane_dma_address(reservation);
+                }
+                if let Some(transfer) = self.agnus_mut().claim_dma_service() {
+                    match transfer.target {
+                        DmaTransferTarget::Strobe(strobe) => {
+                            self.agnus_mut().service_refresh_dma();
+                            self.service_denise_timing_strobe(strobe)
+                        }
+                        DmaTransferTarget::DisplayRefresh {
+                            reservation,
+                            fixed_register,
+                            ..
+                        } => {
+                            self.agnus_mut().service_combined_refresh_dma(transfer);
+                            let register = reservation.rga_register() & fixed_register;
+                            match reservation.channel {
+                                commodore_agnus_ocs::DisplayDmaChannel::Bitplane(_)
+                                    if (0x110..0x120).contains(&register) =>
+                                {
+                                    serviced_bitplane = Some(transfer)
+                                }
+                                commodore_agnus_ocs::DisplayDmaChannel::Sprite { .. }
+                                    if (0x140..0x180).contains(&register) =>
+                                {
+                                    self.service_addressed_sprite_dma(transfer)
+                                }
+                                _ => self.agnus_mut().service_displaced_display_dma(transfer),
+                            }
+                        }
+                        DmaTransferTarget::Display {
+                            reservation:
+                                commodore_agnus_ocs::DisplayDmaReservation {
+                                    channel: commodore_agnus_ocs::DisplayDmaChannel::Bitplane(_),
+                                    ..
+                                },
+                            ..
+                        } => serviced_bitplane = Some(transfer),
+                        DmaTransferTarget::Display { .. } => {
+                            self.service_addressed_sprite_dma(transfer)
+                        }
+                        DmaTransferTarget::Copper { instruction_word } => {
+                            let word = self.memory().read_chip_ram_word(transfer.address);
+                            if let Some((reg, val)) = self.copper_mut().service_dma_fetch(
+                                instruction_word,
+                                transfer.address,
+                                word,
+                            ) {
+                                self.push_copper_move_log((
+                                    self.tick_count() / TICKS_PER_CCK,
+                                    self.agnus().vpos,
+                                    self.agnus().hpos,
+                                    reg,
+                                    val,
+                                ));
+                                self.dispatch_copper_write(reg, val);
+                            }
+                        }
+                        DmaTransferTarget::Blitter { .. }
+                        | DmaTransferTarget::BlitterInternal { .. }
+                        | DmaTransferTarget::BlitterFinalWrite { .. } => {
+                            let outcome = self.service_blitter_dma(transfer);
+                            self.agnus_mut()
+                                .record_blitter_cck_bus_state(false, outcome.bus_used);
+                            if outcome.interrupt {
+                                self.paula_mut().raise(IntSource::Blit);
+                            }
+                        }
+                        DmaTransferTarget::Audio { channel, reload } => {
+                            let word = self.memory().read_chip_ram_word(transfer.address);
+                            self.paula_mut().service_audio_dma_word(
+                                channel,
+                                transfer.address,
+                                reload,
+                                word,
+                            );
+                        }
+                        DmaTransferTarget::Disk { write, .. } => {
+                            if write {
+                                let word = self.memory().read_chip_ram_word(transfer.address);
+                                assert!(
+                                    self.paula_mut().accept_disk_write_dma_slot(word),
+                                    "admitted disk write lost its FIFO entry"
+                                );
+                            } else {
+                                let word = self
+                                    .paula_mut()
+                                    .service_disk_read_dma_slot()
+                                    .expect("admitted disk read lost its FIFO word");
+                                self.memory_mut().write_word(transfer.address, word);
+                                self.record_disk_dma_memory_write(transfer.address, word);
+                            }
+                            self.agnus_mut().dsk_pt = transfer.address.wrapping_add(2);
+                            self.agnus_mut().record_disk_bus_usage(true);
+                        }
+                        DmaTransferTarget::Refresh => self.agnus_mut().service_refresh_dma(),
+                    }
+                }
+
+                self.agnus_mut().admit_timing_strobe();
 
                 // CIA-B TICK is wired to /HSYNC. Agnus exposes the current
                 // fixed-sync, counter-visible approximation after the raw
@@ -521,115 +659,71 @@ pub trait AmigaDriver {
                 // register immediately, but it cannot retroactively reassign
                 // the cell that carried the MOVE to another DMA channel.
                 let bus_plan = self.agnus_bus_plan();
+                self.agnus_mut().record_dma_service_plan(bus_plan);
 
-                // Copper runs when DMACON.COPEN (bit 7) AND DMAEN (bit 9)
-                // are both set. Agnus arbitrates the chip bus; pass the
-                // current CCK's copper grant (`current_slot` == Copper,
-                // the even free cells) so the copper only fetches on the
-                // cells Agnus allocates to it (#30).
-                //
-                // Reset the copper's per-CCK bus-usage flag every CCK
-                // (whether or not the copper runs): the copper sets it only
-                // when it actually fetches, and the CPU arbitration below
-                // reads it so a parked/throttled copper yields its granted
-                // cell to the CPU.
-                self.copper_mut().bus_used_this_cck = false;
-                let copper_slot_granted = bus_plan.copper_dma_slot_granted;
-                if self.agnus().dmacon & 0x0280 == 0x0280 {
-                    // Route copper MOVEs through the same custom-register
-                    // dispatch the CPU uses. The copper can legitimately
-                    // write any register (bitplane pointers, DMACON,
-                    // INTENA, sprite pointers, DDF/DIW, modulos, etc.);
-                    // routing only through Denise would silently drop
-                    // the non-Denise ones.
-                    let vpos = self.agnus().vpos;
-                    let hpos = self.agnus().hpos;
-                    // Copper WAIT/SKIP BFD=0 sees its own blitter-finished
-                    // observation. It shares the A1000 startup exception with
-                    // DMACONR, but retains busy one CCK longer after main finish
-                    // while the final-D pipeline advances.
-                    let blitter_busy = self.agnus().blitter_busy_copper();
-                    if let Some((reg, val)) =
-                        self.copper_tick_cck(vpos, hpos, copper_slot_granted, blitter_busy)
-                    {
-                        let cck = self.tick_count() / TICKS_PER_CCK;
-                        self.push_copper_move_log((cck, vpos, hpos, reg, val));
-                        self.dispatch_copper_write(reg, val);
+                // Admission uses the retained future address cell, independently
+                // of the outgoing service owner held for both CPU phases.
+                self.generate_display_dma();
+                if let Some(target) = self
+                    .agnus()
+                    .fixed_dma_admission(self.paula().disk_dma_slot_request_mask())
+                {
+                    let request = match target {
+                        DmaTransferTarget::Audio { channel, .. } => self
+                            .paula()
+                            .audio_dma_request(channel)
+                            .map(|(address, reload)| commodore_agnus_ocs::DmaTransfer {
+                                target: DmaTransferTarget::Audio { channel, reload },
+                                address,
+                            }),
+                        DmaTransferTarget::Disk { slot, .. } => {
+                            Some(commodore_agnus_ocs::DmaTransfer {
+                                target: DmaTransferTarget::Disk {
+                                    slot,
+                                    write: self.paula().disk_write_dma_slot_requested(),
+                                },
+                                address: self.agnus().dsk_pt & 0x001F_FFFE,
+                            })
+                        }
+                        DmaTransferTarget::Refresh => Some(commodore_agnus_ocs::DmaTransfer {
+                            target,
+                            address: self.agnus().refresh_dma_pointer(),
+                        }),
+                        _ => unreachable!("non-fixed request in DMAL"),
+                    };
+                    if let Some(request) = request {
+                        let admitted = if matches!(request.target, DmaTransferTarget::Refresh) {
+                            self.agnus_mut().admit_refresh_dma(request)
+                        } else {
+                            self.agnus_mut().admit_dma_transfer(request)
+                        };
+                        assert!(admitted, "fixed DMA collided with a display address");
                     }
                 }
-
-                // ── Paula audio engine — one step per CCK ────────────────
-                // Audio DMA slot arbitration is Agnus's job. Use the frozen
-                // plan for this CCK; Paula also needs the current raw DMACON
-                // value for its master+channel enable gates.
-                bitplane_dma_fetch_plane = bus_plan.bitplane_dma_fetch_plane;
-
-                // ── Blitter DMA and completion pipeline ───────────────
-                // The entry point runs every CCK. Startup/channel/final-D work
-                // remains grant-gated; the internal final-result stage advances
-                // after the last admitted main cycle without another bus grant.
-                // Pre-AGA normal D blits emit INT_BLIT before final D, while
-                // Alice delays that source to final D.
-                //
-                // Copper has first refusal on its eligible even cells, but a
-                // WAITing, stopped or internally throttled Copper does not
-                // allocate the bus. Offer that yielded cell to the blitter
-                // before the CPU, matching the actual-owner arbitration used
-                // by Agnus. A non-nasty blitter may use it only when the CPU
-                // has no mature chip-RAM request; BLTPRI may pre-empt one.
-                // A Copper MOVE may change the live enable state used below,
-                // but ownership of the current physical cell remains frozen.
-                // Its recorded bus use prevents the yielded-cell path from
-                // admitting a second owner in the same CCK.
-                let copper_bus_used = self.copper().bus_used_this_cck;
-                let copper_yielded_slot =
-                    matches!(bus_plan.slot_owner, SlotOwner::Copper) && !copper_bus_used;
-                let blitter_slot_available = bus_plan.blitter_dma_progress_granted
-                    || (copper_yielded_slot
-                        && self.agnus().blitter_busy
-                        && self.agnus().dma_enabled(bits::DMACON_BLTEN));
-                let cpu_competes_for_chip_bus = self.cpu_has_mature_chip_bus_request();
-                let blitter_may_preempt_cpu = self.agnus().blitter_nasty_active()
+                let vpos = self.agnus().vpos;
+                let hpos = self.agnus().hpos;
+                let copper_free = self.agnus().copper_dma_admission_available();
+                let busy = self.agnus().blitter_busy_copper();
+                if self.agnus().dma_enabled(bits::DMACON_COPEN)
+                    && let Some(request) =
+                        self.copper_mut()
+                            .request_dma_cck(vpos, hpos, copper_free, busy)
+                {
+                    assert!(self.agnus_mut().admit_dma_transfer(request));
+                }
+                let blitter_free = self.agnus().dma_pipeline().address().is_none()
+                    && self.agnus().dma_enabled(bits::DMACON_BLTEN);
+                let cpu_competes = self.cpu_has_mature_chip_bus_request();
+                let may_preempt = self.agnus().blitter_nasty_active()
                     || !self.agnus().next_blitter_progress_uses_bus();
-                let blitter_dma_progress_granted = !copper_bus_used
-                    && blitter_slot_available
-                    && (!cpu_competes_for_chip_bus || blitter_may_preempt_cpu);
-                let blitter_nasty_owned =
-                    blitter_dma_progress_granted && self.agnus().blitter_nasty_active();
-                let blitter_outcome = self.blitter_dma_step(blitter_dma_progress_granted);
-                self.agnus_mut()
-                    .record_blitter_cck_bus_state(blitter_nasty_owned, blitter_outcome.bus_used);
-                if blitter_outcome.interrupt {
+                let outcome = self
+                    .agnus_mut()
+                    .admit_blitter_dma_cck(blitter_free && (!cpu_competes || may_preempt));
+                if outcome.interrupt {
                     self.paula_mut().raise(IntSource::Blit);
                 }
-
-                let slot = bus_plan.audio_dma_service_channel;
                 let dmacon = self.agnus().dmacon;
-                self.audio_tick_cck(dmacon, slot);
-
-                // ── Sprite DMA — fetch the control/data words from chip RAM
-                // at the sprite pointers and deliver them to Denise. Agnus
-                // owns the per-sprite control/data state machine; the machine
-                // reads chip RAM and routes the word to the matching SPRxPOS/
-                // CTL/DATA/DATB register (the same path a CPU/copper write
-                // takes). gap #162.
-                if let Some(channel) = bus_plan.sprite_dma_service_channel {
-                    // Sprites occupy odd cells 0x15..0x33, two per channel:
-                    // word = ((hpos - 0x15) / 2) & 1 (#30). Word 0 is the
-                    // control pair (SPRxPOS/CTL), word 1 the data pair.
-                    let second_word = ((self.agnus().hpos.wrapping_sub(0x15)) / 2) & 1 == 1;
-                    self.service_sprite_dma(channel, second_word);
-                }
-
-                // Disk memory traffic consumes only the fixed cells Agnus
-                // granted in this already-sampled plan. Rotational stream
-                // arrival remains independent below, through Paula's bounded
-                // FIFO, so DSKBYTR and disk rotation continue even when DSKEN
-                // is clear or the FIFO cannot use this cell.
-                if bus_plan.disk_dma_slot_granted {
-                    let disk_bus_used = self.service_disk_dma_slot();
-                    self.agnus_mut().record_disk_bus_usage(disk_bus_used);
-                }
+                self.audio_tick_cck(dmacon, None);
 
                 // ── Paula disk engine — DSKBYTR byte-latch + WORDEQUAL
                 // delay. Ticked once per CCK. Paula owns the DMA arm
@@ -661,7 +755,7 @@ pub trait AmigaDriver {
             }
 
             // ── Per-tick: Denise pixel + fetch/reload at phase 0 ────
-            self.denise_tick(phase, bitplane_dma_fetch_plane);
+            self.denise_tick_with_dma(phase, bitplane_dma_fetch_plane, serviced_bitplane);
 
             // ── CIA E-clock: every 10 master/4 ticks = master/40 ────
             self.set_e_clock_phase(self.e_clock_phase() + 1);
@@ -950,7 +1044,10 @@ pub trait AmigaDriver {
             return;
         };
         let is_chip_ram_access = addr24 < 0x20_0000 && (!is_read || !self.memory().overlay());
-        let bus_plan = self.agnus_bus_plan();
+        let bus_plan = self
+            .agnus()
+            .dma_service_plan()
+            .unwrap_or_else(|| self.agnus_bus_plan());
         // A sprite control fetch can latch a new VSTOP and make a fresh
         // plan no longer show the request that consumed this CCK. Keep
         // actual sprite use authoritative until the next CCK rather than

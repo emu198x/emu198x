@@ -57,20 +57,31 @@ pub struct Copper {
     /// holds the WAIT while a blit is in flight (#33). When true
     /// (`BFD=1`, the common case) the blitter is ignored.
     pub wait_bfd: bool,
+    /// Persistent WAIT reached its beam target while BFD was still busy.
+    /// Completion must return through a free comparison cell before fetching.
+    pub wait_blitter_blocked: bool,
     /// CCKs accumulated while fetching the current instruction pair.
     /// MOVE dispatches after 2 eligible CCKs. WAIT and SKIP then enter
     /// the shared post-decode comparison phase described by
     /// `pending_wait_delay`.
     pub cck_phase: u8,
+    /// IR1 is read in its own chip-bus cell and retained until IR2 service.
+    /// A later RAM write must not replace an instruction word already fetched.
+    pub instruction_word1: u16,
+    /// Immutable identity of a fetch admitted to Agnus but not yet serviced.
+    pub pending_dma_fetch: Option<(u8, u32)>,
     /// Post-decode comparison phase shared by WAIT and SKIP.
     ///
-    /// The fields below preserve the decoded condition until the next
-    /// eligible Copper CCK, when the live beam and visible blitter-busy
-    /// inputs are sampled. WAIT may then enter its persistent waiting
+    /// The fields below preserve the decoded condition. WAIT consumes a
+    /// free idle cell then a free comparison cell; SKIP retains its single
+    /// comparison cell. The decision samples the live beam and blitter busy. WAIT may then enter its persistent waiting
     /// state; SKIP either advances over the following instruction pair
     /// or resumes normal fetch. This is the model's current abstraction
     /// of the Agnus WAITSKIP decision states.
     pub pending_wait_delay: bool,
+    /// First free idle cell before the WAIT comparison cell. SKIP retains
+    /// its independently bounded comparison path. Both cells yield the bus.
+    pub pending_wait_idle: bool,
     pub pending_wait_target: u16,
     pub pending_wait_mask: u16,
     pub pending_wait_bfd: bool,
@@ -95,9 +106,9 @@ pub struct Copper {
     /// cell when COPEN is set, but a parked (WAIT) or throttled copper
     /// does not consume the bus — those cells fall through to the CPU.
     /// The driver resets this each CCK and reads it for CPU chip-bus
-    /// arbitration (#30). Not part of the architectural state; skipped
-    /// on snapshot so it stays a transient per-CCK signal.
-    #[serde(skip)]
+    /// arbitration (#30). Retained on snapshot because a restore between
+    /// the two master/4 phases must not let the CPU reuse this consumed cell.
+    /// The driver clears it only when the next CCK begins.
     pub bus_used_this_cck: bool,
 }
 
@@ -116,8 +127,11 @@ impl Copper {
     pub fn jump1(&mut self) {
         self.pc = self.cop1lc;
         self.waiting = false;
+        self.wait_blitter_blocked = false;
         self.cck_phase = 0;
+        self.pending_dma_fetch = None;
         self.pending_wait_delay = false;
+        self.pending_wait_idle = false;
         self.pending_wait_is_skip = false;
         self.stopped = false;
     }
@@ -126,8 +140,11 @@ impl Copper {
     pub fn jump2(&mut self) {
         self.pc = self.cop2lc;
         self.waiting = false;
+        self.wait_blitter_blocked = false;
         self.cck_phase = 0;
+        self.pending_dma_fetch = None;
         self.pending_wait_delay = false;
+        self.pending_wait_idle = false;
         self.pending_wait_is_skip = false;
         self.stopped = false;
     }
@@ -160,10 +177,76 @@ impl Copper {
         copper_slot_granted: bool,
         blitter_busy: bool,
     ) -> Option<(u16, u16)> {
+        if !self.advance_decisions(beam_vp, comparator_hp, copper_slot_granted, blitter_busy) {
+            return None;
+        }
+        self.bus_used_this_cck = true;
+        self.accept_fetch_word(self.pc, memory.read_chip_ram_word(self.pc))
+    }
+
+    /// Evaluate internal phases, then request a fetch without reading memory.
+    pub fn request_dma_cck(
+        &mut self,
+        beam_vp: u16,
+        comparator_hp: u16,
+        free_cell: bool,
+        blitter_busy: bool,
+    ) -> Option<commodore_agnus_ocs::DmaTransfer> {
+        // Registered generate_copper clocks the parked comparison on odd
+        // Agnus cells too. A satisfied comparison needs a free input cell
+        // before it may transition to the following fetch state.
+        if comparator_hp & 1 == 0 || (self.waiting && !free_cell) {
+            return None;
+        }
+        // A blitter-finish notification returns the reference to WAIT1.
+        // This odd/free comparison is WAIT1 itself; do not append another
+        // comparison after it. The following odd cell may request IR1.
+        if self.waiting && self.wait_blitter_blocked && !blitter_busy {
+            self.wait_blitter_blocked = false;
+        }
+        if !self.advance_decisions(beam_vp, comparator_hp, free_cell, blitter_busy) {
+            return None;
+        }
+        assert!(
+            self.pending_dma_fetch.is_none(),
+            "Copper fetch admitted twice"
+        );
+        let instruction_word = if self.cck_phase == 0 { 1 } else { 2 };
+        self.pending_dma_fetch = Some((instruction_word, self.pc));
+        Some(commodore_agnus_ocs::DmaTransfer {
+            target: commodore_agnus_ocs::DmaTransferTarget::Copper { instruction_word },
+            address: self.pc,
+        })
+    }
+
+    /// Retire the actual word read from the immutable address-stage entry.
+    pub fn service_dma_fetch(
+        &mut self,
+        instruction_word: u8,
+        address: u32,
+        value: u16,
+    ) -> Option<(u16, u16)> {
+        self.bus_used_this_cck = true;
+        // COPJMP may have invalidated the decode state after admission; its
+        // already-owned physical cell still retires, without decoding the word.
+        if self.pending_dma_fetch != Some((instruction_word, address)) {
+            return None;
+        }
+        self.pending_dma_fetch = None;
+        self.accept_fetch_word(address, value)
+    }
+
+    fn advance_decisions(
+        &mut self,
+        beam_vp: u16,
+        comparator_hp: u16,
+        copper_slot_granted: bool,
+        blitter_busy: bool,
+    ) -> bool {
         // Halted by a dangerous MOVE? Sit still until the next
         // COPJMP1/COPJMP2 strobe (which the VBL auto-fires).
         if self.stopped {
-            return None;
+            return false;
         }
 
         // If waiting, only resume when the masked beam position reaches
@@ -173,13 +256,27 @@ impl Copper {
         // BltWait/copper-blitter-sync idiom that blocks the copper until
         // the in-flight blit drains.
         if self.waiting {
-            let satisfied = beam_match(self.wait_target, self.wait_mask, beam_vp, comparator_hp)
-                && (self.wait_bfd || !blitter_busy);
-            if satisfied {
+            let beam_ready = beam_match(self.wait_target, self.wait_mask, beam_vp, comparator_hp);
+            if beam_ready && !self.wait_bfd && blitter_busy {
+                self.wait_blitter_blocked = true;
+            }
+            if beam_ready && (self.wait_bfd || !blitter_busy) {
                 self.waiting = false;
                 self.cck_phase = 0;
+                if self.wait_blitter_blocked {
+                    // Completion wakes COP_bltwait into the comparison stage,
+                    // not into instruction fetch. Reuse the saved post-decode
+                    // comparison; the original first idle is already spent.
+                    self.pending_wait_delay = true;
+                    self.pending_wait_idle = false;
+                    self.pending_wait_is_skip = false;
+                    self.pending_wait_target = self.wait_target;
+                    self.pending_wait_mask = self.wait_mask;
+                    self.pending_wait_bfd = self.wait_bfd;
+                }
+                self.wait_blitter_blocked = false;
             }
-            return None;
+            return false;
         }
 
         // Copper-eligible CCK: Agnus granted this cell to the copper.
@@ -189,14 +286,18 @@ impl Copper {
         // release / `stopped` check above runs every CCK (matching the
         // old behaviour); only the fetch/execute cadence is gated here.
         if !copper_slot_granted {
-            return None;
+            return false;
         }
 
         // WAIT and SKIP compare after the instruction-pair fetch rather
         // than at decode. When this flag is set, the current eligible
-        // CCK samples the stashed condition against the live beam and
-        // visible blitter-busy inputs.
+        // cell consumes WAIT idle first, then samples the stashed condition
+        // against the live beam and visible blitter-busy inputs.
         if self.pending_wait_delay {
+            if self.pending_wait_idle {
+                self.pending_wait_idle = false;
+                return false;
+            }
             // This is the modeled WAITSKIP decision phase. The beam
             // comparison happens HERE, after the word-pair fetch, not
             // at fetch time.
@@ -226,38 +327,34 @@ impl Copper {
                 self.cck_phase = 0;
             } else {
                 self.waiting = true;
+                self.wait_blitter_blocked = !self.pending_wait_bfd
+                    && blitter_busy
+                    && beam_match(
+                        self.pending_wait_target,
+                        self.pending_wait_mask,
+                        beam_vp,
+                        comparator_hp,
+                    );
                 self.wait_target = self.pending_wait_target;
                 self.wait_mask = self.pending_wait_mask;
                 self.wait_bfd = self.pending_wait_bfd;
             }
-            return None;
+            return false;
         }
 
-        // Each instruction-pair fetch requires two modeled memory
-        // cycles (= two granted CCKs). In
-        // unconstrained conditions those are two consecutive even
-        // free cells, for 4 wall CCKs. When bitplane / sprite DMA
-        // steals those cells the copper's effective rate drops
-        // proportionally (Agnus simply stops granting the slot).
-        // Both accepted fetch cells belong to the Copper even though this
-        // abstraction reads the instruction pair only when the second cell
-        // completes. Marking only that second cell as used would let another
-        // master consume the first one concurrently.
-        self.bus_used_this_cck = true;
+        true
+    }
+
+    fn accept_fetch_word(&mut self, address: u32, value: u16) -> Option<(u16, u16)> {
         self.cck_phase = self.cck_phase.wrapping_add(1);
+        self.pc = address.wrapping_add(2);
         if self.cck_phase < 2 {
+            self.instruction_word1 = value;
             return None;
         }
         self.cck_phase = 0;
-
-        // Fetch instruction pair from chip RAM. Copper accesses are
-        // always chip-RAM-only, via Agnus DMA; each fetch drives the
-        // chip bus so the floating-bus residue tracks it. Bus ownership
-        // for both modeled fetch cells was recorded above.
-        let word1 = memory.read_chip_ram_word(self.pc);
-        let word2 = memory.read_chip_ram_word(self.pc.wrapping_add(2));
-        self.pc = self.pc.wrapping_add(4);
-
+        let word1 = self.instruction_word1;
+        let word2 = value;
         if word1 & 1 == 0 {
             // MOVE: reg = word1 & $1FE; val = word2.
             let reg = word1 & 0x1FE;
@@ -323,6 +420,7 @@ impl Copper {
             self.pending_wait_mask = mask;
             self.pending_wait_bfd = bfd;
             self.pending_wait_is_skip = word2 & 1 != 0;
+            self.pending_wait_idle = !self.pending_wait_is_skip;
             None
         }
     }
@@ -523,10 +621,8 @@ mod tests {
         copper.cop1lc = 0x1000;
         copper.jump1();
 
-        // Tick the WAIT instruction: 3 eligible CCKs = 6 wall CCKs
-        // (HRM: "WAIT requires three memory cycles and six memory
-        // clocks per instruction").
-        run_ccks(&mut copper, &mem, &mut denise, 0, 6);
+        // Two fetch cells, then two free idle cells before comparison.
+        run_ccks(&mut copper, &mem, &mut denise, 0, 8);
         assert!(copper.waiting);
 
         // Tick more with beam still below target — MOVE doesn't run.
@@ -553,46 +649,24 @@ mod tests {
     }
 
     #[test]
-    fn wait_takes_3_eligible_ccks_before_pausing() {
-        // HRM: "The WAIT instruction requires three memory cycles
-        // and six memory clocks per instruction." MOVE and SKIP take
-        // 2 memory cycles / 4 memory clocks. The difference is one
-        // extra eligible CCK of delay between the word-pair fetch
-        // (cycles 1 + 2) and actually entering the waiting state
-        // (cycle 3).
-        let mem = build_test_memory_with_list(
-            &[
-                (0x0501, 0xFFFE), // WAIT v=5, full mask
-                (0xFFFF, 0xFFFE), // end-of-list
-            ],
-            0x1000,
-        );
+    fn wait_fetches_then_consumes_two_idle_cells_before_pausing() {
+        let mem = build_test_memory_with_list(&[(0x0501, 0xFFFE), (0xFFFF, 0xFFFE)], 0x1000);
         let mut denise = TestDenise::new();
         let mut copper = Copper::new();
         copper.cop1lc = 0x1000;
         copper.jump1();
-
-        // Tick 2 eligible CCKs (= 4 wall CCKs). The WAIT is fetched
-        // and decoded, but the 3rd memory cycle hasn't fired yet:
-        // `waiting` should still be false and the delay should be
-        // armed instead.
         run_ccks(&mut copper, &mem, &mut denise, 0, 4);
-        assert!(
-            !copper.waiting,
-            "WAIT must not enter waiting yet — only 2 eligible CCKs \
-             elapsed, HRM requires 3",
-        );
-        assert!(
-            copper.pending_wait_delay,
-            "After fetch+decode of WAIT the 3rd-cycle delay should be armed",
-        );
-
-        // One more eligible CCK (2 wall CCKs) fires the 3rd memory
-        // cycle and commits the waiting state.
+        assert!(!copper.waiting);
+        assert!(copper.pending_wait_delay);
+        assert!(copper.pending_wait_idle);
+        run_ccks(&mut copper, &mem, &mut denise, 0, 2);
+        assert!(!copper.waiting, "first idle cell cannot commit comparison");
+        assert!(copper.pending_wait_delay);
+        assert!(!copper.pending_wait_idle);
         run_ccks(&mut copper, &mem, &mut denise, 0, 2);
         assert!(
             copper.waiting,
-            "3rd eligible CCK enters waiting (HRM's 3-cycle rule)",
+            "second idle cell samples the unmatched beam"
         );
         assert!(!copper.pending_wait_delay);
     }
@@ -678,9 +752,8 @@ mod tests {
         copper.cop1lc = 0x2000;
         copper.jump1();
 
-        // Execute WAIT at vpos=0: 3 eligible CCKs = 6 wall CCKs for
-        // the full HRM-accurate WAIT timing.
-        run_ccks(&mut copper, &mem, &mut denise, 0, 6);
+        // Execute both fetch cells and both free idle cells at vpos=0.
+        run_ccks(&mut copper, &mem, &mut denise, 0, 8);
         assert!(copper.waiting);
         assert_eq!(copper.wait_target, 0x0A00);
         // Mask: (0xFF00 & 0x7FFE) | 0x8000 = 0xFF00.
@@ -1072,5 +1145,65 @@ mod tests {
             became_idle.pc, 0x1008,
             "BBUSY cleared after decode must let the pending SKIP consume the next pair",
         );
+    }
+    #[test]
+    fn satisfied_wait_has_two_free_idle_cells_before_next_move() {
+        let memory = build_test_memory_with_list(&[(0x0001, 0xFFFE), (0x0180, 0x0F00)], 0x1000);
+        let mut copper = Copper::new();
+        copper.cop1lc = 0x1000;
+        copper.jump1();
+        let mut moves = Vec::new();
+        let mut owned = Vec::new();
+        for cck in 0..12 {
+            copper.bus_used_this_cck = false;
+            if let Some(value) = copper.tick_cck(&memory, 0, cck + 2, cck % 2 == 0, false) {
+                moves.push((cck, value));
+            }
+            if copper.bus_used_this_cck {
+                owned.push(cck);
+            }
+            if cck == 4 {
+                assert!(copper.pending_wait_delay);
+                assert!(!copper.pending_wait_idle);
+            }
+        }
+        assert_eq!(moves, [(10, (0x0180, 0x0F00))]);
+        assert_eq!(owned, [0, 2, 8, 10], "both idle stages yield the bus");
+    }
+
+    #[test]
+    fn wait_idle_stalls_without_a_free_cell_and_comparison_samples_live_busy() {
+        let memory = build_test_memory_with_list(&[(0x0001, 0x7FFE)], 0x1000);
+        let mut copper = Copper::new();
+        copper.cop1lc = 0x1000;
+        copper.jump1();
+        assert_eq!(copper.tick_cck(&memory, 0, 2, true, false), None);
+        assert_eq!(copper.tick_cck(&memory, 0, 4, true, false), None);
+        assert!(copper.pending_wait_idle);
+        assert_eq!(copper.tick_cck(&memory, 0, 6, false, false), None);
+        assert!(
+            copper.pending_wait_idle,
+            "an occupied cell cannot consume idle"
+        );
+        copper.bus_used_this_cck = false;
+        assert_eq!(copper.tick_cck(&memory, 0, 8, true, false), None);
+        assert!(!copper.pending_wait_idle);
+        assert!(copper.pending_wait_delay);
+        assert!(!copper.waiting, "idle must not evaluate the condition");
+        assert!(!copper.bus_used_this_cck);
+        assert_eq!(copper.tick_cck(&memory, 0, 10, false, true), None);
+        assert!(
+            copper.pending_wait_delay,
+            "comparison also requires a free cell"
+        );
+        assert_eq!(copper.tick_cck(&memory, 0, 12, true, true), None);
+        assert!(
+            copper.waiting,
+            "the second cell must observe newly asserted busy"
+        );
+        assert!(!copper.pending_wait_delay);
+        assert!(!copper.bus_used_this_cck);
+        copper.jump1();
+        assert!(!copper.pending_wait_idle);
     }
 }

@@ -124,7 +124,7 @@ cell.
 The source interrupt is emitted once:
 
 - at main finish for pre-AGA area blits with D;
-- at the final-D finish stage for AGA area blits with D; and
+- at elapsed `F+2` for AGA area blits with D, independently of D admission; and
 - at `F` for line blits and area blits without D on every revision.
 
 This is the Agnus/Alice source event. It is not a claim that
@@ -141,8 +141,23 @@ its final D CCK.
 The final-result stage is internal and advances on the CCK after `F`
 without requiring a bus grant. The final-D stage requires the existing
 blitter progress grant and remains pending until it receives one. The
-`F+2` label therefore names the next admitted final-D stage; contention
-can place more elapsed CCKs between `F+1` and that write.
+`F+2` final-D label describes the current uninterrupted native transfer;
+contention can delay that write. Alice's source finish is independently
+clocked at elapsed `F+2`, even while D admission is denied. Its observer
+holds begin at that source event, and internal busy remains asserted until
+the pending D transfer drains. A delayed write must not emit a second source
+interrupt.
+
+The registered FS-UAE revision
+`f362278ccd4c60991caac3b4d240d4a3f751bea2` corroborates this distinction:
+`blitter_next_cycle_always()` shifts Alice's finish delay before
+`generate_blitter()` tests DMA enable or allocation. The live 48-row
+BFD-ignore probe has six width-two cases where source finish is at `F+2`
+and final D memory service is at `F+3`. This is software-reference evidence,
+not a silicon measurement. The reference also separates D admission from
+memory service by one CCK; the shared request/address/service integration
+remains outstanding, so the table does not establish physical memory-service
+offsets for that pipeline.
 
 `DMACONR.BBUSY` and Copper BFD retain separate completion observations.
 For a source-finish event `S`, `DMACONR` remains busy through `S` and
@@ -191,10 +206,10 @@ hardware manual does not prove them. Tests should describe them as
 pinned emulator behaviour unless a primary trace replaces that
 evidence.
 
-The table describes the uninterrupted ordering of completion stages.
-The scheduler keeps those stages serialized when a required bus action
-cannot proceed, but this does not establish the exact physical Alice
-delay when the final D slot is contended.
+The table describes the current uninterrupted native completion stages.
+Bus contention stretches D admission and retirement, while Alice's source
+finish and the two observer holds continue independently. This does not
+establish physical Alice timing from a silicon trace.
 
 The machine's custom-register path does not drain an active blit before
 applying another blitter-register write. CPU and Copper writes reach the same
@@ -214,7 +229,7 @@ This decision does not define:
 
 - propagation from the blitter source event through Paula's
   `INTREQ` latch, the interrupt encoder and CPU IPL;
-- exact stretching of the AGA final-D delay under bus contention;
+- exact physical memory-service offsets in the shared DMA request pipeline;
 - exact channel-pipeline effects of changing pointer, mask, modulo, control or
   data registers during an active blit;
 - the Copper's first request and fetch after a BFD-clear wait becomes
@@ -240,6 +255,14 @@ Hermetic tests cover:
 - deterministic continuation across unavailable progress grants; and
 - runtime snapshot round-trip during pre-AGA and Alice final-D tails,
   plus rejection of version-16 envelopes.
+
+The contention regression denies Alice's final D for one, two and seven
+CCKs, requires source finish at `F+2` and checks both observer holds. A live
+runtime test disables blitter DMA after the final result, saves with source
+finish emitted and D still pending, and compares restored execution through
+observer expiry and eventual writeback without reasserting an acknowledged
+interrupt. Existing saved completion fields represent this state in version
+50; this correction adds no schema field.
 
 ## Drift triggers
 

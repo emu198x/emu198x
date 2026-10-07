@@ -1395,6 +1395,17 @@ impl AmigaOcs {
 
     /// Dispatch a Copper MOVE before Denise renders the current output tick.
     fn dispatch_copper_write(&mut self, offset: u16, val: u16) {
+        if matches!(offset, 0x08E | 0x090 | 0x1E4) {
+            self.denise.write_word_before_output_tick(offset, val);
+            match offset {
+                0x08E => self.agnus.write_diwstrt(val),
+                0x090 => self.agnus.write_diwstop(val),
+                _ => {
+                    self.agnus.write_timing_register(offset, val);
+                }
+            }
+            return;
+        }
         if (0x0180..=0x01BE).contains(&offset) && offset.is_multiple_of(2) {
             self.denise.write_word_before_output_tick(offset, val);
             self.record_palette_write(offset, val);
@@ -1424,6 +1435,9 @@ impl AmigaOcs {
     /// Dispatch a custom-register word write to the right submodule.
     /// Shared between `poke_word` and the CPU bus servicer.
     fn dispatch_custom_write(&mut self, offset: u16, val: u16) {
+        if matches!(offset, 0x08E | 0x090 | 0x1E4) {
+            self.denise.write_word(offset, val);
+        }
         if self.agnus.write_timing_register(offset, val) {
             return;
         }
@@ -1560,6 +1574,7 @@ impl AmigaOcs {
             // Agnus-owned bitplane + display-window + DSK pointer.
             0x020 => self.agnus.write_dsk_pointer(true, val),
             0x022 => self.agnus.write_dsk_pointer(false, val),
+            0x028 => self.agnus.write_refptr(val),
             0x08E => self.agnus.write_diwstrt(val),
             0x090 => self.agnus.write_diwstop(val),
             0x092 => self.agnus.write_ddfstrt(val),
@@ -2442,6 +2457,54 @@ impl AmigaDriver for AmigaOcs {
         outcome
     }
 
+    fn service_blitter_dma(
+        &mut self,
+        transfer: commodore_agnus_ocs::DmaTransfer,
+    ) -> BlitterCckOutcome {
+        let mut bus = WatchingChipRamBus::new(&mut self.memory);
+        let outcome = self.agnus.service_blitter_dma(transfer, &mut bus);
+        let write = bus.take_write();
+        if let Some((addr, value)) = write {
+            self.record_memory_watch_write(AmigaMemoryWriteSource::Blitter, addr, value, true);
+        }
+        outcome
+    }
+
+    fn generate_display_dma(&mut self) {
+        self.agnus.generate_display_dma();
+    }
+
+    fn service_addressed_sprite_dma(&mut self, transfer: commodore_agnus_ocs::DmaTransfer) {
+        let (commodore_agnus_ocs::DmaTransferTarget::Display { reservation, .. }
+        | commodore_agnus_ocs::DmaTransferTarget::DisplayRefresh { reservation, .. }) =
+            transfer.target
+        else {
+            panic!("non-display descriptor reached sprite adapter");
+        };
+        let commodore_agnus_ocs::DisplayDmaChannel::Sprite {
+            channel,
+            second_word,
+            control: _,
+        } = reservation.channel
+        else {
+            panic!("non-sprite display descriptor reached sprite adapter");
+        };
+        let width = self.agnus.spr_fetch_width();
+        let memory = &self.memory;
+        let (is_control, value) = self
+            .agnus
+            .service_retained_sprite_dma(transfer, width, |addr| memory.read_chip_ram_word(addr));
+        let channel = usize::from(channel);
+        if is_control {
+            let reg = 0x140 + (channel as u16) * 8 + if second_word { 2 } else { 0 };
+            self.denise.write_word(reg, value as u16);
+        } else if second_word {
+            self.denise.ocs.write_sprite_datb_wide(channel, value);
+        } else {
+            self.denise.ocs.write_sprite_data_wide(channel, value);
+        }
+    }
+
     fn record_disk_dma_memory_write(&mut self, addr: u32, value: u16) {
         self.record_memory_watch_write(AmigaMemoryWriteSource::DiskDma, addr, value, true);
     }
@@ -2478,16 +2541,37 @@ impl AmigaDriver for AmigaOcs {
         }
     }
 
-    fn denise_tick(&mut self, phase: u8, bitplane_dma_fetch_plane: Option<u8>) {
+    fn service_denise_timing_strobe(&mut self, strobe: commodore_agnus_ocs::DmaStrobe) {
+        self.denise.service_timing_strobe(strobe);
+    }
+
+    fn denise_tick_with_dma(
+        &mut self,
+        phase: u8,
+        bitplane_dma_fetch_plane: Option<u8>,
+        serviced_bitplane: Option<commodore_agnus_ocs::DmaTransfer>,
+    ) {
         let width_words = self.agnus.bpl_fetch_width();
         let vertical_diw_active = self.agnus.vertical_diw_active();
         let line_ccks = self.agnus.current_line_ccks();
-        let bitplane_dma_fetch =
-            bitplane_dma_fetch_plane.map(|plane| denise::BitplaneDmaFetch { plane, width_words });
-        self.denise.tick(
+        let bitplane_dma_fetch = serviced_bitplane
+            .map(denise::BitplaneDmaInput::Serviced)
+            .or_else(|| {
+                bitplane_dma_fetch_plane.map(|plane| {
+                    denise::BitplaneDmaInput::Granted(denise::BitplaneDmaFetch {
+                        plane,
+                        width_words,
+                    })
+                })
+            });
+        assert!(
+            serviced_bitplane.is_none() || bitplane_dma_fetch_plane.is_none(),
+            "duplicate bitplane memory service"
+        );
+        self.denise.tick_with_dma_output_signals(
             phase,
             bitplane_dma_fetch,
-            vertical_diw_active,
+            denise::DeniseOutputSignals::unblanked(vertical_diw_active),
             self.agnus.base_mut(),
             &self.memory,
             line_ccks,
@@ -2686,6 +2770,83 @@ mod tests {
             .with_autoboot_enabled(false)
     }
 
+    // Advance the complete motherboard, including request/address/service.
+    // Return just after phase zero, so callers can examine both CPU phases.
+    fn advance_to_cck(amiga: &mut AmigaOcs, target: u16) {
+        assert!(amiga.agnus.hpos < target);
+        let line = amiga.agnus.vpos;
+        for _ in 0..456 {
+            amiga.tick();
+            assert_eq!(amiga.agnus.vpos, line, "target must be on this line");
+            if amiga.agnus.hpos == target {
+                assert_eq!(amiga.cck_phase, 1);
+                return;
+            }
+        }
+        panic!("beam did not reach {target:#x}");
+    }
+
+    fn arm_chip_ram_write(amiga: &mut AmigaOcs, address: u32, value: u16) {
+        amiga.cpu.state = State::BusCycle {
+            op: MicroOp::WriteWord,
+            addr: address,
+            fc: FunctionCode::SupervisorData,
+            is_read: false,
+            is_word: true,
+            data: Some(value),
+            cycle_count: 2,
+        };
+        amiga.cpu.bus_status = BusStatus::Wait;
+    }
+
+    fn primed_d_only_blitter(copper_enabled: bool, nasty: bool) -> AmigaOcs {
+        let mut amiga = AmigaOcs::new(vec![0; 256 * 1024]);
+        amiga.cpu.state = State::Stopped;
+        amiga.memory.set_overlay(false);
+        amiga.agnus.vpos = 0x20;
+        amiga.agnus.hpos = 0x30;
+        amiga.agnus.bltcon0 = 0x0100;
+        amiga.agnus.blt_dpt = 0x2000;
+        amiga.agnus.bltsize = (1 << 6) | 4;
+        amiga.agnus.dmacon = bits::DMACON_DMAEN
+            | bits::DMACON_BLTEN
+            | if nasty { bits::DMACON_BLTPRI } else { 0 }
+            | if copper_enabled {
+                bits::DMACON_COPEN
+            } else {
+                0
+            };
+        arm_horizontal_copper_wait(&mut amiga.copper, 0x00FE);
+        amiga.memory.write_word(0x2000, 0xFFFF);
+        amiga.agnus.start_blit();
+        // Two startup admissions, then idle / locked first D / idle from
+        // the compiled D-only area schedule. Every stage uses the driver.
+        advance_to_cck(&mut amiga, 0x35);
+        assert_eq!(amiga.agnus.blitter_startup_ccks_remaining(), 0);
+        assert_eq!(
+            amiga.agnus.next_blitter_dma_request(),
+            Some(commodore_agnus_ocs::BlitterDmaOp::WriteD)
+        );
+        assert!(amiga.agnus.next_blitter_progress_uses_bus());
+        assert_eq!(amiga.memory.read_chip_ram_word(0x2000), 0xFFFF);
+        amiga
+    }
+
+    fn assert_d_only_write_admitted(amiga: &AmigaOcs) {
+        use commodore_agnus_ocs::{BlitterDmaOp, DmaAddressStage, DmaTransferTarget};
+        assert!(
+            matches!(amiga.agnus.dma_pipeline().address(), Some(DmaAddressStage::Transfer(t))
+            if t.address == 0x2000 && t.target == DmaTransferTarget::Blitter {
+                operation: BlitterDmaOp::WriteD, write_value: Some(0)
+            })
+        );
+        assert_eq!(
+            amiga.memory.read_chip_ram_word(0x2000),
+            0xFFFF,
+            "admission must not write memory"
+        );
+    }
+
     fn arm_horizontal_copper_wait(copper: &mut Copper, target_hp: u16) {
         copper.waiting = true;
         copper.wait_target = target_hp;
@@ -2694,19 +2855,19 @@ mod tests {
     }
 
     #[test]
-    fn copper_and_post_output_color_writes_keep_distinct_phases_and_diagnostics() {
+    fn ocs_copper_and_cpu_color_writes_update_immediately_and_keep_diagnostics() {
         let mut amiga = AmigaOcs::new(vec![0; 256 * 1024]);
         amiga.denise.ocs.set_palette(0, 0x0123);
 
         amiga.dispatch_copper_write(0x0180, 0x0ABC);
-        assert_eq!(amiga.denise.color(0), 0x0123);
+        assert_eq!(amiga.denise.color(0), 0x0ABC);
         assert_eq!(
             amiga
                 .denise
                 .board_pipeline_diagnostic_snapshot()
                 .pending_early_writes
                 .len(),
-            1,
+            0,
         );
         assert_eq!(
             amiga.debug_palette_log.last().map(|entry| entry.2),
@@ -2723,84 +2884,198 @@ mod tests {
 
     #[test]
     fn scheduler_dispatches_copper_color_before_current_output() {
-        const OLD_ARGB: u32 = 0xFF11_2233;
+        const NEW_ARGB: u32 = 0xFFAA_BBCC;
         const NEW_COLOR: u16 = 0x0ABC;
-
         let mut amiga = AmigaOcs::new(vec![0; 256 * 1024]);
+        amiga.cpu.state = State::Stopped;
         amiga.denise.ocs.set_palette(0, 0x0123);
         amiga.agnus.vpos = 0x0032;
         amiga.agnus.write_diwstrt(0x2C81);
         amiga.agnus.write_diwstop(0xF4C1);
-
-        amiga.memory.write_word(0x1000, 0x0180); // MOVE COLOR00
-        amiga.memory.write_word(0x1002, NEW_COLOR);
+        // Sixteen complete padding MOVEs put COLOR00 service at $44.
+        for instruction in 0..16 {
+            amiga.memory.write_word(0x1000 + instruction * 4, 0x0182);
+            amiga.memory.write_word(0x1002 + instruction * 4, 0);
+        }
+        amiga.memory.write_word(0x1040, 0x0180);
+        amiga.memory.write_word(0x1042, NEW_COLOR);
         amiga.copper.pc = 0x1000;
-        amiga.copper.cck_phase = 1; // complete the pair on this granted cell
         amiga.agnus.dmacon = bits::DMACON_DMAEN | bits::DMACON_COPEN;
-        amiga.cck_phase = 0;
-        amiga.agnus.hpos = 0x0043; // phase-zero advance enters free cell $44
-
-        amiga.tick();
-
-        assert_eq!(amiga.agnus.hpos, 0x0044);
+        advance_to_cck(&mut amiga, 0x0043);
+        assert_eq!(amiga.denise.color(0), 0x0123);
+        assert_eq!(amiga.copper.pending_dma_fetch, Some((2, 0x1042)));
+        advance_to_cck(&mut amiga, 0x0044);
         assert_eq!(amiga.denise.color(0), NEW_COLOR);
         assert!(
             amiga
                 .denise
                 .board_pipeline_diagnostic_snapshot()
                 .pending_early_writes
-                .is_empty(),
-            "the Copper stage must retire after the current output tick",
+                .is_empty()
         );
+        // The registered STRHOR pipeline puts the native scan four CCKs
+        // behind Agnus. Check the old/new edge, not just a palette mirror.
         let row = usize::from(0x0032u16 - 0x0019) * 2;
-        let x = usize::from(0x0044u16 - 0x002C) * 4;
+        let x = 80;
+        let start = row * denise::FB_WIDTH as usize + x;
         assert_eq!(
-            &amiga.denise.framebuffer()
-                [row * denise::FB_WIDTH as usize + x..row * denise::FB_WIDTH as usize + x + 2],
-            &[OLD_ARGB, OLD_ARGB],
-            "the output tick containing the MOVE must retain the old colour",
+            &amiga.denise.framebuffer()[start - 2..start + 2],
+            &[0xFF11_2233, 0xFF11_2233, NEW_ARGB, NEW_ARGB]
         );
-        assert_eq!(amiga.debug_copper_move_log.len(), 1);
-        assert_eq!(amiga.debug_palette_log.len(), 1);
+        assert_eq!(
+            amiga
+                .debug_copper_move_log
+                .last()
+                .map(|r| (r.1, r.2, r.3, r.4)),
+            Some((0x32, 0x44, 0x180, NEW_COLOR))
+        );
+        assert_eq!(amiga.debug_palette_log.len(), 17);
     }
 
     #[test]
     fn copper_bplcon0_move_cannot_reallocate_its_cell_to_bitplane_dma() {
+        use commodore_agnus_ocs::{DisplayDmaChannel, DmaTransferTarget};
         let mut amiga = AmigaOcs::new(vec![0; 256 * 1024]);
+        amiga.cpu.state = State::Stopped;
         amiga.agnus.vpos = 0x0020;
         amiga.agnus.write_diwstop(0xA0C1);
         amiga.agnus.write_diwstrt(0x2010);
         amiga.agnus.write_ddfstrt(0x0038);
         amiga.agnus.write_ddfstop(0x00D0);
-        amiga.agnus.dmacon = bits::DMACON_DMAEN | bits::DMACON_BPLEN | bits::DMACON_COPEN;
+        amiga.agnus.dmacon = bits::DMACON_DMAEN | bits::DMACON_BPLEN;
         amiga.agnus.bplcon0 = 0;
-        while amiga.agnus.hpos < 0x0038 {
-            amiga.agnus.tick_cck();
-        }
-        assert_eq!(amiga.agnus.ddf_start_match(), Some(0x0038));
-
-        amiga.memory.write_word(0x1000, 0x0100); // MOVE BPLCON0
-        amiga.memory.write_word(0x1002, 0x6000); // Low resolution, six planes
-        amiga.copper.pc = 0x1000;
-        amiga.copper.cck_phase = 1; // Complete the pair on this granted cell
         amiga.agnus.bpl_pt[5] = 0x2000;
-        amiga.agnus.hpos = 0x0039; // Enter $3A, the BPL6 cell for this DDF phase
-        amiga.cck_phase = 0;
-
-        amiga.tick();
-
-        assert_eq!(amiga.agnus.hpos, 0x003A);
+        amiga.memory.write_word(0x1000, 0x0100);
+        amiga.memory.write_word(0x1002, 0x6000);
+        amiga.memory.write_word(0x1004, 0xffff);
+        amiga.memory.write_word(0x1006, 0xfffe);
+        amiga.copper.pc = 0x1000;
+        advance_to_cck(&mut amiga, 0x0036);
+        amiga.agnus.dmacon |= bits::DMACON_COPEN;
+        advance_to_cck(&mut amiga, 0x003A);
+        assert_eq!(amiga.agnus.ddf_start_match(), Some(0x0038));
         assert!(amiga.copper.bus_used_this_cck);
         assert_eq!(amiga.agnus.bplcon0, 0x6000);
+        assert_eq!(amiga.agnus.cck_bus_plan().slot_owner, SlotOwner::Copper);
+        assert_eq!(amiga.agnus.bpl_pt[5], 0x2000);
+        assert!(matches!(amiga.agnus.dma_pipeline().service(), Some(t)
+            if t.target == DmaTransferTarget::Copper { instruction_word: 2 }));
+        // Two BPLCON0 copy edges precede selection, then address and service.
+        advance_to_cck(&mut amiga, 0x003C);
         assert_eq!(
-            amiga.agnus.cck_bus_plan().bitplane_dma_fetch_plane,
-            Some(5),
-            "the updated registers describe BPL6 ownership at this cell",
+            amiga
+                .agnus
+                .dma_pipeline()
+                .reservation()
+                .expect("BPL6 request")
+                .channel,
+            DisplayDmaChannel::Bitplane(5)
         );
+        assert_eq!(amiga.agnus.bpl_pt[5], 0x2000);
+        advance_to_cck(&mut amiga, 0x003E);
+        assert_eq!(amiga.agnus.bpl_pt[5], 0x2002);
+    }
+
+    #[test]
+    fn serviced_bitplane_cell_survives_a_later_dma_disable_and_restore() {
+        let mut amiga = AmigaOcs::new(vec![0; 256 * 1024]);
+        amiga.memory.set_overlay(false);
+        amiga.cpu.state = State::Stopped;
+        amiga.agnus.vpos = 0x0020;
+        amiga.agnus.write_diwstrt(0x2010);
+        amiga.agnus.write_diwstop(0xA0C1);
+        amiga.agnus.write_ddfstrt(0x0038);
+        amiga.agnus.write_ddfstop(0x00D0);
+        amiga.agnus.dmacon = bits::DMACON_DMAEN | bits::DMACON_BPLEN;
+        amiga.agnus.bplcon0 = 0x1000;
+        amiga.agnus.bpl_pt[0] = 0x2000;
+        advance_to_cck(&mut amiga, 0x0042);
         assert_eq!(
-            amiga.agnus.bpl_pt[5], 0x2000,
-            "the Copper-owned cell cannot also fetch BPL6",
+            amiga.agnus.bpl_pt[0], 0x2000,
+            "addressing does not read RAM"
         );
+        advance_to_cck(&mut amiga, 0x0043);
+        assert_eq!(
+            amiga.agnus.bpl_pt[0], 0x2002,
+            "a real fetch consumed the cell"
+        );
+
+        // A later custom-register write can change the next request, but
+        // cannot give the already-serviced cell back to a chip-RAM request.
+        amiga.poke_word(0x00DF_F096, bits::DMACON_BPLEN);
+        assert_eq!(
+            amiga.agnus.cck_bus_plan().slot_owner,
+            SlotOwner::Bitplane(0)
+        );
+        amiga.cpu.state = State::BusCycle {
+            op: MicroOp::WriteWord,
+            addr: 0x3000,
+            fc: FunctionCode::SupervisorData,
+            is_read: false,
+            is_word: true,
+            data: Some(0x1234),
+            cycle_count: 2,
+        };
+        amiga.cpu.bus_status = BusStatus::Wait;
+        <AmigaOcs as AmigaDriver>::service_cpu_bus(&mut amiga);
+        assert_eq!(amiga.cpu.bus_status, BusStatus::Wait);
+        assert_eq!(amiga.memory.read_chip_ram_word(0x3000), 0);
+
+        let bytes = postcard::to_allocvec(&amiga.snapshot_state()).expect("encode serviced cell");
+        let snapshot = postcard::from_bytes(&bytes).expect("decode serviced cell");
+        let mut restored = AmigaOcs::new(vec![0; 256 * 1024]);
+        restored.restore_snapshot_state(snapshot);
+        for machine in [&mut amiga, &mut restored] {
+            machine.tick(); // second half of the consumed CCK
+            assert_eq!(machine.cpu.bus_status, BusStatus::Wait);
+            assert_eq!(machine.memory.read_chip_ram_word(0x3000), 0);
+            machine.tick(); // next free CCK
+            assert!(matches!(machine.cpu.bus_status, BusStatus::Ready(0)));
+            assert_eq!(machine.memory.read_chip_ram_word(0x3000), 0x1234);
+        }
+    }
+
+    #[test]
+    fn copper_first_fetch_keeps_its_cell_owned_after_half_cck_restore() {
+        let mut original = AmigaOcs::new(vec![0; 256 * 1024]);
+        original.memory.write_word(0x1000, 0x0180);
+        original.memory.write_word(0x1002, 0x0F00);
+        original.copper.pc = 0x1000;
+        original.agnus.dmacon = bits::DMACON_DMAEN | bits::DMACON_COPEN;
+        original.cpu.state = State::Stopped;
+        original.agnus.hpos = 0x003E;
+        original.cck_phase = 0;
+        original.tick();
+        assert_eq!(original.copper.pending_dma_fetch, Some((1, 0x1000)));
+        assert_eq!(original.copper.cck_phase, 0);
+        assert!(!original.copper.bus_used_this_cck);
+        advance_to_cck(&mut original, 0x0040);
+        assert_eq!(original.copper.cck_phase, 1);
+        assert!(original.copper.bus_used_this_cck);
+        original.cpu.state = State::BusCycle {
+            op: MicroOp::WriteWord,
+            addr: 0x3000,
+            fc: FunctionCode::SupervisorData,
+            is_read: false,
+            is_word: true,
+            data: Some(0x1234),
+            cycle_count: 2,
+        };
+        original.cpu.bus_status = BusStatus::Wait;
+        let bytes = postcard::to_allocvec(&original.snapshot_state()).expect("encode IR1 cell");
+        let snapshot = postcard::from_bytes(&bytes).expect("decode IR1 cell");
+        let mut restored = AmigaOcs::new(vec![0; 256 * 1024]);
+        restored.restore_snapshot_state(snapshot);
+        for machine in [&mut original, &mut restored] {
+            <AmigaOcs as AmigaDriver>::service_cpu_bus(machine);
+            assert_eq!(machine.cpu.bus_status, BusStatus::Wait);
+            assert_eq!(machine.memory.read_chip_ram_word(0x3000), 0);
+            machine.tick();
+            assert_eq!(machine.cpu.bus_status, BusStatus::Wait);
+            machine.tick();
+            assert_eq!(machine.cpu.bus_status, BusStatus::Ready(0));
+            assert_eq!(machine.memory.read_chip_ram_word(0x3000), 0x1234);
+        }
     }
 
     #[test]
@@ -2934,8 +3209,14 @@ mod tests {
         amiga.paula.receive_disk_read_word(0xA55A);
         assert_eq!(amiga.paula.disk_dma_slot_request_mask(), 0b100);
 
-        amiga.agnus.hpos = 0x0A; // phase-0 beam advance enters D2 at $0B
-        amiga.cck_phase = 0;
+        amiga.cpu.state = State::Stopped;
+        advance_to_cck(&mut amiga, 0x0E);
+        assert_eq!(amiga.memory.read_chip_ram_word(0x2000), 0);
+        assert!(amiga.paula.disk_dma_pending());
+        assert!(matches!(amiga.agnus.dma_pipeline().address(),
+            Some(commodore_agnus_ocs::DmaAddressStage::Transfer(t))
+            if matches!(t.target, commodore_agnus_ocs::DmaTransferTarget::Disk { slot: 2, .. })));
+        amiga.tick(); // finish the admission CCK before arming the CPU
         amiga.cpu.state = State::BusCycle {
             op: MicroOp::WriteWord,
             addr: 0x0000_1000,
@@ -2949,7 +3230,7 @@ mod tests {
 
         amiga.tick();
 
-        assert_eq!(amiga.agnus.hpos, 0x0B);
+        assert_eq!(amiga.agnus.hpos, 0x0F);
         assert_eq!(amiga.memory.read_chip_ram_word(0x2000), 0xA55A);
         assert!(!amiga.paula.disk_dma_pending());
         assert_eq!(amiga.paula.disk_dma_slot_request_mask(), 0);
@@ -2958,8 +3239,8 @@ mod tests {
             .cck_bus_plan_with_disk_request_mask(amiga.paula.disk_dma_slot_request_mask());
         assert_eq!(
             live_plan.slot_owner,
-            SlotOwner::Cpu,
-            "completion makes a fresh plan look idle"
+            SlotOwner::Disk,
+            "the outgoing descriptor retains ownership after FIFO completion"
         );
         assert!(amiga.agnus.disk_bus_used_this_cck());
         let bus = amiga.agnus.bus_diagnostic_snapshot_for_plan(live_plan);
@@ -3713,292 +3994,202 @@ mod tests {
 
     #[test]
     fn parked_copper_yields_its_free_cell_to_nasty_blitter_before_cpu() {
-        let mut amiga = AmigaOcs::new(vec![0; 256 * 1024]);
-        amiga.agnus.bltcon0 = 0x0100; // D-only area blit
-        amiga.agnus.blt_dpt = 0x2000;
-        amiga.agnus.bltsize = (1 << 6) | 4;
-        amiga.agnus.dmacon =
-            bits::DMACON_DMAEN | bits::DMACON_BLTEN | bits::DMACON_BLTPRI | bits::DMACON_COPEN;
-        amiga.agnus.start_blit();
-        assert_eq!(amiga.agnus.blitter_startup_ccks_remaining(), 2);
-
-        // Drain startup so the contested CCK performs a real D-channel write,
-        // rather than merely consuming one of the accepted startup cells.
-        assert!(!amiga.blitter_dma_step(true).bus_used);
-        assert!(!amiga.blitter_dma_step(true).bus_used);
-        assert_eq!(amiga.agnus.blitter_startup_ccks_remaining(), 0);
-        let blitter_ccks_before = amiga.agnus.blitter_ccks_remaining;
-
-        // COPEN statically makes $34 Copper-eligible, but this unsatisfied WAIT
-        // means Copper does not actually claim the cell. A nasty blitter must
-        // inherit it before the CPU can use it.
-        arm_horizontal_copper_wait(&mut amiga.copper, 0x00FE);
-        amiga.cck_phase = 0;
-        amiga.agnus.hpos = 0x33;
-        amiga.memory.write_word(0x2000, 0xFFFF);
-        amiga.cpu.state = State::BusCycle {
-            op: MicroOp::WriteWord,
-            addr: 0x3000,
-            fc: FunctionCode::SupervisorData,
-            is_read: false,
-            is_word: true,
-            data: Some(0x1234),
-            cycle_count: 2,
-        };
-        amiga.cpu.bus_status = BusStatus::Wait;
-
+        let mut amiga = primed_d_only_blitter(true, true);
+        amiga.tick(); // finish $35 before presenting the contested request
+        arm_chip_ram_write(&mut amiga, 0x3000, 0x1234);
+        advance_to_cck(&mut amiga, 0x36);
+        assert_d_only_write_admitted(&amiga);
+        assert_eq!(
+            amiga.cpu.bus_status,
+            BusStatus::Ready(0),
+            "the outgoing internal cell is free even while future D wins admission"
+        );
+        // A new CPU transaction must wait for the D service on the next CCK.
         amiga.tick();
-
-        assert_eq!(amiga.agnus.hpos, 0x34);
+        arm_chip_ram_write(&mut amiga, 0x3002, 0x5678);
+        advance_to_cck(&mut amiga, 0x37);
         assert!(!amiga.copper.bus_used_this_cck);
         assert!(amiga.agnus.blitter_bus_used_this_cck());
-        assert!(amiga.agnus.blitter_nasty_owned_this_cck());
-        assert_eq!(amiga.agnus.blitter_ccks_remaining, blitter_ccks_before - 1);
-        assert_eq!(amiga.memory.read_word(0x2000), 0x0000);
+        assert_eq!(amiga.memory.read_chip_ram_word(0x2000), 0);
         assert_eq!(amiga.cpu.bus_status, BusStatus::Wait);
-        assert_eq!(amiga.memory.read_word(0x3000), 0x0000);
+        assert_eq!(amiga.memory.read_chip_ram_word(0x3002), 0);
+        amiga.tick();
+        assert_eq!(amiga.cpu.bus_status, BusStatus::Wait);
+        advance_to_cck(&mut amiga, 0x38);
+        assert_eq!(amiga.cpu.bus_status, BusStatus::Ready(0));
+        assert_eq!(amiga.memory.read_chip_ram_word(0x3002), 0x5678);
     }
 
     #[test]
     fn parked_copper_yields_to_cpu_before_non_nasty_blitter_when_cpu_requests_chip_ram() {
-        let mut amiga = AmigaOcs::new(vec![0; 256 * 1024]);
-        amiga.agnus.bltcon0 = 0x0100; // D-only area blit
-        amiga.agnus.blt_dpt = 0x2000;
-        amiga.agnus.bltsize = (1 << 6) | 4;
-        amiga.agnus.dmacon = bits::DMACON_DMAEN | bits::DMACON_BLTEN | bits::DMACON_COPEN;
-        amiga.agnus.start_blit();
-        assert!(!amiga.blitter_dma_step(true).bus_used);
-        assert!(!amiga.blitter_dma_step(true).bus_used);
-        let blitter_ccks_before = amiga.agnus.blitter_ccks_remaining;
-
-        arm_horizontal_copper_wait(&mut amiga.copper, 0x00FE);
-        amiga.cck_phase = 0;
-        amiga.agnus.hpos = 0x33;
-        amiga.memory.write_word(0x2000, 0xFFFF);
-        amiga.cpu.state = State::BusCycle {
-            op: MicroOp::WriteWord,
-            addr: 0x3000,
-            fc: FunctionCode::SupervisorData,
-            is_read: false,
-            is_word: true,
-            data: Some(0x1234),
-            cycle_count: 2,
-        };
-        amiga.cpu.bus_status = BusStatus::Wait;
-
-        amiga.tick();
-
-        assert_eq!(amiga.agnus.hpos, 0x34);
+        let mut amiga = primed_d_only_blitter(true, false);
+        amiga.tick(); // finish $35 before presenting the contested request
+        arm_chip_ram_write(&mut amiga, 0x3000, 0x1234);
+        advance_to_cck(&mut amiga, 0x36);
         assert!(!amiga.copper.bus_used_this_cck);
-        assert!(!amiga.agnus.blitter_bus_used_this_cck());
-        assert!(!amiga.agnus.blitter_nasty_owned_this_cck());
-        assert_eq!(amiga.agnus.blitter_ccks_remaining, blitter_ccks_before);
+        assert!(
+            amiga.agnus.dma_pipeline().address().is_none(),
+            "CPU denied non-nasty D admission"
+        );
         assert_eq!(amiga.memory.read_chip_ram_word(0x2000), 0xFFFF);
-        assert!(matches!(amiga.cpu.bus_status, BusStatus::Ready(0)));
-        assert_eq!(amiga.read_chip_ram_byte(0x3000), 0x12);
-        assert_eq!(amiga.read_chip_ram_byte(0x3001), 0x34);
+        assert_eq!(amiga.cpu.bus_status, BusStatus::Ready(0));
+        assert_eq!(amiga.memory.read_chip_ram_word(0x3000), 0x1234);
     }
 
     #[test]
     fn parked_copper_yields_idle_cpu_cell_to_non_nasty_blitter() {
-        let mut amiga = AmigaOcs::new(vec![0; 256 * 1024]);
-        amiga.agnus.bltcon0 = 0x0100; // D-only area blit
-        amiga.agnus.blt_dpt = 0x2000;
-        amiga.agnus.bltsize = (1 << 6) | 4;
-        amiga.agnus.dmacon = bits::DMACON_DMAEN | bits::DMACON_BLTEN | bits::DMACON_COPEN;
-        amiga.agnus.start_blit();
-        assert!(!amiga.blitter_dma_step(true).bus_used);
-        assert!(!amiga.blitter_dma_step(true).bus_used);
-        let blitter_ccks_before = amiga.agnus.blitter_ccks_remaining;
-
-        arm_horizontal_copper_wait(&mut amiga.copper, 0x00FE);
-        amiga.cck_phase = 0;
-        amiga.agnus.hpos = 0x33;
-        amiga.memory.write_word(0x2000, 0xFFFF);
-
-        amiga.tick();
-
-        assert_eq!(amiga.agnus.hpos, 0x34);
+        let mut amiga = primed_d_only_blitter(true, false);
+        advance_to_cck(&mut amiga, 0x36);
+        assert_d_only_write_admitted(&amiga);
+        advance_to_cck(&mut amiga, 0x37);
         assert!(!amiga.copper.bus_used_this_cck);
         assert!(amiga.agnus.blitter_bus_used_this_cck());
-        assert!(!amiga.agnus.blitter_nasty_owned_this_cck());
-        assert_eq!(amiga.agnus.blitter_ccks_remaining, blitter_ccks_before - 1);
-        assert_eq!(amiga.memory.read_chip_ram_word(0x2000), 0x0000);
+        assert_eq!(amiga.memory.read_chip_ram_word(0x2000), 0);
     }
 
     #[test]
     fn ordinary_cpu_cell_prefers_mature_cpu_request_to_non_nasty_blitter() {
-        let mut amiga = AmigaOcs::new(vec![0; 256 * 1024]);
-        amiga.agnus.bltcon0 = 0x0100; // D-only area blit
-        amiga.agnus.blt_dpt = 0x2000;
-        amiga.agnus.bltsize = (1 << 6) | 4;
-        amiga.agnus.dmacon = bits::DMACON_DMAEN | bits::DMACON_BLTEN;
-        amiga.agnus.start_blit();
-        assert!(!amiga.blitter_dma_step(true).bus_used);
-        assert!(!amiga.blitter_dma_step(true).bus_used);
-        let blitter_ccks_before = amiga.agnus.blitter_ccks_remaining;
-
-        amiga.cck_phase = 0;
-        amiga.agnus.hpos = 0x33; // phase-0 beam advance enters free cell $34
-        amiga.memory.write_word(0x2000, 0xFFFF);
-        amiga.cpu.state = State::BusCycle {
-            op: MicroOp::WriteWord,
-            addr: 0x3000,
-            fc: FunctionCode::SupervisorData,
-            is_read: false,
-            is_word: true,
-            data: Some(0x1234),
-            cycle_count: 2,
-        };
-        amiga.cpu.bus_status = BusStatus::Wait;
-
-        amiga.tick();
-
-        assert_eq!(amiga.agnus.hpos, 0x34);
-        assert!(!amiga.agnus.blitter_bus_used_this_cck());
-        assert_eq!(amiga.agnus.blitter_ccks_remaining, blitter_ccks_before);
+        let mut amiga = primed_d_only_blitter(false, false);
+        amiga.tick(); // finish $35 before presenting the contested request
+        arm_chip_ram_write(&mut amiga, 0x3000, 0x1234);
+        advance_to_cck(&mut amiga, 0x36);
+        assert!(
+            amiga.agnus.dma_pipeline().address().is_none(),
+            "CPU denied non-nasty D admission"
+        );
         assert_eq!(amiga.memory.read_chip_ram_word(0x2000), 0xFFFF);
-        assert!(matches!(amiga.cpu.bus_status, BusStatus::Ready(0)));
-        assert_eq!(amiga.read_chip_ram_byte(0x3000), 0x12);
-        assert_eq!(amiga.read_chip_ram_byte(0x3001), 0x34);
+        assert_eq!(amiga.cpu.bus_status, BusStatus::Ready(0));
+        assert_eq!(amiga.memory.read_chip_ram_word(0x3000), 0x1234);
     }
 
     #[test]
     fn ordinary_cpu_cell_allows_non_nasty_blitter_when_cpu_is_idle() {
-        let mut amiga = AmigaOcs::new(vec![0; 256 * 1024]);
-        amiga.agnus.bltcon0 = 0x0100; // D-only area blit
-        amiga.agnus.blt_dpt = 0x2000;
-        amiga.agnus.bltsize = (1 << 6) | 4;
-        amiga.agnus.dmacon = bits::DMACON_DMAEN | bits::DMACON_BLTEN;
-        amiga.agnus.start_blit();
-        assert!(!amiga.blitter_dma_step(true).bus_used);
-        assert!(!amiga.blitter_dma_step(true).bus_used);
-        let blitter_ccks_before = amiga.agnus.blitter_ccks_remaining;
-
-        amiga.cck_phase = 0;
-        amiga.agnus.hpos = 0x33; // phase-0 beam advance enters free cell $34
-        amiga.memory.write_word(0x2000, 0xFFFF);
-
-        amiga.tick();
-
-        assert_eq!(amiga.agnus.hpos, 0x34);
+        let mut amiga = primed_d_only_blitter(false, false);
+        advance_to_cck(&mut amiga, 0x36);
+        assert_d_only_write_admitted(&amiga);
+        advance_to_cck(&mut amiga, 0x37);
         assert!(amiga.agnus.blitter_bus_used_this_cck());
-        assert_eq!(amiga.agnus.blitter_ccks_remaining, blitter_ccks_before - 1);
-        assert_eq!(amiga.memory.read_chip_ram_word(0x2000), 0x0000);
+        assert_eq!(amiga.memory.read_chip_ram_word(0x2000), 0);
     }
 
     #[test]
     fn active_copper_fetch_keeps_its_cell_from_nasty_blitter_and_cpu() {
-        let mut amiga = AmigaOcs::new(vec![0; 256 * 1024]);
-        amiga.agnus.bltcon0 = 0x0100; // D-only area blit
-        amiga.agnus.blt_dpt = 0x2000;
-        amiga.agnus.bltsize = (1 << 6) | 4;
-        amiga.agnus.dmacon =
-            bits::DMACON_DMAEN | bits::DMACON_BLTEN | bits::DMACON_BLTPRI | bits::DMACON_COPEN;
-        amiga.agnus.start_blit();
-        assert!(!amiga.blitter_dma_step(true).bus_used);
-        assert!(!amiga.blitter_dma_step(true).bus_used);
-        let blitter_ccks_before = amiga.agnus.blitter_ccks_remaining;
-
+        use commodore_agnus_ocs::{DmaAddressStage, DmaTransferTarget};
+        let mut amiga = primed_d_only_blitter(true, true);
+        // Retire the preceding internal phase without admitting D. IR1 and
+        // the ready D will then compete for the same odd input cell at $37.
+        amiga.agnus.dmacon &= !bits::DMACON_BLTEN;
+        advance_to_cck(&mut amiga, 0x36);
+        amiga.agnus.dmacon |= bits::DMACON_BLTEN;
+        amiga.copper.waiting = false;
         amiga.copper.pc = 0x1000;
-        amiga.copper.cck_phase = 0;
         amiga.memory.write_word(0x1000, 0x0180);
         amiga.memory.write_word(0x1002, 0x0F0F);
-        amiga.cck_phase = 0;
-        amiga.agnus.hpos = 0x33;
-        amiga.cpu.state = State::BusCycle {
-            op: MicroOp::WriteWord,
-            addr: 0x3000,
-            fc: FunctionCode::SupervisorData,
-            is_read: false,
-            is_word: true,
-            data: Some(0x1234),
-            cycle_count: 2,
-        };
-        amiga.cpu.bus_status = BusStatus::Wait;
-
+        advance_to_cck(&mut amiga, 0x37);
+        assert!(
+            matches!(amiga.agnus.dma_pipeline().address(), Some(DmaAddressStage::Transfer(t))
+            if t.target == DmaTransferTarget::Copper { instruction_word: 1 })
+        );
+        assert_eq!(
+            amiga.agnus.next_blitter_dma_request(),
+            Some(commodore_agnus_ocs::BlitterDmaOp::WriteD)
+        );
         amiga.tick();
-
-        assert_eq!(amiga.agnus.hpos, 0x34);
+        arm_chip_ram_write(&mut amiga, 0x3000, 0x1234);
+        advance_to_cck(&mut amiga, 0x38);
         assert_eq!(amiga.copper.cck_phase, 1);
         assert!(amiga.copper.bus_used_this_cck);
         assert!(!amiga.agnus.blitter_bus_used_this_cck());
-        assert!(!amiga.agnus.blitter_nasty_owned_this_cck());
-        assert_eq!(amiga.agnus.blitter_ccks_remaining, blitter_ccks_before);
         assert_eq!(amiga.cpu.bus_status, BusStatus::Wait);
-        assert_eq!(amiga.memory.read_word(0x2000), 0x0000);
-        assert_eq!(amiga.memory.read_word(0x3000), 0x0000);
+        assert_eq!(amiga.memory.read_chip_ram_word(0x3000), 0);
+        // Copper owns outgoing service, while D may enter the future cell.
+        assert_d_only_write_admitted(&amiga);
+        advance_to_cck(&mut amiga, 0x39);
+        assert_eq!(amiga.memory.read_chip_ram_word(0x2000), 0);
+        assert_eq!(amiga.cpu.bus_status, BusStatus::Wait);
     }
 
     #[test]
-    fn cpu_reuses_a_suppressed_onedot_d_cell_in_nasty_mode() {
-        let mut amiga = AmigaOcs::new(vec![0; 256 * 1024]);
-        amiga.agnus.bltcon0 = 0x0BCA; // USEA+C+D, standard line minterm
-        amiga.agnus.bltcon1 = 0x001B; // X-major +X/+Y, ONEDOT, LINE
-        amiga.agnus.blt_apt = 0x0000_FFFE;
-        amiga.agnus.blt_amod = 0;
-        amiga.agnus.blt_bmod = 0;
-        amiga.agnus.blt_cmod = -2;
-        amiga.agnus.blt_adat = 0x8000;
-        amiga.agnus.blt_bdat = 0xFFFF;
-        amiga.agnus.blt_cpt = 0x2000;
-        amiga.agnus.blt_dpt = 0x2000;
-        amiga.agnus.bltsize = (3 << 6) | 2;
-        amiga.agnus.dmacon = bits::DMACON_DMAEN | bits::DMACON_BLTEN | bits::DMACON_BLTPRI;
-        amiga.agnus.start_blit();
+    fn cpu_reuses_line_internal_and_suppressed_d_cells_in_nasty_mode() {
+        use commodore_agnus_ocs::BlitterDmaOp;
+        for (drain, pending, next, next_nasty) in [
+            (2, BlitterDmaOp::Internal, BlitterDmaOp::ReadC, true),
+            (9, BlitterDmaOp::WriteD, BlitterDmaOp::Internal, false),
+        ] {
+            let mut amiga = AmigaOcs::new(vec![0; 256 * 1024]);
+            amiga.agnus.bltcon0 = 0x0BCA; // USEA+C+D, standard line minterm
+            amiga.agnus.bltcon1 = 0x001B; // X-major +X/+Y, ONEDOT, LINE
+            amiga.agnus.blt_apt = 0x0000_FFFE;
+            amiga.agnus.blt_amod = 0;
+            amiga.agnus.blt_bmod = 0;
+            amiga.agnus.blt_cmod = -2;
+            amiga.agnus.blt_adat = 0x8000;
+            amiga.agnus.blt_bdat = 0xFFFF;
+            amiga.agnus.blt_cpt = 0x2000;
+            amiga.agnus.blt_dpt = 0x2000;
+            amiga.agnus.bltsize = (3 << 6) | 2;
+            amiga.agnus.dmacon = bits::DMACON_DMAEN | bits::DMACON_BLTEN | bits::DMACON_BLTPRI;
+            amiga.agnus.start_blit();
 
-        // Drain startup, first C/D and the second C read. The pending
-        // logical WriteD is suppressed because the row already has a dot.
-        for _ in 0..5 {
-            let _ = amiga.blitter_dma_step(true);
+            // Observe either the first internal A or the second suppressed D.
+            for _ in 0..drain {
+                let _ = amiga.blitter_dma_step(true);
+            }
+            assert_eq!(amiga.agnus.next_blitter_dma_request(), Some(pending),);
+            assert!(!amiga.agnus.blitter_nasty_active());
+
+            // Arrange the next phase-0 tick at a genuine CPU/free cell and place
+            // a mature CPU chip-RAM write on the bus. The line engine retires its
+            // would-be D in that CCK without driving the bus, so the CPU transfer
+            // must complete in the same cell even though BLTPRI remains set.
+            amiga.cck_phase = 0;
+            amiga.agnus.hpos = 0x34;
+            amiga.cpu.state = State::BusCycle {
+                op: MicroOp::WriteWord,
+                addr: 0x3000,
+                fc: FunctionCode::SupervisorData,
+                is_read: false,
+                is_word: true,
+                data: Some(0x1234),
+                cycle_count: 2,
+            };
+            amiga.cpu.bus_status = BusStatus::Wait;
+
+            amiga.tick();
+
+            assert!(
+                amiga.agnus.blitter_busy,
+                "the suppressed operation must be non-final for this arbitration regression",
+            );
+            assert_eq!(amiga.agnus.next_blitter_dma_request(), Some(next),);
+            assert_eq!(
+                amiga.agnus.blitter_nasty_active(),
+                next_nasty,
+                "next-stage ownership must not alter this CCK's CPU grant"
+            );
+            assert!(!amiga.agnus.blitter_bus_used_this_cck());
+            assert!(!amiga.agnus.blitter_nasty_owned_this_cck());
+            // The operation above was admitted, not serviced. Retire it
+            // through the real stage with another mature CPU request.
+            assert!(matches!(amiga.agnus.dma_pipeline().address(),
+            Some(commodore_agnus_ocs::DmaAddressStage::Transfer(t))
+            if t.target == commodore_agnus_ocs::DmaTransferTarget::BlitterInternal {
+                operation: pending, allocated: false
+            }));
+            amiga.tick();
+            arm_chip_ram_write(&mut amiga, 0x3002, 0x5678);
+            advance_to_cck(&mut amiga, 0x36);
+            assert!(amiga.agnus.blitter_cck_bus_state_recorded());
+            assert!(!amiga.agnus.blitter_bus_used_this_cck());
+            assert_eq!(amiga.memory.read_chip_ram_word(0x3002), 0x5678);
+            assert!(
+                matches!(amiga.cpu.bus_status, BusStatus::Ready(0)),
+                "CPU bus status after the free cell was {:?}; plan is {:?}",
+                amiga.cpu.bus_status,
+                amiga.agnus.cck_bus_plan(),
+            );
+            assert_eq!(amiga.read_chip_ram_byte(0x3000), 0x12);
+            assert_eq!(amiga.read_chip_ram_byte(0x3001), 0x34);
         }
-        assert_eq!(
-            amiga.agnus.next_blitter_dma_request(),
-            Some(commodore_agnus_ocs::BlitterDmaOp::WriteD),
-        );
-        assert!(!amiga.agnus.blitter_nasty_active());
-
-        // Arrange the next phase-0 tick at a genuine CPU/free cell and place
-        // a mature CPU chip-RAM write on the bus. The line engine retires its
-        // would-be D in that CCK without driving the bus, so the CPU transfer
-        // must complete in the same cell even though BLTPRI remains set.
-        amiga.cck_phase = 0;
-        amiga.agnus.hpos = 0x34;
-        amiga.cpu.state = State::BusCycle {
-            op: MicroOp::WriteWord,
-            addr: 0x3000,
-            fc: FunctionCode::SupervisorData,
-            is_read: false,
-            is_word: true,
-            data: Some(0x1234),
-            cycle_count: 2,
-        };
-        amiga.cpu.bus_status = BusStatus::Wait;
-
-        amiga.tick();
-
-        assert!(
-            amiga.agnus.blitter_busy,
-            "the suppressed operation must be non-final for this arbitration regression",
-        );
-        assert_eq!(
-            amiga.agnus.next_blitter_dma_request(),
-            Some(commodore_agnus_ocs::BlitterDmaOp::ReadC),
-        );
-        assert!(
-            amiga.agnus.blitter_nasty_active(),
-            "the live plan has already advanced to the next bus-using C read",
-        );
-        assert!(!amiga.agnus.blitter_bus_used_this_cck());
-        assert!(!amiga.agnus.blitter_nasty_owned_this_cck());
-        assert!(amiga.agnus.blitter_cck_bus_state_recorded());
-        assert!(
-            matches!(amiga.cpu.bus_status, BusStatus::Ready(0)),
-            "CPU bus status after the free cell was {:?}; plan is {:?}",
-            amiga.cpu.bus_status,
-            amiga.agnus.cck_bus_plan(),
-        );
-        assert_eq!(amiga.read_chip_ram_byte(0x3000), 0x12);
-        assert_eq!(amiga.read_chip_ram_byte(0x3001), 0x34);
     }
 }

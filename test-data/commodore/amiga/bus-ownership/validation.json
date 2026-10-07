@@ -1,0 +1,99 @@
+{
+  "scope": "Test/fixture/documentation corrections only; no production or snapshot schema changes",
+  "snapshot_version": 51,
+  "reference": {
+    "source_sha256": "75bb300ba2798913997f82dde988db465746e9b7f22699bbc275690c8ae227e5",
+    "probe_sha256": "21190561ce76012c65b1283b316e6499077b5536127c3d787398349c7f9f0057",
+    "events_sha256": "e9a5ca65386edf0dd0dbdee3fa84e68e9735b6b9db11fa1b052edbaa2ed2614c",
+    "requests": 8,
+    "reversed_order_differs": true,
+    "scope": "AGA FMODE=1 lores eight-plane HARDDIS request schedule; no RGA service, raster or silicon claim"
+  },
+  "closed_baseline_failures": [
+    "bus_plan_dispatch_tests::alice_hblank_reset_precedes_a_coincident_wide_bitplane_fetch",
+    "copper_bfd_and_final_d_follow_distinct_pre_aga_completion_edges",
+    "fat_agnus_diwhigh_gates_bitplane_dma_in_the_mixed_machine",
+    "guest_cpu_reads_clxdat_with_bit_fifteen_set",
+    "tests::active_copper_fetch_keeps_its_cell_from_nasty_blitter_and_cpu",
+    "tests::copper_bplcon0_move_cannot_reallocate_its_cell_to_bitplane_dma",
+    "tests::copper_first_fetch_keeps_its_cell_owned_after_half_cck_restore",
+    "tests::cpu_reuses_line_internal_and_suppressed_d_cells_in_nasty_mode",
+    "tests::final_disk_word_keeps_the_cpu_stalled_for_the_whole_cck",
+    "tests::ordinary_cpu_cell_allows_non_nasty_blitter_when_cpu_is_idle",
+    "tests::parked_copper_yields_idle_cpu_cell_to_non_nasty_blitter",
+    "tests::parked_copper_yields_its_free_cell_to_nasty_blitter_before_cpu",
+    "tests::scheduler_dispatches_copper_color_before_current_output",
+    "tests::serviced_bitplane_cell_survives_a_later_dma_disable_and_restore"
+  ],
+  "renamed_tests": {
+    "bus_plan_dispatch_tests::alice_hblank_reset_precedes_a_coincident_wide_bitplane_fetch": "bus_plan_dispatch_tests::alice_first_wide_fetch_crosses_line_reset_and_reaches_lisa"
+  },
+  "focused_targets": {
+    "ocs_library": 39,
+    "aga_library": 30,
+    "blitter_completion": 1,
+    "fat_agnus_extensions": 11,
+    "runtime_collisions": 4,
+    "related_integration_tests": 27
+  },
+  "full_release_sweep": {
+    "exit_code": 0,
+    "packages": [
+      "commodore-agnus-ocs",
+      "commodore-agnus-ecs",
+      "commodore-agnus-aga",
+      "commodore-denise-ocs",
+      "commodore-denise-ecs",
+      "commodore-denise-aga",
+      "common-commodore-amiga",
+      "machine-commodore-amiga-ocs",
+      "machine-commodore-amiga-ecs",
+      "machine-commodore-amiga-a1200",
+      "runtime-commodore-amiga"
+    ],
+    "target_results_including_doc_tests": 188,
+    "passed": 1250,
+    "failed": 0,
+    "ignored": 121,
+    "measured": 0,
+    "filtered_out": 0,
+    "snapshot_roundtrip_passed": 53,
+    "golden_matrix_passed": 8
+  },
+  "strict_golden_matrix": {
+    "required_assets": true,
+    "update_goldens": false,
+    "passed": 8,
+    "failed": 0,
+    "exit_code": 0
+  },
+  "clippy": "Release all-targets for machine-commodore-amiga-ocs, machine-commodore-amiga-a1200 and runtime-commodore-amiga, -D warnings: pass",
+  "checks": {
+    "cargo_fmt": "pass",
+    "ruff_check_and_format": "pass",
+    "git_diff_check": "pass",
+    "fixture_reproduction": "registered-events.csv and verification.json byte-identical"
+  },
+  "limits": [
+    "The 121 explicitly ignored tests are not counted as passed; dedicated Test Kit pattern gates were not rerun.",
+    "Open registered Test Kit differences remain: OCS gradients 6 pixels, AGA gradients 9 pixels, AGA crosshatch 280 pixels.",
+    "No new full-reference raster captures; prior production pixel evidence and strict-wrap host-padding limitation still apply.",
+    "The AGA fixture establishes source-fragment request timing; its native serial-tail test uses an explicit inner-chip parallel copy after real motherboard transport.",
+    "The separate A1000 archive media-identity limitation remains open."
+  ],
+  "log_directory": "/private/tmp/emu198x-bus-ownership",
+  "logs_sha256": {
+    "before.log": "7491822f2ca825866cad324f5fccf0cbb908019fb94c2049e0fc622c3fe608ae",
+    "final-lib.log": "6898158263255656ecf7dbc56402f24d3fea574884818a9386c30273c4238255",
+    "ocs-integration-before.log": "95a79ffa7d7c9d298624b2dc204ab81e4f6c99ca666e903eb3949e2537da6756",
+    "aga-lib-before.log": "ca5d01c6a785faa88f81880bd0a34e766ef05d8c8e76561a5d860a556a5cc42c",
+    "collisions-before.log": "cce8d485a7e2882aef435c303cafb232807b70754d3e7037c1a18e818fdd75a1",
+    "remaining-trace.log": "6329650b2ccb3165164d5ee24b91a1895d5e22299fde5e4f71d628e9a4270f70",
+    "remaining-three.log": "5c110122bf54c50b7181686bd5a28cdccd8c43cca9a8e69e278f72b0f4007b17",
+    "aga-lib-after.log": "5fd235fb8bed66fb3cd5878f27428254600186f6c43f8f226eeff1cd353cd0d1",
+    "related.log": "6a08081956160f8e89e6b938d635525eae5f8f10595a8ef99a03efe46cb2614f",
+    "clippy-final.log": "583682d20b11cd8eef2de5fcde4c0027cdb45eb2bc1421d262faea67674d5b13",
+    "full-sweep.log": "085be0797d1d69af77657e15a39ed043d1a054db5355acba14a93e3dd8d7cb66",
+    "golden-required-assets.log": "c8827a48e01704489e8fefdaee2668b4e02635bf2eb66afec8ec5c0e4197a2a4"
+  }
+}

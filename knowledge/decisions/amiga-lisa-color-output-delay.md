@@ -131,3 +131,88 @@ Reject these patterns:
 - [Amiga programmable-HBLANK conformance](../processes/amiga-programmable-hblank-conformance.md)
 - [Save-state: serde the live machine](savestate-live-machine-serde.md)
 - [Amiga accuracy closure campaign](amiga-accuracy-closure-campaign.md)
+
+## Six-plane indexed colour selection
+
+The [Lisa EHB synthesis](../../../../reference/by-system/commodore-amiga/amiga-aga-and-chip-revisions.md#36-ehb-and-ham8-on-lisa)
+records BPLCON2.KILLEHB at bit 9. When set, six-plane single-playfield
+output uses the complete post-BPLAM palette address, including independent
+entries 32..63 and XOR-selected higher entries. The ECS five-bit palette
+fold is not applicable to Lisa. The existing delayed palette view feeds
+this lookup; changing mode does not bypass pending COLOR output state.
+
+Regression coverage distinguishes COLOR01 from COLOR33, exercises every
+post-XOR address, retains delayed writes to upper banks, and serializes
+six real bitplanes through the colour compositor with four BPLAM values.
+The reference agreement establishes address selection, not physical
+calibration of a mid-line KILLEHB transition.
+
+## Dual-playfield colour selection
+
+The [Lisa playfield synthesis](../../../../reference/by-system/commodore-amiga/amiga-aga-and-chip-revisions.md#38-playfield-logic-on-lisa-aga-extensions)
+records BPLCON3.PF2OF (bits 12..10) as offsets 0, 2, 4, 8, 16, 32,
+64 and 128. WinUAE `drawing.cpp::dblpfofs`/`decode_pixel_aga` and Minimig
+`rtl/denise_playfields.v` independently implement this table. Lisa resets
+BPLCON3 to $0C00, selecting the compatible offset 8; promoting a live ECS
+instance preserves its existing BPLCON3 value.
+
+Lisa supplies the decoded offset to the shared core at each raster output
+call. The core first selects the nontransparent playfield using raw plane
+codes and PF2PRI, adds the offset only if PF2 wins, and applies BPLAM XOR
+last. Sprite priority and collisions continue to use raw playfield identity
+and plane bits. OCS/ECS output entry points always supply offset 8.
+No additional register mirror or serialized field is needed; saved states
+already hold the BPLCON3 value in the ECS wrapper.
+
+Regression tests cover all offsets, all 16 PF2 codes, transparent and deep
+PF1 codes, both priorities, and two XOR masks (1,536 lores combinations),
+plus every offset at hires/superhires and the fixed OCS/ECS paths. A live
+serial stream resumes with the same offset across snapshot serialization.
+These checks establish steady-state composition and state preservation;
+the physical propagation phase of a mid-line PF2OF write is not calibrated.
+
+## Border-sprite eligibility
+
+The [Lisa border synthesis](../../../../reference/by-system/commodore-amiga/amiga-aga-and-chip-revisions.md#310-border-handling-on-lisa)
+records BPLCON3.BRDRSPRT at bit 1, gated by BPLCON0.ECSENA. Lisa supplies
+that selector as a composition input to the shared sprite pipeline. It
+bypasses both the display-window gate and the BPL1DAT enable: Minimig's
+sprite input is `display_ena | brdsprt`; WinUAE clears both `sprites_hidden2`
+gates for border-sprite mode. OCS/ECS continue to supply false.
+
+The underlying playfield remains colour zero outside DIW. Border sprites
+use their normal banked colour and retained serial output code; changing
+eligibility does not restart the shifter. Collision matching sees zero
+playfield bits in the border and the eligible sprite groups. Physical
+HBLANK remains the board's downstream output mask.
+
+This establishes BRDRSPRT eligibility and palette selection. It does not
+calibrate the propagation phase of a mid-line selector write. The downstream
+BRDRBLNK mask below also applies to border-sprite output.
+
+## Border black output
+
+The [Lisa border synthesis](../../../../reference/by-system/commodore-amiga/amiga-aga-and-chip-revisions.md#310-border-handling-on-lisa)
+records BRDRBLNK at BPLCON3 bit 5, enabled by BPLCON0.ECSENA. The original
+Lisa specification defines a final blank-black selection. Minimig masks RGB
+when outside DIW or before BPL1DAT enables the display. WinUAE's ordinary
+output agrees; Ultra overscan exposes blanked pixels as a host option.
+
+Lisa supplies this mask to the board, which resolves each colour sample
+normally before storing black in the framebuffer. Hidden palette delays,
+HAM state, sprite advancement and collision latches continue to advance.
+Border sprites are masked too. The existing register and BPL1DAT latch
+suffice; snapshot format remains v39.
+
+Production-framebuffer regressions cover every ECSENA/BRDRBLNK/BPL1DAT/DIW
+combination and compare masked sprite/colour state with an unmasked control.
+This establishes steady-state output. The physical propagation phase of
+selector writes and display-window edges remains uncalibrated.
+
+## Counter-domain verification (2026-10-06)
+
+The independent adjacent-COLOR00 control confirms the one-hires (two 35 ns
+samples) palette delay. The separately modelled Copper early queue was one
+lores tick too late and is corrected in the Copper phase decision. The earlier
+raw-image mapping omitted producer line padding; it is superseded by the
+counter-domain origin. The palette delay itself is retained.

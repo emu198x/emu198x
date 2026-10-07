@@ -1,0 +1,20 @@
+// External AGA fm1/lores/HARDDIS signals; full bus service is tested natively.
+int main(int argc, char **) {
+ const bool reverse = argc > 1;
+ ecs_agnus=true; aga_mode=true; harddis_h=true; ddf_mask=0xfe;
+ maxhpos=maxhpos_long=227; fetchunit_mask=fetchunits[4]-1; fetchstart_mask=(1<<fetchstarts[4])-1;
+ fm_maxplane=1<<fm_maxplanes[4]; bpl_sequence=bpl_sequence_8; bplcon0_planes=bplcon0_planes_limit=8;
+ bprun=bprun_cycle=ddf_stopping=ddf_enable_on=0;
+ ddf_limit=true; ddfstrt_match=hwi_old=false;
+ plfstrt_sprite=0x100; ddflastword_total=0; ddffirstword_total=0x100;
+ dmacon_bpl=true; vdiwstate=diw_states::DIW_waiting_stop;
+ ddfstrt=ddfstrt_saved=18; ddfstop=ddfstop_saved=208; preg={};linear_vpos=32;
+ std::puts("h,plane,mod");
+ for(agnus_hpos=0;agnus_hpos<32;agnus_hpos++) {
+  get_cck_clock(); requested_plane=-1; request={};
+  if (reverse) { decide_bpl(agnus_hpos); generate_bpl(cck_clock); }
+  else { generate_bpl(cck_clock); decide_bpl(agnus_hpos); }
+  empty_pipeline();
+  if(requested_plane>=0) std::printf("%d,%d,%d\n",agnus_hpos,requested_plane,(request.bpldat&8)!=0);
+ }
+}

@@ -1,0 +1,196 @@
+{
+  "status": "All archived bytes reproduce the recorded measurements; this does not accept nonzero image differences.",
+  "cases": 19,
+  "results": [
+    {
+      "model": "ocs",
+      "case": "color-moves",
+      "replayed_fields": 3,
+      "mismatched_rgb_pixels": [
+        2288,
+        2288,
+        2288
+      ]
+    },
+    {
+      "model": "ecs",
+      "case": "blanken-path",
+      "replayed_fields": 3,
+      "mismatched_rgb_pixels": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "model": "ecs",
+      "case": "color-moves",
+      "replayed_fields": 3,
+      "mismatched_rgb_pixels": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "model": "ecs",
+      "case": "ecsena-gate",
+      "replayed_fields": 3,
+      "mismatched_rgb_pixels": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "model": "ecs",
+      "case": "extblken-gate",
+      "replayed_fields": 3,
+      "mismatched_rgb_pixels": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "model": "ecs",
+      "case": "fixed-control",
+      "replayed_fields": 3,
+      "mismatched_rgb_pixels": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "model": "ecs",
+      "case": "programmed-central",
+      "replayed_fields": 3,
+      "mismatched_rgb_pixels": [
+        32032,
+        32032,
+        32032
+      ]
+    },
+    {
+      "model": "ecs",
+      "case": "programmed-equal",
+      "replayed_fields": 3,
+      "mismatched_rgb_pixels": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "model": "ecs",
+      "case": "programmed-wrap",
+      "replayed_fields": 3,
+      "mismatched_rgb_pixels": [
+        32032,
+        32032,
+        32032
+      ]
+    },
+    {
+      "model": "aga",
+      "case": "aga-fine-hires",
+      "replayed_fields": 3,
+      "mismatched_rgb_pixels": [
+        1304,
+        1304,
+        1304
+      ]
+    },
+    {
+      "model": "aga",
+      "case": "aga-fine-lores",
+      "replayed_fields": 3,
+      "mismatched_rgb_pixels": [
+        1304,
+        1304,
+        1304
+      ]
+    },
+    {
+      "model": "aga",
+      "case": "aga-fine-shres",
+      "replayed_fields": 3,
+      "mismatched_rgb_pixels": [
+        1304,
+        1304,
+        1304
+      ]
+    },
+    {
+      "model": "aga",
+      "case": "blanken-path",
+      "replayed_fields": 3,
+      "mismatched_rgb_pixels": [
+        1304,
+        1304,
+        1304
+      ]
+    },
+    {
+      "model": "aga",
+      "case": "ecsena-gate",
+      "replayed_fields": 3,
+      "mismatched_rgb_pixels": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "model": "aga",
+      "case": "extblken-gate",
+      "replayed_fields": 3,
+      "mismatched_rgb_pixels": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "model": "aga",
+      "case": "fixed-control",
+      "replayed_fields": 3,
+      "mismatched_rgb_pixels": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "model": "aga",
+      "case": "programmed-central",
+      "replayed_fields": 3,
+      "mismatched_rgb_pixels": [
+        1304,
+        1304,
+        1304
+      ]
+    },
+    {
+      "model": "aga",
+      "case": "programmed-equal",
+      "replayed_fields": 3,
+      "mismatched_rgb_pixels": [
+        1304,
+        1304,
+        1304
+      ]
+    },
+    {
+      "model": "aga",
+      "case": "programmed-wrap",
+      "replayed_fields": 3,
+      "mismatched_rgb_pixels": [
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

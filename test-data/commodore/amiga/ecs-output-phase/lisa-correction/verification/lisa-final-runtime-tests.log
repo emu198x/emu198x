@@ -1,0 +1,271 @@
+    Blocking waiting for file lock on build directory
+   Compiling runtime-commodore-amiga v0.25.0 (/Users/stevehill/Projects/198x/Emu198x/emu198x/crates/runtime-commodore-amiga)
+    Finished `release` profile [optimized] target(s) in 54.09s
+     Running unittests src/lib.rs (target/release/deps/runtime_commodore_amiga-a295bcf5ca636c74)
+
+running 56 tests
+test amiga_model::tests::chipset_kind_matches_flat_model_predicates ... ok
+test amiga_model::tests::a530_validation_configuration_is_explicit_and_non_factory ... ok
+test amiga_model::tests::cpu_kind_partitions_by_chipset ... ok
+test amiga_model::tests::cpu_kind_preserves_original_serialized_discriminants ... ok
+test amiga_model::tests::hierarchical_aliases_round_trip_to_flat_model ... ok
+test audio_filter::tests::diagnostic_snapshot_is_complete_and_side_effect_free ... ok
+test audio_filter::tests::diagnostic_snapshot_reports_model_specific_filter_topology ... ok
+test audio_filter::tests::dc_offset_is_removed_by_the_high_pass ... ok
+test audio_filter::tests::high_frequencies_are_attenuated ... ok
+test audio_filter::tests::led_filter_attenuates_more_when_engaged ... ok
+test audio_filter::tests::a1200_lacks_the_static_low_pass ... ok
+test audio_filter::tests::low_frequencies_pass_roughly_unattenuated ... ok
+test cpu_trace::tests::capture_preserves_multiple_boundaries_from_one_system_tick ... ok
+test audio_filter::tests::output_stays_finite ... ok
+test input::tests::joystick_ports_follow_documented_amiga_numbering ... ok
+test input::tests::key_name_lookup_covers_documented_keys ... ok
+test input::tests::keys_for_char_maps_letters_and_shifted_symbols ... ok
+test input::tests::non_joystick_ports_are_dropped ... ok
+test input::tests::special_keys_and_reset_combo_are_named ... ok
+test cpu_trace::tests::armed_per_tick_stepping_captures_up_to_cap ... ok
+test profiles::tests::a1000_profile_declares_bootstrap_rom ... ok
+test profiles::tests::a530_profiles_keep_the_system_clock_regional ... ok
+test profiles::tests::amiga_profile_declares_kickstart_and_df0 ... ok
+test profiles::tests::gayle_is_a_motherboard_property_of_a600_and_a1200_profiles ... ok
+test live_access::tests::ocs_runtime_kind_via_trait ... ok
+test live_access::tests::aga_runtime_kind_via_trait ... ok
+test profiles::tests::profile_ids_are_unique ... ok
+test queries::tests::shared_query_paths_are_unique ... ok
+test live_access::tests::ecs_runtime_kind_via_trait ... ok
+test cpu_trace::tests::disarmed_trace_captures_nothing_and_drains_machine_queue ... ok
+test snapshot::tests::framebuffer_validation_requires_the_exact_machine_shape ... ok
+test cpu_trace::tests::trace_timestamp_names_the_zero_based_tick_containing_the_boundary ... ok
+test cpu_trace::tests::a1200_trace_matches_instruction_start_delta ... ok
+test variants::tests::autoconfig_chain_accepts_ordered_non_overlapping_ranges ... ok
+test variants::tests::autoconfig_chain_rejects_downstream_progress_while_a530_is_visible ... ok
+test variants::tests::aga_variant_query_paths_are_unique ... ok
+test variants::tests::autoconfig_chain_rejects_overlapping_configured_ranges ... ok
+test variants::tests::blank_dispatches_a1200_to_aga_variant ... ok
+test variants::tests::blank_dispatches_a500_to_ocs_variant ... ok
+test runtime::tests::bounded_step_accounts_progress_when_stopped_cpu_has_no_next_boundary ... ok
+test variants::tests::blank_dispatches_a500plus_to_ecs_variant ... ok
+test variants::tests::blank_dispatches_a2000_to_ocs_variant ... ok
+test variants::tests::blank_dispatches_a600_to_ecs_variant ... ok
+test variants::tests::ecs_variant_query_paths_are_unique ... ok
+test variants::tests::ocs_variant_query_paths_are_unique ... ok
+test variants::tests::configuration_validation_rejects_original_agnus_region_id_mismatch ... ok
+test variants::tests::shared_watch_maps_all_amiga_writer_sources ... ok
+test cpu_trace::tests::run_until_loop_feeds_the_armed_trace ... ok
+test snapshot::tests::successful_restore_drops_transient_audio_filter_history ... ok
+test snapshot::tests::successful_restore_clears_captured_trace_but_keeps_it_armed ... ok
+test snapshot::tests::restore_rejects_out_of_range_audio_phase_without_mutating_runtime ... ok
+test variants::tests::model_builders_install_the_canonical_agnus_identity ... ok
+test snapshot::tests::malformed_persisted_media_is_rejected_without_mutating_runtime_or_trace ... ok
+test snapshot::tests::restore_rejects_machine_state_that_disagrees_with_a530_configuration ... ok
+test snapshot::tests::restore_rejects_unexecutable_dma_states_without_mutating_runtime ... ok
+test snapshot::tests::all_denise_variants_restore_pending_strobe_and_half_cck_counter_commit ... ok
+
+test result: ok. 56 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.58s
+
+     Running tests/border_sprites.rs (target/release/deps/border_sprites-7786cb6a3ce9c1a2)
+
+running 1 test
+test border_sprite_resumes_without_a_bitplane_arrival ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/collisions.rs (target/release/deps/collisions-a67f9ab4dc812eea)
+
+running 4 tests
+test guest_cpu_write_reaches_lisas_extended_collision_controls ... ok
+test guest_cpu_write_reaches_bpl8dat_holding_register ... ok
+test guest_cpu_reads_clxdat_with_bit_fifteen_set ... ok
+test pending_sprite_and_extended_plane_comparison_resume_together ... FAILED
+
+failures:
+
+---- pending_sprite_and_extended_plane_comparison_resume_together stdout ----
+
+thread 'pending_sprite_and_extended_plane_comparison_resume_together' (64218144) panicked at crates/runtime-commodore-amiga/tests/collisions.rs:69:9:
+assertion `left == right` failed: only the visible sprite's odd-group match may latch
+  left: 0
+ right: 2
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    pending_sprite_and_extended_plane_comparison_resume_together
+
+test result: FAILED. 3 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p runtime-commodore-amiga --test collisions`
+     Running tests/display_register_pipeline.rs (target/release/deps/display_register_pipeline-28d354d312473495)
+
+running 10 tests
+test restore_preserves_old_cadence_slots_with_the_new_live_transfer_width ... ok
+test restore_preserves_each_pending_dma_register_copy ... ok
+test restore_rejects_an_even_playfield_phase_outside_its_native_period ... ok
+test restore_preserves_a_partially_completed_serial_period_after_a_rate_change ... ok
+test restore_rejects_a_pending_tail_larger_than_its_holding_register ... ok
+test restore_retains_shifted_bits_above_the_narrow_output_tap ... ok
+test restore_rejects_a_serial_phase_outside_its_four_native_periods ... ok
+test restore_preserves_independent_playfield_clocks_and_pending_copies ... ok
+test restore_rejects_a_serial_history_cursor_outside_its_native_ring ... ok
+test restore_preserves_resolution_and_xor_writes_between_native_samples ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/dual_playfield.rs (target/release/deps/dual_playfield-9f0ee7d05888ee75)
+
+running 1 test
+test changing_pf2_offset_preserves_pending_serial_data_and_snapshot_restore ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/horizontal_window.rs (target/release/deps/horizontal_window-68fd32173a63ec34)
+
+running 3 tests
+test window_restore_preserves_pending_writes_and_fractional_output_history ... ok
+test malformed_window_stages_fail_validation ... ok
+test live_window_write_survives_both_half_cck_restore_phases ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.35s
+
+     Running tests/scroll_dma.rs (target/release/deps/scroll_dma-cc6bbb96bb7858b6)
+
+running 8 tests
+test ocs_hires_scroll ... ok
+test ecs_hires_and_dual_playfield_scroll ... ok
+test ocs_dual_playfield_scroll ... ok
+test midline_scroll_changes_only_the_selected_dma_playfield ... ok
+test aga_hires_sub_lores_scroll ... ok
+test simultaneous_dual_playfield_scroll ... ok
+test aga_serial_scroll_history_survives_mid_line_restore ... ok
+test aga_scroll_fetch_widths ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.12s
+
+     Running tests/snapshot_roundtrip.rs (target/release/deps/snapshot_roundtrip-03cc98e15b371352)
+
+running 54 tests
+test aga_copper_color_stages_survive_snapshot_round_trip ... FAILED
+test a530_snapshot_is_a_fixed_point_with_clock_bridge_and_local_ram ... ok
+test aga_delayed_color_write_survives_snapshot_round_trip ... ok
+test accepted_interrupt_acknowledge_survives_postcard_round_trip ... ok
+test a2000_fat_agnus_snapshot_round_trips_extension_state ... ok
+test aga_display_register_pipelines_survive_snapshot_round_trip ... ok
+test aga_programmed_hblank_latch_survives_snapshot_round_trip ... ok
+test alice_blitter_completion_pipeline_survives_postcard_round_trip ... ok
+test a1200_dynamic_bus_phase_survives_runtime_postcard_round_trip ... ok
+test aga_collision_extension_survives_restore_and_base_write_resets_it ... ok
+test a1000_hard_vertical_blank_identity_survives_postcard_round_trip ... ok
+test a1000_blitter_startup_phase_survives_postcard_round_trip ... ok
+test ecs_blitter_startup_phase_survives_nested_snapshot ... ok
+test ecs_copper_color_stage_survives_snapshot_round_trip ... ok
+test ecs_programmed_hblank_latch_survives_snapshot_round_trip ... ok
+test ecs_snapshot_restore_preserves_model_specific_gayle_composition ... ok
+test ecs_vertical_diw_latch_survives_snapshot_round_trip ... ok
+test enhanced_vertical_close_replays_across_both_post_wrap_cells ... ok
+test fat_agnus_hard_ddfstop_endpoint_survives_postcard_round_trip ... ok
+test group1_handler_prefetch_context_survives_postcard_round_trip ... ok
+test alice_source_finish_with_pending_d_survives_postcard_round_trip ... ok
+test line_onedot_suppression_survives_postcard_round_trip ... ok
+test addressed_bitplane_service_uses_saved_memory_and_replays_on_every_chipset ... ok
+test malformed_combined_refresh_restore_preserves_the_destination ... ok
+test ocs_aborted_ddf_run_survives_postcard_round_trip ... ok
+test ocs_closed_ddf_hard_start_gate_survives_postcard_round_trip ... ok
+test ocs_hard_ddfstop_endpoint_survives_postcard_round_trip ... ok
+test copper_first_word_survives_runtime_restore_and_later_ram_writes ... ok
+test ocs_phase_shifted_terminal_wrap_survives_postcard_round_trip ... ok
+test ocs_rewritten_future_ddf_start_survives_postcard_round_trip ... ok
+test combined_refresh_display_replays_through_live_service_on_every_chipset ... ok
+test ocs_vertical_diw_history_survives_postcard_round_trip ... ok
+test partial_disk_dma_fifo_is_a_snapshot_fixed_point ... ok
+test bitplane_reservation_samples_ptmod_then_reads_memory_at_live_service ... ok
+test pending_copper_skip_kind_survives_postcard_round_trip ... ok
+test ocs_open_ddf_hard_start_gate_survives_postcard_round_trip ... ok
+test restore_rejects_mismatched_snapshot_version ... ok
+test restore_rejects_unknown_version ... ok
+test restore_rejects_wrong_model ... ok
+test restore_remounts_persisted_floppy_image ... ok
+test pre_aga_blitter_completion_pipeline_survives_postcard_round_trip ... ok
+test restore_preserves_writable_live_floppy_image_across_chipset_tiers ... ok
+test snapshot_then_restore_then_snapshot_is_a_fixed_point ... ok
+test rtc_time_and_subsecond_phase_survive_restore_and_forward_replay ... ok
+test snapshot_then_restore_yields_bit_identical_forward_run ... ok
+test overlapping_display_address_samples_before_outgoing_pointer_service ... ok
+test live_strobe_service_and_denise_counter_replay_on_every_chipset ... ok
+test blocked_blitter_wait_and_wake_comparison_survive_restore ... ok
+test both_pending_copper_wait_stages_survive_runtime_restore ... ok
+test horizontal_display_window_survives_strobe_reset_and_half_cck_restore ... ok
+test automatic_strobes_cross_the_live_pipeline_and_reset_denise ... ok
+test every_line_stage_and_pending_result_survive_snapshot_restore ... ok
+test area_channel_fill_holding_and_drain_stages_survive_runtime_restore ... ok
+test a1200_prefetch_transfer_and_holding_register_survive_runtime_restore has been running for over 60 seconds
+test a1200_prefetch_transfer_and_holding_register_survive_runtime_restore ... ok
+
+failures:
+
+---- aga_copper_color_stages_survive_snapshot_round_trip stdout ----
+
+thread 'aga_copper_color_stages_survive_snapshot_round_trip' (64218455) panicked at crates/runtime-commodore-amiga/tests/snapshot_roundtrip.rs:3252:10:
+Copper COLOR00 must remain in the pre-output stage
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    aga_copper_color_stages_survive_snapshot_round_trip
+
+test result: FAILED. 53 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 86.37s
+
+error: test failed, to rerun pass `-p runtime-commodore-amiga --test snapshot_roundtrip`
+     Running tests/sprite_resolution.rs (target/release/deps/sprite_resolution-297a4d1de469cc6e)
+
+running 2 tests
+test pending_hires_sprite_clock_and_wide_data_survive_restore ... FAILED
+test pending_quarter_position_superhires_wide_sprite_survives_restore ... FAILED
+
+failures:
+
+---- pending_hires_sprite_clock_and_wide_data_survive_restore stdout ----
+
+thread 'pending_hires_sprite_clock_and_wide_data_survive_restore' (64225728) panicked at crates/runtime-commodore-amiga/tests/sprite_resolution.rs:35:17:
+assertion `left == right` failed
+  left: false
+ right: true
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- pending_quarter_position_superhires_wide_sprite_survives_restore stdout ----
+
+thread 'pending_quarter_position_superhires_wide_sprite_survives_restore' (64225729) panicked at crates/runtime-commodore-amiga/tests/sprite_resolution.rs:82:21:
+assertion `left == right` failed
+  left: false
+ right: true
+
+
+failures:
+    pending_hires_sprite_clock_and_wide_data_survive_restore
+    pending_quarter_position_superhires_wide_sprite_survives_restore
+
+test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p runtime-commodore-amiga --test sprite_resolution`
+     Running tests/superhires_dma.rs (target/release/deps/superhires_dma-927d4fa2ee86d8cd)
+
+running 6 tests
+test delayed_parallel_copy_keeps_all_words_from_the_latest_wide_transfer ... ok
+test midline_16_to_32_bit_fetch_retires_the_last_narrow_word_before_switching_copy_width ... ok
+test midline_32_to_64_bit_fetch_waits_for_the_new_parallel_copy_boundary ... ok
+test widening_to_32_bits_reveals_the_retained_upper_half_of_the_previous_word ... ok
+test superhires_scroll_moves_the_same_stream_in_single_sample_steps ... ok
+test superhires_dma_preserves_every_bit_at_all_fetch_widths ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+
+     Running tests/superhires_output.rs (target/release/deps/superhires_output-9d5bbe855c3a04c4)
+
+running 1 test
+test full_lisa_frame_and_clock_preserve_physical_picture_width ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+
+error: 3 targets failed:
+    `-p runtime-commodore-amiga --test collisions`
+    `-p runtime-commodore-amiga --test snapshot_roundtrip`
+    `-p runtime-commodore-amiga --test sprite_resolution`

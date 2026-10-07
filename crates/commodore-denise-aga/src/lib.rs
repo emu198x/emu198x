@@ -11,6 +11,7 @@
 //! - **BPLCON4** — bitplane colour XOR (BPLAM, bits 15..8) +
 //!   sprite colour base (ESPRM/OSPRM, bits 7..0).
 //! - **FMODE-driven sprite widths** — 16 / 32 / 64-pixel sprites.
+//! - **CLXCON2** — BP7/BP8 collision enables and match values.
 //!
 //! Rendering status (per `knowledge/decisions/amiga-machine-rollout-plan.md`):
 //! - **24-bit palette resolution** — done (#93): normal indexed modes
@@ -33,10 +34,7 @@ use std::ops::{Deref, DerefMut};
 pub use commodore_denise_ecs::DeniseEcs as InnerDeniseEcs;
 pub use commodore_denise_ocs::{DeniseOcs as InnerDeniseOcs, DeniseOutputPixelDebug};
 
-use common_commodore_amiga::{
-    denise::HorizontalBlanking,
-    denise_chip::{DeniseChip, HorizontalDiwComparatorPhase},
-};
+use common_commodore_amiga::{denise::HorizontalBlanking, denise_chip::DeniseChip};
 
 /// AGA Lisa DENISEID value as the CPU reads it from $DFF07C.
 /// WinUAE returns `0x00F8` for A1200 (and `0xFCF8` for A4000).
@@ -50,13 +48,6 @@ pub const PALETTE_ENTRIES_24: usize = 256;
 
 const BPLCON2_RDRAM: u16 = 0x0100;
 const BPLCON3_LOCT: u16 = 0x0200;
-
-/// Apply Lisa's additional one-lores-tick bitplane phase before forwarding
-/// into the shared OCS/ECS pixel core. Sprite coordinates remain absolute and
-/// do not pass through this helper.
-const fn lisa_bitplane_beam_x(beam_x: u32) -> u32 {
-    beam_x.wrapping_sub(1)
-}
 
 /// One AGA `COLORxx` write waiting to cross Lisa's one-hires-pixel output
 /// delay. The palette register mirrors already contain the new values; these
@@ -116,6 +107,21 @@ pub struct DeniseAgaDiagnosticSnapshot {
     pub programmed_hblank_visible: DeniseAgaProgrammedHblankRegisters,
     /// Pending normal-stage comparator copies, nearest output stage first.
     pub programmed_hblank_pipeline: [DeniseAgaProgrammedHblankRegisters; 2],
+    /// Raw BPLCON0 presented to Lisa.
+    pub bplcon0_input: u16,
+    /// Pending normal-stage serializer control copies.
+    pub bplcon0_pipeline: [u16; 2],
+    pub bplcon1_visible: u16,
+    pub bplcon1_pipeline: [u16; 2],
+    /// Raw Alice fetch-width input, normal-stage copy and pending copies.
+    pub bitplane_fmode_input: u16,
+    pub bitplane_fmode_visible: u16,
+    pub bitplane_fmode_pipeline: [u16; 2],
+    /// BPLAM sample history; the palette selector reads the six-sample tap.
+    pub playfield_xor_pipeline: [u8; 10],
+    /// DIW gate for the current group of native samples.
+    pub playfield_output_active: bool,
+    pub playfield_output_gates: [bool; 4],
 }
 
 /// Commodore Lisa (AGA Denise). Wraps the ECS Denise core and adds
@@ -158,6 +164,15 @@ pub struct DeniseAga {
     programmed_hblank_visible: DeniseAgaProgrammedHblankRegisters,
     /// Two normal-stage comparator copies between Alice and Lisa.
     programmed_hblank_pipeline: [DeniseAgaProgrammedHblankRegisters; 2],
+    bplcon0_input: u16,
+    bplcon0_pipeline: [u16; 2],
+    bplcon1_pipeline: [u16; 2],
+    bitplane_fmode_input: u16,
+    bitplane_fmode_visible: u16,
+    bitplane_fmode_pipeline: [u16; 2],
+    // Retain the ten-sample history for snapshot 54; output reads tap 4.
+    playfield_xor_pipeline: [u8; 10],
+    playfield_output_gates: [bool; 4],
 }
 
 const fn default_palette_genlock() -> [bool; PALETTE_ENTRIES_24] {
@@ -209,11 +224,14 @@ mod palette_genlock_serde {
 }
 
 impl DeniseAga {
-    /// Construct a fresh Lisa with the AGA register state zeroed and
+    /// Construct a fresh Lisa with the AGA register reset defaults and
     /// sprite width at the AGA default of 16 pixels.
     #[must_use]
     pub fn new() -> Self {
         let mut inner = InnerDeniseEcs::new();
+        // Lisa resets PF2OF to 3, retaining the OCS playfield-2 offset 8.
+        // WinUAE drawing.cpp reset and Minimig denise.v agree on $0C00.
+        inner.bplcon3 = 0x0C00;
         // Lisa drives up to 8 bitplanes (vs ECS/OCS 6). The OCS core's
         // `num_bitplanes()` only honours the AGA BPU3 bit (BPLCON0 bit 4)
         // when `max_bitplanes > 6`, and 8-plane modes (HAM8, deep CLUT)
@@ -233,6 +251,14 @@ impl DeniseAga {
             programmed_hblank_input: DeniseAgaProgrammedHblankRegisters::default(),
             programmed_hblank_visible: DeniseAgaProgrammedHblankRegisters::default(),
             programmed_hblank_pipeline: [DeniseAgaProgrammedHblankRegisters::default(); 2],
+            bplcon0_input: 0,
+            bplcon0_pipeline: [0; 2],
+            bplcon1_pipeline: [0; 2],
+            bitplane_fmode_input: 0,
+            bitplane_fmode_visible: 0,
+            bitplane_fmode_pipeline: [0; 2],
+            playfield_xor_pipeline: [0; 10],
+            playfield_output_gates: [false; 4],
         }
     }
 
@@ -243,6 +269,9 @@ impl DeniseAga {
         let mut inner = inner;
         // Promotion to Lisa raises the bitplane ceiling to 8 (see `new`).
         inner.as_inner_mut().max_bitplanes = 8;
+        let bplcon0 = inner.as_inner().bplcon0;
+        let fmode = inner.as_inner().bitplane_fmode;
+        let bplcon1 = inner.as_inner().bplcon1;
         Self {
             inner,
             bplcon4: 0x0011,
@@ -256,6 +285,14 @@ impl DeniseAga {
             programmed_hblank_input: DeniseAgaProgrammedHblankRegisters::default(),
             programmed_hblank_visible: DeniseAgaProgrammedHblankRegisters::default(),
             programmed_hblank_pipeline: [DeniseAgaProgrammedHblankRegisters::default(); 2],
+            bplcon0_input: bplcon0,
+            bplcon0_pipeline: [bplcon0; 2],
+            bplcon1_pipeline: [bplcon1; 2],
+            bitplane_fmode_input: fmode,
+            bitplane_fmode_visible: fmode,
+            bitplane_fmode_pipeline: [fmode; 2],
+            playfield_xor_pipeline: [0; 10],
+            playfield_output_gates: [false; 4],
         }
     }
 
@@ -296,7 +333,28 @@ impl DeniseAga {
             programmed_hblank_input: self.programmed_hblank_input,
             programmed_hblank_visible: self.programmed_hblank_visible,
             programmed_hblank_pipeline: self.programmed_hblank_pipeline,
+            bplcon0_input: self.bplcon0_input,
+            bplcon0_pipeline: self.bplcon0_pipeline,
+            bplcon1_visible: self.inner.as_inner().bitplane_scroll_selector,
+            bplcon1_pipeline: self.bplcon1_pipeline,
+            bitplane_fmode_input: self.bitplane_fmode_input,
+            bitplane_fmode_visible: self.bitplane_fmode_visible,
+            bitplane_fmode_pipeline: self.bitplane_fmode_pipeline,
+            playfield_xor_pipeline: self.playfield_xor_pipeline,
+            playfield_output_active: self.playfield_output_gates[3],
+            playfield_output_gates: self.playfield_output_gates,
         }
+    }
+
+    fn advance_playfield_xor_sample(&mut self) -> u8 {
+        // Early RGA accepts BPLAM before the first lores half of a CCK.
+        // The reference selects it halfway through the second half: six
+        // native samples later. The old ten-sample tap included one lores
+        // period from the reference framebuffer's padded storage origin.
+        let visible = self.playfield_xor_pipeline[4];
+        self.playfield_xor_pipeline.copy_within(1.., 0);
+        self.playfield_xor_pipeline[9] = (self.bplcon4 >> 8) as u8;
+        visible
     }
 
     /// Present Alice's live HBSTRT/HBSTOP register words to Lisa's normal
@@ -330,14 +388,15 @@ impl DeniseAga {
         self.programmed_hblank_pipeline[1] = self.programmed_hblank_input;
     }
 
-    /// Advance Lisa's programmable horizontal-blank comparator over the two
-    /// output samples produced by one Denise phase.
+    /// Select Lisa's fixed or programmable horizontal blanking over the four
+    /// 35 ns samples produced by one Denise phase.
     ///
     /// The coarse comparator occupies the low byte of HBSTRT/HBSTOP. Lisa's
-    /// three fine bits are paired onto the renderer's four-sample-per-CCK
-    /// grid. ECSENA and EXTBLKEN are sampled live; disabling either clears the
+    /// three fine bits address the eight 35 ns samples per CCK. ECSENA and EXTBLKEN are sampled live; disabling either clears the
     /// hidden level, so enabling a selector after HBSTRT cannot synthesize a
-    /// start event. BEAMCON0.BLANKEN is not part of the Lisa path.
+    /// start event. The fixed $10/$5D comparators observe the next lores
+    /// counter, so their output interval is $0F..$5C.
+    /// BEAMCON0.BLANKEN is not part of the Lisa path.
     #[must_use]
     pub fn programmed_hblank_for_output_phase(
         &mut self,
@@ -347,38 +406,43 @@ impl DeniseAga {
         hbstrt: u16,
         hbstop: u16,
     ) -> HorizontalBlanking {
-        const OUTPUT_SAMPLES_PER_CCK: u16 = 4;
+        const OUTPUT_SAMPLES_PER_CCK: u16 = 8;
 
         debug_assert!(phase < 2);
-        self.inner.as_inner_mut().bplcon0 = bplcon0;
+        self.bplcon0_input = bplcon0;
         self.set_programmed_hblank_input(hbstrt, hbstop);
         let selectors_enabled =
             self.inner.output_ecsena_enabled() && self.inner.output_extblken_enabled();
         let fine_sample =
-            |word: u16| (word & 0x00FF) * OUTPUT_SAMPLES_PER_CCK + ((word >> 8) & 0x0007) / 2;
+            |word: u16| (word & 0x00FF) * OUTPUT_SAMPLES_PER_CCK + ((word >> 8) & 0x0007);
         let start_sample = fine_sample(self.programmed_hblank_visible.hbstrt);
         let stop_sample = fine_sample(self.programmed_hblank_visible.hbstop);
-        let phase_sample = (hpos & 0x00FF) * OUTPUT_SAMPLES_PER_CCK + u16::from(phase) * 2;
-        let mut output_samples = [false; 2];
+        let phase_sample = (hpos & 0x00FF) * OUTPUT_SAMPLES_PER_CCK + u16::from(phase) * 4;
+        let mut output_samples = [false; 4];
 
         for (subpixel, output) in output_samples.iter_mut().enumerate() {
+            let sample = phase_sample + subpixel as u16;
             if !selectors_enabled {
                 self.programmed_hblank_active = false;
+                *output = (0x10 * 4..0x5D * 4).contains(&(sample + 4));
                 continue;
             }
-
-            let sample = phase_sample + subpixel as u16;
+            // Lisa compares programmed edges with the next lores counter,
+            // including its four fine samples (UAE checkhorizontal1_aga and
+            // lts_unaligned_aga). Counter-traced SPHX edges establish this
+            // phase independently of the framebuffer's retained padding.
+            let next_sample = (sample + 4) & 0x07FF;
             // Start precedes stop, so equal edges describe an empty interval.
-            if sample == start_sample {
+            if next_sample == start_sample {
                 self.programmed_hblank_active = true;
             }
-            if sample == stop_sample {
+            if next_sample == stop_sample {
                 self.programmed_hblank_active = false;
             }
             *output = self.programmed_hblank_active;
         }
 
-        HorizontalBlanking::from_output_samples(output_samples)
+        HorizontalBlanking::from_superhires_samples(output_samples)
     }
 
     /// Current hidden Lisa programmable horizontal-blank level.
@@ -442,8 +506,10 @@ impl DeniseAga {
 
     fn handle_color_write_with_early_output_delay(&mut self, offset: u16, val: u16) {
         if let Some(delayed) = self.apply_color_write(offset, val) {
-            self.delayed_color_write = None;
-            self.pending_early_color_write = Some(delayed);
+            // Copper is dispatched on the early RGA phase already. Only
+            // Lisa's two-sample palette delay remains before composition.
+            self.pending_early_color_write = None;
+            self.delayed_color_write = Some(delayed);
         }
     }
 
@@ -602,8 +668,9 @@ impl DeniseAga {
         // in `compose_playfield_pixel` (#96), so control + data are taken
         // post-XOR (Minimig's behaviour). WinUAE XORs only the control and
         // colour-register index, taking modify data from the raw pixel —
-        // the two diverge only when BPLAM is non-zero in HAM8, which real
-        // software effectively never does.
+        // the two can diverge in both HAM6 and HAM8 when BPLAM changes
+        // modification data. This path currently follows Minimig; that
+        // disagreement has not been resolved by a physical capture.
         if ham && !dual_playfield && planes >= 5 {
             let prev = self.ham_prev_rgb24 & 0x00FF_FFFF;
             let rgb = if planes >= 7 {
@@ -639,10 +706,15 @@ impl DeniseAga {
             return 0xFF00_0000 | rgb;
         }
 
-        if !ham && !dual_playfield && planes == 6 {
+        // KILLEHB selects ordinary indexed output on Lisa. Unlike ECS,
+        // Lisa has independent entries above COLOR31, so the complete
+        // post-BPLAM address must reach the palette in this mode.
+        // WinUAE setbplmode() selects CMODE_NORMAL; Minimig deasserts
+        // ehb_en and passes select_xored unchanged to rd_adr.
+        if !ham && !dual_playfield && planes == 6 && !kill_ehb {
             let palette_index = usize::from(color_idx & 0x1F);
             let mut rgb24 = self.palette_rgb24_with_delayed_write(palette_index, delayed);
-            if color_idx & 0x20 != 0 && !kill_ehb {
+            if color_idx & 0x20 != 0 {
                 rgb24 = (rgb24 >> 1) & 0x007F_7F7F;
             }
             return 0xFF00_0000 | rgb24;
@@ -686,12 +758,12 @@ impl From<DeniseAga> for InnerDeniseEcs {
 // surface the requirement.
 
 impl DeniseChip for DeniseAga {
+    const SUPPORTS_DIWHIGH: bool = true;
+    const OUTPUT_SAMPLES_PER_LORES: u32 = 4;
+    const RESETS_COUNTER_ON_EQUALISATION: bool = true;
+
     fn new() -> Self {
         DeniseAga::new()
-    }
-
-    fn horizontal_diw_comparator_phase(&self) -> HorizontalDiwComparatorPhase {
-        HorizontalDiwComparatorPhase::AfterOutput
     }
 
     fn write_word(&mut self, offset: u16, val: u16) {
@@ -701,6 +773,25 @@ impl DeniseChip for DeniseAga {
         const BPLCON4: u16 = 0x010C;
         const FMODE: u16 = 0x01FC;
         match offset {
+            0x0100 => {
+                let visible = self.inner.as_inner().bplcon0;
+                self.inner.write_word(offset, val);
+                self.bplcon0_input = val;
+                self.inner.as_inner_mut().bplcon0 = visible;
+            }
+            0x0102 => {
+                let visible = self.inner.as_inner().bitplane_scroll_selector;
+                self.inner.write_word(offset, val);
+                self.inner.as_inner_mut().bitplane_scroll_selector = visible;
+            }
+            0x0110 => {
+                self.inner.as_inner_mut().bitplane_fmode = self.bitplane_fmode_visible;
+                self.inner.write_word(offset, val);
+            }
+            0x010E => self.inner.as_inner_mut().clxcon2 = val,
+            // The OCS dispatcher ends at BPL7DAT; Lisa also decodes the
+            // eighth holding register. BPL1DAT remains the copy strobe.
+            0x011E => self.inner.as_inner_mut().load_bitplane(7, val),
             BPLCON4 => {
                 self.bplcon4 = val;
                 // Forward to the OCS core, which owns pixel composition:
@@ -711,11 +802,12 @@ impl DeniseChip for DeniseAga {
                 self.inner.as_inner_mut().bplcon4 = val;
             }
             FMODE => {
-                // Lisa cares about FMODE bits 3..2 for sprite width.
-                // Alice (the Agnus side) owns FMODE storage; Lisa
+                // Lisa uses FMODE for sprite width and serial scroll depth.
+                // Alice (the Agnus side) owns DMA scheduling; Lisa
                 // receives the value when the machine layer forwards
                 // the write here.
                 self.set_sprite_width_from_fmode(val);
+                self.bitplane_fmode_input = val;
             }
             0x180..=0x1BE => {
                 self.handle_color_write(offset, val);
@@ -733,7 +825,14 @@ impl DeniseChip for DeniseAga {
     }
 
     fn queue_shift_load_from_bpl1dat(&mut self) {
+        // WinUAE latches bpldat_fmode on BPL1DAT, separately from FMODE's
+        // normal RGA selector. Existing data keeps its original copy width.
+        self.inner.as_inner_mut().bitplane_fmode = self.bitplane_fmode_visible;
         self.inner.as_inner_mut().queue_shift_load_from_bpl1dat();
+    }
+
+    fn enable_sprites_from_bpl1dat(&mut self) {
+        self.inner.as_inner_mut().enable_sprites_from_bpl1dat();
     }
 
     fn write_sprite_pos(&mut self, sprite: usize, val: u16) {
@@ -760,6 +859,13 @@ impl DeniseChip for DeniseAga {
         self.ham_prev_rgb24 = self.palette_24[0] & 0x00FF_FFFF;
     }
 
+    fn border_blanking_for_output(&self, playfield_visible_gate: bool) -> bool {
+        let ocs = self.inner.as_inner();
+        ocs.bplcon0 & 1 != 0
+            && self.inner.bplcon3 & 0x20 != 0
+            && (!playfield_visible_gate || !ocs.sprite_bpl1dat_enabled())
+    }
+
     fn output_pixel_with_beam_and_playfield_gate(
         &mut self,
         x: u32,
@@ -768,20 +874,15 @@ impl DeniseChip for DeniseAga {
         beam_y: u32,
         playfield_visible_gate: bool,
     ) -> DeniseOutputPixelDebug {
-        let mut output = self
-            .inner
-            .as_inner_mut()
-            .output_pixel_with_beam_sprite_coords(
-                x,
-                y,
-                lisa_bitplane_beam_x(beam_x),
-                beam_y,
-                beam_x,
-                beam_y,
-                playfield_visible_gate,
-            );
-        output.beam_x = beam_x;
-        output
+        self.output_pixel_with_sample_gates(
+            x,
+            y,
+            beam_x,
+            beam_y,
+            beam_x,
+            beam_y,
+            [playfield_visible_gate; 4],
+        )
     }
 
     fn output_pixel_with_beam_sprite_coords(
@@ -794,17 +895,52 @@ impl DeniseChip for DeniseAga {
         spr_beam_y: u32,
         playfield_visible_gate: bool,
     ) -> DeniseOutputPixelDebug {
+        self.output_pixel_with_sample_gates(
+            x,
+            y,
+            beam_x,
+            beam_y,
+            spr_beam_x,
+            spr_beam_y,
+            [playfield_visible_gate; 4],
+        )
+    }
+
+    fn output_pixel_with_sample_gates(
+        &mut self,
+        x: u32,
+        y: u32,
+        beam_x: u32,
+        beam_y: u32,
+        spr_beam_x: u32,
+        spr_beam_y: u32,
+        gates: [bool; 4],
+    ) -> DeniseOutputPixelDebug {
+        self.playfield_output_gates = gates;
+        let selector = ((self.inner.bplcon3 >> 10) & 7) as u8;
+        let pf2_palette_offset = if selector == 0 { 0 } else { 1 << selector };
+        let border_sprites_enabled =
+            self.inner.as_inner().bplcon0 & 1 != 0 && self.inner.bplcon3 & 2 != 0;
+        let sprite_sample_period = match (self.inner.bplcon3 >> 6) & 3 {
+            0 if self.inner.as_inner().bplcon0 & 0x40 != 0 => 2,
+            2 => 2,
+            3 => 1,
+            _ => 4,
+        };
         let mut output = self
             .inner
             .as_inner_mut()
-            .output_pixel_with_beam_sprite_coords(
+            .output_pixel_with_sample_gates_and_display_controls(
                 x,
                 y,
-                lisa_bitplane_beam_x(beam_x),
+                beam_x,
                 beam_y,
                 spr_beam_x,
                 spr_beam_y,
-                playfield_visible_gate,
+                gates,
+                pf2_palette_offset,
+                border_sprites_enabled,
+                sprite_sample_period,
             );
         output.beam_x = beam_x;
         output
@@ -847,13 +983,49 @@ impl DeniseChip for DeniseAga {
         }
     }
 
+    fn resolve_output_sample_argb(
+        &mut self,
+        playfield_color_idx: u8,
+        output_color_idx: u8,
+        is_sprite: bool,
+        sample: u8,
+    ) -> u32 {
+        let visible_xor = self.advance_playfield_xor_sample();
+        // Composition uses the raw mirror for diagnostics and sprite priority.
+        // BPLAM changes only palette selection; replace its raw mask with the
+        // mask that has crossed the timed output stage. Border is COLOR00.
+        let playfield_color_idx = if self.playfield_output_gates[usize::from(sample)] {
+            playfield_color_idx ^ (self.bplcon4 >> 8) as u8 ^ visible_xor
+        } else {
+            playfield_color_idx
+        };
+        // A normal COLOR write is delayed by one hires period: two 35 ns
+        // samples. Consume the retained palette view only on the second.
+        let delayed = if sample & 1 == 0 {
+            self.pending_early_color_write.or(self.delayed_color_write)
+        } else {
+            self.take_color_output_delay()
+        };
+        let playfield =
+            self.resolve_playfield_color_argb_with_delayed_write(playfield_color_idx, delayed);
+        if is_sprite {
+            0xFF00_0000
+                | self.palette_rgb24_with_delayed_write(usize::from(output_color_idx), delayed)
+        } else {
+            playfield
+        }
+    }
+
     fn advance_color_output_samples(&mut self, samples: u8) {
+        for _ in 0..samples {
+            self.advance_playfield_xor_sample();
+        }
         if samples != 0 {
             self.delayed_color_write = None;
         }
     }
 
-    fn write_color_with_early_output_delay(&mut self, offset: u16, value: u16) -> bool {
+    fn write_color_before_output_tick(&mut self, offset: u16, value: u16) -> bool {
         self.handle_color_write_with_early_output_delay(offset, value);
         true
     }
@@ -865,7 +1037,19 @@ impl DeniseChip for DeniseAga {
     }
 
     fn advance_register_output_pipeline(&mut self) {
+        self.inner.as_inner_mut().bitplane_scroll_selector = self.bplcon1_pipeline[0];
+        self.bplcon1_pipeline[0] = self.bplcon1_pipeline[1];
+        self.bplcon1_pipeline[1] = self.inner.as_inner().bplcon1;
+        self.bitplane_fmode_visible = self.bitplane_fmode_pipeline[0];
+        self.bitplane_fmode_pipeline[0] = self.bitplane_fmode_pipeline[1];
+        self.bitplane_fmode_pipeline[1] = self.bitplane_fmode_input;
+        // The existing ECS selector stage samples the raw input, while
+        // the serializer consumes the copy leaving this same normal stage.
+        self.inner.as_inner_mut().bplcon0 = self.bplcon0_input;
         self.inner.advance_output_selector_pipeline();
+        self.inner.as_inner_mut().bplcon0 = self.bplcon0_pipeline[0];
+        self.bplcon0_pipeline[0] = self.bplcon0_pipeline[1];
+        self.bplcon0_pipeline[1] = self.bplcon0_input;
         self.advance_programmed_hblank_pipeline();
     }
 
@@ -887,6 +1071,12 @@ impl DeniseChip for DeniseAga {
 
     fn set_bplcon0(&mut self, v: u16) {
         self.inner.as_inner_mut().bplcon0 = v;
+        self.bplcon0_input = v;
+        self.bplcon0_pipeline = [v; 2];
+    }
+
+    fn sync_bplcon0_input(&mut self, value: u16) {
+        self.bplcon0_input = value;
     }
 
     fn set_interlace_active(&mut self, v: bool) {
@@ -911,10 +1101,7 @@ impl DeniseChip for DeniseAga {
 #[cfg(test)]
 mod tests {
     use super::{BPLCON2_RDRAM, DeniseAga, LISA_DENISE_ID};
-    use common_commodore_amiga::{
-        denise::HorizontalBlanking,
-        denise_chip::{DeniseChip, HorizontalDiwComparatorPhase},
-    };
+    use common_commodore_amiga::{denise::HorizontalBlanking, denise_chip::DeniseChip};
 
     fn settle_programmed_hblank_inputs(
         denise: &mut DeniseAga,
@@ -934,6 +1121,7 @@ mod tests {
         let denise = DeniseAga::new();
         // BPLCON4 resets to $0011 (Minimig denise.v): ESPRM/OSPRM = 1 so
         // sprites default to the OCS $10–$1F colour range, BPLAM = 0.
+        assert_eq!(denise.bplcon3, 0x0C00); // PF2OF=3, default offset 8
         assert_eq!(denise.bplcon4, 0x0011);
         assert_eq!(denise.spr_width, 16);
         assert_eq!(denise.ham_prev_rgb24, 0);
@@ -943,17 +1131,68 @@ mod tests {
     }
 
     #[test]
-    fn lisa_declares_post_output_horizontal_diw_matches() {
+    fn lisa_window_matches_reach_output_at_the_counter_equality() {
         let denise = DeniseAga::new();
 
+        let mut window = common_commodore_amiga::denise_window::DeniseWindow::default();
+        window.queue_write(0x08E, 129, true, true, true);
+        window.queue_write(0x090, 193, true, true, true);
+        for _ in 0..3 {
+            window.begin_output_tick();
+        }
+        let mut active = false;
+        // Independent UAE counter trace: the start match is composed at 129,
+        // while the stop match at 449 already selects border.
+        for position in 128..=450 {
+            let gates = window.output_gates(
+                &mut active,
+                position,
+                true,
+                denise.horizontal_diw_comparator_phase(),
+            );
+            assert_eq!(
+                gates,
+                [(129..449).contains(&position); 4],
+                "counter {position}"
+            );
+        }
+    }
+
+    #[test]
+    fn fractional_window_gates_playfield_sprite_and_xor_per_sample() {
+        let mut denise = DeniseAga::new();
+        denise.set_bplcon0(0x1000);
+        denise.write_word(0x104, 4); // sprite group zero in front of playfield
+        denise.begin_beam_line();
+        denise.load_bitplane(0, 0xFFFF);
+        denise.write_sprite_pos(0, 0);
+        denise.write_sprite_ctl(0, 0);
+        denise.write_sprite_datb(0, 0);
+        denise.write_sprite_data(0, 0xFFFF);
+        denise.queue_shift_load_from_bpl1dat();
+        for x in 0..2 {
+            denise.output_pixel_with_beam_sprite_coords(x, 0, x, 0, x, 0, true);
+        }
+        let output =
+            denise.output_pixel_with_sample_gates(2, 0, 2, 0, 2, 0, [false, true, true, false]);
+        assert_eq!(output.quad_playfield_color_idx, [0, 1, 1, 0]);
+        assert_eq!(output.quad_is_sprite, [false, true, true, false]);
+        // A pending XOR must never turn a closed-window sample into a
+        // playfield colour. Palette entries distinguish the two outcomes.
+        denise.palette_24[0] = 0x112233;
+        denise.bplcon4 ^= 0x0100;
         assert_eq!(
-            denise.horizontal_diw_comparator_phase(),
-            HorizontalDiwComparatorPhase::AfterOutput,
+            denise.resolve_output_sample_argb(0, 0, false, 0),
+            0xFF112233
+        );
+        assert_eq!(
+            denise.resolve_output_sample_argb(0, 0, false, 3),
+            0xFF112233
         );
     }
 
     #[test]
-    fn lisa_adds_one_output_tick_to_the_shared_bitplane_phase() {
+    fn lisa_parallel_copy_reaches_output_on_the_following_counter() {
         let mut denise = DeniseAga::new();
         denise.set_bplcon0(0x1000); // one lowres bitplane
         denise.begin_beam_line();
@@ -965,12 +1204,14 @@ mod tests {
         let third = denise.output_pixel_with_beam_and_playfield_gate(2, 0, 2, 0, true);
 
         assert_eq!(first.quad_playfield_color_idx[0], 0);
-        assert_eq!(second.quad_playfield_color_idx[0], 0);
-        assert_eq!(third.quad_playfield_color_idx[0], 1);
+        // UAE composes the held pixel, copies at counter 0 and loads the
+        // next held pixel there. Counter 1 emits it; no second lores delay.
+        assert_eq!(second.quad_playfield_color_idx, [1; 4]);
+        assert_eq!(third.quad_playfield_color_idx, [0; 4]);
     }
 
     #[test]
-    fn lisa_bitplane_phase_does_not_move_the_sprite_comparator() {
+    fn lisa_sprite_emits_one_lores_period_after_the_comparator() {
         let mut denise = DeniseAga::new();
         denise.begin_beam_line();
         denise.write_sprite_pos(0, 0x0000); // HSTART=0
@@ -982,8 +1223,43 @@ mod tests {
         let at_hstart = denise.output_pixel_with_beam_sprite_coords(0, 0, 0, 0, 0, 0, true);
         let following = denise.output_pixel_with_beam_sprite_coords(1, 0, 1, 0, 1, 0, true);
 
+        let second = denise.output_pixel_with_beam_sprite_coords(2, 0, 2, 0, 2, 0, true);
         assert!(!at_hstart.quad_is_sprite[0]);
         assert!(following.quad_is_sprite[0]);
+        assert!(!second.quad_is_sprite[0]);
+    }
+
+    #[test]
+    fn lisa_fixed_hblank_compares_the_next_counter() {
+        let mut denise = DeniseAga::new();
+        for (hpos, phase, blank) in [
+            (7, 0, false),
+            (7, 1, true),
+            (8, 0, true),
+            (45, 1, true),
+            (46, 0, false),
+            (46, 1, false),
+            (47, 0, false),
+        ] {
+            assert_eq!(
+                denise.programmed_hblank_for_output_phase(hpos, phase, 0, 0, 0),
+                HorizontalBlanking::from_level(blank),
+                "fixed blanking at CCK {hpos}, phase {phase}",
+            );
+        }
+        denise.set_bplcon0(1);
+        denise.write_word(0x0106, 1);
+        // Both propagated selectors must be enabled to replace the fixed comparator.
+        settle_programmed_hblank_inputs(&mut denise, 0, 0, 0);
+        assert_eq!(
+            denise.programmed_hblank_for_output_phase(46, 0, 0, 0, 0),
+            HorizontalBlanking::from_level(false)
+        );
+        settle_programmed_hblank_inputs(&mut denise, 1, 0, 0);
+        assert_eq!(
+            denise.programmed_hblank_for_output_phase(46, 0, 1, 0, 0),
+            HorizontalBlanking::disabled()
+        );
     }
 
     #[test]
@@ -1004,7 +1280,7 @@ mod tests {
 
         denise.write_word(0x0106, 0x0001); // EXTBLKEN
         settle_programmed_hblank_inputs(&mut denise, 0x0001, 0x0040, 0x0080);
-        let _ = denise.programmed_hblank_for_output_phase(0x0040, 0, 0x0001, 0x0040, 0x0080);
+        let _ = denise.programmed_hblank_for_output_phase(0x003F, 1, 0x0001, 0x0040, 0x0080);
 
         // The common OCS core carries compatibility mirrors. Deliberately
         // make them disagree so this test proves the snapshot reads Lisa's
@@ -1032,19 +1308,45 @@ mod tests {
     }
 
     #[test]
-    fn lisa_hblank_fine_stop_can_split_one_output_pair() {
+    fn lisa_programmed_hblank_matches_counter_traced_edges() {
+        // SPHX blanking guests, reference counter 100 -> raw sample 36.
+        // HBSTRT=$80 begins at counter 255 (raw x=656), not 256.
+        // HBSTOP=$07A0 ends at counter 320.75 (raw x=919).
+        let mut denise = DeniseAga::new();
+        denise.set_bplcon0(1);
+        denise.write_word(0x0106, 1);
+        settle_programmed_hblank_inputs(&mut denise, 1, 0x80, 0x07A0);
+        for hpos in 0x70..=0xA1 {
+            for phase in 0..2 {
+                let blank = denise.programmed_hblank_for_output_phase(hpos, phase, 1, 0x80, 0x07A0);
+                let expected = match (hpos, phase) {
+                    (0x70..=0x7E, _) | (0x7F, 0) | (0xA0, 1) | (0xA1, _) => [false; 4],
+                    (0xA0, 0) => [true, true, true, false],
+                    _ => [true; 4],
+                };
+                assert_eq!(
+                    blank,
+                    HorizontalBlanking::from_superhires_samples(expected),
+                    "counter CCK {hpos:#x} half {phase}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn lisa_hblank_fine_stop_retains_all_four_output_samples() {
         let mut denise = DeniseAga::new();
         denise.set_bplcon0(0x0001); // ECSENA
         denise.write_word(0x0106, 0x0001); // EXTBLKEN
         settle_programmed_hblank_inputs(&mut denise, 0x0001, 0x0030, 0x0740);
 
         assert_eq!(
-            denise.programmed_hblank_for_output_phase(0x0030, 0, 0x0001, 0x0030, 0x0740,),
+            denise.programmed_hblank_for_output_phase(0x002F, 1, 0x0001, 0x0030, 0x0740,),
             HorizontalBlanking::from_output_samples([true, true]),
         );
         assert_eq!(
-            denise.programmed_hblank_for_output_phase(0x0040, 1, 0x0001, 0x0030, 0x0740,),
-            HorizontalBlanking::from_output_samples([true, false]),
+            denise.programmed_hblank_for_output_phase(0x0040, 0, 0x0001, 0x0030, 0x0740,),
+            HorizontalBlanking::from_superhires_samples([true, true, true, false]),
         );
         assert!(!denise.programmed_hblank_active());
     }
@@ -1062,7 +1364,7 @@ mod tests {
         );
         settle_programmed_hblank_inputs(&mut denise, 0x0001, 0x0050, 0x00C0);
         assert_eq!(
-            denise.programmed_hblank_for_output_phase(0x0050, 0, 0x0001, 0x0050, 0x00C0,),
+            denise.programmed_hblank_for_output_phase(0x004F, 1, 0x0001, 0x0050, 0x00C0,),
             HorizontalBlanking::from_level(true),
             "the rewritten edge takes effect when the following line reaches it",
         );
@@ -1073,15 +1375,15 @@ mod tests {
         let mut denise = DeniseAga::new();
         denise.write_word(0x0106, 0x0001); // EXTBLKEN
         settle_programmed_hblank_inputs(&mut denise, 0x0001, 0x0060, 0x0070);
-        let _ = denise.programmed_hblank_for_output_phase(0x0060, 0, 0x0001, 0x0060, 0x0070);
-        let _ = denise.programmed_hblank_for_output_phase(0x0070, 0, 0x0001, 0x0060, 0x0070);
+        let _ = denise.programmed_hblank_for_output_phase(0x005F, 1, 0x0001, 0x0060, 0x0070);
+        let _ = denise.programmed_hblank_for_output_phase(0x006F, 1, 0x0001, 0x0060, 0x0070);
 
         assert_eq!(
             denise.programmed_hblank_for_output_phase(0x0071, 0, 0x0001, 0x0060, 0x00B0,),
             HorizontalBlanking::disabled(),
         );
         settle_programmed_hblank_inputs(&mut denise, 0x0001, 0x0060, 0x00B0);
-        let _ = denise.programmed_hblank_for_output_phase(0x0060, 0, 0x0001, 0x0060, 0x00B0);
+        let _ = denise.programmed_hblank_for_output_phase(0x005F, 1, 0x0001, 0x0060, 0x00B0);
         assert_eq!(
             denise.programmed_hblank_for_output_phase(0x00A0, 0, 0x0001, 0x0060, 0x00B0,),
             HorizontalBlanking::from_level(true),
@@ -1095,7 +1397,7 @@ mod tests {
         denise.write_word(0x0106, 0x0001); // EXTBLKEN
         settle_programmed_hblank_inputs(&mut denise, 0x0000, 0x0040, 0x0080);
         assert_eq!(
-            denise.programmed_hblank_for_output_phase(0x0040, 0, 0x0000, 0x0040, 0x0080,),
+            denise.programmed_hblank_for_output_phase(0x003F, 1, 0x0000, 0x0040, 0x0080,),
             HorizontalBlanking::disabled(),
         );
         settle_programmed_hblank_inputs(&mut denise, 0x0001, 0x0040, 0x0080);
@@ -1104,7 +1406,7 @@ mod tests {
             HorizontalBlanking::disabled(),
         );
         assert_eq!(
-            denise.programmed_hblank_for_output_phase(0x0040, 0, 0x0001, 0x0040, 0x0080,),
+            denise.programmed_hblank_for_output_phase(0x003F, 1, 0x0001, 0x0040, 0x0080,),
             HorizontalBlanking::from_level(true),
         );
     }
@@ -1114,7 +1416,7 @@ mod tests {
         let mut denise = DeniseAga::new();
         settle_programmed_hblank_inputs(&mut denise, 0x0001, 0x0040, 0x0080);
         assert_eq!(
-            denise.programmed_hblank_for_output_phase(0x0040, 0, 0x0001, 0x0040, 0x0080,),
+            denise.programmed_hblank_for_output_phase(0x003F, 1, 0x0001, 0x0040, 0x0080,),
             HorizontalBlanking::disabled(),
         );
         denise.write_word(0x0106, 0x0001); // EXTBLKEN
@@ -1124,7 +1426,7 @@ mod tests {
         );
         settle_programmed_hblank_inputs(&mut denise, 0x0001, 0x0040, 0x0080);
         assert_eq!(
-            denise.programmed_hblank_for_output_phase(0x0040, 0, 0x0001, 0x0040, 0x0080,),
+            denise.programmed_hblank_for_output_phase(0x003F, 1, 0x0001, 0x0040, 0x0080,),
             HorizontalBlanking::from_level(true),
         );
     }
@@ -1136,7 +1438,7 @@ mod tests {
         settle_programmed_hblank_inputs(&mut denise, 0x0001, 0x0040, 0x0040);
 
         assert_eq!(
-            denise.programmed_hblank_for_output_phase(0x0040, 0, 0x0001, 0x0040, 0x0040,),
+            denise.programmed_hblank_for_output_phase(0x003F, 1, 0x0001, 0x0040, 0x0040,),
             HorizontalBlanking::disabled(),
         );
         assert!(!denise.programmed_hblank_active());
@@ -1147,7 +1449,7 @@ mod tests {
         let mut denise = DeniseAga::new();
         denise.write_word(0x0106, 0x0001); // EXTBLKEN
         settle_programmed_hblank_inputs(&mut denise, 0x0001, 0x0040, 0x0080);
-        let _ = denise.programmed_hblank_for_output_phase(0x0040, 0, 0x0001, 0x0040, 0x0080);
+        let _ = denise.programmed_hblank_for_output_phase(0x003F, 1, 0x0001, 0x0040, 0x0080);
         assert!(denise.programmed_hblank_active());
 
         assert_eq!(
@@ -1241,37 +1543,17 @@ mod tests {
     }
 
     #[test]
-    fn copper_color_write_crosses_early_rga_and_lisa_output_stages() {
+    fn copper_color_write_retains_only_the_lisa_hires_output_delay() {
         let mut denise = DeniseAga::new();
-        denise.set_bplcon0(0x1000);
         denise.write_word(0x0180, 0x0123);
         denise.advance_color_output_samples(1);
-
-        assert!(denise.write_color_with_early_output_delay(0x0180, 0x0ABC));
-        assert!(
-            denise
-                .diagnostic_snapshot()
-                .pending_early_color_write
-                .is_some()
-        );
-        assert!(denise.diagnostic_snapshot().delayed_color_write.is_none());
-
-        // Every sample in the current board tick sees the prior palette.
-        assert_eq!(denise.resolve_color_argb(0), 0xFF11_2233);
-        assert_eq!(denise.resolve_color_argb(0), 0xFF11_2233);
-
-        denise.advance_early_color_output_pipeline();
-        assert!(
-            denise
-                .diagnostic_snapshot()
-                .pending_early_color_write
-                .is_none()
-        );
-        assert!(denise.diagnostic_snapshot().delayed_color_write.is_some());
-
-        // Lisa then retains that value for one additional hires sample.
-        assert_eq!(denise.resolve_color_argb(0), 0xFF11_2233);
-        assert_eq!(denise.resolve_color_argb(0), 0xFFAA_BBCC);
+        assert!(denise.write_color_before_output_tick(0x0180, 0x0ABC));
+        // Counter-traced adjacent MOVEs change at 292.5, 300.5, 308.5,
+        // 316.5: the early write retains two 35 ns samples, not six.
+        let output: Vec<_> = (0..4)
+            .map(|sample| denise.resolve_output_sample_argb(0, 0, false, sample))
+            .collect();
+        assert_eq!(output, [0xFF11_2233, 0xFF11_2233, 0xFFAA_BBCC, 0xFFAA_BBCC]);
     }
 
     #[test]
@@ -1355,14 +1637,73 @@ mod tests {
     }
 
     #[test]
-    fn aga_killehb_uses_bplcon2_and_keeps_full_24bit_base_color() {
+    fn aga_killehb_uses_the_full_palette_address() {
         let mut denise = DeniseAga::new();
         denise.set_bplcon0(0x6000); // six planes, EHB candidate
         denise.write_word(0x0182, 0x0123);
         denise.advance_color_output_samples(1);
         denise.write_word(0x0104, 0x0200); // BPLCON2 KILLEHB
 
-        assert_eq!(denise.resolve_color_argb(0x21), 0xFF11_2233);
+        denise.write_word(0x0106, 0x2000); // BANK=1: COLOR33
+        denise.write_word(0x0182, 0x0ABC);
+        denise.advance_color_output_samples(1);
+        assert_eq!(denise.resolve_color_argb(0x01), 0xFF11_2233);
+        assert_eq!(denise.resolve_color_argb(0x21), 0xFFAA_BBCC);
+    }
+
+    #[test]
+    fn killehb_retains_all_eight_post_xor_address_bits_and_color_delay() {
+        let mut denise = DeniseAga::new();
+        denise.set_bplcon0(0x6000);
+        denise.write_word(0x0104, 0x0200);
+        // Distinct RGB8 entries catch folding into either 32 or 64 colours.
+        for index in 0..256usize {
+            denise.palette_24[index] = (index as u32) * 0x010101;
+        }
+        for index in 0..=255u8 {
+            assert_eq!(
+                denise.resolve_color_argb(index),
+                0xFF00_0000 | (u32::from(index) * 0x010101),
+                "post-BPLAM palette address {index:02x}"
+            );
+        }
+        denise.write_word(0x0106, 0xA000); // BANK=5
+        denise.write_word(0x0182, 0x0123); // COLOR161
+        assert_eq!(denise.resolve_color_argb(0xA1), 0xFFA1_A1A1);
+        assert_eq!(denise.resolve_color_argb(0xA1), 0xFF11_2233);
+        denise.write_word(0x0104, 0); // EHB re-enabled: colour33 halves COLOR01
+        assert_eq!(denise.resolve_color_argb(0x21), 0xFF00_0000);
+    }
+
+    #[test]
+    fn six_plane_killehb_output_uses_serial_pixels_and_bplam() {
+        for xor in [0u8, 0x40, 0x80, 0xC0] {
+            let mut denise = DeniseAga::new();
+            denise.set_bplcon0(0x6000);
+            denise.write_word(0x0104, 0x0200);
+            denise.write_word(0x010C, (u16::from(xor) << 8) | 0x0011);
+            let address = 0x21 ^ xor;
+            denise.palette_24[usize::from(address)] = 0x123456;
+            denise.begin_beam_line();
+            for plane in 0..6 {
+                denise.load_bitplane(plane, if 0x21 & (1 << plane) != 0 { 0xFFFF } else { 0 });
+            }
+            denise.as_inner_mut().as_inner_mut().trigger_shift_load();
+            for x in 0..8 {
+                let sample = denise.output_pixel_with_beam_and_playfield_gate(x, 0, x, 0, true);
+                let rgb = denise.resolve_output_color_argb(
+                    sample.quad_playfield_color_idx[0],
+                    sample.quad_color_idx[0],
+                    sample.quad_is_sprite[0],
+                );
+                if x >= 4 {
+                    assert_eq!(sample.plane_bits_mask, 0x21);
+                    assert_eq!(sample.quad_playfield_color_idx[0], address);
+                    assert!(!sample.quad_is_sprite[0]);
+                    assert_eq!(rgb, 0xFF12_3456, "BPLAM={xor:02x}, pixel={x}");
+                }
+            }
+        }
     }
 
     #[test]
@@ -1548,9 +1889,10 @@ mod tests {
     #[test]
     fn non_aga_register_writes_delegate_to_inner_ocs() {
         let mut denise = DeniseAga::new();
-        // BPLCON0 ($100) — standard register, goes through to OCS.
-        denise.write_word(0x0100, 0x1234);
-        assert_eq!(denise.bplcon0(), 0x1234);
+        // BPLCON1 ($102) — standard scroll register goes through to OCS.
+        // BPLCON0 uses Lisa's separately timed normal stage.
+        denise.write_word(0x0102, 0x0034);
+        assert_eq!(denise.as_inner().as_inner().bplcon1, 0x0034);
     }
 
     #[test]
@@ -1595,5 +1937,32 @@ mod tests {
         assert_eq!(denise.palette_24[66], 0x00AA_5500);
         // OCS palette[2] must NOT receive non-bank-0 writes.
         assert_eq!(denise.palette()[2], 0x0000);
+    }
+    #[test]
+    fn full_sample_clock_keeps_one_hires_period_color_delay() {
+        let mut denise = DeniseAga::new();
+        denise.palette_24[1] = 0x00123456;
+        denise.handle_color_write(0x182, 0x0F00);
+        let samples: Vec<_> = (0..4)
+            .map(|sample| denise.resolve_output_sample_argb(1, 1, false, sample))
+            .collect();
+        assert_eq!(samples, [0xFF123456, 0xFF123456, 0xFFFF0000, 0xFFFF0000]);
+        assert!(denise.diagnostic_snapshot().delayed_color_write.is_none());
+    }
+
+    #[test]
+    fn superhires_ham8_decodes_each_35ns_playfield_sample() {
+        let mut denise = DeniseAga::new();
+        denise.set_bplcon0(0x0850);
+        denise.palette_24[1] = 0x00FF8043;
+        let codes = [0x04, (0x2A << 2) | 1, (0x15 << 2) | 2, (0x10 << 2) | 3];
+        let samples: Vec<_> = codes
+            .into_iter()
+            .enumerate()
+            .map(|(sample, code)| {
+                denise.resolve_output_sample_argb(code, code, false, sample as u8)
+            })
+            .collect();
+        assert_eq!(samples, [0xFFFF8043, 0xFFFF80AB, 0xFF5780AB, 0xFF5740AB]);
     }
 }

@@ -1,0 +1,111 @@
+{
+  "status": "Complete: ECS/OCS origin mismatch resolved; approved Lisa phase correction validated",
+  "production_changed": true,
+  "snapshot_version": 53,
+  "reference_base_revision": "f362278ccd4c60991caac3b4d240d4a3f751bea2",
+  "producers_sha256": {
+    "/private/tmp/emu198x-ecs-output-phase/reference-source/drawing.cpp": "673b8bd3ea9c90511a2f4e1455a0693c84bbdd837696c42b1a21735da8dbcfe6",
+    "/private/tmp/emu198x-ecs-output-phase/reference-source/custom.cpp": "75bb300ba2798913997f82dde988db465746e9b7f22699bbc275690c8ae227e5",
+    "/private/tmp/emu198x-ecs-output-phase/reference-source/od-fs/fs-uae": "ba59b04326a6477cdf6dd4220d9298263641d59c2eaad2e6bc98fbb109e4a898",
+    "/private/tmp/emu198x-ecs-output-phase/aga-reference-source/drawing.cpp": "afab7308f64adf551bd15acbb11150b2a589db7773c8c7071b78580c91ec18f3",
+    "/private/tmp/emu198x-ecs-output-phase/aga-reference-source/od-fs/fs-uae": "8af82dd86be16e67a85d13df58f051159cb1c3b361c3ad0ad3d5669c3f22f591",
+    "/Users/stevehill/Projects/198x/Emu198x/emu198x/target/release/emu198x-amiga": "435aedf26aa43115d3b190e0d5d293bb2c27731c900aa2499aa736935285ac12",
+    "/Users/stevehill/Projects/198x/Emu198x/emu198x/target/release/examples/ecs_output_phase_trace": "b0744b160b1e64e46299d6e0a4bf8c2aa6de73aeedb88b3a724cf17cc34e2889",
+    "/Users/stevehill/Projects/198x/Emu198x/emu198x/crates/runtime-commodore-amiga/examples/ecs_output_phase_trace.rs": "58aa4ed68e46f177f168e01b7fd7ca0348e1569583307d03b588dabc276ea4b0"
+  },
+  "ecs": {
+    "cases": 11,
+    "baseline_failed_fields": 33,
+    "counter_domain_exact_fields": 33,
+    "active_origin_observations": 6600,
+    "compared_rgb_pixels": 28564536,
+    "trace_enabled_raw_fields_identical_to_baseline": 33,
+    "report": "comparison.json"
+  },
+  "ocs_control": {
+    "counter_domain_exact_fields": 3,
+    "old_mapping_failed_fields": 3,
+    "active_origin_observations": 600,
+    "report": "ocs-control.json"
+  },
+  "aga_controls": {
+    "cases": 2,
+    "old_mapping_exact_fields": 6,
+    "counter_domain_failed_fields": 6,
+    "active_origin_observations": 1200,
+    "mismatches_per_field": [
+      3200,
+      3088
+    ],
+    "report": "aga-controls.json",
+    "native_window_start_counter": 130,
+    "reference_window_start_counter": 129,
+    "native_data_end_counter": 438,
+    "reference_data_end_counter": 437
+  },
+  "negative_controls": [
+    "Injected one RGB pixel error: exactly one mismatch detected in each of three fields",
+    "Empty trace rejected",
+    "Three unit tests cover zero/different padding and missing/duplicate/inconsistent origin observations"
+  ],
+  "checks": {
+    "native_example_build": "pass",
+    "native_traces": "OCS, ECS and AGA each require SPHX readiness, foreground and a complete line",
+    "python_unittest": "3 passed",
+    "ruff": "pass",
+    "format": "pass",
+    "strict_release_clippy": "pass; final native trace example, -D warnings"
+  },
+  "capture_failures": [
+    "First concurrent OCS launch stalled at startup: AssertionError: ('hires-legacy', -15, 0). Sequential rerun captured all fields.",
+    "First AGA control run had the ECS trace switch enabled, so yielded no AGA origin records. It was not accepted as traced evidence; a fresh-directory rerun with FSEMU_CODEX_AGA_PHASE produced the required records."
+  ],
+  "limits": [
+    "Software counter-domain observation, not physical-beam calibration",
+    "Origin traces cover all 200 active lines in three fields; blank rows remain included in the image comparison",
+    "No correction applied to production or admitted video gates",
+    "Do not generalize this constant PAL mapping to NTSC, STRLONG or variable timing",
+    "AGA sprite and colour phase require independent traces before revising those stages"
+  ],
+  "scratch_directory": "/private/tmp/emu198x-ecs-output-phase",
+  "native_ecs_ocs_trace_producer_sha256": "83c26e2143762c97af9162fc4840041a022dc3b25db8dde4d0905f75d1aaaaf1",
+  "native_ecs_ocs_trace_scope": "ECS/OCS traces precede the diagnostic-only AGA command-line option; final example producer is separately hashed above",
+  "production_identity_check": "All version-53 captured production source and executable hashes unchanged (using its already-recorded cfg(test)-only Denise fixture hash)",
+  "logs_sha256": {
+    "reference-corpus.log": "7c3ca9a33b6179eda815ce37a29998b055c544e73aa9719fdba8714f2a5a4217",
+    "reference-ocs-capture.log": "6176029d2dee67fa0d11c25abd9b5902a10afd32287eb748bec761ed19f7f2ae",
+    "reference-ocs-retry.log": "7b9828cae76b98c31eb8d9c0aac536961c886908a153bb3996b8b5721952f16c",
+    "reference-aga-traced-capture.log": "0d026dc896610c6f00d1324a63d994fe301e1fe05478c754bde13fe3481dac31",
+    "native-clippy-final.log": "01df5fce06d020c87578083753f8a952d00c566bfac634e63f7b616f06af0676",
+    "native-control-build.log": "066ff5df85332d95df74b499d1f40b4fbe9540cf13d3e690bfa83daf8a8a3cac"
+  },
+  "lisa_correction": {
+    "approval": "2026-10-06: Please fix that, I approve",
+    "snapshot_layout_changed": false,
+    "window_fields_exact": 51,
+    "independent_control_fields_exact": 21,
+    "test_kit_a1200": "all six cases exact, including both alternating phases",
+    "test_kit_a500": "all six cases exact, including both alternating phases",
+    "record": "lisa-correction/",
+    "status": "complete",
+    "checks": {
+      "common_amiga_tests": 141,
+      "ocs_ecs_denise_tests": 146,
+      "aga_denise_tests": 78,
+      "runtime_graphics_and_restore_tests": 146,
+      "total_focused_rust_tests": 511,
+      "snapshot_tests_included": 54,
+      "golden_matrix_checks": 8,
+      "strict_test_kit_cases": {
+        "a500": 6,
+        "a1200": 6
+      },
+      "clippy": "release, seven affected packages, all targets, -D warnings; final changed-test recheck passed",
+      "rustfmt": "all sixteen edited Rust files checked",
+      "python": "Ruff check/format; three origin-validator tests; colour control rebuild byte-identical",
+      "execution_note": "Broad runs retained failures from tests pinning the superseded phase. Repaired targets passed focused reruns. All 54 snapshot tests and eight boot-matrix checks passed across those runs; no skip or ignored-region additions."
+    },
+    "final_validation": "lisa-correction/validation.json"
+  },
+  "producer_identity_scope": "producers_sha256 retains pre-correction identities; lisa-correction/validation.json records final source and executable hashes"
+}

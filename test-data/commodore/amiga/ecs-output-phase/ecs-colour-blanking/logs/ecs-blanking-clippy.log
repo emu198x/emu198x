@@ -1,0 +1,29 @@
+    Checking common-commodore-amiga v0.25.0 (/Users/stevehill/Projects/198x/Emu198x/emu198x/crates/common-commodore-amiga)
+    Checking machine-commodore-amiga-ocs v0.25.0 (/Users/stevehill/Projects/198x/Emu198x/emu198x/crates/machine-commodore-amiga-ocs)
+    Checking commodore-denise-aga v0.25.0 (/Users/stevehill/Projects/198x/Emu198x/emu198x/crates/commodore-denise-aga)
+    Checking machine-commodore-amiga-a1200 v0.25.0 (/Users/stevehill/Projects/198x/Emu198x/emu198x/crates/machine-commodore-amiga-a1200)
+    Checking machine-commodore-amiga-ecs v0.25.0 (/Users/stevehill/Projects/198x/Emu198x/emu198x/crates/machine-commodore-amiga-ecs)
+    Checking runtime-commodore-amiga v0.25.0 (/Users/stevehill/Projects/198x/Emu198x/emu198x/crates/runtime-commodore-amiga)
+error: using `chunks_exact` with a constant chunk size
+   --> crates/runtime-commodore-amiga/tests/amiga_programmable_hblank.rs:829:18
+    |
+829 |         if group.chunks_exact(4).any(|pixel| pixel != &group[..4]) {
+    |                  ^^^^^^^^^^^^^^^ help: consider using `as_chunks` instead: `as_chunks::<4>().0.iter()`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#chunks_exact_to_as_chunks
+    = note: `-D clippy::chunks-exact-to-as-chunks` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::chunks_exact_to_as_chunks)]`
+
+error: could not compile `runtime-commodore-amiga` (test "amiga_programmable_hblank") due to 1 previous error
+warning: build failed, waiting for other jobs to finish...
+error: using `chunks_exact` with a constant chunk size
+    --> crates/runtime-commodore-amiga/tests/amiga_programmable_hblank_write_timing.rs:1982:18
+     |
+1982 |         if group.chunks_exact(4).any(|sample| sample != pixel) {
+     |                  ^^^^^^^^^^^^^^^ help: consider using `as_chunks` instead: `as_chunks::<4>().0.iter()`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#chunks_exact_to_as_chunks
+     = note: `-D clippy::chunks-exact-to-as-chunks` implied by `-D warnings`
+     = help: to override `-D warnings` add `#[allow(clippy::chunks_exact_to_as_chunks)]`
+
+error: could not compile `runtime-commodore-amiga` (test "amiga_programmable_hblank_write_timing") due to 1 previous error

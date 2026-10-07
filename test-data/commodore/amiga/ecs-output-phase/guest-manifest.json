@@ -1,0 +1,59 @@
+{
+  "cases": [
+    {
+      "case": "hires-legacy",
+      "adf_sha256": "235c24805054e534c1246e24579c6e21873aa805e110ebf3b5aa90f5196d7894",
+      "native_sha256": "4d28e80a56911b08023f46803ce5c7ff8ddcde1affa8f54aaac2aac55a232347"
+    },
+    {
+      "case": "hires-rewrite-high",
+      "adf_sha256": "b7353dc2b2dfc7964b506c320fed60d884085852f7ee5ec9885663877187ca79",
+      "native_sha256": "09a852278764f275edc08f52eb3e6c6542662b313e99bec965309f86c6fd5c0a"
+    },
+    {
+      "case": "hires-rewrite-start",
+      "adf_sha256": "9716a593f044271ca73f534d83556bbba0f48343de823ed34c999f9f25727088",
+      "native_sha256": "995f9914b519589d8d2481d677d70f664466ffaf443dac57ac3ebd09695ddc28"
+    },
+    {
+      "case": "hires-rewrite-stop",
+      "adf_sha256": "72f061bf8f61815179982da7af44478722c5445b5326d33e5d73a77bb809031f",
+      "native_sha256": "e37b9136a4b6cea4c88e18bf5e98b1f28727f265796c528d424a4180180d8714"
+    },
+    {
+      "case": "lores-explicit-legacy",
+      "adf_sha256": "99f780cf372fab5c8d5270b7b701a4ac62c9dd48ccb88826d57ffecfd1d06828",
+      "native_sha256": "cd351efcf5710b159b8bdf2133b53d299d50d432c224e7eccb6dbc6d485a3505"
+    },
+    {
+      "case": "lores-legacy",
+      "adf_sha256": "7afeb73513c5e172a27d93995b6dd5d09f64a61740f20149f455407351fb36a7",
+      "native_sha256": "cd351efcf5710b159b8bdf2133b53d299d50d432c224e7eccb6dbc6d485a3505"
+    },
+    {
+      "case": "lores-rewrite-high",
+      "adf_sha256": "bf39a332afc4b8210a72dcbed2e1ab1575b5c8db5401abd904b475c7838971cf",
+      "native_sha256": "e04857e8c65b28457694303e975254e043dbdfefc5ae9c02e531ea9b5121780d"
+    },
+    {
+      "case": "lores-rewrite-start",
+      "adf_sha256": "56b76ea116487b0c82315082e5e11832b032d53972be0d7a4f4de3056ce56034",
+      "native_sha256": "efbc08da11fc48033f14ba244e73bea665a3a65f154abc348d699a4100df79b1"
+    },
+    {
+      "case": "lores-rewrite-stop",
+      "adf_sha256": "60b78686ca53344e08144e5c1e9b1cdf5dd143ad1db955e7c3cdfc10409f4e7d",
+      "native_sha256": "2991aef84eb9ab3ccfab1277add791ec01727c24006a121588a1393db19e6233"
+    },
+    {
+      "case": "lores-start-high-half",
+      "adf_sha256": "bf099092a89bb271affc68728ca59eb449ffe2a9e830de092a03915faac6f0c8",
+      "native_sha256": "3a8bbe621bfeb0f2d947e6836c9c071fe3cddb61d842768a9b6d30e0864e7c82"
+    },
+    {
+      "case": "lores-stop-low-half",
+      "adf_sha256": "858ad89bebb0edf2357416ab6f0b21f1e676a5c7683f9158e328314c1707ec93",
+      "native_sha256": "5c97084edf4f85193a229a13865d3e7f803b0d0ca9475aac227924956d9f1665"
+    }
+  ]
+}

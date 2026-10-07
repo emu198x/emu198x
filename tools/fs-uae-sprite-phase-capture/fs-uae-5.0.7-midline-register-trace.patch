@@ -1,0 +1,60 @@
+--- a/custom.cpp
++++ b/custom.cpp
+@@ -3697,6 +3697,7 @@
+ 
+ static void BPLCON0(uae_u16 v)
+ {
++	if (getenv("FSEMU_CODEX_TIMING") && vpos == 132) write_log("CODEX_TIMING write BPLCON0 h=%d value=%04x\n", agnus_hpos, v);
+ 	uae_u16 old = bplcon0;
+ 	bplcon0_saved = v;
+ 	uae_u16 va = BPLCON0_Agnus_mask(v);
+@@ -3828,6 +3829,7 @@
+ 
+ static void FMODE(uae_u16 v)
+ {
++	if (getenv("FSEMU_CODEX_TIMING") && vpos == 132) write_log("CODEX_TIMING write FMODE h=%d value=%04x\n", agnus_hpos, v);
+ 	if (!aga_mode) {
+ 		if (currprefs.monitoremu) {
+ 			specialmonitor_store_fmode(vpos, agnus_hpos, v);
+@@ -12120,6 +12122,7 @@
+ 
+ 			int num = r->bpldat & 7;
+ 			uaecptr pt = r->pv;
++			if (getenv("FSEMU_CODEX_TIMING") && vpos == 132 && agnus_hpos >= 0x7c && agnus_hpos <= 0x90) write_log("CODEX_TIMING fetch h=%d plane=%d pt=%08x fmode=%d con0=%04x bytes=%d\n", agnus_hpos, num, pt, fetchmode_fmode_bpl, bplcon0, fetchmode_bytes);
+ 
+ #ifdef DEBUGGER
+ 			if (debug_dma) {
+--- a/drawing.cpp
++++ b/drawing.cpp
+@@ -3198,6 +3198,7 @@
+ static void expand_bplcon0(uae_u16 v)
+ {
+ 	uae_u16 old = bplcon0_denise;
++	if (getenv("FSEMU_CODEX_TIMING") && this_line && this_line->linear_vpos == 132) write_log("CODEX_LISA BPLCON0 h=%d value=%04x shiftcnt=%d\n", denise_hcounter, v, bplshiftcnt[0]);
+ 	if (!ecs_denise) {
+ 		v &= ~0x00F1;
+ 	} else if (!aga_mode) {
+@@ -3246,6 +3247,7 @@
+ 
+ static void expand_fmode(uae_u16 v)
+ {
++	if (getenv("FSEMU_CODEX_TIMING") && this_line && this_line->linear_vpos == 132) write_log("CODEX_LISA FMODE h=%d value=%04x shiftcnt=%d\n", denise_hcounter, v, bplshiftcnt[0]);
+ 	if (!aga_mode) {
+ 		v = 0;
+ 	}
+@@ -3902,6 +3904,7 @@
+ 		break;
+ 
+ 		case 0x110:
++		if (getenv("FSEMU_CODEX_TIMING") && this_line && this_line->linear_vpos == 132 && denise_hcounter >= 250 && denise_hcounter <= 290) write_log("CODEX_LISA BPL1 h=%d mode64=%d v=%08x v64=%016llx\n", denise_hcounter, denise_bplfmode64, rd->v, (unsigned long long)rd->v64);
+ 		if (denise_bplfmode64) {
+ 			bplxdat_64[0] = rd->v64;
+ 		} else {
+@@ -6159,6 +6162,7 @@
+ 			gpix = 0;
+ 			if (denise_hdiw && bpl1dat_trigger) {
+ 				pix = loaded_pixs[ipix];
++				if (getenv("FSEMU_CODEX_TIMING") && this_line && this_line->linear_vpos == 132 && cnt >= 1040 && cnt <= 1104) write_log("CODEX_LISA PIX cnt=%d res=%d pix=%d phase=%d mode64=%d\n", cnt, denise_res, pix, bplshiftcnt[0], denise_bplfmode64);
+ 				// odd to even bitplane collision
+ 				clxdat |= bplcoltable[pix];
+ 				dpix_val = decode_pixel_aga(pix);

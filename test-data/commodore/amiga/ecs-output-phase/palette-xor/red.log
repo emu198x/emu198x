@@ -1,0 +1,27 @@
+   Compiling commodore-denise-ecs v0.25.0 (/Users/stevehill/Projects/198x/Emu198x/emu198x/crates/commodore-denise-ecs)
+   Compiling common-commodore-amiga v0.25.0 (/Users/stevehill/Projects/198x/Emu198x/emu198x/crates/common-commodore-amiga)
+   Compiling commodore-denise-aga v0.25.0 (/Users/stevehill/Projects/198x/Emu198x/emu198x/crates/commodore-denise-aga)
+    Finished `release` profile [optimized] target(s) in 9.88s
+     Running tests/xor_output_phase.rs (target/release/deps/xor_output_phase-c1fad53977ff01ae)
+
+running 2 tests
+test pending_playfield_xor_does_not_recolour_the_border ... ok
+test playfield_xor_crosses_the_output_stage_six_native_samples_after_the_write ... FAILED
+
+failures:
+
+---- playfield_xor_crosses_the_output_stage_six_native_samples_after_the_write stdout ----
+
+thread 'playfield_xor_crosses_the_output_stage_six_native_samples_after_the_write' (65751101) panicked at crates/commodore-denise-aga/tests/xor_output_phase.rs:39:13:
+assertion `left == right` failed: native offset 6
+  left: 4278190097
+ right: 4278255360
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    playfield_xor_crosses_the_output_stage_six_native_samples_after_the_write
+
+test result: FAILED. 1 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p commodore-denise-aga --test xor_output_phase`

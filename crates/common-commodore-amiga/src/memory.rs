@@ -437,7 +437,9 @@ impl Memory {
     /// drive the chip bus the same way a CPU read does.
     #[must_use]
     pub fn read_chip_ram_word(&self, addr: u32) -> u16 {
-        let addr = addr & 0xFF_FFFF;
+        // Agnus drives the chip-RAM bus, independently of CPU address decode.
+        // Match the DMA write adapters and registered chipmem_agnus_wget.
+        let addr = addr & 0x001F_FFFF;
         let hi = self.read_chip_ram_byte(addr);
         let lo = self.read_chip_ram_byte(addr.wrapping_add(1));
         let word = (u16::from(hi) << 8) | u16::from(lo);
@@ -898,6 +900,30 @@ mod tests {
         assert_eq!(word, 0xCAFE);
         assert_eq!(mem.last_bus_value(), 0xCAFE);
         assert_eq!(mem.read_word(0x00A0_0000), 0xFFFF);
+    }
+
+    #[test]
+    fn dma_reads_agree_with_dma_writes_after_address_wrap() {
+        use crate::board::ChipRamBus;
+        use commodore_agnus_ocs::BlitterBus;
+
+        for chip_bytes in [256 * 1024, 512 * 1024, 1024 * 1024, 2048 * 1024] {
+            let mut mem = Memory::new_with_ram(test_rom(), chip_bytes, 0);
+            mem.set_overlay(false);
+            for address in [0x0020_0100, 0x0040_0100, 0x00C0_0100, 0x00DF_F100] {
+                let mut dma = ChipRamBus(&mut mem);
+                dma.write_word(address, 0xCAFE);
+                assert_eq!(
+                    dma.read_word(address),
+                    0xCAFE,
+                    "DMA read and write must see the same chip address at {address:#x}"
+                );
+                assert_eq!(mem.read_word(address & 0x001f_fffe), 0xCAFE);
+                assert_eq!(mem.read_word(address), 0xFFFF, "CPU decode stays separate");
+                assert_eq!(mem.read_chip_ram_word(address), 0xCAFE);
+                assert_eq!(mem.last_bus_value(), 0xCAFE);
+            }
+        }
     }
 
     #[test]

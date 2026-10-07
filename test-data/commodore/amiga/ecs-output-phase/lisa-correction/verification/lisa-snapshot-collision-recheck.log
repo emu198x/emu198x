@@ -1,0 +1,96 @@
+   Compiling common-commodore-amiga v0.25.0 (/Users/stevehill/Projects/198x/Emu198x/emu198x/crates/common-commodore-amiga)
+   Compiling machine-commodore-amiga-ocs v0.25.0 (/Users/stevehill/Projects/198x/Emu198x/emu198x/crates/machine-commodore-amiga-ocs)
+   Compiling commodore-denise-aga v0.25.0 (/Users/stevehill/Projects/198x/Emu198x/emu198x/crates/commodore-denise-aga)
+   Compiling machine-commodore-amiga-ecs v0.25.0 (/Users/stevehill/Projects/198x/Emu198x/emu198x/crates/machine-commodore-amiga-ecs)
+   Compiling machine-commodore-amiga-a1200 v0.25.0 (/Users/stevehill/Projects/198x/Emu198x/emu198x/crates/machine-commodore-amiga-a1200)
+   Compiling runtime-commodore-amiga v0.25.0 (/Users/stevehill/Projects/198x/Emu198x/emu198x/crates/runtime-commodore-amiga)
+    Finished `release` profile [optimized] target(s) in 32.17s
+     Running tests/collisions.rs (target/release/deps/collisions-a67f9ab4dc812eea)
+
+running 4 tests
+test guest_cpu_write_reaches_lisas_extended_collision_controls ... ok
+test guest_cpu_write_reaches_bpl8dat_holding_register ... ok
+test guest_cpu_reads_clxdat_with_bit_fifteen_set ... ok
+test pending_sprite_and_extended_plane_comparison_resume_together ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/snapshot_roundtrip.rs (target/release/deps/snapshot_roundtrip-03cc98e15b371352)
+
+running 54 tests
+test aga_delayed_color_write_survives_snapshot_round_trip ... ok
+test aga_copper_color_stages_survive_snapshot_round_trip ... FAILED
+test a530_snapshot_is_a_fixed_point_with_clock_bridge_and_local_ram ... ok
+test aga_display_register_pipelines_survive_snapshot_round_trip ... ok
+test a1200_dynamic_bus_phase_survives_runtime_postcard_round_trip ... ok
+test accepted_interrupt_acknowledge_survives_postcard_round_trip ... ok
+test a2000_fat_agnus_snapshot_round_trips_extension_state ... ok
+test alice_blitter_completion_pipeline_survives_postcard_round_trip ... ok
+test a1000_hard_vertical_blank_identity_survives_postcard_round_trip ... ok
+test aga_programmed_hblank_latch_survives_snapshot_round_trip ... ok
+test aga_collision_extension_survives_restore_and_base_write_resets_it ... ok
+test a1000_blitter_startup_phase_survives_postcard_round_trip ... ok
+test ecs_blitter_startup_phase_survives_nested_snapshot ... ok
+test ecs_copper_color_stage_survives_snapshot_round_trip ... ok
+test ecs_programmed_hblank_latch_survives_snapshot_round_trip ... ok
+test ecs_snapshot_restore_preserves_model_specific_gayle_composition ... ok
+test ecs_vertical_diw_latch_survives_snapshot_round_trip ... ok
+test enhanced_vertical_close_replays_across_both_post_wrap_cells ... ok
+test fat_agnus_hard_ddfstop_endpoint_survives_postcard_round_trip ... ok
+test group1_handler_prefetch_context_survives_postcard_round_trip ... ok
+test addressed_bitplane_service_uses_saved_memory_and_replays_on_every_chipset ... ok
+test line_onedot_suppression_survives_postcard_round_trip ... ok
+test alice_source_finish_with_pending_d_survives_postcard_round_trip ... ok
+test malformed_combined_refresh_restore_preserves_the_destination ... ok
+test ocs_aborted_ddf_run_survives_postcard_round_trip ... ok
+test ocs_closed_ddf_hard_start_gate_survives_postcard_round_trip ... ok
+test ocs_hard_ddfstop_endpoint_survives_postcard_round_trip ... ok
+test copper_first_word_survives_runtime_restore_and_later_ram_writes ... ok
+test ocs_phase_shifted_terminal_wrap_survives_postcard_round_trip ... ok
+test ocs_rewritten_future_ddf_start_survives_postcard_round_trip ... ok
+test ocs_open_ddf_hard_start_gate_survives_postcard_round_trip ... ok
+test ocs_vertical_diw_history_survives_postcard_round_trip ... ok
+test partial_disk_dma_fifo_is_a_snapshot_fixed_point ... ok
+test combined_refresh_display_replays_through_live_service_on_every_chipset ... ok
+test pending_copper_skip_kind_survives_postcard_round_trip ... ok
+test pre_aga_blitter_completion_pipeline_survives_postcard_round_trip ... ok
+test restore_rejects_mismatched_snapshot_version ... ok
+test restore_rejects_unknown_version ... ok
+test restore_rejects_wrong_model ... ok
+test restore_remounts_persisted_floppy_image ... ok
+test restore_preserves_writable_live_floppy_image_across_chipset_tiers ... ok
+test snapshot_then_restore_then_snapshot_is_a_fixed_point ... ok
+test bitplane_reservation_samples_ptmod_then_reads_memory_at_live_service ... ok
+test rtc_time_and_subsecond_phase_survive_restore_and_forward_replay ... ok
+test snapshot_then_restore_yields_bit_identical_forward_run ... ok
+test overlapping_display_address_samples_before_outgoing_pointer_service ... ok
+test both_pending_copper_wait_stages_survive_runtime_restore ... ok
+test horizontal_display_window_survives_strobe_reset_and_half_cck_restore ... ok
+test blocked_blitter_wait_and_wake_comparison_survive_restore ... ok
+test live_strobe_service_and_denise_counter_replay_on_every_chipset ... ok
+test automatic_strobes_cross_the_live_pipeline_and_reset_denise ... ok
+test every_line_stage_and_pending_result_survive_snapshot_restore ... ok
+test a1200_prefetch_transfer_and_holding_register_survive_runtime_restore has been running for over 60 seconds
+test area_channel_fill_holding_and_drain_stages_survive_runtime_restore has been running for over 60 seconds
+test area_channel_fill_holding_and_drain_stages_survive_runtime_restore ... ok
+test a1200_prefetch_transfer_and_holding_register_survive_runtime_restore ... ok
+
+failures:
+
+---- aga_copper_color_stages_survive_snapshot_round_trip stdout ----
+
+thread 'aga_copper_color_stages_survive_snapshot_round_trip' (64223888) panicked at crates/runtime-commodore-amiga/tests/snapshot_roundtrip.rs:3278:5:
+assertion `left == right` failed
+  left: None
+ right: Some(DeniseAgaDelayedColorWrite { palette_index: 0, previous_rgb24: 1122867, previous_rgb12: Some(291), previous_genlock: false })
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    aga_copper_color_stages_survive_snapshot_round_trip
+
+test result: FAILED. 53 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 85.69s
+
+error: test failed, to rerun pass `-p runtime-commodore-amiga --test snapshot_roundtrip`
+error: 1 target failed:
+    `-p runtime-commodore-amiga --test snapshot_roundtrip`

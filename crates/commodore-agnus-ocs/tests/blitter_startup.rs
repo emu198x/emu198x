@@ -154,10 +154,10 @@ impl BlitterBus for NullBus {
 }
 
 #[test]
-fn one_operation_blit_cannot_complete_during_startup() {
+fn two_cell_blit_cannot_complete_during_startup() {
     let mut agnus = Agnus::new_a1000_with_region(AgnusRegion::Pal);
     agnus.blitter_dzero = false;
-    agnus.bltcon0 = 0; // no channels: one internal operation per word
+    agnus.bltcon0 = 0; // no channels: two free internal cells per word
     agnus.bltsize = (1 << 6) | 1;
     agnus.start_blit();
     let mut bus = NullBus::default();
@@ -166,15 +166,18 @@ fn one_operation_blit_cannot_complete_during_startup() {
     assert!(agnus.blitter_busy);
     assert!(agnus.blitter_busy_visible());
     assert_eq!(agnus.blitter_startup_ccks_remaining(), 1);
-    assert_eq!(agnus.blitter_ccks_remaining, 1);
+    assert_eq!(agnus.blitter_ccks_remaining, 2);
     assert_eq!((bus.reads, bus.writes), (0, 0));
 
     assert!(!agnus.tick_blitter_dma(&mut bus));
     assert!(agnus.blitter_busy);
     assert_eq!(agnus.blitter_startup_ccks_remaining(), 0);
-    assert_eq!(agnus.blitter_ccks_remaining, 1);
+    assert_eq!(agnus.blitter_ccks_remaining, 2);
     assert_eq!((bus.reads, bus.writes), (0, 0));
 
+    assert!(!agnus.tick_blitter_dma(&mut bus));
+    assert_eq!(agnus.blitter_ccks_remaining, 1);
+    assert_eq!((bus.reads, bus.writes), (0, 0));
     assert!(agnus.tick_blitter_dma(&mut bus));
     assert!(!agnus.blitter_busy);
     assert!(
@@ -231,7 +234,7 @@ fn new_blit_rearms_startup_and_preserves_bzero_until_first_acceptance() {
 #[test]
 fn compatibility_dma_wrapper_reports_only_full_pipeline_drain() {
     let mut agnus = Agnus::new_a1000_with_region(AgnusRegion::Pal);
-    agnus.bltcon0 = 0x0100; // D only: one operation
+    agnus.bltcon0 = 0x0100; // D only: two main cells plus completion drain
     agnus.bltsize = (1 << 6) | 1;
     agnus.start_blit();
     let mut bus = NullBus::default();
@@ -242,6 +245,7 @@ fn compatibility_dma_wrapper_reports_only_full_pipeline_drain() {
         !agnus.tick_blitter_dma(&mut bus),
         "pre-AGA source finish precedes pipeline drain",
     );
+    assert!(!agnus.tick_blitter_dma(&mut bus));
     assert!(!agnus.tick_blitter_dma(&mut bus));
     assert!(agnus.tick_blitter_dma(&mut bus));
 

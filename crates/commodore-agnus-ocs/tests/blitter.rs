@@ -466,38 +466,21 @@ fn suppressed_onedot_d_updates_bzero_finishes_and_leaves_the_bus_free() {
         agnus.start_blit();
         let mut bus = RamBus(&ram);
 
-        // Two startup CCKs, first C/D, then the second C read. The first
-        // texture bit is clear, so the permitted D transfer writes zero.
-        assert_eq!(
-            agnus.tick_blitter_cck(true, &mut bus),
-            BlitterCckOutcome::default(),
+        // Two startup CCKs, then one complete four-stage pixel and the
+        // second pixel through result generation. D is still pending.
+        for bus_used in [false, false, false, true, false, true, false, true, false] {
+            assert_eq!(
+                agnus.tick_blitter_cck(true, &mut bus),
+                BlitterCckOutcome {
+                    interrupt: false,
+                    bus_used
+                }
+            );
+        }
+        assert!(
+            !agnus.blitter_dzero,
+            "BZERO changes when the result is generated"
         );
-        assert_eq!(
-            agnus.tick_blitter_cck(true, &mut bus),
-            BlitterCckOutcome::default(),
-        );
-        assert_eq!(
-            agnus.tick_blitter_cck(true, &mut bus),
-            BlitterCckOutcome {
-                interrupt: false,
-                bus_used: true,
-            },
-        );
-        assert_eq!(
-            agnus.tick_blitter_cck(true, &mut bus),
-            BlitterCckOutcome {
-                interrupt: false,
-                bus_used: true,
-            },
-        );
-        assert_eq!(
-            agnus.tick_blitter_cck(true, &mut bus),
-            BlitterCckOutcome {
-                interrupt: false,
-                bus_used: true,
-            },
-        );
-        assert!(agnus.blitter_dzero);
 
         // The rotated texture makes the final generated result non-zero,
         // but ONEDOT suppresses its complete D transfer. Arbitration can
@@ -540,10 +523,10 @@ fn suppressed_onedot_d_updates_bzero_finishes_and_leaves_the_bus_free() {
 // ────────────────────────────────────────────────────────────────
 
 #[test]
-fn scheduler_total_ops_matches_enabled_channel_count() {
+fn scheduler_main_cells_match_reference_channel_schedule() {
     let cases = [
-        (0x0000, 0), // no channels → still internal
-        (0x0100, 1), // D only
+        (0x0000, 2), // two free cells
+        (0x0100, 2), // D plus free cell
         (0x0900, 2), // A + D
         (0x0D00, 3), // A + B + D
         (0x0F00, 4), // A + B + C + D
@@ -554,8 +537,7 @@ fn scheduler_total_ops_matches_enabled_channel_count() {
         agnus.bltsize = (1 << 6) | 1;
         agnus.start_blit();
         let ops = agnus.blitter_ccks_remaining;
-        // Internal-only (useflags == 0) → 1 internal cycle per word.
-        let expected = if expected_ops == 0 { 1 } else { expected_ops };
+        let expected = expected_ops;
         assert_eq!(
             ops, expected,
             "useflags ${useflags:04X}: expected {expected} ops, got {ops}"
@@ -593,7 +575,7 @@ fn scheduler_halts_when_bus_grant_is_withheld() {
     // The third accepted CCK services the first real operation.
     assert_eq!(
         agnus.tick_blitter_scheduler_op(true),
-        BlitterProgress::Operation(BlitterDmaOp::WriteD),
+        BlitterProgress::Operation(BlitterDmaOp::Internal),
     );
     assert_eq!(agnus.blitter_ccks_remaining, before - 1);
 }
@@ -793,6 +775,12 @@ fn pre_aga_area_final_d_orders_finish_result_and_write() {
     agnus.blt_dpt = 0x2000;
     program_single_word_blit(&mut agnus, 0xFF, false, false, false, true);
     agnus.start_blit();
+    // D-only and channel-free main programs both have two cells. The
+    // first free cell primes the pipeline before F on the second cell.
+    assert_eq!(
+        tick_live(&mut agnus, &ram, true),
+        BlitterCckOutcome::default()
+    );
 
     assert_eq!(
         tick_live(&mut agnus, &ram, true),
@@ -888,6 +876,12 @@ fn alice_area_completion_waits_for_final_d() {
     agnus.blt_dpt = 0x2000;
     program_single_word_blit(&mut agnus, 0xFF, false, false, false, true);
     agnus.start_blit();
+    // D-only and channel-free main programs both have two cells. The
+    // first free cell primes the pipeline before F on the second cell.
+    assert_eq!(
+        tick_live(&mut agnus, &ram, true),
+        BlitterCckOutcome::default()
+    );
 
     assert_eq!(
         tick_live(&mut agnus, &ram, true),
@@ -950,11 +944,82 @@ fn alice_area_completion_waits_for_final_d() {
 }
 
 #[test]
+fn alice_source_finish_does_not_wait_for_final_d_bus_admission() {
+    use commodore_agnus_ocs::bits::{DMACON_BLTEN, DMACON_DMAEN};
+
+    for denied_cells in [1, 2, 7] {
+        let mut agnus = Agnus::new();
+        agnus.agnus_id = 0x2300;
+        agnus.dmacon = DMACON_DMAEN | DMACON_BLTEN;
+        agnus.blt_dpt = 0x2000;
+        let ram = TestRam::new();
+        program_single_word_blit(&mut agnus, 0xFF, false, false, false, true);
+        agnus.start_blit();
+        for _ in 0..4 {
+            assert_eq!(
+                tick_live(&mut agnus, &ram, true),
+                BlitterCckOutcome::default()
+            );
+        }
+        assert_eq!(agnus.blitter_completion_phase(), "final-result");
+        assert_eq!(
+            tick_live(&mut agnus, &ram, false),
+            BlitterCckOutcome::default()
+        );
+        assert_eq!(agnus.blitter_completion_phase(), "final-write");
+
+        // The reference's always-clocked Alice finish shifter reaches F+2
+        // even when no memory transfer can be admitted in this cell.
+        assert_eq!(
+            tick_live(&mut agnus, &ram, false),
+            BlitterCckOutcome {
+                interrupt: true,
+                bus_used: false
+            },
+        );
+        assert!(
+            agnus.blitter_busy,
+            "internal activity retains the unserved D"
+        );
+        assert!(agnus.blitter_finish_emitted());
+        assert!(agnus.blitter_busy_visible());
+        assert!(agnus.blitter_busy_copper());
+        assert_eq!(ram.peek(0x2000), 0);
+        for offset in 1..denied_cells {
+            assert_eq!(
+                tick_live(&mut agnus, &ram, false),
+                BlitterCckOutcome::default()
+            );
+            assert!(!agnus.blitter_busy_visible());
+            assert_eq!(agnus.blitter_busy_copper(), offset < 2);
+            assert!(agnus.blitter_final_d_pending());
+            assert_eq!(ram.peek(0x2000), 0);
+        }
+        assert_eq!(
+            tick_live(&mut agnus, &ram, true),
+            BlitterCckOutcome {
+                interrupt: false,
+                bus_used: true
+            },
+        );
+        assert_eq!(ram.peek(0x2000), 0xFFFF);
+        assert!(!agnus.blitter_busy);
+        assert_eq!(agnus.blitter_busy_copper(), denied_cells < 2);
+    }
+}
+
+#[test]
 fn area_without_d_updates_bzero_and_finishes_on_final_op() {
     let mut agnus = Agnus::new();
     let ram = TestRam::new();
     program_single_word_blit(&mut agnus, 0xFF, false, false, false, false);
     agnus.start_blit();
+    // D-only and channel-free main programs both have two cells. The
+    // first free cell primes the pipeline before F on the second cell.
+    assert_eq!(
+        tick_live(&mut agnus, &ram, true),
+        BlitterCckOutcome::default()
+    );
 
     assert_eq!(
         tick_live(&mut agnus, &ram, true),
@@ -1005,7 +1070,9 @@ fn line_mode_finishes_with_its_final_d_write() {
         tick_live(&mut agnus, &ram, true),
         BlitterCckOutcome::default()
     );
+    assert!(!tick_live(&mut agnus, &ram, true).bus_used); // Internal A
     assert!(tick_live(&mut agnus, &ram, true).bus_used); // ReadC
+    assert!(!tick_live(&mut agnus, &ram, true).bus_used); // Result
     let finish = tick_live(&mut agnus, &ram, true);
     assert_eq!(
         finish,

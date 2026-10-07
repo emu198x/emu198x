@@ -1,0 +1,46 @@
+--- a/cfgfile.cpp
++++ b/cfgfile.cpp
+@@ -6874,6 +6874,12 @@
+ 
+ int cfgfile_parse_option (struct uae_prefs *p, const TCHAR *option, TCHAR *value, int type)
+ {
++ if (getenv("FSEMU_CODEX_SPRITE_FULL_RESOLUTION") &&
++ (!strcmp(option, "gfx_resolution") || !strcmp(option, "gfx_lores"))) {
++ p->gfx_resolution = RES_SUPERHIRES;
++ return 1;
++ }
++
+ 	calcformula (p, value);
+ 
+ 	if (!_tcscmp (option, _T("debug"))) {
+--- a/custom.cpp
++++ b/custom.cpp
+@@ -1614,7 +1614,12 @@
+ 	int res = GET_RES_AGNUS(bplcon0);
+ 	int eres = 0;
+ 
+-	int res2 = currprefs.gfx_resolution;
++	if (getenv("FSEMU_CODEX_SPRITE_FULL_RESOLUTION")) {
++ currprefs.gfx_resolution = changed_prefs.gfx_resolution = RES_SUPERHIRES;
++ currprefs.gfx_autoresolution = changed_prefs.gfx_autoresolution = 0;
++ currprefs.gfx_autoresolution_vga = changed_prefs.gfx_autoresolution_vga = false;
++ }
++ int res2 = currprefs.gfx_resolution;
+ 
+ 	if (doublescan > 0) {
+ 		res2++;
+--- a/od-fs/video-fs.cpp
++++ b/od-fs/video-fs.cpp
+@@ -1955,6 +1955,12 @@
+ 
+ int graphics_init(bool mousecapture)
+ {
++ if (getenv("FSEMU_CODEX_SPRITE_FULL_RESOLUTION")) {
++ currprefs.gfx_resolution = changed_prefs.gfx_resolution = RES_SUPERHIRES;
++ currprefs.gfx_autoresolution = changed_prefs.gfx_autoresolution = 0;
++ currprefs.gfx_autoresolution_vga = changed_prefs.gfx_autoresolution_vga = false;
++ }
++
+ #ifdef FSUAE
+ 	uae_fsvideo_log("graphics_init\n");
+ 

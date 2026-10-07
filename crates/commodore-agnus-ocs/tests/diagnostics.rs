@@ -310,10 +310,10 @@ fn line_blitter_snapshot_exposes_error_texture_direction_and_onedot_state() {
         .expect("line runtime must be present");
 
     assert_eq!(snapshot.execution.height, 4);
-    assert_eq!(snapshot.execution.ccks_remaining, 8);
+    assert_eq!(snapshot.execution.ccks_remaining, 16);
     assert_eq!(
         snapshot.execution.next_dma_request,
-        Some(BlitterDmaOp::ReadC)
+        Some(BlitterDmaOp::Internal)
     );
     assert!(!word.need_a);
     assert!(!word.need_b);
@@ -351,6 +351,7 @@ fn blitter_snapshot_exposes_buffered_final_destination_write() {
 
     let _ = agnus.tick_blitter_cck(true, &mut bus);
     let _ = agnus.tick_blitter_cck(true, &mut bus);
+    let _ = agnus.tick_blitter_cck(true, &mut bus); // first free main cell
     let finish = agnus.tick_blitter_cck(true, &mut bus);
     let final_result = agnus.blitter_diagnostic_snapshot();
 

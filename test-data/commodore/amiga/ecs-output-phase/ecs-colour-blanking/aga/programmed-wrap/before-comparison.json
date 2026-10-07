@@ -1,0 +1,86 @@
+{
+  "case": "programmed-wrap",
+  "baseline": {
+    "case": "programmed-wrap",
+    "native_sha256": "6b4bcc251fe7150f189a9152b4d05d8e7340ce742680851967ad345366ecaa17",
+    "adf_sha256": "08a8339e5d0570c0053ec0ceb35bd55b86773bb0f9545e337914116a5e52e5ff",
+    "fields": [
+      {
+        "guest_field": 9,
+        "compared_rgb_pixels": 867888,
+        "mismatched_rgb_pixels": 0,
+        "mismatch_bounds": null,
+        "raw_sha256": "76b0373d33da6afd6660f63c83ac6bb285ee823c4c54116121e1511074d8dcd8",
+        "metadata_sha256": "b04a98db32b071e51ed379acb479318bce485683f15f86c7eb7020ba93a56d51"
+      },
+      {
+        "guest_field": 10,
+        "compared_rgb_pixels": 867888,
+        "mismatched_rgb_pixels": 0,
+        "mismatch_bounds": null,
+        "raw_sha256": "76b0373d33da6afd6660f63c83ac6bb285ee823c4c54116121e1511074d8dcd8",
+        "metadata_sha256": "ac85852510938171ecf78138879b5b77f012a44b3fc8c06c6c72a3830351f10a"
+      },
+      {
+        "guest_field": 11,
+        "compared_rgb_pixels": 867888,
+        "mismatched_rgb_pixels": 0,
+        "mismatch_bounds": null,
+        "raw_sha256": "76b0373d33da6afd6660f63c83ac6bb285ee823c4c54116121e1511074d8dcd8",
+        "metadata_sha256": "76cc0e9e75aba68dc99e3272284f64a8eb72736c3416ebbbb783a82edd8224b0"
+      }
+    ]
+  },
+  "trace_sha256": "44fdd36524e571257ae63852f5be4b6501fd91eeff22b8214949878f8cbc9fa0",
+  "reference_counter_origin": 364,
+  "reported_origin": 368,
+  "output_padding_samples": 4,
+  "active_origin_observations": 600,
+  "common_raster": {
+    "native_origin": [
+      16,
+      2
+    ],
+    "reference_origin": [
+      4,
+      0
+    ],
+    "width": 1508,
+    "height": 574
+  },
+  "fields": [
+    {
+      "raw_sha256": "76b0373d33da6afd6660f63c83ac6bb285ee823c4c54116121e1511074d8dcd8",
+      "mismatched_rgb_pixels": 4576,
+      "compared_rgb_pixels": 865592,
+      "mismatch_bounds": [
+        140,
+        0,
+        1296,
+        572
+      ]
+    },
+    {
+      "raw_sha256": "76b0373d33da6afd6660f63c83ac6bb285ee823c4c54116121e1511074d8dcd8",
+      "mismatched_rgb_pixels": 4576,
+      "compared_rgb_pixels": 865592,
+      "mismatch_bounds": [
+        140,
+        0,
+        1296,
+        572
+      ]
+    },
+    {
+      "raw_sha256": "76b0373d33da6afd6660f63c83ac6bb285ee823c4c54116121e1511074d8dcd8",
+      "mismatched_rgb_pixels": 4576,
+      "compared_rgb_pixels": 865592,
+      "mismatch_bounds": [
+        140,
+        0,
+        1296,
+        572
+      ]
+    }
+  ]
+}

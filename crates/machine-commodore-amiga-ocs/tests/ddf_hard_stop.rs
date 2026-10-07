@@ -4,6 +4,7 @@
 //! fetch service, pointer advancement, chipset selection and snapshots all
 //! observe the same terminal fetch state.
 
+use commodore_agnus_ocs::{DisplayDmaChannel, DmaTransferTarget};
 use machine_commodore_amiga_ocs::{AmigaOcs, RamConfig};
 
 const CUSTOM_BASE: u32 = 0x00DF_F000;
@@ -92,8 +93,50 @@ fn run_to_next_line(amiga: &mut AmigaOcs) {
     assert!(guard < 1_000, "beam did not finish the test line");
 }
 
+fn run_reference_boundary_line(amiga: &mut AmigaOcs, case: u16) {
+    let expected: Vec<_> =
+        include_str!("../../../test-data/commodore/amiga/ddf-boundaries/registered-events.csv")
+            .lines()
+            .skip(1)
+            .filter_map(|row| {
+                let values: Vec<u16> = row
+                    .split(',')
+                    .map(|v| v.parse().expect("reference integer"))
+                    .collect();
+                assert_eq!(values.len(), 5);
+                (values[0] == case && values[1] == 0).then_some((
+                    values[2],
+                    values[3],
+                    values[4] != 0,
+                ))
+            })
+            .collect();
+    assert!(!expected.is_empty(), "reference case must contain requests");
+    let line = amiga.agnus().vpos;
+    let mut actual = Vec::new();
+    for _ in 0..456 {
+        let h = amiga.agnus().hpos;
+        amiga.tick();
+        let agnus = amiga.agnus();
+        if agnus.vpos != line {
+            assert_eq!(
+                actual, expected,
+                "reference reservation schedule, case {case}"
+            );
+            return;
+        }
+        if agnus.hpos != h
+            && let Some(request) = agnus.dma_pipeline().reservation()
+            && let DisplayDmaChannel::Bitplane(plane) = request.channel
+        {
+            actual.push((agnus.hpos, u16::from(plane), request.add_modulo));
+        }
+    }
+    panic!("beam did not finish the boundary line");
+}
+
 #[test]
-fn early_ocs_hard_stop_survives_pre_event_snapshot_and_releases_the_bus_after_df() {
+fn early_ocs_hard_stop_survives_snapshot_and_completes_terminal_transfers() {
     let mut original = early_ocs_machine();
     configure_hires_overrun(&mut original);
     advance_to_line(&mut original, 0x0030);
@@ -126,22 +169,22 @@ fn early_ocs_hard_stop_survives_pre_event_snapshot_and_releases_the_bus_after_df
         assert_eq!(
             original.agnus().bpl_pt[plane],
             base + 100,
-            "BPL{} must receive 50 words and no post-$DF grant",
+            "BPL{} must complete 50 words including the service tail",
             plane + 1
         );
     }
 }
 
 #[test]
-fn ocs_hard_stop_precedes_a_same_cck_copper_ddfstop_write() {
+fn ocs_hard_stop_survives_a_copper_ddfstop_write_at_d8() {
     let mut amiga = early_ocs_machine();
     amiga.poke_byte(0x00BF_E201, 0x03);
     amiga.poke_byte(0x00BF_E001, 0x02);
     configure_lores_overrun(&mut amiga);
     amiga.poke_word(DDFSTOP, 0x00D8);
 
-    // One MOVE followed by the end sentinel. Starting its two-cycle
-    // fetch at $D6 makes the DDFSTOP write land at beam entry $D8.
+    // Admission at $D5/$D7, followed by IR1/IR2 service at $D6/$D8.
+    // Enabling after $D5 has already run misses its admission opportunity.
     amiga.poke_word(0x0000_1000, 0x0094);
     amiga.poke_word(0x0000_1002, 0x0010);
     amiga.poke_word(0x0000_1004, 0xFFFF);
@@ -150,7 +193,7 @@ fn ocs_hard_stop_precedes_a_same_cck_copper_ddfstop_write() {
     amiga.poke_word(COP1LCL, 0x1000);
 
     advance_to_line(&mut amiga, 0x0030);
-    while amiga.agnus().hpos < 0x00D5 {
+    while amiga.agnus().hpos < 0x00D3 {
         amiga.tick();
     }
     amiga.poke_word(COPJMP1, 0);
@@ -178,34 +221,79 @@ fn ocs_hard_stop_precedes_a_same_cck_copper_ddfstop_write() {
         Some(0x00DF),
         "the pre-Copper hard event must retain the terminal unit"
     );
+
+    // Registered boundary case 0: terminal requests at $D9/$E1 survive
+    // the rewrite, with actual memory service two CCKs later (across wrap).
+    let pointer = amiga.agnus().bpl_pt[0];
+    let mut services = Vec::new();
+    for _ in 0..32 {
+        let beam = (amiga.agnus().vpos, amiga.agnus().hpos);
+        amiga.tick();
+        let agnus = amiga.agnus();
+        if beam != (agnus.vpos, agnus.hpos)
+            && let Some(transfer) = agnus.dma_pipeline().service()
+            && matches!(transfer.target, DmaTransferTarget::Display { .. })
+        {
+            services.push((agnus.vpos, agnus.hpos, transfer.address));
+        }
+    }
+    assert_eq!(services, [(0x30, 0xDB, pointer), (0x31, 0, pointer + 2)]);
+    assert_eq!(amiga.agnus().bpl_pt[0], pointer + 4);
 }
 
 #[test]
 fn fat_agnus_harddis_keeps_the_post_df_slots_available() {
     let mut fat = fat_agnus_machine();
     fat.poke_word(BEAMCON0, 0x4020); // HARDDIS | PAL
-    configure_hires_overrun(&mut fat);
+    // Finish prior lines in-line. Otherwise HARDDIS leaves an older terminal
+    // unit crossing h=0 and refresh can replace its pointers before this run.
+    configure_hires_clean_idle_candidate(&mut fat);
     advance_to_line(&mut fat, 0x0030);
+    fat.poke_word(DDFSTRT, 0x0018);
+    fat.poke_word(DDFSTOP, 0x00E0);
     let line_bases = fat.agnus().bpl_pt;
-    run_to_next_line(&mut fat);
+    run_reference_boundary_line(&mut fat, 4);
 
-    // E0 grants BPL4 and E1 grants BPL2. E2 remains the fixed
-    // end-of-line refresh slot, so BPL3 cannot claim it even with
-    // HARDDIS.
-    let expected_bytes = [100, 102, 100, 102];
-    for ((plane, base), bytes) in line_bases
-        .into_iter()
-        .enumerate()
-        .take(4)
-        .zip(expected_bytes)
-    {
+    // $E2 reserves BPL4; it has not reached memory at the h=0 boundary.
+    // All four planes have completed 50 words at that observation point.
+    for (plane, base) in line_bases.into_iter().enumerate().take(4) {
         assert_eq!(
             fat.agnus().bpl_pt[plane],
-            base + bytes,
+            base + 100,
             "BPL{} HARDDIS byte count",
             plane + 1
         );
     }
+    let pending = fat
+        .agnus()
+        .dma_pipeline()
+        .address()
+        .expect("cross-wrap BPL4");
+    assert!(
+        matches!(pending, commodore_agnus_ocs::DmaAddressStage::Transfer(t)
+        if matches!(t.target, DmaTransferTarget::Display { reservation, .. }
+            if reservation.channel == DisplayDmaChannel::Bitplane(3))
+        && t.address == line_bases[3] + 100)
+    );
+    while fat.agnus().hpos < 1 {
+        fat.tick();
+    }
+    assert_eq!(fat.agnus().bpl_pt[3], line_bases[3] + 102);
+    // The following BPL2 reservation shares the horizontal strobe's RGA.
+    // Existing compiled RGA service evidence requires REFPTR+2, not BPL2+2.
+    while fat.agnus().hpos < 3 {
+        fat.tick();
+    }
+    let transfer = fat
+        .agnus()
+        .dma_pipeline()
+        .service()
+        .expect("combined strobe service");
+    assert!(
+        matches!(transfer.target, DmaTransferTarget::DisplayRefresh { reservation, fixed_register: 0x3c }
+        if reservation.channel == DisplayDmaChannel::Bitplane(1))
+    );
+    assert_eq!(fat.agnus().bpl_pt[1], transfer.address + 2);
 }
 
 #[test]
@@ -240,20 +328,10 @@ fn fat_agnus_defaults_to_the_fixed_right_limit_and_varvben_does_not_bypass_it() 
 
 #[test]
 fn equal_ddf_boundaries_are_not_an_empty_machine_fetch_window() {
-    for (case, mut amiga, beamcon0, expected_bytes) in [
-        ("early OCS", early_ocs_machine(), None, [84, 84, 84, 84]),
-        (
-            "Fat Agnus default",
-            fat_agnus_machine(),
-            Some(0x0020),
-            [84, 84, 84, 84],
-        ),
-        (
-            "Fat Agnus HARDDIS",
-            fat_agnus_machine(),
-            Some(0x4020),
-            [84, 86, 84, 86],
-        ),
+    for (case, mut amiga, beamcon0, reference_case) in [
+        ("early OCS", early_ocs_machine(), None, 5),
+        ("Fat Agnus default", fat_agnus_machine(), Some(0x0020), 5),
+        ("Fat Agnus HARDDIS", fat_agnus_machine(), Some(0x4020), 6),
     ] {
         if let Some(beamcon0) = beamcon0 {
             amiga.poke_word(BEAMCON0, beamcon0);
@@ -263,16 +341,20 @@ fn equal_ddf_boundaries_are_not_an_empty_machine_fetch_window() {
         assert_eq!(amiga.agnus().ddf_start_match(), None);
         amiga.poke_word(DDFSTOP, 0x0038);
         let line_bases = amiga.agnus().bpl_pt;
-        run_to_next_line(&mut amiga);
+        run_reference_boundary_line(&mut amiga, reference_case);
 
-        for (((plane, base), bytes), pointer) in line_bases
+        for ((plane, base), pointer) in line_bases
             .into_iter()
             .enumerate()
             .take(4)
-            .zip(expected_bytes)
             .zip(amiga.agnus().bpl_pt)
         {
-            assert_eq!(pointer, base + bytes, "BPL{} {case} byte count", plane + 1,);
+            assert_eq!(pointer, base + 84, "BPL{} {case} byte count", plane + 1,);
         }
+        assert_eq!(
+            amiga.agnus().dma_pipeline().address().is_some(),
+            reference_case == 6,
+            "only HARDDIS retains the extra $E2 request across wrap"
+        );
     }
 }

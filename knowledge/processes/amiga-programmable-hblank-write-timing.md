@@ -146,3 +146,19 @@ the identities or interpretation of version 1.0.0.
 - [Registered FS-UAE package](../../test-data/commodore/amiga/programmable-hblank-write-timing/references/fs-uae-5.0.7-f362278c/README.md)
 - [Comparator capability audit](../../test-data/commodore/amiga/programmable-hblank-write-timing/references/comparator-capabilities.md)
 - [Accuracy corpora](../../test-data/accuracy-corpora.md)
+
+## Counter-origin requalification (2026-10-07)
+
+The registered producer pixels and hashes are unchanged. Independent Denise
+counter traces establish raw origin 91 and native origin 88, correcting the
+consumer transform to raw+6 host-hires periods. The gate records native width
+and retains its full RGBA capture. AGA's paired 35 ns samples must agree before
+comparison at the registered 70 ns grid; differing samples fail rather than
+being discarded. Copper checks use current serviced positions 142/146 instead
+of the preceding scheduler's four-CCK-early view.
+
+All five AGA cases pass after the ECS colour and Lisa programmed-comparator
+corrections. ECS remains red because its live blanking path bypasses the
+reference's three-CCK plus half-CCK signal stages; two captures also reject
+non-adjacent guest counters. The correction plan and retained evidence are in
+`test-data/commodore/amiga/ecs-output-phase/ecs-colour-blanking/`.

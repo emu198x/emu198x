@@ -36,7 +36,7 @@ use emu198x_shell::{
 };
 use emu198x_ui::launch::UiApp;
 use emu198x_ui::{ButtonInputMap, ButtonTarget, HostControl, KeyCode, UiSystem, VariantInfo};
-use runtime_commodore_amiga::{AmigaRuntimeKind, DISPLAY_HEIGHT, DISPLAY_WIDTH, Model};
+use runtime_commodore_amiga::{AmigaLiveAccess, AmigaRuntimeKind, Model};
 
 use crate::app::{Amiga, DEFAULT_FLOPPY_SLOT};
 
@@ -151,8 +151,8 @@ impl UiSystem for AmigaSystem {
         DEFAULT_SCALE
     }
 
-    fn framebuffer_size(&self, _runtime: &Self::Runtime) -> (u32, u32) {
-        (DISPLAY_WIDTH, DISPLAY_HEIGHT)
+    fn framebuffer_size(&self, runtime: &Self::Runtime) -> (u32, u32) {
+        runtime.framebuffer_dims()
     }
 
     fn frame_ticks(&self, runtime: &Self::Runtime) -> u64 {

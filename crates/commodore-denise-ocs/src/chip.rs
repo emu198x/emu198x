@@ -18,6 +18,38 @@ use crate::debug::{
 };
 use crate::viewport::{ViewportImage, ViewportPreset};
 
+fn deserialize_scroll_cursor<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<u16, D::Error> {
+    let cursor = u16::deserialize(deserializer)?;
+    if cursor >= 512 {
+        return Err(serde::de::Error::custom(
+            "invalid Lisa serial scroll cursor",
+        ));
+    }
+    Ok(cursor)
+}
+
+fn deserialize_serial_phase<'de, D: serde::Deserializer<'de>>(d: D) -> Result<u8, D::Error> {
+    let phase = u8::deserialize(d)?;
+    if phase >= 4 {
+        return Err(serde::de::Error::custom("invalid Lisa serial clock phase"));
+    }
+    Ok(phase)
+}
+
+fn deserialize_pending_tail_lengths<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> Result<[u8; 8], D::Error> {
+    let lengths = <[u8; 8] as Deserialize>::deserialize(d)?;
+    if lengths.iter().any(|&length| length > 3) {
+        return Err(serde::de::Error::custom(
+            "invalid Lisa pending fetch-tail length",
+        ));
+    }
+    Ok(lengths)
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 pub struct DeniseOcs {
     pub palette: [u16; 32],
@@ -42,16 +74,37 @@ pub struct DeniseOcs {
     pub bpl_shift: [u16; 8], // Shift registers: loaded from latches on BPL1DAT write
     pub shift_count: u8,     // Pixels remaining in shift register (0 -> output COLOR00)
     bpl_shift_count: [u8; 8],
+    // Lisa's 16/32-bit modes share a physical 32-bit register. Narrow
+    // output taps bit15; shifting retains bits above that tap for widening.
+    bpl_shift_32: [u32; 8],
     bpl_shift_delay: [u8; 8],
     bpl_prev_data: [u16; 8],
     bpl_pending_data: [u16; 8],
+    bpl_pending_tail: [[u16; 3]; 8],
+    #[serde(deserialize_with = "deserialize_pending_tail_lengths")]
+    bpl_pending_tail_len: [u8; 8],
     // Pending parallel-load flags for odd/even numbered bitplanes (BPL1/3/5 and BPL2/4/6).
     bpl_pending_copy_odd_planes: bool,
     bpl_pending_copy_even_planes: bool,
     bpl_scroll_pending_line: bool,
     pub bplcon0: u16,
     pub bplcon1: u16,
+    /// Lisa normal-stage scroll selector; the register mirror stays immediate.
+    pub bitplane_scroll_selector: u16,
     pub bplcon2: u16,
+    /// Lisa's fetch-width selector; OCS/ECS leave this at zero.
+    pub bitplane_fmode: u16,
+    /// Lisa serial history retained in the version-53 snapshot layout.
+    bitplane_output_stage: [[(usize, u8, u8, u8); 16]; 32],
+    #[serde(deserialize_with = "deserialize_scroll_cursor")]
+    bitplane_output_cursor: u16,
+    // Native-period accumulator survives resolution changes; parallel copies
+    // restart it. This matches WinUAE's continuous bplshiftcnt clock.
+    #[serde(deserialize_with = "deserialize_serial_phase")]
+    bitplane_serial_phase: u8,
+    #[serde(deserialize_with = "deserialize_serial_phase")]
+    bitplane_serial_phase_even: u8,
+    bitplane_serial_sample: (usize, u8, u8, u8),
     /// BPLCON4 ($10C): bits 15-8 BPLAM (bitplane colour XOR), bits 7-4
     /// ESPRM (even-sprite colour base), bits 3-0 OSPRM (odd-sprite base).
     ///
@@ -62,6 +115,9 @@ pub struct DeniseOcs {
     /// writes it directly.
     pub bplcon4: u16,
     pub clxcon: u16,
+    /// Lisa's BP7/BP8 collision enables and match values. Only the AGA
+    /// wrapper decodes CLXCON2 writes; OCS/ECS retain the reset value.
+    pub clxcon2: u16,
     pub clxdat: u16,
     pub spr_pos: [u16; 8],
     /// Shadow sprite position for the display comparator: trails spr_pos
@@ -79,6 +135,14 @@ pub struct DeniseOcs {
     /// Sprite pixel width: 16 (OCS/ECS), 32, or 64 (AGA via FMODE bits 3-2).
     pub spr_width: u8,
     spr_current_code: [u8; 8],
+    /// Lisa's retained serial sprite code, before priority and collision.
+    spr_output_stage: [u8; 8],
+    /// Lisa's independent 35 ns serializer: held code, clock countdown and
+    /// saved output history. The load stage lasts one lores period; the
+    /// held code then contributes directly to composition and collisions.
+    spr_sample_hold: [u8; 8],
+    spr_sample_phase: [u8; 8],
+    spr_sample_delay: [u8; 8],
     /// Whether a BPL1DAT arrival has enabled sprite contribution on the
     /// current beam line. Sprite shifters continue to advance while this is
     /// false, but their pixels and collision bits remain hidden.
@@ -171,17 +235,28 @@ impl DeniseOcs {
             bpl_shift: [0; 8],
             shift_count: 0,
             bpl_shift_count: [0; 8],
+            bpl_shift_32: [0; 8],
             bpl_shift_delay: [0; 8],
             bpl_prev_data: [0; 8],
             bpl_pending_data: [0; 8],
+            bpl_pending_tail: [[0; 3]; 8],
+            bpl_pending_tail_len: [0; 8],
             bpl_pending_copy_odd_planes: false,
             bpl_pending_copy_even_planes: false,
             bpl_scroll_pending_line: true,
             bplcon0: 0,
             bplcon1: 0,
+            bitplane_scroll_selector: 0,
             bplcon2: 0,
+            bitplane_fmode: 0,
+            bitplane_output_stage: [[(0, 0, 0, 0); 16]; 32],
+            bitplane_output_cursor: 0,
+            bitplane_serial_phase: 3,
+            bitplane_serial_phase_even: 3,
+            bitplane_serial_sample: (0, 0, 0, 0),
             bplcon4: 0x0011,
             clxcon: 0,
+            clxcon2: 0,
             clxdat: 0,
             spr_pos: [0; 8],
             spr_pos_display: [0; 8],
@@ -198,6 +273,10 @@ impl DeniseOcs {
             spr_shift_count: [0; 8],
             spr_width: 16,
             spr_current_code: [0; 8],
+            spr_output_stage: [0; 8],
+            spr_sample_hold: [0; 8],
+            spr_sample_phase: [0; 8],
+            spr_sample_delay: [0; 8],
             sprite_bpl1dat_enabled: false,
             spr_pixels_rendered: [0; 8],
             sprite_runtime_line_valid: false,
@@ -240,9 +319,17 @@ impl DeniseOcs {
     /// non-Denise registers elsewhere before reaching here.
     pub fn write_word(&mut self, offset: u16, val: u16) {
         match offset {
-            0x098 => self.clxcon = val,
+            0x098 => {
+                self.clxcon = val;
+                // WinUAE expand_clxcon and Minimig denise_collision.v:
+                // a base-register write disables the AGA extension.
+                self.clxcon2 = 0;
+            }
             0x100 => self.bplcon0 = val,
-            0x102 => self.bplcon1 = val,
+            0x102 => {
+                self.bplcon1 = val;
+                self.bitplane_scroll_selector = val;
+            }
             0x104 => self.bplcon2 = val,
             0x110..=0x11C => {
                 let plane = ((offset - 0x110) / 2) as usize;
@@ -294,6 +381,9 @@ impl DeniseOcs {
     pub fn load_bitplane(&mut self, idx: usize, val: u16) {
         if idx < 8 {
             self.bpl_data[idx] = val;
+            // A fresh transfer replaces the entire holding group. Its old
+            // tail must not survive when parallel copy waits across a fetch.
+            self.bpl_fetch_tail_len[idx] = 0;
         }
     }
 
@@ -435,6 +525,11 @@ impl DeniseOcs {
     pub fn begin_beam_line(&mut self) {
         self.bpl_scroll_pending_line = true;
         self.bpl_prev_data = [0; 8];
+        self.bitplane_output_stage = [[(0, 0, 0, 0); 16]; 32];
+        self.bitplane_output_cursor = 0;
+        self.bitplane_serial_phase = 3;
+        self.bitplane_serial_phase_even = 3;
+        self.bitplane_serial_sample = (0, 0, 0, 0);
         self.sprite_bpl1dat_enabled = false;
         self.ham_prev_rgb = self.palette[0];
         self.ham_prev_rgb24 = self.palette_24[0];
@@ -509,15 +604,25 @@ impl DeniseOcs {
             bplcon2: self.bplcon2,
             bplcon4: self.bplcon4,
             clxcon: self.clxcon,
+            clxcon2: self.clxcon2,
             clxdat: self.clxdat,
             bitplanes: DeniseBitplaneDiagnosticSnapshot {
                 holding_data: self.bpl_data,
+                bitplane_fmode: self.bitplane_fmode,
+                serial_scroll_history: self.bitplane_output_stage,
+                serial_scroll_cursor: self.bitplane_output_cursor,
+                serial_clock_phase: self.bitplane_serial_phase,
+                serial_clock_phase_even: self.bitplane_serial_phase_even,
+                serial_held_sample: self.bitplane_serial_sample,
                 shift_data: self.bpl_shift,
+                shift_data_32: self.bpl_shift_32,
                 aggregate_shift_count: self.shift_count,
                 shift_counts: self.bpl_shift_count,
                 shift_delays: self.bpl_shift_delay,
                 previous_data: self.bpl_prev_data,
                 pending_data: self.bpl_pending_data,
+                pending_fetch_tails: self.bpl_pending_tail,
+                pending_fetch_tail_lengths: self.bpl_pending_tail_len,
                 pending_copy_odd_planes: self.bpl_pending_copy_odd_planes,
                 pending_copy_even_planes: self.bpl_pending_copy_even_planes,
                 scroll_pending_line: self.bpl_scroll_pending_line,
@@ -540,6 +645,14 @@ impl DeniseOcs {
                 shift_data_b: self.spr_shift_datb[sprite],
                 shift_count: self.spr_shift_count[sprite],
                 current_code: self.spr_current_code[sprite],
+                pending_output_code: if self.max_bitplanes == 8 {
+                    self.spr_sample_delay[sprite] >> 6
+                } else {
+                    self.spr_output_stage[sprite]
+                },
+                lisa_sample_hold: self.spr_sample_hold[sprite],
+                lisa_sample_phase: self.spr_sample_phase[sprite],
+                lisa_sample_delay: self.spr_sample_delay[sprite],
                 pixels_rendered: self.spr_pixels_rendered[sprite],
             }),
             sprite_bpl1dat_enabled: self.sprite_bpl1dat_enabled,
@@ -570,9 +683,16 @@ impl DeniseOcs {
     /// Sprite contribution becomes eligible immediately. The separate copy
     /// into the bitplane serial shift registers happens later when Denise's
     /// horizontal comparator matches `BPLCON1`.
-    pub fn queue_shift_load_from_bpl1dat(&mut self) {
+    /// The early BPL1DAT stage enables sprites independently of parallel copy.
+    pub fn enable_sprites_from_bpl1dat(&mut self) {
         self.sprite_bpl1dat_enabled = true;
+    }
+
+    pub fn queue_shift_load_from_bpl1dat(&mut self) {
+        self.enable_sprites_from_bpl1dat();
         self.bpl_pending_data = self.bpl_data;
+        self.bpl_pending_tail = self.bpl_fetch_tail;
+        self.bpl_pending_tail_len = self.bpl_fetch_tail_len;
         self.bpl_pending_copy_odd_planes = true;
         self.bpl_pending_copy_even_planes = true;
     }
@@ -582,6 +702,10 @@ impl DeniseOcs {
     }
 
     fn reset_sprite_line_runtime(&mut self, beam_y: u32) {
+        self.spr_output_stage = [0; 8];
+        self.spr_sample_hold = [0; 8];
+        self.spr_sample_phase = [0; 8];
+        self.spr_sample_delay = [0; 8];
         self.spr_shift_count = [0; 8];
         self.spr_current_code = [0; 8];
         // Latch current positions into the display shadow at line start.
@@ -663,6 +787,71 @@ impl DeniseOcs {
             self.spr_shift_datb[sprite] <<= 1;
             self.spr_shift_count[sprite] -= 1;
         }
+        // Retain the legacy snapshot history, without a second output tick.
+        if self.max_bitplanes == 8 {
+            self.spr_output_stage = self.spr_current_code;
+        }
+    }
+
+    /// Advance Lisa at a 35 ns boundary. SPRES selects a serial bit every
+    /// four, two or one samples, independent of the playfield clock.
+    fn step_lisa_sprite_sample(&mut self, beam_x: u32, sprite_sample_period: u8) {
+        for sprite in 0..8 {
+            if self.spr_pos_dirty[sprite] {
+                self.spr_pos_display[sprite] = self.spr_pos[sprite];
+                self.spr_pos_dirty[sprite] = false;
+            }
+            let ctl = self.spr_ctl[sprite];
+            let hstart = u32::from(Self::sprite_hstart(self.spr_pos_display[sprite], ctl)) * 4
+                + u32::from((ctl >> 4) & 1) * 2
+                + u32::from((ctl >> 3) & 1);
+            if !self.spr_armed[sprite] {
+                self.spr_shift_count[sprite] = 0;
+                self.spr_sample_hold[sprite] = 0;
+            } else if beam_x == hstart {
+                self.spr_shift_data[sprite] = self.spr_data[sprite];
+                self.spr_shift_datb[sprite] = self.spr_datb[sprite];
+                self.spr_shift_count[sprite] = self.spr_width;
+                self.spr_sample_hold[sprite] = 0;
+                self.spr_sample_phase[sprite] = 4;
+            } else {
+                self.spr_sample_phase[sprite] = self.spr_sample_phase[sprite].saturating_sub(1);
+                if self.spr_sample_phase[sprite] == 0 {
+                    self.spr_sample_hold[sprite] = 0;
+                    if self.spr_shift_count[sprite] != 0 {
+                        let msb = u32::from(self.spr_width) - 1;
+                        self.spr_sample_hold[sprite] = (((self.spr_shift_data[sprite] >> msb) & 1)
+                            | (((self.spr_shift_datb[sprite] >> msb) & 1) << 1))
+                            as u8;
+                        self.spr_shift_data[sprite] <<= 1;
+                        self.spr_shift_datb[sprite] <<= 1;
+                        self.spr_shift_count[sprite] -= 1;
+                    }
+                    self.spr_sample_phase[sprite] = sprite_sample_period;
+                }
+            }
+            // Independent counter trace: HSTART + one lores load period.
+            self.spr_current_code[sprite] = self.spr_sample_hold[sprite];
+            self.spr_sample_delay[sprite] =
+                (self.spr_sample_delay[sprite] << 2) | self.spr_sample_hold[sprite];
+        }
+    }
+
+    fn sync_lisa_sprite_sample(&mut self, beam_x: u32, beam_y: u32, sprite_sample_period: u8) {
+        if !self.sprite_runtime_line_valid
+            || self.sprite_runtime_beam_y != beam_y
+            || beam_x <= self.sprite_runtime_beam_x
+        {
+            self.reset_sprite_line_runtime(beam_y);
+            for x in 0..=beam_x {
+                self.step_lisa_sprite_sample(x, sprite_sample_period);
+            }
+        } else {
+            for x in self.sprite_runtime_beam_x + 1..=beam_x {
+                self.step_lisa_sprite_sample(x, sprite_sample_period);
+            }
+        }
+        self.sprite_runtime_beam_x = beam_x;
     }
 
     fn sync_sprite_runtime_to_beam(&mut self, beam_x: u32, beam_y: u32) {
@@ -789,24 +978,29 @@ impl DeniseOcs {
         //
         // Plane numbering is 1-based in the docs, while `plane_bits_mask`
         // stores bitplane 1 in bit 0, bitplane 6 in bit 5.
-        let plane_indices: [u8; 3] = if even_planes { [1, 3, 5] } else { [0, 2, 4] };
-        for plane_idx in plane_indices {
-            let enabled = (self.clxcon & (1u16 << (6 + plane_idx))) != 0;
-            if !enabled {
-                continue;
-            }
-            let expected = (self.clxcon & (1u16 << plane_idx)) != 0;
-            let actual = (plane_bits_mask & (1u8 << plane_idx)) != 0;
-            if actual != expected {
-                return false;
-            }
-        }
-        true
+        let enabled_planes = ((self.clxcon >> 6) & 0x3F) as u8
+            | if self.max_bitplanes == 8 {
+                (self.clxcon2 & 0xC0) as u8
+            } else {
+                0
+            };
+        let expected_planes = (self.clxcon & 0x3F) as u8
+            | if self.max_bitplanes == 8 {
+                ((self.clxcon2 & 3) << 6) as u8
+            } else {
+                0
+            };
+        let group_mask = if even_planes { 0xAA } else { 0x55 };
+        (plane_bits_mask ^ expected_planes) & enabled_planes & group_mask == 0
     }
 
     fn latch_collisions(&mut self, plane_bits_mask: u8, sprite_groups: u8) {
-        let odd_bitplanes_match = self.clxcon_bitplane_match(plane_bits_mask, false);
         let even_bitplanes_match = self.clxcon_bitplane_match(plane_bits_mask, true);
+        // Single playfield: the odd sprite-collision group requires a match
+        // across all enabled planes. DBLPF exposes independent comparisons.
+        // WinUAE denise_collide_sprites; Minimig denise_collision.v oddmatch.
+        let odd_bitplanes_match = self.clxcon_bitplane_match(plane_bits_mask, false)
+            && (self.bplcon0 & 0x0400 != 0 || even_bitplanes_match);
         let mut bits = 0u16;
         if odd_bitplanes_match && even_bitplanes_match {
             bits |= 1 << 0;
@@ -852,6 +1046,7 @@ impl DeniseOcs {
         raw_color_idx: usize,
         pf1_code: u8,
         pf2_code: u8,
+        pf2_palette_offset: u8,
     ) -> PlayfieldPixel {
         let dual_playfield = (self.bplcon0 & 0x0400) != 0; // DBLPF
         let mut pf = if !dual_playfield {
@@ -876,14 +1071,15 @@ impl DeniseOcs {
                     front_playfield: Some(PlayfieldId::Pf1),
                 },
                 (false, true) => PlayfieldPixel {
-                    visible_color_idx: 8 + usize::from(pf2_code),
+                    visible_color_idx: usize::from(pf2_palette_offset) + usize::from(pf2_code),
                     front_playfield: Some(PlayfieldId::Pf2),
                 },
                 (true, true) => {
                     let pf2_front = (self.bplcon2 & 0x0040) != 0; // PF2PRI
                     if pf2_front {
                         PlayfieldPixel {
-                            visible_color_idx: 8 + usize::from(pf2_code),
+                            visible_color_idx: usize::from(pf2_palette_offset)
+                                + usize::from(pf2_code),
                             front_playfield: Some(PlayfieldId::Pf2),
                         }
                     } else {
@@ -911,6 +1107,7 @@ impl DeniseOcs {
     /// On real hardware this happens when BPL1DAT (plane 0) is written,
     /// which is always the last plane fetched in each 8-CCK DMA group.
     pub fn trigger_shift_load(&mut self) {
+        self.restart_lisa_serial_clock();
         self.deferred_shift_load_after_source_pixels = None;
         self.bpl_pending_copy_odd_planes = false;
         self.bpl_pending_copy_even_planes = false;
@@ -919,18 +1116,22 @@ impl DeniseOcs {
         // bitplane words. Model this by combining the previous and current
         // DMA words per plane when loading the serial shift registers.
         let hires = (self.bplcon0 & 0x8000) != 0;
-        // BPLCON1 scroll is implemented as a barrel-shift across consecutive
-        // BPL DMA words. The combined (prev << 16 | raw) >> scroll window
-        // works identically for lowres and hires — only the scroll value
-        // range differs (lowres 0-15, hires 0-14 even).
-        let mut odd_scroll = ((self.bplcon1 >> 4) & 0x000F) as u8;
-        let mut even_scroll = (self.bplcon1 & 0x000F) as u8;
-        if hires {
-            // HRM: in hires mode horizontal scrolling is in 2-pixel increments.
-            // Model this as ignoring the low bit of each delay nibble.
-            odd_scroll &= !1;
-            even_scroll &= !1;
-        }
+        // PF1H (low nibble) delays odd-numbered planes; PF2H delays even.
+        // Delays use lores clocks: hires masks to seven clocks, then shifts
+        // two serial pixels per clock. See WinUAE update_bplcon1().
+        let (odd_delay, even_delay, _) = self.bplcon1_scrolls_for_current_mode();
+        // The immediate-load helper bypasses the physical copy comparator;
+        // Lisa must not also barrel-shift the freshly loaded word.
+        let odd_scroll = if self.max_bitplanes == 8 {
+            0
+        } else {
+            odd_delay << u8::from(hires)
+        };
+        let even_scroll = if self.max_bitplanes == 8 {
+            0
+        } else {
+            even_delay << u8::from(hires)
+        };
         self.bpl_scroll_pending_line = false;
         let num_bpl = self.num_bitplanes();
         let mut shift_dbg = DeniseShiftLoadDebug {
@@ -970,6 +1171,7 @@ impl DeniseOcs {
             self.bpl_shift_count[i] = 16;
             self.bpl_shift_delay[i] = 0;
             self.bpl_prev_data[i] = raw;
+            self.load_lisa_32_shift(i, raw);
             // Hand this group's wide-fetch tail to the FIFO in lockstep
             // with the word-0 load (no-op for 16-bit fetches).
             self.load_fifo_tail(i);
@@ -978,30 +1180,105 @@ impl DeniseOcs {
         self.shift_count = 16;
     }
 
+    fn bitplane_scroll_mask(&self) -> u8 {
+        let fetch_mask = if self.max_bitplanes == 8 {
+            match self.bitplane_fmode & 3 {
+                0 => 15,
+                1 | 2 => 31,
+                _ => 63,
+            }
+        } else {
+            15
+        };
+        let resolution = if self.max_bitplanes == 8 && self.bplcon0 & 0x0040 != 0 {
+            2
+        } else {
+            u8::from(self.bplcon0 & 0x8000 != 0)
+        };
+        fetch_mask >> resolution
+    }
+
     fn bplcon1_scrolls_for_current_mode(&self) -> (u8, u8, bool) {
+        let bplcon1 = if self.max_bitplanes == 8 {
+            self.bitplane_scroll_selector
+        } else {
+            self.bplcon1
+        };
         let hires = (self.bplcon0 & 0x8000) != 0;
-        let mut odd_scroll = ((self.bplcon1 >> 4) & 0x000F) as u8;
-        let mut even_scroll = (self.bplcon1 & 0x000F) as u8;
-        if hires {
-            // HRM: hires fine scroll is in 2-pixel increments.
-            odd_scroll &= !1;
-            even_scroll &= !1;
-        }
+        let mask = self.bitplane_scroll_mask();
+        let extended = self.max_bitplanes == 8;
+        let odd_scroll =
+            ((bplcon1 & 15) | if extended { (bplcon1 & 0x0C00) >> 6 } else { 0 }) as u8 & mask;
+        let even_scroll = (((bplcon1 >> 4) & 15)
+            | if extended {
+                (bplcon1 & 0xC000) >> 10
+            } else {
+                0
+            }) as u8
+            & mask;
         (odd_scroll, even_scroll, hires)
     }
 
     fn commit_pending_shift_load_group(&mut self, odd_planes: bool) {
+        self.restart_lisa_serial_group(odd_planes);
         let num_bpl = self.num_bitplanes();
         for plane in 0..num_bpl {
             let plane_is_odd_numbered = plane % 2 == 0; // plane 0 => BPL1
             if plane_is_odd_numbered != odd_planes {
                 continue;
             }
-            self.bpl_shift[plane] = self.bpl_pending_data[plane];
+            let holding = self.bpl_pending_data[plane];
+            self.bpl_shift[plane] = holding;
             self.bpl_shift_count[plane] = 16;
             self.bpl_shift_delay[plane] = 0;
-            // Sync this plane's wide-fetch tail to the committed word 0.
-            self.load_fifo_tail(plane);
+            if self.max_bitplanes == 8 {
+                // BPL1DAT captures the complete holding group, including
+                // every wide-fetch tail. Later DMA writes cannot change it
+                // while this group's comparator waits.
+                let len = self.bpl_pending_tail_len[plane];
+                if self.bitplane_fmode & 3 != 3 {
+                    self.bpl_shift_32[plane] = if len == 0 {
+                        u32::from(holding)
+                    } else {
+                        (u32::from(holding) << 16) | u32::from(self.bpl_pending_tail[plane][0])
+                    };
+                }
+                self.bpl_fifo[plane][..usize::from(len)]
+                    .copy_from_slice(&self.bpl_pending_tail[plane][..usize::from(len)]);
+                self.bpl_fifo_len[plane] = len;
+            } else {
+                self.load_fifo_tail(plane);
+            }
+        }
+    }
+
+    fn restart_lisa_serial_clock(&mut self) {
+        self.restart_lisa_serial_group(true);
+        self.restart_lisa_serial_group(false);
+    }
+
+    fn restart_lisa_serial_group(&mut self, odd_planes: bool) {
+        let source_samples = if self.bplcon0 & 0x40 != 0 {
+            4
+        } else if self.bplcon0 & 0x8000 != 0 {
+            2
+        } else {
+            1
+        };
+        if odd_planes {
+            self.bitplane_serial_phase = 4 - source_samples;
+        } else {
+            self.bitplane_serial_phase_even = 4 - source_samples;
+        }
+    }
+
+    fn load_lisa_32_shift(&mut self, plane: usize, head: u16) {
+        if self.max_bitplanes == 8 && self.bitplane_fmode & 3 != 3 {
+            self.bpl_shift_32[plane] = if self.bpl_fetch_tail_len[plane] == 0 {
+                u32::from(head)
+            } else {
+                (u32::from(head) << 16) | u32::from(self.bpl_fetch_tail[plane][0])
+            };
         }
     }
 
@@ -1020,14 +1297,40 @@ impl DeniseOcs {
             return;
         }
         let (odd_scroll, even_scroll, hires) = self.bplcon1_scrolls_for_current_mode();
-        let phase_mask = if hires { 0x07 } else { 0x0F };
-        let phase = (phase_counter as u8) & phase_mask;
-
-        if self.bpl_pending_copy_odd_planes && phase == odd_scroll {
+        let phase_mask = self.bitplane_scroll_mask();
+        let lisa = self.max_bitplanes == 8;
+        let phase = (if lisa {
+            phase_counter >> 2
+        } else {
+            phase_counter
+        } as u8)
+            & phase_mask;
+        let copy_due = |scroll: u8, fractional_shift: u8| {
+            if lisa {
+                let resolution = if self.bplcon0 & 0x40 != 0 {
+                    2
+                } else if hires {
+                    1
+                } else {
+                    0
+                };
+                let quantize = 2 - resolution;
+                let fractional = ((self.bitplane_scroll_selector >> fractional_shift) & 3)
+                    >> quantize
+                    << quantize;
+                phase_counter & (u16::from(phase_mask) * 4 + 3)
+                    == u16::from(scroll) * 4 + fractional
+            } else {
+                phase == scroll
+            }
+        };
+        let odd_due = copy_due(odd_scroll, 8);
+        let even_due = copy_due(even_scroll, 12);
+        if self.bpl_pending_copy_odd_planes && odd_due {
             self.commit_pending_shift_load_group(true);
             self.bpl_pending_copy_odd_planes = false;
         }
-        if self.bpl_pending_copy_even_planes && phase == even_scroll {
+        if self.bpl_pending_copy_even_planes && even_due {
             self.commit_pending_shift_load_group(false);
             self.bpl_pending_copy_even_planes = false;
         }
@@ -1131,9 +1434,16 @@ impl DeniseOcs {
             return;
         }
         self.bpl_shift_count = [self.shift_count; 8];
+        if self.max_bitplanes == 8 {
+            self.bpl_shift_32 = self.bpl_shift.map(u32::from);
+        }
     }
 
     fn shift_one_playfield_source_pixel(&mut self) -> (usize, u8, u8, u8) {
+        self.shift_playfield_group_source_pixel(0xFF)
+    }
+
+    fn shift_playfield_group_source_pixel(&mut self, planes: u8) -> (usize, u8, u8, u8) {
         self.ensure_legacy_shift_state_compat();
 
         let mut raw_color_idx = 0usize;
@@ -1141,7 +1451,8 @@ impl DeniseOcs {
         let mut pf2_code = 0u8;
         let mut plane_bits_mask = 0u8;
 
-        if self.shift_count > 0 {
+        let lisa_32 = self.max_bitplanes == 8 && self.bitplane_fmode & 3 != 3;
+        if self.shift_count > 0 || lisa_32 {
             // Compute color index from per-plane shifter bits (MSB first),
             // honoring BPLCON1 odd/even horizontal delay.
             //
@@ -1178,14 +1489,22 @@ impl DeniseOcs {
                     .unwrap_or(0);
             }
             for plane in 0..num_bpl {
+                if planes & (1 << plane) == 0 {
+                    continue;
+                }
                 if self.bpl_shift_delay[plane] > 0 {
                     self.bpl_shift_delay[plane] -= 1;
                     continue;
                 }
-                if self.bpl_shift_count[plane] == 0 {
+                if self.bpl_shift_count[plane] == 0 && !lisa_32 {
                     continue;
                 }
-                let bit_set = (self.bpl_shift[plane] & 0x8000) != 0;
+                let bit_set = if lisa_32 {
+                    let tap = if self.bitplane_fmode & 3 == 0 { 15 } else { 31 };
+                    self.bpl_shift_32[plane] & (1 << tap) != 0
+                } else {
+                    self.bpl_shift[plane] & 0x8000 != 0
+                };
                 if bit_set {
                     raw_color_idx |= 1usize << plane;
                     plane_bits_mask |= 1u8 << plane;
@@ -1196,7 +1515,10 @@ impl DeniseOcs {
                     }
                 }
                 self.bpl_shift[plane] <<= 1;
-                self.bpl_shift_count[plane] -= 1;
+                if lisa_32 {
+                    self.bpl_shift_32[plane] <<= 1;
+                }
+                self.bpl_shift_count[plane] = self.bpl_shift_count[plane].saturating_sub(1);
                 // AGA FIFO auto-reload: when a plane's shift register drains
                 // and there are queued wider-fetch words, pop the next one.
                 if self.bpl_shift_count[plane] == 0
@@ -1274,7 +1596,10 @@ impl DeniseOcs {
         spr_beam_x: u32,
         spr_beam_y: u32,
         source_pixels_per_output_call: u8,
-        playfield_visible_gate: bool,
+        playfield_gates: [bool; 4],
+        pf2_palette_offset: u8,
+        border_sprites_enabled: bool,
+        sprite_sample_period: u8,
     ) -> DeniseOutputPixelDebug {
         // The sprite comparator runs in *absolute* beam coordinates
         // (SPRxPOS/CTL decode to absolute raster line and lores HSTART),
@@ -1282,11 +1607,16 @@ impl DeniseOcs {
         // `beam_x`/`beam_y`. The board passes the absolute beam position
         // here; the standalone Denise wrappers pass `beam_x`/`beam_y`
         // (in those call sites the two spaces coincide). gap #162.
-        self.sync_sprite_runtime_to_beam(spr_beam_x, spr_beam_y);
+        let playfield_visible_gate = playfield_gates[3];
+        let lisa = self.max_bitplanes == 8;
+        if !lisa {
+            self.sync_sprite_runtime_to_beam(spr_beam_x, spr_beam_y);
+        }
         let hires = (self.bplcon0 & 0x8000) != 0;
         let source_pixels_per_fb_pixel = source_pixels_per_output_call.clamp(1, 4);
         let mut quad_samples = [(0usize, 0u8, 0u8); 4];
         let mut quad_samples_debug = [DeniseSourcePixelDebug::default(); 4];
+        let mut collision_samples = [0u8; 4];
         let mut raw_color_idx = 0usize;
         let mut pf1_code = 0u8;
         let mut pf2_code = 0u8;
@@ -1296,29 +1626,71 @@ impl DeniseOcs {
         // AFTER pixel output within each half-CCK iteration, so newly copied
         // data appears on the following output tick. Our model performs the
         // copy before output, so the OCS/ECS baseline uses the absolute
-        // `beam_x - 1` phase. Lisa supplies its additional one-tick bitplane
-        // stage at the AGA adapter, without moving the independently clocked
-        // sprite comparator or COLOR output stage.
-        let comparator_phase = (beam_x as u16).wrapping_sub(1);
+        // `beam_x - 1` phase. Lisa checks each group at every native period,
+        // then retains its fixed output transport delay after the shifter.
+        // Lisa's wider copy boundary belongs to the physical Denise counter.
+        // A DDF-relative origin aliases the 16-bit boundary but displaces
+        // wider hires fetches when DDF starts halfway through their period.
+        let comparator_phase = (if lisa { spr_beam_x } else { beam_x } as u16).wrapping_sub(1);
 
         // Commit BPL1DAT-triggered pending loads BEFORE shifting pixels out,
         // matching real hardware where the parallel load replaces the shift
         // register contents before the next serial output.
-        self.apply_pending_shift_load_if_due(comparator_phase);
+        if !lisa {
+            self.apply_pending_shift_load_if_due(comparator_phase);
+        }
 
-        for sample_idx in 0..source_pixels_per_fb_pixel {
-            let (raw, pf1, pf2, mask) = self.shift_one_playfield_render_sample(hires);
-            if sample_idx < 4 {
-                quad_samples[sample_idx as usize] = (raw, pf1, pf2);
-                quad_samples_debug[sample_idx as usize] = DeniseSourcePixelDebug {
-                    raw_color_idx: raw as u8,
-                    pf1_code: pf1,
-                    pf2_code: pf2,
-                };
+        let output_periods = if lisa { 4 } else { source_pixels_per_fb_pixel };
+        for index in 0..usize::from(output_periods) {
+            let current = if lisa {
+                self.apply_pending_shift_load_if_due(
+                    comparator_phase.wrapping_mul(4).wrapping_add(index as u16),
+                );
+                for (odd, planes) in [(true, 0x55), (false, 0xAA)] {
+                    let phase = if odd {
+                        &mut self.bitplane_serial_phase
+                    } else {
+                        &mut self.bitplane_serial_phase_even
+                    };
+                    *phase += source_pixels_per_fb_pixel;
+                    if *phase >= 4 {
+                        *phase = 0;
+                        let sample = self.shift_playfield_group_source_pixel(planes);
+                        let bits = (self.bitplane_serial_sample.3 & !planes) | sample.3;
+                        self.bitplane_serial_sample.0 = usize::from(bits);
+                        self.bitplane_serial_sample.3 = bits;
+                        if odd {
+                            self.bitplane_serial_sample.1 = sample.1;
+                        } else {
+                            self.bitplane_serial_sample.2 = sample.2;
+                        }
+                    }
+                }
+                self.bitplane_serial_sample
+            } else {
+                self.shift_one_playfield_render_sample(hires)
+            };
+            // The held serial sample is already phased by the parallel-copy
+            // and source clocks. The independently traced UAE counter emits it
+            // now, without another lores delay. Keep saved history compatible.
+            if lisa {
+                let cursor = usize::from(self.bitplane_output_cursor);
+                self.bitplane_output_stage[cursor / 16][cursor % 16] = current;
+                self.bitplane_output_cursor = (self.bitplane_output_cursor + 1) & 511;
             }
-            // For the 640->320 hires downsample path, use the later source
-            // pixel in the pair as the displayed color and merge collision
-            // visibility from both source pixels.
+            let (raw, pf1, pf2, mask) = current;
+            quad_samples[index] = (raw, pf1, pf2);
+            let source_index = if lisa {
+                index * usize::from(source_pixels_per_fb_pixel) / 4
+            } else {
+                index
+            };
+            quad_samples_debug[source_index] = DeniseSourcePixelDebug {
+                raw_color_idx: raw as u8,
+                pf1_code: pf1,
+                pf2_code: pf2,
+            };
+            collision_samples[index] = mask;
             raw_color_idx = raw;
             pf1_code = pf1;
             pf2_code = pf2;
@@ -1329,43 +1701,40 @@ impl DeniseOcs {
         // and lores output). In hires mode we also compose the first sample
         // independently for the per-pixel quad_color_idx.
         let playfield = if playfield_visible_gate {
-            self.compose_playfield_pixel(raw_color_idx, pf1_code, pf2_code)
+            self.compose_playfield_pixel(raw_color_idx, pf1_code, pf2_code, pf2_palette_offset)
         } else {
             PlayfieldPixel {
                 visible_color_idx: 0,
                 front_playfield: None,
             }
         };
-        let sprite_output_visible = playfield_visible_gate && self.sprite_bpl1dat_enabled;
-        let sprite_group_mask = if sprite_output_visible {
-            self.collision_group_mask(beam_x, beam_y)
-        } else {
-            0
-        };
-        self.latch_collisions(
-            if playfield_visible_gate {
-                plane_bits_mask
-            } else {
-                0
-            },
-            sprite_group_mask,
-        );
-
-        // Sprite lookup (lores resolution — same sprite for both hires
-        // sub-pixels). Normal sprite contribution requires both display
-        // eligibility and a BPL1DAT arrival on this line. Sprite shifters were
-        // already advanced above even when this output gate remains closed.
-        let sprite_pixel = if sprite_output_visible {
-            self.sprite_pixel(beam_x, beam_y)
-        } else {
-            None
-        };
-        if let Some(sp) = &sprite_pixel {
-            // A sprite produced a non-transparent pixel inside the display
-            // window. (Diagnostic counter; over an empty playfield the
-            // sprite wins priority and this pixel reaches the framebuffer.)
-            self.spr_pixels_rendered[sp.sprite_group & 7] =
-                self.spr_pixels_rendered[sp.sprite_group & 7].saturating_add(1);
+        let mut sprite_pixels = [None; 4];
+        let mut sprite_masks = [0; 4];
+        for i in 0..if lisa { 4 } else { 1 } {
+            if lisa {
+                self.sync_lisa_sprite_sample(
+                    spr_beam_x * 4 + i as u32,
+                    spr_beam_y,
+                    sprite_sample_period,
+                );
+            }
+            if (playfield_gates[i] && self.sprite_bpl1dat_enabled) || border_sprites_enabled {
+                sprite_pixels[i] = self.sprite_pixel(beam_x, beam_y);
+                sprite_masks[i] = self.collision_group_mask(beam_x, beam_y);
+            }
+        }
+        if !lisa {
+            sprite_pixels[1] = sprite_pixels[0];
+            sprite_masks[1] = sprite_masks[0];
+        }
+        let mut counted_groups = 0u8;
+        for sp in sprite_pixels.iter().flatten() {
+            let bit = 1 << sp.sprite_group;
+            if counted_groups & bit == 0 {
+                self.spr_pixels_rendered[sp.sprite_group] =
+                    self.spr_pixels_rendered[sp.sprite_group].saturating_add(1);
+                counted_groups |= bit;
+            }
         }
 
         // Cache BPLCON2 priority positions for sprite resolution (avoids
@@ -1395,31 +1764,47 @@ impl DeniseOcs {
                 (c, from_sprite)
             };
 
-        let (color_idx, is_sprite) = resolve_sprite_priority(&playfield, &sprite_pixel);
-
-        // In hires/superhires, compose each source pixel independently for
-        // full-res output. In lores all four entries are identical.
-        let (quad_playfield_color_idx, quad_color_idx, quad_is_sprite) =
-            if source_pixels_per_fb_pixel > 1 && playfield_visible_gate {
-                let mut quad_pf = [playfield.visible_color_idx as u8; 4];
-                let mut quad = [color_idx as u8; 4];
-                let mut quad_sp = [is_sprite; 4];
-                for i in 0..source_pixels_per_fb_pixel.min(4) as usize {
-                    let (raw_i, pf1_i, pf2_i) = quad_samples[i];
-                    let pf_i = self.compose_playfield_pixel(raw_i, pf1_i, pf2_i);
-                    let (ci, sp) = resolve_sprite_priority(&pf_i, &sprite_pixel);
-                    quad_pf[i] = pf_i.visible_color_idx as u8;
-                    quad[i] = ci as u8;
-                    quad_sp[i] = sp;
-                }
-                (quad_pf, quad, quad_sp)
+        let output_samples_per_fb_pixel = if lisa { 4 } else { source_pixels_per_fb_pixel };
+        let mut quad_playfield_color_idx = [playfield.visible_color_idx as u8; 4];
+        let mut quad_color_idx = [0u8; 4];
+        let mut quad_is_sprite = [false; 4];
+        for i in 0..usize::from(output_samples_per_fb_pixel) {
+            let source = if lisa {
+                i
             } else {
-                (
-                    [playfield.visible_color_idx as u8; 4],
-                    [color_idx as u8; 4],
-                    [is_sprite; 4],
-                )
+                i * usize::from(source_pixels_per_fb_pixel)
+                    / usize::from(output_samples_per_fb_pixel)
             };
+            let sprite = if lisa { i } else { 0 };
+            let pf = if playfield_gates[i] {
+                let (raw, pf1, pf2) = quad_samples[source];
+                self.compose_playfield_pixel(raw, pf1, pf2, pf2_palette_offset)
+            } else {
+                PlayfieldPixel {
+                    visible_color_idx: 0,
+                    front_playfield: None,
+                }
+            };
+            self.latch_collisions(
+                if playfield_gates[i] {
+                    collision_samples[source]
+                } else {
+                    0
+                },
+                sprite_masks[sprite],
+            );
+            let (color, is_sprite) = resolve_sprite_priority(&pf, &sprite_pixels[sprite]);
+            quad_playfield_color_idx[i] = pf.visible_color_idx as u8;
+            quad_color_idx[i] = color as u8;
+            quad_is_sprite[i] = is_sprite;
+        }
+        let last = usize::from(output_samples_per_fb_pixel) - 1;
+        for i in usize::from(output_samples_per_fb_pixel)..4 {
+            quad_playfield_color_idx[i] = quad_playfield_color_idx[last];
+            quad_color_idx[i] = quad_color_idx[last];
+            quad_is_sprite[i] = quad_is_sprite[last];
+        }
+        let color_idx = quad_color_idx[last];
 
         DeniseOutputPixelDebug {
             called: true,
@@ -1429,9 +1814,10 @@ impl DeniseOcs {
             requested_y: y,
             hires,
             source_pixels_per_fb_pixel,
+            output_samples_per_fb_pixel,
             quad_samples: quad_samples_debug,
             plane_bits_mask,
-            final_color_idx: color_idx as u8,
+            final_color_idx: color_idx,
             quad_playfield_color_idx,
             quad_color_idx,
             quad_is_sprite,
@@ -1464,7 +1850,10 @@ impl DeniseOcs {
             beam_x,
             beam_y,
             source_pixels_per_output_call,
-            playfield_visible_gate,
+            [playfield_visible_gate; 4],
+            8,
+            false,
+            4,
         )
     }
 
@@ -1485,6 +1874,68 @@ impl DeniseOcs {
         spr_beam_y: u32,
         playfield_visible_gate: bool,
     ) -> DeniseOutputPixelDebug {
+        self.output_pixel_with_beam_sprite_coords_and_display_controls(
+            x,
+            y,
+            beam_x,
+            beam_y,
+            spr_beam_x,
+            spr_beam_y,
+            playfield_visible_gate,
+            8,
+            false,
+            4,
+        )
+    }
+
+    /// Compose a raster tick with the caller's display controls.
+    /// Lisa supplies BPLCON3.PF2OF and the ECSENA-gated BRDRSPRT selector.
+    /// OCS/ECS callers use offset 8 and hide sprites outside the window.
+    /// Lisa supplies SPRES's serial period in 35 ns samples (4, 2 or 1).
+    /// OCS/ECS retain the original lores sequencer.
+    #[allow(clippy::too_many_arguments)]
+    pub fn output_pixel_with_beam_sprite_coords_and_display_controls(
+        &mut self,
+        x: u32,
+        y: u32,
+        beam_x: u32,
+        beam_y: u32,
+        spr_beam_x: u32,
+        spr_beam_y: u32,
+        playfield_visible_gate: bool,
+        pf2_palette_offset: u8,
+        border_sprites_enabled: bool,
+        sprite_sample_period: u8,
+    ) -> DeniseOutputPixelDebug {
+        self.output_pixel_with_sample_gates_and_display_controls(
+            x,
+            y,
+            beam_x,
+            beam_y,
+            spr_beam_x,
+            spr_beam_y,
+            [playfield_visible_gate; 4],
+            pf2_palette_offset,
+            border_sprites_enabled,
+            sprite_sample_period,
+        )
+    }
+
+    /// Compose each Lisa output sample using its own display-window level.
+    #[allow(clippy::too_many_arguments)]
+    pub fn output_pixel_with_sample_gates_and_display_controls(
+        &mut self,
+        x: u32,
+        y: u32,
+        beam_x: u32,
+        beam_y: u32,
+        spr_beam_x: u32,
+        spr_beam_y: u32,
+        playfield_gates: [bool; 4],
+        pf2_palette_offset: u8,
+        border_sprites_enabled: bool,
+        sprite_sample_period: u8,
+    ) -> DeniseOutputPixelDebug {
         let hires = (self.bplcon0 & 0x8000) != 0;
         let shres = (self.bplcon0 & 0x0040) != 0;
         let source_pixels_per_output_call = if shres {
@@ -1502,7 +1953,10 @@ impl DeniseOcs {
             spr_beam_x,
             spr_beam_y,
             source_pixels_per_output_call,
-            playfield_visible_gate,
+            playfield_gates,
+            pf2_palette_offset,
+            border_sprites_enabled,
+            sprite_sample_period,
         )
     }
 
@@ -1652,7 +2106,7 @@ mod tests {
     fn hires_bplcon1_barrel_shift_applies_on_every_load() {
         let mut denise = DeniseOcs::new();
         denise.bplcon0 = 0x9000; // HIRES + 1 bitplane
-        denise.bplcon1 = 0x0040; // odd planes scroll by 4 hires pixels
+        denise.bplcon1 = 0x0002; // odd planes scroll by two lores clocks (four hires pixels)
         denise.begin_beam_line();
 
         // First load: prev=0, raw=0x8000, combined=(0<<16|0x8000)>>4 = 0x0800
@@ -1676,10 +2130,10 @@ mod tests {
     }
 
     #[test]
-    fn hires_bplcon1_ignores_low_scroll_bit() {
+    fn hires_bplcon1_masks_high_scroll_bit() {
         let mut denise = DeniseOcs::new();
         denise.bplcon0 = 0x9000; // HIRES + 1 bitplane
-        denise.bplcon1 = 0x0050; // odd nibble = 5 -> should behave as 4 in hires
+        denise.bplcon1 = 0x000A; // PF1H = 10 -> two lores clocks (four hires pixels)
         denise.begin_beam_line();
 
         denise.bpl_data[0] = 0x8000;
@@ -1689,7 +2143,7 @@ mod tests {
         assert_eq!(
             first_six,
             vec![0, 0, 0, 0, 1, 0],
-            "hires scroll should use 2-pixel increments (ignore low nibble bit)"
+            "hires scroll masks the high nibble bit and keeps two-pixel increments"
         );
         assert_eq!(denise.last_shift_load_debug().odd_scroll, 4);
     }
@@ -1698,7 +2152,7 @@ mod tests {
     fn lowres_bplcon1_uses_previous_word_carry_on_later_shift_loads() {
         let mut denise = DeniseOcs::new();
         denise.bplcon0 = 0x1000; // 1 bitplane, lowres
-        denise.bplcon1 = 0x0010; // odd planes scroll by 1 pixel
+        denise.bplcon1 = 0x0001; // odd planes scroll by 1 pixel
         denise.begin_beam_line();
 
         denise.bpl_data[0] = 0x0001;

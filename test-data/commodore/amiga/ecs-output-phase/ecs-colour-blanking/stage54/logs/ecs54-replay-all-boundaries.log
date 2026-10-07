@@ -1,0 +1,8 @@
+    Finished `release` profile [optimized] target(s) in 0.27s
+     Running tests/snapshot_roundtrip.rs (target/release/deps/snapshot_roundtrip-03cc98e15b371352)
+
+running 1 test
+test ecs_csync_blanking_in_flight_stages_survive_both_clock_phases ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 54 filtered out; finished in 0.86s
+

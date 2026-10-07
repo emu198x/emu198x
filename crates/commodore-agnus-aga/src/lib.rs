@@ -162,10 +162,10 @@ mod tests {
         }
     }
 
-    fn tick_to_line(agnus: &mut InnerAgnusEcs, target: u16) {
+    fn tick_to_vertical_comparator(agnus: &mut InnerAgnusEcs, target: u16) {
         let one_field = usize::from(PAL_CCKS_PER_LINE) * (usize::from(PAL_LINES_PER_FRAME) + 1);
         for _ in 0..one_field {
-            if agnus.vpos == target {
+            if agnus.vpos == target && agnus.hpos == 2 {
                 return;
             }
             agnus.tick_cck();
@@ -254,6 +254,12 @@ mod tests {
             BlitterCckOutcome::default(),
             "Alice must not emit the pre-AGA main-finish source",
         );
+        assert_eq!(agnus.blitter_completion_phase(), "running");
+        assert_eq!(
+            agnus.tick_blitter_cck(true, &mut bus),
+            BlitterCckOutcome::default(),
+            "the registered D-only main program contains idle and suppressed D cells",
+        );
         assert_eq!(agnus.blitter_completion_phase(), "final-result");
         assert_eq!(
             agnus.tick_blitter_cck(true, &mut bus),
@@ -331,8 +337,8 @@ mod tests {
             agnus.write_diwstrt(0x2010);
             agnus.write_diwstop(0xA020);
             agnus.write_beamcon0(beamcon0);
-            tick_to_line(&mut agnus, 0x0020);
-            assert_eq!(agnus.hpos, 0);
+            tick_to_vertical_comparator(&mut agnus, 0x0020);
+            assert_eq!(agnus.hpos, 2);
             assert!(agnus.vertical_diw_active());
             assert_eq!(agnus.ddf_start_match(), None);
 
@@ -394,7 +400,7 @@ mod tests {
         alice.write_diwstrt(0x2010);
         alice.write_diwstop(0x3020);
         alice.write_diwhigh(0x0008);
-        tick_to_line(&mut alice, 0x0020);
+        tick_to_vertical_comparator(&mut alice, 0x0020);
         assert!(
             alice.vertical_diw_active(),
             "Alice ignores DIWHIGH VSTART bit 11, so VSTART is $020",
@@ -404,7 +410,7 @@ mod tests {
         ecs.write_diwstrt(0x2010);
         ecs.write_diwstop(0x3020);
         ecs.write_diwhigh(0x0008);
-        tick_to_line(&mut ecs, 0x0020);
+        tick_to_vertical_comparator(&mut ecs, 0x0020);
         assert!(
             !ecs.vertical_diw_active(),
             "ECS Agnus exposes the undocumented VSTART bit 11",
@@ -418,9 +424,9 @@ mod tests {
         alice.write_diwstop(0x0281);
         alice.write_diwhigh(0x0000);
 
-        tick_to_line(&mut alice, 0x0001);
+        tick_to_vertical_comparator(&mut alice, 0x0001);
         assert!(alice.vertical_diw_active());
-        tick_to_line(&mut alice, 0x0002);
+        tick_to_vertical_comparator(&mut alice, 0x0002);
         assert!(
             !alice.vertical_diw_active(),
             "the AGA bootstrap list programs a one-line display window",
@@ -438,7 +444,7 @@ mod tests {
         alice.write_diwstop(0x2CC1);
         alice.fmode = 0x0003;
         alice.as_inner_mut().fmode = 0x0003;
-        tick_to_line(&mut alice, 0x0030);
+        tick_to_vertical_comparator(&mut alice, 0x0030);
         assert!(alice.vertical_diw_active());
 
         alice.hpos = 0x0037;

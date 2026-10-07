@@ -1,0 +1,56 @@
+[
+  {
+    "case": "legacy",
+    "native_sha256": "aabfdd543a4ce34f628beaf7c5b93e69343c7b9b6ebe4e639b04a86fc34e7b8f",
+    "trace_sha256": "91079e9eaec821ada1937df846d1e472c961437ccd4c4462061a6b924bcaff37",
+    "reference_counter_origin": 364,
+    "active_origin_observations": 600,
+    "fields": [
+      {
+        "guest_field": 9,
+        "old_mapping_mismatches": 0,
+        "counter_mapping_mismatches": 3200,
+        "raw_sha256": "17074466291d4184bc6f0855d9fd6192b27a4aabf2ad3d3d1b81d37b78767e87"
+      },
+      {
+        "guest_field": 10,
+        "old_mapping_mismatches": 0,
+        "counter_mapping_mismatches": 3200,
+        "raw_sha256": "17074466291d4184bc6f0855d9fd6192b27a4aabf2ad3d3d1b81d37b78767e87"
+      },
+      {
+        "guest_field": 11,
+        "old_mapping_mismatches": 0,
+        "counter_mapping_mismatches": 3200,
+        "raw_sha256": "17074466291d4184bc6f0855d9fd6192b27a4aabf2ad3d3d1b81d37b78767e87"
+      }
+    ]
+  },
+  {
+    "case": "rewrite-start",
+    "native_sha256": "07dd59f53ea2558548379ce2babb674d3704bdeab8b0b4ec5785cfa4b7111810",
+    "trace_sha256": "5961adc4b9f41a8dca37cea1a254b453de2f15cce132e959ae1133870471f26f",
+    "reference_counter_origin": 364,
+    "active_origin_observations": 600,
+    "fields": [
+      {
+        "guest_field": 9,
+        "old_mapping_mismatches": 0,
+        "counter_mapping_mismatches": 3088,
+        "raw_sha256": "a4d81557714c1309c60edf4c885c114f970265fc78847619f736e15d027a11c7"
+      },
+      {
+        "guest_field": 10,
+        "old_mapping_mismatches": 0,
+        "counter_mapping_mismatches": 3088,
+        "raw_sha256": "a4d81557714c1309c60edf4c885c114f970265fc78847619f736e15d027a11c7"
+      },
+      {
+        "guest_field": 11,
+        "old_mapping_mismatches": 0,
+        "counter_mapping_mismatches": 3088,
+        "raw_sha256": "a4d81557714c1309c60edf4c885c114f970265fc78847619f736e15d027a11c7"
+      }
+    ]
+  }
+]

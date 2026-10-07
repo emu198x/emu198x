@@ -1,0 +1,12 @@
+{
+  "gradients": {
+    "full_counter_sha256": "17fdb36fea77be496898cd9c7e2ae1aebb2c776bda737cedeac83f9a21fea9d2",
+    "full_copper_sha256": "86c4c60b6d0580ad67c3ba7eea198c214e8fb7c1f4c61c5cfac9897c3e79d737",
+    "scope": "Pre-fix native trace after each machine tick; counter column is the next output comparison position; Copper tuple is CCK,vpos,hpos,register,value"
+  },
+  "crosshatch": {
+    "full_counter_sha256": "95980dfbbbbc7894949e7584e97304c4b3624d438cfa744060835aea60d41b7d",
+    "full_copper_sha256": "60df92080b76d6460b8b696c8dd4cb7ad487963fafc5ca15c77854cbeb0563eb",
+    "scope": "Pre-fix native trace after each machine tick; counter column is the next output comparison position; Copper tuple is CCK,vpos,hpos,register,value"
+  }
+}

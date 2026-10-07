@@ -1,0 +1,19 @@
+{
+  "source_sha256": "75bb300ba2798913997f82dde988db465746e9b7f22699bbc275690c8ae227e5",
+  "fragment_sha256": {
+    "cadence_tables": "72ba62fb33746293f0cdfee641200f3bfc8932a52612383c1ebdc9e130512000",
+    "plane_tables": "f12cd8b6d0fb3851797619ddd6cb7a5d1cb119c9f0361faf723703e6a6570cfa",
+    "start": "54c1589b44600e42982111424b51188c846af1e98aac4c3700dd7b875dce15a9",
+    "generate": "bfa892771b7bf51ba14beeea7d56cba48ebb6373e6abb3fc1e9f91edefb61caf",
+    "decide": "61e8e88db0a0fdeb36a29a48b340a06148239dc53b1118224751c6e40b83cef6",
+    "clock": "9b9d9ca7eb5704b59d8eb4f921e851d64d4214928a72b35ead9f42079c36c646"
+  },
+  "cases": 336,
+  "events": 74577,
+  "requests": 71835,
+  "terminal_mod_requests": 3772,
+  "first_normal_bpl1_request_h": 65,
+  "events_sha256": "6a64b8e4c597c00f5549a61f977a53ca81a4261d34df205046dc517e9029b05f",
+  "cases_sha256": "ea918b9d9b3d1cff948a8f79331855d4cc180813532a69dc7cc0877026a6751a",
+  "scope": "Compiled registered DDF sequencer functions with external inputs; no full bus arbitration, memory service, CPU, RGA delay or raster simulation"
+}

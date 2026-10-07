@@ -48,10 +48,9 @@ const VALID_A1000_BOOTSTRAP_SIZES: &[usize] = &[64 * 1024];
 pub(crate) const AUDIO_SAMPLE_RATE_HZ: u32 = 48_000;
 pub(crate) const AUDIO_CHANNELS: u8 = 2;
 
-/// Machine framebuffer width (= `FB_WIDTH`). Re-exported for host
-/// integrations that size their output buffers without pulling in
-/// the machine crate directly. Tracks the OCS chipset framebuffer
-/// today; future RTG variants will publish per-slot dimensions.
+/// OCS/ECS framebuffer width. Lisa retains twice this many samples.
+/// Host integrations use `AmigaLiveAccess::framebuffer_dims` or the generic
+/// runtime's `framebuffer_dimensions` for the selected chipset.
 pub const DISPLAY_WIDTH: u32 = FB_WIDTH;
 /// Machine framebuffer height (= `FB_HEIGHT`).
 pub const DISPLAY_HEIGHT: u32 = FB_HEIGHT;
@@ -149,6 +148,12 @@ impl<M: AmigaMachine> AmigaRuntime<M> {
             .diagnostic_snapshot(self.machine.led_filter_engaged())
     }
 
+    /// Native chipset framebuffer dimensions at its retained sample clock.
+    #[must_use]
+    pub const fn framebuffer_dimensions() -> (u32, u32) {
+        (M::CHIPSET_FB_WIDTH, M::CHIPSET_FB_HEIGHT)
+    }
+
     /// Copy the machine's ARGB framebuffer into the RGBA frame
     /// packet buffer the shell expects. ARGB → RGBA is a simple
     /// byte reorder. Side-effect: refreshes the pixel-based boot
@@ -157,7 +162,7 @@ impl<M: AmigaMachine> AmigaRuntime<M> {
     /// consistent values.
     fn update_rgba_framebuffer(&mut self) {
         let fb = self.machine.chipset_framebuffer();
-        let expected = (DISPLAY_WIDTH * DISPLAY_HEIGHT) as usize;
+        let expected = (M::CHIPSET_FB_WIDTH * M::CHIPSET_FB_HEIGHT) as usize;
         debug_assert_eq!(fb.len(), expected);
         if self.rgba_framebuffer.len() != expected * 4 {
             self.rgba_framebuffer.resize(expected * 4, 0);
@@ -178,7 +183,7 @@ impl<M: AmigaMachine> AmigaRuntime<M> {
             if rgb != 0 {
                 non_black = non_black.saturating_add(1);
                 if first_active_row.is_none() {
-                    first_active_row = Some(i as u32 / DISPLAY_WIDTH);
+                    first_active_row = Some(i as u32 / M::CHIPSET_FB_WIDTH);
                 }
             }
             if rgb != 0x00FF_FFFF {
@@ -495,9 +500,20 @@ impl<M: AmigaMachine + AmigaLiveAccess> MachineCore for AmigaRuntime<M> {
             // raw increment back while Denise finishes the preceding raster
             // row across horizontal counter wrap.
             let starting_field = self.machine.video_field_count();
+            // Read the field being rendered, before Agnus advances LOF at
+            // raw wrap. Denise completes its carried final row afterwards.
+            let source_field = self.machine.agnus().vbl_count;
+            let source_lace = self.machine.agnus().bplcon0 & 4 != 0;
+            let source_lof = self.machine.agnus().lof;
+            let mut stable_field = self.machine.agnus().vpos == 0;
             let mut field_ticks = 0_u64;
             self.audio_buffer.clear();
             while self.machine.video_field_count() == starting_field {
+                let agnus = self.machine.agnus();
+                if agnus.vbl_count == source_field {
+                    stable_field &=
+                        (agnus.bplcon0 & 4 != 0) == source_lace && agnus.lof == source_lof;
+                }
                 self.tick_and_sample_audio();
                 field_ticks = field_ticks.saturating_add(1);
             }
@@ -512,11 +528,33 @@ impl<M: AmigaMachine + AmigaLiveAccess> MachineCore for AmigaRuntime<M> {
             self.update_rgba_framebuffer();
 
             host.frame_sink.push_frame(FramePacket {
-                signal: None,
+                signal: Some(emu198x_shell::SignalFrame {
+                    field: (source_lace && stable_field).then_some(emu198x_shell::VideoField {
+                        sequence: source_field,
+                        // The board renderer maps long fields to row 0.
+                        parity: if source_lof {
+                            emu198x_shell::FieldParity::Even
+                        } else {
+                            emu198x_shell::FieldParity::Odd
+                        },
+                    }),
+                    encoding: emu198x_shell::SignalEncoding::Rgb,
+                    timing: emu198x_shell::SignalTiming {
+                        pixel_hz: self.tick_hz as f64 * 2.0 * f64::from(M::CHIPSET_FB_WIDTH)
+                            / f64::from(DISPLAY_WIDTH),
+                        carrier_hz: 0.0,
+                        line_pixels: M::CHIPSET_FB_WIDTH,
+                        first_pixel: 0,
+                        first_line: 0,
+                        phase_cycles: 0.0,
+                    },
+                    codes: &[],
+                    levels: &[],
+                }),
                 timestamp: self.time,
                 format: emu198x_shell::PixelFormat::Rgba8888,
-                width: DISPLAY_WIDTH,
-                height: DISPLAY_HEIGHT,
+                width: M::CHIPSET_FB_WIDTH,
+                height: M::CHIPSET_FB_HEIGHT,
                 palette: None,
                 pixels: &self.rgba_framebuffer,
             })?;
@@ -552,7 +590,8 @@ impl<M: AmigaMachine + AmigaLiveAccess> MachineCore for AmigaRuntime<M> {
     fn display(&self) -> Option<Display> {
         Some(Display::Television {
             region: emu198x_shell::machine::Region::Pal,
-            pixel_clock_hz: HIRES_PIXEL_CLOCK_HZ,
+            pixel_clock_hz: HIRES_PIXEL_CLOCK_HZ * f64::from(M::CHIPSET_FB_WIDTH)
+                / f64::from(DISPLAY_WIDTH),
             lines_per_tv_height: f64::from(DISPLAY_HEIGHT),
         })
     }
@@ -653,7 +692,11 @@ impl AmigaRuntime<AmigaOcs> {
             firmware_rom,
             floppy0_bytes: None,
             floppy0_writable: false,
-            rgba_framebuffer: vec![0; (DISPLAY_WIDTH * DISPLAY_HEIGHT * 4) as usize],
+            rgba_framebuffer: vec![
+                0;
+                (Self::framebuffer_dimensions().0 * Self::framebuffer_dimensions().1 * 4)
+                    as usize
+            ],
             frame_count: 0,
             non_black_pixels: 0,
             non_white_pixels: 0,
@@ -762,7 +805,11 @@ impl AmigaRuntime<AmigaEcs> {
             firmware_rom,
             floppy0_bytes: None,
             floppy0_writable: false,
-            rgba_framebuffer: vec![0; (DISPLAY_WIDTH * DISPLAY_HEIGHT * 4) as usize],
+            rgba_framebuffer: vec![
+                0;
+                (Self::framebuffer_dimensions().0 * Self::framebuffer_dimensions().1 * 4)
+                    as usize
+            ],
             frame_count: 0,
             non_black_pixels: 0,
             non_white_pixels: 0,
@@ -877,7 +924,11 @@ impl AmigaRuntime<AmigaA1200> {
             firmware_rom,
             floppy0_bytes: None,
             floppy0_writable: false,
-            rgba_framebuffer: vec![0; (DISPLAY_WIDTH * DISPLAY_HEIGHT * 4) as usize],
+            rgba_framebuffer: vec![
+                0;
+                (Self::framebuffer_dimensions().0 * Self::framebuffer_dimensions().1 * 4)
+                    as usize
+            ],
             frame_count: 0,
             non_black_pixels: 0,
             non_white_pixels: 0,

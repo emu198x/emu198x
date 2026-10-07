@@ -1,0 +1,55 @@
+   Compiling commodore-denise-aga v0.25.0 (/Users/stevehill/Projects/198x/Emu198x/emu198x/crates/commodore-denise-aga)
+    Finished `release` profile [optimized] target(s) in 18.73s
+     Running unittests src/lib.rs (target/release/deps/commodore_denise_aga-f180a565923e1f6d)
+
+running 47 tests
+test tests::aga_killehb_uses_the_full_palette_address ... ok
+test tests::color_write_reaches_aga_output_one_hires_pixel_late ... ok
+test tests::color_write_bank_offset_into_palette_24 ... ok
+test tests::bplcon3_write_via_trait_lands_on_ecs_layer ... ok
+test tests::color_write_loct_only_updates_low_nybble ... ok
+test tests::aga_ehb_uses_delayed_full_24bit_palette_with_loct_precision ... ok
+test tests::bplcon4_write_via_trait_lands_on_aga_state ... ok
+test tests::color_write_high_mirrors_into_low_nybble ... ok
+test tests::aga_color_delay_expires_outside_the_recorded_viewport ... ok
+test tests::consecutive_aga_color_writes_flush_the_earlier_delay ... ok
+test tests::aga_denise_supports_eight_bitplanes ... ok
+test tests::aga_color_delay_expires_on_a_different_palette_index ... ok
+test tests::copper_color_write_retains_only_the_lisa_hires_output_delay ... ok
+test tests::disabling_a_lisa_selector_clears_the_active_level ... ok
+test tests::deniseid_returns_lisa_marker ... ok
+test tests::deref_exposes_inner_ecs_state ... ok
+test tests::diagnostic_snapshot_reports_complete_lisa_state_without_using_core_mirrors ... ok
+test tests::ehb_sprite_bank_bypasses_half_brite_and_observes_color_delay ... ok
+test tests::fmode_write_via_trait_updates_sprite_width ... ok
+test tests::fractional_window_gates_playfield_sprite_and_xor_per_sample ... ok
+test tests::full_sample_clock_keeps_one_hires_period_color_delay ... ok
+test tests::ham6_sprite_overlays_the_advancing_playfield_hold ... ok
+test tests::ham6_uses_delayed_24bit_palette_and_eight_bit_hold_channels ... ok
+test tests::ham8_control00_reads_24bit_color_register ... ok
+test tests::ham8_direct_color_observes_the_aga_output_delay ... ok
+test tests::ham8_line_start_resets_hold_to_color00 ... ok
+test tests::ham8_sprite_overlays_the_advancing_playfield_hold ... ok
+test tests::killehb_retains_all_eight_post_xor_address_bits_and_color_delay ... ok
+test tests::ham8_modify_replaces_top6_holds_low2_and_other_channels ... ok
+test tests::lisa_ecsena_enable_after_start_waits_for_the_next_start ... ok
+test tests::lisa_parallel_copy_reaches_output_on_the_following_counter ... ok
+test tests::lisa_equal_hblank_edges_leave_level_clear ... ok
+test tests::lisa_extblken_enable_after_start_waits_for_the_next_start ... ok
+test tests::lisa_programmed_hblank_matches_counter_traced_edges ... ok
+test tests::lisa_hblank_fine_stop_retains_all_four_output_samples ... ok
+test tests::lisa_sprite_emits_one_lores_period_after_the_comparator ... ok
+test tests::lisa_hbstop_write_ahead_after_stop_does_not_reassert ... ok
+test tests::lisa_window_matches_reach_output_at_the_counter_equality ... ok
+test tests::lisa_fixed_hblank_compares_the_next_counter ... ok
+test tests::lisa_hbstrt_write_behind_beam_does_not_synthesize_start ... ok
+test tests::new_starts_with_aga_register_defaults ... ok
+test tests::non_aga_register_writes_delegate_to_inner_ocs ... ok
+test tests::normal_mode_resolves_through_24bit_palette ... ok
+test tests::rdram_protected_color_write_changes_neither_palette_nor_output_delay ... ok
+test tests::rdram_reads_the_selected_bank_and_loct_half ... ok
+test tests::superhires_ham8_decodes_each_35ns_playfield_sample ... ok
+test tests::six_plane_killehb_output_uses_serial_pixels_and_bplam ... ok
+
+test result: ok. 47 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+

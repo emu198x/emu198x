@@ -25,15 +25,17 @@ pub struct DeniseOutputPixelDebug {
     pub requested_y: u32,
     pub hires: bool,
     pub source_pixels_per_fb_pixel: u8,
+    /// Composition samples, including Lisa sprites faster than the playfield.
+    pub output_samples_per_fb_pixel: u8,
     pub quad_samples: [DeniseSourcePixelDebug; 4],
     pub plane_bits_mask: u8,
     pub final_color_idx: u8,
     /// Playfield colour indices before sprite-priority replacement. HAM and
     /// EHB decode this stream even when a sprite wins the final output.
     pub quad_playfield_color_idx: [u8; 4],
-    /// Independently-composed color indices for source pixels shifted out
-    /// during this output call. SuperHires: 4 unique entries. Hires: [c0, c1,
-    /// c1, c1]. Lores: all identical (`final_color_idx`).
+    /// Independently composed output samples. Lisa supplies four
+    /// 35 ns samples, including over a lores playfield. Unused entries
+    /// repeat the last sample; output_samples_per_fb_pixel gives the count.
     pub quad_color_idx: [u8; 4],
     /// Whether each quad_color_idx entry came from a sprite (true) or
     /// bitplane/background (false). Needed so AGA palette lookup can apply
@@ -66,12 +68,21 @@ pub struct DeniseShiftLoadDebug {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DeniseBitplaneDiagnosticSnapshot {
     pub holding_data: [u16; 8],
+    pub bitplane_fmode: u16,
+    pub serial_scroll_history: [[(usize, u8, u8, u8); 16]; 32],
+    pub serial_scroll_cursor: u16,
+    pub serial_clock_phase: u8,
+    pub serial_clock_phase_even: u8,
+    pub serial_held_sample: (usize, u8, u8, u8),
     pub shift_data: [u16; 8],
+    pub shift_data_32: [u32; 8],
     pub aggregate_shift_count: u8,
     pub shift_counts: [u8; 8],
     pub shift_delays: [u8; 8],
     pub previous_data: [u16; 8],
     pub pending_data: [u16; 8],
+    pub pending_fetch_tails: [[u16; 3]; 8],
+    pub pending_fetch_tail_lengths: [u8; 8],
     pub pending_copy_odd_planes: bool,
     pub pending_copy_even_planes: bool,
     pub scroll_pending_line: bool,
@@ -96,6 +107,10 @@ pub struct DeniseSpriteDiagnosticSnapshot {
     pub shift_data_b: u64,
     pub shift_count: u8,
     pub current_code: u8,
+    pub pending_output_code: u8,
+    pub lisa_sample_hold: u8,
+    pub lisa_sample_phase: u8,
+    pub lisa_sample_delay: u8,
     pub pixels_rendered: u64,
 }
 
@@ -121,6 +136,7 @@ pub struct DeniseDiagnosticSnapshot {
     pub bplcon2: u16,
     pub bplcon4: u16,
     pub clxcon: u16,
+    pub clxcon2: u16,
     pub clxdat: u16,
     pub bitplanes: DeniseBitplaneDiagnosticSnapshot,
     pub sprite_width: u8,

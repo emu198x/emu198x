@@ -140,9 +140,24 @@ fn copper_bfd_and_final_d_follow_distinct_pre_aga_completion_edges() {
     assert!(amiga.agnus().blitter_final_d_pending());
     assert!(amiga.agnus().blitter_busy);
     assert!(!amiga.agnus().blitter_busy_copper());
-    assert!(!amiga.copper().waiting);
+    assert_eq!(amiga.agnus().hpos, 14);
+    assert!(
+        amiga.copper().waiting,
+        "even CCK exposes BFD but does not clock WAIT1"
+    );
+    assert!(amiga.copper().wait_blitter_blocked);
+    assert!(amiga.copper().pending_dma_fetch.is_none());
     assert!(!amiga.agnus().blitter_bus_used_this_cck());
     assert_eq!(chip_word(&amiga, DESTINATION), 0);
+
+    // The next odd/free input cell performs the returning WAIT1 comparison.
+    // It releases WAIT without reading IR1 or granting the withheld final D.
+    tick_one_cck(&mut amiga);
+    assert_eq!(amiga.agnus().hpos, 15);
+    assert!(!amiga.copper().waiting);
+    assert!(amiga.copper().pending_dma_fetch.is_none());
+    assert_eq!(chip_word(&amiga, DESTINATION), 0);
+    assert!(amiga.agnus().blitter_final_d_pending());
 
     amiga.poke_word(DMACON, 0x8040); // re-enable BLTEN without BLTPRI
     while amiga.agnus().blitter_busy {

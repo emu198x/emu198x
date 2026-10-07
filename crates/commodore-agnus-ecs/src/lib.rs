@@ -262,7 +262,11 @@ impl AgnusEcs {
         // `bltsize` stay populated; the engine itself runs from the full
         // size above, not this packed (and for large blits lossy) value.
         self.inner.bltsize = ((self.bltsizv & 0x03FF) << 6) | (h & 0x003F);
-        self.inner.start_blit_with_size(height, width_words);
+        if self.inner.dma_pipeline().stages_started() {
+            self.inner.queue_blitter_start(height, width_words);
+        } else {
+            self.inner.start_blit_with_size(height, width_words);
+        }
     }
 
     /// Borrow the wrapped OCS Agnus core.
@@ -444,8 +448,16 @@ impl AgnusEcs {
         let short_field_lines = self.short_field_lines();
         if let Some(vpos) = self.inner.next_cck_line_entry(line_ccks, short_field_lines) {
             self.enter_programmed_vertical_line(vpos);
-            self.evaluate_vertical_diw_comparators(vpos);
         }
+        let programmed_blank = self.varvben_enabled().then_some(
+            (self.programmed_vblank_active || self.programmed_vblank_stop_event)
+                && !self.programmed_vblank_start_event,
+        );
+        self.inner.set_timing_strobe_inputs(
+            programmed_blank,
+            self.varcsyen_enabled() || self.blanken_enabled(),
+            if self.pal_enabled() { 25 } else { 20 },
+        );
         let sprite_timing = self.sprite_dma_vertical_timing();
         let fixed_ddf_right_stop_enabled = !self.horizontal_hard_ddf_limit_disabled();
         self.inner.tick_cck_with_variant_timing(
@@ -454,6 +466,12 @@ impl AgnusEcs {
             sprite_timing,
             fixed_ddf_right_stop_enabled,
         );
+        // Registered do_cck advances VPOS after the h=1 request/comparator
+        // cell. Preserve the old gate through h=0/1 so a cross-wrap fetch
+        // run can issue its final requests before VSTOP takes effect.
+        if self.inner.hpos == 2 {
+            self.evaluate_vertical_diw_comparators(self.inner.vpos);
+        }
         self.enter_programmed_horizontal_position(self.inner.hpos);
     }
 
@@ -507,6 +525,52 @@ impl AgnusEcs {
 
     fn bitplane_dma_vertical_active(&self) -> bool {
         self.vertical_diw_active
+    }
+
+    /// Generate requests using the installed enhanced Agnus's comparator gates.
+    pub fn generate_display_dma(&mut self) {
+        let vertical = self.bitplane_dma_vertical_active();
+        let hard_disabled = self.horizontal_hard_ddf_limit_disabled();
+        let line_ccks = self.current_line_ccks();
+        let sprite_timing = self.sprite_dma_vertical_timing();
+        self.inner
+            .generate_display_dma_request(vertical, hard_disabled, line_ccks);
+        self.inner.generate_sprite_dma_request(sprite_timing);
+    }
+
+    pub fn service_addressed_sprite_dma(
+        &mut self,
+        channel: usize,
+        second_word: bool,
+        control: bool,
+        address: u32,
+        width: u8,
+        read: impl FnMut(u32) -> u16,
+    ) -> (bool, u64) {
+        let timing = self.sprite_dma_vertical_timing();
+        self.inner
+            .service_addressed_sprite_dma_with_vertical_timing(
+                commodore_agnus_ocs::DisplayDmaChannel::Sprite {
+                    channel: channel as u8,
+                    second_word,
+                    control,
+                },
+                address,
+                width,
+                timing,
+                read,
+            )
+    }
+
+    pub fn service_retained_sprite_dma(
+        &mut self,
+        transfer: commodore_agnus_ocs::DmaTransfer,
+        width: u8,
+        read: impl FnMut(u32) -> u16,
+    ) -> (bool, u64) {
+        let timing = self.sprite_dma_vertical_timing();
+        self.inner
+            .service_retained_sprite_dma_with_vertical_timing(transfer, width, timing, read)
     }
 
     /// ECS-aware bus plan that applies vertical bitplane DMA gating from the
@@ -1037,6 +1101,72 @@ mod tests {
         PAL_CCKS_PER_LINE, PAL_LINES_PER_FRAME, PaulaReturnProgressPolicy, SlotOwner,
         UNWRITTEN_VERTICAL_BLANK_EDGE,
     };
+
+    #[test]
+    fn vertical_window_changes_after_hpos_one() {
+        // Registered full-reference do_cck/custom_trigger_start: the old
+        // vertical gate feeds requests at h=0/1; h=2 sees the new VPOS.
+        for chip_id in [0x2000, 0x2300] {
+            let mut agnus = AgnusEcs::new();
+            agnus.agnus_id = chip_id;
+            agnus.write_diwstrt(0x2C81);
+            agnus.write_diwstop(0xF4C1);
+            for (line, before, after) in [(0x2C, false, true), (0xF4, true, false)] {
+                agnus.vpos = line - 1;
+                agnus.hpos = agnus.current_line_ccks() - 1;
+                assert_eq!(agnus.vertical_diw_active(), before);
+                for h in 0..=2 {
+                    agnus.tick_cck();
+                    assert_eq!((agnus.vpos, agnus.hpos), (line, h));
+                    assert_eq!(
+                        agnus.vertical_diw_active(),
+                        if h < 2 { before } else { after },
+                        "chip {chip_id:04x}, line {line}, h={h}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn vertical_close_preserves_the_last_cross_wrap_bitplane_services() {
+        use commodore_agnus_ocs::{DisplayDmaChannel, DmaTransferTarget};
+        for chip_id in [0x2000, 0x2300] {
+            let mut agnus = AgnusEcs::new();
+            agnus.agnus_id = chip_id;
+            agnus.vpos = 0x2C;
+            agnus.write_diwstrt(0x2C81);
+            agnus.write_diwstop(0xF4C1);
+            agnus.write_beamcon0(BEAMCON0_PAL | BEAMCON0_HARDDIS);
+            agnus.bplcon0 = 0xC200;
+            agnus.dmacon = 0x0300;
+            agnus.ddfstrt = 0x18;
+            agnus.ddfstop = 0xE0;
+            agnus.vpos = 0xF3;
+            let mut services = Vec::new();
+            for _ in 0..agnus.current_line_ccks() + 10 {
+                if let Some(reservation) = agnus.begin_dma_cck() {
+                    agnus.sample_bitplane_dma_address(reservation);
+                }
+                if let Some(transfer) = agnus.claim_dma_service()
+                    && let DmaTransferTarget::Display { reservation, .. } = transfer.target
+                    && let DisplayDmaChannel::Bitplane(plane) = reservation.channel
+                    && agnus.vpos == 0xF4
+                {
+                    services.push((agnus.hpos, plane));
+                }
+                agnus.generate_display_dma();
+                agnus.tick_cck();
+            }
+            // Same requests as the registered live trace. Refresh is omitted
+            // here, so its h=3 AND collision leaves the BPL2 identity intact.
+            assert_eq!(
+                services,
+                [(0, 0), (1, 3), (2, 3), (3, 1), (4, 2), (5, 0)],
+                "chip {chip_id:04x} lost a retained end-of-window transfer"
+            );
+        }
+    }
 
     fn tick_programmed_line(agnus: &mut AgnusEcs) {
         for _ in 0..=agnus.htotal_highest_count() {

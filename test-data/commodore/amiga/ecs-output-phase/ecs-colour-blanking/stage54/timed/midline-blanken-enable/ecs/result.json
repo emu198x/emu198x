@@ -1,0 +1,661 @@
+{
+  "schema_version": "1.0.0",
+  "status": "passed",
+  "evidence_scope": "registered UAE-family software observation; not hardware conformance",
+  "revision": {
+    "full": "f9f6c77af369ca3687d6854e3d8406831edfb7e5",
+    "dirty": true
+  },
+  "suite_id": "org.198x.amiga.programmable-hblank-write-timing",
+  "suite_version": "1.0.0",
+  "built_suite_manifest_sha256": "2d0182d8c4d23822f17a24ddcfb5a23d42eee8f896529513472e86d6a20e6bb9",
+  "registered_suite_manifest_sha256": "fc4c4568b3ae5a7d06e07eddb18f9048937717291d022f02cfc32e68d5f6faf3",
+  "registered_package_sha256": "b6a04ae162aaf4b137a21e57c2f0ab0e5cd14bd91a4713d2b153ba1e0c95e0f3",
+  "registered_record_file": "records/ecs--midline-blanken-enable.json",
+  "registered_record_sha256": "40745e1d66baef28449089d5504a07e676d19c23e2d37064f510277f65a0e1ad",
+  "case_id": "midline-blanken-enable",
+  "case_number": 5,
+  "profile": "ecs",
+  "artifact_sha256": "45384fa006b082aadaf503b1467b7f63941ce38d01aa554feaa8a115c5263e17",
+  "firmware_sha256": "d0b70e8a1772614b897f92c33cb299bed3fc8e3de488fc12f67f97fc2486eb79",
+  "coordinate_mapping": {
+    "alignment_search": false,
+    "reference_domain_start": 2,
+    "reference_domain_end_exclusive": 756,
+    "emu_domain_start": 8,
+    "emu_domain_end_exclusive": 762,
+    "horizontal_formula": "emu_hires_period = fs_uae_raw_sample + 6",
+    "baseline_beam_line": 127,
+    "baseline_output_rows": [
+      204,
+      205
+    ],
+    "mutation_beam_line": 128,
+    "mutation_output_rows": [
+      206,
+      207
+    ],
+    "following_beam_line": 129,
+    "following_output_rows": [
+      208,
+      209
+    ]
+  },
+  "expected_lines": [
+    {
+      "role": "pre-mutation baseline",
+      "black_runs": [],
+      "guard_runs": [
+        {
+          "start": 8,
+          "end_exclusive": 762
+        }
+      ],
+      "marker_runs": []
+    },
+    {
+      "role": "mutation output",
+      "black_runs": [],
+      "guard_runs": [
+        {
+          "start": 8,
+          "end_exclusive": 376
+        }
+      ],
+      "marker_runs": [
+        {
+          "start": 376,
+          "end_exclusive": 762
+        }
+      ]
+    },
+    {
+      "role": "post-mutation control",
+      "black_runs": [
+        {
+          "start": 270,
+          "end_exclusive": 526
+        }
+      ],
+      "guard_runs": [],
+      "marker_runs": [
+        {
+          "start": 8,
+          "end_exclusive": 270
+        },
+        {
+          "start": 526,
+          "end_exclusive": 762
+        }
+      ]
+    }
+  ],
+  "actual_lines": [
+    {
+      "role": "pre-mutation baseline",
+      "black_runs": [],
+      "guard_runs": [
+        {
+          "start": 8,
+          "end_exclusive": 762
+        }
+      ],
+      "marker_runs": []
+    },
+    {
+      "role": "mutation output",
+      "black_runs": [],
+      "guard_runs": [
+        {
+          "start": 8,
+          "end_exclusive": 376
+        }
+      ],
+      "marker_runs": [
+        {
+          "start": 376,
+          "end_exclusive": 762
+        }
+      ]
+    },
+    {
+      "role": "post-mutation control",
+      "black_runs": [
+        {
+          "start": 270,
+          "end_exclusive": 526
+        }
+      ],
+      "guard_runs": [],
+      "marker_runs": [
+        {
+          "start": 8,
+          "end_exclusive": 270
+        },
+        {
+          "start": 526,
+          "end_exclusive": 762
+        }
+      ]
+    }
+  ],
+  "ready": {
+    "observed_after_fields": 199,
+    "field_counter": 8,
+    "copper_log_start_index": 1255
+  },
+  "captured_fields": [
+    {
+      "field_counter": 9,
+      "width": 768,
+      "rgba_sha256": "e83866651b4f0f355cc16942c406ec868a60a4b28beafb35a4a3ee3ca53acd18"
+    },
+    {
+      "field_counter": 10,
+      "width": 768,
+      "rgba_sha256": "e83866651b4f0f355cc16942c406ec868a60a4b28beafb35a4a3ee3ca53acd18"
+    },
+    {
+      "field_counter": 11,
+      "width": 768,
+      "rgba_sha256": "e83866651b4f0f355cc16942c406ec868a60a4b28beafb35a4a3ee3ca53acd18"
+    }
+  ],
+  "copper_fields": [
+    [
+      {
+        "cck": 14122842,
+        "vpos": 127,
+        "hpos": 38,
+        "custom_offset": 476,
+        "value": 32
+      },
+      {
+        "cck": 14122846,
+        "vpos": 127,
+        "hpos": 42,
+        "custom_offset": 384,
+        "value": 255
+      },
+      {
+        "cck": 14123173,
+        "vpos": 128,
+        "hpos": 142,
+        "custom_offset": 384,
+        "value": 3855
+      },
+      {
+        "cck": 14123177,
+        "vpos": 128,
+        "hpos": 146,
+        "custom_offset": 476,
+        "value": 40
+      }
+    ],
+    [
+      {
+        "cck": 14193666,
+        "vpos": 127,
+        "hpos": 38,
+        "custom_offset": 476,
+        "value": 32
+      },
+      {
+        "cck": 14193670,
+        "vpos": 127,
+        "hpos": 42,
+        "custom_offset": 384,
+        "value": 255
+      },
+      {
+        "cck": 14193997,
+        "vpos": 128,
+        "hpos": 142,
+        "custom_offset": 384,
+        "value": 3855
+      },
+      {
+        "cck": 14194001,
+        "vpos": 128,
+        "hpos": 146,
+        "custom_offset": 476,
+        "value": 40
+      }
+    ],
+    [
+      {
+        "cck": 14264490,
+        "vpos": 127,
+        "hpos": 38,
+        "custom_offset": 476,
+        "value": 32
+      },
+      {
+        "cck": 14264494,
+        "vpos": 127,
+        "hpos": 42,
+        "custom_offset": 384,
+        "value": 255
+      },
+      {
+        "cck": 14264821,
+        "vpos": 128,
+        "hpos": 142,
+        "custom_offset": 384,
+        "value": 3855
+      },
+      {
+        "cck": 14264825,
+        "vpos": 128,
+        "hpos": 146,
+        "custom_offset": 476,
+        "value": 40
+      }
+    ]
+  ],
+  "machine": {
+    "cpu_pc": 196812,
+    "machine_tick": 28612940,
+    "ready_magic": 1212304459,
+    "ready_case": 5,
+    "ready_schema": 1,
+    "ready_field_counter": 11,
+    "relevant_cpu_custom_writes": [
+      {
+        "tick": 2097267,
+        "pc": 16253246,
+        "address": 14676224,
+        "custom_offset": 256,
+        "value": 512,
+        "is_word": true
+      },
+      {
+        "tick": 2097283,
+        "pc": 16253258,
+        "address": 14676352,
+        "custom_offset": 384,
+        "value": 1092,
+        "is_word": true
+      },
+      {
+        "tick": 2109940,
+        "pc": 16253676,
+        "address": 14676352,
+        "custom_offset": 384,
+        "value": 2184,
+        "is_word": true
+      },
+      {
+        "tick": 5274524,
+        "pc": 16253998,
+        "address": 14676352,
+        "custom_offset": 384,
+        "value": 2730,
+        "is_word": true
+      },
+      {
+        "tick": 8477157,
+        "pc": 16254722,
+        "address": 14676352,
+        "custom_offset": 384,
+        "value": 3276,
+        "is_word": true
+      },
+      {
+        "tick": 8523844,
+        "pc": 16420192,
+        "address": 14676224,
+        "custom_offset": 256,
+        "value": 258,
+        "is_word": true
+      },
+      {
+        "tick": 9826012,
+        "pc": 16420040,
+        "address": 14676224,
+        "custom_offset": 256,
+        "value": 770,
+        "is_word": true
+      },
+      {
+        "tick": 9826129,
+        "pc": 16420092,
+        "address": 14676444,
+        "custom_offset": 476,
+        "value": 32,
+        "is_word": true
+      },
+      {
+        "tick": 9826197,
+        "pc": 16419758,
+        "address": 14676352,
+        "custom_offset": 384,
+        "value": 4095,
+        "is_word": true
+      },
+      {
+        "tick": 9826257,
+        "pc": 16420040,
+        "address": 14676224,
+        "custom_offset": 256,
+        "value": 770,
+        "is_word": true
+      },
+      {
+        "tick": 9826374,
+        "pc": 16420092,
+        "address": 14676444,
+        "custom_offset": 476,
+        "value": 32,
+        "is_word": true
+      },
+      {
+        "tick": 10528528,
+        "pc": 16420040,
+        "address": 14676224,
+        "custom_offset": 256,
+        "value": 770,
+        "is_word": true
+      },
+      {
+        "tick": 10528645,
+        "pc": 16420092,
+        "address": 14676444,
+        "custom_offset": 476,
+        "value": 32,
+        "is_word": true
+      },
+      {
+        "tick": 13473411,
+        "pc": 196646,
+        "address": 14676224,
+        "custom_offset": 256,
+        "value": 1,
+        "is_word": true
+      },
+      {
+        "tick": 13473419,
+        "pc": 196652,
+        "address": 14676230,
+        "custom_offset": 262,
+        "value": 0,
+        "is_word": true
+      },
+      {
+        "tick": 13473427,
+        "pc": 196658,
+        "address": 14676352,
+        "custom_offset": 384,
+        "value": 255,
+        "is_word": true
+      },
+      {
+        "tick": 13473435,
+        "pc": 196664,
+        "address": 14676420,
+        "custom_offset": 452,
+        "value": 112,
+        "is_word": true
+      },
+      {
+        "tick": 13473443,
+        "pc": 196670,
+        "address": 14676422,
+        "custom_offset": 454,
+        "value": 176,
+        "is_word": true
+      },
+      {
+        "tick": 13473451,
+        "pc": 196676,
+        "address": 14676444,
+        "custom_offset": 476,
+        "value": 32,
+        "is_word": true
+      },
+      {
+        "tick": 13473459,
+        "pc": 196682,
+        "address": 14676230,
+        "custom_offset": 262,
+        "value": 1,
+        "is_word": true
+      },
+      {
+        "tick": 13473467,
+        "pc": 196688,
+        "address": 14676224,
+        "custom_offset": 256,
+        "value": 1,
+        "is_word": true
+      }
+    ],
+    "recent_relevant_copper_moves": [
+      {
+        "cck": 13768722,
+        "vpos": 127,
+        "hpos": 38,
+        "custom_offset": 476,
+        "value": 32
+      },
+      {
+        "cck": 13768726,
+        "vpos": 127,
+        "hpos": 42,
+        "custom_offset": 384,
+        "value": 255
+      },
+      {
+        "cck": 13769053,
+        "vpos": 128,
+        "hpos": 142,
+        "custom_offset": 384,
+        "value": 3855
+      },
+      {
+        "cck": 13769057,
+        "vpos": 128,
+        "hpos": 146,
+        "custom_offset": 476,
+        "value": 40
+      },
+      {
+        "cck": 13839546,
+        "vpos": 127,
+        "hpos": 38,
+        "custom_offset": 476,
+        "value": 32
+      },
+      {
+        "cck": 13839550,
+        "vpos": 127,
+        "hpos": 42,
+        "custom_offset": 384,
+        "value": 255
+      },
+      {
+        "cck": 13839877,
+        "vpos": 128,
+        "hpos": 142,
+        "custom_offset": 384,
+        "value": 3855
+      },
+      {
+        "cck": 13839881,
+        "vpos": 128,
+        "hpos": 146,
+        "custom_offset": 476,
+        "value": 40
+      },
+      {
+        "cck": 13910370,
+        "vpos": 127,
+        "hpos": 38,
+        "custom_offset": 476,
+        "value": 32
+      },
+      {
+        "cck": 13910374,
+        "vpos": 127,
+        "hpos": 42,
+        "custom_offset": 384,
+        "value": 255
+      },
+      {
+        "cck": 13910701,
+        "vpos": 128,
+        "hpos": 142,
+        "custom_offset": 384,
+        "value": 3855
+      },
+      {
+        "cck": 13910705,
+        "vpos": 128,
+        "hpos": 146,
+        "custom_offset": 476,
+        "value": 40
+      },
+      {
+        "cck": 13981194,
+        "vpos": 127,
+        "hpos": 38,
+        "custom_offset": 476,
+        "value": 32
+      },
+      {
+        "cck": 13981198,
+        "vpos": 127,
+        "hpos": 42,
+        "custom_offset": 384,
+        "value": 255
+      },
+      {
+        "cck": 13981525,
+        "vpos": 128,
+        "hpos": 142,
+        "custom_offset": 384,
+        "value": 3855
+      },
+      {
+        "cck": 13981529,
+        "vpos": 128,
+        "hpos": 146,
+        "custom_offset": 476,
+        "value": 40
+      },
+      {
+        "cck": 14052018,
+        "vpos": 127,
+        "hpos": 38,
+        "custom_offset": 476,
+        "value": 32
+      },
+      {
+        "cck": 14052022,
+        "vpos": 127,
+        "hpos": 42,
+        "custom_offset": 384,
+        "value": 255
+      },
+      {
+        "cck": 14052349,
+        "vpos": 128,
+        "hpos": 142,
+        "custom_offset": 384,
+        "value": 3855
+      },
+      {
+        "cck": 14052353,
+        "vpos": 128,
+        "hpos": 146,
+        "custom_offset": 476,
+        "value": 40
+      },
+      {
+        "cck": 14122842,
+        "vpos": 127,
+        "hpos": 38,
+        "custom_offset": 476,
+        "value": 32
+      },
+      {
+        "cck": 14122846,
+        "vpos": 127,
+        "hpos": 42,
+        "custom_offset": 384,
+        "value": 255
+      },
+      {
+        "cck": 14123173,
+        "vpos": 128,
+        "hpos": 142,
+        "custom_offset": 384,
+        "value": 3855
+      },
+      {
+        "cck": 14123177,
+        "vpos": 128,
+        "hpos": 146,
+        "custom_offset": 476,
+        "value": 40
+      },
+      {
+        "cck": 14193666,
+        "vpos": 127,
+        "hpos": 38,
+        "custom_offset": 476,
+        "value": 32
+      },
+      {
+        "cck": 14193670,
+        "vpos": 127,
+        "hpos": 42,
+        "custom_offset": 384,
+        "value": 255
+      },
+      {
+        "cck": 14193997,
+        "vpos": 128,
+        "hpos": 142,
+        "custom_offset": 384,
+        "value": 3855
+      },
+      {
+        "cck": 14194001,
+        "vpos": 128,
+        "hpos": 146,
+        "custom_offset": 476,
+        "value": 40
+      },
+      {
+        "cck": 14264490,
+        "vpos": 127,
+        "hpos": 38,
+        "custom_offset": 476,
+        "value": 32
+      },
+      {
+        "cck": 14264494,
+        "vpos": 127,
+        "hpos": 42,
+        "custom_offset": 384,
+        "value": 255
+      },
+      {
+        "cck": 14264821,
+        "vpos": 128,
+        "hpos": 142,
+        "custom_offset": 384,
+        "value": 3855
+      },
+      {
+        "cck": 14264825,
+        "vpos": 128,
+        "hpos": 146,
+        "custom_offset": 476,
+        "value": 40
+      }
+    ]
+  },
+  "error": null
+}

@@ -1,0 +1,11 @@
+    Blocking waiting for file lock on build directory
+    Checking commodore-denise-ocs v0.25.0 (/Users/stevehill/Projects/198x/Emu198x/emu198x/crates/commodore-denise-ocs)
+    Checking commodore-denise-ecs v0.25.0 (/Users/stevehill/Projects/198x/Emu198x/emu198x/crates/commodore-denise-ecs)
+    Checking common-commodore-amiga v0.25.0 (/Users/stevehill/Projects/198x/Emu198x/emu198x/crates/common-commodore-amiga)
+    Checking commodore-denise-aga v0.25.0 (/Users/stevehill/Projects/198x/Emu198x/emu198x/crates/commodore-denise-aga)
+    Checking machine-commodore-amiga-ocs v0.25.0 (/Users/stevehill/Projects/198x/Emu198x/emu198x/crates/machine-commodore-amiga-ocs)
+    Checking machine-commodore-amiga-a1200 v0.25.0 (/Users/stevehill/Projects/198x/Emu198x/emu198x/crates/machine-commodore-amiga-a1200)
+    Checking machine-commodore-amiga-ecs v0.25.0 (/Users/stevehill/Projects/198x/Emu198x/emu198x/crates/machine-commodore-amiga-ecs)
+    Checking runtime-commodore-amiga v0.25.0 (/Users/stevehill/Projects/198x/Emu198x/emu198x/crates/runtime-commodore-amiga)
+    Checking emu198x-amiga v0.25.0 (/Users/stevehill/Projects/198x/Emu198x/emu198x/crates/emu198x-amiga)
+    Finished `release` profile [optimized] target(s) in 26.60s

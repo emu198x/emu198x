@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "profile_id": "a1200-aga-pal",
-  "producer_manifest_sha256": "a31402d76eda3fe262dd3fcc31b58610be9b0f18a174b57b1f1af4f2ae26a679",
+  "producer_manifest_sha256": "0171ec1116ff280b64f5e7ac3b876d15bae3f657829499721ae9e99aa66a1881",
   "canonical_width": 752,
   "canonical_height": 286,
   "pixel_encoding": "RGB8",
@@ -11,86 +11,46 @@
     {
       "case": "gradients",
       "phase": "static",
-      "expectation": "registered-disagreement",
-      "disagreement_id": "aga-sprite-horizontal-output-phase",
-      "normalized_actual_channel_bytes_sha256": "238458d61ed3049f71b8b1f7bf4aef50c1b351c19b174a56f5452fdf23a42cee",
-      "diff_mask_sha256": "44e16fde6fba8a4117eac0062a991cf4bf31ff06ed52432f590696c86c0e2303",
-      "differing_pixels": 88,
-      "first_difference": {
-        "x": 74,
-        "y": 44,
-        "expected_rgb": [238, 68, 68],
-        "actual_rgb": [238, 238, 204]
-      },
-      "bounding_box": {
-        "min_x": 74,
-        "min_y": 44,
-        "max_x": 95,
-        "max_y": 54
-      }
+      "expectation": "exact",
+      "disagreement_id": null,
+      "normalized_actual_channel_bytes_sha256": "d7f581c6feb0a471477ce556f517c28f4f6032d2e6dfce30f1cc38ab52489411",
+      "diff_mask_sha256": "3ea994e896077aac5e4edb069090c594e065416adf1b8dc5502a8376ed588c8d",
+      "differing_pixels": 0,
+      "first_difference": null,
+      "bounding_box": null
     },
     {
       "case": "static-checkerboard",
       "phase": "static",
-      "expectation": "registered-disagreement",
-      "disagreement_id": "aga-sprite-horizontal-output-phase",
-      "normalized_actual_channel_bytes_sha256": "0f8ed9ab7314dd271173032d1fc762a527c7edb4d15c7b7d7d3f65e8b5b1ccd6",
-      "diff_mask_sha256": "ad5bc67ebbf4de645938f42cc16d0ab2f2fc8f454340e85467d1a7538d10e794",
-      "differing_pixels": 83,
-      "first_difference": {
-        "x": 74,
-        "y": 44,
-        "expected_rgb": [238, 68, 68],
-        "actual_rgb": [238, 238, 204]
-      },
-      "bounding_box": {
-        "min_x": 74,
-        "min_y": 44,
-        "max_x": 95,
-        "max_y": 54
-      }
+      "expectation": "exact",
+      "disagreement_id": null,
+      "normalized_actual_channel_bytes_sha256": "959a6a162fb4750e83565cf2f43f2a8910c90dc5917ed34ab9c86bee10dccd51",
+      "diff_mask_sha256": "3ea994e896077aac5e4edb069090c594e065416adf1b8dc5502a8376ed588c8d",
+      "differing_pixels": 0,
+      "first_difference": null,
+      "bounding_box": null
     },
     {
       "case": "alternating-checkerboard",
       "phase": "a",
-      "expectation": "registered-disagreement",
-      "disagreement_id": "aga-sprite-horizontal-output-phase",
-      "normalized_actual_channel_bytes_sha256": "998847e6cd2f07ed7e4227954cc6a049f6bf9df17d759de995b6491368bdc1aa",
-      "diff_mask_sha256": "9ed83afe305ae9f6a2e032c1bcd0e4a2d3867479a8e8e672d3f961783b88b20f",
-      "differing_pixels": 83,
-      "first_difference": {
-        "x": 74,
-        "y": 44,
-        "expected_rgb": [238, 68, 68],
-        "actual_rgb": [238, 238, 204]
-      },
-      "bounding_box": {
-        "min_x": 74,
-        "min_y": 44,
-        "max_x": 95,
-        "max_y": 54
-      }
+      "expectation": "exact",
+      "disagreement_id": null,
+      "normalized_actual_channel_bytes_sha256": "fa924c9486307b33e326ed5e124cca814bcdddbc501cbbcd71a77cc005ed130c",
+      "diff_mask_sha256": "3ea994e896077aac5e4edb069090c594e065416adf1b8dc5502a8376ed588c8d",
+      "differing_pixels": 0,
+      "first_difference": null,
+      "bounding_box": null
     },
     {
       "case": "alternating-checkerboard",
       "phase": "b",
-      "expectation": "registered-disagreement",
-      "disagreement_id": "aga-sprite-horizontal-output-phase",
-      "normalized_actual_channel_bytes_sha256": "0f8ed9ab7314dd271173032d1fc762a527c7edb4d15c7b7d7d3f65e8b5b1ccd6",
-      "diff_mask_sha256": "ad5bc67ebbf4de645938f42cc16d0ab2f2fc8f454340e85467d1a7538d10e794",
-      "differing_pixels": 83,
-      "first_difference": {
-        "x": 74,
-        "y": 44,
-        "expected_rgb": [238, 68, 68],
-        "actual_rgb": [238, 238, 204]
-      },
-      "bounding_box": {
-        "min_x": 74,
-        "min_y": 44,
-        "max_x": 95,
-        "max_y": 54
-      }
+      "expectation": "exact",
+      "disagreement_id": null,
+      "normalized_actual_channel_bytes_sha256": "959a6a162fb4750e83565cf2f43f2a8910c90dc5917ed34ab9c86bee10dccd51",
+      "diff_mask_sha256": "3ea994e896077aac5e4edb069090c594e065416adf1b8dc5502a8376ed588c8d",
+      "differing_pixels": 0,
+      "first_difference": null,
+      "bounding_box": null
     },
     {
       "case": "ebu-bars",

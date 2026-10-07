@@ -72,7 +72,7 @@ fn second_bltsize_replaces_the_scheduled_operation_without_finishing_it() {
     amiga.poke_word(BLTCON0, 0);
     amiga.poke_word(BLTSIZE, (4 << 6) | 4);
     assert!(amiga.agnus().blitter_busy);
-    assert_eq!(amiga.agnus().blitter_ccks_remaining, 16);
+    assert_eq!(amiga.agnus().blitter_ccks_remaining, 32);
     assert_eq!(amiga.debug_blit_starts, 1);
 
     // The second start replaces the queued 4×4 internal operation. It must
@@ -83,7 +83,7 @@ fn second_bltsize_replaces_the_scheduled_operation_without_finishing_it() {
 
     assert!(amiga.agnus().blitter_busy);
     assert_eq!(amiga.agnus().blitter_startup_ccks_remaining(), 2);
-    assert_eq!(amiga.agnus().blitter_ccks_remaining, 1);
+    assert_eq!(amiga.agnus().blitter_ccks_remaining, 2);
     assert_eq!(amiga.debug_blit_starts, 2);
     assert_eq!(amiga.intreq() & INT_BLIT, 0);
     assert_eq!(amiga.tick_count(), tick_before);

@@ -1,0 +1,18 @@
+--- a/drawing.cpp
++++ b/drawing.cpp
+@@ -3091,6 +3091,7 @@
+ 
+ static void expand_bplcon4_bm(uae_u16 v)
+ {
++    if (getenv("FSEMU_CODEX_XOR_PHASE") && this_line && this_line->linear_vpos == 132 && get_long(0x2ff00) == 0x53504858 && get_long(0x2ff08) >= 9 && get_long(0x2ff08) <= 11) write_log("XOR_WRITE guest=%u counter=%d value=%04x old=%02x\n", get_long(0x2ff08), denise_hcounter, v, bplcon4_denise_xor_val);
+ 	bplcon4_denise &= 0x00ff;
+ 	bplcon4_denise |= v & 0xff00;
+ 	// Sprite bank change is 1 hires pixel faster than bitplane XOR change
+@@ -6130,6 +6131,7 @@
+ 
+ 			}
+ 			if (h) {
++				if (getenv("FSEMU_CODEX_XOR_PHASE") && this_line && this_line->linear_vpos == 132 && get_long(0x2ff00) == 0x53504858 && get_long(0x2ff08) >= 9 && get_long(0x2ff08) <= 11 && bplcon4_denise_xor_val != bplcon4_denise_xor_val2) write_log("XOR_VISIBLE guest=%u counter_shres=%d half=%d sample=%d x=%ld old=%02x new=%02x\n", get_long(0x2ff08), cnt, h, i, buf1 && xlinebuffer ? long(buf1 - (uae_u32*)xlinebuffer) : -1L, bplcon4_denise_xor_val, bplcon4_denise_xor_val2);
+ 				bplcon4_denise_xor_val = bplcon4_denise_xor_val2;
+ 				sbasecol[0] = sbasecol2[0];
+ 				sbasecol[1] = sbasecol2[1];

@@ -1,0 +1,91 @@
+{
+  "case": "programmed-equal",
+  "baseline": {
+    "case": "programmed-equal",
+    "native_sha256": "fe727d745cb1a77d894deb53a8c7a394d0b23d401d508edd240b0cb9c39148f4",
+    "adf_sha256": "3dea68b2c49fcf9a4e99d9192b5711493299ba45fc4221de32d12d83763e4ac3",
+    "fields": [
+      {
+        "guest_field": 9,
+        "compared_rgb_pixels": 867888,
+        "mismatched_rgb_pixels": 2288,
+        "mismatch_bounds": [
+          0,
+          0,
+          4,
+          572
+        ],
+        "raw_sha256": "646c2d7638f369841e482c0c14a8a192943c0e88af25f5f56ed1f7af28bb84f9",
+        "metadata_sha256": "de695ffa26a385c18673e0361f6d195227ffd5c427381b6b39ae4d1294b212be"
+      },
+      {
+        "guest_field": 10,
+        "compared_rgb_pixels": 867888,
+        "mismatched_rgb_pixels": 2288,
+        "mismatch_bounds": [
+          0,
+          0,
+          4,
+          572
+        ],
+        "raw_sha256": "646c2d7638f369841e482c0c14a8a192943c0e88af25f5f56ed1f7af28bb84f9",
+        "metadata_sha256": "b5906fc65717da0094befb10f2116bad0d479d4485b04a72b5ff602b1b47bfa3"
+      },
+      {
+        "guest_field": 11,
+        "compared_rgb_pixels": 867888,
+        "mismatched_rgb_pixels": 2288,
+        "mismatch_bounds": [
+          0,
+          0,
+          4,
+          572
+        ],
+        "raw_sha256": "646c2d7638f369841e482c0c14a8a192943c0e88af25f5f56ed1f7af28bb84f9",
+        "metadata_sha256": "4cb140cdd90b86b68f2a030e3756ad9737c46ff4d977a4283f022c500dd9ecaa"
+      }
+    ]
+  },
+  "trace_sha256": "58469d0f8375a58cb51b61cfd1daf1a4500cf9a62fea6fe9f4e77cd4a5bbb3d0",
+  "reference_counter_origin": 364,
+  "reported_origin": 368,
+  "output_padding_samples": 4,
+  "active_origin_observations": 600,
+  "common_raster": {
+    "native_origin": [
+      16,
+      2
+    ],
+    "reference_origin": [
+      4,
+      0
+    ],
+    "width": 1508,
+    "height": 574
+  },
+  "fields": [
+    {
+      "raw_sha256": "646c2d7638f369841e482c0c14a8a192943c0e88af25f5f56ed1f7af28bb84f9",
+      "mismatched_rgb_pixels": 0,
+      "compared_rgb_pixels": 865592,
+      "mismatch_bounds": null
+    },
+    {
+      "raw_sha256": "646c2d7638f369841e482c0c14a8a192943c0e88af25f5f56ed1f7af28bb84f9",
+      "mismatched_rgb_pixels": 0,
+      "compared_rgb_pixels": 865592,
+      "mismatch_bounds": null
+    },
+    {
+      "raw_sha256": "646c2d7638f369841e482c0c14a8a192943c0e88af25f5f56ed1f7af28bb84f9",
+      "mismatched_rgb_pixels": 0,
+      "compared_rgb_pixels": 865592,
+      "mismatch_bounds": null
+    }
+  ],
+  "active_lines_44_to_243_mismatched_rgb_pixels": [
+    0,
+    0,
+    0
+  ]
+}

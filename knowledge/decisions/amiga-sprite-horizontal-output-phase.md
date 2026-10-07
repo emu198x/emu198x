@@ -46,8 +46,9 @@ HSTART = (SPRxPOS[7:0] << 1) | SPRxCTL[0]
 
 Within Emu198x's per-low-resolution-pixel sequencer, a match copies armed
 `SPRxDATA` and `SPRxDATB` into the sprite shift registers. Composition does
-not observe the newly loaded code on that step. The first most-significant
+not observe the newly loaded code on that step. On OCS/ECS, the first most-significant
 sprite-data bits reach display and collision logic on the following step.
+Lisa retains those codes for one further step as described below.
 This preserves the decoded comparator coordinate while reproducing the
 independently observed output placement.
 
@@ -75,23 +76,29 @@ same-position data rewrites and same-line reloads. Those finer reload cases
 remain separate accuracy work; this decision does not claim that the current
 single-stage shifter reproduces every internal latch.
 
-ECS superhires sprite-position bit behaviour and AGA sprite-resolution modes
-are also outside this OCS phase decision. The A1200 Test Kit reference retains
-a separate two-host-HIRES-sample pointer observation under its beam-absolute
-crop. Inspected UAE source still specifies the same one-lores-pixel start delay
-for OCS/ECS and AGA, so Emu198x does not add a Lisa-only offset from that image
-alone. A machine-neutral sprite-phase probe is the next evidence step.
-The project-authored
-[sprite horizontal-phase conformance corpus](../../test-data/commodore/amiga/sprite-horizontal-phase/README.md)
-fixes that register program and capture contract without declaring an expected
-AGA offset.
+The neutral fixed-lores sprite program measures the sprite relative to a
+bitplane marker on the same scanline. vAmiga and FS-UAE both report 16 hires
+samples on OCS; FS-UAE also reports 16 on AGA. Emu198x originally reported
+16 on OCS and 14 on AGA. The
+[primary observation record](../../../../reference/by-system/commodore-amiga/2026-neutral-video-output-phase-observations.md)
+records the programs, profiles and producer boundaries.
+
+Lisa therefore retains the generated sprite code for one additional lores
+output step, matching its later bitplane output phase. The horizontal comparison
+and serial load still use the shared decoded HSTART. Composition and collision
+logic consume the retained code together. The stage is serialized and cleared
+at a beam-line reset. This is an observable phase calibration, not a claim
+about an unseen physical Lisa latch. ECS superhires position bits, AGA sprite
+resolution modes, and unusual same-line rewrites remain separate questions.
 
 ## Verification
 
 Hermetic Denise tests establish that:
 
 - the decoded `HSTART` pixel is background;
-- the first newly loaded sprite pixel appears at `HSTART + 1`;
+- OCS first newly loaded sprite data appears at `HSTART + 1`;
+- Lisa compares and loads at HSTART, with visible and collision code at `HSTART + 2`;
+- pending Lisa sprite code survives save/restore and leaves no collision trail;
 - `SPRxCTL` bit 0 still selects odd horizontal comparison coordinates;
 - collision state is absent at `HSTART` and begins with visible sprite data at
   `HSTART + 1`;
@@ -125,3 +132,89 @@ separate Copper colour-phase disagreement, not by the sprite coordinate.
 - [One Agnus DMA-slot authority per CCK](amiga-single-slot-authority.md)
 - [Amiga Test Kit v1.21 video conformance](../processes/amiga-test-kit-video-conformance.md)
 - [Sprite horizontal-phase conformance corpus](../../test-data/commodore/amiga/sprite-horizontal-phase/README.md)
+
+Both current Test Kit profile contracts require exact agreement for every case.
+The AGA pointer discrepancy is resolved without moving reference crops.
+
+## Initial AGA hires sprite sampling (v40)
+
+The [primary diagnostic record](../../../../reference/by-system/commodore-amiga/2026-neutral-video-output-phase-observations.md#aga-sprite-resolution-diagnostic)
+reproduced missing SPRES and fractional-position handling with real DMA:
+explicit hires sprites were 32 hires samples wide instead of 16, and SPRxCTL
+bit 4 did not move the start by one hires sample. The lores baseline agreed.
+
+The v40 implementation introduced the hires sprite selector independently of the playfield
+clock. Explicit SPRES=10 selects hires; automatic SPRES=00 selects hires for
+a superhires playfield and lores for lores/hires playfields. SPRES=01 remains
+lores. The shared OCS/ECS sequencer stays at its original lores granularity.
+
+Lisa's serializer advances at two hires sample boundaries per lores board
+tick. A horizontal match starts the shared one-lores-period load stage;
+thereafter it emits one bit per selected sprite pixel period. A two-hires
+sample queue retains the output before composition. This preserves the
+measured two-lores-period start separation in both calibrated rates. It
+models observed sequencing, not an assertion about unseen silicon latches.
+SPRxCTL bit 4 adds one hires sample to the comparator coordinate.
+
+Each simultaneous sprite code participates in priority and collision
+matching against the playfield sample at that time. A lores playfield can
+therefore have two different winning sprite colours in one lores period.
+Superhires playfield samples share the appropriate hires sprite sample;
+the board's hires framebuffer retains source positions 0 and 2 from each
+four-sample group. Lisa continues advancing when the output is hidden.
+The held code, clock countdown and output queue are serialized. Runtime
+snapshot format v40 rejects v39 states, whose layout lacks those stages.
+
+Production A1200 DMA captures now match all three calibrated probes: lores
+width/start 32/16 hires samples, hires 16/16, and hires with the fractional
+position bit 16/17. Tests also cover alternating and isolated bits over all
+three playfield resolutions, automatic fallback, simultaneous sprite
+priority/collisions and restoring partially emitted 16/32/64-bit streams.
+Evidence and checks are in `target/amiga-hires-sprite-validation/`.
+
+## AGA superhires and quarter-position extension
+
+The [full-superhires primary diagnostic record](../../../../reference/by-system/commodore-amiga/2026-neutral-video-output-phase-observations.md#aga-full-superhires-sprite-capture--2026-10-05)
+now retains every 35 ns sample. Thirteen DMA probes at three adjacent fields
+confirm explicit SPRES=11 emits sixteen bits in sixteen samples, with CTL
+bits 3/4 moving the start by one/two samples. Patterned A5A5 probes confirm
+serial bit order and holding periods, including fractional lores/hires output.
+
+Lisa now advances four 35 ns samples per lores call. SPRES selects a serial
+period of four, two or one samples; automatic selection remains lores for
+lores/hires playfields and hires for superhires playfields. Comparator position
+includes CTL bits 4 and 3. The common load stage and retained output queue
+both remain one lores period (now four samples each), preserving all earlier
+lores/hires timing. Priority and collision logic consume simultaneous codes
+at each of the four samples. OCS/ECS retain their existing sequencer.
+
+Runtime snapshot v41 rejects v40 because the serialized sprite beam coordinate,
+countdown and packed queue now have different units. Regression tests cover
+all sprite rates, all four fractional positions, three playfield resolutions,
+solid/alternating/isolated bits, adjacent versus overlapping sprite-group
+collisions, and restoring pending 16/32/64-bit superhires streams.
+
+The [full Lisa framebuffer](amiga-full-superhires-framebuffer.md) now retains
+all four samples through palette/HAM resolution, final blanking and native
+frame/monitor transport. The earlier hires-only transport selected samples 0
+and 2. The serializer does not reproduce the old reference frontend's
+nine-hires-sample footprint by inventing a wider physical sprite.
+
+Artifacts and validation live in `target/amiga-superhires-sprite-validation/`.
+Mid-line selector propagation, unusual reloads and original-hardware timing
+remain separate calibration boundaries.
+
+## Counter-origin correction (2026-10-06)
+
+The counter-origin investigation supersedes the additional Lisa output tick
+and HSTART+2 claims above. Four independent DMA controls (16/32/64-bit fetch
+modes, fractional superhires position) locate their first sprite sample at
+HSTART+1 lores period in the UAE counter domain. The native extra history tap
+placed every sprite pattern four 35 ns samples late. The user approved tracing
+and correcting this stage as part of the Lisa phase recalibration.
+
+The shifter still loads at HSTART and waits one lores period. Its held code now
+feeds composition and collisions directly. Legacy history fields remain in
+snapshot 53. This changes no register coordinate or native framebuffer origin.
+See `test-data/commodore/amiga/ecs-output-phase/lisa-correction/` for the failing
+controls and completed validation; these are software observations.

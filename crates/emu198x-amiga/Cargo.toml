@@ -43,3 +43,7 @@ workspace = true
 # restores it without publishing.
 [package.metadata.dist]
 dist = true
+
+[[example]]
+name = "review_session"
+required-features = ["ui"]

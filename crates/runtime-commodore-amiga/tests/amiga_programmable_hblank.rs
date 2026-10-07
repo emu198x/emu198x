@@ -2,9 +2,11 @@
 //!
 //! The neutral corpus deliberately contains no emulator-authored expectations.
 //! This consumer validates fixture identity, probe execution, settled-field
-//! stability, and measurement integrity, then asserts only the semantic
-//! CCK-aligned observations on which the registered UAE and Copperline
-//! implementation families agree. Disputed gates remain observations.
+//! stability, and measurement integrity. Registered comparator-coordinate
+//! agreements remain distinct from the absolute UAE phase comparison: the
+//! Copperline post-render mask does not establish signal propagation timing.
+
+mod common;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
@@ -280,15 +282,38 @@ const PROFILES: &[Profile] = &[
     },
 ];
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 struct BlackRun {
     start: usize,
     end_exclusive: usize,
 }
 
+#[derive(Deserialize)]
+struct QualifiedReferences {
+    evidence_scope: String,
+    package_sha256: BTreeMap<String, String>,
+    compared_reference_frames: usize,
+    native_lores_interval: [usize; 2],
+    runs: Vec<QualifiedRun>,
+}
+
+#[derive(Deserialize)]
+struct QualifiedRun {
+    profile: String,
+    case: String,
+    comparator_consensus: bool,
+    native_black_runs: Vec<BlackRun>,
+}
+
+// Independent counter origins give native = raw UAE + 6 hires samples.
+// Exclude only UAE's two leading storage samples and absent right margin.
+const REFERENCE_START: usize = 4;
+const REFERENCE_END: usize = 381;
+
 #[derive(Clone)]
 struct CapturedField {
     field_counter: u32,
+    width: u32,
     rgba: Vec<u8>,
     sha256: String,
 }
@@ -298,6 +323,46 @@ struct CapturedField {
 fn programmable_hblank_corpus_matches_consensus_and_records_disagreements() {
     let dist = required_directory(DIST_ENV);
     let manifest = load_and_validate_suite(&dist);
+    let reference_path = std::env::var("EMU198X_AMIGA_HBLANK_QUALIFIED_REFERENCES")
+        .expect("run scripts/verify-amiga-programmable-hblank.sh to verify both producer packages");
+    let references: QualifiedReferences =
+        serde_json::from_slice(&fs::read(reference_path).expect("read qualified references"))
+            .expect("decode qualified references");
+    assert_eq!(
+        references.evidence_scope,
+        "UAE absolute phase; cross-family comparator semantics only"
+    );
+    assert_eq!(references.compared_reference_frames, 84);
+    assert_eq!(
+        references.native_lores_interval,
+        [REFERENCE_START, REFERENCE_END]
+    );
+    assert_eq!(
+        references.package_sha256["fs-uae-5.0.7-f362278c"],
+        "def3500455db110dd7027454dd042e754124ab2910477ae5e2e3459c83e20be1"
+    );
+    assert_eq!(
+        references.package_sha256["copperline-0.13.0-eec5806"],
+        "2221be40ca162c2bf03b87f81b178cbc2ae9ac05d495ebb135f2b990f1d44e78"
+    );
+    assert_eq!(references.runs.len(), 14);
+    assert_eq!(
+        references
+            .runs
+            .iter()
+            .map(|run| (&run.profile, &run.case))
+            .collect::<BTreeSet<_>>()
+            .len(),
+        14
+    );
+    assert_eq!(
+        references
+            .runs
+            .iter()
+            .filter(|run| run.comparator_consensus)
+            .count(),
+        9
+    );
 
     let aligned_cases: Vec<&Case> = manifest
         .cases
@@ -341,13 +406,22 @@ fn programmable_hblank_corpus_matches_consensus_and_records_disagreements() {
                 &adf,
             );
             let mut captured = Vec::new();
-            let expected = consensus_expected_runs(&case.id, profile.id);
+            let reference_profile = if profile.display_chip == "AGA Lisa" {
+                "aga"
+            } else {
+                "ecs"
+            };
+            let reference = references
+                .runs
+                .iter()
+                .find(|run| run.case == case.id && run.profile == reference_profile)
+                .expect("every case/profile must have a qualified reference");
+            let expected = &reference.native_black_runs;
             let result = execute_case(&mut session, case, &mut captured).and_then(|observation| {
-                if let Some(expected) = expected.as_ref()
-                    && observation.as_slice() != expected.as_slice()
+                if observation.as_slice() != expected.as_slice()
                 {
                     return Err(format!(
-                        "measured black runs {observation:?}; registered cross-family consensus is {expected:?}"
+                        "measured black runs {observation:?}; counter-qualified UAE phase is {expected:?}"
                     ));
                 }
                 Ok(observation)
@@ -366,10 +440,10 @@ fn programmable_hblank_corpus_matches_consensus_and_records_disagreements() {
             };
             println!(
                 "HBLANK {} observation: case={} profile={} frame_sha256={} black_runs={:?} coordinate=lores-samples origin_hpos={:#x} samples_per_cck={}",
-                if expected.is_some() {
-                    "cross-family-consensus"
+                if reference.comparator_consensus {
+                    "UAE-phase / comparator-consensus"
                 } else {
-                    "unresolved"
+                    "UAE-phase / comparator-disagreement"
                 },
                 case.id,
                 profile.id,
@@ -383,36 +457,6 @@ fn programmable_hblank_corpus_matches_consensus_and_records_disagreements() {
                 OUTPUT_PIXELS_PER_CCK / PIXEL_DUPLICATION as u32,
             );
         }
-    }
-}
-
-fn consensus_expected_runs(case_id: &str, profile_id: &str) -> Option<Vec<BlackRun>> {
-    let sample = |hpos| {
-        ((hpos - PAL_VIEWPORT_H_START_CCK) * (OUTPUT_PIXELS_PER_CCK / PIXEL_DUPLICATION as u32))
-            as usize
-    };
-    match case_id {
-        "fixed-control" | "programmed-equal" => Some(Vec::new()),
-        "programmed-central" => Some(vec![BlackRun {
-            start: sample(0x80),
-            end_exclusive: sample(0xA0),
-        }]),
-        "programmed-wrap" => Some(vec![
-            BlackRun {
-                start: 0,
-                end_exclusive: sample(0x40),
-            },
-            BlackRun {
-                start: sample(0xD0),
-                end_exclusive: DISPLAY_WIDTH as usize / PIXEL_DUPLICATION,
-            },
-        ]),
-        // Both registered families suppress the programmed interval on ECS
-        // when BLANKEN is clear. Their AGA interpretations disagree.
-        "blanken-path" if profile_id == "a500-plus-ecs-pal" => Some(Vec::new()),
-        // ECSENA, EXTBLKEN, and AGA BLANKEN remain software-family
-        // disagreements and therefore measurement-only cases.
-        _ => None,
     }
 }
 
@@ -641,10 +685,7 @@ fn execute_case(
     wait_for_ready_record(session, case)?;
 
     for _ in 0..case.settle_capture.capture_fields {
-        session
-            .run_frames(1)
-            .map_err(|error| format!("run settled capture field: {error}"))?;
-        let field_counter = session.machine().read_long(READY_FIELD_COUNTER);
+        let video_field = common::next_hblank_capture_field(session)?;
         let frame = session
             .latest_frame()
             .ok_or_else(|| "probe did not emit a framebuffer".to_owned())?;
@@ -654,9 +695,11 @@ fn execute_case(
                 frame.format
             ));
         }
-        if frame.width != DISPLAY_WIDTH || frame.height != DISPLAY_HEIGHT {
+        if ![DISPLAY_WIDTH, DISPLAY_WIDTH * 2].contains(&frame.width)
+            || frame.height != DISPLAY_HEIGHT
+        {
             return Err(format!(
-                "frame is {}x{}, expected {}x{}",
+                "frame is {}x{}, expected {} or twice that width, height {}",
                 frame.width, frame.height, DISPLAY_WIDTH, DISPLAY_HEIGHT
             ));
         }
@@ -674,13 +717,25 @@ fn execute_case(
                 "frame pixel {index} has non-opaque alpha {alpha:#04x}"
             ));
         }
+        let width = frame.width;
+        let field_counter = common::settled_hblank_field_counter(session, video_field)?;
         captured.push(CapturedField {
             field_counter,
+            width,
             sha256: sha256_hex(&rgba),
             rgba,
         });
     }
 
+    if let Some(pair) = captured
+        .windows(2)
+        .find(|pair| pair[1].field_counter != pair[0].field_counter + 1)
+    {
+        return Err(format!(
+            "guest field counters are not adjacent: {} then {}",
+            pair[0].field_counter, pair[1].field_counter
+        ));
+    }
     let first = captured
         .first()
         .ok_or_else(|| "capture contract produced no fields".to_owned())?;
@@ -695,8 +750,8 @@ fn execute_case(
         ));
     }
 
-    let row = canonical_probe_row(&first.rgba, case)?;
-    measure_black_runs(&row, guard_rgb(case)?)
+    let row = canonical_probe_row(&first.rgba, first.width, case)?;
+    qualified_black_runs(&row, guard_rgb(case)?)
 }
 
 fn wait_for_ready_record(session: &mut TestSession, case: &Case) -> Result<u32, String> {
@@ -793,7 +848,7 @@ fn read_guest_ascii(session: &TestSession, address: u32, maximum: usize) -> Resu
     ))
 }
 
-fn canonical_probe_row(rgba: &[u8], case: &Case) -> Result<Vec<[u8; 3]>, String> {
+fn canonical_probe_row(rgba: &[u8], width: u32, case: &Case) -> Result<Vec<[u8; 3]>, String> {
     let beam_line = case.line_geometry.sample_beam_line;
     if beam_line < PAL_VIEWPORT_V_START_LINE {
         return Err(format!(
@@ -805,7 +860,7 @@ fn canonical_probe_row(rgba: &[u8], case: &Case) -> Result<Vec<[u8; 3]>, String>
         return Err(format!("sample beam line {beam_line} is outside the frame"));
     }
 
-    let row_bytes = DISPLAY_WIDTH as usize * 4;
+    let row_bytes = width as usize * 4;
     let first_start = row as usize * row_bytes;
     let second_start = first_start + row_bytes;
     let first = &rgba[first_start..first_start + row_bytes];
@@ -818,13 +873,19 @@ fn canonical_probe_row(rgba: &[u8], case: &Case) -> Result<Vec<[u8; 3]>, String>
     }
 
     let mut samples = Vec::with_capacity(DISPLAY_WIDTH as usize / PIXEL_DUPLICATION);
-    for (pair_index, pair) in first.as_chunks::<8>().0.iter().enumerate() {
-        if pair[..4] != pair[4..] {
-            return Err(format!(
-                "declared horizontal duplicate pair {pair_index} differs"
-            ));
+    // Both native rasters represent 384 lores periods. Retain the full
+    // capture and reject disagreement within any declared duplicate group.
+    let group_bytes = (width as usize / (DISPLAY_WIDTH as usize / PIXEL_DUPLICATION)) * 4;
+    for (index, group) in first.chunks_exact(group_bytes).enumerate() {
+        if group
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .any(|pixel| pixel != &group[..4])
+        {
+            return Err(format!("declared lores duplicate group {index} differs"));
         }
-        samples.push([pair[0], pair[1], pair[2]]);
+        samples.push([group[0], group[1], group[2]]);
     }
     if samples.len() * PIXEL_DUPLICATION != DISPLAY_WIDTH as usize {
         return Err("frame width is not divisible by the declared pixel duplication".to_owned());
@@ -842,6 +903,42 @@ fn guard_rgb(case: &Case) -> Result<[u8; 3], String> {
         (((color >> 4) & 0xF) as u8) * 0x11,
         ((color & 0xF) as u8) * 0x11,
     ])
+}
+
+fn qualified_black_runs(samples: &[[u8; 3]], guard: [u8; 3]) -> Result<Vec<BlackRun>, String> {
+    let common = samples
+        .get(REFERENCE_START..REFERENCE_END)
+        .ok_or_else(|| "frame does not cover the registered common interval".to_owned())?;
+    let mut runs = measure_black_runs(common, guard)?;
+    for run in &mut runs {
+        run.start += REFERENCE_START;
+        run.end_exclusive += REFERENCE_START;
+    }
+    Ok(runs)
+}
+
+#[test]
+fn qualified_interval_detects_a_shifted_edge_and_rejects_missing_samples() {
+    let guard = [0, 255, 255];
+    let mut samples = vec![guard; 384];
+    samples[167..231].fill([0; 3]);
+    let expected = vec![BlackRun {
+        start: 167,
+        end_exclusive: 231,
+    }];
+    assert_eq!(
+        qualified_black_runs(&samples, guard).expect("complete row"),
+        expected
+    );
+    samples[167] = guard;
+    samples[231] = [0; 3];
+    assert_ne!(
+        qualified_black_runs(&samples, guard).expect("shifted row"),
+        expected
+    );
+    assert!(qualified_black_runs(&samples[..380], guard).is_err());
+    samples[200] = [255, 0, 0];
+    assert!(qualified_black_runs(&samples, guard).is_err());
 }
 
 fn measure_black_runs(samples: &[[u8; 3]], guard: [u8; 3]) -> Result<Vec<BlackRun>, String> {
@@ -940,8 +1037,8 @@ fn write_failure_diagnostics(
     for (index, field) in captured.iter().enumerate() {
         let _ = writeln!(
             report,
-            "field_{index}_counter={} sha256={}",
-            field.field_counter, field.sha256
+            "field_{index}_counter={} width={} sha256={}",
+            field.field_counter, field.width, field.sha256
         );
     }
     let _ = writeln!(report, "probe_cpu_trace:");

@@ -1,0 +1,13 @@
+   Compiling runtime-commodore-amiga v0.25.0 (/Users/stevehill/Projects/198x/Emu198x/emu198x/crates/runtime-commodore-amiga)
+    Finished `release` profile [optimized] target(s) in 19.24s
+     Running tests/amiga_programmable_hblank_write_timing.rs (target/release/deps/amiga_programmable_hblank_write_timing-c1cbb63e4514bb10)
+
+running 5 tests
+test programmable_hblank_write_timing_matches_registered_uae_observations ... ignored, FIXTURE: explicit ten-run programmable-HBLANK write-timing UAE-family compatibility gate
+test tests::fixed_beam_rows_are_not_discovered_by_alignment_search ... ok
+test tests::revision_identity_requires_full_lowercase_hash ... ok
+test tests::fixed_horizontal_mapping_preserves_aga_half_lores_marker_edges ... ok
+test tests::full_resolution_measurement_rejects_a_hidden_half_hires_difference ... ok
+
+test result: ok. 4 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

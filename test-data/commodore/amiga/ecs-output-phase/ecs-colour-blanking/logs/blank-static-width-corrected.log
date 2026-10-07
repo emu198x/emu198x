@@ -1,0 +1,31 @@
+fixed-control: fixed-control.adf sha256=fcaffa26d67316904ea9765266f158549c2a7175b1c48ae062210be451bb4e81 payload=209B/1 sector
+ecsena-gate: ecsena-gate.adf sha256=342383da85bd7522976e35a6901b2e83baf6bd525edfdc846224e2fa1c345385 payload=207B/1 sector
+extblken-gate: extblken-gate.adf sha256=a24473b6ea38c0ba8461001dc7afa684ed05e8a2d4d0ff9bdc40832a10f72023 payload=209B/1 sector
+blanken-path: blanken-path.adf sha256=6d9114e9d07d4f0e551e0f2e955552e73db65bca3a0da63cc333d20a399584f0 payload=208B/1 sector
+programmed-central: programmed-central.adf sha256=dbce868b3ac2c932883c70b820cb1b3e0773ffc4f46f7ca21242ab362357976a payload=214B/1 sector
+programmed-wrap: programmed-wrap.adf sha256=30d01c9542c28da5f31ef56335e85f33f88aad142527ccdab27d4c54764f37ca payload=211B/1 sector
+programmed-equal: programmed-equal.adf sha256=136f73e79668040f49f5a7e497e2de2e480f2bd1cab4a30512003ef87d172ac7 payload=212B/1 sector
+aga-fine-lores: aga-fine-lores.adf sha256=4ef2e3f4fdb0fdb996156f7c07facad56b7b589a9536d21627d888c02ebaaf1b payload=210B/1 sector
+aga-fine-hires: aga-fine-hires.adf sha256=5983638dbea2d33123fdea377cac241498bccfae2d584f480eba7f3cf4b642e2 payload=210B/1 sector
+aga-fine-shres: aga-fine-shres.adf sha256=d543a6eb5f551b4cd1f0226ec20d9795b943e7c8757db7c441269997e3c940f4 payload=210B/1 sector
+manifest: /private/var/folders/94/p_ng_dqx7tq9rx2rcw0y8zth0000gn/T/emu198x-amiga-programmable-hblank.bqOh5n/dist/suite-v1.json
+    Finished `release` profile [optimized] target(s) in 0.30s
+     Running tests/amiga_programmable_hblank.rs (target/release/deps/amiga_programmable_hblank-ac0835f2ca265d3a)
+
+running 1 test
+test programmable_hblank_corpus_matches_consensus_and_records_disagreements ... HBLANK cross-family-consensus observation: case=fixed-control profile=a500-plus-ecs-pal frame_sha256=8329918a2fb59e657250a73472f899f1b1a6703be9a9b4ee63ce411b813b226a,8329918a2fb59e657250a73472f899f1b1a6703be9a9b4ee63ce411b813b226a,8329918a2fb59e657250a73472f899f1b1a6703be9a9b4ee63ce411b813b226a black_runs=[] coordinate=lores-samples origin_hpos=0x2c samples_per_cck=2
+HBLANK failure diagnostics: /Users/stevehill/Projects/198x/Emu198x/emu198x/target/accuracy/amiga-programmable-hblank/1.0.1/fixed-control/a1200-aga-pal
+
+thread 'programmable_hblank_corpus_matches_consensus_and_records_disagreements' (65324854) panicked at crates/runtime-commodore-amiga/tests/amiga_programmable_hblank.rs:362:21:
+fixed-control / a1200-aga-pal programmable-HBLANK measurement failed: measured black runs [BlackRun { start: 0, end_exclusive: 4 }, BlackRun { start: 381, end_exclusive: 384 }]; registered cross-family consensus is []
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+FAILED
+
+failures:
+
+failures:
+    programmable_hblank_corpus_matches_consensus_and_records_disagreements
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 7.03s
+
+error: test failed, to rerun pass `-p runtime-commodore-amiga --test amiga_programmable_hblank`

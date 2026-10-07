@@ -26,6 +26,7 @@ locally; the workflow uses the same env-var contract.
 | Spectrum system tests | `machine-sinclair-zx-spectrum-48k` · `float_bus`, `tape_smoke`; `machine-sinclair-zx-spectrum-128k` · `float_bus` | `EMU198X_SPECTRUM_SYSTEM_TESTS_DIR` (tapes) — the Spectron screens are **checked in**, see below | tapes are third-party programs Spectron bundles — RAMSOFT floatspy v0.33 and Woody's Float48k/Float128k | tapes are long-circulated freeware, not covered by Spectron's licence, redistributed in the **private** store only | 48K Spectrum ROM — reuses the one in the `z80test` tarball |
 | C-BIOS (MSX) | `machine-msx` · `cbios_boot` | `EMU198X_ROMS_ROOT` (joins `microsoft-msx/`) | github.com/cbios/cbios, built with Pasmo | BSD — redistribution in binary form permitted, notice ships beside the ROMs | is firmware — a clean-room MSX BIOS, not Microsoft's |
 | AROS m68k (Amiga) | `machine-commodore-amiga-ocs` · `aros_boot` | `EMU198X_ROMS_ROOT` (joins `commodore-amiga/`) | Copperline's build of AROS master + two upstream PRs | AROS Public License 1.1 — redistribution permitted; licence and build notes ship beside the ROMs | is firmware — a reimplemented AmigaOS, not Commodore's |
+| Amiga accuracy fixtures | `runtime-commodore-amiga` · Test Kit video and programmable blanking gates | `EMU198X_AMIGA_TEST_KIT_V121_ADF`, `EMU198X_AMIGA_KICKSTART_{13,204,31_A1200}_ROM` | retained official Kickstart 1.3/2.04/3.1 dumps and upstream Amiga Test Kit v1.21; identities pinned by the registered reference manifests | Kickstart: **maintainer decision, private store only**; Test Kit: upstream licence and README included | official firmware; free AROS remains an additional lane |
 | AltirraOS (800XL) | `machine-atari-800xl` · `altirraos_boot` | `EMU198X_ROMS_ROOT` (joins `atari-800xl/`) | Avery Lee's XL/XE OS + Altirra BASIC, via atari800's vendored copy | all-permissive notice of its own — **not** the emulator's GPLv2; notice ships beside the ROMs | is firmware — a reimplemented Atari OS, not Atari's |
 | Open ROMs (C64) | `runtime-commodore-c64` · `openroms_boot` | `EMU198X_ROMS_ROOT` (joins `commodore-c64/`) | github.com/MEGA65/open-roms, prebuilt `bin/` images | GPL-3.0 / LGPL-3.0 — redistribution permitted, licence texts and a source pointer ship beside the ROMs | is firmware — a clean-room C64 BASIC and KERNAL, not Commodore's |
 | Spectrum ROMs (128K, +2, +3) | `machine-sinclair-zx-spectrum-128k` · `boot_test`; `-plus2`, `-plus2a`, `-plus2b`, `-plus3` · `boot_test` | `EMU198X_ROMS_ROOT` (firmware root; each machine joins its own directory onto it) | the machines' own firmware | free to distribute (Amstrad), the same permission the 48K ROM ships under | is firmware — these are the ROMs |
@@ -603,6 +604,19 @@ minutes, the 128K about 6.5 — which is precisely why their records go stale:
 a PR that earns an improvement cannot see it. If you change contention,
 `/INT` timing or anything else that moves instruction cost, run the surveys
 before assuming the constants still describe reality.
+
+## Amiga accuracy fixtures
+
+`amiga-accuracy.tar.zst` supplies the unchanged Kickstart 1.3, ECS 2.04 and
+A1200 3.1 images, plus Amiga Test Kit v1.21. Firmware is mirrored under the
+2026-10-07 maintainer decision while the store remains private. No firmware
+is committed to this repository. The package includes provenance, the Test Kit
+README and per-file SHA-256 identities. Its upload was downloaded again and
+verified against the store's `SHA256SUMS`.
+
+The Test Kit manifests pin 1.3/3.1 and the normalized ADF; the registered
+programmable-HBLANK ECS firmware record pins 2.04. AROS remains a separate
+additional boot lane, supplied by `aros-m68k.tar.zst`.
 
 ## Related documents
 

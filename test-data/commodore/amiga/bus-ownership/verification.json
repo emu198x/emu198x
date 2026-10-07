@@ -1,0 +1,8 @@
+{
+  "source_sha256": "75bb300ba2798913997f82dde988db465746e9b7f22699bbc275690c8ae227e5",
+  "probe_sha256": "21190561ce76012c65b1283b316e6499077b5536127c3d787398349c7f9f0057",
+  "events_sha256": "e9a5ca65386edf0dd0dbdee3fa84e68e9735b6b9db11fa1b052edbaa2ed2614c",
+  "requests": 8,
+  "reversed_order_differs": true,
+  "scope": "AGA FMODE=1 lores eight-plane HARDDIS request schedule; no RGA service, raster or silicon claim"
+}

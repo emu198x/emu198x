@@ -1,0 +1,477 @@
+    Blocking waiting for file lock on build directory
+   Compiling commodore-denise-ocs v0.25.0 (/Users/stevehill/Projects/198x/Emu198x/emu198x/crates/commodore-denise-ocs)
+   Compiling commodore-denise-ecs v0.25.0 (/Users/stevehill/Projects/198x/Emu198x/emu198x/crates/commodore-denise-ecs)
+   Compiling common-commodore-amiga v0.25.0 (/Users/stevehill/Projects/198x/Emu198x/emu198x/crates/common-commodore-amiga)
+   Compiling commodore-denise-aga v0.25.0 (/Users/stevehill/Projects/198x/Emu198x/emu198x/crates/commodore-denise-aga)
+    Finished `release` profile [optimized] target(s) in 46.58s
+     Running unittests src/lib.rs (target/release/deps/commodore_denise_aga-f180a565923e1f6d)
+
+running 46 tests
+test tests::aga_color_delay_expires_outside_the_recorded_viewport ... ok
+test tests::aga_color_delay_expires_on_a_different_palette_index ... ok
+test tests::bplcon4_write_via_trait_lands_on_aga_state ... ok
+test tests::color_write_bank_offset_into_palette_24 ... ok
+test tests::color_write_high_mirrors_into_low_nybble ... ok
+test tests::color_write_loct_only_updates_low_nybble ... ok
+test tests::aga_denise_supports_eight_bitplanes ... ok
+test tests::color_write_reaches_aga_output_one_hires_pixel_late ... ok
+test tests::consecutive_aga_color_writes_flush_the_earlier_delay ... ok
+test tests::aga_killehb_uses_the_full_palette_address ... ok
+test tests::aga_ehb_uses_delayed_full_24bit_palette_with_loct_precision ... ok
+test tests::bplcon3_write_via_trait_lands_on_ecs_layer ... ok
+test tests::copper_color_write_retains_only_the_lisa_hires_output_delay ... ok
+test tests::deniseid_returns_lisa_marker ... ok
+test tests::deref_exposes_inner_ecs_state ... ok
+test tests::disabling_a_lisa_selector_clears_the_active_level ... ok
+test tests::fmode_write_via_trait_updates_sprite_width ... ok
+test tests::diagnostic_snapshot_reports_complete_lisa_state_without_using_core_mirrors ... ok
+test tests::ham8_direct_color_observes_the_aga_output_delay ... ok
+test tests::ehb_sprite_bank_bypasses_half_brite_and_observes_color_delay ... ok
+test tests::fractional_window_gates_playfield_sprite_and_xor_per_sample ... ok
+test tests::ham6_sprite_overlays_the_advancing_playfield_hold ... ok
+test tests::full_sample_clock_keeps_one_hires_period_color_delay ... ok
+test tests::ham6_uses_delayed_24bit_palette_and_eight_bit_hold_channels ... ok
+test tests::ham8_control00_reads_24bit_color_register ... ok
+test tests::ham8_line_start_resets_hold_to_color00 ... ok
+test tests::ham8_modify_replaces_top6_holds_low2_and_other_channels ... ok
+test tests::killehb_retains_all_eight_post_xor_address_bits_and_color_delay ... ok
+test tests::lisa_ecsena_enable_after_start_waits_for_the_next_start ... ok
+test tests::lisa_equal_hblank_edges_leave_level_clear ... ok
+test tests::lisa_extblken_enable_after_start_waits_for_the_next_start ... ok
+test tests::ham8_sprite_overlays_the_advancing_playfield_hold ... ok
+test tests::lisa_fixed_hblank_compares_the_next_counter ... ok
+test tests::lisa_hblank_fine_stop_retains_all_four_output_samples ... ok
+test tests::lisa_hbstop_write_ahead_after_stop_does_not_reassert ... ok
+test tests::lisa_hbstrt_write_behind_beam_does_not_synthesize_start ... ok
+test tests::lisa_parallel_copy_reaches_output_on_the_following_counter ... ok
+test tests::lisa_sprite_emits_one_lores_period_after_the_comparator ... ok
+test tests::lisa_window_matches_reach_output_at_the_counter_equality ... ok
+test tests::new_starts_with_aga_register_defaults ... ok
+test tests::non_aga_register_writes_delegate_to_inner_ocs ... ok
+test tests::normal_mode_resolves_through_24bit_palette ... ok
+test tests::rdram_protected_color_write_changes_neither_palette_nor_output_delay ... ok
+test tests::six_plane_killehb_output_uses_serial_pixels_and_bplam ... ok
+test tests::rdram_reads_the_selected_bank_and_loct_half ... ok
+test tests::superhires_ham8_decodes_each_35ns_playfield_sample ... ok
+
+test result: ok. 46 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/border_sprites.rs (target/release/deps/border_sprites-006d3ff1ae3e9017)
+
+running 6 tests
+test border_sprite_resolves_its_banked_palette_and_keeps_border_color_zero ... FAILED
+test border_sprites_collide_against_other_sprites_and_zero_playfield_data ... FAILED
+test ordinary_display_sprites_do_not_require_the_border_switch ... FAILED
+test toggling_border_visibility_does_not_restart_the_sprite_serial_stream ... FAILED
+test ocs_and_ecs_do_not_gain_lisas_border_sprite_switch ... ok
+test border_sprite_requires_bit_one_and_ecsena_but_bypasses_bpl1dat ... FAILED
+
+failures:
+
+---- border_sprite_resolves_its_banked_palette_and_keeps_border_color_zero stdout ----
+
+thread 'border_sprite_resolves_its_banked_palette_and_keeps_border_color_zero' (64228146) panicked at crates/commodore-denise-aga/tests/border_sprites.rs:84:9:
+assertion `left == right` failed
+  left: 4294901760
+ right: 4278190080
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- border_sprites_collide_against_other_sprites_and_zero_playfield_data stdout ----
+
+thread 'border_sprites_collide_against_other_sprites_and_zero_playfield_data' (64228147) panicked at crates/commodore-denise-aga/tests/border_sprites.rs:99:9:
+assertion `left == right` failed
+  left: 512
+ right: 0
+
+---- ordinary_display_sprites_do_not_require_the_border_switch stdout ----
+
+thread 'ordinary_display_sprites_do_not_require_the_border_switch' (64228149) panicked at crates/commodore-denise-aga/tests/border_sprites.rs:66:9:
+assertion `left == right` failed
+  left: true
+ right: false
+
+---- toggling_border_visibility_does_not_restart_the_sprite_serial_stream stdout ----
+
+thread 'toggling_border_visibility_does_not_restart_the_sprite_serial_stream' (64228150) panicked at crates/commodore-denise-aga/tests/border_sprites.rs:57:9:
+assertion `left == right` failed: x=9
+  left: true
+ right: false
+
+---- border_sprite_requires_bit_one_and_ecsena_but_bypasses_bpl1dat stdout ----
+
+thread 'border_sprite_requires_bit_one_and_ecsena_but_bypasses_bpl1dat' (64228145) panicked at crates/commodore-denise-aga/tests/border_sprites.rs:34:21:
+assertion `left == right` failed: ECSENA=true, BPLCON3=0002, BPL1DAT=false, x=1
+  left: true
+ right: false
+
+
+failures:
+    border_sprite_requires_bit_one_and_ecsena_but_bypasses_bpl1dat
+    border_sprite_resolves_its_banked_palette_and_keeps_border_color_zero
+    border_sprites_collide_against_other_sprites_and_zero_playfield_data
+    ordinary_display_sprites_do_not_require_the_border_switch
+    toggling_border_visibility_does_not_restart_the_sprite_serial_stream
+
+test result: FAILED. 1 passed; 5 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p commodore-denise-aga --test border_sprites`
+     Running tests/collisions.rs (target/release/deps/collisions-b3bf478c28e7b6dc)
+
+running 8 tests
+test base_register_write_clears_extension_without_clearing_latched_collisions ... ok
+test hires_and_superhires_extra_planes_match_each_actual_sample_including_zero ... ok
+test hires_pixels_cannot_manufacture_a_simultaneous_playfield_collision ... ok
+test single_playfield_odd_collision_requires_the_even_planes_to_match ... ok
+test disabled_and_reserved_extension_bits_do_not_override_the_base_planes ... ok
+test manual_bpl8dat_write_reaches_the_eighth_shifter_on_bpl1dat_strobe ... FAILED
+test ocs_and_ecs_do_not_decode_the_aga_extension ... ok
+test seventh_and_eighth_planes_extend_independent_collision_truth_tables ... ok
+
+failures:
+
+---- manual_bpl8dat_write_reaches_the_eighth_shifter_on_bpl1dat_strobe stdout ----
+
+thread 'manual_bpl8dat_write_reaches_the_eighth_shifter_on_bpl1dat_strobe' (64228156) panicked at crates/commodore-denise-aga/tests/collisions.rs:193:5:
+assertion `left == right` failed: manual eighth-plane data must reach real source output
+  left: [0, 128, 0, 0]
+ right: [0, 0, 128, 0]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    manual_bpl8dat_write_reaches_the_eighth_shifter_on_bpl1dat_strobe
+
+test result: FAILED. 7 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p commodore-denise-aga --test collisions`
+     Running tests/display_register_stage.rs (target/release/deps/display_register_stage-c7c3db2cebb1cfa4)
+
+running 5 tests
+test fetch_width_crosses_normal_rga_then_latches_on_bpl1dat ... ok
+test resolution_reaches_the_same_normal_stage_as_the_existing_selectors ... ok
+test changing_serial_rate_keeps_the_preceding_lores_bit_for_its_full_native_period ... FAILED
+test reducing_the_serial_rate_preserves_the_partly_completed_shift_period ... FAILED
+test wide_hires_copy_uses_the_physical_counter_independently_of_ddf_origin ... ok
+
+failures:
+
+---- changing_serial_rate_keeps_the_preceding_lores_bit_for_its_full_native_period stdout ----
+
+thread 'changing_serial_rate_keeps_the_preceding_lores_bit_for_its_full_native_period' (64228162) panicked at crates/commodore-denise-aga/tests/display_register_stage.rs:25:9:
+assertion `left == right` failed
+  left: [1, 1, 1, 1]
+ right: [0, 0, 0, 0]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- reducing_the_serial_rate_preserves_the_partly_completed_shift_period stdout ----
+
+thread 'reducing_the_serial_rate_preserves_the_partly_completed_shift_period' (64228164) panicked at crates/commodore-denise-aga/tests/display_register_stage.rs:50:9:
+assertion `left == right` failed: mode 1040→9000
+  left: [0, 0, 0, 0]
+ right: [1, 0, 0, 0]
+
+
+failures:
+    changing_serial_rate_keeps_the_preceding_lores_bit_for_its_full_native_period
+    reducing_the_serial_rate_preserves_the_partly_completed_shift_period
+
+test result: FAILED. 3 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p commodore-denise-aga --test display_register_stage`
+     Running tests/dual_playfield.rs (target/release/deps/dual_playfield-8c29977c8307faa0)
+
+running 3 tests
+test pf2_offsets_reach_each_hires_and_superhires_sample ... FAILED
+test ocs_and_ecs_keep_the_fixed_playfield_two_offset ... ok
+test all_pf2_offsets_apply_after_transparency_and_priority_before_xor ... ok
+
+failures:
+
+---- pf2_offsets_reach_each_hires_and_superhires_sample stdout ----
+
+thread 'pf2_offsets_reach_each_hires_and_superhires_sample' (64228170) panicked at crates/commodore-denise-aga/tests/dual_playfield.rs:69:13:
+assertion `left == right` failed
+  left: 0
+ right: 15
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    pf2_offsets_reach_each_hires_and_superhires_sample
+
+test result: FAILED. 2 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.16s
+
+error: test failed, to rerun pass `-p commodore-denise-aga --test dual_playfield`
+     Running tests/midline_scroll.rs (target/release/deps/midline_scroll-3197301b9ba381a5)
+
+running 3 tests
+test changing_scroll_retargets_pending_copy_without_loading_the_other_group ... ok
+test pending_wide_copy_keeps_its_head_and_tail_from_the_same_bpl1dat_group ... ok
+test scroll_mirror_updates_before_the_normal_stage_selector ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/sprite_resolution.rs (target/release/deps/sprite_resolution-2407f7f68d32359b)
+
+running 5 tests
+test priority_and_collisions_use_simultaneous_hires_sprite_codes ... FAILED
+test serial_bits_and_quarter_positions_are_independent_of_playfield ... FAILED
+test automatic_resolution_retains_lores_for_lores_and_hires_playfields ... ok
+test hires_sprite_serial_bits_and_half_lores_position_are_independent_of_playfield ... FAILED
+test collisions_and_priority_distinguish_adjacent_35ns_sprite_bits ... FAILED
+
+failures:
+
+---- priority_and_collisions_use_simultaneous_hires_sprite_codes stdout ----
+
+thread 'priority_and_collisions_use_simultaneous_hires_sprite_codes' (64228183) panicked at crates/commodore-denise-aga/tests/sprite_resolution.rs:85:9:
+assertion `left == right` failed
+  left: [0, 0]
+ right: [17, 21]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- serial_bits_and_quarter_positions_are_independent_of_playfield stdout ----
+
+thread 'serial_bits_and_quarter_positions_are_independent_of_playfield' (64228184) panicked at crates/commodore-denise-aga/tests/sprite_resolution.rs:121:21:
+assertion `left == right` failed: PF=0000, CTL=0000, DATA=ffff
+  left: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+ right: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+
+---- hires_sprite_serial_bits_and_half_lores_position_are_independent_of_playfield stdout ----
+
+thread 'hires_sprite_serial_bits_and_half_lores_position_are_independent_of_playfield' (64228182) panicked at crates/commodore-denise-aga/tests/sprite_resolution.rs:36:17:
+assertion `left == right` failed: PF=0000, CTL=0000, DATA=ffff
+  left: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+ right: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+
+---- collisions_and_priority_distinguish_adjacent_35ns_sprite_bits stdout ----
+
+thread 'collisions_and_priority_distinguish_adjacent_35ns_sprite_bits' (64228181) panicked at crates/commodore-denise-aga/tests/sprite_resolution.rs:154:17:
+assertion `left == right` failed
+  left: [0, 0, 0, 0]
+ right: [17, 21, 0, 0]
+
+
+failures:
+    collisions_and_priority_distinguish_adjacent_35ns_sprite_bits
+    hires_sprite_serial_bits_and_half_lores_position_are_independent_of_playfield
+    priority_and_collisions_use_simultaneous_hires_sprite_codes
+    serial_bits_and_quarter_positions_are_independent_of_playfield
+
+test result: FAILED. 1 passed; 4 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p commodore-denise-aga --test sprite_resolution`
+     Running tests/xor_output_phase.rs (target/release/deps/xor_output_phase-c1fad53977ff01ae)
+
+running 2 tests
+test playfield_xor_crosses_the_output_stage_ten_native_samples_after_the_write ... ok
+test pending_playfield_xor_does_not_recolour_the_border ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/release/deps/commodore_denise_ecs-8e704a66cf16d462)
+
+running 14 tests
+test tests::as_inner_mut_routes_mutations_to_wrapped_core ... ok
+test tests::deniseid_matches_ecs_winuae_value ... ok
+test tests::ecs_bplcon3_state_does_not_perturb_current_ocs_rendering_baseline ... ok
+test tests::ecs_bplcon0_mode_bits_are_exposed_via_helpers ... ok
+test tests::ecs_register_dispatch_ignores_aga_only_bplcon4 ... ok
+test tests::from_ocs_preserves_wrapped_core_state ... ok
+test tests::ecs_wrapper_matches_ocs_sprite_overlay_behavior ... ok
+test tests::into_inner_returns_mutated_wrapped_core ... ok
+test tests::programmable_blanking_selectors_cross_three_output_ticks ... ok
+test tests::killehb_is_a_bplcon2_control_and_disables_halfbrite_when_active ... ok
+test tests::killehb_does_not_override_dual_playfield_or_ham_decode ... ok
+test tests::shres_shifts_four_source_pixels_per_output_call ... ok
+test tests::border_flags_require_enbplcn3_and_blanking_takes_precedence ... ok
+test tests::wrapper_uses_ocs_raster_framebuffer_and_palette_baseline ... ok
+
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/release/deps/commodore_denise_ocs-ef686d5765d4dc6e)
+
+running 6 tests
+test chip::tests::hires_bplcon1_barrel_shift_applies_on_every_load ... ok
+test chip::tests::diagnostic_snapshot_copies_pipeline_state_without_consuming_it ... ok
+test chip::tests::pending_bitplane_load_commits_on_the_next_output_tick ... ok
+test chip::tests::hires_bplcon1_masks_high_scroll_bit ... ok
+test chip::tests::lowres_bplcon1_uses_previous_word_carry_on_later_shift_loads ... ok
+test chip::tests::ham_line_start_resets_to_color00 ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/aga_extensions.rs (target/release/deps/aga_extensions-fd5375cee26a7892)
+
+running 12 tests
+test defer_shift_load_with_count_greater_than_one_decrements_per_pixel ... ok
+test load_bitplane_ignores_idx_8_or_higher ... ok
+test defer_shift_load_with_count_zero_triggers_immediate_load ... ok
+test next_group_staging_does_not_corrupt_draining_group ... ok
+test num_bitplanes_aga_decodes_4_bit_bpu_via_max_bitplanes_8 ... ok
+test num_bitplanes_ocs_ignores_bplcon0_bit_4 ... ok
+test push_bpl_fifo_caps_at_three_tail_words ... ok
+test push_bpl_fifo_drives_auto_reload_after_first_word_drains ... ok
+test push_bpl_fifo_ignores_idx_8_or_higher ... ok
+test rgb12_to_rgb24_replicates_each_nibble ... ok
+test shres_consumes_four_source_pixels_per_output_call ... ok
+test rgb24_to_argb32_sets_alpha_to_ff ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/bplcon_pipeline.rs (target/release/deps/bplcon_pipeline-dbc539d1fef15888)
+
+running 11 tests
+test bplcon1_hi_nibble_delays_plane_1 ... ok
+test bplcon2_pf2pri_picks_front_playfield_in_dpf ... ok
+test hires_bplcon1_masks_high_bit_and_keeps_two_pixel_steps ... ok
+test dpf_pf2pri_sprite_priority_uses_pf2p_field_for_front_pf2 ... ok
+test hires_emits_two_source_pixels_per_output_call ... ok
+test invisible_gate_suppresses_playfield_contribution ... ok
+test legacy_bplcon0_zero_with_direct_shift_poke_drives_legacy_test_path ... ok
+test legacy_bplcon0_zero_with_only_bpl_shift_seeded_falls_back_to_bpl_shift ... ok
+test lores_emits_one_source_pixel_per_output_call ... ok
+test bplcon1_prev_word_carries_into_next_load ... ok
+test bplcon1_lo_nibble_delays_plane_0 ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/ham_ehb_dpf.rs (target/release/deps/ham_ehb_dpf-379d5f9e7725595b)
+
+running 24 tests
+test ehb_index_zero_half_brite_uses_color00 ... ok
+test bplcon4_bplam_xors_the_playfield_colour_index ... ok
+test ehb_half_brite_halves_rgb ... ok
+test begin_beam_line_resets_ham_prev_to_color00 ... ok
+test ham_control_00_selects_palette_entry ... ok
+test ham_control_01_modifies_blue_preserves_red_green ... ok
+test bplcon4_zero_leaves_the_playfield_index_unchanged ... ok
+test dpf_both_transparent_outputs_color00 ... ok
+test dpf_pf1_nonzero_pf2_zero_picks_pf1_color_1_7 ... ok
+test dpf_pf2_nonzero_pf1_zero_picks_pf2_color_9_15 ... ok
+test dual_playfield_pf2pri_and_pf2p_can_hide_or_show_sprite ... ok
+test ehb_normal_palette_unchanged ... ok
+test ehb_halves_rgb_when_bit5_of_index_set ... ok
+test ham_control_11_modifies_green_preserves_red_blue ... ok
+test ham_control_10_modifies_red_preserves_green_blue ... ok
+test ehb_passes_indices_0_31_through_unchanged ... ok
+test ham_end_to_end_pipeline_produces_modify_sequence ... ok
+test ham_modify_blue_control_01 ... ok
+test ham_modify_chains_across_pixels ... ok
+test ham_modify_green_control_11 ... ok
+test ham_modify_red_control_10 ... ok
+test ham_palette_lookup_control_00 ... ok
+test ham_prev_rgb_chains_across_successive_modify_operations ... ok
+test normal_mode_ignores_ham_ehb ... ok
+
+test result: ok. 24 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/raster_framebuffer.rs (target/release/deps/raster_framebuffer-cfb8f2d5a89349b7)
+
+running 20 tests
+test denise_default_constructs_via_default_trait ... ok
+test pixel_aspect_ratio_hires_halves_horizontal ... ok
+test pixel_aspect_ratio_interlace_halves_vertical ... ok
+test pixel_aspect_ratio_pal_lores_is_16_over_15 ... ok
+test pixel_aspect_ratio_ntsc_lores_is_8_over_9 ... ok
+test viewport_image_scale_nearest_returns_fallback_for_oob_indices ... ok
+test viewport_image_scale_nearest_doubles_in_each_axis ... ok
+test viewport_image_to_display_halves_width_doubles_height ... ok
+test viewport_preset_pal_and_ntsc_full_bounds_match_raster_size ... ok
+test extract_viewport_ntsc_overscan_uses_ntsc_bounds ... ok
+test extract_viewport_deinterlace_halves_height_and_takes_every_other_row ... ok
+test viewport_preset_ntsc_standard_bounds_match_4_3_240_lines ... ok
+test viewport_preset_pal_overscan_bounds_have_documented_centring ... ok
+test write_raster_pixel_interlaced_long_frame_writes_only_top_row ... ok
+test write_raster_pixel_interlaced_short_frame_writes_only_bottom_row ... ok
+test write_raster_pixel_non_interlaced_writes_both_rows_of_pair ... ok
+test write_raster_pixel_x_out_of_range_is_dropped ... ok
+test extract_viewport_does_not_oob_when_bounds_exceed_buffer ... ok
+test extract_viewport_pal_full_matches_raster_fb_height ... ok
+test write_raster_pixel_y_out_of_range_is_dropped_in_both_modes ... ok
+
+test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/shift_load.rs (target/release/deps/shift_load-8d1e5474545b699b)
+
+running 4 tests
+test hires_output_pixel_with_beam_consumes_two_source_pixels_per_call ... ok
+test deferred_shift_load_lands_between_hires_samples_in_one_call ... ok
+test lowres_output_pixel_with_beam_consumes_one_source_pixel_per_call ... ok
+test two_hires_output_calls_advance_four_source_pixels_total ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/sprites_collisions.rs (target/release/deps/sprites_collisions-587edd20f17fe14d)
+
+running 44 tests
+test attach_bit_on_even_sprite_is_ignored ... ok
+test bpl1dat_enables_sprite_display_for_only_the_current_line ... ok
+test attached_pair_produces_4_bit_colour_from_combined_codes ... ok
+test bplcon2_pf1_priority_can_hide_sprite_group_0 ... ok
+test bplcon2_pf1_priority_can_place_sprite_group_0_in_front ... ok
+test bplcon4_esprm_replaces_even_sprite_colour_bank ... ok
+test bplcon4_banked_sprite_keeps_playfield_and_sprite_provenance_separate ... ok
+test bplcon4_osprm_replaces_odd_sprite_colour_bank ... ok
+test clxcon_disables_bitplane_match_per_plane ... ok
+test clxcon_ensp5_and_ensp7_gate_odd_sprite_in_collision_mask ... ok
+test attached_sprite_pair_uses_full_sprite_palette_range ... ok
+test clxdat_arm_after_hstart_waits_until_next_line ... ok
+test clxdat_follows_loaded_sprite_serial_data_under_mid_line_data_write ... ok
+test bpl1dat_visibility_gate_suppresses_sprite_collisions ... ok
+test clxdat_stops_latching_after_mid_line_ctl_disarm ... ok
+test clxdat_is_read_and_clear ... ok
+test clxdat_latches_sprite_pair_crosses ... ok
+test clxdat_pos_write_before_hstart_moves_same_line_collision_point ... ok
+test every_sprite_datb_write_lands_through_write_word ... ok
+test exhausted_sprite_leaves_no_collision_trail_past_its_right_edge ... ok
+test clxdat_latches_sprite_pair_cross_bits_10_through_14 ... ok
+test lower_numbered_sprite_has_priority_on_overlap_via_field_pokes ... ok
+test hidden_sprite_shifter_keeps_advancing_before_bpl1dat ... ok
+test lower_numbered_sprite_wins_on_overlap ... ok
+test misaligned_attached_pair_reverts_to_shifted_color_subsets ... ok
+test manual_sprite_data_repeats_on_every_line_until_ctl_disarms ... ok
+test sprite_collision_begins_one_lores_pixel_after_hstart ... ok
+test manual_sprite_uses_only_horizontal_comparator_above_line_511 ... ok
+test mid_line_sprite_data_write_affects_next_line_not_current_line ... ok
+test mid_line_sprite_pos_write_before_hstart_moves_same_line_trigger ... ok
+test priority_loop_skips_attached_odd_sprite_then_lights_unattached_below ... ok
+test output_pixel_color_sprite_bypasses_ham_and_advances_hidden_playfield ... ok
+test sprite_ctl_disarms_and_sprite_data_rearms_comparator ... ok
+test sprite_data_arms_comparator_ctl_disarms ... ok
+test sprite_hstart_comparator_honours_subpixel_bit ... ok
+test sprite_pos_write_moves_armed_sprite_horizontally ... ok
+test sprite_loaded_before_display_boundary_appears_at_boundary ... ok
+test sprite_pixel_overrides_bitplane_pixel ... ok
+test spritedata_rearm_after_hstart_waits_until_next_line ... ok
+test sprite_vs_pf1_priority_via_bplcon2_pf1p_field ... ok
+test transparent_sprite_pixel_leaves_playfield_visible ... ok
+test transparent_sprite_pixel_leaves_playfield_visible_via_field_pokes ... ok
+test wide_sprite_data_setter_loads_the_full_payload ... ok
+test wide_sprite_renders_pixels_beyond_the_16px_window ... ok
+
+test result: ok. 44 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/write_word_dispatch.rs (target/release/deps/write_word_dispatch-07ebf1dae7cc21b3)
+
+running 11 tests
+test bpl1dat_queue_in_hires_uses_phase_mask_07 ... ok
+test bpl1dat_queue_with_nonzero_odd_scroll_delays_commit_by_phase_count ... ok
+test bpl1dat_queue_split_phases_for_odd_and_even_planes ... ok
+test write_word_bpl1dat_queues_shift_load_then_pixel_pump_commits_it ... ok
+test only_bpl1dat_enables_sprites_for_the_current_line ... ok
+test write_word_palette_range_covers_all_indices ... ok
+test write_word_ignores_aga_only_bplcon4 ... ok
+test write_word_sprite_odd_offsets_within_range_are_ignored ... ok
+test write_word_sprite_range_routes_to_pos_ctl_data_datb ... ok
+test write_word_routes_bplcon0_bplcon1_bplcon2_clxcon ... ok
+test write_word_unknown_offset_is_silently_ignored ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+error: 5 targets failed:
+    `-p commodore-denise-aga --test border_sprites`
+    `-p commodore-denise-aga --test collisions`
+    `-p commodore-denise-aga --test display_register_stage`
+    `-p commodore-denise-aga --test dual_playfield`
+    `-p commodore-denise-aga --test sprite_resolution`

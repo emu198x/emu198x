@@ -13,9 +13,7 @@ use std::path::{Component, Path, PathBuf};
 use emu198x_shell::{
     FamilyRuntime, HeadlessSession, InputEvent, MediaImage, MediaKind, MediaSet, read_media_asset,
 };
-use runtime_commodore_amiga::{
-    AmigaRuntimeKind, AmigaSessionQueryProvider, DISPLAY_HEIGHT, DISPLAY_WIDTH, Model,
-};
+use runtime_commodore_amiga::{AmigaRuntimeKind, AmigaSessionQueryProvider, Model};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
@@ -114,7 +112,7 @@ const A1200_PROFILE: GateProfile = GateProfile {
     kickstart_label: "Kickstart 3.1 r40.068",
     kickstart_bytes: A1200_KICKSTART_BYTES,
     kickstart_sha256: A1200_KICKSTART_SHA256,
-    crop_x: 10,
+    crop_x: 8,
     crop_y: 2,
     crop_width: 752,
     crop_height: 572,
@@ -1256,13 +1254,16 @@ fn normalized_frame(profile: &GateProfile, session: &TestSession) -> Result<Vec<
     let frame = session
         .latest_frame()
         .ok_or_else(|| "Test Kit did not emit a framebuffer".to_owned())?;
-    if frame.width != DISPLAY_WIDTH
-        || frame.height != DISPLAY_HEIGHT
-        || frame.width != RUNTIME_WIDTH
-        || frame.height != RUNTIME_HEIGHT
-    {
+    // The registered corpus is a hires reference capture. Select the fixed
+    // even phase from Lisa's full buffer; native DMA probes check odd samples.
+    let horizontal_step = if profile.model == Model::A1200AgaPal {
+        2
+    } else {
+        1
+    };
+    if frame.width != RUNTIME_WIDTH * horizontal_step || frame.height != RUNTIME_HEIGHT {
         return Err(format!(
-            "runtime frame is {}x{}, expected {RUNTIME_WIDTH}x{RUNTIME_HEIGHT}",
+            "unexpected native frame dimensions {}x{}",
             frame.width, frame.height
         ));
     }
@@ -1297,11 +1298,13 @@ fn normalized_frame(profile: &GateProfile, session: &TestSession) -> Result<Vec<
     for output_y in 0..profile.canonical_height {
         let source_y_a = profile.crop_y + output_y * VERTICAL_DECIMATION;
         let source_y_b = source_y_a + 1;
-        let row_start_a = ((source_y_a * RUNTIME_WIDTH + profile.crop_x) * 4) as usize;
-        let row_start_b = ((source_y_b * RUNTIME_WIDTH + profile.crop_x) * 4) as usize;
+        let row_start_a =
+            ((source_y_a * frame.width + profile.crop_x * horizontal_step) * 4) as usize;
+        let row_start_b =
+            ((source_y_b * frame.width + profile.crop_x * horizontal_step) * 4) as usize;
         for source_x in 0..profile.crop_width as usize {
-            let offset_a = row_start_a + source_x * 4;
-            let offset_b = row_start_b + source_x * 4;
+            let offset_a = row_start_a + source_x * 4 * horizontal_step as usize;
+            let offset_b = row_start_b + source_x * 4 * horizontal_step as usize;
             for channel_index in 0..3 {
                 let channel_a = rgba[offset_a + channel_index];
                 let channel_b = rgba[offset_b + channel_index];
@@ -1663,18 +1666,11 @@ fn validate_assertions_contract(
 
 fn expected_disagreement_id(
     profile: &GateProfile,
-    case_id: &str,
-    phase: &str,
+    _case_id: &str,
+    _phase: &str,
 ) -> Option<&'static str> {
-    match (profile.id, case_id, phase) {
-        ("a500-a501-ocs-pal", "gradients" | "ebu-bars", "static") => {
-            Some("denise-ocs-color-output-phase")
-        }
-        ("a1200-aga-pal", "gradients" | "static-checkerboard", "static")
-        | ("a1200-aga-pal", "alternating-checkerboard", "a" | "b") => {
-            Some("aga-sprite-horizontal-output-phase")
-        }
-        ("a500-a501-ocs-pal" | "a1200-aga-pal", _, _) => None,
+    match profile.id {
+        "a500-a501-ocs-pal" | "a1200-aga-pal" => None,
         _ => panic!("no assertion policy registered for profile {}", profile.id),
     }
 }
@@ -1933,11 +1929,11 @@ fn validate_a1200_manifest(manifest: &A1200Manifest) {
     assert!(!manifest.viewport.alignment_search);
     assert_eq!(
         manifest.viewport.horizontal_mapping.formula,
-        "runtime_x = producer_raw_x + 8"
+        "runtime_x = producer_raw_x + 6"
     );
     assert_eq!(
         manifest.viewport.horizontal_mapping.basis,
-        "beam-absolute PAL host-HIRES mapping: producer raw x=0 is HB coarse coordinate 46; Emu198x x=0 is CCK 44"
+        "counter-traced PAL host-HIRES mapping: producer raw x=0 is Denise counter 91 (reported origin 92 minus one lores output-padding tick); Emu198x x=0 is counter 88"
     );
 
     assert_eq!(manifest.comparison.format, "rgb8-exact");

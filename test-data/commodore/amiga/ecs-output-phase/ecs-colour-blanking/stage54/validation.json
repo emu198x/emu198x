@@ -1,0 +1,25 @@
+{
+  "snapshot_version": 54,
+  "rejected_version": 53,
+  "counter_traced_guests": 8,
+  "compared_fields": 24,
+  "exact_fields": 24,
+  "compared_rgb_pixels": 20774208,
+  "intermediate_restore_boundaries": 14,
+  "snapshot_tests_passed": 55,
+  "query_tests_passed": 44,
+  "chip_machine_tests_passed": 234,
+  "strict_clippy": "passed, six packages, all targets",
+  "test_kit": "A500 and A1200, six exact cases each",
+  "timed_cases_passed": 7,
+  "timed_cases_total": 10,
+  "remaining_failures": [
+    "fixed-coordinate semantic disagreement: mutation output expected black=[SemanticRun { start: 396, end_exclusive: 526 }] guard=[SemanticRun { start: 8, end_exclusive: 376 }] marker=[SemanticRun { start: 376, end_exclusive: 396 }, SemanticRun { start: 526, end_exclusive: 762 }]; actual black=[SemanticRun { start: 398, end_exclusive: 526 }] guard=[SemanticRun { start: 8, end_exclusive: 376 }] marker=[SemanticRun { start: 376, end_exclusive: 398 }, SemanticRun { start: 526, end_exclusive: 762 }]",
+    "guest field counters are not adjacent: 9 then 11",
+    "guest field counters are not adjacent: 10 then 12"
+  ],
+  "static_gate": "unchanged historical registration; not requalified by a single software family",
+  "wide_sweep": "previous 125/128 result retained; not rerun in this bounded ECS stage correction",
+  "static_gate_failure": "fixed-control / a1200-aga-pal: measured black runs [0,4), [381,384); registered cross-family consensus is []",
+  "archived_negative_control": "pre-fix central guest: 32,032 mismatches per field in all three fields"
+}

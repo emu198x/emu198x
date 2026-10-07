@@ -1,0 +1,86 @@
+{
+  "applicability": {
+    "chipsets": [
+      "OCS",
+      "ECS",
+      "AGA"
+    ],
+    "regions": [
+      "PAL"
+    ],
+    "min_chip_ram_bytes": 524288
+  },
+  "registers": {
+    "diwstrt": "0x2c81",
+    "diwstop": "0xf4c1",
+    "ddfstrt": "0x0038",
+    "ddfstop": "0x00d0",
+    "bplcon0": "0x1001",
+    "bplcon1": "0x0000",
+    "bplcon2": "0x0000",
+    "bplcon3": "0x0001",
+    "bplcon4": "0x0011",
+    "fmode": "0x0000",
+    "bpl1mod": "0x0000",
+    "bpl2mod": "0x0000",
+    "spr0pos": "0x8064",
+    "spr0ctl": "0x9000",
+    "spr0data": "0xffff",
+    "spr0datb": "0x0000",
+    "color00": "0x0011",
+    "color01": "0x0fff",
+    "color17": "0x0f00",
+    "dmacon_enable": "0x8380",
+    "beamcon0": "0x0028",
+    "hbstrt": "0x0080",
+    "hbstop": "0x07a0"
+  },
+  "geometry": {
+    "resolution": "lores",
+    "sample_beam_line": 132,
+    "bitplane_rows": 256,
+    "bitplane_words_per_row": 80,
+    "marker_word_index": 16,
+    "marker_bit_index": 15,
+    "sprite_data_lines": 16,
+    "horizontal_mapping": "producer-recorded",
+    "anchors": [
+      "retained hardwired HBLANK",
+      "DMA-fed one-bitplane marker"
+    ]
+  },
+  "programming_schedule": {
+    "phase": "CPU before Copper and ready record",
+    "steady_state": "Fixed blanking registers; Copper resets COLOR00 to 0x011 on lines 44..243."
+  },
+  "capture": {
+    "ready_record_address": "0x0002ff00",
+    "ready_magic": "SPHX",
+    "case_number_address": "0x0002ff04",
+    "schema_version_address": "0x0002ff06",
+    "field_counter_address": "0x0002ff08",
+    "byte_order": "big-endian",
+    "ready_timeout_fields": 600,
+    "settle_fields": 8,
+    "capture_fields": 3,
+    "adjacent_field_stability_required": true,
+    "blanking_retained": true,
+    "overscan_retained": true,
+    "alignment_search": false
+  },
+  "id": "aga-fine-lores",
+  "numeric_id": 1,
+  "question": "Where do AGA blank edges appear for HBSTRT 0x0080 and HBSTOP 0x07a0 while BPLCON0 selects lores?",
+  "identity": {
+    "serial": "amiga-counter-blank-v1/aga-fine-lores",
+    "serial_address": "0x0002ff40",
+    "serial_maximum_bytes": 64,
+    "background": "dark blue COLOR00",
+    "marker": "bright green COLOR01",
+    "sprite": "bright red COLOR17"
+  },
+  "expected": {
+    "status": "unresolved",
+    "observations": []
+  }
+}

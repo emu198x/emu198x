@@ -1,0 +1,24 @@
+   Compiling commodore-denise-ecs v0.25.0 (/Users/stevehill/Projects/198x/Emu198x/emu198x/crates/commodore-denise-ecs)
+    Finished `release` profile [optimized] target(s) in 5.33s
+     Running unittests src/lib.rs (target/release/deps/commodore_denise_ecs-8e704a66cf16d462)
+
+running 1 test
+test tests::programmable_blanking_selectors_cross_one_normal_rga_cck ... FAILED
+
+failures:
+
+---- tests::programmable_blanking_selectors_cross_one_normal_rga_cck stdout ----
+
+thread 'tests::programmable_blanking_selectors_cross_one_normal_rga_cck' (65632705) panicked at crates/commodore-denise-ecs/src/lib.rs:410:9:
+assertion `left == right` failed
+  left: DeniseEcsOutputSelectors { ecsena_enabled: false, extblken_enabled: false }
+ right: DeniseEcsOutputSelectors { ecsena_enabled: true, extblken_enabled: true }
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    tests::programmable_blanking_selectors_cross_one_normal_rga_cck
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 15 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p commodore-denise-ecs --lib`

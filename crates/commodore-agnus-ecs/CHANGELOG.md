@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Feed programmed blank events and equalisation selectors into shared timing-strobe admission
+
 - Expose the complete decoded `BEAMCON0` selector set and hidden
   programmable-vertical event history through read-only accessors
 - Add regression coverage for the non-empty idle register-equal

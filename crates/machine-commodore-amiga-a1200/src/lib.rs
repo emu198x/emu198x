@@ -1212,6 +1212,17 @@ impl AmigaA1200 {
 
     /// Dispatch a Copper MOVE before Lisa renders the current output tick.
     fn dispatch_copper_write(&mut self, offset: u16, val: u16) {
+        if matches!(offset, 0x08E | 0x090 | 0x1E4) {
+            self.denise.write_word_before_output_tick(offset, val);
+            match offset {
+                0x08E => self.agnus.write_diwstrt(val),
+                0x090 => self.agnus.write_diwstop(val),
+                _ => {
+                    self.agnus.write_timing_register(offset, val);
+                }
+            }
+            return;
+        }
         if (0x0180..=0x01BE).contains(&offset) && offset.is_multiple_of(2) {
             self.denise.write_word_before_output_tick(offset, val);
             self.record_palette_write(offset, val);
@@ -1242,6 +1253,9 @@ impl AmigaA1200 {
     /// Dispatch a custom-register word write to the right submodule.
     /// Shared between `poke_word` and the CPU bus servicer.
     fn dispatch_custom_write(&mut self, offset: u16, val: u16) {
+        if matches!(offset, 0x08E | 0x090 | 0x1E4) {
+            self.denise.write_word(offset, val);
+        }
         if self.agnus.write_timing_register(offset, val) {
             return;
         }
@@ -1378,6 +1392,7 @@ impl AmigaA1200 {
             // Agnus-owned bitplane + display-window + DSK pointer.
             0x020 => self.agnus.write_dsk_pointer(true, val),
             0x022 => self.agnus.write_dsk_pointer(false, val),
+            0x028 => self.agnus.write_refptr(val),
             0x08E => self.agnus.write_diwstrt(val),
             0x090 => self.agnus.write_diwstop(val),
             0x092 => self.agnus.write_ddfstrt(val),
@@ -1434,7 +1449,7 @@ impl AmigaA1200 {
                 // inner OCS Agnus (the type Denise's fetch loop is handed),
                 // so propagate it there too — not only the AGA wrapper copy
                 // that query/diagnostics read.
-                self.agnus.as_inner_mut().fmode = val;
+                self.agnus.as_inner_mut().write_fmode(val);
                 self.denise.write_word(offset, val);
             }
             _ => self.denise.write_word(offset, val),
@@ -2296,6 +2311,54 @@ impl AmigaDriver for AmigaA1200 {
         outcome
     }
 
+    fn service_blitter_dma(
+        &mut self,
+        transfer: commodore_agnus_ocs::DmaTransfer,
+    ) -> BlitterCckOutcome {
+        let mut bus = WatchingChipRamBus::new(&mut self.memory);
+        let outcome = self.agnus.service_blitter_dma(transfer, &mut bus);
+        let write = bus.take_write();
+        if let Some((addr, value)) = write {
+            self.record_memory_watch_write(AmigaMemoryWriteSource::Blitter, addr, value, true);
+        }
+        outcome
+    }
+
+    fn generate_display_dma(&mut self) {
+        self.agnus.generate_display_dma();
+    }
+
+    fn service_addressed_sprite_dma(&mut self, transfer: commodore_agnus_ocs::DmaTransfer) {
+        let (commodore_agnus_ocs::DmaTransferTarget::Display { reservation, .. }
+        | commodore_agnus_ocs::DmaTransferTarget::DisplayRefresh { reservation, .. }) =
+            transfer.target
+        else {
+            panic!("non-display descriptor reached sprite adapter");
+        };
+        let commodore_agnus_ocs::DisplayDmaChannel::Sprite {
+            channel,
+            second_word,
+            control: _,
+        } = reservation.channel
+        else {
+            panic!("non-sprite display descriptor reached sprite adapter");
+        };
+        let width = self.agnus.spr_fetch_width();
+        let memory = &self.memory;
+        let (is_control, value) = self
+            .agnus
+            .service_retained_sprite_dma(transfer, width, |addr| memory.read_chip_ram_word(addr));
+        let channel = usize::from(channel);
+        if is_control {
+            let reg = 0x140 + (channel as u16) * 8 + if second_word { 2 } else { 0 };
+            self.denise.write_word(reg, value as u16);
+        } else if second_word {
+            self.denise.ocs.write_sprite_datb_wide(channel, value);
+        } else {
+            self.denise.ocs.write_sprite_data_wide(channel, value);
+        }
+    }
+
     fn record_disk_dma_memory_write(&mut self, addr: u32, value: u16) {
         self.record_memory_watch_write(AmigaMemoryWriteSource::DiskDma, addr, value, true);
     }
@@ -2327,20 +2390,44 @@ impl AmigaDriver for AmigaA1200 {
         }
     }
 
-    fn denise_tick(&mut self, phase: u8, bitplane_dma_fetch_plane: Option<u8>) {
+    fn service_denise_timing_strobe(&mut self, strobe: commodore_agnus_ocs::DmaStrobe) {
+        self.denise.service_timing_strobe(strobe);
+    }
+
+    fn denise_tick_with_dma(
+        &mut self,
+        phase: u8,
+        bitplane_dma_fetch_plane: Option<u8>,
+        serviced_bitplane: Option<commodore_agnus_ocs::DmaTransfer>,
+    ) {
         let width_words = self.agnus.bpl_fetch_width();
         let vertical_diw_active = self.agnus.vertical_diw_active();
+        let denise_position = self
+            .denise
+            .output_comparator_position_for(&self.agnus, phase);
         let horizontal_blanking = self.denise.ocs.programmed_hblank_for_output_phase(
-            self.agnus.hpos,
-            phase,
+            denise_position / 2,
+            (denise_position & 1) as u8,
             self.agnus.bplcon0,
             self.agnus.hbstrt(),
             self.agnus.hbstop(),
         );
         let line_ccks = self.agnus.current_line_ccks();
-        let bitplane_dma_fetch =
-            bitplane_dma_fetch_plane.map(|plane| denise::BitplaneDmaFetch { plane, width_words });
-        self.denise.tick_with_output_signals(
+        let bitplane_dma_fetch = serviced_bitplane
+            .map(denise::BitplaneDmaInput::Serviced)
+            .or_else(|| {
+                bitplane_dma_fetch_plane.map(|plane| {
+                    denise::BitplaneDmaInput::Granted(denise::BitplaneDmaFetch {
+                        plane,
+                        width_words,
+                    })
+                })
+            });
+        assert!(
+            serviced_bitplane.is_none() || bitplane_dma_fetch_plane.is_none(),
+            "duplicate bitplane memory service"
+        );
+        self.denise.tick_with_dma_output_signals(
             phase,
             bitplane_dma_fetch,
             denise::DeniseOutputSignals::new(vertical_diw_active, horizontal_blanking),
@@ -2476,7 +2563,7 @@ mod bus_plan_dispatch_tests {
     use peripheral_commodore_amiga_floppy::mfm::encode_mfm_track;
 
     #[test]
-    fn copper_and_post_output_color_writes_keep_distinct_phases_and_diagnostics() {
+    fn copper_and_post_output_color_writes_retain_lisa_delay_and_diagnostics() {
         use common_commodore_amiga::DeniseChip as _;
 
         let mut amiga = AmigaA1200::new(vec![0; 512 * 1024]);
@@ -2486,9 +2573,10 @@ mod bus_plan_dispatch_tests {
         amiga.dispatch_copper_write(0x0180, 0x0ABC);
         assert_eq!(amiga.denise.color(0), 0x0ABC);
         let pipeline = amiga.denise.ocs.diagnostic_snapshot();
+        assert!(pipeline.pending_early_color_write.is_none());
         assert_eq!(
             pipeline
-                .pending_early_color_write
+                .delayed_color_write
                 .and_then(|write| write.previous_rgb12),
             Some(0x0123),
         );
@@ -2496,6 +2584,18 @@ mod bus_plan_dispatch_tests {
             amiga.debug_palette_log.last().map(|entry| entry.2),
             Some(0x0180)
         );
+
+        // Counter-traced Copper MOVEs retain one hires palette period:
+        // two native samples, with no extra lores queue before that stage.
+        let output: Vec<_> = (0..4)
+            .map(|sample| {
+                amiga
+                    .denise
+                    .ocs
+                    .resolve_output_sample_argb(0, 0, false, sample)
+            })
+            .collect();
+        assert_eq!(output, [0xFF11_2233, 0xFF11_2233, 0xFFAA_BBCC, 0xFFAA_BBCC]);
 
         amiga.dispatch_custom_write(0x0182, 0x0456);
         assert_eq!(amiga.denise.color(1), 0x0456);
@@ -2856,6 +2956,10 @@ mod bus_plan_dispatch_tests {
         amiga.poke_word(0x00DF_F094, 0x00D0);
 
         assert_eq!(amiga.agnus.max_bitplanes, 8);
+        assert_eq!(amiga.agnus.num_bitplanes(), 0, "DMA copy is still pending");
+        for _ in 0..4 {
+            amiga.agnus.tick_cck();
+        }
         assert_eq!(amiga.agnus.num_bitplanes(), 8);
 
         observe_ddf_start(&mut amiga);
@@ -2871,63 +2975,115 @@ mod bus_plan_dispatch_tests {
     }
 
     #[test]
-    fn alice_hblank_reset_precedes_a_coincident_wide_bitplane_fetch() {
-        let mut amiga = AmigaA1200::new(vec![0; 512 * 1024]);
-        amiga.agnus.vpos = 0x001F;
+    fn alice_first_wide_fetch_crosses_line_reset_and_reaches_lisa() {
+        use common_commodore_amiga::DeniseChip as _;
+        for (tail, expected_pixel) in [(0, 0), (0x8000, 0x80)] {
+            let mut amiga = AmigaA1200::new(vec![0; 512 * 1024]);
+            amiga.agnus.vpos = 0x001F;
 
-        // Alice accepts the enhanced even-CCK DDF comparator at $12. The
-        // ordinary early-start value $18 is six CCKs after the fixed HBLANK
-        // boundary and therefore cannot exercise same-CCK ordering.
-        amiga.poke_word(0x00DF_F096, 0x8300); // SETCLR | DMAEN | BPLEN
-        amiga.poke_word(0x00DF_F100, 0x0010); // BPU = 8, lowres
-        amiga.poke_word(0x00DF_F08E, 0x2010); // VSTART on the next line
-        amiga.poke_word(0x00DF_F090, 0xA020);
-        amiga.poke_word(0x00DF_F092, 0x0012);
-        amiga.poke_word(0x00DF_F094, 0x00D0);
-        amiga.poke_word(0x00DF_F1FC, 0x0001); // 32-bit bitplane fetches
+            // Disable the hard start so $12 admits a run before $18. Registered
+            // sequencing requests BPL8 at $14, then addresses it at $15 and
+            // services it at $16, when Denise's strobe-driven counter reaches $24.
+            // That is the line-reset boundary; the comparator itself is not a read.
+            amiga.poke_word(0x00DF_F1DC, 0x4020); // HARDDIS | PAL
+            amiga.poke_word(0x00DF_F096, 0x8300); // SETCLR | DMAEN | BPLEN
+            amiga.poke_word(0x00DF_F100, 0x0010); // BPU = 8, lowres
+            amiga.poke_word(0x00DF_F08E, 0x2010); // VSTART on the next line
+            amiga.poke_word(0x00DF_F090, 0xA020);
+            amiga.poke_word(0x00DF_F092, 0x0012);
+            amiga.poke_word(0x00DF_F094, 0x00D0);
+            amiga.poke_word(0x00DF_F1FC, 0x0001); // 32-bit bitplane fetches
 
-        // The first wide-fetch slot carries BPL8. Its word-zero is blank and
-        // its staged tail starts with one set pixel, making loss of that tail
-        // observable after the shift register drains.
-        amiga.agnus.bpl_pt[7] = 0x0000_2000;
-        amiga.poke_word(0x0000_2000, 0x0000);
-        amiga.poke_word(0x0000_2002, 0x8000);
+            // The first wide-fetch slot carries BPL8. Its word-zero is blank and
+            // its staged tail starts with one set pixel, making loss of that tail
+            // observable after the shift register drains.
+            amiga.agnus.bpl_pt[7] = 0x0000_2000;
+            amiga.poke_word(0x0000_2000, 0x0000);
+            amiga.poke_word(0x0000_2002, tail);
 
-        // Enter line $20 through a real raw wrap, retain its pre-$12 carry,
-        // then stop after phase zero at the fixed HBLANK boundary. This avoids
-        // manufacturing a boundary by calling Denise directly with an unset
-        // line marker.
-        amiga.agnus.hpos = amiga.agnus.current_line_ccks() - 1;
-        amiga.cck_phase = 1;
-        amiga.tick();
-        let mut guard = 0;
-        while !(amiga.agnus.vpos == 0x0020 && amiga.agnus.hpos == 0x0012 && amiga.cck_phase == 1) {
+            // Enter line $20 through a real raw wrap, retain its pre-$12 carry,
+            // then stop before phase zero at the line-reset boundary. This avoids
+            // manufacturing a boundary by calling Denise directly with an unset
+            // line marker.
+            // Reach the last cell's second output phase through actual clocks;
+            // forcing cck_phase=1 would leave Denise's counter in its first phase.
+            amiga.agnus.hpos = amiga.agnus.current_line_ccks() - 2;
             amiga.tick();
-            guard += 1;
-            assert!(guard < 100, "beam did not reach line $20 hpos $12");
-        }
+            amiga.tick();
+            let mut guard = 0;
+            while !(amiga.agnus.vpos == 0x0020
+                && amiga.agnus.hpos == 0x0015
+                && amiga.cck_phase == 1)
+            {
+                amiga.tick();
+                guard += 1;
+                assert!(guard < 100, "beam did not reach line $20 hpos $15");
+            }
 
-        assert!(amiga.agnus.vertical_diw_active());
-        assert_eq!(
-            amiga.agnus.bpl_pt[7], 0x0000_2004,
-            "Alice must grant one 32-bit BPL8 transfer at DDFSTRT=$12",
-        );
+            assert!(amiga.agnus.vertical_diw_active());
+            assert_eq!(
+                amiga.agnus.bpl_pt[7], 0x2000,
+                "addressing does not read RAM"
+            );
+            assert_ne!(
+                amiga
+                    .denise
+                    .board_pipeline_diagnostic_snapshot()
+                    .last_begin_line,
+                Some(0x20)
+            );
+            assert!(matches!(amiga.agnus.dma_pipeline().address(),
+            Some(commodore_agnus_ocs::DmaAddressStage::Transfer(t))
+            if t.address == 0x2000 && matches!(t.target,
+                commodore_agnus_ocs::DmaTransferTarget::Display { reservation, .. }
+                if reservation.channel == commodore_agnus_ocs::DisplayDmaChannel::Bitplane(7))));
+            amiga.tick(); // remaining half of $15
+            amiga.tick(); // BPL8 service and line reset at $16
+            assert_eq!(amiga.agnus.hpos, 0x16);
+            assert_eq!(
+                amiga
+                    .denise
+                    .board_pipeline_diagnostic_snapshot()
+                    .last_begin_line,
+                Some(0x20)
+            );
+            assert_eq!(
+                amiga.agnus.bpl_pt[7], 0x0000_2004,
+                "Alice must service the retained 32-bit BPL8 transfer at $16",
+            );
 
-        // Commit the fetched group and consume its blank first word. The next
-        // source pixel must come from the staged 0x8000 tail. If HBLANK reset
-        // ran after this CCK's DMA service, begin_beam_line() would have
-        // discarded the tail and this pixel would remain zero.
-        let denise = amiga.denise.ocs.as_inner_mut().as_inner_mut();
-        denise.trigger_shift_load();
-        for x in 0..16 {
-            let pixel = denise.output_pixel_with_beam(x, 0, x, 0);
-            assert_eq!(pixel.quad_samples[0].raw_color_idx, 0);
+            // Let the previously calibrated one-CCK RGA transfer reach Denise.
+            // Stopping immediately after the grant only leaves it on the board's
+            // pending DMA stage; an inner-chip load cannot consume it there.
+            amiga.tick(); // remaining half of $16
+            amiga.tick(); // normal RGA retirement at $17
+            assert_eq!(amiga.agnus.hpos, 0x17);
+
+            // Commit the fetched group and consume its blank first word. The next
+            // source pixel must come from the staged 0x8000 tail. Counter-space
+            // traces exclude an additional lores delay after the serializer. This checks
+            // the payload after real line reset and normal DMA transport, rather than manufacturing
+            // an extra board output tick to make the held word appear.
+            // BPL1DAT installs Lisa's data-width selector; the isolated BPL8
+            // transfer above cannot select the 32-bit output tap by itself.
+            // Settle the selector before this test's direct, inner-chip copy.
+            for _ in 0..3 {
+                amiga.denise.ocs.advance_register_output_pipeline();
+            }
+            amiga.denise.ocs.write_word(0x110, 0);
+            let denise = amiga.denise.ocs.as_inner_mut().as_inner_mut();
+            assert_eq!(denise.bitplane_fmode & 3, 1);
+            denise.trigger_shift_load();
+            for x in 0..16 {
+                let pixel = denise.output_pixel_with_beam(x, 0, x, 0);
+                assert_eq!(pixel.quad_samples[0].raw_color_idx, 0, "x={x}");
+            }
+            let tail_pixel = denise.output_pixel_with_beam(16, 0, 16, 0);
+            assert_eq!(
+                tail_pixel.quad_samples[0].raw_color_idx, expected_pixel,
+                "the first wide transfer's staged BPL8 tail must survive line reset",
+            );
         }
-        let tail_pixel = denise.output_pixel_with_beam(16, 0, 16, 0);
-        assert_eq!(
-            tail_pixel.quad_samples[0].raw_color_idx, 0x80,
-            "the first wide transfer's staged BPL8 tail must survive line reset",
-        );
     }
 
     #[test]
@@ -2941,14 +3097,16 @@ mod bus_plan_dispatch_tests {
         amiga.agnus.hpos = amiga.agnus.current_line_ccks() - 1;
         amiga.agnus.tick_cck();
         assert!(amiga.agnus.programmed_vblank_stop_event());
-        amiga.agnus.hpos = 0x14;
+        amiga.agnus.hpos = 0x16; // reserve SPR0 at h23, address h24, service h25
         amiga.agnus.spr_pt[0] = 0x0000_2000;
         amiga.poke_word(0x0000_2000, 0x4100);
         amiga.cck_phase = 0;
 
-        amiga.tick();
+        for _ in 0..5 {
+            amiga.tick();
+        }
 
-        assert_eq!(amiga.agnus.hpos, 0x15);
+        assert_eq!(amiga.agnus.hpos, 0x19);
         assert_eq!(amiga.agnus.vbstop(), 40);
         assert_eq!(amiga.agnus.spr_pt[0], 0x0000_2002);
         assert_eq!(amiga.agnus.sprite_vstart(0), 0x41);
@@ -3011,13 +3169,15 @@ mod bus_plan_dispatch_tests {
         amiga.poke_word(0x00DF_F14A, 30 << 8); // make line 30 a control fetch
         amiga.poke_word(0x00DF_F096, 0x8220); // SETCLR | DMAEN | SPREN
         amiga.agnus.vpos = 30;
-        amiga.agnus.hpos = 0x18;
+        amiga.agnus.hpos = 0x1A; // SPR1 first reservation h27
         amiga.cck_phase = 0;
-        amiga.tick(); // sprite 1 first control slot at $19
+        for _ in 0..5 {
+            amiga.tick();
+        } // first addressed service h29
         assert_eq!(amiga.agnus.spr_pt[1], 0x0000_2002);
-        amiga.agnus.hpos = 0x1A;
-        amiga.cck_phase = 0;
-        amiga.tick(); // sprite 1 second control slot at $1B
+        for _ in 0..4 {
+            amiga.tick();
+        } // second addressed service h31
         assert_eq!(amiga.agnus.spr_pt[1], 0x0000_2004);
         assert_eq!(amiga.agnus.sprite_vstart(1), 0x0101);
         assert_eq!(amiga.agnus.sprite_vstop(1), 0x0302);
@@ -3056,13 +3216,15 @@ mod bus_plan_dispatch_tests {
         amiga.agnus.spr_pt[0] = 0x0000_2000;
         amiga.poke_word(0x0000_2000, 0x4100);
         amiga.agnus.vpos = 25;
-        amiga.agnus.hpos = 0x14;
+        amiga.agnus.hpos = 0x16; // registered SPR0 reservation starts at h23
         amiga.cck_phase = 0;
 
-        amiga.tick();
+        for _ in 0..5 {
+            amiga.tick();
+        }
 
         assert_eq!(amiga.cck_phase, 1);
-        assert_eq!(amiga.agnus.hpos, 0x15);
+        assert_eq!(amiga.agnus.hpos, 0x19);
         assert!(amiga.agnus.sprite_bus_used_this_cck());
 
         let bytes = postcard::to_allocvec(&amiga.snapshot_state()).expect("serialize snapshot");
@@ -3546,7 +3708,7 @@ mod bus_plan_dispatch_tests {
         <AmigaA1200 as AmigaDriver>::denise_tick(&mut amiga, 1, None);
 
         let y = usize::from(0x002Cu16 - 0x0019) * 2;
-        let x = (usize::from(0x0040u16 - 0x002C) * 2 + 1) * 2;
+        let x = (usize::from(0x0040u16 - 0x002C) * 2 + 1) * 4;
         assert_eq!(
             amiga.denise.framebuffer()[y * FB_WIDTH as usize + x],
             0xFF00_00FF
@@ -3565,8 +3727,8 @@ mod bus_plan_dispatch_tests {
 
         // Enable the enhanced comparator path, make the unblanked background
         // green, and place HBSTOP at Lisa fine phase seven. The renderer's
-        // four-sample CCK grid pairs the eight Lisa phases, so the first
-        // output sample in phase one is blank and the second is visible.
+        // eight native samples per CCK retain every Lisa phase. The next-counter
+        // comparison reaches fine phase seven at phase zero's fourth sample.
         amiga.agnus.bplcon0 = 0x0001; // ECSENA
         amiga.denise.write_word(0x0100, 0x0001);
         amiga.denise.write_word(0x0106, 0x0001); // EXTBLKEN
@@ -3580,21 +3742,65 @@ mod bus_plan_dispatch_tests {
         for _ in 0..3 {
             amiga.denise.ocs.advance_register_output_pipeline();
         }
-        amiga.agnus.hpos = 0x0080;
-        <AmigaA1200 as AmigaDriver>::denise_tick(&mut amiga, 0, None);
+        amiga.agnus.hpos = 0x007F;
+        <AmigaA1200 as AmigaDriver>::denise_tick(&mut amiga, 1, None);
         amiga.agnus.hpos = 0x00A0;
 
-        <AmigaA1200 as AmigaDriver>::denise_tick(&mut amiga, 1, None);
+        <AmigaA1200 as AmigaDriver>::denise_tick(&mut amiga, 0, None);
 
         let y = usize::from(0x0032u16 - 0x0019) * 2;
-        let x = usize::from(0x00A0u16 - 0x002C) * 4 + 2;
+        let x = usize::from(0x00A0u16 - 0x002C) * 8;
         assert_eq!(
             amiga.denise.framebuffer()[y * FB_WIDTH as usize + x],
             0xFF00_0000,
         );
-        assert_eq!(
-            amiga.denise.framebuffer()[y * FB_WIDTH as usize + x + 1],
-            0xFF00_FF00,
-        );
+        for subpixel in 0..4 {
+            assert_eq!(
+                amiga.denise.framebuffer()[y * FB_WIDTH as usize + x + subpixel],
+                if subpixel == 3 {
+                    0xFF00_FF00
+                } else {
+                    0xFF00_0000
+                }
+            );
+        }
+    }
+    #[test]
+    fn full_framebuffer_retains_patterned_quarter_position_sprite() {
+        use common_commodore_amiga::DeniseChip as _;
+        for (ctl, fraction) in [(0, 0), (8, 1), (0x10, 2), (0x18, 3)] {
+            let mut amiga = AmigaA1200::new(vec![0; 512 * 1024]);
+            amiga.agnus.vpos = 132;
+            amiga.agnus.bplcon0 = 1; // enable border sprites without a playfield
+            amiga.denise.write_word(0x0106, 0x00C2);
+            amiga.denise.write_word(0x01A2, 0x0F00);
+            amiga.denise.ocs.advance_color_output_samples(1);
+            amiga.denise.ocs.write_sprite_pos(0, 0x8064);
+            amiga.denise.ocs.write_sprite_ctl(0, 0x9000 | ctl);
+            amiga.denise.ocs.write_sprite_datb(0, 0);
+            amiga.denise.ocs.write_sprite_data(0, 0xA5A5);
+            for hpos in 44..200 {
+                amiga.agnus.hpos = hpos;
+                for phase in 0..2 {
+                    <AmigaA1200 as AmigaDriver>::denise_tick(&mut amiga, phase, None);
+                }
+            }
+            assert_eq!(amiga.denise.framebuffer_size(), (1536, 576));
+            let y = (132 - 25) * 2;
+            let row =
+                &amiga.denise.framebuffer()[y * FB_WIDTH as usize..(y + 1) * FB_WIDTH as usize];
+            let red: Vec<_> = row
+                .iter()
+                .enumerate()
+                .filter_map(|(x, pixel)| (*pixel == 0xFFFF_0000).then_some(x))
+                .collect();
+            // HSTART 200 first emits at counter 201; the framebuffer origin
+            // is counter 88. Retain all four measured quarter positions.
+            let expected: Vec<_> = (0..16)
+                .filter(|bit| 0xA5A5 & (0x8000 >> bit) != 0)
+                .map(|bit| (201 - 88) * 4 + fraction + bit)
+                .collect();
+            assert_eq!(red, expected);
+        }
     }
 }

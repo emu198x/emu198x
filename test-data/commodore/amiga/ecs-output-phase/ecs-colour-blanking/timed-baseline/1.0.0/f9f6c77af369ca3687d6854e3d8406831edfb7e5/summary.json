@@ -1,0 +1,90 @@
+{
+  "schema_version": "1.0.0",
+  "status": "failed",
+  "evidence_scope": "registered UAE-family software observations; not hardware conformance",
+  "revision": {
+    "full": "f9f6c77af369ca3687d6854e3d8406831edfb7e5",
+    "dirty": true
+  },
+  "suite_id": "org.198x.amiga.programmable-hblank-write-timing",
+  "suite_version": "1.0.0",
+  "built_suite_manifest_sha256": "2d0182d8c4d23822f17a24ddcfb5a23d42eee8f896529513472e86d6a20e6bb9",
+  "registered_suite_manifest_sha256": "fc4c4568b3ae5a7d06e07eddb18f9048937717291d022f02cfc32e68d5f6faf3",
+  "registered_package_sha256": "b6a04ae162aaf4b137a21e57c2f0ab0e5cd14bd91a4713d2b153ba1e0c95e0f3",
+  "expected_runs": 10,
+  "passed_runs": 0,
+  "failed_runs": 10,
+  "cases": [
+    {
+      "case_id": "midline-hbstrt-past",
+      "profile": "ecs",
+      "status": "failed",
+      "result_file": "midline-hbstrt-past/ecs/result.json",
+      "error": "capture field 0 mutation-line Copper timing changed: marker hpos=142 tested hpos=146; expected 138 then 142 (four hpos units apart)"
+    },
+    {
+      "case_id": "midline-hbstrt-past",
+      "profile": "aga",
+      "status": "failed",
+      "result_file": "midline-hbstrt-past/aga/result.json",
+      "error": "capture field 0 is 1536x576, expected 768x576"
+    },
+    {
+      "case_id": "midline-hbstop-future",
+      "profile": "ecs",
+      "status": "failed",
+      "result_file": "midline-hbstop-future/ecs/result.json",
+      "error": "capture field 0 mutation-line Copper timing changed: marker hpos=142 tested hpos=146; expected 138 then 142 (four hpos units apart)"
+    },
+    {
+      "case_id": "midline-hbstop-future",
+      "profile": "aga",
+      "status": "failed",
+      "result_file": "midline-hbstop-future/aga/result.json",
+      "error": "capture field 0 is 1536x576, expected 768x576"
+    },
+    {
+      "case_id": "midline-ecsena-enable",
+      "profile": "ecs",
+      "status": "failed",
+      "result_file": "midline-ecsena-enable/ecs/result.json",
+      "error": "capture field 0 mutation-line Copper timing changed: marker hpos=142 tested hpos=146; expected 138 then 142 (four hpos units apart)"
+    },
+    {
+      "case_id": "midline-ecsena-enable",
+      "profile": "aga",
+      "status": "failed",
+      "result_file": "midline-ecsena-enable/aga/result.json",
+      "error": "capture field 0 is 1536x576, expected 768x576"
+    },
+    {
+      "case_id": "midline-extblken-enable",
+      "profile": "ecs",
+      "status": "failed",
+      "result_file": "midline-extblken-enable/ecs/result.json",
+      "error": "capture field 0 mutation-line Copper timing changed: marker hpos=142 tested hpos=146; expected 138 then 142 (four hpos units apart)"
+    },
+    {
+      "case_id": "midline-extblken-enable",
+      "profile": "aga",
+      "status": "failed",
+      "result_file": "midline-extblken-enable/aga/result.json",
+      "error": "capture field 0 is 1536x576, expected 768x576"
+    },
+    {
+      "case_id": "midline-blanken-enable",
+      "profile": "ecs",
+      "status": "failed",
+      "result_file": "midline-blanken-enable/ecs/result.json",
+      "error": "capture field 0 mutation-line Copper timing changed: marker hpos=142 tested hpos=146; expected 138 then 142 (four hpos units apart)"
+    },
+    {
+      "case_id": "midline-blanken-enable",
+      "profile": "aga",
+      "status": "failed",
+      "result_file": "midline-blanken-enable/aga/result.json",
+      "error": "capture field 0 is 1536x576, expected 768x576"
+    }
+  ],
+  "fatal_error": null
+}

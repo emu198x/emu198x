@@ -274,8 +274,11 @@ fn fat_agnus_diwhigh_gates_bitplane_dma_in_the_mixed_machine() {
     for amiga in [&mut early, &mut fat] {
         amiga.poke_word(DIWSTRT, 0x1010);
         amiga.poke_word(DIWSTOP, 0xA020);
-        amiga.poke_word(DDFSTRT, 0x001C);
-        amiga.poke_word(DDFSTOP, 0x001C);
+        // Keep the fetch unit within the line. The equal $1C/$1C case
+        // crosses wrap and replaces BPL1PT through refresh; its pointer
+        // difference cannot isolate vertical DIWHIGH eligibility.
+        amiga.poke_word(DDFSTRT, 0x0038);
+        amiga.poke_word(DDFSTOP, 0x00D0);
         amiga.poke_word(BPLCON0, 0x1000); // One bitplane.
         amiga.poke_word(BPL1PTH, (BITPLANE >> 16) as u16);
         amiga.poke_word(BPL1PTL, BITPLANE as u16);

@@ -1,0 +1,90 @@
+{
+  "schema_version": "1.0.0",
+  "status": "failed",
+  "evidence_scope": "registered UAE-family software observations; not hardware conformance",
+  "revision": {
+    "full": "f9f6c77af369ca3687d6854e3d8406831edfb7e5",
+    "dirty": true
+  },
+  "suite_id": "org.198x.amiga.programmable-hblank-write-timing",
+  "suite_version": "1.0.0",
+  "built_suite_manifest_sha256": "2d0182d8c4d23822f17a24ddcfb5a23d42eee8f896529513472e86d6a20e6bb9",
+  "registered_suite_manifest_sha256": "fc4c4568b3ae5a7d06e07eddb18f9048937717291d022f02cfc32e68d5f6faf3",
+  "registered_package_sha256": "b6a04ae162aaf4b137a21e57c2f0ab0e5cd14bd91a4713d2b153ba1e0c95e0f3",
+  "expected_runs": 10,
+  "passed_runs": 5,
+  "failed_runs": 5,
+  "cases": [
+    {
+      "case_id": "midline-hbstrt-past",
+      "profile": "ecs",
+      "status": "failed",
+      "result_file": "midline-hbstrt-past/ecs/result.json",
+      "error": "guest field counters are not adjacent: 10 then 12"
+    },
+    {
+      "case_id": "midline-hbstrt-past",
+      "profile": "aga",
+      "status": "passed",
+      "result_file": "midline-hbstrt-past/aga/result.json",
+      "error": null
+    },
+    {
+      "case_id": "midline-hbstop-future",
+      "profile": "ecs",
+      "status": "failed",
+      "result_file": "midline-hbstop-future/ecs/result.json",
+      "error": "fixed-coordinate semantic disagreement: pre-mutation baseline expected black=[SemanticRun { start: 206, end_exclusive: 270 }] guard=[SemanticRun { start: 8, end_exclusive: 206 }, SemanticRun { start: 270, end_exclusive: 762 }] marker=[]; actual black=[SemanticRun { start: 192, end_exclusive: 256 }] guard=[SemanticRun { start: 8, end_exclusive: 192 }, SemanticRun { start: 256, end_exclusive: 762 }] marker=[] | mutation output expected black=[SemanticRun { start: 206, end_exclusive: 270 }] guard=[SemanticRun { start: 8, end_exclusive: 206 }, SemanticRun { start: 270, end_exclusive: 376 }] marker=[SemanticRun { start: 376, end_exclusive: 762 }]; actual black=[SemanticRun { start: 192, end_exclusive: 256 }] guard=[SemanticRun { start: 8, end_exclusive: 192 }, SemanticRun { start: 256, end_exclusive: 376 }] marker=[SemanticRun { start: 376, end_exclusive: 762 }] | post-mutation control expected black=[SemanticRun { start: 206, end_exclusive: 526 }] guard=[] marker=[SemanticRun { start: 8, end_exclusive: 206 }, SemanticRun { start: 526, end_exclusive: 762 }]; actual black=[SemanticRun { start: 192, end_exclusive: 512 }] guard=[] marker=[SemanticRun { start: 8, end_exclusive: 192 }, SemanticRun { start: 512, end_exclusive: 762 }]"
+    },
+    {
+      "case_id": "midline-hbstop-future",
+      "profile": "aga",
+      "status": "passed",
+      "result_file": "midline-hbstop-future/aga/result.json",
+      "error": null
+    },
+    {
+      "case_id": "midline-ecsena-enable",
+      "profile": "ecs",
+      "status": "failed",
+      "result_file": "midline-ecsena-enable/ecs/result.json",
+      "error": "fixed-coordinate semantic disagreement: mutation output expected black=[SemanticRun { start: 396, end_exclusive: 526 }] guard=[SemanticRun { start: 8, end_exclusive: 376 }] marker=[SemanticRun { start: 376, end_exclusive: 396 }, SemanticRun { start: 526, end_exclusive: 762 }]; actual black=[SemanticRun { start: 398, end_exclusive: 512 }] guard=[SemanticRun { start: 8, end_exclusive: 376 }] marker=[SemanticRun { start: 376, end_exclusive: 398 }, SemanticRun { start: 512, end_exclusive: 762 }] | post-mutation control expected black=[SemanticRun { start: 270, end_exclusive: 526 }] guard=[] marker=[SemanticRun { start: 8, end_exclusive: 270 }, SemanticRun { start: 526, end_exclusive: 762 }]; actual black=[SemanticRun { start: 256, end_exclusive: 512 }] guard=[] marker=[SemanticRun { start: 8, end_exclusive: 256 }, SemanticRun { start: 512, end_exclusive: 762 }]"
+    },
+    {
+      "case_id": "midline-ecsena-enable",
+      "profile": "aga",
+      "status": "passed",
+      "result_file": "midline-ecsena-enable/aga/result.json",
+      "error": null
+    },
+    {
+      "case_id": "midline-extblken-enable",
+      "profile": "ecs",
+      "status": "failed",
+      "result_file": "midline-extblken-enable/ecs/result.json",
+      "error": "guest field counters are not adjacent: 9 then 11"
+    },
+    {
+      "case_id": "midline-extblken-enable",
+      "profile": "aga",
+      "status": "passed",
+      "result_file": "midline-extblken-enable/aga/result.json",
+      "error": null
+    },
+    {
+      "case_id": "midline-blanken-enable",
+      "profile": "ecs",
+      "status": "failed",
+      "result_file": "midline-blanken-enable/ecs/result.json",
+      "error": "fixed-coordinate semantic disagreement: post-mutation control expected black=[SemanticRun { start: 270, end_exclusive: 526 }] guard=[] marker=[SemanticRun { start: 8, end_exclusive: 270 }, SemanticRun { start: 526, end_exclusive: 762 }]; actual black=[SemanticRun { start: 256, end_exclusive: 512 }] guard=[] marker=[SemanticRun { start: 8, end_exclusive: 256 }, SemanticRun { start: 512, end_exclusive: 762 }]"
+    },
+    {
+      "case_id": "midline-blanken-enable",
+      "profile": "aga",
+      "status": "passed",
+      "result_file": "midline-blanken-enable/aga/result.json",
+      "error": null
+    }
+  ],
+  "fatal_error": null
+}

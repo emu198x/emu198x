@@ -151,14 +151,14 @@ exact 17-value step. A channel outside those declared encoding bounds fails
 before pixel comparison.
 
 For A1200 AGA output, the canonical image is 752 × 286 RGB8 pixels. The fixed
-Emu198x crop begins at `(10, 2)` in the 768 × 576 framebuffer. Manifest schema
-2 records the beam-absolute transform `Emu x = FS-UAE raw x + 8`: FS-UAE raw
-`x=0` represents horizontal-blank coarse coordinate 46, while Emu198x `x=0`
-represents CCK 44. The earlier `(8, 2)` crop was derived from bitplane content
-and hid a two-host-sample bitplane-phase error. The correction changes the
-consumer crop and bitplane timing, not the registered producer pixels. The
-comparison retains all eight bits per channel and permits no channel
-tolerance or alignment search.
+consumer crop begins at `(8, 2)` in historical hires coordinates; the native
+1536-wide AGA framebuffer supplies its even samples to this hires-only gate.
+The counter-traced transform is `Emu x = FS-UAE raw x + 6`: raw x0 is Denise
+counter 91, native x0 is counter 88. All 600 active observations in the hires
+control establish that origin. Producer metadata omits two hires samples of
+retained line padding. See the ECS/Lisa counter-origin diagnostic record.
+Producer PNGs and all exact RGB assertions remain unchanged. The comparison
+permits no channel tolerance or alignment search.
 
 Each profile contains six cases and seven reference images because the
 alternating checkerboard retains two phases. There is no percentage threshold.
@@ -179,8 +179,8 @@ The current contract is:
 
 | Profile | Exact cases | Registered disagreement |
 |---|---|---|
-| A500+A501 OCS PAL | static checkerboard, both alternating-checkerboard phases, dots, crosshatch | gradients and EBU bars: `denise-ocs-color-output-phase` |
-| A1200 AGA PAL | EBU bars, dots, crosshatch | gradients, static checkerboard and both alternating-checkerboard phases: pointer-only `aga-sprite-horizontal-output-phase` |
+| A500+A501 OCS PAL | all six cases, including both alternating-checkerboard phases | none |
+| A1200 AGA PAL | all six cases, including both alternating-checkerboard phases | none |
 
 On a changed pixel or temporal result the lane records:
 
@@ -200,19 +200,16 @@ expected images.
 
 ## Result interpretation
 
-A passing lane establishes that every exact case still agrees with its
-registered producer and every unresolved case still has precisely its reviewed
-disagreement signature. It does not mean that all six cases agree with the
-producer. The closure runner additionally requires all six ordered outcome
-markers for each profile, so a zero exit status without the declared case set
-cannot satisfy the revision-wide closure.
+A passing lane establishes that all six cases agree exactly with their registered
+producer, including both alternating-checkerboard phases. The closure runner
+requires all six ordered outcome markers for each profile, so a zero exit status
+without the declared case set cannot satisfy the revision-wide closure.
 
 Each result includes only its pinned machine, firmware, media, navigation,
 registered phase pair and alternation, crop, producer-manifest bytes, and
-assertion contract. The A500 gradients and EBU bars remain unresolved against
-vAmiga. The A1200 pointer phase remains unresolved against FS-UAE in three
-patterns. Those questions require stronger independent or physical evidence;
-they are not relaxed comparisons.
+assertion contract. The neutral colour and sprite probes independently support
+the phase choices behind this agreement. Reference agreement does not establish
+physical silicon timing.
 
 It does not establish:
 

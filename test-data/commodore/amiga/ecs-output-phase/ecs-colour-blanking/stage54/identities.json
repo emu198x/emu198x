@@ -1,0 +1,90 @@
+[
+  {
+    "case": "blanken-path",
+    "unchanged_inputs_and_references": true,
+    "files": {
+      "stage54-doubled.png": "fe727d745cb1a77d894deb53a8c7a394d0b23d401d508edd240b0cb9c39148f4",
+      "stage54.json": "7bdfdf2f3a34d98afb4471951220c10eff84686163a534dbe7a068dd42af5cbc",
+      "stage54.log": "5b195c36f0fae2024587f47f02eedaaf65e2593b0fcd18c7d94ac22bc3edfb45",
+      "stage54.png": "16390d525043efc2dfe2b2118eecaa7d04e05d01b630f06bacdc040c8b2ad588"
+    },
+    "input_sha256": "7c917c3d8b7507d0c9d71516105c73f0ae947f00be87ad7f545303b66c8173c4"
+  },
+  {
+    "case": "color-moves",
+    "unchanged_inputs_and_references": true,
+    "files": {
+      "stage54-doubled.png": "496961d6eca27ae17a5da7c1a777ca61334bc84f6d1b1f7007d36beade2da62a",
+      "stage54.json": "2fc0b16e65813c3949ac0fdbcfedc85faf6c7da6f749f3588130b17ae18c1ad4",
+      "stage54.log": "e4effbcb61fbb1100c68b53c908f5f9483b34f2477f6173908ec3880188ff5b6",
+      "stage54.png": "bc9b409f40915f1105e1832f613f8caa4b6b54e9ce1c80d65718bcdc94317e92"
+    },
+    "input_sha256": "dfdaefa90e5f5f52f5ebf89344b39a25d5029fc51f54f8f43144e98504416075"
+  },
+  {
+    "case": "ecsena-gate",
+    "unchanged_inputs_and_references": true,
+    "files": {
+      "stage54-doubled.png": "fe727d745cb1a77d894deb53a8c7a394d0b23d401d508edd240b0cb9c39148f4",
+      "stage54.json": "d4fd28656cabfa707c8c47b2abd106117f885626e66726bc800712e4bfc5aaaa",
+      "stage54.log": "d2c0a1a29e2beccfedf9bbfa4a9e23edef9f03e40d6914192f895c34bf2d62ac",
+      "stage54.png": "16390d525043efc2dfe2b2118eecaa7d04e05d01b630f06bacdc040c8b2ad588"
+    },
+    "input_sha256": "1365a2796566bbeb3a013d251db73f1eb90d9d8604bab93790258c5dd407e3f6"
+  },
+  {
+    "case": "extblken-gate",
+    "unchanged_inputs_and_references": true,
+    "files": {
+      "stage54-doubled.png": "fe727d745cb1a77d894deb53a8c7a394d0b23d401d508edd240b0cb9c39148f4",
+      "stage54.json": "2bbc6aeafb9616225784102f28225245f7886fa5086f744474c11504f0b66183",
+      "stage54.log": "8af945855c7d56384d85482e394dcfdc14137d2cb5c0ff9307011d0521225b23",
+      "stage54.png": "16390d525043efc2dfe2b2118eecaa7d04e05d01b630f06bacdc040c8b2ad588"
+    },
+    "input_sha256": "223d9b960a3e8758920e1e170cfbfd27eed51320dc450c4b38f416e4f1ffa680"
+  },
+  {
+    "case": "fixed-control",
+    "unchanged_inputs_and_references": true,
+    "files": {
+      "stage54-doubled.png": "fe727d745cb1a77d894deb53a8c7a394d0b23d401d508edd240b0cb9c39148f4",
+      "stage54.json": "ab94c8a4979fd548f13d0d6f724c7504992df4a25ebe0e84f3b25cfb589ea6e2",
+      "stage54.log": "e85227e9a7841e7edfc57760d79cdc1eb57877530c49ecd9d7f2abff4a79dcba",
+      "stage54.png": "16390d525043efc2dfe2b2118eecaa7d04e05d01b630f06bacdc040c8b2ad588"
+    },
+    "input_sha256": "02a08a63bbca53fcd1baf4aa3becc20928b4d7df1ef0e5055b444ed786e61136"
+  },
+  {
+    "case": "programmed-central",
+    "unchanged_inputs_and_references": true,
+    "files": {
+      "stage54-doubled.png": "2321d358a555d1b33021baf40e1aaf74db8388291053626109a5522645b8a128",
+      "stage54.json": "79cf07ed1cf5cc030ecf50e3a1d955bc680a3f74ecb8ae4b032ef5addd45c015",
+      "stage54.log": "1fb7bf0b97f94780392a94efc81728ded88f7c8e87ae28d8ab95f6734a9d8987",
+      "stage54.png": "ca7041b96a15aaa1683ba474b8f665571963413a848d42959475fd3ece4540b1"
+    },
+    "input_sha256": "b9c6deb5d84d07a7596e326b22177674d44bab2129ee70ce87bc1ad4f8ec7681"
+  },
+  {
+    "case": "programmed-equal",
+    "unchanged_inputs_and_references": true,
+    "files": {
+      "stage54-doubled.png": "fe727d745cb1a77d894deb53a8c7a394d0b23d401d508edd240b0cb9c39148f4",
+      "stage54.json": "0568973b5105b025e6fdd7a707c095ec39e9d690e3db3b972f5ee97f432d6157",
+      "stage54.log": "a14b52c6714294aa45f6775d529151a7682d8c190961326693854cf58d03f7e5",
+      "stage54.png": "16390d525043efc2dfe2b2118eecaa7d04e05d01b630f06bacdc040c8b2ad588"
+    },
+    "input_sha256": "3dea68b2c49fcf9a4e99d9192b5711493299ba45fc4221de32d12d83763e4ac3"
+  },
+  {
+    "case": "programmed-wrap",
+    "unchanged_inputs_and_references": true,
+    "files": {
+      "stage54-doubled.png": "5031fed822b70316e2f5d4d79962d970aa4fc9fdbd413e1328adf3ad96e4a2f7",
+      "stage54.json": "f38c3501e2dd7104b2928304b928615b539561f90869f27535b68323b863e86c",
+      "stage54.log": "9f2aec01bc7806a9f39a131ad8a4e8535e3ac12d3fda2eed4421ee193fd95593",
+      "stage54.png": "ca88ba67ed9000c78628268f8a0f3bf853984c68af88d03c8b271d54d4e97d50"
+    },
+    "input_sha256": "08a8339e5d0570c0053ec0ceb35bd55b86773bb0f9545e337914116a5e52e5ff"
+  }
+]
