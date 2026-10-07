@@ -72,7 +72,10 @@ fn audio_diagnostic_snapshot_exposes_complete_playback_pipeline_and_controls() {
     assert_eq!(channel.period, 200);
     assert_eq!(channel.effective_period, 200);
     assert_eq!(channel.volume, 32);
-    assert_eq!(channel.data, 0x1234);
+    assert_eq!(
+        channel.data, 0xABCD,
+        "DMA updates the AUDxDAT holding latch"
+    );
     assert_eq!(channel.current_word, Some(0xABCD));
     assert_eq!(channel.next_word, None);
     assert!(!channel.next_byte_is_high);

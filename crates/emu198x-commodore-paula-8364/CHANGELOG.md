@@ -26,6 +26,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Deliver attached volume at startup/high-byte entry and attached period at
+  low-byte entry, using the current AUDxDAT holding word. Match DMA request
+  phases, coalesce pending requests, repeat the buffer on underflow, and load
+  late-arriving words on high-byte entry.
+
 - Honour periods below 124 and reload zero as 65,536 CCKs. The recommended
   DMA sampling period no longer clamps the digital countdown.
 

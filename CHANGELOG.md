@@ -1009,6 +1009,7 @@ crates.io may hit their own 1.0 on their own schedules.
 
 ### Fixed
 
+- *(amiga)* Paula applies period/volume attachment at the correct byte transitions, retains one DMA request during underflow, and loads late-arriving sample words at high-byte entry.
 - *(amiga)* Paula honours short audio periods and treats period zero as 65,536 colour clocks, instead of clamping both to 124. Period writes retain the current sample interval.
 - *(amiga)* Lisa observes programmed blanking edges during horizontal counter resets, preventing missed start/stop events from blanking or exposing most of the next line.
 - *(amiga)* OCS fixed horizontal blanking masks the right-edge tail at Denise's actual comparator, preserving its level across counter resets.
