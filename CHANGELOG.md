@@ -4,6 +4,27 @@ All notable changes to Emu198x will be documented in this file.
 
 Format loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 not strictly. Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [0.31.0] - 2026-10-07
+
+
+### Added
+
+- *(oric)* Expose the RAM under the ROM through the expansion port's ROMDIS and MAP lines
+
+
+### Fixed
+
+- Preserve Paula playback across DMA mode changes
+- *(oric)* Stop writes under the ROM reaching the RAM beneath it without MAP
+- *(oric)* Give the 48K Oric-1 the 16 KB of RAM under its ROM
+- Report the NTSC raster line when the 6560 does, not when it draws it
+- Draw BBC MODE 7 a microsecond a character, as wide as the other modes
+- Deliver retained audio words after DMA startup cancellation
+- Read the value written to VIA timer 1 one cycle after a T1C-H write
+- *(c64)* Keep a mid-line VIC-II mode change at a fixed dot whatever the XSCROLL
+- *(c64)* Fetch the cell after a mid-line VIC-II mode change in the old mode
+- *(c64)* Show the last character's background in an opened VIC-II border
+
 ## [0.30.0] - 2026-10-07
 
 ### Added
