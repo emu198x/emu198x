@@ -1,0 +1,22 @@
+{
+  "component_tests": 120,
+  "affected_runtime_tests": 128,
+  "nominal_amplitude_cases": 2048,
+  "baseline_mismatches": 2040,
+  "corrected_mismatches": 0,
+  "reference_regeneration": "all five artifacts reproduced byte-for-byte",
+  "clippy": "passed",
+  "build": "passed",
+  "waveform_cases": 3,
+  "snapshot_version": 61,
+  "command_correction": "Initial runtime command named nonexistent paula_handover/paula_cancelled_startup targets. Their restore coverage is in snapshot_roundtrip; rerun targeted that file and both actual Paula board tests.",
+  "validation_artifacts": {
+    "clippy-after.log.gz": "4b0c09f896f03efaacd7712e86a06b81f4984a4b578ef88b80dacd8c48571b33",
+    "runtime-after.log.gz": "a23cc3be7235bdcc02dac2cf5efc1dcf3c3a88b19509ed1e0c36b17d4b581397",
+    "waveform-after.log.gz": "d00fe412e9b72c1cdcba43b3fac333e04a6b5403ad7bf78906c23a517aa9b7d1",
+    "build-after.log.gz": "29b114d74a6153e91bdca37934a07dfec467fb49a0253b8e0b911b1e38fd1c38",
+    "component-after.log.gz": "16c87c9ec6e287823dad29ad5fc105842ea6b2cdad605a229e8a046b4c117e35",
+    "native-before.log.gz": "8ced9a54dd76e76b99221f7bca473355d0cff92172927a9b33a252efdf69e0f6",
+    "runtime-command-error.log.gz": "d12d2d20de27b857308799e57e107c7b16b8477f5c74f3ca3dd8fe6e0f47e260"
+  }
+}

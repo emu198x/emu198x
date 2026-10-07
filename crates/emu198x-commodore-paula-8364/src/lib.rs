@@ -394,26 +394,6 @@ fn sanitize_gain(gain: f32) -> f32 {
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// DAC lookup table
-// ─────────────────────────────────────────────────────────────────────
-
-/// DAC non-linearity lookup modelling the A500 resistor-ladder output.
-/// Index 0 = $80 = -128, index 255 = $7F = +127 → normalised f32.
-/// Polynomial approximation with a small cubic peak-compression term.
-fn build_dac_table() -> [f32; 256] {
-    let mut table = [0.0f32; 256];
-    for i in 0..256u16 {
-        let sample = i as u8 as i8;
-        let x = f32::from(sample) / 128.0;
-        let y = x - 0.02 * x * x * x;
-        table[i as usize] = y;
-    }
-    table
-}
-
-static DAC_TABLE: std::sync::LazyLock<[f32; 256]> = std::sync::LazyLock::new(build_dac_table);
-
-// ─────────────────────────────────────────────────────────────────────
 // Audio channel
 // ─────────────────────────────────────────────────────────────────────
 
@@ -786,8 +766,9 @@ impl AudioChannel {
     }
 
     fn mix_sample(&self) -> f32 {
-        let idx = (self.output_sample as u8) as usize;
-        let amplitude = DAC_TABLE[idx];
+        // HRM nominal signed amplitude; chip-specific analogue errors require
+        // a measured transfer curve, not a generic compression polynomial.
+        let amplitude = f32::from(self.output_sample) / 128.0;
         let volume = f32::from(self.vol.min(64)) / 64.0;
         amplitude * volume
     }
