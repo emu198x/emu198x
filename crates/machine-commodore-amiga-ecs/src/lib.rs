@@ -1262,6 +1262,7 @@ impl AmigaEcs {
                 let before = self.agnus.dmacon;
                 self.agnus.write_dmacon(val);
                 let after = self.agnus.dmacon;
+                self.paula.sync_audio_dma_control(after);
                 if before != after {
                     self.debug_dmacon_log.push((
                         self.tick_count / TICKS_PER_CCK,

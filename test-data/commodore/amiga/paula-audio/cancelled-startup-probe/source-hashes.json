@@ -1,0 +1,21 @@
+{
+  "revisions": {
+    "winuae": "c32694e338fa5f34977f522eb4898adb069d2e73",
+    "vamiga": "60fd1e6b69dcd77c9f44d1291bd37ec715362ab0"
+  },
+  "winuae_audio_sha256": "2699601febc6d62c96a79018d0bbe94d47501621a9f7483309f86d3b3ee4ead7",
+  "winuae_changelog_sha256": "55d53a785a7fe9cee25b606012b8fd6eacd6830190e85e15eb3e560b5621f7ea",
+  "vamiga_sources": {
+    "Core/Components/Paula/Audio/StateMachine.cpp": "2169ad6af07f7bac4a1b371fb1b75979ef08e2996c491dba7aac20fad2aa856b",
+    "Core/Components/Paula/Audio/StateMachineRegs.cpp": "c40e0b93eb67aa95077c30c9370f5987c6b60e6c7ed196c9ec572a9c4150b64f",
+    "Core/Components/Paula/Audio/StateMachine.h": "b3cad57addffda09cac91798116fcb50955b8d4b8cd6138eb414317d31d07f11",
+    "Core/Components/Paula/Audio/StateMachineEvents.cpp": "8c69417c61aa15d8a5dbc2361e635d1e51779a85ca7297811f3ec98d185d645f"
+  },
+  "handover_vamiga_state_sha256": "2169ad6af07f7bac4a1b371fb1b75979ef08e2996c491dba7aac20fad2aa856b",
+  "board_source_hashes": {
+    "custom.cpp": "1ee355cece1e3cd9a176c70a2452e0f8f53aa44c954e9b851f19df0dd9428634",
+    "Core/Components/Agnus/AgnusRegs.cpp": "30d2390a0650e94f655a144edd9a174e2b748660c9748cdf0876077713485eb9",
+    "Core/Components/Agnus/AgnusEvents.cpp": "a6784c910238b38398a21f6265c19b37656c61035ea0ba6521852e9b9a07cd9c",
+    "Core/Components/Agnus/AgnusDma.cpp": "b7c547446f44937c93bbd5830f242dd779641a06ae027a148d01b52a74e45a94"
+  }
+}

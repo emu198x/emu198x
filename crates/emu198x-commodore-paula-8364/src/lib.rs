@@ -1419,12 +1419,21 @@ impl Paula8364 {
         let Some(audio) = self.audio.get_mut(index) else {
             panic!("invalid admitted audio channel");
         };
+        // Agnus has already committed this memory transfer. Its pointer
+        // advances even if the channel's mode changed after admission.
+        audio.ptr = address.wrapping_add(2);
+        if !audio.dma_active {
+            // DAT has one register input regardless of the bus master.
+            // A cancelled startup can now be idle: use the normal manual
+            // start/IRQ gate and leave the DMA length counter unchanged.
+            self.write_audio(channel, AudioField::Dat, word);
+            return;
+        }
         let request_next =
             self.adkcon & ADKCON_USE_PER[index] == 0 || self.adkcon & ADKCON_USE_VOL[index] != 0;
         if reload {
             audio.words_remaining = audio.programmed_length_words();
         }
-        audio.ptr = address.wrapping_add(2);
         audio.words_remaining = audio.words_remaining.saturating_sub(1);
         let starting = audio.state == AudioState::WaitWord2;
         if audio.accept_dma_word(word, reload, request_next) {
@@ -1454,7 +1463,17 @@ impl Paula8364 {
         self.finish_audio_cck(dmacon, audio_dma_slot, read_chip_byte);
     }
 
-    /// Clock DMA enable and sample output after this CCK's DMA retirement.
+    /// Apply effective DMACON levels without advancing the audio clock.
+    /// Boards call this when the register change takes effect, so a retained
+    /// transfer observes the channel's current mode when its DAT word arrives.
+    pub fn sync_audio_dma_control(&mut self, dmacon: u16) {
+        for (index, channel) in self.audio.iter_mut().enumerate() {
+            let dma_enabled = (dmacon & DMA_MASTER) != 0 && (dmacon & DMA_AUD[index]) != 0;
+            channel.sync_dma_enable(dma_enabled);
+        }
+    }
+
+    /// Synchronize DMA enable and clock output after this CCK's DMA retirement.
     /// Pair with exactly one `begin_audio_cck` on the existing board clock.
     pub fn finish_audio_cck<F>(
         &mut self,
@@ -1464,10 +1483,7 @@ impl Paula8364 {
     ) where
         F: FnMut(u32) -> u8,
     {
-        for (index, channel) in self.audio.iter_mut().enumerate() {
-            let dma_enabled = (dmacon & DMA_MASTER) != 0 && (dmacon & DMA_AUD[index]) != 0;
-            channel.sync_dma_enable(dma_enabled);
-        }
+        self.sync_audio_dma_control(dmacon);
 
         if let Some(ch_u8) = audio_dma_slot
             && let Some(ch) = self.audio.get_mut(ch_u8 as usize)
