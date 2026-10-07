@@ -3,7 +3,8 @@
 use emu198x_shell::launch::{Args, LaunchError, MachineApp, read_rom};
 use emu198x_shell::{FirmwareOverrides, MediaKind, build_variant, read_media_asset};
 use runtime_atari_800xl::{
-    Atari800xlRuntime, Atari800xlSessionQueryProvider, BASIC_FIRMWARE_ID, Model, OS_FIRMWARE_ID,
+    Atari800xlRuntime, Atari800xlSessionQueryProvider, BASIC_FIRMWARE_ID, CartridgeKind, Model,
+    OS_FIRMWARE_ID,
 };
 use serde_json::{Map, Value};
 use std::path::PathBuf;
@@ -13,6 +14,9 @@ use std::path::PathBuf;
 pub struct Atari800xl {
     pub firmware: FirmwareOverrides,
     pub cart: Option<PathBuf>,
+    /// `--cart-type KIND`: the banking scheme of a `--cart` image its bytes
+    /// cannot identify. Overrides the `CART` header and the CRC32 lookup.
+    pub cart_type: Option<CartridgeKind>,
     /// `--disk PATH`: an ATR image for D1:, loaded before a script runs.
     pub disk: Option<PathBuf>,
     /// `--no-basic` clears this: OPTION is held at boot to disable BASIC.
@@ -25,6 +29,7 @@ impl Default for Atari800xl {
         Self {
             firmware: FirmwareOverrides::none(),
             cart: None,
+            cart_type: None,
             disk: None,
             basic_enabled: true,
             model: Model::A800xlNtsc,
@@ -34,6 +39,11 @@ impl Default for Atari800xl {
 
 impl Atari800xl {
     fn configured_runtime(&self) -> Result<Atari800xlRuntime, LaunchError> {
+        if self.cart_type.is_some() && self.cart.is_none() {
+            return Err(LaunchError::Usage(
+                "--cart-type names the scheme of a --cart image; pass --cart PATH too".to_owned(),
+            ));
+        }
         let mut runtime = build_variant::<Atari800xlRuntime>(self.model, &self.firmware)
             .map_err(|err| LaunchError::Run(err.to_string()))?;
         runtime
@@ -41,7 +51,7 @@ impl Atari800xl {
             .map_err(|err| LaunchError::Run(err.to_string()))?;
         if let Some(path) = &self.cart {
             runtime
-                .insert_cartridge(Some(read_rom(path, "--cart")?))
+                .insert_cartridge_as(Some(read_rom(path, "--cart")?), self.cart_type)
                 .map_err(|err| LaunchError::Run(err.to_string()))?;
         }
         Ok(runtime)
@@ -61,7 +71,10 @@ impl MachineApp for Atari800xl {
     --rom ID=PATH   pin an OS or BASIC catalogue image
     --rom-dir DIR   firmware directory (or EMU198X_A800XL_ROM_DIR)
     --model ID      atari-800xl-ntsc | atari-800xl-pal
-    --cart PATH     cartridge image (flat, XEGS, MegaCart or OSS; .car headers honoured)
+    --cart PATH     cartridge image (flat, XEGS, MegaCart or OSS; .car headers honoured,
+                    known headerless OSS dumps identified by CRC32)
+    --cart-type KIND  banking scheme for a --cart image that does not say:
+                    standard | oss-m091 | oss-043m | oss-034m | oss-8k | xegs | mega
     --disk PATH     ATR disk image for D1: (a .zip holding one .atr works too)
     --no-basic      hold OPTION at boot to disable the built-in BASIC
     --region MODE   ntsc | pal [default: ntsc]";
@@ -96,6 +109,13 @@ impl MachineApp for Atari800xl {
                 })?;
             }
             "--cart" => self.cart = Some(args.path(flag)?),
+            "--cart-type" => {
+                self.cart_type = Some(
+                    args.value(flag)?
+                        .parse()
+                        .map_err(|err| LaunchError::Usage(format!("{flag}: {err}")))?,
+                );
+            }
             "--disk" => self.disk = Some(args.path(flag)?),
             "--no-basic" => self.basic_enabled = false,
             "--region" => {
@@ -206,6 +226,41 @@ mod tests {
         assert_eq!(app.model, Model::A800xlPal);
         // A bare `--cart` is shared with the UI, so it opens the window.
         assert_eq!(mode, Mode::Ui);
+    }
+
+    #[test]
+    fn cart_type_names_the_scheme() {
+        let parsed = parse::<Atari800xl>(&args(&["--cart", "bxl.bin", "--cart-type", "oss-043m"]))
+            .expect("parses");
+        let Parsed::Run { app, .. } = parsed else {
+            panic!("expected a run");
+        };
+        assert_eq!(app.cart_type, Some(CartridgeKind::OssTwoChip));
+    }
+
+    #[test]
+    fn a_bad_cart_type_lists_the_schemes() {
+        let err = parse::<Atari800xl>(&args(&["--cart-type", "megarom"])).expect_err("rejects");
+        assert_eq!(
+            err,
+            LaunchError::Usage(
+                "--cart-type: unknown cartridge type `megarom`; expected standard | oss-m091 \
+                 | oss-043m | oss-034m | oss-8k | xegs | mega"
+                    .to_owned()
+            )
+        );
+    }
+
+    #[test]
+    fn a_cart_type_without_a_cart_is_a_usage_error() {
+        let app = Atari800xl {
+            cart_type: Some(CartridgeKind::OssOneChip),
+            ..Atari800xl::default()
+        };
+        let Err(err) = app.configured_runtime() else {
+            panic!("expected a usage error");
+        };
+        assert!(matches!(err, LaunchError::Usage(ref text) if text.contains("--cart PATH")));
     }
 
     #[test]

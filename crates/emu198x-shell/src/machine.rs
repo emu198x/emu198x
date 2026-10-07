@@ -233,6 +233,15 @@ pub trait MachineCore {
     /// Returns an error if the machine rejects the media set.
     fn load_media(&mut self, media: &MediaSet<'_>) -> Result<(), MachineError>;
 
+    /// The cartridge banking schemes a caller may name in
+    /// [`crate::MediaImage::cart_type`], for machines whose headerless
+    /// cartridge images cannot always be identified from their bytes.
+    /// Default: none, so the session refuses any `cart_type` rather than
+    /// let a machine that never reads the field ignore it.
+    fn cartridge_types(&self) -> &'static [&'static str] {
+        &[]
+    }
+
     /// Eject whatever media occupies `slot` (the slot id from the machine's
     /// profile, e.g. "floppy-0"/"drive-8"/"tape-1"). The counterpart to
     /// [`Self::load_media`]. Default: unsupported (machines with no removable

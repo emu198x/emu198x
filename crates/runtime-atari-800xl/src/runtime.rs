@@ -6,7 +6,7 @@ use emu198x_shell::{
     RunResult, StopReason,
 };
 use format_atari_8bit_atr::AtrImage;
-use machine_atari_800xl::{Atari800xl, Atari800xlRegion, Cartridge};
+use machine_atari_800xl::{Atari800xl, Atari800xlRegion, Cartridge, CartridgeKind};
 
 use crate::profiles::{BASIC_FIRMWARE_ID, Model, OS_FIRMWARE_ID, profile_for};
 use crate::snapshot;
@@ -116,10 +116,32 @@ impl Atari800xlRuntime {
         Ok(())
     }
 
+    /// Insert (or, with `None`, remove) a cartridge, identifying its banking
+    /// scheme from its `CART` header, a known dump's CRC32, or its size.
+    ///
+    /// # Errors
+    ///
+    /// Returns `MachineError::InvalidMedia` if the cart fails to parse.
     pub fn insert_cartridge(&mut self, rom: Option<Vec<u8>>) -> Result<(), MachineError> {
+        self.insert_cartridge_as(rom, None)
+    }
+
+    /// Insert a cartridge as `kind` when the caller names one: the override
+    /// for a headerless dump the CRC32 table does not know, such as an OSS
+    /// or MegaCart image. It outranks the image's own `CART` header.
+    ///
+    /// # Errors
+    ///
+    /// Returns `MachineError::InvalidMedia` if the image cannot be `kind`
+    /// (a wrong size) or, without a kind, fails to parse.
+    pub fn insert_cartridge_as(
+        &mut self,
+        rom: Option<Vec<u8>>,
+        kind: Option<CartridgeKind>,
+    ) -> Result<(), MachineError> {
         self.cartridge = rom
             .as_deref()
-            .map(Cartridge::from_rom)
+            .map(|rom| Cartridge::from_rom_as(rom, kind))
             .transpose()
             .map_err(cartridge_error)?;
         self.rebuild_machine();
@@ -398,7 +420,13 @@ impl MachineCore for Atari800xlRuntime {
         for image in &media.images {
             match (image.slot.as_ref(), image.kind) {
                 ("cartridge-1", MediaKind::Cartridge) => {
-                    self.insert_cartridge(Some(image.bytes.to_vec()))?;
+                    let kind = image
+                        .cart_type
+                        .as_deref()
+                        .map(str::parse::<CartridgeKind>)
+                        .transpose()
+                        .map_err(cartridge_error)?;
+                    self.insert_cartridge_as(Some(image.bytes.to_vec()), kind)?;
                 }
                 (slot, MediaKind::Cartridge) => {
                     return Err(MachineError::UnknownMediaSlot {
@@ -440,6 +468,9 @@ impl MachineCore for Atari800xlRuntime {
             }
         }
         Ok(())
+    }
+    fn cartridge_types(&self) -> &'static [&'static str] {
+        &CartridgeKind::NAMES
     }
     fn eject_media(&mut self, slot: &str) -> Result<(), MachineError> {
         match slot {

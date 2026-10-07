@@ -674,6 +674,7 @@ impl<M: MachineCore, Q: SessionQueryProvider<M>> HeadlessSession<M, Q> {
     ///
     /// Returns an error if the machine rejects the media.
     pub fn load_media(&mut self, media: &MediaSet<'_>) -> Result<(), SessionError> {
+        crate::media::check_cart_types(media, self.machine.cartridge_types())?;
         self.machine.load_media(media)?;
         Ok(())
     }
@@ -1366,6 +1367,7 @@ mod tests {
         pacing: u64,
         frame_durations: Option<[u64; 2]>,
         frames_run: u32,
+        cart_types: &'static [&'static str],
     }
 
     impl DummyMachine {
@@ -1398,6 +1400,7 @@ mod tests {
                 received_inputs: Vec::new(),
                 frame_durations: None,
                 frames_run: 0,
+                cart_types: &[],
             }
         }
 
@@ -1425,6 +1428,10 @@ mod tests {
         fn load_media(&mut self, media: &MediaSet<'_>) -> Result<(), MachineError> {
             self.loaded_media += media.images.len();
             Ok(())
+        }
+
+        fn cartridge_types(&self) -> &'static [&'static str] {
+            self.cart_types
         }
 
         fn run_until(
@@ -1715,6 +1722,55 @@ mod tests {
 
         assert_eq!(session.machine().loaded_media, 1);
         assert_eq!(session.machine().commands, 1);
+    }
+
+    /// A cartridge type reaches the machine only when the machine lists it;
+    /// otherwise the load fails before the machine sees the image, so a
+    /// runtime that never reads the field cannot silently ignore it.
+    #[test]
+    fn load_media_refuses_a_cartridge_type_the_machine_does_not_list() {
+        let cart = |name: &'static str| {
+            let mut media = MediaSet::new();
+            media.push(MediaImage::new("cartridge-1", MediaKind::Cartridge, &[0]).cart_type(name));
+            media
+        };
+        let reason = |err: SessionError| match err {
+            SessionError::Machine(MachineError::InvalidMedia { slot, reason }) => {
+                assert_eq!(slot, "cartridge-1");
+                reason
+            }
+            other => panic!("expected InvalidMedia, got {other:?}"),
+        };
+
+        let mut session = HeadlessSession::new(DummyMachine::new(), 69888);
+        let err = session.load_media(&cart("oss-m091")).expect_err("no types");
+        assert!(reason(err).contains("takes no cartridge type"));
+        let err = session
+            .prepare(&cart("oss-m091"), &[])
+            .expect_err("prepare checks too");
+        assert!(reason(err).contains("takes no cartridge type"));
+        assert_eq!(session.machine().loaded_media, 0);
+
+        let mut session = HeadlessSession::new(
+            DummyMachine {
+                cart_types: &["standard", "oss-m091"],
+                ..DummyMachine::new()
+            },
+            69888,
+        );
+        let err = session.load_media(&cart("megarom")).expect_err("unknown");
+        assert_eq!(
+            reason(err),
+            "unknown cartridge type `megarom`; expected standard | oss-m091"
+        );
+        let mut tape = MediaSet::new();
+        tape.push(MediaImage::new("tape-1", MediaKind::Tape, &[0]).cart_type("standard"));
+        let err = session.load_media(&tape).expect_err("not a cartridge");
+        assert!(format!("{err}").contains("cartridge media only"), "{err}");
+        assert_eq!(session.machine().loaded_media, 0);
+
+        session.load_media(&cart("oss-m091")).expect("listed");
+        assert_eq!(session.machine().loaded_media, 1);
     }
 
     #[test]

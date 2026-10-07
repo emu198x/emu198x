@@ -75,6 +75,7 @@ pub fn prepare_machine(
     commands: &[ControlCommand],
 ) -> Result<(), MachineError> {
     if !media.is_empty() {
+        crate::media::check_cart_types(media, machine.cartridge_types())?;
         machine.load_media(media)?;
     }
 
