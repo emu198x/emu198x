@@ -100,7 +100,8 @@ use palette::PALETTE;
 ///
 /// **Version 10** (2026-10-07): the graphics sequencer decodes the display
 /// mode at the shift register's output, so a mid-line mode change takes
-/// effect at a fixed dot of the cycle instead of moving with XSCROLL (#1660).
+/// effect at a fixed dot of the cycle instead of moving with XSCROLL, and
+/// the g-access address reads some mode bits a cycle late (#1660).
 pub const FRAME_ROUTING_VERSION: u32 = 10;
 
 /// CPU-side data visible during the VIC-II's Phi2 phase.
@@ -165,6 +166,9 @@ const SPRITE_X_TO_FB: i16 = 24;
 pub trait VicMemory {
     /// Read a byte from VIC-visible memory using the full 16-bit VIC address.
     fn read_vram(&self, addr: u16) -> u8;
+
+    /// Whether the full 16-bit VIC address reads the character ROM.
+    fn is_character_rom(&self, addr: u16) -> bool;
 
     /// Read a colour RAM nibble at the given 0-1023 offset.
     fn read_colour(&self, offset: u16) -> u8;
@@ -677,6 +681,10 @@ pub struct Vic {
     /// The graphics sequencer, as of the last cell to leave the colour
     /// stage.
     sequencer: GraphicsSequencer,
+    /// `$D011` as it stood for the previous g-access (VICE `reg11_delay`).
+    /// The g-access reads its mode bits through it; see
+    /// [`Vic::fetch_display_graphics`].
+    d011_delayed: u8,
     lines_per_frame: u16,
     cycles_per_line: u8,
     /// Model-specific sprite-region cycle schedule (PAL 6569 vs NTSC 6567).
@@ -788,6 +796,7 @@ impl Vic {
             sprite_sprite_irq_latched: false,
             sprite_bg_irq_latched: false,
             sequencer: GraphicsSequencer::default(),
+            d011_delayed: 0,
             lines_per_frame: model.lines_per_frame(),
             cycles_per_line: model.cycles_per_line(),
             timing: model.sprite_timing(),
@@ -876,6 +885,7 @@ impl Vic {
                 *remaining = remaining.saturating_sub(1);
             }
         }
+        self.d011_delayed = self.regs[0x11];
         self.raster_cycle += 1;
         if self.raster_cycle >= self.cycles_per_line {
             self.raster_cycle = 0;
@@ -1503,10 +1513,15 @@ impl Vic {
     /// and presents zero for the paired video-matrix and colour entries. This
     /// normally remains hidden by the border, but vertical/side-border effects
     /// expose it. VICE models the same split in `vicii_fetch_idle_gfx` and the
-    /// idle branch of `vicii_draw_cycle`.
+    /// idle branch of `vicii_draw_cycle`. As in [`Vic::fetch_display_graphics`],
+    /// the 8562/8565 read ECM a cycle late.
     fn fetch_idle_graphics(&self, memory: &dyn VicMemory) -> GraphicsData {
-        let ecm = self.regs[0x11] & 0x40 != 0;
-        let idle_addr = if ecm { 0x39FF } else { 0x3FFF };
+        let d011 = if self.model.has_grey_dot() {
+            self.d011_delayed
+        } else {
+            self.regs[0x11]
+        };
+        let idle_addr = if d011 & 0x40 != 0 { 0x39FF } else { 0x3FFF };
         GraphicsData {
             gbuf: memory.read_vram(self.vram_addr(idle_addr)),
             vbuf: 0,
@@ -1514,25 +1529,56 @@ impl Vic {
         }
     }
 
-    /// The g-access of display column `col`, addressed in the mode that
-    /// stands as the VIC-II fetches it (VICE `g_fetch_addr`,
-    /// `viciisc/vicii-fetch.c`): bitmap modes read `(VC << 3) | RC` from the
-    /// bitmap base, text modes the matrix entry's character from the
-    /// character base, and ECM clears address bits 9 and 10. The invalid
-    /// modes fetch too; they only show black.
-    fn fetch_display_graphics(&self, col: usize, memory: &dyn VicMemory) -> GraphicsData {
-        let vbuf = self.screen_row[col];
-        let cbuf = self.colour_row[col] & 0x0F;
-        let bmm = self.regs[0x11] & 0x20 != 0;
-        let ecm = self.regs[0x11] & 0x40 != 0;
-        let mut addr = if bmm {
+    /// The g-access address, within the bank, in the mode `d011` selects for
+    /// matrix entry `vbuf` (VICE `g_fetch_addr`, `viciisc/vicii-fetch.c`).
+    /// Bitmap modes read `(VC << 3) | RC` from the bitmap base and text modes
+    /// the entry's character from the character base. ECM holds address
+    /// lines 9 and 10 low (Bauer, section 3.7.3). The invalid modes fetch
+    /// too; they only show black.
+    fn graphics_fetch_addr(&self, d011: u8, vbuf: u8) -> u16 {
+        let addr = if d011 & 0x20 != 0 {
             self.bitmap_base() + self.vc * 8 + u16::from(self.rc)
         } else {
             self.char_base() + u16::from(vbuf) * 8 + u16::from(self.rc)
         };
-        if ecm {
-            addr &= 0x39FF;
+        if d011 & 0x40 != 0 {
+            addr & 0x39FF
+        } else {
+            addr
         }
+    }
+
+    /// The g-access of display column `col`.
+    ///
+    /// The address generator reads some mode bits a cycle late, as VICE
+    /// `vicii_fetch_graphics` models. The HMOS-II 8562/8565 address with the
+    /// `$D011` of the previous g-access. The NMOS 6567/6569 see ECM and a
+    /// rising BMM at once, but a falling BMM a cycle late. When a BMM change
+    /// turns a RAM fetch into a character-ROM fetch, the low address byte
+    /// comes from the old address and the rest from the new one. Bauer does not cover
+    /// either. The testbench's `modesplit` changes BMM and ECM in mid-line,
+    /// and its 6569 and 8565 references show the late cell; VICE matches
+    /// them there.
+    fn fetch_display_graphics(&self, col: usize, memory: &dyn VicMemory) -> GraphicsData {
+        let vbuf = self.screen_row[col];
+        let cbuf = self.colour_row[col] & 0x0F;
+        let now = self.regs[0x11];
+        let delayed = self.d011_delayed;
+        let addr = if self.model.has_grey_dot() {
+            self.graphics_fetch_addr(delayed, vbuf)
+        } else {
+            let mut addr = self.graphics_fetch_addr(now | (delayed & 0x20), vbuf);
+            if (now ^ delayed) & 0x20 != 0 {
+                let from = self.graphics_fetch_addr(delayed, vbuf);
+                let to = self.graphics_fetch_addr(now, vbuf);
+                if !memory.is_character_rom(self.vram_addr(from))
+                    && memory.is_character_rom(self.vram_addr(to))
+                {
+                    addr = (from & 0x00FF) | (to & 0x3F00);
+                }
+            }
+            addr
+        };
         GraphicsData {
             gbuf: memory.read_vram(self.vram_addr(addr)),
             vbuf,
@@ -2334,6 +2380,11 @@ mod tests {
             } else {
                 self.ram[addr as usize]
             }
+        }
+
+        fn is_character_rom(&self, addr: u16) -> bool {
+            let bank = (addr >> 14) & 0x03;
+            (bank == 0 || bank == 2) && (0x1000..0x2000).contains(&(addr & 0x3FFF))
         }
 
         fn read_colour(&self, offset: u16) -> u8 {
@@ -3434,6 +3485,114 @@ mod tests {
                 "XSCROLL {xscroll}"
             );
         }
+    }
+
+    /// On line 0x34 (display state, not a badline), with `$D011` = `before`,
+    /// write `after` in the CPU access of column 5's g-access cycle and return
+    /// the eight dots of column 6, the first g-access after the write. Every
+    /// matrix entry is `$25` and every colour entry yellow; `$D021` is blue.
+    fn column_after_d011_write(
+        model: VicModel,
+        memory: &mut TestMemory,
+        d018: u8,
+        before: u8,
+        after: u8,
+    ) -> Vec<u32> {
+        let mut vic = Vic::new(model);
+        vic.write(0x11, before);
+        vic.write(0x16, 0x08);
+        vic.write(0x18, d018);
+        vic.write(0x21, 0x06);
+
+        let target_line = DISPLAY_START_LINE + 4;
+        advance_to(&mut vic, memory, target_line, DISPLAY_START_CYCLE);
+        vic.screen_row = [0x25; 40];
+        vic.colour_row = [0x07; 40];
+        step_cycles(&mut vic, memory, 6);
+        vic.write(0x11, after);
+        step_cycles(&mut vic, memory, 3);
+
+        let fb_y = (target_line - FIRST_VISIBLE_LINE) as usize;
+        let fb_x = usize::from(DISPLAY_START_CYCLE - FIRST_VISIBLE_CYCLE + 6) * 8;
+        let frame = settled(&vic);
+        let row = &frame.framebuffer()[fb_y * FB_WIDTH as usize..];
+        row[fb_x..fb_x + 8].to_vec()
+    }
+
+    /// Bank 0 with a solid bitmap at `$2000` and blank characters at `$3000`.
+    fn solid_bitmap_blank_ram_characters() -> TestMemory {
+        let mut memory = TestMemory::new(&[0; 4096]);
+        for addr in 0x2000..0x3000 {
+            memory.ram_write(addr, 0xFF);
+        }
+        memory
+    }
+
+    #[test]
+    fn falling_bmm_reaches_the_g_access_a_cycle_late() {
+        // Bitmap to text in column 5's cycle: column 6 still fetches the
+        // solid bitmap, shown as text in the colour entry's yellow. Character
+        // data would be blank, showing `$D021`.
+        for model in [VicModel::Pal6569, VicModel::Pal8565] {
+            let mut memory = solid_bitmap_blank_ram_characters();
+            assert_eq!(
+                column_after_d011_write(model, &mut memory, 0x1C, 0x3B, 0x1B),
+                vec![PALETTE[7]; 8],
+                "{model:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn rising_bmm_reaches_the_g_access_at_once_on_the_6569_only() {
+        // Text to bitmap in column 5's cycle. Column 6 shows hires bitmap
+        // colours from the matrix entry `$25`: red where the solid bitmap
+        // was fetched, green for the blank character the 8565 still fetches.
+        let mut memory = solid_bitmap_blank_ram_characters();
+        assert_eq!(
+            column_after_d011_write(VicModel::Pal6569, &mut memory, 0x1C, 0x1B, 0x3B),
+            vec![PALETTE[2]; 8]
+        );
+        let mut memory = solid_bitmap_blank_ram_characters();
+        assert_eq!(
+            column_after_d011_write(VicModel::Pal8565, &mut memory, 0x1C, 0x1B, 0x3B),
+            vec![PALETTE[5]; 8]
+        );
+    }
+
+    #[test]
+    fn falling_bmm_into_the_character_rom_mixes_the_two_addresses() {
+        // Bitmap at `$0000` (RAM, blank) to text from the character ROM at
+        // `$1000` in column 5's cycle. Column 6's g-access takes its low
+        // byte from the bitmap address and the rest from the character
+        // address. Only that byte is solid in the ROM, so only the mixed
+        // address shows the yellow colour entry.
+        let mut probe = Vic::new(VicModel::Pal6569);
+        probe.write(0x11, 0x3B);
+        let probe_memory = TestMemory::new(&[0; 4096]);
+        advance_to(
+            &mut probe,
+            &probe_memory,
+            DISPLAY_START_LINE + 4,
+            DISPLAY_START_CYCLE,
+        );
+        step_cycles(&mut probe, &probe_memory, 6);
+        let (vc, rc) = (probe.vc, u16::from(probe.rc));
+        let bitmap_low = (vc * 8 + rc) & 0x00FF;
+        let character = 0x25 * 8 + rc;
+        assert_ne!(
+            bitmap_low,
+            character & 0x00FF,
+            "the two addresses must differ"
+        );
+
+        let mut chargen = [0; 4096];
+        chargen[usize::from((character & 0x0F00) | bitmap_low)] = 0xFF;
+        let mut memory = TestMemory::new(&chargen);
+        assert_eq!(
+            column_after_d011_write(VicModel::Pal6569, &mut memory, 0x14, 0x3B, 0x1B),
+            vec![PALETTE[7]; 8]
+        );
     }
 
     #[test]
