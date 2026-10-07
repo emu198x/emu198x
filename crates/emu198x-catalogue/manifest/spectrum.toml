@@ -2892,8 +2892,19 @@ button = "fire"
 # — so any difference in the captured frame is caused by that event.
 # Verified by capturing both:
 #
-#   with FIRE:    xxh64:8ad40f5c12dedf3a   1UP 001100, 2 lives
-#   without FIRE: xxh64:b1e9fd80d9f92d2c   1UP 000700, 4 lives
+#   with FIRE:    xxh64:e6adcf39203e06db   1UP 001100, 2 lives
+#   without FIRE: xxh64:ffec528f1b58e797   1UP 001090, 3 lives
+#
+# Re-captured 2026-10-07 for #1637, when the 48K started reading the
+# tape input the right way up in port $FE bit 6. The load ends at the
+# same T-state with the same RAM. Once the game is running, every
+# register matches main's except R, which is 10 lower: the ROM's edge
+# loop sampled a different number of times, because the signal it
+# waits on is now the other way up. So the game's play depends on R,
+# and the enemies differ from the first gameplay frame on. The audio
+# is identical until then (1.35 s into the window). The previous pair
+# was 8ad40f5c12dedf3a (001100, 2 lives) and b1e9fd80d9f92d2c (000700,
+# 4 lives).
 #
 # The frames differ, so routing through
 # `InputEvent::Button { port: 0, name: "fire" }` →
@@ -2905,12 +2916,12 @@ button = "fire"
 # both runs, the 2026-05 one 000545 vs 001070), and a score is a value
 # two runs can reach by unrelated routes.
 wait_frames = 600
-frame_hash = "xxh64:8ad40f5c12dedf3a"
+frame_hash = "xxh64:e6adcf39203e06db"
 
 [entry.audio]
 from_frame = 60
 secs = 2.0
-hash = "xxh64:a63196961c51a6ac"
+hash = "xxh64:8c7753ee7d9e7c77"
 
 [[entry]]
 id = "gulpman"
