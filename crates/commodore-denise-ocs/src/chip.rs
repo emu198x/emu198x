@@ -65,6 +65,9 @@ pub struct DeniseOcs {
     pub interlace_active: bool,
     /// Long frame flag — toggles each frame when interlace is active.
     pub lof: bool,
+    /// OCS fixed HBLANK latch, clocked by the OCS board's Denise counter.
+    /// Enhanced boards supply their own blanking signals.
+    fixed_hblank_active: bool,
     /// Maximum bitplane count: 6 for OCS/ECS, 8 for AGA.
     ///
     /// Controls whether BPLCON0 bit 4 extends the BPU field to 4 bits (8 planes).
@@ -230,6 +233,7 @@ impl DeniseOcs {
             raster_fb_height,
             interlace_active: false,
             lof: true,
+            fixed_hblank_active: false,
             max_bitplanes: 6,
             bpl_data: [0; 8],
             bpl_shift: [0; 8],
@@ -516,6 +520,23 @@ impl DeniseOcs {
         self.sprite_bpl1dat_enabled
     }
 
+    /// Clock OCS's fixed blank comparators on one existing lores output tick.
+    /// UAE compares the next counter with $0F/$5D. A strobe that skips an
+    /// edge must retain the latch; its level cannot be derived from a range.
+    pub fn advance_fixed_hblank(&mut self, counter: u16) {
+        match counter.wrapping_add(1) & 511 {
+            0x0F => self.fixed_hblank_active = true,
+            0x5D => self.fixed_hblank_active = false,
+            _ => {}
+        }
+    }
+
+    /// Retained OCS blank level, after the most recent output comparison.
+    #[must_use]
+    pub const fn fixed_hblank_active(&self) -> bool {
+        self.fixed_hblank_active
+    }
+
     /// Reset per-line state for bitplane and sprite output timing.
     ///
     /// Clears `bpl_prev_data` so the BPLCON1 barrel-shift carry does not
@@ -597,6 +618,7 @@ impl DeniseOcs {
             framebuffer_pixels: self.framebuffer_raster.len(),
             interlace_active: self.interlace_active,
             long_frame: self.lof,
+            fixed_hblank_active: self.fixed_hblank_active,
             maximum_bitplanes: self.max_bitplanes,
             active_bitplanes: self.num_bitplanes(),
             bplcon0: self.bplcon0,

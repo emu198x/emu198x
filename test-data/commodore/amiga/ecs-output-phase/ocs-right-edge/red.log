@@ -1,0 +1,40 @@
+   Compiling thiserror v2.0.20
+   Compiling bitflags v2.11.1
+   Compiling commodore-agnus-ocs v0.28.1 (/Users/stevehill/Projects/198x/Emu198x/emu198x/crates/commodore-agnus-ocs)
+   Compiling emu198x-commodore-paula-8364 v0.6.0 (/Users/stevehill/Projects/198x/Emu198x/emu198x/crates/emu198x-commodore-paula-8364)
+   Compiling motorola-68000 v0.28.1 (/Users/stevehill/Projects/198x/Emu198x/emu198x/crates/motorola-68000)
+   Compiling commodore-denise-ocs v0.28.1 (/Users/stevehill/Projects/198x/Emu198x/emu198x/crates/commodore-denise-ocs)
+   Compiling png v0.18.1
+   Compiling cobs v0.3.0
+   Compiling postcard v1.1.3
+   Compiling motorola-68010 v0.28.1 (/Users/stevehill/Projects/198x/Emu198x/emu198x/crates/motorola-68010)
+   Compiling commodore-denise-ecs v0.28.1 (/Users/stevehill/Projects/198x/Emu198x/emu198x/crates/commodore-denise-ecs)
+   Compiling motorola-68020 v0.28.1 (/Users/stevehill/Projects/198x/Emu198x/emu198x/crates/motorola-68020)
+   Compiling motorola-68030 v0.28.1 (/Users/stevehill/Projects/198x/Emu198x/emu198x/crates/motorola-68030)
+   Compiling motorola-68040 v0.28.1 (/Users/stevehill/Projects/198x/Emu198x/emu198x/crates/motorola-68040)
+   Compiling common-commodore-amiga v0.28.1 (/Users/stevehill/Projects/198x/Emu198x/emu198x/crates/common-commodore-amiga)
+   Compiling commodore-agnus-ecs v0.28.1 (/Users/stevehill/Projects/198x/Emu198x/emu198x/crates/commodore-agnus-ecs)
+   Compiling machine-commodore-amiga-ocs v0.28.1 (/Users/stevehill/Projects/198x/Emu198x/emu198x/crates/machine-commodore-amiga-ocs)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 10.47s
+     Running unittests src/lib.rs (target/debug/deps/machine_commodore_amiga_ocs-5411e214c439cdd6)
+
+running 1 test
+test tests::ocs_fixed_blank_starts_in_the_carried_right_edge ... FAILED
+
+failures:
+
+---- tests::ocs_fixed_blank_starts_in_the_carried_right_edge stdout ----
+
+thread 'tests::ocs_fixed_blank_starts_in_the_carried_right_edge' (66534726) panicked at crates/machine-commodore-amiga-ocs/src/lib.rs:3567:9:
+assertion `left == right` failed: OCS fixed HBLANK must mask the carried row at counter 14
+  left: [4279317333, 4279317333]
+ right: [4278190080, 4278190080]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    tests::ocs_fixed_blank_starts_in_the_carried_right_edge
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 39 filtered out; finished in 0.04s
+
+error: test failed, to rerun pass `-p machine-commodore-amiga-ocs --lib`

@@ -1,0 +1,75 @@
+   Compiling runtime-commodore-amiga v0.28.1 (/Users/stevehill/Projects/198x/Emu198x/emu198x/crates/runtime-commodore-amiga)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.14s
+     Running tests/display_register_pipeline.rs (target/debug/deps/display_register_pipeline-e9a45c5cf7fce049)
+
+running 10 tests
+test restore_preserves_each_pending_dma_register_copy ... ok
+test restore_preserves_old_cadence_slots_with_the_new_live_transfer_width ... ok
+test restore_preserves_independent_playfield_clocks_and_pending_copies ... ok
+test restore_rejects_a_pending_tail_larger_than_its_holding_register ... ok
+test restore_preserves_resolution_and_xor_writes_between_native_samples ... ok
+test restore_preserves_a_partially_completed_serial_period_after_a_rate_change ... ok
+test restore_retains_shifted_bits_above_the_narrow_output_tap ... ok
+test restore_rejects_a_serial_phase_outside_its_four_native_periods ... ok
+test restore_rejects_an_even_playfield_phase_outside_its_native_period ... ok
+test restore_rejects_a_serial_history_cursor_outside_its_native_ring ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/lifecycle.rs (target/debug/deps/lifecycle-d078bece189f2c7e)
+
+running 51 tests
+test ecs_profile_advertises_ecs_ntsc_region_and_clock ... ok
+test a1000_new_rejects_non_bootstrap_rom_size ... ok
+test construction_rejects_chip_ram_above_the_selected_agnus_ceiling ... ok
+test ecs_profile_advertises_ecs_pal_region_and_clock ... ok
+test from_firmware_rejects_wrong_size_kickstart_via_firmware_set ... ok
+test from_firmware_reports_missing_a1000_bootstrap ... ok
+test from_firmware_reports_missing_kickstart ... ok
+test blank_constructor_builds_a500_runtime ... ok
+test blank_constructor_builds_a1000_runtime ... ok
+test audio_controls_mutate_machine_paula_mixer ... ok
+test from_firmware_accepts_supported_a1000_bootstrap_size ... ok
+test from_firmware_accepts_supported_kickstart_size ... ok
+test a530_profile_builds_and_resets_the_configured_cpu_clock_and_board ... ok
+test load_media_accepts_dd_adf ... ok
+test ecs_blank_constructor_builds_a500_plus_pal_and_ntsc ... ok
+test load_media_rejects_unknown_slot ... ok
+test load_media_identifies_unsupported_ipf_before_trying_adf ... ok
+test load_media_keeps_a1000_disk_change_pending ... ok
+test machine_core_capabilities_match_profile ... ok
+test load_media_rejects_invalid_adf_bytes ... ok
+test blank_constructor_builds_every_ocs_shaped_pal_variant ... ok
+test machine_core_command_rejects_any_request ... ok
+test load_media_rejects_unsupported_media_kind ... ok
+test machine_core_profile_matches_model_profile ... ok
+test new_rejects_undersized_rom ... ok
+test blank_constructor_builds_every_ntsc_variant ... ok
+test ntsc_frame_ticks_constant_is_smaller_than_pal ... ok
+test profile_clock_derives_field_rate_recording_fps ... ok
+test ntsc_profile_advertises_ntsc_region_and_ntsc_clock_rate ... ok
+test machine_core_time_matches_internal_time ... ok
+test ntsc_a1000_uses_bootstrap_firmware_path ... ok
+test machine_core_reset_remounts_inserted_floppy ... ok
+test ntsc_a530_profile_builds_and_resets_the_configured_cpu_clock_and_board ... ok
+test reset_preserves_ecs_ntsc_region ... ok
+test reset_preserves_a1200_ntsc_region ... ok
+test ecs_runtime_runs_one_ntsc_frame ... ok
+test ntsc_runtime_runs_one_frame_at_ntsc_tick_count ... ok
+test run_until_applies_mouse_input_to_controller_port_zero ... ok
+test run_until_reports_reached_target_with_zero_advancement ... ok
+test set_audio_controls_replaces_full_mixer_state ... ok
+test run_until_applies_keyboard_input ... ok
+test machine_core_reset_a1000_rebuilds_with_bootstrap_rom ... ok
+test run_until_advances_time_and_emits_frame ... ok
+test run_until_emits_on_actual_long_interlace_field_boundary ... ok
+test machine_core_reset_rebuilds_runtime_state ... ok
+test ecs_runtime_runs_one_pal_frame ... ok
+test run_until_drops_unrouted_input_events ... ok
+test run_until_applies_joystick_input_to_controller_port_two ... ok
+test run_until_publishes_pal_frame_after_raster_carry_reaches_right_edge ... ok
+test sub_field_target_still_advances_one_complete_field ... ok
+test host_fields_identify_completed_rows_before_agnus_toggles_lof ... ok
+
+test result: ok. 51 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.97s
+

@@ -116,3 +116,28 @@ counter and retain all four fine samples. Keep start-before-stop ordering,
 selector propagation and the existing edge latch. This changes no saved
 field, host coordinate or clock. The primary colour/blanking observations
 record both failing fields and residual vertical-boundary differences.
+
+## 2026-10-07 OCS fixed horizontal blanking
+
+The [primary colour/blanking observations](../../../../reference/by-system/commodore-amiga/2026-ecs-colour-blanking-observations.md)
+and retained `ecs-output-phase/ocs-right-edge` producer trace establish OCS
+blank onset at counter 14: the next-counter comparator matches $0F before
+four black samples are written at reference x=1508..1511. The complete
+active trace covers 600 lines over three byte-identical reference fields.
+The OCS board previously supplied no blank signal to the output mask.
+
+The user approved retaining one OCS fixed-horizontal-blank latch in snapshot
+56, rejecting version 55. Clock it on the existing output tick: set when the
+next nine-bit counter matches $0F, clear at $5D, retain otherwise. Counter
+resets and host line-local resets cannot synthesize a blank edge. The OCS
+board supplies the latch to the existing final output mask. Enhanced boards
+continue to supply their own signals. No host coordinates, clocks or DMA
+stages change. Fixed vertical blanking and enhanced counter-reset edge cases
+are outside this correction.
+
+The corrected OCS capture and ECS/AGA programmed-central controls match all
+nine complete common-raster fields. Both comparator edges, skipped edges,
+nine-bit wrap and seven runtime restore boundaries are covered. The strict
+A500 Test Kit gate remains exact across all six patterns. The publication
+test retains its completed-field timing and requires colour through native
+column 759, followed by the fixed blank tail through 767.

@@ -1009,11 +1009,12 @@ crates.io may hit their own 1.0 on their own schedules.
 
 ### Fixed
 
+- *(amiga)* OCS fixed horizontal blanking masks the right-edge tail at Denise's actual comparator, preserving its level across counter resets.
 - *(amiga)* Lisa retains vertical blanking until the selected horizontal edge, preventing border colour from appearing early on the first visible line in AGA programmed-blanking modes.
 
 ### Changed
 
-- Amiga saves use version 55 to preserve Lisa's pending vertical-blank transitions. Version 54 saves no longer load.
+- Amiga saves use version 56 to preserve OCS horizontal blanking and Lisa's pending vertical-blank transitions. Version 55 and earlier saves no longer load.
 
 ## [0.2.1](https://github.com/emu198x/emu198x/compare/v0.2.0...v0.2.1) - 2026-08-11
 

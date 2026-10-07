@@ -1,0 +1,13 @@
+--- a/drawing.cpp
++++ b/drawing.cpp
+@@ -4850,6 +4850,10 @@
+ 
+ static bool checkhorizontal1_ecs(int cnt, int cnt_next, int h)
+ {
++    if (getenv("FSEMU_CODEX_OCS_EDGE") && !ecs_denise && this_line && get_long(0x2ff00) == 0x53504858 && get_long(0x2ff08) >= 9 && get_long(0x2ff08) <= 11 && buf1 && xlinebuffer && cnt >= 12 && cnt <= 16) {
++        write_log("OCS_EDGE guest=%u line=%u v=%d counter=%d next=%d x=%ld hb=%d vb=%d blank=%d prev0=%08x prev1=%08x prev2=%08x prev3=%08x\n", get_long(0x2ff08), denise_linecnt, this_line->linear_vpos, cnt, cnt_next, long(buf1 - (uae_u32*)xlinebuffer), denise_hblank, denise_vblank, denise_blank_active, buf1[-4], buf1[-3], buf1[-2], buf1[-1]);
++    }
++
+     if (getenv("FSEMU_CODEX_ECS_PHASE") && this_line && cnt == 100 && this_line->linear_vpos >= 26 && this_line->linear_vpos < 312 && get_long(0x2ff00) == 0x53504858 && get_long(0x2ff08) >= 9 && get_long(0x2ff08) <= 12 && buf1 && xlinebuffer) {
+         write_log("ECS_ORIGIN guest=%u line=%u v=%d counter=%d x=%ld shift=%d lol=%d ecs=%d\n", get_long(0x2ff08), denise_linecnt, this_line->linear_vpos, cnt, long(buf1 - (uae_u32*)xlinebuffer), denise_lol_shift_prev, lol, ecs_denise);
+     }

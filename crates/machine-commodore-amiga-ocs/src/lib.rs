@@ -2554,6 +2554,13 @@ impl AmigaDriver for AmigaOcs {
         let width_words = self.agnus.bpl_fetch_width();
         let vertical_diw_active = self.agnus.vertical_diw_active();
         let line_ccks = self.agnus.current_line_ccks();
+        let counter = self
+            .denise
+            .output_comparator_position_for(&self.agnus, phase);
+        self.denise.ocs.advance_fixed_hblank(counter);
+        let blanking = common_commodore_amiga::denise::HorizontalBlanking::from_level(
+            self.denise.ocs.fixed_hblank_active(),
+        );
         let bitplane_dma_fetch = serviced_bitplane
             .map(denise::BitplaneDmaInput::Serviced)
             .or_else(|| {
@@ -2571,7 +2578,7 @@ impl AmigaDriver for AmigaOcs {
         self.denise.tick_with_dma_output_signals(
             phase,
             bitplane_dma_fetch,
-            denise::DeniseOutputSignals::unblanked(vertical_diw_active),
+            denise::DeniseOutputSignals::new(vertical_diw_active, blanking),
             self.agnus.base_mut(),
             &self.memory,
             line_ccks,
@@ -3544,6 +3551,30 @@ mod tests {
         assert!(
             amiga.denise.ocs.sprite_bpl1dat_enabled(),
             "restoring mid-line must preserve whether BPL1DAT has enabled sprites",
+        );
+    }
+
+    #[test]
+    fn ocs_fixed_blank_starts_in_the_carried_right_edge() {
+        // The registered UAE colour guest starts blanking at counter 14
+        // (next counter $0f). Its last visible lores pixel is counter 13.
+        // These are native 70 ns columns; the reference stores each twice.
+        let mut amiga = AmigaOcs::new(vec![0; 256 * 1024]);
+        amiga.denise.ocs.set_palette(0, 0x135);
+        for _ in 0..24_000 {
+            amiga.tick();
+            if amiga.agnus.vpos == 51 && amiga.agnus.hpos == 13 {
+                break;
+            }
+        }
+        assert_eq!((amiga.agnus.vpos, amiga.agnus.hpos), (51, 13));
+        let row = ((50 - 0x19) * denise::FB_WIDTH * 2) as usize;
+        let pixels = amiga.denise.framebuffer();
+        assert_eq!(&pixels[row + 758..row + 760], &[0xFF11_3355; 2]);
+        assert_eq!(
+            &pixels[row + 760..row + 762],
+            &[0xFF00_0000; 2],
+            "OCS fixed HBLANK must mask the carried row at counter 14",
         );
     }
 

@@ -1,0 +1,191 @@
+   Compiling proc-macro2 v1.0.106
+   Compiling quote v1.0.45
+   Compiling serde_core v1.0.229
+   Compiling serde v1.0.229
+   Compiling syn v3.0.3
+   Compiling serde_derive v1.0.229
+   Compiling serde-big-array v0.5.1
+   Compiling commodore-denise-ocs v0.28.1 (/Users/stevehill/Projects/198x/Emu198x/emu198x/crates/commodore-denise-ocs)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 10.37s
+     Running unittests src/lib.rs (target/debug/deps/commodore_denise_ocs-38ed838f364458a9)
+
+running 6 tests
+test chip::tests::ham_line_start_resets_to_color00 ... ok
+test chip::tests::diagnostic_snapshot_copies_pipeline_state_without_consuming_it ... ok
+test chip::tests::hires_bplcon1_masks_high_scroll_bit ... ok
+test chip::tests::hires_bplcon1_barrel_shift_applies_on_every_load ... ok
+test chip::tests::pending_bitplane_load_commits_on_the_next_output_tick ... ok
+test chip::tests::lowres_bplcon1_uses_previous_word_carry_on_later_shift_loads ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/aga_extensions.rs (target/debug/deps/aga_extensions-bd9a172cd7159f30)
+
+running 12 tests
+test rgb12_to_rgb24_replicates_each_nibble ... ok
+test rgb24_to_argb32_sets_alpha_to_ff ... ok
+test load_bitplane_ignores_idx_8_or_higher ... ok
+test num_bitplanes_ocs_ignores_bplcon0_bit_4 ... ok
+test push_bpl_fifo_caps_at_three_tail_words ... ok
+test defer_shift_load_with_count_greater_than_one_decrements_per_pixel ... ok
+test push_bpl_fifo_drives_auto_reload_after_first_word_drains ... ok
+test push_bpl_fifo_ignores_idx_8_or_higher ... ok
+test next_group_staging_does_not_corrupt_draining_group ... ok
+test num_bitplanes_aga_decodes_4_bit_bpu_via_max_bitplanes_8 ... ok
+test defer_shift_load_with_count_zero_triggers_immediate_load ... ok
+test shres_consumes_four_source_pixels_per_output_call ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/bplcon_pipeline.rs (target/debug/deps/bplcon_pipeline-3100834c6ef8ba19)
+
+running 11 tests
+test bplcon2_pf2pri_picks_front_playfield_in_dpf ... ok
+test bplcon1_hi_nibble_delays_plane_1 ... ok
+test legacy_bplcon0_zero_with_only_bpl_shift_seeded_falls_back_to_bpl_shift ... ok
+test hires_emits_two_source_pixels_per_output_call ... ok
+test invisible_gate_suppresses_playfield_contribution ... ok
+test bplcon1_prev_word_carries_into_next_load ... ok
+test bplcon1_lo_nibble_delays_plane_0 ... ok
+test dpf_pf2pri_sprite_priority_uses_pf2p_field_for_front_pf2 ... ok
+test hires_bplcon1_masks_high_bit_and_keeps_two_pixel_steps ... ok
+test legacy_bplcon0_zero_with_direct_shift_poke_drives_legacy_test_path ... ok
+test lores_emits_one_source_pixel_per_output_call ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/ham_ehb_dpf.rs (target/debug/deps/ham_ehb_dpf-7c9d79beed657d1d)
+
+running 24 tests
+test ehb_normal_palette_unchanged ... ok
+test ehb_halves_rgb_when_bit5_of_index_set ... ok
+test ehb_index_zero_half_brite_uses_color00 ... ok
+test dpf_both_transparent_outputs_color00 ... ok
+test bplcon4_zero_leaves_the_playfield_index_unchanged ... ok
+test ehb_half_brite_halves_rgb ... ok
+test ehb_passes_indices_0_31_through_unchanged ... ok
+test dual_playfield_pf2pri_and_pf2p_can_hide_or_show_sprite ... ok
+test bplcon4_bplam_xors_the_playfield_colour_index ... ok
+test dpf_pf2_nonzero_pf1_zero_picks_pf2_color_9_15 ... ok
+test begin_beam_line_resets_ham_prev_to_color00 ... ok
+test ham_control_10_modifies_red_preserves_green_blue ... ok
+test ham_control_11_modifies_green_preserves_red_blue ... ok
+test ham_control_00_selects_palette_entry ... ok
+test ham_modify_blue_control_01 ... ok
+test ham_modify_chains_across_pixels ... ok
+test ham_control_01_modifies_blue_preserves_red_green ... ok
+test ham_end_to_end_pipeline_produces_modify_sequence ... ok
+test dpf_pf1_nonzero_pf2_zero_picks_pf1_color_1_7 ... ok
+test ham_palette_lookup_control_00 ... ok
+test ham_modify_green_control_11 ... ok
+test ham_modify_red_control_10 ... ok
+test ham_prev_rgb_chains_across_successive_modify_operations ... ok
+test normal_mode_ignores_ham_ehb ... ok
+
+test result: ok. 24 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/raster_framebuffer.rs (target/debug/deps/raster_framebuffer-66a33e8ce2b119d9)
+
+running 22 tests
+test viewport_image_scale_nearest_doubles_in_each_axis ... ok
+test pixel_aspect_ratio_hires_halves_horizontal ... ok
+test pixel_aspect_ratio_interlace_halves_vertical ... ok
+test pixel_aspect_ratio_ntsc_lores_is_8_over_9 ... ok
+test pixel_aspect_ratio_pal_lores_is_16_over_15 ... ok
+test viewport_image_scale_nearest_returns_fallback_for_oob_indices ... ok
+test viewport_image_to_display_halves_width_doubles_height ... ok
+test viewport_preset_pal_overscan_bounds_have_documented_centring ... ok
+test denise_default_constructs_via_default_trait ... ok
+test ocs_fixed_blank_changes_only_when_an_edge_is_observed ... ok
+test ocs_fixed_blank_edges_repeat_through_nine_bit_wrap ... ok
+test write_raster_pixel_interlaced_long_frame_writes_only_top_row ... ok
+test viewport_preset_ntsc_standard_bounds_match_4_3_240_lines ... ok
+test viewport_preset_pal_and_ntsc_full_bounds_match_raster_size ... ok
+test write_raster_pixel_interlaced_short_frame_writes_only_bottom_row ... ok
+test extract_viewport_deinterlace_halves_height_and_takes_every_other_row ... ok
+test write_raster_pixel_non_interlaced_writes_both_rows_of_pair ... ok
+test extract_viewport_ntsc_overscan_uses_ntsc_bounds ... ok
+test write_raster_pixel_y_out_of_range_is_dropped_in_both_modes ... ok
+test write_raster_pixel_x_out_of_range_is_dropped ... ok
+test extract_viewport_does_not_oob_when_bounds_exceed_buffer ... ok
+test extract_viewport_pal_full_matches_raster_fb_height ... ok
+
+test result: ok. 22 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running tests/shift_load.rs (target/debug/deps/shift_load-c868c442e355b5d4)
+
+running 4 tests
+test lowres_output_pixel_with_beam_consumes_one_source_pixel_per_call ... ok
+test deferred_shift_load_lands_between_hires_samples_in_one_call ... ok
+test two_hires_output_calls_advance_four_source_pixels_total ... ok
+test hires_output_pixel_with_beam_consumes_two_source_pixels_per_call ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/sprites_collisions.rs (target/debug/deps/sprites_collisions-525f8d4e6aa50cb9)
+
+running 44 tests
+test attached_pair_produces_4_bit_colour_from_combined_codes ... ok
+test attached_sprite_pair_uses_full_sprite_palette_range ... ok
+test bplcon4_esprm_replaces_even_sprite_colour_bank ... ok
+test bplcon4_banked_sprite_keeps_playfield_and_sprite_provenance_separate ... ok
+test bplcon2_pf1_priority_can_place_sprite_group_0_in_front ... ok
+test bplcon4_osprm_replaces_odd_sprite_colour_bank ... ok
+test bplcon2_pf1_priority_can_hide_sprite_group_0 ... ok
+test bpl1dat_visibility_gate_suppresses_sprite_collisions ... ok
+test bpl1dat_enables_sprite_display_for_only_the_current_line ... ok
+test attach_bit_on_even_sprite_is_ignored ... ok
+test clxdat_latches_sprite_pair_crosses ... ok
+test clxcon_disables_bitplane_match_per_plane ... ok
+test every_sprite_datb_write_lands_through_write_word ... ok
+test clxdat_arm_after_hstart_waits_until_next_line ... ok
+test clxdat_follows_loaded_sprite_serial_data_under_mid_line_data_write ... ok
+test clxdat_stops_latching_after_mid_line_ctl_disarm ... ok
+test clxdat_is_read_and_clear ... ok
+test clxcon_ensp5_and_ensp7_gate_odd_sprite_in_collision_mask ... ok
+test lower_numbered_sprite_wins_on_overlap ... ok
+test clxdat_pos_write_before_hstart_moves_same_line_collision_point ... ok
+test manual_sprite_uses_only_horizontal_comparator_above_line_511 ... ok
+test mid_line_sprite_pos_write_before_hstart_moves_same_line_trigger ... ok
+test hidden_sprite_shifter_keeps_advancing_before_bpl1dat ... ok
+test lower_numbered_sprite_has_priority_on_overlap_via_field_pokes ... ok
+test mid_line_sprite_data_write_affects_next_line_not_current_line ... ok
+test exhausted_sprite_leaves_no_collision_trail_past_its_right_edge ... ok
+test manual_sprite_data_repeats_on_every_line_until_ctl_disarms ... ok
+test output_pixel_color_sprite_bypasses_ham_and_advances_hidden_playfield ... ok
+test priority_loop_skips_attached_odd_sprite_then_lights_unattached_below ... ok
+test misaligned_attached_pair_reverts_to_shifted_color_subsets ... ok
+test sprite_ctl_disarms_and_sprite_data_rearms_comparator ... ok
+test sprite_data_arms_comparator_ctl_disarms ... ok
+test sprite_loaded_before_display_boundary_appears_at_boundary ... ok
+test sprite_collision_begins_one_lores_pixel_after_hstart ... ok
+test sprite_pixel_overrides_bitplane_pixel ... ok
+test sprite_hstart_comparator_honours_subpixel_bit ... ok
+test spritedata_rearm_after_hstart_waits_until_next_line ... ok
+test sprite_pos_write_moves_armed_sprite_horizontally ... ok
+test transparent_sprite_pixel_leaves_playfield_visible ... ok
+test transparent_sprite_pixel_leaves_playfield_visible_via_field_pokes ... ok
+test sprite_vs_pf1_priority_via_bplcon2_pf1p_field ... ok
+test wide_sprite_data_setter_loads_the_full_payload ... ok
+test wide_sprite_renders_pixels_beyond_the_16px_window ... ok
+test clxdat_latches_sprite_pair_cross_bits_10_through_14 ... ok
+
+test result: ok. 44 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+     Running tests/write_word_dispatch.rs (target/debug/deps/write_word_dispatch-4bbff79e3b04ecef)
+
+running 11 tests
+test bpl1dat_queue_in_hires_uses_phase_mask_07 ... ok
+test write_word_bpl1dat_queues_shift_load_then_pixel_pump_commits_it ... ok
+test write_word_palette_range_covers_all_indices ... ok
+test bpl1dat_queue_with_nonzero_odd_scroll_delays_commit_by_phase_count ... ok
+test write_word_unknown_offset_is_silently_ignored ... ok
+test write_word_ignores_aga_only_bplcon4 ... ok
+test write_word_sprite_range_routes_to_pos_ctl_data_datb ... ok
+test bpl1dat_queue_split_phases_for_odd_and_even_planes ... ok
+test write_word_sprite_odd_offsets_within_range_are_ignored ... ok
+test write_word_routes_bplcon0_bplcon1_bplcon2_clxcon ... ok
+test only_bpl1dat_enables_sprites_for_the_current_line ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
