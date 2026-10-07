@@ -9,6 +9,48 @@ use runtime_commodore_c64::{C64Runtime, Model};
 use common::{FrameCollector, blank_firmware, blank_firmware_with_drive};
 
 #[test]
+fn electrical_codes_are_restored_before_the_next_vic_pixel() {
+    for model in Model::ALL {
+        let mut original = C64Runtime::blank(model);
+        original.machine_mut().run_frame();
+        for colour in 0..16 {
+            original.machine_mut().cpu_write(0xD020, colour);
+            original.machine_mut().advance_phi2_cycles(128);
+        }
+        let expected = original.machine().vic().signal_codes().to_vec();
+        assert!((0..16).all(|colour| expected.contains(&colour)));
+        // Leave a palette write pending at the saved output boundary.
+        original.machine_mut().cpu_write(0xD020, 0x0F);
+        let snapshot = original.snapshot().expect("electrical frame snapshot");
+        let mut restored = C64Runtime::blank(model);
+        restored
+            .restore(&snapshot)
+            .expect("electrical frame restore");
+
+        // Check before ticking: waiting for the next output cell hides a lost
+        // electrical frame immediately after restoring an otherwise valid save.
+        assert_eq!(
+            restored.machine().vic().signal_codes().len(),
+            expected.len()
+        );
+        assert_eq!(restored.machine().vic().signal_codes(), expected);
+        assert_eq!(restored.snapshot().expect("fixed point"), snapshot);
+        for _ in 0..16 {
+            original.machine_mut().tick();
+            restored.machine_mut().tick();
+            assert_eq!(
+                restored.machine().framebuffer(),
+                original.machine().framebuffer()
+            );
+            assert_eq!(
+                restored.machine().vic().signal_codes(),
+                original.machine().vic().signal_codes()
+            );
+        }
+    }
+}
+
+#[test]
 fn snapshot_round_trip_preserves_mid_cycle_runtime_state() {
     let mut runtime = C64Runtime::from_firmware(Model::C64PalBreadbin, &blank_firmware())
         .expect("blank C64 firmware should construct a runtime");

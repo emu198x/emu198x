@@ -1146,6 +1146,7 @@ impl C64 {
 
         self.cpu = snapshot.cpu;
         self.vic = snapshot.vic;
+        self.vic.rebuild_signal_codes();
         self.cia1 = snapshot.cia1;
         self.cia2 = snapshot.cia2;
         self.sid = snapshot.sid;

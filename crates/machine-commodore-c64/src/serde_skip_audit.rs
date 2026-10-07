@@ -2,9 +2,11 @@
 //!
 //! A skipped field is reset to its default value during deserialisation. That
 //! is safe only for state with no observable future effect, or when a typed
-//! restore hook reconstructs it from serialised state. The C64 stack currently
-//! needs neither exception: every chip, bus, drive, expansion and runtime field
-//! that can affect subsequent execution is directly serialisable.
+//! restore hook reconstructs it from serialised state. The electrical colour
+//! cache is the sole reviewed exception: `Vic::rebuild_signal_codes` recovers
+//! it from the saved RGB framebuffer at `C64::restore_snapshot_state`, before
+//! any output is exposed. Every field affecting chip execution is serialised.
+//! See `knowledge/decisions/electrical-video-receiver.md` for this exception.
 //!
 //! The previous audit named only the SID source file. It therefore missed seven
 //! skipped VIC-II sprite-pipeline fields and treated queued SID audio as
@@ -72,6 +74,12 @@ mod tests {
         })
     }
 
+    fn is_reviewed_signal_cache(path: &Path, annotation: &str, next_line: Option<&str>) -> bool {
+        path == Path::new("crates/mos-vic-ii/src/lib.rs")
+            && annotation == "#[serde(skip)]"
+            && next_line.map(str::trim) == Some("signal_codes: Vec<u16>,")
+    }
+
     #[test]
     fn c64_runtime_stack_has_no_unreviewed_serde_skips() {
         let root = workspace_root();
@@ -82,15 +90,24 @@ mod tests {
         sources.sort();
 
         let mut skips = Vec::new();
+        let mut reviewed_caches = 0;
         for path in sources {
             let source = std::fs::read_to_string(&path)
                 .unwrap_or_else(|err| panic!("audit cannot read {}: {err}", path.display()));
             for (line, annotation) in serde_skip_lines(&source) {
                 let relative = path.strip_prefix(&root).unwrap_or(&path);
-                skips.push(format!("  {}:{line}: {annotation}", relative.display()));
+                if is_reviewed_signal_cache(relative, annotation, source.lines().nth(line)) {
+                    reviewed_caches += 1;
+                } else {
+                    skips.push(format!("  {}:{line}: {annotation}", relative.display()));
+                }
             }
         }
 
+        assert_eq!(
+            reviewed_caches, 1,
+            "the reviewed VIC cache must occur exactly once"
+        );
         assert!(
             skips.is_empty(),
             "\nUnreviewed #[serde(skip)] in the C64 runtime stack:\n{}\n\n\
@@ -98,6 +115,32 @@ mod tests {
              narrow this audit to that reviewed exception.",
             skips.join("\n")
         );
+    }
+
+    #[test]
+    fn reviewed_exception_is_exactly_the_derived_vic_colour_cache() {
+        let vic = Path::new("crates/mos-vic-ii/src/lib.rs");
+        assert!(is_reviewed_signal_cache(
+            vic,
+            "#[serde(skip)]",
+            Some("    signal_codes: Vec<u16>,")
+        ));
+        assert!(!is_reviewed_signal_cache(
+            vic,
+            "#[serde(skip)]",
+            Some("    framebuffer: Vec<u32>,")
+        ));
+        assert!(!is_reviewed_signal_cache(
+            Path::new("crates/other/src/lib.rs"),
+            "#[serde(skip)]",
+            Some("signal_codes: Vec<u16>,")
+        ));
+        assert!(!is_reviewed_signal_cache(vic, "#[serde(skip)]", None));
+        assert!(!is_reviewed_signal_cache(
+            vic,
+            "#[serde(skip, default)]",
+            Some("signal_codes: Vec<u16>,")
+        ));
     }
 
     #[test]

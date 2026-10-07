@@ -45,7 +45,13 @@ dot; repeated host redraws do not advance the electrical oscillator.
 
 The VIC and PPU retain codes at their existing final pixel muxes. Their digital
 framebuffers and timing are unchanged. The mirrors are transient and skipped
-by serialization, preserving snapshot bytes. A restored NES needs a complete
+by serialization, preserving snapshot bytes. The VIC's fixed RGB palette is
+one-to-one, so `Vic::rebuild_signal_codes` reconstructs its code cache from the
+saved framebuffer. `C64::restore_snapshot_state` invokes that typed hook before
+returning, rather than waiting for the next rendered cell. The C64 serde audit
+admits only this exact field and still rejects every other unreviewed skip.
+The runtime regression renders all sixteen colours on all four C64 profiles,
+checks codes immediately after restore, and replays a pending palette write. A restored NES needs a complete
 field before its electrical mirror can describe that field; partial debug
 captures deliberately do not claim a complete electrical frame.
 
