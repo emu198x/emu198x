@@ -17,6 +17,8 @@ use crate::freeze_cart::FreezeCart;
 use crate::keyboard::KeyboardMatrix;
 use crate::memory::{C64Memory, C64MemorySnapshot, CartBankPair, CartBanking, MemoryInitError};
 
+mod user_port;
+
 const AUDIO_SAMPLE_RATE: u32 = 48_000;
 /// 6510 port bits that read high when configured as inputs. Bits 0-2
 /// (the PLA banking lines) and bit 4 (cassette sense, via the switch)
@@ -1080,21 +1082,17 @@ impl C64 {
     /// pin on the next `phi2` cycle. When DDRB0 is configured as an output
     /// the CIA's output latch wins, exactly as it does at the physical pin.
     /// The line idles high, matching the user port's pull-ups.
+    ///
+    /// This drives pin C only. A serial adapter that also wires its receive
+    /// line to /FLAG2 (pin B) drives that with
+    /// [`Self::set_user_port_flag2`]; the other user-port lines are in
+    /// `machine/user_port.rs`.
     pub fn set_user_port_pb0(&mut self, high: bool) {
         if high {
             self.cia2.pb_in |= 0x01;
         } else {
             self.cia2.pb_in &= !0x01;
         }
-        // The same wire reaches /FLAG2 (pin B), because that is how user-port
-        // serial adapters are built — the Sven Petersen Rev. 2 board among
-        // them. /FLAG2 is edge triggered, so the falling edge that opens a
-        // start bit raises a CIA interrupt and a client can be *told* a byte
-        // is arriving instead of having to be watching the pin at that
-        // instant. Driving pin C without pin B would model a board nobody
-        // ships, and would quietly deny the client the one interrupt the
-        // hardware exists to give it.
-        self.cia2.flag = high;
     }
 
     /// Loads one PRG file into raw RAM and returns its load address.
@@ -2117,12 +2115,15 @@ mod tests {
         // Without this a client can only catch a frame by happening to be
         // looking at the pin when it arrives.
         let mut machine = stub_machine(C64Model::PalBreadbin);
+        // A serial adapter wires its receive line to pin C and pin B alike.
         machine.cpu_write(0xDD0D, 0x90); // enable the /FLAG2 interrupt
         machine.set_user_port_pb0(true); // idle high
+        machine.set_user_port_flag2(true);
         machine.tick();
         assert!(!machine.cia2().irq, "an idle line must not interrupt");
 
         machine.set_user_port_pb0(false); // start bit
+        machine.set_user_port_flag2(false);
         // The 6526 raises the line a cycle after the flag is set.
         machine.tick();
         machine.tick();
