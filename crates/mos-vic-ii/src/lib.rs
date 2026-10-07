@@ -97,7 +97,11 @@ use palette::PALETTE;
 /// XSCROLL that stands after the CPU access of the cell's g-access cycle,
 /// instead of one XSCROLL latched per line, so a mid-line `$D016` write moves
 /// the rest of the line (#1620).
-pub const FRAME_ROUTING_VERSION: u32 = 9;
+///
+/// **Version 10** (2026-10-07): the graphics sequencer decodes the display
+/// mode at the shift register's output, so a mid-line mode change takes
+/// effect at a fixed dot of the cycle instead of moving with XSCROLL (#1660).
+pub const FRAME_ROUTING_VERSION: u32 = 10;
 
 /// CPU-side data visible during the VIC-II's Phi2 phase.
 ///
@@ -311,44 +315,216 @@ const SPRITE_TIMING_NTSC_R56A: SpriteTiming = SpriteTiming {
     chk_disp: 58,
 };
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-struct CellPixels {
-    /// Direct colour index (`$00`-`$0F`) or a symbolic VIC-II colour register
-    /// (`$20`-`$2E`). The final composite keeps register-backed colours
-    /// distinguishable from matrix and colour-RAM values.
-    colour: [u8; 8],
-    fg_mask: u8,
-    /// The source a zero graphics bit selects with this cell's matrix and
-    /// colour entries: what the sequencer shows once the cell's eight
-    /// pixels have shifted out and the next load is still waiting.
-    zero: u8,
+/// One g-access as the graphics sequencer receives it: the bitmap byte and
+/// the video-matrix and colour entries paired with it (VICE's `gbuf`, `vbuf`
+/// and `cbuf`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+struct GraphicsData {
+    gbuf: u8,
+    vbuf: u8,
+    cbuf: u8,
 }
 
-impl CellPixels {
-    fn solid(c: u8) -> Self {
-        Self {
-            colour: [c; 8],
-            fg_mask: 0,
-            zero: c,
+/// BMM as the sequencer's pipes hold it. The pipes keep ECM at `$10`, BMM at
+/// `$08` and MCM at `$04`, so `vmode | pixel` indexes [`GRAPHICS_COLOURS`].
+const VMODE_BMM: u8 = 0x08;
+
+/// A dot's colour selector before the matrix and colour entries resolve it.
+#[derive(Clone, Copy)]
+enum GraphicsColour {
+    /// A colour register, `$D021`-`$D023`.
+    Register(u8),
+    /// The low nybble of the matrix entry.
+    VbufLow,
+    /// The high nybble of the matrix entry.
+    VbufHigh,
+    /// The colour entry.
+    Cbuf,
+    /// The colour entry's low three bits (multicolour text).
+    CbufMulticolour,
+    /// `$D021`-`$D024`, chosen by the matrix entry's top two bits (ECM).
+    Extended,
+    /// Black: the invalid modes.
+    None,
+}
+
+/// The colour each two-bit pixel selects in each mode, indexed by
+/// `ECM | BMM | MCM | pixel` (VICE `colors[]`, `viciisc/vicii-draw-cycle.c`).
+/// Hires pixels are 0 or 3; multicolour pixels 0-3. Pixel 2 of a hires dot
+/// appears only in the cycle MCM switches on (see [`GraphicsSequencer::draw`]).
+const GRAPHICS_COLOURS: [GraphicsColour; 32] = {
+    use GraphicsColour::{Cbuf, CbufMulticolour, Extended, None, Register, VbufHigh, VbufLow};
+    [
+        // ECM=0 BMM=0 MCM=0: standard text.
+        Register(0x21),
+        Register(0x21),
+        Cbuf,
+        Cbuf,
+        // ECM=0 BMM=0 MCM=1: multicolour text.
+        Register(0x21),
+        Register(0x22),
+        Register(0x23),
+        CbufMulticolour,
+        // ECM=0 BMM=1 MCM=0: hires bitmap.
+        VbufLow,
+        VbufLow,
+        VbufHigh,
+        VbufHigh,
+        // ECM=0 BMM=1 MCM=1: multicolour bitmap.
+        Register(0x21),
+        VbufHigh,
+        VbufLow,
+        Cbuf,
+        // ECM=1 BMM=0 MCM=0: extended-colour text.
+        Extended,
+        Extended,
+        Cbuf,
+        Cbuf,
+        // The three invalid modes.
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+    ]
+};
+
+/// The graphics sequencer: the shift register, the matrix and colour entries
+/// it decodes with, and the pipes that carry XSCROLL and the mode bits to it.
+///
+/// The display mode belongs to the graphics data sequencer, whose heart is
+/// an 8-bit shift register reloaded after every g-access, delayed by XSCROLL
+/// dots (Bauer, "The MOS 6567/6569 video controller (VIC-II) and its
+/// application in the Commodore 64", section 3.7.3). The mode is applied to
+/// the bits the register shifts out, not to the g-access, so a mid-line mode
+/// change takes effect at a fixed dot of the cycle, whatever the XSCROLL.
+/// A 6569R5 capture of the testbench's `modesplit` shows the invalid-mode
+/// blocks with straight edges at every XSCROLL. Bauer gives no dot for the
+/// change. This follows VICE x64sc's `draw_graphics8`
+/// (`viciisc/vicii-draw-cycle.c`), which matches the testbench's 6569 and
+/// 8565 `modesplit` references to within one dot at some edges. MCM reaches
+/// the colour lookup at dot 4. ECM and BMM rise at dot 4 and fall at dot 6
+/// on the NMOS 6567/6569, and arrive after dot 7 on the HMOS-II 8562/8565.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+struct GraphicsSequencer {
+    /// The XSCROLL the next cell loads at (VICE `xscroll_pipe`).
+    xscroll: u8,
+    /// ECM and BMM as the colour lookup sees them (VICE `vmode11_pipe`).
+    vmode11: u8,
+    /// MCM as the colour lookup sees it (VICE `vmode16_pipe`).
+    vmode16: u8,
+    /// MCM as the pixel decoder sees it, one stage later (`vmode16_pipe2`).
+    vmode16_decode: u8,
+    /// The shift register (`gbuf_reg`).
+    shift: u8,
+    /// Whether the next multicolour dot reads a new bit pair (`gbuf_mc_flop`).
+    mc_flop: bool,
+    /// The two-bit pixel being shown (`gbuf_pixel_reg`).
+    pixel: u8,
+    /// The matrix and colour entries loaded with the shift register.
+    vbuf: u8,
+    cbuf: u8,
+}
+
+impl GraphicsSequencer {
+    /// Shift out one cycle's eight dots, loading `data` at the current
+    /// XSCROLL. `d011` and `d016` are the registers after the CPU access of
+    /// this cycle; the pipes hold the previous cycle's. Returns each dot's
+    /// colour source and the foreground mask. With `sample_xscroll`, the next
+    /// cell's XSCROLL is taken from `d016`; otherwise it keeps this one's.
+    fn draw(
+        &mut self,
+        data: GraphicsData,
+        d011: u8,
+        d016: u8,
+        colour_latency: bool,
+        sample_xscroll: bool,
+    ) -> ([u8; 8], u8) {
+        let mode11 = (d011 & 0x60) >> 2;
+        let mut sources = [0; 8];
+        let mut fg_mask = 0;
+        for dot in 0..8u8 {
+            match dot {
+                4 => {
+                    self.vmode16 = (d016 & 0x10) >> 2;
+                    if colour_latency {
+                        self.vmode11 |= mode11;
+                    }
+                }
+                6 if colour_latency => self.vmode11 &= mode11,
+                7 => {
+                    if self.vmode16 != 0 && self.vmode16_decode == 0 {
+                        self.mc_flop = false;
+                    }
+                    self.vmode16_decode = self.vmode16;
+                }
+                _ => {}
+            }
+            if dot == self.xscroll {
+                self.shift = data.gbuf;
+                self.vbuf = data.vbuf;
+                self.cbuf = data.cbuf;
+                self.mc_flop = true;
+            }
+            let multicolour = self.vmode11 & VMODE_BMM != 0 || self.cbuf & 0x08 != 0;
+            if self.vmode16_decode != 0 {
+                if multicolour {
+                    if self.mc_flop {
+                        self.pixel = self.shift >> 6;
+                    }
+                } else {
+                    self.pixel = if self.shift & 0x80 != 0 { 3 } else { 0 };
+                }
+            } else {
+                // A hires dot reads as pixel 2 where multicolour would
+                // apply, so the cycle MCM switches on selects `$D023` for it
+                // in multicolour text (VICE's "$d023 glitch").
+                let set = if multicolour { 2 } else { 3 };
+                self.pixel = if self.shift & 0x80 != 0 { set } else { 0 };
+            }
+            self.shift <<= 1;
+            self.mc_flop = !self.mc_flop;
+
+            let vmode = self.vmode11 | self.vmode16;
+            let pixel = self.pixel;
+            fg_mask |= ((pixel >> 1) & 1) << dot;
+            sources[usize::from(dot)] = match GRAPHICS_COLOURS[usize::from(vmode | pixel)] {
+                GraphicsColour::Register(register) => register,
+                GraphicsColour::VbufLow => self.vbuf & 0x0F,
+                GraphicsColour::VbufHigh => self.vbuf >> 4,
+                GraphicsColour::Cbuf => self.cbuf & 0x0F,
+                GraphicsColour::CbufMulticolour => self.cbuf & 0x07,
+                GraphicsColour::Extended => 0x21 + (self.vbuf >> 6),
+                GraphicsColour::None => 0x00,
+            };
         }
+        if !colour_latency {
+            self.vmode11 = mode11;
+        }
+        if sample_xscroll {
+            self.xscroll = d016 & 0x07;
+        }
+        (sources, fg_mask)
     }
 }
 
-/// The graphics sequencer's most recent load, kept for the CPU access that
-/// follows the tick. The VIC-II loads a cell's graphics into its shift register
-/// at the XSCROLL that stands after that access (VICE `draw_graphics8` samples
-/// `xscroll_pipe` one draw cycle after the g-access), but the engine renders
-/// the cell before it. A `$D016` write in the g-access cycle therefore
-/// re-loads the cell; see [`Vic::reload_sequencer`].
+/// A cycle's g-access as it waits in the colour stage for the graphics
+/// sequencer. See [`Vic::draw_pending_graphics`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-struct SequencerLoad {
-    cell: CellPixels,
-    /// The shift register's carry before the load: the pixels it would show
-    /// if the load came at dot 8.
-    carry_pixels: [u8; 8],
-    carry_fg: u8,
-    /// The XSCROLL the cell was loaded at.
-    xscroll: u8,
+struct GraphicsInput {
+    data: GraphicsData,
+    /// Whether this cycle's draw samples the next cell's XSCROLL.
+    sample_xscroll: bool,
+    /// Whether the sequencer's output shows in this cell. Elsewhere the cell
+    /// keeps the fill `render_pixels` chose.
+    shown: bool,
 }
 
 /// A CPU write to a colour register (`$D020`-`$D02E`) made after the most
@@ -364,11 +540,18 @@ struct ColourRegisterWrite {
 
 /// One rendered cell waiting in the colour stage: its framebuffer offset and
 /// the source each dot selected, either a direct colour (`$00`-`$0F`) or a
-/// colour register (`$20`-`$2E`).
+/// colour register (`$20`-`$2E`). The graphics sequencer draws the cell's
+/// g-access, and the sprites are composited over it, as the cell leaves the
+/// stage.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 struct PendingCell {
     fb_offset: usize,
     sources: [Option<u8>; 8],
+    graphics: Option<GraphicsInput>,
+    /// Each dot's sprite colour source, from this cycle's sprite pixels.
+    sprites: [Option<u8>; 8],
+    /// The dots whose sprite sits behind foreground graphics (`$D01B`).
+    sprite_behind: u8,
 }
 
 /// Bounded C-data carry state for a forced badline created at the end of the
@@ -491,13 +674,9 @@ pub struct Vic {
     sprite_bg_collision: u8,
     sprite_sprite_irq_latched: bool,
     sprite_bg_irq_latched: bool,
-    /// The graphics shift register's carry: the sources (and foreground
-    /// bits) it shows before the next load, at dots 0-7 of the next cycle.
-    /// The previous cell's undisplayed pixels come first, then zero bits.
-    xscroll_carry_pixels: [u8; 8],
-    xscroll_carry_fg: u8,
-    /// The load made by this tick, until the CPU access that follows it.
-    sequencer_load: Option<SequencerLoad>,
+    /// The graphics sequencer, as of the last cell to leave the colour
+    /// stage.
+    sequencer: GraphicsSequencer,
     lines_per_frame: u16,
     cycles_per_line: u8,
     /// Model-specific sprite-region cycle schedule (PAL 6569 vs NTSC 6567).
@@ -608,9 +787,7 @@ impl Vic {
             sprite_bg_collision: 0,
             sprite_sprite_irq_latched: false,
             sprite_bg_irq_latched: false,
-            xscroll_carry_pixels: [0; 8],
-            xscroll_carry_fg: 0,
-            sequencer_load: None,
+            sequencer: GraphicsSequencer::default(),
             lines_per_frame: model.lines_per_frame(),
             cycles_per_line: model.cycles_per_line(),
             timing: model.sprite_timing(),
@@ -1047,7 +1224,6 @@ impl Vic {
         // display window (borders, retrace); render_pixels re-latches it below
         // only where graphics data is actually shifted out.
         self.gfx_fg_mask = 0;
-        self.sequencer_load = None;
         if self.raster_line < self.first_visible_line || self.raster_line >= self.last_visible_line
         {
             return None;
@@ -1081,66 +1257,66 @@ impl Vic {
 
         let display_pipeline_visible = !self.border_vert_ff && in_horizontal_display;
 
-        let mut fg_mask: u8 = 0;
-
-        if self.raster_cycle == DISPLAY_START_CYCLE && !self.border_vert_ff {
-            self.xscroll_carry_pixels = [background_colour; 8];
-            self.xscroll_carry_fg = 0;
-        }
-
-        if display_pipeline_visible {
-            let cell = if display_active_at_phi1 && self.forced_badline_output_delay == 0 {
+        let graphics = if display_pipeline_visible {
+            let data = if display_active_at_phi1 && self.forced_badline_output_delay == 0 {
                 let col = self.vmli as usize;
-                if col >= 40 {
-                    None
-                } else {
-                    let char_code = self.screen_row[col];
-                    let colour_nybble = self.colour_row[col];
-                    let bmm = self.regs[0x11] & 0x20 != 0;
-                    let ecm = self.regs[0x11] & 0x40 != 0;
-                    let mcm = self.regs[0x16] & 0x10 != 0;
-
-                    let cell = if ecm && (bmm || mcm) {
-                        CellPixels::solid(0)
-                    } else if bmm && mcm {
-                        self.render_mcm_bitmap(char_code, colour_nybble, memory)
-                    } else if bmm {
-                        self.render_hires_bitmap(char_code, memory)
-                    } else if ecm {
-                        self.render_ecm_text(char_code, colour_nybble, memory)
-                    } else if mcm {
-                        self.render_mcm_text(char_code, colour_nybble, memory)
-                    } else {
-                        self.render_standard_text(char_code, colour_nybble, memory)
-                    };
-
-                    Some(cell)
-                }
+                (col < 40).then(|| self.fetch_display_graphics(col, memory))
             } else {
-                Some(self.render_idle_cell(memory))
+                Some(self.fetch_idle_graphics(memory))
             };
+            data.map(|data| (data, true))
+        } else {
+            // Beside the fetch window and under the vertical border the
+            // sequencer shifts out zero graphics; the fill above shows instead.
+            Some((GraphicsData::default(), false))
+        };
+        let graphics = graphics.map(|(data, shown)| GraphicsInput {
+            data,
+            // Each draw samples the next cell's XSCROLL. VICE samples it
+            // only as it admits a g-access to its pipe, two cells on, with
+            // the vertical border off: from the draw two cells before the
+            // window to column 37's. Column 39 keeps column 38's XSCROLL.
+            sample_xscroll: !self.border_vert_ff
+                && (DISPLAY_START_CYCLE - 2..DISPLAY_END_CYCLE - 2).contains(&self.raster_cycle),
+            shown,
+        });
 
-            if let Some(cell) = cell {
-                let load = SequencerLoad {
-                    cell,
-                    carry_pixels: self.xscroll_carry_pixels,
-                    carry_fg: self.xscroll_carry_fg,
-                    xscroll: self.regs[0x16] & 0x07,
-                };
-                fg_mask = self.load_sequencer(&load, &mut output_sources);
-                // The last g-access of the line keeps the XSCROLL of the
-                // cycle before it: VICE samples `xscroll_pipe` only while
-                // the fetch window is open, which it has closed by then.
-                if self.raster_cycle + 1 < DISPLAY_END_CYCLE {
-                    self.sequencer_load = Some(load);
+        // The sequencer draws this cell once the CPU accesses of this cycle
+        // and the next have set the mode bits it reads. Collisions happen
+        // now, so they use the foreground the cell would have if neither
+        // access changed `$D011` or `$D016`.
+        let mut fg_mask = match graphics {
+            Some(input) if input.shown => {
+                let mut sequencer = self.sequencer;
+                if let Some(previous) = self.colour_stage[1].and_then(|cell| cell.graphics) {
+                    self.draw_graphics_with(&mut sequencer, previous);
                 }
+                self.draw_graphics_with(&mut sequencer, input).1
+            }
+            _ => 0,
+        };
+
+        // Sprites sit above the graphics, subject to `$D01B`; the colour
+        // stage composites them once the graphics are drawn. The border is
+        // painted over both there too, where the VICE border phase is known
+        // (see `apply_border`).
+        let priority = self.regs[0x1B];
+        let mut sprites = [None; 8];
+        let mut sprite_behind = 0;
+        for (px, sprite) in sprites.iter_mut().enumerate() {
+            let Some(sp) = self.sprite_cycle_px[px] else {
+                continue;
+            };
+            let i = sp.sprite as usize;
+            *sprite = Some(match sp.selector {
+                1 => 0x25,
+                3 => 0x26,
+                _ => 0x27 + i as u8,
+            });
+            if priority & (1 << i) != 0 {
+                sprite_behind |= 1 << px;
             }
         }
-
-        // Sprites sit above the graphics, subject to `$D01B`. The border is
-        // painted over both later, in the colour stage, where the VICE border
-        // phase is known (see `apply_border`).
-        self.composite_sprite_sources(&mut output_sources, fg_mask);
 
         // Latch this cycle's foreground mask for the every-cycle collision
         // pass. No foreground collides under the main border flip-flop. The
@@ -1151,72 +1327,60 @@ impl Vic {
         }
         self.gfx_fg_mask = fg_mask;
 
-        // Colour registers are resolved later, in the colour stage.
         Some(PendingCell {
             fb_offset,
             sources: output_sources,
+            graphics,
+            sprites,
+            sprite_behind,
         })
     }
 
-    /// Load a cell into the graphics shift register at its XSCROLL: dots
-    /// before the load show the carry, and the rest the cell's first pixels.
-    /// Leaves the carry for the next load and returns the foreground mask.
-    ///
-    /// The register reloads after every g-access, delayed by XSCROLL dots
-    /// (Bauer, "The MOS 6567/6569 video controller (VIC-II) and its
-    /// application in the Commodore 64", section 3.7.3), so a mid-line change
-    /// takes effect at the next load. A larger XSCROLL leaves a gap of zero bits
-    /// after the previous cell; a smaller one cuts that cell short. VICE
-    /// `draw_graphics` does the same, loading at `i == xscroll_pipe`.
-    fn load_sequencer(&mut self, load: &SequencerLoad, output: &mut [Option<u8>; 8]) -> u8 {
-        let xscroll = usize::from(load.xscroll);
-        let mut fg_mask = 0;
-        for (px, out) in output.iter_mut().enumerate() {
-            let (source, fg) = if px < xscroll {
-                (load.carry_pixels[px], load.carry_fg >> px)
-            } else {
-                (
-                    load.cell.colour[px - xscroll],
-                    load.cell.fg_mask >> (px - xscroll),
-                )
-            };
-            *out = Some(source);
-            fg_mask |= (fg & 1) << px;
-        }
-        let mut carry_fg = 0;
-        for (i, carry) in self.xscroll_carry_pixels.iter_mut().enumerate() {
-            let shifted = 8 - xscroll + i;
-            *carry = if shifted < 8 {
-                carry_fg |= ((load.cell.fg_mask >> shifted) & 1) << i;
-                load.cell.colour[shifted]
-            } else {
-                load.cell.zero
-            };
-        }
-        self.xscroll_carry_fg = carry_fg;
-        fg_mask
+    /// Draw one cycle of `input` on `sequencer`, with the mode registers as
+    /// they stand. Returns the dots' colour sources and the foreground mask.
+    fn draw_graphics_with(
+        &self,
+        sequencer: &mut GraphicsSequencer,
+        input: GraphicsInput,
+    ) -> ([u8; 8], u8) {
+        sequencer.draw(
+            input.data,
+            self.regs[0x11],
+            self.regs[0x16],
+            !self.model.has_grey_dot(),
+            input.sample_xscroll,
+        )
     }
 
-    /// Re-load the cell this tick rendered after a `$D016` write in the same
-    /// cycle, so the write takes effect at that cell, as on the VIC-II. The
-    /// sprites are composited again from this tick's sprite pixels. The
-    /// tick's sprite-background collisions keep the earlier foreground.
-    fn reload_sequencer(&mut self) {
-        let Some(mut load) = self.sequencer_load else {
-            return;
-        };
-        let xscroll = self.regs[0x16] & 0x07;
-        if xscroll == load.xscroll {
-            return;
+    /// Draw the graphics of the cell leaving the colour stage and composite
+    /// its sprites.
+    ///
+    /// The cell was rendered two ticks ago, so the registers now hold the CPU
+    /// writes of its own cycle and the next. VICE x64sc draws a cell from the
+    /// g-access two cycles back: XSCROLL and the mode bits for dots 0-3 were
+    /// sampled after the CPU access of the cell's own cycle, and those for
+    /// dots 4-7 come after the next (`draw_graphics8` in
+    /// `viciisc/vicii-draw-cycle.c`). The sequencer's pipes carry the first
+    /// from the previous cell's draw; this draw reads the second.
+    fn draw_pending_graphics(&mut self, cell: &mut PendingCell) {
+        let mut fg_mask = 0;
+        if let Some(input) = cell.graphics {
+            let mut sequencer = self.sequencer;
+            let (sources, fg) = self.draw_graphics_with(&mut sequencer, input);
+            self.sequencer = sequencer;
+            if input.shown {
+                cell.sources = sources.map(Some);
+                fg_mask = fg;
+            }
         }
-        load.xscroll = xscroll;
-        let mut sources = [None; 8];
-        let fg_mask = self.load_sequencer(&load, &mut sources);
-        self.composite_sprite_sources(&mut sources, fg_mask);
-        if let Some(cell) = &mut self.colour_stage[1] {
-            cell.sources = sources;
+        for (px, output) in cell.sources.iter_mut().enumerate() {
+            let Some(sprite) = cell.sprites[px] else {
+                continue;
+            };
+            if (cell.sprite_behind & fg_mask) >> px & 1 == 0 {
+                *output = Some(sprite);
+            }
         }
-        self.sequencer_load = Some(load);
     }
 
     /// Run VICE's main border checks (`check_hborder`): the left edge in cycle
@@ -1281,6 +1445,7 @@ impl Vic {
         let Some(mut cell) = self.colour_stage[0].take() else {
             return;
         };
+        self.draw_pending_graphics(&mut cell);
         self.apply_border(&mut cell.sources);
         if self.signal_codes.len() != self.framebuffer.len() {
             self.rebuild_signal_codes();
@@ -1331,7 +1496,7 @@ impl Vic {
         }
     }
 
-    /// Resolve the graphics value fetched while the display state is idle.
+    /// The g-access of the idle display state.
     ///
     /// The VIC-II does not stop its g-access window when `idle_state` is set.
     /// It reads the bank's ghost byte (`$3FFF`, or `$39FF` with ECM enabled)
@@ -1339,59 +1504,40 @@ impl Vic {
     /// normally remains hidden by the border, but vertical/side-border effects
     /// expose it. VICE models the same split in `vicii_fetch_idle_gfx` and the
     /// idle branch of `vicii_draw_cycle`.
-    fn render_idle_cell(&self, memory: &dyn VicMemory) -> CellPixels {
+    fn fetch_idle_graphics(&self, memory: &dyn VicMemory) -> GraphicsData {
+        let ecm = self.regs[0x11] & 0x40 != 0;
+        let idle_addr = if ecm { 0x39FF } else { 0x3FFF };
+        GraphicsData {
+            gbuf: memory.read_vram(self.vram_addr(idle_addr)),
+            vbuf: 0,
+            cbuf: 0,
+        }
+    }
+
+    /// The g-access of display column `col`, addressed in the mode that
+    /// stands as the VIC-II fetches it (VICE `g_fetch_addr`,
+    /// `viciisc/vicii-fetch.c`): bitmap modes read `(VC << 3) | RC` from the
+    /// bitmap base, text modes the matrix entry's character from the
+    /// character base, and ECM clears address bits 9 and 10. The invalid
+    /// modes fetch too; they only show black.
+    fn fetch_display_graphics(&self, col: usize, memory: &dyn VicMemory) -> GraphicsData {
+        let vbuf = self.screen_row[col];
+        let cbuf = self.colour_row[col] & 0x0F;
         let bmm = self.regs[0x11] & 0x20 != 0;
         let ecm = self.regs[0x11] & 0x40 != 0;
-        let mcm = self.regs[0x16] & 0x10 != 0;
-
-        if ecm && (bmm || mcm) {
-            return CellPixels::solid(0);
-        }
-
-        let idle_addr = if ecm { 0x39FF } else { 0x3FFF };
-        let bitmap = memory.read_vram(self.vram_addr(idle_addr));
-        let mut cell = CellPixels {
-            colour: [0; 8],
-            fg_mask: 0,
-            zero: self.zero_graphics_source(),
+        let mut addr = if bmm {
+            self.bitmap_base() + self.vc * 8 + u16::from(self.rc)
+        } else {
+            self.char_base() + u16::from(vbuf) * 8 + u16::from(self.rc)
         };
-        let background = 0x21;
-
-        if bmm {
-            // VBUF and CBUF are zero in idle state. Hires bitmap therefore
-            // resolves both colours to black. In multicolour bitmap mode 00
-            // still selects D021, while 01/10/11 resolve through the zeroed
-            // matrix/colour entries to black.
-            if mcm {
-                for pair in 0..4usize {
-                    let px = pair * 2;
-                    if (bitmap >> (6 - pair * 2)) & 0x03 == 0 {
-                        cell.colour[px] = background;
-                        cell.colour[px + 1] = background;
-                    } else {
-                        cell.fg_mask |= (1 << (pair * 2)) | (1 << (pair * 2 + 1));
-                    }
-                }
-            } else {
-                for px in 0..8usize {
-                    if (bitmap >> (7 - px)) & 1 != 0 {
-                        cell.fg_mask |= 1 << px;
-                    }
-                }
-            }
-            return cell;
+        if ecm {
+            addr &= 0x39FF;
         }
-
-        // Zero CBUF selects hires decoding even when MCM is enabled; zero
-        // VBUF also selects background register zero in ECM text mode.
-        for px in 0..8usize {
-            if (bitmap >> (7 - px)) & 1 != 0 {
-                cell.fg_mask |= 1 << px;
-            } else {
-                cell.colour[px] = background;
-            }
+        GraphicsData {
+            gbuf: memory.read_vram(self.vram_addr(addr)),
+            vbuf,
+            cbuf,
         }
-        cell
     }
 
     /// Accumulate sprite-sprite (`$D01E`) and sprite-background (`$D01F`)
@@ -1421,178 +1567,6 @@ impl Vic {
             self.sprite_bg_irq_latched = true;
             self.irq_status |= 0x02;
         }
-    }
-
-    fn render_standard_text(
-        &self,
-        char_code: u8,
-        colour_nybble: u8,
-        memory: &dyn VicMemory,
-    ) -> CellPixels {
-        let bg_colour = 0x21;
-        let fg_colour = colour_nybble & 0x0F;
-        let char_base = self.char_base();
-        let bitmap_addr = char_base + u16::from(char_code) * 8 + u16::from(self.rc);
-        let bitmap = memory.read_vram(self.vram_addr(bitmap_addr));
-
-        let mut cell = CellPixels {
-            colour: [0; 8],
-            fg_mask: 0,
-            zero: bg_colour,
-        };
-        for px in 0..8usize {
-            let bit = (bitmap >> (7 - px)) & 1;
-            if bit != 0 {
-                cell.fg_mask |= 1 << px;
-                cell.colour[px] = fg_colour;
-            } else {
-                cell.colour[px] = bg_colour;
-            }
-        }
-        cell
-    }
-
-    fn render_hires_bitmap(&self, char_code: u8, memory: &dyn VicMemory) -> CellPixels {
-        let fg_colour = (char_code >> 4) & 0x0F;
-        let bg_colour = char_code & 0x0F;
-        let bitmap_base = self.bitmap_base();
-        // g-access via the video counter: (VC << 3) | RC + bitmap base, the
-        // hardware addressing (VICE `g_fetch_addr`, vicii-fetch.c:169). VC at
-        // render equals text_row*40 + col, RC the character sub-row.
-        let bitmap_addr = bitmap_base + self.vc * 8 + u16::from(self.rc);
-        let bitmap = memory.read_vram(self.vram_addr(bitmap_addr));
-
-        let mut cell = CellPixels {
-            colour: [0; 8],
-            fg_mask: 0,
-            zero: bg_colour,
-        };
-        for px in 0..8usize {
-            let bit = (bitmap >> (7 - px)) & 1;
-            if bit != 0 {
-                cell.fg_mask |= 1 << px;
-                cell.colour[px] = fg_colour;
-            } else {
-                cell.colour[px] = bg_colour;
-            }
-        }
-        cell
-    }
-
-    fn render_ecm_text(
-        &self,
-        char_code: u8,
-        colour_nybble: u8,
-        memory: &dyn VicMemory,
-    ) -> CellPixels {
-        let bg_select = (char_code >> 6) & 0x03;
-        let bg_colour = 0x21 + bg_select;
-        let fg_colour = colour_nybble & 0x0F;
-        let char_base = self.char_base();
-        let effective_char = char_code & 0x3F;
-        let bitmap_addr = char_base + u16::from(effective_char) * 8 + u16::from(self.rc);
-        let bitmap = memory.read_vram(self.vram_addr(bitmap_addr));
-
-        let mut cell = CellPixels {
-            colour: [0; 8],
-            fg_mask: 0,
-            zero: bg_colour,
-        };
-        for px in 0..8usize {
-            let bit = (bitmap >> (7 - px)) & 1;
-            if bit != 0 {
-                cell.fg_mask |= 1 << px;
-                cell.colour[px] = fg_colour;
-            } else {
-                cell.colour[px] = bg_colour;
-            }
-        }
-        cell
-    }
-
-    fn render_mcm_text(
-        &self,
-        char_code: u8,
-        colour_nybble: u8,
-        memory: &dyn VicMemory,
-    ) -> CellPixels {
-        if colour_nybble & 0x08 == 0 {
-            return self.render_standard_text(char_code, colour_nybble, memory);
-        }
-
-        let bg0 = 0x21;
-        let bg1 = 0x22;
-        let bg2 = 0x23;
-        let fg_colour = colour_nybble & 0x07;
-        let char_base = self.char_base();
-        let bitmap_addr = char_base + u16::from(char_code) * 8 + u16::from(self.rc);
-        let bitmap = memory.read_vram(self.vram_addr(bitmap_addr));
-
-        let mut cell = CellPixels {
-            colour: [0; 8],
-            fg_mask: 0,
-            zero: bg0,
-        };
-        for pair in 0..4usize {
-            let bits = (bitmap >> (6 - pair * 2)) & 0x03;
-            let colour = match bits {
-                0b00 => bg0,
-                0b01 => bg1,
-                0b10 => bg2,
-                _ => fg_colour,
-            };
-            let is_fg = bits != 0b00;
-            let px0 = pair * 2;
-            let px1 = px0 + 1;
-            if is_fg {
-                cell.fg_mask |= (1 << px0) | (1 << px1);
-            }
-            cell.colour[px0] = colour;
-            cell.colour[px1] = colour;
-        }
-        cell
-    }
-
-    fn render_mcm_bitmap(
-        &self,
-        char_code: u8,
-        colour_nybble: u8,
-        memory: &dyn VicMemory,
-    ) -> CellPixels {
-        let bg0 = 0x21;
-        let c01 = (char_code >> 4) & 0x0F;
-        let c10 = char_code & 0x0F;
-        let c11 = colour_nybble & 0x0F;
-        let bitmap_base = self.bitmap_base();
-        // g-access via the video counter: (VC << 3) | RC + bitmap base, the
-        // hardware addressing (VICE `g_fetch_addr`, vicii-fetch.c:169). VC at
-        // render equals text_row*40 + col, RC the character sub-row.
-        let bitmap_addr = bitmap_base + self.vc * 8 + u16::from(self.rc);
-        let bitmap = memory.read_vram(self.vram_addr(bitmap_addr));
-
-        let mut cell = CellPixels {
-            colour: [0; 8],
-            fg_mask: 0,
-            zero: bg0,
-        };
-        for pair in 0..4usize {
-            let bits = (bitmap >> (6 - pair * 2)) & 0x03;
-            let colour = match bits {
-                0b00 => bg0,
-                0b01 => c01,
-                0b10 => c10,
-                _ => c11,
-            };
-            let is_fg = bits != 0b00;
-            let px0 = pair * 2;
-            let px1 = px0 + 1;
-            if is_fg {
-                cell.fg_mask |= (1 << px0) | (1 << px1);
-            }
-            cell.colour[px0] = colour;
-            cell.colour[px1] = colour;
-        }
-        cell
     }
 
     /// Each sprite's leftmost framebuffer X (VIC X + the sprite-to-screen
@@ -1745,31 +1719,6 @@ impl Vic {
         self.chain_data[i][2] = memory.read_vram(self.vram_addr(base + u16::from(mc2)));
         self.last_bus_data = self.chain_data[i][2];
         self.chain.advance_mc(i);
-    }
-
-    /// Composite this cycle's raw sprite pixels (produced by the draw stage,
-    /// `run_sprite_draw_cycle`) into the framebuffer, applying sprite-behind-
-    /// foreground priority (`$D01B` + `fg_mask`).
-    fn composite_sprite_sources(&self, output_sources: &mut [Option<u8>; 8], fg_mask: u8) {
-        let priority = self.regs[0x1B];
-        for (px, output) in output_sources.iter_mut().enumerate() {
-            // Collision accumulation runs every cycle in
-            // `accumulate_sprite_collisions`; this pass only composites the
-            // visible pixels, honouring sprite-behind-foreground priority.
-            let Some(sp) = self.sprite_cycle_px[px] else {
-                continue;
-            };
-            let i = sp.sprite as usize;
-            if priority & (1 << i) != 0 && (fg_mask >> px) & 1 != 0 {
-                continue;
-            }
-            let colour_source = match sp.selector {
-                1 => 0x25,
-                3 => 0x26,
-                _ => 0x27 + i as u8,
-            };
-            *output = Some(colour_source);
-        }
     }
 
     #[cfg(test)]
@@ -1993,7 +1942,6 @@ impl Vic {
             0x12 => {
                 self.raster_compare = (self.raster_compare & 0x0100) | u16::from(value);
             }
-            0x16 => self.reload_sequencer(),
             0x19 => {
                 self.irq_status &= !value & 0x0F;
             }
@@ -3430,6 +3378,64 @@ mod tests {
         assert_eq!(&row[8..16], &[green; 8]);
     }
 
+    /// Render line 0x34 (display state, not a badline) of solid blue text at
+    /// `xscroll`, switch to an invalid mode (ECM and BMM, black) in the CPU
+    /// access of column `col`'s g-access cycle, and return the 16 dots of
+    /// columns `col - 1` and `col`.
+    fn invalid_mode_write_in_column(model: VicModel, col: u8, xscroll: u8) -> Vec<u32> {
+        let (mut vic, memory) = make_vic_and_memory_model(model);
+        vic.write(0x11, 0x1B);
+        vic.write(0x16, 0x08 | xscroll);
+        vic.write(0x18, 0x14);
+
+        let target_line = DISPLAY_START_LINE + 4;
+        advance_to(&mut vic, &memory, target_line, DISPLAY_START_CYCLE);
+        vic.colour_row = [0x06; 40];
+        step_cycles(&mut vic, &memory, u32::from(col) + 1);
+        vic.write(0x11, 0x7B);
+        step_cycles(&mut vic, &memory, 2);
+
+        let fb_y = (target_line - FIRST_VISIBLE_LINE) as usize;
+        let fb_x = usize::from(DISPLAY_START_CYCLE - FIRST_VISIBLE_CYCLE + col - 1) * 8;
+        let frame = settled(&vic);
+        let row = &frame.framebuffer()[fb_y * FB_WIDTH as usize..];
+        row[fb_x..fb_x + 16].to_vec()
+    }
+
+    #[test]
+    fn nmos_mode_change_takes_effect_at_dot_4_whatever_the_xscroll() {
+        // The 6569 decodes ECM and BMM at the shift register's output. A
+        // write in column 5's g-access cycle reaches it while column 4 is
+        // shifting out, from dot 4, so the black starts there at any XSCROLL
+        // instead of moving with the graphics.
+        let (blue, black) = (PALETTE[6], PALETTE[0]);
+        let mut expected = vec![blue; 4];
+        expected.extend([black; 12]);
+        for xscroll in [0, 5] {
+            assert_eq!(
+                invalid_mode_write_in_column(VicModel::Pal6569, 5, xscroll),
+                expected,
+                "XSCROLL {xscroll}"
+            );
+        }
+    }
+
+    #[test]
+    fn hmos_mode_change_takes_effect_at_the_next_cycle_whatever_the_xscroll() {
+        // The 8565 latches ECM and BMM after dot 7, so column 4 keeps the
+        // old mode and column 5 starts in the new one.
+        let (blue, black) = (PALETTE[6], PALETTE[0]);
+        let mut expected = vec![blue; 8];
+        expected.extend([black; 8]);
+        for xscroll in [0, 5] {
+            assert_eq!(
+                invalid_mode_write_in_column(VicModel::Pal8565, 5, xscroll),
+                expected,
+                "XSCROLL {xscroll}"
+            );
+        }
+    }
+
     #[test]
     fn late_badline_uses_invalid_matrix_data_until_aec_is_low() {
         let chargen = vec![0u8; 4096];
@@ -3871,7 +3877,9 @@ mod tests {
 
         let mut vic = Vic::new(VicModel::Pal6569);
         vic.raster_line = 0xF9;
-        vic.raster_cycle = DISPLAY_START_CYCLE + 1;
+        // Start a cycle early: the sequencer reads the mode bits for a
+        // cell's first dots from the cycle before.
+        vic.raster_cycle = DISPLAY_START_CYCLE;
         vic.den_latch = true;
         vic.border_vert_ff = false;
         vic.border_main_ff = false;
@@ -3883,6 +3891,7 @@ mod tests {
         let fb_y = 0xF9usize;
         let fb_x = (DISPLAY_START_CYCLE + 1 - FIRST_VISIBLE_CYCLE) as usize * 8;
         let offset = fb_y * FB_WIDTH as usize + fb_x;
+        tick_vic(&mut vic, &memory);
         tick_vic(&mut vic, &memory);
         assert_eq!(
             &settled(&vic).framebuffer[offset..offset + 8],
@@ -3899,7 +3908,9 @@ mod tests {
 
         let mut vic = Vic::new(VicModel::Pal6569);
         vic.raster_line = 0xF9;
-        vic.raster_cycle = DISPLAY_START_CYCLE + 1;
+        // Start a cycle early: the sequencer reads the mode bits for a
+        // cell's first dots from the cycle before.
+        vic.raster_cycle = DISPLAY_START_CYCLE;
         vic.den_latch = true;
         vic.border_vert_ff = false;
         vic.border_main_ff = false;
@@ -3911,6 +3922,7 @@ mod tests {
         let fb_y = 0xF9usize;
         let fb_x = (DISPLAY_START_CYCLE + 1 - FIRST_VISIBLE_CYCLE) as usize * 8;
         let offset = fb_y * FB_WIDTH as usize + fb_x;
+        tick_vic(&mut vic, &memory);
         tick_vic(&mut vic, &memory);
         assert_eq!(
             &settled(&vic).framebuffer[offset..offset + 8],
