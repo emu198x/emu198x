@@ -444,11 +444,19 @@ impl<M: MemoryBus, V: Variant48kClass> SpectrumMachineCore<M, V> {
     }
 
     /// Reads port `$FE`.
+    ///
+    /// Bit 6 follows the tape input while a signal is present: high when
+    /// the input is high. The ULA's EAR comparator is not inverting: a
+    /// voltage above its 0.714 V threshold drives bit 6 high (Smith, *The
+    /// ZX Spectrum ULA*, ch. 20 pp. 221–222; Dickens, *Spectrum Hardware
+    /// Manual*, p. 34). With no signal, bit 6 is the ULA's read-back of
+    /// the last bits 3 and 4 written, which differs between Issue 2 and
+    /// Issue 3 (`FerrantiUla::read_fe`).
     #[must_use]
     pub fn read_fe(&self, port: u16) -> u8 {
         let mut value = self.ula.read_fe(port, self.keyboard.rows());
         if let Some(level) = self.current_tape_level() {
-            value = (value & !0x40) | if level { 0x00 } else { 0x40 };
+            value = (value & !0x40) | if level { 0x40 } else { 0x00 };
         }
         value
     }
@@ -799,6 +807,73 @@ mod tests {
             idle_fe,
             "and port $FE bit 6 reads as it does with no tape"
         );
+    }
+
+    /// #1637: port `$FE` bit 6 reads the tape input as it is, 1 while the
+    /// input is high and 0 while it is low. The ULA's EAR comparator does
+    /// not invert (Smith ch. 20 p. 222; Dickens p. 34). Checked on both
+    /// ULA families and with the MIC bit both ways; the ROM loader writes
+    /// it set, the speaker bit clear.
+    #[test]
+    fn port_fe_bit_6_follows_the_tape_input() {
+        for revision in [UlaRevision::Ferranti5C, UlaRevision::Ferranti6C] {
+            for written in [0x00, 0x08] {
+                let mut m = Spectrum48k::with_revision(revision);
+                m.write_fe(written);
+                m.load_tape_pulses(vec![1_000, 1_000_000]);
+                m.play_tape();
+                m.advance_tstates(500);
+                assert_eq!(
+                    m.read_fe(0x00FE) & 0x40,
+                    0x00,
+                    "{revision:?}, wrote {written:#04x}: the tape is low, so is bit 6"
+                );
+                m.advance_tstates(1_000);
+                assert_eq!(
+                    m.read_fe(0x00FE) & 0x40,
+                    0x40,
+                    "{revision:?}, wrote {written:#04x}: the tape is high, so is bit 6"
+                );
+            }
+        }
+    }
+
+    /// #1637: with no tape signal, bit 6 is the ULA's read-back of the
+    /// last bits 3 and 4 written. The bias they set at the EAR comparator
+    /// crosses its 0.714 V threshold for MIC alone on a 5C ULA (0.728 V,
+    /// Issue 2) but not on a 6C (0.652 V, Issue 3): Smith ch. 20,
+    /// Table 20-2 and p. 222; Dickens p. 34. A tape that is loaded but not
+    /// playing reads the same.
+    #[test]
+    fn port_fe_bit_6_reads_back_the_last_write_with_no_tape_signal() {
+        // (written, Issue 2 / 5C, Issue 3 / 6C)
+        let cases = [
+            (0x00, 0x00, 0x00),
+            (0x08, 0x40, 0x00),
+            (0x10, 0x40, 0x40),
+            (0x18, 0x40, 0x40),
+        ];
+        for (written, issue2, issue3) in cases {
+            for (revision, expected) in [
+                (UlaRevision::Ferranti5C, issue2),
+                (UlaRevision::Ferranti6C, issue3),
+            ] {
+                let mut m = Spectrum48k::with_revision(revision);
+                m.write_fe(written);
+                assert_eq!(
+                    m.read_fe(0x00FE) & 0x40,
+                    expected,
+                    "{revision:?}, no tape, wrote {written:#04x}"
+                );
+                m.load_tape_pulses(vec![1_000]);
+                m.advance_tstates(2_000);
+                assert_eq!(
+                    m.read_fe(0x00FE) & 0x40,
+                    expected,
+                    "{revision:?}, stopped tape, wrote {written:#04x}"
+                );
+            }
+        }
     }
 
     use crate::variant::Spectrum48kMarker;
