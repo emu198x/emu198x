@@ -184,8 +184,12 @@ impl Ula for TimexScld {
         }
     }
 
+    /// Bits 7 and 5 read 0. The TS2068 Technical Manual's port map marks
+    /// them "Not Used (Set to 0)" on a read of `$FE` (§2.1.13.2, p. 50),
+    /// where a Sinclair ULA leaves them high. FUSE's `$5F` for the Timex
+    /// machines agrees.
     fn read_fe(&self, port: u16, keyboard: &[u8; 8]) -> u8 {
-        self.engine.read_fe(port, keyboard)
+        self.engine.read_fe(port, keyboard) & !0xA0
     }
 
     fn write_fe(&mut self, val: u8) {
@@ -204,6 +208,20 @@ impl Ula for TimexScld {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A read of `$FE` returns bits 7 and 5 as 0 (TS2068 Technical
+    /// Manual §2.1.13.2), with the keyboard in bits 0-4 and the EAR bit
+    /// in bit 6.
+    #[test]
+    fn port_fe_reads_bits_7_and_5_as_zero() {
+        let scld = TimexScld::new();
+        let released = [0xFF; 8];
+        assert_eq!(scld.read_fe(0xFEFE, &released), 0x5F);
+
+        let mut z_pressed = released;
+        z_pressed[0] &= !0x02;
+        assert_eq!(scld.read_fe(0xFEFE, &z_pressed), 0x5D);
+    }
 
     struct ContendedMemory;
 
