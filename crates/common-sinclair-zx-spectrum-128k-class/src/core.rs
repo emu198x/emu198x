@@ -380,10 +380,15 @@ impl<V: Class128kVariant> Spectrum128kClassCore<V> {
         }
         if port & 0x0001 == 0 {
             // ULA port ($FE). Bit 6 picks up the tape EAR while it plays
-            // and until its stop release.
+            // and until its stop release. The 7K010E has the 48K's EAR
+            // input, tied to its output pin (Smith ch. 24 p. 255), so as on
+            // the 48K a speaker bit written high holds the comparator
+            // above its threshold whatever the tape does (Smith ch. 20,
+            // Table 20-2 and p. 222).
             let mut val = self.ula.read_fe(port, &self.keyboard);
             if self.tape.is_playing() || self.tape_release.pending() {
-                val = (val & !0x40) | if self.tape.ear_level() { 0x40 } else { 0x00 };
+                let high = self.tape.ear_level() || self.ula.speaker();
+                val = (val & !0x40) | if high { 0x40 } else { 0x00 };
             }
             val
         } else if port & 0xC002 == 0xC000 {
@@ -653,6 +658,32 @@ mod tests {
         }
         check_tape!(Spectrum128K::new());
         check_tape!(SpectrumPlus2::new());
+    }
+
+    /// #1637: with the speaker bit written high, the tape cannot pull
+    /// bit 6 low, as on the 48K whose EAR circuit the 7K010E carries
+    /// (Smith ch. 24 p. 255; ch. 20 Table 20-2 and p. 222).
+    #[test]
+    fn port_fe_bit_6_stays_high_while_the_speaker_bit_is_set() {
+        macro_rules! check_speaker {
+            ($make:expr) => {
+                for written in [0x10, 0x18] {
+                    let mut m = $make;
+                    m.port_write(0x00FE, written);
+                    m.load_tape_pulses(vec![1_000, 1_000_000]);
+                    m.tape_play();
+                    m.advance_tstates(500);
+                    assert_eq!(
+                        m.port_read(0x00FE) & 0x40,
+                        0x40,
+                        "{}, wrote {written:#04x}: the tape is low, bit 6 stays high",
+                        stringify!($make)
+                    );
+                }
+            };
+        }
+        check_speaker!(Spectrum128K::new());
+        check_speaker!(SpectrumPlus2::new());
     }
 
     /// #1637: with no tape signal, bit 6 reads back the last speaker bit

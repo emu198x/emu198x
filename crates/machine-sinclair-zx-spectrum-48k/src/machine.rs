@@ -232,8 +232,10 @@ mod tests {
 
     #[test]
     fn connected_tape_input_overrides_feedback() {
-        let mut machine = Spectrum48k::new();
-        machine.write_fe(0x10);
+        // MIC alone reads back as 1 on an Issue 2 ULA, so a low tape
+        // input visibly overrides it.
+        let mut machine = Spectrum48k::with_revision(UlaRevision::Ferranti5C);
+        machine.write_fe(0x08);
         machine.set_tape_connected(true);
         machine.set_tape_level(false);
         assert_eq!(machine.read_fe(0xfffe) & 0x40, 0x00);

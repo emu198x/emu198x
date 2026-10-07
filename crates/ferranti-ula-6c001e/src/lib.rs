@@ -106,6 +106,12 @@ impl FerrantiUla {
         self.engine.border
     }
 
+    /// The speaker bit (bit 4) of the last write to port `$FE`.
+    #[must_use]
+    pub fn speaker(&self) -> bool {
+        self.engine.beeper
+    }
+
     /// Debug raster probe: `(scan, pixel, video, idle, bus_data)`. Used by
     /// floating-bus / interrupt-phase investigations to map a frame
     /// T-state onto the ULA's internal beam position.

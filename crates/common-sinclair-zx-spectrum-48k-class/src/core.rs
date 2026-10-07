@@ -452,11 +452,17 @@ impl<M: MemoryBus, V: Variant48kClass> SpectrumMachineCore<M, V> {
     /// Manual*, p. 34). With no signal, bit 6 is the ULA's read-back of
     /// the last bits 3 and 4 written, which differs between Issue 2 and
     /// Issue 3 (`FerrantiUla::read_fe`).
+    ///
+    /// The tape rides on the bias those bits set, so with the speaker bit
+    /// written high it cannot pull bit 6 low. That bias is about 3.6 V
+    /// (Table 20-2), and a tape signal is about 0.7 V in amplitude
+    /// (p. 222), far short of reaching the 0.714 V threshold.
     #[must_use]
     pub fn read_fe(&self, port: u16) -> u8 {
         let mut value = self.ula.read_fe(port, self.keyboard.rows());
         if let Some(level) = self.current_tape_level() {
-            value = (value & !0x40) | if level { 0x40 } else { 0x00 };
+            let high = level || self.ula.speaker();
+            value = (value & !0x40) | if high { 0x40 } else { 0x00 };
         }
         value
     }
@@ -833,6 +839,34 @@ mod tests {
                     m.read_fe(0x00FE) & 0x40,
                     0x40,
                     "{revision:?}, wrote {written:#04x}: the tape is high, so is bit 6"
+                );
+            }
+        }
+    }
+
+    /// #1637: with the speaker bit written high, the tape cannot pull
+    /// bit 6 low. Junction A sits at about 3.6 V (Smith Table 20-2), and a
+    /// tape signal of about 0.7 V amplitude (p. 222) cannot take it down
+    /// to the 0.714 V threshold.
+    #[test]
+    fn port_fe_bit_6_stays_high_while_the_speaker_bit_is_set() {
+        for revision in [UlaRevision::Ferranti5C, UlaRevision::Ferranti6C] {
+            for written in [0x10, 0x18] {
+                let mut m = Spectrum48k::with_revision(revision);
+                m.write_fe(written);
+                m.load_tape_pulses(vec![1_000, 1_000_000]);
+                m.play_tape();
+                m.advance_tstates(500);
+                assert_eq!(
+                    m.read_fe(0x00FE) & 0x40,
+                    0x40,
+                    "{revision:?}, wrote {written:#04x}: the tape is low, bit 6 stays high"
+                );
+                m.advance_tstates(1_000);
+                assert_eq!(
+                    m.read_fe(0x00FE) & 0x40,
+                    0x40,
+                    "{revision:?}, wrote {written:#04x}: the tape is high"
                 );
             }
         }
