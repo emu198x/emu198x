@@ -1205,12 +1205,7 @@ impl Vic {
         };
         self.apply_border(&mut cell.sources);
         if self.signal_codes.len() != self.framebuffer.len() {
-            // Reconstruct the transient mirror after restoring a save state.
-            self.signal_codes = self
-                .framebuffer
-                .iter()
-                .map(|rgb| PALETTE.iter().position(|entry| entry == rgb).unwrap_or(0) as u16)
-                .collect();
+            self.rebuild_signal_codes();
         }
         for (px, source) in cell.sources.into_iter().enumerate() {
             let Some(source) = source else {
@@ -2148,6 +2143,16 @@ impl Vic {
     #[must_use]
     pub fn framebuffer(&self) -> &[u32] {
         &self.framebuffer
+    }
+
+    /// Rebuild the derived electrical cache from the serialized RGB frame.
+    /// The board calls this before exposing a restored machine's output.
+    pub fn rebuild_signal_codes(&mut self) {
+        self.signal_codes = self
+            .framebuffer
+            .iter()
+            .map(|rgb| PALETTE.iter().position(|entry| entry == rgb).unwrap_or(0) as u16)
+            .collect();
     }
 
     /// Electrical colour codes captured at the final VIC pixel mux.
