@@ -1,0 +1,50 @@
+[
+  {
+    "name": "test-kit-ocs",
+    "command": [
+      "bash",
+      "scripts/verify-amiga-test-kit-video.sh"
+    ],
+    "exit_code": 0
+  },
+  {
+    "name": "test-kit-aga",
+    "command": [
+      "bash",
+      "scripts/verify-amiga-test-kit-video-a1200.sh"
+    ],
+    "exit_code": 0
+  },
+  {
+    "name": "static-hblank",
+    "command": [
+      "bash",
+      "scripts/verify-amiga-programmable-hblank.sh"
+    ],
+    "exit_code": 0
+  },
+  {
+    "name": "timed-hblank",
+    "command": [
+      "bash",
+      "scripts/verify-amiga-programmable-hblank-write-timing.sh"
+    ],
+    "exit_code": 0
+  },
+  {
+    "name": "snapshots",
+    "command": [
+      "cargo",
+      "test",
+      "--locked",
+      "--release",
+      "-p",
+      "runtime-commodore-amiga",
+      "--test",
+      "snapshot_roundtrip",
+      "--",
+      "--nocapture"
+    ],
+    "exit_code": 0
+  }
+]

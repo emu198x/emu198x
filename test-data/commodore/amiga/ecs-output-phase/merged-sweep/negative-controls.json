@@ -1,0 +1,14 @@
+[
+  {
+    "control": "altered_image",
+    "rejected": "/private/tmp/emu198x-merged-graphics-sweep/archive/cases/emu198x-display-phase-sweep/ddf30/control: altered merged56.png"
+  },
+  {
+    "control": "altered_image_with_updated_hash",
+    "rejected": "/private/tmp/emu198x-merged-graphics-sweep/archive/cases/emu198x-display-phase-sweep/ddf30/control: result differs: 1"
+  },
+  {
+    "control": "empty_inventory",
+    "rejected": "expected all 128 distinct guests"
+  }
+]

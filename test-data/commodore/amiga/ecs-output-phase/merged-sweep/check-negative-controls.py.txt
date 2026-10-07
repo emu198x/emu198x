@@ -1,0 +1,55 @@
+"""Prove archive verification rejects corrupted, rehashed and empty evidence."""
+import hashlib
+import importlib.util
+import json
+from pathlib import Path
+
+from PIL import Image
+
+base = Path('/private/tmp/emu198x-merged-graphics-sweep/archive')
+spec = importlib.util.spec_from_file_location('sweep_replay', base / 'replay.py')
+assert spec and spec.loader
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+manifest = base / 'comparison.json'
+original_manifest = manifest.read_bytes()
+report = json.loads(original_manifest)
+image_path = base / report['results'][0]['archive_case'] / 'merged56.png'
+original_image = image_path.read_bytes()
+results = []
+try:
+    image = Image.open(image_path).convert('RGB')
+    red, green, blue = image.getpixel((16, 2))
+    image.putpixel((16, 2), (red ^ 1, green, blue))
+    image.save(image_path)
+    try:
+        module.replay(base)
+    except ValueError as error:
+        assert 'altered merged56.png' in str(error), str(error)
+        results.append({'control': 'altered_image', 'rejected': str(error)})
+    else:
+        raise AssertionError('altered image accepted')
+    report['results'][0]['merged56.png_sha256'] = hashlib.sha256(image_path.read_bytes()).hexdigest()
+    manifest.write_text(json.dumps(report))
+    try:
+        module.replay(base)
+    except ValueError as error:
+        assert 'result differs: 1' in str(error), str(error)
+        results.append({'control': 'altered_image_with_updated_hash', 'rejected': str(error)})
+    else:
+        raise AssertionError('rehashed altered image accepted')
+    report['results'] = []
+    manifest.write_text(json.dumps(report))
+    try:
+        module.replay(base)
+    except ValueError as error:
+        assert 'all 128 distinct guests' in str(error), str(error)
+        results.append({'control': 'empty_inventory', 'rejected': str(error)})
+    else:
+        raise AssertionError('empty inventory accepted')
+finally:
+    image_path.write_bytes(original_image)
+    manifest.write_bytes(original_manifest)
+assert manifest.read_bytes() == original_manifest
+assert image_path.read_bytes() == original_image
+print(json.dumps(results, indent=2))
