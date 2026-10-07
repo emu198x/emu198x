@@ -7,7 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `catalogue run --shard i/n` runs every n-th entry from the i-th, so n
+  parallel jobs cover a manifest exactly once. The nightly uses it to keep
+  each leg near 45 minutes. A shard that selects nothing is an error.
+
 ### Changed
+
+- `catalogue run` reports an entry that cannot run (missing media or
+  firmware, a session error) as `[ERROR] <id>` and carries on with the rest,
+  instead of stopping the whole run with an error that names no entry. It
+  ends with a count of entries run and failures.
 
 - Advance Spectrum audio routing to version 4 for the beeper mixer's
   per-bin averaging (#1634) and the tape input released a frame after the
