@@ -628,3 +628,38 @@ fn audio_dma_disabled_leaves_channel_silent() {
     let snap = amiga.paula().audio_state(0).expect("ch 0 exists");
     assert_eq!(snap.sample, 0, "no DMA → no sample delivered");
 }
+
+#[test]
+fn retained_audio_dma_delivers_startup_irq_at_the_next_cck_boundary() {
+    for channel in 0..4u16 {
+        let mut amiga = AmigaOcs::new(zero_rom());
+        for (offset, value) in [(0x0A2, 0x1000), (0x0A4, 1), (0x0A6, 124)] {
+            amiga.poke_word(0x00DF_F000 + u32::from(offset + channel * 16), value);
+        }
+        amiga.poke_word(0x00DF_F096, 0x8200 | (1 << channel));
+        let irq = 0x80 << channel;
+        let mut pending_seen = false;
+        for _ in 0..2000 {
+            amiga.tick();
+            let ch = amiga.paula().audio_diagnostic_snapshot().channels[channel as usize];
+            if ch.interrupt_request_pending {
+                pending_seen = true;
+                assert_eq!(amiga.intreq() & irq, 0, "no IRQ at DMA retirement");
+                break;
+            }
+        }
+        assert!(
+            pending_seen,
+            "real Agnus DMA must issue the startup request"
+        );
+        // A machine tick advances master/4; two ticks form one CCK.
+        amiga.tick();
+        assert_eq!(amiga.intreq() & irq, 0, "not delivered halfway through CCK");
+        amiga.tick();
+        assert_ne!(amiga.intreq() & irq, 0, "delivered on next CCK");
+        assert!(
+            !amiga.paula().audio_diagnostic_snapshot().channels[channel as usize]
+                .interrupt_request_pending
+        );
+    }
+}

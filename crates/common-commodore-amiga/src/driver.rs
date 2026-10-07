@@ -500,6 +500,9 @@ pub trait AmigaDriver {
 
             // ── CCK-granular events (phase 0 only) ───────────────────
             if phase == 0 {
+                // Deliver only requests from the preceding CCK, before DMA
+                // retirement can schedule another audio interrupt.
+                self.paula_mut().begin_audio_cck();
                 // Per-CCK bus-use observations remain valid across both
                 // master/4 phases. Clear them only as a new CCK begins.
                 self.agnus_mut().reset_disk_bus_usage();

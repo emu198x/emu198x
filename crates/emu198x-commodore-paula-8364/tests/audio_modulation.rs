@@ -175,6 +175,7 @@ fn combined_tick_and_retained_dma_service_agree_in_every_attach_mode() {
                 let word_at = |address: u32| WORDS[((address - 0x1000) / 2) as usize % WORDS.len()];
                 for time in 0..1500 {
                     let slot = (time % 5 == 0).then_some(source as u8);
+                    retained.begin_audio_cck();
                     if slot.is_some()
                         && let Some((address, reload)) = retained.audio_dma_request(source as u8)
                     {
@@ -185,7 +186,7 @@ fn combined_tick_and_retained_dma_service_agree_in_every_attach_mode() {
                             word_at(address),
                         );
                     }
-                    retained.tick_audio_cck(dma, None, |_| 0);
+                    retained.finish_audio_cck(dma, None, |_| 0);
                     combined.tick_audio_cck(dma, slot, |address| {
                         let word = word_at(address & !1);
                         if address & 1 == 0 {

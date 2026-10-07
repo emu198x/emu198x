@@ -469,6 +469,8 @@ struct AudioChannel {
     dma_active: bool,
     dma_enabled_prev: bool,
     dma_requests_pending: u8,
+    loop_interrupt_pending: bool,
+    interrupt_request_pending: bool,
 }
 
 impl Default for AudioChannel {
@@ -490,6 +492,8 @@ impl Default for AudioChannel {
             dma_active: false,
             dma_enabled_prev: false,
             dma_requests_pending: 0,
+            loop_interrupt_pending: false,
+            interrupt_request_pending: false,
         }
     }
 }
@@ -537,6 +541,7 @@ impl AudioChannel {
         self.next_word = None;
         self.next_byte_is_hi = true;
         self.dma_requests_pending = 0;
+        self.loop_interrupt_pending = false;
     }
 
     fn sync_dma_enable(&mut self, enabled: bool) {
@@ -621,7 +626,7 @@ impl AudioChannel {
     /// hpos 0x0D/0F/11/13. There is no separate post-fetch countdown.
     ///
     /// The fetch advances the startup state machine and returns `true`
-    /// when an audio interrupt should be raised this CCK.
+    /// when an audio interrupt should enter the one-CCK delivery stage.
     fn service_dma_slot<F>(&mut self, read_chip_byte: F, request_next: bool) -> bool
     where
         F: FnMut(u32) -> u8,
@@ -669,9 +674,10 @@ impl AudioChannel {
             AudioState::Playing => {
                 // Steady state: top the 2-deep buffer up as it drains.
                 // `wrapped` reports a length-counter wrap (loop point) —
-                // that raises the per-buffer interrupt.
+                // latch it until the attachment-selected output edge.
                 self.push_dma_word(word);
-                wrapped
+                self.loop_interrupt_pending |= wrapped;
+                false
             }
             AudioState::Idle => false,
         }
@@ -816,6 +822,10 @@ pub struct PaulaAudioChannelDiagnosticSnapshot {
     pub dma_enabled_previous: bool,
     /// Number of channel DMA requests waiting for an Agnus slot.
     pub dma_requests_pending: u8,
+    /// Length wrap waiting for the attachment-selected output transition.
+    pub loop_interrupt_pending: bool,
+    /// Audio IRQ awaiting delivery at the next CCK boundary.
+    pub interrupt_request_pending: bool,
     /// Whether this channel modulates the next channel's period.
     pub period_modulation_enabled: bool,
     /// Whether this channel modulates the next channel's volume.
@@ -1282,6 +1292,8 @@ impl Paula8364 {
                 dma_active: channel.dma_active,
                 dma_enabled_previous: channel.dma_enabled_prev,
                 dma_requests_pending: channel.dma_requests_pending,
+                loop_interrupt_pending: channel.loop_interrupt_pending,
+                interrupt_request_pending: channel.interrupt_request_pending,
                 period_modulation_enabled: self.adkcon & ADKCON_USE_PER[index] != 0,
                 volume_modulation_enabled: self.adkcon & ADKCON_USE_VOL[index] != 0,
                 host_control: self.audio_controls.channels[index],
@@ -1346,7 +1358,8 @@ impl Paula8364 {
     }
 
     /// Retire a word read at the retained DMA address. Playback is clocked
-    /// separately once by `tick_audio_cck`; this does not tick the engine.
+    /// separately by `finish_audio_cck`; retire between `begin_audio_cck`
+    /// and that output phase. This method does not tick the engine.
     pub fn service_audio_dma_word(&mut self, channel: u8, address: u32, reload: bool, word: u16) {
         let index = usize::from(channel);
         let Some(audio) = self.audio.get_mut(index) else {
@@ -1361,14 +1374,35 @@ impl Paula8364 {
         audio.words_remaining = audio.words_remaining.saturating_sub(1);
         let starting = audio.state == AudioState::WaitWord2;
         if audio.accept_dma_word(word, reload, request_next) {
-            self.intreq |= INT_AUD0 << channel;
+            audio.interrupt_request_pending = true;
         }
         if starting {
             self.apply_audio_modulation_event(index, AudioOutputEvent::HighByte(word));
         }
     }
 
-    pub fn tick_audio_cck<F>(
+    /// Deliver audio IRQs requested during the preceding CCK. Board drivers
+    /// call this before retiring DMA, then call `finish_audio_cck` at output.
+    pub fn begin_audio_cck(&mut self) {
+        for (index, channel) in self.audio.iter_mut().enumerate() {
+            if std::mem::take(&mut channel.interrupt_request_pending) {
+                self.intreq |= INT_AUD0 << index;
+            }
+        }
+    }
+
+    /// Advance one complete CCK for component clients without retained DMA.
+    pub fn tick_audio_cck<F>(&mut self, dmacon: u16, audio_dma_slot: Option<u8>, read_chip_byte: F)
+    where
+        F: FnMut(u32) -> u8,
+    {
+        self.begin_audio_cck();
+        self.finish_audio_cck(dmacon, audio_dma_slot, read_chip_byte);
+    }
+
+    /// Clock DMA enable and sample output after this CCK's DMA retirement.
+    /// Pair with exactly one `begin_audio_cck` on the existing board clock.
+    pub fn finish_audio_cck<F>(
         &mut self,
         dmacon: u16,
         audio_dma_slot: Option<u8>,
@@ -1390,7 +1424,7 @@ impl Paula8364 {
                 || self.adkcon & ADKCON_USE_VOL[index] != 0;
             let starting = ch.state == AudioState::WaitWord2;
             if ch.service_dma_slot(&mut read_chip_byte, request_next) {
-                irq_mask |= INT_AUD0 << ch_u8;
+                ch.interrupt_request_pending = true;
             }
             if starting && ch.state == AudioState::Playing {
                 let word = ch.dat;
@@ -1418,7 +1452,12 @@ impl Paula8364 {
         for (index, event) in output_events.into_iter().enumerate() {
             if let Some(ev) = event {
                 if self.audio_dma_request_on_event(index, ev) {
-                    self.audio[index].queue_dma_request();
+                    let channel = &mut self.audio[index];
+                    channel.queue_dma_request();
+                    if channel.dma_active && channel.loop_interrupt_pending {
+                        channel.loop_interrupt_pending = false;
+                        channel.interrupt_request_pending = true;
+                    }
                 }
                 self.apply_audio_modulation_event(index, ev);
             }

@@ -45,6 +45,86 @@ use runtime_commodore_amiga::{
 const BLTCON0: u32 = 0x00DF_F040;
 
 #[test]
+fn paula_pending_loop_and_delayed_irq_survive_live_restore() -> Result<(), Box<dyn Error>> {
+    fn check<M: AmigaMachine + AmigaLiveAccess + AmigaDriver>(
+        mut original: AmigaRuntime<M>,
+        mut restored: AmigaRuntime<M>,
+        attach: u16,
+    ) -> Result<(), Box<dyn Error>> {
+        AmigaDriver::memory_mut(original.machine_mut()).write_word(0x1000, 0x1122);
+        for (offset, value) in [
+            (0x0A2, 0x1000),
+            (0x0A4, 1),
+            (0x0A6, 124),
+            (0x09E, 0x8000 | attach),
+            (0x096, 0x8201),
+        ] {
+            AmigaDriver::dispatch_custom_write(original.machine_mut(), offset, value);
+        }
+        // Observe startup delivery, held wrap, selected edge and delivery.
+        for stage in 0..4 {
+            let mut reached = false;
+            for _ in 0..10000 {
+                let p = AmigaDriver::paula(original.machine());
+                let ch = p.audio_diagnostic_snapshot().channels[0];
+                let matches = match stage {
+                    0 => ch.interrupt_request_pending && ch.current_word.is_none(),
+                    1 => ch.loop_interrupt_pending && ch.period_counter > 1,
+                    2 => ch.loop_interrupt_pending && ch.period_counter == 1,
+                    _ => ch.interrupt_request_pending && ch.current_word.is_some(),
+                };
+                if matches {
+                    reached = true;
+                    break;
+                }
+                AmigaMachine::tick(original.machine_mut());
+            }
+            assert!(reached, "attach={attach} stage={stage}");
+            // Clear already-visible startup/previous IRQs so replay must
+            // deliver a new interrupt from the saved pending stage.
+            AmigaDriver::paula_mut(original.machine_mut()).write_intreq(0x80);
+            let saved = original.snapshot()?;
+            restored.restore(&saved)?;
+            assert!(saved == restored.snapshot()?);
+            let mut delivered = false;
+            for _ in 0..1200 {
+                AmigaMachine::tick(original.machine_mut());
+                AmigaMachine::tick(restored.machine_mut());
+                let a = AmigaDriver::paula(original.machine());
+                let b = AmigaDriver::paula(restored.machine());
+                assert_eq!(a.audio_diagnostic_snapshot(), b.audio_diagnostic_snapshot());
+                assert_eq!(a.intreq(), b.intreq());
+                delivered |= a.intreq() & 0x80 != 0;
+            }
+            assert!(delivered, "saved pending IRQ must actually reach INTREQ");
+            assert!(original.snapshot()? == restored.snapshot()?);
+            original.restore(&saved)?;
+            AmigaMachine::tick(original.machine_mut());
+            AmigaMachine::tick(original.machine_mut());
+        }
+        Ok(())
+    }
+    for attach in [0, 0x10, 0x01, 0x11] {
+        check(
+            AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?,
+            AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?,
+            attach,
+        )?;
+        check(
+            AmigaEcsRuntime::new(Model::A500PlusEcsPal, blank_kickstart())?,
+            AmigaEcsRuntime::new(Model::A500PlusEcsPal, blank_kickstart())?,
+            attach,
+        )?;
+        check(
+            AmigaA1200Runtime::new(Model::A1200AgaPal, blank_kickstart())?,
+            AmigaA1200Runtime::new(Model::A1200AgaPal, blank_kickstart())?,
+            attach,
+        )?;
+    }
+    Ok(())
+}
+
+#[test]
 fn paula_modulation_and_pending_dma_survive_live_restore() -> Result<(), Box<dyn Error>> {
     fn check<M: AmigaMachine + AmigaLiveAccess + AmigaDriver>(
         mut original: AmigaRuntime<M>,
@@ -3855,10 +3935,10 @@ fn ecs_snapshot_restore_preserves_model_specific_gayle_composition() -> Result<(
 }
 
 /// Take a real snapshot, hand-patch the leading postcard varint version
-/// field back to 56, and confirm the version-mismatch arm fires with a
+/// field back to 57, and confirm the version-mismatch arm fires with a
 /// human-readable reason naming the snapshot version. The first byte
-/// of a `SnapshotEnvelopeV57` is the postcard varint encoding of
-/// `version`; for `SNAPSHOT_VERSION = 57` that byte is `0x39`.
+/// of a `SnapshotEnvelopeV58` is the postcard varint encoding of
+/// `version`; for `SNAPSHOT_VERSION = 58` that byte is `0x3A`.
 /// Replacing it with another single-byte value keeps the envelope
 /// length stable and lands us inside the explicit version-mismatch
 /// branch instead of the postcard-parse-error branch above.
@@ -3867,20 +3947,20 @@ fn restore_rejects_mismatched_snapshot_version() -> Result<(), Box<dyn Error>> {
     let runtime = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
     let mut bytes = runtime.snapshot()?;
     assert_eq!(
-        bytes[0], 57,
-        "postcard varint for SNAPSHOT_VERSION = 57 should be 0x39"
+        bytes[0], 58,
+        "postcard varint for SNAPSHOT_VERSION = 58 should be 0x3A"
     );
-    bytes[0] = 56;
+    bytes[0] = 57;
 
     let mut other = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
     let err = other
         .restore(&bytes)
-        .expect_err("version-56 snapshot should be rejected before payload decode");
+        .expect_err("version-57 snapshot should be rejected before payload decode");
     assert!(
         matches!(
             err,
             MachineError::InvalidSnapshot { ref reason }
-                if reason == "unsupported snapshot version 56; expected 57"
+                if reason == "unsupported snapshot version 57; expected 58"
         ),
         "expected version-mismatch reason, got {err:?}"
     );
@@ -4286,7 +4366,7 @@ fn a1200_prefetch_transfer_and_holding_register_survive_runtime_restore()
         }
         assert!(reached, "prefetch boundary not reached: holding={held}");
         let bytes = original.snapshot()?;
-        assert_eq!(bytes[0], 57);
+        assert_eq!(bytes[0], 58);
         let mut restored = AmigaA1200Runtime::new(Model::A1200AgaPal, rom.clone())?;
         restored.restore(&bytes)?;
         assert_eq!(bytes, restored.snapshot()?);
@@ -4444,7 +4524,7 @@ fn area_channel_fill_holding_and_drain_stages_survive_runtime_restore() -> Resul
             });
             if state.execution.startup_ccks_remaining == 0 && visited.insert(key) {
                 let bytes = original.snapshot()?;
-                assert_eq!(bytes[0], 57);
+                assert_eq!(bytes[0], 58);
                 let mut restored = AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?;
                 restored.restore(&bytes)?;
                 assert_eq!(bytes, restored.snapshot()?);
