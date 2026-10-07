@@ -77,11 +77,12 @@ fn audio_diagnostic_snapshot_exposes_complete_playback_pipeline_and_controls() {
         channel.data, 0xABCD,
         "DMA updates the AUDxDAT holding latch"
     );
-    assert_eq!(channel.current_word, Some(0xABCD));
+    // Volume attachment diverts DAT to the target; the reset source buffer holds.
+    assert_eq!(channel.current_word, Some(0));
     assert_eq!(channel.next_word, None);
     assert!(!channel.next_byte_is_high);
     assert_eq!(channel.period_counter, 199);
-    assert_eq!(channel.output_sample, 0xAB_u8 as i8);
+    assert_eq!(channel.output_sample, 0);
     assert_eq!(channel.state, PaulaAudioDmaState::Playing);
     assert!(channel.dma_active);
     assert!(!channel.manual_stop_sample_pending);

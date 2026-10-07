@@ -84,7 +84,7 @@ fn check<M: AmigaMachine + AmigaLiveAccess + AmigaDriver>(
     Ok(failed_checkpoints)
 }
 
-fn main() -> Result<(), Box<dyn Error>> {
+pub fn check_all() -> Result<(), Box<dyn Error>> {
     let mut failures = 0;
     for channel in 0..4 {
         failures += check(
@@ -109,4 +109,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     eprintln!("Reference failures at {failures}/48 restore checkpoints");
     assert_eq!(failures, 0);
     Ok(())
+}
+
+#[cfg(not(test))]
+fn main() -> Result<(), Box<dyn Error>> {
+    check_all()
 }

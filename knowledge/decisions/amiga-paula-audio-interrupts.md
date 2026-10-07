@@ -82,3 +82,23 @@ record 704 agreeing observations from both references, the real retained-word
 board regression and 192 OCS/ECS/AGA restore checkpoints. This follows the
 existing register-effect boundary and does not claim a new physical DMACON
 write latency or complete DMAL timing.
+
+
+Treat the existing source output buffer as retained state, independently of
+queued-word availability. At startup and every high-byte entry, volume
+attachment diverts DAT to the next channel and preserves that buffer (also
+on channel 3, which has no target). Without volume attachment, load the
+persistent DAT latch. A low-byte period transfer consumes the holding-word
+marker without changing the output buffer. Idle, DMA startup and cancelled
+startup retain the buffer; only a chip reset clears it. Apply these rules in
+the existing stages without changing the clock, request or interrupt paths.
+
+The [live-attachment observations](../../../../reference/by-system/commodore-amiga/2026-paula-live-attachment-observations.md)
+record the 60,928-row matrix and its failing baseline. The component regression
+uses compiled WinUAE output for raw samples and independently agreeing WinUAE /
+vAmiga buffer observations. vAmiga's repeated-edge sampler suppression remains
+a documented difference. The board regression checks the audible interval
+and deterministic restore at all 48 OCS/ECS/AGA checkpoints. The existing
+version-60 fields hold this state; this correction changes no snapshot schema.
+It does not establish physical ADKCON latency, full DMAL timing or analogue/PWM
+response.

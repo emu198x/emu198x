@@ -524,7 +524,6 @@ impl AudioChannel {
     fn start_dma(&mut self) {
         self.ptr = self.lc & 0x00FF_FFFE;
         self.words_remaining = self.programmed_length_words();
-        self.current_word = None;
         self.next_word = None;
         self.next_byte_is_hi = true;
         self.dma_active = true;
@@ -540,7 +539,6 @@ impl AudioChannel {
     fn stop_dma(&mut self) {
         self.dma_active = false;
         self.state = AudioState::Idle;
-        self.current_word = None;
         self.next_word = None;
         self.next_byte_is_hi = true;
         self.dma_requests_pending = 0;
@@ -560,16 +558,28 @@ impl AudioChannel {
         self.dma_enabled_prev = enabled;
     }
 
-    fn write_dat(&mut self, val: u16, interrupt_pending: bool) -> bool {
+    // pbufld1 diverts DAT to the target volume latch when attached. The
+    // physical source buffer survives that diversion and idle/startup changes.
+    fn load_output_buffer(&mut self, volume_attach: bool) -> u16 {
+        let word = if volume_attach {
+            self.current_word.unwrap_or(0)
+        } else {
+            self.dat
+        };
+        self.current_word = Some(word);
+        self.next_word = None;
+        word
+    }
+
+    fn write_dat(&mut self, val: u16, interrupt_pending: bool, volume_attach: bool) -> bool {
         self.dat = val;
         // Active writes only replace the holding latch. Idle startup is
         // inhibited by visible INTREQ, independently of interrupt enable.
         if !self.dma_active && self.state == AudioState::Idle && !interrupt_pending {
-            self.current_word = Some(val);
-            self.next_word = None;
+            let word = self.load_output_buffer(volume_attach);
             self.next_byte_is_hi = false;
             self.period_counter = self.effective_period();
-            self.output_sample = (val >> 8) as u8 as i8;
+            self.output_sample = (word >> 8) as u8 as i8;
             self.state = AudioState::Playing;
             self.manual_stop_pending = None;
             self.manual_stop_sample_pending = false;
@@ -642,7 +652,12 @@ impl AudioChannel {
     ///
     /// The fetch advances the startup state machine and returns `true`
     /// when an audio interrupt should enter the one-CCK delivery stage.
-    fn service_dma_slot<F>(&mut self, read_chip_byte: F, request_next: bool) -> bool
+    fn service_dma_slot<F>(
+        &mut self,
+        read_chip_byte: F,
+        request_next: bool,
+        volume_attach: bool,
+    ) -> bool
     where
         F: FnMut(u32) -> u8,
     {
@@ -652,10 +667,16 @@ impl AudioChannel {
         let Some((word, wrapped)) = self.fetch_dma_word(read_chip_byte) else {
             return false;
         };
-        self.accept_dma_word(word, wrapped, request_next)
+        self.accept_dma_word(word, wrapped, request_next, volume_attach)
     }
 
-    fn accept_dma_word(&mut self, word: u16, wrapped: bool, request_next: bool) -> bool {
+    fn accept_dma_word(
+        &mut self,
+        word: u16,
+        wrapped: bool,
+        request_next: bool,
+        volume_attach: bool,
+    ) -> bool {
         self.dat = word;
         self.dma_requests_pending = self.dma_requests_pending.saturating_sub(1);
         match self.state {
@@ -677,7 +698,7 @@ impl AudioChannel {
                 // output the high byte immediately (penhi). The period
                 // counter then times the high → low byte step.
                 self.period_counter = self.effective_period();
-                self.current_word = Some(word);
+                let word = self.load_output_buffer(volume_attach);
                 self.output_sample = (word >> 8) as u8 as i8;
                 self.next_byte_is_hi = false;
                 self.state = AudioState::Playing;
@@ -701,6 +722,7 @@ impl AudioChannel {
     fn tick_output(
         &mut self,
         period_attach: bool,
+        volume_attach: bool,
         interrupt_pending: bool,
     ) -> Option<AudioOutputEvent> {
         if self.period_counter == 0 {
@@ -726,24 +748,15 @@ impl AudioChannel {
                 self.state = AudioState::Idle;
                 return None;
             }
-            self.current_word = Some(self.dat);
-            self.next_word = None;
         }
 
-        if self.current_word.is_none()
-            && let Some(next) = self.next_word.take()
-        {
-            self.current_word = Some(next);
-            self.next_byte_is_hi = true;
-        }
-        // pbufld1 loads the waiting word on high-byte entry, not on the
-        // preceding low-byte transition: DMA may arrive between those edges.
-        if self.next_byte_is_hi
-            && let Some(next) = self.next_word.take()
-        {
-            self.current_word = Some(next);
-        }
-        let word = self.current_word?;
+        // DAT persists after pbufld2 consumes a period word. Every high
+        // entry performs pbufld1, regardless of the queued-word marker.
+        let word = if self.next_byte_is_hi {
+            self.load_output_buffer(volume_attach)
+        } else {
+            self.current_word.unwrap_or(0)
+        };
 
         let byte = if self.next_byte_is_hi {
             (word >> 8) as u8
@@ -843,9 +856,9 @@ pub struct PaulaAudioChannelDiagnosticSnapshot {
     pub volume: u8,
     /// Stored AUDxDAT register/latch.
     pub data: u16,
-    /// Word currently feeding the output byte latch.
+    /// Retained output buffer, including while idle. `None` denotes reset zero.
     pub current_word: Option<u16>,
-    /// Prefetched word waiting behind `current_word`.
+    /// DMA word awaiting a high-byte load or low-byte period transfer.
     pub next_word: Option<u16>,
     /// Whether the next output transition selects the current word's high byte.
     pub next_byte_is_high: bool,
@@ -1278,7 +1291,11 @@ impl Paula8364 {
             AudioField::Per => channel.write_period(val),
             AudioField::Vol => channel.write_volume(val),
             AudioField::Dat => {
-                if channel.write_dat(val, self.intreq & (INT_AUD0 << ch) != 0) {
+                if channel.write_dat(
+                    val,
+                    self.intreq & (INT_AUD0 << ch) != 0,
+                    self.adkcon & ADKCON_USE_VOL[usize::from(ch)] != 0,
+                ) {
                     self.apply_audio_modulation_event(
                         usize::from(ch),
                         AudioOutputEvent::HighByte(val),
@@ -1436,7 +1453,12 @@ impl Paula8364 {
         }
         audio.words_remaining = audio.words_remaining.saturating_sub(1);
         let starting = audio.state == AudioState::WaitWord2;
-        if audio.accept_dma_word(word, reload, request_next) {
+        if audio.accept_dma_word(
+            word,
+            reload,
+            request_next,
+            self.adkcon & ADKCON_USE_VOL[index] != 0,
+        ) {
             audio.interrupt_request_pending = true;
         }
         if starting {
@@ -1492,7 +1514,11 @@ impl Paula8364 {
             let request_next = self.adkcon & ADKCON_USE_PER[index] == 0
                 || self.adkcon & ADKCON_USE_VOL[index] != 0;
             let starting = ch.state == AudioState::WaitWord2;
-            if ch.service_dma_slot(&mut read_chip_byte, request_next) {
+            if ch.service_dma_slot(
+                &mut read_chip_byte,
+                request_next,
+                self.adkcon & ADKCON_USE_VOL[index] != 0,
+            ) {
                 ch.interrupt_request_pending = true;
             }
             if starting && ch.state == AudioState::Playing {
@@ -1519,7 +1545,11 @@ impl Paula8364 {
                 };
                 channel.interrupt_request_pending |= request_irq;
             }
-            let event = channel.tick_output(period_attach, self.intreq & (INT_AUD0 << index) != 0);
+            let event = channel.tick_output(
+                period_attach,
+                volume_attach,
+                self.intreq & (INT_AUD0 << index) != 0,
+            );
             output_events[index] = event;
         }
 
