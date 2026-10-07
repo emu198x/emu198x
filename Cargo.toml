@@ -318,8 +318,11 @@ codegen-units = 1
 [workspace.metadata.dist]
 cargo-dist-version = "0.32.0"
 ci = "github"
-installers = []
-targets = ["aarch64-apple-darwin", "x86_64-apple-darwin", "x86_64-unknown-linux-gnu", "x86_64-pc-windows-msvc"]
+installers = ["homebrew"]
+tap = "emu198x/homebrew-tap"
+publish-jobs = ["homebrew"]
+host-jobs = ["./test-linux-packages"]
+targets = ["aarch64-apple-darwin", "x86_64-apple-darwin", "x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu", "x86_64-pc-windows-msvc"]
 pr-run-mode = "plan"
 # gzip rather than dist's default xz for the Unix archives. Once LTO left the
 # dist profile, xz packaging was the largest fixed cost of a release build:
@@ -349,6 +352,10 @@ allow-dirty = ["ci"]
 libasound2-dev = { version = "*", stage = ["build"] }
 libudev-dev = { version = "*", stage = ["build"] }
 pkg-config = { version = "*", stage = ["build"] }
+
+[workspace.metadata.dist.github-custom-runners.aarch64-unknown-linux-gnu]
+runner = "ubuntu-22.04-arm"
+host = "aarch64-unknown-linux-gnu"
 
 [profile.dist]
 inherits = "release"

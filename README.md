@@ -6,6 +6,20 @@ Emu198x is the Rust emulator workspace for the 198x family. It models vintage co
 
 The current source of truth for system usability is [`docs/status/current-system-usability.md`](docs/status/current-system-usability.md). The cross-system work queue is [`docs/status/outstanding-work.md`](docs/status/outstanding-work.md).
 
+## Homebrew
+
+Install individual machines on macOS (Apple Silicon or Intel) or Linux
+(ARM64 or x86-64):
+
+```sh
+brew install emu198x/tap/emu198x-spectrum
+brew install emu198x/tap/emu198x-c64
+brew install emu198x/tap/emu198x-amiga
+```
+
+Each released machine has its own formula. ROM requirements are unchanged;
+Homebrew installs the emulator, not copyrighted firmware or games.
+
 ## Capability surfaces
 
 Use these surface names when describing support. Avoid vague claims like “supported” without naming the surface.
