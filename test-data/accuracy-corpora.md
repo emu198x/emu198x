@@ -34,6 +34,10 @@ locally; the workflow uses the same env-var contract.
 | z80test | `machine-sinclair-zx-spectrum-48k` · `z80test` | `EMU198X_Z80TEST_DIR` (+ `EMU198X_SPECTRUM_48K_ROM`) | pinned raxoft/z80test 1.2a (`*.tap`); see `test-data/z80test/` | MIT | 48K Spectrum ROM — free (Amstrad), shipped in the tarball |
 | CPC fixtures | `machine-amstrad-cpc` · firmware, timing, `shaker`; `runtime-amstrad-cpc`; `emu198x-amstrad-cpc` | `EMU198X_CPC_ROM`, `EMU198X_CPC_6128_ROM`, `EMU198X_CPC_ROM_DIR`, `EMU198X_CPC_SHAKER_DSK`, `EMU198X_CPC_CDT` | official CPC 464/6128 OS + BASIC and AMSDOS dumps (TOSEC-verified); SHAKER 2.6 (Longshot); Inufuto's *Ascend* | ROMs: Amstrad grant plus a maintainer decision for Locomotive's part (see below), **private store only**; SHAKER and *Ascend* freely circulated | is firmware — these are the ROMs |
 | VIC-20 survey | `machine-commodore-vic-20` · `vici_vice_survey` | `EMU198X_VIC20_VICE_SURVEY_DIR` (the extracted dir), `EMU198X_VIC20_ROM_DIR` (its `roms/`) | official VIC-20 KERNAL 901486-07 and -06, BASIC 901486-01 and character 901460-03 dumps (MAME- and VICE-verified); VICE `testprogs/VIC20` at SVN r46281; VICE xvic 3.10 reference captures | ROMs: maintainer decision, no grant, **private store only**; test programs freely circulated with VICE; captures are VICE output | is firmware — these are the ROMs; no free VIC-20 firmware exists (see below) |
+| Spectrum catalogue (`catalogue-spectrum`) | `emu198x-catalogue` · `catalogue run`, `manifest/spectrum.toml` | `EMU198X_CATALOGUE_MEDIA_ROOT` (→ `media/`), `EMU198X_CATALOGUE_FIRMWARE_ROOT` (→ `roms/`) | 62 TOSEC game images; 48K, 128K, +2, +3 v4.0 and +3 v4.1 ROMs matched to TOSEC and MAME dumps | maintainer decision, **private store only** | the Spectrum ROMs, shipped in the tarball |
+| C64 catalogue (`catalogue-c64`) | `emu198x-catalogue` · `catalogue run`, `manifest/c64.toml` | as above | 11 TOSEC disk, tape and cartridge images; KERNAL 901227-03, BASIC, character, 1541-II, 1571 and 1581 ROMs matched to TOSEC and MAME dumps | maintainer decision, **private store only** | the C64 and drive ROMs, shipped in the tarball |
+| NES catalogue (`catalogue-nes`) | `emu198x-catalogue` · `catalogue run`, `manifest/nes.toml` | as above | 5 TOSEC cartridge dumps, extracted to the manifest's `.nes` names | maintainer decision, **private store only** | no |
+| Amiga catalogue (`catalogue-amiga`) | `emu198x-catalogue` · `catalogue run`, `manifest/amiga.toml` | as above | 7 TOSEC game and demo disks, Workbench 1.3, 2.04 and 3.1 disks; Kickstart 1.3, 2.04 and 3.1 (A1200) matched to MAME dumps | maintainer decision, **private store only** | the Kickstarts, shipped in the tarball |
 
 The Z80 Tom Harte, FUSE and ZEX harnesses treat their explicit directory
 variables as authoritative. A missing path (or a file where a directory is
@@ -564,6 +568,12 @@ machine works without them, and it is what public CI and readers can use.
   `spectrum-system-tests` ships `roms/128-0.rom` and `roms/128-1.rom`
   alongside `tapes/`. Jobs read the ROM paths straight out of the extracted
   tree rather than expecting them staged separately.
+
+  The game catalogue has one tarball per machine: `catalogue-spectrum`,
+  `catalogue-c64`, `catalogue-nes`, `catalogue-amiga`. Each extracts to
+  `catalogue-<machine>/` holding `media/` and `roms/` laid out exactly as the
+  manifest's relative paths (Linux runners are case-sensitive), a provenance
+  `README.md`, and a `FILES.sha256` the job checks before it runs.
 - A `SHA256SUMS` asset listing each tarball's checksum — the workflow verifies
   against it, so checksums live in the store, not hard-coded here.
 - The `harte-68000` asset must contain files matching the in-repository
@@ -631,6 +641,29 @@ minutes, the 128K about 6.5 — which is precisely why their records go stale:
 a PR that earns an improvement cannot see it. If you change contention,
 `/INT` timing or anything else that moves instruction cost, run the surveys
 before assuming the constants still describe reality.
+
+The game catalogue reproduces the same way. Extract `catalogue-<machine>`
+and point the two catalogue variables at it; set both, because an unset media
+root falls back to the TOSEC library on the maintainer's Time Capsule and an
+unset firmware root to `~/.emu198x/roms`:
+
+```sh
+EMU198X_CATALOGUE_MEDIA_ROOT=$PWD/catalogue-spectrum/media \
+EMU198X_CATALOGUE_FIRMWARE_ROOT=$PWD/catalogue-spectrum/roms \
+  target/release/catalogue run \
+    --manifest crates/emu198x-catalogue/manifest/spectrum.toml --shard 1/8
+```
+
+`--shard i/n` runs the same slice as the nightly's leg *i* of *n*; leave it
+off to run the whole manifest. On an Apple-silicon Mac a whole manifest
+takes about 95 minutes for the Spectrum, 20–25 for the C64 and the Amiga and
+seconds for the NES; the nightly splits the Spectrum eight ways and the C64
+and Amiga two ways to keep each leg near 45 minutes on a hosted runner.
+
+A nightly failure names the entry. If a merged change moved it on purpose,
+re-capture it with `catalogue capture --entry <id>` and review the change
+before committing the new hash, as #1635 did; a moved hash is not
+automatically a regression, and it is not automatically a re-bless either.
 
 ## Amiga accuracy fixtures
 
