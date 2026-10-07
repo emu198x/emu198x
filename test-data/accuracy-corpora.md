@@ -27,6 +27,7 @@ locally; the workflow uses the same env-var contract.
 | C-BIOS (MSX) | `machine-msx` · `cbios_boot` | `EMU198X_ROMS_ROOT` (joins `microsoft-msx/`) | github.com/cbios/cbios, built with Pasmo | BSD — redistribution in binary form permitted, notice ships beside the ROMs | is firmware — a clean-room MSX BIOS, not Microsoft's |
 | AROS m68k (Amiga) | `machine-commodore-amiga-ocs` · `aros_boot` | `EMU198X_ROMS_ROOT` (joins `commodore-amiga/`) | Copperline's build of AROS master + two upstream PRs | AROS Public License 1.1 — redistribution permitted; licence and build notes ship beside the ROMs | is firmware — a reimplemented AmigaOS, not Commodore's |
 | Amiga accuracy fixtures | `runtime-commodore-amiga` · Test Kit video and programmable blanking gates | `EMU198X_AMIGA_TEST_KIT_V121_ADF`, `EMU198X_AMIGA_KICKSTART_{13,204,31_A1200}_ROM` | retained official Kickstart 1.3/2.04/3.1 dumps and upstream Amiga Test Kit v1.21; identities pinned by the registered reference manifests | Kickstart: **maintainer decision, private store only**; Test Kit: upstream licence and README included | official firmware; free AROS remains an additional lane |
+| Amiga boot goldens | `runtime-commodore-amiga` · `golden_matrix` | existing `~/.emu198x/{roms,media}/commodore-amiga/` layout | six unchanged firmware/Workbench images pinned by `commodore/amiga/closure-assets-v1.json` | **maintainer decision, private store only** | A1000 bootstrap, Kickstart 1.3 and A1200 3.1; the A1000 Kickstart disk remains separately required |
 | AltirraOS (800XL) | `machine-atari-800xl` · `altirraos_boot` | `EMU198X_ROMS_ROOT` (joins `atari-800xl/`) | Avery Lee's XL/XE OS + Altirra BASIC, via atari800's vendored copy | all-permissive notice of its own — **not** the emulator's GPLv2; notice ships beside the ROMs | is firmware — a reimplemented Atari OS, not Atari's |
 | Open ROMs (C64) | `runtime-commodore-c64` · `openroms_boot` | `EMU198X_ROMS_ROOT` (joins `commodore-c64/`) | github.com/MEGA65/open-roms, prebuilt `bin/` images | GPL-3.0 / LGPL-3.0 — redistribution permitted, licence texts and a source pointer ship beside the ROMs | is firmware — a clean-room C64 BASIC and KERNAL, not Commodore's |
 | Spectrum ROMs (128K, +2, +3) | `machine-sinclair-zx-spectrum-128k` · `boot_test`; `-plus2`, `-plus2a`, `-plus2b`, `-plus3` · `boot_test` | `EMU198X_ROMS_ROOT` (firmware root; each machine joins its own directory onto it) | the machines' own firmware | free to distribute (Amstrad), the same permission the 48K ROM ships under | is firmware — these are the ROMs |
@@ -617,6 +618,20 @@ verified against the store's `SHA256SUMS`.
 The Test Kit manifests pin 1.3/3.1 and the normalized ADF; the registered
 programmable-HBLANK ECS firmware record pins 2.04. AROS remains a separate
 additional boot lane, supplied by `aros-m68k.tar.zst`.
+
+`amiga-boot-goldens.tar.zst` additionally preserves the six registered images
+used by the boot golden matrix: A1000 bootstrap, Kickstart 1.3 and A1200 3.1,
+and Workbench 1.2, 1.3 and 3.1. Every payload matches its size and SHA-256 in
+`commodore/amiga/closure-assets-v1.json`; the package includes source paths,
+consumer identities and checksums. The upload passed a fresh download check.
+
+The local A1000 Kickstart 1.2 ADF used during integration hashes to
+`2999edc558744656f24bc4ed05c4be0ad655db3872bfa1938525e4aa9fe4c9af`,
+whereas the registered disk hashes to
+`cc19c8130dfc6e208f1cb3f30cc9b1a7432ec6ca5da83991fa5ccfa7b14b9fcb`.
+It is preserved locally but excluded from this verified package. The passing
+local A1000 boot row therefore does not establish a run against the registered
+disk identity. The canonical fixture and the manifest remain unchanged.
 
 ## Related documents
 
