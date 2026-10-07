@@ -1,9 +1,10 @@
 # Paula DMA/manual handover probe
 
-The native research executable reproduces 2,552 sample/IRQ mismatches in 6,304
-observations. It intentionally exits nonzero. Production code is unchanged;
-all 112 existing component tests remain enabled and pass. Held loop conditions
-differ in 236 rows; playback state differs in 3,420 rows. These counts overlap.
+The original native executable reproduced 2,552 sample/IRQ mismatches in 6,304
+observations, 236 held-loop differences and 3,420 state differences. These
+counts overlap. The corrected path now matches every observation and runs as
+an enforced regression. The failing baseline is retained. Snapshot version 60
+preserves the additional scheduled-sample stage and rejects version 59.
 
 `reference.py` regenerates the previously audited manual adapter, then reuses
 its unmodified WinUAE/vAmiga methods with explicit DMA mode edges. Pin and
@@ -65,8 +66,12 @@ cargo run --locked --release -p emu198x-commodore-paula-8364 \
   --example dma_handover_probe
 ```
 
-The last command currently fails with
+The last command now passes; it previously failed with
 `[240,264,268,228,408,408,328,408]` sample/IRQ differences by schedule.
+`cargo test --locked --release -p emu198x-commodore-paula-8364 --test dma_handover`
+enforces the same observations. Board checks additionally prove a DMA pulse
+preserves byte timing and an admitted transfer reaches the holding latch after
+DMACON clear. They do not establish every DMA request/retirement race.
 Extracted methods retain their upstream copyright and licensing. They are
 separate diagnostic executables, never linked into Emu198x. Original adapter
 code, schedules and observation data follow the corpus CC0 dedication.

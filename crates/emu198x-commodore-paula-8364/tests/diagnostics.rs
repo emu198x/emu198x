@@ -32,7 +32,8 @@ fn audio_diagnostic_snapshot_exposes_complete_playback_pipeline_and_controls() {
     paula.write_audio(0, AudioField::Len, 2);
     paula.write_audio(0, AudioField::Per, 200);
     paula.write_audio(0, AudioField::Vol, 32);
-    paula.write_audio(0, AudioField::Dat, 0x1234);
+    // Leave the channel idle: a DAT write would start manual playback,
+    // whose phase must survive DMA enable rather than re-enter startup.
 
     let mut controls = paula.audio_controls();
     controls.set_master_gain(0.5);
@@ -83,6 +84,8 @@ fn audio_diagnostic_snapshot_exposes_complete_playback_pipeline_and_controls() {
     assert_eq!(channel.output_sample, 0xAB_u8 as i8);
     assert_eq!(channel.state, PaulaAudioDmaState::Playing);
     assert!(channel.dma_active);
+    assert!(!channel.manual_stop_sample_pending);
+    assert_eq!(channel.manual_stop_pending, None);
     assert!(channel.dma_enabled_previous);
     assert_eq!(channel.dma_requests_pending, 1);
     assert!(channel.period_modulation_enabled);

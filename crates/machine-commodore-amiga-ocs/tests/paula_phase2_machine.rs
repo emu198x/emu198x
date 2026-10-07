@@ -721,3 +721,104 @@ fn manual_audio_retains_the_early_stop_decision_on_the_board_clock() {
         }
     }
 }
+
+#[test]
+fn dma_pulse_during_manual_playback_preserves_the_board_sample_phase() {
+    use emu198x_commodore_paula_8364::PaulaAudioDmaState;
+    for channel in 0..4u16 {
+        let mut amiga = AmigaOcs::new(zero_rom());
+        let base = 0x00DF_F0A0 + u32::from(channel) * 16;
+        let irq = 0x80 << channel;
+        amiga.poke_word(base + 6, 8);
+        amiga.poke_word(base + 10, 0x1122);
+        for clock in 1..=17 {
+            if clock == 2 {
+                amiga.poke_word(0x00DF_F096, 0x8200 | (1 << channel));
+            }
+            if clock == 3 {
+                amiga.poke_word(0x00DF_F096, 0x0200 | (1 << channel));
+            }
+            if clock == 16 {
+                amiga.poke_word(0x00DF_F09C, irq);
+            }
+            amiga.tick();
+            amiga.tick();
+            let ch = amiga.paula().audio_diagnostic_snapshot().channels[channel as usize];
+            if clock < 8 {
+                assert_eq!(ch.output_sample, 0x11);
+                assert_eq!(ch.period_counter, 8 - clock);
+                assert_eq!(ch.state, PaulaAudioDmaState::Playing);
+            } else {
+                assert_eq!(ch.output_sample, 0x22);
+            }
+            if clock == 8 {
+                assert!(ch.manual_stop_sample_pending);
+            }
+            if clock == 15 {
+                assert_eq!(ch.manual_stop_pending, Some(true));
+            }
+            if clock == 16 {
+                assert_eq!(ch.state, PaulaAudioDmaState::Idle);
+                assert!(ch.interrupt_request_pending);
+                assert_eq!(amiga.intreq() & irq, 0);
+            }
+            if clock == 17 {
+                assert_ne!(amiga.intreq() & irq, 0);
+            }
+        }
+    }
+}
+
+#[test]
+fn admitted_audio_word_still_reaches_the_holding_latch_after_dma_is_disabled() {
+    use commodore_agnus_ocs::{DmaAddressStage, DmaTransferTarget};
+    use emu198x_commodore_paula_8364::PaulaAudioDmaState;
+    for channel in 0..4u16 {
+        let mut amiga = AmigaOcs::new(zero_rom());
+        let base = 0x00DF_F0A0 + u32::from(channel) * 16;
+        for address in (0x1000..0x1010).step_by(2) {
+            amiga.poke_word(address, 0x1122);
+        }
+        for (offset, value) in [(2, 0x1000), (4, 64), (6, 1024)] {
+            amiga.poke_word(base + offset, value);
+        }
+        amiga.poke_word(0x00DF_F096, 0x8200 | (1 << channel));
+        let mut admitted = None;
+        for _ in 0..4000 {
+            amiga.tick();
+            let ch = amiga.paula().audio_diagnostic_snapshot().channels[channel as usize];
+            if ch.state == PaulaAudioDmaState::Playing
+                && let Some(DmaAddressStage::Transfer(transfer)) =
+                    amiga.agnus().dma_pipeline().address()
+                && matches!(transfer.target, DmaTransferTarget::Audio { channel: c, .. } if u16::from(c) == channel)
+            {
+                admitted = Some(transfer);
+                break;
+            }
+        }
+        let transfer = admitted.expect("real playing-channel fetch must be admitted");
+        amiga.poke_word(transfer.address, 0x3344);
+        amiga.poke_word(base + 2, 0x2000); // a later pointer write cannot change the retained address
+        amiga.poke_word(0x00DF_F096, 0x0200 | (1 << channel));
+        let mut retired = false;
+        for _ in 0..8 {
+            amiga.tick();
+            if amiga.agnus().dma_pipeline().service() == Some(transfer)
+                && amiga.agnus().dma_pipeline().service_was_claimed()
+            {
+                retired = true;
+                let ch = amiga.paula().audio_diagnostic_snapshot().channels[channel as usize];
+                assert!(!ch.dma_active);
+                assert_eq!(ch.state, PaulaAudioDmaState::Playing);
+                assert_eq!(ch.output_sample, 0x11);
+                assert_eq!(ch.current_word, Some(0x1122));
+                assert_eq!(
+                    amiga.paula().read_audio(channel as u8, AudioField::Dat),
+                    0x3344
+                );
+                break;
+            }
+        }
+        assert!(retired, "accepted word must retire despite DMACON clear");
+    }
+}

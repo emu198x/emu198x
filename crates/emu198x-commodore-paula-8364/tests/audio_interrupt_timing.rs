@@ -90,7 +90,7 @@ fn dma_loop_interrupts_wait_for_the_selected_byte_transition_and_irq_delay() {
 }
 
 #[test]
-fn dma_stop_discards_a_held_loop_but_preserves_an_issued_irq() {
+fn dma_mode_changes_preserve_held_loop_and_issued_irqs() {
     for (source, dma_bit) in DMA_AUD.into_iter().enumerate() {
         let mut p = Paula8364::new();
         p.write_audio(source as u8, AudioField::Len, 1);
@@ -110,14 +110,24 @@ fn dma_stop_discards_a_held_loop_but_preserves_an_issued_irq() {
         p.tick_audio_cck(dma, Some(source as u8), |_| 0);
         assert!(p.audio_diagnostic_snapshot().channels[source].loop_interrupt_pending);
         p.tick_audio_cck(0, None, |_| 0);
-        assert!(!p.audio_diagnostic_snapshot().channels[source].loop_interrupt_pending);
+        assert!(p.audio_diagnostic_snapshot().channels[source].loop_interrupt_pending);
+        assert_eq!(p.intreq() & irq, 0, "held condition is not an issued IRQ");
+        let mut selected = false;
         for _ in 0..32 {
-            p.tick_audio_cck(0, None, |_| 0);
+            p.tick_audio_cck(dma, None, |_| panic!("no additional DMA grant"));
+            let ch = p.audio_diagnostic_snapshot().channels[source];
+            if ch.interrupt_request_pending {
+                selected = true;
+                assert!(!ch.loop_interrupt_pending);
+                assert_eq!(p.intreq() & irq, 0);
+                break;
+            }
         }
-        assert_eq!(
-            p.intreq() & irq,
-            0,
-            "unissued loop IRQ is discarded on stop"
+        assert!(
+            selected,
+            "resumed output must consume the held loop condition"
         );
+        p.tick_audio_cck(dma, None, |_| panic!("no additional DMA grant"));
+        assert_ne!(p.intreq() & irq, 0, "selected IRQ arrives one CCK later");
     }
 }
