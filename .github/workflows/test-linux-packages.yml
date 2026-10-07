@@ -1,0 +1,73 @@
+name: Linux packages
+
+on:
+  pull_request:
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      plan:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  install:
+    name: Install and exercise (${{ matrix.target }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+          - runner: ubuntu-22.04-arm
+            target: aarch64-unknown-linux-gnu
+    runs-on: ${{ matrix.runner }}
+    env:
+      RELEASE_PLAN: ${{ inputs.plan }}
+      PACKAGE_TARGET: ${{ matrix.target }}
+      HOMEBREW_NO_AUTO_UPDATE: '1'
+      HOMEBREW_NO_INSTALL_CLEANUP: '1'
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Install emulator build dependencies
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev libudev-dev pkg-config
+      - name: Cache Rust artifacts
+        if: inputs.plan == ''
+        uses: Swatinem/rust-cache@v2
+      - name: Build packages for this native runner
+        if: inputs.plan == ''
+        shell: bash
+        run: |
+          set -euo pipefail
+          dist_version=$(awk -F'"' '/^cargo-dist-version/{print $2}' Cargo.toml)
+          curl --proto '=https' --tlsv1.2 -LsSf "https://github.com/axodotdev/cargo-dist/releases/download/v${dist_version}/cargo-dist-installer.sh" -o "$RUNNER_TEMP/install-dist.sh"
+          sh "$RUNNER_TEMP/install-dist.sh"
+          mkdir -p target
+          dist build --artifacts=all --target "$PACKAGE_TARGET" --output-format=json > target/package-test-manifest.json
+      - name: Fetch the actual release packages
+        if: inputs.plan != ''
+        uses: actions/download-artifact@v8
+        with:
+          pattern: artifacts-*
+          path: target/distrib
+          merge-multiple: true
+      - name: Save the release plan
+        if: inputs.plan != ''
+        shell: bash
+        run: printf '%s\n' "$RELEASE_PLAN" > target/package-test-manifest.json
+      - name: Set up Homebrew
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ ! -x /home/linuxbrew/.linuxbrew/bin/brew ]; then
+            curl --proto '=https' --tlsv1.2 -LsSf https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh -o "$RUNNER_TEMP/install-homebrew.sh"
+            NONINTERACTIVE=1 /bin/bash "$RUNNER_TEMP/install-homebrew.sh"
+          fi
+          echo /home/linuxbrew/.linuxbrew/bin >> "$GITHUB_PATH"
+      - name: Install generated formulae and check output
+        shell: bash
+        run: python3 scripts/test-linux-packages.py target/package-test-manifest.json "$PACKAGE_TARGET"
