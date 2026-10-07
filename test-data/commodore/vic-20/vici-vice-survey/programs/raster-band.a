@@ -1,0 +1,45 @@
+; The band kernel shared by the VIC-I survey's raster programs
+; (emu198x/emu198x#362).
+;
+; Called at a fixed cycle of line TARGET_LINE (see raster-sync.a). Each of
+; 71 lines writes .on to .reg and, 20 cycles later, .off, in a loop of 72
+; cycles - one more than a PAL line - so both writes move one cycle (four
+; pixels) right per line and between them the band visits every cycle of
+; the line once. The band's edges show where the VIC-I puts a write made in
+; a given cycle. Afterwards .reg is left holding .after.
+
+!macro band .reg, .on, .off, .after {
+        ldx #71
+        lda #.off
+        ldy #.on
+.line   sty .reg                ; 4   the band starts
+        !for i, 1, 8 { nop }    ; 16
+        sta .reg                ; 4   and ends 20 cycles later
+        !for i, 1, 20 { nop }   ; 40
+        bit $00                 ; 3
+        dex                     ; 2
+        bne .line               ; 3   = 72 cycles a line
+        lda #.after
+        sta .reg
+}
+
+; The BASIC line `10 SYS4109` and the start of the program, which turns
+; off every VIA interrupt and leaves the CPU's own masked: from here on
+; nothing but the program's code runs.
+!macro header {
+        * = $1001
+        !word .basic_end, 10
+        !byte $9e
+        !text "4109"
+        !byte 0
+.basic_end
+        !word 0
+        sei
+        lda #$7f
+        sta $912e
+        sta $911e
+}
+
+; Screen and colour memory of the unexpanded machine.
+SCREEN  = $1e00
+COLOUR  = $9600

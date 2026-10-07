@@ -611,8 +611,11 @@ impl Default for Vic6560 {
     }
 }
 
-/// VIC-20 colour palette (ARGB32).
-static VIC_PALETTE: [u32; 16] = [
+/// VIC-20 colour palette (ARGB32), indexed by the VIC-I's 4-bit colour
+/// number. Public so that a comparison can classify a framebuffer pixel back
+/// to the colour the chip chose (the VICE survey, #362) rather than compare
+/// RGB values between emulators with different palettes.
+pub static VIC_PALETTE: [u32; 16] = [
     0xFF00_0000, // 0  Black
     0xFFFF_FFFF, // 1  White
     0xFF78_2922, // 2  Red

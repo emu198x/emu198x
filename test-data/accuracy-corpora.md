@@ -377,6 +377,7 @@ observations and a strict consumer are added.
 | Amiga Test Kit v1.21 A1200 video | `runtime-commodore-amiga` · `amiga_test_kit_video` | `EMU198X_AMIGA_TEST_KIT_V121_ADF` | keirf/amiga-stuff tag `testkit-v1.21` | Public domain / Unlicense | A1200 Kickstart 3.1 r40.068 through `EMU198X_AMIGA_KICKSTART_31_A1200_ROM` |
 | A1000 Kickstart disk v1.2 r33.180 | `machine-commodore-amiga-ocs` · `a1000_bootstrap_trace`; `runtime-commodore-amiga` · `diag_a1000_bootstrap_swap`, `golden_matrix` | `EMU198X_AMIGA_A1000_KICKSTART_DISK` | Commodore; the disk an A1000 loads into WOM at boot | Commercial — not redistributable, supplied externally like Kickstart itself | A1000 bootstrap ROM at `~/.emu198x/roms/commodore-amiga/a1000-bootstrap.rom` |
 | C64 VIC-II PAL 6569 survey | `runtime-commodore-c64` · `vicii_testbench` | `EMU198X_C64_VICII_TESTBENCH_DIR` | VICE VIC-II testbench staging; exact upstream revision unresolved | Unresolved; externally supplied | C64 KERNAL, BASIC and character ROMs through `EMU198X_C64_ROM_DIR` |
+| VIC-20 VIC-I PAL 6561 survey against VICE | `machine-commodore-vic-20` · `vici_vice_survey` | `EMU198X_VIC20_VICE_SURVEY_DIR` | VICE `testprogs/VIC20` at SVN revision 46281, plus reference captures from VICE xvic 3.10 | Per program, as each states; captures are VICE output | VIC-20 KERNAL 901486-07, BASIC and character ROMs through `EMU198X_VIC20_ROM_DIR` |
 | SHAKER 2.6 (CPC) | `machine-amstrad-cpc` · `shaker` | `EMU198X_CPC_SHAKER_DSK` | shaker.logonsystem.eu (`Shaker_CSL/shaker26.dsk`) | Creative Commons; attribution requested — cite the CRTC Compendium | CPC464 firmware through `EMU198X_CPC_ROM`; CPC6128 firmware through `EMU198X_CPC_6128_ROM` |
 
 The Test Kit ADFs and their profile-specific Kickstart images are pinned by
@@ -396,6 +397,18 @@ leaving their bytes external. The wrapper compares nearest C64 palette indices,
 records exact integer pixel counts and writes a revision-keyed report. The
 results are diagnostic fractions, not pass rates, and the reference
 images do not share one uniform hardware-provenance claim.
+
+The VIC-20 VIC-I survey compares Emu198x's whole PAL framebuffer with VICE
+xvic's full-raster screenshot of the same cycle for 22 cases: the BASIC boot
+screen, 17 of VICE's own VIC-20 test programs and four raster programs this
+project wrote, which are tracked with their source. Its
+[`cases-v1.json`](commodore/vic-20/vici-vice-survey/cases-v1.json) manifest
+pins every program, every reference capture, the sixteen palette-calibration
+captures and the three ROMs by SHA-256; `scripts/capture-vic20-vici-vice-references.py`
+regenerates the captures from a local VICE and checks them against it. The
+results are exact matched-pixel counts against VICE, not a hardware
+conformance claim; `knowledge/processes/vic20-vici-vice-survey.md` says what
+each shortfall is.
 
 SHAKER is Longshot's CPC hardware-accuracy suite, aimed at the Gate Array and
 the CRTC across their manufacturing variants. It ships as an Extended DSK, and
