@@ -1,0 +1,38 @@
+{
+  "native_base": "b3891bf1e0e9f3e5346ce78504af6f1acf10a36c",
+  "production_changed": false,
+  "functional_mismatches_by_scenario": [
+    216,
+    312,
+    304,
+    284,
+    304,
+    216,
+    308,
+    260,
+    304,
+    376,
+    296
+  ],
+  "functional_mismatches": 3180,
+  "rows": 4312,
+  "scenarios": 440,
+  "diagnostic_state_differences": 3072,
+  "diagnostic_limit": "Existing Idle includes manual playback; not independent functional evidence",
+  "native_probe_exit": 101,
+  "component_tests": 109,
+  "strict_clippy": "passed",
+  "ruff": "passed",
+  "sha256": {
+    "clippy.log.gz": "4b3de643523e7e4147f77acbc84a808b5e1d8f84a52c62f6e2da47ebbd32ea84",
+    "comparison.json": "1e62a0f7039121d35a7fc14f1bb44590991c08d7824849dccb5cbc2ef6b9155c",
+    "component.log.gz": "015f813c0e1aa0b66cb101a60724ad75c64ee37a42d76e7579d598f18a27ce90",
+    "native-before.log.gz": "445d0a31e7b624f9dc63e537f4d3dc5a6d05cb87ccce1d6a4ca1d11eaf171ee5",
+    "reference.py": "a274936ffb82585481ec7da31d362be8b1aebb391e9c87703a6f00c09a29ee15",
+    "source-hashes.json": "4645065e2eadbd77fc4a6172fead948665ad081a2b5477f63e4204e62bef950d",
+    "vamiga.cpp.gz": "473759bf02e954ebdb49a5470fc22a783f8843aa6f5135606c43f522da8ed53e",
+    "vamiga.csv": "60425448780e59c3a95c8b5c0c046c41d15faf3c70bd674207afda8ba3eb7786",
+    "winuae.cpp.gz": "a367aaf57be2e62395d7dd3127703521f43a32f915677abef896e30497cab6be",
+    "winuae.csv": "fca4fc16be366a83d6fc4eb7c1f4be553381fe017d60f3c079ea6b119819aacf"
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "rows_per_producer": 4312,
+  "scenarios_per_producer": 440,
+  "state_irq_differences": 420,
+  "differing_scenarios": 108,
+  "dac_excluded": "vAmiga repeated-edge suppression"
+}
