@@ -190,3 +190,23 @@ Stop and re-read this decision if you find yourself:
 - [Spectrum architecture review](spectrum-architecture-review.md) — Seam 4
 - [Routing versions do not cover CPU timing](routing-versions-do-not-cover-cpu-timing.md)
 - [October catalogue](october-catalogue.md)
+
+## Amendment 2026-10-07 — the catalogues run nightly
+
+Rule 2 is now met for all four catalogues. The `catalogue` job in
+`nightly-accuracy.yml` runs the Spectrum, C64, NES and Amiga manifests every
+night from media and firmware tarballs in the private store, split into legs
+with `catalogue run --shard i/n`. A moved hash, a failed snapshot round trip
+or an entry that cannot run fails its leg and names the entry.
+
+The routing-version unit test from #1635 stays, but it covers only half the
+risk. CPU-timing changes move catalogue hashes without bumping a routing
+version, and only a run sees that. The Spectrum went unverified from
+2026-08-10 to 2026-10-06 that way.
+
+The table under *Current state of the sibling catalogues* is superseded. On
+2026-10-07 every catalogue passed against the mirrored media with an empty
+`HOME`: Spectrum 103/103, C64 13/13 and Amiga 10/10, each with its snapshot
+round trip, and NES 5/5. The NES media are the TOSEC dumps extracted to the
+`.nes` names the manifest uses. The Amiga media are the files pinned in
+`test-data/commodore/amiga/closure-assets-v1.json`.
