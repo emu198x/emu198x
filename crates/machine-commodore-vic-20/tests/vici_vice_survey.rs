@@ -34,7 +34,7 @@ const EXPECTED_MATCHES: &[(&str, usize)] = &[
     ("vic6561-test36866-1", 65_728),
     ("vic6561-test36866-2", 63_107),
     ("vic6561-test36867-1", 66_240),
-    ("vic6561-test36867-2", 43_712),
+    ("vic6561-test36867-2", 66_240),
     ("vic6561-testback", 64_483),
     ("vic6561-testcharheigh-1", 66_228),
     ("vic6561-testcharheigh-2", 63_477),

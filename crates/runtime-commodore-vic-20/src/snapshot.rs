@@ -17,7 +17,8 @@ use crate::runtime::Vic20Runtime;
 /// restore can reinsert the same cartridge before the KERNAL cold-start probe.
 /// Version 5 replaced the machine's composite RAM-expansion size with the
 /// per-cartridge block set (#1363), which changes the serialised machine.
-const SNAPSHOT_VERSION: u16 = 5;
+/// Version 6 adds the VIC-I's frame-latched row count (#362).
+const SNAPSHOT_VERSION: u16 = 6;
 
 /// Borrowing envelope used during encode — avoids cloning the live machine.
 #[derive(Serialize)]
