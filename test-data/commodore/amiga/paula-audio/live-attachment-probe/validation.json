@@ -1,0 +1,72 @@
+{
+  "production_changed": false,
+  "reference_rows_per_producer": 60928,
+  "reference_scenarios": 5632,
+  "reference_observables": [
+    "state",
+    "irq",
+    "buffer",
+    "sample",
+    "target_period",
+    "target_volume",
+    "request",
+    "loop",
+    "delivered"
+  ],
+  "reference_differences": [
+    0,
+    0,
+    0,
+    8304,
+    0,
+    0,
+    0,
+    0,
+    0
+  ],
+  "native_differences": [
+    0,
+    0,
+    31152,
+    31152,
+    0,
+    0,
+    0,
+    0,
+    0
+  ],
+  "native_unchanged_mode_differences": [
+    0,
+    0,
+    7680,
+    7680,
+    0,
+    0,
+    0,
+    0,
+    0
+  ],
+  "unmuted_sample_differences": 1824,
+  "native_probe_exit": 101,
+  "board_probe_exit": 101,
+  "board_restore_checkpoints": 48,
+  "board_reference_failures": 48,
+  "deterministic_replays": 48,
+  "component_tests": 114,
+  "strict_clippy": "passed",
+  "format": "passed",
+  "ruff": "passed",
+  "sha256": {
+    "board-before.log.gz": "dc99576b9a2f7e78c1c43b137804bf54bb8b49f195c6fa88034508892598d06e",
+    "clippy.log.gz": "33003dc8b0d7e3c7342cd852e787922ca70b2010a09d40cf025f44a63bd0db10",
+    "comparison.json": "852ebb89884f6809507fdc7f7ed306ae5f7c4d9617acd839807a920723e175af",
+    "component-tests.log.gz": "67253c1a440ab90a52def960d571cbab7efce2b3bf684fa8e774146abc88ba41",
+    "native-before.log.gz": "909d0cbdbd3e50bc6b14a10d426f8a0ef9ff1783c314e8ef4d737ef9bb1c56a0",
+    "reference.py": "262b7f5f1f82c77dd6f645adca65b810f685a5f0d34866566bafd7b40c96376a",
+    "source-hashes.json": "22483866f86a5164bd0d19d757e612d69ffdcf0a91e823cb41a2c6a67df61981",
+    "vamiga.cpp.gz": "44499cca545262a7aa88a97e09bf015fb755c06c63fa33c0830d97b0c4b5b43f",
+    "vamiga.csv.gz": "3a6b43a01526edf81219dca7febba9e68dfd4b284fb26f910bf946c743c8d011",
+    "winuae.cpp.gz": "613a8752e2b89a8f5ee06fad5e61a497b1cecacb8eb38abcbbac9f6a7509f3e9",
+    "winuae.csv.gz": "1368c10d04905836494c3927ba6a21eff7ccdb65cf4bda665fa04bee5895fbcb"
+  }
+}
