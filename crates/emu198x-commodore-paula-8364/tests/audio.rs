@@ -163,10 +163,10 @@ fn audx_per_below_recommended_dma_period_uses_programmed_byte_duration() {
 // ────────────────────────────────────────────────────────────────
 
 #[test]
-fn audx_irq_fires_when_first_dma_word_arrives_not_at_the_enable_edge() {
+fn audx_irq_arrives_one_cck_after_the_first_dma_word() {
     // Hardware: the DMA-enable edge (000→001) raises no interrupt; it
-    // requests the first word. The interrupt fires when that word
-    // arrives (001→101) — the startup IRQ the CPU uses to swap
+    // requests the first word. The interrupt is requested when that word
+    // arrives (001→101), delivered one CCK later. The CPU uses it to swap
     // double-buffer pointers.
     let mut p = Paula8364::new();
     p.write_audio(0, AudioField::LcHi, 0);
@@ -184,12 +184,16 @@ fn audx_irq_fires_when_first_dma_word_arrives_not_at_the_enable_edge() {
     );
 
     // The channel's audio slot is granted: word 1 arrives, is discarded,
-    // and the startup interrupt fires.
+    // and the startup interrupt enters its delivery stage.
     p.tick_audio_cck(DMA_MASTER | DMA_AUD0, Some(0), zero_reader);
+    assert_eq!(p.intreq() & INT_AUD0, 0);
+    assert!(p.audio_diagnostic_snapshot().channels[0].interrupt_request_pending);
+    p.tick_audio_cck(DMA_MASTER | DMA_AUD0, None, zero_reader);
+    assert!(!p.audio_diagnostic_snapshot().channels[0].interrupt_request_pending);
     assert_ne!(
         p.intreq() & INT_AUD0,
         0,
-        "AUD0 IRQ fires when word 1 arrives"
+        "AUD0 IRQ arrives one CCK after word 1"
     );
     assert_eq!(p.intreq() & (INT_AUD1 | INT_AUD2 | INT_AUD3), 0);
 }
@@ -202,6 +206,8 @@ fn channel_3_maps_to_intreq_bit_10() {
     p.write_audio(3, AudioField::Len, 0x0010);
 
     p.tick_audio_cck(DMA_MASTER | DMA_AUD3, Some(3), zero_reader);
+    assert_eq!(p.intreq() & IntSource::Aud3.mask(), 0);
+    p.tick_audio_cck(DMA_MASTER | DMA_AUD3, None, zero_reader);
     assert_ne!(p.intreq() & IntSource::Aud3.mask(), 0);
 }
 
@@ -231,9 +237,11 @@ fn dma_startup_advances_only_on_granted_audio_slots() {
         "no output without a granted slot"
     );
 
-    // First grant: word 1 arrives → startup IRQ.
+    // First grant requests the startup IRQ; delivery follows one CCK later.
     p.tick_audio_cck(DMA_MASTER | DMA_AUD0, Some(0), sample);
-    assert_ne!(p.intreq() & INT_AUD0, 0, "word-1 arrival raises the IRQ");
+    assert_eq!(p.intreq() & INT_AUD0, 0);
+    p.tick_audio_cck(DMA_MASTER | DMA_AUD0, None, sample);
+    assert_ne!(p.intreq() & INT_AUD0, 0, "startup IRQ arrives next CCK");
 }
 
 #[test]

@@ -1,0 +1,68 @@
+{
+  "date": "2026-10-07",
+  "native_base": "f2c40e97141e00fc1de3f8fa7306e0343df60fb5",
+  "reference_revision": "60fd1e6b69dcd77c9f44d1291bd37ec715362ab0",
+  "production_changed": true,
+  "scenarios": 116,
+  "observations": 5376,
+  "dma": {
+    "rows": 4896,
+    "before_mismatches_by_mode": [
+      416,
+      688,
+      416,
+      224
+    ],
+    "before_total_mismatches": 1744,
+    "after_mismatches_by_mode": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "after_total_mismatches": 0
+  },
+  "manual": {
+    "rows": 480,
+    "mismatches_by_scenario": [
+      64,
+      64,
+      96,
+      92,
+      80
+    ],
+    "total_mismatches": 396,
+    "status": "unfixed separate follow-up; standalone probe exits 101"
+  },
+  "sha256": {
+    "native-before.log.gz": "561d905b853cec5b6005c019b9f57af71760d6b02edcba18d8e1e7e124626e30",
+    "reference.cpp.gz": "be8cbe186a7e95fc1a91ad689e714ad1772ba3600ce73d97dc38bb63e16e581c",
+    "reference.csv": "e4fbff0e04861572d77930826d14841620a671cd7af6b74801bf39e553c31195",
+    "reference.py": "1b694c39a70fe9ef41a2ac93265ea9f659fdaf699b4fa8a03a411e7f0197c603",
+    "source-hashes.json": "c200f69c199f1d20a6b74235321153d12d7b72ff82039dc3a398a67f45c52590",
+    "dma-after.log.gz": "568d86264ad53ac2499372eb55726cd7cc9088b0a7ac61e4b5860fca71e84b1f",
+    "manual-after.log.gz": "52a2dfa68551a578f3d6e3b43c1a539157d26c2cbd54d963fc3358179a5443a1",
+    "component-after.log.gz": "7e02fb9ad518d6b6fea4218c5edb7a1a408fb705726278df7670130d14595ea6",
+    "board-after.log.gz": "e01e85b09396b4f74e10e8c7a7c36f3d56bf2c832433a798f80cdfe60bcacb1b",
+    "runtime-after.log.gz": "e40b84638101623c771077ac37567c75d155d161d9b81d9da793eb9f405a5912",
+    "waveform-after.log.gz": "44355e03a5694bf07b71b0ceeb88cfe57c4f2993f69e7a6c6f7f79d329d14ec4",
+    "clippy-after.log.gz": "793bfa34b7d7a7a5a028ee2f69653ef088f3ba734bcd2e95245edc315c3b5592",
+    "build-after.log.gz": "1603fad15ead2b11b660b94ce63019f8391f8db99d343908d04cbba2c7953e1e"
+  },
+  "snapshot_version": 58,
+  "checks": {
+    "component_tests": 109,
+    "board_tests": 40,
+    "runtime_library_tests": 56,
+    "query_tests": 45,
+    "snapshot_tests": 62,
+    "pending_restore_checkpoints": 48,
+    "component_path_parity_ticks": 72000,
+    "waveform_cases": 3,
+    "strict_release_clippy": "passed",
+    "release_amiga_build": "passed",
+    "reference_regeneration": "5376 rows; exact CSV match",
+    "ruff": "passed",
+    "format": "passed"
+  }
+}

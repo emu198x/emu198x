@@ -1,0 +1,6 @@
+{
+  "Core/Components/Paula/Audio/StateMachine.cpp": "2169ad6af07f7bac4a1b371fb1b75979ef08e2996c491dba7aac20fad2aa856b",
+  "Core/Components/Paula/Audio/StateMachineRegs.cpp": "c40e0b93eb67aa95077c30c9370f5987c6b60e6c7ed196c9ec572a9c4150b64f",
+  "Core/Components/Paula/Audio/StateMachine.h": "b3cad57addffda09cac91798116fcb50955b8d4b8cd6138eb414317d31d07f11",
+  "Core/Components/Paula/Audio/StateMachineEvents.cpp": "8c69417c61aa15d8a5dbc2361e635d1e51779a85ca7297811f3ec98d185d645f"
+}
