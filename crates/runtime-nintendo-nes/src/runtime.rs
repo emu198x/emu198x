@@ -351,6 +351,18 @@ impl MachineCore for NesRuntime {
         }
 
         while self.time < target {
+            let source_phase = {
+                let ppu = &self.machine.as_ref().expect("loaded machine").ppu;
+                let dot = u64::from(ppu.dot());
+                // run_frame finishes at scanline zero, but may be a dot into
+                // it; power-on starts on the pre-render line. Anchor the
+                // visible field to the PPU raster, not the host call boundary.
+                if ppu.scanline() == ppu.pre_render_line() {
+                    (self.time.get() % 3 + (341 - dot) % 3) % 3
+                } else {
+                    (self.time.get() % 3 + 3 - (u64::from(ppu.scanline()) * 341 + dot) % 3) % 3
+                }
+            };
             let ticks = self
                 .machine
                 .as_mut()
@@ -359,8 +371,24 @@ impl MachineCore for NesRuntime {
             self.time = self.time.saturating_add(ticks);
             self.update_rgba_framebuffer();
 
+            let machine = self.machine.as_ref().expect("loaded machine");
+            let signal = (self.model == Model::NesNtsc).then_some(emu198x_shell::SignalFrame {
+                field: None,
+                encoding: emu198x_shell::SignalEncoding::Waveform { phases: 12 },
+                timing: emu198x_shell::SignalTiming {
+                    pixel_hz: 21_477_272.727_272 / 4.0,
+                    carrier_hz: 21_477_272.727_272 / 6.0,
+                    line_pixels: 341,
+                    first_pixel: 1,
+                    first_line: 0,
+                    // Actual elapsed dots preserve the odd-field skipped dot.
+                    phase_cycles: source_phase as f64 * 2.0 / 3.0,
+                },
+                codes: machine.ppu.signal_codes(),
+                levels: &crate::signal::LEVELS,
+            });
             host.frame_sink.push_frame(FramePacket {
-                signal: None,
+                signal,
                 timestamp: self.time,
                 format: emu198x_shell::PixelFormat::Rgba8888,
                 width: FB_WIDTH,

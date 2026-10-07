@@ -43,3 +43,21 @@ web-sys = { version = "0.3", features = [
     "Node",
     "Window",
 ] }
+
+[dev-dependencies]
+runtime-sinclair-zx-spectrum = { path = "../runtime-sinclair-zx-spectrum" }
+runtime-commodore-c64 = { path = "../runtime-commodore-c64" }
+runtime-nintendo-nes = { path = "../runtime-nintendo-nes" }
+runtime-commodore-amiga = { path = "../runtime-commodore-amiga" }
+
+[[example]]
+name = "validate-signal"
+path = "../../tools/spectrum-composite/src/validate_live.rs"
+
+[[example]]
+name = "validate-interlace"
+path = "../../tools/spectrum-composite/src/validate_interlace.rs"
+
+[[example]]
+name = "validate-phosphor"
+path = "../../tools/spectrum-composite/src/validate_phosphor.rs"

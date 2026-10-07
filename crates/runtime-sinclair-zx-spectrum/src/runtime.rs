@@ -834,8 +834,48 @@ impl<M: SpectrumMachine> MachineCore for SpectrumRuntime<M> {
                 .time
                 .saturating_add(u64::from(self.machine.frame_halfcycles()));
 
+            let codes: Vec<u16> = self
+                .machine
+                .framebuffer()
+                .iter()
+                .map(|&v| u16::from(v))
+                .collect();
+            // Only the measured 48K family model is claimed here. Other ULA
+            // and SCLD variants need their own electrical models.
+            let signal = (matches!(
+                self.profile.profile_id.as_str(),
+                "sinclair-zx-spectrum-16k-pal"
+                    | "sinclair-zx-spectrum-48k-pal"
+                    | "sinclair-zx-spectrum-plus-pal"
+            ) && self.machine.frame_halfcycles()
+                == common_sinclair_zx_spectrum::timing::TIMING_48K.halfcycles_per_frame
+                && M::FRAME_WIDTH == 352)
+                .then_some(emu198x_shell::SignalFrame {
+                    field: None,
+                    encoding: emu198x_shell::SignalEncoding::Yuv {
+                        pal: true,
+                        separate_chroma: false,
+                    },
+                    timing: emu198x_shell::SignalTiming {
+                        pixel_hz: 7_000_000.0,
+                        carrier_hz: 4_433_618.75,
+                        line_pixels: 448,
+                        first_pixel: 412,
+                        first_line: 264,
+                        phase_cycles: ((self
+                            .time
+                            .get()
+                            .saturating_sub(u64::from(self.machine.frame_halfcycles()))
+                            as f64)
+                            * 4_433_618.75
+                            / 14_000_000.0)
+                            .fract(),
+                    },
+                    codes: &codes,
+                    levels: &*crate::signal::LEVELS,
+                });
             host.frame_sink.push_frame(FramePacket {
-                signal: None,
+                signal,
                 timestamp: self.time,
                 format: PixelFormat::Indexed8,
                 width: M::FRAME_WIDTH,

@@ -233,6 +233,8 @@ pub struct CommonCli {
     /// `--no-audio`: the window never opens the host audio device. Only the
     /// window plays sound, so script and MCP modes accept and ignore it.
     pub no_audio: bool,
+    /// `--phosphor-ms`, parsed by the windowed launcher.
+    pub phosphor_ms: Option<String>,
     /// `--frames N` — frames to run headlessly after any script.
     pub frames: u32,
     /// `--screenshot PATH`.
@@ -435,8 +437,9 @@ Usage: {bin} [OPTIONS]
 Options:
 {machine}
     --scale N       integer window scale
-    --video MODE    raw | lcd | crt [default: raw]
     --no-audio      run the window without sound output
+    --phosphor-ms N CRT decay time in milliseconds; 0 disables [default: 6]
+    --video MODE    raw | lcd | crt | signal | monitor | modern | modern-monitor | modern-weave | modern-monitor-weave [default: raw]
     --help, -h      show this help
 
 Automation:
@@ -489,6 +492,7 @@ pub fn parse<A: MachineApp>(args: &[String]) -> Result<Parsed<A>, LaunchError> {
             "--scale" => common.scale = Some(cursor.parse("--scale", "a positive integer")?),
             "--video" => common.video = Some(cursor.value("--video")?),
             "--no-audio" => common.no_audio = true,
+            "--phosphor-ms" => common.phosphor_ms = Some(cursor.value("--phosphor-ms")?),
             "--frames" => common.frames = cursor.parse("--frames", "a non-negative integer")?,
             "--screenshot" => common.screenshot = Some(cursor.path("--screenshot")?),
             "--audio-capture" => common.audio_capture = Some(cursor.path("--audio-capture")?),
@@ -617,6 +621,8 @@ pub enum Outcome<A> {
         video: Option<String>,
         /// `false` when `--no-audio` was given.
         audio: bool,
+        /// Optional CRT phosphor 1/e decay time in milliseconds.
+        phosphor_ms: Option<String>,
     },
 }
 
@@ -639,6 +645,7 @@ pub fn run_headless<A: MachineApp>(args: Vec<String>) -> Result<Outcome<A>, Laun
             scale: common.scale,
             video: common.video,
             audio: !common.no_audio,
+            phosphor_ms: common.phosphor_ms,
         }),
         Mode::Script => {
             app.run_script(&common, &args)?;

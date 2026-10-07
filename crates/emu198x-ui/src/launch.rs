@@ -56,17 +56,41 @@ pub fn run_windowed<A: UiApp>(
     video: Option<String>,
     audio: bool,
 ) -> Result<(), LaunchError> {
+    run_windowed_with_phosphor(app, scale, video, None, audio)
+}
+
+fn run_windowed_with_phosphor<A: UiApp>(
+    app: A,
+    scale: Option<u32>,
+    video: Option<String>,
+    phosphor_ms: Option<String>,
+    audio: bool,
+) -> Result<(), LaunchError> {
+    let phosphor_ms = match phosphor_ms {
+        None => emu198x_native_video::DEFAULT_PHOSPHOR_TAU_MS,
+        Some(value) => value
+            .parse::<f32>()
+            .ok()
+            .filter(|n| n.is_finite() && *n >= 0.0)
+            .ok_or_else(|| {
+                LaunchError::Usage(format!(
+                    "--phosphor-ms expects a finite non-negative number, got {value}"
+                ))
+            })?,
+    };
     let system = app.ui_system();
     let scale = scale.unwrap_or_else(|| system.default_scale());
     let video = match video {
         Some(mode) => mode.parse::<VideoFilter>().map_err(|_| {
-            LaunchError::Usage(format!("--video expects raw, lcd, or crt, got {mode}"))
+            LaunchError::Usage(format!(
+                "--video expects raw, lcd, crt, signal, monitor, modern, modern-monitor, modern-weave, or modern-monitor-weave, got {mode}"
+            ))
         })?,
         None => system.default_video(),
     };
     let runtime = app.build_ui_runtime()?;
     println!("Controls:\n{}", A::CONTROLS);
-    crate::run(system, runtime, scale, video, audio)
+    crate::run_with_phosphor(system, runtime, scale, video, phosphor_ms, audio)
         .map_err(|err| LaunchError::Run(err.to_string()))
 }
 
@@ -81,7 +105,8 @@ pub fn main<A: UiApp>() -> ! {
             scale,
             video,
             audio,
-        }) => run_windowed(app, scale, video, audio),
+            phosphor_ms,
+        }) => run_windowed_with_phosphor(app, scale, video, phosphor_ms, audio),
         Err(err) => Err(err),
     };
     match result {
