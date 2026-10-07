@@ -3739,6 +3739,60 @@ fn ocs_fixed_blank_edges_survive_runtime_restore() -> Result<(), Box<dyn Error>>
 }
 
 #[test]
+fn lisa_reset_blank_comparison_survives_half_cck_restore() -> Result<(), Box<dyn Error>> {
+    for (start, stop) in [(1, 0xA0), (0x0301, 0xA0), (0x80, 1), (0x80, 0x0301)] {
+        let mut original = AmigaA1200Runtime::new(Model::A1200AgaPal, blank_kickstart())?;
+        for (reg, value) in [(0x100, 1), (0x106, 1), (0x1C4, start), (0x1C6, stop)] {
+            original.machine_mut().poke_word(0x00DF_F000 + reg, value);
+        }
+        let mut visited = std::collections::BTreeSet::new();
+        let mut levels = std::collections::BTreeSet::new();
+        let mut pending_reset_seen = false;
+        for _ in 0..100_000 {
+            original.machine_mut().tick();
+            let m = original.machine();
+            let h = m.agnus().hpos;
+            let phase = m.scheduler_diagnostic_snapshot().cck_phase;
+            if m.agnus().vpos != 51 || !(3..=6).contains(&h) || !visited.insert((h, phase)) {
+                continue;
+            }
+            let counter = m
+                .denise_board_pipeline_diagnostic_snapshot()
+                .horizontal_counter;
+            pending_reset_seen |=
+                counter.position() > 400 && counter.next_comparison_position() == 2;
+            levels.insert(m.denise_aga().programmed_hblank_active());
+            let bytes = original.snapshot()?;
+            let mut restored = AmigaA1200Runtime::new(Model::A1200AgaPal, blank_kickstart())?;
+            restored.restore(&bytes)?;
+            assert!(
+                bytes == restored.snapshot()?,
+                "immediate reset-stage replay"
+            );
+            for _ in 0..400 {
+                original.machine_mut().tick();
+                restored.machine_mut().tick();
+            }
+            assert!(
+                original.snapshot()? == restored.snapshot()?,
+                "reset-stage forward replay"
+            );
+            original.restore(&bytes)?;
+            if visited.len() == 8 {
+                break;
+            }
+        }
+        assert_eq!(visited.len(), 8);
+        assert_eq!(levels.len(), 2, "must observe both sides of the blank edge");
+        assert!(
+            pending_reset_seen,
+            "must save before the pending reset commits"
+        );
+    }
+    Ok(())
+}
+
+#[test]
 fn lisa_vertical_blank_strobes_and_edges_survive_runtime_restore() -> Result<(), Box<dyn Error>> {
     let mut original = AmigaA1200Runtime::new(Model::A1200AgaPal, blank_kickstart())?;
     for (register, value) in [(0x100, 1), (0x106, 1), (0x1C4, 0x80), (0x1C6, 0x07A0)] {

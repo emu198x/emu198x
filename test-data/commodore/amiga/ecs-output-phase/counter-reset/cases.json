@@ -1,0 +1,82 @@
+[
+  {
+    "case": "start-0000",
+    "adf_sha256": "d0cab0c8a35397ee55a32c61fcdcd73f352a2e2903a83921346a7d6f1e2c95a6"
+  },
+  {
+    "case": "start-0001",
+    "adf_sha256": "74d7fcecf014fecdbe43a89f7e98b6c00d8697dae4c69e436c605cbea40a51dc"
+  },
+  {
+    "case": "start-0101",
+    "adf_sha256": "12ee86b97f880ea059046665ed981b1d45ef11bbf9c42cd329484b74ad2fe4b5"
+  },
+  {
+    "case": "start-0201",
+    "adf_sha256": "e6186635b4ec07ece129d61aa9ee37f9fe750e6bb924b36cb851b11786e7ead6"
+  },
+  {
+    "case": "start-0301",
+    "adf_sha256": "19370cfddb0c94b52bff0284f8049396b9b947574718a935bd1a114214c63d23"
+  },
+  {
+    "case": "start-0401",
+    "adf_sha256": "78fa5a9d84f4f301bd366843e58d95722133f206984e97b30a49a3ad761fb6da"
+  },
+  {
+    "case": "start-0501",
+    "adf_sha256": "95457a4bf57b1c48f4c2757b90d9c6648a4d298e22609f328c71dce5bf9ab149"
+  },
+  {
+    "case": "start-0601",
+    "adf_sha256": "8cd0d0cd9d28f143326d817ad460160b2f009e9e90031f502b18fa905d26f09a"
+  },
+  {
+    "case": "start-0701",
+    "adf_sha256": "eb382829467a171d6bb6791031748f3315e3275fd1198cb8e87523a505306647"
+  },
+  {
+    "case": "start-0002",
+    "adf_sha256": "2e470ada35db5a3744b4ffc02b201c95de5f90ca2108e22508e8bf9fe08402ed"
+  },
+  {
+    "case": "stop-0000",
+    "adf_sha256": "60ca5920434086d93622d71776f3cfa85921ec725f6a8504ecc9e30dab6f8d17"
+  },
+  {
+    "case": "stop-0001",
+    "adf_sha256": "fffa24365c39542b1f386075d5680a4a52f1150bb5330503bdd06e89c65d0f58"
+  },
+  {
+    "case": "stop-0101",
+    "adf_sha256": "c0b1f3512428c25ce7db58cf79fd2cef402d9847eab3283449eb6227c029f84d"
+  },
+  {
+    "case": "stop-0201",
+    "adf_sha256": "3f89a5adcde0258df6160a8b98c0d3055608e90c811f13be52e1ff947c475673"
+  },
+  {
+    "case": "stop-0301",
+    "adf_sha256": "a7f14e7e5160cecdfcb3ee71e28d6ed1200c9ff0952053119f4bf120129fb370"
+  },
+  {
+    "case": "stop-0401",
+    "adf_sha256": "e4bd07d41ecbc40dce009447a28225f6cf7909c985319de403d1ec67fbea4960"
+  },
+  {
+    "case": "stop-0501",
+    "adf_sha256": "d0784f2158895226467889e580c6c88b52b710e6a6338e4a0d940047480753a1"
+  },
+  {
+    "case": "stop-0601",
+    "adf_sha256": "e350bbfe7d67253b5947c8273ec0a2e728edf4b1c264375228b67dae02d7c183"
+  },
+  {
+    "case": "stop-0701",
+    "adf_sha256": "5cb71f6d151039a25eefe3c9c4f18385bc8a9ebcbd97dc7b49a73a7f75e799ae"
+  },
+  {
+    "case": "stop-0002",
+    "adf_sha256": "3952bfdcafa9c8746691275e32e87ec3288be8a9cc6ce7c37bbb491fdeba1769"
+  }
+]

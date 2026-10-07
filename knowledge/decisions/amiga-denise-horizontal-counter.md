@@ -141,3 +141,24 @@ nine-bit wrap and seven runtime restore boundaries are covered. The strict
 A500 Test Kit gate remains exact across all six patterns. The publication
 test retains its completed-field timing and requires colour through native
 column 759, followed by the fixed blank tail through 767.
+
+## 2026-10-07 Lisa comparisons during reset commit
+
+The [primary colour/blanking observations](../../../../reference/by-system/commodore-amiga/2026-ecs-colour-blanking-observations.md)
+record twenty reset-boundary guests. The first four fine samples of CCK 1
+match while the old output counter is 455 and the selected next counter is
+2. Current+1 misses the programmed event and can leave the blank latch in
+the wrong state for most of the following line.
+
+Expose the existing selected-next value to Lisa's blanking comparator on
+the second output tick. On the first tick it remains current+1. Preserve
+the current counter for operations that compare it, and retain the existing
+commit order. The standalone Lisa entry point still accepts an ordinary
+beam coordinate; the connected board supplies the actual next comparison.
+This adds no state or clock and preserves snapshot version 56.
+
+All sixty reset-boundary fields and thirty ordinary AGA control fields now
+match. The archive replays twenty-four old failures and thirty-six exact
+baseline controls as well. Counter/strobe tests, all eight fine phases on
+each edge, 32 live restore boundaries and the strict six-pattern A1200 Test
+Kit gate pass. Reference samples and host coordinates remain unchanged.

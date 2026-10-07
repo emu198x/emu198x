@@ -1,0 +1,1 @@
+[{"action": "run_frames", "frames": 360}, {"action": "save_screenshot", "path": "/private/tmp/emu198x-ecs-colour-blanking/aga/guests/programmed-wrap/reset-control.png"}, {"action": "memory_read", "addr": 196352, "len": 128}]

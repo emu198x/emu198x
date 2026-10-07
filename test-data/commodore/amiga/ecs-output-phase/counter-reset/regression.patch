@@ -1,0 +1,45 @@
+diff --git i/crates/machine-commodore-amiga-a1200/src/lib.rs w/crates/machine-commodore-amiga-a1200/src/lib.rs
+index d699dced..613444be 100644
+--- i/crates/machine-commodore-amiga-a1200/src/lib.rs
++++ w/crates/machine-commodore-amiga-a1200/src/lib.rs
+@@ -3716,6 +3716,40 @@ mod bus_plan_dispatch_tests {
+         );
+     }
+ 
++    #[test]
++    fn lisa_programmed_blank_observes_the_pending_counter_reset() {
++        let mut amiga = AmigaA1200::new(vec![0; 512 * 1024]);
++        for (register, value) in [
++            (0x100, 1),
++            (0x106, 1),
++            (0x180, 0x011),
++            (0x1DC, 0x28),
++            (0x1C4, 1),
++            (0x1C6, 0xA0),
++        ] {
++            amiga.poke_word(0x00DF_F000 + register, value);
++        }
++        let mut reached = false;
++        for _ in 0..500_000 {
++            amiga.tick();
++            if amiga.agnus.vpos == 52 {
++                reached = true;
++                break;
++            }
++        }
++        assert!(reached, "must finish the observed raster row");
++        let row = (50 - 0x19) * 2 * FB_WIDTH as usize;
++        let pixels = amiga.denise.framebuffer();
++        // Registered UAE: current 455 / pending next 2 writes the first
++        // blank samples at x1456, native x1468 under the fixed origin.
++        assert_eq!(&pixels[row + 1464..row + 1468], &[0xFF00_1111; 4]);
++        assert_eq!(
++            &pixels[row + 1468..row + 1472],
++            &[0xFF00_0000; 4],
++            "HBSTRT=1 must match the pending next counter before reset commits",
++        );
++    }
++
+     #[test]
+     fn a1200_first_visible_line_waits_for_programmed_vertical_blank_release() {
+         let mut amiga = AmigaA1200::new(vec![0; 512 * 1024]);

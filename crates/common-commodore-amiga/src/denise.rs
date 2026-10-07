@@ -457,6 +457,21 @@ impl<C: DeniseChip> Denise<C> {
         }
     }
 
+    /// Next comparison value, including the pending live counter reset.
+    /// Standalone endpoints retain their directly supplied beam coordinates.
+    #[must_use]
+    pub fn next_output_comparator_position_for(
+        &self,
+        agnus: &commodore_agnus_ocs::Agnus,
+        phase: u8,
+    ) -> u16 {
+        if agnus.dma_pipeline().stages_started() {
+            self.horizontal_counter.next_comparison_position()
+        } else {
+            (self.output_comparator_position_for(agnus, phase) + 1) & 511
+        }
+    }
+
     /// Start an existing lores output tick in Denise's counter domain.
     pub fn begin_counter_output_tick(&mut self) -> u16 {
         self.horizontal_counter

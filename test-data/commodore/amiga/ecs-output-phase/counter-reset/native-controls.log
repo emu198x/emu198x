@@ -1,0 +1,10 @@
+reset-control aga-fine-lores
+reset-control aga-fine-hires
+reset-control aga-fine-shres
+reset-control blanken-path
+reset-control ecsena-gate
+reset-control extblken-gate
+reset-control fixed-control
+reset-control programmed-central
+reset-control programmed-equal
+reset-control programmed-wrap

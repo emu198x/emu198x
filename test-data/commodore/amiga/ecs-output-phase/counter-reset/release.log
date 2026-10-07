@@ -1,0 +1,8 @@
+   Compiling common-commodore-amiga v0.28.1 (/Users/stevehill/Projects/198x/Emu198x/emu198x/crates/common-commodore-amiga)
+   Compiling machine-commodore-amiga-ocs v0.28.1 (/Users/stevehill/Projects/198x/Emu198x/emu198x/crates/machine-commodore-amiga-ocs)
+   Compiling commodore-denise-aga v0.28.1 (/Users/stevehill/Projects/198x/Emu198x/emu198x/crates/commodore-denise-aga)
+   Compiling machine-commodore-amiga-ecs v0.28.1 (/Users/stevehill/Projects/198x/Emu198x/emu198x/crates/machine-commodore-amiga-ecs)
+   Compiling machine-commodore-amiga-a1200 v0.28.1 (/Users/stevehill/Projects/198x/Emu198x/emu198x/crates/machine-commodore-amiga-a1200)
+   Compiling runtime-commodore-amiga v0.28.1 (/Users/stevehill/Projects/198x/Emu198x/emu198x/crates/runtime-commodore-amiga)
+   Compiling emu198x-amiga v0.28.1 (/Users/stevehill/Projects/198x/Emu198x/emu198x/crates/emu198x-amiga)
+    Finished `release` profile [optimized] target(s) in 37.85s

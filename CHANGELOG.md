@@ -963,6 +963,7 @@ crates.io may hit their own 1.0 on their own schedules.
 
 ### Fixed
 
+- *(amiga)* Lisa observes programmed blanking edges during horizontal counter resets, preventing missed start/stop events from blanking or exposing most of the next line.
 - *(amiga)* OCS fixed horizontal blanking masks the right-edge tail at Denise's actual comparator, preserving its level across counter resets.
 - *(amiga)* Lisa retains vertical blanking until the selected horizontal edge, preventing border colour from appearing early on the first visible line in AGA programmed-blanking modes.
 

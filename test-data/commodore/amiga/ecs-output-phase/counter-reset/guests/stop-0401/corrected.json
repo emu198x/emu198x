@@ -1,0 +1,1 @@
+[{"action": "run_frames", "frames": 360}, {"action": "save_screenshot", "path": "/private/tmp/amiga-blank-reset/guests/stop-0401/corrected.png"}, {"action": "memory_read", "addr": 196352, "len": 128}]

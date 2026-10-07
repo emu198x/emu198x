@@ -2403,12 +2403,11 @@ impl AmigaDriver for AmigaA1200 {
         let width_words = self.agnus.bpl_fetch_width();
         let vertical_diw_active = self.agnus.vertical_diw_active();
         self.denise.prepare_output_timing_strobe();
-        let denise_position = self
+        let next_denise_position = self
             .denise
-            .output_comparator_position_for(&self.agnus, phase);
-        let horizontal_blanking = self.denise.ocs.programmed_hblank_for_output_phase(
-            denise_position / 2,
-            (denise_position & 1) as u8,
+            .next_output_comparator_position_for(&self.agnus, phase);
+        let horizontal_blanking = self.denise.ocs.programmed_hblank_for_next_counter(
+            next_denise_position,
             self.agnus.bplcon0,
             self.agnus.hbstrt(),
             self.agnus.hbstop(),
@@ -3713,6 +3712,40 @@ mod bus_plan_dispatch_tests {
         assert_eq!(
             amiga.denise.framebuffer()[y * FB_WIDTH as usize + x],
             0xFF00_00FF
+        );
+    }
+
+    #[test]
+    fn lisa_programmed_blank_observes_the_pending_counter_reset() {
+        let mut amiga = AmigaA1200::new(vec![0; 512 * 1024]);
+        for (register, value) in [
+            (0x100, 1),
+            (0x106, 1),
+            (0x180, 0x011),
+            (0x1DC, 0x28),
+            (0x1C4, 1),
+            (0x1C6, 0xA0),
+        ] {
+            amiga.poke_word(0x00DF_F000 + register, value);
+        }
+        let mut reached = false;
+        for _ in 0..500_000 {
+            amiga.tick();
+            if amiga.agnus.vpos == 52 {
+                reached = true;
+                break;
+            }
+        }
+        assert!(reached, "must finish the observed raster row");
+        let row = (50 - 0x19) * 2 * FB_WIDTH as usize;
+        let pixels = amiga.denise.framebuffer();
+        // Registered UAE: current 455 / pending next 2 writes the first
+        // blank samples at x1456, native x1468 under the fixed origin.
+        assert_eq!(&pixels[row + 1464..row + 1468], &[0xFF00_1111; 4]);
+        assert_eq!(
+            &pixels[row + 1468..row + 1472],
+            &[0xFF00_0000; 4],
+            "HBSTRT=1 must match the pending next counter before reset commits",
         );
     }
 

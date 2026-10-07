@@ -67,6 +67,18 @@ impl DeniseHorizontalCounter {
         self.current
     }
 
+    /// Counter seen by next-position comparators during the upcoming output.
+    /// On the second tick this is the selected commit value, including a
+    /// strobe reset, rather than an increment of the old output position.
+    #[must_use]
+    pub const fn next_comparison_position(&self) -> u16 {
+        if self.second_tick {
+            self.next
+        } else {
+            (self.current + 1) & 511
+        }
+    }
+
     /// Reject out-of-range saved comparison/commit state before installing it.
     pub fn validate(&self) -> Result<(), String> {
         if self.current > 511 || self.next > 511 {
@@ -158,6 +170,48 @@ mod tests {
         // Agnus wraps at 227; Denise continues until the next actual strobe.
         assert_eq!(cck(&mut counter, true), [446, 447]);
         assert_eq!(cck(&mut counter, true), [448, 449]);
+    }
+
+    #[test]
+    fn next_comparator_selects_the_value_committed_after_each_output_tick() {
+        for enhanced in [false, true] {
+            for strobe in [
+                DeniseStrobe::Horizontal,
+                DeniseStrobe::VerticalBlank,
+                DeniseStrobe::Equalisation,
+            ] {
+                let mut counter = DeniseHorizontalCounter::default();
+                for _ in 0..20 {
+                    cck(&mut counter, enhanced);
+                }
+                counter.service_strobe(strobe);
+                assert_eq!(cck(&mut counter, enhanced), [40, 41]);
+                assert_eq!(counter.next_comparison_position(), 43);
+                assert_eq!(counter.begin_output_tick(enhanced), 42);
+                counter.end_output_tick();
+                counter = restore(counter);
+                let resets = enhanced || strobe != DeniseStrobe::Equalisation;
+                assert_eq!(counter.position(), 43);
+                assert_eq!(
+                    counter.next_comparison_position(),
+                    if resets { 2 } else { 44 }
+                );
+                counter.begin_output_tick(enhanced);
+                let next = counter.next_comparison_position();
+                counter.end_output_tick();
+                assert_eq!(counter.position(), next);
+                for _ in 0..1024 {
+                    let next = counter.next_comparison_position();
+                    counter.begin_output_tick(enhanced);
+                    counter.end_output_tick();
+                    assert_eq!(
+                        counter.position(),
+                        next,
+                        "next comparison must follow nine-bit wrap"
+                    );
+                }
+            }
+        }
     }
 
     #[test]
