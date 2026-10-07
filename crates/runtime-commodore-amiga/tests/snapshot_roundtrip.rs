@@ -45,6 +45,128 @@ use runtime_commodore_amiga::{
 const BLTCON0: u32 = 0x00DF_F040;
 
 #[test]
+fn cancelled_audio_startup_delivery_survives_live_restore() -> Result<(), Box<dyn Error>> {
+    use commodore_agnus_ocs::{DmaAddressStage, DmaTransferTarget};
+    fn check<M: AmigaMachine + AmigaLiveAccess + AmigaDriver>(
+        mut original: AmigaRuntime<M>,
+        mut restored: AmigaRuntime<M>,
+        channel: u16,
+        second: bool,
+        pending: bool,
+    ) -> Result<(), Box<dyn Error>> {
+        let base = 0x0A0 + channel * 16;
+        let irq = 0x80 << channel;
+        for (offset, value) in [(2, 0x1000), (4, 64), (6, 8)] {
+            AmigaDriver::dispatch_custom_write(original.machine_mut(), base + offset, value);
+        }
+        AmigaDriver::dispatch_custom_write(original.machine_mut(), 0x096, 0x8200 | (1 << channel));
+        // Obtain stage identities through the machine's existing Paula
+        // re-export; runtime does not depend directly on the chip crate.
+        let mut phase = machine_commodore_amiga_ocs::Paula8364::new();
+        let idle = phase.audio_diagnostic_snapshot().channels[0].state;
+        phase.sync_audio_dma_control(0x0201);
+        if second {
+            phase.service_audio_dma_word(0, 0, false, 0);
+        }
+        let target = phase.audio_diagnostic_snapshot().channels[0].state;
+        let mut admitted = None;
+        for _ in 0..2000 {
+            AmigaMachine::tick(original.machine_mut());
+            if AmigaDriver::paula(original.machine())
+                .audio_diagnostic_snapshot()
+                .channels[usize::from(channel)]
+            .state
+                == target
+                && let Some(DmaAddressStage::Transfer(transfer)) =
+                    AmigaDriver::agnus(original.machine())
+                        .dma_pipeline()
+                        .address()
+                && matches!(transfer.target, DmaTransferTarget::Audio { channel: c, .. } if u16::from(c) == channel)
+            {
+                admitted = Some(transfer);
+                break;
+            }
+        }
+        let transfer = admitted.expect("real startup transfer must be admitted");
+        AmigaDriver::memory_mut(original.machine_mut()).write_word(transfer.address, 0x1122);
+        AmigaDriver::dispatch_custom_write(original.machine_mut(), base + 2, 0x2000);
+        AmigaDriver::dispatch_custom_write(original.machine_mut(), 0x096, 0x0200 | (1 << channel));
+        AmigaDriver::dispatch_custom_write(
+            original.machine_mut(),
+            0x09C,
+            irq | if pending { 0x8000 } else { 0 },
+        );
+        assert_eq!(
+            AmigaDriver::paula(original.machine())
+                .audio_diagnostic_snapshot()
+                .channels[usize::from(channel)]
+            .state,
+            idle
+        );
+        // Whole/half CCKs on both sides of the retained transfer's delivery.
+        for checkpoint in 0..4 {
+            let saved = original.snapshot()?;
+            restored.restore(&saved)?;
+            assert!(saved == restored.snapshot()?);
+            let mut delivered = checkpoint >= 2;
+            for _ in 0..40 {
+                AmigaMachine::tick(original.machine_mut());
+                AmigaMachine::tick(restored.machine_mut());
+                let a = AmigaDriver::paula(original.machine());
+                let b = AmigaDriver::paula(restored.machine());
+                assert_eq!(a.audio_diagnostic_snapshot(), b.audio_diagnostic_snapshot());
+                assert_eq!(a.intreq(), b.intreq());
+                let ch = a.audio_diagnostic_snapshot().channels[usize::from(channel)];
+                if ch.data == 0x1122 {
+                    delivered = true;
+                    assert_eq!(ch.dma_pointer, transfer.address + 2);
+                    assert_eq!(ch.words_remaining, 64);
+                }
+            }
+            assert!(delivered, "restored descriptor must deliver its word");
+            let ch = AmigaDriver::paula(original.machine())
+                .audio_diagnostic_snapshot()
+                .channels[usize::from(channel)];
+            assert_eq!(ch.state, idle);
+            assert_eq!(ch.output_sample, if pending { 0 } else { 0x22 });
+            assert_ne!(AmigaDriver::paula(original.machine()).intreq() & irq, 0);
+            assert!(original.snapshot()? == restored.snapshot()?);
+            original.restore(&saved)?;
+            AmigaMachine::tick(original.machine_mut());
+        }
+        Ok(())
+    }
+    for channel in 0..4 {
+        for second in [false, true] {
+            for pending in [false, true] {
+                check(
+                    AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?,
+                    AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?,
+                    channel,
+                    second,
+                    pending,
+                )?;
+                check(
+                    AmigaEcsRuntime::new(Model::A500PlusEcsPal, blank_kickstart())?,
+                    AmigaEcsRuntime::new(Model::A500PlusEcsPal, blank_kickstart())?,
+                    channel,
+                    second,
+                    pending,
+                )?;
+                check(
+                    AmigaA1200Runtime::new(Model::A1200AgaPal, blank_kickstart())?,
+                    AmigaA1200Runtime::new(Model::A1200AgaPal, blank_kickstart())?,
+                    channel,
+                    second,
+                    pending,
+                )?;
+            }
+        }
+    }
+    Ok(())
+}
+
+#[test]
 fn paula_handover_sampling_history_survives_live_restore() -> Result<(), Box<dyn Error>> {
     fn advance<M: AmigaMachine + AmigaLiveAccess + AmigaDriver>(
         runtime: &mut AmigaRuntime<M>,

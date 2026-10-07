@@ -1,0 +1,45 @@
+{
+  "baseline": {
+    "reference_rows_per_producer": 704,
+    "reference_scenarios": 80,
+    "reference_disagreements": 0,
+    "native_cpu_dat_mismatches": 0,
+    "native_retained_dma_mismatches": 544,
+    "native_test_exit": 101,
+    "board_test_exit": 101,
+    "board_failure": "startup cancellation must precede delivery"
+  },
+  "after": {
+    "reference_rows_per_path": 704,
+    "native_paths": 2,
+    "native_mismatches": 0,
+    "component_tests": 114,
+    "board_tests": 44,
+    "component_and_runtime_tests": 410,
+    "snapshot_tests": 65,
+    "restore_checkpoints": 192,
+    "snapshot_version": 60,
+    "schema_changed": false,
+    "clippy": "passed",
+    "release_build": "passed",
+    "waveform_cases": 3,
+    "reference_regeneration": "exact byte comparison passed",
+    "ruff": "passed"
+  },
+  "sha256": {
+    "board-before.log.gz": "6d4116f67bb96fb7ed15862f2f742f6e276ced30c0e4f90b38d074dce3a3df6e",
+    "build-after.log.gz": "795a33fd215b690c7b0fc680fd70ef0ee294f1d5c0ee9cda2e430fc65e7855d0",
+    "clippy-after.log.gz": "62c24298d531563ee73b3743ff9caf614132510dc7a5eec724f9ad21246daa6a",
+    "comparison.json": "f74ba9cd643d93721546fa97a9cae33d4c924189fe147092b8944c5361542984",
+    "component-before.log.gz": "8fca7bc656bb653b942b209469dac34b6ddd4437771b4f45a3173540ce501c59",
+    "component-board-after.log.gz": "d657615f557b39e6f7178355f240b6e741d7027926a4d8b958e638a4139a9e3d",
+    "reference.py": "3deb378bc5c04dd072213daa78194cab9fa2dd73542e01373699c0aeba50f4e4",
+    "runtime-after.log.gz": "ca18497a47dbf14e692cdff495110e08589af43c65086ae8e4cbdc8b04fb308b",
+    "source-hashes.json": "7005fd6a160bb54435f349d87a8f5d4d1bde13605ed43ce72a191261713791e3",
+    "vamiga.cpp.gz": "a8594601f1c1b56daccb8c6ff57490b604df8a3fe2a187839ba010c67100e868",
+    "vamiga.csv": "34fd0483e7a26183db6a61e546dba7c1caac35de27bab90ac237b806fb6664f4",
+    "waveform-after.log.gz": "4450b58f3c946b97f2cba5e013fd20125b710e7308222a27decb187cd55aad48",
+    "winuae.cpp.gz": "ade6135ecde9d309fb68b3eb7f695a9c917bf36b855921321dcdd7c465cd2b82",
+    "winuae.csv": "34fd0483e7a26183db6a61e546dba7c1caac35de27bab90ac237b806fb6664f4"
+  }
+}

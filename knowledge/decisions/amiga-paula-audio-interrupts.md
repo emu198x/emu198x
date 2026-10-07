@@ -71,3 +71,14 @@ distinguishable across save/restore. Board tests cover mode writes and delivery
 of an already-admitted word to the holding latch after DMA clear. This does
 not establish complete DMAL signalling, every startup/retirement race, or
 post-output mode changes between component phases.
+
+Propagate effective DMACON writes to the existing audio mode transitions
+without advancing the clock. A retained Agnus transfer still updates its
+committed memory pointer; with DMA off, deliver its word through ordinary DAT
+handling and leave the DMA length counter unchanged. An idle channel starts
+manual playback only with clear visible IRQ. The existing version-60 stages
+already preserve this state. The [cancelled-startup observations](../../../../reference/by-system/commodore-amiga/2026-paula-cancelled-startup-observations.md)
+record 704 agreeing observations from both references, the real retained-word
+board regression and 192 OCS/ECS/AGA restore checkpoints. This follows the
+existing register-effect boundary and does not claim a new physical DMACON
+write latency or complete DMAL timing.

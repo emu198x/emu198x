@@ -822,3 +822,81 @@ fn admitted_audio_word_still_reaches_the_holding_latch_after_dma_is_disabled() {
         assert!(retired, "accepted word must retire despite DMACON clear");
     }
 }
+
+#[test]
+fn cancelled_startup_accepts_an_already_admitted_word_as_manual_data() {
+    use commodore_agnus_ocs::{DmaAddressStage, DmaTransferTarget};
+    use emu198x_commodore_paula_8364::PaulaAudioDmaState;
+    for channel in 0..4u16 {
+        for second in [false, true] {
+            for pending in [false, true] {
+                let mut amiga = AmigaOcs::new(zero_rom());
+                let base = 0x00DF_F0A0 + u32::from(channel) * 16;
+                let irq = 0x80 << channel;
+                for (offset, value) in [(2, 0x1000), (4, 64), (6, 8)] {
+                    amiga.poke_word(base + offset, value);
+                }
+                amiga.poke_word(0x00DF_F096, 0x8200 | (1 << channel));
+                let target = if second {
+                    PaulaAudioDmaState::WaitWord2
+                } else {
+                    PaulaAudioDmaState::WaitWord1
+                };
+                let mut admitted = None;
+                for _ in 0..2000 {
+                    amiga.tick();
+                    if amiga.paula().audio_diagnostic_snapshot().channels[channel as usize].state
+                        == target
+                        && let Some(DmaAddressStage::Transfer(transfer)) =
+                            amiga.agnus().dma_pipeline().address()
+                        && matches!(transfer.target, DmaTransferTarget::Audio { channel: c, .. } if u16::from(c) == channel)
+                    {
+                        admitted = Some(transfer);
+                        break;
+                    }
+                }
+                let transfer = admitted.expect("startup fetch must be admitted");
+                amiga.poke_word(transfer.address, 0x1122);
+                amiga.poke_word(base + 2, 0x2000);
+                amiga.poke_word(0x00DF_F096, 0x0200 | (1 << channel));
+                amiga.poke_word(0x00DF_F09C, irq | if pending { 0x8000 } else { 0 });
+                let length = amiga.paula().audio_diagnostic_snapshot().channels[channel as usize]
+                    .words_remaining;
+                let mut idle_seen =
+                    amiga.paula().audio_diagnostic_snapshot().channels[channel as usize].state
+                        == PaulaAudioDmaState::Idle;
+                let mut retired = false;
+                for _ in 0..8 {
+                    amiga.tick();
+                    let ch = amiga.paula().audio_diagnostic_snapshot().channels[channel as usize];
+                    if amiga.agnus().dma_pipeline().service() == Some(transfer)
+                        && amiga.agnus().dma_pipeline().service_was_claimed()
+                    {
+                        retired = true;
+                        assert!(idle_seen, "startup cancellation must precede delivery");
+                        assert_eq!(ch.data, 0x1122);
+                        assert_eq!(ch.dma_pointer, transfer.address + 2);
+                        assert_eq!(ch.words_remaining, length);
+                        assert_eq!(
+                            ch.state,
+                            if pending {
+                                PaulaAudioDmaState::Idle
+                            } else {
+                                PaulaAudioDmaState::Playing
+                            },
+                            "channel={channel} second={second} pending={pending}"
+                        );
+                        assert_eq!(ch.output_sample, if pending { 0 } else { 0x11 });
+                        assert_eq!(ch.interrupt_request_pending, !pending);
+                        break;
+                    }
+                    idle_seen |= ch.state == PaulaAudioDmaState::Idle;
+                }
+                assert!(retired, "retained transfer must retire");
+                amiga.tick();
+                amiga.tick();
+                assert_ne!(amiga.intreq() & irq, 0, "existing or delayed startup IRQ");
+            }
+        }
+    }
+}
