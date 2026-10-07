@@ -25,7 +25,8 @@
 //! - **VIA:** MOS 6522 at `$0300-$030F` (mirrored across `$0300-$03FF`)
 //! - **PSG:** AY-3-8910 @ 1 MHz — via our `gi-ay-3-8912` crate
 //! - **ULA:** custom — TEXT (40×28) + HIRES (200 lines + 3 text rows)
-//! - **RAM:** 48 KB (Oric-1) or 64 KB (Atmos)
+//! - **RAM:** 64 KB of DRAM on the 48K Oric-1 and the Atmos alike, 48 KB of
+//!   it below the ROM
 //! - **ROM:** 16 KB BASIC + OS at `$C000-$FFFF`
 //!
 //! # Memory map
@@ -34,13 +35,13 @@
 //! |---------------|------------------------------------------------|
 //! | `$0000-$02FF` | Zero page + system + stack                     |
 //! | `$0300-$03FF` | VIA 6522 (every 16 bytes mirror the registers) |
-//! | `$0400-$BFFF` | RAM (47.75 KB; 16 KB further on Atmos under ROM)|
+//! | `$0400-$BFFF` | RAM (47.75 KB; 16 KB further under the ROM)    |
 //! | `$A000-$BFFF` | HIRES bitmap (top of RAM, doubles as RAM)      |
 //! | `$BB80-$BFFF` | TEXT screen + HIRES top 3 text rows ($BF68)    |
 //! | `$B400-$BBFF` | Character generator (read by ULA)              |
 //! | `$C000-$FFFF` | 16 KB BASIC + OS ROM                           |
 //!
-//! On the Atmos the full 64 KB RAM lives beneath. The ROM is the visible
+//! On both models the last 16 KB of RAM lives beneath. The ROM is the visible
 //! image at `$C000-$FFFF` until an expansion peripheral drives the port's
 //! ROMDIS and MAP lines; `expansion_port.rs` says what each one does.
 //!
@@ -212,9 +213,9 @@ impl Default for SerialAttributes {
 /// Oric model variant.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum OricModel {
-    /// Oric-1 (1983): 48 KB RAM.
+    /// Oric-1 (1983): 48 KB of RAM below the ROM and 16 KB more under it.
     Oric1,
-    /// Oric Atmos (1984): 64 KB RAM, improved keyboard.
+    /// Oric Atmos (1984): the same 64 KB of RAM, improved keyboard.
     Atmos,
 }
 
@@ -279,10 +280,11 @@ impl OricAtmos {
     /// model variant.
     #[must_use]
     pub fn new(rom: Vec<u8>, model: OricModel) -> Self {
-        let ram_size = match model {
-            OricModel::Oric1 => 48 * 1024,
-            OricModel::Atmos => 64 * 1024,
-        };
+        // Both models carry 64 KB of DRAM. "A 48K Oric-1 actually has 64K of
+        // RAM, 16K of which is overlaid by the ROM" (*The Oric-1 Companion*,
+        // p. 111), the same as the Atmos; MAP on the expansion port reaches
+        // it. The 16K Oric-1 is not modelled.
+        let ram_size = 64 * 1024;
         let mut cpu = M6502::new();
         cpu.reset();
         Self {
