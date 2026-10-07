@@ -50,6 +50,7 @@ impl Cpu68040 {
     /// Install (or re-install) the 68040-specific decode hook on the
     /// wrapped chain. Called from `new()` and `Deserialize`.
     fn install_variant_hooks(&mut self) {
+        self.inner.variant_longword_prefetch = false;
         self.inner.variant_decode_hook = Some(decode_68040_opcode);
         // The 68040 inherits the shared instruction implementation, but its
         // external transfer protocol is not the 68020/68030 SIZ/DSACK

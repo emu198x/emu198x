@@ -289,7 +289,16 @@ fn rte_consumes_full_format_a_frame_from_msp() {
         service_bus(&mut cpu, &mut mem);
         cpu.tick();
         if cpu.instr_start_pc == RETURN_PC {
-            assert_eq!(cpu.regs.pc, RETURN_PC + 2);
+            assert_eq!(
+                cpu.ir,
+                mem.read_word(RETURN_PC),
+                "RTE must promote the return opcode"
+            );
+            assert_eq!(
+                cpu.irc_addr,
+                RETURN_PC + 2,
+                "the retained sibling is the next instruction word"
+            );
             assert_eq!(cpu.regs.sr, SAVED_SR);
             assert_eq!(
                 cpu.regs.msp, INITIAL_MSP,

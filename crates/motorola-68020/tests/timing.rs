@@ -369,7 +369,10 @@ fn golden_clock_counts() {
     // MOVE.W (d8,A0,D1),D2 — brief indexed EA calc = 4 (UM § 8.2.3 CC,
     // Phase 4) + one operand read + boundary prefetch.
     let move_idx = run(&[MOVE_W_IDX_D2, EXT_D1_W], k, seed_idx_move);
-    assert_eq!(move_idx.ticks, 13, "MOVE.W (d8,A0,Xn),D2 golden");
+    // The boundary fill uses two compatibility word phases for one aligned
+    // long word. Its second phase costs four harness ticks (issue + 3 clocks).
+    assert_eq!(move_idx.prog_reads, 2, "one complete long-word prefetch");
+    assert_eq!(move_idx.ticks, 17, "MOVE.W (d8,A0,Xn),D2 golden");
     assert_eq!(move_idx.data_cycles, 1, "one operand word read");
 
     // ASL.L #1,D0 vs #8 — constant on the 020 (Phase 2); both 5 here.
