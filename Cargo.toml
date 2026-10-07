@@ -244,6 +244,7 @@ members = [
 exclude = ["tools/m68k-test-gen"]
 
 [workspace.package]
+homepage = "https://emu198x.github.io/"
 edition = "2024"
 version = "0.28.1"
 license = "GPL-2.0-or-later"

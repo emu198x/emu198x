@@ -1,4 +1,5 @@
 [package]
+homepage.workspace = true
 name = "emu198x-acorn-atom"
 description = "Acorn Atom headless runner with shell-backed script + MCP parity — 6502 + 24 KB combined ROM"
 version.workspace = true

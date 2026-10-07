@@ -1,4 +1,5 @@
 [package]
+homepage.workspace = true
 name = "emu198x-amstrad-cpc"
 description = "Amstrad CPC464 runner with shell-backed UI, script and MCP parity — Z80 + Gate Array + HD6845S + AY-3-8912"
 version.workspace = true

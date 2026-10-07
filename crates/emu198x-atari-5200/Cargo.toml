@@ -1,4 +1,5 @@
 [package]
+homepage.workspace = true
 name = "emu198x-atari-5200"
 description = "Atari 5200 SuperSystem headless runner with shell-backed script + MCP parity — 6502 + ANTIC + GTIA + POKEY"
 version.workspace = true

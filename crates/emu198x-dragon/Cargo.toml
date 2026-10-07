@@ -1,4 +1,5 @@
 [package]
+homepage.workspace = true
 name = "emu198x-dragon"
 description = "Native Dragon 32/64 verifier with interactive UI, headless harness, and MCP modes"
 edition.workspace = true

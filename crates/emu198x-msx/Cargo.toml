@@ -1,4 +1,5 @@
 [package]
+homepage.workspace = true
 name = "emu198x-msx"
 description = "MSX1 headless runner with shell-backed script + MCP parity — Z80 + TMS9918A + AY-3-8910 + 8255 PPI"
 version.workspace = true

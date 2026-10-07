@@ -1,4 +1,5 @@
 [package]
+homepage.workspace = true
 name = "emu198x-nes"
 description = "Native NES verifier with interactive UI, headless script, and MCP modes"
 edition.workspace = true

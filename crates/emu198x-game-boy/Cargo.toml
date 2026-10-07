@@ -1,4 +1,5 @@
 [package]
+homepage.workspace = true
 name = "emu198x-game-boy"
 description = "Native Game Boy verifier with interactive UI, headless script, and MCP modes"
 edition.workspace = true

@@ -1,4 +1,5 @@
 [package]
+homepage.workspace = true
 name = "emu198x-amiga"
 description = "Native Amiga verifier with interactive UI, headless script, and MCP debugging modes"
 edition.workspace = true

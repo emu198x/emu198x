@@ -1,4 +1,5 @@
 [package]
+homepage.workspace = true
 name = "emu198x-colecovision"
 description = "ColecoVision headless runner with shell-backed script + MCP parity — Z80 + TMS9918A + SN76489AN"
 version.workspace = true
