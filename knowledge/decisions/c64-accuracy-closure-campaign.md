@@ -55,9 +55,9 @@ output rather than analogue colour reproduction.
 
 | Category | Matching pixels |
 | --- | ---: |
-| `border` | 93.806% |
 | `spritefetchbug` | 98.211% |
-| `vicii_timing` | 98.935% |
+| `vicii_timing` | 99.521% |
+| `border` | 100.000% |
 | `screenpos` | 100.000% |
 | `videomode` | 100.000% |
 | `spritecrunch` | 100.000% |
@@ -69,9 +69,10 @@ output rather than analogue colour reproduction.
 | `dmadelay` | 100.000% |
 | `colorfetchbug` | 100.000% for each of five programs |
 
-These are the frame-routing-version-10 results, after stage 3a, the
-mid-line XSCROLL fix (#1620) and the mode-bit fix (#1660). Version 9
-measured `vicii_timing` 98.468%, and version 8 `vicii_timing` 96.774% and
+These are the frame-routing-version-11 results, after stage 3a, the
+mid-line XSCROLL fix (#1620), the mode-bit fix (#1660) and the opened-border
+background (#1661). Version 10 measured `border` 93.806% and `vicii_timing`
+98.935%, version 9 `vicii_timing` 98.468%, and version 8 `vicii_timing` 96.774% and
 `spritefetchbug` 97.226%, with every other row as now. At version 7
 the same programs measured `vicii_timing` 84.720%, `screenpos` 87.800%,
 `videomode` 88.980%, `border` 92.533%, `spritecrunch` 95.190%,
@@ -729,6 +730,9 @@ draws each cell as it leaves the colour stage. See
 
 ### What remains
 
+(#1661 resolved `border` and the side-border rows below; see
+[Opened border background](#opened-border-background-1661).)
+
 `border` (93.806%) does not share the cause. VICE x64sc reproduces its
 reference exactly, and Emu198x differs from VICE by 6,470 pixels, all on the
 lines below the display window where the program has opened the side
@@ -753,7 +757,8 @@ see [Mode bits at the shifter](#mode-bits-at-the-shifter-1660).
 
 Not modelled, with no program to check it against: with the side border
 open and XSCROLL above 0, column 39's last pixels should spill into the
-border, followed by zero bits.
+border, followed by zero bits. (Since #1661 the sequencer runs outside the
+display window and shifts them out; no program checks it yet.)
 
 ## Mode bits at the shifter (#1660)
 
@@ -850,6 +855,9 @@ classified colour index:
 
 ### What remains
 
+#1661 resolved the first two items; see
+[Opened border background](#opened-border-background-1661).
+
 - `modesplit` (6569): 36 pixels at column 0's first dots, before the first
   load. The sequencer shows zero bits with zeroed matrix entries there; VICE
   keeps the previous line's last entries, so ECM selects `$D022`. Same cause
@@ -860,6 +868,57 @@ classified colour index:
 - VICE itself differs from the `modesplit` references by one dot at some
   mode edges: 348 pixels on the 6569 and 124 on the 8565. Emu198x now
   follows VICE there.
+
+## Opened border background (#1661)
+
+### Finding
+
+Bauer (section 3.7.3): outside the display column, and while the vertical
+border flip-flop is set, "the last current background color is displayed".
+VICE (`draw_graphics8`) keeps loading the shift register there, with zero
+graphics and the matrix and colour entries of the last g-access in the
+window; idle g-accesses leave those entries at zero. The renderer instead
+filled the display column under the vertical border with `$D021`, and
+showed zero entries beside the fetch window. An opened border therefore
+showed `$D021` where the last character's background belongs: its ECM
+background register in `vicii_timing`'s `BC0`-`BC3` rows ("continuation
+of last character bg", per the program's source), and black in `border`'s
+hires bitmap, whose idle lines leave the entries at zero.
+
+The sequencer now draws every visible cell. Outside the window and under
+the vertical border it receives zero graphics with the last matrix and
+colour entries, which the engine keeps from the last g-access in the
+window. Column 39's remaining pixels now spill into an opened side border
+at XSCROLL above 0, as in VICE.
+
+### Measurement
+
+Disagreements with VICE x64sc 3.10's screenshot, before and after:
+
+| Program | Chip | Before | After |
+| --- | --- | ---: | ---: |
+| `border` (`-250`) | both | 6,470 | 0 |
+| `modesplit` | 6569 | 36 | 0 |
+| `modesplit` | 8565 | 0 | 0 |
+| `vicii_timing` (`-a5`) | both | 1,105 | 493 |
+| `colorsplit` | both | 0 | 0 |
+
+- Survey: `border` 93.806% to 100.000% and `vicii_timing` 98.935% to
+  99.521%. Every other indexed hash is unchanged.
+- Across every testbench program with a reference, 11 frames changed and
+  every one moved towards its reference: `border-bm-idle` from 8,128
+  disagreements to 42, `border-bm-ysh` from 5,422 to 32 and
+  `border-bm-ysh2` from 4,742 to 32.
+- Catalogue: all thirteen entries pass, ordinary and fresh-runtime replay,
+  with the version-10 hashes.
+- Unit tests pin the ECM background beyond the window and black under the
+  vertical border in hires bitmap mode; both fail without the change.
+
+### What remains
+
+`vicii_timing`'s 493 disagreements with VICE are all on its sprite rows:
+the mid-line sprite X-position and X-expand writes classified under
+[Mid-line XSCROLL](#mid-line-xscroll-1620).
 
 ## Non-goals
 
@@ -916,6 +975,7 @@ evidence, or an explicit expansion of the supported configuration claim.
 | 2026-10-07 | CIA serial port and user-port signals (#797) | The 6526's two-underflows-per-bit shift register becomes VICE's `sdr_delay` pipeline: CNT toggles about 1.5 cycles after each Timer A underflow, SP changes on falling CNT edges, a byte written mid-transfer chains on, and the SDR interrupt lands two cycles after the eighth bit. Input mode shifts SP in on rising CNT edges and loads the SDR after eight. Timer A and B count rising CNT edges (MiSTer's pipeline latency; VICE leaves it a TODO) and Timer B mode 11 gates on CNT. /PC strobes low for the cycle after a port B access. VICE `cia-sp-test` one-shot (old and new CIA) and all four `cia-icr-test` programs move from fail to pass; `cia-sp-test` continuous, `cia-icr-test2`, `cia-sdr-init`/`load`/`delay`, `ciavarious` 1–14 and Lorenz `cntdef`/`cnto2` pass. A user-port loopback (SP1/CNT1 to SP2/CNT2) carries every byte value from CIA1 to CIA2. Snapshot version 14. |
 | 2026-10-07 | Mid-line XSCROLL (#1620) | The graphics sequencer loads each cell at the XSCROLL that stands after the CPU access of its g-access cycle, as VICE does, instead of one value latched per line; a write in cycle 55 misses column 39. `colorsplit` matches exactly on the 6569 and 8565 (952 and 960 disagreements before). `vicii_timing` rises from 96.774% to 98.468% and `spritefetchbug` from 97.226% to 98.211%; every other survey hash is unchanged. `border` does not share the cause; its residual and `vicii_timing`'s are classified under [Mid-line XSCROLL](#mid-line-xscroll-1620). Snapshot version 15 carries the sequencer's last load. Frame-routing version 9; all 13 catalogue entries pass ordinary and fresh-runtime replay with unchanged hashes. |
 | 2026-10-07 | Mode bits at the shifter (#1660) | The graphics sequencer keeps raw bits and decodes each dot with the mode as it stands, as VICE does: MCM from dot 4, ECM and BMM rising at dot 4 and falling at dot 6 on the 6569, after dot 7 on the 8565. It draws each cell as it leaves the colour stage. The g-access address reads `$D011` a cycle late on the 8565, and a falling BMM a cycle late on the 6569. `modesplit` goes from 5,990 to 36 disagreements with VICE on the 6569 and from 5,800 to 0 on the 8565; `vicii_timing` rises from 98.468% to 98.935%, and every other survey hash is unchanged. A multicolour "01" pair now counts as background for sprite priority, which re-captures Aztec Challenge's frame hash; the other twelve catalogue entries are unchanged. Snapshot version 16 carries the sequencer. Frame-routing version 10. |
+| 2026-10-07 | Opened border background (#1661) | Outside the display window and under the vertical border the sequencer keeps loading zero graphics with the last g-access's matrix and colour entries, as VICE does, so an opened border shows the last character's background instead of `$D021`. `border` reaches 100% (6,470 disagreements before), `modesplit` matches VICE on both chips and `vicii_timing` rises from 98.935% to 99.521%; every other survey hash is unchanged. Snapshot version 17 carries the entries. Frame-routing version 11; all 13 catalogue entries pass ordinary and fresh-runtime replay with unchanged hashes. |
 
 ## Related Documents
 
