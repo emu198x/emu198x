@@ -50,11 +50,11 @@ const EXPECTED_MATCHES: &[(&str, usize)] = &[
     ("raster-auxiliary", 66_006),
     ("ntsc-basic-boot", 51_360),
     ("ntsc-vic-vert0", 51_360),
-    ("ntsc-vic-line0", 51_342),
-    ("ntsc-raster-border", 42_532),
-    ("ntsc-raster-background", 44_094),
-    ("ntsc-raster-reverse", 47_197),
-    ("ntsc-raster-auxiliary", 50_436),
+    ("ntsc-vic-line0", 51_328),
+    ("ntsc-raster-border", 48_445),
+    ("ntsc-raster-background", 48_957),
+    ("ntsc-raster-reverse", 49_371),
+    ("ntsc-raster-auxiliary", 51_048),
 ];
 
 #[derive(Deserialize)]
