@@ -630,6 +630,76 @@ mod tests {
         );
     }
 
+    /// #1637: port `$FE` bit 6 reads the tape input as it is, 1 while the
+    /// input is high and 0 while it is low, as the 48K's ULA does (Smith
+    /// ch. 20 p. 222). Checked with the MIC bit both ways and the speaker
+    /// bit clear, as the ROM loader writes them.
+    #[test]
+    fn port_fe_bit_6_follows_the_tape_input() {
+        macro_rules! check_tape {
+            ($make:expr) => {
+                for written in [0x00, 0x08] {
+                    let mut m = $make;
+                    m.port_write(0x00FE, written);
+                    m.load_tape_pulses(vec![1_000, 1_000_000]);
+                    m.tape_play();
+                    m.advance_tstates(500);
+                    assert_eq!(
+                        m.port_read(0x00FE) & 0x40,
+                        0x00,
+                        "{}, wrote {written:#04x}: the tape is low, so is bit 6",
+                        stringify!($make)
+                    );
+                    m.advance_tstates(1_000);
+                    assert_eq!(
+                        m.port_read(0x00FE) & 0x40,
+                        0x40,
+                        "{}, wrote {written:#04x}: the tape is high, so is bit 6",
+                        stringify!($make)
+                    );
+                }
+            };
+        }
+        check_tape!(SpectrumPlus2A::new());
+        check_tape!(SpectrumPlus2B::new());
+        check_tape!(SpectrumPlus3::new());
+    }
+
+    /// #1637: with no tape signal, bit 6 reads 0 whatever was written. The
+    /// 40077 takes MIC out and EAR in on separate pins, and the EAR input
+    /// stage holds its pin low at rest (+2A/+3 circuit diagram). A tape
+    /// that is loaded but not playing reads the same.
+    #[test]
+    fn port_fe_bit_6_with_no_tape_signal() {
+        // (written to `$FE`, bit 6 read back)
+        const IDLE: [(u8, u8); 4] = [(0x00, 0x00), (0x08, 0x00), (0x10, 0x00), (0x18, 0x00)];
+        macro_rules! check_idle {
+            ($make:expr) => {
+                for (written, expected) in IDLE {
+                    let mut m = $make;
+                    m.port_write(0x00FE, written);
+                    assert_eq!(
+                        m.port_read(0x00FE) & 0x40,
+                        expected,
+                        "{}, no tape, wrote {written:#04x}",
+                        stringify!($make)
+                    );
+                    m.load_tape_pulses(vec![1_000]);
+                    m.advance_tstates(2_000);
+                    assert_eq!(
+                        m.port_read(0x00FE) & 0x40,
+                        expected,
+                        "{}, stopped tape, wrote {written:#04x}",
+                        stringify!($make)
+                    );
+                }
+            };
+        }
+        check_idle!(SpectrumPlus2A::new());
+        check_idle!(SpectrumPlus2B::new());
+        check_idle!(SpectrumPlus3::new());
+    }
+
     type SpectrumPlus2A = SpectrumAmstradClassCore<Plus2AMarker>;
     type SpectrumPlus2B = SpectrumAmstradClassCore<Plus2BMarker>;
     type SpectrumPlus3 = SpectrumAmstradClassCore<Plus3Marker>;
@@ -692,8 +762,8 @@ mod tests {
     }
 
     /// `io_read` on `$FE` returns the standard ULA byte: bit 6 carries
-    /// the EAR input (currently floating-high when no tape is playing)
-    /// and bits 0-4 are the active-low keyboard scan.
+    /// the EAR input (low when no tape is playing) and bits 0-4 are the
+    /// active-low keyboard scan.
     #[test]
     fn io_read_fe_returns_keyboard_state() {
         let mut m = SpectrumPlus3::new();
@@ -732,8 +802,9 @@ mod tests {
         // host one, so this must read $FF (not 0 from an attached-
         // but-empty Kempston peripheral).
         assert_eq!(m.io_read(0x001F), 0xFF);
-        // Same for any other unmapped odd port.
-        assert_eq!(m.io_read(0x1234), 0xFF);
+        // Same for any other unmapped odd port. (An even port such as
+        // $1234 is the gate array's `$FE`, not unmapped.)
+        assert_eq!(m.io_read(0x1237), 0xFF);
     }
 
     /// `io_write` on `$FE` toggles the beeper line — the upper bits

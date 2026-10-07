@@ -105,8 +105,17 @@ impl Ula for AmstradGateArray {
         0xFF
     }
 
+    /// With no tape signal, bit 6 reads 0 whatever was last written.
+    ///
+    /// Unlike the Sinclair ULAs, the 40077 takes MIC out on pin 98 and
+    /// EAR in on pin 2, and the board keeps them apart (+2A/+3 circuit
+    /// diagram, issue 3, 26/1/87). The EAR pin is fed by TR4, a
+    /// common-emitter stage whose base R66 (10K) pulls up to +5V, so at
+    /// rest TR4 conducts and holds the pin low. The writes to bits 3 and 4
+    /// that set the idle level on a 48K never reach it. FUSE reads `$BF`
+    /// on these machines for the same reason.
     fn read_fe(&self, port: u16, keyboard: &[u8; 8]) -> u8 {
-        self.engine.read_fe(port, keyboard)
+        self.engine.read_fe(port, keyboard) & !0x40
     }
 
     fn write_fe(&mut self, val: u8) {

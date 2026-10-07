@@ -121,8 +121,20 @@ impl Ula for SinclairUla {
         }
     }
 
+    /// With no tape signal, bit 6 reads back the last speaker bit (bit 4)
+    /// written, as on an Issue 3 48K.
+    ///
+    /// The 7K010E carries the 48K ULA's cassette output (Figure 20-2) and
+    /// EAR input (Figure 20-3) on separate pins, 35 and 34, and the 128
+    /// PCB ties them together, "reproducing the behaviour of the original
+    /// ZX Spectrum 16/48K" (Smith, *The ZX Spectrum ULA*, ch. 24 p. 255).
+    /// Smith judges the 7000-series array likely to share the 6000
+    /// series' component values, so the bias at the EAR comparator is the
+    /// 6C's: only the speaker bit lifts it past the threshold (ch. 20,
+    /// Table 20-2). FUSE treats the 128K as Issue 3 the same way.
     fn read_fe(&self, port: u16, keyboard: &[u8; 8]) -> u8 {
-        self.engine.read_fe(port, keyboard)
+        let ear = if self.engine.beeper { 0x40 } else { 0x00 };
+        (self.engine.read_fe(port, keyboard) & !0x40) | ear
     }
 
     fn write_fe(&mut self, val: u8) {
