@@ -145,3 +145,13 @@ All pulse cases now pass, 48 board restore checkpoints replay host samples
 and snapshot bytes exactly, and precise AGA instruction stepping agrees with
 ordinary tick sampling. This interval averaging conserves represented signal
 area; it is not a complete band-limited resampler or a physical PWM model.
+
+Use the nominal signed-byte DAC amplitude without the inherited 2% cubic
+compression. This supersedes the archive-curve inheritance in
+`amiga-port-plan.md`: its asserted measurement provenance is not supplied,
+and both inspected reference conversions preserve the nominal code scale.
+The [sample-amplitude observations](../../../../reference/by-system/commodore-amiga/2026-paula-sample-amplitude-observations.md)
+record agreement from both compiled references on all 2,048 forced-full-volume
+cases and 2,040 native failures before correction. Real chip-specific DAC
+nonlinearity needs a measured transfer curve; this does not assert physically
+perfect DACs. Timing, filters, volume semantics and snapshot v61 stay unchanged.

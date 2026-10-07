@@ -96,6 +96,47 @@ fn channel_volume_scales_output_linearly_across_the_6_bit_range() {
     );
 }
 
+#[test]
+fn forced_full_volume_preserves_nominal_signed_amplitude_and_routing() {
+    // HRM ch.5 describes signed digitised amplitudes. Pinned WinUAE's
+    // DO_CHANNEL_1 and vAmiga's penhi/penlo retain that nominal scale.
+    // Both volume encodings force every PWM step on, avoiding phase claims.
+    let mut cases = 0;
+    let mut mismatches = 0;
+    for line in
+        include_str!("../../../test-data/commodore/amiga/paula-audio/amplitude-probe/winuae.csv")
+            .lines()
+    {
+        let row: Vec<i32> = line
+            .split(',')
+            .map(|value| value.parse().expect("reference integer"))
+            .collect();
+        assert_eq!(row.len(), 4);
+        let channel = row[0] as u8;
+        let volume = row[1] as u16;
+        let encoded = row[2] as u16;
+        let mut p = Paula8364::new();
+        p.write_audio(channel, AudioField::Per, 1000);
+        p.write_audio(channel, AudioField::Vol, volume);
+        p.write_audio(channel, AudioField::Dat, encoded * 0x0101);
+        // Reference units are signed byte × 64. Native full scale is ±1,
+        // with two channels sharing each side at half gain.
+        let nominal = row[3] as f32 / 16_384.0;
+        let expected = if channel == 1 || channel == 2 {
+            (nominal, 0.0)
+        } else {
+            (0.0, nominal)
+        };
+        mismatches += usize::from(p.mix_audio_stereo() != expected);
+        cases += 1;
+    }
+    assert_eq!(cases, 2048);
+    assert_eq!(
+        mismatches, 0,
+        "nominal amplitude or routing differs across {cases} cases"
+    );
+}
+
 // ────────────────────────────────────────────────────────────────
 // AUDxPER values below the recommended DMA period
 // ────────────────────────────────────────────────────────────────
