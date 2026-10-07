@@ -31,7 +31,7 @@ def main() -> None:
     for name in formulae:
         if Path(name).name != name or not (dist / name).is_file():
             raise SystemExit(f'Missing generated formula: {name}')
-    run('brew', 'tap-new', '198x/package-test')
+    run('brew', 'tap-new', '--no-git', '198x/package-test')
     tap = Path(run('brew', '--repository', '198x/package-test', capture_output=True).stdout.strip()) / 'Formula'
     with tempfile.TemporaryDirectory(prefix='linux-packages-') as tmp:
         directory = Path(tmp)
