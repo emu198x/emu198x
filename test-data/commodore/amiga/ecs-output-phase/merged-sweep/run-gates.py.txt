@@ -1,0 +1,62 @@
+import json
+import os
+import subprocess
+from pathlib import Path
+
+root = Path("/Users/stevehill/Projects/198x/Emu198x/emu198x")
+out = Path("/private/tmp/emu198x-merged-graphics-sweep")
+env = os.environ.copy()
+env.update(
+    {
+        "EMU198X_AMIGA_TEST_KIT_V121_ADF": "/private/tmp/amiga-integration-fixtures/amiga-accuracy/amiga-test-kit-v1.21.adf",
+        "EMU198X_AMIGA_KICKSTART_13_ROM": str(
+            root / "../roms/kick13_34_005_a500_a1000_a2000_cdtv.rom"
+        ),
+        "EMU198X_AMIGA_KICKSTART_204_ROM": str(
+            root / "../roms/kick204_37_175_a500plus.rom"
+        ),
+        "EMU198X_AMIGA_KICKSTART_31_A1200_ROM": str(
+            root / "../roms/kick31_40_068_a1200.rom"
+        ),
+    }
+)
+jobs = [
+    ("test-kit-ocs", ["bash", "scripts/verify-amiga-test-kit-video.sh"]),
+    ("test-kit-aga", ["bash", "scripts/verify-amiga-test-kit-video-a1200.sh"]),
+    ("static-hblank", ["bash", "scripts/verify-amiga-programmable-hblank.sh"]),
+    (
+        "timed-hblank",
+        ["bash", "scripts/verify-amiga-programmable-hblank-write-timing.sh"],
+    ),
+    (
+        "snapshots",
+        [
+            "cargo",
+            "test",
+            "--locked",
+            "--release",
+            "-p",
+            "runtime-commodore-amiga",
+            "--test",
+            "snapshot_roundtrip",
+            "--",
+            "--nocapture",
+        ],
+    ),
+]
+results = []
+for name, command in jobs:
+    print(f"Starting {name}", flush=True)
+    with (out / f"{name}.log").open("w") as log:
+        result = subprocess.run(
+            command,
+            cwd=root,
+            env=env,
+            stdout=log,
+            stderr=subprocess.STDOUT,
+            check=False,
+        )
+    results.append({"name": name, "command": command, "exit_code": result.returncode})
+    (out / "gates.json").write_text(json.dumps(results, indent=2) + "\n")
+    print(f"{name}: exit {result.returncode}", flush=True)
+raise SystemExit(any(row["exit_code"] for row in results))

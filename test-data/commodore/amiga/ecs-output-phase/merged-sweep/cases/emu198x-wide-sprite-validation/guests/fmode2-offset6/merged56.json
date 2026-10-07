@@ -1,0 +1,1 @@
+[{"action": "run_frames", "frames": 360}, {"action": "save_screenshot", "path": "/private/tmp/emu198x-wide-sprite-validation/guests/fmode2-offset6/merged56.png"}, {"action": "memory_read", "addr": 196352, "len": 128}]

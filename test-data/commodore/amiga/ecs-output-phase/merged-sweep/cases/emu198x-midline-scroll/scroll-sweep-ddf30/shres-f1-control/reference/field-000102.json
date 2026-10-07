@@ -1,0 +1,35 @@
+{
+  "schema": "org.198x.fs-uae.raw-capture/v1",
+  "core_field": 102,
+  "guest_field_counter": 10,
+  "ready": {
+    "magic": "SPHX",
+    "case_number": 1,
+    "schema_version": 1,
+    "identity": "amiga-scroll-sweep-v1/ddf30/shres-f1-control",
+    "spr0pos": "0x8064",
+    "spr0ctl": "0x9000",
+    "spr0data": "0xffff",
+    "spr0datb": "0x0000",
+    "sample_beam_line": 132
+  },
+  "framebuffer": {
+    "stage": "completed UAE chipset video_memory before FS-UAE compatibility crop and frontend processing",
+    "width": 1512,
+    "height": 576,
+    "stride_bytes": 8192,
+    "depth_bits": 32,
+    "pixel_format": "BGRA8888",
+    "packed_output_stride_bytes": 6048,
+    "inbuffer_xoffset": 368,
+    "inbuffer_yoffset": 52,
+    "host_resolution": 2,
+    "complete": true
+  },
+  "frontend_compatibility_view": {
+    "width": 1512,
+    "height": 572,
+    "partial": 572,
+    "limits": {"x": 48, "y": 22, "width": 692, "height": 540}
+  }
+}

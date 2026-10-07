@@ -1,0 +1,63 @@
+"""Preserve the existing sweep's inputs and fresh output without firmware."""
+
+import gzip
+import hashlib
+import json
+import shutil
+from pathlib import Path
+
+ROOT = Path("/Users/stevehill/Projects/198x/Emu198x/emu198x")
+RUN = Path("/private/tmp/emu198x-merged-graphics-sweep")
+DEST = RUN / "archive"
+report = json.loads((RUN / "corrected-mapping.json").read_text())
+assert len(report["results"]) == 128 and report["compared_fields"] == 384
+DEST.mkdir(exist_ok=False)
+files = {}
+for result in report["results"]:
+    source = Path(result["path"])
+    key = str(source.relative_to("/private/tmp"))
+    case = DEST / "cases" / key
+    (case / "reference").mkdir(parents=True)
+    result["archive_case"] = str(case.relative_to(DEST))
+    for name in [
+        "inputs.json",
+        "probe.adf",
+        "merged56.png",
+        "merged56.json",
+        "merged56.log",
+    ]:
+        data = (source / name).read_bytes()
+        target = case / (name + ".gz" if name == "probe.adf" else name)
+        target.write_bytes(
+            gzip.compress(data, mtime=0) if name == "probe.adf" else data
+        )
+    for source_file in sorted((source / "reference/capture").iterdir()):
+        if source_file.suffix in (".bgra", ".json"):
+            data = source_file.read_bytes()
+            target = (
+                case
+                / "reference"
+                / (
+                    source_file.name + ".gz"
+                    if source_file.suffix == ".bgra"
+                    else source_file.name
+                )
+            )
+            target.write_bytes(
+                gzip.compress(data, mtime=0) if source_file.suffix == ".bgra" else data
+            )
+    for name in ["merged56.png", "merged56.log", "inputs.json"]:
+        result[name + "_sha256"] = hashlib.sha256(
+            (case / name).read_bytes()
+        ).hexdigest()
+for name in ["capture-regression.py", "producers.json", "capture.log", "run-gates.py"]:
+    shutil.copyfile(
+        RUN / name, DEST / (name + ".txt" if name.endswith(".py") else name)
+    )
+report["source_revision"] = "277957646cf041c343daf503d8d32d3e24e20eeb"
+report["snapshot_version"] = 56
+report["scope"] = (
+    "128 A1200 PAL static guests, one fresh settled native image per guest compared with reference guest fields 9, 10 and 11; software evidence, not hardware calibration"
+)
+(DEST / "comparison.json").write_text(json.dumps(report, indent=2) + "\n")
+print("Archived", len(report["results"]), "guests")

@@ -1,0 +1,84 @@
+{
+  "applicability": {
+    "chipsets": [
+      "OCS",
+      "ECS",
+      "AGA"
+    ],
+    "regions": [
+      "PAL"
+    ],
+    "min_chip_ram_bytes": 524288
+  },
+  "registers": {
+    "diwstrt": "0x2c81",
+    "diwstop": "0xf4c1",
+    "ddfstrt": "0x0030",
+    "ddfstop": "0x00d0",
+    "bplcon0": "0x2440",
+    "bplcon1": "0x0035",
+    "bplcon2": "0x0000",
+    "bplcon3": "0x0cc0",
+    "bplcon4": "0x0000",
+    "fmode": "0x0003",
+    "bpl1mod": "0x0000",
+    "bpl2mod": "0x0000",
+    "spr0pos": "0x8064",
+    "spr0ctl": "0x9000",
+    "spr0data": "0xffff",
+    "spr0datb": "0x0000",
+    "color00": "0x0001",
+    "color01": "0x00f0",
+    "color17": "0x0f00",
+    "dmacon_enable": "0x8380"
+  },
+  "geometry": {
+    "resolution": "shres",
+    "sample_beam_line": 132,
+    "bitplane_rows": 1,
+    "bitplane_words_per_row": 80,
+    "marker_word_index": 16,
+    "marker_bit_index": 15,
+    "sprite_data_lines": 16,
+    "horizontal_mapping": "producer-recorded",
+    "anchors": [
+      "retained hardwired HBLANK",
+      "independent asymmetric PF1 and PF2 DMA streams"
+    ]
+  },
+  "programming_schedule": {
+    "phase": "Initial registers with DMA disabled; Copper resets both pointers and BPLCON1 before each visible line.",
+    "steady_state": "Lines 128 through 191 program static per-line offsets covering extended integer and fractional fields; no mid-line BPLCON1 write. Other lines retain $0035."
+  },
+  "capture": {
+    "ready_record_address": "0x0002ff00",
+    "ready_magic": "SPHX",
+    "case_number_address": "0x0002ff04",
+    "schema_version_address": "0x0002ff06",
+    "field_counter_address": "0x0002ff08",
+    "byte_order": "big-endian",
+    "ready_timeout_fields": 600,
+    "settle_fields": 8,
+    "capture_fields": 3,
+    "adjacent_field_stability_required": true,
+    "blanking_retained": true,
+    "overscan_retained": true,
+    "alignment_search": false
+  },
+  "id": "shres-f3-control",
+  "numeric_id": 1,
+  "question": "Do independent extended and fractional static scroll offsets agree with the reference?",
+  "identity": {
+    "serial": "amiga-scroll-sweep-v1/ddf30/shres-f3-control",
+    "serial_address": "0x0002ff40",
+    "serial_maximum_bytes": 64,
+    "background": "dark blue COLOR00",
+    "marker": "green PF1",
+    "sprite": "sprites disabled",
+    "playfield2": "orange PF2, palette entry 9"
+  },
+  "expected": {
+    "status": "unresolved",
+    "observations": []
+  }
+}

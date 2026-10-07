@@ -1,0 +1,29 @@
+{
+  "source_revision": "277957646cf041c343daf503d8d32d3e24e20eeb",
+  "source_clean_during_capture": true,
+  "snapshot_version": 56,
+  "graphics": {
+    "guests": 128,
+    "compared_fields": 384,
+    "failed_fields": 0,
+    "compared_rgb_samples": 332387328,
+    "negative_controls": 1
+  },
+  "test_kit_exact_patterns": {
+    "a500_a501_ocs_pal": 6,
+    "a1200_aga_pal": 6
+  },
+  "static_hblank_cases": 14,
+  "timed_hblank_cases": 10,
+  "snapshot_tests": 59,
+  "input_and_executable_hashes_unchanged_during_capture": true,
+  "input_and_reference_hashes_match_previous_128_guest_sweep": true,
+  "negative_controls": [
+    "altered image rejected",
+    "altered image with updated hash rejected",
+    "empty inventory rejected"
+  ],
+  "production_changes": false,
+  "scope": "Software-reference evidence for the retained PAL guests; not silicon calibration or exhaustive display-mode coverage.",
+  "capture_semantics": "One fresh settled native image per static guest compared against three adjacent retained reference fields, not three separately captured native fields."
+}
