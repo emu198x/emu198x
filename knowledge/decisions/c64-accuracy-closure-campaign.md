@@ -57,7 +57,7 @@ output rather than analogue colour reproduction.
 | --- | ---: |
 | `border` | 93.806% |
 | `spritefetchbug` | 98.211% |
-| `vicii_timing` | 98.468% |
+| `vicii_timing` | 98.935% |
 | `screenpos` | 100.000% |
 | `videomode` | 100.000% |
 | `spritecrunch` | 100.000% |
@@ -69,8 +69,9 @@ output rather than analogue colour reproduction.
 | `dmadelay` | 100.000% |
 | `colorfetchbug` | 100.000% for each of five programs |
 
-These are the frame-routing-version-9 results, after stage 3a and the
-mid-line XSCROLL fix (#1620). Version 8 measured `vicii_timing` 96.774% and
+These are the frame-routing-version-10 results, after stage 3a, the
+mid-line XSCROLL fix (#1620) and the mode-bit fix (#1660). Version 9
+measured `vicii_timing` 98.468%, and version 8 `vicii_timing` 96.774% and
 `spritefetchbug` 97.226%, with every other row as now. At version 7
 the same programs measured `vicii_timing` 84.720%, `screenpos` 87.800%,
 `videomode` 88.980%, `border` 92.533%, `spritecrunch` 95.190%,
@@ -704,15 +705,16 @@ that cell. `colorsplit` stores `$D016` in cycle 21 in both emulators (VICE
 
 The re-load recomposites the cell's sprites. The cycle's sprite-background
 collisions keep the foreground from before the write; no program in the
-survey depends on that cycle.
+survey depends on that cycle. (#1660 replaced the re-load: the sequencer now
+draws each cell as it leaves the colour stage. See
+[Mode bits at the shifter](#mode-bits-at-the-shifter-1660).)
 
 ### Measurement
 
 - `colorsplit`: 952 disagreements to 0 on the 6569, and 960 to 0 on the
   8565. It cannot tell the two phases apart: sampling XSCROLL when the cell
   renders, one cycle late, also gives 0.
-- `modesplit` (`split-tests`, reference matched against a real breadbin) does
-  tell them apart. Against VICE x64sc 3.10's screenshot it has 7,106
+- `modesplit` (`split-tests`) does tell them apart. Against VICE x64sc 3.10's screenshot it has 7,106
   disagreements on main, 6,086 when sampled at render, and 5,990 at VICE's
   phase. Its `$D016` stores agree with VICE's cycle for cycle (11, 19, 25 and
   44). The rest is mode bits; see below.
@@ -746,14 +748,118 @@ from the reference by 7):
 | `MCM`, `BMM`, `ECM`, `E+B` | 550 | Mode-bit changes mid-cell (and the same side-border fill at the right edge). |
 | `INC` | 16 | Unclassified: light grey in VICE, orange in Emu198x, at x = 352-358. |
 
-The mode bits are a separate fault, visible in `modesplit`. VICE applies
-them to the shifter's output during the draw cycle (`vmode16_pipe` from dot
-4, `vmode11_pipe` after dot 7 on the 6569). Emu198x applies them when it renders the
-cell, so with XSCROLL above 0 a mode boundary moves with the graphics.
+The mode bits are a separate fault, visible in `modesplit`, fixed by #1660;
+see [Mode bits at the shifter](#mode-bits-at-the-shifter-1660).
 
 Not modelled, with no program to check it against: with the side border
 open and XSCROLL above 0, column 39's last pixels should spill into the
 border, followed by zero bits.
+
+## Mode bits at the shifter (#1660)
+
+### Finding
+
+The display mode belongs to the graphics data sequencer, whose heart is an
+8-bit shift register reloaded after every g-access, delayed by XSCROLL dots
+(Bauer, section 3.7.3). The renderer decoded each cell's mode as it rendered
+the cell, before the XSCROLL shift, so a mode boundary moved with the
+graphics. `modesplit` steps XSCROLL through 0-7, one value per character row,
+and switches modes at fixed cycles. In VICE x64sc 3.10 its black invalid-mode
+blocks have straight vertical edges, as they do in the 6569R5 capture in the
+testbench (`split-tests/modesplit/screenshots`, taken from an earlier revision
+of the program). In Emu198x they stepped one dot per line.
+
+VICE (`viciisc/vicii-draw-cycle.c`, `draw_graphics8`) keeps the raw bits in
+the shift register with the matrix and colour entries loaded beside them, and
+decodes each dot with the mode as it stands then:
+
+- MCM reaches the colour lookup at dot 4.
+- On the NMOS 6569, ECM and BMM rise at dot 4 and fall at dot 6
+  (`vmode11_pipe |=` then `&=`).
+- On the HMOS-II 8565 they arrive after dot 7.
+
+The issue had the two chips the other way round. `color_latency`, which
+selects the 6569 path, is 1 for the 6569R1 and R3 and 0 for the 8565
+(`viciisc/vicii-chip-model.c`).
+
+The draw happens two cycles after the g-access. The XSCROLL and the mode bits
+for dots 0-3 are sampled after the CPU access of the cell's own cycle, and
+the mode bits for dots 4-7 after the next cycle's access. The engine's colour
+stage already holds each cell for two ticks, so the sequencer now draws a
+cell as it leaves the stage, from its g-access and the registers as they
+stand. A mode write in column N's g-access cycle therefore reaches column
+N-1 from dot 4 on the 6569, and column N on the 8565. An XSCROLL write in
+that cycle still moves column N, as #1620 found. Sprites are composited at
+the same point. Collisions are still accumulated as the cell renders; they
+use the foreground the cell would have if neither of the next two CPU
+accesses changed `$D011` or `$D016`.
+
+The g-access address reads some mode bits late as well (VICE
+`vicii_fetch_graphics`). The 8565 addresses with `$D011` as it stood for the
+previous g-access. The 6569 sees ECM and a rising BMM at once and a falling
+BMM a cycle late. When a BMM change turns a RAM fetch into a character-ROM
+fetch, the 6569 takes the low address byte from the old address and the rest
+from the new. Bauer covers neither. Both left late cells after some of
+`modesplit`'s mode changes; without the ROM rule the 6569 keeps all of its
+residual.
+
+The invalid modes now fetch their graphics too, with ECM holding address
+lines 9 and 10 low (Bauer, section 3.7.3). A later mode change can reveal
+those bits, and their foreground pixels set sprite priority and collisions
+(Bauer, section 3.7.3.6).
+
+Foreground now follows VICE's `pixel_pri = px & 2`: a multicolour "01"
+pair counts as background for sprite priority and collisions, as Bauer
+says for both multicolour modes (sections 3.7.3.2 and 3.7.3.4). The old
+renderer counted any non-zero pair as foreground, which hid a
+background-priority sprite over a "01" pair. That is the one C64 catalogue
+change: two pixels of Aztec Challenge's in-game scene, where such a sprite
+lies over a `$D022` pair. Reverting only that rule restores the old hash.
+
+### Measurement
+
+Disagreements with VICE x64sc 3.10's screenshot (`-VICIIborders 0`), by
+classified colour index:
+
+| Program | Chip | Main | Decode at the shifter | And the late g-access mode |
+| --- | --- | ---: | ---: | ---: |
+| `modesplit` | 6569 | 5,990 | 190 | 36 |
+| `modesplit` | 8565 | 5,800 | 708 | 0 |
+| `vicii_timing` (`-a5`) | 6569 | 1,593 | 1,161 | 1,105 |
+| `vicii_timing` (`-a5`) | 8565 | 1,599 | 1,253 | 1,105 |
+| `colorsplit` | both | 0 | 0 | 0 |
+| `border` (`-250`) | both | 6,470 | 6,470 | 6,470 |
+
+- Phase, before the g-access change: drawing one cycle earlier, with dots
+  4-7 read after the cell's own CPU access, left `modesplit` 3,748 from VICE
+  on the 6569; drawing as the cell renders left 6,963.
+- `vicii_timing`'s `MCM`, `BMM`, `ECM` and `E+B` rows go from 450
+  disagreements to 0.
+- Survey: `vicii_timing` 98.468% to 98.882% at the shifter and 98.935% with
+  the late g-access mode. Every other indexed hash is unchanged.
+- Catalogue: Aztec Challenge's frame hash moves (above) and is
+  re-captured; the other twelve entries' hashes are unchanged.
+- Every testbench program with a reference was run on the 6569, and those
+  with an 8565 reference on the 8565: 41 frames changed, and every one that
+  can be compared moved towards its reference. `fetchsplit` goes from 158 to
+  0 (6569) and 289 to 154 (8565), `spritepriorities/test1` from 1,584 to 0,
+  and the seven `videomode` programs from 31-129 to 0-79.
+- Unit tests pin the dot-4 rule on the 6569 and the next-cell rule on the
+  8565 at XSCROLL 0 and 5, the late falling BMM on both chips, the rising BMM
+  on the 8565 and the 6569's ROM address mix. Each fails without its rule.
+
+### What remains
+
+- `modesplit` (6569): 36 pixels at column 0's first dots, before the first
+  load. The sequencer shows zero bits with zeroed matrix entries there; VICE
+  keeps the previous line's last entries, so ECM selects `$D022`. Same cause
+  as `border` (#1661).
+- `vicii_timing`: `BC0`-`BC3` at the right edge (450 on the 6569) and the
+  "open border with" rows at the right edge (81), the #1661 side-border
+  class, plus the sprite X-position and X-expand rows (574).
+- VICE itself differs from the `modesplit` references by one dot at some
+  mode edges: 348 pixels on the 6569 and 124 on the 8565. Emu198x now
+  follows VICE there.
 
 ## Non-goals
 
@@ -809,6 +915,7 @@ evidence, or an explicit expansion of the supported configuration claim.
 | 2026-10-06 | 3a-D. 8565/8562 chip axis and grey dot | `VicModel` gains the HMOS-II 8565 and 8562, which the PAL and NTSC C64C now use. On them a colour-register write shows a light-grey dot where the 6569 keeps the old colour. `greydot` matches its 8565 reference exactly, and `colorsplit` keeps only its XSCROLL rows. Every breadbin lane and catalogue hash is unchanged. Snapshot version 12 carries the chip revision. On NTSC, `greydot`'s stores sit a cycle away from VICE's, which only the 8562's grey dots reveal. |
 | 2026-10-07 | CIA serial port and user-port signals (#797) | The 6526's two-underflows-per-bit shift register becomes VICE's `sdr_delay` pipeline: CNT toggles about 1.5 cycles after each Timer A underflow, SP changes on falling CNT edges, a byte written mid-transfer chains on, and the SDR interrupt lands two cycles after the eighth bit. Input mode shifts SP in on rising CNT edges and loads the SDR after eight. Timer A and B count rising CNT edges (MiSTer's pipeline latency; VICE leaves it a TODO) and Timer B mode 11 gates on CNT. /PC strobes low for the cycle after a port B access. VICE `cia-sp-test` one-shot (old and new CIA) and all four `cia-icr-test` programs move from fail to pass; `cia-sp-test` continuous, `cia-icr-test2`, `cia-sdr-init`/`load`/`delay`, `ciavarious` 1–14 and Lorenz `cntdef`/`cnto2` pass. A user-port loopback (SP1/CNT1 to SP2/CNT2) carries every byte value from CIA1 to CIA2. Snapshot version 14. |
 | 2026-10-07 | Mid-line XSCROLL (#1620) | The graphics sequencer loads each cell at the XSCROLL that stands after the CPU access of its g-access cycle, as VICE does, instead of one value latched per line; a write in cycle 55 misses column 39. `colorsplit` matches exactly on the 6569 and 8565 (952 and 960 disagreements before). `vicii_timing` rises from 96.774% to 98.468% and `spritefetchbug` from 97.226% to 98.211%; every other survey hash is unchanged. `border` does not share the cause; its residual and `vicii_timing`'s are classified under [Mid-line XSCROLL](#mid-line-xscroll-1620). Snapshot version 15 carries the sequencer's last load. Frame-routing version 9; all 13 catalogue entries pass ordinary and fresh-runtime replay with unchanged hashes. |
+| 2026-10-07 | Mode bits at the shifter (#1660) | The graphics sequencer keeps raw bits and decodes each dot with the mode as it stands, as VICE does: MCM from dot 4, ECM and BMM rising at dot 4 and falling at dot 6 on the 6569, after dot 7 on the 8565. It draws each cell as it leaves the colour stage. The g-access address reads `$D011` a cycle late on the 8565, and a falling BMM a cycle late on the 6569. `modesplit` goes from 5,990 to 36 disagreements with VICE on the 6569 and from 5,800 to 0 on the 8565; `vicii_timing` rises from 98.468% to 98.935%, and every other survey hash is unchanged. A multicolour "01" pair now counts as background for sprite priority, which re-captures Aztec Challenge's frame hash; the other twelve catalogue entries are unchanged. Snapshot version 16 carries the sequencer. Frame-routing version 10. |
 
 ## Related Documents
 
