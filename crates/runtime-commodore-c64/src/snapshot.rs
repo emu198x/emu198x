@@ -13,6 +13,12 @@ use serde::{Deserialize, Serialize};
 use crate::drives::IecDriveSnapshot;
 use crate::runtime::C64Runtime;
 
+/// Version 14 replaces the 6526's two-underflows-per-bit shift register with
+/// the serial-port pipeline, CNT/SP pins and /PC strobe for #797 (in both
+/// CIAs and any 1571 or 1581 drive): the SDR and shifter, the bit counter,
+/// the `sdr_delay` line, the chip's own CNT/SP drive, the board's CNT/SP
+/// input levels, the CNT edge pipeline to the timers, and the pending /PC.
+///
 /// Version 13 adds SID waveform-generator pipeline state for #1606: each
 /// voice's OSC3 value, the 8580's one-cycle triangle/sawtooth stage, the
 /// pulse level from last cycle's comparator, and the noise register's
@@ -63,7 +69,7 @@ use crate::runtime::C64Runtime;
 /// Version 2 moved from the fixed 1541-plus-1581 pair to a per-port array of
 /// model-tagged drive snapshots (IEC devices 8–11), so a snapshot records
 /// whichever drive the user chose on each port.
-const SNAPSHOT_VERSION: u32 = 13;
+const SNAPSHOT_VERSION: u32 = 14;
 
 /// Persistable C64 runtime envelope. Wraps the machine's chip snapshot with the
 /// surrounding runtime context (model identifier, time, the live IEC bus state,
