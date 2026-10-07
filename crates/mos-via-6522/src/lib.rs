@@ -467,7 +467,13 @@ impl Via6522 {
                 self.t1_counter = self.t1_latch;
                 self.t1_running = true;
                 self.t1_irq_armed = true;
-                self.t1_reload_pending = false;
+                // The write cycle is the load: the latches transfer into the
+                // counter and decrementing starts after it, so the tick that
+                // closes this cycle loads rather than counts. A read in the
+                // next cycle sees the value written, and the flag sets N + 2
+                // cycles after the write (MCS6522 data sheet, Timer 1
+                // One-Shot Mode; emu198x#1642).
+                self.t1_reload_pending = true;
                 self.t1_pb7_output = false;
                 self.clear_interrupts(IRQ_T1);
             }
@@ -834,9 +840,10 @@ mod tests {
         via.write(0x04, 0x02);
         via.write(0x05, 0x00);
 
-        via.tick();
-        via.tick();
-        via.tick();
+        // Load, 2, 1, 0, then the flag with the counter at $FFFF: N + 2.
+        for _ in 0..4 {
+            via.tick();
+        }
         assert!(via.irq);
         assert_eq!(via.peek(0x0D) & IRQ_T1, IRQ_T1);
         assert!(via.t1_running);
@@ -846,6 +853,16 @@ mod tests {
 
         assert!(via.t1_running);
         assert_eq!(via.peek(0x04), 0x02);
+
+        // Free-running, the next time-out follows N + 2 cycles later:
+        // 2 (just reloaded), 1, 0, $FFFF with the flag.
+        via.write(0x0D, IRQ_T1);
+        via.tick();
+        via.tick();
+        assert_eq!(via.peek(0x0D) & IRQ_T1, 0);
+        via.tick();
+        assert_eq!(via.peek(0x0D) & IRQ_T1, IRQ_T1);
+        assert_eq!(via.peek(0x04), 0xFF);
     }
 
     #[test]
@@ -856,6 +873,8 @@ mod tests {
         via.write(0x04, 0x01);
         via.write(0x05, 0x00);
 
+        // Load, 1, 0, then the flag: N + 2 cycles.
+        via.tick();
         via.tick();
         via.tick();
 
@@ -871,6 +890,58 @@ mod tests {
         assert_eq!(via.peek(0x0D) & IRQ_T1, IRQ_T1);
         assert!(via.t1_running);
         assert_eq!(via.peek(0x04), 0x00);
+    }
+
+    // In these tests `write` is the CPU's access in one Φ2 cycle and each
+    // `tick` closes a cycle, so a `peek` after k ticks is a read k cycles
+    // after the write.
+
+    /// MCS6522 preliminary data sheet (Nov 1977), Timer 1 One-Shot Mode: a
+    /// T1C-H write transfers the latches into the counter "and the timer will
+    /// begin to decrement" — the write cycle is the load, so a read in the
+    /// next cycle sees the value written, not one less (emu198x#1642).
+    #[test]
+    fn timer1_read_one_cycle_after_a_t1ch_write_returns_the_value_written() {
+        let mut via = Via6522::new();
+        via.write(0x04, 0xFE);
+        via.write(0x05, 0xFE);
+
+        let mut reads = Vec::new();
+        for _ in 0..4 {
+            via.tick();
+            reads.push(u16::from(via.peek(0x04)) | (u16::from(via.peek(0x05)) << 8));
+        }
+
+        assert_eq!(reads, vec![0xFEFE, 0xFEFD, 0xFEFC, 0xFEFB]);
+    }
+
+    /// From a T1C-H write of N to the interrupt flag is N + 2 cycles: one to
+    /// load, N to count down to zero, one for the zero to reach the flag
+    /// (`reference/by-topic/via-6522/via-6522-reference.md`, Timer 1 timing
+    /// detail). The counter reads N, N-1, ..., 0, then $FFFF as the flag sets.
+    #[test]
+    fn timer1_one_shot_flag_sets_n_plus_two_cycles_after_the_write() {
+        const N: u16 = 5;
+        let mut via = Via6522::new();
+        via.write(0x0E, 0x80 | IRQ_T1);
+        via.write(0x04, N as u8);
+        via.write(0x05, 0x00);
+
+        for cycle in 1..=N + 1 {
+            via.tick();
+            assert_eq!(
+                via.peek(0x0D) & IRQ_T1,
+                0,
+                "T1 flag must still be clear {cycle} cycles after the write"
+            );
+            assert_eq!(u16::from(via.peek(0x04)), N + 1 - cycle);
+        }
+
+        via.tick();
+        assert_eq!(via.peek(0x0D) & IRQ_T1, IRQ_T1, "flag sets at N + 2");
+        assert!(via.irq);
+        assert_eq!(via.peek(0x04), 0xFF);
+        assert_eq!(via.peek(0x05), 0xFF);
     }
 
     #[test]
