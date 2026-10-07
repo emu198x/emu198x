@@ -1,0 +1,37 @@
+{
+  "production_changed": false,
+  "native_cases": 108,
+  "native_stopband_failures": 54,
+  "candidate_cases": 66,
+  "candidate_failures": 0,
+  "candidate_pulse_cases": 4,
+  "candidate_bypass_failures": 48,
+  "reference_cases": 10,
+  "reference_regeneration": "byte-identical",
+  "runtime_lib_tests": {
+    "passed": 61,
+    "ignored": 1,
+    "reason": "new explicit known-gap bandwidth diagnostic"
+  },
+  "clippy": "pass after chunks_exact_to_as_chunks correction; initial log retained",
+  "format": "pass",
+  "python": "Ruff format/check pass",
+  "snapshot_version": 61,
+  "artifacts_sha256": {
+    "README.md": "ddca2b047132fb2b3ac434114c5310f0c096c808efc59cb111730b8440c7ad76",
+    "candidate-bypass.log.gz": "801a7c2e74a916dfeef9869d0838c23eb3c2d96fe37688725770cb6e27265636",
+    "candidate.cpp": "0477f3b640d10df6cbec6a0cf58f7306284969c7b8b4f06522166f92b90b5d05",
+    "candidate.log.gz": "2d9faa2e9760dc8559e04bbbaa7d587a21b7079c1564c41862c9b5ec0bf08f78",
+    "clippy-before.log.gz": "3d85b7fd354d0c5ae83f54905c56024491231c03ed8fd8e20b820a651fa1fdbf",
+    "clippy.log.gz": "d3006c824c8054a3def70dcdbf458f44b33b43112bc17682edca34897a5c91a2",
+    "comparison.json": "7556b9376f9c0bd194176fa8f892b25f46259f8e1af0e53b1437673c96ee541b",
+    "format.log.gz": "9ceffb7310338057cfe71a4ae1e2c98d2c485d81cdef906532a801f457a38d64",
+    "lib-tests.log.gz": "af1a7981b102d918515c5539df85ef62904233337ba9fc835b90b2c3831785e8",
+    "native-before.csv": "1e419dd3826c472f72d822c498b5d858f8142c3efa72adb3c1cdc3c9021db8b2",
+    "native-before.log.gz": "21cb77d8266f1e588366a9bc49d8d006adc551e70be379baa5712ddff36e202e",
+    "native-final.log.gz": "1b769317494a5b52d1b0d66ff0dc9ddca445f96df26b9e0c8159caa644276a8f",
+    "reference.py": "9be3ec363ba1a7280ba67780443e5ec6bec99a00b058e4fe2ade9e6cc12d82fa",
+    "winuae.cpp.gz": "08824f1e929113ea2b3ea4f6982ef9f702b3b02284c5eb366f4fecd4d6a87e30",
+    "winuae.csv": "dc15feddbed65f17c400b61e8e2d6ee3b9939b93d84fbccc1c6ce32cd92991b7"
+  }
+}

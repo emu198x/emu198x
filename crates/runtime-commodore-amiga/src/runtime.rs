@@ -1231,6 +1231,10 @@ fn audio_buffer_capacity_for_frame(tick_hz: u64) -> usize {
 }
 
 #[cfg(test)]
+#[path = "bandwidth_probe.rs"]
+mod bandwidth_probe;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::A500_PAL_CCK_HZ;
