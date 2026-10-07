@@ -1,4 +1,5 @@
 [package]
+homepage.workspace = true
 name = "emu198x-atari-7800"
 description = "Atari 7800 ProSystem headless runner with shell-backed script + MCP parity — 6502C Sally + MARIA + RIOT"
 version.workspace = true

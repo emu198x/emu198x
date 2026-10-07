@@ -1,4 +1,6 @@
 [package]
+description = "Sinclair ZX Spectrum emulator with native UI, scripts and MCP"
+homepage.workspace = true
 name = "emu198x-spectrum"
 version.workspace = true
 publish = false

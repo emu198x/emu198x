@@ -1,4 +1,5 @@
 [package]
+homepage.workspace = true
 name = "emu198x-oric-atmos"
 description = "Oric-1 / Atmos headless runner with shell-backed script + MCP parity — 6502 + ULA + VIA-6522 + AY-3-8910"
 version.workspace = true

@@ -1,4 +1,5 @@
 [package]
+homepage.workspace = true
 name = "emu198x-sega-master-system"
 description = "Sega Master System headless runner with shell-backed script + MCP parity"
 version.workspace = true

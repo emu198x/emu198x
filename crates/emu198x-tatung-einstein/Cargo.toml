@@ -1,4 +1,5 @@
 [package]
+homepage.workspace = true
 name = "emu198x-tatung-einstein"
 description = "Tatung Einstein TC-01 headless runner with shell-backed script + MCP parity — Z80 + TMS9929A + AY-3-8910"
 version.workspace = true

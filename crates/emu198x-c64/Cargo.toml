@@ -1,4 +1,5 @@
 [package]
+homepage.workspace = true
 name = "emu198x-c64"
 description = "Native Commodore 64 verifier with interactive UI, headless script, and MCP modes"
 version.workspace = true

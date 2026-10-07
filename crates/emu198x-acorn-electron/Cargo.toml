@@ -1,4 +1,5 @@
 [package]
+homepage.workspace = true
 name = "emu198x-acorn-electron"
 description = "Acorn Electron headless runner with shell-backed script + MCP parity — 6502A + custom ULA"
 version.workspace = true

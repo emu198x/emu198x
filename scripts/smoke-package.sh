@@ -28,7 +28,7 @@ import struct
 import sys
 root = Path(sys.argv[1])
 report = json.loads((root / 'report.json').read_text())
-assert report['time'] > 0, report
+assert report['time'] > 0 and report['cartridge_loaded'] is True, report
 image = (root / 'frame.png').read_bytes()
 assert image[:8] == b'\x89PNG\r\n\x1a\n'
 assert struct.unpack('>II', image[16:24]) == (256, 240)
