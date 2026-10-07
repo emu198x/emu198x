@@ -28,8 +28,13 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 
-INSTALL = re.compile(r"^\s*(sudo\s+)?apt-get\b.*\binstall\b", re.M)
-BOUNDED = re.compile(r"\btimeout\s+\d+\s+apt-get\b")
+# An apt-get *command*: at the start of a line or after a shell separator,
+# `run:` or a shell keyword, optionally under sudo and `timeout N`. Text inside
+# an `echo` message is not a command and does not match.
+COMMAND = re.compile(
+    r"(?:^|[;&|]|\brun:)\s*(?:(?:if|then|do|else|!)\s+)*(?:sudo\s+)?"
+    r"(?P<timeout>timeout\s+\d+\s+)?apt-get\b(?P<args>[^;&|]*)"
+)
 
 BAD = """
       - name: Install deps
@@ -48,24 +53,44 @@ GOOD = """
           exit 1
 """
 
+# A one-line step: the install follows `run:` and `&&`, not the line start.
+INLINE = """
+      - name: Install deps
+        run: sudo apt-get update && sudo apt-get install -y pkg-config
+"""
+
+# Words in a message are not a command.
+MESSAGE = """
+          echo "::warning::apt-get install attempt ${attempt} failed; retrying"
+"""
+
 
 def unbounded(text: str) -> list[str]:
-    return [
-        line.strip()
-        for line in text.splitlines()
-        if INSTALL.match(line) and not BOUNDED.search(line)
-    ]
+    found = []
+    for line in text.splitlines():
+        if line.lstrip().startswith("#"):
+            continue
+        for command in COMMAND.finditer(line):
+            if re.search(r"\binstall\b", command["args"]) and not command["timeout"]:
+                found.append(line.strip())
+                break
+    return found
 
 
 def self_test() -> None:
-    for name, body, expected in (("bad", BAD, 1), ("good", GOOD, 0)):
+    for name, body, expected in (
+        ("bad", BAD, 1),
+        ("good", GOOD, 0),
+        ("inline", INLINE, 1),
+        ("message", MESSAGE, 0),
+    ):
         found = len(unbounded(body))
         if found != expected:
             raise SystemExit(
                 f"self-test FAILED: {name} sample should yield {expected}, got {found}. "
                 "The detector has stopped detecting; fix it before trusting a pass."
             )
-    print("self-test passed: flags an unbounded apt-get install, accepts a bounded one")
+    print("self-test passed: flags unbounded apt-get installs, inline or not; accepts bounded ones and messages")
 
 
 def main() -> int:
