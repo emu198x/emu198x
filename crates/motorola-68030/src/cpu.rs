@@ -46,6 +46,7 @@ impl Cpu68030 {
 
     /// Install the MC68030-specific cache-control binding.
     fn install_variant_hooks(&mut self) {
+        self.inner.variant_longword_prefetch = false;
         // MC68030UM §6.3.1: bits 4-0 control the instruction cache and
         // bits 13-8 control the data cache. CI/CEI/CD/CED are momentary
         // clear commands and always read zero.

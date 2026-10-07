@@ -782,6 +782,11 @@ pub struct Cpu68000 {
     #[serde(skip)]
     pub variant_dynamic_bus_sizing: bool,
 
+    /// MC68020 aligned long-word instruction prefetch and holding register.
+    /// Reinstalled by the wrapper; later CPU protocols remain separately bound.
+    #[serde(skip)]
+    pub variant_longword_prefetch: bool,
+
     /// 68020+ Format `$A` group-0 exception frame.
     ///
     /// The 68000 / 68010 push a 14-byte frame for bus error (vec 2)
@@ -1253,6 +1258,7 @@ impl Cpu68000 {
             variant_extended_sr_writes: false,
             variant_unaligned_data_access: false,
             variant_dynamic_bus_sizing: false,
+            variant_longword_prefetch: false,
             variant_format_a_group0: false,
             variant_min_bus_clocks: 4,
             variant_constant_shift_timing: false,
@@ -1901,8 +1907,9 @@ impl Cpu68000 {
     /// hits the 68020+ instruction cache self-serves the word and
     /// returns a 1-clock `State::Internal` instead, so cached code
     /// neither stalls for the bus nor contends with chip-RAM DMA. The
-    /// hit path is gated on `variant_icache` being present (68020+ only)
-    /// and CACR.E (enable); everything else is unchanged.
+    /// Cache hits require CACR.E; MC68020 holding-register hits remain
+    /// available with caching disabled. External MC68020 fills use aligned
+    /// long transfers through the same SIZ/DSACK sequencer as data operands.
     fn initiate_bus_cycle(&mut self, op: MicroOp) -> State {
         assert!(
             self.variant_dynamic_bus_sizing
@@ -1915,28 +1922,26 @@ impl Cpu68000 {
 
         let is_sup = self.regs.is_supervisor();
 
-        // 68020+ instruction-cache hit: self-serve the prefetch word
-        // with no external bus cycle. `lookup` borrows `variant_icache`
-        // only for the call, so the borrow ends before we update fetch
-        // state. The served value is byte-identical to a bus fetch —
-        // only the cycle is elided — so architectural state is unchanged.
-        if matches!(op, MicroOp::FetchIRC)
-            && !self.variant_cache_disable_asserted
-            && self.regs.cacr & 0x01 != 0
-        {
+        if matches!(op, MicroOp::FetchIRC) {
             let addr = self.next_fetch_addr;
-            let hit = self
-                .variant_icache
-                .as_ref()
-                .and_then(|cache| cache.lookup(addr, is_sup));
+            let enabled = !self.variant_cache_disable_asserted && self.regs.cacr & 1 != 0;
+            let longword = self.variant_longword_prefetch;
+            let hit = self.variant_icache.as_mut().and_then(|cache| {
+                if longword {
+                    cache.holding_word(addr, is_sup).or_else(|| {
+                        enabled
+                            .then(|| cache.hold_cached_line(addr, is_sup))
+                            .flatten()
+                    })
+                } else {
+                    enabled.then(|| cache.lookup(addr, is_sup)).flatten()
+                }
+            });
             if let Some(word) = hit {
-                // Mirror finish_bus_cycle's FetchIRC bookkeeping.
                 self.irc = word;
                 self.irc_addr = addr;
                 self.next_fetch_addr = addr.wrapping_add(2);
                 self.regs.pc = self.next_fetch_addr;
-                // A cache hit costs ~1 internal clock vs the 3-clock
-                // (020) external bus cycle.
                 return State::Internal { cycles: 1 };
             }
         }
@@ -1960,7 +1965,17 @@ impl Cpu68000 {
         };
 
         let (addr, fc, is_read, is_word, data) = match op {
-            MicroOp::FetchIRC => (self.next_fetch_addr, fc_prog, true, true, None),
+            MicroOp::FetchIRC => (
+                if self.variant_longword_prefetch {
+                    self.next_fetch_addr & !3
+                } else {
+                    self.next_fetch_addr
+                },
+                fc_prog,
+                true,
+                true,
+                None,
+            ),
             MicroOp::ReadByte => (self.addr, fc_ea, true, false, None),
             MicroOp::ReadWord => (self.addr, fc_ea, true, true, None),
             MicroOp::ReadLongHi => (self.addr, fc_ea, true, true, None),
@@ -2135,6 +2150,7 @@ impl Cpu68000 {
             MicroOp::ReadLong | MicroOp::WriteLong | MicroOp::PushLong | MicroOp::PopLong => {
                 TransferSize::Long
             }
+            MicroOp::FetchIRC if self.variant_longword_prefetch => TransferSize::Long,
             MicroOp::FetchIRC | MicroOp::InterruptAck => return None,
             _ => return None,
         };
@@ -2208,6 +2224,22 @@ impl Cpu68000 {
                     MicroOp::ReadLong | MicroOp::PopLong => {
                         self.data = transfer.read_data;
                     }
+                    MicroOp::FetchIRC if self.variant_longword_prefetch => {
+                        let addr = self.next_fetch_addr;
+                        let fc2 = self.regs.is_supervisor();
+                        if let Some(cache) = self.variant_icache.as_mut() {
+                            cache.hold_long(addr, fc2, transfer.read_data);
+                            if self.regs.cacr & 3 == 1 && !self.variant_cache_disable_asserted {
+                                cache.fill_long(addr, fc2, transfer.read_data);
+                            }
+                        }
+                        let word = if addr & 2 == 0 {
+                            (transfer.read_data >> 16) as u16
+                        } else {
+                            transfer.read_data as u16
+                        };
+                        self.finish_bus_cycle(op, word);
+                    }
                     _ => self.finish_bus_cycle(op, transfer.read_data as u16),
                 }
             }
@@ -2273,7 +2305,11 @@ impl Cpu68000 {
                 // the program-space function code.
                 let enabled = self.regs.cacr & 0x01 != 0;
                 let frozen = self.regs.cacr & 0x02 != 0;
-                if enabled && !frozen && !self.variant_cache_disable_asserted {
+                if enabled
+                    && !frozen
+                    && !self.variant_cache_disable_asserted
+                    && !self.variant_longword_prefetch
+                {
                     let fc2 = self.regs.is_supervisor();
                     if let Some(cache) = self.variant_icache.as_mut() {
                         cache.fill(fetched_addr, fc2, read_data);

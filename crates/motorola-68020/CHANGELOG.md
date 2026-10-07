@@ -20,6 +20,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Retain complete MC68020 instruction-prefetch long words through the signal-driven
+  SIZ/DSACK stages, including cache-disabled execution and snapshot replay
+
 - Preserve warm instruction-cache contents when variant hooks are reinstalled
   after deserialization
 - Retain odd start addresses for logical word and long-word data transactions,

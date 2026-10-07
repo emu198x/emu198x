@@ -330,7 +330,16 @@ fn user_rte_discards_poisoned_format_one_pc_and_returns_through_master_frame() {
             "RTE must not resume from the Format-$1 throwaway PC"
         );
         if cpu.instr_start_pc == INTERRUPTED_PC {
-            assert_eq!(cpu.regs.pc, INTERRUPTED_PC + 2);
+            assert_eq!(
+                cpu.ir,
+                mem.read_word(INTERRUPTED_PC),
+                "RTE must promote the return opcode"
+            );
+            assert_eq!(
+                cpu.irc_addr,
+                INTERRUPTED_PC + 2,
+                "the retained sibling is the next instruction word"
+            );
             assert_eq!(
                 cpu.regs.sr, saved_user_sr,
                 "the real MSP frame must restore S=0 M=1"
@@ -367,7 +376,16 @@ fn rte_discards_format_one_then_returns_through_master_format_zero_frame() {
         if saw_handler && cpu.instr_start_pc == INTERRUPTED_PC {
             assert!(acknowledged, "the interrupt must complete IACK");
             assert_eq!(cpu.interrupts_taken, 1, "deasserted IPL must not retrigger");
-            assert_eq!(cpu.regs.pc, INTERRUPTED_PC + 2);
+            assert_eq!(
+                cpu.ir,
+                mem.read_word(INTERRUPTED_PC),
+                "RTE must promote the return opcode"
+            );
+            assert_eq!(
+                cpu.irc_addr,
+                INTERRUPTED_PC + 2,
+                "the retained sibling is the next instruction word"
+            );
             assert_eq!(cpu.regs.sr, saved_sr);
             assert_eq!(cpu.regs.ssp, INITIAL_ISP);
             assert_eq!(cpu.regs.msp, INITIAL_MSP);
@@ -420,7 +438,16 @@ fn format_one_rte_can_restart_on_a_format_zero_frame_on_usp() {
         cpu.tick();
 
         if cpu.instr_start_pc == RETURN_PC {
-            assert_eq!(cpu.regs.pc, RETURN_PC + 2);
+            assert_eq!(
+                cpu.ir,
+                mem.read_word(RETURN_PC),
+                "RTE must promote the return opcode"
+            );
+            assert_eq!(
+                cpu.irc_addr,
+                RETURN_PC + 2,
+                "the retained sibling is the next instruction word"
+            );
             assert_eq!(cpu.regs.sr, FINAL_SR);
             assert_eq!(
                 cpu.regs.ssp,

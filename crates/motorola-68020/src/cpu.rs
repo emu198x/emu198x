@@ -81,6 +81,7 @@ impl Cpu68020 {
         // allowing each responder to report an 8-, 16-, or 32-bit port on
         // every physical phase of one logical operand.
         self.inner.variant_dynamic_bus_sizing = true;
+        self.inner.variant_longword_prefetch = true;
         // The 68020 introduces separate interrupt and master supervisor
         // stacks. Shared A7 accesses select ISP when S=1/M=0 and MSP when
         // S=1/M=1; wrappers re-enable this non-serialized capability here.
@@ -2622,6 +2623,7 @@ fn write_68020_cr(cpu: &mut Cpu68000, ext: u16, value: u32) -> bool {
             // CE selects the line by CAAR.
             let caar = cpu.regs.caar;
             if let Some(cache) = cpu.variant_icache.as_mut() {
+                cache.clear_holding();
                 if value & 0x08 != 0 {
                     cache.clear();
                 }

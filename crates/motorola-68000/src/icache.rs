@@ -7,34 +7,11 @@
 //! two instruction words at the even (bits 31:16) and odd (bits 15:0)
 //! word offsets. (M68020UM § 6, "On-Chip Cache Memory".)
 //!
-//! ## Why a valid bit *per word*, not per line
-//!
-//! Real hardware fills a whole line in one long-word burst and carries
-//! a single valid bit per line. Our prefetch microcode fetches one
-//! *word* per bus cycle ([`crate::microcode::MicroOp::FetchIRC`]), so a
-//! single-valid-bit line would be filled with only half its data on a
-//! word miss and would then serve garbage for the sibling word. We
-//! instead track a valid bit per word and fill one word per sequential
-//! fetch.
-//!
-//! For forward (sequential) execution the two models are equivalent —
-//! the line fills one word per fetch as the program advances — and they
-//! differ only in an unobservable corner: a backward branch onto the
-//! high word of a line whose original entry point was the low word
-//! misses for us but would hit on hardware (which had burst-filled the
-//! whole line). That difference is conservative (an extra cold fetch,
-//! never a saved one) and touches *timing only*. The cache never
-//! changes the decoded instruction word — a hit serves exactly what the
-//! bus would have returned — so it carries no architectural-state risk.
-//!
-//! ## Forward design (#110 / #111)
-//!
-//! The 68030 adds a second 256-byte line set (data cache); the 68040
-//! moves to 4 KB, 4-way set-associative split caches. Those variants
-//! reuse this model by widening [`ENTRIES`] and adding an associativity
-//! dimension; that extension is deferred until #110/#111 land so we
-//! ship the testable 68020 direct-mapped case now rather than untested
-//! associativity machinery.
+//! MC68020 external prefetch retains an aligned long word in a holding
+//! register even when CACR.E is clear (MC68020UM §4.1 and instruction pipe).
+//! The MC68020 binding fills both cache words together. Later CPU bindings
+//! retain their separately tracked word validity until their fetch protocols
+//! are audited.
 
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
@@ -91,6 +68,7 @@ impl Line {
 pub struct ICache {
     #[serde(with = "BigArray")]
     lines: [Line; INSTRUCTION_CACHE_LINE_COUNT],
+    holding: Option<(u32, bool, u32)>,
 }
 
 impl Default for ICache {
@@ -105,6 +83,7 @@ impl ICache {
     pub const fn new() -> Self {
         Self {
             lines: [Line::empty(); INSTRUCTION_CACHE_LINE_COUNT],
+            holding: None,
         }
     }
 
@@ -137,8 +116,51 @@ impl ICache {
         line.valid[w] = true;
     }
 
+    /// Read the retained prefetch long word in the same program space.
+    #[must_use]
+    pub fn holding_word(&self, addr: u32, fc2: bool) -> Option<u16> {
+        self.holding.and_then(|(base, supervisor, data)| {
+            (base == addr & !3 && supervisor == fc2).then_some(if addr & 2 == 0 {
+                (data >> 16) as u16
+            } else {
+                data as u16
+            })
+        })
+    }
+
+    /// Load the holding register from a complete, valid cache entry.
+    pub fn hold_cached_line(&mut self, addr: u32, fc2: bool) -> Option<u16> {
+        let line = self.lines[index(addr)];
+        if line.valid != [true, true] || line.tag != key(addr, fc2) {
+            return None;
+        }
+        self.hold_long(
+            addr,
+            fc2,
+            (u32::from(line.words[0]) << 16) | u32::from(line.words[1]),
+        );
+        self.holding_word(addr, fc2)
+    }
+
+    /// Retain an external aligned long-word prefetch, independently of cache enable.
+    pub fn hold_long(&mut self, addr: u32, fc2: bool, data: u32) {
+        self.holding = Some((addr & !3, fc2, data));
+    }
+
+    /// Fill both words of an instruction-cache entry after the complete transfer.
+    pub fn fill_long(&mut self, addr: u32, fc2: bool, data: u32) {
+        self.fill(addr & !3, fc2, (data >> 16) as u16);
+        self.fill((addr & !3) | 2, fc2, data as u16);
+    }
+
+    /// Invalidate the prefetch holding register on reset or cache-control writes.
+    pub fn clear_holding(&mut self) {
+        self.holding = None;
+    }
+
     /// Invalidate every entry (CACR.C, "clear cache").
     pub fn clear(&mut self) {
+        self.clear_holding();
         for line in &mut self.lines {
             line.valid = [false, false];
         }
