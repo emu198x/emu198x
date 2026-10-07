@@ -88,6 +88,9 @@ pub struct AmigaRuntime<M: AmigaMachine> {
     /// on CCK boundaries, but sampling at the finer runtime tick keeps
     /// this phase stable across frame boundaries.
     audio_sample_accumulator: u64,
+    /// Left/right signal areas accumulated within the current host interval.
+    /// Weights use the same integer phase units as `audio_sample_accumulator`.
+    audio_sample_area: [f64; 2],
     audio_buffer: Vec<f32>,
     /// Tick rate in Hz (= 2 × cck_hz). Cached at construction so the
     /// audio resampler doesn't query the machine every tick.
@@ -98,7 +101,7 @@ pub struct AmigaRuntime<M: AmigaMachine> {
     pub(crate) cpu_trace: crate::cpu_trace::CpuTrace,
     /// Paula's analog output filter chain (RC low-pass + switchable LED
     /// filter + DC-blocking high-pass), applied to each host sample.
-    /// Configured from `model`; transient IIR state, not snapshotted.
+    /// Coefficients come from `model`; signal history is snapshotted.
     audio_filter: crate::audio_filter::AmigaAudioFilter,
 }
 
@@ -253,6 +256,23 @@ impl<M: AmigaMachine> AmigaRuntime<M> {
         self.audio_sample_accumulator
     }
 
+    pub(crate) const fn audio_sample_area(&self) -> [f64; 2] {
+        self.audio_sample_area
+    }
+
+    pub(crate) fn audio_filter_history(&self) -> crate::audio_filter::AudioFilterHistory {
+        self.audio_filter.history()
+    }
+
+    pub(crate) fn restore_audio_signal(
+        &mut self,
+        area: [f64; 2],
+        filter: crate::audio_filter::AmigaAudioFilter,
+    ) {
+        self.audio_sample_area = area;
+        self.audio_filter = filter;
+    }
+
     /// Number of interleaved host-audio samples currently buffered.
     #[must_use]
     pub(crate) fn audio_buffer_samples(&self) -> usize {
@@ -330,10 +350,7 @@ impl<M: AmigaMachine> AmigaRuntime<M> {
         self.audio_buffer.clear();
     }
 
-    /// Rebuild the transient analog-filter chain for the configured model.
-    ///
-    /// IIR history is intentionally absent from snapshots, so reset and a
-    /// successful restore both return it to its canonical zero-history state.
+    /// Rebuild the analog-filter chain with zero history on machine reset.
     pub(crate) fn reset_audio_filter(&mut self) {
         self.audio_filter = crate::audio_filter::AmigaAudioFilter::for_model(self.model());
     }
@@ -374,20 +391,32 @@ impl<M: AmigaMachine> AmigaRuntime<M> {
 impl<M: AmigaMachine + AmigaLiveAccess> AmigaRuntime<M> {
     /// Advance the host-audio resampler after one completed Amiga system tick.
     fn sample_audio_after_tick(&mut self) {
-        self.audio_sample_accumulator = self
-            .audio_sample_accumulator
-            .saturating_add(u64::from(AUDIO_SAMPLE_RATE_HZ));
-
-        while self.audio_sample_accumulator >= self.tick_hz {
-            self.audio_sample_accumulator -= self.tick_hz;
+        // Integrate the level presented by each completed system tick. Split
+        // the crossing tick exactly; its remainder belongs to the next host
+        // interval. All supported system clocks exceed the host sample rate.
+        let rate = u64::from(AUDIO_SAMPLE_RATE_HZ);
+        debug_assert!(self.tick_hz > rate);
+        let remaining = self.tick_hz - self.audio_sample_accumulator;
+        let weight = remaining.min(rate);
+        let (left, right) = self.machine.mix_audio_stereo();
+        let level = [f64::from(left), f64::from(right)];
+        for (area, sample) in self.audio_sample_area.iter_mut().zip(level) {
+            *area += sample * weight as f64;
+        }
+        if rate < remaining {
+            self.audio_sample_accumulator += rate;
+        } else {
             let led_bright = self.machine.led_filter_engaged();
-            let (mut left, mut right) = self.machine.mix_audio_stereo();
+            let mut left = (self.audio_sample_area[0] / self.tick_hz as f64) as f32;
+            let mut right = (self.audio_sample_area[1] / self.tick_hz as f64) as f32;
             // Paula's analog output filter chain. The LED filter's
             // resonant peak can boost slightly past unity, so clamp
             // after filtering as the line driver would.
             self.audio_filter.apply(&mut left, &mut right, led_bright);
             self.audio_buffer.push(left.clamp(-1.0, 1.0));
             self.audio_buffer.push(right.clamp(-1.0, 1.0));
+            self.audio_sample_accumulator = rate - weight;
+            self.audio_sample_area = level.map(|sample| sample * (rate - weight) as f64);
         }
     }
 
@@ -445,6 +474,7 @@ impl<M: AmigaMachine + AmigaLiveAccess> MachineCore for AmigaRuntime<M> {
         self.time = MachineTime::default();
         self.frame_count = 0;
         self.audio_sample_accumulator = 0;
+        self.audio_sample_area = [0.0; 2];
         self.audio_buffer.clear();
         self.reset_audio_filter();
         // Drop pre-reset trace entries so they don't bleed into
@@ -702,6 +732,7 @@ impl AmigaRuntime<AmigaOcs> {
             non_white_pixels: 0,
             first_active_row: None,
             audio_sample_accumulator: 0,
+            audio_sample_area: [0.0; 2],
             audio_buffer: Vec::with_capacity(audio_buffer_capacity_for_frame(tick_hz)),
             tick_hz,
             cpu_trace: crate::cpu_trace::CpuTrace::default(),
@@ -815,6 +846,7 @@ impl AmigaRuntime<AmigaEcs> {
             non_white_pixels: 0,
             first_active_row: None,
             audio_sample_accumulator: 0,
+            audio_sample_area: [0.0; 2],
             audio_buffer: Vec::with_capacity(audio_buffer_capacity_for_frame(tick_hz)),
             tick_hz,
             cpu_trace: crate::cpu_trace::CpuTrace::default(),
@@ -934,6 +966,7 @@ impl AmigaRuntime<AmigaA1200> {
             non_white_pixels: 0,
             first_active_row: None,
             audio_sample_accumulator: 0,
+            audio_sample_area: [0.0; 2],
             audio_buffer: Vec::with_capacity(audio_buffer_capacity_for_frame(tick_hz)),
             tick_hz,
             cpu_trace: crate::cpu_trace::CpuTrace::default(),
@@ -1202,6 +1235,189 @@ mod tests {
     use super::*;
     use crate::A500_PAL_CCK_HZ;
     use crate::variants::AmigaRuntimeKind;
+
+    fn pulse_cases<
+        M: AmigaMachine + AmigaLiveAccess + common_commodore_amiga::driver::AmigaDriver,
+    >(
+        mut runtime: AmigaRuntime<M>,
+    ) -> (usize, usize) {
+        use common_commodore_amiga::driver::AmigaDriver;
+        for (offset, value) in [(0xa6, 1000), (0xa8, 64), (0xaa, 0x4040)] {
+            AmigaDriver::dispatch_custom_write(runtime.machine_mut(), offset, value);
+        }
+        let full = runtime.machine.mix_audio_stereo();
+        assert!(full.1 > 0.0, "fixture must produce a nonzero held sample");
+        let rate = u64::from(AUDIO_SAMPLE_RATE_HZ);
+        let hz = runtime.tick_hz;
+        let mut failures = 0;
+        let mut cases = 0;
+        for phase in [0, 1, hz - rate * 3 / 2, hz - rate, hz - rate / 2, hz - 1] {
+            runtime.audio_sample_accumulator = phase;
+            runtime.audio_buffer.clear();
+            runtime.reset_audio_filter();
+            AmigaDriver::dispatch_custom_write(runtime.machine_mut(), 0xa8, 64);
+            runtime.sample_audio_after_tick();
+            AmigaDriver::dispatch_custom_write(runtime.machine_mut(), 0xa8, 0);
+            while runtime.audio_buffer.len() < 4 {
+                runtime.sample_audio_after_tick();
+            }
+            // Integrate the pulse's overlap with each host interval directly.
+            // This oracle does not step or copy the runtime accumulator.
+            let first = rate.min(hz - phase) as f64 / hz as f64;
+            let second = rate.saturating_sub(hz - phase) as f64 / hz as f64;
+            let mut filter = crate::audio_filter::AmigaAudioFilter::for_model(runtime.model());
+            let mut expected = Vec::new();
+            for weight in [first, second] {
+                let mut left = (f64::from(full.0) * weight) as f32;
+                let mut right = (f64::from(full.1) * weight) as f32;
+                filter.apply(&mut left, &mut right, runtime.machine.led_filter_engaged());
+                expected.extend([left, right]);
+            }
+            failures += usize::from(
+                runtime
+                    .audio_buffer
+                    .iter()
+                    .zip(&expected)
+                    .any(|(actual, expected)| (actual - expected).abs() > 1e-8),
+            );
+            cases += 1;
+        }
+        (cases, failures)
+    }
+
+    #[test]
+    fn audio_sampling_preserves_pulses_between_and_across_host_boundaries() {
+        let mut cases = 0;
+        let mut failures = 0;
+        for (count, failed) in [
+            pulse_cases(AmigaRuntime::<AmigaOcs>::blank(Model::A500OcsPal)),
+            pulse_cases(AmigaRuntime::<AmigaOcs>::blank(Model::A500OcsNtsc)),
+            pulse_cases(AmigaRuntime::<AmigaEcs>::blank(Model::A500PlusEcsPal)),
+            pulse_cases(AmigaRuntime::<AmigaEcs>::blank(Model::A500PlusEcsNtsc)),
+            pulse_cases(AmigaRuntime::<AmigaA1200>::blank(Model::A1200AgaPal)),
+            pulse_cases(AmigaRuntime::<AmigaA1200>::blank(Model::A1200AgaNtsc)),
+        ] {
+            cases += count;
+            failures += failed;
+        }
+        assert_eq!(cases, 36);
+        assert_eq!(
+            failures, 0,
+            "lost or misweighted pulse windows across {cases} cases"
+        );
+    }
+
+    fn replay_audio<
+        M: AmigaMachine + AmigaLiveAccess + common_commodore_amiga::driver::AmigaDriver,
+    >(
+        mut source: AmigaRuntime<M>,
+        mut restored: AmigaRuntime<M>,
+    ) -> usize {
+        use common_commodore_amiga::driver::AmigaDriver;
+        for (offset, value) in [
+            (0xa6, 8),
+            (0xa8, 32),
+            (0xaa, 0x40c0),
+            (0xb6, 13),
+            (0xb8, 63),
+            (0xba, 0x2050),
+        ] {
+            AmigaDriver::dispatch_custom_write(source.machine_mut(), offset, value);
+        }
+        let mut checkpoints = 0;
+        for gap in [1, 2, 147, 148, 299, 300] {
+            for _ in 0..gap {
+                source.tick_and_sample_audio();
+            }
+            assert!(source.audio_sample_area.iter().any(|area| *area != 0.0));
+            // A warm destination must not contribute its old signal history.
+            let _ = restored.filter_audio_for_test(-0.75, 0.5, true);
+            let saved = source.snapshot().expect("save partial audio interval");
+            restored
+                .restore(&saved)
+                .expect("restore partial audio interval");
+            assert_eq!(saved, restored.snapshot().expect("save restored interval"));
+            source.audio_buffer.clear();
+            for _ in 0..1000 {
+                source.tick_and_sample_audio();
+                restored.tick_and_sample_audio();
+            }
+            assert!(source.audio_buffer.iter().any(|sample| sample.abs() > 1e-5));
+            assert_eq!(source.audio_buffer, restored.audio_buffer);
+            assert_eq!(
+                source.snapshot().expect("continued source"),
+                restored.snapshot().expect("continued restore")
+            );
+            checkpoints += 1;
+        }
+        // Machine reset must also clear an incomplete integration interval.
+        source.reset(ResetKind::Hard);
+        assert_eq!(source.audio_sample_area, [0.0; 2]);
+        checkpoints
+    }
+
+    #[test]
+    fn audio_sampling_and_filter_history_replay_across_all_chipsets() {
+        let mut checkpoints = 0;
+        for model in [
+            Model::A500OcsPal,
+            Model::A500OcsNtsc,
+            Model::A1000OcsPal,
+            Model::A1000OcsNtsc,
+        ] {
+            checkpoints += replay_audio(
+                AmigaRuntime::<AmigaOcs>::blank(model),
+                AmigaRuntime::<AmigaOcs>::blank(model),
+            );
+        }
+        for model in [Model::A500PlusEcsPal, Model::A500PlusEcsNtsc] {
+            checkpoints += replay_audio(
+                AmigaRuntime::<AmigaEcs>::blank(model),
+                AmigaRuntime::<AmigaEcs>::blank(model),
+            );
+        }
+        for model in [Model::A1200AgaPal, Model::A1200AgaNtsc] {
+            checkpoints += replay_audio(
+                AmigaRuntime::<AmigaA1200>::blank(model),
+                AmigaRuntime::<AmigaA1200>::blank(model),
+            );
+        }
+        assert_eq!(checkpoints, 48);
+    }
+
+    #[test]
+    fn audio_sampling_matches_instruction_boundary_stepping() {
+        let mut regular = AmigaRuntime::<AmigaA1200>::blank(Model::A1200AgaPal);
+        use common_commodore_amiga::driver::AmigaDriver;
+        for (offset, value) in [(0xa6, 2), (0xa8, 32), (0xaa, 0x40c0)] {
+            AmigaDriver::dispatch_custom_write(regular.machine_mut(), offset, value);
+        }
+        let saved = regular.snapshot().expect("initial audio setup");
+        let mut stepped = AmigaRuntime::<AmigaA1200>::blank(Model::A1200AgaPal);
+        stepped.restore(&saved).expect("copy initial setup");
+        for _ in 0..2000 {
+            regular.tick_and_sample_audio();
+        }
+        for _ in 0..20_000 {
+            if AmigaLiveAccess::tick_count(stepped.machine()) >= 2000 {
+                break;
+            }
+            stepped.advance_to_cpu_boundary_traced();
+        }
+        assert_eq!(AmigaLiveAccess::tick_count(stepped.machine()), 2000);
+        assert!(
+            regular
+                .audio_buffer
+                .iter()
+                .any(|sample| sample.abs() > 1e-5)
+        );
+        assert_eq!(regular.audio_buffer, stepped.audio_buffer);
+        assert_eq!(regular.audio_sample_area, stepped.audio_sample_area);
+        assert_eq!(
+            regular.audio_sample_accumulator,
+            stepped.audio_sample_accumulator
+        );
+    }
 
     #[test]
     fn bounded_step_accounts_progress_when_stopped_cpu_has_no_next_boundary() {

@@ -1,0 +1,25 @@
+{
+  "runtime": {
+    "passed": 303,
+    "ignored": 30,
+    "exit_code": 0
+  },
+  "pulse_cases": 36,
+  "restore_checkpoints": 48,
+  "malformed_cases": 8,
+  "snapshot_version": 61,
+  "build": "passed",
+  "clippy": "passed",
+  "waveform_cases": 3,
+  "first_runtime_failure": "Two stale test assertions expected version 60; corrected to approved 61.",
+  "production_scope": "Interval averaging and saved filter history; no physical PWM phase model.",
+  "artifacts": {
+    "clippy-after.log.gz": "953ee93934bbf6c5f38bfb092086ed19e23e7b3c9ac0850f7d9c4721dcbfc26e",
+    "restore_retains_live_audio_filter_response-before.log.gz": "702310cbfa9cbe450b339a2c7131e06c1aaaa1d71f5226e17a59432b0fb0ac04",
+    "runtime-after.log.gz": "32139311efae40ac5f7f4eb50504d92a579c113b00f3aa9c91acbd43b0853508",
+    "waveform-after.log.gz": "981da6f5ad3d62cef0c10e4eb1d676ff8c316eb91de82a4b7c6de586d6a4db74",
+    "build-after.log.gz": "ecb5385122c69e29879dd9d8f3beaca643d82e18743576170a4ae836295e2b62",
+    "audio_sampling_preserves_pulses_between_and_across_host_boundaries-before.log.gz": "690eb5c93080ea01590596616530206e1a525cc0a91650319d8b88661c823d06",
+    "runtime-first.log.gz": "c814d41b55d2b976fa2b018fb4b7c0e1942224135b937b82de35eb3c8413e8ab"
+  }
+}
