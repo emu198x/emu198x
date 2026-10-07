@@ -1,0 +1,38 @@
+{
+  "production_changed": false,
+  "native_rows": 6304,
+  "native_scenarios": 704,
+  "reference_rows_each": 12608,
+  "reference_scenarios_each": 1408,
+  "functional_mismatches_by_scenario": [
+    240,
+    264,
+    268,
+    228,
+    408,
+    408,
+    328,
+    408
+  ],
+  "functional_mismatches": 2552,
+  "held_loop_mismatches": 236,
+  "state_mismatches": 3420,
+  "native_probe_exit": 101,
+  "component_tests": 112,
+  "strict_clippy": "passed",
+  "ruff": "passed",
+  "native_limit": "Only pre-output mode changes compared: the public combined CCK method has no separate post-output DMA synchronization API",
+  "sha256": {
+    "clippy.log.gz": "e12d3e5c156c490270e097ff5ae365b353eece8a05255a46c76021872ffdbc0e",
+    "comparison.json": "1d739f241fc94661f5c6854a48996216f44533ce371892360ea1eaafe4910a85",
+    "component.log.gz": "841ef04a8c5795232efea88dc3d279c331a57dedcb8a839cea313092ec772c39",
+    "native-before.log.gz": "386d4623d62f0d67e9f2376962d3e032fae1e162de95dd22f872d9db7fc484fd",
+    "reference.py": "1df8569d6e397186b62a529487ab1bf56a4a89bff0ce752435760eae7e9512c5",
+    "source-hashes.json": "22483866f86a5164bd0d19d757e612d69ffdcf0a91e823cb41a2c6a67df61981",
+    "vamiga.cpp.gz": "e1c88c736f1783a2d669b5d06015186758f2a484ae7cc91ff60209454f699cd3",
+    "vamiga.csv": "fdfe969be93b7e9ef11a474938599e73559e44c0d18cbb45346091081501b246",
+    "winuae.cpp.gz": "864eee833543f21cc1d8f7f7edd715fc72980712db65574c4844181a61c1fd7b",
+    "winuae.csv": "401f4cb508c7502ffff71fd9e3a1850ecb1d2d50c360255900dbea64e4a6d5ec"
+  },
+  "reference_regeneration": "exact CSV comparison passed"
+}

@@ -1,0 +1,14 @@
+{
+  "rows": 12608,
+  "state_irq_differences_by_scenario": [
+    0,
+    520,
+    1040,
+    908,
+    1040,
+    984,
+    752,
+    1036
+  ],
+  "dac_excluded": "vAmiga repeated-edge suppression"
+}
