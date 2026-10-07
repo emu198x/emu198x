@@ -1527,8 +1527,10 @@ impl Paula8364 {
             }
         }
 
-        let mut output_events = [None; 4];
-        for (index, channel) in self.audio.iter_mut().enumerate() {
+        // A source's attachment reaches the next channel before that
+        // channel reloads on this same CCK (WinUAE/vAmiga event order).
+        for index in 0..self.audio.len() {
+            let channel = &mut self.audio[index];
             // DMA startup waits and idle channels have no sample transitions.
             if channel.state != AudioState::Playing {
                 continue;
@@ -1550,10 +1552,6 @@ impl Paula8364 {
                 volume_attach,
                 self.intreq & (INT_AUD0 << index) != 0,
             );
-            output_events[index] = event;
-        }
-
-        for (index, event) in output_events.into_iter().enumerate() {
             if let Some(ev) = event {
                 if self.audio_dma_request_on_event(index, ev) {
                     let channel = &mut self.audio[index];

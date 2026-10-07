@@ -1,0 +1,115 @@
+{
+  "reference": {
+    "rows": 88704,
+    "scenarios": 1296,
+    "observables": [
+      "state",
+      "period",
+      "counter",
+      "buffer",
+      "sample",
+      "volume",
+      "request",
+      "irq"
+    ],
+    "differences": [
+      0,
+      0,
+      0,
+      0,
+      28190,
+      0,
+      0,
+      0
+    ],
+    "sample_columns": "WinUAE raw sample versus vAmiga volume-scaled sample divided by 64, with repeated-edge suppression; not directly comparable",
+    "regeneration": "all committed reference artifacts byte-identical"
+  },
+  "baseline": {
+    "native_differences": [
+      3876,
+      0,
+      4872,
+      424,
+      3866,
+      424,
+      0,
+      621
+    ],
+    "ordinary_controls": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sample_mismatches_with_attachment_muting_off": 2584,
+    "volume_weighting": false,
+    "native_exit": 101,
+    "board_exit": 101,
+    "board_reference_failures": 36,
+    "board_fixture": "final fixture including expected manual stop; re-run against original production ordering"
+  },
+  "after": {
+    "native_differences": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "ordinary_controls": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "sample_mismatches_with_attachment_muting_off": 0,
+    "restore_checkpoints": 36,
+    "board_reference_failures": 0,
+    "deterministic_restore_checkpoints": 36,
+    "component_tests": 119,
+    "paula_machine_tests": 44,
+    "runtime_tests": 298,
+    "runtime_ignored_tests": 30,
+    "snapshot_tests": 65,
+    "snapshot_version": 60,
+    "schema_changed": false,
+    "strict_clippy": "passed",
+    "release_build": "passed",
+    "waveform_cases": 3,
+    "format": "passed",
+    "ruff": "passed",
+    "negative_controls": "empty fixture rejected; single corrupted deadline reports exactly one counter mismatch"
+  },
+  "sha256": {
+    "board-after.log.gz": "3be184a1bb2d8731c96c3322469f5d55b304c96c17665b4fb5deec0b5ecbd385",
+    "board-before.log.gz": "7119f96985795c09ef21d8012a31f34faef36387f70b6462bd60ee705f147865",
+    "board-fixture-trace.log.gz": "4921edc225a87dabe959d53e7e59630b3c743fc4510847acbb18aff8878daf91",
+    "build-after.log.gz": "d395b8dd2db7746270bff3a6a90b7e1c82776e12867a9ed0624e49f994d8f42a",
+    "clippy-after.log.gz": "342effe8dc8e4dd28e7240f49180f2d93fbd16930b07c6cf313793729be9dfca",
+    "comparison.json": "1bb46d0527accf8045191db13460f84a6fb5edb6eb20e88828f687e236db2408",
+    "component-after.log.gz": "821bdc31ad334085adb708307eeb032b0e97071d68f1924fde938f9303b031ba",
+    "machine-after.log.gz": "e860190c07a3e71a3fd6e339fa262a2ec14e5171ffa6ef4092d102c2328835bb",
+    "native-before.log.gz": "f0b21b1c2ef35eb36f176dce3caac29f2c680e28cdb882e61fed14498b606fbc",
+    "reference-regeneration.log.gz": "4fb1c482fc1ef2c201bd7a18621d834360ebaed1285b9d6eba155d1db340e101",
+    "reference.py": "d279be1f2e4a2ef8ae20a1301af360b5ba8dfe0d43c99d0a340d00644e4948ba",
+    "runtime-after.log.gz": "4454389a1e3851b027da7e41423617cefb95429a52c379b0a824899d4d0513dd",
+    "source-hashes.json": "1568dfa401f793d2f9aeabc6f1235b6601c826d0fdd86a4c0312f22d34cd03af",
+    "vamiga.cpp.gz": "14ef82add898ce45328144d9d0431cd3e1cb8f747536eb78cbd339f4e99ea2b6",
+    "vamiga.csv.gz": "3e3b6e03f0c4973afe19b90b9af9e73ae910afd2d29ed08e23809cb176ef9932",
+    "waveform-after.log.gz": "b294d6ca6e36078f1671f62695e1063cac965a75aee65caddb49d12a9558703a",
+    "winuae.cpp.gz": "5bb587cc627e93842b79bcf3ba4312dc0c9c5a672dfff9efdc62b0fc64121d71",
+    "winuae.csv": "87764a9eeb27354317601ee8aae5ba1a0229fe9f8a063cf4fc96f2d946c8163e"
+  }
+}
