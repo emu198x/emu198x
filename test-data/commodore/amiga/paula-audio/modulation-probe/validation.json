@@ -1,0 +1,82 @@
+{
+  "date": "2026-10-07",
+  "native_base": "dd2147ac2877a0a8d8df585788e5372b2d36f340",
+  "reference_revision": "60fd1e6b69dcd77c9f44d1291bd37ec715362ab0",
+  "boundary": "Component-source register/request observations with synthetic grant cadences. No IRQ, target playback/PWM, Agnus scheduling or analogue reference assertion.",
+  "initial_probe": {
+    "scenarios": 48,
+    "observations": 720,
+    "mismatches_before": 564,
+    "mismatches_after_initial_phase_correction": 0
+  },
+  "delayed_grant_probe": {
+    "scenarios": 96,
+    "observations": 1440,
+    "mismatches_before_buffer_request_correction": 36,
+    "mismatches_after": 0
+  },
+  "late_word_output": {
+    "arrival_clocks": [
+      9,
+      12,
+      15
+    ],
+    "period": 8,
+    "first_new_high_byte_clock": 16,
+    "before_observed_sample": 17,
+    "expected_sample": 51,
+    "final": "pass"
+  },
+  "dma_entry_path_parity_ticks": 72000,
+  "snapshot": {
+    "version": 57,
+    "schema_changed": false,
+    "live_checkpoints": 18,
+    "profiles": [
+      "A500 OCS PAL",
+      "A500+ ECS PAL",
+      "A1200 AGA PAL"
+    ]
+  },
+  "passing_tests": {
+    "paula-final": 107,
+    "board-final": 39,
+    "runtime-final": 162,
+    "audio-final": 1
+  },
+  "runtime_test_breakdown": {
+    "library": 56,
+    "queries": 45,
+    "snapshots": 61
+  },
+  "waveform_gate": "Three ordinary period-512 cases retain routing, cadence and volume observations byte-for-byte in the printed measurements.",
+  "other_checks": [
+    "strict targeted release Clippy, all targets",
+    "release Amiga build",
+    "cargo fmt --all --check",
+    "Ruff check and format",
+    "reference CSV and generated C++ reproduced byte-for-byte"
+  ],
+  "verification_note": "paula-after.log.gz retains an old diagnostic expectation (0x1234) failing against the DMA holding word (0xABCD). The diagnostic now asserts the actual delivered word; paula-final.log.gz contains the complete passing suite.",
+  "sha256": {
+    "audio-final.log.gz": "faa7c00fb3560d4339599277e4c03ac3f716d5efce9514595c1fd13194ec2831",
+    "board-final.log.gz": "f9d99f7a45036d7abbb90ddec330554598bba9315953fecaa4a8f85fd68c1eae",
+    "build-final.log.gz": "72ff5ec2a2d4707cfe4237fb546ed100023e65fc9a8d204404a83df5845089b7",
+    "clippy-final.log.gz": "e496b3414d3b5486574bc490cdfb042fd54541a4665b906a5e6384bed9377038",
+    "initial-reference.cpp.gz": "f51741395e67d9759dba2d90aa7ce033c155c50ec18fd019ae63c6937de95149",
+    "initial-reference.csv.gz": "52773757217c0ffa71f2312d14d99330ec6e660b9e63a5b7c9003fcb4addbcfc",
+    "late-word-before.log.gz": "f66204ca9e1517aad7814084cee7497008491d48000c60b543780008ecce89ed",
+    "native-after-first.log.gz": "3fe55e2c18879ccb123b72a2449de7250c505c6ea3e3ab6342af1be251fce0f2",
+    "native-before.log.gz": "64ff74a0698835727f50a3068ab39518de124b888128fa692ed4a30f8fbca032",
+    "native-delayed-after.log.gz": "d63d21b11abcaad9a2512385b0a02b13091c509fc2595501921d90caf49b8287",
+    "native-delayed-before.log.gz": "6432a2e8349107c652ebc9a9edec840cd6c7fd756e7a2f47e6e9ed7c6ff3d0ab",
+    "paula-after.log.gz": "6d63199cff777e3f0eae9739241ff1a403dd136aca7e261fbda9d859e95d39ea",
+    "paula-final.log.gz": "177c55ffadc8e3aac886d0b1c561277f89b0f200dfcef5730bb2f0afc2795106",
+    "reference.cpp.gz": "8afc4151b8954103f93fea615d9f32ca592b1b8dae53744b412b6afc9760f7c9",
+    "reference.csv": "6f6ce6b7410d3f5e83cc21b72c00476ab47e2d63fb81febc2e47c7d0cb82936b",
+    "reference.py": "ee27f8cbebf89b215d03c18bd9f67f2ce06e46f58768be5564bc3aee2fbcd7c4",
+    "runtime-final.log.gz": "cbcc4426d066c960517102974bd6c04343c3e3024e382fa04800af99fbe5c161",
+    "snapshot-focused.log.gz": "d6c57814bfccfa4b64429b437cb267e9232a56f638b66a621db6a8e0999915b8",
+    "source-hashes.json": "70d491a9f717e7764a0817df28b3959267198d54bf990da3307419b6b888741b"
+  }
+}

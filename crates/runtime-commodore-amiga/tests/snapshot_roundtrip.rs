@@ -45,6 +45,102 @@ use runtime_commodore_amiga::{
 const BLTCON0: u32 = 0x00DF_F040;
 
 #[test]
+fn paula_modulation_and_pending_dma_survive_live_restore() -> Result<(), Box<dyn Error>> {
+    fn check<M: AmigaMachine + AmigaLiveAccess + AmigaDriver>(
+        mut original: AmigaRuntime<M>,
+        mut restored: AmigaRuntime<M>,
+        attach: u16,
+    ) -> Result<(), Box<dyn Error>> {
+        for index in 0..512u32 {
+            AmigaDriver::memory_mut(original.machine_mut())
+                .write_word(0x1000 + index * 2, ((index % 3 + 1) * 17) as u16);
+        }
+        for (offset, value) in [
+            (0x0A0, 0),
+            (0x0A2, 0x1000),
+            (0x0A4, 512),
+            (0x0A6, 8),
+            (0x0B6, 777),
+            (0x0B8, 7),
+            (0x09E, 0x8000 | attach),
+            (0x096, 0x8201),
+        ] {
+            AmigaDriver::dispatch_custom_write(original.machine_mut(), offset, value);
+        }
+        for high_next in [false, true] {
+            let mut reached = false;
+            for _ in 0..4000 {
+                let ch = AmigaDriver::paula(original.machine())
+                    .audio_diagnostic_snapshot()
+                    .channels[0];
+                if ch.dma_active
+                    && ch.current_word.is_some()
+                    && ch.period_counter == 1
+                    && ch.next_byte_is_high == high_next
+                {
+                    reached = true;
+                    break;
+                }
+                AmigaMachine::tick(original.machine_mut());
+            }
+            assert!(
+                reached,
+                "live modulation boundary attach={attach} high_next={high_next}"
+            );
+            let saved = original.snapshot()?;
+            restored.restore(&saved)?;
+            assert!(saved == restored.snapshot()?);
+            let before = AmigaDriver::paula(original.machine())
+                .audio_diagnostic_snapshot()
+                .channels[1];
+            let mut target_changed = false;
+            let mut request_seen = false;
+            for _ in 0..1600 {
+                AmigaMachine::tick(original.machine_mut());
+                AmigaMachine::tick(restored.machine_mut());
+                let a = AmigaDriver::paula(original.machine()).audio_diagnostic_snapshot();
+                let b = AmigaDriver::paula(restored.machine()).audio_diagnostic_snapshot();
+                assert_eq!(a, b);
+                target_changed |=
+                    a.channels[1].period != before.period || a.channels[1].volume != before.volume;
+                request_seen |= a.channels[0].dma_requests_pending == 1;
+                assert_eq!(
+                    AmigaDriver::paula(original.machine()).mix_audio_stereo(),
+                    AmigaDriver::paula(restored.machine()).mix_audio_stereo()
+                );
+            }
+            assert!(
+                target_changed && request_seen,
+                "replay must exercise actual modulation and DMA"
+            );
+            assert!(original.snapshot()? == restored.snapshot()?);
+            original.restore(&saved)?;
+            AmigaMachine::tick(original.machine_mut());
+            AmigaMachine::tick(original.machine_mut());
+        }
+        Ok(())
+    }
+    for attach in [0x10, 0x01, 0x11] {
+        check(
+            AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?,
+            AmigaOcsRuntime::new(Model::A500OcsPal, blank_kickstart())?,
+            attach,
+        )?;
+        check(
+            AmigaEcsRuntime::new(Model::A500PlusEcsPal, blank_kickstart())?,
+            AmigaEcsRuntime::new(Model::A500PlusEcsPal, blank_kickstart())?,
+            attach,
+        )?;
+        check(
+            AmigaA1200Runtime::new(Model::A1200AgaPal, blank_kickstart())?,
+            AmigaA1200Runtime::new(Model::A1200AgaPal, blank_kickstart())?,
+            attach,
+        )?;
+    }
+    Ok(())
+}
+
+#[test]
 fn paula_zero_and_short_periods_survive_live_restore() -> Result<(), Box<dyn Error>> {
     fn check<M: AmigaMachine + AmigaLiveAccess + AmigaDriver>(
         mut original: AmigaRuntime<M>,

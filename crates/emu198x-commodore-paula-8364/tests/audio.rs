@@ -368,7 +368,7 @@ fn attach_period_bit_mutes_modulator_channel_in_stereo_mix() {
 }
 
 #[test]
-fn attach_volume_uses_channel_n_low_byte_to_set_volume_on_n_plus_1() {
+fn attach_volume_uses_low_seven_bits_of_the_holding_word() {
     let mut p = Paula8364::new();
     p.write_adkcon(INT_SETCLR | ADKCON_USE_VOL[0]);
 
@@ -377,7 +377,7 @@ fn attach_volume_uses_channel_n_low_byte_to_set_volume_on_n_plus_1() {
     p.write_audio(0, AudioField::Len, 1);
     p.write_audio(0, AudioField::Vol, 64);
 
-    // HI bytes = $7F, LO bytes = $20 → ch 1 volume → $20 once modulation fires.
+    // The holding word is $7F20; its low seven bits select volume $20.
     let read = |addr: u32| if addr & 1 == 0 { 0x7F } else { 0x20 };
     for _ in 0..(AUDIO_MIN_PERIOD_CCK * 2 + 4) {
         p.tick_audio_cck(DMA_MASTER | DMA_AUD0, Some(0), read);
@@ -385,7 +385,7 @@ fn attach_volume_uses_channel_n_low_byte_to_set_volume_on_n_plus_1() {
     let ch1_vol = p.read_audio(1, AudioField::Vol);
     assert_eq!(
         ch1_vol, 0x20,
-        "channel 1 volume should have been written by channel 0's low-byte event; got {ch1_vol}"
+        "channel 1 volume should use the holding word's low seven bits; got {ch1_vol}"
     );
 }
 

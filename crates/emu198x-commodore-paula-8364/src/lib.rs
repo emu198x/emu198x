@@ -424,12 +424,6 @@ enum AudioOutputEvent {
 }
 
 impl AudioOutputEvent {
-    fn word(self) -> u16 {
-        match self {
-            Self::HighByte(w) | Self::LowByte(w) => w,
-        }
-    }
-
     fn is_word_complete(self) -> bool {
         matches!(self, Self::LowByte(_))
     }
@@ -616,7 +610,8 @@ impl AudioChannel {
 
     fn queue_dma_request(&mut self) {
         if self.dma_active {
-            self.dma_requests_pending = self.dma_requests_pending.saturating_add(1);
+            // AUDxDR is a retained request line, not a queue of missed words.
+            self.dma_requests_pending = 1;
         }
     }
 
@@ -627,7 +622,7 @@ impl AudioChannel {
     ///
     /// The fetch advances the startup state machine and returns `true`
     /// when an audio interrupt should be raised this CCK.
-    fn service_dma_slot<F>(&mut self, read_chip_byte: F) -> bool
+    fn service_dma_slot<F>(&mut self, read_chip_byte: F, request_next: bool) -> bool
     where
         F: FnMut(u32) -> u8,
     {
@@ -637,10 +632,11 @@ impl AudioChannel {
         let Some((word, wrapped)) = self.fetch_dma_word(read_chip_byte) else {
             return false;
         };
-        self.accept_dma_word(word, wrapped)
+        self.accept_dma_word(word, wrapped, request_next)
     }
 
-    fn accept_dma_word(&mut self, word: u16, wrapped: bool) -> bool {
+    fn accept_dma_word(&mut self, word: u16, wrapped: bool, request_next: bool) -> bool {
+        self.dat = word;
         self.dma_requests_pending = self.dma_requests_pending.saturating_sub(1);
         match self.state {
             AudioState::WaitWord1 => {
@@ -656,7 +652,8 @@ impl AudioChannel {
             }
             AudioState::WaitWord2 => {
                 // 101 → 010: the real first sample word. Load the period
-                // counter and volume context, request the next word, and
+                // counter and volume context, request the next word when
+                // napnav is true (ordinary or volume attachment), and
                 // output the high byte immediately (penhi). The period
                 // counter then times the high → low byte step.
                 self.period_counter = self.effective_period();
@@ -664,7 +661,9 @@ impl AudioChannel {
                 self.output_sample = (word >> 8) as u8 as i8;
                 self.next_byte_is_hi = false;
                 self.state = AudioState::Playing;
-                self.dma_requests_pending = self.dma_requests_pending.saturating_add(1);
+                if request_next {
+                    self.queue_dma_request();
+                }
                 false
             }
             AudioState::Playing => {
@@ -678,7 +677,7 @@ impl AudioChannel {
         }
     }
 
-    fn tick_output(&mut self, consume_word_each_transition: bool) -> Option<AudioOutputEvent> {
+    fn tick_output(&mut self, period_attach: bool) -> Option<AudioOutputEvent> {
         if self.period_counter == 0 {
             self.period_counter = self.effective_period();
         }
@@ -694,6 +693,13 @@ impl AudioChannel {
             self.current_word = Some(next);
             self.next_byte_is_hi = true;
         }
+        // pbufld1 loads the waiting word on high-byte entry, not on the
+        // preceding low-byte transition: DMA may arrive between those edges.
+        if self.next_byte_is_hi
+            && let Some(next) = self.next_word.take()
+        {
+            self.current_word = Some(next);
+        }
         let word = self.current_word?;
 
         let byte = if self.next_byte_is_hi {
@@ -705,18 +711,19 @@ impl AudioChannel {
 
         if self.next_byte_is_hi {
             self.next_byte_is_hi = false;
-            if consume_word_each_transition && let Some(next) = self.next_word.take() {
-                self.current_word = Some(next);
-            }
             return Some(AudioOutputEvent::HighByte(word));
         }
 
         self.next_byte_is_hi = true;
-        if let Some(next) = self.next_word.take() {
-            self.current_word = Some(next);
-        } else if !consume_word_each_transition {
+        if period_attach {
+            // pbufld2 consumes the holding word for period modulation. Its
+            // data remains in AUDxDAT; the output buffer retains both bytes.
+            self.next_word = None;
+        }
+        if !self.dma_active {
             self.current_word = None;
         }
+        // DMA underflow repeats the buffer without losing the byte phase.
         Some(AudioOutputEvent::LowByte(word))
     }
 
@@ -1341,16 +1348,23 @@ impl Paula8364 {
     /// Retire a word read at the retained DMA address. Playback is clocked
     /// separately once by `tick_audio_cck`; this does not tick the engine.
     pub fn service_audio_dma_word(&mut self, channel: u8, address: u32, reload: bool, word: u16) {
-        let Some(audio) = self.audio.get_mut(usize::from(channel)) else {
+        let index = usize::from(channel);
+        let Some(audio) = self.audio.get_mut(index) else {
             panic!("invalid admitted audio channel");
         };
+        let request_next =
+            self.adkcon & ADKCON_USE_PER[index] == 0 || self.adkcon & ADKCON_USE_VOL[index] != 0;
         if reload {
             audio.words_remaining = audio.programmed_length_words();
         }
         audio.ptr = address.wrapping_add(2);
         audio.words_remaining = audio.words_remaining.saturating_sub(1);
-        if audio.accept_dma_word(word, reload) {
+        let starting = audio.state == AudioState::WaitWord2;
+        if audio.accept_dma_word(word, reload, request_next) {
             self.intreq |= INT_AUD0 << channel;
+        }
+        if starting {
+            self.apply_audio_modulation_event(index, AudioOutputEvent::HighByte(word));
         }
     }
 
@@ -1370,9 +1384,18 @@ impl Paula8364 {
 
         if let Some(ch_u8) = audio_dma_slot
             && let Some(ch) = self.audio.get_mut(ch_u8 as usize)
-            && ch.service_dma_slot(&mut read_chip_byte)
         {
-            irq_mask |= INT_AUD0 << ch_u8;
+            let index = usize::from(ch_u8);
+            let request_next = self.adkcon & ADKCON_USE_PER[index] == 0
+                || self.adkcon & ADKCON_USE_VOL[index] != 0;
+            let starting = ch.state == AudioState::WaitWord2;
+            if ch.service_dma_slot(&mut read_chip_byte, request_next) {
+                irq_mask |= INT_AUD0 << ch_u8;
+            }
+            if starting && ch.state == AudioState::Playing {
+                let word = ch.dat;
+                self.apply_audio_modulation_event(index, AudioOutputEvent::HighByte(word));
+            }
         }
 
         let mut output_events = [None; 4];
@@ -1384,9 +1407,8 @@ impl Paula8364 {
             if channel.dma_active && channel.state != AudioState::Playing {
                 continue;
             }
-            let combined_attach = (self.adkcon & ADKCON_USE_PER[index]) != 0
-                && (self.adkcon & ADKCON_USE_VOL[index]) != 0;
-            let event = channel.tick_output(combined_attach);
+            let period_attach = (self.adkcon & ADKCON_USE_PER[index]) != 0;
+            let event = channel.tick_output(period_attach);
             if event.is_some_and(AudioOutputEvent::is_word_complete) && !channel.dma_active {
                 irq_mask |= INT_AUD0 << index;
             }
@@ -1429,42 +1451,32 @@ impl Paula8364 {
     fn audio_dma_request_on_event(&self, index: usize, event: AudioOutputEvent) -> bool {
         let use_vol = (self.adkcon & ADKCON_USE_VOL[index]) != 0;
         let use_per = (self.adkcon & ADKCON_USE_PER[index]) != 0;
-        match (use_per, use_vol, event) {
-            (false, false, AudioOutputEvent::LowByte(_)) => true,
-            (false, false, AudioOutputEvent::HighByte(_)) => false,
-            (false, true, AudioOutputEvent::LowByte(_)) => true,
-            (false, true, AudioOutputEvent::HighByte(_)) => false,
-            (true, false, AudioOutputEvent::HighByte(_)) => true,
-            (true, false, AudioOutputEvent::LowByte(_)) => false,
-            (true, true, _) => true,
+        // HRM/vAmiga: 011 -> 010 requests when napnav is true;
+        // 010 -> 011 requests only for attach period.
+        match event {
+            AudioOutputEvent::HighByte(_) => !use_per || use_vol,
+            AudioOutputEvent::LowByte(_) => use_per,
         }
     }
 
     fn apply_audio_modulation_event(&mut self, source: usize, event: AudioOutputEvent) {
+        if source + 1 >= self.audio.len() {
+            return;
+        }
         let use_vol = (self.adkcon & ADKCON_USE_VOL[source]) != 0;
         let use_per = (self.adkcon & ADKCON_USE_PER[source]) != 0;
-        if !use_vol && !use_per {
-            return;
-        }
-        let should_apply = match (use_per, use_vol, event) {
-            (true, false, AudioOutputEvent::HighByte(_)) => true,
-            (true, false, AudioOutputEvent::LowByte(_)) => false,
-            (false, true, AudioOutputEvent::HighByte(_)) => false,
-            (false, true, AudioOutputEvent::LowByte(_)) => true,
-            (true, true, _) => true,
-            (false, false, _) => false,
-        };
-        if !should_apply || source + 1 >= self.audio.len() {
-            return;
-        }
-        let word = event.word();
-        let target = &mut self.audio[source + 1];
-        match (use_per, use_vol, event) {
-            (true, true, AudioOutputEvent::HighByte(_)) => target.write_period(word),
-            (true, true, AudioOutputEvent::LowByte(_)) => target.write_volume(word),
-            (true, false, _) => target.write_period(word),
-            (false, true, _) => target.write_volume(word),
-            (false, false, _) => {}
+        // Attachment uses the current AUDxDAT holding latch, not the word
+        // whose high/low byte is leaving the output buffer. Startup performs
+        // pbufld1 too, so it delivers volume before the first timed transition.
+        let word = self.audio[source].dat;
+        match event {
+            AudioOutputEvent::HighByte(_) if use_vol => {
+                self.audio[source + 1].write_volume(word);
+            }
+            AudioOutputEvent::LowByte(_) if use_per => {
+                self.audio[source + 1].write_period(word);
+            }
+            _ => {}
         }
     }
 
