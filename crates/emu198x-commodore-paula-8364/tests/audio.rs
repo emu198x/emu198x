@@ -60,12 +60,10 @@ fn audio_register_writes_to_missing_channel_are_dropped_safely() {
 
 #[test]
 fn channel_volume_scales_output_linearly_across_the_6_bit_range() {
-    // Paula's volume is a clean 6-bit multiply (0..64), not a coarse PWM
-    // approximation: the mixed output is linearly proportional to
-    // AUDxVOL and saturates at 64 — the same `sample * audvol` model
-    // vAmiga and WinUAE use. This is the "6-bit volume" half of #38;
-    // the period-driven sample-and-hold resampling (the other half) is
-    // exercised by `period_reloads_match_compiled_reference_including_zero_and_short_values`.
+    // Characterize the current scalar mixer: its gain equals the average of
+    // the HRM's 64-step PWM duty cycle for a constant sample and volume.
+    // This does not establish physical pulse phase or gain-write timing.
+    // See volume-output-probe for the separately measured PWM discrepancy.
     fn output_at_volume(vol: u16) -> f32 {
         let mut p = Paula8364::new();
         p.write_audio(0, AudioField::LcHi, 0);
