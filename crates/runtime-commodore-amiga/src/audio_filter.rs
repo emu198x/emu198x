@@ -8,19 +8,18 @@
 //! 1. **Static low-pass** — 1-pole RC, R=360Ω / C=100nF → ~4421 Hz.
 //!    Fitted on the A500/A1000 only; the A1200 omits it.
 //! 2. **LED filter** — 2-pole Sallen-Key biquad, R1=R2=10kΩ,
-//!    C1=6.8nF / C2=3.9nF → ~9777 Hz with a high Q (~20.9, a resonant
-//!    peak). Switchable via CIA-A PRA bit 1 (the power-LED line):
+//!    C1=6.8nF / C2=3.9nF → ~3091 Hz, Q≈0.66.
+//!    Switchable via CIA-A PRA bit 1 (the power-LED line):
 //!    bright LED = filter on. The A1000 wires it always-on.
 //! 3. **Static high-pass** — 1-pole RC DC blocker at ~5 Hz, always on.
 //!
 //! Coefficients are computed once for the host sample rate. The IIR
-//! state is transient (a few samples) and intentionally not part of the
-//! snapshot — a restore drops it and re-settles within microseconds.
+//! history is saved so a restore continues the same audible response.
 
 use crate::profiles::Model;
 use crate::runtime::AUDIO_SAMPLE_RATE_HZ;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::f64::consts::PI;
 
 // ── Component values (vAmiga AudioFilter.cpp:245-266) ────────────────
@@ -217,7 +216,51 @@ pub struct AmigaAudioFilter {
     led_always_on: bool,
 }
 
+/// Persist only signal history; coefficients and board wiring come from the model.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+pub(crate) struct AudioFilterHistory {
+    pub(crate) low: Option<[f64; 2]>,
+    pub(crate) led_left: [f64; 4],
+    pub(crate) led_right: [f64; 4],
+    pub(crate) high: [f64; 2],
+}
+
 impl AmigaAudioFilter {
+    pub(crate) fn history(&self) -> AudioFilterHistory {
+        AudioFilterHistory {
+            low: self.lo.map(|filter| [filter.sl, filter.sr]),
+            led_left: self.led.l,
+            led_right: self.led.r,
+            high: [self.hi.sl, self.hi.sr],
+        }
+    }
+
+    pub(crate) fn from_history(model: Model, history: AudioFilterHistory) -> Option<Self> {
+        let mut filter = Self::for_model(model);
+        // The mixer is bounded to ±1. These stable, low-Q stages remain well
+        // inside ±16, including switching transients. Reject nonphysical or
+        // nonfinite histories before they can poison subsequent audio.
+        let valid = history
+            .low
+            .iter()
+            .flatten()
+            .chain(&history.led_left)
+            .chain(&history.led_right)
+            .chain(&history.high)
+            .all(|value| value.is_finite() && value.abs() <= 16.0);
+        if !valid || history.low.is_some() != filter.lo.is_some() {
+            return None;
+        }
+        if let (Some(low), Some([left, right])) = (&mut filter.lo, history.low) {
+            low.sl = left;
+            low.sr = right;
+        }
+        filter.led.l = history.led_left;
+        filter.led.r = history.led_right;
+        [filter.hi.sl, filter.hi.sr] = history.high;
+        Some(filter)
+    }
+
     /// Build the chain for a model. The static low-pass is fitted on
     /// the A500/A1000 and dropped on the A1200; the high-pass cutoff
     /// differs slightly on the A1200; and the A1000 forces the LED

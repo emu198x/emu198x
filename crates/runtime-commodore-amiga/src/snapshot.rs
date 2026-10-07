@@ -39,7 +39,8 @@ use crate::variants::AmigaMachine;
 // Version 58 retains Paula loop conditions and one-CCK IRQ delivery.
 // Version 59 retains the sampled manual-audio stop/continue decision.
 // Version 60 retains early audio sampling phases across DMA mode changes.
-const SNAPSHOT_VERSION: u32 = 60;
+// Version 61 retains partial host-sample areas and analog filter history.
+const SNAPSHOT_VERSION: u32 = 61;
 
 /// Persistable Amiga runtime envelope. Wraps the variant's chip-stack
 /// snapshot (`M::Snapshot`) with the surrounding runtime context
@@ -48,7 +49,7 @@ const SNAPSHOT_VERSION: u32 = 60;
 /// Versioned so future snapshot extensions can bump the major version
 /// cleanly.
 #[derive(Serialize, Deserialize)]
-struct SnapshotEnvelopeV60<M: AmigaMachine> {
+struct SnapshotEnvelopeV61<M: AmigaMachine> {
     version: u32,
     config: AmigaConfig,
     time: MachineTime,
@@ -60,6 +61,8 @@ struct SnapshotEnvelopeV60<M: AmigaMachine> {
     non_white_pixels: u32,
     first_active_row: Option<u32>,
     audio_sample_accumulator: u64,
+    audio_sample_area: [f64; 2],
+    audio_filter_history: crate::audio_filter::AudioFilterHistory,
 }
 
 /// Encode a runtime as postcard bytes. Caller-side error type is
@@ -74,7 +77,7 @@ pub(crate) fn encode<M: AmigaMachine>(runtime: &AmigaRuntime<M>) -> Result<Vec<u
     } else {
         runtime.floppy0_writable()
     };
-    let envelope = SnapshotEnvelopeV60::<M> {
+    let envelope = SnapshotEnvelopeV61::<M> {
         version: SNAPSHOT_VERSION,
         config: runtime.config(),
         time: runtime.time_value(),
@@ -86,6 +89,8 @@ pub(crate) fn encode<M: AmigaMachine>(runtime: &AmigaRuntime<M>) -> Result<Vec<u
         non_white_pixels: runtime.non_white_pixels(),
         first_active_row: runtime.first_active_row(),
         audio_sample_accumulator: runtime.audio_sample_accumulator(),
+        audio_sample_area: runtime.audio_sample_area(),
+        audio_filter_history: runtime.audio_filter_history(),
     };
     postcard::to_allocvec(&envelope).map_err(|reason| MachineError::InvalidSnapshot {
         reason: reason.to_string(),
@@ -115,7 +120,7 @@ pub(crate) fn decode<M: AmigaMachine>(
         });
     }
 
-    let envelope: SnapshotEnvelopeV60<M> =
+    let envelope: SnapshotEnvelopeV61<M> =
         postcard::from_bytes(bytes).map_err(|reason| MachineError::InvalidSnapshot {
             reason: reason.to_string(),
         })?;
@@ -178,6 +183,25 @@ pub(crate) fn decode<M: AmigaMachine>(
         });
     }
 
+    // Mixer output is clamped to ±1, so a partial area's magnitude cannot
+    // exceed the elapsed phase. Validate before committing any live state.
+    if envelope
+        .audio_sample_area
+        .iter()
+        .any(|area| !area.is_finite() || area.abs() > envelope.audio_sample_accumulator as f64)
+    {
+        return Err(MachineError::InvalidSnapshot {
+            reason: "invalid accumulated audio signal area".into(),
+        });
+    }
+    let audio_filter = crate::audio_filter::AmigaAudioFilter::from_history(
+        envelope.config.model(),
+        envelope.audio_filter_history,
+    )
+    .ok_or_else(|| MachineError::InvalidSnapshot {
+        reason: "invalid audio filter history".into(),
+    })?;
+
     if let Some(adf) = persisted_adf {
         candidate_machine.reattach_floppy0(adf, envelope.floppy0_writable);
     }
@@ -195,7 +219,7 @@ pub(crate) fn decode<M: AmigaMachine>(
     runtime.set_first_active_row(envelope.first_active_row);
     runtime.set_audio_sample_accumulator(envelope.audio_sample_accumulator);
     runtime.clear_audio_buffer();
-    runtime.reset_audio_filter();
+    runtime.restore_audio_signal(envelope.audio_sample_area, audio_filter);
     runtime.refresh_rgba_framebuffer();
     runtime.clear_cpu_trace_after_restore();
     Ok(())
@@ -345,7 +369,7 @@ mod tests {
     fn restore_rejects_out_of_range_audio_phase_without_mutating_runtime() {
         let source = AmigaOcsRuntime::blank(Model::A500OcsPal);
         let encoded = encode(&source).expect("encode source snapshot");
-        let mut envelope: SnapshotEnvelopeV60<AmigaOcs> =
+        let mut envelope: SnapshotEnvelopeV61<AmigaOcs> =
             postcard::from_bytes(&encoded).expect("decode internal envelope");
         envelope.audio_sample_accumulator = u64::MAX;
         let forged = postcard::to_allocvec(&envelope).expect("encode forged audio phase");
@@ -370,7 +394,7 @@ mod tests {
     fn restore_rejects_machine_state_that_disagrees_with_a530_configuration() {
         let stock = AmigaOcsRuntime::blank(Model::A500OcsPal);
         let encoded = encode(&stock).expect("encode stock snapshot");
-        let mut envelope: SnapshotEnvelopeV60<AmigaOcs> =
+        let mut envelope: SnapshotEnvelopeV61<AmigaOcs> =
             postcard::from_bytes(&encoded).expect("decode internal envelope");
         envelope.config = Model::A500OcsPalGvpA530.config();
         let forged = postcard::to_allocvec(&envelope).expect("encode forged envelope");
@@ -434,7 +458,7 @@ mod tests {
     fn malformed_persisted_media_is_rejected_without_mutating_runtime_or_trace() {
         let source = AmigaOcsRuntime::blank(Model::A500OcsPal);
         let encoded = encode(&source).expect("encode source snapshot");
-        let mut envelope: SnapshotEnvelopeV60<AmigaOcs> =
+        let mut envelope: SnapshotEnvelopeV61<AmigaOcs> =
             postcard::from_bytes(&encoded).expect("decode internal envelope");
         envelope.floppy0_bytes = Some(vec![0; 17]);
         let forged = postcard::to_allocvec(&envelope).expect("encode forged envelope");
@@ -491,7 +515,51 @@ mod tests {
     }
 
     #[test]
-    fn successful_restore_drops_transient_audio_filter_history() {
+    fn restore_retains_live_audio_filter_response() {
+        let mut source = AmigaOcsRuntime::blank(Model::A500OcsPal);
+        for _ in 0..64 {
+            let _ = source.filter_audio_for_test(0.75, -0.5, true);
+        }
+        let encoded = encode(&source).expect("encode live audio history");
+        let mut target = AmigaOcsRuntime::blank(Model::A500OcsPal);
+        decode(&mut target, &encoded).expect("restore live audio history");
+        assert_eq!(
+            target.filter_audio_for_test(0.25, -0.125, true),
+            source.filter_audio_for_test(0.25, -0.125, true),
+            "restore must preserve the next audible output"
+        );
+    }
+
+    #[test]
+    fn malformed_audio_signal_is_rejected_atomically() {
+        let source = AmigaOcsRuntime::blank(Model::A500OcsPal);
+        let encoded = encode(&source).expect("encode source");
+        for damage in 0..8 {
+            let mut envelope: SnapshotEnvelopeV61<AmigaOcs> =
+                postcard::from_bytes(&encoded).expect("decode source envelope");
+            match damage {
+                0 => envelope.audio_sample_area[0] = f64::NAN,
+                1 => envelope.audio_sample_area[1] = f64::INFINITY,
+                2 => envelope.audio_sample_area[0] = 1.0,
+                3 => envelope.audio_filter_history.led_left[2] = f64::NAN,
+                4 => envelope.audio_filter_history.led_right[3] = f64::INFINITY,
+                5 => envelope.audio_filter_history.high[0] = 17.0,
+                6 => envelope.audio_filter_history.low = None,
+                7 => envelope.audio_filter_history.low = Some([f64::NEG_INFINITY, 0.0]),
+                _ => unreachable!(),
+            }
+            let forged = postcard::to_allocvec(&envelope).expect("encode malformed state");
+            let mut target = AmigaOcsRuntime::blank(Model::A500OcsPal);
+            let _ = target.filter_audio_for_test(0.5, -0.5, true);
+            let before = encode(&target).expect("encode warm target");
+            let error = decode(&mut target, &forged).expect_err("reject malformed signal");
+            assert!(matches!(error, MachineError::InvalidSnapshot { .. }));
+            assert_eq!(before, encode(&target).expect("encode rejected target"));
+        }
+    }
+
+    #[test]
+    fn successful_restore_replaces_target_history_with_saved_silence() {
         let source = AmigaOcsRuntime::blank(Model::A500OcsPal);
         let encoded = encode(&source).expect("encode source snapshot");
         let mut target = AmigaOcsRuntime::blank(Model::A500OcsPal);
@@ -506,7 +574,7 @@ mod tests {
         let expected = fresh.filter_audio_for_test(0.25, -0.125, false);
         assert_eq!(
             restored, expected,
-            "restore must restart the non-persisted IIR history"
+            "restore must replace target history with the source's saved zero history"
         );
     }
 }

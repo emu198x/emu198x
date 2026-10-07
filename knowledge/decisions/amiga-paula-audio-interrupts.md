@@ -126,6 +126,22 @@ steady-duty invariants across all 128 encodings, but their counter stepping
 and reload behavior differ. The 36,864-row comparison does not establish a
 physical phase oracle. Do not replace the current scalar gain with a guessed
 byte/word latch on this evidence. A PWM correction also needs filtering and
-resampling before 48 kHz host decimation; the current runtime point-samples
-the mixer. Counter phase, register delivery and resumable resampling history
-remain research/design work, with no production or snapshot change yet.
+resampling before 48 kHz host decimation. The inspected WinUAE PWM path was
+introduced as experimental and later lost its GUI control; its phase is not
+a validated hardware oracle. Counter phase and physical register delivery
+remain research work.
+
+The user approved extending the existing host-audio accumulator and saving
+its partial signal areas plus analogue-filter history in snapshot v61,
+rejecting v60. Integrate each completed system tick's stereo output, splitting
+its weight at a host boundary with the existing integer phase. Retain the
+same chip clocks and output cadence. Restore saved signal history rather than
+restarting the filters; reconstruct coefficients from the machine model and
+reject invalid history/area before mutating live state. Reset clears both.
+
+The [host-sampling observations](../../../../reference/by-system/commodore-amiga/2026-paula-host-sampling-observations.md)
+record the 36 failing pulse cases and the filter-discontinuity reproduction.
+All pulse cases now pass, 48 board restore checkpoints replay host samples
+and snapshot bytes exactly, and precise AGA instruction stepping agrees with
+ordinary tick sampling. This interval averaging conserves represented signal
+area; it is not a complete band-limited resampler or a physical PWM model.
