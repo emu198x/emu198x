@@ -412,14 +412,6 @@ impl Upd7002 {
     }
 }
 
-/// Teletext logical colour (0-7) to ARGB. The three bits are red, green, blue.
-fn teletext_colour(c: u8) -> u32 {
-    let r = u32::from(c & 0x01 != 0) * 0xFF;
-    let g = u32::from(c & 0x02 != 0) * 0xFF;
-    let b = u32::from(c & 0x04 != 0) * 0xFF;
-    0xFF00_0000 | (r << 16) | (g << 8) | b
-}
-
 /// Motorola 6850 ACIA — the BBC's serial chip at SHEILA `$FE08`/`$FE09`
 /// (cassette + RS423). No serial peripheral is wired in this core, so the
 /// receiver never fills and the transmitter is always ready; the chip sits idle
@@ -536,10 +528,40 @@ impl Mc6850 {
 /// half a microsecond of the 16 MHz dot clock. The 1 MHz clock doubles it.
 const FAST_CHAR_PIXELS: usize = 8;
 
-/// MODE 7's character cell: twelve framebuffer pixels per 6845 column, the
-/// forty columns centred in the window.
-const TELETEXT_CELL_WIDTH: usize = saa5050::CELL_WIDTH;
-const TELETEXT_X_BASE: usize = (FB_WIDTH as usize - 40 * TELETEXT_CELL_WIDTH) / 2;
+/// MODE 7's character cell: one microsecond of the 16 MHz framebuffer, the
+/// same sixteen pixels as a 1 MHz-clock character in MODE 4-6.
+///
+/// The SAA5050 takes one character per 6845 clock, and MODE 7 runs the 6845
+/// at 1 MHz (Video ULA control `&4B`, bit 4 clear; R0 = 63 for a 64 µs line;
+/// Advanced User Guide §18.3.1, §19.1.4). Its twelve half-dots (see
+/// [`saa5050`]) therefore span sixteen pixels, and the forty columns the
+/// whole 640, as MODE 0-6 do. They were twelve pixels, the forty columns
+/// centred in 480 of the 640, which drew MODE 7 three-quarters as wide as the
+/// hardware (#1623).
+///
+/// The cells start where the 6845's display does, as every mode's do: the
+/// core places the picture by the 6845's character count, not by its position
+/// against horizontal sync, and does not model R2. Against sync, the MOS's
+/// MODE 7 sits a microsecond right of MODE 0-6: R2 = 51 starts the 6845's
+/// display two characters earlier than MODE 4-6's 49 (§18.3.3), and the
+/// SAA5050 puts each character out [`TELETEXT_PICTURE_DELAY`] clocks after
+/// the 6845 addresses it. jsbeeb and b-em draw it there.
+const TELETEXT_CELL_WIDTH: usize = FAST_CHAR_PIXELS * 2;
+
+/// Each channel of a MODE 7 pixel that the foreground lights none, a third,
+/// two thirds or all of, the rest being background, as an sRGB value.
+///
+/// Twelve half-dots across sixteen pixels make each half-dot four thirds of
+/// a pixel, so a pixel holds one half-dot, or a third of one and two thirds
+/// of the next. Each pixel is drawn as the light the SAA5050's output puts
+/// into it — the coverage mixed in linear light, then sRGB-encoded — so a
+/// half-dot's edge between pixels keeps its position rather than snapping to
+/// one of them, and a dot is the same width wherever it falls. jsbeeb draws
+/// the same thirds (`makeHiResGlyphs`) and mixes them through a 2.2 gamma;
+/// b-em mixes sixteen levels straight in sRGB. Snapping each half-dot to the
+/// nearest pixels instead would draw dots two and three pixels wide in turn,
+/// and move the half-dot steps character rounding draws.
+const TELETEXT_COVERAGE_LEVELS: [u8; 4] = [0, 156, 213, 255];
 
 /// What the Video ULA and SAA5050 put out while the 6845 is not displaying.
 const BLANK: u32 = 0xFF00_0000;
@@ -558,6 +580,60 @@ const TELETEXT_PICTURE_DELAY: u8 = 3;
 
 /// The ULA's cursor sequence is seven stages long; stage 0 is idle.
 const CURSOR_STAGES: u8 = 7;
+
+/// How much of each of a MODE 7 cell's sixteen pixels the foreground covers,
+/// in thirds (0-3), from the SAA5050's twelve half-dots, leftmost in bit 11.
+///
+/// Every three half-dots fill four pixels: the first pixel is the first
+/// half-dot, the second a third of it and two thirds of the next, the third
+/// two thirds of that and a third of the last, and the fourth the last.
+fn teletext_coverage(pattern: u16) -> [u8; TELETEXT_CELL_WIDTH] {
+    const _: () = assert!(saa5050::CELL_WIDTH * 4 == TELETEXT_CELL_WIDTH * 3);
+    let lit = |half_dot: usize| u8::from(pattern & (0x800 >> half_dot) != 0);
+    let mut coverage = [0; TELETEXT_CELL_WIDTH];
+    for (group, pixels) in coverage.as_chunks_mut::<4>().0.iter_mut().enumerate() {
+        let (a, b, c) = (lit(group * 3), lit(group * 3 + 1), lit(group * 3 + 2));
+        *pixels = [3 * a, a + 2 * b, 2 * b + c, 3 * c];
+    }
+    coverage
+}
+
+/// A MODE 7 pixel `coverage` thirds foreground and the rest background, as
+/// ARGB. The colours are the SAA5050's three bits, red, green and blue from
+/// bit 0. See [`TELETEXT_COVERAGE_LEVELS`].
+fn teletext_pixel(fg: u8, bg: u8, coverage: u8) -> u32 {
+    let level = |bit: u8| -> u32 {
+        let thirds = match (fg & bit != 0, bg & bit != 0) {
+            (true, true) => 3,
+            (false, false) => 0,
+            (true, false) => coverage,
+            (false, true) => 3 - coverage,
+        };
+        u32::from(TELETEXT_COVERAGE_LEVELS[usize::from(thirds)])
+    };
+    0xFF00_0000 | (level(0x01) << 16) | (level(0x02) << 8) | level(0x04)
+}
+
+/// The ULA's cursor inverts the red, green and blue it passes, before they
+/// leave the machine. A MODE 7 pixel mixed from foreground and background
+/// inverts to the same mix of the inverted colours, so a channel a third lit
+/// becomes two thirds lit; the full and empty channels of every other pixel
+/// just swap.
+fn invert_rgb(argb: u32) -> u32 {
+    let [low, high] = [TELETEXT_COVERAGE_LEVELS[1], TELETEXT_COVERAGE_LEVELS[2]];
+    let invert = |shift: u32| -> u32 {
+        let channel = (argb >> shift) as u8;
+        let inverted = if channel == low {
+            high
+        } else if channel == high {
+            low
+        } else {
+            !channel
+        };
+        u32::from(inverted) << shift
+    };
+    (argb & 0xFF00_0000) | invert(16) | invert(8) | invert(0)
+}
 
 fn blank_frame() -> Vec<u32> {
     vec![BLANK; (FB_WIDTH * FB_HEIGHT) as usize]
@@ -1252,17 +1328,17 @@ impl BbcMicro {
         let Some(rows) = self.beam_rows() else {
             return;
         };
-        let (cell, width, x_base) = if self.video_ula.teletext() {
+        let (cell, width) = if self.video_ula.teletext() {
             let Some(cell) = column.checked_sub(TELETEXT_PICTURE_DELAY) else {
                 return;
             };
-            (cell, TELETEXT_CELL_WIDTH, TELETEXT_X_BASE)
+            (cell, TELETEXT_CELL_WIDTH)
         } else if self.video_ula.fast_clock() {
-            (column, FAST_CHAR_PIXELS, 0)
+            (column, FAST_CHAR_PIXELS)
         } else {
-            (column, FAST_CHAR_PIXELS * 2, 0)
+            (column, FAST_CHAR_PIXELS * 2)
         };
-        let x0 = x_base + usize::from(cell) * width;
+        let x0 = usize::from(cell) * width;
         if x0 >= FB_WIDTH as usize {
             return;
         }
@@ -1270,15 +1346,16 @@ impl BbcMicro {
         for row in rows {
             let offset = row * FB_WIDTH as usize;
             for argb in &mut self.back_buffer[offset + x0..offset + x1] {
-                *argb ^= 0x00FF_FFFF;
+                *argb = invert_rgb(*argb);
             }
         }
     }
 
     /// Feed one character to the SAA5050 (MODE 7) and draw the cell it puts
-    /// out: twelve pixels of foreground and background in the fixed 3-bit
-    /// teletext colours, not the Video ULA palette. See [`saa5050`] for how
-    /// the chip decides them.
+    /// out: twelve half-dots of foreground and background in the fixed 3-bit
+    /// teletext colours, not the Video ULA palette, across the sixteen pixels
+    /// of [`TELETEXT_CELL_WIDTH`]. See [`saa5050`] for how the chip decides
+    /// them.
     ///
     /// The character rounding select input is RA0, so in MODE 7's interlace
     /// sync and video mode the even field draws the upper line of each pair
@@ -1298,17 +1375,14 @@ impl BbcMicro {
         let cell = self
             .saa5050
             .character(byte & 0x7F, ra & 0x01 != 0, &self.teletext_font);
-        let fg_argb = teletext_colour(cell.fg);
-        let bg_argb = teletext_colour(cell.bg);
-        let x0 = TELETEXT_X_BASE + column * TELETEXT_CELL_WIDTH;
+        let x0 = column * TELETEXT_CELL_WIDTH;
         let offset = rows.start * FB_WIDTH as usize;
-        for px in 0..TELETEXT_CELL_WIDTH {
+        for (px, coverage) in teletext_coverage(cell.pattern).into_iter().enumerate() {
             let fb_x = x0 + px;
             if fb_x >= FB_WIDTH as usize {
                 break;
             }
-            let on = (cell.pattern >> (TELETEXT_CELL_WIDTH - 1 - px)) & 1 != 0;
-            self.back_buffer[offset + fb_x] = if on { fg_argb } else { bg_argb };
+            self.back_buffer[offset + fb_x] = teletext_pixel(cell.fg, cell.bg, coverage);
         }
         let x1 = (x0 + TELETEXT_CELL_WIDTH).min(FB_WIDTH as usize);
         if x0 < x1 {
@@ -2108,7 +2182,7 @@ mod tests {
         sys.ram[0x7C00..0x8000].fill(b' ');
         sys.ram[0x7C28] = b'A';
         run_both_fields(&mut sys);
-        let x = TELETEXT_X_BASE;
+        let x = 0;
         assert_eq!(pixel(&sys, x, 0), WHITE, "$7C28 is the top-left cell");
         assert_eq!(pixel(&sys, x, 20), BLANK, "and not the second row's");
     }
@@ -2127,7 +2201,7 @@ mod tests {
         sys.ram[0x7C00..0x8000].fill(b' ');
         sys.ram[0x7C00] = b'A';
         run_both_fields(&mut sys);
-        assert_eq!(pixel(&sys, TELETEXT_X_BASE, 20), WHITE, "row 1 is $7C00");
+        assert_eq!(pixel(&sys, 0, 20), WHITE, "row 1 is $7C00");
     }
 
     /// MODE 7's interlace sync and video mode scans the even raster addresses
@@ -2145,7 +2219,7 @@ mod tests {
         sys.ram[0x7C00..0x8000].fill(b' ');
         sys.ram[0x7C00] = b'A';
         run_both_fields(&mut sys);
-        let x = TELETEXT_X_BASE;
+        let x = 0;
         assert_eq!(pixel(&sys, x, 0), WHITE, "the even field's line");
         assert_eq!(pixel(&sys, x, 1), WHITE, "the odd field's line");
         assert_eq!(pixel(&sys, x, 2), BLANK, "the glyph's second line");
@@ -2163,7 +2237,7 @@ mod tests {
         sys.ram[0x7C01] = b'A';
         run_both_fields(&mut sys);
         assert_eq!(
-            pixel(&sys, TELETEXT_X_BASE + TELETEXT_CELL_WIDTH, 0),
+            pixel(&sys, TELETEXT_CELL_WIDTH, 0),
             0xFFFF_0000,
             "the A after CHR$129 is red"
         );
@@ -2190,7 +2264,7 @@ mod tests {
     /// Framebuffer rows of MODE 7 cell (`column`, `row`) that have any
     /// pixel in `colour`, as offsets 0-19 from the top of the cell.
     fn cell_rows_in(sys: &BbcMicro, column: usize, row: usize, colour: u32) -> Vec<usize> {
-        let x0 = TELETEXT_X_BASE + column * TELETEXT_CELL_WIDTH;
+        let x0 = column * TELETEXT_CELL_WIDTH;
         (0..20)
             .filter(|&y| {
                 (x0..x0 + TELETEXT_CELL_WIDTH).any(|x| pixel(sys, x, row * 20 + y) == colour)
@@ -2198,11 +2272,16 @@ mod tests {
             .collect()
     }
 
-    /// The lit pixels of one framebuffer row of a MODE 7 cell, 0-11.
-    fn cell_line(sys: &BbcMicro, column: usize, y: usize) -> Vec<usize> {
-        let x0 = TELETEXT_X_BASE + column * TELETEXT_CELL_WIDTH;
+    /// How much of each pixel of one framebuffer row of a MODE 7 cell white
+    /// text covers on black, in thirds.
+    fn cell_line(sys: &BbcMicro, column: usize, y: usize) -> Vec<u8> {
+        let x0 = column * TELETEXT_CELL_WIDTH;
         (0..TELETEXT_CELL_WIDTH)
-            .filter(|&x| pixel(sys, x0 + x, y) != BLANK)
+            .map(|x| {
+                let green = (pixel(sys, x0 + x, y) >> 8) as u8;
+                let thirds = TELETEXT_COVERAGE_LEVELS.iter().position(|&l| l == green);
+                thirds.expect("a white-on-black level") as u8
+            })
             .collect()
     }
 
@@ -2211,13 +2290,102 @@ mod tests {
     /// reaching towards row 2 and the even field's line of row 2 reaching
     /// back. Before, each dot row was drawn square on whichever field came
     /// last.
+    ///
+    /// The half-dots are 5-7 and 4-6 of twelve, four thirds of a pixel each,
+    /// so the steps fall a third and two thirds of the way into pixels.
     #[test]
     fn mode7_rounds_diagonals_across_the_two_fields() {
         let sys = teletext_screen([0, 0x04, 0x08, 0, 0, 0, 0, 0, 0, 0], &[b"A"]);
-        assert_eq!(cell_line(&sys, 0, 2), [6, 7], "row 1, even field");
-        assert_eq!(cell_line(&sys, 0, 3), [5, 6, 7], "row 1, odd field");
-        assert_eq!(cell_line(&sys, 0, 4), [4, 5, 6], "row 2, even field");
-        assert_eq!(cell_line(&sys, 0, 5), [4, 5], "row 2, odd field");
+        #[rustfmt::skip]
+        let expected: [(usize, [u8; 16], &str); 4] = [
+            (2, [0, 0, 0, 0, 0, 0, 0, 0, 3, 3, 2, 0, 0, 0, 0, 0], "row 1, even field"),
+            (3, [0, 0, 0, 0, 0, 0, 1, 3, 3, 3, 2, 0, 0, 0, 0, 0], "row 1, odd field"),
+            (4, [0, 0, 0, 0, 0, 2, 3, 3, 3, 1, 0, 0, 0, 0, 0, 0], "row 2, even field"),
+            (5, [0, 0, 0, 0, 0, 2, 3, 3, 0, 0, 0, 0, 0, 0, 0, 0], "row 2, odd field"),
+        ];
+        for (y, thirds, line) in expected {
+            assert_eq!(cell_line(&sys, 0, y), thirds, "{line}");
+        }
+    }
+
+    /// The SAA5050 puts out a character a microsecond, the 6845's clock in
+    /// MODE 7, so a cell is the sixteen pixels a microsecond fills on the
+    /// 16 MHz framebuffer, and MODE 7's forty columns fill the 640 as MODE
+    /// 0-6 do. They were twelve pixels each, centred in 480 (#1623).
+    #[test]
+    fn mode7_cells_are_a_microsecond_wide_and_fill_the_window() {
+        assert_eq!(TELETEXT_CELL_WIDTH, 16);
+        let line = |columns: &[usize]| {
+            let mut row = [b' '; 40];
+            for &column in columns {
+                row[column] = b'A';
+            }
+            white_run(&teletext_screen([0x3F; 10], &[&row]), 0)
+        };
+        assert_eq!(line(&[0]), Some((0, 16)), "the first cell");
+        assert_eq!(line(&[39]), Some((624, 640)), "the fortieth cell");
+        let all: Vec<usize> = (0..40).collect();
+        assert_eq!(line(&all), Some((0, FB_WIDTH as usize)), "forty cells");
+    }
+
+    /// Each half-dot covers four thirds of a pixel, from `4h/3` to
+    /// `4(h + 1)/3`, so the thirds of each pixel it covers are the overlap of
+    /// that span with the pixel's. The resampler must give every pattern the
+    /// sum of its half-dots' overlaps: no light lost or moved.
+    #[test]
+    fn mode7_resampling_keeps_each_half_dot_where_it_falls() {
+        let overlap = |half_dot: usize, pixel: usize| -> u8 {
+            let start = (4 * half_dot).max(3 * pixel);
+            let end = (4 * half_dot + 4).min(3 * pixel + 3);
+            end.saturating_sub(start) as u8
+        };
+        for pattern in 0..0x1000u16 {
+            let expected: Vec<u8> = (0..16)
+                .map(|pixel| {
+                    (0..12)
+                        .filter(|&h| pattern & (0x800 >> h) != 0)
+                        .map(|h| overlap(h, pixel))
+                        .sum()
+                })
+                .collect();
+            assert_eq!(
+                teletext_coverage(pattern).to_vec(),
+                expected,
+                "{pattern:012b}"
+            );
+        }
+    }
+
+    /// The levels are coverage mixed in linear light and sRGB-encoded.
+    #[test]
+    fn mode7_coverage_levels_are_linear_light_in_srgb() {
+        for (thirds, &level) in TELETEXT_COVERAGE_LEVELS.iter().enumerate() {
+            let linear = thirds as f64 / 3.0;
+            let encoded = if linear <= 0.003_130_8 {
+                12.92 * linear
+            } else {
+                1.055 * linear.powf(1.0 / 2.4) - 0.055
+            };
+            assert_eq!(level, (encoded * 255.0).round() as u8, "{thirds} thirds");
+        }
+    }
+
+    /// The cursor inverts the SAA5050's colours before they are mixed, so an
+    /// inverted pixel is the same mix of the inverted foreground and
+    /// background.
+    #[test]
+    fn the_cursor_inverts_a_mixed_mode7_pixel_to_the_inverted_mix() {
+        for fg in 0..8 {
+            for bg in 0..8 {
+                for coverage in 0..=3 {
+                    assert_eq!(
+                        invert_rgb(teletext_pixel(fg, bg, coverage)),
+                        teletext_pixel(fg ^ 7, bg ^ 7, coverage),
+                        "fg {fg}, bg {bg}, {coverage} thirds"
+                    );
+                }
+            }
+        }
     }
 
     /// Double height (code 141, `$8D`) is set-after: the code's own cell is a
@@ -2285,8 +2453,8 @@ mod tests {
     #[test]
     fn flashing_teletext_hides_for_16_fields_in_64() {
         let mut sys = teletext_screen([0x3F; 10], &[b"\x88A\x89A"]);
-        let x = TELETEXT_X_BASE + TELETEXT_CELL_WIDTH;
-        let steady = TELETEXT_X_BASE + 3 * TELETEXT_CELL_WIDTH;
+        let x = TELETEXT_CELL_WIDTH;
+        let steady = 3 * TELETEXT_CELL_WIDTH;
         let mut shown = Vec::new();
         for _ in 0..150 {
             sys.run_frame();
@@ -2475,7 +2643,7 @@ mod tests {
         sys.mem_write(0xFE00, 15);
         sys.mem_write(0xFE01, 0x05); // the sixth cell of row 0
         run_both_fields(&mut sys);
-        let x = TELETEXT_X_BASE + 5 * TELETEXT_CELL_WIDTH;
+        let x = 5 * TELETEXT_CELL_WIDTH;
         assert_eq!(white_run(&sys, 18), Some((x, x + TELETEXT_CELL_WIDTH)));
         assert_eq!(white_run(&sys, 19), Some((x, x + TELETEXT_CELL_WIDTH)));
         assert_eq!(white_run(&sys, 17), None, "only the bottom line");
