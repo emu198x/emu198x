@@ -643,6 +643,7 @@ impl C64Runtime {
         self.esp_at_tcp_bridge = None;
         // Nothing is driving the line any more, so the port's pull-ups win.
         self.machine.set_user_port_pb0(true);
+        self.machine.set_user_port_flag2(true);
     }
 
     /// Attached GeoRAM size in KiB, if any. Retained across a reset.
@@ -1028,9 +1029,14 @@ impl MachineCore for C64Runtime {
 
             // One bit-bang step per C64 `phi2` cycle: the modem samples PA2
             // (pin M, computer TX) and answers on PB0 (pin C, computer RX).
+            // Its adapter wires RX to /FLAG2 (pin B) as well, as user-port
+            // serial boards do (the Sven Petersen Rev. 2 among them), so the
+            // falling edge of a start bit raises an interrupt and a client is
+            // told a byte is arriving instead of having to catch it.
             if let Some(bridge) = self.esp_at_tcp_bridge.as_mut() {
                 let rx = bridge.tick(self.machine.user_port_pa2());
                 self.machine.set_user_port_pb0(rx);
+                self.machine.set_user_port_flag2(rx);
             }
 
             // The Ultimate is buffered, so it only needs the chance to move
