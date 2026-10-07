@@ -64,7 +64,7 @@ fn booted(with_extended: bool) -> Option<AmigaOcs> {
 }
 
 /// Distinct colours in the frame, and how many rows hold anything other
-/// than the dominant one. A machine painting a flat field scores 1 and 0;
+/// than the dominant one outside the fixed horizontal blanking. A machine painting a flat field scores 1 and 0;
 /// a machine drawing a screen scores neither.
 fn frame_shape(amiga: &AmigaOcs) -> (usize, usize) {
     let frame = amiga.denise().framebuffer();
@@ -78,9 +78,21 @@ fn frame_shape(amiga: &AmigaOcs) -> (usize, usize) {
         .max_by_key(|&(_, n)| *n)
         .map(|(&colour, _)| colour)
         .unwrap_or(0);
+    // Columns that differ from the dominant colour in every row are the fixed
+    // horizontal blanking strips at the frame's edges, not drawn content.
+    // Counting them would make every row look drawn.
+    let width = width as usize;
+    let height = frame.len() / width;
+    let blanking: Vec<bool> = (0..width)
+        .map(|x| (0..height).all(|y| frame[y * width + x] != dominant))
+        .collect();
     let rows = frame
-        .chunks(width as usize)
-        .filter(|row| row.iter().any(|&pixel| pixel != dominant))
+        .chunks(width)
+        .filter(|row| {
+            row.iter()
+                .zip(&blanking)
+                .any(|(&pixel, &blank)| !blank && pixel != dominant)
+        })
         .count();
     (counts.len(), rows)
 }
