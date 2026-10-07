@@ -6,24 +6,56 @@ Format loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 not strictly. Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [0.31.0] - 2026-10-07
 
-
 ### Added
 
-- *(oric)* Expose the RAM under the ROM through the expansion port's ROMDIS and MAP lines
+- Expose the Oric's expansion-port MAP and ROMDIS lines, so a peripheral can
+  read and write the 16 KB of RAM under the ROM. MAP exposes the RAM, as Mike
+  Brown's ULA guide describes; ROMDIS alone only silences the ROM. The 48K
+  Oric-1 now has that RAM too.
+  ([#344](https://github.com/emu198x/emu198x/issues/344))
 
+### Changed
+
+- **Snapshot compatibility:** C64 snapshots now use layout 17, Oric snapshots
+  layout 6 and Amiga snapshots layout 60. Earlier layouts are rejected because
+  they lack the new VIC-II shifter, expansion-port and Paula state.
+  ([#1660](https://github.com/emu198x/emu198x/issues/1660),
+  [#1661](https://github.com/emu198x/emu198x/issues/1661),
+  [#344](https://github.com/emu198x/emu198x/issues/344))
+- On the Oric, a write under the ROM no longer reaches the RAM beneath it
+  unless MAP is asserted, as on the hardware.
+  ([#344](https://github.com/emu198x/emu198x/issues/344))
 
 ### Fixed
 
-- Preserve Paula playback across DMA mode changes
-- *(oric)* Stop writes under the ROM reaching the RAM beneath it without MAP
-- *(oric)* Give the 48K Oric-1 the 16 KB of RAM under its ROM
-- Report the NTSC raster line when the 6560 does, not when it draws it
-- Draw BBC MODE 7 a microsecond a character, as wide as the other modes
-- Deliver retained audio words after DMA startup cancellation
-- Read the value written to VIA timer 1 one cycle after a T1C-H write
-- *(c64)* Keep a mid-line VIC-II mode change at a fixed dot whatever the XSCROLL
-- *(c64)* Fetch the cell after a mid-line VIC-II mode change in the old mode
-- *(c64)* Show the last character's background in an opened VIC-II border
+- Start the 6522 VIA's timer 1 one cycle after a T1C-H write, as the data sheet
+  specifies. This fixes VIA-timed code on the VIC-20, PET, Oric, BBC Micro, Atom
+  and the 1541/1571 drives: VIC-20 stable-raster programs now settle, and a
+  1571 load of Bruce Lee that used to stall now completes.
+  ([#1642](https://github.com/emu198x/emu198x/issues/1642))
+- Apply the C64 VIC-II's mode bits at the shifter output, so a mid-line mode
+  change lands at a fixed dot whatever the scroll, and show the last
+  character's background in an opened side border. VICE's `modesplit` and
+  `border` tests now match exactly on both the 6569 and 8565. A multicolour
+  "01" pixel now counts as background for sprite priority and collisions.
+  ([#1660](https://github.com/emu198x/emu198x/issues/1660),
+  [#1661](https://github.com/emu198x/emu198x/issues/1661))
+- Report the VIC-20 NTSC raster line 37 cycles before it is drawn, and hold
+  line 0 back for 33 cycles, as real 6560s do.
+  ([#1643](https://github.com/emu198x/emu198x/issues/1643))
+- Draw the BBC Micro's MODE 7 as wide as the other modes: each teletext cell is
+  one microsecond, and the 40 columns fill the picture.
+  ([#1623](https://github.com/emu198x/emu198x/issues/1623))
+- Keep Paula playing correctly across DMA mode changes and DMA start-up
+  cancellation.
+  ([mode changes](https://github.com/emu198x/emu198x/commit/698e2a2d),
+  [start-up](https://github.com/emu198x/emu198x/commit/31da133f))
+
+### Known issues
+
+- Seven Amiga game-catalogue entries still need a reviewed re-capture after
+  the 0.30.0 display and audio timing changes.
+  ([#1662](https://github.com/emu198x/emu198x/issues/1662))
 
 ## [0.30.0] - 2026-10-07
 
