@@ -1,8 +1,8 @@
 # Running the VIC-20 VIC-I survey against VICE
 
-This process answers how closely Emu198x's PAL 6561 VIC-I output agrees with
-VICE xvic, frame for frame, on a fixed set of programs, at one identifiable
-Emu198x revision.
+This process answers how closely Emu198x's VIC-I output — the PAL 6561 and
+the NTSC 6560 — agrees with VICE xvic, frame for frame, on a fixed set of
+programs, at one identifiable Emu198x revision.
 
 It is a software comparison. VICE is the reference emulator for the VIC-20
 (RULES.md, rule 32), not the specification. Where VICE contradicts the 6560
@@ -16,10 +16,10 @@ with VICE, not a hardware-conformance claim.
 | Input | Where | Pinned by |
 |---|---|---|
 | Case list, program and reference SHA-256 | [`cases-v1.json`](../../test-data/commodore/vic-20/vici-vice-survey/cases-v1.json) | tracked |
-| Four raster programs written for the survey | [`programs/`](../../test-data/commodore/vic-20/vici-vice-survey/programs/) | tracked; `build.py --check` |
+| Four raster programs written for the survey, each in a PAL and an NTSC build | [`programs/`](../../test-data/commodore/vic-20/vici-vice-survey/programs/) | tracked; `build.py --check` |
 | VICE's VIC-20 test programs, SVN revision 46281 | `<fixture>/vice-testprogs/` | SHA-256 per program |
-| VICE reference captures and palette calibration | `<fixture>/references/pal/` | SHA-256 per PNG |
-| `kernal.rom` (901486-07), `basic.rom`, `char.rom` | the VIC-20 ROM directory | SHA-256 per ROM |
+| VICE reference captures and palette calibration | `<fixture>/references/{pal,ntsc}/` | SHA-256 per PNG |
+| `kernal.rom` (901486-07, PAL), `kernal-ntsc.rom` (901486-06), `basic.rom`, `char.rom` | the VIC-20 ROM directory | SHA-256 per ROM |
 
 `<fixture>` is `EMU198X_VIC20_VICE_SURVEY_DIR`, defaulting to
 `~/.emu198x/test-suites/vic20`; the ROM directory is `EMU198X_VIC20_ROM_DIR`,
@@ -51,28 +51,35 @@ xvic -config <empty file> -default -console -silent -sounddev dummy \
   -moncommands start.mon -nativemonitor
 ```
 
+with `-model vic20ntsc` and 16,965 cycles a frame (65 x 261) for an NTSC
+case, and `-memory 8k` where a case needs the expansion.
+
 **How a frame is timed.** Both emulators start from power-on. The program
 goes in at the first execution of `$E5EA`, the KERNAL editor's wait for a
 key: `start.mon` sets a checkpoint there whose command plays back a second
 file that deletes the checkpoint, `load`s the program at its own address, sets
 BASIC's pointers at `$2D`-`$32` past it, and queues `RUN` + RETURN in the
-keyboard buffer (`$0277`, count at `$C6`). Both emulators reach `$E5EA` at the
+keyboard buffer (`$0277`, count at `$C6`), followed by any keys the case lists
+for the program to read. Both emulators reach `$E5EA` at the
 same cycle (VICE's stopwatch reads 557,329; Emu198x's clock 557,330, the
 difference being where each counts the reset sequence from). The frame is
 then taken at an exact cycle from power-on: `-limitcycles` stops VICE at
-`capture_frame x 22152` and `-exitscreenshot` writes the frame it has drawn;
+`capture_frame` x the frame length and `-exitscreenshot` writes the frame it
+has drawn;
 the Rust survey runs the same number of cycles and stops at the same frame
 boundary. VICE's autostart is not used, because its timing is VICE's own
 and, by default, randomised; `+autostart-delay-random` is passed anyway.
 The empty `-config` file keeps any user `vicerc` out.
 
-`-VICborders 2` makes VICE draw the whole raster — 284 pixels by 312 lines —
-with each VIC-I pixel two host pixels wide, so the PNG is 568 x 312 and its
-pixel `(2x, y)` is raster pixel `x` of line `y`. Emu198x's framebuffer is the
-230 x 288 window a set displays, starting at raster pixel 20 of line 24
-(`mos_vic_i::window_first_pixel` and `window_first_line`); the survey compares
-that whole window. The boot screen matches VICE pixel for pixel at this
-mapping, which is the check that the mapping is right.
+`-VICborders 2` makes VICE draw the whole raster with each VIC-I pixel two
+host pixels wide. On PAL the PNG is 568 x 312 and its pixel `(2x, y)` is
+raster pixel `x` of line `y`; on NTSC it is 520 x 261 and starts at line 1, so
+pixel `(2x, y)` is raster pixel `x` of line `y + 1`. Emu198x's framebuffer is
+the window a set displays (`mos_vic_i::window_first_pixel` and
+`window_first_line`): 230 x 288 from raster pixel 20 of line 24 on PAL, and
+214 x 240 from pixel 4 of line 21 on NTSC. The survey compares that whole
+window. The boot screens match VICE pixel for pixel at these mappings, which
+is the check that they are right.
 
 **Colours.** VICE renders its palette through its own colour adjustments, so
 RGB values are never compared. The script captures sixteen calibration frames
@@ -115,42 +122,50 @@ VIC20_SURVEY_CASE=raster-border VIC20_SURVEY_OUT=/tmp \
 
 ## The cases
 
-- `basic-boot`, `basic-boot-cursor`: the power-on BASIC screen at frames 150
-  and 170, the second with the cursor lit. These also check that the 6502,
-  the VIAs and the KERNAL's jiffy interrupt keep VICE's time to the frame.
+- `basic-boot`, `basic-boot-cursor`, `ntsc-basic-boot`: the power-on BASIC
+  screen at frames 150 and 170, the second with the cursor lit. These also
+  check that the 6502, the VIAs and the KERNAL's jiffy interrupt keep VICE's
+  time to the frame.
 - `vic6561-*`: VICE's `vic6561` programs. Each prints what a real VIC-20
   should show and then changes a VIC-I register at a VIA-timed point in the
   frame. Only each program's first screen is compared.
 - `vic-9000test`: tokra's `$9000` split, needing the 8K expansion. Its
   `references/` directory holds photographs of a real VIC-20.
-- `vic-vert0`: what the VIC-I fetches on the lines below the text area.
+- `vic-vert0`, `ntsc-vic-vert0`: what the VIC-I fetches on the lines below
+  the text area.
+- `ntsc-vic-line0`: tokra's NTSC test of when `$9004` reports line 0, with
+  `N` queued to answer its interlace question.
 - `split-timing`: tlr's `split-tests/timing`, which reads `$9003`, `$9004`
   and the open bus at every cycle of a line and keeps the results at
   `$17C0`-`$1BFF`; its `dumps/` hold the same results from four real
   machines. The survey compares the final screen.
 - `raster-border`, `raster-background`, `raster-reverse`,
-  `raster-auxiliary`: this project's programs. Each locks to the raster by
-  reading `$9003` every 72 cycles until two reads see the same line, which
-  happens only when the second read is the first cycle of a new line; no VIA
-  timer is involved, so the programs measure the VIC-I alone. Each then
-  writes a register on and, 20 cycles later, off again in a 72-cycle loop, so
-  over 71 lines the band visits every cycle of a line once.
+  `raster-auxiliary`, and their `ntsc-` builds: this project's programs. Each
+  locks to the raster by reading `$9003` every line length plus one cycle
+  until two reads see the same line, which happens only when the second read
+  is the first cycle, as the CPU sees it, of a new line; no VIA timer is
+  involved, so the programs measure the VIC-I alone. Each then writes a
+  register on and, 20 cycles later, off again in a loop one cycle longer than
+  a line, so over a line's worth of lines the band visits every cycle of a
+  line once.
 
 ## Interpreting the results
 
 The table the survey prints, with what each shortfall is; a row that a fix
 moved says what it was:
 
-| Case | Matched of 66,240 | Where it disagrees, and why |
+| Case | Matched of 66,240 (PAL) or 51,360 (NTSC) | Where it disagrees, and why |
 |---|---:|---|
-| basic-boot, basic-boot-cursor, vic6561-test36867-1, vic-vert0 | 100% | — |
+| basic-boot, basic-boot-cursor, vic6561-test36867-1, vic-vert0, ntsc-basic-boot, ntsc-vic-vert0 | 100% | — |
 | vic6561-test36867-2 | 100% | Was 65.990%: Emu198x showed all 23 rows. The program sets 7 rows only around line 0 and prints that "only 7 lines should be displayed"; the chip now reads the row count once, at the top of the frame, as VICE does. |
 | vic6561-test36866-1 | 100% | Was 99.227%: `$9002` written mid-line cut the first two rows short, where the program says each line keeps 22 columns. The chip now reads the column count once, in the first cycle of each line, as VICE does. Reading it at cycle 2 instead loses 716 pixels of test36866-2, so the survey pins the cycle. |
 | vic6561-test36866-2, testcharheigh-2 | 95.494%, 95.829% | Column count and character height changed mid-frame: VICE advances its screen pointer row by row by the columns actually fetched; Emu198x recomputes each row's address from the live registers. |
 | vic6561-test36864, test36865-1/2/3, testmemfetch-1/2, testcharheigh-1, vic-9000test | 99.4-99.98% | Origin, height and fetch registers written mid-line: VICE opens the display when the cycle counter equals `$9000` and keeps it open for the line; Emu198x re-reads every register for every pixel. |
 | raster-border, raster-background, raster-reverse, raster-auxiliary | 95.3-99.6% | Colour-register writes: VICE shows a `$900F` or `$900E` write made in cycle *n* from pixel 4(*n*-7)+1 (reverse mode from 4(*n*-7)+3); Emu198x applies it to the very next pixels. Every band edge is 27 pixels (reverse, 25) left of VICE's. |
 | vic6561-testback | 97.348% | The same colour-register delay in a VIA-timed program: its stripes sit 23 pixels left of VICE's, the 27 less the one cycle of VIA timing below. |
-| split-timing | 43.034% | Emu198x's VIA-timed stable raster does not lock. The program measures 72 cycles a line, against VICE's (and the hardware dumps') 71, because a VIA 6522 timer 1 read lands one count lower than VICE's; it is still mid-run at the capture frame. |
+| split-timing | 43.034% | Emu198x's VIA-timed stable raster does not settle. The program's own measurement of the line reads 72 cycles where VICE reads 71, and it is still mid-run at the capture frame. A VIA timer 1 read a fixed time after loading the counter returns one count lower than VICE's. VICE's results at `$17C0`-`$1BFF` match all four hardware dumps for `$9003` and `$9004`. |
+| ntsc-raster-border, ntsc-raster-background, ntsc-raster-reverse, ntsc-raster-auxiliary | 82.8-98.2% | The colour-register delay as on PAL, plus a second shift: on NTSC VICE's CPU sees the raster line change 37 cycles before its drawn line does (`VIC20_NTSC_CYCLE_OFFSET`), where Emu198x's are the same. The first band line starts at raster pixel 41 in VICE and 216 here: 148 pixels (37 cycles) for the offset, less VICE's 27-pixel colour delay. |
+| ntsc-vic-line0 | 99.965% | The same NTSC raster-read offset, and VICE also reports line 261 for the first 33 cycles of line 0, which the program's notes describe on real hardware. |
 
 The colour-register delay and the display-opening behaviour are one
 mechanism in VICE: the chip fetches a character two cycles at a time several
@@ -164,7 +179,8 @@ Where the primary sources and VICE disagree:
 
 - The Programmer's Reference Guide says "numbers over 27 will give a 27 column
   screen" (p. 214). VICE caps the column count at 32 on PAL and 31 on NTSC;
-  Emu198x does not cap it. No survey case reaches it yet.
+  Emu198x does not cap it. No survey case reaches it yet, and nothing here
+  says which is right.
 
 ## Related documents
 

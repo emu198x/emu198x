@@ -11,7 +11,7 @@ VIC-20 ROMs, the sixteen palette-calibration captures, the injection point and
 the VICE command line. The survey test refuses any input whose bytes differ.
 
 [`programs/`](programs/) holds the four raster programs this project wrote for
-the survey, with their assembled images. Each locks itself to the raster
+the survey, each in a PAL and an NTSC build, with their assembled images. Each locks itself to the raster
 without the VIAs and then moves a register write one cycle right per line, so
 a single frame shows where the VIC-I puts a write made in every cycle of a
 line. `programs/build.py --check` confirms the images match their source.

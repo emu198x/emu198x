@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """Build the VIC-20 VIC-I survey's raster programs.
 
-The four `raster-*.a` programs are this project's own work, so their images
+The `raster-*.a` programs are this project's own work, so their images
 sit in the repository beside their source. They are inputs to the VIC-I
 survey against VICE (`knowledge/processes/vic20-vici-vice-survey.md`), which
 pins each image's SHA-256 in `../cases-v1.json`; what each program draws and
-why is explained at the top of its source.
+why is explained at the top of its source. Each has a PAL build and an
+NTSC one, `raster-*-ntsc.a`, which sets the line length and includes it.
 
 Assembly uses this project's own assembler. Run with no arguments to write
 the images; `--check` rebuilds and compares instead, for CI.
@@ -19,7 +20,11 @@ import sys
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-PROGRAMS = ("raster-border", "raster-background", "raster-reverse", "raster-auxiliary")
+PROGRAMS = tuple(
+    f"raster-{kind}{standard}"
+    for standard in ("", "-ntsc")
+    for kind in ("border", "background", "reverse", "auxiliary")
+)
 
 
 def assemble(name: str) -> bytes:

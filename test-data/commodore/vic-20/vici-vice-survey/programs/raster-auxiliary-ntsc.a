@@ -1,0 +1,5 @@
+; The NTSC 6560 build of raster-auxiliary.a (emu198x/emu198x#362): 65 cycles
+; a line instead of 71.
+
+LINE_CYCLES = 65
+        !source "raster-auxiliary.a"

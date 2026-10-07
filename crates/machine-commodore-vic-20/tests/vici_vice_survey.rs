@@ -23,7 +23,8 @@ use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
 /// Matching pixels per case, out of the framebuffer's 230 x 288 = 66,240 on
-/// PAL. See the process note for what each shortfall is.
+/// PAL and 214 x 240 = 51,360 on NTSC. See the process note for what each
+/// shortfall is.
 const EXPECTED_MATCHES: &[(&str, usize)] = &[
     ("basic-boot", 66_240),
     ("basic-boot-cursor", 66_240),
@@ -47,6 +48,13 @@ const EXPECTED_MATCHES: &[(&str, usize)] = &[
     ("raster-background", 63_837),
     ("raster-reverse", 64_193),
     ("raster-auxiliary", 66_006),
+    ("ntsc-basic-boot", 51_360),
+    ("ntsc-vic-vert0", 51_360),
+    ("ntsc-vic-line0", 51_342),
+    ("ntsc-raster-border", 42_532),
+    ("ntsc-raster-background", 44_094),
+    ("ntsc-raster-reverse", 47_197),
+    ("ntsc-raster-auxiliary", 50_436),
 ];
 
 #[derive(Deserialize)]
@@ -99,6 +107,8 @@ struct Case {
     program: Option<Program>,
     capture_frame: u64,
     reference_sha256: String,
+    /// Keys queued in place of the manifest's default `RUN` + RETURN.
+    keys: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -353,14 +363,12 @@ fn expansion(memory: &str) -> Vic20RamExpansion {
 fn run_case(
     manifest: &Manifest,
     roms: &Roms,
-    model: &str,
-    memory: &str,
+    case: &Case,
     program: Option<&[u8]>,
-    capture_frame: u64,
     before_capture: impl FnOnce(&mut Vic20),
 ) -> Vic20 {
-    let standard = &manifest.models[model];
-    let vic_model = match model {
+    let standard = &manifest.models[&case.model];
+    let vic_model = match case.model.as_str() {
         "pal" => Vic20Model::Pal,
         "ntsc" => Vic20Model::Ntsc,
         other => panic!("model {other} is not mapped"),
@@ -370,9 +378,9 @@ fn run_case(
         roms.basic.clone(),
         roms.chars.clone(),
         vic_model,
-        expansion(memory),
+        expansion(&case.memory),
     );
-    let target = capture_frame * standard.cycles_per_frame;
+    let target = case.capture_frame * standard.cycles_per_frame;
 
     if let Some(program) = program {
         let pc = u16::from_str_radix(&manifest.injection.pc, 16).expect("injection pc");
@@ -389,7 +397,12 @@ fn run_case(
             machine.poke(pointer, lo);
             machine.poke(pointer + 1, hi);
         }
-        let keys = manifest.injection.keys.as_bytes();
+        let keys = case
+            .keys
+            .as_deref()
+            .unwrap_or(&manifest.injection.keys)
+            .as_bytes();
+        assert!(keys.len() <= 10, "the keyboard buffer holds ten keys");
         for (offset, &key) in keys.iter().enumerate() {
             machine.poke(0x0277 + offset as u16, key);
         }
@@ -468,10 +481,8 @@ impl Survey {
         run_case(
             &self.manifest,
             &self.roms,
-            &case.model,
-            &case.memory,
+            case,
             self.program(case).as_deref(),
-            case.capture_frame,
             before_capture,
         )
     }

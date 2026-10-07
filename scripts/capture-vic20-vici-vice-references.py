@@ -12,7 +12,8 @@ Both emulators reach the same point the same way. Each boots from power-on;
 at the first execution of `$E5EA` (the KERNAL editor's wait for a key, the
 first instruction boundary at which BASIC is ready) a case's program is
 copied into RAM at its load address, BASIC's end-of-program pointers are set
-past it and `RUN` + RETURN is queued in the keyboard buffer. The frame is
+past it and `RUN` + RETURN is queued in the keyboard buffer, followed by any
+further keys the case lists for the program to read. The frame is
 taken at an exact cycle count from power-on: VICE stops at `-limitcycles`
 and writes `-exitscreenshot`; the Rust survey runs the same number of
 cycles. Injection uses the VICE monitor (a checkpoint on `$E5EA` whose
@@ -76,20 +77,24 @@ def resolve_program(case: dict, fixture: Path) -> Path | None:
     return root / program["path"]
 
 
-def monitor_files(work: Path, program: Path, injection_pc: str) -> Path:
+def monitor_files(work: Path, program: Path, injection_pc: str, keys: str) -> Path:
     """Write the two monitor-command files that inject `program` at the
-    first execution of `injection_pc` and return the one VICE starts with."""
+    first execution of `injection_pc`, with `keys` queued in the keyboard
+    buffer, and return the one VICE starts with."""
     image = program.read_bytes()
     load = image[0] | image[1] << 8
     end = load + len(image) - 2
     lo, hi = end & 0xFF, end >> 8
+    if not 0 < len(keys) <= 10:
+        raise SystemExit(f"{len(keys)} keys do not fit the 10-key buffer")
+    typed = " ".join(f"{ord(key):02x}" for key in keys)
     inject = work / "inject.mon"
     inject.write_text(
         "del 1\n"
         f'load "{program}" 0\n'
         f"> 002d {lo:02x} {hi:02x} {lo:02x} {hi:02x} {lo:02x} {hi:02x}\n"
-        "> 0277 52 55 4e 0d\n"
-        "> 00c6 04\n"
+        f"> 0277 {typed}\n"
+        f"> 00c6 {len(keys):02x}\n"
     )
     start = work / "start.mon"
     start.write_text(f'break {injection_pc}\ncommand 1 "playback \\"{inject}\\""\nx\n')
@@ -104,6 +109,7 @@ def run_xvic(
     program: Path | None,
     frame: int,
     out: Path,
+    keys: str | None = None,
 ) -> None:
     standard = manifest["models"][model]
     with tempfile.TemporaryDirectory(prefix="vic20-vici-vice-") as tmp:
@@ -115,7 +121,9 @@ def run_xvic(
         args += ["-limitcycles", str(frame * standard["cycles_per_frame"])]
         args += ["-exitscreenshot", str(out)]
         if program is not None:
-            start = monitor_files(work, program, manifest["injection"]["pc"])
+            start = monitor_files(
+                work, program, manifest["injection"]["pc"], keys or manifest["injection"]["keys"]
+            )
             args += ["-moncommands", str(start), "-nativemonitor"]
         if out.exists():
             out.unlink()
@@ -189,6 +197,7 @@ def main() -> int:
             resolve_program(case, fixture),
             case["capture_frame"],
             out,
+            case.get("keys"),
         )
         pin(case, "reference_sha256", out)
         print(f"captured {out.relative_to(fixture)}")

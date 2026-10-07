@@ -48,6 +48,20 @@
         "pixel_width": 2,
         "first_line": 0
       }
+    },
+    "ntsc": {
+      "chip": "6560",
+      "vice_model": "vic20ntsc",
+      "kernal": "kernal-ntsc.rom",
+      "cycles_per_line": 65,
+      "lines_per_frame": 261,
+      "cycles_per_frame": 16965,
+      "screenshot": {
+        "width": 520,
+        "height": 261,
+        "pixel_width": 2,
+        "first_line": 1
+      }
     }
   },
   "firmware": {
@@ -92,6 +106,35 @@
         "13": "ed6395207606b6a42c8fa873fe2c384ba737a416706c3f3ff69ee71497ac05bb",
         "14": "98343af33344f7f24fd65cfeba4245dba65ebd0a3a82653073d6fc3de7b516de",
         "15": "750ec0b82173eef09f4ac7441eb590cb112f62f6916789d9181e11e3176b8787"
+      }
+    },
+    "ntsc": {
+      "capture_frame": 100,
+      "background_sample": [
+        150,
+        220
+      ],
+      "border_sample": [
+        10,
+        10
+      ],
+      "sha256": {
+        "00": "5e1bf9d92f1153f223dd8b025f40b5af91f512882fc181bdf213097e5805f368",
+        "01": "f691b0220431347c61de614873b85ab788b130915e3fe546c1ae5444ada69f5c",
+        "02": "9b3f8958961c7e0c1ccd132c052442aaa3f7f89683b3b688a1b281ec53d0e9fb",
+        "03": "db31476af0e400cc4b59bad1df337381066e8e5d7c633e7d5f0d8a6749ef425f",
+        "04": "9d4a2fdf0b7dd37d3107f1428aa535785c1d7e7966aa19479d90b63aa5e226e0",
+        "05": "4d2a332c52af0f4b116cc0b11bd540de9f9d78185cfb3a7c09f40fbe8c81bb32",
+        "06": "b80f94e8be6cc4939d58b84b5bad13cd45540d50bf2c4d43b1c3274971524873",
+        "07": "f00d123c4f5d3b45a52adc5e5f83646d8d6869f6ac6616ccdf16439633113a03",
+        "08": "d39f2eb6c314bccf70f35079a0d39f2c7e54b6563051f405710226412f180d75",
+        "09": "d72d40db81f0f7d9f697b324dbe049d60612bbca59fe18cb64a95c40d11e1c43",
+        "10": "823603b257467c795520eb4bb7e067a42457464c6384a8ae374d2ff3c775d5be",
+        "11": "d70cf060c0a4cb0baaa4f0d0d867c516577b86e722dffc39ccd9656cad51422a",
+        "12": "a5d2cfd36d05cffb84e25523f12dad5c7cb1d21535b8f6da5a4abeb2deebe3ed",
+        "13": "f203e47a4b19fa3723527c9b2bb8deb461250ba6d8a485cca51083e8f489fd84",
+        "14": "06040c629b2ee76146b0e780082ee634d3c7d54283b5b94098e6f6a31fcee709",
+        "15": "b82f13f818b0880b002400a6bdc01a29f86efcbb7f7230d2ebd8b48254b4e7c1"
       }
     }
   },
@@ -351,6 +394,87 @@
       },
       "capture_frame": 300,
       "reference_sha256": "844a9d2500145c4e7e168da46a556fc9eef3cb622646511a5dde8fdb96e84e5f"
+    },
+    {
+      "id": "ntsc-basic-boot",
+      "model": "ntsc",
+      "memory": "none",
+      "program": null,
+      "capture_frame": 150,
+      "reference_sha256": "43269c845dc48e11e26ac2234f6bfc0eb6bfd892ca5f2b7b5c869a0c47c2d042"
+    },
+    {
+      "id": "ntsc-vic-vert0",
+      "model": "ntsc",
+      "memory": "none",
+      "program": {
+        "root": "fixture",
+        "path": "vice-testprogs/vic_vert0/vert0test.prg",
+        "sha256": "ec0be84ea8e245f64f98213820f8e2332c7566479fe362f29a99ac2492fe912f"
+      },
+      "capture_frame": 300,
+      "reference_sha256": "c818b844577cb064dc475a00f4f783d746549049caf4442edc52ed7e3fe3753f"
+    },
+    {
+      "id": "ntsc-vic-line0",
+      "model": "ntsc",
+      "memory": "none",
+      "program": {
+        "root": "fixture",
+        "path": "vice-testprogs/vic_line0/raster-ntsc.prg",
+        "sha256": "7399527e5621fde0321f1952ad11d77fb5f8d8139623b0ef5889dd8e03f7e3d3"
+      },
+      "capture_frame": 300,
+      "reference_sha256": "6e155be02d8a4071d714d8c587a0acb42b34bd3f7b140700b0da9ec96de6a8db",
+      "keys": "RUN\rN"
+    },
+    {
+      "id": "ntsc-raster-border",
+      "model": "ntsc",
+      "memory": "none",
+      "program": {
+        "root": "repo",
+        "path": "test-data/commodore/vic-20/vici-vice-survey/programs/raster-border-ntsc.prg",
+        "sha256": "7935fd7dada797c1d8438307c22783bfa19188eaf23f2c91a900dda881c68408"
+      },
+      "capture_frame": 300,
+      "reference_sha256": "5d7a7d21ad9c2d6bc2a38645d638c28ae3b6a90f5cf2a1a4c407299f66898aa9"
+    },
+    {
+      "id": "ntsc-raster-background",
+      "model": "ntsc",
+      "memory": "none",
+      "program": {
+        "root": "repo",
+        "path": "test-data/commodore/vic-20/vici-vice-survey/programs/raster-background-ntsc.prg",
+        "sha256": "2e3e40b41c1451a8ab7170fb18f5bcd68bfb12c7dba69eb1830168cc1c61bbb9"
+      },
+      "capture_frame": 300,
+      "reference_sha256": "0772ad451c3f57440dc8299f0b3ea7473f7e269b81ac4c806d8599535e00aa57"
+    },
+    {
+      "id": "ntsc-raster-reverse",
+      "model": "ntsc",
+      "memory": "none",
+      "program": {
+        "root": "repo",
+        "path": "test-data/commodore/vic-20/vici-vice-survey/programs/raster-reverse-ntsc.prg",
+        "sha256": "4bef81ff3371545f55caa7da1bec8f9ee25f14d15f0b54a2b7db32c8af32e084"
+      },
+      "capture_frame": 300,
+      "reference_sha256": "61ce1caed135a75cf5126a7062cb71ba0d59ec785ee3403d663644b29b30870a"
+    },
+    {
+      "id": "ntsc-raster-auxiliary",
+      "model": "ntsc",
+      "memory": "none",
+      "program": {
+        "root": "repo",
+        "path": "test-data/commodore/vic-20/vici-vice-survey/programs/raster-auxiliary-ntsc.prg",
+        "sha256": "fdda226c77ec026a595895d931151e1b2b4ebdf2179caceb618b72b8e863de5a"
+      },
+      "capture_frame": 300,
+      "reference_sha256": "c81a44d94e9fdc6a48a847b32f9662e5f4343737d2f8f0099fdae024e29bc49b"
     }
   ]
 }

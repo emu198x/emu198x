@@ -1,8 +1,8 @@
 ; VIC-I survey raster program 1: a border-colour band (emu198x/emu198x#362).
 ;
-; The display is cut to four text rows, so that the band's lines, 110 to
-; 180, are border all the way across. The band is border colour 2 on
-; border colour 6.
+; The display is cut to four text rows, so that the band's lines, from 110,
+; are border all the way across. The band is border colour 2 on border
+; colour 6.
 
 SYNC_HALF   = 10
 TARGET_LINE = 110
