@@ -1,16 +1,19 @@
 # Live Paula attachment verification
 
-The sweep finds an output-buffer fault without a timing/control mismatch in
-its tested scope. It records 60,928 observations in 5,632 scenarios. Native
-buffer and raw sample each disagree with WinUAE in 31,152 rows, including
+The corrected output buffer matches the reference throughout this sweep.
+The preserved baseline found an output-buffer fault without a timing/control
+mismatch in its tested scope. The sweep records 60,928 observations in 5,632
+scenarios. Before correction, native buffer and raw sample each disagreed with WinUAE in 31,152 rows, including
 1,824 sample disagreements while unmuted. The full-board example reproduces
 the audible interval across OCS/ECS/AGA and all four channels, including 48
 whole/half-CCK restore checkpoints.
 
-These are explicit failing diagnostic examples, not passing accuracy gates.
-Both exit 101 after completing their inventories. Production code is unchanged;
-the existing 114 component tests pass. Promote the diagnostics to regression
-gates with the subsequent correction.
+The original diagnostics both exited 101 after completing their inventories;
+`native-before.log.gz` and `board-before.log.gz` preserve those failures. Their
+shared checks now run as enforced component/runtime integration tests. The
+plain WinUAE CSV is identical to the compressed producer output and allows
+CI to run all observations without a new dependency. Snapshot version 60 is
+unchanged; the existing buffer field retains the required state.
 
 ## Reproduction
 
@@ -29,8 +32,8 @@ Pinned WinUAE `c32694e338fa5f34977f522eb4898adb069d2e73` and vAmiga
 separate C++ programs. Compressed extracted sources retain their upstream
 copyrights and are never linked into Emu198x. Host compatibility hacks and PWM
 are disabled. Compressed CSVs contain the exact output; the generator also
-writes plain CSVs for the native diagnostic. It enforces a nonempty exact
-inventory and input/clock agreement before counting reference differences.
+writes plain CSVs for the native diagnostic and enforced regression. It
+enforces a nonempty exact inventory and input/clock agreement before counting reference differences.
 
 Columns:
 
@@ -54,10 +57,25 @@ The native diagnostic compares every row and asserts the full row/scenario
 counts. Muted mixer output is also checked. The board example follows the
 period-eight volume-to-normal trace: $1122 at attached startup, then $3344 and
 unmute at clock nine. References hold output zero until high entry at sixteen;
-native output exposes $22. All 48 restore checkpoints replay identical chip
-state, IRQs, mixer samples and final snapshot bytes, including that error.
+the original native output exposed $22. All 48 restore checkpoints replay
+identical chip state, IRQs, mixer samples and final snapshot bytes, and now
+preserve the reference-correct audible interval.
 
 Primary evidence:
 `reference/by-system/commodore-amiga/2026-paula-live-attachment-observations.md`
 in the umbrella repository. Physical ADKCON latency, complete DMAL timing,
 target-channel playback and analogue/PWM response remain outside this probe.
+
+Run the enforced gates with:
+
+```sh
+cargo test --locked --release -p emu198x-commodore-paula-8364 --test live_attachment
+cargo test --locked --release -p runtime-commodore-amiga --test paula_live_attachment
+```
+
+A further 64 focused component cases check nonzero buffer retention through
+manual/DMA restart and cancellation at either startup wait. They compare the
+retained high/low bytes with bytes played before stopping, then verify that
+ordinary high entry loads fresh DAT. These invariants follow the inspected
+WinUAE `zerostate`/`loaddat` and vAmiga `disableDMA`/`pbufld1` methods; they are
+not additional compiled-reference observations.
