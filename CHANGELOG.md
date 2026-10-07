@@ -4,6 +4,30 @@ All notable changes to Emu198x will be documented in this file.
 
 Format loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 not strictly. Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [0.30.0] - 2026-10-07
+
+
+### Added
+
+- *(mos-cia-6526)* Model the serial port, CNT input and /PC strobe
+- *(machine-commodore-c64)* Expose the user port's CIA lines to host devices
+
+
+### Fixed
+
+- Keep AGA vertical blanking until the horizontal release edge
+- Blank the OCS right edge at the Denise comparator
+- Honor Lisa blanking edges during counter resets
+- Honour short and zero Paula audio periods
+- Align Paula modulation and DMA requests with byte transitions
+- *(c64)* Apply a mid-line XSCROLL write at the VIC-II's next load
+- Deliver Paula DMA interrupts on their scheduled sample edges
+- Read the Timex machines' unused port $FE bits as 0
+- Preserve Paula manual playback and early stop timing
+- Read the 48K's tape input the right way up in port $FE bit 6
+- Give the 128K-family Spectrums their real port $FE bit 6 with no tape
+- Keep the Spectrum's tape bit high while the speaker bit is set
+
 ## [0.29.0] - 2026-10-07
 
 ### Added
