@@ -1,7 +1,10 @@
-; Cycle-exact raster lock for the PAL 6561 (71 cycles a line), shared by
-; the VIC-I survey's raster programs (emu198x/emu198x#362).
+; Cycle-exact raster lock for the PAL 6561 (71 cycles a line) or the NTSC
+; 6560 (65), shared by the VIC-I survey's raster programs
+; (emu198x/emu198x#362). LINE_CYCLES says which; raster-band.a defaults it
+; to PAL.
 ;
-; The lock reads $9003 every 72 cycles - one cycle more than a line - so
+; The lock reads $9003 every LINE_CYCLES + 1 cycles - one cycle more than a
+; line - so
 ; each read lands one cycle later in its line than the last. Bit 7 of
 ; $9003 is the raster line's low bit, so consecutive reads normally see
 ; it flip. The first pair that sees no flip has skipped a line: the earlier
@@ -21,8 +24,8 @@ TMP     = $fc
 sync    lda $9004               ; coarse: wait for raster line 2*SYNC_HALF
         cmp #SYNC_HALF
         bne sync
-        lda $9003               ; prime: read 72 cycles before the loop's
-        nop                     ; first read
+        lda $9003               ; prime: read a loop pass before the
+        nop                     ; loop's first read
         bit $00
         jmp slide_enter
 slide   lda $9003               ; 4  (reads on its 4th cycle)
@@ -31,11 +34,18 @@ slide   lda $9003               ; 4  (reads on its 4th cycle)
         eor LAST                ; 3
 slide_enter
         sta LAST                ; 3
+!if LINE_CYCLES = 71 {
         ldx #10                 ; 2
 -       dex                     ; 10 * 5 - 1 = 49
         bne -
         bit $00                 ; 3
-        jmp slide               ; 3   = 72 cycles a pass
+} else {
+        ldx #9                  ; 2
+-       dex                     ; 9 * 5 - 1 = 44
+        bne -
+        nop                     ; 2
+}
+        jmp slide               ; 3   = LINE_CYCLES + 1 cycles a pass
 
 locked  lda $9004               ; the line the lock landed on: 2 * $9004
         asl                     ; plus bit 7 of $9003 (both read on the
@@ -49,11 +59,19 @@ locked  lda $9004               ; the line the lock landed on: 2 * $9004
         sec
         sbc TMP
         tax                     ; X = lines to wait, never zero
+!if LINE_CYCLES = 71 {
 -       ldy #13                 ; 2
 --      dey                     ; 13 * 5 - 1 = 64
         bne --
+} else {
+-       ldy #11                 ; 2
+--      dey                     ; 11 * 5 - 1 = 54
+        bne --
+        nop                     ; 4
+        nop
+}
         dex                     ; 2
-        bne -                   ; 3   = 71 cycles a line
+        bne -                   ; 3   = LINE_CYCLES cycles a line
         rts
 
 ; Every timed loop above and in raster-band.a relies on its branches not

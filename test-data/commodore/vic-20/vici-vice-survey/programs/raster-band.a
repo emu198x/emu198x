@@ -2,23 +2,30 @@
 ; (emu198x/emu198x#362).
 ;
 ; Called at a fixed cycle of line TARGET_LINE (see raster-sync.a). Each of
-; 71 lines writes .on to .reg and, 20 cycles later, .off, in a loop of 72
-; cycles - one more than a PAL line - so both writes move one cycle (four
-; pixels) right per line and between them the band visits every cycle of
-; the line once. The band's edges show where the VIC-I puts a write made in
-; a given cycle. Afterwards .reg is left holding .after.
+; LINE_CYCLES lines writes .on to .reg and, 20 cycles later, .off, in a
+; loop of LINE_CYCLES + 1 cycles - one more than a line - so both writes
+; move one cycle (four pixels) right per line and between them the band
+; visits every cycle of the line once. The band's edges show where the
+; VIC-I puts a write made in a given cycle. Afterwards .reg is left
+; holding .after.
+
+; Cycles a line: 71 for the PAL 6561, which is the default, or 65 for the
+; NTSC 6560, which a program selects by defining it first.
+!ifndef LINE_CYCLES {
+LINE_CYCLES = 71
+}
 
 !macro band .reg, .on, .off, .after {
-        ldx #71
+        ldx #LINE_CYCLES
         lda #.off
         ldy #.on
 .line   sty .reg                ; 4   the band starts
         !for i, 1, 8 { nop }    ; 16
         sta .reg                ; 4   and ends 20 cycles later
-        !for i, 1, 20 { nop }   ; 40
-        bit $00                 ; 3
+        !for i, 1, (LINE_CYCLES - 31) / 2 { nop }
+        bit $00                 ; 40 + 3 on PAL, 34 + 3 on NTSC
         dex                     ; 2
-        bne .line               ; 3   = 72 cycles a line
+        bne .line               ; 3   = LINE_CYCLES + 1 cycles a line
         lda #.after
         sta .reg
 }

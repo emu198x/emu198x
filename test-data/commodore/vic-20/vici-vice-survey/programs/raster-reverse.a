@@ -2,8 +2,8 @@
 ; (emu198x/emu198x#362).
 ;
 ; The band writes $900f bit 3 clear (reverse on) and then set again, with
-; paper 1 and border 3 unchanged, over lines 110 to 180: rows 4 to 8 of
-; the display are multicolour and rows 9 to 13 hi-res (raster-glyph.a).
+; paper 1 and border 3 unchanged, from line 110: its upper lines cross
+; multicolour rows and its lower lines hi-res ones (raster-glyph.a).
 ; Auxiliary colour 4.
 
 SYNC_HALF   = 10

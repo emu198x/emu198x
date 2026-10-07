@@ -1,7 +1,7 @@
 ; VIC-I survey raster program 2: a background-colour band
 ; (emu198x/emu198x#362).
 ;
-; The screen is cleared to spaces, so the band's lines, 110 to 180, show
+; The screen is cleared to spaces, so the band's lines, from 110, show
 ; paper wherever the display is and border either side of it. The band is
 ; paper colour 2 on paper colour 6; the border stays colour 3 throughout.
 

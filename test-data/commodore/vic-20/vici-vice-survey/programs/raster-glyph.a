@@ -1,10 +1,18 @@
 ; A character set in RAM for the VIC-I survey's raster programs
 ; (emu198x/emu198x#362): character 0 is %00011011 on every line, which is
 ; the four multicolour pairs 00 01 10 11 in order, and in hi-res three
-; paper dots, two ink, one paper and two ink. Rows 0 to 8 are multicolour
-; with ink 2; the rest are hi-res with ink 2. Every cell holds character 0.
+; paper dots, two ink, one paper and two ink. Every cell holds character 0
+; in ink 2. The first MC_ROWS rows are multicolour and the rest hi-res, so
+; a band from line 110 crosses multicolour rows and then hi-res ones on
+; either standard: rows 0-8 end at line 147 on PAL, rows 0-10 at line 137
+; on NTSC.
 
 CHARSET = $1c00
+!if LINE_CYCLES = 71 {
+MC_ROWS = 9
+} else {
+MC_ROWS = 11
+}
 
 !macro glyph_screen {
         ldx #7
@@ -23,7 +31,7 @@ CHARSET = $1c00
         sta COLOUR + $100,x
         inx
         bne -
-        ldx #9 * 22 - 1
+        ldx #MC_ROWS * 22 - 1
         lda #$08 | 2            ; multicolour, ink 2
 -       sta COLOUR,x
         dex
