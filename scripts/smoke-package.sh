@@ -20,7 +20,8 @@ prg[:3] = bytes([0x4c, 0x00, 0x80])  # JMP $8000
 prg[-6:] = bytes([0x00, 0x80]) * 3   # NMI, reset and IRQ vectors
 Path(sys.argv[1]).write_bytes(header + prg + bytes(8192))
 PY
-  "$package_bin/$package" --headless --rom "$fixture_dir/smoke.nes" --frames 2 --screenshot "$fixture_dir/frame.png" > "$fixture_dir/report.json"
+  printf '[{"action":"run_frames","frames":2}]\n' > "$fixture_dir/script.json"
+  "$package_bin/$package" --headless --rom "$fixture_dir/smoke.nes" --script "$fixture_dir/script.json" --screenshot "$fixture_dir/frame.png" > "$fixture_dir/report.json"
   python3 - "$fixture_dir" <<'PY'
 import json
 from pathlib import Path

@@ -33,6 +33,7 @@ jobs:
       PACKAGE_TARGET: ${{ matrix.target }}
       HOMEBREW_NO_AUTO_UPDATE: '1'
       HOMEBREW_NO_INSTALL_CLEANUP: '1'
+      HOMEBREW_NO_AUTOREMOVE: '1'
     steps:
       - uses: actions/checkout@v6
         with:
@@ -42,6 +43,8 @@ jobs:
       - name: Cache Rust artifacts
         if: inputs.plan == ''
         uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
       - name: Build packages for this native runner
         if: inputs.plan == ''
         shell: bash
