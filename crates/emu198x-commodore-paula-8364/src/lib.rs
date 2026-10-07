@@ -466,6 +466,7 @@ struct AudioChannel {
     loop_interrupt_pending: bool,
     interrupt_request_pending: bool,
     manual_stop_pending: Option<bool>,
+    manual_stop_sample_pending: bool,
 }
 
 impl Default for AudioChannel {
@@ -490,6 +491,7 @@ impl Default for AudioChannel {
             loop_interrupt_pending: false,
             interrupt_request_pending: false,
             manual_stop_pending: None,
+            manual_stop_sample_pending: false,
         }
     }
 }
@@ -515,8 +517,8 @@ impl AudioChannel {
 
     /// `000 → 001`: DMA enabled while idle. Reload the length counter,
     /// point at the start of the sample, and request the first DMA word
-    /// (`AUDxDR`). No interrupt fires here — the DMA-enable edge raises
-    /// none. The first `AUDxIR` fires when word 1 arrives (`001 → 101`).
+    /// (`AUDxDR`). Fresh startup raises no interrupt until word 1 arrives
+    /// (`001 → 101`); a retained loop condition enters delayed delivery here.
     /// The period counter is *not* loaded yet; that happens when the
     /// real sample word lands (`101 → 010`).
     fn start_dma(&mut self) {
@@ -528,7 +530,11 @@ impl AudioChannel {
         self.dma_active = true;
         self.state = AudioState::WaitWord1;
         self.manual_stop_pending = None;
+        self.manual_stop_sample_pending = false;
         self.dma_requests_pending = 1;
+        if std::mem::take(&mut self.loop_interrupt_pending) {
+            self.interrupt_request_pending = true;
+        }
     }
 
     fn stop_dma(&mut self) {
@@ -538,14 +544,17 @@ impl AudioChannel {
         self.next_word = None;
         self.next_byte_is_hi = true;
         self.dma_requests_pending = 0;
-        self.loop_interrupt_pending = false;
         self.manual_stop_pending = None;
+        self.manual_stop_sample_pending = false;
     }
 
     fn sync_dma_enable(&mut self, enabled: bool) {
-        if enabled && !self.dma_enabled_prev {
+        // DMA selects the actions taken by the shared playback states; it
+        // does not restart their byte phase or period countdown (HRM fig. 5-8).
+        self.dma_active = enabled;
+        if enabled && self.state == AudioState::Idle {
             self.start_dma();
-        } else if !enabled && self.dma_enabled_prev {
+        } else if !enabled && matches!(self.state, AudioState::WaitWord1 | AudioState::WaitWord2) {
             self.stop_dma();
         }
         self.dma_enabled_prev = enabled;
@@ -563,6 +572,7 @@ impl AudioChannel {
             self.output_sample = (val >> 8) as u8 as i8;
             self.state = AudioState::Playing;
             self.manual_stop_pending = None;
+            self.manual_stop_sample_pending = false;
             self.interrupt_request_pending = true;
             return true;
         }
@@ -698,25 +708,26 @@ impl AudioChannel {
         }
         self.period_counter = self.period_counter.saturating_sub(1);
         if self.period_counter != 0 {
-            if !self.dma_active && self.next_byte_is_hi && self.period_counter == 1 {
+            if self.manual_stop_sample_pending && self.period_counter == 1 {
                 // WinUAE's documented manual-mode correction samples INTREQ
                 // one CCK before expiry. Retain both clear and set decisions.
-                self.manual_stop_pending = Some(interrupt_pending);
+                self.manual_stop_pending = Some(!self.dma_active && interrupt_pending);
+                self.manual_stop_sample_pending = false;
             }
             return None;
         }
         self.period_counter = self.effective_period();
 
         if !self.dma_active && self.next_byte_is_hi {
-            let stop = self
-                .manual_stop_pending
-                .take()
-                .expect("manual low-byte expiry must have a sampled stop decision");
+            // A period entered under DMA has no early-sample event. If DMA
+            // was disabled later, the final boundary checks the live IRQ.
+            let stop = self.manual_stop_pending.take().unwrap_or(interrupt_pending);
             if stop {
                 self.state = AudioState::Idle;
                 return None;
             }
             self.current_word = Some(self.dat);
+            self.next_word = None;
         }
 
         if self.current_word.is_none()
@@ -752,11 +763,11 @@ impl AudioChannel {
             // data remains in AUDxDAT; the output buffer retains both bytes.
             self.next_word = None;
         }
-        if !self.dma_active {
-            // A one-CCK low byte samples on entry; longer periods sample
-            // when the countdown reaches one on a later shared CCK.
-            self.manual_stop_pending = (self.period_counter == 1).then_some(interrupt_pending);
-        }
+        // Schedule the early sample only if this low-byte period began in
+        // manual mode. Later mode changes preserve that scheduled phase.
+        self.manual_stop_pending =
+            (!self.dma_active && self.period_counter == 1).then_some(interrupt_pending);
+        self.manual_stop_sample_pending = !self.dma_active && self.period_counter > 1;
         // DMA underflow repeats the buffer without losing the byte phase.
         Some(AudioOutputEvent::LowByte(word))
     }
@@ -854,9 +865,12 @@ pub struct PaulaAudioChannelDiagnosticSnapshot {
     pub loop_interrupt_pending: bool,
     /// Audio IRQ awaiting delivery at the next CCK boundary.
     pub interrupt_request_pending: bool,
-    /// Manual low-byte stop decision: absent until sampled, false to continue,
+    /// Manual low-byte stop decision: absent if not yet sampled or unscheduled; false to continue,
     /// true to stop. Later INTREQ writes cannot change a sampled decision.
     pub manual_stop_pending: Option<bool>,
+    /// Early IRQ sample scheduled by a low-byte period that began in manual mode.
+    /// DMA mode changes preserve this phase until its sampling clock.
+    pub manual_stop_sample_pending: bool,
     /// Whether this channel modulates the next channel's period.
     pub period_modulation_enabled: bool,
     /// Whether this channel modulates the next channel's volume.
@@ -1333,6 +1347,7 @@ impl Paula8364 {
                 loop_interrupt_pending: channel.loop_interrupt_pending,
                 interrupt_request_pending: channel.interrupt_request_pending,
                 manual_stop_pending: channel.manual_stop_pending,
+                manual_stop_sample_pending: channel.manual_stop_sample_pending,
                 period_modulation_enabled: self.adkcon & ADKCON_USE_PER[index] != 0,
                 volume_modulation_enabled: self.adkcon & ADKCON_USE_VOL[index] != 0,
                 host_control: self.audio_controls.channels[index],

@@ -6,8 +6,11 @@
 Retain the DMA loop condition independently of the request awaiting INTREQ
 visibility. A wrapped word sets the loop condition; the attachment-selected
 output transition consumes it. Both startup and selected loop requests enter
-one CCK of delivery delay. Stopping DMA discards an unissued loop condition,
-but cannot cancel an already-issued request.
+one CCK of delivery delay. DMA mode changes preserve the active byte pipeline
+and its scheduled sampling phase. A DMA-off edge does not discard a held loop
+condition or an issued IRQ; consume the held condition at its eligible DMA
+transition. If it survives into Idle, DMA startup issues it through the same
+delayed request stage.
 
 Deliver pending requests at the existing shared CCK boundary before retained
 DMA retirement. Run sample output at its existing phase. The component combined
@@ -28,9 +31,12 @@ states. Gate idle DAT startup on clear INTREQ, present the first high byte
 immediately, and leave active DAT writes in the holding latch. Retain the
 output buffer while the low byte plays.
 
-Sample the manual stop condition one CCK before low-byte expiry, or on
-low-byte entry for period 1. Retain `None`, `Some(false)` and `Some(true)`
-distinctly; a later INTREQ write cannot change a sampled decision. Request
+A low-byte period entered in manual mode schedules its stop-condition sample
+one CCK before expiry, or samples on entry for period 1. Retain `None`, `Some(false)` and `Some(true)`
+distinctly; a later INTREQ write cannot change a sampled decision. Retain the
+scheduled sample across DMA changes, recording continue if DMA is enabled at
+the sampling event. A low-byte period entered under DMA has no early sample;
+if DMA is subsequently disabled, use the live IRQ at expiry. Request
 the attachment-selected word IRQ even when the decision stops playback.
 Volume attachment transfers at startup/high-byte entry; period attachment
 transfers at low-byte entry. Channel 3 has no attachment target.
@@ -47,5 +53,21 @@ have not recovered that original hardware test package. The regression
 executes 4,312 boundary observations and 576 attachment state/IRQ/target-register
 observations against compiled WinUAE methods, plus the 480-row vAmiga
 startup/holding schedule. Raw DAC behaviour of attached (muted) channels,
-live attachment switching, DMA-to-manual transitions, PWM and analogue
-response remain outside this correction.
+live attachment switching, PWM and analogue response remain outside this
+correction.
+
+The user approved the DMA/manual handover extension, the loop-condition rule
+amendment and snapshot version 60 (rejecting 59). The existing low-byte stage
+now saves `manual_stop_sample_pending` separately from the sampled decision.
+Use the existing startup states only when enabling DMA from Idle; cancelling
+a startup wait returns to Idle, while an active byte continues on the same
+countdown. Do not reload pointers, buffers or periods on a mode edge in Playing.
+
+The [handover observations](../../../../reference/by-system/commodore-amiga/2026-paula-dma-handover-observations.md)
+record the inspected HRM state diagram and the executable reference conflict.
+All 6,304 pre-output native observations agree with WinUAE, including sample,
+IRQ, state and held loop condition. The paired low-byte histories must remain
+distinguishable across save/restore. Board tests cover mode writes and delivery
+of an already-admitted word to the holding latch after DMA clear. This does
+not establish complete DMAL signalling, every startup/retirement race, or
+post-output mode changes between component phases.

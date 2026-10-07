@@ -1,8 +1,8 @@
-//! Research reproduction of DMA/manual handover; fails on observed disagreements.
+//! DMA/manual handover regression; fails on observed reference disagreements.
 use emu198x_commodore_paula_8364::{AudioField, Paula8364, PaulaAudioDmaState, bits::*};
 use std::collections::BTreeSet;
 
-fn main() {
+pub fn main() {
     let reference: Vec<Vec<i32>> =
         include_str!("../../../test-data/commodore/amiga/paula-audio/handover-probe/winuae.csv")
             .lines()
