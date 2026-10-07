@@ -1113,6 +1113,7 @@ impl MachineCore for DragonRuntime {
         self.audio_buffer.clear();
         self.machine.drain_audio_samples(&mut self.audio_buffer);
         host.frame_sink.push_frame(FramePacket {
+            signal: None,
             timestamp: self.time,
             format: PixelFormat::Rgba8888,
             width: VDG_PAL_OVERSCAN_FRAMEBUFFER_WIDTH as u32,

@@ -431,6 +431,7 @@ impl MachineCore for GameBoyRuntime {
                 .expect("machine still loaded")
                 .framebuffer();
             host.frame_sink.push_frame(FramePacket {
+                signal: None,
                 timestamp: self.time,
                 format: PixelFormat::Indexed8,
                 width: SCREEN_WIDTH,

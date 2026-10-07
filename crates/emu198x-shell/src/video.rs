@@ -596,6 +596,7 @@ mod tests {
             pixels.extend_from_slice(&rgba);
         }
         CapturedFrame {
+            signal: None,
             timestamp: MachineTime::new(0),
             format: PixelFormat::Rgba8888,
             width,

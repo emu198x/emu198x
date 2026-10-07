@@ -17,11 +17,79 @@ pub enum PixelFormat {
     Rgba8888,
 }
 
+/// Electrical source supplied alongside a raw framebuffer.
+/// Receiver settings and GPU resources belong to the host, not the machine.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum SignalEncoding {
+    /// Normalised Y, U, V levels; PAL reverses V on alternate physical lines.
+    /// `separate_chroma` records whether the machine exposes that connection.
+    Yuv { pal: bool, separate_chroma: bool },
+    /// NTSC composite waveform table, one entry per phase and colour code.
+    /// The receiver uses nominal YIQ decoding for this representation.
+    Waveform { phases: u32 },
+    /// Analogue RGB monitor input, taken directly from the frame's RGB bytes.
+    Rgb,
+}
+
+/// Raster coordinates and oscillator phase of the retained picture.
+/// This describes a crop of a raster; it does not reconstruct missing sync.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SignalTiming {
+    /// Source pixel clock in Hz.
+    pub pixel_hz: f64,
+    /// Colour subcarrier in Hz (zero for RGB).
+    pub carrier_hz: f64,
+    /// Physical pixels per line, including blanking.
+    pub line_pixels: u32,
+    /// Physical pixel at the framebuffer's left edge.
+    pub first_pixel: u32,
+    /// Physical line at the framebuffer's top edge, unwrapped across fields.
+    pub first_line: u32,
+    /// Subcarrier phase at physical line zero, in cycles modulo one.
+    pub phase_cycles: f64,
+}
+
+/// Parity of the rows written by one interlaced field in a retained raster.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FieldParity {
+    /// The field occupies rows 0, 2, 4, … .
+    Even,
+    /// The field occupies rows 1, 3, 5, … .
+    Odd,
+}
+
+/// A completed interlaced field. Opposite-parity rows may be from an older field.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct VideoField {
+    /// Machine field counter; repeated host redraws retain this identity.
+    pub sequence: u64,
+    /// Rows belonging to this completed field.
+    pub parity: FieldParity,
+}
+
+/// Borrowed electrical frame. Codes are captured at the pixel mux before RGB
+/// conversion, so emphasis and colours with identical RGB remain distinguishable.
+#[derive(Clone, Copy, Debug)]
+pub struct SignalFrame<'a> {
+    /// Completed interlaced field, or `None` for progressive/partial output.
+    pub field: Option<VideoField>,
+    /// Source electrical representation.
+    pub encoding: SignalEncoding,
+    /// Machine-supplied timing, independent of host presentation cadence.
+    pub timing: SignalTiming,
+    /// Colour codes, one per retained pixel; empty for RGB.
+    pub codes: &'a [u16],
+    /// YUV triples or scalar waveform values in the first component.
+    pub levels: &'a [[f32; 4]],
+}
+
 /// One frame of raw video output emitted by a machine.
 #[derive(Debug)]
 pub struct FramePacket<'a> {
     /// Machine timestamp at which the frame became available.
     pub timestamp: MachineTime,
+    /// Optional electrical source for signal-aware presentation.
+    pub signal: Option<SignalFrame<'a>>,
     /// Pixel layout of `pixels`.
     pub format: PixelFormat,
     /// Frame width in pixels.

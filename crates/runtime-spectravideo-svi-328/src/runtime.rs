@@ -359,6 +359,7 @@ impl MachineCore for Svi328Runtime {
             self.time = self.time.saturating_add(ticks);
             self.update_rgba_framebuffer();
             host.frame_sink.push_frame(FramePacket {
+                signal: None,
                 timestamp: self.time,
                 format: PixelFormat::Rgba8888,
                 width: vdp_region(self.model).framebuffer_width(),

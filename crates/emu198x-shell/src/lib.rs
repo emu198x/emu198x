@@ -52,7 +52,8 @@ pub use audio::convert_audio_packet;
 pub use audio::{NativeAudioError, NativeAudioOutput};
 pub use capability::{CapabilityId, CapabilitySet, known_capability};
 pub use capture::{
-    AudioCapture, CaptureError, CapturedAudio, CapturedFrame, LatestFrameCapture, WavStreamWriter,
+    AudioCapture, CaptureError, CapturedAudio, CapturedFrame, CapturedSignal, LatestFrameCapture,
+    WavStreamWriter,
 };
 pub use control::{ControlCommand, MediaTransportAction, MediaTransportCommand};
 pub use debug::{DebugPrimitives, DebugTarget, IoEvent};
@@ -61,9 +62,9 @@ pub use error::MachineError;
 pub use firmware::{FirmwareImage, FirmwareSet};
 pub use headless::{BootArtifacts, boot_machine, prepare_machine};
 pub use host::{
-    AudioPacket, AudioSink, FramePacket, FrameSink, HostIo, InputEvent, NullAudioSink,
-    NullFrameSink, NullTraceSink, PixelFormat, TraceEvent, TraceSink, aim_from_pixels,
-    aim_to_pixels,
+    AudioPacket, AudioSink, FieldParity, FramePacket, FrameSink, HostIo, InputEvent, NullAudioSink,
+    NullFrameSink, NullTraceSink, PixelFormat, SignalEncoding, SignalFrame, SignalTiming,
+    TraceEvent, TraceSink, VideoField, aim_from_pixels, aim_to_pixels,
 };
 #[cfg(not(target_arch = "wasm32"))]
 pub use input::{

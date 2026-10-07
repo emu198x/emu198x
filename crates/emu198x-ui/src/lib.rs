@@ -718,6 +718,7 @@ impl<S: UiSystem> App<S> {
             let (width, height) = self.system.framebuffer_size(&self.runner.runtime);
             let pixels = overlay::build_halt_overlay(width, height, message);
             let frame = CapturedFrame {
+                signal: None,
                 timestamp: MachineTime::new(0),
                 format: PixelFormat::Rgba8888,
                 width,

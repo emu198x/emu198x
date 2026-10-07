@@ -512,6 +512,7 @@ impl<M: AmigaMachine + AmigaLiveAccess> MachineCore for AmigaRuntime<M> {
             self.update_rgba_framebuffer();
 
             host.frame_sink.push_frame(FramePacket {
+                signal: None,
                 timestamp: self.time,
                 format: emu198x_shell::PixelFormat::Rgba8888,
                 width: DISPLAY_WIDTH,

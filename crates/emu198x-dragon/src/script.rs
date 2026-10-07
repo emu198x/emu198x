@@ -6440,6 +6440,7 @@ fn write_screenshot_png(
         )?,
         SmokeScreenshotFormat::XroarZoomed => {
             let frame = CapturedFrame {
+                signal: None,
                 timestamp: MachineTime::new(cycles),
                 format: PixelFormat::Rgba8888,
                 width: TEXT_VISIBLE_FRAMEBUFFER_WIDTH as u32,
@@ -7802,6 +7803,7 @@ mod tests {
             * 4;
         pixels[active_offset..active_offset + 4].copy_from_slice(&[0x12, 0x34, 0x56, 0xFF]);
         let frame = CapturedFrame {
+            signal: None,
             timestamp: emu198x_shell::MachineTime(0),
             format: PixelFormat::Rgba8888,
             width: TEXT_VISIBLE_FRAMEBUFFER_WIDTH as u32,
@@ -7843,6 +7845,7 @@ mod tests {
             * 4;
         pixels[active_offset..active_offset + 4].copy_from_slice(&[0xAB, 0xCD, 0xEF, 0xFF]);
         let frame = CapturedFrame {
+            signal: None,
             timestamp: emu198x_shell::MachineTime(0),
             format: PixelFormat::Rgba8888,
             width: VDG_PAL_OVERSCAN_FRAMEBUFFER_WIDTH as u32,

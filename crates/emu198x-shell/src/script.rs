@@ -2714,6 +2714,7 @@ mod tests {
         ) -> Result<RunResult, MachineError> {
             self.time = target;
             host.frame_sink.push_frame(FramePacket {
+                signal: None,
                 timestamp: target,
                 format: PixelFormat::Indexed8,
                 width: 1,

@@ -61,6 +61,7 @@ fn canvas(width: u32, height: u32) -> HtmlCanvasElement {
 
 fn frame() -> CapturedFrame {
     CapturedFrame {
+        signal: None,
         timestamp: MachineTime::new(0),
         format: PixelFormat::Rgba8888,
         width: 2,
