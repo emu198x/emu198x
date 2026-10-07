@@ -612,9 +612,10 @@ fn cpu_store_cycle_boundary() {
 }
 
 /// The cycles at which test programs store to the VIC-II, as VICE x64sc 3.10
-/// reports them with `trace store` (2026-10-06; method in Stage 3a of
-/// `knowledge/decisions/c64-accuracy-closure-campaign.md`). `greydot` is
-/// timed by the raster IRQ and `colorfetchbug` by a CIA timer read.
+/// reports them with `trace store` (2026-10-06, `colorsplit` 2026-10-07;
+/// method in Stage 3a of `knowledge/decisions/c64-accuracy-closure-campaign.md`).
+/// `greydot` and `colorsplit` are timed by the raster IRQ and
+/// `colorfetchbug` by a CIA timer read.
 /// `sequencer-bug` is not listed here: its main loop's phase depends on the
 /// sprite DMA VICE performs on lines 306-35, which stage B models. Each entry is (program, register, first matching line's store
 /// cycles in order).
@@ -628,6 +629,8 @@ const VICE_STORE_PHASES: &[(&str, u16, &[u8])] = &[
     // `inc $d020` / `dec $d020`: the modified bytes land on 55 and 61.
     ("colorfetchbug/main.prg", 0xD020, &[55, 61]),
     ("colorfetchbug/main.prg", 0xD011, &[16]),
+    // The mid-line XSCROLL write, in column 5's g-access cycle.
+    ("colorsplit/colorsplit.prg", 0xD016, &[21]),
 ];
 
 /// Programs timed by the raster IRQ store at VICE's cycles. The CPU sees the
@@ -1011,58 +1014,42 @@ fn sprite_sequencer_spritedma_parity() {
 }
 
 /// Colour-register pipeline programs, each run on the PAL chip its reference
-/// was made for (the 6569 in the breadbin, the 8565 in the C64C) with the
-/// number of disagreements it retains against that reference. The 8565's
-/// `colorsplit` keeps eight more than the 6569's, all at x = 192 on the
-/// XSCROLL rows: four rows show a grey dot the reference lacks and four lack
-/// one it shows, because those rows keep the previous test's scroll.
-const COLOUR_PIPELINE_CASES: &[(&str, Model, &str, &str, usize)] = &[
+/// was made for: the 6569 in the breadbin, the 8565 in the C64C.
+/// `colorsplit` also rewrites `$D016` mid-line on the first line of each of
+/// its 16 text-mode tests, so it checks that XSCROLL reaches the graphics
+/// sequencer at its next load, not once per line.
+const COLOUR_PIPELINE_CASES: &[(&str, Model, &str, &str)] = &[
     (
         "greydot 6569",
         Model::C64PalBreadbin,
         "greydot/greydot.prg",
         "greydot/references/greydot.prg.png",
-        0,
     ),
     (
         "greydot 8565",
         Model::C64cPal,
         "greydot/greydot.prg",
         "greydot/references/greydot.prg-8565.png",
-        0,
     ),
     (
         "colorsplit 6569",
         Model::C64PalBreadbin,
         "colorsplit/colorsplit.prg",
         "colorsplit/references/colorsplit.prg.png",
-        952,
     ),
     (
         "colorsplit 8565",
         Model::C64cPal,
         "colorsplit/colorsplit.prg",
         "colorsplit/references/colorsplit.prg-8565.png",
-        960,
     ),
 ];
-
-/// The `colorsplit` rows whose raster routine rewrites `$D016` just before
-/// its `$D021` splits: the first line of each of the 16 text-mode tests. The
-/// renderer latches XSCROLL once per line, at the left edge of the display
-/// window, so these lines keep the previous test's scroll. That is a
-/// graphics-sequencer boundary, not a colour-stage one.
-fn colorsplit_xscroll_row(y: u32) -> bool {
-    ((44..=100).contains(&y) && (y - 44).is_multiple_of(8))
-        || ((140..=196).contains(&y) && (y - 140).is_multiple_of(8))
-}
 
 /// A colour-register write reaches the screen through the colour stage, and
 /// the first dot of the cell it changes is chip-specific. The 6569 keeps the
 /// old colour there, because it resolves that dot one cycle early. The 8565
-/// shows light grey (`$F`): the grey dot. `greydot` matches each chip's
-/// reference exactly; `colorsplit` matches at every colour transition, and
-/// its only disagreements sit on the rows that change XSCROLL mid-line.
+/// shows light grey (`$F`): the grey dot. Every program matches its chip's
+/// reference exactly.
 #[test]
 #[ignore = "FIXTURE: colour-register pipeline parity requires C64 ROMs + VIC-II testbench"]
 fn colour_register_pipeline_matches_vice_references() {
@@ -1071,21 +1058,16 @@ fn colour_register_pipeline_matches_vice_references() {
     }
     let dir = testbench_dir().expect("checked");
     let mut failures = Vec::new();
-    for &(label, model, prg, refpng, retained) in COLOUR_PIPELINE_CASES {
+    for &(label, model, prg, refpng) in COLOUR_PIPELINE_CASES {
         let reference = decode_reference_png(&dir.join(refpng));
         let framebuffer = run_testprog_on(prg, 60, model, TIMING_PAL_BREADBIN.cycles_per_frame);
         let comparison = compare_indexed(&framebuffer, &reference, VICE_CROP_X, VICE_CROP_Y);
         let mismatches = indexed_mismatches(&comparison, &reference);
-        let outside: Vec<_> = mismatches
-            .iter()
-            .filter(|&&(x, y, _, _)| !(colorsplit_xscroll_row(y) && x >= 192))
-            .take(24)
-            .collect();
-        if mismatches.len() != retained || !outside.is_empty() {
+        if !mismatches.is_empty() {
             failures.push(format!(
-                "{label}: {} disagreements (expected {retained}); outside the XSCROLL rows \
-                 (x, y, actual, expected): {outside:?}",
-                mismatches.len()
+                "{label}: {} disagreements; first (x, y, actual, expected): {:?}",
+                mismatches.len(),
+                &mismatches[..mismatches.len().min(24)]
             ));
         }
     }

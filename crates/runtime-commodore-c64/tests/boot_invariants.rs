@@ -110,7 +110,7 @@ fn snapshot_round_trip_is_fixed_point_after_warmup() -> Result<(), Box<dyn Error
     Ok(())
 }
 
-/// Seam 5 waypoint: C64 snapshot envelope version is locked at 14.
+/// Seam 5 waypoint: C64 snapshot envelope version is locked at 15.
 ///
 /// Postcard varint-encodes the leading `version: u32` field as a
 /// single byte (for value ≤ 127). A silent bump would change the
@@ -133,10 +133,12 @@ fn snapshot_round_trip_is_fixed_point_after_warmup() -> Result<(), Box<dyn Error
 /// light-pen input level joined it (stage 3a-B), to 11 when the VIC-II's
 /// two-tick colour stage joined it (stage 3a-C), to 12 when the VIC-II's
 /// chip revision joined it (stage 3a-D), to 13 when the SID's
-/// waveform-generator pipelines joined it (#1606), and to 14 when the 6526's
-/// serial-port pipeline and CNT/SP/PC pins joined it (#797).
+/// waveform-generator pipelines joined it (#1606), to 14 when the 6526's
+/// serial-port pipeline and CNT/SP/PC pins joined it (#797), and to 15 when
+/// the graphics sequencer's last XSCROLL load replaced the per-line latch
+/// (#1620).
 #[test]
-fn snapshot_envelope_version_is_locked_at_v14() -> Result<(), Box<dyn Error>> {
+fn snapshot_envelope_version_is_locked_at_v15() -> Result<(), Box<dyn Error>> {
     let runtime = C64Runtime::new(
         Model::C64PalBreadbin,
         vec![0; KERNAL_SIZE],
@@ -147,8 +149,8 @@ fn snapshot_envelope_version_is_locked_at_v14() -> Result<(), Box<dyn Error>> {
     let bytes = runtime.snapshot()?;
     assert!(!bytes.is_empty(), "snapshot must have a non-empty envelope");
     assert_eq!(
-        bytes[0], 14,
-        "C64 snapshot envelope version should be 14 (got {})",
+        bytes[0], 15,
+        "C64 snapshot envelope version should be 15 (got {})",
         bytes[0]
     );
     Ok(())
