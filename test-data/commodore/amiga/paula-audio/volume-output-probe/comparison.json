@@ -1,0 +1,27 @@
+{
+  "inventory": {
+    "scenarios": 576,
+    "observations": 36864,
+    "gate_disagreements": 19530,
+    "minimig_dynamic_windows_differing_from_scalar": 375,
+    "winuae_dynamic_windows_differing_from_scalar": 378
+  },
+  "negative_controls_rejected": [
+    "empty",
+    "corrupted output"
+  ],
+  "pins": {
+    "winuae": "c32694e338fa5f34977f522eb4898adb069d2e73",
+    "minimig": "3ab91cd9220d4d047886d215b515227cbe568bdd"
+  },
+  "source_sha256": {
+    "winuae": "2699601febc6d62c96a79018d0bbe94d47501621a9f7483309f86d3b3ee4ead7",
+    "minimig": "a2e1c949ffdcd6134fe218611132826f928dcb797916bb1ed4066056ad682014"
+  },
+  "artifact_sha256": {
+    "minimig.csv.gz": "849dba8506105ce38e6da68c304eb1702e1dc6714929c7c7e9eab13dcd15fe32",
+    "winuae.csv.gz": "28a8e16b18d21654404940823eed8e55ee703bf91efaf6638101d3f635c1fa54",
+    "winuae-kernel.cpp.gz": "f175a9f525d6428681c1e70504febc4615b6e0fbb1352b5b6ba19dd874afef39"
+  },
+  "scope": "Manual constant sample, no DMA/attachment; synthetic shared initial counter for the WinUAE kernel; no startup/scheduler/FIR comparison."
+}

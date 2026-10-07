@@ -118,3 +118,14 @@ Raw DAC samples use WinUAE; vAmiga's sampler is scaled and suppresses repeated
 edges. The regression covers simultaneous/adjacent deadlines and chains.
 Volume-register agreement does not establish the timing of gain at the DAC;
 volume output-latch timing remains a separate investigation.
+
+The [volume-output observations](../../../../reference/by-system/commodore-amiga/2026-paula-volume-output-observations.md)
+now distinguish that question from the scalar gain approximations. The HRM
+defines a 64-step duty cycle. Compiled WinUAE PWM and Minimig RTL satisfy its
+steady-duty invariants across all 128 encodings, but their counter stepping
+and reload behavior differ. The 36,864-row comparison does not establish a
+physical phase oracle. Do not replace the current scalar gain with a guessed
+byte/word latch on this evidence. A PWM correction also needs filtering and
+resampling before 48 kHz host decimation; the current runtime point-samples
+the mixer. Counter phase, register delivery and resumable resampling history
+remain research/design work, with no production or snapshot change yet.

@@ -1,0 +1,13 @@
+{
+  "native_baseline": {
+    "exit_code": 1,
+    "stdout": "{\"observations\":36864,\"pwm_disagreements\":26464}\n",
+    "stderr": "Error: Custom { kind: Other, error: \"native scalar output differs from PWM reference\" }\n"
+  },
+  "reference_regeneration": "four artifacts matched byte-for-byte",
+  "audio_tests": "16 passed",
+  "clippy": "release all targets for emu198x-commodore-paula-8364, -D warnings passed",
+  "ruff": "check and format check passed",
+  "production_changed": false,
+  "snapshot_version": 60
+}
