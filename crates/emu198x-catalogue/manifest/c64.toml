@@ -51,9 +51,8 @@ audio_routing_version = 7
 # hash is unchanged.
 # Version 10 is #1660: the graphics sequencer decodes the display mode at
 # the shift register's output, and the g-access reads some mode bits a
-# cycle late. Not yet replayed at version 10: the TOSEC media was not
-# mounted when the version moved, so the first `catalogue run` decides
-# whether any hash moved.
+# cycle late. `catalogue run` changed one frame hash, Aztec Challenge's
+# (see its entry); every other frame and audio hash is unchanged.
 frame_routing_version = 10
 
 [[system.firmware]]
@@ -226,8 +225,15 @@ press = "return"
 # with the player and spears elsewhere, since the game's random numbers
 # depend on when it reads them. Previous hashes: a4c39c2a29913273 (frame),
 # fca3bd061cecfc27 (audio).
+# Re-captured at frame routing version 10 (#1660): two pixels at
+# (114, 209) change from brown to black. A sprite with background priority
+# (`$D01B`) lies there over a multicolour "01" pair in `$D022`. A "01" pair
+# counts as background for sprite priority (Bauer, section 3.7.3.2; VICE's
+# `pixel_pri = px & 2`), but the old renderer treated it as foreground,
+# which hid the sprite. Reverting only that rule restores the previous
+# hash. Previous frame hash: 9cc4001386e8b386.
 wait_frames = 5000
-frame_hash = "xxh64:9cc4001386e8b386"
+frame_hash = "xxh64:73a2fa71906091c0"
 
 [entry.audio]
 from_frame = 60
