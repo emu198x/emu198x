@@ -57,6 +57,7 @@ corpora=(
   "ZEXDOC + ZEXALL|EMU198X_ZEX_DIR|${umbrella}/assets/test-suites/zex|zexdoc.com|"
   "z80test (Rak)|EMU198X_Z80TEST_DIR|${store}/z80test|z80doc.tap|48K ROM comes from the tarball in CI; see below"
   "Spectrum system tests|EMU198X_SPECTRUM_SYSTEM_TESTS_DIR|${store}/spectrum-system-tests|floatspy.tap|"
+  "VIC-20 survey|EMU198X_VIC20_VICE_SURVEY_DIR|${HOME}/.emu198x/test-suites/vic20|references/pal/basic-boot.png|ROMs come from EMU198X_VIC20_ROM_DIR; the store tarball carries them under roms/"
 )
 
 exports=()

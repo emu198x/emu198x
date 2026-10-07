@@ -949,3 +949,62 @@ jobs:
         run: |
           cargo test --release -p machine-amstrad-cpc -p runtime-amstrad-cpc \
             -p emu198x-amstrad-cpc -- --include-ignored
+
+  # The VIC-20 VIC-I survey against VICE (#362): every case compares the
+  # whole framebuffer with VICE xvic's capture of the same cycle and asserts
+  # an exact matched-pixel count, so any move in the VIC-I — better or worse —
+  # turns this red until EXPECTED_MATCHES and the process note are updated.
+  # The test is fixture-gated and `#[ignore]`d, so nothing else runs it. The
+  # ROMs are mirrored under the maintainer's standing decision; see
+  # test-data/accuracy-corpora.md.
+  vic20-survey:
+    name: VIC-20 VIC-I survey against VICE
+    runs-on: ubuntu-latest
+    needs: preflight
+    if: needs.preflight.outputs.configured == 'true'
+    timeout-minutes: 30
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Read pinned toolchain
+        id: toolchain
+        run: |
+          channel=$(awk -F'"' '/^channel/{print $2}' rust-toolchain.toml)
+          echo "channel=${channel}" >> "$GITHUB_OUTPUT"
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ steps.toolchain.outputs.channel }}
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: nightly-accuracy-vic20
+
+      - name: Provision corpus from store
+        env:
+          GH_TOKEN: ${{ secrets.ACCURACY_CORPORA_TOKEN }}
+        run: |
+          set -euo pipefail
+          mkdir -p corpora
+          cd corpora
+          gh release download "${CORPORA_TAG}" -R "${CORPORA_REPO}" \
+            -p 'vic20-survey.tar.zst' -p 'SHA256SUMS'
+          grep ' vic20-survey.tar.zst$' SHA256SUMS | sha256sum -c -
+          tar --zstd -xf 'vic20-survey.tar.zst'
+          root="$(pwd)/vic20-survey"
+          {
+            echo "EMU198X_VIC20_VICE_SURVEY_DIR=${root}"
+            echo "EMU198X_VIC20_ROM_DIR=${root}/roms"
+          } >> "$GITHUB_ENV"
+
+      - name: Run the VIC-I survey
+        # Strict: a fixture that fails to resolve is a failure, not a skip,
+        # so a broken corpus cannot pass as a green night.
+        env:
+          EMU198X_STRICT_FIXTURES: "1"
+        run: |
+          cargo test --release -p machine-commodore-vic-20 \
+            --test vici_vice_survey -- --include-ignored --nocapture
