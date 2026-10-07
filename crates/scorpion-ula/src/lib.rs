@@ -78,8 +78,15 @@ impl Ula for ScorpionUla {
         0xFF
     }
 
+    /// With no tape signal, bit 6 reads back the last speaker bit (bit 4)
+    /// written, as on an Issue 3 48K.
+    ///
+    /// No primary source for the Scorpion's tape input is held. FUSE
+    /// (`ula_write`) and ZEsarUX (`out_port_spectrum_fe_issue`) both give
+    /// it the Issue 3 read-back, so this follows them.
     fn read_fe(&self, port: u16, keyboard: &[u8; 8]) -> u8 {
-        self.engine.read_fe(port, keyboard)
+        let ear = if self.engine.beeper { 0x40 } else { 0x00 };
+        (self.engine.read_fe(port, keyboard) & !0x40) | ear
     }
 
     fn write_fe(&mut self, val: u8) {

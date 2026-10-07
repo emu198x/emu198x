@@ -992,7 +992,9 @@ impl UlaEngine {
             }
         }
         result = (result & 0xE0) | (keys & 0x1F);
-        result |= 0x40; // EAR bit (no tape → high)
+        // EAR bit high. Each ULA wrapper sets its own idle level over
+        // this; only the Timex SCLD keeps it.
+        result |= 0x40;
         result
     }
 }

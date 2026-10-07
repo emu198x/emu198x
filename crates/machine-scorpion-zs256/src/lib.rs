@@ -433,6 +433,72 @@ mod tests {
         );
     }
 
+    /// #1637: port `$FE` bit 6 reads the tape input as it is, 1 while the
+    /// input is high and 0 while it is low, as the 48K's ULA does (Smith
+    /// ch. 20 p. 222). Checked with the MIC bit both ways and the speaker
+    /// bit clear, as the ROM loader writes them.
+    #[test]
+    fn port_fe_bit_6_follows_the_tape_input() {
+        macro_rules! check_tape {
+            ($make:expr) => {
+                for written in [0x00, 0x08] {
+                    let mut m = $make;
+                    m.port_write(0x00FE, written);
+                    m.load_tape_pulses(vec![1_000, 1_000_000]);
+                    m.tape_play();
+                    m.advance_tstates(500);
+                    assert_eq!(
+                        m.port_read(0x00FE) & 0x40,
+                        0x00,
+                        "{}, wrote {written:#04x}: the tape is low, so is bit 6",
+                        stringify!($make)
+                    );
+                    m.advance_tstates(1_000);
+                    assert_eq!(
+                        m.port_read(0x00FE) & 0x40,
+                        0x40,
+                        "{}, wrote {written:#04x}: the tape is high, so is bit 6",
+                        stringify!($make)
+                    );
+                }
+            };
+        }
+        check_tape!(ScorpionZS256::new());
+    }
+
+    /// #1637: with no tape signal, bit 6 reads back the last speaker bit
+    /// written, as on an Issue 3 48K. FUSE and ZEsarUX both do this; no
+    /// primary source for the Scorpion's tape input is held. A tape that
+    /// is loaded but not playing reads the same.
+    #[test]
+    fn port_fe_bit_6_with_no_tape_signal() {
+        // (written to `$FE`, bit 6 read back)
+        const IDLE: [(u8, u8); 4] = [(0x00, 0x00), (0x08, 0x00), (0x10, 0x40), (0x18, 0x40)];
+        macro_rules! check_idle {
+            ($make:expr) => {
+                for (written, expected) in IDLE {
+                    let mut m = $make;
+                    m.port_write(0x00FE, written);
+                    assert_eq!(
+                        m.port_read(0x00FE) & 0x40,
+                        expected,
+                        "{}, no tape, wrote {written:#04x}",
+                        stringify!($make)
+                    );
+                    m.load_tape_pulses(vec![1_000]);
+                    m.advance_tstates(2_000);
+                    assert_eq!(
+                        m.port_read(0x00FE) & 0x40,
+                        expected,
+                        "{}, stopped tape, wrote {written:#04x}",
+                        stringify!($make)
+                    );
+                }
+            };
+        }
+        check_idle!(ScorpionZS256::new());
+    }
+
     #[test]
     fn defaults_are_sane() {
         let m = ScorpionZS256::new();
