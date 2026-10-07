@@ -417,30 +417,34 @@ impl Vic6560 {
 
     /// Take the counts the chip reads once rather than continuously.
     ///
-    /// The number of columns is read once a line, in its first cycle, so a
-    /// write to register 2 partway along a line takes effect on the next.
-    /// VICE's `vic_cycle_latch_columns` takes it in raster cycle 1, this
-    /// chip's cycle 0. VICE's `vic6561/test36866-1` changes the count mid-line
-    /// and prints that the screen "should display 22 columns in each line";
-    /// reading the register for every pixel cut its first two rows short.
+    /// The number of columns is read once a line, in its cycle 1, so a write
+    /// to register 2 partway along a line takes effect on the next. VICE's
+    /// `vic_cycle_latch_columns` takes it in raster cycle 1 too. VICE's
+    /// `vic6561/test36866-1` changes the count mid-line and prints that the
+    /// screen "should display 22 columns in each line"; reading the register
+    /// for every pixel cut its first two rows short.
     ///
     /// The number of text rows is read once a frame, near the start of line 0,
     /// so a frame keeps the row count it began with whatever register 3 says
     /// later. VICE's `vic_cycle_latch_rows` takes it in raster cycle 2 of line
-    /// 0, which is this chip's cycle 1: the survey against VICE (#362) shows
-    /// its cycle numbers run one ahead of these for the same CPU write. VICE's
-    /// `vic6561/test36867-2` sets 7 rows only for a moment around line 0 and
-    /// prints that "only 7 lines should be displayed"; reading the register
-    /// for every line showed all 23.
+    /// 0, and so does this chip. VICE's `vic6561/test36867-2` sets 7 rows only
+    /// for a moment around line 0 and prints that "only 7 lines should be
+    /// displayed"; reading the register for every line showed all 23.
+    ///
+    /// The survey against VICE (#362) pins both cycles with these
+    /// VIA-timed programs. Rows: cycle 1 shows test36867-2 all 23 lines and
+    /// cycle 3 shows test36867-1 ("all 23 lines") only 7. Columns: cycle 0
+    /// cuts test36866-1's rows short and cycle 2 loses 716 pixels of
+    /// test36866-2.
     ///
     /// The Programmer's Reference Guide gives the registers' meaning — bits
     /// 0-6 of 36866 are the number of columns and bits 1-6 of 36867 the number
     /// of rows (pp. 213-214) — but not when the chip reads them.
     fn latch_counts(&mut self) {
-        if self.pixel_x == 0 {
+        if self.pixel_x == 1 {
             self.columns = u32::from(self.regs[2] & 0x7F);
         }
-        if self.scanline == 0 && self.pixel_x == 1 {
+        if self.scanline == 0 && self.pixel_x == 2 {
             self.rows = u32::from((self.regs[3] & 0x7E) >> 1);
         }
     }
