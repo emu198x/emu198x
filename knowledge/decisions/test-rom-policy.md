@@ -389,6 +389,18 @@ When a new test ROM corpus is added:
 
 ## Log
 
+### 2026-10-07 — The store's z80test.tar.zst now carries the genuine 48K ROM
+
+The 2026-10-01 entry left the store's patched `z80test/48.rom` (`21e3676e…`) in
+place. Under the official-ROMs rule and the standing corpus decision
+(`test-data/accuracy-corpora.md`, "The mirror"), it is now the genuine image
+(`5ea7c2b824672e914525d1d5c419d71b84a426a2`). The z80test suite gives 9/9 on
+the genuine image with the nightly's own command in strict mode, and the tapes
+are byte-for-byte unchanged. The tarball also gained a provenance README and an
+internal `FILES.sha256`. npm publishing is unaffected: since 2026-10-01 it takes
+the ROM from a secret. The replaced tarball is kept outside the store, so the
+change can be reversed if the patch turns out to have had a purpose.
+
 ### 2026-10-01 — npm publishing takes the 48K ROM from a secret
 
 `publish-npm.yml` no longer reads the ROM from the accuracy-corpora store,
