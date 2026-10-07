@@ -423,12 +423,6 @@ enum AudioOutputEvent {
     LowByte(u16),
 }
 
-impl AudioOutputEvent {
-    fn is_word_complete(self) -> bool {
-        matches!(self, Self::LowByte(_))
-    }
-}
-
 /// Paula's per-channel audio DMA state machine (HRM ch. 5 / vAmiga
 /// `StateMachine.cpp`). The HRM encodes states as 3-bit codes; vAmiga
 /// uses five (`000/001/010/011/101`). We model the *startup* sequence
@@ -439,7 +433,7 @@ impl AudioOutputEvent {
 /// `Playing`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 enum AudioState {
-    /// `000` — DMA off. Idle, or CPU-driven AUDxDAT playback.
+    /// `000` — idle; neither DMA nor CPU-fed playback is running.
     #[default]
     Idle,
     /// `001` — DMA enabled; word 1 requested, awaiting its arrival.
@@ -471,6 +465,7 @@ struct AudioChannel {
     dma_requests_pending: u8,
     loop_interrupt_pending: bool,
     interrupt_request_pending: bool,
+    manual_stop_pending: Option<bool>,
 }
 
 impl Default for AudioChannel {
@@ -494,6 +489,7 @@ impl Default for AudioChannel {
             dma_requests_pending: 0,
             loop_interrupt_pending: false,
             interrupt_request_pending: false,
+            manual_stop_pending: None,
         }
     }
 }
@@ -531,6 +527,7 @@ impl AudioChannel {
         self.next_byte_is_hi = true;
         self.dma_active = true;
         self.state = AudioState::WaitWord1;
+        self.manual_stop_pending = None;
         self.dma_requests_pending = 1;
     }
 
@@ -542,6 +539,7 @@ impl AudioChannel {
         self.next_byte_is_hi = true;
         self.dma_requests_pending = 0;
         self.loop_interrupt_pending = false;
+        self.manual_stop_pending = None;
     }
 
     fn sync_dma_enable(&mut self, enabled: bool) {
@@ -553,15 +551,22 @@ impl AudioChannel {
         self.dma_enabled_prev = enabled;
     }
 
-    fn write_dat(&mut self, val: u16) {
+    fn write_dat(&mut self, val: u16, interrupt_pending: bool) -> bool {
         self.dat = val;
-        // Non-DMA playback: CPU-written AUDxDAT feeds the DAC directly.
-        if !self.dma_active {
+        // Active writes only replace the holding latch. Idle startup is
+        // inhibited by visible INTREQ, independently of interrupt enable.
+        if !self.dma_active && self.state == AudioState::Idle && !interrupt_pending {
             self.current_word = Some(val);
             self.next_word = None;
-            self.next_byte_is_hi = true;
+            self.next_byte_is_hi = false;
             self.period_counter = self.effective_period();
+            self.output_sample = (val >> 8) as u8 as i8;
+            self.state = AudioState::Playing;
+            self.manual_stop_pending = None;
+            self.interrupt_request_pending = true;
+            return true;
         }
+        false
     }
 
     fn write_period(&mut self, val: u16) {
@@ -683,15 +688,36 @@ impl AudioChannel {
         }
     }
 
-    fn tick_output(&mut self, period_attach: bool) -> Option<AudioOutputEvent> {
+    fn tick_output(
+        &mut self,
+        period_attach: bool,
+        interrupt_pending: bool,
+    ) -> Option<AudioOutputEvent> {
         if self.period_counter == 0 {
             self.period_counter = self.effective_period();
         }
         self.period_counter = self.period_counter.saturating_sub(1);
         if self.period_counter != 0 {
+            if !self.dma_active && self.next_byte_is_hi && self.period_counter == 1 {
+                // WinUAE's documented manual-mode correction samples INTREQ
+                // one CCK before expiry. Retain both clear and set decisions.
+                self.manual_stop_pending = Some(interrupt_pending);
+            }
             return None;
         }
         self.period_counter = self.effective_period();
+
+        if !self.dma_active && self.next_byte_is_hi {
+            let stop = self
+                .manual_stop_pending
+                .take()
+                .expect("manual low-byte expiry must have a sampled stop decision");
+            if stop {
+                self.state = AudioState::Idle;
+                return None;
+            }
+            self.current_word = Some(self.dat);
+        }
 
         if self.current_word.is_none()
             && let Some(next) = self.next_word.take()
@@ -727,7 +753,9 @@ impl AudioChannel {
             self.next_word = None;
         }
         if !self.dma_active {
-            self.current_word = None;
+            // A one-CCK low byte samples on entry; longer periods sample
+            // when the countdown reaches one on a later shared CCK.
+            self.manual_stop_pending = (self.period_counter == 1).then_some(interrupt_pending);
         }
         // DMA underflow repeats the buffer without losing the byte phase.
         Some(AudioOutputEvent::LowByte(word))
@@ -768,7 +796,7 @@ pub struct PaulaInterruptDiagnosticSnapshot {
 /// Diagnostic name for one audio channel's internal DMA/playback state.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PaulaAudioDmaState {
-    /// DMA is disabled, or CPU-written AUDxDAT playback is active.
+    /// Neither DMA nor CPU-fed playback is running.
     Idle,
     /// DMA was enabled and the channel is waiting for its dummy first word.
     WaitWord1,
@@ -826,6 +854,9 @@ pub struct PaulaAudioChannelDiagnosticSnapshot {
     pub loop_interrupt_pending: bool,
     /// Audio IRQ awaiting delivery at the next CCK boundary.
     pub interrupt_request_pending: bool,
+    /// Manual low-byte stop decision: absent until sampled, false to continue,
+    /// true to stop. Later INTREQ writes cannot change a sampled decision.
+    pub manual_stop_pending: Option<bool>,
     /// Whether this channel modulates the next channel's period.
     pub period_modulation_enabled: bool,
     /// Whether this channel modulates the next channel's volume.
@@ -1232,7 +1263,14 @@ impl Paula8364 {
             AudioField::Len => channel.len_words = val,
             AudioField::Per => channel.write_period(val),
             AudioField::Vol => channel.write_volume(val),
-            AudioField::Dat => channel.write_dat(val),
+            AudioField::Dat => {
+                if channel.write_dat(val, self.intreq & (INT_AUD0 << ch) != 0) {
+                    self.apply_audio_modulation_event(
+                        usize::from(ch),
+                        AudioOutputEvent::HighByte(val),
+                    );
+                }
+            }
         }
     }
 
@@ -1294,6 +1332,7 @@ impl Paula8364 {
                 dma_requests_pending: channel.dma_requests_pending,
                 loop_interrupt_pending: channel.loop_interrupt_pending,
                 interrupt_request_pending: channel.interrupt_request_pending,
+                manual_stop_pending: channel.manual_stop_pending,
                 period_modulation_enabled: self.adkcon & ADKCON_USE_PER[index] != 0,
                 volume_modulation_enabled: self.adkcon & ADKCON_USE_VOL[index] != 0,
                 host_control: self.audio_controls.channels[index],
@@ -1410,7 +1449,6 @@ impl Paula8364 {
     ) where
         F: FnMut(u32) -> u8,
     {
-        let mut irq_mask: u16 = 0;
         for (index, channel) in self.audio.iter_mut().enumerate() {
             let dma_enabled = (dmacon & DMA_MASTER) != 0 && (dmacon & DMA_AUD[index]) != 0;
             channel.sync_dma_enable(dma_enabled);
@@ -1434,18 +1472,23 @@ impl Paula8364 {
 
         let mut output_events = [None; 4];
         for (index, channel) in self.audio.iter_mut().enumerate() {
-            // Skip the playback engine during the DMA startup waits
-            // (001/101) — no output until the real sample word lands.
-            // Non-DMA (CPU AUDxDAT) playback runs in `Idle` and is not
-            // skipped.
-            if channel.dma_active && channel.state != AudioState::Playing {
+            // DMA startup waits and idle channels have no sample transitions.
+            if channel.state != AudioState::Playing {
                 continue;
             }
             let period_attach = (self.adkcon & ADKCON_USE_PER[index]) != 0;
-            let event = channel.tick_output(period_attach);
-            if event.is_some_and(AudioOutputEvent::is_word_complete) && !channel.dma_active {
-                irq_mask |= INT_AUD0 << index;
+            let volume_attach = (self.adkcon & ADKCON_USE_VOL[index]) != 0;
+            if !channel.dma_active && channel.period_counter == 1 {
+                // The normal word IRQ is requested even if the sampled
+                // decision stops playback and leaves the low DAC byte held.
+                let request_irq = if channel.next_byte_is_hi {
+                    !period_attach || volume_attach
+                } else {
+                    period_attach
+                };
+                channel.interrupt_request_pending |= request_irq;
             }
+            let event = channel.tick_output(period_attach, self.intreq & (INT_AUD0 << index) != 0);
             output_events[index] = event;
         }
 
@@ -1462,8 +1505,6 @@ impl Paula8364 {
                 self.apply_audio_modulation_event(index, ev);
             }
         }
-
-        self.intreq |= irq_mask;
     }
 
     /// Mixed stereo output in `[-1.0, 1.0]`. OCS routing: ch 1+2 → L,

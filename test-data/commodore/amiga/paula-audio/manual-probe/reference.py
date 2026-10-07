@@ -220,8 +220,35 @@ int main() {
 }
 """
 )
+attachment = (
+    uae[: uae.rindex("int main() {")]
+    + r"""
+int main() {
+    for(unsigned nr=0;nr<4;++nr) for(unsigned attach:{0,1,16,17}) for(bool ack:{false,true}) {
+        for(auto &ch:audio_channel) ch=audio_channel_data{};
+        for(auto &due:irq_due) due=MAX_EV;
+        now=0; intreq=0; adkcon=attach<<nr;
+        auto &ch=audio_channel[nr]; ch.per=8;
+        dat_write(nr,0x0011);
+        for(now=0;now<=17;++now) {
+            if(now) {
+                deliver_irqs();
+                if(ch.evtime!=MAX_EV) { assert(ch.evtime>0); --ch.evtime; }
+                if(ack && (now==1 || now==9)) intreq&=~(0x80<<nr);
+                if(now==4) dat_write(nr,0x0022);
+                if(now==12) dat_write(nr,0x0033);
+                if(ch.evtime==0) service(nr,true);
+            }
+            std::cout<<nr<<','<<attach<<','<<ack<<','<<now<<','<<(ch.state&15)<<','
+                <<((intreq>>(7+nr))&1)<<','<<(nr<3 ? audio_channel[nr+1].per : 0)<<','
+                <<(nr<3 ? audio_channel[nr+1].data.audvol : 0)<<'\n';
+        }
+    }
+}
+"""
+)
 observed = {}
-for name, source in [("winuae", uae), ("vamiga", vamiga)]:
+for name, source in [("winuae", uae), ("vamiga", vamiga), ("attachments", attachment)]:
     cpp = out / f"{name}.cpp"
     cpp.write_text(source)
     (out / f"{name}.cpp.gz").write_bytes(gzip.compress(source.encode(), mtime=0))
@@ -243,7 +270,9 @@ for name, source in [("winuae", uae), ("vamiga", vamiga)]:
     )
     result = subprocess.check_output([str(out / name)], text=True)
     rows = [list(map(int, row.split(","))) for row in result.splitlines()]
-    if len(rows) != 4312 or any(len(row) != 8 for row in rows):
+    if len(rows) != (576 if name == "attachments" else 4312) or any(
+        len(row) != 8 for row in rows
+    ):
         raise ValueError(f"{name}: invalid observation inventory")
     cases = {tuple(row[:4]) for row in rows}
     expected_cases = {
@@ -253,6 +282,14 @@ for name, source in [("winuae", uae), ("vamiga", vamiga)]:
         for after in [0, 1]
         for nr in range(4)
     }
+    if name == "attachments":
+        expected_cases = {
+            (nr, attach, ack, time)
+            for nr in range(4)
+            for attach in [0, 1, 16, 17]
+            for ack in [0, 1]
+            for time in range(18)
+        }
     if cases != expected_cases:
         raise ValueError(f"{name}: incomplete scenario inventory")
     observed[name] = rows
