@@ -1,0 +1,70 @@
+mise WARN  tracking config: failed to ln -sf /private/tmp/198x-assessment-amiga/rust-toolchain.toml /Users/stevehill/.local/state/mise/tracked-configs/535ffa072fbad5d1: Operation not permitted (os error 1)
+   Compiling runtime-commodore-amiga v0.30.0 (/private/tmp/198x-assessment-amiga/crates/runtime-commodore-amiga)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.09s
+     Running tests/bitplane_pointer_dispatch.rs (/private/tmp/198x-amiga-pointer-target/debug/deps/bitplane_pointer_dispatch-3d82b9b67fa1bdc4)
+
+running 6 tests
+test ocs_cpu_all_six_pointer_pairs ... FAILED
+test ocs_copper_all_six_pointer_pairs ... FAILED
+test ecs_copper_all_six_pointer_pairs ... FAILED
+test ecs_cpu_all_six_pointer_pairs ... FAILED
+test aga_cpu_all_eight_pointer_pairs ... FAILED
+test aga_copper_all_eight_pointer_pairs ... FAILED
+
+failures:
+
+---- ocs_cpu_all_six_pointer_pairs stdout ----
+
+thread 'ocs_cpu_all_six_pointer_pairs' (72933638) panicked at crates/runtime-commodore-amiga/tests/bitplane_pointer_dispatch.rs:64:1:
+assertion `left == right` failed: plane 6 pointer through CPU
+  left: 393216
+ right: 424080
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- ocs_copper_all_six_pointer_pairs stdout ----
+
+thread 'ocs_copper_all_six_pointer_pairs' (72933637) panicked at crates/runtime-commodore-amiga/tests/bitplane_pointer_dispatch.rs:67:1:
+assertion `left == right` failed: plane 6 pointer through Copper
+  left: 393216
+ right: 424080
+
+---- ecs_copper_all_six_pointer_pairs stdout ----
+
+thread 'ecs_copper_all_six_pointer_pairs' (72933635) panicked at crates/runtime-commodore-amiga/tests/bitplane_pointer_dispatch.rs:68:1:
+assertion `left == right` failed: plane 6 pointer through Copper
+  left: 393216
+ right: 424080
+
+---- ecs_cpu_all_six_pointer_pairs stdout ----
+
+thread 'ecs_cpu_all_six_pointer_pairs' (72933636) panicked at crates/runtime-commodore-amiga/tests/bitplane_pointer_dispatch.rs:65:1:
+assertion `left == right` failed: plane 6 pointer through CPU
+  left: 393216
+ right: 424080
+
+---- aga_cpu_all_eight_pointer_pairs stdout ----
+
+thread 'aga_cpu_all_eight_pointer_pairs' (72933634) panicked at crates/runtime-commodore-amiga/tests/bitplane_pointer_dispatch.rs:66:1:
+assertion `left == right` failed: plane 6 pointer through CPU
+  left: 393216
+ right: 424080
+
+---- aga_copper_all_eight_pointer_pairs stdout ----
+
+thread 'aga_copper_all_eight_pointer_pairs' (72933633) panicked at crates/runtime-commodore-amiga/tests/bitplane_pointer_dispatch.rs:69:1:
+assertion `left == right` failed: plane 6 pointer through Copper
+  left: 393216
+ right: 424080
+
+
+failures:
+    aga_copper_all_eight_pointer_pairs
+    aga_cpu_all_eight_pointer_pairs
+    ecs_copper_all_six_pointer_pairs
+    ecs_cpu_all_six_pointer_pairs
+    ocs_copper_all_six_pointer_pairs
+    ocs_cpu_all_six_pointer_pairs
+
+test result: FAILED. 0 passed; 6 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+
+error: test failed, to rerun pass `-p runtime-commodore-amiga --test bitplane_pointer_dispatch`
