@@ -1,0 +1,18 @@
+mise WARN  tracking config: failed to ln -sf /private/tmp/198x-assessment-amiga/rust-toolchain.toml /Users/stevehill/.local/state/mise/tracked-configs/535ffa072fbad5d1: Operation not permitted (os error 1)
+   Compiling machine-commodore-amiga-ocs v0.30.0 (/private/tmp/198x-assessment-amiga/crates/machine-commodore-amiga-ocs)
+   Compiling machine-commodore-amiga-a1200 v0.30.0 (/private/tmp/198x-assessment-amiga/crates/machine-commodore-amiga-a1200)
+   Compiling machine-commodore-amiga-ecs v0.30.0 (/private/tmp/198x-assessment-amiga/crates/machine-commodore-amiga-ecs)
+   Compiling runtime-commodore-amiga v0.30.0 (/private/tmp/198x-assessment-amiga/crates/runtime-commodore-amiga)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.82s
+     Running tests/bitplane_pointer_dispatch.rs (/private/tmp/198x-amiga-pointer-target/debug/deps/bitplane_pointer_dispatch-3d82b9b67fa1bdc4)
+
+running 6 tests
+test ecs_cpu_all_six_pointer_pairs ... ok
+test ocs_cpu_all_six_pointer_pairs ... ok
+test ecs_copper_all_six_pointer_pairs ... ok
+test ocs_copper_all_six_pointer_pairs ... ok
+test aga_cpu_all_eight_pointer_pairs ... ok
+test aga_copper_all_eight_pointer_pairs ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.12s
+

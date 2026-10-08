@@ -1413,7 +1413,7 @@ impl AmigaA1200 {
             }
             0x108 => self.agnus.write_bpl1mod(val),
             0x10A => self.agnus.write_bpl2mod(val),
-            0x0E0..=0x0F5 => {
+            0x0E0..=0x0FE => {
                 let plane_idx = ((offset - 0x0E0) / 4) as usize;
                 let high = (offset & 2) == 0;
                 self.agnus.write_bpl_pointer(plane_idx, high, val);
