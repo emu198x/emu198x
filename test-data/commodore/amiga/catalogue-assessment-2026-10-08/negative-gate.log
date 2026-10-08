@@ -1,0 +1,11 @@
+One catalogue PASS removed while completion summaries remain.
+Traceback (most recent call last):
+  File "/var/folders/94/p_ng_dqx7tq9rx2rcw0y8zth0000gn/T/198x-catalogue-missing-pass-07a3bu9r/evidence/verify.py", line 123, in <module>
+    main()
+    ~~~~^^
+  File "/var/folders/94/p_ng_dqx7tq9rx2rcw0y8zth0000gn/T/198x-catalogue-missing-pass-07a3bu9r/evidence/verify.py", line 111, in main
+    require(len(passed) == 10 and set(passed) == expected, f"incomplete {tag} gate")
+    ~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/var/folders/94/p_ng_dqx7tq9rx2rcw0y8zth0000gn/T/198x-catalogue-missing-pass-07a3bu9r/evidence/verify.py", line 20, in require
+    raise ValueError(message)
+ValueError: incomplete PASS gate

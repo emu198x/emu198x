@@ -1,0 +1,5 @@
+workbench-1.3-desktop:
+  boot.frame_hash = "xxh64:d04f967ff00ab933"
+  audio.hash      = "xxh64:f6389c53ba66240d"
+  outcome         = pass
+  saved screenshot  = /private/tmp/198x-amiga-catalogue-classification/c40c45de/workbench-1.3-desktop/frame.png

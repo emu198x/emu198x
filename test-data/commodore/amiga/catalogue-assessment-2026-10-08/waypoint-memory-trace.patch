@@ -1,0 +1,25 @@
+diff --git i/crates/emu198x-catalogue/src/lib.rs w/crates/emu198x-catalogue/src/lib.rs
+index ed50ca45..2e1c4e96 100644
+--- i/crates/emu198x-catalogue/src/lib.rs
++++ w/crates/emu198x-catalogue/src/lib.rs
+@@ -1961,6 +1961,20 @@ where
+         .run_frames(entry.boot.wait_frames)
+         .map_err(|err| CatalogueError::Session(format!("boot wait: {err}")))?;
+ 
++    if let Some(directory) = std::env::var_os("CATALOGUE_TRACE_DIRECTORY") {
++        let directory = std::path::PathBuf::from(directory);
++        std::fs::create_dir_all(&directory).expect("trace directory");
++        for path in ["cpu", "agnus", "denise", "copper", "runtime", "blitter", "debug", "aga"] {
++            let result = session.query(path).expect("trace query");
++            std::fs::write(directory.join(format!("{path}.json")),
++                result.value.to_string()).expect("trace file");
++        }
++        std::fs::write(directory.join("waypoint.state"), session.snapshot_bytes().expect("trace snapshot")).expect("snapshot file");
++        let debug = session.machine().debug_target().expect("debug target");
++        let bytes: Vec<u8> = (0..0x200000).map(|address| debug.peek(address)).collect();
++        std::fs::write(directory.join("memory.bin"), bytes).expect("memory file");
++    }
++
+     let boot_frame = session
+         .latest_frame()
+         .ok_or_else(|| CatalogueError::Session("no frame at boot waypoint".into()))?;

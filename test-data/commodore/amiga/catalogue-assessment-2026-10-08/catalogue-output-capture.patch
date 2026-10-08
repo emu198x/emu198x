@@ -1,0 +1,17 @@
+diff --git i/crates/emu198x-catalogue/src/bin/catalogue.rs w/crates/emu198x-catalogue/src/bin/catalogue.rs
+index 63141e78..33b562d9 100644
+--- i/crates/emu198x-catalogue/src/bin/catalogue.rs
++++ w/crates/emu198x-catalogue/src/bin/catalogue.rs
+@@ -247,6 +247,12 @@ fn cmd_run(argv: &[String]) -> Result<(), Box<dyn std::error::Error>> {
+                     continue;
+                 }
+             };
++        if let Some(directory) = std::env::var_os("CATALOGUE_CAPTURE_DIRECTORY") {
++            let directory = std::path::PathBuf::from(directory).join(&entry.id);
++            std::fs::create_dir_all(&directory).expect("capture directory");
++            std::fs::write(directory.join("frame.png"), &result.boot_png).expect("frame file");
++            std::fs::write(directory.join("audio.wav"), &result.audio_wav).expect("audio file");
++        }
+         let mark = match &result.outcome {
+             EntryOutcome::Pass => "PASS",
+             EntryOutcome::BootHashMismatch { .. } | EntryOutcome::AudioHashMismatch { .. } => {
