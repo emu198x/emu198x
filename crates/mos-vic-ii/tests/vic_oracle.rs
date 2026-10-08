@@ -59,6 +59,10 @@ impl VicMemory for RecordingMemory {
         0
     }
 
+    fn is_character_rom(&self, _addr: u16) -> bool {
+        false
+    }
+
     fn read_colour(&self, offset: u16) -> u8 {
         self.colour.borrow_mut().push(offset);
         0

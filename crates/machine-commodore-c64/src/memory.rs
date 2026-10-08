@@ -1112,11 +1112,20 @@ impl C64Memory {
             }
             return self.ram[(bank * 0x4000) + offset];
         }
-        if (bank == 0 || bank == 2) && (0x1000..0x2000).contains(&offset) {
+        if self.vic_reads_character_rom(bank as u8, offset as u16) {
             return self.character_rom[offset - 0x1000];
         }
 
         self.ram[(bank * 0x4000) + offset]
+    }
+
+    /// Whether a VIC-II fetch from `offset` in `bank` reads the character
+    /// ROM: `$1000-$1FFF` of banks 0 and 2, except in Ultimax mode.
+    #[must_use]
+    pub fn vic_reads_character_rom(&self, bank: u8, offset: u16) -> bool {
+        !self.cart_ultimax()
+            && matches!(bank & 0x03, 0 | 2)
+            && (0x1000..0x2000).contains(&(offset & 0x3FFF))
     }
 
     /// Reads one colour RAM nibble.
@@ -1174,6 +1183,10 @@ fn boxed_array_from_slice<const N: usize>(
 impl VicMemory for C64Memory {
     fn read_vram(&self, addr: u16) -> u8 {
         self.vic_read((addr >> 14) as u8, addr & 0x3FFF)
+    }
+
+    fn is_character_rom(&self, addr: u16) -> bool {
+        self.vic_reads_character_rom((addr >> 14) as u8, addr & 0x3FFF)
     }
 
     fn read_colour(&self, offset: u16) -> u8 {

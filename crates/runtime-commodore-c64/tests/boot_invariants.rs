@@ -134,11 +134,13 @@ fn snapshot_round_trip_is_fixed_point_after_warmup() -> Result<(), Box<dyn Error
 /// two-tick colour stage joined it (stage 3a-C), to 12 when the VIC-II's
 /// chip revision joined it (stage 3a-D), to 13 when the SID's
 /// waveform-generator pipelines joined it (#1606), to 14 when the 6526's
-/// serial-port pipeline and CNT/SP/PC pins joined it (#797), and to 15 when
+/// serial-port pipeline and CNT/SP/PC pins joined it (#797), to 15 when
 /// the graphics sequencer's last XSCROLL load replaced the per-line latch
-/// (#1620).
+/// (#1620), to 16 when the sequencer's shift register and mode pipes
+/// replaced the decoded cell (#1660), and to 17 when the last matrix and
+/// colour entries joined it (#1661).
 #[test]
-fn snapshot_envelope_version_is_locked_at_v15() -> Result<(), Box<dyn Error>> {
+fn snapshot_envelope_version_is_locked_at_v17() -> Result<(), Box<dyn Error>> {
     let runtime = C64Runtime::new(
         Model::C64PalBreadbin,
         vec![0; KERNAL_SIZE],
@@ -149,8 +151,8 @@ fn snapshot_envelope_version_is_locked_at_v15() -> Result<(), Box<dyn Error>> {
     let bytes = runtime.snapshot()?;
     assert!(!bytes.is_empty(), "snapshot must have a non-empty envelope");
     assert_eq!(
-        bytes[0], 15,
-        "C64 snapshot envelope version should be 15 (got {})",
+        bytes[0], 17,
+        "C64 snapshot envelope version should be 17 (got {})",
         bytes[0]
     );
     Ok(())

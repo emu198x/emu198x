@@ -49,7 +49,16 @@ audio_routing_version = 7
 # Before the bump, `catalogue run` passed all thirteen entries with the fix
 # in place; at version 9 it passes them again, so every frame and audio
 # hash is unchanged.
-frame_routing_version = 9
+# Version 10 is #1660: the graphics sequencer decodes the display mode at
+# the shift register's output, and the g-access reads some mode bits a
+# cycle late. `catalogue run` changed one frame hash, Aztec Challenge's
+# (see its entry); every other frame and audio hash is unchanged.
+# Version 11 is #1661: outside the display window and under the vertical
+# border the sequencer keeps the last matrix and colour entries, so an
+# opened border shows the last character's background. `catalogue run`
+# passes all thirteen entries, ordinary and fresh-runtime replay, with the
+# version-10 hashes.
+frame_routing_version = 11
 
 [[system.firmware]]
 variant = "pal"
@@ -152,14 +161,24 @@ press = "return"
 # attract so the demo sprites sit at different positions at the capture
 # frame (screenshot-verified as the same canonical playfield); and the
 # audio hash for AUDIO_ROUTING_VERSION 4 (#763).
+# Re-captured 2026-10-07 for #1642, when VIA timer 1 started counting from
+# the value written to T1C-H, one cycle later than before. The 1541 DOS
+# restarts its controller timer (VIA 2 timer 1) with T1C-H writes in its job
+# loop interrupt ($F99C) and its stepper ramp ($FA81, $FAAB; The Anatomy of
+# the 1541 Disk Drive), so each of those periods is now a cycle longer.
+# The drive makes the same 138 motor and head moves as before; the last
+# ends 68,474 drive cycles (about 3.4 frames) later. The capture is the
+# same playfield, with Bruce Lee's sprite at another animation step (47
+# pixels), and the music window falls at another point in the tune.
+# Previous hashes: e0ff7f47c0d722c0 (frame), 41ed1062c919a1f7 (audio).
 wait_frames = 20000
-frame_hash = "xxh64:e0ff7f47c0d722c0"
+frame_hash = "xxh64:330260df30fd7669"
 
 [entry.audio]
 # Captures the in-game SID music.
 from_frame = 60
 secs = 2.0
-hash = "xxh64:41ed1062c919a1f7"
+hash = "xxh64:803dabadb248682b"
 
 [[entry]]
 id = "aztec-challenge"
@@ -201,13 +220,30 @@ press = "return"
 # version 7 it is the in-game scene, as it already was at version 6 with the
 # player elsewhere; the SID power-on state alone gives player-select, and
 # the two-cycle noise shift moves it on again.
+# Re-captured 2026-10-07 for #1642, when VIA timer 1 started counting from
+# the value written to T1C-H, one cycle later than before. The 1541 DOS
+# restarts its controller timer (VIA 2 timer 1) with T1C-H writes in its job
+# loop interrupt ($F99C) and its stepper ramp ($FA81, $FAAB; The Anatomy of
+# the 1541 Disk Drive), so each of those periods is now a cycle longer.
+# The drive makes the same 12 motor and head moves as before; the last
+# ends 9,623 drive cycles earlier. The capture is the same in-game scene
+# with the player and spears elsewhere, since the game's random numbers
+# depend on when it reads them. Previous hashes: a4c39c2a29913273 (frame),
+# fca3bd061cecfc27 (audio).
+# Re-captured at frame routing version 10 (#1660): two pixels at
+# (114, 209) change from brown to black. A sprite with background priority
+# (`$D01B`) lies there over a multicolour "01" pair in `$D022`. A "01" pair
+# counts as background for sprite priority (Bauer, section 3.7.3.2; VICE's
+# `pixel_pri = px & 2`), but the old renderer treated it as foreground,
+# which hid the sprite. Reverting only that rule restores the previous
+# hash. Previous frame hash: 9cc4001386e8b386.
 wait_frames = 5000
-frame_hash = "xxh64:a4c39c2a29913273"
+frame_hash = "xxh64:73a2fa71906091c0"
 
 [entry.audio]
 from_frame = 60
 secs = 2.0
-hash = "xxh64:fca3bd061cecfc27"
+hash = "xxh64:82a2492c0f2e18e0"
 
 [[entry]]
 id = "bomb-jack"
@@ -234,6 +270,15 @@ path = "commodore/c64/Games/Arcade/[D64]/Bomb Jack (1986)(Elite).zip"
 # power-on RAM during startup, changing the deterministic music stream while
 # leaving the canonical title frame unchanged. Ordinary capture and the
 # snapshot/replay path produced the same replacement hash.
+# Audio re-captured 2026-10-07 for #1642, when VIA timer 1 started counting from
+# the value written to T1C-H, one cycle later than before. The 1541 DOS
+# restarts its controller timer (VIA 2 timer 1) with T1C-H writes in its job
+# loop interrupt ($F99C) and its stepper ramp ($FA81, $FAAB; The Anatomy of
+# the 1541 Disk Drive), so each of those periods is now a cycle longer.
+# The drive makes the same 160 motor and head moves as before; the last
+# ends 259 drive cycles earlier. The title frame is unchanged; the music
+# starts at another cycle, so the window holds another part of the tune.
+# Previous audio hash: 159d43efdc569f75.
 [entry.boot]
 wait_frames = 50000
 frame_hash = "xxh64:59cbde0e3e4589d8"
@@ -241,7 +286,7 @@ frame_hash = "xxh64:59cbde0e3e4589d8"
 [entry.audio]
 from_frame = 60
 secs = 2.0
-hash = "xxh64:159d43efdc569f75"
+hash = "xxh64:70969d644b703e35"
 
 [[entry]]
 id = "thing-on-a-spring"
@@ -311,15 +356,25 @@ press = "return"
 # for the CIA TOD fix (#762), which shifts the attract state at the
 # capture frame (screenshot-verified as the same high-score/logo
 # screen), and the audio hash for AUDIO_ROUTING_VERSION 4 (#763).
+# Re-captured 2026-10-07 for #1642, when VIA timer 1 started counting from
+# the value written to T1C-H, one cycle later than before. The 1541 DOS
+# restarts its controller timer (VIA 2 timer 1) with T1C-H writes in its job
+# loop interrupt ($F99C) and its stepper ramp ($FA81, $FAAB; The Anatomy of
+# the 1541 Disk Drive), so each of those periods is now a cycle longer.
+# The drive makes the same 24 motor and head moves as before; the last
+# ends 37,834 drive cycles earlier. The capture is the same high-score
+# screen with the colour cycle one step on (2 pixels), and the music window
+# falls at another point in the tune. Previous hashes: c9750adda8b914ca
+# (frame), 130f69cf25735692 (audio).
 wait_frames = 16000
-frame_hash = "xxh64:c9750adda8b914ca"
+frame_hash = "xxh64:60df277e0e3b5fdd"
 
 [entry.audio]
 # Captures the Rob Hubbard title-screen SID — first non-silent
 # audio assertion of any disk-loaded C64 entry.
 from_frame = 60
 secs = 2.0
-hash = "xxh64:130f69cf25735692"
+hash = "xxh64:c732374b73684fcb"
 
 [[entry]]
 id = "monty-on-the-run"
@@ -557,22 +612,25 @@ at_frame = 2409
 press = "return"
 
 [entry.boot]
-# Same load-to-title timeline as the 1541 entry, captured fresh because the
-# 1571 drives the serial load. Verified against a saved screenshot: the Bruce
-# Lee title screen (portrait + credits). The hash differs from the 1541 entry's
-# because the 1571's load timing lands the attract/title at a slightly different
-# point.
+# Same load timeline as the 1541 entry, through the 1571.
+# Re-captured 2026-10-07 for #1642, when VIA timer 1 started counting from
+# the value written to T1C-H. Before it, the 1571 load stopped after track
+# 14: the drive timed its motor out and never made the seek back out to
+# track 23 that the 1541 makes, so the capture showed the title screen
+# (portrait and credits) and the audio window was silent. Now the 1571
+# makes exactly the 1541's 138 motor and head moves and reaches the same
+# playfield as the 1541 entry (64 pixels apart: sprite positions). Why the
+# 1571 stalled with the old timer is not traced. Previous hashes:
+# bc99c5b7a536f896 (frame), e45531b9387b986f (audio).
 wait_frames = 20000
-frame_hash = "xxh64:bc99c5b7a536f896"
+frame_hash = "xxh64:41bdf490f9df6341"
 
 [entry.audio]
-# `from_frame` counts from the boot waypoint, so this samples the title screen.
-# The 1571's shifted timeline lands this 2s window on a silent stretch of the
-# title (the same digital-silence hash the 1581 serial-load entry captures); the
-# frame hash above is the load proof for this drive-validation entry.
+# `from_frame` counts from the boot waypoint, so this samples the playfield's
+# music, as the 1541 entry does at its own point in the tune.
 from_frame = 60
 secs = 2.0
-hash = "xxh64:e45531b9387b986f"
+hash = "xxh64:20d7e4f0c3c90c4b"
 
 [[entry]]
 id = "bomb-jack-2-g64"
@@ -599,6 +657,14 @@ path = "commodore/c64/Games/Arcade/[G64]/Bomb Jack 2 (1986)(Elite).zip"
 # the "BOMB JACK II" logo, the Cooksey/Trueman/Holmes credits, the
 # keyboard/joystick + 1/2-player menu, and the Elite logo -- all loaded from the
 # raw GCR bit-stream.
+# Audio re-captured 2026-10-07 for #1642, when VIA timer 1 started counting from
+# the value written to T1C-H, one cycle later than before. The 1541 DOS
+# restarts its controller timer (VIA 2 timer 1) with T1C-H writes in its job
+# loop interrupt ($F99C) and its stepper ramp ($FA81, $FAAB; The Anatomy of
+# the 1541 Disk Drive), so each of those periods is now a cycle longer.
+# The drive makes the same 102 motor and head moves as before; the last
+# ends 28,725 drive cycles later. The title frame is unchanged; the music
+# starts at another cycle. Previous audio hash: 06f697538ac62ded.
 wait_frames = 50000
 frame_hash = "xxh64:bc17af9785ca0638"
 
@@ -606,4 +672,4 @@ frame_hash = "xxh64:bc17af9785ca0638"
 # Samples the title screen, where Mark Cooksey's SID tune is playing.
 from_frame = 60
 secs = 2.0
-hash = "xxh64:06f697538ac62ded"
+hash = "xxh64:0d4f065ad6c2f152"
