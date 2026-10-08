@@ -1,6 +1,4 @@
 # Amiga catalogue. See knowledge/decisions/october-catalogue.md.
-# October requalification: test-data/commodore/amiga/catalogue-assessment-2026-10-08/README.md.
-# Media, input sequence, observation times and ignore rectangles are unchanged.
 #
 # Coverage target: 10 entries spanning OCS, ECS and AGA profiles,
 # PAL and NTSC timing, Workbench, boot-block trackloaders, Copper /
@@ -80,7 +78,7 @@ path = "commodore-amiga/workbench-1.3.adf"
 # than sampling an intermediate AmigaDOS window whose cursor position
 # depends on how much of the startup sequence has loaded.
 wait_frames = 3500
-frame_hash = "xxh64:ec7af55687473036"
+frame_hash = "xxh64:d04f967ff00ab933"
 # Workbench's allocator-derived free-memory value can change in 16-byte
 # allocation quanta around this capture boundary. Exclude only its six digits;
 # the rest of the full 768 x 576 frame remains part of the exact hash.
@@ -163,13 +161,13 @@ button = "left"
 # Captures the canonical "BARBARIAN" title (Palace logo + score
 # header + snake-coiled tree pillars) during its demonstration loop.
 wait_frames = 4999
-frame_hash = "xxh64:599943fa3c6836bb"
+frame_hash = "xxh64:da26789277ea081e"
 
 [entry.audio]
 # The demonstration loop is audibly active at this window.
 from_frame = 60
 secs = 2.0
-hash = "xxh64:aafeb70c3a5299cd"
+hash = "xxh64:d583c66c852360ee"
 
 [[entry]]
 id = "1943"
@@ -212,7 +210,7 @@ frame_hash = "xxh64:99d5044f70a3bb21"
 # joystick FIRE to start the game).
 from_frame = 60
 secs = 2.0
-hash = "xxh64:e587dfb05d0e420c"
+hash = "xxh64:f6389c53ba66240d"
 
 [[entry]]
 id = "arkanoid-revenge-of-doh"
@@ -318,11 +316,12 @@ slot = "floppy-0"
 path = "commodore-amiga/workbench-3.1.adf"
 
 [entry.boot]
-# Complete desktop at frame 1800, captured at Lisa's native 1536 x 576
-# resolution. Retains corrected output phase, blanking and the independently
-# clocked pointer; no ignored region. See the October classification.
+# The complete desktop is present at frame 1800. The 768 x 576 catalogue
+# capture crops pixel-exactly to the reviewed 752 x 572 A1200 golden. This
+# baseline includes the corrected Lisa bitplane/DIW phase and retains the
+# independently clocked pointer without an ignored region.
 wait_frames = 1800
-frame_hash = "xxh64:72942c77632541ea"
+frame_hash = "xxh64:bf5386b4b59c8528"
 
 [entry.audio]
 # Workbench is silent at the measured window.
@@ -353,19 +352,19 @@ button = "left"
 
 [entry.boot]
 wait_frames = 5700
-# POWERUPS instruction page at the established post-startup frame 5700.
-# Native Lisa capture with all eight Copper-written pointers delivered.
-# The earlier baseline lost BPL6PTL and both halves of BPL7/BPL8, producing
-# duplicate text and, after the DMA corrections, black streaks. The repaired
-# cold boot and restored diagnostic agree exactly. This remains a title
-# compatibility checkpoint; independent pixel accuracy uses the chip probes.
-frame_hash = "xxh64:4ee6197e2dee4e3b"
+# Settled POWERUPS instruction page. Samples taken every 100 frames from 5300
+# through 6100 were identical; this midpoint is 400 frames from both endpoints.
+# After the Lisa bitplane/DIW correction, the old x=0..765 region equals the
+# corrected x=2..767 region exactly. The full-frame hash retains that two-host-
+# sample phase change. This exercises an AGA-only title beyond its release
+# screen; independent pixel accuracy remains bounded by the Test Kit cases.
+frame_hash = "xxh64:67b5a4958c46955c"
 
 [entry.audio]
 # The Banshee preview soundtrack is active in stereo at this window.
 from_frame = 60
 secs = 2.0
-hash = "xxh64:49aa27d3f82af1ab"
+hash = "xxh64:e80049171d171254"
 
 [[entry]]
 id = "state-of-the-art"
@@ -383,16 +382,15 @@ path = "commodore-amiga/State of the Art (1992-12-29)(Spaceballs)[TP2#1].zip"
 wait_frames = 6000
 # Active full-screen effect after the loader and title sequence. This is a
 # deterministic compatibility waypoint, not an independent visual oracle.
-# The October reference run confirms the fractured dancer and EHB noise
-# are part of this effect. Retains BPL6PTL and the integrated timing fixes;
-# the exact pose is a compatibility waypoint, not a reference RGB match.
-frame_hash = "xxh64:63d2dff5ec502f7e"
+# Reviewed after separating Copper COLOR writes from CPU/debug writes: the
+# change is one low-resolution sample at the intentional Copper output phase.
+frame_hash = "xxh64:e4a89c1194253bb1"
 
 [entry.audio]
 # The demo soundtrack is active in stereo at this window.
 from_frame = 60
 secs = 2.0
-hash = "xxh64:5aaa87d7a7bc566c"
+hash = "xxh64:87bfc0fccfd57b43"
 
 [[entry]]
 id = "alien-syndrome-ntsc"
@@ -416,4 +414,4 @@ frame_hash = "xxh64:da93ac91600d23da"
 # Title music is active in stereo at this window.
 from_frame = 60
 secs = 2.0
-hash = "xxh64:4d35188959001911"
+hash = "xxh64:51c8fefac1d56170"

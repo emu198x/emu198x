@@ -1,0 +1,23 @@
+[PASS] workbench-2.04-desktop (Amiga Workbench 2.04 desktop boot (ECS A500+))
+[SNAP-PASS] workbench-2.04-desktop
+[FAIL] 1943 (1943 - The Battle of Midway)
+1943:
+  boot.frame_hash = "xxh64:99d5044f70a3bb21"
+  audio.hash      = "xxh64:e587dfb05d0e420c"
+  outcome         = audio mismatch (expected xxh64:f6389c53ba66240d)
+[SNAP-PASS] 1943
+[PASS] bad-dudes-ecs (Bad Dudes vs. Dragon Ninja (ECS A500+))
+[SNAP-PASS] bad-dudes-ecs
+[FAIL] banshee-demo-aga (Banshee playable demo (AGA))
+banshee-demo-aga:
+  boot.frame_hash = "xxh64:4ee6197e2dee4e3b"
+  audio.hash      = "xxh64:49aa27d3f82af1ab"
+  outcome         = boot mismatch (expected xxh64:67b5a4958c46955c)
+[SNAP-PASS] banshee-demo-aga
+[FAIL] alien-syndrome-ntsc (Alien Syndrome (NTSC US))
+alien-syndrome-ntsc:
+  boot.frame_hash = "xxh64:da93ac91600d23da"
+  audio.hash      = "xxh64:4d35188959001911"
+  outcome         = audio mismatch (expected xxh64:51c8fefac1d56170)
+[SNAP-PASS] alien-syndrome-ntsc
+5 entries run, 3 failure(s)

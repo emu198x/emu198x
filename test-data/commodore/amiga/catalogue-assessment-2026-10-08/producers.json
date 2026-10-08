@@ -1,0 +1,27 @@
+{
+  "source_revisions": {
+    "1cead4e8": "1cead4e8eda93b5966dbd297b9a0f15a2f55ed97",
+    "e773c9c1": "e773c9c144e06d370cc496ff17ae1b03980d0a2e",
+    "c40c45de": "c40c45def4e367dd0126acfefeb0a278e1457093",
+    "97aa2afe": "97aa2afeb8ed0272030ac787f4a54e4f9f598d0f",
+    "65f29382": "65f29382760970e51ea70ea4f24657cad493fb01",
+    "f41195ed": "f41195ed962a2b11521db550a361c7b3316e53a1",
+    "c9965d9b": "c9965d9bb064e43f9ea3ae3803b71dbcb14cb0b4"
+  },
+  "binary_sha256": {
+    "catalogue-1cead4e8": "22b50ec7bf8f971cb94abfce4074c336e4bbfc67490c96df18522a327fbefae6",
+    "catalogue-65f29382": "036c7719d75f777725b0401689558ee951dbffca984f35c66752dcaa89dcd7d6",
+    "catalogue-97aa2afe": "6b6e2fd21b30946517367a85b42974b890beb336f487f9ca80c8348e81c5494e",
+    "catalogue-c40c45de": "d62ad5be59d7d4417e5617684d7374e577286d114d9c85014a2d7a4bc50c2723",
+    "catalogue-e773c9c1": "98e214d8e385bf52952b1510409e8bca488e4c7307155a16d9cd6c045ded9216",
+    "catalogue-f41195ed": "eca6543e696804f00def3963f2ab482195e34fe6047e3b35f33721334bbb4aff",
+    "catalogue-pointer-fixed": "fc9695f7bf21ce1daced0153a7d570a6cead494f8385aed304d375ddb4e25e22",
+    "catalogue-trace-base": "2e117ebd31982e73978b1fdc3bb715131d9c1f6a7fd5eae873ce570791e8ba71",
+    "catalogue-trace-current": "a279f3dfb99b2adcf8fb84d7660e7b720e38525c40e317b8eb2fa3c69ba5b804",
+    "catalogue-trace-fixed": "28d7eb1e506566816bc82e98a247a655857d6589d8cc8f0d290b3398c7800f2a",
+    "catalogue-trace97": "8a7ad95ffa80d53f9884e3d71c0a668d51da30dc21a78160b300245a84f3e2c9",
+    "catalogue-traceparent": "daa2a379aaf075c692892e47a3719f2fab27275baf902f3b9482b9db38be8171"
+  },
+  "pointer_fixed_binary_note": "c9965d9b code plus retained output-only CLI patch; final gate uses the clean binary",
+  "final_clean_binary_sha256": "6b09bc9718b903a94459a3dc73bedd6593078bcce1012353bc8a38cbf10381e4"
+}

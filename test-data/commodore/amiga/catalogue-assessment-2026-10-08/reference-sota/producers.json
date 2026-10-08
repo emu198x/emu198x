@@ -1,0 +1,26 @@
+{
+  "base_binary_sha256": "ba59b04326a6477cdf6dd4220d9298263641d59c2eaad2e6bc98fbb109e4a898",
+  "capture_binary_sha256": "9ffcd23a51f998bfb778ea9dcc6eaaefebe50e2a34bdfb48332b52ccfb556fe8",
+  "drawing_source_sha256": "673b8bd3ea9c90511a2f4e1455a0693c84bbdd837696c42b1a21735da8dbcfe6",
+  "video_source_before_sha256": "4e84e2c4dbf84b3c338420e461fc1b452a5ead73a0ded74b92378112f563f89c",
+  "video_source_after_sha256": "5cfba9dc76fc9f6d54a37e0a45f79c81dea81d00a183491c58a3cc547ed1ebdc",
+  "adf_sha256": "470e74457065b38db660c1f6286e5600c6433b42f63f99f832f7d9a07c6a8a64",
+  "configuration_sha256": "4983a54123531ae9cfef0ddf7269b76ebd6a160533355357aac25eb6e605144a",
+  "observations": 7,
+  "capture_start_field": 5500,
+  "capture_step_fields": 100,
+  "environment": {
+    "FSEMU_QUIT_AFTER_N_FRAMES": "6102",
+    "FSEMU_198X_CATALOGUE_CAPTURE_DIR": "capture directory"
+  },
+  "producer_version": "FS-UAE 5.0.7",
+  "completion": "Seven positive capture records; process terminated after artifact verification",
+  "core_source_sha256": {
+    "custom.cpp": "75bb300ba2798913997f82dde988db465746e9b7f22699bbc275690c8ae227e5",
+    "drawing.cpp": "673b8bd3ea9c90511a2f4e1455a0693c84bbdd837696c42b1a21735da8dbcfe6",
+    "blitter.cpp": "fbd2a191ab6ce60b7e68aa32d2d4efac0bdd96ee4d9deeb02412861c948591d5",
+    "audio.cpp": "3b78b7a61e930a4d20f708ec64b4e9e5eb85e39a0757634f0f67eebd9482b316",
+    "newcpu.cpp": "cee00677d1f403b77799683211d8c1ca9feb15e4311b01d97d83227e0610947e",
+    "memory.cpp": "a8b713f88a2f7cc9ce572dde66fe394d3b45bd0522e9dbe6b1a57ea3572da7d3"
+  }
+}

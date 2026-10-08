@@ -1,0 +1,667 @@
+[
+  {
+    "revision": "1cead4e8",
+    "entry": "workbench-1.3-desktop",
+    "frame_size": [
+      768,
+      576
+    ],
+    "frame_png_sha256": "6b946595b5264170f8ba129d178cec6585738a60595bc7d6c7a0e37499d6df41",
+    "audio_wav_sha256": "5852488642a675d6c479bb8b15be5e02149688e7800a41f818a55b914871958d",
+    "stereo_frames": 95846,
+    "peak_pcm16": 0,
+    "rms_pcm16": 0.0,
+    "clipped_samples": 0,
+    "nonzero_samples": 0,
+    "nonzero_samples_by_channel": [
+      0,
+      0
+    ]
+  },
+  {
+    "revision": "1cead4e8",
+    "entry": "barbarian",
+    "frame_size": [
+      768,
+      576
+    ],
+    "frame_png_sha256": "b98328a63d910655da883bd6a9ee41d8a0add238b5262c6ec7ed5faf696058bf",
+    "audio_wav_sha256": "988137b65a712803c476c306bd73933553704d9a62bc158ee4c63d3e10a412b7",
+    "stereo_frames": 95846,
+    "peak_pcm16": 13197,
+    "rms_pcm16": 875.6040431993215,
+    "clipped_samples": 0,
+    "nonzero_samples": 39530,
+    "nonzero_samples_by_channel": [
+      20648,
+      18882
+    ]
+  },
+  {
+    "revision": "1cead4e8",
+    "entry": "1943",
+    "frame_size": [
+      768,
+      576
+    ],
+    "frame_png_sha256": "c743037956f481a74970dbe89a6cfd2b69b81be3f833be494e8a687ff0dcf602",
+    "audio_wav_sha256": "5852488642a675d6c479bb8b15be5e02149688e7800a41f818a55b914871958d",
+    "stereo_frames": 95846,
+    "peak_pcm16": 0,
+    "rms_pcm16": 0.0,
+    "clipped_samples": 0,
+    "nonzero_samples": 0,
+    "nonzero_samples_by_channel": [
+      0,
+      0
+    ]
+  },
+  {
+    "revision": "1cead4e8",
+    "entry": "workbench-3.1-desktop",
+    "frame_size": [
+      768,
+      576
+    ],
+    "frame_png_sha256": "69d296acda9ab58a5b49b99fd56d47ffff166786b3d6a0b3615d1cc4aa9e105a",
+    "audio_wav_sha256": "5852488642a675d6c479bb8b15be5e02149688e7800a41f818a55b914871958d",
+    "stereo_frames": 95846,
+    "peak_pcm16": 0,
+    "rms_pcm16": 0.0,
+    "clipped_samples": 0,
+    "nonzero_samples": 0,
+    "nonzero_samples_by_channel": [
+      0,
+      0
+    ]
+  },
+  {
+    "revision": "1cead4e8",
+    "entry": "banshee-demo-aga",
+    "frame_size": [
+      768,
+      576
+    ],
+    "frame_png_sha256": "1e1551062867af2d43898c27017d6e57e95cadaa971644de13d675943cc2cedb",
+    "audio_wav_sha256": "5f11a0b1ca488e82c3745e182f384d8f0f880bb755d5d09f14eccc750de4554c",
+    "stereo_frames": 95846,
+    "peak_pcm16": 25965,
+    "rms_pcm16": 5085.480123792887,
+    "clipped_samples": 0,
+    "nonzero_samples": 191679,
+    "nonzero_samples_by_channel": [
+      95835,
+      95844
+    ]
+  },
+  {
+    "revision": "1cead4e8",
+    "entry": "state-of-the-art",
+    "frame_size": [
+      768,
+      576
+    ],
+    "frame_png_sha256": "4974aa05a74886a10f78681444ee5dfc7108c1e89c6bee4f7733c2d4a4871e75",
+    "audio_wav_sha256": "b4372d9f73d07a3711467b1b8f021c2e0904242cbfe2901a980e26458d6f37ea",
+    "stereo_frames": 95846,
+    "peak_pcm16": 28472,
+    "rms_pcm16": 5898.3137785357685,
+    "clipped_samples": 0,
+    "nonzero_samples": 191658,
+    "nonzero_samples_by_channel": [
+      95827,
+      95831
+    ]
+  },
+  {
+    "revision": "1cead4e8",
+    "entry": "alien-syndrome-ntsc",
+    "frame_size": [
+      768,
+      576
+    ],
+    "frame_png_sha256": "96a29e67d09bf2fe34e5576c4e49a366243d49ab587873e7793c5905d9ff6da1",
+    "audio_wav_sha256": "419d9b82635502aa61ab7bd76bdaae3aedcc7479cc7bfc1b047a478718a9741c",
+    "stereo_frames": 95913,
+    "peak_pcm16": 20195,
+    "rms_pcm16": 3577.365610604661,
+    "clipped_samples": 0,
+    "nonzero_samples": 191782,
+    "nonzero_samples_by_channel": [
+      95872,
+      95910
+    ]
+  },
+  {
+    "revision": "e773c9c1",
+    "entry": "workbench-1.3-desktop",
+    "frame_size": [
+      768,
+      576
+    ],
+    "frame_png_sha256": "6b946595b5264170f8ba129d178cec6585738a60595bc7d6c7a0e37499d6df41",
+    "audio_wav_sha256": "5852488642a675d6c479bb8b15be5e02149688e7800a41f818a55b914871958d",
+    "stereo_frames": 95846,
+    "peak_pcm16": 0,
+    "rms_pcm16": 0.0,
+    "clipped_samples": 0,
+    "nonzero_samples": 0,
+    "nonzero_samples_by_channel": [
+      0,
+      0
+    ]
+  },
+  {
+    "revision": "e773c9c1",
+    "entry": "barbarian",
+    "frame_size": [
+      768,
+      576
+    ],
+    "frame_png_sha256": "ea48d6d23090efaf7e46557bfb8f0bb2ac2eed72266d42a691506aa44e5e3d55",
+    "audio_wav_sha256": "9917e1cec30645cfae1ec2517dc48c843725d7b402571443083dde73d368a387",
+    "stereo_frames": 95845,
+    "peak_pcm16": 18730,
+    "rms_pcm16": 1635.6815431863363,
+    "clipped_samples": 0,
+    "nonzero_samples": 90404,
+    "nonzero_samples_by_channel": [
+      42547,
+      47857
+    ]
+  },
+  {
+    "revision": "e773c9c1",
+    "entry": "1943",
+    "frame_size": [
+      768,
+      576
+    ],
+    "frame_png_sha256": "c743037956f481a74970dbe89a6cfd2b69b81be3f833be494e8a687ff0dcf602",
+    "audio_wav_sha256": "486a5ee2427a2b480f213021fa86333085a0f21fd55cf7f5f81df161bb5a596e",
+    "stereo_frames": 95845,
+    "peak_pcm16": 0,
+    "rms_pcm16": 0.0,
+    "clipped_samples": 0,
+    "nonzero_samples": 0,
+    "nonzero_samples_by_channel": [
+      0,
+      0
+    ]
+  },
+  {
+    "revision": "e773c9c1",
+    "entry": "workbench-3.1-desktop",
+    "frame_size": [
+      1536,
+      576
+    ],
+    "frame_png_sha256": "04d52307315924b3294a26d2956fc87f33142d7b710fda4a97c6de9002dd20e5",
+    "audio_wav_sha256": "5852488642a675d6c479bb8b15be5e02149688e7800a41f818a55b914871958d",
+    "stereo_frames": 95846,
+    "peak_pcm16": 0,
+    "rms_pcm16": 0.0,
+    "clipped_samples": 0,
+    "nonzero_samples": 0,
+    "nonzero_samples_by_channel": [
+      0,
+      0
+    ]
+  },
+  {
+    "revision": "e773c9c1",
+    "entry": "banshee-demo-aga",
+    "frame_size": [
+      1536,
+      576
+    ],
+    "frame_png_sha256": "000ea9cf5601c65f43ea2c7438f1a9bbc87850758817b8e378e344ceac3a9682",
+    "audio_wav_sha256": "276530702363e0260323bb361e017fd3248ca63bc934fe5538a3a25bc8d192a4",
+    "stereo_frames": 95846,
+    "peak_pcm16": 23640,
+    "rms_pcm16": 4993.551028231228,
+    "clipped_samples": 0,
+    "nonzero_samples": 191687,
+    "nonzero_samples_by_channel": [
+      95845,
+      95842
+    ]
+  },
+  {
+    "revision": "e773c9c1",
+    "entry": "state-of-the-art",
+    "frame_size": [
+      768,
+      576
+    ],
+    "frame_png_sha256": "313b230014007ab7caf6aaef726b75d9f151d007b385509245888226aa0243f8",
+    "audio_wav_sha256": "a6b57e7b0e5cbd910de63fb85ce33a0cce11653996c664c6a51a7a57feef36b9",
+    "stereo_frames": 95846,
+    "peak_pcm16": 28625,
+    "rms_pcm16": 5522.761849438729,
+    "clipped_samples": 0,
+    "nonzero_samples": 191659,
+    "nonzero_samples_by_channel": [
+      95827,
+      95832
+    ]
+  },
+  {
+    "revision": "e773c9c1",
+    "entry": "alien-syndrome-ntsc",
+    "frame_size": [
+      768,
+      576
+    ],
+    "frame_png_sha256": "96a29e67d09bf2fe34e5576c4e49a366243d49ab587873e7793c5905d9ff6da1",
+    "audio_wav_sha256": "806b5640e0e20e45a10a9244b303a906d86e79278dbbc5848a48e4d754f8c605",
+    "stereo_frames": 95913,
+    "peak_pcm16": 20197,
+    "rms_pcm16": 3404.4763306924056,
+    "clipped_samples": 0,
+    "nonzero_samples": 191824,
+    "nonzero_samples_by_channel": [
+      95911,
+      95913
+    ]
+  },
+  {
+    "revision": "65f29382",
+    "entry": "workbench-1.3-desktop",
+    "frame_size": [
+      768,
+      576
+    ],
+    "frame_png_sha256": "afda90fc66f9ef29bdcb3bc7634c2a416a4dc549625ed5fa6cc6f926408ab7e4",
+    "audio_wav_sha256": "5852488642a675d6c479bb8b15be5e02149688e7800a41f818a55b914871958d",
+    "stereo_frames": 95846,
+    "peak_pcm16": 0,
+    "rms_pcm16": 0.0,
+    "clipped_samples": 0,
+    "nonzero_samples": 0,
+    "nonzero_samples_by_channel": [
+      0,
+      0
+    ]
+  },
+  {
+    "revision": "65f29382",
+    "entry": "barbarian",
+    "frame_size": [
+      768,
+      576
+    ],
+    "frame_png_sha256": "ea48d6d23090efaf7e46557bfb8f0bb2ac2eed72266d42a691506aa44e5e3d55",
+    "audio_wav_sha256": "9917e1cec30645cfae1ec2517dc48c843725d7b402571443083dde73d368a387",
+    "stereo_frames": 95845,
+    "peak_pcm16": 18730,
+    "rms_pcm16": 1635.6815431863363,
+    "clipped_samples": 0,
+    "nonzero_samples": 90404,
+    "nonzero_samples_by_channel": [
+      42547,
+      47857
+    ]
+  },
+  {
+    "revision": "65f29382",
+    "entry": "1943",
+    "frame_size": [
+      768,
+      576
+    ],
+    "frame_png_sha256": "c743037956f481a74970dbe89a6cfd2b69b81be3f833be494e8a687ff0dcf602",
+    "audio_wav_sha256": "486a5ee2427a2b480f213021fa86333085a0f21fd55cf7f5f81df161bb5a596e",
+    "stereo_frames": 95845,
+    "peak_pcm16": 0,
+    "rms_pcm16": 0.0,
+    "clipped_samples": 0,
+    "nonzero_samples": 0,
+    "nonzero_samples_by_channel": [
+      0,
+      0
+    ]
+  },
+  {
+    "revision": "65f29382",
+    "entry": "workbench-3.1-desktop",
+    "frame_size": [
+      1536,
+      576
+    ],
+    "frame_png_sha256": "05aa95adaca020ac02e32e7210458d0e642be216aaadce8d4085b93b853094e6",
+    "audio_wav_sha256": "5852488642a675d6c479bb8b15be5e02149688e7800a41f818a55b914871958d",
+    "stereo_frames": 95846,
+    "peak_pcm16": 0,
+    "rms_pcm16": 0.0,
+    "clipped_samples": 0,
+    "nonzero_samples": 0,
+    "nonzero_samples_by_channel": [
+      0,
+      0
+    ]
+  },
+  {
+    "revision": "65f29382",
+    "entry": "banshee-demo-aga",
+    "frame_size": [
+      1536,
+      576
+    ],
+    "frame_png_sha256": "9362e4314e60f15b2c3104abe3b8f373c342667fe00c5559e104ed9c8a7d701b",
+    "audio_wav_sha256": "276530702363e0260323bb361e017fd3248ca63bc934fe5538a3a25bc8d192a4",
+    "stereo_frames": 95846,
+    "peak_pcm16": 23640,
+    "rms_pcm16": 4993.551028231228,
+    "clipped_samples": 0,
+    "nonzero_samples": 191687,
+    "nonzero_samples_by_channel": [
+      95845,
+      95842
+    ]
+  },
+  {
+    "revision": "65f29382",
+    "entry": "state-of-the-art",
+    "frame_size": [
+      768,
+      576
+    ],
+    "frame_png_sha256": "7fd134d525f94b726ce22ede4967a8584d49995b89db9b553c694bf1ae1987ae",
+    "audio_wav_sha256": "a6b57e7b0e5cbd910de63fb85ce33a0cce11653996c664c6a51a7a57feef36b9",
+    "stereo_frames": 95846,
+    "peak_pcm16": 28625,
+    "rms_pcm16": 5522.761849438729,
+    "clipped_samples": 0,
+    "nonzero_samples": 191659,
+    "nonzero_samples_by_channel": [
+      95827,
+      95832
+    ]
+  },
+  {
+    "revision": "65f29382",
+    "entry": "alien-syndrome-ntsc",
+    "frame_size": [
+      768,
+      576
+    ],
+    "frame_png_sha256": "96a29e67d09bf2fe34e5576c4e49a366243d49ab587873e7793c5905d9ff6da1",
+    "audio_wav_sha256": "806b5640e0e20e45a10a9244b303a906d86e79278dbbc5848a48e4d754f8c605",
+    "stereo_frames": 95913,
+    "peak_pcm16": 20197,
+    "rms_pcm16": 3404.4763306924056,
+    "clipped_samples": 0,
+    "nonzero_samples": 191824,
+    "nonzero_samples_by_channel": [
+      95911,
+      95913
+    ]
+  },
+  {
+    "revision": "f41195ed",
+    "entry": "workbench-1.3-desktop",
+    "frame_size": [
+      768,
+      576
+    ],
+    "frame_png_sha256": "afda90fc66f9ef29bdcb3bc7634c2a416a4dc549625ed5fa6cc6f926408ab7e4",
+    "audio_wav_sha256": "5852488642a675d6c479bb8b15be5e02149688e7800a41f818a55b914871958d",
+    "stereo_frames": 95846,
+    "peak_pcm16": 0,
+    "rms_pcm16": 0.0,
+    "clipped_samples": 0,
+    "nonzero_samples": 0,
+    "nonzero_samples_by_channel": [
+      0,
+      0
+    ]
+  },
+  {
+    "revision": "f41195ed",
+    "entry": "barbarian",
+    "frame_size": [
+      768,
+      576
+    ],
+    "frame_png_sha256": "ea48d6d23090efaf7e46557bfb8f0bb2ac2eed72266d42a691506aa44e5e3d55",
+    "audio_wav_sha256": "cdf529b44e57e30e075d10db2b2dee3f15dac562f920dbd232a686a331e3169d",
+    "stereo_frames": 95845,
+    "peak_pcm16": 14837,
+    "rms_pcm16": 1664.8134618235438,
+    "clipped_samples": 0,
+    "nonzero_samples": 103771,
+    "nonzero_samples_by_channel": [
+      49040,
+      54731
+    ]
+  },
+  {
+    "revision": "f41195ed",
+    "entry": "1943",
+    "frame_size": [
+      768,
+      576
+    ],
+    "frame_png_sha256": "c743037956f481a74970dbe89a6cfd2b69b81be3f833be494e8a687ff0dcf602",
+    "audio_wav_sha256": "486a5ee2427a2b480f213021fa86333085a0f21fd55cf7f5f81df161bb5a596e",
+    "stereo_frames": 95845,
+    "peak_pcm16": 0,
+    "rms_pcm16": 0.0,
+    "clipped_samples": 0,
+    "nonzero_samples": 0,
+    "nonzero_samples_by_channel": [
+      0,
+      0
+    ]
+  },
+  {
+    "revision": "f41195ed",
+    "entry": "workbench-3.1-desktop",
+    "frame_size": [
+      1536,
+      576
+    ],
+    "frame_png_sha256": "05aa95adaca020ac02e32e7210458d0e642be216aaadce8d4085b93b853094e6",
+    "audio_wav_sha256": "5852488642a675d6c479bb8b15be5e02149688e7800a41f818a55b914871958d",
+    "stereo_frames": 95846,
+    "peak_pcm16": 0,
+    "rms_pcm16": 0.0,
+    "clipped_samples": 0,
+    "nonzero_samples": 0,
+    "nonzero_samples_by_channel": [
+      0,
+      0
+    ]
+  },
+  {
+    "revision": "f41195ed",
+    "entry": "banshee-demo-aga",
+    "frame_size": [
+      1536,
+      576
+    ],
+    "frame_png_sha256": "9362e4314e60f15b2c3104abe3b8f373c342667fe00c5559e104ed9c8a7d701b",
+    "audio_wav_sha256": "e4d58f8153ebfbc183bcb800354a5c60b6c19bf085b1113980557ea78bd569dc",
+    "stereo_frames": 95846,
+    "peak_pcm16": 26517,
+    "rms_pcm16": 4999.552380973152,
+    "clipped_samples": 0,
+    "nonzero_samples": 191678,
+    "nonzero_samples_by_channel": [
+      95839,
+      95839
+    ]
+  },
+  {
+    "revision": "f41195ed",
+    "entry": "state-of-the-art",
+    "frame_size": [
+      768,
+      576
+    ],
+    "frame_png_sha256": "7fd134d525f94b726ce22ede4967a8584d49995b89db9b553c694bf1ae1987ae",
+    "audio_wav_sha256": "234d0c13d08c12863931ff30d1cd9aaa1af7af9ba24c027b9c4ca133da80c0f0",
+    "stereo_frames": 95846,
+    "peak_pcm16": 29145,
+    "rms_pcm16": 5552.126698282081,
+    "clipped_samples": 0,
+    "nonzero_samples": 191664,
+    "nonzero_samples_by_channel": [
+      95830,
+      95834
+    ]
+  },
+  {
+    "revision": "f41195ed",
+    "entry": "alien-syndrome-ntsc",
+    "frame_size": [
+      768,
+      576
+    ],
+    "frame_png_sha256": "96a29e67d09bf2fe34e5576c4e49a366243d49ab587873e7793c5905d9ff6da1",
+    "audio_wav_sha256": "8e21ef912a02aeec24e5f08b066d7e75733d28456476690c1c17351f487d4e8c",
+    "stereo_frames": 95913,
+    "peak_pcm16": 20292,
+    "rms_pcm16": 3420.593697079383,
+    "clipped_samples": 0,
+    "nonzero_samples": 191821,
+    "nonzero_samples_by_channel": [
+      95911,
+      95910
+    ]
+  },
+  {
+    "revision": "pointer-fixed",
+    "entry": "workbench-1.3-desktop",
+    "frame_size": [
+      768,
+      576
+    ],
+    "frame_png_sha256": "afda90fc66f9ef29bdcb3bc7634c2a416a4dc549625ed5fa6cc6f926408ab7e4",
+    "audio_wav_sha256": "5852488642a675d6c479bb8b15be5e02149688e7800a41f818a55b914871958d",
+    "stereo_frames": 95846,
+    "peak_pcm16": 0,
+    "rms_pcm16": 0.0,
+    "clipped_samples": 0,
+    "nonzero_samples": 0,
+    "nonzero_samples_by_channel": [
+      0,
+      0
+    ]
+  },
+  {
+    "revision": "pointer-fixed",
+    "entry": "barbarian",
+    "frame_size": [
+      768,
+      576
+    ],
+    "frame_png_sha256": "ea48d6d23090efaf7e46557bfb8f0bb2ac2eed72266d42a691506aa44e5e3d55",
+    "audio_wav_sha256": "cdf529b44e57e30e075d10db2b2dee3f15dac562f920dbd232a686a331e3169d",
+    "stereo_frames": 95845,
+    "peak_pcm16": 14837,
+    "rms_pcm16": 1664.8134618235438,
+    "clipped_samples": 0,
+    "nonzero_samples": 103771,
+    "nonzero_samples_by_channel": [
+      49040,
+      54731
+    ]
+  },
+  {
+    "revision": "pointer-fixed",
+    "entry": "1943",
+    "frame_size": [
+      768,
+      576
+    ],
+    "frame_png_sha256": "c743037956f481a74970dbe89a6cfd2b69b81be3f833be494e8a687ff0dcf602",
+    "audio_wav_sha256": "486a5ee2427a2b480f213021fa86333085a0f21fd55cf7f5f81df161bb5a596e",
+    "stereo_frames": 95845,
+    "peak_pcm16": 0,
+    "rms_pcm16": 0.0,
+    "clipped_samples": 0,
+    "nonzero_samples": 0,
+    "nonzero_samples_by_channel": [
+      0,
+      0
+    ]
+  },
+  {
+    "revision": "pointer-fixed",
+    "entry": "workbench-3.1-desktop",
+    "frame_size": [
+      1536,
+      576
+    ],
+    "frame_png_sha256": "05aa95adaca020ac02e32e7210458d0e642be216aaadce8d4085b93b853094e6",
+    "audio_wav_sha256": "5852488642a675d6c479bb8b15be5e02149688e7800a41f818a55b914871958d",
+    "stereo_frames": 95846,
+    "peak_pcm16": 0,
+    "rms_pcm16": 0.0,
+    "clipped_samples": 0,
+    "nonzero_samples": 0,
+    "nonzero_samples_by_channel": [
+      0,
+      0
+    ]
+  },
+  {
+    "revision": "pointer-fixed",
+    "entry": "banshee-demo-aga",
+    "frame_size": [
+      1536,
+      576
+    ],
+    "frame_png_sha256": "c1e7e45322cef3350683c9fedfb0be8c7595c7f181756f906be5a3dd770c9d8a",
+    "audio_wav_sha256": "e4d58f8153ebfbc183bcb800354a5c60b6c19bf085b1113980557ea78bd569dc",
+    "stereo_frames": 95846,
+    "peak_pcm16": 26517,
+    "rms_pcm16": 4999.552380973152,
+    "clipped_samples": 0,
+    "nonzero_samples": 191678,
+    "nonzero_samples_by_channel": [
+      95839,
+      95839
+    ]
+  },
+  {
+    "revision": "pointer-fixed",
+    "entry": "state-of-the-art",
+    "frame_size": [
+      768,
+      576
+    ],
+    "frame_png_sha256": "4ff4ae9a92f7639079b87ec7c0eb90cc40b76f4f5489b4381be5188d5ead4f0b",
+    "audio_wav_sha256": "234d0c13d08c12863931ff30d1cd9aaa1af7af9ba24c027b9c4ca133da80c0f0",
+    "stereo_frames": 95846,
+    "peak_pcm16": 29145,
+    "rms_pcm16": 5552.126698282081,
+    "clipped_samples": 0,
+    "nonzero_samples": 191664,
+    "nonzero_samples_by_channel": [
+      95830,
+      95834
+    ]
+  },
+  {
+    "revision": "pointer-fixed",
+    "entry": "alien-syndrome-ntsc",
+    "frame_size": [
+      768,
+      576
+    ],
+    "frame_png_sha256": "96a29e67d09bf2fe34e5576c4e49a366243d49ab587873e7793c5905d9ff6da1",
+    "audio_wav_sha256": "8e21ef912a02aeec24e5f08b066d7e75733d28456476690c1c17351f487d4e8c",
+    "stereo_frames": 95913,
+    "peak_pcm16": 20292,
+    "rms_pcm16": 3420.593697079383,
+    "clipped_samples": 0,
+    "nonzero_samples": 191821,
+    "nonzero_samples_by_channel": [
+      95911,
+      95910
+    ]
+  }
+]

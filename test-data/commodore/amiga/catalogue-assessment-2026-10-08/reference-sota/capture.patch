@@ -1,0 +1,33 @@
+--- a/od-fs/video-fs.cpp
++++ b/od-fs/video-fs.cpp
+@@ -2516,6 +2516,30 @@
+ 	const fsemu_video_frame_t *frontend_frame,
+ 	int mode)
+ {
++    // Observation only: unmodified guest, completed chipset buffer, core field.
++    const char *catalogue_dir = getenv("FSEMU_198X_CATALOGUE_CAPTURE_DIR");
++    const int catalogue_field = fsemu_frame_counter();
++    static int catalogue_last = -1;
++    if (catalogue_dir && mode == 1 && frontend_frame->partial == frontend_frame->height &&
++        catalogue_field >= 5500 && catalogue_field <= 6100 && catalogue_field % 100 == 0 &&
++        catalogue_last != catalogue_field) {
++        catalogue_last = catalogue_field;
++        char path[MAX_DPATH];
++        snprintf(path, sizeof(path), "%s/field-%06d.bgra", catalogue_dir, catalogue_field);
++        FILE *raw = fopen(path, "wb");
++        if (!raw) { fprintf(stderr, "CATALOGUE_CAPTURE open failed\n"); abort(); }
++        for (int y = 0; y < height; ++y) {
++            if (fwrite(buffer + y * stride, 1, width * 4, raw) != (size_t)width * 4) abort();
++        }
++        if (fclose(raw)) abort();
++        snprintf(path, sizeof(path), "%s/field-%06d.json", catalogue_dir, catalogue_field);
++        FILE *meta = fopen(path, "w");
++        if (!meta) abort();
++        fprintf(meta, "{\"core_field\":%d,\"width\":%d,\"height\":%d,\"format\":\"BGRA\"}\n", catalogue_field, width, height);
++        if (fclose(meta)) abort();
++        fprintf(stderr, "CATALOGUE_CAPTURE field=%d width=%d height=%d\n", catalogue_field, width, height);
++    }
++
+ 	static bool initialized;
+ 	static const char *capture_dir;
+ 	static int expected_case = -1;

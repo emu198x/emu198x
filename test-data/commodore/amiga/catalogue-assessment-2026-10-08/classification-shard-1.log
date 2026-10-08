@@ -1,0 +1,27 @@
+[FAIL] workbench-1.3-desktop (Amiga Workbench 1.3 desktop boot)
+workbench-1.3-desktop:
+  boot.frame_hash = "xxh64:ec7af55687473036"
+  audio.hash      = "xxh64:f6389c53ba66240d"
+  outcome         = boot mismatch (expected xxh64:d04f967ff00ab933)
+[SNAP-PASS] workbench-1.3-desktop
+[FAIL] barbarian (Barbarian - The Ultimate Warrior)
+barbarian:
+  boot.frame_hash = "xxh64:599943fa3c6836bb"
+  audio.hash      = "xxh64:aafeb70c3a5299cd"
+  outcome         = boot mismatch (expected xxh64:da26789277ea081e)
+[SNAP-PASS] barbarian
+[PASS] arkanoid-revenge-of-doh (Arkanoid - Revenge of Doh)
+[SNAP-PASS] arkanoid-revenge-of-doh
+[FAIL] workbench-3.1-desktop (Amiga Workbench 3.1 desktop boot (AGA A1200))
+workbench-3.1-desktop:
+  boot.frame_hash = "xxh64:72942c77632541ea"
+  audio.hash      = "xxh64:f6389c53ba66240d"
+  outcome         = boot mismatch (expected xxh64:bf5386b4b59c8528)
+[SNAP-PASS] workbench-3.1-desktop
+[FAIL] state-of-the-art (State of the Art)
+state-of-the-art:
+  boot.frame_hash = "xxh64:63d2dff5ec502f7e"
+  audio.hash      = "xxh64:5aaa87d7a7bc566c"
+  outcome         = boot mismatch (expected xxh64:e4a89c1194253bb1)
+[SNAP-PASS] state-of-the-art
+5 entries run, 4 failure(s)

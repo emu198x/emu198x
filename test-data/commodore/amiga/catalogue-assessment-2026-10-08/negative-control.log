@@ -1,0 +1,11 @@
+One desktop pixel altered; its recorded file hash updated so the semantic check must catch it.
+Traceback (most recent call last):
+  File "/var/folders/94/p_ng_dqx7tq9rx2rcw0y8zth0000gn/T/198x-catalogue-negative-f8c_r7c2/evidence/verify.py", line 96, in <module>
+    main()
+    ~~~~^^
+  File "/var/folders/94/p_ng_dqx7tq9rx2rcw0y8zth0000gn/T/198x-catalogue-negative-f8c_r7c2/evidence/verify.py", line 46, in main
+    require((x < 8 or x >= 760) and y < 574, "desktop changed outside blanking")
+    ~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/var/folders/94/p_ng_dqx7tq9rx2rcw0y8zth0000gn/T/198x-catalogue-negative-f8c_r7c2/evidence/verify.py", line 18, in require
+    raise ValueError(message)
+ValueError: desktop changed outside blanking
