@@ -216,7 +216,7 @@ fn led_control_follows_the_delayed_signal_on_every_board() {
 }
 
 #[test]
-#[ignore = "explicit wall-clock benchmark; not a correctness gate"]
+#[ignore = "DIAGNOSTIC: explicit wall-clock benchmark; not a correctness gate"]
 fn benchmark_runtime_audio_conversion() {
     use std::hint::black_box;
     use std::time::Instant;
