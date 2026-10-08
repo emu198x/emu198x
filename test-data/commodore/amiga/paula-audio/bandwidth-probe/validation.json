@@ -1,36 +1,120 @@
 {
-  "production_changed": false,
-  "native_cases": 108,
-  "native_stopband_failures": 54,
-  "candidate_cases": 66,
-  "candidate_failures": 0,
-  "candidate_pulse_cases": 4,
-  "candidate_bypass_failures": 48,
-  "reference_cases": 10,
-  "reference_regeneration": "byte-identical",
-  "runtime_lib_tests": {
-    "passed": 61,
-    "ignored": 1,
-    "reason": "new explicit known-gap bandwidth diagnostic"
+  "research": {
+    "commit": "2afd0df0",
+    "results_at_that_commit": {
+      "production_changed": false,
+      "native_cases": 108,
+      "native_stopband_failures": 54,
+      "candidate_cases": 66,
+      "candidate_failures": 0,
+      "candidate_pulse_cases": 4,
+      "candidate_bypass_failures": 48,
+      "reference_cases": 10,
+      "reference_regeneration": "byte-identical",
+      "runtime_lib_tests": {
+        "passed": 61,
+        "ignored": 1,
+        "reason": "new explicit known-gap bandwidth diagnostic"
+      },
+      "clippy": "pass after chunks_exact_to_as_chunks correction; initial log retained",
+      "format": "pass",
+      "python": "Ruff format/check pass",
+      "snapshot_version": 61,
+      "artifacts_sha256": {
+        "README.md": "ddca2b047132fb2b3ac434114c5310f0c096c808efc59cb111730b8440c7ad76",
+        "candidate-bypass.log.gz": "801a7c2e74a916dfeef9869d0838c23eb3c2d96fe37688725770cb6e27265636",
+        "candidate.cpp": "0477f3b640d10df6cbec6a0cf58f7306284969c7b8b4f06522166f92b90b5d05",
+        "candidate.log.gz": "2d9faa2e9760dc8559e04bbbaa7d587a21b7079c1564c41862c9b5ec0bf08f78",
+        "clippy-before.log.gz": "3d85b7fd354d0c5ae83f54905c56024491231c03ed8fd8e20b820a651fa1fdbf",
+        "clippy.log.gz": "d3006c824c8054a3def70dcdbf458f44b33b43112bc17682edca34897a5c91a2",
+        "comparison.json": "7556b9376f9c0bd194176fa8f892b25f46259f8e1af0e53b1437673c96ee541b",
+        "format.log.gz": "9ceffb7310338057cfe71a4ae1e2c98d2c485d81cdef906532a801f457a38d64",
+        "lib-tests.log.gz": "af1a7981b102d918515c5539df85ef62904233337ba9fc835b90b2c3831785e8",
+        "native-before.csv": "1e419dd3826c472f72d822c498b5d858f8142c3efa72adb3c1cdc3c9021db8b2",
+        "native-before.log.gz": "21cb77d8266f1e588366a9bc49d8d006adc551e70be379baa5712ddff36e202e",
+        "native-final.log.gz": "1b769317494a5b52d1b0d66ff0dc9ddca445f96df26b9e0c8159caa644276a8f",
+        "reference.py": "9be3ec363ba1a7280ba67780443e5ec6bec99a00b058e4fe2ade9e6cc12d82fa",
+        "winuae.cpp.gz": "08824f1e929113ea2b3ea4f6982ef9f702b3b02284c5eb366f4fecd4d6a87e30",
+        "winuae.csv": "dc15feddbed65f17c400b61e8e2d6ee3b9939b93d84fbccc1c6ce32cd92991b7"
+      }
+    }
   },
-  "clippy": "pass after chunks_exact_to_as_chunks correction; initial log retained",
-  "format": "pass",
-  "python": "Ruff format/check pass",
-  "snapshot_version": 61,
+  "implementation": {
+    "approved": "2026-10-08",
+    "snapshot_version": 62,
+    "rejects_snapshot_version": 61,
+    "spectral_cases": 198,
+    "spectral_failures": 0,
+    "pulse_convolution_cases": 36,
+    "live_restore_checkpoints": 48,
+    "malformed_state_cases": 14,
+    "led_alignment_boards_regions": 8,
+    "passed_shared_runtime_tests": 589,
+    "ordinary_suite_ignored": 31,
+    "ignored_breakdown": "30 existing diagnostics plus explicit wall-clock benchmark",
+    "snapshot_tests": 65,
+    "clippy": "shared/runtime all-target release pass; benchmark-only extension also checked after full suite",
+    "native_release_build": "pass",
+    "wasm32_runtime_check": "pass",
+    "rom_audio_gate_cases": 3,
+    "rom_audio_gate": "pass with unchanged thresholds",
+    "benchmark_median_seconds_per_emulated_second": {
+      "1": {
+        "box_seconds": 0.049273,
+        "band_limited_seconds": 0.458663,
+        "added_seconds": 0.40939
+      },
+      "2": {
+        "box_seconds": 0.04946,
+        "band_limited_seconds": 0.259544,
+        "added_seconds": 0.210084
+      },
+      "16": {
+        "box_seconds": 0.049553,
+        "band_limited_seconds": 0.097847,
+        "added_seconds": 0.048294000000000004
+      },
+      "248": {
+        "box_seconds": 0.049127,
+        "band_limited_seconds": 0.062454,
+        "added_seconds": 0.013327000000000006
+      }
+    },
+    "benchmark_scope": "same synthetic mixer updates, real conversion/filter/output, excludes CPU/chip execution",
+    "initial_failures": "8 pulse cases exceeded arbitrary absolute tolerance; replaced by specified 0.1% pulse-peak accuracy. Replay fixture outlasted its transition; now refreshed at every checkpoint."
+  },
+  "source_sha256": {
+    "crates/emu198x-shell/src/audio/band_limited.rs": "1a6e945c28f0f3a7731307a1205ee6f107ea5b96c6ce2f844e40d96e6e5c95a6",
+    "crates/emu198x-shell/src/audio.rs": "b3be613a7628a10bc32143b13feae6a5d1040de25354cf07db9d666e72c72449",
+    "crates/runtime-commodore-amiga/src/runtime.rs": "335a52cbdb5368adae6ea46008a8fd3ddeaf4448804f0289a1d0fa593cbc4096",
+    "crates/runtime-commodore-amiga/src/snapshot.rs": "ea47fb57f1cbd5b3802383ed018b5372657a7ba0a76c068377ab6a84b07fd092",
+    "crates/runtime-commodore-amiga/src/bandwidth_probe.rs": "c178116ca1fef3a78803167b582bd0300d99233f424b3b44f6876533d72b3ca7",
+    "crates/runtime-commodore-amiga/tests/snapshot_roundtrip.rs": "630775889a789181f14fde135ae77356bb19f5a01ff50294f2989ff43f401f9a"
+  },
+  "release_binary_sha256": "a787847529c4596df216965ffa32f2fffd8e4ff3a1002257c8a3188cb68c7f4f",
   "artifacts_sha256": {
-    "README.md": "ddca2b047132fb2b3ac434114c5310f0c096c808efc59cb111730b8440c7ad76",
+    "README.md": "7676d67b2ef6023ed1559a2350b732a23b7f7cfacca885f0b7e53a4ba49872f0",
+    "all-tests.log.gz": "d44a84c8a79e5910d0a78b029c8e2005fad3fc4f284472bcd205586038e427e7",
+    "benchmark.log.gz": "a5ae42d95c2e19694eff391f6d1bb0512200ff050e12f8fc5e8bcb79a5995063",
+    "build.log.gz": "043c5e1c4a89c082a885d3f995bc3b0bbe2508ad5767c80e7979deef80e7afd9",
     "candidate-bypass.log.gz": "801a7c2e74a916dfeef9869d0838c23eb3c2d96fe37688725770cb6e27265636",
     "candidate.cpp": "0477f3b640d10df6cbec6a0cf58f7306284969c7b8b4f06522166f92b90b5d05",
     "candidate.log.gz": "2d9faa2e9760dc8559e04bbbaa7d587a21b7079c1564c41862c9b5ec0bf08f78",
     "clippy-before.log.gz": "3d85b7fd354d0c5ae83f54905c56024491231c03ed8fd8e20b820a651fa1fdbf",
+    "clippy-integrated.log.gz": "6f9d0d1f246fc54205e32ab17a6c71271dff500c5beb4c075e2f2209d7487164",
     "clippy.log.gz": "d3006c824c8054a3def70dcdbf458f44b33b43112bc17682edca34897a5c91a2",
     "comparison.json": "7556b9376f9c0bd194176fa8f892b25f46259f8e1af0e53b1437673c96ee541b",
+    "focused.log.gz": "dc25b3da808ca95eb8359f2acbe2f64b110a7ab4b765b0f4a30f9f3fd5d9125c",
     "format.log.gz": "9ceffb7310338057cfe71a4ae1e2c98d2c485d81cdef906532a801f457a38d64",
+    "integrated-unit.log.gz": "e4f6e4f80952711fc090bccb47f4b2b89ae06e390a1113e169aadb38f6fc8dda",
     "lib-tests.log.gz": "af1a7981b102d918515c5539df85ef62904233337ba9fc835b90b2c3831785e8",
     "native-before.csv": "1e419dd3826c472f72d822c498b5d858f8142c3efa72adb3c1cdc3c9021db8b2",
     "native-before.log.gz": "21cb77d8266f1e588366a9bc49d8d006adc551e70be379baa5712ddff36e202e",
     "native-final.log.gz": "1b769317494a5b52d1b0d66ff0dc9ddca445f96df26b9e0c8159caa644276a8f",
+    "native-integrated.csv": "0da8be360a6cb9cd120a7e31d02f20f83e6c404deec5b03cc55ca91153c0d728",
     "reference.py": "9be3ec363ba1a7280ba67780443e5ec6bec99a00b058e4fe2ade9e6cc12d82fa",
+    "wasm.log.gz": "25f12e622fbde4aa629811bb0ec9fa2742f9a77c0b3ce5eee701ca2724dccf52",
+    "waveform.log.gz": "51da360fd77a57e1bf161e051fd12e1925df7950ad1a2404e35cd66906ad3852",
     "winuae.cpp.gz": "08824f1e929113ea2b3ea4f6982ef9f702b3b02284c5eb366f4fecd4d6a87e30",
     "winuae.csv": "dc15feddbed65f17c400b61e8e2d6ee3b9939b93d84fbccc1c6ce32cd92991b7"
   }

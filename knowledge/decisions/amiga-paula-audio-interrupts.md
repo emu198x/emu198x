@@ -157,10 +157,22 @@ nonlinearity needs a measured transfer curve; this does not assert physically
 perfect DACs. Timing, filters, volume semantics and snapshot v61 stay unchanged.
 
 The [host-bandwidth observations](../../../../reference/by-system/commodore-amiga/2026-paula-host-bandwidth-observations.md)
-now reproduce 54 ultrasonic alias failures in 108 real runtime observations.
-The separate windowed-sinc step prototype passes 66 tone and four pulse-area
-cases, with a working bypass negative control. It remains research code;
-the shared helper, delayed LED control and snapshot v62 are proposed, not
-yet an adopted production design. The WinUAE extraction has an unresolved
-queue-time-unit discrepancy and is not silently promoted into an oracle.
-Physical PWM and continuous switched-analogue response remain separate gaps.
+record the 54 original ultrasonic alias failures and the approved correction.
+This supersedes v61's interval-average output stage to reject audible aliases.
+Use the shared finite windowed-sinc step ring before host decimation, with
+transition position supplied by the existing integer phase. The fixed 48-frame
+signal delay also delays sampled LED control by 48 frames. Keep chip clocks,
+register delivery and the existing analogue-filter approximation unchanged.
+
+The user approved the shared helper and snapshot v62, rejecting v61. Save
+all pending corrections, level, cursor, integer phase, delayed LED bits and
+analogue histories; rebuild immutable coefficients. Validate histories before
+mutating the live runtime, and clear them on reset. The integrated stage
+passes 198 spectral cases, 36 independent pulse-convolution cases, 48 live
+restore checkpoints and eight board/region LED-alignment checks. Dense edges
+cannot overflow an event queue; period-1 conversion is materially more costly
+than ordinary playback. The primary note records the measured cost range.
+
+The WinUAE extraction's queue-time-unit discrepancy remains unresolved and
+is not silently promoted into an oracle. Physical PWM and continuous
+switched-analogue response remain separate gaps.

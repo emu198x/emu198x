@@ -1,17 +1,21 @@
 # Paula host bandwidth investigation
 
-Production still uses v61 interval averaging. Its real runtime diagnostic
-fails all 54 above-band cases in 108 observations. The standalone candidate
-passes 66 tone cases and four short-pulse area checks. It is not linked into
-the emulator. The next shared resampling stage and snapshot v62 are proposed,
-pending approval in the docs plan `2026-10-07-amiga-paula-bandwidth.md`.
-
-Run the known-gap diagnostic explicitly (expected Cargo exit 101):
+Production uses the approved band-limited step-response ring and snapshot
+v62. The original v61 runtime failed all 54 above-band cases in 108
+observations; those logs remain here. The current runtime regression covers
+198 cases, including 54 in-band controls and 144 stopband cases through
+3 MHz. Run it as an ordinary test:
 
 ```sh
 cargo test --locked --release -p runtime-commodore-amiga --lib \
-  host_decimation_rejects_ultrasonic_aliases -- --ignored --nocapture
+  host_decimation_rejects_ultrasonic_aliases -- --nocapture
 ```
+
+The old failing invocation (with `--ignored`) belongs to research commit
+`2afd0df0`; using that flag on the promoted regression would select no test.
+The standalone C++ prototype remains independent research evidence, not
+code linked into the emulator. The implemented design is recorded in the
+separate docs plan `2026-10-07-amiga-paula-bandwidth.md`.
 
 It uses synthetic mixer gains around retained full-volume signed samples
 to isolate host conversion, not a guest program or physical PWM schedule.
@@ -58,7 +62,39 @@ negative controls must be rejected.
 Primary evidence:
 `reference/by-system/commodore-amiga/2026-paula-host-bandwidth-observations.md`.
 The physical PWM phase and the switched analogue circuit remain open.
-The proposed shared helper preserves the caller's clock and saves its tail;
-the Amiga integration also needs delayed LED-control history to align with
-the 1 ms signal delay. No production pipeline, filter or snapshot changed
-in this research commit.
+The shared helper preserves the caller's clock and saves its tail.
+The Amiga integration delays sampled LED control by 48 host frames to
+align with the 1 ms signal delay. Snapshot v62 rejects v61 and saves ring,
+previous level, cursor, existing integer phase, delayed LED bits and analogue
+history. Invalid lengths, cursors and non-finite/out-of-range signal data
+fail before changing live state.
+
+The runtime's one-tick pulse tests use independent continuous-kernel Simpson
+integration, with a 0.1% error limit relative to pulse peak. An initial
+arbitrary 3e-7 full-scale bound failed eight cases: the largest finite-table
+approximation error was 3.80e-7. The relative limit expresses the existing
+0.1% amplitude requirement. Shared tests separately require pulse area within
+1e-8 and retain 512 narrow pulses in one interval. Restore tests refresh the
+source at each checkpoint: a 20,000-tick continuation otherwise outlasts the
+fixture's last transition and leaves no pending resampler tail to exercise.
+
+Run the explicit Rust runtime-conversion benchmark separately:
+
+```sh
+cargo test --locked --release -p runtime-commodore-amiga --lib \
+  benchmark_runtime_audio_conversion -- --ignored --nocapture
+```
+
+This executes the real mixer, resampler and board filter for one emulated
+second at four edge densities. It excludes CPU/chip execution; it is not a
+whole-machine speed claim. It checks exactly 48,000 stereo frames and keeps
+the output observable to the compiler.
+
+Final integration verification: 589 shared/runtime tests pass, including 65
+snapshot tests; strict Clippy, native release build and wasm32 check pass.
+Thirty existing explicit diagnostics and the wall-clock benchmark are skipped
+by the ordinary suite; the benchmark and three-case ROM audio gate were run
+explicitly and pass. The gate thresholds were unchanged. The matched Rust
+benchmark's median added cost is 13.327 ms per emulated second at period 124,
+210.084 ms at period 1, and 409.390 ms for every-tick mixed stress. Logs retain
+the initial pulse/replay failures as well as the corrected verification.

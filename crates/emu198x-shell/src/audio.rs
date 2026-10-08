@@ -1,5 +1,7 @@
 //! Shared host-side audio conversion helpers.
 
+pub mod band_limited;
+
 #[cfg(not(target_arch = "wasm32"))]
 use std::collections::VecDeque;
 #[cfg(not(target_arch = "wasm32"))]
