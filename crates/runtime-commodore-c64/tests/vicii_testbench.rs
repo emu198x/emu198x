@@ -167,7 +167,10 @@ struct RefImage {
 
 fn decode_reference_png(path: &PathBuf) -> RefImage {
     let file = std::fs::File::open(path).expect("reference PNG should open");
-    let decoder = png::Decoder::new(std::io::BufReader::new(file));
+    let mut decoder = png::Decoder::new(std::io::BufReader::new(file));
+    // Sprite split references also include palette-indexed PNGs. Expand
+    // those before applying the same C64 colour-index comparison.
+    decoder.set_transformations(png::Transformations::EXPAND);
     let mut reader = decoder.read_info().expect("reference PNG header");
     let mut buf = vec![0u8; reader.output_buffer_size().expect("png buffer size")];
     let info = reader.next_frame(&mut buf).expect("reference PNG frame");
@@ -1272,4 +1275,51 @@ fn diff_by_row() {
         worst.1,
         worst.0 * 100.0
     );
+}
+
+/// Measure all 17 staged sprite split programs on both PAL chip families.
+/// This records residuals, not a conformance pass: two reverse-transition
+/// 8565 references differ from native VICE 3.10 by 44 pixels. See issue #1630.
+/// `SPRITE_SURVEY_OUTPUT` retains image identities and mismatch coordinates.
+#[test]
+#[ignore = "DIAGNOSTIC: measure sprite split references across chip models"]
+fn survey_sprite_multicolour_models() {
+    assert!(roms_present(), "C64 ROMs required");
+    let dir = testbench_dir().expect("VIC-II testbench required");
+    let mut paths: Vec<_> = std::fs::read_dir(dir.join("spritesplit/references"))
+        .expect("references")
+        .map(|p| p.expect("entry").path())
+        .filter(|p| p.to_string_lossy().ends_with(".prg-8565.png"))
+        .collect();
+    paths.sort();
+    assert_eq!(paths.len(), 17);
+    let mut rows = Vec::new();
+    for path in paths {
+        let name = path
+            .file_name()
+            .expect("name")
+            .to_str()
+            .expect("utf8")
+            .strip_suffix(".prg-8565.png")
+            .expect("suffix");
+        for (model, suffix) in [(Model::C64PalBreadbin, ""), (Model::C64cPal, "-8565")] {
+            let reference = decode_reference_png(
+                &dir.join(format!("spritesplit/references/{name}.prg{suffix}.png")),
+            );
+            let fb = run_testprog_on(
+                &format!("spritesplit/{name}.prg"),
+                60,
+                model,
+                TIMING_PAL_BREADBIN.cycles_per_frame,
+            );
+            let comparison = compare_indexed(&fb, &reference, VICE_CROP_X, VICE_CROP_Y);
+            let mismatches = indexed_mismatches(&comparison, &reference);
+            eprintln!("{name}{suffix}: {}", mismatches.len());
+            rows.push(serde_json::json!({"name":name,"model":suffix,"mismatches":mismatches,
+                "actual_sha256":sha256_hex(&comparison.actual),"reference_sha256":sha256_hex(&comparison.reference)}));
+        }
+    }
+    if let Ok(path) = std::env::var("SPRITE_SURVEY_OUTPUT") {
+        std::fs::write(path, serde_json::to_vec_pretty(&rows).expect("json")).expect("write");
+    }
 }
