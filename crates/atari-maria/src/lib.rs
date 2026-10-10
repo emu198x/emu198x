@@ -72,6 +72,7 @@
 //! 160B/320B/C/D variants exist but are not yet implemented.
 
 mod clock;
+mod dma;
 mod fetch;
 mod palette;
 mod state;
@@ -262,6 +263,16 @@ impl DllEntry {
 /// Atari 7800 MARIA display processor.
 #[derive(Serialize, Deserialize)]
 pub struct Maria {
+    /// MARIA's current latched DMA address.
+    pub dma_address: u16,
+    /// Memory input consumed on the next pending DMA read strobe.
+    pub dma_data_in: u8,
+    /// MARIA currently drives the external address bus.
+    pub dma_drive: bool,
+    /// Asserted CPU HALT request, independently gated from address ownership.
+    pub halt: bool,
+    dma: dma::Dma,
+    native_cycle: u16,
     /// External address bus, used by the CPU clock's slow-access decoder.
     pub address_in: u16,
     /// CPU phase-1 strobe, high for one native tick at the start of phase 1.
@@ -312,6 +323,12 @@ impl Maria {
     #[must_use]
     pub fn new(region: MariaRegion) -> Self {
         Self {
+            dma_address: 0,
+            dma_data_in: 0,
+            dma_drive: false,
+            halt: false,
+            dma: dma::Dma::default(),
+            native_cycle: 0,
             address_in: 0,
             phi1: false,
             phi2: false,

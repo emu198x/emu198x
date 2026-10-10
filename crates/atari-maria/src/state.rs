@@ -2,6 +2,7 @@
 //! live fields through serde, inside the Atari 7800 versioned envelope.
 
 use super::clock::Clock;
+use super::dma::{Dma, Phase as DmaPhase};
 use super::fetch::{Fetch, Phase};
 use super::{ACTIVE_WIDTH, MAX_DMA_CYCLES_PER_LINE, Maria, MariaRegion};
 
@@ -56,6 +57,20 @@ impl<'a> Reader<'a> {
             8 => Ok(Phase::Indirect),
             9 => Ok(Phase::IndirectSecond),
             _ => Err("Invalid MARIA fetch phase".into()),
+        }
+    }
+
+    fn dma_phase(&mut self) -> Result<DmaPhase, String> {
+        match self.byte()? {
+            0 => Ok(DmaPhase::Idle),
+            1 => Ok(DmaPhase::AwaitCpu),
+            2 => Ok(DmaPhase::Startup),
+            3 => Ok(DmaPhase::DescriptorFlag),
+            4 => Ok(DmaPhase::DescriptorHigh),
+            5 => Ok(DmaPhase::DescriptorLow),
+            6 => Ok(DmaPhase::DisplayList),
+            7 => Ok(DmaPhase::Shutdown),
+            _ => Err("Invalid MARIA DMA phase".into()),
         }
     }
 }
@@ -128,6 +143,21 @@ impl Maria {
         ]);
         data.extend_from_slice(&self.fetch.address.to_le_bytes());
         data.extend_from_slice(&[self.fetch.data_in, u8::from(self.fetch.holey)]);
+        data.extend_from_slice(&self.native_cycle.to_le_bytes());
+        data.extend_from_slice(&self.dma_address.to_le_bytes());
+        data.extend_from_slice(&[
+            self.dma_data_in,
+            u8::from(self.dma_drive),
+            u8::from(self.halt),
+            self.dma.phase as u8,
+            self.dma.delay,
+            self.dma.request_delay,
+            u8::from(self.dma.requested),
+            u8::from(self.dma.sampled_halt),
+            u8::from(self.dma.slow_inhibit),
+            u8::from(self.dma.initial),
+            u8::from(self.dma.next_zone),
+        ]);
         data.extend_from_slice(&self.line_buffer);
         for pixel in &self.framebuffer {
             data.extend_from_slice(&pixel.to_le_bytes());
@@ -213,6 +243,34 @@ impl Maria {
             data_in: reader.byte()?,
             holey: reader.boolean()?,
         };
+        restored.native_cycle = reader.word()?;
+        restored.dma_address = reader.word()?;
+        restored.dma_data_in = reader.byte()?;
+        restored.dma_drive = reader.boolean()?;
+        restored.halt = reader.boolean()?;
+        restored.dma = Dma {
+            phase: reader.dma_phase()?,
+            delay: reader.byte()?,
+            request_delay: reader.byte()?,
+            requested: reader.boolean()?,
+            sampled_halt: reader.boolean()?,
+            slow_inhibit: reader.boolean()?,
+            initial: reader.boolean()?,
+            next_zone: reader.boolean()?,
+        };
+        let valid_delay = match restored.dma.phase {
+            DmaPhase::Idle | DmaPhase::AwaitCpu | DmaPhase::DisplayList => restored.dma.delay == 0,
+            DmaPhase::Startup => (1..=10).contains(&restored.dma.delay),
+            DmaPhase::DescriptorFlag | DmaPhase::DescriptorHigh | DmaPhase::DescriptorLow => {
+                (1..=4).contains(&restored.dma.delay)
+            }
+            DmaPhase::Shutdown => {
+                (1..=if restored.dma.next_zone { 6 } else { 5 }).contains(&restored.dma.delay)
+            }
+        };
+        if !valid_delay || restored.dma.request_delay > 2 || restored.native_cycle >= 908 {
+            return Err("Invalid MARIA DMA state".into());
+        }
         let fetch = &restored.fetch;
         let needs_width =
             matches!(
@@ -254,6 +312,47 @@ impl Maria {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn invalid_dma_countdowns_leave_the_chip_unchanged() {
+        let mut chip = Maria::new(MariaRegion::Ntsc);
+        chip.write(0, 0x4e);
+        let before = chip.save_state();
+        for (phase, delay) in [
+            (DmaPhase::Idle, 1),
+            (DmaPhase::AwaitCpu, 1),
+            (DmaPhase::Startup, 0),
+            (DmaPhase::Startup, 11),
+            (DmaPhase::DescriptorFlag, 0),
+            (DmaPhase::DescriptorFlag, 5),
+            (DmaPhase::DescriptorHigh, 0),
+            (DmaPhase::DescriptorHigh, 5),
+            (DmaPhase::DescriptorLow, 0),
+            (DmaPhase::DescriptorLow, 5),
+            (DmaPhase::DisplayList, 1),
+            (DmaPhase::Shutdown, 0),
+            (DmaPhase::Shutdown, 6),
+        ] {
+            let mut invalid = Maria::new(MariaRegion::Ntsc);
+            invalid.dma.phase = phase;
+            invalid.dma.delay = delay;
+            assert!(
+                chip.load_state(&invalid.save_state()).is_err(),
+                "{phase:?}, {delay}"
+            );
+            assert_eq!(chip.save_state(), before);
+        }
+        for cycle in [908, u16::MAX] {
+            let mut invalid = Maria::new(MariaRegion::Ntsc);
+            invalid.native_cycle = cycle;
+            assert!(chip.load_state(&invalid.save_state()).is_err());
+            assert_eq!(chip.save_state(), before);
+        }
+        let mut invalid = Maria::new(MariaRegion::Ntsc);
+        invalid.dma.request_delay = 3;
+        assert!(chip.load_state(&invalid.save_state()).is_err());
+        assert_eq!(chip.save_state(), before);
+    }
 
     #[test]
     fn invalid_clock_countdowns_leave_the_chip_unchanged() {
