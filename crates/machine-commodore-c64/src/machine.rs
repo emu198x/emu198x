@@ -2355,6 +2355,58 @@ mod tests {
     }
 
     #[test]
+    fn shift_lock_network_matches_vice_contacts_drivers_and_joysticks() {
+        let expected = include_bytes!("../test-data/vice-shift-lock.bin");
+        assert_eq!(expected.len(), 20_736 * 2);
+        let mut machine = stub_machine(C64Model::PalBreadbin);
+        let mut observed = 0;
+        for locked in [false, true] {
+            machine.keyboard_mut().set_shift_lock(locked);
+            for keys in 0u8..16 {
+                for pin in 0..4 {
+                    let col = if pin % 2 == 0 { 1 } else { 7 };
+                    machine
+                        .keyboard_mut()
+                        .set_key(1 + pin / 2, col, keys & (1 << pin) != 0);
+                }
+                for config in 0u8..81 {
+                    let states = [config / 27, (config / 9) % 3, (config / 3) % 3, config % 3];
+                    let mut latch = [0xFFu8; 2];
+                    let mut ddr = [0u8; 2];
+                    for (pin, state) in states.into_iter().enumerate() {
+                        let bit = 1 << [1, 2, 1, 7][pin];
+                        if state != 0 {
+                            ddr[pin / 2] |= bit;
+                        }
+                        if state == 1 {
+                            latch[pin / 2] &= !bit;
+                        }
+                    }
+                    machine.cpu_write(0xDC00, latch[0]);
+                    machine.cpu_write(0xDC01, latch[1]);
+                    machine.cpu_write(0xDC02, ddr[0]);
+                    machine.cpu_write(0xDC03, ddr[1]);
+                    for joy_a in 0..4 {
+                        for joy_b in 0..2 {
+                            assert!(machine.set_joystick_control(2, "down", joy_a & 1 != 0));
+                            assert!(machine.set_joystick_control(2, "left", joy_a & 2 != 0));
+                            assert!(machine.set_joystick_control(1, "down", joy_b != 0));
+                            let actual = [machine.cpu_read(0xDC00), machine.cpu_read(0xDC01)];
+                            assert_eq!(
+                                actual,
+                                expected[observed..observed + 2],
+                                "locked={locked} keys={keys:04b} states={states:?} joy_a={joy_a} joy_b={joy_b}"
+                            );
+                            observed += 2;
+                        }
+                    }
+                }
+            }
+        }
+        assert_eq!(observed, expected.len());
+    }
+
+    #[test]
     fn keyboard_network_release_breaks_ghost_path_and_snapshot_restores_it() {
         let mut machine = stub_machine(C64Model::PalBreadbin);
         for (row, col) in [(0, 1), (1, 1), (1, 0)] {

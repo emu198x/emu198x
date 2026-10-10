@@ -9,6 +9,46 @@ use runtime_commodore_c64::{C64Runtime, Model};
 use common::{FrameCollector, blank_firmware, blank_firmware_with_drive};
 
 #[test]
+fn shift_lock_snapshot_preserves_both_parallel_contacts() {
+    for model in Model::ALL {
+        for locked in [false, true] {
+            for left_shift in [false, true] {
+                let mut original = C64Runtime::blank(model);
+                let machine = original.machine_mut();
+                machine.keyboard_mut().set_shift_lock(locked);
+                machine.keyboard_mut().set_key(1, 7, left_shift);
+                machine.cpu_write(0xDC00, 0xFD);
+                machine.cpu_write(0xDC01, 0xFF);
+                machine.cpu_write(0xDC02, 2);
+                machine.cpu_write(0xDC03, 0x80);
+                let snapshot = original.snapshot().expect("keyboard snapshot");
+                let mut restored = C64Runtime::blank(model);
+                restored.restore(&snapshot).expect("keyboard restore");
+                assert_eq!(restored.snapshot().expect("fixed point"), snapshot);
+                let machine = restored.machine_mut();
+                // Only the lock defeats PB7's output high.
+                assert_eq!(machine.cpu_read(0xDC01), if locked { 0x7F } else { 0xFF });
+                // Opening the lock must leave ordinary left Shift intact.
+                machine.keyboard_mut().set_shift_lock(false);
+                machine.cpu_write(0xDC03, 0);
+                assert_eq!(
+                    machine.cpu_read(0xDC01),
+                    if left_shift { 0x7F } else { 0xFF }
+                );
+                // Restore again, then release the other parallel contact.
+                restored
+                    .restore(&snapshot)
+                    .expect("second keyboard restore");
+                let machine = restored.machine_mut();
+                machine.keyboard_mut().set_key(1, 7, false);
+                machine.cpu_write(0xDC03, 0);
+                assert_eq!(machine.cpu_read(0xDC01), if locked { 0x7F } else { 0xFF });
+            }
+        }
+    }
+}
+
+#[test]
 fn electrical_codes_are_restored_before_the_next_vic_pixel() {
     for model in Model::ALL {
         let mut original = C64Runtime::blank(model);
@@ -545,11 +585,11 @@ fn restore_rejects_old_schema_before_decoding_its_payload() {
     let mut runtime = C64Runtime::from_firmware(Model::C64PalBreadbin, &blank_firmware())
         .expect("blank C64 firmware should construct a runtime");
     let err = runtime
-        .restore(&[16])
-        .expect_err("version 16 snapshot should be rejected before payload decode");
+        .restore(&[17])
+        .expect_err("version 17 snapshot should be rejected before payload decode");
     assert!(
         matches!(err, MachineError::InvalidSnapshot { ref reason }
-            if reason == "unsupported snapshot version 16; expected 17"),
+            if reason == "unsupported snapshot version 17; expected 18"),
         "unexpected error variant: {err:?}",
     );
 }

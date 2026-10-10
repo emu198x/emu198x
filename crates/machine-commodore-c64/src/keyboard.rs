@@ -9,13 +9,23 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct KeyboardMatrix {
     rows: [u8; 8],
+    shift_lock: bool,
 }
 
 impl KeyboardMatrix {
     /// Creates a cleared matrix.
     #[must_use]
     pub const fn new() -> Self {
-        Self { rows: [0; 8] }
+        Self {
+            rows: [0; 8],
+            shift_lock: false,
+        }
+    }
+
+    /// Sets the mechanical SHIFT LOCK contact, independently of left Shift.
+    /// `true` closes its PA1/PB7 connection; repeated values are idempotent.
+    pub fn set_shift_lock(&mut self, locked: bool) {
+        self.shift_lock = locked;
     }
 
     /// Sets or clears one key position.
@@ -43,6 +53,9 @@ impl KeyboardMatrix {
                 cols |= *row_data;
             }
         }
+        if self.shift_lock && row_mask & 0x02 == 0 {
+            cols |= 0x80;
+        }
         !cols
     }
 
@@ -57,16 +70,18 @@ impl KeyboardMatrix {
                 rows |= 1 << row;
             }
         }
+        if self.shift_lock && column_mask & 0x80 == 0 {
+            rows |= 0x02;
+        }
         !rows
     }
 
-    /// Resolve ordinary closed contacts and CIA1 output contention.
+    /// Resolve closed contacts and CIA1 output contention.
     ///
     /// `pa`/`pb` are DDR-resolved drives (including PB timer outputs).
     /// `pa_low` and `pb_high` identify output-latch drivers, excluding input
     /// pull-ups. Joystick masks are external active-low inputs. The rules
-    /// follow VICE 3.10 c64cia1.c; SHIFT LOCK's stronger contact is not
-    /// represented by the ordinary key matrix.
+    /// follow VICE 3.10 c64cia1.c, including SHIFT LOCK's stronger contact.
     #[must_use]
     pub(crate) fn resolve_ports(
         &self,
@@ -77,7 +92,7 @@ impl KeyboardMatrix {
         joy_a: u8,
         joy_b: u8,
     ) -> (u8, u8) {
-        if self.rows == [0; 8] {
+        if !self.shift_lock && self.rows == [0; 8] {
             return (pa & joy_a, pb & joy_b);
         }
         let mut read_a = 0xFF;
@@ -90,8 +105,12 @@ impl KeyboardMatrix {
                 read_a &= !rows;
                 read_b &= !columns;
                 // A PB output high defeats one ordinary PA output low. Two
-                // connected low PA drivers can defeat that high instead.
-                if (rows & pa_low).count_ones() >= 2 {
+                // connected low PA drivers can defeat that high instead, as
+                // can SHIFT LOCK when PA1 is itself an output low. A joystick
+                // grounding PA1 does not meet that driver condition.
+                if (rows & pa_low).count_ones() >= 2
+                    || (self.shift_lock && pin == 1 && pa_low & bit != 0)
+                {
                     strong_b &= !columns;
                 }
             }
@@ -125,6 +144,7 @@ impl KeyboardMatrix {
     /// Releases all keys.
     pub fn release_all(&mut self) {
         self.rows = [0; 8];
+        self.shift_lock = false;
     }
 }
 

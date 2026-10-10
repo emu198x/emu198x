@@ -84,11 +84,16 @@ fn canonical_control(name: &str) -> Option<&'static str> {
 /// the named port, and — when a 1351 mouse is plugged in — pointer
 /// motion and buttons drive it. Pointer events are dropped when no
 /// mouse is attached.
+/// `SHIFTLOCK` sets the separate lock contact: `pressed` closes/opens it,
+/// independently of `LSHIFT`. Host Caps Lock toggling belongs to the caller.
 pub(crate) fn apply_input_event(machine: &mut C64, event: &InputEvent) {
     match event {
         InputEvent::Key { name, pressed } => {
             if let Some((row, col)) = c64_key_position(name.as_ref()) {
                 machine.keyboard_mut().set_key(row, col, *pressed);
+            } else if name.as_ref().eq_ignore_ascii_case("shiftlock") {
+                // Physical contact state, not a host Caps Lock toggle.
+                machine.keyboard_mut().set_shift_lock(*pressed);
             } else if name.as_ref().eq_ignore_ascii_case("restore") {
                 // RESTORE is not on the matrix — it pulses the CPU /NMI.
                 machine.set_restore(*pressed);
@@ -241,7 +246,7 @@ fn c64_key_position(name: &str) -> Option<(u8, u8)> {
     }
 }
 
-/// Returns `true` when `name` maps to a C64 keyboard-matrix position.
+/// Returns `true` when `name` maps to a C64 key or cartridge button.
 ///
 /// Used by the `press_key` MCP tool to reject a typo with a clear error
 /// rather than silently dropping the keystroke (the live input path drops
@@ -252,6 +257,7 @@ pub fn key_name_is_valid(name: &str) -> bool {
     // RESTORE and the cartridge FREEZE button are real keys but live on the
     // /NMI line, not the matrix.
     c64_key_position(name).is_some()
+        || name.eq_ignore_ascii_case("shiftlock")
         || name.eq_ignore_ascii_case("restore")
         || name.eq_ignore_ascii_case("freeze")
 }
@@ -371,6 +377,79 @@ mod tests {
             device: Cow::Owned(device.to_string()),
             button: Cow::Owned(button.to_string()),
             pressed,
+        }
+    }
+
+    #[test]
+    fn shift_lock_input_sets_contact_state_without_toggling() {
+        let mut machine = make_machine();
+        machine.cpu_write(0xDC00, 0xFD);
+        machine.cpu_write(0xDC02, 2);
+        machine.cpu_write(0xDC03, 0);
+        assert!(super::key_name_is_valid("ShIfTlOcK"));
+        for pressed in [true, true, false, false, true] {
+            apply_input_event(
+                &mut machine,
+                &InputEvent::Key {
+                    name: "ShIfTlOcK".into(),
+                    pressed,
+                },
+            );
+            assert_eq!(machine.cpu_read(0xDC01), if pressed { 0x7F } else { 0xFF });
+        }
+        machine.keyboard_mut().release_all();
+        assert_eq!(machine.cpu_read(0xDC01), 0xFF);
+    }
+
+    #[test]
+    fn shift_lock_overrides_a_driven_high_that_defeats_left_shift() {
+        // VICE 3.10 read_ciapb: ordinary Shift reads FF, lock reads 7F
+        // with PA1 low and PB7 actively high. Both read 7F with PB inputs.
+        for (name, expected) in [("LSHIFT", 0xFF), ("SHIFTLOCK", 0x7F)] {
+            let mut machine = make_machine();
+            machine.cpu_write(0xDC00, 0xFD);
+            machine.cpu_write(0xDC01, 0xFF);
+            machine.cpu_write(0xDC02, 2);
+            machine.cpu_write(0xDC03, 0x80);
+            apply_input_event(
+                &mut machine,
+                &InputEvent::Key {
+                    name: name.into(),
+                    pressed: true,
+                },
+            );
+            assert_eq!(machine.cpu_read(0xDC01), expected, "{name} contention");
+            machine.cpu_write(0xDC03, 0);
+            assert_eq!(machine.cpu_read(0xDC01), 0x7F, "{name} normal scan");
+        }
+    }
+
+    #[test]
+    fn shift_lock_and_left_shift_release_independently() {
+        for released in ["LSHIFT", "SHIFTLOCK"] {
+            let mut machine = make_machine();
+            machine.cpu_write(0xDC00, 0xFD);
+            machine.cpu_write(0xDC02, 2);
+            machine.cpu_write(0xDC03, 0);
+            for name in ["LSHIFT", "SHIFTLOCK"] {
+                apply_input_event(
+                    &mut machine,
+                    &InputEvent::Key {
+                        name: name.into(),
+                        pressed: true,
+                    },
+                );
+            }
+            apply_input_event(
+                &mut machine,
+                &InputEvent::Key {
+                    name: released.into(),
+                    pressed: false,
+                },
+            );
+            assert_eq!(machine.cpu_read(0xDC01), 0x7F, "after releasing {released}");
+            machine.keyboard_mut().release_all();
+            assert_eq!(machine.cpu_read(0xDC01), 0xFF);
         }
     }
 

@@ -13,6 +13,9 @@ use serde::{Deserialize, Serialize};
 use crate::drives::IecDriveSnapshot;
 use crate::runtime::C64Runtime;
 
+/// Version 18 preserves the keyboard's mechanical SHIFT LOCK contact,
+/// independently of ordinary left Shift and its different output contention.
+///
 /// Version 17 adds the VIC-II's last matrix and colour entries, which the
 /// graphics sequencer keeps loading outside the display window (#1661).
 ///
@@ -82,7 +85,7 @@ use crate::runtime::C64Runtime;
 /// Version 2 moved from the fixed 1541-plus-1581 pair to a per-port array of
 /// model-tagged drive snapshots (IEC devices 8–11), so a snapshot records
 /// whichever drive the user chose on each port.
-const SNAPSHOT_VERSION: u32 = 17;
+const SNAPSHOT_VERSION: u32 = 18;
 
 /// Persistable C64 runtime envelope. Wraps the machine's chip snapshot with the
 /// surrounding runtime context (model identifier, time, the live IEC bus state,
