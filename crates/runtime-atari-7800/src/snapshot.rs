@@ -17,7 +17,7 @@ use crate::runtime::Atari7800Runtime;
 /// Restoring it would resume into a geometry the machine disagrees with, and
 /// silently — so the version check rejects it instead.
 /// Version 5 adds POKEY RANDOM initialisation and restart phase.
-/// Version 6 stores machine/runtime time in native oscillator periods.
+/// Version 6 stores native oscillator time and resumable MARIA fetch stages.
 const SNAPSHOT_VERSION: u16 = 6;
 
 /// Borrowing envelope used during encode — avoids cloning the live machine.

@@ -6,8 +6,9 @@
 //!
 //! # Standalone IC
 //!
-//! This crate has no dependencies.  Memory reads are provided by the caller
-//! through a closure, keeping MARIA decoupled from any particular bus model.
+//! The scanline helper supplies memory through a closure and drives the same
+//! saved header/graphics fetch stages used for byte-level timing tests. Memory
+//! remains external to the chip.
 //!
 //! # Register map ($20-$3F)
 //!
@@ -70,7 +71,9 @@
 //!
 //! 160B/320B/C/D variants exist but are not yet implemented.
 
+mod fetch;
 mod palette;
+mod state;
 
 pub use palette::{NTSC_PALETTE, PAL_PALETTE};
 
@@ -252,28 +255,6 @@ impl DllEntry {
 }
 
 // ---------------------------------------------------------------------------
-// DL entry (parsed)
-// ---------------------------------------------------------------------------
-
-/// A parsed Display List entry (4 or 5 bytes).
-#[derive(Debug, Clone, Copy)]
-struct DlEntry {
-    /// Base graphics data address.
-    gfx_addr: u16,
-    /// Palette number (0-7).
-    palette: u8,
-    /// Horizontal position (0-319).
-    hpos: u16,
-    /// Width in graphics bytes (1-32).
-    width: u8,
-    /// Indirect (character/tile) mode.
-    indirect: bool,
-    /// Write mode from 5-byte header (None = use CTRL default).
-    /// `true` = 320-pixel mode, `false` = 160-pixel mode.
-    write_mode_320: Option<bool>,
-}
-
-// ---------------------------------------------------------------------------
 // Maria
 // ---------------------------------------------------------------------------
 
@@ -310,6 +291,7 @@ pub struct Maria {
 
     // -- DMA ----------------------------------------------------------------
     dma_cycles: u16,
+    fetch: fetch::Fetch,
 
     // -- Framebuffer --------------------------------------------------------
     framebuffer: Vec<u32>,
@@ -346,6 +328,7 @@ impl Maria {
             dll_active: false,
 
             dma_cycles: 0,
+            fetch: fetch::Fetch::default(),
 
             framebuffer: vec![
                 0xFF00_0000;
@@ -471,90 +454,6 @@ impl Maria {
         self.dma_cycles
     }
 
-    /// Serialize MARIA register and internal state for save states.
-    #[must_use]
-    pub fn save_state(&self) -> Vec<u8> {
-        let mut data = Vec::with_capacity(64);
-        data.push(self.backgrnd);
-        for pal in &self.palettes {
-            data.extend_from_slice(pal);
-        }
-        data.push(self.ctrl);
-        data.push(u8::from(self.wsync));
-        data.push(self.dppl);
-        data.push(self.dpph);
-        data.push(self.chbase);
-        data.extend_from_slice(&self.scan_line.to_le_bytes());
-        data.push(u8::from(self.vblank));
-        data.push(u8::from(self.dli_pending));
-        data.push(u8::from(self.frame_complete));
-        data.extend_from_slice(&self.dll_addr.to_le_bytes());
-        data.push(self.zone_scanline);
-        data.push(self.zone_height);
-        data.extend_from_slice(&self.zone_dl_addr.to_le_bytes());
-        data.push(self.zone_offset);
-        data.push(self.zone_holey);
-        data.push(u8::from(self.zone_dli));
-        data.push(u8::from(self.dll_active));
-        data.extend_from_slice(&self.dma_cycles.to_le_bytes());
-        data
-    }
-
-    /// Restore MARIA state from a save state.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the data is too short.
-    pub fn load_state(&mut self, data: &[u8]) -> Result<usize, String> {
-        if data.len() < 40 {
-            return Err("MARIA state truncated".into());
-        }
-        let mut p = 0;
-        self.backgrnd = data[p];
-        p += 1;
-        for pal in &mut self.palettes {
-            pal.copy_from_slice(&data[p..p + 3]);
-            p += 3;
-        }
-        self.ctrl = data[p];
-        p += 1;
-        self.wsync = data[p] != 0;
-        p += 1;
-        self.dppl = data[p];
-        p += 1;
-        self.dpph = data[p];
-        p += 1;
-        self.chbase = data[p];
-        p += 1;
-        self.scan_line = u16::from_le_bytes([data[p], data[p + 1]]);
-        p += 2;
-        self.vblank = data[p] != 0;
-        p += 1;
-        self.dli_pending = data[p] != 0;
-        p += 1;
-        self.frame_complete = data[p] != 0;
-        p += 1;
-        self.dll_addr = u16::from_le_bytes([data[p], data[p + 1]]);
-        p += 2;
-        self.zone_scanline = data[p];
-        p += 1;
-        self.zone_height = data[p];
-        p += 1;
-        self.zone_dl_addr = u16::from_le_bytes([data[p], data[p + 1]]);
-        p += 2;
-        self.zone_offset = data[p];
-        p += 1;
-        self.zone_holey = data[p];
-        p += 1;
-        self.zone_dli = data[p] != 0;
-        p += 1;
-        self.dll_active = data[p] != 0;
-        p += 1;
-        self.dma_cycles = u16::from_le_bytes([data[p], data[p + 1]]);
-        p += 2;
-        Ok(p)
-    }
-
     // -- Scanline rendering -------------------------------------------------
 
     /// Advance one scanline.  The caller provides a `read_byte` closure that
@@ -664,67 +563,23 @@ impl Maria {
     /// the MiSTer `DMA.sv`):
     ///
     /// - **4-byte:** `b0` = addr low, `b1` = `PPPWWWWW` (palette 7:5, width 4:0),
-    ///   `b2` = addr high, `b3` = HPOS. Always direct, default write mode.
+    ///   `b2` = addr high, `b3` = HPOS. Always direct, retaining the latest extended write mode.
     /// - **5-byte:** `b0` = addr low, `b1` = `WM·1·IND·00000` (write-mode bit 7,
     ///   indirect bit 5), `b2` = addr high, `b3` = `PPPWWWWW`, `b4` = HPOS.
     ///
     /// Width is a 5-bit two's-complement byte count: `((!W) & 0x1F) + 1`, i.e.
     /// 1–32 (`W = 0` → 32).
     fn process_display_list(&mut self, read_byte: &mut dyn FnMut(u16) -> u8) {
-        let mut dl_addr = self.zone_dl_addr;
-
-        loop {
-            // A scanline can't sustain more DMA than its colour-clock budget;
-            // on real hardware MARIA's DMA aborts at the end of the line. Cap
-            // the walk at that bound so a malformed display list (no end-of-list
-            // marker) terminates instead of running away.
+        self.begin_fetch();
+        while self.fetch.phase != fetch::Phase::Idle {
             if self.dma_cycles >= MAX_DMA_CYCLES_PER_LINE {
+                self.stop_fetch();
                 break;
             }
-
-            let b0 = read_byte(dl_addr);
-            let b1 = read_byte(dl_addr.wrapping_add(1));
-            self.dma_cycles += 2;
-
-            // End of the line's display list.
-            if b1 & 0x5F == 0 {
-                break;
+            if let Some(address) = self.fetch_read_address() {
+                self.fetch.data_in = read_byte(address);
             }
-
-            let b2 = read_byte(dl_addr.wrapping_add(2));
-            let b3 = read_byte(dl_addr.wrapping_add(3));
-            self.dma_cycles += 2;
-
-            let (palette, width_field, hpos, indirect, write_mode_320, entry_size) =
-                if b1 & 0x1F != 0 {
-                    // 4-byte direct header.
-                    ((b1 >> 5) & 0x07, b1 & 0x1F, b3, false, None, 4u16)
-                } else {
-                    // 5-byte extended header: width/palette move to b3, HPOS to b4.
-                    let b4 = read_byte(dl_addr.wrapping_add(4));
-                    self.dma_cycles += 1;
-                    (
-                        (b3 >> 5) & 0x07,
-                        b3 & 0x1F,
-                        b4,
-                        b1 & 0x20 != 0,
-                        Some(b1 & 0x80 != 0),
-                        5u16,
-                    )
-                };
-
-            let entry = DlEntry {
-                gfx_addr: u16::from(b2) << 8 | u16::from(b0),
-                palette,
-                hpos: u16::from(hpos),
-                width: ((!width_field) & 0x1F) + 1,
-                indirect,
-                write_mode_320,
-            };
-
-            self.render_dl_entry(&entry, read_byte);
-
-            dl_addr = dl_addr.wrapping_add(entry_size);
+            self.tick_fetch();
         }
     }
 
@@ -735,27 +590,6 @@ impl Maria {
     fn is_holey(&self, addr: u16) -> bool {
         (self.zone_holey & 0x02 != 0 && addr & 0x9000 == 0x9000)
             || (self.zone_holey & 0x01 != 0 && addr & 0x8800 == 0x8800)
-    }
-
-    /// Render a single DL entry into the line buffer.
-    fn render_dl_entry(&mut self, entry: &DlEntry, read_byte: &mut dyn FnMut(u16) -> u8) {
-        let scanline_in_zone = self.zone_scanline;
-
-        // Calculate the graphics data address for this scanline. MARIA loads
-        // the high-byte page offset with the DLL OFFSET at the zone's top line
-        // and decrements it one per scanline (MAME `maria.cpp`:
-        // `data_addr = graph_adr + x + (m_offset << 8)`, `m_offset` counting
-        // down to 0 on the zone's last line).
-        let page_offset = u16::from(self.zone_offset).wrapping_sub(u16::from(scanline_in_zone));
-
-        // Determine which mode to use.
-        let use_320 = entry.write_mode_320.unwrap_or(false); // Default to 160A when not in Kangaroo mode.
-
-        if entry.indirect {
-            self.render_indirect(entry, page_offset, use_320, read_byte);
-        } else {
-            self.render_direct(entry, page_offset, use_320, read_byte);
-        }
     }
 
     /// Blit one graphics byte into the line buffer at column `*x`, advancing
@@ -795,68 +629,6 @@ impl Maria {
                     }
                 }
                 *x += 2;
-            }
-        }
-    }
-
-    /// Direct mode: graphics bytes are read sequentially from the DL entry's
-    /// address plus the zone's page offset (`gfx_addr + i + offset << 8`).
-    fn render_direct(
-        &mut self,
-        entry: &DlEntry,
-        page_offset: u16,
-        use_320: bool,
-        read_byte: &mut dyn FnMut(u16) -> u8,
-    ) {
-        let base = entry.gfx_addr.wrapping_add(page_offset << 8);
-        let mut x = entry.hpos as usize;
-        for i in 0..u16::from(entry.width) {
-            let addr = base.wrapping_add(i);
-            let byte = if self.is_holey(addr) {
-                0
-            } else {
-                read_byte(addr)
-            };
-            self.dma_cycles += 1;
-            self.blit_byte(byte, &mut x, use_320, entry.palette);
-        }
-    }
-
-    /// Indirect (character/tile) mode: the DL entry points to a character map.
-    /// Each map byte `c` selects a character whose graphics live at
-    /// `(CHBASE << 8 | c) + (offset << 8)` (MAME `maria.cpp`:
-    /// `data_addr = (m_charbase | c) + (m_offset << 8)`). The map is read at
-    /// `gfx_addr` with *no* page offset. When the CWIDTH bit is set, each map
-    /// byte yields two consecutive graphics bytes (wide characters).
-    fn render_indirect(
-        &mut self,
-        entry: &DlEntry,
-        page_offset: u16,
-        use_320: bool,
-        read_byte: &mut dyn FnMut(u16) -> u8,
-    ) {
-        let two_byte = self.ctrl & CTRL_CW != 0;
-        let charbase = u16::from(self.chbase) << 8;
-        let mut x = entry.hpos as usize;
-
-        for i in 0..u16::from(entry.width) {
-            let c = read_byte(entry.gfx_addr.wrapping_add(i));
-            self.dma_cycles += 1;
-            let data_addr = (charbase | u16::from(c)).wrapping_add(page_offset << 8);
-
-            let b0 = if self.is_holey(data_addr) {
-                0
-            } else {
-                read_byte(data_addr)
-            };
-            self.dma_cycles += 1;
-            self.blit_byte(b0, &mut x, use_320, entry.palette);
-
-            if two_byte {
-                let a1 = data_addr.wrapping_add(1);
-                let b1 = if self.is_holey(a1) { 0 } else { read_byte(a1) };
-                self.dma_cycles += 1;
-                self.blit_byte(b1, &mut x, use_320, entry.palette);
             }
         }
     }
@@ -930,6 +702,30 @@ impl Maria {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn terminating_header_still_fetches_the_following_high_byte() {
+        let mut maria = Maria::new(MariaRegion::Ntsc);
+        maria.zone_dl_addr = 0x1c00;
+        let mut addresses = Vec::new();
+        maria.process_display_list(&mut |address| {
+            addresses.push(address);
+            0
+        });
+        assert_eq!(addresses, [0x1c00, 0x1c01, 0x1c02]);
+    }
+
+    #[test]
+    fn direct_state_preserves_pending_pixels_and_completed_frame() {
+        let mut source = Maria::new(MariaRegion::Pal);
+        source.line_buffer[7] = 0x4e;
+        source.framebuffer[123] = 0xff12_3456;
+        let saved = source.save_state();
+        let mut restored = Maria::new(MariaRegion::Pal);
+        restored.load_state(&saved).expect("restore");
+        assert_eq!(restored.line_buffer, source.line_buffer);
+        assert_eq!(restored.framebuffer, source.framebuffer);
+    }
+
     #[test]
     fn each_region_holds_exactly_the_field_a_set_shows() {
         // 240 lines on NTSC, 288 on PAL — `Display::Television`'s
@@ -1053,32 +849,6 @@ mod tests {
         assert_eq!(max.zone_height, 16);
         assert_eq!(max.offset, 15);
         assert_eq!(max.dl_addr, 0xFFFF);
-    }
-
-    #[test]
-    fn dl_entry_parsing() {
-        // Build a 4-byte DL entry in memory:
-        // byte0=$80 (gfx low), byte1=$A5 (pal=5, addr_hi=$05),
-        // byte2=$40 (hpos), byte3=$40 (width=3, no indirect).
-        let b0: u8 = 0x80;
-        let b1: u8 = 0xA5; // palette 5 (bits 7-5 = 101), addr bits 12-8 = 0x05
-        let _b2: u8 = 0x40;
-        let b3: u8 = 0x40; // width = (0x40 >> 5) + 1 = 3, indirect = 0
-
-        let entry = DlEntry {
-            gfx_addr: u16::from(b1 & 0x1F) << 8 | u16::from(b0),
-            palette: (b1 >> 5) & 0x07,
-            hpos: 0x40,
-            width: ((b3 >> 5) & 0x07) + 1,
-            indirect: b3 & 0x10 != 0,
-            write_mode_320: None,
-        };
-
-        assert_eq!(entry.gfx_addr, 0x0580);
-        assert_eq!(entry.palette, 5);
-        assert_eq!(entry.hpos, 0x40);
-        assert_eq!(entry.width, 3);
-        assert!(!entry.indirect);
     }
 
     #[test]
