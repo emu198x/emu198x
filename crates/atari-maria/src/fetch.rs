@@ -175,6 +175,12 @@ mod tests {
     use super::*;
     use crate::MariaRegion;
 
+    fn pending_pixels(chip: &Maria) -> Vec<u8> {
+        (0..320)
+            .map(|pixel| chip.cell_colour(chip.line_buffer[pixel / 2], pixel % 2 != 0))
+            .collect()
+    }
+
     fn fixture(mode: u8) -> (Maria, Vec<u8>) {
         let mut chip = Maria::new(MariaRegion::Ntsc);
         chip.zone_dl_addr = 0x1c00;
@@ -271,11 +277,15 @@ mod tests {
             assert_eq!(chip.fetch.phase, Phase::Idle);
             let pixels = if mode == 4 { 32 } else { 16 };
             assert!(
-                chip.line_buffer[..pixels]
+                pending_pixels(&chip)[..pixels]
                     .iter()
                     .all(|&pixel| pixel == 0x4e)
             );
-            assert!(chip.line_buffer[pixels..].iter().all(|&pixel| pixel == 0));
+            assert!(
+                pending_pixels(&chip)[pixels..]
+                    .iter()
+                    .all(|&pixel| pixel == 0)
+            );
         }
     }
 
@@ -348,8 +358,8 @@ mod tests {
             }
         }
         assert_eq!(graphics, [0x9155, 0xa155]);
-        assert_eq!(&chip.line_buffer[..8], &[0x8e; 8]);
-        assert_eq!(&chip.line_buffer[8..16], &[0x4e; 8]);
+        assert_eq!(&pending_pixels(&chip)[..8], &[0x8e; 8]);
+        assert_eq!(&pending_pixels(&chip)[8..16], &[0x4e; 8]);
     }
 
     #[test]
@@ -414,7 +424,7 @@ mod tests {
                 );
                 let pixels = if mode == 4 { 32 } else { 16 };
                 assert!(
-                    continuation.line_buffer[..pixels]
+                    pending_pixels(&continuation)[..pixels]
                         .iter()
                         .all(|&pixel| pixel == 0x4e)
                 );
