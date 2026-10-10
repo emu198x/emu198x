@@ -1014,6 +1014,27 @@ mod tests {
     }
 
     #[test]
+    fn keyboard_contacts_remain_visible_with_ay_port_b_in_output_mode() {
+        let mut sys = Einstein::new(trap_rom());
+        sys.io_write(0x02, 7);
+        sys.io_write(0x03, 0xC0); // Both I/O ports output.
+        sys.io_write(0x02, 14);
+        sys.io_write(0x03, !(1 << 5)); // Select keyboard row 5.
+        sys.io_write(0x02, 15);
+        sys.io_write(0x03, 0xFF);
+        sys.keyboard[5] = 0xAB;
+        assert_eq!(sys.io_read(0x02), 0xAB, "pressed keys ground columns");
+        sys.io_write(0x03, 0xF0);
+        assert_eq!(sys.io_read(0x02), 0xA0, "latch and contacts both drive");
+        sys.keyboard[5] = 0xFF;
+        assert_eq!(
+            sys.io_read(0x02),
+            0xF0,
+            "release preserves the output latch"
+        );
+    }
+
+    #[test]
     fn ay_watch_captures_psg_data_writes() {
         let mut sys = Einstein::new(trap_rom());
         assert!(sys.ay_write_watch_records().is_none());

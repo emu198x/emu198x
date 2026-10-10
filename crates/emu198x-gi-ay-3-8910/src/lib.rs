@@ -160,8 +160,8 @@ impl Ay3_8910 {
 
     /// Drive the input-pin state of I/O port B (register 15). Used by the
     /// host when port B is wired to an external input — e.g. the Einstein
-    /// keyboard columns. Read back through `read_data` when R15 is
-    /// selected and port B is in input mode.
+    /// keyboard columns. Input-mode reads return this state; output-mode
+    /// reads combine it with the output latch, as on port A.
     pub fn set_port_b_input(&mut self, value: u8) {
         self.port_b_input = value;
     }
@@ -228,7 +228,8 @@ impl Ay3_8910 {
     /// difference that lets late-Ocean 128K loaders (Rainbow Islands,
     /// Bubble Bobble, Out Run) detect the Sinclair 128K via reading
     /// back `0xBF` after writing `0xFF` to R14. R15 (port B) reads the
-    /// host-driven [`Self::set_port_b_input`] state when in input mode.
+    /// host-driven [`Self::set_port_b_input`] state, combined with its output
+    /// latch when in output mode.
     pub fn read_data(&self) -> u8 {
         let reg = self.selected as usize;
         match reg {
@@ -241,7 +242,7 @@ impl Ay3_8910 {
             }
             15 => {
                 if self.regs[7] & 0x80 != 0 {
-                    self.regs[15]
+                    self.regs[15] & self.port_b_input
                 } else {
                     self.port_b_input
                 }
@@ -630,6 +631,36 @@ mod tests {
             0xBF,
             "input-mode read should return the board pull directly"
         );
+    }
+
+    #[test]
+    fn both_io_ports_resolve_external_pins_without_changing_their_latches() {
+        let mut ay = Ay3_8910::new(1_773_400, 44100, 882);
+        for output in [false, true] {
+            ay.select_register(7);
+            ay.write_data(if output { 0xC0 } else { 0 });
+            for data in 0..=u8::MAX {
+                for reg in [14, 15] {
+                    ay.select_register(reg);
+                    ay.write_data(data);
+                }
+                for external in 0..=u8::MAX {
+                    ay.set_port_a_input_mask(external);
+                    ay.set_port_b_input(external);
+                    ay.select_register(14);
+                    let port_a = ay.read_data();
+                    ay.select_register(15);
+                    let port_b = ay.read_data();
+                    assert_eq!(
+                        port_b, port_a,
+                        "identical pins and latches: output={output}, data={data:02x}, external={external:02x}"
+                    );
+                    assert_eq!(port_b, if output { data & external } else { external });
+                    assert_eq!(ay.port_a_output(), data);
+                    assert_eq!(ay.port_b_output(), data);
+                }
+            }
+        }
     }
 
     /// Measure the steady-state input-clock interval between successive changes
