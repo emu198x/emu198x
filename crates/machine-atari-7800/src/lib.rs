@@ -187,6 +187,8 @@ impl Atari7800 {
 
     fn tick_master_clock(&mut self) {
         self.master_clock += 1;
+        self.maria.address_in = self.cpu.addr;
+        self.maria.tick_clock();
         if self.master_clock.is_multiple_of(4) {
             self.tia_audio.tick();
         }
@@ -198,7 +200,7 @@ impl Atari7800 {
             self.process_scan_line();
         }
 
-        if self.master_clock.is_multiple_of(8) {
+        if self.maria.phi1 {
             self.line_cycle += 1;
             if self.line_cycle > self.dma_budget && !self.maria.wsync_halt() {
                 self.cpu.tick();
@@ -208,10 +210,17 @@ impl Atari7800 {
                     self.mem_write(self.cpu.addr, self.cpu.data);
                 }
             }
+        }
+        if self.maria.phi2 {
             self.riot.tick();
-            if let Some(pokey) = &mut self.pokey {
-                pokey.tick();
-            }
+        }
+        // POKEY still couples chip advancement to fixed-rate host sampling.
+        // Variable PCLK wiring requires separating those clocks first; the
+        // staged MARIA branch must not ship before that integration gate.
+        if self.master_clock.is_multiple_of(8)
+            && let Some(pokey) = &mut self.pokey
+        {
+            pokey.tick();
         }
     }
 
@@ -530,6 +539,112 @@ mod tests {
                     "border differs from background on row {y}"
                 );
                 previous = Some(active);
+            }
+        }
+    }
+
+    #[test]
+    fn slow_peripheral_reads_extend_the_cpu_clock_and_following_phase() {
+        for region in [Atari7800Region::Ntsc, Atari7800Region::Pal] {
+            for (address, expected) in [
+                (0x0000u16, 60),
+                (0x0280, 60),
+                (0x0020, 56),
+                (0x0040, 56),
+                (0x9000, 56),
+            ] {
+                let mut rom = trap_rom_32k();
+                let [low, high] = address.to_le_bytes();
+                // LDA absolute (4 cycles), JMP $8000 (3). One slow access
+                // extends phase 2 and the following phase 1 by two ticks each.
+                rom[..6].copy_from_slice(&[0xad, low, high, 0x4c, 0x00, 0x80]);
+                let mut sys = Atari7800::new(rom, region).expect("clock guest");
+                for _ in 0..8 {
+                    sys.step_instruction();
+                }
+                for _ in 0..16 {
+                    let before = sys.cpu.total_cycles;
+                    let ticks = sys.step_instruction() + sys.step_instruction();
+                    assert_eq!(sys.cpu.total_cycles - before, 7);
+                    assert_eq!(ticks, expected, "{region:?} address {address:04x}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn riot_follows_phase_two_while_cpu_execution_is_held() {
+        for region in [Atari7800Region::Ntsc, Atari7800Region::Pal] {
+            for (address, period) in [(0x8000, 8u16), (0x0280, 12), (0x0000, 12)] {
+                let mut sys = Atari7800::new(trap_rom_32k(), region).expect("timer fixture");
+                sys.cpu.addr = address;
+                sys.cpu.rdy = false;
+                sys.riot.write(0x0294, 200);
+                for tick in 1..=120 {
+                    sys.tick_master_clock();
+                    // First phase 2 is at native tick 4; subsequent periods
+                    // follow the independently measured fast/slow clock.
+                    let elapsed = if tick < 4 { 0 } else { 1 + (tick - 4) / period };
+                    assert_eq!(
+                        sys.riot.timer_value(),
+                        200 - elapsed as u8,
+                        "{region:?}, address {address:04x}, tick {tick}"
+                    );
+                }
+                assert_eq!(sys.cpu.total_cycles, 0, "RDY holds execution, not RIOT");
+            }
+        }
+    }
+
+    #[test]
+    fn restored_slow_accesses_preserve_clock_bus_timer_and_audio() {
+        let mut rom = trap_rom_32k();
+        rom[..6].copy_from_slice(&[0xad, 0x80, 0x02, 0x4c, 0x00, 0x80]);
+        for region in [Atari7800Region::Ntsc, Atari7800Region::Pal] {
+            // The measured loop is 60 native ticks. Visit every point in it,
+            // including the divider-selection and held-access boundaries.
+            for phase in 0..60 {
+                let mut sys = Atari7800::new(rom.clone(), region).expect("slow guest");
+                sys.poke(0x15, 0x04);
+                sys.poke(0x19, 0x0f);
+                sys.poke(0x0294, 0xc8);
+                for _ in 0..1024 + phase {
+                    sys.tick_master_clock();
+                }
+                sys.take_audio_samples();
+                let saved = postcard::to_allocvec(&sys).expect("save slow phase");
+                let mut restored: Atari7800 =
+                    postcard::from_bytes(&saved).expect("restore slow phase");
+                let before = sys.cpu.total_cycles;
+                for _ in 0..600 {
+                    sys.tick_master_clock();
+                    restored.tick_master_clock();
+                    assert_eq!(
+                        (
+                            restored.cpu.addr,
+                            restored.cpu.data_in,
+                            restored.cpu.rw,
+                            restored.cpu.total_cycles
+                        ),
+                        (
+                            sys.cpu.addr,
+                            sys.cpu.data_in,
+                            sys.cpu.rw,
+                            sys.cpu.total_cycles
+                        )
+                    );
+                    assert_eq!(
+                        (restored.maria.phi1, restored.maria.phi2),
+                        (sys.maria.phi1, sys.maria.phi2)
+                    );
+                    assert_eq!(restored.riot.timer_value(), sys.riot.timer_value());
+                    assert_eq!(restored.take_audio_samples(), sys.take_audio_samples());
+                }
+                assert_eq!(sys.cpu.total_cycles - before, 70, "ten complete loops");
+                assert_eq!(
+                    postcard::to_allocvec(&restored).expect("restored continuation"),
+                    postcard::to_allocvec(&sys).expect("original continuation")
+                );
             }
         }
     }

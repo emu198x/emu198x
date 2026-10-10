@@ -1,6 +1,7 @@
 //! Versioned direct chip snapshots. Runtime snapshots also serialize the same
 //! live fields through serde, inside the Atari 7800 versioned envelope.
 
+use super::clock::Clock;
 use super::fetch::{Fetch, Phase};
 use super::{ACTIVE_WIDTH, MAX_DMA_CYCLES_PER_LINE, Maria, MariaRegion};
 
@@ -65,12 +66,21 @@ impl Maria {
     /// register-only states cannot resume the pipeline and are rejected.
     #[must_use]
     pub fn save_state(&self) -> Vec<u8> {
-        let mut data = Vec::with_capacity(80 + ACTIVE_WIDTH as usize + self.framebuffer.len() * 4);
+        let mut data = Vec::with_capacity(96 + ACTIVE_WIDTH as usize + self.framebuffer.len() * 4);
         data.extend_from_slice(MAGIC);
         data.push(match self.region {
             MariaRegion::Ntsc => 0,
             MariaRegion::Pal => 1,
         });
+        data.extend_from_slice(&self.address_in.to_le_bytes());
+        data.extend_from_slice(&[
+            u8::from(self.phi1),
+            u8::from(self.phi2),
+            self.clock.remaining,
+            u8::from(self.clock.phase2),
+            u8::from(self.clock.selected_slow),
+            u8::from(self.clock.held_slow),
+        ]);
         data.push(self.backgrnd);
         for palette in &self.palettes {
             data.extend_from_slice(palette);
@@ -147,6 +157,22 @@ impl Maria {
             return Err("MARIA state region mismatch".into());
         }
         let mut restored = Self::new(region);
+        restored.address_in = reader.word()?;
+        restored.phi1 = reader.boolean()?;
+        restored.phi2 = reader.boolean()?;
+        restored.clock = Clock {
+            remaining: reader.byte()?,
+            phase2: reader.boolean()?,
+            selected_slow: reader.boolean()?,
+            held_slow: reader.boolean()?,
+        };
+        if !(1..=6).contains(&restored.clock.remaining)
+            || (restored.phi1 && restored.phi2)
+            || (restored.phi1 && restored.clock.phase2)
+            || (restored.phi2 && !restored.clock.phase2)
+        {
+            return Err("Invalid MARIA clock state".into());
+        }
         restored.backgrnd = reader.byte()?;
         for palette in &mut restored.palettes {
             palette.copy_from_slice(reader.bytes(3)?);
@@ -228,6 +254,19 @@ impl Maria {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn invalid_clock_countdowns_leave_the_chip_unchanged() {
+        let mut chip = Maria::new(MariaRegion::Ntsc);
+        chip.write(0, 0x4e);
+        let before = chip.save_state();
+        for remaining in [0, 7, 255] {
+            let mut invalid = Maria::new(MariaRegion::Ntsc);
+            invalid.clock.remaining = remaining;
+            assert!(chip.load_state(&invalid.save_state()).is_err());
+            assert_eq!(chip.save_state(), before);
+        }
+    }
 
     #[test]
     fn invalid_pending_fetches_leave_the_chip_unchanged() {
