@@ -15,7 +15,8 @@ use crate::runtime::OricRuntime;
 // Bumped to 6: the machine now carries the expansion port's ROMDIS and MAP
 // lines. postcard is not self-describing, so added fields shift every byte
 // after them.
-const SNAPSHOT_VERSION: u16 = 6;
+// Version 7 preserves the VIA timer 2 load phase (#1677).
+const SNAPSHOT_VERSION: u16 = 7;
 
 /// Borrowing envelope used during encode — avoids cloning the live machine.
 #[derive(Serialize)]
@@ -48,15 +49,22 @@ pub(crate) fn encode(runtime: &OricRuntime) -> Result<Vec<u8>, MachineError> {
 }
 
 pub(crate) fn decode(runtime: &mut OricRuntime, bytes: &[u8]) -> Result<(), MachineError> {
+    // Reject an incompatible layout before postcard reads its chip state.
+    let (version, _) = postcard::take_from_bytes::<u16>(bytes).map_err(|reason| {
+        MachineError::InvalidSnapshot {
+            reason: format!("decode failed: {reason}"),
+        }
+    })?;
+    if version != SNAPSHOT_VERSION {
+        return Err(MachineError::InvalidSnapshot {
+            reason: format!("unsupported snapshot version {version}; expected {SNAPSHOT_VERSION}"),
+        });
+    }
     let snapshot: OricRuntimeSnapshotV2 =
         postcard::from_bytes(bytes).map_err(|reason| MachineError::InvalidSnapshot {
             reason: format!("decode failed: {reason}"),
         })?;
-    if snapshot.version != SNAPSHOT_VERSION {
-        return Err(MachineError::InvalidSnapshot {
-            reason: format!("unsupported snapshot version {}", snapshot.version),
-        });
-    }
+    debug_assert_eq!(snapshot.version, SNAPSHOT_VERSION);
     if snapshot.model_id != runtime.model().model_id() {
         return Err(MachineError::InvalidSnapshot {
             reason: format!(
@@ -100,5 +108,18 @@ mod tests {
             }
             other => panic!("expected InvalidSnapshot, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn decode_rejects_old_schema_before_reading_payload() {
+        let mut runtime = OricRuntime::blank(Model::Atmos);
+        let before = super::encode(&runtime).expect("snapshot");
+        // Deliberately no payload: full deserialisation would fail first.
+        let bytes = postcard::to_allocvec(&(super::SNAPSHOT_VERSION - 1)).expect("version");
+        let err = decode(&mut runtime, &bytes).expect_err("old schema must reject");
+        assert!(matches!(err, MachineError::InvalidSnapshot { reason }
+            if reason == format!("unsupported snapshot version {}; expected {}",
+                super::SNAPSHOT_VERSION - 1, super::SNAPSHOT_VERSION)));
+        assert_eq!(super::encode(&runtime).expect("unchanged snapshot"), before);
     }
 }

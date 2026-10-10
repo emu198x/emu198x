@@ -19,7 +19,8 @@ use crate::runtime::Vic20Runtime;
 /// per-cartridge block set (#1363), which changes the serialised machine.
 /// Version 6 adds the VIC-I's frame-latched row count, and version 7 its
 /// line-latched column count (#362).
-const SNAPSHOT_VERSION: u16 = 7;
+/// Version 8 preserves the VIA timer 2 load phase (#1677).
+const SNAPSHOT_VERSION: u16 = 8;
 
 /// Borrowing envelope used during encode — avoids cloning the live machine.
 #[derive(Serialize)]
@@ -55,15 +56,22 @@ pub(crate) fn encode(runtime: &Vic20Runtime) -> Result<Vec<u8>, MachineError> {
 }
 
 pub(crate) fn decode(runtime: &mut Vic20Runtime, bytes: &[u8]) -> Result<(), MachineError> {
+    // Reject an incompatible layout before postcard reads its chip state.
+    let (version, _) = postcard::take_from_bytes::<u16>(bytes).map_err(|reason| {
+        MachineError::InvalidSnapshot {
+            reason: format!("decode failed: {reason}"),
+        }
+    })?;
+    if version != SNAPSHOT_VERSION {
+        return Err(MachineError::InvalidSnapshot {
+            reason: format!("unsupported snapshot version {version}; expected {SNAPSHOT_VERSION}"),
+        });
+    }
     let snapshot: Vic20RuntimeSnapshotV2 =
         postcard::from_bytes(bytes).map_err(|reason| MachineError::InvalidSnapshot {
             reason: format!("decode failed: {reason}"),
         })?;
-    if snapshot.version != SNAPSHOT_VERSION {
-        return Err(MachineError::InvalidSnapshot {
-            reason: format!("unsupported snapshot version {}", snapshot.version),
-        });
-    }
+    debug_assert_eq!(snapshot.version, SNAPSHOT_VERSION);
     if snapshot.model_id != runtime.model().model_id() {
         return Err(MachineError::InvalidSnapshot {
             reason: format!(
@@ -108,6 +116,76 @@ mod tests {
                 );
             }
             other => panic!("expected InvalidSnapshot, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn decode_rejects_old_schema_before_reading_payload() {
+        let mut runtime = Vic20Runtime::blank(Model::Vic20Ntsc);
+        let before = super::encode(&runtime).expect("snapshot");
+        // Deliberately no payload: full deserialisation would fail first.
+        let bytes = postcard::to_allocvec(&(super::SNAPSHOT_VERSION - 1)).expect("version");
+        let err = decode(&mut runtime, &bytes).expect_err("old schema must reject");
+        assert!(matches!(err, MachineError::InvalidSnapshot { reason }
+            if reason == format!("unsupported snapshot version {}; expected {}",
+                super::SNAPSHOT_VERSION - 1, super::SNAPSHOT_VERSION)));
+        assert_eq!(super::encode(&runtime).expect("unchanged snapshot"), before);
+    }
+
+    #[test]
+    fn restore_preserves_timer2_load_and_countdown_in_both_vias() {
+        use emu198x_shell::MachineCore;
+        use machine_commodore_vic_20::{Vic20, Vic20Model, Vic20RamExpansion};
+
+        for (model, machine_model) in [
+            (Model::Vic20Pal, Vic20Model::Pal),
+            (Model::Vic20Ntsc, Vic20Model::Ntsc),
+        ] {
+            for elapsed_instructions in 0..3 {
+                let mut kernal = vec![0xEA; 8192];
+                kernal[..3].copy_from_slice(&[0x4C, 0x00, 0xE0]); // JMP $E000
+                kernal[0x1FFC..0x1FFE].copy_from_slice(&[0x00, 0xE0]);
+                let mut machine = Vic20::new(
+                    kernal,
+                    vec![0; 8192],
+                    vec![0; 4096],
+                    machine_model,
+                    Vic20RamExpansion::NONE,
+                );
+                machine.run_frame();
+                for base in [0x9110, 0x9120] {
+                    machine.poke(base + 8, 0xFE);
+                    machine.poke(base + 9, 0xFE);
+                }
+                let start = machine.master_clock();
+                for _ in 0..elapsed_instructions {
+                    machine.step_instruction();
+                }
+                let mut original = Vic20Runtime::blank(model);
+                original.set_machine(Some(machine));
+                let saved = super::encode(&original).expect("snapshot timer load phase");
+                let mut restored = Vic20Runtime::blank(model);
+                decode(&mut restored, &saved).expect("restore timer load phase");
+                assert_eq!(restored.snapshot().expect("fixed point"), saved);
+                for _ in 0..4 {
+                    original.machine_mut().expect("machine").step_instruction();
+                    let machine = restored.machine_mut().expect("restored machine");
+                    machine.step_instruction();
+                    let elapsed =
+                        u16::try_from(machine.master_clock() - start).expect("short countdown");
+                    // One load cycle, then one decrement per Phi2 cycle.
+                    let expected = 0xFEFE - (elapsed - 1);
+                    for base in [0x9110, 0x9120] {
+                        let actual = u16::from(machine.peek(base + 8))
+                            | (u16::from(machine.peek(base + 9)) << 8);
+                        assert_eq!(actual, expected, "{model:?}, VIA at {base:04x}");
+                    }
+                    assert_eq!(
+                        restored.snapshot().expect("restored state"),
+                        original.snapshot().expect("uninterrupted state")
+                    );
+                }
+            }
         }
     }
 }
