@@ -153,6 +153,7 @@ impl Maria {
             self.dma.phase as u8,
             self.dma.delay,
             self.dma.request_delay,
+            self.dma.cutoff_delay,
             u8::from(self.dma.requested),
             u8::from(self.dma.sampled_halt),
             u8::from(self.dma.slow_inhibit),
@@ -254,6 +255,7 @@ impl Maria {
             phase: reader.dma_phase()?,
             delay: reader.byte()?,
             request_delay: reader.byte()?,
+            cutoff_delay: reader.byte()?,
             requested: reader.boolean()?,
             sampled_halt: reader.boolean()?,
             slow_inhibit: reader.boolean()?,
@@ -270,7 +272,11 @@ impl Maria {
                 (1..=if restored.dma.next_zone { 6 } else { 5 }).contains(&restored.dma.delay)
             }
         };
-        if !valid_delay || restored.dma.request_delay > 2 || restored.native_cycle >= 908 {
+        if !valid_delay
+            || restored.dma.request_delay > 2
+            || restored.dma.cutoff_delay > 5
+            || restored.native_cycle >= 908
+        {
             return Err("Invalid MARIA DMA state".into());
         }
         let fetch = &restored.fetch;
@@ -382,6 +388,10 @@ mod tests {
         }
         let mut invalid = Maria::new(MariaRegion::Ntsc);
         invalid.dma.request_delay = 3;
+        assert!(chip.load_state(&invalid.save_state()).is_err());
+        assert_eq!(chip.save_state(), before);
+        invalid.dma.request_delay = 0;
+        invalid.dma.cutoff_delay = 6;
         assert!(chip.load_state(&invalid.save_state()).is_err());
         assert_eq!(chip.save_state(), before);
     }
