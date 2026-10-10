@@ -677,7 +677,12 @@ impl Drive1541 {
             }
             0x1800..=0x18FF if matches!(addr & 0x0F, 0x01 | 0x0F) => {
                 let value = self.via1_port_a_read();
-                self.board.via1_mut().read_port_a_with_value(value)
+                // Register $F samples port A without acknowledging CA1/CA2.
+                if addr & 0x0F == 0x01 {
+                    self.board.via1_mut().read_port_a_with_value(value)
+                } else {
+                    value
+                }
             }
             0x1800..=0x18FF => self.board.via1_mut().read((addr & 0x0F) as u8),
             0x1C00..=0x1CFF if (addr & 0x0F) == 0x00 => {
@@ -689,7 +694,12 @@ impl Drive1541 {
                 self.rotate_disk_bus_read();
                 let value = self.via2_port_a_read();
                 self.engine.clear_byte_ready_level();
-                self.board.via2_mut().read_port_a_with_value(value)
+                // Register $F samples port A without acknowledging CA1/CA2.
+                if addr & 0x0F == 0x01 {
+                    self.board.via2_mut().read_port_a_with_value(value)
+                } else {
+                    value
+                }
             }
             0x1C00..=0x1CFF => self.board.via2_mut().read((addr & 0x0F) as u8),
             0xC000..=0xFFFF => self.rom[usize::from(addr - 0xC000)],
@@ -743,7 +753,12 @@ impl Drive1541 {
             }
             0x1800..=0x18FF if matches!(addr & 0x0F, 0x01 | 0x0F) => {
                 let value = self.via1_port_a_read();
-                self.board.via1_mut().read_port_a_with_value(value)
+                // Register $F samples port A without acknowledging CA1/CA2.
+                if addr & 0x0F == 0x01 {
+                    self.board.via1_mut().read_port_a_with_value(value)
+                } else {
+                    value
+                }
             }
             0x1800..=0x18FF => self.board.via1_mut().read((addr & 0x0F) as u8),
             0x1C00..=0x1CFF if (addr & 0x0F) == 0x00 => {
@@ -755,7 +770,12 @@ impl Drive1541 {
                 self.rotate_disk_bus_read();
                 let value = self.via2_port_a_read();
                 self.engine.clear_byte_ready_level();
-                self.board.via2_mut().read_port_a_with_value(value)
+                // Register $F samples port A without acknowledging CA1/CA2.
+                if addr & 0x0F == 0x01 {
+                    self.board.via2_mut().read_port_a_with_value(value)
+                } else {
+                    value
+                }
             }
             0x1C00..=0x1CFF => self.board.via2_mut().read((addr & 0x0F) as u8),
             0xC000..=0xFFFF => self.rom[usize::from(addr - 0xC000)],
@@ -1382,6 +1402,52 @@ mod tests {
             0x02,
             "ATN low should reach VIA1 CA1 as the configured rising-edge interrupt"
         );
+    }
+
+    #[test]
+    fn alternate_port_a_reads_preserve_pending_interrupts() {
+        let rom = make_rom(&[(0xC000, &[0xEA])], 0xC000);
+        for with_iec in [false, true] {
+            for base in [0x1800u16, 0x1C00] {
+                for mirror in (0..=0xF0).step_by(0x10) {
+                    let mut machine = Drive1541::new(Drive1541Config { dos_rom: &rom })
+                        .expect("test ROM should be valid");
+                    let bus = IecBus::new();
+                    let via = if base == 0x1800 {
+                        machine.board.via1_mut()
+                    } else {
+                        machine.board.via2_mut()
+                    };
+                    via.write(0x0C, 0); // CA1 falling edge.
+                    via.write(0x0E, 0x82); // Enable CA1 interrupt.
+                    via.set_ca1_level(true);
+                    via.set_ca1_level(false);
+                    assert!(via.irq, "the test must start with a pending IRQ");
+
+                    let alternate = base + mirror + 0x0F;
+                    let expected = machine.peek_with_iec_bus(alternate, &bus);
+                    let actual = if with_iec {
+                        machine.read_with_iec_bus(alternate, &bus)
+                    } else {
+                        machine.read_without_iec_bus(alternate)
+                    };
+                    assert_eq!(actual, expected, "alternate port must return board pins");
+                    assert_eq!(
+                        machine.peek(base + 0x0D) & 0x82,
+                        0x82,
+                        "alternate read {alternate:04x}, IEC={with_iec}, lost CA1"
+                    );
+
+                    let normal = base + mirror + 1;
+                    if with_iec {
+                        let _ = machine.read_with_iec_bus(normal, &bus);
+                    } else {
+                        let _ = machine.read_without_iec_bus(normal);
+                    }
+                    assert_eq!(machine.peek(base + 0x0D) & 0x82, 0);
+                }
+            }
+        }
     }
 
     #[test]
