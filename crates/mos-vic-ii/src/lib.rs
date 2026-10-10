@@ -902,11 +902,6 @@ impl Vic {
                 self.raster_line = 0;
                 self.frame_complete = true;
                 self.den_latch = false;
-                self.lp_triggered = false;
-                // A light pen still held low retriggers as the frame starts.
-                if self.lp_line_low {
-                    self.latch_light_pen(true);
-                }
             }
         }
 
@@ -918,6 +913,16 @@ impl Vic {
             && self.raster_line == self.raster_compare
         {
             self.irq_status |= 0x01;
+        }
+
+        // The frame's raster counter advances after the wrap, on cycle 2.
+        // Reset/retrigger here: doing it at engine cycle 0 feeds the previous
+        // frame's last line into the light-pen suppression rule.
+        if self.raster_line == 0 && self.raster_cycle == self.cpu_line_edge_cycle() + 1 {
+            self.lp_triggered = false;
+            if self.lp_line_low {
+                self.latch_light_pen(true);
+            }
         }
 
         self.irq = (self.irq_status & self.irq_enable & 0x0F) != 0;
@@ -2140,8 +2145,8 @@ impl Vic {
     /// VICE x64sc latches the light pen one cycle after the input falls
     /// (`vicii_set_light_pen`, `viciisc/vicii-lightpen.c`). LPX is half the
     /// X coordinate of that cycle's Phi1 (the `xpos` column of
-    /// `viciisc/vicii-chip-model.c`) plus two on the NMOS 6567/6569, and the
-    /// latch raises the light-pen interrupt. The frame's last line latches
+    /// `viciisc/vicii-chip-model.c`) plus two on the NMOS 6567/6569 or one
+    /// on HMOS-II 8562/8565. The latch raises the light-pen interrupt. The frame's last line latches
     /// only on its first cycle.
     pub fn trigger_light_pen(&mut self) {
         self.latch_light_pen(false);
@@ -2180,7 +2185,7 @@ impl Vic {
                 0xD1
             }
         } else {
-            (self.phi1_xpos(cycle) / 2 + 2) as u8
+            (self.phi1_xpos(cycle) / 2 + if self.model.has_grey_dot() { 1 } else { 2 }) as u8
         };
         self.regs[0x13] = x;
         self.regs[0x14] = line as u8;
@@ -3199,6 +3204,117 @@ mod tests {
         assert_eq!(vic.peek(0x14), 0);
         assert_eq!(vic.peek(0x13), 0x1A);
         assert_ne!(vic.irq_status() & 0x08, 0, "the latch raises the LP IRQ");
+    }
+
+    #[test]
+    fn hmos_light_pen_x_is_one_unit_before_nmos_across_the_line() {
+        for (nmos, hmos) in [
+            (VicModel::Pal6569, VicModel::Pal8565),
+            (VicModel::Ntsc6567, VicModel::Ntsc8562),
+        ] {
+            let mut older = Vic::new(nmos);
+            let mut newer = Vic::new(hmos);
+            older.raster_line = 100;
+            newer.raster_line = 100;
+            for cycle in 0..older.cycles_per_line {
+                older.raster_cycle = cycle;
+                newer.raster_cycle = cycle;
+                older.lp_triggered = false;
+                newer.lp_triggered = false;
+                older.set_light_pen_line(false);
+                newer.set_light_pen_line(false);
+                older.set_light_pen_line(true);
+                newer.set_light_pen_line(true);
+                assert_eq!(
+                    newer.peek(0x13).wrapping_add(1),
+                    older.peek(0x13),
+                    "{hmos:?} cycle {cycle}"
+                );
+                assert_eq!(newer.peek(0x14), older.peek(0x14));
+                assert_eq!(newer.irq_status(), older.irq_status());
+            }
+        }
+    }
+
+    #[test]
+    fn held_light_pen_retriggers_when_the_frame_counter_advances() {
+        for model in [
+            VicModel::Pal6569,
+            VicModel::Pal8565,
+            VicModel::Ntsc6567,
+            VicModel::Ntsc8562,
+            VicModel::Ntsc6567R56A,
+        ] {
+            let mut vic = Vic::new(model);
+            let memory = TestMemory::new(&[]);
+            vic.raster_line = vic.lines_per_frame - 1;
+            vic.raster_cycle = vic.cycles_per_line - 1;
+            vic.lp_line_low = true;
+            vic.lp_triggered = true;
+            vic.regs[0x13] = 0x55;
+            vic.regs[0x14] = 0x77;
+            vic.write(0x1a, 8);
+            for _ in 0..3 {
+                tick_vic(&mut vic, &memory);
+                assert_eq!((vic.peek(0x13), vic.peek(0x14)), (0x55, 0x77));
+                assert!(!vic.irq_active());
+            }
+            tick_vic(&mut vic, &memory);
+            assert_eq!(vic.peek(0x14), 0, "{model:?}");
+            assert_eq!(
+                vic.peek(0x13),
+                if vic.cycles_per_line == 65 {
+                    0xd5
+                } else {
+                    0xd1
+                }
+            );
+            assert!(vic.irq_active());
+            vic.set_light_pen_line(false);
+            vic.set_light_pen_line(true);
+            assert_eq!(vic.peek(0x14), 0);
+            assert_eq!(
+                vic.peek(0x13),
+                if vic.cycles_per_line == 65 {
+                    0xd5
+                } else {
+                    0xd1
+                }
+            );
+        }
+    }
+
+    #[test]
+    fn last_line_light_pen_suppression_still_consumes_the_trigger() {
+        for model in [
+            VicModel::Pal6569,
+            VicModel::Pal8565,
+            VicModel::Ntsc6567,
+            VicModel::Ntsc8562,
+            VicModel::Ntsc6567R56A,
+        ] {
+            for cycle in [1, 2, model.cycles_per_line() - 1] {
+                let mut vic = Vic::new(model);
+                vic.raster_line = vic.lines_per_frame - 1;
+                vic.raster_cycle = cycle;
+                vic.regs[0x14] = 0x77;
+                vic.trigger_light_pen();
+                if cycle == 1 {
+                    assert_eq!(vic.peek(0x14), (vic.lines_per_frame - 1) as u8);
+                    assert_ne!(vic.irq_status() & 8, 0);
+                } else {
+                    assert_eq!(vic.peek(0x14), 0x77);
+                    assert_eq!(vic.irq_status() & 8, 0);
+                    vic.raster_cycle = 1;
+                    vic.trigger_light_pen();
+                    assert_eq!(
+                        vic.peek(0x14),
+                        0x77,
+                        "a suppressed latch is still once per frame"
+                    );
+                }
+            }
+        }
     }
 
     #[test]
