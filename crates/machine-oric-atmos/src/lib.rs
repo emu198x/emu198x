@@ -4,8 +4,8 @@
 //! rule 6). The donor at `Emu198x-Oldest/crates/machine-oric-atmos`
 //! used the deprecated `emu_core::Bus` callback and could not port
 //! directly; this file uses it as a system spec — VIA at `$0300-$03FF`,
-//! AY-via-VIA routing through CA2 (BDIR) and CB2 (BC1), 8×8 keyboard
-//! scan via VIA port B column select / port A row read, TEXT + HIRES
+//! AY-via-VIA routing through CA2 (BC1) and CB2 (BDIR), 8×8 keyboard
+//! scan via VIA row selection / PB3 sense and AY column drive, TEXT + HIRES
 //! ULA video modes with serial attributes — but the wiring is written
 //! against [`emu198x_mos_6502::M6502`]'s public pin fields and the
 //! `mos-via-6522` chip crate's pin-truth surface.
@@ -16,14 +16,14 @@
 //! from Tangerine / Oric Products International. Particularly strong
 //! in France, where Loriciels and ESAT made the Atmos the de-facto
 //! French home-computer machine in the mid-1980s. Famous for the
-//! distinctive **AY-via-VIA wiring**: the AY-3-8910 isn't directly
+//! distinctive **AY-via-VIA wiring**: the AY-3-8912 isn't directly
 //! addressable — VIA port A carries the AY data bus, CA2 is wired
-//! to AY's BDIR pin, and CB2 to AY's BC1 pin. Software sets PCR
+//! to AY's BC1 pin, and CB2 to AY's BDIR pin. Software sets PCR
 //! into one of four (BDIR, BC1) modes to drive the AY.
 //!
 //! - **CPU:** 6502A @ 1 MHz
 //! - **VIA:** MOS 6522 at `$0300-$030F` (mirrored across `$0300-$03FF`)
-//! - **PSG:** AY-3-8910 @ 1 MHz — via our `gi-ay-3-8912` crate
+//! - **PSG:** AY-3-8912 @ 1 MHz — via our `gi-ay-3-8912` crate
 //! - **ULA:** custom — TEXT (40×28) + HIRES (200 lines + 3 text rows)
 //! - **RAM:** 64 KB of DRAM on the 48K Oric-1 and the Atmos alike, 48 KB of
 //!   it below the ROM
@@ -47,7 +47,13 @@
 //!
 //! # AY-via-VIA scheme
 //!
-//! VIA port A = AY data bus. CA2 → AY BDIR; CB2 → AY BC1.
+//! VIA port A = AY data bus. CA2 → AY BC1; CB2 → AY BDIR.
+//!
+//! The original Oric-1 48K schematic connects IC6 CA2 (pin 39) to IC4
+//! BC1 (pin 20), and IC6 CB2 (pin 19) to IC4 BDIR (pin 18). The Oric
+//! Products International service manual (1984), p. 53, identifies IC4
+//! as AY-3-8912; pp. 16–20 describe sound, keyboard, tape and printer I/O.
+//! See the [original schematic](https://homepages.uni-regensburg.de/~hep09515/oric1/oric1-1p.gif).
 //!
 //! | BDIR | BC1 | Operation                              |
 //! |------|-----|----------------------------------------|
@@ -58,17 +64,20 @@
 //!
 //! Software programs PCR to put CA2 / CB2 into "fixed high" output
 //! mode (PCR & 0x0E == 0x0E for CA2; PCR & 0xE0 == 0xE0 for CB2),
-//! sets port A to the desired data byte, then drops the mode back
-//! to high-impedance for the next operation.
+//! and uses port A for the selected register address or data byte.
 //!
 //! # Keyboard
 //!
-//! 8×8 matrix, active-low. VIA port B bits 0-2 select the column
-//! (0-7); the scan routine drives one row low on VIA port A; the sense
-//! returns on VIA PB3, which reads high when the pressed key sits at the
-//! selected column and the driven-low row (`(keyboard[col] | row_mask)
-//! != 0xFF`). Port A is shared with the AY data bus but carries the row
-//! mask when the AY is not being addressed.
+//! The AY's I/O port drives the keyboard column mask. VIA port B bits 0–2
+//! select the row; PB3 senses whether that row has a pressed key in a
+//! column driven low by the AY. The VIA port-A data latch remains distinct
+//! from the AY's I/O latch.
+//!
+//! # Cassette and printer connections
+//!
+//! PB6 drives the cassette motor relay and CB1 receives tape playback.
+//! Tape recording is on PB7, including its timer-1 output function.
+//! Printer data shares VIA port A; PB4 supplies strobe and CA1 receives ACK.
 //!
 //! # Display rendering
 //!
