@@ -25,6 +25,7 @@ pub(super) struct Dma {
     pub phase: Phase,
     pub delay: u8,
     pub request_delay: u8,
+    pub cutoff_delay: u8,
     pub requested: bool,
     pub sampled_halt: bool,
     pub slow_inhibit: bool,
@@ -42,7 +43,12 @@ impl Maria {
             Phase::DescriptorFlag | Phase::DescriptorHigh | Phase::DescriptorLow => {
                 self.dma.delay == 1
             }
-            Phase::DisplayList => self.fetch_read_address().is_some(),
+            Phase::DisplayList => {
+                // HPOS uses the direct output strobe; byte latches have an
+                // additional MARIA-clock stage and may still consume at +4.
+                !(self.dma.cutoff_delay == 2 && self.fetch.phase == fetch::Phase::HeaderPosition)
+                    && self.fetch_read_address().is_some()
+            }
             _ => false,
         }
     }
@@ -100,6 +106,21 @@ impl Maria {
         if !starting {
             self.advance_dma_stage();
         }
+        if self.dma.cutoff_delay != 0 {
+            self.dma.cutoff_delay -= 1;
+            if self.dma.cutoff_delay == 0 && self.dma.phase == Phase::DisplayList {
+                // At LRC+5 the outstanding address latch has settled. Cancel
+                // later consumption, then use the ordinary zone shutdown.
+                // Unlike a terminator, cutoff does not select another DL byte.
+                self.stop_fetch();
+                self.dma.next_zone = self.zone_scanline + 1 >= self.zone_height;
+                self.dma.phase = Phase::Shutdown;
+                self.dma.delay = if self.dma.next_zone { 5 } else { 4 };
+            }
+        }
+        if self.native_cycle == 824 && self.dma.phase == Phase::DisplayList {
+            self.dma.cutoff_delay = 5;
+        }
         // HALT's pad is transparent during CPU phase 1, held during phase 2.
         // Its transition and Sally's subsequent sampling are separate edges.
         if !self.clock.phase2 {
@@ -112,7 +133,13 @@ impl Maria {
             Phase::Idle | Phase::AwaitCpu => return,
             Phase::DisplayList => {
                 self.fetch.data_in = self.dma_data_in;
+                let hpos = self.fetch.hpos;
+                let suppress_position =
+                    self.dma.cutoff_delay == 2 && self.fetch.phase == fetch::Phase::HeaderPosition;
                 self.tick_fetch();
+                if suppress_position {
+                    self.fetch.hpos = hpos;
+                }
                 if self.fetch.phase == fetch::Phase::Idle {
                     self.dma.next_zone = self.zone_scanline + 1 >= self.zone_height;
                     self.dma.phase = Phase::Shutdown;
@@ -429,6 +456,207 @@ mod tests {
             )
         });
         events
+    }
+
+    fn cutoff_trace([mode, width, height, slow, pal, objects]: [u8; 6]) -> Vec<String> {
+        let (mut chip, mut memory) = fixture([mode, width, height, 0, slow, pal]);
+        let stride = if mode == 1 { 4 } else { 5 };
+        for object in 1..usize::from(objects) {
+            memory.copy_within(0x1c00..0x1c00 + stride, 0x1c00 + object * stride);
+        }
+        let mut bus = Bus {
+            cpu_address: chip.address_in,
+            address: chip.address_in,
+            sampled_halt: false,
+            released: false,
+        };
+        let mut events = Vec::new();
+        for tick in 257..908 * 24 {
+            let old_bus = bus;
+            let old_halt = chip.halt;
+            let old_drive = chip.dma_drive;
+            let read = chip.dma_read_pending();
+            bus.tick(&mut chip, &memory);
+            if tick <= 14000 {
+                continue;
+            }
+            if read {
+                events.push(format!(
+                    "{tick} R {:04x} {:02x}",
+                    old_bus.address, chip.dma_data_in
+                ));
+            }
+            if bus.address != old_bus.address {
+                events.push(format!("{tick} A {:04x}", bus.address));
+            }
+            if chip.dma_drive != old_drive || bus.released != old_bus.released {
+                events.push(format!(
+                    "{tick} B {} {}",
+                    u8::from(chip.dma_drive),
+                    u8::from(bus.released)
+                ));
+            }
+            if chip.halt != old_halt {
+                events.push(format!("{tick} H {}", u8::from(!chip.halt)));
+            }
+            if tick > 15000 && chip.native_cycle == 860 {
+                let input: String = chip
+                    .line_buffer
+                    .iter()
+                    .map(|cell| format!("{cell:02x}"))
+                    .collect();
+                let output: String = chip
+                    .playback_buffer
+                    .iter()
+                    .map(|cell| format!("{cell:02x}"))
+                    .collect();
+                events.push(format!("{tick} L {input} {output}"));
+                events.push(format!(
+                    "{tick} Z {:04x} {:04x} {:01x}",
+                    chip.dll_addr,
+                    chip.zone_dl_addr,
+                    chip.zone_offset.wrapping_sub(chip.zone_scanline) & 15
+                ));
+            }
+        }
+        events.sort_by_key(|event| {
+            let mut fields = event.split_whitespace();
+            (
+                fields.next().expect("tick").parse::<u32>().expect("tick"),
+                fields.next().expect("kind").as_bytes()[0],
+            )
+        });
+        events
+    }
+
+    #[test]
+    fn cutoff_matches_qualified_bus_and_read_traces() {
+        let mut cases = BTreeSet::new();
+        for block in include_str!("../tests/data/cutoff-vectors.txt")
+            .split("CASE ")
+            .skip(1)
+        {
+            let (name, rows) = block.split_once('\n').expect("case header");
+            let fields: Vec<u8> = name
+                .split_whitespace()
+                .map(|field| field.parse().expect("case field"))
+                .collect();
+            let case: [u8; 6] = fields.try_into().expect("six case fields");
+            assert!(cases.insert(case));
+            let actual = cutoff_trace(case);
+            let expected: Vec<_> = rows.lines().collect();
+            for (index, (actual, expected)) in actual.iter().zip(&expected).enumerate() {
+                assert_eq!(actual, expected, "case {name}, event {index}");
+            }
+            assert_eq!(actual.len(), expected.len(), "case {name}");
+        }
+        assert_eq!(cases.len(), 6);
+    }
+
+    #[test]
+    fn cutoff_snapshots_preserve_late_reads_and_both_line_banks() {
+        let mut countdowns = BTreeSet::new();
+        let mut checked = 0;
+        for case in [[1, 2, 1, 0, 0, 0], [4, 8, 2, 0, 1, 1]] {
+            let (mut chip, mut memory) = fixture(case);
+            let stride = if case[0] == 1 { 4 } else { 5 };
+            for object in 1..128 {
+                memory.copy_within(0x1c00..0x1c00 + stride, 0x1c00 + object * stride);
+            }
+            let mut bus = Bus {
+                cpu_address: chip.address_in,
+                address: chip.address_in,
+                sampled_halt: false,
+                released: false,
+            };
+            for tick in 257..16320 {
+                bus.tick(&mut chip, &memory);
+                if tick < 16290 {
+                    continue;
+                }
+                countdowns.insert(chip.dma.cutoff_delay);
+                let saved = chip.save_state();
+                let mut restored = Maria::new(chip.region);
+                assert_eq!(restored.load_state(&saved).expect("restore"), saved.len());
+                assert_eq!(restored.save_state(), saved, "saved at {tick}");
+                let mut resumed_bus = bus;
+                let mut original_bus = bus;
+                for _ in 0..1024 {
+                    original_bus.tick(&mut chip, &memory);
+                    resumed_bus.tick(&mut restored, &memory);
+                    assert_eq!(original_bus, resumed_bus);
+                    assert_eq!(chip.dma_read_pending(), restored.dma_read_pending());
+                }
+                assert_eq!(restored.save_state(), chip.save_state(), "saved at {tick}");
+                chip.load_state(&saved).expect("rewind fixture");
+                checked += 1;
+            }
+        }
+        assert_eq!(countdowns, (0..=5).collect());
+        assert_eq!(checked, 60);
+    }
+
+    #[test]
+    fn cutoff_matches_all_896_qualified_schedules() {
+        let mut cases = BTreeSet::new();
+        for row in include_str!("../tests/data/cutoff-matrix.txt")
+            .lines()
+            .filter(|row| !row.starts_with('#'))
+        {
+            let fields: Vec<_> = row.split_whitespace().collect();
+            assert_eq!(fields.len(), 12);
+            let case: [u8; 6] = std::array::from_fn(|i| fields[i].parse().expect("case field"));
+            assert!(cases.insert(case));
+            let actual = cutoff_trace(case);
+            for (index, kind) in ['A', 'B', 'H', 'L', 'R', 'Z'].into_iter().enumerate() {
+                let mut count = 0;
+                let mut hash = 0xcbf2_9ce4_8422_2325_u64;
+                for event in &actual {
+                    if event.split_whitespace().nth(1).expect("kind").as_bytes()[0] != kind as u8 {
+                        continue;
+                    }
+                    count += 1;
+                    for byte in event.bytes().chain(*b"\n") {
+                        hash = (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3);
+                    }
+                }
+                assert!(count > 0);
+                assert_eq!(
+                    format!("{kind}:{count}:{hash:016x}"),
+                    fields[6 + index],
+                    "{case:?}"
+                );
+            }
+        }
+        assert_eq!(cases.len(), 896);
+        for mode in 1..=4 {
+            for width in [1, 2, 8, if mode == 1 { 31 } else { 32 }] {
+                for height in [1, 2, 3, 16] {
+                    for slow in 0..2 {
+                        for pal in 0..2 {
+                            assert!(cases.contains(&[mode, width, height, slow, pal, 128]));
+                            if height <= 2 {
+                                let cost = u16::from(if mode == 1 { 16_u8 } else { 20 })
+                                    + u16::from(width)
+                                        * if mode < 3 {
+                                            6
+                                        } else if mode == 3 {
+                                            12
+                                        } else {
+                                            18
+                                        };
+                                let edge = (836 / cost).max(3) as u8;
+                                for objects in edge - 2..=edge + 2 {
+                                    assert!(
+                                        cases.contains(&[mode, width, height, slow, pal, objects])
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     #[test]
