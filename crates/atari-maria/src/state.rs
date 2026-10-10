@@ -4,6 +4,7 @@
 use super::clock::Clock;
 use super::dma::{Dma, Phase as DmaPhase};
 use super::fetch::{Fetch, Phase};
+use super::video::LINE_CELLS;
 use super::{ACTIVE_WIDTH, MAX_DMA_CYCLES_PER_LINE, Maria, MariaRegion};
 
 const MAGIC: &[u8; 6] = b"MARIA\x01";
@@ -159,6 +160,7 @@ impl Maria {
             u8::from(self.dma.next_zone),
         ]);
         data.extend_from_slice(&self.line_buffer);
+        data.extend_from_slice(&self.playback_buffer);
         for pixel in &self.framebuffer {
             data.extend_from_slice(&pixel.to_le_bytes());
         }
@@ -292,14 +294,25 @@ impl Maria {
             || fetch.palette > 7
             || fetch.remaining > 32
             || fetch.offset > 15
-            || fetch.hpos > 767
+            || fetch.hpos > 255
             || (needs_width && fetch.remaining == 0)
         {
             return Err("Invalid MARIA pipeline state".into());
         }
         restored
             .line_buffer
-            .copy_from_slice(reader.bytes(ACTIVE_WIDTH as usize)?);
+            .copy_from_slice(reader.bytes(LINE_CELLS)?);
+        restored
+            .playback_buffer
+            .copy_from_slice(reader.bytes(LINE_CELLS)?);
+        if restored
+            .line_buffer
+            .iter()
+            .chain(&restored.playback_buffer)
+            .any(|&cell| cell > 31)
+        {
+            return Err("Invalid MARIA line RAM cell".into());
+        }
         for pixel in &mut restored.framebuffer {
             let bytes = reader.bytes(4)?;
             *pixel = u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
@@ -312,6 +325,25 @@ impl Maria {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn invalid_cells_in_either_buffer_leave_the_chip_unchanged() {
+        let mut chip = Maria::new(MariaRegion::Ntsc);
+        chip.write(0, 0x4e);
+        let before = chip.save_state();
+        for value in [32, 255] {
+            for playback in [false, true] {
+                let mut invalid = Maria::new(MariaRegion::Ntsc);
+                if playback {
+                    invalid.playback_buffer[159] = value;
+                } else {
+                    invalid.line_buffer[159] = value;
+                }
+                assert!(chip.load_state(&invalid.save_state()).is_err());
+                assert_eq!(chip.save_state(), before);
+            }
+        }
+    }
 
     #[test]
     fn invalid_dma_countdowns_leave_the_chip_unchanged() {
