@@ -67,15 +67,18 @@
 //! # Graphics modes
 //!
 //! - **160A**: 2 bits per pixel, 4 colours per sprite (palette selected per DL entry)
-//! - **320A**: 1 bit per pixel, 2 colours per sprite (transparent + palette foreground)
+//! - **160B**: two cells per byte, combining palette and graphics colour bits.
+//! - **320A/B/C/D**: two independently decoded output pixels per stored cell.
 //!
-//! 160B/320B/C/D variants exist but are not yet implemented.
+//! Write mode controls cell construction; CTRL read mode controls playback.
+//! Palette RAM is sampled at playback, allowing live colour changes.
 
 mod clock;
 mod dma;
 mod fetch;
 mod palette;
 mod state;
+mod video;
 
 pub use palette::{NTSC_PALETTE, PAL_PALETTE};
 
@@ -315,7 +318,9 @@ pub struct Maria {
     // -- Framebuffer --------------------------------------------------------
     framebuffer: Vec<u32>,
     #[serde(with = "BigArray")]
-    line_buffer: [u8; ACTIVE_WIDTH as usize],
+    line_buffer: [u8; video::LINE_CELLS],
+    #[serde(with = "BigArray")]
+    playback_buffer: [u8; video::LINE_CELLS],
 }
 
 impl Maria {
@@ -363,7 +368,8 @@ impl Maria {
                 0xFF00_0000;
                 (region.framebuffer_width() * region.framebuffer_height()) as usize
             ],
-            line_buffer: [0; ACTIVE_WIDTH as usize],
+            line_buffer: [0; video::LINE_CELLS],
+            playback_buffer: [0; video::LINE_CELLS],
         }
     }
 
@@ -621,52 +627,11 @@ impl Maria {
             || (self.zone_holey & 0x01 != 0 && addr & 0x8800 == 0x8800)
     }
 
-    /// Blit one graphics byte into the line buffer at column `*x`, advancing
-    /// `*x` by 8 framebuffer columns. 320 mode is 1 bit/pixel; 160 mode is
-    /// 2 bits/pixel with each pixel doubled to two columns. Pixel value 0 is
-    /// transparent unless Kangaroo mode makes zero pixels opaque background.
-    fn blit_byte(&mut self, byte: u8, x: &mut usize, use_320: bool, palette: u8) {
-        let pal = palette as usize;
-        let kangaroo = self.ctrl & CTRL_KANGAROO != 0;
-        if use_320 {
-            // 320A: 1 bit per pixel, 8 pixels per byte.
-            for bit in (0..8).rev() {
-                if *x < ACTIVE_WIDTH as usize {
-                    if (byte >> bit) & 1 != 0 {
-                        self.line_buffer[*x] = self.palettes[pal][0];
-                    } else if kangaroo {
-                        self.line_buffer[*x] = self.backgrnd;
-                    }
-                }
-                *x += 1;
-            }
-        } else {
-            // 160A: 2 bits per pixel, 4 pixels per byte, each doubled.
-            for shift in [6, 4, 2, 0] {
-                let pixel = (byte >> shift) & 0x03;
-                if pixel != 0 || kangaroo {
-                    let colour = if pixel == 0 {
-                        self.backgrnd
-                    } else {
-                        self.palettes[pal][(pixel - 1) as usize]
-                    };
-                    if *x < ACTIVE_WIDTH as usize {
-                        self.line_buffer[*x] = colour;
-                    }
-                    if *x + 1 < ACTIVE_WIDTH as usize {
-                        self.line_buffer[*x + 1] = colour;
-                    }
-                }
-                *x += 2;
-            }
-        }
-    }
-
     // -- Helpers ------------------------------------------------------------
 
-    /// Fill the line buffer with the background colour index.
+    /// Clear pending cells; zero colour selectors read the live background.
     fn fill_background(&mut self) {
-        self.line_buffer.fill(self.backgrnd);
+        self.line_buffer.fill(0);
     }
 
     /// Explicitly clear the image using the current background/border controls.
@@ -719,8 +684,9 @@ impl Maria {
         let row_start =
             fb_y * self.region.framebuffer_width() as usize + self.region.border_left() as usize;
 
-        for (i, &colour_reg) in self.line_buffer.iter().enumerate() {
-            self.framebuffer[row_start + i] = self.colour_argb(colour_reg);
+        for pixel in 0..ACTIVE_WIDTH as usize {
+            let colour = self.cell_colour(self.line_buffer[pixel / 2], pixel % 2 != 0);
+            self.framebuffer[row_start + pixel] = self.colour_argb(colour);
         }
     }
 }
@@ -746,12 +712,14 @@ mod tests {
     #[test]
     fn direct_state_preserves_pending_pixels_and_completed_frame() {
         let mut source = Maria::new(MariaRegion::Pal);
-        source.line_buffer[7] = 0x4e;
+        source.line_buffer[7] = 0x0d;
+        source.playback_buffer[11] = 0x16;
         source.framebuffer[123] = 0xff12_3456;
         let saved = source.save_state();
         let mut restored = Maria::new(MariaRegion::Pal);
         restored.load_state(&saved).expect("restore");
         assert_eq!(restored.line_buffer, source.line_buffer);
+        assert_eq!(restored.playback_buffer, source.playback_buffer);
         assert_eq!(restored.framebuffer, source.framebuffer);
     }
 
@@ -1090,19 +1058,20 @@ mod tests {
 
     #[test]
     fn kangaroo_mode_makes_zero_pixels_opaque_background() {
-        let mut maria = Maria::new(MariaRegion::Ntsc);
-        maria.backgrnd = 0x0E;
-        maria.line_buffer.fill(0x66);
-        maria.ctrl = CTRL_KANGAROO;
-
-        let mut x = 0;
-        maria.blit_byte(0x00, &mut x, false, 0);
-        assert_eq!(&maria.line_buffer[..8], &[0x0E; 8], "160A");
-
-        maria.line_buffer.fill(0x66);
-        x = 0;
-        maria.blit_byte(0x00, &mut x, true, 0);
-        assert_eq!(&maria.line_buffer[..8], &[0x0E; 8], "320A");
+        for write_mode in [false, true] {
+            let mut maria = Maria::new(MariaRegion::Ntsc);
+            maria.ctrl = CTRL_KANGAROO;
+            maria.backgrnd = 0x0e;
+            maria.palettes[0][2] = 0x66;
+            maria.line_buffer.fill(3);
+            let mut position = 0;
+            maria.blit_byte(0, &mut position, write_mode, 0);
+            let pixels = if write_mode { 4 } else { 8 };
+            for pixel in 0..10 {
+                let colour = maria.cell_colour(maria.line_buffer[pixel / 2], pixel % 2 != 0);
+                assert_eq!(colour, if pixel < pixels { 0x0e } else { 0x66 });
+            }
+        }
     }
 
     #[test]

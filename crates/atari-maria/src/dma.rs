@@ -48,8 +48,8 @@ impl Maria {
     }
 
     /// Advance MARIA's clock, raster requests and DMA by one native oscillator
-    /// period. This entry drives the saved fetch engine; framebuffer playback
-    /// and its machine caller are connected by the following integration stage.
+    /// period, including line RAM transfer and framebuffer playback. The
+    /// machine caller is connected by the following integration stage.
     /// Do not additionally call `tick_clock` for this native period.
     pub fn tick_dma(&mut self) {
         self.tick_clock();
@@ -80,6 +80,7 @@ impl Maria {
             MariaRegion::Pal => 308,
         };
         self.vblank = self.scan_line < 16 || self.scan_line >= blank_start;
+        self.tick_video(column);
 
         if self.dma.request_delay != 0 {
             self.dma.request_delay -= 1;
