@@ -403,6 +403,7 @@ impl OricAtmos {
     }
 
     fn tick_cpu_cycle(&mut self) {
+        let previous_controls = self.ay_control_levels();
         if let Some(tape) = &mut self.tape {
             // The relay is energised only when PB6 is configured as an
             // output and its latch is high. An input pin's pull-up is not a
@@ -410,13 +411,16 @@ impl OricAtmos {
             let motor_on = self.via.orb() & self.via.peek(0x02) & 0x40 != 0;
             self.via.set_cb1_level(tape.tick(motor_on));
         }
+        self.process_ay_control_change(previous_controls);
         self.cpu.tick();
         if self.cpu.rw {
             self.cpu.data_in = self.mem_read(self.cpu.addr);
         } else {
             self.mem_write(self.cpu.addr, self.cpu.data);
         }
+        let previous_controls = self.ay_control_levels();
         self.via.tick();
+        self.process_ay_control_change(previous_controls);
         self.psg.tick();
         self.cpu.irq = self.via.irq;
         self.cpu_cycles += 1;
@@ -431,7 +435,10 @@ impl OricAtmos {
                 // The IJK joystick drives the VIA port-A input lines; refresh
                 // them before the register read resolves.
                 self.update_ijk_joystick();
-                self.via.read((addr & 0x0F) as u8)
+                let previous_controls = self.ay_control_levels();
+                let value = self.via.read((addr & 0x0F) as u8);
+                self.process_ay_control_change(previous_controls);
+                value
             }
             target => self.peek_target(target, addr),
         }
@@ -464,10 +471,16 @@ impl OricAtmos {
         match self.expansion.decode(addr) {
             BusTarget::Via => {
                 let reg = (addr & 0x0F) as u8;
+                let previous_controls = self.ay_control_levels();
                 self.via.write(reg, value);
                 // PCR (reg $0C) or port A (reg $01/$0F) writes can
-                // drive the AY bus.
-                if reg == 0x0C || reg == 0x01 || reg == 0x0F {
+                // drive the AY bus. Other registers can change a control
+                // output too (e.g. ORB asserts a CB2 handshake).
+                if reg == 0x0C
+                    || reg == 0x01
+                    || reg == 0x0F
+                    || self.ay_control_levels() != previous_controls
+                {
                     self.process_ay_bus();
                 }
                 // Re-sense the keyboard onto PB3: a port B write ($00)
@@ -491,13 +504,27 @@ impl OricAtmos {
         }
     }
 
-    /// Inspect VIA control state and drive the AY accordingly.
+    /// Resolve the driven control outputs; retain the board's existing low
+    /// convention for undriven inputs. Floating voltages are not modelled here.
+    fn ay_control_levels(&self) -> (bool, bool) {
+        (
+            self.via.ca2_drive && self.via.ca2_out,
+            self.via.cb2_drive && self.via.cb2_out,
+        )
+    }
+
+    fn process_ay_control_change(&mut self, previous: (bool, bool)) {
+        if self.ay_control_levels() != previous {
+            self.process_ay_bus();
+            self.scan_keyboard();
+        }
+    }
+
+    /// Follow the CA2/BC1 and CB2/BDIR output levels, including handshakes,
+    /// pulse completion and shift-register output. PCR selects the VIA mode;
+    /// it does not itself carry the level reaching the AY.
     fn process_ay_bus(&mut self) {
-        let pcr = self.via.peek(0x0C);
-        // CA2 → AY BC1; CB2 → AY BDIR. The Oric uses PCR's "fixed
-        // high output" mode bit pattern (0b111) to drive these high.
-        let ca2 = (pcr & 0x0E) == 0x0E;
-        let cb2 = (pcr & 0xE0) == 0xE0;
+        let (ca2, cb2) = self.ay_control_levels();
         let port_a = self.via.ora();
         match (ca2, cb2) {
             (true, true) => {
@@ -1139,6 +1166,183 @@ mod tests {
         sys.mem_write(0x0303, 0xFF); // DDRA
         sys.mem_write(0x0301, 0x42); // ORA
         assert_eq!(sys.via.ora(), 0x42);
+    }
+
+    #[test]
+    fn ay_bus_uses_driven_levels_in_all_idle_high_output_modes() {
+        for ca2_mode in [0x08, 0x0A, 0x0E] {
+            for cb2_mode in [0x80, 0xA0, 0xE0] {
+                let mut sys = OricAtmos::new(trap_rom(), OricModel::Atmos);
+                sys.mem_write(0x0303, 0xFF);
+                sys.mem_write(0x030C, 0xCC);
+                sys.mem_write(0x0301, 7);
+                sys.start_ay_write_watch();
+                sys.mem_write(0x030C, ca2_mode | cb2_mode);
+                assert!(sys.via.ca2_drive && sys.via.ca2_out);
+                assert!(sys.via.cb2_drive && sys.via.cb2_out);
+                assert_eq!(
+                    sys.psg.selected_register(),
+                    7,
+                    "both driven-high pins select the address, PCR={:02x}",
+                    ca2_mode | cb2_mode
+                );
+                assert!(sys.ay_write_watch_records().expect("watch").is_empty());
+            }
+        }
+    }
+
+    fn ay_strobe_guest(ca2_mode: u8) -> Vec<u8> {
+        let mut rom = trap_rom();
+        let program = [
+            0xA9, 0xFF, 0x8D, 0x03, 0x03, // DDRA = outputs
+            0xA9, 0xCC, 0x8D, 0x0C, 0x03, // inactive controls
+            0xA9, 7, 0x8D, 0x01, 0x03, // register address
+            0xA9, ca2_mode, 0x8D, 0x0C, 0x03, // idle-high handshake/pulse
+            0xAD, 0x01, 0x03, // read ORA: BC1 falls, writing R7 = 7
+            0xA9, 14, 0x8D, 0x0F, 0x03, // data changes without a new strobe
+            0xA9, 0xCC, 0x8D, 0x0C, 0x03, // inactive controls
+            0xA9, 8, 0x8D, 0x01, 0x03, // amplitude register address
+            0xA9, 0xEE, 0x8D, 0x0C, 0x03, // select R8
+            0xA9, 0xCC, 0x8D, 0x0C, 0x03, // inactive controls
+            0xA9, 15, 0x8D, 0x01, 0x03, // amplitude data
+            0xA9, 0xAC, 0x8D, 0x0C, 0x03, // BDIR high: write R8 = 15
+            0x8D, 0x00, 0x03, // CB2 pulse; release writes R8 again
+            0x4C, 0x3D, 0xC0, // loop at $C03D
+        ];
+        rom[..program.len()].copy_from_slice(&program);
+        rom
+    }
+
+    #[test]
+    fn cpu_strobes_reach_the_ay_once_per_transfer() {
+        for mode in [0xE8, 0xEA] {
+            let mut sys = OricAtmos::new(ay_strobe_guest(mode), OricModel::Atmos);
+            sys.start_ay_write_watch();
+            for _ in 0..300 {
+                sys.tick_cpu_cycle();
+            }
+            let writes: Vec<_> = sys
+                .ay_write_watch_records()
+                .expect("watch")
+                .iter()
+                .map(|w| (w.register, w.value))
+                .collect();
+            let expected: &[(u8, u8)] = if mode == 0xE8 {
+                &[(7, 7), (7, 14), (8, 15), (8, 15)]
+            } else {
+                &[(7, 7), (8, 15), (8, 15)]
+            };
+            assert_eq!(writes, expected, "PCR={mode:02x}");
+            assert_eq!(sys.psg.registers()[8], 15);
+        }
+    }
+
+    #[test]
+    fn restore_preserves_future_ay_strobes_at_each_guest_clock() {
+        for mode in [0xE8, 0xEA] {
+            for cut in 0..160 {
+                let mut continuous = OricAtmos::new(ay_strobe_guest(mode), OricModel::Atmos);
+                for _ in 0..=cut {
+                    continuous.tick_cpu_cycle();
+                }
+                let saved = postcard::to_allocvec(&continuous).expect("save guest clock");
+                let mut restored: OricAtmos = postcard::from_bytes(&saved).expect("restore clock");
+                for _ in 0..32 {
+                    continuous.tick_cpu_cycle();
+                    restored.tick_cpu_cycle();
+                    assert_eq!(restored.psg.registers(), continuous.psg.registers());
+                    assert_eq!(
+                        restored.psg.selected_register(),
+                        continuous.psg.selected_register()
+                    );
+                }
+                assert_eq!(restored.take_audio_buffer(), continuous.take_audio_buffer());
+                assert_eq!(
+                    postcard::to_allocvec(&restored).expect("restored future"),
+                    postcard::to_allocvec(&continuous).expect("continuous future")
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn ay_bus_follows_port_a_read_strobes_and_their_release() {
+        for mode in [0xE8, 0xEA] {
+            let mut sys = OricAtmos::new(trap_rom(), OricModel::Atmos);
+            sys.mem_write(0x0303, 0xFF);
+            sys.mem_write(0x030C, 0xCC);
+            sys.mem_write(0x0301, 7);
+            sys.mem_write(0x030C, mode);
+            assert_eq!(sys.psg.selected_register(), 7);
+            assert_eq!(sys.mem_read(0x0301), 7);
+            assert!(!sys.via.ca2_out);
+            assert_eq!(sys.psg.registers()[7], 7, "read-generated BC1 falling edge");
+
+            // Alternate ORA changes data without releasing the strobe.
+            sys.mem_write(0x030F, 14);
+            assert_eq!(sys.psg.selected_register(), 7);
+            if mode == 0xE8 {
+                sys.tick_cpu_cycle();
+                assert!(!sys.via.ca2_out, "handshake waits for acknowledgement");
+                sys.via.ca1 = false;
+            }
+            sys.tick_cpu_cycle();
+            assert!(sys.via.ca2_out);
+            assert_eq!(
+                sys.psg.selected_register(),
+                14,
+                "released BC1 selects address"
+            );
+        }
+    }
+
+    #[test]
+    fn ay_bus_follows_cb2_pulse_release_without_repeating_held_writes() {
+        let mut sys = OricAtmos::new(trap_rom(), OricModel::Atmos);
+        sys.mem_write(0x0303, 0xFF);
+        sys.mem_write(0x030C, 0xCC);
+        sys.mem_write(0x0301, 7);
+        sys.mem_write(0x030C, 0xEE);
+        sys.mem_write(0x030C, 0xCC);
+        sys.mem_write(0x0301, 0x38);
+        sys.mem_write(0x030C, 0xAC); // CA2 low, CB2 pulse-idle high.
+        sys.start_ay_write_watch();
+        sys.mem_write(0x0300, 0);
+        assert!(!sys.via.cb2_out);
+        assert!(sys.ay_write_watch_records().expect("watch").is_empty());
+        sys.tick_cpu_cycle();
+        assert!(sys.via.cb2_out);
+        let writes = sys.ay_write_watch_records().expect("watch");
+        assert_eq!(writes.len(), 1, "rising BDIR performs the transfer");
+        assert_eq!((writes[0].register, writes[0].value), (7, 0x38));
+        for _ in 0..20 {
+            let _ = sys.mem_read(0x0300); // B reads do not trigger output handshakes.
+            sys.tick_cpu_cycle();
+        }
+        assert_eq!(sys.ay_write_watch_records().expect("watch").len(), 1);
+    }
+
+    #[test]
+    fn ay_bus_receives_cb2_handshake_release_from_tape_cb1() {
+        let mut sys = OricAtmos::new(trap_rom(), OricModel::Atmos);
+        sys.mem_write(0x0303, 0xFF);
+        sys.mem_write(0x030C, 0xCC);
+        sys.mem_write(0x0301, 7);
+        sys.mem_write(0x030C, 0xEE);
+        sys.mem_write(0x030C, 0xCC);
+        sys.mem_write(0x0301, 0x38);
+        sys.mem_write(0x030C, 0x9C); // CB2 handshake, acknowledge on rising CB1.
+        sys.mem_write(0x0302, 0x40);
+        sys.via.set_cb1_level(false);
+        sys.mem_write(0x0300, 0x40); // Motor on; assert CB2 low.
+        sys.insert_tape(vec![0x41]);
+        sys.start_ay_write_watch();
+        assert!(!sys.via.cb2_out);
+        sys.tick_cpu_cycle();
+        assert!(sys.via.cb1 && sys.via.cb2_out);
+        let writes = sys.ay_write_watch_records().expect("watch");
+        assert_eq!(writes.len(), 1);
+        assert_eq!((writes[0].register, writes[0].value), (7, 0x38));
     }
 
     #[test]
