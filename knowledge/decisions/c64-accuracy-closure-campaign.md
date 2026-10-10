@@ -641,11 +641,14 @@ raster counter enters line zero. Running that event at engine wrap previously
 fed the last line into the suppression rule and lost the retrigger. Existing
 state is sufficient; the snapshot layout is unchanged.
 
-The full 256-delay measurement now matches native VICE in all 5,120 bytes on
-four models (594 disagreements before). The corresponding physical-chip dumps
-agree in 5,112 bytes; LPX samples 254/255 remain four X units lower on hardware
-in each dump. This native/physical discrepancy remains unresolved, so this is
-not full hardware parity. The provenance and observation boundary are in the
+The full 256-delay measurement matches native VICE and the prepared physical
+references in all 5,120 bytes on four models (594 native disagreements before).
+The upstream Makefile converts pre-R03 `.prg` dumps with `makeref.c` before
+embedding them in the R04 guest. Its documented correction changes just LPX
+samples 254/255 in these inputs; its complete output matches both native VICE
+and the guest's embedded references. No samples are excluded. This establishes
+parity for the measured schedule, not every possible light-pen condition.
+The provenance and observation boundary are in the
 [shared reference record](../../../../reference/by-topic/vic-ii/2026-lightpen-measurement-observations.md);
 `test-data/commodore/c64/lightpen/` holds the native fixtures. All ten strict
 VIC-II lanes and the frame-boundary snapshot checks pass. The full catalogue
