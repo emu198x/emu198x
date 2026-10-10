@@ -28,13 +28,17 @@ impl Model {
             _ => None,
         }
     }
-    /// Existing host budget in colour clocks.
+    pub(crate) const fn machine_region(self) -> machine_atari_7800::Atari7800Region {
+        match self {
+            Self::A7800Ntsc => machine_atari_7800::Atari7800Region::Ntsc,
+            Self::A7800Pal => machine_atari_7800::Atari7800Region::Pal,
+        }
+    }
+
+    /// Host frame budget in native oscillator periods.
     #[must_use]
     pub const fn frame_ticks(self) -> u64 {
-        match self {
-            Self::A7800Ntsc => 262 * 228,
-            Self::A7800Pal => 312 * 228,
-        }
+        self.machine_region().frame_ticks()
     }
     #[must_use]
     pub fn firmware_sources(self) -> Vec<emu198x_shell::FirmwareSource> {
@@ -83,7 +87,7 @@ pub fn profile_for(model: Model) -> MachineProfile {
         region: model.region(),
         release_year: 1986,
         summary: "Atari 7800 — 6502C + MARIA video + TIA audio + 4 KB RAM, cartridge required, BIOS-less in v1.".into(),
-        clock: ClockDesc::new("colour-clock", ClockRate::from_hz(3_579_545)),
+        clock: ClockDesc::new("master-clock", ClockRate::from_hz(model.machine_region().master_hz())),
         firmware: vec![],
         media_slots: vec![MediaSlot::new(
             "cartridge-1",

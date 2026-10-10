@@ -97,10 +97,7 @@ impl Atari7800Runtime {
     }
 
     fn machine_region(&self) -> Atari7800Region {
-        match self.model.region() {
-            emu198x_shell::Region::Pal => Atari7800Region::Pal,
-            _ => Atari7800Region::Ntsc,
-        }
+        self.model.machine_region()
     }
 
     fn rebuild_machine(&mut self) {

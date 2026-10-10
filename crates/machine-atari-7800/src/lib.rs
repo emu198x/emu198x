@@ -44,9 +44,10 @@
 //!
 //! # Clock model
 //!
-//! Master clock = colour clock (3.58 MHz NTSC, 3.55 MHz PAL). CPU + RIOT
-//! tick every 2nd colour clock = 1.79 MHz NTSC. One scan line is 228
-//! colour clocks (114 CPU cycles); MARIA renders one scanline at every
+//! The native oscillator (14.32 MHz NTSC, 14.19 MHz PAL) drives the loop.
+//! TIA ticks every fourth oscillator period; CPU + RIOT every eighth.
+//! The current line renderer uses 912 oscillator periods (114 CPU cycles)
+//! per scanline. MARIA renders one scanline at every
 //! boundary and stalls the CPU for the line's DMA budget. WSYNC writes
 //! halt the CPU until the next line. DLI fires NMI.
 
@@ -63,7 +64,7 @@ use mos_riot_6532::Riot6532;
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
 
-const COLOUR_CLOCKS_PER_LINE: u16 = 228;
+const MASTER_CLOCKS_PER_LINE: u16 = 912;
 
 /// Atari 7800 region.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -80,18 +81,30 @@ impl Atari7800Region {
         }
     }
 
-    fn lines_per_frame(self) -> u16 {
+    const fn lines_per_frame(self) -> u16 {
         match self {
             Self::Ntsc => 263,
             Self::Pal => 313,
         }
     }
 
-    fn cpu_hz(self) -> u32 {
+    /// Native oscillator rate in Hz, using the existing regional clock rounding.
+    #[must_use]
+    pub const fn master_hz(self) -> u64 {
         match self {
-            Self::Ntsc => 1_789_772,
-            Self::Pal => 1_773_447,
+            Self::Ntsc => 14_318_180,
+            Self::Pal => 14_187_576,
         }
+    }
+
+    /// Native oscillator periods consumed by the current raster per frame.
+    #[must_use]
+    pub const fn frame_ticks(self) -> u64 {
+        self.lines_per_frame() as u64 * MASTER_CLOCKS_PER_LINE as u64
+    }
+
+    fn cpu_hz(self) -> u32 {
+        (self.master_hz() / 8) as u32
     }
 }
 
@@ -140,8 +153,7 @@ impl Atari7800 {
         let mut riot = Riot6532::new();
         riot.input_a = 0xFF;
         riot.input_b = 0xFF;
-        let clocks_per_frame =
-            u64::from(region.lines_per_frame()) * u64::from(COLOUR_CLOCKS_PER_LINE);
+        let clocks_per_frame = region.frame_ticks();
         Self {
             cpu,
             maria: Maria::new(region.maria_region()),
@@ -162,28 +174,31 @@ impl Atari7800 {
         }
     }
 
+    /// Run one frame and return elapsed native oscillator periods.
     pub fn run_frame(&mut self) -> u64 {
         let start = self.master_clock;
         let target = start + self.clocks_per_frame;
         while self.master_clock < target {
-            self.tick_colour_clock();
+            self.tick_master_clock();
         }
         self.frame_count += 1;
         self.master_clock - start
     }
 
-    fn tick_colour_clock(&mut self) {
-        self.tia_audio.tick();
+    fn tick_master_clock(&mut self) {
         self.master_clock += 1;
+        if self.master_clock.is_multiple_of(4) {
+            self.tia_audio.tick();
+        }
 
         if self
             .master_clock
-            .is_multiple_of(u64::from(COLOUR_CLOCKS_PER_LINE))
+            .is_multiple_of(u64::from(MASTER_CLOCKS_PER_LINE))
         {
             self.process_scan_line();
         }
 
-        if self.master_clock.is_multiple_of(2) {
+        if self.master_clock.is_multiple_of(8) {
             self.line_cycle += 1;
             if self.line_cycle > self.dma_budget && !self.maria.wsync_halt() {
                 self.cpu.tick();
@@ -407,6 +422,7 @@ impl Atari7800 {
     pub fn region(&self) -> Atari7800Region {
         self.region
     }
+    /// Elapsed native oscillator periods since cold boot.
     #[must_use]
     pub fn master_clock(&self) -> u64 {
         self.master_clock
@@ -436,16 +452,16 @@ impl Atari7800 {
         self.mem_write(addr, value);
     }
 
-    /// Run exactly one whole 6502C instruction, returning the colour clocks
+    /// Run exactly one whole 6502C instruction, returning the native oscillator periods
     /// it consumed. A safety cap prevents an unbounded spin.
     pub fn step_instruction(&mut self) -> u64 {
         let mut ticks = 0u64;
-        while self.cpu.instruction_complete() && ticks < 4096 {
-            self.tick_colour_clock();
+        while self.cpu.instruction_complete() && ticks < 16_384 {
+            self.tick_master_clock();
             ticks += 1;
         }
-        while !self.cpu.instruction_complete() && ticks < 4096 {
-            self.tick_colour_clock();
+        while !self.cpu.instruction_complete() && ticks < 16_384 {
+            self.tick_master_clock();
             ticks += 1;
         }
         ticks
@@ -514,6 +530,96 @@ mod tests {
                     "border differs from background on row {y}"
                 );
                 previous = Some(active);
+            }
+        }
+    }
+
+    #[test]
+    fn instruction_ticks_are_native_oscillator_periods() {
+        for region in [Atari7800Region::Ntsc, Atari7800Region::Pal] {
+            let mut sys = Atari7800::new(trap_rom_32k(), region).expect("init");
+            sys.step_instruction(); // Finish reset before measuring a complete instruction.
+            for _ in 0..32 {
+                let before = sys.cpu.total_cycles;
+                let ticks = sys.step_instruction();
+                let cycles = sys.cpu.total_cycles - before;
+                assert!(cycles > 0);
+                assert_eq!(ticks, cycles * 8, "{region:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn native_clock_preserves_tia_sample_stream() {
+        for region in [Atari7800Region::Ntsc, Atari7800Region::Pal] {
+            let mut sys = Atari7800::new(trap_rom_32k(), region).expect("init");
+            let mut sound = TiaAudio::new();
+            for (register, value) in [(0x15, 0x04), (0x17, 0x03), (0x19, 0x0f)] {
+                sys.poke(u16::from(register), value);
+                sound.write(register, value);
+            }
+            for colour_clock in 0..1024 {
+                // Writes on non-aligned native phases must reach the next sound tick.
+                for phase in 0..4 {
+                    if phase == 1 && colour_clock % 113 == 0 {
+                        let frequency = ((colour_clock / 113) & 0x1f) as u8;
+                        sys.poke(0x17, frequency);
+                        sound.write(0x17, frequency);
+                    }
+                    sys.tick_master_clock();
+                    if phase == 3 {
+                        sound.tick();
+                    }
+                    assert_eq!(sys.take_audio_samples(), sound.take_samples());
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn restored_native_phases_preserve_bus_timer_and_audio() {
+        for region in [Atari7800Region::Ntsc, Atari7800Region::Pal] {
+            for phase in 0..8 {
+                let mut sys = Atari7800::new(trap_rom_32k(), region).expect("init");
+                sys.poke(0x15, 0x04);
+                sys.poke(0x19, 0x0f);
+                sys.poke(0x0294, 0x71); // RIOT divide-by-one timer.
+                for _ in 0..(1024 + phase) {
+                    sys.tick_master_clock();
+                }
+                // Output already delivered to the host is deliberately not saved.
+                sys.take_audio_samples();
+                let saved = postcard::to_allocvec(&sys).expect("save phase");
+                let mut restored: Atari7800 = postcard::from_bytes(&saved).expect("restore phase");
+                let cycles = sys.cpu.total_cycles;
+                for _ in 0..2048 {
+                    sys.tick_master_clock();
+                    restored.tick_master_clock();
+                    assert_eq!(
+                        (
+                            sys.cpu.addr,
+                            sys.cpu.data,
+                            sys.cpu.rw,
+                            sys.cpu.nmi,
+                            sys.cpu.total_cycles
+                        ),
+                        (
+                            restored.cpu.addr,
+                            restored.cpu.data,
+                            restored.cpu.rw,
+                            restored.cpu.nmi,
+                            restored.cpu.total_cycles
+                        ),
+                        "{region:?} phase {phase}"
+                    );
+                    assert_eq!(sys.riot.timer_value(), restored.riot.timer_value());
+                    assert_eq!(sys.take_audio_samples(), restored.take_audio_samples());
+                }
+                assert!(sys.cpu.total_cycles > cycles);
+                assert_eq!(
+                    postcard::to_allocvec(&sys).expect("continued state"),
+                    postcard::to_allocvec(&restored).expect("restored state")
+                );
             }
         }
     }

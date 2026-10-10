@@ -15,8 +15,7 @@ use emu198x_shell::{
 use runtime_atari_7800::{Atari7800Runtime, Model};
 
 const MODEL: Model = Model::A7800Ntsc;
-/// Colour clocks in one NTSC frame, near enough for a sixty-frame settle.
-const FRAME_TICKS: u64 = 114 * 262;
+const FRAME_TICKS: u64 = MODEL.frame_ticks();
 
 fn cartridge() -> Vec<u8> {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -41,6 +40,7 @@ fn the_synthetic_cartridge_boots_and_draws_the_plate() {
         .expect("sixty frames should run");
 
     let machine = runtime.machine().expect("a machine was constructed");
+    assert_eq!(machine.frame_count(), 60);
     let mut histogram: std::collections::HashMap<u32, usize> = std::collections::HashMap::new();
     for pixel in machine.framebuffer() {
         *histogram.entry(*pixel & 0x00FF_FFFF).or_default() += 1;
