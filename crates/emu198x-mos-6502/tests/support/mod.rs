@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 const LORENZ_6502_DIR_ENV: &str = "EMU198X_6502_LORENZ_DIR";
 const TOM_HARTE_6502_DIR_ENV: &str = "EMU198X_6502_TOM_HARTE_DIR";
 const DORMANN_6502_DIR_ENV: &str = "EMU198X_6502_DORMANN_DIR";
+const DORMANN_PROGRAMMES_DIR_ENV: &str = "EMU198X_6502_DORMANN_PROGRAMMES_DIR";
 const C64_KERNAL_ROM_ENV: &str = "EMU198X_C64_KERNAL_ROM";
 
 pub fn find_lorenz_6502_dir() -> Result<PathBuf, String> {
@@ -106,6 +107,27 @@ pub fn find_dormann_6502_dir() -> Result<PathBuf, String> {
                 home_projects_path("Emu198x-Unclean/6502_65C02_functional_tests"),
                 home_projects_path("Reference/6502_65C02_functional_tests"),
             ],
+        )
+    })
+}
+
+/// Prepared, pinned interrupt/decimal images; see scripts/prepare-dormann-tests.py.
+pub fn find_dormann_programmes_dir() -> Result<PathBuf, String> {
+    if let Some(path) = std::env::var_os(DORMANN_PROGRAMMES_DIR_ENV) {
+        let path = PathBuf::from(path);
+        return path.is_dir().then_some(path.clone()).ok_or_else(|| {
+            format!(
+                "{DORMANN_PROGRAMMES_DIR_ENV} is not a directory: {}",
+                path.display()
+            )
+        });
+    }
+    let path = home_projects_path("198x/assets/test-suites/6502/dormann-programmes");
+    path.is_dir().then_some(path.clone()).ok_or_else(|| {
+        missing_fixture_message(
+            "Dormann interrupt/decimal images",
+            DORMANN_PROGRAMMES_DIR_ENV,
+            &[path],
         )
     })
 }
