@@ -2,6 +2,7 @@
 //! live fields through serde, inside the Atari 7800 versioned envelope.
 
 use super::clock::Clock;
+use super::control::Control;
 use super::dma::{Dma, Phase as DmaPhase};
 use super::fetch::{Fetch, Phase};
 use super::video::LINE_CELLS;
@@ -90,6 +91,14 @@ impl Maria {
         });
         data.extend_from_slice(&self.address_in.to_le_bytes());
         data.extend_from_slice(&[
+            u8::from(self.write_in),
+            self.write_data_in,
+            u8::from(self.control.write_strobe),
+            u8::from(self.control.ctrl_selected),
+            u8::from(self.control.pending_ctrl.is_some()),
+            self.control.pending_ctrl.unwrap_or(0),
+        ]);
+        data.extend_from_slice(&[
             u8::from(self.phi1),
             u8::from(self.phi2),
             self.clock.remaining,
@@ -154,6 +163,8 @@ impl Maria {
             self.dma.delay,
             self.dma.request_delay,
             self.dma.cutoff_delay,
+            u8::from(self.dma.mode_disabled),
+            u8::from(self.dma.cancel_pending),
             u8::from(self.dma.requested),
             u8::from(self.dma.sampled_halt),
             u8::from(self.dma.slow_inhibit),
@@ -191,6 +202,16 @@ impl Maria {
         }
         let mut restored = Self::new(region);
         restored.address_in = reader.word()?;
+        restored.write_in = reader.boolean()?;
+        restored.write_data_in = reader.byte()?;
+        let write_strobe = reader.boolean()?;
+        let ctrl_selected = reader.boolean()?;
+        let pending_ctrl = reader.boolean()?.then_some(reader.byte()?);
+        restored.control = Control {
+            write_strobe,
+            ctrl_selected,
+            pending_ctrl,
+        };
         restored.phi1 = reader.boolean()?;
         restored.phi2 = reader.boolean()?;
         restored.clock = Clock {
@@ -256,6 +277,8 @@ impl Maria {
             delay: reader.byte()?,
             request_delay: reader.byte()?,
             cutoff_delay: reader.byte()?,
+            mode_disabled: reader.boolean()?,
+            cancel_pending: reader.boolean()?,
             requested: reader.boolean()?,
             sampled_halt: reader.boolean()?,
             slow_inhibit: reader.boolean()?,

@@ -51,7 +51,8 @@
 //!
 //! # CTRL register ($3C)
 //!
-//! - Bits 6:5: DM -- DMA mode (`10`/`11` = MARIA renders, `00`/`01` = blank)
+//! - Bits 6:5: DM -- DMA mode (`10` = normal DMA, `11` = disabled;
+//!   `00`/`01` are test modes, not implemented here)
 //! - Bit 7: CK -- colour kill (force monochrome)
 //! - Bit 4: CW -- character width for indirect mode (1 = 2 bytes, 0 = 1 byte;
 //!   MAME `m_cwidth = BIT(ctrl, 4)`, "two data bytes per map byte" when set)
@@ -74,6 +75,7 @@
 //! Palette RAM is sampled at playback, allowing live colour changes.
 
 mod clock;
+mod control;
 mod dma;
 mod fetch;
 mod palette;
@@ -127,7 +129,7 @@ const VISIBLE_TOP: u16 = 16;
 /// CTRL bit masks (MARIA `$3C`), bit positions per the hardware: read mode
 /// `RM` = bits 1:0, Kangaroo = bit 2, border control = bit 3, character width
 /// `CW` = bit 4, DMA mode `DM` = bits 6:5, colour kill `CK` = bit 7. DMA is
-/// active when `DM` is `10`/`11` — i.e. bit 6 is set.
+/// active in normal mode `DM=10`; `DM=11` disables DMA.
 const CTRL_DMA_ENABLED: u8 = 0x40;
 const CTRL_COLOUR_KILL: u8 = 0x80;
 const CTRL_CW: u8 = 0x10;
@@ -276,8 +278,13 @@ pub struct Maria {
     pub halt: bool,
     dma: dma::Dma,
     native_cycle: u16,
-    /// External address bus, used by the CPU clock's slow-access decoder.
+    /// External address bus, used by the CPU clock and register selection.
     pub address_in: u16,
+    /// Asserted external CPU write signal, sampled by the native register path.
+    pub write_in: bool,
+    /// CPU write data, held with `address_in` through the CPU bus cycle.
+    pub write_data_in: u8,
+    control: control::Control,
     /// CPU phase-1 strobe, high for one native tick at the start of phase 1.
     pub phi1: bool,
     /// CPU phase-2 strobe, high for one native tick at the start of phase 2.
@@ -335,6 +342,9 @@ impl Maria {
             dma: dma::Dma::default(),
             native_cycle: 0,
             address_in: 0,
+            write_in: false,
+            write_data_in: 0,
+            control: control::Control::default(),
             phi1: false,
             phi2: false,
             clock: clock::Clock::default(),
@@ -375,7 +385,9 @@ impl Maria {
 
     // -- Register access ----------------------------------------------------
 
-    /// Write a MARIA register.  `addr` is the offset from $20 (0x00-0x1F).
+    /// Commit a register value immediately for the scanline compatibility path.
+    /// `addr` is the offset from $20 (0x00-0x1F). Native bus callers hold
+    /// `address_in`, `write_in` and `write_data_in` while calling `tick_dma`.
     pub fn write(&mut self, addr: u8, value: u8) {
         match addr {
             0x00 => self.backgrnd = value,
@@ -517,7 +529,7 @@ impl Maria {
         // Determine VBLANK status.
         self.vblank = self.scan_line < VISIBLE_TOP || self.scan_line >= visible_bottom;
 
-        if !self.vblank && self.ctrl & CTRL_DMA_ENABLED != 0 {
+        if !self.vblank && self.ctrl & 0x60 == CTRL_DMA_ENABLED {
             self.render_visible_line(read_byte);
         } else if !self.vblank {
             // DMA off: fill with background.
@@ -934,6 +946,23 @@ mod tests {
                         );
                     }
                 }
+            }
+        }
+    }
+
+    #[test]
+    fn scanline_helper_stops_reads_when_normal_dma_is_disabled() {
+        for region in [MariaRegion::Ntsc, MariaRegion::Pal] {
+            let mut chip = Maria::new(region);
+            chip.scan_line = VISIBLE_TOP;
+            for (control, enabled) in [(0x40, true), (0x60, false), (0x40, true)] {
+                chip.write(0x1c, control);
+                let mut reads = 0;
+                chip.render_line(&mut |_| {
+                    reads += 1;
+                    0
+                });
+                assert_eq!(reads > 0, enabled, "control {control:02x}, {region:?}");
             }
         }
     }

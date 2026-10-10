@@ -26,6 +26,8 @@ pub(super) struct Dma {
     pub delay: u8,
     pub request_delay: u8,
     pub cutoff_delay: u8,
+    pub mode_disabled: bool,
+    pub cancel_pending: bool,
     pub requested: bool,
     pub sampled_halt: bool,
     pub slow_inhibit: bool,
@@ -58,6 +60,8 @@ impl Maria {
     /// machine caller is connected by the following integration stage.
     /// Do not additionally call `tick_clock` for this native period.
     pub fn tick_dma(&mut self) {
+        let old_phase2 = self.clock.phase2;
+        let old_drive = self.dma_drive;
         self.tick_clock();
         let old_halt = self.halt;
         let mut starting = false;
@@ -96,11 +100,33 @@ impl Maria {
             }
         }
         if self.native_cycle % 2 == 1
-            && self.ctrl & 0x60 == 0x40
             && ((self.scan_line == 16 && column == 1) || (!self.vblank && column == 440))
         {
             self.dma.initial = column == 1;
             self.dma.request_delay = 2;
+        }
+
+        if self.native_cycle.is_multiple_of(2) {
+            self.dma.mode_disabled = self.ctrl & 0x60 != 0x40;
+        } else {
+            // DMA mode is sampled before the idle-state reset and HALT-pad
+            // stages. A cancelled request can therefore make a short HALT
+            // pulse without starting any memory reads.
+            let waiting = matches!(self.dma.phase, Phase::Idle | Phase::AwaitCpu)
+                || (self.dma.phase == Phase::Startup && self.dma.delay >= 4);
+            let cancel = self.dma.cancel_pending;
+            self.dma.cancel_pending = waiting && self.dma.mode_disabled;
+            if waiting && cancel {
+                self.dma.requested = false;
+                self.dma.phase = Phase::Idle;
+                self.dma.delay = 0;
+            } else if self.dma.phase == Phase::Startup
+                && self.dma.delay == 4
+                && self.dma.mode_disabled
+            {
+                self.dma.phase = Phase::Idle;
+                self.dma.delay = 0;
+            }
         }
 
         if !starting {
@@ -126,6 +152,7 @@ impl Maria {
         if !self.clock.phase2 {
             self.halt = self.dma.requested;
         }
+        self.tick_registers(old_phase2, old_drive);
     }
 
     fn advance_dma_stage(&mut self) {
@@ -653,6 +680,382 @@ mod tests {
                                 }
                             }
                         }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn cpu_control_write_reaches_dma_after_the_write_cycle_ends() {
+        let (mut chip, memory) = fixture([1, 2, 1, 0, 0, 0]);
+        let mut bus = Bus {
+            cpu_address: chip.address_in,
+            address: chip.address_in,
+            sampled_halt: false,
+            released: false,
+        };
+        for tick in 257..15433 {
+            bus.tick(&mut chip, &memory);
+            if tick == 15422 {
+                assert!(chip.phi1);
+                chip.write_in = true;
+                chip.write_data_in = 0x60;
+                bus.cpu_address = 0x003c;
+                bus.address = 0x003c;
+            }
+            if tick == 15430 {
+                assert!(chip.phi1);
+                chip.write_in = false;
+                bus.cpu_address = 0x8000;
+                bus.address = 0x8000;
+            }
+            assert_eq!(
+                chip.ctrl,
+                if tick < 15432 { 0x40 } else { 0x60 },
+                "tick {tick}"
+            );
+        }
+    }
+
+    fn restart_trace(case: [u16; 6]) -> Vec<String> {
+        restart_trace_with_snapshots(case, false)
+    }
+
+    fn restart_trace_with_snapshots(
+        [target, scenario, height, slow, pal, objects]: [u16; 6],
+        verify_saves: bool,
+    ) -> Vec<String> {
+        let (mut chip, mut memory) = fixture([1, 2, height as u8, 0, slow as u8, pal as u8]);
+        chip.ctrl = if scenario == 1 { 0x60 } else { 0x40 };
+        // This is an observed warm fixture, not a claim about power-on state.
+        // The reference's reset/setup sequence has already advanced ZONE_PTR.
+        chip.dll_addr = 3;
+        for object in 1..usize::from(objects) {
+            memory.copy_within(0x1c00..0x1c04, 0x1c00 + object * 4);
+        }
+        let idle_address = chip.address_in;
+        let mut bus = Bus {
+            cpu_address: idle_address,
+            address: idle_address,
+            sampled_halt: false,
+            released: false,
+        };
+        let mut next_write = 0;
+        let mut shadow = chip.ctrl;
+        let mut events = Vec::new();
+        let mut saved_edges = BTreeSet::new();
+        let mut pending_saves = 0;
+        for tick in 257..908 * 24 {
+            let old_bus = bus;
+            let old_halt = chip.halt;
+            let old_drive = chip.dma_drive;
+            let old_ctrl = chip.ctrl;
+            let read = chip.dma_read_pending();
+            bus.tick(&mut chip, &memory);
+            if tick > 14000 && read {
+                events.push(format!(
+                    "{tick} R {:04x} {:02x}",
+                    old_bus.address, chip.dma_data_in
+                ));
+            }
+            if chip.ctrl != old_ctrl {
+                events.push(format!("{tick} C {:02x}", chip.ctrl));
+            }
+            if let Some(value) = chip.control.pending_ctrl
+                && value != shadow
+            {
+                shadow = value;
+                events.push(format!("{tick} S {shadow:02x}"));
+            }
+            if chip.phi1 && !old_halt && !old_drive {
+                chip.write_in = false;
+                bus.cpu_address = idle_address;
+                if (next_write == 0 && tick >= target)
+                    || (scenario == 0 && next_write == 1 && tick >= target + 96)
+                {
+                    bus.cpu_address = 0x003c;
+                    chip.write_in = true;
+                    chip.write_data_in = if scenario == 1 || next_write == 1 {
+                        0x40
+                    } else {
+                        0x60
+                    };
+                    next_write += 1;
+                    events.push(format!("{tick} W 003c {:02x}", chip.write_data_in));
+                }
+                if !bus.released {
+                    bus.address = bus.cpu_address;
+                }
+            }
+            if verify_saves && tick >= target - 8 && tick < target + 1000 {
+                let key = (
+                    chip.control.write_strobe,
+                    chip.control.ctrl_selected,
+                    chip.control.pending_ctrl,
+                    chip.dma.mode_disabled,
+                    chip.dma.cancel_pending,
+                    chip.dma.phase as u8,
+                    chip.clock.remaining,
+                    chip.clock.phase2,
+                    chip.halt,
+                    chip.dma_drive,
+                );
+                if saved_edges.insert(key) {
+                    pending_saves += usize::from(chip.control.pending_ctrl.is_some());
+                    let saved = chip.save_state();
+                    let mut restored = Maria::new(chip.region);
+                    assert_eq!(restored.load_state(&saved).expect("restore"), saved.len());
+                    assert_eq!(restored.save_state(), saved, "saved at {tick}");
+                    let mut original_bus = bus;
+                    let mut resumed_bus = bus;
+                    for _ in 0..256 {
+                        for (chip, bus) in [
+                            (&mut chip, &mut original_bus),
+                            (&mut restored, &mut resumed_bus),
+                        ] {
+                            let eligible = !chip.halt && !chip.dma_drive;
+                            bus.tick(chip, &memory);
+                            if chip.phi1 && eligible {
+                                chip.write_in = false;
+                                bus.cpu_address = idle_address;
+                                if !bus.released {
+                                    bus.address = idle_address;
+                                }
+                            }
+                        }
+                        assert_eq!(original_bus, resumed_bus, "saved at {tick}");
+                        assert_eq!(chip.dma_read_pending(), restored.dma_read_pending());
+                    }
+                    assert_eq!(restored.save_state(), chip.save_state(), "saved at {tick}");
+                    chip.load_state(&saved).expect("rewind fixture");
+                }
+            }
+            if tick <= 14000 {
+                continue;
+            }
+            if bus.address != old_bus.address {
+                events.push(format!("{tick} A {:04x}", bus.address));
+            }
+            if chip.dma_drive != old_drive || bus.released != old_bus.released {
+                events.push(format!(
+                    "{tick} B {} {}",
+                    u8::from(chip.dma_drive),
+                    u8::from(bus.released)
+                ));
+            }
+            if chip.halt != old_halt {
+                events.push(format!("{tick} H {}", u8::from(!chip.halt)));
+            }
+            if tick > 15000 && chip.native_cycle == 860 {
+                let input: String = chip
+                    .line_buffer
+                    .iter()
+                    .map(|cell| format!("{cell:02x}"))
+                    .collect();
+                let output: String = chip
+                    .playback_buffer
+                    .iter()
+                    .map(|cell| format!("{cell:02x}"))
+                    .collect();
+                events.push(format!("{tick} L {input} {output}"));
+                events.push(format!(
+                    "{tick} Z {:04x} {:04x} {:01x}",
+                    chip.dll_addr,
+                    chip.zone_dl_addr,
+                    chip.zone_offset.wrapping_sub(chip.zone_scanline) & 15
+                ));
+            }
+        }
+        assert_eq!(next_write, if scenario == 0 { 2 } else { 1 });
+        if verify_saves {
+            assert!(saved_edges.len() > 20, "insufficient saved stages");
+            assert!(pending_saves > 2, "missing pending CTRL coverage");
+        }
+        events.sort_by_key(|event| {
+            let mut fields = event.split_whitespace();
+            (
+                fields.next().expect("tick").parse::<u32>().expect("tick"),
+                fields.next().expect("kind").as_bytes()[0],
+            )
+        });
+        events
+    }
+
+    #[test]
+    fn restart_matches_qualified_bus_and_register_traces() {
+        let mut cases = BTreeSet::new();
+        for block in include_str!("../tests/data/restart-vectors.txt")
+            .split("CASE ")
+            .skip(1)
+        {
+            let (name, rows) = block.split_once('\n').expect("case header");
+            let fields: Vec<u16> = name
+                .split_whitespace()
+                .map(|field| field.parse().expect("case field"))
+                .collect();
+            let case: [u16; 6] = fields.try_into().expect("six case fields");
+            assert!(cases.insert(case));
+            let actual = restart_trace_with_snapshots(case, true);
+            let expected: Vec<_> = rows.lines().collect();
+            for (index, (actual, expected)) in actual.iter().zip(&expected).enumerate() {
+                assert_eq!(actual, expected, "case {name}, event {index}");
+            }
+            assert_eq!(actual.len(), expected.len(), "case {name}");
+        }
+        assert_eq!(cases.len(), 4);
+    }
+
+    #[test]
+    fn restart_matches_all_576_qualified_schedules() {
+        let mut cases = BTreeSet::new();
+        for row in include_str!("../tests/data/restart-matrix.txt")
+            .lines()
+            .filter(|row| !row.starts_with('#'))
+        {
+            let fields: Vec<_> = row.split_whitespace().collect();
+            assert_eq!(fields.len(), 15);
+            let case: [u16; 6] = std::array::from_fn(|i| fields[i].parse().expect("case field"));
+            assert!(cases.insert(case));
+            let actual = restart_trace(case);
+            for (index, kind) in ['A', 'B', 'C', 'H', 'L', 'R', 'S', 'W', 'Z']
+                .into_iter()
+                .enumerate()
+            {
+                let mut count = 0;
+                let mut hash = 0xcbf2_9ce4_8422_2325_u64;
+                for event in &actual {
+                    if event.split_whitespace().nth(1).expect("kind").as_bytes()[0] != kind as u8 {
+                        continue;
+                    }
+                    count += 1;
+                    for byte in event.bytes().chain(*b"\n") {
+                        hash = (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3);
+                    }
+                }
+                // Consecutive CTRL writes can replace the holding value before
+                // either reaches the output; zero commit edges are meaningful.
+                assert!(count > 0 || kind == 'C');
+                assert_eq!(
+                    format!("{kind}:{count}:{hash:016x}"),
+                    fields[6 + index],
+                    "{case:?}"
+                );
+            }
+        }
+        assert_eq!(cases.len(), 576);
+        for edge in [14561_i32, 15439] {
+            for offset in [-24, -16, -8, -4, 0, 4, 8, 16, 24] {
+                for scenario in 0..2 {
+                    for height in 1..=2 {
+                        for slow in 0..2 {
+                            for pal in 0..2 {
+                                for objects in [1, 128] {
+                                    assert!(cases.contains(&[
+                                        (edge + offset) as u16,
+                                        scenario,
+                                        height,
+                                        slow,
+                                        pal,
+                                        objects
+                                    ]));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn cpu_register_commits_match_all_mirrors_and_clock_phases() {
+        fn value(chip: &Maria, register: u8) -> u8 {
+            match register {
+                0 => chip.backgrnd,
+                0x0c => chip.dpph,
+                0x10 => chip.dppl,
+                0x14 => chip.chbase,
+                0x1c => chip.ctrl,
+                _ => Maria::palette_index(register).map_or(0, |(palette, colour)| {
+                    chip.palettes[usize::from(palette)][usize::from(colour)]
+                }),
+            }
+        }
+        let mut cases = BTreeSet::new();
+        for block in include_str!("../tests/data/register-vectors.txt")
+            .split("CASE ")
+            .skip(1)
+        {
+            let (name, rows) = block.split_once('\n').expect("case header");
+            let fields: Vec<u16> = name
+                .split_whitespace()
+                .map(|field| field.parse().expect("case field"))
+                .collect();
+            let [target, mirror, slow, pal]: [u16; 4] = fields.try_into().expect("four fields");
+            assert!(cases.insert((target, mirror, slow, pal)));
+            let (mut chip, memory) = fixture([1, 2, 1, 0, slow as u8, pal as u8]);
+            chip.ctrl = 0x60;
+            let idle_address = chip.address_in;
+            let mut bus = Bus {
+                cpu_address: idle_address,
+                address: idle_address,
+                sampled_halt: false,
+                released: false,
+            };
+            let mut observed: [u8; 32] =
+                std::array::from_fn(|register| value(&chip, register as u8));
+            let mut index = 0_u8;
+            let mut idle_cycle = false;
+            let mut actual = Vec::new();
+            for tick in 257..13000 {
+                bus.tick(&mut chip, &memory);
+                assert!(!chip.halt && !chip.dma_drive);
+                for register in 0..32_u8 {
+                    let current = value(&chip, register);
+                    let previous = &mut observed[usize::from(register)];
+                    if current != *previous {
+                        actual.push(format!("{tick} G {register:02x} {current:02x}"));
+                        *previous = current;
+                    }
+                }
+                if chip.phi1 {
+                    chip.write_in = false;
+                    bus.cpu_address = idle_address;
+                    if tick >= target && index < 32 {
+                        if idle_cycle {
+                            idle_cycle = false;
+                        } else {
+                            bus.cpu_address = 0x20 + u16::from(index) + mirror;
+                            chip.write_in = true;
+                            chip.write_data_in = if index == 28 { 0x40 } else { 0x40 + 3 * index };
+                            actual.push(format!(
+                                "{tick} W {:04x} {:02x}",
+                                bus.cpu_address, chip.write_data_in
+                            ));
+                            index += 1;
+                            if matches!(index, 4 | 8 | 24) {
+                                index += 1;
+                            }
+                            idle_cycle = true;
+                        }
+                    }
+                    bus.address = bus.cpu_address;
+                }
+            }
+            let expected: Vec<_> = rows.lines().collect();
+            assert_eq!(actual.len(), 58, "case {name}");
+            for (index, (actual, expected)) in actual.iter().zip(&expected).enumerate() {
+                assert_eq!(actual, expected, "case {name}, event {index}");
+            }
+            assert_eq!(actual.len(), expected.len());
+        }
+        assert_eq!(cases.len(), 64);
+        for target in (11000..11008).step_by(2) {
+            for mirror in (0..1024).step_by(256) {
+                for slow in 0..2 {
+                    for pal in 0..2 {
+                        assert!(cases.contains(&(target, mirror, slow, pal)));
                     }
                 }
             }
