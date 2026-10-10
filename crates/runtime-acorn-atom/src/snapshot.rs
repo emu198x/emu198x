@@ -82,6 +82,66 @@ mod tests {
     use crate::runtime::AtomRuntime;
     use emu198x_shell::MachineError;
 
+    #[test]
+    fn restore_preserves_in_flight_via_strobes_and_future_printer_bytes() {
+        use machine_acorn_atom::AcornAtom;
+
+        for mode in [0x08, 0x0A] {
+            for cut in 0..16 {
+                let mut rom = vec![0xEA; 0x6000];
+                let program = [
+                    0xA9, 0xFF, 0x8D, 0x03, 0xB8, // DDRA
+                    0xA9, mode, 0x8D, 0x0C, 0xB8, // handshake or pulse
+                    0xA9, b'H', 0x8D, 0x01, 0xB8, // normal write
+                    0xAD, 0x01, 0xB8, // normal read
+                    0xAD, 0x0F, 0xB8, // alternate read
+                    0xA9, b'I', 0x8D, 0x0F, 0xB8, // alternate write
+                    0xA9, b'J', 0x8D, 0x01, 0xB8, // normal write
+                    0x4C, 0x1F, 0xD0, // loop at $D01F
+                ];
+                rom[0x3000..0x3000 + program.len()].copy_from_slice(&program);
+                rom[0x5FFC..0x5FFE].copy_from_slice(&0xD000u16.to_le_bytes());
+                let mut original = AtomRuntime::blank(Model::AtomBase);
+                original.set_machine(Some(AcornAtom::new(rom, 0x0A00)));
+                let machine = original.machine_mut().expect("synthetic machine");
+                for _ in 0..cut {
+                    machine.step_instruction();
+                }
+                // Printer history is a consumed host output, not snapshot data.
+                let mut printed = machine.take_printer_output();
+                let saved = super::encode(&original).expect("snapshot pending strobe");
+                let mut restored = AtomRuntime::blank(Model::AtomBase);
+                decode(&mut restored, &saved).expect("restore pending strobe");
+                assert_eq!(super::encode(&restored).expect("fixed point"), saved);
+                for _ in 0..20 {
+                    original.machine_mut().expect("machine").step_instruction();
+                    restored
+                        .machine_mut()
+                        .expect("restored machine")
+                        .step_instruction();
+                    let expected = original
+                        .machine_mut()
+                        .expect("machine")
+                        .take_printer_output();
+                    let actual = restored
+                        .machine_mut()
+                        .expect("restored machine")
+                        .take_printer_output();
+                    assert_eq!(actual, expected, "mode={mode:02x}, cut={cut}");
+                    printed.extend(expected);
+                    assert_eq!(
+                        super::encode(&restored).expect("restored state"),
+                        super::encode(&original).expect("continuous state")
+                    );
+                }
+                // No CA1 acknowledgement is supplied: handshake mode holds
+                // its first strobe low; pulse mode generates three edges.
+                let expected: &[u8] = if mode == 0x08 { b"H" } else { b"HHJ" };
+                assert_eq!(printed, expected, "mode={mode:02x}, cut={cut}");
+            }
+        }
+    }
+
     /// A future-version envelope is rejected before any state is touched.
     #[test]
     fn decode_rejects_unsupported_version() {

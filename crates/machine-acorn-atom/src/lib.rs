@@ -640,6 +640,43 @@ impl AcornAtom {
 mod tests {
     use super::*;
 
+    #[test]
+    fn cpu_port_a_reads_and_writes_each_strobe_the_printer_for_one_clock() {
+        let mut rom = vec![0xEA; 0x6000];
+        let program = [
+            0xA9, 0xFF, 0x8D, 0x03, 0xB8, // DDRA = outputs
+            0xA9, 0x0A, 0x8D, 0x0C, 0xB8, // CA2 = pulse output
+            0xA9, b'H', 0x8D, 0x01, 0xB8, // normal write: print H
+            0xAD, 0x01, 0xB8, // normal read: print H again
+            0xAD, 0x0F, 0xB8, // alternate read: no strobe
+            0xA9, b'I', 0x8D, 0x0F, 0xB8, // alternate write: no strobe
+            0xA9, b'J', 0x8D, 0x01, 0xB8, // normal write: print J
+            0x4C, 0x1F, 0xD0, // loop at $D01F
+        ];
+        rom[0x3000..0x3000 + program.len()].copy_from_slice(&program);
+        rom[0x5FFC..0x5FFE].copy_from_slice(&0xD000u16.to_le_bytes());
+        let mut sys = AcornAtom::new(rom, 0x0A00);
+        let mut low_clocks = Vec::new();
+        let mut pulse_accesses = Vec::new();
+        for _ in 0..120 {
+            sys.tick();
+            if !sys.via.ca2_out {
+                low_clocks.push(sys.master_clock);
+                pulse_accesses.push((sys.cpu.addr, sys.cpu.rw));
+            }
+        }
+        assert_eq!(sys.take_printer_output(), b"HHJ");
+        assert_eq!(
+            pulse_accesses,
+            [(0xB801, false), (0xB801, true), (0xB801, false)]
+        );
+        assert_eq!(low_clocks.len(), 3);
+        assert!(
+            low_clocks.windows(2).all(|pair| pair[1] > pair[0] + 1),
+            "each access produces one isolated low clock, not a held level"
+        );
+    }
+
     /// `*` (the COS command prefix) is SHIFT + the `:` key, probed against the
     /// real MOS — not a dedicated key. Confirm SHIFT+Colon echoes `*` (0x2A).
     #[test]
