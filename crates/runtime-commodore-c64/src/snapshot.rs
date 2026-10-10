@@ -13,6 +13,8 @@ use serde::{Deserialize, Serialize};
 use crate::drives::IecDriveSnapshot;
 use crate::runtime::C64Runtime;
 
+/// Version 19 preserves the 1541/1571 VIA timer 2 load phase (#1677).
+///
 /// Version 18 preserves the keyboard's mechanical SHIFT LOCK contact,
 /// independently of ordinary left Shift and its different output contention.
 ///
@@ -85,7 +87,7 @@ use crate::runtime::C64Runtime;
 /// Version 2 moved from the fixed 1541-plus-1581 pair to a per-port array of
 /// model-tagged drive snapshots (IEC devices 8–11), so a snapshot records
 /// whichever drive the user chose on each port.
-const SNAPSHOT_VERSION: u32 = 18;
+const SNAPSHOT_VERSION: u32 = 19;
 
 /// Persistable C64 runtime envelope. Wraps the machine's chip snapshot with the
 /// surrounding runtime context (model identifier, time, the live IEC bus state,

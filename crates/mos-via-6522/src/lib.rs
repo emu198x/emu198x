@@ -103,6 +103,7 @@ pub struct Via6522 {
     t2_counter: u16,
     t2_latch_low: u8,
     t2_running: bool,
+    t2_load_pending: bool,
     shift_register: u8,
     /// Count of bits shifted in the current 8-pulse burst. Reaches 8,
     /// then IFR_SR fires and shifting stops (except in free-run mode).
@@ -169,6 +170,7 @@ impl Via6522 {
             t2_counter: 0,
             t2_latch_low: 0,
             t2_running: false,
+            t2_load_pending: false,
             shift_register: 0,
             sr_shift_count: 0,
             sr_active: false,
@@ -218,7 +220,9 @@ impl Via6522 {
             }
         }
 
-        if self.t2_running && self.t2_should_tick(pb6_falling) {
+        if self.t2_load_pending {
+            self.t2_load_pending = false;
+        } else if self.t2_running && self.t2_should_tick(pb6_falling) {
             if self.t2_counter == 0 {
                 self.raise_interrupt(IRQ_T2);
                 self.t2_running = false;
@@ -483,6 +487,9 @@ impl Via6522 {
             0x09 => {
                 self.t2_counter = (u16::from(value) << 8) | u16::from(self.t2_latch_low);
                 self.t2_running = true;
+                // Interval counting starts after the load cycle; PB6 pulse
+                // counting has no delayed start (VICE viacore.c, VIA_T2CH).
+                self.t2_load_pending = self.acr & 0x20 == 0;
                 self.clear_interrupts(IRQ_T2);
             }
             0x0A => {
@@ -945,18 +952,93 @@ mod tests {
     }
 
     #[test]
+    fn timer2_start_reads_match_timer1_in_interval_mode() {
+        // Native xvic gives the same counter and flag boundaries for both
+        // timers (issue 1677). Each tick closes the preceding write cycle.
+        let mut via = Via6522::new();
+        via.write(0x04, 0xFE);
+        via.write(0x05, 0xFE);
+        via.write(0x08, 0xFE);
+        via.write(0x09, 0xFE);
+        for _ in 0..105 {
+            via.tick();
+            let timer1 = u16::from(via.peek(0x04)) | (u16::from(via.peek(0x05)) << 8);
+            let timer2 = u16::from(via.peek(0x08)) | (u16::from(via.peek(0x09)) << 8);
+            assert_eq!(timer2, timer1, "T2 must preserve the same load cycle as T1");
+        }
+        assert_eq!(via.peek(0x08), 0x96);
+    }
+
+    #[test]
+    fn timer2_flag_sets_after_the_load_and_countdown() {
+        for count in [0u16, 1, 3, 255, 256, 65535] {
+            let mut via = Via6522::new();
+            via.write(0x0E, 0x80 | IRQ_T2);
+            via.write(0x08, count as u8);
+            via.write(0x09, (count >> 8) as u8);
+            for cycle in 1..=u32::from(count) + 1 {
+                via.tick();
+                assert_eq!(via.peek(0x0D) & IRQ_T2, 0, "N={count} cycle={cycle}");
+                assert!(!via.irq);
+            }
+            via.tick();
+            assert_eq!(via.peek(0x0D) & IRQ_T2, IRQ_T2, "N={count}, N+2");
+            assert!(via.irq);
+        }
+    }
+
+    #[test]
+    fn timer2_restart_retains_the_new_load_cycle() {
+        let mut via = Via6522::new();
+        for count in [5u16, 0x0102, 0x0304] {
+            via.write(0x08, count as u8);
+            via.write(0x09, (count >> 8) as u8);
+            // The counter loaded at the high write, not when its delay ends.
+            via.write(0x08, 0xFF);
+            via.tick();
+            assert_eq!(
+                u16::from(via.peek(0x08)) | (u16::from(via.peek(0x09)) << 8),
+                count
+            );
+            // A low-latch write must leave the already loaded counter alone.
+            via.write(0x08, 0xFF);
+            via.tick();
+            assert_eq!(
+                u16::from(via.peek(0x08)) | (u16::from(via.peek(0x09)) << 8),
+                count - 1
+            );
+        }
+    }
+
+    #[test]
     fn timer2_counts_phi2_cycles() {
         let mut via = Via6522::new();
         via.write(0x0E, 0x80 | IRQ_T2);
         via.write(0x08, 0x01);
         via.write(0x09, 0x00);
 
-        via.tick();
-        via.tick();
+        via.tick(); // Load cycle.
+        via.tick(); // Count 1 -> 0.
+        assert!(!via.irq);
+        via.tick(); // Underflow.
 
         assert!(via.irq);
         assert_eq!(via.peek(0x0D) & IRQ_T2, IRQ_T2);
         assert!(!via.t2_running);
+    }
+
+    #[test]
+    fn timer2_pulse_load_counts_the_first_pb6_edge_without_a_delay() {
+        let mut via = Via6522::new();
+        // Also prove a pulse-mode restart cancels an interval load phase.
+        via.write(0x08, 1);
+        via.write(0x09, 0);
+        via.write(0x0B, 0x20);
+        via.write(0x09, 0);
+        via.pb_in = 0xBF;
+        via.tick();
+        assert_eq!(via.peek(0x08), 0);
+        assert_eq!(via.peek(0x0D) & IRQ_T2, 0);
     }
 
     #[test]

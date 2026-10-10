@@ -14,6 +14,42 @@
 
 use machine_commodore_vic_20::{Vic20, Vic20Model, Vic20RamExpansion};
 
+/// Native xvic 3.10 gives identical PAL/NTSC bytes for this synthetic KERNAL.
+/// It compares both timers at W+105 and IFR reads at W+4/6/8/10 for N=0..7.
+/// Generator and source identities: docs plan 2026-10-10-via-timer2-start.
+#[test]
+fn both_timer_start_reads_and_flags_match_native_vice() {
+    let kernal = include_bytes!("../test-data/via-timer-start.rom");
+    let expected = include_bytes!("../test-data/via-timer-start.bin");
+    assert_eq!(kernal.len(), 8192);
+    assert_eq!(expected.len(), 68);
+    let mut mismatches = Vec::new();
+    for model in [Vic20Model::Pal, Vic20Model::Ntsc] {
+        let mut machine = Vic20::new(
+            kernal.to_vec(),
+            vec![0; 0x2000],
+            vec![0; 0x1000],
+            model,
+            Vic20RamExpansion::NONE,
+        );
+        machine.run_frame();
+        assert!(
+            (0xE521..=0xE524).contains(&machine.cpu().regs.pc),
+            "{model:?}: probe did not complete"
+        );
+        for (index, wanted) in expected.iter().copied().enumerate() {
+            let actual = machine.peek(0x0200 + u16::try_from(index).expect("68 results"));
+            if actual != wanted {
+                mismatches.push((model, index, actual, wanted));
+            }
+        }
+    }
+    assert!(
+        mismatches.is_empty(),
+        "(model, observation, actual, expected): {mismatches:?}"
+    );
+}
+
 const PROBE: &[u8] = &[
     0x78, // SEI
     0xA9, 0xFE, // LDA #$FE
