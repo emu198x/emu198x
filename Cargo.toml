@@ -266,7 +266,7 @@ gilrs = "0.11"
 # the feature (and reopen the alert decision) or switch to a gtk4
 # backend if muda upstream ships one. See
 # `knowledge/decisions/native-menu-shell.md`.
-muda = { version = "=0.19.3", default-features = false }
+muda = { version = "=0.21.0", default-features = false }
 # macOS-only AppKit bindings for the Dock icon (emu198x-ui/src/icon.rs). The
 # 0.6/0.3 line is the one muda and rfd already pull in; winit 0.30 is on the
 # older 0.5/0.2 line, so matching winit would mean the unsafe-only 0.2 API.
