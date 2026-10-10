@@ -1324,9 +1324,57 @@ fn survey_sprite_multicolour_models() {
     }
 }
 
+/// Match the upstream testbench's `split-tests/lightpen/makeref.c` preparation
+/// step. Pre-R03 dumps duplicated the penultimate delay sample. The R04 guest
+/// embeds corrected `.bin` references, not the original `.prg` payloads.
+fn normalise_light_pen_hardware_dump(data: &mut [u8]) {
+    assert_eq!(data.len(), 1280, "five complete measurement pages");
+    if data[0x2fe] == data[0x2fd] {
+        let step = data[0x2ff].wrapping_sub(data[0x2fe]);
+        for page in [0, 0x100, 0x200, 0x300, 0x400] {
+            data[page + 0xfe] = data[page + 0xff];
+        }
+        data[0x2ff] = data[0x2fe].wrapping_add(step);
+    }
+}
+
+#[test]
+#[ignore = "FIXTURE: light-pen normalization requires VIC-II physical dumps"]
+fn light_pen_reference_normalization_matches_upstream() {
+    let Some(dir) = testbench_dir() else {
+        emu198x_test_skip::skip!("VIC-II testbench not staged");
+    };
+    let guest = std::fs::read(dir.join("split-tests/lightpen/lightpen.prg"))
+        .expect("R04 measurement guest");
+    for chip in ["6569", "8565", "6567", "8562r4"] {
+        let raw = std::fs::read(dir.join(format!("split-tests/lightpen/dumps/dump{chip}.prg")))
+            .expect("physical dump");
+        assert_eq!(raw.len(), 1282);
+        assert_eq!(&raw[..2], &[0, 0x40]);
+        let mut corrected = raw[2..].to_vec();
+        normalise_light_pen_hardware_dump(&mut corrected);
+        let reference = std::fs::read(
+            PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join(format!("../../test-data/commodore/c64/lightpen/{chip}.bin")),
+        )
+        .expect("native capture, independently identical to compiled makeref output");
+        assert_eq!(corrected, reference, "{chip}: compiled upstream conversion");
+        assert!(
+            guest[2..].windows(1280).any(|window| window == corrected),
+            "{chip}: the R04 guest embeds the prepared hardware reference"
+        );
+        let prepared = corrected.clone();
+        normalise_light_pen_hardware_dump(&mut corrected);
+        assert_eq!(
+            corrected, prepared,
+            "{chip}: an R03+ reference must pass through"
+        );
+    }
+}
+
 /// The upstream 256-delay measurement includes the final raster line and frame
-/// wrap. Compare all five result pages with native VICE and report the two
-/// retained physical-dump disagreements separately (LPX samples 254/255).
+/// wrap. Compare every byte with native VICE and the physical dumps prepared
+/// by the upstream pre-R03 correction. No sample is excluded.
 #[test]
 #[ignore = "FIXTURE: light-pen native parity requires C64 ROMs and VIC-II testbench"]
 fn light_pen_measurement_matches_native_reference() {
@@ -1365,9 +1413,11 @@ fn light_pen_measurement_matches_native_reference() {
                 .expect("physical chip dump");
         assert_eq!(expected.len(), 1282);
         assert_eq!(&expected[..2], &[0, 0x40]);
+        let mut hardware = expected[2..].to_vec();
+        normalise_light_pen_hardware_dump(&mut hardware);
         let differences: Vec<_> = actual
             .iter()
-            .zip(&expected[2..])
+            .zip(&hardware)
             .enumerate()
             .filter_map(|(i, (&a, &e))| (a != e).then_some((i, a, e)))
             .collect();
@@ -1386,21 +1436,10 @@ fn light_pen_measurement_matches_native_reference() {
         )
         .expect("native VICE measurement");
         assert_eq!(native.len(), 1280);
-        // Retain the independent physical results. These two differences also
-        // exist in VICE; matching VICE must not be called full hardware parity.
-        let native_hardware_differences: Vec<_> = native
-            .iter()
-            .zip(&expected[2..])
-            .enumerate()
-            .filter_map(|(i, (&a, &e))| (a != e).then_some((i, a, e)))
-            .collect();
-        assert_eq!(native_hardware_differences.len(), 2);
-        for (sample, (offset, native_x, hardware_x)) in
-            native_hardware_differences.iter().enumerate()
-        {
-            assert_eq!(*offset, 766 + sample);
-            assert_eq!(*native_x, hardware_x.wrapping_add(4));
-        }
+        assert_eq!(
+            native, hardware,
+            "{model:?}: native and prepared hardware references"
+        );
         let mismatches = actual.iter().zip(&native).filter(|(a, e)| a != e).count();
         eprintln!("{model:?}: {mismatches} / 1280 bytes disagree with native VICE");
         if mismatches != 0 {
