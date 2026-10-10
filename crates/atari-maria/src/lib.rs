@@ -71,6 +71,7 @@
 //!
 //! 160B/320B/C/D variants exist but are not yet implemented.
 
+mod clock;
 mod fetch;
 mod palette;
 mod state;
@@ -261,6 +262,13 @@ impl DllEntry {
 /// Atari 7800 MARIA display processor.
 #[derive(Serialize, Deserialize)]
 pub struct Maria {
+    /// External address bus, used by the CPU clock's slow-access decoder.
+    pub address_in: u16,
+    /// CPU phase-1 strobe, high for one native tick at the start of phase 1.
+    pub phi1: bool,
+    /// CPU phase-2 strobe, high for one native tick at the start of phase 2.
+    pub phi2: bool,
+    clock: clock::Clock,
     // -- Registers ----------------------------------------------------------
     backgrnd: u8,
     /// 8 palettes, each with 3 colours (index 0 is always transparent).
@@ -304,6 +312,10 @@ impl Maria {
     #[must_use]
     pub fn new(region: MariaRegion) -> Self {
         Self {
+            address_in: 0,
+            phi1: false,
+            phi2: false,
+            clock: clock::Clock::default(),
             backgrnd: 0,
             palettes: [[0; 3]; 8],
             ctrl: 0,
