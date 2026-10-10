@@ -12,11 +12,16 @@ lower than its NMOS counterpart except where a held-low frame retrigger uses
 the fixed retrigger coordinate. The frame retrigger also captures Y=0 and
 raises the light-pen interrupt.
 
-Native VICE agrees with 1,278 of 1,280 bytes in each corresponding upstream
-physical-chip dump. The two differences are LPX samples 254/255 (file offsets
-766/767): VICE reads four X units higher. Their cause remains unresolved.
-The runtime regression retains both comparisons and must not be described as
-full hardware parity. No physical expected bytes were edited.
+All 1,280 bytes per model agree with the physical references after applying
+the testbench's documented pre-R03 preparation step. The original `.prg`
+dumps require `makeref.c`, which their Makefile runs to produce the `.bin`
+references embedded in the R04 guest. Compiling that converter changes only
+LPX samples 254/255 (offsets 766/767) in these inputs, adding four X units to
+each. Its complete outputs match these native files and the guest's embedded
+references byte-for-byte. Original physical dump files remain immutable.
+
+This is complete agreement for the measured schedule on these four reported
+chip models, not a claim about all light-pen conditions or analogue latency.
 
 Primary observations and attribution are recorded in the shared reference
 library's `by-topic/vic-ii/2026-lightpen-measurement-observations.md`. The
@@ -32,5 +37,7 @@ Program and ROM bytes remain external. `sha256.json` identifies these outputs.
 Run `light_pen_measurement_matches_native_reference` in the C64 runtime's
 `vicii_testbench` integration test with `--ignored` and
 `EMU198X_STRICT_FIXTURES=1`. It requires the guest to write its completion port,
-checks all five result pages, compares every byte with native VICE, and
-explicitly preserves the two native/physical disagreements for each model.
+checks all five result pages and compares every byte with native VICE and the
+prepared physical references. `light_pen_reference_normalization_matches_upstream`
+checks the conversion against the independently generated captures and guest
+references, and verifies that prepared dumps pass through unchanged.
