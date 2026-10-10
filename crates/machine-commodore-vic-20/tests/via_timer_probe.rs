@@ -50,6 +50,44 @@ fn both_timer_start_reads_and_flags_match_native_vice() {
     );
 }
 
+/// Six initial counts, short reads, two complete wraps, acknowledgement,
+/// low-latch changes and high-write rearming. Native xvic supplies all 96
+/// observations; generator: docs plan 2026-10-10-via-timer2-underflow.
+#[test]
+fn timer2_post_underflow_reads_match_native_vice() {
+    let kernal = include_bytes!("../test-data/via-timer2-underflow.rom");
+    let expected = include_bytes!("../test-data/via-timer2-underflow.bin");
+    assert_eq!(kernal.len(), 8192);
+    assert_eq!(expected.len(), 96);
+    let mut mismatches = Vec::new();
+    for model in [Vic20Model::Pal, Vic20Model::Ntsc] {
+        let mut machine = Vic20::new(
+            kernal.to_vec(),
+            vec![0; 0x2000],
+            vec![0; 0x1000],
+            model,
+            Vic20RamExpansion::NONE,
+        );
+        while !(0xE407..=0xE40A).contains(&machine.cpu().regs.pc) {
+            machine.run_frame();
+            assert!(
+                machine.master_clock() < 2_000_000,
+                "{model:?}: guest did not finish"
+            );
+        }
+        for (index, wanted) in expected.iter().copied().enumerate() {
+            let actual = machine.peek(0x0200 + u16::try_from(index).expect("96 results"));
+            if actual != wanted {
+                mismatches.push((model, index, actual, wanted));
+            }
+        }
+    }
+    assert!(
+        mismatches.is_empty(),
+        "(model, observation, actual, expected): {mismatches:?}"
+    );
+}
+
 const PROBE: &[u8] = &[
     0x78, // SEI
     0xA9, 0xFE, // LDA #$FE
