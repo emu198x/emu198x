@@ -139,9 +139,10 @@ fn snapshot_round_trip_is_fixed_point_after_warmup() -> Result<(), Box<dyn Error
 /// (#1620), to 16 when the sequencer's shift register and mode pipes
 /// replaced the decoded cell (#1660), and to 17 when the last matrix and
 /// colour entries joined it (#1661), and to 18 when the separate mechanical
-/// SHIFT LOCK contact joined the keyboard state.
+/// SHIFT LOCK contact joined the keyboard state. Version 19 retains the
+/// 1541/1571 VIA timer 2 load phase (#1677).
 #[test]
-fn snapshot_envelope_version_is_locked_at_v18() -> Result<(), Box<dyn Error>> {
+fn snapshot_envelope_version_is_locked_at_v19() -> Result<(), Box<dyn Error>> {
     let runtime = C64Runtime::new(
         Model::C64PalBreadbin,
         vec![0; KERNAL_SIZE],
@@ -152,8 +153,8 @@ fn snapshot_envelope_version_is_locked_at_v18() -> Result<(), Box<dyn Error>> {
     let bytes = runtime.snapshot()?;
     assert!(!bytes.is_empty(), "snapshot must have a non-empty envelope");
     assert_eq!(
-        bytes[0], 18,
-        "C64 snapshot envelope version should be 18 (got {})",
+        bytes[0], 19,
+        "C64 snapshot envelope version should be 19 (got {})",
         bytes[0]
     );
     Ok(())
