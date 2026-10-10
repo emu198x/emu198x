@@ -342,7 +342,7 @@ impl Via6522 {
                 self.irb = self.pb_in;
             }
             if self.cb2_is_output() && self.cb2_output_mode() == 0x00 {
-                self.cb2_handshake_high = false;
+                self.cb2_handshake_high = true;
             }
         }
 
@@ -361,7 +361,7 @@ impl Via6522 {
 
         match reg {
             0x00 => self.clear_port_b_interrupts(),
-            0x01 => self.clear_port_a_interrupts(),
+            0x01 => self.access_port_a(),
             0x04 => self.clear_interrupts(IRQ_T1),
             0x08 => self.clear_interrupts(IRQ_T2),
             0x0A => self.trigger_sr_access(),
@@ -379,7 +379,7 @@ impl Via6522 {
     }
 
     pub fn read_port_a_with_value(&mut self, value: u8) -> u8 {
-        self.clear_port_a_interrupts();
+        self.access_port_a();
         self.update_pins();
         value
     }
@@ -396,7 +396,7 @@ impl Via6522 {
                 self.ira = self.pa_in;
             }
             if self.ca2_is_output() && self.ca2_output_mode() == 0x00 {
-                self.ca2_handshake_high = false;
+                self.ca2_handshake_high = true;
             }
         }
         self.prev_ca1 = self.ca1;
@@ -447,18 +447,20 @@ impl Via6522 {
             0x00 => {
                 self.orb = value;
                 self.clear_port_b_interrupts();
-                if self.cb2_is_output() && self.cb2_output_mode() == 0x01 {
-                    self.cb2_pulse_low = true;
+                // Port B initiates output handshaking on writes only.
+                if self.cb2_is_output() {
+                    match self.cb2_output_mode() {
+                        0x00 => self.cb2_handshake_high = false,
+                        0x01 => self.cb2_pulse_low = true,
+                        _ => {}
+                    }
                 }
             }
             0x01 => {
                 // ORA with handshake: clears CA1/CA2 interrupts and
                 // pulses CA2 if configured.
                 self.ora = value;
-                self.clear_port_a_interrupts();
-                if self.ca2_is_output() && self.ca2_output_mode() == 0x01 {
-                    self.ca2_pulse_low = true;
-                }
+                self.access_port_a();
             }
             0x0F => {
                 // ORA-alt (no-handshake): writes the register but does
@@ -586,7 +588,7 @@ impl Via6522 {
                 self.ira = self.pa_in;
             }
             if self.ca2_is_output() && self.ca2_output_mode() == 0x00 {
-                self.ca2_handshake_high = false;
+                self.ca2_handshake_high = true;
             }
         }
 
@@ -602,7 +604,7 @@ impl Via6522 {
                 self.irb = self.pb_in;
             }
             if self.cb2_is_output() && self.cb2_output_mode() == 0x00 {
-                self.cb2_handshake_high = false;
+                self.cb2_handshake_high = true;
             }
         }
 
@@ -706,13 +708,19 @@ impl Via6522 {
         output
     }
 
-    fn clear_port_a_interrupts(&mut self) {
+    fn access_port_a(&mut self) {
         self.clear_interrupts(IRQ_CA1);
         if !self.ca2_input_no_irq_clear() || self.ca2_is_output() {
             self.clear_interrupts(IRQ_CA2);
         }
-        if self.ca2_is_output() && self.ca2_output_mode() == 0x00 {
-            self.ca2_handshake_high = true;
+        // MOS 6522 PCR modes 100/101: normal ORA reads and writes
+        // assert CA2; alternate ORA accesses do not reach this helper.
+        if self.ca2_is_output() {
+            match self.ca2_output_mode() {
+                0x00 => self.ca2_handshake_high = false,
+                0x01 => self.ca2_pulse_low = true,
+                _ => {}
+            }
         }
     }
 
@@ -720,9 +728,6 @@ impl Via6522 {
         self.clear_interrupts(IRQ_CB1);
         if !self.cb2_input_no_irq_clear() || self.cb2_is_output() {
             self.clear_interrupts(IRQ_CB2);
-        }
-        if self.cb2_is_output() && self.cb2_output_mode() == 0x00 {
-            self.cb2_handshake_high = true;
         }
     }
 
@@ -1122,6 +1127,121 @@ mod tests {
         via.tick();
 
         assert_eq!(via.peek(0x0D) & IRQ_T2, IRQ_T2);
+    }
+
+    #[test]
+    fn handshake_outputs_go_low_on_access_and_high_on_the_active_edge() {
+        for port_b in [false, true] {
+            for active_high in [false, true] {
+                for polled in [false, true] {
+                    for access in 0..if port_b { 1 } else { 3 } {
+                        let mut via = Via6522::new();
+                        let pcr = if port_b {
+                            0x80 | (u8::from(active_high) << 4)
+                        } else {
+                            0x08 | u8::from(active_high)
+                        };
+                        via.write(0x0C, pcr);
+                        if port_b {
+                            via.set_cb1_level(!active_high);
+                        } else {
+                            via.set_ca1_level(!active_high);
+                        }
+                        match (port_b, access) {
+                            (true, _) => via.write(0x00, 0x55),
+                            (false, 0) => via.write(0x01, 0x55),
+                            (false, 1) => {
+                                let _ = via.read(0x01);
+                            }
+                            _ => {
+                                let _ = via.read_port_a_with_value(0x55);
+                            }
+                        }
+                        assert!(
+                            !(if port_b { via.cb2_out } else { via.ca2_out }),
+                            "access must assert handshake: B={port_b}, rising={active_high}, polled={polled}, access={access}"
+                        );
+                        // Neither elapsed clocks nor non-handshaking accesses
+                        // acknowledge the peripheral's pending transfer.
+                        for _ in 0..3 {
+                            if port_b {
+                                let _ = via.read(0x00);
+                                let _ = via.read_port_b_with_value(0x55);
+                            } else {
+                                let _ = via.read(0x0F);
+                                via.write(0x0F, 0xAA);
+                            }
+                            via.tick();
+                            assert!(!(if port_b { via.cb2_out } else { via.ca2_out }));
+                        }
+                        if polled {
+                            if port_b {
+                                via.cb1 = active_high;
+                            } else {
+                                via.ca1 = active_high;
+                            }
+                            via.tick();
+                        } else if port_b {
+                            via.set_cb1_level(active_high);
+                        } else {
+                            via.set_ca1_level(active_high);
+                        }
+                        assert!(
+                            if port_b { via.cb2_out } else { via.ca2_out },
+                            "active edge must release handshake"
+                        );
+                        let irq = if port_b { super::IRQ_CB1 } else { IRQ_CA1 };
+                        assert_ne!(via.peek(0x0D) & irq, 0);
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn port_a_reads_and_writes_pulse_but_alternate_accesses_do_not() {
+        for access in 0..3 {
+            let mut via = Via6522::new();
+            via.write(0x0C, 0x0A);
+            let _ = via.read(0x0F);
+            via.write(0x0F, 0x55);
+            assert!(via.ca2_out);
+            match access {
+                0 => via.write(0x01, 0xAA),
+                1 => {
+                    let _ = via.read(0x01);
+                }
+                _ => {
+                    let _ = via.read_port_a_with_value(0xAA);
+                }
+            }
+            assert!(!via.ca2_out, "normal access {access} must assert CA2");
+            let _ = via.read(0x0F);
+            via.write(0x0F, 0x55);
+            assert!(!via.ca2_out, "alternate access must not cancel a pulse");
+            via.tick();
+            assert!(via.ca2_out, "pulse must end after one Phi2 period");
+            via.tick();
+            assert!(via.ca2_out, "alternate access must not queue another pulse");
+        }
+    }
+
+    #[test]
+    fn port_b_reads_do_not_start_or_cancel_a_write_pulse() {
+        let mut via = Via6522::new();
+        via.write(0x0C, 0xA0);
+        let _ = via.read(0x00);
+        let _ = via.read_port_b_with_value(0x55);
+        assert!(via.cb2_out);
+        via.write(0x00, 0xAA);
+        assert!(!via.cb2_out);
+        let _ = via.read(0x00);
+        let _ = via.read_port_b_with_value(0x55);
+        assert!(!via.cb2_out);
+        via.tick();
+        assert!(via.cb2_out);
+        via.tick();
+        assert!(via.cb2_out);
     }
 
     #[test]
