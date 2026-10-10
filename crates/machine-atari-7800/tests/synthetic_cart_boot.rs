@@ -4,8 +4,8 @@
 //! claim can be checked on every push.
 //!
 //! No display list is involved. With MARIA's DMA off — the power-on state
-//! — every line is filled with `BACKGRND`, so writing that register is a
-//! complete picture. Driving a display list would test the DMA engine,
+//! — the active picture is filled with `BACKGRND`. CTRL.BC is also clear,
+//! so the side borders stay black. Driving a display list would test the DMA engine,
 //! which is a different claim from "this machine starts".
 //!
 //! MARIA shares the TIA's colour encoding and palette, so the shade here
@@ -33,13 +33,18 @@ fn booted(rom: Vec<u8>) -> Atari7800 {
     machine
 }
 
-fn uniform(machine: &Atari7800) -> Option<u32> {
-    let first = *machine.framebuffer().first()?;
-    machine
-        .framebuffer()
-        .iter()
-        .all(|&pixel| pixel == first)
-        .then_some(first)
+fn has_expected_background(machine: &Atari7800) -> bool {
+    let region = atari_maria::MariaRegion::Ntsc;
+    let width = region.framebuffer_width() as usize;
+    let left = region.border_left() as usize;
+    let right = left + atari_maria::ACTIVE_WIDTH as usize;
+    let framebuffer = machine.framebuffer();
+    framebuffer.len() == width * region.framebuffer_height() as usize
+        && framebuffer.chunks_exact(width).all(|row| {
+            row[..left].iter().all(|&pixel| pixel == 0xFF00_0000)
+                && row[left..right].iter().all(|&pixel| pixel == EXPECTED)
+                && row[right..].iter().all(|&pixel| pixel == 0xFF00_0000)
+        })
 }
 
 #[test]
@@ -48,10 +53,9 @@ fn the_atari_7800_boots_a_cartridge_and_paints_its_background() {
         .unwrap_or_else(|err| panic!("synthetic cartridge should be committed: {err}"));
     let machine = booted(rom);
 
-    assert_eq!(
-        uniform(&machine),
-        Some(EXPECTED),
-        "the cartridge should have written BACKGRND; black means it never ran"
+    assert!(
+        has_expected_background(&machine),
+        "the cartridge should paint BACKGRND across the active picture, with black side borders"
     );
 }
 
@@ -64,9 +68,8 @@ fn a_cartridge_that_writes_no_colour_does_not_look_like_a_boot() {
     rom[1] = 0x00;
     rom[2] = 0xC0;
     let machine = booted(rom);
-    assert_ne!(
-        uniform(&machine),
-        Some(EXPECTED),
+    assert!(
+        !has_expected_background(&machine),
         "a cartridge that writes no colour must not pass the boot assertion"
     );
 }

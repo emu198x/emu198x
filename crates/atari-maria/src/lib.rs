@@ -564,6 +564,19 @@ impl Maria {
     pub fn render_line(&mut self, read_byte: &mut dyn FnMut(u16) -> u8) -> u16 {
         self.dma_cycles = 0;
 
+        // Paint only this raster's row. In particular, a later BACKGRND or
+        // CTRL write must not recolour rows already produced this frame.
+        // Preserve the existing window placement, including PAL's provisional
+        // vertical surround (documented by MariaRegion::border_top).
+        let fb_y = (u32::from(self.scan_line)
+            + u32::from(self.region.lines_per_frame())
+            + self.region.border_top()
+            - u32::from(VISIBLE_TOP))
+            % u32::from(self.region.lines_per_frame());
+        if fb_y < self.region.framebuffer_height() {
+            self.fill_framebuffer_row(fb_y as usize);
+        }
+
         let visible_bottom = VISIBLE_TOP + ACTIVE_HEIGHT as u16;
         let lines = self.region.lines_per_frame();
 
@@ -855,19 +868,43 @@ impl Maria {
         self.line_buffer.fill(self.backgrnd);
     }
 
-    /// Fill the entire framebuffer with the current BACKGRND colour.
-    /// Called by the machine at frame start so the canonical TV-visible
-    /// border around the active 320 x 240 region carries the current
-    /// MARIA background colour. Mid-frame BACKGRND changes affect the
-    /// *next* frame's border (v1 simplification, matches GTIA).
+    /// Explicitly clear the image using the current background/border controls.
+    /// Normal raster production paints each row in `render_line` instead;
+    /// calling this during a frame would overwrite its already-rendered rows.
     pub fn fill_border(&mut self) {
+        for y in 0..self.region.framebuffer_height() as usize {
+            self.fill_framebuffer_row(y);
+        }
+    }
+
+    fn colour_argb(&self, colour: u8) -> u32 {
         let palette = match self.region {
             MariaRegion::Ntsc => &NTSC_PALETTE,
             MariaRegion::Pal => &PAL_PALETTE,
         };
-        let index = (self.backgrnd >> 1) as usize;
-        let argb = palette.get(index).copied().unwrap_or(0xFF00_0000);
-        self.framebuffer.fill(argb);
+        let colour = if self.ctrl & CTRL_COLOUR_KILL != 0 {
+            colour & 0x0f
+        } else {
+            colour
+        };
+        palette[usize::from(colour >> 1)]
+    }
+
+    fn fill_framebuffer_row(&mut self, y: usize) {
+        let background = self.colour_argb(self.backgrnd);
+        // CTRL.BC selects background extension into the horizontal border.
+        // See the Atari software guide and MiSTer's line_ram playback path.
+        let border = if self.ctrl & 0x08 != 0 {
+            background
+        } else {
+            self.colour_argb(0)
+        };
+        let width = self.region.framebuffer_width() as usize;
+        let left = self.region.border_left() as usize;
+        let row = &mut self.framebuffer[y * width..(y + 1) * width];
+        row.fill(background);
+        row[..left].fill(border);
+        row[left + ACTIVE_WIDTH as usize..].fill(border);
     }
 
     /// Convert line buffer colour indices to ARGB32 and write to framebuffer.
@@ -878,25 +915,11 @@ impl Maria {
         }
         let fb_y = self.region.border_top() as usize + active_y;
 
-        let palette = match self.region {
-            MariaRegion::Ntsc => &NTSC_PALETTE,
-            MariaRegion::Pal => &PAL_PALETTE,
-        };
-
-        let kill = self.ctrl & CTRL_COLOUR_KILL != 0;
         let row_start =
             fb_y * self.region.framebuffer_width() as usize + self.region.border_left() as usize;
 
         for (i, &colour_reg) in self.line_buffer.iter().enumerate() {
-            let index = if kill {
-                // Colour kill: force luminance only (hue 0).
-                (colour_reg & 0x0F) >> 1
-            } else {
-                colour_reg >> 1
-            } as usize;
-
-            let argb = palette.get(index).copied().unwrap_or(0xFF00_0000);
-            self.framebuffer[row_start + i] = argb;
+            self.framebuffer[row_start + i] = self.colour_argb(colour_reg);
         }
     }
 }
@@ -1081,6 +1104,98 @@ mod tests {
     }
 
     #[test]
+    fn border_uses_each_scanlines_background_without_repainting_prior_rows() {
+        for region in [MariaRegion::Ntsc, MariaRegion::Pal] {
+            let mut maria = Maria::new(region);
+            let palette = match region {
+                MariaRegion::Ntsc => &NTSC_PALETTE,
+                MariaRegion::Pal => &PAL_PALETTE,
+            };
+            maria.write(0x1c, 0x08); // BC extends background into horizontal border.
+            maria.fill_border();
+            maria.scan_line = VISIBLE_TOP;
+            maria.write(0x00, 0x4e);
+            maria.render_line(&mut |_| 0);
+            maria.write(0x00, 0x8a);
+            maria.render_line(&mut |_| 0);
+            let width = region.framebuffer_width() as usize;
+            let first = region.border_top() as usize * width;
+            assert!(
+                maria.framebuffer[first..first + width]
+                    .iter()
+                    .all(|&p| p == palette[0x4e >> 1])
+            );
+            assert!(
+                maria.framebuffer[first + width..first + 2 * width]
+                    .iter()
+                    .all(|&p| p == palette[0x8a >> 1])
+            );
+        }
+    }
+
+    #[test]
+    fn border_control_and_colour_kill_apply_to_both_sides() {
+        for region in [MariaRegion::Ntsc, MariaRegion::Pal] {
+            for dma in [0, CTRL_DMA_ENABLED] {
+                for border in [0, 0x08] {
+                    for kill in [0, CTRL_COLOUR_KILL] {
+                        let mut maria = Maria::new(region);
+                        let palette = match region {
+                            MariaRegion::Ntsc => &NTSC_PALETTE,
+                            MariaRegion::Pal => &PAL_PALETTE,
+                        };
+                        maria.write(0x00, 0x6e);
+                        maria.write(0x1c, dma | border | kill);
+                        maria.scan_line = VISIBLE_TOP;
+                        maria.render_line(&mut |_| 0); // Empty display list when DMA enabled.
+                        let width = region.framebuffer_width() as usize;
+                        let start = region.border_top() as usize * width;
+                        let left = region.border_left() as usize;
+                        let background = palette[if kill == 0 { 0x6e >> 1 } else { 0x0e >> 1 }];
+                        let expected_border = if border == 0 { palette[0] } else { background };
+                        let row = &maria.framebuffer[start..start + width];
+                        assert!(row[..left].iter().all(|&p| p == expected_border));
+                        assert!(
+                            row[left..left + ACTIVE_WIDTH as usize]
+                                .iter()
+                                .all(|&p| p == background)
+                        );
+                        assert!(
+                            row[left + ACTIVE_WIDTH as usize..]
+                                .iter()
+                                .all(|&p| p == expected_border)
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn pal_border_rows_follow_the_existing_window_across_frame_wrap() {
+        let mut maria = Maria::new(MariaRegion::Pal);
+        maria.write(0x1c, 0x08);
+        let width = maria.region.framebuffer_width() as usize;
+        // Preserve the existing PAL window: active raster 16 is at row 24.
+        // These rows surround that band, including its wrap into the prior field.
+        for (raster, row, colour) in [
+            (0, 8, 0x4e),
+            (256, 264, 0x8a),
+            (305, 0, 0xae),
+            (312, 7, 0x2c),
+        ] {
+            maria.scan_line = raster;
+            maria.write(0x00, colour);
+            maria.render_line(&mut |_| 0);
+            assert!(
+                maria.framebuffer[row * width..(row + 1) * width]
+                    .iter()
+                    .all(|&p| p == PAL_PALETTE[usize::from(colour >> 1)])
+            );
+        }
+    }
+
+    #[test]
     fn background_fills_line() {
         let mut maria = Maria::new(MariaRegion::Ntsc);
         maria.write(0x00, 0x0E); // Set background to grey luminance 7.
@@ -1111,9 +1226,7 @@ mod tests {
         maria.render_line(&mut |addr| mem[addr as usize]);
 
         // Every pixel of the active region on the first active row should be
-        // the background colour. (The border rows around the active area are
-        // painted by the machine via fill_border() at frame start; they're
-        // outside the scope of this chip-level test.)
+        // the background colour. BC is clear, so the side borders stay black.
         let bg_argb = NTSC_PALETTE[(0x0E >> 1) as usize];
         let row_start = maria.region.border_top() as usize
             * maria.region.framebuffer_width() as usize

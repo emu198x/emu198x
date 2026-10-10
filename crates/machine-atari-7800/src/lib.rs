@@ -165,8 +165,6 @@ impl Atari7800 {
     pub fn run_frame(&mut self) -> u64 {
         let start = self.master_clock;
         let target = start + self.clocks_per_frame;
-        // Paint the canonical TV-visible border (BACKGRND) at frame start.
-        self.maria.fill_border();
         while self.master_clock < target {
             self.tick_colour_clock();
         }
@@ -481,6 +479,43 @@ mod tests {
         image[67] = 1;
         image.extend_from_slice(&rom);
         image
+    }
+
+    #[test]
+    fn cpu_wsync_colour_bars_extend_into_live_maria_borders() {
+        let mut rom = trap_rom_32k();
+        // BC on, DMA off. Alternate BACKGRND once per WSYNC from real CPU writes.
+        rom[..16].copy_from_slice(&[
+            0x78, 0xa9, 0x08, 0x85, 0x3c, 0xa9, 0x4e, 0x85, 0x20, 0x85, 0x24, 0x49, 0xc0, 0x4c,
+            0x07, 0x80,
+        ]);
+        for region in [Atari7800Region::Ntsc, Atari7800Region::Pal] {
+            let mut sys = Atari7800::new(rom.clone(), region).expect("colour-bar cartridge");
+            sys.run_frame();
+            let maria_region = region.maria_region();
+            let width = maria_region.framebuffer_width() as usize;
+            let top = maria_region.border_top() as usize;
+            let palette = match region {
+                Atari7800Region::Ntsc => &atari_maria::NTSC_PALETTE,
+                Atari7800Region::Pal => &atari_maria::PAL_PALETTE,
+            };
+            let mut previous = None;
+            for y in top..top + atari_maria::ACTIVE_HEIGHT as usize {
+                let row = &sys.maria.framebuffer()[y * width..(y + 1) * width];
+                let active = row[width / 2];
+                assert!([palette[0x4e >> 1], palette[0x8e >> 1]].contains(&active));
+                assert_ne!(
+                    previous,
+                    Some(active),
+                    "WSYNC must produce alternating lines"
+                );
+                assert!(
+                    row.iter().all(|&pixel| pixel == active),
+                    "border differs from background on row {y}"
+                );
+                previous = Some(active);
+            }
+        }
     }
 
     #[test]
