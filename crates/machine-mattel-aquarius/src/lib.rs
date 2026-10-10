@@ -1132,6 +1132,29 @@ mod tests {
     }
 
     #[test]
+    fn controller_contacts_remain_visible_with_ay_ports_in_output_mode() {
+        let mut sys = Aquarius::new(trap_rom(), 0, AquariusRegion::Ntsc);
+        sys.io_write(0xF7, 7);
+        sys.io_write(0xF6, 0xC0); // Both I/O ports output.
+        for reg in [14, 15] {
+            sys.io_write(0xF7, reg);
+            sys.io_write(0xF6, 0xFF);
+        }
+        for player in [1, 2] {
+            sys.set_joystick(player, true, false, false, false, true);
+        }
+        for reg in [14, 15] {
+            assert_eq!(read_ay(&mut sys, reg), 0xBB, "up + fire grounds pins");
+        }
+        for player in [1, 2] {
+            sys.set_joystick(player, false, false, false, false, false);
+        }
+        for reg in [14, 15] {
+            assert_eq!(read_ay(&mut sys, reg), 0xFF, "contacts released");
+        }
+    }
+
+    #[test]
     fn ay_watch_captures_psg_data_writes() {
         let mut sys = Aquarius::new(trap_rom(), 0, AquariusRegion::Ntsc);
         assert!(sys.ay_write_watch_records().is_none());
