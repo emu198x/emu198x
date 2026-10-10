@@ -65,9 +65,16 @@ fn cart_boots_without_panic() {
     // A rendered frame (several colours, many non-background pixels) is the
     // proof the display list is being walked and the interrupt path is live;
     // before the CTRL-bit fix this was a uniform black frame.
-    let fb = sys.framebuffer();
-    let colours: std::collections::HashSet<u32> = fb.iter().copied().collect();
-    let non_bg = fb.iter().filter(|&&px| px & 0x00FF_FFFF != 0).count();
+    // Exclude the side borders: black borders around a uniform background
+    // must not count as a rendered display list.
+    let region = atari_maria::MariaRegion::Ntsc;
+    let left = region.border_left() as usize;
+    let active = sys
+        .framebuffer()
+        .chunks_exact(region.framebuffer_width() as usize)
+        .flat_map(|row| &row[left..left + atari_maria::ACTIVE_WIDTH as usize]);
+    let colours: std::collections::HashSet<u32> = active.clone().copied().collect();
+    let non_bg = active.filter(|&&px| px & 0x00FF_FFFF != 0).count();
     assert!(
         colours.len() >= 2 && non_bg >= 500,
         "screen never rendered ({} colours, {non_bg} non-background px) — \
