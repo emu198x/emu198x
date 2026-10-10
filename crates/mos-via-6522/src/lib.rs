@@ -102,6 +102,7 @@ pub struct Via6522 {
     t1_pb7_output: bool,
     t2_counter: u16,
     t2_latch_low: u8,
+    /// Arms the one-shot interrupt; T2 keeps counting after this clears.
     t2_running: bool,
     t2_load_pending: bool,
     shift_register: u8,
@@ -222,13 +223,14 @@ impl Via6522 {
 
         if self.t2_load_pending {
             self.t2_load_pending = false;
-        } else if self.t2_running && self.t2_should_tick(pb6_falling) {
-            if self.t2_counter == 0 {
+        } else if self.t2_should_tick(pb6_falling) {
+            if self.t2_counter == 0 && self.t2_running {
                 self.raise_interrupt(IRQ_T2);
                 self.t2_running = false;
-            } else {
-                self.t2_counter -= 1;
             }
+            // MOS 6522 datasheet: both interval and PB6 modes continue
+            // decrementing after timeout; only another T2C-H write rearms IRQ.
+            self.t2_counter = self.t2_counter.wrapping_sub(1);
         }
 
         if self.ca2_pulse_low {
@@ -1039,6 +1041,67 @@ mod tests {
         via.tick();
         assert_eq!(via.peek(0x08), 0);
         assert_eq!(via.peek(0x0D) & IRQ_T2, 0);
+    }
+
+    #[test]
+    fn timer2_keeps_counting_after_its_one_shot_interrupt() {
+        for value in [0_u16, 1, 255, 256, u16::MAX] {
+            let mut via = Via6522::new();
+            via.write(0x0E, 0x80 | IRQ_T2);
+            via.write(0x08, value as u8);
+            via.write(0x09, (value >> 8) as u8);
+            via.tick(); // Closing load phase.
+            for _ in 0..=value {
+                via.tick();
+            }
+            assert_eq!(via.t2_counter, u16::MAX, "N={value}: underflow wraps");
+            assert!(via.irq);
+            let _ = via.read(0x08); // Acknowledge, without rearming.
+            via.write(0x08, 0x80); // The low latch is not a counter reload.
+            for elapsed in 1..=65_537_u32 {
+                via.tick();
+                assert_eq!(via.t2_counter, u16::MAX.wrapping_sub(elapsed as u16));
+                assert!(!via.irq, "N={value}: repeated IRQ after {elapsed} clocks");
+            }
+            via.write(0x09, 0); // Only a high write rearms the interrupt.
+            via.tick();
+            for _ in 0..=0x80 {
+                via.tick();
+            }
+            assert!(via.irq, "N={value}: high write did not rearm");
+        }
+    }
+
+    #[test]
+    fn timer2_keeps_counting_pb6_edges_after_its_interrupt() {
+        for value in [0_u16, 1, 255] {
+            let mut via = Via6522::new();
+            via.write(0x0B, 0x20);
+            via.write(0x0E, 0x80 | IRQ_T2);
+            via.write(0x08, value as u8);
+            via.write(0x09, 0);
+            for _ in 0..=value {
+                via.pb_in = 0xFF;
+                via.tick();
+                via.pb_in = 0xBF;
+                via.tick();
+            }
+            assert_eq!(via.t2_counter, u16::MAX, "N={value}: pulse underflow");
+            assert!(via.irq);
+            via.write(0x0D, IRQ_T2);
+            for elapsed in 1..=65_537_u32 {
+                let before = via.t2_counter;
+                via.tick(); // Held low is not another falling edge.
+                assert_eq!(via.t2_counter, before);
+                via.pb_in = 0xFF;
+                via.tick();
+                assert_eq!(via.t2_counter, before);
+                via.pb_in = 0xBF;
+                via.tick();
+                assert_eq!(via.t2_counter, u16::MAX.wrapping_sub(elapsed as u16));
+                assert!(!via.irq, "N={value}: repeated pulse IRQ");
+            }
+        }
     }
 
     #[test]

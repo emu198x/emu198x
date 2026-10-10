@@ -133,7 +133,7 @@ mod tests {
     }
 
     #[test]
-    fn restore_preserves_timer2_load_and_countdown_in_both_vias() {
+    fn restore_preserves_timer2_load_underflow_and_countdown_in_both_vias() {
         use emu198x_shell::MachineCore;
         use machine_commodore_vic_20::{Vic20, Vic20Model, Vic20RamExpansion};
 
@@ -141,49 +141,51 @@ mod tests {
             (Model::Vic20Pal, Vic20Model::Pal),
             (Model::Vic20Ntsc, Vic20Model::Ntsc),
         ] {
-            for elapsed_instructions in 0..3 {
-                let mut kernal = vec![0xEA; 8192];
-                kernal[..3].copy_from_slice(&[0x4C, 0x00, 0xE0]); // JMP $E000
-                kernal[0x1FFC..0x1FFE].copy_from_slice(&[0x00, 0xE0]);
-                let mut machine = Vic20::new(
-                    kernal,
-                    vec![0; 8192],
-                    vec![0; 4096],
-                    machine_model,
-                    Vic20RamExpansion::NONE,
-                );
-                machine.run_frame();
-                for base in [0x9110, 0x9120] {
-                    machine.poke(base + 8, 0xFE);
-                    machine.poke(base + 9, 0xFE);
-                }
-                let start = machine.master_clock();
-                for _ in 0..elapsed_instructions {
-                    machine.step_instruction();
-                }
-                let mut original = Vic20Runtime::blank(model);
-                original.set_machine(Some(machine));
-                let saved = super::encode(&original).expect("snapshot timer load phase");
-                let mut restored = Vic20Runtime::blank(model);
-                decode(&mut restored, &saved).expect("restore timer load phase");
-                assert_eq!(restored.snapshot().expect("fixed point"), saved);
-                for _ in 0..4 {
-                    original.machine_mut().expect("machine").step_instruction();
-                    let machine = restored.machine_mut().expect("restored machine");
-                    machine.step_instruction();
-                    let elapsed =
-                        u16::try_from(machine.master_clock() - start).expect("short countdown");
-                    // One load cycle, then one decrement per Phi2 cycle.
-                    let expected = 0xFEFE - (elapsed - 1);
-                    for base in [0x9110, 0x9120] {
-                        let actual = u16::from(machine.peek(base + 8))
-                            | (u16::from(machine.peek(base + 9)) << 8);
-                        assert_eq!(actual, expected, "{model:?}, VIA at {base:04x}");
-                    }
-                    assert_eq!(
-                        restored.snapshot().expect("restored state"),
-                        original.snapshot().expect("uninterrupted state")
+            for initial in [0_u16, 1, 3, 0xFEFE] {
+                for elapsed_instructions in 0..3 {
+                    let mut kernal = vec![0xEA; 8192];
+                    kernal[..3].copy_from_slice(&[0x4C, 0x00, 0xE0]); // JMP $E000
+                    kernal[0x1FFC..0x1FFE].copy_from_slice(&[0x00, 0xE0]);
+                    let mut machine = Vic20::new(
+                        kernal,
+                        vec![0; 8192],
+                        vec![0; 4096],
+                        machine_model,
+                        Vic20RamExpansion::NONE,
                     );
+                    machine.run_frame();
+                    for base in [0x9110, 0x9120] {
+                        machine.poke(base + 8, initial as u8);
+                        machine.poke(base + 9, (initial >> 8) as u8);
+                    }
+                    let start = machine.master_clock();
+                    for _ in 0..elapsed_instructions {
+                        machine.step_instruction();
+                    }
+                    let mut original = Vic20Runtime::blank(model);
+                    original.set_machine(Some(machine));
+                    let saved = super::encode(&original).expect("snapshot timer load phase");
+                    let mut restored = Vic20Runtime::blank(model);
+                    decode(&mut restored, &saved).expect("restore timer load phase");
+                    assert_eq!(restored.snapshot().expect("fixed point"), saved);
+                    for _ in 0..4 {
+                        original.machine_mut().expect("machine").step_instruction();
+                        let machine = restored.machine_mut().expect("restored machine");
+                        machine.step_instruction();
+                        let elapsed =
+                            u16::try_from(machine.master_clock() - start).expect("short countdown");
+                        // One load cycle, then one decrement per Phi2 cycle.
+                        let expected = initial.wrapping_sub(elapsed - 1);
+                        for base in [0x9110, 0x9120] {
+                            let actual = u16::from(machine.peek(base + 8))
+                                | (u16::from(machine.peek(base + 9)) << 8);
+                            assert_eq!(actual, expected, "{model:?}, VIA at {base:04x}");
+                        }
+                        assert_eq!(
+                            restored.snapshot().expect("restored state"),
+                            original.snapshot().expect("uninterrupted state")
+                        );
+                    }
                 }
             }
         }
