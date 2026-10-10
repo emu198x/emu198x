@@ -47,8 +47,8 @@ impl KeyboardMatrix {
     }
 
     /// Returns PA inputs pulled low by direct contacts to low PB pins.
-    /// Like `scan`, this models direct contacts, not multi-key ghost paths
-    /// or contention between actively driven high and low outputs.
+    /// This is one step through the matrix, used when resolving a connected
+    /// group and when a driven PB high suppresses an indirect reverse path.
     #[must_use]
     pub(crate) fn scan_reverse(&self, column_mask: u8) -> u8 {
         let mut rows = 0u8;
@@ -58,6 +58,68 @@ impl KeyboardMatrix {
             }
         }
         !rows
+    }
+
+    /// Resolve ordinary closed contacts and CIA1 output contention.
+    ///
+    /// `pa`/`pb` are DDR-resolved drives (including PB timer outputs).
+    /// `pa_low` and `pb_high` identify output-latch drivers, excluding input
+    /// pull-ups. Joystick masks are external active-low inputs. The rules
+    /// follow VICE 3.10 c64cia1.c; SHIFT LOCK's stronger contact is not
+    /// represented by the ordinary key matrix.
+    #[must_use]
+    pub(crate) fn resolve_ports(
+        &self,
+        pa: u8,
+        pb: u8,
+        pa_low: u8,
+        pb_high: u8,
+        joy_a: u8,
+        joy_b: u8,
+    ) -> (u8, u8) {
+        if self.rows == [0; 8] {
+            return (pa & joy_a, pb & joy_b);
+        }
+        let mut read_a = 0xFF;
+        let mut read_b = 0xFF;
+        let mut strong_b = pb_high;
+        for pin in 0..8 {
+            let bit = 1 << pin;
+            if pa & joy_a & bit == 0 {
+                let (rows, columns) = self.connected(bit, 0);
+                read_a &= !rows;
+                read_b &= !columns;
+                // A PB output high defeats one ordinary PA output low. Two
+                // connected low PA drivers can defeat that high instead.
+                if (rows & pa_low).count_ones() >= 2 {
+                    strong_b &= !columns;
+                }
+            }
+            if pb & joy_b & bit == 0 {
+                let (rows, columns) = self.connected(0, bit);
+                read_b &= !columns;
+                // A driven high on another connected PB pin suppresses
+                // ghost rows, but not the direct contact to this low pin.
+                read_a &= if columns & pb_high == 0 {
+                    !rows
+                } else {
+                    self.scan_reverse(!bit)
+                };
+            }
+        }
+        (read_a & pa & joy_a, ((read_b & pb) | strong_b) & joy_b)
+    }
+
+    /// Follow closed contacts until the group contains every reachable pin.
+    fn connected(&self, mut rows: u8, mut columns: u8) -> (u8, u8) {
+        loop {
+            let previous = (rows, columns);
+            columns |= !self.scan(!rows);
+            rows |= !self.scan_reverse(!columns);
+            if previous == (rows, columns) {
+                return (rows, columns);
+            }
+        }
     }
 
     /// Releases all keys.
