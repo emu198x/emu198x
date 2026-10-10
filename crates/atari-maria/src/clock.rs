@@ -60,7 +60,7 @@ impl Maria {
         let address = self.address_in;
         let tia = address & 0xfce0 == 0;
         let riot = matches!(address & 0xfe80, 0x0280 | 0x0480);
-        (self.phi1, self.phi2) = self.clock.tick(tia || riot);
+        (self.phi1, self.phi2) = self.clock.tick((tia || riot) && !self.dma.slow_inhibit);
     }
 }
 
