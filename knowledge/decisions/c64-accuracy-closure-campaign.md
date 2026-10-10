@@ -634,29 +634,37 @@ differences are not modelled yet:
   apply;
 - the light pen latches one X unit earlier (`x_extra_bits`).
 
-**NTSC (8562).** `greydot` and `colorsplit` were compared with VICE x64sc 3.10
-screenshots (`-model ntsc` and `-model c64cntsc`), aligned at the NTSC
-`gfxfetch` crop. `colorsplit` matches on the 8562 except its XSCROLL rows,
-grey dots included. (Measured before #1620; the NTSC XSCROLL rows have not
-been compared since.) (On the 6567R8 it also differs in four 8-pixel blocks
-where VICE's window wraps the frame.) `greydot` matches exactly on the
-6567R8 but leaves 521 disagreements on the 8562, and they come from the CPU,
-not the grey-dot rule. `greydot` is a PAL program: its store loop is 63
-cycles long. On NTSC, VICE's monitor puts its `$D021` stores one cycle away
-from Emu198x's on every line, later in some bands and earlier in others, on
-both chips; `colorsplit`'s stores agree exactly. The program writes the same
-value over and over, so on the 6567R8 the shifted stores leave no trace. On
-the 8562 every grey dot follows its store: one mapping from store cycle to
-dot places all 236 grey dots in both emulators' images.
+**NTSC (8562).** `greydot` has two stable launch phases in native VICE
+x64sc 3.10 on both the 6567R8 and 8562. Its PAL stabiliser does not remove
+the one-cycle phase difference on a 65-cycle NTSC line. The first `$D021`
+store lands at raster 110, cycle 15 or 16; later bands alternate phases.
+Comparing the two native 8562 images reproduces exactly the 521 pixels
+previously attributed to an emulator timing fault in #1629. No production
+CPU or VIC-II change is needed for that discrepancy.
+
+The `ntsc_greydot_matches_both_native_launch_phases` regression checks six
+BASIC launch times per NTSC model, requires both phases, and compares all
+408 stores and 94,848 reference-window pixels for each run. Every observation
+matches its corresponding native phase; cross-comparing phases retains the
+521-pixel 8562 negative control (49 on the 6567R8). Fixtures are under
+`test-data/commodore/c64/ntsc-greydot/`; the [native capture and evidence](https://github.com/emu198x/docs/blob/main/plans/2026-10-10-c64-ntsc-greydot.md)
+record the explicit ROM, palette and launch settings. This establishes
+software-reference parity for the measured phases, not physical-hardware
+validation or complete NTSC coverage.
+
+`colorsplit` matched the 8562 reference except its XSCROLL rows when measured
+before #1620; those NTSC rows still need a fresh comparison. On the 6567R8,
+the earlier comparison also differed in four eight-pixel blocks where VICE's
+window wraps the frame.
 
 ### Risks
 
-- **NTSC is unverified.** The prototype measured PAL only. A and C change the
-  6567R8, 6567R56A and 8562 paths too. Stage D found `greydot`'s stores a
-  cycle away from VICE's on NTSC (see its as-built note). Re-run `ntsc_gfxfetch_matches_vice_reference`
-  (at least 94%) at every stage. Compare `greydot` and `colorsplit` on NTSC in
-  VICE before claiming them. Line 0's late IRQ and the 6567R56A cycle table
-  need checking separately.
+- **NTSC coverage is partial.** The prototype measured PAL only. A and C
+  change the 6567R8, 6567R56A and 8562 paths too. Keep both native `greydot`
+  phases exact and re-run `ntsc_gfxfetch_matches_vice_reference` (at least
+  94%) at every stage. Refresh the NTSC `colorsplit` comparison before
+  claiming it. Line 0's late IRQ and the 6567R56A cycle table need checking
+  separately.
 - **The snapshot version is shared.** `SNAPSHOT_VERSION` in
   `crates/runtime-commodore-c64/src/snapshot.rs` covers every C64 chip. The
   SID work in #769 runs in parallel and may bump it too. Rebase onto whatever

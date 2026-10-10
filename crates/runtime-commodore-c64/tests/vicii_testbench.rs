@@ -89,6 +89,15 @@ fn prepare_testprog_on(
     model: Model,
     cycles_per_frame: u32,
 ) -> HeadlessSession<C64Runtime, C64SessionQueryProvider> {
+    prepare_testprog_on_after_boot(rel_prg, model, cycles_per_frame, 150)
+}
+
+fn prepare_testprog_on_after_boot(
+    rel_prg: &str,
+    model: Model,
+    cycles_per_frame: u32,
+    boot_frames: u32,
+) -> HeadlessSession<C64Runtime, C64SessionQueryProvider> {
     let dir = testbench_dir().expect("testbench dir checked by caller");
     let prg = std::fs::read(dir.join(rel_prg)).expect("testbench .prg should read");
 
@@ -102,7 +111,7 @@ fn prepare_testprog_on(
     );
 
     // Boot to the READY prompt (real hardware ~2.5 s; 150 PAL frames = 3 s).
-    session.run_frames(150).expect("boot should run");
+    session.run_frames(boot_frames).expect("boot should run");
 
     // Load the program image into RAM and fix the BASIC end-of-program pointer
     // (VARTAB, $2D/$2E) so RUN finds the program's end and the SYS stub runs.
@@ -609,6 +618,116 @@ fn cpu_store_cycle_boundary() {
         !stores.is_empty(),
         "settled frame should store to ${addr:04X}"
     );
+}
+
+/// A PAL stabiliser has two steady phases on 65-cycle NTSC lines (#1629).
+/// Native VICE reproduces both: comparing opposite 8562 phases gives exactly
+/// the reported 521 pixels, without changing its CPU or VIC-II. Match the
+/// complete trace and image for the observed phase, and require both phases.
+#[test]
+#[ignore = "FIXTURE: NTSC greydot phases require C64 ROMs + VIC-II testbench"]
+fn ntsc_greydot_matches_both_native_launch_phases() {
+    if !roms_present() || testbench_dir().is_none() {
+        emu198x_test_skip::skip!("C64 ROMs or VIC-II testbench not staged");
+    }
+    let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../test-data/commodore/c64/ntsc-greydot");
+    let traces: Vec<Vec<CpuStore>> = [15, 16]
+        .iter()
+        .map(|cycle| {
+            let bytes = std::fs::read(fixtures.join(format!("cycle{cycle}-stores.bin")))
+                .expect("native store trace");
+            assert_eq!(bytes.len(), 408 * 4);
+            bytes
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .map(|row| CpuStore {
+                    line: u16::from_le_bytes([row[0], row[1]]),
+                    cycle: row[2],
+                    value: row[3],
+                })
+                .collect()
+        })
+        .collect();
+    for (model, chip, opposite_phase_pixels) in [
+        (Model::C64NtscBreadbin, "6567r8", 49),
+        (Model::C64cNtsc, "8562", 521),
+    ] {
+        let references: Vec<_> = [15, 16]
+            .iter()
+            .map(|cycle| {
+                let reference =
+                    decode_reference_png(&fixtures.join(format!("{chip}-cycle{cycle}.png")));
+                assert_eq!((reference.width, reference.height), (384, 247));
+                reference
+            })
+            .collect();
+        let mut phases_seen = [false; 2];
+        for boot_frames in 150..156 {
+            let mut session = prepare_testprog_on_after_boot(
+                "greydot/greydot.prg",
+                model,
+                TIMING_NTSC_BREADBIN.cycles_per_frame,
+                boot_frames,
+            );
+            session.run_frames(60).expect("settled greydot");
+            let mut stores = Vec::new();
+            for _ in 0..TIMING_NTSC_BREADBIN.cycles_per_frame {
+                let machine = session.machine_mut().machine_mut();
+                let cpu = machine.cpu();
+                let (addr, value, rw, total) = (cpu.addr, cpu.data, cpu.rw, cpu.total_cycles);
+                let (line, cycle) = (machine.raster_line(), machine.cycle_in_line());
+                machine.tick();
+                if !rw && addr == 0xD021 && machine.cpu().total_cycles != total {
+                    stores.push(CpuStore { line, cycle, value });
+                }
+            }
+            assert_eq!(stores.len(), 408, "{model:?}, boot {boot_frames}");
+            let phase = match stores[0] {
+                CpuStore {
+                    line: 110,
+                    cycle: 15,
+                    value: 0,
+                } => 0,
+                CpuStore {
+                    line: 110,
+                    cycle: 16,
+                    value: 0,
+                } => 1,
+                other => panic!("unrecognised native phase: {other:?}"),
+            };
+            phases_seen[phase] = true;
+            assert_eq!(stores, traces[phase], "{model:?}, boot {boot_frames}");
+            let fb = session.machine().machine().framebuffer();
+            assert_eq!(fb.len(), FB_WIDTH as usize * 263);
+            // VICE's NTSC screenshot starts at raster 28 and wraps to 0.
+            let window: Vec<u32> = fb
+                .as_chunks::<{ FB_WIDTH as usize }>()
+                .0
+                .iter()
+                .cycle()
+                .skip(28)
+                .take(247)
+                .flatten()
+                .copied()
+                .collect();
+            let matching = compare_indexed(&window, &references[phase], 16, 0);
+            assert_eq!(
+                matching.matched_pixels,
+                384 * 247,
+                "{model:?}, boot {boot_frames}, phase {phase}"
+            );
+            // The original false discrepancy must still be detectable.
+            let opposite = compare_indexed(&window, &references[1 - phase], 16, 0);
+            assert_eq!(384 * 247 - opposite.matched_pixels, opposite_phase_pixels);
+        }
+        assert_eq!(
+            phases_seen,
+            [true, true],
+            "{model:?}: exercise both native phases"
+        );
+    }
 }
 
 /// The cycles at which test programs store to the VIC-II, as VICE x64sc 3.10
