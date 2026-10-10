@@ -46,6 +46,20 @@ impl KeyboardMatrix {
         !cols
     }
 
+    /// Returns PA inputs pulled low by direct contacts to low PB pins.
+    /// Like `scan`, this models direct contacts, not multi-key ghost paths
+    /// or contention between actively driven high and low outputs.
+    #[must_use]
+    pub(crate) fn scan_reverse(&self, column_mask: u8) -> u8 {
+        let mut rows = 0u8;
+        for (row, row_data) in self.rows.iter().enumerate() {
+            if row_data & !column_mask != 0 {
+                rows |= 1 << row;
+            }
+        }
+        !rows
+    }
+
     /// Releases all keys.
     pub fn release_all(&mut self) {
         self.rows = [0; 8];

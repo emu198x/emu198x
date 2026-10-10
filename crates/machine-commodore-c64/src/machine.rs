@@ -1315,14 +1315,27 @@ impl C64 {
     /// which some stable-raster routines do.
     fn refresh_light_pen(&mut self) {
         let pb = self.cia1.port_b_drive_state()
-            & self.keyboard.scan(self.cia1.pa)
+            & self
+                .keyboard
+                .scan(self.cia1.port_a_drive_state() & self.joystick_input(2))
             & self.joystick_input(1);
         self.vic.set_light_pen_line(pb & 0x10 == 0);
     }
 
     fn refresh_keyboard_scan(&mut self) {
-        self.cia1.pa_in = self.joystick_input(2);
-        self.cia1.pb_in = self.keyboard.scan(self.cia1.pa) & self.joystick_input(1);
+        // Each closed key connects a PA pin to a PB pin in either direction.
+        // Start from the drives, not last tick's resolved input pins: feeding
+        // those back would leave a released low latched through its own key.
+        // See MOS 6526 sheet 5/8 and VICE c64cia1.c read_ciapa/read_ciapb.
+        let joy_a = self.joystick_input(2);
+        let joy_b = self.joystick_input(1);
+        let pa = self.cia1.port_a_drive_state() & joy_a;
+        let pb = self
+            .cia1
+            .timer_port_b_override(self.cia1.port_b_drive_state())
+            & joy_b;
+        self.cia1.pa_in = self.keyboard.scan_reverse(pb) & joy_a;
+        self.cia1.pb_in = self.keyboard.scan(pa) & joy_b;
     }
 
     /// Drives the SID pot inputs from the paddle multiplexer. The C64 wires both
@@ -1417,13 +1430,11 @@ impl C64 {
     }
 
     fn cia1_port_a_read(&self) -> u8 {
-        self.cia1.port_a_drive_state() & self.joystick_input(2)
+        self.cia1.port_a_drive_state() & self.cia1.pa_in
     }
 
     fn cia1_port_b_read(&self) -> u8 {
-        let byte = self.cia1.port_b_drive_state()
-            & self.keyboard.scan(self.cia1.pa)
-            & self.joystick_input(1);
+        let byte = self.cia1.port_b_drive_state() & self.cia1.pb_in;
         // PB6/PB7 carry the timer outputs when enabled (CRA/CRB bit 1);
         // they override the port/keyboard state for those bits.
         self.cia1.timer_port_b_override(byte)
@@ -2303,6 +2314,121 @@ mod tests {
 
         machine.cpu_write(0xDC00, 0xFE);
         assert_eq!(machine.cpu_read(0xDC01) & 0x02, 0x00);
+    }
+
+    #[test]
+    fn reverse_keyboard_scan_detects_return_on_pal_and_ntsc() {
+        for model in [C64Model::PalBreadbin, C64Model::NtscBreadbin] {
+            let mut machine = stub_machine(model);
+            machine.keyboard_mut().set_key(0, 1, true); // Return
+            machine.cpu_write(0xDC02, 0x00);
+            machine.cpu_write(0xDC03, 0xFF);
+            machine.cpu_write(0xDC01, 0xFD);
+            assert_eq!(machine.cpu_read(0xDC00), 0xFE, "{model:?}");
+            assert_eq!(machine.cia1().pa_in, 0xFE);
+        }
+    }
+
+    #[test]
+    fn keyboard_scan_reads_every_contact_in_both_directions() {
+        let mut machine = stub_machine(C64Model::PalBreadbin);
+        for row in 0..8 {
+            for col in 0..8 {
+                machine.keyboard_mut().release_all();
+                machine.keyboard_mut().set_key(row, col, true);
+                for select in 0..8 {
+                    machine.cpu_write(0xDC02, 0xFF);
+                    machine.cpu_write(0xDC03, 0x00);
+                    machine.cpu_write(0xDC00, !(1 << select));
+                    let expected = if select == row { !(1 << col) } else { 0xFF };
+                    assert_eq!(machine.cpu_read(0xDC01), expected);
+
+                    machine.cpu_write(0xDC02, 0x00);
+                    machine.cpu_write(0xDC03, 0xFF);
+                    machine.cpu_write(0xDC01, !(1 << select));
+                    let expected = if select == col { !(1 << row) } else { 0xFF };
+                    assert_eq!(machine.cpu_read(0xDC00), expected);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn reverse_keyboard_scan_releases_without_feedback_from_input_pins() {
+        let mut machine = stub_machine(C64Model::PalBreadbin);
+        machine.keyboard_mut().set_key(0, 1, true);
+        machine.cpu_write(0xDC02, 0x00);
+        machine.cpu_write(0xDC03, 0x02);
+        machine.cpu_write(0xDC01, 0x00);
+        assert_eq!(machine.cpu_read(0xDC00), 0xFE);
+        machine.cia1.tick(); // Publish the low PA input on the CIA pin fields.
+        machine.cpu_write(0xDC03, 0x00); // A low input latch must not drive PB.
+        for _ in 0..4 {
+            machine.refresh_keyboard_scan();
+            machine.cia1.tick();
+            assert_eq!(machine.cpu_read(0xDC00), 0xFF);
+            assert_eq!(machine.cpu_read(0xDC01), 0xFF);
+        }
+        machine.cpu_write(0xDC03, 0x02);
+        assert_eq!(machine.cpu_read(0xDC00), 0xFE);
+        machine.keyboard_mut().release_all();
+        assert_eq!(machine.cpu_read(0xDC00), 0xFF);
+        machine.keyboard_mut().set_key(0, 1, true);
+        assert_eq!(machine.cpu_read(0xDC00), 0xFE);
+        machine.cpu_write(0xDC01, 0xFF);
+        assert_eq!(machine.cpu_read(0xDC00), 0xFF);
+    }
+
+    #[test]
+    fn keyboard_scan_carries_joystick_pulldowns_in_both_directions() {
+        let mut machine = stub_machine(C64Model::PalBreadbin);
+        machine.cpu_write(0xDC02, 0x00);
+        machine.cpu_write(0xDC03, 0x00);
+        machine.keyboard_mut().set_key(0, 1, true);
+        assert!(machine.set_joystick_control(1, "down", true));
+        assert_eq!(machine.cpu_read(0xDC00), 0xFE);
+        assert!(machine.set_joystick_control(1, "down", false));
+        assert_eq!(machine.cpu_read(0xDC00), 0xFF);
+        assert!(machine.set_joystick_control(2, "up", true));
+        assert_eq!(machine.cpu_read(0xDC01), 0xFD);
+        assert!(machine.set_joystick_control(2, "up", false));
+        assert_eq!(machine.cpu_read(0xDC01), 0xFF);
+    }
+
+    #[test]
+    fn reverse_keyboard_scan_uses_timer_driven_pb6_and_pb7() {
+        for (column, control) in [(6, 0xDC0E), (7, 0xDC0F)] {
+            let mut machine = stub_machine(C64Model::PalBreadbin);
+            machine.cpu_write(0xDC02, 0x00);
+            machine.cpu_write(0xDC03, 0x00);
+            machine.keyboard_mut().set_key(2, column, true);
+            assert_eq!(machine.cpu_read(0xDC00), 0xFF);
+            // Stopped toggle output is low, and overrides the input DDR.
+            machine.cpu_write(control, 0x06);
+            assert_eq!(machine.cpu_read(0xDC00), 0xFB);
+            machine.cpu_write(control, 0x00);
+            assert_eq!(machine.cpu_read(0xDC00), 0xFF);
+        }
+    }
+
+    #[test]
+    fn reverse_keyboard_scan_survives_snapshot_restore() {
+        let mut machine = stub_machine(C64Model::PalBreadbin);
+        machine.keyboard_mut().set_key(0, 1, true);
+        machine.cpu_write(0xDC02, 0x00);
+        machine.cpu_write(0xDC03, 0xFF);
+        machine.cpu_write(0xDC01, 0xFD);
+        let snapshot = machine.snapshot_state();
+        machine.keyboard_mut().release_all();
+        machine.cpu_write(0xDC03, 0x00);
+        assert_eq!(machine.cpu_read(0xDC00), 0xFF);
+        machine
+            .restore_snapshot_state(snapshot)
+            .expect("snapshot restores");
+        assert_eq!(machine.cpu_read(0xDC00), 0xFE);
+        machine.cpu_write(0xDC03, 0x00);
+        assert_eq!(machine.cpu_read(0xDC00), 0xFF);
+        assert_eq!(machine.cpu_read(0xDC01), 0xFF);
     }
 
     #[test]
