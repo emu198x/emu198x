@@ -56,7 +56,9 @@ impl Maria {
         self.fetch.phase = phase;
         self.fetch.address = address;
         self.fetch.delay = delay;
-        self.fetch.holey = graphics && self.is_holey(address);
+        // A hole suppresses the rest of the current character, including the
+        // second indirect byte even if its address wraps out of the hole.
+        self.fetch.holey = graphics && (self.fetch.holey || self.is_holey(address));
     }
 
     fn schedule_header(&mut self, phase: Phase) {
@@ -156,9 +158,16 @@ impl Maria {
                 self.schedule_fetch(Phase::Indirect, self.fetch.char_addr, 8, true);
             }
             Phase::Direct | Phase::Indirect | Phase::IndirectSecond => {
-                let mut x = usize::from(self.fetch.hpos);
-                self.blit_byte(byte, &mut x, self.fetch.write_mode, self.fetch.palette);
-                self.fetch.hpos = x as u16;
+                if self.fetch.holey {
+                    // The width counter ends this object after the current
+                    // character's bus slots. No line-RAM write or HPOS advance
+                    // occurs, even when Kangaroo mode would write zero pixels.
+                    self.fetch.remaining = 1;
+                } else {
+                    let mut x = usize::from(self.fetch.hpos);
+                    self.blit_byte(byte, &mut x, self.fetch.write_mode, self.fetch.palette);
+                    self.fetch.hpos = x as u16;
+                }
                 if self.fetch.phase == Phase::Indirect && self.ctrl & CTRL_CW != 0 {
                     self.fetch.char_addr = self.fetch.char_addr.wrapping_add(1);
                     self.schedule_fetch(Phase::IndirectSecond, self.fetch.char_addr, 6, true);

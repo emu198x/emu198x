@@ -236,7 +236,7 @@ struct DllEntry {
     /// decrements one per scanline down the zone.
     offset: u8,
     /// Holey-DMA mask (header bits 6:5 → `H16` in bit 1, `H8` in bit 0). When
-    /// set, graphics reads from the matching address window return 0.
+    /// set, matching graphics addresses suppress writes and end the object.
     holey: u8,
     /// Display List address for this zone.
     dl_addr: u16,
@@ -630,8 +630,8 @@ impl Maria {
         }
     }
 
-    /// Holey DMA: when the zone's `H8`/`H16` bits are set, graphics reads from
-    /// the matching high-address windows return 0 (a "hole") instead of memory.
+    /// Holey DMA address decode. The fetch pipeline suppresses graphics writes
+    /// and terminates the object after the current character's bus slots.
     /// MAME `maria.cpp` `is_holey`: `H16` blanks `addr & 0x9000 == 0x9000`,
     /// `H8` blanks `addr & 0x8800 == 0x8800`.
     fn is_holey(&self, addr: u16) -> bool {
