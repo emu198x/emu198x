@@ -130,6 +130,8 @@ pub struct Atari7800 {
     frame_count: u64,
     dma_budget: u16,
     line_cycle: u16,
+    /// The CPU pins hold a transaction awaiting the next phase-2 bus access.
+    cpu_bus_active: bool,
 }
 
 impl Atari7800 {
@@ -171,6 +173,7 @@ impl Atari7800 {
             frame_count: 0,
             dma_budget: 0,
             line_cycle: 0,
+            cpu_bus_active: true,
         }
     }
 
@@ -202,17 +205,23 @@ impl Atari7800 {
 
         if self.maria.phi1 {
             self.line_cycle += 1;
-            if self.line_cycle > self.dma_budget && !self.maria.wsync_halt() {
+            self.cpu_bus_active = self.line_cycle > self.dma_budget;
+            if self.cpu_bus_active {
+                // RDY holds NMOS reads while leaving writes and the NMI
+                // detector clocked. DMA still owns complete legacy slots.
+                self.cpu.rdy = !self.maria.wsync_halt();
                 self.cpu.tick();
+            }
+        }
+        if self.maria.phi2 {
+            self.riot.tick();
+            if self.cpu_bus_active {
                 if self.cpu.rw {
                     self.cpu.data_in = self.mem_read(self.cpu.addr);
                 } else {
                     self.mem_write(self.cpu.addr, self.cpu.data);
                 }
             }
-        }
-        if self.maria.phi2 {
-            self.riot.tick();
         }
         // POKEY still couples chip advancement to fixed-rate host sampling.
         // Variable PCLK wiring requires separating those clocks first; the
@@ -544,6 +553,210 @@ mod tests {
     }
 
     #[test]
+    fn cpu_bus_writes_wait_for_phase_two() {
+        let mut rom = trap_rom_32k();
+        rom[..7].copy_from_slice(&[0xa9, 0x5a, 0x85, 0x40, 0x4c, 0x04, 0x80]);
+        let mut sys = Atari7800::new(rom, Atari7800Region::Ntsc).expect("write guest");
+        let mut saw_address = false;
+        let mut saw_write = false;
+        for _ in 0..256 {
+            sys.tick_master_clock();
+            if sys.cpu.addr == 0x0040 && !sys.cpu.rw {
+                if sys.maria.phi1 {
+                    saw_address = true;
+                    assert_eq!(sys.peek(0x40), 0, "write happened in address phase");
+                }
+                if sys.maria.phi2 {
+                    saw_write = true;
+                    assert_eq!(sys.peek(0x40), 0x5a, "phase 2 commits the write");
+                    break;
+                }
+            }
+        }
+        assert!(saw_address && saw_write, "both bus phases must execute");
+    }
+
+    #[test]
+    fn cpu_bus_reads_sample_memory_in_phase_two() {
+        let mut rom = trap_rom_32k();
+        rom[..7].copy_from_slice(&[0xa5, 0x40, 0x85, 0x41, 0x4c, 0x04, 0x80]);
+        let mut sys = Atari7800::new(rom, Atari7800Region::Ntsc).expect("read guest");
+        sys.poke(0x40, 0x11);
+        let mut changed = false;
+        let mut stored = false;
+        for _ in 0..256 {
+            sys.tick_master_clock();
+            if sys.maria.phi1 && sys.cpu.rw && sys.cpu.addr == 0x0040 {
+                // An external change after address presentation must reach the
+                // later data sample. Sampling immediately at phi1 loses it.
+                sys.poke(0x40, 0x77);
+                changed = true;
+            }
+            if sys.peek(0x41) != 0 {
+                stored = true;
+                assert_eq!(sys.peek(0x41), 0x77);
+                break;
+            }
+        }
+        assert!(
+            changed && stored,
+            "the complete read/store path must execute"
+        );
+    }
+
+    #[test]
+    fn cpu_bus_wsync_keeps_nmi_edge_detection_running() {
+        let mut sys = Atari7800::new(trap_rom_32k(), Atari7800Region::Ntsc).expect("WSYNC fixture");
+        sys.maria.write(0x04, 0);
+        sys.cpu.nmi = true;
+        let cycles = sys.cpu.total_cycles;
+        for _ in 0..24 {
+            sys.tick_master_clock();
+        }
+        assert_eq!(sys.cpu.total_cycles, cycles, "WSYNC holds execution");
+        assert!(
+            sys.cpu.nmi_prev(),
+            "NMI edge must still reach the CPU detector"
+        );
+        sys.cpu.nmi = false;
+        for _ in 0..24 {
+            sys.tick_master_clock();
+        }
+        assert!(!sys.cpu.nmi_prev(), "detector also observes pulse release");
+    }
+
+    #[test]
+    fn cpu_bus_wsync_allows_both_read_modify_write_cycles() {
+        let mut rom = trap_rom_32k();
+        rom[..5].copy_from_slice(&[0xe6, 0x24, 0x4c, 0x02, 0x80]); // INC WSYNC
+        let mut sys = Atari7800::new(rom, Atari7800Region::Ntsc).expect("RMW guest");
+        let mut writes = Vec::new();
+        for tick in 1..=2048 {
+            sys.tick_master_clock();
+            if sys.maria.phi2
+                && sys.cpu.addr == 0x0024
+                && !sys.cpu.rw
+                && writes.last().is_none_or(|&(_, data)| data != sys.cpu.data)
+            {
+                writes.push((tick, sys.cpu.data));
+                if writes.len() == 2 {
+                    break;
+                }
+            }
+        }
+        assert_eq!(writes.len(), 2, "dummy and final writes must both execute");
+        assert_eq!((writes[0].1, writes[1].1), (0, 1));
+        assert_eq!(
+            writes[1].0 - writes[0].0,
+            8,
+            "RDY cannot stall NMOS write cycles"
+        );
+    }
+
+    #[test]
+    fn cpu_bus_pending_writes_resume_at_the_same_memory_phase() {
+        for region in [Atari7800Region::Ntsc, Atari7800Region::Pal] {
+            for address in [0x0040u16, 0x0280] {
+                for offset in 0..4 {
+                    let mut rom = trap_rom_32k();
+                    let [low, high] = address.to_le_bytes();
+                    rom[..8].copy_from_slice(&[0xa9, 0x5a, 0x8d, low, high, 0x4c, 0x05, 0x80]);
+                    let mut sys = Atari7800::new(rom, region).expect("write snapshot guest");
+                    sys.poke(0x0281, 0xff);
+                    sys.poke(0x0280, 0);
+                    let mut presented = false;
+                    for _ in 0..256 {
+                        sys.tick_master_clock();
+                        if sys.maria.phi1 && sys.cpu.addr == address && !sys.cpu.rw {
+                            presented = true;
+                            break;
+                        }
+                    }
+                    assert!(presented);
+                    for _ in 0..offset {
+                        sys.tick_master_clock();
+                    }
+                    let saved = postcard::to_allocvec(&sys).expect("save pending write");
+                    let mut restored: Atari7800 =
+                        postcard::from_bytes(&saved).expect("restore pending write");
+                    for tick in 1..=12 {
+                        sys.tick_master_clock();
+                        restored.tick_master_clock();
+                        let observed = if address == 0x0040 {
+                            sys.peek(address)
+                        } else {
+                            sys.riot.port_a_drive()
+                        };
+                        let resumed = if address == 0x0040 {
+                            restored.peek(address)
+                        } else {
+                            restored.riot.port_a_drive()
+                        };
+                        assert_eq!(
+                            observed,
+                            if offset + tick < 4 { 0 } else { 0x5a },
+                            "{region:?}, address {address:04x}, offset {offset}, tick {tick}"
+                        );
+                        assert_eq!(resumed, observed);
+                    }
+                    assert_eq!(
+                        postcard::to_allocvec(&restored).expect("resumed state"),
+                        postcard::to_allocvec(&sys).expect("original state")
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn cpu_bus_pending_reads_resume_with_live_memory_and_peripheral_inputs() {
+        for region in [Atari7800Region::Ntsc, Atari7800Region::Pal] {
+            for address in [0x0040u16, 0x0280] {
+                for offset in 0..4 {
+                    let mut rom = trap_rom_32k();
+                    let [low, high] = address.to_le_bytes();
+                    rom[..8].copy_from_slice(&[0xad, low, high, 0x85, 0x41, 0x4c, 0x05, 0x80]);
+                    let mut sys = Atari7800::new(rom, region).expect("read snapshot guest");
+                    sys.poke(0x40, 0x11);
+                    sys.riot.input_a = 0x11;
+                    let mut presented = false;
+                    for _ in 0..256 {
+                        sys.tick_master_clock();
+                        if sys.maria.phi1 && sys.cpu.addr == address && sys.cpu.rw {
+                            presented = true;
+                            break;
+                        }
+                    }
+                    assert!(presented);
+                    for _ in 0..offset {
+                        sys.tick_master_clock();
+                    }
+                    let saved = postcard::to_allocvec(&sys).expect("save pending read");
+                    let mut restored: Atari7800 =
+                        postcard::from_bytes(&saved).expect("restore pending read");
+                    for machine in [&mut sys, &mut restored] {
+                        machine.poke(0x40, 0x77);
+                        machine.riot.input_a = 0x77;
+                    }
+                    let mut stored = false;
+                    for _ in 0..128 {
+                        sys.tick_master_clock();
+                        restored.tick_master_clock();
+                        assert_eq!(restored.cpu.data_in, sys.cpu.data_in);
+                        assert_eq!(restored.peek(0x41), sys.peek(0x41));
+                        if sys.peek(0x41) != 0 {
+                            stored = true;
+                            assert_eq!(sys.peek(0x41), 0x77);
+                            break;
+                        }
+                    }
+                    assert!(stored, "the restored read must reach its store");
+                }
+            }
+        }
+    }
+
+    #[test]
     fn slow_peripheral_reads_extend_the_cpu_clock_and_following_phase() {
         for region in [Atari7800Region::Ntsc, Atari7800Region::Pal] {
             for (address, expected) in [
@@ -578,7 +791,7 @@ mod tests {
             for (address, period) in [(0x8000, 8u16), (0x0280, 12), (0x0000, 12)] {
                 let mut sys = Atari7800::new(trap_rom_32k(), region).expect("timer fixture");
                 sys.cpu.addr = address;
-                sys.cpu.rdy = false;
+                sys.maria.write(0x04, 0); // WSYNC drives the machine's RDY input.
                 sys.riot.write(0x0294, 200);
                 for tick in 1..=120 {
                     sys.tick_master_clock();
