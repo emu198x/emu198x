@@ -3,9 +3,11 @@
 //! `$6000` (DE B0 61) result protocol, and prints a pass / fail /
 //! timeout table grouped by directory.
 //!
-//! Single `#[ignore]` test — run with:
+//! Full survey — run with:
 //! `cargo test --release -p machine-nintendo-nes --test nes_sweep \
-//!     -- --ignored --nocapture`
+//!     sweep -- --exact --ignored --nocapture`
+//!
+//! Shared 6502 interrupt gate: use `cpu_interrupts_v2` in place of `sweep`.
 
 use format_nintendo_nes_ines::parse_ines;
 use machine_nintendo_nes::Nes;
@@ -622,6 +624,41 @@ const UNSWEPT_DIRS: &[(&str, &str)] = &[
          tests/nestest.rs",
     ),
 ];
+
+/// The shared 6502's interrupt oracle needs NES APU/PPU/DMA services.
+/// Keep a focused entry point here rather than duplicating the machine in
+/// the CPU crate. Unlike the survey, every named ROM must pass.
+/// `M6502::new()` and `new_2a03()` share these interrupt stages; this gate
+/// covers that shared CPU behaviour, not other boards' interrupt wiring.
+/// Evidence: https://github.com/emu198x/docs/blob/main/plans/2026-10-10-6502-interrupt-delegation.md
+#[test]
+#[ignore = "FIXTURE: local cpu_interrupts_v2 ROMs; run with --release --ignored --nocapture"]
+fn cpu_interrupts_v2() {
+    let root = nes_test_roms_root()
+        .expect("cpu_interrupts_v2 requires ~/Projects/198x/assets/test-suites/nes-test-roms")
+        .join("cpu_interrupts_v2");
+    let roms = [
+        "rom_singles/1-cli_latency.nes",
+        "rom_singles/2-nmi_and_brk.nes",
+        "rom_singles/3-nmi_and_irq.nes",
+        "rom_singles/4-irq_and_dma.nes",
+        "rom_singles/5-branch_delays_irq.nes",
+        "cpu_interrupts.nes",
+    ];
+    let mut failures = Vec::new();
+    for rom in roms {
+        let verdict = run_one(&root.join(rom));
+        eprintln!("{rom}: {verdict:?}");
+        if !matches!(verdict, Ok(Verdict::Pass { .. })) {
+            failures.push(format!("{rom}: {verdict:?}"));
+        }
+    }
+    assert!(
+        failures.is_empty(),
+        "cpu_interrupts_v2 failures:\n{}",
+        failures.join("\n")
+    );
+}
 
 #[test]
 #[ignore = "SLOW: long survey; run with --release --ignored --nocapture"]
