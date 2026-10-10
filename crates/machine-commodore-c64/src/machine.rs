@@ -1323,19 +1323,20 @@ impl C64 {
     }
 
     fn refresh_keyboard_scan(&mut self) {
-        // Each closed key connects a PA pin to a PB pin in either direction.
-        // Start from the drives, not last tick's resolved input pins: feeding
-        // those back would leave a released low latched through its own key.
+        // Resolve connected groups from the drives, not last tick's input
+        // pins: feeding those back would latch a released low through a key.
         // See MOS 6526 sheet 5/8 and VICE c64cia1.c read_ciapa/read_ciapb.
-        let joy_a = self.joystick_input(2);
-        let joy_b = self.joystick_input(1);
-        let pa = self.cia1.port_a_drive_state() & joy_a;
-        let pb = self
-            .cia1
-            .timer_port_b_override(self.cia1.port_b_drive_state())
-            & joy_b;
-        self.cia1.pa_in = self.keyboard.scan_reverse(pb) & joy_a;
-        self.cia1.pb_in = self.keyboard.scan(pa) & joy_b;
+        let (pa, pb) = self.keyboard.resolve_ports(
+            self.cia1.port_a_drive_state(),
+            self.cia1
+                .timer_port_b_override(self.cia1.port_b_drive_state()),
+            self.cia1.ddr_a() & !self.cia1.port_a_latch(),
+            self.cia1.ddr_b() & self.cia1.port_b_latch(),
+            self.joystick_input(2),
+            self.joystick_input(1),
+        );
+        self.cia1.pa_in = pa;
+        self.cia1.pb_in = pb;
     }
 
     /// Drives the SID pot inputs from the paddle multiplexer. The C64 wires both
@@ -2302,6 +2303,101 @@ mod tests {
         machine.cpu_write(0xDC00, 0xFE);
         assert_eq!(machine.cpu_read(0xDC01) & 0x02, 0x00);
         assert_eq!(machine.cia1_port_b_input() & 0x02, 0x00);
+    }
+
+    #[test]
+    fn keyboard_network_matches_vice_for_all_two_by_two_contacts_and_drives() {
+        let expected = include_bytes!("../test-data/vice-matrix-2x2.bin");
+        assert_eq!(expected.len(), 20_736 * 2);
+        let mut machine = stub_machine(C64Model::PalBreadbin);
+        let mut observed = 0;
+        for keys in 0u8..16 {
+            for pin in 0..4 {
+                machine
+                    .keyboard_mut()
+                    .set_key(pin / 2, pin % 2, keys & (1 << pin) != 0);
+            }
+            for config in 0u8..81 {
+                let states = [config / 27, (config / 9) % 3, (config / 3) % 3, config % 3];
+                let mut latch = [0xFFu8; 2];
+                let mut ddr = [0u8; 2];
+                for (pin, state) in states.into_iter().enumerate() {
+                    let bit = 1 << (pin % 2);
+                    if state != 0 {
+                        ddr[pin / 2] |= bit;
+                    }
+                    if state == 1 {
+                        latch[pin / 2] &= !bit;
+                    }
+                }
+                machine.cpu_write(0xDC00, latch[0]);
+                machine.cpu_write(0xDC01, latch[1]);
+                machine.cpu_write(0xDC02, ddr[0]);
+                machine.cpu_write(0xDC03, ddr[1]);
+                for joy_a in 0..4 {
+                    for joy_b in 0..4 {
+                        for (port, mask) in [(2, joy_a), (1, joy_b)] {
+                            assert!(machine.set_joystick_control(port, "up", mask & 1 != 0));
+                            assert!(machine.set_joystick_control(port, "down", mask & 2 != 0));
+                        }
+                        let actual = [machine.cpu_read(0xDC00), machine.cpu_read(0xDC01)];
+                        assert_eq!(
+                            actual,
+                            expected[observed..observed + 2],
+                            "keys={keys:04b} states={states:?} joy_a={joy_a} joy_b={joy_b}"
+                        );
+                        observed += 2;
+                    }
+                }
+            }
+        }
+        assert_eq!(observed, expected.len());
+    }
+
+    #[test]
+    fn keyboard_network_release_breaks_ghost_path_and_snapshot_restores_it() {
+        let mut machine = stub_machine(C64Model::PalBreadbin);
+        for (row, col) in [(0, 1), (1, 1), (1, 0)] {
+            machine.keyboard_mut().set_key(row, col, true);
+        }
+        machine.cpu_write(0xDC02, 0x01);
+        machine.cpu_write(0xDC03, 0x00);
+        machine.cpu_write(0xDC00, 0xFE);
+        assert_eq!(machine.cpu_read(0xDC00), 0xFC);
+        assert_eq!(machine.cpu_read(0xDC01), 0xFC);
+        let snapshot = machine.snapshot_state();
+        machine.keyboard_mut().set_key(1, 1, false);
+        assert_eq!(machine.cpu_read(0xDC00), 0xFE);
+        assert_eq!(machine.cpu_read(0xDC01), 0xFD);
+        machine
+            .restore_snapshot_state(snapshot)
+            .expect("snapshot restores");
+        assert_eq!(machine.cpu_read(0xDC00), 0xFC);
+        assert_eq!(machine.cpu_read(0xDC01), 0xFC);
+        machine.cpu_write(0xDC02, 0);
+        assert_eq!(machine.cpu_read(0xDC00), 0xFF);
+        assert_eq!(machine.cpu_read(0xDC01), 0xFF);
+    }
+
+    #[test]
+    fn keyboard_network_follows_a_chain_across_all_eight_rows() {
+        let mut machine = stub_machine(C64Model::PalBreadbin);
+        for pin in 0..8 {
+            machine.keyboard_mut().set_key(pin, pin, true);
+            if pin != 7 {
+                machine.keyboard_mut().set_key(pin + 1, pin, true);
+            }
+        }
+        machine.cpu_write(0xDC02, 0x01);
+        machine.cpu_write(0xDC03, 0x00);
+        machine.cpu_write(0xDC00, 0xFE);
+        assert_eq!(machine.cpu_read(0xDC00), 0);
+        assert_eq!(machine.cpu_read(0xDC01), 0);
+        machine.cpu_write(0xDC02, 0x00);
+        machine.cpu_write(0xDC03, 0x80);
+        machine.cpu_write(0xDC01, 0x7F);
+        assert_eq!(machine.cpu_read(0xDC00), 0);
+        assert_eq!(machine.cpu_read(0xDC01), 0);
     }
 
     #[test]
