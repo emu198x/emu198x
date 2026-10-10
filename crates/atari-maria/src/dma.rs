@@ -486,11 +486,15 @@ mod tests {
     }
 
     fn cutoff_trace([mode, width, height, slow, pal, objects]: [u8; 6]) -> Vec<String> {
-        let (mut chip, mut memory) = fixture([mode, width, height, 0, slow, pal]);
+        let (chip, mut memory) = fixture([mode, width, height, 0, slow, pal]);
         let stride = if mode == 1 { 4 } else { 5 };
         for object in 1..usize::from(objects) {
             memory.copy_within(0x1c00..0x1c00 + stride, 0x1c00 + object * stride);
         }
+        raster_state_trace(chip, &memory)
+    }
+
+    fn raster_state_trace(mut chip: Maria, memory: &[u8]) -> Vec<String> {
         let mut bus = Bus {
             cpu_address: chip.address_in,
             address: chip.address_in,
@@ -503,7 +507,7 @@ mod tests {
             let old_halt = chip.halt;
             let old_drive = chip.dma_drive;
             let read = chip.dma_read_pending();
-            bus.tick(&mut chip, &memory);
+            bus.tick(&mut chip, memory);
             if tick <= 14000 {
                 continue;
             }
@@ -554,6 +558,190 @@ mod tests {
             )
         });
         events
+    }
+
+    fn holey_fixture(
+        [mode, width, height, mask, gfx, kangaroo, slow, pal]: [u16; 8],
+    ) -> (Maria, Vec<u8>) {
+        let (mut chip, _) = fixture([
+            mode as u8,
+            width as u8,
+            height as u8,
+            0,
+            slow as u8,
+            pal as u8,
+        ]);
+        chip.ctrl |= (kangaroo as u8) << 2;
+        chip.chbase = (gfx >> 8) as u8;
+        let mut memory = vec![0; 65536];
+        for zone in 0..256 {
+            memory[0x1800 + zone * 3] = ((height - 1) | (mask << 5)) as u8;
+            memory[0x1801 + zone * 3] = 0x1c;
+        }
+        memory[0x1c00..0x1c04].copy_from_slice(&[0, 0x1e, 0x50, 0]);
+        let stride = if mode == 1 { 4 } else { 5 };
+        memory[0x1c04] = if mode < 3 { gfx as u8 } else { 0 };
+        memory[0x1c05] = if mode == 1 {
+            32 - width as u8
+        } else if mode == 2 {
+            0x40
+        } else {
+            0x60
+        };
+        memory[0x1c06] = if mode < 3 { (gfx >> 8) as u8 } else { 0x40 };
+        if mode != 1 {
+            memory[0x1c07] = 32 - width as u8;
+        }
+        memory[0x1c04 + stride..0x1c08 + stride].copy_from_slice(&[0, 0x5f, 0x60, 8]);
+        memory[0x4000..0x4020].fill(gfx as u8);
+        for offset in 0..16 {
+            memory[0x5000 + offset * 256] = 0xaa;
+            memory[0x5001 + offset * 256] = 0xaa;
+            memory[0x6000 + offset * 256] = 0xff;
+            for byte in 0..32 {
+                memory[(usize::from(gfx) + offset * 256 + byte) & 0xffff] = 0x55;
+            }
+        }
+        (chip, memory)
+    }
+
+    #[test]
+    fn holey_dma_matches_qualified_bus_and_line_ram_traces() {
+        let mut cases = BTreeSet::new();
+        for block in include_str!("../tests/data/holey-vectors.txt")
+            .split("CASE ")
+            .skip(1)
+        {
+            let (name, rows) = block.split_once('\n').expect("case header");
+            let fields: Vec<u16> = name
+                .split_whitespace()
+                .map(|field| field.parse().expect("case field"))
+                .collect();
+            let case: [u16; 8] = fields.try_into().expect("eight fields");
+            assert!(cases.insert(case));
+            let (chip, memory) = holey_fixture(case);
+            let actual = raster_state_trace(chip, &memory);
+            let expected: Vec<_> = rows.lines().collect();
+            for (index, (actual, expected)) in actual.iter().zip(&expected).enumerate() {
+                assert_eq!(actual, expected, "case {name}, event {index}");
+            }
+            assert_eq!(actual.len(), expected.len(), "case {name}");
+        }
+        assert_eq!(cases.len(), 4);
+    }
+
+    #[test]
+    fn holey_snapshots_keep_suppression_through_indirect_address_wrap() {
+        let mut stages = BTreeSet::new();
+        let mut wrapped = 0;
+        for mode in 1..=4 {
+            let (mut chip, memory) = holey_fixture([mode, 8, 1, 3, 0xffff, 1, 0, 0]);
+            let mut bus = Bus {
+                cpu_address: chip.address_in,
+                address: chip.address_in,
+                sampled_halt: false,
+                released: false,
+            };
+            let mut seen = BTreeSet::new();
+            for _ in 257..15620 {
+                bus.tick(&mut chip, &memory);
+                if !chip.fetch.holey || !seen.insert((chip.fetch.phase as u8, chip.fetch.delay)) {
+                    continue;
+                }
+                stages.insert(chip.fetch.phase as u8);
+                wrapped += usize::from(chip.fetch.address == 0);
+                let saved = chip.save_state();
+                let mut restored = Maria::new(chip.region);
+                assert_eq!(restored.load_state(&saved).expect("restore"), saved.len());
+                assert_eq!(restored.save_state(), saved);
+                let mut original_bus = bus;
+                let mut resumed_bus = bus;
+                for _ in 0..256 {
+                    original_bus.tick(&mut chip, &memory);
+                    resumed_bus.tick(&mut restored, &memory);
+                    assert_eq!(original_bus, resumed_bus);
+                    assert_eq!(chip.dma_read_pending(), restored.dma_read_pending());
+                }
+                assert_eq!(restored.save_state(), chip.save_state());
+                chip.load_state(&saved).expect("rewind fixture");
+            }
+            assert!(
+                seen.len() >= 6,
+                "missing holey delay stages for mode {mode}"
+            );
+        }
+        assert_eq!(
+            stages,
+            [
+                fetch::Phase::Direct as u8,
+                fetch::Phase::Indirect as u8,
+                fetch::Phase::IndirectSecond as u8
+            ]
+            .into_iter()
+            .collect()
+        );
+        assert!(
+            wrapped >= 6,
+            "missing suppressed wrapped second-byte stages"
+        );
+    }
+
+    #[test]
+    fn holey_dma_matches_all_696_qualified_schedules() {
+        let mut cases = BTreeSet::new();
+        for row in include_str!("../tests/data/holey-matrix.txt")
+            .lines()
+            .filter(|row| !row.starts_with('#'))
+        {
+            let fields: Vec<_> = row.split_whitespace().collect();
+            assert_eq!(fields.len(), 14);
+            let case: [u16; 8] = std::array::from_fn(|i| fields[i].parse().expect("case field"));
+            assert!(cases.insert(case));
+            let (chip, memory) = holey_fixture(case);
+            let actual = raster_state_trace(chip, &memory);
+            for (index, kind) in ['A', 'B', 'H', 'L', 'R', 'Z'].into_iter().enumerate() {
+                let mut count = 0;
+                let mut hash = 0xcbf2_9ce4_8422_2325_u64;
+                for event in &actual {
+                    if event.split_whitespace().nth(1).expect("kind").as_bytes()[0] != kind as u8 {
+                        continue;
+                    }
+                    count += 1;
+                    for byte in event.bytes().chain(*b"\n") {
+                        hash = (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3);
+                    }
+                }
+                assert!(count > 0);
+                assert_eq!(
+                    format!("{kind}:{count}:{hash:016x}"),
+                    fields[8 + index],
+                    "{case:?}"
+                );
+            }
+        }
+        let mut expected = BTreeSet::new();
+        for mode in 1..=4 {
+            for mask in 0..4 {
+                for gfx in [0x7fff, 0x8000, 0x87ff, 0x8800, 0x8fff, 0x9000, 0xffff] {
+                    for width in [2, 8] {
+                        for kangaroo in 0..2 {
+                            expected.insert([mode, width, 1, mask, gfx, kangaroo, 0, 0]);
+                        }
+                    }
+                }
+            }
+            for width in [1, 2, 8, if mode == 1 { 31 } else { 32 }] {
+                for height in [1, 2, 8, 16] {
+                    for slow in 0..2 {
+                        for pal in 0..2 {
+                            expected.insert([mode, width, height, 2, 0x9000, 0, slow, pal]);
+                        }
+                    }
+                }
+            }
+        }
+        assert_eq!(cases.len(), 696);
+        assert_eq!(cases, expected);
     }
 
     #[test]
