@@ -673,6 +673,120 @@ fn dump_a_survey_case() {
     }
 }
 
+/// Compare measurements, not the final screen: the latter can match even
+/// when every open-bus sample is wrong. Hardware revisions differ, so keep
+/// each original dump separate and report every byte without a pass floor.
+#[test]
+#[ignore = "DIAGNOSTIC: needs VIC-20 survey/ROM fixtures and VIC20_TIMING_OUT=<new directory>"]
+fn survey_timing_measurements() {
+    let out = PathBuf::from(std::env::var("VIC20_TIMING_OUT").expect("set VIC20_TIMING_OUT"));
+    let survey = Survey::load().expect("VIC-20 survey and ROM fixtures must be staged");
+    std::fs::create_dir(&out).expect("output directory must be new");
+    let mut results = Vec::new();
+    for (model, program, program_hash, done, references) in [
+        (
+            "pal",
+            "timing.prg",
+            "549618244e27838b7a7a2d996a3f09a4b49b1b4f18ba56449d51b6e326f9f4a1",
+            0x10AE,
+            [
+                (
+                    "dump6561e.prg",
+                    "393ef771096e5be15dd6652bede9ee3f8187614a6dab1c90baff3f819d83a437",
+                ),
+                (
+                    "dump6561-101.prg",
+                    "fa855211dc2c8805c9527a33b45b85e85da28efe9a0fe86f7a0fcc23e92a0390",
+                ),
+            ],
+        ),
+        (
+            "ntsc",
+            "timing_ntsc.prg",
+            "fb4bcbf6152516460115316ebabb0ec8132acb2dd4ef1502cbc363e049402e3a",
+            0x10AF,
+            [
+                (
+                    "dump6560.prg",
+                    "3ff4fb3d149e964ade6412d13840e7f4cb2f87a1934ec8bcf519d0bca93dd27b",
+                ),
+                (
+                    "dump6560-101.prg",
+                    "382aef40a44e33a0debbeb9279a3faa711b23ce363a4dc881300d63e9d56f54c",
+                ),
+            ],
+        ),
+    ] {
+        let case = Case {
+            id: format!("{model}-timing-measurements"),
+            model: model.into(),
+            memory: "none".into(),
+            program: Some(Program {
+                root: "fixture".into(),
+                path: format!("vice-testprogs/split-tests/timing/{program}"),
+                sha256: program_hash.into(),
+            }),
+            capture_frame: 1400,
+            reference_sha256: String::new(),
+            keys: None,
+        };
+        let machine = survey.machine(&case, |_| {});
+        // The pinned guest increments test_done only after all four sets of
+        // 256 samples. test_result writes the stability guard at $17E8.
+        assert_eq!(machine.peek(done), 1, "{model}: guest did not finish");
+        assert_eq!(machine.peek(0x17E8), 1, "{model}: raster was not stable");
+        let actual: Vec<u8> = (0x17C0..0x1C00).map(|addr| machine.peek(addr)).collect();
+        std::fs::write(out.join(format!("{model}.bin")), &actual).expect("write result");
+        for (reference, reference_hash) in references {
+            let path = survey
+                .fixtures
+                .join("vice-testprogs/split-tests/timing/dumps")
+                .join(reference);
+            let dump = read_pinned(&path, reference_hash);
+            assert_eq!(dump.len(), actual.len() + 2, "complete hardware dump");
+            assert_eq!(&dump[..2], &[0xC0, 0x17], "hardware load address");
+            assert_eq!(
+                &actual[64..576],
+                &dump[66..578],
+                "{model} {reference}: raster-register control measurements moved"
+            );
+            let mut sections = Vec::new();
+            for (name, start, end) in [
+                ("header", 0, 64),
+                ("9003", 64, 320),
+                ("9004", 320, 576),
+                ("9100", 576, 832),
+                ("9200", 832, 1088),
+            ] {
+                let mismatches: Vec<_> = (start..end)
+                    .filter(|&i| actual[i] != dump[i + 2])
+                    .map(|i| {
+                        serde_json::json!({
+                            "address": 0x17C0 + i, "actual": actual[i], "reference": dump[i + 2]
+                        })
+                    })
+                    .collect();
+                eprintln!(
+                    "{model} {reference} {name}: {} / {} mismatches",
+                    mismatches.len(),
+                    end - start
+                );
+                sections.push(serde_json::json!({"section": name, "samples": end-start, "mismatches": mismatches}));
+            }
+            results.push(serde_json::json!({
+                "model": model, "program": program, "program_sha256": program_hash,
+                "reference": reference, "reference_sha256": reference_hash,
+                "actual_sha256": sha256_hex(&actual), "sections": sections
+            }));
+        }
+    }
+    std::fs::write(
+        out.join("comparison.json"),
+        serde_json::to_vec_pretty(&results).expect("JSON"),
+    )
+    .expect("write comparison");
+}
+
 // ---------------------------------------------------------------------------
 // The comparator on synthetic frames: no fixtures, so these run everywhere.
 // ---------------------------------------------------------------------------
