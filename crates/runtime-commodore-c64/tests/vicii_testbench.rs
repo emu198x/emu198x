@@ -1323,3 +1323,93 @@ fn survey_sprite_multicolour_models() {
         std::fs::write(path, serde_json::to_vec_pretty(&rows).expect("json")).expect("write");
     }
 }
+
+/// The upstream 256-delay measurement includes the final raster line and frame
+/// wrap. Compare all five result pages with native VICE and report the two
+/// retained physical-dump disagreements separately (LPX samples 254/255).
+#[test]
+#[ignore = "FIXTURE: light-pen native parity requires C64 ROMs and VIC-II testbench"]
+fn light_pen_measurement_matches_native_reference() {
+    if !roms_present() || testbench_dir().is_none() {
+        emu198x_test_skip::skip!("C64 ROMs or VIC-II testbench not staged");
+    }
+    let dir = testbench_dir().expect("checked");
+    let mut failures = Vec::new();
+    for (model, dump, timing) in [
+        (Model::C64PalBreadbin, "6569", TIMING_PAL_BREADBIN),
+        (Model::C64cPal, "8565", TIMING_PAL_BREADBIN),
+        (Model::C64NtscBreadbin, "6567", TIMING_NTSC_BREADBIN),
+        (Model::C64cNtsc, "8562r4", TIMING_NTSC_BREADBIN),
+    ] {
+        let mut session = prepare_testprog_on(
+            "split-tests/lightpen/lightpen.prg",
+            model,
+            timing.cycles_per_frame,
+        );
+        let machine = session.machine_mut().machine_mut();
+        let mut complete = false;
+        for _ in 0..u64::from(timing.cycles_per_frame) * 2600 {
+            let cpu = machine.cpu();
+            let done = !cpu.rw && cpu.addr == 0xd7ff;
+            let cycles = cpu.total_cycles;
+            machine.tick();
+            if done && machine.cpu().total_cycles != cycles {
+                complete = true;
+                break;
+            }
+        }
+        assert!(complete, "{model:?}: measurement did not finish");
+        let actual: Vec<_> = (0x4000..0x4500).map(|addr| machine.peek(addr)).collect();
+        let expected =
+            std::fs::read(dir.join(format!("split-tests/lightpen/dumps/dump{dump}.prg")))
+                .expect("physical chip dump");
+        assert_eq!(expected.len(), 1282);
+        assert_eq!(&expected[..2], &[0, 0x40]);
+        let differences: Vec<_> = actual
+            .iter()
+            .zip(&expected[2..])
+            .enumerate()
+            .filter_map(|(i, (&a, &e))| (a != e).then_some((i, a, e)))
+            .collect();
+        eprintln!(
+            "{model:?}: {} / 1280 bytes disagree: {:?}",
+            differences.len(),
+            &differences[..differences.len().min(20)]
+        );
+        if let Ok(out) = std::env::var("LIGHTPEN_DUMP_OUTPUT") {
+            std::fs::write(PathBuf::from(out).join(format!("{dump}.bin")), &actual)
+                .expect("write measurement");
+        }
+        let native = std::fs::read(
+            PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join(format!("../../test-data/commodore/c64/lightpen/{dump}.bin")),
+        )
+        .expect("native VICE measurement");
+        assert_eq!(native.len(), 1280);
+        // Retain the independent physical results. These two differences also
+        // exist in VICE; matching VICE must not be called full hardware parity.
+        let native_hardware_differences: Vec<_> = native
+            .iter()
+            .zip(&expected[2..])
+            .enumerate()
+            .filter_map(|(i, (&a, &e))| (a != e).then_some((i, a, e)))
+            .collect();
+        assert_eq!(native_hardware_differences.len(), 2);
+        for (sample, (offset, native_x, hardware_x)) in
+            native_hardware_differences.iter().enumerate()
+        {
+            assert_eq!(*offset, 766 + sample);
+            assert_eq!(*native_x, hardware_x.wrapping_add(4));
+        }
+        let mismatches = actual.iter().zip(&native).filter(|(a, e)| a != e).count();
+        eprintln!("{model:?}: {mismatches} / 1280 bytes disagree with native VICE");
+        if mismatches != 0 {
+            failures.push(format!("{model:?}: {mismatches} native bytes"));
+        }
+    }
+    assert!(
+        failures.is_empty(),
+        "light-pen measurement differs from native VICE: {}",
+        failures.join(", ")
+    );
+}

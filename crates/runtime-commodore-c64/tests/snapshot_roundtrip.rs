@@ -670,3 +670,43 @@ fn snapshot_round_trip_preserves_the_colour_stage() {
         assert_eq!(cell[1..], [PALETTE[0x05]; 7], "{model:?}: dots 1-7");
     }
 }
+
+#[test]
+fn light_pen_frame_retrigger_survives_snapshot_at_each_boundary() {
+    for model in Model::ALL {
+        for after_wrap in 0..5 {
+            let mut original = C64Runtime::blank(model);
+            let machine = original.machine_mut();
+            machine.cpu_write(0xdc01, 0);
+            machine.cpu_write(0xdc03, 0x10); // Hold CIA1 PB4 / LP low.
+            machine.cpu_write(0xd01a, 8);
+            machine.run_frame();
+            machine.cpu_write(0xd019, 8);
+            machine.advance_phi2_cycles(after_wrap);
+            let snapshot = original.snapshot().expect("light-pen boundary snapshot");
+            let mut restored = C64Runtime::blank(model);
+            restored
+                .restore(&snapshot)
+                .expect("light-pen boundary restore");
+            assert_eq!(restored.snapshot().expect("fixed point"), snapshot);
+            for _ in 0..8 {
+                original.machine_mut().tick();
+                restored.machine_mut().tick();
+                for reg in [0x13, 0x14, 0x19] {
+                    assert_eq!(
+                        restored.machine().vic_register(reg),
+                        original.machine().vic_register(reg),
+                        "{model:?} phase {after_wrap}"
+                    );
+                }
+            }
+            assert_eq!(restored.machine().vic_register(0x14), 0);
+            assert_ne!(restored.machine().vic_register(0x19) & 8, 0);
+            let expected_x = match model {
+                Model::C64PalBreadbin | Model::C64cPal => 0xd1,
+                Model::C64NtscBreadbin | Model::C64cNtsc => 0xd5,
+            };
+            assert_eq!(restored.machine().vic_register(0x13), expected_x);
+        }
+    }
+}
