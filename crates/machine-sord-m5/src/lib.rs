@@ -1,41 +1,11 @@
-//! Sord M5 machine wiring.
-//!
-//! Fresh-write against the workspace pin-driven bus pattern (RULES.md
-//! rule 6). The donor at `Emu198x-Oldest/crates/machine-sord-m5` used
-//! the deprecated `emu_core::Bus` callback and could not port
-//! directly; this file uses it as a system spec — memory map, I/O
-//! port routing, keyboard matrix, CTC stub — but the wiring is
-//! written against [`emu198x_zilog_z80::Z80`]'s public pin fields and
-//! `bus_request()` collapse.
-//!
-//! # The Sord M5
-//!
-//! The M5 (1982) is a Japanese home computer from Sord Computer
-//! Corporation, sold in Europe through Takara. Same TMS9918A + SN76489
-//! pair as ColecoVision / SG-1000 / MSX, but with a built-in keyboard,
-//! an 8 KB monitor / BASIC-I ROM, and a unique cart layout that places
-//! the cart at `$2000-$6FFF` rather than the Coleco / SG-1000 ceiling
-//! at `$8000-$FFFF` / `$0000-$BFFF`.
-//!
-//! - **CPU:** Z80A @ 3.579545 MHz
-//! - **VDP:** TMS9918A (16 KB VRAM)
-//! - **PSG:** SN76489A
-//! - **CTC:** Z80 CTC ([`zilog_z80_ctc::Ctc`]) at port `$00-$03`. The
-//!   TMS9918A `/INT` line feeds one CTC channel's `CLK/TRG` input; the
-//!   channel counts those edges (time constant 1) and the CTC supplies
-//!   the matching IM 2 vector. The BIOS programs the channel during early
-//!   init; this is what carries the M5 from VDP setup into its VBlank
-//!   handler.
-//! - **RAM:** 4 KB at `$7000-$7FFF`; optional cart RAM at
-//!   `$8000-$BFFF` (up to 16 KB, FALC etc.)
-//! - **Monitor ROM:** 8 KB at `$0000-$1FFF`
-//! - **Cartridge:** up to 20 KB at `$2000-$6FFF`
+//! Sord M5 machine wiring: pin-driven Z80, TMS9918-family video,
+//! SN76489 sound and Z80 CTC.
 //!
 //! # Memory map
 //!
 //! | Range         | Contents                              |
 //! |---------------|---------------------------------------|
-//! | `$0000-$1FFF` | Monitor / BASIC-I ROM (8 KB)          |
+//! | `$0000-$1FFF` | Monitor ROM (8 KB; BASIC is a cartridge) |
 //! | `$2000-$6FFF` | Cartridge ROM (up to 20 KB)           |
 //! | `$7000-$7FFF` | 4 KB system RAM                       |
 //! | `$8000-$BFFF` | Optional cart RAM (up to 16 KB)       |
@@ -43,35 +13,40 @@
 //!
 //! # I/O map
 //!
-//! Decoded by `port & 0xF8` — each block fills 8 mirrored ports.
+//! The low address byte selects sixteen-port blocks. The GA015 decoder
+//! in Sord's M5C-01 schematic has no A0-A3 inputs. The CTC selects channels
+//! with A1/A0; the VDP selects data versus control/status with A0.
+//! MAME `src/mame/sord/m5.cpp::m5_io` applies the same aliases.
 //!
 //! | Port block | R/W   | Function                                |
 //! |------------|-------|-----------------------------------------|
-//! | `$00-$03`  | r/w   | Z80 CTC (channel = port & 3)            |
-//! | `$10-$11`  | r/w   | TMS9918A ($10 data, $11 control/status) |
-//! | `$20-$27`  | write | SN76489 PSG                             |
-//! | `$30-$37`  | write | Keyboard row strobe (provisional)       |
-//! | `$40-$47`  | read  | Keyboard column read (provisional)      |
+//! | `$00-$0F`  | r/w   | Z80 CTC (channel = port & 3)            |
+//! | `$10-$1F`  | r/w   | VDP (even data, odd control/status)     |
+//! | `$20-$2F`  | write | SN76489 PSG                             |
+//! | `$30-$3F`  | read  | Keyboard rows 0-6; joystick at index 7  |
 //!
-//! The CTC / VDP / PSG ports were corrected from a wrong donor map
-//! (which had VDP at `$00`, PSG at `$10`, CTC at `$50`) after an I/O
-//! trace of the Monitor ROM showed the real assignments above. The
-//! keyboard ports are not yet trace-confirmed.
+//! Sord BASIC-G Appendix H (page 279) lists the canonical ports. Scan
+//! provenance and the schematic interpretation are recorded in the shared
+//! primary library, `reference/by-system/sord-m5/basic-g-io-map.md`.
+//! The `$30` expansion paging latch, `$40` printer data and `$50` cassette /
+//! status / printer control hardware are not implemented here.
 //!
-//! # Keyboard
+//! # Keyboard and interrupts
 //!
-//! 10 rows × 8 columns matrix, active-low. The CPU writes the row
-//! index to port `$30-$37` then reads the column data from
-//! `$40-$47` (both port assignments provisional — not yet
-//! trace-confirmed). Standard M5 layout (function keys + alpha rows +
-//! shift/ctrl).
+//! Seven active-high rows are read directly at `$30-$36`, mirrored at
+//! `$38-$3E`; there is no row-write strobe. Joystick directions occupy
+//! `$37` / `$3F`. The host key mapping is in `runtime-sord-m5::input`.
+//! The VDP's active-low interrupt pin feeds CTC channel 3's trigger input.
+//! The CTC supplies the Z80 IRQ and IM 2 vector; it encodes the requesting
+//! channel in vector bits 2:1. RETI releases its daisy-chain service state.
 //!
 //! # Clock model
 //!
-//! Adopts SG-1000's correct 3:2 VDP-dot-to-CPU-T-state phase counter
-//! (CPU 3.579545 MHz, VDP dot 5.369 MHz). One iteration corresponds
-//! to one Z80 T-state; per iteration the phase counter advances by 3
-//! and yields one VDP dot whenever it reaches 2.
+//! The shared Z80 cadence driver advances two CPU half-cycles per T-state.
+//! Each T-state advances CTC and PSG once and the VDP by a 3:2 dot ratio.
+//! The implemented CPU/PSG rate is 3,579,545 Hz in both regions, with
+//! 228 T-states per scanline and 262 / 313 scanlines per frame respectively.
+//! These are the implemented rates, not a claim of hardware-measured phase.
 
 use common_z80_machine::Z80Machine;
 use emu198x_zilog_z80::{BusOp, Z80};
@@ -106,9 +81,8 @@ pub const NUM_KEY_ROWS: usize = 7;
 ///
 /// Confirmed by I/O trace of the Monitor ROM: it programs CTC channel 3
 /// as `counter, int-enable, TC=1` (control `$C7`, TC `$01` on port `$03`),
-/// vectoring to `$7006 -> $01DF` — the per-frame VDP service routine.
-/// Channels 1/2 are `÷256` timers (system jiffy); channel 0 is a spare
-/// counter pointing at the `$186C` no-op handler.
+/// using the channel-3 vector. Handler addresses come from the guest
+/// vector table, not from the motherboard wiring.
 pub const VDP_INT_CTC_CHANNEL: u8 = 3;
 
 /// Sord M5 region.
@@ -179,7 +153,7 @@ pub struct SordM5 {
 }
 
 impl SordM5 {
-    /// Create a new Sord M5 with the given Monitor / BASIC-I ROM and
+    /// Create a new Sord M5 with the given Monitor ROM and
     /// optional cart ROM. Cart RAM starts empty; call
     /// [`SordM5::set_cart_ram_size`] to allocate it.
     #[must_use]
@@ -288,9 +262,8 @@ impl SordM5 {
                 // The Monitor ROM runs IM 2 with `I = $70`. The CTC
                 // supplies the low vector byte for the requesting channel;
                 // the Z80 forms the table address `(I << 8) | vector` and
-                // fetches the handler. With the VDP-driven channel this
-                // lands on `$7002 -> $1861` (the VBlank jiffy handler),
-                // carrying the BIOS past VDP init.
+                // fetches the handler. The CTC inserts the requesting
+                // channel into vector bits 2:1 (channel 3 contributes $06).
                 let vector = self.ctc.acknowledge();
                 self.cpu.data_in = vector;
                 self.irq_acks += 1;
@@ -336,7 +309,7 @@ impl SordM5 {
     fn io_read(&mut self, port: u16) -> u8 {
         let pc = self.cpu.regs.pc;
         let p = port as u8;
-        let value = match p & 0xF8 {
+        let value = match p & 0xF0 {
             // CTC at $00-$03 (channel = CS1,CS0 = A1,A0); read = live counter.
             0x00 => self.ctc.read(p & 0x03),
             // TMS9918A at $10 (data) / $11 (status).
@@ -352,7 +325,7 @@ impl SordM5 {
             // $30-$37. MAME `sord/m5.cpp`: `portr("Y0")`..`"Y6"` + `portr("JOY")`.
             // There is no row strobe — the donor's $30-write / $40-read scheme
             // was fiction ($40 is the Centronics data latch, write-only).
-            0x30 | 0x38 => {
+            0x30 => {
                 let sel = (p & 0x07) as usize;
                 if sel < NUM_KEY_ROWS {
                     self.key_matrix[sel]
@@ -384,7 +357,7 @@ impl SordM5 {
                 write: true,
             });
         }
-        match p & 0xF8 {
+        match p & 0xF0 {
             // CTC at $00-$03 (channel = CS1,CS0 = A1,A0).
             0x00 => self.ctc.write(p & 0x03, value),
             // TMS9918A at $10 (data) / $11 (control).
