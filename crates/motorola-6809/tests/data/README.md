@@ -51,3 +51,19 @@ captures. The [plan and full diagnostic matrix](https://github.com/emu198x/docs/
 retain the memory cases that still require a staged timing correction.
 The generator is a memory/trace wrapper around the full external CPU source;
 it stops at the instruction post-hook. It does not reproduce opcode semantics.
+
+## Register-instruction discarded reads
+
+`register-reads.txt` contains 3,072 full-reference traces: 32 opcode encodings,
+eight A values (B is A XOR A5), four CC seeds and PCs 4000/FFFE/FFFF. It covers
+the ten earlier encodings and DAA, SEX, ABX, MUL, ANDCC, ORCC, plus A/B forms of
+COM, ROR, ASR, ASL, ROL, DEC, INC and CLR. The regression compares ordered bus
+reads/bytes, cycle counts, register results, operand memory and next-fetch pins.
+
+The [evidence and complete diagnostic](https://github.com/emu198x/docs/blob/5e7456a/plans/2026-10-11-6809-register-reads.md)
+retain 3,264 rows, including two explicitly unresolved reference differences.
+TSTA/TSTB are excluded from this fixture because XRoar's three-cycle execution
+conflicts with Motorola's two-cycle opcode map. Only DAA V is masked in result
+comparisons: Motorola leaves it undefined, and the reference's hardware-derived
+calculation needs separate qualification. All other flags compare exactly.
+These limits do not mask any bus event for the 32 included encodings.
