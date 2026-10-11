@@ -8,6 +8,8 @@
 //! own numbers, so what is compared is the machine against arithmetic rather
 //! than against another emulator's opinion.
 //!
+//! The display is blanked so R7 fills the picture. This checks interrupt-to-
+//! register-write latency; it does not validate an active-display raster split.
 //! The cartridge arms the line counter and has its interrupt handler change
 //! the backdrop, so a frame comes out green above a line and red below it.
 //! The position of that edge — which line, and how far across it — is the

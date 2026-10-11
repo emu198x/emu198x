@@ -102,6 +102,7 @@ fn one_sprite(reg1: u8) -> SegaVdp {
     write_register(&mut vdp, 6, 0x00); // sprite patterns $0000
     write_register(&mut vdp, 7, 0x00); // backdrop = CRAM entry 16
     poke_cram(&mut vdp, 16, BACKDROP);
+    poke_cram(&mut vdp, 0, BACKDROP); // Background tile zero has its own palette entry.
     poke_cram(&mut vdp, 16 + 5, INK);
     poke_vram(&mut vdp, 0x0040, &solid_tile(5)); // pattern 2
     poke_vram(&mut vdp, 0x0060, &solid_tile(5)); // pattern 3, its 8x16 partner
@@ -204,6 +205,7 @@ fn magnified_sprites_hold_their_slot_for_every_line_they_cover() {
     write_register(&mut vdp, 6, 0x00);
     write_register(&mut vdp, 7, 0x00);
     poke_cram(&mut vdp, 16, BACKDROP);
+    poke_cram(&mut vdp, 0, BACKDROP); // Background tile zero has its own palette entry.
     poke_cram(&mut vdp, 16 + 5, INK);
     poke_vram(&mut vdp, 0x0020, &solid_tile(5));
     for i in 0..9u8 {
@@ -248,6 +250,7 @@ fn magnified_row(variant: VdpVariant, count: u8) -> SegaVdp {
     write_register(&mut vdp, 6, 0x03); // sprite patterns $0000, unmasked
     write_register(&mut vdp, 7, 0x00);
     poke_cram(&mut vdp, 16, BACKDROP);
+    poke_cram(&mut vdp, 0, BACKDROP); // Background tile zero has its own palette entry.
     poke_cram(&mut vdp, 16 + 5, INK);
     poke_vram(&mut vdp, 0x0020, &solid_tile(5));
     for i in 0..count {
@@ -347,6 +350,7 @@ fn sprite_at_y(y_raw: u8) -> SegaVdp {
     write_register(&mut vdp, 6, 0x03); // sprite patterns $0000
     write_register(&mut vdp, 7, 0x00);
     poke_cram(&mut vdp, 16, BACKDROP);
+    poke_cram(&mut vdp, 0, BACKDROP); // Background tile zero has its own palette entry.
     poke_cram(&mut vdp, 16 + 5, INK);
     poke_vram(&mut vdp, 0x0020, &solid_tile(5));
     poke_vram(&mut vdp, 0x3F00, &[y_raw, 0xD0]);
@@ -471,6 +475,7 @@ fn a_tall_mode_shows_sprites_low_down_rather_than_wrapping_them() {
     write_register(&mut vdp, 6, 0x03);
     write_register(&mut vdp, 7, 0x00);
     poke_cram(&mut vdp, 16, BACKDROP);
+    poke_cram(&mut vdp, 0, BACKDROP); // Background tile zero has its own palette entry.
     poke_cram(&mut vdp, 16 + 5, INK);
     poke_vram(&mut vdp, 0x0020, &solid_tile(5));
     // Sprite 0 at Y 230, so lines 231 to 238. The second entry is a Y that

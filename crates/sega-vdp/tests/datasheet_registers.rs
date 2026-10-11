@@ -207,7 +207,7 @@ fn the_sprite_pattern_base_is_register_6_bit_2() {
 fn the_backdrop_is_a_sprite_palette_entry_named_by_the_low_nibble_of_register_7() {
     let mut vdp = vdp();
     write_register(&mut vdp, 0, 0x04);
-    write_register(&mut vdp, 1, 0x40);
+    write_register(&mut vdp, 1, 0x00); // Blanked display shows R7.
     for entry in 0..16u8 {
         // Each sprite-palette entry gets a different colour and the
         // background half the opposite one, so a lookup in the wrong half of
@@ -274,7 +274,7 @@ fn each_cram_channel_drives_the_chips_own_output_levels() {
                 (2, "green", 0x0000_FF00, levels[level]),
                 (4, "blue", 0x0000_00FF, blue[level]),
             ] {
-                poke_cram(&mut vdp, 16, (level as u8) << shift);
+                poke_cram(&mut vdp, 0, (level as u8) << shift);
                 render_to(&mut vdp, 0);
                 let argb = pixel(&vdp, 0, 0);
                 assert_eq!(
@@ -302,7 +302,7 @@ fn only_the_315_5124_has_a_non_linear_blue() {
         write_register(&mut vdp, 0, 0x04);
         write_register(&mut vdp, 1, 0x40);
         write_register(&mut vdp, 7, 0x00);
-        poke_cram(&mut vdp, 16, level << shift);
+        poke_cram(&mut vdp, 0, level << shift);
         render_to(&mut vdp, 0);
         let argb = pixel(&vdp, 0, 0);
         [(argb >> 16) & 0xFF, (argb >> 8) & 0xFF, argb & 0xFF]
@@ -340,7 +340,7 @@ fn the_315_5124_does_not_reach_full_scale() {
         write_register(&mut vdp, 0, 0x04);
         write_register(&mut vdp, 1, 0x40);
         write_register(&mut vdp, 7, 0x00);
-        poke_cram(&mut vdp, 16, 0x3F);
+        poke_cram(&mut vdp, 0, 0x3F);
         render_to(&mut vdp, 0);
         pixel(&vdp, 0, 0)
     };
@@ -484,6 +484,7 @@ fn two_corner_sprites(reg0: u8) -> SegaVdp {
     write_register(&mut vdp, 6, 0x00); // sprite patterns $0000
     write_register(&mut vdp, 7, 0x00); // backdrop = CRAM entry 16
     poke_cram(&mut vdp, 16, 0x30); // backdrop = blue
+    poke_cram(&mut vdp, 0, 0x30); // Background tile zero = blue
     poke_cram(&mut vdp, 16 + 5, 0x03); // sprite colour 5 = red
     poke_vram(&mut vdp, 0x0020, &solid_tile(5));
     poke_vram(&mut vdp, 0x3F00, &[7, 7, 0xD0]); // two sprites at y=7, then end
@@ -579,6 +580,7 @@ fn the_ninth_sprite_on_a_line_is_dropped_and_flags_overflow() {
         write_register(&mut vdp, 6, 0x00);
         write_register(&mut vdp, 7, 0x00);
         poke_cram(&mut vdp, 16, 0x30);
+        poke_cram(&mut vdp, 0, 0x30); // Background tile zero = blue
         poke_cram(&mut vdp, 16 + 5, 0x03);
         poke_vram(&mut vdp, 0x0020, &solid_tile(5));
         for i in 0..count {

@@ -1110,10 +1110,11 @@ impl SegaVdp {
                 let bg_opaque = bg_idx != 0;
                 if sprite != 0 && !(bg_priority && bg_opaque) {
                     self.cram_to_argb(16 + sprite as usize)
-                } else if bg_opaque || bg_priority {
-                    self.cram_to_argb(palette + bg_idx as usize)
                 } else {
-                    self.backdrop_color()
+                    // Colour zero still belongs to the tile's palette. It
+                    // is transparent only when arbitrating against sprites;
+                    // R7 supplies the border/blanking colour, not this pixel.
+                    self.cram_to_argb(palette + bg_idx as usize)
                 }
             }
         } else if sprite != 0 {
@@ -1735,6 +1736,75 @@ mod tests {
             vdp.framebuffer[fb],
             vdp.cram_to_argb(16 + 5),
             "transparent background (index 0) never occludes, even with priority"
+        );
+    }
+
+    #[test]
+    fn mode4_colour_zero_uses_tile_palette_and_stays_behind_sprites() {
+        // Sega Mark III Software Reference Manual: COLOR, BACKGROUND SYSTEM
+        // and SPRITE/BACKGROUND DISPLAY PRIORITY. Zero is a palette entry;
+        // its special treatment is that it never hides a sprite.
+        let mut mismatches = Vec::new();
+        for model in 0..3 {
+            for palette in [0_u16, 16] {
+                for priority in [false, true] {
+                    for sprite in [0, 5] {
+                        let mut vdp = match model {
+                            0 => SegaVdp::new(VdpRegion::Ntsc, VdpVariant::Sms1),
+                            1 => SegaVdp::new(VdpRegion::Ntsc, VdpVariant::Sms2),
+                            _ => SegaVdp::new_game_gear(),
+                        };
+                        vdp.regs[0] = 0x04;
+                        vdp.regs[1] = 0x40;
+                        vdp.regs[2] = 0x0e;
+                        vdp.regs[7] = 2;
+                        // Coordinates inside both the SMS picture and GG crop.
+                        let (x, y) = (64, 32);
+                        let entry = 0x3800 + (y / 8 * 32 + x / 8) * 2;
+                        let attr = (if palette == 16 { 0x0800 } else { 0 })
+                            | if priority { 0x1000 } else { 0 };
+                        vdp.vram[entry..entry + 2].copy_from_slice(&u16::to_le_bytes(attr));
+                        if model == 2 {
+                            vdp.cram[0] = 0x0f; // BG palette 0 zero: red
+                            vdp.cram[32] = 0xf0; // BG palette 1 zero: green
+                            vdp.cram[37] = 0x0f; // R7 backdrop: blue
+                            vdp.cram[42] = 0xff; // Sprite 5: white
+                            vdp.cram[43] = 0x0f;
+                        } else {
+                            vdp.cram[0] = 0x03;
+                            vdp.cram[16] = 0x0c;
+                            vdp.cram[18] = 0x30;
+                            vdp.cram[21] = 0x3f;
+                        }
+                        vdp.sprite_buf[x] = sprite;
+                        vdp.render_pixel(y, x);
+                        let full = if model == 0 { 238_u32 } else { 255 };
+                        let expected = 0xff00_0000
+                            | if sprite != 0 {
+                                full * 0x010101
+                            } else if palette == 0 {
+                                full << 16
+                            } else {
+                                full << 8
+                            };
+                        let pixel = vdp.plot_index(y, x).expect("visible coordinate");
+                        if vdp.framebuffer[pixel] != expected {
+                            mismatches.push((
+                                model,
+                                palette,
+                                priority,
+                                sprite,
+                                vdp.framebuffer[pixel],
+                                expected,
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+        assert!(
+            mismatches.is_empty(),
+            "palette-selection mismatches: {mismatches:?}"
         );
     }
 

@@ -124,6 +124,7 @@ fn blank(variant: VdpVariant) -> SegaVdp {
     write_register(&mut vdp, 4, 0x07);
     write_register(&mut vdp, 7, 0x00); // backdrop = CRAM entry 16
     poke_cram(&mut vdp, 16, BACKDROP);
+    poke_cram(&mut vdp, 0, BACKDROP); // Background tile zero has its own palette entry.
     vdp
 }
 

@@ -76,7 +76,7 @@ to be on the machine — the same reasoning as
 The other three answer "did anything happen at all". This one answers
 "when".
 
-It arms the line-interrupt counter and has its handler change the backdrop,
+It blanks the display, arms the line-interrupt counter and has its handler change the backdrop,
 so a frame comes out green above a line and red below it — and the position
 of that edge *is* the interrupt's timing, drawn on the screen. The handler
 tells a line interrupt from a frame one the way a game does, by reading the
@@ -94,3 +94,9 @@ checks the split falls in it.
 The handler's cost is stated in the build script beside the instructions it
 counts, so the two cannot drift apart silently — and `--check` in CI is what
 stops the committed image drifting from either.
+
+The boot cartridges initialise both background palette entry zero and the
+border entry. Mode 4 background zero uses the selected tile palette; it does
+not display R7. The raster cartridge blanks the display deliberately so R7
+can expose interrupt-to-register-write latency across the screen. This is
+a consistency check, not reference validation of active-display split timing.

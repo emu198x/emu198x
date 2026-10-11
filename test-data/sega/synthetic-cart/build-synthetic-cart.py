@@ -16,7 +16,7 @@ It is deliberately the smallest program that cannot pass by accident. On
 reset the Z80 fetches from `$0000`, and the program:
 
 1. disables interrupts and sets up the stack,
-2. writes a colour into CRAM through port `$BE`,
+2. writes background and border colours into CRAM through port `$BE`,
 3. points the backdrop at that colour via VDP register 7,
 4. enables the display via register 1,
 5. halts.
@@ -135,6 +135,12 @@ def program(game_gear: bool) -> bytes:
             bytes([0x3E, SMS_CRAM_BYTE]),
             bytes([0xD3, 0xBE]),  # out ($BE), a
         )
+    body += cram_address(0)
+    if game_gear:
+        body += z80(bytes([0x3E, GG_CRAM_LO, 0xD3, 0xBE]),
+                    bytes([0x3E, GG_CRAM_HI, 0xD3, 0xBE]))
+    else:
+        body += bytes([0x3E, SMS_CRAM_BYTE, 0xD3, 0xBE])
     body += z80(
         # Register 7: backdrop colour = sprite-palette entry 0.
         vdp_register(7, 0x00),
@@ -166,10 +172,10 @@ def raster_split_program() -> bytes:
     two interrupts must not coincide — with the counter reloading at 63, 127
     and 191, none of them lands on the line the frame flag is set.
 
-    The background is left as powered-up VRAM, all zeros, which in Mode 4 is
-    pattern 0 in every cell and colour 0 in every pixel. Colour 0 is
-    transparent, so every active pixel shows the backdrop and the split runs
-    the full width of the screen.
+    The display is blanked so R7 supplies every visible pixel. With the
+    display enabled, zero-valued background pixels select their tile palette,
+    not R7. This measures interrupt-to-register-write latency, not the
+    timing of an active-display palette or scroll split.
     """
     body = z80(
         bytes([0xF3]),  # di
@@ -184,7 +190,7 @@ def raster_split_program() -> bytes:
         bytes([0xD3, 0xBE]),
         vdp_register(7, 0x00),  # backdrop = entry 16
         vdp_register(10, RASTER_SPLIT_R10),  # line counter reload
-        vdp_register(1, 0x60),  # display on + frame interrupts
+        vdp_register(1, 0x20),  # display blanked + frame interrupts
         vdp_register(0, 0x14),  # mode 4 + line interrupts
         bytes([0xFB]),  # ei
         bytes([0x18, 0xFE]),  # jr $
