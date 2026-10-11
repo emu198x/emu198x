@@ -252,16 +252,13 @@ impl Sn76489 {
         }
         self.clock_divider = 0;
 
-        // Tick tone channels. A period of 0 is treated as 1: reloading the
-        // counter with 0 would toggle the output every internal tick — an
-        // octave too high. On every SN76489 variant N=0 behaves as N=1 (it
-        // does not mute the channel). See psg-sn76489-reference §N=0.
+        // Reaching zero toggles and reloads in the same counter clock:
+        // for nonzero N, the tone frequency is input_clock / (32 * N).
         for ch in 0..3 {
+            self.tone_counter[ch] = self.tone_counter[ch].saturating_sub(1);
             if self.tone_counter[ch] == 0 {
                 self.tone_counter[ch] = self.tone_period[ch].max(1);
                 self.tone_output[ch] = !self.tone_output[ch];
-            } else {
-                self.tone_counter[ch] -= 1;
             }
         }
 
@@ -518,6 +515,56 @@ mod tests {
     }
 
     #[test]
+    fn nonzero_tone_intervals_match_the_full_reference() {
+        let fixture = include_str!("../tests/data/tone-intervals.csv");
+        let mut rows = fixture.lines();
+        assert_eq!(rows.next(), Some("channel,period,interval1,interval2"));
+        let mut checked = 0;
+        let mut mismatches = 0;
+        let mut first_mismatch = None;
+        for (index, row) in rows.enumerate() {
+            let values: Vec<u32> = row.split(',').map(|v| v.parse().expect("number")).collect();
+            assert_eq!(values.len(), 4);
+            let [channel, period, first, second] = values[..] else {
+                unreachable!("four columns checked");
+            };
+            assert_eq!(channel as usize, index / 1023);
+            assert_eq!(period as usize, index % 1023 + 1);
+            assert_eq!([first, second], [16 * period; 2], "TI frequency equation");
+            for variant in [NoiseLfsr::Tms15, NoiseLfsr::Sega16] {
+                let mut psg = Sn76489::new(4_000_000, variant);
+                psg.write(0x80 | ((channel as u8) << 5) | (period as u8 & 15));
+                for _ in 0..64 {
+                    psg.tick();
+                }
+                psg.write((period >> 4) as u8);
+                let mut previous = psg.tone_output[channel as usize];
+                let mut edges = Vec::new();
+                for tick in 65..100_000 {
+                    psg.tick();
+                    let output = psg.tone_output[channel as usize];
+                    if output != previous {
+                        previous = output;
+                        edges.push(tick);
+                        if edges.len() == 3 {
+                            break;
+                        }
+                    }
+                }
+                assert_eq!(edges.len(), 3, "channel {channel}, period {period}");
+                let actual = [edges[1] - edges[0], edges[2] - edges[1]];
+                if actual != [first, second] {
+                    mismatches += 1;
+                    first_mismatch.get_or_insert((variant, channel, period, actual));
+                }
+                checked += 1;
+            }
+        }
+        assert_eq!(checked, 6138);
+        assert_eq!(mismatches, 0, "first mismatch: {first_mismatch:?}");
+    }
+
+    #[test]
     fn new_psg_is_silent() {
         let psg = Sn76489::new(3_579_545, NoiseLfsr::Sega16);
         // All attenuations default to $0F (silent)
@@ -649,10 +696,9 @@ mod tests {
     }
 
     #[test]
-    fn tone_period_zero_toggles_at_n_equals_one_rate() {
-        // #211: a period-0 tone must toggle at the N=1 rate (every 2 internal
-        // clocks = 32 tick() calls), not every internal clock (16 ticks, an
-        // octave too high) as it would if the counter reloaded to 0.
+    fn sega_zero_tone_period_matches_one_count_interval() {
+        // MAME and Mesen2 model Sega zero/one periods at one internal clock
+        // per toggle. This does not qualify discrete TI zero-period handling.
         let mut psg = Sn76489::new(3_579_545, NoiseLfsr::Sega16);
         psg.tone_period[0] = 0;
         psg.tone_counter[0] = 0;
@@ -670,14 +716,14 @@ mod tests {
             }
         }
         // The first toggle reflects the initial counter; the steady-state
-        // toggles must all be 32 ticks apart (N=1), proving N=0 was clamped.
+        // toggles must all be 16 input clocks apart, as for period 1.
         assert!(
             intervals.len() >= 3,
             "expected several toggles: {intervals:?}"
         );
         assert!(
-            intervals[1..].iter().all(|&i| i == 32),
-            "period-0 tone should toggle at the N=1 interval (32 ticks): {intervals:?}"
+            intervals[1..].iter().all(|&i| i == 16),
+            "Sega period-0 tone should toggle every 16 input clocks: {intervals:?}"
         );
     }
 
