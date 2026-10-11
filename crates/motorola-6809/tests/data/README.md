@@ -35,3 +35,19 @@ CC is set to 3 in the original program, so those CC exchanges begin with 1.
 
 These observations support this MC6809 behaviour; they are not a survey of
 all manufacturers or silicon revisions. No new physical measurement was made.
+
+## Inherent opcode aliases
+
+`inherent-aliases.txt` contains 480 bus traces from the unchanged full XRoar
+MC6809 core at the revision above. It covers NOP, NEGA/B and LSRA/B and their
+five aliases (1B, 41/51, 45/55), six operands, four CC seeds and PCs 4000/FFFF.
+The regression checks cycle count, A/B/CC/PC, unchanged other registers,
+operand memory and every read/write address and byte. The discarded second
+read uses the next PC, including wrap to 0000.
+
+The exact aliases are supported by [David Banks's hardware-validated record](https://github.com/hoglet67/6809Decoder/wiki/Undocumented-6809-Behaviours).
+The byte-level traces are reference-implementation evidence, not new physical
+captures. The [plan and full diagnostic matrix](https://github.com/emu198x/docs/blob/5c9c554dadd4bc98935a876be766c3e930a0828e/plans/2026-10-11-6809-opcode-aliases.md)
+retain the memory cases that still require a staged timing correction.
+The generator is a memory/trace wrapper around the full external CPU source;
+it stops at the instruction post-hook. It does not reproduce opcode semantics.
