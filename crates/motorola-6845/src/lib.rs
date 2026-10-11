@@ -290,18 +290,21 @@ impl Crtc6845 {
 
         // HSYNC generation
         // The original Motorola datasheet says zero suppresses HSYNC. The
-        // HD6845S datasheet calls zero unprogrammable; its pulse-width table
-        // likewise has no pulse for that value. See the primary sources in
+        // HD6845S datasheet calls zero unprogrammable; we retain suppression
+        // for that unsupported setting. See the primary sources in
         // `198x/reference/by-topic/crtc-6845/`.
-        if self.h_counter == h_sync_pos && h_sync_width != 0 {
-            self.hsync = true;
-            self.hsync_counter = 0;
-        }
         if self.hsync {
             self.hsync_counter += 1;
             if self.hsync_counter >= h_sync_width {
                 self.hsync = false;
             }
+        }
+
+        // Count an interval only after it has elapsed. Starting the pulse
+        // before the counter update erases width one and shortens every pulse.
+        if self.h_counter == h_sync_pos && h_sync_width != 0 {
+            self.hsync = true;
+            self.hsync_counter = 0;
         }
 
         // Advance horizontal counter. The line is R0 + 1 characters, so the
@@ -384,6 +387,17 @@ impl Crtc6845 {
             Crtc6845Variant::Hd6845s => programmed_v_sync_width,
         };
 
+        // The elapsed line belongs to an already-active pulse. Count it
+        // before asserting a new pulse and before any adjust/restart return.
+        // MAME's mc6845 handle_line_timer uses the same ordering: VSYNC
+        // continues counting through vertical adjustment and frame wrap.
+        if self.vsync {
+            self.vsync_counter += 1;
+            if self.vsync_counter >= v_sync_width {
+                self.vsync = false;
+            }
+        }
+
         if self.in_v_adjust {
             self.v_adjust += 1;
             if self.v_adjust >= v_adjust {
@@ -437,14 +451,6 @@ impl Crtc6845 {
             self.ra += 1;
             // Restart MA from the beginning of this character row
             self.ma = self.row_start;
-        }
-
-        // VSYNC width
-        if self.vsync {
-            self.vsync_counter += 1;
-            if self.vsync_counter >= v_sync_width {
-                self.vsync = false;
-            }
         }
 
         false
@@ -618,44 +624,8 @@ mod tests {
         }
     }
 
-    fn start_vertical_sync(crtc: &mut Crtc6845, r3: u8) {
-        crtc.regs[3] = r3;
-        crtc.regs[4] = 20;
-        crtc.regs[7] = 1;
-        crtc.regs[9] = 0;
-        crtc.advance_vertical();
-        assert!(crtc.vsync);
-    }
-
-    #[test]
-    fn mc6845_vertical_sync_is_fixed_at_sixteen_scanlines() {
-        let mut crtc = Crtc6845::new();
-        start_vertical_sync(&mut crtc, 0x20);
-
-        // R3's high nibble requests two lines on later parts, but the original
-        // MC6845 ignores it and keeps the fixed 16-line pulse.
-        crtc.advance_vertical();
-        assert!(crtc.vsync);
-    }
-
-    #[test]
-    fn hd6845s_programs_vertical_sync_and_maps_zero_to_sixteen() {
-        let mut crtc = Crtc6845::new();
-        crtc.set_variant(Crtc6845Variant::Hd6845s);
-        start_vertical_sync(&mut crtc, 0x20);
-        crtc.advance_vertical();
-        assert!(!crtc.vsync, "a width of two must finish on the second line");
-
-        let mut zero = Crtc6845::new();
-        zero.set_variant(Crtc6845Variant::Hd6845s);
-        start_vertical_sync(&mut zero, 0);
-        for _ in 0..14 {
-            zero.advance_vertical();
-            assert!(zero.vsync);
-        }
-        zero.advance_vertical();
-        assert!(!zero.vsync, "zero must encode a 16-line vertical pulse");
-    }
+    // Full sync lengths, including line/frame crossings, are measured through
+    // the public ports and pins in tests/sync_outputs.rs.
 
     /// A mid-frame write that drops a vertical register below its live counter
     /// must not strand that counter above a reset condition it can never meet
