@@ -1619,6 +1619,11 @@ mod tests {
             0x0E,
             0xD4, // STA NMIEN
             0xA9,
+            0x03, // LDA #3
+            0x8D,
+            0x0F,
+            0xD2, // STA SKCTL: release polynomial initialisation
+            0xA9,
             audf1, // LDA #AUDF1
             0x8D,
             0x00,
@@ -1642,8 +1647,8 @@ mod tests {
             0x09,
             0xD2, // STA STIMER (value ignored)
             0x4C,
-            0x1D,
-            0xA0, // JMP $A01D
+            0x22,
+            0xA0, // JMP $A022
         ];
         rom[..prog.len()].copy_from_slice(&prog);
         rom
@@ -1698,28 +1703,37 @@ mod tests {
     }
 
     #[test]
-    fn pokey_distortions_have_distinct_audible_signatures() {
+    fn pokey_noise_period_aliases_survive_the_cpu_bus_and_audio_mixer() {
         fn rms(samples: &[f32]) -> f32 {
+            assert!(
+                samples.len() > 6000,
+                "the guest must produce a complete audio window"
+            );
             (samples.iter().map(|sample| sample * sample).sum::<f32>() / samples.len() as f32)
                 .sqrt()
         }
 
-        let poly5 = rms(&captured_pokey_tone(31, 0, 0x01, 0x2F, 0x02));
-        let poly5_and_poly4 = rms(&captured_pokey_tone(31, 0, 0x01, 0x4F, 0x02));
-        let poly4 = rms(&captured_pokey_tone(31, 0, 0x01, 0xCF, 0x02));
-        let pure = rms(&captured_pokey_tone(31, 0, 0x01, 0xEF, 0x02));
-        // Atari800's gate ordering predicts fewer transitions for P5&P4 than
-        // P5 alone, while P4 noise remains clearly distinct from an ungated
-        // pure tone.  Generous margins tolerate downsampling/filter changes
-        // but reject the former swapped/ungated distortion implementations.
-        assert!(
-            poly5 > poly5_and_poly4 * 1.15,
-            "P5 ({poly5}) should be audibly stronger than P5&P4 ({poly5_and_poly4})"
-        );
-        assert!(
-            poly4 < pure * 0.85,
-            "P4 ({poly4}) should remain gated relative to pure tone ({pure})"
-        );
+        // Altirra Hardware Reference Manual pp106–107: sampling the same
+        // polynomial bit each period produces DC, removed by output coupling.
+        // Poly-4 repeats every 15 clocks; poly-9 every 511. With the /28 clock,
+        // AUDF=$48 samples poly-9 every 2044=4*511 cycles.
+        for (audctl, audc, audf) in [
+            (0, 0xcf, 14),
+            (0, 0xcf, 29),
+            (0, 0xcf, 44),
+            (0x80, 0x8f, 72),
+        ] {
+            let aliased = rms(&captured_pokey_tone(audf, 0, 0x01, audc, audctl));
+            let detuned = rms(&captured_pokey_tone(audf + 1, 0, 0x01, audc, audctl));
+            assert!(
+                aliased < 0.001,
+                "repeated noise bit must settle to silence: AUDC={audc:02x} AUDF={audf} RMS={aliased}"
+            );
+            assert!(
+                detuned > 0.02,
+                "detuning must restore audible noise: AUDC={audc:02x} AUDF={audf} RMS={detuned}"
+            );
+        }
     }
 
     /// Save-state must capture LIVE machine state (6502C + ANTIC + GTIA +
