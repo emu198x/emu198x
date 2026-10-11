@@ -57,7 +57,7 @@ impl Maria {
 
     /// Advance MARIA's clock, raster requests and DMA by one native oscillator
     /// period, including line RAM transfer and framebuffer playback. The
-    /// machine caller is connected by the following integration stage.
+    /// machine routes memory and CPU ownership through the exposed pins.
     /// Do not additionally call `tick_clock` for this native period.
     pub fn tick_dma(&mut self) {
         let old_phase2 = self.clock.phase2;
