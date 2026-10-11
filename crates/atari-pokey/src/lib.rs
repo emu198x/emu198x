@@ -243,9 +243,13 @@ impl Channel {
         (self.audc >> 5) & 0x07
     }
 
-    /// Reload the counter from AUDF.
-    fn reload(&mut self) {
-        self.counter = u32::from(self.audf);
+    /// Reload the unlinked divider, including its fast-clock propagation.
+    fn reload(&mut self, high_speed: bool) {
+        // The zero-inclusive countdown supplies +1. At the direct chip clock,
+        // propagation adds three more clocks: AUDF+4. At /28 or /114 these
+        // stages finish before the next base-clock edge and add no period.
+        // Altirra Hardware Reference Manual, p105.
+        self.counter = u32::from(self.audf) + if high_speed { 3 } else { 0 };
     }
 
     /// Reload the counter for 16-bit paired mode (high byte from partner).
@@ -618,8 +622,10 @@ impl Pokey {
 
             // STIMER: writing any value resets all channel counters.
             0x09 => {
-                for ch in &mut self.channels {
-                    ch.reload();
+                for (index, ch) in self.channels.iter_mut().enumerate() {
+                    let high_speed = (index == 0 && self.audctl & AUDCTL_CH1_179MHZ != 0)
+                        || (index == 2 && self.audctl & AUDCTL_CH3_179MHZ != 0);
+                    ch.reload(high_speed);
                 }
                 if self.audctl & AUDCTL_16BIT_CH12 != 0 {
                     let high = self.channels[1].audf;
@@ -1174,9 +1180,11 @@ impl Pokey {
 
     /// Tick a single channel, returning true if it underflowed.
     fn tick_single_channel(&mut self, idx: usize) -> bool {
+        let high_speed = (idx == 0 && self.audctl & AUDCTL_CH1_179MHZ != 0)
+            || (idx == 2 && self.audctl & AUDCTL_CH3_179MHZ != 0);
         let ch = &mut self.channels[idx];
         if ch.counter == 0 {
-            ch.reload();
+            ch.reload(high_speed);
             true
         } else {
             ch.counter -= 1;
@@ -1358,6 +1366,9 @@ impl Default for Pokey {
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
+mod timer_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -1376,13 +1387,12 @@ mod tests {
         pokey.write(0x01, 0xA0); // AUDC1: pure tone, volume 0 (just testing counter)
         pokey.write(0x09, 0); // STIMER: reset counters
 
-        // Counter should be loaded with 5.
-        // Tick 5 times: counter goes 5->4->3->2->1->0.
-        for _ in 0..5 {
+        // AUDF+4 gives nine clocks per modeled terminal event. The retained
+        // counter includes the three fast-clock propagation clocks.
+        for _ in 0..8 {
             pokey.tick();
         }
-        // After 5 ticks the counter should have reached 0 but not yet underflowed.
-        // The 6th tick causes underflow and reload.
+        // The ninth tick causes the event and reload.
         let output_before = pokey.channels[0].output;
         pokey.tick(); // underflow: counter reloads, output toggles
         assert_ne!(
@@ -1405,8 +1415,8 @@ mod tests {
         // Verify no IRQ pending yet.
         assert!(!pokey.irq_pending(), "No IRQ should be pending initially");
 
-        // Tick until underflow: counter 2->1->0->underflow = 3 ticks.
-        for _ in 0..3 {
+        // The fast divider fires after AUDF+4 = 6 modeled clocks.
+        for _ in 0..6 {
             pokey.tick();
         }
 
