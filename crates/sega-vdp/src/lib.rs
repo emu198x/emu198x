@@ -1233,12 +1233,11 @@ impl SegaVdp {
         (color_idx, priority, palette)
     }
 
-    /// Prepare this line's sprite overlay: clear `sprite_buf`, then (when the
-    /// display is on and Mode 4 is active) evaluate the sprite table into it and
-    /// set the overflow / collision status flags.
+    /// Prepare the Mode 4 sprite overlay and status flags. Sprite selection
+    /// continues while blanked; only pixels and collisions need display enable.
     fn prepare_line_sprites(&mut self, line: usize) {
         self.sprite_buf = [0u8; 256];
-        if self.display_enabled() && self.mode4_active() {
+        if self.mode4_active() {
             self.evaluate_sprites(line);
         }
     }
@@ -1301,6 +1300,14 @@ impl SegaVdp {
             }
             chosen[count] = (sprite, y);
             count += 1;
+        }
+
+        // Display blanking does not stop the sprite counter. SMS VDP Test
+        // 1.31 test 54 observes overflow with R1.6 clear; the SMS selectors in
+        // MAME and Genesis Plus GX also run independently of display enable.
+        // Keep the overlay empty and suppress collisions while blanked.
+        if !self.display_enabled() {
+            return;
         }
 
         for (slot, &(sprite, y)) in chosen[..count].iter().enumerate() {
