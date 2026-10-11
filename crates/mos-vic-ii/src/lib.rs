@@ -1732,9 +1732,8 @@ impl Vic {
         self.chain_fetch_base[i] = base;
         let mc = self.chain.mc(i);
         self.chain_data[i][0] = memory.read_vram(self.vram_addr(base + u16::from(mc)));
-        // The sprite byte is the VIC's last bus access — drives open-bus reads
-        // ($2F-$3F). (Was set by the removed overlay fetch; the chain reads the
-        // same steady-state bytes, so this keeps open-bus behaviour.)
+        // Retain the sprite DMA byte for diagnostics and the current
+        // colour-RAM read path. Unused VIC registers independently read FF.
         self.last_bus_data = self.chain_data[i][0];
         self.chain.advance_mc(i);
     }
@@ -2247,9 +2246,10 @@ impl Vic {
         u32::from(self.last_visible_line - self.first_visible_line)
     }
 
-    /// The last byte the VIC-II drove onto the data bus (its most recent
-    /// fetch). Feeds open-bus reads: the upper nibble of a `$D800-$DBFF`
-    /// colour-RAM read, and the unmapped registers `$2F-$3F`.
+    /// The most recent matrix or sprite DMA byte retained by the model.
+    /// The machine uses its upper nibble for colour-RAM reads. This does not
+    /// yet represent every Phi1 fetch (issue #1713). Unused VIC registers
+    /// independently return `$FF`.
     #[must_use]
     pub const fn last_bus_data(&self) -> u8 {
         self.last_bus_data
