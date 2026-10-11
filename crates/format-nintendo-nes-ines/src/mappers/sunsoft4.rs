@@ -131,6 +131,10 @@ impl Mapper for Sunsoft4 {
     }
 
     fn nametable_read(&mut self, addr: u16) -> Option<u8> {
+        self.nametable_peek(addr)
+    }
+
+    fn nametable_peek(&self, addr: u16) -> Option<u8> {
         if !self.nt_rom_mode {
             return None;
         }
