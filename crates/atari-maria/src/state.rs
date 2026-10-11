@@ -6,7 +6,7 @@ use super::control::Control;
 use super::dma::{Dma, Phase as DmaPhase};
 use super::fetch::{Fetch, Phase};
 use super::video::LINE_CELLS;
-use super::{ACTIVE_WIDTH, MAX_DMA_CYCLES_PER_LINE, Maria, MariaRegion};
+use super::{ACTIVE_WIDTH, Maria, MariaRegion};
 
 const MAGIC: &[u8; 6] = b"MARIA\x01";
 
@@ -135,7 +135,6 @@ impl Maria {
             u8::from(self.zone_dli),
             u8::from(self.dll_active),
         ]);
-        data.extend_from_slice(&self.dma_cycles.to_le_bytes());
         data.extend_from_slice(&[self.fetch.phase as u8, self.fetch.delay]);
         for value in [
             self.fetch.dl_addr,
@@ -254,7 +253,6 @@ impl Maria {
         restored.zone_holey = reader.byte()?;
         restored.zone_dli = reader.boolean()?;
         restored.dll_active = reader.boolean()?;
-        restored.dma_cycles = reader.word()?;
         restored.fetch = Fetch {
             phase: reader.phase()?,
             delay: reader.byte()?,
@@ -323,7 +321,6 @@ impl Maria {
             || restored.zone_scanline > 16
             || restored.zone_offset > 15
             || restored.zone_holey > 3
-            || restored.dma_cycles > MAX_DMA_CYCLES_PER_LINE
             || fetch.delay > 8
             || (fetch.phase == Phase::Idle) != (fetch.delay == 0)
             || fetch.palette > 7

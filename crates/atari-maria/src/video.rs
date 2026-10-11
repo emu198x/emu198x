@@ -487,7 +487,14 @@ mod tests {
     }
 
     fn first_pixels(chip: &mut Maria, count: usize) -> Vec<u32> {
-        chip.flush_line_to_framebuffer();
+        // Transfer the constructed bank at the real line-RAM swap edge,
+        // then sample the following raster's active pixels through tick_dma.
+        chip.scan_line = VISIBLE_TOP - 1;
+        chip.native_cycle = 823;
+        chip.tick_dma();
+        for _ in 0..(908 - 824 + 186 + count as u16 * 2) {
+            chip.tick_dma();
+        }
         let left = chip.region.border_left() as usize;
         chip.framebuffer[left..left + count].to_vec()
     }
@@ -515,7 +522,7 @@ mod tests {
     #[test]
     fn horizontal_positions_count_two_pixel_cells() {
         let mut chip = fixture();
-        chip.fill_background();
+        chip.line_buffer.fill(0);
         chip.blit_byte(0x55, &mut 1, false, 0);
         let expected: Vec<_> = [0x0e, 0x0e, 0x4e, 0x4e, 0x4e, 0x4e, 0x4e, 0x4e, 0x4e, 0x4e]
             .map(|colour| chip.colour_argb(colour))
@@ -526,7 +533,7 @@ mod tests {
     #[test]
     fn extended_write_mode_stores_two_cells_per_byte() {
         let mut chip = fixture();
-        chip.fill_background();
+        chip.line_buffer.fill(0);
         chip.palettes[1] = [0xae, 0xbe, 0xde];
         let mut position = 0;
         // Two nonzero 160B colours: P1C1 and P0C2, then untouched background.
