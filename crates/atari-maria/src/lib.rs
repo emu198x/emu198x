@@ -7,9 +7,15 @@
 //! # Standalone IC
 //!
 //! Native callers route external memory and CPU bus pins around `tick_dma`.
-//! It advances saved DMA, register, line-buffer and playback stages. The old
-//! aggregate scanline helper remains a compatibility API pending removal;
-//! the Atari 7800 machine uses the native path.
+//! It advances saved DMA, register, line-buffer and playback stages on each
+//! oscillator tick. Memory is supplied only at `dma_read_pending` strobes;
+//! address ownership and CPU HALT are separate output pins.
+//!
+//! The former `render_line`, `dma_cycles` and `clear_wsync` APIs are removed.
+//! Advance with [`Maria::tick_dma`], route reads using
+//! [`Maria::dma_read_pending`], and let the native stages release WSYNC.
+//! Count CPU ownership from HALT and the machine's sampled bus-release state;
+//! a count of fetched bytes does not measure stolen CPU cycles.
 //!
 //! # Register map ($20-$3F)
 //!
@@ -136,11 +142,6 @@ const CTRL_COLOUR_KILL: u8 = 0x80;
 const CTRL_CW: u8 = 0x10;
 const CTRL_KANGAROO: u8 = 0x04;
 
-/// Upper bound on the DMA cycles a single scanline can steal. A 7800 line is
-/// 454 MARIA colour clocks; this caps the display-list walk so a malformed list
-/// can't loop unbounded (real MARIA's DMA simply aborts at end of line).
-const MAX_DMA_CYCLES_PER_LINE: u16 = 512;
-
 // ---------------------------------------------------------------------------
 // Region
 // ---------------------------------------------------------------------------
@@ -222,47 +223,6 @@ impl MariaRegion {
 }
 
 // ---------------------------------------------------------------------------
-// DLL entry (parsed)
-// ---------------------------------------------------------------------------
-
-/// A parsed Display List List entry (3 bytes).
-#[derive(Debug, Clone, Copy, Default)]
-struct DllEntry {
-    /// Trigger NMI at end of zone.
-    dli: bool,
-    /// Zone height in scanlines (1-16).
-    zone_height: u8,
-    /// OFFSET (bits 0-3 of the header byte): the high-byte address offset for
-    /// the zone's top line. It also sets the zone height (`offset + 1`) and
-    /// decrements one per scanline down the zone.
-    offset: u8,
-    /// Holey-DMA mask (header bits 6:5 → `H16` in bit 1, `H8` in bit 0). When
-    /// set, matching graphics addresses suppress writes and end the object.
-    holey: u8,
-    /// Display List address for this zone.
-    dl_addr: u16,
-}
-
-impl DllEntry {
-    fn parse(b0: u8, b1: u8, b2: u8) -> Self {
-        // The header byte is `DLI(7) H16(6) H8(5) - OFFSET(3:0)`. There is a
-        // single 4-bit OFFSET field — it is both the per-line address offset
-        // and (offset + 1) the zone height. MAME `maria.cpp`: `m_offset =
-        // header & 0x0f`, `m_holey = (header & 0x60) >> 5`. (An earlier version
-        // misread a 3-bit height from bits 4-6, which garbled multi-line zones,
-        // and dropped holey DMA entirely, which left holes filled with garbage.)
-        let offset = b0 & 0x0F;
-        Self {
-            dli: b0 & 0x80 != 0,
-            zone_height: offset + 1,
-            offset,
-            holey: (b0 & 0x60) >> 5,
-            dl_addr: u16::from(b1) << 8 | u16::from(b2),
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------
 // Maria
 // ---------------------------------------------------------------------------
 
@@ -320,7 +280,6 @@ pub struct Maria {
     dll_active: bool,
 
     // -- DMA ----------------------------------------------------------------
-    dma_cycles: u16,
     fetch: fetch::Fetch,
 
     // -- Framebuffer --------------------------------------------------------
@@ -374,7 +333,6 @@ impl Maria {
             zone_dli: false,
             dll_active: false,
 
-            dma_cycles: 0,
             fetch: fetch::Fetch::default(),
 
             framebuffer: vec![
@@ -457,12 +415,6 @@ impl Maria {
         self.wsync
     }
 
-    /// Clear WSYNC for the aggregate scanline compatibility caller. Native
-    /// callers let `tick_dma` advance the READY stages instead.
-    pub fn clear_wsync(&mut self) {
-        self.wsync = false;
-    }
-
     /// Returns `true` during vertical blank.
     #[must_use]
     pub fn vblank(&self) -> bool {
@@ -503,142 +455,6 @@ impl Maria {
         (self.framebuffer.len() / self.region.framebuffer_width() as usize) as u32
     }
 
-    /// DMA cycles stolen during the last `render_line` call. A populated zone's
-    /// display list can steal more than 255 cycles, so this is a `u16`.
-    #[must_use]
-    pub fn dma_cycles(&self) -> u16 {
-        self.dma_cycles
-    }
-
-    // -- Scanline rendering -------------------------------------------------
-
-    /// Advance one scanline.  The caller provides a `read_byte` closure that
-    /// can access any address in the 64 KB address space (RAM, ROM, etc.).
-    ///
-    /// Returns the number of DMA cycles stolen from the CPU for this line.
-    pub fn render_line(&mut self, read_byte: &mut dyn FnMut(u16) -> u8) -> u16 {
-        self.dma_cycles = 0;
-
-        // Paint only this raster's row. In particular, a later BACKGRND or
-        // CTRL write must not recolour rows already produced this frame.
-        // Preserve the existing window placement, including PAL's provisional
-        // vertical surround (documented by MariaRegion::border_top).
-        let fb_y = (u32::from(self.scan_line)
-            + u32::from(self.region.lines_per_frame())
-            + self.region.border_top()
-            - u32::from(VISIBLE_TOP))
-            % u32::from(self.region.lines_per_frame());
-        if fb_y < self.region.framebuffer_height() {
-            self.fill_framebuffer_row(fb_y as usize);
-        }
-
-        let visible_bottom = VISIBLE_TOP + ACTIVE_HEIGHT as u16;
-        let lines = self.region.lines_per_frame();
-
-        // Determine VBLANK status.
-        self.vblank = self.scan_line < VISIBLE_TOP || self.scan_line >= visible_bottom;
-
-        if !self.vblank && self.ctrl & 0x60 == CTRL_DMA_ENABLED {
-            self.render_visible_line(read_byte);
-        } else if !self.vblank {
-            // DMA off: fill with background.
-            self.fill_background();
-            self.flush_line_to_framebuffer();
-        }
-
-        // Clear WSYNC at end of every scanline.
-        self.wsync = false;
-
-        // Advance scanline.
-        self.scan_line += 1;
-        if self.scan_line >= lines {
-            self.scan_line = 0;
-            self.frame_complete = true;
-            self.dll_active = false;
-        }
-
-        self.dma_cycles
-    }
-
-    /// Render one visible scanline with DMA enabled.
-    fn render_visible_line(&mut self, read_byte: &mut dyn FnMut(u16) -> u8) {
-        // On the first visible line, load the DLL pointer.
-        if !self.dll_active {
-            self.dll_addr = u16::from(self.dpph) << 8 | u16::from(self.dppl);
-            self.zone_scanline = 0;
-            self.zone_height = 0; // Force immediate DLL fetch.
-            self.dll_active = true;
-        }
-
-        // If we've finished the current zone, fetch the next DLL entry.
-        if self.zone_scanline >= self.zone_height {
-            self.fetch_dll_entry(read_byte);
-            self.zone_scanline = 0;
-        }
-
-        // Fill line buffer with background.
-        self.fill_background();
-
-        // Process the display list for this zone.
-        self.process_display_list(read_byte);
-
-        // Write line buffer to framebuffer.
-        self.flush_line_to_framebuffer();
-
-        // Advance within zone.
-        self.zone_scanline += 1;
-
-        // Fire DLI at end of zone.
-        if self.zone_scanline >= self.zone_height && self.zone_dli {
-            self.dli_pending = true;
-        }
-    }
-
-    /// Read a 3-byte DLL entry and advance `dll_addr`.
-    fn fetch_dll_entry(&mut self, read_byte: &mut dyn FnMut(u16) -> u8) {
-        let b0 = read_byte(self.dll_addr);
-        let b1 = read_byte(self.dll_addr.wrapping_add(1));
-        let b2 = read_byte(self.dll_addr.wrapping_add(2));
-        self.dma_cycles += 3;
-        self.dll_addr = self.dll_addr.wrapping_add(3);
-
-        let entry = DllEntry::parse(b0, b1, b2);
-        self.zone_height = entry.zone_height;
-        self.zone_dl_addr = entry.dl_addr;
-        self.zone_offset = entry.offset;
-        self.zone_holey = entry.holey;
-        self.zone_dli = entry.dli;
-    }
-
-    /// Walk the display list for the current zone and render each entry.
-    ///
-    /// Each entry is a 4- or 5-byte header, chosen *per entry* by its second
-    /// byte (`b1`): `b1 & 0x5F == 0` ends the line's list; otherwise
-    /// `b1 & 0x1F != 0` is a 4-byte (direct) header and `== 0` is a 5-byte
-    /// (extended) header. Byte roles per the MARIA spec (cross-checked against
-    /// the MiSTer `DMA.sv`):
-    ///
-    /// - **4-byte:** `b0` = addr low, `b1` = `PPPWWWWW` (palette 7:5, width 4:0),
-    ///   `b2` = addr high, `b3` = HPOS. Always direct, retaining the latest extended write mode.
-    /// - **5-byte:** `b0` = addr low, `b1` = `WM·1·IND·00000` (write-mode bit 7,
-    ///   indirect bit 5), `b2` = addr high, `b3` = `PPPWWWWW`, `b4` = HPOS.
-    ///
-    /// Width is a 5-bit two's-complement byte count: `((!W) & 0x1F) + 1`, i.e.
-    /// 1–32 (`W = 0` → 32).
-    fn process_display_list(&mut self, read_byte: &mut dyn FnMut(u16) -> u8) {
-        self.begin_fetch();
-        while self.fetch.phase != fetch::Phase::Idle {
-            if self.dma_cycles >= MAX_DMA_CYCLES_PER_LINE {
-                self.stop_fetch();
-                break;
-            }
-            if let Some(address) = self.fetch_read_address() {
-                self.fetch.data_in = read_byte(address);
-            }
-            self.tick_fetch();
-        }
-    }
-
     /// Holey DMA address decode. The fetch pipeline suppresses graphics writes
     /// and terminates the object after the current character's bus slots.
     /// MAME `maria.cpp` `is_holey`: `H16` blanks `addr & 0x9000 == 0x9000`,
@@ -650,13 +466,8 @@ impl Maria {
 
     // -- Helpers ------------------------------------------------------------
 
-    /// Clear pending cells; zero colour selectors read the live background.
-    fn fill_background(&mut self) {
-        self.line_buffer.fill(0);
-    }
-
     /// Explicitly clear the image using the current background/border controls.
-    /// Normal raster production paints each row in `render_line` instead;
+    /// Normal raster production samples pixels in `tick_dma` instead;
     /// calling this during a frame would overwrite its already-rendered rows.
     pub fn fill_border(&mut self) {
         for y in 0..self.region.framebuffer_height() as usize {
@@ -693,23 +504,6 @@ impl Maria {
         row[..left].fill(border);
         row[left + ACTIVE_WIDTH as usize..].fill(border);
     }
-
-    /// Convert line buffer colour indices to ARGB32 and write to framebuffer.
-    fn flush_line_to_framebuffer(&mut self) {
-        let active_y = self.scan_line.saturating_sub(VISIBLE_TOP) as usize;
-        if active_y >= ACTIVE_HEIGHT as usize {
-            return;
-        }
-        let fb_y = self.region.border_top() as usize + active_y;
-
-        let row_start =
-            fb_y * self.region.framebuffer_width() as usize + self.region.border_left() as usize;
-
-        for pixel in 0..ACTIVE_WIDTH as usize {
-            let colour = self.cell_colour(self.line_buffer[pixel / 2], pixel % 2 != 0);
-            self.framebuffer[row_start + pixel] = self.colour_argb(colour);
-        }
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -718,15 +512,95 @@ impl Maria {
 
 #[cfg(test)]
 mod tests {
+    struct NativeBus {
+        address: u16,
+        sampled_halt: bool,
+        released: bool,
+        reads: usize,
+    }
+
+    impl NativeBus {
+        fn new() -> Self {
+            Self {
+                address: 0x8000,
+                sampled_halt: false,
+                released: false,
+                reads: 0,
+            }
+        }
+
+        fn tick(&mut self, chip: &mut Maria, read: &mut impl FnMut(u16) -> u8) {
+            let halt = chip.halt;
+            chip.address_in = self.address;
+            if chip.dma_read_pending() {
+                chip.dma_data_in = read(self.address);
+                self.reads += 1;
+            }
+            chip.tick_dma();
+            self.released = self.sampled_halt;
+            if chip.phi1 {
+                self.sampled_halt = halt;
+            }
+            assert!(!chip.dma_drive || self.released);
+            if chip.dma_drive {
+                self.address = chip.dma_address;
+            } else if !self.released {
+                self.address = 0x8000;
+            }
+        }
+
+        fn line(&mut self, chip: &mut Maria, read: &mut impl FnMut(u16) -> u8) {
+            let line = chip.scan_line();
+            for _ in 0..908 {
+                self.tick(chip, read);
+            }
+            assert_eq!(chip.scan_line(), (line + 1) % chip.region.lines_per_frame());
+        }
+    }
+
+    #[test]
+    fn native_first_graphics_follow_descriptor_prefetch_and_buffer_transfer() {
+        let mut memory = vec![0; 65536];
+        memory[0x2000..0x2003].copy_from_slice(&[0, 0x30, 0]);
+        memory[0x3000..0x3004].copy_from_slice(&[0, 0x1f, 0x05, 0]);
+        memory[0x0500] = 0xc0;
+        let mut native = Maria::new(MariaRegion::Ntsc);
+        native.write(0x1c, 0x40);
+        native.write(0x0c, 0x20);
+        native.write(0x03, 0x66);
+        let mut bus = NativeBus::new();
+        for _ in 0..19 {
+            bus.line(&mut native, &mut |address| memory[usize::from(address)]);
+        }
+        assert!(bus.reads >= 10, "descriptor and graphics must be fetched");
+        let first_colours = |chip: &Maria| -> Vec<_> {
+            (0..3)
+                .map(|row| {
+                    chip.framebuffer[row * chip.framebuffer_width() as usize
+                        + chip.region.border_left() as usize]
+                })
+                .collect()
+        };
+        assert_eq!(
+            first_colours(&native),
+            [NTSC_PALETTE[0], NTSC_PALETTE[0], NTSC_PALETTE[0x66 >> 1]]
+        );
+    }
+
     #[test]
     fn terminating_header_still_fetches_the_following_high_byte() {
         let mut maria = Maria::new(MariaRegion::Ntsc);
         maria.zone_dl_addr = 0x1c00;
         let mut addresses = Vec::new();
-        maria.process_display_list(&mut |address| {
-            addresses.push(address);
-            0
-        });
+        maria.begin_fetch();
+        for _ in 0..12 {
+            if let Some(address) = maria.fetch_read_address() {
+                addresses.push(address);
+                maria.fetch.data_in = 0;
+            }
+            maria.tick_fetch();
+        }
+        assert_eq!(maria.fetch.phase, fetch::Phase::Idle);
         assert_eq!(addresses, [0x1c00, 0x1c01, 0x1c02]);
     }
 
@@ -830,7 +704,12 @@ mod tests {
         assert!(!maria.wsync_halt());
         maria.write(0x04, 0x00); // Any write sets WSYNC.
         assert!(maria.wsync_halt());
-        maria.clear_wsync();
+        let mut bus = NativeBus::new();
+        for _ in 0..823 {
+            bus.tick(&mut maria, &mut |_| 0);
+            assert!(maria.wsync_halt());
+        }
+        bus.tick(&mut maria, &mut |_| 0);
         assert!(!maria.wsync_halt());
     }
 
@@ -843,30 +722,38 @@ mod tests {
     }
 
     #[test]
-    fn dll_entry_parsing() {
-        // DLI=1, OFFSET=5 → zone height 6, DL addr=$1234. (The single 4-bit
-        // OFFSET in bits 0-3 sets both the address offset and `offset + 1` rows.)
-        let entry = DllEntry::parse(0b1011_0101, 0x12, 0x34);
-        assert!(entry.dli);
-        assert_eq!(entry.zone_height, 6);
-        assert_eq!(entry.offset, 5);
-        assert_eq!(entry.dl_addr, 0x1234);
-    }
-
-    #[test]
-    fn dll_entry_min_max() {
-        // Minimum: no DLI, OFFSET=0 → height 1.
-        let min = DllEntry::parse(0x00, 0x00, 0x00);
-        assert!(!min.dli);
-        assert_eq!(min.zone_height, 1);
-        assert_eq!(min.offset, 0);
-
-        // Maximum: DLI, OFFSET=15 → height 16.
-        let max = DllEntry::parse(0xFF, 0xFF, 0xFF);
-        assert!(max.dli);
-        assert_eq!(max.zone_height, 16);
-        assert_eq!(max.offset, 15);
-        assert_eq!(max.dl_addr, 0xFFFF);
+    fn native_descriptor_decodes_flags_offset_and_full_address() {
+        // Expected fields from the documented DLI/H16/H8/-/OFFSET layout.
+        for region in [MariaRegion::Ntsc, MariaRegion::Pal] {
+            for (flag, height, offset, holey, dli, address) in [
+                (0x00, 1, 0, 0, false, 0x0000_u16),
+                (0xb5, 6, 5, 1, true, 0x1234),
+                (0x4f, 16, 15, 2, false, 0x8001),
+                (0xff, 16, 15, 3, true, 0xffff),
+            ] {
+                let mut chip = Maria::new(region);
+                chip.write(0x1c, CTRL_DMA_ENABLED);
+                chip.write(0x0c, 0x20);
+                let mut bus = NativeBus::new();
+                for _ in 0..17 * 908 {
+                    bus.tick(&mut chip, &mut |read| match read {
+                        0x2000 => flag,
+                        0x2001 => (address >> 8) as u8,
+                        0x2002 => address as u8,
+                        _ => panic!("unexpected descriptor read {read:04x}"),
+                    });
+                    if bus.reads == 3 {
+                        break;
+                    }
+                }
+                assert_eq!(bus.reads, 3);
+                assert_eq!(chip.zone_height, height);
+                assert_eq!(chip.zone_offset, offset);
+                assert_eq!(chip.zone_holey, holey);
+                assert_eq!(chip.zone_dl_addr, address);
+                assert_eq!(chip.take_dli(), dli);
+            }
+        }
     }
 
     #[test]
@@ -895,6 +782,7 @@ mod tests {
     fn border_uses_each_scanlines_background_without_repainting_prior_rows() {
         for region in [MariaRegion::Ntsc, MariaRegion::Pal] {
             let mut maria = Maria::new(region);
+            let mut bus = NativeBus::new();
             let palette = match region {
                 MariaRegion::Ntsc => &NTSC_PALETTE,
                 MariaRegion::Pal => &PAL_PALETTE,
@@ -903,9 +791,9 @@ mod tests {
             maria.fill_border();
             maria.scan_line = VISIBLE_TOP;
             maria.write(0x00, 0x4e);
-            maria.render_line(&mut |_| 0);
+            bus.line(&mut maria, &mut |_| 0);
             maria.write(0x00, 0x8a);
-            maria.render_line(&mut |_| 0);
+            bus.line(&mut maria, &mut |_| 0);
             let width = region.framebuffer_width() as usize;
             let first = region.border_top() as usize * width;
             assert!(
@@ -928,6 +816,7 @@ mod tests {
                 for border in [0, 0x08] {
                     for kill in [0, CTRL_COLOUR_KILL] {
                         let mut maria = Maria::new(region);
+                        let mut bus = NativeBus::new();
                         let palette = match region {
                             MariaRegion::Ntsc => &NTSC_PALETTE,
                             MariaRegion::Pal => &PAL_PALETTE,
@@ -935,7 +824,7 @@ mod tests {
                         maria.write(0x00, 0x6e);
                         maria.write(0x1c, dma | border | kill);
                         maria.scan_line = VISIBLE_TOP;
-                        maria.render_line(&mut |_| 0); // Empty display list when DMA enabled.
+                        bus.line(&mut maria, &mut |_| 0); // Empty display list when DMA enabled.
                         let width = region.framebuffer_width() as usize;
                         let start = region.border_top() as usize * width;
                         let left = region.border_left() as usize;
@@ -960,18 +849,24 @@ mod tests {
     }
 
     #[test]
-    fn scanline_helper_stops_reads_when_normal_dma_is_disabled() {
+    fn native_reads_stop_and_restart_with_normal_dma() {
         for region in [MariaRegion::Ntsc, MariaRegion::Pal] {
             let mut chip = Maria::new(region);
-            chip.scan_line = VISIBLE_TOP;
+            let mut bus = NativeBus::new();
+            for _ in 0..17 {
+                bus.line(&mut chip, &mut |_| 0);
+            }
             for (control, enabled) in [(0x40, true), (0x60, false), (0x40, true)] {
                 chip.write(0x1c, control);
-                let mut reads = 0;
-                chip.render_line(&mut |_| {
-                    reads += 1;
-                    0
-                });
-                assert_eq!(reads > 0, enabled, "control {control:02x}, {region:?}");
+                // Allow an already-running transaction to finish/cancel.
+                bus.line(&mut chip, &mut |_| 0);
+                let before = bus.reads;
+                bus.line(&mut chip, &mut |_| 0);
+                assert_eq!(
+                    bus.reads > before,
+                    enabled,
+                    "control {control:02x}, {region:?}"
+                );
             }
         }
     }
@@ -979,6 +874,7 @@ mod tests {
     #[test]
     fn pal_border_rows_follow_the_existing_window_across_frame_wrap() {
         let mut maria = Maria::new(MariaRegion::Pal);
+        let mut bus = NativeBus::new();
         maria.write(0x1c, 0x08);
         let width = maria.region.framebuffer_width() as usize;
         // Preserve the existing PAL window: active raster 16 is at row 24.
@@ -991,7 +887,7 @@ mod tests {
         ] {
             maria.scan_line = raster;
             maria.write(0x00, colour);
-            maria.render_line(&mut |_| 0);
+            bus.line(&mut maria, &mut |_| 0);
             assert!(
                 maria.framebuffer[row * width..(row + 1) * width]
                     .iter()
@@ -1003,6 +899,7 @@ mod tests {
     #[test]
     fn background_fills_line() {
         let mut maria = Maria::new(MariaRegion::Ntsc);
+        let mut bus = NativeBus::new();
         maria.write(0x00, 0x0E); // Set background to grey luminance 7.
 
         // Enable DMA so rendering happens.
@@ -1024,11 +921,11 @@ mod tests {
 
         // Advance past VBLANK to the first visible line.
         for _ in 0..VISIBLE_TOP {
-            maria.render_line(&mut |addr| mem[addr as usize]);
+            bus.line(&mut maria, &mut |addr| mem[addr as usize]);
         }
 
         // Render one visible line.
-        maria.render_line(&mut |addr| mem[addr as usize]);
+        bus.line(&mut maria, &mut |addr| mem[addr as usize]);
 
         // Every pixel of the active region on the first active row should be
         // the background colour. BC is clear, so the side borders stay black.
@@ -1045,6 +942,7 @@ mod tests {
         // In 160A mode, pixel value 0 is transparent and must not overwrite
         // the background.
         let mut maria = Maria::new(MariaRegion::Ntsc);
+        let mut bus = NativeBus::new();
         maria.write(0x00, 0x0E); // Background = $0E.
         maria.write(0x1C, CTRL_DMA_ENABLED);
         maria.palettes[0] = [0x22, 0x44, 0x66];
@@ -1073,18 +971,18 @@ mod tests {
         // pixels 1-3 are transparent.
         mem[0x0500] = 0xC0;
 
-        for _ in 0..VISIBLE_TOP {
-            maria.render_line(&mut |addr| mem[addr as usize]);
+        for _ in 0..18 {
+            bus.line(&mut maria, &mut |addr| mem[addr as usize]);
         }
-        maria.render_line(&mut |addr| mem[addr as usize]);
+        bus.line(&mut maria, &mut |addr| mem[addr as usize]);
 
         let bg_argb = NTSC_PALETTE[(0x0E >> 1) as usize];
         let fg_argb = NTSC_PALETTE[(0x66 >> 1) as usize]; // palette 0, colour 3
 
-        // Active region starts at (maria.region.border_left(), maria.region.border_top()). First two
+        // The first graphics appear on raster 18 after descriptor prefetch. First two
         // framebuffer pixels of the active row (one 160A pixel = 2 FB
         // pixels) should be the foreground colour.
-        let active_start = maria.region.border_top() as usize
+        let active_start = (maria.region.border_top() as usize + 2)
             * maria.region.framebuffer_width() as usize
             + maria.region.border_left() as usize;
         assert_eq!(maria.framebuffer[active_start], fg_argb);
@@ -1115,13 +1013,14 @@ mod tests {
     #[test]
     fn frame_completion() {
         let mut maria = Maria::new(MariaRegion::Ntsc);
+        let mut bus = NativeBus::new();
         let mem = [0u8; 0x10000];
 
         assert!(!maria.take_frame_complete());
 
         // Run through an entire frame.
         for _ in 0..NTSC_LINES {
-            maria.render_line(&mut |addr| mem[addr as usize]);
+            bus.line(&mut maria, &mut |addr| mem[addr as usize]);
         }
 
         assert!(maria.take_frame_complete());
@@ -1130,8 +1029,9 @@ mod tests {
     }
 
     #[test]
-    fn dli_pending_flag() {
+    fn initial_descriptor_raises_one_event_before_graphics_playback() {
         let mut maria = Maria::new(MariaRegion::Ntsc);
+        let mut bus = NativeBus::new();
         maria.write(0x1C, CTRL_DMA_ENABLED);
         maria.dpph = 0x20;
         maria.dppl = 0x00;
@@ -1157,13 +1057,14 @@ mod tests {
 
         // Advance through VBLANK.
         for _ in 0..VISIBLE_TOP {
-            maria.render_line(&mut |addr| mem[addr as usize]);
+            bus.line(&mut maria, &mut |addr| mem[addr as usize]);
         }
 
-        // Render the first visible line (zone with DLI).
-        maria.render_line(&mut |addr| mem[addr as usize]);
+        // Clock raster 16, which prefetches the initial descriptor.
+        bus.line(&mut maria, &mut |addr| mem[addr as usize]);
 
-        // DLI should have fired at end of zone (height=1, so after 1 line).
+        // Initial descriptor loading raises its event before graphics playback.
+        // This tests producer events, not the still-open NMI pin phase.
         assert!(maria.take_dli());
         // Second call clears it.
         assert!(!maria.take_dli());

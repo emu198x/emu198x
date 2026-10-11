@@ -114,7 +114,6 @@ impl Maria {
         } else {
             self.fetch.data_in
         };
-        self.dma_cycles += 1; // Compatibility helper's aggregate read count.
         match self.fetch.phase {
             Phase::Idle => {}
             Phase::HeaderLow => {
