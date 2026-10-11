@@ -530,8 +530,21 @@ impl Vic20 {
             // the live CPU path uses the mutating `read`; `mem_read`/`peek`
             // stay non-mutating for host debugging.
             self.cpu.data_in = match addr {
-                0x9110..=0x911F => self.via1.read((addr & 0x0F) as u8),
-                0x9120..=0x912F => self.via2.read((addr & 0x0F) as u8),
+                0x9000..=0x93FF => {
+                    let reg = (addr & 0x0F) as u8;
+                    let mut data = if addr < 0x9100 {
+                        self.vic.read(reg)
+                    } else {
+                        0xFF
+                    };
+                    if addr & 0x10 != 0 {
+                        data &= self.via1.read(reg);
+                    }
+                    if addr & 0x20 != 0 {
+                        data &= self.via2.read(reg);
+                    }
+                    data
+                }
                 _ => self.mem_read(addr),
             };
         } else {
@@ -559,10 +572,24 @@ impl Vic20 {
                 .get((addr - 0x8000) as usize)
                 .copied()
                 .unwrap_or(0xFF),
-            0x9000..=0x90FF => self.vic.read((addr & 0x0F) as u8),
-            0x9110..=0x911F => self.via1.peek((addr & 0x0F) as u8),
-            0x9120..=0x912F => self.via2.peek((addr & 0x0F) as u8),
-            0x9100..=0x910F | 0x9130..=0x93FF => 0xFF,
+            // Schematic 324001 sheet 2: I/O0 gates both VIAs' CS2; A4/A5
+            // independently drive CS1. VICE resolves simultaneous reads by
+            // AND, including VIA overlap with the VIC's $9000 register page.
+            0x9000..=0x93FF => {
+                let reg = (addr & 0x0F) as u8;
+                let mut data = if addr < 0x9100 {
+                    self.vic.read(reg)
+                } else {
+                    0xFF
+                };
+                if addr & 0x10 != 0 {
+                    data &= self.via1.peek(reg);
+                }
+                if addr & 0x20 != 0 {
+                    data &= self.via2.peek(reg);
+                }
+                data
+            }
             0x9400..=0x97FF => self.colour_ram[(addr - 0x9400) as usize] & 0x0F,
             0x9800..=0x9FFF => 0xFF,
             // $A000-$BFFF is BLK5. A ROM cartridge (autostart carts) is read
@@ -659,10 +686,18 @@ impl Vic20 {
             }
             0x1000..=0x1FFF => self.ram_main[(addr - 0x1000) as usize] = value,
             0x2000..=0x7FFF | 0xA000..=0xBFFF => self.block_write(addr, value),
-            0x9000..=0x90FF => self.vic.write((addr & 0x0F) as u8, value),
-            0x9110..=0x911F => self.via1.write((addr & 0x0F) as u8, value),
-            0x9120..=0x912F => self.via2.write((addr & 0x0F) as u8, value),
-            0x9100..=0x910F | 0x9130..=0x93FF => {}
+            0x9000..=0x93FF => {
+                let reg = (addr & 0x0F) as u8;
+                if addr < 0x9100 {
+                    self.vic.write(reg, value);
+                }
+                if addr & 0x10 != 0 {
+                    self.via1.write(reg, value);
+                }
+                if addr & 0x20 != 0 {
+                    self.via2.write(reg, value);
+                }
+            }
             0x9400..=0x97FF => {
                 self.colour_ram[(addr - 0x9400) as usize] = value & 0x0F;
             }
@@ -800,6 +835,10 @@ mod tests {
     use super::*;
 
     fn make_vic20() -> Vic20 {
+        make_vic20_model(Vic20Model::Pal)
+    }
+
+    fn make_vic20_model(model: Vic20Model) -> Vic20 {
         let mut kernal = vec![0xEAu8; 0x2000];
         // Reset vector at $FFFC/$FFFD → $E000.
         kernal[0x1FFC] = 0x00;
@@ -808,9 +847,136 @@ mod tests {
             kernal,
             vec![0u8; 0x2000],
             vec![0u8; 0x1000],
-            Vic20Model::Pal,
+            model,
             Vic20RamExpansion::NONE,
         )
+    }
+
+    #[test]
+    fn io_decode_mirrors_and_overlaps_reach_every_selected_chip() {
+        // VICE's VIC/VIA I/O callbacks, with independently seeded register C:
+        // VIC=$F3, VIA1=$CF, VIA2=$AF. Each 64-byte group repeats the selects.
+        let reads = [[0xf3, 0xc3, 0xa3, 0x83], [0xff, 0xcf, 0xaf, 0x8f]];
+        let selected = [[false, false], [true, false], [false, true], [true, true]];
+        let mut cases = 0;
+        for model in [Vic20Model::Pal, Vic20Model::Ntsc] {
+            for page in 0x90_u16..=0x93 {
+                for block in 0..16 {
+                    let mut sys = make_vic20_model(model);
+                    sys.vic.write(0x0c, 0xf3);
+                    sys.via1.write(0x0c, 0xcf);
+                    sys.via2.write(0x0c, 0xaf);
+                    let addr = page * 256 + block * 16 + 12;
+                    let group = usize::from(block % 4);
+                    assert_eq!(
+                        sys.peek(addr),
+                        reads[usize::from(page != 0x90)][group],
+                        "{model:?} ${addr:04x}"
+                    );
+                    sys.poke(addr, 0x55);
+                    let [via1, via2] = selected[group];
+                    assert_eq!(
+                        sys.vic.read(0x0c),
+                        if page == 0x90 { 0x55 } else { 0xf3 },
+                        "VIC ${addr:04x}"
+                    );
+                    assert_eq!(
+                        sys.via1.peek(0x0c),
+                        if via1 { 0x55 } else { 0xcf },
+                        "VIA1 ${addr:04x}"
+                    );
+                    assert_eq!(
+                        sys.via2.peek(0x0c),
+                        if via2 { 0x55 } else { 0xaf },
+                        "VIA2 ${addr:04x}"
+                    );
+                    cases += 1;
+                }
+            }
+        }
+        assert_eq!(cases, 128);
+    }
+
+    #[test]
+    fn io_decode_cpu_reads_acknowledge_all_selected_vias_but_peeks_do_not() {
+        let reads = [[0xf3, 0xc3, 0xa3, 0x83], [0xff, 0xcf, 0xaf, 0x8f]];
+        let flags = [[0x40, 0x40], [0, 0x40], [0x40, 0], [0, 0]];
+        let mut cases = 0;
+        for model in [Vic20Model::Pal, Vic20Model::Ntsc] {
+            for page in 0x90_u16..=0x93 {
+                for block in 0..16 {
+                    let mut sys = make_vic20_model(model);
+                    sys.vic.write(0x0c, 0xf3);
+                    sys.via1.write(0x0c, 0xcf);
+                    sys.via2.write(0x0c, 0xaf);
+                    for via in [&mut sys.via1, &mut sys.via2] {
+                        via.write(4, 2);
+                        via.write(5, 0);
+                        for _ in 0..4 {
+                            via.tick();
+                        }
+                        assert_eq!(via.peek(13), 0x40, "timer must fire before access");
+                    }
+                    let addr = page * 256 + block * 16;
+                    let _ = sys.peek(addr + 4);
+                    assert_eq!(
+                        [sys.via1.peek(13), sys.via2.peek(13)],
+                        [0x40; 2],
+                        "peek acknowledged timer"
+                    );
+                    let [low, high] = addr.to_le_bytes();
+                    let code = [
+                        0xad,
+                        low + 12,
+                        high,
+                        0x8d,
+                        0,
+                        0x10, // combined register read
+                        0xad,
+                        low + 4,
+                        high, // acknowledge selected timers
+                        0xad,
+                        0x1d,
+                        0x91,
+                        0x8d,
+                        1,
+                        0x10, // VIA1 IFR
+                        0xad,
+                        0x2d,
+                        0x91,
+                        0x8d,
+                        2,
+                        0x10, // VIA2 IFR
+                        0xa9,
+                        0x5a,
+                        0x8d,
+                        3,
+                        0x10, // completion marker
+                        0x4c,
+                        26,
+                        0xe0,
+                    ];
+                    sys.kernal_rom[..code.len()].copy_from_slice(&code);
+                    for _ in 0..100 {
+                        sys.tick_cycle();
+                    }
+                    assert_eq!(sys.peek(0x1003), 0x5a, "guest did not complete");
+                    let group = usize::from(block % 4);
+                    assert_eq!(
+                        sys.peek(0x1000),
+                        reads[usize::from(page != 0x90)][group],
+                        "CPU data {model:?} ${addr:04x}"
+                    );
+                    assert_eq!(
+                        [sys.peek(0x1001), sys.peek(0x1002)],
+                        flags[group],
+                        "CPU side effects {model:?} ${addr:04x}"
+                    );
+                    cases += 1;
+                }
+            }
+        }
+        assert_eq!(cases, 128);
     }
 
     /// Save-state must capture LIVE machine state (6502 + both 6522 VIAs +
