@@ -90,7 +90,9 @@ const NTSC_TSTATES_PER_FRAME: u64 = CPU_TSTATES_PER_SCANLINE * NTSC_SCANLINES_PE
 const PAL_TSTATES_PER_FRAME: u64 = CPU_TSTATES_PER_SCANLINE * PAL_SCANLINES_PER_FRAME;
 
 const NTSC_PSG_CLOCK_HZ: u32 = 3_579_545;
-const PAL_PSG_CLOCK_HZ: u32 = 3_546_893;
+// PAL changes the VDP raster, not the shared CPU/PSG clock. MAME's
+// Sord `m5` base configuration supplies 10.738635 MHz / 3 in both regions.
+const PAL_PSG_CLOCK_HZ: u32 = 3_579_545;
 
 /// Number of keyboard matrix rows on the M5. The keyboard is seven rows
 /// (Y0-Y6) read directly at I/O ports `$30`-`$36`, active-high — MAME
