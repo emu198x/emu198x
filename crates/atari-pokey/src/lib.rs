@@ -53,6 +53,9 @@
 
 use serde::{Deserialize, Serialize};
 
+#[cfg(test)]
+mod noise_tests;
+
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
@@ -208,7 +211,7 @@ struct Channel {
     audc: u8,
     /// Current frequency counter (counts down).
     counter: u32,
-    /// Channel output toggle (flips when counter underflows).
+    /// Waveform flip-flop, sampled or toggled by unmasked timer events.
     output: bool,
     /// High-pass filter flip-flop (toggled by the paired channel).
     hp_flipflop: bool,
@@ -993,6 +996,17 @@ impl Pokey {
             false
         };
 
+        // AUDC chooses how each timer event clocks the retained waveform.
+        // Poly-5 masks the clock, not the output; noise holds between events.
+        for (channel, underflow) in [ch1_underflow, ch2_underflow, ch3_underflow, ch4_underflow]
+            .into_iter()
+            .enumerate()
+        {
+            if underflow {
+                self.clock_audio_output(channel);
+            }
+        }
+
         // High-pass filter: channel 1 is filtered by channel 3.
         if self.audctl & AUDCTL_HPF_CH1 != 0 && ch3_underflow {
             self.channels[0].hp_flipflop = self.channels[0].output;
@@ -1148,7 +1162,6 @@ impl Pokey {
         let ch = &mut self.channels[idx];
         if ch.counter == 0 {
             ch.reload();
-            ch.output = !ch.output;
             true
         } else {
             ch.counter -= 1;
@@ -1178,14 +1191,9 @@ impl Pokey {
             if high_speed {
                 self.channels[low_idx].counter += 6;
             }
-            self.channels[low_idx].output = !self.channels[low_idx].output;
-            self.channels[high_idx].output = !self.channels[high_idx].output;
             (true, true)
         } else {
             self.channels[low_idx].counter -= 1;
-            if low_borrow {
-                self.channels[low_idx].output = !self.channels[low_idx].output;
-            }
             (low_borrow, false)
         }
     }
@@ -1220,9 +1228,8 @@ impl Pokey {
                 // Volume-only mode: output = volume value directly.
                 ch.volume()
             } else {
-                // Normal mode: apply distortion/poly gating.
-                let poly_gate = self.poly_gate(ch.distortion());
-                let channel_active = ch.output && poly_gate;
+                // The waveform has already sampled noise at its timer edge.
+                let channel_active = ch.output;
 
                 // A disabled high-pass latch is held at one, but its XOR
                 // remains in the path: channels 1/2 are inverted relative
@@ -1262,32 +1269,21 @@ impl Pokey {
         self.mix_with_channels().0
     }
 
-    /// Determine whether the polynomial counter gate is active for the
-    /// given distortion field (AUDC bits 7-5).
-    fn poly_gate(&self, distortion: u8) -> bool {
-        let p5 = self.poly5_bit();
-        let p4 = self.poly4_bit();
-        let p17_or_9 = self.poly17_or_9_bit();
-
-        match distortion {
-            // $00 (000): 5-bit poly AND 17/9-bit poly
-            0b000 => p5 && p17_or_9,
-            // $20 (001): 5-bit poly only
-            0b001 => p5,
-            // $40 (010): 5-bit poly AND 4-bit poly
-            0b010 => p5 && p4,
-            // $60 (011): 5-bit poly only (duplicate of $20)
-            0b011 => p5,
-            // $80 (100): 17/9-bit poly only
-            0b100 => p17_or_9,
-            // $A0 (101): Pure tone (no poly gating)
-            0b101 => true,
-            // $C0 (110): 4-bit poly only
-            0b110 => p4,
-            // $E0 (111): Pure tone (no poly gating)
-            0b111 => true,
-            _ => unreachable!("distortion is a three-bit field"),
+    /// Clock the waveform flip-flop, even while volume-only overrides it.
+    /// Altirra Hardware Reference Manual pp106–107: poly-5 gates the clock;
+    /// an admitted event toggles the output or samples the selected noise.
+    fn clock_audio_output(&mut self, channel: usize) {
+        let distortion = self.channels[channel].distortion();
+        if distortion & 0b100 == 0 && !self.poly5_bit() {
+            return;
         }
+        self.channels[channel].output = if distortion & 0b001 != 0 {
+            !self.channels[channel].output
+        } else if distortion & 0b010 != 0 {
+            self.poly4_bit()
+        } else {
+            self.poly17_or_9_bit()
+        };
     }
 
     /// Current bit from the 5-bit polynomial counter.
@@ -1921,40 +1917,6 @@ mod tests {
         assert_eq!(pokey.poly5_table.len(), POLY5_PERIOD as usize);
         assert_eq!(pokey.poly9_table.len(), POLY9_PERIOD as usize);
         assert_eq!(pokey.poly17_table.len(), POLY17_PERIOD as usize);
-    }
-
-    #[test]
-    fn every_distortion_field_uses_the_documented_polynomial_gates() {
-        let expected = |distortion, p5, p4, p17_or_9| match distortion {
-            0b000 => p5 && p17_or_9,
-            0b001 => p5,
-            0b010 => p5 && p4,
-            0b011 => p5,
-            0b100 => p17_or_9,
-            0b101 => true,
-            0b110 => p4,
-            0b111 => true,
-            _ => unreachable!(),
-        };
-
-        let mut pokey = ntsc_pokey();
-        for distortion in 0..=0b111 {
-            for bits in 0..=0b111 {
-                let p5 = bits & 0b001 != 0;
-                let p4 = bits & 0b010 != 0;
-                let p17_or_9 = bits & 0b100 != 0;
-                pokey.poly5_table[0] = u8::from(p5);
-                pokey.poly4_table[0] = u8::from(p4);
-                pokey.poly17_table[0] = u8::from(p17_or_9);
-                pokey.poly_counter = 0;
-
-                assert_eq!(
-                    pokey.poly_gate(distortion),
-                    expected(distortion, p5, p4, p17_or_9),
-                    "distortion {distortion:03b}, p5={p5}, p4={p4}, p17={p17_or_9}"
-                );
-            }
-        }
     }
 
     #[test]
