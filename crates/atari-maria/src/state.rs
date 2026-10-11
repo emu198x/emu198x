@@ -97,6 +97,9 @@ impl Maria {
             u8::from(self.control.ctrl_selected),
             u8::from(self.control.pending_ctrl.is_some()),
             self.control.pending_ctrl.unwrap_or(0),
+            u8::from(self.control.wsync_strobe),
+            u8::from(self.control.wsync_wait),
+            u8::from(self.control.wsync_held),
         ]);
         data.extend_from_slice(&[
             u8::from(self.phi1),
@@ -211,6 +214,9 @@ impl Maria {
             write_strobe,
             ctrl_selected,
             pending_ctrl,
+            wsync_strobe: reader.boolean()?,
+            wsync_wait: reader.boolean()?,
+            wsync_held: reader.boolean()?,
         };
         restored.phi1 = reader.boolean()?;
         restored.phi2 = reader.boolean()?;

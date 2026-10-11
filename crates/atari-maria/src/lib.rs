@@ -443,13 +443,15 @@ impl Maria {
         pending
     }
 
-    /// Returns `true` when WSYNC has been written (CPU should halt).
+    /// Returns `true` while WSYNC drives the CPU's RDY input low. Native
+    /// ticking releases it through the raster and CPU-phase stages.
     #[must_use]
     pub fn wsync_halt(&self) -> bool {
         self.wsync
     }
 
-    /// Clear the WSYNC halt at end of scanline.
+    /// Clear WSYNC for the aggregate scanline compatibility caller. Native
+    /// callers let `tick_dma` advance the READY stages instead.
     pub fn clear_wsync(&mut self) {
         self.wsync = false;
     }
