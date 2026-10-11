@@ -4,6 +4,33 @@ All notable changes to Emu198x will be documented in this file.
 
 Format loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 not strictly. Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [0.31.1] - 2026-10-11
+
+
+### Fixed
+
+- Preserve Paula samples across audio attachment changes
+- Use updated Paula periods on simultaneous channel expiry
+- Preserve short Paula signals and audio across restore
+- Preserve nominal Paula sample amplitudes
+- Prevent audible aliases in Amiga audio output
+- Deliver every Amiga bitplane pointer register write
+- Detect C64 keys when scanning from port B to port A
+- Resolve C64 keyboard ghost paths and competing port outputs
+- Preserve C64 SHIFT LOCK contact and output strength
+- Start VIA timer 2 after its load cycle
+- Keep VIA Timer 2 counting after timeout
+- Preserve C64 light-pen coordinates across frame wrap
+- Preserve drive interrupts on alternate VIA port reads
+- Assert VIA handshake outputs on port transfers
+- Deliver Oric VIA output changes to the sound chip
+- Preserve external pin levels in AY port B readback
+- Keep MARIA borders in step with scanline colours
+- Preserve POKEY channel polarity with filters disabled
+- Sample POKEY noise only on channel timer events
+- Retain POKEY filter state across disable and re-enable
+- Restore POKEY high-speed pitch and timer IRQ rates
+
 ## [0.31.0] - 2026-10-07
 
 ### Added
