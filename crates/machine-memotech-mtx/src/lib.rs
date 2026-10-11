@@ -558,6 +558,35 @@ mod tests {
     }
 
     #[test]
+    fn snapshot_preserves_ti_zero_countdown_and_audio_continuation() {
+        for elapsed in [16, 17, 31, 257, 16_384, 16_400] {
+            let mut live = Mtx::new(trap_rom(), MtxModel::Mtx500).expect("init");
+            live.psg.write(0x80);
+            live.psg.write(0x00);
+            live.psg.write(0x90);
+            live.advance_tstates(elapsed);
+            let snapshot = postcard::to_allocvec(&live).expect("snapshot");
+            let mut restored: Mtx = postcard::from_bytes(&snapshot).expect("restore");
+            // Include buffered audio, partial sample/filter history and divider
+            // phase. Every checkpoint runs beyond two complete TI zero periods.
+            for _ in 0..70_000 {
+                live.advance_tstates(1);
+                restored.advance_tstates(1);
+            }
+            let actual = restored.take_audio_buffer();
+            let expected = live.take_audio_buffer();
+            assert!(expected.len() > 800, "exercise emitted audio");
+            assert!(expected.iter().any(|v| v.abs() > 0.01));
+            assert_eq!(actual, expected, "audio after snapshot at {elapsed}");
+            assert_eq!(
+                postcard::to_allocvec(&restored).expect("continued restored state"),
+                postcard::to_allocvec(&live).expect("continued live state"),
+                "machine continuation after snapshot at {elapsed}"
+            );
+        }
+    }
+
+    #[test]
     fn each_pal_frame_runs_one_complete_vdp_raster() {
         let mut sys = Mtx::new(trap_rom(), MtxModel::Mtx500).expect("init");
         let first = sys.run_frame();

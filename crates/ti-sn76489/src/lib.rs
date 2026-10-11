@@ -80,6 +80,10 @@ pub struct Sn76489 {
 /// MTX, Sord M5 — uses a 15-bit register tapped at bits 0 and 1. The taps change
 /// the white-noise spectrum and the periodic-noise pitch.
 ///
+/// These existing profiles also select tone-period-zero behaviour: 1,024
+/// internal counts for discrete TI and one for Sega. This does not identify
+/// other chip families solely by their LFSR width.
+///
 /// Source: <https://www.smspower.org/Development/SN76489>.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum NoiseLfsr {
@@ -257,7 +261,13 @@ impl Sn76489 {
         for ch in 0..3 {
             self.tone_counter[ch] = self.tone_counter[ch].saturating_sub(1);
             if self.tone_counter[ch] == 0 {
-                self.tone_counter[ch] = self.tone_period[ch].max(1);
+                // XRoar and MAME use the full ten-bit countdown for TI zero.
+                // Sega's integrated PSG instead keeps the shortest interval.
+                self.tone_counter[ch] = match (self.tone_period[ch], self.noise_lfsr) {
+                    (0, NoiseLfsr::Tms15) => 0x400,
+                    (0, NoiseLfsr::Sega16) => 1,
+                    (period, _) => period,
+                };
                 self.tone_output[ch] = !self.tone_output[ch];
             }
         }
@@ -268,7 +278,7 @@ impl Sn76489 {
             if self.noise_mode == 3 {
                 self.noise_period = self.tone_period[2];
             }
-            // Same N=0 → N=1 rule, including the mode-3 period slaved to tone 2.
+            // The independent noise-counter/slaving model is tracked in issue #211.
             self.noise_counter = self.noise_period.max(1);
 
             // Clock the noise LFSR (variant-dependent taps/width).
@@ -562,6 +572,77 @@ mod tests {
         }
         assert_eq!(checked, 6138);
         assert_eq!(mismatches, 0, "first mismatch: {first_mismatch:?}");
+    }
+
+    #[test]
+    fn ti_zero_period_transitions_match_the_full_reference() {
+        fn next_edge(psg: &mut Sn76489, channel: usize) -> u32 {
+            let previous = psg.tone_output[channel];
+            for tick in 1..40_000 {
+                psg.tick();
+                if psg.tone_output[channel] != previous {
+                    return tick;
+                }
+            }
+            panic!("missing tone edge");
+        }
+
+        let mut rows = include_str!("../tests/data/ti-zero-transitions.csv").lines();
+        assert_eq!(
+            rows.next(),
+            Some(
+                "channel,initial,phase,to_zero_first,zero_interval1,zero_interval2,from_zero_first,restored_interval1,restored_interval2"
+            )
+        );
+        let mut checked = 0;
+        let mut mismatches = Vec::new();
+        for channel in 0..3 {
+            for initial in [5_u32, 15] {
+                for phase in 0..initial {
+                    let expected: Vec<u32> = rows
+                        .next()
+                        .expect("reference row")
+                        .split(',')
+                        .map(|v| v.parse().expect("reference number"))
+                        .collect();
+                    assert_eq!(expected.len(), 9);
+                    assert_eq!(expected[..3], [channel as u32, initial, phase]);
+                    let mut psg = Sn76489::new(4_000_000, NoiseLfsr::Tms15);
+                    let latch = 0x80 | ((channel as u8) << 5);
+                    psg.write(latch | initial as u8);
+                    next_edge(&mut psg, channel);
+                    assert_eq!(next_edge(&mut psg, channel), 16 * initial);
+                    for _ in 0..16 * phase {
+                        psg.tick();
+                    }
+                    psg.write(latch);
+                    assert_eq!(psg.tone_period[channel], 0, "keep the raw register");
+                    let mut actual = Vec::new();
+                    for _ in 0..3 {
+                        actual.push(next_edge(&mut psg, channel));
+                    }
+                    for _ in 0..16 * phase {
+                        psg.tick();
+                    }
+                    psg.write(latch | initial as u8);
+                    for _ in 0..3 {
+                        actual.push(next_edge(&mut psg, channel));
+                    }
+                    if actual != expected[3..] {
+                        mismatches.push((channel, initial, phase, actual));
+                    }
+                    checked += 1;
+                }
+            }
+        }
+        assert_eq!(checked, 60);
+        assert!(rows.next().is_none(), "unexpected reference rows");
+        assert!(
+            mismatches.is_empty(),
+            "{} mismatches; first: {:?}",
+            mismatches.len(),
+            mismatches.first()
+        );
     }
 
     #[test]
