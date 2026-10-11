@@ -1157,7 +1157,9 @@ impl C64 {
         self.phi2_cycles = snapshot.phi2_cycles;
         self.frame_count = snapshot.frame_count;
         self.refresh_keyboard_scan();
-        self.refresh_vic_bank();
+        // The saved VIC bank is the output used by the next fetch, which can
+        // differ from CIA2's selected bank during a C64C glue-logic transient.
+        // Recomputing it here would skip that saved fetch phase.
         self.refresh_datasette_port_lines();
         Ok(())
     }
@@ -1294,8 +1296,19 @@ impl C64 {
                 self.refresh_keyboard_scan();
             }
             0xDD00..=0xDDFF => {
+                let previous_bank = (!self.cia2.pa) & 0x03;
                 self.cia2.write((addr & 0x0F) as u8, value);
                 self.refresh_vic_bank();
+                if addr & 0x0F == 0
+                    && matches!(self.model, C64Model::PalC64c | C64Model::NtscC64c)
+                    && matches!((previous_bank, self.vic.bank()), (1, 2) | (2, 1))
+                {
+                    // VICE's custom glue and the bank-marker CPU guest expose
+                    // bank 3 for the next fetch when PRA swaps banks 1 and 2.
+                    // The existing refresh after vic.tick settles the output
+                    // to CIA2's selection. Both outputs are already saved.
+                    self.vic.set_bank(3);
+                }
             }
             0xDF1C..=0xDF1F if self.uci.0.is_some() => {
                 let register = (addr & 0x03) as u8;

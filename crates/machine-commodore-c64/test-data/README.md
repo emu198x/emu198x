@@ -42,3 +42,22 @@ on all four shipping C64 board profiles; the chip regression additionally
 covers the old NTSC VIC-II. The generator, native output and input hashes
 are in the docs repo under `plans/2026-10-11-vicii-unused-registers/`.
 These are digital register-read observations, not physical-hardware captures.
+
+## C64C PRA bank switching
+
+`vic-bank-transient-00.prg` and `vic-bank-transient-ff.prg` are original CPU
+programs loaded at `$0800`. They fill identical screen matrices, enable text
+display and alternate banks 1/2 through 8,192 PRA stores. Only bank 3's character
+zero differs between the programs. Both finish with `$6000/$D7FF = $A5`.
+
+Native VICE's discrete-glue controls produce identical images; custom glue
+exposes bank-3 glyph bits for one fetch after a bank 1/2 swap. Captures on five
+chip profiles qualify the store-to-pixel relation, including shifted-window
+negative controls. The generator (`bank_transient.py`), native captures and
+phase verifier (`bank_phase.py`) are in docs PR 89 under
+`plans/2026-10-11-c64-phi1-observation/`. These are reference-emulator observations,
+not new physical captures. DDRA's separate transient behaviour is not covered.
+
+The CPU regression checks every framebuffer pixel against the traced stores
+on all four shipping boards, through both normal and IEC clock paths. It uses
+synthetic reset-vector firmware, so the regression needs no external ROMs.
