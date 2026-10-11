@@ -8,6 +8,8 @@
 //! 3. Blargg `mem_timing` v1 + v2
 //! 4. mooneye-gb acceptance gate set
 //! 5. `dmg-acid2.gb`
+//! 6. Blargg `oam_bug` (aggregate and eight singles)
+//! 7. Blargg `interrupt_time` (normal-speed check and full ROM verdict)
 //!
 //! These tests are ignored by default because they depend on local
 //! ROM corpora outside the repository. They are intended to be the
@@ -23,6 +25,19 @@ use emu198x_shell::{
 use runtime_nintendo_game_boy::{GameBoyRuntime, Model};
 
 const MAX_SERIAL_TEST_FRAMES: u32 = 1_200;
+// The successful reference OAM aggregate exceeds 1,200 frames including boot.
+const MAX_OAM_TEST_FRAMES: u32 = 3_600;
+const OAM_BUG_TESTS: &[&str] = &[
+    "oam_bug/oam_bug.gb",
+    "oam_bug/rom_singles/1-lcd_sync.gb",
+    "oam_bug/rom_singles/2-causes.gb",
+    "oam_bug/rom_singles/3-non_causes.gb",
+    "oam_bug/rom_singles/4-scanline_timing.gb",
+    "oam_bug/rom_singles/5-timing_bug.gb",
+    "oam_bug/rom_singles/6-timing_no_bug.gb",
+    "oam_bug/rom_singles/7-timing_effect.gb",
+    "oam_bug/rom_singles/8-instr_effect.gb",
+];
 const MOONEYE_SWEEP_FRAMES: u32 = 1_200;
 const DMG_ACID2_FRAMES: u32 = 180;
 
@@ -112,7 +127,10 @@ fn model_for_mooneye_rom(rom_path: &Path) -> Model {
 
 fn blargg_ram_verdict(runtime: &GameBoyRuntime) -> Option<(u8, String)> {
     let machine = runtime.machine()?;
-    let ram = machine.cartridge().ram();
+    parse_blargg_ram(machine.cartridge().ram())
+}
+
+fn parse_blargg_ram(ram: &[u8]) -> Option<(u8, String)> {
     if ram.len() < 4 || ram[1..4] != [0xDE, 0xB0, 0x61] {
         return None;
     }
@@ -153,32 +171,17 @@ fn run_until_blargg_verdict(
             .machine_mut()
             .expect("cartridge should stay loaded")
             .drain_serial();
-        if !serial.is_empty() {
-            output.push_str(&String::from_utf8_lossy(&serial));
-            if output.contains("Passed") || output.contains("Failed") {
-                return Ok(BlarggRunResult {
-                    output,
-                    frames: frame,
-                    status_code: None,
-                });
-            }
-        }
-
-        if let Some((status, ram_output)) = blargg_ram_verdict(runtime) {
-            if !ram_output.is_empty() && output.is_empty() {
-                output = ram_output;
-            }
-            if status != 0x80 {
-                return Ok(BlarggRunResult {
-                    output,
-                    frames: frame,
-                    status_code: Some(status),
-                });
-            }
+        output.push_str(&String::from_utf8_lossy(&serial));
+        if let Some(result) = blargg_report(&output, blargg_ram_verdict(runtime), frame) {
+            return Ok(result);
         }
     }
 
-    Err(format!("no serial verdict after {max_frames} frames; partial output: {output:?}").into())
+    Err(format!(
+        "no Blargg verdict after {max_frames} frames; serial: {output:?}; RAM: {:?}",
+        blargg_ram_verdict(runtime)
+    )
+    .into())
 }
 
 fn mooneye_verdict(serial: &[u8]) -> Option<MooneyeVerdict> {
@@ -403,7 +406,7 @@ fn blargg_cpu_instrs_passes_all_11_subtests() -> Result<(), Box<dyn std::error::
         let result = run_until_blargg_verdict(&mut runtime, MAX_SERIAL_TEST_FRAMES)
             .map_err(|err| format!("{}: {err}", path.display()))?;
         assert!(
-            result.output.contains("Passed") || result.status_code == Some(0),
+            blargg_passed(&result),
             "{} failed after {} frames (status {:?}): {:?}",
             path.display(),
             result.frames,
@@ -427,7 +430,7 @@ fn blargg_instr_timing_passes() -> Result<(), Box<dyn std::error::Error>> {
     let result = run_until_blargg_verdict(&mut runtime, MAX_SERIAL_TEST_FRAMES)
         .map_err(|err| format!("{}: {err}", path.display()))?;
     assert!(
-        result.output.contains("Passed") || result.status_code == Some(0),
+        blargg_passed(&result),
         "{} failed after {} frames (status {:?}): {:?}",
         path.display(),
         result.frames,
@@ -451,7 +454,7 @@ fn blargg_mem_timing_v1_and_v2_pass() -> Result<(), Box<dyn std::error::Error>> 
         let result = run_until_blargg_verdict(&mut runtime, MAX_SERIAL_TEST_FRAMES)
             .map_err(|err| format!("{}: {err}", path.display()))?;
         assert!(
-            result.output.contains("Passed") || result.status_code == Some(0),
+            blargg_passed(&result),
             "{} failed after {} frames (status {:?}): {:?}",
             path.display(),
             result.frames,
@@ -567,4 +570,241 @@ fn mooneye_broad_acceptance_sweep_reports_baseline() -> Result<(), Box<dyn std::
         total.passed, total.failed, total.timed_out, total.load_errors
     );
     Ok(())
+}
+
+// A signed RAM report is authoritative, including its pending state. Refresh
+// its text on every poll: the first nonempty report is normally just a title.
+fn blargg_report(serial: &str, ram: Option<(u8, String)>, frames: u32) -> Option<BlarggRunResult> {
+    if let Some((status, output)) = ram {
+        return (status < 0x80).then_some(BlarggRunResult {
+            output,
+            frames,
+            status_code: Some(status),
+        });
+    }
+    text_verdict(serial).map(|_| BlarggRunResult {
+        output: serial.to_owned(),
+        frames,
+        status_code: None,
+    })
+}
+
+fn text_verdict(output: &str) -> Option<bool> {
+    if output
+        .lines()
+        .any(|line| line.trim() == "Failed" || line.trim().starts_with("Failed #"))
+    {
+        Some(false)
+    } else if output.lines().any(|line| line.trim() == "Passed") {
+        Some(true)
+    } else {
+        None
+    }
+}
+
+fn blargg_passed(result: &BlarggRunResult) -> bool {
+    match result.status_code {
+        Some(status) => status == 0,
+        None => text_verdict(&result.output) == Some(true),
+    }
+}
+
+fn required_blargg_root() -> Result<PathBuf, Box<dyn std::error::Error>> {
+    let root = PathBuf::from(
+        std::env::var_os("EMU198X_GB_BLARGG_ROOT")
+            .ok_or("explicit fixture run requires EMU198X_GB_BLARGG_ROOT")?,
+    );
+    if !root.is_dir() {
+        return Err(format!("Blargg directory missing: {}", root.display()).into());
+    }
+    Ok(root)
+}
+
+// This particular binary reports only through its ASCII tile console. Read
+// the visible background rows with side-effect-free peeks; never patch the ROM
+// or manufacture cartridge RAM. See test-data/game-boy-blargg-oam-interrupt.md.
+fn interrupt_console(runtime: &GameBoyRuntime) -> Option<String> {
+    let machine = runtime.machine()?;
+    let lcdc = machine.peek(0xff40);
+    let scy = machine.peek(0xff42);
+    if lcdc & 0x99 != 0x91 || machine.peek(0xff43) != 0 || scy % 8 != 0 {
+        return None;
+    }
+    let mut output = String::new();
+    for row in 0..18u16 {
+        let y = (u16::from(scy / 8) + row) % 32;
+        let mut line = String::new();
+        for col in 0..20 {
+            // Bit 7 selects the console's inverse glyph set.
+            let byte = machine.peek(0x9800 + y * 32 + col) & 0x7f;
+            if !(0x20..=0x7e).contains(&byte) {
+                return None;
+            }
+            line.push(char::from(byte));
+        }
+        output.push_str(line.trim_end());
+        output.push('\n');
+    }
+    output
+        .lines()
+        .any(|line| line == "interrupt time")
+        .then_some(output)
+}
+
+fn run_interrupt_time() -> Result<BlarggRunResult, Box<dyn std::error::Error>> {
+    let path = required_blargg_root()?.join("interrupt_time/interrupt_time.gb");
+    let mut runtime = load_runtime(&path)?;
+    let mut frame_sink = NullFrameSink;
+    let mut audio_sink = NullAudioSink;
+    let mut trace_sink = NullTraceSink;
+    for frame in 1..=MAX_SERIAL_TEST_FRAMES {
+        let target = MachineTime::new(
+            runtime.time().get() + u64::from(common_nintendo_game_boy::MCYCLES_PER_FRAME),
+        );
+        let mut host = HostIo {
+            input_events: &[],
+            frame_sink: &mut frame_sink,
+            audio_sink: &mut audio_sink,
+            trace_sink: &mut trace_sink,
+        };
+        let result = runtime.run_until(target, &mut host)?;
+        assert_eq!(result.stop_reason, StopReason::ReachedTarget);
+        if let Some(output) = interrupt_console(&runtime)
+            && text_verdict(&output).is_some()
+        {
+            eprintln!(
+                "interrupt_time: frame={frame} full_verdict={:?}\n{output}",
+                text_verdict(&output)
+            );
+            return Ok(BlarggRunResult {
+                output,
+                frames: frame,
+                status_code: None,
+            });
+        }
+    }
+    Err(format!(
+        "interrupt_time: no console verdict after {MAX_SERIAL_TEST_FRAMES} frames; {:?}",
+        interrupt_console(&runtime)
+    )
+    .into())
+}
+
+fn interrupt_measurements(output: &str) -> Result<Vec<[u8; 3]>, String> {
+    let mut rows = Vec::new();
+    for line in output
+        .lines()
+        .filter(|line| line.len() == 8 && line.as_bytes()[2] == b' ' && line.as_bytes()[5] == b' ')
+    {
+        let fields = line
+            .split_whitespace()
+            .map(|field| u8::from_str_radix(field, 16))
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|err| err.to_string())?;
+        rows.push(fields.try_into().map_err(|_| "invalid measurement row")?);
+    }
+    if rows.len() != 4 {
+        return Err(format!(
+            "expected four interrupt measurements, got {rows:?}"
+        ));
+    }
+    Ok(rows)
+}
+
+fn normal_speed_interrupts_pass(output: &str) -> Result<(), String> {
+    let rows = interrupt_measurements(output)?;
+    // Author's source: zero when no interrupt, 13 M-cycles with dispatch,
+    // vector JP and RET. This is not a claim that dispatch alone takes 13.
+    if rows[..2] != [[0, 0, 0], [0, 8, 13]] {
+        return Err(format!(
+            "wrong normal-speed interrupt measurements: {rows:?}"
+        ));
+    }
+    Ok(())
+}
+
+#[test]
+#[ignore = "KNOWN DIVERGENCE: #1728 DMG OAM corruption; needs local Blargg ROMs"]
+fn blargg_oam_bug_passes_aggregate_and_all_singles() -> Result<(), Box<dyn std::error::Error>> {
+    let root = required_blargg_root()?;
+    let mut failures = Vec::new();
+    for rel in OAM_BUG_TESTS {
+        let result = load_runtime(&root.join(rel))
+            .and_then(|mut runtime| run_until_blargg_verdict(&mut runtime, MAX_OAM_TEST_FRAMES));
+        match result {
+            Ok(result) => {
+                let passed = blargg_passed(&result);
+                eprintln!(
+                    "{} {rel}: frame={} status={:?}\n{}",
+                    if passed { "PASS" } else { "FAIL" },
+                    result.frames,
+                    result.status_code,
+                    result.output
+                );
+                if !passed {
+                    failures.push((*rel).to_owned());
+                }
+            }
+            Err(err) => {
+                eprintln!("ERROR {rel}: {err}");
+                failures.push(format!("{rel}: {err}"));
+            }
+        }
+    }
+    assert!(
+        failures.is_empty(),
+        "OAM failures (aggregate plus eight singles): {failures:#?}"
+    );
+    Ok(())
+}
+
+#[test]
+#[ignore = "FIXTURE: needs local Blargg interrupt_time ROM; checks normal speed only"]
+fn blargg_interrupt_time_normal_speed_passes() -> Result<(), Box<dyn std::error::Error>> {
+    normal_speed_interrupts_pass(&run_interrupt_time()?.output)?;
+    Ok(())
+}
+
+#[test]
+#[ignore = "KNOWN LIMITATION: #324 full interrupt_time requires CGB; needs local Blargg ROM"]
+fn blargg_interrupt_time_full_rom_passes() -> Result<(), Box<dyn std::error::Error>> {
+    let result = run_interrupt_time()?;
+    assert!(
+        blargg_passed(&result),
+        "full interrupt_time verdict fails on DMG; CGB speed switching is tracked in #324: {}",
+        result.output
+    );
+    Ok(())
+}
+
+#[test]
+fn blargg_ram_report_keeps_final_text_and_status() {
+    let pending = [0x80, 0xde, 0xb0, 0x61, b't', 0];
+    assert!(blargg_report("Passed\n", parse_blargg_ram(&pending), 1).is_none());
+    let mut final_ram = vec![2, 0xde, 0xb0, 0x61];
+    final_ram.extend_from_slice(b"title\nFailed #2\n\0ignored");
+    let result = blargg_report("Passed\n", parse_blargg_ram(&final_ram), 2).expect("terminal RAM");
+    assert_eq!(result.output, "title\nFailed #2\n");
+    assert!(!blargg_passed(&result));
+    final_ram[0] = 0;
+    assert!(blargg_passed(
+        &blargg_report("", parse_blargg_ram(&final_ram), 3).expect("pass status")
+    ));
+    final_ram[1] = 0;
+    assert!(parse_blargg_ram(&final_ram).is_none());
+    assert!(parse_blargg_ram(&[0, 0xde, 0xb0]).is_none());
+    assert!(blargg_report("not Passed yet", None, 1).is_none());
+    assert!(!blargg_passed(
+        &blargg_report("Passed\nFailed #2\n", None, 1).expect("failure")
+    ));
+}
+
+#[test]
+fn interrupt_measurement_check_rejects_incomplete_and_wrong_counts() {
+    let output = "interrupt time\n00 00 00\n00 08 0D\n00 00 00\n00 08 0D\nFailed\n";
+    assert!(normal_speed_interrupts_pass(output).is_ok());
+    assert!(normal_speed_interrupts_pass(&output.replace("0D", "0C")).is_err());
+    assert!(normal_speed_interrupts_pass("interrupt time\nPassed\n").is_err());
+    assert!(normal_speed_interrupts_pass(&output.replacen("00 08", "01 08", 1)).is_err());
+    assert!(normal_speed_interrupts_pass(&output.replace("0D", "ZZ")).is_err());
 }
