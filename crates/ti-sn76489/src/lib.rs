@@ -256,6 +256,8 @@ impl Sn76489 {
         }
         self.clock_divider = 0;
 
+        let previous_tone3 = self.tone_output[2];
+
         // Reaching zero toggles and reloads in the same counter clock:
         // for nonzero N, the tone frequency is input_clock / (32 * N).
         for ch in 0..3 {
@@ -272,8 +274,13 @@ impl Sn76489 {
             }
         }
 
-        // Tick noise channel
-        if self.noise_counter == 0 {
+        // Discrete TI mode 3 is clocked by the tone generator's output,
+        // not an independent countdown loaded with the same numeric period.
+        if self.noise_lfsr == NoiseLfsr::Tms15 && self.noise_mode == 3 {
+            if !previous_tone3 && self.tone_output[2] {
+                self.step_noise_lfsr();
+            }
+        } else if self.noise_counter == 0 {
             // If noise is slaved to tone 2, pick up current period
             if self.noise_mode == 3 {
                 self.noise_period = self.tone_period[2];
@@ -643,6 +650,75 @@ mod tests {
             mismatches.len(),
             mismatches.first()
         );
+    }
+
+    #[test]
+    fn ti_noise_follows_tone_edges_across_period_writes() {
+        fn next_shift(psg: &mut Sn76489) -> [u32; 3] {
+            let previous = psg.noise_shift;
+            for tick in 1..65_536 {
+                psg.tick();
+                if psg.noise_shift != previous {
+                    return [
+                        tick,
+                        u32::from(psg.noise_shift),
+                        u32::from(psg.tone_output[2]),
+                    ];
+                }
+            }
+            panic!("missing noise shift");
+        }
+        let mut rows = include_str!("../tests/data/ti-noise-transitions.csv").lines();
+        assert_eq!(
+            rows.next(),
+            Some("white,initial,phase,target,event,interval,lfsr,tone3")
+        );
+        let mut checked = 0;
+        let mut mismatches = 0;
+        let mut first_mismatch = None;
+        for white in 0..2_u32 {
+            for initial in [5_u32, 15] {
+                for phase in 0..2 * initial {
+                    for target in [0_u32, 1, 7] {
+                        let mut psg = Sn76489::new(4_000_000, NoiseLfsr::Tms15);
+                        psg.write(0xC0 | initial as u8);
+                        for _ in 0..64 {
+                            psg.tick();
+                        }
+                        psg.write(0);
+                        for _ in 0..64 {
+                            psg.tick();
+                        }
+                        psg.write(0xE3 | ((white as u8) << 2));
+                        next_shift(&mut psg);
+                        for _ in 0..16 * phase {
+                            psg.tick();
+                        }
+                        psg.write(0xC0 | target as u8);
+                        for event in 0..8 {
+                            let expected: Vec<u32> = rows
+                                .next()
+                                .expect("reference row")
+                                .split(',')
+                                .map(|v| v.parse().expect("reference number"))
+                                .collect();
+                            assert_eq!(expected.len(), 8);
+                            assert_eq!(expected[..5], [white, initial, phase, target, event]);
+                            let actual = next_shift(&mut psg);
+                            if actual != expected[5..] {
+                                mismatches += 1;
+                                first_mismatch
+                                    .get_or_insert((white, initial, phase, target, event, actual));
+                            }
+                            checked += 1;
+                        }
+                    }
+                }
+            }
+        }
+        assert_eq!(checked, 1920);
+        assert!(rows.next().is_none(), "unexpected reference rows");
+        assert_eq!(mismatches, 0, "first mismatch: {first_mismatch:?}");
     }
 
     #[test]
