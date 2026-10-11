@@ -150,7 +150,7 @@ pub fn parse_ines(data: &[u8]) -> Result<ParsedCartridge, String> {
         Vec::new() // CHR RAM cartridge
     };
 
-    let mapper: Box<dyn Mapper> = match header.mapper_number {
+    let mut mapper: Box<dyn Mapper> = match header.mapper_number {
         0 => Box::new(Nrom::new(prg_rom, chr_data, mirroring)),
         1 => Box::new(Mmc1::new(prg_rom, chr_data)),
         2 => Box::new(UxRom::new(prg_rom, chr_data, mirroring)),
@@ -177,6 +177,17 @@ pub fn parse_ines(data: &[u8]) -> Result<ParsedCartridge, String> {
             ));
         }
     };
+
+    // The iNES trainer initializes $7000-$71FF before the CPU starts.
+    // Use the existing RAM backing directly: power-on mapper write protection
+    // must not discard loader data (Sunsoft-4 starts with PRG RAM disabled).
+    // This supplies existing RAM, not an overlay for RAM-less boards.
+    // Format-author specification: https://fms.komkon.org/EMUL8/NES.html
+    if has_trainer && mapper.save_ram().len() >= 0x2000 {
+        let mut ram = mapper.save_ram().to_vec();
+        ram[0x1000..0x1200].copy_from_slice(&data[16..prg_start]);
+        mapper.restore_save_ram(&ram);
+    }
 
     Ok(ParsedCartridge {
         mapper,
