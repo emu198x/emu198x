@@ -1250,6 +1250,221 @@ mod tests {
         }
     }
 
+    fn wsync_trace(
+        [target, mirror, slow, pal, mode, burst]: [u16; 6],
+        verify_saves: bool,
+    ) -> Vec<String> {
+        let (mut chip, mut memory) = fixture([1, 2, 1, 0, slow as u8, pal as u8]);
+        if mode == 0 {
+            chip.ctrl = 0x60;
+        } else if mode == 2 {
+            for object in 1..128 {
+                memory.copy_within(0x1c00..0x1c04, 0x1c00 + object * 4);
+            }
+        }
+        let idle_address = chip.address_in;
+        let mut bus = Bus {
+            cpu_address: idle_address,
+            address: idle_address,
+            sampled_halt: false,
+            released: false,
+        };
+        let mut events = Vec::new();
+        let mut writes = 0;
+        let mut saved_edges = BTreeSet::new();
+        let mut bypassed_wait = 0;
+        for tick in 257..908 * 21 {
+            let old_halt = chip.halt;
+            let old_drive = chip.dma_drive;
+            let old_released = bus.released;
+            let old_wait = chip.wsync_halt();
+            bus.tick(&mut chip, &memory);
+            if tick > 14000 {
+                if chip.wsync_halt() != old_wait {
+                    events.push(format!("{tick} Q {}", u8::from(!chip.wsync_halt())));
+                }
+                if chip.halt != old_halt {
+                    events.push(format!("{tick} H {}", u8::from(!chip.halt)));
+                }
+                if chip.dma_drive != old_drive || bus.released != old_released {
+                    events.push(format!(
+                        "{tick} B {} {}",
+                        u8::from(chip.dma_drive),
+                        u8::from(bus.released)
+                    ));
+                }
+                if chip.phi1 || chip.phi2 {
+                    events.push(format!("{tick} P {}", if chip.phi1 { 1 } else { 2 }));
+                }
+            }
+            if chip.phi1 && !old_halt && !old_drive {
+                chip.write_in = false;
+                bus.cpu_address = idle_address;
+                if tick >= target && writes < burst {
+                    bus.cpu_address = 0x24 + mirror;
+                    chip.write_in = true;
+                    chip.write_data_in = writes as u8;
+                    writes += 1;
+                    events.push(format!(
+                        "{tick} W {:04x} {:02x}",
+                        bus.cpu_address, chip.write_data_in
+                    ));
+                }
+                if !bus.released {
+                    bus.address = bus.cpu_address;
+                }
+            }
+            if verify_saves && tick >= target - 8 && tick < target + 1500 {
+                let key = (
+                    chip.control.wsync_strobe,
+                    chip.control.wsync_wait,
+                    chip.control.wsync_held,
+                    chip.wsync_halt(),
+                    chip.clock.remaining,
+                    chip.clock.phase2,
+                    chip.write_in,
+                    chip.halt,
+                    chip.dma_drive,
+                    matches!(chip.native_cycle, 823..=825),
+                );
+                if saved_edges.insert(key) {
+                    bypassed_wait += usize::from(chip.control.wsync_wait && !chip.wsync_halt());
+                    let saved = chip.save_state();
+                    let mut restored = Maria::new(chip.region);
+                    assert_eq!(restored.load_state(&saved).expect("restore"), saved.len());
+                    assert_eq!(restored.save_state(), saved, "saved at {tick}");
+                    let mut original_bus = bus;
+                    let mut resumed_bus = bus;
+                    for _ in 0..1024 {
+                        for (chip, bus) in [
+                            (&mut chip, &mut original_bus),
+                            (&mut restored, &mut resumed_bus),
+                        ] {
+                            let eligible = !chip.halt && !chip.dma_drive;
+                            bus.tick(chip, &memory);
+                            if chip.phi1 && eligible {
+                                chip.write_in = false;
+                                bus.cpu_address = idle_address;
+                                if !bus.released {
+                                    bus.address = idle_address;
+                                }
+                            }
+                        }
+                        assert_eq!(original_bus, resumed_bus, "saved at {tick}");
+                        assert_eq!(chip.wsync_halt(), restored.wsync_halt(), "saved at {tick}");
+                        assert_eq!(chip.control, restored.control, "saved at {tick}");
+                    }
+                    assert_eq!(restored.save_state(), chip.save_state(), "saved at {tick}");
+                    chip.load_state(&saved).expect("rewind fixture");
+                }
+            }
+        }
+        if verify_saves {
+            assert!(saved_edges.len() > 10, "missing pending phases");
+            assert!(
+                bypassed_wait > 0,
+                "missing distinct internal wait and READY"
+            );
+        }
+        assert_eq!(writes, burst);
+        events.sort_by_key(|event| {
+            let mut fields = event.split_whitespace();
+            (
+                fields.next().expect("tick").parse::<u32>().expect("tick"),
+                fields.next().expect("kind").as_bytes()[0],
+            )
+        });
+        events
+    }
+
+    #[test]
+    fn wsync_matches_qualified_ready_and_bus_traces() {
+        let mut cases = BTreeSet::new();
+        for block in include_str!("../tests/data/wsync-vectors.txt")
+            .split("CASE ")
+            .skip(1)
+        {
+            let (name, rows) = block.split_once('\n').expect("case header");
+            let fields: Vec<u16> = name
+                .split_whitespace()
+                .map(|v| v.parse().expect("field"))
+                .collect();
+            let case: [u16; 6] = fields.try_into().expect("six fields");
+            assert!(cases.insert(case));
+            let actual = wsync_trace(case, false);
+            let expected: Vec<_> = rows.lines().collect();
+            for (index, (actual, expected)) in actual.iter().zip(&expected).enumerate() {
+                assert_eq!(actual, expected, "case {name}, event {index}");
+            }
+            assert_eq!(actual.len(), expected.len(), "case {name}");
+        }
+        assert_eq!(cases.len(), 4);
+    }
+
+    #[test]
+    fn wsync_matches_all_960_qualified_schedules() {
+        let mut cases = BTreeSet::new();
+        for row in include_str!("../tests/data/wsync-matrix.txt")
+            .lines()
+            .filter(|r| !r.starts_with('#'))
+        {
+            let fields: Vec<_> = row.split_whitespace().collect();
+            assert_eq!(fields.len(), 11);
+            let case: [u16; 6] = std::array::from_fn(|i| fields[i].parse().expect("field"));
+            assert!(cases.insert(case));
+            let events = wsync_trace(case, false);
+            for (index, kind) in ['B', 'H', 'P', 'Q', 'W'].into_iter().enumerate() {
+                let mut count = 0;
+                let mut hash = 0xcbf2_9ce4_8422_2325_u64;
+                for event in &events {
+                    if event.split_whitespace().nth(1).expect("kind").as_bytes()[0] != kind as u8 {
+                        continue;
+                    }
+                    count += 1;
+                    for byte in event.bytes().chain(*b"\n") {
+                        hash = (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3);
+                    }
+                }
+                assert_eq!(
+                    format!("{kind}:{count}:{hash:016x}"),
+                    fields[6 + index],
+                    "{case:?}"
+                );
+            }
+        }
+        let mut expected = BTreeSet::new();
+        for target in [
+            14556, 15348, 15356, 15364, 15372, 15380, 15388, 15396, 15404, 15436,
+        ] {
+            for mirror in (0..1024).step_by(256) {
+                for slow in 0..2 {
+                    for pal in 0..2 {
+                        for mode in 0..3 {
+                            for burst in 1..=2 {
+                                expected.insert([target, mirror, slow, pal, mode, burst]);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        assert_eq!(cases.len(), 960);
+        assert_eq!(cases, expected);
+    }
+
+    #[test]
+    fn wsync_snapshots_resume_pending_writes_and_raster_release() {
+        for case in [
+            [15372, 0, 0, 0, 0, 1],
+            [15380, 256, 1, 1, 0, 2],
+            [14556, 512, 0, 1, 1, 2],
+            [15436, 768, 1, 0, 2, 2],
+        ] {
+            let events = wsync_trace(case, true);
+            assert!(events.iter().any(|e| e.ends_with(" Q 1")));
+        }
+    }
+
     #[test]
     fn descriptors_sample_live_bytes_including_after_address_drive_release() {
         for pal in 0..2 {
