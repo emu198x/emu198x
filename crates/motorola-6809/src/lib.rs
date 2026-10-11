@@ -2578,6 +2578,9 @@ impl Mc6809 {
         self.set_nz8(self.regs.a);
         self.regs
             .set_flag(FLAG_C, self.regs.flag(FLAG_C) || result & 0x100 != 0);
+        // Observed MC6809 behaviour: use the retained/new carry, not old V.
+        self.regs
+            .set_flag(FLAG_V, self.regs.flag(FLAG_C) ^ (self.regs.a & 0x80 != 0));
     }
 
     fn branch_condition(&self, condition: BranchCondition) -> bool {
@@ -6863,23 +6866,18 @@ mod tests {
                     break;
                 }
             }
-            // DAA's V is undefined in Motorola's manual; its observed hardware
-            // value is a separate investigation. All other bits compare exactly.
-            let cc_mask = if opcode == 0x19 { !FLAG_V } else { 0xFF };
-            let mut expected: Vec<String> = fields[4..].iter().map(|s| (*s).to_owned()).collect();
-            expected[3] = format!("{:02x}", u8::try_from(hex(7)).expect("result CC") & cc_mask);
             let actual = format!(
                 "{} {:02x} {:02x} {:02x} {:04x} {:02x} {:04x} {}",
                 cpu.total_cycles,
                 cpu.regs.a,
                 cpu.regs.b,
-                cpu.regs.cc & cc_mask,
+                cpu.regs.cc,
                 cpu.regs.pc,
                 memory[0x50A5],
                 cpu.regs.x,
                 trace.join(",")
             );
-            if cpu.halt || !cpu.instruction_boundary() || actual != expected.join(" ") {
+            if cpu.halt || !cpu.instruction_boundary() || actual != fields[4..].join(" ") {
                 mismatches.push(format!("{row}: got {actual}"));
             }
             assert_eq!(
@@ -8041,10 +8039,75 @@ mod tests {
     }
 
     #[test]
+    fn daa_matches_all_reference_accumulator_and_flag_inputs() {
+        let results = include_bytes!("../tests/data/daa-results.bin");
+        assert_eq!(results.len(), 256 * 256 * 2);
+        let mut mismatches = 0;
+        let mut first_mismatch = None;
+        let mut checked = 0;
+        for pc in [0x4000u16, 0xFFFE, 0xFFFF] {
+            let mut memory = [0; 0x10000];
+            memory[usize::from(pc)] = 0x19;
+            memory[usize::from(pc.wrapping_add(1))] = 0x12;
+            for value in 0..=u8::MAX {
+                for cc in 0..=u8::MAX {
+                    let mut cpu = cpu_at(pc);
+                    cpu.regs.a = value;
+                    cpu.regs.b = 0xA5;
+                    cpu.regs.cc = cc;
+                    cpu.regs.dp = 0x42;
+                    cpu.regs.x = 0x1234;
+                    cpu.regs.y = 0x5678;
+                    cpu.regs.u = 0x9ABC;
+                    cpu.regs.s = 0xDEF0;
+                    for offset in 0..2 {
+                        assert_eq!(cpu.addr, pc.wrapping_add(offset));
+                        assert!(cpu.rw && !cpu.halt);
+                        assert_eq!(cpu.sync, offset == 0);
+                        run_cycle(&mut cpu, &mut memory);
+                    }
+                    let index = (usize::from(value) * 256 + usize::from(cc)) * 2;
+                    let expected = (results[index], results[index + 1]);
+                    if (cpu.regs.a, cpu.regs.cc) != expected {
+                        mismatches += 1;
+                        first_mismatch.get_or_insert((
+                            pc,
+                            value,
+                            cc,
+                            expected,
+                            cpu.regs.a,
+                            cpu.regs.cc,
+                        ));
+                    }
+                    assert_eq!(cpu.total_cycles, 2);
+                    assert_eq!(cpu.regs.pc, pc.wrapping_add(1));
+                    assert_eq!(cpu.addr, cpu.regs.pc);
+                    assert!(cpu.rw && cpu.sync && !cpu.halt);
+                    assert_eq!(
+                        (
+                            cpu.regs.b,
+                            cpu.regs.dp,
+                            cpu.regs.x,
+                            cpu.regs.y,
+                            cpu.regs.u,
+                            cpu.regs.s
+                        ),
+                        (0xA5, 0x42, 0x1234, 0x5678, 0x9ABC, 0xDEF0)
+                    );
+                    checked += 1;
+                }
+            }
+        }
+        assert_eq!(checked, 196_608);
+        assert_eq!(mismatches, 0, "first mismatch: {first_mismatch:?}");
+    }
+
+    #[test]
     fn daa_adjusts_accumulator_after_bcd_add() {
         let mut memory = [0; 0x10000];
         memory[0x4000] = 0x19; // DAA
         memory[0x4001] = 0x19; // DAA
+        memory[0x4002] = 0x19; // DAA
         let mut cpu = cpu_at(0x4000);
         cpu.regs.a = 0x3C;
         cpu.regs.set_flag(FLAG_H, true);
@@ -8054,10 +8117,7 @@ mod tests {
         assert_eq!(cpu.regs.a, 0x42);
         assert!(!cpu.regs.flag(FLAG_Z));
         assert!(!cpu.regs.flag(FLAG_C));
-        assert!(
-            cpu.regs.flag(FLAG_V),
-            "Motorola defines V as undefined; the core preserves it"
-        );
+        assert!(!cpu.regs.flag(FLAG_V), "C=0 and bit 7=0 clears old V");
 
         cpu.regs.a = 0x9A;
         cpu.regs.set_flag(FLAG_H, false);
@@ -8066,9 +8126,16 @@ mod tests {
         assert_eq!(cpu.regs.a, 0x00);
         assert!(cpu.regs.flag(FLAG_Z));
         assert!(cpu.regs.flag(FLAG_C));
+        assert!(cpu.regs.flag(FLAG_V), "C=1 and bit 7=0 sets V");
+
+        cpu.regs.a = 0x00;
+        cpu.regs.set_flag(FLAG_V, false);
+        run_cycles(&mut cpu, &mut memory, 2);
+        assert_eq!(cpu.regs.a, 0x60);
+        assert!(cpu.regs.flag(FLAG_C));
         assert!(
-            !cpu.regs.flag(FLAG_V),
-            "preserving undefined V must not force it high"
+            cpu.regs.flag(FLAG_V),
+            "retained C contributes without a new carry"
         );
     }
 

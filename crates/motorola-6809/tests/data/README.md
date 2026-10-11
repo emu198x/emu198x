@@ -63,7 +63,24 @@ reads/bytes, cycle counts, register results, operand memory and next-fetch pins.
 The [evidence and complete diagnostic](https://github.com/emu198x/docs/blob/5e7456a/plans/2026-10-11-6809-register-reads.md)
 retain 3,264 rows, including two explicitly unresolved reference differences.
 TSTA/TSTB are excluded from this fixture because XRoar's three-cycle execution
-conflicts with Motorola's two-cycle opcode map. Only DAA V is masked in result
-comparisons: Motorola leaves it undefined, and the reference's hardware-derived
-calculation needs separate qualification. All other flags compare exactly.
-These limits do not mask any bus event for the 32 included encodings.
+conflicts with Motorola's two-cycle opcode map. All flags now compare exactly,
+including DAA V, whose hardware behaviour is independently qualified below.
+No bus events are masked for the 32 included encodings.
+
+## DAA overflow
+
+`daa-results.bin` stores adjusted A and complete CC for every input A/CC pair,
+ordered first by input A then by input CC: 65,536 cases, 131,072 bytes.
+SHA-256: `d508e69bb3a6ce521e0bf9e71371b74a8760b4470de288f24a95955cb7aa9cfc`.
+The unchanged full XRoar core generates the fixture and checks the two-cycle
+bus schedule and all unchanged registers.
+
+The [published hardware observations](https://github.com/hoglet67/6809Decoder/wiki/Undocumented-6809-Behaviours#undefined-values-of-the-overflow-flag)
+state that DAA sets V from the new carry XOR the adjusted accumulator's top bit.
+All 65,536 reference outputs satisfy that rule. Our public-pin regression runs
+those inputs at PCs 4000/FFFE/FFFF (196,608 executions), checking full flags,
+registers, ordered reads and next-fetch pins. This includes retained carry
+without a newly generated carry. The former V mask in the register-read
+regression is removed; no DAA result bits are excluded.
+The [full-core wrapper, provenance and red/green evidence](https://github.com/emu198x/docs/blob/88c9ded/plans/2026-10-11-6809-daa-overflow.md)
+are retained with the correction plan.
