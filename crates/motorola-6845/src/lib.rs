@@ -44,6 +44,26 @@ pub enum Crtc6845Variant {
 }
 
 impl Crtc6845Variant {
+    /// Writable bits from the manufacturer register tables. Light-pen
+    /// registers and unused addresses have no software write path.
+    const fn write_mask(self, reg: usize) -> Option<u8> {
+        match reg {
+            0..=2 | 13 | 15 => Some(0xff),
+            3 => Some(match self {
+                Self::Mc6845 => 0x0f,
+                Self::Hd6845s => 0xff,
+            }),
+            4 | 6 | 7 | 10 => Some(0x7f),
+            5 | 9 | 11 => Some(0x1f),
+            8 => Some(match self {
+                Self::Mc6845 => 0x03,
+                Self::Hd6845s => 0xf3,
+            }),
+            12 | 14 => Some(0x3f),
+            _ => None,
+        }
+    }
+
     /// Does this part read register `reg` back?
     #[must_use]
     pub const fn reads_back(self, reg: usize) -> bool {
@@ -153,9 +173,8 @@ impl Crtc6845 {
     /// Write the data register (writes to the currently selected register).
     pub fn write_data(&mut self, value: u8) {
         let reg = self.selected as usize;
-        if reg < 18 {
-            // R0-R13 are write-only, R14-R15 are R/W
-            self.regs[reg] = value;
+        if let Some(mask) = self.variant.write_mask(reg) {
+            self.regs[reg] = value & mask;
         }
     }
 
@@ -820,8 +839,7 @@ mod tests {
 mod variant_tests {
     use super::*;
 
-    /// The start address is the whole difference between a CPC type 0 and a
-    /// type 2, and it is what real software detects the part by.
+    /// Start-address readback is one way software distinguishes the parts.
     #[test]
     fn only_the_hd6845s_reads_the_start_address_back() {
         for (variant, r12_reads) in [
@@ -837,7 +855,14 @@ mod variant_tests {
             // Cursor and light pen read back on every part.
             for reg in 14..=17u8 {
                 crtc.write_address(reg);
-                crtc.write_data(0x2A);
+                if reg < 16 {
+                    crtc.write_data(0x2A);
+                } else {
+                    // Supply a captured value: light-pen registers have no
+                    // software write path. Public-port protection is tested
+                    // separately in tests/register_writes.rs.
+                    crtc.regs[usize::from(reg)] = 0x2A;
+                }
                 assert_eq!(crtc.read_data(), 0x2A, "{variant:?} R{reg} readback");
             }
 
