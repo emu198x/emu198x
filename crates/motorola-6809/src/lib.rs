@@ -917,6 +917,15 @@ impl Mc6809 {
                         self.regs.a = self.rmw8(Rmw8Op::Neg, self.regs.a).unwrap_or(self.regs.a);
                         self.read_next(CpuState::Internal { remaining: 1 });
                     }
+                    0x42 => {
+                        let op = if self.regs.flag(FLAG_C) {
+                            Rmw8Op::Com
+                        } else {
+                            Rmw8Op::Neg
+                        };
+                        self.regs.a = self.rmw8(op, self.regs.a).unwrap_or(self.regs.a);
+                        self.read_next(CpuState::Internal { remaining: 1 });
+                    }
                     0x43 => {
                         self.regs.a = self.rmw8(Rmw8Op::Com, self.regs.a).unwrap_or(self.regs.a);
                         self.read_next(CpuState::Internal { remaining: 1 });
@@ -945,6 +954,12 @@ impl Mc6809 {
                         self.regs.a = self.rmw8(Rmw8Op::Dec, self.regs.a).unwrap_or(self.regs.a);
                         self.read_next(CpuState::Internal { remaining: 1 });
                     }
+                    0x4B => {
+                        let value = self.regs.a;
+                        self.regs.a = self.rmw8(Rmw8Op::Dec, value).unwrap_or(value);
+                        self.regs.set_flag(FLAG_C, value != 0);
+                        self.read_next(CpuState::Internal { remaining: 1 });
+                    }
                     0x4C => {
                         self.regs.a = self.rmw8(Rmw8Op::Inc, self.regs.a).unwrap_or(self.regs.a);
                         self.read_next(CpuState::Internal { remaining: 1 });
@@ -953,12 +968,27 @@ impl Mc6809 {
                         self.rmw8(Rmw8Op::Tst, self.regs.a);
                         self.start_internal_cycles(1);
                     }
+                    0x4E => {
+                        let carry = self.regs.flag(FLAG_C);
+                        self.clear_a();
+                        self.regs.set_flag(FLAG_C, carry);
+                        self.read_next(CpuState::ClrAInternal);
+                    }
                     0x4F => {
                         self.clear_a();
                         self.read_next(CpuState::ClrAInternal);
                     }
                     0x50 | 0x51 => {
                         self.regs.b = self.rmw8(Rmw8Op::Neg, self.regs.b).unwrap_or(self.regs.b);
+                        self.read_next(CpuState::Internal { remaining: 1 });
+                    }
+                    0x52 => {
+                        let op = if self.regs.flag(FLAG_C) {
+                            Rmw8Op::Com
+                        } else {
+                            Rmw8Op::Neg
+                        };
+                        self.regs.b = self.rmw8(op, self.regs.b).unwrap_or(self.regs.b);
                         self.read_next(CpuState::Internal { remaining: 1 });
                     }
                     0x53 => {
@@ -989,6 +1019,12 @@ impl Mc6809 {
                         self.regs.b = self.rmw8(Rmw8Op::Dec, self.regs.b).unwrap_or(self.regs.b);
                         self.read_next(CpuState::Internal { remaining: 1 });
                     }
+                    0x5B => {
+                        let value = self.regs.b;
+                        self.regs.b = self.rmw8(Rmw8Op::Dec, value).unwrap_or(value);
+                        self.regs.set_flag(FLAG_C, value != 0);
+                        self.read_next(CpuState::Internal { remaining: 1 });
+                    }
                     0x5C => {
                         self.regs.b = self.rmw8(Rmw8Op::Inc, self.regs.b).unwrap_or(self.regs.b);
                         self.read_next(CpuState::Internal { remaining: 1 });
@@ -996,6 +1032,12 @@ impl Mc6809 {
                     0x5D => {
                         self.rmw8(Rmw8Op::Tst, self.regs.b);
                         self.start_internal_cycles(1);
+                    }
+                    0x5E => {
+                        let carry = self.regs.flag(FLAG_C);
+                        self.clear_b();
+                        self.regs.set_flag(FLAG_C, carry);
+                        self.read_next(CpuState::ClrBInternal);
                     }
                     0x5F => {
                         self.clear_b();
@@ -6905,6 +6947,86 @@ mod tests {
     }
 
     #[test]
+    fn undocumented_accumulator_ops_match_full_reference_results() {
+        let results = include_bytes!("../tests/data/undocumented-accumulators.bin");
+        let opcodes = [0x42, 0x52, 0x4B, 0x5B, 0x4E, 0x5E];
+        assert_eq!(results.len(), opcodes.len() * 256 * 256 * 2);
+        let mut checked = 0;
+        let mut mismatches = 0;
+        let mut first_mismatch = None;
+        for pc in [0x4000u16, 0xFFFE, 0xFFFF] {
+            for (opcode_index, opcode) in opcodes.into_iter().enumerate() {
+                let mut memory = [0; 0x10000];
+                memory[usize::from(pc)] = opcode;
+                memory[usize::from(pc.wrapping_add(1))] = 0x12;
+                for value in 0..=u8::MAX {
+                    for cc in 0..=u8::MAX {
+                        let mut cpu = cpu_at(pc);
+                        cpu.regs.a = if opcode < 0x50 { value } else { 0x5A };
+                        cpu.regs.b = if opcode >= 0x50 { value } else { 0xA5 };
+                        cpu.regs.cc = cc;
+                        cpu.regs.dp = 0x42;
+                        cpu.regs.x = 0x1234;
+                        cpu.regs.y = 0x5678;
+                        cpu.regs.u = 0x9ABC;
+                        cpu.regs.s = 0xDEF0;
+                        let mut bus_matches = true;
+                        for offset in 0..2 {
+                            bus_matches &= cpu.addr == pc.wrapping_add(offset)
+                                && cpu.rw
+                                && !cpu.halt
+                                && cpu.sync == (offset == 0);
+                            run_cycle(&mut cpu, &mut memory);
+                            if cpu.halt || cpu.sync {
+                                break;
+                            }
+                        }
+                        let index =
+                            ((opcode_index * 256 + usize::from(value)) * 256 + usize::from(cc)) * 2;
+                        let expected_value = results[index];
+                        let reference_cc = results[index + 1];
+                        let is_xdec = matches!(opcode, 0x4B | 0x5B);
+                        // XRoar inverts XDEC C relative to published hardware,
+                        // MAME and 6809Decoder. Check that bit independently.
+                        let reference_mask = if is_xdec { !FLAG_C } else { 0xFF };
+                        let hardware_c_matches = !is_xdec || cpu.regs.flag(FLAG_C) == (value != 0);
+                        let expected_a = if opcode < 0x50 { expected_value } else { 0x5A };
+                        let expected_b = if opcode >= 0x50 { expected_value } else { 0xA5 };
+                        if !bus_matches
+                            || cpu.halt
+                            || !cpu.sync
+                            || !cpu.rw
+                            || cpu.total_cycles != 2
+                            || cpu.regs.pc != pc.wrapping_add(1)
+                            || cpu.addr != cpu.regs.pc
+                            || (cpu.regs.a, cpu.regs.b) != (expected_a, expected_b)
+                            || cpu.regs.cc & reference_mask != reference_cc & reference_mask
+                            || !hardware_c_matches
+                        {
+                            mismatches += 1;
+                            first_mismatch.get_or_insert((
+                                opcode,
+                                pc,
+                                value,
+                                cc,
+                                cpu.halt,
+                                cpu.total_cycles,
+                            ));
+                        }
+                        assert_eq!(
+                            (cpu.regs.dp, cpu.regs.x, cpu.regs.y, cpu.regs.u, cpu.regs.s),
+                            (0x42, 0x1234, 0x5678, 0x9ABC, 0xDEF0)
+                        );
+                        checked += 1;
+                    }
+                }
+            }
+        }
+        assert_eq!(checked, 1_179_648);
+        assert_eq!(mismatches, 0, "first mismatch: {first_mismatch:?}");
+    }
+
+    #[test]
     fn unknown_opcode_halts_for_bringup_visibility() {
         let mut cpu = cpu_at(0x4000);
         cpu.data_in = 0x01;
@@ -7266,10 +7388,13 @@ mod tests {
     }
 
     #[test]
-    fn opcode_pages_distinguish_documented_alias_and_unimplemented_slots() {
+    fn opcode_pages_distinguish_documented_verified_and_unimplemented_slots() {
         for opcode in 0x00..=0xFF {
             if OFFICIAL_PRIMARY_OPCODE_PAGE.contains(&opcode)
-                || matches!(opcode, 0x1B | 0x41 | 0x45 | 0x51 | 0x55)
+                || matches!(
+                    opcode,
+                    0x1B | 0x41 | 0x42 | 0x45 | 0x4B | 0x4E | 0x51 | 0x52 | 0x55 | 0x5B | 0x5E
+                )
             {
                 assert_primary_opcode_slot_dispatches(opcode);
             } else {
