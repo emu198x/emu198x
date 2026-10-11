@@ -137,8 +137,9 @@ def program(game_gear: bool) -> bytes:
         )
     body += cram_address(0)
     if game_gear:
-        body += z80(bytes([0x3E, GG_CRAM_LO, 0xD3, 0xBE]),
-                    bytes([0x3E, GG_CRAM_HI, 0xD3, 0xBE]))
+        body += z80(
+            bytes([0x3E, GG_CRAM_LO, 0xD3, 0xBE]), bytes([0x3E, GG_CRAM_HI, 0xD3, 0xBE])
+        )
     else:
         body += bytes([0x3E, SMS_CRAM_BYTE, 0xD3, 0xBE])
     body += z80(
@@ -203,7 +204,7 @@ def raster_split_program() -> bytes:
     handler_end = 0x38 + len(RASTER_HANDLER)
     entry = 0x0050
     assert entry >= handler_end, f"body at {entry:#06x} would clobber the handler"
-    rom = bytearray(b"\xFF" * (entry + len(body)))
+    rom = bytearray(b"\xff" * (entry + len(body)))
     rom[0:3] = bytes([0xC3, entry & 0xFF, entry >> 8])  # jp entry
     rom[0x38:handler_end] = RASTER_HANDLER
     rom[entry : entry + len(body)] = body
@@ -238,7 +239,7 @@ INTERRUPT_ACCEPTANCE_T_STATES = 13
 
 
 def build(code: bytes) -> bytes:
-    rom = bytearray(b"\xFF" * CART_SIZE)
+    rom = bytearray(b"\xff" * CART_SIZE)
     rom[0 : len(code)] = code
     return bytes(rom)
 
