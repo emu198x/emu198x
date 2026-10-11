@@ -710,3 +710,58 @@ fn light_pen_frame_retrigger_survives_snapshot_at_each_boundary() {
         }
     }
 }
+
+#[test]
+fn snapshot_preserves_pra_bank_output_before_during_and_after_the_fetch() {
+    for model in Model::ALL {
+        for (old, new) in [(1, 2), (2, 1)] {
+            for phase in 0..3 {
+                let mut original = C64Runtime::blank(model);
+                let machine = original.machine_mut();
+                machine.cpu_write(0xDD02, 3);
+                machine.cpu_write(0xDD00, 3 - old);
+                machine.tick();
+                // Give the next fetch distinct source data in every bank.
+                for bank in 0..4u16 {
+                    machine.cpu_write(bank * 0x4000 + 0x3FFF, 0x11 << bank);
+                }
+                if phase != 0 {
+                    machine.cpu_write(0xDD00, 3 - new);
+                }
+                if phase == 2 {
+                    machine.tick();
+                }
+                let selected = original.machine().vic_bank();
+                let snapshot = original.snapshot().expect("bank output snapshot");
+                let (version, _) =
+                    postcard::take_from_bytes::<u32>(&snapshot).expect("serialized version");
+                assert_eq!(version, 19, "the bank output already has a v19 field");
+                let mut restored = C64Runtime::blank(model);
+                restored.restore(&snapshot).expect("bank output restore");
+                assert_eq!(
+                    restored.machine().vic_bank(),
+                    selected,
+                    "{model:?}, phase {phase}"
+                );
+                assert_eq!(restored.snapshot().expect("fixed point"), snapshot);
+                if phase == 0 {
+                    original.machine_mut().cpu_write(0xDD00, 3 - new);
+                    restored.machine_mut().cpu_write(0xDD00, 3 - new);
+                }
+                for _ in 0..8 {
+                    original.machine_mut().tick();
+                    restored.machine_mut().tick();
+                    assert_eq!(
+                        restored.machine().framebuffer(),
+                        original.machine().framebuffer()
+                    );
+                    assert_eq!(restored.machine().vic_bank(), original.machine().vic_bank());
+                    assert_eq!(
+                        restored.snapshot().expect("replay snapshot"),
+                        original.snapshot().expect("control snapshot")
+                    );
+                }
+            }
+        }
+    }
+}
