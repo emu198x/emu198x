@@ -2716,6 +2716,46 @@ mod tests {
         assert_eq!(machine.vic_bank(), 2);
     }
 
+    #[test]
+    fn unused_vic_registers_match_native_reads_through_every_mirror() {
+        // This exact guest returns 544 FF bytes in native VICE 3.10 on
+        // PAL/NTSC breadbin and C64C (and old NTSC at the chip level).
+        let program = include_bytes!("../test-data/vic-unused-registers.prg");
+        assert_eq!(&program[..2], &[0x00, 0x08]);
+        for model in [
+            C64Model::PalBreadbin,
+            C64Model::NtscBreadbin,
+            C64Model::PalC64c,
+            C64Model::NtscC64c,
+        ] {
+            let mut machine = stub_machine_with_reset_vector(model, 0x0800);
+            for (offset, byte) in program[2..].iter().enumerate() {
+                machine.memory.ram_write(0x0800 + offset as u16, *byte);
+            }
+            for _ in 0..20_000 {
+                machine.tick();
+                if machine.memory.ram_read(0x6220) == 0xA5 {
+                    break;
+                }
+            }
+            assert_eq!(
+                machine.memory.ram_read(0x6220),
+                0xA5,
+                "{model:?}: guest did not finish"
+            );
+            for offset in 0..544 {
+                assert_eq!(
+                    machine.memory.ram_read(0x6000 + offset),
+                    0xFF,
+                    "{model:?}: mirror {}, register {:02X}, after write {}",
+                    offset / 34,
+                    0x2F + (offset / 2) % 17,
+                    offset % 2 != 0
+                );
+            }
+        }
+    }
+
     /// Colour RAM is 4-bit static RAM: a `$D800-$DBFF` read returns the stored
     /// colour in the low nibble and open bus — the last byte the VIC-II drove —
     /// in the high nibble, not zero.
@@ -2743,8 +2783,8 @@ mod tests {
     /// A `$DD00` bank switch reaches the VIC's fetches on the next VIC cycle,
     /// not one φ2 later: the CPU-write path refreshes the VIC bank the same
     /// cycle (before the following tick's `vic.tick`), so the very next badline
-    /// c-access reads the newly-selected bank. Observed through the open-bus
-    /// register `$2F`, which returns the last byte the VIC fetched.
+    /// c-access reads the newly-selected bank. Observed through the retained DMA
+    /// byte; unused VIC registers independently return `$FF`.
     #[test]
     fn dd00_bank_switch_reaches_vic_fetch_on_the_next_badline() {
         let mut machine = stub_machine(C64Model::PalBreadbin);
@@ -2766,7 +2806,7 @@ mod tests {
             machine.tick();
         }
         assert_eq!(
-            machine.vic().peek(0x2F),
+            machine.vic().last_bus_data(),
             0xAA,
             "before the switch the VIC fetches from bank 0",
         );
@@ -2780,7 +2820,7 @@ mod tests {
             machine.tick();
         }
         assert_eq!(
-            machine.vic().peek(0x2F),
+            machine.vic().last_bus_data(),
             0x55,
             "the $DD00 switch reached the VIC's fetch on the next badline",
         );

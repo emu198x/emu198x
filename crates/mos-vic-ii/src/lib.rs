@@ -1910,8 +1910,8 @@ impl Vic {
             // read-modify-write movement code (`inc $d000`, `dec $d001`)
             // depends on. Only the special-cased registers above diverge.
             r @ (0x00..=0x10 | 0x13..=0x18 | 0x1B..=0x1D) => self.regs[r as usize],
-            // $2F-$3F are unused; modelled as open bus.
-            _ => self.last_bus_data,
+            // $2F-$3F are unused and drive all data bits high.
+            _ => 0xFF,
         }
     }
 
@@ -1943,7 +1943,7 @@ impl Vic {
             0x1E => self.sprite_sprite_collision,
             0x1F => self.sprite_bg_collision,
             r if r <= 0x2E => self.regs[r as usize],
-            _ => self.last_bus_data,
+            _ => 0xFF,
         }
     }
 
@@ -3334,14 +3334,29 @@ mod tests {
     }
 
     #[test]
-    fn unmapped_registers_return_last_bus_data() {
-        let (mut vic, memory) = make_vic_and_memory();
-        for _ in 0..(CYCLES_PER_LINE as u32 * (DISPLAY_START_LINE as u32 + 2)) {
-            tick_vic(&mut vic, &memory);
+    fn unused_registers_read_ff_independently_of_dma_bus_and_writes() {
+        // Bauer's register map and VICE 3.10 vicii_read: D02F-D03F
+        // drive FF, unlike colour RAM's floating upper nibble.
+        for model in [
+            VicModel::Pal6569,
+            VicModel::Ntsc6567,
+            VicModel::Ntsc6567R56A,
+            VicModel::Pal8565,
+            VicModel::Ntsc8562,
+        ] {
+            let mut vic = Vic::new(model);
+            for bus in 0..=u8::MAX {
+                vic.last_bus_data = bus;
+                for reg in 0x2F..=0x3F {
+                    for alias in [reg, reg | 0x40, reg | 0x80, reg | 0xC0] {
+                        vic.write(alias, bus);
+                        assert_eq!(vic.read(alias), 0xFF, "{model:?} {alias:02X} {bus:02X}");
+                        assert_eq!(vic.peek(alias), 0xFF, "{model:?} {alias:02X} {bus:02X}");
+                        assert_eq!(vic.last_bus_data(), bus, "register access changed DMA data");
+                    }
+                }
+            }
         }
-        assert_eq!(vic.read(0x2F), vic.peek(0x2F));
-        assert_eq!(vic.read(0x30), vic.read(0x2F));
-        assert_eq!(vic.read(0x3F), vic.read(0x2F));
     }
 
     #[test]
@@ -4577,7 +4592,7 @@ mod tests {
     }
 
     #[test]
-    fn peek_returns_register_for_other_addrs_and_last_bus_above_2e() {
+    fn peek_returns_register_for_other_addrs_and_ff_above_2e() {
         let (mut vic, memory) = make_vic_and_memory();
         for _ in 0..(CYCLES_PER_LINE as u32 * (DISPLAY_START_LINE as u32 + 2)) {
             tick_vic(&mut vic, &memory);
@@ -4585,10 +4600,10 @@ mod tests {
         vic.write(0x20, 0x05);
         // peek of a colour reg returns the raw register without high-nibble mask.
         assert_eq!(vic.peek(0x20), 0x05);
-        // peek($D02F..$D03F) returns last_bus_data.
-        let lb = vic.peek(0x2F);
-        assert_eq!(vic.peek(0x30), lb);
-        assert_eq!(vic.peek(0x3F), lb);
+        // Unused addresses drive FF, regardless of preceding DMA.
+        for reg in 0x2F..=0x3F {
+            assert_eq!(vic.peek(reg), 0xFF);
+        }
     }
 
     #[test]
