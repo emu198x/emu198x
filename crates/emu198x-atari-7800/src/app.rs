@@ -166,7 +166,7 @@ mod tests {
 
     #[test]
     fn region_frame_ticks_match() {
-        assert_eq!(Model::A7800Ntsc.frame_ticks(), 262 * 228);
-        assert_eq!(Model::A7800Pal.frame_ticks(), 312 * 228);
+        assert_eq!(Model::A7800Ntsc.frame_ticks(), 263 * 908);
+        assert_eq!(Model::A7800Pal.frame_ticks(), 313 * 908);
     }
 }

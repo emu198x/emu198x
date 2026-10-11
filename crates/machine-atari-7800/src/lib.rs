@@ -44,11 +44,14 @@
 //!
 //! # Clock model
 //!
-//! Master clock = colour clock (3.58 MHz NTSC, 3.55 MHz PAL). CPU + RIOT
-//! tick every 2nd colour clock = 1.79 MHz NTSC. One scan line is 228
-//! colour clocks (114 CPU cycles); MARIA renders one scanline at every
-//! boundary and stalls the CPU for the line's DMA budget. WSYNC writes
-//! halt the CPU until the next line. DLI fires NMI.
+//! The native oscillator (14.32 MHz NTSC, 14.19 MHz PAL) drives the loop.
+//! MARIA advances every oscillator period and derives the variable CPU clock.
+//! TIA ticks every fourth period; RIOT follows CPU phase 2. Each raster line
+//! takes 908 periods. MARIA fetches and plays pixels through its native stages;
+//! Sally samples HALT separately from releasing and reclaiming the shared bus.
+//! WSYNC drives RDY without stopping write cycles or the CPU's NMI detector.
+//! Physical NMI pulse timing and variable-clock POKEY integration remain open
+//! on the staged correction; the NMI seam still samples events once per line.
 
 mod cartridge;
 mod tia_audio;
@@ -63,7 +66,7 @@ use mos_riot_6532::Riot6532;
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
 
-const COLOUR_CLOCKS_PER_LINE: u16 = 228;
+const MASTER_CLOCKS_PER_LINE: u16 = 908;
 
 /// Atari 7800 region.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -80,18 +83,30 @@ impl Atari7800Region {
         }
     }
 
-    fn lines_per_frame(self) -> u16 {
+    const fn lines_per_frame(self) -> u16 {
         match self {
             Self::Ntsc => 263,
             Self::Pal => 313,
         }
     }
 
-    fn cpu_hz(self) -> u32 {
+    /// Native oscillator rate in Hz, using the existing regional clock rounding.
+    #[must_use]
+    pub const fn master_hz(self) -> u64 {
         match self {
-            Self::Ntsc => 1_789_772,
-            Self::Pal => 1_773_447,
+            Self::Ntsc => 14_318_180,
+            Self::Pal => 14_187_576,
         }
+    }
+
+    /// Native oscillator periods consumed by the current raster per frame.
+    #[must_use]
+    pub const fn frame_ticks(self) -> u64 {
+        self.lines_per_frame() as u64 * MASTER_CLOCKS_PER_LINE as u64
+    }
+
+    fn cpu_hz(self) -> u32 {
+        (self.master_hz() / 8) as u32
     }
 }
 
@@ -115,8 +130,11 @@ pub struct Atari7800 {
     master_clock: u64,
     clocks_per_frame: u64,
     frame_count: u64,
-    dma_budget: u16,
-    line_cycle: u16,
+    /// Sally's phase-1 HALT sample and the following bus-release stage.
+    cpu_halted: bool,
+    cpu_bus_released: bool,
+    /// The shared bus retains its address while neither chip drives it.
+    bus_address: u16,
 }
 
 impl Atari7800 {
@@ -140,8 +158,7 @@ impl Atari7800 {
         let mut riot = Riot6532::new();
         riot.input_a = 0xFF;
         riot.input_b = 0xFF;
-        let clocks_per_frame =
-            u64::from(region.lines_per_frame()) * u64::from(COLOUR_CLOCKS_PER_LINE);
+        let clocks_per_frame = region.frame_ticks();
         Self {
             cpu,
             maria: Maria::new(region.maria_region()),
@@ -157,65 +174,85 @@ impl Atari7800 {
             master_clock: 0,
             clocks_per_frame,
             frame_count: 0,
-            dma_budget: 0,
-            line_cycle: 0,
+            cpu_halted: false,
+            cpu_bus_released: false,
+            bus_address: 0,
         }
     }
 
+    /// Run one frame and return elapsed native oscillator periods.
     pub fn run_frame(&mut self) -> u64 {
         let start = self.master_clock;
         let target = start + self.clocks_per_frame;
         while self.master_clock < target {
-            self.tick_colour_clock();
+            self.tick_master_clock();
         }
-        self.frame_count += 1;
         self.master_clock - start
     }
 
-    fn tick_colour_clock(&mut self) {
-        self.tia_audio.tick();
+    fn tick_master_clock(&mut self) {
         self.master_clock += 1;
-
-        if self
-            .master_clock
-            .is_multiple_of(u64::from(COLOUR_CLOCKS_PER_LINE))
-        {
-            self.process_scan_line();
+        let old_halt = self.maria.halt;
+        let old_cpu_halted = self.cpu_halted;
+        let old_scanline = self.maria.scan_line();
+        self.resolve_bus_address();
+        self.maria.address_in = self.bus_address;
+        self.maria.write_in = !self.cpu_bus_released && !self.cpu.rw;
+        self.maria.write_data_in = self.cpu.data;
+        if self.maria.dma_read_pending() {
+            self.maria.dma_data_in = self.mem_read(self.bus_address);
+        }
+        self.maria.tick_dma();
+        self.cpu_bus_released = old_cpu_halted;
+        if self.master_clock.is_multiple_of(4) {
+            self.tia_audio.tick();
         }
 
-        if self.master_clock.is_multiple_of(2) {
-            self.line_cycle += 1;
-            if self.line_cycle > self.dma_budget && !self.maria.wsync_halt() {
+        if self.maria.phi1 {
+            self.cpu_halted = old_halt;
+            // Sally's execution enable sees the previous HALT sample. On bus
+            // return this leaves a complete phase-2 read before CPU advancement.
+            if !old_cpu_halted {
+                self.cpu.rdy = !self.maria.wsync_halt();
                 self.cpu.tick();
+            }
+        }
+        self.resolve_bus_address();
+        if self.maria.phi2 {
+            self.riot.tick();
+            if !self.cpu_bus_released {
                 if self.cpu.rw {
-                    self.cpu.data_in = self.mem_read(self.cpu.addr);
+                    self.cpu.data_in = self.mem_read(self.bus_address);
                 } else {
-                    self.mem_write(self.cpu.addr, self.cpu.data);
+                    self.mem_write(self.bus_address, self.cpu.data);
                 }
             }
-            self.riot.tick();
-            if let Some(pokey) = &mut self.pokey {
-                pokey.tick();
+        }
+        if self.maria.scan_line() != old_scanline {
+            if self.maria.scan_line() == 0 {
+                self.frame_count += 1;
             }
+            // Legacy delivery seam only. The approved NMI pulse stage still
+            // requires physical assertion/width adjudication before shipping.
+            self.cpu.nmi = self.maria.take_dli();
+        }
+        // POKEY still couples chip advancement to fixed-rate host sampling.
+        // Variable PCLK wiring requires separating those clocks first; the
+        // staged MARIA branch must not ship before that integration gate.
+        if self.master_clock.is_multiple_of(8)
+            && let Some(pokey) = &mut self.pokey
+        {
+            pokey.tick();
         }
     }
 
-    fn process_scan_line(&mut self) {
-        let cart = &self.cart;
-        let ram_zp = &self.ram_zp;
-        let ram_stack = &self.ram_stack;
-        let ram_main = &self.ram_main;
-        let dma_cycles = self.maria.render_line(&mut |addr| match addr {
-            0x0040..=0x00FF => ram_zp[(addr - 0x40) as usize],
-            0x0140..=0x01FF => ram_stack[(addr - 0x140) as usize],
-            0x1800..=0x3FFF => ram_main[((addr - 0x1800) & 0x0FFF) as usize],
-            0x4000..=0xFFFF => cart.read(addr),
-            _ => 0,
-        });
-        self.dma_budget = dma_cycles;
-        self.line_cycle = 0;
-        self.maria.clear_wsync();
-        self.cpu.nmi = self.maria.take_dli();
+    fn resolve_bus_address(&mut self) {
+        self.bus_address = match (self.cpu_bus_released, self.maria.dma_drive) {
+            (false, false) => self.cpu.addr,
+            (false, true) => self.cpu.addr & self.maria.dma_address,
+            (true, true) => self.maria.dma_address,
+            (true, false) => self.bus_address,
+        };
     }
 
     fn mem_read(&mut self, addr: u16) -> u8 {
@@ -273,14 +310,14 @@ impl Atari7800 {
         }
         match addr {
             0x0000..=0x001F => self.tia_audio.write(addr as u8, value),
-            0x0020..=0x003F => self.maria.write(addr as u8 - 0x20, value),
+            0x0020..=0x003F => {} // MARIA observes native bus pins.
             0x0040..=0x00FF => self.ram_zp[(addr - 0x40) as usize] = value,
             0x0100..=0x011F => self.tia_audio.write((addr & 0x1F) as u8, value),
-            0x0120..=0x013F => self.maria.write((addr & 0x1F) as u8, value),
+            0x0120..=0x013F => {}
             0x0140..=0x01FF => self.ram_stack[(addr - 0x140) as usize] = value,
             0x0200..=0x027F => {
                 if addr & 0x20 != 0 {
-                    self.maria.write((addr & 0x1F) as u8, value);
+                    // MARIA observes native bus pins.
                 } else {
                     self.tia_audio.write((addr & 0x1F) as u8, value);
                 }
@@ -290,14 +327,14 @@ impl Atari7800 {
                 if addr & 0x80 != 0 {
                     self.riot.write(addr, value);
                 } else if addr & 0x20 != 0 {
-                    self.maria.write((addr & 0x1F) as u8, value);
+                    // MARIA observes native bus pins.
                 } else {
                     self.tia_audio.write((addr & 0x1F) as u8, value);
                 }
             }
             0x0400..=0x047F => {
                 if addr & 0x20 != 0 {
-                    self.maria.write((addr & 0x1F) as u8, value);
+                    // MARIA observes native bus pins.
                 } else {
                     self.tia_audio.write((addr & 0x1F) as u8, value);
                 }
@@ -336,13 +373,11 @@ impl Atari7800 {
             .map_or_else(Vec::new, Pokey::take_buffer)
     }
 
-    /// Native audio rate: two TIA samples per scanline at nominal refresh.
+    /// Mean TIA sample rate: two samples per 228 TIA colour clocks, with
+    /// four oscillator periods per colour clock. MARIA has a separate raster.
     #[must_use]
     pub fn audio_sample_rate(&self) -> u32 {
-        match self.region {
-            Atari7800Region::Ntsc => u32::from(self.region.lines_per_frame()) * 2 * 60,
-            Atari7800Region::Pal => u32::from(self.region.lines_per_frame()) * 2 * 50,
-        }
+        ((self.region.master_hz() + 228) / 456) as u32
     }
 
     /// Set P0 joystick direction. Active-low on RIOT port A bits 4-7.
@@ -407,6 +442,7 @@ impl Atari7800 {
     pub fn region(&self) -> Atari7800Region {
         self.region
     }
+    /// Elapsed native oscillator periods since cold boot.
     #[must_use]
     pub fn master_clock(&self) -> u64 {
         self.master_clock
@@ -431,21 +467,26 @@ impl Atari7800 {
         }
     }
 
-    /// Write one byte through the bus (RAM accepts it; ROM ignores it).
+    /// Debug write without advancing time. MARIA registers commit immediately;
+    /// emulated CPU writes instead pass through the native pin stages.
     pub fn poke(&mut self, addr: u16, value: u8) {
-        self.mem_write(addr, value);
+        if addr & 0xfce0 == 0x0020 {
+            self.maria.write((addr & 0x1f) as u8, value);
+        } else {
+            self.mem_write(addr, value);
+        }
     }
 
-    /// Run exactly one whole 6502C instruction, returning the colour clocks
+    /// Run exactly one whole 6502C instruction, returning the native oscillator periods
     /// it consumed. A safety cap prevents an unbounded spin.
     pub fn step_instruction(&mut self) -> u64 {
         let mut ticks = 0u64;
-        while self.cpu.instruction_complete() && ticks < 4096 {
-            self.tick_colour_clock();
+        while self.cpu.instruction_complete() && ticks < 16_384 {
+            self.tick_master_clock();
             ticks += 1;
         }
-        while !self.cpu.instruction_complete() && ticks < 4096 {
-            self.tick_colour_clock();
+        while !self.cpu.instruction_complete() && ticks < 16_384 {
+            self.tick_master_clock();
             ticks += 1;
         }
         ticks
@@ -481,6 +522,248 @@ mod tests {
         image
     }
 
+    fn native_dma_guest(region: Atari7800Region, slow: bool) -> Atari7800 {
+        let mut rom = trap_rom_32k();
+        // Set DPP/palette/normal DMA through executed 6502 writes; then count
+        // progress in zero page while MARIA takes the shared bus.
+        let mut code = vec![
+            0x78, 0xa9, 0x18, 0x85, 0x2c, 0xa9, 0x00, 0x85, 0x30, 0xa9, 0x4e, 0x85, 0x21, 0xa9,
+            0xce, 0x85, 0x23, 0xa9, 0x40, 0x85, 0x3c,
+        ];
+        if slow {
+            code.extend_from_slice(&[0xad, 0x80, 0x02]); // RIOT access each loop.
+        }
+        code.extend_from_slice(&[0xe6, 0x40, 0x4c, 0x15, 0x80]);
+        rom[..code.len()].copy_from_slice(&code);
+        let mut sys = Atari7800::new(rom, region).expect("native DMA guest");
+        for zone in 0..256 {
+            sys.poke(0x1800 + zone * 3, 0);
+            sys.poke(0x1801 + zone * 3, 0x1c);
+            sys.poke(0x1802 + zone * 3, 0);
+        }
+        for (i, byte) in [0, 0x1e, 0x1d, 0, 0, 0].into_iter().enumerate() {
+            sys.poke(0x1c00 + i as u16, byte);
+        }
+        sys.poke(0x1d00, 0xff);
+        sys.poke(0x1d01, 0xff);
+        sys
+    }
+
+    #[test]
+    fn native_machine_fetches_live_bytes_before_pixel_playback() {
+        for region in [Atari7800Region::Ntsc, Atari7800Region::Pal] {
+            let mut sys = native_dma_guest(region, false);
+            let mut changed = false;
+            let mut driven_ticks = 0;
+            let mut reads = 0;
+            for _ in 0..908 * 20 {
+                let read = sys.maria.dma_read_pending();
+                let address = sys.maria.dma_address;
+                sys.tick_master_clock();
+                driven_ticks += usize::from(sys.maria.dma_drive);
+                reads += usize::from(read);
+                if read && address == 0x1d00 && !changed {
+                    // This byte was already consumed; the next one must still
+                    // see the live RAM update between the two fetch slots.
+                    sys.poke(0x1d01, 0x55);
+                    changed = true;
+                }
+            }
+            assert!(driven_ticks > 0 && reads > 10, "native DMA never ran");
+            assert!(changed, "the actual graphics latch must execute");
+            assert!(sys.cpu.total_cycles > 1000, "CPU must also make progress");
+            let mr = region.maria_region();
+            let row = mr.border_top() as usize + 2; // First buffered output: raster 18.
+            let start = row * mr.framebuffer_width() as usize + mr.border_left() as usize;
+            let palette = match region {
+                Atari7800Region::Ntsc => &atari_maria::NTSC_PALETTE,
+                Atari7800Region::Pal => &atari_maria::PAL_PALETTE,
+            };
+            assert_eq!(
+                &sys.framebuffer()[start..start + 8],
+                &[palette[0xce >> 1]; 8]
+            );
+            assert_eq!(
+                &sys.framebuffer()[start + 8..start + 16],
+                &[palette[0x4e >> 1]; 8]
+            );
+        }
+    }
+
+    #[test]
+    fn native_machine_dma_preserves_cpu_rmw_and_riot_progress() {
+        for region in [Atari7800Region::Ntsc, Atari7800Region::Pal] {
+            for slow in [false, true] {
+                for objects in [1, 128] {
+                    let mut sys = native_dma_guest(region, slow);
+                    for object in 1..objects {
+                        for (offset, byte) in [0, 0x1e, 0x1d, 0].into_iter().enumerate() {
+                            sys.poke(0x1c00 + object * 4 + offset as u16, byte);
+                        }
+                    }
+                    let mut timer = Riot6532::new();
+                    sys.riot.write(0x0294, 200);
+                    timer.write(0x0294, 200);
+                    let mut writes = 0_u32;
+                    let mut held = 0;
+                    let mut retained_reads = 0;
+                    let mut handoffs = 0;
+                    for _ in 0..908 * 24 {
+                        let previous_halt = sys.cpu_halted;
+                        let previous_released = sys.cpu_bus_released;
+                        let cycles = sys.cpu.total_cycles;
+                        retained_reads += usize::from(
+                            sys.maria.dma_read_pending()
+                                && !sys.maria.dma_drive
+                                && sys.cpu_bus_released,
+                        );
+                        sys.tick_master_clock();
+                        assert!(
+                            !sys.maria.dma_drive || sys.cpu_bus_released,
+                            "both chips driving"
+                        );
+                        handoffs += usize::from(previous_released != sys.cpu_bus_released);
+                        if sys.maria.phi1 {
+                            assert_eq!(sys.cpu.total_cycles - cycles, u64::from(!previous_halt));
+                            held += usize::from(previous_halt);
+                        } else {
+                            assert_eq!(sys.cpu.total_cycles, cycles);
+                        }
+                        if sys.maria.phi2 {
+                            timer.tick();
+                            if !sys.cpu_bus_released && sys.cpu.addr == 0x40 && !sys.cpu.rw {
+                                assert_eq!(
+                                    sys.cpu.data,
+                                    writes.div_ceil(2) as u8,
+                                    "RMW sequence corrupted at write {writes}"
+                                );
+                                assert_eq!(sys.peek(0x40), sys.cpu.data);
+                                writes += 1;
+                            }
+                        }
+                        assert_eq!(sys.riot.timer_value(), timer.timer_value());
+                    }
+                    assert!(
+                        writes > 100 && held > 10 && handoffs >= 12 && retained_reads >= 6,
+                        "guest and each ownership stage must execute: {writes} {held} {handoffs} {retained_reads}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn native_machine_snapshots_resume_shared_bus_and_live_output() {
+        for region in [Atari7800Region::Ntsc, Atari7800Region::Pal] {
+            for slow in [false, true] {
+                let mut sys = native_dma_guest(region, slow);
+                let mut stages = std::collections::BTreeSet::new();
+                let mut undriven = 0;
+                for _ in 0..908 * 20 {
+                    sys.tick_master_clock();
+                    if sys.master_clock < 14500 {
+                        continue;
+                    }
+                    let key = (
+                        sys.cpu_halted,
+                        sys.cpu_bus_released,
+                        sys.maria.dma_drive,
+                        sys.maria.halt,
+                        sys.maria.dma_read_pending(),
+                        sys.cpu.rw,
+                        sys.master_clock % 12,
+                    );
+                    if !stages.insert(key) {
+                        continue;
+                    }
+                    undriven += usize::from(
+                        sys.cpu_bus_released
+                            && !sys.maria.dma_drive
+                            && sys.maria.dma_read_pending(),
+                    );
+                    sys.take_audio_samples();
+                    let saved = postcard::to_allocvec(&sys).expect("save native handoff");
+                    let mut restored: Atari7800 =
+                        postcard::from_bytes(&saved).expect("restore native handoff");
+                    assert_eq!(
+                        (
+                            restored.bus_address,
+                            restored.cpu_halted,
+                            restored.cpu_bus_released
+                        ),
+                        (sys.bus_address, sys.cpu_halted, sys.cpu_bus_released)
+                    );
+                    // A post-save graphics write must be observed at later
+                    // live fetches by both machines, through both line banks.
+                    sys.poke(0x1d01, 0x55);
+                    restored.poke(0x1d01, 0x55);
+                    for _ in 0..2048 {
+                        sys.tick_master_clock();
+                        restored.tick_master_clock();
+                        assert_eq!(
+                            (
+                                restored.bus_address,
+                                restored.cpu.addr,
+                                restored.cpu.data_in,
+                                restored.cpu.data,
+                                restored.cpu.rw,
+                                restored.cpu.total_cycles
+                            ),
+                            (
+                                sys.bus_address,
+                                sys.cpu.addr,
+                                sys.cpu.data_in,
+                                sys.cpu.data,
+                                sys.cpu.rw,
+                                sys.cpu.total_cycles
+                            )
+                        );
+                        assert_eq!(restored.maria.wsync_halt(), sys.maria.wsync_halt());
+                        assert_eq!(restored.riot.timer_value(), sys.riot.timer_value());
+                    }
+                    assert_eq!(restored.framebuffer(), sys.framebuffer());
+                    assert_eq!(restored.take_audio_samples(), sys.take_audio_samples());
+                    assert_eq!(
+                        postcard::to_allocvec(&restored).expect("restored state"),
+                        postcard::to_allocvec(&sys).expect("continued state")
+                    );
+                    sys = postcard::from_bytes(&saved).expect("rewind fixture");
+                }
+                assert!(
+                    stages.len() > 60 && undriven > 0,
+                    "pending ownership stages missing"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn native_machine_and_chip_share_complete_frame_boundaries() {
+        for region in [Atari7800Region::Ntsc, Atari7800Region::Pal] {
+            let mut sys = Atari7800::new(trap_rom_32k(), region).expect("raster fixture");
+            let budget = 908 * u64::from(region.lines_per_frame());
+            assert_eq!(
+                region.frame_ticks(),
+                budget,
+                "frame budget must use qualified raster"
+            );
+            for tick in 1..=budget * 2 {
+                sys.tick_master_clock();
+                assert_eq!(
+                    sys.maria.scan_line(),
+                    ((tick / 908) % u64::from(region.lines_per_frame())) as u16
+                );
+                assert_eq!(sys.maria.take_frame_complete(), tick % budget == 0);
+                assert_eq!(sys.frame_count(), tick / budget);
+            }
+            let instruction_ticks = sys.step_instruction();
+            assert!(instruction_ticks > 0 && instruction_ticks < budget);
+            assert_eq!(sys.run_frame(), budget);
+            assert_eq!(sys.master_clock, budget * 3 + instruction_ticks);
+            assert_eq!(sys.frame_count(), 3);
+        }
+    }
+
     #[test]
     fn cpu_wsync_colour_bars_extend_into_live_maria_borders() {
         let mut rom = trap_rom_32k();
@@ -491,7 +774,16 @@ mod tests {
         ]);
         for region in [Atari7800Region::Ntsc, Atari7800Region::Pal] {
             let mut sys = Atari7800::new(rom.clone(), region).expect("colour-bar cartridge");
-            sys.run_frame();
+            let mut background_writes = Vec::new();
+            for _ in 0..region.frame_ticks() {
+                sys.tick_master_clock();
+                if sys.maria.phi2 && sys.cpu.addr == 0x20 && !sys.cpu.rw {
+                    // The qualified register stage commits one tick after
+                    // phase 2; playback on that edge still sees the old value.
+                    background_writes.push((sys.master_clock + 1, sys.cpu.data));
+                }
+            }
+            assert!(background_writes.len() > 240, "guest writes must execute");
             let maria_region = region.maria_region();
             let width = maria_region.framebuffer_width() as usize;
             let top = maria_region.border_top() as usize;
@@ -509,11 +801,423 @@ mod tests {
                     Some(active),
                     "WSYNC must produce alternating lines"
                 );
-                assert!(
-                    row.iter().all(|&pixel| pixel == active),
-                    "border differs from background on row {y}"
-                );
+                for (x, pixel) in row.iter().enumerate() {
+                    let raster_row = y - top + 16;
+                    let column = x + 93 - maria_region.border_left() as usize;
+                    let sample_tick = (raster_row * 908 + column * 2 + 1) as u64;
+                    let colour = background_writes
+                        .iter()
+                        .rev()
+                        .find(|&&(tick, _)| tick < sample_tick)
+                        .expect("earlier background write")
+                        .1;
+                    assert_eq!(
+                        *pixel,
+                        palette[usize::from(colour >> 1)],
+                        "live background at row {y}, x {x}"
+                    );
+                }
                 previous = Some(active);
+            }
+        }
+    }
+
+    #[test]
+    fn cpu_bus_writes_wait_for_phase_two() {
+        let mut rom = trap_rom_32k();
+        rom[..7].copy_from_slice(&[0xa9, 0x5a, 0x85, 0x40, 0x4c, 0x04, 0x80]);
+        let mut sys = Atari7800::new(rom, Atari7800Region::Ntsc).expect("write guest");
+        let mut saw_address = false;
+        let mut saw_write = false;
+        for _ in 0..256 {
+            sys.tick_master_clock();
+            if sys.cpu.addr == 0x0040 && !sys.cpu.rw {
+                if sys.maria.phi1 {
+                    saw_address = true;
+                    assert_eq!(sys.peek(0x40), 0, "write happened in address phase");
+                }
+                if sys.maria.phi2 {
+                    saw_write = true;
+                    assert_eq!(sys.peek(0x40), 0x5a, "phase 2 commits the write");
+                    break;
+                }
+            }
+        }
+        assert!(saw_address && saw_write, "both bus phases must execute");
+    }
+
+    #[test]
+    fn cpu_bus_reads_sample_memory_in_phase_two() {
+        let mut rom = trap_rom_32k();
+        rom[..7].copy_from_slice(&[0xa5, 0x40, 0x85, 0x41, 0x4c, 0x04, 0x80]);
+        let mut sys = Atari7800::new(rom, Atari7800Region::Ntsc).expect("read guest");
+        sys.poke(0x40, 0x11);
+        let mut changed = false;
+        let mut stored = false;
+        for _ in 0..256 {
+            sys.tick_master_clock();
+            if sys.maria.phi1 && sys.cpu.rw && sys.cpu.addr == 0x0040 {
+                // An external change after address presentation must reach the
+                // later data sample. Sampling immediately at phi1 loses it.
+                sys.poke(0x40, 0x77);
+                changed = true;
+            }
+            if sys.peek(0x41) != 0 {
+                stored = true;
+                assert_eq!(sys.peek(0x41), 0x77);
+                break;
+            }
+        }
+        assert!(
+            changed && stored,
+            "the complete read/store path must execute"
+        );
+    }
+
+    #[test]
+    fn cpu_bus_wsync_keeps_nmi_edge_detection_running() {
+        let mut sys = Atari7800::new(trap_rom_32k(), Atari7800Region::Ntsc).expect("WSYNC fixture");
+        sys.maria.write(0x04, 0);
+        sys.cpu.nmi = true;
+        let cycles = sys.cpu.total_cycles;
+        for _ in 0..24 {
+            sys.tick_master_clock();
+        }
+        assert_eq!(sys.cpu.total_cycles, cycles, "WSYNC holds execution");
+        assert!(
+            sys.cpu.nmi_prev(),
+            "NMI edge must still reach the CPU detector"
+        );
+        sys.cpu.nmi = false;
+        for _ in 0..24 {
+            sys.tick_master_clock();
+        }
+        assert!(!sys.cpu.nmi_prev(), "detector also observes pulse release");
+    }
+
+    #[test]
+    fn cpu_bus_wsync_allows_both_read_modify_write_cycles() {
+        let mut rom = trap_rom_32k();
+        rom[..5].copy_from_slice(&[0xe6, 0x24, 0x4c, 0x02, 0x80]); // INC WSYNC
+        let mut sys = Atari7800::new(rom, Atari7800Region::Ntsc).expect("RMW guest");
+        let mut writes = Vec::new();
+        for tick in 1..=2048 {
+            sys.tick_master_clock();
+            if sys.maria.phi2
+                && sys.cpu.addr == 0x0024
+                && !sys.cpu.rw
+                && writes.last().is_none_or(|&(_, data)| data != sys.cpu.data)
+            {
+                writes.push((tick, sys.cpu.data));
+                if writes.len() == 2 {
+                    break;
+                }
+            }
+        }
+        assert_eq!(writes.len(), 2, "dummy and final writes must both execute");
+        assert_eq!((writes[0].1, writes[1].1), (0, 1));
+        assert_eq!(
+            writes[1].0 - writes[0].0,
+            8,
+            "RDY cannot stall NMOS write cycles"
+        );
+    }
+
+    #[test]
+    fn cpu_bus_pending_writes_resume_at_the_same_memory_phase() {
+        for region in [Atari7800Region::Ntsc, Atari7800Region::Pal] {
+            for address in [0x0040u16, 0x0280] {
+                for offset in 0..4 {
+                    let mut rom = trap_rom_32k();
+                    let [low, high] = address.to_le_bytes();
+                    rom[..8].copy_from_slice(&[0xa9, 0x5a, 0x8d, low, high, 0x4c, 0x05, 0x80]);
+                    let mut sys = Atari7800::new(rom, region).expect("write snapshot guest");
+                    sys.poke(0x0281, 0xff);
+                    sys.poke(0x0280, 0);
+                    let mut presented = false;
+                    for _ in 0..256 {
+                        sys.tick_master_clock();
+                        if sys.maria.phi1 && sys.cpu.addr == address && !sys.cpu.rw {
+                            presented = true;
+                            break;
+                        }
+                    }
+                    assert!(presented);
+                    for _ in 0..offset {
+                        sys.tick_master_clock();
+                    }
+                    let saved = postcard::to_allocvec(&sys).expect("save pending write");
+                    let mut restored: Atari7800 =
+                        postcard::from_bytes(&saved).expect("restore pending write");
+                    for tick in 1..=12 {
+                        sys.tick_master_clock();
+                        restored.tick_master_clock();
+                        let observed = if address == 0x0040 {
+                            sys.peek(address)
+                        } else {
+                            sys.riot.port_a_drive()
+                        };
+                        let resumed = if address == 0x0040 {
+                            restored.peek(address)
+                        } else {
+                            restored.riot.port_a_drive()
+                        };
+                        assert_eq!(
+                            observed,
+                            if offset + tick < 4 { 0 } else { 0x5a },
+                            "{region:?}, address {address:04x}, offset {offset}, tick {tick}"
+                        );
+                        assert_eq!(resumed, observed);
+                    }
+                    assert_eq!(
+                        postcard::to_allocvec(&restored).expect("resumed state"),
+                        postcard::to_allocvec(&sys).expect("original state")
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn cpu_bus_pending_reads_resume_with_live_memory_and_peripheral_inputs() {
+        for region in [Atari7800Region::Ntsc, Atari7800Region::Pal] {
+            for address in [0x0040u16, 0x0280] {
+                for offset in 0..4 {
+                    let mut rom = trap_rom_32k();
+                    let [low, high] = address.to_le_bytes();
+                    rom[..8].copy_from_slice(&[0xad, low, high, 0x85, 0x41, 0x4c, 0x05, 0x80]);
+                    let mut sys = Atari7800::new(rom, region).expect("read snapshot guest");
+                    sys.poke(0x40, 0x11);
+                    sys.riot.input_a = 0x11;
+                    let mut presented = false;
+                    for _ in 0..256 {
+                        sys.tick_master_clock();
+                        if sys.maria.phi1 && sys.cpu.addr == address && sys.cpu.rw {
+                            presented = true;
+                            break;
+                        }
+                    }
+                    assert!(presented);
+                    for _ in 0..offset {
+                        sys.tick_master_clock();
+                    }
+                    let saved = postcard::to_allocvec(&sys).expect("save pending read");
+                    let mut restored: Atari7800 =
+                        postcard::from_bytes(&saved).expect("restore pending read");
+                    for machine in [&mut sys, &mut restored] {
+                        machine.poke(0x40, 0x77);
+                        machine.riot.input_a = 0x77;
+                    }
+                    let mut stored = false;
+                    for _ in 0..128 {
+                        sys.tick_master_clock();
+                        restored.tick_master_clock();
+                        assert_eq!(restored.cpu.data_in, sys.cpu.data_in);
+                        assert_eq!(restored.peek(0x41), sys.peek(0x41));
+                        if sys.peek(0x41) != 0 {
+                            stored = true;
+                            assert_eq!(sys.peek(0x41), 0x77);
+                            break;
+                        }
+                    }
+                    assert!(stored, "the restored read must reach its store");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn slow_peripheral_reads_extend_the_cpu_clock_and_following_phase() {
+        for region in [Atari7800Region::Ntsc, Atari7800Region::Pal] {
+            for (address, expected) in [
+                (0x0000u16, 60),
+                (0x0280, 60),
+                (0x0020, 56),
+                (0x0040, 56),
+                (0x9000, 56),
+            ] {
+                let mut rom = trap_rom_32k();
+                let [low, high] = address.to_le_bytes();
+                // LDA absolute (4 cycles), JMP $8000 (3). One slow access
+                // extends phase 2 and the following phase 1 by two ticks each.
+                rom[..6].copy_from_slice(&[0xad, low, high, 0x4c, 0x00, 0x80]);
+                let mut sys = Atari7800::new(rom, region).expect("clock guest");
+                for _ in 0..8 {
+                    sys.step_instruction();
+                }
+                for _ in 0..16 {
+                    let before = sys.cpu.total_cycles;
+                    let ticks = sys.step_instruction() + sys.step_instruction();
+                    assert_eq!(sys.cpu.total_cycles - before, 7);
+                    assert_eq!(ticks, expected, "{region:?} address {address:04x}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn riot_follows_phase_two_while_cpu_execution_is_held() {
+        for region in [Atari7800Region::Ntsc, Atari7800Region::Pal] {
+            for (address, period) in [(0x8000, 8u16), (0x0280, 12), (0x0000, 12)] {
+                let mut sys = Atari7800::new(trap_rom_32k(), region).expect("timer fixture");
+                sys.cpu.addr = address;
+                sys.maria.write(0x04, 0); // WSYNC drives the machine's RDY input.
+                sys.riot.write(0x0294, 200);
+                for tick in 1..=120 {
+                    sys.tick_master_clock();
+                    // First phase 2 is at native tick 4; subsequent periods
+                    // follow the independently measured fast/slow clock.
+                    let elapsed = if tick < 4 { 0 } else { 1 + (tick - 4) / period };
+                    assert_eq!(
+                        sys.riot.timer_value(),
+                        200 - elapsed as u8,
+                        "{region:?}, address {address:04x}, tick {tick}"
+                    );
+                }
+                assert_eq!(sys.cpu.total_cycles, 0, "RDY holds execution, not RIOT");
+            }
+        }
+    }
+
+    #[test]
+    fn restored_slow_accesses_preserve_clock_bus_timer_and_audio() {
+        let mut rom = trap_rom_32k();
+        rom[..6].copy_from_slice(&[0xad, 0x80, 0x02, 0x4c, 0x00, 0x80]);
+        for region in [Atari7800Region::Ntsc, Atari7800Region::Pal] {
+            // The measured loop is 60 native ticks. Visit every point in it,
+            // including the divider-selection and held-access boundaries.
+            for phase in 0..60 {
+                let mut sys = Atari7800::new(rom.clone(), region).expect("slow guest");
+                sys.poke(0x15, 0x04);
+                sys.poke(0x19, 0x0f);
+                sys.poke(0x0294, 0xc8);
+                for _ in 0..1024 + phase {
+                    sys.tick_master_clock();
+                }
+                sys.take_audio_samples();
+                let saved = postcard::to_allocvec(&sys).expect("save slow phase");
+                let mut restored: Atari7800 =
+                    postcard::from_bytes(&saved).expect("restore slow phase");
+                let before = sys.cpu.total_cycles;
+                for _ in 0..600 {
+                    sys.tick_master_clock();
+                    restored.tick_master_clock();
+                    assert_eq!(
+                        (
+                            restored.cpu.addr,
+                            restored.cpu.data_in,
+                            restored.cpu.rw,
+                            restored.cpu.total_cycles
+                        ),
+                        (
+                            sys.cpu.addr,
+                            sys.cpu.data_in,
+                            sys.cpu.rw,
+                            sys.cpu.total_cycles
+                        )
+                    );
+                    assert_eq!(
+                        (restored.maria.phi1, restored.maria.phi2),
+                        (sys.maria.phi1, sys.maria.phi2)
+                    );
+                    assert_eq!(restored.riot.timer_value(), sys.riot.timer_value());
+                    assert_eq!(restored.take_audio_samples(), sys.take_audio_samples());
+                }
+                assert_eq!(sys.cpu.total_cycles - before, 70, "ten complete loops");
+                assert_eq!(
+                    postcard::to_allocvec(&restored).expect("restored continuation"),
+                    postcard::to_allocvec(&sys).expect("original continuation")
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn instruction_ticks_are_native_oscillator_periods() {
+        for region in [Atari7800Region::Ntsc, Atari7800Region::Pal] {
+            let mut sys = Atari7800::new(trap_rom_32k(), region).expect("init");
+            sys.step_instruction(); // Finish reset before measuring a complete instruction.
+            for _ in 0..32 {
+                let before = sys.cpu.total_cycles;
+                let ticks = sys.step_instruction();
+                let cycles = sys.cpu.total_cycles - before;
+                assert!(cycles > 0);
+                assert_eq!(ticks, cycles * 8, "{region:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn native_clock_preserves_tia_sample_stream() {
+        for region in [Atari7800Region::Ntsc, Atari7800Region::Pal] {
+            let mut sys = Atari7800::new(trap_rom_32k(), region).expect("init");
+            let mut sound = TiaAudio::new();
+            for (register, value) in [(0x15, 0x04), (0x17, 0x03), (0x19, 0x0f)] {
+                sys.poke(u16::from(register), value);
+                sound.write(register, value);
+            }
+            for colour_clock in 0..1024 {
+                // Writes on non-aligned native phases must reach the next sound tick.
+                for phase in 0..4 {
+                    if phase == 1 && colour_clock % 113 == 0 {
+                        let frequency = ((colour_clock / 113) & 0x1f) as u8;
+                        sys.poke(0x17, frequency);
+                        sound.write(0x17, frequency);
+                    }
+                    sys.tick_master_clock();
+                    if phase == 3 {
+                        sound.tick();
+                    }
+                    assert_eq!(sys.take_audio_samples(), sound.take_samples());
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn restored_native_phases_preserve_bus_timer_and_audio() {
+        for region in [Atari7800Region::Ntsc, Atari7800Region::Pal] {
+            for phase in 0..8 {
+                let mut sys = Atari7800::new(trap_rom_32k(), region).expect("init");
+                sys.poke(0x15, 0x04);
+                sys.poke(0x19, 0x0f);
+                sys.poke(0x0294, 0x71); // RIOT divide-by-one timer.
+                for _ in 0..(1024 + phase) {
+                    sys.tick_master_clock();
+                }
+                // Output already delivered to the host is deliberately not saved.
+                sys.take_audio_samples();
+                let saved = postcard::to_allocvec(&sys).expect("save phase");
+                let mut restored: Atari7800 = postcard::from_bytes(&saved).expect("restore phase");
+                let cycles = sys.cpu.total_cycles;
+                for _ in 0..2048 {
+                    sys.tick_master_clock();
+                    restored.tick_master_clock();
+                    assert_eq!(
+                        (
+                            sys.cpu.addr,
+                            sys.cpu.data,
+                            sys.cpu.rw,
+                            sys.cpu.nmi,
+                            sys.cpu.total_cycles
+                        ),
+                        (
+                            restored.cpu.addr,
+                            restored.cpu.data,
+                            restored.cpu.rw,
+                            restored.cpu.nmi,
+                            restored.cpu.total_cycles
+                        ),
+                        "{region:?} phase {phase}"
+                    );
+                    assert_eq!(sys.riot.timer_value(), restored.riot.timer_value());
+                    assert_eq!(sys.take_audio_samples(), restored.take_audio_samples());
+                }
+                assert!(sys.cpu.total_cycles > cycles);
+                assert_eq!(
+                    postcard::to_allocvec(&sys).expect("continued state"),
+                    postcard::to_allocvec(&restored).expect("restored state")
+                );
             }
         }
     }
@@ -535,15 +1239,37 @@ mod tests {
 
     #[test]
     fn frame_produces_tia_audio_at_native_rate() {
-        let mut sys = Atari7800::new(trap_rom_32k(), Atari7800Region::Ntsc).expect("init");
-        sys.poke(0x0015, 0x04);
-        sys.poke(0x0017, 0x00);
-        sys.poke(0x0019, 0x0F);
-        sys.run_frame();
-        let samples = sys.take_audio_samples();
-        assert_eq!(samples.len(), 263 * 2);
-        assert!(samples.iter().any(|sample| *sample > 0.0));
-        assert_eq!(sys.audio_sample_rate(), 31_560);
+        for region in [Atari7800Region::Ntsc, Atari7800Region::Pal] {
+            let mut sys = Atari7800::new(trap_rom_32k(), region).expect("init");
+            let mut sound = TiaAudio::new();
+            for (register, value) in [(0x15, 0x04), (0x17, 0), (0x19, 0x0f)] {
+                sys.poke(register, value);
+                sound.write(register as u8, value);
+            }
+            let mut sample_count = 0;
+            for _ in 0..6 {
+                let elapsed = sys.run_frame();
+                for _ in 0..elapsed / 4 {
+                    sound.tick();
+                }
+                let samples = sys.take_audio_samples();
+                assert_eq!(
+                    samples,
+                    sound.take_samples(),
+                    "TIA must run across MARIA lines"
+                );
+                assert!(samples.iter().any(|sample| *sample > 0.0));
+                sample_count += samples.len() as u64;
+            }
+            // Packet rate and measured sample production must agree to within
+            // the one partially accumulated sample at the window boundaries.
+            let predicted = u64::from(sys.audio_sample_rate()) * sys.master_clock;
+            let observed = sample_count * region.master_hz();
+            assert!(
+                predicted.abs_diff(observed) < region.master_hz(),
+                "{region:?}: metadata disagrees with actual TIA clock"
+            );
+        }
     }
 
     #[test]
