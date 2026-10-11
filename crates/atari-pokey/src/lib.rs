@@ -1224,20 +1224,22 @@ impl Pokey {
                 let poly_gate = self.poly_gate(ch.distortion());
                 let channel_active = ch.output && poly_gate;
 
-                // Apply high-pass filter if enabled.
+                // A disabled high-pass latch is held at one, but its XOR
+                // remains in the path: channels 1/2 are inverted relative
+                // to 3/4 (Altirra Hardware Reference Manual, p108).
                 let hp_active = match i {
                     0 => {
                         if self.audctl & AUDCTL_HPF_CH1 != 0 {
                             ch.output != ch.hp_flipflop
                         } else {
-                            channel_active
+                            !channel_active
                         }
                     }
                     1 => {
                         if self.audctl & AUDCTL_HPF_CH2 != 0 {
                             ch.output != ch.hp_flipflop
                         } else {
-                            channel_active
+                            !channel_active
                         }
                     }
                     _ => channel_active,
