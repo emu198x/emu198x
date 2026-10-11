@@ -61,9 +61,10 @@ COM, ROR, ASR, ASL, ROL, DEC, INC and CLR. The regression compares ordered bus
 reads/bytes, cycle counts, register results, operand memory and next-fetch pins.
 
 The [evidence and complete diagnostic](https://github.com/emu198x/docs/blob/5e7456a/plans/2026-10-11-6809-register-reads.md)
-retain 3,264 rows, including two explicitly unresolved reference differences.
+retain 3,264 rows, including the reference differences qualified below.
 TSTA/TSTB are excluded from this fixture because XRoar's three-cycle execution
-conflicts with Motorola's two-cycle opcode map. All flags now compare exactly,
+conflicts with Motorola's two-cycle opcode map. The [TST qualification](https://github.com/emu198x/docs/blob/main/plans/2026-10-11-6809-tst-reference.md)
+confirms our current sequence across 393,216 runs. All flags now compare exactly,
 including DAA V, whose hardware behaviour is independently qualified below.
 No bus events are masked for the 32 included encodings.
 
@@ -84,3 +85,23 @@ without a newly generated carry. The former V mask in the register-read
 regression is removed; no DAA result bits are excluded.
 The [full-core wrapper, provenance and red/green evidence](https://github.com/emu198x/docs/blob/88c9ded/plans/2026-10-11-6809-daa-overflow.md)
 are retained with the correction plan.
+
+## Other undocumented accumulator operations
+
+`undocumented-accumulators.bin` stores output accumulator then CC for opcodes
+42/52/4B/5B/4E/5E, each over input values 00..FF and CC 00..FF. The 786,432-byte
+fixture contains 393,216 unmodified full-XRoar result pairs; its wrapper asserts
+the two-read schedule and unchanged registers. SHA-256:
+`8c2d84a4574685b8cac4b73b4b14b551d2bb4a261ce8e1e262448cd3e1222732`.
+
+The public-pin regression repeats every row at PCs 4000/FFFE/FFFF: 1,179,648
+runs, covering output, flags, unchanged registers, read sequence and next-fetch
+pins. There is one explicit oracle exception: XRoar sets XDEC carry opposite
+to the [published hardware rule](https://github.com/hoglet67/6809Decoder/wiki/Undocumented-6809-Behaviours#xdec).
+For 4B/5B, C is checked separately against that rule (set for nonzero input),
+corroborated by MAME and 6809Decoder. All other bits compare with XRoar; no flag
+is unchecked. Deliberately reversing that carry makes 393,216 runs fail.
+
+[Wrapper, provenance and red/green evidence](https://github.com/emu198x/docs/blob/04b92ec/plans/2026-10-11-6809-undocumented-accumulators.md)
+retain the reference exception and original output rather than silently changing
+it. Memory variants and prefixes are outside this fixture.
