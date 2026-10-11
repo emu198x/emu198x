@@ -33,3 +33,20 @@ measurements. The existing Sega-zero and exhaustive nonzero controls remain.
 Noise slaving is outside this fixture.
 
 Fixture SHA-256: `7c698ad633c344cbfc412cc3a020cd02f4b78fb2298a3dc8d3e4cb7346be3c02`.
+
+## Discrete-TI mode-3 noise transitions
+
+`ti-noise-transitions.csv` contains 1,920 full-XRoar observations across 240
+cases: periodic/white noise, starting periods 5/15, every internal-clock phase
+of the complete tone cycle, and target periods 0/1/7. Each case synchronises on
+an observed LFSR change, writes the target tone period and records eight further
+shifts (interval, LFSR contents and tone output). Every baseline observation
+fails at least one of those checks. The oracle uses the same unchanged XRoar
+revision and generator/filter sources listed above.
+
+The fixture tests discrete-TI mode 3 against actual tone edges; it makes no
+claim about the independent fixed-noise clock, Sega slaving phase, physical
+startup or sub-clock write latency. The TI datasheet page 3 names tone generator
+3 output as the selected clock; the rising-edge convention is XRoar precedent.
+
+Fixture SHA-256: `0834411d61d08b5e676883af9aaac1012d0276a5129a94bac53ca1a4a84a7a97`.
