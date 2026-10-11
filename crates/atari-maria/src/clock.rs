@@ -53,8 +53,8 @@ impl Maria {
     /// Advance the CPU clock divider by one native oscillator period, sampling
     /// `address_in` and producing one-tick `phi1` / `phi2` strobes.
     ///
-    /// This clocks the divider only. The scanline compatibility driver still
-    /// owns DMA/rendering until the complete native DMA pipeline is connected.
+    /// This clocks the divider only. Machine callers use `tick_dma`, which
+    /// advances this divider together with DMA, raster and register stages.
     /// MARIA is enabled; MEN/reset transitions are not modelled by this entry.
     pub fn tick_clock(&mut self) {
         let address = self.address_in;
