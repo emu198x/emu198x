@@ -1332,8 +1332,7 @@ impl Ppu {
                 if let Some(value) = mapper.nametable_read(addr) {
                     return value;
                 }
-                let mirrored = self.mirror_nametable_addr(addr, mapper.mirroring());
-                self.nametable_ram[mirrored as usize]
+                self.read_nametable_mirrored(addr, mapper.mirroring())
             }
             0x3F00..=0x3FFF => {
                 let palette_addr = self.mirror_palette_addr(addr);
@@ -1588,6 +1587,23 @@ impl Ppu {
     #[must_use]
     pub fn read_nametable(&self, addr: u16) -> u8 {
         self.nametable_ram[(addr as usize) & 0x7FF]
+    }
+
+    /// Read console nametable RAM through the current mirroring configuration.
+    ///
+    /// `addr` is a PPU nametable address (`$2000-$3EFF`). Cartridge-owned
+    /// nametables must be handled by the mapper before calling this fallback.
+    /// Unlike [`Self::read_nametable`], this reads a logical address rather than
+    /// a raw CIRAM offset. It does not advance the PPU or notify the mapper.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the mapped address is outside the console's 2 KiB CIRAM.
+    /// Four-screen cartridge pages require mapper-owned backing memory.
+    #[must_use]
+    pub fn read_nametable_mirrored(&self, addr: u16, mirroring: Mirroring) -> u8 {
+        let mirrored = self.mirror_nametable_addr(addr, mirroring);
+        self.nametable_ram[usize::from(mirrored)]
     }
 
     /// Palette RAM (32 bytes).

@@ -866,7 +866,8 @@ impl Nes {
         self.apu.set_audio_channel_gain(channel, gain);
     }
 
-    /// The 2 KiB of nametable the PPU actually fetches, mapper included.
+    /// Inspect logical PPU addresses `$2000-$27FF`, including mapper overrides
+    /// and the current CIRAM mirroring configuration.
     ///
     /// ⚠⚠ Use this, not `ppu.nametable_ram()`, to read what is on screen.
     /// A mapper may serve `$2000-$2FFF` from its own memory: MMC5 keeps
@@ -880,14 +881,13 @@ impl Nes {
     /// than `nametable_read`, which would clock MMC5's scanline detector.
     #[must_use]
     pub fn effective_nametable(&self) -> [u8; 2048] {
-        let ciram = self.ppu.nametable_ram();
         let mut out = [0u8; 2048];
         for (i, slot) in out.iter_mut().enumerate() {
             let addr = 0x2000 + u16::try_from(i).expect("2048 fits in u16");
-            *slot = self
-                .mapper
-                .nametable_peek(addr)
-                .unwrap_or_else(|| ciram[i & 0x07FF]);
+            *slot = self.mapper.nametable_peek(addr).unwrap_or_else(|| {
+                self.ppu
+                    .read_nametable_mirrored(addr, self.mapper.mirroring())
+            });
         }
         out
     }
