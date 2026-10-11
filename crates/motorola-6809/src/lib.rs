@@ -830,13 +830,13 @@ impl Mc6809 {
                     0x17 => self.read_next(CpuState::ReadRel16Hi(Rel16Op::Lbsr)),
                     0x19 => {
                         self.daa();
-                        self.start_internal_cycles(1);
+                        self.read_next(CpuState::Internal { remaining: 1 });
                     }
                     0x1A => self.read_next(CpuState::ReadCcImm(CcOp::Or)),
                     0x1C => self.read_next(CpuState::ReadCcImm(CcOp::And)),
                     0x1D => {
                         self.sex();
-                        self.start_internal_cycles(1);
+                        self.read_next(CpuState::Internal { remaining: 1 });
                     }
                     0x1E => self.read_next(CpuState::ReadTransferPostbyte(TransferOp::Exg)),
                     0x1F => self.read_next(CpuState::ReadTransferPostbyte(TransferOp::Tfr)),
@@ -906,11 +906,11 @@ impl Mc6809 {
                     0x39 => self.prepare_pull_word(Pull16Op::Pc),
                     0x3A => {
                         self.abx();
-                        self.start_internal_cycles(2);
+                        self.read_next(CpuState::Internal { remaining: 2 });
                     }
                     0x3D => {
                         self.mul();
-                        self.start_internal_cycles(10);
+                        self.read_next(CpuState::Internal { remaining: 10 });
                     }
                     0x3F => self.start_software_interrupt(Vector::Swi),
                     0x40 | 0x41 => {
@@ -919,7 +919,7 @@ impl Mc6809 {
                     }
                     0x43 => {
                         self.regs.a = self.rmw8(Rmw8Op::Com, self.regs.a).unwrap_or(self.regs.a);
-                        self.start_internal_cycles(1);
+                        self.read_next(CpuState::Internal { remaining: 1 });
                     }
                     0x44 | 0x45 => {
                         self.regs.a = self.rmw8(Rmw8Op::Lsr, self.regs.a).unwrap_or(self.regs.a);
@@ -927,27 +927,27 @@ impl Mc6809 {
                     }
                     0x46 => {
                         self.regs.a = self.rmw8(Rmw8Op::Ror, self.regs.a).unwrap_or(self.regs.a);
-                        self.start_internal_cycles(1);
+                        self.read_next(CpuState::Internal { remaining: 1 });
                     }
                     0x47 => {
                         self.regs.a = self.rmw8(Rmw8Op::Asr, self.regs.a).unwrap_or(self.regs.a);
-                        self.start_internal_cycles(1);
+                        self.read_next(CpuState::Internal { remaining: 1 });
                     }
                     0x48 => {
                         self.regs.a = self.rmw8(Rmw8Op::Asl, self.regs.a).unwrap_or(self.regs.a);
-                        self.start_internal_cycles(1);
+                        self.read_next(CpuState::Internal { remaining: 1 });
                     }
                     0x49 => {
                         self.regs.a = self.rmw8(Rmw8Op::Rol, self.regs.a).unwrap_or(self.regs.a);
-                        self.start_internal_cycles(1);
+                        self.read_next(CpuState::Internal { remaining: 1 });
                     }
                     0x4A => {
                         self.regs.a = self.rmw8(Rmw8Op::Dec, self.regs.a).unwrap_or(self.regs.a);
-                        self.start_internal_cycles(1);
+                        self.read_next(CpuState::Internal { remaining: 1 });
                     }
                     0x4C => {
                         self.regs.a = self.rmw8(Rmw8Op::Inc, self.regs.a).unwrap_or(self.regs.a);
-                        self.start_internal_cycles(1);
+                        self.read_next(CpuState::Internal { remaining: 1 });
                     }
                     0x4D => {
                         self.rmw8(Rmw8Op::Tst, self.regs.a);
@@ -955,8 +955,7 @@ impl Mc6809 {
                     }
                     0x4F => {
                         self.clear_a();
-                        self.state = CpuState::ClrAInternal;
-                        self.start_dummy_access();
+                        self.read_next(CpuState::ClrAInternal);
                     }
                     0x50 | 0x51 => {
                         self.regs.b = self.rmw8(Rmw8Op::Neg, self.regs.b).unwrap_or(self.regs.b);
@@ -964,7 +963,7 @@ impl Mc6809 {
                     }
                     0x53 => {
                         self.regs.b = self.rmw8(Rmw8Op::Com, self.regs.b).unwrap_or(self.regs.b);
-                        self.start_internal_cycles(1);
+                        self.read_next(CpuState::Internal { remaining: 1 });
                     }
                     0x54 | 0x55 => {
                         self.regs.b = self.rmw8(Rmw8Op::Lsr, self.regs.b).unwrap_or(self.regs.b);
@@ -972,27 +971,27 @@ impl Mc6809 {
                     }
                     0x56 => {
                         self.regs.b = self.rmw8(Rmw8Op::Ror, self.regs.b).unwrap_or(self.regs.b);
-                        self.start_internal_cycles(1);
+                        self.read_next(CpuState::Internal { remaining: 1 });
                     }
                     0x57 => {
                         self.regs.b = self.rmw8(Rmw8Op::Asr, self.regs.b).unwrap_or(self.regs.b);
-                        self.start_internal_cycles(1);
+                        self.read_next(CpuState::Internal { remaining: 1 });
                     }
                     0x58 => {
                         self.regs.b = self.rmw8(Rmw8Op::Asl, self.regs.b).unwrap_or(self.regs.b);
-                        self.start_internal_cycles(1);
+                        self.read_next(CpuState::Internal { remaining: 1 });
                     }
                     0x59 => {
                         self.regs.b = self.rmw8(Rmw8Op::Rol, self.regs.b).unwrap_or(self.regs.b);
-                        self.start_internal_cycles(1);
+                        self.read_next(CpuState::Internal { remaining: 1 });
                     }
                     0x5A => {
                         self.regs.b = self.rmw8(Rmw8Op::Dec, self.regs.b).unwrap_or(self.regs.b);
-                        self.start_internal_cycles(1);
+                        self.read_next(CpuState::Internal { remaining: 1 });
                     }
                     0x5C => {
                         self.regs.b = self.rmw8(Rmw8Op::Inc, self.regs.b).unwrap_or(self.regs.b);
-                        self.start_internal_cycles(1);
+                        self.read_next(CpuState::Internal { remaining: 1 });
                     }
                     0x5D => {
                         self.rmw8(Rmw8Op::Tst, self.regs.b);
@@ -1000,8 +999,7 @@ impl Mc6809 {
                     }
                     0x5F => {
                         self.clear_b();
-                        self.state = CpuState::ClrBInternal;
-                        self.start_dummy_access();
+                        self.read_next(CpuState::ClrBInternal);
                     }
                     0x60 => {
                         self.read_next(CpuState::ReadIndexedPostbyte(IndexedOp::Rmw(Rmw8Op::Neg)))
@@ -1507,7 +1505,7 @@ impl Mc6809 {
                     CcOp::And => self.regs.cc &= value,
                     CcOp::Or => self.regs.cc |= value,
                 }
-                self.start_internal_cycles(1);
+                self.read_next(CpuState::Internal { remaining: 1 });
             }
             CpuState::ReadTransferPostbyte(op) => {
                 let post = self.data_in;
@@ -6139,9 +6137,11 @@ mod tests {
     #[test]
     fn pins_report_dummy_access_for_internal_cycles() {
         let mut memory = [0; 0x10000];
-        memory[0x4000] = 0x4F; // CLRA: opcode fetch plus one internal cycle.
+        memory[0x4000] = 0x3A; // ABX: opcode, discarded PC read, FFFF read.
         let mut cpu = cpu_at(0x4000);
 
+        run_cycle(&mut cpu, &mut memory);
+        assert_eq!(cpu.pins().addr, 0x4001);
         run_cycle(&mut cpu, &mut memory);
         let pins = cpu.pins();
 
@@ -6817,6 +6817,96 @@ mod tests {
     }
 
     #[test]
+    fn register_reads_match_full_reference_bus_traces() {
+        // Full XRoar CPU, with TSTA/TSTB excluded: that reference revision
+        // contradicts Motorola's two-cycle timing for those instructions.
+        let mut rows = include_str!("../tests/data/register-reads.txt").lines();
+        assert_eq!(
+            rows.next(),
+            Some("opcode value cc pc cycles a b result_cc result_pc memory result_x trace")
+        );
+        let mut counts = std::collections::BTreeMap::new();
+        let mut mismatches = Vec::new();
+        for row in rows {
+            let fields: Vec<_> = row.split_whitespace().collect();
+            assert_eq!(fields.len(), 12);
+            let hex = |field: usize| u16::from_str_radix(fields[field], 16).expect("reference hex");
+            let opcode = u8::try_from(hex(0)).expect("opcode byte");
+            let value = u8::try_from(hex(1)).expect("input byte");
+            let pc = hex(3);
+            *counts.entry(opcode).or_insert(0) += 1;
+            let mut cpu = cpu_at(pc);
+            cpu.regs.a = value;
+            cpu.regs.b = value ^ 0xA5;
+            cpu.regs.cc = u8::try_from(hex(2)).expect("CC byte");
+            cpu.regs.dp = 0x50;
+            cpu.regs.x = 0x50A5;
+            let mut memory = [0; 0x10000];
+            memory[usize::from(pc)] = opcode;
+            memory[usize::from(pc.wrapping_add(1))] = 0x12;
+            memory[usize::from(pc.wrapping_add(2))] = 0xA5;
+            memory[0x50A5] = value;
+            let mut trace = Vec::new();
+            for _ in 0..16 {
+                let byte = if cpu.rw {
+                    memory[usize::from(cpu.addr)]
+                } else {
+                    cpu.data
+                };
+                trace.push(format!(
+                    "{}{:04x}:{byte:02x}",
+                    if cpu.rw { 'r' } else { 'w' },
+                    cpu.addr
+                ));
+                run_cycle(&mut cpu, &mut memory);
+                if cpu.halt || cpu.instruction_boundary() {
+                    break;
+                }
+            }
+            // DAA's V is undefined in Motorola's manual; its observed hardware
+            // value is a separate investigation. All other bits compare exactly.
+            let cc_mask = if opcode == 0x19 { !FLAG_V } else { 0xFF };
+            let mut expected: Vec<String> = fields[4..].iter().map(|s| (*s).to_owned()).collect();
+            expected[3] = format!("{:02x}", u8::try_from(hex(7)).expect("result CC") & cc_mask);
+            let actual = format!(
+                "{} {:02x} {:02x} {:02x} {:04x} {:02x} {:04x} {}",
+                cpu.total_cycles,
+                cpu.regs.a,
+                cpu.regs.b,
+                cpu.regs.cc & cc_mask,
+                cpu.regs.pc,
+                memory[0x50A5],
+                cpu.regs.x,
+                trace.join(",")
+            );
+            if cpu.halt || !cpu.instruction_boundary() || actual != expected.join(" ") {
+                mismatches.push(format!("{row}: got {actual}"));
+            }
+            assert_eq!(
+                (cpu.regs.dp, cpu.regs.y, cpu.regs.u, cpu.regs.s),
+                (0x50, 0, 0, 0)
+            );
+            assert_eq!(cpu.addr, hex(8), "next fetch for {row}");
+            assert!(cpu.rw && cpu.sync && !cpu.halt, "next fetch for {row}");
+        }
+        let opcodes = [
+            0x12, 0x1B, 0x19, 0x1A, 0x1C, 0x1D, 0x3A, 0x3D, 0x40, 0x41, 0x43, 0x44, 0x45, 0x46,
+            0x47, 0x48, 0x49, 0x4A, 0x4C, 0x4F, 0x50, 0x51, 0x53, 0x54, 0x55, 0x56, 0x57, 0x58,
+            0x59, 0x5A, 0x5C, 0x5F,
+        ];
+        assert_eq!(counts.len(), opcodes.len());
+        for opcode in opcodes {
+            assert_eq!(counts.get(&opcode), Some(&96), "{opcode:02x} coverage");
+        }
+        assert!(
+            mismatches.is_empty(),
+            "{} / 3072 bus vectors differ; first: {:?}",
+            mismatches.len(),
+            mismatches.first()
+        );
+    }
+
+    #[test]
     fn unknown_opcode_halts_for_bringup_visibility() {
         let mut cpu = cpu_at(0x4000);
         cpu.data_in = 0x01;
@@ -7082,11 +7172,39 @@ mod tests {
             let forbidden_pc_window = 0x4000 + bytes.len() as u16..0x4000 + bytes.len() as u16 + 4;
             for (cycle, entry) in trace.iter().enumerate().skip(bytes.len()) {
                 if spec.page == OpcodePage::Primary
-                    && matches!(spec.opcode, 0x12 | 0x40 | 0x44 | 0x50 | 0x54)
-                    && cycle == 1
+                    && matches!(
+                        spec.opcode,
+                        0x12 | 0x19
+                            | 0x1A
+                            | 0x1C
+                            | 0x1D
+                            | 0x3A
+                            | 0x3D
+                            | 0x40
+                            | 0x43
+                            | 0x44
+                            | 0x46
+                            | 0x47
+                            | 0x48
+                            | 0x49
+                            | 0x4A
+                            | 0x4C
+                            | 0x4F
+                            | 0x50
+                            | 0x53
+                            | 0x54
+                            | 0x56
+                            | 0x57
+                            | 0x58
+                            | 0x59
+                            | 0x5A
+                            | 0x5C
+                            | 0x5F
+                    )
+                    && cycle == bytes.len()
                 {
                     // Full-reference traces verify this discarded PC read.
-                    assert_eq!(entry.addr, 0x4001);
+                    assert_eq!(entry.addr, 0x4000 + bytes.len() as u16);
                     assert!(entry.rw && !entry.sync);
                     continue;
                 }
