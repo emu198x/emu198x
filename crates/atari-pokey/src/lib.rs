@@ -213,7 +213,7 @@ struct Channel {
     counter: u32,
     /// Waveform flip-flop, sampled or toggled by unmasked timer events.
     output: bool,
-    /// High-pass filter flip-flop (toggled by the paired channel).
+    /// Paired-timer waveform capture, held high while filtering is disabled.
     hp_flipflop: bool,
 }
 
@@ -395,14 +395,18 @@ impl Pokey {
     /// For NTSC Atari systems, pass `1_789_772`. For PAL, pass `1_773_447`.
     #[must_use]
     pub fn new(cpu_freq: u32) -> Self {
+        let mut channels = [
+            Channel::new(),
+            Channel::new(),
+            Channel::new(),
+            Channel::new(),
+        ];
+        // Initial AUDCTL disables both filters, holding their latches high.
+        channels[0].hp_flipflop = true;
+        channels[1].hp_flipflop = true;
         Self {
             cpu_freq,
-            channels: [
-                Channel::new(),
-                Channel::new(),
-                Channel::new(),
-                Channel::new(),
-            ],
+            channels,
             audctl: 0,
             irqen: 0,
             irqst: 0xFF,
@@ -599,7 +603,18 @@ impl Pokey {
             0x07 => self.channels[3].audc = value,
 
             // AUDCTL: audio control.
-            0x08 => self.audctl = value,
+            0x08 => {
+                // A disabled filter holds its latch at one, including before
+                // re-enable. The old-enable check also repairs disabled
+                // latches restored from saves made before this correction.
+                // Altirra Hardware Reference Manual, p108.
+                for (channel, mask) in [(0, AUDCTL_HPF_CH1), (1, AUDCTL_HPF_CH2)] {
+                    if self.audctl & mask == 0 || value & mask == 0 {
+                        self.channels[channel].hp_flipflop = true;
+                    }
+                }
+                self.audctl = value;
+            }
 
             // STIMER: writing any value resets all channel counters.
             0x09 => {
