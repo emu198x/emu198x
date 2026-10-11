@@ -490,7 +490,10 @@ impl Z80Machine for Mtx {
         // those frame interrupts and its own INT output — vectored through the
         // OS's interrupt mode — is what drives the Z80 IRQ pin, not the raw VDP
         // line. (MEMU `memu.c` `LoopZ80` → `ctc_trigger(0)`.)
-        self.ctc.set_trg(VDP_INT_CTC_CHANNEL, self.vdp.interrupt);
+        // `interrupt` is an asserted flag; CLK/TRG needs the electrical
+        // level of the active-low /INT pin. MAME's MTX driver likewise
+        // inverts the VDP callback before feeding CTC TRG0.
+        self.ctc.set_trg(VDP_INT_CTC_CHANNEL, !self.vdp.interrupt);
         self.ctc.tick();
     }
 
