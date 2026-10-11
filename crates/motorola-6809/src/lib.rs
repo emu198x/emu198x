@@ -816,11 +816,10 @@ impl Mc6809 {
                     0x0F => self.read_next(CpuState::ReadDirectRmwOperand(Rmw8Op::Clr)),
                     0x10 => self.read_next(CpuState::Prefix10),
                     0x11 => self.read_next(CpuState::Prefix11),
-                    0x12 => {
-                        // NOP is a two-cycle instruction: opcode fetch plus
-                        // one internal cycle.
-                        self.state = CpuState::NopInternal;
-                        self.start_dummy_access();
+                    0x12 | 0x1B => {
+                        // NOP discards a read of the next program byte.
+                        // 1B is the hardware-observed undocumented alias.
+                        self.read_next(CpuState::NopInternal);
                     }
                     0x13 => self.start_wait_for_interrupt_internal_cycles(3, false),
                     0x16 => {
@@ -914,17 +913,17 @@ impl Mc6809 {
                         self.start_internal_cycles(10);
                     }
                     0x3F => self.start_software_interrupt(Vector::Swi),
-                    0x40 => {
+                    0x40 | 0x41 => {
                         self.regs.a = self.rmw8(Rmw8Op::Neg, self.regs.a).unwrap_or(self.regs.a);
-                        self.start_internal_cycles(1);
+                        self.read_next(CpuState::Internal { remaining: 1 });
                     }
                     0x43 => {
                         self.regs.a = self.rmw8(Rmw8Op::Com, self.regs.a).unwrap_or(self.regs.a);
                         self.start_internal_cycles(1);
                     }
-                    0x44 => {
+                    0x44 | 0x45 => {
                         self.regs.a = self.rmw8(Rmw8Op::Lsr, self.regs.a).unwrap_or(self.regs.a);
-                        self.start_internal_cycles(1);
+                        self.read_next(CpuState::Internal { remaining: 1 });
                     }
                     0x46 => {
                         self.regs.a = self.rmw8(Rmw8Op::Ror, self.regs.a).unwrap_or(self.regs.a);
@@ -959,17 +958,17 @@ impl Mc6809 {
                         self.state = CpuState::ClrAInternal;
                         self.start_dummy_access();
                     }
-                    0x50 => {
+                    0x50 | 0x51 => {
                         self.regs.b = self.rmw8(Rmw8Op::Neg, self.regs.b).unwrap_or(self.regs.b);
-                        self.start_internal_cycles(1);
+                        self.read_next(CpuState::Internal { remaining: 1 });
                     }
                     0x53 => {
                         self.regs.b = self.rmw8(Rmw8Op::Com, self.regs.b).unwrap_or(self.regs.b);
                         self.start_internal_cycles(1);
                     }
-                    0x54 => {
+                    0x54 | 0x55 => {
                         self.regs.b = self.rmw8(Rmw8Op::Lsr, self.regs.b).unwrap_or(self.regs.b);
-                        self.start_internal_cycles(1);
+                        self.read_next(CpuState::Internal { remaining: 1 });
                     }
                     0x56 => {
                         self.regs.b = self.rmw8(Rmw8Op::Ror, self.regs.b).unwrap_or(self.regs.b);
@@ -6128,7 +6127,7 @@ mod tests {
 
         run_cycle(&mut cpu, &mut memory);
         let pins = cpu.pins();
-        assert_eq!(pins.addr, 0xFFFF);
+        assert_eq!(pins.addr, 0x4001);
         assert_eq!(pins.bus_status, Mc6809BusStatus::Normal);
         assert!(pins.rw);
         assert!(pins.avma);
@@ -6728,7 +6727,7 @@ mod tests {
 
         cpu.tick();
         assert_eq!(cpu.regs.pc, 0x4001);
-        assert_eq!(cpu.addr, 0xFFFF);
+        assert_eq!(cpu.addr, 0x4001);
         assert!(!cpu.sync);
         assert!(!cpu.halt);
 
@@ -6737,6 +6736,84 @@ mod tests {
         assert_eq!(cpu.addr, 0x4001);
         assert!(cpu.instruction_boundary());
         assert_eq!(cpu.total_cycles, 2);
+    }
+
+    #[test]
+    fn inherent_aliases_match_full_reference_bus_traces() {
+        // Unchanged full XRoar CPU: six operands, four CC seeds and two
+        // PCs (including wrap), for five documented/alias pairs.
+        let vectors = include_str!("../tests/data/inherent-aliases.txt");
+        let mut rows = vectors.lines();
+        assert_eq!(
+            rows.next(),
+            Some("opcode value cc pc cycles a b result_cc result_pc memory trace")
+        );
+        let mut counts = std::collections::BTreeMap::new();
+        let mut mismatches = Vec::new();
+        for row in rows {
+            let fields: Vec<_> = row.split_whitespace().collect();
+            assert_eq!(fields.len(), 11);
+            let hex = |field: usize| u16::from_str_radix(fields[field], 16).expect("reference hex");
+            let opcode = u8::try_from(hex(0)).expect("opcode byte");
+            let value = u8::try_from(hex(1)).expect("operand byte");
+            let pc = hex(3);
+            *counts.entry(opcode).or_insert(0) += 1;
+            let mut cpu = cpu_at(pc);
+            cpu.regs.a = value;
+            cpu.regs.b = value;
+            cpu.regs.cc = u8::try_from(hex(2)).expect("CC byte");
+            cpu.regs.dp = 0x50;
+            cpu.regs.x = 0x50A5;
+            let mut memory = [0; 0x10000];
+            memory[usize::from(pc)] = opcode;
+            memory[usize::from(pc.wrapping_add(1))] = 0x12;
+            memory[usize::from(pc.wrapping_add(2))] = 0xA5;
+            memory[0x50A5] = value;
+            let mut trace = Vec::new();
+            for _ in 0..8 {
+                let byte = if cpu.rw {
+                    memory[usize::from(cpu.addr)]
+                } else {
+                    cpu.data
+                };
+                trace.push(format!(
+                    "{}{:04x}:{byte:02x}",
+                    if cpu.rw { 'r' } else { 'w' },
+                    cpu.addr
+                ));
+                run_cycle(&mut cpu, &mut memory);
+                if cpu.halt || cpu.instruction_boundary() {
+                    break;
+                }
+            }
+            let result = format!(
+                "{} {:02x} {:02x} {:02x} {:04x} {:02x} {}",
+                cpu.total_cycles,
+                cpu.regs.a,
+                cpu.regs.b,
+                cpu.regs.cc,
+                cpu.regs.pc,
+                memory[0x50A5],
+                trace.join(",")
+            );
+            if cpu.halt || !cpu.instruction_boundary() || result != fields[4..].join(" ") {
+                mismatches.push(format!("{row}: got {result}, halt={}", cpu.halt));
+            }
+            assert_eq!(
+                (cpu.regs.dp, cpu.regs.x, cpu.regs.y, cpu.regs.u, cpu.regs.s),
+                (0x50, 0x50A5, 0, 0, 0)
+            );
+        }
+        assert_eq!(counts.len(), 10);
+        for opcode in [0x12, 0x1B, 0x40, 0x41, 0x44, 0x45, 0x50, 0x51, 0x54, 0x55] {
+            assert_eq!(counts.get(&opcode), Some(&48), "{opcode:02x} coverage");
+        }
+        assert!(
+            mismatches.is_empty(),
+            "{} / 480 bus vectors differ; first: {:?}",
+            mismatches.len(),
+            mismatches.first()
+        );
     }
 
     #[test]
@@ -7003,7 +7080,16 @@ mod tests {
             }
 
             let forbidden_pc_window = 0x4000 + bytes.len() as u16..0x4000 + bytes.len() as u16 + 4;
-            for entry in trace.iter().skip(bytes.len()) {
+            for (cycle, entry) in trace.iter().enumerate().skip(bytes.len()) {
+                if spec.page == OpcodePage::Primary
+                    && matches!(spec.opcode, 0x12 | 0x40 | 0x44 | 0x50 | 0x54)
+                    && cycle == 1
+                {
+                    // Full-reference traces verify this discarded PC read.
+                    assert_eq!(entry.addr, 0x4001);
+                    assert!(entry.rw && !entry.sync);
+                    continue;
+                }
                 assert!(
                     !forbidden_pc_window.contains(&entry.addr),
                     "{spec:?} performed an undocumented extra PC-window access at ${:04X}: {entry:?}",
@@ -7064,9 +7150,11 @@ mod tests {
     }
 
     #[test]
-    fn official_opcode_pages_match_documented_and_unused_slots() {
+    fn opcode_pages_distinguish_documented_alias_and_unimplemented_slots() {
         for opcode in 0x00..=0xFF {
-            if OFFICIAL_PRIMARY_OPCODE_PAGE.contains(&opcode) {
+            if OFFICIAL_PRIMARY_OPCODE_PAGE.contains(&opcode)
+                || matches!(opcode, 0x1B | 0x41 | 0x45 | 0x51 | 0x55)
+            {
                 assert_primary_opcode_slot_dispatches(opcode);
             } else {
                 assert_opcode_traps(&[opcode], format_args!("primary ${opcode:02X}"));
