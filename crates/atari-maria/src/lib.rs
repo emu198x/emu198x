@@ -6,9 +6,10 @@
 //!
 //! # Standalone IC
 //!
-//! The scanline helper supplies memory through a closure and drives the same
-//! saved header/graphics fetch stages used for byte-level timing tests. Memory
-//! remains external to the chip.
+//! Native callers route external memory and CPU bus pins around `tick_dma`.
+//! It advances saved DMA, register, line-buffer and playback stages. The old
+//! aggregate scanline helper remains a compatibility API pending removal;
+//! the Atari 7800 machine uses the native path.
 //!
 //! # Register map ($20-$3F)
 //!
@@ -340,7 +341,9 @@ impl Maria {
             dma_drive: false,
             halt: false,
             dma: dma::Dma::default(),
-            native_cycle: 0,
+            // Row zero starts at its already-entered column-zero edge. The
+            // next row transition follows a complete 908 oscillator periods.
+            native_cycle: 907,
             address_in: 0,
             write_in: false,
             write_data_in: 0,
@@ -391,7 +394,11 @@ impl Maria {
     pub fn write(&mut self, addr: u8, value: u8) {
         match addr {
             0x00 => self.backgrnd = value,
-            0x04 => self.wsync = true,
+            0x04 => {
+                self.wsync = true;
+                self.control.wsync_wait = true;
+                self.control.wsync_held = true;
+            }
             0x0C => self.dpph = value,
             0x10 => self.dppl = value,
             0x14 => self.chbase = value,

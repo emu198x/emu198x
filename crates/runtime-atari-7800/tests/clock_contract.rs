@@ -1,5 +1,6 @@
 use emu198x_shell::{
-    FamilyRuntime, HostIo, MachineCore, MachineTime, NullAudioSink, NullFrameSink, NullTraceSink,
+    AudioPacket, AudioSink, FamilyRuntime, HostIo, MachineCore, MachineError, MachineTime,
+    NullAudioSink, NullFrameSink, NullTraceSink,
 };
 use runtime_atari_7800::{Atari7800Runtime, Model};
 
@@ -65,4 +66,50 @@ fn version_five_is_rejected_without_mutating_live_state() {
         "{error}"
     );
     assert_eq!(runtime.snapshot().expect("unchanged snapshot"), before);
+}
+
+#[test]
+fn emitted_audio_rate_matches_native_sample_production() {
+    #[derive(Default)]
+    struct AudioCapture(Vec<(u64, u32, usize)>);
+    impl AudioSink for AudioCapture {
+        fn push_audio(&mut self, packet: AudioPacket<'_>) -> Result<(), MachineError> {
+            assert_eq!(packet.channels, 1);
+            self.0.push((
+                packet.timestamp.get(),
+                packet.sample_rate,
+                packet.samples.len(),
+            ));
+            Ok(())
+        }
+    }
+    for model in Model::ALL {
+        let mut runtime = Atari7800Runtime::new(model, cartridge()).expect("cartridge");
+        let budget = runtime.native_frame_ticks();
+        let hz = runtime.machine().expect("machine").region().master_hz();
+        let (mut frames, mut audio, mut trace) =
+            (NullFrameSink, AudioCapture::default(), NullTraceSink);
+        let mut host = HostIo {
+            input_events: &[],
+            frame_sink: &mut frames,
+            audio_sink: &mut audio,
+            trace_sink: &mut trace,
+        };
+        runtime
+            .run_until(MachineTime::new(budget * 6), &mut host)
+            .expect("run");
+        assert_eq!(audio.0.len(), 6);
+        let rate = audio.0[0].1;
+        let mut samples = 0;
+        for (index, &(timestamp, packet_rate, count)) in audio.0.iter().enumerate() {
+            assert_eq!(timestamp, budget * (index as u64 + 1));
+            assert_eq!(packet_rate, rate);
+            assert!(count > 0);
+            samples += count as u64;
+        }
+        assert!(
+            (samples * hz).abs_diff(u64::from(rate) * budget * 6) < hz,
+            "host packet rate differs from native sample production for {model:?}"
+        );
+    }
 }
