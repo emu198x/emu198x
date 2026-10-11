@@ -1267,6 +1267,40 @@ fn sunsoft4_can_source_nametables_from_chr_rom() {
     assert!(mapper.nametable_write(0x2000, 0x99));
 }
 
+#[test]
+fn sunsoft4_nametable_peeks_follow_reads_across_mapping_changes() {
+    let chr = (0..256 * 1024)
+        .map(|offset| (offset / 1024) as u8 ^ offset as u8)
+        .collect();
+    let mut mapper = Sunsoft4::new(vec![0; 32768], chr, Mirroring::Vertical);
+
+    for mode in 0..4 {
+        for [bank_a, bank_b] in [[0, 1], [17, 99], [127, 2]] {
+            mapper.cpu_write(0xC000, bank_a);
+            mapper.cpu_write(0xD000, bank_b);
+            mapper.cpu_write(0xE000, 0x10 | mode);
+            for addr in 0x2000..0x3000 {
+                let fetched = mapper.nametable_read(addr);
+                assert!(fetched.is_some(), "ROM mode must supply a byte");
+                assert_eq!(
+                    mapper.nametable_peek(addr),
+                    fetched,
+                    "mode {mode}, banks {bank_a}/{bank_b}, address {addr:04X}"
+                );
+                assert!(mapper.nametable_write(addr, 0x55));
+                assert_eq!(mapper.nametable_read(addr), fetched, "ROM is immutable");
+            }
+
+            mapper.cpu_write(0xE000, mode);
+            for addr in 0x2000..0x3000 {
+                assert_eq!(mapper.nametable_read(addr), None);
+                assert_eq!(mapper.nametable_peek(addr), None);
+                assert!(!mapper.nametable_write(addr, 0x55));
+            }
+        }
+    }
+}
+
 // ─── NES 2.0 header ────────────────────────────────────────────────
 
 #[test]
