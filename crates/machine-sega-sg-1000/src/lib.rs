@@ -1,4 +1,7 @@
-//! Sega SG-1000 / SC-3000 machine wiring.
+//! Sega SG-1000 machine wiring.
+//!
+//! Runtime profiles model the console; the SC-3000 PPI, keyboard and
+//! expanded RAM are not implemented by sharing these chips.
 //!
 //! Fresh-write against the workspace pin-driven bus pattern (RULES.md
 //! rule 6). The donor at `Emu198x-Oldest/crates/machine-sega-sg-1000`
@@ -33,8 +36,8 @@
 //! | `$40-$7F`     | write | SN76489 PSG                           |
 //! | `$80-$BF` even| r/w   | VDP data port                         |
 //! | `$80-$BF` odd | r/w   | VDP control / status port             |
-//! | `$C0-$FF` even| read  | Controller 1 (active-low buttons)     |
-//! | `$C0-$FF` odd | read  | Controller 2 (active-low buttons)     |
+//! | `$C0-$FF` even| read  | P1 controls + P2 up/down (active-low)     |
+//! | `$C0-$FF` odd | read  | P2 left/right/buttons (active-low)     |
 //!
 //! # Pause / NMI
 //!
@@ -45,11 +48,10 @@
 //!
 //! # Clock model
 //!
-//! Donor uses 3:2 VDP-dot-to-CPU-T-state phase counter (the correct
-//! ratio for the master crystal divided onto a 3.579545 MHz CPU and
-//! a 5.369 MHz VDP dot clock). One iteration of [`Sg1000::run_frame`]
-//! corresponds to one Z80 T-state; per iteration the phase counter
-//! advances by 3 and yields one VDP dot whenever it reaches 2.
+//! The shared cadence driver advances two Z80 half-cycles per T-state.
+//! VDP dots accumulate at 3:4 per half-cycle, giving three dots for every
+//! two T-states. The PSG advances once per T-state. The PAL PSG denominator
+//! and runtime clock currently differ; this is separate from port wiring.
 
 use common_z80_machine::Z80Machine;
 use emu198x_zilog_z80::{BusOp, Z80};
@@ -272,8 +274,15 @@ impl Sg1000 {
         let value = match p {
             0x80..=0xBF if p & 1 == 0 => self.vdp.read_data(),
             0x80..=0xBF => self.vdp.read_status(),
-            0xC0..=0xFF if p & 1 == 0 => self.controller1.read_port(),
-            0xC0..=0xFF => self.controller2.read_port(),
+            // The home console multiplexes P2 across both bytes: up/down
+            // share the even byte with P1, and its other four inputs occupy
+            // the odd byte's low nibble. The SC-3000/arcade PPI is different.
+            // See the SG-1000 primary-library controller wiring note;
+            // Ares CPU::in and MAME peripheral_r use this same packing.
+            0xC0..=0xFF if p & 1 == 0 => {
+                (self.controller1.read_port() & 0x3F) | (self.controller2.read_port() << 6)
+            }
+            0xC0..=0xFF => 0xF0 | ((self.controller2.read_port() >> 2) & 0x0F),
             _ => 0xFF,
         };
         if let Some(trace) = &mut self.io_trace {
@@ -542,14 +551,17 @@ mod tests {
         let mut sys = Sg1000::new(trap_cart(), Sg1000Region::Ntsc);
         sys.controller1.button1 = true;
         sys.controller2.button2 = true;
-        // Even port → controller 1.
+        sys.controller2.up = true;
+        // Even port → P1 controls and P2 up/down.
         let c1 = sys.io_read(0xC0);
-        // Odd port → controller 2.
+        // Odd port → P2 left/right/buttons in the low nibble.
         let c2 = sys.io_read(0xC1);
         // Button 1 = bit 4, active-low.
         assert_eq!(c1 & 0x10, 0);
-        // Button 2 = bit 5, active-low.
-        assert_eq!(c2 & 0x20, 0);
+        // P2 up = even bit 6; P2 button 2 = odd bit 3, active-low.
+        assert_eq!(c1 & 0x40, 0);
+        assert_eq!(c2 & 0x08, 0);
+        assert_eq!(c2 & 0xF0, 0xF0);
         // Cross-check: c1's button2 bit (controller 1) is unset (1).
         assert_eq!(c1 & 0x20, 0x20);
     }
