@@ -28,3 +28,17 @@ commands and source hashes. The fixture SHA-256 is
 `18ebbbac5069ce38e3a98b7b666e80c9b8605f4dae73f9dec1a639fb7b924649`.
 The native lock guest compares Emu198x with these compiled VICE functions;
 VICE's KEYBOARD snapshot does not preserve its separate lock flag.
+
+## VIC-II unused registers
+
+`vic-unused-registers.prg` is an original 6502 guest loaded at `$0800`. It
+reads `$D02F–$D03F` in each of the sixteen mirrors through `$D3FF`, writes a
+varying byte, and reads again. The 544 results at `$6000–$621F` must all be
+`$FF`; `$6220 = $A5` proves completion. IRQs, display and sprites are disabled.
+
+The exact guest returns all 544 expected bytes on native VICE 3.10's PAL,
+NTSC, old NTSC, PAL C64C and NTSC C64C models. The machine regression runs it
+on all four shipping C64 board profiles; the chip regression additionally
+covers the old NTSC VIC-II. The generator, native output and input hashes
+are in the docs repo under `plans/2026-10-11-vicii-unused-registers/`.
+These are digital register-read observations, not physical-hardware captures.
