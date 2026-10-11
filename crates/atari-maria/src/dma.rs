@@ -4,7 +4,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::{Maria, MariaRegion, fetch};
+use super::{CTRL_DMA_ENABLED, Maria, MariaRegion, fetch};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[repr(u8)]
@@ -70,7 +70,6 @@ impl Maria {
             if old_halt && !self.dma.sampled_halt && self.dma.phase == Phase::AwaitCpu {
                 self.dma.phase = Phase::Startup;
                 self.dma.delay = 10;
-                self.dma_cycles = 0;
                 starting = true;
             }
             self.dma.sampled_halt = old_halt;
@@ -107,7 +106,7 @@ impl Maria {
         }
 
         if self.native_cycle.is_multiple_of(2) {
-            self.dma.mode_disabled = self.ctrl & 0x60 != 0x40;
+            self.dma.mode_disabled = self.ctrl & 0x60 != CTRL_DMA_ENABLED;
         } else {
             // DMA mode is sampled before the idle-state reset and HALT-pad
             // stages. A cancelled request can therefore make a short HALT
