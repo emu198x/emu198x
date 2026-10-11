@@ -388,7 +388,7 @@ impl Sn76489 {
     /// tone_attenuation (3×1) + noise_mode (1) + noise_period (2) +
     /// noise_counter (2) + noise_shift (2) + noise_output (1) +
     /// noise_attenuation (1) + noise_white (1) + latched_register (1) +
-    /// stereo_panning (1) = 27 bytes.
+    /// stereo_panning (1) = 30 bytes.
     pub fn save_state(&self, out: &mut Vec<u8>) {
         for i in 0..3 {
             out.extend_from_slice(&self.tone_period[i].to_le_bytes());
@@ -415,7 +415,7 @@ impl Sn76489 {
 
     /// Restore PSG state from a byte slice. Returns bytes consumed or error.
     pub fn load_state(&mut self, data: &[u8]) -> Result<usize, String> {
-        let needed = 27;
+        let needed = 30;
         if data.len() < needed {
             return Err("SN76489 state truncated".into());
         }
@@ -465,6 +465,57 @@ impl Sn76489 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn register_state_rejects_every_truncated_prefix_before_mutation() {
+        let mut source = Sn76489::new(3_579_545, NoiseLfsr::Sega16);
+        source.write(0x8A);
+        source.write(0x23);
+        source.write(0xE5);
+        source.write_stereo(0xA5);
+        let mut encoded = Vec::new();
+        source.save_state(&mut encoded);
+
+        for length in 0..encoded.len() {
+            let mut destination = Sn76489::new(3_579_545, NoiseLfsr::Sega16);
+            let mut before = Vec::new();
+            destination.save_state(&mut before);
+            assert_ne!(before, encoded, "fixture must detect partial mutation");
+
+            let result = destination.load_state(&encoded[..length]);
+            assert!(result.is_err(), "accepted {length}-byte truncated state");
+            let mut after = Vec::new();
+            destination.save_state(&mut after);
+            assert_eq!(after, before, "{length}-byte input changed the chip");
+        }
+    }
+
+    #[test]
+    fn register_state_consumes_the_encoder_output_and_leaves_trailing_bytes() {
+        let mut source = Sn76489::new(3_579_545, NoiseLfsr::Sega16);
+        source.write(0x8A);
+        source.write(0x23);
+        source.write(0xB5);
+        source.write(0xE5);
+        source.write_stereo(0xA5);
+        for _ in 0..128 {
+            source.tick();
+        }
+        let mut encoded = Vec::new();
+        source.save_state(&mut encoded);
+
+        for suffix in [&[][..], &[0xDE, 0xAD, 0xBE, 0xEF][..]] {
+            let mut input = encoded.clone();
+            input.extend_from_slice(suffix);
+            let mut destination = Sn76489::new(3_579_545, NoiseLfsr::Sega16);
+            let consumed = destination.load_state(&input).expect("complete state");
+            assert_eq!(consumed, encoded.len());
+            assert_eq!(&input[consumed..], suffix);
+            let mut restored = Vec::new();
+            destination.save_state(&mut restored);
+            assert_eq!(restored, encoded);
+        }
+    }
 
     #[test]
     fn new_psg_is_silent() {
