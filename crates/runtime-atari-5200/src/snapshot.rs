@@ -38,7 +38,8 @@ use crate::runtime::Atari5200Runtime;
 /// Version 16 separates GTIA hardware blanking from framebuffer coverage.
 /// Version 17 preserves the live DMA clock and shared playfield line RAM.
 /// Version 18 carries ANTIC's two-cycle CHBASE delay.
-const SNAPSHOT_VERSION: u16 = 18;
+/// Version 19 retains POKEY partial audio integration and DC-filter history.
+const SNAPSHOT_VERSION: u16 = 19;
 
 /// Borrowing envelope used during encode — avoids cloning the live machine.
 #[derive(Serialize)]
@@ -108,6 +109,19 @@ mod tests {
     use crate::profiles::Model;
     use crate::runtime::Atari5200Runtime;
     use emu198x_shell::MachineError;
+
+    #[test]
+    fn version_18_is_rejected_without_mutating_live_state() {
+        let mut runtime = Atari5200Runtime::blank(Model::A5200Ntsc);
+        runtime.set_time(emu198x_shell::MachineTime::new(12345));
+        let before = super::encode(&runtime).expect("current snapshot");
+        // Even a truncated old payload must fail at the version gate.
+        let old = postcard::to_allocvec(&18u16).expect("old version prefix");
+        let error = decode(&mut runtime, &old).expect_err("old layout must reject");
+        assert!(matches!(error, MachineError::InvalidSnapshot { reason }
+            if reason == "unsupported snapshot version 18; expected 19"));
+        assert_eq!(super::encode(&runtime).expect("unchanged snapshot"), before);
+    }
 
     #[test]
     fn old_layout_is_rejected_before_decoding_its_body() {

@@ -265,9 +265,9 @@ impl Channel {
 /// Atari POKEY chip.
 #[derive(Serialize, Deserialize)]
 pub struct Pokey {
-    /// CPU clock frequency (Hz), e.g. `1_789_772` for NTSC. Used to
-    /// downsample the audio; the serial port takes its rate from the timers
-    /// rather than from here.
+    /// Audio sampling timebase (Hz). This equals the CPU clock for callers
+    /// using `tick`; independently clocked callers sample at their oscillator
+    /// rate. Timers and serial advance only through chip-clock ticks.
     cpu_freq: u32,
 
     /// Four audio channels.
@@ -359,23 +359,19 @@ pub struct Pokey {
     /// Divider for the 64 kHz / 15 kHz base clock.
     base_divider: u16,
 
-    // -- Audio output (host-only sample drain — not chip state) --
+    // -- Retained audio integration and host output queues --
     /// Accumulator for downsampling (mixed output).
-    #[serde(skip)]
     accumulator: f32,
 
     /// Per-channel accumulators for downsampling.
-    #[serde(skip)]
     channel_accumulators: [f32; 4],
 
-    /// Number of CPU ticks accumulated.
-    #[serde(skip)]
+    /// Number of sampling-timebase periods accumulated.
     sample_count: u32,
 
     /// Fractional output-sample clock, in SAMPLE_RATE units.  Carrying the
     /// remainder alternates 37- and 38-tick windows as required instead of
     /// rounding every window up to 38 ticks (~47.1 kHz on NTSC machines).
-    #[serde(skip)]
     sample_phase: u32,
 
     /// Output sample buffer at 48 kHz.
@@ -387,16 +383,17 @@ pub struct Pokey {
     channel_buffers: [Vec<f32>; 4],
 
     /// DC-blocking high-pass filter state.
-    #[serde(skip)]
     hp_prev_in: f32,
-    #[serde(skip)]
     hp_prev_out: f32,
 }
 
 impl Pokey {
-    /// Create a new POKEY clocked at the given CPU frequency.
+    /// Create a new POKEY with the given audio sampling timebase.
     ///
-    /// For NTSC Atari systems, pass `1_789_772`. For PAL, pass `1_773_447`.
+    /// With [`Self::tick`], pass the fixed CPU frequency: `1_789_772` for
+    /// NTSC Atari systems or `1_773_447` for PAL. For a variable chip clock,
+    /// call [`Self::tick_chip`] on chip edges and [`Self::sample_tick`] at
+    /// this fixed timebase (for example, each master oscillator period).
     #[must_use]
     pub fn new(cpu_freq: u32) -> Self {
         let mut channels = [
@@ -460,6 +457,14 @@ impl Pokey {
 
     /// Tick the POKEY for one CPU cycle.
     pub fn tick(&mut self) {
+        self.tick_chip();
+        self.sample_tick();
+    }
+
+    /// Advance timers, polynomial counters and I/O by one input clock cycle.
+    /// This does not advance host audio time; pair it with [`Self::sample_tick`]
+    /// when the chip clock is variable or independent of the sampling clock.
+    pub fn tick_chip(&mut self) {
         // Advance polynomial counters (run at CPU clock rate).
         if self.poly_restart_delay != 0 {
             self.poly_restart_delay -= 1;
@@ -494,7 +499,12 @@ impl Pokey {
 
         // Tick channels.
         self.tick_channels(base_tick);
+    }
 
+    /// Accumulate one fixed period of output at the timebase passed to
+    /// [`Self::new`], emitting 48 kHz mixed and channel audio. Chip timers do
+    /// not advance here, so held output receives its actual elapsed-time weight.
+    pub fn sample_tick(&mut self) {
         // Downsample to 48 kHz.
         let (sample, per_channel) = self.mix_with_channels();
         self.accumulator += sample;
@@ -1933,6 +1943,74 @@ mod tests {
             pokey.tick();
         }
         assert_eq!(pokey.buffer_len(), SAMPLE_RATE as usize);
+    }
+
+    #[test]
+    fn split_clock_preserves_the_uniform_tick_stream() {
+        for frequency in [1_789_772, 1_773_447] {
+            let mut combined = Pokey::new(frequency);
+            let mut split = Pokey::new(frequency);
+            for chip in [&mut combined, &mut split] {
+                chip.write(0x0f, 3);
+                chip.write(0x08, 0x40);
+                chip.write(0, 17);
+                chip.write(1, 0xaf);
+                chip.write(3, 0x18);
+                chip.write(0x09, 0);
+            }
+            let mut samples = 0;
+            for tick in 0..4096 {
+                if tick == 1700 {
+                    combined.write(0, 5);
+                    split.write(0, 5);
+                }
+                combined.tick();
+                split.tick_chip();
+                split.sample_tick();
+                let audio = combined.take_buffer();
+                samples += audio.len();
+                assert_eq!(audio, split.take_buffer(), "tick {tick}");
+                assert_eq!(
+                    combined.take_channel_buffers(),
+                    split.take_channel_buffers()
+                );
+                assert_eq!(combined.read(0x0a), split.read(0x0a));
+                assert_eq!(combined.save_state(), split.save_state());
+            }
+            assert!(samples > 100);
+        }
+    }
+
+    #[test]
+    fn sampling_weights_held_output_without_advancing_chip_time() {
+        // Ten fixed sampling periods per host sample. Chip clock spacing
+        // varies, but the first channel is high for exactly two periods.
+        let mut chip = Pokey::new(480_000);
+        chip.write(1, 0x1f);
+        chip.write(0x0f, 3);
+        for tick in 0..10 {
+            if [0, 3, 8].contains(&tick) {
+                let pending_audio = chip.buffer_len();
+                chip.tick_chip();
+                assert_eq!(chip.buffer_len(), pending_audio);
+            }
+            if tick == 2 {
+                chip.write(1, 0x10);
+            }
+            let state = chip.save_state();
+            let polynomial = chip.poly_counter;
+            chip.sample_tick();
+            assert_eq!(chip.save_state(), state, "sample tick advanced chip state");
+            assert_eq!(chip.poly_counter, polynomial);
+        }
+        let channels = chip.take_channel_buffers();
+        assert_eq!(channels[0], [0.2]);
+        for channel in &channels[1..] {
+            assert_eq!(channel, &[0.0]);
+        }
+        let mixed = chip.take_buffer();
+        assert_eq!(mixed.len(), 1);
+        assert!((mixed[0] - 0.05 * 0.9952).abs() < f32::EPSILON);
     }
 
     #[test]

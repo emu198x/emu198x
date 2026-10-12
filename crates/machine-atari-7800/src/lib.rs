@@ -104,10 +104,6 @@ impl Atari7800Region {
     pub const fn frame_ticks(self) -> u64 {
         self.lines_per_frame() as u64 * MASTER_CLOCKS_PER_LINE as u64
     }
-
-    fn cpu_hz(self) -> u32 {
-        (self.master_hz() / 8) as u32
-    }
 }
 
 /// Atari 7800 machine.
@@ -152,7 +148,7 @@ impl Atari7800 {
 
     fn from_cartridge(cart: Cartridge, region: Atari7800Region) -> Self {
         let pokey_location = cart.pokey_location();
-        let pokey = pokey_location.map(|_| Pokey::new(region.cpu_hz()));
+        let pokey = pokey_location.map(|_| Pokey::new(region.master_hz() as u32));
         let mut cpu = M6502::new();
         cpu.reset();
         let mut riot = Riot6532::new();
@@ -220,6 +216,11 @@ impl Atari7800 {
         self.resolve_bus_address();
         if self.maria.phi2 {
             self.riot.tick();
+            if let Some(pokey) = &mut self.pokey {
+                // The cartridge receives phase 2 even while Sally releases
+                // the bus. Clock before applying CPU writes on this edge.
+                pokey.tick_chip();
+            }
             if !self.cpu_bus_released {
                 if self.cpu.rw {
                     self.cpu.data_in = self.mem_read(self.bus_address);
@@ -236,13 +237,8 @@ impl Atari7800 {
             // requires physical assertion/width adjudication before shipping.
             self.cpu.nmi = self.maria.take_dli();
         }
-        // POKEY still couples chip advancement to fixed-rate host sampling.
-        // Variable PCLK wiring requires separating those clocks first; the
-        // staged MARIA branch must not ship before that integration gate.
-        if self.master_clock.is_multiple_of(8)
-            && let Some(pokey) = &mut self.pokey
-        {
-            pokey.tick();
+        if let Some(pokey) = &mut self.pokey {
+            pokey.sample_tick();
         }
     }
 
@@ -1053,6 +1049,216 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn pokey_random_follows_phase_two_while_cpu_execution_is_held() {
+        let mut mismatches = Vec::new();
+        let mut observations = 0;
+        for region in [Atari7800Region::Ntsc, Atari7800Region::Pal] {
+            for address in [0x8000, 0x0280, 0x0000] {
+                let mut sys = Atari7800::new(a78_with_pokey_0440(), region).expect("POKEY cart");
+                let mut reference = Pokey::new((region.master_hz() / 8) as u32);
+                sys.pokey.as_mut().expect("POKEY").write(0x0f, 3);
+                reference.write(0x0f, 3);
+                sys.cpu.addr = address;
+                sys.maria.write(0x04, 0);
+                let mut first_difference = None;
+                for tick in 1..=120 {
+                    sys.tick_master_clock();
+                    if sys.maria.phi2 {
+                        reference.tick();
+                    }
+                    let actual = sys.pokey.as_ref().expect("POKEY").read(0x0a);
+                    let expected = reference.read(0x0a);
+                    if actual != expected && first_difference.is_none() {
+                        first_difference = Some((region, address, tick, actual, expected));
+                    }
+                    observations += 1;
+                }
+                assert_eq!(sys.cpu.total_cycles, 0, "WSYNC must hold execution");
+                mismatches.extend(first_difference);
+            }
+        }
+        assert_eq!(observations, 720);
+        assert!(
+            mismatches.is_empty(),
+            "RANDOM clock mismatches: {mismatches:?}"
+        );
+    }
+
+    #[test]
+    fn pokey_clock_and_host_audio_continue_through_live_dma_and_slow_accesses() {
+        for region in [Atari7800Region::Ntsc, Atari7800Region::Pal] {
+            for slow in [false, true] {
+                let mut sys = native_dma_guest(region, slow);
+                sys.pokey = Some(Pokey::new(region.master_hz() as u32));
+                sys.pokey_location = Some(PokeyLocation::Addr0440);
+                let mut reference = Pokey::new((region.master_hz() / 8) as u32);
+                for chip in [sys.pokey.as_mut().expect("POKEY"), &mut reference] {
+                    chip.write(0x0f, 3);
+                    chip.write(1, 0x1f);
+                }
+                let mut halted_clocks = 0;
+                let mut stretched_intervals = 0;
+                let mut last_phase_two = 0;
+                let mut samples = 0;
+                for _ in 0..region.frame_ticks() {
+                    sys.tick_master_clock();
+                    if sys.maria.phi2 {
+                        reference.tick_chip();
+                        halted_clocks += usize::from(sys.cpu_bus_released);
+                        if sys.master_clock - last_phase_two > 8 {
+                            stretched_intervals += 1;
+                        }
+                        last_phase_two = sys.master_clock;
+                    }
+                    assert_eq!(
+                        sys.pokey.as_ref().expect("POKEY").read(0x0a),
+                        reference.read(0x0a),
+                        "{region:?}, slow {slow}, tick {}",
+                        sys.master_clock
+                    );
+                    let audio = sys.take_pokey_audio_samples();
+                    assert!(audio.iter().all(|sample| sample.is_finite()));
+                    samples += audio.len() as u64;
+                    assert_eq!(
+                        samples,
+                        sys.master_clock * 48_000 / region.master_hz(),
+                        "48 kHz output deadline: {region:?}, slow {slow}, tick {}",
+                        sys.master_clock
+                    );
+                }
+                assert!(halted_clocks > 100, "POKEY must run during real MARIA DMA");
+                assert_eq!(stretched_intervals > 0, slow);
+                assert!(sys.cpu.total_cycles > 1000, "the guest must execute");
+                assert!(samples > 700);
+            }
+        }
+    }
+
+    #[test]
+    fn pokey_restore_preserves_future_audio_across_partial_sample_phases() {
+        let mut mismatches = Vec::new();
+        let mut cases = 0;
+        for frequency in [1_789_772, 1_773_447] {
+            for phase in 0..40 {
+                let mut chip = Pokey::new(frequency);
+                chip.write(1, 0x1f);
+                chip.write(3, 0x18);
+                for _ in 0..128 + phase {
+                    chip.tick();
+                }
+                assert!(chip.take_buffer().iter().any(|&value| value != 0.0));
+                chip.take_channel_buffers();
+                let saved = postcard::to_allocvec(&chip).expect("POKEY snapshot");
+                let mut restored: Pokey = postcard::from_bytes(&saved).expect("POKEY restore");
+                assert!(restored.take_buffer().is_empty());
+                assert!(restored.take_channel_buffers().iter().all(Vec::is_empty));
+                let mut first_difference = None;
+                for tick in 0..96 {
+                    chip.tick();
+                    restored.tick();
+                    let mixed = chip.take_buffer();
+                    let channels = chip.take_channel_buffers();
+                    let resumed_mixed = restored.take_buffer();
+                    let resumed_channels = restored.take_channel_buffers();
+                    if (mixed != resumed_mixed || channels != resumed_channels)
+                        && first_difference.is_none()
+                    {
+                        first_difference = Some((frequency, phase, tick));
+                    }
+                }
+                mismatches.extend(first_difference);
+                cases += 1;
+            }
+        }
+        assert_eq!(cases, 80);
+        assert!(
+            mismatches.is_empty(),
+            "audio restore mismatches: {mismatches:?}"
+        );
+    }
+
+    #[test]
+    fn pokey_native_audio_resumes_through_dma_and_partial_samples() {
+        let mut cases = 0;
+        let mut halted = 0;
+        for region in [Atari7800Region::Ntsc, Atari7800Region::Pal] {
+            for slow in [false, true] {
+                let mut sys = native_dma_guest(region, slow);
+                sys.pokey = Some(Pokey::new(region.master_hz() as u32));
+                sys.pokey_location = Some(PokeyLocation::Addr0440);
+                sys.poke(0x044f, 3);
+                sys.poke(0x0441, 0x1f);
+                for _ in 0..14500 {
+                    sys.tick_master_clock();
+                }
+                assert!(sys.take_pokey_audio_samples().iter().any(|&v| v != 0.0));
+                // Cover more than one complete host-sample window, spanning
+                // native DMA ownership and fast/stretched phase boundaries.
+                for phase in 0..320 {
+                    sys.tick_master_clock();
+                    halted += usize::from(sys.cpu_bus_released);
+                    if phase % 2 == 0 {
+                        sys.take_pokey_audio_samples();
+                        sys.pokey.as_mut().expect("POKEY").take_channel_buffers();
+                    }
+                    let saved = postcard::to_allocvec(&sys).expect("native audio save");
+                    let mut restored: Atari7800 =
+                        postcard::from_bytes(&saved).expect("native audio restore");
+                    assert!(restored.take_pokey_audio_samples().is_empty());
+                    assert!(
+                        restored
+                            .pokey
+                            .as_mut()
+                            .expect("POKEY")
+                            .take_channel_buffers()
+                            .iter()
+                            .all(Vec::is_empty)
+                    );
+                    // Already delivered samples are external output. Discard
+                    // the original queue only after saving in the odd cases.
+                    sys.take_pokey_audio_samples();
+                    sys.pokey.as_mut().expect("POKEY").take_channel_buffers();
+                    let mut samples = 0;
+                    for tick in 0..640 {
+                        if tick == 117 {
+                            sys.poke(0x0441, 0x18);
+                            restored.poke(0x0441, 0x18);
+                        }
+                        sys.tick_master_clock();
+                        restored.tick_master_clock();
+                        let original = sys.take_pokey_audio_samples();
+                        samples += original.len();
+                        assert_eq!(
+                            restored.take_pokey_audio_samples(),
+                            original,
+                            "{region:?} slow={slow} phase={phase} tick={tick}"
+                        );
+                        assert_eq!(
+                            restored
+                                .pokey
+                                .as_mut()
+                                .expect("POKEY")
+                                .take_channel_buffers(),
+                            sys.pokey.as_mut().expect("POKEY").take_channel_buffers()
+                        );
+                    }
+                    assert!(samples >= 2);
+                    assert_eq!(restored.cpu.total_cycles, sys.cpu.total_cycles);
+                    assert_eq!(restored.framebuffer(), sys.framebuffer());
+                    assert_eq!(
+                        postcard::to_allocvec(&restored).expect("resumed state"),
+                        postcard::to_allocvec(&sys).expect("continuous state")
+                    );
+                    sys = postcard::from_bytes(&saved).expect("rewind original fixture");
+                    cases += 1;
+                }
+            }
+        }
+        assert_eq!(cases, 1280);
+        assert!(halted > 100, "must save during DMA ownership");
     }
 
     #[test]

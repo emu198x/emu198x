@@ -18,7 +18,7 @@ use crate::runtime::Atari7800Runtime;
 /// silently — so the version check rejects it instead.
 /// Version 5 adds POKEY RANDOM initialisation and restart phase.
 /// Version 6 stores native oscillator time, MARIA clock/fetch stages and the
-/// pending CPU phase-2 bus transaction.
+/// pending CPU phase-2 bus transaction and POKEY partial audio/filter state.
 const SNAPSHOT_VERSION: u16 = 6;
 
 /// Borrowing envelope used during encode — avoids cloning the live machine.
