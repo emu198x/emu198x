@@ -598,9 +598,10 @@ impl MachineCore for SpectrumRuntimeKind {
         source: &str,
         run: bool,
     ) -> Result<emu198x_shell::BasicProgramLoaded, emu198x_shell::LoaderError> {
-        let program = format_sinclair_zx_spectrum_bas::tokenise(source).map_err(|err| {
-            emu198x_shell::LoaderError::Failed(format!("failed to tokenise: {err}"))
-        })?;
+        let program =
+            format198x_sinclair_zx_spectrum_bas::tokenise_listing(source).map_err(|err| {
+                emu198x_shell::LoaderError::Failed(format!("failed to tokenise: {err}"))
+            })?;
         let result = crate::basic_loader::load_basic_program(
             session,
             &program,

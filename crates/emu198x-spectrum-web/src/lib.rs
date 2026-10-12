@@ -180,7 +180,8 @@ mod tests {
 /// Returns listing errors without changing the source or starting a machine.
 pub fn basic_tape(source: &str, name: &str) -> Result<Vec<u8>, String> {
     use format198x_sinclair_zx_spectrum_tap::{Header, HeaderKind, TapBlock, encode};
-    let program = format_sinclair_zx_spectrum_bas::tokenise_listing(source)?;
+    let program = format198x_sinclair_zx_spectrum_bas::tokenise_listing(source)
+        .map_err(|error| error.to_string())?;
     let length = u16::try_from(program.bytes.len()).map_err(|_| "BASIC program too large")?;
     let start = u16::from_be_bytes([program.bytes[0], program.bytes[1]]);
     Ok(encode(&[
