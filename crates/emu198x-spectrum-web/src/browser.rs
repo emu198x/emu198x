@@ -243,8 +243,8 @@ impl Spectrum {
     /// Returns conversion, boot or editor-prompt errors.
     #[wasm_bindgen(js_name = runBasic)]
     pub fn run_basic(&mut self, source: &str) -> Result<(), JsError> {
-        let program = format_sinclair_zx_spectrum_bas::tokenise_listing(source)
-            .map_err(|error| JsError::new(&error))?;
+        let program = format198x_sinclair_zx_spectrum_bas::tokenise_listing(source)
+            .map_err(|error| JsError::new(&error.to_string()))?;
         load_basic_program_with_writer(
             &mut self.machine,
             &program,
@@ -266,8 +266,8 @@ impl Spectrum {
     pub fn run_code(&mut self, bytes: &[u8], origin: u32, entry: u32) -> Result<(), JsError> {
         let source = crate::code_launcher(bytes.len(), origin, entry)
             .map_err(|error| JsError::new(&error))?;
-        let program = format_sinclair_zx_spectrum_bas::tokenise_listing(&source)
-            .map_err(|error| JsError::new(&error))?;
+        let program = format198x_sinclair_zx_spectrum_bas::tokenise_listing(&source)
+            .map_err(|error| JsError::new(&error.to_string()))?;
         load_basic_program_with_writer(
             &mut self.machine,
             &program,

@@ -16,7 +16,7 @@
 use emu198x_shell::{
     HeadlessSession, MachineCore, MachineTime, SessionDriver, SessionError, SessionQueryProvider,
 };
-use format_sinclair_zx_spectrum_bas::BasicProgram;
+use format198x_sinclair_zx_spectrum_bas::BasicProgram;
 use thiserror::Error;
 
 use crate::SpectrumLiveAccess;

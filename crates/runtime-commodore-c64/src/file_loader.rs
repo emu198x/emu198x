@@ -2,10 +2,10 @@
 //!
 //! These paths are explicit convenience imports, not emulated media.
 
-use format_commodore_c64_bas::tokenise;
 use format_commodore_c64_d64::extract_first_prg;
 use format_commodore_c64_p00::parse as parse_p00;
 use format_commodore_c64_t64::extract_first_program;
+use format198x_commodore_c64_bas::tokenise;
 
 use crate::C64Runtime;
 
@@ -44,7 +44,7 @@ pub fn load_host_file(machine: &mut C64Runtime, name: &str, data: &[u8]) -> Resu
     if lower.ends_with(".bas") {
         let source = std::str::from_utf8(data)
             .map_err(|err| format!("BASIC source is not valid UTF-8: {err}"))?;
-        let program = tokenise(source)?;
+        let program = tokenise(source).map_err(|error| error.to_string())?;
         let load_addr = machine.load_prg_bytes(&program.bytes)?;
         return Ok(format!(
             "Imported BASIC source: {name} ({} bytes source, tokenised load address ${load_addr:04X})",
@@ -146,6 +146,27 @@ mod tests {
         assert!(msg.contains("Imported BASIC source"));
         assert_eq!(runtime.machine().memory().ram_read(0x0801), 0x07);
         assert_eq!(runtime.machine().memory().ram_read(0x0802), 0x08);
+        assert_eq!(runtime.machine().memory().ram_read(0x0805), 0x80);
+    }
+
+    #[test]
+    fn shared_basic_file_import_stores_print_shorthand_as_a_rom_token() {
+        let mut runtime = C64Runtime::blank(Model::C64PalBreadbin);
+        load_host_file(&mut runtime, "shorthand.bas", b"10 ?42\n").expect("BASIC import");
+        // BASIC V2's cruncher at $A59C treats ? as PRINT ($99). The linked
+        // line and final marker remain ordinary BASIC memory, not source text.
+        let actual: Vec<_> = (0x0801..0x080B)
+            .map(|addr| runtime.machine().memory().ram_read(addr))
+            .collect();
+        assert_eq!(actual, [0x09, 0x08, 10, 0, 0x99, b'4', b'2', 0, 0, 0]);
+    }
+
+    #[test]
+    fn shared_basic_file_import_accepts_rom_line_zero() {
+        let mut runtime = C64Runtime::blank(Model::C64PalBreadbin);
+        load_host_file(&mut runtime, "zero.bas", b"0 END\n").expect("BASIC V2 accepts line 0");
+        assert_eq!(runtime.machine().memory().ram_read(0x0803), 0);
+        assert_eq!(runtime.machine().memory().ram_read(0x0804), 0);
         assert_eq!(runtime.machine().memory().ram_read(0x0805), 0x80);
     }
 

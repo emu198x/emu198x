@@ -13,7 +13,7 @@ common-commodore-c64 = { path = "../common-commodore-c64", version = "0.31.0" }
 common-commodore-iec = { path = "../common-commodore-iec", version = "0.31.0" }
 emu198x-esp-at-modem = { path = "../emu198x-esp-at-modem", version = "0.31.0", features = ["query"] }
 emu198x-shell = { path = "../emu198x-shell", version = "0.31.0" }
-format-commodore-c64-bas = { path = "../format-commodore-c64-bas", version = "0.31.0" }
+format198x-commodore-c64-bas = "0.1.1"
 format-commodore-c64-d64 = { path = "../format-commodore-c64-d64", version = "0.31.0" }
 format-commodore-c64-g64 = { path = "../format-commodore-c64-g64", version = "0.31.0" }
 format-commodore-c64-p00 = { path = "../format-commodore-c64-p00", version = "0.31.0" }

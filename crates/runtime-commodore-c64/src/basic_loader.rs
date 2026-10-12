@@ -12,7 +12,7 @@
 //! [`C64Runtime::load_prg_bytes`].
 
 use emu198x_shell::{HeadlessSession, MachineTime, SessionError, SessionQueryProvider};
-use format_commodore_c64_bas::{BasicProgram, tokenise};
+use format198x_commodore_c64_bas::{BasicProgram, tokenise};
 use thiserror::Error;
 
 use crate::C64Runtime;
@@ -104,7 +104,7 @@ pub fn load_basic_source<Q: SessionQueryProvider<C64Runtime>>(
     run: bool,
     max_boot_frames: u32,
 ) -> Result<LoadBasicResult, LoadBasicError> {
-    let program = tokenise(source).map_err(LoadBasicError::Tokenise)?;
+    let program = tokenise(source).map_err(|error| LoadBasicError::Tokenise(error.to_string()))?;
     load_basic_program(session, &program, run, max_boot_frames)
 }
 
