@@ -76,6 +76,12 @@ impl Maria {
         }
 
         self.native_cycle = (self.native_cycle + 1) % 908;
+        self.interrupt.tick(
+            self.native_cycle % 2 == 1,
+            self.phi1,
+            old_halt,
+            &mut self.nmi,
+        );
         let column = self.native_cycle.div_ceil(2) % 454;
         if self.native_cycle == 907 {
             self.scan_line += 1;
@@ -95,6 +101,7 @@ impl Maria {
             self.dma.request_delay -= 1;
             if self.dma.request_delay == 0 {
                 self.dma.requested = true;
+                self.interrupt.request = false;
                 self.dma.phase = Phase::AwaitCpu;
             }
         }
@@ -225,6 +232,7 @@ impl Maria {
                 self.zone_scanline = 0;
                 self.zone_holey = (flags >> 5) & 3;
                 self.zone_dli = flags & 0x80 != 0;
+                self.interrupt.request = self.zone_dli;
                 self.dll_addr = self.dll_addr.wrapping_add(1);
                 self.dma.phase = Phase::DescriptorHigh;
                 self.dma.delay = 4;

@@ -199,6 +199,7 @@ impl Atari7800 {
             self.maria.dma_data_in = self.mem_read(self.bus_address);
         }
         self.maria.tick_dma();
+        self.cpu.nmi = self.maria.nmi;
         self.cpu_bus_released = old_cpu_halted;
         if self.master_clock.is_multiple_of(4) {
             self.tia_audio.tick();
@@ -229,13 +230,8 @@ impl Atari7800 {
                 }
             }
         }
-        if self.maria.scan_line() != old_scanline {
-            if self.maria.scan_line() == 0 {
-                self.frame_count += 1;
-            }
-            // Legacy delivery seam only. The approved NMI pulse stage still
-            // requires physical assertion/width adjudication before shipping.
-            self.cpu.nmi = self.maria.take_dli();
+        if self.maria.scan_line() != old_scanline && self.maria.scan_line() == 0 {
+            self.frame_count += 1;
         }
         if let Some(pokey) = &mut self.pokey {
             pokey.sample_tick();
@@ -868,27 +864,6 @@ mod tests {
             changed && stored,
             "the complete read/store path must execute"
         );
-    }
-
-    #[test]
-    fn cpu_bus_wsync_keeps_nmi_edge_detection_running() {
-        let mut sys = Atari7800::new(trap_rom_32k(), Atari7800Region::Ntsc).expect("WSYNC fixture");
-        sys.maria.write(0x04, 0);
-        sys.cpu.nmi = true;
-        let cycles = sys.cpu.total_cycles;
-        for _ in 0..24 {
-            sys.tick_master_clock();
-        }
-        assert_eq!(sys.cpu.total_cycles, cycles, "WSYNC holds execution");
-        assert!(
-            sys.cpu.nmi_prev(),
-            "NMI edge must still reach the CPU detector"
-        );
-        sys.cpu.nmi = false;
-        for _ in 0..24 {
-            sys.tick_master_clock();
-        }
-        assert!(!sys.cpu.nmi_prev(), "detector also observes pulse release");
     }
 
     #[test]
@@ -1569,3 +1544,8 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+mod dli_raster_tests;
+#[cfg(test)]
+mod native_dli_tests;
