@@ -5,6 +5,7 @@ use super::clock::Clock;
 use super::control::Control;
 use super::dma::{Dma, Phase as DmaPhase};
 use super::fetch::{Fetch, Phase};
+use super::interrupt::{Command, Interrupt, Phase as InterruptPhase};
 use super::video::LINE_CELLS;
 use super::{ACTIVE_WIDTH, Maria, MariaRegion};
 
@@ -59,6 +60,24 @@ impl<'a> Reader<'a> {
             8 => Ok(Phase::Indirect),
             9 => Ok(Phase::IndirectSecond),
             _ => Err("Invalid MARIA fetch phase".into()),
+        }
+    }
+
+    fn interrupt_phase(&mut self) -> Result<InterruptPhase, String> {
+        match self.byte()? {
+            0 => Ok(InterruptPhase::Idle),
+            1 => Ok(InterruptPhase::AwaitRelease),
+            2 => Ok(InterruptPhase::AwaitEdge),
+            _ => Err("Invalid MARIA interrupt phase".into()),
+        }
+    }
+
+    fn interrupt_command(&mut self) -> Result<Command, String> {
+        match self.byte()? {
+            0 => Ok(Command::Hold),
+            1 => Ok(Command::Set),
+            2 => Ok(Command::Clear),
+            _ => Err("Invalid MARIA interrupt command".into()),
         }
     }
 
@@ -172,6 +191,14 @@ impl Maria {
             u8::from(self.dma.slow_inhibit),
             u8::from(self.dma.initial),
             u8::from(self.dma.next_zone),
+        ]);
+        data.extend_from_slice(&[
+            u8::from(self.nmi),
+            self.interrupt.phase as u8,
+            self.interrupt.sampled_phase as u8,
+            self.interrupt.command as u8,
+            self.interrupt.sampled_command as u8,
+            u8::from(self.interrupt.request),
         ]);
         data.extend_from_slice(&self.line_buffer);
         data.extend_from_slice(&self.playback_buffer);
@@ -331,6 +358,14 @@ impl Maria {
         {
             return Err("Invalid MARIA pipeline state".into());
         }
+        restored.nmi = reader.boolean()?;
+        restored.interrupt = Interrupt {
+            phase: reader.interrupt_phase()?,
+            sampled_phase: reader.interrupt_phase()?,
+            command: reader.interrupt_command()?,
+            sampled_command: reader.interrupt_command()?,
+            request: reader.boolean()?,
+        };
         restored
             .line_buffer
             .copy_from_slice(reader.bytes(LINE_CELLS)?);
@@ -357,6 +392,20 @@ impl Maria {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn invalid_interrupt_stages_leave_the_chip_unchanged() {
+        let mut chip = Maria::new(MariaRegion::Ntsc);
+        chip.write(0, 0x4e);
+        let before = chip.save_state();
+        let start = before.len() - chip.framebuffer.len() * 4 - LINE_CELLS * 2 - 6;
+        for (field, value) in [(0, 2), (1, 3), (2, 3), (3, 3), (4, 3), (5, 2)] {
+            let mut invalid = before.clone();
+            invalid[start + field] = value;
+            assert!(chip.load_state(&invalid).is_err(), "field {field}");
+            assert_eq!(chip.save_state(), before);
+        }
+    }
 
     #[test]
     fn invalid_cells_in_either_buffer_leave_the_chip_unchanged() {

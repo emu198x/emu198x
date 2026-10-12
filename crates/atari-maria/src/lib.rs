@@ -85,6 +85,7 @@ mod clock;
 mod control;
 mod dma;
 mod fetch;
+mod interrupt;
 mod palette;
 mod state;
 mod video;
@@ -237,6 +238,9 @@ pub struct Maria {
     pub dma_drive: bool,
     /// Asserted CPU HALT request, independently gated from address ownership.
     pub halt: bool,
+    /// Asserted NMI pin level, held independently of CPU execution and WSYNC.
+    pub nmi: bool,
+    interrupt: interrupt::Interrupt,
     dma: dma::Dma,
     native_cycle: u16,
     /// External address bus, used by the CPU clock and register selection.
@@ -299,6 +303,8 @@ impl Maria {
             dma_data_in: 0,
             dma_drive: false,
             halt: false,
+            nmi: false,
+            interrupt: interrupt::Interrupt::default(),
             dma: dma::Dma::default(),
             // Row zero starts at its already-entered column-zero edge. The
             // next row transition follows a complete 908 oscillator periods.
@@ -401,7 +407,8 @@ impl Maria {
 
     // -- Status queries -----------------------------------------------------
 
-    /// Returns `true` when a Display List Interrupt is pending, and clears it.
+    /// Consume the diagnostic event for a completed flagged descriptor.
+    /// This does not acknowledge or clear the independently clocked [`Self::nmi`] pin.
     pub fn take_dli(&mut self) -> bool {
         let pending = self.dli_pending;
         self.dli_pending = false;
