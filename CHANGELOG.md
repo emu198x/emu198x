@@ -4,6 +4,32 @@ All notable changes to Emu198x will be documented in this file.
 
 Format loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 not strictly. Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [0.32.0] - 2026-10-12
+
+
+### Added
+
+- Connect Sega software to an optional host UART
+
+
+### Fixed
+
+- Align Atari 7800 runtime time with the native oscillator
+- Preserve MARIA fetch timing and pending state
+- Stretch Atari 7800 CPU clocks for peripheral accesses
+- Sample Atari 7800 CPU transactions in their bus phase
+- Preserve MARIA native DMA handoffs and descriptor timing
+- Display MARIA pixels through timed line buffers
+- Release MARIA DMA after scanline cutoff
+- Preserve MARIA control writes through DMA restart
+- Preserve pixels and timing through MARIA address holes
+- Release MARIA WSYNC through native raster and CPU phases
+- Run Atari 7800 through native MARIA bus and raster stages
+- Require native MARIA timing for rendering
+- Preserve POKEY audio through variable clocks and restores
+- Deliver MARIA interrupts through sampled clock stages
+- Match ROM BASIC bytes across native and browser loaders
+
 ## [0.31.1] - 2026-10-11
 
 
