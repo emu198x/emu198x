@@ -3,7 +3,9 @@
 /// The simplest Spectrum snapshot format — fixed layout, no compression.
 ///
 /// 48K: 27-byte header + 49152 bytes RAM = 49179 bytes total.
-/// 128K: 49179 bytes (as 48K) + 4 bytes (PC + port $7FFD) + 5 × 16384 remaining banks.
+/// 128K: 49179 bytes (as 48K) + 4 bytes (PC, port $7FFD, TR-DOS flag)
+/// plus 5 × 16384 remaining banks, or 6 banks when bank 2 or 5 is paged at $C000.
+/// See <https://worldofspectrum.org/faq/reference/formats.htm>.
 ///
 /// The 48K format stores PC on the stack (SP points to it). The loader
 /// must pop it to get the real PC and adjust SP += 2.
@@ -38,7 +40,13 @@ pub fn parse_sna(data: &[u8]) -> Result<Snapshot, String> {
     let ram = &data[27..27 + 49152];
 
     if data.len() > 49179 {
-        // 128K format: extra data after the 48K block
+        // Check the entire extension before reading PC and the paging register.
+        if data.len() < 49183 {
+            return Err(format!(
+                ".SNA 128K extension too short: {} bytes (need at least 49183)",
+                data.len()
+            ));
+        }
         let pc = read_u16(data, 49179);
         let port_7ffd = data[49181];
         // data[49182] = TR-DOS paged flag (ignored)
@@ -46,6 +54,19 @@ pub fn parse_sna(data: &[u8]) -> Result<Snapshot, String> {
         // The 48K RAM block contains: bank 5 ($4000), bank 2 ($8000),
         // and the currently paged bank at $C000.
         let current_bank = (port_7ffd & 0x07) as usize;
+        // Bank 2 or 5 appears twice in the first 48K, leaving six other banks.
+        let remaining_banks = if current_bank == 2 || current_bank == 5 {
+            6
+        } else {
+            5
+        };
+        let required_length = 49183 + remaining_banks * 16384;
+        if data.len() < required_length {
+            return Err(format!(
+                ".SNA 128K RAM too short: {} bytes (need at least {required_length} for current bank {current_bank})",
+                data.len()
+            ));
+        }
 
         // Build pages: the first 48K gives us banks 5, 2, and current_bank
         let mut pages = Vec::new();
@@ -53,14 +74,11 @@ pub fn parse_sna(data: &[u8]) -> Result<Snapshot, String> {
         pages.push((5, ram[16384..32768].to_vec())); // page 5 = bank 2 ($8000)
         pages.push(((current_bank as u8) + 3, ram[32768..49152].to_vec())); // current bank
 
-        // Remaining 5 banks follow (all except 5, 2, and current_bank)
+        // Remaining banks follow (all except 5, 2, and current_bank)
         let mut offset = 49183;
         for bank in 0..8u8 {
             if bank == 5 || bank == 2 || bank == current_bank as u8 {
                 continue;
-            }
-            if offset + 16384 > data.len() {
-                break;
             }
             pages.push((bank + 3, data[offset..offset + 16384].to_vec()));
             offset += 16384;
@@ -94,9 +112,15 @@ pub fn parse_sna(data: &[u8]) -> Result<Snapshot, String> {
             pages,
         })
     } else {
-        // 48K format: PC is on the stack
-        let pc_lo = ram[(sp.wrapping_sub(0x4000)) as usize];
-        let pc_hi = ram[(sp.wrapping_sub(0x4000).wrapping_add(1)) as usize];
+        // 48K format: both stacked PC bytes must be present in the RAM dump.
+        if !(0x4000..=0xFFFE).contains(&sp) {
+            return Err(format!(
+                ".SNA 48K stacked PC outside saved RAM: SP=${sp:04X}"
+            ));
+        }
+        let stack_offset = usize::from(sp - 0x4000);
+        let pc_lo = ram[stack_offset];
+        let pc_hi = ram[stack_offset + 1];
         let pc = u16::from_le_bytes([pc_lo, pc_hi]);
         sp = sp.wrapping_add(2);
 
@@ -304,13 +328,92 @@ mod tests {
     }
 
     #[test]
-    fn parse_128k_sna_truncated_trailing_bank_breaks_out() {
-        // 49179 + 4 + only 16384 (one trailing bank instead of five) →
-        // loop breaks once it runs out of data, but parse still succeeds
-        // with a partial page list.
-        let data = vec![0u8; 49179 + 4 + 16384];
-        let snap = parse_sna(&data).expect("the sna fixture parses");
-        // 3 from 48K block + 1 successful trailing read + break.
-        assert_eq!(snap.pages.len(), 4);
+    fn parse_128k_sna_rejects_incomplete_extension() {
+        for length in 49180..=49183 {
+            let data = vec![0; length];
+            assert!(parse_sna(&data).is_err(), "accepted {length} bytes");
+        }
+    }
+
+    #[test]
+    fn parse_128k_sna_rejects_incomplete_banks() {
+        for current_bank in 0..8u8 {
+            let data = sna_128k(current_bank);
+            // Check the first byte and final byte of every trailing bank.
+            for boundary in (49183..data.len()).step_by(16384) {
+                for length in [boundary, boundary + 16383] {
+                    assert!(
+                        parse_sna(&data[..length]).is_err(),
+                        "accepted {length} bytes with current bank {current_bank}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn parse_48k_sna_rejects_pc_outside_saved_ram() {
+        for sp in [0u16, 0x3FFF, 0xFFFF] {
+            let mut data = vec![0; 49179];
+            data[23..25].copy_from_slice(&sp.to_le_bytes());
+            assert!(parse_sna(&data).is_err(), "accepted SP {sp:04X}");
+        }
+    }
+
+    #[test]
+    fn parse_48k_sna_accepts_stack_boundaries() {
+        for sp in [0x4000u16, 0xFFFE] {
+            let mut data = vec![0; 49179];
+            data[23..25].copy_from_slice(&sp.to_le_bytes());
+            let offset = 27 + usize::from(sp - 0x4000);
+            data[offset..offset + 2].copy_from_slice(&0xABCDu16.to_le_bytes());
+            let snap = parse_sna(&data).expect("both PC bytes are in RAM");
+            assert_eq!(snap.pc, 0xABCD);
+            assert_eq!(snap.sp, sp.wrapping_add(2));
+        }
+    }
+
+    #[test]
+    fn parse_128k_sna_preserves_all_banks_for_every_page_selection() {
+        for current_bank in 0..8u8 {
+            let data = sna_128k(current_bank);
+            let snap = parse_sna(&data).expect("complete 128K snapshot");
+            assert_eq!(snap.model, SnapshotModel::Spectrum128K);
+            assert_eq!(snap.port_7ffd, current_bank);
+            assert_eq!(snap.pc, 0x8765);
+            for bank in 0..8u8 {
+                let pages: Vec<_> = snap
+                    .pages
+                    .iter()
+                    .filter(|(page, _)| *page == bank + 3)
+                    .collect();
+                assert!(!pages.is_empty(), "missing bank {bank}");
+                for (_, bytes) in pages {
+                    assert_eq!(bytes.as_slice(), vec![bank; 16384]);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn parse_128k_sna_keeps_trailing_byte_tolerance() {
+        let mut data = sna_128k(0);
+        data.extend_from_slice(&[0xAA, 0x55]);
+        let snap = parse_sna(&data).expect("existing trailing-byte tolerance");
+        assert_eq!(snap.pages.len(), 8);
+    }
+
+    fn sna_128k(current_bank: u8) -> Vec<u8> {
+        let mut data = vec![0; 27];
+        for bank in [5, 2, current_bank] {
+            data.extend(std::iter::repeat_n(bank, 16384));
+        }
+        data.extend_from_slice(&[0x65, 0x87, current_bank, 0]);
+        for bank in 0..8u8 {
+            if bank != 5 && bank != 2 && bank != current_bank {
+                data.extend(std::iter::repeat_n(bank, 16384));
+            }
+        }
+        data
     }
 }
