@@ -365,55 +365,55 @@ fn snapshot_envelope_version_is_v4() -> Result<(), Box<dyn Error>> {
 // ─────────────────────────────────────────────────────────────────────
 // 128K-family waypoints
 // ─────────────────────────────────────────────────────────────────────
-// The 128K (Sinclair 7K010E ULA) and the +3 (Amstrad 40077 gate
-// array) share a paging-lock invariant the 48K class does not have:
-// writing bit 5 to port $7FFD permanently disables further paging
-// writes until the next *hard* reset. A soft reset preserves the
-// lock — that's how 48K BASIC stays mapped after the 128K's autoboot
-// drops to 48 BASIC mode and then RAMTOP/reset cycles.
-
-/// **Seam 5 waypoint #6:** Paging lock persists across soft reset
-/// on the 128K.
-///
-/// Set bit 5 of port `$7FFD`, soft-reset the machine, verify the
-/// lock survives. Catches regressions in the 128K paging-lock
-/// state machine — `Memory128K::write_7ffd` returns early when
-/// `locked` is true, and `SpectrumMachineCore::reset_machine`
-/// must not clear that flag.
+/// Reset must clear the 128K paging latch, retain all RAM/ROM, and allow
+/// every bank to be selected again. Both script reset kinds reach this path.
+/// Sinclair 128 Service Manual §1.3; Fuse `spec128_common_reset`.
 #[test]
-fn paging_lock_persists_across_soft_reset_128k() {
-    let mut runtime = Spectrum128kRuntime::new(Model::Spectrum128KPal, Spectrum128K::new());
-    assert!(
-        !runtime.machine().memory.is_paging_locked(),
-        "fresh 128K must not have paging locked"
-    );
+fn reset_unlocks_128k_paging_and_preserves_memory() {
+    use common_sinclair_zx_spectrum::memory::MemoryBus;
+    use emu198x_shell::{HeadlessSession, ResetKind, ScriptStep};
 
-    // Write bit 5 (paging disable) via the memory's $7FFD port path.
-    runtime.machine_mut().memory.write_7ffd(0x20);
-    assert!(
-        runtime.machine().memory.is_paging_locked(),
-        "writing bit 5 to $7FFD must lock paging"
-    );
-
-    runtime.machine_mut().reset();
-    assert!(
-        runtime.machine().memory.is_paging_locked(),
-        "soft reset must preserve the paging lock"
-    );
-
-    // Subsequent write must be a no-op — the paging byte stays where
-    // it was when the lock latched ($20). Try to clear it.
-    runtime.machine_mut().memory.write_7ffd(0x00);
-    assert!(
-        runtime.machine().memory.is_paging_locked(),
-        "lock must remain set across subsequent attempts"
-    );
+    for kind in [ResetKind::Soft, ResetKind::Hard] {
+        let mut machine = Spectrum128K::new();
+        machine.memory.load_roms(&[0xC3], &[0x76]);
+        for bank in 0..8_u8 {
+            machine.memory.write_7ffd(bank);
+            machine.memory.write(0xFB00, 0xA0 + bank);
+        }
+        machine.memory.write_7ffd(0x3B); // ROM 1, shadow screen, bank 3, locked.
+        machine.memory.write_7ffd(0x00);
+        assert!(machine.memory.is_paging_locked());
+        assert_eq!(machine.memory.read(0xFB00), 0xA3);
+        assert_eq!(machine.memory.read(0), 0x76);
+        machine.z80.regs.pc = 0x8123;
+        let runtime = Spectrum128kRuntime::new(Model::Spectrum128KPal, machine);
+        let mut session = HeadlessSession::new(runtime, 283_632);
+        ScriptStep::Reset { kind }
+            .execute_collect(&mut session)
+            .expect("script reset succeeds");
+        let machine = session.machine_mut().machine_mut();
+        assert_eq!(machine.z80.regs.pc, 0);
+        assert!(
+            !machine.memory.is_paging_locked(),
+            "{kind:?} unlocks paging"
+        );
+        assert_eq!(machine.memory.current_bank(), 0);
+        assert_eq!(machine.memory.current_rom(), 0);
+        assert_eq!(machine.memory.screen_bank(), 5);
+        assert_eq!(machine.memory.read(0), 0xC3);
+        for bank in 0..8_u8 {
+            machine.memory.write_7ffd(0x10 | bank);
+            assert_eq!(machine.memory.read(0xFB00), 0xA0 + bank);
+            assert_eq!(machine.memory.read(0), 0x76);
+        }
+    }
 }
 
 /// **Seam 5 waypoint #7:** Paging lock persists across soft reset on
 /// the +3 (Amstrad-class).
 ///
-/// Mirrors waypoint #6 against the Amstrad-class paging path. The
+/// Records the existing Amstrad-class implementation, not a hardware
+/// reset guarantee (the 128K reset is covered separately above). The
 /// +3 has both `$7FFD` (128K-style) and `$1FFD` (Amstrad-specific)
 /// paging ports; the lock affects both. Catches regressions in
 /// `MemoryPlus::write_7ffd` / `write_1ffd` or
