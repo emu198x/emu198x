@@ -4,6 +4,13 @@ All notable changes to Emu198x will be documented in this file.
 
 Format loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 not strictly. Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [0.32.3] - 2026-10-13
+
+
+### Fixed
+
+- Unlock Spectrum 128K paging on reset
+
 ## [0.32.2] - 2026-10-13
 
 
