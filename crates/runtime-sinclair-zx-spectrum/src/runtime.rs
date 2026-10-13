@@ -407,7 +407,9 @@ pub trait SpectrumMachine: Serialize + for<'de> Deserialize<'de> + SpectrumDrive
         let target = self.z80_instructions_retired().wrapping_add(1);
         let mut hc = 0u32;
         while hc < STEP_HALFCYCLE_BUDGET {
-            self.tick_one_halfcycle();
+            // Debugger execution crosses the same frame boundaries as normal
+            // execution, including ULA wrap and audio flush (#1743).
+            self.advance_halfcycles(1);
             hc += 1;
             if self.z80_instructions_retired() == target {
                 return hc;
@@ -829,10 +831,11 @@ impl<M: SpectrumMachine> MachineCore for SpectrumRuntime<M> {
         self.machine.set_keyboard_rows(self.keyboard.rows());
 
         while self.time < target {
+            // Stepping or cycle profiling can leave us partway through a
+            // frame. run_frame consumes only its remainder.
+            let remaining = self.machine.frame_halfcycles() - self.machine.hc();
             SpectrumMachine::run_frame(&mut self.machine);
-            self.time = self
-                .time
-                .saturating_add(u64::from(self.machine.frame_halfcycles()));
+            self.time = self.time.saturating_add(u64::from(remaining));
 
             let codes: Vec<u16> = self
                 .machine
