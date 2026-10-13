@@ -84,6 +84,15 @@ impl Memory128K {
         self.rom[1][..len1].copy_from_slice(&rom1[..len1]);
     }
 
+    /// Clear the paging latch on reset without changing RAM or ROM contents.
+    ///
+    /// Sinclair ZX Spectrum 128 Service Manual §1.3 specifies the reset
+    /// value as zero. Fuse's `spec128_common_reset` also clears the lock.
+    pub(crate) fn reset_paging(&mut self) {
+        self.paging = 0;
+        self.locked = false;
+    }
+
     /// Write to port $7FFD (memory paging control).
     pub fn write_7ffd(&mut self, val: u8) {
         if self.locked {
@@ -101,7 +110,7 @@ impl Memory128K {
     }
 
     /// Is paging locked? Set when any `write_7ffd` writes bit 5 high;
-    /// stays set across soft reset, cleared only on full re-construction.
+    /// cleared when the machine is reset.
     /// Used by boot-invariant tests and by tooling that needs to know
     /// whether further paging writes will be honoured.
     #[must_use]

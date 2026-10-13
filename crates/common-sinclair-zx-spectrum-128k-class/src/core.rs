@@ -291,11 +291,11 @@ impl<V: Class128kVariant> Spectrum128kClassCore<V> {
         self.tape.stop();
     }
 
-    /// Reset the machine's CPU and audio/timing state, keeping the
-    /// loaded ROMs and RAM contents intact (matching real-hardware
-    /// power-cycle semantics).
+    /// Reset the CPU, paging latch and audio/timing state, keeping the
+    /// loaded ROMs and RAM contents intact.
     pub fn reset(&mut self) {
         self.z80 = Z80::new();
+        self.memory.reset_paging();
         self.hc = 0;
         self.speaker = SpeakerMixer::default();
     }
@@ -836,7 +836,7 @@ mod tests {
         assert_eq!(m.speaker.beeper, before);
     }
 
-    /// `reset` re-initialises the Z80 + ULA + audio buffers and
+    /// `reset` re-initialises the Z80, paging latch and audio buffers and
     /// returns PC to $0000 without wiping the loaded ROMs or RAM.
     /// Catches soft-reset path regressions.
     #[test]
