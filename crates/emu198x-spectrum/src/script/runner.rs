@@ -565,7 +565,7 @@ mod tests {
 
     #[test]
     fn portable_snapshot_extensions_are_detected() {
-        for ext in ["sna", "z80", "zip", "SNA", "Z80", "ZIP"] {
+        for ext in ["sna", "z80", "szx", "zip", "SNA", "Z80", "SZX", "ZIP"] {
             let path = PathBuf::from(format!("/tmp/snap.{ext}"));
             assert!(
                 is_portable_snapshot_path(&path),

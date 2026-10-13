@@ -185,7 +185,7 @@ pub fn register_spectrum_tools(registry: &mut ToolRegistry<SpectrumSession>) {
     add_step(
         registry,
         "load_snapshot",
-        "Restore a snapshot into the live machine. Portable `.sna` / `.z80` files (optionally inside a `.zip`) are parsed and applied; a runtime save-state blob is restored directly.",
+        "Restore a snapshot into the live machine. Portable `.sna` / `.z80` / `.szx` files (optionally inside a `.zip`) are parsed and applied; a runtime save-state blob is restored directly.",
         json!({
             "type": "object",
             "properties": { "path": string_field() },
