@@ -535,7 +535,9 @@ impl Ppu {
             }
             if (self.dot >= 1 && self.dot <= 256) || (self.dot >= 321 && self.dot <= 340) {
                 self.bg_fetch_cycle(mapper);
-                self.shift_registers();
+                if self.dot <= 336 {
+                    self.shift_registers();
+                }
             }
 
             if self.dot == 256 {
@@ -590,7 +592,9 @@ impl Ppu {
             }
             if self.dot >= 321 && self.dot <= 340 {
                 self.bg_fetch_cycle(mapper);
-                self.shift_registers();
+                if self.dot <= 336 {
+                    self.shift_registers();
+                }
             }
             if self.dot == 256 {
                 self.increment_y();
@@ -614,6 +618,17 @@ impl Ppu {
     // ════════════════════════════════════════════════════════════
 
     fn bg_fetch_cycle(&mut self, mapper: &mut dyn Mapper) {
+        // The scanline tail has two dummy nametable reads, not another
+        // tile fetch or shift. Shifting here also makes the odd-frame
+        // skipped dot change the first tile's pixel alignment (#1748).
+        // Reference: Mesen2 NesPpu::ProcessScanlineImpl, cycles 337/339.
+        if self.dot >= 337 {
+            if self.dot == 337 || self.dot == 339 {
+                let nt_addr = 0x2000 | (self.v & 0x0FFF);
+                self.ppu_read(nt_addr, mapper);
+            }
+            return;
+        }
         let cycle = if self.dot >= 321 {
             self.dot - 321
         } else {
@@ -1733,6 +1748,65 @@ mod tests {
     }
 
     #[test]
+    fn background_pixels_keep_tile_alignment_across_scanlines_and_frame_parities() {
+        // Asymmetric patterns expose shifts that repeating $AA stripes hide.
+        // Mesen2 ProcessScanlineImpl leaves the shifters unchanged during
+        // dummy nametable fetches at dots 337/339, including the short frame.
+        const LOW: [u8; 4] = [0x81, 0x42, 0x24, 0x18];
+        const HIGH: [u8; 4] = [0x18, 0x24, 0x42, 0x81];
+        for fine_x in 0..8 {
+            let mut mapper = dummy_mapper();
+            let mut ppu = Ppu::new();
+            for tile in 0u16..4 {
+                for row in 0..8 {
+                    mapper.chr_write(
+                        (tile + 1) * 16 + row,
+                        LOW[tile as usize].rotate_left(u32::from(row)),
+                    );
+                    mapper.chr_write(
+                        (tile + 1) * 16 + row + 8,
+                        HIGH[tile as usize].rotate_right(u32::from(row)),
+                    );
+                }
+            }
+            for page in ppu.nametable_ram.chunks_mut(1024) {
+                for (i, tile) in page[..960].iter_mut().enumerate() {
+                    *tile = (i % 4 + 1) as u8;
+                }
+                page[960..].fill(0xE4); // Four distinct attribute quadrants.
+            }
+            for (i, colour) in ppu.palette_ram.iter_mut().enumerate() {
+                *colour = i as u8;
+            }
+            ppu.mask = 0x0A;
+            ppu.fine_x = fine_x;
+            ppu.scanline = ppu.pre_render_line;
+            for frame in 0..3 {
+                while ppu.scanline != 240 || ppu.dot != 0 {
+                    ppu.tick(&mut mapper);
+                }
+                for y in 0..240 {
+                    for x in 0..256 {
+                        let source_x = x + usize::from(fine_x);
+                        let tile = (source_x / 8) % 4;
+                        let bit = 7 - source_x % 8;
+                        let pixel = ((LOW[tile].rotate_left((y % 8) as u32) >> bit) & 1)
+                            | (((HIGH[tile].rotate_right((y % 8) as u32) >> bit) & 1) << 1);
+                        let palette = ((source_x / 16) % 2 + ((y / 16) % 2) * 2) as u8;
+                        let expected = if pixel == 0 { 0 } else { palette * 4 + pixel };
+                        assert_eq!(
+                            ppu.signal_codes[y * 256 + x],
+                            u16::from(expected),
+                            "frame {frame}, fine X {fine_x}, pixel ({x}, {y})"
+                        );
+                    }
+                }
+                ppu.tick(&mut mapper);
+            }
+        }
+    }
+
+    #[test]
     fn flip_byte_works() {
         assert_eq!(flip_byte(0b1000_0000), 0b0000_0001);
         assert_eq!(flip_byte(0b1010_0101), 0b1010_0101);
@@ -2065,18 +2139,32 @@ mod tests {
     }
 
     #[test]
-    fn visible_line_fetches_dots_337_to_340() {
+    fn scanline_tail_fetches_nametable_without_shifting_pixels() {
         let mut mapper = dummy_mapper();
         let mut ppu = Ppu::new();
         ppu.mask = 0x18;
-        ppu.scanline = 0;
-        ppu.dot = 336;
-
-        for _ in 0..4 {
-            ppu.tick(&mut mapper);
+        ppu.v = 0x1234;
+        ppu.bg_shift_pattern_lo = 0x1234;
+        ppu.bg_shift_pattern_hi = 0x5678;
+        ppu.bg_shift_attrib_lo = 0x9ABC;
+        ppu.bg_shift_attrib_hi = 0xDEF0;
+        for scanline in [0, ppu.pre_render_line] {
+            ppu.scanline = scanline;
+            ppu.dot = 337;
+            for dot in 337..=340 {
+                ppu.bus_address = 0;
+                ppu.tick(&mut mapper);
+                assert_eq!(ppu.bg_shift_pattern_lo, 0x1234);
+                assert_eq!(ppu.bg_shift_pattern_hi, 0x5678);
+                assert_eq!(ppu.bg_shift_attrib_lo, 0x9ABC);
+                assert_eq!(ppu.bg_shift_attrib_hi, 0xDEF0);
+                assert_eq!(
+                    ppu.bus_address,
+                    if dot == 337 || dot == 339 { 0x2234 } else { 0 },
+                    "scanline {scanline}, dot {dot}"
+                );
+            }
         }
-
-        assert_eq!(ppu.dot, 340, "dot should be 340 after ticking from 336");
     }
 
     #[test]
