@@ -279,10 +279,11 @@ impl<V: AmstradVariant> SpectrumAmstradClassCore<V> {
         self.tape.stop();
     }
 
-    /// Reset the CPU, timing, and audio state. Keeps ROMs, RAM, and any
-    /// inserted disk image intact.
+    /// Reset the CPU, paging latches, timing, and audio state. Keeps ROMs,
+    /// RAM, and any inserted disk image intact.
     pub fn reset(&mut self) {
         self.z80 = Z80::new();
+        self.memory.reset_paging();
         self.hc = 0;
         self.speaker = SpeakerMixer::default();
     }

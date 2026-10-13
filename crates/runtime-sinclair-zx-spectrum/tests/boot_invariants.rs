@@ -409,42 +409,61 @@ fn reset_unlocks_128k_paging_and_preserves_memory() {
     }
 }
 
-/// **Seam 5 waypoint #7:** Paging lock persists across soft reset on
-/// the +3 (Amstrad-class).
-///
-/// Records the existing Amstrad-class implementation, not a hardware
-/// reset guarantee (the 128K reset is covered separately above). The
-/// +3 has both `$7FFD` (128K-style) and `$1FFD` (Amstrad-specific)
-/// paging ports; the lock affects both. Catches regressions in
-/// `MemoryPlus::write_7ffd` / `write_1ffd` or
-/// `SpectrumAmstradClassCore::reset`.
+/// Reset exits locked normal and all-RAM mappings, retains every bank, and
+/// allows both paging ports to operate again. Amstrad +3 manual pp. 189–191;
+/// Fuse 1.7.0 `specplus3_plus2a_common_reset`.
 #[test]
-fn paging_lock_persists_across_soft_reset_plus3() {
-    let mut runtime = SpectrumPlus3Runtime::new(Model::SpectrumPlus3, SpectrumPlus3::new());
-    assert!(
-        !runtime.machine().memory.is_paging_locked(),
-        "fresh +3 must not have paging locked"
-    );
+fn reset_unlocks_plus3_paging_and_preserves_memory() {
+    use common_sinclair_zx_spectrum::memory::MemoryBus;
+    use emu198x_shell::{HeadlessSession, ResetKind, ScriptStep};
 
-    runtime.machine_mut().memory.write_7ffd(0x20);
-    assert!(
-        runtime.machine().memory.is_paging_locked(),
-        "writing bit 5 to $7FFD must lock paging on +3"
-    );
-
-    runtime.machine_mut().reset();
-    assert!(
-        runtime.machine().memory.is_paging_locked(),
-        "+3 soft reset must preserve the paging lock"
-    );
-
-    // Both port paths must respect the lock.
-    runtime.machine_mut().memory.write_7ffd(0x00);
-    runtime.machine_mut().memory.write_1ffd(0x00);
-    assert!(
-        runtime.machine().memory.is_paging_locked(),
-        "lock must remain set across both port paths"
-    );
+    for kind in [ResetKind::Soft, ResetKind::Hard] {
+        for secondary in [0x04, 0x01, 0x03, 0x05, 0x07] {
+            let mut machine = SpectrumPlus3::new();
+            machine.memory.load_roms(&[0xC0], &[0xC1], &[0xC2], &[0xC3]);
+            for bank in 0..8_u8 {
+                machine.memory.write_7ffd(bank);
+                machine.memory.write(0xFB00, 0xA0 + bank);
+            }
+            machine.memory.write_1ffd(secondary);
+            machine.memory.write_7ffd(0x3B); // ROM low bit, shadow screen, bank 3, lock.
+            machine.memory.write_7ffd(0);
+            machine.memory.write_1ffd(0);
+            assert!(machine.memory.is_paging_locked());
+            assert_eq!(machine.memory.screen_bank(), 7);
+            let expected_bank = if secondary == 3 { 7 } else { 3 };
+            assert_eq!(machine.memory.read(0xFB00), 0xA0 + expected_bank);
+            machine.z80.regs.pc = 0x8123;
+            let runtime = SpectrumPlus3Runtime::new(Model::SpectrumPlus3, machine);
+            let mut session = HeadlessSession::new(runtime, 354_540);
+            ScriptStep::Reset { kind }
+                .execute_collect(&mut session)
+                .expect("script reset succeeds");
+            let machine = session.machine_mut().machine_mut();
+            assert_eq!(machine.z80.regs.pc, 0);
+            assert!(
+                !machine.memory.is_paging_locked(),
+                "{kind:?} unlocks paging"
+            );
+            assert_eq!(machine.memory.screen_bank(), 5);
+            assert_eq!(machine.memory.read(0), 0xC0);
+            for (address, bank) in [(0x7B00, 5), (0xBB00, 2), (0xFB00, 0)] {
+                assert_eq!(machine.memory.read(address), 0xA0 + bank);
+            }
+            for bank in 0..8_u8 {
+                machine.memory.write_7ffd(bank);
+                assert_eq!(machine.memory.read(0xFB00), 0xA0 + bank);
+            }
+            for rom in 0..4_u8 {
+                machine.memory.write_7ffd((rom & 1) << 4);
+                machine.memory.write_1ffd((rom & 2) << 1);
+                assert_eq!(machine.memory.read(0), 0xC0 + rom);
+            }
+            machine.memory.write_1ffd(0x03); // Both ports work after reset.
+            assert_eq!(machine.memory.read(0x3B00), 0xA4);
+            assert_eq!(machine.memory.read(0xBB00), 0xA6);
+        }
+    }
 }
 
 /// **Seam 5 waypoint #8:** Kempston attaches on first gamepad event
