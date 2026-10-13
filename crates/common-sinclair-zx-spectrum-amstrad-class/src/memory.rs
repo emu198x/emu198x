@@ -115,8 +115,19 @@ impl MemoryPlus {
         }
     }
 
+    /// Clear both paging latches and their lock without changing RAM or ROM.
+    ///
+    /// Amstrad +3 manual chapter 8 part 24, pp. 189–191: RESET releases
+    /// the paging lock. Fuse 1.7.0 `specplus3_plus2a_common_reset` clears
+    /// both latches, selecting ROM 0, normal RAM 5/2/0, and screen bank 5.
+    pub(crate) fn reset_paging(&mut self) {
+        self.paging_7ffd = 0;
+        self.paging_1ffd = 0;
+        self.locked = false;
+    }
+
     /// Is paging locked? Set when any `write_7ffd` writes bit 5 high;
-    /// stays set across soft reset, cleared only on full re-construction.
+    /// cleared by machine reset.
     /// Mirrors the same accessor on the 128K-class memory — both port
     /// paths converge on the same lock state on the +2A/+3.
     #[must_use]
