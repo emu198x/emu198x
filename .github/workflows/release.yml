@@ -485,7 +485,6 @@ jobs:
     runs-on: "ubuntu-22.04"
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      PLAN: ${{ needs.plan.outputs.val }}
       GITHUB_USER: "axo bot"
       GITHUB_EMAIL: "admin+bot@axo.dev"
     if: ${{ !fromJson(needs.plan.outputs.val).announcement_is_prerelease || fromJson(needs.plan.outputs.val).publish_prereleases }}
@@ -506,10 +505,20 @@ jobs:
       # so we need to find releases with a *.rb file, and publish with that filename.
       - name: Commit formula files
         run: |
+          set -euo pipefail
+          # The full plan exceeds Linux's per-environment-entry limit (#1746).
+          # Fetch homebrew formulae already downloads this artifact alongside
+          # the formula files. Assignment preserves jq's failure status.
+          releases=$(jq --compact-output '.releases[] | select([.artifacts[] | endswith(".rb")] | any)' Formula/plan-dist-manifest.json)
+          if [ -z "$releases" ]; then
+            echo "::error::release plan contains no Homebrew formulae"
+            exit 1
+          fi
+
           git config --global user.name "${GITHUB_USER}"
           git config --global user.email "${GITHUB_EMAIL}"
 
-          for release in $(echo "$PLAN" | jq --compact-output '.releases[] | select([.artifacts[] | endswith(".rb")] | any)'); do
+          for release in $releases; do
             filename=$(echo "$release" | jq '.artifacts[] | select(endswith(".rb"))' --raw-output)
             name=$(echo "$filename" | sed "s/\.rb$//")
             version=$(echo "$release" | jq .app_version --raw-output)

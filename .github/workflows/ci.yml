@@ -67,6 +67,9 @@ jobs:
       - name: Check every workflow bounds apt
         run: python3 scripts/check-workflow-apt.py --self-test
 
+      - name: Check Homebrew publication reads large plans from disk
+        run: python3 scripts/test_release_homebrew.py
+
       - name: Check crates.io probes identify themselves
         run: python3 scripts/check-crates-io-user-agent.py --self-test
 
