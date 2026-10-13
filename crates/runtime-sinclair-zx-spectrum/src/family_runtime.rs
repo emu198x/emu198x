@@ -185,11 +185,15 @@ impl<M: SpectrumMachine> SpectrumLiveAccess for SpectrumRuntime<M> {
     }
 
     fn step_instructions(&mut self, n: u32) -> u32 {
-        self.machine_mut().step_instructions(n)
+        let ticks = self.machine_mut().step_instructions(n);
+        self.set_time(self.time_value().saturating_add(u64::from(ticks)));
+        ticks
     }
 
     fn run_until_pc(&mut self, target: u16, max_halfcycles: u32) -> (bool, u32, u32) {
-        self.machine_mut().run_until_pc(target, max_halfcycles)
+        let result = self.machine_mut().run_until_pc(target, max_halfcycles);
+        self.set_time(self.time_value().saturating_add(u64::from(result.1)));
+        result
     }
 
     fn port_read(&mut self, port: u16) -> u8 {
