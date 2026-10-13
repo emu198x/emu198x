@@ -1,7 +1,7 @@
 //! Portable-snapshot helpers shared by every entry point.
 //!
 //! The GUI, the script runner, and the MCP server all need to load
-//! `.sna` / `.z80` files (optionally wrapped in a `.zip`) into the live
+//! `.sna` / `.z80` / `.szx` files (optionally wrapped in a `.zip`) into the live
 //! machine. The classification and parsing are identical; only the
 //! "where do we apply the result" step differs per entry point.
 //!
@@ -18,8 +18,8 @@ use emu198x_shell::{MediaKind, read_media_asset};
 use crate::app::AppError;
 
 /// True for paths the shared portable-snapshot reader handles:
-/// `.sna`, `.z80`, or `.zip` (which `read_media_asset` unpacks to a
-/// single inner `.sna` / `.z80`). Anything else falls through to the
+/// `.sna`, `.z80`, `.szx`, or `.zip` (which `read_media_asset` unpacks to a
+/// single inner `.sna` / `.z80` / `.szx`). Anything else falls through to the
 /// shell crate's `restore_snapshot`, which decodes the runtime's own
 /// postcard save state.
 #[must_use]
@@ -40,7 +40,8 @@ pub fn is_portable_snapshot_path(path: &Path) -> bool {
 ///
 /// Returns [`AppError::Io`] when the path cannot be read or the inner
 /// file's extension is unrecognised; the underlying parser surface
-/// (`format_sinclair_zx_spectrum_sna` / `format_sinclair_zx_spectrum_z80`)
+/// (`format_sinclair_zx_spectrum_sna`, `format_sinclair_zx_spectrum_z80`,
+/// or `format_sinclair_zx_spectrum_szx`)
 /// returns parse errors via the same path.
 pub fn parse_portable_snapshot_at(path: &Path) -> Result<Snapshot, AppError> {
     let loaded = read_media_asset(path, MediaKind::Snapshot)?;
@@ -55,9 +56,12 @@ pub fn parse_portable_snapshot_at(path: &Path) -> Result<Snapshot, AppError> {
     } else if inner_lower.ends_with(".z80") {
         format_sinclair_zx_spectrum_z80::parse_z80(&loaded.bytes)
             .map_err(|err| AppError::Io(std::io::Error::other(err)))
+    } else if inner_lower.ends_with(".szx") {
+        format_sinclair_zx_spectrum_szx::parse_szx(&loaded.bytes)
+            .map_err(|err| AppError::Io(std::io::Error::other(err)))
     } else {
         Err(AppError::Io(std::io::Error::other(format!(
-            "unrecognised snapshot at {} (expected .sna or .z80, got {inner_name})",
+            "unrecognised snapshot at {} (expected .sna, .z80 or .szx, got {inner_name})",
             path.display()
         ))))
     }
