@@ -4,6 +4,13 @@ All notable changes to Emu198x will be documented in this file.
 
 Format loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 not strictly. Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [0.34.0] - 2026-10-14
+
+
+### Added
+
+- Format bounded +3 tracks and preserve in-flight state
+
 ## [0.33.0] - 2026-10-14
 
 
