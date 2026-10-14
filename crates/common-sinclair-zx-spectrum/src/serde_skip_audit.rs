@@ -57,10 +57,12 @@ const EXPECTED_SERDE_SKIPS: &[SerdeSkipAudit] = &[
     },
     SerdeSkipAudit {
         path: "crates/nec-upd765a/src/lib.rs",
-        expected: 1,
-        justification: "FDC disks: large, not fully reconstructible from \
-                        disk state. Cached at runtime layer, replayed via \
-                        load_disk_image after restore (Seam 3).",
+        expected: 0,
+        justification: "Spectrum snapshot v5 carries live mounted disks, \
+                        protection and in-flight writes in the FDC. Replaying \
+                        original cached source bytes would discard writes. \
+                        Keep this zero-count entry to reject any future skip; \
+                        see the +3 amendment in savestate-live-machine-serde.md.",
     },
     SerdeSkipAudit {
         path: "crates/emu198x-zilog-z80/src/walker.rs",
