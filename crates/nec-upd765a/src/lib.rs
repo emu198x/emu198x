@@ -125,6 +125,8 @@ enum Command {
     Specify,
     SeekTrack,
     SenseDriveStatus,
+    // Append only: existing postcard command tags must remain stable.
+    FormatTrack,
 }
 
 /// µPD765A state.
@@ -212,7 +214,7 @@ pub struct Upd765a {
     disks: [Option<DiskImage>; 4],
     /// Write protection is a mount property, independent of drive readiness.
     writable: [bool; 4],
-    /// The head is crossing the ID-to-data gap before requesting a write byte.
+    /// A write/format preamble or inter-sector interval is in progress.
     write_start_pending: bool,
 
     /// Last sector successfully read via `ReadData` / `ReadDeletedData`,
@@ -540,6 +542,8 @@ impl Upd765a {
             Phase::Execution => {
                 if self.command == Command::WriteData && self.main_status & MSR_RQM != 0 {
                     self.accept_write_byte(val);
+                } else if self.command == Command::FormatTrack && self.main_status & MSR_RQM != 0 {
+                    self.accept_format_byte(val);
                 }
             }
             Phase::Result => {}
@@ -548,8 +552,9 @@ impl Upd765a {
 
     fn decode_command(byte: u8) -> (Command, usize) {
         match byte & 0x1F {
-            0x06 => (Command::ReadData, 9),             // Read Data
-            0x0C => (Command::ReadDeletedData, 9),      // Read Deleted Data (Speedlock keys)
+            0x06 => (Command::ReadData, 9),        // Read Data
+            0x0C => (Command::ReadDeletedData, 9), // Read Deleted Data (Speedlock keys)
+            0x0D => (Command::FormatTrack, 6),
             0x05 => (Command::WriteData, 9),            // Write Data
             0x0A => (Command::ReadId, 2),               // Read ID
             0x07 => (Command::Recalibrate, 2),          // Recalibrate
@@ -601,6 +606,7 @@ impl Upd765a {
             }
         }
         match self.command {
+            Command::FormatTrack => self.start_format_track(),
             Command::WriteData => {
                 self.st0 = self.cmd_buf[1] & 7;
                 self.st1 = 0;
@@ -1008,11 +1014,15 @@ impl Upd765a {
 
     fn abort_write_for_media_change(&mut self, drive: usize) {
         if self.phase == Phase::Execution
-            && self.command == Command::WriteData
+            && matches!(self.command, Command::WriteData | Command::FormatTrack)
             && usize::from(self.cmd_buf[1] & self.drive_select_mask) == drive
         {
             self.st0 |= 0x08;
-            self.write_result(0, 0);
+            if self.command == Command::FormatTrack {
+                self.format_result(0, true);
+            } else {
+                self.write_result(0, 0);
+            }
         }
     }
 
@@ -1170,6 +1180,170 @@ impl Upd765a {
         }
     }
 
+    // NEC December 1978 p.14: command N controls data length, while each
+    // supplied CHRN is recorded verbatim. Fuse start_write_id / write_data
+    // commits one ID tuple at a time. MAME WRITE_TRACK_* supplies the encoded
+    // preamble and sector byte counts. This remains a sector-image model:
+    // no flux transitions, angular phase, head-load latency or partial-ID CRC.
+    fn format_layout(&self) -> (u32, u32, u32) {
+        let mfm = self.cmd_buf[0] & 0x40 != 0;
+        let preamble = if mfm { 146 } else { 73 };
+        let sync = if mfm { 16 } else { 7 };
+        let span =
+            (if mfm { 62 } else { 33 }) + (128_u32 << self.cmd_buf[2]) + u32::from(self.cmd_buf[4]);
+        (preamble, sync, span)
+    }
+
+    fn start_format_track(&mut self) {
+        self.st0 = self.cmd_buf[1] & 7;
+        self.st1 = 0;
+        self.st2 = 0;
+        self.head = (self.cmd_buf[1] >> 2) & 1;
+        self.exec_buf.clear();
+        self.exec_pos = 0;
+        let drive = usize::from(self.cmd_buf[1] & self.drive_select_mask);
+        let Some(image) = self.disks[drive].as_ref() else {
+            self.st0 |= 0x08;
+            self.format_result(0, true);
+            return;
+        };
+        if !self.writable[drive] {
+            self.format_result(0x02, true);
+            return;
+        }
+        if image
+            .tracks
+            .get(usize::from(self.head))
+            .and_then(|side| side.get(usize::from(self.track[drive])))
+            .is_none()
+            || self.cmd_buf[2] > 7
+            || self.cmd_buf[3] == 0
+        {
+            self.format_result(0x04, true);
+            return;
+        }
+        let (preamble, sync, span) = self.format_layout();
+        let capacity = if self.cmd_buf[0] & 0x40 != 0 {
+            6250
+        } else {
+            3125
+        };
+        if preamble + span * u32::from(self.cmd_buf[3]) > capacity {
+            // The fixed 250-kbit/s, 300-rpm sector model cannot represent
+            // an overfull track. Reject before allocating or altering media.
+            self.format_result(0x04, true);
+            return;
+        }
+        self.exec_buf.resize(usize::from(self.cmd_buf[3]) * 4, 0);
+        self.phase = Phase::Execution;
+        self.main_status = MSR_EXM | MSR_CB;
+        self.write_start_pending = true;
+        self.exec_timeout = (preamble + sync) * self.write_byte_ticks();
+    }
+
+    fn format_result(&mut self, st1: u8, abnormal: bool) {
+        if abnormal {
+            self.st0 |= 0x40;
+        }
+        self.st1 = st1;
+        self.st2 = 0;
+        self.exec_timeout = 0;
+        self.write_start_pending = false;
+        let complete = self.exec_pos / 4 * 4;
+        let (c, h, r, n) = if complete == 0 {
+            (0, 0, 0, self.cmd_buf[2])
+        } else {
+            let id = &self.exec_buf[complete - 4..complete];
+            (
+                id[0],
+                id[1],
+                if abnormal {
+                    id[2]
+                } else {
+                    id[2].wrapping_add(1)
+                },
+                id[3],
+            )
+        };
+        self.setup_result_read(c, h, r, n);
+    }
+
+    fn accept_format_byte(&mut self, value: u8) {
+        self.exec_buf[self.exec_pos] = value;
+        self.exec_pos += 1;
+        self.main_status &= !MSR_RQM;
+        if !self.exec_pos.is_multiple_of(4) {
+            return;
+        }
+        let drive = usize::from(self.cmd_buf[1] & self.drive_select_mask);
+        let index = self.exec_pos / 4 - 1;
+        let Some(track) = self.disks[drive]
+            .as_mut()
+            .and_then(|image| image.tracks.get_mut(usize::from(self.head)))
+            .and_then(|side| side.get_mut(usize::from(self.track[drive])))
+        else {
+            self.st0 |= 0x08;
+            self.format_result(0, true);
+            return;
+        };
+        let id = &self.exec_buf[self.exec_pos - 4..self.exec_pos];
+        let sector = DiskSector {
+            c: id[0],
+            h: id[1],
+            id: id[2],
+            n: id[3],
+            st1: 0,
+            st2: 0,
+            data: vec![self.cmd_buf[5]; 128_usize << self.cmd_buf[2]],
+        };
+        if index < track.sectors.len() {
+            track.sectors[index] = sector;
+        } else {
+            track.sectors.push(sector);
+        }
+        self.read_id_index[drive] = 0;
+        self.reread_key = None;
+        self.reread_count = 0;
+        let (preamble, sync, span) = self.format_layout();
+        let wait = if self.exec_pos == self.exec_buf.len() {
+            let capacity = if self.cmd_buf[0] & 0x40 != 0 {
+                6250
+            } else {
+                3125
+            };
+            capacity - (preamble + sync + index as u32 * span + 3)
+        } else {
+            span - 3
+        };
+        self.write_start_pending = true;
+        // Host service latency must not stretch the encoded track interval.
+        self.exec_timeout += (wait - 1) * self.write_byte_ticks();
+    }
+
+    fn tick_format(&mut self) {
+        self.exec_timeout = self.exec_timeout.saturating_sub(1);
+        if self.exec_timeout != 0 {
+            return;
+        }
+        if self.main_status & MSR_RQM != 0 {
+            self.format_result(0x10, true); // missed ID-byte service window
+        } else if self.exec_pos == self.exec_buf.len() {
+            let drive = usize::from(self.cmd_buf[1] & self.drive_select_mask);
+            if let Some(track) = self.disks[drive]
+                .as_mut()
+                .and_then(|image| image.tracks.get_mut(usize::from(self.head)))
+                .and_then(|side| side.get_mut(usize::from(self.track[drive])))
+            {
+                track.sectors.truncate(usize::from(self.cmd_buf[3]));
+            }
+            self.format_result(0, false);
+        } else {
+            self.write_start_pending = false;
+            self.main_status |= MSR_RQM;
+            self.exec_timeout = self.write_byte_ticks();
+        }
+    }
+
     fn enter_result_phase(&mut self) {
         let _drive = (self.cmd_buf[1] & 0x03) as usize;
         let track = self.cmd_buf[2];
@@ -1267,6 +1441,11 @@ impl Peripheral for Upd765a {
                 self.seek_pending[drive] = Some(st0);
                 self.interrupt = true;
             }
+        }
+
+        if self.phase == Phase::Execution && self.command == Command::FormatTrack {
+            self.tick_format();
+            return;
         }
 
         if self.phase == Phase::Execution && self.command == Command::WriteData {
@@ -1402,6 +1581,259 @@ mod tests {
             0x30,
             "Write Data must enter CPU-to-FDC execution"
         );
+    }
+
+    #[test]
+    fn format_track_enters_host_to_controller_execution() {
+        let mut fdc = write_test_fdc(true);
+        for byte in [0x4d, 0, 2, 2, 0x52, 0xa5] {
+            fdc.write_data(byte);
+        }
+        assert_eq!(
+            fdc.read_status() & 0x70,
+            0x30,
+            "Format Track must enter CPU-to-controller execution"
+        );
+    }
+
+    fn send_format(fdc: &mut Upd765a, unit: u8, n: u8, count: u8, fill: u8) {
+        for byte in [0x4d, unit, n, count, 0x52, fill] {
+            fdc.write_data(byte);
+        }
+    }
+
+    fn await_format_status(fdc: &mut Upd765a, expected: u8) {
+        for _ in 0..800_000 {
+            if fdc.read_status() & 0xf0 == expected {
+                return;
+            }
+            assert_ne!(fdc.read_status() & 0xf0, 0xd0, "unexpected format result");
+            fdc.tick(0);
+        }
+        panic!("format did not reach expected status {expected:02x}");
+    }
+
+    fn transfer_ids(fdc: &mut Upd765a, ids: &[u8]) {
+        for &id in ids {
+            await_format_status(fdc, 0xb0);
+            fdc.write_data(id);
+        }
+    }
+
+    #[test]
+    fn format_read_id_and_data_agree_and_other_tracks_survive() {
+        let mut fdc = write_test_fdc(true);
+        send_format(&mut fdc, 0, 2, 2, 0xa7);
+        transfer_ids(&mut fdc, &[0, 0, 9, 2, 0, 0, 3, 2]);
+        await_format_status(&mut fdc, 0xd0);
+        assert_eq!(result(&mut fdc), [0, 0, 0, 0, 0, 4, 2]);
+        for id in [9, 3] {
+            for byte in [0x4a, 0] {
+                fdc.write_data(byte);
+            }
+            assert_eq!(result(&mut fdc), [0, 0, 0, 0, 0, id, 2]);
+            for byte in [0x46, 0, 0, 0, id, 2, id, 0x2a, 0xff] {
+                fdc.write_data(byte);
+            }
+            let data: Vec<_> = (0..512).map(|_| fdc.read_data()).collect();
+            assert_eq!(data, vec![0xa7; 512]);
+            let _ = result(&mut fdc);
+        }
+        let image = fdc.disks[0].as_ref().expect("mounted");
+        assert_eq!(
+            image.tracks[0][0]
+                .sectors
+                .iter()
+                .map(|s| s.id)
+                .collect::<Vec<_>>(),
+            [9, 3]
+        );
+        for (head, cylinder) in [(0, 1), (1, 0), (1, 1)] {
+            for sector in &image.tracks[head][cylinder].sectors {
+                assert_eq!(sector.data, vec![0xe5; 512]);
+                assert_eq!((sector.st1, sector.st2), (0, 0));
+            }
+        }
+    }
+
+    #[test]
+    fn format_uses_physical_selection_and_command_size_not_id_fields() {
+        let mut fdc = write_test_fdc(true);
+        fdc.set_drive_select_mask(1);
+        fdc.track[0] = 1;
+        send_format(&mut fdc, 6, 0, 1, 0x69); // drive 2 aliases 0; physical head 1
+        transfer_ids(&mut fdc, &[7, 8, 0xff, 3]);
+        await_format_status(&mut fdc, 0xd0);
+        assert_eq!(result(&mut fdc), [6, 0, 0, 7, 8, 0, 3]);
+        let image = fdc.disks[0].as_ref().expect("mounted");
+        let track = &image.tracks[1][1];
+        assert_eq!(track.sectors.len(), 1, "old trailing sector removed");
+        let sector = &track.sectors[0];
+        assert_eq!((sector.c, sector.h, sector.id, sector.n), (7, 8, 255, 3));
+        assert_eq!(
+            sector.data,
+            vec![0x69; 128],
+            "command N controls the data field"
+        );
+        assert_eq!(image.tracks[0][0].sectors[0].data, vec![0xe5; 512]);
+    }
+
+    #[test]
+    fn format_protection_readiness_and_bounds_fail_without_mutation() {
+        for (unit, n, count, writable, status) in [
+            (0, 2, 2, false, [0x40, 2]),
+            (1, 2, 2, true, [0x49, 0]),
+            (0, 8, 1, true, [0x40, 4]),
+            (0, 2, 0, true, [0x40, 4]),
+            (0, 7, 255, true, [0x40, 4]),
+            (0, 2, 10, true, [0x40, 4]), // overfull 300-rpm track
+        ] {
+            let mut fdc = write_test_fdc(writable);
+            send_format(&mut fdc, unit, n, count, 0);
+            let observed = result(&mut fdc);
+            assert_eq!(&observed[..2], &status);
+            assert_eq!(
+                fdc.disks[0].as_ref().expect("disk").tracks[0][0].sectors[0].data,
+                vec![0xe5; 512]
+            );
+        }
+        let mut fdc = write_test_fdc(true);
+        fdc.track[0] = 40;
+        send_format(&mut fdc, 0, 2, 2, 0);
+        assert_eq!(&result(&mut fdc)[..3], &[0x40, 4, 0]);
+    }
+
+    #[test]
+    fn format_readiness_direction_and_overrun_are_enforced() {
+        let mut fdc = write_test_fdc(true);
+        send_format(&mut fdc, 0, 2, 2, 0x42);
+        fdc.write_data(99); // ignored during preamble
+        assert_eq!(fdc.exec_pos, 0);
+        for _ in 0..18_467 {
+            fdc.tick(0);
+        } // 162 MFM bytes * ceil(32us * CPU_HZ)
+        assert_eq!(fdc.read_status() & 0xf0, 0x30);
+        fdc.tick(0);
+        assert_eq!(fdc.read_status() & 0xf0, 0xb0);
+        assert_eq!(
+            fdc.read_data(),
+            0xff,
+            "wrong-direction read cannot consume an ID"
+        );
+        fdc.write_data(0);
+        fdc.write_data(99); // ignored with RQM low
+        assert_eq!(fdc.exec_pos, 1);
+        for _ in 0..114 {
+            fdc.tick(0);
+        }
+        assert_eq!(fdc.read_status() & 0xf0, 0xb0);
+        for _ in 0..114 {
+            fdc.tick(0);
+        }
+        assert_eq!(&result(&mut fdc)[..3], &[0x40, 0x10, 0]);
+        assert_eq!(
+            fdc.disks[0].as_ref().expect("disk").tracks[0][0].sectors[0].data,
+            vec![0xe5; 512]
+        );
+    }
+
+    #[test]
+    fn completed_format_sector_survives_overrun_and_media_ejection() {
+        let mut fdc = write_test_fdc(true);
+        send_format(&mut fdc, 0, 2, 2, 0x57);
+        transfer_ids(&mut fdc, &[0, 0, 7, 2]);
+        await_format_status(&mut fdc, 0xb0);
+        for _ in 0..114 {
+            fdc.tick(0);
+        }
+        assert_eq!(&result(&mut fdc)[..3], &[0x40, 0x10, 0]);
+        assert_eq!(
+            fdc.disks[0].as_ref().expect("disk").tracks[0][0].sectors[0].data,
+            vec![0x57; 512]
+        );
+        send_format(&mut fdc, 0, 2, 2, 0x66);
+        transfer_ids(&mut fdc, &[0, 0, 8, 2]);
+        let removed = fdc.disks[0].clone().expect("mounted before eject");
+        fdc.eject_disk(0);
+        assert_eq!(&result(&mut fdc)[..3], &[0x48, 0, 0]);
+        assert_eq!(removed.tracks[0][0].sectors[0].data, vec![0x66; 512]);
+    }
+
+    #[test]
+    fn standard_plus3_format_fills_nine_sectors_without_host_latency_drift() {
+        for latency in [0, 37, 113] {
+            let mut fdc = write_test_fdc(true);
+            fdc.disks[0].as_mut().expect("disk").tracks[0][0]
+                .sectors
+                .clear();
+            send_format(&mut fdc, 0, 2, 9, 0xe5);
+            let mut ticks = 0;
+            for id in [1, 6, 2, 7, 3, 8, 4, 9, 5] {
+                for byte in [0, 0, id, 2] {
+                    while fdc.read_status() & 0xf0 != 0xb0 {
+                        assert!(ticks < 712_500);
+                        fdc.tick(0);
+                        ticks += 1;
+                    }
+                    for _ in 0..latency {
+                        fdc.tick(0);
+                        ticks += 1;
+                    }
+                    fdc.write_data(byte);
+                }
+            }
+            while fdc.read_status() & 0xf0 != 0xd0 {
+                assert!(ticks < 712_500);
+                fdc.tick(0);
+                ticks += 1;
+            }
+            assert_eq!(
+                ticks, 712_500,
+                "6250 encoded MFM bytes, 114 CPU ticks per byte"
+            );
+            assert_eq!(result(&mut fdc), [0, 0, 0, 0, 0, 6, 2]);
+            let track = &fdc.disks[0].as_ref().expect("disk").tracks[0][0];
+            assert_eq!(
+                track.sectors.iter().map(|s| s.id).collect::<Vec<_>>(),
+                [1, 6, 2, 7, 3, 8, 4, 9, 5]
+            );
+            assert!(
+                track
+                    .sectors
+                    .iter()
+                    .all(|s| s.data == vec![0xe5; 512] && s.st1 == 0 && s.st2 == 0)
+            );
+        }
+    }
+
+    #[test]
+    fn reset_preserves_completed_format_sectors_and_protection() {
+        let mut fdc = write_test_fdc(true);
+        send_format(&mut fdc, 0, 2, 2, 0x87);
+        transfer_ids(&mut fdc, &[0, 0, 6, 2]);
+        fdc.reset();
+        assert_eq!(fdc.read_status(), 0x80);
+        assert!(fdc.writable[0]);
+        let track = &fdc.disks[0].as_ref().expect("disk").tracks[0][0];
+        assert_eq!(track.sectors[0].id, 6);
+        assert_eq!(track.sectors[0].data, vec![0x87; 512]);
+    }
+
+    #[test]
+    fn fm_format_uses_slower_byte_period_and_preserves_sector_order() {
+        let mut fdc = write_test_fdc(true);
+        for byte in [0x0d, 0, 0, 2, 0x1b, 0x91] {
+            fdc.write_data(byte);
+        }
+        transfer_ids(&mut fdc, &[0, 0, 5, 0, 0, 0, 2, 0]);
+        await_format_status(&mut fdc, 0xd0);
+        assert_eq!(result(&mut fdc), [0, 0, 0, 0, 0, 3, 0]);
+        let track = &fdc.disks[0].as_ref().expect("disk").tracks[0][0];
+        assert_eq!(
+            track.sectors.iter().map(|s| s.id).collect::<Vec<_>>(),
+            [5, 2]
+        );
+        assert!(track.sectors.iter().all(|s| s.data == vec![0x91; 128]));
     }
 
     fn write_test_fdc(writable: bool) -> Upd765a {
