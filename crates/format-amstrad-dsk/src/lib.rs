@@ -1,218 +1,52 @@
-//! DSK and EDSK floppy image parser.
-//!
-//! Two flavours share one container layout:
-//!
-//! - **Standard DSK** ("MV - CPC...") — every track has the same length,
-//!   stored in bytes 0x32..0x34 of the disk header.
-//! - **Extended DSK** ("EXTENDED CPC DSK File...") — each track has its
-//!   own length, listed one byte per track in 0x34..0x100 (multiplied by
-//!   256 to get the actual byte count). A length of 0 means the track is
-//!   missing.
-//!
-//! Each track starts with a 256-byte Track Information Block followed by
-//! the sectors in physical order. Sectors are looked up by their ID (R)
-//! at runtime, not by position — the +3 ROM and most disk software trust
-//! the address marks rather than the physical layout.
-//!
-//! Output is a [`DiskImage`] that the [`nec_upd765a`] FDC consumes
-//! directly.
+//! Compatibility adapter from the shared CPCEMU DSK codec to FDC-owned state.
+//! The decoder and its history graduated to Format198x; controller types stay
+//! here so existing machine state serialisation and call sites remain stable.
 
 use nec_upd765a::{DiskImage, DiskSector, DiskTrack};
 
-const HEADER_LEN: usize = 256;
-const TRACK_HEADER_LEN: usize = 256;
-const SECTOR_INFO_LEN: usize = 8;
-
-const SIG_STANDARD: &[u8] = b"MV - CPC";
-const SIG_EXTENDED: &[u8] = b"EXTENDED CPC DSK File";
-
-/// Parse a DSK or EDSK image into a [`DiskImage`].
+/// Decode standard/extended DSK and preserve every sector's address and status.
+///
+/// # Errors
+/// Returns the shared decoder's validation error for malformed containers.
 pub fn parse(data: &[u8]) -> Result<DiskImage, String> {
-    if data.len() < HEADER_LEN {
-        return Err("DSK file shorter than 256-byte header".into());
-    }
-
-    let extended = if data.starts_with(SIG_EXTENDED) {
-        true
-    } else if data.starts_with(SIG_STANDARD) {
-        false
-    } else {
-        return Err("Not a DSK file (missing CPC signature)".into());
-    };
-
-    let tracks_per_side = data[0x30];
-    let sides = data[0x31];
-    if sides == 0 || sides > 2 {
-        return Err(format!(
-            "DSK reports {} sides; only 1 or 2 supported",
-            sides
-        ));
-    }
-    if tracks_per_side == 0 {
-        return Err("DSK reports zero tracks".into());
-    }
-
-    let entries = tracks_per_side as usize * sides as usize;
-
-    // Determine where each track starts and how long it is. EDSK uses a
-    // table of one byte per track-side (in 0x34..0x100), each multiplied
-    // by 256. Standard DSK uses a single fixed length in 0x32..0x34
-    // applied to every track.
-    let mut track_lengths = Vec::with_capacity(entries);
-    if extended {
-        if 0x34 + entries > data.len() {
-            return Err("EDSK track size table runs past end of file".into());
-        }
-        for i in 0..entries {
-            track_lengths.push(data[0x34 + i] as usize * 256);
-        }
-    } else {
-        let standard_len = u16::from_le_bytes([data[0x32], data[0x33]]) as usize;
-        if standard_len == 0 {
-            return Err("Standard DSK header reports zero-length tracks".into());
-        }
-        track_lengths.resize(entries, standard_len);
-    }
-
-    // Walk the tracks. Each present track gets parsed; absent tracks
-    // (length 0 in EDSK) become empty placeholders so the indices line up.
-    let mut tracks_per_side_vec: Vec<Vec<DiskTrack>> = (0..sides)
-        .map(|_| Vec::with_capacity(tracks_per_side as usize))
-        .collect();
-
-    let mut cursor = HEADER_LEN;
-    for (entry, &length) in track_lengths.iter().enumerate().take(entries) {
-        // Sides interleave per track: track0/side0, track0/side1, track1/side0...
-        let side = entry % sides as usize;
-
-        if length == 0 {
-            tracks_per_side_vec[side].push(DiskTrack::default());
-            continue;
-        }
-
-        if cursor + length > data.len() {
-            return Err(format!(
-                "Track {} runs past end of file (offset {}, length {})",
-                entry, cursor, length
-            ));
-        }
-
-        let track_block = &data[cursor..cursor + length];
-        let parsed = parse_track(track_block, extended)
-            .map_err(|e| format!("Track {} (offset {}): {}", entry, cursor, e))?;
-        tracks_per_side_vec[side].push(parsed);
-        cursor += length;
-    }
-
+    let decoded = format198x_amstrad_cpc_dsk::parse(data)?;
     Ok(DiskImage {
-        sides,
-        tracks_per_side,
-        tracks: tracks_per_side_vec,
+        sides: decoded.sides,
+        tracks_per_side: decoded.tracks_per_side,
+        tracks: decoded
+            .tracks
+            .into_iter()
+            .map(|side| {
+                side.into_iter()
+                    .map(|track| DiskTrack {
+                        sectors: track
+                            .sectors
+                            .into_iter()
+                            .map(|s| DiskSector {
+                                c: s.c,
+                                h: s.h,
+                                id: s.id,
+                                n: s.n,
+                                st1: s.st1,
+                                st2: s.st2,
+                                data: s.data,
+                            })
+                            .collect(),
+                    })
+                    .collect()
+            })
+            .collect(),
     })
-}
-
-fn parse_track(block: &[u8], extended: bool) -> Result<DiskTrack, String> {
-    if block.len() < TRACK_HEADER_LEN {
-        return Err("track block shorter than 256-byte header".into());
-    }
-    if !block.starts_with(b"Track-Info") {
-        return Err("missing Track-Info signature".into());
-    }
-
-    let sector_count = block[0x15] as usize;
-    if sector_count == 0 {
-        return Ok(DiskTrack::default());
-    }
-
-    // Default sector size from the track header (used for standard DSK
-    // where every sector in the track has the same size).
-    let track_n = block[0x14];
-    let track_default_size = 128usize << track_n.min(6) as usize;
-
-    // Sector Information List starts at 0x18, 8 bytes per sector.
-    let sil_end = 0x18 + sector_count * SECTOR_INFO_LEN;
-    if sil_end > block.len() {
-        return Err("sector info list runs past track block".into());
-    }
-
-    // Parse the SIL into (C, H, R, N, ST1, ST2, length, source) tuples.
-    // The full address-mark CHRN is needed for `ReadId` and header
-    // verification — copy-protected disks deliberately record
-    // mismatched values. The recorded ST1 / ST2 carry the FDC status
-    // the chip would have returned reading this sector at dump time:
-    // ST1.DE (data CRC error), ST2.CM (deleted-mark = DDAM), and the
-    // related error bits are how Speedlock / Alkatraz / Spectra hide
-    // their key sectors from a naïve sector-by-sector copier.
-    //
-    // EDSK records the actual (possibly per-sector) data length in
-    // bytes 6..8 of each entry. **Crucially, an EDSK length of 0
-    // means "this sector has no data bytes in the image"** — the
-    // dumper couldn't reliably read it, so it noted the address-mark
-    // CHRN + the FDC status bits but stored no data. We must NOT
-    // fall back to N for those: Tetris's track 12 is a format-only
-    // protection track with sectors whose N rises to 0x07 (claimed
-    // 16384 bytes) but whose stored data is zero. Falling back to
-    // 128<<N would advance the data cursor 16384 bytes past the
-    // end of the track block and trip the bounds check.
-    //
-    // Standard DSK (non-extended) is rare for protected titles and
-    // does use the N fallback because there's no per-sector length
-    // field. We honour that: when the EDSK signature ISN'T present
-    // we treat zero `edsk_len` as "use track default".
-    let mut sectors_info = Vec::with_capacity(sector_count);
-    for i in 0..sector_count {
-        let off = 0x18 + i * SECTOR_INFO_LEN;
-        let c = block[off];
-        let h = block[off + 1];
-        let id = block[off + 2];
-        let n = block[off + 3];
-        let st1 = block[off + 4];
-        let st2 = block[off + 5];
-        let edsk_len = u16::from_le_bytes([block[off + 6], block[off + 7]]) as usize;
-        let len = if extended {
-            // EDSK: zero is meaningful — sector has no data bytes
-            // stored. The chip would still find the address mark
-            // (the SIL entry exists), so the loader can probe CHRN,
-            // but a read-data attempt either fails or returns
-            // garbage. We model that with an empty data Vec.
-            edsk_len
-        } else if edsk_len != 0 {
-            edsk_len
-        } else {
-            track_default_size
-        };
-        sectors_info.push((c, h, id, n, st1, st2, len));
-    }
-
-    // Sector data follows the track header (256 bytes), packed in the
-    // order listed in the SIL.
-    let mut data_cursor = TRACK_HEADER_LEN;
-    let mut sectors = Vec::with_capacity(sector_count);
-    for (c, h, id, n, st1, st2, len) in sectors_info {
-        if data_cursor + len > block.len() {
-            return Err(format!(
-                "sector ID {:#04x} runs past track block (need {} bytes at offset {})",
-                id, len, data_cursor
-            ));
-        }
-        sectors.push(DiskSector {
-            c,
-            h,
-            id,
-            n,
-            st1,
-            st2,
-            data: block[data_cursor..data_cursor + len].to_vec(),
-        });
-        data_cursor += len;
-    }
-
-    Ok(DiskTrack { sectors })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    const HEADER_LEN: usize = 256;
+    const TRACK_HEADER_LEN: usize = 256;
+    const SECTOR_INFO_LEN: usize = 8;
+    const SIG_STANDARD: &[u8] = b"MV - CPC";
+    const SIG_EXTENDED: &[u8] = b"EXTENDED CPC DSK File";
 
     /// Build a minimal standard DSK image with one side, one track,
     /// nine 512-byte sectors numbered 1..=9.
