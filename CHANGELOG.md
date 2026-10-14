@@ -4,6 +4,13 @@ All notable changes to Emu198x will be documented in this file.
 
 Format loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 not strictly. Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [0.33.0] - 2026-10-14
+
+
+### Fixed
+
+- **Breaking** — Preserve Spectrum +3 ROM disk writes. Spectrum runtime snapshots use version 5 to preserve live modified disk images, protection and in-flight write state. Version 4 states are rejected before decoding. This compatibility boundary was explicitly approved; CPC snapshots remain unchanged.
+
 ## [0.32.5] - 2026-10-13
 
 
