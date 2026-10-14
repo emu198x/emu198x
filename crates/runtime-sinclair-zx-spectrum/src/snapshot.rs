@@ -34,18 +34,21 @@ use crate::runtime::{DiskCacheEntry, SpectrumMachine, SpectrumRuntime};
 /// response in progress, but could not distinguish its skipped static
 /// walker sequence after decode, so it is rejected.
 ///
-/// **Version 4** (current): every Spectrum-family machine carries the
+/// **Version 4**: every Spectrum-family machine carries the
 /// tape's `StopRelease` state (#1633), so a snapshot taken in the frame
 /// after the tape stops still releases the input on time. Postcard is
 /// positional, so version 3 machines no longer decode and are rejected.
-const SNAPSHOT_VERSION: u32 = 4;
+/// **Version 5** (current): the FDC carries live mounted disks, protection and write
+/// transfer state. Version 4 is rejected before decode; its raw image cache
+/// cannot represent writes. Approved for the first +3 ROM SAVE qualification.
+const SNAPSHOT_VERSION: u32 = 5;
 
 /// Borrowed snapshot envelope used by [`encode`]. Generic over any
 /// `M: Serialize`; the `SpectrumMachine` bound is enforced at the
 /// `encode`/`decode` entry points so the envelope stays usable from
 /// pure-serde contexts.
 #[derive(Serialize)]
-struct SpectrumRuntimeSnapshotRefV4<'a, M: Serialize> {
+struct SpectrumRuntimeSnapshotRefV5<'a, M: Serialize> {
     version: u32,
     profile_id: &'a str,
     time: MachineTime,
@@ -57,14 +60,14 @@ struct SpectrumRuntimeSnapshotRefV4<'a, M: Serialize> {
 /// Owned snapshot envelope used by [`decode`]. Generic over any
 /// `M: Deserialize<'de>`.
 #[derive(Deserialize)]
-struct SpectrumRuntimeSnapshotV4<M> {
+struct SpectrumRuntimeSnapshotV5<M> {
     version: u32,
     profile_id: String,
     time: MachineTime,
     keyboard_rows: [u8; 8],
     machine: M,
-    /// Cached disk images that need re-inserting through
-    /// `machine.load_disk_image` after restore. See Seam 3.
+    /// Original input images retained for source identity. Mounted live
+    /// media in the machine is authoritative; restore must not replay these.
     /// Tape-only variants encode an empty vec.
     #[serde(default)]
     disk_images: Vec<DiskCacheEntry>,
@@ -75,7 +78,7 @@ struct SpectrumRuntimeSnapshotV4<M> {
 pub(crate) fn encode<M: SpectrumMachine>(
     runtime: &SpectrumRuntime<M>,
 ) -> Result<Vec<u8>, MachineError> {
-    postcard::to_allocvec(&SpectrumRuntimeSnapshotRefV4 {
+    postcard::to_allocvec(&SpectrumRuntimeSnapshotRefV5 {
         version: SNAPSHOT_VERSION,
         profile_id: runtime.profile().profile_id.as_str(),
         time: runtime.time_value(),
@@ -109,7 +112,7 @@ pub(crate) fn decode<M: SpectrumMachine>(
         });
     }
 
-    let snapshot: SpectrumRuntimeSnapshotV4<M> =
+    let snapshot: SpectrumRuntimeSnapshotV5<M> =
         postcard::from_bytes(bytes).map_err(|reason| MachineError::InvalidSnapshot {
             reason: format!("decode failed: {reason}"),
         })?;
@@ -131,10 +134,8 @@ pub(crate) fn decode<M: SpectrumMachine>(
     let rows = *runtime.keyboard_rows();
     runtime.machine_mut().set_keyboard_rows(&rows);
     runtime.machine_mut().after_restore();
-    // Replay disk images last — the FDC's `disks` field is
-    // `#[serde(skip)]` so they didn't come back in `snapshot.machine`.
-    // We re-insert from the cached bytes here. See Seam 3 of the
-    // architecture review.
+    // Validate cached source slots against the serialized live controller.
+    // Original source bytes must never replace modified mounted media.
     runtime.restore_disk_images(snapshot.disk_images)?;
     Ok(())
 }
@@ -155,7 +156,7 @@ mod tests {
         // the corresponding decode error paths without needing to touch
         // the real envelope schema.
         let machine = Spectrum128K::new();
-        postcard::to_allocvec(&SpectrumRuntimeSnapshotRefV4 {
+        postcard::to_allocvec(&SpectrumRuntimeSnapshotRefV5 {
             version,
             profile_id,
             time: MachineTime::default(),
@@ -212,6 +213,18 @@ mod tests {
     }
 
     #[test]
+    fn decode_rejects_version_4_before_payload_decode() {
+        let mut runtime = crate::Spectrum48kRuntime::blank();
+        let bytes = postcard::to_allocvec(&4_u32).expect("version encodes");
+        let error = decode(&mut runtime, &bytes).expect_err("old version must be rejected");
+        assert!(
+            error
+                .to_string()
+                .contains("unsupported snapshot version 4; expected 5")
+        );
+    }
+
+    #[test]
     fn decode_rejects_profile_mismatch_within_generic_envelope() {
         // Profile-id mismatch covers the generic decode arm without
         // needing two physically-distinct machine types.
@@ -253,13 +266,8 @@ mod tests {
         data
     }
 
-    /// **Seam 3 regression test.** A +3 snapshot taken with a disk
-    /// mounted must come back with the disk still inserted. The
-    /// FDC marks `disks` `#[serde(skip)]` (the parsed image is
-    /// large and not all reconstructible from disk state alone), so
-    /// without the runtime-layer cache + replay the disk silently
-    /// vanishes on restore. This test would have failed before
-    /// commit landing Seam 3.
+    /// A +3 runtime snapshot retains its mounted media. The serialized
+    /// controller is authoritative even when original source bytes are cached.
     #[test]
     fn snapshot_restore_preserves_mounted_disk_on_plus3() {
         use emu198x_shell::{MachineCore, MediaImage, MediaKind, MediaSet};
@@ -304,5 +312,134 @@ mod tests {
         restored
             .restore(&bytes)
             .expect("Plus3 snapshot should round-trip through the generic envelope");
+    }
+    fn writable_sector_runtime(writable: bool) -> (SpectrumPlus3Runtime, Vec<u8>) {
+        use emu198x_shell::{MediaImage, MediaKind, MediaSet};
+        let mut dsk = synthetic_minimal_dsk();
+        dsk.resize(1024, 0xe5);
+        dsk[0x32..0x34].copy_from_slice(&768_u16.to_le_bytes());
+        dsk[0x114] = 2;
+        dsk[0x115] = 1;
+        dsk[0x118..0x120].copy_from_slice(&[0, 0, 1, 2, 0, 0, 0, 2]);
+        let mut runtime = SpectrumPlus3Runtime::new(Model::SpectrumPlus3, SpectrumPlus3::new());
+        let mut media = MediaSet::new();
+        media.push(MediaImage::new("disk-a", MediaKind::Disk, &dsk).writable(writable));
+        runtime.load_media(&media).expect("mount sector");
+        (runtime, dsk)
+    }
+
+    fn send_fdc_command(runtime: &mut SpectrumPlus3Runtime, command: &[u8]) {
+        for &byte in command {
+            runtime.machine_mut().fdc.write_data(byte);
+        }
+    }
+
+    fn send_fdc_bytes(runtime: &mut SpectrumPlus3Runtime, bytes: &[u8]) {
+        use common_sinclair_zx_spectrum::peripheral::Peripheral;
+        for &byte in bytes {
+            for _ in 0..5000 {
+                if runtime.machine().fdc.read_status() & 0x80 != 0 {
+                    break;
+                }
+                runtime.machine_mut().fdc.tick(0);
+            }
+            assert_eq!(runtime.machine().fdc.read_status() & 0xf0, 0xb0);
+            runtime.machine_mut().fdc.write_data(byte);
+            for _ in 0..114 {
+                runtime.machine_mut().fdc.tick(0);
+            }
+        }
+    }
+
+    fn drain_fdc_result(runtime: &mut SpectrumPlus3Runtime) -> Vec<u8> {
+        assert_eq!(runtime.machine().fdc.read_status() & 0xf0, 0xd0);
+        (0..7)
+            .map(|_| runtime.machine_mut().fdc.read_data())
+            .collect()
+    }
+
+    fn assert_saved_bytes(runtime: &mut SpectrumPlus3Runtime, expected: &[u8]) {
+        send_fdc_command(runtime, &[0x46, 0, 0, 0, 1, 2, 1, 0x2a, 0xff]);
+        let observed: Vec<_> = (0..512)
+            .map(|_| runtime.machine_mut().fdc.read_data())
+            .collect();
+        assert_eq!(observed, expected);
+        let _ = drain_fdc_result(runtime);
+    }
+
+    #[test]
+    fn completed_write_survives_runtime_snapshot_without_replaying_source_bytes() {
+        let (mut original, source) = writable_sector_runtime(true);
+        let source_before = source.clone();
+        let payload: Vec<_> = (0..512).map(|i| (i as u8).wrapping_mul(13)).collect();
+        send_fdc_command(&mut original, &[0x45, 0, 0, 0, 1, 2, 1, 0x2a, 0xff]);
+        send_fdc_bytes(&mut original, &payload);
+        assert_eq!(drain_fdc_result(&mut original), [0x40, 0x80, 0, 1, 0, 1, 2]);
+        let saved = original.snapshot().expect("snapshot after write");
+        let mut restored = SpectrumPlus3Runtime::blank();
+        restored.restore(&saved).expect("restore after write");
+        assert_eq!(restored.snapshot().expect("snapshot again"), saved);
+        assert_saved_bytes(&mut restored, &payload);
+        assert_eq!(
+            source, source_before,
+            "the input byte buffer remains immutable"
+        );
+        assert_eq!(
+            restored.disk_images()[0].bytes,
+            source_before,
+            "cached source is provenance, not mutated media"
+        );
+        send_fdc_command(&mut restored, &[4, 0]);
+        assert_eq!(
+            restored.machine_mut().fdc.read_data() & 0x60,
+            0x20,
+            "writable mount survives"
+        );
+    }
+
+    #[test]
+    fn mid_write_snapshot_resumes_identically_including_byte_deadline() {
+        use common_sinclair_zx_spectrum::peripheral::Peripheral;
+        let (mut original, _) = writable_sector_runtime(true);
+        let payload: Vec<_> = (0..512).map(|i| (i as u8).wrapping_add(71)).collect();
+        send_fdc_command(&mut original, &[0x45, 0, 0, 0, 1, 2, 1, 0x2a, 0xff]);
+        send_fdc_bytes(&mut original, &payload[..179]);
+        original.machine_mut().fdc.write_data(payload[179]);
+        for _ in 0..27 {
+            original.machine_mut().fdc.tick(0);
+        }
+        let saved = original.snapshot().expect("mid-write snapshot");
+        let mut restored = SpectrumPlus3Runtime::blank();
+        restored.restore(&saved).expect("restore mid-write");
+        assert_eq!(restored.snapshot().expect("restored snapshot"), saved);
+        for _ in 27..114 {
+            original.machine_mut().fdc.tick(0);
+            restored.machine_mut().fdc.tick(0);
+        }
+        send_fdc_bytes(&mut original, &payload[180..]);
+        send_fdc_bytes(&mut restored, &payload[180..]);
+        assert_eq!(
+            original.snapshot().expect("uninterrupted"),
+            restored.snapshot().expect("resumed")
+        );
+        assert_eq!(
+            drain_fdc_result(&mut original),
+            drain_fdc_result(&mut restored)
+        );
+        assert_saved_bytes(&mut original, &payload);
+        assert_saved_bytes(&mut restored, &payload);
+    }
+
+    #[test]
+    fn protected_mount_stays_protected_after_restore() {
+        let (original, _) = writable_sector_runtime(false);
+        let saved = original.snapshot().expect("protected snapshot");
+        let mut restored = SpectrumPlus3Runtime::blank();
+        restored.restore(&saved).expect("restore protected mount");
+        send_fdc_command(&mut restored, &[4, 0]);
+        assert_eq!(restored.machine_mut().fdc.read_data() & 0x60, 0x60);
+        send_fdc_command(&mut restored, &[0x45, 0, 0, 0, 1, 2, 1, 0x2a, 0xff]);
+        assert_eq!(drain_fdc_result(&mut restored), [0x40, 2, 0, 0, 0, 1, 2]);
+        assert_saved_bytes(&mut restored, &vec![0xe5; 512]);
     }
 }

@@ -208,9 +208,12 @@ pub struct Upd765a {
     #[serde(default = "default_drive_select_mask")]
     drive_select_mask: u8,
 
-    /// Disk images (up to 4 drives).
-    #[serde(skip)]
+    /// Mounted images are live state, including bytes changed by Write Data.
     disks: [Option<DiskImage>; 4],
+    /// Write protection is a mount property, independent of drive readiness.
+    writable: [bool; 4],
+    /// The head is crossing the ID-to-data gap before requesting a write byte.
+    write_start_pending: bool,
 
     /// Last sector successfully read via `ReadData` / `ReadDeletedData`,
     /// keyed by `(drive, track, head, sector_id)`. Used to detect
@@ -368,6 +371,8 @@ impl Upd765a {
             enabled: false,
             drive_select_mask: default_drive_select_mask(),
             disks: [None, None, None, None],
+            writable: [false; 4],
+            write_start_pending: false,
             reread_key: None,
             reread_count: 0,
             exec_timeout: 0,
@@ -385,8 +390,16 @@ impl Upd765a {
 
     /// Insert a parsed disk image into a drive.
     pub fn insert_disk(&mut self, drive: usize, image: DiskImage) {
+        self.insert_disk_with_writable(drive, image, false);
+    }
+
+    /// Mount a private in-memory image with explicit write permission.
+    /// No operation on the controller writes to a host filesystem path.
+    pub fn insert_disk_with_writable(&mut self, drive: usize, image: DiskImage, writable: bool) {
         if drive < 4 {
+            self.abort_write_for_media_change(drive);
             self.disks[drive] = Some(image);
+            self.writable[drive] = writable;
             self.reread_key = None;
             self.reread_count = 0;
             self.read_id_index[drive] = 0;
@@ -405,13 +418,9 @@ impl Upd765a {
     /// cached state describes, and that state was faithfully carried in
     /// the snapshot.
     ///
-    /// `disks` is `#[serde(skip)]` because a parsed image is large and
-    /// not reconstructible from controller state alone, so a +3
-    /// snapshot caches the raw bytes at the runtime layer and replays
-    /// them after decode (Seam 3 of
-    /// `knowledge/decisions/spectrum-architecture-review.md`). That
-    /// replay must land here rather than in `insert_disk`, or the
-    /// restore clears the very state it just restored.
+    /// Legacy attachment helper for consumers restoring an image separately.
+    /// Spectrum version-5 snapshots serialize live images directly and do not
+    /// call this helper: replaying an old source image would erase writes.
     pub fn reattach_disk(&mut self, drive: usize, image: DiskImage) {
         if drive < 4 {
             self.disks[drive] = Some(image);
@@ -420,7 +429,9 @@ impl Upd765a {
 
     pub fn eject_disk(&mut self, drive: usize) {
         if drive < 4 {
+            self.abort_write_for_media_change(drive);
             self.disks[drive] = None;
+            self.writable[drive] = false;
             self.reread_key = None;
             self.reread_count = 0;
             self.read_id_index[drive] = 0;
@@ -433,6 +444,20 @@ impl Upd765a {
     #[must_use]
     pub fn has_disk(&self, drive: usize) -> bool {
         drive < 4 && self.disks[drive].is_some()
+    }
+
+    /// Reset controller registers and transfers, retaining inserted media and
+    /// its physical write-protection setting.
+    pub fn reset(&mut self) {
+        let disks = std::mem::take(&mut self.disks);
+        let writable = self.writable;
+        let enabled = self.enabled;
+        let drive_select_mask = self.drive_select_mask;
+        *self = Self::new();
+        self.disks = disks;
+        self.writable = writable;
+        self.enabled = enabled;
+        self.drive_select_mask = drive_select_mask;
     }
 
     /// Read the main status register (port $2FFD on +3).
@@ -454,7 +479,10 @@ impl Upd765a {
     /// Read data register (port $3FFD on +3).
     pub fn read_data(&mut self) -> u8 {
         match self.phase {
-            Phase::Execution if self.exec_pos < self.exec_buf.len() => {
+            Phase::Execution
+                if matches!(self.command, Command::ReadData | Command::ReadDeletedData)
+                    && self.exec_pos < self.exec_buf.len() =>
+            {
                 let byte = self.exec_buf[self.exec_pos];
                 self.exec_pos += 1;
                 // Host fetched a byte — reset the no-read timeout
@@ -510,13 +538,8 @@ impl Upd765a {
                 }
             }
             Phase::Execution => {
-                // Write data to sector (write commands)
-                if self.exec_pos < self.exec_buf.len() {
-                    self.exec_buf[self.exec_pos] = val;
-                    self.exec_pos += 1;
-                    if self.exec_pos >= self.exec_buf.len() {
-                        self.enter_result_phase();
-                    }
+                if self.command == Command::WriteData && self.main_status & MSR_RQM != 0 {
+                    self.accept_write_byte(val);
                 }
             }
             Phase::Result => {}
@@ -578,6 +601,14 @@ impl Upd765a {
             }
         }
         match self.command {
+            Command::WriteData => {
+                self.st0 = self.cmd_buf[1] & 7;
+                self.st1 = 0;
+                self.st2 = 0;
+                self.head = (self.cmd_buf[1] >> 2) & 1;
+                self.sector = self.cmd_buf[4];
+                self.start_write_sector();
+            }
             Command::ReadData | Command::ReadDeletedData => {
                 // `drive` indexes our per-drive state (disks/track) and
                 // is masked by the host's wiring (+3 only routes US0,
@@ -896,7 +927,8 @@ impl Upd765a {
                 let disk_present = self.disks[drive].is_some();
                 self.st3 = (self.cmd_buf[1] & 0x07)        // US0/US1/HD copied from command
                     | if self.track[drive] == 0 { 0x10 } else { 0 } // T0 (track 0)
-                    | if disk_present { 0x08 | 0x20 } else { 0 }; // TS (two-sided) + RY
+                    | if disk_present { 0x08 | 0x20 } else { 0 } // TS (two-sided) + RY
+                    | if disk_present && !self.writable[drive] { 0x40 } else { 0 }; // WP
                 self.head = head;
                 self.result_buf.clear();
                 self.result_buf.push(self.st3);
@@ -971,6 +1003,170 @@ impl Upd765a {
                 self.phase = Phase::Idle;
                 self.main_status = MSR_RQM;
             }
+        }
+    }
+
+    fn abort_write_for_media_change(&mut self, drive: usize) {
+        if self.phase == Phase::Execution
+            && self.command == Command::WriteData
+            && usize::from(self.cmd_buf[1] & self.drive_select_mask) == drive
+        {
+            self.st0 |= 0x08;
+            self.write_result(0, 0);
+        }
+    }
+
+    // NEC December 1978 datasheet p.13; Fuse 1.7.0 start_write_data /
+    // upd_fdc_write_data. The +3 uses a 4 MHz FDC at 250 kbit/s MFM:
+    // one byte every 32 us. tick() is called once per +3 CPU T-state,
+    // not once per master half-cycle. Round up to avoid early deadlines.
+    fn write_byte_ticks(&self) -> u32 {
+        let micros = if self.cmd_buf[0] & 0x40 != 0 { 32 } else { 64 };
+        (common_sinclair_zx_spectrum::timing::CPU_HZ_128K * micros).div_ceil(1_000_000) as u32
+    }
+
+    fn write_result(&mut self, st1: u8, st2: u8) {
+        self.st0 |= 0x40;
+        self.st1 = st1;
+        self.st2 = st2;
+        self.exec_timeout = 0;
+        self.write_start_pending = false;
+        self.setup_result_read(
+            self.cmd_buf[2],
+            self.cmd_buf[3],
+            self.sector,
+            self.cmd_buf[5],
+        );
+    }
+
+    fn start_write_sector(&mut self) {
+        let drive = (self.cmd_buf[1] & self.drive_select_mask) as usize;
+        let Some(image) = self.disks[drive].as_ref() else {
+            self.st0 |= 0x08; // NR, independent of protection.
+            self.write_result(0, 0);
+            return;
+        };
+        if !self.writable[drive] {
+            self.write_result(0x02, 0); // NW
+            return;
+        }
+        let Some(sector) = image.sector(self.track[drive], self.head, self.sector) else {
+            self.write_result(0x04, 0); // ND
+            return;
+        };
+        if sector.c != self.cmd_buf[2] {
+            let st2 = 0x10 | if sector.c == 0xff { 0x02 } else { 0 }; // WC / BC
+            self.write_result(0x04, st2);
+            return;
+        }
+        let n = self.cmd_buf[5];
+        if sector.h != self.cmd_buf[3] || sector.n != n || n > 7 {
+            self.write_result(0x04, 0);
+            return;
+        }
+        // An ID-field CRC error prevents a write; a bad old data-field CRC
+        // does not. Writing a complete new data field repairs that CRC.
+        if sector.st1 & 0x20 != 0 && sector.st2 & 0x20 == 0 {
+            self.write_result(0x20, 0);
+            return;
+        }
+        let length = 128_usize << n;
+        if sector.data.len() != length {
+            // The sector-level model cannot safely rewrite truncated or
+            // oversized/weak copies as if they were an ordinary data field.
+            self.write_result(0x04, 0);
+            return;
+        }
+        let transfer = if n == 0 {
+            usize::from(self.cmd_buf[8]).min(128)
+        } else {
+            length
+        };
+        if transfer == 0 {
+            self.write_result(0x04, 0);
+            return;
+        }
+        self.exec_buf.resize(transfer, 0);
+        self.exec_pos = 0;
+        self.phase = Phase::Execution;
+        self.main_status = MSR_EXM | MSR_CB;
+        // The first byte is not requested at the final command strobe. After
+        // finding the ID, the head crosses gap 2 and the data sync/mark. Fuse
+        // start_write_data advances 22 gap bytes, 12 zeroes, 3 A1s and a DAM
+        // in MFM (11 + 6 + 1 in FM). Our sector model retains that minimum
+        // pre-data interval; it does not model rotational ID-search latency.
+        self.write_start_pending = true;
+        self.exec_timeout =
+            self.write_byte_ticks() * if self.cmd_buf[0] & 0x40 != 0 { 38 } else { 18 };
+    }
+
+    fn accept_write_byte(&mut self, value: u8) {
+        let drive = (self.cmd_buf[1] & self.drive_select_mask) as usize;
+        let Some(sector) = self.disks[drive]
+            .as_mut()
+            .and_then(|image| image.tracks.get_mut(self.head as usize))
+            .and_then(|side| side.get_mut(self.track[drive] as usize))
+            .and_then(|track| track.sectors.iter_mut().find(|s| s.id == self.sector))
+        else {
+            self.st0 |= 0x08;
+            self.write_result(0, 0);
+            return;
+        };
+        if !self.writable[drive] {
+            self.write_result(0x02, 0);
+            return;
+        }
+        // Accepted bytes reach the medium. An interrupted write leaves its
+        // prefix and an invalid CRC, rather than rolling the sector back.
+        sector.data[self.exec_pos] = value;
+        sector.st1 = 0x20;
+        sector.st2 = 0x20; // normal DAM, incomplete data CRC
+        self.exec_buf[self.exec_pos] = value;
+        self.exec_pos += 1;
+        self.main_status &= !MSR_RQM;
+    }
+
+    fn finish_write_sector(&mut self) {
+        let drive = (self.cmd_buf[1] & self.drive_select_mask) as usize;
+        let Some(sector) = self.disks[drive]
+            .as_mut()
+            .and_then(|image| image.tracks.get_mut(self.head as usize))
+            .and_then(|side| side.get_mut(self.track[drive] as usize))
+            .and_then(|track| track.sectors.iter_mut().find(|s| s.id == self.sector))
+        else {
+            self.st0 |= 0x08;
+            self.write_result(0, 0);
+            return;
+        };
+        // N=0/DTL writes pad the rest of the physical data field with zero.
+        sector.data[self.exec_pos..].fill(0);
+        sector.st1 = 0;
+        sector.st2 = 0;
+        self.reread_key = None;
+        self.reread_count = 0;
+        if self.sector >= self.cmd_buf[6] {
+            self.sector = 1;
+            if self.cmd_buf[0] & 0x80 != 0 && self.head == 0 {
+                self.head = 1;
+                self.cmd_buf[1] |= 4;
+                self.cmd_buf[3] = 1;
+                self.st0 |= 4;
+                self.start_write_sector();
+                return;
+            }
+            // +3 has no terminal count. EOT terminates with EN, matching
+            // Fuse's start_write_data and NEC table 2's next CHRN.
+            self.cmd_buf[2] = self.cmd_buf[2].wrapping_add(1);
+            if self.cmd_buf[0] & 0x80 != 0 {
+                self.head = 0;
+                self.cmd_buf[1] &= !4;
+                self.cmd_buf[3] = 0;
+                self.st0 &= !4;
+            }
+            self.write_result(0x80, 0);
+        } else {
+            self.sector = self.sector.wrapping_add(1);
+            self.start_write_sector();
         }
     }
 
@@ -1073,6 +1269,25 @@ impl Peripheral for Upd765a {
             }
         }
 
+        if self.phase == Phase::Execution && self.command == Command::WriteData {
+            self.exec_timeout = self.exec_timeout.saturating_sub(1);
+            if self.exec_timeout == 0 {
+                if self.write_start_pending {
+                    self.write_start_pending = false;
+                    self.main_status |= MSR_RQM;
+                    self.exec_timeout = self.write_byte_ticks();
+                } else if self.main_status & MSR_RQM != 0 {
+                    self.write_result(0x10, 0); // OR: host missed its byte window.
+                } else if self.exec_pos == self.exec_buf.len() {
+                    self.finish_write_sector();
+                } else {
+                    self.main_status |= MSR_RQM;
+                    self.exec_timeout = self.write_byte_ticks();
+                }
+            }
+            return;
+        }
+
         // Execution-phase read timeout. The Spectrum +3 doesn't wire
         // the µPD765A's TC pin, so a host that stops reading mid-
         // sector relies on the chip's intrinsic ~2-revolution timeout
@@ -1103,17 +1318,7 @@ impl Peripheral for Upd765a {
 #[cfg(test)]
 mod tests {
 
-    /// Restoring a save state must not look like inserting a disk.
-    ///
-    /// `disks` is `#[serde(skip)]`, so a +3 snapshot carries the raw
-    /// image separately and replays it after decode (Seam 3). That
-    /// replay went through `insert_disk`, which invalidates the
-    /// marginal-encoding cache — correct for a user swapping a disk,
-    /// wrong for a restore, where the cache is part of the state being
-    /// restored. The result was a +3 save state that silently lost its
-    /// re-read position: every one of the 16 catalogue +3 entries
-    /// failed re-encode by exactly 4 bytes, `reread_key` collapsing
-    /// from `Some(..)` to `None`.
+    /// Legacy separate attachment must preserve controller read caches.
     #[test]
     fn reattach_disk_preserves_cached_read_state() {
         let mut fdc = Upd765a::new();
@@ -1165,6 +1370,332 @@ mod tests {
         );
     }
     use super::*;
+
+    #[test]
+    fn write_data_enters_host_to_controller_execution() {
+        let mut fdc = Upd765a::new();
+        fdc.enabled = true;
+        fdc.insert_disk_with_writable(
+            0,
+            DiskImage {
+                sides: 1,
+                tracks_per_side: 1,
+                tracks: vec![vec![DiskTrack {
+                    sectors: vec![DiskSector {
+                        c: 0,
+                        h: 0,
+                        id: 1,
+                        n: 2,
+                        st1: 0,
+                        st2: 0,
+                        data: vec![0xe5; 512],
+                    }],
+                }]],
+            },
+            true,
+        );
+        for byte in [0x45, 0, 0, 0, 1, 2, 1, 0x2a, 0xff] {
+            fdc.write_data(byte);
+        }
+        assert_eq!(
+            fdc.read_status() & 0x70,
+            0x30,
+            "Write Data must enter CPU-to-FDC execution"
+        );
+    }
+
+    fn write_test_fdc(writable: bool) -> Upd765a {
+        let mut fdc = Upd765a::new();
+        fdc.enabled = true;
+        let tracks = (0..2)
+            .map(|head| {
+                (0..2)
+                    .map(|c| DiskTrack {
+                        sectors: (1..=2)
+                            .map(|id| DiskSector {
+                                c,
+                                h: head,
+                                id,
+                                n: 2,
+                                st1: 0,
+                                st2: 0,
+                                data: vec![0xe5; 512],
+                            })
+                            .collect(),
+                    })
+                    .collect()
+            })
+            .collect();
+        fdc.insert_disk_with_writable(
+            0,
+            DiskImage {
+                sides: 2,
+                tracks_per_side: 2,
+                tracks,
+            },
+            writable,
+        );
+        fdc
+    }
+
+    fn send_write(fdc: &mut Upd765a, drive_head: u8, c: u8, h: u8, r: u8, eot: u8) {
+        for byte in [0x45, drive_head, c, h, r, 2, eot, 0x2a, 0xff] {
+            fdc.write_data(byte);
+        }
+    }
+
+    fn await_write_request(fdc: &mut Upd765a) {
+        for _ in 0..5000 {
+            if fdc.read_status() & 0x80 != 0 {
+                return;
+            }
+            fdc.tick(0);
+        }
+        panic!("write request must appear within the pre-data interval");
+    }
+
+    fn transfer_write(fdc: &mut Upd765a, bytes: &[u8]) {
+        for &byte in bytes {
+            await_write_request(fdc);
+            assert_eq!(fdc.read_status() & 0xf0, 0xb0);
+            fdc.write_data(byte);
+            for _ in 0..114 {
+                fdc.tick(0);
+            }
+        }
+    }
+
+    fn result(fdc: &mut Upd765a) -> Vec<u8> {
+        assert_eq!(fdc.read_status() & 0xf0, 0xd0);
+        (0..7).map(|_| fdc.read_data()).collect()
+    }
+
+    #[test]
+    fn write_protection_is_reported_and_prevents_mutation() {
+        let mut fdc = write_test_fdc(false);
+        fdc.write_data(4);
+        fdc.write_data(0);
+        assert_eq!(fdc.read_data() & 0x60, 0x60);
+        send_write(&mut fdc, 0, 0, 0, 1, 1);
+        assert_eq!(result(&mut fdc), [0x40, 2, 0, 0, 0, 1, 2]);
+        assert_eq!(
+            fdc.disks[0]
+                .as_ref()
+                .expect("disk")
+                .sector(0, 0, 1)
+                .expect("sector")
+                .data,
+            vec![0xe5; 512]
+        );
+    }
+
+    #[test]
+    fn write_data_reads_back_and_preserves_other_sectors() {
+        let mut fdc = write_test_fdc(true);
+        send_write(&mut fdc, 0, 0, 0, 1, 1);
+        let payload: Vec<_> = (0..512).map(|i| (i ^ (i >> 8)) as u8).collect();
+        transfer_write(&mut fdc, &payload);
+        assert_eq!(result(&mut fdc), [0x40, 0x80, 0, 1, 0, 1, 2]);
+        for byte in [0x46, 0, 0, 0, 1, 2, 1, 0x2a, 0xff] {
+            fdc.write_data(byte);
+        }
+        let observed: Vec<_> = (0..512).map(|_| fdc.read_data()).collect();
+        assert_eq!(observed, payload);
+        let image = fdc.disks[0].as_ref().expect("disk");
+        assert_eq!(image.sector(0, 0, 2).expect("sector").data, vec![0xe5; 512]);
+        assert_eq!(image.sector(1, 0, 1).expect("sector").data, vec![0xe5; 512]);
+        assert_eq!(image.sector(0, 1, 1).expect("sector").data, vec![0xe5; 512]);
+    }
+
+    #[test]
+    fn writes_use_physical_track_head_and_drive_alias() {
+        let mut fdc = write_test_fdc(true);
+        fdc.set_drive_select_mask(1);
+        fdc.track[0] = 1;
+        send_write(&mut fdc, 6, 1, 1, 1, 2);
+        transfer_write(&mut fdc, &vec![0x12; 512]);
+        transfer_write(&mut fdc, &vec![0x34; 512]);
+        assert_eq!(result(&mut fdc), [0x46, 0x80, 0, 2, 1, 1, 2]);
+        let image = fdc.disks[0].as_ref().expect("disk");
+        assert_eq!(image.sector(1, 1, 1).expect("sector").data, vec![0x12; 512]);
+        assert_eq!(image.sector(1, 1, 2).expect("sector").data, vec![0x34; 512]);
+        assert_eq!(image.sector(0, 1, 1).expect("sector").data, vec![0xe5; 512]);
+    }
+
+    #[test]
+    fn write_direction_readiness_and_overrun_are_enforced() {
+        let mut fdc = write_test_fdc(true);
+        send_write(&mut fdc, 0, 0, 0, 1, 1);
+        await_write_request(&mut fdc);
+        assert_eq!(fdc.read_data(), 0xff, "a read must not consume write data");
+        fdc.write_data(0xa7);
+        fdc.write_data(0xff); // RQM low: must not consume another byte.
+        for _ in 0..113 {
+            fdc.tick(0);
+        }
+        assert_eq!(fdc.read_status() & 0x80, 0);
+        fdc.tick(0);
+        assert_eq!(fdc.read_status() & 0x80, 0x80);
+        for _ in 0..114 {
+            fdc.tick(0);
+        }
+        assert_eq!(result(&mut fdc), [0x40, 0x10, 0, 0, 0, 1, 2]);
+        let sector = fdc.disks[0]
+            .as_ref()
+            .expect("disk")
+            .sector(0, 0, 1)
+            .expect("sector");
+        assert_eq!(&sector.data[..2], [0xa7, 0xe5]);
+        assert_eq!((sector.st1, sector.st2), (0x20, 0x20));
+    }
+
+    #[test]
+    fn write_errors_identify_missing_media_sector_and_wrong_chrn() {
+        let mut fdc = write_test_fdc(true);
+        send_write(&mut fdc, 1, 0, 0, 1, 1);
+        assert_eq!(result(&mut fdc), [0x49, 0, 0, 0, 0, 1, 2]);
+        send_write(&mut fdc, 0, 0, 0, 3, 3);
+        assert_eq!(result(&mut fdc), [0x40, 4, 0, 0, 0, 3, 2]);
+        send_write(&mut fdc, 0, 1, 0, 1, 1);
+        assert_eq!(result(&mut fdc), [0x40, 4, 0x10, 1, 0, 1, 2]);
+        send_write(&mut fdc, 0, 0, 1, 1, 1);
+        assert_eq!(result(&mut fdc), [0x40, 4, 0, 0, 1, 1, 2]);
+        for byte in [0x45, 0, 0, 0, 1, 7, 1, 0x2a, 0xff] {
+            fdc.write_data(byte);
+        }
+        assert_eq!(result(&mut fdc), [0x40, 4, 0, 0, 0, 1, 7]);
+    }
+
+    #[test]
+    fn missing_second_sector_preserves_completed_first_write() {
+        let mut fdc = write_test_fdc(true);
+        send_write(&mut fdc, 0, 0, 0, 2, 3);
+        transfer_write(&mut fdc, &vec![0x76; 512]);
+        assert_eq!(result(&mut fdc), [0x40, 4, 0, 0, 0, 3, 2]);
+        assert_eq!(
+            fdc.disks[0]
+                .as_ref()
+                .expect("disk")
+                .sector(0, 0, 2)
+                .expect("sector")
+                .data,
+            vec![0x76; 512]
+        );
+    }
+
+    #[test]
+    fn complete_write_replaces_deleted_mark_and_bad_data_crc() {
+        let mut fdc = write_test_fdc(true);
+        let sector = &mut fdc.disks[0].as_mut().expect("disk").tracks[0][0].sectors[0];
+        sector.st1 = 0x20;
+        sector.st2 = 0x60;
+        send_write(&mut fdc, 0, 0, 0, 1, 1);
+        transfer_write(&mut fdc, &vec![0x66; 512]);
+        let _ = result(&mut fdc);
+        let sector = fdc.disks[0]
+            .as_ref()
+            .expect("disk")
+            .sector(0, 0, 1)
+            .expect("sector");
+        assert_eq!((sector.st1, sector.st2), (0, 0));
+    }
+
+    #[test]
+    fn reset_retains_written_prefix_and_mount_protection() {
+        let mut fdc = write_test_fdc(true);
+        send_write(&mut fdc, 0, 0, 0, 1, 1);
+        transfer_write(&mut fdc, &[0xb1, 0xb2]);
+        fdc.reset();
+        assert_eq!(fdc.read_status(), 0x80);
+        assert!(fdc.enabled && fdc.writable[0]);
+        let sector = fdc.disks[0]
+            .as_ref()
+            .expect("disk")
+            .sector(0, 0, 1)
+            .expect("sector");
+        assert_eq!(&sector.data[..3], [0xb1, 0xb2, 0xe5]);
+        assert_eq!((sector.st1, sector.st2), (0x20, 0x20));
+    }
+
+    #[test]
+    fn media_change_aborts_transfer_before_replacement_can_be_written() {
+        let mut fdc = write_test_fdc(true);
+        send_write(&mut fdc, 0, 0, 0, 1, 1);
+        await_write_request(&mut fdc);
+        fdc.write_data(0xb1);
+        fdc.insert_disk_with_writable(0, DiskImage::default(), true);
+        assert_eq!(result(&mut fdc), [0x48, 0, 0, 0, 0, 1, 2]);
+    }
+
+    #[test]
+    fn multitrack_write_advances_to_second_head() {
+        let mut fdc = write_test_fdc(true);
+        for byte in [0xc5, 0, 0, 0, 1, 2, 1, 0x2a, 0xff] {
+            fdc.write_data(byte);
+        }
+        transfer_write(&mut fdc, &vec![0x56; 512]);
+        transfer_write(&mut fdc, &vec![0x78; 512]);
+        assert_eq!(result(&mut fdc), [0x40, 0x80, 0, 1, 0, 1, 2]);
+        let image = fdc.disks[0].as_ref().expect("disk");
+        assert_eq!(image.sector(0, 0, 1).expect("sector").data, vec![0x56; 512]);
+        assert_eq!(image.sector(0, 1, 1).expect("sector").data, vec![0x78; 512]);
+    }
+
+    #[test]
+    fn write_rejects_id_crc_and_unrepresentable_sector_lengths() {
+        let mut fdc = write_test_fdc(true);
+        fdc.disks[0].as_mut().expect("disk").tracks[0][0].sectors[0].st1 = 0x20;
+        send_write(&mut fdc, 0, 0, 0, 1, 1);
+        assert_eq!(result(&mut fdc), [0x40, 0x20, 0, 0, 0, 1, 2]);
+        let sector = &mut fdc.disks[0].as_mut().expect("disk").tracks[0][0].sectors[0];
+        sector.st1 = 0;
+        sector.data.truncate(511);
+        send_write(&mut fdc, 0, 0, 0, 1, 1);
+        assert_eq!(result(&mut fdc), [0x40, 4, 0, 0, 0, 1, 2]);
+    }
+
+    #[test]
+    fn zero_size_code_uses_dtl_and_pads_remaining_data_field() {
+        let mut fdc = write_test_fdc(true);
+        let sector = &mut fdc.disks[0].as_mut().expect("disk").tracks[0][0].sectors[0];
+        sector.n = 0;
+        sector.data.truncate(128);
+        for byte in [0x45, 0, 0, 0, 1, 0, 1, 0x2a, 2] {
+            fdc.write_data(byte);
+        }
+        transfer_write(&mut fdc, &[0x12, 0x34]);
+        assert_eq!(result(&mut fdc), [0x40, 0x80, 0, 1, 0, 1, 0]);
+        let sector = fdc.disks[0]
+            .as_ref()
+            .expect("disk")
+            .sector(0, 0, 1)
+            .expect("sector");
+        assert_eq!(&sector.data[..2], &[0x12, 0x34]);
+        assert!(sector.data[2..].iter().all(|&byte| byte == 0));
+    }
+
+    #[test]
+    fn first_write_request_follows_the_pre_data_gap() {
+        let mut fdc = write_test_fdc(true);
+        send_write(&mut fdc, 0, 0, 0, 1, 1);
+        assert_eq!(fdc.read_status() & 0xf0, 0x30);
+        fdc.write_data(0x99); // No request yet: must not reach the medium.
+        for _ in 0..4331 {
+            fdc.tick(0);
+        }
+        assert_eq!(fdc.read_status() & 0xf0, 0x30);
+        fdc.tick(0);
+        assert_eq!(fdc.read_status() & 0xf0, 0xb0);
+        assert_eq!(
+            fdc.disks[0]
+                .as_ref()
+                .expect("disk")
+                .sector(0, 0, 1)
+                .expect("sector")
+                .data,
+            vec![0xe5; 512]
+        );
+    }
 
     #[test]
     fn initial_state() {

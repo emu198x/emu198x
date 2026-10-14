@@ -284,6 +284,7 @@ impl<V: AmstradVariant> SpectrumAmstradClassCore<V> {
     pub fn reset(&mut self) {
         self.z80 = Z80::new();
         self.memory.reset_paging();
+        self.fdc.reset();
         self.hc = 0;
         self.speaker = SpeakerMixer::default();
     }
