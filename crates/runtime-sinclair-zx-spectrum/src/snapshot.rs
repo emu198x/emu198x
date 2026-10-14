@@ -431,6 +431,85 @@ mod tests {
     }
 
     #[test]
+    fn released_v0330_controller_state_keeps_its_layout_and_continuation() {
+        // Synthetic controller only: captured from 69f80d939, no ROM/CPU/RAM.
+        // Write Data has accepted 180 bytes; the next byte request is ready.
+        let bytes = include_bytes!("../tests/fixtures/upd765-v0330-write.postcard");
+        let mut runtime = SpectrumPlus3Runtime::blank();
+        runtime.machine_mut().fdc = postcard::from_bytes(bytes).expect("released controller state");
+        assert_eq!(
+            postcard::to_allocvec(&runtime.machine().fdc).expect("unchanged encoding"),
+            bytes
+        );
+        let data: Vec<_> = (0..512).map(|i| (i as u8).wrapping_add(71)).collect();
+        send_fdc_bytes(&mut runtime, &data[180..]);
+        assert_eq!(drain_fdc_result(&mut runtime), [0x40, 0x80, 0, 1, 0, 1, 2]);
+        assert_saved_bytes(&mut runtime, &data);
+    }
+
+    fn wait_format(runtime: &mut SpectrumPlus3Runtime, expected: u8) {
+        use common_sinclair_zx_spectrum::peripheral::Peripheral;
+        for _ in 0..800_000 {
+            let status = runtime.machine().fdc.read_status() & 0xf0;
+            if status == expected {
+                return;
+            }
+            assert_ne!(status, 0xd0, "unexpected format result");
+            runtime.machine_mut().fdc.tick(0);
+        }
+        panic!("format request/result deadline exceeded");
+    }
+
+    fn finish_format(runtime: &mut SpectrumPlus3Runtime, rest: &[u8]) {
+        for &byte in rest {
+            wait_format(runtime, 0xb0);
+            runtime.machine_mut().fdc.write_data(byte);
+        }
+        wait_format(runtime, 0xd0);
+        assert_eq!(drain_fdc_result(runtime), [0, 0, 0, 0, 0, 2, 2]);
+        assert_saved_bytes(runtime, &vec![0x6d; 512]);
+    }
+
+    #[test]
+    fn format_snapshot_resumes_every_id_boundary_and_gap_without_source_replay() {
+        use common_sinclair_zx_spectrum::peripheral::Peripheral;
+        // Before any ID, between each ID byte, and during the final fill/gap.
+        for accepted in 0..=4 {
+            let (mut original, source) = writable_sector_runtime(true);
+            send_fdc_command(&mut original, &[0x4d, 0, 2, 1, 0x52, 0x6d]);
+            let ids = [0, 0, 1, 2];
+            for &byte in &ids[..accepted] {
+                wait_format(&mut original, 0xb0);
+                original.machine_mut().fdc.write_data(byte);
+            }
+            for _ in 0..27 {
+                original.machine_mut().fdc.tick(0);
+            }
+            let saved = original.snapshot().expect("format checkpoint");
+            let mut restored = SpectrumPlus3Runtime::blank();
+            restored.restore(&saved).expect("restore format checkpoint");
+            assert_eq!(restored.snapshot().expect("re-encode"), saved);
+            finish_format(&mut original, &ids[accepted..]);
+            finish_format(&mut restored, &ids[accepted..]);
+            assert_eq!(
+                original.snapshot().expect("uninterrupted"),
+                restored.snapshot().expect("resumed")
+            );
+            assert_eq!(
+                restored.disk_images()[0].bytes,
+                source,
+                "source cache is not the formatted media"
+            );
+            let completed = original.snapshot().expect("completed format");
+            let mut reopened = SpectrumPlus3Runtime::blank();
+            reopened
+                .restore(&completed)
+                .expect("restore completed format");
+            assert_saved_bytes(&mut reopened, &vec![0x6d; 512]);
+        }
+    }
+
+    #[test]
     fn protected_mount_stays_protected_after_restore() {
         let (original, _) = writable_sector_runtime(false);
         let saved = original.snapshot().expect("protected snapshot");
