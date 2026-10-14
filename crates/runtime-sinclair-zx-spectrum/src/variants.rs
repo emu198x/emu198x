@@ -1290,6 +1290,15 @@ impl<V: AmstradVariant> SpectrumMachine for SpectrumAmstradClassCore<V> {
     }
 
     fn load_disk_image(&mut self, slot: &str, bytes: &[u8]) -> Result<(), String> {
+        self.load_disk_image_with_writable(slot, bytes, false)
+    }
+
+    fn load_disk_image_with_writable(
+        &mut self,
+        slot: &str,
+        bytes: &[u8],
+        writable: bool,
+    ) -> Result<(), String> {
         if !self.supports_disk_slot(slot) {
             return Err(format!("unsupported disk slot `{slot}`"));
         }
@@ -1298,19 +1307,19 @@ impl<V: AmstradVariant> SpectrumMachine for SpectrumAmstradClassCore<V> {
         // `insert_disk` inherent only exists on Plus3Marker, but the
         // disk-slot guard above proves V::HAS_DISK_SLOT, so the FDC
         // is enabled and accepts the image.
-        self.fdc.insert_disk(0, image);
+        self.fdc.insert_disk_with_writable(0, image, writable);
         Ok(())
     }
 
-    fn reattach_disk_image(&mut self, slot: &str, bytes: &[u8]) -> Result<(), String> {
+    fn reattach_disk_image(&mut self, slot: &str, _bytes: &[u8]) -> Result<(), String> {
         if !self.supports_disk_slot(slot) {
             return Err(format!("unsupported disk slot `{slot}`"));
         }
-        let image = format_amstrad_dsk::parse(bytes)?;
-        // Restore, not insertion: keep the controller's cached read
-        // state, which the snapshot already carried. See
-        // `Upd765a::reattach_disk`.
-        self.fdc.reattach_disk(0, image);
+        // Version 5 carries mounted media, protection and transfer state in
+        // the controller. Replaying the original raw bytes would erase writes.
+        if !self.fdc.has_disk(0) {
+            return Err("snapshot has disk source bytes but no live mounted disk".to_owned());
+        }
         Ok(())
     }
 

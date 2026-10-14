@@ -163,18 +163,27 @@ pub trait SpectrumMachine: Serialize + for<'de> Deserialize<'de> + SpectrumDrive
         Err("this machine has no disk interface".to_owned())
     }
 
-    /// Re-mounts disk-image bytes during a save-state restore,
-    /// preserving controller state that a fresh insertion would
-    /// invalidate. Default: falls back to
-    /// [`load_disk_image`](Self::load_disk_image), which is correct for
-    /// any machine whose controller caches nothing across a mount.
+    /// Load a disk with explicit write permission. The default refuses a
+    /// writable mount unless the variant implements it.
     ///
-    /// Restoring is not inserting. The +3's FDC caches a re-read key,
-    /// re-read count and per-drive `ReadID` rotational position; those
-    /// are carried in the snapshot and must survive the replay that
-    /// re-mounts the image (Seam 3). Routing that replay through
-    /// `load_disk_image` cleared them, so every +3 save state silently
-    /// lost its re-read position.
+    /// # Errors
+    /// Returns an error for unsupported writable mounts or invalid media.
+    fn load_disk_image_with_writable(
+        &mut self,
+        slot: &str,
+        bytes: &[u8],
+        writable: bool,
+    ) -> Result<(), String> {
+        if writable {
+            return Err("this machine does not support writable disk mounts".to_owned());
+        }
+        self.load_disk_image(slot, bytes)
+    }
+
+    /// Restore-time media validation/attachment hook. The +3 validates that
+    /// its serialized controller already has the live disk; it must not
+    /// overwrite that image with the original input bytes. The default loads
+    /// bytes for variants whose media is not part of their serialized state.
     ///
     /// # Errors
     ///
@@ -491,12 +500,9 @@ pub trait SpectrumMachine: Serialize + for<'de> Deserialize<'de> + SpectrumDrive
 }
 
 /// One disk image's raw bytes plus the slot they were loaded into.
-/// The runtime caches these alongside the machine so they survive
-/// snapshot round-trips — the FDC marks its `disks` field
-/// `#[serde(skip)]` (the parsed `DiskImage` is large and not all of
-/// it is reconstructible from disk state alone), so the disk content
-/// would otherwise vanish on restore. See Seam 3 of
-/// `knowledge/decisions/spectrum-architecture-review.md`.
+/// Retained source bytes identify the mounted input. The controller's live
+/// image is authoritative after writes and is serialized with the machine;
+/// these original bytes must not replace it on restore.
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub(crate) struct DiskCacheEntry {
     pub(crate) slot: String,
@@ -509,8 +515,7 @@ pub struct SpectrumRuntime<M: SpectrumMachine> {
     machine: M,
     keyboard: KeyboardMatrix,
     time: MachineTime,
-    /// Mounted disk images, cached as raw bytes so they re-insert
-    /// cleanly into the FDC after a snapshot restore. See Seam 3.
+    /// Original mounted input bytes, retained separately from mutable media.
     disk_images: Vec<DiskCacheEntry>,
 }
 
@@ -643,19 +648,16 @@ impl<M: SpectrumMachine> SpectrumRuntime<M> {
         &self.disk_images
     }
 
-    /// Replaces the cached disk images and re-injects each one into
-    /// the underlying machine. Used by snapshot decoding after
-    /// `after_restore`. Failures are propagated so a malformed cache
-    /// surfaces rather than silently dropping the disk.
+    /// Restore original input metadata and validate the corresponding live
+    /// media. The variant hook must preserve modified serialized images.
     pub(crate) fn restore_disk_images(
         &mut self,
         images: Vec<DiskCacheEntry>,
     ) -> Result<(), MachineError> {
         self.disk_images = images;
         for entry in &self.disk_images {
-            // `reattach_disk_image`, not `load_disk_image`: this is a
-            // restore, so controller state the snapshot already carried
-            // must survive the re-mount. See `SpectrumMachine::reattach_disk_image`.
+            // The +3 validates its already restored live image here;
+            // loading entry.bytes would silently discard its writes.
             self.machine
                 .reattach_disk_image(&entry.slot, &entry.bytes)
                 .map_err(|reason| MachineError::InvalidMedia {
@@ -769,15 +771,13 @@ impl<M: SpectrumMachine> MachineCore for SpectrumRuntime<M> {
                 }
                 MediaKind::Disk if self.machine.supports_disk_slot(slot) => {
                     self.machine
-                        .load_disk_image(slot, image.bytes)
+                        .load_disk_image_with_writable(slot, image.bytes, image.writable)
                         .map_err(|reason| MachineError::InvalidMedia {
                             slot: slot.to_owned(),
                             reason,
                         })?;
-                    // Cache the raw bytes so the disk survives a
-                    // snapshot round-trip (Seam 3). The FDC marks
-                    // `disks` `#[serde(skip)]`; without this cache the
-                    // image would silently vanish on restore.
+                    // Retain original source bytes separately from the live,
+                    // mutable controller image. Restore preserves that image.
                     self.disk_images.retain(|d| d.slot != slot);
                     self.disk_images.push(DiskCacheEntry {
                         slot: slot.to_owned(),

@@ -181,3 +181,20 @@ run→snapshot→restore→run test would close this — tracked as a follow-up.
 - [Amiga disk rotation and DMA arbitration](amiga-disk-dma-fifo-arbitration.md)
 - [Runtime internal shape](runtime-internal-shape.md)
 - [Spectrum architecture review](spectrum-architecture-review.md)
+
+## Spectrum +3 disk-write amendment
+
+The +3 controller now serializes its mounted in-memory images, per-drive write
+permission, and in-flight Write Data state. Retained source bytes remain input
+provenance and must not overwrite the live image during restore. This preserves
+completed writes and the byte deadline/prefix of an interrupted write without
+writing back to any loaded host path.
+
+Spectrum runtime snapshots advance from version 4 to 5. Version 4 is rejected
+before positional payload decode. This compatibility boundary was explicitly
+approved for the bounded ROM SAVE → erase RAM → LOAD qualification. CPC keeps
+its existing version: its current machine does not embed this controller.
+
+Format Track, foreign-format export and a legacy version-4 migration are outside
+this amendment. The remaining disk-work acceptance is tracked in issue #45;
+the bounded Write Data defect is issue #1764.
