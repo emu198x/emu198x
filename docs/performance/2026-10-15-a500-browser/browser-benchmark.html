@@ -1,0 +1,26 @@
+<!doctype html><meta charset="utf-8"><title>A500 frame budget</title><h1>A500 frame budget</h1><button id="run">Measure frames</button><pre id="results">Ready</pre><script type="module">
+const output=document.querySelector('#results');
+document.querySelector('#run').onclick=async()=>{
+ document.querySelector('#run').disabled=true;
+ const report={userAgent:navigator.userAgent,cases:[]};
+ for(const firmware of ['synthetic','kick13']){
+  const worker=new Worker('./worker.js',{type:'module'});let serial=0;const pending=new Map();
+  worker.onmessage=({data})=>{const task=pending.get(data.id);if(!task)return;pending.delete(data.id);clearTimeout(task.timer);data.error?task.reject(new Error(data.error)):task.resolve(data.result);};
+  const rpc=(command,...args)=>new Promise((resolve,reject)=>{const id=++serial;const timer=setTimeout(()=>reject(new Error(command+' timed out')),30000);pending.set(id,{resolve,reject,timer});worker.postMessage({id,command,args});});
+  const entry={firmware,samples:[]};report.cases.push(entry);
+  try{
+   const bytes=new Uint8Array(await(await fetch('./'+firmware+'.rom')).arrayBuffer());
+   const boot=await rpc('boot','amiga',{kickstart:bytes},null,48000,null);entry.frameMs=boot.frameMs;
+   for(let i=0;i<(firmware==='kick13'?300:20);i++)await rpc('step');
+   for(let sample=0;sample<3;sample++){
+    const times=[];let audioSamples=0;
+    for(let i=0;i<120;i++){const now=performance.now();const frame=await rpc('step');times.push(performance.now()-now);if(frame.frames!==1||frame.pixels.length!==frame.width*frame.height*4)throw Error('Incomplete frame');audioSamples+=frame.audio.length;}
+    times.sort((a,b)=>a-b);entry.samples.push({totalMs:times.reduce((a,b)=>a+b,0),p50Ms:times[59],p95Ms:times[113],audioSamples,visibility:document.visibilityState});output.textContent=JSON.stringify(report,null,2);
+   }
+   entry.result='pass';
+  }catch(error){entry.error=String(error);}
+  finally{for(const task of pending.values())clearTimeout(task.timer);worker.terminate();}
+ }
+ report.complete=true;output.textContent=JSON.stringify(report,null,2);
+ await fetch('./result',{method:'POST',body:JSON.stringify(report,null,2)});
+};</script>

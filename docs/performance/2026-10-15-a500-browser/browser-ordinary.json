@@ -1,0 +1,62 @@
+{
+  "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36",
+  "cases": [
+    {
+      "firmware": "synthetic",
+      "samples": [
+        {
+          "totalMs": 3062.5999999046326,
+          "p50Ms": 24.700000047683716,
+          "p95Ms": 29.799999952316284,
+          "audioSamples": 230030,
+          "visibility": "visible"
+        },
+        {
+          "totalMs": 3011.100000143051,
+          "p50Ms": 24.700000047683716,
+          "p95Ms": 27.799999952316284,
+          "audioSamples": 230030,
+          "visibility": "visible"
+        },
+        {
+          "totalMs": 2871.399999856949,
+          "p50Ms": 23.399999856948853,
+          "p95Ms": 26.700000047683716,
+          "audioSamples": 230030,
+          "visibility": "visible"
+        }
+      ],
+      "frameMs": 19.967887405745024,
+      "result": "pass"
+    },
+    {
+      "firmware": "kick13",
+      "samples": [
+        {
+          "totalMs": 3070.599999666214,
+          "p50Ms": 25.5,
+          "p95Ms": 26,
+          "audioSamples": 230030,
+          "visibility": "visible"
+        },
+        {
+          "totalMs": 3174.600000143051,
+          "p50Ms": 25.699999809265137,
+          "p95Ms": 26.700000047683716,
+          "audioSamples": 230030,
+          "visibility": "visible"
+        },
+        {
+          "totalMs": 3312.4999997615814,
+          "p50Ms": 26.800000190734863,
+          "p95Ms": 31.5,
+          "audioSamples": 230030,
+          "visibility": "visible"
+        }
+      ],
+      "frameMs": 19.967887405745024,
+      "result": "pass"
+    }
+  ],
+  "complete": true
+}

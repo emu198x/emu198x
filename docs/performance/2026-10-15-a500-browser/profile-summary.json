@@ -1,0 +1,130 @@
+{
+  "sample_count": 7738,
+  "hot_functions": [
+    {
+      "function": "<machine_commodore_amiga_ocs[a7662481141dcfad]::AmigaOcs as common_commodore_amiga[468614423c15f3bd]::driver::AmigaDriver>::advance_cpu_domain",
+      "samples": 1160,
+      "self_percent": 14.99
+    },
+    {
+      "function": "<commodore_denise_ocs[e2f06ccf3adcad5b]::chip::DeniseOcs>::output_pixel_with_beam_n_source_samples",
+      "samples": 1113,
+      "self_percent": 14.38
+    },
+    {
+      "function": "<machine_commodore_amiga_ocs[a7662481141dcfad]::AmigaOcs as common_commodore_amiga[468614423c15f3bd]::driver::AmigaDriver>::denise_tick_with_dma",
+      "samples": 1084,
+      "self_percent": 14.01
+    },
+    {
+      "function": "<commodore_denise_ocs[e2f06ccf3adcad5b]::chip::DeniseOcs>::step_sprite_runtime_one_pixel",
+      "samples": 490,
+      "self_percent": 6.33
+    },
+    {
+      "function": "<runtime_commodore_amiga[b8d5e7526a210e4d]::runtime::AmigaRuntime<machine_commodore_amiga_ocs[a7662481141dcfad]::AmigaOcs>>::update_rgba_framebuffer",
+      "samples": 287,
+      "self_percent": 3.71
+    },
+    {
+      "function": "<emu198x_commodore_paula_8364[c8408d2534b3047e]::Paula8364>::mix_audio_stereo",
+      "samples": 283,
+      "self_percent": 3.66
+    },
+    {
+      "function": "<runtime_commodore_amiga[b8d5e7526a210e4d]::variants::AmigaRuntimeKind as emu198x_shell[1f7c7ea1a1faa87e]::machine::MachineCore>::run_until",
+      "samples": 221,
+      "self_percent": 2.86
+    },
+    {
+      "function": "<commodore_agnus_ocs[7c6ad4505ee7e70]::ddf::DisplayDmaSequencer>::tick",
+      "samples": 218,
+      "self_percent": 2.82
+    },
+    {
+      "function": "<motorola_68000[b9d8c0f0f2b09621]::cpu::Cpu68000>::tick",
+      "samples": 166,
+      "self_percent": 2.15
+    },
+    {
+      "function": "<commodore_agnus_ocs[7c6ad4505ee7e70]::agnus::Agnus>::generate_display_dma_request",
+      "samples": 154,
+      "self_percent": 1.99
+    },
+    {
+      "function": "<commodore_agnus_ocs[7c6ad4505ee7e70]::agnus::Agnus>::tick_cck_with_variant_timing",
+      "samples": 127,
+      "self_percent": 1.64
+    },
+    {
+      "function": "compiler_builtins[46262d27d817fb3b]::int::specialized_div_rem::u128_div_rem",
+      "samples": 122,
+      "self_percent": 1.58
+    },
+    {
+      "function": "<motorola_68000[b9d8c0f0f2b09621]::cpu::Cpu68000>::process_instant_ops",
+      "samples": 105,
+      "self_percent": 1.36
+    },
+    {
+      "function": "<commodore_agnus_ocs[7c6ad4505ee7e70]::agnus::Agnus>::cck_bus_plan_with_vertical_timing",
+      "samples": 90,
+      "self_percent": 1.16
+    },
+    {
+      "function": "<commodore_gary[d2f2ab402571e77d]::Gary>::decode",
+      "samples": 83,
+      "self_percent": 1.07
+    },
+    {
+      "function": "<commodore_denise_ocs[e2f06ccf3adcad5b]::chip::DeniseOcs>::shift_playfield_group_source_pixel",
+      "samples": 78,
+      "self_percent": 1.01
+    },
+    {
+      "function": "<commodore_denise_ocs[e2f06ccf3adcad5b]::chip::DeniseOcs>::resolve_color_rgb12",
+      "samples": 75,
+      "self_percent": 0.97
+    },
+    {
+      "function": "<commodore_agnus_ocs[7c6ad4505ee7e70]::agnus::Agnus>::begin_dma_cck",
+      "samples": 70,
+      "self_percent": 0.9
+    },
+    {
+      "function": "<emu198x_shell[1f7c7ea1a1faa87e]::audio::band_limited::BandLimitedStereo>::observe",
+      "samples": 68,
+      "self_percent": 0.88
+    },
+    {
+      "function": "<machine_commodore_amiga_ocs[a7662481141dcfad]::AmigaOcs as common_commodore_amiga[468614423c15f3bd]::driver::AmigaDriver>::dispatch_bus",
+      "samples": 67,
+      "self_percent": 0.87
+    },
+    {
+      "function": "<runtime_commodore_amiga[b8d5e7526a210e4d]::runtime::AmigaRuntime<machine_commodore_amiga_ocs[a7662481141dcfad]::AmigaOcs>>::sample_audio_after_tick",
+      "samples": 65,
+      "self_percent": 0.84
+    },
+    {
+      "function": "<commodore_denise_ocs[e2f06ccf3adcad5b]::chip::DeniseOcs>::apply_pending_shift_load_if_due",
+      "samples": 64,
+      "self_percent": 0.83
+    },
+    {
+      "function": "<machine_commodore_amiga_ocs[a7662481141dcfad]::AmigaOcs as common_commodore_amiga[468614423c15f3bd]::driver::AmigaDriver>::advance_cpu_domain",
+      "samples": 58,
+      "self_percent": 0.75
+    },
+    {
+      "function": "<common_commodore_amiga[468614423c15f3bd]::memory::Memory>::peek_byte_inner",
+      "samples": 55,
+      "self_percent": 0.71
+    },
+    {
+      "function": "<commodore_agnus_ocs[7c6ad4505ee7e70]::agnus::Agnus>::generate_display_dma",
+      "samples": 51,
+      "self_percent": 0.66
+    }
+  ]
+}

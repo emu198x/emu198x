@@ -220,7 +220,17 @@ impl CpuClock {
 
     /// Advance by one system tick and return the CPU edges it produces.
     pub fn edges_for_tick(&mut self) -> u64 {
-        self.edges_for_ticks(1)
+        // A reduced integral rate always has zero phase. Most machines use
+        // this path; no wide division is needed on each system tick.
+        if self.denominator == 1 {
+            return self.numerator;
+        }
+        let (total, overflow) = self.phase.overflowing_add(self.numerator);
+        if overflow {
+            return self.edges_for_ticks(1);
+        }
+        self.phase = total % self.denominator;
+        total / self.denominator
     }
 
     /// Advance by a chunk of system ticks and return the CPU edges produced.
@@ -430,6 +440,28 @@ mod tests {
 
         assert_eq!(actual, expected);
         assert_eq!(chunked.phase(), per_tick.phase());
+    }
+
+    #[test]
+    fn single_tick_matches_chunk_arithmetic_at_clock_boundaries() {
+        for (numerator, denominator) in [
+            (0, 1),
+            (1, 1),
+            (2, 1),
+            (u64::MAX, 1),
+            (5, 2),
+            (4_000_000, 709_379),
+            (u64::MAX, 2),
+            (u64::MAX, u64::MAX - 1),
+            (u64::MAX - 1, u64::MAX),
+        ] {
+            let mut single = CpuClock::from_ratio(numerator, denominator);
+            let mut chunked = single;
+            for _ in 0..256 {
+                assert_eq!(single.edges_for_tick(), chunked.edges_for_ticks(1));
+                assert_eq!(single, chunked);
+            }
+        }
     }
 
     #[test]
