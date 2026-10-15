@@ -1,0 +1,11 @@
+# A500 browser frame budget (#1775)
+
+Lane: engineering-frontier work, shared browser/runtime profiling. Preserve the master-clock, signal-level CPU, media and snapshot contracts in RULES.md. No fidelity shortcuts, new dependencies or architecture changes are authorised by this plan.
+
+1. Reproduce on clean released source `1573f8bf3c0984d3c73729efe1e4d00edd03a42d`. Build only `emu198x-commodore-web` with the existing locked offline toolchain and matching installed wasm-bindgen. Reuse the audit's synthetic A500+A501 ROM and one-RPC-at-a-time workload. Record exact native/WASM/module/input identities and warm samples.
+2. Profile runtime stepping, frame conversion, audio drain and JS copies separately in an audit harness under `docs/performance/2026-10-15-a500-browser/`. Use Node/V8 CPU sampling for the same WASM module and explicit browser measurements; distinguish those environments. Compare native `Commodore` checkpoints using `crates/emu198x-commodore-web/examples/parity.rs`. Use local manufacturer firmware/software for a separate workload where available, never commit it.
+3. Identify one measured cause before editing production code. Prefer a bounded correction in the existing host/runtime path. If the change touches CPU/chip/timing behaviour, consult the relevant vendored reference and decision first; if it needs a new architecture or scope change, stop and agree that design.
+4. Verify unchanged native/WASM frame hashes, audio counts/energy, input schedule, save/restore and rejection/recovery. Run the relevant existing host/runtime tests and Clippy. Re-run the browser workload and an authentic boot/software workload, retaining before/after costs and limitations. Update #1775 truthfully: a partial improvement alone does not establish real-time release readiness.
+5. Push and land a bounded PR through the project's existing workflow, then run the next joined audit batch alongside the assembler fixes. File new reproducible issues without duplicates. Keep #1771/#1774 open for untested hosts, remaining blockers and other acceptance.
+
+Use isolated worktree/build/scratch directories. Retain durable measurements in the evidence folder and PR, verify the remote commit, then stop task servers/workers and remove temporary worktrees/build caches.

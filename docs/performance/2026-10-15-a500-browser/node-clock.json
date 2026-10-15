@@ -1,0 +1,32 @@
+{
+  "node": "v24.9.0",
+  "wasm_sha256": "c3251b1ad6b7ab4d7a699821651d34c87e7df211497b83d4a5a5d6c016f75af8",
+  "firmware_sha256": "de11687e117f61b772f5eb58f9d6b3c257a19d4031bda77ba4b7572d7abe8b94",
+  "frames": 120,
+  "frameMs": 19.967887405745024,
+  "samples": [
+    {
+      "stepMs": 2783.1684179999984,
+      "pixelsMs": 30.869748000000527,
+      "audioMs": 1.1103350000003047,
+      "audioSamples": 230030,
+      "audioEnergy": 0
+    },
+    {
+      "stepMs": 2772.383832000001,
+      "pixelsMs": 23.971330999997917,
+      "audioMs": 0.7420869999959905,
+      "audioSamples": 230030,
+      "audioEnergy": 0
+    },
+    {
+      "stepMs": 2849.8061739999903,
+      "pixelsMs": 23.69037500000377,
+      "audioMs": 0.8080369999961476,
+      "audioSamples": 230030,
+      "audioEnergy": 0
+    }
+  ],
+  "frame_sha256": "e3cf07922cc060f7a2a6b35844fd62ed40e27f908933a74c387ea90b38a1abd7",
+  "save_restore": "pass"
+}
