@@ -18,6 +18,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     env:
+      C64_PATTERN_RUN_LABEL: c64-pattern-${{ github.run_id }}-${{ github.run_attempt }}
       SAMPLES_REVISION: '163e74e18e9536fb555ef7319fa08bbc1836542b'
       ASM198X_TAG: asm198x-v0.0.65
       EMU198X_TAG: v0.34.0
@@ -94,6 +95,7 @@ jobs:
           #!/bin/bash
           set -euo pipefail
           exec docker run --rm --pull=never --network none --platform linux/amd64 \
+            --label "emu198x.c64-pattern-run=$C64_PATTERN_RUN_LABEL" \
             -v "$C64_PATTERN_OUTPUT:$C64_PATTERN_OUTPUT" --workdir "$(pwd)" \
             --entrypoint /usr/bin/acme "$C64_REFERENCE_IMAGE" "$@"
           SH
@@ -101,6 +103,7 @@ jobs:
           #!/bin/bash
           set -euo pipefail
           exec docker run --rm --pull=never --network none --platform linux/amd64 \
+            --label "emu198x.c64-pattern-run=$C64_PATTERN_RUN_LABEL" \
             -v "$C64_PATTERN_OUTPUT:$C64_PATTERN_OUTPUT" \
             -v "$EMU198X_C64_ROM_DIR:$EMU198X_C64_ROM_DIR:ro" --workdir "$C64_PATTERN_OUTPUT" \
             --entrypoint /usr/bin/x64sc "$C64_REFERENCE_IMAGE" "$@" \
@@ -154,5 +157,11 @@ jobs:
         if: always()
         shell: bash
         run: |
+          set -euo pipefail
+          docker ps -aq --filter "label=emu198x.c64-pattern-run=$C64_PATTERN_RUN_LABEL" | xargs -r docker rm -f
           rm -rf "$RUNNER_TEMP/c64-pattern-roms" "$RUNNER_TEMP/c64-pattern-delivery" \
             "$RUNNER_TEMP/c64-pattern-output" "$RUNNER_TEMP/c64-pattern-tools"
+          for name in roms delivery output tools; do
+            test ! -e "$RUNNER_TEMP/c64-pattern-$name"
+          done
+          test -z "$(docker ps -aq --filter "label=emu198x.c64-pattern-run=$C64_PATTERN_RUN_LABEL")"
