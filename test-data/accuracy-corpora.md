@@ -711,3 +711,36 @@ with the canonical disk explicitly selected through
 - [Amiga Paula-audio conformance](../knowledge/processes/amiga-paula-audio-conformance.md)
 - [Amiga Paula stereo routing](../knowledge/decisions/amiga-paula-stereo-routing.md)
 - [Test ROM bundling policy](../knowledge/decisions/test-rom-policy.md)
+
+## C64 sprite pattern CI
+
+The [C64 pattern workflow](../.github/workflows/c64-pattern.yml) reuses this
+repository's corpus credential to test a fixed, reviewed Code198x samples
+revision. Canonical pushes and same-repository PRs run the job; fork PRs do
+not receive private-corpus access. Missing configuration on a runnable job
+fails rather than reporting a runtime pass. It does not automatically gate
+changes in the samples repository.
+
+Only `basic.rom`, `kernal.rom`, `chargen.rom` and `1541.rom` are extracted
+from `catalogue-c64.tar.zst`. The delivery checksum must be present exactly
+once and match. `scripts/check-c64-pattern-roms.py` independently pins each
+image's size and SHA-256 and rejects missing and one-bit-modified ROM controls.
+No ROMs, archive, logs or RAM dumps are uploaded: the artefact allow-list
+contains only the verifier's result JSON and a companion identity report.
+
+Python 3.14 runs the unchanged twenty-capture sprite verifier with published
+Asm198x 0.0.65 and Emu198x C64 0.34.0 binaries. The digest-pinned existing
+Code198x C64 build image supplies ACME 0.97 and VICE 3.7.1, invoked in
+network-disabled containers. VICE 3.7.1 is older than the separate retained
+macOS 3.10 run; it is a distinct reference observation, not an upgrade of that
+record. Reusing the existing fixed image makes this lane reproducible without
+adding a package installer. Its update needs a fresh comparison.
+
+The observer records the reference launchers' hashes. The companion report
+separately records the image, actual ACME/VICE binary hashes and versions,
+release archives, firmware identities, host and selected source revisions.
+All twenty engine/model/case combinations and the missing-X-high-bit picture
+control are required. Source/observer code is pinned rather than rewritten;
+raw captures, ROMs and release downloads are removed after the run. JSON
+artefacts have 14-day retention. This covers the declared PAL/NTSC sprite
+cases, not physical hardware, DMA cycle cost or all C64 variants.

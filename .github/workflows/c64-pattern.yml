@@ -1,0 +1,158 @@
+name: C64 pattern evidence
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  c64-sprites:
+    name: C64 sprites against VICE (private firmware)
+    # The corpus credential stays here. No caller-supplied samples revision,
+    # fork code, or pull_request_target execution gets access to it.
+    if: github.repository == 'emu198x/emu198x' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      SAMPLES_REVISION: '163e74e18e9536fb555ef7319fa08bbc1836542b'
+      ASM198X_TAG: asm198x-v0.0.65
+      EMU198X_TAG: v0.34.0
+      ASM198X_ARCHIVE_SHA256: '02cd6c868f100a37d46fe6283927b13583594e620f966c0865f3f0a705f2d20e'
+      EMU198X_ARCHIVE_SHA256: '59967260d98a7917114d6610eb9d5af117a1d024443359ab3c654fe2de2e874e'
+      C64_REFERENCE_IMAGE: ghcr.io/code198x/commodore-64@sha256:d8af97adcd85e1cde502c994173a08a9932d6b96236994159f71097eec8676c5
+      CORPORA_REPO: ${{ vars.ACCURACY_CORPORA_REPO }}
+      CORPORA_TAG: ${{ vars.ACCURACY_CORPORA_TAG || 'v1' }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v7
+        with:
+          repository: code198x/code-samples
+          ref: ${{ env.SAMPLES_REVISION }}
+          path: code-samples
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.14'
+      - name: Provision only the required private firmware
+        env:
+          GH_TOKEN: ${{ secrets.ACCURACY_CORPORA_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$GH_TOKEN" && test -n "$CORPORA_REPO" || { echo '::error::Private corpus is not configured; no C64 runtime pass'; exit 1; }
+          delivery="$RUNNER_TEMP/c64-pattern-delivery"
+          mkdir -p "$delivery" "$RUNNER_TEMP/c64-pattern-roms" "$RUNNER_TEMP/c64-pattern-evidence"
+          timeout 60 gh release download "$CORPORA_TAG" --repo "$CORPORA_REPO" \
+            --pattern catalogue-c64.tar.zst --pattern SHA256SUMS --dir "$delivery"
+          python - <<'PY'
+          import hashlib
+          import os
+          from pathlib import Path
+          root = Path(os.environ["RUNNER_TEMP"]) / "c64-pattern-delivery"
+          entries = [line.split() for line in (root / "SHA256SUMS").read_text().splitlines() if line.split() and line.split()[-1].lstrip("*") == "catalogue-c64.tar.zst"]
+          if len(entries) != 1:
+              raise ValueError("Expected one C64 archive checksum")
+          digest = hashlib.sha256((root / "catalogue-c64.tar.zst").read_bytes()).hexdigest()
+          if digest != entries[0][0]:
+              raise ValueError("Private C64 archive checksum differs")
+          (Path(os.environ["RUNNER_TEMP"]) / "c64-pattern-evidence/corpus-archive.sha256").write_text(digest + "\n")
+          PY
+          tar --zstd -xf "$delivery/catalogue-c64.tar.zst" -C "$RUNNER_TEMP/c64-pattern-roms" --strip-components=3 \
+            catalogue-c64/roms/commodore-c64/basic.rom catalogue-c64/roms/commodore-c64/kernal.rom \
+            catalogue-c64/roms/commodore-c64/chargen.rom catalogue-c64/roms/commodore-c64/1541.rom
+          python scripts/check-c64-pattern-roms.py --rom-dir "$RUNNER_TEMP/c64-pattern-roms" --output "$RUNNER_TEMP/c64-pattern-evidence/firmware.json"
+          echo "EMU198X_C64_ROM_DIR=$RUNNER_TEMP/c64-pattern-roms" >> "$GITHUB_ENV"
+      - name: Verify released tools and prepare independent reference launchers
+        shell: bash
+        run: |
+          set -euo pipefail
+          tools="$RUNNER_TEMP/c64-pattern-tools"
+          mkdir -p "$tools/bin" "$RUNNER_TEMP/c64-pattern-output"
+          cd "$tools"
+          asm_archive=asm198x-x86_64-unknown-linux-gnu.tar.xz
+          emu_archive=emu198x-c64-x86_64-unknown-linux-gnu.tar.gz
+          curl --fail --silent --show-error --location --max-time 45 "https://github.com/asm198x/asm198x/releases/download/$ASM198X_TAG/$asm_archive" -o "$asm_archive"
+          curl --fail --silent --show-error --location --max-time 45 "https://github.com/emu198x/emu198x/releases/download/$EMU198X_TAG/$emu_archive" -o "$emu_archive"
+          printf '%s  %s\n' "$ASM198X_ARCHIVE_SHA256" "$asm_archive" | sha256sum --check --strict
+          printf '%s  %s\n' "$EMU198X_ARCHIVE_SHA256" "$emu_archive" | sha256sum --check --strict
+          if printf '%064d  %s\n' 0 "$asm_archive" | sha256sum --check --status; then
+            echo 'Checksum control accepted an incorrect digest' >&2
+            exit 1
+          fi
+          tar -xJf "$asm_archive"
+          tar -xzf "$emu_archive"
+          install -m 755 asm198x-x86_64-unknown-linux-gnu/asm198x bin/asm198x
+          install -m 755 emu198x-c64-x86_64-unknown-linux-gnu/emu198x-c64 bin/emu198x-c64
+          docker pull --platform linux/amd64 "$C64_REFERENCE_IMAGE"
+          cat > bin/acme-reference <<'SH'
+          #!/bin/bash
+          set -euo pipefail
+          exec docker run --rm --pull=never --network none --platform linux/amd64 \
+            -v "$C64_PATTERN_OUTPUT:$C64_PATTERN_OUTPUT" --workdir "$(pwd)" \
+            --entrypoint /usr/bin/acme "$C64_REFERENCE_IMAGE" "$@"
+          SH
+          cat > bin/vice-reference <<'SH'
+          #!/bin/bash
+          set -euo pipefail
+          exec docker run --rm --pull=never --network none --platform linux/amd64 \
+            -v "$C64_PATTERN_OUTPUT:$C64_PATTERN_OUTPUT" \
+            -v "$EMU198X_C64_ROM_DIR:$EMU198X_C64_ROM_DIR:ro" --workdir "$C64_PATTERN_OUTPUT" \
+            --entrypoint /usr/bin/x64sc "$C64_REFERENCE_IMAGE" "$@" \
+            -kernal "$EMU198X_C64_ROM_DIR/kernal.rom" -basic "$EMU198X_C64_ROM_DIR/basic.rom" \
+            -chargen "$EMU198X_C64_ROM_DIR/chargen.rom" -dos1541 "$EMU198X_C64_ROM_DIR/1541.rom"
+          SH
+          chmod 755 bin/acme-reference bin/vice-reference
+          echo "C64_PATTERN_OUTPUT=$RUNNER_TEMP/c64-pattern-output" >> "$GITHUB_ENV"
+          echo "$tools/bin" >> "$GITHUB_PATH"
+      - name: Execute all twenty captures and the missing-X-bit mutation
+        run: |
+          python code-samples/commodore-64/patterns/assembly/rendering/hardware-sprites/verification/verify.py \
+            --assembler "$RUNNER_TEMP/c64-pattern-tools/bin/asm198x" \
+            --emulator "$RUNNER_TEMP/c64-pattern-tools/bin/emu198x-c64" \
+            --acme "$RUNNER_TEMP/c64-pattern-tools/bin/acme-reference" \
+            --vice "$RUNNER_TEMP/c64-pattern-tools/bin/vice-reference" \
+            --output "$C64_PATTERN_OUTPUT"
+      - name: Verify exact coverage and retain only safe evidence
+        shell: bash
+        run: |
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          import platform
+          import subprocess
+          from pathlib import Path
+          output = Path(os.environ["C64_PATTERN_OUTPUT"])
+          result = json.loads((output / "results.json").read_text())
+          expected = {(x, seed, engine, model) for x, seed in [(160,0),(24,170),(255,84),(256,170),(296,84)] for engine in ["emu","vice"] for model in ["pal","ntsc"]}
+          actual = {(r["x"],r["seed"],r["engine"],r["model"]) for r in result["checks"]}
+          if len(result["checks"]) != 20 or actual != expected or not result["negative_control"].startswith("wrong pixels:"):
+              raise ValueError("Expected twenty distinct captures and a rejected X-high-bit picture")
+          reference = subprocess.run(["docker","run","--rm","--pull=never","--network","none","--platform","linux/amd64","--entrypoint","/bin/bash",os.environ["C64_REFERENCE_IMAGE"],"-ec","sha256sum /usr/bin/acme /usr/bin/x64sc; acme --version; x64sc -version"], check=True, capture_output=True, text=True, timeout=30).stdout
+          evidence = Path(os.environ["RUNNER_TEMP"]) / "c64-pattern-evidence"
+          firmware = json.loads((evidence / "firmware.json").read_text())
+          report = {"emulator_repository_revision":os.environ["GITHUB_SHA"],"samples_revision":os.environ["SAMPLES_REVISION"],"host":platform.platform(),"python":platform.python_version(),"release_tags":{"asm198x":os.environ["ASM198X_TAG"],"emu198x-c64":os.environ["EMU198X_TAG"]},"release_archive_sha256":{"asm198x":os.environ["ASM198X_ARCHIVE_SHA256"],"emu198x-c64":os.environ["EMU198X_ARCHIVE_SHA256"]},"reference_image":os.environ["C64_REFERENCE_IMAGE"],"reference_binary_hashes_and_versions":reference,"firmware":firmware,"corpus_archive_sha256":(evidence / "corpus-archive.sha256").read_text().strip(),"corpus_tag":os.environ["CORPORA_TAG"],"incorrect_checksum_rejected":True,"limits":"Twenty PAL/NTSC single-colour sprite captures; not hardware, cycle-cost or all-variant qualification. Observer tool hashes identify reference launchers; this report separately identifies actual ACME/VICE binaries and image. Tests a pinned reviewed samples revision, not every samples PR. Fork PRs do not run the private-firmware job."}
+          (evidence / "release-inputs.json").write_text(json.dumps(report,indent=2)+"\n")
+          (evidence / "results.json").write_text(json.dumps(result,indent=2)+"\n")
+          PY
+      - uses: actions/upload-artifact@v7
+        if: success()
+        with:
+          name: c64-pattern-evidence
+          path: |
+            ${{ runner.temp }}/c64-pattern-evidence/results.json
+            ${{ runner.temp }}/c64-pattern-evidence/release-inputs.json
+          if-no-files-found: error
+          retention-days: 14
+      - name: Remove private firmware and disposable output
+        if: always()
+        shell: bash
+        run: |
+          rm -rf "$RUNNER_TEMP/c64-pattern-roms" "$RUNNER_TEMP/c64-pattern-delivery" \
+            "$RUNNER_TEMP/c64-pattern-output" "$RUNNER_TEMP/c64-pattern-tools"
