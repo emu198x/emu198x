@@ -1,16 +1,19 @@
-<!doctype html><meta charset="utf-8"><title>A500 frame budget</title><h1>A500 frame budget</h1><button id="run">Measure frames</button><pre id="results">Ready</pre><script type="module">
+<!doctype html><meta charset="utf-8"><title>A500 identified build comparison</title><h1>A500 frame budget</h1><button id="run">Measure frames</button><pre id="results">Ready</pre><script type="module">
 const output=document.querySelector('#results');
 document.querySelector('#run').onclick=async()=>{
  document.querySelector('#run').disabled=true;
  const report={userAgent:navigator.userAgent,cases:[]};
- for(const firmware of ['synthetic','kick13']){
-  const worker=new Worker('./worker.js',{type:'module'});let serial=0;const pending=new Map();
+ const hash=async bytes=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes))).map(x=>x.toString(16).padStart(2,'0')).join('');
+ for(const build of ['before','clock'])for(const firmware of ['synthetic','kick13']){
+  const prefix='./'+build+'-player/';
+  const wasm=await(await fetch(prefix+'modules/commodore/emu198x_commodore_web_bg.wasm',{cache:'no-store'})).arrayBuffer();
+  const worker=new Worker(prefix+'worker.js',{type:'module'});let serial=0;const pending=new Map();
   worker.onmessage=({data})=>{const task=pending.get(data.id);if(!task)return;pending.delete(data.id);clearTimeout(task.timer);data.error?task.reject(new Error(data.error)):task.resolve(data.result);};
   const rpc=(command,...args)=>new Promise((resolve,reject)=>{const id=++serial;const timer=setTimeout(()=>reject(new Error(command+' timed out')),30000);pending.set(id,{resolve,reject,timer});worker.postMessage({id,command,args});});
-  const entry={firmware,samples:[]};report.cases.push(entry);
+  const entry={build,wasm_sha256:await hash(wasm),firmware,samples:[]};report.cases.push(entry);
   try{
    const bytes=new Uint8Array(await(await fetch('./'+firmware+'.rom')).arrayBuffer());
-   const boot=await rpc('boot','amiga',{kickstart:bytes},null,48000,null);entry.frameMs=boot.frameMs;
+   const boot=await rpc('boot','amiga',{kickstart:bytes},null,48000,null);entry.frameMs=boot.frameMs;entry.firmware_sha256=await hash(bytes);
    for(let i=0;i<(firmware==='kick13'?300:20);i++)await rpc('step');
    for(let sample=0;sample<3;sample++){
     const times=[];let audioSamples=0;

@@ -17,10 +17,12 @@ The profile has 7,738 V8 samples (`profile-summary.json`). CPU-domain advancemen
 | Environment/workload | Baseline, three 120-frame step totals | Clock change |
 | --- | --- | --- |
 | Node, synthetic (step only) | 2.967 / 2.942 / 2.951 s | 2.783 / 2.772 / 2.850 s |
-| Ordinary Chrome tab, synthetic (worker round trip) | 3.063 / 3.011 / 2.871 s | 2.640 / 2.654 / 2.665 s |
-| Ordinary Chrome tab, Kickstart 1.3 | 3.071 / 3.175 / 3.312 s | 2.946 / 2.954 / 2.992 s |
+| Ordinary Chrome tab, synthetic (identified worker builds) | 2.848 / 2.985 / 2.909 s | 2.783 / 2.691 / 2.657 s |
+| Ordinary Chrome tab, Kickstart 1.3 (identified worker builds) | 3.141 / 3.319 / 3.164 s | 3.038 / 3.096 / 5.723 s |
 
-The 120-frame budget is 2.396 seconds. Both browser workloads still exceed it. Node final frame SHA-256 and each 230,030-sample measurement agree before/after; synthetic audio is silent and does not establish audible Paula correctness.
+The browser table uses `browser-identified-comparison.json`: each build has a distinct worker/module URL prefix, and its recorded SHA-256 must match the corresponding Node module identity. The earlier `browser-clock.json` reused module URLs and received HTTP 304 responses; it is exploratory, cache-ambiguous evidence and **must not be used to quantify the change**.
+
+The 120-frame budget is 2.396 seconds. Both browser workloads still exceed it. The synthetic identified-build samples and Node samples show a bounded improvement. The Kickstart samples have substantial variation, including the retained 5.723-second outlier; no precise manufacturer-firmware speedup is established. Node final frame SHA-256 and each 230,030-sample measurement agree before/after; synthetic audio is silent and does not establish audible Paula correctness.
 
 Full LTO, SIMD, forced inlining of the large pixel routine, and an inactive-sprite shortcut gave no useful additional gain in these probes and were discarded. The retained patch is only the clock calculation. A cached wasm-opt 117 experiment was also discarded; its run overlapped compilation and establishes no performance conclusion. No new optimizer dependency or feature requirement was added.
 
@@ -32,6 +34,6 @@ Full LTO, SIMD, forced inlining of the large pixel routine, and an inactive-spri
 
 Build/generated module directories are supplied to `profile.mjs` and `parity.mjs`; scripts do not download tools or firmware. Run the native `emu198x-commodore-web` `parity` example with the same synthetic firmware and give its JSON to `parity.mjs`.
 
-For browser reproduction, serve `browser-benchmark.html` on loopback beside `worker.js`, `modules/commodore/{emu198x_commodore_web.js,emu198x_commodore_web_bg.wasm}`, `synthetic.rom` and your own local `kick13.rom`. The benchmark posts JSON to `./result`; a local receiver can retain it. Do not attach DevTools or a browser automation debugger to the measured tab. Start it through the ordinary page button. Its times exclude canvas presentation and audible output. No firmware belongs in committed evidence.
+For browser reproduction, serve `browser-benchmark.html` on loopback beside `synthetic.rom` and your own local `kick13.rom`. Create separate `before-player/` and `clock-player/` directories, each containing the unchanged `worker.js` and that build's `modules/commodore/{emu198x_commodore_web.js,emu198x_commodore_web_bg.wasm}`. The harness hashes the module and firmware bytes and never reuses the other build's URL. The benchmark posts JSON to `./result`; a local receiver can retain it. Do not attach DevTools or a browser automation debugger to the measured tab. Start it through the ordinary page button. Its times exclude canvas presentation and audible output. No firmware belongs in committed evidence.
 
 Remaining work is a dedicated graphics/CPU-domain profiling campaign with real software and browser presentation/audio checks; #1775 stays open.
