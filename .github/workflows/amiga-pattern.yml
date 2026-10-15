@@ -1,0 +1,273 @@
+name: Amiga pattern evidence
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  paula-sample:
+    name: A500 Paula sample (private firmware)
+    if: github.repository == 'emu198x/emu198x' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      AMIGA_PATTERN_RUN_LABEL: amiga-pattern-${{ github.run_id }}-${{ github.run_attempt }}
+      SAMPLES_REVISION: '163e74e18e9536fb555ef7319fa08bbc1836542b'
+      ASM198X_TAG: asm198x-v0.0.65
+      BUILD198X_TAG: build198x-v0.2.11
+      EMU198X_TAG: v0.34.1
+      ASM198X_ARCHIVE_SHA256: '02cd6c868f100a37d46fe6283927b13583594e620f966c0865f3f0a705f2d20e'
+      BUILD198X_ARCHIVE_SHA256: 'e7f9f26f08d08789874b9208d3287caf6eab92d6eb05412d156817e14ad6f753'
+      EMU198X_ARCHIVE_SHA256: '712a431b6f1c45d437134307aa841984ee23477e0eb985835ce657774b0a4d33'
+      AMIGA_REFERENCE_IMAGE: ghcr.io/code198x/commodore-amiga@sha256:5b51260b96dce5a1c8ce138da201c7d7c65679a0ca90aa5ecd689acdd7d11c17
+      CORPORA_REPO: ${{ vars.ACCURACY_CORPORA_REPO }}
+      CORPORA_TAG: ${{ vars.ACCURACY_CORPORA_TAG || 'v1' }}
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v7
+        with:
+          repository: code198x/code-samples
+          ref: ${{ env.SAMPLES_REVISION }}
+          path: code-samples
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.14'
+      - name: Provision only the required private firmware
+        env:
+          GH_TOKEN: ${{ secrets.ACCURACY_CORPORA_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$GH_TOKEN" && test -n "$CORPORA_REPO" || { echo '::error::Private corpus is not configured; no Amiga runtime pass'; exit 1; }
+          delivery="$RUNNER_TEMP/amiga-pattern-delivery"
+          mkdir -p "$delivery" "$RUNNER_TEMP/amiga-pattern-roms" "$RUNNER_TEMP/amiga-pattern-evidence"
+          timeout 60 gh release download "$CORPORA_TAG" --repo "$CORPORA_REPO" \
+            --pattern amiga-accuracy.tar.zst --pattern SHA256SUMS --dir "$delivery"
+          python - <<'PY'
+          import hashlib
+          import os
+          from pathlib import Path
+
+          root = Path(os.environ["RUNNER_TEMP"]) / "amiga-pattern-delivery"
+          entries = [
+              line.split()
+              for line in (root / "SHA256SUMS").read_text().splitlines()
+              if line.split() and line.split()[-1].lstrip("*") == "amiga-accuracy.tar.zst"
+          ]
+          if len(entries) != 1:
+              raise ValueError("Expected one Amiga archive checksum")
+          digest = hashlib.sha256((root / "amiga-accuracy.tar.zst").read_bytes()).hexdigest()
+          if digest != entries[0][0]:
+              raise ValueError("Private Amiga archive checksum differs")
+          (
+              Path(os.environ["RUNNER_TEMP"]) / "amiga-pattern-evidence/corpus-archive.sha256"
+          ).write_text(digest + "\n")
+          PY
+          tar --zstd -xf "$delivery/amiga-accuracy.tar.zst" -C "$RUNNER_TEMP/amiga-pattern-roms" --strip-components=1 \
+            amiga-accuracy/kickstart-1.3-r34.5.rom
+          python scripts/check-amiga-pattern-rom.py --rom "$RUNNER_TEMP/amiga-pattern-roms/kickstart-1.3-r34.5.rom" \
+            --output "$RUNNER_TEMP/amiga-pattern-evidence/firmware.json"
+      - name: Verify released tools and prepare the vasm reference launcher
+        shell: bash
+        run: |
+          set -euo pipefail
+          tools="$RUNNER_TEMP/amiga-pattern-tools"
+          mkdir -p "$tools/bin" "$RUNNER_TEMP/amiga-pattern-output"
+          cd "$tools"
+          asm_archive=asm198x-x86_64-unknown-linux-gnu.tar.xz
+          build_archive=build198x-x86_64-unknown-linux-gnu.tar.xz
+          emu_archive=emu198x-amiga-x86_64-unknown-linux-gnu.tar.gz
+          curl --fail --silent --show-error --location --max-time 45 "https://github.com/asm198x/asm198x/releases/download/$ASM198X_TAG/$asm_archive" -o "$asm_archive"
+          curl --fail --silent --show-error --location --max-time 45 "https://github.com/build198x/build198x/releases/download/$BUILD198X_TAG/$build_archive" -o "$build_archive"
+          curl --fail --silent --show-error --location --max-time 45 "https://github.com/emu198x/emu198x/releases/download/$EMU198X_TAG/$emu_archive" -o "$emu_archive"
+          printf '%s  %s\n' "$ASM198X_ARCHIVE_SHA256" "$asm_archive" | sha256sum --check --strict
+          printf '%s  %s\n' "$BUILD198X_ARCHIVE_SHA256" "$build_archive" | sha256sum --check --strict
+          printf '%s  %s\n' "$EMU198X_ARCHIVE_SHA256" "$emu_archive" | sha256sum --check --strict
+          if printf '%064d  %s\n' 0 "$asm_archive" | sha256sum --check --status; then
+            echo 'Checksum control accepted an incorrect digest' >&2
+            exit 1
+          fi
+          tar -xJf "$asm_archive"
+          tar -xJf "$build_archive"
+          tar -xzf "$emu_archive"
+          install -m 755 asm198x-x86_64-unknown-linux-gnu/asm198x bin/asm198x
+          install -m 755 build198x-x86_64-unknown-linux-gnu/build198x bin/build198x
+          install -m 755 emu198x-amiga-x86_64-unknown-linux-gnu/emu198x-amiga bin/emu198x-amiga
+          docker pull --platform linux/amd64 "$AMIGA_REFERENCE_IMAGE"
+          cat > bin/vasm-reference <<'SH'
+          #!/bin/bash
+          set -euo pipefail
+          exec docker run --rm --pull=never --network none --platform linux/amd64 \
+            --label "emu198x.amiga-pattern-run=$AMIGA_PATTERN_RUN_LABEL" \
+            -v "$GITHUB_WORKSPACE/code-samples:$GITHUB_WORKSPACE/code-samples:ro" \
+            -v "$AMIGA_PATTERN_OUTPUT:$AMIGA_PATTERN_OUTPUT" --workdir "$(pwd)" \
+            --entrypoint /usr/local/bin/vasmm68k_mot "$AMIGA_REFERENCE_IMAGE" "$@"
+          SH
+          chmod 755 bin/vasm-reference
+          echo "AMIGA_PATTERN_OUTPUT=$RUNNER_TEMP/amiga-pattern-output" >> "$GITHUB_ENV"
+          echo "$tools/bin" >> "$GITHUB_PATH"
+      - name: Require the synthetic one-shot observer controls
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import unittest
+          from pathlib import Path
+
+          tests = unittest.defaultTestLoader.discover(
+              "code-samples/commodore-amiga/patterns/assembly/audio/playing-a-sample/verification",
+              pattern="test_verify.py",
+          )
+          count = tests.countTestCases()
+          if count != 3:
+              raise ValueError("Expected three independent observer control tests")
+          result = unittest.TextTestRunner(verbosity=2).run(tests)
+          if not result.wasSuccessful() or result.testsRun != count or result.skipped:
+              raise ValueError("Observer controls did not all execute successfully")
+          (
+              Path(os.environ["RUNNER_TEMP"]) / "amiga-pattern-evidence/observer-controls.json"
+          ).write_text(json.dumps({"tests_passed": count, "skipped": 0}) + "\n")
+          PY
+      - name: Execute the unchanged cold-boot demo and probe
+        run: |
+          test "$(command -v asm198x)" = "$RUNNER_TEMP/amiga-pattern-tools/bin/asm198x"
+          timeout --kill-after=10s 240s python code-samples/commodore-amiga/patterns/assembly/audio/playing-a-sample/verification/verify.py \
+            --emulator "$RUNNER_TEMP/amiga-pattern-tools/bin/emu198x-amiga" \
+            --build198x "$RUNNER_TEMP/amiga-pattern-tools/bin/build198x" \
+            --vasm "$RUNNER_TEMP/amiga-pattern-tools/bin/vasm-reference" \
+            --kickstart "$RUNNER_TEMP/amiga-pattern-roms/kickstart-1.3-r34.5.rom" --output "$AMIGA_PATTERN_OUTPUT"
+      - name: Verify complete evidence and retain only JSON reports
+        shell: bash
+        run: |
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          import platform
+          import subprocess
+          from pathlib import Path
+
+
+          def sha(path: Path) -> str:
+              return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+          output = Path(os.environ["AMIGA_PATTERN_OUTPUT"])
+          result = json.loads((output / "results.json").read_text())
+          tones = result["demo"]["tones"]
+          probe = result["probe"]
+          if (
+              result["status"] != "passed"
+              or result["configuration"] != "A500 OCS PAL, Kickstart 1.3, cold ADF boot"
+              or result["vasm_identical"] is not True
+          ):
+              raise ValueError("Expected the complete A500 PAL run and independent vasm equality")
+          if [(t["length_words"], t["period"], t["bytes_per_cycle"]) for t in tones] != [
+              (8, 424, 16),
+              (8, 212, 16),
+              (16, 212, 32),
+          ]:
+              raise ValueError("Expected all three demo tones")
+          if (
+              probe["loop_passes_no_dma"] <= 0
+              or probe["loop_passes_no_dma"] != probe["loop_passes_four_channels_period_124"]
+              or probe["loop_passes_six_lowres_bitplanes_control"]
+              >= probe["loop_passes_no_dma"] * 0.95
+              or len(probe["request_gaps_cck"]) != 5
+              or probe["one_shot_cycles"] != 8
+          ):
+              raise ValueError("Expected completed cost, interrupt and one-shot probes")
+          tools = Path(os.environ["RUNNER_TEMP"]) / "amiga-pattern-tools/bin"
+          evidence = Path(os.environ["RUNNER_TEMP"]) / "amiga-pattern-evidence"
+          source = Path("code-samples/commodore-amiga/patterns/assembly/audio/playing-a-sample")
+          firmware = json.loads((evidence / "firmware.json").read_text())
+          if result["kickstart_sha256"] != firmware["firmware"]["kickstart-1.3-r34.5.rom"][
+              "sha256"
+          ] or result["emulator_sha256"] != sha(tools / "emu198x-amiga"):
+              raise ValueError("Executed inputs differ from the verified firmware or release")
+          reference = subprocess.run(
+              [
+                  "docker",
+                  "run",
+                  "--rm",
+                  "--pull=never",
+                  "--network",
+                  "none",
+                  "--platform",
+                  "linux/amd64",
+                  "--label",
+                  "emu198x.amiga-pattern-run=" + os.environ["AMIGA_PATTERN_RUN_LABEL"],
+                  "--entrypoint",
+                  "/bin/sh",
+                  os.environ["AMIGA_REFERENCE_IMAGE"],
+                  "-ec",
+                  "sha256sum /usr/local/bin/vasmm68k_mot; /usr/local/bin/vasmm68k_mot",
+              ],
+              check=True,
+              capture_output=True,
+              text=True,
+              timeout=30,
+          ).stdout
+          report = {
+              "emulator_repository_revision": os.environ["GITHUB_SHA"],
+              "samples_revision": os.environ["SAMPLES_REVISION"],
+              "host": platform.platform(),
+              "python": platform.python_version(),
+              "release_tags": {
+                  "asm198x": os.environ["ASM198X_TAG"],
+                  "build198x": os.environ["BUILD198X_TAG"],
+                  "emu198x-amiga": os.environ["EMU198X_TAG"],
+              },
+              "release_archive_sha256": {
+                  "asm198x": os.environ["ASM198X_ARCHIVE_SHA256"],
+                  "build198x": os.environ["BUILD198X_ARCHIVE_SHA256"],
+                  "emu198x-amiga": os.environ["EMU198X_ARCHIVE_SHA256"],
+              },
+              "tool_sha256": {
+                  name: sha(tools / name)
+                  for name in ["asm198x", "build198x", "emu198x-amiga", "vasm-reference"]
+              },
+              "observer_sha256": sha(source / "verification/verify.py"),
+              "observer_controls_sha256": sha(source / "verification/test_verify.py"),
+              "observer_controls": json.loads((evidence / "observer-controls.json").read_text()),
+              "reference_image": os.environ["AMIGA_REFERENCE_IMAGE"],
+              "reference_binary_hash_and_version": reference.strip(),
+              "firmware": firmware,
+              "corpus_archive_sha256": (evidence / "corpus-archive.sha256").read_text().strip(),
+              "corpus_tag": os.environ["CORPORA_TAG"],
+              "incorrect_checksum_rejected": True,
+              "limits": "A500 OCS PAL cold-boot demo and probe, three pitches and one chip-RAM cost workload. vasm independently corroborates executable bytes; runtime observations are Emu198x only. No listening, original-hardware, stereo-jack or all-variant claim. Tests a pinned samples revision, not every samples PR. Fork PRs do not run the private-firmware job.",
+          }
+          (evidence / "release-inputs.json").write_text(json.dumps(report, indent=2) + "\n")
+          (evidence / "results.json").write_text(json.dumps(result, indent=2) + "\n")
+          PY
+      - uses: actions/upload-artifact@v7
+        if: success()
+        with:
+          name: amiga-pattern-evidence
+          path: |
+            ${{ runner.temp }}/amiga-pattern-evidence/results.json
+            ${{ runner.temp }}/amiga-pattern-evidence/release-inputs.json
+          if-no-files-found: error
+          retention-days: 14
+      - name: Remove private firmware and disposable output
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker ps -aq --filter "label=emu198x.amiga-pattern-run=$AMIGA_PATTERN_RUN_LABEL" | xargs -r docker rm -f
+          rm -rf "$RUNNER_TEMP/amiga-pattern-roms" "$RUNNER_TEMP/amiga-pattern-delivery" \
+            "$RUNNER_TEMP/amiga-pattern-output" "$RUNNER_TEMP/amiga-pattern-tools"
+          for name in roms delivery output tools; do
+            test ! -e "$RUNNER_TEMP/amiga-pattern-$name"
+          done
+          test -z "$(docker ps -aq --filter "label=emu198x.amiga-pattern-run=$AMIGA_PATTERN_RUN_LABEL")"
