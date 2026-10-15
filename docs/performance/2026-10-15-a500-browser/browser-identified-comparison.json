@@ -1,0 +1,130 @@
+{
+  "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36",
+  "cases": [
+    {
+      "build": "before",
+      "wasm_sha256": "b3f10e882d3bb1e3ac7cf9fbbd1422d1920a2cbf91afeecba81288b499fc73f8",
+      "firmware": "synthetic",
+      "samples": [
+        {
+          "totalMs": 2847.699999809265,
+          "p50Ms": 23.5,
+          "p95Ms": 25.5,
+          "audioSamples": 230030,
+          "visibility": "visible"
+        },
+        {
+          "totalMs": 2985.2999999523163,
+          "p50Ms": 23.800000190734863,
+          "p95Ms": 28.199999809265137,
+          "audioSamples": 230030,
+          "visibility": "visible"
+        },
+        {
+          "totalMs": 2909.4000000953674,
+          "p50Ms": 23.799999952316284,
+          "p95Ms": 26.299999952316284,
+          "audioSamples": 230030,
+          "visibility": "visible"
+        }
+      ],
+      "frameMs": 19.967887405745024,
+      "firmware_sha256": "de11687e117f61b772f5eb58f9d6b3c257a19d4031bda77ba4b7572d7abe8b94",
+      "result": "pass"
+    },
+    {
+      "build": "before",
+      "wasm_sha256": "b3f10e882d3bb1e3ac7cf9fbbd1422d1920a2cbf91afeecba81288b499fc73f8",
+      "firmware": "kick13",
+      "samples": [
+        {
+          "totalMs": 3140.5000002384186,
+          "p50Ms": 25.800000190734863,
+          "p95Ms": 28.09999990463257,
+          "audioSamples": 230030,
+          "visibility": "visible"
+        },
+        {
+          "totalMs": 3319.2999999523163,
+          "p50Ms": 27.299999952316284,
+          "p95Ms": 30.40000009536743,
+          "audioSamples": 230030,
+          "visibility": "visible"
+        },
+        {
+          "totalMs": 3164.100000143051,
+          "p50Ms": 26.200000047683716,
+          "p95Ms": 27.5,
+          "audioSamples": 230030,
+          "visibility": "visible"
+        }
+      ],
+      "frameMs": 19.967887405745024,
+      "firmware_sha256": "ee05862d8102a08436ac4056da7d549db31625c7d47b24dfb7b3c9a5c113ca53",
+      "result": "pass"
+    },
+    {
+      "build": "clock",
+      "wasm_sha256": "c3251b1ad6b7ab4d7a699821651d34c87e7df211497b83d4a5a5d6c016f75af8",
+      "firmware": "synthetic",
+      "samples": [
+        {
+          "totalMs": 2782.9000000953674,
+          "p50Ms": 22.40000009536743,
+          "p95Ms": 29.59999990463257,
+          "audioSamples": 230030,
+          "visibility": "visible"
+        },
+        {
+          "totalMs": 2691.4000000953674,
+          "p50Ms": 22.200000047683716,
+          "p95Ms": 24.799999952316284,
+          "audioSamples": 230030,
+          "visibility": "visible"
+        },
+        {
+          "totalMs": 2657.2999999523163,
+          "p50Ms": 22,
+          "p95Ms": 23.5,
+          "audioSamples": 230030,
+          "visibility": "visible"
+        }
+      ],
+      "frameMs": 19.967887405745024,
+      "firmware_sha256": "de11687e117f61b772f5eb58f9d6b3c257a19d4031bda77ba4b7572d7abe8b94",
+      "result": "pass"
+    },
+    {
+      "build": "clock",
+      "wasm_sha256": "c3251b1ad6b7ab4d7a699821651d34c87e7df211497b83d4a5a5d6c016f75af8",
+      "firmware": "kick13",
+      "samples": [
+        {
+          "totalMs": 3037.699999809265,
+          "p50Ms": 25.299999952316284,
+          "p95Ms": 25.90000009536743,
+          "audioSamples": 230030,
+          "visibility": "visible"
+        },
+        {
+          "totalMs": 3096.3999996185303,
+          "p50Ms": 25.5,
+          "p95Ms": 27.799999952316284,
+          "audioSamples": 230030,
+          "visibility": "visible"
+        },
+        {
+          "totalMs": 5723.399999856949,
+          "p50Ms": 26.200000047683716,
+          "p95Ms": 244,
+          "audioSamples": 230030,
+          "visibility": "visible"
+        }
+      ],
+      "frameMs": 19.967887405745024,
+      "firmware_sha256": "ee05862d8102a08436ac4056da7d549db31625c7d47b24dfb7b3c9a5c113ca53",
+      "result": "pass"
+    }
+  ],
+  "complete": true
+}
