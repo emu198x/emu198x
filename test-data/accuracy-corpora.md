@@ -744,3 +744,38 @@ control are required. Source/observer code is pinned rather than rewritten;
 raw captures, ROMs and release downloads are removed after the run. JSON
 artefacts have 14-day retention. This covers the declared PAL/NTSC sprite
 cases, not physical hardware, DMA cycle cost or all C64 variants.
+
+## Amiga Paula sample pattern CI
+
+The [Amiga pattern workflow](../.github/workflows/amiga-pattern.yml) uses the
+existing corpus credential and a fixed reviewed samples revision. Canonical
+pushes and same-repository PRs run it; fork PRs do not receive corpus access.
+Missing configuration fails explicitly. This does not automatically gate
+changes in the samples repository.
+
+The job checks the delivery checksum of `amiga-accuracy.tar.zst` and extracts
+only `kickstart-1.3-r34.5.rom`. `scripts/check-amiga-pattern-rom.py` verifies
+the registered 262144-byte image and SHA-256, including missing and modified
+firmware controls. The image remains external to source control and uploaded
+evidence.
+
+Python 3.14 runs the unchanged A500 OCS PAL cold-boot demo and probe with
+checksum-pinned Asm198x 0.0.65, Build198x 0.2.11 and Emu198x Amiga 0.34.1.
+That emulator release includes the last-word Paula request correction in
+#1777. The existing digest-pinned Amiga build image supplies vasm through a
+network-disabled container; both executables must match its output exactly.
+This corroborates assembly bytes independently. Runtime observations in this
+job come from Emu198x; the job does not run a second Amiga emulator.
+
+The observer requires all three pitches, the audio-DMA and bitplane cost
+controls, startup and loop interrupt intervals, and an eight-cycle one-shot.
+Three synthetic observer tests distinguish seven, eight, nine and continuing
+cycles, including decay and DC controls. A 240-second process-group timeout
+bounds the runtime observer. Always-cleanup removes labelled containers and
+private/disposable workdirs, including generated ADFs and WAVs.
+
+Only `results.json` and `release-inputs.json` are uploaded, for 14 days. The
+companion report identifies all three released tools, the vasm launcher and
+actual image executable, firmware, source/observer revisions and host. These
+are bounded A500 PAL emulator observations, not listening, original-hardware,
+stereo-jack or all-variant qualification.
