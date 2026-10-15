@@ -601,21 +601,22 @@ impl AudioChannel {
             return None;
         }
 
-        let mut wrapped = false;
         if self.words_remaining == 0 {
             self.ptr = self.lc & 0x00FF_FFFE;
             self.words_remaining = self.programmed_length_words();
             if self.words_remaining == 0 {
                 return None;
             }
-            wrapped = true;
         }
 
         let hi = read_chip_byte(self.ptr);
         let lo = read_chip_byte(self.ptr | 1);
         self.ptr = self.ptr.wrapping_add(2);
         self.words_remaining = self.words_remaining.saturating_sub(1);
-        Some(((u16::from(hi) << 8) | u16::from(lo), wrapped))
+        Some((
+            (u16::from(hi) << 8) | u16::from(lo),
+            self.words_remaining == 0,
+        ))
     }
 
     fn queue_dma_request(&mut self) {
@@ -644,16 +645,16 @@ impl AudioChannel {
         if self.dma_requests_pending == 0 {
             return false;
         }
-        let Some((word, wrapped)) = self.fetch_dma_word(read_chip_byte) else {
+        let Some((word, last_word)) = self.fetch_dma_word(read_chip_byte) else {
             return false;
         };
-        self.accept_dma_word(word, wrapped, request_next, volume_attach)
+        self.accept_dma_word(word, last_word, request_next, volume_attach)
     }
 
     fn accept_dma_word(
         &mut self,
         word: u16,
-        wrapped: bool,
+        last_word: bool,
         request_next: bool,
         volume_attach: bool,
     ) -> bool {
@@ -689,10 +690,12 @@ impl AudioChannel {
             }
             AudioState::Playing => {
                 // Steady state: top the 2-deep buffer up as it drains.
-                // `wrapped` reports a length-counter wrap (loop point) —
-                // latch it until the attachment-selected output edge.
+                // Latch completion when the last word arrives, not when the
+                // following fetch reloads the pointer. HRM pp.164–166 and
+                // WinUAE/vAmiga select the IRQ as that last word starts.
+                // Keep pointer reload independent of the held condition.
                 self.push_dma_word(word);
-                self.loop_interrupt_pending |= wrapped;
+                self.loop_interrupt_pending |= last_word;
                 false
             }
             AudioState::Idle => false,
@@ -1436,7 +1439,7 @@ impl Paula8364 {
         let starting = audio.state == AudioState::WaitWord2;
         if audio.accept_dma_word(
             word,
-            reload,
+            audio.words_remaining == 0,
             request_next,
             self.adkcon & ADKCON_USE_VOL[index] != 0,
         ) {

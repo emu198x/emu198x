@@ -1,0 +1,38 @@
+{
+  "status": "passed",
+  "scope": "component startup IRQ phase and memory progression; no original hardware claim",
+  "base_revision": "dd7af3bbe1f9ff90b05070891ce5305a70369296",
+  "reference_rows": 32,
+  "reference_scenarios": 8,
+  "native_paths": [
+    "direct",
+    "admitted"
+  ],
+  "native_channels": 4,
+  "native_irq_observations": 256,
+  "word_address_cases": 16,
+  "word_address_invariant": "dummy plus two complete buffers in order, including LEN=0 (65536 words) and LEN=1",
+  "paula_tests_passed": 122,
+  "paula_tests_failed": 0,
+  "paula_tests_ignored": 0,
+  "negative_control": {
+    "original_core_exit": 101,
+    "failed": "first_loop_and_later_cadence_match_both_references_on_every_channel",
+    "channel": 0,
+    "length": 2,
+    "period": 124,
+    "request_index": 1,
+    "native_normalized_cck": 738,
+    "reference_cck": 490,
+    "word_address_test": "passed"
+  },
+  "phase_limit": "Existing one-CCK native output-phase difference is explicit; later intervals exact.",
+  "hashes": {
+    "crates/emu198x-commodore-paula-8364/src/lib.rs": "373008aad133692c8a277595f92a621eab8539592d61e6aa60bf96916d9a1a8f",
+    "crates/emu198x-commodore-paula-8364/tests/audio_startup_length.rs": "f93beceae0e9e7feb21009f8b65cbe9ba5480f935e3671be93b633717f1fb786",
+    "test-data/commodore/amiga/paula-audio/startup-length-probe/reference.py": "44d7dc4717035695afd64e2001562948dd07339407a558c40d856e04f2788d10",
+    "test-data/commodore/amiga/paula-audio/startup-length-probe/reference.csv": "2f329d579de931d4e996a7902a0e8bb943376479eb1e835117cd3b73890e41ed"
+  },
+  "clippy": "passed: --all-targets -- -D warnings",
+  "format": "cargo fmt -p emu198x-commodore-paula-8364 -- --check passed"
+}
