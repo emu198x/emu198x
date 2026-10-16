@@ -81,7 +81,8 @@ source/session and source/disassembly/PC invariants from umbrella audit
 native host; require a real missing-sidecar error and rejection of a wrong
 source location. The existing package, TAP, title-address and runtime acceptance
 functions are unchanged; `preserved-invariants.json` records their AST hashes.
-Nine unit controls pass. Actual native release results remain pending.
+Nine unit controls pass. Native published-release run 38937404950 passes on both
+hosts; the adjacent RELEASE-RESULT.md records the outcomes and retained evidence.
 
 The same driver now accepts only the declared native Windows x64 or Linux x64
 host and validates PE/ELF architecture. Linux adds fixed archive pins and the

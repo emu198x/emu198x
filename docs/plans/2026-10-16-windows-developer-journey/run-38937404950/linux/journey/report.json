@@ -1,0 +1,302 @@
+{
+  "qualified": true,
+  "status": "passed",
+  "host": {
+    "system": "Linux",
+    "release": "6.8.0-1064-azure",
+    "machine": "x86_64",
+    "python": "3.14.8"
+  },
+  "samples_revision": "51297ac3196a990286b0d21a4dedd4653c0168f0",
+  "tools": [
+    {
+      "name": "asm198x",
+      "release": "asm198x-v0.0.67",
+      "archive": "asm198x-x86_64-unknown-linux-gnu.tar.xz",
+      "url": "https://github.com/asm198x/asm198x/releases/download/asm198x-v0.0.67/asm198x-x86_64-unknown-linux-gnu.tar.xz",
+      "sha256": "1641899945f3d8dcd99ef88f0b8fffd220f142a03f8894dec45de3d31a2e0789",
+      "executable_sha256": "d47e7ec161e18c864a11114739d3c617040a4a8218c156c3e9858c43d3faffa6",
+      "pe_stack_reserve_bytes": null
+    },
+    {
+      "name": "build198x",
+      "release": "build198x-v0.2.12",
+      "archive": "build198x-x86_64-unknown-linux-gnu.tar.xz",
+      "url": "https://github.com/build198x/build198x/releases/download/build198x-v0.2.12/build198x-x86_64-unknown-linux-gnu.tar.xz",
+      "sha256": "73d6c5a369f383e96ab14028a10bb43d24feadc32211a267cde648ef6c48f510",
+      "executable_sha256": "681fdfced788398c6a477265e394e74715cef6647c2b19ee30c8ce2edb68cf3b",
+      "pe_stack_reserve_bytes": null
+    },
+    {
+      "name": "emu198x-spectrum",
+      "release": "v0.35.2",
+      "archive": "emu198x-spectrum-x86_64-unknown-linux-gnu.tar.gz",
+      "url": "https://github.com/emu198x/emu198x/releases/download/v0.35.2/emu198x-spectrum-x86_64-unknown-linux-gnu.tar.gz",
+      "sha256": "3635f144e6cb6c48248af60705e9ebb27643d39286130cab6af45f78fd0335cb",
+      "executable_sha256": "080a213d3bf0f3f4c1c363df55b7b1d59fbff365c0fbf52aeb473aa9f194ae39",
+      "pe_stack_reserve_bytes": null
+    }
+  ],
+  "commands": [
+    {
+      "label": "asm198x-help",
+      "argv": [
+        "/home/runner/work/_temp/linux-developer-work/tools/asm198x",
+        "--help"
+      ],
+      "exit_code": 0,
+      "timeout_seconds": 60
+    },
+    {
+      "label": "build198x-help",
+      "argv": [
+        "/home/runner/work/_temp/linux-developer-work/tools/build198x",
+        "--help"
+      ],
+      "exit_code": 0,
+      "timeout_seconds": 60
+    },
+    {
+      "label": "emu198x-spectrum-help",
+      "argv": [
+        "/home/runner/work/_temp/linux-developer-work/tools/emu198x-spectrum",
+        "--help"
+      ],
+      "exit_code": 0,
+      "timeout_seconds": 60
+    },
+    {
+      "label": "basic",
+      "argv": [
+        "/home/runner/work/_temp/linux-developer-work/tools/build198x",
+        "basic",
+        "/home/runner/work/_temp/linux-developer-work/sources/sinclair-zx-spectrum/assembly/meteor-storm/checkpoints/loading-screen/loader.bas",
+        "--machine",
+        "sinclair-zx-spectrum",
+        "-o",
+        "/home/runner/work/_temp/linux-developer-work/build/meteor.tap",
+        "--name",
+        "meteor"
+      ],
+      "exit_code": 0,
+      "timeout_seconds": 60
+    },
+    {
+      "label": "screen",
+      "argv": [
+        "/home/runner/work/_temp/linux-developer-work/tools/asm198x",
+        "--dialect",
+        "pasmo",
+        "--cpu",
+        "z80",
+        "--tap",
+        "/home/runner/work/_temp/linux-developer-work/sources/sinclair-zx-spectrum/assembly/meteor-storm/checkpoints/loading-screen/screen.asm",
+        "-o",
+        "screen"
+      ],
+      "exit_code": 0,
+      "timeout_seconds": 60
+    },
+    {
+      "label": "storm",
+      "argv": [
+        "/home/runner/work/_temp/linux-developer-work/tools/asm198x",
+        "--dialect",
+        "pasmo",
+        "--cpu",
+        "z80",
+        "--tap",
+        "/home/runner/work/_temp/linux-developer-work/sources/sinclair-zx-spectrum/assembly/meteor-storm/checkpoints/loading-screen/meteor-storm.asm",
+        "-o",
+        "storm"
+      ],
+      "exit_code": 0,
+      "timeout_seconds": 60
+    },
+    {
+      "label": "raw-code",
+      "argv": [
+        "/home/runner/work/_temp/linux-developer-work/tools/asm198x",
+        "--dialect",
+        "pasmo",
+        "--cpu",
+        "z80",
+        "--sym=storm.sym",
+        "/home/runner/work/_temp/linux-developer-work/sources/sinclair-zx-spectrum/assembly/meteor-storm/checkpoints/loading-screen/meteor-storm.asm",
+        "-o",
+        "program.bin"
+      ],
+      "exit_code": 0,
+      "timeout_seconds": 60
+    },
+    {
+      "label": "startup",
+      "argv": [
+        "/home/runner/work/_temp/linux-developer-work/tools/emu198x-spectrum",
+        "--machine",
+        "spectrum_48k",
+        "--rom",
+        "/home/runner/work/_temp/linux-developer-firmware/48.rom",
+        "--script",
+        "/home/runner/work/_temp/linux-developer-evidence/journey/startup-session.json"
+      ],
+      "exit_code": 0,
+      "timeout_seconds": 30
+    },
+    {
+      "label": "positive",
+      "argv": [
+        "/home/runner/work/_temp/linux-developer-work/tools/emu198x-spectrum",
+        "--machine",
+        "spectrum_48k",
+        "--rom",
+        "/home/runner/work/_temp/linux-developer-firmware/48.rom",
+        "--script",
+        "/home/runner/work/_temp/linux-developer-evidence/journey/positive-session.json"
+      ],
+      "exit_code": 0,
+      "timeout_seconds": 180
+    },
+    {
+      "label": "missing-code",
+      "argv": [
+        "/home/runner/work/_temp/linux-developer-work/tools/emu198x-spectrum",
+        "--machine",
+        "spectrum_48k",
+        "--rom",
+        "/home/runner/work/_temp/linux-developer-firmware/48.rom",
+        "--script",
+        "/home/runner/work/_temp/linux-developer-evidence/journey/missing-code-session.json"
+      ],
+      "exit_code": 0,
+      "timeout_seconds": 180
+    },
+    {
+      "label": "debug-asm",
+      "argv": [
+        "/home/runner/work/_temp/linux-developer-work/tools/asm198x",
+        "--dialect",
+        "pasmo",
+        "--cpu",
+        "z80",
+        "--tapbas",
+        "--debug",
+        "--message-format=json",
+        "first-program.asm",
+        "-o",
+        "first-program.tap"
+      ],
+      "exit_code": 0,
+      "timeout_seconds": 60
+    },
+    {
+      "label": "debug-runtime",
+      "argv": [
+        "/home/runner/work/_temp/linux-developer-work/tools/emu198x-spectrum",
+        "--machine",
+        "spectrum_48k",
+        "--rom",
+        "/home/runner/work/_temp/linux-developer-firmware/48.rom",
+        "--script",
+        "/home/runner/work/_temp/linux-developer-evidence/journey/source-debug/session.json"
+      ],
+      "exit_code": 0,
+      "timeout_seconds": 120
+    },
+    {
+      "label": "missing-sidecar",
+      "argv": [
+        "/home/runner/work/_temp/linux-developer-work/tools/emu198x-spectrum",
+        "--machine",
+        "spectrum_48k",
+        "--rom",
+        "/home/runner/work/_temp/linux-developer-firmware/48.rom",
+        "--script",
+        "/home/runner/work/_temp/linux-developer-evidence/journey/source-debug/missing-sidecar.json"
+      ],
+      "exit_code": 1,
+      "timeout_seconds": 60
+    }
+  ],
+  "target": "x86_64-unknown-linux-gnu",
+  "firmware_sha256": "d55daa439b673b0e3f5897f99ac37ecb45f974d1862b4dadb85dec34af99cb42",
+  "source_materialisation": [
+    {
+      "path": "sinclair-zx-spectrum/assembly/meteor-storm/unit-35/Makefile",
+      "blob_sha256": "85cae388cfb90bde1699b1337536b082954c03be11cbe4778c72fa07cab3b4bf",
+      "checkout_sha256": "85cae388cfb90bde1699b1337536b082954c03be11cbe4778c72fa07cab3b4bf",
+      "checkout_crlf_count": 0,
+      "materialised_sha256": "85cae388cfb90bde1699b1337536b082954c03be11cbe4778c72fa07cab3b4bf",
+      "checkout_conversion": "identical"
+    },
+    {
+      "path": "sinclair-zx-spectrum/assembly/meteor-storm/checkpoints/loading-screen/loader.bas",
+      "blob_sha256": "18d3235c3508ebb83feac57f34759e6277ef6aceab87b8493400ff5466fa41e2",
+      "checkout_sha256": "18d3235c3508ebb83feac57f34759e6277ef6aceab87b8493400ff5466fa41e2",
+      "checkout_crlf_count": 0,
+      "materialised_sha256": "18d3235c3508ebb83feac57f34759e6277ef6aceab87b8493400ff5466fa41e2",
+      "checkout_conversion": "identical"
+    },
+    {
+      "path": "sinclair-zx-spectrum/assembly/meteor-storm/checkpoints/loading-screen/screen.asm",
+      "blob_sha256": "b0361768f088026ebfc6cffa31530767cdef52ee82a58271894f12f318b3d81f",
+      "checkout_sha256": "b0361768f088026ebfc6cffa31530767cdef52ee82a58271894f12f318b3d81f",
+      "checkout_crlf_count": 0,
+      "materialised_sha256": "b0361768f088026ebfc6cffa31530767cdef52ee82a58271894f12f318b3d81f",
+      "checkout_conversion": "identical"
+    },
+    {
+      "path": "sinclair-zx-spectrum/assembly/meteor-storm/checkpoints/loading-screen/meteor-storm.scr",
+      "blob_sha256": "1325b44c95fab8934ad257c290170e4cfacda56118baf6b94d08cfb3c3514843",
+      "checkout_sha256": "1325b44c95fab8934ad257c290170e4cfacda56118baf6b94d08cfb3c3514843",
+      "checkout_crlf_count": 0,
+      "materialised_sha256": "1325b44c95fab8934ad257c290170e4cfacda56118baf6b94d08cfb3c3514843",
+      "checkout_conversion": "identical"
+    },
+    {
+      "path": "sinclair-zx-spectrum/assembly/meteor-storm/checkpoints/loading-screen/meteor-storm.asm",
+      "blob_sha256": "0ce6a2bb21a8304582b4175fa94dc2b956c00218f8ef6cf9e4ddba41af24b073",
+      "checkout_sha256": "0ce6a2bb21a8304582b4175fa94dc2b956c00218f8ef6cf9e4ddba41af24b073",
+      "checkout_crlf_count": 0,
+      "materialised_sha256": "0ce6a2bb21a8304582b4175fa94dc2b956c00218f8ef6cf9e4ddba41af24b073",
+      "checkout_conversion": "identical"
+    },
+    {
+      "path": "sinclair-zx-spectrum/assembly/meteor-storm/checkpoints/loading-screen/assets.inc",
+      "blob_sha256": "3829130674d64ce81ba26e7f3d4c9108b6a5c463eafe43e999544d254d72812f",
+      "checkout_sha256": "3829130674d64ce81ba26e7f3d4c9108b6a5c463eafe43e999544d254d72812f",
+      "checkout_crlf_count": 0,
+      "materialised_sha256": "3829130674d64ce81ba26e7f3d4c9108b6a5c463eafe43e999544d254d72812f",
+      "checkout_conversion": "identical"
+    }
+  ],
+  "source_hashes": {
+    "sinclair-zx-spectrum/assembly/meteor-storm/unit-35/Makefile": "85cae388cfb90bde1699b1337536b082954c03be11cbe4778c72fa07cab3b4bf",
+    "sinclair-zx-spectrum/assembly/meteor-storm/checkpoints/loading-screen/loader.bas": "18d3235c3508ebb83feac57f34759e6277ef6aceab87b8493400ff5466fa41e2",
+    "sinclair-zx-spectrum/assembly/meteor-storm/checkpoints/loading-screen/screen.asm": "b0361768f088026ebfc6cffa31530767cdef52ee82a58271894f12f318b3d81f",
+    "sinclair-zx-spectrum/assembly/meteor-storm/checkpoints/loading-screen/meteor-storm.scr": "1325b44c95fab8934ad257c290170e4cfacda56118baf6b94d08cfb3c3514843",
+    "sinclair-zx-spectrum/assembly/meteor-storm/checkpoints/loading-screen/meteor-storm.asm": "0ce6a2bb21a8304582b4175fa94dc2b956c00218f8ef6cf9e4ddba41af24b073",
+    "sinclair-zx-spectrum/assembly/meteor-storm/checkpoints/loading-screen/assets.inc": "3829130674d64ce81ba26e7f3d4c9108b6a5c463eafe43e999544d254d72812f"
+  },
+  "package": {
+    "sha256": "31420966522468be267830cf1b0ce5fe31087b987dfe293d879512a67de4933d",
+    "code_sha256": "63c02176a4f97a32ce7c9cf775a919ed7f7729fe4027982100d8a0968fb0eb10",
+    "blocks": 6
+  },
+  "missing_code_rejected": "Assembled entry bytes were not loaded",
+  "source_debug": {
+    "verified": true,
+    "fixture_sha256": "5e3104489afcac632d5015f66d5db1e63018537a3d80641058553f3d7ceaa113",
+    "missing_sidecar_rejected": true,
+    "wrong_location_rejected": true,
+    "source_line": 9,
+    "pc": 32772
+  },
+  "checks": [
+    "six-block package payloads match inputs",
+    "entry bytes loaded through ROM tape path",
+    "PC and phase show title execution",
+    "rendered title matches ROM glyphs",
+    "real missing-CODE tape rejected"
+  ]
+}

@@ -1,0 +1,3171 @@
+{
+  "verified": true,
+  "tag": "v0.35.2",
+  "source": {
+    "commit": "42e28e284d2b3120e850aea66bfcf097b6119afa",
+    "cargo_lock_sha256": "55166f208573b86e0fc44d6acd4afc2ef66cfc40a0f79fc76b25c5e02b9e6624"
+  },
+  "artifact": {
+    "package": "emu198x-spectrum",
+    "version": "0.35.2",
+    "target": "x86_64-unknown-linux-gnu",
+    "archive": "emu198x-spectrum-x86_64-unknown-linux-gnu.tar.gz",
+    "archive_sha256": "3635f144e6cb6c48248af60705e9ebb27643d39286130cab6af45f78fd0335cb",
+    "executable_sha256": "080a213d3bf0f3f4c1c363df55b7b1d59fbff365c0fbf52aeb473aa9f194ae39"
+  },
+  "receipt": {
+    "schema_version": 1,
+    "kind": "producer-source-lock",
+    "signed": false,
+    "source_commit": "42e28e284d2b3120e850aea66bfcf097b6119afa",
+    "committed_lock_sha256": "55166f208573b86e0fc44d6acd4afc2ef66cfc40a0f79fc76b25c5e02b9e6624",
+    "before_lock_sha256": "55166f208573b86e0fc44d6acd4afc2ef66cfc40a0f79fc76b25c5e02b9e6624",
+    "after_lock_sha256": "55166f208573b86e0fc44d6acd4afc2ef66cfc40a0f79fc76b25c5e02b9e6624",
+    "package": "emu198x-spectrum",
+    "version": "0.35.2",
+    "archive": "emu198x-spectrum-x86_64-unknown-linux-gnu.tar.gz",
+    "target": "x86_64-unknown-linux-gnu",
+    "archive_sha256": "3635f144e6cb6c48248af60705e9ebb27643d39286130cab6af45f78fd0335cb",
+    "executable_sha256": "080a213d3bf0f3f4c1c363df55b7b1d59fbff365c0fbf52aeb473aa9f194ae39",
+    "build": {
+      "job": "build-local-artifacts",
+      "run_id": "38933615684",
+      "run_attempt": "1"
+    },
+    "command": [
+      "dist",
+      "build",
+      "--tag=v0.35.2",
+      "--print=linkage",
+      "--output-format=json",
+      "--artifacts=local",
+      "--target=x86_64-unknown-linux-gnu"
+    ],
+    "compiled_dependency_graph": "unknown"
+  },
+  "producer_run": {
+    "id": 38933615684,
+    "head_sha": "42e28e284d2b3120e850aea66bfcf097b6119afa",
+    "run_attempt": 1,
+    "conclusion": "success",
+    "html_url": "https://github.com/emu198x/emu198x/actions/runs/38933615684"
+  },
+  "producer_jobs": [
+    {
+      "id": 117083483058,
+      "run_id": 38933615684,
+      "workflow_name": "Release",
+      "head_branch": "v0.35.2",
+      "run_url": "https://api.github.com/repos/emu198x/emu198x/actions/runs/38933615684",
+      "run_attempt": 1,
+      "node_id": "CR_kwDOSAgEp88AAAAbQrgrsg",
+      "head_sha": "42e28e284d2b3120e850aea66bfcf097b6119afa",
+      "url": "https://api.github.com/repos/emu198x/emu198x/actions/jobs/117083483058",
+      "html_url": "https://github.com/emu198x/emu198x/actions/runs/38933615684/job/117083483058",
+      "status": "completed",
+      "conclusion": "success",
+      "created_at": "2026-10-16T16:39:05Z",
+      "started_at": "2026-10-16T16:39:08Z",
+      "completed_at": "2026-10-16T16:39:39Z",
+      "name": "plan",
+      "steps": [
+        {
+          "name": "Set up job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 1,
+          "started_at": "2026-10-16T16:39:09Z",
+          "completed_at": "2026-10-16T16:39:10Z"
+        },
+        {
+          "name": "Run actions/checkout@v6",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 2,
+          "started_at": "2026-10-16T16:39:10Z",
+          "completed_at": "2026-10-16T16:39:14Z"
+        },
+        {
+          "name": "Install dist",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 3,
+          "started_at": "2026-10-16T16:39:14Z",
+          "completed_at": "2026-10-16T16:39:15Z"
+        },
+        {
+          "name": "Cache dist",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 4,
+          "started_at": "2026-10-16T16:39:15Z",
+          "completed_at": "2026-10-16T16:39:18Z"
+        },
+        {
+          "name": "Run dist host --steps=create --tag=v0.35.2 --output-format=json > plan-dist-manifest.json",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 5,
+          "started_at": "2026-10-16T16:39:18Z",
+          "completed_at": "2026-10-16T16:39:34Z"
+        },
+        {
+          "name": "Upload dist-manifest.json",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 6,
+          "started_at": "2026-10-16T16:39:34Z",
+          "completed_at": "2026-10-16T16:39:35Z"
+        },
+        {
+          "name": "Post Run actions/checkout@v6",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 12,
+          "started_at": "2026-10-16T16:39:35Z",
+          "completed_at": "2026-10-16T16:39:36Z"
+        },
+        {
+          "name": "Complete job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 13,
+          "started_at": "2026-10-16T16:39:36Z",
+          "completed_at": "2026-10-16T16:39:36Z"
+        }
+      ],
+      "check_run_url": "https://api.github.com/repos/emu198x/emu198x/check-runs/117083483058",
+      "labels": [
+        "ubuntu-22.04"
+      ],
+      "runner_id": 1000036893,
+      "runner_name": "GitHub Actions 1000036893",
+      "runner_group_id": 0,
+      "runner_group_name": "GitHub Actions"
+    },
+    {
+      "id": 117083732932,
+      "run_id": 38933615684,
+      "workflow_name": "Release",
+      "head_branch": "v0.35.2",
+      "run_url": "https://api.github.com/repos/emu198x/emu198x/actions/runs/38933615684",
+      "run_attempt": 1,
+      "node_id": "CR_kwDOSAgEp88AAAAbQrv7xA",
+      "head_sha": "42e28e284d2b3120e850aea66bfcf097b6119afa",
+      "url": "https://api.github.com/repos/emu198x/emu198x/actions/jobs/117083732932",
+      "html_url": "https://github.com/emu198x/emu198x/actions/runs/38933615684/job/117083732932",
+      "status": "completed",
+      "conclusion": "success",
+      "created_at": "2026-10-16T16:39:39Z",
+      "started_at": "2026-10-16T16:39:44Z",
+      "completed_at": "2026-10-16T16:43:24Z",
+      "name": "build-local-artifacts (aarch64-unknown-linux-gnu)",
+      "steps": [
+        {
+          "name": "Set up job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 1,
+          "started_at": "2026-10-16T16:39:44Z",
+          "completed_at": "2026-10-16T16:39:46Z"
+        },
+        {
+          "name": "enable windows longpaths",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 2,
+          "started_at": "2026-10-16T16:39:46Z",
+          "completed_at": "2026-10-16T16:39:46Z"
+        },
+        {
+          "name": "Run actions/checkout@v6",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 3,
+          "started_at": "2026-10-16T16:39:46Z",
+          "completed_at": "2026-10-16T16:39:47Z"
+        },
+        {
+          "name": "Run actions/setup-python@v6",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 4,
+          "started_at": "2026-10-16T16:39:47Z",
+          "completed_at": "2026-10-16T16:39:48Z"
+        },
+        {
+          "name": "Run producer rejection controls",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 5,
+          "started_at": "2026-10-16T16:39:48Z",
+          "completed_at": "2026-10-16T16:39:49Z"
+        },
+        {
+          "name": "Install Rust non-interactively if not already installed",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 6,
+          "started_at": "2026-10-16T16:39:49Z",
+          "completed_at": "2026-10-16T16:39:49Z"
+        },
+        {
+          "name": "Install dist",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 7,
+          "started_at": "2026-10-16T16:39:49Z",
+          "completed_at": "2026-10-16T16:39:51Z"
+        },
+        {
+          "name": "Fetch local artifacts",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 8,
+          "started_at": "2026-10-16T16:39:51Z",
+          "completed_at": "2026-10-16T16:39:51Z"
+        },
+        {
+          "name": "Install dependencies",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 9,
+          "started_at": "2026-10-16T16:39:51Z",
+          "completed_at": "2026-10-16T16:40:20Z"
+        },
+        {
+          "name": "Configure macOS signing",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 10,
+          "started_at": "2026-10-16T16:40:20Z",
+          "completed_at": "2026-10-16T16:40:20Z"
+        },
+        {
+          "name": "Build artifacts",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 11,
+          "started_at": "2026-10-16T16:40:20Z",
+          "completed_at": "2026-10-16T16:43:07Z"
+        },
+        {
+          "name": "Post-build",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 12,
+          "started_at": "2026-10-16T16:43:07Z",
+          "completed_at": "2026-10-16T16:43:07Z"
+        },
+        {
+          "name": "Notarise macOS binaries",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 13,
+          "started_at": "2026-10-16T16:43:07Z",
+          "completed_at": "2026-10-16T16:43:07Z"
+        },
+        {
+          "name": "Remove signing keychains",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 14,
+          "started_at": "2026-10-16T16:43:07Z",
+          "completed_at": "2026-10-16T16:43:07Z"
+        },
+        {
+          "name": "Recheck packaged bytes after notarization",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 15,
+          "started_at": "2026-10-16T16:43:07Z",
+          "completed_at": "2026-10-16T16:43:10Z"
+        },
+        {
+          "name": "Upload artifacts",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 16,
+          "started_at": "2026-10-16T16:43:10Z",
+          "completed_at": "2026-10-16T16:43:22Z"
+        },
+        {
+          "name": "Post Run actions/setup-python@v6",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 31,
+          "started_at": "2026-10-16T16:43:22Z",
+          "completed_at": "2026-10-16T16:43:22Z"
+        },
+        {
+          "name": "Post Run actions/checkout@v6",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 32,
+          "started_at": "2026-10-16T16:43:22Z",
+          "completed_at": "2026-10-16T16:43:22Z"
+        },
+        {
+          "name": "Complete job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 33,
+          "started_at": "2026-10-16T16:43:22Z",
+          "completed_at": "2026-10-16T16:43:22Z"
+        }
+      ],
+      "check_run_url": "https://api.github.com/repos/emu198x/emu198x/check-runs/117083732932",
+      "labels": [
+        "ubuntu-22.04-arm"
+      ],
+      "runner_id": 1000036895,
+      "runner_name": "GitHub Actions 1000036895",
+      "runner_group_id": 0,
+      "runner_group_name": "GitHub Actions"
+    },
+    {
+      "id": 117083732965,
+      "run_id": 38933615684,
+      "workflow_name": "Release",
+      "head_branch": "v0.35.2",
+      "run_url": "https://api.github.com/repos/emu198x/emu198x/actions/runs/38933615684",
+      "run_attempt": 1,
+      "node_id": "CR_kwDOSAgEp88AAAAbQrv75Q",
+      "head_sha": "42e28e284d2b3120e850aea66bfcf097b6119afa",
+      "url": "https://api.github.com/repos/emu198x/emu198x/actions/jobs/117083732965",
+      "html_url": "https://github.com/emu198x/emu198x/actions/runs/38933615684/job/117083732965",
+      "status": "completed",
+      "conclusion": "success",
+      "created_at": "2026-10-16T16:39:39Z",
+      "started_at": "2026-10-16T16:39:42Z",
+      "completed_at": "2026-10-16T16:46:18Z",
+      "name": "build-local-artifacts (x86_64-unknown-linux-gnu)",
+      "steps": [
+        {
+          "name": "Set up job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 1,
+          "started_at": "2026-10-16T16:39:42Z",
+          "completed_at": "2026-10-16T16:39:44Z"
+        },
+        {
+          "name": "enable windows longpaths",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 2,
+          "started_at": "2026-10-16T16:39:44Z",
+          "completed_at": "2026-10-16T16:39:44Z"
+        },
+        {
+          "name": "Run actions/checkout@v6",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 3,
+          "started_at": "2026-10-16T16:39:44Z",
+          "completed_at": "2026-10-16T16:39:46Z"
+        },
+        {
+          "name": "Run actions/setup-python@v6",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 4,
+          "started_at": "2026-10-16T16:39:46Z",
+          "completed_at": "2026-10-16T16:39:46Z"
+        },
+        {
+          "name": "Run producer rejection controls",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 5,
+          "started_at": "2026-10-16T16:39:46Z",
+          "completed_at": "2026-10-16T16:39:47Z"
+        },
+        {
+          "name": "Install Rust non-interactively if not already installed",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 6,
+          "started_at": "2026-10-16T16:39:47Z",
+          "completed_at": "2026-10-16T16:39:47Z"
+        },
+        {
+          "name": "Install dist",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 7,
+          "started_at": "2026-10-16T16:39:47Z",
+          "completed_at": "2026-10-16T16:39:49Z"
+        },
+        {
+          "name": "Fetch local artifacts",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 8,
+          "started_at": "2026-10-16T16:39:49Z",
+          "completed_at": "2026-10-16T16:39:49Z"
+        },
+        {
+          "name": "Install dependencies",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 9,
+          "started_at": "2026-10-16T16:39:49Z",
+          "completed_at": "2026-10-16T16:40:13Z"
+        },
+        {
+          "name": "Configure macOS signing",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 10,
+          "started_at": "2026-10-16T16:40:13Z",
+          "completed_at": "2026-10-16T16:40:13Z"
+        },
+        {
+          "name": "Build artifacts",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 11,
+          "started_at": "2026-10-16T16:40:13Z",
+          "completed_at": "2026-10-16T16:46:06Z"
+        },
+        {
+          "name": "Post-build",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 12,
+          "started_at": "2026-10-16T16:46:06Z",
+          "completed_at": "2026-10-16T16:46:06Z"
+        },
+        {
+          "name": "Notarise macOS binaries",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 13,
+          "started_at": "2026-10-16T16:46:06Z",
+          "completed_at": "2026-10-16T16:46:06Z"
+        },
+        {
+          "name": "Remove signing keychains",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 14,
+          "started_at": "2026-10-16T16:46:06Z",
+          "completed_at": "2026-10-16T16:46:06Z"
+        },
+        {
+          "name": "Recheck packaged bytes after notarization",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 15,
+          "started_at": "2026-10-16T16:46:06Z",
+          "completed_at": "2026-10-16T16:46:10Z"
+        },
+        {
+          "name": "Upload artifacts",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 16,
+          "started_at": "2026-10-16T16:46:10Z",
+          "completed_at": "2026-10-16T16:46:16Z"
+        },
+        {
+          "name": "Post Run actions/setup-python@v6",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 31,
+          "started_at": "2026-10-16T16:46:16Z",
+          "completed_at": "2026-10-16T16:46:16Z"
+        },
+        {
+          "name": "Post Run actions/checkout@v6",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 32,
+          "started_at": "2026-10-16T16:46:16Z",
+          "completed_at": "2026-10-16T16:46:16Z"
+        },
+        {
+          "name": "Complete job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 33,
+          "started_at": "2026-10-16T16:46:16Z",
+          "completed_at": "2026-10-16T16:46:16Z"
+        }
+      ],
+      "check_run_url": "https://api.github.com/repos/emu198x/emu198x/check-runs/117083732965",
+      "labels": [
+        "ubuntu-22.04"
+      ],
+      "runner_id": 1000036896,
+      "runner_name": "GitHub Actions 1000036896",
+      "runner_group_id": 0,
+      "runner_group_name": "GitHub Actions"
+    },
+    {
+      "id": 117083733044,
+      "run_id": 38933615684,
+      "workflow_name": "Release",
+      "head_branch": "v0.35.2",
+      "run_url": "https://api.github.com/repos/emu198x/emu198x/actions/runs/38933615684",
+      "run_attempt": 1,
+      "node_id": "CR_kwDOSAgEp88AAAAbQrv8NA",
+      "head_sha": "42e28e284d2b3120e850aea66bfcf097b6119afa",
+      "url": "https://api.github.com/repos/emu198x/emu198x/actions/jobs/117083733044",
+      "html_url": "https://github.com/emu198x/emu198x/actions/runs/38933615684/job/117083733044",
+      "status": "completed",
+      "conclusion": "success",
+      "created_at": "2026-10-16T16:39:39Z",
+      "started_at": "2026-10-16T16:39:44Z",
+      "completed_at": "2026-10-16T16:52:06Z",
+      "name": "build-local-artifacts (x86_64-apple-darwin)",
+      "steps": [
+        {
+          "name": "Set up job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 1,
+          "started_at": "2026-10-16T16:39:46Z",
+          "completed_at": "2026-10-16T16:39:49Z"
+        },
+        {
+          "name": "enable windows longpaths",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 2,
+          "started_at": "2026-10-16T16:39:49Z",
+          "completed_at": "2026-10-16T16:39:49Z"
+        },
+        {
+          "name": "Run actions/checkout@v6",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 3,
+          "started_at": "2026-10-16T16:39:49Z",
+          "completed_at": "2026-10-16T16:39:59Z"
+        },
+        {
+          "name": "Run actions/setup-python@v6",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 4,
+          "started_at": "2026-10-16T16:39:59Z",
+          "completed_at": "2026-10-16T16:40:00Z"
+        },
+        {
+          "name": "Run producer rejection controls",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 5,
+          "started_at": "2026-10-16T16:40:00Z",
+          "completed_at": "2026-10-16T16:40:04Z"
+        },
+        {
+          "name": "Install Rust non-interactively if not already installed",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 6,
+          "started_at": "2026-10-16T16:40:04Z",
+          "completed_at": "2026-10-16T16:40:04Z"
+        },
+        {
+          "name": "Install dist",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 7,
+          "started_at": "2026-10-16T16:40:04Z",
+          "completed_at": "2026-10-16T16:40:06Z"
+        },
+        {
+          "name": "Fetch local artifacts",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 8,
+          "started_at": "2026-10-16T16:40:06Z",
+          "completed_at": "2026-10-16T16:40:07Z"
+        },
+        {
+          "name": "Install dependencies",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 9,
+          "started_at": "2026-10-16T16:40:07Z",
+          "completed_at": "2026-10-16T16:40:07Z"
+        },
+        {
+          "name": "Configure macOS signing",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 10,
+          "started_at": "2026-10-16T16:40:07Z",
+          "completed_at": "2026-10-16T16:40:08Z"
+        },
+        {
+          "name": "Build artifacts",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 11,
+          "started_at": "2026-10-16T16:40:08Z",
+          "completed_at": "2026-10-16T16:50:47Z"
+        },
+        {
+          "name": "Post-build",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 12,
+          "started_at": "2026-10-16T16:50:47Z",
+          "completed_at": "2026-10-16T16:50:47Z"
+        },
+        {
+          "name": "Notarise macOS binaries",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 13,
+          "started_at": "2026-10-16T16:50:47Z",
+          "completed_at": "2026-10-16T16:51:51Z"
+        },
+        {
+          "name": "Remove signing keychains",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 14,
+          "started_at": "2026-10-16T16:51:51Z",
+          "completed_at": "2026-10-16T16:51:51Z"
+        },
+        {
+          "name": "Recheck packaged bytes after notarization",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 15,
+          "started_at": "2026-10-16T16:51:51Z",
+          "completed_at": "2026-10-16T16:51:54Z"
+        },
+        {
+          "name": "Upload artifacts",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 16,
+          "started_at": "2026-10-16T16:51:54Z",
+          "completed_at": "2026-10-16T16:52:01Z"
+        },
+        {
+          "name": "Post Run actions/setup-python@v6",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 31,
+          "started_at": "2026-10-16T16:52:01Z",
+          "completed_at": "2026-10-16T16:52:02Z"
+        },
+        {
+          "name": "Post Run actions/checkout@v6",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 32,
+          "started_at": "2026-10-16T16:52:02Z",
+          "completed_at": "2026-10-16T16:52:02Z"
+        },
+        {
+          "name": "Complete job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 33,
+          "started_at": "2026-10-16T16:52:02Z",
+          "completed_at": "2026-10-16T16:52:04Z"
+        }
+      ],
+      "check_run_url": "https://api.github.com/repos/emu198x/emu198x/check-runs/117083733044",
+      "labels": [
+        "macos-15-intel"
+      ],
+      "runner_id": 1000036898,
+      "runner_name": "GitHub Actions 1000036898",
+      "runner_group_id": 0,
+      "runner_group_name": "GitHub Actions"
+    },
+    {
+      "id": 117083733155,
+      "run_id": 38933615684,
+      "workflow_name": "Release",
+      "head_branch": "v0.35.2",
+      "run_url": "https://api.github.com/repos/emu198x/emu198x/actions/runs/38933615684",
+      "run_attempt": 1,
+      "node_id": "CR_kwDOSAgEp88AAAAbQrv8ow",
+      "head_sha": "42e28e284d2b3120e850aea66bfcf097b6119afa",
+      "url": "https://api.github.com/repos/emu198x/emu198x/actions/jobs/117083733155",
+      "html_url": "https://github.com/emu198x/emu198x/actions/runs/38933615684/job/117083733155",
+      "status": "completed",
+      "conclusion": "success",
+      "created_at": "2026-10-16T16:39:39Z",
+      "started_at": "2026-10-16T16:39:47Z",
+      "completed_at": "2026-10-16T16:45:38Z",
+      "name": "build-local-artifacts (aarch64-apple-darwin)",
+      "steps": [
+        {
+          "name": "Set up job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 1,
+          "started_at": "2026-10-16T16:39:47Z",
+          "completed_at": "2026-10-16T16:39:49Z"
+        },
+        {
+          "name": "enable windows longpaths",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 2,
+          "started_at": "2026-10-16T16:39:49Z",
+          "completed_at": "2026-10-16T16:39:49Z"
+        },
+        {
+          "name": "Run actions/checkout@v6",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 3,
+          "started_at": "2026-10-16T16:39:49Z",
+          "completed_at": "2026-10-16T16:39:54Z"
+        },
+        {
+          "name": "Run actions/setup-python@v6",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 4,
+          "started_at": "2026-10-16T16:39:54Z",
+          "completed_at": "2026-10-16T16:39:54Z"
+        },
+        {
+          "name": "Run producer rejection controls",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 5,
+          "started_at": "2026-10-16T16:39:54Z",
+          "completed_at": "2026-10-16T16:39:56Z"
+        },
+        {
+          "name": "Install Rust non-interactively if not already installed",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 6,
+          "started_at": "2026-10-16T16:39:56Z",
+          "completed_at": "2026-10-16T16:39:56Z"
+        },
+        {
+          "name": "Install dist",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 7,
+          "started_at": "2026-10-16T16:39:56Z",
+          "completed_at": "2026-10-16T16:39:57Z"
+        },
+        {
+          "name": "Fetch local artifacts",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 8,
+          "started_at": "2026-10-16T16:39:57Z",
+          "completed_at": "2026-10-16T16:39:58Z"
+        },
+        {
+          "name": "Install dependencies",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 9,
+          "started_at": "2026-10-16T16:39:58Z",
+          "completed_at": "2026-10-16T16:39:58Z"
+        },
+        {
+          "name": "Configure macOS signing",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 10,
+          "started_at": "2026-10-16T16:39:58Z",
+          "completed_at": "2026-10-16T16:39:58Z"
+        },
+        {
+          "name": "Build artifacts",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 11,
+          "started_at": "2026-10-16T16:39:58Z",
+          "completed_at": "2026-10-16T16:44:42Z"
+        },
+        {
+          "name": "Post-build",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 12,
+          "started_at": "2026-10-16T16:44:42Z",
+          "completed_at": "2026-10-16T16:44:42Z"
+        },
+        {
+          "name": "Notarise macOS binaries",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 13,
+          "started_at": "2026-10-16T16:44:42Z",
+          "completed_at": "2026-10-16T16:45:28Z"
+        },
+        {
+          "name": "Remove signing keychains",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 14,
+          "started_at": "2026-10-16T16:45:28Z",
+          "completed_at": "2026-10-16T16:45:28Z"
+        },
+        {
+          "name": "Recheck packaged bytes after notarization",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 15,
+          "started_at": "2026-10-16T16:45:28Z",
+          "completed_at": "2026-10-16T16:45:30Z"
+        },
+        {
+          "name": "Upload artifacts",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 16,
+          "started_at": "2026-10-16T16:45:30Z",
+          "completed_at": "2026-10-16T16:45:34Z"
+        },
+        {
+          "name": "Post Run actions/setup-python@v6",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 31,
+          "started_at": "2026-10-16T16:45:34Z",
+          "completed_at": "2026-10-16T16:45:34Z"
+        },
+        {
+          "name": "Post Run actions/checkout@v6",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 32,
+          "started_at": "2026-10-16T16:45:34Z",
+          "completed_at": "2026-10-16T16:45:35Z"
+        },
+        {
+          "name": "Complete job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 33,
+          "started_at": "2026-10-16T16:45:35Z",
+          "completed_at": "2026-10-16T16:45:37Z"
+        }
+      ],
+      "check_run_url": "https://api.github.com/repos/emu198x/emu198x/check-runs/117083733155",
+      "labels": [
+        "macos-14"
+      ],
+      "runner_id": 1000036897,
+      "runner_name": "GitHub Actions 1000036897",
+      "runner_group_id": 0,
+      "runner_group_name": "GitHub Actions"
+    },
+    {
+      "id": 117083733163,
+      "run_id": 38933615684,
+      "workflow_name": "Release",
+      "head_branch": "v0.35.2",
+      "run_url": "https://api.github.com/repos/emu198x/emu198x/actions/runs/38933615684",
+      "run_attempt": 1,
+      "node_id": "CR_kwDOSAgEp88AAAAbQrv8qw",
+      "head_sha": "42e28e284d2b3120e850aea66bfcf097b6119afa",
+      "url": "https://api.github.com/repos/emu198x/emu198x/actions/jobs/117083733163",
+      "html_url": "https://github.com/emu198x/emu198x/actions/runs/38933615684/job/117083733163",
+      "status": "completed",
+      "conclusion": "success",
+      "created_at": "2026-10-16T16:39:39Z",
+      "started_at": "2026-10-16T16:39:42Z",
+      "completed_at": "2026-10-16T16:49:13Z",
+      "name": "build-local-artifacts (x86_64-pc-windows-msvc)",
+      "steps": [
+        {
+          "name": "Set up job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 1,
+          "started_at": "2026-10-16T16:39:43Z",
+          "completed_at": "2026-10-16T16:39:45Z"
+        },
+        {
+          "name": "enable windows longpaths",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 2,
+          "started_at": "2026-10-16T16:39:45Z",
+          "completed_at": "2026-10-16T16:39:46Z"
+        },
+        {
+          "name": "Run actions/checkout@v6",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 3,
+          "started_at": "2026-10-16T16:39:46Z",
+          "completed_at": "2026-10-16T16:39:56Z"
+        },
+        {
+          "name": "Run actions/setup-python@v6",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 4,
+          "started_at": "2026-10-16T16:39:56Z",
+          "completed_at": "2026-10-16T16:39:56Z"
+        },
+        {
+          "name": "Run producer rejection controls",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 5,
+          "started_at": "2026-10-16T16:39:56Z",
+          "completed_at": "2026-10-16T16:40:03Z"
+        },
+        {
+          "name": "Install Rust non-interactively if not already installed",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 6,
+          "started_at": "2026-10-16T16:40:03Z",
+          "completed_at": "2026-10-16T16:40:03Z"
+        },
+        {
+          "name": "Install dist",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 7,
+          "started_at": "2026-10-16T16:40:03Z",
+          "completed_at": "2026-10-16T16:40:05Z"
+        },
+        {
+          "name": "Fetch local artifacts",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 8,
+          "started_at": "2026-10-16T16:40:05Z",
+          "completed_at": "2026-10-16T16:40:06Z"
+        },
+        {
+          "name": "Install dependencies",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 9,
+          "started_at": "2026-10-16T16:40:06Z",
+          "completed_at": "2026-10-16T16:40:06Z"
+        },
+        {
+          "name": "Configure macOS signing",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 10,
+          "started_at": "2026-10-16T16:40:06Z",
+          "completed_at": "2026-10-16T16:40:06Z"
+        },
+        {
+          "name": "Build artifacts",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 11,
+          "started_at": "2026-10-16T16:40:06Z",
+          "completed_at": "2026-10-16T16:49:03Z"
+        },
+        {
+          "name": "Post-build",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 12,
+          "started_at": "2026-10-16T16:49:03Z",
+          "completed_at": "2026-10-16T16:49:03Z"
+        },
+        {
+          "name": "Notarise macOS binaries",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 13,
+          "started_at": "2026-10-16T16:49:03Z",
+          "completed_at": "2026-10-16T16:49:03Z"
+        },
+        {
+          "name": "Remove signing keychains",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 14,
+          "started_at": "2026-10-16T16:49:03Z",
+          "completed_at": "2026-10-16T16:49:03Z"
+        },
+        {
+          "name": "Recheck packaged bytes after notarization",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 15,
+          "started_at": "2026-10-16T16:49:03Z",
+          "completed_at": "2026-10-16T16:49:05Z"
+        },
+        {
+          "name": "Upload artifacts",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 16,
+          "started_at": "2026-10-16T16:49:05Z",
+          "completed_at": "2026-10-16T16:49:10Z"
+        },
+        {
+          "name": "Post Run actions/setup-python@v6",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 31,
+          "started_at": "2026-10-16T16:49:10Z",
+          "completed_at": "2026-10-16T16:49:10Z"
+        },
+        {
+          "name": "Post Run actions/checkout@v6",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 32,
+          "started_at": "2026-10-16T16:49:10Z",
+          "completed_at": "2026-10-16T16:49:12Z"
+        },
+        {
+          "name": "Complete job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 33,
+          "started_at": "2026-10-16T16:49:12Z",
+          "completed_at": "2026-10-16T16:49:12Z"
+        }
+      ],
+      "check_run_url": "https://api.github.com/repos/emu198x/emu198x/check-runs/117083733163",
+      "labels": [
+        "windows-2022"
+      ],
+      "runner_id": 1000036899,
+      "runner_name": "GitHub Actions 1000036899",
+      "runner_group_id": 0,
+      "runner_group_name": "GitHub Actions"
+    },
+    {
+      "id": 117089078356,
+      "run_id": 38933615684,
+      "workflow_name": "Release",
+      "head_branch": "v0.35.2",
+      "run_url": "https://api.github.com/repos/emu198x/emu198x/actions/runs/38933615684",
+      "run_attempt": 1,
+      "node_id": "CR_kwDOSAgEp88AAAAbQw2MVA",
+      "head_sha": "42e28e284d2b3120e850aea66bfcf097b6119afa",
+      "url": "https://api.github.com/repos/emu198x/emu198x/actions/jobs/117089078356",
+      "html_url": "https://github.com/emu198x/emu198x/actions/runs/38933615684/job/117089078356",
+      "status": "completed",
+      "conclusion": "success",
+      "created_at": "2026-10-16T16:52:07Z",
+      "started_at": "2026-10-16T16:52:10Z",
+      "completed_at": "2026-10-16T16:54:06Z",
+      "name": "build-global-artifacts",
+      "steps": [
+        {
+          "name": "Set up job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 1,
+          "started_at": "2026-10-16T16:52:11Z",
+          "completed_at": "2026-10-16T16:52:12Z"
+        },
+        {
+          "name": "Run actions/checkout@v6",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 2,
+          "started_at": "2026-10-16T16:52:12Z",
+          "completed_at": "2026-10-16T16:52:16Z"
+        },
+        {
+          "name": "Install cached dist",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 3,
+          "started_at": "2026-10-16T16:52:16Z",
+          "completed_at": "2026-10-16T16:52:17Z"
+        },
+        {
+          "name": "Run chmod +x ~/.cargo/bin/dist",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 4,
+          "started_at": "2026-10-16T16:52:17Z",
+          "completed_at": "2026-10-16T16:52:17Z"
+        },
+        {
+          "name": "Fetch local artifacts",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 5,
+          "started_at": "2026-10-16T16:52:17Z",
+          "completed_at": "2026-10-16T16:52:24Z"
+        },
+        {
+          "name": "Run dist build --tag=v0.35.2 --output-format=json \"--artifacts=global\" > dist-manifest.json",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 6,
+          "started_at": "2026-10-16T16:52:24Z",
+          "completed_at": "2026-10-16T16:54:02Z"
+        },
+        {
+          "name": "Upload artifacts",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 7,
+          "started_at": "2026-10-16T16:54:02Z",
+          "completed_at": "2026-10-16T16:54:04Z"
+        },
+        {
+          "name": "Post Run actions/checkout@v6",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 14,
+          "started_at": "2026-10-16T16:54:04Z",
+          "completed_at": "2026-10-16T16:54:04Z"
+        },
+        {
+          "name": "Complete job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 15,
+          "started_at": "2026-10-16T16:54:04Z",
+          "completed_at": "2026-10-16T16:54:04Z"
+        }
+      ],
+      "check_run_url": "https://api.github.com/repos/emu198x/emu198x/check-runs/117089078356",
+      "labels": [
+        "ubuntu-22.04"
+      ],
+      "runner_id": 1000036952,
+      "runner_name": "GitHub Actions 1000036952",
+      "runner_group_id": 0,
+      "runner_group_name": "GitHub Actions"
+    },
+    {
+      "id": 117089931076,
+      "run_id": 38933615684,
+      "workflow_name": "Release",
+      "head_branch": "v0.35.2",
+      "run_url": "https://api.github.com/repos/emu198x/emu198x/actions/runs/38933615684",
+      "run_attempt": 1,
+      "node_id": "CR_kwDOSAgEp88AAAAbQxqPRA",
+      "head_sha": "42e28e284d2b3120e850aea66bfcf097b6119afa",
+      "url": "https://api.github.com/repos/emu198x/emu198x/actions/jobs/117089931076",
+      "html_url": "https://github.com/emu198x/emu198x/actions/runs/38933615684/job/117089931076",
+      "status": "completed",
+      "conclusion": "success",
+      "created_at": "2026-10-16T16:54:06Z",
+      "started_at": "2026-10-16T16:54:12Z",
+      "completed_at": "2026-10-16T16:54:38Z",
+      "name": "custom-qualify-packages / Verify source lock (aarch64-unknown-linux-gnu)",
+      "steps": [
+        {
+          "name": "Set up job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 1,
+          "started_at": "2026-10-16T16:54:13Z",
+          "completed_at": "2026-10-16T16:54:15Z"
+        },
+        {
+          "name": "Run actions/checkout@v6",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 2,
+          "started_at": "2026-10-16T16:54:15Z",
+          "completed_at": "2026-10-16T16:54:18Z"
+        },
+        {
+          "name": "Run actions/setup-python@v6",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 3,
+          "started_at": "2026-10-16T16:54:18Z",
+          "completed_at": "2026-10-16T16:54:18Z"
+        },
+        {
+          "name": "Fetch actual producer packages and receipts",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 4,
+          "started_at": "2026-10-16T16:54:18Z",
+          "completed_at": "2026-10-16T16:54:30Z"
+        },
+        {
+          "name": "Verify every native package",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 5,
+          "started_at": "2026-10-16T16:54:30Z",
+          "completed_at": "2026-10-16T16:54:34Z"
+        },
+        {
+          "name": "Retain qualification result",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 6,
+          "started_at": "2026-10-16T16:54:34Z",
+          "completed_at": "2026-10-16T16:54:35Z"
+        },
+        {
+          "name": "Post Run actions/setup-python@v6",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 11,
+          "started_at": "2026-10-16T16:54:35Z",
+          "completed_at": "2026-10-16T16:54:35Z"
+        },
+        {
+          "name": "Post Run actions/checkout@v6",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 12,
+          "started_at": "2026-10-16T16:54:35Z",
+          "completed_at": "2026-10-16T16:54:36Z"
+        },
+        {
+          "name": "Complete job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 13,
+          "started_at": "2026-10-16T16:54:36Z",
+          "completed_at": "2026-10-16T16:54:36Z"
+        }
+      ],
+      "check_run_url": "https://api.github.com/repos/emu198x/emu198x/check-runs/117089931076",
+      "labels": [
+        "ubuntu-22.04-arm"
+      ],
+      "runner_id": 1000036959,
+      "runner_name": "GitHub Actions 1000036959",
+      "runner_group_id": 0,
+      "runner_group_name": "GitHub Actions"
+    },
+    {
+      "id": 117089931100,
+      "run_id": 38933615684,
+      "workflow_name": "Release",
+      "head_branch": "v0.35.2",
+      "run_url": "https://api.github.com/repos/emu198x/emu198x/actions/runs/38933615684",
+      "run_attempt": 1,
+      "node_id": "CR_kwDOSAgEp88AAAAbQxqPXA",
+      "head_sha": "42e28e284d2b3120e850aea66bfcf097b6119afa",
+      "url": "https://api.github.com/repos/emu198x/emu198x/actions/jobs/117089931100",
+      "html_url": "https://github.com/emu198x/emu198x/actions/runs/38933615684/job/117089931100",
+      "status": "completed",
+      "conclusion": "success",
+      "created_at": "2026-10-16T16:54:06Z",
+      "started_at": "2026-10-16T16:54:09Z",
+      "completed_at": "2026-10-16T16:54:32Z",
+      "name": "custom-qualify-packages / Verify source lock (x86_64-unknown-linux-gnu)",
+      "steps": [
+        {
+          "name": "Set up job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 1,
+          "started_at": "2026-10-16T16:54:10Z",
+          "completed_at": "2026-10-16T16:54:12Z"
+        },
+        {
+          "name": "Run actions/checkout@v6",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 2,
+          "started_at": "2026-10-16T16:54:12Z",
+          "completed_at": "2026-10-16T16:54:15Z"
+        },
+        {
+          "name": "Run actions/setup-python@v6",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 3,
+          "started_at": "2026-10-16T16:54:15Z",
+          "completed_at": "2026-10-16T16:54:16Z"
+        },
+        {
+          "name": "Fetch actual producer packages and receipts",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 4,
+          "started_at": "2026-10-16T16:54:16Z",
+          "completed_at": "2026-10-16T16:54:22Z"
+        },
+        {
+          "name": "Verify every native package",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 5,
+          "started_at": "2026-10-16T16:54:22Z",
+          "completed_at": "2026-10-16T16:54:28Z"
+        },
+        {
+          "name": "Retain qualification result",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 6,
+          "started_at": "2026-10-16T16:54:28Z",
+          "completed_at": "2026-10-16T16:54:29Z"
+        },
+        {
+          "name": "Post Run actions/setup-python@v6",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 11,
+          "started_at": "2026-10-16T16:54:29Z",
+          "completed_at": "2026-10-16T16:54:29Z"
+        },
+        {
+          "name": "Post Run actions/checkout@v6",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 12,
+          "started_at": "2026-10-16T16:54:29Z",
+          "completed_at": "2026-10-16T16:54:29Z"
+        },
+        {
+          "name": "Complete job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 13,
+          "started_at": "2026-10-16T16:54:29Z",
+          "completed_at": "2026-10-16T16:54:29Z"
+        }
+      ],
+      "check_run_url": "https://api.github.com/repos/emu198x/emu198x/check-runs/117089931100",
+      "labels": [
+        "ubuntu-22.04"
+      ],
+      "runner_id": 1000036954,
+      "runner_name": "GitHub Actions 1000036954",
+      "runner_group_id": 0,
+      "runner_group_name": "GitHub Actions"
+    },
+    {
+      "id": 117089931166,
+      "run_id": 38933615684,
+      "workflow_name": "Release",
+      "head_branch": "v0.35.2",
+      "run_url": "https://api.github.com/repos/emu198x/emu198x/actions/runs/38933615684",
+      "run_attempt": 1,
+      "node_id": "CR_kwDOSAgEp88AAAAbQxqPng",
+      "head_sha": "42e28e284d2b3120e850aea66bfcf097b6119afa",
+      "url": "https://api.github.com/repos/emu198x/emu198x/actions/jobs/117089931166",
+      "html_url": "https://github.com/emu198x/emu198x/actions/runs/38933615684/job/117089931166",
+      "status": "completed",
+      "conclusion": "success",
+      "created_at": "2026-10-16T16:54:06Z",
+      "started_at": "2026-10-16T16:54:15Z",
+      "completed_at": "2026-10-16T16:54:43Z",
+      "name": "custom-qualify-packages / Verify source lock (aarch64-apple-darwin)",
+      "steps": [
+        {
+          "name": "Set up job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 1,
+          "started_at": "2026-10-16T16:54:15Z",
+          "completed_at": "2026-10-16T16:54:18Z"
+        },
+        {
+          "name": "Run actions/checkout@v6",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 2,
+          "started_at": "2026-10-16T16:54:18Z",
+          "completed_at": "2026-10-16T16:54:23Z"
+        },
+        {
+          "name": "Run actions/setup-python@v6",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 3,
+          "started_at": "2026-10-16T16:54:23Z",
+          "completed_at": "2026-10-16T16:54:23Z"
+        },
+        {
+          "name": "Fetch actual producer packages and receipts",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 4,
+          "started_at": "2026-10-16T16:54:23Z",
+          "completed_at": "2026-10-16T16:54:37Z"
+        },
+        {
+          "name": "Verify every native package",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 5,
+          "started_at": "2026-10-16T16:54:37Z",
+          "completed_at": "2026-10-16T16:54:39Z"
+        },
+        {
+          "name": "Retain qualification result",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 6,
+          "started_at": "2026-10-16T16:54:39Z",
+          "completed_at": "2026-10-16T16:54:40Z"
+        },
+        {
+          "name": "Post Run actions/setup-python@v6",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 11,
+          "started_at": "2026-10-16T16:54:40Z",
+          "completed_at": "2026-10-16T16:54:40Z"
+        },
+        {
+          "name": "Post Run actions/checkout@v6",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 12,
+          "started_at": "2026-10-16T16:54:40Z",
+          "completed_at": "2026-10-16T16:54:41Z"
+        },
+        {
+          "name": "Complete job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 13,
+          "started_at": "2026-10-16T16:54:41Z",
+          "completed_at": "2026-10-16T16:54:42Z"
+        }
+      ],
+      "check_run_url": "https://api.github.com/repos/emu198x/emu198x/check-runs/117089931166",
+      "labels": [
+        "macos-14"
+      ],
+      "runner_id": 1000036957,
+      "runner_name": "GitHub Actions 1000036957",
+      "runner_group_id": 0,
+      "runner_group_name": "GitHub Actions"
+    },
+    {
+      "id": 117089931279,
+      "run_id": 38933615684,
+      "workflow_name": "Release",
+      "head_branch": "v0.35.2",
+      "run_url": "https://api.github.com/repos/emu198x/emu198x/actions/runs/38933615684",
+      "run_attempt": 1,
+      "node_id": "CR_kwDOSAgEp88AAAAbQxqQDw",
+      "head_sha": "42e28e284d2b3120e850aea66bfcf097b6119afa",
+      "url": "https://api.github.com/repos/emu198x/emu198x/actions/jobs/117089931279",
+      "html_url": "https://github.com/emu198x/emu198x/actions/runs/38933615684/job/117089931279",
+      "status": "completed",
+      "conclusion": "success",
+      "created_at": "2026-10-16T16:54:06Z",
+      "started_at": "2026-10-16T16:54:12Z",
+      "completed_at": "2026-10-16T16:55:11Z",
+      "name": "custom-qualify-packages / Verify source lock (x86_64-apple-darwin)",
+      "steps": [
+        {
+          "name": "Set up job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 1,
+          "started_at": "2026-10-16T16:54:16Z",
+          "completed_at": "2026-10-16T16:54:21Z"
+        },
+        {
+          "name": "Run actions/checkout@v6",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 2,
+          "started_at": "2026-10-16T16:54:21Z",
+          "completed_at": "2026-10-16T16:54:32Z"
+        },
+        {
+          "name": "Run actions/setup-python@v6",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 3,
+          "started_at": "2026-10-16T16:54:32Z",
+          "completed_at": "2026-10-16T16:54:32Z"
+        },
+        {
+          "name": "Fetch actual producer packages and receipts",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 4,
+          "started_at": "2026-10-16T16:54:32Z",
+          "completed_at": "2026-10-16T16:55:00Z"
+        },
+        {
+          "name": "Verify every native package",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 5,
+          "started_at": "2026-10-16T16:55:00Z",
+          "completed_at": "2026-10-16T16:55:06Z"
+        },
+        {
+          "name": "Retain qualification result",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 6,
+          "started_at": "2026-10-16T16:55:06Z",
+          "completed_at": "2026-10-16T16:55:07Z"
+        },
+        {
+          "name": "Post Run actions/setup-python@v6",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 11,
+          "started_at": "2026-10-16T16:55:07Z",
+          "completed_at": "2026-10-16T16:55:07Z"
+        },
+        {
+          "name": "Post Run actions/checkout@v6",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 12,
+          "started_at": "2026-10-16T16:55:07Z",
+          "completed_at": "2026-10-16T16:55:08Z"
+        },
+        {
+          "name": "Complete job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 13,
+          "started_at": "2026-10-16T16:55:08Z",
+          "completed_at": "2026-10-16T16:55:09Z"
+        }
+      ],
+      "check_run_url": "https://api.github.com/repos/emu198x/emu198x/check-runs/117089931279",
+      "labels": [
+        "macos-15-intel"
+      ],
+      "runner_id": 1000036956,
+      "runner_name": "GitHub Actions 1000036956",
+      "runner_group_id": 0,
+      "runner_group_name": "GitHub Actions"
+    },
+    {
+      "id": 117089931289,
+      "run_id": 38933615684,
+      "workflow_name": "Release",
+      "head_branch": "v0.35.2",
+      "run_url": "https://api.github.com/repos/emu198x/emu198x/actions/runs/38933615684",
+      "run_attempt": 1,
+      "node_id": "CR_kwDOSAgEp88AAAAbQxqQGQ",
+      "head_sha": "42e28e284d2b3120e850aea66bfcf097b6119afa",
+      "url": "https://api.github.com/repos/emu198x/emu198x/actions/jobs/117089931289",
+      "html_url": "https://github.com/emu198x/emu198x/actions/runs/38933615684/job/117089931289",
+      "status": "completed",
+      "conclusion": "success",
+      "created_at": "2026-10-16T16:54:06Z",
+      "started_at": "2026-10-16T16:54:09Z",
+      "completed_at": "2026-10-16T16:54:38Z",
+      "name": "custom-qualify-packages / Verify source lock (x86_64-pc-windows-msvc)",
+      "steps": [
+        {
+          "name": "Set up job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 1,
+          "started_at": "2026-10-16T16:54:10Z",
+          "completed_at": "2026-10-16T16:54:11Z"
+        },
+        {
+          "name": "Run actions/checkout@v6",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 2,
+          "started_at": "2026-10-16T16:54:11Z",
+          "completed_at": "2026-10-16T16:54:21Z"
+        },
+        {
+          "name": "Run actions/setup-python@v6",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 3,
+          "started_at": "2026-10-16T16:54:21Z",
+          "completed_at": "2026-10-16T16:54:21Z"
+        },
+        {
+          "name": "Fetch actual producer packages and receipts",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 4,
+          "started_at": "2026-10-16T16:54:21Z",
+          "completed_at": "2026-10-16T16:54:31Z"
+        },
+        {
+          "name": "Verify every native package",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 5,
+          "started_at": "2026-10-16T16:54:31Z",
+          "completed_at": "2026-10-16T16:54:34Z"
+        },
+        {
+          "name": "Retain qualification result",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 6,
+          "started_at": "2026-10-16T16:54:34Z",
+          "completed_at": "2026-10-16T16:54:35Z"
+        },
+        {
+          "name": "Post Run actions/setup-python@v6",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 11,
+          "started_at": "2026-10-16T16:54:35Z",
+          "completed_at": "2026-10-16T16:54:35Z"
+        },
+        {
+          "name": "Post Run actions/checkout@v6",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 12,
+          "started_at": "2026-10-16T16:54:35Z",
+          "completed_at": "2026-10-16T16:54:37Z"
+        },
+        {
+          "name": "Complete job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 13,
+          "started_at": "2026-10-16T16:54:37Z",
+          "completed_at": "2026-10-16T16:54:37Z"
+        }
+      ],
+      "check_run_url": "https://api.github.com/repos/emu198x/emu198x/check-runs/117089931289",
+      "labels": [
+        "windows-2022"
+      ],
+      "runner_id": 1000036955,
+      "runner_name": "GitHub Actions 1000036955",
+      "runner_group_id": 0,
+      "runner_group_name": "GitHub Actions"
+    },
+    {
+      "id": 117089931595,
+      "run_id": 38933615684,
+      "workflow_name": "Release",
+      "head_branch": "v0.35.2",
+      "run_url": "https://api.github.com/repos/emu198x/emu198x/actions/runs/38933615684",
+      "run_attempt": 1,
+      "node_id": "CR_kwDOSAgEp88AAAAbQxqRSw",
+      "head_sha": "42e28e284d2b3120e850aea66bfcf097b6119afa",
+      "url": "https://api.github.com/repos/emu198x/emu198x/actions/jobs/117089931595",
+      "html_url": "https://github.com/emu198x/emu198x/actions/runs/38933615684/job/117089931595",
+      "status": "completed",
+      "conclusion": "success",
+      "created_at": "2026-10-16T16:54:06Z",
+      "started_at": "2026-10-16T16:54:09Z",
+      "completed_at": "2026-10-16T17:00:02Z",
+      "name": "custom-qualify-packages / linux-install / Install and exercise (x86_64-unknown-linux-gnu)",
+      "steps": [
+        {
+          "name": "Set up job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 1,
+          "started_at": "2026-10-16T16:54:11Z",
+          "completed_at": "2026-10-16T16:54:12Z"
+        },
+        {
+          "name": "Run actions/checkout@v6",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 2,
+          "started_at": "2026-10-16T16:54:12Z",
+          "completed_at": "2026-10-16T16:54:16Z"
+        },
+        {
+          "name": "Install emulator build dependencies",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 3,
+          "started_at": "2026-10-16T16:54:16Z",
+          "completed_at": "2026-10-16T16:54:57Z"
+        },
+        {
+          "name": "Cache Rust artifacts",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 4,
+          "started_at": "2026-10-16T16:54:57Z",
+          "completed_at": "2026-10-16T16:54:58Z"
+        },
+        {
+          "name": "Build packages for this native runner",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 5,
+          "started_at": "2026-10-16T16:54:58Z",
+          "completed_at": "2026-10-16T16:54:58Z"
+        },
+        {
+          "name": "Fetch the actual release packages",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 6,
+          "started_at": "2026-10-16T16:54:58Z",
+          "completed_at": "2026-10-16T16:55:08Z"
+        },
+        {
+          "name": "Save the release plan",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 7,
+          "started_at": "2026-10-16T16:55:08Z",
+          "completed_at": "2026-10-16T16:55:08Z"
+        },
+        {
+          "name": "Set up Homebrew",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 8,
+          "started_at": "2026-10-16T16:55:08Z",
+          "completed_at": "2026-10-16T16:55:08Z"
+        },
+        {
+          "name": "Install generated formulae and check output",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 9,
+          "started_at": "2026-10-16T16:55:08Z",
+          "completed_at": "2026-10-16T16:59:59Z"
+        },
+        {
+          "name": "Post Run actions/checkout@v6",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 18,
+          "started_at": "2026-10-16T16:59:59Z",
+          "completed_at": "2026-10-16T16:59:59Z"
+        },
+        {
+          "name": "Complete job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 19,
+          "started_at": "2026-10-16T16:59:59Z",
+          "completed_at": "2026-10-16T16:59:59Z"
+        }
+      ],
+      "check_run_url": "https://api.github.com/repos/emu198x/emu198x/check-runs/117089931595",
+      "labels": [
+        "ubuntu-22.04"
+      ],
+      "runner_id": 1000036953,
+      "runner_name": "GitHub Actions 1000036953",
+      "runner_group_id": 0,
+      "runner_group_name": "GitHub Actions"
+    },
+    {
+      "id": 117089931611,
+      "run_id": 38933615684,
+      "workflow_name": "Release",
+      "head_branch": "v0.35.2",
+      "run_url": "https://api.github.com/repos/emu198x/emu198x/actions/runs/38933615684",
+      "run_attempt": 1,
+      "node_id": "CR_kwDOSAgEp88AAAAbQxqRWw",
+      "head_sha": "42e28e284d2b3120e850aea66bfcf097b6119afa",
+      "url": "https://api.github.com/repos/emu198x/emu198x/actions/jobs/117089931611",
+      "html_url": "https://github.com/emu198x/emu198x/actions/runs/38933615684/job/117089931611",
+      "status": "completed",
+      "conclusion": "success",
+      "created_at": "2026-10-16T16:54:06Z",
+      "started_at": "2026-10-16T16:54:12Z",
+      "completed_at": "2026-10-16T16:59:06Z",
+      "name": "custom-qualify-packages / linux-install / Install and exercise (aarch64-unknown-linux-gnu)",
+      "steps": [
+        {
+          "name": "Set up job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 1,
+          "started_at": "2026-10-16T16:54:13Z",
+          "completed_at": "2026-10-16T16:54:15Z"
+        },
+        {
+          "name": "Run actions/checkout@v6",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 2,
+          "started_at": "2026-10-16T16:54:15Z",
+          "completed_at": "2026-10-16T16:54:17Z"
+        },
+        {
+          "name": "Install emulator build dependencies",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 3,
+          "started_at": "2026-10-16T16:54:17Z",
+          "completed_at": "2026-10-16T16:54:44Z"
+        },
+        {
+          "name": "Cache Rust artifacts",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 4,
+          "started_at": "2026-10-16T16:54:44Z",
+          "completed_at": "2026-10-16T16:54:44Z"
+        },
+        {
+          "name": "Build packages for this native runner",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 5,
+          "started_at": "2026-10-16T16:54:44Z",
+          "completed_at": "2026-10-16T16:54:44Z"
+        },
+        {
+          "name": "Fetch the actual release packages",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 6,
+          "started_at": "2026-10-16T16:54:44Z",
+          "completed_at": "2026-10-16T16:54:51Z"
+        },
+        {
+          "name": "Save the release plan",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 7,
+          "started_at": "2026-10-16T16:54:51Z",
+          "completed_at": "2026-10-16T16:54:51Z"
+        },
+        {
+          "name": "Set up Homebrew",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 8,
+          "started_at": "2026-10-16T16:54:51Z",
+          "completed_at": "2026-10-16T16:54:51Z"
+        },
+        {
+          "name": "Install generated formulae and check output",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 9,
+          "started_at": "2026-10-16T16:54:51Z",
+          "completed_at": "2026-10-16T16:59:02Z"
+        },
+        {
+          "name": "Post Run actions/checkout@v6",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 18,
+          "started_at": "2026-10-16T16:59:02Z",
+          "completed_at": "2026-10-16T16:59:02Z"
+        },
+        {
+          "name": "Complete job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 19,
+          "started_at": "2026-10-16T16:59:02Z",
+          "completed_at": "2026-10-16T16:59:02Z"
+        }
+      ],
+      "check_run_url": "https://api.github.com/repos/emu198x/emu198x/check-runs/117089931611",
+      "labels": [
+        "ubuntu-22.04-arm"
+      ],
+      "runner_id": 1000036958,
+      "runner_name": "GitHub Actions 1000036958",
+      "runner_group_id": 0,
+      "runner_group_name": "GitHub Actions"
+    },
+    {
+      "id": 117089936289,
+      "run_id": 38933615684,
+      "workflow_name": "Release",
+      "head_branch": "v0.35.2",
+      "run_url": "https://api.github.com/repos/emu198x/emu198x/actions/runs/38933615684",
+      "run_attempt": 1,
+      "node_id": "CR_kwDOSAgEp88AAAAbQxqjoQ",
+      "head_sha": "42e28e284d2b3120e850aea66bfcf097b6119afa",
+      "url": "https://api.github.com/repos/emu198x/emu198x/actions/jobs/117089936289",
+      "html_url": "https://github.com/emu198x/emu198x/actions/runs/38933615684/job/117089936289",
+      "status": "completed",
+      "conclusion": "skipped",
+      "created_at": "2026-10-16T16:54:07Z",
+      "started_at": "2026-10-16T16:54:07Z",
+      "completed_at": "2026-10-16T16:54:06Z",
+      "name": "custom-qualify-packages / linux-install / Windows Spectrum startup and package-to-boot regression",
+      "steps": [],
+      "check_run_url": "https://api.github.com/repos/emu198x/emu198x/check-runs/117089936289",
+      "labels": [
+        "windows-2022"
+      ],
+      "runner_id": null,
+      "runner_name": null,
+      "runner_group_id": null,
+      "runner_group_name": null
+    },
+    {
+      "id": 117092491534,
+      "run_id": 38933615684,
+      "workflow_name": "Release",
+      "head_branch": "v0.35.2",
+      "run_url": "https://api.github.com/repos/emu198x/emu198x/actions/runs/38933615684",
+      "run_attempt": 1,
+      "node_id": "CR_kwDOSAgEp88AAAAbQ0GhDg",
+      "head_sha": "42e28e284d2b3120e850aea66bfcf097b6119afa",
+      "url": "https://api.github.com/repos/emu198x/emu198x/actions/jobs/117092491534",
+      "html_url": "https://github.com/emu198x/emu198x/actions/runs/38933615684/job/117092491534",
+      "status": "completed",
+      "conclusion": "success",
+      "created_at": "2026-10-16T17:00:02Z",
+      "started_at": "2026-10-16T17:00:05Z",
+      "completed_at": "2026-10-16T17:02:02Z",
+      "name": "host",
+      "steps": [
+        {
+          "name": "Set up job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 1,
+          "started_at": "2026-10-16T17:00:06Z",
+          "completed_at": "2026-10-16T17:00:07Z"
+        },
+        {
+          "name": "Run actions/checkout@v6",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 2,
+          "started_at": "2026-10-16T17:00:07Z",
+          "completed_at": "2026-10-16T17:00:10Z"
+        },
+        {
+          "name": "Install cached dist",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 3,
+          "started_at": "2026-10-16T17:00:10Z",
+          "completed_at": "2026-10-16T17:00:11Z"
+        },
+        {
+          "name": "Run chmod +x ~/.cargo/bin/dist",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 4,
+          "started_at": "2026-10-16T17:00:11Z",
+          "completed_at": "2026-10-16T17:00:11Z"
+        },
+        {
+          "name": "Fetch artifacts",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 5,
+          "started_at": "2026-10-16T17:00:11Z",
+          "completed_at": "2026-10-16T17:00:18Z"
+        },
+        {
+          "name": "Run dist host --tag=v0.35.2 --steps=upload --steps=release --output-format=json > dist-manifest.json",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 6,
+          "started_at": "2026-10-16T17:00:18Z",
+          "completed_at": "2026-10-16T17:00:38Z"
+        },
+        {
+          "name": "Upload dist-manifest.json",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 7,
+          "started_at": "2026-10-16T17:00:38Z",
+          "completed_at": "2026-10-16T17:00:38Z"
+        },
+        {
+          "name": "Download GitHub Artifacts",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 8,
+          "started_at": "2026-10-16T17:00:38Z",
+          "completed_at": "2026-10-16T17:00:46Z"
+        },
+        {
+          "name": "Cleanup",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 9,
+          "started_at": "2026-10-16T17:00:46Z",
+          "completed_at": "2026-10-16T17:00:46Z"
+        },
+        {
+          "name": "Create GitHub Release",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 10,
+          "started_at": "2026-10-16T17:00:46Z",
+          "completed_at": "2026-10-16T17:01:59Z"
+        },
+        {
+          "name": "Post Run actions/checkout@v6",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 20,
+          "started_at": "2026-10-16T17:01:59Z",
+          "completed_at": "2026-10-16T17:02:00Z"
+        },
+        {
+          "name": "Complete job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 21,
+          "started_at": "2026-10-16T17:02:00Z",
+          "completed_at": "2026-10-16T17:02:00Z"
+        }
+      ],
+      "check_run_url": "https://api.github.com/repos/emu198x/emu198x/check-runs/117092491534",
+      "labels": [
+        "ubuntu-22.04"
+      ],
+      "runner_id": 1000036961,
+      "runner_name": "GitHub Actions 1000036961",
+      "runner_group_id": 0,
+      "runner_group_name": "GitHub Actions"
+    },
+    {
+      "id": 117093342594,
+      "run_id": 38933615684,
+      "workflow_name": "Release",
+      "head_branch": "v0.35.2",
+      "run_url": "https://api.github.com/repos/emu198x/emu198x/actions/runs/38933615684",
+      "run_attempt": 1,
+      "node_id": "CR_kwDOSAgEp88AAAAbQ06dgg",
+      "head_sha": "42e28e284d2b3120e850aea66bfcf097b6119afa",
+      "url": "https://api.github.com/repos/emu198x/emu198x/actions/jobs/117093342594",
+      "html_url": "https://github.com/emu198x/emu198x/actions/runs/38933615684/job/117093342594",
+      "status": "completed",
+      "conclusion": "success",
+      "created_at": "2026-10-16T17:02:02Z",
+      "started_at": "2026-10-16T17:02:05Z",
+      "completed_at": "2026-10-16T17:06:19Z",
+      "name": "publish-homebrew-formula",
+      "steps": [
+        {
+          "name": "Set up job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 1,
+          "started_at": "2026-10-16T17:02:06Z",
+          "completed_at": "2026-10-16T17:02:07Z"
+        },
+        {
+          "name": "Run actions/checkout@v6",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 2,
+          "started_at": "2026-10-16T17:02:07Z",
+          "completed_at": "2026-10-16T17:02:09Z"
+        },
+        {
+          "name": "Fetch homebrew formulae",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 3,
+          "started_at": "2026-10-16T17:02:09Z",
+          "completed_at": "2026-10-16T17:02:15Z"
+        },
+        {
+          "name": "Commit formula files",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 4,
+          "started_at": "2026-10-16T17:02:15Z",
+          "completed_at": "2026-10-16T17:06:16Z"
+        },
+        {
+          "name": "Post Run actions/checkout@v6",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 8,
+          "started_at": "2026-10-16T17:06:16Z",
+          "completed_at": "2026-10-16T17:06:16Z"
+        },
+        {
+          "name": "Complete job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 9,
+          "started_at": "2026-10-16T17:06:16Z",
+          "completed_at": "2026-10-16T17:06:17Z"
+        }
+      ],
+      "check_run_url": "https://api.github.com/repos/emu198x/emu198x/check-runs/117093342594",
+      "labels": [
+        "ubuntu-22.04"
+      ],
+      "runner_id": 1000036970,
+      "runner_name": "GitHub Actions 1000036970",
+      "runner_group_id": 0,
+      "runner_group_name": "GitHub Actions"
+    },
+    {
+      "id": 117095249613,
+      "run_id": 38933615684,
+      "workflow_name": "Release",
+      "head_branch": "v0.35.2",
+      "run_url": "https://api.github.com/repos/emu198x/emu198x/actions/runs/38933615684",
+      "run_attempt": 1,
+      "node_id": "CR_kwDOSAgEp88AAAAbQ2u2zQ",
+      "head_sha": "42e28e284d2b3120e850aea66bfcf097b6119afa",
+      "url": "https://api.github.com/repos/emu198x/emu198x/actions/jobs/117095249613",
+      "html_url": "https://github.com/emu198x/emu198x/actions/runs/38933615684/job/117095249613",
+      "status": "completed",
+      "conclusion": "success",
+      "created_at": "2026-10-16T17:06:19Z",
+      "started_at": "2026-10-16T17:06:22Z",
+      "completed_at": "2026-10-16T17:06:33Z",
+      "name": "announce",
+      "steps": [
+        {
+          "name": "Set up job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 1,
+          "started_at": "2026-10-16T17:06:24Z",
+          "completed_at": "2026-10-16T17:06:25Z"
+        },
+        {
+          "name": "Run actions/checkout@v6",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 2,
+          "started_at": "2026-10-16T17:06:25Z",
+          "completed_at": "2026-10-16T17:06:28Z"
+        },
+        {
+          "name": "Post Run actions/checkout@v6",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 4,
+          "started_at": "2026-10-16T17:06:28Z",
+          "completed_at": "2026-10-16T17:06:28Z"
+        },
+        {
+          "name": "Complete job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 5,
+          "started_at": "2026-10-16T17:06:28Z",
+          "completed_at": "2026-10-16T17:06:28Z"
+        }
+      ],
+      "check_run_url": "https://api.github.com/repos/emu198x/emu198x/check-runs/117095249613",
+      "labels": [
+        "ubuntu-22.04"
+      ],
+      "runner_id": 1000036987,
+      "runner_name": "GitHub Actions 1000036987",
+      "runner_group_id": 0,
+      "runner_group_name": "GitHub Actions"
+    },
+    {
+      "id": 117095353521,
+      "run_id": 38933615684,
+      "workflow_name": "Release",
+      "head_branch": "v0.35.2",
+      "run_url": "https://api.github.com/repos/emu198x/emu198x/actions/runs/38933615684",
+      "run_attempt": 1,
+      "node_id": "CR_kwDOSAgEp88AAAAbQ21MsQ",
+      "head_sha": "42e28e284d2b3120e850aea66bfcf097b6119afa",
+      "url": "https://api.github.com/repos/emu198x/emu198x/actions/jobs/117095353521",
+      "html_url": "https://github.com/emu198x/emu198x/actions/runs/38933615684/job/117095353521",
+      "status": "completed",
+      "conclusion": "success",
+      "created_at": "2026-10-16T17:06:34Z",
+      "started_at": "2026-10-16T17:06:36Z",
+      "completed_at": "2026-10-16T17:06:41Z",
+      "name": "custom-notify-discord / Post to Discord",
+      "steps": [
+        {
+          "name": "Set up job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 1,
+          "started_at": "2026-10-16T17:06:37Z",
+          "completed_at": "2026-10-16T17:06:37Z"
+        },
+        {
+          "name": "Post the release to Discord",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 2,
+          "started_at": "2026-10-16T17:06:37Z",
+          "completed_at": "2026-10-16T17:06:40Z"
+        },
+        {
+          "name": "Complete job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 3,
+          "started_at": "2026-10-16T17:06:40Z",
+          "completed_at": "2026-10-16T17:06:40Z"
+        }
+      ],
+      "check_run_url": "https://api.github.com/repos/emu198x/emu198x/check-runs/117095353521",
+      "labels": [
+        "ubuntu-latest"
+      ],
+      "runner_id": 1000036993,
+      "runner_name": "GitHub Actions 1000036993",
+      "runner_group_id": 0,
+      "runner_group_name": "GitHub Actions"
+    }
+  ],
+  "producer_qualification_report": {
+    "schema_version": 1,
+    "kind": "producer-source-lock-verification",
+    "verified": true,
+    "scope": "producer-source-lock",
+    "source": {
+      "commit": "42e28e284d2b3120e850aea66bfcf097b6119afa",
+      "cargo_lock_sha256": "55166f208573b86e0fc44d6acd4afc2ef66cfc40a0f79fc76b25c5e02b9e6624"
+    },
+    "target": "x86_64-unknown-linux-gnu",
+    "receipts": [
+      {
+        "schema_version": 1,
+        "kind": "producer-source-lock",
+        "signed": false,
+        "source_commit": "42e28e284d2b3120e850aea66bfcf097b6119afa",
+        "committed_lock_sha256": "55166f208573b86e0fc44d6acd4afc2ef66cfc40a0f79fc76b25c5e02b9e6624",
+        "before_lock_sha256": "55166f208573b86e0fc44d6acd4afc2ef66cfc40a0f79fc76b25c5e02b9e6624",
+        "after_lock_sha256": "55166f208573b86e0fc44d6acd4afc2ef66cfc40a0f79fc76b25c5e02b9e6624",
+        "package": "emu198x-acorn-atom",
+        "version": "0.35.2",
+        "archive": "emu198x-acorn-atom-x86_64-unknown-linux-gnu.tar.gz",
+        "target": "x86_64-unknown-linux-gnu",
+        "archive_sha256": "3fa97aa6ac0502dd79d93692d761e47c4d8bd1f20bc14da7f226c33841a2d324",
+        "executable_sha256": "d26e16b3ca44f06af33dc7c98852147fbb07b052c54c63ccb1680012c20105d6",
+        "build": {
+          "job": "build-local-artifacts",
+          "run_id": "38933615684",
+          "run_attempt": "1"
+        },
+        "command": [
+          "dist",
+          "build",
+          "--tag=v0.35.2",
+          "--print=linkage",
+          "--output-format=json",
+          "--artifacts=local",
+          "--target=x86_64-unknown-linux-gnu"
+        ],
+        "compiled_dependency_graph": "unknown"
+      },
+      {
+        "schema_version": 1,
+        "kind": "producer-source-lock",
+        "signed": false,
+        "source_commit": "42e28e284d2b3120e850aea66bfcf097b6119afa",
+        "committed_lock_sha256": "55166f208573b86e0fc44d6acd4afc2ef66cfc40a0f79fc76b25c5e02b9e6624",
+        "before_lock_sha256": "55166f208573b86e0fc44d6acd4afc2ef66cfc40a0f79fc76b25c5e02b9e6624",
+        "after_lock_sha256": "55166f208573b86e0fc44d6acd4afc2ef66cfc40a0f79fc76b25c5e02b9e6624",
+        "package": "emu198x-acorn-bbc-micro",
+        "version": "0.35.2",
+        "archive": "emu198x-acorn-bbc-micro-x86_64-unknown-linux-gnu.tar.gz",
+        "target": "x86_64-unknown-linux-gnu",
+        "archive_sha256": "212d1cad126c465fa85c8010e4fedafee38854485c7f27dfbe7b04f3efe75528",
+        "executable_sha256": "43af6f2512be7e53c8105169fba3ff04149c8854c39ad02b66ab19e84f684123",
+        "build": {
+          "job": "build-local-artifacts",
+          "run_id": "38933615684",
+          "run_attempt": "1"
+        },
+        "command": [
+          "dist",
+          "build",
+          "--tag=v0.35.2",
+          "--print=linkage",
+          "--output-format=json",
+          "--artifacts=local",
+          "--target=x86_64-unknown-linux-gnu"
+        ],
+        "compiled_dependency_graph": "unknown"
+      },
+      {
+        "schema_version": 1,
+        "kind": "producer-source-lock",
+        "signed": false,
+        "source_commit": "42e28e284d2b3120e850aea66bfcf097b6119afa",
+        "committed_lock_sha256": "55166f208573b86e0fc44d6acd4afc2ef66cfc40a0f79fc76b25c5e02b9e6624",
+        "before_lock_sha256": "55166f208573b86e0fc44d6acd4afc2ef66cfc40a0f79fc76b25c5e02b9e6624",
+        "after_lock_sha256": "55166f208573b86e0fc44d6acd4afc2ef66cfc40a0f79fc76b25c5e02b9e6624",
+        "package": "emu198x-acorn-electron",
+        "version": "0.35.2",
+        "archive": "emu198x-acorn-electron-x86_64-unknown-linux-gnu.tar.gz",
+        "target": "x86_64-unknown-linux-gnu",
+        "archive_sha256": "7ca081a9a671e292078151a0c1edc2fb70e5abbb61c55dd55567ec5d2e4622db",
+        "executable_sha256": "1f0f9cd26ea5dadf858a5e53b2369d4c0484229b2573b0cd4b7725f1d7537776",
+        "build": {
+          "job": "build-local-artifacts",
+          "run_id": "38933615684",
+          "run_attempt": "1"
+        },
+        "command": [
+          "dist",
+          "build",
+          "--tag=v0.35.2",
+          "--print=linkage",
+          "--output-format=json",
+          "--artifacts=local",
+          "--target=x86_64-unknown-linux-gnu"
+        ],
+        "compiled_dependency_graph": "unknown"
+      },
+      {
+        "schema_version": 1,
+        "kind": "producer-source-lock",
+        "signed": false,
+        "source_commit": "42e28e284d2b3120e850aea66bfcf097b6119afa",
+        "committed_lock_sha256": "55166f208573b86e0fc44d6acd4afc2ef66cfc40a0f79fc76b25c5e02b9e6624",
+        "before_lock_sha256": "55166f208573b86e0fc44d6acd4afc2ef66cfc40a0f79fc76b25c5e02b9e6624",
+        "after_lock_sha256": "55166f208573b86e0fc44d6acd4afc2ef66cfc40a0f79fc76b25c5e02b9e6624",
+        "package": "emu198x-amiga",
+        "version": "0.35.2",
+        "archive": "emu198x-amiga-x86_64-unknown-linux-gnu.tar.gz",
+        "target": "x86_64-unknown-linux-gnu",
+        "archive_sha256": "b4b645fa5989f69edeeed8a090b25e57aedd90247d7bba514da9a89b5556a7fc",
+        "executable_sha256": "f7a2fb1330e70a5186e3716becfee050036756e028e9e9019191cefb872467c6",
+        "build": {
+          "job": "build-local-artifacts",
+          "run_id": "38933615684",
+          "run_attempt": "1"
+        },
+        "command": [
+          "dist",
+          "build",
+          "--tag=v0.35.2",
+          "--print=linkage",
+          "--output-format=json",
+          "--artifacts=local",
+          "--target=x86_64-unknown-linux-gnu"
+        ],
+        "compiled_dependency_graph": "unknown"
+      },
+      {
+        "schema_version": 1,
+        "kind": "producer-source-lock",
+        "signed": false,
+        "source_commit": "42e28e284d2b3120e850aea66bfcf097b6119afa",
+        "committed_lock_sha256": "55166f208573b86e0fc44d6acd4afc2ef66cfc40a0f79fc76b25c5e02b9e6624",
+        "before_lock_sha256": "55166f208573b86e0fc44d6acd4afc2ef66cfc40a0f79fc76b25c5e02b9e6624",
+        "after_lock_sha256": "55166f208573b86e0fc44d6acd4afc2ef66cfc40a0f79fc76b25c5e02b9e6624",
+        "package": "emu198x-amstrad-cpc",
+        "version": "0.35.2",
+        "archive": "emu198x-amstrad-cpc-x86_64-unknown-linux-gnu.tar.gz",
+        "target": "x86_64-unknown-linux-gnu",
+        "archive_sha256": "d3d0f91f2c0e09688e58bbcf53bf861893d4377bc9c6d4c049d8085dcc223e78",
+        "executable_sha256": "2299202bb1b1c185ba1be1d20e5cb9b95730b74ed82be4be5636fcd82fccbd86",
+        "build": {
+          "job": "build-local-artifacts",
+          "run_id": "38933615684",
+          "run_attempt": "1"
+        },
+        "command": [
+          "dist",
+          "build",
+          "--tag=v0.35.2",
+          "--print=linkage",
+          "--output-format=json",
+          "--artifacts=local",
+          "--target=x86_64-unknown-linux-gnu"
+        ],
+        "compiled_dependency_graph": "unknown"
+      },
+      {
+        "schema_version": 1,
+        "kind": "producer-source-lock",
+        "signed": false,
+        "source_commit": "42e28e284d2b3120e850aea66bfcf097b6119afa",
+        "committed_lock_sha256": "55166f208573b86e0fc44d6acd4afc2ef66cfc40a0f79fc76b25c5e02b9e6624",
+        "before_lock_sha256": "55166f208573b86e0fc44d6acd4afc2ef66cfc40a0f79fc76b25c5e02b9e6624",
+        "after_lock_sha256": "55166f208573b86e0fc44d6acd4afc2ef66cfc40a0f79fc76b25c5e02b9e6624",
+        "package": "emu198x-atari-2600",
+        "version": "0.35.2",
+        "archive": "emu198x-atari-2600-x86_64-unknown-linux-gnu.tar.gz",
+        "target": "x86_64-unknown-linux-gnu",
+        "archive_sha256": "db849e1c87fa06c29dd2dc4e82cc5c90c0f7c3177f34e49efe5196f180e6427c",
+        "executable_sha256": "f8a348cf4c0403fa69878d577e47b6cce80e639c55a945ed4dfd3c4e3faf6acb",
+        "build": {
+          "job": "build-local-artifacts",
+          "run_id": "38933615684",
+          "run_attempt": "1"
+        },
+        "command": [
+          "dist",
+          "build",
+          "--tag=v0.35.2",
+          "--print=linkage",
+          "--output-format=json",
+          "--artifacts=local",
+          "--target=x86_64-unknown-linux-gnu"
+        ],
+        "compiled_dependency_graph": "unknown"
+      },
+      {
+        "schema_version": 1,
+        "kind": "producer-source-lock",
+        "signed": false,
+        "source_commit": "42e28e284d2b3120e850aea66bfcf097b6119afa",
+        "committed_lock_sha256": "55166f208573b86e0fc44d6acd4afc2ef66cfc40a0f79fc76b25c5e02b9e6624",
+        "before_lock_sha256": "55166f208573b86e0fc44d6acd4afc2ef66cfc40a0f79fc76b25c5e02b9e6624",
+        "after_lock_sha256": "55166f208573b86e0fc44d6acd4afc2ef66cfc40a0f79fc76b25c5e02b9e6624",
+        "package": "emu198x-atari-5200",
+        "version": "0.35.2",
+        "archive": "emu198x-atari-5200-x86_64-unknown-linux-gnu.tar.gz",
+        "target": "x86_64-unknown-linux-gnu",
+        "archive_sha256": "12accfd687e07c5f74d6fd734a3b1590c6c94580d2d5692216512dc37bb7e5f2",
+        "executable_sha256": "115df6789fdcf7bb922a41851212f6dcaf1a318803199bf12f562acfd8c72773",
+        "build": {
+          "job": "build-local-artifacts",
+          "run_id": "38933615684",
+          "run_attempt": "1"
+        },
+        "command": [
+          "dist",
+          "build",
+          "--tag=v0.35.2",
+          "--print=linkage",
+          "--output-format=json",
+          "--artifacts=local",
+          "--target=x86_64-unknown-linux-gnu"
+        ],
+        "compiled_dependency_graph": "unknown"
+      },
+      {
+        "schema_version": 1,
+        "kind": "producer-source-lock",
+        "signed": false,
+        "source_commit": "42e28e284d2b3120e850aea66bfcf097b6119afa",
+        "committed_lock_sha256": "55166f208573b86e0fc44d6acd4afc2ef66cfc40a0f79fc76b25c5e02b9e6624",
+        "before_lock_sha256": "55166f208573b86e0fc44d6acd4afc2ef66cfc40a0f79fc76b25c5e02b9e6624",
+        "after_lock_sha256": "55166f208573b86e0fc44d6acd4afc2ef66cfc40a0f79fc76b25c5e02b9e6624",
+        "package": "emu198x-atari-7800",
+        "version": "0.35.2",
+        "archive": "emu198x-atari-7800-x86_64-unknown-linux-gnu.tar.gz",
+        "target": "x86_64-unknown-linux-gnu",
+        "archive_sha256": "bc35656511e7c994eeac5116576c6bdb53a36375a99ebdf5694dc5b0b0f77836",
+        "executable_sha256": "17ff8436c909432e899faf3c268396121b7a4da6dc187e9b61d777d0f077cbe9",
+        "build": {
+          "job": "build-local-artifacts",
+          "run_id": "38933615684",
+          "run_attempt": "1"
+        },
+        "command": [
+          "dist",
+          "build",
+          "--tag=v0.35.2",
+          "--print=linkage",
+          "--output-format=json",
+          "--artifacts=local",
+          "--target=x86_64-unknown-linux-gnu"
+        ],
+        "compiled_dependency_graph": "unknown"
+      },
+      {
+        "schema_version": 1,
+        "kind": "producer-source-lock",
+        "signed": false,
+        "source_commit": "42e28e284d2b3120e850aea66bfcf097b6119afa",
+        "committed_lock_sha256": "55166f208573b86e0fc44d6acd4afc2ef66cfc40a0f79fc76b25c5e02b9e6624",
+        "before_lock_sha256": "55166f208573b86e0fc44d6acd4afc2ef66cfc40a0f79fc76b25c5e02b9e6624",
+        "after_lock_sha256": "55166f208573b86e0fc44d6acd4afc2ef66cfc40a0f79fc76b25c5e02b9e6624",
+        "package": "emu198x-atari-800xl",
+        "version": "0.35.2",
+        "archive": "emu198x-atari-800xl-x86_64-unknown-linux-gnu.tar.gz",
+        "target": "x86_64-unknown-linux-gnu",
+        "archive_sha256": "50fe0aa460a7d54681409eceb40cc31ac396b1ce1b1ecca2228a7d9bc5618ba8",
+        "executable_sha256": "6030892604ee9b61fa79e80dec158b7aefbc77246da93991a6afb53926d452a2",
+        "build": {
+          "job": "build-local-artifacts",
+          "run_id": "38933615684",
+          "run_attempt": "1"
+        },
+        "command": [
+          "dist",
+          "build",
+          "--tag=v0.35.2",
+          "--print=linkage",
+          "--output-format=json",
+          "--artifacts=local",
+          "--target=x86_64-unknown-linux-gnu"
+        ],
+        "compiled_dependency_graph": "unknown"
+      },
+      {
+        "schema_version": 1,
+        "kind": "producer-source-lock",
+        "signed": false,
+        "source_commit": "42e28e284d2b3120e850aea66bfcf097b6119afa",
+        "committed_lock_sha256": "55166f208573b86e0fc44d6acd4afc2ef66cfc40a0f79fc76b25c5e02b9e6624",
+        "before_lock_sha256": "55166f208573b86e0fc44d6acd4afc2ef66cfc40a0f79fc76b25c5e02b9e6624",
+        "after_lock_sha256": "55166f208573b86e0fc44d6acd4afc2ef66cfc40a0f79fc76b25c5e02b9e6624",
+        "package": "emu198x-c64",
+        "version": "0.35.2",
+        "archive": "emu198x-c64-x86_64-unknown-linux-gnu.tar.gz",
+        "target": "x86_64-unknown-linux-gnu",
+        "archive_sha256": "a7c3d7069f83125abf369e055d13789356ee00597481c3538496b79746fd9864",
+        "executable_sha256": "3069a784493bffd8fcf67e1495e5b776503fa75c39aa841071166069ec40a1fc",
+        "build": {
+          "job": "build-local-artifacts",
+          "run_id": "38933615684",
+          "run_attempt": "1"
+        },
+        "command": [
+          "dist",
+          "build",
+          "--tag=v0.35.2",
+          "--print=linkage",
+          "--output-format=json",
+          "--artifacts=local",
+          "--target=x86_64-unknown-linux-gnu"
+        ],
+        "compiled_dependency_graph": "unknown"
+      },
+      {
+        "schema_version": 1,
+        "kind": "producer-source-lock",
+        "signed": false,
+        "source_commit": "42e28e284d2b3120e850aea66bfcf097b6119afa",
+        "committed_lock_sha256": "55166f208573b86e0fc44d6acd4afc2ef66cfc40a0f79fc76b25c5e02b9e6624",
+        "before_lock_sha256": "55166f208573b86e0fc44d6acd4afc2ef66cfc40a0f79fc76b25c5e02b9e6624",
+        "after_lock_sha256": "55166f208573b86e0fc44d6acd4afc2ef66cfc40a0f79fc76b25c5e02b9e6624",
+        "package": "emu198x-colecovision",
+        "version": "0.35.2",
+        "archive": "emu198x-colecovision-x86_64-unknown-linux-gnu.tar.gz",
+        "target": "x86_64-unknown-linux-gnu",
+        "archive_sha256": "920eefde67047801837f6dc574b242e77a4b2233b1bd20ce0e3dfc4b87262a2b",
+        "executable_sha256": "bebea537247c48a9578f174c4b9b5354e03f998647a3af040e258b384b79f7eb",
+        "build": {
+          "job": "build-local-artifacts",
+          "run_id": "38933615684",
+          "run_attempt": "1"
+        },
+        "command": [
+          "dist",
+          "build",
+          "--tag=v0.35.2",
+          "--print=linkage",
+          "--output-format=json",
+          "--artifacts=local",
+          "--target=x86_64-unknown-linux-gnu"
+        ],
+        "compiled_dependency_graph": "unknown"
+      },
+      {
+        "schema_version": 1,
+        "kind": "producer-source-lock",
+        "signed": false,
+        "source_commit": "42e28e284d2b3120e850aea66bfcf097b6119afa",
+        "committed_lock_sha256": "55166f208573b86e0fc44d6acd4afc2ef66cfc40a0f79fc76b25c5e02b9e6624",
+        "before_lock_sha256": "55166f208573b86e0fc44d6acd4afc2ef66cfc40a0f79fc76b25c5e02b9e6624",
+        "after_lock_sha256": "55166f208573b86e0fc44d6acd4afc2ef66cfc40a0f79fc76b25c5e02b9e6624",
+        "package": "emu198x-commodore-pet",
+        "version": "0.35.2",
+        "archive": "emu198x-commodore-pet-x86_64-unknown-linux-gnu.tar.gz",
+        "target": "x86_64-unknown-linux-gnu",
+        "archive_sha256": "dadd53169f0625de565689c80c61014e012523dae6927ae30d330e289d16a20e",
+        "executable_sha256": "d2e9dcbb5a693fa32dc80c0c30eb5b44cf7e489b7351b17af0ebebf7c990ae0d",
+        "build": {
+          "job": "build-local-artifacts",
+          "run_id": "38933615684",
+          "run_attempt": "1"
+        },
+        "command": [
+          "dist",
+          "build",
+          "--tag=v0.35.2",
+          "--print=linkage",
+          "--output-format=json",
+          "--artifacts=local",
+          "--target=x86_64-unknown-linux-gnu"
+        ],
+        "compiled_dependency_graph": "unknown"
+      },
+      {
+        "schema_version": 1,
+        "kind": "producer-source-lock",
+        "signed": false,
+        "source_commit": "42e28e284d2b3120e850aea66bfcf097b6119afa",
+        "committed_lock_sha256": "55166f208573b86e0fc44d6acd4afc2ef66cfc40a0f79fc76b25c5e02b9e6624",
+        "before_lock_sha256": "55166f208573b86e0fc44d6acd4afc2ef66cfc40a0f79fc76b25c5e02b9e6624",
+        "after_lock_sha256": "55166f208573b86e0fc44d6acd4afc2ef66cfc40a0f79fc76b25c5e02b9e6624",
+        "package": "emu198x-commodore-vic-20",
+        "version": "0.35.2",
+        "archive": "emu198x-commodore-vic-20-x86_64-unknown-linux-gnu.tar.gz",
+        "target": "x86_64-unknown-linux-gnu",
+        "archive_sha256": "c2b796ca98b5d5c3d62a0f7133250d4b65cfb50a159489b59df20ad5d6a6a5a8",
+        "executable_sha256": "c27b4970d2f6f1b33bb2c278829b403cea7f2bf73f8d9bc761e7678e3a0784ba",
+        "build": {
+          "job": "build-local-artifacts",
+          "run_id": "38933615684",
+          "run_attempt": "1"
+        },
+        "command": [
+          "dist",
+          "build",
+          "--tag=v0.35.2",
+          "--print=linkage",
+          "--output-format=json",
+          "--artifacts=local",
+          "--target=x86_64-unknown-linux-gnu"
+        ],
+        "compiled_dependency_graph": "unknown"
+      },
+      {
+        "schema_version": 1,
+        "kind": "producer-source-lock",
+        "signed": false,
+        "source_commit": "42e28e284d2b3120e850aea66bfcf097b6119afa",
+        "committed_lock_sha256": "55166f208573b86e0fc44d6acd4afc2ef66cfc40a0f79fc76b25c5e02b9e6624",
+        "before_lock_sha256": "55166f208573b86e0fc44d6acd4afc2ef66cfc40a0f79fc76b25c5e02b9e6624",
+        "after_lock_sha256": "55166f208573b86e0fc44d6acd4afc2ef66cfc40a0f79fc76b25c5e02b9e6624",
+        "package": "emu198x-dragon",
+        "version": "0.35.2",
+        "archive": "emu198x-dragon-x86_64-unknown-linux-gnu.tar.gz",
+        "target": "x86_64-unknown-linux-gnu",
+        "archive_sha256": "918285b92e51e82939d8d7c09bef48989160786c2ec10576fea381e58ad3344f",
+        "executable_sha256": "398f6b2bdb8480d16dbce18318c2a75a59c63d0b1d0376de660447b84cb61d8b",
+        "build": {
+          "job": "build-local-artifacts",
+          "run_id": "38933615684",
+          "run_attempt": "1"
+        },
+        "command": [
+          "dist",
+          "build",
+          "--tag=v0.35.2",
+          "--print=linkage",
+          "--output-format=json",
+          "--artifacts=local",
+          "--target=x86_64-unknown-linux-gnu"
+        ],
+        "compiled_dependency_graph": "unknown"
+      },
+      {
+        "schema_version": 1,
+        "kind": "producer-source-lock",
+        "signed": false,
+        "source_commit": "42e28e284d2b3120e850aea66bfcf097b6119afa",
+        "committed_lock_sha256": "55166f208573b86e0fc44d6acd4afc2ef66cfc40a0f79fc76b25c5e02b9e6624",
+        "before_lock_sha256": "55166f208573b86e0fc44d6acd4afc2ef66cfc40a0f79fc76b25c5e02b9e6624",
+        "after_lock_sha256": "55166f208573b86e0fc44d6acd4afc2ef66cfc40a0f79fc76b25c5e02b9e6624",
+        "package": "emu198x-game-boy",
+        "version": "0.35.2",
+        "archive": "emu198x-game-boy-x86_64-unknown-linux-gnu.tar.gz",
+        "target": "x86_64-unknown-linux-gnu",
+        "archive_sha256": "bba8f6ffbcb424d5696e71dc33d61cbd889cbcc8ee8a7b9cbae0d7c277b1ce9d",
+        "executable_sha256": "b9a487ee877c39d51217f3d32c5310d39d17abca4e23d40a951fc80630b53277",
+        "build": {
+          "job": "build-local-artifacts",
+          "run_id": "38933615684",
+          "run_attempt": "1"
+        },
+        "command": [
+          "dist",
+          "build",
+          "--tag=v0.35.2",
+          "--print=linkage",
+          "--output-format=json",
+          "--artifacts=local",
+          "--target=x86_64-unknown-linux-gnu"
+        ],
+        "compiled_dependency_graph": "unknown"
+      },
+      {
+        "schema_version": 1,
+        "kind": "producer-source-lock",
+        "signed": false,
+        "source_commit": "42e28e284d2b3120e850aea66bfcf097b6119afa",
+        "committed_lock_sha256": "55166f208573b86e0fc44d6acd4afc2ef66cfc40a0f79fc76b25c5e02b9e6624",
+        "before_lock_sha256": "55166f208573b86e0fc44d6acd4afc2ef66cfc40a0f79fc76b25c5e02b9e6624",
+        "after_lock_sha256": "55166f208573b86e0fc44d6acd4afc2ef66cfc40a0f79fc76b25c5e02b9e6624",
+        "package": "emu198x-jupiter-ace",
+        "version": "0.35.2",
+        "archive": "emu198x-jupiter-ace-x86_64-unknown-linux-gnu.tar.gz",
+        "target": "x86_64-unknown-linux-gnu",
+        "archive_sha256": "b533f81865631cce7b1751a2d473bedbfebe6f6aa98a6e557208e9a25088bbdf",
+        "executable_sha256": "97b6985a7381db14cf411f3ede78ef384d3af970f0095f33a2c9225faa517781",
+        "build": {
+          "job": "build-local-artifacts",
+          "run_id": "38933615684",
+          "run_attempt": "1"
+        },
+        "command": [
+          "dist",
+          "build",
+          "--tag=v0.35.2",
+          "--print=linkage",
+          "--output-format=json",
+          "--artifacts=local",
+          "--target=x86_64-unknown-linux-gnu"
+        ],
+        "compiled_dependency_graph": "unknown"
+      },
+      {
+        "schema_version": 1,
+        "kind": "producer-source-lock",
+        "signed": false,
+        "source_commit": "42e28e284d2b3120e850aea66bfcf097b6119afa",
+        "committed_lock_sha256": "55166f208573b86e0fc44d6acd4afc2ef66cfc40a0f79fc76b25c5e02b9e6624",
+        "before_lock_sha256": "55166f208573b86e0fc44d6acd4afc2ef66cfc40a0f79fc76b25c5e02b9e6624",
+        "after_lock_sha256": "55166f208573b86e0fc44d6acd4afc2ef66cfc40a0f79fc76b25c5e02b9e6624",
+        "package": "emu198x-mattel-aquarius",
+        "version": "0.35.2",
+        "archive": "emu198x-mattel-aquarius-x86_64-unknown-linux-gnu.tar.gz",
+        "target": "x86_64-unknown-linux-gnu",
+        "archive_sha256": "6191eeff0156fc3439f0ef13debcab807065a20f44ec339f551e72f165b784a3",
+        "executable_sha256": "fcee61d28a3c04bd727fda6a9d9e04cab05d508391fcf103d16075140bccaa61",
+        "build": {
+          "job": "build-local-artifacts",
+          "run_id": "38933615684",
+          "run_attempt": "1"
+        },
+        "command": [
+          "dist",
+          "build",
+          "--tag=v0.35.2",
+          "--print=linkage",
+          "--output-format=json",
+          "--artifacts=local",
+          "--target=x86_64-unknown-linux-gnu"
+        ],
+        "compiled_dependency_graph": "unknown"
+      },
+      {
+        "schema_version": 1,
+        "kind": "producer-source-lock",
+        "signed": false,
+        "source_commit": "42e28e284d2b3120e850aea66bfcf097b6119afa",
+        "committed_lock_sha256": "55166f208573b86e0fc44d6acd4afc2ef66cfc40a0f79fc76b25c5e02b9e6624",
+        "before_lock_sha256": "55166f208573b86e0fc44d6acd4afc2ef66cfc40a0f79fc76b25c5e02b9e6624",
+        "after_lock_sha256": "55166f208573b86e0fc44d6acd4afc2ef66cfc40a0f79fc76b25c5e02b9e6624",
+        "package": "emu198x-memotech-mtx",
+        "version": "0.35.2",
+        "archive": "emu198x-memotech-mtx-x86_64-unknown-linux-gnu.tar.gz",
+        "target": "x86_64-unknown-linux-gnu",
+        "archive_sha256": "4951090b290ad3562d734189c8c31d36aafead236b59e9e4b35d1460233dca6c",
+        "executable_sha256": "a3ca54a2443bac5a1bf3ef9c57a92a629a5b3e58a39180da0bc23a6fa70b144a",
+        "build": {
+          "job": "build-local-artifacts",
+          "run_id": "38933615684",
+          "run_attempt": "1"
+        },
+        "command": [
+          "dist",
+          "build",
+          "--tag=v0.35.2",
+          "--print=linkage",
+          "--output-format=json",
+          "--artifacts=local",
+          "--target=x86_64-unknown-linux-gnu"
+        ],
+        "compiled_dependency_graph": "unknown"
+      },
+      {
+        "schema_version": 1,
+        "kind": "producer-source-lock",
+        "signed": false,
+        "source_commit": "42e28e284d2b3120e850aea66bfcf097b6119afa",
+        "committed_lock_sha256": "55166f208573b86e0fc44d6acd4afc2ef66cfc40a0f79fc76b25c5e02b9e6624",
+        "before_lock_sha256": "55166f208573b86e0fc44d6acd4afc2ef66cfc40a0f79fc76b25c5e02b9e6624",
+        "after_lock_sha256": "55166f208573b86e0fc44d6acd4afc2ef66cfc40a0f79fc76b25c5e02b9e6624",
+        "package": "emu198x-msx",
+        "version": "0.35.2",
+        "archive": "emu198x-msx-x86_64-unknown-linux-gnu.tar.gz",
+        "target": "x86_64-unknown-linux-gnu",
+        "archive_sha256": "f6b50805cb01ab257287071babdb9201d32b828e8d0d0aff5cf1fe47e975ba7a",
+        "executable_sha256": "3bda762859ef78b2f1a3f41759a9b27ebe808ba03833f34053ed354013c88fb3",
+        "build": {
+          "job": "build-local-artifacts",
+          "run_id": "38933615684",
+          "run_attempt": "1"
+        },
+        "command": [
+          "dist",
+          "build",
+          "--tag=v0.35.2",
+          "--print=linkage",
+          "--output-format=json",
+          "--artifacts=local",
+          "--target=x86_64-unknown-linux-gnu"
+        ],
+        "compiled_dependency_graph": "unknown"
+      },
+      {
+        "schema_version": 1,
+        "kind": "producer-source-lock",
+        "signed": false,
+        "source_commit": "42e28e284d2b3120e850aea66bfcf097b6119afa",
+        "committed_lock_sha256": "55166f208573b86e0fc44d6acd4afc2ef66cfc40a0f79fc76b25c5e02b9e6624",
+        "before_lock_sha256": "55166f208573b86e0fc44d6acd4afc2ef66cfc40a0f79fc76b25c5e02b9e6624",
+        "after_lock_sha256": "55166f208573b86e0fc44d6acd4afc2ef66cfc40a0f79fc76b25c5e02b9e6624",
+        "package": "emu198x-nes",
+        "version": "0.35.2",
+        "archive": "emu198x-nes-x86_64-unknown-linux-gnu.tar.gz",
+        "target": "x86_64-unknown-linux-gnu",
+        "archive_sha256": "45cfb064005fff1ad1ded90344e8ec7d6c1ab0ed1bb212a9f246c8237c82555c",
+        "executable_sha256": "afb2d969a05f43fe2b3cd5e4826d8b9e399c43cf06dfeb7eb8087d2cc1f6e865",
+        "build": {
+          "job": "build-local-artifacts",
+          "run_id": "38933615684",
+          "run_attempt": "1"
+        },
+        "command": [
+          "dist",
+          "build",
+          "--tag=v0.35.2",
+          "--print=linkage",
+          "--output-format=json",
+          "--artifacts=local",
+          "--target=x86_64-unknown-linux-gnu"
+        ],
+        "compiled_dependency_graph": "unknown"
+      },
+      {
+        "schema_version": 1,
+        "kind": "producer-source-lock",
+        "signed": false,
+        "source_commit": "42e28e284d2b3120e850aea66bfcf097b6119afa",
+        "committed_lock_sha256": "55166f208573b86e0fc44d6acd4afc2ef66cfc40a0f79fc76b25c5e02b9e6624",
+        "before_lock_sha256": "55166f208573b86e0fc44d6acd4afc2ef66cfc40a0f79fc76b25c5e02b9e6624",
+        "after_lock_sha256": "55166f208573b86e0fc44d6acd4afc2ef66cfc40a0f79fc76b25c5e02b9e6624",
+        "package": "emu198x-oric-atmos",
+        "version": "0.35.2",
+        "archive": "emu198x-oric-atmos-x86_64-unknown-linux-gnu.tar.gz",
+        "target": "x86_64-unknown-linux-gnu",
+        "archive_sha256": "d4388f84e0c6a570dbf48b68a6cb4b5dc830829423844b838ad8cc5b832c5d89",
+        "executable_sha256": "4c133d995f91a994d3331f11b3c9461505a099fb94aeb52f56876082a7834699",
+        "build": {
+          "job": "build-local-artifacts",
+          "run_id": "38933615684",
+          "run_attempt": "1"
+        },
+        "command": [
+          "dist",
+          "build",
+          "--tag=v0.35.2",
+          "--print=linkage",
+          "--output-format=json",
+          "--artifacts=local",
+          "--target=x86_64-unknown-linux-gnu"
+        ],
+        "compiled_dependency_graph": "unknown"
+      },
+      {
+        "schema_version": 1,
+        "kind": "producer-source-lock",
+        "signed": false,
+        "source_commit": "42e28e284d2b3120e850aea66bfcf097b6119afa",
+        "committed_lock_sha256": "55166f208573b86e0fc44d6acd4afc2ef66cfc40a0f79fc76b25c5e02b9e6624",
+        "before_lock_sha256": "55166f208573b86e0fc44d6acd4afc2ef66cfc40a0f79fc76b25c5e02b9e6624",
+        "after_lock_sha256": "55166f208573b86e0fc44d6acd4afc2ef66cfc40a0f79fc76b25c5e02b9e6624",
+        "package": "emu198x-sega-game-gear",
+        "version": "0.35.2",
+        "archive": "emu198x-sega-game-gear-x86_64-unknown-linux-gnu.tar.gz",
+        "target": "x86_64-unknown-linux-gnu",
+        "archive_sha256": "5d0e7790c38f2e0b12b120b12f1ca40201d35f4acf73934c562d86495128f88e",
+        "executable_sha256": "b41828b0b3b567797a45bb22a5837914c31566d4d65ed1634ba6e8e4cb88c8e0",
+        "build": {
+          "job": "build-local-artifacts",
+          "run_id": "38933615684",
+          "run_attempt": "1"
+        },
+        "command": [
+          "dist",
+          "build",
+          "--tag=v0.35.2",
+          "--print=linkage",
+          "--output-format=json",
+          "--artifacts=local",
+          "--target=x86_64-unknown-linux-gnu"
+        ],
+        "compiled_dependency_graph": "unknown"
+      },
+      {
+        "schema_version": 1,
+        "kind": "producer-source-lock",
+        "signed": false,
+        "source_commit": "42e28e284d2b3120e850aea66bfcf097b6119afa",
+        "committed_lock_sha256": "55166f208573b86e0fc44d6acd4afc2ef66cfc40a0f79fc76b25c5e02b9e6624",
+        "before_lock_sha256": "55166f208573b86e0fc44d6acd4afc2ef66cfc40a0f79fc76b25c5e02b9e6624",
+        "after_lock_sha256": "55166f208573b86e0fc44d6acd4afc2ef66cfc40a0f79fc76b25c5e02b9e6624",
+        "package": "emu198x-sega-master-system",
+        "version": "0.35.2",
+        "archive": "emu198x-sega-master-system-x86_64-unknown-linux-gnu.tar.gz",
+        "target": "x86_64-unknown-linux-gnu",
+        "archive_sha256": "4a89e02422c7184b4d8e74ca052065aba6a9d6c073a7f66dccd53f658cfed09f",
+        "executable_sha256": "577a75a39773509bb7f5c27110e7762a15511adddd9ffe9213d2054f469071f8",
+        "build": {
+          "job": "build-local-artifacts",
+          "run_id": "38933615684",
+          "run_attempt": "1"
+        },
+        "command": [
+          "dist",
+          "build",
+          "--tag=v0.35.2",
+          "--print=linkage",
+          "--output-format=json",
+          "--artifacts=local",
+          "--target=x86_64-unknown-linux-gnu"
+        ],
+        "compiled_dependency_graph": "unknown"
+      },
+      {
+        "schema_version": 1,
+        "kind": "producer-source-lock",
+        "signed": false,
+        "source_commit": "42e28e284d2b3120e850aea66bfcf097b6119afa",
+        "committed_lock_sha256": "55166f208573b86e0fc44d6acd4afc2ef66cfc40a0f79fc76b25c5e02b9e6624",
+        "before_lock_sha256": "55166f208573b86e0fc44d6acd4afc2ef66cfc40a0f79fc76b25c5e02b9e6624",
+        "after_lock_sha256": "55166f208573b86e0fc44d6acd4afc2ef66cfc40a0f79fc76b25c5e02b9e6624",
+        "package": "emu198x-sega-sg-1000",
+        "version": "0.35.2",
+        "archive": "emu198x-sega-sg-1000-x86_64-unknown-linux-gnu.tar.gz",
+        "target": "x86_64-unknown-linux-gnu",
+        "archive_sha256": "72e6882f0c9f96525452f200a21b63eb92c7219a4c656502ce75cff35f3ab9b1",
+        "executable_sha256": "a26986c0ed632acd63e3f4bd008da12d39036dbbfacea59ac6fb6eb331a2645f",
+        "build": {
+          "job": "build-local-artifacts",
+          "run_id": "38933615684",
+          "run_attempt": "1"
+        },
+        "command": [
+          "dist",
+          "build",
+          "--tag=v0.35.2",
+          "--print=linkage",
+          "--output-format=json",
+          "--artifacts=local",
+          "--target=x86_64-unknown-linux-gnu"
+        ],
+        "compiled_dependency_graph": "unknown"
+      },
+      {
+        "schema_version": 1,
+        "kind": "producer-source-lock",
+        "signed": false,
+        "source_commit": "42e28e284d2b3120e850aea66bfcf097b6119afa",
+        "committed_lock_sha256": "55166f208573b86e0fc44d6acd4afc2ef66cfc40a0f79fc76b25c5e02b9e6624",
+        "before_lock_sha256": "55166f208573b86e0fc44d6acd4afc2ef66cfc40a0f79fc76b25c5e02b9e6624",
+        "after_lock_sha256": "55166f208573b86e0fc44d6acd4afc2ef66cfc40a0f79fc76b25c5e02b9e6624",
+        "package": "emu198x-sinclair-zx80",
+        "version": "0.35.2",
+        "archive": "emu198x-sinclair-zx80-x86_64-unknown-linux-gnu.tar.gz",
+        "target": "x86_64-unknown-linux-gnu",
+        "archive_sha256": "a709760c362c43c586a3db35af86512a3e4921826e0e3c7651173743bcfae3f0",
+        "executable_sha256": "404623924bc7aca2101b22eaa186ebfaa17778b26746bbd5b00428d6d1b661ad",
+        "build": {
+          "job": "build-local-artifacts",
+          "run_id": "38933615684",
+          "run_attempt": "1"
+        },
+        "command": [
+          "dist",
+          "build",
+          "--tag=v0.35.2",
+          "--print=linkage",
+          "--output-format=json",
+          "--artifacts=local",
+          "--target=x86_64-unknown-linux-gnu"
+        ],
+        "compiled_dependency_graph": "unknown"
+      },
+      {
+        "schema_version": 1,
+        "kind": "producer-source-lock",
+        "signed": false,
+        "source_commit": "42e28e284d2b3120e850aea66bfcf097b6119afa",
+        "committed_lock_sha256": "55166f208573b86e0fc44d6acd4afc2ef66cfc40a0f79fc76b25c5e02b9e6624",
+        "before_lock_sha256": "55166f208573b86e0fc44d6acd4afc2ef66cfc40a0f79fc76b25c5e02b9e6624",
+        "after_lock_sha256": "55166f208573b86e0fc44d6acd4afc2ef66cfc40a0f79fc76b25c5e02b9e6624",
+        "package": "emu198x-sinclair-zx81",
+        "version": "0.35.2",
+        "archive": "emu198x-sinclair-zx81-x86_64-unknown-linux-gnu.tar.gz",
+        "target": "x86_64-unknown-linux-gnu",
+        "archive_sha256": "db846e4e03e062f244cef5dcf5f7515bf18037a536e10fff9a42f79408ab9946",
+        "executable_sha256": "95029c69fbe6917c39473883439048f0cd84e45fbc302a0f9e13e484bb9b5c61",
+        "build": {
+          "job": "build-local-artifacts",
+          "run_id": "38933615684",
+          "run_attempt": "1"
+        },
+        "command": [
+          "dist",
+          "build",
+          "--tag=v0.35.2",
+          "--print=linkage",
+          "--output-format=json",
+          "--artifacts=local",
+          "--target=x86_64-unknown-linux-gnu"
+        ],
+        "compiled_dependency_graph": "unknown"
+      },
+      {
+        "schema_version": 1,
+        "kind": "producer-source-lock",
+        "signed": false,
+        "source_commit": "42e28e284d2b3120e850aea66bfcf097b6119afa",
+        "committed_lock_sha256": "55166f208573b86e0fc44d6acd4afc2ef66cfc40a0f79fc76b25c5e02b9e6624",
+        "before_lock_sha256": "55166f208573b86e0fc44d6acd4afc2ef66cfc40a0f79fc76b25c5e02b9e6624",
+        "after_lock_sha256": "55166f208573b86e0fc44d6acd4afc2ef66cfc40a0f79fc76b25c5e02b9e6624",
+        "package": "emu198x-sord-m5",
+        "version": "0.35.2",
+        "archive": "emu198x-sord-m5-x86_64-unknown-linux-gnu.tar.gz",
+        "target": "x86_64-unknown-linux-gnu",
+        "archive_sha256": "f23a181116d2f42125920c44454cbb2a0fbce1dea08723fed26e246444be3158",
+        "executable_sha256": "2eef68ffca29b56b4be35f4fc50a9a7f5c3ab3f47d87acfae2da548474a5f3a6",
+        "build": {
+          "job": "build-local-artifacts",
+          "run_id": "38933615684",
+          "run_attempt": "1"
+        },
+        "command": [
+          "dist",
+          "build",
+          "--tag=v0.35.2",
+          "--print=linkage",
+          "--output-format=json",
+          "--artifacts=local",
+          "--target=x86_64-unknown-linux-gnu"
+        ],
+        "compiled_dependency_graph": "unknown"
+      },
+      {
+        "schema_version": 1,
+        "kind": "producer-source-lock",
+        "signed": false,
+        "source_commit": "42e28e284d2b3120e850aea66bfcf097b6119afa",
+        "committed_lock_sha256": "55166f208573b86e0fc44d6acd4afc2ef66cfc40a0f79fc76b25c5e02b9e6624",
+        "before_lock_sha256": "55166f208573b86e0fc44d6acd4afc2ef66cfc40a0f79fc76b25c5e02b9e6624",
+        "after_lock_sha256": "55166f208573b86e0fc44d6acd4afc2ef66cfc40a0f79fc76b25c5e02b9e6624",
+        "package": "emu198x-spectravideo-svi-328",
+        "version": "0.35.2",
+        "archive": "emu198x-spectravideo-svi-328-x86_64-unknown-linux-gnu.tar.gz",
+        "target": "x86_64-unknown-linux-gnu",
+        "archive_sha256": "1375742a8b4bc74303edc04dbac245d4244be1f6792b129ed843b140406c8869",
+        "executable_sha256": "915b90e31d1473a7710ab21bb07058c4b6c51f2fbdbfa8b653b626e7d08ef2ba",
+        "build": {
+          "job": "build-local-artifacts",
+          "run_id": "38933615684",
+          "run_attempt": "1"
+        },
+        "command": [
+          "dist",
+          "build",
+          "--tag=v0.35.2",
+          "--print=linkage",
+          "--output-format=json",
+          "--artifacts=local",
+          "--target=x86_64-unknown-linux-gnu"
+        ],
+        "compiled_dependency_graph": "unknown"
+      },
+      {
+        "schema_version": 1,
+        "kind": "producer-source-lock",
+        "signed": false,
+        "source_commit": "42e28e284d2b3120e850aea66bfcf097b6119afa",
+        "committed_lock_sha256": "55166f208573b86e0fc44d6acd4afc2ef66cfc40a0f79fc76b25c5e02b9e6624",
+        "before_lock_sha256": "55166f208573b86e0fc44d6acd4afc2ef66cfc40a0f79fc76b25c5e02b9e6624",
+        "after_lock_sha256": "55166f208573b86e0fc44d6acd4afc2ef66cfc40a0f79fc76b25c5e02b9e6624",
+        "package": "emu198x-spectrum",
+        "version": "0.35.2",
+        "archive": "emu198x-spectrum-x86_64-unknown-linux-gnu.tar.gz",
+        "target": "x86_64-unknown-linux-gnu",
+        "archive_sha256": "3635f144e6cb6c48248af60705e9ebb27643d39286130cab6af45f78fd0335cb",
+        "executable_sha256": "080a213d3bf0f3f4c1c363df55b7b1d59fbff365c0fbf52aeb473aa9f194ae39",
+        "build": {
+          "job": "build-local-artifacts",
+          "run_id": "38933615684",
+          "run_attempt": "1"
+        },
+        "command": [
+          "dist",
+          "build",
+          "--tag=v0.35.2",
+          "--print=linkage",
+          "--output-format=json",
+          "--artifacts=local",
+          "--target=x86_64-unknown-linux-gnu"
+        ],
+        "compiled_dependency_graph": "unknown"
+      },
+      {
+        "schema_version": 1,
+        "kind": "producer-source-lock",
+        "signed": false,
+        "source_commit": "42e28e284d2b3120e850aea66bfcf097b6119afa",
+        "committed_lock_sha256": "55166f208573b86e0fc44d6acd4afc2ef66cfc40a0f79fc76b25c5e02b9e6624",
+        "before_lock_sha256": "55166f208573b86e0fc44d6acd4afc2ef66cfc40a0f79fc76b25c5e02b9e6624",
+        "after_lock_sha256": "55166f208573b86e0fc44d6acd4afc2ef66cfc40a0f79fc76b25c5e02b9e6624",
+        "package": "emu198x-tatung-einstein",
+        "version": "0.35.2",
+        "archive": "emu198x-tatung-einstein-x86_64-unknown-linux-gnu.tar.gz",
+        "target": "x86_64-unknown-linux-gnu",
+        "archive_sha256": "9056f3e787d3038ff65711f72c06b1bbde4a0525aac6a9202490b3049deed9ad",
+        "executable_sha256": "dc6f36d050a480109a908e32693c9af677d7e4c93f0a3d73aa758c48b3be71d5",
+        "build": {
+          "job": "build-local-artifacts",
+          "run_id": "38933615684",
+          "run_attempt": "1"
+        },
+        "command": [
+          "dist",
+          "build",
+          "--tag=v0.35.2",
+          "--print=linkage",
+          "--output-format=json",
+          "--artifacts=local",
+          "--target=x86_64-unknown-linux-gnu"
+        ],
+        "compiled_dependency_graph": "unknown"
+      }
+    ]
+  },
+  "producer_artifact": {
+    "id": 12060666731,
+    "name": "producer-qualification-x86_64-unknown-linux-gnu",
+    "size_in_bytes": 3623,
+    "digest": "sha256:893cc132a99714477410351664e6ba4aa5010fa38a14c29e3d3689c0ad587c12"
+  },
+  "producer_artifact_download_sha256": "893cc132a99714477410351664e6ba4aa5010fa38a14c29e3d3689c0ad587c12",
+  "release": {
+    "id": 415187655,
+    "tag_name": "v0.35.2",
+    "published_at": "2026-10-16T17:01:59Z",
+    "html_url": "https://github.com/emu198x/emu198x/releases/tag/v0.35.2"
+  },
+  "assets": [
+    {
+      "id": 647993411,
+      "name": "emu198x-spectrum-x86_64-unknown-linux-gnu.tar.gz",
+      "size": 4996830,
+      "digest": "sha256:3635f144e6cb6c48248af60705e9ebb27643d39286130cab6af45f78fd0335cb",
+      "browser_download_url": "https://github.com/emu198x/emu198x/releases/download/v0.35.2/emu198x-spectrum-x86_64-unknown-linux-gnu.tar.gz"
+    },
+    {
+      "id": 647993421,
+      "name": "emu198x-spectrum-x86_64-unknown-linux-gnu.tar.gz.sha256",
+      "size": 116,
+      "digest": "sha256:f522b7c35a91dae910ca20acbc962ed84aa1660bcf502514d70c889e989dc1b8",
+      "browser_download_url": "https://github.com/emu198x/emu198x/releases/download/v0.35.2/emu198x-spectrum-x86_64-unknown-linux-gnu.tar.gz.sha256"
+    },
+    {
+      "id": 647993405,
+      "name": "emu198x-spectrum-x86_64-unknown-linux-gnu-source-lock.json",
+      "size": 1090,
+      "digest": "sha256:12123ce0c02ffffc3f18c34738ffc45a50d73e51c5725dba891dae502b9b3e27",
+      "browser_download_url": "https://github.com/emu198x/emu198x/releases/download/v0.35.2/emu198x-spectrum-x86_64-unknown-linux-gnu-source-lock.json"
+    }
+  ],
+  "producer_validator_sha256": "c96e58ec2f0e43a84453ed12c958f66a231b95f50510e95f939bdc7ab1d76059",
+  "changed_receipt_controls_rejected": 4,
+  "compiled_dependency_graph": "unknown",
+  "signature": "not_applicable_unsigned"
+}

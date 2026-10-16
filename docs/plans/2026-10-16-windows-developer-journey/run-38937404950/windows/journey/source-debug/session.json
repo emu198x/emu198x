@@ -1,0 +1,70 @@
+[
+  {
+    "action": "load_media",
+    "slot": "tape-1",
+    "kind": "tape",
+    "path": "first-program.tap"
+  },
+  {
+    "action": "autoload_tape",
+    "slot": "tape-1",
+    "max_boot_frames": 500
+  },
+  {
+    "action": "run_frames",
+    "frames": 2000
+  },
+  {
+    "action": "memory_read",
+    "addr": 32768,
+    "len": 6
+  },
+  {
+    "action": "load_debug_info",
+    "path": "first-program.debug198x"
+  },
+  {
+    "action": "debug_symbol",
+    "name": "start"
+  },
+  {
+    "action": "debug_symbol",
+    "name": "hold"
+  },
+  {
+    "action": "disasm",
+    "addr": 32768,
+    "instructions": 3
+  },
+  {
+    "action": "run_until_line",
+    "file": "first-program.asm",
+    "line": 9,
+    "max_steps": 16
+  },
+  {
+    "action": "query_cpu"
+  },
+  {
+    "action": "step",
+    "instructions": 1
+  },
+  {
+    "action": "run_until_line",
+    "file": "first-program.asm",
+    "line": 9,
+    "max_steps": 16
+  },
+  {
+    "action": "run_until_line",
+    "file": "first-program.asm",
+    "line": 1,
+    "max_steps": 16
+  },
+  {
+    "action": "run_until_line",
+    "file": "first-program.asm",
+    "line": 6,
+    "max_steps": 16
+  }
+]

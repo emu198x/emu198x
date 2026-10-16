@@ -1,0 +1,7 @@
+{"t":"header","format":"debug198x","format_version":"0.1","tool":"asm198x","tool_version":"0.0.67","cpu":"z80","dialect":"pasmo","sources":["first-program.asm"]}
+{"t":"section","id":0,"name":"main","base":32768}
+{"t":"symbol","name":"start","kind":"entry","section":0,"offset":0}
+{"t":"symbol","name":"hold","kind":"label","section":0,"offset":4}
+{"t":"line","file":"first-program.asm","line":6,"section":0,"offset":0,"length":2}
+{"t":"line","file":"first-program.asm","line":7,"section":0,"offset":2,"length":2}
+{"t":"line","file":"first-program.asm","line":9,"section":0,"offset":4,"length":2}
