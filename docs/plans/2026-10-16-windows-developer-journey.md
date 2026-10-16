@@ -37,3 +37,26 @@ Local scratch: `.windows-journey-scratch/` there. Hosted scratch stays under
 RUNNER_TEMP with distinct work, firmware and evidence directories. No firmware
 is committed or attached to an artifact. Only native Windows can produce the
 qualified runtime report; local unit controls do not count as Windows execution.
+
+## First native observation
+
+Run 38920027025 verifies the genuine firmware, then fails the initial raw
+checkout hash for the Makefile before invoking a released tool. The failed
+report and cleanup log are retained. The harness now verifies the pinned Git
+revision and exact Git blobs, permits only CRLF checkout conversion as transport,
+and materialises the original bytes into task scratch. Real worktree edits and
+wrong blobs still fail. A local CRLF-versus-real-edit control covers that case;
+the next native run records actual checkout/materialised hashes and conversion.
+
+## Reduced startup reproduction
+
+Run 38921022873 builds and verifies all six TAP blocks, then stock Windows
+Emu 0.34.2 exits 0xC00000FD with a main-thread stack overflow. Run 38921616978
+reproduces the same failure with only query_cpu: no media or frames are needed.
+The PE image reserves 1 MiB for its stack. This is an observed limit, not yet a
+proof of which allocation exhausts it. No published binary was patched.
+
+The next comparison pins current stable Emu 0.35.0 from its official archive
+digest, retaining the 0.34.2 failures. Asm 0.0.67, Build 0.2.12, firmware, sample
+and acceptance checks stay fixed. This checks whether the failure is already
+resolved in the current publication; it does not reclassify old results.

@@ -26,10 +26,10 @@
     },
     {
       "name": "emu198x-spectrum",
-      "release": "v0.34.2",
+      "release": "v0.35.0",
       "archive": "emu198x-spectrum-x86_64-pc-windows-msvc.zip",
-      "url": "https://github.com/emu198x/emu198x/releases/download/v0.34.2/emu198x-spectrum-x86_64-pc-windows-msvc.zip",
-      "sha256": "e2d5b6516dda4829f0a252c243943b660e508a54d56cb708452e9ad302906a88"
+      "url": "https://github.com/emu198x/emu198x/releases/download/v0.35.0/emu198x-spectrum-x86_64-pc-windows-msvc.zip",
+      "sha256": "bdc9604fefc0b4815233c0513cba38d8226758c7ab19dafc34a52ec597e8053d"
     }
   ],
   "firmware_sha256": "d55daa439b673b0e3f5897f99ac37ecb45f974d1862b4dadb85dec34af99cb42",
