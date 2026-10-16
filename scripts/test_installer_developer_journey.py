@@ -30,9 +30,8 @@ class InstallerIdentityControls(unittest.TestCase):
             self.assertEqual(record['route'], 'advertised ZIP, not an installer')
 
     def test_missing_installed_payload_cannot_produce_an_identity_record(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            with self.assertRaises(FileNotFoundError):
-                installer.archive_install_record({'sha256': '0' * 64}, Path(directory) / 'missing.exe')
+        with tempfile.TemporaryDirectory() as directory, self.assertRaises(FileNotFoundError):
+            installer.archive_install_record({'sha256': '0' * 64}, Path(directory) / 'missing.exe')
 
 
 if __name__ == '__main__':
