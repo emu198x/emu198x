@@ -143,6 +143,22 @@ class ProducerTests(unittest.TestCase):
             actual["cargo_lock_sha256"], sha(self.git("show", "HEAD:Cargo.lock"))
         )
 
+    def test_windows_checkout_preserves_exact_committed_lock(self) -> None:
+        self.git("config", "core.autocrlf", "true")
+        lock = self.root / "Cargo.lock"
+        lock.unlink()
+        self.git("checkout", "--", "Cargo.lock")
+        self.assertIn(b"\r\n", lock.read_bytes())
+        with self.assertRaisesRegex(ValueError, "differs from checkout commit"):
+            source_identity(self.root)
+        (self.root / ".gitattributes").write_bytes(
+            (ROOT / ".gitattributes").read_bytes()
+        )
+        lock.unlink()
+        self.git("checkout", "--", "Cargo.lock")
+        self.assertEqual(lock.read_bytes(), self.git("show", "HEAD:Cargo.lock"))
+        source_identity(self.root)
+
     def test_bad_lock_rejects_before_packaging(self) -> None:
         lock = self.root / "Cargo.lock"
         original = lock.read_bytes()
