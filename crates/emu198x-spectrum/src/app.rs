@@ -4,8 +4,8 @@
 //! and the exit codes. Script mode and MCP mode keep their own bodies —
 //! `script::runner` intercepts the family's steps before the shell
 //! executor sees them and picks the boot variant from the script's first
-//! portable snapshot, and `mcp` boots 48K eagerly and registers the
-//! Spectrum tool set — so [`MachineApp::run_script`] and
+//! portable snapshot, and `mcp` boots the requested variant eagerly and
+//! registers the Spectrum tool set — so [`MachineApp::run_script`] and
 //! [`MachineApp::run_mcp`] are overridden to call them.
 
 use std::path::PathBuf;
@@ -363,11 +363,10 @@ impl MachineApp for Spectrum {
         Ok(())
     }
 
-    /// MCP mode boots 48K eagerly and resolves `--rom` against that
-    /// bundle, so the shared server (which would read `--rom` as
-    /// cartridge media) does not apply; `mcp::run` is the body.
+    /// MCP mode boots the requested variant and resolves `--rom` against
+    /// that bundle. The bespoke server preserves the Spectrum tool surface.
     fn run_mcp(&self, _raw_args: &[String]) -> Result<(), LaunchError> {
-        crate::mcp::run(&self.rom).map_err(LaunchError::from)
+        crate::mcp::run(self.boot_model()?, &self.rom).map_err(LaunchError::from)
     }
 
     fn register_mcp_tools(
