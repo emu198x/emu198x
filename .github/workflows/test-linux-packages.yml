@@ -3,6 +3,11 @@ name: Linux packages
 on:
   workflow_dispatch:
     inputs:
+      windows_developer_journey:
+        description: "Run the pinned Windows Meteor Storm package-to-boot journey instead of Linux package builds"
+        required: false
+        type: boolean
+        default: false
       release_run:
         description: "Existing release run whose artifacts should be tested (blank builds locally)"
         required: false
@@ -23,6 +28,7 @@ permissions:
 
 jobs:
   install:
+    if: ${{ !inputs.windows_developer_journey }}
     name: Install and exercise (${{ matrix.target }})
     strategy:
       fail-fast: false
@@ -102,3 +108,83 @@ jobs:
       - name: Install generated formulae and check output
         shell: bash
         run: python3 scripts/test-linux-packages.py target/package-test-manifest.json "$PACKAGE_TARGET"
+
+  windows-developer-journey:
+    name: Windows released-tool package-to-boot journey
+    if: github.repository == 'emu198x/emu198x' && github.event_name == 'workflow_dispatch' && inputs.windows_developer_journey
+    runs-on: windows-2022
+    timeout-minutes: 15
+    env:
+      SAMPLES_REVISION: '51297ac3196a990286b0d21a4dedd4653c0168f0'
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v7
+        with:
+          repository: code198x/code-samples
+          ref: ${{ env.SAMPLES_REVISION }}
+          path: code-samples
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.14'
+      - name: Check Windows journey rejection controls
+        run: python -m unittest discover -s scripts -p test_windows_developer_journey.py -v
+      - name: Materialise checked Windows-journey firmware
+        env:
+          ROM_B64: ${{ secrets.EMU198X_SPECTRUM_48K_ROM_B64 }}
+          RELEASE_RUN: ${{ inputs.release_run }}
+        shell: pwsh
+        run: |
+          python -c @'
+          import base64, hashlib, json, os
+          from pathlib import Path
+          root = Path(os.environ['RUNNER_TEMP'])
+          evidence = root / 'windows-developer-evidence'
+          evidence.mkdir()
+          record = evidence / 'firmware-check.json'
+          record.write_text(json.dumps({'status': 'failed', 'firmware_validated': False}))
+          if os.environ['RELEASE_RUN']:
+              raise ValueError('Windows journey does not consume a candidate release_run')
+          pins = json.loads(Path('scripts/windows-developer-journey-inputs.json').read_text())
+          data = base64.b64decode(''.join(os.environ['ROM_B64'].split()), validate=True)
+          if len(data) != 16384 or hashlib.sha256(data).hexdigest() != pins['firmware_sha256']:
+              raise ValueError('Genuine 48K firmware is missing or differs; no runtime qualification')
+          firmware = root / 'windows-developer-firmware'
+          firmware.mkdir()
+          (firmware / '48.rom').write_bytes(data)
+          record.write_text(json.dumps({'status': 'passed', 'firmware_validated': True, 'sha256': pins['firmware_sha256']}))
+          '@
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Build and cold-boot the published Windows tools
+        shell: pwsh
+        run: |
+          python scripts/windows-developer-journey.py `
+            --samples-root "$env:GITHUB_WORKSPACE/code-samples" `
+            --firmware "$env:RUNNER_TEMP/windows-developer-firmware/48.rom" `
+            --work "$env:RUNNER_TEMP/windows-developer-work" `
+            --output "$env:RUNNER_TEMP/windows-developer-evidence/journey"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Remove private Windows-journey firmware
+        if: always()
+        shell: pwsh
+        run: |
+          python -c @'
+          import os, shutil
+          from pathlib import Path
+          folder = Path(os.environ['RUNNER_TEMP']) / 'windows-developer-firmware'
+          if folder.exists():
+              shutil.rmtree(folder)
+          if folder.exists():
+              raise RuntimeError('Private firmware cleanup failed')
+          '@
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Retain only Windows journey evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: windows-developer-journey-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/windows-developer-evidence/
+          if-no-files-found: error
+          retention-days: 30
