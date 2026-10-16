@@ -10,3 +10,8 @@ commit b875be8508eedd1d58e9df950548f45437b7a663,
 revision 51297ac3196a990286b0d21a4dedd4653c0168f0; `source.json` binds inputs
 and canonical rebuilt products. The user explicitly approved copying these
 seven non-ROM files into Emu on 2026-10-16. Firmware and credentials stay private.
+
+The four JSON targets linked by the original Amiga README are retained directly
+from that same public code-samples revision under `amiga/verification/evidence/`.
+They keep its source-relative evidence links valid without changing the approved
+README or implying that these older observations are the new native results.

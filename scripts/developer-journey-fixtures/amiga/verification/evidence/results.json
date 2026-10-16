@@ -1,0 +1,75 @@
+{
+  "status": "passed",
+  "configuration": "A500 OCS PAL, Kickstart 1.3, cold ADF boot",
+  "emulator_sha256": "bcc29232acf068f85faa67d4b8175294656f177b750542ee8c0285dff3ca67e4",
+  "kickstart_sha256": "ee05862d8102a08436ac4056da7d549db31625c7d47b24dfb7b3c9a5c113ca53",
+  "sources": {
+    "demo.asm": "b65880fa3dcd1a8d0ffda8e7098ea485c8cead877bb91fb9b0aa01d7f6efb368",
+    "paula-sample.inc": "a6c1dcda0cc8e9bc864f44cc8e4795cc9cfbe27bfdd63ecad0f8d4a081b9b8d9",
+    "probe.asm": "e7459e029f65ee2f4ae3943a30faf9f6556b7b6e91f7e381490594b4f254b5cc"
+  },
+  "binaries": {
+    "demo": "8f26e48774e4490764ed23e4bc18a3f0260c94fbb4f4921f0badd5bd473bb190",
+    "demo.adf": "e749003cde7f651bd18174749f78d15cad654a19ec854613aa936e27bd75a7e0",
+    "probe": "49721b4dfcb95b3bc210dd2732427c146d6464ad6d14c5c5c99395955a0231c1",
+    "probe.adf": "282abaaa25f2ac36b0f7acbd476dc7e23ba3d8152931799ac1dacba75eb6431e"
+  },
+  "vasm_identical": true,
+  "demo": {
+    "tones": [
+      {
+        "location": 96624,
+        "length_words": 8,
+        "period": 424,
+        "bytes_per_cycle": 16,
+        "start_cck": 23800081,
+        "stop_cck": 27338109,
+        "frames": 49.875,
+        "predicted_hz": 522.832,
+        "measured_hz": 522.836
+      },
+      {
+        "location": 96624,
+        "length_words": 8,
+        "period": 212,
+        "bytes_per_cycle": 16,
+        "start_cck": 27408957,
+        "stop_cck": 30950121,
+        "frames": 49.919,
+        "predicted_hz": 1045.665,
+        "measured_hz": 1045.664
+      },
+      {
+        "location": 96640,
+        "length_words": 16,
+        "period": 212,
+        "bytes_per_cycle": 32,
+        "start_cck": 31020983,
+        "stop_cck": 34562147,
+        "frames": 49.919,
+        "predicted_hz": 522.832,
+        "measured_hz": 522.832
+      }
+    ],
+    "wav_sha256": "e884f4e6315baa78aa094f3189cc5dc4fdb7e5d67f013baa9626c17b98e5d0bb",
+    "audio_rate": 48000
+  },
+  "probe": {
+    "loop_passes_no_dma": 44257,
+    "loop_passes_four_channels_period_124": 44257,
+    "loop_passes_six_lowres_bitplanes_control": 33536,
+    "first_request_after_dmacon_cck": 164,
+    "request_gaps_cck": [
+      5908,
+      6804,
+      6818,
+      6580,
+      6818
+    ],
+    "predicted_last_word_cck": 5936,
+    "predicted_pass_cck": 6784,
+    "one_shot_cycles": 8,
+    "wav_sha256": "02ea801df200d521001ad1be17d2ef8f0e6fb6cd7dbd07b63eed93d871ba534f"
+  },
+  "limits": "Emulator observations only. No listening, original-hardware or stereo-jack claim; CPU cost compares one chip-RAM loop."
+}

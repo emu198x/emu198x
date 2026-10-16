@@ -1,0 +1,61 @@
+{
+  "configuration": "A500 OCS PAL, Kickstart 1.3, cold ADF boot",
+  "emulator_revision": "dd7af3bbe1f9ff90b05070891ce5305a70369296",
+  "status": "failed",
+  "failure_verbatim": "AssertionError: 140",
+  "tone_checks": "three pitches passed within 0.1%; Asm198x/vasm executables agree",
+  "dma_probe": {
+    "no_dma": 44257,
+    "four_audio_channels": 44257,
+    "six_bitplanes": 33537
+  },
+  "interrupt_probe": {
+    "dma_enable_cck": 28046397,
+    "acknowledgements_cck": [
+      28046435,
+      28046575,
+      28053575,
+      28060365,
+      28067141,
+      28073931
+    ],
+    "gaps_cck": [
+      140,
+      7000,
+      6790,
+      6776,
+      6790
+    ],
+    "expected_first_gap_cck": 5936,
+    "tolerance_cck": 291,
+    "first_ack_after_enable": 38
+  },
+  "not_reached": [
+    "remaining interrupt assertions",
+    "one-shot cycle assertion"
+  ],
+  "limits": "Two runs reproduce the failure. Acknowledgements are guest INTREQ writes, not direct internal IRQ transitions. No claim that emulator rather than observer is wrong.",
+  "kickstart_sha256": "ee05862d8102a08436ac4056da7d549db31625c7d47b24dfb7b3c9a5c113ca53",
+  "sources": {
+    "demo.asm": "b65880fa3dcd1a8d0ffda8e7098ea485c8cead877bb91fb9b0aa01d7f6efb368",
+    "paula-sample.inc": "a6c1dcda0cc8e9bc864f44cc8e4795cc9cfbe27bfdd63ecad0f8d4a081b9b8d9",
+    "verification/probe.asm": "e7459e029f65ee2f4ae3943a30faf9f6556b7b6e91f7e381490594b4f254b5cc",
+    "verification/verify.py": "78d6327bdfec9cf29886e918783a0d077fa6d37cb7d56fd19d6a643865065014"
+  },
+  "binaries": {
+    "demo": "8f26e48774e4490764ed23e4bc18a3f0260c94fbb4f4921f0badd5bd473bb190",
+    "probe": "49721b4dfcb95b3bc210dd2732427c146d6464ad6d14c5c5c99395955a0231c1",
+    "demo.adf": "e749003cde7f651bd18174749f78d15cad654a19ec854613aa936e27bd75a7e0",
+    "probe.adf": "282abaaa25f2ac36b0f7acbd476dc7e23ba3d8152931799ac1dacba75eb6431e"
+  },
+  "python": "3.14.3",
+  "follow_up": "https://github.com/code198x/code-samples/issues/85",
+  "run_identities": {
+    "emulator_revision": "dd7af3bbe1f9ff90b05070891ce5305a70369296",
+    "files": {
+      "Code198x/code-samples/commodore-amiga/patterns/assembly/audio/playing-a-sample/verification/verify.py": "78d6327bdfec9cf29886e918783a0d077fa6d37cb7d56fd19d6a643865065014",
+      "Emu198x/emu198x/target/release/emu198x-amiga": "546b1c5cbfc42a545daf72be9cc27ba060744cd906f36a49d7a05e4096a85a41",
+      "Build198x/build198x/target/release/build198x": "097892fa8ed3ac02ba60e85204712dc92ec3e03b18bbfe4c55806c80c33b2303"
+    }
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "website_revision": "db83f5c7fb5584f49c80512474a2d6b6e90af5fc",
+  "pattern_sha256": "31d9677cdecab1e0b4604bd858670bd5226263f9570121d54065c05f9a7e8cc3",
+  "build_exit": 0,
+  "observed_hz": 517.95,
+  "diagnostic": "The original source assembles and loops a 16-byte sine at period 428. Its comment calls this the note C-2 at about 8.3 kHz; 8.3 kHz is the sample rate, and the emulator plays the 16-sample cycle at about 518 Hz. It enabled audio DMA without taking over or allocating the channel, and the page's stereo, CPU-cost and interrupt-timing claims were not checked."
+}
