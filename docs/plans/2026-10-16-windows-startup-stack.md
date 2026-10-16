@@ -34,6 +34,10 @@ and the existing Windows stack reserve. Change the payloads and constructor
 sites of `SpectrumRuntimeKind` in `family_runtime.rs`, its query forwarding,
 and the affected fixture constructors in runtime and binary tests. Add a
 bounded process regression in `crates/emu198x-spectrum/tests/script_startup.rs`.
+Run it automatically in the Windows build job in `.github/workflows/ci.yml`.
+Use `.github/workflows/test-linux-packages.yml` for the opt-in before/after
+comparison and unchanged full journey, with a small PE/startup probe in
+`scripts/check-windows-spectrum-startup.py`.
 Keep the runtime's machine state and snapshot formats unchanged.
 
 Before the fix, the local dist build measures the family enum at 74,568 bytes,

@@ -432,7 +432,8 @@ jobs:
   # regressions on macOS (primary dev host) and Windows without
   # paying the cost of a full test run on those OSes. The full test
   # suite still runs only on Linux, via the `test` job below; this
-  # job only proves the workspace compiles. cpal and gilrs each pick
+  # job checks compilation, plus a synthetic-ROM Spectrum startup regression
+  # on Windows, whose 1 MiB main-thread stack exposed #1792. cpal and gilrs each pick
   # up native audio/gamepad backends on macOS and Windows, so no
   # platform-specific install is needed outside Linux.
   build:
@@ -466,6 +467,10 @@ jobs:
 
       - name: Build workspace
         run: cargo check --workspace --all-targets
+
+      - name: Exercise Spectrum startup on the Windows main-thread stack
+        if: runner.os == 'Windows'
+        run: cargo test --profile dist -p emu198x-spectrum --no-default-features --test script_startup
 
   # The workspace's test runner. Deliberately *not* gated on fmt +
   # clippy: those are seconds, this is minutes, and making it wait
