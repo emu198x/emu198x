@@ -171,10 +171,16 @@ def main() -> None:
                 executable = zipped.read(entries[0])
             if not executable.startswith(b'MZ'):
                 raise ValueError('Expected Windows PE executable')
+            pe = struct.unpack_from('<I', executable, 0x3C)[0]
+            if executable[pe:pe + 4] != b'PE\0\0' or struct.unpack_from('<H', executable, pe + 4)[0] != 0x8664:
+                raise ValueError('Expected native x86-64 PE image')
+            if struct.unpack_from('<H', executable, pe + 24)[0] != 0x20B:
+                raise ValueError('Expected PE32+ optional header')
+            stack_reserve = struct.unpack_from('<Q', executable, pe + 24 + 72)[0]
             binary = tools / filename
             binary.write_bytes(executable)
             binaries[tool['name']] = str(binary)
-            report['tools'].append({**tool, 'executable_sha256': digest(executable)})
+            report['tools'].append({**tool, 'executable_sha256': digest(executable), 'pe_stack_reserve_bytes': stack_reserve})
             run(tool['name'] + '-help', [str(binary), '--help'], args.work)
         source = staged / pins['sample_path'] / 'checkpoints/loading-screen'
         build = args.work / 'build'
@@ -193,6 +199,10 @@ def main() -> None:
         (args.output / 'program.bin').write_bytes(code)
         (args.output / 'symbols.json').write_text(json.dumps(symbols, indent=2) + '\n', encoding='utf-8')
         report['package'] = {'sha256': digest(data), 'code_sha256': digest(code), 'blocks': 6}
+        startup = args.output / 'startup-session.json'
+        startup.write_text(json.dumps([{'action': 'query_cpu'}]), encoding='utf-8')
+        run('startup', [binaries['emu198x-spectrum'], '--machine', 'spectrum_48k', '--rom', str(args.firmware), '--script', str(startup)], args.work, timeout=30)
+
 
         def boot(label: str, medium: Path, capture: bool) -> dict:
             steps = [{'action': 'load_media', 'slot': 'tape-1', 'kind': 'tape', 'path': str(medium)}, {'action': 'autoload_tape', 'slot': 'tape-1', 'max_boot_frames': 500}, {'action': 'run_frames', 'frames': pins['frames']}, {'action': 'memory_read', 'addr': 32768, 'len': 64}, {'action': 'memory_read', 'addr': symbols['phase'], 'len': 1}]
