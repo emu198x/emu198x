@@ -1,0 +1,154 @@
+{
+  "hosts": {
+    "macos-intel": {
+      "samples_revision": "51297ac3196a990286b0d21a4dedd4653c0168f0",
+      "sample_path": "sinclair-zx-spectrum/assembly/meteor-storm",
+      "files": {
+        "sinclair-zx-spectrum/assembly/meteor-storm/unit-35/Makefile": "85cae388cfb90bde1699b1337536b082954c03be11cbe4778c72fa07cab3b4bf",
+        "sinclair-zx-spectrum/assembly/meteor-storm/checkpoints/loading-screen/loader.bas": "18d3235c3508ebb83feac57f34759e6277ef6aceab87b8493400ff5466fa41e2",
+        "sinclair-zx-spectrum/assembly/meteor-storm/checkpoints/loading-screen/screen.asm": "b0361768f088026ebfc6cffa31530767cdef52ee82a58271894f12f318b3d81f",
+        "sinclair-zx-spectrum/assembly/meteor-storm/checkpoints/loading-screen/meteor-storm.scr": "1325b44c95fab8934ad257c290170e4cfacda56118baf6b94d08cfb3c3514843",
+        "sinclair-zx-spectrum/assembly/meteor-storm/checkpoints/loading-screen/meteor-storm.asm": "0ce6a2bb21a8304582b4175fa94dc2b956c00218f8ef6cf9e4ddba41af24b073",
+        "sinclair-zx-spectrum/assembly/meteor-storm/checkpoints/loading-screen/assets.inc": "3829130674d64ce81ba26e7f3d4c9108b6a5c463eafe43e999544d254d72812f"
+      },
+      "tools": [
+        {
+          "name": "asm198x",
+          "release": "asm198x-v0.0.71",
+          "archive": "asm198x-x86_64-apple-darwin.tar.xz",
+          "url": "https://github.com/asm198x/asm198x/releases/download/asm198x-v0.0.71/asm198x-x86_64-apple-darwin.tar.xz",
+          "sha256": "7dacbbab72cd480ba303b591fda2423b2896f0e859d6984b6008f3bddd821c3d"
+        },
+        {
+          "name": "build198x",
+          "release": "build198x-v0.2.12",
+          "archive": "build198x-x86_64-apple-darwin.tar.xz",
+          "url": "https://github.com/build198x/build198x/releases/download/build198x-v0.2.12/build198x-x86_64-apple-darwin.tar.xz",
+          "sha256": "1df7fe9d0527d8d05156187ec3e50d1e754e54d18cb01f5ca2f13d6c92abf357"
+        },
+        {
+          "name": "emu198x-spectrum",
+          "release": "v0.35.3",
+          "archive": "emu198x-spectrum-x86_64-apple-darwin.tar.gz",
+          "url": "https://github.com/emu198x/emu198x/releases/download/v0.35.3/emu198x-spectrum-x86_64-apple-darwin.tar.gz",
+          "sha256": "64e28c971392ee337f529a31d18d9cfcad793b50205b23409f85f61c5f673739"
+        }
+      ],
+      "firmware_sha256": "d55daa439b673b0e3f5897f99ac37ecb45f974d1862b4dadb85dec34af99cb42",
+      "frames": 15000,
+      "target": "x86_64-apple-darwin",
+      "source_debug_fixture_sha256": "5e3104489afcac632d5015f66d5db1e63018537a3d80641058553f3d7ceaa113",
+      "source_debug_session_sha256": "bee6b1ead2812192916b9a3e83e438f4a6da4ce26bdbf49f442178e64365cdf7"
+    },
+    "macos-arm": {
+      "samples_revision": "51297ac3196a990286b0d21a4dedd4653c0168f0",
+      "sample_path": "sinclair-zx-spectrum/assembly/meteor-storm",
+      "files": {
+        "sinclair-zx-spectrum/assembly/meteor-storm/unit-35/Makefile": "85cae388cfb90bde1699b1337536b082954c03be11cbe4778c72fa07cab3b4bf",
+        "sinclair-zx-spectrum/assembly/meteor-storm/checkpoints/loading-screen/loader.bas": "18d3235c3508ebb83feac57f34759e6277ef6aceab87b8493400ff5466fa41e2",
+        "sinclair-zx-spectrum/assembly/meteor-storm/checkpoints/loading-screen/screen.asm": "b0361768f088026ebfc6cffa31530767cdef52ee82a58271894f12f318b3d81f",
+        "sinclair-zx-spectrum/assembly/meteor-storm/checkpoints/loading-screen/meteor-storm.scr": "1325b44c95fab8934ad257c290170e4cfacda56118baf6b94d08cfb3c3514843",
+        "sinclair-zx-spectrum/assembly/meteor-storm/checkpoints/loading-screen/meteor-storm.asm": "0ce6a2bb21a8304582b4175fa94dc2b956c00218f8ef6cf9e4ddba41af24b073",
+        "sinclair-zx-spectrum/assembly/meteor-storm/checkpoints/loading-screen/assets.inc": "3829130674d64ce81ba26e7f3d4c9108b6a5c463eafe43e999544d254d72812f"
+      },
+      "tools": [
+        {
+          "name": "asm198x",
+          "release": "asm198x-v0.0.71",
+          "archive": "asm198x-aarch64-apple-darwin.tar.xz",
+          "url": "https://github.com/asm198x/asm198x/releases/download/asm198x-v0.0.71/asm198x-aarch64-apple-darwin.tar.xz",
+          "sha256": "97435c1c1aaa349be4d6e1e354030306f7e909e00c14a6f21b2f6d634402978d"
+        },
+        {
+          "name": "build198x",
+          "release": "build198x-v0.2.12",
+          "archive": "build198x-aarch64-apple-darwin.tar.xz",
+          "url": "https://github.com/build198x/build198x/releases/download/build198x-v0.2.12/build198x-aarch64-apple-darwin.tar.xz",
+          "sha256": "9fe4bbd070e309b00a3fe2513d197018b8bb8041e7f3df0958bcb882080afb9e"
+        },
+        {
+          "name": "emu198x-spectrum",
+          "release": "v0.35.3",
+          "archive": "emu198x-spectrum-aarch64-apple-darwin.tar.gz",
+          "url": "https://github.com/emu198x/emu198x/releases/download/v0.35.3/emu198x-spectrum-aarch64-apple-darwin.tar.gz",
+          "sha256": "b908f76cc276066f0411a4a8fa7af5e117689dde06c7612fefd0f1027382e97d"
+        }
+      ],
+      "firmware_sha256": "d55daa439b673b0e3f5897f99ac37ecb45f974d1862b4dadb85dec34af99cb42",
+      "frames": 15000,
+      "target": "aarch64-apple-darwin",
+      "source_debug_fixture_sha256": "5e3104489afcac632d5015f66d5db1e63018537a3d80641058553f3d7ceaa113",
+      "source_debug_session_sha256": "bee6b1ead2812192916b9a3e83e438f4a6da4ce26bdbf49f442178e64365cdf7"
+    },
+    "windows": {
+      "samples_revision": "51297ac3196a990286b0d21a4dedd4653c0168f0",
+      "sample_path": "sinclair-zx-spectrum/assembly/meteor-storm",
+      "files": {
+        "sinclair-zx-spectrum/assembly/meteor-storm/unit-35/Makefile": "85cae388cfb90bde1699b1337536b082954c03be11cbe4778c72fa07cab3b4bf",
+        "sinclair-zx-spectrum/assembly/meteor-storm/checkpoints/loading-screen/loader.bas": "18d3235c3508ebb83feac57f34759e6277ef6aceab87b8493400ff5466fa41e2",
+        "sinclair-zx-spectrum/assembly/meteor-storm/checkpoints/loading-screen/screen.asm": "b0361768f088026ebfc6cffa31530767cdef52ee82a58271894f12f318b3d81f",
+        "sinclair-zx-spectrum/assembly/meteor-storm/checkpoints/loading-screen/meteor-storm.scr": "1325b44c95fab8934ad257c290170e4cfacda56118baf6b94d08cfb3c3514843",
+        "sinclair-zx-spectrum/assembly/meteor-storm/checkpoints/loading-screen/meteor-storm.asm": "0ce6a2bb21a8304582b4175fa94dc2b956c00218f8ef6cf9e4ddba41af24b073",
+        "sinclair-zx-spectrum/assembly/meteor-storm/checkpoints/loading-screen/assets.inc": "3829130674d64ce81ba26e7f3d4c9108b6a5c463eafe43e999544d254d72812f"
+      },
+      "tools": [
+        {
+          "name": "asm198x",
+          "release": "asm198x-v0.0.71",
+          "archive": "asm198x-x86_64-pc-windows-msvc.zip",
+          "url": "https://github.com/asm198x/asm198x/releases/download/asm198x-v0.0.71/asm198x-x86_64-pc-windows-msvc.zip",
+          "sha256": "9ff6139fb0695239b49775ccf8b1fea20cc0f203b37ac8ec01fb102a6543952c"
+        },
+        {
+          "name": "build198x",
+          "release": "build198x-v0.2.10",
+          "archive": "build198x-x86_64-pc-windows-msvc.zip",
+          "url": "https://github.com/build198x/build198x/releases/download/build198x-v0.2.10/build198x-x86_64-pc-windows-msvc.zip",
+          "sha256": "f8f47dc2a1eee50fed853bc584cd1966749801565ffb34c42c5cb3b76e28ef12"
+        },
+        {
+          "name": "emu198x-spectrum",
+          "release": "v0.34.1",
+          "archive": "emu198x-spectrum-x86_64-pc-windows-msvc.zip",
+          "url": "https://github.com/emu198x/emu198x/releases/download/v0.34.1/emu198x-spectrum-x86_64-pc-windows-msvc.zip",
+          "sha256": "a3f7dbf3cc1951023359602c4c9a4a5bab35836bc2cce50f0df52334bd8ea1ca"
+        }
+      ],
+      "firmware_sha256": "d55daa439b673b0e3f5897f99ac37ecb45f974d1862b4dadb85dec34af99cb42",
+      "frames": 15000,
+      "target": "x86_64-pc-windows-msvc",
+      "source_debug_fixture_sha256": "5e3104489afcac632d5015f66d5db1e63018537a3d80641058553f3d7ceaa113",
+      "source_debug_session_sha256": "bee6b1ead2812192916b9a3e83e438f4a6da4ce26bdbf49f442178e64365cdf7"
+    }
+  },
+  "taps": {
+    "asm198x": {
+      "formula": "asm198x/tap/asm198x",
+      "repository": "asm198x/homebrew-tap",
+      "revision": "542e884bc64536bb50f78eb4b9a91f381dee3bca",
+      "formula_sha256": "fe90140ae905c3c0277e0d3b63ffb130fc59bce89bb88cd3da67f16229073760"
+    },
+    "build198x": {
+      "formula": "build198x/tap/build198x",
+      "repository": "build198x/homebrew-tap",
+      "revision": "55dd6b7a7db8e281ff5bf28e52ab9144e4e306e6",
+      "formula_sha256": "93548997578c88fd2f5608a0dc725498746de96007085d7bd3e9ddabe56752f9"
+    },
+    "emu198x-spectrum": {
+      "formula": "emu198x/tap/emu198x-spectrum",
+      "repository": "emu198x/homebrew-tap",
+      "revision": "875db3461656a7d6fd7cc0e930263e66c5853402",
+      "formula_sha256": "87b7bc71745506d758e0cad1391d5061ee740f31249b364ee78f41c5b8865cab"
+    }
+  },
+  "installers": {
+    "asm198x": {
+      "url": "https://github.com/asm198x/asm198x/releases/download/asm198x-v0.0.71/asm198x-installer.ps1",
+      "sha256": "6008ef39afa67e31d10f0658861ca338494803279a9ebaf76ba780fb771e89f2"
+    },
+    "build198x": {
+      "url": "https://github.com/build198x/build198x/releases/download/build198x-v0.2.10/build198x-installer.ps1",
+      "sha256": "7ae20988bd69a6f33aecb94bb243b6e8853dbc80b6780a841392ba1c3066f8df"
+    }
+  }
+}
