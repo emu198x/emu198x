@@ -1025,10 +1025,16 @@ impl Upd765a {
                     eprintln!("[FDC-RES] ReadId result=[{}]", fmt_bytes(&self.result_buf),);
                 }
             }
-            _ => {
-                // Unknown command — return to idle
-                self.phase = Phase::Idle;
-                self.main_status = MSR_RQM;
+            Command::None => {
+                // NEC December 1978 datasheet pp.8,16: an invalid
+                // command has a one-byte ST0 result (IC=10). Fuse's
+                // UPD_CMD_INVALID handling likewise returns 0x80.
+                self.st0 = 0x80;
+                self.result_buf.clear();
+                self.result_buf.push(self.st0);
+                self.result_pos = 0;
+                self.phase = Phase::Result;
+                self.main_status = MSR_RQM | MSR_DIO | MSR_CB;
             }
         }
     }
@@ -2960,17 +2966,31 @@ mod tests {
         assert_eq!(st3 & 0x20, 0x20, "drive 2 aliases drive 0 → RY set");
     }
 
-    /// An unrecognised command byte falls into `Command::None` and the
-    /// chip returns to idle without a result phase. This matches the
-    /// `_` arm in `execute_command`.
+    /// NEC December 1978 datasheet pp.8,16: invalid commands have a
+    /// one-byte ST0 result, with interrupt-code bits 10 (0x80).
     #[test]
-    fn unrecognised_command_returns_to_idle() {
+    fn invalid_command_returns_one_status_byte_and_accepts_next_command() {
         let mut fdc = Upd765a::new();
         fdc.enabled = true;
-        // 0x1B is not a documented µPD765A command.
+        for opcode in [0x00, 0x1B, 0xFF] {
+            fdc.write_data(opcode);
+            assert_eq!(fdc.read_status(), MSR_RQM | MSR_DIO | MSR_CB);
+            // A host write cannot replace an unread result.
+            fdc.write_data(0x04);
+            assert_eq!(fdc.read_data(), 0x80);
+            assert_eq!(fdc.read_status(), MSR_RQM);
+            assert_eq!(fdc.read_data(), 0xFF, "exactly one result byte");
+        }
+        // A normal command after the invalid results must still work.
+        fdc.write_data(0x04);
+        fdc.write_data(0x00);
+        assert_eq!(fdc.read_status(), MSR_RQM | MSR_DIO | MSR_CB);
+        assert_eq!(fdc.read_data(), 0x10, "drive zero is on cylinder zero");
+        assert_eq!(fdc.read_status(), MSR_RQM);
+        // Do not leak the preceding command's status into a new result.
         fdc.write_data(0x1B);
-        assert_eq!(fdc.phase, Phase::Idle);
-        assert_eq!(fdc.read_status() & MSR_DIO, 0, "no result phase to drain");
+        assert_eq!(fdc.read_data(), 0x80);
+        assert_eq!(fdc.read_status(), MSR_RQM);
     }
 
     #[test]
