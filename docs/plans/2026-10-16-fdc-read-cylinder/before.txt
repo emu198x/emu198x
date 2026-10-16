@@ -1,0 +1,72 @@
+mise WARN  tracking config: failed to ln -sf /Users/stevehill/Projects/198x/output/qualification/workspaces/emu-fdc-read-cylinder/rust-toolchain.toml /Users/stevehill/.local/state/mise/tracked-configs/df2ec69fbf3dd94b: Operation not permitted (os error 1)
+   Compiling nec-upd765a v0.35.3 (/Users/stevehill/Projects/198x/output/qualification/workspaces/emu-fdc-read-cylinder/crates/nec-upd765a)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.28s
+     Running tests/read_cylinder.rs (target/debug/deps/read_cylinder-40c7a40a9ca741ef)
+
+running 8 tests
+test matching_nonphysical_and_ff_headers_are_readable ... ok
+test read_deleted_data_rejects_bad_cylinder ... FAILED
+test read_deleted_data_rejects_wrong_cylinder ... FAILED
+test absent_requested_r_still_reports_encountered_wrong_cylinder ... FAILED
+test read_data_rejects_bad_cylinder ... FAILED
+test later_wrong_cylinder_preserves_only_preceding_sector_data ... FAILED
+test later_matching_duplicate_sector_id_is_not_hidden_by_wrong_cylinder ... FAILED
+test read_data_rejects_wrong_cylinder ... FAILED
+
+failures:
+
+---- read_deleted_data_rejects_bad_cylinder stdout ----
+
+thread 'read_deleted_data_rejects_bad_cylinder' (116285170) panicked at crates/nec-upd765a/tests/read_cylinder.rs:48:5:
+wrong-cylinder payload must not reach the host
+
+---- read_deleted_data_rejects_wrong_cylinder stdout ----
+
+thread 'read_deleted_data_rejects_wrong_cylinder' (116285171) panicked at crates/nec-upd765a/tests/read_cylinder.rs:48:5:
+wrong-cylinder payload must not reach the host
+
+---- absent_requested_r_still_reports_encountered_wrong_cylinder stdout ----
+
+thread 'absent_requested_r_still_reports_encountered_wrong_cylinder' (116285164) panicked at crates/nec-upd765a/tests/read_cylinder.rs:104:9:
+assertion `left == right` failed
+  left: [64, 4, 0]
+ right: [64, 4, 16]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- read_data_rejects_bad_cylinder stdout ----
+
+thread 'read_data_rejects_bad_cylinder' (116285168) panicked at crates/nec-upd765a/tests/read_cylinder.rs:48:5:
+wrong-cylinder payload must not reach the host
+
+---- later_wrong_cylinder_preserves_only_preceding_sector_data stdout ----
+
+thread 'later_wrong_cylinder_preserves_only_preceding_sector_data' (116285166) panicked at crates/nec-upd765a/tests/read_cylinder.rs:113:9:
+assertion `left == right` failed
+  left: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9]
+ right: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+
+---- later_matching_duplicate_sector_id_is_not_hidden_by_wrong_cylinder stdout ----
+
+thread 'later_matching_duplicate_sector_id_is_not_hidden_by_wrong_cylinder' (116285165) panicked at crates/nec-upd765a/tests/read_cylinder.rs:93:9:
+assertion `left == right` failed
+  left: [8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8]
+ right: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+
+---- read_data_rejects_wrong_cylinder stdout ----
+
+thread 'read_data_rejects_wrong_cylinder' (116285169) panicked at crates/nec-upd765a/tests/read_cylinder.rs:48:5:
+wrong-cylinder payload must not reach the host
+
+
+failures:
+    absent_requested_r_still_reports_encountered_wrong_cylinder
+    later_matching_duplicate_sector_id_is_not_hidden_by_wrong_cylinder
+    later_wrong_cylinder_preserves_only_preceding_sector_data
+    read_data_rejects_bad_cylinder
+    read_data_rejects_wrong_cylinder
+    read_deleted_data_rejects_bad_cylinder
+    read_deleted_data_rejects_wrong_cylinder
+
+test result: FAILED. 1 passed; 7 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p nec-upd765a --test read_cylinder`

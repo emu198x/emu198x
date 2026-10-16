@@ -1,0 +1,3 @@
+mise WARN  tracking config: failed to ln -sf /Users/stevehill/Projects/198x/output/qualification/workspaces/emu-fdc-read-cylinder/rust-toolchain.toml /Users/stevehill/.local/state/mise/tracked-configs/df2ec69fbf3dd94b: Operation not permitted (os error 1)
+    Checking nec-upd765a v0.35.3 (/Users/stevehill/Projects/198x/output/qualification/workspaces/emu-fdc-read-cylinder/crates/nec-upd765a)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.44s
