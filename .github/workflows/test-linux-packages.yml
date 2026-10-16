@@ -504,7 +504,7 @@ jobs:
           if matches != [hashlib.sha256(archive.read_bytes()).hexdigest()]:
               raise ValueError('Private corpus checksum differs')
           with tarfile.open(archive, mode='r:zst') as packed:
-              members = [m for m in packed.getmembers() if m.isfile() and Path(m.name).name == 'kick13.rom']
+              members = [m for m in packed.getmembers() if m.isfile() and m.name == 'amiga-accuracy/kickstart-1.3-r34.5.rom']
               if len(members) != 1 or members[0].size != 262144:
                   raise ValueError('Missing unique Kickstart 1.3')
               stream = packed.extractfile(members[0])
