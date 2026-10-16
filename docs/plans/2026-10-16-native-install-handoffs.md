@@ -51,3 +51,8 @@ independent of that access. The prepared Amiga runner remains recoverable in
 remote commit ab149d7cf; its native execution remains outstanding under #167.
 The Homebrew Intel Spectrum result separately establishes its declared version
 set and fixture outcomes; it does not stand in for the Amiga boot.
+
+The user explicitly approved the exact seven-file fixture proposal on
+2026-10-16. Retain those bytes locally in Emu, restore the prepared Amiga runner
+and use the existing private-corpus provisioning step. No umbrella token or
+firmware is published. Require the actual native results before closing #167.
