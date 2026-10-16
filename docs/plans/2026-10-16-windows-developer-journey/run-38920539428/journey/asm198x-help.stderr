@@ -1,0 +1,81 @@
+asm198x — 198x family assembler
+
+usage: asm198x [asm|disasm|fmt] [options] <input>
+       (the operation is a subcommand; with none given, asm198x assembles)
+
+assemble:    asm198x [asm] [--dialect <name>] [--cpu <target>] [-I <dir>]... <input> [-o <out.bin>]
+             (add --message-format=json for a machine-readable result +
+              diagnostics on stdout; --message-format=human is the default;
+              -I adds an include-search directory, repeatable, in order)
+             (--equ NAME=VALUE defines a repeatable pasmo/pasmonext constant
+              before conditional assembly, matching Pasmo's spelling)
+snapshot:    asm198x --dialect pasmonext --sna <input> [-o <out.sna>]
+             (Spectrum Z80 only; needs `end <addr>` for the entry point)
+tape:        asm198x --dialect pasmonext --tap|--tzx <input> [-o <out.tap>]
+             (Spectrum Z80 only; the `bas` spellings — --tapbas/--tzxbas —
+              put an auto-run BASIC loader in front, which needs `end <addr>`
+              for its RANDOMIZE USR line)
+C64 program: asm198x --dialect acme --prg <input> [-o <out.prg>]
+             (prepends the 2-byte load address)
+Game Boy ROM: asm198x --dialect rgbasm --gb-rom <input> [-o <out.gb>]
+             (RGBLINK-compatible layout, padding and header checksums)
+convert:     asm198x convert --from pasmo --to sjasmplus <input> [-o <out>]
+             (parse-and-re-emit dialect conversion, same CPU; output is
+              written only when both sides assemble byte-identically)
+NES project: asm198x --dialect ca65 -C <project.cfg> <input> [-o <out.nes>]
+             (-C reads a bounded ld65 config; absent, the curriculum
+              NROM layout applies as before)
+symbols:     asm198x --sym[=path] --sym-format=native|vice|nocash <input>
+             (native preserves --sym output; vice writes .vs monitor labels;
+              nocash writes .sym Game Boy bank:address labels)
+debug info:  asm198x [--debug[=path]] [--sym[=path]] [--listing[=path]]
+             [--listing-json[=path]] [--map[=path]] <input>
+             (--debug writes the .debug198x NDJSON sidecar; --sym a sorted
+              `name = $hex` table; --listing address/bytes/cycles/source rows
+              with per-label cycle totals; --listing-json the same data as
+              JSON — defaults: input with .debug198x/.sym/.lst/.lst.json;
+              flat dialects and ca65; vasm supports --debug/--sym only)
+disassemble: asm198x disasm [-d <dialect>] [--org <addr>] <input.bin>
+             (CPU selected by --dialect or --cpu)
+recover:     asm198x disasm --recover [-d acme] [--org <addr>]
+             [--code START:END]... [--data START:END]...
+             [--label ADDRESS:NAME]... <input.bin> [-o <new-source.a>]
+             (raw 6502, end-exclusive CPU ranges; unmarked bytes are data;
+              data overrides code; output is verified by reassembly)
+format:      asm198x fmt [-d <dialect>] [--cpu <target>] <input.asm> [-o <out.asm>]
+             (canonical layout, comments + operand spelling preserved; see dialects below)
+explain:     asm198x --explain <code>
+version:     asm198x --version (also -V, or `asm198x version`)
+
+targets (--cpu):   z80 (default for pasmo), z80n (Spectrum Next; default
+                  for pasmonext) — Z80N opcodes follow the target, not
+                  the dialect. --cpu also names a chip directly when
+                  --dialect is absent (`--cpu 6809` is lwasm syntax).
+                  Unknown CPUs and incompatible pairs are errors.
+
+dialects (--dialect):
+                   acme       C64 6502, ACME syntax; also 6502/mos6502
+                   ca65       NES 6502, ca65 syntax (assemble + link); also nes
+                   65816      65816, ca65 syntax; also 816/ca65-816
+                   huc6280    PC Engine HuC6280, ca65 syntax; also pce/pc-engine
+                   vasm       Amiga 68000, vasm Motorola syntax; also 68000/m68k/mot
+                   lwasm      6809, lwasm syntax; also 6809
+                   rgbasm     Game Boy SM83, RGBDS syntax; also sm83/gb/gameboy/game-boy
+                   pasmo      Z80, pasmo syntax
+                   pasmonext  Z80, pasmo syntax, Spectrum Next target by default
+                   sjasmplus  Z80, sjasmplus syntax; also sjasm
+                   8080       Intel 8080, Intel syntax; also i8080/intel8080
+                   6800       Motorola 6800, Motorola syntax; also m6800
+                   1802       RCA COSMAC CDP1802; also cdp1802/cosmac
+                   8048       MCS-48 with on-chip ROM; also i8048/mcs48/mcs-48/8049/8050/80c48/80c49
+                   8035       MCS-48, ROM-less parts — the four BUS instructions are refused; also 8039/8040/80c35/80c39/80c40
+                   scmp       National SC/MP (INS8060); also sc/mp/ins8060
+                   f8         Fairchild F8 (3850), Channel F; also 3850/f3850/channelf/channel-f
+                   2650       Signetics 2650; also s2650/signetics2650
+                   tms7000    TI TMS7000; also 7000/tms70c00
+                   pdp11      DEC PDP-11; also pdp-11/lsi11/lsi-11
+                   tms9900    TI TMS9900 (TI-99/4A); also 9900/ti99
+                   cp1610     GI CP1610 (Intellivision); also cp1600/cp-1600/intellivision/intv
+                   z8000      Zilog Z8000, non-segmented; also z8002
+                   z8001      Zilog Z8001, segmented
+Assembles retro CPU source to a flat binary, or disassembles one back.

@@ -60,3 +60,9 @@ The next comparison pins current stable Emu 0.35.0 from its official archive
 digest, retaining the 0.34.2 failures. Asm 0.0.67, Build 0.2.12, firmware, sample
 and acceptance checks stay fixed. This checks whether the failure is already
 resolved in the current publication; it does not reclassify old results.
+
+Run 38923295182 reproduces the startup-only failure in 0.35.0. Issue #1792
+tracks it. Native reports, command output, run metadata and artifact identities
+are retained under the adjacent `2026-10-16-windows-developer-journey/` folder.
+The packaging stage passes; game boot and the missing-CODE runtime control have
+not run. This audit adds no core fix and makes no Windows qualification claim.

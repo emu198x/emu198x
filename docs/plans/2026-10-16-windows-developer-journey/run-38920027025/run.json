@@ -1,0 +1,191 @@
+{
+  "id": 38920027025,
+  "html_url": "https://github.com/emu198x/emu198x/actions/runs/38920027025",
+  "head_sha": "398b6e80dbe3d933e1d6c2dc24896b3b9110f592",
+  "event": "workflow_dispatch",
+  "status": "completed",
+  "conclusion": "failure",
+  "created_at": "2026-10-16T14:57:47Z",
+  "updated_at": "2026-10-16T14:58:19Z",
+  "jobs": [
+    {
+      "id": 117037269969,
+      "run_id": 38920027025,
+      "workflow_name": "Linux packages",
+      "head_branch": "ci/windows-developer-journey",
+      "run_url": "https://api.github.com/repos/emu198x/emu198x/actions/runs/38920027025",
+      "run_attempt": 1,
+      "node_id": "CR_kwDOSAgEp88AAAAbP_cD0Q",
+      "head_sha": "398b6e80dbe3d933e1d6c2dc24896b3b9110f592",
+      "url": "https://api.github.com/repos/emu198x/emu198x/actions/jobs/117037269969",
+      "html_url": "https://github.com/emu198x/emu198x/actions/runs/38920027025/job/117037269969",
+      "status": "completed",
+      "conclusion": "failure",
+      "created_at": "2026-10-16T14:57:49Z",
+      "started_at": "2026-10-16T14:57:51Z",
+      "completed_at": "2026-10-16T14:58:18Z",
+      "name": "Windows released-tool package-to-boot journey",
+      "steps": [
+        {
+          "name": "Set up job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 1,
+          "started_at": "2026-10-16T14:57:52Z",
+          "completed_at": "2026-10-16T14:57:53Z"
+        },
+        {
+          "name": "Run actions/checkout@v7",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 2,
+          "started_at": "2026-10-16T14:57:53Z",
+          "completed_at": "2026-10-16T14:58:03Z"
+        },
+        {
+          "name": "Run actions/checkout@v7",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 3,
+          "started_at": "2026-10-16T14:58:03Z",
+          "completed_at": "2026-10-16T14:58:08Z"
+        },
+        {
+          "name": "Run actions/setup-python@v6",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 4,
+          "started_at": "2026-10-16T14:58:08Z",
+          "completed_at": "2026-10-16T14:58:09Z"
+        },
+        {
+          "name": "Check Windows journey rejection controls",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 5,
+          "started_at": "2026-10-16T14:58:09Z",
+          "completed_at": "2026-10-16T14:58:11Z"
+        },
+        {
+          "name": "Materialise checked Windows-journey firmware",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 6,
+          "started_at": "2026-10-16T14:58:11Z",
+          "completed_at": "2026-10-16T14:58:11Z"
+        },
+        {
+          "name": "Build and cold-boot the published Windows tools",
+          "status": "completed",
+          "conclusion": "failure",
+          "number": 7,
+          "started_at": "2026-10-16T14:58:11Z",
+          "completed_at": "2026-10-16T14:58:12Z"
+        },
+        {
+          "name": "Remove private Windows-journey firmware",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 8,
+          "started_at": "2026-10-16T14:58:12Z",
+          "completed_at": "2026-10-16T14:58:12Z"
+        },
+        {
+          "name": "Retain only Windows journey evidence",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 9,
+          "started_at": "2026-10-16T14:58:12Z",
+          "completed_at": "2026-10-16T14:58:13Z"
+        },
+        {
+          "name": "Post Run actions/setup-python@v6",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 16,
+          "started_at": "2026-10-16T14:58:13Z",
+          "completed_at": "2026-10-16T14:58:13Z"
+        },
+        {
+          "name": "Post Run actions/checkout@v7",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 17,
+          "started_at": "2026-10-16T14:58:13Z",
+          "completed_at": "2026-10-16T14:58:15Z"
+        },
+        {
+          "name": "Post Run actions/checkout@v7",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 18,
+          "started_at": "2026-10-16T14:58:15Z",
+          "completed_at": "2026-10-16T14:58:16Z"
+        },
+        {
+          "name": "Complete job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 19,
+          "started_at": "2026-10-16T14:58:16Z",
+          "completed_at": "2026-10-16T14:58:16Z"
+        }
+      ],
+      "check_run_url": "https://api.github.com/repos/emu198x/emu198x/check-runs/117037269969",
+      "labels": [
+        "windows-2022"
+      ],
+      "runner_id": 1000036462,
+      "runner_name": "GitHub Actions 1000036462",
+      "runner_group_id": 0,
+      "runner_group_name": "GitHub Actions"
+    },
+    {
+      "id": 117037272725,
+      "run_id": 38920027025,
+      "workflow_name": "Linux packages",
+      "head_branch": "ci/windows-developer-journey",
+      "run_url": "https://api.github.com/repos/emu198x/emu198x/actions/runs/38920027025",
+      "run_attempt": 1,
+      "node_id": "CR_kwDOSAgEp88AAAAbP_cOlQ",
+      "head_sha": "398b6e80dbe3d933e1d6c2dc24896b3b9110f592",
+      "url": "https://api.github.com/repos/emu198x/emu198x/actions/jobs/117037272725",
+      "html_url": "https://github.com/emu198x/emu198x/actions/runs/38920027025/job/117037272725",
+      "status": "completed",
+      "conclusion": "skipped",
+      "created_at": "2026-10-16T14:57:49Z",
+      "started_at": "2026-10-16T14:57:49Z",
+      "completed_at": "2026-10-16T14:57:49Z",
+      "name": "Install and exercise (${{ matrix.target }})",
+      "steps": [],
+      "check_run_url": "https://api.github.com/repos/emu198x/emu198x/check-runs/117037272725",
+      "labels": [],
+      "runner_id": null,
+      "runner_name": null,
+      "runner_group_id": null,
+      "runner_group_name": null
+    }
+  ],
+  "artifacts": [
+    {
+      "id": 12054332752,
+      "node_id": "MDg6QXJ0aWZhY3QxMjA1NDMzMjc1Mg==",
+      "name": "windows-developer-journey-38920027025-1",
+      "size_in_bytes": 704,
+      "url": "https://api.github.com/repos/emu198x/emu198x/actions/artifacts/12054332752",
+      "archive_download_url": "https://api.github.com/repos/emu198x/emu198x/actions/artifacts/12054332752/zip",
+      "expired": false,
+      "digest": "sha256:4dbb54ab9f4a795579971c177cfb98e32ba83bd887083de8bd161135403b0839",
+      "created_at": "2026-10-16T14:58:13Z",
+      "updated_at": "2026-10-16T14:58:13Z",
+      "expires_at": "2026-11-15T14:58:12Z",
+      "workflow_run": {
+        "id": 38920027025,
+        "repository_id": 1208485031,
+        "head_repository_id": 1208485031,
+        "head_branch": "ci/windows-developer-journey",
+        "head_sha": "398b6e80dbe3d933e1d6c2dc24896b3b9110f592"
+      }
+    }
+  ]
+}
