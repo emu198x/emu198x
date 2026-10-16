@@ -1,0 +1,686 @@
+mise WARN  tracking config: failed to ln -sf /private/tmp/emu198x-windows-startup/rust-toolchain.toml /Users/stevehill/.local/state/mise/tracked-configs/5ef06c8d8d5da1c2: Operation not permitted (os error 1)
+   Compiling syn v2.0.117
+   Compiling zerocopy v0.8.48
+   Compiling emu198x-test-skip v0.35.1 (/private/tmp/emu198x-windows-startup/crates/emu198x-test-skip)
+   Compiling autocfg v1.5.0
+   Compiling alloca v0.4.0
+   Compiling either v1.16.0
+   Compiling regex-syntax v0.8.10
+   Compiling anstyle v1.0.14
+   Compiling ciborium-io v0.2.2
+   Compiling runtime-sinclair-zx-spectrum v0.35.1 (/private/tmp/emu198x-windows-startup/crates/runtime-sinclair-zx-spectrum)
+   Compiling clap_lex v1.1.0
+   Compiling cast v0.3.0
+   Compiling same-file v1.0.6
+   Compiling walkdir v2.5.0
+   Compiling tinytemplate v1.2.1
+   Compiling page_size v0.6.0
+   Compiling clap_builder v4.6.0
+   Compiling oorandom v11.1.5
+   Compiling anes v0.1.6
+   Compiling itertools v0.13.0
+   Compiling num-traits v0.2.19
+   Compiling twox-hash v2.1.4
+   Compiling regex-automata v0.4.14
+   Compiling criterion-plot v0.8.2
+   Compiling clap v4.6.1
+   Compiling zerocopy-derive v0.8.48
+   Compiling regex v1.12.3
+   Compiling half v2.7.1
+   Compiling ciborium-ll v0.2.2
+   Compiling ciborium v0.2.2
+   Compiling criterion v0.8.2
+   Compiling emu198x-spectrum v0.35.1 (/private/tmp/emu198x-windows-startup/crates/emu198x-spectrum)
+    Finished `dist` profile [optimized] target(s) in 37.73s
+     Running unittests src/main.rs (target/dist/deps/emu198x_spectrum-dc6d935448b01327)
+
+running 45 tests
+test app::tests::defaults_are_empty ... ok
+test app::tests::flags_accept_rom_tape_scale_and_positional ... ok
+test app::tests::play_tape_alone_is_supported ... ok
+test app::tests::a_second_positional_tape_is_a_usage_error ... ok
+test app::tests::convenience_aliases_select_script_mode ... ok
+test app::tests::no_audio_opens_the_window_without_sound ... ok
+test app::tests::rom_is_repeatable ... ok
+test app::tests::the_capture_flags_parse ... ok
+test app::tests::machine_id_is_kept_raw_and_not_validated ... ok
+test mcp::tools::tests::parse_step_rejects_non_object_arguments ... ok
+test mcp::tools::tests::parse_step_accepts_null_arguments_for_query_ay ... ok
+test mcp::tools::tests::parse_step_accepts_null_arguments_for_query_cpu ... ok
+test mcp::tools::tests::parse_step_accepts_null_arguments_for_zero_field_steps ... ok
+test mcp::tools::tests::parse_step_accepts_empty_object_for_watch_memory_log ... ok
+test mcp::tools::tests::parse_step_round_trips_disasm ... ok
+test mcp::tools::tests::parse_step_round_trips_load_basic_program_with_default_run ... ok
+test mcp::tools::tests::parse_step_round_trips_memory_read_arguments ... ok
+test mcp::tools::tests::parse_step_round_trips_port_read_and_write ... ok
+test mcp::tools::tests::parse_step_round_trips_press_key_default_and_explicit_hold ... ok
+test mcp::tools::tests::parse_step_round_trips_reset_with_kind ... ok
+test mcp::tools::tests::parse_step_round_trips_run_frames_arguments ... ok
+test mcp::tools::tests::parse_step_round_trips_run_until_pc ... ok
+test mcp::tools::tests::parse_step_round_trips_step_with_default_count ... ok
+test mcp::tools::tests::parse_step_round_trips_watch_ay_variants ... ok
+test mcp::tools::tests::parse_step_round_trips_watch_memory_start_arguments ... ok
+test mcp::tests::full_surface_publishes_every_curriculum_tool ... ok
+test mcp::tools::tests::register_spectrum_tools_holds_the_bespoke_surface_only ... ok
+test script::runner::tests::boot_model_defaults_to_48k ... ok
+test script::runner::tests::machine_flag_accepts_the_exotics ... ok
+test script::runner::tests::machine_flag_agreeing_with_the_snapshot_is_accepted ... ok
+test script::runner::tests::machine_flag_conflicting_with_the_snapshot_is_refused ... ok
+test script::runner::tests::machine_flag_selects_boot_variant ... ok
+test script::runner::tests::machine_id_list_covers_every_variant ... ok
+test script::runner::tests::non_portable_extensions_fall_through_to_postcard ... ok
+test script::runner::tests::portable_snapshot_extensions_are_detected ... ok
+test script::runner::tests::snapshot_model_selects_boot_variant_without_the_flag ... ok
+test script::runner::tests::synthetic_steps_default_to_empty ... ok
+test script::runner::tests::synthetic_steps_translate_autoload_to_autoload_tape ... ok
+test script::runner::tests::synthetic_steps_translate_play_tape_to_media_transport ... ok
+test script::runner::tests::unknown_machine_id_is_rejected_and_lists_the_accepted_ids ... ok
+test script::runner::tests::set_machine_step_swaps_variant_in_script_mode ... ok
+test mcp::tests::load_snapshot_routes_portable_sna_not_postcard ... ok
+test mcp::tests::save_snapshot_round_trips_running_and_halted_cpu ... ok
+test mcp::tests::mcp_tools_drive_a_real_boot ... ok
+test mcp::tests::load_snapshot_runs_from_the_sna_pc_after_any_previous_state ... ok
+
+test result: ok. 45 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.71s
+
+     Running tests/mcp_startup.rs (target/dist/deps/mcp_startup-308918d20dd610d7)
+
+running 3 tests
+test omitted_machine_keeps_explicit_48k_firmware ... ok
+test explicit_plus3_bundle_selects_machine_and_all_four_roms ... ok
+test invalid_machine_rom_identity_and_missing_rom_fail_before_serving ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+     Running tests/script_load_basic_program.rs (target/dist/deps/script_load_basic_program-d51a234d98fa6416)
+
+running 1 test
+test a_script_can_load_and_run_a_basic_program ... ignored, FIXTURE: needs the 48K Spectrum ROM — run with --ignored
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/script_load_szx.rs (target/dist/deps/script_load_szx-0625b4289ae407b3)
+
+running 2 tests
+test malformed_szx_reports_the_parser_error ... ok
+test a_script_restores_szx_and_executes_the_restored_program ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/script_startup.rs (target/dist/deps/script_startup-9aedb5a95a417e73)
+
+running 1 test
+test query_cpu_starts_a_48k_session_without_running_frames ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running unittests src/lib.rs (target/dist/deps/runtime_sinclair_zx_spectrum-b3c10b32b2ae6a78)
+
+running 110 tests
+test family_runtime::symbol_legend_tests::keys_carrying_tokens_are_not_legends ... ok
+test family_runtime::symbol_legend_tests::every_legend_names_a_key_this_machine_has ... ok
+test autoload::tests::autoload_rejects_missing_tape ... ok
+test basic_loader::tests::oversized_program_is_rejected ... ok
+test autoload::tests::autoload_rejects_unsupported_slot ... ok
+test basic_loader::tests::empty_program_is_rejected ... ok
+test basic_loader::tests::poke_writes_program_bytes_and_updates_system_variables ... ok
+test autoload::tests::basic_prompt_ready_accepts_literal_k_prompt ... ok
+test family_runtime::symbol_legend_tests::legends_are_one_to_one ... ok
+test family_runtime::symbol_legend_tests::the_punctuation_a_basic_line_needs_is_reachable ... ok
+test family_runtime::tests::ay_write_watch_dispatches_through_runtime_kind ... ok
+test family_runtime::tests::machine_core_dispatches_to_inner_variants ... ok
+test family_runtime::tests::memory_write_watch_dispatches_through_runtime_kind ... ok
+test family_runtime::tests::named_compound_keys_expand_to_capsshift_chords ... ok
+test family_runtime::tests::port_round_trips_through_runtime_kind ... ok
+test family_runtime::tests::query_provider_dispatches_to_inner_variants ... ok
+test family_runtime::tests::run_until_pc_returns_within_budget ... ok
+test family_runtime::tests::step_advances_pc_through_runtime_kind ... ok
+test family_runtime::tests::z80_registers_dispatch_through_runtime_kind ... ok
+test input::tests::axis_pair_matches_screen_coordinate_convention ... ok
+test input::tests::axis_to_button_pair_respects_deadzone ... ok
+test input::tests::button_name_resolution_covers_canonical_kempston_layout ... ok
+test input::tests::fire_button_aliases_resolve_to_the_same_index ... ok
+test input::tests::if2_accepts_fire_aliases ... ok
+test input::tests::if2_axis_pairs_drive_the_directional_keys ... ok
+test input::tests::if2_port_1_button_mapping_matches_grussu_table ... ok
+test input::tests::if2_port_2_button_mapping_matches_grussu_table ... ok
+test input::tests::if2_unrecognised_combinations_return_none ... ok
+test input::tests::unrecognised_button_names_return_none ... ok
+test profiles::tests::all_profiles_require_firmware ... ok
+test profiles::tests::display_name_returns_a_human_readable_string_per_variant ... ok
+test profiles::tests::every_firmware_source_is_a_profile_requirement ... ok
+test profiles::tests::model_id_is_unique_and_stable_for_every_variant ... ok
+test profiles::tests::only_plus3_advertises_live_media_export ... ok
+test profiles::tests::profile_ids_are_unique ... ok
+test profiles::tests::release_year_covers_every_documented_variant ... ok
+test profiles::tests::spectrum_48k_uses_documented_master_clock ... ok
+test profiles::tests::variant_ids_round_trip_for_every_model ... ok
+test queries::tests::boot_status_detects_first_matching_banner ... ok
+test queries::tests::boot_status_reports_absence_when_banner_is_missing ... ok
+test queries::tests::boot_status_reports_absence_when_no_banner_matches ... ok
+test queries::tests::decode_screen_char_returns_copyright_for_glyph_7f ... ok
+test queries::tests::decode_screen_char_returns_question_mark_for_unknown_cell ... ok
+test queries::tests::provider_resolves_variant_specific_issue_path_via_trait ... ok
+test queries::tests::provider_returns_none_for_unrecognised_path ... ok
+test queries::tests::screen_text_lines_decode_rom_glyph_cells ... ok
+test runtime::tests::capabilities_match_profile_capabilities ... ok
+test runtime::tests::command_media_transport_routes_to_tape_play_and_stop ... ok
+test runtime::tests::command_media_transport_unknown_slot_errors ... ok
+test runtime::tests::is_tzx_recognises_canonical_header ... ok
+test runtime::tests::is_tzx_rejects_short_or_wrong_magic ... ok
+test runtime::tests::load_media_disk_on_non_disk_variant_errors ... ok
+test runtime::tests::load_media_snapshot_kind_errors ... ok
+test runtime::tests::load_media_unknown_tape_slot_errors ... ok
+test runtime::tests::machine_mut_mutation_visible_through_machine_accessor ... ok
+test runtime::tests::reset_clears_keyboard_and_zeroes_time ... ok
+test runtime::tests::tap_blocks_to_tape_blocks_handles_empty_input ... ok
+test runtime::tests::tap_blocks_to_tape_blocks_round_trip_with_checksum ... ok
+test runtime::tests::time_value_starts_at_default ... ok
+test snapshot::tests::decode_rejects_completely_corrupt_bytes ... ok
+test snapshot::tests::decode_rejects_version_4_before_payload_decode ... ok
+test snapshot::tests::decode_rejects_version_2_before_payload_decode ... ok
+test snapshot::tests::decode_rejects_unsupported_snapshot_version ... ok
+test snapshot::tests::decode_rejects_profile_mismatch_within_generic_envelope ... ok
+test snapshot::tests::encode_and_decode_round_trip_on_plus_runtime ... ok
+test snapshot::tests::completed_write_survives_runtime_snapshot_without_replaying_source_bytes ... ok
+test snapshot::tests::released_v0330_controller_state_keeps_its_layout_and_continuation ... ok
+test spectrum_128k::tests::from_firmware_rejects_missing_rom ... ok
+test spectrum_128k::tests::blank_runtime_carries_the_128k_profile_id ... ok
+test snapshot::tests::protected_mount_stays_protected_after_restore ... ok
+test spectrum_128k::tests::from_rom_bytes_rejects_wrong_size_slice ... ok
+test spectrum_128k::tests::from_firmware_reports_invalid_rom_when_size_mismatches ... ok
+test spectrum_16k::tests::from_firmware_rejects_missing_rom ... ok
+test spectrum_16k::tests::blank_runtime_carries_the_16k_profile_id ... ok
+test spectrum_16k::tests::from_firmware_reports_invalid_rom_when_size_mismatches ... ok
+test snapshot::tests::live_export_after_write_and_restore_never_uses_cached_source_bytes ... ok
+test spectrum_48k::tests::from_firmware_rejects_missing_rom ... ok
+test spectrum_48k::tests::from_firmware_reports_invalid_rom_when_size_mismatches ... ok
+test snapshot::tests::snapshot_restore_preserves_mounted_disk_on_plus3 ... ok
+test spectrum_16k::tests::from_rom_bytes_rejects_wrong_size_slice ... ok
+test spectrum_48k::tests::audio_controls_round_trip_through_runtime ... ok
+test spectrum_48k::tests::boots_profile_with_export_advertises_snapshot_export ... ok
+test spectrum_48k::tests::live_profile_keeps_every_base_profile_capability ... ok
+test spectrum_48k::tests::from_rom_bytes_rejects_wrong_size_slice ... ok
+test spectrum_plus2::tests::blank_runtime_carries_the_plus2_profile_id ... ok
+test spectrum_plus2::tests::from_firmware_rejects_missing_rom ... ok
+test spectrum_plus2::tests::from_firmware_reports_invalid_rom_when_size_mismatches ... ok
+test snapshot::tests::mid_write_snapshot_resumes_identically_including_byte_deadline ... ok
+test spectrum_plus2::tests::from_rom_bytes_rejects_wrong_size_slice ... ok
+test spectrum_plus2a::tests::blank_runtime_carries_the_plus2a_profile_id ... ok
+test spectrum_plus2a::tests::from_firmware_reports_invalid_rom_when_size_mismatches ... ok
+test spectrum_plus2a::tests::from_rom_bytes_rejects_wrong_size_slice ... ok
+test spectrum_plus2b::tests::blank_runtime_carries_the_plus2b_profile_id ... ok
+test spectrum_plus2b::tests::from_firmware_rejects_missing_rom ... ok
+test spectrum_plus2a::tests::from_firmware_rejects_missing_rom ... ok
+test spectrum_plus2b::tests::from_rom_bytes_rejects_wrong_size_slice ... ok
+test spectrum_plus2b::tests::from_firmware_reports_invalid_rom_when_size_mismatches ... ok
+test spectrum_plus3::tests::blank_runtime_carries_the_plus3_profile_id ... ok
+test spectrum_plus3::tests::from_firmware_rejects_missing_rom ... ok
+test spectrum_plus3::tests::from_rom_bytes_rejects_wrong_size_slice ... ok
+test spectrum_plus3::tests::from_firmware_reports_invalid_rom_when_size_mismatches ... ok
+test spectrum_plus::tests::blank_runtime_carries_the_plus_profile_id ... ok
+test spectrum_plus::tests::from_firmware_rejects_missing_rom ... ok
+test spectrum_plus::tests::from_firmware_reports_invalid_rom_when_size_mismatches ... ok
+test spectrum_plus::tests::from_rom_bytes_rejects_wrong_size_slice ... ok
+test snapshot::tests::format_snapshot_resumes_every_id_boundary_and_gap_without_source_replay ... ok
+test basic_loader::tests::the_prompt_is_waited_for_rather_than_sampled_once ... ok
+test autoload::tests::autoload_runs_through_to_tape_transport_start ... ok
+test basic_loader::tests::loader_refuses_to_poke_when_prompt_is_not_ready ... ok
+test autoload::tests::autoload_reports_prompt_not_ready_when_row_23_is_not_k ... ok
+
+test result: ok. 110 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.20s
+
+     Running tests/amstrad_cycle_profile.rs (target/dist/deps/amstrad_cycle_profile-957c026cb57c08b2)
+
+running 6 tests
+test locked_paging_cannot_relabel_execution ... ok
+test entering_all_ram_keeps_the_paging_instruction_in_its_original_bank ... ok
+test leaving_all_ram_at_zero_keeps_ram_and_rom_execution_distinct ... ok
+test all_four_roms_and_normal_ram_pages_keep_their_namespaces ... ok
+test every_all_ram_configuration_profiles_on_all_three_variants ... ok
+test contended_all_ram_capture_preserves_machine_and_snapshot_state ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/autoload_family.rs (target/dist/deps/autoload_family-084fde5666447928)
+
+running 2 tests
+test autoload_drives_the_128k_boot_menu ... ignored, FIXTURE: needs the 128K ROMs and the Manic Miner TZX — run with --ignored
+test autoload_waits_out_the_plus3_disk_timeout ... ignored, FIXTURE: needs the +3 ROMs and the Manic Miner TZX — run with --ignored
+
+test result: ok. 0 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/autoload_running_machine.rs (target/dist/deps/autoload_running_machine-3eac4e3e52ee5791)
+
+running 1 test
+test autoload_loads_a_tape_on_a_machine_that_has_already_been_used ... ignored, FIXTURE: needs the 48K Spectrum ROM — run with --ignored
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/banked_cycle_profile.rs (target/dist/deps/banked_cycle_profile-3bbdf912c89ba2c3)
+
+running 6 tests
+test historical_page_lookup_ignores_live_paging_and_flat_sections ... ok
+test grey_plus2_uses_the_same_capture_and_rom_is_not_ram ... ok
+test aliases_keep_slot_identity_but_share_source_totals ... ok
+test odd_divider_preserves_nop_costs_at_every_capture_phase ... ok
+test paging_instruction_keeps_its_original_bank_and_same_pc_stays_distinct ... ok
+test profiling_preserves_contended_machine_state_across_frames ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/boot_invariants.rs (target/dist/deps/boot_invariants-35ddba32ec739146)
+
+running 19 tests
+test display_fetches_match_the_physical_counter ... ok
+test contention_table_matches_canonical_for_known_window ... ok
+test dummy_rom_constructs_runtime ... ok
+test floating_bus_idles_outside_active_fetch_window ... ok
+test real_48k_rom_runs_thirty_frames ... ignored, FIXTURE: requires ~/.emu198x/roms/sinclair-zx-spectrum-48k/48.rom
+test reset_unlocks_128k_paging_and_preserves_memory ... ok
+test reset_unlocks_plus3_paging_and_preserves_memory ... ok
+test snapshot_envelope_version_is_v5 ... ok
+test int_asserts_at_canonical_t_state_128k ... ok
+test int_asserts_at_canonical_t_state_48k ... ok
+test int_asserts_at_canonical_t_state_pentagon ... ok
+test kempston_attaches_on_first_gamepad_event_48k ... ok
+test if2_port2_fire_closes_keyboard_five_on_48k ... ok
+test if2_port1_fire_closes_keyboard_zero_on_plus3 ... ok
+test amstrad_class_declines_kempston_events_plus3 ... ok
+test snapshot_round_trip_is_fixed_point_after_warmup ... ok
+test int_pulse_is_32_tstates_on_amstrad_class ... ok
+test kempston_attaches_on_first_gamepad_event_128k ... ok
+test run_until_advances_past_first_frame ... ok
+
+test result: ok. 18 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/clone_cycle_profile.rs (target/dist/deps/clone_cycle_profile-d497b387f5719f91)
+
+running 8 tests
+test scorpion_reports_ram_0_in_slot_0_under_1ffd_bit_0 ... ok
+test scorpion_rom_0_does_not_trap_into_the_overlay ... ok
+test scorpion_paging_instruction_keeps_its_old_bank_and_lock_is_observed ... ok
+test scorpion_observes_its_tr_dos_overlay_rom ... ok
+test pentagon_observes_overlay_after_the_first_fetch_only ... ok
+test pentagon_banks_and_scorpion_base_roms_remain_distinct ... ok
+test scorpion_reports_all_sixteen_banks ... ok
+test clone_capture_preserves_state_and_snapshot_over_frame_wrap ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+     Running tests/coverage_lift.rs (target/dist/deps/coverage_lift-706c4aeb511bbcda)
+
+running 9 tests
+test as_48k_mut_is_some_only_for_the_48k_variant ... ok
+test timex_tc2048_constructors_cover_every_path ... ok
+test pentagon_constructors_cover_every_path ... ok
+test family_kind_debug_surface_round_trips ... ok
+test scorpion_constructors_cover_every_path ... ok
+test timex_ts2068_constructors_cover_every_path ... ok
+test family_kind_reports_a_nonzero_frame_length_for_every_variant ... ok
+test from_firmware_builds_every_model_from_zeroed_roms ... ok
+test spectrum_machine_surface_runs_for_the_exotic_clones ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/cycle_profile.rs (target/dist/deps/cycle_profile-ba9bccaadee095bc)
+
+running 14 tests
+test prefixes_belong_to_the_first_byte_and_capture_can_end_mid_instruction ... ok
+test partial_start_is_not_charged_as_a_complete_instruction ... ok
+test block_repeat_charges_both_iterations_to_the_opcode ... ok
+test active_recording_is_refused_without_advancing ... ok
+test invalid_budgets_do_not_advance ... ok
+test indexed_bit_instruction_has_one_retirement_at_its_first_prefix ... ok
+test nmi_entry_is_a_separate_interval_too ... ok
+test profiling_consumes_queued_keyboard_input_before_running ... ok
+test measured_loop_has_taken_and_untaken_costs_and_separate_halt_waiting ... ok
+test every_start_phase_preserves_complete_nop_costs ... ok
+test source_totals_preserve_unmapped_execution ... ok
+test real_assembler_sidecar_joins_costs_and_mcp_matches_script ... ok
+test interrupt_entry_is_not_charged_to_the_interrupted_pc ... ok
+test capture_is_observational_across_contention_frame_wrap_and_snapshot_restore ... ok
+
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/debug198x_paging_cross_check.rs (target/dist/deps/debug198x_paging_cross_check-23cd13a559cde43a)
+
+running 6 tests
+test every_page_the_fixture_names_is_one_the_hardware_can_select ... ok
+test slot_three_is_the_switchable_window_the_fixture_assumes ... ok
+test the_sld_long_address_projection_matches_this_machines_banks ... ok
+test a_page_the_image_has_no_code_in_answers_nothing ... ok
+test the_symbol_at_one_address_follows_the_machines_paging_state ... ok
+test a_bank_live_in_two_slots_at_once_answers_at_both_addresses ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/debug_frame_progression.rs (target/dist/deps/debug_frame_progression-b8c6a8e0d0ae8ba7)
+
+running 3 tests
+test live_steps_and_pc_waits_account_for_consumed_time ... ok
+test instruction_steps_wrap_frames_like_continuous_execution ... ok
+test frame_execution_after_debug_steps_settles_the_border_and_keeps_time ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running tests/flat_variant_cycle_profile.rs (target/dist/deps/flat_variant_cycle_profile-25f2718bdff257d6)
+
+running 4 tests
+test plus_and_48k_measure_the_same_upper_ram_program ... ok
+test absent_upper_ram_executes_open_bus_on_16k_but_real_ram_on_plus ... ok
+test sixteen_k_mcp_joins_the_relocated_assembler_fixture ... ok
+test last_16k_ram_byte_is_executable_and_capture_preserves_state ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/format_matrix.rs (target/dist/deps/format_matrix-c75798b85ffda3f4)
+
+running 34 tests
+test spectrum_128k_loads_tzx ... ok
+test spectrum_16k_loads_tzx ... ok
+test spectrum_16k_loads_tap ... ok
+test spectrum_48k_loads_sna_48k ... ok
+test spectrum_128k_loads_tap ... ok
+test spectrum_48k_loads_tap ... ok
+test spectrum_16k_loads_sna_48k ... ok
+test spectrum_16k_loads_z80_v1 ... ok
+test spectrum_48k_loads_tzx ... ok
+test spectrum_128k_loads_sna_128k ... ok
+test spectrum_128k_loads_szx ... ok
+test spectrum_48k_loads_z80_v1 ... ok
+test spectrum_plus2_loads_tzx ... ok
+test spectrum_plus2_loads_tap ... ok
+test spectrum_plus2_loads_sna_128k ... ok
+test spectrum_plus2a_loads_tzx ... ok
+test spectrum_plus2a_loads_tap ... ok
+test spectrum_plus2a_loads_sna_128k ... ok
+test spectrum_plus2b_loads_tap ... ok
+test spectrum_plus2b_loads_tzx ... ok
+test spectrum_plus2b_loads_sna_128k ... ok
+test spectrum_plus3_loads_dsk ... ok
+test spectrum_plus3_loads_tzx ... ok
+test spectrum_plus3_loads_tap ... ok
+test spectrum_plus3_loads_sna_128k ... ok
+test spectrum_plus_loads_sna_48k ... ok
+test spectrum_plus_loads_tap ... ok
+test spectrum_plus_loads_tzx ... ok
+test spectrum_plus_loads_z80_v1 ... ok
+test spectrum_plus2_loads_z80_v2 ... ok
+test spectrum_plus3_loads_z80_v2 ... ok
+test spectrum_plus2b_loads_z80_v2 ... ok
+test spectrum_128k_loads_z80_v2 ... ok
+test spectrum_plus2a_loads_z80_v2 ... ok
+
+test result: ok. 34 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running tests/goldens.rs (target/dist/deps/goldens-c5b34b0af5116a47)
+
+running 8 tests
+test golden_spectrum_128k_boot ... ignored, FIXTURE: requires local 128K ROMs at ~/.emu198x/roms/sinclair-zx-spectrum-128k/{128-0,128-1}.rom
+test golden_spectrum_16k_boot ... ignored, FIXTURE: requires local 48K ROM at ~/.emu198x/roms/sinclair-zx-spectrum-48k/48.rom
+test golden_spectrum_48k_boot ... ignored, FIXTURE: requires local 48K ROM at ~/.emu198x/roms/sinclair-zx-spectrum-48k/48.rom
+test golden_spectrum_plus2_boot ... ignored, FIXTURE: requires local +2 ROMs at ~/.emu198x/roms/amstrad-zx-spectrum-plus2/{plus2-0,plus2-1}.rom
+test golden_spectrum_plus2a_boot ... ignored, FIXTURE: requires local +3 ROMs at ~/.emu198x/roms/amstrad-zx-spectrum-plus3/{plus3-0..3}.rom
+test golden_spectrum_plus2b_boot ... ignored, FIXTURE: requires local +2B ROMs at ~/.emu198x/roms/amstrad-zx-spectrum-plus2b/{plus3-0..3}.rom
+test golden_spectrum_plus3_boot ... ignored, FIXTURE: requires local +3 ROMs at ~/.emu198x/roms/amstrad-zx-spectrum-plus3/{plus3-0..3}.rom
+test golden_spectrum_plus_boot ... ignored, FIXTURE: requires local 48K ROM at ~/.emu198x/roms/sinclair-zx-spectrum-48k/48.rom
+
+test result: ok. 0 passed; 0 failed; 8 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/io_trace.rs (target/dist/deps/io_trace-7653d5e43472f29a)
+
+running 4 tests
+test tracing_captures_the_traffic_a_running_machine_produces ... ok
+test the_class_core_machines_support_tracing ... ok
+test every_variant_records_a_write ... ok
+test the_clones_trace_too ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/pixel_geometry.rs (target/dist/deps/pixel_geometry-6b5e7a6df846323b)
+
+running 3 tests
+test the_48k_and_128k_classes_run_at_different_pixel_clocks ... ok
+test the_ts2068_is_ntsc_and_narrower_than_its_pal_siblings ... ok
+test no_variant_has_square_pixels ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/plus3_disk_survey.rs (target/dist/deps/plus3_disk_survey-03b7cb79e81a5b81)
+
+running 1 test
+test survey_plus3_disk_titles ... ignored, DIAGNOSTIC: diagnostic — needs +3 ROMs and a local DSK reference library
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/plus3_disk_trace.rs (target/dist/deps/plus3_disk_trace-c94354361d343c05)
+
+running 1 test
+test trace_plus3_loader_pc_histogram ... ignored, DIAGNOSTIC: diagnostic — needs +3 ROMs and a +3 DSK (default: Chase H.Q.)
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/rainbow_islands_iff_trace.rs (target/dist/deps/rainbow_islands_iff_trace-adef67a92cfaf53a)
+
+running 1 test
+test trace_iff_and_mixer_from_skoolkit_snapshot ... ignored, DIAGNOSTIC: diagnostic — trace IFF1 over time from a SkoolKit Rainbow Islands snapshot
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/rainbow_islands_speedlock_watchpoint.rs (target/dist/deps/rainbow_islands_speedlock_watchpoint-1f93d8b686534bac)
+
+running 1 test
+test find_74a4_writes_in_rainbow_islands ... ignored, DIAGNOSTIC: diagnostic — pin the instruction that writes the diverging $74A4-$74A5 word in Rainbow Islands
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/routine_cycle_profile.rs (target/dist/deps/routine_cycle_profile-ccf69b98fda142df)
+
+running 8 tests
+test misspelled_page_fields_cannot_silently_become_flat_ranges ... ok
+test call_at_capture_end_does_not_invent_a_callee_duration ... ok
+test recursive_program_counts_invocations_without_multiplying_ticks ... ok
+test declared_routines_exclude_callee_costs_and_match_mcp ... ok
+test asm_listing_compares_execution_weighted_exclusive_costs_in_script_and_mcp ... ok
+test static_comparison_refuses_wrong_cpu_and_missing_sidecar_before_execution ... ok
+test interrupt_inside_a_call_suspends_its_cost_without_changing_execution ... ok
+test invalid_routines_refuse_before_machine_advances ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/runtime_48k.rs (target/dist/deps/runtime_48k-a552c2ecf6d85898)
+
+running 23 tests
+test runtime_loads_zipped_manic_miner_tzx_media ... ignored, FIXTURE: requires local Manic Miner TZX zip
+test runtime_can_boot_from_declared_firmware_set ... ok
+test runtime_rejects_malformed_tzx_bytes ... ok
+test runtime_loads_tzx_media_into_tape_slot ... ok
+test runtime_rejects_malformed_tap_bytes ... ok
+test runtime_capabilities_advertise_snapshot_export ... ok
+test runtime_rejects_disk_slot_on_48k ... ok
+test audio_controls_mutate_machine_speaker_mixer ... ok
+test runtime_rejects_unknown_transport_slot ... ok
+test runtime_rejects_unknown_media_slot ... ok
+test runtime_rejects_unsupported_media_kind ... ok
+test runtime_command_controls_tape_transport ... ok
+test runtime_loads_tap_media_into_tape_slot ... ok
+test spectrum_boot_wait_and_prompt_input_change_decoded_text ... ignored, FIXTURE: requires local 48K ROM at ~/.emu198x/roms/sinclair-zx-spectrum-48k/48.rom
+test spectrum_boots_and_loads_jet_set_willy_from_zipped_tzx ... ignored, FIXTURE: requires local 48K ROM and Jet Set Willy TZX zip
+test spectrum_boots_and_loads_manic_miner_from_zipped_tzx ... ignored, FIXTURE: requires local 48K ROM and Manic Miner TZX zip
+test spectrum_query_provider_detects_booted_48k_rom ... ignored, FIXTURE: requires local 48K ROM at ~/.emu198x/roms/sinclair-zx-spectrum-48k/48.rom
+test spectrum_query_provider_lists_boot_and_screen_text_paths ... ok
+test spectrum_query_provider_lists_supported_paths ... ok
+test spectrum_query_provider_reads_runtime_state ... ok
+test runtime_reset_clears_time_and_keyboard_matrix ... ok
+test runtime_run_until_emits_frame_and_audio_packets ... ok
+test runtime_snapshot_roundtrips_machine_state ... ok
+
+test result: ok. 18 passed; 0 failed; 5 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/shared_basic.rs (target/dist/deps/shared_basic-ffe2d31e62c47ca7)
+
+running 1 test
+test shared_basic_native_loader_preserves_rom_editor_bytes_and_runs ... ignored, FIXTURE: requires genuine 48K ROM; explicitly fails if unavailable
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/snapshot_roundtrip.rs (target/dist/deps/snapshot_roundtrip-6e5888d466cd58f5)
+
+running 5 tests
+test snapshot_mid_nmi_response_continues_identically ... ok
+test snapshot_round_trip_16k ... ok
+test snapshot_round_trip_48k ... ok
+test snapshot_round_trip_plus3 ... ok
+test snapshot_round_trip_128k ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/speedlock7_tape_ram_dump.rs (target/dist/deps/speedlock7_tape_ram_dump-2139d5573c293382)
+
+running 28 tests
+test audit_in_a_fe_cost ... ignored, DIAGNOSTIC: diagnostic — direct N×IN A,($FE) timing audit against spec
+test bubble_bobble_loads_past_speedlock_wipe ... ignored, DIAGNOSTIC: diagnostic — needs 48K ROM and Bubble Bobble SpeedLock 5 TZX
+test check_90ef_writes_in_green_beret ... ignored, DIAGNOSTIC: diagnostic — are bytes $90ef-$90fe actually written, or leftover memory?
+test dump_green_beret_spans ... ignored, DIAGNOSTIC: diagnostic — dump ALL Green Beret spans
+test dump_speedlock2_head_over_heels_loader_bytes ... ignored, DIAGNOSTIC: diagnostic — needs 48K ROM and Head over Heels SpeedLock 2 TZX
+test dump_speedlock2_head_over_heels_tape_state ... ignored, DIAGNOSTIC: diagnostic — needs 48K ROM and Head over Heels SpeedLock 2 TZX
+test dump_speedlock7_decrypted_loader ... ignored, DIAGNOSTIC: diagnostic — needs 48K ROM and Op Wolf SpeedLock 7 TZX
+test dump_speedlock7_loader_ram ... ignored, DIAGNOSTIC: diagnostic — needs 48K ROM and Op Wolf SpeedLock 7 TZX
+test dump_speedlock7_tzx_span_widths_around_57050 ... ignored, DIAGNOSTIC: diagnostic — needs Op Wolf SpeedLock 7 TZX
+test find_feb3_write_in_green_beret ... ignored, DIAGNOSTIC: diagnostic — find what writes $01 to $feb3 in Green Beret
+test green_beret_loads_past_speedlock_wipe ... ignored, DIAGNOSTIC: diagnostic — sweep verification for Speedlock-7 Green Beret
+test green_beret_with_extended_pause ... ignored, DIAGNOSTIC: diagnostic — does Green Beret load if we lengthen its pause?
+test head_over_heels_speedlock2_reaches_game_code ... ignored, FIXTURE: needs 48K ROM and the Head over Heels SpeedLock-2 TZX
+test head_over_heels_speedlock2_status ... ignored, DIAGNOSTIC: diagnostic — Speedlock-2 is a known separate investigation
+test measure_block7_to_fill_timing ... ignored, DIAGNOSTIC: diagnostic — measure exact T-state offsets for block-7 end vs fill start
+test measure_byte_decoder_loop_cost ... ignored, DIAGNOSTIC: diagnostic — measure byte-decoder loop cost vs documented 54T/iter spec
+test measure_fill_duration ... ignored, DIAGNOSTIC: diagnostic — measure fill duration end-to-end
+test opwolf_loads_past_speedlock_wipe ... ignored, DIAGNOSTIC: diagnostic — needs 48K ROM and Op Wolf SpeedLock 7 TZX
+test probe_green_beret_alternates ... ignored, DIAGNOSTIC: diagnostic — try every Green Beret TZX rip in the archive
+test probe_green_beret_tape_and_pc_evolution ... ignored, DIAGNOSTIC: diagnostic — Green Beret black-screen investigation
+test probe_near_outliers ... ignored, DIAGNOSTIC: diagnostic — probe Speedlock-7 titles with near-Green-Beret calibration pauses
+test probe_op_wolf_tape_and_pc_evolution ... ignored, DIAGNOSTIC: diagnostic — comparison probe for working title (Op Wolf)
+test sample_border_color_through_loader ... ignored, DIAGNOSTIC: diagnostic — needs 48K ROM and Op Wolf SpeedLock 7 TZX
+test survey_speedlock7_pauses ... ignored, DIAGNOSTIC: diagnostic — survey block-7 pause across all Speedlock-7 TZXs
+test trace_green_beret_wipe_fire ... ignored, DIAGNOSTIC: diagnostic — log every $fd5f bit-shift hit + wipe trigger for Green Beret
+test trace_hl_at_checksum_check ... ignored, DIAGNOSTIC: diagnostic — what does HL contain at $fe9d for Green Beret vs Op Wolf?
+test trace_op_wolf_wipe_fire ... ignored, DIAGNOSTIC: diagnostic — log every $fd5f bit-shift hit + wipe trigger for Op Wolf (baseline)
+test trace_speedlock7_byte_decoder_b_values ... ignored, DIAGNOSTIC: diagnostic — needs 48K ROM and Op Wolf SpeedLock 7 TZX
+
+test result: ok. 0 passed; 0 failed; 28 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/tape_save_roundtrip.rs (target/dist/deps/tape_save_roundtrip-1a35926c24e80b4a)
+
+running 1 test
+test save_captures_a_reloadable_tap ... ignored, FIXTURE: requires local 48K ROM at ~/.emu198x/roms/sinclair-zx-spectrum-48k/48.rom
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/timex_cycle_profile.rs (target/dist/deps/timex_cycle_profile-274c8a1033c75014)
+
+running 7 tests
+test every_dock_mask_matches_the_existing_memory_read_priority ... ok
+test tc2048_reuses_flat_costs_and_every_family_model_advertises_profiling ... ok
+test enabling_exrom_keeps_base_rom_costs_separate ... ok
+test paging_out_own_home_code_preserves_the_out_instruction_source ... ok
+test home_ram_windows_join_by_eight_k_page_on_pal_and_ntsc ... ok
+test every_empty_dock_window_is_unmapped_execution_not_home_ram ... ok
+test pal_and_ntsc_profile_preserves_machine_and_snapshot_state ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running tests/timing_survey.rs (target/dist/deps/timing_survey-39d860714ab41799)
+
+running 5 tests
+test timing_survey_records_every_case ... ignored, FIXTURE: requires the ZXSpectrum4.net suite and a 48K ROM; several minutes
+test tests::parses_readings_from_a_result_line ... ok
+test tests::scrapes_a_pass_and_a_fail_with_expectations ... ok
+test tests::sha256_matches_known_vectors ... ok
+test tests::completeness_requires_both_modes_even_with_duplicate_rows ... ok
+
+test result: ok. 4 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/timing_survey_128k.rs (target/dist/deps/timing_survey_128k-7554a2898d24aebe)
+
+running 5 tests
+test the_suite_runs_in_48k_paging_mode ... ignored, FIXTURE: needs the zx-spectrum-tests corpus and 128K ROMs
+test timing_survey_128k_records_every_case ... ignored, FIXTURE: needs the zx-spectrum-tests corpus and 128K ROMs; ~5 min
+test timing_survey_plus2_records_every_case ... ignored, FIXTURE: needs the zx-spectrum-tests corpus and grey +2 ROMs; ~8 min
+test the_report_path_is_machine_specific ... ok
+test early_profile_rejects_changed_readings_even_with_the_same_failure_count ... ok
+
+test result: ok. 2 passed; 0 failed; 3 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/variants.rs (target/dist/deps/variants-dfcc124d66c632c2)
+
+running 60 tests
+test pentagon_128_boot_banner_is_detected_with_real_rom ... ignored, FIXTURE: requires local Pentagon ROMs at ~/.emu198x/roms/pentagon-128/pentagon-{0,1}.rom
+test probe_all_variant_banners ... ignored, DIAGNOSTIC: diagnostic — boots six variants from ~/.emu198x/roms and prints banners
+test probe_ts2068_screen_ram ... ignored, DIAGNOSTIC: diagnostic — TS2068 screen-RAM dump (standard + high-res addresses)
+test pentagon_128_runtime_rejects_disk_slot_via_default_supports_disk_slot ... ok
+test scorpion_boot_status_is_not_detected_before_the_menu_draws ... ok
+test pentagon_128_runtime_exposes_kempston_state_query ... ok
+test scorpion_runtime_exposes_ay_register_queries ... ok
+test pentagon_128_runtime_exposes_ay_register_queries ... ok
+test scorpion_zs256_boot_banner_is_detected_with_real_rom ... ignored, FIXTURE: requires ~/.emu198x/roms/scorpion-zs256/scorpion-{0..3}.rom
+test spectrum_128k_boot_banner_is_detected_with_real_rom ... ignored, FIXTURE: requires local Spectrum 128K ROMs at ~/.emu198x/roms/sinclair-zx-spectrum-128k/128-{0,1}.rom
+test scorpion_runtime_exposes_kempston_state_query ... ok
+test non_ay_variants_do_not_advertise_ay_paths ... ok
+test each_variant_accepts_tzx_via_runtime ... ok
+test spectrum_128k_runtime_loads_tzx_via_runtime ... ok
+test spectrum_128k_runtime_exposes_ay_register_queries ... ok
+test spectrum_128k_runtime_exposes_shared_and_variant_query_paths ... ok
+test spectrum_128k_runtime_loads_tap_and_drives_transport ... ok
+test pentagon_restore_keeps_pentagon_ula_timing ... ok
+test scorpion_runtime_loads_tape_drives_transport_and_resets ... ok
+test keyboard_input_updates_machine_matrix ... ok
+test spectrum_plus2_and_128k_snapshots_are_type_distinct ... ok
+test pentagon_128_runtime_emits_frame_at_pentagon_dimensions ... ok
+test snapshot_refuses_to_restore_across_variants ... ok
+test spectrum_plus2a_rejects_disk_slot ... ok
+test spectrum_128k_runtime_resets_via_machine_core ... ok
+test spectrum_plus2a_runtime_exposes_ay_register_queries ... ok
+test spectrum_plus3_accepts_disk_slot_via_machine_core ... ok
+test spectrum_plus3_boot_banner_is_detected_with_real_rom ... ignored, FIXTURE: requires local +3 ROMs at ~/.emu198x/roms/amstrad-zx-spectrum-plus3/plus3-{0..3}.rom
+test spectrum_128k_runtime_emits_frame_and_audio ... ok
+test scorpion_runtime_round_trips_through_snapshot ... ok
+test spectrum_plus3_runtime_rejects_malformed_disk_image ... ok
+test spectrum_16k_runtime_round_trips_through_snapshot ... ok
+test spectrum_plus_runtime_resolves_disk_slot_query ... ok
+test spectrum_128k_runtime_round_trips_through_snapshot ... ok
+test spectrum_16k_runtime_emits_frame_and_audio_at_48k_dimensions ... ok
+test tc2048_boot_banner_is_detected_with_real_rom ... ignored, FIXTURE: requires local Timex TC2048 ROM at ~/.emu198x/roms/timex-tc2048/tc2048.rom
+test pentagon_128_runtime_loads_tape_resets_and_round_trips ... ok
+test timex_tc2048_runtime_exposes_kempston_state_query ... ok
+test spectrum_plus2_runtime_emits_frame_at_128k_dimensions ... ok
+test spectrum_plus2_runtime_round_trips_through_snapshot ... ok
+test spectrum_plus2a_runtime_round_trips_through_snapshot ... ok
+test timex_ts2068_runtime_exposes_model_query_alongside_kempston ... ok
+test timex_ts2068_runtime_exposes_ay_register_queries ... ok
+test spectrum_plus2a_runtime_runs_frame_loads_tape_and_resets ... ok
+test spectrum_plus3_runtime_round_trips_through_snapshot ... ok
+test variant_runtime_capabilities_reflects_profile ... ok
+test variant_query_paths_include_boot_paths ... ok
+test variant_runtime_rejects_unknown_tape_slot ... ok
+test variant_runtime_rejects_unknown_transport_slot ... ok
+test spectrum_plus3_runtime_runs_frame_loads_tape_and_resets ... ok
+test variant_runtime_rejects_unsupported_media_kind ... ok
+test timex_tc2048_runtime_emits_hires_dimensions ... ok
+test spectrum_plus_runtime_round_trips_through_snapshot ... ok
+test spectrum_plus2b_runtime_runs_frame_and_resets ... ok
+test spectrum_plus_runtime_emits_frame_at_48k_dimensions ... ok
+test timex_ts2068_runtime_uses_ntsc_frame_length_for_ts ... ok
+test ts2068_restore_keeps_ntsc_ula_timing ... ok
+test timex_tc2048_runtime_loads_tape_resets_and_round_trips ... ok
+test timex_ts2068_runtime_loads_tape_resets_and_round_trips ... ok
+test timex_tc2068_runtime_runs_pal_frame_length_and_round_trips ... ok
+
+test result: ok. 53 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+   Doc-tests runtime_sinclair_zx_spectrum
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

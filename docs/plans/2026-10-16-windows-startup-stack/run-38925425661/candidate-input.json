@@ -1,0 +1,44 @@
+{
+  "candidate_revision": "88a1ca5fda104672527bd33b613bc72b0ac0b6c4",
+  "audit_revision": "3a82574eb0b9e844bcedf6dd4d118cf84b84d13b",
+  "unchanged_harness_sha256": "98418617ccb1c9e89223099baca7f3d19e46c04dc972c8ea0ff3029b5e60895d",
+  "original_pins_sha256": "af26bd11f6a3327c9b59c9bc902df799c83b4092e74d5e76b645edf1121ec7f0",
+  "candidate_pins": {
+    "samples_revision": "51297ac3196a990286b0d21a4dedd4653c0168f0",
+    "sample_path": "sinclair-zx-spectrum/assembly/meteor-storm",
+    "files": {
+      "sinclair-zx-spectrum/assembly/meteor-storm/unit-35/Makefile": "85cae388cfb90bde1699b1337536b082954c03be11cbe4778c72fa07cab3b4bf",
+      "sinclair-zx-spectrum/assembly/meteor-storm/checkpoints/loading-screen/loader.bas": "18d3235c3508ebb83feac57f34759e6277ef6aceab87b8493400ff5466fa41e2",
+      "sinclair-zx-spectrum/assembly/meteor-storm/checkpoints/loading-screen/screen.asm": "b0361768f088026ebfc6cffa31530767cdef52ee82a58271894f12f318b3d81f",
+      "sinclair-zx-spectrum/assembly/meteor-storm/checkpoints/loading-screen/meteor-storm.scr": "1325b44c95fab8934ad257c290170e4cfacda56118baf6b94d08cfb3c3514843",
+      "sinclair-zx-spectrum/assembly/meteor-storm/checkpoints/loading-screen/meteor-storm.asm": "0ce6a2bb21a8304582b4175fa94dc2b956c00218f8ef6cf9e4ddba41af24b073",
+      "sinclair-zx-spectrum/assembly/meteor-storm/checkpoints/loading-screen/assets.inc": "3829130674d64ce81ba26e7f3d4c9108b6a5c463eafe43e999544d254d72812f"
+    },
+    "tools": [
+      {
+        "name": "asm198x",
+        "release": "asm198x-v0.0.67",
+        "archive": "asm198x-x86_64-pc-windows-msvc.zip",
+        "url": "https://github.com/asm198x/asm198x/releases/download/asm198x-v0.0.67/asm198x-x86_64-pc-windows-msvc.zip",
+        "sha256": "fcc67b3abac24f03b898e02d39558c09f656fafe0206187c87cb64822b4de643"
+      },
+      {
+        "name": "build198x",
+        "release": "build198x-v0.2.12",
+        "archive": "build198x-x86_64-pc-windows-msvc.zip",
+        "url": "https://github.com/build198x/build198x/releases/download/build198x-v0.2.12/build198x-x86_64-pc-windows-msvc.zip",
+        "sha256": "aeac7d6f275d0c50f25960c14045775cfe3fa8c9864805e57621acb91353c2f8"
+      },
+      {
+        "name": "emu198x-spectrum",
+        "release": "v0.35.0",
+        "archive": "candidate-spectrum.zip",
+        "url": "file:///D:/a/_temp/candidate-spectrum.zip",
+        "sha256": "1f139128bbb14d0ae78c2d3b9dd695a0217ae92523eb5e108aacabbdf11fbb33",
+        "version": "source-88a1ca5fda104672527bd33b613bc72b0ac0b6c4"
+      }
+    ],
+    "firmware_sha256": "d55daa439b673b0e3f5897f99ac37ecb45f974d1862b4dadb85dec34af99cb42",
+    "frames": 15000
+  }
+}
