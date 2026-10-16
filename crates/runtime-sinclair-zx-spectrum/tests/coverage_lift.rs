@@ -118,23 +118,23 @@ fn timex_ts2068_constructors_cover_every_path() {
 /// plus the exotic clones, so every `frame_halfcycles` match arm runs.
 fn one_kind_per_timing_group() -> Vec<SpectrumRuntimeKind> {
     vec![
-        SpectrumRuntimeKind::Spectrum48K(Spectrum48kRuntime::new(
+        SpectrumRuntimeKind::Spectrum48K(Box::new(Spectrum48kRuntime::new(
             Model::Spectrum48KPal,
             Spectrum48k::new(),
-        )),
-        SpectrumRuntimeKind::Spectrum128K(Spectrum128kRuntime::new(
+        ))),
+        SpectrumRuntimeKind::Spectrum128K(Box::new(Spectrum128kRuntime::new(
             Model::Spectrum128KPal,
             Spectrum128K::new(),
-        )),
-        SpectrumRuntimeKind::SpectrumPlus2A(SpectrumPlus2ARuntime::new(
+        ))),
+        SpectrumRuntimeKind::SpectrumPlus2A(Box::new(SpectrumPlus2ARuntime::new(
             Model::SpectrumPlus2A,
             SpectrumPlus2A::new(),
-        )),
-        SpectrumRuntimeKind::Pentagon128(Pentagon128Runtime::blank()),
-        SpectrumRuntimeKind::ScorpionZS256(ScorpionZS256Runtime::blank()),
-        SpectrumRuntimeKind::TimexTC2048(TimexTC2048Runtime::blank()),
-        SpectrumRuntimeKind::TimexTC2068(TimexTS2068Runtime::blank(Model::TimexTC2068)),
-        SpectrumRuntimeKind::TimexTS2068(TimexTS2068Runtime::blank(Model::TimexTS2068)),
+        ))),
+        SpectrumRuntimeKind::Pentagon128(Box::new(Pentagon128Runtime::blank())),
+        SpectrumRuntimeKind::ScorpionZS256(Box::new(ScorpionZS256Runtime::blank())),
+        SpectrumRuntimeKind::TimexTC2048(Box::new(TimexTC2048Runtime::blank())),
+        SpectrumRuntimeKind::TimexTC2068(Box::new(TimexTS2068Runtime::blank(Model::TimexTC2068))),
+        SpectrumRuntimeKind::TimexTS2068(Box::new(TimexTS2068Runtime::blank(Model::TimexTS2068))),
     ]
 }
 
@@ -150,13 +150,13 @@ fn family_kind_reports_a_nonzero_frame_length_for_every_variant() {
 
 #[test]
 fn as_48k_mut_is_some_only_for_the_48k_variant() {
-    let mut forty_eight = SpectrumRuntimeKind::Spectrum48K(Spectrum48kRuntime::new(
+    let mut forty_eight = SpectrumRuntimeKind::Spectrum48K(Box::new(Spectrum48kRuntime::new(
         Model::Spectrum48KPal,
         Spectrum48k::new(),
-    ));
+    )));
     assert!(forty_eight.as_48k_mut().is_some());
 
-    let mut pentagon = SpectrumRuntimeKind::Pentagon128(Pentagon128Runtime::blank());
+    let mut pentagon = SpectrumRuntimeKind::Pentagon128(Box::new(Pentagon128Runtime::blank()));
     assert!(pentagon.as_48k_mut().is_none());
 }
 
@@ -245,10 +245,10 @@ fn from_firmware_builds_every_model_from_zeroed_roms() {
 
 #[test]
 fn family_kind_debug_surface_round_trips() {
-    let mut kind = SpectrumRuntimeKind::Spectrum48K(Spectrum48kRuntime::new(
+    let mut kind = SpectrumRuntimeKind::Spectrum48K(Box::new(Spectrum48kRuntime::new(
         Model::Spectrum48KPal,
         Spectrum48k::new(),
-    ));
+    )));
 
     // PC + CPU-state JSON read back cleanly.
     let _pc = kind.dbg_pc();

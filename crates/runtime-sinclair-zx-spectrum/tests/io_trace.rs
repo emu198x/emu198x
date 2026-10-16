@@ -21,24 +21,24 @@ fn sinclair_and_amstrad() -> Vec<(&'static str, SpectrumRuntimeKind)> {
     vec![
         (
             "48K",
-            SpectrumRuntimeKind::Spectrum48K(Spectrum48kRuntime::new(
+            SpectrumRuntimeKind::Spectrum48K(Box::new(Spectrum48kRuntime::new(
                 Model::Spectrum48KPal,
                 Spectrum48k::new(),
-            )),
+            ))),
         ),
         (
             "128K",
-            SpectrumRuntimeKind::Spectrum128K(Spectrum128kRuntime::new(
+            SpectrumRuntimeKind::Spectrum128K(Box::new(Spectrum128kRuntime::new(
                 Model::Spectrum128KPal,
                 Spectrum128K::new(),
-            )),
+            ))),
         ),
         (
             "+2A",
-            SpectrumRuntimeKind::SpectrumPlus2A(SpectrumPlus2ARuntime::new(
+            SpectrumRuntimeKind::SpectrumPlus2A(Box::new(SpectrumPlus2ARuntime::new(
                 Model::SpectrumPlus2A,
                 SpectrumPlus2A::new(),
-            )),
+            ))),
         ),
     ]
 }
@@ -62,15 +62,15 @@ fn the_clones_trace_too() {
     let clones: Vec<(&str, SpectrumRuntimeKind)> = vec![
         (
             "Pentagon 128",
-            SpectrumRuntimeKind::Pentagon128(Pentagon128Runtime::blank()),
+            SpectrumRuntimeKind::Pentagon128(Box::new(Pentagon128Runtime::blank())),
         ),
         (
             "Scorpion ZS-256",
-            SpectrumRuntimeKind::ScorpionZS256(ScorpionZS256Runtime::blank()),
+            SpectrumRuntimeKind::ScorpionZS256(Box::new(ScorpionZS256Runtime::blank())),
         ),
         (
             "Timex TC2048",
-            SpectrumRuntimeKind::TimexTC2048(TimexTC2048Runtime::blank()),
+            SpectrumRuntimeKind::TimexTC2048(Box::new(TimexTC2048Runtime::blank())),
         ),
     ];
     for (name, kind) in clones {
@@ -85,11 +85,11 @@ fn every_variant_records_a_write() {
     let mut all = sinclair_and_amstrad();
     all.push((
         "Pentagon 128",
-        SpectrumRuntimeKind::Pentagon128(Pentagon128Runtime::blank()),
+        SpectrumRuntimeKind::Pentagon128(Box::new(Pentagon128Runtime::blank())),
     ));
     all.push((
         "Timex TC2048",
-        SpectrumRuntimeKind::TimexTC2048(TimexTC2048Runtime::blank()),
+        SpectrumRuntimeKind::TimexTC2048(Box::new(TimexTC2048Runtime::blank())),
     ));
     for (name, mut kind) in all {
         kind.dbg_start_io_trace();

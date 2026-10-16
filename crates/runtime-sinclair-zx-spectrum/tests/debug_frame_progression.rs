@@ -50,7 +50,10 @@ fn live_steps_and_pc_waits_account_for_consumed_time() {
 fn frame_execution_after_debug_steps_settles_the_border_and_keeps_time() {
     let runtime = runtime();
     let frame_ticks = u64::from(runtime.machine().frame_halfcycles());
-    let mut session = HeadlessSession::new(SpectrumRuntimeKind::Spectrum48K(runtime), frame_ticks);
+    let mut session = HeadlessSession::new(
+        SpectrumRuntimeKind::Spectrum48K(Box::new(runtime)),
+        frame_ticks,
+    );
     let mut elapsed = 0;
     while elapsed < frame_ticks * 3 + 101 {
         elapsed += session.machine_mut().step_instruction_no_resync();
@@ -68,7 +71,7 @@ fn frame_execution_after_debug_steps_settles_the_border_and_keeps_time() {
     assert!(session.time().get() >= elapsed + frame_ticks * 2);
 
     let mut normal = HeadlessSession::new(
-        SpectrumRuntimeKind::Spectrum48K(self::runtime()),
+        SpectrumRuntimeKind::Spectrum48K(Box::new(self::runtime())),
         frame_ticks,
     );
     normal.run_frames(3).expect("ordinary frames");
