@@ -277,7 +277,18 @@ class ProducerTests(unittest.TestCase):
             "build": {"job": "producer", "run_id": "123", "run_attempt": "2"},
         }
         env = {"GITHUB_RUN_ID": "123", "GITHUB_RUN_ATTEMPT": "2"}
-        verify_receipt(receipt, artifact, source, env)
+        verify_receipt(json.loads(json.dumps(receipt)), artifact, source, env)
+        for version in (True, False, 1.0, 1.5, "1", None, [], {}, 0, 2):
+            changed = json.loads(json.dumps({**receipt, "schema_version": version}))
+            with (
+                self.subTest(schema_version=version),
+                self.assertRaisesRegex(ValueError, "receipt schema differs"),
+            ):
+                verify_receipt(changed, artifact, source, env)
+        changed = json.loads(json.dumps(receipt))
+        del changed["schema_version"]
+        with self.assertRaisesRegex(ValueError, "receipt schema differs"):
+            verify_receipt(changed, artifact, source, env)
         for key in receipt:
             for remove in (True, False):
                 changed = copy.deepcopy(receipt)
