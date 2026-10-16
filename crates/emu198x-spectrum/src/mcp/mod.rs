@@ -1,15 +1,14 @@
 //! MCP server mode — the body behind
 //! [`MachineApp::run_mcp`](emu198x_shell::launch::MachineApp::run_mcp).
 //!
-//! Boots the same eager 48K runtime that script mode uses, builds a
-//! shell-side `Server` with one tool per `ScriptStep` variant, and
+//! Boots the requested variant eagerly and builds a shell-side `Server` with one tool per `ScriptStep` variant, and
 //! drives the JSON-RPC stdio loop. Tool dispatch goes through the
 //! same `execute_step` interceptor as `--script`, so the portable
 //! snapshot loader behaves identically across both modes; every other
 //! step, `set_machine` included, runs in the shell.
 //!
 //! The shared server is not used because it reads `--rom` as cartridge
-//! media; here `--rom ID=PATH` pins one ROM of the 48K boot bundle
+//! media; here `--rom ID=PATH` pins one ROM of the selected boot bundle
 //! (#842).
 //!
 //! See `docs/brainstorms/2026-05-08-mcp-server-brainstorm.md` for the
@@ -37,29 +36,25 @@ pub(crate) fn register_full_surface(
     registry: &mut ToolRegistry<tools::SpectrumSession>,
     session: &tools::SpectrumSession,
 ) {
-    // The family catalogue, not the boot variant: MCP boots a 48K and a
-    // client may `set_machine` to a 128K, which needs the AY tier already
-    // registered.
+    // Register the family catalogue, not just the boot variant: a client
+    // may `set_machine` to a 128K, which needs the AY tier already registered.
     register_tools_for_profiles(registry, session, &runtime_sinclair_zx_spectrum::profiles());
     tools::register_spectrum_tools(registry);
 }
 
-/// Runs MCP mode. Boots an eager 48K session wrapped in the
+/// Runs MCP mode. Boots the selected variant eagerly, wrapped in the
 /// family-level [`SpectrumRuntimeKind`] enum, registers every tool,
 /// and runs the stdio loop until stdin closes. Clients can switch the
 /// active variant at any time via the `set_machine` tool.
 ///
 /// # Errors
 ///
-/// Returns an error if the 48K ROM cannot be loaded or the stdio loop
-/// hits an I/O failure.
-pub fn run(rom_specs: &[String]) -> Result<(), AppError> {
-    // MCP always boots 48K eagerly, so `--rom` resolves against that
-    // bundle; a client that then swaps variant via `set_machine` gets the
-    // conventional ROMs for the new one.
-    let rom_overrides = firmware_overrides(rom_specs, Model::Spectrum48KPal)
-        .map_err(|path| AppError::MissingRom { path })?;
-    let kind = boot_variant(Model::Spectrum48KPal, &rom_overrides)?;
+/// Returns an error if the selected ROM bundle cannot be loaded or the
+/// stdio loop hits an I/O failure.
+pub fn run(model: Model, rom_specs: &[String]) -> Result<(), AppError> {
+    let rom_overrides =
+        firmware_overrides(rom_specs, model).map_err(|path| AppError::MissingRom { path })?;
+    let kind = boot_variant(model, &rom_overrides)?;
     let frame_halfcycles = u64::from(kind.frame_halfcycles());
     let mut session = HeadlessSession::new_with_query_provider(
         kind,
