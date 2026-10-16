@@ -101,17 +101,17 @@
         },
         {
           "name": "build198x",
-          "release": "build198x-v0.2.10",
+          "release": "build198x-v0.2.12",
           "archive": "build198x-x86_64-pc-windows-msvc.zip",
-          "url": "https://github.com/build198x/build198x/releases/download/build198x-v0.2.10/build198x-x86_64-pc-windows-msvc.zip",
-          "sha256": "f8f47dc2a1eee50fed853bc584cd1966749801565ffb34c42c5cb3b76e28ef12"
+          "url": "https://github.com/build198x/build198x/releases/download/build198x-v0.2.12/build198x-x86_64-pc-windows-msvc.zip",
+          "sha256": "aeac7d6f275d0c50f25960c14045775cfe3fa8c9864805e57621acb91353c2f8"
         },
         {
           "name": "emu198x-spectrum",
-          "release": "v0.34.1",
+          "release": "v0.35.3",
           "archive": "emu198x-spectrum-x86_64-pc-windows-msvc.zip",
-          "url": "https://github.com/emu198x/emu198x/releases/download/v0.34.1/emu198x-spectrum-x86_64-pc-windows-msvc.zip",
-          "sha256": "a3f7dbf3cc1951023359602c4c9a4a5bab35836bc2cce50f0df52334bd8ea1ca"
+          "url": "https://github.com/emu198x/emu198x/releases/download/v0.35.3/emu198x-spectrum-x86_64-pc-windows-msvc.zip",
+          "sha256": "c71eea7665ebafb514536baa2d4e9b7e61b611781f68f166bb482fbc7ad7a1af"
         }
       ],
       "firmware_sha256": "d55daa439b673b0e3f5897f99ac37ecb45f974d1862b4dadb85dec34af99cb42",
@@ -147,8 +147,8 @@
       "sha256": "6008ef39afa67e31d10f0658861ca338494803279a9ebaf76ba780fb771e89f2"
     },
     "build198x": {
-      "url": "https://github.com/build198x/build198x/releases/download/build198x-v0.2.10/build198x-installer.ps1",
-      "sha256": "7ae20988bd69a6f33aecb94bb243b6e8853dbc80b6780a841392ba1c3066f8df"
+      "url": "https://github.com/build198x/build198x/releases/download/build198x-v0.2.12/build198x-installer.ps1",
+      "sha256": "54a234e417de1bf0ea1e90e2b3aba81eca2672efbab5d3fa85ac087b01a2a12a"
     }
   }
 }

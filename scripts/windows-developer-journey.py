@@ -197,6 +197,13 @@ def executable_identity(executable: bytes, target: str) -> int | None:
     raise ValueError('Unsupported native target')
 
 
+def installed_executable(path: Path, published: bytes) -> Path:
+    """Bind the execution path to the executable actually installed by the route."""
+    if path.read_bytes() != published:
+        raise ValueError('Installed executable differs from the pinned public archive: ' + str(path))
+    return path
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--pins', type=Path, default=PINS)
@@ -279,9 +286,7 @@ def main() -> None:
             if expected_os != 'win32':
                 binary.chmod(0o755)
             if installed is not None:
-                binary = Path(installed[tool['name']])
-                if binary.read_bytes() != executable:
-                    raise ValueError('Installed executable differs from the pinned public archive: ' + tool['name'])
+                binary = installed_executable(Path(installed[tool['name']]), executable)
             binaries[tool['name']] = str(binary)
             report['tools'].append({**tool, 'executable_sha256': digest(executable), 'pe_stack_reserve_bytes': stack_reserve})
             run(tool['name'] + '-help', [str(binary), '--help'], args.work)

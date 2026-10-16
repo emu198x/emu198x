@@ -20,7 +20,7 @@ def gh(*args: str) -> dict | list:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--producer-run', required=True)
-    parser.add_argument('--target', choices=['x86_64-pc-windows-msvc', 'x86_64-unknown-linux-gnu'], default='x86_64-pc-windows-msvc')
+    parser.add_argument('--target', choices=['x86_64-pc-windows-msvc', 'x86_64-unknown-linux-gnu', 'x86_64-apple-darwin'], default='x86_64-pc-windows-msvc')
     parser.add_argument('--output', type=Path, required=True)
     args = parser.parse_args()
     repo = 'emu198x/emu198x'
