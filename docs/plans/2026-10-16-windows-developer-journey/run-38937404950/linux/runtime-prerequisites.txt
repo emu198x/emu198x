@@ -1,0 +1,2 @@
+libasound2:amd64	1.2.6.1-1ubuntu1.2
+libudev1:amd64	249.11-0ubuntu3.23

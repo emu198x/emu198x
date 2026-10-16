@@ -1,0 +1,70 @@
+[
+  {
+    "action": "load_media",
+    "slot": "tape-1",
+    "kind": "tape",
+    "path": "/home/runner/work/_temp/linux-developer-evidence/journey/missing-code.tap"
+  },
+  {
+    "action": "autoload_tape",
+    "slot": "tape-1",
+    "max_boot_frames": 500
+  },
+  {
+    "action": "run_frames",
+    "frames": 15000
+  },
+  {
+    "action": "memory_read",
+    "addr": 32768,
+    "len": 64
+  },
+  {
+    "action": "memory_read",
+    "addr": 35683,
+    "len": 1
+  },
+  {
+    "action": "memory_read",
+    "addr": 16490,
+    "len": 12
+  },
+  {
+    "action": "memory_read",
+    "addr": 16746,
+    "len": 12
+  },
+  {
+    "action": "memory_read",
+    "addr": 17002,
+    "len": 12
+  },
+  {
+    "action": "memory_read",
+    "addr": 17258,
+    "len": 12
+  },
+  {
+    "action": "memory_read",
+    "addr": 17514,
+    "len": 12
+  },
+  {
+    "action": "memory_read",
+    "addr": 17770,
+    "len": 12
+  },
+  {
+    "action": "memory_read",
+    "addr": 18026,
+    "len": 12
+  },
+  {
+    "action": "memory_read",
+    "addr": 18282,
+    "len": 12
+  },
+  {
+    "action": "query_cpu"
+  }
+]

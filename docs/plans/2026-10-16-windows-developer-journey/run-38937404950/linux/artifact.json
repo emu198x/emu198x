@@ -1,0 +1,20 @@
+{
+  "id": 12061209555,
+  "node_id": "MDg6QXJ0aWZhY3QxMjA2MTIwOTU1NQ==",
+  "name": "linux-developer-journey-38937404950-1",
+  "size_in_bytes": 33510,
+  "url": "https://api.github.com/repos/emu198x/emu198x/actions/artifacts/12061209555",
+  "archive_download_url": "https://api.github.com/repos/emu198x/emu198x/actions/artifacts/12061209555/zip",
+  "expired": false,
+  "digest": "sha256:3decc70a4d4af801a06bc0187331dd9c5e786722892fdc9774ba204ad6a6639c",
+  "created_at": "2026-10-16T17:11:54Z",
+  "updated_at": "2026-10-16T17:11:54Z",
+  "expires_at": "2026-11-15T17:11:53Z",
+  "workflow_run": {
+    "id": 38937404950,
+    "repository_id": 1208485031,
+    "head_repository_id": 1208485031,
+    "head_branch": "ci/windows-published-journey",
+    "head_sha": "0bd632c395e9199021bcf61a1bc15e8f6fa39384"
+  }
+}
