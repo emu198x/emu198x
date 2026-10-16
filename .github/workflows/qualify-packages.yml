@@ -1,0 +1,59 @@
+name: Qualify producer packages
+
+on:
+  workflow_call:
+    inputs:
+      plan:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  source-lock:
+    name: Verify source lock (${{ matrix.target }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-14
+            target: aarch64-apple-darwin
+          - runner: macos-15-intel
+            target: x86_64-apple-darwin
+          - runner: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+          - runner: ubuntu-22.04-arm
+            target: aarch64-unknown-linux-gnu
+          - runner: windows-2022
+            target: x86_64-pc-windows-msvc
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - name: Fetch actual producer packages and receipts
+        uses: actions/download-artifact@v8
+        with:
+          pattern: artifacts-*
+          path: target/distrib
+          merge-multiple: true
+      - name: Verify every native package
+        shell: bash
+        run: python scripts/source_lock.py verify "${{ matrix.target }}" target/distrib/plan-dist-manifest.json target/distrib --output target/producer-verification.json
+      - name: Retain qualification result
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: producer-qualification-${{ matrix.target }}
+          path: target/producer-verification.json
+          if-no-files-found: error
+          retention-days: 90
+  linux-install:
+    uses: ./.github/workflows/test-linux-packages.yml
+    with:
+      plan: ${{ inputs.plan }}

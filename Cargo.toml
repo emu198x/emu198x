@@ -328,7 +328,7 @@ codegen-units = 1
 # cargo-dist release configuration. The generated workflow lives at
 # .github/workflows/release.yml; regenerate with `dist generate` after
 # editing this section. A suite `v*` tag push triggers a build of every
-# distable emulator binary at that version across four targets and attaches the
+# distable emulator binary at that version across five targets and attaches the
 # archives to a single GitHub Release. The catalogue tool opts out of the
 # release via `dist = false` in its own Cargo.toml.
 [workspace.metadata.dist]
@@ -337,9 +337,9 @@ ci = "github"
 installers = ["homebrew"]
 tap = "emu198x/homebrew-tap"
 publish-jobs = ["homebrew"]
-host-jobs = ["./test-linux-packages"]
+global-artifacts-jobs = ["./qualify-packages"]
 targets = ["aarch64-apple-darwin", "x86_64-apple-darwin", "x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu", "x86_64-pc-windows-msvc"]
-pr-run-mode = "plan"
+pr-run-mode = "upload"
 # gzip rather than dist's default xz for the Unix archives. Once LTO left the
 # dist profile, xz packaging was the largest fixed cost of a release build:
 # 2m26s of the Linux job's 8m08s on v0.22.2, silent, after cargo had
