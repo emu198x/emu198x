@@ -41,3 +41,13 @@ Workspaces: `/private/tmp/198x-native-install-handoffs` (umbrella) and
 Emu CI secret, stays outside uploaded evidence and is deleted in always steps.
 Reuse existing corpus provisioning if a retained Amiga fixture is needed; never
 export corpus credentials or private firmware to another repository.
+
+## Private-fixture boundary
+
+The first native archive job failed its private umbrella checkout before product
+execution. Do not widen credentials or export the retained Amiga files without
+the pending explicit approval. Keep the public Spectrum and installer checks
+independent of that access. The prepared Amiga runner remains recoverable in
+remote commit ab149d7cf; its native execution remains outstanding under #167.
+The Homebrew Intel Spectrum result separately establishes its declared version
+set and fixture outcomes; it does not stand in for the Amiga boot.
