@@ -117,6 +117,19 @@ class JourneyControls(unittest.TestCase):
         with self.assertRaises(ValueError):
             journey.executable_identity(bytes(elf), 'x86_64-unknown-linux-gnu')
 
+    def test_installed_path_must_match_public_bytes_without_archive_fallback(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'installed-tool'
+            public = b'published executable bytes'
+            path.write_bytes(public)
+            self.assertEqual(journey.installed_executable(path, public), path)
+            path.write_bytes(b'other installed version')
+            with self.assertRaisesRegex(ValueError, 'Installed executable differs'):
+                journey.installed_executable(path, public)
+            path.unlink()
+            with self.assertRaises(FileNotFoundError):
+                journey.installed_executable(path, public)
+
     def test_macho_rejects_the_other_architecture_and_other_formats(self) -> None:
         image = bytes.fromhex('cffaedfe07000001') + bytes(24)
         self.assertIsNone(journey.executable_identity(image, 'x86_64-apple-darwin'))

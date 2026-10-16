@@ -31,7 +31,7 @@ def main() -> None:
         raise ValueError('Not the declared native host')
     args.output.mkdir()
     args.work.mkdir()
-    report = {'qualified': False, 'host': {'system': platform.system(), 'machine': platform.machine(), 'release': platform.release()}, 'commands': [], 'installed': {}, 'cleanup': {}, 'limits': []}
+    report = {'qualified': False, 'host': {'system': platform.system(), 'machine': platform.machine(), 'release': platform.release()}, 'commands': [], 'installed': {}, 'cleanup': {}, 'limits': ['Checksum equality and installer receipts do not establish signing, notarization or quarantine first-launch acceptance; these are unassessed here']}
 
     def retain() -> None:
         (args.output / 'report.json').write_text(json.dumps(report, indent=2) + '\n', encoding='utf-8')
