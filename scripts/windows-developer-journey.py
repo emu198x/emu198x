@@ -123,17 +123,17 @@ def main() -> None:
     args.output.mkdir(parents=True, exist_ok=True)
     if any(args.output.iterdir()):
         raise ValueError('Evidence directory must be fresh')
-    pins = json.loads(PINS.read_text())
+    pins = json.loads(PINS.read_text(encoding='utf-8'))
     report = {'qualified': False, 'status': 'running', 'host': {'system': platform.system(), 'release': platform.release(), 'machine': platform.machine(), 'python': platform.python_version()}, 'samples_revision': pins['samples_revision'], 'tools': [], 'commands': []}
     output = args.output / 'report.json'
 
     def retain() -> None:
-        output.write_text(json.dumps(report, indent=2) + '\n')
+        output.write_text(json.dumps(report, indent=2) + '\n', encoding='utf-8')
 
     def run(label: str, argv: list[str], cwd: Path, timeout: int = 60) -> str:
         result = subprocess.run(argv, cwd=cwd, capture_output=True, text=True, encoding='utf-8', timeout=timeout, check=False)
-        (args.output / f'{label}.stdout').write_text(result.stdout)
-        (args.output / f'{label}.stderr').write_text(result.stderr)
+        (args.output / f'{label}.stdout').write_text(result.stdout, encoding='utf-8')
+        (args.output / f'{label}.stderr').write_text(result.stderr, encoding='utf-8')
         report['commands'].append({'label': label, 'argv': argv, 'exit_code': result.returncode, 'timeout_seconds': timeout})
         retain()
         if result.returncode:
@@ -184,14 +184,14 @@ def main() -> None:
         for name, filename in [('screen', 'screen.asm'), ('storm', 'meteor-storm.asm')]:
             run(name, [asm, '--dialect', 'pasmo', '--cpu', 'z80', '--tap', str(source / filename), '-o', name], build)
         run('raw-code', [asm, '--dialect', 'pasmo', '--cpu', 'z80', '--sym=storm.sym', str(source / 'meteor-storm.asm'), '-o', 'program.bin'], build)
-        symbols = {m[1]: int(m[2], 16) for line in (build / 'storm.sym').read_text().splitlines() if (m := re.fullmatch(r'(\w+) = \$([0-9a-fA-F]+)', line))}
+        symbols = {m[1]: int(m[2], 16) for line in (build / 'storm.sym').read_text(encoding='utf-8').splitlines() if (m := re.fullmatch(r'(\w+) = \$([0-9a-fA-F]+)', line))}
         code = (build / 'program.bin').read_bytes()
         data = b''.join((build / name).read_bytes() for name in ['meteor.tap', 'screen', 'storm'])
         verify_package(data, code, (source / 'meteor-storm.scr').read_bytes())
         tape = args.output / 'meteor-storm.tap'
         tape.write_bytes(data)
         (args.output / 'program.bin').write_bytes(code)
-        (args.output / 'symbols.json').write_text(json.dumps(symbols, indent=2) + '\n')
+        (args.output / 'symbols.json').write_text(json.dumps(symbols, indent=2) + '\n', encoding='utf-8')
         report['package'] = {'sha256': digest(data), 'code_sha256': digest(code), 'blocks': 6}
 
         def boot(label: str, medium: Path, capture: bool) -> dict:
@@ -201,7 +201,7 @@ def main() -> None:
             if capture:
                 steps.append({'action': 'save_screenshot', 'path': str(args.output / 'title.png')})
             session = args.output / f'{label}-session.json'
-            session.write_text(json.dumps(steps, indent=2) + '\n')
+            session.write_text(json.dumps(steps, indent=2) + '\n', encoding='utf-8')
             text = run(label, [binaries['emu198x-spectrum'], '--machine', 'spectrum_48k', '--rom', str(args.firmware), '--script', str(session)], args.work, timeout=180)
             return json.loads(text)
 
