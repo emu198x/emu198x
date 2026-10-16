@@ -48,3 +48,12 @@ The published Windows binary's unwind records show large startup frames;
 macOS passes the query at a reduced 1 MiB limit, so that local result is not
 a native Windows regression proof. Native Windows must go red before the
 repair and green afterward with its 1 MiB PE reserve unchanged.
+
+## Verified outcome
+
+Native run 38925425661 passes the before/after comparison, script and MCP
+regressions, unchanged positive Meteor Storm journey and real missing-CODE
+control. Both binaries reserve 1 MiB of stack. Firmware and scratch cleanup
+pass. The adjacent evidence folder retains the reports, screenshot, command
+output, run metadata and hashes. The repaired family enum measures 16 bytes
+locally; all 373 scoped tests pass, with 63 existing fixture tests ignored.

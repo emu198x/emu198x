@@ -1,0 +1,239 @@
+{
+  "id": 38925425661,
+  "html_url": "https://github.com/emu198x/emu198x/actions/runs/38925425661",
+  "head_sha": "88a1ca5fda104672527bd33b613bc72b0ac0b6c4",
+  "event": "workflow_dispatch",
+  "status": "completed",
+  "conclusion": "success",
+  "created_at": "2026-10-16T15:37:19Z",
+  "updated_at": "2026-10-16T15:46:15Z",
+  "jobs": [
+    {
+      "id": 117055619462,
+      "run_id": 38925425661,
+      "workflow_name": "Linux packages",
+      "head_branch": "fix/windows-spectrum-startup",
+      "run_url": "https://api.github.com/repos/emu198x/emu198x/actions/runs/38925425661",
+      "run_attempt": 1,
+      "node_id": "CR_kwDOSAgEp88AAAAbQQ8Bhg",
+      "head_sha": "88a1ca5fda104672527bd33b613bc72b0ac0b6c4",
+      "url": "https://api.github.com/repos/emu198x/emu198x/actions/jobs/117055619462",
+      "html_url": "https://github.com/emu198x/emu198x/actions/runs/38925425661/job/117055619462",
+      "status": "completed",
+      "conclusion": "success",
+      "created_at": "2026-10-16T15:37:21Z",
+      "started_at": "2026-10-16T15:37:29Z",
+      "completed_at": "2026-10-16T15:46:15Z",
+      "name": "Windows Spectrum startup and package-to-boot regression",
+      "steps": [
+        {
+          "name": "Set up job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 1,
+          "started_at": "2026-10-16T15:37:30Z",
+          "completed_at": "2026-10-16T15:37:33Z"
+        },
+        {
+          "name": "Run actions/checkout@v7",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 2,
+          "started_at": "2026-10-16T15:37:33Z",
+          "completed_at": "2026-10-16T15:37:48Z"
+        },
+        {
+          "name": "Run actions/checkout@v7",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 3,
+          "started_at": "2026-10-16T15:37:48Z",
+          "completed_at": "2026-10-16T15:37:56Z"
+        },
+        {
+          "name": "Run actions/checkout@v7",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 4,
+          "started_at": "2026-10-16T15:37:56Z",
+          "completed_at": "2026-10-16T15:38:05Z"
+        },
+        {
+          "name": "Run actions/setup-python@v6",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 5,
+          "started_at": "2026-10-16T15:38:05Z",
+          "completed_at": "2026-10-16T15:38:05Z"
+        },
+        {
+          "name": "Install pinned Rust",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 6,
+          "started_at": "2026-10-16T15:38:05Z",
+          "completed_at": "2026-10-16T15:38:21Z"
+        },
+        {
+          "name": "Run Swatinem/rust-cache@v2",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 7,
+          "started_at": "2026-10-16T15:38:21Z",
+          "completed_at": "2026-10-16T15:38:38Z"
+        },
+        {
+          "name": "Reproduce startup before heap allocation",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 8,
+          "started_at": "2026-10-16T15:38:38Z",
+          "completed_at": "2026-10-16T15:41:52Z"
+        },
+        {
+          "name": "Build and test the candidate with the original stack reserve",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 9,
+          "started_at": "2026-10-16T15:41:52Z",
+          "completed_at": "2026-10-16T15:42:29Z"
+        },
+        {
+          "name": "Prepare checked firmware and identify the candidate journey input",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 10,
+          "started_at": "2026-10-16T15:42:29Z",
+          "completed_at": "2026-10-16T15:42:30Z"
+        },
+        {
+          "name": "Run the unchanged positive and missing-CODE journey",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 11,
+          "started_at": "2026-10-16T15:42:30Z",
+          "completed_at": "2026-10-16T15:45:33Z"
+        },
+        {
+          "name": "Remove private firmware and candidate scratch",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 12,
+          "started_at": "2026-10-16T15:45:33Z",
+          "completed_at": "2026-10-16T15:45:34Z"
+        },
+        {
+          "name": "Retain only startup and journey evidence",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 13,
+          "started_at": "2026-10-16T15:45:34Z",
+          "completed_at": "2026-10-16T15:45:36Z"
+        },
+        {
+          "name": "Post Run Swatinem/rust-cache@v2",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 22,
+          "started_at": "2026-10-16T15:45:36Z",
+          "completed_at": "2026-10-16T15:46:05Z"
+        },
+        {
+          "name": "Post Run actions/setup-python@v6",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 23,
+          "started_at": "2026-10-16T15:46:05Z",
+          "completed_at": "2026-10-16T15:46:05Z"
+        },
+        {
+          "name": "Post Run actions/checkout@v7",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 24,
+          "started_at": "2026-10-16T15:46:05Z",
+          "completed_at": "2026-10-16T15:46:08Z"
+        },
+        {
+          "name": "Post Run actions/checkout@v7",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 25,
+          "started_at": "2026-10-16T15:46:08Z",
+          "completed_at": "2026-10-16T15:46:10Z"
+        },
+        {
+          "name": "Post Run actions/checkout@v7",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 26,
+          "started_at": "2026-10-16T15:46:10Z",
+          "completed_at": "2026-10-16T15:46:12Z"
+        },
+        {
+          "name": "Complete job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 27,
+          "started_at": "2026-10-16T15:46:12Z",
+          "completed_at": "2026-10-16T15:46:12Z"
+        }
+      ],
+      "check_run_url": "https://api.github.com/repos/emu198x/emu198x/check-runs/117055619462",
+      "labels": [
+        "windows-2022"
+      ],
+      "runner_id": 1000036708,
+      "runner_name": "GitHub Actions 1000036708",
+      "runner_group_id": 0,
+      "runner_group_name": "GitHub Actions"
+    },
+    {
+      "id": 117055621966,
+      "run_id": 38925425661,
+      "workflow_name": "Linux packages",
+      "head_branch": "fix/windows-spectrum-startup",
+      "run_url": "https://api.github.com/repos/emu198x/emu198x/actions/runs/38925425661",
+      "run_attempt": 1,
+      "node_id": "CR_kwDOSAgEp88AAAAbQQ8LTg",
+      "head_sha": "88a1ca5fda104672527bd33b613bc72b0ac0b6c4",
+      "url": "https://api.github.com/repos/emu198x/emu198x/actions/jobs/117055621966",
+      "html_url": "https://github.com/emu198x/emu198x/actions/runs/38925425661/job/117055621966",
+      "status": "completed",
+      "conclusion": "skipped",
+      "created_at": "2026-10-16T15:37:21Z",
+      "started_at": "2026-10-16T15:37:21Z",
+      "completed_at": "2026-10-16T15:37:21Z",
+      "name": "Install and exercise (${{ matrix.target }})",
+      "steps": [],
+      "check_run_url": "https://api.github.com/repos/emu198x/emu198x/check-runs/117055621966",
+      "labels": [],
+      "runner_id": null,
+      "runner_name": null,
+      "runner_group_id": null,
+      "runner_group_name": null
+    }
+  ],
+  "artifacts": [
+    {
+      "id": 12057172101,
+      "node_id": "MDg6QXJ0aWZhY3QxMjA1NzE3MjEwMQ==",
+      "name": "windows-spectrum-startup-38925425661-1",
+      "size_in_bytes": 32452,
+      "url": "https://api.github.com/repos/emu198x/emu198x/actions/artifacts/12057172101",
+      "archive_download_url": "https://api.github.com/repos/emu198x/emu198x/actions/artifacts/12057172101/zip",
+      "expired": false,
+      "digest": "sha256:a2c6683969d3cd77f5ae8158e4c2cc450ff3a40bc44aaed9da50c230d10f9f40",
+      "created_at": "2026-10-16T15:45:36Z",
+      "updated_at": "2026-10-16T15:45:36Z",
+      "expires_at": "2026-11-15T15:45:34Z",
+      "workflow_run": {
+        "id": 38925425661,
+        "repository_id": 1208485031,
+        "head_repository_id": 1208485031,
+        "head_branch": "fix/windows-spectrum-startup",
+        "head_sha": "88a1ca5fda104672527bd33b613bc72b0ac0b6c4"
+      }
+    }
+  ]
+}

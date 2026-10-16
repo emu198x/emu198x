@@ -1,0 +1,7 @@
+{
+  "passed": true,
+  "expect_overflow": false,
+  "executable_sha256": "05735a19672388d9f12c77fe47bee75326108ce8ef31f504cf4ed096fa5adc9f",
+  "pe_stack_reserve_bytes": 1048576,
+  "exit_code": 0
+}

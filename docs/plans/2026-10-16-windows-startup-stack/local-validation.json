@@ -1,0 +1,28 @@
+{
+  "baseline_revision": "9a22ce6c557399492269bf23a6b5994022e03e36",
+  "candidate_revision": "88a1ca5fda104672527bd33b613bc72b0ac0b6c4",
+  "local_host": "aarch64-apple-darwin",
+  "rustc": "rustc 1.99.0 (b940084d7 2026-09-28)",
+  "profile": "dist",
+  "features": "--no-default-features",
+  "tests": {
+    "passed": 373,
+    "failed": 0,
+    "existing_ignored": 63
+  },
+  "sizes_bytes": {
+    "before_family": 74568,
+    "after_family": 16,
+    "concrete_48k_before_and_after": 840,
+    "concrete_timex_before_and_after": 74560
+  },
+  "checks": {
+    "scoped_clippy": "passed",
+    "rustfmt": "passed",
+    "ruff": "passed",
+    "yaml_parse": "passed",
+    "vale": "passed"
+  },
+  "native_run": "https://github.com/emu198x/emu198x/actions/runs/38925425661",
+  "native_status": "passed"
+}
