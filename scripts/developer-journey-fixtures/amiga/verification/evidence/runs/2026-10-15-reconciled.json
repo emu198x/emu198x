@@ -1,0 +1,93 @@
+{
+  "status": "passed",
+  "configuration": "A500 OCS PAL, Kickstart 1.3, cold ADF boot",
+  "emulator_sha256": "409348bd0f973d4b760f45ea345b8727d3cb989ca02dc35c969f4daa8b4eb9a8",
+  "kickstart_sha256": "ee05862d8102a08436ac4056da7d549db31625c7d47b24dfb7b3c9a5c113ca53",
+  "sources": {
+    "demo.asm": "b65880fa3dcd1a8d0ffda8e7098ea485c8cead877bb91fb9b0aa01d7f6efb368",
+    "paula-sample.inc": "a6c1dcda0cc8e9bc864f44cc8e4795cc9cfbe27bfdd63ecad0f8d4a081b9b8d9",
+    "probe.asm": "ec3a83f1a6ba2836db49fc5fe6c91e8fb951afc7b29414b307724ddf31ba0aee"
+  },
+  "binaries": {
+    "demo": "8f26e48774e4490764ed23e4bc18a3f0260c94fbb4f4921f0badd5bd473bb190",
+    "demo.adf": "e749003cde7f651bd18174749f78d15cad654a19ec854613aa936e27bd75a7e0",
+    "probe": "5721a0e776b88a7551ae41cbd9b721c2c261cc1f55aea47f0a3270f5af72befe",
+    "probe.adf": "d1598463cd5e914437cc35052e0e4535e1bcf10ae21db70b93a8b9d00455d7d2"
+  },
+  "vasm_identical": true,
+  "demo": {
+    "tones": [
+      {
+        "location": 96624,
+        "length_words": 8,
+        "period": 424,
+        "bytes_per_cycle": 16,
+        "start_cck": 23878213,
+        "stop_cck": 27408933,
+        "frames": 49.772,
+        "predicted_hz": 522.832,
+        "measured_hz": 522.839
+      },
+      {
+        "location": 96624,
+        "length_words": 8,
+        "period": 212,
+        "bytes_per_cycle": 16,
+        "start_cck": 27479781,
+        "stop_cck": 31020945,
+        "frames": 49.919,
+        "predicted_hz": 1045.665,
+        "measured_hz": 1045.664
+      },
+      {
+        "location": 96640,
+        "length_words": 16,
+        "period": 212,
+        "bytes_per_cycle": 32,
+        "start_cck": 31091807,
+        "stop_cck": 34632971,
+        "frames": 49.919,
+        "predicted_hz": 522.832,
+        "measured_hz": 522.832
+      }
+    ],
+    "wav_sha256": "04bf382d8bf1f4e72f6919625c3b0110b90a157d8bd7871c84c6b8c90607460e",
+    "audio_rate": 48000
+  },
+  "probe": {
+    "loop_passes_no_dma": 44257,
+    "loop_passes_four_channels_period_124": 44257,
+    "loop_passes_six_lowres_bitplanes_control": 33536,
+    "first_request_after_dmacon_cck": 166,
+    "request_gaps_cck": [
+      6162,
+      6792,
+      6778,
+      6792,
+      6778
+    ],
+    "predicted_last_word_cck": 5936,
+    "predicted_pass_cck": 6784,
+    "one_shot_cycles": 8,
+    "wav_sha256": "b5a8660c16dc6a6a7519cbb05555ea05c3db1c715e752686ea411636265620c8"
+  },
+  "limits": "Emulator observations only. No listening, original-hardware or stereo-jack claim; CPU cost compares one chip-RAM loop.",
+  "recorded_at": "2026-10-15",
+  "emulator_revision": "5c3e510549eb56a7fe491ebb118ae86e4080ca4a",
+  "core_pull_request": "https://github.com/emu198x/emu198x/pull/1777",
+  "build198x_revision": "0df96710bd571ef04a95cc24420ff987a99cf9a5",
+  "observer_sha256": "9bf8afa0c427946c25d9a0be28377321d774382cf1e9c229393f9e573b3b5bf5",
+  "observer_controls_sha256": "45e6e41a614f5995dd79bcf8a110d27a9c440bd938402050169531326972bf8b",
+  "observer_controls": {
+    "tests_passed": 3,
+    "known_eight_cycles_with_decay": 8,
+    "old_detector_same_synthetic_input": 9,
+    "distinguished_counts": [
+      7,
+      9,
+      40
+    ],
+    "dc_and_decay_only": 0
+  },
+  "changes": "Run interrupt/one-shot phases before the one-word cost workload; count peaks only with substantial troughs on both sides. Keep all timing tolerances and the eight-cycle expectation."
+}
