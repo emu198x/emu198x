@@ -156,7 +156,7 @@ class JourneyControls(unittest.TestCase):
         workflow = (Path(__file__).parents[1] / '.github/workflows/test-linux-packages.yml').read_text()
         pins = json.loads(journey.PINS.read_text())
         self.assertIn(pins['samples_revision'], workflow)
-        self.assertIn('if: ${{ !inputs.windows_startup_regression && !inputs.windows_developer_journey && !inputs.linux_developer_journey && !inputs.macos_developer_journey }}', workflow)
+        self.assertIn('if: ${{ !inputs.windows_startup_regression && !inputs.windows_developer_journey && !inputs.linux_developer_journey && !inputs.macos_developer_journey && !inputs.installer_journey }}', workflow)
         self.assertIn("github.event_name == 'workflow_dispatch' && inputs.windows_developer_journey", workflow)
         self.assertIn('ROM_B64: ${{ secrets.EMU198X_SPECTRUM_48K_ROM_B64 }}', workflow)
         self.assertIn('name: Remove private Windows-journey firmware\n        if: always()', workflow)

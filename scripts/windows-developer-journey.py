@@ -200,6 +200,7 @@ def executable_identity(executable: bytes, target: str) -> int | None:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--pins', type=Path, default=PINS)
+    parser.add_argument('--installed-tools', type=Path, help='JSON map of actual installed executable paths; every entry must match public bytes')
     parser.add_argument('--samples-root', type=Path, required=True)
     parser.add_argument('--firmware', type=Path, required=True)
     parser.add_argument('--work', type=Path, required=True)
@@ -237,6 +238,10 @@ def main() -> None:
         report['firmware_sha256'] = digest(rom)
         staged, report['source_materialisation'] = stage_sources(args.samples_root, args.work, pins)
         report['source_hashes'] = pins['files']
+        installed = json.loads(args.installed_tools.read_text(encoding='utf-8')) if args.installed_tools else None
+        if installed is not None and set(installed) != {tool['name'] for tool in pins['tools']}:
+            raise ValueError('Installed tool map must contain exactly the pinned tools')
+        report['installation_mode'] = 'installed-executables' if installed is not None else 'archive-extraction'
         tools = args.work / 'tools'
         tools.mkdir(parents=True, exist_ok=True)
         binaries = {}
@@ -273,6 +278,10 @@ def main() -> None:
             binary.write_bytes(executable)
             if expected_os != 'win32':
                 binary.chmod(0o755)
+            if installed is not None:
+                binary = Path(installed[tool['name']])
+                if binary.read_bytes() != executable:
+                    raise ValueError('Installed executable differs from the pinned public archive: ' + tool['name'])
             binaries[tool['name']] = str(binary)
             report['tools'].append({**tool, 'executable_sha256': digest(executable), 'pe_stack_reserve_bytes': stack_reserve})
             run(tool['name'] + '-help', [str(binary), '--help'], args.work)

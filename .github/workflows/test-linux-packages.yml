@@ -3,6 +3,11 @@ name: Linux packages
 on:
   workflow_dispatch:
     inputs:
+      installer_journey:
+        description: "Audit documented macOS Homebrew and Windows installer routes"
+        required: false
+        type: boolean
+        default: false
       macos_developer_journey:
         description: "Run the pinned native Intel macOS developer handoffs"
         required: false
@@ -43,7 +48,7 @@ permissions:
 
 jobs:
   install:
-    if: ${{ !inputs.windows_startup_regression && !inputs.windows_developer_journey && !inputs.linux_developer_journey && !inputs.macos_developer_journey }}
+    if: ${{ !inputs.windows_startup_regression && !inputs.windows_developer_journey && !inputs.linux_developer_journey && !inputs.macos_developer_journey && !inputs.installer_journey }}
     name: Install and exercise (${{ matrix.target }})
     strategy:
       fail-fast: false
@@ -544,5 +549,93 @@ jobs:
         with:
           name: macos-developer-journey-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/macos-developer-evidence/
+          if-no-files-found: error
+          retention-days: 30
+
+  installer-journey:
+    name: Public installer journey (${{ matrix.host }})
+    if: github.repository == 'emu198x/emu198x' && github.event_name == 'workflow_dispatch' && inputs.installer_journey
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - host: macos-intel
+            runner: macos-15-intel
+          - host: macos-arm
+            runner: macos-15
+          - host: windows
+            runner: windows-2022
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v7
+        with:
+          repository: code198x/code-samples
+          ref: '51297ac3196a990286b0d21a4dedd4653c0168f0'
+          path: code-samples
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.14'
+      - name: Provision checked installer-journey firmware
+        env:
+          ROM_B64: ${{ secrets.EMU198X_SPECTRUM_48K_ROM_B64 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PYCODE'
+          import base64, hashlib, json, os
+          from pathlib import Path
+          root = Path(os.environ['RUNNER_TEMP'])
+          evidence = root / 'installer-journey-evidence'
+          evidence.mkdir()
+          record = evidence / 'firmware-check.json'
+          record.write_text(json.dumps({'firmware_validated': False}))
+          data = base64.b64decode(''.join(os.environ['ROM_B64'].split()), validate=True)
+          sha = hashlib.sha256(data).hexdigest()
+          if len(data) != 16384 or sha != 'd55daa439b673b0e3f5897f99ac37ecb45f974d1862b4dadb85dec34af99cb42':
+              raise ValueError('Genuine firmware differs')
+          private = root / 'installer-journey-firmware'
+          private.mkdir()
+          (private / '48.rom').write_bytes(data)
+          record.write_text(json.dumps({'firmware_validated': True, 'sha256': sha}))
+          PYCODE
+      - name: Exercise the public installation routes and installed tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/installer-developer-journey.py --host '${{ matrix.host }}' \
+            --samples-root "$GITHUB_WORKSPACE/code-samples" \
+            --firmware "$RUNNER_TEMP/installer-journey-firmware/48.rom" \
+            --work "$RUNNER_TEMP/installer-journey-work" \
+            --output "$RUNNER_TEMP/installer-journey-evidence/install"
+      - name: Remove private installer firmware and downloaded scratch
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PYCODE'
+          import json, os, shutil
+          from pathlib import Path
+          root = Path(os.environ['RUNNER_TEMP'])
+          for name in ['installer-journey-firmware', 'installer-journey-work']:
+              folder = root / name
+              if folder.exists():
+                  shutil.rmtree(folder)
+              if folder.exists():
+                  raise RuntimeError('Task scratch remains')
+          evidence = root / 'installer-journey-evidence'
+          evidence.mkdir(exist_ok=True)
+          (evidence / 'cleanup.json').write_text(json.dumps({'firmware_removed': True, 'scratch_removed': True}))
+          PYCODE
+      - name: Retain safe installer evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: installer-journey-${{ matrix.host }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/installer-journey-evidence/
           if-no-files-found: error
           retention-days: 30
