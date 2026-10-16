@@ -448,6 +448,27 @@ impl Upd765a {
         drive < 4 && self.disks[drive].is_some()
     }
 
+    /// Borrow the authoritative live image for an explicit host export.
+    ///
+    /// # Errors
+    /// Rejects unknown/empty drives and active disk-writing commands. Export
+    /// must not imply that an in-flight sector or format operation completed.
+    /// This does not advance time, flush, abort or otherwise change a transfer.
+    pub fn disk_for_export(&self, drive: usize) -> Result<&DiskImage, &'static str> {
+        let image = self
+            .disks
+            .get(drive)
+            .ok_or("unknown disk drive")?
+            .as_ref()
+            .ok_or("no disk mounted")?;
+        if self.phase == Phase::Execution
+            && matches!(self.command, Command::WriteData | Command::FormatTrack)
+        {
+            return Err("finish the active disk write or format before exporting");
+        }
+        Ok(image)
+    }
+
     /// Reset controller registers and transfers, retaining inserted media and
     /// its physical write-protection setting.
     pub fn reset(&mut self) {
@@ -1874,6 +1895,50 @@ mod tests {
         for byte in [0x45, drive_head, c, h, r, 2, eot, 0x2a, 0xff] {
             fdc.write_data(byte);
         }
+    }
+
+    #[test]
+    fn export_refuses_active_writes_without_aborting_and_returns_committed_bytes() {
+        let mut fdc = write_test_fdc(true);
+        assert!(fdc.disk_for_export(4).is_err());
+        assert!(fdc.disk_for_export(1).is_err());
+        send_write(&mut fdc, 0, 0, 0, 1, 1);
+        transfer_write(&mut fdc, &[0x5a; 128]);
+        let before = (fdc.phase, fdc.exec_pos, fdc.exec_timeout, fdc.main_status);
+        assert!(fdc.disk_for_export(0).is_err());
+        assert_eq!(
+            before,
+            (fdc.phase, fdc.exec_pos, fdc.exec_timeout, fdc.main_status)
+        );
+        transfer_write(&mut fdc, &[0x5a; 384]);
+        result(&mut fdc);
+        assert_eq!(
+            fdc.disk_for_export(0).expect("completed image").tracks[0][0].sectors[0].data,
+            [0x5a; 512]
+        );
+        fdc.eject_disk(0);
+        assert!(fdc.disk_for_export(0).is_err());
+    }
+
+    #[test]
+    fn export_refuses_active_format_and_allows_read_only_images() {
+        let protected = write_test_fdc(false);
+        assert!(protected.disk_for_export(0).is_ok());
+        let mut fdc = write_test_fdc(true);
+        send_format(&mut fdc, 0, 2, 1, 0xa5);
+        let before = (fdc.phase, fdc.exec_pos, fdc.exec_timeout, fdc.main_status);
+        assert!(fdc.disk_for_export(0).is_err());
+        assert_eq!(
+            before,
+            (fdc.phase, fdc.exec_pos, fdc.exec_timeout, fdc.main_status)
+        );
+        transfer_ids(&mut fdc, &[0, 0, 1, 2]);
+        await_format_status(&mut fdc, 0xd0);
+        result(&mut fdc);
+        assert_eq!(
+            fdc.disk_for_export(0).expect("formatted image").tracks[0][0].sectors[0].data,
+            [0xa5; 512]
+        );
     }
 
     fn await_write_request(fdc: &mut Upd765a) {

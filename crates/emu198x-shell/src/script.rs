@@ -234,6 +234,15 @@ pub enum ScriptStep {
         /// Output path for the snapshot.
         path: PathBuf,
     },
+    /// Export the live medium to a new file; never overwrite existing media.
+    ExportMedia {
+        /// Mounted slot identifier.
+        slot: String,
+        /// Explicit output format identifier, initially `edsk` on +3.
+        format: String,
+        /// New output path, with extension matching the format identifier.
+        path: PathBuf,
+    },
     /// Save the latest emitted frame as PNG.
     SaveScreenshot {
         /// Output path for the PNG file.
@@ -712,6 +721,17 @@ pub struct HeadlessScript {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ScriptObservation {
+    /// A live medium was encoded and written to a newly created host file.
+    MediaExport {
+        /// Mounted slot identifier.
+        slot: String,
+        /// Explicit format used by the runtime.
+        format: String,
+        /// New destination that was created.
+        path: PathBuf,
+        /// Number of encoded bytes written.
+        bytes: usize,
+    },
     /// Execution costs with source-line totals and explicit non-instruction time.
     ProfileCycles {
         /// Captured profile, using the machine's authoritative clock.
@@ -1403,6 +1423,15 @@ impl ScriptStep {
             Self::SaveSnapshot { path } => {
                 session.save_snapshot(path)?;
                 Ok(None)
+            }
+            Self::ExportMedia { slot, format, path } => {
+                let bytes = session.export_media(slot, format, path)?;
+                Ok(Some(ScriptObservation::MediaExport {
+                    slot: slot.clone(),
+                    format: format.clone(),
+                    path: path.clone(),
+                    bytes,
+                }))
             }
             Self::SaveScreenshot { path } => {
                 session.save_screenshot(path)?;

@@ -20,6 +20,7 @@ pub mod host;
 // Gamepad input is gilrs-backed throughout, and no browser build consumes
 // it yet. A web gamepad layer would split the pure mapping types out; doing
 // that now would be splitting for a caller that does not exist.
+pub mod export;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod input;
 pub mod keyboard;

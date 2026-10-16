@@ -4,6 +4,44 @@
 
 use nec_upd765a::{DiskImage, DiskSector, DiskTrack};
 
+/// Encode the live controller image using the shared sector-model EDSK writer.
+///
+/// # Errors
+/// Returns the encoder's error for inconsistent geometry or unrepresentable
+/// table/sector/track lengths. Original container padding, creator, gap/filler
+/// and recording mode/rate are not present in this controller model.
+pub fn encode_extended(image: &DiskImage) -> Result<Vec<u8>, String> {
+    use format198x_amstrad_cpc_dsk as codec;
+    let model = codec::DiskImage {
+        sides: image.sides,
+        tracks_per_side: image.tracks_per_side,
+        tracks: image
+            .tracks
+            .iter()
+            .map(|side| {
+                side.iter()
+                    .map(|track| codec::DiskTrack {
+                        sectors: track
+                            .sectors
+                            .iter()
+                            .map(|s| codec::DiskSector {
+                                c: s.c,
+                                h: s.h,
+                                id: s.id,
+                                n: s.n,
+                                st1: s.st1,
+                                st2: s.st2,
+                                data: s.data.clone(),
+                            })
+                            .collect(),
+                    })
+                    .collect()
+            })
+            .collect(),
+    };
+    codec::encode_extended(&model)
+}
+
 /// Decode standard/extended DSK and preserve every sector's address and status.
 ///
 /// # Errors
@@ -47,6 +85,30 @@ mod tests {
     const SECTOR_INFO_LEN: usize = 8;
     const SIG_STANDARD: &[u8] = b"MV - CPC";
     const SIG_EXTENDED: &[u8] = b"EXTENDED CPC DSK File";
+
+    #[test]
+    fn encoder_uses_changed_live_bytes_and_preserves_nonstandard_metadata() {
+        let source = build_minimal_dsk();
+        let mut live = parse(&source).expect("source");
+        let sector = &mut live.tracks[0][0].sectors[0];
+        sector.c = 7;
+        sector.h = 1;
+        sector.n = 6;
+        sector.st1 = 0x20;
+        sector.st2 = 0x40;
+        sector.data = vec![0xaa, 0xbb, 0xcc];
+        let output = encode_extended(&live).expect("representable live image");
+        assert_eq!(&output[0x118..0x120], &[7, 1, 1, 6, 0x20, 0x40, 3, 0]);
+        assert_eq!(&output[0x200..0x203], &[0xaa, 0xbb, 0xcc]);
+        let reopened = parse(&output).expect("export");
+        assert_eq!(reopened.tracks[0][0].sectors[0].data, [0xaa, 0xbb, 0xcc]);
+        assert_eq!(
+            parse(&source).expect("unchanged source").tracks[0][0].sectors[0].data[0],
+            1
+        );
+        live.tracks[0][0].sectors[0].data.resize(65536, 0);
+        assert!(encode_extended(&live).is_err());
+    }
 
     /// Build a minimal standard DSK image with one side, one track,
     /// nine 512-byte sectors numbered 1..=9.

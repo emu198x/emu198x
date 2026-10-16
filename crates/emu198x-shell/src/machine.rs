@@ -233,6 +233,17 @@ pub trait MachineCore {
     /// Returns an error if the machine rejects the media set.
     fn load_media(&mut self, media: &MediaSet<'_>) -> Result<(), MachineError>;
 
+    /// Encode the current live medium, without writing any host path.
+    ///
+    /// # Errors
+    /// Unsupported runtimes/formats, empty slots and unsafe in-flight media
+    /// mutations must fail explicitly. The default supports no export.
+    fn export_media(&self, _slot: &str, _format: &str) -> Result<Vec<u8>, MachineError> {
+        Err(MachineError::UnsupportedOperation {
+            operation: "export_media",
+        })
+    }
+
     /// The cartridge banking schemes a caller may name in
     /// [`crate::MediaImage::cart_type`], for machines whose headerless
     /// cartridge images cannot always be identified from their bytes.

@@ -1097,6 +1097,21 @@ pub fn register_tools_for_profiles<M, Q>(
     if has(ids::TAPE_AUTOLOAD) {
         register_tape_autoload_tools(registry);
     }
+    if has(ids::MEDIA_EXPORT) {
+        registry.register(Box::new(ScriptStepTool::<M, Q>::common(
+            "export_media",
+            "Export the live mounted medium to a new file. Never overwrites an existing path. Refuses unsupported slots/formats and active media writes. Path extension must match format; +3 initially supports disk-a / edsk.",
+            json!({
+                "type": "object", "additionalProperties": false,
+                "properties": {
+                    "slot": { "type": "string" },
+                    "format": { "type": "string" },
+                    "path": { "type": "string" }
+                },
+                "required": ["slot", "format", "path"]
+            }),
+        )));
+    }
     if has("cycle-profile") {
         registry.register(Box::new(ScriptStepTool::<M, Q>::common(
             "profile_cycles",
@@ -1215,6 +1230,7 @@ mod tests {
             "load_basic_program",
             "autoload_tape",
             "set_machine",
+            "export_media",
         ] {
             assert!(
                 !names.contains(&absent.to_owned()),
@@ -1255,6 +1271,15 @@ mod tests {
                 "{present} should be registered"
             );
         }
+    }
+
+    #[test]
+    fn media_export_registration_requires_the_declared_capability() {
+        assert!(!registered(&[]).contains(&"export_media".to_owned()));
+        assert!(
+            registered(&[crate::capability::ids::MEDIA_EXPORT])
+                .contains(&"export_media".to_owned())
+        );
     }
 
     #[test]

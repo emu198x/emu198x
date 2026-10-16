@@ -129,6 +129,8 @@ pub mod ids {
     pub const TAPE_AUTOLOAD: &str = "tape-autoload";
     /// The machine is one variant of a family and can be swapped for another live.
     pub const VARIANT_SWITCH: &str = "variant-switch";
+    /// Explicit encoding of live mounted media through shared host export tools.
+    pub const MEDIA_EXPORT: &str = "media-export";
 }
 
 #[must_use]
