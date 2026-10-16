@@ -3,6 +3,14 @@ name: Linux packages
 on:
   workflow_dispatch:
     inputs:
+      installer_target:
+        description: "Host subset for the opt-in installer audit"
+        required: false
+        type: choice
+        options:
+          - all
+          - windows
+        default: all
       installer_journey:
         description: "Audit documented macOS Homebrew and Windows installer routes"
         required: false
@@ -511,13 +519,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - host: macos-intel
-            runner: macos-15-intel
-          - host: macos-arm
-            runner: macos-15
-          - host: windows
-            runner: windows-2022
+        include: >-
+          ${{ fromJSON(inputs.installer_target == 'windows'
+              && '[{"host":"windows","runner":"windows-2022"}]'
+              || '[{"host":"macos-intel","runner":"macos-15-intel"},{"host":"macos-arm","runner":"macos-15"},{"host":"windows","runner":"windows-2022"}]') }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 35
     steps:
@@ -533,6 +538,8 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: '3.14'
+      - name: Check archive and executable identity controls
+        run: python -m unittest discover -s scripts -p test_installer_developer_journey.py -v
       - name: Provision checked installer-journey firmware
         env:
           ROM_B64: ${{ secrets.EMU198X_SPECTRUM_48K_ROM_B64 }}
