@@ -532,6 +532,10 @@ impl MachineCore for SpectrumRuntimeKind {
         match_kind!(self, |rt| rt.eject_media(slot))
     }
 
+    fn export_media(&self, slot: &str, format: &str) -> Result<Vec<u8>, MachineError> {
+        match_kind!(self, |rt| rt.export_media(slot, format))
+    }
+
     fn run_until(
         &mut self,
         target: MachineTime,

@@ -1981,9 +1981,9 @@ dependencies = [
 
 [[package]]
 name = "format198x-amstrad-cpc-dsk"
-version = "0.1.0"
+version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "56e72398a2e40bd257b935bb96081a0fb1d576d6f5e5c923e6b12f970eec7409"
+checksum = "2010c7ec3087163d2a94f82b0be46c79512117c72655695a0e2783d38ef0f479"
 
 [[package]]
 name = "format198x-atari-8bit-xex"

@@ -398,6 +398,47 @@ mod tests {
     }
 
     #[test]
+    fn live_export_after_write_and_restore_never_uses_cached_source_bytes() {
+        let (mut runtime, source) = writable_sector_runtime(true);
+        assert!(runtime.export_media("disk-b", "edsk").is_err());
+        assert!(runtime.export_media("disk-a", "dsk").is_err());
+        let payload: Vec<_> = (0..512).map(|i| (i as u8).wrapping_mul(17)).collect();
+        send_fdc_command(&mut runtime, &[0x45, 0, 0, 0, 1, 2, 1, 0x2a, 0xff]);
+        send_fdc_bytes(&mut runtime, &payload[..128]);
+        let active = runtime.snapshot().expect("active state");
+        assert!(runtime.export_media("disk-a", "edsk").is_err());
+        assert_eq!(runtime.snapshot().expect("unchanged active state"), active);
+        send_fdc_bytes(&mut runtime, &payload[128..]);
+        drain_fdc_result(&mut runtime);
+        let saved = runtime.snapshot().expect("completed state");
+        let exported = runtime.export_media("disk-a", "edsk").expect("live export");
+        assert_eq!(runtime.snapshot().expect("export is read-only"), saved);
+        assert_eq!(
+            format_amstrad_dsk::parse(&exported)
+                .expect("exported image")
+                .tracks[0][0]
+                .sectors[0]
+                .data,
+            payload
+        );
+        assert_ne!(
+            format_amstrad_dsk::parse(&source).expect("source").tracks[0][0].sectors[0].data,
+            payload
+        );
+        let mut restored = SpectrumPlus3Runtime::blank();
+        restored.restore(&saved).expect("restore");
+        assert_eq!(
+            restored
+                .export_media("disk-a", "edsk")
+                .expect("restored live disk"),
+            exported
+        );
+        assert_eq!(restored.disk_images()[0].bytes, source);
+        let empty = SpectrumPlus3Runtime::blank();
+        assert!(empty.export_media("disk-a", "edsk").is_err());
+    }
+
+    #[test]
     fn mid_write_snapshot_resumes_identically_including_byte_deadline() {
         use common_sinclair_zx_spectrum::peripheral::Peripheral;
         let (mut original, _) = writable_sector_runtime(true);

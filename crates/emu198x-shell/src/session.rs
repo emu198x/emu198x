@@ -758,6 +758,41 @@ impl<M: MachineCore, Q: SessionQueryProvider<M>> HeadlessSession<M, Q> {
         Ok(())
     }
 
+    /// Export a live medium to a new user-chosen path without advancing time.
+    ///
+    /// # Errors
+    /// Refuses unsupported capability/slot/format, mismatched extensions,
+    /// unsafe active media writes, existing destinations and filesystem errors.
+    pub fn export_media(
+        &self,
+        slot: &str,
+        format: &str,
+        path: &Path,
+    ) -> Result<usize, SessionError> {
+        if !self
+            .machine()
+            .profile()
+            .capabilities
+            .contains(&crate::known_capability(
+                crate::capability::ids::MEDIA_EXPORT,
+            ))
+        {
+            return Err(MachineError::UnsupportedOperation {
+                operation: "export_media",
+            }
+            .into());
+        }
+        if path.extension().and_then(|s| s.to_str()) != Some(format) {
+            return Err(MachineError::InvalidRequest {
+                reason: format!("export path must have the explicit .{format} extension"),
+            }
+            .into());
+        }
+        let bytes = self.machine().export_media(slot, format)?;
+        crate::export::write_new_file(path, &bytes)?;
+        Ok(bytes.len())
+    }
+
     /// Runs the machine until the requested target time.
     ///
     /// While a video recording is active, the call is internally chunked into
@@ -1430,6 +1465,15 @@ mod tests {
             Ok(())
         }
 
+        fn export_media(&self, slot: &str, format: &str) -> Result<Vec<u8>, MachineError> {
+            if slot != "tape-1" || format != "raw" {
+                return Err(MachineError::UnsupportedOperation {
+                    operation: "export_media",
+                });
+            }
+            Ok(b"live data".to_vec())
+        }
+
         fn cartridge_types(&self) -> &'static [&'static str] {
             self.cart_types
         }
@@ -1813,6 +1857,72 @@ mod tests {
                 None,
                 "{name} must still be writable"
             );
+        }
+    }
+
+    #[test]
+    fn shared_export_creates_new_files_only_and_preserves_time_and_sources() {
+        let directory =
+            std::env::temp_dir().join(format!("emu198x-session-export-{}", std::process::id()));
+        std::fs::create_dir(&directory).expect("temporary export directory");
+        let mut session = HeadlessSession::new(DummyMachine::new(), DUMMY_FRAME_TICKS);
+        let path = directory.join("live.raw");
+        let before = session.time();
+        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            assert!(session.export_media("tape-1", "raw", &path).is_err());
+            assert!(!path.exists());
+            session
+                .machine_mut()
+                .profile
+                .capabilities
+                .insert(crate::known_capability(
+                    crate::capability::ids::MEDIA_EXPORT,
+                ));
+            assert!(session.export_media("absent", "raw", &path).is_err());
+            assert!(!path.exists());
+            assert!(
+                session
+                    .export_media("tape-1", "raw", &directory.join("wrong.dsk"))
+                    .is_err()
+            );
+            let step: crate::script::ScriptStep = serde_json::from_value(json!({
+                "action": "export_media", "slot": "tape-1", "format": "raw", "path": path,
+            }))
+            .expect("shared script dialect");
+            let observed = step.execute_collect(&mut session).expect("export");
+            assert!(matches!(
+                observed,
+                Some(ScriptObservation::MediaExport { bytes: 9, .. })
+            ));
+            assert_eq!(std::fs::read(&path).expect("written bytes"), b"live data");
+            assert!(session.export_media("tape-1", "raw", &path).is_err());
+            assert_eq!(
+                std::fs::read(&path).expect("existing destination preserved"),
+                b"live data"
+            );
+            assert!(
+                session
+                    .export_media("tape-1", "raw", &directory.join("absent/child.raw"))
+                    .is_err()
+            );
+            #[cfg(unix)]
+            {
+                let link = directory.join("linked.raw");
+                std::os::unix::fs::symlink(&path, &link).expect("source symlink");
+                assert!(session.export_media("tape-1", "raw", &link).is_err());
+            }
+            let hardlink = directory.join("hard.raw");
+            std::fs::hard_link(&path, &hardlink).expect("source hard link");
+            assert!(session.export_media("tape-1", "raw", &hardlink).is_err());
+            assert_eq!(
+                std::fs::read(&path).expect("source preserved"),
+                b"live data"
+            );
+            assert_eq!(session.time(), before);
+        }));
+        std::fs::remove_dir_all(&directory).expect("remove temporary exports");
+        if let Err(error) = outcome {
+            std::panic::resume_unwind(error);
         }
     }
 

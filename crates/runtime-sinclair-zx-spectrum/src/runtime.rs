@@ -150,6 +150,11 @@ pub trait SpectrumMachine: Serialize + for<'de> Deserialize<'de> + SpectrumDrive
         false
     }
 
+    /// Encode live disk state for an explicit export; unsupported by default.
+    fn export_disk_image(&self, _slot: &str, _format: &str) -> Result<Vec<u8>, String> {
+        Err("disk export is not supported by this machine".to_owned())
+    }
+
     /// Loads disk-image bytes into the machine's FDC. Default: reports
     /// that the machine has no disk interface. Variants with a real
     /// drive (e.g. the +3) parse the payload and hand it to the
@@ -818,6 +823,15 @@ impl<M: SpectrumMachine> MachineCore for SpectrumRuntime<M> {
         Err(MachineError::UnsupportedOperation {
             operation: "eject_media",
         })
+    }
+
+    fn export_media(&self, slot: &str, format: &str) -> Result<Vec<u8>, MachineError> {
+        self.machine
+            .export_disk_image(slot, format)
+            .map_err(|reason| MachineError::InvalidMedia {
+                slot: slot.to_owned(),
+                reason,
+            })
     }
 
     fn run_until(

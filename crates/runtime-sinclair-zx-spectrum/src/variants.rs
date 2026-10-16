@@ -1323,6 +1323,18 @@ impl<V: AmstradVariant> SpectrumMachine for SpectrumAmstradClassCore<V> {
         Ok(())
     }
 
+    fn export_disk_image(&self, slot: &str, format: &str) -> Result<Vec<u8>, String> {
+        if !self.supports_disk_slot(slot) {
+            return Err(format!("unsupported disk slot `{slot}`"));
+        }
+        if format != "edsk" {
+            return Err(format!(
+                "unsupported disk export format `{format}`; expected edsk"
+            ));
+        }
+        format_amstrad_dsk::encode_extended(self.fdc.disk_for_export(0)?)
+    }
+
     fn eject_disk_image(&mut self, slot: &str) -> Result<(), String> {
         if !self.supports_disk_slot(slot) {
             return Err(format!("unsupported disk slot `{slot}`"));

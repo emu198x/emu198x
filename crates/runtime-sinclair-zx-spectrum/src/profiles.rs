@@ -591,6 +591,7 @@ pub fn profile_for(model: Model) -> MachineProfile {
                 let mut caps = ay_capabilities();
                 caps.insert(known_capability("cycle-profile"));
                 caps.insert(known_capability("disk-input"));
+                caps.insert(known_capability(emu198x_shell::capability::ids::MEDIA_EXPORT));
                 caps
             },
         },
@@ -707,6 +708,19 @@ pub fn profile_for(model: Model) -> MachineProfile {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_plus3_advertises_live_media_export() {
+        for model in Model::ALL {
+            assert_eq!(
+                profile_for(model).capabilities.contains(&known_capability(
+                    emu198x_shell::capability::ids::MEDIA_EXPORT
+                )),
+                model == Model::SpectrumPlus3,
+                "{model:?}"
+            );
+        }
+    }
 
     #[test]
     fn variant_ids_round_trip_for_every_model() {
