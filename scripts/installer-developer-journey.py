@@ -101,7 +101,8 @@ def main() -> None:
                     raise ValueError('Installed tool is absent from PATH: ' + name)
                 installed[name] = path
                 report['installed'][name] = {'route': 'Homebrew', 'path': path, 'sha256': hashlib.sha256(Path(path).read_bytes()).hexdigest(), 'formula_revision': actual_revision, 'formula_sha256': actual_sha}
-                run(name + '-version', [path, '--version'])
+                flag = '--help' if name == 'emu198x-spectrum' else '--version'
+                run(name + '-identity', [path, flag])
                 run(name + '-info', ['brew', 'info', '--json=v2', formula])
         else:
             report['limits'] += ['Disposable Windows Server image with developer prerequisites; Windows client GUI and prerequisite-free setup are untested', 'Emu has an advertised ZIP route, no vendor installer; ZIP execution is not installer qualification', 'No removal command is documented by the selected PowerShell installers; cleanup is explicit file/receipt removal and user PATH restoration']
@@ -126,7 +127,8 @@ def main() -> None:
                     raise ValueError('Fresh machine/user PATH does not resolve ' + name)
                 installed[name] = path
                 report['installed'][name] = {'route': 'public PowerShell installer', 'path': path, 'sha256': hashlib.sha256(Path(path).read_bytes()).hexdigest(), 'installer': item, 'receipt_version': receipt['version'], 'user_path_after': user_path}
-                run(name + '-version', [path, '--version'])
+                flag = '--help' if name == 'emu198x-spectrum' else '--version'
+                run(name + '-identity', [path, flag])
             tool = next(t for t in pins['tools'] if t['name'] == 'emu198x-spectrum')
             archive = args.work / tool['archive']
             download(tool['url'], tool['sha256'], archive)
@@ -138,7 +140,7 @@ def main() -> None:
                 binary.write_bytes(zipped.read(members[0]))
             installed['emu198x-spectrum'] = str(binary)
             report['installed']['emu198x-spectrum'] = {'route': 'advertised ZIP, not an installer', 'path': str(binary), 'sha256': hashlib.sha256(binary.read_bytes()).hexdigest(), **tool}
-            run('emu198x-spectrum-version', [str(binary), '--version'])
+            run('emu198x-spectrum-help', [str(binary), '--help'])
         retain()
         selected = args.output / 'selected-inputs.json'
         selected.write_text(json.dumps(pins, indent=2) + '\n')
