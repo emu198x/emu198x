@@ -705,20 +705,13 @@ impl Upd765a {
                 let mut acc_st1: u8 = 0;
                 let mut acc_st2: u8 = 0;
                 let mut hit_data_error = false;
+                let mut reached_eot = false;
                 let mut r = sector;
-                // Tracks the sector ID the real chip would surface in
-                // the result phase's R field. FUSE's `upd_fdc.c`
-                // mirrors the µPD765A here: on abnormal termination
-                // (mark mismatch with SK=0, data CRC error, missing
-                // sector) the chip leaves R pointing at the offending
-                // sector; on normal multi-sector completion that
-                // reaches EOT, R advances one past EOT. Speedlock's
-                // sector-2 probe reads R back and checks `R == 2`
-                // to confirm "the chip just told me about sector 2",
-                // so an off-by-one here loops the loader forever.
-                // Every break path through the `loop` below assigns
-                // `result_r`, so leaving it uninitialised here lets
-                // the compiler enforce that invariant.
+                // On no-TC EOT, and on errors, R remains at the final
+                // sector encountered. NEC Table 2 describes processor/TC
+                // termination instead; +3 never supplies TC. Fuse
+                // start_read_data and MAME SECTOR_READ retain EOT R.
+                // Every break path assigns result_r.
                 let result_r;
                 loop {
                     // Look up the recorded sector entry — we need its
@@ -843,11 +836,11 @@ impl Upd765a {
                         break;
                     }
                     if r >= eot {
-                        // Normal multi-sector completion: chip ran the
-                        // post-read R++ before the next iteration's
-                        // EOT check found nothing left, so R ends one
-                        // past the last sector read.
-                        result_r = r.wrapping_add(1);
+                        // The host supplied no terminal count. Report
+                        // EN after the final byte is drained, retaining
+                        // the last sector's ID rather than advancing R.
+                        reached_eot = true;
+                        result_r = r;
                         break;
                     }
                     r = r.wrapping_add(1);
@@ -878,6 +871,12 @@ impl Upd765a {
                         // sector's data CRC fails, even though it
                         // still delivers the (corrupted) bytes.
                         self.st0 |= 0x40;
+                    } else if reached_eot && self.st1 == 0 && self.st2 == 0 {
+                        // NEC December 1978 p17: access beyond the final
+                        // sector sets EN. No TC is exposed by this core;
+                        // Fuse/MAME distinguish this from TC completion.
+                        self.st0 |= 0x40;
+                        self.st1 |= 0x80;
                     }
                     self.cmd_buf[4] = result_r;
                 } else {
@@ -3062,13 +3061,14 @@ mod tests {
         // Result phase via the natural end-of-buffer path, not via
         // the timeout.
         for _ in 0..128 {
+            assert_eq!(fdc.phase, Phase::Execution, "no premature timeout");
             fdc.read_data();
             for _ in 0..EXEC_READ_TIMEOUT_TICKS / 2 {
                 <Upd765a as Peripheral>::tick(&mut fdc, 0);
             }
         }
         assert_eq!(fdc.phase, Phase::Result);
-        let st0 = fdc.read_data();
-        assert_eq!(st0 & 0xC0, 0, "natural completion is normal termination");
+        assert_eq!(fdc.exec_pos, 128, "all bytes drained before result");
+        assert_eq!(result(&mut fdc), [0x40, 0x80, 0, 0, 0, 1, 0]);
     }
 }

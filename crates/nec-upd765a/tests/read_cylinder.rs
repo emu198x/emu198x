@@ -79,8 +79,8 @@ fn assert_wrong_cylinder(deleted: bool, recorded: u8) {
     assert_eq!(data, vec![recorded.wrapping_add(1); 128]);
     assert_eq!(
         &result[..3],
-        &[0, 0, 0],
-        "subsequent matching read recovers"
+        &[0x40, 0x80, 0],
+        "subsequent matching read recovers and reaches EOT without TC"
     );
 }
 
@@ -111,7 +111,7 @@ fn matching_nonphysical_and_ff_headers_are_readable() {
             let mut fdc = controller(vec![sector(recorded, 1, deleted)]);
             let (data, result) = read(&mut fdc, deleted, recorded, 1, 1);
             assert_eq!(data, vec![recorded.wrapping_add(1); 128]);
-            assert_eq!(&result[..3], &[0, 0, 0]);
+            assert_eq!(&result[..3], &[0x40, 0x80, 0]);
             assert_eq!(
                 result[3], recorded,
                 "result C is not physical cylinder zero"
@@ -126,7 +126,7 @@ fn later_matching_duplicate_sector_id_is_not_hidden_by_wrong_cylinder() {
         let mut fdc = controller(vec![sector(7, 1, deleted), sector(0, 1, deleted)]);
         let (data, result) = read(&mut fdc, deleted, 0, 1, 1);
         assert_eq!(data, vec![1; 128]);
-        assert_eq!(&result[..3], &[0, 0, 0]);
+        assert_eq!(&result[..3], &[0x40, 0x80, 0]);
     }
 }
 
