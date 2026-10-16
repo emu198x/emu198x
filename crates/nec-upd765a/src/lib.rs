@@ -1026,7 +1026,7 @@ impl Upd765a {
                 }
             }
             Command::None => {
-                // NEC December 1978 datasheet pp.8,16: an invalid
+                // NEC December 1978 datasheet pp.9,16: an invalid
                 // command has a one-byte ST0 result (IC=10). Fuse's
                 // UPD_CMD_INVALID handling likewise returns 0x80.
                 self.st0 = 0x80;
@@ -2966,7 +2966,7 @@ mod tests {
         assert_eq!(st3 & 0x20, 0x20, "drive 2 aliases drive 0 → RY set");
     }
 
-    /// NEC December 1978 datasheet pp.8,16: invalid commands have a
+    /// NEC December 1978 datasheet pp.9,16: invalid commands have a
     /// one-byte ST0 result, with interrupt-code bits 10 (0x80).
     #[test]
     fn invalid_command_returns_one_status_byte_and_accepts_next_command() {

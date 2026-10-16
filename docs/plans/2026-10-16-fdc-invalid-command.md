@@ -3,10 +3,10 @@
 Lane: Spectrum launch-hardening. Keep the controller API and native snapshot schema unchanged.
 
 1. Replace the implementation-pinning test in `crates/nec-upd765a/src/lib.rs` with public register assertions for a one-byte 0x80 result, busy/direction transitions, ignored writes during results, repeated invalid commands, stale-result replacement and recovery to a valid command. Run these against the old implementation and retain the failing output.
-2. Change only the unknown-command execution arm to set ST0=0x80 and enter the existing result phase. Cite NEC December 1978 datasheet pp.8,16 and Fuse invalid-command precedent. Valid but unimplemented commands remain separate work.
+2. Change only the unknown-command execution arm to set ST0=0x80 and enter the existing result phase. Cite NEC December 1978 datasheet pp.9,16 and Fuse invalid-command precedent. Valid but unimplemented commands remain separate work.
 3. Run the complete controller tests, controller Clippy with all targets and features, formatting and an affected Spectrum build/check. Review the diff, commit and push a focused PR. Report results before merge/release.
 
-Primary source: https://bitsavers.org/components/nec/_dataSheets/uPD765_Data_Sheet_Dec78.pdf pp.8,16. Reference implementation inspected: vendored Fuse `peripherals/disk/upd_fdc.c`, UPD_CMD_INVALID switch branch.
+Primary source: https://bitsavers.org/components/nec/_dataSheets/uPD765_Data_Sheet_Dec78.pdf pp.9,16. Reference implementation inspected: vendored Fuse `peripherals/disk/upd_fdc.c`, UPD_CMD_INVALID switch branch.
 
 ## Verification
 
