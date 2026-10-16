@@ -939,9 +939,18 @@ impl Upd765a {
             Command::SeekTrack => {
                 let drive_echo = self.cmd_buf[1] & 0x03;
                 let drive = (self.cmd_buf[1] & self.drive_select_mask) as usize;
-                let new_track = self.cmd_buf[2];
-                self.track[drive] = new_track;
-                let st0 = 0x20 | drive_echo; // Seek End | drive
+                // Use the same image-presence readiness model as ST3.RY.
+                // NEC December 1978 datasheet p15 specifies IC=01|NR
+                // for initially-not-ready Seek. MAME's seek_start also
+                // sets SE and preserves PCN; Fuse instead uses IC=11.
+                // READY changes during Seek and physical step timing
+                // remain outside this staged completion model.
+                let st0 = if self.disks[drive].is_some() {
+                    self.track[drive] = self.cmd_buf[2];
+                    0x20 | drive_echo // Seek End | drive
+                } else {
+                    0x68 | drive_echo // Abnormal | Seek End | Not Ready | drive
+                };
                 self.st0 = st0;
                 self.seek_staged_st0[drive] = Some(st0);
                 self.seek_remaining[drive] = SEEK_TICKS;
@@ -2822,6 +2831,7 @@ mod tests {
     fn seek_track_sets_target_and_stages_interrupt() {
         let mut fdc = Upd765a::new();
         fdc.enabled = true;
+        fdc.insert_disk(1, marginal_image());
         fdc.track[1] = 0;
 
         fdc.write_data(0x0F); // Seek
