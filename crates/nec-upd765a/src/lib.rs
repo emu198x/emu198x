@@ -994,6 +994,7 @@ impl Upd765a {
                     .and_then(|side| side.get(self.track[drive] as usize))
                     .map(|trk| &trk.sectors[..]);
 
+                self.st0 = (head << 2) | drive_echo;
                 let (c, h, r, n) = match track_sectors {
                     Some(sectors) if !sectors.is_empty() => {
                         let idx = self.read_id_index[drive] % sectors.len();
@@ -1002,14 +1003,18 @@ impl Upd765a {
                         (s.c, s.h, s.id, s.n)
                     }
                     _ => {
-                        // No disk or empty track — defaults so a probe
-                        // during empty-drive still gets a coherent (if
-                        // blank) reply.
+                        // NEC December 1978 data sheet, p14 (Read ID),
+                        // pp17–18 (ST0/ST1): no readable ID terminates
+                        // abnormally with MA and ND. This sector-image
+                        // model does not time the two-index-pulse search
+                        // or model drive-ready pins. CHRN is unspecified
+                        // on this error; retain the existing filler bytes.
+                        self.st0 |= 0x40;
+                        self.st1 = 0x05;
                         (self.track[drive], head, 1, 2)
                     }
                 };
 
-                self.st0 = (head << 2) | drive_echo;
                 self.result_buf.clear();
                 self.result_buf.push(self.st0);
                 self.result_buf.push(self.st1);

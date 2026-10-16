@@ -1,0 +1,67 @@
+   Compiling nec-upd765a v0.35.2 (/Users/stevehill/Projects/198x/output/qualification/workspaces/fdc-read-id-errors/crates/nec-upd765a)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.99s
+     Running tests/read_id_errors.rs (target/debug/deps/read_id_errors-0402b23923dd94b5)
+
+running 5 tests
+test read_id_on_absent_head_reports_missing_id ... [FDC-CMD] ReadId cmd_buf=[4a 04]
+[FDC-RES] ReadId result=[04 00 00 00 01 01 02]
+
+thread 'read_id_on_absent_head_reports_missing_id' (115431286) panicked at crates/nec-upd765a/tests/read_id_errors.rs:28:5:
+assertion `left == right` failed: ST0.IC must report abnormal termination
+  left: 0
+ right: 64
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+FAILED
+test read_id_on_absent_track_reports_missing_id ... [FDC-CMD] ReadId cmd_buf=[4a 00]
+[FDC-RES] ReadId result=[00 00 00 00 00 01 02]
+
+thread 'read_id_on_absent_track_reports_missing_id' (115431287) panicked at crates/nec-upd765a/tests/read_id_errors.rs:28:5:
+assertion `left == right` failed: ST0.IC must report abnormal termination
+  left: 0
+ right: 64
+FAILED
+test read_id_on_empty_track_reports_missing_id ... [FDC-CMD] ReadId cmd_buf=[4a 00]
+[FDC-TRACK] drive=0 head=0 track=0 sector_count=0
+[FDC-RES] ReadId result=[00 00 00 00 00 01 02]
+
+thread 'read_id_on_empty_track_reports_missing_id' (115431288) panicked at crates/nec-upd765a/tests/read_id_errors.rs:28:5:
+assertion `left == right` failed: ST0.IC must report abnormal termination
+  left: 0
+ right: 64
+FAILED
+test read_id_without_image_cannot_report_success ... [FDC-CMD] ReadId cmd_buf=[4a 00]
+[FDC-RES] ReadId result=[00 00 00 00 00 01 02]
+
+thread 'read_id_without_image_cannot_report_success' (115431289) panicked at crates/nec-upd765a/tests/read_id_errors.rs:28:5:
+assertion `left == right` failed: ST0.IC must report abnormal termination
+  left: 0
+ right: 64
+FAILED
+test valid_read_id_preserves_recorded_chrn_rotation_and_plus3_drive_alias ... [FDC-CMD] ReadId cmd_buf=[4a 02]
+[FDC-TRACK] drive=0 head=0 track=0 sector_count=2
+  [0] c=0x07 h=0x03 r=0xc1 n=0x01 st1=0x00 st2=0x00 data_len=256
+  [1] c=0x07 h=0x03 r=0xc7 n=0x01 st1=0x00 st2=0x00 data_len=256
+[FDC-RES] ReadId result=[02 00 00 07 03 c1 01]
+[FDC-CMD] ReadId cmd_buf=[4a 00]
+[FDC-TRACK] drive=0 head=0 track=0 sector_count=2
+  [0] c=0x07 h=0x03 r=0xc1 n=0x01 st1=0x00 st2=0x00 data_len=256
+  [1] c=0x07 h=0x03 r=0xc7 n=0x01 st1=0x00 st2=0x00 data_len=256
+[FDC-RES] ReadId result=[00 00 00 07 03 c7 01]
+[FDC-CMD] ReadId cmd_buf=[4a 02]
+[FDC-TRACK] drive=0 head=0 track=0 sector_count=2
+  [0] c=0x07 h=0x03 r=0xc1 n=0x01 st1=0x00 st2=0x00 data_len=256
+  [1] c=0x07 h=0x03 r=0xc7 n=0x01 st1=0x00 st2=0x00 data_len=256
+[FDC-RES] ReadId result=[02 00 00 07 03 c1 01]
+ok
+
+failures:
+
+failures:
+    read_id_on_absent_head_reports_missing_id
+    read_id_on_absent_track_reports_missing_id
+    read_id_on_empty_track_reports_missing_id
+    read_id_without_image_cannot_report_success
+
+test result: FAILED. 1 passed; 4 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p nec-upd765a --test read_id_errors`
