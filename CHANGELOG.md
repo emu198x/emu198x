@@ -4,6 +4,19 @@ All notable changes to Emu198x will be documented in this file.
 
 Format loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 not strictly. Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [0.34.2] - 2026-10-16
+
+### Changed
+
+- Publish an unsigned producer source-lock receipt beside each native emulator
+  archive. Packaging requires the committed Cargo.lock to remain unchanged, and
+  qualification checks source, lock, target, producer run and archive/executable
+  identities before hosting. Receipt checks also run after macOS notarization.
+  These records do not establish the compiled dependency/features graph or a
+  receipt signing identity. Emulator behaviour is unchanged.
+  ([#1782](https://github.com/emu198x/emu198x/pull/1782))
+
 ## [0.34.1] - 2026-10-15
 
 

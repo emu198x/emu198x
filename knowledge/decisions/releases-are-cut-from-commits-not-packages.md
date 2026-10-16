@@ -11,6 +11,22 @@ The next version is computed from the conventional commits since the last tag,
 by git-cliff, and applied by `scripts/prepare-release.py`. There is no
 package-oriented release manager in this repo.
 
+### One-off producer-receipt release — 2026-10-16
+
+Steve explicitly approved preparing suite patch 0.34.2 to publish the producer
+source-lock controls from #1782. This is a one-off exception to computing the
+next version solely from conventional commits: the changes are CI-only, so the
+normal filters correctly leave the computed version at 0.34.1. The new release
+provides build-time receipts without retroactively claiming proof for old
+archives. It changes no emulator behaviour or independently versioned library.
+
+Use the existing version setter, fixed remote `release/next` branch and normal
+checked release/publication pipeline. Keep the commit filters unchanged.
+Preparation is approved; merging the checked release PR still needs explicit
+publication approval. After publication, reconcile public archives, executables
+and sidecars against the actual producer evidence. The normal commit-derived
+version policy resumes after this one release.
+
 release-plz is removed: `release-plz.toml`, its 29 `[[package]]` entries, and
 the pinned fork it was installed from.
 
