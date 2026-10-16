@@ -1,0 +1,13 @@
+build198x — the 198x build-tools pipeline
+
+usage:
+  build198x image <input.png> [more inputs...] --machine <id> --format <f> [options]
+  build198x beeper <input.bpr> [--out-dir <dir>] [--wav] [--asm] [--force]
+  build198x adf <exe> -o <out.adf> [--volume <label>] [--name <file>]
+  build198x basic <in.bas> --machine <id> -o <out> [--name <name>] [--no-autorun]
+  build198x basic lint <in.bas>... --machine <id> [--fix]
+  build198x plus3 --basic <loader.bas> --code <code.bin> --load-address <decimal> -o <out.dsk>
+  build198x --version
+  build198x --help
+
+run `build198x image --help` or `build198x beeper --help` for each converter's flags.
