@@ -657,7 +657,7 @@ impl Upd765a {
                 // `cmd_buf[2]` here means we'd look up sectors on the
                 // wrong physical track and miss the protected ones.
                 let track = self.track[drive];
-                let _expected_c = self.cmd_buf[2];
+                let expected_c = self.cmd_buf[2];
                 let sector = self.cmd_buf[4]; // R (start sector ID)
                 let n = self.cmd_buf[5]; // N (sector size code)
                 let eot = self.cmd_buf[6]; // EOT (last sector to read)
@@ -688,6 +688,7 @@ impl Upd765a {
                 // if we stopped after the first.
                 let mut buf = Vec::with_capacity(sector_size * 8);
                 let mut missing_after_some = false;
+                let mut cylinder_error = 0;
                 // Did at least one sector during this run have a
                 // mismatched mark relative to the command? When this
                 // is set (and SK=0) the chip sets ST2.CM in the
@@ -723,13 +724,27 @@ impl Upd765a {
                     // Look up the recorded sector entry — we need its
                     // ST2 to decide whether the mark matches before
                     // copying data into the exec buffer.
-                    let sec = self
+                    let sectors = self
                         .disks
                         .get(drive)
                         .and_then(|d| d.as_ref())
                         .and_then(|img| img.tracks.get(head as usize))
                         .and_then(|side| side.get(track as usize))
-                        .and_then(|trk| trk.sectors.iter().find(|s| s.id == r));
+                        .map(|trk| trk.sectors.as_slice())
+                        .unwrap_or(&[]);
+                    // Search past a wrong-cylinder ID: a later ID may
+                    // still match. C is the recorded header, never the
+                    // physical seek position. NEC December 1978 p18:
+                    // ND accompanies WC; differing C=FF also sets BC.
+                    let sec = sectors.iter().find(|s| s.id == r && s.c == expected_c);
+                    if sec.is_none() {
+                        for candidate in sectors.iter().filter(|s| s.c != expected_c) {
+                            cylinder_error |= 0x10; // WC
+                            if candidate.c == 0xff {
+                                cylinder_error |= 0x02; // BC
+                            }
+                        }
+                    }
 
                     let Some(sec) = sec else {
                         // Sector ID not found on this track. For
@@ -849,7 +864,7 @@ impl Upd765a {
                     // sector read in the run, then layer the
                     // multi-sector outcome flags on top.
                     self.st1 = acc_st1;
-                    self.st2 = acc_st2 & !ST2_CM; // CM gets set below if applicable
+                    self.st2 = (acc_st2 & !ST2_CM) | cylinder_error; // CM set below
                     if missing_after_some {
                         self.st0 |= 0x40; // Abnormal termination
                         self.st1 |= 0x04; // ND — caller learns where the run stopped
@@ -871,8 +886,8 @@ impl Upd765a {
                     // to Result with abnormal termination.
                     self.st0 = 0x40 | (head << 2) | drive_echo;
                     self.st1 = 0x04;
-                    self.st2 = 0;
-                    self.setup_result_read(track, head, sector, n);
+                    self.st2 = cylinder_error;
+                    self.setup_result_read(expected_c, head, sector, n);
                 }
             }
             Command::Recalibrate => {

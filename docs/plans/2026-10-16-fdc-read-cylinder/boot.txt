@@ -1,0 +1,9 @@
+mise WARN  tracking config: failed to ln -sf /Users/stevehill/Projects/198x/output/qualification/workspaces/emu-fdc-read-cylinder/rust-toolchain.toml /Users/stevehill/.local/state/mise/tracked-configs/df2ec69fbf3dd94b: Operation not permitted (os error 1)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.20s
+     Running tests/boot_test.rs (target/debug/deps/boot_test-74b45c671786451a)
+
+running 1 test
+test boot_to_menu_renders_screen_content ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.92s
+

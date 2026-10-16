@@ -1,0 +1,31 @@
+mise WARN  tracking config: failed to ln -sf /Users/stevehill/Projects/198x/output/qualification/workspaces/emu-fdc-read-cylinder/rust-toolchain.toml /Users/stevehill/.local/state/mise/tracked-configs/df2ec69fbf3dd94b: Operation not permitted (os error 1)
+   Compiling emu198x-test-skip v0.35.3 (/Users/stevehill/Projects/198x/output/qualification/workspaces/emu-fdc-read-cylinder/crates/emu198x-test-skip)
+   Compiling amstrad-ula-40077 v0.35.3 (/Users/stevehill/Projects/198x/output/qualification/workspaces/emu-fdc-read-cylinder/crates/amstrad-ula-40077)
+   Compiling common-sinclair-zx-spectrum-amstrad-class v0.35.3 (/Users/stevehill/Projects/198x/output/qualification/workspaces/emu-fdc-read-cylinder/crates/common-sinclair-zx-spectrum-amstrad-class)
+   Compiling machine-sinclair-zx-spectrum-plus3 v0.35.3 (/Users/stevehill/Projects/198x/output/qualification/workspaces/emu-fdc-read-cylinder/crates/machine-sinclair-zx-spectrum-plus3)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.57s
+     Running unittests src/lib.rs (target/debug/deps/machine_sinclair_zx_spectrum_plus3-5bf60e45053b2e47)
+
+running 6 tests
+test tests::paging_writes_change_bank_at_c000 ... ok
+test tests::machine_reports_plus3_model_id ... ok
+test tests::machine_defaults_have_expected_shape ... ok
+test tests::fdc_is_enabled_on_plus3 ... ok
+test tests::insert_and_eject_disk_round_trip ... ok
+test tests::machine_runs_one_frame_at_plus2a_cadence ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/boot_test.rs (target/debug/deps/boot_test-74b45c671786451a)
+
+running 1 test
+test boot_to_menu_renders_screen_content ... ignored, FIXTURE: requires local +3 ROMs at ~/.emu198x/roms/amstrad-zx-spectrum-plus3/{plus3-0..3}.rom
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests machine_sinclair_zx_spectrum_plus3
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
