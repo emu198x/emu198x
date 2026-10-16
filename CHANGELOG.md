@@ -4,6 +4,13 @@ All notable changes to Emu198x will be documented in this file.
 
 Format loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 not strictly. Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [0.35.1] - 2026-10-16
+
+
+### Fixed
+
+- Honor Spectrum machine and firmware selection at MCP startup
+
 ## [0.35.0] - 2026-10-16
 
 
