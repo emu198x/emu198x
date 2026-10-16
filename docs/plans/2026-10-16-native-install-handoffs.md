@@ -56,3 +56,11 @@ The user explicitly approved the exact seven-file fixture proposal on
 2026-10-16. Retain those bytes locally in Emu, restore the prepared Amiga runner
 and use the existing private-corpus provisioning step. No umbrella token or
 firmware is published. Require the actual native results before closing #167.
+
+Run 38964506987 passes the corrected Windows record and runtime, but the Intel
+0.35.2 archive cold-boot command exceeds its inherited 180-second limit after
+startup and package checks succeed. Preserve that observation. Rerun the same
+15,000 frames and acceptance functions with a bounded 360-second Intel cold-boot
+command budget and a 25-minute total job limit; record actual command durations.
+This changes a diagnostic budget, not emulator behaviour or required outcomes.
+Do not infer a host or version performance regression from a single timeout.

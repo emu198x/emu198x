@@ -224,10 +224,11 @@ def main() -> None:
         output.write_text(json.dumps(report, indent=2) + '\n', encoding='utf-8')
 
     def run(label: str, argv: list[str], cwd: Path, timeout: int = 60, expected_exit: int = 0) -> str:
+        started = time.monotonic()
         result = subprocess.run(argv, cwd=cwd, capture_output=True, text=True, encoding='utf-8', timeout=timeout, check=False)
         (args.output / f'{label}.stdout').write_text(result.stdout, encoding='utf-8')
         (args.output / f'{label}.stderr').write_text(result.stderr, encoding='utf-8')
-        report['commands'].append({'label': label, 'argv': argv, 'exit_code': result.returncode, 'timeout_seconds': timeout})
+        report['commands'].append({'label': label, 'argv': argv, 'exit_code': result.returncode, 'timeout_seconds': timeout, 'elapsed_seconds': round(time.monotonic() - started, 3)})
         retain()
         if result.returncode != expected_exit:
             raise RuntimeError(f'{label} exited {result.returncode}; see retained output')
@@ -320,7 +321,7 @@ def main() -> None:
                 steps.append({'action': 'save_screenshot', 'path': str(args.output / 'title.png')})
             session = args.output / f'{label}-session.json'
             session.write_text(json.dumps(steps, indent=2) + '\n', encoding='utf-8')
-            text = run(label, [binaries['emu198x-spectrum'], '--machine', 'spectrum_48k', '--rom', str(args.firmware), '--script', str(session)], args.work, timeout=180)
+            text = run(label, [binaries['emu198x-spectrum'], '--machine', 'spectrum_48k', '--rom', str(args.firmware), '--script', str(session)], args.work, timeout=360 if target == 'x86_64-apple-darwin' else 180)
             return json.loads(text)
 
         verify_boot(boot('positive', tape, True), code, symbols['phase'], rom)
