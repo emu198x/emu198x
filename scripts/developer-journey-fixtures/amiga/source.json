@@ -1,0 +1,15 @@
+{
+  "repository": "https://github.com/code198x/code-samples",
+  "revision": "51297ac3196a990286b0d21a4dedd4653c0168f0",
+  "path": "commodore-amiga/patterns/assembly/audio/playing-a-sample",
+  "files": {
+    "demo.asm": "b65880fa3dcd1a8d0ffda8e7098ea485c8cead877bb91fb9b0aa01d7f6efb368",
+    "paula-sample.inc": "a6c1dcda0cc8e9bc864f44cc8e4795cc9cfbe27bfdd63ecad0f8d4a081b9b8d9",
+    "Makefile": "01a7989438e48116752b8b30ae91a3c96029de9d2e8171c476cb239ef5574d07",
+    "README.md": "d1716bf9dddac2682bac1357502e44f62583ed2400dd3ec9be9df8a53114119f"
+  },
+  "rebuild_sha256": {
+    "demo": "8f26e48774e4490764ed23e4bc18a3f0260c94fbb4f4921f0badd5bd473bb190",
+    "demo.adf": "969bf9e0f50999a735e788efc5f80ec229adcd3c6fcc016d9092c5b12289cda8"
+  }
+}
