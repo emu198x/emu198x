@@ -63,7 +63,7 @@ jobs:
       tag-flag: ${{ !github.event.pull_request && format('--tag={0}', github.ref_name) || '' }}
       publishing: ${{ !github.event.pull_request }}
     env:
-      GH_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN || secrets.GITHUB_TOKEN }}
+      GH_TOKEN: ${{ github.event_name != 'pull_request' && secrets.RELEASE_PLZ_TOKEN || secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -119,7 +119,7 @@ jobs:
     runs-on: ${{ matrix.runner }}
     container: ${{ matrix.container && matrix.container.image || null }}
     env:
-      GH_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN || secrets.GITHUB_TOKEN }}
+      GH_TOKEN: ${{ github.event_name != 'pull_request' && secrets.RELEASE_PLZ_TOKEN || secrets.GITHUB_TOKEN }}
       BUILD_MANIFEST_NAME: target/distrib/${{ join(matrix.targets, '-') }}-dist-manifest.json
     steps:
       - name: enable windows longpaths
@@ -129,6 +129,11 @@ jobs:
         with:
           persist-credentials: false
           submodules: recursive
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - name: Run producer rejection controls
+        run: python scripts/test_source_lock.py
       - name: Install Rust non-interactively if not already installed
         if: ${{ matrix.container }}
         run: |
@@ -158,7 +163,7 @@ jobs:
       # .github/macos-signing.md.
       - name: Configure macOS signing
         id: macos-signing
-        if: ${{ runner.os == 'macOS' }}
+        if: ${{ runner.os == 'macOS' && needs.plan.outputs.publishing == 'true' }}
         shell: bash
         env:
           CODESIGN_CERTIFICATE: ${{ secrets.CODESIGN_CERTIFICATE }}
@@ -205,9 +210,11 @@ jobs:
           } >> "$GITHUB_ENV"
           echo "enabled=true" >> "$GITHUB_OUTPUT"
       - name: Build artifacts
+        shell: bash
         run: |
-          # Actually do builds and make zips and whatnot
-          dist build ${{ needs.plan.outputs.tag-flag }} --print=linkage --output-format=json ${{ matrix.dist_args }} > dist-manifest.json
+          set -euo pipefail
+          # Hash the committed lock around the actual packaging invocation.
+          python scripts/source_lock.py build "${{ join(matrix.targets, ',') }}" dist-manifest.json target/distrib -- dist build ${{ needs.plan.outputs.tag-flag }} --print=linkage --output-format=json ${{ matrix.dist_args }}
           echo "dist ran successfully"
       - id: cargo-dist
         name: Post-build
@@ -341,6 +348,9 @@ jobs:
           done < <(security list-keychains -d user | tr -d '"' | sed 's/^ *//')
           security list-keychains -d user -s "${remaining[@]}" || true
           security default-keychain -d user -s "$HOME/Library/Keychains/login.keychain-db" || true
+      - name: Recheck packaged bytes after notarization
+        shell: bash
+        run: python scripts/source_lock.py verify "${{ join(matrix.targets, ',') }}" dist-manifest.json target/distrib --output target/producer-verification.json
       - name: "Upload artifacts"
         uses: actions/upload-artifact@v7
         with:
@@ -348,6 +358,7 @@ jobs:
           path: |
             ${{ steps.cargo-dist.outputs.paths }}
             ${{ env.BUILD_MANIFEST_NAME }}
+            target/distrib/*-${{ join(matrix.targets, ',') }}-source-lock.json
 
   # Build and package all the platform-agnostic(ish) things
   build-global-artifacts:
@@ -356,7 +367,7 @@ jobs:
       - build-local-artifacts
     runs-on: "ubuntu-22.04"
     env:
-      GH_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN || secrets.GITHUB_TOKEN }}
+      GH_TOKEN: ${{ github.event_name != 'pull_request' && secrets.RELEASE_PLZ_TOKEN || secrets.GITHUB_TOKEN }}
       BUILD_MANIFEST_NAME: target/distrib/global-dist-manifest.json
     steps:
       - uses: actions/checkout@v6
@@ -401,10 +412,11 @@ jobs:
       - plan
       - build-local-artifacts
       - build-global-artifacts
-    # Only run if we're "publishing", and only if plan, local and global didn't fail (skipped is fine)
-    if: ${{ always() && needs.plan.result == 'success' && needs.plan.outputs.publishing == 'true' && (needs.build-global-artifacts.result == 'skipped' || needs.build-global-artifacts.result == 'success') && (needs.build-local-artifacts.result == 'skipped' || needs.build-local-artifacts.result == 'success') }}
+      - custom-qualify-packages
+    # Publish only after every producer and qualification job succeeds.
+    if: ${{ always() && needs.plan.result == 'success' && needs.plan.outputs.publishing == 'true' && needs.build-global-artifacts.result == 'success' && needs.build-local-artifacts.result == 'success' && needs.custom-qualify-packages.result == 'success' }}
     env:
-      GH_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN || secrets.GITHUB_TOKEN }}
+      GH_TOKEN: ${{ github.event_name != 'pull_request' && secrets.RELEASE_PLZ_TOKEN || secrets.GITHUB_TOKEN }}
     runs-on: "ubuntu-22.04"
     outputs:
       val: ${{ steps.host.outputs.manifest }}
@@ -467,21 +479,20 @@ jobs:
           # passes `--target` with the pushed SHA; the tag makes it redundant.
           gh release create "${{ needs.plan.outputs.tag }}" $PRERELEASE_FLAG --title "$ANNOUNCEMENT_TITLE" --notes-file "$RUNNER_TEMP/notes.txt" artifacts/*
 
-  custom-test-linux-packages:
+  custom-qualify-packages:
     needs:
       - plan
       - build-local-artifacts
       - build-global-artifacts
-    uses: ./.github/workflows/test-linux-packages.yml
+    uses: ./.github/workflows/qualify-packages.yml
     with:
       plan: ${{ needs.plan.outputs.val }}
-    secrets: inherit
 
   publish-homebrew-formula:
     needs:
       - plan
       - host
-      - custom-test-linux-packages
+      - custom-qualify-packages
     runs-on: "ubuntu-22.04"
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -538,14 +549,14 @@ jobs:
       - plan
       - host
       - publish-homebrew-formula
-      - custom-test-linux-packages
+      - custom-qualify-packages
     # use "always() && ..." to allow us to wait for all publish jobs while
     # still allowing individual publish jobs to skip themselves (for prereleases).
     # "host" however must run to completion, no skipping allowed!
-    if: ${{ always() && needs.host.result == 'success' && needs.custom-test-linux-packages.result == 'success' && needs.publish-homebrew-formula.result == 'success' }}
+    if: ${{ always() && needs.host.result == 'success' && needs.custom-qualify-packages.result == 'success' && needs.publish-homebrew-formula.result == 'success' }}
     runs-on: "ubuntu-22.04"
     env:
-      GH_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN || secrets.GITHUB_TOKEN }}
+      GH_TOKEN: ${{ github.event_name != 'pull_request' && secrets.RELEASE_PLZ_TOKEN || secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v6
         with:
