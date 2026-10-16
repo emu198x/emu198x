@@ -1,0 +1,2 @@
+# Producer receipts compare checkout lock bytes with the committed Git blob.
+/Cargo.lock text eol=lf
