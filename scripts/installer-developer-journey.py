@@ -15,6 +15,12 @@ from pathlib import Path
 PINS = Path(__file__).with_name('installer-journey-inputs.json')
 
 
+def archive_install_record(tool: dict, binary: Path) -> dict:
+    """Keep the downloaded container and installed executable identities distinct."""
+    return {**tool, 'route': 'advertised ZIP, not an installer', 'path': str(binary),
+            'archive_sha256': tool['sha256'], 'sha256': hashlib.sha256(binary.read_bytes()).hexdigest()}
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--host', choices=['macos-intel', 'macos-arm', 'windows'], required=True)
@@ -139,7 +145,7 @@ def main() -> None:
                 binary = args.work / 'emu198x-spectrum.exe'
                 binary.write_bytes(zipped.read(members[0]))
             installed['emu198x-spectrum'] = str(binary)
-            report['installed']['emu198x-spectrum'] = {'route': 'advertised ZIP, not an installer', 'path': str(binary), 'sha256': hashlib.sha256(binary.read_bytes()).hexdigest(), **tool}
+            report['installed']['emu198x-spectrum'] = archive_install_record(tool, binary)
             run('emu198x-spectrum-help', [str(binary), '--help'])
         retain()
         selected = args.output / 'selected-inputs.json'
