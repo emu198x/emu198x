@@ -6,6 +6,8 @@ import struct
 import tempfile
 import unittest
 from pathlib import Path
+from subprocess import CompletedProcess
+from unittest.mock import patch
 
 SPEC = importlib.util.spec_from_file_location('journey', Path(__file__).with_name('windows-developer-journey.py'))
 assert SPEC is not None and SPEC.loader is not None
@@ -75,6 +77,25 @@ class JourneyControls(unittest.TestCase):
             path.write_bytes(bytes(16384))
             with self.assertRaisesRegex(ValueError, 'identity differs'):
                 journey.firmware(path, '0' * 64)
+
+    def test_windows_checkout_conversion_preserves_exact_blob_inputs_and_rejects_real_edits(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            samples = root / 'samples'
+            samples.mkdir()
+            blob = b'org 32768\n ld a,2\n'
+            (samples / 'demo.asm').write_bytes(blob.replace(b'\n', b'\r\n'))
+            revision = 'a' * 40
+            pins = {'samples_revision': revision, 'files': {'demo.asm': journey.digest(blob)}}
+            replies = [CompletedProcess([], 0, (revision + '\n').encode()), CompletedProcess([], 0, blob)]
+            with patch.object(journey.subprocess, 'run', side_effect=replies):
+                staged, records = journey.stage_sources(samples, root / 'work', pins)
+            self.assertEqual((staged / 'demo.asm').read_bytes(), blob)
+            self.assertEqual(records[0]['checkout_conversion'], 'CRLF')
+            self.assertEqual(records[0]['materialised_sha256'], pins['files']['demo.asm'])
+            (samples / 'demo.asm').write_bytes(b'org 32768\r\n ld a,4\r\n')
+            with patch.object(journey.subprocess, 'run', side_effect=replies), self.assertRaisesRegex(ValueError, 'real change'):
+                journey.stage_sources(samples, root / 'changed', pins)
 
     def test_workflow_is_opt_in_and_keeps_the_same_sample_pin(self) -> None:
         workflow = (Path(__file__).parents[1] / '.github/workflows/test-linux-packages.yml').read_text()

@@ -27,6 +27,35 @@ def firmware(path: Path, expected: str) -> bytes:
     return data
 
 
+
+def stage_sources(samples: Path, work: Path, pins: dict) -> tuple[Path, list[dict]]:
+    """Use exact pinned blobs; permit only checkout CRLF conversion as transport."""
+    head = subprocess.run(['git', '-C', str(samples), 'rev-parse', 'HEAD'], capture_output=True, timeout=10, check=True).stdout.decode().strip()
+    if head != pins['samples_revision']:
+        raise ValueError('Samples checkout is not the pinned revision')
+    root = work / 'sources'
+    records = []
+    for name, expected in pins['files'].items():
+        relative = Path(name)
+        if relative.is_absolute() or '..' in relative.parts:
+            raise ValueError('Invalid pinned input path')
+        blob = subprocess.run(['git', '-C', str(samples), 'show', f'{head}:{name}'], capture_output=True, timeout=10, check=True).stdout
+        checked_out = (samples / relative).read_bytes()
+        if digest(blob) != expected:
+            raise ValueError(f'Pinned Git blob differs: {name}')
+        identical = checked_out == blob
+        if not identical and (relative.suffix == '.scr' or checked_out.replace(b'\r\n', b'\n') != blob):
+            raise ValueError(f'Sample worktree contains a real change: {name}')
+        target = root / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(blob)
+        records.append({'path': name, 'blob_sha256': expected, 'checkout_sha256': digest(checked_out),
+                        'checkout_crlf_count': checked_out.count(b'\r\n'),
+                        'materialised_sha256': digest(target.read_bytes()),
+                        'checkout_conversion': 'identical' if identical else 'CRLF'})
+    return root, records
+
+
 def tape_blocks(data: bytes) -> list[bytes]:
     blocks = []
     offset = 0
@@ -102,7 +131,7 @@ def main() -> None:
         output.write_text(json.dumps(report, indent=2) + '\n')
 
     def run(label: str, argv: list[str], cwd: Path, timeout: int = 60) -> str:
-        result = subprocess.run(argv, cwd=cwd, capture_output=True, text=True, timeout=timeout, check=False)
+        result = subprocess.run(argv, cwd=cwd, capture_output=True, text=True, encoding='utf-8', timeout=timeout, check=False)
         (args.output / f'{label}.stdout').write_text(result.stdout)
         (args.output / f'{label}.stderr').write_text(result.stderr)
         report['commands'].append({'label': label, 'argv': argv, 'exit_code': result.returncode, 'timeout_seconds': timeout})
@@ -117,9 +146,7 @@ def main() -> None:
             raise ValueError('This qualification requires a native x86-64 Windows runner')
         rom = firmware(args.firmware, pins['firmware_sha256'])
         report['firmware_sha256'] = digest(rom)
-        for name, expected in pins['files'].items():
-            if digest((args.samples_root / name).read_bytes()) != expected:
-                raise ValueError(f'Pinned sample differs: {name}')
+        staged, report['source_materialisation'] = stage_sources(args.samples_root, args.work, pins)
         report['source_hashes'] = pins['files']
         tools = args.work / 'tools'
         tools.mkdir(parents=True, exist_ok=True)
@@ -149,7 +176,7 @@ def main() -> None:
             binaries[tool['name']] = str(binary)
             report['tools'].append({**tool, 'executable_sha256': digest(executable)})
             run(tool['name'] + '-help', [str(binary), '--help'], args.work)
-        source = args.samples_root / pins['sample_path'] / 'checkpoints/loading-screen'
+        source = staged / pins['sample_path'] / 'checkpoints/loading-screen'
         build = args.work / 'build'
         build.mkdir()
         asm = binaries['asm198x']
