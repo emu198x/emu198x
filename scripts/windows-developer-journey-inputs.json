@@ -1,0 +1,40 @@
+{
+  "samples_revision": "51297ac3196a990286b0d21a4dedd4653c0168f0",
+  "sample_path": "sinclair-zx-spectrum/assembly/meteor-storm",
+  "files": {
+    "sinclair-zx-spectrum/assembly/meteor-storm/unit-35/Makefile": "85cae388cfb90bde1699b1337536b082954c03be11cbe4778c72fa07cab3b4bf",
+    "sinclair-zx-spectrum/assembly/meteor-storm/checkpoints/loading-screen/loader.bas": "18d3235c3508ebb83feac57f34759e6277ef6aceab87b8493400ff5466fa41e2",
+    "sinclair-zx-spectrum/assembly/meteor-storm/checkpoints/loading-screen/screen.asm": "b0361768f088026ebfc6cffa31530767cdef52ee82a58271894f12f318b3d81f",
+    "sinclair-zx-spectrum/assembly/meteor-storm/checkpoints/loading-screen/meteor-storm.scr": "1325b44c95fab8934ad257c290170e4cfacda56118baf6b94d08cfb3c3514843",
+    "sinclair-zx-spectrum/assembly/meteor-storm/checkpoints/loading-screen/meteor-storm.asm": "0ce6a2bb21a8304582b4175fa94dc2b956c00218f8ef6cf9e4ddba41af24b073",
+    "sinclair-zx-spectrum/assembly/meteor-storm/checkpoints/loading-screen/assets.inc": "3829130674d64ce81ba26e7f3d4c9108b6a5c463eafe43e999544d254d72812f"
+  },
+  "tools": [
+    {
+      "name": "asm198x",
+      "release": "asm198x-v0.0.67",
+      "archive": "asm198x-x86_64-pc-windows-msvc.zip",
+      "url": "https://github.com/asm198x/asm198x/releases/download/asm198x-v0.0.67/asm198x-x86_64-pc-windows-msvc.zip",
+      "sha256": "fcc67b3abac24f03b898e02d39558c09f656fafe0206187c87cb64822b4de643"
+    },
+    {
+      "name": "build198x",
+      "release": "build198x-v0.2.12",
+      "archive": "build198x-x86_64-pc-windows-msvc.zip",
+      "url": "https://github.com/build198x/build198x/releases/download/build198x-v0.2.12/build198x-x86_64-pc-windows-msvc.zip",
+      "sha256": "aeac7d6f275d0c50f25960c14045775cfe3fa8c9864805e57621acb91353c2f8"
+    },
+    {
+      "name": "emu198x-spectrum",
+      "release": "v0.35.2",
+      "archive": "emu198x-spectrum-x86_64-pc-windows-msvc.zip",
+      "url": "https://github.com/emu198x/emu198x/releases/download/v0.35.2/emu198x-spectrum-x86_64-pc-windows-msvc.zip",
+      "sha256": "d20c69b07918ee804e6a03be8174f65dc90c5687dc63ea5bb875e4bd93e8552c"
+    }
+  ],
+  "firmware_sha256": "d55daa439b673b0e3f5897f99ac37ecb45f974d1862b4dadb85dec34af99cb42",
+  "frames": 15000,
+  "target": "x86_64-pc-windows-msvc",
+  "source_debug_fixture_sha256": "5e3104489afcac632d5015f66d5db1e63018537a3d80641058553f3d7ceaa113",
+  "source_debug_session_sha256": "bee6b1ead2812192916b9a3e83e438f4a6da4ce26bdbf49f442178e64365cdf7"
+}

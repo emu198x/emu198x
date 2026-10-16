@@ -1,0 +1,479 @@
+﻿2026-10-16T14:57:52.5763546Z Current runner version: '2.337.0'
+2026-10-16T14:57:52.5787783Z ##[group]Runner Image Provisioner
+2026-10-16T14:57:52.5788584Z Hosted Compute Agent
+2026-10-16T14:57:52.5789134Z Version: 20261012.601
+2026-10-16T14:57:52.5789704Z Commit: f3dc54e1fb89da6852db922499a0233137369e1d
+2026-10-16T14:57:52.5790428Z Build Date: 2026-10-12T17:48:21Z
+2026-10-16T14:57:52.5791056Z Worker ID: {83db6af3-ab8f-468f-b783-7f5af966652c}
+2026-10-16T14:57:52.5791748Z Region: eastus
+2026-10-16T14:57:52.5792263Z Cloud: Azure
+2026-10-16T14:57:52.5792738Z ##[endgroup]
+2026-10-16T14:57:52.5794012Z ##[group]Operating System
+2026-10-16T14:57:52.5794648Z Microsoft Windows Server 2022
+2026-10-16T14:57:52.5795215Z 10.0.20348
+2026-10-16T14:57:52.5795688Z Datacenter
+2026-10-16T14:57:52.5796152Z ##[endgroup]
+2026-10-16T14:57:52.5796667Z ##[group]Runner Image
+2026-10-16T14:57:52.5797240Z Image: windows-2022
+2026-10-16T14:57:52.5797735Z Version: 20261012.333.1
+2026-10-16T14:57:52.5799067Z Included Software: https://github.com/actions/runner-images/blob/win22/20261012.333/images/windows/Windows2022-Readme.md
+2026-10-16T14:57:52.5800565Z Image Release: https://github.com/actions/runner-images/releases/tag/win22%2F20261012.333
+2026-10-16T14:57:52.5801445Z ##[endgroup]
+2026-10-16T14:57:52.5802552Z ##[group]GITHUB_TOKEN Permissions
+2026-10-16T14:57:52.5804343Z Actions: read
+2026-10-16T14:57:52.5804922Z Contents: read
+2026-10-16T14:57:52.5805460Z Metadata: read
+2026-10-16T14:57:52.5805933Z ##[endgroup]
+2026-10-16T14:57:52.5807962Z Secret source: Actions
+2026-10-16T14:57:52.5808818Z Cache mode: write
+2026-10-16T14:57:52.5809528Z Prepare workflow directory
+2026-10-16T14:57:52.6237403Z Prepare all required actions
+2026-10-16T14:57:52.6284491Z Getting action download info
+2026-10-16T14:57:52.8215513Z Download action repository 'actions/checkout@v7' (SHA:3d3c42e5aac5ba805825da76410c181273ba90b1)
+2026-10-16T14:57:52.9463214Z Download action repository 'actions/setup-python@v6' (SHA:ece7cb06caefa5fff74198d8649806c4678c61a1)
+2026-10-16T14:57:53.0725942Z Download action repository 'actions/upload-artifact@v7' (SHA:cf430e030ddbb5b0abf93d22962f4752f3646cd9)
+2026-10-16T14:57:53.4498109Z Complete job name: Windows released-tool package-to-boot journey
+2026-10-16T14:57:53.6229871Z ##[group]Run actions/checkout@v7
+2026-10-16T14:57:53.6230871Z with:
+2026-10-16T14:57:53.6231298Z   persist-credentials: false
+2026-10-16T14:57:53.6231804Z   repository: emu198x/emu198x
+2026-10-16T14:57:53.6235372Z   token: ***
+2026-10-16T14:57:53.6235828Z   ssh-strict: true
+2026-10-16T14:57:53.6236240Z   ssh-user: git
+2026-10-16T14:57:53.6236628Z   clean: true
+2026-10-16T14:57:53.6237048Z   sparse-checkout-cone-mode: true
+2026-10-16T14:57:53.6237544Z   fetch-depth: 1
+2026-10-16T14:57:53.6237945Z   fetch-tags: false
+2026-10-16T14:57:53.6238357Z   show-progress: true
+2026-10-16T14:57:53.6238775Z   lfs: false
+2026-10-16T14:57:53.6239150Z   submodules: false
+2026-10-16T14:57:53.6239571Z   set-safe-directory: true
+2026-10-16T14:57:53.6240048Z   allow-unsafe-pr-checkout: false
+2026-10-16T14:57:53.6240758Z env:
+2026-10-16T14:57:53.6241257Z   SAMPLES_REVISION: 51297ac3196a990286b0d21a4dedd4653c0168f0
+2026-10-16T14:57:53.6241876Z ##[endgroup]
+2026-10-16T14:57:53.7686485Z Syncing repository: emu198x/emu198x
+2026-10-16T14:57:53.7688786Z ##[group]Getting Git version info
+2026-10-16T14:57:53.7689677Z Working directory is 'D:\a\emu198x\emu198x'
+2026-10-16T14:57:53.8751197Z [command]"C:\Program Files\Git\bin\git.exe" version
+2026-10-16T14:57:54.1940671Z git version 2.56.0.windows.2
+2026-10-16T14:57:54.1977863Z ##[endgroup]
+2026-10-16T14:57:54.1996819Z Temporarily overriding HOME='D:\a\_temp\89b17658-defd-4709-bea9-bcb0fefafa0e' before making global git config changes
+2026-10-16T14:57:54.1998981Z Adding repository directory to the temporary git global config as a safe directory
+2026-10-16T14:57:54.2007587Z [command]"C:\Program Files\Git\bin\git.exe" config --global --add safe.directory D:\a\emu198x\emu198x
+2026-10-16T14:57:54.2536699Z Deleting the contents of 'D:\a\emu198x\emu198x'
+2026-10-16T14:57:54.2541143Z ##[group]Determining repository object format
+2026-10-16T14:57:54.2543689Z ##[endgroup]
+2026-10-16T14:57:54.2546066Z ##[group]Initializing the repository
+2026-10-16T14:57:54.2554184Z [command]"C:\Program Files\Git\bin\git.exe" init D:\a\emu198x\emu198x
+2026-10-16T14:57:54.3495791Z Initialized empty Git repository in D:/a/emu198x/emu198x/.git/
+2026-10-16T14:57:54.3532313Z [command]"C:\Program Files\Git\bin\git.exe" remote add origin https://github.com/emu198x/emu198x
+2026-10-16T14:57:54.4065941Z ##[endgroup]
+2026-10-16T14:57:54.4067672Z ##[group]Disabling automatic garbage collection
+2026-10-16T14:57:54.4073790Z [command]"C:\Program Files\Git\bin\git.exe" config --local gc.auto 0
+2026-10-16T14:57:54.4352808Z ##[endgroup]
+2026-10-16T14:57:54.4354421Z ##[group]Setting up auth
+2026-10-16T14:57:54.4355610Z Removing SSH command configuration
+2026-10-16T14:57:54.4362338Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp core\.sshCommand
+2026-10-16T14:57:54.4643925Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "sh -c \"git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :\""
+2026-10-16T14:57:55.7914670Z Removing HTTP extra header
+2026-10-16T14:57:55.7923724Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-10-16T14:57:55.8205933Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "sh -c \"git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :\""
+2026-10-16T14:57:56.2909510Z Removing includeIf entries pointing to credentials config files
+2026-10-16T14:57:56.2910808Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-10-16T14:57:56.3207634Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "git config --local --show-origin --name-only --get-regexp remote.origin.url"
+2026-10-16T14:57:56.7756225Z [command]"C:\Program Files\Git\bin\git.exe" config --file D:\a\_temp\git-credentials-f9fc3b48-ac69-4d9d-bccb-e6bd4dd7369e.config http.https://github.com/.extraheader "AUTHORIZATION: basic ***"
+2026-10-16T14:57:56.8050067Z [command]"C:\Program Files\Git\bin\git.exe" config --local includeIf.gitdir:D:/a/emu198x/emu198x/.git.path D:\a\_temp\git-credentials-f9fc3b48-ac69-4d9d-bccb-e6bd4dd7369e.config
+2026-10-16T14:57:56.8345874Z [command]"C:\Program Files\Git\bin\git.exe" config --local includeIf.gitdir:D:/a/emu198x/emu198x/.git/worktrees/*.path D:\a\_temp\git-credentials-f9fc3b48-ac69-4d9d-bccb-e6bd4dd7369e.config
+2026-10-16T14:57:56.8668627Z [command]"C:\Program Files\Git\bin\git.exe" config --local includeIf.gitdir:/github/workspace/.git.path /github/runner_temp/git-credentials-f9fc3b48-ac69-4d9d-bccb-e6bd4dd7369e.config
+2026-10-16T14:57:56.8949852Z [command]"C:\Program Files\Git\bin\git.exe" config --local includeIf.gitdir:/github/workspace/.git/worktrees/*.path /github/runner_temp/git-credentials-f9fc3b48-ac69-4d9d-bccb-e6bd4dd7369e.config
+2026-10-16T14:57:56.9223967Z ##[endgroup]
+2026-10-16T14:57:56.9224659Z ##[group]Fetching the repository
+2026-10-16T14:57:56.9236227Z [command]"C:\Program Files\Git\bin\git.exe" -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +398b6e80dbe3d933e1d6c2dc24896b3b9110f592:refs/remotes/origin/ci/windows-developer-journey
+2026-10-16T14:57:59.3350535Z From https://github.com/emu198x/emu198x
+2026-10-16T14:57:59.3351826Z  * [new ref]         398b6e80dbe3d933e1d6c2dc24896b3b9110f592 -> origin/ci/windows-developer-journey
+2026-10-16T14:57:59.3388648Z [command]"C:\Program Files\Git\bin\git.exe" branch --list --remote origin/ci/windows-developer-journey
+2026-10-16T14:57:59.3738777Z   origin/ci/windows-developer-journey
+2026-10-16T14:57:59.3769623Z [command]"C:\Program Files\Git\bin\git.exe" rev-parse refs/remotes/origin/ci/windows-developer-journey
+2026-10-16T14:57:59.4089024Z 398b6e80dbe3d933e1d6c2dc24896b3b9110f592
+2026-10-16T14:57:59.4153931Z ##[endgroup]
+2026-10-16T14:57:59.4154371Z ##[group]Determining the checkout info
+2026-10-16T14:57:59.4155348Z ##[endgroup]
+2026-10-16T14:57:59.4164092Z [command]"C:\Program Files\Git\bin\git.exe" sparse-checkout disable
+2026-10-16T14:57:59.4590444Z [command]"C:\Program Files\Git\bin\git.exe" config --local --unset-all extensions.worktreeConfig
+2026-10-16T14:57:59.4866771Z ##[group]Checking out the ref
+2026-10-16T14:57:59.4874519Z [command]"C:\Program Files\Git\bin\git.exe" checkout --progress --force -B ci/windows-developer-journey refs/remotes/origin/ci/windows-developer-journey
+2026-10-16T14:58:00.5295393Z Updating files:  63% (3835/6044)
+2026-10-16T14:58:00.5410335Z Updating files:  64% (3869/6044)
+2026-10-16T14:58:00.5525660Z Updating files:  65% (3929/6044)
+2026-10-16T14:58:00.5652282Z Updating files:  66% (3990/6044)
+2026-10-16T14:58:00.5794595Z Updating files:  67% (4050/6044)
+2026-10-16T14:58:00.6014336Z Updating files:  68% (4110/6044)
+2026-10-16T14:58:00.6222283Z Updating files:  69% (4171/6044)
+2026-10-16T14:58:00.6537053Z Updating files:  70% (4231/6044)
+2026-10-16T14:58:00.6660116Z Updating files:  71% (4292/6044)
+2026-10-16T14:58:00.6791194Z Updating files:  72% (4352/6044)
+2026-10-16T14:58:00.6956461Z Updating files:  73% (4413/6044)
+2026-10-16T14:58:00.7080903Z Updating files:  74% (4473/6044)
+2026-10-16T14:58:00.7207052Z Updating files:  75% (4533/6044)
+2026-10-16T14:58:00.7335416Z Updating files:  76% (4594/6044)
+2026-10-16T14:58:00.7441615Z Updating files:  77% (4654/6044)
+2026-10-16T14:58:00.7549518Z Updating files:  78% (4715/6044)
+2026-10-16T14:58:00.7672184Z Updating files:  79% (4775/6044)
+2026-10-16T14:58:00.7799487Z Updating files:  80% (4836/6044)
+2026-10-16T14:58:00.7921550Z Updating files:  81% (4896/6044)
+2026-10-16T14:58:00.8042098Z Updating files:  82% (4957/6044)
+2026-10-16T14:58:00.8141214Z Updating files:  83% (5017/6044)
+2026-10-16T14:58:00.8365443Z Updating files:  84% (5077/6044)
+2026-10-16T14:58:00.8631686Z Updating files:  85% (5138/6044)
+2026-10-16T14:58:00.8764073Z Updating files:  86% (5198/6044)
+2026-10-16T14:58:00.8982788Z Updating files:  87% (5259/6044)
+2026-10-16T14:58:00.9156342Z Updating files:  88% (5319/6044)
+2026-10-16T14:58:00.9251942Z Updating files:  89% (5380/6044)
+2026-10-16T14:58:00.9400984Z Updating files:  90% (5440/6044)
+2026-10-16T14:58:00.9511726Z Updating files:  91% (5501/6044)
+2026-10-16T14:58:00.9704676Z Updating files:  92% (5561/6044)
+2026-10-16T14:58:00.9820214Z Updating files:  93% (5621/6044)
+2026-10-16T14:58:00.9929142Z Updating files:  94% (5682/6044)
+2026-10-16T14:58:01.0389842Z Updating files:  95% (5742/6044)
+2026-10-16T14:58:01.0537733Z Updating files:  96% (5803/6044)
+2026-10-16T14:58:01.1236623Z Updating files:  97% (5863/6044)
+2026-10-16T14:58:01.1399214Z Updating files:  98% (5924/6044)
+2026-10-16T14:58:01.1517453Z Updating files:  99% (5984/6044)
+2026-10-16T14:58:01.1517931Z Updating files: 100% (6044/6044)
+2026-10-16T14:58:01.1518328Z Updating files: 100% (6044/6044), done.
+2026-10-16T14:58:01.1723149Z Switched to a new branch 'ci/windows-developer-journey'
+2026-10-16T14:58:01.1742060Z branch 'ci/windows-developer-journey' set up to track 'origin/ci/windows-developer-journey'.
+2026-10-16T14:58:01.1812354Z ##[endgroup]
+2026-10-16T14:58:01.2214991Z [command]"C:\Program Files\Git\bin\git.exe" log -1 --format=%H
+2026-10-16T14:58:01.2486914Z 398b6e80dbe3d933e1d6c2dc24896b3b9110f592
+2026-10-16T14:58:01.2517749Z ##[group]Removing auth
+2026-10-16T14:58:01.2518036Z Removing SSH command configuration
+2026-10-16T14:58:01.2525547Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp core\.sshCommand
+2026-10-16T14:58:01.2821864Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "sh -c \"git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :\""
+2026-10-16T14:58:01.7462215Z Removing HTTP extra header
+2026-10-16T14:58:01.7474803Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-10-16T14:58:01.7770724Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "sh -c \"git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :\""
+2026-10-16T14:58:02.2628039Z Removing includeIf entries pointing to credentials config files
+2026-10-16T14:58:02.2635926Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-10-16T14:58:02.2894917Z includeif.gitdir:D:/a/emu198x/emu198x/.git.path
+2026-10-16T14:58:02.2895966Z includeif.gitdir:D:/a/emu198x/emu198x/.git/worktrees/*.path
+2026-10-16T14:58:02.2896874Z includeif.gitdir:/github/workspace/.git.path
+2026-10-16T14:58:02.2897418Z includeif.gitdir:/github/workspace/.git/worktrees/*.path
+2026-10-16T14:58:02.2929597Z [command]"C:\Program Files\Git\bin\git.exe" config --local --get-all includeif.gitdir:D:/a/emu198x/emu198x/.git.path
+2026-10-16T14:58:02.3189716Z D:\a\_temp\git-credentials-f9fc3b48-ac69-4d9d-bccb-e6bd4dd7369e.config
+2026-10-16T14:58:02.3222168Z [command]"C:\Program Files\Git\bin\git.exe" config --local --unset includeif.gitdir:D:/a/emu198x/emu198x/.git.path D\:\\a\\_temp\\git\-credentials\-f9fc3b48\-ac69\-4d9d\-bccb\-e6bd4dd7369e\.config
+2026-10-16T14:58:02.3523744Z [command]"C:\Program Files\Git\bin\git.exe" config --local --get-all includeif.gitdir:D:/a/emu198x/emu198x/.git/worktrees/*.path
+2026-10-16T14:58:02.3780214Z D:\a\_temp\git-credentials-f9fc3b48-ac69-4d9d-bccb-e6bd4dd7369e.config
+2026-10-16T14:58:02.3814947Z [command]"C:\Program Files\Git\bin\git.exe" config --local --unset includeif.gitdir:D:/a/emu198x/emu198x/.git/worktrees/*.path D\:\\a\\_temp\\git\-credentials\-f9fc3b48\-ac69\-4d9d\-bccb\-e6bd4dd7369e\.config
+2026-10-16T14:58:02.4099162Z [command]"C:\Program Files\Git\bin\git.exe" config --local --get-all includeif.gitdir:/github/workspace/.git.path
+2026-10-16T14:58:02.4353433Z /github/runner_temp/git-credentials-f9fc3b48-ac69-4d9d-bccb-e6bd4dd7369e.config
+2026-10-16T14:58:02.4380881Z [command]"C:\Program Files\Git\bin\git.exe" config --local --unset includeif.gitdir:/github/workspace/.git.path \/github\/runner_temp\/git\-credentials\-f9fc3b48\-ac69\-4d9d\-bccb\-e6bd4dd7369e\.config
+2026-10-16T14:58:02.4664717Z [command]"C:\Program Files\Git\bin\git.exe" config --local --get-all includeif.gitdir:/github/workspace/.git/worktrees/*.path
+2026-10-16T14:58:02.4920354Z /github/runner_temp/git-credentials-f9fc3b48-ac69-4d9d-bccb-e6bd4dd7369e.config
+2026-10-16T14:58:02.4955813Z [command]"C:\Program Files\Git\bin\git.exe" config --local --unset includeif.gitdir:/github/workspace/.git/worktrees/*.path \/github\/runner_temp\/git\-credentials\-f9fc3b48\-ac69\-4d9d\-bccb\-e6bd4dd7369e\.config
+2026-10-16T14:58:02.5263536Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "git config --local --show-origin --name-only --get-regexp remote.origin.url"
+2026-10-16T14:58:03.0260797Z Removing credentials config 'D:\a\_temp\git-credentials-f9fc3b48-ac69-4d9d-bccb-e6bd4dd7369e.config'
+2026-10-16T14:58:03.0271860Z ##[endgroup]
+2026-10-16T14:58:03.0648607Z ##[group]Run actions/checkout@v7
+2026-10-16T14:58:03.0648919Z with:
+2026-10-16T14:58:03.0649119Z   repository: code198x/code-samples
+2026-10-16T14:58:03.0649408Z   ref: 51297ac3196a990286b0d21a4dedd4653c0168f0
+2026-10-16T14:58:03.0649684Z   path: code-samples
+2026-10-16T14:58:03.0649905Z   persist-credentials: false
+2026-10-16T14:58:03.0652258Z   token: ***
+2026-10-16T14:58:03.0652445Z   ssh-strict: true
+2026-10-16T14:58:03.0652627Z   ssh-user: git
+2026-10-16T14:58:03.0652793Z   clean: true
+2026-10-16T14:58:03.0652979Z   sparse-checkout-cone-mode: true
+2026-10-16T14:58:03.0653214Z   fetch-depth: 1
+2026-10-16T14:58:03.0653594Z   fetch-tags: false
+2026-10-16T14:58:03.0653784Z   show-progress: true
+2026-10-16T14:58:03.0653982Z   lfs: false
+2026-10-16T14:58:03.0654150Z   submodules: false
+2026-10-16T14:58:03.0654340Z   set-safe-directory: true
+2026-10-16T14:58:03.0654569Z   allow-unsafe-pr-checkout: false
+2026-10-16T14:58:03.0654807Z env:
+2026-10-16T14:58:03.0655077Z   SAMPLES_REVISION: 51297ac3196a990286b0d21a4dedd4653c0168f0
+2026-10-16T14:58:03.0655376Z ##[endgroup]
+2026-10-16T14:58:03.1711423Z Syncing repository: code198x/code-samples
+2026-10-16T14:58:03.1718444Z ##[group]Getting Git version info
+2026-10-16T14:58:03.1718906Z Working directory is 'D:\a\emu198x\emu198x\code-samples'
+2026-10-16T14:58:03.2604242Z [command]"C:\Program Files\Git\bin\git.exe" version
+2026-10-16T14:58:03.2878236Z git version 2.56.0.windows.2
+2026-10-16T14:58:03.2918434Z ##[endgroup]
+2026-10-16T14:58:03.2937606Z Temporarily overriding HOME='D:\a\_temp\bfd208a5-82a7-4223-ab17-340ab1579829' before making global git config changes
+2026-10-16T14:58:03.2938364Z Adding repository directory to the temporary git global config as a safe directory
+2026-10-16T14:58:03.2948674Z [command]"C:\Program Files\Git\bin\git.exe" config --global --add safe.directory D:\a\emu198x\emu198x\code-samples
+2026-10-16T14:58:03.3249103Z ##[group]Determining repository object format
+2026-10-16T14:58:03.3251583Z ##[endgroup]
+2026-10-16T14:58:03.3251989Z ##[group]Initializing the repository
+2026-10-16T14:58:03.3261160Z [command]"C:\Program Files\Git\bin\git.exe" init D:\a\emu198x\emu198x\code-samples
+2026-10-16T14:58:03.3591911Z Initialized empty Git repository in D:/a/emu198x/emu198x/code-samples/.git/
+2026-10-16T14:58:03.3685400Z [command]"C:\Program Files\Git\bin\git.exe" remote add origin https://github.com/code198x/code-samples
+2026-10-16T14:58:03.4137764Z ##[endgroup]
+2026-10-16T14:58:03.4138391Z ##[group]Disabling automatic garbage collection
+2026-10-16T14:58:03.4147897Z [command]"C:\Program Files\Git\bin\git.exe" config --local gc.auto 0
+2026-10-16T14:58:03.4507744Z ##[endgroup]
+2026-10-16T14:58:03.4508331Z ##[group]Setting up auth
+2026-10-16T14:58:03.4509587Z Removing SSH command configuration
+2026-10-16T14:58:03.4520890Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp core\.sshCommand
+2026-10-16T14:58:03.4826468Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "sh -c \"git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :\""
+2026-10-16T14:58:03.9473297Z Removing HTTP extra header
+2026-10-16T14:58:03.9482829Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-10-16T14:58:03.9768544Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "sh -c \"git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :\""
+2026-10-16T14:58:04.4476013Z Removing includeIf entries pointing to credentials config files
+2026-10-16T14:58:04.4485896Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-10-16T14:58:04.4784547Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "git config --local --show-origin --name-only --get-regexp remote.origin.url"
+2026-10-16T14:58:04.9658548Z [command]"C:\Program Files\Git\bin\git.exe" config --file D:\a\_temp\git-credentials-b08df7ff-9d3e-4b9c-8d5c-66cf95bd121f.config http.https://github.com/.extraheader "AUTHORIZATION: basic ***"
+2026-10-16T14:58:04.9944505Z [command]"C:\Program Files\Git\bin\git.exe" config --local includeIf.gitdir:D:/a/emu198x/emu198x/code-samples/.git.path D:\a\_temp\git-credentials-b08df7ff-9d3e-4b9c-8d5c-66cf95bd121f.config
+2026-10-16T14:58:05.0224662Z [command]"C:\Program Files\Git\bin\git.exe" config --local includeIf.gitdir:D:/a/emu198x/emu198x/code-samples/.git/worktrees/*.path D:\a\_temp\git-credentials-b08df7ff-9d3e-4b9c-8d5c-66cf95bd121f.config
+2026-10-16T14:58:05.0506658Z [command]"C:\Program Files\Git\bin\git.exe" config --local includeIf.gitdir:/github/workspace/code-samples/.git.path /github/runner_temp/git-credentials-b08df7ff-9d3e-4b9c-8d5c-66cf95bd121f.config
+2026-10-16T14:58:05.0788675Z [command]"C:\Program Files\Git\bin\git.exe" config --local includeIf.gitdir:/github/workspace/code-samples/.git/worktrees/*.path /github/runner_temp/git-credentials-b08df7ff-9d3e-4b9c-8d5c-66cf95bd121f.config
+2026-10-16T14:58:05.1109207Z ##[endgroup]
+2026-10-16T14:58:05.1109579Z ##[group]Fetching the repository
+2026-10-16T14:58:05.1119697Z [command]"C:\Program Files\Git\bin\git.exe" -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin 51297ac3196a990286b0d21a4dedd4653c0168f0
+2026-10-16T14:58:05.9397904Z From https://github.com/code198x/code-samples
+2026-10-16T14:58:05.9398350Z  * branch            51297ac3196a990286b0d21a4dedd4653c0168f0 -> FETCH_HEAD
+2026-10-16T14:58:05.9434020Z [command]"C:\Program Files\Git\bin\git.exe" rev-parse --verify --quiet 51297ac3196a990286b0d21a4dedd4653c0168f0^{object}
+2026-10-16T14:58:05.9689746Z 51297ac3196a990286b0d21a4dedd4653c0168f0
+2026-10-16T14:58:05.9712285Z ##[endgroup]
+2026-10-16T14:58:05.9712765Z ##[group]Determining the checkout info
+2026-10-16T14:58:05.9713353Z ##[endgroup]
+2026-10-16T14:58:05.9721566Z [command]"C:\Program Files\Git\bin\git.exe" sparse-checkout disable
+2026-10-16T14:58:06.0034127Z [command]"C:\Program Files\Git\bin\git.exe" config --local --unset-all extensions.worktreeConfig
+2026-10-16T14:58:06.0307444Z ##[group]Checking out the ref
+2026-10-16T14:58:06.0314300Z [command]"C:\Program Files\Git\bin\git.exe" checkout --progress --force 51297ac3196a990286b0d21a4dedd4653c0168f0
+2026-10-16T14:58:07.0678989Z Updating files:  90% (4120/4538)
+2026-10-16T14:58:07.0754270Z Updating files:  91% (4130/4538)
+2026-10-16T14:58:07.0845743Z Updating files:  92% (4175/4538)
+2026-10-16T14:58:07.0920703Z Updating files:  93% (4221/4538)
+2026-10-16T14:58:07.1006852Z Updating files:  94% (4266/4538)
+2026-10-16T14:58:07.1090100Z Updating files:  95% (4312/4538)
+2026-10-16T14:58:07.1176093Z Updating files:  96% (4357/4538)
+2026-10-16T14:58:07.1264733Z Updating files:  97% (4402/4538)
+2026-10-16T14:58:07.1348475Z Updating files:  98% (4448/4538)
+2026-10-16T14:58:07.1437656Z Updating files:  99% (4493/4538)
+2026-10-16T14:58:07.1438553Z Updating files: 100% (4538/4538)
+2026-10-16T14:58:07.1438994Z Updating files: 100% (4538/4538), done.
+2026-10-16T14:58:07.1610026Z Note: switching to '51297ac3196a990286b0d21a4dedd4653c0168f0'.
+2026-10-16T14:58:07.1610328Z 
+2026-10-16T14:58:07.1610534Z You are in 'detached HEAD' state. You can look around, make experimental
+2026-10-16T14:58:07.1611005Z changes and commit them, and you can discard any commits you make in this
+2026-10-16T14:58:07.1611455Z state without impacting any branches by switching back to a branch.
+2026-10-16T14:58:07.1611734Z 
+2026-10-16T14:58:07.1611913Z If you want to create a new branch to retain commits you create, you may
+2026-10-16T14:58:07.1612364Z do so (now or later) by using -c with the switch command. Example:
+2026-10-16T14:58:07.1612621Z 
+2026-10-16T14:58:07.1612767Z   git switch -c <new-branch-name>
+2026-10-16T14:58:07.1612939Z 
+2026-10-16T14:58:07.1613026Z Or undo this operation with:
+2026-10-16T14:58:07.1614033Z 
+2026-10-16T14:58:07.1614138Z   git switch -
+2026-10-16T14:58:07.1614253Z 
+2026-10-16T14:58:07.1614460Z Turn off this advice by setting config variable advice.detachedHead to false
+2026-10-16T14:58:07.1614759Z 
+2026-10-16T14:58:07.1615014Z HEAD is now at 51297ac Colour the progress bar like a gauge: red low, yellow middle, green high
+2026-10-16T14:58:07.1680058Z ##[endgroup]
+2026-10-16T14:58:07.1982741Z [command]"C:\Program Files\Git\bin\git.exe" log -1 --format=%H
+2026-10-16T14:58:07.2240029Z 51297ac3196a990286b0d21a4dedd4653c0168f0
+2026-10-16T14:58:07.2270033Z ##[group]Removing auth
+2026-10-16T14:58:07.2270327Z Removing SSH command configuration
+2026-10-16T14:58:07.2277811Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp core\.sshCommand
+2026-10-16T14:58:07.2555324Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "sh -c \"git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :\""
+2026-10-16T14:58:07.7015890Z Removing HTTP extra header
+2026-10-16T14:58:07.7024936Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-10-16T14:58:07.7307649Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "sh -c \"git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :\""
+2026-10-16T14:58:08.2187828Z Removing includeIf entries pointing to credentials config files
+2026-10-16T14:58:08.2196770Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-10-16T14:58:08.2451614Z includeif.gitdir:D:/a/emu198x/emu198x/code-samples/.git.path
+2026-10-16T14:58:08.2452487Z includeif.gitdir:D:/a/emu198x/emu198x/code-samples/.git/worktrees/*.path
+2026-10-16T14:58:08.2453280Z includeif.gitdir:/github/workspace/code-samples/.git.path
+2026-10-16T14:58:08.2454030Z includeif.gitdir:/github/workspace/code-samples/.git/worktrees/*.path
+2026-10-16T14:58:08.2481776Z [command]"C:\Program Files\Git\bin\git.exe" config --local --get-all includeif.gitdir:D:/a/emu198x/emu198x/code-samples/.git.path
+2026-10-16T14:58:08.2733129Z D:\a\_temp\git-credentials-b08df7ff-9d3e-4b9c-8d5c-66cf95bd121f.config
+2026-10-16T14:58:08.2763713Z [command]"C:\Program Files\Git\bin\git.exe" config --local --unset includeif.gitdir:D:/a/emu198x/emu198x/code-samples/.git.path D\:\\a\\_temp\\git\-credentials\-b08df7ff\-9d3e\-4b9c\-8d5c\-66cf95bd121f\.config
+2026-10-16T14:58:08.3043089Z [command]"C:\Program Files\Git\bin\git.exe" config --local --get-all includeif.gitdir:D:/a/emu198x/emu198x/code-samples/.git/worktrees/*.path
+2026-10-16T14:58:08.3291658Z D:\a\_temp\git-credentials-b08df7ff-9d3e-4b9c-8d5c-66cf95bd121f.config
+2026-10-16T14:58:08.3323817Z [command]"C:\Program Files\Git\bin\git.exe" config --local --unset includeif.gitdir:D:/a/emu198x/emu198x/code-samples/.git/worktrees/*.path D\:\\a\\_temp\\git\-credentials\-b08df7ff\-9d3e\-4b9c\-8d5c\-66cf95bd121f\.config
+2026-10-16T14:58:08.3612923Z [command]"C:\Program Files\Git\bin\git.exe" config --local --get-all includeif.gitdir:/github/workspace/code-samples/.git.path
+2026-10-16T14:58:08.3863031Z /github/runner_temp/git-credentials-b08df7ff-9d3e-4b9c-8d5c-66cf95bd121f.config
+2026-10-16T14:58:08.3898007Z [command]"C:\Program Files\Git\bin\git.exe" config --local --unset includeif.gitdir:/github/workspace/code-samples/.git.path \/github\/runner_temp\/git\-credentials\-b08df7ff\-9d3e\-4b9c\-8d5c\-66cf95bd121f\.config
+2026-10-16T14:58:08.4178110Z [command]"C:\Program Files\Git\bin\git.exe" config --local --get-all includeif.gitdir:/github/workspace/code-samples/.git/worktrees/*.path
+2026-10-16T14:58:08.4424503Z /github/runner_temp/git-credentials-b08df7ff-9d3e-4b9c-8d5c-66cf95bd121f.config
+2026-10-16T14:58:08.4453259Z [command]"C:\Program Files\Git\bin\git.exe" config --local --unset includeif.gitdir:/github/workspace/code-samples/.git/worktrees/*.path \/github\/runner_temp\/git\-credentials\-b08df7ff\-9d3e\-4b9c\-8d5c\-66cf95bd121f\.config
+2026-10-16T14:58:08.4728720Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "git config --local --show-origin --name-only --get-regexp remote.origin.url"
+2026-10-16T14:58:08.9360297Z Removing credentials config 'D:\a\_temp\git-credentials-b08df7ff-9d3e-4b9c-8d5c-66cf95bd121f.config'
+2026-10-16T14:58:08.9370192Z ##[endgroup]
+2026-10-16T14:58:08.9669406Z ##[group]Run actions/setup-python@v6
+2026-10-16T14:58:08.9669758Z with:
+2026-10-16T14:58:08.9669954Z   python-version: 3.14
+2026-10-16T14:58:08.9670358Z   check-latest: false
+2026-10-16T14:58:08.9673033Z   token: ***
+2026-10-16T14:58:08.9673232Z   update-environment: true
+2026-10-16T14:58:08.9673463Z   allow-prereleases: false
+2026-10-16T14:58:08.9673672Z   freethreaded: false
+2026-10-16T14:58:08.9673861Z env:
+2026-10-16T14:58:08.9674091Z   SAMPLES_REVISION: 51297ac3196a990286b0d21a4dedd4653c0168f0
+2026-10-16T14:58:08.9674427Z ##[endgroup]
+2026-10-16T14:58:09.1205070Z ##[group]Installed versions
+2026-10-16T14:58:09.1351911Z Successfully set up CPython (3.14.8)
+2026-10-16T14:58:09.1352685Z ##[endgroup]
+2026-10-16T14:58:09.1585369Z ##[group]Run python -m unittest discover -s scripts -p test_windows_developer_journey.py -v
+2026-10-16T14:58:09.1586165Z python -m unittest discover -s scripts -p test_windows_developer_journey.py -v
+2026-10-16T14:58:09.1770584Z shell: C:\Program Files\PowerShell\7\pwsh.EXE -command ". '{0}'"
+2026-10-16T14:58:09.1771022Z env:
+2026-10-16T14:58:09.1771327Z   SAMPLES_REVISION: 51297ac3196a990286b0d21a4dedd4653c0168f0
+2026-10-16T14:58:09.1771863Z   pythonLocation: C:\hostedtoolcache\windows\Python\3.14.8\x64
+2026-10-16T14:58:09.1772473Z   PKG_CONFIG_PATH: C:\hostedtoolcache\windows\Python\3.14.8\x64/lib/pkgconfig
+2026-10-16T14:58:09.1773062Z   Python_ROOT_DIR: C:\hostedtoolcache\windows\Python\3.14.8\x64
+2026-10-16T14:58:09.1773586Z   Python2_ROOT_DIR: C:\hostedtoolcache\windows\Python\3.14.8\x64
+2026-10-16T14:58:09.1774104Z   Python3_ROOT_DIR: C:\hostedtoolcache\windows\Python\3.14.8\x64
+2026-10-16T14:58:09.1774512Z ##[endgroup]
+2026-10-16T14:58:11.2393614Z test_checksum_correct_wrong_load_address_is_rejected (test_windows_developer_journey.JourneyControls.test_checksum_correct_wrong_load_address_is_rejected) ... ok
+2026-10-16T14:58:11.2405185Z test_package_recovers_independent_inputs_and_rejects_missing_or_changed_code (test_windows_developer_journey.JourneyControls.test_package_recovers_independent_inputs_and_rejects_missing_or_changed_code) ... ok
+2026-10-16T14:58:11.2462176Z test_runtime_needs_loaded_code_cpu_state_and_actual_title_pixels (test_windows_developer_journey.JourneyControls.test_runtime_needs_loaded_code_cpu_state_and_actual_title_pixels) ... ok
+2026-10-16T14:58:11.2465770Z test_workflow_is_opt_in_and_keeps_the_same_sample_pin (test_windows_developer_journey.JourneyControls.test_workflow_is_opt_in_and_keeps_the_same_sample_pin) ... ok
+2026-10-16T14:58:11.2535908Z test_wrong_or_missing_firmware_cannot_qualify (test_windows_developer_journey.JourneyControls.test_wrong_or_missing_firmware_cannot_qualify) ... ok
+2026-10-16T14:58:11.2536999Z 
+2026-10-16T14:58:11.2537217Z ----------------------------------------------------------------------
+2026-10-16T14:58:11.2537648Z Ran 5 tests in 0.015s
+2026-10-16T14:58:11.2537817Z 
+2026-10-16T14:58:11.2537903Z OK
+2026-10-16T14:58:11.3967334Z ##[group]Run python -c @'
+2026-10-16T14:58:11.3967704Z python -c @'
+2026-10-16T14:58:11.3967946Z import base64, hashlib, json, os
+2026-10-16T14:58:11.3968226Z from pathlib import Path
+2026-10-16T14:58:11.3968522Z root = Path(os.environ['RUNNER_TEMP'])
+2026-10-16T14:58:11.3968868Z evidence = root / 'windows-developer-evidence'
+2026-10-16T14:58:11.3969224Z evidence.mkdir()
+2026-10-16T14:58:11.3969482Z record = evidence / 'firmware-check.json'
+2026-10-16T14:58:11.3969914Z record.write_text(json.dumps({'status': 'failed', 'firmware_validated': False}))
+2026-10-16T14:58:11.3970335Z if os.environ['RELEASE_RUN']:
+2026-10-16T14:58:11.3970735Z     raise ValueError('Windows journey does not consume a candidate release_run')
+2026-10-16T14:58:11.3971349Z pins = json.loads(Path('scripts/windows-developer-journey-inputs.json').read_text())
+2026-10-16T14:58:11.3971974Z data = base64.b64decode(''.join(os.environ['ROM_B64'].split()), validate=True)
+2026-10-16T14:58:11.3972532Z if len(data) != 16384 or hashlib.sha256(data).hexdigest() != pins['firmware_sha256']:
+2026-10-16T14:58:11.3973303Z     raise ValueError('Genuine 48K firmware is missing or differs; no runtime qualification')
+2026-10-16T14:58:11.3973798Z firmware = root / 'windows-developer-firmware'
+2026-10-16T14:58:11.3974110Z firmware.mkdir()
+2026-10-16T14:58:11.3974353Z (firmware / '48.rom').write_bytes(data)
+2026-10-16T14:58:11.3974905Z record.write_text(json.dumps({'status': 'passed', 'firmware_validated': True, 'sha256': pins['firmware_sha256']}))
+2026-10-16T14:58:11.3975412Z '@
+2026-10-16T14:58:11.3975641Z if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+2026-10-16T14:58:11.4016993Z shell: C:\Program Files\PowerShell\7\pwsh.EXE -command ". '{0}'"
+2026-10-16T14:58:11.4017335Z env:
+2026-10-16T14:58:11.4017589Z   SAMPLES_REVISION: 51297ac3196a990286b0d21a4dedd4653c0168f0
+2026-10-16T14:58:11.4017991Z   pythonLocation: C:\hostedtoolcache\windows\Python\3.14.8\x64
+2026-10-16T14:58:11.4018442Z   PKG_CONFIG_PATH: C:\hostedtoolcache\windows\Python\3.14.8\x64/lib/pkgconfig
+2026-10-16T14:58:11.4018895Z   Python_ROOT_DIR: C:\hostedtoolcache\windows\Python\3.14.8\x64
+2026-10-16T14:58:11.4019292Z   Python2_ROOT_DIR: C:\hostedtoolcache\windows\Python\3.14.8\x64
+2026-10-16T14:58:11.4019684Z   Python3_ROOT_DIR: C:\hostedtoolcache\windows\Python\3.14.8\x64
+2026-10-16T14:58:11.4124973Z   ROM_B64: ***
+2026-10-16T14:58:11.4125180Z   RELEASE_RUN: 
+2026-10-16T14:58:11.4125356Z ##[endgroup]
+2026-10-16T14:58:11.7924146Z ##[group]Run python scripts/windows-developer-journey.py `
+2026-10-16T14:58:11.7924669Z python scripts/windows-developer-journey.py `
+2026-10-16T14:58:11.7925106Z   --samples-root "$env:GITHUB_WORKSPACE/code-samples" `
+2026-10-16T14:58:11.7925589Z   --firmware "$env:RUNNER_TEMP/windows-developer-firmware/48.rom" `
+2026-10-16T14:58:11.7926086Z   --work "$env:RUNNER_TEMP/windows-developer-work" `
+2026-10-16T14:58:11.7926509Z   --output "$env:RUNNER_TEMP/windows-developer-evidence/journey"
+2026-10-16T14:58:11.7926974Z if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+2026-10-16T14:58:11.7965523Z shell: C:\Program Files\PowerShell\7\pwsh.EXE -command ". '{0}'"
+2026-10-16T14:58:11.7965891Z env:
+2026-10-16T14:58:11.7966145Z   SAMPLES_REVISION: 51297ac3196a990286b0d21a4dedd4653c0168f0
+2026-10-16T14:58:11.7966558Z   pythonLocation: C:\hostedtoolcache\windows\Python\3.14.8\x64
+2026-10-16T14:58:11.7967033Z   PKG_CONFIG_PATH: C:\hostedtoolcache\windows\Python\3.14.8\x64/lib/pkgconfig
+2026-10-16T14:58:11.7967488Z   Python_ROOT_DIR: C:\hostedtoolcache\windows\Python\3.14.8\x64
+2026-10-16T14:58:11.7967890Z   Python2_ROOT_DIR: C:\hostedtoolcache\windows\Python\3.14.8\x64
+2026-10-16T14:58:11.7968287Z   Python3_ROOT_DIR: C:\hostedtoolcache\windows\Python\3.14.8\x64
+2026-10-16T14:58:11.7968596Z ##[endgroup]
+2026-10-16T14:58:12.2229589Z Traceback (most recent call last):
+2026-10-16T14:58:12.2240608Z   File "D:\a\emu198x\emu198x\scripts\windows-developer-journey.py", line 200, in <module>
+2026-10-16T14:58:12.2241249Z     main()
+2026-10-16T14:58:12.2241456Z     ~~~~^^
+2026-10-16T14:58:12.2241923Z   File "D:\a\emu198x\emu198x\scripts\windows-developer-journey.py", line 122, in main
+2026-10-16T14:58:12.2242554Z     raise ValueError(f'Pinned sample differs: {name}')
+2026-10-16T14:58:12.2243212Z ValueError: Pinned sample differs: sinclair-zx-spectrum/assembly/meteor-storm/unit-35/Makefile
+2026-10-16T14:58:12.2740722Z ##[error]Process completed with exit code 1.
+2026-10-16T14:58:12.2879835Z ##[group]Run python -c @'
+2026-10-16T14:58:12.2880174Z python -c @'
+2026-10-16T14:58:12.2880400Z import os, shutil
+2026-10-16T14:58:12.2880635Z from pathlib import Path
+2026-10-16T14:58:12.2881025Z folder = Path(os.environ['RUNNER_TEMP']) / 'windows-developer-firmware'
+2026-10-16T14:58:12.2881422Z if folder.exists():
+2026-10-16T14:58:12.2881650Z     shutil.rmtree(folder)
+2026-10-16T14:58:12.2881898Z if folder.exists():
+2026-10-16T14:58:12.2882882Z     raise RuntimeError('Private firmware cleanup failed')
+2026-10-16T14:58:12.2883204Z '@
+2026-10-16T14:58:12.2883434Z if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+2026-10-16T14:58:12.2922002Z shell: C:\Program Files\PowerShell\7\pwsh.EXE -command ". '{0}'"
+2026-10-16T14:58:12.2922336Z env:
+2026-10-16T14:58:12.2922577Z   SAMPLES_REVISION: 51297ac3196a990286b0d21a4dedd4653c0168f0
+2026-10-16T14:58:12.2922995Z   pythonLocation: C:\hostedtoolcache\windows\Python\3.14.8\x64
+2026-10-16T14:58:12.2923435Z   PKG_CONFIG_PATH: C:\hostedtoolcache\windows\Python\3.14.8\x64/lib/pkgconfig
+2026-10-16T14:58:12.2923890Z   Python_ROOT_DIR: C:\hostedtoolcache\windows\Python\3.14.8\x64
+2026-10-16T14:58:12.2924308Z   Python2_ROOT_DIR: C:\hostedtoolcache\windows\Python\3.14.8\x64
+2026-10-16T14:58:12.2924698Z   Python3_ROOT_DIR: C:\hostedtoolcache\windows\Python\3.14.8\x64
+2026-10-16T14:58:12.2925007Z ##[endgroup]
+2026-10-16T14:58:12.6930155Z ##[group]Run actions/upload-artifact@v7
+2026-10-16T14:58:12.6930512Z with:
+2026-10-16T14:58:12.6930746Z   name: windows-developer-journey-38920027025-1
+2026-10-16T14:58:12.6931092Z   path: D:\a\_temp/windows-developer-evidence/
+2026-10-16T14:58:12.6931379Z   if-no-files-found: error
+2026-10-16T14:58:12.6931590Z   retention-days: 30
+2026-10-16T14:58:12.6931784Z   compression-level: 6
+2026-10-16T14:58:12.6931979Z   overwrite: false
+2026-10-16T14:58:12.6932172Z   include-hidden-files: false
+2026-10-16T14:58:12.6932394Z   archive: true
+2026-10-16T14:58:12.6932561Z env:
+2026-10-16T14:58:12.6932795Z   SAMPLES_REVISION: 51297ac3196a990286b0d21a4dedd4653c0168f0
+2026-10-16T14:58:12.6933180Z   pythonLocation: C:\hostedtoolcache\windows\Python\3.14.8\x64
+2026-10-16T14:58:12.6933994Z   PKG_CONFIG_PATH: C:\hostedtoolcache\windows\Python\3.14.8\x64/lib/pkgconfig
+2026-10-16T14:58:12.6934458Z   Python_ROOT_DIR: C:\hostedtoolcache\windows\Python\3.14.8\x64
+2026-10-16T14:58:12.6934908Z   Python2_ROOT_DIR: C:\hostedtoolcache\windows\Python\3.14.8\x64
+2026-10-16T14:58:12.6935311Z   Python3_ROOT_DIR: C:\hostedtoolcache\windows\Python\3.14.8\x64
+2026-10-16T14:58:12.6935622Z ##[endgroup]
+2026-10-16T14:58:12.8562497Z With the provided path, there will be 2 files uploaded
+2026-10-16T14:58:12.8568422Z Artifact name is valid!
+2026-10-16T14:58:12.8570495Z Root directory input is valid!
+2026-10-16T14:58:13.0604260Z Uploading artifact: windows-developer-journey-38920027025-1.zip
+2026-10-16T14:58:13.0700850Z Beginning upload of artifact content to blob storage
+2026-10-16T14:58:13.1554013Z Uploaded bytes 704
+2026-10-16T14:58:13.1717027Z Finished uploading artifact content to blob storage!
+2026-10-16T14:58:13.1718846Z SHA256 digest of uploaded artifact is 4dbb54ab9f4a795579971c177cfb98e32ba83bd887083de8bd161135403b0839
+2026-10-16T14:58:13.1719714Z Finalizing artifact upload
+2026-10-16T14:58:13.4254153Z Artifact windows-developer-journey-38920027025-1 successfully finalized. Artifact ID 12054332752
+2026-10-16T14:58:13.4255719Z Artifact windows-developer-journey-38920027025-1 has been successfully uploaded! Final size is 704 bytes. Artifact ID is 12054332752
+2026-10-16T14:58:13.4261737Z Artifact download URL: https://github.com/emu198x/emu198x/actions/runs/38920027025/artifacts/12054332752
+2026-10-16T14:58:13.4543056Z Post job cleanup.
+2026-10-16T14:58:13.6439084Z [command]"C:\Program Files\Git\bin\git.exe" version
+2026-10-16T14:58:13.6820100Z git version 2.56.0.windows.2
+2026-10-16T14:58:13.6885937Z Temporarily overriding HOME='D:\a\_temp\30e63991-adf0-43f2-a75e-c05b4c145695' before making global git config changes
+2026-10-16T14:58:13.6887604Z Adding repository directory to the temporary git global config as a safe directory
+2026-10-16T14:58:13.6897591Z [command]"C:\Program Files\Git\bin\git.exe" config --global --add safe.directory D:\a\emu198x\emu198x\code-samples
+2026-10-16T14:58:13.7277726Z Removing SSH command configuration
+2026-10-16T14:58:13.7291809Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp core\.sshCommand
+2026-10-16T14:58:13.7582629Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "sh -c \"git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :\""
+2026-10-16T14:58:14.2200529Z Removing HTTP extra header
+2026-10-16T14:58:14.2211212Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-10-16T14:58:14.2489609Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "sh -c \"git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :\""
+2026-10-16T14:58:14.7039741Z Removing includeIf entries pointing to credentials config files
+2026-10-16T14:58:14.7056151Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-10-16T14:58:14.7331521Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "git config --local --show-origin --name-only --get-regexp remote.origin.url"
+2026-10-16T14:58:15.2001003Z Post job cleanup.
+2026-10-16T14:58:15.3935339Z [command]"C:\Program Files\Git\bin\git.exe" version
+2026-10-16T14:58:15.4199692Z git version 2.56.0.windows.2
+2026-10-16T14:58:15.4254544Z Temporarily overriding HOME='D:\a\_temp\b51e7f02-b622-4bea-805f-3bf179cae866' before making global git config changes
+2026-10-16T14:58:15.4255843Z Adding repository directory to the temporary git global config as a safe directory
+2026-10-16T14:58:15.4265403Z [command]"C:\Program Files\Git\bin\git.exe" config --global --add safe.directory D:\a\emu198x\emu198x
+2026-10-16T14:58:15.4558728Z Removing SSH command configuration
+2026-10-16T14:58:15.4568347Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp core\.sshCommand
+2026-10-16T14:58:15.4850104Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "sh -c \"git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :\""
+2026-10-16T14:58:15.9399623Z Removing HTTP extra header
+2026-10-16T14:58:15.9409824Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-10-16T14:58:15.9691393Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "sh -c \"git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :\""
+2026-10-16T14:58:16.4398977Z Removing includeIf entries pointing to credentials config files
+2026-10-16T14:58:16.4415384Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-10-16T14:58:16.4695232Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "git config --local --show-origin --name-only --get-regexp remote.origin.url"
+2026-10-16T14:58:16.9302065Z Cleaning up orphan processes

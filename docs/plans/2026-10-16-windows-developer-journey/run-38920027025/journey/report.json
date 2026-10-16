@@ -1,0 +1,15 @@
+{
+  "qualified": false,
+  "status": "failed",
+  "host": {
+    "system": "Windows",
+    "release": "2022Server",
+    "machine": "AMD64",
+    "python": "3.14.8"
+  },
+  "samples_revision": "51297ac3196a990286b0d21a4dedd4653c0168f0",
+  "tools": [],
+  "commands": [],
+  "firmware_sha256": "d55daa439b673b0e3f5897f99ac37ecb45f974d1862b4dadb85dec34af99cb42",
+  "error": "Pinned sample differs: sinclair-zx-spectrum/assembly/meteor-storm/unit-35/Makefile"
+}

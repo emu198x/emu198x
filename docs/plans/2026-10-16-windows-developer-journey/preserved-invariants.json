@@ -1,0 +1,9 @@
+{
+  "original_revision": "3a82574eb0b9e844bcedf6dd4d118cf84b84d13b",
+  "unchanged_function_ast_sha256": {
+    "verify_package": "9cdb84a59b224bb45f155856cf5266f761e7d0177378d8aabd54236430c8e3f2",
+    "verify_boot": "4eff5aa3767c826f2b4cf1772b8144aa0e1d868447e95a6a73d78b27632d0afd",
+    "tape_blocks": "b5880ba05c79ad5ddb6f10bf872ba4c4bba4725cebf185db1e8349b88a2a9afd",
+    "title_addresses": "0974c3c2316c602a059a30abf28659066bb52903aaf2670ccb909552c3865e58"
+  }
+}

@@ -1,0 +1,53 @@
+Usage: emu198x-spectrum [OPTIONS]
+
+Options:
+    --rom PATH      ROM image or zip, for a single-ROM variant
+    --rom ID=PATH   one entry of a multi-ROM variant's bundle; repeatable,
+                    the rest still resolve under ~/.emu198x/roms. An ID
+                    the variant does not have is an error, not a silent
+                    fallback.
+                    48K family:  sinclair-zx-spectrum-48k-rom
+                    128K:        sinclair-zx-spectrum-128k-rom-{0,1}
+                    +2:          sinclair-zx-spectrum-plus2-rom-{0,1}
+                    +2A/+3:      sinclair-zx-spectrum-plus3-rom-{0..3}
+    --machine ID    boot this variant instead of the default 48K.
+                    One of: spectrum_16k, spectrum_48k, spectrum_plus,
+                    spectrum_128k, spectrum_plus2, spectrum_plus2a,
+                    spectrum_plus2b, spectrum_plus3, pentagon_128,
+                    scorpion_zs256, timex_tc2048, timex_tc2068,
+                    timex_ts2068. Use a mid-script
+                    { "action": "set_machine" } step to swap variant
+                    during a run.
+    --tape PATH     TAP/TZX image or zip containing one tape candidate,
+                    loaded into slot tape-1 (a bare PATH argument means
+                    the same)
+    --play-tape     start tape transport on tape-1 immediately
+    --autoload-tape wait for boot, type LOAD "", and start tape-1
+    --turbo-tape    (accepted; arm fast-load in the UI with F11)
+    --scale N       integer window scale
+    --no-audio      run the window without sound output
+    --phosphor-ms N CRT decay time in milliseconds; 0 disables [default: 6]
+    --video MODE    raw | lcd | crt | signal | monitor | modern | modern-monitor | modern-weave | modern-monitor-weave [default: raw]
+    --help, -h      show this help
+
+Automation:
+    --script PATH   run a JSON session headlessly and print a report
+    --frames N      frames to run headlessly [default: 0]
+    --screenshot PATH       write the last emitted frame as PNG
+    --audio-capture PATH    write emitted audio as WAV
+    --headless      run without a window (implied by --script)
+    --mcp           serve this machine over MCP on stdio
+
+Controls:
+    Esc                quit
+    F9 / F10 / F11     start / stop tape, toggle fast-load (turbo)
+    Cmd/Ctrl+Shift+E  export tape recording to a new .tap file
+    Cmd/Ctrl+Shift+K  toggle Host / Original keyboard (also Machine → Keyboard)
+    Home / Pause      EDIT / BREAK in Host keyboard mode
+    F12                hard reset
+    Cmd/Ctrl+S / +L    quick save / load state
+    Arrow keys         Spectrum cursor keys (Caps Shift + 5/6/7/8)
+    Alt                Symbol Shift
+    Gamepad            Kempston on 16K/48K/+/128K/+2; IF2 on +2A/+2B/+3
+    Machine menu       switch between the 13 variants live
+    File > Open State  load a .sna / .z80 / .emu198x-state file

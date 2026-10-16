@@ -1,0 +1,212 @@
+{
+  "qualified": false,
+  "status": "failed",
+  "host": {
+    "system": "Windows",
+    "release": "2022Server",
+    "machine": "AMD64",
+    "python": "3.14.8"
+  },
+  "samples_revision": "51297ac3196a990286b0d21a4dedd4653c0168f0",
+  "tools": [
+    {
+      "name": "asm198x",
+      "release": "asm198x-v0.0.67",
+      "archive": "asm198x-x86_64-pc-windows-msvc.zip",
+      "url": "https://github.com/asm198x/asm198x/releases/download/asm198x-v0.0.67/asm198x-x86_64-pc-windows-msvc.zip",
+      "sha256": "fcc67b3abac24f03b898e02d39558c09f656fafe0206187c87cb64822b4de643",
+      "executable_sha256": "9d4142e94d0135c35870066eeeb4a1cb15290f7ddd35ffe65ccd77603cb547a4",
+      "pe_stack_reserve_bytes": 1048576
+    },
+    {
+      "name": "build198x",
+      "release": "build198x-v0.2.12",
+      "archive": "build198x-x86_64-pc-windows-msvc.zip",
+      "url": "https://github.com/build198x/build198x/releases/download/build198x-v0.2.12/build198x-x86_64-pc-windows-msvc.zip",
+      "sha256": "aeac7d6f275d0c50f25960c14045775cfe3fa8c9864805e57621acb91353c2f8",
+      "executable_sha256": "35c6b55c9bd8ba4b2c5847987fe2bcbf0722b441d4f2a4b8a7d78874d65b51e9",
+      "pe_stack_reserve_bytes": 1048576
+    },
+    {
+      "name": "emu198x-spectrum",
+      "release": "v0.35.0",
+      "archive": "emu198x-spectrum-x86_64-pc-windows-msvc.zip",
+      "url": "https://github.com/emu198x/emu198x/releases/download/v0.35.0/emu198x-spectrum-x86_64-pc-windows-msvc.zip",
+      "sha256": "bdc9604fefc0b4815233c0513cba38d8226758c7ab19dafc34a52ec597e8053d",
+      "executable_sha256": "ba38afcb094e96ea8c1c20c17cd7f75d51bab3b07911ffb46d009f179e5e2598",
+      "pe_stack_reserve_bytes": 1048576
+    }
+  ],
+  "commands": [
+    {
+      "label": "asm198x-help",
+      "argv": [
+        "D:\\a\\_temp\\windows-developer-work\\tools\\asm198x.exe",
+        "--help"
+      ],
+      "exit_code": 0,
+      "timeout_seconds": 60
+    },
+    {
+      "label": "build198x-help",
+      "argv": [
+        "D:\\a\\_temp\\windows-developer-work\\tools\\build198x.exe",
+        "--help"
+      ],
+      "exit_code": 0,
+      "timeout_seconds": 60
+    },
+    {
+      "label": "emu198x-spectrum-help",
+      "argv": [
+        "D:\\a\\_temp\\windows-developer-work\\tools\\emu198x-spectrum.exe",
+        "--help"
+      ],
+      "exit_code": 0,
+      "timeout_seconds": 60
+    },
+    {
+      "label": "basic",
+      "argv": [
+        "D:\\a\\_temp\\windows-developer-work\\tools\\build198x.exe",
+        "basic",
+        "D:\\a\\_temp\\windows-developer-work\\sources\\sinclair-zx-spectrum\\assembly\\meteor-storm\\checkpoints\\loading-screen\\loader.bas",
+        "--machine",
+        "sinclair-zx-spectrum",
+        "-o",
+        "D:\\a\\_temp\\windows-developer-work\\build\\meteor.tap",
+        "--name",
+        "meteor"
+      ],
+      "exit_code": 0,
+      "timeout_seconds": 60
+    },
+    {
+      "label": "screen",
+      "argv": [
+        "D:\\a\\_temp\\windows-developer-work\\tools\\asm198x.exe",
+        "--dialect",
+        "pasmo",
+        "--cpu",
+        "z80",
+        "--tap",
+        "D:\\a\\_temp\\windows-developer-work\\sources\\sinclair-zx-spectrum\\assembly\\meteor-storm\\checkpoints\\loading-screen\\screen.asm",
+        "-o",
+        "screen"
+      ],
+      "exit_code": 0,
+      "timeout_seconds": 60
+    },
+    {
+      "label": "storm",
+      "argv": [
+        "D:\\a\\_temp\\windows-developer-work\\tools\\asm198x.exe",
+        "--dialect",
+        "pasmo",
+        "--cpu",
+        "z80",
+        "--tap",
+        "D:\\a\\_temp\\windows-developer-work\\sources\\sinclair-zx-spectrum\\assembly\\meteor-storm\\checkpoints\\loading-screen\\meteor-storm.asm",
+        "-o",
+        "storm"
+      ],
+      "exit_code": 0,
+      "timeout_seconds": 60
+    },
+    {
+      "label": "raw-code",
+      "argv": [
+        "D:\\a\\_temp\\windows-developer-work\\tools\\asm198x.exe",
+        "--dialect",
+        "pasmo",
+        "--cpu",
+        "z80",
+        "--sym=storm.sym",
+        "D:\\a\\_temp\\windows-developer-work\\sources\\sinclair-zx-spectrum\\assembly\\meteor-storm\\checkpoints\\loading-screen\\meteor-storm.asm",
+        "-o",
+        "program.bin"
+      ],
+      "exit_code": 0,
+      "timeout_seconds": 60
+    },
+    {
+      "label": "startup",
+      "argv": [
+        "D:\\a\\_temp\\windows-developer-work\\tools\\emu198x-spectrum.exe",
+        "--machine",
+        "spectrum_48k",
+        "--rom",
+        "D:\\a\\_temp\\windows-developer-firmware\\48.rom",
+        "--script",
+        "D:\\a\\_temp\\windows-developer-evidence\\journey\\startup-session.json"
+      ],
+      "exit_code": 3221225725,
+      "timeout_seconds": 30
+    }
+  ],
+  "firmware_sha256": "d55daa439b673b0e3f5897f99ac37ecb45f974d1862b4dadb85dec34af99cb42",
+  "source_materialisation": [
+    {
+      "path": "sinclair-zx-spectrum/assembly/meteor-storm/unit-35/Makefile",
+      "blob_sha256": "85cae388cfb90bde1699b1337536b082954c03be11cbe4778c72fa07cab3b4bf",
+      "checkout_sha256": "4d961f0075ea058f39ef3e3e3eabbfb1432a33e02b77ce3ac1f26049b3257a6e",
+      "checkout_crlf_count": 34,
+      "materialised_sha256": "85cae388cfb90bde1699b1337536b082954c03be11cbe4778c72fa07cab3b4bf",
+      "checkout_conversion": "CRLF"
+    },
+    {
+      "path": "sinclair-zx-spectrum/assembly/meteor-storm/checkpoints/loading-screen/loader.bas",
+      "blob_sha256": "18d3235c3508ebb83feac57f34759e6277ef6aceab87b8493400ff5466fa41e2",
+      "checkout_sha256": "56cfc34a431bb8440ca284f20d0f4aeb16ec8450bbb1af08218c0265d9e3bfa8",
+      "checkout_crlf_count": 5,
+      "materialised_sha256": "18d3235c3508ebb83feac57f34759e6277ef6aceab87b8493400ff5466fa41e2",
+      "checkout_conversion": "CRLF"
+    },
+    {
+      "path": "sinclair-zx-spectrum/assembly/meteor-storm/checkpoints/loading-screen/screen.asm",
+      "blob_sha256": "b0361768f088026ebfc6cffa31530767cdef52ee82a58271894f12f318b3d81f",
+      "checkout_sha256": "9f3b7e66eb6cd2b9ac6d777c8ba31d82fb8c0c266fa9c8a02c1fe21fade4e405",
+      "checkout_crlf_count": 5,
+      "materialised_sha256": "b0361768f088026ebfc6cffa31530767cdef52ee82a58271894f12f318b3d81f",
+      "checkout_conversion": "CRLF"
+    },
+    {
+      "path": "sinclair-zx-spectrum/assembly/meteor-storm/checkpoints/loading-screen/meteor-storm.scr",
+      "blob_sha256": "1325b44c95fab8934ad257c290170e4cfacda56118baf6b94d08cfb3c3514843",
+      "checkout_sha256": "1325b44c95fab8934ad257c290170e4cfacda56118baf6b94d08cfb3c3514843",
+      "checkout_crlf_count": 0,
+      "materialised_sha256": "1325b44c95fab8934ad257c290170e4cfacda56118baf6b94d08cfb3c3514843",
+      "checkout_conversion": "identical"
+    },
+    {
+      "path": "sinclair-zx-spectrum/assembly/meteor-storm/checkpoints/loading-screen/meteor-storm.asm",
+      "blob_sha256": "0ce6a2bb21a8304582b4175fa94dc2b956c00218f8ef6cf9e4ddba41af24b073",
+      "checkout_sha256": "ebea71e6df109c5af5881b96e9c46b13b2963fd0888b734d2ae3dfeffed10a84",
+      "checkout_crlf_count": 1455,
+      "materialised_sha256": "0ce6a2bb21a8304582b4175fa94dc2b956c00218f8ef6cf9e4ddba41af24b073",
+      "checkout_conversion": "CRLF"
+    },
+    {
+      "path": "sinclair-zx-spectrum/assembly/meteor-storm/checkpoints/loading-screen/assets.inc",
+      "blob_sha256": "3829130674d64ce81ba26e7f3d4c9108b6a5c463eafe43e999544d254d72812f",
+      "checkout_sha256": "eae5452bc7dd9bac197ece85186636cfc449c36a3c8bba47615319e115aa2caf",
+      "checkout_crlf_count": 2106,
+      "materialised_sha256": "3829130674d64ce81ba26e7f3d4c9108b6a5c463eafe43e999544d254d72812f",
+      "checkout_conversion": "CRLF"
+    }
+  ],
+  "source_hashes": {
+    "sinclair-zx-spectrum/assembly/meteor-storm/unit-35/Makefile": "85cae388cfb90bde1699b1337536b082954c03be11cbe4778c72fa07cab3b4bf",
+    "sinclair-zx-spectrum/assembly/meteor-storm/checkpoints/loading-screen/loader.bas": "18d3235c3508ebb83feac57f34759e6277ef6aceab87b8493400ff5466fa41e2",
+    "sinclair-zx-spectrum/assembly/meteor-storm/checkpoints/loading-screen/screen.asm": "b0361768f088026ebfc6cffa31530767cdef52ee82a58271894f12f318b3d81f",
+    "sinclair-zx-spectrum/assembly/meteor-storm/checkpoints/loading-screen/meteor-storm.scr": "1325b44c95fab8934ad257c290170e4cfacda56118baf6b94d08cfb3c3514843",
+    "sinclair-zx-spectrum/assembly/meteor-storm/checkpoints/loading-screen/meteor-storm.asm": "0ce6a2bb21a8304582b4175fa94dc2b956c00218f8ef6cf9e4ddba41af24b073",
+    "sinclair-zx-spectrum/assembly/meteor-storm/checkpoints/loading-screen/assets.inc": "3829130674d64ce81ba26e7f3d4c9108b6a5c463eafe43e999544d254d72812f"
+  },
+  "package": {
+    "sha256": "31420966522468be267830cf1b0ce5fe31087b987dfe293d879512a67de4933d",
+    "code_sha256": "63c02176a4f97a32ce7c9cf775a919ed7f7729fe4027982100d8a0968fb0eb10",
+    "blocks": 6
+  },
+  "error": "startup exited 3221225725; see retained output"
+}
