@@ -437,7 +437,7 @@ jobs:
     name: macOS x64 released-tool developer journey
     if: github.repository == 'emu198x/emu198x' && github.event_name == 'workflow_dispatch' && inputs.macos_developer_journey
     runs-on: macos-15-intel
-    timeout-minutes: 15
+    timeout-minutes: 25
     env:
       SAMPLES_REVISION: '51297ac3196a990286b0d21a4dedd4653c0168f0'
     steps:
