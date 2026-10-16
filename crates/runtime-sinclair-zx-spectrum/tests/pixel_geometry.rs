@@ -25,19 +25,19 @@ const VARIANTS: &[&str] = &[
 
 fn variant(name: &str) -> Kind {
     match name {
-        "16K" => Kind::Spectrum16K(Spectrum16kRuntime::blank()),
-        "48K" => Kind::Spectrum48K(Spectrum48kRuntime::blank()),
-        "+" => Kind::SpectrumPlus(SpectrumPlusRuntime::blank()),
-        "128K" => Kind::Spectrum128K(Spectrum128kRuntime::blank()),
-        "+2" => Kind::SpectrumPlus2(SpectrumPlus2Runtime::blank()),
-        "+2A" => Kind::SpectrumPlus2A(SpectrumPlus2ARuntime::blank()),
-        "+2B" => Kind::SpectrumPlus2B(SpectrumPlus2BRuntime::blank()),
-        "+3" => Kind::SpectrumPlus3(SpectrumPlus3Runtime::blank()),
-        "Pentagon" => Kind::Pentagon128(Pentagon128Runtime::blank()),
-        "Scorpion" => Kind::ScorpionZS256(ScorpionZS256Runtime::blank()),
-        "TC2048" => Kind::TimexTC2048(TimexTC2048Runtime::blank()),
-        "TC2068" => Kind::TimexTC2068(TimexTS2068Runtime::blank(Model::TimexTC2068)),
-        "TS2068" => Kind::TimexTS2068(TimexTS2068Runtime::blank(Model::TimexTS2068)),
+        "16K" => Kind::Spectrum16K(Box::new(Spectrum16kRuntime::blank())),
+        "48K" => Kind::Spectrum48K(Box::new(Spectrum48kRuntime::blank())),
+        "+" => Kind::SpectrumPlus(Box::new(SpectrumPlusRuntime::blank())),
+        "128K" => Kind::Spectrum128K(Box::new(Spectrum128kRuntime::blank())),
+        "+2" => Kind::SpectrumPlus2(Box::new(SpectrumPlus2Runtime::blank())),
+        "+2A" => Kind::SpectrumPlus2A(Box::new(SpectrumPlus2ARuntime::blank())),
+        "+2B" => Kind::SpectrumPlus2B(Box::new(SpectrumPlus2BRuntime::blank())),
+        "+3" => Kind::SpectrumPlus3(Box::new(SpectrumPlus3Runtime::blank())),
+        "Pentagon" => Kind::Pentagon128(Box::new(Pentagon128Runtime::blank())),
+        "Scorpion" => Kind::ScorpionZS256(Box::new(ScorpionZS256Runtime::blank())),
+        "TC2048" => Kind::TimexTC2048(Box::new(TimexTC2048Runtime::blank())),
+        "TC2068" => Kind::TimexTC2068(Box::new(TimexTS2068Runtime::blank(Model::TimexTC2068))),
+        "TS2068" => Kind::TimexTS2068(Box::new(TimexTS2068Runtime::blank(Model::TimexTS2068))),
         other => panic!("unknown variant {other}"),
     }
 }
@@ -47,8 +47,8 @@ fn variant(name: &str) -> Kind {
 /// colour subcarrier and divides by five.
 #[test]
 fn the_48k_and_128k_classes_run_at_different_pixel_clocks() {
-    let fortyeight = Kind::Spectrum48K(Spectrum48kRuntime::blank()).pixel_clock_hz();
-    let one_two_eight = Kind::Spectrum128K(Spectrum128kRuntime::blank()).pixel_clock_hz();
+    let fortyeight = Kind::Spectrum48K(Box::new(Spectrum48kRuntime::blank())).pixel_clock_hz();
+    let one_two_eight = Kind::Spectrum128K(Box::new(Spectrum128kRuntime::blank())).pixel_clock_hz();
 
     assert!(
         (fortyeight - 7_000_000.0).abs() < 1.0,
@@ -92,8 +92,8 @@ fn no_variant_has_square_pixels() {
 /// sibling's. A regression that lost the region would show up here.
 #[test]
 fn the_ts2068_is_ntsc_and_narrower_than_its_pal_siblings() {
-    let ts = Kind::TimexTS2068(TimexTS2068Runtime::blank(Model::TimexTS2068));
-    let tc = Kind::TimexTC2068(TimexTS2068Runtime::blank(Model::TimexTC2068));
+    let ts = Kind::TimexTS2068(Box::new(TimexTS2068Runtime::blank(Model::TimexTS2068)));
+    let tc = Kind::TimexTC2068(Box::new(TimexTS2068Runtime::blank(Model::TimexTC2068)));
 
     assert_eq!(
         ts.profile().region,

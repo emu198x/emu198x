@@ -3,6 +3,11 @@ name: Linux packages
 on:
   workflow_dispatch:
     inputs:
+      windows_startup_regression:
+        description: "Compare Spectrum startup before/after #1792 and run the pinned Windows journey"
+        required: false
+        type: boolean
+        default: false
       release_run:
         description: "Existing release run whose artifacts should be tested (blank builds locally)"
         required: false
@@ -23,6 +28,7 @@ permissions:
 
 jobs:
   install:
+    if: ${{ !inputs.windows_startup_regression }}
     name: Install and exercise (${{ matrix.target }})
     strategy:
       fail-fast: false
@@ -102,3 +108,131 @@ jobs:
       - name: Install generated formulae and check output
         shell: bash
         run: python3 scripts/test-linux-packages.py target/package-test-manifest.json "$PACKAGE_TARGET"
+
+  windows-startup-regression:
+    name: Windows Spectrum startup and package-to-boot regression
+    if: github.repository == 'emu198x/emu198x' && github.event_name == 'workflow_dispatch' && inputs.windows_startup_regression
+    runs-on: windows-2022
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/checkout@v7
+        with:
+          repository: code198x/code-samples
+          ref: '51297ac3196a990286b0d21a4dedd4653c0168f0'
+          path: code-samples
+          persist-credentials: false
+      - uses: actions/checkout@v7
+        with:
+          ref: '3a82574eb0b9e844bcedf6dd4d118cf84b84d13b'
+          path: journey-audit
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.14'
+      - name: Install pinned Rust
+        shell: pwsh
+        run: |
+          $channel = (Select-String '^channel = "([^"]+)"' rust-toolchain.toml).Matches.Groups[1].Value
+          rustup toolchain install $channel --profile minimal
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: windows-spectrum-startup-dist
+      - name: Reproduce startup before heap allocation
+        shell: pwsh
+        run: |
+          python -c @'
+          import subprocess
+          from pathlib import Path
+          source = Path('crates/runtime-sinclair-zx-spectrum/src/family_runtime.rs')
+          candidate = source.read_bytes()
+          baseline = subprocess.check_output(['git', 'show', '9a22ce6c557399492269bf23a6b5994022e03e36:crates/runtime-sinclair-zx-spectrum/src/family_runtime.rs'])
+          try:
+              source.write_bytes(baseline)
+              subprocess.run(['cargo', 'build', '--profile', 'dist', '-p', 'emu198x-spectrum'], check=True, timeout=900)
+          finally:
+              source.write_bytes(candidate)
+          '@
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python scripts/check-windows-spectrum-startup.py --binary target/dist/emu198x-spectrum.exe --output "$env:RUNNER_TEMP/windows-startup-evidence/baseline" --expect-overflow
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Build and test the candidate with the original stack reserve
+        shell: pwsh
+        run: |
+          cargo test --profile dist -p emu198x-spectrum --test script_startup --test mcp_startup
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python scripts/check-windows-spectrum-startup.py --binary target/dist/emu198x-spectrum.exe --output "$env:RUNNER_TEMP/windows-startup-evidence/candidate"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Prepare checked firmware and identify the candidate journey input
+        env:
+          ROM_B64: ${{ secrets.EMU198X_SPECTRUM_48K_ROM_B64 }}
+          RELEASE_RUN: ${{ inputs.release_run }}
+        shell: pwsh
+        run: |
+          python -c @'
+          import base64, hashlib, json, os, zipfile
+          from pathlib import Path
+          if os.environ['RELEASE_RUN']:
+              raise ValueError('This source regression does not consume a release_run')
+          root = Path(os.environ['RUNNER_TEMP'])
+          evidence = root / 'windows-startup-evidence'
+          pins_file = Path('journey-audit/scripts/windows-developer-journey-inputs.json')
+          original = pins_file.read_bytes()
+          pins = json.loads(original)
+          data = base64.b64decode(''.join(os.environ['ROM_B64'].split()), validate=True)
+          if len(data) != 16384 or hashlib.sha256(data).hexdigest() != pins['firmware_sha256']:
+              raise ValueError('Genuine 48K firmware is missing or differs')
+          firmware = root / 'windows-startup-firmware'
+          firmware.mkdir()
+          (firmware / '48.rom').write_bytes(data)
+          archive = root / 'candidate-spectrum.zip'
+          with zipfile.ZipFile(archive, 'w', compression=zipfile.ZIP_DEFLATED) as zipped:
+              zipped.write('target/dist/emu198x-spectrum.exe', 'emu198x-spectrum.exe')
+          tool = next(t for t in pins['tools'] if t['name'] == 'emu198x-spectrum')
+          tool.update(version='source-' + os.environ['GITHUB_SHA'], archive=archive.name, url=archive.as_uri(), sha256=hashlib.sha256(archive.read_bytes()).hexdigest())
+          pins_file.write_text(json.dumps(pins, indent=2) + '\n', encoding='utf-8')
+          harness = Path('journey-audit/scripts/windows-developer-journey.py')
+          (evidence / 'candidate-input.json').write_text(json.dumps({'candidate_revision': os.environ['GITHUB_SHA'], 'audit_revision': '3a82574eb0b9e844bcedf6dd4d118cf84b84d13b', 'unchanged_harness_sha256': hashlib.sha256(harness.read_bytes()).hexdigest(), 'original_pins_sha256': hashlib.sha256(original).hexdigest(), 'candidate_pins': pins}, indent=2) + '\n', encoding='utf-8')
+          '@
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Run the unchanged positive and missing-CODE journey
+        shell: pwsh
+        run: |
+          python journey-audit/scripts/windows-developer-journey.py `
+            --samples-root "$env:GITHUB_WORKSPACE/code-samples" `
+            --firmware "$env:RUNNER_TEMP/windows-startup-firmware/48.rom" `
+            --work "$env:RUNNER_TEMP/windows-startup-work" `
+            --output "$env:RUNNER_TEMP/windows-startup-evidence/journey"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Remove private firmware and candidate scratch
+        if: always()
+        shell: pwsh
+        run: |
+          python -c @'
+          import json, os, shutil
+          from pathlib import Path
+          root = Path(os.environ['RUNNER_TEMP'])
+          for name in ['windows-startup-firmware', 'windows-startup-work']:
+              folder = root / name
+              if folder.exists():
+                  shutil.rmtree(folder)
+              if folder.exists():
+                  raise RuntimeError('Scratch cleanup failed')
+          (root / 'candidate-spectrum.zip').unlink(missing_ok=True)
+          evidence = root / 'windows-startup-evidence'
+          evidence.mkdir(exist_ok=True)
+          (evidence / 'cleanup.json').write_text(json.dumps({'firmware_removed': True, 'scratch_removed': True}) + '\n', encoding='utf-8')
+          '@
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Retain only startup and journey evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: windows-spectrum-startup-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/windows-startup-evidence/
+          if-no-files-found: error
+          retention-days: 30

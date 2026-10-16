@@ -18,7 +18,7 @@ fn shared_basic_native_loader_preserves_rom_editor_bytes_and_runs() {
     let rom = std::fs::read(path).expect("provision the genuine 48K ROM");
     let runtime = Spectrum48kRuntime::from_rom_bytes(&rom).expect("48K ROM");
     let mut session = HeadlessSession::new_with_query_provider(
-        SpectrumRuntimeKind::Spectrum48K(runtime),
+        SpectrumRuntimeKind::Spectrum48K(Box::new(runtime)),
         u64::from(TIMING_48K.halfcycles_per_frame),
         SpectrumSessionQueryProvider,
     );
@@ -50,7 +50,7 @@ fn shared_basic_native_loader_preserves_rom_editor_bytes_and_runs() {
     // RUN from a fresh machine, as the loader's host entry point expects.
     let runtime = Spectrum48kRuntime::from_rom_bytes(&rom).expect("48K ROM");
     let mut session = HeadlessSession::new_with_query_provider(
-        SpectrumRuntimeKind::Spectrum48K(runtime),
+        SpectrumRuntimeKind::Spectrum48K(Box::new(runtime)),
         u64::from(TIMING_48K.halfcycles_per_frame),
         SpectrumSessionQueryProvider,
     );

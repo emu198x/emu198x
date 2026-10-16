@@ -134,7 +134,7 @@ mod tests {
     fn full_surface_publishes_every_curriculum_tool() {
         // Registration reads the family catalogue, not the live machine,
         // so a zero-filled ROM is enough to stand in for the boot 48K.
-        let kind = SpectrumRuntimeKind::Spectrum48K(Spectrum48kRuntime::blank());
+        let kind = SpectrumRuntimeKind::Spectrum48K(Box::new(Spectrum48kRuntime::blank()));
         let frame_halfcycles = u64::from(kind.frame_halfcycles());
         let session = HeadlessSession::new_with_query_provider(
             kind,

@@ -240,37 +240,39 @@ impl<M: SpectrumMachine> SpectrumLiveAccess for SpectrumRuntime<M> {
 /// Runtime-time dispatch over every Spectrum-family variant.
 ///
 /// Constructed by the host (typically the MCP server) — pass a fresh
-/// concrete runtime in. Re-construct (don't mutate the variant in
+/// concrete runtime in. Each concrete runtime is heap-allocated so the
+/// largest variant does not determine every session and startup frame size.
+/// Dispatch remains static. Re-construct (don't mutate the variant in
 /// place) to swap machines mid-session; the host clears session-side
 /// state separately.
 pub enum SpectrumRuntimeKind {
     /// ZX Spectrum 16K.
-    Spectrum16K(Spectrum16kRuntime),
+    Spectrum16K(Box<Spectrum16kRuntime>),
     /// ZX Spectrum 48K.
-    Spectrum48K(Spectrum48kRuntime),
+    Spectrum48K(Box<Spectrum48kRuntime>),
     /// ZX Spectrum+ (electrically identical to 48K; identity is in the
     /// profile).
-    SpectrumPlus(SpectrumPlusRuntime),
+    SpectrumPlus(Box<SpectrumPlusRuntime>),
     /// ZX Spectrum 128K.
-    Spectrum128K(Spectrum128kRuntime),
+    Spectrum128K(Box<Spectrum128kRuntime>),
     /// Sinclair-branded Amstrad-built grey +2.
-    SpectrumPlus2(SpectrumPlus2Runtime),
+    SpectrumPlus2(Box<SpectrumPlus2Runtime>),
     /// ZX Spectrum +2A.
-    SpectrumPlus2A(SpectrumPlus2ARuntime),
+    SpectrumPlus2A(Box<SpectrumPlus2ARuntime>),
     /// ZX Spectrum +2B.
-    SpectrumPlus2B(SpectrumPlus2BRuntime),
+    SpectrumPlus2B(Box<SpectrumPlus2BRuntime>),
     /// ZX Spectrum +3.
-    SpectrumPlus3(SpectrumPlus3Runtime),
+    SpectrumPlus3(Box<SpectrumPlus3Runtime>),
     /// Pentagon 128 — Russian clone with no contention and Beta disk.
-    Pentagon128(Pentagon128Runtime),
+    Pentagon128(Box<Pentagon128Runtime>),
     /// Scorpion ZS-256 — Russian extended Spectrum with 256 KB RAM.
-    ScorpionZS256(ScorpionZS256Runtime),
+    ScorpionZS256(Box<ScorpionZS256Runtime>),
     /// Timex TC2048 — Portuguese 48K-compatible with SCLD hi-res.
-    TimexTC2048(TimexTC2048Runtime),
+    TimexTC2048(Box<TimexTC2048Runtime>),
     /// Timex TC2068 (PAL).
-    TimexTC2068(TimexTS2068Runtime),
+    TimexTC2068(Box<TimexTS2068Runtime>),
     /// Timex TS2068 (NTSC).
-    TimexTS2068(TimexTS2068Runtime),
+    TimexTS2068(Box<TimexTS2068Runtime>),
 }
 
 impl SpectrumRuntimeKind {
@@ -358,46 +360,44 @@ impl FamilyRuntime for SpectrumRuntimeKind {
     ) -> Result<Self, MachineError> {
         Ok(match model {
             crate::Model::Spectrum16KPal => {
-                Self::Spectrum16K(Spectrum16kRuntime::from_firmware(firmware)?)
+                Self::Spectrum16K(Box::new(Spectrum16kRuntime::from_firmware(firmware)?))
             }
             crate::Model::Spectrum48KPal => {
-                Self::Spectrum48K(Spectrum48kRuntime::from_firmware(firmware)?)
+                Self::Spectrum48K(Box::new(Spectrum48kRuntime::from_firmware(firmware)?))
             }
             crate::Model::SpectrumPlus => {
-                Self::SpectrumPlus(SpectrumPlusRuntime::from_firmware(firmware)?)
+                Self::SpectrumPlus(Box::new(SpectrumPlusRuntime::from_firmware(firmware)?))
             }
             crate::Model::Spectrum128KPal => {
-                Self::Spectrum128K(Spectrum128kRuntime::from_firmware(firmware)?)
+                Self::Spectrum128K(Box::new(Spectrum128kRuntime::from_firmware(firmware)?))
             }
             crate::Model::SpectrumPlus2 => {
-                Self::SpectrumPlus2(SpectrumPlus2Runtime::from_firmware(firmware)?)
+                Self::SpectrumPlus2(Box::new(SpectrumPlus2Runtime::from_firmware(firmware)?))
             }
             crate::Model::SpectrumPlus2A => {
-                Self::SpectrumPlus2A(SpectrumPlus2ARuntime::from_firmware(firmware)?)
+                Self::SpectrumPlus2A(Box::new(SpectrumPlus2ARuntime::from_firmware(firmware)?))
             }
             crate::Model::SpectrumPlus2B => {
-                Self::SpectrumPlus2B(SpectrumPlus2BRuntime::from_firmware(firmware)?)
+                Self::SpectrumPlus2B(Box::new(SpectrumPlus2BRuntime::from_firmware(firmware)?))
             }
             crate::Model::SpectrumPlus3 => {
-                Self::SpectrumPlus3(SpectrumPlus3Runtime::from_firmware(firmware)?)
+                Self::SpectrumPlus3(Box::new(SpectrumPlus3Runtime::from_firmware(firmware)?))
             }
             crate::Model::Pentagon128 => {
-                Self::Pentagon128(Pentagon128Runtime::from_firmware(firmware)?)
+                Self::Pentagon128(Box::new(Pentagon128Runtime::from_firmware(firmware)?))
             }
             crate::Model::ScorpionZS256 => {
-                Self::ScorpionZS256(ScorpionZS256Runtime::from_firmware(firmware)?)
+                Self::ScorpionZS256(Box::new(ScorpionZS256Runtime::from_firmware(firmware)?))
             }
             crate::Model::TimexTC2048 => {
-                Self::TimexTC2048(TimexTC2048Runtime::from_firmware(firmware)?)
+                Self::TimexTC2048(Box::new(TimexTC2048Runtime::from_firmware(firmware)?))
             }
-            crate::Model::TimexTC2068 => Self::TimexTC2068(TimexTS2068Runtime::from_firmware(
-                crate::Model::TimexTC2068,
-                firmware,
-            )?),
-            crate::Model::TimexTS2068 => Self::TimexTS2068(TimexTS2068Runtime::from_firmware(
-                crate::Model::TimexTS2068,
-                firmware,
-            )?),
+            crate::Model::TimexTC2068 => Self::TimexTC2068(Box::new(
+                TimexTS2068Runtime::from_firmware(crate::Model::TimexTC2068, firmware)?,
+            )),
+            crate::Model::TimexTS2068 => Self::TimexTS2068(Box::new(
+                TimexTS2068Runtime::from_firmware(crate::Model::TimexTS2068, firmware)?,
+            )),
         })
     }
 
@@ -985,7 +985,7 @@ impl SpectrumLiveAccess for SpectrumRuntimeKind {
 
 impl SessionQueryProvider<SpectrumRuntimeKind> for SpectrumSessionQueryProvider {
     fn query_paths(&self, runtime: &SpectrumRuntimeKind, prefix: Option<&str>) -> Vec<String> {
-        match_kind!(runtime, |rt| self.query_paths(rt, prefix))
+        match_kind!(runtime, |rt| self.query_paths(rt.as_ref(), prefix))
     }
 
     fn query(
@@ -993,7 +993,7 @@ impl SessionQueryProvider<SpectrumRuntimeKind> for SpectrumSessionQueryProvider 
         runtime: &SpectrumRuntimeKind,
         path: &str,
     ) -> Result<Option<QueryResult>, QueryError> {
-        match_kind!(runtime, |rt| self.query(rt, path))
+        match_kind!(runtime, |rt| self.query(rt.as_ref(), path))
     }
 }
 
@@ -1004,7 +1004,7 @@ mod tests {
 
     #[test]
     fn machine_core_dispatches_to_inner_variants() {
-        let mut kind = SpectrumRuntimeKind::Spectrum48K(Spectrum48kRuntime::blank());
+        let mut kind = SpectrumRuntimeKind::Spectrum48K(Box::new(Spectrum48kRuntime::blank()));
         // Sanity: profile id starts with the family slug.
         assert!(kind.profile().profile_id.as_str().contains("48k"));
         // Reset is a no-op-ish call but must not panic across the
@@ -1014,7 +1014,7 @@ mod tests {
 
     #[test]
     fn query_provider_dispatches_to_inner_variants() {
-        let kind = SpectrumRuntimeKind::Spectrum48K(Spectrum48kRuntime::blank());
+        let kind = SpectrumRuntimeKind::Spectrum48K(Box::new(Spectrum48kRuntime::blank()));
         let provider = SpectrumSessionQueryProvider;
         let paths = provider.query_paths(&kind, Some("tape."));
         assert!(
@@ -1025,7 +1025,7 @@ mod tests {
 
     #[test]
     fn step_advances_pc_through_runtime_kind() {
-        let mut kind = SpectrumRuntimeKind::Spectrum48K(Spectrum48kRuntime::blank());
+        let mut kind = SpectrumRuntimeKind::Spectrum48K(Box::new(Spectrum48kRuntime::blank()));
         // Blank machine: PC=0, RAM/ROM uninitialised → opcodes are 0xFF
         // (RST $38) which pushes PC and jumps to $0038. Single-step
         // should leave PC != 0.
@@ -1039,12 +1039,12 @@ mod tests {
     #[test]
     fn ay_write_watch_dispatches_through_runtime_kind() {
         // 48K has no AY — start should error.
-        let mut k48 = SpectrumRuntimeKind::Spectrum48K(Spectrum48kRuntime::blank());
+        let mut k48 = SpectrumRuntimeKind::Spectrum48K(Box::new(Spectrum48kRuntime::blank()));
         assert!(k48.start_ay_write_watch().is_err());
         assert!(k48.ay_write_watch_records().is_none());
 
         // 128K has an AY — start should succeed, range should be present.
-        let mut k128 = SpectrumRuntimeKind::Spectrum128K(Spectrum128kRuntime::blank());
+        let mut k128 = SpectrumRuntimeKind::Spectrum128K(Box::new(Spectrum128kRuntime::blank()));
         k128.start_ay_write_watch()
             .expect("128K supports the AY watch");
         assert!(k128.ay_write_watch_records().is_some());
@@ -1067,7 +1067,7 @@ mod tests {
         // border, so we don't round-trip the value through port_read —
         // we only verify both methods reach the inner machine without
         // panic and don't return a fixed sentinel.
-        let mut kind = SpectrumRuntimeKind::Spectrum48K(Spectrum48kRuntime::blank());
+        let mut kind = SpectrumRuntimeKind::Spectrum48K(Box::new(Spectrum48kRuntime::blank()));
         let before = kind.port_read(0x00FE);
         kind.port_write(0x00FE, 5);
         let after = kind.port_read(0x00FE);
@@ -1079,7 +1079,7 @@ mod tests {
 
     #[test]
     fn run_until_pc_returns_within_budget() {
-        let mut kind = SpectrumRuntimeKind::Spectrum48K(Spectrum48kRuntime::blank());
+        let mut kind = SpectrumRuntimeKind::Spectrum48K(Box::new(Spectrum48kRuntime::blank()));
         // Target an unlikely PC; budget is tiny so we expect timeout.
         let (reached, _hc, _instr) = kind.run_until_pc(0xCAFE, 1000);
         assert!(!reached, "0xCAFE should not be reached in a 1000-hc budget");
@@ -1087,7 +1087,7 @@ mod tests {
 
     #[test]
     fn z80_registers_dispatch_through_runtime_kind() {
-        let kind = SpectrumRuntimeKind::Spectrum48K(Spectrum48kRuntime::blank());
+        let kind = SpectrumRuntimeKind::Spectrum48K(Box::new(Spectrum48kRuntime::blank()));
         // Fresh Z80 has the well-known boot reset state: PC=0, SP=0xFFFF, AF=0xFFFF.
         let regs = kind.z80_registers();
         assert_eq!(regs.pc, 0x0000);
@@ -1099,7 +1099,7 @@ mod tests {
     #[test]
     fn named_compound_keys_expand_to_capsshift_chords() {
         use emu198x_shell::KeyboardTarget;
-        let kind = SpectrumRuntimeKind::Spectrum48K(Spectrum48kRuntime::blank());
+        let kind = SpectrumRuntimeKind::Spectrum48K(Box::new(Spectrum48kRuntime::blank()));
 
         let caps = |s: &str| Some(vec!["CapsShift".to_owned(), s.to_owned()]);
         // The number-row legends, per the Spectrum faceplate.
@@ -1120,7 +1120,7 @@ mod tests {
 
     #[test]
     fn memory_write_watch_dispatches_through_runtime_kind() {
-        let mut kind = SpectrumRuntimeKind::Spectrum48K(Spectrum48kRuntime::blank());
+        let mut kind = SpectrumRuntimeKind::Spectrum48K(Box::new(Spectrum48kRuntime::blank()));
         assert!(kind.memory_write_watch_range().is_none());
         assert!(kind.memory_write_watch_records().is_none());
 
