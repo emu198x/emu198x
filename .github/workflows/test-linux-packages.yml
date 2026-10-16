@@ -3,6 +3,11 @@ name: Linux packages
 on:
   workflow_dispatch:
     inputs:
+      macos_developer_journey:
+        description: "Run the pinned native Intel macOS developer handoffs"
+        required: false
+        type: boolean
+        default: false
       linux_developer_journey:
         description: "Run the pinned native x86-64 Linux developer journey"
         required: false
@@ -38,7 +43,7 @@ permissions:
 
 jobs:
   install:
-    if: ${{ !inputs.windows_startup_regression && !inputs.windows_developer_journey && !inputs.linux_developer_journey }}
+    if: ${{ !inputs.windows_startup_regression && !inputs.windows_developer_journey && !inputs.linux_developer_journey && !inputs.macos_developer_journey }}
     name: Install and exercise (${{ matrix.target }})
     strategy:
       fail-fast: false
@@ -412,5 +417,132 @@ jobs:
         with:
           name: linux-developer-journey-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/linux-developer-evidence/
+          if-no-files-found: error
+          retention-days: 30
+
+  macos-developer-journey:
+    name: macOS x64 released-tool developer journey
+    if: github.repository == 'emu198x/emu198x' && github.event_name == 'workflow_dispatch' && inputs.macos_developer_journey
+    runs-on: macos-15-intel
+    timeout-minutes: 15
+    env:
+      SAMPLES_REVISION: '51297ac3196a990286b0d21a4dedd4653c0168f0'
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v7
+        with:
+          repository: code198x/code-samples
+          ref: ${{ env.SAMPLES_REVISION }}
+          path: code-samples
+          persist-credentials: false
+      - uses: actions/checkout@v7
+        with:
+          repository: stevehill1981/198x
+          ref: 'b875be8508eedd1d58e9df950548f45437b7a663'
+          path: retained-audit
+          sparse-checkout: docs/audits/2026-10-16-amiga-package-reopen
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.14'
+      - name: Check macOS journey rejection controls
+        run: python -m unittest discover -s scripts -p test_windows_developer_journey.py -v
+      - name: Materialise checked macOS-journey firmware
+        env:
+          ROM_B64: ${{ secrets.EMU198X_SPECTRUM_48K_ROM_B64 }}
+          RELEASE_RUN: ${{ inputs.release_run }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import base64, hashlib, json, os
+          from pathlib import Path
+          root = Path(os.environ['RUNNER_TEMP'])
+          evidence = root / 'macos-developer-evidence'
+          evidence.mkdir()
+          record = evidence / 'firmware-check.json'
+          record.write_text(json.dumps({'status': 'failed', 'firmware_validated': False}))
+          if os.environ['RELEASE_RUN']:
+              raise ValueError('macOS journey does not consume a candidate release_run')
+          pins = json.loads(Path('scripts/macos-developer-journey-inputs.json').read_text())
+          data = base64.b64decode(''.join(os.environ['ROM_B64'].split()), validate=True)
+          if len(data) != 16384 or hashlib.sha256(data).hexdigest() != pins['firmware_sha256']:
+              raise ValueError('Genuine 48K firmware is missing or differs; no runtime qualification')
+          firmware = root / 'macos-developer-firmware'
+          firmware.mkdir()
+          (firmware / '48.rom').write_bytes(data)
+          record.write_text(json.dumps({'status': 'passed', 'firmware_validated': True, 'sha256': pins['firmware_sha256']}))
+          PY
+      - name: Build and debug with the published macOS tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/windows-developer-journey.py --pins scripts/macos-developer-journey-inputs.json \
+            --samples-root "$GITHUB_WORKSPACE/code-samples" \
+            --firmware "$RUNNER_TEMP/macos-developer-firmware/48.rom" \
+            --work "$RUNNER_TEMP/macos-developer-work" \
+            --output "$RUNNER_TEMP/macos-developer-evidence/journey"
+      - name: Provision the retained Amiga firmware privately
+        env:
+          GH_TOKEN: ${{ secrets.ACCURACY_CORPORA_TOKEN }}
+          CORPORA_REPO: ${{ vars.ACCURACY_CORPORA_REPO }}
+          CORPORA_TAG: ${{ vars.ACCURACY_CORPORA_TAG || 'v1' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir "$RUNNER_TEMP/macos-developer-firmware/corpus"
+          gh release download "$CORPORA_TAG" -R "$CORPORA_REPO" -p amiga-accuracy.tar.zst -p SHA256SUMS --dir "$RUNNER_TEMP/macos-developer-firmware/corpus"
+          python - <<'PYCODE'
+          import hashlib, os, tarfile
+          from pathlib import Path
+          root = Path(os.environ['RUNNER_TEMP']) / 'macos-developer-firmware'
+          archive = root / 'corpus/amiga-accuracy.tar.zst'
+          sums = (root / 'corpus/SHA256SUMS').read_text().splitlines()
+          matches = [line.split()[0] for line in sums if line.split()[-1].lstrip('*') == archive.name]
+          if matches != [hashlib.sha256(archive.read_bytes()).hexdigest()]:
+              raise ValueError('Private corpus checksum differs')
+          with tarfile.open(archive, mode='r:zst') as packed:
+              members = [m for m in packed.getmembers() if m.isfile() and Path(m.name).name == 'kick13.rom']
+              if len(members) != 1 or members[0].size != 262144:
+                  raise ValueError('Missing unique Kickstart 1.3')
+              stream = packed.extractfile(members[0])
+              if stream is None:
+                  raise ValueError('Missing firmware stream')
+              data = stream.read()
+          if hashlib.sha256(data).hexdigest() != 'ee05862d8102a08436ac4056da7d549db31625c7d47b24dfb7b3c9a5c113ca53':
+              raise ValueError('Kickstart identity differs')
+          (root / 'kick13.rom').write_bytes(data)
+          PYCODE
+      - name: Rebuild and cold-boot the retained Amiga sample
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/macos-amiga-journey.py \
+            --fixtures "$GITHUB_WORKSPACE/retained-audit/docs/audits/2026-10-16-amiga-package-reopen" \
+            --work "$RUNNER_TEMP/macos-developer-work" \
+            --firmware "$RUNNER_TEMP/macos-developer-firmware/kick13.rom" \
+            --output "$RUNNER_TEMP/macos-developer-evidence/amiga"
+      - name: Remove private macOS-journey firmware
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os, shutil
+          from pathlib import Path
+          folder = Path(os.environ['RUNNER_TEMP']) / 'macos-developer-firmware'
+          if folder.exists():
+              shutil.rmtree(folder)
+          if folder.exists():
+              raise RuntimeError('Private firmware cleanup failed')
+          PY
+      - name: Retain only macOS journey evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: macos-developer-journey-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/macos-developer-evidence/
           if-no-files-found: error
           retention-days: 30

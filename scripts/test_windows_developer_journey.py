@@ -117,6 +117,17 @@ class JourneyControls(unittest.TestCase):
         with self.assertRaises(ValueError):
             journey.executable_identity(bytes(elf), 'x86_64-unknown-linux-gnu')
 
+    def test_macho_rejects_the_other_architecture_and_other_formats(self) -> None:
+        image = bytes.fromhex('cffaedfe07000001') + bytes(24)
+        self.assertIsNone(journey.executable_identity(image, 'x86_64-apple-darwin'))
+        for target in ['aarch64-apple-darwin', 'x86_64-pc-windows-msvc', 'x86_64-unknown-linux-gnu']:
+            with self.assertRaises(ValueError):
+                journey.executable_identity(image, target)
+        arm = bytes.fromhex('cffaedfe0c000001') + bytes(24)
+        self.assertIsNone(journey.executable_identity(arm, 'aarch64-apple-darwin'))
+        with self.assertRaises(ValueError):
+            journey.executable_identity(arm, 'x86_64-apple-darwin')
+
     def test_retained_source_stop_requires_agreement_and_rejects_wrong_line(self) -> None:
         root = journey.FIXTURES
         record = json.loads((root / 'reference-runtime.json').read_text())
@@ -145,7 +156,7 @@ class JourneyControls(unittest.TestCase):
         workflow = (Path(__file__).parents[1] / '.github/workflows/test-linux-packages.yml').read_text()
         pins = json.loads(journey.PINS.read_text())
         self.assertIn(pins['samples_revision'], workflow)
-        self.assertIn('if: ${{ !inputs.windows_startup_regression && !inputs.windows_developer_journey && !inputs.linux_developer_journey }}', workflow)
+        self.assertIn('if: ${{ !inputs.windows_startup_regression && !inputs.windows_developer_journey && !inputs.linux_developer_journey && !inputs.macos_developer_journey }}', workflow)
         self.assertIn("github.event_name == 'workflow_dispatch' && inputs.windows_developer_journey", workflow)
         self.assertIn('ROM_B64: ${{ secrets.EMU198X_SPECTRUM_48K_ROM_B64 }}', workflow)
         self.assertIn('name: Remove private Windows-journey firmware\n        if: always()', workflow)

@@ -189,6 +189,11 @@ def executable_identity(executable: bytes, target: str) -> int | None:
         if executable[:6] != b'\x7fELF\x02\x01' or struct.unpack_from('<H', executable, 18)[0] != 62:
             raise ValueError('Expected native x86-64 little-endian ELF image')
         return None
+    if target in {'x86_64-apple-darwin', 'aarch64-apple-darwin'}:
+        cpu = 0x01000007 if target.startswith('x86_64') else 0x0100000C
+        if executable[:4] != b'\xcf\xfa\xed\xfe' or struct.unpack_from('<I', executable, 4)[0] != cpu:
+            raise ValueError('Expected native 64-bit Mach-O image')
+        return None
     raise ValueError('Unsupported native target')
 
 
@@ -223,9 +228,10 @@ def main() -> None:
     retain()
     try:
         target = pins.get('target', 'x86_64-pc-windows-msvc')
-        expected_os = {'x86_64-pc-windows-msvc': 'win32', 'x86_64-unknown-linux-gnu': 'linux'}.get(target)
-        if expected_os is None or sys.platform != expected_os or platform.machine().lower() not in {'amd64', 'x86_64'}:
-            raise ValueError('Journey requires the declared native x86-64 host')
+        expected_os = {'x86_64-pc-windows-msvc': 'win32', 'x86_64-unknown-linux-gnu': 'linux', 'x86_64-apple-darwin': 'darwin', 'aarch64-apple-darwin': 'darwin'}.get(target)
+        machines = {'arm64', 'aarch64'} if target.startswith('aarch64') else {'amd64', 'x86_64'}
+        if expected_os is None or sys.platform != expected_os or platform.machine().lower() not in machines:
+            raise ValueError('Journey requires the declared native host')
         report['target'] = target
         rom = firmware(args.firmware, pins['firmware_sha256'])
         report['firmware_sha256'] = digest(rom)
@@ -265,7 +271,7 @@ def main() -> None:
             stack_reserve = executable_identity(executable, target)
             binary = tools / filename
             binary.write_bytes(executable)
-            if expected_os == 'linux':
+            if expected_os != 'win32':
                 binary.chmod(0o755)
             binaries[tool['name']] = str(binary)
             report['tools'].append({**tool, 'executable_sha256': digest(executable), 'pe_stack_reserve_bytes': stack_reserve})
