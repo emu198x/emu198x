@@ -38,7 +38,7 @@ configuration, not an extension of the Spectrum result to all Amigas.
 Before installation, no family executable was present. On macOS no family
 formula was installed, including unlinked formulae. Installed executable bytes
 matched the selected public archives before the journey ran. Homebrew uninstall
-then removed the tools and their PATH entries.
+then removed the tools; subsequent PATH lookups could no longer find them.
 
 Windows uses the unmodified public Asm/Build PowerShell scripts and constructs
 a fresh PATH from machine and user settings. Emu has a ZIP route; it has no
