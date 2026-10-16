@@ -1,0 +1,62 @@
+mise WARN  tracking config: failed to ln -sf /Users/stevehill/Projects/198x/output/qualification/workspaces/emu-fdc-read-eot/rust-toolchain.toml /Users/stevehill/.local/state/mise/tracked-configs/72fa6f32dd5e5625: Operation not permitted (os error 1)
+   Compiling proc-macro2 v1.0.106
+   Compiling quote v1.0.45
+   Compiling unicode-ident v1.0.24
+   Compiling serde_core v1.0.229
+   Compiling serde v1.0.229
+   Compiling thiserror v2.0.20
+   Compiling format-sinclair-zx-spectrum-snapshot v0.35.4 (/Users/stevehill/Projects/198x/output/qualification/workspaces/emu-fdc-read-eot/crates/format-sinclair-zx-spectrum-snapshot)
+   Compiling syn v3.0.3
+   Compiling serde_derive v1.0.229
+   Compiling thiserror-impl v2.0.20
+   Compiling emu198x-gi-ay-3-8910 v0.6.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/emu-fdc-read-eot/crates/emu198x-gi-ay-3-8910)
+   Compiling serde-big-array v0.5.1
+   Compiling common-tape v0.35.4 (/Users/stevehill/Projects/198x/output/qualification/workspaces/emu-fdc-read-eot/crates/common-tape)
+   Compiling emu198x-zilog-z80 v0.8.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/emu-fdc-read-eot/crates/emu198x-zilog-z80)
+   Compiling gi-ay-3-8912 v0.35.4 (/Users/stevehill/Projects/198x/output/qualification/workspaces/emu-fdc-read-eot/crates/gi-ay-3-8912)
+   Compiling common-sinclair-zx-spectrum v0.35.4 (/Users/stevehill/Projects/198x/output/qualification/workspaces/emu-fdc-read-eot/crates/common-sinclair-zx-spectrum)
+   Compiling nec-upd765a v0.35.4 (/Users/stevehill/Projects/198x/output/qualification/workspaces/emu-fdc-read-eot/crates/nec-upd765a)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.44s
+     Running tests/read_eot.rs (target/debug/deps/read_eot-ea0c66aa2d10f138)
+
+running 6 tests
+test all_skipped_sectors_do_not_become_clean_eot ... ok
+test crc_and_control_mark_at_eot_do_not_gain_en ... ok
+test earlier_missing_or_wrong_cylinder_has_no_eot_status ... ok
+test read_data_reaches_eot_without_terminal_count ... FAILED
+test read_deleted_data_reaches_eot_without_terminal_count ... FAILED
+test multisector_read_retains_final_sector_at_eot ... FAILED
+
+failures:
+
+---- read_data_reaches_eot_without_terminal_count stdout ----
+
+thread 'read_data_reaches_eot_without_terminal_count' (116566298) panicked at crates/nec-upd765a/tests/read_eot.rs:64:13:
+assertion `left == right` failed
+  left: [0, 0, 0, 0, 0, 2, 2]
+ right: [64, 128, 0, 0, 0, 1, 2]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- read_deleted_data_reaches_eot_without_terminal_count stdout ----
+
+thread 'read_deleted_data_reaches_eot_without_terminal_count' (116566299) panicked at crates/nec-upd765a/tests/read_eot.rs:64:13:
+assertion `left == right` failed
+  left: [0, 0, 0, 0, 0, 2, 2]
+ right: [64, 128, 0, 0, 0, 1, 2]
+
+---- multisector_read_retains_final_sector_at_eot stdout ----
+
+thread 'multisector_read_retains_final_sector_at_eot' (116566297) panicked at crates/nec-upd765a/tests/read_eot.rs:87:9:
+assertion `left == right` failed
+  left: [0, 0, 0, 0, 0, 3, 2]
+ right: [64, 128, 0, 0, 0, 2, 2]
+
+
+failures:
+    multisector_read_retains_final_sector_at_eot
+    read_data_reaches_eot_without_terminal_count
+    read_deleted_data_reaches_eot_without_terminal_count
+
+test result: FAILED. 3 passed; 3 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p nec-upd765a --test read_eot`

@@ -1,0 +1,17 @@
+mise WARN  tracking config: failed to ln -sf /Users/stevehill/Projects/198x/output/qualification/workspaces/emu-fdc-read-eot/rust-toolchain.toml /Users/stevehill/.local/state/mise/tracked-configs/72fa6f32dd5e5625: Operation not permitted (os error 1)
+    Checking format-sinclair-zx-spectrum-snapshot v0.35.4 (/Users/stevehill/Projects/198x/output/qualification/workspaces/emu-fdc-read-eot/crates/format-sinclair-zx-spectrum-snapshot)
+    Checking emu198x-test-skip v0.35.4 (/Users/stevehill/Projects/198x/output/qualification/workspaces/emu-fdc-read-eot/crates/emu198x-test-skip)
+    Checking serde_core v1.0.229
+    Checking thiserror v2.0.20
+    Checking serde v1.0.229
+    Checking emu198x-gi-ay-3-8910 v0.6.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/emu-fdc-read-eot/crates/emu198x-gi-ay-3-8910)
+    Checking serde-big-array v0.5.1
+    Checking emu198x-zilog-z80 v0.8.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/emu-fdc-read-eot/crates/emu198x-zilog-z80)
+    Checking common-tape v0.35.4 (/Users/stevehill/Projects/198x/output/qualification/workspaces/emu-fdc-read-eot/crates/common-tape)
+    Checking gi-ay-3-8912 v0.35.4 (/Users/stevehill/Projects/198x/output/qualification/workspaces/emu-fdc-read-eot/crates/gi-ay-3-8912)
+    Checking common-sinclair-zx-spectrum v0.35.4 (/Users/stevehill/Projects/198x/output/qualification/workspaces/emu-fdc-read-eot/crates/common-sinclair-zx-spectrum)
+    Checking nec-upd765a v0.35.4 (/Users/stevehill/Projects/198x/output/qualification/workspaces/emu-fdc-read-eot/crates/nec-upd765a)
+    Checking amstrad-ula-40077 v0.35.4 (/Users/stevehill/Projects/198x/output/qualification/workspaces/emu-fdc-read-eot/crates/amstrad-ula-40077)
+    Checking common-sinclair-zx-spectrum-amstrad-class v0.35.4 (/Users/stevehill/Projects/198x/output/qualification/workspaces/emu-fdc-read-eot/crates/common-sinclair-zx-spectrum-amstrad-class)
+    Checking machine-sinclair-zx-spectrum-plus3 v0.35.4 (/Users/stevehill/Projects/198x/output/qualification/workspaces/emu-fdc-read-eot/crates/machine-sinclair-zx-spectrum-plus3)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 2.24s
