@@ -214,7 +214,9 @@ def verify_receipt(
     env: dict[str, str],
 ) -> None:
     require(
-        receipt["schema_version"] == 1 and receipt["kind"] == "producer-source-lock",
+        type(receipt.get("schema_version")) is int
+        and receipt["schema_version"] == 1
+        and receipt["kind"] == "producer-source-lock",
         "receipt schema differs",
     )
     require(
