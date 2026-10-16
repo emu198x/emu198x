@@ -1,8 +1,8 @@
 //! MCP server mode — the body behind
 //! [`MachineApp::run_mcp`](emu198x_shell::launch::MachineApp::run_mcp).
 //!
-//! Boots the requested variant eagerly and builds a shell-side `Server` with one tool per `ScriptStep` variant, and
-//! drives the JSON-RPC stdio loop. Tool dispatch goes through the
+//! Boots the requested variant eagerly, builds a shell-side `Server` with
+//! one tool per `ScriptStep` variant, and drives the JSON-RPC stdio loop. Tool dispatch goes through the
 //! same `execute_step` interceptor as `--script`, so the portable
 //! snapshot loader behaves identically across both modes; every other
 //! step, `set_machine` included, runs in the shell.
