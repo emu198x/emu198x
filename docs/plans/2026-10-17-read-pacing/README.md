@@ -71,3 +71,42 @@ Sources: held NEC December 1978 datasheet printed pp12/17 in umbrella
 `reference/by-topic/fdc-765/`; vendored Fuse `upd_fdc_read_data`/timeout event;
 vendored MAME `fifo_r`/`fifo_push`/`READ_SECTOR_DATA_BYTE`. Those implementations
 provide comparison evidence, not a substitute for original hardware.
+
+## Executed result
+
+Source build `eb26c4b59464d46f111a66d0e060a813bbd81b2a`, Rust 1.99.0,
+executable SHA-256
+`30548d7940f9066a43abb4e3486bfdfb03a60e5ca6fefd80094dda8e63650b3e`:
+two fresh normal-ROM disk loads pass 519 native checks, eight firmware checks,
+three loading checks and seven execution checks each. The 54-byte diagnostic
+reaches PC 32820, writes new `5A 5B` completion bytes and the expected full
+6912-byte screen pattern. The wrong-signature control exits 1 with
+`signature mismatch: expected [90, 92], observed [90, 91]`.
+
+This names the existing PAL +3 / 40077 / 128 KiB / English v4.0 / internal drive A /
+standard 180 KiB DSK configuration. Assembly/mastering are captured fixture
+replay, not fresh execution. These are fresh source-runtime ROM regressions,
+not a new distributed release or full-stack qualification. No snapshot restore,
+injection or host port writes occur in these ROM runs.
+
+The initial candidate failed before the ROM's first data poll: first-byte RQM
+was published synchronously with the final command parameter and expired during
+the ROM's return from the command routine. Its failed result and bounded trace
+are retained. A new regression failed before the pending-start correction and
+passed afterwards. The normal-ROM path then passed twice.
+
+`evidence/runs.tar.gz` retains 101 regular safe artifacts, including all twelve
+MAME observations, both ROM passes, the wrong-signature failure, the startup
+failure and red/green/build logs. `hashes.json` binds every member. No firmware,
+native states or executables are included. The archive's identities record exact
+source, lockfile, compiler, executable and command details. Inspect it offline:
+
+```sh
+python3.14 docs/plans/2026-10-17-read-pacing/verify.py
+python3.14 -m unittest discover -s docs/plans/2026-10-17-read-pacing -v
+```
+
+The offline auditor is captured-evidence inspection, not fresh execution. Its
+negative tests reject zero reference cases, false qualification, missing data,
+a falsely passing negative control, missing execution writes, zero assertions
+and changed runtime source identity.
