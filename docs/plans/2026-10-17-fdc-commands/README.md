@@ -7,7 +7,7 @@ opcodes. The existing released v0.35.5 ROM campaign retains its own scope.
 
 | New command | Implemented behavior | Direct checks |
 | --- | --- | --- |
-| Write Deleted Data / 09 | Existing paced write engine, selected DDAM, partial CRC, protection/EOT/MT, normal write clears DDAM | Five controller groups; five native state offsets, EDSK export/reparse and fresh-runtime Read Deleted Data |
+| Write Deleted Data / 09 | Existing paced write engine, selected DDAM, partial CRC, protection/EOT/MT, normal write clears DDAM | Seven controller groups; five native state offsets, EDSK export/reparse and fresh-runtime Read Deleted Data |
 | Read Track / 02 | N-controlled represented payloads in physical order; EOT counts fields; recorded errors continue; MT/SK do not change track | Four controller groups; four native state offsets; two fresh MAME order/count cases |
 | Scan Equal / 11 | Bytewise equality, SH/SN latch, STP, CM/SK, MT, errors and paced requests | Shared nine controller groups and native state offsets |
 | Scan Low or Equal / 19 | Every disk byte must be <= processor byte; equality alone sets SH | Same groups, separate relation cases |
@@ -16,7 +16,11 @@ opcodes. The existing released v0.35.5 ROM campaign retains its own scope.
 Each new test group failed against the implementation before its command was
 added: five Write Deleted Data, four Read Track and six initial Scan groups.
 Further Scan groups cover MT/missed EOT, N=0 and literal FF, and media ejection.
-The combined source suite has 95 controller tests, 112 runtime library tests,
+The separate [zero-byte write fix](https://github.com/emu198x/emu198x/issues/1815)
+records the selected mark and incomplete CRC at preamble completion, before first
+RQM. Two regressions failed before correction and pass afterwards; two guards
+recheck missing media/protection. No timing constants or stored fields change.
+The combined source suite has 99 controller tests, 112 runtime library tests,
 six machine tests and one explicitly executed local-ROM menu boot. Clippy on
 all affected targets and workspace formatting pass. No proprietary firmware,
 general machine states or dependencies are added.
