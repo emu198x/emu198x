@@ -392,6 +392,12 @@ impl<M: MemoryBus, V: Variant48kClass> SpectrumMachineCore<M, V> {
         self.sync_ear_level();
     }
 
+    /// Rewinds the tape to its start and stops it.
+    pub fn rewind_tape(&mut self) {
+        self.tape.rewind();
+        self.sync_ear_level();
+    }
+
     /// Returns whether emulated tape media is currently loaded.
     #[must_use]
     pub fn tape_is_loaded(&self) -> bool {

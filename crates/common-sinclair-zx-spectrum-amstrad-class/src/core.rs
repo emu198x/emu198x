@@ -278,6 +278,10 @@ impl<V: AmstradVariant> SpectrumAmstradClassCore<V> {
     pub fn tape_stop(&mut self) {
         self.tape.stop();
     }
+    /// Rewinds the tape to its start and stops it.
+    pub fn tape_rewind(&mut self) {
+        self.tape.rewind();
+    }
 
     /// Reset the CPU, paging latches, timing, and audio state. Keeps ROMs,
     /// RAM, and any inserted disk image intact.

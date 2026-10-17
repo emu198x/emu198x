@@ -1693,3 +1693,80 @@ fn probe_all_variant_banners() {
         }
     }
 }
+
+/// Plays a tape partway, rewinds, and checks the deck is back at the start
+/// and stopped (#1796). Every variant forwards REWIND through its own core,
+/// so each is checked rather than one standing for all.
+fn rewinds_to_the_start<M: SpectrumMachine>(name: &str, mut runtime: SpectrumRuntime<M>) {
+    use runtime_sinclair_zx_spectrum::SpectrumLiveAccess;
+    load_tape_into_runtime(&mut runtime, &minimal_tap());
+    runtime
+        .command(&ControlCommand::MediaTransport(MediaTransportCommand::new(
+            "tape-1",
+            MediaTransportAction::Start,
+        )))
+        .unwrap_or_else(|error| panic!("{name}: PLAY: {error}"));
+    let frame = runtime.machine().frame_halfcycles();
+    run_one_frame_with_inputs(&mut runtime, frame, &[]);
+    assert!(
+        runtime.machine().tape_player().span_index() > 0,
+        "{name}: the tape should have moved"
+    );
+    runtime.tape_rewind();
+    assert_eq!(
+        runtime.machine().tape_player().span_index(),
+        0,
+        "{name}: REWIND goes back to the start"
+    );
+    assert!(!runtime.tape_is_playing(), "{name}: and stops the tape");
+}
+
+#[test]
+fn every_variant_rewinds_its_tape_to_the_start() {
+    run_with_large_stack(|| {
+        rewinds_to_the_start(
+            "16K",
+            Spectrum16kRuntime::new(Model::Spectrum16KPal, Spectrum16K::new()),
+        );
+        rewinds_to_the_start(
+            "48K",
+            Spectrum48kRuntime::new(Model::Spectrum48KPal, Spectrum48k::new()),
+        );
+        rewinds_to_the_start(
+            "Plus",
+            SpectrumPlusRuntime::new(Model::SpectrumPlus, SpectrumPlus::new()),
+        );
+        rewinds_to_the_start(
+            "128K",
+            Spectrum128kRuntime::new(Model::Spectrum128KPal, Spectrum128K::new()),
+        );
+        rewinds_to_the_start(
+            "+2",
+            SpectrumPlus2Runtime::new(Model::SpectrumPlus2, SpectrumPlus2::new()),
+        );
+        rewinds_to_the_start(
+            "+2A",
+            SpectrumPlus2ARuntime::new(Model::SpectrumPlus2A, SpectrumPlus2A::new()),
+        );
+        rewinds_to_the_start(
+            "+3",
+            SpectrumPlus3Runtime::new(Model::SpectrumPlus3, SpectrumPlus3::new()),
+        );
+        rewinds_to_the_start(
+            "Pentagon",
+            Pentagon128Runtime::new(Model::Pentagon128, Pentagon128::new()),
+        );
+        rewinds_to_the_start(
+            "Scorpion",
+            ScorpionZS256Runtime::new(Model::ScorpionZS256, ScorpionZS256::new()),
+        );
+        rewinds_to_the_start(
+            "TC2048",
+            TimexTC2048Runtime::new(Model::TimexTC2048, TimexTC2048::new()),
+        );
+        rewinds_to_the_start(
+            "TS2068",
+            TimexTS2068Runtime::new(Model::TimexTS2068, TimexTS2068::new(TimexModel::TS2068)),
+        );
+    });
+}

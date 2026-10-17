@@ -290,6 +290,10 @@ impl<V: Class128kVariant> Spectrum128kClassCore<V> {
     pub fn tape_stop(&mut self) {
         self.tape.stop();
     }
+    /// Rewinds the tape to its start and stops it.
+    pub fn tape_rewind(&mut self) {
+        self.tape.rewind();
+    }
 
     /// Reset the CPU, paging latch and audio/timing state, keeping the
     /// loaded ROMs and RAM contents intact.

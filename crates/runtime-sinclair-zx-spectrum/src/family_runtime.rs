@@ -67,6 +67,10 @@ pub trait SpectrumLiveAccess {
     /// `true` while tape transport is active. Used by autoload tests
     /// to confirm the helper started playback before returning.
     fn tape_is_playing(&self) -> bool;
+    /// Rewinds the tape to its start and stops it. The shared
+    /// `MediaTransport` command has no rewind; the browser binding reaches
+    /// this directly (#1796).
+    fn tape_rewind(&mut self);
     /// Begin recording CPU writes in the half-open range
     /// `[addr, addr + len)`. Variants that don't implement the tracer
     /// return `Err`. See
@@ -148,6 +152,10 @@ impl<M: SpectrumMachine> SpectrumLiveAccess for SpectrumRuntime<M> {
 
     fn tape_is_playing(&self) -> bool {
         self.machine().tape_is_playing()
+    }
+
+    fn tape_rewind(&mut self) {
+        self.machine_mut().tape_rewind();
     }
 
     fn start_memory_write_watch(&mut self, addr: u16, len: u16) -> Result<(), &'static str> {
@@ -898,6 +906,10 @@ impl SpectrumLiveAccess for SpectrumRuntimeKind {
 
     fn tape_is_playing(&self) -> bool {
         match_kind!(self, |rt| rt.tape_is_playing())
+    }
+
+    fn tape_rewind(&mut self) {
+        match_kind!(self, |rt| rt.tape_rewind())
     }
 
     fn start_memory_write_watch(&mut self, addr: u16, len: u16) -> Result<(), &'static str> {

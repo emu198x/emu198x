@@ -234,6 +234,19 @@ impl Spectrum {
             .map_err(|error| JsError::new(&format!("tape transport on {slot:?}: {error}")))
     }
 
+    /// Presses the tape deck's REWIND: back to the start of the tape, stopped.
+    ///
+    /// Press PLAY afterwards with `transport`. `query('tape.progress')`
+    /// reads 0 once it has rewound.
+    ///
+    /// # Errors
+    ///
+    /// Returns a JavaScript error if `slot` is not the tape deck.
+    pub fn rewind(&mut self, slot: &str) -> Result<(), JsError> {
+        crate::tape_rewind(&mut self.machine, slot)
+            .map_err(|error| JsError::new(&format!("tape rewind on {slot:?}: {error}")))
+    }
+
     /// Builds a 48K on the ROM embedded in this package.
     ///
     /// The ordinary entry point for a page: the firmware travels with the
