@@ -217,6 +217,21 @@ impl Spectrum {
             .map_err(|error| JsError::new(&format!("autoloading the tape: {error}")))
     }
 
+    /// Presses the tape deck's PLAY (`playing` true) or STOP key.
+    ///
+    /// STOP keeps the tape's place and PLAY resumes from it, as on a real
+    /// recorder. Same name and shape as the shared player's `transport`.
+    /// Read the result back through `query('tape.playing')` and
+    /// `query('tape.progress')`.
+    ///
+    /// # Errors
+    ///
+    /// Returns a JavaScript error if `slot` is not a tape deck.
+    pub fn transport(&mut self, slot: &str, playing: bool) -> Result<(), JsError> {
+        crate::tape_transport(&mut self.machine, slot, playing)
+            .map_err(|error| JsError::new(&format!("tape transport on {slot:?}: {error}")))
+    }
+
     /// Builds a 48K on the ROM embedded in this package.
     ///
     /// The ordinary entry point for a page: the firmware travels with the

@@ -48,6 +48,7 @@ the browser will blur the pixels.
 | `loadSnapshot(bytes, format)` | Load a `.sna` or `.z80` snapshot. |
 | `load(slot, kind, bytes)` | Load media — for example a tape into `tape-1`. |
 | `autoload(maxBootFrames)` | Load the tape in `tape-1`: type `LOAD ""` and press play. A machine that has already run is reset first; the tape stays in. |
+| `transport(slot, playing)` | Press the tape deck's PLAY (`true`) or STOP (`false`). STOP keeps the tape's place; PLAY carries on from it. `query('tape.playing')` and `query('tape.progress')` report the state. |
 | `keyDown(code)` / `keyUp(code)` | Feed a DOM `KeyboardEvent.code`. |
 | `setAudioEnabled(on)` | Start or stop audio. |
 | `configureAudio(rate, channels, capacity)` | Match the page's `AudioContext`. |
