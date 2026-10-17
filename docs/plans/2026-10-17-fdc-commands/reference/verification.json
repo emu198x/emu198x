@@ -1,0 +1,333 @@
+{
+  "qualified": false,
+  "scope": "controller reference observations; Scan disagreements retained",
+  "cases": [
+    {
+      "case": "write-deleted",
+      "payload_and_mark": "pass",
+      "no_tc_write_chrn": "not_run",
+      "reason": "MAME C0 versus Emu/Fuse next-C1 remains unresolved; not promoted"
+    },
+    {
+      "case": "51-equal",
+      "status": "fail",
+      "expected_result": [
+        0,
+        0,
+        8,
+        0,
+        0,
+        1,
+        2
+      ],
+      "observed_result": [
+        64,
+        128,
+        8,
+        0,
+        0,
+        1,
+        2
+      ],
+      "expected_host_bytes": 512,
+      "observed_host_bytes": 512
+    },
+    {
+      "case": "51-disk-less",
+      "status": "pass",
+      "expected_result": [
+        64,
+        128,
+        4,
+        0,
+        0,
+        1,
+        2
+      ],
+      "observed_result": [
+        64,
+        128,
+        4,
+        0,
+        0,
+        1,
+        2
+      ],
+      "expected_host_bytes": 512,
+      "observed_host_bytes": 512
+    },
+    {
+      "case": "51-disk-greater",
+      "status": "pass",
+      "expected_result": [
+        64,
+        128,
+        4,
+        0,
+        0,
+        1,
+        2
+      ],
+      "observed_result": [
+        64,
+        128,
+        4,
+        0,
+        0,
+        1,
+        2
+      ],
+      "expected_host_bytes": 512,
+      "observed_host_bytes": 512
+    },
+    {
+      "case": "59-equal",
+      "status": "fail",
+      "expected_result": [
+        0,
+        0,
+        8,
+        0,
+        0,
+        1,
+        2
+      ],
+      "observed_result": [
+        0,
+        0,
+        72,
+        0,
+        0,
+        1,
+        2
+      ],
+      "expected_host_bytes": 512,
+      "observed_host_bytes": 512
+    },
+    {
+      "case": "59-disk-less",
+      "status": "fail",
+      "expected_result": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        1,
+        2
+      ],
+      "observed_result": [
+        0,
+        0,
+        68,
+        0,
+        0,
+        1,
+        2
+      ],
+      "expected_host_bytes": 512,
+      "observed_host_bytes": 512
+    },
+    {
+      "case": "59-disk-greater",
+      "status": "fail",
+      "expected_result": [
+        64,
+        128,
+        4,
+        0,
+        0,
+        1,
+        2
+      ],
+      "observed_result": [
+        0,
+        0,
+        64,
+        0,
+        0,
+        1,
+        2
+      ],
+      "expected_host_bytes": 512,
+      "observed_host_bytes": 512
+    },
+    {
+      "case": "5d-equal",
+      "status": "fail",
+      "expected_result": [
+        0,
+        0,
+        8,
+        0,
+        0,
+        1,
+        2
+      ],
+      "observed_result": [
+        0,
+        0,
+        72,
+        0,
+        0,
+        1,
+        2
+      ],
+      "expected_host_bytes": 512,
+      "observed_host_bytes": 512
+    },
+    {
+      "case": "5d-disk-less",
+      "status": "fail",
+      "expected_result": [
+        64,
+        128,
+        4,
+        0,
+        0,
+        1,
+        2
+      ],
+      "observed_result": [
+        0,
+        0,
+        64,
+        0,
+        0,
+        1,
+        2
+      ],
+      "expected_host_bytes": 512,
+      "observed_host_bytes": 512
+    },
+    {
+      "case": "5d-disk-greater",
+      "status": "fail",
+      "expected_result": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        1,
+        2
+      ],
+      "observed_result": [
+        0,
+        0,
+        68,
+        0,
+        0,
+        1,
+        2
+      ],
+      "expected_host_bytes": 512,
+      "observed_host_bytes": 512
+    },
+    {
+      "case": "scan-early-hit",
+      "status": "fail",
+      "expected_result": [
+        0,
+        0,
+        8,
+        0,
+        0,
+        1,
+        2
+      ],
+      "observed_result": [
+        64,
+        128,
+        4,
+        0,
+        0,
+        2,
+        2
+      ],
+      "expected_host_bytes": 512,
+      "observed_host_bytes": 1024
+    },
+    {
+      "case": "scan-mixed-low",
+      "status": "fail",
+      "expected_result": [
+        64,
+        128,
+        4,
+        0,
+        0,
+        1,
+        2
+      ],
+      "observed_result": [
+        0,
+        0,
+        68,
+        0,
+        0,
+        1,
+        2
+      ],
+      "expected_host_bytes": 512,
+      "observed_host_bytes": 512
+    },
+    {
+      "case": "scan-step",
+      "status": "fail",
+      "expected_result": [
+        0,
+        0,
+        8,
+        0,
+        0,
+        3,
+        2
+      ],
+      "observed_result": [
+        64,
+        128,
+        8,
+        0,
+        0,
+        3,
+        2
+      ],
+      "expected_host_bytes": 1024,
+      "observed_host_bytes": 1536
+    },
+    {
+      "case": "scan-deleted",
+      "status": "pass",
+      "expected_result": [
+        0,
+        0,
+        72,
+        0,
+        0,
+        1,
+        2
+      ],
+      "observed_result": [
+        0,
+        0,
+        72,
+        0,
+        0,
+        1,
+        2
+      ],
+      "expected_host_bytes": 512,
+      "observed_host_bytes": 512
+    },
+    {
+      "case": "track-order",
+      "represented_payload_order_and_count": "pass"
+    },
+    {
+      "case": "track-count",
+      "represented_payload_order_and_count": "pass"
+    }
+  ],
+  "fresh_repeats": 2
+}
