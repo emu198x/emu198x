@@ -12,12 +12,14 @@
 use std::path::PathBuf;
 
 use emu198x_shell::{FamilyRuntime, FirmwareImage, FirmwareSet, MediaKind, SessionDriver};
-use emu198x_spectrum_web::{SpectrumWebMachine, autoload_tape, tape_transport, tape_turbo};
+use emu198x_spectrum_web::{
+    SpectrumWebMachine, autoload_tape, tape_rewind, tape_transport, tape_turbo,
+};
 use emu198x_web::WebMachine;
 use format198x_sinclair_zx_spectrum_tap::{Header, HeaderKind, TapBlock, encode};
 use runtime_sinclair_zx_spectrum::{
     DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES, Model, SpectrumRuntimeKind, SpectrumSessionQueryProvider,
-    tap_key,
+    tap_key, tap_symbol_combo,
 };
 
 /// A header parameter of 32768 or more means "no auto-run" for a program, and
@@ -200,4 +202,58 @@ fn the_tape_runs_fast_only_while_the_rom_is_loading_from_it() {
         );
         machine.run_one_frame().expect("frame");
     }
+}
+
+#[test]
+#[ignore = "FIXTURE: needs the 48K Spectrum ROM — run with --ignored"]
+fn a_tape_that_has_run_out_can_be_rewound_and_loaded_again() {
+    let mut machine = machine();
+    machine
+        .load_media_bytes("tape-1", MediaKind::Tape, &loader_and_code_tape())
+        .expect("the tape inserts");
+    autoload_tape(&mut machine, DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES).expect("LOAD \"\" and play");
+    assert!(
+        run_until_screen_shows(&mut machine, "0 OK, 0:1", 2_000),
+        "the loader did not load"
+    );
+    // The page's own LOAD "" has had the loader, and the tape runs out.
+    for _ in 0..3_000 {
+        if !tape_playing(&machine) {
+            break;
+        }
+        machine.run_one_frame().expect("frame");
+    }
+    assert!(!tape_playing(&machine), "the tape should have run out");
+    assert!(tape_position(&machine) > 0);
+
+    tape_rewind(&mut machine, "tape-1").expect("REWIND");
+    assert_eq!(tape_position(&machine), 0, "back at the start");
+    assert!(!tape_playing(&machine), "a deck stops when it has rewound");
+
+    // LOAD "" and PLAY: the loader arrives a second time.
+    tap_key(&mut machine, "j").expect("LOAD");
+    tap_symbol_combo(&mut machine, "p").expect("\"");
+    tap_symbol_combo(&mut machine, "p").expect("\"");
+    tap_key(&mut machine, "enter").expect("enter");
+    tape_transport(&mut machine, "tape-1", true).expect("PLAY");
+    assert!(
+        run_until_screen_shows(&mut machine, "Program: loader", 2_000),
+        "the rewound tape did not load again: {:?}",
+        screen_lines(&machine)
+    );
+    assert!(
+        run_until_screen_shows(&mut machine, "0 OK, 0:1", 2_000),
+        "the loader did not finish loading again"
+    );
+}
+
+#[test]
+#[ignore = "FIXTURE: needs the 48K Spectrum ROM — run with --ignored"]
+fn rewind_on_a_slot_that_is_not_the_tape_deck_is_refused() {
+    let mut machine = machine();
+    let error = tape_rewind(&mut machine, "drive-1").expect_err("not the tape deck");
+    assert!(
+        error.contains("drive-1"),
+        "the error should name the slot: {error}"
+    );
 }

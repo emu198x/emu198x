@@ -274,8 +274,11 @@ if(fleet) {
 // before the rest arrives: MERGE "", stop at 0 OK, add a POKE, RUN, play.
 if(!fleet && system.kind==='spectrum') {
   $('tape-controls').hidden=false;
-  $('tape-controls').querySelector('p').textContent='The tape loads by itself. Stop it to change a program before the rest loads, then play it again.';
+  $('tape-controls').querySelector('p').textContent='The tape loads by itself. To change its program first: stop and rewind the tape, press BREAK, type NEW, then MERGE "" and play the tape.';
   for(const [id,playing] of [['tape-play',true],['tape-stop',false]])$(id).onclick=async()=>{try {await rpc('transport','tape-1',playing);status(playing?'Tape playing.':'Tape stopped.');}catch(error){status(String(error),true);}};
+  // Rewind is the 48K's only: the fleet machines have no rewind yet (#1796).
+  $('tape-rewind').hidden=false;
+  $('tape-rewind').onclick=async()=>{try {await rpc('rewind','tape-1');status('Tape rewound to the start.');}catch(error){status(String(error),true);}};
 }
 
 function rememberMedia(media) {

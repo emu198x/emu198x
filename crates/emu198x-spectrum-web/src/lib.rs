@@ -101,6 +101,25 @@ pub fn tape_transport(
         .map_err(|error| error.to_string())
 }
 
+/// Presses the tape deck's REWIND: back to the start, stopped.
+///
+/// A page that loads a tape types `LOAD ""` and plays it at once, and the
+/// ROM has the first block in well under a second. Rewind is how a reader
+/// gets back to the start to `MERGE ""` the loader instead (#1796).
+///
+/// # Errors
+///
+/// Returns a message for a slot that is not the tape deck.
+pub fn tape_rewind(machine: &mut SpectrumWebMachine, slot: &str) -> Result<(), String> {
+    if slot != DEFAULT_TAPE_AUTOLOAD_SLOT {
+        return Err(format!(
+            "unknown media slot {slot:?}; the tape deck is {DEFAULT_TAPE_AUTOLOAD_SLOT:?}"
+        ));
+    }
+    machine.runtime_mut().tape_rewind();
+    Ok(())
+}
+
 /// The 48K ROM's tape loader: LD-BYTES (`0556`) to the end of LD-EDGE-1, which
 /// stops just short of SAVE-ETC at `0605` (Logan and O'Hara, *The Complete
 /// Spectrum ROM Disassembly*). The loader runs with interrupts off, so while

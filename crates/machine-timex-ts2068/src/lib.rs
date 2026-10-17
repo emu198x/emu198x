@@ -181,6 +181,10 @@ impl TimexTS2068 {
     pub fn tape_stop(&mut self) {
         self.tape.stop();
     }
+    /// Rewinds the tape to its start and stops it.
+    pub fn tape_rewind(&mut self) {
+        self.tape.rewind();
+    }
 
     /// Reset the CPU, timing, and audio state. Keeps ROM and RAM intact.
     pub fn reset(&mut self) {

@@ -409,6 +409,9 @@ impl SpectrumMachine for Spectrum48k {
     fn tape_stop(&mut self) {
         self.stop_tape();
     }
+    fn tape_rewind(&mut self) {
+        self.rewind_tape();
+    }
     fn recorded_tape_blocks(&self) -> Vec<TapeBlock> {
         Spectrum48k::recorded_tape_blocks(self)
     }
@@ -577,6 +580,9 @@ impl SpectrumMachine for Spectrum16K {
     fn tape_stop(&mut self) {
         self.stop_tape();
     }
+    fn tape_rewind(&mut self) {
+        self.rewind_tape();
+    }
     fn recorded_tape_blocks(&self) -> Vec<TapeBlock> {
         Spectrum16K::recorded_tape_blocks(self)
     }
@@ -743,6 +749,9 @@ impl SpectrumMachine for SpectrumPlus {
     fn tape_stop(&mut self) {
         self.stop_tape();
     }
+    fn tape_rewind(&mut self) {
+        self.rewind_tape();
+    }
     fn recorded_tape_blocks(&self) -> Vec<TapeBlock> {
         SpectrumPlus::recorded_tape_blocks(self)
     }
@@ -903,6 +912,9 @@ impl SpectrumMachine for Spectrum128K {
     }
     fn tape_stop(&mut self) {
         Spectrum128K::tape_stop(self);
+    }
+    fn tape_rewind(&mut self) {
+        Spectrum128K::tape_rewind(self);
     }
     fn recorded_tape_blocks(&self) -> Vec<TapeBlock> {
         Spectrum128K::recorded_tape_blocks(self)
@@ -1086,6 +1098,9 @@ impl SpectrumMachine for SpectrumPlus2 {
     fn tape_stop(&mut self) {
         SpectrumPlus2::tape_stop(self);
     }
+    fn tape_rewind(&mut self) {
+        SpectrumPlus2::tape_rewind(self);
+    }
     fn recorded_tape_blocks(&self) -> Vec<TapeBlock> {
         SpectrumPlus2::recorded_tape_blocks(self)
     }
@@ -1267,6 +1282,9 @@ impl<V: AmstradVariant> SpectrumMachine for SpectrumAmstradClassCore<V> {
     }
     fn tape_stop(&mut self) {
         SpectrumAmstradClassCore::<V>::tape_stop(self);
+    }
+    fn tape_rewind(&mut self) {
+        SpectrumAmstradClassCore::<V>::tape_rewind(self);
     }
     fn recorded_tape_blocks(&self) -> Vec<TapeBlock> {
         SpectrumAmstradClassCore::<V>::recorded_tape_blocks(self)
@@ -1520,6 +1538,9 @@ impl SpectrumMachine for Pentagon128 {
     fn tape_stop(&mut self) {
         Pentagon128::tape_stop(self);
     }
+    fn tape_rewind(&mut self) {
+        Pentagon128::tape_rewind(self);
+    }
     fn recorded_tape_blocks(&self) -> Vec<TapeBlock> {
         Pentagon128::recorded_tape_blocks(self)
     }
@@ -1677,6 +1698,9 @@ impl SpectrumMachine for ScorpionZS256 {
     fn tape_stop(&mut self) {
         ScorpionZS256::tape_stop(self);
     }
+    fn tape_rewind(&mut self) {
+        ScorpionZS256::tape_rewind(self);
+    }
     fn recorded_tape_blocks(&self) -> Vec<TapeBlock> {
         ScorpionZS256::recorded_tape_blocks(self)
     }
@@ -1833,6 +1857,9 @@ impl SpectrumMachine for TimexTC2048 {
     fn tape_stop(&mut self) {
         TimexTC2048::tape_stop(self);
     }
+    fn tape_rewind(&mut self) {
+        TimexTC2048::tape_rewind(self);
+    }
     fn recorded_tape_blocks(&self) -> Vec<TapeBlock> {
         TimexTC2048::recorded_tape_blocks(self)
     }
@@ -1979,6 +2006,9 @@ impl SpectrumMachine for TimexTS2068 {
     }
     fn tape_stop(&mut self) {
         TimexTS2068::tape_stop(self);
+    }
+    fn tape_rewind(&mut self) {
+        TimexTS2068::tape_rewind(self);
     }
     fn recorded_tape_blocks(&self) -> Vec<TapeBlock> {
         TimexTS2068::recorded_tape_blocks(self)

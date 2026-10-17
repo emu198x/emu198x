@@ -125,6 +125,10 @@ impl Pentagon128 {
     pub fn tape_stop(&mut self) {
         self.tape.stop();
     }
+    /// Rewinds the tape to its start and stops it.
+    pub fn tape_rewind(&mut self) {
+        self.tape.rewind();
+    }
 
     /// Reset the CPU, timing, and audio state. Keeps ROMs and RAM intact.
     pub fn reset(&mut self) {

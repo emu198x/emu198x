@@ -97,6 +97,18 @@ impl TapePlayer {
         self.playing = false;
     }
 
+    /// Rewinds to the start of the tape and stops, as a deck's REWIND does.
+    ///
+    /// The tape is left as [`Self::load_stream`] leaves a new one: first
+    /// span, level low, nothing counted down. A machine's stop release, if
+    /// it has one, sees an ordinary stop.
+    pub fn rewind(&mut self) {
+        self.playing = false;
+        self.span_idx = 0;
+        self.level = false;
+        self.countdown = 0;
+    }
+
     /// Returns whether any tape media is currently loaded.
     #[must_use]
     pub fn has_tape(&self) -> bool {
@@ -470,6 +482,34 @@ mod tests {
                 "stopped at T-state {stop}"
             );
         }
+    }
+
+    #[test]
+    fn rewinding_plays_the_tape_again_exactly_as_from_new() {
+        let spans: Vec<TapeSpan> = [70, 30, 50, 90, 10].map(TapeSpan::Pulse).to_vec();
+        let levels = |player: &mut TapePlayer| {
+            player.play();
+            let mut out = Vec::new();
+            while player.is_playing() {
+                player.advance_tstates(1);
+                out.push(player.ear_level());
+            }
+            out
+        };
+        let mut fresh = TapePlayer::new();
+        fresh.load_stream(spans.clone());
+        let expected = levels(&mut fresh);
+
+        let mut player = TapePlayer::new();
+        player.load_stream(spans);
+        player.play();
+        player.advance_tstates(85); // part-way through the second pulse, level high
+        assert!(player.ear_level());
+        player.rewind();
+        assert!(!player.is_playing(), "a deck stops when it has rewound");
+        assert_eq!(player.span_index(), 0);
+        assert!(!player.ear_level());
+        assert_eq!(levels(&mut player), expected);
     }
 
     #[test]

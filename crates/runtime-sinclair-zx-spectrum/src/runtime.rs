@@ -115,6 +115,9 @@ pub trait SpectrumMachine: Serialize + for<'de> Deserialize<'de> + SpectrumDrive
     /// Stops tape transport.
     fn tape_stop(&mut self);
 
+    /// Rewinds the tape to its start and stops it.
+    fn tape_rewind(&mut self);
+
     /// Decodes any captured tape SAVE signal into standard-speed blocks.
     /// Defaults to none for machine classes whose SAVE capture is not yet
     /// wired (only the 48K class records today).

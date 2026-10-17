@@ -49,6 +49,7 @@ the browser will blur the pixels.
 | `load(slot, kind, bytes)` | Load media — for example a tape into `tape-1`. |
 | `autoload(maxBootFrames)` | Load the tape in `tape-1`: type `LOAD ""` and press play. A machine that has already run is reset first; the tape stays in. |
 | `transport(slot, playing)` | Press the tape deck's PLAY (`true`) or STOP (`false`). STOP keeps the tape's place; PLAY carries on from it. `query('tape.playing')` and `query('tape.progress')` report the state. |
+| `rewind(slot)` | Press the tape deck's REWIND: back to the start of the tape, stopped. Then `transport(slot, true)` plays it again. |
 | `keyDown(code)` / `keyUp(code)` | Feed a DOM `KeyboardEvent.code`. |
 | `setAudioEnabled(on)` | Start or stop audio. |
 | `configureAudio(rate, channels, capacity)` | Match the page's `AudioContext`. |
