@@ -949,12 +949,12 @@ impl Upd765a {
                     self.result_buf.push(st0);
                     self.result_buf.push(self.track[drive]);
                 } else {
-                    // No pending interrupt — return ST0 = 0x80 (Invalid
-                    // Command). Per the µPD765A datasheet this tells the
-                    // BIOS the interrupt queue is drained.
+                    // No pending completion: use the existing Invalid Command
+                    // classification. That result contains ST0 only (NEC,
+                    // December 1978, p. 9); it has no PCN byte. Fuse/lib765/MAME
+                    // also classify no-pending Sense Interrupt this way.
                     self.st0 = 0x80;
                     self.result_buf.push(0x80);
-                    self.result_buf.push(0);
                 }
                 self.result_pos = 0;
                 self.phase = Phase::Result;
@@ -2564,12 +2564,10 @@ mod tests {
         assert_eq!(fdc.read_data(), 0x20); // ST0
         assert_eq!(fdc.read_data(), 0); // PCN
 
-        // Second SenseInt with no pending must return ST0 = 0x80
-        // (Invalid Command) per the µPD765A datasheet — that's how the
-        // BIOS knows the interrupt queue is drained.
+        // The existing no-pending Invalid classification has ST0 only.
         fdc.write_data(0x08);
         assert_eq!(fdc.read_data(), 0x80);
-        assert_eq!(fdc.read_data(), 0);
+        assert_eq!(fdc.read_status(), MSR_RQM);
     }
 
     #[test]
@@ -2588,7 +2586,7 @@ mod tests {
 
         fdc.write_data(0x08);
         assert_eq!(fdc.read_data(), 0x80);
-        assert_eq!(fdc.read_data(), 0);
+        assert_eq!(fdc.read_status(), MSR_RQM);
     }
 
     #[test]
