@@ -1,6 +1,9 @@
 # Paced reads within the existing sector model
 
-Read Data, Read Deleted Data and Read Track now consume a byte only while RQM
+Read Data, Read Deleted Data and Read Track stage an initial request after
+the existing sector-model pre-data interval plus one completed byte (39 MFM /
+19 FM byte slots). This avoids a deadline before the ROM reaches its first
+status poll. They consume a byte only while RQM
 is high. A read clears RQM; the existing CPU-T-state countdown publishes the
 next byte at a fixed boundary. Late host service does not move the boundary.
 Missing a request ends execution with abnormal IC and OR, rather than the old

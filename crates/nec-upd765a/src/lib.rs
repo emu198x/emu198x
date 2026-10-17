@@ -216,7 +216,7 @@ pub struct Upd765a {
     disks: [Option<DiskImage>; 4],
     /// Write protection is a mount property, independent of drive readiness.
     writable: [bool; 4],
-    /// A write/format preamble or inter-sector interval is in progress.
+    /// An initial transfer preamble or write/format inter-sector interval is in progress.
     write_start_pending: bool,
 
     /// Last sector successfully read via `ReadData` / `ReadDeletedData`,
@@ -853,8 +853,7 @@ impl Upd765a {
                     self.exec_buf = buf;
                     self.exec_pos = 0;
                     self.phase = Phase::Execution;
-                    self.main_status = MSR_RQM | MSR_EXM | MSR_DIO | MSR_CB;
-                    self.exec_timeout = self.write_byte_ticks();
+                    self.start_read_preamble();
                     self.st0 = (head << 2) | drive_echo;
                     // Carry forward the OR'd-in error bits from every
                     // sector read in the run, then layer the
@@ -1259,8 +1258,17 @@ impl Upd765a {
         }
         self.st1 |= 0x80; // EOT without terminal count.
         self.phase = Phase::Execution;
-        self.main_status = MSR_RQM | MSR_DIO | MSR_EXM | MSR_CB;
-        self.exec_timeout = self.write_byte_ticks();
+        self.start_read_preamble();
+    }
+
+    fn start_read_preamble(&mut self) {
+        // Use the existing sector-model pre-data interval (also used by Scan
+        // and Write), plus one slot for the first completed read byte.
+        // This is not a rotational/index/head-load timing model.
+        self.main_status = MSR_DIO | MSR_EXM | MSR_CB;
+        self.write_start_pending = true;
+        self.exec_timeout =
+            self.write_byte_ticks() * if self.cmd_buf[0] & 0x40 != 0 { 39 } else { 19 };
     }
 
     fn read_overrun_control_mark(&self) -> u8 {
@@ -1811,7 +1819,11 @@ impl Peripheral for Upd765a {
         {
             self.exec_timeout = self.exec_timeout.saturating_sub(1);
             if self.exec_timeout == 0 {
-                if self.main_status & MSR_RQM != 0 {
+                if self.write_start_pending {
+                    self.write_start_pending = false;
+                    self.main_status |= MSR_RQM;
+                    self.exec_timeout = self.write_byte_ticks();
+                } else if self.main_status & MSR_RQM != 0 {
                     // This model exposes one byte per FM/MFM byte slot. NEC
                     // December 1978 pp12,17 identifies missed service as OR,
                     // not EN. Exact sub-byte service-window timing, search,
@@ -1835,7 +1847,7 @@ mod tests {
 
     impl Upd765a {
         fn read_ready(&mut self) -> u8 {
-            for _ in 0..1_000 {
+            for _ in 0..10_000 {
                 if self.main_status & MSR_RQM != 0 {
                     return self.read_data();
                 }
