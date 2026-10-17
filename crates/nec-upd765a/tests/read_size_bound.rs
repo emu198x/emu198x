@@ -1,4 +1,5 @@
 //! Sector-model input boundary, not a claim about undocumented hardware N.
+mod common;
 use nec_upd765a::{DiskImage, DiskSector, DiskTrack, Upd765a};
 
 fn oversized_n(opcode: u8) {
@@ -97,6 +98,7 @@ fn largest_in_model_size_preserves_payload_and_existing_short_field_fill() {
             assert_eq!(result(&mut fdc), [0x40, 4, 0, 0, 0, 1, 255]);
             command(&mut fdc, opcode, 7);
             for i in 0..16384 {
+                common::await_read(&mut fdc);
                 assert_eq!(fdc.read_status(), 0xf0);
                 let expected = data
                     .get(i)

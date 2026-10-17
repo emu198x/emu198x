@@ -1,6 +1,7 @@
 //! No-TC EOT is abnormal completion with EN, retaining the final read CHRN.
 //! NEC December 1978 p13 Table 2 covers processor/TC termination instead.
 //! Fuse start_read_data and MAME SECTOR_READ distinguish these cases.
+mod common;
 use nec_upd765a::{DiskImage, DiskSector, DiskTrack, Upd765a};
 
 fn sector(c: u8, r: u8, deleted: bool) -> DiskSector {
@@ -48,6 +49,7 @@ fn result(fdc: &mut Upd765a) -> [u8; 7] {
 
 fn data(fdc: &mut Upd765a, expected: &[u8]) {
     for byte in expected {
+        common::await_read(fdc);
         assert_eq!(fdc.read_status(), 0xf0, "execution until final byte");
         assert_eq!(fdc.read_data(), *byte);
     }

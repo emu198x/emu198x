@@ -358,13 +358,66 @@ mod tests {
             .collect()
     }
 
+    fn read_fdc_byte(runtime: &mut SpectrumPlus3Runtime) -> u8 {
+        use common_sinclair_zx_spectrum::peripheral::Peripheral;
+        for _ in 0..1_000 {
+            if runtime.machine().fdc.read_status() & 0x80 != 0 {
+                return runtime.machine_mut().fdc.read_data();
+            }
+            assert_eq!(runtime.machine().fdc.read_status(), 0x70);
+            runtime.machine_mut().fdc.tick(0);
+        }
+        panic!("read byte deadline");
+    }
+
     fn assert_saved_bytes(runtime: &mut SpectrumPlus3Runtime, expected: &[u8]) {
         send_fdc_command(runtime, &[0x46, 0, 0, 0, 1, 2, 1, 0x2a, 0xff]);
-        let observed: Vec<_> = (0..512)
-            .map(|_| runtime.machine_mut().fdc.read_data())
-            .collect();
+        let observed: Vec<_> = (0..512).map(|_| read_fdc_byte(runtime)).collect();
         assert_eq!(observed, expected);
         let _ = drain_fdc_result(runtime);
+    }
+
+    #[test]
+    fn paced_read_snapshot_preserves_request_and_deadline() {
+        use common_sinclair_zx_spectrum::peripheral::Peripheral;
+        for opcode in [0x46, 0x4c, 0x42] {
+            for consumed in [false, true] {
+                for elapsed in [0, 1, 113] {
+                    let (mut original, _) = writable_sector_runtime(false);
+                    send_fdc_command(&mut original, &[opcode, 0, 0, 0, 1, 2, 1, 0x2a, 0xff]);
+                    if consumed {
+                        assert_eq!(original.machine_mut().fdc.read_data(), 0xe5);
+                    }
+                    for _ in 0..elapsed {
+                        original.machine_mut().fdc.tick(0);
+                    }
+                    let saved = original.snapshot().expect("paced read checkpoint");
+                    let mut restored = SpectrumPlus3Runtime::blank();
+                    restored.restore(&saved).expect("restore paced read");
+                    assert_eq!(restored.snapshot().expect("identical state"), saved);
+                    for _ in elapsed..114 {
+                        original.machine_mut().fdc.tick(0);
+                        restored.machine_mut().fdc.tick(0);
+                    }
+                    assert_eq!(
+                        original.machine().fdc.read_status(),
+                        if consumed { 0xf0 } else { 0xd0 }
+                    );
+                    assert_eq!(
+                        original.machine_mut().fdc.read_data(),
+                        if consumed { 0xe5 } else { 0x40 }
+                    );
+                    assert_eq!(
+                        restored.machine_mut().fdc.read_data(),
+                        if consumed { 0xe5 } else { 0x40 }
+                    );
+                    assert_eq!(
+                        restored.snapshot().expect("continued"),
+                        original.snapshot().expect("original")
+                    );
+                }
+            }
+        }
     }
 
     #[test]
@@ -375,7 +428,7 @@ mod tests {
                 send_fdc_command(&mut original, &[opcode, 0, 0, 0, 1, 2, 1, 0x2a, 1]);
                 if opcode == 0x42 {
                     for _ in 0..accepted {
-                        assert_eq!(original.machine_mut().fdc.read_data(), 0xe5);
+                        assert_eq!(read_fdc_byte(&mut original), 0xe5);
                     }
                 } else {
                     send_fdc_bytes(&mut original, &vec![0xe5; accepted]);
@@ -397,7 +450,7 @@ mod tests {
                 for runtime in [&mut original, &mut restored] {
                     if opcode == 0x42 {
                         for _ in accepted..512 {
-                            assert_eq!(runtime.machine_mut().fdc.read_data(), 0xe5);
+                            assert_eq!(read_fdc_byte(runtime), 0xe5);
                         }
                         assert_eq!(drain_fdc_result(runtime), [0x40, 0x80, 0, 0, 0, 1, 2]);
                     } else {
@@ -475,9 +528,7 @@ mod tests {
             media.push(MediaImage::new("disk-a", MediaKind::Disk, &exported));
             fresh.load_media(&media).expect("fresh EDSK mount");
             send_fdc_command(&mut fresh, &[0x4c, 0, 0, 0, 1, 2, 1, 0x2a, 0xff]);
-            let observed: Vec<_> = (0..512)
-                .map(|_| fresh.machine_mut().fdc.read_data())
-                .collect();
+            let observed: Vec<_> = (0..512).map(|_| read_fdc_byte(&mut fresh)).collect();
             assert_eq!(observed, payload);
             assert_eq!(drain_fdc_result(&mut fresh), [0x40, 0x80, 0, 0, 0, 1, 2]);
         }
