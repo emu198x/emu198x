@@ -2,7 +2,7 @@
 use common_sinclair_zx_spectrum::peripheral::Peripheral;
 use nec_upd765a::{DiskImage, DiskSector, DiskTrack, Upd765a};
 
-fn controller(op: u8) -> Upd765a {
+fn controller_pending(op: u8) -> Upd765a {
     let mut f = Upd765a::new();
     f.enabled = true;
     f.insert_disk(
@@ -27,6 +27,34 @@ fn controller(op: u8) -> Upd765a {
         f.write_data(b);
     }
     f
+}
+fn controller(op: u8) -> Upd765a {
+    let mut f = controller_pending(op);
+    for _ in 0..10_000 {
+        if f.read_status() & 0x80 != 0 {
+            return f;
+        }
+        f.tick(0);
+    }
+    panic!("initial read request deadline");
+}
+#[test]
+fn first_read_request_waits_for_pre_data_interval() {
+    for (op, ticks_before_data) in [
+        (0x46, 39 * 114),
+        (0x4c, 39 * 114),
+        (0x42, 39 * 114),
+        (6, 19 * 228),
+    ] {
+        let mut f = controller_pending(op);
+        assert_eq!(f.read_status(), 0x70);
+        assert_eq!(f.read_data(), 0xff);
+        ticks(&mut f, ticks_before_data - 1);
+        assert_eq!(f.read_status(), 0x70);
+        ticks(&mut f, 1);
+        assert_eq!(f.read_status(), 0xf0);
+        assert_eq!(f.read_data(), 0);
+    }
 }
 fn ticks(f: &mut Upd765a, n: u32) {
     for _ in 0..n {
@@ -146,6 +174,13 @@ fn overrun_retains_encountered_control_mark_but_not_a_future_one() {
             for b in [op, 0, 0, 0, 1, 2, sectors_before_mark + 1, 0x2a, 0xff] {
                 f.write_data(b);
             }
+            for _ in 0..10_000 {
+                if f.read_status() & 0x80 != 0 {
+                    break;
+                }
+                f.tick(0);
+            }
+            assert_eq!(f.read_status(), 0xf0);
             ticks(&mut f, 114);
             let r = result(&mut f);
             assert_eq!(

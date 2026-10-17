@@ -2,7 +2,7 @@ use common_sinclair_zx_spectrum::peripheral::Peripheral;
 use nec_upd765a::Upd765a;
 
 pub fn await_read(f: &mut Upd765a) {
-    for _ in 0..1_000 {
+    for _ in 0..10_000 {
         if f.read_status() & 0x80 != 0 {
             return;
         }

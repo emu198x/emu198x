@@ -360,7 +360,7 @@ mod tests {
 
     fn read_fdc_byte(runtime: &mut SpectrumPlus3Runtime) -> u8 {
         use common_sinclair_zx_spectrum::peripheral::Peripheral;
-        for _ in 0..1_000 {
+        for _ in 0..10_000 {
             if runtime.machine().fdc.read_status() & 0x80 != 0 {
                 return runtime.machine_mut().fdc.read_data();
             }
@@ -385,6 +385,13 @@ mod tests {
                 for elapsed in [0, 1, 113] {
                     let (mut original, _) = writable_sector_runtime(false);
                     send_fdc_command(&mut original, &[opcode, 0, 0, 0, 1, 2, 1, 0x2a, 0xff]);
+                    for _ in 0..10_000 {
+                        if original.machine().fdc.read_status() & 0x80 != 0 {
+                            break;
+                        }
+                        original.machine_mut().fdc.tick(0);
+                    }
+                    assert_eq!(original.machine().fdc.read_status(), 0xf0);
                     if consumed {
                         assert_eq!(original.machine_mut().fdc.read_data(), 0xe5);
                     }
