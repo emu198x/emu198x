@@ -671,7 +671,19 @@ impl Upd765a {
                 let sector = self.cmd_buf[4]; // R (start sector ID)
                 let n = self.cmd_buf[5]; // N (sector size code)
                 let eot = self.cmd_buf[6]; // EOT (last sector to read)
-                let sector_size = 128usize << (n as usize);
+                // Match the bounded N<=7 sector model used by Write, Scan
+                // and Read Track before shifting or reserving guest-sized
+                // buffers. Larger encodings are not hardware-qualified:
+                // Fuse clamps at N8, while MAME caps >7 at 16384 bytes.
+                // Reject explicitly rather than panic or invent a size.
+                if n > 7 {
+                    self.st0 = 0x40 | (head << 2) | drive_echo;
+                    self.st1 = 0x04;
+                    self.st2 = 0;
+                    self.setup_result_read(expected_c, head, sector, n);
+                    return;
+                }
+                let sector_size = 128usize << n;
 
                 // Command byte carries MT (bit 7), MFM (bit 6) and SK
                 // (bit 5). SK changes how the chip handles a sector

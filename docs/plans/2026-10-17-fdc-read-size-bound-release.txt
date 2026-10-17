@@ -1,0 +1,14 @@
+mise WARN  tracking config: failed to ln -sf /Users/stevehill/Projects/198x/output/qualification/workspaces/emu-fdc-read-size-bound/rust-toolchain.toml /Users/stevehill/.local/state/mise/tracked-configs/4d77cd25ccf1d288: Operation not permitted (os error 1)
+   Compiling nec-upd765a v0.35.5 (/Users/stevehill/Projects/198x/output/qualification/workspaces/emu-fdc-read-size-bound/crates/nec-upd765a)
+    Finished `release` profile [optimized] target(s) in 2.46s
+     Running tests/read_size_bound.rs (/Users/stevehill/Projects/198x/output/qualification/targets/fdc-read-size-bound/release/deps/read_size_bound-1baf70d2c92edd26)
+
+running 5 tests
+test read_deleted_oversized_n_returns_a_result_instead_of_panicking ... ok
+test read_data_oversized_n_returns_a_result_instead_of_panicking ... ok
+test largest_in_model_size_preserves_payload_and_existing_short_field_fill ... ok
+test empty_tracks_reject_oversized_n_and_keep_the_existing_missing_id_result ... ok
+test all_out_of_model_sizes_are_rejected_before_payload_or_media_lookup ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
