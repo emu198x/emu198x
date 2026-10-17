@@ -7,7 +7,10 @@
 //! the runtime, the model, the firmware id, and the Spectrum's own names for
 //! the keys a browser cannot express generically.
 
-use emu198x_shell::{MachineTime, ResetKind, SessionDriver};
+use emu198x_shell::{
+    ControlCommand, MachineTime, MediaTransportAction, MediaTransportCommand, ResetKind,
+    SessionDriver,
+};
 use emu198x_web::WebMachine;
 use format_sinclair_zx_spectrum_snapshot::Snapshot;
 use runtime_sinclair_zx_spectrum::{
@@ -66,6 +69,35 @@ pub fn autoload_tape(
     }
     autoload_basic_tape(machine, DEFAULT_TAPE_AUTOLOAD_SLOT, max_boot_frames)
         .map(|result| result.boot.frames)
+        .map_err(|error| error.to_string())
+}
+
+/// Presses the tape deck's PLAY (`playing`) or STOP key.
+///
+/// STOP leaves the tape where it is, and PLAY carries on from there, so a
+/// page can do what a 48K owner did with a real recorder: `MERGE ""` a
+/// loader, stop the tape at `0 OK`, add a line, `RUN`, and play the rest
+/// (#1794). PLAY on a tape that has run to its end does nothing; the page
+/// sees that in `tape.progress`.
+///
+/// # Errors
+///
+/// Returns the machine's message for a slot that is not a tape deck.
+pub fn tape_transport(
+    machine: &mut SpectrumWebMachine,
+    slot: &str,
+    playing: bool,
+) -> Result<(), String> {
+    let action = if playing {
+        MediaTransportAction::Start
+    } else {
+        MediaTransportAction::Stop
+    };
+    machine
+        .command(&ControlCommand::MediaTransport(MediaTransportCommand::new(
+            slot.to_owned(),
+            action,
+        )))
         .map_err(|error| error.to_string())
 }
 
