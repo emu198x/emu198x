@@ -1,0 +1,69 @@
+{
+  "source_commit": "b2fbb3a898de887054b5126925938e93a2a3a796",
+  "sources": {
+    "fuse_probe.c": "77cf152bcced2dc80d32155cedc552748c299eaaf9f804e45ab3036869f5b513",
+    "host.c": "28f2d39e04fab00d79fc6ca328bb36e5a907891a288362b3e356813a068062f9",
+    "mame-probe.lua": "5bb69e4bddf9f1b01876d040d91d162ca2a0376b0bd3cb37a481effedfb9e89f",
+    "fuse-continuation.patch": "ddfd0f01d71fee14ef9a257bcccc204559c47c44ab8f42ef3c3f299022e6c327",
+    "run.py": "86e8a92ec60bb953d97600fbe74bd761e69f5a1d04b9b0aa325007fda1be16fe",
+    "host/config.h": "fe85a9c9b08cfa74383898237b5b70e2ee9fd34fb7745788abcb98cfff280648",
+    "host/libspectrum.h": "85555249f29b14589b76dc5d3f91ed336282bf3957b667cbd692a16e6e183a69",
+    "host/settings.h": "35a82af0dfa2f1d967c4c8287b8b84139a66632ea1a5439c3373d06ed15a4c56"
+  },
+  "fuse_source": {
+    "commit": "0ff7fe676394aa357f49b6fbdc3ecb38a6592ab2",
+    "files": {
+      "event.h": "2ffaffd9a91bc0c5f3ff03f2e620dc41eb06a9ff9b2b3a458f3b7ad22ac77f68",
+      "bitmap.h": "7330d01b39c0b1d59fe8eaaceab7af5223f0fad9c9621c01e858d9bf889cd45f",
+      "peripherals/disk/upd_fdc.c": "845b960eb68cba9b21cba00cdc3c03cf0d4dc491ffd96efecb1d53336ce7f72d",
+      "peripherals/disk/upd_fdc.h": "29b77edc4b8f73da4c056d36ff9280603735b76bf62ad83342164ee25973ee1f",
+      "peripherals/disk/fdd.c": "6b5298d85f0e155ed33ec70f1557b0969cf5fb30c5dbe91b536e8036c18ce55d",
+      "peripherals/disk/fdd.h": "de50eed577bdcdd9ead8849300846e44bc860e974af1a55ab9100fde91a9e81c",
+      "peripherals/disk/disk.h": "cfae040f1fc5aadad225a3add9280c48a84791b735c2b23c5d9a7647bd85c8a4",
+      "peripherals/disk/crc.c": "bda18241c62627ee9ae52551680fbb862285048209d4e6ce91518df97474669e",
+      "peripherals/disk/crc.h": "c5853fc35dfd720b065f829a34136d7d6364f0effc3f39726d5e71c1bdf6c808"
+    },
+    "patched": false
+  },
+  "mame_identity": {
+    "path": "/opt/homebrew/Cellar/mame/0.289/bin/mame",
+    "sha256": "6d40df87963c58cdd3857d203e186af854fea49ae03b2ab555e30ef1029636d9",
+    "delivery": "installed_binary",
+    "version": "MAME v0.289 (unknown)"
+  },
+  "emu_identity": {
+    "path": "/Users/stevehill/Projects/198x/output/qualification/scan-early-hit/cargo-target/debug/deps/scan-676ca867fda2bed6",
+    "sha256": "aa8dc453218875aa2b757d6723264796dd591c7bc077a94119e2a874c8565efb",
+    "delivery": "source_test_build",
+    "controller_sha256": "d6819403b78fc4bbd10226880ed069af92618c80096e9569d102fd45b7660b65",
+    "test_sha256": "9f22df0a03ae5ef2512a657ddea44fb5e9f897f20f10db746f96ceaaf2559aff",
+    "cargo_lock_sha256": "33ec613645db31680b1e9693bab9913870f67445961f7a453c5dcfd0080dd4e5"
+  },
+  "firmware_sha256": [
+    "841d54545c743a7202fb9b068534ed906a08cc657a19955ae20a8de5af8ab185",
+    "6d6ccab28f255b01c8cd89ceab9e7b60247f4610471118092f290f6c7768b7e3",
+    "c5590212a269117657ce611acbac582e41e9db87dc78db480da2615e413b2da6",
+    "8ec5cb9fd7ec24a041800314bb5a2c99be02f7e50745194eb649ed6d9085bd1f"
+  ],
+  "compiler": {
+    "path": "/usr/bin/clang",
+    "sha256": "34129c71a01a74f7f3b2443521519b2e5447553fa187f5fcafaaf8c42cc192e2",
+    "version": "Apple clang version 21.0.0 (clang-2100.3.34.2)\nTarget: arm64-apple-darwin27.0.0\nThread model: posix\nInstalledDir: /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin\n"
+  },
+  "fuse_binaries": {
+    "stock": {
+      "path": "/var/folders/94/p_ng_dqx7tq9rx2rcw0y8zth0000gn/T/198x-scan-build-71tp6yni/fuse-stock",
+      "sha256": "7ab5389899cdba84b974356cc4915dcd86cc28365c20fc9ce4c99301fd7f90c4",
+      "controller_sha256": "845b960eb68cba9b21cba00cdc3c03cf0d4dc491ffd96efecb1d53336ce7f72d",
+      "delivery": "source_build",
+      "patch": false
+    },
+    "patched": {
+      "path": "/var/folders/94/p_ng_dqx7tq9rx2rcw0y8zth0000gn/T/198x-scan-build-71tp6yni/fuse-patched",
+      "sha256": "f0cdddcf116f5272715174b4e8ff593792109a466e443f282c8de7fdd1e7bbe9",
+      "controller_sha256": "77cea9606d3ebe3854faa39ac25ddbdf1290edff9e8366344f5e4cd80eab06e8",
+      "delivery": "source_build",
+      "patch": true
+    }
+  }
+}
