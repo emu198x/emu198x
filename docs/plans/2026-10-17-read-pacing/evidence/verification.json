@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "qualified": false,
+  "kind": "captured-evidence-inspection",
+  "reference_observations": 12,
+  "fresh_rom_passes": 2,
+  "wrong_signature_rejected": true,
+  "initial_startup_failure_retained": true,
+  "exact_timing_conformance": false
+}
