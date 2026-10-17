@@ -1,0 +1,34 @@
+mise WARN  tracking config: failed to ln -sf /Users/stevehill/Projects/198x/output/qualification/workspaces/emu-fdc-write-preamble/rust-toolchain.toml /Users/stevehill/.local/state/mise/tracked-configs/dfd684298129b49e: Operation not permitted (os error 1)
+   Compiling nec-upd765a v0.35.5 (/Users/stevehill/Projects/198x/output/qualification/workspaces/emu-fdc-write-preamble/crates/nec-upd765a)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.30s
+     Running tests/write_deleted.rs (/Users/stevehill/Projects/198x/output/qualification/targets/fdc-write-preamble/debug/deps/write_deleted-2039ea8abf9e468a)
+
+running 2 tests
+test zero_byte_overrun_replaces_deleted_mark_before_first_host_byte ... FAILED
+test zero_byte_overrun_writes_deleted_mark_before_first_host_byte ... FAILED
+
+failures:
+
+---- zero_byte_overrun_replaces_deleted_mark_before_first_host_byte stdout ----
+
+thread 'zero_byte_overrun_replaces_deleted_mark_before_first_host_byte' (117419286) panicked at crates/nec-upd765a/tests/write_deleted.rs:207:17:
+assertion `left == right` failed
+  left: (0, 64)
+ right: (32, 32)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- zero_byte_overrun_writes_deleted_mark_before_first_host_byte stdout ----
+
+thread 'zero_byte_overrun_writes_deleted_mark_before_first_host_byte' (117419287) panicked at crates/nec-upd765a/tests/write_deleted.rs:207:17:
+assertion `left == right` failed
+  left: (0, 0)
+ right: (32, 96)
+
+
+failures:
+    zero_byte_overrun_replaces_deleted_mark_before_first_host_byte
+    zero_byte_overrun_writes_deleted_mark_before_first_host_byte
+
+test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 5 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p nec-upd765a --test write_deleted`
