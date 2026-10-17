@@ -342,7 +342,7 @@ impl SpectrumDriver for TimexTC2048 {
         let release_after = TIMING_48K.tstates_per_frame;
         self.tape_release.advance(&mut self.tape, 1, release_after);
         self.recorder.advance(1);
-        let ear = self.tape.ear_level();
+        let ear = self.tape_release.input_level(&self.tape);
         if ear != self.speaker.ear {
             self.speaker.ear = ear;
             let tstate =

@@ -551,7 +551,7 @@ impl<V: AmstradVariant> SpectrumDriver for SpectrumAmstradClassCore<V> {
         // Peripheral timestamps remain in the driver's master-clock
         // counter units; call frequency is once per CPU T-state.
         self.fdc.tick(position.halfcycles());
-        let ear = self.tape.ear_level();
+        let ear = self.tape_release.input_level(&self.tape);
         if ear != self.speaker.ear {
             self.speaker.ear = ear;
             self.audio.set_level(tstate, self.speaker.level());

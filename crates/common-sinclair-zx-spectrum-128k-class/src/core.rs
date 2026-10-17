@@ -544,7 +544,7 @@ impl<V: Class128kVariant> SpectrumDriver for Spectrum128kClassCore<V> {
         if tstate & 1 == 0 {
             self.ay.tick();
         }
-        let ear = self.tape.ear_level();
+        let ear = self.tape_release.input_level(&self.tape);
         if ear != self.speaker.ear {
             self.speaker.ear = ear;
             self.audio.set_level(tstate, self.speaker.level());
