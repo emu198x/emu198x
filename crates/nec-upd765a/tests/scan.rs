@@ -157,7 +157,7 @@ fn scan_deleted_marks_stop_or_skip_and_remain_observable() {
     assert_eq!(result(&mut f), [0, 0, 0x48, 0, 0, 1, 2]);
 }
 #[test]
-fn scan_missing_and_crc_errors_are_not_hits() {
+fn scan_missing_and_crc_errors_terminate_abnormally() {
     let mut f = controller(&[], false);
     command(&mut f, 0x51, 1, 1);
     assert_eq!(result(&mut f)[1] & 4, 4);

@@ -1438,8 +1438,10 @@ impl Upd765a {
                 self.start_write_sector();
                 return;
             }
-            // +3 has no terminal count. EOT terminates with EN, matching
-            // Fuse's start_write_data and NEC table 2's next CHRN.
+            // +3 supplies no TC. Retain Fuse's next-CHRN convention with EN.
+            // NEC Table 2 describes processor termination, not this case;
+            // MAME retains C instead. Exact no-TC CHRN remains unresolved:
+            // https://github.com/emu198x/emu198x/issues/1814
             self.cmd_buf[2] = self.cmd_buf[2].wrapping_add(1);
             if self.cmd_buf[0] & 0x80 != 0 {
                 self.head = 0;
