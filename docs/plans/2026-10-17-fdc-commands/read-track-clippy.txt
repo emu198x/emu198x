@@ -1,0 +1,11 @@
+mise WARN  tracking config: failed to ln -sf /Users/stevehill/Projects/198x/output/qualification/workspaces/emu-fdc-commands/rust-toolchain.toml /Users/stevehill/.local/state/mise/tracked-configs/3a3392314265c8c9: Operation not permitted (os error 1)
+    Checking serde_core v1.0.229
+    Checking serde v1.0.229
+    Checking emu198x-gi-ay-3-8910 v0.6.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/emu-fdc-commands/crates/emu198x-gi-ay-3-8910)
+    Checking serde-big-array v0.5.1
+    Checking emu198x-zilog-z80 v0.8.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/emu-fdc-commands/crates/emu198x-zilog-z80)
+    Checking common-tape v0.35.5 (/Users/stevehill/Projects/198x/output/qualification/workspaces/emu-fdc-commands/crates/common-tape)
+    Checking gi-ay-3-8912 v0.35.5 (/Users/stevehill/Projects/198x/output/qualification/workspaces/emu-fdc-commands/crates/gi-ay-3-8912)
+    Checking common-sinclair-zx-spectrum v0.35.5 (/Users/stevehill/Projects/198x/output/qualification/workspaces/emu-fdc-commands/crates/common-sinclair-zx-spectrum)
+    Checking nec-upd765a v0.35.5 (/Users/stevehill/Projects/198x/output/qualification/workspaces/emu-fdc-commands/crates/nec-upd765a)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 2.17s

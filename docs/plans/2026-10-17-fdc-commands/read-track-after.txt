@@ -1,0 +1,13 @@
+mise WARN  tracking config: failed to ln -sf /Users/stevehill/Projects/198x/output/qualification/workspaces/emu-fdc-commands/rust-toolchain.toml /Users/stevehill/.local/state/mise/tracked-configs/3a3392314265c8c9: Operation not permitted (os error 1)
+   Compiling nec-upd765a v0.35.5 (/Users/stevehill/Projects/198x/output/qualification/workspaces/emu-fdc-commands/crates/nec-upd765a)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.55s
+     Running tests/read_track.rs (target/debug/deps/read_track-da8f833c774b8e17)
+
+running 4 tests
+test empty_and_missing_track_have_bounded_error_results ... ok
+test track_errors_continue_to_next_sector ... ok
+test track_ignores_mt_and_sk_and_preserves_source ... ok
+test track_reads_physical_order_and_eot_count_not_sorted_ids ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

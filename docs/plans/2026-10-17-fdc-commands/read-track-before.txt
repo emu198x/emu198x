@@ -1,0 +1,52 @@
+mise WARN  tracking config: failed to ln -sf /Users/stevehill/Projects/198x/output/qualification/workspaces/emu-fdc-commands/rust-toolchain.toml /Users/stevehill/.local/state/mise/tracked-configs/3a3392314265c8c9: Operation not permitted (os error 1)
+   Compiling nec-upd765a v0.35.5 (/Users/stevehill/Projects/198x/output/qualification/workspaces/emu-fdc-commands/crates/nec-upd765a)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.46s
+     Running tests/read_track.rs (target/debug/deps/read_track-da8f833c774b8e17)
+
+running 4 tests
+test track_errors_continue_to_next_sector ... FAILED
+test empty_and_missing_track_have_bounded_error_results ... FAILED
+test track_ignores_mt_and_sk_and_preserves_source ... FAILED
+test track_reads_physical_order_and_eot_count_not_sorted_ids ... FAILED
+
+failures:
+
+---- track_errors_continue_to_next_sector stdout ----
+
+thread 'track_errors_continue_to_next_sector' (117355579) panicked at crates/nec-upd765a/tests/read_track.rs:43:9:
+assertion `left == right` failed
+  left: 128
+ right: 208
+
+---- empty_and_missing_track_have_bounded_error_results stdout ----
+
+thread 'empty_and_missing_track_have_bounded_error_results' (117355578) panicked at crates/nec-upd765a/tests/read_track.rs:43:9:
+assertion `left == right` failed
+  left: 128
+ right: 208
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- track_ignores_mt_and_sk_and_preserves_source stdout ----
+
+thread 'track_ignores_mt_and_sk_and_preserves_source' (117355580) panicked at crates/nec-upd765a/tests/read_track.rs:43:9:
+assertion `left == right` failed
+  left: 128
+ right: 208
+
+---- track_reads_physical_order_and_eot_count_not_sorted_ids stdout ----
+
+thread 'track_reads_physical_order_and_eot_count_not_sorted_ids' (117355581) panicked at crates/nec-upd765a/tests/read_track.rs:43:9:
+assertion `left == right` failed
+  left: 128
+ right: 208
+
+
+failures:
+    empty_and_missing_track_have_bounded_error_results
+    track_errors_continue_to_next_sector
+    track_ignores_mt_and_sk_and_preserves_source
+    track_reads_physical_order_and_eot_count_not_sorted_ids
+
+test result: FAILED. 0 passed; 4 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p nec-upd765a --test read_track`
