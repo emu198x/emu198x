@@ -1,0 +1,14 @@
+{
+  "qualified": false,
+  "scope": "first-hit transfer count only; full Scan conformance remains open",
+  "fresh_observations": 28,
+  "artifact_hashes": 88,
+  "first_hit_counts": {
+    "Emu source test": 512,
+    "unmodified Fuse source controller": 512,
+    "installed MAME": 1024
+  },
+  "stock_reference_count_failures": 6,
+  "experimental_patch": "separate; not upstream release or hardware validation",
+  "result_chrn": "disagrees; unqualified"
+}
