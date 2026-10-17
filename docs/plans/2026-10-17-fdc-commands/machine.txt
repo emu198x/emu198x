@@ -1,0 +1,30 @@
+mise WARN  tracking config: failed to ln -sf /Users/stevehill/Projects/198x/output/qualification/workspaces/emu-fdc-commands/rust-toolchain.toml /Users/stevehill/.local/state/mise/tracked-configs/3a3392314265c8c9: Operation not permitted (os error 1)
+   Compiling amstrad-ula-40077 v0.35.5 (/Users/stevehill/Projects/198x/output/qualification/workspaces/emu-fdc-commands/crates/amstrad-ula-40077)
+   Compiling common-sinclair-zx-spectrum-amstrad-class v0.35.5 (/Users/stevehill/Projects/198x/output/qualification/workspaces/emu-fdc-commands/crates/common-sinclair-zx-spectrum-amstrad-class)
+   Compiling machine-sinclair-zx-spectrum-plus3 v0.35.5 (/Users/stevehill/Projects/198x/output/qualification/workspaces/emu-fdc-commands/crates/machine-sinclair-zx-spectrum-plus3)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.60s
+     Running unittests src/lib.rs (target/debug/deps/machine_sinclair_zx_spectrum_plus3-030f8cb526fb91e7)
+
+running 6 tests
+test tests::paging_writes_change_bank_at_c000 ... ok
+test tests::machine_reports_plus3_model_id ... ok
+test tests::machine_defaults_have_expected_shape ... ok
+test tests::insert_and_eject_disk_round_trip ... ok
+test tests::fdc_is_enabled_on_plus3 ... ok
+test tests::machine_runs_one_frame_at_plus2a_cadence ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/boot_test.rs (target/debug/deps/boot_test-232663b8a36e7e77)
+
+running 1 test
+test boot_to_menu_renders_screen_content ... ignored, FIXTURE: requires local +3 ROMs at ~/.emu198x/roms/amstrad-zx-spectrum-plus3/{plus3-0..3}.rom
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests machine_sinclair_zx_spectrum_plus3
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

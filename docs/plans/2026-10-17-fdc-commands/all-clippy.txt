@@ -1,0 +1,9 @@
+mise WARN  tracking config: failed to ln -sf /Users/stevehill/Projects/198x/output/qualification/workspaces/emu-fdc-commands/rust-toolchain.toml /Users/stevehill/.local/state/mise/tracked-configs/3a3392314265c8c9: Operation not permitted (os error 1)
+    Checking nec-upd765a v0.35.5 (/Users/stevehill/Projects/198x/output/qualification/workspaces/emu-fdc-commands/crates/nec-upd765a)
+    Checking common-sinclair-zx-spectrum-amstrad-class v0.35.5 (/Users/stevehill/Projects/198x/output/qualification/workspaces/emu-fdc-commands/crates/common-sinclair-zx-spectrum-amstrad-class)
+    Checking format-amstrad-dsk v0.35.5 (/Users/stevehill/Projects/198x/output/qualification/workspaces/emu-fdc-commands/crates/format-amstrad-dsk)
+    Checking machine-sinclair-zx-spectrum-plus2b v0.35.5 (/Users/stevehill/Projects/198x/output/qualification/workspaces/emu-fdc-commands/crates/machine-sinclair-zx-spectrum-plus2b)
+    Checking machine-sinclair-zx-spectrum-plus3 v0.35.5 (/Users/stevehill/Projects/198x/output/qualification/workspaces/emu-fdc-commands/crates/machine-sinclair-zx-spectrum-plus3)
+    Checking machine-sinclair-zx-spectrum-plus2a v0.35.5 (/Users/stevehill/Projects/198x/output/qualification/workspaces/emu-fdc-commands/crates/machine-sinclair-zx-spectrum-plus2a)
+    Checking runtime-sinclair-zx-spectrum v0.35.5 (/Users/stevehill/Projects/198x/output/qualification/workspaces/emu-fdc-commands/crates/runtime-sinclair-zx-spectrum)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.66s

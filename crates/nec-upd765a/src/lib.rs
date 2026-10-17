@@ -128,6 +128,7 @@ enum Command {
     // Append only: existing postcard command tags must remain stable.
     FormatTrack,
     ReadTrack,
+    Scan,
 }
 
 /// µPD765A state.
@@ -564,7 +565,9 @@ impl Upd765a {
                 }
             }
             Phase::Execution => {
-                if self.command == Command::WriteData && self.main_status & MSR_RQM != 0 {
+                if self.command == Command::Scan && self.main_status & MSR_RQM != 0 {
+                    self.accept_scan_byte(val);
+                } else if self.command == Command::WriteData && self.main_status & MSR_RQM != 0 {
                     self.accept_write_byte(val);
                 } else if self.command == Command::FormatTrack && self.main_status & MSR_RQM != 0 {
                     self.accept_format_byte(val);
@@ -576,6 +579,7 @@ impl Upd765a {
 
     fn decode_command(byte: u8) -> (Command, usize) {
         match byte & 0x1F {
+            0x11 | 0x19 | 0x1d => (Command::Scan, 9),
             0x02 => (Command::ReadTrack, 9),
             0x06 => (Command::ReadData, 9),        // Read Data
             0x0C => (Command::ReadDeletedData, 9), // Read Deleted Data (Speedlock keys)
@@ -631,6 +635,7 @@ impl Upd765a {
             }
         }
         match self.command {
+            Command::Scan => self.start_scan(),
             Command::ReadTrack => self.start_read_track(),
             Command::FormatTrack => self.start_format_track(),
             Command::WriteData => {
@@ -1072,6 +1077,147 @@ impl Upd765a {
         }
     }
 
+    // NEC December 1978 p15/Table4, Fuse upd_fdc_write_data: inequalities
+    // compare disk against processor for every byte. A violating byte latches
+    // SN for the whole sector; a later byte cannot undo it. FF is literal in
+    // the held NEC/Fuse contract; no undocumented wildcard is invented.
+    fn start_scan(&mut self) {
+        self.st0 = self.cmd_buf[1] & 7;
+        self.st1 = 0;
+        self.st2 = 0;
+        self.head = (self.cmd_buf[1] >> 2) & 1;
+        self.sector = self.cmd_buf[4];
+        if self.cmd_buf[5] > 7 || !matches!(self.cmd_buf[8], 1 | 2) {
+            self.write_result(4, 0);
+            return;
+        }
+        self.start_scan_sector();
+    }
+
+    fn start_scan_sector(&mut self) {
+        let drive = usize::from(self.cmd_buf[1] & self.drive_select_mask);
+        // At most 256 IDs on each of two heads. Skipped fields make progress
+        // here without requesting fictitious host comparison bytes.
+        loop {
+            let Some(image) = &self.disks[drive] else {
+                self.st0 |= 0x08;
+                self.write_result(0, self.st2 & ST2_CM);
+                return;
+            };
+            let sectors = image
+                .tracks
+                .get(usize::from(self.head))
+                .and_then(|side| side.get(usize::from(self.track[drive])))
+                .map_or(&[][..], |track| track.sectors.as_slice());
+            let sector = sectors.iter().find(|s| {
+                (s.c, s.h, s.id, s.n)
+                    == (
+                        self.cmd_buf[2],
+                        self.cmd_buf[3],
+                        self.sector,
+                        self.cmd_buf[5],
+                    )
+            });
+            let Some(sector) = sector else {
+                let mut flags = self.st2 & ST2_CM;
+                if sectors.iter().any(|s| s.c != self.cmd_buf[2]) {
+                    flags |= 0x10;
+                }
+                if sectors
+                    .iter()
+                    .any(|s| s.c == 0xff && s.c != self.cmd_buf[2])
+                {
+                    flags |= 2;
+                }
+                self.write_result(4, flags);
+                return;
+            };
+            if sector.st1 & 0x20 != 0 && sector.st2 & 0x20 == 0 {
+                self.write_result(0x20, self.st2 & ST2_CM);
+                return;
+            }
+            let deleted = sector.st2 & ST2_CM != 0;
+            if deleted && self.cmd_buf[0] & 0x20 != 0 {
+                self.st2 |= ST2_CM;
+                if !self.advance_scan_sector() {
+                    self.write_result(0x80, (self.st2 & ST2_CM) | 4);
+                    return;
+                }
+                continue;
+            }
+            let size = 128_usize << self.cmd_buf[5];
+            if sector.data.len() < size || sector.st1 & 1 != 0 {
+                self.write_result(1, 1 | (self.st2 & ST2_CM));
+                return;
+            }
+            self.exec_buf.clear();
+            self.exec_buf.extend_from_slice(&sector.data[..size]);
+            self.exec_pos = 0;
+            self.st1 = sector.st1;
+            self.st2 = (self.st2 & ST2_CM) | (sector.st2 & (ST2_CM | 0x20)) | 8;
+            self.phase = Phase::Execution;
+            self.main_status = MSR_EXM | MSR_CB;
+            self.write_start_pending = true;
+            self.exec_timeout =
+                self.write_byte_ticks() * if self.cmd_buf[0] & 0x40 != 0 { 38 } else { 18 };
+            return;
+        }
+    }
+
+    fn accept_scan_byte(&mut self, host: u8) {
+        let disk = self.exec_buf[self.exec_pos];
+        if disk != host {
+            self.st2 &= !8;
+        }
+        let violates = match self.cmd_buf[0] & 0x1f {
+            0x11 => disk != host,
+            0x19 => disk > host,
+            0x1d => disk < host,
+            _ => false,
+        };
+        if violates {
+            self.st2 |= 4;
+        }
+        self.exec_pos += 1;
+        self.main_status &= !MSR_RQM;
+    }
+
+    fn advance_scan_sector(&mut self) -> bool {
+        let next = u16::from(self.sector) + u16::from(self.cmd_buf[8]);
+        if next <= u16::from(self.cmd_buf[6]) {
+            self.sector = next as u8;
+            true
+        } else if self.sector == self.cmd_buf[6] && self.cmd_buf[0] & 0x80 != 0 && self.head == 0 {
+            self.head = 1;
+            self.cmd_buf[1] |= 4;
+            self.cmd_buf[3] = 1;
+            self.st0 |= 4;
+            self.sector = 1;
+            true
+        } else {
+            false
+        }
+    }
+
+    fn finish_scan_sector(&mut self) {
+        if self.st1 & 0x20 != 0 || self.st2 & 0x20 != 0 {
+            self.write_result(self.st1, self.st2);
+        } else if self.st2 & 4 == 0 || (self.st2 & ST2_CM != 0 && self.cmd_buf[0] & 0x20 == 0) {
+            self.exec_timeout = 0;
+            self.write_start_pending = false;
+            self.setup_result_read(
+                self.cmd_buf[2],
+                self.cmd_buf[3],
+                self.sector,
+                self.cmd_buf[5],
+            );
+        } else if self.advance_scan_sector() {
+            self.start_scan_sector();
+        } else {
+            self.write_result(0x80, self.st2);
+        }
+    }
+
     // NEC December 1978 p14 and MAME read_track_continue: EOT is a
     // count, not a sector-ID limit. DSK represents ordered payloads and ID/error
     // metadata, not raw gaps, index timing or flux. Never invent those bytes.
@@ -1126,7 +1272,10 @@ impl Upd765a {
 
     fn abort_write_for_media_change(&mut self, drive: usize) {
         if self.phase == Phase::Execution
-            && matches!(self.command, Command::WriteData | Command::FormatTrack)
+            && matches!(
+                self.command,
+                Command::WriteData | Command::FormatTrack | Command::Scan
+            )
             && usize::from(self.cmd_buf[1] & self.drive_select_mask) == drive
         {
             self.st0 |= 0x08;
@@ -1573,7 +1722,9 @@ impl Peripheral for Upd765a {
             return;
         }
 
-        if self.phase == Phase::Execution && self.command == Command::WriteData {
+        if self.phase == Phase::Execution
+            && matches!(self.command, Command::WriteData | Command::Scan)
+        {
             self.exec_timeout = self.exec_timeout.saturating_sub(1);
             if self.exec_timeout == 0 {
                 if self.write_start_pending {
@@ -1581,9 +1732,13 @@ impl Peripheral for Upd765a {
                     self.main_status |= MSR_RQM;
                     self.exec_timeout = self.write_byte_ticks();
                 } else if self.main_status & MSR_RQM != 0 {
-                    self.write_result(0x10, 0); // OR: host missed its byte window.
+                    self.write_result(0x10, self.st2 & ST2_CM); // OR: host missed its byte window.
                 } else if self.exec_pos == self.exec_buf.len() {
-                    self.finish_write_sector();
+                    if self.command == Command::Scan {
+                        self.finish_scan_sector();
+                    } else {
+                        self.finish_write_sector();
+                    }
                 } else {
                     self.main_status |= MSR_RQM;
                     self.exec_timeout = self.write_byte_ticks();

@@ -368,6 +368,64 @@ mod tests {
     }
 
     #[test]
+    fn scan_and_track_read_resume_without_mutating_disk() {
+        for accepted in [0, 1, 179, 511] {
+            for opcode in [0x51, 0x59, 0x5d, 0x42] {
+                let (mut original, source) = writable_sector_runtime(false);
+                send_fdc_command(&mut original, &[opcode, 0, 0, 0, 1, 2, 1, 0x2a, 1]);
+                if opcode == 0x42 {
+                    for _ in 0..accepted {
+                        assert_eq!(original.machine_mut().fdc.read_data(), 0xe5);
+                    }
+                } else {
+                    send_fdc_bytes(&mut original, &vec![0xe5; accepted]);
+                }
+                let saved = original.snapshot().expect("read/scan checkpoint");
+                let mut restored = SpectrumPlus3Runtime::blank();
+                restored.restore(&saved).expect("restore read/scan");
+                assert_eq!(restored.snapshot().expect("identical state"), saved);
+                // A comparison/read does not prohibit a read-only media export.
+                assert_eq!(
+                    restored
+                        .export_media("disk-a", "edsk")
+                        .expect("scan export"),
+                    original
+                        .export_media("disk-a", "edsk")
+                        .expect("original export")
+                );
+                assert_eq!(restored.snapshot().expect("export unchanged"), saved);
+                for runtime in [&mut original, &mut restored] {
+                    if opcode == 0x42 {
+                        for _ in accepted..512 {
+                            assert_eq!(runtime.machine_mut().fdc.read_data(), 0xe5);
+                        }
+                        assert_eq!(drain_fdc_result(runtime), [0x40, 0x80, 0, 0, 0, 1, 2]);
+                    } else {
+                        send_fdc_bytes(runtime, &vec![0xe5; 512 - accepted]);
+                        assert_eq!(drain_fdc_result(runtime), [0, 0, 8, 0, 0, 1, 2]);
+                    }
+                    assert_eq!(runtime.disk_images()[0].bytes, source);
+                    assert_eq!(
+                        runtime
+                            .machine()
+                            .fdc
+                            .disk_for_export(0)
+                            .expect("unchanged sector")
+                            .tracks[0][0]
+                            .sectors[0]
+                            .data,
+                        [0xe5; 512]
+                    );
+                }
+                assert_eq!(
+                    restored.snapshot().expect("continued"),
+                    original.snapshot().expect("original")
+                );
+            }
+        }
+    }
+
+    #[test]
     fn deleted_write_survives_active_state_export_and_fresh_reopen() {
         use emu198x_shell::{MediaImage, MediaKind, MediaSet};
         for accepted in [0, 1, 179, 511, 512] {
