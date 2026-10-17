@@ -1,0 +1,70 @@
+mise WARN  tracking config: failed to ln -sf /Users/stevehill/Projects/198x/output/qualification/workspaces/emu-fdc-commands/rust-toolchain.toml /Users/stevehill/.local/state/mise/tracked-configs/3a3392314265c8c9: Operation not permitted (os error 1)
+   Compiling nec-upd765a v0.35.5 (/Users/stevehill/Projects/198x/output/qualification/workspaces/emu-fdc-commands/crates/nec-upd765a)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.29s
+     Running tests/scan.rs (target/debug/deps/scan-4383d8fe27e8df60)
+
+running 6 tests
+test scan_equal_low_high_truth_table ... FAILED
+test scan_overrun_is_non_mutating_and_direction_is_enforced ... FAILED
+test scan_missing_and_crc_errors_are_not_hits ... FAILED
+test scan_deleted_marks_stop_or_skip_and_remain_observable ... FAILED
+test scan_step_and_hit_terminate_on_the_matched_sector ... FAILED
+test scan_latches_an_earlier_violating_byte ... FAILED
+
+failures:
+
+---- scan_equal_low_high_truth_table stdout ----
+
+thread 'scan_equal_low_high_truth_table' (117364074) panicked at crates/nec-upd765a/tests/scan.rs:50:9:
+assertion `left == right` failed
+  left: 208
+ right: 176
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- scan_overrun_is_non_mutating_and_direction_is_enforced stdout ----
+
+thread 'scan_overrun_is_non_mutating_and_direction_is_enforced' (117364077) panicked at crates/nec-upd765a/tests/scan.rs:133:5:
+assertion `left == right` failed
+  left: 128
+ right: 255
+
+---- scan_missing_and_crc_errors_are_not_hits stdout ----
+
+thread 'scan_missing_and_crc_errors_are_not_hits' (117364076) panicked at crates/nec-upd765a/tests/scan.rs:61:9:
+assertion `left == right` failed
+  left: 128
+ right: 208
+
+---- scan_deleted_marks_stop_or_skip_and_remain_observable stdout ----
+
+thread 'scan_deleted_marks_stop_or_skip_and_remain_observable' (117364073) panicked at crates/nec-upd765a/tests/scan.rs:50:9:
+assertion `left == right` failed
+  left: 208
+ right: 176
+
+---- scan_step_and_hit_terminate_on_the_matched_sector stdout ----
+
+thread 'scan_step_and_hit_terminate_on_the_matched_sector' (117364078) panicked at crates/nec-upd765a/tests/scan.rs:50:9:
+assertion `left == right` failed
+  left: 208
+ right: 176
+
+---- scan_latches_an_earlier_violating_byte stdout ----
+
+thread 'scan_latches_an_earlier_violating_byte' (117364075) panicked at crates/nec-upd765a/tests/scan.rs:50:9:
+assertion `left == right` failed
+  left: 208
+ right: 176
+
+
+failures:
+    scan_deleted_marks_stop_or_skip_and_remain_observable
+    scan_equal_low_high_truth_table
+    scan_latches_an_earlier_violating_byte
+    scan_missing_and_crc_errors_are_not_hits
+    scan_overrun_is_non_mutating_and_direction_is_enforced
+    scan_step_and_hit_terminate_on_the_matched_sector
+
+test result: FAILED. 0 passed; 6 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p nec-upd765a --test scan`

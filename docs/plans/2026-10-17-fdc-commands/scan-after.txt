@@ -1,0 +1,15 @@
+mise WARN  tracking config: failed to ln -sf /Users/stevehill/Projects/198x/output/qualification/workspaces/emu-fdc-commands/rust-toolchain.toml /Users/stevehill/.local/state/mise/tracked-configs/3a3392314265c8c9: Operation not permitted (os error 1)
+   Compiling nec-upd765a v0.35.5 (/Users/stevehill/Projects/198x/output/qualification/workspaces/emu-fdc-commands/crates/nec-upd765a)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.38s
+     Running tests/scan.rs (target/debug/deps/scan-4383d8fe27e8df60)
+
+running 6 tests
+test scan_overrun_is_non_mutating_and_direction_is_enforced ... ok
+test scan_missing_and_crc_errors_are_not_hits ... ok
+test scan_deleted_marks_stop_or_skip_and_remain_observable ... ok
+test scan_latches_an_earlier_violating_byte ... ok
+test scan_step_and_hit_terminate_on_the_matched_sector ... ok
+test scan_equal_low_high_truth_table ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
