@@ -58,6 +58,10 @@ async function check(kind,roms,media) {
    for(let i=0;i<20;i++)await rpc('step');
    await rpc('load','tap',printSevenTape());
    for(let i=0;i<10;i++)await rpc('step');
+   // STOP and PLAY reach the 48K's deck (#1794); another slot is refused.
+   await rpc('transport','tape-1',false);for(let i=0;i<5;i++)await rpc('step');
+   await rpc('transport','tape-1',true);await rpc('step');
+   await assert.rejects(rpc('transport','drive-1',true),/drive-1/);
   }
   if(kind==='amiga') { await rpc('input',[['move',13,-7],['mouse','left',true],['mouse','left',false]]); await assert.rejects(rpc('load','adf',new Uint8Array(5))); }
   console.log(`${kind}: boot, frames, stereo audio, input and error handling passed (${frame.width}×${frame.height})`);

@@ -270,6 +270,14 @@ if(fleet) {
   }
 }
 
+// The 48K types LOAD "" itself. Stopping the tape is for changing a loader
+// before the rest arrives: MERGE "", stop at 0 OK, add a POKE, RUN, play.
+if(!fleet && system.kind==='spectrum') {
+  $('tape-controls').hidden=false;
+  $('tape-controls').querySelector('p').textContent='The tape loads by itself. Stop it to change a program before the rest loads, then play it again.';
+  for(const [id,playing] of [['tape-play',true],['tape-stop',false]])$(id).onclick=async()=>{try {await rpc('transport','tape-1',playing);status(playing?'Tape playing.':'Tape stopped.');}catch(error){status(String(error),true);}};
+}
+
 function rememberMedia(media) {
  const id=media.slot || (system.kind==='amiga'?'floppy-0':system.kind==='c64'?(media.format==='prg'?'program':'drive-8'):'cartridge');
  mounted[id]={slot:id,name:media.name || `disk.${media.format}`,format:media.format};
