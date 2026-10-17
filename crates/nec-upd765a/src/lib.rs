@@ -1382,6 +1382,36 @@ impl Upd765a {
         }
     }
 
+    // The data mark reaches the medium before the first host byte. Fuse
+    // start_write_data and MAME WRITE_SECTOR_DATA both write FB/F8 before
+    // consuming payload. If that first byte overruns, retain the new mark
+    // and an incomplete data CRC, with the old payload still untouched.
+    fn begin_write_data_field(&mut self) -> bool {
+        let mark = self.write_data_mark();
+        let drive = (self.cmd_buf[1] & self.drive_select_mask) as usize;
+        if self.disks[drive].is_none() {
+            self.st0 |= 0x08;
+            self.write_result(0, 0);
+            return false;
+        }
+        if !self.writable[drive] {
+            self.write_result(0x02, 0);
+            return false;
+        }
+        let Some(sector) = self.disks[drive]
+            .as_mut()
+            .and_then(|image| image.tracks.get_mut(self.head as usize))
+            .and_then(|side| side.get_mut(self.track[drive] as usize))
+            .and_then(|track| track.sectors.iter_mut().find(|s| s.id == self.sector))
+        else {
+            self.write_result(0x04, 0);
+            return false;
+        };
+        sector.st1 = 0x20;
+        sector.st2 = 0x20 | mark;
+        true
+    }
+
     fn accept_write_byte(&mut self, value: u8) {
         let mark = self.write_data_mark();
         let drive = (self.cmd_buf[1] & self.drive_select_mask) as usize;
@@ -1730,6 +1760,9 @@ impl Peripheral for Upd765a {
             self.exec_timeout = self.exec_timeout.saturating_sub(1);
             if self.exec_timeout == 0 {
                 if self.write_start_pending {
+                    if self.command == Command::WriteData && !self.begin_write_data_field() {
+                        return;
+                    }
                     self.write_start_pending = false;
                     self.main_status |= MSR_RQM;
                     self.exec_timeout = self.write_byte_ticks();
@@ -2430,6 +2463,29 @@ mod tests {
             .expect("sector");
         assert_eq!(&sector.data[..2], &[0x12, 0x34]);
         assert!(sector.data[2..].iter().all(|&byte| byte == 0));
+    }
+
+    #[test]
+    fn preamble_rechecks_write_protection_before_changing_the_mark() {
+        let mut fdc = write_test_fdc(true);
+        send_write(&mut fdc, 0, 0, 0, 1, 1);
+        // Model protection changing while gap/sync is passing the head.
+        fdc.writable[0] = false;
+        await_write_request(&mut fdc);
+        assert_eq!(result(&mut fdc), [0x40, 2, 0, 0, 0, 1, 2]);
+        let sector = &fdc.disk_for_export(0).expect("protected image").tracks[0][0].sectors[0];
+        assert_eq!((sector.st1, sector.st2), (0, 0));
+        assert_eq!(sector.data, [0xe5; 512]);
+    }
+
+    #[test]
+    fn preamble_rechecks_missing_media_before_requesting_payload() {
+        let mut fdc = write_test_fdc(true);
+        send_write(&mut fdc, 0, 0, 0, 1, 1);
+        // Also guard a missing attachment independently of eject's abort.
+        fdc.disks[0] = None;
+        await_write_request(&mut fdc);
+        assert_eq!(result(&mut fdc), [0x48, 0, 0, 0, 0, 1, 2]);
     }
 
     #[test]
