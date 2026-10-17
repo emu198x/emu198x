@@ -1,5 +1,6 @@
 //! NEC December 1978 p13: Write Deleted Data differs only in its data mark.
 //! Public-register tests, independent of the controller's private command tags.
+mod common;
 use common_sinclair_zx_spectrum::peripheral::Peripheral;
 use nec_upd765a::{DiskImage, DiskSector, DiskTrack, ST2_CM, Upd765a};
 
@@ -69,7 +70,8 @@ fn result(f: &mut Upd765a) -> [u8; 7] {
 }
 fn read(f: &mut Upd765a) -> Vec<u8> {
     let mut data = Vec::new();
-    while f.read_status() == 0xf0 {
+    while f.read_status() & 0x20 != 0 {
+        common::await_read(f);
         assert!(data.len() < 2048);
         data.push(f.read_data());
     }

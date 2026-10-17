@@ -1,5 +1,6 @@
 //! Read Track is bounded to represented sector payloads, never fabricated gaps/flux.
 //! NEC December 1978 p14; MAME read_track_continue counts EOT sectors.
+mod common;
 use nec_upd765a::{DiskImage, DiskSector, DiskTrack, Upd765a};
 fn controller() -> Upd765a {
     let mut f = Upd765a::new();
@@ -34,7 +35,8 @@ fn command(f: &mut Upd765a, opcode: u8, eot: u8) {
 }
 fn drain(f: &mut Upd765a) -> (Vec<u8>, [u8; 7]) {
     let mut data = Vec::new();
-    while f.read_status() == 0xf0 {
+    while f.read_status() & 0x20 != 0 {
+        common::await_read(f);
         assert!(data.len() < 4096);
         data.push(f.read_data());
     }

@@ -2,6 +2,7 @@
 //! compared with the recorded ID, not physical position. ND/WC report a
 //! mismatching cylinder; BC additionally reports a mismatching recorded FF.
 //! These sector-image tests do not establish failed CHRN or search timing.
+mod common;
 use nec_upd765a::{DiskImage, DiskSector, DiskTrack, Upd765a};
 
 fn sector(c: u8, id: u8, deleted: bool) -> DiskSector {
@@ -46,7 +47,8 @@ fn read(fdc: &mut Upd765a, deleted: bool, c: u8, r: u8, eot: u8) -> (Vec<u8>, [u
         fdc.write_data(byte);
     }
     let mut data = Vec::new();
-    while fdc.read_status() == 0xf0 {
+    while fdc.read_status() & 0x20 != 0 {
+        common::await_read(fdc);
         assert!(data.len() < 1024, "bounded execution-byte drain");
         data.push(fdc.read_data());
     }
