@@ -21,6 +21,7 @@ mod keyboard;
 pub mod launch;
 mod menu;
 mod overlay;
+mod quick_load;
 
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
@@ -1100,22 +1101,18 @@ impl<S: UiSystem> App<S> {
     /// rejected restore is reported, not fatal; only a genuine emulation error
     /// from running the refresh frame propagates.
     fn quick_load(&mut self) -> Result<(), UiError> {
-        let Some(path) = self.state_slot_path() else {
-            eprintln!("load-state: no state directory (set EMU198X_STATE_DIR or HOME)");
-            return Ok(());
-        };
-        let bytes = match std::fs::read(&path) {
-            Ok(bytes) => bytes,
-            Err(err) => {
-                eprintln!("load-state: no saved state at {} ({err})", path.display());
-                return Ok(());
-            }
-        };
-        if let Err(err) = self.runner.runtime.restore(&bytes) {
-            eprintln!(
-                "load-state: {} could not be restored: {err}",
-                path.display()
-            );
+        let path = self.state_slot_path();
+        if let Err(message) =
+            quick_load::restore(path.as_deref(), |bytes| self.runner.runtime.restore(bytes))
+        {
+            // A native modal can consume key-up events while it owns focus.
+            self.release_all_keys();
+            rfd::MessageDialog::new()
+                .set_title("Load State")
+                .set_level(rfd::MessageLevel::Warning)
+                .set_description(&message)
+                .show();
+            self.next_slice_at = Instant::now();
             return Ok(());
         }
         // Drop held keys and stale capture/audio, then run one frame so the
@@ -1128,7 +1125,9 @@ impl<S: UiSystem> App<S> {
         self.runner.run_ticks(&[], self.full_frame_ticks)?;
         // A restored snapshot can carry a different drive layout.
         self.refresh_all_port_drives();
-        println!("load-state: restored {}", path.display());
+        if let Some(path) = path {
+            println!("load-state: restored {}", path.display());
+        }
         Ok(())
     }
 
