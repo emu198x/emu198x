@@ -125,18 +125,20 @@ impl Spectrum {
     /// 60 Hz display driving a 50 Hz machine has nothing to do on roughly one
     /// callback in six.
     ///
-    /// While a tape is playing the machine runs ahead of the clock instead,
-    /// and the count is correspondingly larger. That is not a setting a page
-    /// has to find: a tape takes as long to load as it did in 1982, and a
-    /// reader waiting on a lesson has no reason to sit through it.
+    /// While the ROM is loading from tape the machine runs ahead of the clock
+    /// instead, and the count is correspondingly larger. That is not a setting
+    /// a page has to find: a tape would otherwise take as long to load as it
+    /// did in 1982, and a reader waiting on a lesson has no reason to sit
+    /// through it. Between loads the tape runs in real time, so a reader can
+    /// stop it (see [`crate::tape_turbo`]).
     ///
     /// # Errors
     ///
     /// Returns a JavaScript error if the machine fails or the canvas rejects
     /// the frame.
     pub fn tick(&mut self, elapsed_ms: f64) -> Result<u32, JsError> {
-        self.machine
-            .set_turbo(self.machine.runtime().tape_is_playing());
+        let turbo = crate::tape_turbo(&self.machine);
+        self.machine.set_turbo(turbo);
         let ran = self
             .machine
             .advance(elapsed_ms)
