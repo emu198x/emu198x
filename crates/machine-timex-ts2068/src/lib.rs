@@ -412,7 +412,7 @@ impl SpectrumDriver for TimexTS2068 {
         if position.halfcycles() % 8 == 2 {
             self.ay.tick();
         }
-        let ear = self.tape.ear_level();
+        let ear = self.tape_release.input_level(&self.tape);
         if ear != self.speaker.ear {
             self.speaker.ear = ear;
             let tstate = position.tstate(self.timing());

@@ -265,8 +265,10 @@ impl StopRelease {
         }
     }
 
-    /// Advances `player` by `tstates`, then releases its level to low once
-    /// `release_after` T-states have passed since playback stopped.
+    /// Advances `player` by `tstates`, then releases the input to low once
+    /// `release_after` T-states have passed since playback stopped. Read the
+    /// input through [`Self::input_level`]; the player keeps its own level,
+    /// so a tape played again carries on in phase.
     ///
     /// Any stop counts: the stream running out, a `Stop` span, or an explicit
     /// [`TapePlayer::stop`] between calls. Playing again before the release
@@ -290,7 +292,6 @@ impl StopRelease {
         if let Some(left) = self.remaining {
             if left <= tstates {
                 self.remaining = None;
-                player.level = false;
             } else {
                 self.remaining = Some(left - tstates);
             }
@@ -302,6 +303,20 @@ impl StopRelease {
     #[must_use]
     pub const fn pending(&self) -> bool {
         self.remaining.is_some()
+    }
+
+    /// The level on the machine's tape-in pin: the tape's own while it
+    /// plays and until the release, low after it.
+    ///
+    /// The release is the pin's, not the tape's. It used to write low into
+    /// the player, which moved the tape's phase: a tape stopped on a high
+    /// pulse came back inverted, and the first pause span, which holds the
+    /// level its block ends on, then swallowed the block's last edge. A
+    /// Spectrum stopped mid-pilot to add a POKE reported "R Tape loading
+    /// error" on the next block (#1794).
+    #[must_use]
+    pub fn input_level(&self, player: &TapePlayer) -> bool {
+        (player.is_playing() || self.pending()) && player.ear_level()
     }
 }
 
@@ -408,6 +423,55 @@ mod tests {
         player
     }
 
+    /// The levels a tape puts on the pin while it plays, one per T-state.
+    /// With `stop`, the tape is stopped at that T-state, left long enough
+    /// for the release, then played again; the stopped stretch is not
+    /// recorded, so an unbroken tape and a resumed one should match.
+    fn played_levels(spans: Vec<TapeSpan>, stop: Option<u32>) -> Vec<bool> {
+        let mut release = StopRelease::new();
+        let mut player = TapePlayer::new();
+        player.load_stream(spans);
+        player.play();
+        let mut levels = Vec::new();
+        let mut t = 0;
+        while player.is_playing() {
+            if Some(t) == stop {
+                player.stop();
+                for _ in 0..1_000 {
+                    release.advance(&mut player, 1, 100);
+                }
+                assert!(!release.pending(), "the release happened while stopped");
+                player.play();
+            }
+            release.advance(&mut player, 1, 100);
+            levels.push(release.input_level(&player));
+            t += 1;
+        }
+        levels
+    }
+
+    #[test]
+    fn stopping_and_playing_again_keeps_the_tape_in_phase() {
+        // Pulses and then a pause, whose first span holds the level the
+        // block ended on. Stopped while the level is high, a tape that came
+        // back inverted lost the block's last edge to that span (#1794): the
+        // Spectrum ROM never saw the end of the last bit.
+        let mut level = false;
+        let mut spans = Vec::new();
+        for _ in 0..5 {
+            push_pulse(&mut level, 100, &mut spans);
+        }
+        append_pause_spans(2, 1_000, &mut level, &mut spans);
+        let unbroken = played_levels(spans.clone(), None);
+        for stop in [50, 150, 250] {
+            assert_eq!(
+                played_levels(spans.clone(), Some(stop)),
+                unbroken,
+                "stopped at T-state {stop}"
+            );
+        }
+    }
+
     #[test]
     fn a_bare_player_holds_the_level_after_the_tape_ends() {
         // The default for every machine that does not opt in (the CPC).
@@ -429,10 +493,16 @@ mod tests {
         assert!(release.pending());
         for t in 1..69_888 {
             release.advance(&mut player, 1, 69_888);
-            assert!(player.ear_level(), "still held {t} T-states after the stop");
+            assert!(
+                release.input_level(&player),
+                "still held {t} T-states after the stop"
+            );
         }
         release.advance(&mut player, 1, 69_888);
-        assert!(!player.ear_level(), "released one frame after the stop");
+        assert!(
+            !release.input_level(&player),
+            "released one frame after the stop"
+        );
         assert!(!release.pending());
     }
 
@@ -450,9 +520,9 @@ mod tests {
         for _ in 0..100 {
             release.advance(&mut player, 1, 100);
         }
-        assert!(player.ear_level(), "held through the delay");
+        assert!(release.input_level(&player), "held through the delay");
         release.advance(&mut player, 1, 100);
-        assert!(!player.ear_level(), "released after it");
+        assert!(!release.input_level(&player), "released after it");
     }
 
     #[test]
