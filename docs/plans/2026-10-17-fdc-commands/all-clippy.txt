@@ -6,4 +6,4 @@ mise WARN  tracking config: failed to ln -sf /Users/stevehill/Projects/198x/outp
     Checking machine-sinclair-zx-spectrum-plus3 v0.35.5 (/Users/stevehill/Projects/198x/output/qualification/workspaces/emu-fdc-commands/crates/machine-sinclair-zx-spectrum-plus3)
     Checking machine-sinclair-zx-spectrum-plus2a v0.35.5 (/Users/stevehill/Projects/198x/output/qualification/workspaces/emu-fdc-commands/crates/machine-sinclair-zx-spectrum-plus2a)
     Checking runtime-sinclair-zx-spectrum v0.35.5 (/Users/stevehill/Projects/198x/output/qualification/workspaces/emu-fdc-commands/crates/runtime-sinclair-zx-spectrum)
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.66s
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.79s
