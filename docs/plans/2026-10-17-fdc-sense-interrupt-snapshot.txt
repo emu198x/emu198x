@@ -1,0 +1,149 @@
+mise WARN  tracking config: failed to ln -sf /Users/stevehill/Projects/198x/output/qualification/workspaces/emu-fdc-sense-interrupt/rust-toolchain.toml /Users/stevehill/.local/state/mise/tracked-configs/f7c851b561bdc895: Operation not permitted (os error 1)
+   Compiling serde_core v1.0.229
+   Compiling serde v1.0.229
+   Compiling objc2 v0.6.4
+   Compiling objc2-encode v4.1.0
+   Compiling bitflags v2.11.1
+   Compiling libc v0.2.186
+   Compiling cfg-if v1.0.4
+   Compiling simd-adler32 v0.3.9
+   Compiling crc32fast v1.5.0
+   Compiling adler2 v2.0.1
+   Compiling zmij v1.0.21
+   Compiling serde_json v1.0.151
+   Compiling memchr v2.8.0
+   Compiling syn v2.0.117
+   Compiling miniz_oxide v0.9.1
+   Compiling zlib-rs v0.6.3
+   Compiling zerocopy v0.8.48
+   Compiling log v0.4.29
+   Compiling itoa v1.0.18
+   Compiling find-msvc-tools v0.1.9
+   Compiling shlex v1.3.0
+   Compiling gilrs v0.11.2
+   Compiling cpal v0.18.2
+   Compiling cc v1.2.62
+   Compiling vec_map v0.8.2
+   Compiling bumpalo v3.20.2
+   Compiling equivalent v1.0.2
+   Compiling autocfg v1.5.0
+   Compiling uuid v1.23.1
+   Compiling hashbrown v0.17.1
+   Compiling fdeflate v0.3.7
+   Compiling miniz_oxide v0.8.9
+   Compiling zopfli v0.8.3
+   Compiling cobs v0.3.0
+   Compiling clap_lex v1.1.0
+   Compiling fnv v1.0.7
+   Compiling num-traits v0.2.19
+   Compiling dasp_sample v0.11.0
+   Compiling ciborium-io v0.2.2
+   Compiling regex-syntax v0.8.10
+   Compiling either v1.16.0
+   Compiling indexmap v2.14.0
+   Compiling anstyle v1.0.14
+   Compiling mach2 v0.6.0
+   Compiling isa198x v0.1.0
+   Compiling typed-path v0.12.3
+   Compiling clap_builder v4.6.0
+   Compiling itertools v0.13.0
+   Compiling block2 v0.6.2
+   Compiling dispatch2 v0.3.1
+   Compiling objc2-foundation v0.3.2
+   Compiling objc2-core-audio-types v0.3.2
+   Compiling alloca v0.4.0
+   Compiling objc2-core-foundation v0.3.2
+   Compiling regex-automata v0.4.14
+   Compiling format-sinclair-zx-spectrum-z80 v0.35.5 (/Users/stevehill/Projects/198x/output/qualification/workspaces/emu-fdc-sense-interrupt/crates/format-sinclair-zx-spectrum-z80)
+   Compiling isa198x-disasm v0.1.0
+   Compiling same-file v1.0.6
+   Compiling cast v0.3.0
+   Compiling format198x-tzx v0.1.0
+   Compiling criterion-plot v0.8.2
+   Compiling walkdir v2.5.0
+   Compiling page_size v0.6.0
+   Compiling anes v0.1.6
+   Compiling common-tape v0.35.5 (/Users/stevehill/Projects/198x/output/qualification/workspaces/emu-fdc-sense-interrupt/crates/common-tape)
+   Compiling emu198x-gi-ay-3-8910 v0.6.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/emu-fdc-sense-interrupt/crates/emu198x-gi-ay-3-8910)
+   Compiling serde-big-array v0.5.1
+   Compiling emu198x-zilog-z80 v0.8.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/emu-fdc-sense-interrupt/crates/emu198x-zilog-z80)
+   Compiling postcard v1.1.3
+   Compiling gi-ay-3-8912 v0.35.5 (/Users/stevehill/Projects/198x/output/qualification/workspaces/emu-fdc-sense-interrupt/crates/gi-ay-3-8912)
+   Compiling debug198x v0.1.0
+   Compiling tinytemplate v1.2.1
+   Compiling format-tzx v0.35.5 (/Users/stevehill/Projects/198x/output/qualification/workspaces/emu-fdc-sense-interrupt/crates/format-tzx)
+   Compiling clap v4.6.1
+   Compiling format198x-amstrad-cpc-dsk v0.1.1
+   Compiling oorandom v11.1.5
+   Compiling format-sinclair-zx-spectrum-sna v0.35.5 (/Users/stevehill/Projects/198x/output/qualification/workspaces/emu-fdc-sense-interrupt/crates/format-sinclair-zx-spectrum-sna)
+   Compiling regex v1.12.3
+   Compiling zerocopy-derive v0.8.48
+   Compiling twox-hash v2.1.4
+   Compiling format198x-sinclair-zx-spectrum-tap v0.1.1
+   Compiling emu198x-test-skip v0.35.5 (/Users/stevehill/Projects/198x/output/qualification/workspaces/emu-fdc-sense-interrupt/crates/emu198x-test-skip)
+   Compiling format198x-sinclair-zx-spectrum-bas v0.1.3
+   Compiling common-sinclair-zx-spectrum v0.35.5 (/Users/stevehill/Projects/198x/output/qualification/workspaces/emu-fdc-sense-interrupt/crates/common-sinclair-zx-spectrum)
+   Compiling objc2-core-audio v0.3.2
+   Compiling objc2-io-kit v0.3.2
+   Compiling objc2-audio-toolbox v0.3.2
+   Compiling peripheral-kempston-joystick v0.35.5 (/Users/stevehill/Projects/198x/output/qualification/workspaces/emu-fdc-sense-interrupt/crates/peripheral-kempston-joystick)
+   Compiling nec-upd765a v0.35.5 (/Users/stevehill/Projects/198x/output/qualification/workspaces/emu-fdc-sense-interrupt/crates/nec-upd765a)
+   Compiling amstrad-ula-40077 v0.35.5 (/Users/stevehill/Projects/198x/output/qualification/workspaces/emu-fdc-sense-interrupt/crates/amstrad-ula-40077)
+   Compiling ferranti-ula-6c001e v0.35.5 (/Users/stevehill/Projects/198x/output/qualification/workspaces/emu-fdc-sense-interrupt/crates/ferranti-ula-6c001e)
+   Compiling sinclair-ula-7k010e v0.35.5 (/Users/stevehill/Projects/198x/output/qualification/workspaces/emu-fdc-sense-interrupt/crates/sinclair-ula-7k010e)
+   Compiling beta-disk-interface v0.35.5 (/Users/stevehill/Projects/198x/output/qualification/workspaces/emu-fdc-sense-interrupt/crates/beta-disk-interface)
+   Compiling timex-scld v0.35.5 (/Users/stevehill/Projects/198x/output/qualification/workspaces/emu-fdc-sense-interrupt/crates/timex-scld)
+   Compiling common-sinclair-zx-spectrum-128k-class v0.35.5 (/Users/stevehill/Projects/198x/output/qualification/workspaces/emu-fdc-sense-interrupt/crates/common-sinclair-zx-spectrum-128k-class)
+   Compiling common-sinclair-zx-spectrum-48k-class v0.35.5 (/Users/stevehill/Projects/198x/output/qualification/workspaces/emu-fdc-sense-interrupt/crates/common-sinclair-zx-spectrum-48k-class)
+   Compiling scorpion-ula v0.35.5 (/Users/stevehill/Projects/198x/output/qualification/workspaces/emu-fdc-sense-interrupt/crates/scorpion-ula)
+   Compiling pentagon-ula v0.35.5 (/Users/stevehill/Projects/198x/output/qualification/workspaces/emu-fdc-sense-interrupt/crates/pentagon-ula)
+   Compiling gilrs-core v0.6.8
+   Compiling machine-timex-tc2048 v0.35.5 (/Users/stevehill/Projects/198x/output/qualification/workspaces/emu-fdc-sense-interrupt/crates/machine-timex-tc2048)
+   Compiling machine-timex-ts2068 v0.35.5 (/Users/stevehill/Projects/198x/output/qualification/workspaces/emu-fdc-sense-interrupt/crates/machine-timex-ts2068)
+   Compiling machine-pentagon-128 v0.35.5 (/Users/stevehill/Projects/198x/output/qualification/workspaces/emu-fdc-sense-interrupt/crates/machine-pentagon-128)
+   Compiling coreaudio-rs v0.14.2
+   Compiling machine-scorpion-zs256 v0.35.5 (/Users/stevehill/Projects/198x/output/qualification/workspaces/emu-fdc-sense-interrupt/crates/machine-scorpion-zs256)
+   Compiling common-sinclair-zx-spectrum-amstrad-class v0.35.5 (/Users/stevehill/Projects/198x/output/qualification/workspaces/emu-fdc-sense-interrupt/crates/common-sinclair-zx-spectrum-amstrad-class)
+   Compiling format-amstrad-dsk v0.35.5 (/Users/stevehill/Projects/198x/output/qualification/workspaces/emu-fdc-sense-interrupt/crates/format-amstrad-dsk)
+   Compiling machine-sinclair-zx-spectrum-plus v0.35.5 (/Users/stevehill/Projects/198x/output/qualification/workspaces/emu-fdc-sense-interrupt/crates/machine-sinclair-zx-spectrum-plus)
+   Compiling machine-sinclair-zx-spectrum-16k v0.35.5 (/Users/stevehill/Projects/198x/output/qualification/workspaces/emu-fdc-sense-interrupt/crates/machine-sinclair-zx-spectrum-16k)
+   Compiling machine-sinclair-zx-spectrum-plus2 v0.35.5 (/Users/stevehill/Projects/198x/output/qualification/workspaces/emu-fdc-sense-interrupt/crates/machine-sinclair-zx-spectrum-plus2)
+   Compiling machine-sinclair-zx-spectrum-128k v0.35.5 (/Users/stevehill/Projects/198x/output/qualification/workspaces/emu-fdc-sense-interrupt/crates/machine-sinclair-zx-spectrum-128k)
+   Compiling machine-sinclair-zx-spectrum-plus3 v0.35.5 (/Users/stevehill/Projects/198x/output/qualification/workspaces/emu-fdc-sense-interrupt/crates/machine-sinclair-zx-spectrum-plus3)
+   Compiling machine-sinclair-zx-spectrum-plus2a v0.35.5 (/Users/stevehill/Projects/198x/output/qualification/workspaces/emu-fdc-sense-interrupt/crates/machine-sinclair-zx-spectrum-plus2a)
+   Compiling machine-sinclair-zx-spectrum-plus2b v0.35.5 (/Users/stevehill/Projects/198x/output/qualification/workspaces/emu-fdc-sense-interrupt/crates/machine-sinclair-zx-spectrum-plus2b)
+   Compiling format-sinclair-zx-spectrum-tzx v0.35.5 (/Users/stevehill/Projects/198x/output/qualification/workspaces/emu-fdc-sense-interrupt/crates/format-sinclair-zx-spectrum-tzx)
+   Compiling flate2 v1.1.10
+   Compiling zip v8.6.0
+   Compiling png v0.18.1
+   Compiling format-sinclair-zx-spectrum-szx v0.35.5 (/Users/stevehill/Projects/198x/output/qualification/workspaces/emu-fdc-sense-interrupt/crates/format-sinclair-zx-spectrum-szx)
+   Compiling emu198x-shell v0.35.5 (/Users/stevehill/Projects/198x/output/qualification/workspaces/emu-fdc-sense-interrupt/crates/emu198x-shell)
+   Compiling half v2.7.1
+   Compiling ciborium-ll v0.2.2
+   Compiling ciborium v0.2.2
+   Compiling criterion v0.8.2
+   Compiling machine-sinclair-zx-spectrum-48k v0.35.5 (/Users/stevehill/Projects/198x/output/qualification/workspaces/emu-fdc-sense-interrupt/crates/machine-sinclair-zx-spectrum-48k)
+   Compiling runtime-sinclair-zx-spectrum v0.35.5 (/Users/stevehill/Projects/198x/output/qualification/workspaces/emu-fdc-sense-interrupt/crates/runtime-sinclair-zx-spectrum)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 9.10s
+     Running unittests src/lib.rs (target-sense/debug/deps/runtime_sinclair_zx_spectrum-9bdfd229f4ed4346)
+
+running 16 tests
+test snapshot::tests::decode_rejects_completely_corrupt_bytes ... ok
+test snapshot::tests::decode_rejects_version_4_before_payload_decode ... ok
+test snapshot::tests::decode_rejects_version_2_before_payload_decode ... ok
+test snapshot::tests::released_v0330_controller_state_keeps_its_layout_and_continuation ... ok
+test snapshot::tests::decode_rejects_unsupported_snapshot_version ... ok
+test snapshot::tests::protected_mount_stays_protected_after_restore ... ok
+test snapshot::tests::encode_and_decode_round_trip_on_plus_runtime ... ok
+test snapshot::tests::decode_rejects_profile_mismatch_within_generic_envelope ... ok
+test snapshot::tests::completed_write_survives_runtime_snapshot_without_replaying_source_bytes ... ok
+test snapshot::tests::snapshot_restore_preserves_mounted_disk_on_plus3 ... ok
+test snapshot::tests::no_pending_sense_interrupt_snapshot_keeps_one_byte_result ... ok
+test snapshot::tests::mid_write_snapshot_resumes_identically_including_byte_deadline ... ok
+test snapshot::tests::live_export_after_write_and_restore_never_uses_cached_source_bytes ... ok
+test snapshot::tests::deleted_write_survives_active_state_export_and_fresh_reopen ... ok
+test snapshot::tests::scan_and_track_read_resume_without_mutating_disk ... ok
+test snapshot::tests::format_snapshot_resumes_every_id_boundary_and_gap_without_source_replay ... ok
+
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 97 filtered out; finished in 0.59s
+

@@ -484,6 +484,29 @@ mod tests {
     }
 
     #[test]
+    fn no_pending_sense_interrupt_snapshot_keeps_one_byte_result() {
+        let mut original = SpectrumPlus3Runtime::blank();
+        send_fdc_command(&mut original, &[0x08]);
+        let saved = original.snapshot().expect("snapshot before ST0");
+        let mut restored = SpectrumPlus3Runtime::blank();
+        restored.restore(&saved).expect("restore before ST0");
+        assert_eq!(restored.snapshot().expect("unchanged encoding"), saved);
+        for runtime in [&mut original, &mut restored] {
+            assert_eq!(runtime.machine().fdc.read_status(), 0xd0);
+            assert_eq!(runtime.machine_mut().fdc.read_data(), 0x80);
+            assert_eq!(runtime.machine().fdc.read_status(), 0x80);
+            send_fdc_command(runtime, &[4, 0]);
+            assert_eq!(runtime.machine().fdc.read_status(), 0xd0);
+            runtime.machine_mut().fdc.read_data();
+            assert_eq!(runtime.machine().fdc.read_status(), 0x80);
+        }
+        assert_eq!(
+            original.snapshot().expect("uninterrupted"),
+            restored.snapshot().expect("resumed")
+        );
+    }
+
+    #[test]
     fn completed_write_survives_runtime_snapshot_without_replaying_source_bytes() {
         let (mut original, source) = writable_sector_runtime(true);
         let source_before = source.clone();

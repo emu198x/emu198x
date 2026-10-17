@@ -1,0 +1,43 @@
+mise WARN  tracking config: failed to ln -sf /Users/stevehill/Projects/198x/output/qualification/workspaces/emu-fdc-sense-interrupt/rust-toolchain.toml /Users/stevehill/.local/state/mise/tracked-configs/f7c851b561bdc895: Operation not permitted (os error 1)
+   Compiling nec-upd765a v0.35.5 (/Users/stevehill/Projects/198x/output/qualification/workspaces/emu-fdc-sense-interrupt/crates/nec-upd765a)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.24s
+     Running tests/sense_interrupt.rs (target-sense/debug/deps/sense_interrupt-2fe1c9936ccc5ab2)
+
+running 3 tests
+test no_pending_interrupt_returns_one_byte_then_accepts_a_command ... FAILED
+test querying_before_seek_completion_keeps_the_seek_active ... FAILED
+test completed_seeks_keep_two_bytes_and_drain_in_drive_order ... FAILED
+
+failures:
+
+---- no_pending_interrupt_returns_one_byte_then_accepts_a_command stdout ----
+
+thread 'no_pending_interrupt_returns_one_byte_then_accepts_a_command' (117831413) panicked at crates/nec-upd765a/tests/sense_interrupt.rs:11:5:
+assertion `left == right` failed: ST0 ends the result
+  left: 208
+ right: 128
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- querying_before_seek_completion_keeps_the_seek_active stdout ----
+
+thread 'querying_before_seek_completion_keeps_the_seek_active' (117831414) panicked at crates/nec-upd765a/tests/sense_interrupt.rs:11:5:
+assertion `left == right` failed: ST0 ends the result
+  left: 209
+ right: 129
+
+---- completed_seeks_keep_two_bytes_and_drain_in_drive_order stdout ----
+
+thread 'completed_seeks_keep_two_bytes_and_drain_in_drive_order' (117831412) panicked at crates/nec-upd765a/tests/sense_interrupt.rs:11:5:
+assertion `left == right` failed: ST0 ends the result
+  left: 208
+ right: 128
+
+
+failures:
+    completed_seeks_keep_two_bytes_and_drain_in_drive_order
+    no_pending_interrupt_returns_one_byte_then_accepts_a_command
+    querying_before_seek_completion_keeps_the_seek_active
+
+test result: FAILED. 0 passed; 3 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p nec-upd765a --test sense_interrupt`
