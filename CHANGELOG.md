@@ -4,6 +4,22 @@ All notable changes to Emu198x will be documented in this file.
 
 Format loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 not strictly. Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [0.36.0] - 2026-10-17
+
+
+### Added
+
+- Preserve deleted data marks through disk writes and exports
+- Read represented track sectors in physical order
+- Compare disk sectors with paced Scan commands
+- *(spectrum-web)* Let a page stop and restart the tape
+
+
+### Fixed
+
+- Retain the written data mark when the first disk byte overruns
+- Reject oversized disk read size codes before allocating
+
 ## [0.35.5] - 2026-10-16
 
 
