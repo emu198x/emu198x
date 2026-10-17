@@ -576,13 +576,13 @@ impl Upd765a {
             0x06 => (Command::ReadData, 9),        // Read Data
             0x0C => (Command::ReadDeletedData, 9), // Read Deleted Data (Speedlock keys)
             0x0D => (Command::FormatTrack, 6),
-            0x05 => (Command::WriteData, 9),            // Write Data
-            0x0A => (Command::ReadId, 2),               // Read ID
-            0x07 => (Command::Recalibrate, 2),          // Recalibrate
+            0x05 | 0x09 => (Command::WriteData, 9), // Write Data
+            0x0A => (Command::ReadId, 2),           // Read ID
+            0x07 => (Command::Recalibrate, 2),      // Recalibrate
             0x08 => (Command::SenseInterruptStatus, 1), // Sense Interrupt Status
-            0x03 => (Command::Specify, 3),              // Specify
-            0x0F => (Command::SeekTrack, 3),            // Seek
-            0x04 => (Command::SenseDriveStatus, 2),     // Sense Drive Status
+            0x03 => (Command::Specify, 3),          // Specify
+            0x0F => (Command::SeekTrack, 3),        // Seek
+            0x04 => (Command::SenseDriveStatus, 2), // Sense Drive Status
             _ => (Command::None, 1),
         }
     }
@@ -1165,7 +1165,19 @@ impl Upd765a {
             self.write_byte_ticks() * if self.cmd_buf[0] & 0x40 != 0 { 38 } else { 18 };
     }
 
+    // NEC December 1978 p13; Fuse start_write_data chooses FB/F8 from
+    // the opcode. Retain the opcode in cmd_buf so mid-write v5 states need
+    // neither a new field nor a reordered Command discriminant.
+    fn write_data_mark(&self) -> u8 {
+        if self.cmd_buf[0] & 0x1f == 0x09 {
+            ST2_CM
+        } else {
+            0
+        }
+    }
+
     fn accept_write_byte(&mut self, value: u8) {
+        let mark = self.write_data_mark();
         let drive = (self.cmd_buf[1] & self.drive_select_mask) as usize;
         let Some(sector) = self.disks[drive]
             .as_mut()
@@ -1185,13 +1197,14 @@ impl Upd765a {
         // prefix and an invalid CRC, rather than rolling the sector back.
         sector.data[self.exec_pos] = value;
         sector.st1 = 0x20;
-        sector.st2 = 0x20; // normal DAM, incomplete data CRC
+        sector.st2 = 0x20 | mark; // selected DAM/DDAM, incomplete data CRC
         self.exec_buf[self.exec_pos] = value;
         self.exec_pos += 1;
         self.main_status &= !MSR_RQM;
     }
 
     fn finish_write_sector(&mut self) {
+        let mark = self.write_data_mark();
         let drive = (self.cmd_buf[1] & self.drive_select_mask) as usize;
         let Some(sector) = self.disks[drive]
             .as_mut()
@@ -1206,7 +1219,7 @@ impl Upd765a {
         // N=0/DTL writes pad the rest of the physical data field with zero.
         sector.data[self.exec_pos..].fill(0);
         sector.st1 = 0;
-        sector.st2 = 0;
+        sector.st2 = mark;
         self.reread_key = None;
         self.reread_count = 0;
         if self.sector >= self.cmd_buf[6] {

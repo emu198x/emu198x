@@ -368,6 +368,64 @@ mod tests {
     }
 
     #[test]
+    fn deleted_write_survives_active_state_export_and_fresh_reopen() {
+        use emu198x_shell::{MediaImage, MediaKind, MediaSet};
+        for accepted in [0, 1, 179, 511, 512] {
+            let (mut original, source) = writable_sector_runtime(true);
+            let payload: Vec<_> = (0..512).map(|i| (i as u8).wrapping_mul(17)).collect();
+            send_fdc_command(&mut original, &[0x49, 0, 0, 0, 1, 2, 1, 0x2a, 0xff]);
+            send_fdc_bytes(&mut original, &payload[..accepted]);
+            let saved = original.snapshot().expect("deleted-write checkpoint");
+            if accepted < 512 {
+                assert!(original.export_media("disk-a", "edsk").is_err());
+                assert_eq!(original.snapshot().expect("refusal is read-only"), saved);
+            }
+            let mut restored = SpectrumPlus3Runtime::blank();
+            restored.restore(&saved).expect("restore deleted write");
+            assert_eq!(restored.snapshot().expect("same state"), saved);
+            send_fdc_bytes(&mut original, &payload[accepted..]);
+            send_fdc_bytes(&mut restored, &payload[accepted..]);
+            assert_eq!(drain_fdc_result(&mut original), [0x40, 0x80, 0, 1, 0, 1, 2]);
+            assert_eq!(drain_fdc_result(&mut restored), [0x40, 0x80, 0, 1, 0, 1, 2]);
+            assert_eq!(
+                restored.snapshot().expect("continued"),
+                original.snapshot().expect("original")
+            );
+            let exported = restored
+                .export_media("disk-a", "edsk")
+                .expect("export DDAM");
+            let disk = format_amstrad_dsk::parse(&exported).expect("reparse EDSK");
+            assert_eq!(disk.tracks[0][0].sectors[0].data, payload);
+            assert_eq!(
+                (
+                    disk.tracks[0][0].sectors[0].st1,
+                    disk.tracks[0][0].sectors[0].st2
+                ),
+                (0, 0x40)
+            );
+            assert_eq!(restored.disk_images()[0].bytes, source);
+            assert_eq!(
+                format_amstrad_dsk::parse(&source)
+                    .expect("immutable source")
+                    .tracks[0][0]
+                    .sectors[0]
+                    .st2,
+                0
+            );
+            let mut fresh = SpectrumPlus3Runtime::blank();
+            let mut media = MediaSet::new();
+            media.push(MediaImage::new("disk-a", MediaKind::Disk, &exported));
+            fresh.load_media(&media).expect("fresh EDSK mount");
+            send_fdc_command(&mut fresh, &[0x4c, 0, 0, 0, 1, 2, 1, 0x2a, 0xff]);
+            let observed: Vec<_> = (0..512)
+                .map(|_| fresh.machine_mut().fdc.read_data())
+                .collect();
+            assert_eq!(observed, payload);
+            assert_eq!(drain_fdc_result(&mut fresh), [0x40, 0x80, 0, 0, 0, 1, 2]);
+        }
+    }
+
+    #[test]
     fn completed_write_survives_runtime_snapshot_without_replaying_source_bytes() {
         let (mut original, source) = writable_sector_runtime(true);
         let source_before = source.clone();
