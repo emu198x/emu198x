@@ -4,6 +4,24 @@ All notable changes to Emu198x will be documented in this file.
 
 Format loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 not strictly. Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [0.37.0] - 2026-10-17
+
+
+### Added
+
+- *(web-player)* Show the tape controls on the 48K
+- Rewind a Spectrum tape to its start, in the browser too
+
+
+### Fixed
+
+- Finish no-pending Sense Interrupt after its ST0 byte
+- Keep a stopped tape in phase when it plays again
+- *(spectrum-web)* Run ahead only while the ROM is loading from tape
+- Explain failed quick-loads in a native dialog
+- Pace disk read requests and report missed byte slots
+- Stage the first disk read request after the pre-data interval
+
 ## [0.36.0] - 2026-10-17
 
 
