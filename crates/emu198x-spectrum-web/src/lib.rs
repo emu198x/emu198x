@@ -14,8 +14,8 @@ use emu198x_shell::{
 use emu198x_web::WebMachine;
 use format_sinclair_zx_spectrum_snapshot::Snapshot;
 use runtime_sinclair_zx_spectrum::{
-    DEFAULT_TAPE_AUTOLOAD_SLOT, SpectrumRuntimeKind, SpectrumSessionQueryProvider,
-    autoload_basic_tape,
+    DEFAULT_TAPE_AUTOLOAD_SLOT, SpectrumLiveAccess, SpectrumRuntimeKind,
+    SpectrumSessionQueryProvider, autoload_basic_tape,
 };
 
 #[cfg(target_arch = "wasm32")]
@@ -99,6 +99,30 @@ pub fn tape_transport(
             action,
         )))
         .map_err(|error| error.to_string())
+}
+
+/// The 48K ROM's tape loader: LD-BYTES (`0556`) to the end of LD-EDGE-1, which
+/// stops just short of SAVE-ETC at `0605` (Logan and O'Hara, *The Complete
+/// Spectrum ROM Disassembly*). The loader runs with interrupts off, so while
+/// it is reading a block, or waiting between blocks for the next pilot tone,
+/// the program counter stays inside this range.
+const ROM_TAPE_LOADER: std::ops::Range<u16> = 0x0556..0x0605;
+
+/// Whether the page should run the machine ahead of the clock.
+///
+/// Only while the tape is playing *and* the ROM is reading it. Running ahead
+/// whenever the tape played made a load take a second rather than seventeen,
+/// but it also played the rest of the tape in a blink once the ROM had
+/// stopped listening: after `MERGE ""` reached `0 OK`, the next block had gone
+/// within 83 ms, before anyone could press STOP (#1794). Now the ROM's work
+/// is fast and the gap after it runs in real time, as it did on a 48K.
+///
+/// A game with its own loader is not in this range, so it loads at real
+/// speed.
+#[must_use]
+pub fn tape_turbo(machine: &SpectrumWebMachine) -> bool {
+    let runtime = machine.runtime();
+    runtime.tape_is_playing() && ROM_TAPE_LOADER.contains(&runtime.z80_registers().pc)
 }
 
 /// Parses a portable Spectrum snapshot from bytes.

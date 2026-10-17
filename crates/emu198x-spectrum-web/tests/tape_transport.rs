@@ -12,7 +12,7 @@
 use std::path::PathBuf;
 
 use emu198x_shell::{FamilyRuntime, FirmwareImage, FirmwareSet, MediaKind, SessionDriver};
-use emu198x_spectrum_web::{SpectrumWebMachine, autoload_tape, tape_transport};
+use emu198x_spectrum_web::{SpectrumWebMachine, autoload_tape, tape_transport, tape_turbo};
 use emu198x_web::WebMachine;
 use format198x_sinclair_zx_spectrum_tap::{Header, HeaderKind, TapBlock, encode};
 use runtime_sinclair_zx_spectrum::{
@@ -173,4 +173,31 @@ fn transport_on_a_slot_that_is_not_a_tape_is_refused() {
         error.contains("drive-1"),
         "the error should name the slot: {error}"
     );
+}
+
+#[test]
+#[ignore = "FIXTURE: needs the 48K Spectrum ROM — run with --ignored"]
+fn the_tape_runs_fast_only_while_the_rom_is_loading_from_it() {
+    let mut machine = machine();
+    machine
+        .load_media_bytes("tape-1", MediaKind::Tape, &loader_and_code_tape())
+        .expect("the tape inserts");
+    autoload_tape(&mut machine, DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES).expect("LOAD \"\" and play");
+    machine.run_frames(5).expect("into the pilot tone");
+    assert!(tape_turbo(&machine), "the ROM is loading: run ahead");
+
+    // The loader is in and the ROM is back in BASIC, but the tape plays on.
+    // That stretch must run in real time, or a reader cannot stop it.
+    assert!(
+        run_until_screen_shows(&mut machine, "0 OK, 0:1", 2_000),
+        "the loader did not load"
+    );
+    for _ in 0..50 {
+        assert!(tape_playing(&machine), "the tape should still be playing");
+        assert!(
+            !tape_turbo(&machine),
+            "the ROM is not loading, so the tape must run in real time"
+        );
+        machine.run_one_frame().expect("frame");
+    }
 }
