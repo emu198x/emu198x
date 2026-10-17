@@ -77,7 +77,8 @@ async function handle({id, command, args = []}) {
         else throw new Error('Unknown input');
       }
       else if (command === 'load') load(...args);
-      else if (command === 'transport' && kind==='fleet') machine.transport(...args);
+      // STOP and PLAY: the fleet's decks, and the 48K's since @emu198x/zx-spectrum 0.5.0.
+      else if (command === 'transport' && (kind==='fleet' || kind==='spectrum')) machine.transport(...args);
       else if (command === 'save') { machine.step(); audio(); result=machine.save_state(); }
       else if (command === 'restore') machine.restore_state(args[0]);
       else if (command === 'exportMedia') result=machine.export_media(args[0]);
