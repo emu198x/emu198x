@@ -1,0 +1,25 @@
+Host timeout15s; CPU10s; N255 debug shift fails before allocation.
+macOS rejected RLIMIT_DATA/RLIMIT_AS; no memory-limit claim.
+
+running 2 tests
+test read_data_oversized_n_returns_a_result_instead_of_panicking ... FAILED
+test read_deleted_oversized_n_returns_a_result_instead_of_panicking ... FAILED
+
+failures:
+
+failures:
+    read_data_oversized_n_returns_a_result_instead_of_panicking
+    read_deleted_oversized_n_returns_a_result_instead_of_panicking
+
+test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+thread 'read_deleted_oversized_n_returns_a_result_instead_of_panicking' (117553822) panicked at crates/nec-upd765a/src/lib.rs:674:35:
+attempt to shift left with overflow
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+thread 'read_data_oversized_n_returns_a_result_instead_of_panicking' (117553821) panicked at crates/nec-upd765a/src/lib.rs:674:35:
+attempt to shift left with overflow
+
+Process exit: 101
+Peak RSS bytes: 2621440
