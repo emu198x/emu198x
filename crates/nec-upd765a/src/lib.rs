@@ -127,6 +127,7 @@ enum Command {
     SenseDriveStatus,
     // Append only: existing postcard command tags must remain stable.
     FormatTrack,
+    ReadTrack,
 }
 
 /// µPD765A state.
@@ -503,8 +504,10 @@ impl Upd765a {
     pub fn read_data(&mut self) -> u8 {
         match self.phase {
             Phase::Execution
-                if matches!(self.command, Command::ReadData | Command::ReadDeletedData)
-                    && self.exec_pos < self.exec_buf.len() =>
+                if matches!(
+                    self.command,
+                    Command::ReadData | Command::ReadDeletedData | Command::ReadTrack
+                ) && self.exec_pos < self.exec_buf.len() =>
             {
                 let byte = self.exec_buf[self.exec_pos];
                 self.exec_pos += 1;
@@ -573,6 +576,7 @@ impl Upd765a {
 
     fn decode_command(byte: u8) -> (Command, usize) {
         match byte & 0x1F {
+            0x02 => (Command::ReadTrack, 9),
             0x06 => (Command::ReadData, 9),        // Read Data
             0x0C => (Command::ReadDeletedData, 9), // Read Deleted Data (Speedlock keys)
             0x0D => (Command::FormatTrack, 6),
@@ -627,6 +631,7 @@ impl Upd765a {
             }
         }
         match self.command {
+            Command::ReadTrack => self.start_read_track(),
             Command::FormatTrack => self.start_format_track(),
             Command::WriteData => {
                 self.st0 = self.cmd_buf[1] & 7;
@@ -1065,6 +1070,58 @@ impl Upd765a {
                 self.main_status = MSR_RQM | MSR_DIO | MSR_CB;
             }
         }
+    }
+
+    // NEC December 1978 p14 and MAME read_track_continue: EOT is a
+    // count, not a sector-ID limit. DSK represents ordered payloads and ID/error
+    // metadata, not raw gaps, index timing or flux. Never invent those bytes.
+    fn start_read_track(&mut self) {
+        let drive = usize::from(self.cmd_buf[1] & self.drive_select_mask);
+        let head = usize::from((self.cmd_buf[1] >> 2) & 1);
+        self.st0 = 0x40 | (self.cmd_buf[1] & 7);
+        self.st1 = 0;
+        self.st2 = 0;
+        self.exec_buf.clear();
+        self.exec_pos = 0;
+        let Some(image) = &self.disks[drive] else {
+            self.st0 |= 0x08;
+            self.enter_result_phase();
+            return;
+        };
+        let sectors = image
+            .tracks
+            .get(head)
+            .and_then(|side| side.get(usize::from(self.track[drive])))
+            .map_or(&[][..], |track| track.sectors.as_slice());
+        if sectors.is_empty() || self.cmd_buf[5] > 7 || self.cmd_buf[6] == 0 {
+            self.st1 = 1; // MA: no represented ID stream.
+            self.enter_result_phase();
+            return;
+        }
+        let size = 128_usize << self.cmd_buf[5];
+        for sector in sectors.iter().cycle().take(usize::from(self.cmd_buf[6])) {
+            // MAME updates ND for each ID comparison but continues reading.
+            self.st1 = (self.st1 & !4) | sector.st1;
+            if (sector.c, sector.h, sector.id, sector.n)
+                != (
+                    self.cmd_buf[2],
+                    self.cmd_buf[3],
+                    self.cmd_buf[4],
+                    self.cmd_buf[5],
+                )
+            {
+                self.st1 |= 4;
+            }
+            self.st2 |= sector.st2;
+            let start = self.exec_buf.len();
+            self.exec_buf
+                .extend_from_slice(&sector.data[..sector.data.len().min(size)]);
+            self.exec_buf.resize(start + size, 0);
+        }
+        self.st1 |= 0x80; // EOT without terminal count.
+        self.phase = Phase::Execution;
+        self.main_status = MSR_RQM | MSR_DIO | MSR_EXM | MSR_CB;
+        self.exec_timeout = EXEC_READ_TIMEOUT_TICKS;
     }
 
     fn abort_write_for_media_change(&mut self, drive: usize) {

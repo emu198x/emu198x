@@ -1,0 +1,62 @@
+mise WARN  tracking config: failed to ln -sf /Users/stevehill/Projects/198x/output/qualification/workspaces/emu-fdc-commands/rust-toolchain.toml /Users/stevehill/.local/state/mise/tracked-configs/3a3392314265c8c9: Operation not permitted (os error 1)
+   Compiling nec-upd765a v0.35.5 (/Users/stevehill/Projects/198x/output/qualification/workspaces/emu-fdc-commands/crates/nec-upd765a)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.57s
+     Running unittests src/lib.rs (target/debug/deps/nec_upd765a-c440203caee6a2e7)
+
+running 53 tests
+test tests::claims_port_returns_false_when_disabled ... ok
+test tests::claims_port_recognises_msr_and_data_ports ... ok
+test tests::clean_sector_reads_deterministic_across_repeats ... ok
+test tests::format_protection_readiness_and_bounds_fail_without_mutation ... ok
+test tests::format_track_enters_host_to_controller_execution ... ok
+test tests::first_write_request_follows_the_pre_data_gap ... ok
+test tests::format_readiness_direction_and_overrun_are_enforced ... ok
+test tests::initial_state ... ok
+test tests::insert_disk_still_clears_cached_read_state ... ok
+test tests::insert_then_eject_disk_round_trip ... ok
+test tests::intervening_different_sector_resets_marginal_counter ... ok
+test tests::invalid_command_returns_one_status_byte_and_accepts_next_command ... ok
+test tests::export_refuses_active_writes_without_aborting_and_returns_committed_bytes ... ok
+test tests::marginal_sector_first_read_is_recorded_bytes_verbatim ... ok
+test tests::complete_write_replaces_deleted_mark_and_bad_data_crc ... ok
+test tests::marginal_sector_second_read_varies_bytes ... ok
+test tests::marginal_sector_third_read_mangles_full_sector ... ok
+test tests::read_deleted_data_matches_dam_then_ddam ... ok
+test tests::read_sector ... ok
+test tests::read_sector_by_id_not_position ... ok
+test tests::read_unknown_port_returns_ff ... ok
+test tests::reattach_disk_preserves_cached_read_state ... ok
+test tests::media_change_aborts_transfer_before_replacement_can_be_written ... ok
+test tests::read_id_rotates_through_sectors ... ok
+test tests::reset_retains_written_prefix_and_mount_protection ... ok
+test tests::seek_track_sets_target_and_stages_interrupt ... ok
+test tests::sense_drive_status_reflects_disk_presence_and_track_zero ... ok
+test tests::recalibrate_zeros_track_then_completes_after_seek_ticks ... ok
+test tests::sense_drive_status_with_disk_mounted ... ok
+test tests::sense_interrupt_drains_pending_then_returns_invalid_command ... ok
+test tests::sense_interrupt_walks_drives_in_order ... ok
+test tests::set_drive_select_mask_affects_command_drive_decode ... ok
+test tests::missing_second_sector_preserves_completed_first_write ... ok
+test tests::specify_command_returns_to_idle_without_result_phase ... ok
+test tests::write_data_enters_host_to_controller_execution ... ok
+test tests::reset_preserves_completed_format_sectors_and_protection ... ok
+test tests::write_data_reads_back_and_preserves_other_sectors ... ok
+test tests::write_direction_readiness_and_overrun_are_enforced ... ok
+test tests::write_errors_identify_missing_media_sector_and_wrong_chrn ... ok
+test tests::write_protection_is_reported_and_prevents_mutation ... ok
+test tests::write_rejects_id_crc_and_unrepresentable_sector_lengths ... ok
+test tests::write_to_msr_port_is_silently_ignored ... ok
+test tests::multitrack_write_advances_to_second_head ... ok
+test tests::zero_size_code_uses_dtl_and_pads_remaining_data_field ... ok
+test tests::completed_format_sector_survives_overrun_and_media_ejection ... ok
+test tests::writes_use_physical_track_head_and_drive_alias ... ok
+test tests::execution_phase_times_out_when_host_stops_reading ... ok
+test tests::export_refuses_active_format_and_allows_read_only_images ... ok
+test tests::format_read_id_and_data_agree_and_other_tracks_survive ... ok
+test tests::format_uses_physical_selection_and_command_size_not_id_fields ... ok
+test tests::fm_format_uses_slower_byte_period_and_preserves_sector_order ... ok
+test tests::standard_plus3_format_fills_nine_sectors_without_host_latency_drift ... ok
+test tests::execution_timeout_rearms_on_each_read ... ok
+
+test result: ok. 53 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.27s
+
