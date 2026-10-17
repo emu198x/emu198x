@@ -161,3 +161,52 @@ fn deleted_multitrack_write_preserves_marks_on_both_heads() {
         }
     }
 }
+
+#[test]
+fn zero_byte_overrun_replaces_deleted_mark_before_first_host_byte() {
+    zero_byte_overrun(0x45, ST2_CM, 0);
+}
+
+#[test]
+fn zero_byte_overrun_writes_deleted_mark_before_first_host_byte() {
+    zero_byte_overrun(0x49, 0, ST2_CM);
+}
+
+fn zero_byte_overrun(opcode: u8, old_mark: u8, expected_mark: u8) {
+    let mut f = controller(true);
+    let mut original = f.disk_for_export(0).expect("source image").clone();
+    original.tracks[0][0].sectors[0].st2 = old_mark;
+    f.insert_disk_with_writable(0, original.clone(), true);
+    command(&mut f, opcode, 1, 1);
+    assert_eq!(f.read_status(), 0x30);
+    assert!(f.disk_for_export(0).is_err());
+    ready(&mut f);
+    assert_eq!(f.read_status(), 0xb0);
+    assert!(f.disk_for_export(0).is_err());
+    // No host data strobe: miss the first existing byte deadline.
+    for _ in 0..114 {
+        f.tick(0);
+    }
+    assert_eq!(result(&mut f), [0x40, 0x10, 0, 0, 0, 1, 2]);
+    let live = f.disk_for_export(0).expect("aborted image");
+    let mut expected = original;
+    expected.tracks[0][0].sectors[0].st1 = 0x20;
+    expected.tracks[0][0].sectors[0].st2 = 0x20 | expected_mark;
+    assert_eq!(live.sides, expected.sides);
+    assert_eq!(live.tracks_per_side, expected.tracks_per_side);
+    assert_eq!(live.tracks.len(), expected.tracks.len());
+    for (live_side, expected_side) in live.tracks.iter().zip(&expected.tracks) {
+        assert_eq!(live_side.len(), expected_side.len());
+        for (live_track, expected_track) in live_side.iter().zip(expected_side) {
+            assert_eq!(live_track.sectors.len(), expected_track.sectors.len());
+            for (actual, expected) in live_track.sectors.iter().zip(&expected_track.sectors) {
+                assert_eq!(
+                    (actual.c, actual.h, actual.id, actual.n),
+                    (expected.c, expected.h, expected.id, expected.n)
+                );
+                assert_eq!(actual.data, expected.data);
+                assert_eq!((actual.st1, actual.st2), (expected.st1, expected.st2));
+            }
+        }
+    }
+}
