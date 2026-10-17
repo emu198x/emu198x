@@ -1,0 +1,20 @@
+--- a/peripherals/disk/upd_fdc.c
++++ b/peripherals/disk/upd_fdc.c
+@@ -718,6 +718,8 @@
+     f->main_status |= UPD_FDC_MAIN_DATA_READ;
+   else
+     f->main_status |= UPD_FDC_MAIN_DATA_WRITE;
++  if( f->cmd->id == UPD_CMD_SCAN )
++    f->status_register[2] &= ~UPD_FDC_ST2_SCAN_NOT_SAT;
+   f->data_offset = 0;
+   event_remove_type( timeout_event );
+   event_add_with_data( tstates + 4 *			/* 2 revolution: 2 * 200 / 1000  */
+@@ -1269,6 +1271,8 @@
+     	  cmd_result( f );			/* set up result phase */
+     	  return;
+ 	}
++	/* start_read_data increments R before locating the next sector. */
++	f->data_register[3]--;
+ 	f->rev = 2;
+         f->main_status &= ~UPD_FDC_MAIN_DATAREQ;
+ 	start_read_data( f );

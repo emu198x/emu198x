@@ -213,3 +213,47 @@ fn scan_ejection_aborts_without_a_fictitious_comparison() {
     f.eject_disk(0);
     assert_eq!(result(&mut f), [0x48, 0, 0, 0, 0, 1, 2]);
 }
+
+/// Isolate early termination from EOT metadata; retain exact result separately.
+/// NEC December 1978 p15; independent Fuse/MAME probe evidence is in
+/// docs/plans/2026-10-17-scan-early-hit/. Neither reference is a complete oracle.
+#[test]
+fn scan_equal_counts_first_later_and_absent_hits_without_mutating_media() {
+    for (name, host, expected_sent, expected_flags) in [
+        ("first-hit", 0x21, 512, 8),
+        ("later-hit", 0x22, 1024, 8),
+        ("no-hit", 0x23, 1024, 4),
+    ] {
+        let mut f = controller(&[0x21, 0x22], false);
+        command(&mut f, 0x51, 2, 1);
+        let mut sent = 0;
+        let mut completed = false;
+        for _ in 0..3_000_000 {
+            match f.read_status() & 0xe0 {
+                0xa0 => {
+                    assert!(sent < 2048, "bounded host transfer");
+                    f.write_data(host);
+                    sent += 1;
+                }
+                0xc0 => {
+                    completed = true;
+                    break;
+                }
+                _ => {}
+            }
+            f.tick(0);
+        }
+        assert!(completed, "bounded result phase");
+        let observed = result(&mut f);
+        assert_eq!(sent, expected_sent, "{name}");
+        assert_eq!(observed[2], expected_flags, "{name}");
+        let media = f.disk_for_export(0).expect("scan leaves media exportable");
+        for (index, sector) in media.tracks[0][0].sectors.iter().enumerate() {
+            assert_eq!(sector.data, [0x21 + index as u8; 512]);
+            assert_eq!((sector.st1, sector.st2), (0, 0));
+        }
+        println!(
+            "SCAN_OBSERVATION {{\"case\":\"{name}\",\"host\":{host},\"sent\":{sent},\"result\":{observed:?},\"media_unchanged\":true}}"
+        );
+    }
+}

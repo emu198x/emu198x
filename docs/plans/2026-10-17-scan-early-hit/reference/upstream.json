@@ -1,0 +1,8 @@
+{
+  "upstream_head": "43810279d09cd40f46907d7d1d902c4e5ee4648a",
+  "vendored_head": "0ff7fe676394aa357f49b6fbdc3ecb38a6592ab2",
+  "controller_sha256": "845b960eb68cba9b21cba00cdc3c03cf0d4dc491ffd96efecb1d53336ce7f72d",
+  "patched_sha256": "77cea9606d3ebe3854faa39ac25ddbdf1290edff9e8366344f5e4cd80eab06e8",
+  "current_upstream_controller_identical": true,
+  "upstream_url": "https://sourceforge.net/p/fuse-emulator/fuse/ci/43810279d09cd40f46907d7d1d902c4e5ee4648a/tree/peripherals/disk/upd_fdc.c?format=raw"
+}
