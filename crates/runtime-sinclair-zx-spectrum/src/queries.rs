@@ -16,6 +16,7 @@
 //! quirk; every variant ships with the same character ROM in its
 //! lowest 16 KiB ROM bank.
 
+use common_sinclair_zx_spectrum::SpectrumTapePlayer as _;
 use emu198x_shell::{QueryError, QueryResult, SessionQueryProvider};
 use serde_json::{Value, json};
 
@@ -75,6 +76,9 @@ pub(crate) const SHARED_QUERY_PATHS: &[&str] = &[
     "tape.span_count",
     "tape.span_countdown",
     "tape.progress",
+    // Blocks as block search finds them, by their gaps (#1796).
+    "tape.block",
+    "tape.blocks",
 ];
 
 /// Every CPU leaf in one object, so a single query answers "where is the
@@ -283,6 +287,8 @@ impl<M: SpectrumMachine> SessionQueryProvider<SpectrumRuntime<M>> for SpectrumSe
             "tape.span_count" => json!(machine.tape_player().span_count()),
             "tape.span_countdown" => json!(machine.tape_player().span_countdown()),
             "tape.progress" => json!(machine.tape_player().progress()),
+            "tape.block" => json!(machine.tape_player().spectrum_block_position().0),
+            "tape.blocks" => json!(machine.tape_player().spectrum_block_position().1),
             "basic.prog" => json!(read_word_le(machine, 0x5C53)),
             "basic.vars" => json!(read_word_le(machine, 0x5C4B)),
             "basic.e_line" => json!(read_word_le(machine, 0x5C59)),

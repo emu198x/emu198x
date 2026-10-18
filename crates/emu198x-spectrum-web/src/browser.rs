@@ -247,6 +247,39 @@ impl Spectrum {
             .map_err(|error| JsError::new(&format!("tape rewind on {slot:?}: {error}")))
     }
 
+    /// Moves the tape to the start of the previous block, or of the block
+    /// playing once the tape has moved into it. Returns whether it moved.
+    /// `query('tape.block')` and `query('tape.blocks')` give the position.
+    ///
+    /// # Errors
+    ///
+    /// Returns a JavaScript error if `slot` is not the tape deck.
+    #[wasm_bindgen(js_name = previousBlock)]
+    pub fn previous_block(&mut self, slot: &str) -> Result<bool, JsError> {
+        crate::tape_seek_block(
+            &mut self.machine,
+            slot,
+            runtime_sinclair_zx_spectrum::BlockSeek::Previous,
+        )
+        .map_err(|error| JsError::new(&format!("tape search on {slot:?}: {error}")))
+    }
+
+    /// Moves the tape to the start of the next block. Returns whether it
+    /// moved; on the last block it does not.
+    ///
+    /// # Errors
+    ///
+    /// Returns a JavaScript error if `slot` is not the tape deck.
+    #[wasm_bindgen(js_name = nextBlock)]
+    pub fn next_block(&mut self, slot: &str) -> Result<bool, JsError> {
+        crate::tape_seek_block(
+            &mut self.machine,
+            slot,
+            runtime_sinclair_zx_spectrum::BlockSeek::Next,
+        )
+        .map_err(|error| JsError::new(&format!("tape search on {slot:?}: {error}")))
+    }
+
     /// Builds a 48K on the ROM embedded in this package.
     ///
     /// The ordinary entry point for a page: the firmware travels with the

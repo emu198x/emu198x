@@ -71,6 +71,9 @@ pub trait SpectrumLiveAccess {
     /// `MediaTransport` command has no rewind; the browser binding reaches
     /// this directly (#1796).
     fn tape_rewind(&mut self);
+    /// Moves the tape to the previous or next block, found by its gaps;
+    /// returns whether it moved (#1796).
+    fn tape_seek_block(&mut self, direction: common_sinclair_zx_spectrum::BlockSeek) -> bool;
     /// Begin recording CPU writes in the half-open range
     /// `[addr, addr + len)`. Variants that don't implement the tracer
     /// return `Err`. See
@@ -156,6 +159,10 @@ impl<M: SpectrumMachine> SpectrumLiveAccess for SpectrumRuntime<M> {
 
     fn tape_rewind(&mut self) {
         self.machine_mut().tape_rewind();
+    }
+
+    fn tape_seek_block(&mut self, direction: common_sinclair_zx_spectrum::BlockSeek) -> bool {
+        self.machine_mut().tape_seek_block(direction)
     }
 
     fn start_memory_write_watch(&mut self, addr: u16, len: u16) -> Result<(), &'static str> {
@@ -910,6 +917,10 @@ impl SpectrumLiveAccess for SpectrumRuntimeKind {
 
     fn tape_rewind(&mut self) {
         match_kind!(self, |rt| rt.tape_rewind())
+    }
+
+    fn tape_seek_block(&mut self, direction: common_sinclair_zx_spectrum::BlockSeek) -> bool {
+        match_kind!(self, |rt| rt.tape_seek_block(direction))
     }
 
     fn start_memory_write_watch(&mut self, addr: u16, len: u16) -> Result<(), &'static str> {

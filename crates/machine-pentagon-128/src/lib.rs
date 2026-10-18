@@ -129,6 +129,10 @@ impl Pentagon128 {
     pub fn tape_rewind(&mut self) {
         self.tape.rewind();
     }
+    /// Moves the tape to the previous or next block; returns whether it moved.
+    pub fn tape_seek_block(&mut self, direction: common_sinclair_zx_spectrum::BlockSeek) -> bool {
+        self.tape.seek_spectrum_block(direction)
+    }
 
     /// Reset the CPU, timing, and audio state. Keeps ROMs and RAM intact.
     pub fn reset(&mut self) {

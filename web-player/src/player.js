@@ -279,6 +279,11 @@ if(!fleet && system.kind==='spectrum') {
   // Rewind is the 48K's only: the fleet machines have no rewind yet (#1796).
   $('tape-rewind').hidden=false;
   $('tape-rewind').onclick=async()=>{try {await rpc('rewind','tape-1');status('Tape rewound to the start.');}catch(error){status(String(error),true);}};
+  // Block search, by the gaps between blocks (#1796).
+  for(const [id,direction] of [['tape-previous','previous'],['tape-next','next']]) {
+    $(id).hidden=false;
+    $(id).onclick=async()=>{try {const {moved,block,blocks}=await rpc('seek','tape-1',direction);status(moved?`Tape at block ${block+1} of ${blocks}.`:direction==='next'?'No block after this one.':'Already at the first block.');}catch(error){status(String(error),true);}};
+  }
 }
 
 function rememberMedia(media) {
