@@ -10,10 +10,14 @@ import tarfile
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
+SOURCE = "2c30ad16f920f585a86f3fbfd1eb705d9d4310f5"
+BINARY = "d97f5ffa34f7ea6e2549b5cac2ec1f8effbb8bdc5075daca8cce1b092ccb2c95"
 
 
 def verify(files: dict[str, bytes]) -> dict:
     proof = json.loads(files["verification.json"])
+    if proof["source_commit"] != SOURCE or proof["executable_sha256"] != BINARY:
+        raise ValueError("captured source identity changed")
     for name in ["rom-1", "rom-2", "rom-wrong"]:
         record = json.loads(files[f"{name}/regression.json"])
         tool = record["tools"]["emu"]
