@@ -1,0 +1,76 @@
+{
+  "schema_version": 1,
+  "qualified": false,
+  "kind": "source-runtime-regression",
+  "source_commit": "19395eb81c122b8b0afbbdbabd06b3eed7ee07c6",
+  "executable_sha256": "b805bf01955e99abb57b92bd0fe9ebd24b01067ed045d732323ce44eb38dc13b",
+  "rustc": "rustc 1.99.0 (b940084d7 2026-09-28)",
+  "cargo": "cargo 1.99.0 (5f94df478 2026-08-27)",
+  "lock_sha256": "e8fca10bcab90bb7663fbfeac9bb17300747832afc165245e4e7e0d32f53e4a5",
+  "controller_source_sha256": "3565884908066d0444d31f6f8702b3ac6d7d62dc5cdf49796cfba0b1a3fcfdb4",
+  "commands": {
+    "controller": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "nec-upd765a"
+    ],
+    "runtime_machine": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "runtime-sinclair-zx-spectrum",
+      "--lib",
+      "-p",
+      "machine-sinclair-zx-spectrum-plus3"
+    ],
+    "clippy": [
+      "cargo",
+      "clippy",
+      "--locked",
+      "-p",
+      "runtime-sinclair-zx-spectrum",
+      "-p",
+      "nec-upd765a",
+      "--all-targets",
+      "--",
+      "-D",
+      "warnings"
+    ],
+    "build": [
+      "cargo",
+      "build",
+      "--locked",
+      "--release",
+      "-p",
+      "emu198x-spectrum",
+      "--no-default-features"
+    ]
+  },
+  "results": {
+    "controller": {
+      "status": "pass",
+      "tests": 117
+    },
+    "machine": {
+      "status": "pass",
+      "tests": 6
+    },
+    "runtime": {
+      "status": "pass",
+      "tests": 118
+    },
+    "new_snapshot_checkpoints": 108,
+    "rom_passes": 2,
+    "wrong_expected_result_rejected": true,
+    "reference_stock_fuse_observations": 52,
+    "snapshot_version": 6,
+    "older_version_rejection": "pass"
+  },
+  "assembly_mastering_origin": "captured_reference_replay",
+  "runtime_origin": "fresh_execution",
+  "distributed_release_qualification": false,
+  "exact_service_timing_qualified": false
+}

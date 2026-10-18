@@ -70,7 +70,49 @@ source paths/hashes are in the archive's `provenance.json`.
 
 These are source-controller observations, not ROM loading, physical timing
 conformance or full Fuse application qualification. Every record retains
-`qualified=false`. The per-sector fix, native state roundtrips and two fresh
-ROM-loading regressions with a wrong-result control remain to be done. Exact
+`qualified=false`. Exact
 service windows remain separate under [#1831](https://github.com/emu198x/emu198x/issues/1831).
 No Fuse upstream report has been submitted.
+
+## Implemented and executed
+
+Source `19395eb81c122b8b0afbbdbabd06b3eed7ee07c6`, Rust 1.99.0, source binary
+version 0.37.0, executable SHA-256
+`b805bf01955e99abb57b92bd0fe9ebd24b01067ed045d732323ce44eb38dc13b`:
+117 controller, six +3 machine and 118 runtime tests pass. The three new snapshot
+tests exercise 108 checkpoints. Controller/runtime Clippy and formatting pass;
+the normal locked headless release build passes. The snapshot log retains the
+initial legacy-layout test failure and subsequent approved rejection correction.
+No existing assertion is disabled to admit the new format.
+
+Two fresh cold-ROM DSK loads pass 519 native, eight firmware, three loading and
+seven execution assertions each. The diagnostic reaches PC 32820 and writes new
+`5A 5B` bytes after initially clearing them, with the expected 6912-byte screen.
+An incorrect expected signature exits 1 with
+`signature mismatch: expected [90, 92], observed [90, 91]`.
+
+Named configuration:
+`spectrum-plus3-pal-40077-en40-rom-841d5454-6d6ccab2-c5590212-8ec5cb9f-drive-a-dsk180-v1`:
+PAL +3 / 40077 / 128 KiB / four English v4.0 ROM pages / internal drive A /
+standard 180 KiB DSK, protected mount. Exact firmware identities, source and
+recipe hashes, commands, environment and artifacts are in each regression record.
+These ROM runs use no injection or native-state restore. Assembly/mastering are
+captured fixture replay; runtime execution is fresh from a source build, not a
+new distributed-release or full-stack qualification. Other models, drives,
+firmware, geometries, H/N/MT/DTL behavior and raw/index timing remain unqualified.
+
+`evidence/runs.tar.gz` retains 39 safe regular artifacts, including all three ROM
+records, screens, command outputs and build/test logs. `hashes.json` binds every
+member. No firmware, native states or executables are included. Inspect offline:
+
+```sh
+python3.14 docs/plans/2026-10-18-current-read-sector/verify.py
+python3.14 -m unittest discover -s docs/plans/2026-10-18-current-read-sector -v
+```
+
+Run the active controller regressions and current-sector native-state cases:
+
+```sh
+cargo test --locked -p nec-upd765a --test read_progress
+cargo test --locked -p runtime-sinclair-zx-spectrum --lib current_read_snapshot
+```
