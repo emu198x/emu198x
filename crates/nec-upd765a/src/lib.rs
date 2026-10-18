@@ -1156,8 +1156,26 @@ impl Upd765a {
         // This is not a rotational/index/head-load timing model.
         self.main_status = MSR_DIO | MSR_EXM | MSR_CB;
         self.write_start_pending = true;
-        self.exec_timeout =
-            self.write_byte_ticks() * if self.cmd_buf[0] & 0x40 != 0 { 39 } else { 19 };
+        self.exec_timeout = self.read_slot_boundary(self.read_preamble_slots());
+    }
+
+    fn read_preamble_slots(&self) -> u64 {
+        if self.cmd_buf[0] & 0x40 != 0 { 39 } else { 19 }
+    }
+
+    // Nominal +3 sector-image cadence, not a physical jitter/service-limit
+    // model. Round absolute boundaries, not each byte: 32 us is fractional
+    // at the emulated CPU clock. Existing byte position preserves the phase
+    // through snapshots without another serialized counter.
+    fn read_slot_boundary(&self, slot: u64) -> u32 {
+        let micros = if self.cmd_buf[0] & 0x40 != 0 { 32 } else { 64 };
+        (slot * micros * common_sinclair_zx_spectrum::timing::CPU_HZ_128K).div_ceil(1_000_000)
+            as u32
+    }
+
+    fn read_byte_ticks(&self) -> u32 {
+        let slot = self.read_preamble_slots() + self.exec_pos as u64;
+        self.read_slot_boundary(slot + 1) - self.read_slot_boundary(slot)
     }
 
     fn abort_for_media_change(&mut self, drive: usize) {
@@ -1689,7 +1707,7 @@ impl Peripheral for Upd765a {
                     self.begin_read_field();
                     self.write_start_pending = false;
                     self.main_status |= MSR_RQM;
-                    self.exec_timeout = self.write_byte_ticks();
+                    self.exec_timeout = self.read_byte_ticks();
                 } else if self.main_status & MSR_RQM != 0 {
                     // Only encountered marks and completed field errors are
                     // present. A later field cannot contribute EN/CRC/CHRN.
@@ -1697,7 +1715,7 @@ impl Peripheral for Upd765a {
                     self.read_result();
                 } else {
                     self.main_status |= MSR_RQM;
-                    self.exec_timeout = self.write_byte_ticks();
+                    self.exec_timeout = self.read_byte_ticks();
                 }
             }
         }
