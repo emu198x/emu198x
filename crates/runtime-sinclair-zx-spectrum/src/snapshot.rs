@@ -495,9 +495,12 @@ mod tests {
                     for i in 0..accepted {
                         assert_eq!(read_fdc_byte(&mut original), 0x21 + (i / 512) as u8);
                     }
+                    let boundary = |slot: u64| (slot * 32 * 3_546_895).div_ceil(1_000_000);
+                    let slot = 39 + (accepted % 512) as u64;
+                    let interval = boundary(slot + 1) - boundary(slot);
                     if at_request {
                         await_fdc_read_request(&mut original);
-                        for _ in 0..113 {
+                        for _ in 0..interval - 1 {
                             original.machine_mut().fdc.tick(0);
                         }
                         assert_eq!(original.machine().fdc.read_status(), 0xf0);
@@ -512,7 +515,7 @@ mod tests {
                     let completed_crc = first_crc && later_sector;
                     for runtime in [&mut original, &mut restored] {
                         await_fdc_read_request(runtime);
-                        for _ in 0..if at_request { 1 } else { 114 } {
+                        for _ in 0..if at_request { 1 } else { interval } {
                             runtime.machine_mut().fdc.tick(0);
                         }
                         assert_eq!(

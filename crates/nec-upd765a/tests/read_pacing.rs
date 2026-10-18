@@ -1,4 +1,5 @@
 //! Public-register read handshake regressions. No host-time sleeps.
+mod common;
 use common_sinclair_zx_spectrum::peripheral::Peripheral;
 use nec_upd765a::{DiskImage, DiskSector, DiskTrack, Upd765a};
 
@@ -40,12 +41,7 @@ fn controller(op: u8) -> Upd765a {
 }
 #[test]
 fn first_read_request_waits_for_pre_data_interval() {
-    for (op, ticks_before_data) in [
-        (0x46, 39 * 114),
-        (0x4c, 39 * 114),
-        (0x42, 39 * 114),
-        (6, 19 * 228),
-    ] {
+    for (op, ticks_before_data) in [(0x46, 4427), (0x4c, 4427), (0x42, 4427), (6, 4314)] {
         let mut f = controller_pending(op);
         assert_eq!(f.read_status(), 0x70);
         assert_eq!(f.read_data(), 0xff);
@@ -95,12 +91,14 @@ fn fm_and_mfm_requests_follow_fixed_byte_cadence() {
     ] {
         let mut f = controller(op);
         // A late read must not shift the following byte's arrival.
-        ticks(&mut f, period - 1);
+        let first_interval = if period == 114 { 114 } else { 227 };
+        let second_interval = if period == 114 { 113 } else { 227 };
+        ticks(&mut f, first_interval - 1);
         assert_eq!(f.read_data(), 0);
         ticks(&mut f, 1);
         assert_eq!(f.read_status(), 0xf0);
         assert_eq!(f.read_data(), 1);
-        ticks(&mut f, period - 1);
+        ticks(&mut f, second_interval - 1);
         assert_eq!(f.read_status(), 0x70);
         ticks(&mut f, 1);
         assert_eq!(f.read_status(), 0xf0);
@@ -108,14 +106,17 @@ fn fm_and_mfm_requests_follow_fixed_byte_cadence() {
 }
 #[test]
 fn missing_first_or_later_read_deadline_reports_overrun_not_eot() {
-    for op in [0x46, 0x4c, 0x42] {
+    for op in [0x46, 0x4c, 0x42, 6, 12, 2] {
         for consumed in [0, 1, 511] {
             let mut f = controller(op);
             for i in 0..consumed {
                 assert_eq!(f.read_data(), i as u8);
-                ticks(&mut f, 114);
+                common::await_read(&mut f);
             }
-            ticks(&mut f, 113);
+            let (micros, preamble) = if op & 0x40 != 0 { (32, 39) } else { (64, 19) };
+            let boundary = |slot: u64| (slot * micros * 3_546_895).div_ceil(1_000_000);
+            let interval = boundary(preamble + consumed + 1) - boundary(preamble + consumed);
+            ticks(&mut f, interval as u32 - 1);
             assert_eq!(f.read_status(), 0xf0);
             ticks(&mut f, 1);
             let r = result(&mut f);
@@ -133,7 +134,7 @@ fn paced_complete_payload_preserves_eot_and_drains_exactly_seven_results() {
         for i in 0..512 {
             assert_eq!(f.read_data(), i as u8);
             if i != 511 {
-                ticks(&mut f, 114);
+                common::await_read(&mut f);
             }
         }
         assert_eq!(result(&mut f), [0x40, 0x80, 0, 0, 0, 1, 2]);
@@ -187,6 +188,67 @@ fn overrun_retains_encountered_control_mark_but_not_a_future_one() {
                 &r[..3],
                 &[0x40, 0x10, if sectors_before_mark == 0 { 0x40 } else { 0 }]
             );
+        }
+    }
+}
+
+#[test]
+fn read_requests_follow_absolute_disk_time_without_rounding_drift() {
+    // +3 emulated CPU 3,546,895 Hz; 250 kbit/s MFM, 125 kbit/s FM.
+    // The independently computed absolute schedule must hold for an entire
+    // field, whether the host reads immediately or just before the next slot.
+    for op in [0x46, 0x4c, 0x42, 6, 12, 2] {
+        let (micros, preamble) = if op & 0x40 != 0 {
+            (32_u64, 39)
+        } else {
+            (64, 19)
+        };
+        let boundary = |slot: u64| (slot * micros * 3_546_895).div_ceil(1_000_000) as u32;
+        for late in [false, true] {
+            let mut f = controller_pending(op);
+            let mut now = 0;
+            for byte in 0..512 {
+                let arrival = boundary(preamble + byte);
+                ticks(&mut f, arrival - now - 1);
+                assert_eq!(f.read_status(), 0x70, "op={op:x} byte={byte} before");
+                assert_eq!(f.read_data(), 0xff);
+                ticks(&mut f, 1);
+                assert_eq!(f.read_status(), 0xf0, "op={op:x} byte={byte} at");
+                now = arrival;
+                if late {
+                    let delay = boundary(preamble + byte + 1) - now - 1;
+                    ticks(&mut f, delay);
+                    now += delay;
+                    assert_eq!(f.read_status(), 0xf0);
+                }
+                assert_eq!(f.read_data(), byte as u8);
+            }
+            assert_eq!(result(&mut f), [0x40, 0x80, 0, 0, 0, 1, 2]);
+        }
+    }
+}
+
+#[test]
+fn every_host_service_offset_preserves_next_arrival() {
+    for op in [0x46, 0x4c, 0x42, 6, 12, 2] {
+        let (micros, preamble) = if op & 0x40 != 0 { (32, 39) } else { (64, 19) };
+        let boundary = |slot: u64| (slot * micros * 3_546_895).div_ceil(1_000_000);
+        for byte in [0, 1] {
+            let interval = boundary(preamble + byte + 1) - boundary(preamble + byte);
+            for offset in 0..interval {
+                let mut f = controller(op);
+                if byte == 1 {
+                    assert_eq!(f.read_data(), 0);
+                    ticks(&mut f, (boundary(preamble + 1) - boundary(preamble)) as u32);
+                }
+                ticks(&mut f, offset as u32);
+                assert_eq!(f.read_data(), byte as u8, "op={op:x} offset={offset}");
+                ticks(&mut f, (interval - offset - 1) as u32);
+                assert_eq!(f.read_status(), 0x70);
+                ticks(&mut f, 1);
+                assert_eq!(f.read_status(), 0xf0);
+                assert_eq!(f.read_data(), byte as u8 + 1);
+            }
         }
     }
 }
