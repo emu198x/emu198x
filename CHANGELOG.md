@@ -4,6 +4,19 @@ All notable changes to Emu198x will be documented in this file.
 
 Format loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 not strictly. Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [0.38.0] - 2026-10-18
+
+
+### Added
+
+- Search a Spectrum tape for the previous or next block
+
+
+### Fixed
+
+- **Breaking** — Retain the current sector and encountered errors during reads. Spectrum native snapshots use version 6 and reject version 5 before payload decoding. Approved explicitly; CPC stays unchanged. Add 108 read-progress/result snapshot checkpoints and preserve the released controller fixture as legacy-rejection evidence. Tracks #1831.
+- Abort reads when their selected disk changes
+
 ## [0.37.0] - 2026-10-17
 
 
