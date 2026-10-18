@@ -52,6 +52,15 @@ impl PrgFile {
             ram.ram_write(self.load_address.wrapping_add(index as u16), byte);
         }
 
+        // Preserve the KERNAL LOAD end pointer used by PRG unpackers.
+        // VICE 3.10: src/c64/c64memsc.c::mem_set_basic_text and
+        // src/autostart-prg.c::autostart_prg_perform_injection.
+        // This is the complete payload end, not the BASIC stub's end.
+        let end = self.load_address.wrapping_add(self.data.len() as u16);
+        let [lo, hi] = end.to_le_bytes();
+        ram.ram_write(0xAE, lo);
+        ram.ram_write(0xAF, hi);
+
         if self.load_address == BASIC_START {
             relink_basic(ram);
         }
@@ -157,6 +166,34 @@ mod tests {
 
         let vartab = u16::from(ram.ram_read(0x2D)) | (u16::from(ram.ram_read(0x2E)) << 8);
         assert_eq!(vartab, 0x080D);
+    }
+
+    #[test]
+    fn basic_stub_keeps_full_payload_end_for_unpackers() {
+        let mut ram = TestRam::new();
+        // One BASIC line followed by machine code: the loaded file extends
+        // beyond the end of BASIC text. No commercial software is required.
+        let prg = [
+            0x01, 0x08, 0x0B, 0x08, 0x0A, 0x00, 0x9E, b'2', b'0', b'6', b'1', 0x00, 0x00, 0x00,
+            0x60, 0xEA, 0xEA,
+        ];
+        let start = load_prg(&mut ram, &prg).expect("load synthetic PRG");
+        let payload_end = start.wrapping_add((prg.len() - 2) as u16);
+        let kernal_end = u16::from_le_bytes([ram.ram_read(0xAE), ram.ram_read(0xAF)]);
+        let basic_end = u16::from_le_bytes([ram.ram_read(0x2D), ram.ram_read(0x2E)]);
+        assert_eq!(kernal_end, payload_end, "unpackers need the full file end");
+        assert!(
+            basic_end < kernal_end,
+            "BASIC relinking must retain its own end"
+        );
+    }
+
+    #[test]
+    fn load_end_wraps_with_the_payload() {
+        let mut ram = TestRam::new();
+        load_prg(&mut ram, &[0xFF, 0xFF, 0x11, 0x22, 0x33]).expect("load wrapping PRG");
+        let end = u16::from_le_bytes([ram.ram_read(0xAE), ram.ram_read(0xAF)]);
+        assert_eq!(end, 2);
     }
 
     #[test]
