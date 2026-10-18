@@ -1,0 +1,450 @@
+{
+  "schema_version": 1,
+  "scope": "nominal-sector-model-read-cadence",
+  "qualified": false,
+  "source_commit": "be75aa2cf0222efa1eb9f0165487883d948a93a5",
+  "source_build": true,
+  "fresh_runtime": true,
+  "assembly_mastering": "captured_reference_replay",
+  "clock_hz": 3546895,
+  "binary_sha256": "0a24f6213cb07832f5aba541f23b72a41c24c8a1151958e3fc23886f5f283ac9",
+  "cargo_lock_sha256": "613932a7bb60ecb20ca6afc080a3f2b276459345466faf08a3efcbc0c964f263",
+  "compiler": "rustc 1.99.0 (b940084d7 2026-09-28)",
+  "test_results": {
+    "passed": 460,
+    "failed": 0,
+    "ignored": 63
+  },
+  "baseline_red": {
+    "source_commit": "0384e72a5739a8ef042e6a1bc07ee1687704dc12",
+    "command": "cargo test --locked -p nec-upd765a --test read_pacing read_requests_follow_absolute_disk_time_without_rounding_drift",
+    "exit_code": 101,
+    "failure": "op=46 byte=0 at: left 112, right 240"
+  },
+  "commands": [
+    "cargo test --locked -p nec-upd765a -p runtime-sinclair-zx-spectrum -p machine-sinclair-zx-spectrum-plus3",
+    "cargo clippy --locked -p nec-upd765a -p runtime-sinclair-zx-spectrum -p machine-sinclair-zx-spectrum-plus3 --all-targets -- -D warnings",
+    "cargo build --locked --release -p emu198x-spectrum --no-default-features"
+  ],
+  "runs": {
+    "1": {
+      "exit_code": 0,
+      "qualified": false,
+      "regression_passed": true,
+      "failure": null,
+      "stages": {
+        "asm_build": {
+          "status": "not_run",
+          "reason": "outside fresh runtime regression scope"
+        },
+        "emu_build": {
+          "status": "not_run",
+          "reason": "outside fresh runtime regression scope"
+        },
+        "assembly": {
+          "status": "not_run",
+          "reason": "outside fresh runtime regression scope"
+        },
+        "native_format": {
+          "status": "pass",
+          "reason": "",
+          "assertions": 519,
+          "format": "standard DSK / +3DOS type 0",
+          "files": {
+            "DISK": {
+              "file_bytes": 180,
+              "payload_sha256": "07bd434b84f189ed4b43c47353729f191852baecfbdb53db5a846442c74a057d",
+              "extent_records": [
+                2
+              ],
+              "allocation_blocks": [
+                2
+              ],
+              "tracks": [
+                1
+              ]
+            },
+            "DIAG    BIN": {
+              "file_bytes": 182,
+              "payload_sha256": "f3a9fac6cb83d74afbda2cc75806b27d089bf39bee4d370b34f035f6dc112e13",
+              "extent_records": [
+                2
+              ],
+              "allocation_blocks": [
+                3
+              ],
+              "tracks": [
+                1
+              ]
+            }
+          },
+          "raw_sector_bytes": 184320,
+          "directory_entries": [
+            {
+              "slot": 0,
+              "name": "DISK",
+              "extent": 0
+            },
+            {
+              "slot": 1,
+              "name": "DIAG    BIN",
+              "extent": 0
+            }
+          ]
+        },
+        "firmware": {
+          "status": "pass",
+          "reason": "",
+          "assertions": 8
+        },
+        "loading": {
+          "status": "pass",
+          "reason": "",
+          "assertions": 3
+        },
+        "execution": {
+          "status": "pass",
+          "reason": "",
+          "assertions": 7,
+          "expected": {
+            "signature": [
+              90,
+              91
+            ],
+            "pc": 32820,
+            "screen_sha256": "d2885ec2c4cc1df7ac1a7eecac91ccdd3a6166563d09c2142ec594dc3bfa92f2"
+          },
+          "observed": {
+            "signature_before": [
+              0,
+              0
+            ],
+            "signature_after": [
+              90,
+              91
+            ],
+            "pc": 32822,
+            "screen_sha256": "d2885ec2c4cc1df7ac1a7eecac91ccdd3a6166563d09c2142ec594dc3bfa92f2",
+            "writes": [
+              {
+                "pc": 32776,
+                "addr": 28672,
+                "value": 0,
+                "size_bytes": 1
+              },
+              {
+                "pc": 32779,
+                "addr": 28673,
+                "value": 0,
+                "size_bytes": 1
+              },
+              {
+                "pc": 32816,
+                "addr": 28672,
+                "value": 90,
+                "size_bytes": 1
+              },
+              {
+                "pc": 32820,
+                "addr": 28673,
+                "value": 91,
+                "size_bytes": 1
+              }
+            ]
+          },
+          "frames": 2000,
+          "reported_time": 731770560
+        },
+        "build_build": {
+          "status": "not_run",
+          "reason": "outside fresh runtime regression scope"
+        },
+        "mastering": {
+          "status": "not_run",
+          "reason": "outside fresh runtime regression scope"
+        }
+      },
+      "source_commit": "be75aa2cf0222efa1eb9f0165487883d948a93a5",
+      "binary_sha256": "0a24f6213cb07832f5aba541f23b72a41c24c8a1151958e3fc23886f5f283ac9"
+    },
+    "2": {
+      "exit_code": 0,
+      "qualified": false,
+      "regression_passed": true,
+      "failure": null,
+      "stages": {
+        "asm_build": {
+          "status": "not_run",
+          "reason": "outside fresh runtime regression scope"
+        },
+        "emu_build": {
+          "status": "not_run",
+          "reason": "outside fresh runtime regression scope"
+        },
+        "assembly": {
+          "status": "not_run",
+          "reason": "outside fresh runtime regression scope"
+        },
+        "native_format": {
+          "status": "pass",
+          "reason": "",
+          "assertions": 519,
+          "format": "standard DSK / +3DOS type 0",
+          "files": {
+            "DISK": {
+              "file_bytes": 180,
+              "payload_sha256": "07bd434b84f189ed4b43c47353729f191852baecfbdb53db5a846442c74a057d",
+              "extent_records": [
+                2
+              ],
+              "allocation_blocks": [
+                2
+              ],
+              "tracks": [
+                1
+              ]
+            },
+            "DIAG    BIN": {
+              "file_bytes": 182,
+              "payload_sha256": "f3a9fac6cb83d74afbda2cc75806b27d089bf39bee4d370b34f035f6dc112e13",
+              "extent_records": [
+                2
+              ],
+              "allocation_blocks": [
+                3
+              ],
+              "tracks": [
+                1
+              ]
+            }
+          },
+          "raw_sector_bytes": 184320,
+          "directory_entries": [
+            {
+              "slot": 0,
+              "name": "DISK",
+              "extent": 0
+            },
+            {
+              "slot": 1,
+              "name": "DIAG    BIN",
+              "extent": 0
+            }
+          ]
+        },
+        "firmware": {
+          "status": "pass",
+          "reason": "",
+          "assertions": 8
+        },
+        "loading": {
+          "status": "pass",
+          "reason": "",
+          "assertions": 3
+        },
+        "execution": {
+          "status": "pass",
+          "reason": "",
+          "assertions": 7,
+          "expected": {
+            "signature": [
+              90,
+              91
+            ],
+            "pc": 32820,
+            "screen_sha256": "d2885ec2c4cc1df7ac1a7eecac91ccdd3a6166563d09c2142ec594dc3bfa92f2"
+          },
+          "observed": {
+            "signature_before": [
+              0,
+              0
+            ],
+            "signature_after": [
+              90,
+              91
+            ],
+            "pc": 32822,
+            "screen_sha256": "d2885ec2c4cc1df7ac1a7eecac91ccdd3a6166563d09c2142ec594dc3bfa92f2",
+            "writes": [
+              {
+                "pc": 32776,
+                "addr": 28672,
+                "value": 0,
+                "size_bytes": 1
+              },
+              {
+                "pc": 32779,
+                "addr": 28673,
+                "value": 0,
+                "size_bytes": 1
+              },
+              {
+                "pc": 32816,
+                "addr": 28672,
+                "value": 90,
+                "size_bytes": 1
+              },
+              {
+                "pc": 32820,
+                "addr": 28673,
+                "value": 91,
+                "size_bytes": 1
+              }
+            ]
+          },
+          "frames": 2000,
+          "reported_time": 731770560
+        },
+        "build_build": {
+          "status": "not_run",
+          "reason": "outside fresh runtime regression scope"
+        },
+        "mastering": {
+          "status": "not_run",
+          "reason": "outside fresh runtime regression scope"
+        }
+      },
+      "source_commit": "be75aa2cf0222efa1eb9f0165487883d948a93a5",
+      "binary_sha256": "0a24f6213cb07832f5aba541f23b72a41c24c8a1151958e3fc23886f5f283ac9"
+    },
+    "wrong": {
+      "exit_code": 1,
+      "qualified": false,
+      "regression_passed": false,
+      "failure": "signature mismatch: expected [90, 92], observed [90, 91]",
+      "stages": {
+        "asm_build": {
+          "status": "not_run",
+          "reason": "outside fresh runtime regression scope"
+        },
+        "emu_build": {
+          "status": "not_run",
+          "reason": "outside fresh runtime regression scope"
+        },
+        "assembly": {
+          "status": "not_run",
+          "reason": "outside fresh runtime regression scope"
+        },
+        "native_format": {
+          "status": "pass",
+          "reason": "",
+          "assertions": 519,
+          "format": "standard DSK / +3DOS type 0",
+          "files": {
+            "DISK": {
+              "file_bytes": 180,
+              "payload_sha256": "07bd434b84f189ed4b43c47353729f191852baecfbdb53db5a846442c74a057d",
+              "extent_records": [
+                2
+              ],
+              "allocation_blocks": [
+                2
+              ],
+              "tracks": [
+                1
+              ]
+            },
+            "DIAG    BIN": {
+              "file_bytes": 182,
+              "payload_sha256": "f3a9fac6cb83d74afbda2cc75806b27d089bf39bee4d370b34f035f6dc112e13",
+              "extent_records": [
+                2
+              ],
+              "allocation_blocks": [
+                3
+              ],
+              "tracks": [
+                1
+              ]
+            }
+          },
+          "raw_sector_bytes": 184320,
+          "directory_entries": [
+            {
+              "slot": 0,
+              "name": "DISK",
+              "extent": 0
+            },
+            {
+              "slot": 1,
+              "name": "DIAG    BIN",
+              "extent": 0
+            }
+          ]
+        },
+        "firmware": {
+          "status": "pass",
+          "reason": "",
+          "assertions": 8
+        },
+        "loading": {
+          "status": "pass",
+          "reason": "",
+          "assertions": 3
+        },
+        "execution": {
+          "status": "fail",
+          "reason": "signature mismatch: expected [90, 92], observed [90, 91]"
+        },
+        "build_build": {
+          "status": "not_run",
+          "reason": "outside fresh runtime regression scope"
+        },
+        "mastering": {
+          "status": "not_run",
+          "reason": "outside fresh runtime regression scope"
+        }
+      },
+      "source_commit": "be75aa2cf0222efa1eb9f0165487883d948a93a5",
+      "binary_sha256": "0a24f6213cb07832f5aba541f23b72a41c24c8a1151958e3fc23886f5f283ac9"
+    }
+  },
+  "independent_reference": {
+    "status": "not_run",
+    "reason": "No fresh reference execution in this slice; previous Fuse/MAME observations are retained in ../2026-10-17-read-pacing and ../2026-10-18-current-read-sector, with known FIFO/timeout differences. Neither establishes the physical service cutoff."
+  },
+  "exact_physical_service_cutoff": {
+    "status": "blocked_dependency",
+    "reason": "No clock/revision-specific silicon measurements or primary request/overrun timing diagram. NEC app note distinguishes worst-case and nominal intervals; do not turn worst-case service guidance into an exact cutoff."
+  },
+  "archive_sha256": "cf2f2a041a0f63a9e4d8dff7b9bc205f685ca5a197ea4c2f6995a56087d71788",
+  "members": {
+    "1/diagnostic.bin": "f3a9fac6cb83d74afbda2cc75806b27d089bf39bee4d370b34f035f6dc112e13",
+    "1/diagnostic.dsk": "23ff854ed662ff8461bffdbccdf5350b668119836adff1c176938519ad33fd5c",
+    "1/emu-revision.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "1/emu-revision.stdout": "a5b0a832b67b64acb9f615681aa4280dae64bebed34d29fc01b462bc35df88fd",
+    "1/emu-status.stderr": "1356e1003c10f93fb1537ac1476303ea3ad4e97e93ad9b12bec7d3d26ccde891",
+    "1/emu-status.stdout": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "1/regression.json": "0b2452acc44ec37f314d2d4c2357fb603c1168c367ff8177aedade3726b9238c",
+    "1/runtime.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "1/runtime.stdout": "b734af7270ca661daf65bfedd63d5a648fbf6aac39525d26462cd13d2360564c",
+    "1/screen.png": "4978af5035bb8be18316a18707966da232c3f189a27bf11bae548ece6c245a74",
+    "1/session.json": "df06e5110402a4466a3b69e12ab4363c05a778156c42a4ddf9c02a01470ea394",
+    "2/diagnostic.bin": "f3a9fac6cb83d74afbda2cc75806b27d089bf39bee4d370b34f035f6dc112e13",
+    "2/diagnostic.dsk": "23ff854ed662ff8461bffdbccdf5350b668119836adff1c176938519ad33fd5c",
+    "2/emu-revision.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "2/emu-revision.stdout": "a5b0a832b67b64acb9f615681aa4280dae64bebed34d29fc01b462bc35df88fd",
+    "2/emu-status.stderr": "1356e1003c10f93fb1537ac1476303ea3ad4e97e93ad9b12bec7d3d26ccde891",
+    "2/emu-status.stdout": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "2/regression.json": "08c6d1430baf2e969b8d49bb9c206f8881b463ea5dc87e35426495b3818e7ca8",
+    "2/runtime.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "2/runtime.stdout": "b734af7270ca661daf65bfedd63d5a648fbf6aac39525d26462cd13d2360564c",
+    "2/screen.png": "4978af5035bb8be18316a18707966da232c3f189a27bf11bae548ece6c245a74",
+    "2/session.json": "c8e22c838450541445209a4f7a9f12d58ba17634652b42ae80ea46eabd3b8856",
+    "wrong/diagnostic.bin": "f3a9fac6cb83d74afbda2cc75806b27d089bf39bee4d370b34f035f6dc112e13",
+    "wrong/diagnostic.dsk": "23ff854ed662ff8461bffdbccdf5350b668119836adff1c176938519ad33fd5c",
+    "wrong/emu-revision.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "wrong/emu-revision.stdout": "a5b0a832b67b64acb9f615681aa4280dae64bebed34d29fc01b462bc35df88fd",
+    "wrong/emu-status.stderr": "1356e1003c10f93fb1537ac1476303ea3ad4e97e93ad9b12bec7d3d26ccde891",
+    "wrong/emu-status.stdout": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "wrong/regression.json": "c1e0d7329b02de20ed46493c89bc2b436d9a6177650b55650070a4f54dcefdc1",
+    "wrong/runtime.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "wrong/runtime.stdout": "b734af7270ca661daf65bfedd63d5a648fbf6aac39525d26462cd13d2360564c",
+    "wrong/screen.png": "4978af5035bb8be18316a18707966da232c3f189a27bf11bae548ece6c245a74",
+    "wrong/session.json": "b0d38556ead24816923546591d57a928125b5a0fb897484f125725eb87472a47",
+    "tests.log": "acf6aaf68357994152e2b0b907b48376430ee0d60eb133210285bc18dd4a54da",
+    "clippy.log": "f55f0bde9af9e256524adb9d9ab6ddc865ff94fabcc9228a8d3664c560bb1200",
+    "build.log": "a1ccb29fe2c46d01a83b1a67e6aa163e9d4eb9f74a2f14f914bf5690219c9fa7",
+    "pacing.log": "deaa36ba965da4c780dc9502d3e5328deb6a5c8eac5abe7e37020c614e67fd89"
+  }
+}
