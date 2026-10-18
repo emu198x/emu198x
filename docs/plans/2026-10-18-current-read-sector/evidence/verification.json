@@ -2,27 +2,21 @@
   "schema_version": 1,
   "qualified": false,
   "kind": "source-runtime-regression",
-  "source_commit": "19395eb81c122b8b0afbbdbabd06b3eed7ee07c6",
-  "executable_sha256": "b805bf01955e99abb57b92bd0fe9ebd24b01067ed045d732323ce44eb38dc13b",
+  "source_commit": "2c30ad16f920f585a86f3fbfd1eb705d9d4310f5",
+  "executable_sha256": "d97f5ffa34f7ea6e2549b5cac2ec1f8effbb8bdc5075daca8cce1b092ccb2c95",
   "rustc": "rustc 1.99.0 (b940084d7 2026-09-28)",
   "cargo": "cargo 1.99.0 (5f94df478 2026-08-27)",
   "lock_sha256": "e8fca10bcab90bb7663fbfeac9bb17300747832afc165245e4e7e0d32f53e4a5",
-  "controller_source_sha256": "3565884908066d0444d31f6f8702b3ac6d7d62dc5cdf49796cfba0b1a3fcfdb4",
+  "controller_source_sha256": "5a8f5ae50242ed7e00387c3e61c973ba347b59484ce697d070e1b90525e54e60",
   "commands": {
-    "controller": [
+    "selected_packages": [
       "cargo",
       "test",
       "--locked",
       "-p",
-      "nec-upd765a"
-    ],
-    "runtime_machine": [
-      "cargo",
-      "test",
-      "--locked",
+      "nec-upd765a",
       "-p",
       "runtime-sinclair-zx-spectrum",
-      "--lib",
       "-p",
       "machine-sinclair-zx-spectrum-plus3"
     ],
@@ -47,23 +41,18 @@
       "-p",
       "emu198x-spectrum",
       "--no-default-features"
-    ],
-    "full_runtime": [
-      "cargo",
-      "test",
-      "--locked",
-      "-p",
-      "runtime-sinclair-zx-spectrum"
     ]
   },
   "results": {
     "controller": {
       "status": "pass",
-      "tests": 117
+      "tests": 121
     },
     "machine": {
       "status": "pass",
-      "tests": 6
+      "tests": 6,
+      "ignored": 1,
+      "ignored_qualified": false
     },
     "runtime": {
       "status": "pass",
@@ -80,11 +69,37 @@
       "passed": 331,
       "ignored": 62,
       "ignored_qualified": false
+    },
+    "selected_packages": {
+      "passed": 458,
+      "ignored": 63,
+      "failed": 0,
+      "ignored_qualified": false
     }
   },
   "assembly_mastering_origin": "captured_reference_replay",
   "runtime_origin": "fresh_execution",
   "distributed_release_qualification": false,
   "exact_service_timing_qualified": false,
-  "runtime_code_unchanged_after_capture": true
+  "runtime_code_unchanged_after_capture": true,
+  "media_change_issue": "https://github.com/emu198x/emu198x/issues/1836",
+  "build_tools": {
+    "rustc": {
+      "path": "/Users/stevehill/.rustup/toolchains/1.99.0-aarch64-apple-darwin/bin/rustc",
+      "sha256": "dd6f58440b3418aa9157ae3f05d71eecff741ca41bc4eec120e7e8f2d933b9a0",
+      "version": "rustc 1.99.0 (b940084d7 2026-09-28)"
+    },
+    "cargo": {
+      "path": "/Users/stevehill/.rustup/toolchains/1.99.0-aarch64-apple-darwin/bin/cargo",
+      "sha256": "fc7aa5077deca8abc0651f329e8ec1d968f520e996a93b428f9935014362b382",
+      "version": "cargo 1.99.0 (5f94df478 2026-08-27)"
+    }
+  },
+  "relevant_build_environment": {
+    "RUSTFLAGS": null,
+    "CARGO_ENCODED_RUSTFLAGS": null,
+    "CARGO_BUILD_TARGET": null,
+    "RUSTUP_TOOLCHAIN": "1.99.0",
+    "MACOSX_DEPLOYMENT_TARGET": null
+  }
 }

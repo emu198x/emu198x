@@ -1,6 +1,6 @@
-# Interrupted read investigation
+# Current-sector reads and native-state checkpoints
 
-The v0.37.0 source controller prepares all sectors and the terminal result before
+Released v0.37.0 source `c5586b620` prepared all sectors and the terminal result before
 the host consumes the first byte. Four public-register reproductions fail:
 
 | Reproduction | Expected | Observed |
@@ -76,10 +76,10 @@ No Fuse upstream report has been submitted.
 
 ## Implemented and executed
 
-Source `19395eb81c122b8b0afbbdbabd06b3eed7ee07c6`, Rust 1.99.0, source binary
+Final source `2c30ad16f920f585a86f3fbfd1eb705d9d4310f5`, Rust 1.99.0, source binary
 version 0.37.0, executable SHA-256
-`b805bf01955e99abb57b92bd0fe9ebd24b01067ed045d732323ce44eb38dc13b`:
-117 controller, six +3 machine and 118 runtime tests pass. The three new snapshot
+`d97f5ffa34f7ea6e2549b5cac2ec1f8effbb8bdc5075daca8cce1b092ccb2c95`:
+121 controller, six +3 machine and 118 runtime library tests pass. The three new snapshot
 tests exercise 108 checkpoints. Controller/runtime Clippy and formatting pass;
 the normal locked headless release build passes. The snapshot log retains the
 initial legacy-layout test failure and subsequent approved rejection correction.
@@ -101,7 +101,7 @@ captured fixture replay; runtime execution is fresh from a source build, not a
 new distributed-release or full-stack qualification. Other models, drives,
 firmware, geometries, H/N/MT/DTL behavior and raw/index timing remain unqualified.
 
-`evidence/runs.tar.gz` retains 41 safe regular artifacts, including all three ROM
+`evidence/runs.tar.gz` retains 78 safe regular artifacts, including all three ROM
 records, screens, command outputs and build/test logs. `hashes.json` binds every
 member. No firmware, native states or executables are included. Inspect offline:
 
@@ -117,9 +117,23 @@ cargo test --locked -p nec-upd765a --test read_progress
 cargo test --locked -p runtime-sinclair-zx-spectrum --lib current_read_snapshot
 ```
 
-The complete runtime package suite also passes 331 tests; 62 existing ignored
-cases remain explicitly unexecuted and grant no qualification. Its standing
-integration envelope gate initially failed with `left: 6, right: 5`; it now
-locks the approved v6 contract. Both red/green logs are retained. This follow-up
-changes tests and evidence only; the captured runtime source and binary above
-remain the executed implementation.
+The complete runtime package suite passes 331 tests; 62 existing ignored cases
+remain unexecuted. The selected packages pass 458 tests in total, with 63 ignored
+(including one machine boot case). Ignored cases grant no qualification. The
+standing integration envelope gate initially failed with `left: 6, right: 5`;
+it now locks the approved v6 contract. Red/green logs are retained under
+`earlier-source/`; the final source's complete test log is under `logs/`.
+
+### Selected-disk changes
+
+A separate investigation found that replacing a disk mid-read could combine
+cached R1 from the old disk with R2 from the replacement and return normal EOT.
+[Issue #1836](https://github.com/emu198x/emu198x/issues/1836) extends the existing
+host media-change abort policy to reads: selected replacement/ejection ends the
+transfer explicitly, while unrelated-drive changes leave it running. Four new
+regressions retain encountered status/current R and reject further cached data.
+See the [owning report](../2026-10-18-read-media-change/README.md) for red/green
+captures and reference limitations. Exact physical READY timing is unqualified.
+The final source above includes this fix and repeats both ROM successes and
+the wrong-signature failure. Earlier source-runtime evidence stays separate
+under `earlier-source/`, rather than being relabelled as final execution.
