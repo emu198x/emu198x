@@ -47,6 +47,13 @@
       "-p",
       "emu198x-spectrum",
       "--no-default-features"
+    ],
+    "full_runtime": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "runtime-sinclair-zx-spectrum"
     ]
   },
   "results": {
@@ -67,10 +74,17 @@
     "wrong_expected_result_rejected": true,
     "reference_stock_fuse_observations": 52,
     "snapshot_version": 6,
-    "older_version_rejection": "pass"
+    "older_version_rejection": "pass",
+    "full_runtime": {
+      "status": "pass",
+      "passed": 331,
+      "ignored": 62,
+      "ignored_qualified": false
+    }
   },
   "assembly_mastering_origin": "captured_reference_replay",
   "runtime_origin": "fresh_execution",
   "distributed_release_qualification": false,
-  "exact_service_timing_qualified": false
+  "exact_service_timing_qualified": false,
+  "runtime_code_unchanged_after_capture": true
 }

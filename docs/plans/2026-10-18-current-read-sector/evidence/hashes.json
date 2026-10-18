@@ -1,8 +1,10 @@
 {
   "logs/build.log": "cb05d86e1d80a5b31a3df19f5e196bfd0f6a0bb9ce64e42037820e94c0677ca2",
   "logs/clippy.log": "1e5cd288c7bf9d3a9fd48098d7b1e85109e21f756202d7d6f713e42f46a38a52",
+  "logs/envelope-red.log": "2613872418b7047199c66028b942e1541813589ef626ed8c6fb02304385059f9",
   "logs/full.log": "83eddea64fd8727772234757fa0d7caefce5e382a069d99c99d1164e86ae2aab",
   "logs/green.log": "8d2f45c1448193d04910132b47c114d5748a1634d389d00299ce37feb022c1cb",
+  "logs/integration.log": "f946ab77888232a39128f07de0538b94acc194c29609dd8ccd21d4ccf14ea09b",
   "logs/runtime.log": "ca4848d1417a5fb8e5fb456393c1a1462eb70113b3cebd7efb292f9e43c589be",
   "rom-1/diagnostic.bin": "f3a9fac6cb83d74afbda2cc75806b27d089bf39bee4d370b34f035f6dc112e13",
   "rom-1/diagnostic.dsk": "23ff854ed662ff8461bffdbccdf5350b668119836adff1c176938519ad33fd5c",
@@ -37,5 +39,5 @@
   "rom-wrong/runtime.stdout": "f3381a789c9dc84826f9d5575047626588a3a7ce8e5724b64fa8af45d6d29bd4",
   "rom-wrong/screen.png": "4978af5035bb8be18316a18707966da232c3f189a27bf11bae548ece6c245a74",
   "rom-wrong/session.json": "1cec257e4b4938e7ce4f9c3cd825f2c064c2ae33edc9b923e3af0a1dcc86f455",
-  "verification.json": "d93ab187ecc09a8611c5a8283ac764e8d64a179289762039bdd1f43955b75242"
+  "verification.json": "a362f0e094e87ee02976330f994232dd600d373d1e4134ba886920c3e1ca32c0"
 }
