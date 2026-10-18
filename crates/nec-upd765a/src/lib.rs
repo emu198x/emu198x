@@ -393,7 +393,7 @@ impl Upd765a {
     /// No operation on the controller writes to a host filesystem path.
     pub fn insert_disk_with_writable(&mut self, drive: usize, image: DiskImage, writable: bool) {
         if drive < 4 {
-            self.abort_write_for_media_change(drive);
+            self.abort_for_media_change(drive);
             self.disks[drive] = Some(image);
             self.writable[drive] = writable;
             self.reread_key = None;
@@ -425,7 +425,7 @@ impl Upd765a {
 
     pub fn eject_disk(&mut self, drive: usize) {
         if drive < 4 {
-            self.abort_write_for_media_change(drive);
+            self.abort_for_media_change(drive);
             self.disks[drive] = None;
             self.writable[drive] = false;
             self.reread_key = None;
@@ -1160,16 +1160,30 @@ impl Upd765a {
             self.write_byte_ticks() * if self.cmd_buf[0] & 0x40 != 0 { 39 } else { 19 };
     }
 
-    fn abort_write_for_media_change(&mut self, drive: usize) {
+    fn abort_for_media_change(&mut self, drive: usize) {
         if self.phase == Phase::Execution
             && matches!(
                 self.command,
-                Command::WriteData | Command::FormatTrack | Command::Scan
+                Command::WriteData
+                    | Command::FormatTrack
+                    | Command::Scan
+                    | Command::ReadData
+                    | Command::ReadDeletedData
+                    | Command::ReadTrack
             )
             && usize::from(self.cmd_buf[1] & self.drive_select_mask) == drive
         {
             self.st0 |= 0x08;
-            if self.command == Command::FormatTrack {
+            if matches!(
+                self.command,
+                Command::ReadData | Command::ReadDeletedData | Command::ReadTrack
+            ) {
+                // Host media changes end this transfer before another cached
+                // byte can arrive. Preserve only already encountered status;
+                // this is not a model of physical READY transition timing.
+                self.st0 |= 0x40;
+                self.read_result();
+            } else if self.command == Command::FormatTrack {
                 self.format_result(0, true);
             } else {
                 self.write_result(0, 0);

@@ -1,0 +1,22 @@
+{
+  "qualified": false,
+  "issue": "https://github.com/emu198x/emu198x/issues/1836",
+  "baseline_commit": "c5586b620b3eeff140e1755d483582a039c9a40d",
+  "broken_streamed_commit": "a62d0599415c4da1b9bda196ffbc2cd7213d69b4",
+  "source_controller_observations": 162,
+  "red": {
+    "passed": 1,
+    "failed": 2,
+    "exit": 101
+  },
+  "green": {
+    "controller_passed": 121,
+    "failed": 0,
+    "exit": 0,
+    "new_tests": 4
+  },
+  "clippy_exit": 0,
+  "fmt_exit": 0,
+  "archive_files": 19,
+  "archive_sha256": "edb9bb791c6d9a578a90807a2adf52bcc16a5e95249ea201543c639c6ce22b68"
+}
