@@ -1,0 +1,52 @@
+mise WARN  tracking config: failed to ln -sf /Users/stevehill/Projects/198x/output/qualification/workspaces/emu-current-read-sector/rust-toolchain.toml /Users/stevehill/.local/state/mise/tracked-configs/7327944dac1a6aa5: Operation not permitted (os error 1)
+   Compiling nec-upd765a v0.37.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/emu-current-read-sector/crates/nec-upd765a)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.27s
+     Running tests/read_progress.rs (target/debug/deps/read_progress-82d88e8e556849dc)
+
+running 4 tests
+test interrupted_read_reports_current_sector_instead_of_eventual_eot_or_error ... FAILED
+test abandoned_read_does_not_count_an_unvisited_future_marginal_sector ... FAILED
+test later_sector_interruption_reports_later_r_and_encountered_mark ... FAILED
+test track_overrun_keeps_completed_crc_errors_but_not_future_errors ... FAILED
+
+failures:
+
+---- interrupted_read_reports_current_sector_instead_of_eventual_eot_or_error stdout ----
+
+thread 'interrupted_read_reports_current_sector_instead_of_eventual_eot_or_error' (120262106) panicked at crates/nec-upd765a/tests/read_progress.rs:72:17:
+assertion `left == right` failed
+  left: [64, 16, 0, 0, 0, 2, 2]
+ right: [64, 16, 0, 0, 0, 1, 2]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- abandoned_read_does_not_count_an_unvisited_future_marginal_sector stdout ----
+
+thread 'abandoned_read_does_not_count_an_unvisited_future_marginal_sector' (120262105) panicked at crates/nec-upd765a/tests/read_progress.rs:140:9:
+assertion `left == right` failed: first actual read of the marginal sector is verbatim
+  left: 31
+ right: 2
+
+---- later_sector_interruption_reports_later_r_and_encountered_mark stdout ----
+
+thread 'later_sector_interruption_reports_later_r_and_encountered_mark' (120262107) panicked at crates/nec-upd765a/tests/read_progress.rs:92:13:
+assertion `left == right` failed
+  left: [64, 16, 0, 0, 0, 3, 2]
+ right: [64, 16, 0, 0, 0, 2, 2]
+
+---- track_overrun_keeps_completed_crc_errors_but_not_future_errors stdout ----
+
+thread 'track_overrun_keeps_completed_crc_errors_but_not_future_errors' (120262108) panicked at crates/nec-upd765a/tests/read_progress.rs:116:9:
+assertion `left == right` failed
+  left: [64, 16, 0]
+ right: [64, 48, 32]
+
+
+failures:
+    abandoned_read_does_not_count_an_unvisited_future_marginal_sector
+    interrupted_read_reports_current_sector_instead_of_eventual_eot_or_error
+    later_sector_interruption_reports_later_r_and_encountered_mark
+    track_overrun_keeps_completed_crc_errors_but_not_future_errors
+
+test result: FAILED. 0 passed; 4 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p nec-upd765a --test read_progress`

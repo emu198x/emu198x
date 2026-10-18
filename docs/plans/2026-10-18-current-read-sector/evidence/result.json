@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "qualified": false,
+  "status": "implementation_pending_schema_approval",
+  "source_commit": "c5586b620b3eeff140e1755d483582a039c9a40d",
+  "runtime_delivery": "source_build",
+  "runtime_execution": "fresh_execution",
+  "regression_command": [
+    "cargo",
+    "test",
+    "--locked",
+    "-p",
+    "nec-upd765a",
+    "--test",
+    "read_progress"
+  ],
+  "exit_code": 101,
+  "tests_passed": 0,
+  "tests_failed": 4,
+  "reference_observations": 52,
+  "reference_repeat_pairs": 26,
+  "reference_scope": "source-controller-register-investigation",
+  "reference_rom_loading": false,
+  "production_code_changed": false,
+  "files": {
+    "read_progress.rs": "a6eeb14c5a9491f136a62dead460aad792385f69a30b17128e47febe7b41800a",
+    "red.log": "6adb49f0d04fa01f88735e324bd835069f393c7bb8be10668603e0a75a9c58f1",
+    "stock-fuse.tar.gz": "f022091aa677108e7edd34d3023ce9b13efc5e5ce8c583fc907cb5746827e69d"
+  }
+}
