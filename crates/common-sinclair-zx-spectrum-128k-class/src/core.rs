@@ -294,6 +294,10 @@ impl<V: Class128kVariant> Spectrum128kClassCore<V> {
     pub fn tape_rewind(&mut self) {
         self.tape.rewind();
     }
+    /// Moves the tape to the previous or next block; returns whether it moved.
+    pub fn tape_seek_block(&mut self, direction: common_sinclair_zx_spectrum::BlockSeek) -> bool {
+        self.tape.seek_spectrum_block(direction)
+    }
 
     /// Reset the CPU, paging latch and audio/timing state, keeping the
     /// loaded ROMs and RAM contents intact.

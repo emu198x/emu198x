@@ -45,7 +45,14 @@ pub const TSTATES_PER_MS: u32 = 3_500;
 // every pulse-encoded tape is written, not how the Spectrum writes one.
 // `append_pause_spans` gained an explicit T-states-per-millisecond argument
 // there, since a pause is the one part of a tape quoted in real time.
-pub use common_tape::{StopRelease, TapePlayer, TapeSpan, data_block_spans, push_pulse};
+pub use common_tape::{BlockSeek, StopRelease, TapePlayer, TapeSpan, data_block_spans, push_pulse};
+
+/// The shortest silence that separates two blocks, for block search.
+///
+/// A tenth of a second: far longer than any pulse a Spectrum loader uses
+/// (a pilot pulse is under a millisecond), far shorter than the standard
+/// one-second pause between blocks.
+pub const BLOCK_GAP_TSTATES: u32 = 100 * TSTATES_PER_MS;
 
 /// One standard-speed tape block ready for playback.
 ///
@@ -66,11 +73,26 @@ pub struct TapeBlock {
 pub trait SpectrumTapePlayer {
     /// Converts standard-speed blocks into timing spans and loads them.
     fn load_blocks(&mut self, blocks: Vec<TapeBlock>);
+
+    /// Moves to the previous or next block, found by its gaps
+    /// ([`BLOCK_GAP_TSTATES`]). Returns whether it moved.
+    fn seek_spectrum_block(&mut self, direction: BlockSeek) -> bool;
+
+    /// The block the tape is in, counted from 0, and how many there are.
+    fn spectrum_block_position(&self) -> (usize, usize);
 }
 
 impl SpectrumTapePlayer for TapePlayer {
     fn load_blocks(&mut self, blocks: Vec<TapeBlock>) {
         self.load_stream(standard_blocks_to_stream(&blocks));
+    }
+
+    fn seek_spectrum_block(&mut self, direction: BlockSeek) -> bool {
+        self.seek_block(direction, BLOCK_GAP_TSTATES)
+    }
+
+    fn spectrum_block_position(&self) -> (usize, usize) {
+        self.block_position(BLOCK_GAP_TSTATES)
     }
 }
 

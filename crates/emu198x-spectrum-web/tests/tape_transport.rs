@@ -13,10 +13,11 @@ use std::path::PathBuf;
 
 use emu198x_shell::{FamilyRuntime, FirmwareImage, FirmwareSet, MediaKind, SessionDriver};
 use emu198x_spectrum_web::{
-    SpectrumWebMachine, autoload_tape, tape_rewind, tape_transport, tape_turbo,
+    SpectrumWebMachine, autoload_tape, tape_rewind, tape_seek_block, tape_transport, tape_turbo,
 };
 use emu198x_web::WebMachine;
 use format198x_sinclair_zx_spectrum_tap::{Header, HeaderKind, TapBlock, encode};
+use runtime_sinclair_zx_spectrum::BlockSeek;
 use runtime_sinclair_zx_spectrum::{
     DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES, Model, SpectrumRuntimeKind, SpectrumSessionQueryProvider,
     tap_key, tap_symbol_combo,
@@ -256,4 +257,66 @@ fn rewind_on_a_slot_that_is_not_the_tape_deck_is_refused() {
         error.contains("drive-1"),
         "the error should name the slot: {error}"
     );
+}
+
+fn tape_block(machine: &SpectrumWebMachine) -> (u64, u64) {
+    let read = |path| {
+        machine
+            .query(path)
+            .expect(path)
+            .value
+            .as_u64()
+            .expect("a count")
+    };
+    (read("tape.block"), read("tape.blocks"))
+}
+
+#[test]
+#[ignore = "FIXTURE: needs the 48K Spectrum ROM — run with --ignored"]
+fn a_missed_block_can_be_found_again_by_block_search() {
+    let mut machine = machine();
+    machine
+        .load_media_bytes("tape-1", MediaKind::Tape, &loader_and_code_tape())
+        .expect("the tape inserts");
+    assert_eq!(tape_block(&machine), (0, 4), "header and data, twice");
+    autoload_tape(&mut machine, DEFAULT_TAPE_AUTOLOAD_BOOT_FRAMES).expect("LOAD \"\" and play");
+    assert!(
+        run_until_screen_shows(&mut machine, "0 OK, 0:1", 2_000),
+        "the loader did not load"
+    );
+    // Nobody ran the loader, so its code block plays past unheard.
+    for _ in 0..3_000 {
+        if !tape_playing(&machine) {
+            break;
+        }
+        machine.run_one_frame().expect("frame");
+    }
+    assert_eq!(tape_block(&machine), (3, 4), "run out in the last block");
+
+    // Back to the code block's header: the start of the last block, then
+    // the one before it.
+    assert!(tape_seek_block(&mut machine, "tape-1", BlockSeek::Previous).expect("search"));
+    assert!(tape_seek_block(&mut machine, "tape-1", BlockSeek::Previous).expect("search"));
+    assert_eq!(tape_block(&machine), (2, 4));
+    assert!(
+        !tape_playing(&machine),
+        "searching a stopped tape leaves it stopped"
+    );
+
+    for key in ["r", "enter"] {
+        tap_key(&mut machine, key).expect("RUN");
+    }
+    tape_transport(&mut machine, "tape-1", true).expect("PLAY");
+    assert!(
+        run_until_screen_shows(&mut machine, "0 OK, 30:1", 3_000),
+        "the code block did not load: {:?}",
+        screen_lines(&machine)
+    );
+    assert!(
+        screen_lines(&machine)
+            .iter()
+            .any(|line| line == &CODE_BYTE.to_string()),
+        "the loaded byte should print"
+    );
+    assert!(tape_seek_block(&mut machine, "drive-1", BlockSeek::Next).is_err());
 }

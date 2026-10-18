@@ -398,6 +398,13 @@ impl<M: MemoryBus, V: Variant48kClass> SpectrumMachineCore<M, V> {
         self.sync_ear_level();
     }
 
+    /// Moves the tape to the previous or next block; returns whether it moved.
+    pub fn seek_tape_block(&mut self, direction: common_sinclair_zx_spectrum::BlockSeek) -> bool {
+        let moved = self.tape.seek_spectrum_block(direction);
+        self.sync_ear_level();
+        moved
+    }
+
     /// Returns whether emulated tape media is currently loaded.
     #[must_use]
     pub fn tape_is_loaded(&self) -> bool {

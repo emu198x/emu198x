@@ -50,6 +50,7 @@ the browser will blur the pixels.
 | `autoload(maxBootFrames)` | Load the tape in `tape-1`: type `LOAD ""` and press play. A machine that has already run is reset first; the tape stays in. |
 | `transport(slot, playing)` | Press the tape deck's PLAY (`true`) or STOP (`false`). STOP keeps the tape's place; PLAY carries on from it. `query('tape.playing')` and `query('tape.progress')` report the state. |
 | `rewind(slot)` | Press the tape deck's REWIND: back to the start of the tape, stopped. Then `transport(slot, true)` plays it again. |
+| `previousBlock(slot)` / `nextBlock(slot)` | Search the tape for the previous or next block, by the gaps between blocks. Previous goes to the start of the block playing first. Returns whether it moved; `query('tape.block')` and `query('tape.blocks')` give the position. |
 | `keyDown(code)` / `keyUp(code)` | Feed a DOM `KeyboardEvent.code`. |
 | `setAudioEnabled(on)` | Start or stop audio. |
 | `configureAudio(rate, channels, capacity)` | Match the page's `AudioContext`. |

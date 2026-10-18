@@ -198,6 +198,8 @@ fn spectrum_query_provider_lists_supported_paths() {
         paths,
         vec![
             // The provider returns these sorted.
+            "tape.block".to_owned(),
+            "tape.blocks".to_owned(),
             "tape.loaded".to_owned(),
             "tape.playing".to_owned(),
             "tape.progress".to_owned(),

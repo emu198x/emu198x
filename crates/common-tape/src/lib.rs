@@ -43,6 +43,16 @@ pub const POSITION_QUERY_PATHS: [&str; 4] = [
     "tape.progress",
 ];
 
+/// Which way [`TapePlayer::seek_block`] moves.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BlockSeek {
+    /// To the start of the block playing, or of the one before it if the
+    /// tape is already at a block's start.
+    Previous,
+    /// To the start of the next block.
+    Next,
+}
+
 /// Tape player that advances through one timing-span stream.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TapePlayer {
@@ -95,6 +105,96 @@ impl TapePlayer {
     /// Stops playback without rewinding the current tape position.
     pub fn stop(&mut self) {
         self.playing = false;
+    }
+
+    /// Where each block starts, found by its gaps.
+    ///
+    /// The player keeps no block list, so the stream is searched the way a
+    /// deck's blank search hears it: a block starts at the tape's first span
+    /// and at the first span after each run of gaps. A gap is a low
+    /// [`TapeSpan::Level`] lasting at least `min_gap` T-states, or a
+    /// [`TapeSpan::Stop`]. Pauses between TAP blocks are gaps; two TZX blocks
+    /// with no pause between them read as one block, as on a real deck.
+    #[must_use]
+    pub fn block_starts(&self, min_gap: u32) -> Vec<usize> {
+        let mut starts = Vec::new();
+        let mut after_gap = true;
+        for (index, span) in self.spans.iter().enumerate() {
+            let gap = match *span {
+                TapeSpan::Level { duration, level } => !level && duration >= min_gap,
+                TapeSpan::Stop => true,
+                TapeSpan::Pulse(_) => false,
+            };
+            if gap {
+                after_gap = true;
+            } else if after_gap {
+                starts.push(index);
+                after_gap = false;
+            }
+        }
+        starts
+    }
+
+    /// The block the tape is in, counted from 0, and how many blocks it has.
+    /// See [`Self::block_starts`] for what counts as a block.
+    #[must_use]
+    pub fn block_position(&self, min_gap: u32) -> (usize, usize) {
+        let starts = self.block_starts(min_gap);
+        let current = starts
+            .partition_point(|&start| start <= self.span_idx)
+            .saturating_sub(1);
+        (current, starts.len())
+    }
+
+    /// Moves to the start of the previous or next block, and returns whether
+    /// it moved.
+    ///
+    /// Previous goes to the start of the block playing once the tape has
+    /// moved into it, and to the block before when it is already at a start,
+    /// as a CD player's back button does. Next on the last block, and either
+    /// way on a tape with no blocks, does nothing. A playing tape plays on
+    /// from the new place; a stopped one stays stopped.
+    ///
+    /// The level is set to what the stream holds at that point, so the
+    /// pulses that follow keep their phase (#1825).
+    pub fn seek_block(&mut self, direction: BlockSeek, min_gap: u32) -> bool {
+        let starts = self.block_starts(min_gap);
+        let current = starts
+            .partition_point(|&start| start <= self.span_idx)
+            .checked_sub(1);
+        let target = match (direction, current) {
+            (BlockSeek::Next, None) => starts.first(),
+            (BlockSeek::Next, Some(block)) => starts.get(block + 1),
+            (BlockSeek::Previous, None) => None,
+            (BlockSeek::Previous, Some(block)) if self.span_idx > starts[block] => {
+                starts.get(block)
+            }
+            (BlockSeek::Previous, Some(block)) => block
+                .checked_sub(1)
+                .and_then(|previous| starts.get(previous)),
+        };
+        let Some(&target) = target else {
+            return false;
+        };
+        self.span_idx = target;
+        self.level = self.level_at(target);
+        self.countdown = 0;
+        if self.playing {
+            self.start_current_span();
+        }
+        true
+    }
+
+    /// The level the stream holds as span `index` begins, replaying the
+    /// spans before it as playback would.
+    fn level_at(&self, index: usize) -> bool {
+        self.spans[..index]
+            .iter()
+            .fold(false, |level, span| match *span {
+                TapeSpan::Pulse(_) => !level,
+                TapeSpan::Level { level, .. } => level,
+                TapeSpan::Stop => level,
+            })
     }
 
     /// Rewinds to the start of the tape and stops, as a deck's REWIND does.
@@ -510,6 +610,148 @@ mod tests {
         assert_eq!(player.span_index(), 0);
         assert!(!player.ear_level());
         assert_eq!(levels(&mut player), expected);
+    }
+
+    /// Three blocks as TAP builds them: pulses, then a pause. The middle
+    /// block has an odd number of pulses, so it ends with the level high.
+    fn three_blocks() -> Vec<TapeSpan> {
+        let mut level = false;
+        let mut spans = Vec::new();
+        for pulses in [4, 5, 6] {
+            for _ in 0..pulses {
+                push_pulse(&mut level, 100, &mut spans);
+            }
+            append_pause_spans(3, 1_000, &mut level, &mut spans);
+        }
+        spans
+    }
+
+    const GAP: u32 = 1_000;
+
+    #[test]
+    fn blocks_start_after_each_gap() {
+        let mut player = TapePlayer::new();
+        player.load_stream(three_blocks());
+        // Each block: its pulses, a 1 ms level and a 2 ms low gap.
+        assert_eq!(player.block_starts(GAP), vec![0, 6, 13]);
+        assert_eq!(player.block_position(GAP), (0, 3));
+        let mut empty = TapePlayer::new();
+        empty.load_stream(Vec::new());
+        assert_eq!(empty.block_position(GAP), (0, 0));
+    }
+
+    #[test]
+    fn a_stop_span_and_a_run_of_gaps_each_make_one_boundary() {
+        let mut player = TapePlayer::new();
+        player.load_stream(vec![
+            TapeSpan::Pulse(10),
+            TapeSpan::Stop,
+            TapeSpan::Level {
+                duration: 5_000,
+                level: false,
+            },
+            TapeSpan::Pulse(10),
+            TapeSpan::Level {
+                duration: 10,
+                level: false,
+            },
+            TapeSpan::Pulse(10),
+        ]);
+        assert_eq!(
+            player.block_starts(GAP),
+            vec![0, 3],
+            "a short low level is not a gap"
+        );
+    }
+
+    #[test]
+    fn next_and_previous_move_like_a_cd_player() {
+        let mut player = TapePlayer::new();
+        player.load_stream(three_blocks());
+        assert!(player.seek_block(BlockSeek::Next, GAP));
+        assert_eq!(player.span_index(), 6);
+        assert!(player.seek_block(BlockSeek::Next, GAP));
+        assert_eq!(player.span_index(), 13);
+        assert!(
+            !player.seek_block(BlockSeek::Next, GAP),
+            "no block after the last"
+        );
+        assert_eq!(player.span_index(), 13);
+
+        // Part-way into the last block, Previous goes to its start first.
+        player.play();
+        player.advance_tstates(250);
+        assert!(player.span_index() > 13);
+        assert!(player.seek_block(BlockSeek::Previous, GAP));
+        assert_eq!(player.span_index(), 13);
+        assert!(player.is_playing(), "a playing tape plays on");
+        player.stop();
+        assert!(player.seek_block(BlockSeek::Previous, GAP));
+        assert_eq!(player.span_index(), 6);
+        assert!(!player.is_playing(), "a stopped tape stays stopped");
+        assert!(player.seek_block(BlockSeek::Previous, GAP));
+        assert!(
+            !player.seek_block(BlockSeek::Previous, GAP),
+            "nothing before the first"
+        );
+        assert_eq!(player.span_index(), 0);
+    }
+
+    #[test]
+    fn a_block_reached_by_seeking_plays_as_it_does_in_an_unbroken_play() {
+        // The phase rule from #1825: after a seek the block must produce
+        // exactly the levels it produces when the tape reaches it by playing.
+        let levels_from = |player: &mut TapePlayer, from: usize| {
+            let mut out = Vec::new();
+            while player.is_playing() {
+                if player.span_index() >= from {
+                    out.push(player.ear_level());
+                }
+                player.advance_tstates(1);
+            }
+            out
+        };
+        for block in [1, 2] {
+            let mut unbroken = TapePlayer::new();
+            unbroken.load_stream(three_blocks());
+            let start = unbroken.block_starts(GAP)[block];
+            unbroken.play();
+            let expected = levels_from(&mut unbroken, start);
+
+            let mut seeking = TapePlayer::new();
+            seeking.load_stream(three_blocks());
+            seeking.play();
+            seeking.advance_tstates(150); // part-way into the first block
+            for _ in 0..block {
+                seeking.seek_block(BlockSeek::Next, GAP);
+            }
+            assert_eq!(levels_from(&mut seeking, start), expected, "block {block}");
+        }
+    }
+
+    #[test]
+    fn a_block_after_a_stop_keeps_the_level_the_stop_left() {
+        // No pause resets the level here: three pulses leave it high, and the
+        // block after the stop starts high, as playing through would leave it.
+        let spans = vec![
+            TapeSpan::Pulse(10),
+            TapeSpan::Pulse(10),
+            TapeSpan::Pulse(10),
+            TapeSpan::Stop,
+            TapeSpan::Pulse(10),
+        ];
+        let mut unbroken = TapePlayer::new();
+        unbroken.load_stream(spans.clone());
+        unbroken.play();
+        unbroken.advance_tstates(100);
+        assert!(!unbroken.is_playing(), "the stop span stopped it");
+        assert!(unbroken.ear_level());
+
+        let mut seeking = TapePlayer::new();
+        seeking.load_stream(spans);
+        assert!(seeking.seek_block(BlockSeek::Next, GAP));
+        assert_eq!(seeking.span_index(), unbroken.span_index());
+        assert_eq!(seeking.ear_level(), unbroken.ear_level());
     }
 
     #[test]

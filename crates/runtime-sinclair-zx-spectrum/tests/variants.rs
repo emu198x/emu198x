@@ -1695,7 +1695,7 @@ fn probe_all_variant_banners() {
 }
 
 /// Plays a tape partway, rewinds, and checks the deck is back at the start
-/// and stopped (#1796). Every variant forwards REWIND through its own core,
+/// and stopped; then searches a two-block tape forward and back (#1796). Every variant forwards REWIND through its own core,
 /// so each is checked rather than one standing for all.
 fn rewinds_to_the_start<M: SpectrumMachine>(name: &str, mut runtime: SpectrumRuntime<M>) {
     use runtime_sinclair_zx_spectrum::SpectrumLiveAccess;
@@ -1719,10 +1719,40 @@ fn rewinds_to_the_start<M: SpectrumMachine>(name: &str, mut runtime: SpectrumRun
         "{name}: REWIND goes back to the start"
     );
     assert!(!runtime.tape_is_playing(), "{name}: and stops the tape");
+
+    // Block search on a two-block tape: on to the second, back to the first.
+    use common_sinclair_zx_spectrum::{BlockSeek, SpectrumTapePlayer};
+    let two_blocks = [minimal_tap(), minimal_tap()].concat();
+    load_tape_into_runtime(&mut runtime, &two_blocks);
+    let position =
+        |runtime: &SpectrumRuntime<M>| runtime.machine().tape_player().spectrum_block_position();
+    assert_eq!(
+        position(&runtime),
+        (0, 2),
+        "{name}: two blocks, at the first"
+    );
+    assert!(
+        runtime.tape_seek_block(BlockSeek::Next),
+        "{name}: NEXT moves"
+    );
+    assert_eq!(
+        position(&runtime),
+        (1, 2),
+        "{name}: NEXT reaches the second block"
+    );
+    assert!(
+        runtime.tape_seek_block(BlockSeek::Previous),
+        "{name}: PREVIOUS moves"
+    );
+    assert_eq!(
+        runtime.machine().tape_player().span_index(),
+        0,
+        "{name}: back at the first"
+    );
 }
 
 #[test]
-fn every_variant_rewinds_its_tape_to_the_start() {
+fn every_variant_rewinds_and_searches_its_tape() {
     run_with_large_stack(|| {
         rewinds_to_the_start(
             "16K",

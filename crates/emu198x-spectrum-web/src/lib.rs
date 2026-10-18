@@ -120,6 +120,29 @@ pub fn tape_rewind(machine: &mut SpectrumWebMachine, slot: &str) -> Result<(), S
     Ok(())
 }
 
+/// Searches the tape for the previous or next block, as block search on a
+/// deck would: by the gaps between blocks. Returns whether it moved; a
+/// playing tape plays on from the new place.
+///
+/// Previous goes to the start of the block playing once the tape has moved
+/// into it, and to the block before when it is already at a start (#1796).
+///
+/// # Errors
+///
+/// Returns a message for a slot that is not the tape deck.
+pub fn tape_seek_block(
+    machine: &mut SpectrumWebMachine,
+    slot: &str,
+    direction: runtime_sinclair_zx_spectrum::BlockSeek,
+) -> Result<bool, String> {
+    if slot != DEFAULT_TAPE_AUTOLOAD_SLOT {
+        return Err(format!(
+            "unknown media slot {slot:?}; the tape deck is {DEFAULT_TAPE_AUTOLOAD_SLOT:?}"
+        ));
+    }
+    Ok(machine.runtime_mut().tape_seek_block(direction))
+}
+
 /// The 48K ROM's tape loader: LD-BYTES (`0556`) to the end of LD-EDGE-1, which
 /// stops just short of SAVE-ETC at `0605` (Logan and O'Hara, *The Complete
 /// Spectrum ROM Disassembly*). The loader runs with interrupts off, so while

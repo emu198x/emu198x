@@ -282,6 +282,10 @@ impl<V: AmstradVariant> SpectrumAmstradClassCore<V> {
     pub fn tape_rewind(&mut self) {
         self.tape.rewind();
     }
+    /// Moves the tape to the previous or next block; returns whether it moved.
+    pub fn tape_seek_block(&mut self, direction: common_sinclair_zx_spectrum::BlockSeek) -> bool {
+        self.tape.seek_spectrum_block(direction)
+    }
 
     /// Reset the CPU, paging latches, timing, and audio state. Keeps ROMs,
     /// RAM, and any inserted disk image intact.

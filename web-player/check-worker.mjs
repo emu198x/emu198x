@@ -65,6 +65,11 @@ async function check(kind,roms,media) {
    // REWIND reaches the 48K too (#1796).
    await rpc('rewind','tape-1');await rpc('step');
    await assert.rejects(rpc('rewind','drive-1'),/drive-1/);
+   // Block search on the two-block tape: on to the second and no further.
+   assert.deepEqual(await rpc('seek','tape-1','next'),{moved:true,block:1,blocks:2});
+   assert.deepEqual(await rpc('seek','tape-1','next'),{moved:false,block:1,blocks:2});
+   assert.deepEqual(await rpc('seek','tape-1','previous'),{moved:true,block:0,blocks:2});
+   await assert.rejects(rpc('seek','drive-1','next'),/drive-1/);
   }
   if(kind==='amiga') { await rpc('input',[['move',13,-7],['mouse','left',true],['mouse','left',false]]); await assert.rejects(rpc('load','adf',new Uint8Array(5))); }
   console.log(`${kind}: boot, frames, stereo audio, input and error handling passed (${frame.width}×${frame.height})`);

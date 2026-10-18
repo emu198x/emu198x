@@ -412,6 +412,9 @@ impl SpectrumMachine for Spectrum48k {
     fn tape_rewind(&mut self) {
         self.rewind_tape();
     }
+    fn tape_seek_block(&mut self, direction: common_sinclair_zx_spectrum::BlockSeek) -> bool {
+        self.seek_tape_block(direction)
+    }
     fn recorded_tape_blocks(&self) -> Vec<TapeBlock> {
         Spectrum48k::recorded_tape_blocks(self)
     }
@@ -583,6 +586,9 @@ impl SpectrumMachine for Spectrum16K {
     fn tape_rewind(&mut self) {
         self.rewind_tape();
     }
+    fn tape_seek_block(&mut self, direction: common_sinclair_zx_spectrum::BlockSeek) -> bool {
+        self.seek_tape_block(direction)
+    }
     fn recorded_tape_blocks(&self) -> Vec<TapeBlock> {
         Spectrum16K::recorded_tape_blocks(self)
     }
@@ -752,6 +758,9 @@ impl SpectrumMachine for SpectrumPlus {
     fn tape_rewind(&mut self) {
         self.rewind_tape();
     }
+    fn tape_seek_block(&mut self, direction: common_sinclair_zx_spectrum::BlockSeek) -> bool {
+        self.seek_tape_block(direction)
+    }
     fn recorded_tape_blocks(&self) -> Vec<TapeBlock> {
         SpectrumPlus::recorded_tape_blocks(self)
     }
@@ -915,6 +924,9 @@ impl SpectrumMachine for Spectrum128K {
     }
     fn tape_rewind(&mut self) {
         Spectrum128K::tape_rewind(self);
+    }
+    fn tape_seek_block(&mut self, direction: common_sinclair_zx_spectrum::BlockSeek) -> bool {
+        Spectrum128K::tape_seek_block(self, direction)
     }
     fn recorded_tape_blocks(&self) -> Vec<TapeBlock> {
         Spectrum128K::recorded_tape_blocks(self)
@@ -1101,6 +1113,9 @@ impl SpectrumMachine for SpectrumPlus2 {
     fn tape_rewind(&mut self) {
         SpectrumPlus2::tape_rewind(self);
     }
+    fn tape_seek_block(&mut self, direction: common_sinclair_zx_spectrum::BlockSeek) -> bool {
+        SpectrumPlus2::tape_seek_block(self, direction)
+    }
     fn recorded_tape_blocks(&self) -> Vec<TapeBlock> {
         SpectrumPlus2::recorded_tape_blocks(self)
     }
@@ -1285,6 +1300,9 @@ impl<V: AmstradVariant> SpectrumMachine for SpectrumAmstradClassCore<V> {
     }
     fn tape_rewind(&mut self) {
         SpectrumAmstradClassCore::<V>::tape_rewind(self);
+    }
+    fn tape_seek_block(&mut self, direction: common_sinclair_zx_spectrum::BlockSeek) -> bool {
+        SpectrumAmstradClassCore::<V>::tape_seek_block(self, direction)
     }
     fn recorded_tape_blocks(&self) -> Vec<TapeBlock> {
         SpectrumAmstradClassCore::<V>::recorded_tape_blocks(self)
@@ -1541,6 +1559,9 @@ impl SpectrumMachine for Pentagon128 {
     fn tape_rewind(&mut self) {
         Pentagon128::tape_rewind(self);
     }
+    fn tape_seek_block(&mut self, direction: common_sinclair_zx_spectrum::BlockSeek) -> bool {
+        Pentagon128::tape_seek_block(self, direction)
+    }
     fn recorded_tape_blocks(&self) -> Vec<TapeBlock> {
         Pentagon128::recorded_tape_blocks(self)
     }
@@ -1701,6 +1722,9 @@ impl SpectrumMachine for ScorpionZS256 {
     fn tape_rewind(&mut self) {
         ScorpionZS256::tape_rewind(self);
     }
+    fn tape_seek_block(&mut self, direction: common_sinclair_zx_spectrum::BlockSeek) -> bool {
+        ScorpionZS256::tape_seek_block(self, direction)
+    }
     fn recorded_tape_blocks(&self) -> Vec<TapeBlock> {
         ScorpionZS256::recorded_tape_blocks(self)
     }
@@ -1860,6 +1884,9 @@ impl SpectrumMachine for TimexTC2048 {
     fn tape_rewind(&mut self) {
         TimexTC2048::tape_rewind(self);
     }
+    fn tape_seek_block(&mut self, direction: common_sinclair_zx_spectrum::BlockSeek) -> bool {
+        TimexTC2048::tape_seek_block(self, direction)
+    }
     fn recorded_tape_blocks(&self) -> Vec<TapeBlock> {
         TimexTC2048::recorded_tape_blocks(self)
     }
@@ -2009,6 +2036,9 @@ impl SpectrumMachine for TimexTS2068 {
     }
     fn tape_rewind(&mut self) {
         TimexTS2068::tape_rewind(self);
+    }
+    fn tape_seek_block(&mut self, direction: common_sinclair_zx_spectrum::BlockSeek) -> bool {
+        TimexTS2068::tape_seek_block(self, direction)
     }
     fn recorded_tape_blocks(&self) -> Vec<TapeBlock> {
         TimexTS2068::recorded_tape_blocks(self)
