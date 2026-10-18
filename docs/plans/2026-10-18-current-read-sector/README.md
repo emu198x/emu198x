@@ -101,7 +101,7 @@ captured fixture replay; runtime execution is fresh from a source build, not a
 new distributed-release or full-stack qualification. Other models, drives,
 firmware, geometries, H/N/MT/DTL behavior and raw/index timing remain unqualified.
 
-`evidence/runs.tar.gz` retains 39 safe regular artifacts, including all three ROM
+`evidence/runs.tar.gz` retains 41 safe regular artifacts, including all three ROM
 records, screens, command outputs and build/test logs. `hashes.json` binds every
 member. No firmware, native states or executables are included. Inspect offline:
 
@@ -116,3 +116,10 @@ Run the active controller regressions and current-sector native-state cases:
 cargo test --locked -p nec-upd765a --test read_progress
 cargo test --locked -p runtime-sinclair-zx-spectrum --lib current_read_snapshot
 ```
+
+The complete runtime package suite also passes 331 tests; 62 existing ignored
+cases remain explicitly unexecuted and grant no qualification. Its standing
+integration envelope gate initially failed with `left: 6, right: 5`; it now
+locks the approved v6 contract. Both red/green logs are retained. This follow-up
+changes tests and evidence only; the captured runtime source and binary above
+remain the executed implementation.
