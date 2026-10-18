@@ -253,6 +253,16 @@ pub struct Upd765a {
     /// Reads do not restart this clock: late service cannot shift the stream.
     #[serde(default)]
     exec_timeout: u32,
+    /// Only the selected field is buffered. CRC status is committed after its
+    /// payload completes; unread fields cannot affect results or reread state.
+    read_progress: Option<ReadProgress>,
+}
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+struct ReadProgress {
+    completed: u16,
+    pending_st1: u8,
+    pending_st2: u8,
 }
 
 const fn default_drive_select_mask() -> u8 {
@@ -361,6 +371,7 @@ impl Upd765a {
             reread_key: None,
             reread_count: 0,
             exec_timeout: 0,
+            read_progress: None,
             read_id_index: [0; 4],
         }
     }
@@ -404,7 +415,7 @@ impl Upd765a {
     /// the snapshot.
     ///
     /// Legacy attachment helper for consumers restoring an image separately.
-    /// Spectrum version-5 snapshots serialize live images directly and do not
+    /// Spectrum version-6 snapshots serialize live images directly and do not
     /// call this helper: replaying an old source image would erase writes.
     pub fn reattach_disk(&mut self, drive: usize, image: DiskImage) {
         if drive < 4 {
@@ -498,7 +509,7 @@ impl Upd765a {
                 // Keep the outstanding byte-clock boundary. Host latency must
                 // not delay the following byte or extend its service window.
                 if self.exec_pos >= self.exec_buf.len() {
-                    self.enter_result_phase();
+                    self.finish_read_sector();
                 }
                 byte
             }
@@ -627,270 +638,7 @@ impl Upd765a {
                 self.sector = self.cmd_buf[4];
                 self.start_write_sector();
             }
-            Command::ReadData | Command::ReadDeletedData => {
-                // `drive` indexes our per-drive state (disks/track) and
-                // is masked by the host's wiring (+3 only routes US0,
-                // so US1 is a don't-care). `drive_echo` keeps the
-                // original US0:US1 bits the BIOS sent, so ST0's drive
-                // bits reflect what the host requested even when the
-                // physical drive is an alias.
-                let drive_echo = self.cmd_buf[1] & 0x03;
-                let drive = (self.cmd_buf[1] & self.drive_select_mask) as usize;
-                let head = (self.cmd_buf[1] >> 2) & 0x01;
-                // Real µPD765A reads from the physical cylinder the
-                // head is over (set by the last SeekTrack /
-                // Recalibrate), not from `cmd_buf[2]` — the `C`
-                // parameter is the *expected* cylinder header value
-                // the chip then verifies against the address mark.
-                // Speedlock-protected disks deliberately record
-                // cylinder values that don't match physical track
-                // number, and the loader knows the encoding; using
-                // `cmd_buf[2]` here means we'd look up sectors on the
-                // wrong physical track and miss the protected ones.
-                let track = self.track[drive];
-                let expected_c = self.cmd_buf[2];
-                let sector = self.cmd_buf[4]; // R (start sector ID)
-                let n = self.cmd_buf[5]; // N (sector size code)
-                let eot = self.cmd_buf[6]; // EOT (last sector to read)
-                // Match the bounded N<=7 sector model used by Write, Scan
-                // and Read Track before shifting or reserving guest-sized
-                // buffers. Larger encodings are not hardware-qualified:
-                // Fuse clamps at N8, while MAME caps >7 at 16384 bytes.
-                // Reject explicitly rather than panic or invent a size.
-                if n > 7 {
-                    self.st0 = 0x40 | (head << 2) | drive_echo;
-                    self.st1 = 0x04;
-                    self.st2 = 0;
-                    self.setup_result_read(expected_c, head, sector, n);
-                    return;
-                }
-                let sector_size = 128usize << n;
-
-                // Command byte carries MT (bit 7), MFM (bit 6) and SK
-                // (bit 5). SK changes how the chip handles a sector
-                // whose recorded data mark *doesn't* match the
-                // command's expected mark: SK=1 → skip silently and
-                // advance R, SK=0 → read it anyway but set ST2.CM in
-                // the result. Speedlock probes the disk by issuing
-                // both commands and watching which sectors deliver
-                // data; getting SK or the mark-match wrong shows up
-                // as a CRC mismatch in the loader's check pass.
-                let cmd_byte = self.cmd_buf[0];
-                let sk = (cmd_byte & 0x20) != 0;
-                let want_deleted = matches!(self.command, Command::ReadDeletedData);
-
-                self.head = head;
-                self.sector = sector;
-
-                // Multi-sector read: real µPD765A reads sectors R..=EOT
-                // back-to-back in one Execution phase, only stopping
-                // (and entering Result) when R passes EOT or the host
-                // signals TC. The +3 BIOS's second-stage loader relies
-                // on this — it asks for sectors 2..9 in a single
-                // command and would miss seven sectors of program data
-                // if we stopped after the first.
-                let mut buf = Vec::with_capacity(sector_size * 8);
-                let mut missing_after_some = false;
-                let mut cylinder_error = 0;
-                // Did at least one sector during this run have a
-                // mismatched mark relative to the command? When this
-                // is set (and SK=0) the chip sets ST2.CM in the
-                // result phase, terminating after that sector.
-                let mut hit_mark_mismatch = false;
-                // Recorded ST1/ST2 from the last sector delivered.
-                // The chip OR's the address-mark error bits from each
-                // sector it reads into the eventual result-phase ST1
-                // and ST2 — so CRC errors recorded in the EDSK SIL
-                // ("this sector has bad data CRC") surface to the
-                // host exactly as the real drive would. Speedlock
-                // probes by reading sectors expected to flag DE/DD
-                // and bails when the chip claims a clean read.
-                let mut acc_st1: u8 = 0;
-                let mut acc_st2: u8 = 0;
-                let mut hit_data_error = false;
-                let mut reached_eot = false;
-                let mut r = sector;
-                // On no-TC EOT, and on errors, R remains at the final
-                // sector encountered. NEC Table 2 describes processor/TC
-                // termination instead; +3 never supplies TC. Fuse
-                // start_read_data and MAME SECTOR_READ retain EOT R.
-                // Every break path assigns result_r.
-                let result_r;
-                loop {
-                    // Look up the recorded sector entry — we need its
-                    // ST2 to decide whether the mark matches before
-                    // copying data into the exec buffer.
-                    let sectors = self
-                        .disks
-                        .get(drive)
-                        .and_then(|d| d.as_ref())
-                        .and_then(|img| img.tracks.get(head as usize))
-                        .and_then(|side| side.get(track as usize))
-                        .map(|trk| trk.sectors.as_slice())
-                        .unwrap_or(&[]);
-                    // Search past a wrong-cylinder ID: a later ID may
-                    // still match. C is the recorded header, never the
-                    // physical seek position. NEC December 1978 p18:
-                    // ND accompanies WC; differing C=FF also sets BC.
-                    let sec = sectors.iter().find(|s| s.id == r && s.c == expected_c);
-                    if sec.is_none() {
-                        for candidate in sectors.iter().filter(|s| s.c != expected_c) {
-                            cylinder_error |= 0x10; // WC
-                            if candidate.c == 0xff {
-                                cylinder_error |= 0x02; // BC
-                            }
-                        }
-                    }
-
-                    let Some(sec) = sec else {
-                        // Sector ID not found on this track. For
-                        // multi-sector runs we treat the first miss
-                        // as a hard stop (real chip sets ST1.ND and
-                        // terminates with abnormal completion). The
-                        // result-phase R points at the missing sector
-                        // so the host can see exactly where the run
-                        // gave up.
-                        if !buf.is_empty() {
-                            missing_after_some = true;
-                        }
-                        result_r = r;
-                        break;
-                    };
-
-                    let sec_is_deleted = (sec.st2 & ST2_CM) != 0;
-                    let mark_match = sec_is_deleted == want_deleted;
-                    if fdc_trace_enabled() {
-                        eprintln!(
-                            "[FDC-SEC] r={r:#04x} (track={track} head={head}) recorded_st1={:#04x} recorded_st2={:#04x} sec_is_deleted={sec_is_deleted} want_deleted={want_deleted} mark_match={mark_match} data_len={} sk={sk}",
-                            sec.st1,
-                            sec.st2,
-                            sec.data.len(),
-                        );
-                    }
-                    if !mark_match {
-                        if sk {
-                            // Skip this sector silently, advance R.
-                            // The real chip can still terminate at EOT
-                            // even though it skipped, so we honour the
-                            // same loop end condition.
-                            if r >= eot {
-                                result_r = r.wrapping_add(1);
-                                break;
-                            }
-                            r = r.wrapping_add(1);
-                            continue;
-                        }
-                        // SK=0: read the sector but flag CM and
-                        // terminate after this one (datasheet: "read
-                        // ID information…until the FDC encounters
-                        // mismatch, then stop").
-                        hit_mark_mismatch = true;
-                    }
-
-                    let take = sec.data.len().min(sector_size);
-                    buf.extend_from_slice(&sec.data[..take]);
-                    if take < sector_size {
-                        let fill = sec.data.last().copied().unwrap_or(0);
-                        buf.resize(buf.len() + (sector_size - take), fill);
-                    }
-
-                    // Marginal-encoding model: on a sector whose
-                    // recorded ST1.DE / ST2.DD flags marginal magnetic
-                    // encoding, vary the bytes deterministically across
-                    // re-reads. Real silicon on a marginal sector
-                    // returns different bytes each read because the
-                    // read amplifier's hysteresis flips on noise around
-                    // the flux threshold; we model that physics so
-                    // Speedlock-class protections that re-read the same
-                    // sector and check for byte differences can satisfy
-                    // their check without weak-aware EDSK data. See
-                    // `knowledge/decisions/marginal-encoding-model.md`.
-                    let sector_marginal = (sec.st1 & 0x20) != 0 || (sec.st2 & 0x20) != 0;
-                    let read_key = (drive, track, head, r);
-                    let read_count = if self.reread_key == Some(read_key) {
-                        self.reread_count = self.reread_count.saturating_add(1);
-                        self.reread_count
-                    } else {
-                        self.reread_key = Some(read_key);
-                        self.reread_count = 0;
-                        0
-                    };
-                    if sector_marginal && read_count > 0 {
-                        let start = buf.len() - sector_size;
-                        apply_marginal_variation(&mut buf[start..], read_count);
-                    }
-
-                    // Mix in whatever error bits the SIL recorded for
-                    // this sector. DE (ST1.5) / DD (ST2.5) terminate
-                    // the multi-sector run the same way CM does — the
-                    // chip stops on the first sector whose data field
-                    // has a CRC error.
-                    acc_st1 |= sec.st1;
-                    acc_st2 |= sec.st2;
-                    let sector_has_data_error = (sec.st1 & 0x20) != 0 || (sec.st2 & 0x20) != 0;
-                    if sector_has_data_error {
-                        hit_data_error = true;
-                    }
-
-                    if hit_mark_mismatch || sector_has_data_error {
-                        // Abnormal-termination path — chip leaves R at
-                        // the offending sector, doesn't pre-increment.
-                        result_r = r;
-                        break;
-                    }
-                    if r >= eot {
-                        // The host supplied no terminal count. Report
-                        // EN after the final byte is drained, retaining
-                        // the last sector's ID rather than advancing R.
-                        reached_eot = true;
-                        result_r = r;
-                        break;
-                    }
-                    r = r.wrapping_add(1);
-                }
-
-                if !buf.is_empty() {
-                    self.exec_buf = buf;
-                    self.exec_pos = 0;
-                    self.phase = Phase::Execution;
-                    self.start_read_preamble();
-                    self.st0 = (head << 2) | drive_echo;
-                    // Carry forward the OR'd-in error bits from every
-                    // sector read in the run, then layer the
-                    // multi-sector outcome flags on top.
-                    self.st1 = acc_st1;
-                    self.st2 = (acc_st2 & !ST2_CM) | cylinder_error; // CM set below
-                    if missing_after_some {
-                        self.st0 |= 0x40; // Abnormal termination
-                        self.st1 |= 0x04; // ND — caller learns where the run stopped
-                    } else if hit_mark_mismatch {
-                        // Datasheet: CM set + Abnormal Termination
-                        // when SK=0 and the mark didn't match.
-                        self.st0 |= 0x40;
-                        self.st2 |= ST2_CM;
-                    } else if hit_data_error {
-                        // Real chip flags Abnormal Termination when a
-                        // sector's data CRC fails, even though it
-                        // still delivers the (corrupted) bytes.
-                        self.st0 |= 0x40;
-                    } else if reached_eot && self.st1 == 0 && self.st2 == 0 {
-                        // NEC December 1978 p17: access beyond the final
-                        // sector sets EN. No TC is exposed by this core;
-                        // Fuse/MAME distinguish this from TC completion.
-                        self.st0 |= 0x40;
-                        self.st1 |= 0x80;
-                    }
-                    self.cmd_buf[4] = result_r;
-                } else {
-                    // No sector found at all (or every one was
-                    // skipped via SK) — skip Execution and go straight
-                    // to Result with abnormal termination.
-                    self.st0 = 0x40 | (head << 2) | drive_echo;
-                    self.st1 = 0x04;
-                    self.st2 = cylinder_error;
-                    self.setup_result_read(expected_c, head, sector, n);
-                }
-            }
+            Command::ReadData | Command::ReadDeletedData => self.start_read(),
             Command::Recalibrate => {
                 let drive_echo = self.cmd_buf[1] & 0x03;
                 let drive = (self.cmd_buf[1] & self.drive_select_mask) as usize;
@@ -1214,51 +962,192 @@ impl Upd765a {
     // count, not a sector-ID limit. DSK represents ordered payloads and ID/error
     // metadata, not raw gaps, index timing or flux. Never invent those bytes.
     fn start_read_track(&mut self) {
-        let drive = usize::from(self.cmd_buf[1] & self.drive_select_mask);
-        let head = usize::from((self.cmd_buf[1] >> 2) & 1);
-        self.st0 = 0x40 | (self.cmd_buf[1] & 7);
+        self.start_read();
+    }
+
+    fn start_read(&mut self) {
+        self.st0 = self.cmd_buf[1] & 7;
         self.st1 = 0;
         self.st2 = 0;
+        self.head = (self.cmd_buf[1] >> 2) & 1;
+        self.sector = self.cmd_buf[4];
+        self.read_progress = Some(ReadProgress {
+            completed: 0,
+            pending_st1: 0,
+            pending_st2: 0,
+        });
+        if self.prepare_read_sector() {
+            self.phase = Phase::Execution;
+            self.start_read_preamble();
+        }
+    }
+
+    // Select one represented field. Preserve the existing bounded size, SK,
+    // fill and physical-track rules; do not predict the rest of the command.
+    fn prepare_read_sector(&mut self) -> bool {
+        let drive = usize::from(self.cmd_buf[1] & self.drive_select_mask);
+        let track = self.track[drive];
+        let is_track = self.command == Command::ReadTrack;
         self.exec_buf.clear();
         self.exec_pos = 0;
-        let Some(image) = &self.disks[drive] else {
-            self.st0 |= 0x08;
-            self.enter_result_phase();
+        let completed = self.read_progress.as_ref().map_or(0, |p| p.completed);
+        loop {
+            let sectors = self.disks[drive]
+                .as_ref()
+                .and_then(|image| image.tracks.get(usize::from(self.head)))
+                .and_then(|side| side.get(usize::from(track)))
+                .map_or(&[][..], |track| track.sectors.as_slice());
+            if is_track && self.disks[drive].is_none() {
+                self.st0 |= 8;
+                self.read_result();
+                return false;
+            }
+            if self.cmd_buf[5] > 7 || (is_track && (sectors.is_empty() || self.cmd_buf[6] == 0)) {
+                self.st1 = if is_track { 1 } else { 4 };
+                self.read_result();
+                return false;
+            }
+            let sec = if is_track {
+                sectors.get(usize::from(completed) % sectors.len())
+            } else {
+                sectors
+                    .iter()
+                    .find(|s| s.id == self.sector && s.c == self.cmd_buf[2])
+            };
+            let Some(sec) = sec else {
+                // An ID search is now reached only after preceding data is
+                // consumed. Wrong C=FF also sets BC (NEC Dec 1978 p18).
+                self.st1 |= 4;
+                for candidate in sectors.iter().filter(|s| s.c != self.cmd_buf[2]) {
+                    self.st2 |= 0x10 | if candidate.c == 0xff { 2 } else { 0 };
+                }
+                self.read_result();
+                return false;
+            };
+            let mark_mismatch =
+                (sec.st2 & ST2_CM != 0) != (self.command == Command::ReadDeletedData);
+            if !is_track && mark_mismatch && self.cmd_buf[0] & 0x20 != 0 {
+                if self.sector >= self.cmd_buf[6] {
+                    // Keep the existing all-skipped/after-data convention.
+                    if completed == 0 {
+                        self.sector = self.cmd_buf[4];
+                        self.st1 |= 4;
+                    } else {
+                        self.sector = self.sector.wrapping_add(1);
+                    }
+                    self.read_result();
+                    return false;
+                }
+                self.sector = self.sector.wrapping_add(1);
+                continue;
+            }
+            let size = 128_usize << self.cmd_buf[5];
+            let take = sec.data.len().min(size);
+            self.exec_buf.extend_from_slice(&sec.data[..take]);
+            self.exec_buf.resize(
+                size,
+                if is_track {
+                    0
+                } else {
+                    sec.data.last().copied().unwrap_or(0)
+                },
+            );
+            if let Some(progress) = &mut self.read_progress {
+                progress.pending_st1 = sec.st1;
+                progress.pending_st2 = if is_track {
+                    sec.st2
+                } else {
+                    (sec.st2 & !ST2_CM) | if mark_mismatch { ST2_CM } else { 0 }
+                };
+            }
+            if is_track {
+                // MAME read_track_continue recomputes ND for each ID, while
+                // retaining prior errors. Fuse differs on DE/returned CHRN;
+                // see the retained investigation, not a conformance claim.
+                self.st1 &= !4;
+                if (sec.c, sec.h, sec.id, sec.n)
+                    != (
+                        self.cmd_buf[2],
+                        self.cmd_buf[3],
+                        self.cmd_buf[4],
+                        self.cmd_buf[5],
+                    )
+                {
+                    self.st1 |= 4;
+                }
+            }
+            self.write_start_pending = true;
+            return true;
+        }
+    }
+
+    fn begin_read_field(&mut self) {
+        let Some(progress) = &self.read_progress else {
             return;
         };
-        let sectors = image
-            .tracks
-            .get(head)
-            .and_then(|side| side.get(usize::from(self.track[drive])))
-            .map_or(&[][..], |track| track.sectors.as_slice());
-        if sectors.is_empty() || self.cmd_buf[5] > 7 || self.cmd_buf[6] == 0 {
-            self.st1 = 1; // MA: no represented ID stream.
-            self.enter_result_phase();
-            return;
-        }
-        let size = 128_usize << self.cmd_buf[5];
-        for sector in sectors.iter().cycle().take(usize::from(self.cmd_buf[6])) {
-            // MAME updates ND for each ID comparison but continues reading.
-            self.st1 = (self.st1 & !4) | sector.st1;
-            if (sector.c, sector.h, sector.id, sector.n)
-                != (
-                    self.cmd_buf[2],
-                    self.cmd_buf[3],
-                    self.cmd_buf[4],
-                    self.cmd_buf[5],
-                )
-            {
-                self.st1 |= 4;
+        self.st2 |= progress.pending_st2 & ST2_CM;
+        if self.command != Command::ReadTrack {
+            let drive = usize::from(self.cmd_buf[1] & self.drive_select_mask);
+            let key = (drive, self.track[drive], self.head, self.sector);
+            if self.reread_key == Some(key) {
+                self.reread_count = self.reread_count.saturating_add(1);
+            } else {
+                self.reread_key = Some(key);
+                self.reread_count = 0;
             }
-            self.st2 |= sector.st2;
-            let start = self.exec_buf.len();
-            self.exec_buf
-                .extend_from_slice(&sector.data[..sector.data.len().min(size)]);
-            self.exec_buf.resize(start + size, 0);
+            // Existing Fuse-derived marginal recipe, applied only when this
+            // field is actually visited. No future field advances its counter.
+            if (progress.pending_st1 | progress.pending_st2) & 0x20 != 0 && self.reread_count > 0 {
+                apply_marginal_variation(&mut self.exec_buf, self.reread_count);
+            }
         }
-        self.st1 |= 0x80; // EOT without terminal count.
-        self.phase = Phase::Execution;
-        self.start_read_preamble();
+    }
+
+    fn finish_read_sector(&mut self) {
+        let Some(progress) = &mut self.read_progress else {
+            return;
+        };
+        self.st1 |= progress.pending_st1;
+        self.st2 |= progress.pending_st2;
+        progress.completed += 1;
+        if self.command == Command::ReadTrack {
+            if progress.completed >= u16::from(self.cmd_buf[6]) {
+                self.st1 |= 0x80;
+                self.read_result();
+                return;
+            }
+        } else {
+            if (self.st1 | self.st2) & 0x20 != 0 || self.st2 & ST2_CM != 0 {
+                self.read_result();
+                return;
+            }
+            if self.sector >= self.cmd_buf[6] {
+                if self.st1 == 0 && self.st2 == 0 {
+                    self.st1 |= 0x80;
+                }
+                self.read_result();
+                return;
+            }
+            self.sector = self.sector.wrapping_add(1);
+        }
+        // Keep the pending byte-clock boundary, including host latency. This
+        // does not add a new inter-sector timing model.
+        self.prepare_read_sector();
+    }
+
+    fn read_result(&mut self) {
+        if self.st1 != 0 || self.st2 != 0 || self.command == Command::ReadTrack {
+            self.st0 |= 0x40;
+        }
+        let r = if self.command == Command::ReadTrack {
+            self.cmd_buf[4]
+        } else {
+            self.sector
+        };
+        self.exec_timeout = 0;
+        self.write_start_pending = false;
+        self.read_progress = None;
+        self.setup_result_read(self.cmd_buf[2], self.head, r, self.cmd_buf[5]);
     }
 
     fn start_read_preamble(&mut self) {
@@ -1269,34 +1158,6 @@ impl Upd765a {
         self.write_start_pending = true;
         self.exec_timeout =
             self.write_byte_ticks() * if self.cmd_buf[0] & 0x40 != 0 { 39 } else { 19 };
-    }
-
-    fn read_overrun_control_mark(&self) -> u8 {
-        let n = self.cmd_buf[5];
-        let size = 128_usize << n;
-        if self.command != Command::ReadTrack {
-            // A mismatched mark terminates the prepared read at that sector.
-            // It is encountered only when the final sector's bytes arrive.
-            return if self.exec_pos / size == (self.exec_buf.len() - 1) / size {
-                self.st2 & ST2_CM
-            } else {
-                0
-            };
-        }
-        let drive = usize::from(self.cmd_buf[1] & self.drive_select_mask);
-        let head = usize::from((self.cmd_buf[1] >> 2) & 1);
-        self.disks[drive]
-            .as_ref()
-            .and_then(|image| image.tracks.get(head))
-            .and_then(|side| side.get(usize::from(self.track[drive])))
-            .map_or(0, |track| {
-                track
-                    .sectors
-                    .iter()
-                    .cycle()
-                    .take(self.exec_pos / size + 1)
-                    .fold(0, |marks, sector| marks | (sector.st2 & ST2_CM))
-            })
     }
 
     fn abort_write_for_media_change(&mut self, drive: usize) {
@@ -1679,15 +1540,6 @@ impl Upd765a {
         }
     }
 
-    fn enter_result_phase(&mut self) {
-        let _drive = (self.cmd_buf[1] & 0x03) as usize;
-        let track = self.cmd_buf[2];
-        let head = (self.cmd_buf[1] >> 2) & 0x01;
-        let sector = self.cmd_buf[4];
-        let n = self.cmd_buf[5];
-        self.setup_result_read(track, head, sector, n);
-    }
-
     fn setup_result_read(&mut self, track: u8, head: u8, sector: u8, n: u8) {
         self.result_buf.clear();
         self.result_buf.push(self.st0);
@@ -1820,19 +1672,15 @@ impl Peripheral for Upd765a {
             self.exec_timeout = self.exec_timeout.saturating_sub(1);
             if self.exec_timeout == 0 {
                 if self.write_start_pending {
+                    self.begin_read_field();
                     self.write_start_pending = false;
                     self.main_status |= MSR_RQM;
                     self.exec_timeout = self.write_byte_ticks();
                 } else if self.main_status & MSR_RQM != 0 {
-                    // This model exposes one byte per FM/MFM byte slot. NEC
-                    // December 1978 pp12,17 identifies missed service as OR,
-                    // not EN. Exact sub-byte service-window timing, search,
-                    // gaps and interrupted CHRN remain separate conformance
-                    // work. Discard outcomes predicted from unconsumed data.
-                    self.st0 = (self.st0 & 0x3f) | 0x40;
-                    self.st1 = 0x10;
-                    self.st2 = self.read_overrun_control_mark();
-                    self.enter_result_phase();
+                    // Only encountered marks and completed field errors are
+                    // present. A later field cannot contribute EN/CRC/CHRN.
+                    self.st1 |= 0x10;
+                    self.read_result();
                 } else {
                     self.main_status |= MSR_RQM;
                     self.exec_timeout = self.write_byte_ticks();

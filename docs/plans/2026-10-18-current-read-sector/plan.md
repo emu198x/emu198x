@@ -17,11 +17,9 @@ remain separate under #1831. Keep the Fuse Scan candidate unsubmitted.
    touch unread later sectors or their reread counters. Read Track keeps its
    independently observed command-CHRN result convention; physical ordinal is
    internal progress, not an invented result-header rule.
-3. Proposed serialized `ReadProgress` holds the current field's pending status
-   and Read Track ordinal. This is conditional on explicit user approval of
-   Spectrum snapshot v5→v6, rejecting v5; CPC remains unchanged. Without that
-   answer, finish independent regressions/reference work and leave dependent
-   code pending. No new dependencies or host interfaces.
+3. Approved 2026-10-18: serialized `ReadProgress` holds the current field's pending status
+   and Read Track ordinal. User approved
+   Spectrum snapshot v5→v6, rejecting v5; CPC remains unchanged. No new dependencies or host interfaces.
 4. Add public-register tests before/within/between sectors, future-error leakage,
    mark/CRC combinations and result draining. Add runtime snapshot tests at
    pending first request, RQM high/low, sector transitions and errors/results in
