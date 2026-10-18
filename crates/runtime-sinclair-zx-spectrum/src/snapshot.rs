@@ -38,17 +38,20 @@ use crate::runtime::{DiskCacheEntry, SpectrumMachine, SpectrumRuntime};
 /// tape's `StopRelease` state (#1633), so a snapshot taken in the frame
 /// after the tape stops still releases the input on time. Postcard is
 /// positional, so version 3 machines no longer decode and are rejected.
-/// **Version 5** (current): the FDC carries live mounted disks, protection and write
+/// **Version 5**: the FDC carries live mounted disks, protection and write
 /// transfer state. Version 4 is rejected before decode; its raw image cache
 /// cannot represent writes. Approved for the first +3 ROM SAVE qualification.
-const SNAPSHOT_VERSION: u32 = 5;
+/// **Version 6** (current): the FDC preserves per-sector read progress and
+/// encountered status separately from future sectors. Version 5 lacks that
+/// positional controller state and is rejected before payload decode.
+const SNAPSHOT_VERSION: u32 = 6;
 
 /// Borrowed snapshot envelope used by [`encode`]. Generic over any
 /// `M: Serialize`; the `SpectrumMachine` bound is enforced at the
 /// `encode`/`decode` entry points so the envelope stays usable from
 /// pure-serde contexts.
 #[derive(Serialize)]
-struct SpectrumRuntimeSnapshotRefV5<'a, M: Serialize> {
+struct SpectrumRuntimeSnapshotRefV6<'a, M: Serialize> {
     version: u32,
     profile_id: &'a str,
     time: MachineTime,
@@ -60,7 +63,7 @@ struct SpectrumRuntimeSnapshotRefV5<'a, M: Serialize> {
 /// Owned snapshot envelope used by [`decode`]. Generic over any
 /// `M: Deserialize<'de>`.
 #[derive(Deserialize)]
-struct SpectrumRuntimeSnapshotV5<M> {
+struct SpectrumRuntimeSnapshotV6<M> {
     version: u32,
     profile_id: String,
     time: MachineTime,
@@ -78,7 +81,7 @@ struct SpectrumRuntimeSnapshotV5<M> {
 pub(crate) fn encode<M: SpectrumMachine>(
     runtime: &SpectrumRuntime<M>,
 ) -> Result<Vec<u8>, MachineError> {
-    postcard::to_allocvec(&SpectrumRuntimeSnapshotRefV5 {
+    postcard::to_allocvec(&SpectrumRuntimeSnapshotRefV6 {
         version: SNAPSHOT_VERSION,
         profile_id: runtime.profile().profile_id.as_str(),
         time: runtime.time_value(),
@@ -112,7 +115,7 @@ pub(crate) fn decode<M: SpectrumMachine>(
         });
     }
 
-    let snapshot: SpectrumRuntimeSnapshotV5<M> =
+    let snapshot: SpectrumRuntimeSnapshotV6<M> =
         postcard::from_bytes(bytes).map_err(|reason| MachineError::InvalidSnapshot {
             reason: format!("decode failed: {reason}"),
         })?;
@@ -156,7 +159,7 @@ mod tests {
         // the corresponding decode error paths without needing to touch
         // the real envelope schema.
         let machine = Spectrum128K::new();
-        postcard::to_allocvec(&SpectrumRuntimeSnapshotRefV5 {
+        postcard::to_allocvec(&SpectrumRuntimeSnapshotRefV6 {
             version,
             profile_id,
             time: MachineTime::default(),
@@ -220,8 +223,26 @@ mod tests {
         assert!(
             error
                 .to_string()
-                .contains("unsupported snapshot version 4; expected 5")
+                .contains("unsupported snapshot version 4; expected 6")
         );
+    }
+
+    #[test]
+    fn decode_rejects_version_5_before_payload_decode_without_changing_runtime() {
+        let mut runtime = SpectrumPlus3Runtime::blank();
+        let before = runtime
+            .snapshot()
+            .expect("snapshot before rejected restore");
+        let bytes = postcard::to_allocvec(&5_u32).expect("version encodes");
+        let error = runtime
+            .restore(&bytes)
+            .expect_err("version 5 lacks current read progress");
+        assert!(
+            error
+                .to_string()
+                .contains("unsupported snapshot version 5; expected 6")
+        );
+        assert_eq!(runtime.snapshot().expect("runtime unchanged"), before);
     }
 
     #[test]
@@ -375,6 +396,207 @@ mod tests {
         let observed: Vec<_> = (0..512).map(|_| read_fdc_byte(runtime)).collect();
         assert_eq!(observed, expected);
         let _ = drain_fdc_result(runtime);
+    }
+
+    fn two_sector_read_runtime(opcode: u8, first_crc: bool) -> (SpectrumPlus3Runtime, Vec<u8>) {
+        use emu198x_shell::{MediaImage, MediaKind, MediaSet};
+        let mut dsk = synthetic_minimal_dsk();
+        dsk.resize(1536, 0);
+        dsk[0x32..0x34].copy_from_slice(&1280_u16.to_le_bytes());
+        dsk[0x114] = 2;
+        dsk[0x115] = 2;
+        let deleted = if opcode == 0x4c { 0x40 } else { 0 };
+        let crc = if first_crc { 0x20 } else { 0 };
+        dsk[0x118..0x120].copy_from_slice(&[0, 0, 1, 2, crc, deleted | crc, 0, 2]);
+        dsk[0x120..0x128].copy_from_slice(&[0, 0, 2, 2, 0, deleted, 0, 2]);
+        dsk[512..1024].fill(0x21);
+        dsk[1024..1536].fill(0x22);
+        let mut runtime = SpectrumPlus3Runtime::blank();
+        let mut media = MediaSet::new();
+        media.push(MediaImage::new("disk-a", MediaKind::Disk, &dsk));
+        runtime.load_media(&media).expect("mount two sectors");
+        (runtime, dsk)
+    }
+
+    fn await_fdc_read_request(runtime: &mut SpectrumPlus3Runtime) {
+        use common_sinclair_zx_spectrum::peripheral::Peripheral;
+        for _ in 0..10_000 {
+            if runtime.machine().fdc.read_status() & 0x80 != 0 {
+                assert_eq!(runtime.machine().fdc.read_status(), 0xf0);
+                return;
+            }
+            assert_eq!(runtime.machine().fdc.read_status(), 0x70);
+            runtime.machine_mut().fdc.tick(0);
+        }
+        panic!("read request deadline");
+    }
+
+    #[test]
+    fn current_read_snapshot_resumes_before_within_and_between_sectors() {
+        for opcode in [0x46, 0x4c, 0x42] {
+            for accepted in [0, 1, 511, 512, 513, 1023] {
+                for at_request in [false, true] {
+                    let (mut original, source) = two_sector_read_runtime(opcode, false);
+                    let live_before = original.export_media("disk-a", "edsk").expect("live media");
+                    send_fdc_command(&mut original, &[opcode, 0, 0, 0, 1, 2, 2, 0x2a, 0xff]);
+                    for i in 0..accepted {
+                        assert_eq!(read_fdc_byte(&mut original), 0x21 + (i / 512) as u8);
+                    }
+                    if at_request {
+                        await_fdc_read_request(&mut original);
+                    }
+                    let saved = original.snapshot().expect("two-sector read checkpoint");
+                    let mut restored = SpectrumPlus3Runtime::blank();
+                    restored.restore(&saved).expect("restore current sector");
+                    assert_eq!(restored.snapshot().expect("unchanged checkpoint"), saved);
+                    for runtime in [&mut original, &mut restored] {
+                        for i in accepted..1024 {
+                            assert_eq!(read_fdc_byte(runtime), 0x21 + (i / 512) as u8);
+                        }
+                        assert_eq!(
+                            drain_fdc_result(runtime),
+                            [
+                                0x40,
+                                if opcode == 0x42 { 0x84 } else { 0x80 },
+                                0,
+                                0,
+                                0,
+                                if opcode == 0x42 { 1 } else { 2 },
+                                2,
+                            ]
+                        );
+                        assert_eq!(runtime.machine().fdc.read_status(), 0x80);
+                        assert_eq!(runtime.disk_images()[0].bytes, source);
+                        assert_eq!(
+                            runtime
+                                .export_media("disk-a", "edsk")
+                                .expect("unchanged live media"),
+                            live_before
+                        );
+                    }
+                    assert_eq!(
+                        restored.snapshot().expect("resumed state"),
+                        original.snapshot().expect("uninterrupted state")
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn current_read_snapshot_retains_position_errors_and_remaining_overrun_deadline() {
+        use common_sinclair_zx_spectrum::peripheral::Peripheral;
+        for (opcode, first_crc) in [(0x46, false), (0x4c, false), (0x42, false), (0x42, true)] {
+            for accepted in [0, 1, 511, 512, 513, 1023] {
+                for at_request in [false, true] {
+                    let (mut original, source) = two_sector_read_runtime(opcode, first_crc);
+                    let live_before = original.export_media("disk-a", "edsk").expect("live media");
+                    send_fdc_command(&mut original, &[opcode, 0, 0, 0, 1, 2, 2, 0x2a, 0xff]);
+                    for i in 0..accepted {
+                        assert_eq!(read_fdc_byte(&mut original), 0x21 + (i / 512) as u8);
+                    }
+                    if at_request {
+                        await_fdc_read_request(&mut original);
+                        for _ in 0..113 {
+                            original.machine_mut().fdc.tick(0);
+                        }
+                        assert_eq!(original.machine().fdc.read_status(), 0xf0);
+                    }
+                    let saved = original.snapshot().expect("read error checkpoint");
+                    let mut restored = SpectrumPlus3Runtime::blank();
+                    restored
+                        .restore(&saved)
+                        .expect("restore read error progress");
+                    assert_eq!(restored.snapshot().expect("unchanged checkpoint"), saved);
+                    let later_sector = accepted >= 512;
+                    let completed_crc = first_crc && later_sector;
+                    for runtime in [&mut original, &mut restored] {
+                        await_fdc_read_request(runtime);
+                        for _ in 0..if at_request { 1 } else { 114 } {
+                            runtime.machine_mut().fdc.tick(0);
+                        }
+                        assert_eq!(
+                            drain_fdc_result(runtime),
+                            [
+                                0x40,
+                                0x10 | if opcode == 0x42 && later_sector { 4 } else { 0 }
+                                    | if completed_crc { 0x20 } else { 0 },
+                                if completed_crc { 0x20 } else { 0 },
+                                0,
+                                0,
+                                if opcode != 0x42 && later_sector { 2 } else { 1 },
+                                2,
+                            ]
+                        );
+                        assert_eq!(runtime.machine().fdc.read_status(), 0x80);
+                        assert_eq!(runtime.disk_images()[0].bytes, source);
+                        assert_eq!(
+                            runtime
+                                .export_media("disk-a", "edsk")
+                                .expect("read-only live media"),
+                            live_before
+                        );
+                    }
+                    assert_eq!(
+                        restored.snapshot().expect("resumed error state"),
+                        original.snapshot().expect("uninterrupted error state")
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn current_read_snapshot_resumes_partial_normal_and_overrun_results() {
+        use common_sinclair_zx_spectrum::peripheral::Peripheral;
+        for opcode in [0x46, 0x4c, 0x42] {
+            for overrun in [false, true] {
+                for drained in [0, 1, 3, 6] {
+                    let (mut original, source) = two_sector_read_runtime(opcode, false);
+                    send_fdc_command(&mut original, &[opcode, 0, 0, 0, 1, 2, 2, 0x2a, 0xff]);
+                    let accepted = if overrun { 513 } else { 1024 };
+                    for i in 0..accepted {
+                        assert_eq!(read_fdc_byte(&mut original), 0x21 + (i / 512) as u8);
+                    }
+                    if overrun {
+                        await_fdc_read_request(&mut original);
+                        for _ in 0..114 {
+                            original.machine_mut().fdc.tick(0);
+                        }
+                    }
+                    let expected = [
+                        0x40,
+                        (if overrun { 0x10 } else { 0x80 }) | if opcode == 0x42 { 4 } else { 0 },
+                        0,
+                        0,
+                        0,
+                        if opcode == 0x42 { 1 } else { 2 },
+                        2,
+                    ];
+                    for &byte in &expected[..drained] {
+                        assert_eq!(original.machine().fdc.read_status(), 0xd0);
+                        assert_eq!(original.machine_mut().fdc.read_data(), byte);
+                    }
+                    let saved = original.snapshot().expect("partial read result");
+                    let mut restored = SpectrumPlus3Runtime::blank();
+                    restored.restore(&saved).expect("restore result cursor");
+                    assert_eq!(restored.snapshot().expect("unchanged result"), saved);
+                    for runtime in [&mut original, &mut restored] {
+                        for &byte in &expected[drained..] {
+                            assert_eq!(runtime.machine().fdc.read_status(), 0xd0);
+                            assert_eq!(runtime.machine_mut().fdc.read_data(), byte);
+                        }
+                        assert_eq!(runtime.machine().fdc.read_status(), 0x80);
+                        assert_eq!(runtime.machine_mut().fdc.read_data(), 0xff);
+                        assert_eq!(runtime.disk_images()[0].bytes, source);
+                    }
+                    assert_eq!(
+                        restored.snapshot().expect("resumed result complete"),
+                        original.snapshot().expect("uninterrupted result complete")
+                    );
+                }
+            }
+        }
     }
 
     #[test]
@@ -669,20 +891,28 @@ mod tests {
     }
 
     #[test]
-    fn released_v0330_controller_state_keeps_its_layout_and_continuation() {
-        // Synthetic controller only: captured from 69f80d939, no ROM/CPU/RAM.
-        // Write Data has accepted 180 bytes; the next byte request is ready.
-        let bytes = include_bytes!("../tests/fixtures/upd765-v0330-write.postcard");
-        let mut runtime = SpectrumPlus3Runtime::blank();
-        runtime.machine_mut().fdc = postcard::from_bytes(bytes).expect("released controller state");
-        assert_eq!(
-            postcard::to_allocvec(&runtime.machine().fdc).expect("unchanged encoding"),
-            bytes
-        );
-        let data: Vec<_> = (0..512).map(|i| (i as u8).wrapping_add(71)).collect();
-        send_fdc_bytes(&mut runtime, &data[180..]);
-        assert_eq!(drain_fdc_result(&mut runtime), [0x40, 0x80, 0, 1, 0, 1, 2]);
-        assert_saved_bytes(&mut runtime, &data);
+    fn released_v0330_controller_payload_is_rejected_before_old_version_decode() {
+        // Original synthetic controller captured from 69f80d939; no ROM/CPU/RAM.
+        // Prefix its unchanged bytes with the old envelope version. This is
+        // deliberately not a complete old envelope: the version guard must
+        // reject it before attempting to interpret any payload fields.
+        let controller = include_bytes!("../tests/fixtures/upd765-v0330-write.postcard");
+        assert_eq!(controller.len(), 1098, "released fixture identity");
+        let mut bytes = postcard::to_allocvec(&5_u32).expect("old version encodes");
+        bytes.extend_from_slice(controller);
+        let (mut runtime, source) = writable_sector_runtime(true);
+        let before = runtime.snapshot().expect("current mounted runtime");
+        let error = runtime
+            .restore(&bytes)
+            .expect_err("version 5 cannot represent current read progress");
+        match error {
+            MachineError::InvalidSnapshot { reason } => {
+                assert_eq!(reason, "unsupported snapshot version 5; expected 6");
+            }
+            other => panic!("expected InvalidSnapshot, got {other:?}"),
+        }
+        assert_eq!(runtime.snapshot().expect("runtime unchanged"), before);
+        assert_eq!(runtime.disk_images()[0].bytes, source);
     }
 
     fn wait_format(runtime: &mut SpectrumPlus3Runtime, expected: u8) {

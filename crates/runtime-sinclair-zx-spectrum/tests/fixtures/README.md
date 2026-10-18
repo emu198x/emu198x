@@ -14,7 +14,12 @@ transfers the first 180 bytes of a 512-byte payload where byte i is
 `(i + 71) mod 256` through `send_fdc_bytes`. Serialize `runtime.machine().fdc`
 with `postcard::to_allocvec`. The next byte request is ready.
 
-The regression must decode and re-encode this original byte string exactly,
-then continue the write and read back all 512 independently expected bytes.
-It detects positional-layout or enum-tag drift when Format Track is added.
-It is not a newly generated round trip through the same implementation.
+Until snapshot v5, the regression decoded/re-encoded the original string and
+continued its write, detecting positional-layout/enum-tag drift. Spectrum v6
+adds per-sector read progress; rejection of older states was explicitly approved
+on 2026-10-18. The fixture stays unchanged as historical evidence. Its current
+test prefixes these controller-only bytes with old version 5 and checks that the
+version guard rejects before interpreting the deliberately incomplete envelope,
+without changing the live runtime or source disk. It does not claim a full
+released-envelope migration test. Current write/save/restore continuation remains
+covered by the active snapshot tests.

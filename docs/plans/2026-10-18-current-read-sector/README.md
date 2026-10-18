@@ -16,10 +16,16 @@ The proposed Read Track test also retains DE, matching MAME and the existing
 completed-read model. That bit is a recorded reference disagreement, not an
 established original-hardware assertion.
 
-The fix is pending approval of Spectrum snapshot v5→v6. Current-sector progress
-must survive save/restore; rejecting v5 states is a breaking schema change.
-CPC does not embed this controller and needs no version change. No production
-code or snapshot schema has changed in this investigation. See [plan.md](plan.md).
+Spectrum snapshot v5→v6 was explicitly approved on 2026-10-18. The controller
+now buffers only one selected sector and serializes current field progress;
+v5 is rejected before payload decoding. CPC does not embed this controller
+and needs no version change. See [plan.md](plan.md).
+
+The active regression corrects one initial expectation: Read Track reaching
+sector R2 while comparing against command R1 also retains ND. The original red
+source/log remain unchanged as historical evidence; the active test requires
+ND as well as completed DE/DD. An additional test preserves the existing
+SK-skipped EOT after-data result without claiming its hardware conformance.
 
 The failing test source is retained under `evidence/`, outside Cargo's active
 test directory. To reproduce against source `c5586b620b3eeff140e1755d483582a039c9a40d`
