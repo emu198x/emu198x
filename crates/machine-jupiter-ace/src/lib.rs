@@ -25,7 +25,7 @@
 //! - **Base RAM:** 1 KB mirrored across `$3000-$3FFF`; up to 48 KB of
 //!   expansion RAM at `$4000+`
 //! - **Display:** 256 × 192 monochrome, 32 × 24 characters
-//! - **Audio:** 1-bit beeper on port `$FE` bit 4
+//! - **Audio:** 1-bit speaker latch: even-port OUT sets, IN clears
 //! - **Keyboard:** identical 8 × 5 matrix to the ZX Spectrum, scanned
 //!   via port `$FE` with the row selector in the high address byte
 //!
@@ -225,17 +225,22 @@ impl JupiterAce {
         }
     }
 
-    fn io_read(&self, port: u16) -> u8 {
-        // Port $FE (bit 0 clear): keyboard read; row selector in high byte.
+    fn io_read(&mut self, port: u16) -> u8 {
+        // FORTH Programming (1982), chapter 26: even-port IN pulls the
+        // speaker in while reading the selected keyboard rows. The speaker
+        // latch is separate from the data-bit-controlled cassette output.
         if port & 0x01 == 0 {
+            self.display.speaker_state = false;
             return self.keyboard.read((port >> 8) as u8);
         }
         0xFF
     }
 
-    fn io_write(&mut self, port: u16, value: u8) {
+    fn io_write(&mut self, port: u16, _value: u8) {
         if port & 0x01 == 0 {
-            self.display.speaker_state = value & 0x10 != 0;
+            // OUT pushes the speaker out regardless of the byte written.
+            // Reference: MAME cantab/jupace.cpp, ace_state::io_w/io_r.
+            self.display.speaker_state = true;
         }
     }
 
@@ -452,12 +457,49 @@ mod tests {
     }
 
     #[test]
-    fn beeper_port_drives_speaker_state() {
+    fn beeper_latch_follows_io_direction_not_the_written_data() {
         let mut sys = JupiterAce::new(trap_rom(), 0).expect("init");
-        sys.io_write(0x00FE, 0x10);
-        assert!(sys.display.speaker_state);
-        sys.io_write(0x00FE, 0x00);
-        assert!(!sys.display.speaker_state);
+        // FORTH manual chapter 26: IN pulls the speaker in, OUT pushes it out.
+        // MAME's jupace io_r/io_w implement the same direction-controlled latch.
+        for value in [0x00, 0x01, 0x10, 0xff] {
+            sys.io_write(0x00fe, value);
+            assert!(
+                sys.display.speaker_state,
+                "OUT must set the latch for {value:02x}"
+            );
+            assert_eq!(sys.io_read(0x00ff), 0xff);
+            assert!(sys.display.speaker_state);
+            let expected_keys = sys.keyboard.read(0xfe);
+            assert_eq!(sys.io_read(0xfefe), expected_keys);
+            assert!(!sys.display.speaker_state, "IN must clear the latch");
+        }
+        sys.io_write(0x00ff, 0xff);
+        assert!(
+            !sys.display.speaker_state,
+            "odd-port OUT must leave the latch alone"
+        );
+    }
+
+    #[test]
+    fn cpu_in_out_loop_produces_audio_without_toggling_a_data_bit() {
+        let program = [
+            0xf3, // DI
+            0xaf, // XOR A: every OUT writes zero
+            0xd3, 0xfe, // OUT ($FE),A
+            0x06, 100, // LD B,100
+            0x10, 0xfe, // DJNZ to itself
+            0xdb, 0xfe, // IN A,($FE)
+            0x06, 100, // LD B,100
+            0x10, 0xfe, // DJNZ to itself
+            0xc3, 1, 0, // JP to XOR A
+        ];
+        let mut rom = vec![0; 8192];
+        rom[..program.len()].copy_from_slice(&program);
+        let mut sys = JupiterAce::new(rom, 0).expect("init");
+        sys.run_frame();
+        let audio = sys.take_audio_buffer();
+        assert!(audio.iter().any(|sample| *sample > 0.4));
+        assert!(audio.iter().any(|sample| *sample < -0.4));
     }
 
     #[test]
