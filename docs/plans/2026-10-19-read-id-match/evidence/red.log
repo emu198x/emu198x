@@ -1,0 +1,62 @@
+mise WARN  tracking config: failed to ln -sf /Users/stevehill/Projects/198x/output/qualification/workspaces/emu-read-id-match/rust-toolchain.toml /Users/stevehill/.local/state/mise/tracked-configs/c92e22f38edf2e7: Operation not permitted (os error 1)
+   Compiling proc-macro2 v1.0.106
+   Compiling unicode-ident v1.0.24
+   Compiling quote v1.0.45
+   Compiling serde_core v1.0.229
+   Compiling serde v1.0.229
+   Compiling thiserror v2.0.20
+   Compiling format-sinclair-zx-spectrum-snapshot v0.38.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/emu-read-id-match/crates/format-sinclair-zx-spectrum-snapshot)
+   Compiling syn v3.0.3
+   Compiling serde_derive v1.0.229
+   Compiling thiserror-impl v2.0.20
+   Compiling emu198x-gi-ay-3-8910 v0.6.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/emu-read-id-match/crates/emu198x-gi-ay-3-8910)
+   Compiling emu198x-zilog-z80 v0.8.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/emu-read-id-match/crates/emu198x-zilog-z80)
+   Compiling serde-big-array v0.5.1
+   Compiling common-tape v0.38.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/emu-read-id-match/crates/common-tape)
+   Compiling gi-ay-3-8912 v0.38.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/emu-read-id-match/crates/gi-ay-3-8912)
+   Compiling common-sinclair-zx-spectrum v0.38.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/emu-read-id-match/crates/common-sinclair-zx-spectrum)
+   Compiling nec-upd765a v0.38.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/emu-read-id-match/crates/nec-upd765a)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.61s
+     Running tests/read_id_match.rs (/Users/stevehill/Projects/198x/output/qualification/read-id-match-target/debug/deps/read_id_match-60a3d6f896084312)
+
+running 4 tests
+test wrong_recorded_head_is_rejected_and_matching_request_recovers ... FAILED
+test later_exact_duplicate_is_not_hidden_by_wrong_head_or_size ... FAILED
+test wrong_recorded_size_is_rejected_and_matching_request_recovers ... FAILED
+test requested_id_head_does_not_select_the_physical_side ... FAILED
+
+failures:
+
+---- wrong_recorded_head_is_rejected_and_matching_request_recovers stdout ----
+
+thread 'wrong_recorded_head_is_rejected_and_matching_request_recovers' (123642295) panicked at crates/nec-upd765a/tests/read_id_match.rs:84:13:
+wrong H must not deliver its payload
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- later_exact_duplicate_is_not_hidden_by_wrong_head_or_size stdout ----
+
+thread 'later_exact_duplicate_is_not_hidden_by_wrong_head_or_size' (123642293) panicked at crates/nec-upd765a/tests/read_id_match.rs:122:13:
+assertion `left == right` failed: select the later exact CHRN record
+  left: [17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17]
+ right: [165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165, 165]
+
+---- wrong_recorded_size_is_rejected_and_matching_request_recovers stdout ----
+
+thread 'wrong_recorded_size_is_rejected_and_matching_request_recovers' (123642296) panicked at crates/nec-upd765a/tests/read_id_match.rs:100:13:
+wrong N must not be truncated or padded into a match
+
+---- requested_id_head_does_not_select_the_physical_side stdout ----
+
+thread 'requested_id_head_does_not_select_the_physical_side' (123642294) panicked at crates/nec-upd765a/tests/read_id_match.rs:143:9:
+assertion failed: bytes.is_empty()
+
+
+failures:
+    later_exact_duplicate_is_not_hidden_by_wrong_head_or_size
+    requested_id_head_does_not_select_the_physical_side
+    wrong_recorded_head_is_rejected_and_matching_request_recovers
+    wrong_recorded_size_is_rejected_and_matching_request_recovers
+
+test result: FAILED. 0 passed; 4 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+error: test failed, to rerun pass `-p nec-upd765a --test read_id_match`
