@@ -159,6 +159,7 @@ fn map_atom_keys(code: KeyCode) -> Option<&'static [&'static str]> {
         KeyCode::Slash => &["/"],
         KeyCode::Quote => &["@"],
         KeyCode::Space => &["space"],
+        KeyCode::Escape => &["escape"],
         KeyCode::Enter | KeyCode::NumpadEnter => &["return"],
         _ => return None,
     })
@@ -167,6 +168,11 @@ fn map_atom_keys(code: KeyCode) -> Option<&'static [&'static str]> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn escape_reaches_the_machine_keyboard() {
+        assert_eq!(map_atom_keys(KeyCode::Escape), Some(&["escape"][..]));
+    }
 
     #[test]
     fn menu_uses_runtime_ids_and_a_failed_switch_preserves_selection() {

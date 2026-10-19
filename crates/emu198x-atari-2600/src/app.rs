@@ -29,7 +29,7 @@ impl MachineApp for Atari2600 {
                     (a bare PATH is accepted too)
     --model ID      atari-2600-ntsc | atari-2600-pal
     --region MODE   ntsc | pal [default: ntsc]";
-    const CONTROLS: &'static str = "    Esc             quit
+    const CONTROLS: &'static str = "    Close window    quit (or use the platform Quit shortcut)
     F12             emulator hard reset
     Arrow keys      joystick (player 1)
     X / Z / Space   fire

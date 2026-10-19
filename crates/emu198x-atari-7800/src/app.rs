@@ -26,7 +26,7 @@ impl MachineApp for Atari7800 {
                     PATH is accepted too)
     --model ID      atari-7800-ntsc | atari-7800-pal
     --region MODE   ntsc | pal [default: ntsc]";
-    const CONTROLS: &'static str = "    Esc             quit
+    const CONTROLS: &'static str = "    Close window    quit (or use the platform Quit shortcut)
     F12             emulator hard reset
     Arrow keys      joystick (player 1)
     Z / X           fire buttons 1 and 2

@@ -6,7 +6,7 @@
 //! runner supplies a small [`UiSystem`] descriptor (its runtime, framebuffer
 //! size, frame timing, button map, and key map) and calls [`run`] to get a
 //! native window with `raw`/`lcd`/`crt` video filters, framed audio, gamepad
-//! input, Esc-quit / F12-reset, Cmd/Ctrl+S / +L quick save-states, and a native
+//! input, F12-reset, Cmd/Ctrl+S / +L quick save-states, and a native
 //! menu bar (App / File / Machine / State / View; see [`menu`]).
 //!
 //! The File menu's media open is built from each machine's declared media
@@ -1131,16 +1131,11 @@ impl<S: UiSystem> App<S> {
         Ok(())
     }
 
-    /// Returns `true` if the key was consumed as a UI shortcut (harness Esc/F12,
+    /// Returns `true` if the key was consumed as a UI shortcut (harness F12,
     /// the Cmd/Ctrl+S / +L save-state chords, or a per-system
     /// [`UiSystem::handle_key`] shortcut), so it isn't also routed to the
     /// machine.
-    fn handle_shortcut(
-        &mut self,
-        event_loop: &ActiveEventLoop,
-        code: KeyCode,
-        pressed: bool,
-    ) -> bool {
+    fn handle_shortcut(&mut self, code: KeyCode, pressed: bool) -> bool {
         if self.system.supports_host_keyboard()
             && code == KeyCode::KeyK
             && !self.modifiers.alt_key()
@@ -1201,12 +1196,6 @@ impl<S: UiSystem> App<S> {
             return true;
         }
         match code {
-            KeyCode::Escape => {
-                if pressed {
-                    event_loop.exit();
-                }
-                true
-            }
             // Reset goes through the same `AppCommand::Reset` the Machine menu
             // emits, so menu and shortcut share one path.
             KeyCode::F12 => {
@@ -1710,7 +1699,7 @@ impl<S: UiSystem> ApplicationHandler for App<S> {
                     return;
                 };
                 let pressed = event.state == ElementState::Pressed;
-                if self.handle_shortcut(event_loop, code, pressed) {
+                if self.handle_shortcut(code, pressed) {
                     return;
                 }
                 if self.host_keyboard {

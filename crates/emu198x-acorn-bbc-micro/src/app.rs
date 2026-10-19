@@ -69,7 +69,7 @@ impl MachineApp for Bbc {
                     acorn-bbc-mos, acorn-bbc-saa5050, acorn-bbc-basic
                     an explicit BASIC pin also selects bank 15 in headless modes
     --rom-dir DIR   firmware directory (or set EMU198X_BBC_ROM_DIR)";
-    const CONTROLS: &'static str = "    Esc             quit
+    const CONTROLS: &'static str = "    Close window    quit (or use the platform Quit shortcut)
     F12             hard reset
     A-Z 0-9 etc.    the BBC keyboard (cursor keys are real BBC keys)
     Shift / Ctrl    the BBC SHIFT / CTRL keys; F1-F10 are the red f0-f9 keys

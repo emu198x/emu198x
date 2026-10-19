@@ -34,7 +34,7 @@ impl MachineApp for GameGear {
         "    --cart PATH     cartridge ROM (required; a bare PATH is accepted too)
     --model ID      canonical model id or full profile id (alias: --variant)
     --variant KIND  game-gear [default: game-gear]";
-    const CONTROLS: &'static str = "    Esc             quit
+    const CONTROLS: &'static str = "    Close window    quit (or use the platform Quit shortcut)
     F12             emulator hard reset
     Arrow keys      d-pad (player 1)
     Z / X           buttons 1 and 2

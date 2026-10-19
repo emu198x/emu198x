@@ -83,8 +83,7 @@ impl UiSystem for ElectronSystem {
 /// Map a physical host key to its Electron key name (matched by
 /// `runtime-acorn-electron`'s `key_to_matrix`). The cursor keys are genuine
 /// matrix cells, so they type. Host Alt is the Electron FUNC key and host End
-/// is COPY. The Electron's own Escape key is unreachable — the harness owns Esc
-/// for quit. Symbols shifted on a modern host are omitted.
+/// is COPY. Host Escape reaches the machine Escape key. Symbols shifted on a modern host are omitted.
 fn map_electron_keys(code: KeyCode) -> Option<&'static [&'static str]> {
     Some(match code {
         KeyCode::KeyA => &["a"],
@@ -130,6 +129,7 @@ fn map_electron_keys(code: KeyCode) -> Option<&'static [&'static str]> {
         KeyCode::Slash => &["/"],
         KeyCode::Backslash => &["\\"],
         KeyCode::Space => &["space"],
+        KeyCode::Escape => &["escape"],
         KeyCode::Enter | KeyCode::NumpadEnter => &["return"],
         KeyCode::Backspace | KeyCode::Delete => &["delete"],
         KeyCode::End => &["copy"],
@@ -147,6 +147,11 @@ fn map_electron_keys(code: KeyCode) -> Option<&'static [&'static str]> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn escape_reaches_the_machine_keyboard() {
+        assert_eq!(map_electron_keys(KeyCode::Escape), Some(&["escape"][..]));
+    }
 
     #[test]
     fn cursor_keys_type_and_func_copy_map() {

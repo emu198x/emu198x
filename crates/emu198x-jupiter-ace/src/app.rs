@@ -50,7 +50,7 @@ impl MachineApp for JupiterAce {
     --ram-kb N      legacy preset selection: <16 stock, 16..47 16 KiB expansion,
                     ≥48 48 KiB expansion [default: stock]; last selector wins
     --ace PATH      restore an ACE32 .ace snapshot before running";
-    const CONTROLS: &'static str = "    Esc             quit
+    const CONTROLS: &'static str = "    Close window    quit (or use the platform Quit shortcut)
     F12             hard reset
     A-Z 0-9 Space   the Ace keyboard
     Shift           CAPS SHIFT (hold with another key)

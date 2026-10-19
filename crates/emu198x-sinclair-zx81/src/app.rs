@@ -71,7 +71,7 @@ impl MachineApp for Zx81 {
     --model ID      sinclair-zx81, sinclair-zx81-16k, or timex-ts1000
                     [default: sinclair-zx81]
     --ram-bytes N   RAM size (power-of-two ≤ 16384) [default: model RAM]";
-    const CONTROLS: &'static str = "    Esc             quit
+    const CONTROLS: &'static str = "    Close window    quit (or use the platform Quit shortcut)
     F12             hard reset
     A-Z 0-9 . Space the ZX81 membrane keyboard
     Shift           SHIFT (the function/symbol layer — hold with another key)

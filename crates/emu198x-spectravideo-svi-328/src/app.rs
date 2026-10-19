@@ -38,7 +38,7 @@ impl MachineApp for Svi328 {
     --region MODE   ntsc | pal [default: ntsc]; last selector wins
     --cart PATH     cartridge ROM (up to 16 KB at $8000-$BFFF)
     --bios PATH     legacy alias for the system firmware path";
-    const CONTROLS: &'static str = "    Esc             quit
+    const CONTROLS: &'static str = "    Close window    quit (or use the platform Quit shortcut)
     F12             hard reset
     A-Z 0-9 etc.    the SVI-328 keyboard (cursor keys are real SVI keys)
     Shift / Ctrl    the SVI SHIFT / CTRL keys (Alt = GRAPH/CODE)

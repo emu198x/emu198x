@@ -172,6 +172,7 @@ impl UiSystem for Atari800xlSystem {
             KeyCode::Digit9 => &["9"],
             KeyCode::Enter | KeyCode::NumpadEnter => &["return"],
             KeyCode::Space => &["space"],
+            KeyCode::Escape => &["escape"],
             KeyCode::Backspace | KeyCode::Delete => &["delete"],
             KeyCode::Tab => &["tab"],
             // Console keys — momentary, distinct from the harness's Esc/F12.
@@ -186,6 +187,17 @@ impl UiSystem for Atari800xlSystem {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn escape_reaches_the_machine_keyboard() {
+        assert_eq!(
+            Atari800xlSystem {
+                model: Model::A800xlNtsc
+            }
+            .map_keys(KeyCode::Escape),
+            Some(&["escape"][..])
+        );
+    }
 
     #[test]
     fn native_startup_and_pacing_follow_the_runtime_catalogue() {

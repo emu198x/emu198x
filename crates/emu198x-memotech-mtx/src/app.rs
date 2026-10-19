@@ -49,7 +49,7 @@ impl MachineApp for Mtx {
     --rom-dir DIR   firmware directory (or set EMU198X_MTX_ROM_DIR)
                     firmware ID: memotech-mtx-rom
     --model KIND    mtx500 | mtx512 [default: mtx500]";
-    const CONTROLS: &'static str = "    Esc             quit
+    const CONTROLS: &'static str = "    Close window    quit (or use the platform Quit shortcut)
     F12             hard reset
     A-Z 0-9 etc.    the MTX keyboard (cursor keys are real MTX keys)
     Shift / Ctrl    the MTX shift / control keys

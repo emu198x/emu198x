@@ -36,7 +36,7 @@ impl MachineApp for Aquarius {
     --cart PATH     cartridge ROM (mapped at $E000-$FFFF, up to 8 KB)
     --expansion-kb N
                     RAM expansion in KB (0..=16) [default: 0]";
-    const CONTROLS: &'static str = "    Esc             quit
+    const CONTROLS: &'static str = "    Close window    quit (or use the platform Quit shortcut)
     F12             hard reset
     A-Z 0-9 etc.    the Aquarius keyboard
     Shift / Ctrl    the two Aquarius shift keys

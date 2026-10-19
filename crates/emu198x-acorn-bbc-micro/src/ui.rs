@@ -100,8 +100,7 @@ impl UiSystem for BbcSystem {
 /// Map a physical host key to its BBC key name (matched by
 /// `runtime-acorn-bbc-micro`'s `key_to_matrix`). The cursor keys are genuine
 /// matrix cells, so they type. The red function keys f0-f9 map from host
-/// F1-F10. Symbols shifted on a modern host are omitted. The BBC's own Escape
-/// key is unreachable — the harness owns Esc for quit.
+/// F1-F10. Symbols shifted on a modern host are omitted. Host Escape reaches the machine Escape key.
 fn map_bbc_keys(code: KeyCode) -> Option<&'static [&'static str]> {
     Some(match code {
         KeyCode::KeyA => &["a"],
@@ -149,6 +148,7 @@ fn map_bbc_keys(code: KeyCode) -> Option<&'static [&'static str]> {
         KeyCode::BracketRight => &["]"],
         KeyCode::Backslash => &["\\"],
         KeyCode::Space => &["space"],
+        KeyCode::Escape => &["escape"],
         KeyCode::Enter | KeyCode::NumpadEnter => &["return"],
         KeyCode::Tab => &["tab"],
         KeyCode::Backspace | KeyCode::Delete => &["delete"],
@@ -178,6 +178,11 @@ fn map_bbc_keys(code: KeyCode) -> Option<&'static [&'static str]> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn escape_reaches_the_machine_keyboard() {
+        assert_eq!(map_bbc_keys(KeyCode::Escape), Some(&["escape"][..]));
+    }
     use emu198x_shell::{FirmwareOverrides, MachineCore, ResetKind};
 
     #[test]

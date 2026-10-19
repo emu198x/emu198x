@@ -91,7 +91,7 @@ impl MachineApp for Amiga {
     --disk PATH          insert one ADF image into DF0:
     --wait-for-boot N    run up to N frames until boot.detected is true (headless)
     --print-query PATH   resolve one query path after running (repeatable, headless)";
-    const CONTROLS: &'static str = "    Esc                  quit
+    const CONTROLS: &'static str = "    Close window    quit (or use the platform Quit shortcut)
     F12                  hard reset (keeps the inserted disk)
     Cmd/Ctrl+S / +L      quick save / load state
     Mouse                port-1 Amiga mouse (JOY0DAT)

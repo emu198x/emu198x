@@ -35,7 +35,7 @@ impl MachineApp for Oric {
     --rom-dir DIR   firmware directory (or set EMU198X_ORIC_ROM_DIR)
                     firmware ID: oric-rom; tries oric-1.rom / atmos.rom before oric.rom
     --model NAME    oric-1 | atmos [default: atmos]";
-    const CONTROLS: &'static str = "    Esc             quit
+    const CONTROLS: &'static str = "    Close window    quit (or use the platform Quit shortcut)
     F12             hard reset
     A-Z 0-9 etc.    the Oric keyboard (cursor keys are real Oric keys)
     Shift / Ctrl    the Oric shift / control keys

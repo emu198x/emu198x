@@ -98,7 +98,7 @@ impl UiSystem for EinsteinSystem {
 /// CONTROL are status-port modifiers, not matrix cells, but the runtime routes
 /// them by name so they map here too. Shifted symbols are reached by holding a
 /// shift with another key, so only the unshifted legends need mapping. The
-/// Einstein's own Escape key is unreachable — the harness owns Esc for quit.
+/// Host Escape reaches the machine Escape key.
 fn map_einstein_keys(code: KeyCode) -> Option<&'static [&'static str]> {
     Some(match code {
         KeyCode::KeyA => &["a"],
@@ -144,6 +144,7 @@ fn map_einstein_keys(code: KeyCode) -> Option<&'static [&'static str]> {
         KeyCode::Equal => &["="],
         KeyCode::Space => &["space"],
         KeyCode::Pause => &["break"],
+        KeyCode::Escape => &["escape"],
         KeyCode::Enter | KeyCode::NumpadEnter => &["return"],
         KeyCode::ShiftLeft | KeyCode::ShiftRight => &["shift"],
         KeyCode::ControlLeft | KeyCode::ControlRight => &["ctrl"],
@@ -155,6 +156,11 @@ fn map_einstein_keys(code: KeyCode) -> Option<&'static [&'static str]> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn escape_reaches_the_machine_keyboard() {
+        assert_eq!(map_einstein_keys(KeyCode::Escape), Some(&["escape"][..]));
+    }
 
     #[test]
     fn maps_keys_modifiers_and_graph() {

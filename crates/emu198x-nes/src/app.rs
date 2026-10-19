@@ -262,7 +262,7 @@ impl MachineApp for Nes {
     --smoke-report PATH     write smoke matrix JSON to PATH instead of stdout
     --smoke-screenshot-dir PATH
                     write one PNG per successful smoke row";
-    const CONTROLS: &'static str = "    Esc             quit
+    const CONTROLS: &'static str = "    Close window    quit (or use the platform Quit shortcut)
     F12             hard reset
     Arrow keys      D-pad
     Z               B

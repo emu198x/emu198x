@@ -177,6 +177,42 @@ impl HeldKeys {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn escape_press_and_release_follow_the_machine_key_path() {
+        let mut held = HeldKeys::default();
+        assert!(matches!(
+            route_host_key(
+                KeyCode::Escape,
+                &Key::Named(winit::keyboard::NamedKey::Escape),
+                true,
+                ModifiersState::empty(),
+                None,
+                &held
+            ),
+            HostKey::Control
+        ));
+        let pressed = held.update(KeyCode::Escape, Some(vec!["escape".to_owned()]));
+        assert!(
+            matches!(&pressed[..], [InputEvent::Key { name, pressed: true }] if name == "escape")
+        );
+        assert!(matches!(
+            route_host_key(
+                KeyCode::Escape,
+                &Key::Named(winit::keyboard::NamedKey::Escape),
+                false,
+                ModifiersState::empty(),
+                None,
+                &held
+            ),
+            HostKey::Release
+        ));
+        let released = held.update(KeyCode::Escape, None);
+        assert!(
+            matches!(&released[..], [InputEvent::Key { name, pressed: false }] if name == "escape")
+        );
+        assert!(held.release_all().is_empty(), "Escape must not remain held");
+    }
+
     fn chord(names: &[&str]) -> Option<Vec<String>> {
         Some(names.iter().map(|s| (*s).to_owned()).collect())
     }
