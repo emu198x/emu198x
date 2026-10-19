@@ -4,6 +4,17 @@ All notable changes to Emu198x will be documented in this file.
 
 Format loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 not strictly. Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [0.38.1] - 2026-10-19
+
+
+### Fixed
+
+- Preserve the C64 load end pointer for PRG unpackers
+- Prevent cumulative drift in +3 disk read timing
+- Explain failed media opens in a native dialog
+- Match recorded head and size before reading sector data
+- Preserve requested ID head in disk read results
+
 ## [0.38.0] - 2026-10-18
 
 
