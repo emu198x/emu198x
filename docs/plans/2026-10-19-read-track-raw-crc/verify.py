@@ -201,7 +201,7 @@ def audit(root: Path) -> dict:
         require(
             data["idle_msr"] == 128
             and data["recovery_msr"] == 128
-            and 0 <= data["recovery"] <= 255,
+            and data["recovery"] == 0x30,
             "missing next-command recovery",
         )
         require(0 < data["seconds"] < 2, "emulated bound exceeded")
