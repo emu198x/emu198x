@@ -18,7 +18,16 @@ fn field_boundary_observations() {
     let name = lines.next().expect("case name");
     let command = numbers(lines.next().expect("command"));
     assert_eq!(command.len(), 9);
-    let present = lines.next().expect("media presence") == "1";
+    let mode: u8 = lines
+        .next()
+        .expect("media mode")
+        .parse()
+        .expect("media mode byte");
+    assert!(
+        mode <= 2,
+        "0 absent, 1 represented track, 2 missing track entry"
+    );
+    let present = mode != 0;
     let sectors: Vec<_> = lines
         .map(|line| {
             let n: Vec<usize> = line
@@ -40,35 +49,52 @@ fn field_boundary_observations() {
     let image = DiskImage {
         sides: 1,
         tracks_per_side: 1,
-        tracks: vec![vec![DiskTrack { sectors }]],
+        tracks: vec![if mode == 2 {
+            vec![]
+        } else {
+            vec![DiskTrack { sectors }]
+        }],
     };
     let mut fdc = Upd765a::new();
     fdc.enabled = true;
     if present {
         fdc.insert_disk(0, image.clone());
     }
+    let mut command_bytes_sent = 0;
     for byte in &command {
+        if fdc.read_status() & 0xc0 == 0xc0 {
+            break;
+        }
         assert_eq!(fdc.read_status() & 0xc0, 0x80);
         fdc.write_data(*byte);
+        command_bytes_sent += 1;
     }
     let mut data = Vec::new();
     let mut result = Vec::new();
     let mut ticks = 0;
-    while result.len() < 7 {
+    loop {
         assert!(ticks < 2_000_000, "emulated deadline");
         let msr = fdc.read_status();
+        if !result.is_empty() && msr == 0x80 {
+            break;
+        }
         if msr & 0xc0 == 0xc0 {
             let byte = fdc.read_data();
             if msr & 0x20 != 0 {
                 assert!(data.len() < 65536);
                 data.push(byte);
             } else {
+                assert!(result.len() < 7);
                 result.push(byte);
             }
         }
         fdc.tick(0);
         ticks += 1;
     }
+    assert!(
+        (command_bytes_sent == 9 && result.len() == 7)
+            || (command_bytes_sent == 1 && result == [0x80] && data.is_empty())
+    );
     assert_eq!(fdc.read_status(), 0x80);
     fdc.write_data(4);
     fdc.write_data(0);
@@ -90,6 +116,39 @@ fn field_boundary_observations() {
         assert_eq!(result, [64, 128, 0, 0, 0, 1, 0]);
     }
     println!(
-        "{{\"data\":{data:?},\"result\":{result:?},\"idle_msr\":128,\"recovery\":{recovery},\"recovery_msr\":128,\"ticks\":{ticks},\"media_unchanged\":true}}"
+        "{{\"data\":{data:?},\"result\":{result:?},\"command_bytes_sent\":{command_bytes_sent},\"idle_msr\":128,\"recovery\":{recovery},\"recovery_msr\":128,\"ticks\":{ticks},\"media_unchanged\":true}}"
     );
+}
+
+#[test]
+fn missing_track_entry_is_present_media_and_recovers() {
+    for opcode in [0x42, 0x62, 0xc2, 0xe2] {
+        let mut fdc = Upd765a::new();
+        fdc.enabled = true;
+        fdc.insert_disk(
+            0,
+            DiskImage {
+                sides: 1,
+                tracks_per_side: 1,
+                tracks: vec![vec![]],
+            },
+        );
+        for byte in [opcode, 0, 0, 0, 1, 2, 1, 42, 255] {
+            fdc.write_data(byte);
+        }
+        // A present image with no track is MA, not the absent-drive NR result.
+        let mut result = Vec::new();
+        for _ in 0..7 {
+            assert_eq!(fdc.read_status(), 0xd0);
+            result.push(fdc.read_data());
+        }
+        assert_eq!(result, [0x40, 1, 0, 0, 0, 1, 2]);
+        assert_eq!(fdc.read_status(), 0x80);
+        fdc.write_data(4);
+        fdc.write_data(0);
+        assert_eq!(fdc.read_status(), 0xd0);
+        let _ = fdc.read_data();
+        assert_eq!(fdc.read_status(), 0x80);
+        assert!(fdc.disk_for_export(0).expect("present media").tracks[0].is_empty());
+    }
 }
