@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "evidence_class": "current source inspection; runtime tests not executed by this packet",
+  "source_base": "7222f23075ccec1db5ecb431421ef72139640e4f",
+  "path": "crates/runtime-sinclair-zx-spectrum/src/snapshot.rs",
+  "sha256": "02d77e3bbce3da64db96979bc3b93fbbb6f739979d4a351bc81da728cc1ba940",
+  "existing_test_definitions": [
+    "read_track_id_crc_survives_native_checkpoints_and_interior_overrun",
+    "current_read_snapshot_resumes_before_within_and_between_sectors",
+    "current_read_snapshot_resumes_partial_normal_and_overrun_results",
+    "scan_and_track_read_resume_without_mutating_disk"
+  ],
+  "implemented_scope": "N2 clean/CRC, one/two fields, request low/high, overrun and result prefixes; no inferred inheritance to new field shapes",
+  "next_issue": "https://github.com/emu198x/emu198x/issues/1880",
+  "next_scope": "N0/N5, size/length mismatch, reversed/duplicate IDs and EOT wrap continuation",
+  "qualified": false
+}

@@ -1,0 +1,103 @@
+{
+  "schema_version": 1,
+  "qualified": false,
+  "summary": "16 cases repeated twice: 68 complete accepted-command captures, 12 complete early-rejection captures, 16 explicitly inapplicable reference rows.",
+  "rows": [
+    [
+      "ids-12-op-42",
+      "9 command / 1024 payload / 40 84 00 00 00 01 02",
+      "9 command / 1024 payload / 40 84 00 00 00 01 02",
+      "9 command / 1024 payload / 00 00 00 00 00 03 02"
+    ],
+    [
+      "ids-12-op-62",
+      "9 command / 1024 payload / 40 84 00 00 00 01 02",
+      "9 command / 1024 payload / 40 84 00 00 00 01 02",
+      "9 command / 1024 payload / 00 00 00 00 00 03 02"
+    ],
+    [
+      "ids-12-op-c2",
+      "9 command / 1024 payload / 40 84 00 00 00 01 02",
+      "9 command / 1024 payload / 40 84 00 00 00 01 02",
+      "1 command / 0 payload / 80"
+    ],
+    [
+      "ids-12-op-e2",
+      "9 command / 1024 payload / 40 84 00 00 00 01 02",
+      "9 command / 1024 payload / 40 84 00 00 00 01 02",
+      "1 command / 0 payload / 80"
+    ],
+    [
+      "ids-21-op-42",
+      "9 command / 1024 payload / 40 80 00 00 00 01 02",
+      "9 command / 1024 payload / 40 80 00 00 00 01 02",
+      "9 command / 1024 payload / 00 04 00 00 00 03 02"
+    ],
+    [
+      "ids-21-op-62",
+      "9 command / 1024 payload / 40 80 00 00 00 01 02",
+      "9 command / 1024 payload / 40 80 00 00 00 01 02",
+      "9 command / 1024 payload / 00 04 00 00 00 03 02"
+    ],
+    [
+      "ids-21-op-c2",
+      "9 command / 1024 payload / 40 80 00 00 00 01 02",
+      "9 command / 1024 payload / 40 80 00 00 00 01 02",
+      "1 command / 0 payload / 80"
+    ],
+    [
+      "ids-21-op-e2",
+      "9 command / 1024 payload / 40 80 00 00 00 01 02",
+      "9 command / 1024 payload / 40 80 00 00 00 01 02",
+      "1 command / 0 payload / 80"
+    ],
+    [
+      "empty-track-op-42",
+      "9 command / 0 payload / 40 01 00 00 00 01 02",
+      "9 command / 0 payload / 40 01 00 00 00 01 02",
+      "9 command / 0 payload / 40 85 00 00 00 01 02"
+    ],
+    [
+      "empty-track-op-62",
+      "9 command / 0 payload / 40 01 00 00 00 01 02",
+      "9 command / 0 payload / 40 01 00 00 00 01 02",
+      "9 command / 0 payload / 40 85 00 00 00 01 02"
+    ],
+    [
+      "empty-track-op-c2",
+      "9 command / 0 payload / 40 01 00 00 00 01 02",
+      "9 command / 0 payload / 40 01 00 00 00 01 02",
+      "1 command / 0 payload / 80"
+    ],
+    [
+      "empty-track-op-e2",
+      "9 command / 0 payload / 40 01 00 00 00 01 02",
+      "9 command / 0 payload / 40 01 00 00 00 01 02",
+      "1 command / 0 payload / 80"
+    ],
+    [
+      "missing-track-op-42",
+      "9 command / 0 payload / 40 01 00 00 00 01 02",
+      "N/A: container-entry condition",
+      "N/A: container-entry condition"
+    ],
+    [
+      "missing-track-op-62",
+      "9 command / 0 payload / 40 01 00 00 00 01 02",
+      "N/A: container-entry condition",
+      "N/A: container-entry condition"
+    ],
+    [
+      "missing-track-op-c2",
+      "9 command / 0 payload / 40 01 00 00 00 01 02",
+      "N/A: container-entry condition",
+      "N/A: container-entry condition"
+    ],
+    [
+      "missing-track-op-e2",
+      "9 command / 0 payload / 40 01 00 00 00 01 02",
+      "N/A: container-entry condition",
+      "N/A: container-entry condition"
+    ]
+  ]
+}

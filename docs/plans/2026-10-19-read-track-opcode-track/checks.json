@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "controller_tests": {
+    "passed": 143,
+    "failed": 0,
+    "ignored": 0
+  },
+  "new_auditor_controls": 18,
+  "prior_auditor_controls": 22,
+  "optimized_python": true,
+  "clippy": "pass scoped all targets -D warnings",
+  "format": "pass workspace",
+  "ruff": "pass packet Python",
+  "visual_table": {
+    "rows": 16,
+    "columns": 4
+  },
+  "workspace_and_supported_builds": "CI pending; not credited",
+  "preparation_only": "in checks archive; corrected SK descriptive label before final repeated capture",
+  "logs_sha256": {
+    "controller-tests": "4537893e5adb03c59b6d4ac6fa1f22bba375f8f48c3fd0780d00ca463d1b96dc",
+    "clippy": "5e8a67ea0bd6a70c5cd85157b1f972ffb999b7d3aef12011d456aab36436515e",
+    "auditor": "dcfdacb715ba31b88f4000fdc5d9d72a3072c589f8c9039e7a2ca8c59132eaa1",
+    "ruff": "0b0fc51b54641d08c52b6b1af25dc7f606ded456ef6f9ffb924207bcb0f33d20",
+    "fmt": "823e90c2a07ea4ddc4a5a722c610c8f484539dc31f7df9787b168b858eda0a59",
+    "prior-controls": "74d91917029c87ebb59ab1d8de7995d657c66a3f01175582f57c8d9bea0ae09e"
+  }
+}

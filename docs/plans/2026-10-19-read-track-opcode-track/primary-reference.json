@@ -1,0 +1,15 @@
+{
+  "source": "NEC uPD765 datasheet, December 1978",
+  "path": "/Volumes/Data/Reference-PDFs/by-topic/fdc-765/upd765-data-sheet-dec78.pdf",
+  "sha256": "e8b07db283aad56358cdace1bf4ac179f961484d10d6c1700b74d9734eea1117",
+  "printed_pages": [
+    8,
+    14
+  ],
+  "scope": "original uPD765 primary wording; not a revision-identified physical +3 trace",
+  "notes": [
+    "The p8 Read A Track command table fixes MT to zero but prints SK as a variable bit.",
+    "The p14 prose says multi-track/skip operations are not allowed. Rejection versus ignoring bits is not settled for a named +3 chip revision by these statements."
+  ],
+  "visual_review": "Printed page 8 rendered and inspected; SK label confirmed in Read A Track table."
+}
