@@ -432,6 +432,118 @@ mod tests {
     }
 
     #[test]
+    fn old_v6_bad_id_reads_restore_to_result_before_any_further_payload() {
+        let fixtures: &[&[u8]] = &[
+            include_bytes!("../tests/fixtures/read-data-id-crc/46-0-0.postcard"),
+            include_bytes!("../tests/fixtures/read-data-id-crc/46-0-1.postcard"),
+            include_bytes!("../tests/fixtures/read-data-id-crc/46-179-0.postcard"),
+            include_bytes!("../tests/fixtures/read-data-id-crc/46-179-1.postcard"),
+            include_bytes!("../tests/fixtures/read-data-id-crc/4c-0-0.postcard"),
+            include_bytes!("../tests/fixtures/read-data-id-crc/4c-0-1.postcard"),
+            include_bytes!("../tests/fixtures/read-data-id-crc/4c-179-0.postcard"),
+            include_bytes!("../tests/fixtures/read-data-id-crc/4c-179-1.postcard"),
+        ];
+        for bytes in fixtures {
+            let mut original = SpectrumPlus3Runtime::blank();
+            original.machine_mut().fdc =
+                postcard::from_bytes(bytes).expect("baseline v6 controller");
+            assert_eq!(
+                postcard::to_allocvec(&original.machine().fdc).expect("same layout"),
+                *bytes
+            );
+            let before = original
+                .export_media("disk-a", "edsk")
+                .expect("old live image");
+            let saved = original.snapshot().expect("old active read envelope");
+            let mut restored = SpectrumPlus3Runtime::blank();
+            restored
+                .restore(&saved)
+                .expect("normalize valid v6 envelope");
+            assert_eq!(
+                restored.machine().fdc.read_status(),
+                0xd0,
+                "result before first host status"
+            );
+            assert_eq!(drain_fdc_result(&mut restored), [0x40, 0x20, 0, 0, 0, 1, 2]);
+            assert_eq!(restored.machine().fdc.read_status(), 0x80);
+            assert_eq!(
+                restored
+                    .export_media("disk-a", "edsk")
+                    .expect("unchanged image"),
+                before
+            );
+            send_fdc_command(&mut restored, &[0xff]);
+            assert_eq!(
+                restored.machine_mut().fdc.read_data(),
+                0x80,
+                "next command usable"
+            );
+        }
+    }
+
+    #[test]
+    fn bad_id_results_and_valid_data_reads_keep_native_roundtrips() {
+        use emu198x_shell::{MediaImage, MediaKind, MediaSet};
+        for op in [0x46, 0x4c] {
+            for (st1, st2) in [(0, 0), (0x20, 0), (0x20, 0x20)] {
+                for prefix in [0, 3, 6] {
+                    let (_, mut source) = writable_sector_runtime(false);
+                    source[0x11c] = st1;
+                    source[0x11d] = st2 | if op == 0x4c { 0x40 } else { 0 };
+                    let mut original = SpectrumPlus3Runtime::blank();
+                    let mut media = MediaSet::new();
+                    media.push(MediaImage::new("disk-a", MediaKind::Disk, &source));
+                    original.load_media(&media).expect("mount CRC source");
+                    let before = original
+                        .export_media("disk-a", "edsk")
+                        .expect("source image");
+                    send_fdc_command(&mut original, &[op, 0, 0, 0, 1, 2, 1, 0x2a, 0xff]);
+                    let expected = [0x40, if st1 == 0 { 0x80 } else { 0x20 }, st2, 0, 0, 1, 2];
+                    if st1 == 0 || st2 != 0 {
+                        for _ in 0..179 {
+                            assert_eq!(read_fdc_byte(&mut original), 0xe5);
+                        }
+                        let pending = original.snapshot().expect("valid active read");
+                        let mut active = SpectrumPlus3Runtime::blank();
+                        active.restore(&pending).expect("active restore");
+                        assert_eq!(active.snapshot().expect("same valid state"), pending);
+                        for runtime in [&mut original, &mut active] {
+                            for _ in 179..512 {
+                                assert_eq!(read_fdc_byte(runtime), 0xe5);
+                            }
+                        }
+                        assert_eq!(
+                            original.snapshot().expect("original completion"),
+                            active.snapshot().expect("resumed completion")
+                        );
+                    }
+                    for &byte in &expected[..prefix] {
+                        assert_eq!(original.machine_mut().fdc.read_data(), byte);
+                    }
+                    let saved = original.snapshot().expect("result prefix");
+                    let mut restored = SpectrumPlus3Runtime::blank();
+                    restored.restore(&saved).expect("result restore");
+                    assert_eq!(restored.snapshot().expect("unchanged result"), saved);
+                    for runtime in [&mut original, &mut restored] {
+                        for &byte in &expected[prefix..] {
+                            assert_eq!(runtime.machine().fdc.read_status(), 0xd0);
+                            assert_eq!(runtime.machine_mut().fdc.read_data(), byte);
+                        }
+                        assert_eq!(runtime.machine().fdc.read_status(), 0x80);
+                        assert_eq!(runtime.disk_images()[0].bytes, source);
+                        assert_eq!(
+                            runtime
+                                .export_media("disk-a", "edsk")
+                                .expect("unchanged live media"),
+                            before
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
     fn read_track_id_crc_survives_native_checkpoints_and_interior_overrun() {
         use common_sinclair_zx_spectrum::peripheral::Peripheral;
         use emu198x_shell::{MediaImage, MediaKind, MediaSet};

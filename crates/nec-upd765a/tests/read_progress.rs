@@ -230,3 +230,79 @@ fn track_media_removal_keeps_only_encountered_id_crc() {
         assert_eq!(observed[2] & 0x20, 0);
     }
 }
+
+#[test]
+fn data_reads_reject_id_crc_before_payload_and_recover_without_changing_media() {
+    for op in [0x46, 0x4c] {
+        for sk in [0, 0x20] {
+            for mismatch in [false, true] {
+                let mut bad = sector(1, (op == 0x4c) ^ mismatch, false);
+                bad.st1 = 0x20;
+                let mut f = controller(op | sk, vec![bad], 1);
+                let before = format!("{:?}", f.disk_for_export(0).expect("mounted"));
+                assert_eq!(result(&mut f), [0x40, 0x20, 0, 0, 0, 1, 2]);
+                assert_eq!(
+                    format!("{:?}", f.disk_for_export(0).expect("immutable media")),
+                    before
+                );
+                for b in [op, 0, 0, 0, 1, 2, 1, 0x2a, 0xff] {
+                    f.write_data(b);
+                }
+                assert_eq!(result(&mut f), [0x40, 0x20, 0, 0, 0, 1, 2]);
+                f.insert_disk(
+                    0,
+                    DiskImage {
+                        sides: 1,
+                        tracks_per_side: 1,
+                        tracks: vec![vec![DiskTrack {
+                            sectors: vec![sector(1, op == 0x4c, false)],
+                        }]],
+                    },
+                );
+                for b in [op, 0, 0, 0, 1, 2, 1, 0x2a, 0xff] {
+                    f.write_data(b);
+                }
+                read(&mut f, 512);
+                assert_eq!(result(&mut f), [0x40, 0x80, 0, 0, 0, 1, 2]);
+            }
+        }
+    }
+}
+
+#[test]
+fn data_reads_transfer_clean_and_data_crc_fields_before_result() {
+    for op in [0x46, 0x4c] {
+        for crc in [false, true] {
+            let mut f = controller(op, vec![sector(1, op == 0x4c, crc)], 1);
+            let before = format!("{:?}", f.disk_for_export(0).expect("mounted"));
+            read(&mut f, 512);
+            assert_eq!(
+                result(&mut f),
+                [
+                    0x40,
+                    if crc { 0x20 } else { 0x80 },
+                    if crc { 0x20 } else { 0 },
+                    0,
+                    0,
+                    1,
+                    2
+                ]
+            );
+            assert_eq!(
+                format!("{:?}", f.disk_for_export(0).expect("unchanged")),
+                before
+            );
+        }
+    }
+}
+
+#[test]
+fn data_reads_do_not_transfer_later_bad_id_or_publish_its_data_mark() {
+    for op in [0x46, 0x4c] {
+        let mut bad = sector(2, op != 0x4c, false);
+        bad.st1 = 0x20;
+        let mut f = controller(op | 0x20, vec![sector(1, op == 0x4c, false), bad], 2);
+        read(&mut f, 512);
+        assert_eq!(result(&mut f), [0x40, 0x20, 0, 0, 0, 2, 2]);
+    }
+}
