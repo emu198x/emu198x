@@ -48,22 +48,37 @@ permissions:
 # If there's a prerelease-style suffix to the version, then the release(s)
 # will be marked as a prerelease.
 on:
+  # Every PR runs the cheap plan. The full 5-target build and qualification
+  # runs on each merge to main and on release tags; to run it on a PR branch
+  # first, dispatch this workflow there: `gh workflow run release.yml --ref
+  # <branch>` (umbrella docs/plans/2026-10-19-ci-efficiency.md, A3).
   pull_request:
+  workflow_dispatch:
   push:
+    branches:
+      - main
     tags:
       - '**[0-9]+.[0-9]+.[0-9]+*'
+
+# A newer push supersedes a PR or branch build; a release tag is never cancelled.
+concurrency:
+  group: release-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
 
 jobs:
   # Run 'dist plan' (or host) to determine what tasks we need to do
   plan:
     runs-on: "ubuntu-22.04"
+    timeout-minutes: 10
     outputs:
       val: ${{ steps.plan.outputs.manifest }}
-      tag: ${{ !github.event.pull_request && github.ref_name || '' }}
-      tag-flag: ${{ !github.event.pull_request && format('--tag={0}', github.ref_name) || '' }}
-      publishing: ${{ !github.event.pull_request }}
+      # Only a release tag publishes. A push to main builds and qualifies but never releases.
+      tag: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
+      tag-flag: ${{ startsWith(github.ref, 'refs/tags/') && format('--tag={0}', github.ref_name) || '' }}
+      publishing: ${{ startsWith(github.ref, 'refs/tags/') }}
+      full: ${{ github.event_name != 'pull_request' }}
     env:
-      GH_TOKEN: ${{ github.event_name != 'pull_request' && secrets.RELEASE_PLZ_TOKEN || secrets.GITHUB_TOKEN }}
+      GH_TOKEN: ${{ startsWith(github.ref, 'refs/tags/') && secrets.RELEASE_PLZ_TOKEN || secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -86,7 +101,7 @@ jobs:
       # but also really annoying to build CI around when it needs secrets to work right.)
       - id: plan
         run: |
-          dist ${{ (!github.event.pull_request && format('host --steps=create --tag={0}', github.ref_name)) || 'plan' }} --output-format=json > plan-dist-manifest.json
+          dist ${{ (startsWith(github.ref, 'refs/tags/') && format('host --steps=create --tag={0}', github.ref_name)) || 'plan' }} --output-format=json > plan-dist-manifest.json
           echo "dist ran successfully"
           cat plan-dist-manifest.json
           echo "manifest=$(jq -c "." plan-dist-manifest.json)" >> "$GITHUB_OUTPUT"
@@ -102,7 +117,7 @@ jobs:
     # Let the initial task tell us to not run (currently very blunt)
     needs:
       - plan
-    if: ${{ fromJson(needs.plan.outputs.val).ci.github.artifacts_matrix.include != null && (needs.plan.outputs.publishing == 'true' || fromJson(needs.plan.outputs.val).ci.github.pr_run_mode == 'upload') }}
+    if: ${{ fromJson(needs.plan.outputs.val).ci.github.artifacts_matrix.include != null && (needs.plan.outputs.publishing == 'true' || (fromJson(needs.plan.outputs.val).ci.github.pr_run_mode == 'upload' && needs.plan.outputs.full == 'true')) }}
     strategy:
       fail-fast: false
       # Target platforms/runners are computed by dist in create-release.
@@ -117,9 +132,10 @@ jobs:
       # - N "local" tasks that build each platform's binaries and platform-specific installers
       matrix: ${{ fromJson(needs.plan.outputs.val).ci.github.artifacts_matrix }}
     runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
     container: ${{ matrix.container && matrix.container.image || null }}
     env:
-      GH_TOKEN: ${{ github.event_name != 'pull_request' && secrets.RELEASE_PLZ_TOKEN || secrets.GITHUB_TOKEN }}
+      GH_TOKEN: ${{ startsWith(github.ref, 'refs/tags/') && secrets.RELEASE_PLZ_TOKEN || secrets.GITHUB_TOKEN }}
       BUILD_MANIFEST_NAME: target/distrib/${{ join(matrix.targets, '-') }}-dist-manifest.json
     steps:
       - name: enable windows longpaths
@@ -366,8 +382,9 @@ jobs:
       - plan
       - build-local-artifacts
     runs-on: "ubuntu-22.04"
+    timeout-minutes: 20
     env:
-      GH_TOKEN: ${{ github.event_name != 'pull_request' && secrets.RELEASE_PLZ_TOKEN || secrets.GITHUB_TOKEN }}
+      GH_TOKEN: ${{ startsWith(github.ref, 'refs/tags/') && secrets.RELEASE_PLZ_TOKEN || secrets.GITHUB_TOKEN }}
       BUILD_MANIFEST_NAME: target/distrib/global-dist-manifest.json
     steps:
       - uses: actions/checkout@v6
@@ -416,8 +433,9 @@ jobs:
     # Publish only after every producer and qualification job succeeds.
     if: ${{ always() && needs.plan.result == 'success' && needs.plan.outputs.publishing == 'true' && needs.build-global-artifacts.result == 'success' && needs.build-local-artifacts.result == 'success' && needs.custom-qualify-packages.result == 'success' }}
     env:
-      GH_TOKEN: ${{ github.event_name != 'pull_request' && secrets.RELEASE_PLZ_TOKEN || secrets.GITHUB_TOKEN }}
+      GH_TOKEN: ${{ startsWith(github.ref, 'refs/tags/') && secrets.RELEASE_PLZ_TOKEN || secrets.GITHUB_TOKEN }}
     runs-on: "ubuntu-22.04"
+    timeout-minutes: 15
     outputs:
       val: ${{ steps.host.outputs.manifest }}
     steps:
@@ -494,6 +512,7 @@ jobs:
       - host
       - custom-qualify-packages
     runs-on: "ubuntu-22.04"
+    timeout-minutes: 15
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       GITHUB_USER: "axo bot"
@@ -555,8 +574,9 @@ jobs:
     # "host" however must run to completion, no skipping allowed!
     if: ${{ always() && needs.host.result == 'success' && needs.custom-qualify-packages.result == 'success' && needs.publish-homebrew-formula.result == 'success' }}
     runs-on: "ubuntu-22.04"
+    timeout-minutes: 10
     env:
-      GH_TOKEN: ${{ github.event_name != 'pull_request' && secrets.RELEASE_PLZ_TOKEN || secrets.GITHUB_TOKEN }}
+      GH_TOKEN: ${{ startsWith(github.ref, 'refs/tags/') && secrets.RELEASE_PLZ_TOKEN || secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v6
         with:

@@ -27,6 +27,7 @@ jobs:
   hygiene:
     name: Test hygiene
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
       # libtest reports an early return as `ok`, so a guard that prints a
@@ -92,6 +93,7 @@ jobs:
   registry:
     name: System registry
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
       # Verifies docs/status/systems.toml against the crates, the declared
@@ -114,6 +116,7 @@ jobs:
   cartridges:
     name: Synthetic cartridges
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
 
@@ -207,6 +210,7 @@ jobs:
   firmware-boot:
     name: Firmware boot evidence
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     env:
       CORPORA_REPO: ${{ vars.ACCURACY_CORPORA_REPO }}
       CORPORA_TAG: ${{ vars.ACCURACY_CORPORA_TAG || 'v1' }}
@@ -347,6 +351,7 @@ jobs:
   fmt:
     name: Format
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Check out repository
         uses: actions/checkout@v7
@@ -374,6 +379,7 @@ jobs:
   clippy:
     name: Clippy
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - name: Check out repository
         uses: actions/checkout@v7
@@ -442,6 +448,7 @@ jobs:
   build:
     name: Build (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
     needs: [fmt, clippy]
     strategy:
       fail-fast: false
@@ -617,6 +624,7 @@ jobs:
   wasm:
     name: Browser parity
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     needs: [fmt, clippy]
     steps:
       - name: Check out repository

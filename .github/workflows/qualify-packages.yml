@@ -29,6 +29,7 @@ jobs:
           - runner: windows-2022
             target: x86_64-pc-windows-msvc
     runs-on: ${{ matrix.runner }}
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v6
         with:
