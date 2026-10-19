@@ -37,7 +37,7 @@ impl MachineApp for Einstein {
                     (or set EMU198X_EINSTEIN_MOS)
     --rom PATH|ID=PATH pin the MOS image (firmware ID: tatung-einstein-mos)
     --rom-dir DIR   firmware directory (or set EMU198X_EINSTEIN_ROM_DIR)";
-    const CONTROLS: &'static str = "    Esc             quit
+    const CONTROLS: &'static str = "    Close window    quit (or use the platform Quit shortcut)
     F12             hard reset
     Ctrl+Pause      Ctrl-BREAK (boot disk)
     A-Z 0-9 etc.    the Einstein keyboard

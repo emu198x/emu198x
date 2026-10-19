@@ -58,7 +58,7 @@ impl MachineApp for Cpc {
                     RUN\" and press RETURN twice. The CPC drives the cassette
                     motor itself, so playback follows the firmware rather
                     than a host transport control.";
-    const CONTROLS: &'static str = "    Esc             quit
+    const CONTROLS: &'static str = "    Close window    quit (or use the platform Quit shortcut)
     F12             hard reset
     A-Z 0-9 etc.    the CPC keyboard
     Shift / Ctrl    the CPC SHIFT / CONTROL keys

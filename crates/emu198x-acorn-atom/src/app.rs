@@ -50,7 +50,7 @@ impl MachineApp for Atom {
                             run as a .uef
     --save-print PATH       write any bytes sent to the Centronics printer
                             during a headless run";
-    const CONTROLS: &'static str = "    Esc             quit
+    const CONTROLS: &'static str = "    Close window    quit (or use the platform Quit shortcut)
     F12             hard reset
     A-Z 0-9 etc.    the Atom keyboard
     Enter           RETURN";

@@ -94,9 +94,8 @@ impl UiSystem for CpcSystem {
 ///
 /// Only the unshifted legends are mapped: the harness reports Shift as its own
 /// key, so a host `Shift+1` arrives as `shift` plus `1` and the matrix does
-/// the rest — exactly as the hardware does. The CPC's own `ESC` is
-/// unreachable, because the harness owns `Esc` for quit; `Tab` stands in for
-/// it, since the CPC's `TAB` is otherwise the less-used of the two.
+/// the rest — exactly as the hardware does. Host Escape and Tab
+/// each reach their own CPC key.
 fn map_cpc_keys(code: KeyCode) -> Option<&'static [&'static str]> {
     Some(match code {
         KeyCode::KeyA => &["a"],
@@ -147,13 +146,14 @@ fn map_cpc_keys(code: KeyCode) -> Option<&'static [&'static str]> {
         KeyCode::Slash => &["/"],
         KeyCode::Backquote => &["\\"],
         KeyCode::Space => &["space"],
+        KeyCode::Escape => &["escape"],
         KeyCode::Enter => &["return"],
         KeyCode::NumpadEnter => &["enter"],
         KeyCode::Backspace | KeyCode::Delete => &["del"],
         KeyCode::ShiftLeft | KeyCode::ShiftRight => &["shift"],
         KeyCode::ControlLeft | KeyCode::ControlRight => &["control"],
         KeyCode::CapsLock => &["capslock"],
-        KeyCode::Tab => &["escape"],
+        KeyCode::Tab => &["tab"],
         KeyCode::Home => &["clr"],
         KeyCode::Insert => &["copy"],
         KeyCode::ArrowUp => &["up"],
@@ -177,6 +177,12 @@ fn map_cpc_keys(code: KeyCode) -> Option<&'static [&'static str]> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn escape_reaches_the_machine_keyboard() {
+        assert_eq!(map_cpc_keys(KeyCode::Tab), Some(&["tab"][..]));
+        assert_eq!(map_cpc_keys(KeyCode::Escape), Some(&["escape"][..]));
+    }
     use runtime_amstrad_cpc::key_for_name;
 
     #[test]
@@ -293,6 +299,7 @@ mod tests {
         KeyCode::ControlLeft,
         KeyCode::ControlRight,
         KeyCode::CapsLock,
+        KeyCode::Escape,
         KeyCode::Tab,
         KeyCode::Home,
         KeyCode::Insert,

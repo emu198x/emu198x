@@ -21,7 +21,7 @@ const GLYPH_W: u32 = 6; // 5px cell + 1px gap
 const GLYPH_H: u32 = 8;
 
 const HEADER_TEXT: &str = "EMULATION HALTED";
-const HINT_TEXT: &str = "F12 RESET   ESC QUIT";
+const HINT_TEXT: &str = "F12 RESET  CLOSE TO QUIT";
 
 /// Builds an RGBA8888 overlay frame of `width`x`height` showing `message`,
 /// word-wrapped and centred under a header, with a reset/quit hint.

@@ -33,7 +33,7 @@ impl MachineApp for Sg1000 {
         "    --cart PATH     cartridge ROM (required; a bare PATH is accepted too)
     --model ID      sega-sg-1000-ntsc | sega-sg-1000-pal
     --region MODE   ntsc | pal [default: ntsc]; last selector wins";
-    const CONTROLS: &'static str = "    Esc             quit
+    const CONTROLS: &'static str = "    Close window    quit (or use the platform Quit shortcut)
     F12             emulator hard reset
     Arrow keys      d-pad (player 1)
     Z / X           buttons 1 and 2

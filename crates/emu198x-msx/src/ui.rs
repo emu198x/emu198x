@@ -128,8 +128,7 @@ impl UiSystem for MsxSystem {
 /// Map a physical host key to its MSX key name (matched by `runtime-msx`'s
 /// `key_to_matrix`). The cursor keys are genuine matrix cells, so they map here
 /// rather than to the joystick. Shifted symbols are reached by holding SHIFT;
-/// host Alt is the GRAPH key. The MSX's own Escape key is unreachable — the
-/// harness owns Esc for quit.
+/// host Alt is the GRAPH key. Host Escape reaches the machine Escape key.
 fn map_msx_keys(code: KeyCode) -> Option<&'static [&'static str]> {
     Some(match code {
         KeyCode::KeyA => &["a"],
@@ -180,6 +179,7 @@ fn map_msx_keys(code: KeyCode) -> Option<&'static [&'static str]> {
         KeyCode::Period => &["."],
         KeyCode::Slash => &["/"],
         KeyCode::Space => &["space"],
+        KeyCode::Escape => &["escape"],
         KeyCode::Enter | KeyCode::NumpadEnter => &["enter"],
         KeyCode::Tab => &["tab"],
         KeyCode::Backspace => &["bs"],
@@ -206,6 +206,11 @@ fn map_msx_keys(code: KeyCode) -> Option<&'static [&'static str]> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn escape_reaches_the_machine_keyboard() {
+        assert_eq!(map_msx_keys(KeyCode::Escape), Some(&["escape"][..]));
+    }
 
     #[test]
     fn window_uses_catalogue_firmware_both_slots_and_live_regional_pacing() {

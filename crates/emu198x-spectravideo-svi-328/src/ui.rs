@@ -123,7 +123,7 @@ impl UiSystem for Svi328System {
 /// `runtime-spectravideo-svi-328`'s `key_to_matrix`). The cursor keys are
 /// genuine matrix cells, so they map here rather than to the joystick. Shifted
 /// symbols are reached by holding SHIFT; host Alt is the GRAPH/CODE key. The
-/// SVI's own Escape key is unreachable — the harness owns Esc for quit.
+/// Host Escape reaches the machine Escape key.
 fn map_svi_keys(code: KeyCode) -> Option<&'static [&'static str]> {
     Some(match code {
         KeyCode::KeyA => &["a"],
@@ -173,6 +173,7 @@ fn map_svi_keys(code: KeyCode) -> Option<&'static [&'static str]> {
         KeyCode::Backslash => &["\\"],
         KeyCode::BracketRight => &["]"],
         KeyCode::Space => &["space"],
+        KeyCode::Escape => &["escape"],
         KeyCode::Tab => &["tab"],
         KeyCode::Enter | KeyCode::NumpadEnter => &["return"],
         KeyCode::Backspace => &["backspace"],
@@ -199,6 +200,11 @@ fn map_svi_keys(code: KeyCode) -> Option<&'static [&'static str]> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn escape_reaches_the_machine_keyboard() {
+        assert_eq!(map_svi_keys(KeyCode::Escape), Some(&["escape"][..]));
+    }
 
     #[test]
     fn window_startup_loads_the_parsed_cartridge_and_refuses_missing_media() {

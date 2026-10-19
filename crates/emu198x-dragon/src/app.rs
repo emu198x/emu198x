@@ -284,7 +284,7 @@ Headless harness (each of these selects headless mode; --frames is not accepted)
                        snapshot references instead use the local screenshot cycle count
     --xroar-timeout-seconds N
                        hard XRoar run timeout in emulated seconds [default: 45]";
-    const CONTROLS: &'static str = "    Esc              quit
+    const CONTROLS: &'static str = "    Close window    quit (or use the platform Quit shortcut)
     F9 / F10 / F11   start / stop tape, toggle fast-load (turbo)
     F12              hard reset
     Cmd/Ctrl+S / +L  quick save / load state

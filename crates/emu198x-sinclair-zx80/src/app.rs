@@ -62,7 +62,7 @@ impl MachineApp for Zx80 {
     --tape PATH          put a .o/.80 cassette in the deck. This does not press
                          play: type LOAD (W), then use `media_transport` start
                          on slot `tape-1`. Switching machines ejects the tape.";
-    const CONTROLS: &'static str = "    Esc             quit
+    const CONTROLS: &'static str = "    Close window    quit (or use the platform Quit shortcut)
     F12             hard reset
     A-Z 0-9 . Space the ZX80 membrane keyboard
     Shift           SHIFT (the function/symbol layer — hold with another key)

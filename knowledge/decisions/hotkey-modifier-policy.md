@@ -2,6 +2,8 @@
 
 **Date:** 2026-04-09
 
+**Amended:** 2026-10-19 — Escape belongs to the emulated keyboard (approved).
+
 ## The decision
 
 **Alt is the only modifier available for emulator hotkeys across the Spectrum family (and will be across every 8-bit system). Ctrl and Shift are permanently off-limits as hotkey modifiers.**
@@ -44,11 +46,27 @@ On macOS the default keyboard setting requires `Fn+F5` to get a real F5 keystrok
 
 `-`, `=`, `[`, `]`, `;`, `'`, `,`, `.`, `/` are currently unmapped in `update_keyboard` but represent Spectrum keys via SYMBOL SHIFT combos. Binding them to hotkeys commits to never passing them through to the Spectrum matrix, even when Phase 2+ improves punctuation mapping. Only use them if Alt coverage is somehow impossible.
 
+## Escape belongs to the machine
+
+We pass host Escape to the emulated keyboard wherever the machine has that key.
+On a machine without Escape, we ignore it. We quit through the normal window-close
+action or the platform's native Quit command; we do not reserve a bare machine key
+for quitting.
+
+This explicitly replaces the earlier Escape-to-quit exception below. That exception
+was justified solely by the Spectrum's keyboard, and became wrong as we added
+machines whose software needs Escape. The shared native handler must deliver both
+the press and release, and machine adapters must expose their existing Escape key.
+The CPC's Tab key is its own key again, rather than a substitute for Escape.
+
+This amendment changes only Escape ownership and its former CPC Tab workaround.
+Other modifier and shortcut policy remains unchanged.
+
 ## Currently assigned hotkeys
 
 | Hotkey | Action | Notes |
 |--------|--------|-------|
-| `Escape` | Quit | Pre-policy, uniquely safe (never on a Spectrum) |
+| `Escape` | Emulated Escape | No host quit action; ignore if the machine has no Escape key |
 | `F5` | Tape-play | Pre-policy, kept for continuity |
 | `Alt+S` | Quick-save state | Phase 1.1 |
 | `Alt+L` | Quick-load state | Phase 1.1 |

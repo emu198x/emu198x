@@ -97,7 +97,7 @@ impl MachineApp for Vic20 {
     --esp-at-tcp    attach an ESP-AT modem (9600 baud initially,
                     with AT+UART_CUR support); CIPSTART opens a real
                     TCP connection (64-byte frame reassembly)";
-    const CONTROLS: &'static str = "    Esc             quit
+    const CONTROLS: &'static str = "    Close window    quit (or use the platform Quit shortcut)
     F12             hard reset
     A-Z 0-9 etc.    the VIC-20 keyboard
     Right / Down    the two cursor keys; Tab = RUN/STOP, Alt = Commodore

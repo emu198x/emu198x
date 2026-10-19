@@ -198,7 +198,7 @@ impl MachineApp for C64 {
                          trace drive-8 ROM activity for the inclusive hex window
                          S..E during autoload and the --frames run (headless)
     --trace-limit N      maximum traced events to retain [default: 512] (headless)";
-    const CONTROLS: &'static str = "    Esc                  quit
+    const CONTROLS: &'static str = "    Close window    quit (or use the platform Quit shortcut)
     F9 / F10 / F11       start / stop tape, toggle tape turbo
     F12                  hard reset
     Cmd/Ctrl+S / +L      quick save / load state

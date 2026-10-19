@@ -203,7 +203,7 @@ impl MachineApp for Spectrum {
     --play-tape     start tape transport on tape-1 immediately
     --autoload-tape wait for boot, type LOAD \"\", and start tape-1
     --turbo-tape    (accepted; arm fast-load in the UI with F11)";
-    const CONTROLS: &'static str = "    Esc                quit
+    const CONTROLS: &'static str = "    Close window    quit (or use the platform Quit shortcut)
     F9 / F10 / F11     start / stop tape, toggle fast-load (turbo)
     Cmd/Ctrl+Shift+E  export tape recording to a new .tap file
     Cmd/Ctrl+Shift+K  toggle Host / Original keyboard (also Machine → Keyboard)

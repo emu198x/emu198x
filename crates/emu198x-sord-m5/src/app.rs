@@ -37,7 +37,7 @@ impl MachineApp for SordM5 {
     --model ID      sord-m5-ntsc | sord-m5-pal
     --region MODE   ntsc | pal [default: ntsc]; last selector wins
     --cart PATH     cartridge ROM (optional)";
-    const CONTROLS: &'static str = "    Esc             quit
+    const CONTROLS: &'static str = "    Close window    quit (or use the platform Quit shortcut)
     F12             hard reset
     A-Z 0-9 etc.    the M5 keyboard
     Shift / Ctrl    the M5 SHIFT / CONTROL keys (Tab = FUNC)

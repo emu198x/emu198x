@@ -103,6 +103,7 @@ fn map_amiga_key(code: KeyCode) -> Option<&'static [&'static str]> {
         KeyCode::KeyY => &["y"],
         KeyCode::KeyZ => &["z"],
         KeyCode::Space => &["space"],
+        KeyCode::Escape => &["escape"],
         KeyCode::Backspace => &["backspace"],
         KeyCode::Tab => &["tab"],
         KeyCode::Enter | KeyCode::NumpadEnter => &["enter"],
@@ -291,6 +292,11 @@ impl UiApp for Amiga {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn escape_reaches_the_machine_keyboard() {
+        assert_eq!(map_amiga_key(KeyCode::Escape), Some(&["escape"][..]));
+    }
 
     #[test]
     fn maps_basic_keyboard_keys() {

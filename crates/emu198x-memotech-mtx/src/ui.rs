@@ -132,8 +132,7 @@ impl UiSystem for MtxSystem {
 /// `runtime-memotech-mtx`'s `key_from_name`). The cursor keys are genuine
 /// matrix cells, so they map here rather than to the joystick. Shifted symbols
 /// are reached by holding a shift with another key, so only the unshifted
-/// legends need mapping. The MTX's own Escape key is unreachable — the harness
-/// owns Esc for quit.
+/// legends need mapping. Host Escape reaches the machine Escape key.
 fn map_mtx_keys(code: KeyCode) -> Option<&'static [&'static str]> {
     Some(match code {
         KeyCode::KeyA => &["a"],
@@ -181,6 +180,7 @@ fn map_mtx_keys(code: KeyCode) -> Option<&'static [&'static str]> {
         KeyCode::Period => &["."],
         KeyCode::Slash => &["/"],
         KeyCode::Space => &["space"],
+        KeyCode::Escape => &["escape"],
         KeyCode::Enter | KeyCode::NumpadEnter => &["enter"],
         KeyCode::Tab => &["tab"],
         KeyCode::ShiftLeft => &["shift"],
@@ -210,6 +210,11 @@ fn map_mtx_keys(code: KeyCode) -> Option<&'static [&'static str]> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn escape_reaches_the_machine_keyboard() {
+        assert_eq!(map_mtx_keys(KeyCode::Escape), Some(&["escape"][..]));
+    }
 
     #[test]
     fn menu_uses_runtime_ids_and_a_failed_switch_preserves_selection() {

@@ -132,7 +132,7 @@ impl UiSystem for Atari7800System {
 
     fn map_keys(&self, code: KeyCode) -> Option<&'static [&'static str]> {
         // The three console switches — named key events, distinct from the
-        // harness's own Esc-quit / F12-reset.
+        // harness's F12-reset.
         Some(match code {
             KeyCode::Enter | KeyCode::NumpadEnter => &["select"],
             KeyCode::Backspace => &["reset"],

@@ -101,7 +101,7 @@ impl UiSystem for Atari5200System {
     fn map_keys(&self, code: KeyCode) -> Option<&'static [&'static str]> {
         // The 16-key keypad — momentary named key events. The three console
         // keys (Start / Pause / Reset) are keypad keys on the 5200, distinct
-        // from the harness's own Esc-quit / F12-reset.
+        // from the harness's F12-reset.
         Some(match code {
             KeyCode::Enter | KeyCode::NumpadEnter => &["start"],
             KeyCode::Backspace => &["pause"],

@@ -78,7 +78,7 @@ impl MachineApp for Atari800xl {
     --disk PATH     ATR disk image for D1: (a .zip holding one .atr works too)
     --no-basic      hold OPTION at boot to disable the built-in BASIC
     --region MODE   ntsc | pal [default: ntsc]";
-    const CONTROLS: &'static str = "    Esc             quit
+    const CONTROLS: &'static str = "    Close window    quit (or use the platform Quit shortcut)
     F12             emulator hard reset
     A-Z 0-9 etc.    the Atari keyboard
     Enter / Space / Delete / Tab   the matching Atari keys
