@@ -1,0 +1,81 @@
+{
+  "schema_version": 1,
+  "qualified": false,
+  "source_commit": "e72ca90260bf788720ad8fe88b51d0e9b6a665f4",
+  "suite_manifest_version": "0.38.1",
+  "delivery": "source_build",
+  "origins": {
+    "baseline_controller": "fresh_execution",
+    "current_tests": "fresh_execution",
+    "rom_runtime": "fresh_execution",
+    "rom_fixture_assembly_mastering": "captured_reference_replay"
+  },
+  "stages": {
+    "baseline_reproduction": {
+      "status": "pass",
+      "fuse_observations": 12,
+      "emu_observations": 12
+    },
+    "controller_runtime_machine_tests": {
+      "status": "pass",
+      "passed": 480,
+      "ignored": 63
+    },
+    "normal_headless_build": {
+      "status": "pass"
+    },
+    "fmt": {
+      "status": "pass"
+    },
+    "clippy": {
+      "status": "pass"
+    },
+    "fresh_rom_loading_execution": {
+      "status": "pass",
+      "runs": 2
+    },
+    "wrong_expected_signature_control": {
+      "status": "pass",
+      "wrapper_exit": 1,
+      "runtime_process_exit": 0
+    },
+    "fresh_assembly_mastering": {
+      "status": "not_run",
+      "reason": "Not rerun for this runtime regression"
+    },
+    "physical_hardware_conformance": {
+      "status": "not_run"
+    },
+    "full_configuration_qualification": {
+      "status": "not_run"
+    }
+  },
+  "expected_current_behavior": {
+    "selected_matching_id_crc_de_without_dd": "result before any payload or DAM/SK choice",
+    "data_crc_de_with_dd": "payload then DE/DD result",
+    "read_track": "unchanged"
+  },
+  "baseline_observation": {
+    "id_only_payload_bytes": {
+      "emu": 512,
+      "fuse": 0
+    },
+    "id_only_st1_hex": {
+      "emu": "20",
+      "fuse": "05"
+    },
+    "status_authority": "DE result follows NEC/MAME; stock Fuse full status remains different"
+  },
+  "legacy_v6": {
+    "fixtures": 8,
+    "normalization": "Only currently pending DE-without-DD active Read Data/Read Deleted Data; prior skipped errors cannot be reconstructed",
+    "schema_changed": false
+  },
+  "limitations": [
+    "No original hardware or exact physical timing claim",
+    "No inference of independent ID corruption from DD-set metadata",
+    "No broader duplicate-ID/wrong-CHRN search change",
+    "Source build is not a distributed release binary",
+    "ROM runs replay captured assembly/mastering artifacts, so no new complete source-to-disk qualification claim"
+  ]
+}

@@ -1,8 +1,8 @@
 # Legacy v6 ID-error controller checkpoints
 
-These eight small Postcard fixtures contain only the programmatic µPD765A controller and a512-byte sector filled withE5. They contain no CPU, firmware, external media or native machine snapshot. Generated from controller/runtime source at5cded0a6b646f493d7cc2abc8292eb26c3837f49 before the1852 fix, using the temporary test fragment retained in docs/plans/2026-10-19-read-data-id-crc/reference/capture_legacy.rs. The capture command and raw output are retained with the study.
+These eight small Postcard fixtures contain only the programmatic µPD765A controller and a 512-byte sector filled with E5. They contain no CPU, firmware, external media or native machine snapshot. Generated from controller/runtime source at 5cded0a6b646f493d7cc2abc8292eb26c3837f49 before the #1852 fix, using the temporary test fragment retained in docs/plans/2026-10-19-read-data-id-crc/reference/capture_legacy.rs. The capture command and raw output are retained with the study.
 
-Names are opcode-acceptedPayloadBytes-RQMhigh.postcard. Opcodes46/4C; accepted0/179; low/highRQM. Matching data mark, ID-only CRC(DE set, DD clear; RDD includes the deleted-mark bit40), CHRN0/0/1/2. The new runtime wraps each unchanged controller fixture in a v6 envelope and restores it, checking ID-error result before any host status read; exact Postcard re-encoding first proves the layout is unchanged.
+Names are opcode-acceptedPayloadBytes-RQMhigh.postcard. Opcodes 46/4C; accepted 0/179; low/high RQM. Matching data mark, ID-only CRC (DE set, DD clear; RDD includes the deleted-mark bit 40), CHRN 0/0/1/2. The new runtime wraps each unchanged controller fixture in a v6 envelope and restores it, checking ID-error result before any host status read; exact Postcard re-encoding first proves the layout is unchanged.
 
 Fresh valid transfers and result prefixes must retain byte-identical native roundtrips. Old faulty active transfers intentionally normalize to an ID-error result; earlier payload consumption cannot be undone. No v6 schema/version changes.
 

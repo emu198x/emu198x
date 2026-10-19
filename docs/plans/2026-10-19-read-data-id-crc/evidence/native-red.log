@@ -1,0 +1,29 @@
+mise WARN  tracking config: failed to ln -sf /Users/stevehill/Projects/198x/output/qualification/workspaces/read-data-id-crc/rust-toolchain.toml /Users/stevehill/.local/state/mise/tracked-configs/5bb0a7dd7e9a7c8b: Operation not permitted (os error 1)
+   Compiling runtime-sinclair-zx-spectrum v0.38.1 (/Users/stevehill/Projects/198x/output/qualification/workspaces/read-data-id-crc/crates/runtime-sinclair-zx-spectrum)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 5.12s
+     Running unittests src/lib.rs (target/debug/deps/runtime_sinclair_zx_spectrum-bc5b18707bd1f5ac)
+
+running 2 tests
+
+thread 'snapshot::tests::old_v6_bad_id_reads_restore_to_result_before_any_further_payload' (124984507) panicked at crates/runtime-sinclair-zx-spectrum/src/snapshot.rs:454:13:
+assertion `left == right` failed: result before first host status
+  left: 112
+ right: 208
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test snapshot::tests::old_v6_bad_id_reads_restore_to_result_before_any_further_payload ... FAILED
+
+thread 'snapshot::tests::bad_id_results_and_valid_data_reads_keep_native_roundtrips' (124984506) panicked at crates/runtime-sinclair-zx-spectrum/src/snapshot.rs:493:29:
+assertion `left == right` failed
+  left: 112
+ right: 208
+test snapshot::tests::bad_id_results_and_valid_data_reads_keep_native_roundtrips ... FAILED
+
+failures:
+
+failures:
+    snapshot::tests::bad_id_results_and_valid_data_reads_keep_native_roundtrips
+    snapshot::tests::old_v6_bad_id_reads_restore_to_result_before_any_further_payload
+
+test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 120 filtered out; finished in 0.17s
+
+error: test failed, to rerun pass `-p runtime-sinclair-zx-spectrum --lib`

@@ -1,0 +1,1 @@
+mise WARN  tracking config: failed to ln -sf /Users/stevehill/Projects/198x/output/qualification/workspaces/read-data-id-crc/rust-toolchain.toml /Users/stevehill/.local/state/mise/tracked-configs/5bb0a7dd7e9a7c8b: Operation not permitted (os error 1)

@@ -1,0 +1,30 @@
+mise WARN  tracking config: failed to ln -sf /Users/stevehill/Projects/198x/output/qualification/workspaces/read-data-id-crc/rust-toolchain.toml /Users/stevehill/.local/state/mise/tracked-configs/5bb0a7dd7e9a7c8b: Operation not permitted (os error 1)
+   Compiling nec-upd765a v0.38.1 (/Users/stevehill/Projects/198x/output/qualification/workspaces/read-data-id-crc/crates/nec-upd765a)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.81s
+     Running tests/read_progress.rs (target/debug/deps/read_progress-dda2ff3654a010bd)
+
+running 3 tests
+
+thread 'data_reads_reject_id_crc_before_payload_and_recover_without_changing_media' (124966227) panicked at crates/nec-upd765a/tests/read_progress.rs:51:9:
+assertion `left == right` failed
+  left: 112
+ right: 208
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test data_reads_reject_id_crc_before_payload_and_recover_without_changing_media ... FAILED
+
+thread 'data_reads_do_not_transfer_later_bad_id_or_publish_its_data_mark' (124966226) panicked at crates/nec-upd765a/tests/read_progress.rs:275:9:
+assertion `left == right` failed
+  left: [0, 0, 0, 0, 0, 3, 2]
+ right: [64, 32, 0, 0, 0, 2, 2]
+test data_reads_do_not_transfer_later_bad_id_or_publish_its_data_mark ... FAILED
+test data_reads_transfer_clean_and_data_crc_fields_before_result ... ok
+
+failures:
+
+failures:
+    data_reads_do_not_transfer_later_bad_id_or_publish_its_data_mark
+    data_reads_reject_id_crc_before_payload_and_recover_without_changing_media
+
+test result: FAILED. 1 passed; 2 failed; 0 ignored; 0 measured; 10 filtered out; finished in 0.02s
+
+error: test failed, to rerun pass `-p nec-upd765a --test read_progress`

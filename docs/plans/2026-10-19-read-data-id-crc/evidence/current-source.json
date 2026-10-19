@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "qualified": false,
+  "source_commit": "e72ca90260bf788720ad8fe88b51d0e9b6a665f4",
+  "executed_source_sha256": {
+    "crates/nec-upd765a/src/lib.rs": "2b8fcb5976dbc13479484536cda28ef5a5af61db94523ffd15ec0791fc22e013",
+    "crates/nec-upd765a/tests/read_progress.rs": "8848aa7736cc0b866197e0c386b9a184e1ba8154ed311d59edab7e6009e145a6",
+    "crates/runtime-sinclair-zx-spectrum/src/snapshot.rs": "02d77e3bbce3da64db96979bc3b93fbbb6f739979d4a351bc81da728cc1ba940",
+    "crates/runtime-sinclair-zx-spectrum/src/variants.rs": "c4e90aece36707ac4b642495e427538d1bf7458923168008d1a5874a2667b2fd"
+  },
+  "runtime": {
+    "delivery": "source_build",
+    "binary_sha256": "21bab44e81fad81a2d402e32bb5ed7867bc6ebbfe050b6ce540aa88f35e1cb82",
+    "build_argv": [
+      "cargo",
+      "build",
+      "--release",
+      "--locked",
+      "-p",
+      "emu198x-spectrum",
+      "--no-default-features"
+    ],
+    "cwd": "/Users/stevehill/Projects/198x/output/qualification/workspaces/read-data-id-crc"
+  },
+  "rustc": "rustc 1.99.0 (b940084d7 2026-09-28)\nbinary: rustc\ncommit-hash: b940084d7eb6a299eb4bfeb8e34901bc051e7ac4\ncommit-date: 2026-09-28\nhost: aarch64-apple-darwin\nrelease: 1.99.0\nLLVM version: 23.1.1",
+  "cargo": "cargo 1.99.0 (5f94df478 2026-08-27)",
+  "baseline_source": "5cded0a6b646f493d7cc2abc8292eb26c3837f49",
+  "qualification_scope": "No configuration qualified. Fresh public-register/native-state/ROM runtime regression only; assembly/mastering captured fixture replay in ROM runs."
+}
