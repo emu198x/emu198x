@@ -12,11 +12,6 @@
   "tests_ignored": 63,
   "native_checkpoints": 36,
   "reference_observations": 32,
-  "source_sha256": {
-    "crates/nec-upd765a/src/lib.rs": "f11a37c90278a569aaa186d4b41422aa182f57a74b371aeef6bdafd2ec74dbdd",
-    "crates/nec-upd765a/tests/read_progress.rs": "b4c7af4a360cb44a5b851c78c9477acb84857627e0dea5feb4c2db088f2d2a89",
-    "crates/runtime-sinclair-zx-spectrum/src/snapshot.rs": "f8b802c12ebbdace0b549f06392240d1027bf870a720275d5ceba1daebf7c218"
-  },
   "reviewed_source_difference": "One comment corrects Fuse function name start_read_track to start_read_diag after executed source commit; no executable code differs.",
   "limits": {
     "host_rom_wrapper_seconds": 240,
@@ -31,5 +26,15 @@
     "raw gaps/index/flux and drive timing",
     "completed Read Track data CRC status disagreement",
     "broader variants and formats remain unqualified"
-  ]
+  ],
+  "reviewed_source_sha256": {
+    "crates/nec-upd765a/src/lib.rs": "f11a37c90278a569aaa186d4b41422aa182f57a74b371aeef6bdafd2ec74dbdd",
+    "crates/nec-upd765a/tests/read_progress.rs": "b4c7af4a360cb44a5b851c78c9477acb84857627e0dea5feb4c2db088f2d2a89",
+    "crates/runtime-sinclair-zx-spectrum/src/snapshot.rs": "f8b802c12ebbdace0b549f06392240d1027bf870a720275d5ceba1daebf7c218"
+  },
+  "executed_source_sha256": {
+    "crates/nec-upd765a/src/lib.rs": "2a0519fe6390c21fa6014e8d0fe45404fcbbfbe2db444162b998ef18aaa1cff4",
+    "crates/nec-upd765a/tests/read_progress.rs": "b4c7af4a360cb44a5b851c78c9477acb84857627e0dea5feb4c2db088f2d2a89",
+    "crates/runtime-sinclair-zx-spectrum/src/snapshot.rs": "f8b802c12ebbdace0b549f06392240d1027bf870a720275d5ceba1daebf7c218"
+  }
 }
