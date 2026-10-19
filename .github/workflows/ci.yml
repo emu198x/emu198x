@@ -19,6 +19,18 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Format, Clippy, coverage (the Linux test run) and a build and test on
+  # macOS and Windows, shared by every 198x Rust repo
+  # (stevehill1981/198x-workflows). Project jobs follow.
+  rust:
+    name: Rust
+    uses: stevehill1981/198x-workflows/.github/workflows/rust-ci.yml@feat/rust-ci-inputs
+    with:
+      # Emu198x runs its own test, build and browser jobs below.
+      coverage: false
+      platform-build: false
+      linux-packages: pkg-config libasound2-dev libudev-dev
+
   # Format and lint run as separate jobs so the workflow summary
   # surfaces them independently. Both are fast (no test compile);
   # heavier downstream jobs gate on both passing.
@@ -348,95 +360,6 @@ jobs:
           # that covers the emulator around it.
           cargo test -p machine-atari-800xl --test altirraos_boot -- --ignored
 
-  fmt:
-    name: Format
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v7
-
-      - name: Read pinned toolchain
-        # Single source of truth across local + CI is
-        # rust-toolchain.toml. dtolnay/rust-toolchain@master no longer
-        # auto-reads the file, so we extract the channel here and
-        # pass it explicitly. Update rust-toolchain.toml only.
-        id: toolchain
-        run: |
-          channel=$(awk -F'"' '/^channel/{print $2}' rust-toolchain.toml)
-          echo "channel=${channel}" >> "$GITHUB_OUTPUT"
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: ${{ steps.toolchain.outputs.channel }}
-          components: rustfmt
-
-      - name: Check formatting
-        run: cargo fmt --all --check
-
-
-  clippy:
-    name: Clippy
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v7
-
-      - name: Install Linux build dependencies
-        # libasound2-dev: audio (cpal). libudev-dev: gamepad enumeration
-        # via gilrs for the host-input layer. muda's GTK backend is
-        # disabled at the workspace dep level (see workspace `muda`
-        # entry in the root Cargo.toml), so libgtk-3-dev / libxdo-dev
-        # aren't needed any more — restore them if Linux native menus
-        # are wired up.
-        #
-        # Bounded and retried because the Azure Ubuntu mirror intermittently
-        # refuses these runners. Unbounded, apt answers that by retrying with
-        # its default timeouts: four jobs across two pull requests hung here
-        # for 20-30 minutes each, logging `Ign:` against
-        # azure.archive.ubuntu.com, while sibling jobs in the same run got a
-        # healthy mirror and passed. Re-running is not a fix — it is a
-        # coin toss.
-        #
-        # `update` may fail without failing the step: the runner image ships
-        # a populated package cache, so an unreachable mirror should cost
-        # seconds, not the whole job.
-        run: |
-          apt_opts="-o Acquire::Retries=2 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20"
-          for attempt in 1 2 3; do
-            sudo timeout 120 apt-get $apt_opts update \
-              || echo "::warning::apt-get update attempt ${attempt} incomplete (mirror unreachable)"
-            if sudo timeout 180 apt-get $apt_opts install -y --no-install-recommends \
-                 pkg-config libasound2-dev libudev-dev; then
-              exit 0
-            fi
-            echo "::warning::apt-get install attempt ${attempt} failed; retrying"
-            sleep 10
-          done
-          echo "::error::apt failed after three bounded attempts"
-          exit 1
-
-      - name: Read pinned toolchain
-        # See note in the fmt job above.
-        id: toolchain
-        run: |
-          channel=$(awk -F'"' '/^channel/{print $2}' rust-toolchain.toml)
-          echo "channel=${channel}" >> "$GITHUB_OUTPUT"
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: ${{ steps.toolchain.outputs.channel }}
-          components: clippy
-
-      - name: Cache Rust build artifacts
-        uses: Swatinem/rust-cache@v2
-
-      - name: Run Clippy
-        run: cargo clippy --workspace --all-targets -- -D warnings
-
   # Cross-platform smoke build. Catches platform-specific compile
   # regressions on macOS (primary dev host) and Windows without
   # paying the cost of a full test run on those OSes. The full test
@@ -449,7 +372,6 @@ jobs:
     name: Build (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
-    needs: [fmt, clippy]
     strategy:
       fail-fast: false
       matrix:
@@ -609,11 +531,9 @@ jobs:
   # To restore it, recover the job from this file's history
   # (`git log -p -- .github/workflows/ci.yml`); scripts/coverage.sh and
   # scripts/coverage-gate.sh are untouched and still run locally.
-
   # ZEXDOC + ZEXALL moved to .github/workflows/zex.yml — it runs only when
   # the Z80 core or its corpus changes (plus on demand), so it no longer
   # makes every push wait tens of minutes on a stable CPU exerciser.
-
   # The browser build has to be the same emulator, not merely a build that
   # compiles for another target. #1416 was verified compile-only and shipped a
   # renderer that could not draw; this job is what stops that class recurring.
@@ -625,7 +545,6 @@ jobs:
     name: Browser parity
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    needs: [fmt, clippy]
     steps:
       - name: Check out repository
         uses: actions/checkout@v7
