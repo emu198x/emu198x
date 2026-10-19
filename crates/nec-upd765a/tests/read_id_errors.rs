@@ -110,3 +110,63 @@ fn valid_read_id_preserves_recorded_chrn_rotation_and_plus3_drive_alias() {
     assert_eq!(read_id(&mut fdc, 0), [0, 0, 0, 7, 3, 0xc7, 1]);
     assert_eq!(read_id(&mut fdc, 2), [2, 0, 0, 7, 3, 0xc1, 1]);
 }
+
+#[test]
+fn read_id_reports_id_crc_and_keeps_data_errors_out_of_results() {
+    for (head, drive) in [(0, 0), (1, 1)] {
+        let mut fdc = Upd765a::new();
+        fdc.enabled = true;
+        let sectors = [(0x20, 0), (0x20, 0x20), (0, 0), (0x25, 0x41)]
+            .into_iter()
+            .enumerate()
+            .map(|(index, (st1, st2))| DiskSector {
+                c: 0,
+                h: head,
+                id: 7 + index as u8,
+                n: 2,
+                st1,
+                st2,
+                data: vec![0xa5; 512],
+            })
+            .collect();
+        let track = DiskTrack { sectors };
+        let image = DiskImage {
+            sides: 2,
+            tracks_per_side: 1,
+            tracks: vec![vec![track.clone()], vec![track]],
+        };
+        let original = image.clone();
+        fdc.insert_disk(drive as usize, image);
+        let unit = (head << 2) | drive;
+        for (r, bad_id) in [(7, true), (8, false), (9, false), (10, true), (7, true)] {
+            let expected = [
+                unit | if bad_id { 0x40 } else { 0 },
+                if bad_id { 0x24 } else { 0 },
+                0,
+                0,
+                head,
+                r,
+                2,
+            ];
+            assert_eq!(read_id(&mut fdc, unit), expected, "R={r} unit={unit}");
+            assert_eq!(fdc.read_status() & 0xf0, 0x80, "result drained to idle");
+        }
+        let observed = fdc.disk_for_export(drive as usize).expect("mounted disk");
+        assert_eq!(observed.tracks[head as usize][0].sectors.len(), 4);
+        for (before, after) in original
+            .tracks
+            .iter()
+            .flatten()
+            .flat_map(|t| &t.sectors)
+            .zip(observed.tracks.iter().flatten().flat_map(|t| &t.sectors))
+        {
+            assert_eq!(
+                (
+                    before.c, before.h, before.id, before.n, before.st1, before.st2
+                ),
+                (after.c, after.h, after.id, after.n, after.st1, after.st2)
+            );
+            assert_eq!(before.data, after.data, "Read ID never mutates payload");
+        }
+    }
+}
