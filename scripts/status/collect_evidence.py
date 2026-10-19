@@ -76,11 +76,15 @@ import concurrent.futures
 import json
 import os
 import re
+import signal
 import subprocess
 import sys
 import tempfile
-import tomllib
+import threading
+import time
 from pathlib import Path
+
+import tomllib
 
 REPO = Path(__file__).resolve().parents[2]
 REGISTRY = REPO / "docs" / "status" / "systems.toml"
@@ -92,8 +96,152 @@ REGISTRY = REPO / "docs" / "status" / "systems.toml"
 RESULT_LINE = re.compile(r"^test (?P<name>\S+) \.\.\. (?P<outcome>.+)$")
 
 
-def run(args: list[str], **kwargs) -> subprocess.CompletedProcess:
-    return subprocess.run(args, cwd=REPO, text=True, capture_output=True, **kwargs)
+METADATA_TIMEOUT = 120
+BUILD_TIMEOUT = 45 * 60
+BINARY_TIMEOUT = 30 * 60
+HEARTBEAT_SECONDS = 30
+PRINT_LOCK = threading.Lock()
+
+
+def progress(message: str) -> None:
+    with PRINT_LOCK:
+        print(message, file=sys.stderr, flush=True)
+
+
+def stop_process_tree(proc: subprocess.Popen[str]) -> None:
+    """Kill the whole owned group, even if its leader has already exited.
+
+    Matches the POSIX session convention in verify-amiga-closure.py. Windows
+    retains its ordinary success path and uses the OS tree termination tool.
+    """
+    if os.name == "nt":
+        try:
+            subprocess.run(
+                ["taskkill", "/PID", str(proc.pid), "/T", "/F"],
+                capture_output=True,
+                timeout=10,
+                check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired) as error:
+            progress(f"Windows process-tree cleanup failed: {error}")
+        finally:
+            if proc.poll() is None:
+                proc.kill()
+    else:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+
+
+def bounded_run(
+    args: list[str],
+    *,
+    cwd: Path | str,
+    timeout: float,
+    env: dict[str, str] | None = None,
+    label: str | None = None,
+    visible_stderr: bool = False,
+) -> subprocess.CompletedProcess[str]:
+    """Capture parseable stdout; deadlines never count partial output as success."""
+    options = (
+        {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
+        if os.name == "nt"
+        else {"start_new_session": True}
+    )
+    started = time.monotonic()
+    if label:
+        progress(f"start {label} (deadline {timeout:g}s)")
+    proc = subprocess.Popen(
+        args,
+        cwd=cwd,
+        env=env,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=None if visible_stderr else subprocess.PIPE,
+        **options,
+    )
+    try:
+        while True:
+            remaining = timeout - (time.monotonic() - started)
+            try:
+                stdout, stderr = proc.communicate(
+                    timeout=max(0.001, min(HEARTBEAT_SECONDS, remaining))
+                )
+                break
+            except subprocess.TimeoutExpired:
+                elapsed = time.monotonic() - started
+                if elapsed < timeout:
+                    if label:
+                        progress(f"active {label}: {elapsed:.1f}s elapsed")
+                    continue
+                stop_process_tree(proc)
+                try:
+                    stdout, stderr = proc.communicate(timeout=10)
+                except subprocess.TimeoutExpired as drain:
+                    # Windows taskkill cannot locate orphaned descendants after
+                    # their parent has exited. Bound the drain too; never wait
+                    # indefinitely on inherited pipes or claim cleanup success.
+                    stdout = drain.stdout or ""
+                    stderr = drain.stderr or ""
+                    if isinstance(stdout, bytes):
+                        stdout = stdout.decode(errors="replace")
+                    if isinstance(stderr, bytes):
+                        stderr = stderr.decode(errors="replace")
+                    stderr += "\nOutput drain deadline exceeded; descendant cleanup unconfirmed."
+                # A leader may exit 0 while its child holds the output pipe.
+                # The deadline is still a failure, regardless of that exit.
+                raise subprocess.TimeoutExpired(
+                    args,
+                    timeout,
+                    output=stdout,
+                    stderr=(stderr or "") + f"\nHost deadline exceeded ({timeout:g}s).",
+                ) from None
+    finally:
+        # Popen's context manager waits without a deadline on exit. Explicit
+        # cleanup keeps exception and cancellation paths bounded as well.
+        if proc.poll() is None:
+            stop_process_tree(proc)
+            proc.wait(timeout=10)
+        if proc.stdout:
+            proc.stdout.close()
+        if proc.stderr:
+            proc.stderr.close()
+    result = subprocess.CompletedProcess(args, proc.returncode, stdout, stderr or "")
+    if label:
+        progress(
+            f"end {label}: exit {result.returncode}, {time.monotonic() - started:.1f}s"
+        )
+    return result
+
+
+def run(
+    args: list[str], *, timeout: float, label: str, visible_stderr: bool = False
+) -> subprocess.CompletedProcess[str]:
+    try:
+        return bounded_run(
+            args,
+            cwd=REPO,
+            timeout=timeout,
+            label=label,
+            visible_stderr=visible_stderr,
+        )
+    except subprocess.TimeoutExpired as error:
+        progress(str(error.stdout or ""))
+        progress(str(error.stderr or ""))
+        raise SystemExit(f"{label} timed out; evidence would be partial") from error
+
+
+def run_metadata() -> subprocess.CompletedProcess[str]:
+    proc = run(
+        ["cargo", "metadata", "--format-version", "1", "--no-deps"],
+        timeout=METADATA_TIMEOUT,
+        label="workspace metadata",
+    )
+    if proc.returncode:
+        progress(proc.stderr)
+        raise SystemExit("cargo metadata failed; evidence would be partial")
+    return proc
 
 
 def workspace_metadata() -> tuple[dict[str, set[str]], dict[str, str], dict[str, str]]:
@@ -107,15 +255,15 @@ def workspace_metadata() -> tuple[dict[str, set[str]], dict[str, str], dict[str,
     binary's package by id, and ids are not parseable by eye: the name
     appears after the `#` only when it differs from the directory.
     """
-    meta = json.loads(
-        run(["cargo", "metadata", "--format-version", "1", "--no-deps"]).stdout
-    )
+    meta = json.loads(run_metadata().stdout)
     ids = {p["id"]: p["name"] for p in meta["packages"]}
     names = {p["name"] for p in meta["packages"]}
     roots = {p["name"]: str(Path(p["manifest_path"]).parent) for p in meta["packages"]}
     direct = {
         p["name"]: [
-            d["name"] for d in p["dependencies"] if d["name"] in names and d["kind"] is None
+            d["name"]
+            for d in p["dependencies"]
+            if d["name"] in names and d["kind"] is None
         ]
         for p in meta["packages"]
     }
@@ -144,12 +292,21 @@ def test_executables(ids: dict[str, str]) -> list[tuple[str, str, Path]]:
     """
     proc = run(
         [
-            "cargo", "test", "--workspace", "--no-run",
-            "--message-format", "json",
-        ]
+            "cargo",
+            "test",
+            "--workspace",
+            "--no-run",
+            "--message-format",
+            "json",
+        ],
+        timeout=BUILD_TIMEOUT,
+        label="workspace test build",
+        visible_stderr=True,
     )
     if proc.returncode != 0:
-        sys.stderr.write(proc.stderr)
+        # Cargo's JSON diagnostics travel on stdout alongside artifacts.
+        progress(proc.stdout)
+        progress(proc.stderr)
         raise SystemExit("cargo test --no-run failed; evidence would be partial")
 
     found = []
@@ -171,7 +328,15 @@ def test_executables(ids: dict[str, str]) -> list[tuple[str, str, Path]]:
     return found
 
 
-def run_one(package: str, target: str, exe: Path, root: str, skip_dir: Path) -> dict:
+def run_one(
+    package: str,
+    target: str,
+    exe: Path,
+    root: str,
+    skip_dir: Path,
+    *,
+    timeout: float = BINARY_TIMEOUT,
+) -> dict:
     """Run one test binary and return its outcome tally.
 
     Each binary gets its own skip log, so a skip is attributed to the
@@ -194,9 +359,17 @@ def run_one(package: str, target: str, exe: Path, root: str, skip_dir: Path) -> 
     # whether the fixtures should have been present.
     env.pop("EMU198X_STRICT_FIXTURES", None)
 
-    proc = subprocess.run(
-        [str(exe)], cwd=root, env=env, text=True, capture_output=True
-    )
+    timed_out = False
+    try:
+        proc = bounded_run([str(exe)], cwd=root, env=env, timeout=timeout)
+    except subprocess.TimeoutExpired as error:
+        timed_out = True
+        proc = subprocess.CompletedProcess(
+            [str(exe)],
+            -1,
+            error.stdout or "",
+            error.stderr or "",
+        )
 
     passed, failed, ignored = [], [], []
     for line in proc.stdout.splitlines():
@@ -233,7 +406,14 @@ def run_one(package: str, target: str, exe: Path, root: str, skip_dir: Path) -> 
 
     # A binary that exits any other way did not merely fail a test — it
     # died. libtest uses 0 for success and 101 for a failing assertion.
-    crashed = proc.returncode not in (0, 101)
+    crashed = (
+        timed_out
+        or proc.returncode not in (0, 101)
+        or (proc.returncode == 101 and not failed)
+    )
+    if timed_out:
+        # Printed result lines before a deadline do not prove completion.
+        passed = []
 
     # Keep the raw output when something went wrong. This replaces
     # `cargo test` as the workspace gate, and a gate that reports "3
@@ -262,10 +442,15 @@ def main() -> int:
         "--out", type=Path, default=REPO / "target" / "status-evidence.json"
     )
     parser.add_argument(
-        "--jobs", type=int, default=min(8, os.cpu_count() or 4),
+        "--jobs",
+        type=int,
+        default=min(8, os.cpu_count() or 4),
         help="test binaries to run at once",
     )
     args = parser.parse_args()
+
+    if args.jobs < 1:
+        parser.error("--jobs must be positive")
 
     registry = tomllib.loads(REGISTRY.read_text())["system"]
     closures, ids, roots = workspace_metadata()
@@ -283,17 +468,61 @@ def main() -> int:
             reach.setdefault(member, set()).add(crate)
 
     binaries = test_executables(ids)
-    print(f"running {len(binaries)} test binaries", file=sys.stderr)
+    progress(f"running {len(binaries)} test binaries")
 
     with tempfile.TemporaryDirectory(prefix="emu198x-evidence-") as tmp:
         skip_dir = Path(tmp)
-        with concurrent.futures.ThreadPoolExecutor(max_workers=args.jobs) as pool:
-            results = list(
-                pool.map(
-                    lambda b: run_one(b[0], b[1], b[2], roots[b[0]], skip_dir),
-                    binaries,
+        active: dict[str, float] = {}
+        lock = threading.Lock()
+
+        def execute(binary: tuple[str, str, Path]) -> dict:
+            package, target, exe = binary
+            name = f"{package} ({target})"
+            started = time.monotonic()
+            with lock:
+                active[name] = started
+            progress(f"start binary {name}")
+            try:
+                result = run_one(package, target, exe, roots[package], skip_dir)
+                status = (
+                    "failed" if result["failed"] or result["crashed"] else "completed"
                 )
-            )
+                progress(
+                    f"end binary {name}: {status}, {time.monotonic() - started:.1f}s"
+                )
+                return result
+            finally:
+                with lock:
+                    active.pop(name, None)
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=args.jobs) as pool:
+            pending = {pool.submit(execute, binary) for binary in binaries}
+            results = []
+            while pending:
+                done, pending = concurrent.futures.wait(
+                    pending,
+                    timeout=HEARTBEAT_SECONDS,
+                    return_when=concurrent.futures.FIRST_COMPLETED,
+                )
+                results.extend(future.result() for future in done)
+                if not done:
+                    with lock:
+                        running = dict(active)
+                    now = time.monotonic()
+                    names = ", ".join(
+                        f"{name}: {now - started:.1f}s"
+                        for name, started in sorted(running.items())
+                    )
+                    progress(
+                        f"progress: {len(results)}/{len(binaries)} completed, "
+                        f"{len(pending) - len(running)} queued, "
+                        f"{len(running)} active [{names}]"
+                    )
+        # Preserve the prior cargo discovery order in the ledger.
+        order = {
+            (package, target): i for i, (package, target, _) in enumerate(binaries)
+        }
+        results.sort(key=lambda result: order[(result["package"], result["target"])])
 
     by_package: dict[str, dict] = {}
     for result in results:
@@ -326,7 +555,8 @@ def main() -> int:
         # Two machines shipping from one crate cannot have separate own
         # evidence — #998 is the request to split exactly that case.
         cohabiting = sorted(
-            s["machine_id"] for s in registry
+            s["machine_id"]
+            for s in registry
             if s["crate"] == crate and s["machine_id"] != system["machine_id"]
         )
         systems.append(
