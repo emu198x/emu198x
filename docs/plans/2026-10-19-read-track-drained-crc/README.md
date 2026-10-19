@@ -79,7 +79,7 @@ track. MAME uses the existing standard-DSK generator, whose source hash is
 recorded separately. Full source/executable/compiler identities, commands,
 environment, per-command host times and raw stdout/stderr are preserved in
 `evidence.tar.gz`. Runtime host limits are 15s (Fuse), 30s (Emu), 45s (MAME);
-all reference invocations completed within 10.89 host seconds. Execution bounds
+all reference invocations completed within 13.78 host seconds. Execution bounds
 are 2 million Emu ticks, 2 emulated Fuse seconds and 2 emulated MAME seconds for the
 command, with a 10-second MAME whole-machine limit. These are experiment bounds,
 not qualified hardware service deadlines.
@@ -94,10 +94,12 @@ python3.14 -m unittest discover -s docs/plans/2026-10-19-read-track-drained-crc 
 ```
 
 All 140 controller tests pass; targeted Clippy, Rust formatting and Ruff pass.
-The fourteen auditor tests include a valid packet and thirteen controls. Recomputed
+The fifteen auditor tests include a valid packet and fourteen controls. Recomputed
 artifact hashes cannot hide missing/duplicate observations, zero payload,
 truncated results, lost recovery, altered raw CRCs/clock marks, false status
-agreement, invented source identity, patched reference or qualification claims.
+agreement, invented source identity, patched reference or qualification claims. The source
+guard also rejects dirty references under Python optimisation; its regression
+was demonstrated red against the previous script and green after correction.
 
 For a fresh capture in a new checkout of this PR, run:
 

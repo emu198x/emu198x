@@ -6,6 +6,8 @@ from __future__ import annotations
 import hashlib
 import importlib.util
 import json
+import subprocess
+import sys
 import tarfile
 import tempfile
 import unittest
@@ -46,6 +48,46 @@ class EvidenceTests(unittest.TestCase):
     def reject(self, reason: str) -> None:
         with self.assertRaisesRegex(ValueError, reason):
             module.audit(self.root)
+
+    def test_optimized_capture_rejects_dirty_reference(self) -> None:
+        # Exercise the actual guard with Python assertions disabled, without
+        # touching vendored source or starting a compiler/reference process.
+        script = r"""
+import importlib.util, subprocess, tempfile
+from pathlib import Path
+from unittest.mock import patch
+spec = importlib.util.spec_from_file_location("capture", __import__("sys").argv[1])
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+def status(argv, *args, **kwargs):
+    if argv[-2:] == ["rev-parse", "HEAD"]:
+        return "0ff7fe676394aa357f49b6fbdc3ecb38a6592ab2\n"
+    if argv[:4] == ["git", "-C", str(module.FUSE), "status"]:
+        return " M peripherals/disk/upd_fdc.c\n"
+    raise RuntimeError("unexpected external command")
+with tempfile.TemporaryDirectory(prefix="198x-reference-guard-") as tmp:
+    module.HERE = Path(tmp)
+    with patch.object(subprocess, "check_output", side_effect=status), patch.object(module, "sha", return_value="0" * 64), patch.object(module.platform, "platform", return_value="test-host"), patch.object(subprocess, "run", side_effect=RuntimeError("reference command reached")):
+        try:
+            module.main()
+        except ValueError as error:
+            if str(error) != "reference source has tracked changes":
+                raise
+            print("dirty reference rejected with assertions disabled")
+        else:
+            raise RuntimeError("dirty reference accepted")
+"""
+        result = subprocess.run(
+            [sys.executable, "-O", "-c", script, str(HERE / "run.py")],
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(
+            "dirty reference rejected with assertions disabled", result.stdout
+        )
 
     def test_retained_campaign(self) -> None:
         result = module.audit(self.root)

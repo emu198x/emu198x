@@ -116,11 +116,14 @@ def main() -> None:
     fuse_commit = subprocess.check_output(
         ["git", "-C", str(FUSE), "rev-parse", "HEAD"], text=True
     ).strip()
-    assert fuse_commit == "0ff7fe676394aa357f49b6fbdc3ecb38a6592ab2"
-    assert not subprocess.check_output(
+    if fuse_commit != "0ff7fe676394aa357f49b6fbdc3ecb38a6592ab2":
+        raise ValueError("different reference source")
+    tracked_status = subprocess.check_output(
         ["git", "-C", str(FUSE), "status", "--porcelain", "--untracked-files=no"],
         text=True,
-    ).strip()
+    )
+    if tracked_status.strip():
+        raise ValueError("reference source has tracked changes")
     record["fuse_source"] = {
         "commit": fuse_commit,
         "patched": False,
