@@ -1,0 +1,114 @@
+{
+  "schema_version": 1,
+  "qualified": false,
+  "issue": "https://github.com/emu198x/emu198x/issues/1845",
+  "origin": "fresh_execution",
+  "delivery": "source_build",
+  "source_commit": "4f03ce6a141079869e3dce04b1cab2525db6ffb7",
+  "base_commit": "9d71a1b9344f47266028ff693bca2bc2fbea60a7",
+  "source_sha256": {
+    "crates/nec-upd765a/src/lib.rs": "f7aaba2ab0837e84f81b2e817aa961d7e4613346977523e0635c0956c1679cba",
+    "crates/nec-upd765a/tests/read_result_head.rs": "691666b436f31e4ef0f2c8367b94e49a427501de15d2a26528860bd644cedef1",
+    "crates/runtime-sinclair-zx-spectrum/src/snapshot.rs": "10a4c108a88785d37e02e3a591fb02cea56360d1e526648ee042a552b2383125",
+    "Cargo.lock": "613932a7bb60ecb20ca6afc080a3f2b276459345466faf08a3efcbc0c964f263"
+  },
+  "host": "macOS-27.0-arm64-arm-64bit-Mach-O",
+  "tools": {
+    "rustc": {
+      "path": "/Users/stevehill/.cargo/bin/rustup",
+      "sha256": "ec1b9233e7f72990ecd8e62063fa7f6c3dfc2bec8e97f88bff165f9100ac696a",
+      "version": "rustc 1.99.0 (b940084d7 2026-09-28)\nbinary: rustc\ncommit-hash: b940084d7eb6a299eb4bfeb8e34901bc051e7ac4\ncommit-date: 2026-09-28\nhost: aarch64-apple-darwin\nrelease: 1.99.0\nLLVM version: 23.1.1",
+      "underlying_executable": {
+        "path": "/Users/stevehill/.rustup/toolchains/1.99.0-aarch64-apple-darwin/bin/rustc",
+        "sha256": "dd6f58440b3418aa9157ae3f05d71eecff741ca41bc4eec120e7e8f2d933b9a0"
+      }
+    },
+    "cargo": {
+      "path": "/Users/stevehill/.cargo/bin/rustup",
+      "sha256": "ec1b9233e7f72990ecd8e62063fa7f6c3dfc2bec8e97f88bff165f9100ac696a",
+      "version": "cargo 1.99.0 (5f94df478 2026-08-27)",
+      "underlying_executable": {
+        "path": "/Users/stevehill/.rustup/toolchains/1.99.0-aarch64-apple-darwin/bin/cargo",
+        "sha256": "fc7aa5077deca8abc0651f329e8ec1d968f520e996a93b428f9935014362b382"
+      }
+    },
+    "python3.14": {
+      "path": "/Users/stevehill/.local/share/mise/installs/python/3.14.3/bin/python3.14",
+      "sha256": "d27f2f29f2db50378aabab29b8c7f51503af8504fb08c4f42e7ae69ab0fb4d65",
+      "version": "Python 3.14.3"
+    }
+  },
+  "environment": {
+    "RUSTFLAGS": null,
+    "CARGO_BUILD_TARGET": null,
+    "CARGO_TARGET_DIR": null
+  },
+  "executable_sha256": {
+    "target/debug/deps/read_result_head-70fe379971ea22b5": "36b3c5ecd6ad4f9b082f1c8d4a4f84e7f96d8529f3abc6d9d1d3352ffc7cb3d0",
+    "target/debug/deps/runtime_sinclair_zx_spectrum-e5867ddfb564e742": "5c8914afb4cf53c176adb448b3b78c7d42405635b4b99f5e3c7d36a5a2dbc151"
+  },
+  "reference_files": {
+    "primary_pdf": {
+      "path": "/Volumes/Data/Reference-PDFs/by-topic/fdc-765/upd765-data-sheet-dec78.pdf",
+      "sha256": "e8b07db283aad56358cdace1bf4ac179f961484d10d6c1700b74d9734eea1117"
+    },
+    "mame_controller": {
+      "path": "/Users/stevehill/Projects/198x/emulators/multi-system/mame/src/devices/machine/upd765.cpp",
+      "sha256": "71f284cdbbbded75012919220442a2e45cb808b376f4dfffa0d7722c182bde15"
+    },
+    "fuse_controller": {
+      "path": "/Users/stevehill/Projects/198x/emulators/zx-spectrum/fuse-emulator-fuse/peripherals/disk/upd_fdc.c",
+      "sha256": "845b960eb68cba9b21cba00cdc3c03cf0d4dc491ffd96efecb1d53336ce7f72d"
+    }
+  },
+  "mame_revision": "9391e1eff80eb04abd58d48218a1d3b9643c1ea8",
+  "limits": [
+    "NEC p9 specifies H=HD for command words; mismatched fixture proves represented-ID/reference consistency only",
+    "Read Track, MT, DTL, MA/ND and timing unchanged",
+    "Fuse missing-ID ST1=05 versusEmu04 retained",
+    "511byte case leaves final byte of a sector; A/B service exception remains unqualified",
+    "MAME inspected only; Fuse is source-controller adapter, not full runtime or ROM qualification"
+  ],
+  "parent_validation": {
+    "archive": "runtime-rom.tar.gz",
+    "sha256": "222f7d2f4e2f8cb2aba3c36991d090fecbbef699d42398dab73e474f04607427",
+    "files": {
+      "198x-result-h-build.log": "23937cf3827ee5f5ee01b4e733b6cc18e8f8dbd246e7ca77792cf6db03792a83",
+      "198x-result-h-parent-verification.json": "598755de8f4f75eb68f1cd312d763f5ba83279b7ba4b147264643e2ba876fc9d",
+      "198x-result-h-runtime-tests.log": "7b22d964023402983452b09d70d3ace2fbc870acebad7ea0545851b08e7c14b3",
+      "rom-1/diagnostic.bin": "f3a9fac6cb83d74afbda2cc75806b27d089bf39bee4d370b34f035f6dc112e13",
+      "rom-1/diagnostic.dsk": "23ff854ed662ff8461bffdbccdf5350b668119836adff1c176938519ad33fd5c",
+      "rom-1/emu-revision.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "rom-1/emu-revision.stdout": "9ef18e1178136cc17e9d7e7919f45f1497832535ddb92879fb4c94f81bf497e4",
+      "rom-1/emu-status.stderr": "1356e1003c10f93fb1537ac1476303ea3ad4e97e93ad9b12bec7d3d26ccde891",
+      "rom-1/emu-status.stdout": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "rom-1/regression.json": "e608792ffc7a7e722a2fdebcf057c3001a5d9c9d570992911675fb6641bee4ec",
+      "rom-1/runtime.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "rom-1/runtime.stdout": "b734af7270ca661daf65bfedd63d5a648fbf6aac39525d26462cd13d2360564c",
+      "rom-1/screen.png": "4978af5035bb8be18316a18707966da232c3f189a27bf11bae548ece6c245a74",
+      "rom-1/session.json": "ae24a8a6a7ea30477997beb12b2b525fca947a8e8a610400cd66668248391d7d",
+      "rom-2/diagnostic.bin": "f3a9fac6cb83d74afbda2cc75806b27d089bf39bee4d370b34f035f6dc112e13",
+      "rom-2/diagnostic.dsk": "23ff854ed662ff8461bffdbccdf5350b668119836adff1c176938519ad33fd5c",
+      "rom-2/emu-revision.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "rom-2/emu-revision.stdout": "9ef18e1178136cc17e9d7e7919f45f1497832535ddb92879fb4c94f81bf497e4",
+      "rom-2/emu-status.stderr": "1356e1003c10f93fb1537ac1476303ea3ad4e97e93ad9b12bec7d3d26ccde891",
+      "rom-2/emu-status.stdout": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "rom-2/regression.json": "dd7bebe25bc1dd1d0b2a0b8413e35ae226d11f5013ca39fb9066ca762fa98322",
+      "rom-2/runtime.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "rom-2/runtime.stdout": "b734af7270ca661daf65bfedd63d5a648fbf6aac39525d26462cd13d2360564c",
+      "rom-2/screen.png": "4978af5035bb8be18316a18707966da232c3f189a27bf11bae548ece6c245a74",
+      "rom-2/session.json": "9c2cfc7f8bbb837fa6df826d628d0ba0914eb6845198a20fe972b3b16db01c03",
+      "rom-wrong/diagnostic.bin": "f3a9fac6cb83d74afbda2cc75806b27d089bf39bee4d370b34f035f6dc112e13",
+      "rom-wrong/diagnostic.dsk": "23ff854ed662ff8461bffdbccdf5350b668119836adff1c176938519ad33fd5c",
+      "rom-wrong/emu-revision.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "rom-wrong/emu-revision.stdout": "9ef18e1178136cc17e9d7e7919f45f1497832535ddb92879fb4c94f81bf497e4",
+      "rom-wrong/emu-status.stderr": "1356e1003c10f93fb1537ac1476303ea3ad4e97e93ad9b12bec7d3d26ccde891",
+      "rom-wrong/emu-status.stdout": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "rom-wrong/regression.json": "743fb5f97435e1c8aaca9fd83a8ace65dd1d10603dde8f057fb4b73ccdf9421f",
+      "rom-wrong/runtime.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "rom-wrong/runtime.stdout": "b734af7270ca661daf65bfedd63d5a648fbf6aac39525d26462cd13d2360564c",
+      "rom-wrong/screen.png": "4978af5035bb8be18316a18707966da232c3f189a27bf11bae548ece6c245a74",
+      "rom-wrong/session.json": "d30206edf3204e7575531953150ab993acbbe2a8a34e43e6c01ad5a85d1fd0a2"
+    }
+  }
+}
