@@ -109,7 +109,7 @@ def audit(evidence: Path = HERE / "evidence") -> dict:
             "triage.tar.gz",
             "runtime-rom.tar.gz",
             "current-source.json",
-            "final-tests.log",
+            "checks.tar.gz",
             "build.log",
             "clippy.log",
             "controller-red.log",
@@ -154,7 +154,7 @@ def audit(evidence: Path = HERE / "evidence") -> dict:
         "test result: FAILED. 0 passed; 2 failed;"
         in (evidence / "native-red.log").read_text()
     )
-    tests = (evidence / "final-tests.log").read_text()
+    tests = unpack(evidence / "checks.tar.gz")["final-tests.log"].decode()
     assert not re.search(r"test result: FAILED|\.\.\. FAILED", tests)
     assert sum(map(int, re.findall(r"test result: ok\. (\d+) passed;", tests))) == 480
     assert (
@@ -181,6 +181,10 @@ def audit(evidence: Path = HERE / "evidence") -> dict:
     assert "Finished `dev` profile" in (evidence / "clippy.log").read_text()
     audit_runtime(unpack(evidence / "runtime-rom.tar.gz"))
     triage = unpack(evidence / "triage.tar.gz")
+    assert (
+        triage["capture_legacy.rs"].rstrip()
+        == (HERE / "reference/capture_legacy.rs").read_bytes().rstrip()
+    )
     record = json.loads(triage["runs/campaign.json"])
     for name, digest in record["authored_sources"].items():
         assert sha((HERE / "reference" / name).read_bytes()) == digest

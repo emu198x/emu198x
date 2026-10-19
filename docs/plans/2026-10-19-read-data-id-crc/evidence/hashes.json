@@ -1,12 +1,12 @@
 {
   "build.log": "750df210dfb3bc6bf178c13f9af12365e24c32c4108a13ffac41829e0251a8ad",
+  "checks.tar.gz": "6e15c4a8b997b4ec4083002af1af4f83106ce2116a2c83b540c57d314f563639",
   "clippy.log": "645be01f751e9163fa590eb827cca49f47cb237fa7120f216a92cb430faf994d",
   "controller-red.log": "f195da09b5585396ec3c1c66971dc2706ccdfd120c181ba172b239e52b8c408e",
   "current-source.json": "57d07a473d3de220e3832f0eb3927b3d1b661f754f86b38ec2a4b88bc1a05adf",
-  "final-tests.log": "99c707219bee2728f87f820bf69eff347fcde90b83899f299f2af8ea7eb00ae4",
   "fmt.log": "7ca009d2afeafe03ddf6ab3c4df4baf23e2eafd8c60884ceed288d5bb7ef38cc",
   "native-red.log": "23b70657568dca9810e47e554da3aa254b70426084c0b1f809ca8cb8e15e503e",
   "result.json": "85a5f279b6411e073378a0bc44af4daae2a947b267d07f19d1b3579989a28efa",
   "runtime-rom.tar.gz": "4e364e03bdd3f4be4f85a83e80b2ec0098736be7e8678ca9324203565d1fd7c3",
-  "triage.tar.gz": "337afd997f8186144459c4ad18ddc7ae5f62d8291520f011993553b25fc0a6d2"
+  "triage.tar.gz": "4ecae89598931ca1c6a40d96d4aae613ab1531fc75092037e303d5a64d1a9ca0"
 }
