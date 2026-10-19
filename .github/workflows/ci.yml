@@ -24,7 +24,7 @@ jobs:
   # (stevehill1981/198x-workflows). Project jobs follow.
   rust:
     name: Rust
-    uses: stevehill1981/198x-workflows/.github/workflows/rust-ci.yml@feat/rust-ci-inputs
+    uses: stevehill1981/198x-workflows/.github/workflows/rust-ci.yml@v1
     with:
       # Emu198x runs its own test, build and browser jobs below.
       coverage: false
