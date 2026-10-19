@@ -1,0 +1,5 @@
+mise WARN  tracking config: failed to ln -sf /Users/stevehill/Projects/198x/output/qualification/workspaces/read-track-id-crc/rust-toolchain.toml /Users/stevehill/.local/state/mise/tracked-configs/a50e32f892f5b267: Operation not permitted (os error 1)
+    Blocking waiting for file lock on build directory
+    Checking runtime-sinclair-zx-spectrum v0.38.1 (/Users/stevehill/Projects/198x/output/qualification/workspaces/read-track-id-crc/crates/runtime-sinclair-zx-spectrum)
+    Checking nec-upd765a v0.38.1 (/Users/stevehill/Projects/198x/output/qualification/workspaces/read-track-id-crc/crates/nec-upd765a)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.30s

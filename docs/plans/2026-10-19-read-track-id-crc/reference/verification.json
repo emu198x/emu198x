@@ -1,0 +1,29 @@
+[
+  {
+    "argv": [
+      "python3.14",
+      "verify.py"
+    ],
+    "exit": 0
+  },
+  {
+    "argv": [
+      "python3.14",
+      "-m",
+      "unittest",
+      "-v",
+      "test_verify.py"
+    ],
+    "exit": 0
+  },
+  {
+    "argv": [
+      "ruff",
+      "check",
+      "run.py",
+      "verify.py",
+      "test_verify.py"
+    ],
+    "exit": 0
+  }
+]

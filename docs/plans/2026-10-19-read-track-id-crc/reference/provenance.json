@@ -1,0 +1,21 @@
+{
+  "issue": "https://github.com/emu198x/emu198x/issues/1849",
+  "inspected_emu_base": "44e0015a81ac088a5fb425f77c6abaf572f4d9c5",
+  "files": {
+    "primary_pdf": {
+      "path": "/Volumes/Data/Reference-PDFs/by-topic/fdc-765/upd765-data-sheet-dec78.pdf",
+      "sha256": "e8b07db283aad56358cdace1bf4ac179f961484d10d6c1700b74d9734eea1117"
+    },
+    "mame_controller": {
+      "path": "/Users/stevehill/Projects/198x/emulators/multi-system/mame/src/devices/machine/upd765.cpp",
+      "sha256": "71f284cdbbbded75012919220442a2e45cb808b376f4dfffa0d7722c182bde15"
+    },
+    "fuse_controller": {
+      "path": "/Users/stevehill/Projects/198x/emulators/zx-spectrum/fuse-emulator-fuse/peripherals/disk/upd_fdc.c",
+      "sha256": "845b960eb68cba9b21cba00cdc3c03cf0d4dc491ffd96efecb1d53336ce7f72d"
+    }
+  },
+  "mame_commit": "9391e1eff80eb04abd58d48218a1d3b9643c1ea8",
+  "mame_scope": "source inspection only; no MAME execution",
+  "reference": "fresh stock Fuse source-controller execution; not ROM/hardware qualification"
+}
