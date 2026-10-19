@@ -1,0 +1,444 @@
+{
+  "schema_version": 1,
+  "qualified": false,
+  "fresh_mame_observations": 38,
+  "replayed_emu_fuse_observations": 52,
+  "read_track_cases": 13,
+  "repeats": 2,
+  "comparisons": [
+    {
+      "order": 0,
+      "kind": 0,
+      "position": 0,
+      "mame_fresh": [
+        64,
+        128,
+        0,
+        0,
+        0,
+        1,
+        2
+      ],
+      "emu_replay": [
+        64,
+        128,
+        0,
+        0,
+        0,
+        1,
+        2
+      ],
+      "fuse_replay": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        2,
+        2
+      ],
+      "mame_emu_seven_bytes_equal": true
+    },
+    {
+      "order": 0,
+      "kind": 1,
+      "position": 0,
+      "mame_fresh": [
+        64,
+        160,
+        0,
+        0,
+        0,
+        1,
+        2
+      ],
+      "emu_replay": [
+        64,
+        160,
+        0,
+        0,
+        0,
+        1,
+        2
+      ],
+      "fuse_replay": [
+        0,
+        36,
+        0,
+        0,
+        0,
+        2,
+        2
+      ],
+      "mame_emu_seven_bytes_equal": true
+    },
+    {
+      "order": 0,
+      "kind": 2,
+      "position": 0,
+      "mame_fresh": [
+        64,
+        160,
+        32,
+        0,
+        0,
+        1,
+        2
+      ],
+      "emu_replay": [
+        64,
+        160,
+        32,
+        0,
+        0,
+        1,
+        2
+      ],
+      "fuse_replay": [
+        0,
+        32,
+        32,
+        0,
+        0,
+        2,
+        2
+      ],
+      "mame_emu_seven_bytes_equal": true
+    },
+    {
+      "order": 1,
+      "kind": 0,
+      "position": 0,
+      "mame_fresh": [
+        64,
+        132,
+        0,
+        0,
+        0,
+        1,
+        2
+      ],
+      "emu_replay": [
+        64,
+        132,
+        0,
+        0,
+        0,
+        1,
+        2
+      ],
+      "fuse_replay": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        3,
+        2
+      ],
+      "mame_emu_seven_bytes_equal": true
+    },
+    {
+      "order": 1,
+      "kind": 1,
+      "position": 0,
+      "mame_fresh": [
+        64,
+        164,
+        0,
+        0,
+        0,
+        1,
+        2
+      ],
+      "emu_replay": [
+        64,
+        164,
+        0,
+        0,
+        0,
+        1,
+        2
+      ],
+      "fuse_replay": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        3,
+        2
+      ],
+      "mame_emu_seven_bytes_equal": true
+    },
+    {
+      "order": 1,
+      "kind": 1,
+      "position": 1,
+      "mame_fresh": [
+        64,
+        164,
+        0,
+        0,
+        0,
+        1,
+        2
+      ],
+      "emu_replay": [
+        64,
+        164,
+        0,
+        0,
+        0,
+        1,
+        2
+      ],
+      "fuse_replay": [
+        0,
+        36,
+        0,
+        0,
+        0,
+        3,
+        2
+      ],
+      "mame_emu_seven_bytes_equal": true
+    },
+    {
+      "order": 1,
+      "kind": 2,
+      "position": 0,
+      "mame_fresh": [
+        64,
+        164,
+        32,
+        0,
+        0,
+        1,
+        2
+      ],
+      "emu_replay": [
+        64,
+        164,
+        32,
+        0,
+        0,
+        1,
+        2
+      ],
+      "fuse_replay": [
+        0,
+        0,
+        32,
+        0,
+        0,
+        3,
+        2
+      ],
+      "mame_emu_seven_bytes_equal": true
+    },
+    {
+      "order": 1,
+      "kind": 2,
+      "position": 1,
+      "mame_fresh": [
+        64,
+        164,
+        32,
+        0,
+        0,
+        1,
+        2
+      ],
+      "emu_replay": [
+        64,
+        164,
+        32,
+        0,
+        0,
+        1,
+        2
+      ],
+      "fuse_replay": [
+        0,
+        32,
+        32,
+        0,
+        0,
+        3,
+        2
+      ],
+      "mame_emu_seven_bytes_equal": true
+    },
+    {
+      "order": 2,
+      "kind": 0,
+      "position": 0,
+      "mame_fresh": [
+        64,
+        128,
+        0,
+        0,
+        0,
+        1,
+        2
+      ],
+      "emu_replay": [
+        64,
+        128,
+        0,
+        0,
+        0,
+        1,
+        2
+      ],
+      "fuse_replay": [
+        0,
+        4,
+        0,
+        0,
+        0,
+        3,
+        2
+      ],
+      "mame_emu_seven_bytes_equal": true
+    },
+    {
+      "order": 2,
+      "kind": 1,
+      "position": 0,
+      "mame_fresh": [
+        64,
+        160,
+        0,
+        0,
+        0,
+        1,
+        2
+      ],
+      "emu_replay": [
+        64,
+        160,
+        0,
+        0,
+        0,
+        1,
+        2
+      ],
+      "fuse_replay": [
+        0,
+        4,
+        0,
+        0,
+        0,
+        3,
+        2
+      ],
+      "mame_emu_seven_bytes_equal": true
+    },
+    {
+      "order": 2,
+      "kind": 1,
+      "position": 1,
+      "mame_fresh": [
+        64,
+        160,
+        0,
+        0,
+        0,
+        1,
+        2
+      ],
+      "emu_replay": [
+        64,
+        160,
+        0,
+        0,
+        0,
+        1,
+        2
+      ],
+      "fuse_replay": [
+        0,
+        36,
+        0,
+        0,
+        0,
+        3,
+        2
+      ],
+      "mame_emu_seven_bytes_equal": true
+    },
+    {
+      "order": 2,
+      "kind": 2,
+      "position": 0,
+      "mame_fresh": [
+        64,
+        160,
+        32,
+        0,
+        0,
+        1,
+        2
+      ],
+      "emu_replay": [
+        64,
+        160,
+        32,
+        0,
+        0,
+        1,
+        2
+      ],
+      "fuse_replay": [
+        0,
+        4,
+        32,
+        0,
+        0,
+        3,
+        2
+      ],
+      "mame_emu_seven_bytes_equal": true
+    },
+    {
+      "order": 2,
+      "kind": 2,
+      "position": 1,
+      "mame_fresh": [
+        64,
+        160,
+        32,
+        0,
+        0,
+        1,
+        2
+      ],
+      "emu_replay": [
+        64,
+        160,
+        32,
+        0,
+        0,
+        1,
+        2
+      ],
+      "fuse_replay": [
+        0,
+        36,
+        32,
+        0,
+        0,
+        3,
+        2
+      ],
+      "mame_emu_seven_bytes_equal": true
+    }
+  ],
+  "id_only_control": "pass",
+  "raw_cell_clock_crc_preservation": "pass",
+  "machine_qualification": "not_run",
+  "hardware_timing": "not_run",
+  "fuse_disagreements": "retained_not_adjudicated"
+}
