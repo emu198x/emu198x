@@ -186,6 +186,7 @@ fn key_to_modifier(name: &str) -> Option<Modifier> {
 fn key_to_matrix(name: &str) -> Option<(usize, u8)> {
     Some(match name.to_ascii_lowercase().as_str() {
         // Row 0 — non-printing keys (MAME LINE0).
+        "break" => (0, 0),
         "return" | "enter" => (0, 5),
         "space" | " " => (0, 6),
         "escape" | "esc" => (0, 7),

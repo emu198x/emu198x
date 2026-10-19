@@ -39,6 +39,7 @@ impl MachineApp for Einstein {
     --rom-dir DIR   firmware directory (or set EMU198X_EINSTEIN_ROM_DIR)";
     const CONTROLS: &'static str = "    Esc             quit
     F12             hard reset
+    Ctrl+Pause      Ctrl-BREAK (boot disk)
     A-Z 0-9 etc.    the Einstein keyboard
     Shift / Ctrl    the Einstein SHIFT / CONTROL keys
     Gamepad         joystick (player 1)";
