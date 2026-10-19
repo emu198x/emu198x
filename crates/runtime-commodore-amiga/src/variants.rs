@@ -160,9 +160,9 @@ pub trait AmigaMachine {
 
     // ---------- media ----------
 
-    /// Insert an ADF image into DF0. The `change_pending` flag drives
-    /// the disk-change-pending bookkeeping the A1000 boot path needs;
-    /// post-A1000 firmware boots happily without it.
+    /// Insert an ADF image into DF0. Leave `change_pending` set for live
+    /// insertions and A1000 bootstrap media. Resident-firmware startup and
+    /// reset mounts acknowledge the already-present disk instead.
     fn insert_floppy0(&mut self, adf: Adf, change_pending: bool, writable: bool);
 
     /// Reconnect the dynamically dispatched DF0 image after restoring the

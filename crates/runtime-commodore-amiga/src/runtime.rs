@@ -473,8 +473,13 @@ impl<M: AmigaMachine + AmigaLiveAccess> MachineCore for AmigaRuntime<M> {
         let floppy0_bytes = live_floppy0_bytes.or_else(|| self.floppy0_bytes.clone());
         self.machine.rebuild(&self.firmware_rom, self.config);
         if let Some(bytes) = floppy0_bytes {
-            self.insert_floppy_bytes("floppy-0", &bytes, floppy0_writable)
-                .expect("re-mounting cached DF0 image should not fail");
+            self.insert_floppy_bytes(
+                "floppy-0",
+                &bytes,
+                floppy0_writable,
+                self.model().is_a1000(),
+            )
+            .expect("re-mounting cached DF0 image should not fail");
         }
         self.time = MachineTime::default();
         self.frame_count = 0;
@@ -499,7 +504,16 @@ impl<M: AmigaMachine + AmigaLiveAccess> MachineCore for AmigaRuntime<M> {
             if image.kind != MediaKind::Disk {
                 return Err(MachineError::UnsupportedMediaKind { kind: image.kind });
             }
-            self.insert_floppy_bytes(image.slot.as_ref(), image.bytes, image.writable)?;
+            // Before execution, preserve the firmware's startup mount policy.
+            // A live insertion must leave /DSKCHANGE for the guest to observe;
+            // only the drive's selected step pulse acknowledges that change.
+            let change_pending = self.time.get() != 0 || self.model().is_a1000();
+            self.insert_floppy_bytes(
+                image.slot.as_ref(),
+                image.bytes,
+                image.writable,
+                change_pending,
+            )?;
         }
         Ok(())
     }
@@ -647,6 +661,7 @@ impl<M: AmigaMachine> AmigaRuntime<M> {
         slot: &str,
         bytes: &[u8],
         writable: bool,
+        change_pending: bool,
     ) -> Result<(), MachineError> {
         if bytes.starts_with(b"CAPS") {
             return Err(MachineError::InvalidMedia {
@@ -659,10 +674,6 @@ impl<M: AmigaMachine> AmigaRuntime<M> {
             slot: slot.to_owned(),
             reason: reason.to_string(),
         })?;
-        // Both A1000 PAL and A1000 NTSC need disk-change-pending
-        // bookkeeping during the bootstrap-to-Kickstart-disk handoff.
-        // Other (Kickstart-resident) variants insert without it.
-        let change_pending = self.model().is_a1000();
         self.machine.insert_floppy0(adf, change_pending, writable);
         self.floppy0_bytes = Some(bytes.to_vec());
         self.floppy0_writable = writable;
