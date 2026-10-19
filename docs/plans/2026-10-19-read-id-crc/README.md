@@ -1,0 +1,25 @@
+# Read ID rejects represented ID CRC errors
+
+Read ID previously reported success for a sector marked with an ID-field CRC error. The ReadId arm ignored sector status. The narrow fix reports abnormal termination, ST1.DE and ST1.ND (`40 24 00`), while preserving the encountered CHRN and physical ID progression. Data-field errors do not affect Read ID. This fixes #1867.
+
+The regression failed on unchanged production source with `00 00 00 00 00 07 02` instead of `40 24 00 00 00 07 02`. It now passes through ten successive commands over two head/drive combinations, including error-to-clean recovery, wrap, data-CRC isolation and source metadata/payload immutability. All 141 controller tests pass, none ignored; Clippy and formatting pass.
+
+## Reproduce
+
+```sh
+cargo test -p nec-upd765a --test read_id_errors
+cargo test -p nec-upd765a
+cargo clippy -p nec-upd765a --all-targets -- -D warnings
+cargo fmt -p nec-upd765a -- --check
+python3.14 docs/plans/2026-10-19-read-id-crc/verify.py
+```
+
+`verification.json` records exact source hashes, commands, environment and tool identities. `checks.tar.gz` retains exact raw red/green/full-test/Clippy/format logs; no firmware is included. This is fresh source controller-test evidence, **qualified=false**. It does not provide a new ROM-loading, released-binary or machine qualification.
+
+## Why these result bits
+
+Primary NEC December 1978 data sheet, printed p14: Read ID returns the first encountered ID; p17: DE marks an ID/data CRC error and ND is set when Read ID cannot read an ID without error; p18: DD concerns only the data field. Primary source: `reference/by-topic/fdc-765/upd765-data-sheet-dec78.md` in the umbrella library, original `/Volumes/Data/Reference-PDFs/by-topic/fdc-765/upd765-data-sheet-dec78.pdf`.
+
+Unchanged vendored Fuse `peripherals/disk/upd_fdc.c`, `read_id` and `start_read_id`, sets DE|ND and abnormal termination on bad ID CRC, preserving CHRN. The independent raw-MAME study #1860 distinguishes real ID-only and data-only corruption; MAME additionally sets MA on the Read ID ID-CRC case. That extra MA remains a reference disagreement, not an instruction to copy an unexplained bit.
+
+The sector model represents ID CRC with DE set and DD clear. DE+DD establishes data CRC; it cannot distinguish data-only damage from simultaneous ID+data damage. No additional bad ID is invented in that ambiguous case. Missing IDs retain the existing MA|ND path. Physical index/search timing, partial IDs, ready pins and silicon revisions remain unqualified. Read ID as a whole remains partial.

@@ -1,0 +1,97 @@
+{
+  "schema_version": 1,
+  "qualified": false,
+  "evidence_kind": "fresh_source_controller_tests",
+  "base": "523d37dd98e4ae168d341b34decc9afc654a7515",
+  "environment": {
+    "CARGO_INCREMENTAL": "0",
+    "LC_ALL": "C",
+    "TZ": "UTC"
+  },
+  "host": "macOS-27.0-arm64-arm-64bit-Mach-O",
+  "rustc": "rustc 1.99.0 (b940084d7 2026-09-28)",
+  "cargo": "cargo 1.99.0 (5f94df478 2026-08-27)",
+  "source_sha256": {
+    "crates/nec-upd765a/src/lib.rs": "18575425e5f008bc8e00030aec72378341c1777f4734ee11e4b7a73ee3ec4fb1",
+    "crates/nec-upd765a/tests/read_id_errors.rs": "3d0b1b83d3412585cc09a27d2dc8e156cccd4be6ce37e1bcd1b71ab4928a0bc3"
+  },
+  "checks": [
+    {
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "nec-upd765a",
+        "--test",
+        "read_id_errors",
+        "read_id_reports_id_crc_and_keeps_data_errors_out_of_results",
+        "--",
+        "--exact",
+        "--nocapture"
+      ],
+      "exit_code": 0,
+      "log": "green.log"
+    },
+    {
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "nec-upd765a"
+      ],
+      "exit_code": 0,
+      "log": "tests.log"
+    },
+    {
+      "command": [
+        "cargo",
+        "clippy",
+        "-p",
+        "nec-upd765a",
+        "--all-targets",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 0,
+      "log": "clippy.log"
+    },
+    {
+      "command": [
+        "cargo",
+        "fmt",
+        "-p",
+        "nec-upd765a",
+        "--",
+        "--check"
+      ],
+      "exit_code": 0,
+      "log": "format.log"
+    }
+  ],
+  "red_control": {
+    "exit_code": 101,
+    "log": "red.log",
+    "production_source": "base unmodified; new integration test only",
+    "observed": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      7,
+      2
+    ],
+    "expected": [
+      64,
+      36,
+      0,
+      0,
+      0,
+      7,
+      2
+    ]
+  },
+  "archive_sha256": "dd93b34ce5ded27684060c937325f718b7f028485374a69e2e2ca53ae72f619f",
+  "controller_test_count": 141
+}

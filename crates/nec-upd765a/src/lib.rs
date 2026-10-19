@@ -792,6 +792,16 @@ impl Upd765a {
                     Some(sectors) if !sectors.is_empty() => {
                         let idx = self.read_id_index[drive] % sectors.len();
                         let s = &sectors[idx];
+                        // DE without DD represents an ID-field CRC error.
+                        // Read ID never visits the data field: data CRC,
+                        // deleted marks and other data status cannot leak in.
+                        // NEC Dec 1978 pp17–18: ID CRC sets DE and ND;
+                        // Fuse read_id/start_read_id also reports abnormal.
+                        // DE+DD cannot establish an additional bad ID here.
+                        if s.st1 & 0x20 != 0 && s.st2 & 0x20 == 0 {
+                            self.st0 |= 0x40;
+                            self.st1 = 0x24;
+                        }
                         self.read_id_index[drive] = self.read_id_index[drive].wrapping_add(1);
                         (s.c, s.h, s.id, s.n)
                     }
