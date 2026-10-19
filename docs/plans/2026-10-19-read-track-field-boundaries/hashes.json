@@ -1,0 +1,23 @@
+{
+  "README.md": "6e2d256d4eaddf43aa6b11f8d2bfe0b1f8d717be1ed40fa54fdbdecc58ce63bb",
+  "capture-source.tar.gz": "71a31c0ca7455623cdec149af20db3edc4257ebba1fbf6e75c3ae9b3c18432e8",
+  "cases.py": "c7a5b08894e99a0bcd7f81707cf3410b60bef586b27a1cafc1e7d1445cb30064",
+  "checks.json": "51c14506770eda8012c095f6435bbe36ea192897524a679b7fd29de007c754ec",
+  "checks.tar.gz": "b17d55e0f9b9a5b7f0e340b0da292b3d41698482d0c706873f984c76d8c559e9",
+  "configuration-scope.json": "377b3a751acc7c73355df855ecaf2eb0652f15b448719494e8b4e4a105895bef",
+  "evidence.tar.gz": "d3e76be2aa81e424a7395bfaecd3cfe9d5c0a14e81f23a5e638964d700adc841",
+  "expectations.json": "6a53b3ee23934867d10b7e9bf7c77c29bb556656388052708facadb4a1b2a6e2",
+  "fuse_probe.c": "f05234242927c2b5a493cbb0b665c01f9d8f791aeb34a2d1a92d4b041e589078",
+  "host-tools.json": "23426c0006814ab3330aa8ea326b06f2ba75f744930f7f859f8b717af8f42a51",
+  "mame-probe.lua": "9e7bcfaf0debb7437ecb4aa65187c62c198292d8f52221e338970c4d20abcf32",
+  "plan.md": "4df7ae120ad58ab1e2bad050474e2b46e14855b91d790cf4b26e4627e3b129fa",
+  "primary-reference.json": "aedb26bc43bd547bbfb2e460f542b22b61378238e09c69b4bba899e890a9b239",
+  "report.html": "ab2cbec157cdd1ca242c1a985b8f81ec428d850c2c5770388c9d7a025ea9317f",
+  "report.json": "24cd4695510287e9949482ff96d37ef10c0ff5cd1241d4a7d486572f99ed4adb",
+  "report.py": "afb344df54aea13cc12b4a3d611d8b04f06920df2e824e1c23ab6b4c1d714a90",
+  "run.py": "c2c2f248dbc1b84d68906a0ddfbd4c713281dee4e88e061a06562fd0286f01fb",
+  "test_prerequisites.py": "89a513e3caf88dcc117e4962a99ae967cfe13ff4fbd9e29a698519b540379c3a",
+  "test_verify.py": "ff3fc212a87900d430333c0923235011bfbd7f620fe1d8bddfc4bb8b1a18b5cd",
+  "verification.json": "fdf3c9ac31d3621df7a049f8d63a4de4b0a03170e143e39fbf7d91fa57919f8d",
+  "verify.py": "f17351dc848d3e4c35c6617d70997dcd6ac874d86bb57067d8016ce79ecb28f8"
+}

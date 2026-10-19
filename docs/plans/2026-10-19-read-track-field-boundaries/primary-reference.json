@@ -1,0 +1,19 @@
+{
+  "source": "NEC uPD765 datasheet, December 1978",
+  "path": "/Volumes/Data/Reference-PDFs/by-topic/fdc-765/upd765-data-sheet-dec78.pdf",
+  "sha256": "e8b07db283aad56358cdace1bf4ac179f961484d10d6c1700b74d9734eea1117",
+  "printed_pages": [
+    7,
+    8,
+    9,
+    12,
+    14,
+    17,
+    18
+  ],
+  "scope": "original uPD765 primary wording; not a revision-identified physical +3 trace",
+  "notes": [
+    "Page 12 describes Read Data DTL. Page 14 separately describes Read A Track. These do not resolve every observed revision/command-specific boundary.",
+    "Reference emulator source is precedent, not primary silicon authority."
+  ]
+}

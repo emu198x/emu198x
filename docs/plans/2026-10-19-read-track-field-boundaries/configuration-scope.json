@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "qualified": false,
+  "emu": {
+    "surface": "fresh source-built nec-upd765a public-register integration test",
+    "machine_runtime": "not run",
+    "firmware": "not applicable to this isolated controller test",
+    "controller": "Upd765a current sector-image implementation; no physical revision identification by inference",
+    "media": "one side, one physical cylinder; authored DiskSector records",
+    "time_bound": "2000000 tick calls; not a silicon service-time measurement"
+  },
+  "fuse": {
+    "surface": "fresh standalone build of unchanged vendored controller/drive/CRC sources",
+    "controller_selection": "UPD765A, UPD_CLOCK_8MHZ",
+    "host_processor_speed": 3546900,
+    "media": "6250-byte raw MFM track; one side, one cylinder; ready/motor asserted by authored host",
+    "firmware": "not applicable",
+    "time_bound": "2 host-model emulated seconds plus 45-second process timeout"
+  },
+  "mame": {
+    "surface": "fresh installed MAME 0.289 execution; binary source commit unknown",
+    "machine": "specpls3, English BIOS, PAL, internal single-sided double-density 3-inch drive",
+    "firmware": "four local English v4.0 pages; ordered SHA-256 identities in campaign.json",
+    "media": "one-cylinder/one-head SSDD MFI, audited 250 kbit/s raw MFM",
+    "host": "CPU DI/JP idle loop written to RAM and PC set to 0x8000; Lua drives FDC ports directly",
+    "normal_ROM_loading_qualified": false,
+    "time_bound": "2 emulated seconds for command capture, 10 whole-machine emulated seconds, 45-second host timeout"
+  }
+}
