@@ -42,6 +42,7 @@ jobs:
   notify:
     name: Post to Discord
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Post the release to Discord
         env:

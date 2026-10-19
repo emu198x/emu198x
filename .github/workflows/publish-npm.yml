@@ -38,6 +38,7 @@ jobs:
   publish:
     name: "@emu198x/zx-spectrum"
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: read
       id-token: write

@@ -9,6 +9,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: c64-pattern-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   c64-sprites:
     name: C64 sprites against VICE (private firmware)
