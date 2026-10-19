@@ -431,6 +431,312 @@ mod tests {
         panic!("read request deadline");
     }
 
+    // #1880: native-state invariants for the observed field boundary cases.
+    // Direct peripheral host with blank ROMs, not guest-loading qualification.
+    #[derive(Clone)]
+    struct NativeReadFieldCase {
+        name: &'static str,
+        command_n: u8,
+        recorded_n: u8,
+        dtl: u8,
+        lengths: Vec<usize>,
+        ids: Vec<u8>,
+        eot: u8,
+        missing: bool,
+    }
+
+    fn native_read_field_cases() -> Vec<NativeReadFieldCase> {
+        let single = |name, command_n, recorded_n, dtl, length| NativeReadFieldCase {
+            name,
+            command_n,
+            recorded_n,
+            dtl,
+            lengths: vec![length],
+            ids: vec![1],
+            eot: 1,
+            missing: false,
+        };
+        let mut cases = vec![
+            single("n0-dtl1", 0, 0, 1, 128),
+            single("n0-dtl127", 0, 0, 127, 128),
+            single("n5", 5, 5, 255, 4096),
+            single("command0-recorded2", 0, 2, 255, 512),
+            single("command2-recorded0", 2, 0, 255, 128),
+            single("represented0", 2, 2, 255, 0),
+            single("represented128", 2, 2, 255, 128),
+            single("represented768", 2, 2, 255, 768),
+        ];
+        for (name, ids, eot) in [
+            ("reversed-eot2", vec![2, 1], 2),
+            ("duplicate-eot2", vec![1, 1], 2),
+            ("forward-eot3", vec![1, 2], 3),
+            ("reversed-eot3", vec![2, 1], 3),
+        ] {
+            cases.push(NativeReadFieldCase {
+                name,
+                command_n: 2,
+                recorded_n: 2,
+                dtl: 255,
+                lengths: vec![512, 512],
+                ids,
+                eot,
+                missing: false,
+            });
+        }
+        let mut missing = single("missing-entry", 2, 2, 255, 512);
+        missing.missing = true;
+        cases.push(missing);
+        cases
+    }
+
+    fn native_field_artifact(name: &str, bytes: &[u8]) {
+        use std::io::Write;
+        if let Some(directory) = std::env::var_os("READ_TRACK_NATIVE_ARTIFACTS") {
+            let path = std::path::Path::new(&directory).join(name);
+            let mut file = std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(path)
+                .expect("new evidence artifact");
+            file.write_all(bytes).expect("write evidence artifact");
+        }
+    }
+
+    fn native_field_runtime(
+        case: &NativeReadFieldCase,
+    ) -> (SpectrumPlus3Runtime, Vec<u8>, Vec<u8>) {
+        use emu198x_shell::{MediaImage, MediaKind, MediaSet};
+        let (_, template) = two_sector_read_runtime(0x42, false);
+        let mut image = format_amstrad_dsk::parse(&template).expect("existing fixture template");
+        let sector = image.tracks[0][0].sectors[0].clone();
+        image.tracks[0][0].sectors = case
+            .ids
+            .iter()
+            .enumerate()
+            .map(|(i, &id)| {
+                let mut next = sector.clone();
+                next.id = id;
+                next.n = case.recorded_n;
+                next.data = vec![0x21 + i as u8; case.lengths[i]];
+                next
+            })
+            .collect();
+        // An unvisited canary makes even an empty-field live image differ from
+        // the cached source without changing the visited field's shape.
+        if case.lengths == [0] {
+            let mut canary = sector;
+            canary.id = 254;
+            canary.data = vec![0xb1; 128];
+            image.tracks[0][0].sectors.push(canary);
+        }
+        let source = format_amstrad_dsk::encode_extended(&image).expect("authored EDSK source");
+        let mut live = format_amstrad_dsk::parse(&source).expect("source codec round trip");
+        assert_eq!(
+            postcard::to_allocvec(&live).expect("decoded fixture"),
+            postcard::to_allocvec(&image).expect("authored fixture")
+        );
+        if case.missing {
+            live.tracks[0].clear();
+        } else {
+            let marked = live.tracks[0][0]
+                .sectors
+                .iter_mut()
+                .find(|s| !s.data.is_empty())
+                .expect("live canary");
+            marked.data[0] ^= 0x80;
+        }
+        let live_bytes = postcard::to_allocvec(&live).expect("live image identity");
+        assert_ne!(
+            live_bytes,
+            postcard::to_allocvec(&image).expect("source model"),
+            "fixture must expose accidental source replay"
+        );
+        let mut runtime = SpectrumPlus3Runtime::blank();
+        let mut media = MediaSet::new();
+        media.push(MediaImage::new("disk-a", MediaKind::Disk, &source));
+        runtime.load_media(&media).expect("mount authored source");
+        runtime.machine_mut().fdc.insert_disk(0, live);
+        send_fdc_command(
+            &mut runtime,
+            &[0x42, 0, 0, 0, 1, case.command_n, case.eot, 42, case.dtl],
+        );
+        (runtime, source, live_bytes)
+    }
+
+    fn native_field_drain(runtime: &mut SpectrumPlus3Runtime) -> (Vec<u8>, Vec<u8>) {
+        let mut data = Vec::new();
+        while runtime.machine().fdc.read_status() & 0x20 != 0 {
+            assert!(data.len() < 16384, "bounded Read Track payload");
+            data.push(read_fdc_byte(runtime));
+        }
+        (data, drain_fdc_result(runtime))
+    }
+
+    fn native_field_recover(runtime: &mut SpectrumPlus3Runtime, source: &[u8], live: &[u8]) -> u8 {
+        assert_eq!(runtime.machine().fdc.read_status(), 0x80);
+        assert_eq!(
+            runtime.disk_images()[0].bytes,
+            source,
+            "original source bytes are immutable"
+        );
+        assert_eq!(
+            postcard::to_allocvec(
+                &runtime
+                    .machine()
+                    .fdc
+                    .disk_for_export(0)
+                    .expect("live mounted disk")
+            )
+            .expect("live disk bytes"),
+            live,
+            "restore must not replay cached source"
+        );
+        send_fdc_command(runtime, &[4, 0]);
+        assert_eq!(runtime.machine().fdc.read_status(), 0xd0);
+        let recovery = runtime.machine_mut().fdc.read_data();
+        assert_eq!(runtime.machine().fdc.read_status(), 0x80);
+        recovery
+    }
+
+    #[test]
+    fn read_track_native_field_matrix() {
+        let mut checkpoints = 0;
+        let cases = native_read_field_cases();
+        for case in &cases {
+            let (mut baseline, source, live) = native_field_runtime(case);
+            native_field_artifact(&format!("{}.edsk", case.name), &source);
+            native_field_artifact(&format!("{}.live.postcard", case.name), &live);
+            let (baseline_data, baseline_result) = native_field_drain(&mut baseline);
+            let recovery = native_field_recover(&mut baseline, &source, &live);
+            let baseline_final = baseline.snapshot().expect("baseline final state");
+            assert_eq!(
+                baseline_data.len(),
+                if case.missing {
+                    0
+                } else {
+                    usize::from(case.eot) * (128_usize << case.command_n)
+                }
+            );
+            let mut expected_data = baseline_data.clone();
+            if std::env::var_os("READ_TRACK_NATIVE_WRONG_EXPECTED").is_some()
+                && !expected_data.is_empty()
+            {
+                let index = expected_data.len() / 2;
+                expected_data[index] ^= 1;
+            }
+            let length = baseline_data.len();
+            let size = 128_usize << case.command_n;
+            let mut points = Vec::new();
+            if length > 0 {
+                let mut prefixes = vec![0, 1, length / 2, length - 1];
+                prefixes.extend([
+                    size - 1,
+                    size,
+                    size + 1,
+                    2 * size - 1,
+                    2 * size,
+                    2 * size + 1,
+                ]);
+                prefixes.retain(|&p| p < length);
+                prefixes.sort_unstable();
+                prefixes.dedup();
+                for prefix in prefixes {
+                    for ready in [false, true] {
+                        points.push((prefix, 0, Some(ready)));
+                    }
+                }
+            }
+            for result_prefix in [0, 1, 3, 6] {
+                points.push((length, result_prefix, None));
+            }
+            for (payload_prefix, result_prefix, ready) in points {
+                let (mut original, original_source, original_live) = native_field_runtime(case);
+                assert_eq!(original_source, source);
+                assert_eq!(original_live, live);
+                for &byte in &baseline_data[..payload_prefix] {
+                    assert_eq!(read_fdc_byte(&mut original), byte);
+                }
+                if ready == Some(true) {
+                    await_fdc_read_request(&mut original);
+                }
+                if let Some(ready) = ready {
+                    assert_eq!(
+                        original.machine().fdc.read_status(),
+                        if ready { 0xf0 } else { 0x70 }
+                    );
+                }
+                for &byte in &baseline_result[..result_prefix] {
+                    assert_eq!(original.machine_mut().fdc.read_data(), byte);
+                }
+                let saved = original.snapshot().expect("native field checkpoint");
+                let phase = match ready {
+                    Some(false) => "request-low",
+                    Some(true) => "request-high",
+                    None => "result",
+                };
+                let name = format!(
+                    "{}-{payload_prefix}-{result_prefix}-{phase}.state",
+                    case.name
+                );
+                native_field_artifact(&name, &saved);
+                let mut restored = SpectrumPlus3Runtime::blank();
+                assert!(!restored.machine().fdc.has_disk(0), "fresh restore target");
+                restored
+                    .restore(&saved)
+                    .expect("restore native field checkpoint");
+                assert_eq!(restored.snapshot().expect("exact checkpoint"), saved);
+                let mut observed_data = Vec::new();
+                let mut observed_result = Vec::new();
+                for (is_restored, runtime) in [(true, &mut restored), (false, &mut original)] {
+                    let mut data = Vec::new();
+                    for _ in payload_prefix..length {
+                        data.push(read_fdc_byte(runtime));
+                    }
+                    assert_eq!(
+                        data,
+                        expected_data[payload_prefix..],
+                        "restored continuation differs from expected payload"
+                    );
+                    let mut result = Vec::new();
+                    for _ in result_prefix..7 {
+                        assert_eq!(runtime.machine().fdc.read_status(), 0xd0);
+                        result.push(runtime.machine_mut().fdc.read_data());
+                    }
+                    assert_eq!(
+                        result,
+                        baseline_result[result_prefix..],
+                        "remaining result bytes"
+                    );
+                    assert_eq!(native_field_recover(runtime, &source, &live), recovery);
+                    assert_eq!(
+                        runtime.snapshot().expect("continued final state"),
+                        baseline_final,
+                        "same final state as uninterrupted execution"
+                    );
+                    if is_restored {
+                        observed_data = data;
+                        observed_result = result;
+                    }
+                }
+                assert_eq!(
+                    restored.snapshot().expect("restored final"),
+                    original.snapshot().expect("original final")
+                );
+                println!(
+                    "READ_TRACK_NATIVE {}",
+                    serde_json::json!({"schema_version":1,"qualified":false,"case":case.name,"command_n":case.command_n,"recorded_n":case.recorded_n,"dtl":case.dtl,"ids":case.ids,"lengths":case.lengths,"eot":case.eot,"missing":case.missing,"phase":phase,"payload_prefix":payload_prefix,"result_prefix":result_prefix,"payload_total":length,"expected_data":baseline_data[payload_prefix..],"observed_data":observed_data,"expected_result":baseline_result[result_prefix..],"observed_result":observed_result,"checkpoint":name,"source":format!("{}.edsk",case.name),"live":format!("{}.live.postcard",case.name),"idle_msr":128,"recovery":recovery,"recovery_msr":128,"exact_checkpoint":true,"final_state_equal":true,"source_unchanged":true,"live_unchanged":true})
+                );
+                checkpoints += 1;
+            }
+        }
+        assert_eq!(cases.len(), 13);
+        assert_eq!(checkpoints, 180, "frozen nonzero native checkpoint matrix");
+        println!(
+            "READ_TRACK_NATIVE_SUMMARY {}",
+            serde_json::json!({"schema_version":1,"qualified":false,"cases":cases.len(),"checkpoints":checkpoints})
+        );
+    }
+
     #[test]
     fn old_v6_bad_id_reads_restore_to_result_before_any_further_payload() {
         let fixtures: &[&[u8]] = &[
