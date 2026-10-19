@@ -126,6 +126,21 @@ class CollectorTest(unittest.TestCase):
         proc.stdout.close.assert_called_once()
         proc.stderr.close.assert_called_once()
 
+    def test_failed_cleanup_wait_still_closes_output_pipes(self) -> None:
+        proc = MagicMock()
+        proc.poll.return_value = None
+        proc.communicate.return_value = ("partial", "")
+        proc.wait.side_effect = subprocess.TimeoutExpired(["fixture"], 10)
+        with (
+            patch.object(collector.subprocess, "Popen", return_value=proc),
+            patch.object(collector, "stop_process_tree"),
+            self.assertRaises(subprocess.TimeoutExpired),
+        ):
+            collector.bounded_run(["fixture"], cwd=self.root, timeout=1)
+        proc.wait.assert_called_once_with(timeout=10)
+        proc.stdout.close.assert_called_once()
+        proc.stderr.close.assert_called_once()
+
     def test_phase_progress_and_timeout(self) -> None:
         output = io.StringIO()
         with (
