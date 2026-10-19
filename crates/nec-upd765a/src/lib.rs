@@ -1145,6 +1145,19 @@ impl Upd765a {
     }
 
     fn read_result(&mut self) {
+        // Read Track passes a bad ID CRC before transferring payload. DE
+        // without DD represents that ID error; a data CRC is still deferred
+        // until field completion. Derive it from existing progress here so
+        // older v6 checkpoints taken inside the field retain it too. A
+        // prepared but unvisited field must not contribute status.
+        // Fuse read_id/start_read_track, NEC December 1978 pp14/17.
+        if self.command == Command::ReadTrack
+            && !self.write_start_pending
+            && let Some(progress) = &self.read_progress
+            && progress.pending_st2 & 0x20 == 0
+        {
+            self.st1 |= progress.pending_st1 & 0x20;
+        }
         if self.st1 != 0 || self.st2 != 0 || self.command == Command::ReadTrack {
             self.st0 |= 0x40;
         }
@@ -1726,8 +1739,8 @@ impl Peripheral for Upd765a {
                     self.main_status |= MSR_RQM;
                     self.exec_timeout = self.read_byte_ticks();
                 } else if self.main_status & MSR_RQM != 0 {
-                    // Only encountered marks and completed field errors are
-                    // present. A later field cannot contribute EN/CRC/CHRN.
+                    // Result assembly also preserves the current ID CRC.
+                    // A later field cannot contribute EN/CRC/CHRN.
                     self.st1 |= 0x10;
                     self.read_result();
                 } else {

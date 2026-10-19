@@ -162,3 +162,71 @@ fn skipped_eot_after_data_retains_existing_next_r_result() {
         assert_eq!(result(&mut f), [0, 0, 0, 0, 0, 3, 2]);
     }
 }
+
+// ID CRC precedes payload; data CRC follows it. These checks use the existing
+// bounded sector-model clock, not a measured silicon overrun deadline.
+fn interrupted_crc(st1: u8, st2: u8, expected_de: u8) {
+    for consumed in [0, 1, 179] {
+        let mut s = sector(1, false, false);
+        s.st1 = st1;
+        s.st2 = st2;
+        let mut f = controller(0x42, vec![s], 1);
+        let before = f.disk_for_export(0).expect("mounted").tracks[0][0].sectors[0].clone();
+        read(&mut f, consumed);
+        let observed = overrun(&mut f);
+        assert_ne!(observed[1] & 0x10, 0, "overrun must occur");
+        assert_eq!(
+            observed[1] & 0x20,
+            expected_de,
+            "recorded {st1:02x}/{st2:02x}"
+        );
+        assert_eq!(observed[2] & 0x20, 0, "data CRC was not reached");
+        // Draining the error must leave the command interface usable.
+        for byte in [0x42, 0, 0, 0, 1, 2, 1, 0x2a, 0xff] {
+            f.write_data(byte);
+        }
+        read(&mut f, 512);
+        assert_eq!(result(&mut f), [0x40, st1 | 0x80, st2, 0, 0, 1, 2]);
+        let after = &f.disk_for_export(0).expect("mounted").tracks[0][0].sectors[0];
+        assert_eq!(
+            (after.st1, after.st2, &after.data),
+            (before.st1, before.st2, &before.data)
+        );
+    }
+}
+#[test]
+fn track_interior_overrun_retains_encountered_id_crc() {
+    interrupted_crc(0x20, 0, 0x20);
+}
+#[test]
+fn track_interior_overrun_does_not_invent_crc_on_clean_media() {
+    interrupted_crc(0, 0, 0);
+}
+#[test]
+fn track_interior_overrun_defers_data_crc_until_completion() {
+    interrupted_crc(0x20, 0x20, 0);
+}
+#[test]
+fn track_does_not_publish_an_unvisited_later_id_crc() {
+    let mut later = sector(2, false, false);
+    later.st1 = 0x20;
+    let mut f = controller(0x42, vec![sector(1, false, false), later], 2);
+    read(&mut f, 1);
+    assert_eq!(&overrun(&mut f)[..3], &[0x40, 0x10, 0]);
+}
+
+#[test]
+fn track_media_removal_keeps_only_encountered_id_crc() {
+    for (st1, st2) in [(0, 0), (0x20, 0), (0x20, 0x20)] {
+        let mut s = sector(1, false, false);
+        s.st1 = st1;
+        s.st2 = st2;
+        let mut f = controller(0x42, vec![s], 1);
+        read(&mut f, 1);
+        f.eject_disk(0);
+        let observed = result(&mut f);
+        assert_eq!(observed[0] & 0x48, 0x48);
+        assert_eq!(observed[1] & 0x20, if st2 == 0 { st1 } else { 0 });
+        assert_eq!(observed[2] & 0x20, 0);
+    }
+}
