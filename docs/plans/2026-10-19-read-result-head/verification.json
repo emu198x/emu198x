@@ -1,0 +1,46 @@
+[
+  {
+    "name": "audit",
+    "argv": [
+      "python3.14",
+      "docs/plans/2026-10-19-read-result-head/verify.py"
+    ],
+    "exit": 0,
+    "output": "{\n  \"qualified\": false,\n  \"controller_tests\": 130,\n  \"focused_snapshot_tests\": 1,\n  \"red_tests\": 3,\n  \"reference_observations\": 36,\n  \"runtime_plus3_tests\": 338,\n  \"ignored_tests\": 63,\n  \"fresh_rom_positive_runs\": 2,\n  \"wrong_signature_rejected\": true,\n  \"checks_passed\": true\n}\n"
+  },
+  {
+    "name": "auditor-tests",
+    "argv": [
+      "python3.14",
+      "-m",
+      "unittest",
+      "discover",
+      "-s",
+      "docs/plans/2026-10-19-read-result-head",
+      "-v"
+    ],
+    "exit": 0,
+    "output": "test_complete (test_verify.AuditTests.test_complete) ... ok\ntest_false_execution_pass (test_verify.AuditTests.test_false_execution_pass) ... ok\ntest_false_qualification (test_verify.AuditTests.test_false_qualification) ... ok\ntest_green_exit_cannot_erase_red (test_verify.AuditTests.test_green_exit_cannot_erase_red) ... ok\ntest_missing_execution_writes (test_verify.AuditTests.test_missing_execution_writes) ... ok\ntest_missing_snapshot_assertion (test_verify.AuditTests.test_missing_snapshot_assertion) ... ok\ntest_patched_reference (test_verify.AuditTests.test_patched_reference) ... ok\ntest_wrong_result_head (test_verify.AuditTests.test_wrong_result_head) ... ok\ntest_wrong_source_identity (test_verify.AuditTests.test_wrong_source_identity) ... ok\ntest_zero_loading_assertions (test_verify.AuditTests.test_zero_loading_assertions) ... ok\ntest_zero_reference_observations (test_verify.AuditTests.test_zero_reference_observations) ... ok\ntest_zero_runtime_tests (test_verify.AuditTests.test_zero_runtime_tests) ... ok\n\n----------------------------------------------------------------------\nRan 12 tests in 0.088s\n\nOK\n"
+  },
+  {
+    "name": "ruff",
+    "argv": [
+      "ruff",
+      "check",
+      "docs/plans/2026-10-19-read-result-head"
+    ],
+    "exit": 0,
+    "output": "All checks passed!\n"
+  },
+  {
+    "name": "ruff-format",
+    "argv": [
+      "ruff",
+      "format",
+      "--check",
+      "docs/plans/2026-10-19-read-result-head"
+    ],
+    "exit": 0,
+    "output": "5 files already formatted\n"
+  }
+]
