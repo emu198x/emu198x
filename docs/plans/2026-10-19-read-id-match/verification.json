@@ -1,0 +1,1 @@
+{"qualified": false, "evidence_checks": "pass", "controller_tests": 127, "rejected_controls": ["wrong_reference_payload", "missing_runtime_artifact", "zero_assertions", "false_execution_pass", "corrupt_reference_artifact", "missing_test", "empty_tests", "wrong_exit"]}

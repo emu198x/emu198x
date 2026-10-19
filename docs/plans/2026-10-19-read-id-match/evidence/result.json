@@ -1,0 +1,112 @@
+{
+  "schema_version": 1,
+  "qualified": false,
+  "kind": "source-controller regression evidence",
+  "issue": "https://github.com/emu198x/emu198x/issues/1841",
+  "base_commit": "1a17cf4779f397c44de03312bacefd39cfa9083a",
+  "baseline_library_sha256": "d28e6b1ea8ebbf2aa61ee036c5fc6195bad5a49ddee2fcf2c16a54fd55da6915",
+  "final_library_sha256": "098315f83e2f11a53379fe7df4ca7fb5ba1e10f5d0e9d3091357d23a98d88617",
+  "red_test_sha256": "4d8d58534499735df85bb6b48976e5a204152ce68e570d43aa7e17c96f863633",
+  "final_test_sha256": "912dd625f70ca604235d78c0ef422d24c5c172b738fc3641d88f0710fdb40924",
+  "workspace_lock_sha256": "613932a7bb60ecb20ca6afc080a3f2b276459345466faf08a3efcbc0c964f263",
+  "focused_test_executable_sha256": "b6176910f04eed6428337a319d5f9e1b2e8040af3f8ca0a14f3f90084e820ee1",
+  "red_executable_identity": "not captured",
+  "rustc": "rustc 1.99.0 (b940084d7 2026-09-28)\nbinary: rustc\ncommit-hash: b940084d7eb6a299eb4bfeb8e34901bc051e7ac4\ncommit-date: 2026-09-28\nhost: aarch64-apple-darwin\nrelease: 1.99.0\nLLVM version: 23.1.1\n",
+  "cargo": "cargo 1.99.0 (5f94df478 2026-08-27)\n",
+  "primary": {
+    "title": "NEC microcomputers uPD765 data sheet, December1978",
+    "public_url": "https://bitsavers.org/components/nec/_dataSheets/uPD765_Data_Sheet_Dec78.pdf",
+    "pdf_sha256": "e8b07db283aad56358cdace1bf4ac179f961484d10d6c1700b74d9734eea1117",
+    "extract_sha256": "b56ef2a6c9cb62df226bab30af61099c1c98cb2a680bcd6135ac51e437ba5e5a",
+    "locators": [
+      "printed p9 command-symbol definitions: ID H versus selected HD",
+      "printed p12 Read Data ID search/ND; prose abbreviates matching as R"
+    ]
+  },
+  "reference_source_inspection": {
+    "fuse": {
+      "commit": "0ff7fe676394aa357f49b6fbdc3ecb38a6592ab2",
+      "source_path": "peripherals/disk/upd_fdc.c",
+      "sha256": "845b960eb68cba9b21cba00cdc3c03cf0d4dc491ffd96efecb1d53336ce7f72d",
+      "locator": "seek_id, lines380-408",
+      "executed": false
+    },
+    "mame": {
+      "commit": "9391e1eff80eb04abd58d48218a1d3b9643c1ea8",
+      "source_path": "src/devices/machine/upd765.cpp",
+      "sha256": "71f284cdbbbded75012919220442a2e45cb808b376f4dfffa0d7722c182bde15",
+      "locator": "sector_matches, lines2852-2863",
+      "executed": false
+    }
+  },
+  "red": {
+    "command": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "nec-upd765a",
+      "--test",
+      "read_id_match",
+      "--target-dir",
+      "/Users/stevehill/Projects/198x/output/qualification/read-id-match-target"
+    ],
+    "exit": 101,
+    "passed": 0,
+    "failed": 4
+  },
+  "green": {
+    "command": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "nec-upd765a",
+      "--target-dir",
+      "/Users/stevehill/Projects/198x/output/qualification/read-id-match-target"
+    ],
+    "exit": 0,
+    "passed": 127,
+    "new_tests": 4,
+    "new_successful_commands": 40
+  },
+  "clippy": {
+    "exit": 0,
+    "first_attempt_exit": 101,
+    "first_attempt_reason": "type_complexity in test-only media signature; simplified to metadata byte array"
+  },
+  "fmt": {
+    "exit": 0
+  },
+  "limits": [
+    "No fresh full reference-emulator application execution; stock Fuse source controller executed separately",
+    "Result CHRN H unchanged",
+    "No ReadTrack, MT, DTL, gap/flux or search-timing conformance claim",
+    "Nonstandard H7/FF are represented-ID regression cases, not hardware support claims"
+  ],
+  "source_commit": "8db4b82a38844bcbd45df28cfd3626190910ebee",
+  "independent_reference": {
+    "sha256": "07edc5867e4e7d002754fb4022adc0edb93a7063fcf90240a84ffcebf4a1b2d2",
+    "files": 119,
+    "kind": "fresh_source_controller_execution",
+    "observations": 36,
+    "fixture_cases": 9,
+    "repeat_pairs": 18,
+    "qualified": false,
+    "status_disagreement": "Fuse rejected H/N searches report ST1 MA|ND=05; Emu bounded represented-ID path retains ND=04",
+    "result_head_disagreement": "Fuse uses command H; current Emu read_result uses physical head; unchanged",
+    "execution_kind": "fresh_source_controller_execution"
+  },
+  "parent_validation": {
+    "sha256": "23b8d3901d2a52f52612f763ddb204e53796d32e9455b1ec2cbcfd6679fff53f",
+    "files": 37,
+    "runtime_tests_passed": 337,
+    "runtime_tests_ignored": 63,
+    "rom_successes": 2,
+    "wrong_signature_controls": 1,
+    "source_commit": "8db4b82a38844bcbd45df28cfd3626190910ebee",
+    "qualified": false,
+    "assembly_mastering": "captured_reference_replay",
+    "runtime": "fresh_execution"
+  }
+}
