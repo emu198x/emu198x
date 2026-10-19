@@ -19,6 +19,7 @@ mod host_audio;
 mod icon;
 mod keyboard;
 pub mod launch;
+mod media_open;
 mod menu;
 mod overlay;
 mod quick_load;
@@ -36,9 +37,8 @@ use menu::{AppCommand, AppMenu};
 use emu198x_native_video::{PresentationProfile, VideoPresenterError, WgpuVideoPresenter};
 use emu198x_shell::{
     CapturedFrame, ControlCommand, HostIo, InputEvent, LatestFrameCapture, MachineCore,
-    MachineError, MachineTime, MediaImage, MediaKind, MediaSet, MediaTransportAction,
-    MediaTransportCommand, NativeAudioOutput, NativeGamepadInput, NullTraceSink, PixelFormat,
-    ResetKind, RunResult, read_media_asset,
+    MachineError, MachineTime, MediaKind, MediaTransportAction, MediaTransportCommand,
+    NativeAudioOutput, NativeGamepadInput, NullTraceSink, PixelFormat, ResetKind, RunResult,
 };
 use thiserror::Error;
 use winit::application::ApplicationHandler;
@@ -1533,8 +1533,8 @@ impl<S: UiSystem> App<S> {
 
     /// File → Open: pop a native file picker filtered to the slot's media kind,
     /// load the chosen image into the named slot via [`MachineCore::load_media`],
-    /// and refresh the picture. A cancelled dialog, an unreadable file, or a
-    /// rejected load is reported and ignored; only a genuine emulation error
+    /// and refresh the picture. Cancellation is quiet; unreadable or rejected
+    /// media gets a nonfatal native warning. Only a genuine emulation error
     /// from the refresh frame propagates. The dialog blocks the loop while open
     /// — fine, since it's user-initiated and the machine simply pauses.
     fn open_media(&mut self, slot: &str, kind: MediaKind) -> Result<(), UiError> {
@@ -1547,17 +1547,17 @@ impl<S: UiSystem> App<S> {
         else {
             return Ok(()); // user cancelled
         };
-        let loaded = match read_media_asset(&path, kind) {
-            Ok(loaded) => loaded,
-            Err(err) => {
-                eprintln!("media: cannot read {}: {err}", path.display());
-                return Ok(());
-            }
-        };
-        let mut set = MediaSet::new();
-        set.push(MediaImage::new(slot.to_owned(), kind, &loaded.bytes));
-        if let Err(err) = self.runner.runtime.load_media(&set) {
-            eprintln!("media: {} rejected by the machine: {err}", path.display());
+        if let Err(message) =
+            media_open::load(&path, slot, kind, |set| self.runner.runtime.load_media(set))
+        {
+            // A native modal can consume key-up events while it owns focus.
+            self.release_all_keys();
+            rfd::MessageDialog::new()
+                .set_title("Open Media")
+                .set_level(rfd::MessageLevel::Warning)
+                .set_description(&message)
+                .show();
+            self.next_slice_at = Instant::now();
             return Ok(());
         }
         // Fresh capture/audio, then one frame so the inserted media shows. Some
