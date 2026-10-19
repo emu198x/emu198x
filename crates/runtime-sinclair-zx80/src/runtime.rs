@@ -43,7 +43,7 @@ const SHIFTED_LEGENDS: &[(char, &str)] = &[
     (';', "x"),
     ('?', "c"),
     ('/', "v"),
-    ('"', "g"),
+    ('"', "y"),
     ('*', "p"),
     (')', "o"),
     ('(', "i"),
@@ -524,6 +524,6 @@ mod tests {
         assert_eq!(at('-'), Some("j"));
         assert_eq!(at('*'), Some("p"));
         assert_eq!(at('/'), Some("v"));
-        assert_eq!(at('"'), Some("g"));
+        assert_eq!(at('"'), Some("y"));
     }
 }
