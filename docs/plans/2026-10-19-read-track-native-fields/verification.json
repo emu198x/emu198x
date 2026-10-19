@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "qualified": false,
+  "fixtures": 13,
+  "repeats": 2,
+  "checkpoints_per_repeat": 180,
+  "fresh_native_restores": 360,
+  "byte_and_state_assertions": 165956,
+  "wrong_expected": "intended rejection observed",
+  "fixture_checkpoints": {
+    "n0-dtl1": 12,
+    "n0-dtl127": 12,
+    "n5": 12,
+    "command0-recorded2": 12,
+    "command2-recorded0": 12,
+    "represented0": 12,
+    "represented128": 12,
+    "represented768": 12,
+    "reversed-eot2": 16,
+    "duplicate-eot2": 16,
+    "forward-eot3": 24,
+    "reversed-eot3": 24,
+    "missing-entry": 4
+  },
+  "reference_comparison": "not applicable to private native v6 state; earlier controller comparisons remain separate",
+  "guest_loading": "not run in this state-preservation packet"
+}

@@ -1,0 +1,161 @@
+{
+  "schema_version": 1,
+  "qualified": false,
+  "summary": "13 fixtures, 180 native checkpoints per fresh run, two runs: 360 successful restores. Wrong restored-continuation expectation rejected at the intended assertion.",
+  "columns": [
+    "Fixture",
+    "Command / recorded N",
+    "DTL",
+    "IDs",
+    "Stored bytes",
+    "EOT",
+    "RQM low",
+    "RQM high",
+    "Result checkpoints"
+  ],
+  "rows": [
+    [
+      "n0-dtl1",
+      "0 / 0",
+      "1",
+      "1",
+      "128",
+      "1",
+      "4",
+      "4",
+      "4"
+    ],
+    [
+      "n0-dtl127",
+      "0 / 0",
+      "127",
+      "1",
+      "128",
+      "1",
+      "4",
+      "4",
+      "4"
+    ],
+    [
+      "n5",
+      "5 / 5",
+      "255",
+      "1",
+      "4096",
+      "1",
+      "4",
+      "4",
+      "4"
+    ],
+    [
+      "command0-recorded2",
+      "0 / 2",
+      "255",
+      "1",
+      "512",
+      "1",
+      "4",
+      "4",
+      "4"
+    ],
+    [
+      "command2-recorded0",
+      "2 / 0",
+      "255",
+      "1",
+      "128",
+      "1",
+      "4",
+      "4",
+      "4"
+    ],
+    [
+      "represented0",
+      "2 / 2",
+      "255",
+      "1",
+      "0",
+      "1",
+      "4",
+      "4",
+      "4"
+    ],
+    [
+      "represented128",
+      "2 / 2",
+      "255",
+      "1",
+      "128",
+      "1",
+      "4",
+      "4",
+      "4"
+    ],
+    [
+      "represented768",
+      "2 / 2",
+      "255",
+      "1",
+      "768",
+      "1",
+      "4",
+      "4",
+      "4"
+    ],
+    [
+      "reversed-eot2",
+      "2 / 2",
+      "255",
+      "2,1",
+      "512,512",
+      "2",
+      "6",
+      "6",
+      "4"
+    ],
+    [
+      "duplicate-eot2",
+      "2 / 2",
+      "255",
+      "1,1",
+      "512,512",
+      "2",
+      "6",
+      "6",
+      "4"
+    ],
+    [
+      "forward-eot3",
+      "2 / 2",
+      "255",
+      "1,2",
+      "512,512",
+      "3",
+      "10",
+      "10",
+      "4"
+    ],
+    [
+      "reversed-eot3",
+      "2 / 2",
+      "255",
+      "2,1",
+      "512,512",
+      "3",
+      "10",
+      "10",
+      "4"
+    ],
+    [
+      "missing-entry",
+      "2 / 2",
+      "255",
+      "1",
+      "512",
+      "1",
+      "0",
+      "0",
+      "4"
+    ]
+  ]
+}
