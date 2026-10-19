@@ -10,7 +10,7 @@
 - The mounted live image deliberately differs from cached source before Read Track begins. Short/long fields keep their lengths; an empty-field fixture has an unvisited canary. The missing-entry fixture removes the live track while retaining a valid cached source. Each checkpoint checks original source bytes and the complete serialized live image, so cached-source replay cannot substitute for restoration.
 - Payload checkpoints cover first/interior/final-byte and applicable field/wrap boundaries at RQM low and high. Every fixture has result checkpoints after 0/1/3/6 result bytes. Missing entry has immediate result-only checkpoints, not fictitious payload assertions.
 - Two independent fresh test processes produce matching observations, fixtures and checkpoint bytes. The Rust test asserts exactly 13 cases and 180 checkpoints. The offline auditor independently enumerates those keys and compares raw logs, byte vectors, identities and repetitions.
-- A wrong expected byte is deliberately introduced into the restored continuation. The same compiled test exits 101 with the intended restored-continuation assertion; this is negative-control success, not a passing execution. Eighteen auditor controls also reject missing/duplicate/zero checkpoints, wrong vectors/sizes, corrupt native states after rehashing, lost recovery and incorrect failure reasons.
+- A wrong expected byte is deliberately introduced into the restored continuation. The same compiled test exits 101 with the intended restored-continuation assertion; this is negative-control success, not a passing execution. Nineteen auditor controls also reject missing/duplicate/zero checkpoints, wrong vectors/sizes, corrupt native states after rehashing, lost recovery and incorrect failure reasons.
 
 ## Configuration and provenance
 
@@ -22,7 +22,7 @@ Independent reference replay of this private native-v6 format is not applicable.
 
 ## Verification
 
-The matrix passed twice and its wrong-expectation control failed as intended. The auditor passed under optimized Python and all 18 adversarial controls passed. Scoped runtime/controller regression: 477 libtest-reported passes, zero failures, 62 explicitly ignored tests; ignores receive no qualification credit. Scoped all-target Clippy, Rust format and packet Ruff checks pass. Supported build/full-workspace checks remain CI gates.
+The matrix passed twice and its wrong-expectation control failed as intended. The auditor passed under optimized Python and all 19 adversarial controls passed. Scoped runtime/controller regression: 477 libtest-reported passes, zero failures, 62 explicitly ignored tests; ignores receive no qualification credit. Scoped all-target Clippy, Rust format and packet Ruff checks pass. Supported build/full-workspace checks remain CI gates.
 
 ```sh
 python3.14 -B -O docs/plans/2026-10-19-read-track-native-fields/verify.py
