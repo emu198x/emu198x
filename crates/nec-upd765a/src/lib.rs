@@ -477,6 +477,26 @@ impl Upd765a {
         self.drive_select_mask = drive_select_mask;
     }
 
+    /// Repair active ID-error reads captured by earlier version-6 snapshots.
+    ///
+    /// Those snapshots could already advertise payload from a known bad ID.
+    /// Call after deserialization, before exposing registers to the host. A
+    /// completed result, Read Track, and valid active transfers stay unchanged.
+    pub fn after_restore(&mut self) {
+        if self.phase == Phase::Execution
+            && matches!(self.command, Command::ReadData | Command::ReadDeletedData)
+            && self.read_progress.as_ref().is_some_and(|progress| {
+                progress.pending_st1 & 0x20 != 0 && progress.pending_st2 & 0x20 == 0
+            })
+        {
+            self.st1 |= 0x20;
+            // The old path may already have visited DAM. An invalid ID must
+            // terminate before that mark can contribute CM to this result.
+            self.st2 &= !ST2_CM;
+            self.read_result();
+        }
+    }
+
     /// Read the main status register (port $2FFD on +3).
     ///
     /// Bits D0..D3 reflect per-drive seek-busy state (set while a
@@ -1033,6 +1053,16 @@ impl Upd765a {
                 self.read_result();
                 return false;
             };
+            // NEC December 1978 pp12/17; MAME read_data_continue rejects
+            // header CRC before the data-field FIFO. DE without DD is the
+            // represented ID error: it precedes DAM, including any SK choice.
+            // Read Track continues past it; DD-set metadata remains a data
+            // error and cannot tell us that the ID was independently corrupt.
+            if !is_track && sec.st1 & 0x20 != 0 && sec.st2 & 0x20 == 0 {
+                self.st1 |= 0x20;
+                self.read_result();
+                return false;
+            }
             let mark_mismatch =
                 (sec.st2 & ST2_CM != 0) != (self.command == Command::ReadDeletedData);
             if !is_track && mark_mismatch && self.cmd_buf[0] & 0x20 != 0 {
@@ -1754,6 +1784,34 @@ impl Peripheral for Upd765a {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn legacy_bad_id_normalization_discards_a_previously_visited_data_mark() {
+        for command in [Command::ReadData, Command::ReadDeletedData] {
+            // A synthetic old active state isolates CM accumulated by the
+            // faulty payload path. Actual low/high-RQM v6 fixtures live in
+            // the runtime tests; no old result buffer is changed here.
+            let mut fdc = Upd765a::new();
+            fdc.phase = Phase::Execution;
+            fdc.command = command;
+            fdc.cmd_buf = vec![0x46, 0, 0, 0, 1, 2, 1, 0x2a, 0xff];
+            fdc.sector = 1;
+            fdc.st2 = ST2_CM;
+            fdc.main_status = MSR_RQM | MSR_DIO | MSR_EXM | MSR_CB;
+            fdc.exec_buf = vec![0xa5; 512];
+            fdc.exec_pos = 179;
+            fdc.read_progress = Some(ReadProgress {
+                completed: 0,
+                pending_st1: 0x20,
+                pending_st2: ST2_CM,
+            });
+            fdc.after_restore();
+            fdc.after_restore(); // Already assembled results remain untouched.
+            assert_eq!(fdc.read_status(), 0xd0);
+            let result: Vec<_> = (0..7).map(|_| fdc.read_data()).collect();
+            assert_eq!(result, [0x40, 0x20, 0, 0, 0, 1, 2]);
+            assert_eq!(fdc.read_status(), 0x80);
+        }
+    }
 
     impl Upd765a {
         fn read_ready(&mut self) -> u8 {
