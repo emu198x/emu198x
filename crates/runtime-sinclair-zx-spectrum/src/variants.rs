@@ -1315,6 +1315,7 @@ impl<V: AmstradVariant> SpectrumMachine for SpectrumAmstradClassCore<V> {
     }
     fn after_restore(&mut self) {
         self.restore_volatile_refs();
+        self.fdc.after_restore();
     }
 
     fn apply_snapshot(&mut self, snap: &Snapshot) {
