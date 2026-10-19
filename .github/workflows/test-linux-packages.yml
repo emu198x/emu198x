@@ -159,7 +159,7 @@ jobs:
           ref: '3a82574eb0b9e844bcedf6dd4d118cf84b84d13b'
           path: journey-audit
           persist-credentials: false
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.14'
       - name: Install pinned Rust
@@ -283,7 +283,7 @@ jobs:
           ref: ${{ env.SAMPLES_REVISION }}
           path: code-samples
           persist-credentials: false
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.14'
       - name: Check Windows journey rejection controls
@@ -363,7 +363,7 @@ jobs:
           ref: ${{ env.SAMPLES_REVISION }}
           path: code-samples
           persist-credentials: false
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.14'
       - name: Install the published executables' runtime prerequisites
@@ -451,7 +451,7 @@ jobs:
           ref: ${{ env.SAMPLES_REVISION }}
           path: code-samples
           persist-credentials: false
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.14'
       - name: Check macOS journey rejection controls
@@ -577,7 +577,7 @@ jobs:
           ref: '51297ac3196a990286b0d21a4dedd4653c0168f0'
           path: code-samples
           persist-credentials: false
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.14'
       - name: Check archive and executable identity controls
