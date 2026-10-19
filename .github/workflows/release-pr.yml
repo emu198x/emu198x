@@ -1,0 +1,19 @@
+name: Release PR
+
+# The check is shared by every 198x repo (stevehill1981/198x-workflows): a
+# release PR must add a changelog heading for every version it sets.
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize]
+
+concurrency:
+  group: release-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  release-pr:
+    name: Release PR
+    uses: stevehill1981/198x-workflows/.github/workflows/release-pr.yml@v1
