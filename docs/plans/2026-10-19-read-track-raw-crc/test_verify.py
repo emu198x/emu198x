@@ -14,6 +14,7 @@ from pathlib import Path
 
 import verify
 from decode import validate
+from mfi import encode
 
 HERE = Path(__file__).resolve().parent
 
@@ -86,6 +87,28 @@ class EvidenceTests(unittest.TestCase):
     def test_wrong_recovery(self) -> None:
         self.change_observation("recovery_msr", 208)
         self.reject("missing next-command recovery")
+
+    def test_wrong_next_command_result(self) -> None:
+        self.change_observation("recovery", 0)
+        self.reject("missing next-command recovery")
+
+    def test_missing_clock_mark(self) -> None:
+        fixture = self.record["fixtures"][0]
+        original = (self.root / fixture["raw"]).read_bytes()
+        changed = bytearray(original)
+        first = next(i for i in range(6250) if changed[6253 + i // 8] & (1 << (i % 8)))
+        changed[6253 + first // 8] &= ~(1 << (first % 8))
+        # Payload bytes and every CRC stay identical; one A1 clock mark changes.
+        with self.assertRaisesRegex(ValueError, "missing-clock marks changed"):
+            validate(encode(changed), original)
+
+    def test_lying_compressed_length(self) -> None:
+        fixture = self.record["fixtures"][0]
+        data = bytearray((self.root / fixture["media"]).read_bytes()[:48])
+        packed = zlib.compress(bytes(400004))
+        struct.pack_into("<II", data, 36, len(packed), 4)
+        with self.assertRaisesRegex(ValueError, "unbounded or trailing"):
+            validate(data + packed, (self.root / fixture["raw"]).read_bytes())
 
     def test_timeout(self) -> None:
         self.record["commands"][2]["timed_out"] = True

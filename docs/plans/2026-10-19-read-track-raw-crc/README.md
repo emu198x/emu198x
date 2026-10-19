@@ -92,10 +92,10 @@ python3.14 docs/plans/2026-10-19-read-track-raw-crc/verify.py
 python3.14 -m unittest discover -s docs/plans/2026-10-19-read-track-raw-crc -p test_verify.py -v
 ```
 
-All 18 auditor checks pass, including rejection of missing/duplicate rows,
-missing fixtures/artifacts, zero payload, truncated results, failed recovery,
+All 21 auditor checks pass, including rejection of missing/duplicate rows,
+missing fixtures/artifacts, zero payload, truncated results, failed recovery or wrong Sense Drive Status result,
 timeouts, a wrong expected byte count, false fresh/qualification/source claims,
-changed raw input, rehashed off-grid flux, trailing zlib streams and oversized
+changed raw input, rehashed off-grid flux, missing-clock marks, trailing zlib streams and oversized
 tracks. Semantic controls recompute hashes: a consistent hash list cannot turn
 wrong observations into passes. The raw output is compared to the derived row.
 
