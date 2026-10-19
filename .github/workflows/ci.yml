@@ -67,6 +67,9 @@ jobs:
       - name: Check every workflow bounds apt
         run: python3 scripts/check-workflow-apt.py --self-test
 
+      - name: Check test collector progress and deadlines
+        run: python3 scripts/status/test_collect_evidence.py
+
       - name: Check Homebrew publication reads large plans from disk
         run: python3 scripts/test_release_homebrew.py
 
@@ -483,6 +486,7 @@ jobs:
   # answers "did it pass" without paying for "how much is covered".
   test:
     name: Test
+    timeout-minutes: 120
     runs-on: ubuntu-latest
     # `EMU198X_SKIP_LOG` is not set here: the collector points each test
     # binary at its own log, which is the only way a skip can be
