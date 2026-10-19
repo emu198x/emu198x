@@ -43,6 +43,15 @@ class EvidenceTests(unittest.TestCase):
         with self.assertRaises(AssertionError):
             verify.audit_runtime(files)
 
+    def test_empty_artifact_list(self):
+        self.reject(lambda r: r.update(artifacts=[]))
+
+    def test_missing_raw_runtime_log(self):
+        files = copy.deepcopy(self.files)
+        del files["positive-1/runtime.stdout"]
+        with self.assertRaises(KeyError):
+            verify.audit_runtime(files)
+
     def test_wrong_expected_must_fail(self):
         files = copy.deepcopy(self.files)
         r = json.loads(files["wrong-signature/regression.json"])

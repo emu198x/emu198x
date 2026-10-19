@@ -58,6 +58,16 @@ def audit_runtime(files: dict[str, bytes]) -> None:
             r["configuration"]["id"]
             == "spectrum-plus3-pal-40077-en40-rom-841d5454-6d6ccab2-c5590212-8ec5cb9f-drive-a-dsk180-v1"
         )
+        artifact_names = {artifact["path"] for artifact in r["artifacts"]}
+        assert len(artifact_names) == len(r["artifacts"])
+        assert {
+            "runtime.stdout",
+            "runtime.stderr",
+            "session.json",
+            "diagnostic.bin",
+            "diagnostic.dsk",
+            "screen.png",
+        } <= artifact_names
         for artifact in r["artifacts"]:
             data = files[name + "/" + artifact["path"]]
             assert len(data) == artifact["size"] and sha(data) == artifact["sha256"]
@@ -99,8 +109,15 @@ def audit(evidence: Path = HERE / "evidence") -> dict:
     result = json.loads((evidence / "result.json").read_text())
     assert result["schema_version"] == 1 and result["qualified"] is False
     assert result["source_commit"] == SOURCE
-    for name, digest in result["source_sha256"].items():
+    for name, digest in result["reviewed_source_sha256"].items():
         assert sha((HERE.parents[2] / name).read_bytes()) == digest
+    for name, digest in result["executed_source_sha256"].items():
+        data = (HERE.parents[2] / name).read_bytes()
+        if name == "crates/nec-upd765a/src/lib.rs":
+            data = data.replace(
+                b"Fuse read_id/start_read_diag", b"Fuse read_id/start_read_track"
+            )
+        assert sha(data) == digest
     for name in ["red.log", "native-red.log"]:
         log = (evidence / name).read_text()
         assert "test result: FAILED. 0 passed; 1 failed;" in log
