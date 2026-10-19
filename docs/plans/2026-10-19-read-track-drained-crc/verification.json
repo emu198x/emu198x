@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "controller_tests": 140,
-  "auditor_tests": 14,
+  "auditor_tests": 15,
   "positive_audits": 1,
-  "negative_audits": 13,
+  "negative_audits": 14,
   "clippy": "pass",
   "fmt": "pass",
   "ruff": "pass",
@@ -11,5 +11,7 @@
   "qualified": false,
   "archive_byte_compared": true,
   "production_changes": false,
-  "rom_execution": "not_run_no_production_change"
+  "rom_execution": "not_run_no_production_change",
+  "optimized_reference_guard_red_green": true,
+  "recapture_comparison_unchanged": true
 }
