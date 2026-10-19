@@ -432,6 +432,60 @@ mod tests {
     }
 
     #[test]
+    fn requested_id_head_survives_pending_read_and_result_checkpoints() {
+        use emu198x_shell::{MediaImage, MediaKind, MediaSet};
+        for accepted in [0, 1, 179, 511, 512] {
+            for at_request in [false, true] {
+                let (_, mut source) = writable_sector_runtime(false);
+                source[0x119] = 1; // ID H1, physically mounted on side zero.
+                let mut original = SpectrumPlus3Runtime::blank();
+                let mut media = MediaSet::new();
+                media.push(MediaImage::new("disk-a", MediaKind::Disk, &source));
+                original.load_media(&media).expect("mount independent ID H");
+                let live_before = original.export_media("disk-a", "edsk").expect("live media");
+                send_fdc_command(&mut original, &[0x46, 0, 0, 1, 1, 2, 1, 0x2a, 0xff]);
+                for _ in 0..accepted {
+                    assert_eq!(read_fdc_byte(&mut original), 0xe5);
+                }
+                let expected = [0x40, 0x80, 0, 0, 1, 1, 2];
+                let drained = if accepted == 512 && at_request { 5 } else { 0 };
+                if accepted < 512 && at_request {
+                    await_fdc_read_request(&mut original);
+                }
+                for &byte in &expected[..drained] {
+                    assert_eq!(original.machine().fdc.read_status(), 0xd0);
+                    assert_eq!(original.machine_mut().fdc.read_data(), byte);
+                }
+                let saved = original.snapshot().expect("ID H checkpoint");
+                let mut restored = SpectrumPlus3Runtime::blank();
+                restored.restore(&saved).expect("restore requested ID H");
+                assert_eq!(restored.snapshot().expect("unchanged checkpoint"), saved);
+                for runtime in [&mut original, &mut restored] {
+                    for _ in accepted..512 {
+                        assert_eq!(read_fdc_byte(runtime), 0xe5);
+                    }
+                    for &byte in &expected[drained..] {
+                        assert_eq!(runtime.machine().fdc.read_status(), 0xd0);
+                        assert_eq!(runtime.machine_mut().fdc.read_data(), byte);
+                    }
+                    assert_eq!(runtime.machine().fdc.read_status(), 0x80);
+                    assert_eq!(runtime.disk_images()[0].bytes, source);
+                    assert_eq!(
+                        runtime
+                            .export_media("disk-a", "edsk")
+                            .expect("unchanged live media"),
+                        live_before
+                    );
+                }
+                assert_eq!(
+                    restored.snapshot().expect("resumed ID H"),
+                    original.snapshot().expect("uninterrupted ID H")
+                );
+            }
+        }
+    }
+
+    #[test]
     fn current_read_snapshot_resumes_before_within_and_between_sectors() {
         for opcode in [0x46, 0x4c, 0x42] {
             for accepted in [0, 1, 511, 512, 513, 1023] {
