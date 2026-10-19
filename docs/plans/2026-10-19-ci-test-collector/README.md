@@ -50,3 +50,8 @@ logs are retained in the failing CI step; the existing ledger has no crash field
 so a deadline is not invented as a named failed test or a new evidence category.
 
 Owning tracker: [#1856](https://github.com/emu198x/emu198x/issues/1856).
+
+Each child deadline and cleanup wait is bounded. Whole-collector cancellation is
+not redesigned here: the executor can still drain submitted work after a main
+thread interruption or unexpected worker exception. The 120-minute hosted job
+limit remains the outer resource backstop.

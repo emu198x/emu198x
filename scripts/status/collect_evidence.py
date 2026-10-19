@@ -198,8 +198,9 @@ def bounded_run(
                     stderr=(stderr or "") + f"\nHost deadline exceeded ({timeout:g}s).",
                 ) from None
     finally:
-        # Popen's context manager waits without a deadline on exit. Explicit
-        # cleanup keeps exception and cancellation paths bounded as well.
+        # Popen's context manager waits without a deadline on exit. Bound
+        # cleanup of this child on exceptions too. This is not whole-collector
+        # cancellation: the executor can still wait for other submitted work.
         try:
             if proc.poll() is None:
                 stop_process_tree(proc)
