@@ -109,7 +109,7 @@ def progress(message: str) -> None:
 
 
 def stop_process_tree(proc: subprocess.Popen[str]) -> None:
-    """Kill the whole owned group, even if its leader has already exited.
+    """Kill the POSIX group or request Windows tree termination.
 
     Matches the POSIX session convention in verify-amiga-closure.py. Windows
     retains its ordinary success path and uses the OS tree termination tool.
@@ -200,13 +200,15 @@ def bounded_run(
     finally:
         # Popen's context manager waits without a deadline on exit. Explicit
         # cleanup keeps exception and cancellation paths bounded as well.
-        if proc.poll() is None:
-            stop_process_tree(proc)
-            proc.wait(timeout=10)
-        if proc.stdout:
-            proc.stdout.close()
-        if proc.stderr:
-            proc.stderr.close()
+        try:
+            if proc.poll() is None:
+                stop_process_tree(proc)
+                proc.wait(timeout=10)
+        finally:
+            if proc.stdout:
+                proc.stdout.close()
+            if proc.stderr:
+                proc.stderr.close()
     result = subprocess.CompletedProcess(args, proc.returncode, stdout, stderr or "")
     if label:
         progress(

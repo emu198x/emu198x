@@ -31,7 +31,7 @@ or ledger schema changes are planned.
 
 On macOS with Python 3.14.3, the following checks pass:
 
-- `python3.14 scripts/status/test_collect_evidence.py -v`: 11 tests, including
+- `python3.14 scripts/status/test_collect_evidence.py -v`: 12 tests, including
   real subprocess timeout and POSIX descendant termination; the main-loop check
   runs a failed binary, a hung binary and a later successful binary, records one
   completed pass only, writes the ledger and returns failure.
