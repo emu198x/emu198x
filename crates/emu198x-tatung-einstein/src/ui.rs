@@ -143,6 +143,7 @@ fn map_einstein_keys(code: KeyCode) -> Option<&'static [&'static str]> {
         KeyCode::Slash => &["/"],
         KeyCode::Equal => &["="],
         KeyCode::Space => &["space"],
+        KeyCode::Pause => &["break"],
         KeyCode::Enter | KeyCode::NumpadEnter => &["return"],
         KeyCode::ShiftLeft | KeyCode::ShiftRight => &["shift"],
         KeyCode::ControlLeft | KeyCode::ControlRight => &["ctrl"],
@@ -159,6 +160,7 @@ mod tests {
     fn maps_keys_modifiers_and_graph() {
         assert_eq!(map_einstein_keys(KeyCode::KeyA), Some(&["a"][..]));
         assert_eq!(map_einstein_keys(KeyCode::Digit5), Some(&["5"][..]));
+        assert_eq!(map_einstein_keys(KeyCode::Pause), Some(&["break"][..]));
         assert_eq!(map_einstein_keys(KeyCode::Enter), Some(&["return"][..]));
         assert_eq!(map_einstein_keys(KeyCode::ShiftLeft), Some(&["shift"][..]));
         assert_eq!(map_einstein_keys(KeyCode::ControlLeft), Some(&["ctrl"][..]));
