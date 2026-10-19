@@ -1,0 +1,467 @@
+{
+  "schema_version": 1,
+  "qualified": false,
+  "observations": 78,
+  "cases": 13,
+  "repeats": 2,
+  "payload_and_recovery_checks": true,
+  "comparisons": [
+    {
+      "order": 0,
+      "kind": 0,
+      "position": 0,
+      "emu": [
+        64,
+        128,
+        0,
+        0,
+        0,
+        1,
+        2
+      ],
+      "fuse": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        2,
+        2
+      ],
+      "mame": [
+        64,
+        128,
+        0,
+        0,
+        0,
+        1,
+        2
+      ],
+      "mame_id_crc_comparable": true,
+      "emu_mame_full_equal": true,
+      "emu_fuse_full_equal": false
+    },
+    {
+      "order": 0,
+      "kind": 1,
+      "position": 0,
+      "emu": [
+        64,
+        160,
+        0,
+        0,
+        0,
+        1,
+        2
+      ],
+      "fuse": [
+        0,
+        36,
+        0,
+        0,
+        0,
+        2,
+        2
+      ],
+      "mame": [
+        64,
+        160,
+        32,
+        0,
+        0,
+        1,
+        2
+      ],
+      "mame_id_crc_comparable": false,
+      "emu_mame_full_equal": false,
+      "emu_fuse_full_equal": false
+    },
+    {
+      "order": 0,
+      "kind": 2,
+      "position": 0,
+      "emu": [
+        64,
+        160,
+        32,
+        0,
+        0,
+        1,
+        2
+      ],
+      "fuse": [
+        0,
+        32,
+        32,
+        0,
+        0,
+        2,
+        2
+      ],
+      "mame": [
+        64,
+        160,
+        32,
+        0,
+        0,
+        1,
+        2
+      ],
+      "mame_id_crc_comparable": true,
+      "emu_mame_full_equal": true,
+      "emu_fuse_full_equal": false
+    },
+    {
+      "order": 1,
+      "kind": 0,
+      "position": 0,
+      "emu": [
+        64,
+        132,
+        0,
+        0,
+        0,
+        1,
+        2
+      ],
+      "fuse": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        3,
+        2
+      ],
+      "mame": [
+        64,
+        132,
+        0,
+        0,
+        0,
+        1,
+        2
+      ],
+      "mame_id_crc_comparable": true,
+      "emu_mame_full_equal": true,
+      "emu_fuse_full_equal": false
+    },
+    {
+      "order": 1,
+      "kind": 1,
+      "position": 0,
+      "emu": [
+        64,
+        164,
+        0,
+        0,
+        0,
+        1,
+        2
+      ],
+      "fuse": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        3,
+        2
+      ],
+      "mame": [
+        64,
+        164,
+        32,
+        0,
+        0,
+        1,
+        2
+      ],
+      "mame_id_crc_comparable": false,
+      "emu_mame_full_equal": false,
+      "emu_fuse_full_equal": false
+    },
+    {
+      "order": 1,
+      "kind": 2,
+      "position": 0,
+      "emu": [
+        64,
+        164,
+        32,
+        0,
+        0,
+        1,
+        2
+      ],
+      "fuse": [
+        0,
+        0,
+        32,
+        0,
+        0,
+        3,
+        2
+      ],
+      "mame": [
+        64,
+        164,
+        32,
+        0,
+        0,
+        1,
+        2
+      ],
+      "mame_id_crc_comparable": true,
+      "emu_mame_full_equal": true,
+      "emu_fuse_full_equal": false
+    },
+    {
+      "order": 1,
+      "kind": 1,
+      "position": 1,
+      "emu": [
+        64,
+        164,
+        0,
+        0,
+        0,
+        1,
+        2
+      ],
+      "fuse": [
+        0,
+        36,
+        0,
+        0,
+        0,
+        3,
+        2
+      ],
+      "mame": [
+        64,
+        164,
+        32,
+        0,
+        0,
+        1,
+        2
+      ],
+      "mame_id_crc_comparable": false,
+      "emu_mame_full_equal": false,
+      "emu_fuse_full_equal": false
+    },
+    {
+      "order": 1,
+      "kind": 2,
+      "position": 1,
+      "emu": [
+        64,
+        164,
+        32,
+        0,
+        0,
+        1,
+        2
+      ],
+      "fuse": [
+        0,
+        32,
+        32,
+        0,
+        0,
+        3,
+        2
+      ],
+      "mame": [
+        64,
+        164,
+        32,
+        0,
+        0,
+        1,
+        2
+      ],
+      "mame_id_crc_comparable": true,
+      "emu_mame_full_equal": true,
+      "emu_fuse_full_equal": false
+    },
+    {
+      "order": 2,
+      "kind": 0,
+      "position": 0,
+      "emu": [
+        64,
+        128,
+        0,
+        0,
+        0,
+        1,
+        2
+      ],
+      "fuse": [
+        0,
+        4,
+        0,
+        0,
+        0,
+        3,
+        2
+      ],
+      "mame": [
+        64,
+        128,
+        0,
+        0,
+        0,
+        1,
+        2
+      ],
+      "mame_id_crc_comparable": true,
+      "emu_mame_full_equal": true,
+      "emu_fuse_full_equal": false
+    },
+    {
+      "order": 2,
+      "kind": 1,
+      "position": 0,
+      "emu": [
+        64,
+        160,
+        0,
+        0,
+        0,
+        1,
+        2
+      ],
+      "fuse": [
+        0,
+        4,
+        0,
+        0,
+        0,
+        3,
+        2
+      ],
+      "mame": [
+        64,
+        160,
+        32,
+        0,
+        0,
+        1,
+        2
+      ],
+      "mame_id_crc_comparable": false,
+      "emu_mame_full_equal": false,
+      "emu_fuse_full_equal": false
+    },
+    {
+      "order": 2,
+      "kind": 2,
+      "position": 0,
+      "emu": [
+        64,
+        160,
+        32,
+        0,
+        0,
+        1,
+        2
+      ],
+      "fuse": [
+        0,
+        4,
+        32,
+        0,
+        0,
+        3,
+        2
+      ],
+      "mame": [
+        64,
+        160,
+        32,
+        0,
+        0,
+        1,
+        2
+      ],
+      "mame_id_crc_comparable": true,
+      "emu_mame_full_equal": true,
+      "emu_fuse_full_equal": false
+    },
+    {
+      "order": 2,
+      "kind": 1,
+      "position": 1,
+      "emu": [
+        64,
+        160,
+        0,
+        0,
+        0,
+        1,
+        2
+      ],
+      "fuse": [
+        0,
+        36,
+        0,
+        0,
+        0,
+        3,
+        2
+      ],
+      "mame": [
+        64,
+        160,
+        32,
+        0,
+        0,
+        1,
+        2
+      ],
+      "mame_id_crc_comparable": false,
+      "emu_mame_full_equal": false,
+      "emu_fuse_full_equal": false
+    },
+    {
+      "order": 2,
+      "kind": 2,
+      "position": 1,
+      "emu": [
+        64,
+        160,
+        32,
+        0,
+        0,
+        1,
+        2
+      ],
+      "fuse": [
+        0,
+        36,
+        32,
+        0,
+        0,
+        3,
+        2
+      ],
+      "mame": [
+        64,
+        160,
+        32,
+        0,
+        0,
+        1,
+        2
+      ],
+      "mame_id_crc_comparable": true,
+      "emu_mame_full_equal": true,
+      "emu_fuse_full_equal": false
+    }
+  ],
+  "mame_id_crc": "not_qualified_fixture_translation",
+  "hardware_timing": "not_run"
+}

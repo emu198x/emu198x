@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "kind": "source-inspection-not-execution",
+  "files": {
+    "emulators/multi-system/mame/src/lib/formats/dsk_dsk.cpp": "88a1362a7a588b67908f089901e0e87c9399899078fe85bfe1f54000a63812c3",
+    "reference/by-topic/fdc-765/upd765-data-sheet-dec78.source.json": "5a7fc18bd9ba1f5e050a2508db3287aa45a8c926c67d956586b6500faa44f04b",
+    "reference/by-topic/fdc-765/upd765-data-sheet-dec78.md": "32ffedcaab8472aacfe27601c2eec566a8a7168e9164daf0f652a84e5bbaa5b1"
+  },
+  "primary": {
+    "path": "/Volumes/Data/Reference-PDFs/by-topic/fdc-765/upd765-data-sheet-dec78.pdf",
+    "sha256": "e8b07db283aad56358cdace1bf4ac179f961484d10d6c1700b74d9734eea1117",
+    "page": 14,
+    "read_method": "held PDF text and rendered page; web fetch returned403",
+    "revision_limit": "Original765 sheet; no A/B equivalence inferred"
+  },
+  "mame_dsk_source": {
+    "commit": "9391e1eff80eb04abd58d48218a1d3b9643c1ea8",
+    "lines": "476-477",
+    "observation": "bad_data_crc uses ST1.DE OR ST2.DD; bad_addr_crc=false",
+    "installed_binary_source": "unknown",
+    "conclusion": "Explains observed DD but is not proof of the installed binary source identity."
+  },
+  "fixture_generator": {
+    "path": "docs/plans/2026-10-17-fdc-commands/reference/run.py",
+    "sha256": "4730583c9b6a6584906aeb55b71a7aa4ebad657e8b6cbe08cddf7dc8fd7ce861"
+  },
+  "archive_precedent": "Reused retained current source-controller probes. Historical archive paths ~/Projects/Emu198x-archive, Emu198x-archive-april2026 and Emu198x-backup are absent; no archive port."
+}
