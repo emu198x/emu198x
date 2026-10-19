@@ -432,6 +432,83 @@ mod tests {
     }
 
     #[test]
+    fn read_track_id_crc_survives_native_checkpoints_and_interior_overrun() {
+        use common_sinclair_zx_spectrum::peripheral::Peripheral;
+        use emu198x_shell::{MediaImage, MediaKind, MediaSet};
+        for (st1, st2) in [(0, 0), (0x20, 0), (0x20, 0x20)] {
+            for accepted in [0, 1, 179] {
+                for at_request in [false, true] {
+                    for interrupted in [false, true] {
+                        let (_, mut source) = writable_sector_runtime(false);
+                        source[0x11c] = st1;
+                        source[0x11d] = st2;
+                        let mut original = SpectrumPlus3Runtime::blank();
+                        let mut media = MediaSet::new();
+                        media.push(MediaImage::new("disk-a", MediaKind::Disk, &source));
+                        original.load_media(&media).expect("mount CRC fixture");
+                        let before = original.export_media("disk-a", "edsk").expect("live media");
+                        send_fdc_command(&mut original, &[0x42, 0, 0, 0, 1, 2, 1, 0x2a, 0xff]);
+                        for _ in 0..accepted {
+                            assert_eq!(read_fdc_byte(&mut original), 0xe5);
+                        }
+                        if at_request {
+                            await_fdc_read_request(&mut original);
+                        }
+                        let saved = original.snapshot().expect("CRC checkpoint");
+                        let mut restored = SpectrumPlus3Runtime::blank();
+                        restored.restore(&saved).expect("restore CRC checkpoint");
+                        assert_eq!(restored.snapshot().expect("same checkpoint"), saved);
+                        for runtime in [&mut original, &mut restored] {
+                            let expected = if interrupted {
+                                await_fdc_read_request(runtime);
+                                for _ in 0..114 {
+                                    runtime.machine_mut().fdc.tick(0);
+                                }
+                                [0x40, 0x10 | if st2 == 0 { st1 } else { 0 }, 0, 0, 0, 1, 2]
+                            } else {
+                                for _ in accepted..512 {
+                                    assert_eq!(read_fdc_byte(runtime), 0xe5);
+                                }
+                                [0x40, 0x80 | st1, st2, 0, 0, 1, 2]
+                            };
+                            for &byte in &expected[..3] {
+                                assert_eq!(runtime.machine_mut().fdc.read_data(), byte);
+                            }
+                            let partial = runtime.snapshot().expect("partial CRC result");
+                            let mut result_restored = SpectrumPlus3Runtime::blank();
+                            result_restored
+                                .restore(&partial)
+                                .expect("restore CRC result");
+                            for &byte in &expected[3..] {
+                                assert_eq!(runtime.machine().fdc.read_status(), 0xd0);
+                                assert_eq!(runtime.machine_mut().fdc.read_data(), byte);
+                                assert_eq!(result_restored.machine().fdc.read_status(), 0xd0);
+                                assert_eq!(result_restored.machine_mut().fdc.read_data(), byte);
+                            }
+                            assert_eq!(
+                                result_restored.snapshot().expect("drained restored result"),
+                                runtime.snapshot().expect("drained result")
+                            );
+                            assert_eq!(runtime.machine().fdc.read_status(), 0x80);
+                            assert_eq!(runtime.disk_images()[0].bytes, source);
+                            assert_eq!(
+                                runtime
+                                    .export_media("disk-a", "edsk")
+                                    .expect("immutable live media"),
+                                before
+                            );
+                        }
+                        assert_eq!(
+                            restored.snapshot().expect("resumed"),
+                            original.snapshot().expect("original")
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
     fn requested_id_head_survives_pending_read_and_result_checkpoints() {
         use emu198x_shell::{MediaImage, MediaKind, MediaSet};
         for accepted in [0, 1, 179, 511, 512] {
