@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "controller_tests": {
+    "passed": 142,
+    "failed": 0,
+    "ignored": 0
+  },
+  "auditor_controls": {
+    "passed": 22,
+    "includes_missing_firmware": true,
+    "optimized_python": true
+  },
+  "clippy": "pass -p nec-upd765a --all-targets -D warnings",
+  "format": "pass --all",
+  "ruff": "pass packet Python",
+  "current_recipe_smoke": {
+    "fresh_observations": 6,
+    "source_archive_checked": true,
+    "qualified": false
+  },
+  "workspace_tests": "not run locally; CI required",
+  "logs_sha256": {
+    "controller-tests": "594c926aa9c6669a1139a242d54e560c5c9ac59e00fcbde683b74ddec9d941fc",
+    "clippy": "84c030d1ce584832a3b943d79d946e319e6065ba2af2e0fb5ca8cbefd83a8c3f",
+    "auditor": "2fc3c2138b877d08ff11c0da5866d49b0a13fb39f2d0b3a78714e9c26a6d7a8f",
+    "ruff": "2bf22132290a60afccfb76de967c86bfb13c76ec892dadb58880faa3a54bf699",
+    "fmt": "e99a8e136d89f8b546237e2dd50a1f05a501094d00423739c6296b518b49dc07",
+    "runner-smoke": "6d15cb6952bdc859f1e002c6f202cef42a53b978183907e23417d69c2eaadd9d"
+  }
+}

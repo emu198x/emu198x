@@ -1,0 +1,287 @@
+{
+  "schema_version": 1,
+  "qualified": false,
+  "summary": "39 named cases; 212 successful captures; 2 bounded capture failures; 20 explicitly inapplicable rows. 26 Emu/MAME case pairs agree on every payload and result byte, repeated twice.",
+  "columns": [
+    "Case",
+    "Emu: payload / ST0 ST1 ST2 C H R N",
+    "MAME: payload / result",
+    "Fuse: payload / result",
+    "Interpretation"
+  ],
+  "rows": [
+    [
+      "n0",
+      "128 B / 40 80 00 00 00 01 00",
+      "128 B / 40 80 00 00 00 01 00",
+      "128 B / 00 00 00 00 00 02 00",
+      "Emu/MAME agree"
+    ],
+    [
+      "n1",
+      "256 B / 40 80 00 00 00 01 01",
+      "256 B / 40 80 00 00 00 01 01",
+      "256 B / 00 00 00 00 00 02 01",
+      "Emu/MAME agree"
+    ],
+    [
+      "n2",
+      "512 B / 40 80 00 00 00 01 02",
+      "512 B / 40 80 00 00 00 01 02",
+      "512 B / 00 00 00 00 00 02 02",
+      "Emu/MAME agree"
+    ],
+    [
+      "n3",
+      "1024 B / 40 80 00 00 00 01 03",
+      "1024 B / 40 80 00 00 00 01 03",
+      "1024 B / 00 00 00 00 00 02 03",
+      "Emu/MAME agree"
+    ],
+    [
+      "n4",
+      "2048 B / 40 80 00 00 00 01 04",
+      "2048 B / 40 80 00 00 00 01 04",
+      "2048 B / 00 00 00 00 00 02 04",
+      "Emu/MAME agree"
+    ],
+    [
+      "n5",
+      "4096 B / 40 80 00 00 00 01 05",
+      "4096 B / 40 80 00 00 00 01 05",
+      "4096 B / 00 00 00 00 00 02 05",
+      "Emu/MAME agree"
+    ],
+    [
+      "n0-dtl-0",
+      "128 B / 40 80 00 00 00 01 00",
+      "128 B / 40 80 00 00 00 01 00",
+      "128 B / 00 00 00 00 00 02 00",
+      "Emu/MAME agree"
+    ],
+    [
+      "n0-dtl-1",
+      "128 B / 40 80 00 00 00 01 00",
+      "128 B / 40 80 00 00 00 01 00",
+      "1 B / 00 00 00 00 00 02 00",
+      "Emu/MAME agree"
+    ],
+    [
+      "n0-dtl-127",
+      "128 B / 40 80 00 00 00 01 00",
+      "128 B / 40 80 00 00 00 01 00",
+      "127 B / 00 00 00 00 00 02 00",
+      "Emu/MAME agree"
+    ],
+    [
+      "n0-dtl-128",
+      "128 B / 40 80 00 00 00 01 00",
+      "128 B / 40 80 00 00 00 01 00",
+      "128 B / 00 00 00 00 00 02 00",
+      "Emu/MAME agree"
+    ],
+    [
+      "n2-dtl-1",
+      "512 B / 40 80 00 00 00 01 02",
+      "512 B / 40 80 00 00 00 01 02",
+      "512 B / 00 00 00 00 00 02 02",
+      "Emu/MAME agree"
+    ],
+    [
+      "command-n0-recorded-n2",
+      "128 B / 40 84 00 00 00 01 00",
+      "128 B / 40 A4 20 00 00 01 00",
+      "128 B / 00 00 00 00 00 02 00",
+      "Different inputs or behaviour; unresolved"
+    ],
+    [
+      "command-n2-recorded-n0",
+      "512 B / 40 84 00 00 00 01 02",
+      "512 B / 40 A4 20 00 00 01 02",
+      "128 B / 00 00 00 00 00 02 02",
+      "Different inputs or behaviour; unresolved"
+    ],
+    [
+      "command-n1-recorded-n2",
+      "256 B / 40 84 00 00 00 01 01",
+      "256 B / 40 A4 20 00 00 01 01",
+      "256 B / 00 00 00 00 00 02 01",
+      "Different inputs or behaviour; unresolved"
+    ],
+    [
+      "command-n3-recorded-n2",
+      "1024 B / 40 84 00 00 00 01 03",
+      "1024 B / 40 A4 20 00 00 01 03",
+      "512 B / 00 00 00 00 00 02 03",
+      "Different inputs or behaviour; unresolved"
+    ],
+    [
+      "represented-0",
+      "512 B / 40 80 00 00 00 01 02",
+      "512 B / 40 A0 20 00 00 01 02",
+      "512 B / 00 20 20 00 00 02 02",
+      "Different inputs or behaviour; unresolved"
+    ],
+    [
+      "represented-128",
+      "512 B / 40 80 00 00 00 01 02",
+      "512 B / 40 A0 20 00 00 01 02",
+      "512 B / 00 20 20 00 00 02 02",
+      "Different inputs or behaviour; unresolved"
+    ],
+    [
+      "represented-512",
+      "512 B / 40 80 00 00 00 01 02",
+      "512 B / 40 80 00 00 00 01 02",
+      "512 B / 00 00 00 00 00 02 02",
+      "Emu/MAME agree"
+    ],
+    [
+      "represented-768",
+      "512 B / 40 80 00 00 00 01 02",
+      "512 B / 40 A0 20 00 00 01 02",
+      "512 B / 00 20 20 00 00 02 02",
+      "Different inputs or behaviour; unresolved"
+    ],
+    [
+      "empty-track",
+      "0 B / 40 01 00 00 00 01 02",
+      "0 B / 40 01 00 00 00 01 02",
+      "0 B / 40 85 00 00 00 01 02",
+      "Emu/MAME agree"
+    ],
+    [
+      "absent-media",
+      "0 B / 48 00 00 00 00 01 02",
+      "not_applicable",
+      "not_applicable",
+      "Safety/absence control only"
+    ],
+    [
+      "id-mismatch-c",
+      "512 B / 40 84 00 00 00 01 02",
+      "512 B / 40 84 00 00 00 01 02",
+      "512 B / 00 04 10 00 00 02 02",
+      "Emu/MAME agree"
+    ],
+    [
+      "id-mismatch-h",
+      "512 B / 40 84 00 00 00 01 02",
+      "512 B / 40 84 00 00 00 01 02",
+      "512 B / 00 04 00 00 00 02 02",
+      "Emu/MAME agree"
+    ],
+    [
+      "id-mismatch-r",
+      "512 B / 40 84 00 00 00 01 02",
+      "512 B / 40 84 00 00 00 01 02",
+      "512 B / 00 04 00 00 00 02 02",
+      "Emu/MAME agree"
+    ],
+    [
+      "id-mismatch-n",
+      "512 B / 40 84 00 00 00 01 02",
+      "512 B / 40 84 00 00 00 01 02",
+      "512 B / 00 20 20 00 00 02 02",
+      "Emu/MAME agree"
+    ],
+    [
+      "ids-12-eot-1",
+      "512 B / 40 80 00 00 00 01 02",
+      "512 B / 40 80 00 00 00 01 02",
+      "512 B / 00 00 00 00 00 02 02",
+      "Emu/MAME agree"
+    ],
+    [
+      "ids-12-eot-2",
+      "1024 B / 40 84 00 00 00 01 02",
+      "1024 B / 40 84 00 00 00 01 02",
+      "1024 B / 00 00 00 00 00 03 02",
+      "Emu/MAME agree"
+    ],
+    [
+      "ids-12-eot-3",
+      "1536 B / 40 80 00 00 00 01 02",
+      "1536 B / 40 80 00 00 00 01 02",
+      "1536 B / 00 04 00 00 00 04 02",
+      "Emu/MAME agree"
+    ],
+    [
+      "ids-21-eot-1",
+      "512 B / 40 84 00 00 00 01 02",
+      "512 B / 40 84 00 00 00 01 02",
+      "512 B / 00 04 00 00 00 02 02",
+      "Emu/MAME agree"
+    ],
+    [
+      "ids-21-eot-2",
+      "1024 B / 40 80 00 00 00 01 02",
+      "1024 B / 40 80 00 00 00 01 02",
+      "1024 B / 00 04 00 00 00 03 02",
+      "Emu/MAME agree"
+    ],
+    [
+      "ids-21-eot-3",
+      "1536 B / 40 84 00 00 00 01 02",
+      "1536 B / 40 84 00 00 00 01 02",
+      "1536 B / 00 04 00 00 00 04 02",
+      "Emu/MAME agree"
+    ],
+    [
+      "ids-11-eot-1",
+      "512 B / 40 80 00 00 00 01 02",
+      "512 B / 40 80 00 00 00 01 02",
+      "512 B / 00 00 00 00 00 02 02",
+      "Emu/MAME agree"
+    ],
+    [
+      "ids-11-eot-2",
+      "1024 B / 40 80 00 00 00 01 02",
+      "1024 B / 40 80 00 00 00 01 02",
+      "1024 B / 00 04 00 00 00 03 02",
+      "Emu/MAME agree"
+    ],
+    [
+      "ids-11-eot-3",
+      "1536 B / 40 80 00 00 00 01 02",
+      "1536 B / 40 80 00 00 00 01 02",
+      "1536 B / 00 04 00 00 00 04 02",
+      "Emu/MAME agree"
+    ],
+    [
+      "eot-0",
+      "0 B / 40 01 00 00 00 01 02",
+      "1024 B / 40 00 00 00 00 01 02",
+      "fail",
+      "Different inputs or behaviour; unresolved"
+    ],
+    [
+      "safety-n6",
+      "8192 B / 40 84 00 00 00 01 06",
+      "not_applicable",
+      "not_applicable",
+      "Safety/absence control only"
+    ],
+    [
+      "safety-n7",
+      "16384 B / 40 84 00 00 00 01 07",
+      "not_applicable",
+      "not_applicable",
+      "Safety/absence control only"
+    ],
+    [
+      "safety-n8",
+      "0 B / 40 01 00 00 00 01 08",
+      "not_applicable",
+      "not_applicable",
+      "Safety/absence control only"
+    ],
+    [
+      "safety-n255",
+      "0 B / 40 01 00 00 00 01 FF",
+      "not_applicable",
+      "not_applicable",
+      "Safety/absence control only"
+    ]
+  ]
+}
