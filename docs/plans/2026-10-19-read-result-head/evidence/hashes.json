@@ -1,0 +1,9 @@
+{
+  "checks.json": "a3d09ad36ee71cdae26e20eaaa470c10bf8d1299385fc25bb69f743c06107dd0",
+  "checks.tar.gz": "e2017d54376b1af5cbadf6ca260ccf5d1df5b3549bb26aadcf5f9e74d0e82f5e",
+  "red-identities.json": "5739921dd76ef9653481e0107a192bf3fc218e8619a8d3c55fbfcabe211b7456",
+  "red-test.rs": "691666b436f31e4ef0f2c8367b94e49a427501de15d2a26528860bd644cedef1",
+  "result.json": "f94fd8e4670511e23f02d9d368ee5699aacdda2efc0ebed42021c5d027bc64c2",
+  "runtime-rom.tar.gz": "222f7d2f4e2f8cb2aba3c36991d090fecbbef699d42398dab73e474f04607427",
+  "stock-fuse.tar.gz": "748a97d3fa72eaf8f261d4f19a877ae8ef2b4c483a8e75c73ebb591c2e047821"
+}

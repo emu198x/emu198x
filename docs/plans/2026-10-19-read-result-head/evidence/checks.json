@@ -1,0 +1,54 @@
+[
+  {
+    "name": "green",
+    "argv": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "nec-upd765a"
+    ],
+    "exit": 0
+  },
+  {
+    "name": "clippy",
+    "argv": [
+      "cargo",
+      "clippy",
+      "--locked",
+      "-p",
+      "nec-upd765a",
+      "--all-targets",
+      "--",
+      "-D",
+      "warnings"
+    ],
+    "exit": 0
+  },
+  {
+    "name": "fmt",
+    "argv": [
+      "cargo",
+      "fmt",
+      "--all",
+      "--",
+      "--check"
+    ],
+    "exit": 0
+  },
+  {
+    "name": "snapshot",
+    "argv": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "runtime-sinclair-zx-spectrum",
+      "--lib",
+      "requested_id_head_survives",
+      "--",
+      "--nocapture"
+    ],
+    "exit": 0
+  }
+]
