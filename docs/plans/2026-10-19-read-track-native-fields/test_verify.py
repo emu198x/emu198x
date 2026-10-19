@@ -8,7 +8,9 @@ import tarfile
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
+import report
 import verify
 
 HERE = Path(__file__).resolve().parent
@@ -72,6 +74,30 @@ class NativeEvidenceControls(unittest.TestCase):
     def bad(self) -> None:
         with self.assertRaises(ValueError):
             verify.audit(self.root)
+
+    def test_report_rejects_stale_verification(self) -> None:
+        self.change(lambda d: d.update(status="fail"))
+        with tempfile.TemporaryDirectory(prefix="198x-native-report-") as directory:
+            view = Path(directory)
+            (view / "runs").symlink_to(self.root, target_is_directory=True)
+            (view / "verification.json").write_text(
+                json.dumps(
+                    {
+                        "fixtures": 13,
+                        "checkpoints_per_repeat": 180,
+                        "fresh_native_restores": 360,
+                    }
+                )
+            )
+            (view / "report.html").write_text("previous verified report")
+            with (
+                patch.object(report, "HERE", view),
+                self.assertRaisesRegex(ValueError, "capture state"),
+            ):
+                report.main()
+            self.assertEqual(
+                (view / "report.html").read_text(), "previous verified report"
+            )
 
     def test_baseline(self) -> None:
         self.assertEqual(verify.audit(self.root)["fresh_native_restores"], 360)

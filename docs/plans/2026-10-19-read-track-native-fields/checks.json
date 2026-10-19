@@ -15,7 +15,7 @@
     "wrong_expected_exit": 101,
     "intended_assertion_verified": true
   },
-  "optimized_python_auditor_controls": 18,
+  "optimized_python_auditor_controls": 19,
   "clippy": "pass runtime/controller all targets -D warnings",
   "format": "pass workspace",
   "ruff": "pass packet",
@@ -23,8 +23,16 @@
   "logs_sha256": {
     "regression": "3acfae6d4109159b93965315e2a9bc5060b070d01f980f08b2b8ac9b0239149e",
     "clippy": "87fcd1277846156e2d3e5d729e9f7fd697d8452d7e964d818a886adde274a3ee",
-    "auditor": "31838b8ea75b1bf6e0cf0a3ae19471cb47616b14e0c0c25ae77e8b6c18641696",
+    "auditor": "36779856acc9d3a3ee436df358918e0b46e3ae65db0815f802a8b9b7710559b1",
     "fmt": "b65cdeb2ad9a74f09009e114b4ca382554beb8a0561f8b6a901234c6fe4fa3f7",
-    "ruff": "6f7464f9da608266f23defa4dd3655b85e7e754b6d0f6f154adba631e6e85505"
+    "ruff": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18",
+    "stale-report-red": "a37141b19671ecd077cea15cce262b9edf73f5d447d1f7ca6c632ca6e4037ba9"
+  },
+  "stale_report_control": "failed current capture cannot publish an old passing verification; previous good report is preserved",
+  "stale_report_red_green": {
+    "old_source_commit": "5e3bcb28220a7c0ecfc290dd8989181bd2fa4e8e",
+    "old_test_exit": 1,
+    "old_failure": "AssertionError: ValueError not raised",
+    "new_controls_passed": 19
   }
 }
