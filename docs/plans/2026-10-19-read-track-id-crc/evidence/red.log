@@ -1,0 +1,38 @@
+mise WARN  tracking config: failed to ln -sf /Users/stevehill/Projects/198x/output/qualification/workspaces/read-track-id-crc/rust-toolchain.toml /Users/stevehill/.local/state/mise/tracked-configs/a50e32f892f5b267: Operation not permitted (os error 1)
+   Compiling proc-macro2 v1.0.106
+   Compiling quote v1.0.45
+   Compiling unicode-ident v1.0.24
+   Compiling serde_core v1.0.229
+   Compiling serde v1.0.229
+   Compiling thiserror v2.0.20
+   Compiling format-sinclair-zx-spectrum-snapshot v0.38.1 (/Users/stevehill/Projects/198x/output/qualification/workspaces/read-track-id-crc/crates/format-sinclair-zx-spectrum-snapshot)
+   Compiling syn v3.0.3
+   Compiling serde_derive v1.0.229
+   Compiling thiserror-impl v2.0.20
+   Compiling emu198x-gi-ay-3-8910 v0.6.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/read-track-id-crc/crates/emu198x-gi-ay-3-8910)
+   Compiling serde-big-array v0.5.1
+   Compiling emu198x-zilog-z80 v0.8.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/read-track-id-crc/crates/emu198x-zilog-z80)
+   Compiling common-tape v0.38.1 (/Users/stevehill/Projects/198x/output/qualification/workspaces/read-track-id-crc/crates/common-tape)
+   Compiling gi-ay-3-8912 v0.38.1 (/Users/stevehill/Projects/198x/output/qualification/workspaces/read-track-id-crc/crates/gi-ay-3-8912)
+   Compiling common-sinclair-zx-spectrum v0.38.1 (/Users/stevehill/Projects/198x/output/qualification/workspaces/read-track-id-crc/crates/common-sinclair-zx-spectrum)
+   Compiling nec-upd765a v0.38.1 (/Users/stevehill/Projects/198x/output/qualification/workspaces/read-track-id-crc/crates/nec-upd765a)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.77s
+     Running tests/read_progress.rs (/Users/stevehill/Projects/198x/output/qualification/build-read-track-id-crc/debug/deps/read_progress-dda2ff3654a010bd)
+
+running 1 test
+
+thread 'track_interior_overrun_retains_encountered_id_crc_but_defers_data_crc' (124647500) panicked at crates/nec-upd765a/tests/read_progress.rs:176:9:
+assertion `left == right` failed: recorded 20/00
+  left: 0
+ right: 32
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test track_interior_overrun_retains_encountered_id_crc_but_defers_data_crc ... FAILED
+
+failures:
+
+failures:
+    track_interior_overrun_retains_encountered_id_crc_but_defers_data_crc
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 5 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p nec-upd765a --test read_progress`

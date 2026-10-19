@@ -1150,7 +1150,7 @@ impl Upd765a {
         // until field completion. Derive it from existing progress here so
         // older v6 checkpoints taken inside the field retain it too. A
         // prepared but unvisited field must not contribute status.
-        // Fuse read_id/start_read_track, NEC December 1978 pp14/17.
+        // Fuse read_id/start_read_diag, NEC December 1978 pp14/17.
         if self.command == Command::ReadTrack
             && !self.write_start_pending
             && let Some(progress) = &self.read_progress

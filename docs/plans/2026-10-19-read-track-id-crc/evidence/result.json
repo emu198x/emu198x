@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "qualified": false,
+  "scope": "source-controller-id-crc-interruption-regression",
+  "source_commit": "3bab241b99600ebfad0945e15fc073358e4a41ef",
+  "base_commit": "44e0015a81ac088a5fb425f77c6abaf572f4d9c5",
+  "source_kind": "source_build",
+  "assembly_mastering": "captured_reference_replay",
+  "runtime": "fresh_execution",
+  "controller_reference": "fresh_execution",
+  "tests_passed": 474,
+  "tests_ignored": 63,
+  "native_checkpoints": 36,
+  "reference_observations": 32,
+  "source_sha256": {
+    "crates/nec-upd765a/src/lib.rs": "f11a37c90278a569aaa186d4b41422aa182f57a74b371aeef6bdafd2ec74dbdd",
+    "crates/nec-upd765a/tests/read_progress.rs": "b4c7af4a360cb44a5b851c78c9477acb84857627e0dea5feb4c2db088f2d2a89",
+    "crates/runtime-sinclair-zx-spectrum/src/snapshot.rs": "f8b802c12ebbdace0b549f06392240d1027bf870a720275d5ceba1daebf7c218"
+  },
+  "reviewed_source_difference": "One comment corrects Fuse function name start_read_track to start_read_diag after executed source commit; no executable code differs.",
+  "limits": {
+    "host_rom_wrapper_seconds": 240,
+    "host_runtime_seconds": 180,
+    "boot_frames": 500,
+    "execution_frames": 2000,
+    "reference_host_seconds": 15,
+    "reference_emulated_seconds": 2
+  },
+  "remaining": [
+    "physical part/revision-specific RQM-to-OR deadline #1831",
+    "raw gaps/index/flux and drive timing",
+    "completed Read Track data CRC status disagreement",
+    "broader variants and formats remain unqualified"
+  ]
+}

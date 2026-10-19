@@ -1,0 +1,146 @@
+mise WARN  tracking config: failed to ln -sf /Users/stevehill/Projects/198x/output/qualification/workspaces/read-track-id-crc/rust-toolchain.toml /Users/stevehill/.local/state/mise/tracked-configs/a50e32f892f5b267: Operation not permitted (os error 1)
+   Compiling serde_core v1.0.229
+   Compiling serde v1.0.229
+   Compiling objc2 v0.6.4
+   Compiling objc2-encode v4.1.0
+   Compiling bitflags v2.11.1
+   Compiling libc v0.2.186
+   Compiling cfg-if v1.0.4
+   Compiling simd-adler32 v0.3.9
+   Compiling crc32fast v1.5.0
+   Compiling zmij v1.0.21
+   Compiling adler2 v2.0.1
+   Compiling serde_json v1.0.151
+   Compiling memchr v2.8.0
+   Compiling miniz_oxide v0.9.1
+   Compiling syn v2.0.117
+   Compiling zerocopy v0.8.48
+   Compiling log v0.4.29
+   Compiling itoa v1.0.18
+   Compiling zlib-rs v0.6.3
+   Compiling shlex v1.3.0
+   Compiling find-msvc-tools v0.1.9
+   Compiling hashbrown v0.17.1
+   Compiling uuid v1.23.1
+   Compiling gilrs v0.11.2
+   Compiling cpal v0.18.2
+   Compiling cc v1.2.62
+   Compiling bumpalo v3.20.2
+   Compiling equivalent v1.0.2
+   Compiling autocfg v1.5.0
+   Compiling vec_map v0.8.2
+   Compiling zopfli v0.8.3
+   Compiling fdeflate v0.3.7
+   Compiling miniz_oxide v0.8.9
+   Compiling cobs v0.3.0
+   Compiling mach2 v0.6.0
+   Compiling indexmap v2.14.0
+   Compiling regex-syntax v0.8.10
+   Compiling num-traits v0.2.19
+   Compiling typed-path v0.12.3
+   Compiling isa198x v0.1.0
+   Compiling clap_lex v1.1.0
+   Compiling dispatch2 v0.3.1
+   Compiling block2 v0.6.2
+   Compiling objc2-foundation v0.3.2
+   Compiling objc2-core-audio-types v0.3.2
+   Compiling objc2-core-foundation v0.3.2
+   Compiling alloca v0.4.0
+   Compiling fnv v1.0.7
+   Compiling dasp_sample v0.11.0
+   Compiling ciborium-io v0.2.2
+   Compiling either v1.16.0
+   Compiling anstyle v1.0.14
+   Compiling itertools v0.13.0
+   Compiling clap_builder v4.6.0
+   Compiling regex-automata v0.4.14
+   Compiling format-sinclair-zx-spectrum-z80 v0.38.1 (/Users/stevehill/Projects/198x/output/qualification/workspaces/read-track-id-crc/crates/format-sinclair-zx-spectrum-z80)
+   Compiling format198x-tzx v0.1.0
+   Compiling cast v0.3.0
+   Compiling isa198x-disasm v0.1.0
+   Compiling same-file v1.0.6
+   Compiling walkdir v2.5.0
+   Compiling page_size v0.6.0
+   Compiling emu198x-gi-ay-3-8910 v0.6.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/read-track-id-crc/crates/emu198x-gi-ay-3-8910)
+   Compiling common-tape v0.38.1 (/Users/stevehill/Projects/198x/output/qualification/workspaces/read-track-id-crc/crates/common-tape)
+   Compiling serde-big-array v0.5.1
+   Compiling emu198x-zilog-z80 v0.8.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/read-track-id-crc/crates/emu198x-zilog-z80)
+   Compiling gi-ay-3-8912 v0.38.1 (/Users/stevehill/Projects/198x/output/qualification/workspaces/read-track-id-crc/crates/gi-ay-3-8912)
+   Compiling debug198x v0.1.0
+   Compiling postcard v1.1.3
+   Compiling criterion-plot v0.8.2
+   Compiling tinytemplate v1.2.1
+   Compiling objc2-core-audio v0.3.2
+   Compiling zerocopy-derive v0.8.48
+   Compiling objc2-io-kit v0.3.2
+   Compiling objc2-audio-toolbox v0.3.2
+   Compiling regex v1.12.3
+   Compiling clap v4.6.1
+   Compiling common-sinclair-zx-spectrum v0.38.1 (/Users/stevehill/Projects/198x/output/qualification/workspaces/read-track-id-crc/crates/common-sinclair-zx-spectrum)
+   Compiling format-tzx v0.38.1 (/Users/stevehill/Projects/198x/output/qualification/workspaces/read-track-id-crc/crates/format-tzx)
+   Compiling anes v0.1.6
+   Compiling format198x-amstrad-cpc-dsk v0.1.1
+   Compiling oorandom v11.1.5
+   Compiling format-sinclair-zx-spectrum-sna v0.38.1 (/Users/stevehill/Projects/198x/output/qualification/workspaces/read-track-id-crc/crates/format-sinclair-zx-spectrum-sna)
+   Compiling format198x-sinclair-zx-spectrum-bas v0.1.3
+   Compiling format198x-sinclair-zx-spectrum-tap v0.1.1
+   Compiling emu198x-test-skip v0.38.1 (/Users/stevehill/Projects/198x/output/qualification/workspaces/read-track-id-crc/crates/emu198x-test-skip)
+   Compiling twox-hash v2.1.4
+   Compiling gilrs-core v0.6.8
+   Compiling coreaudio-rs v0.14.2
+   Compiling peripheral-kempston-joystick v0.38.1 (/Users/stevehill/Projects/198x/output/qualification/workspaces/read-track-id-crc/crates/peripheral-kempston-joystick)
+   Compiling nec-upd765a v0.38.1 (/Users/stevehill/Projects/198x/output/qualification/workspaces/read-track-id-crc/crates/nec-upd765a)
+   Compiling amstrad-ula-40077 v0.38.1 (/Users/stevehill/Projects/198x/output/qualification/workspaces/read-track-id-crc/crates/amstrad-ula-40077)
+   Compiling ferranti-ula-6c001e v0.38.1 (/Users/stevehill/Projects/198x/output/qualification/workspaces/read-track-id-crc/crates/ferranti-ula-6c001e)
+   Compiling sinclair-ula-7k010e v0.38.1 (/Users/stevehill/Projects/198x/output/qualification/workspaces/read-track-id-crc/crates/sinclair-ula-7k010e)
+   Compiling beta-disk-interface v0.38.1 (/Users/stevehill/Projects/198x/output/qualification/workspaces/read-track-id-crc/crates/beta-disk-interface)
+   Compiling common-sinclair-zx-spectrum-128k-class v0.38.1 (/Users/stevehill/Projects/198x/output/qualification/workspaces/read-track-id-crc/crates/common-sinclair-zx-spectrum-128k-class)
+   Compiling timex-scld v0.38.1 (/Users/stevehill/Projects/198x/output/qualification/workspaces/read-track-id-crc/crates/timex-scld)
+   Compiling scorpion-ula v0.38.1 (/Users/stevehill/Projects/198x/output/qualification/workspaces/read-track-id-crc/crates/scorpion-ula)
+   Compiling common-sinclair-zx-spectrum-48k-class v0.38.1 (/Users/stevehill/Projects/198x/output/qualification/workspaces/read-track-id-crc/crates/common-sinclair-zx-spectrum-48k-class)
+   Compiling pentagon-ula v0.38.1 (/Users/stevehill/Projects/198x/output/qualification/workspaces/read-track-id-crc/crates/pentagon-ula)
+   Compiling machine-scorpion-zs256 v0.38.1 (/Users/stevehill/Projects/198x/output/qualification/workspaces/read-track-id-crc/crates/machine-scorpion-zs256)
+   Compiling machine-pentagon-128 v0.38.1 (/Users/stevehill/Projects/198x/output/qualification/workspaces/read-track-id-crc/crates/machine-pentagon-128)
+   Compiling machine-sinclair-zx-spectrum-plus2 v0.38.1 (/Users/stevehill/Projects/198x/output/qualification/workspaces/read-track-id-crc/crates/machine-sinclair-zx-spectrum-plus2)
+   Compiling common-sinclair-zx-spectrum-amstrad-class v0.38.1 (/Users/stevehill/Projects/198x/output/qualification/workspaces/read-track-id-crc/crates/common-sinclair-zx-spectrum-amstrad-class)
+   Compiling machine-sinclair-zx-spectrum-plus v0.38.1 (/Users/stevehill/Projects/198x/output/qualification/workspaces/read-track-id-crc/crates/machine-sinclair-zx-spectrum-plus)
+   Compiling machine-sinclair-zx-spectrum-16k v0.38.1 (/Users/stevehill/Projects/198x/output/qualification/workspaces/read-track-id-crc/crates/machine-sinclair-zx-spectrum-16k)
+   Compiling format-amstrad-dsk v0.38.1 (/Users/stevehill/Projects/198x/output/qualification/workspaces/read-track-id-crc/crates/format-amstrad-dsk)
+   Compiling machine-sinclair-zx-spectrum-128k v0.38.1 (/Users/stevehill/Projects/198x/output/qualification/workspaces/read-track-id-crc/crates/machine-sinclair-zx-spectrum-128k)
+   Compiling machine-timex-ts2068 v0.38.1 (/Users/stevehill/Projects/198x/output/qualification/workspaces/read-track-id-crc/crates/machine-timex-ts2068)
+   Compiling machine-timex-tc2048 v0.38.1 (/Users/stevehill/Projects/198x/output/qualification/workspaces/read-track-id-crc/crates/machine-timex-tc2048)
+   Compiling format-sinclair-zx-spectrum-tzx v0.38.1 (/Users/stevehill/Projects/198x/output/qualification/workspaces/read-track-id-crc/crates/format-sinclair-zx-spectrum-tzx)
+   Compiling machine-sinclair-zx-spectrum-plus2a v0.38.1 (/Users/stevehill/Projects/198x/output/qualification/workspaces/read-track-id-crc/crates/machine-sinclair-zx-spectrum-plus2a)
+   Compiling machine-sinclair-zx-spectrum-plus2b v0.38.1 (/Users/stevehill/Projects/198x/output/qualification/workspaces/read-track-id-crc/crates/machine-sinclair-zx-spectrum-plus2b)
+   Compiling machine-sinclair-zx-spectrum-plus3 v0.38.1 (/Users/stevehill/Projects/198x/output/qualification/workspaces/read-track-id-crc/crates/machine-sinclair-zx-spectrum-plus3)
+   Compiling flate2 v1.1.10
+   Compiling png v0.18.1
+   Compiling zip v8.6.0
+   Compiling format-sinclair-zx-spectrum-szx v0.38.1 (/Users/stevehill/Projects/198x/output/qualification/workspaces/read-track-id-crc/crates/format-sinclair-zx-spectrum-szx)
+   Compiling emu198x-shell v0.38.1 (/Users/stevehill/Projects/198x/output/qualification/workspaces/read-track-id-crc/crates/emu198x-shell)
+   Compiling half v2.7.1
+   Compiling ciborium-ll v0.2.2
+   Compiling ciborium v0.2.2
+   Compiling criterion v0.8.2
+   Compiling machine-sinclair-zx-spectrum-48k v0.38.1 (/Users/stevehill/Projects/198x/output/qualification/workspaces/read-track-id-crc/crates/machine-sinclair-zx-spectrum-48k)
+   Compiling runtime-sinclair-zx-spectrum v0.38.1 (/Users/stevehill/Projects/198x/output/qualification/workspaces/read-track-id-crc/crates/runtime-sinclair-zx-spectrum)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 11.91s
+     Running unittests src/lib.rs (/Users/stevehill/Projects/198x/output/qualification/build-read-track-id-crc/debug/deps/runtime_sinclair_zx_spectrum-bc5b18707bd1f5ac)
+
+running 1 test
+
+thread 'snapshot::tests::read_track_id_crc_survives_native_checkpoints_and_interior_overrun' (124653512) panicked at crates/runtime-sinclair-zx-spectrum/src/snapshot.rs:474:29:
+assertion `left == right` failed
+  left: [64, 16, 0, 0, 0, 1, 2]
+ right: [64, 48, 0, 0, 0, 1, 2]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test snapshot::tests::read_track_id_crc_survives_native_checkpoints_and_interior_overrun ... FAILED
+
+failures:
+
+failures:
+    snapshot::tests::read_track_id_crc_survives_native_checkpoints_and_interior_overrun
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 119 filtered out; finished in 0.41s
+
+error: test failed, to rerun pass `-p runtime-sinclair-zx-spectrum --lib`
