@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "controller_tests": 140,
+  "auditor_tests": 14,
+  "positive_audits": 1,
+  "negative_audits": 13,
+  "clippy": "pass",
+  "fmt": "pass",
+  "ruff": "pass",
+  "observations": 78,
+  "qualified": false,
+  "archive_byte_compared": true,
+  "production_changes": false,
+  "rom_execution": "not_run_no_production_change"
+}
