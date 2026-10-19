@@ -1010,9 +1010,18 @@ impl Upd765a {
             let sec = if is_track {
                 sectors.get(usize::from(completed) % sectors.len())
             } else {
-                sectors
-                    .iter()
-                    .find(|s| s.id == self.sector && s.c == self.cmd_buf[2])
+                // HD selected the physical side above; H is the recorded ID
+                // byte and can differ. Fuse seek_id and MAME sector_matches
+                // require all four ID fields before delivering data.
+                sectors.iter().find(|s| {
+                    (s.c, s.h, s.id, s.n)
+                        == (
+                            self.cmd_buf[2],
+                            self.cmd_buf[3],
+                            self.sector,
+                            self.cmd_buf[5],
+                        )
+                })
             };
             let Some(sec) = sec else {
                 // An ID search is now reached only after preceding data is
