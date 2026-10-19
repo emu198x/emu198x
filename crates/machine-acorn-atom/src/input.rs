@@ -175,7 +175,7 @@ impl AtomKey {
             Self::LeftBracket => (8, 0),
             // control / editing
             Self::Return => (6, 1),
-            Self::Space => (0, 0),
+            Self::Space => (9, 0),
             Self::Delete => (4, 1),
             // The two bidirectional cursor keys (probed against the MOS): the
             // SHIFT-reversed direction is supplied by the caller holding SHIFT.
