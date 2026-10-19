@@ -9,3 +9,5 @@ Lane: Spectrum launch-hardening. Fix the observed Read ID false success before a
 5. Retain bounded source evidence and reference provenance; no new API, dependency, fields or snapshot format. Qualification remains false; this is controller regression evidence. Push an owning PR for review; parent coordinates merge/release.
 
 Exact physical timing, index search and ready-pin behaviour remain outside this sector-model fix. MAME extra MA on bad-ID Read ID is a separate disagreement; do not emulate it without hardware evidence.
+
+6. Required post-behavior runtime regression: build `emu198x-spectrum` through its normal locked release/headless path; two fresh cold-ROM boots of the captured diagnostic plus wrong-signature rejection. Retain source/runtime/firmware identities and exact bounded commands. Reuse captured assembler/masterer artifacts without granting new qualification. Adapt existing runtime auditor with ten rejecting/positive controls.

@@ -93,5 +93,6 @@
     ]
   },
   "archive_sha256": "dd93b34ce5ded27684060c937325f718b7f028485374a69e2e2ca53ae72f619f",
-  "controller_test_count": 141
+  "controller_test_count": 141,
+  "runtime_archive_sha256": "eed87eca2c969cf8f3c08d2ee06bdbdaf6f09138f71a42ac5c36b1afbd83ea6d"
 }
