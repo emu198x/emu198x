@@ -1,0 +1,17 @@
+[
+  {
+    "case": "empty-positive-checks",
+    "exit_code": 1,
+    "error": "ValueError: four positive commands are required"
+  },
+  {
+    "case": "wrong-source-hash",
+    "exit_code": 1,
+    "error": "ValueError: source identity differs: crates/nec-upd765a/src/lib.rs"
+  },
+  {
+    "case": "wrong-archive-hash",
+    "exit_code": 1,
+    "error": "ValueError: raw log archive differs"
+  }
+]

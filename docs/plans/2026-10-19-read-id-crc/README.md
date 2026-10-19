@@ -14,12 +14,15 @@ cargo fmt -p nec-upd765a -- --check
 python3.14 docs/plans/2026-10-19-read-id-crc/verify.py
 ```
 
-`verification.json` records exact source hashes, commands, environment and tool identities. `checks.tar.gz` retains exact raw red/green/full-test/Clippy/format logs; no firmware is included. This is fresh source controller-test evidence, **qualified=false**. It does not provide a new ROM-loading, released-binary or machine qualification.
+`verification.json` records exact source hashes, commands, environment and tool identities. `audit-controls.json` records three deliberately rejected mutations under Python optimization: empty positive checks, a wrong source hash and a wrong archive hash. `checks.tar.gz` retains exact raw red/green/full-test/Clippy/format logs; no firmware is included. This is fresh source controller-test evidence, **qualified=false**. It does not provide a new ROM-loading, released-binary or machine qualification.
 
 ## Why these result bits
 
 Primary NEC December 1978 data sheet, printed p14: Read ID returns the first encountered ID; p17: DE marks an ID/data CRC error and ND is set when Read ID cannot read an ID without error; p18: DD concerns only the data field. Primary source: `reference/by-topic/fdc-765/upd765-data-sheet-dec78.md` in the umbrella library, original `/Volumes/Data/Reference-PDFs/by-topic/fdc-765/upd765-data-sheet-dec78.pdf`.
 
 Unchanged vendored Fuse `peripherals/disk/upd_fdc.c`, `read_id` and `start_read_id`, sets DE|ND and abnormal termination on bad ID CRC, preserving CHRN. The independent raw-MAME study #1860 distinguishes real ID-only and data-only corruption; MAME additionally sets MA on the Read ID ID-CRC case. That extra MA remains a reference disagreement, not an instruction to copy an unexplained bit.
+
+The separately captured raw reference packet is `docs/plans/2026-10-19-read-track-raw-crc/evidence.tar.gz`, SHA-256 `3662226019e03309fd3ef4c5b7cd7cb94e39ac04e93fec3dcd87e52170cad386` (26,652 bytes), tracked by #1860. Its `runs/campaign.json` retains six fresh Read ID observations (clean, actual ID-only CRC, actual data-only CRC, each repeated), raw outputs and firmware/input identities. Installed MAME 0.289 `(unknown)` executable SHA-256 `6d40df87963c58cdd3857d203e186af854fea49ae03b2ab555e30ef1029636d9` reports `40 25 00` only for ID damage; clean/data-only cases report `00 00 00`. This fix consumes that captured reference evidence; the Fuse comparison above is source inspection, not a fresh Fuse execution. The installed MAME source identity is unknown.
+
 
 The sector model represents ID CRC with DE set and DD clear. DE+DD establishes data CRC; it cannot distinguish data-only damage from simultaneous ID+data damage. No additional bad ID is invented in that ambiguous case. Missing IDs retain the existing MA|ND path. Physical index/search timing, partial IDs, ready pins and silicon revisions remain unqualified. Read ID as a whole remains partial.
