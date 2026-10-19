@@ -1156,7 +1156,15 @@ impl Upd765a {
         self.exec_timeout = 0;
         self.write_start_pending = false;
         self.read_progress = None;
-        self.setup_result_read(self.cmd_buf[2], self.head, r, self.cmd_buf[5]);
+        // ID H is a command field, independent of physical HD in ST0.
+        // Fuse returns data_register[2]; MAME Read Data returns command[3].
+        // Keep Read Track's existing result convention outside this fix.
+        let h = if self.command == Command::ReadTrack {
+            self.head
+        } else {
+            self.cmd_buf[3]
+        };
+        self.setup_result_read(self.cmd_buf[2], h, r, self.cmd_buf[5]);
     }
 
     fn start_read_preamble(&mut self) {
