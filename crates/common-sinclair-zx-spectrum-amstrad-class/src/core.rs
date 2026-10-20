@@ -372,6 +372,16 @@ impl<V: AmstradVariant> SpectrumAmstradClassCore<V> {
                 // physical-drive sensor levels remain unqualified.
                 let protected = self.fdc.is_write_protected(unit & 1);
                 self.fdc.set_two_side(unit, protected);
+                self.fdc.set_write_protect(unit, protected);
+                // Internal A is a mechanism even without inserted media.
+                // An image in B represents an attached external mechanism;
+                // an attached but empty B is not yet a configurable state.
+                let mechanism = unit & 1 == 0 || self.fdc.has_disk(unit & 1);
+                let track_zero = mechanism && self.fdc.head_at_track_zero(unit & 1);
+                self.fdc.set_track_zero(unit, track_zero);
+                // Service manual p19 gates FLT/T0: RW mode supplies no Fault;
+                // SEEK mode supplies inverted /TRACK0. zxsp agrees.
+                self.fdc.set_fault(unit, false);
             }
         }
     }
@@ -632,6 +642,18 @@ fn mix_ay_into_audio(audio: &mut [f32], ay: &[f32]) {
 mod tests {
     use super::*;
     use crate::variant::{Plus2AMarker, Plus2BMarker};
+
+    #[test]
+    fn plus3_absent_external_drive_does_not_assert_track_zero() {
+        let mut machine = SpectrumAmstradClassCore::<Plus3Marker>::new();
+        for selected in [1, 3, 5, 7] {
+            machine.io_write(0x3ffd, 4);
+            machine.io_write(0x3ffd, selected);
+            let st3 = machine.io_read(0x3ffd);
+            assert_eq!(st3 & 7, selected, "logical unit and head are echoed");
+            assert_eq!(st3 & 0x10, 0, "absent B has no track-zero sensor");
+        }
+    }
 
     #[test]
     fn plus3_two_side_status_follows_write_protect_not_image_presence() {
