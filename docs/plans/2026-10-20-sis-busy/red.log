@@ -1,0 +1,59 @@
+mise WARN  tracking config: failed to ln -sf /Users/stevehill/Projects/198x/output/qualification/workspaces/sis-irq-emu/rust-toolchain.toml /Users/stevehill/.local/state/mise/tracked-configs/7a086198fcb2ea6e: Operation not permitted (os error 1)
+   Compiling proc-macro2 v1.0.106
+   Compiling quote v1.0.45
+   Compiling unicode-ident v1.0.24
+   Compiling serde_core v1.0.229
+   Compiling serde v1.0.229
+   Compiling syn v3.0.3
+   Compiling thiserror v2.0.20
+   Compiling serde_derive v1.0.229
+   Compiling thiserror-impl v2.0.20
+   Compiling format-sinclair-zx-spectrum-snapshot v0.39.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/sis-irq-emu/crates/format-sinclair-zx-spectrum-snapshot)
+   Compiling emu198x-gi-ay-3-8910 v0.6.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/sis-irq-emu/crates/emu198x-gi-ay-3-8910)
+   Compiling serde-big-array v0.5.1
+   Compiling common-tape v0.39.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/sis-irq-emu/crates/common-tape)
+   Compiling gi-ay-3-8912 v0.39.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/sis-irq-emu/crates/gi-ay-3-8912)
+   Compiling emu198x-zilog-z80 v0.8.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/sis-irq-emu/crates/emu198x-zilog-z80)
+   Compiling common-sinclair-zx-spectrum v0.39.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/sis-irq-emu/crates/common-sinclair-zx-spectrum)
+   Compiling nec-upd765a v0.39.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/sis-irq-emu/crates/nec-upd765a)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.87s
+     Running tests/sis_busy.rs (/Users/stevehill/Projects/198x/output/qualification/sis-busy-target/debug/deps/sis_busy-f651b4f04608cd2e)
+
+running 3 tests
+test sis_clears_only_its_own_logical_drive_busy ... FAILED
+test recalibrate_busy_survives_completion_and_reset_clears_it ... FAILED
+test completed_seek_busy_clears_on_st0_before_pcn ... FAILED
+
+failures:
+
+---- sis_clears_only_its_own_logical_drive_busy stdout ----
+
+thread 'sis_clears_only_its_own_logical_drive_busy' (135233709) panicked at crates/nec-upd765a/tests/sis_busy.rs:45:5:
+assertion `left == right` failed
+  left: 128
+ right: 131
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- recalibrate_busy_survives_completion_and_reset_clears_it stdout ----
+
+thread 'recalibrate_busy_survives_completion_and_reset_clears_it' (135233708) panicked at crates/nec-upd765a/tests/sis_busy.rs:64:5:
+assertion `left == right` failed
+  left: 128
+ right: 130
+
+---- completed_seek_busy_clears_on_st0_before_pcn stdout ----
+
+thread 'completed_seek_busy_clears_on_st0_before_pcn' (135233707) panicked at crates/nec-upd765a/tests/sis_busy.rs:27:5:
+assertion `left == right` failed: completion awaits acknowledgement
+  left: 128
+ right: 129
+
+
+failures:
+    completed_seek_busy_clears_on_st0_before_pcn
+    recalibrate_busy_survives_completion_and_reset_clears_it
+    sis_clears_only_its_own_logical_drive_busy
+
+test result: FAILED. 0 passed; 3 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p nec-upd765a --test sis_busy`

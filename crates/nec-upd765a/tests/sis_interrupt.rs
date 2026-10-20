@@ -8,14 +8,11 @@ fn seek(fdc: &mut Upd765a, drive: u8, cylinder: u8) {
 }
 
 fn complete_seeks(fdc: &mut Upd765a) {
-    // Bound by observed drive-busy state, rather than restating SEEK_TICKS.
+    // Busy now includes unacknowledged completions, so it is not a motion timer.
     for hc in 0..4096 {
         fdc.tick(hc);
-        if fdc.read_status() & 0x0f == 0 {
-            return;
-        }
     }
-    panic!("seek did not complete within 4096 controller ticks");
+    assert!(fdc.interrupt, "bounded seek completion raises IRQ");
 }
 
 #[test]
@@ -31,11 +28,19 @@ fn sis_acknowledges_irq_without_discarding_other_drive_status() {
 
     fdc.write_data(0x08);
     assert!(!fdc.interrupt, "issuing SIS must acknowledge IRQ");
-    assert_eq!(fdc.read_status(), 0xd0, "SIS enters result phase");
+    assert_eq!(fdc.read_status(), 0xd3, "both drives await acknowledgement");
     assert_eq!(fdc.read_data(), 0x20);
-    assert_eq!(fdc.read_status(), 0xd0, "PCN remains unread");
+    assert_eq!(
+        fdc.read_status(),
+        0xd2,
+        "PCN remains unread; drive1 awaits SIS"
+    );
     assert_eq!(fdc.read_data(), 3);
-    assert_eq!(fdc.read_status(), 0x80, "both results drain to idle");
+    assert_eq!(
+        fdc.read_status(),
+        0x82,
+        "drive0 results drain; drive1 awaits SIS"
+    );
 
     fdc.write_data(0x08);
     assert!(!fdc.interrupt);

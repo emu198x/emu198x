@@ -35,19 +35,17 @@ fn seek(f: &mut Upd765a, select: u8, target: u8) {
         f.write_data(b);
     }
 }
-fn complete(f: &mut Upd765a) {
+fn complete(fdc: &mut Upd765a) {
+    // Busy now includes unacknowledged completions, so it is not a motion timer.
     for hc in 0..4096 {
-        f.tick(hc);
-        if f.read_status() & 15 == 0 {
-            return;
-        }
+        fdc.tick(hc);
     }
-    panic!("bounded seek completion");
+    assert!(fdc.interrupt, "bounded seek completion raises IRQ");
 }
 fn sis(f: &mut Upd765a) -> [u8; 2] {
     f.write_data(8);
     let result = [f.read_data(), f.read_data()];
-    assert_eq!(f.read_status(), 0x80);
+    assert_eq!(f.read_status() & 0xf0, 0x80);
     result
 }
 #[test]
