@@ -111,6 +111,15 @@ impl CMachine {
         })
     }
 
+    pub fn autoload_tape(&mut self, max_boot_frames: u32) -> Result<u32, Failure> {
+        let mut frames = 0;
+        // SAFETY: a live handle owned by `self` and a writable count.
+        check(unsafe {
+            ffi::emu198x_machine_autoload_tape(self.0, max_boot_frames, &raw mut frames)
+        })?;
+        Ok(frames)
+    }
+
     pub fn key(&mut self, name: &str, pressed: bool) -> Result<(), Failure> {
         let name = c_string(name);
         // SAFETY: a live handle owned by `self` and a NUL-terminated name.

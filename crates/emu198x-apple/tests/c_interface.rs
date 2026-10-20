@@ -179,6 +179,72 @@ fn port_zero_drives_the_spectrum_kempston_joystick() {
 }
 
 #[test]
+fn autoload_reaches_the_runtime_and_is_spectrum_only() {
+    let mut spectrum =
+        CMachine::create("sinclair-zx-spectrum", "spectrum_48k").expect("compiled variant");
+    spectrum
+        .firmware(
+            "sinclair-zx-spectrum-48k-rom",
+            &common::beeper::beeper_rom(),
+        )
+        .expect("firmware");
+    spectrum.boot().expect("boot");
+    let (code, message) = spectrum.autoload_tape(500).expect_err("no tape inserted");
+    assert_eq!(code, status::ERROR);
+    assert!(
+        message.contains("tape"),
+        "the runtime's own refusal: {message}"
+    );
+
+    let (code, message) = booted_game_boy()
+        .autoload_tape(500)
+        .expect_err("not a Spectrum");
+    assert_eq!(code, status::ERROR);
+    assert!(message.contains("only on the Spectrum"), "{message}");
+}
+
+/// A two-block tape holding `10 PRINT 7`, as in the runtime's own autoload
+/// test (`autoload_running_machine.rs`).
+fn print_seven_tape() -> Vec<u8> {
+    fn block(flag: u8, payload: &[u8]) -> Vec<u8> {
+        let length = u16::try_from(payload.len() + 2).expect("small block");
+        let mut block = length.to_le_bytes().to_vec();
+        block.push(flag);
+        block.extend_from_slice(payload);
+        block.push(payload.iter().fold(flag, |sum, byte| sum ^ byte));
+        block
+    }
+    let program = [
+        0x00, 0x0A, 0x09, 0x00, 0xF5, b'7', 0x0E, 0x00, 0x00, 0x07, 0x00, 0x00, 0x0D,
+    ];
+    let length = u16::try_from(program.len()).expect("small program");
+    let mut header = vec![0x00];
+    header.extend_from_slice(b"probe     ");
+    header.extend_from_slice(&length.to_le_bytes());
+    header.extend_from_slice(&10u16.to_le_bytes());
+    header.extend_from_slice(&length.to_le_bytes());
+    let mut tape = block(0x00, &header);
+    tape.extend(block(0xFF, &program));
+    tape
+}
+
+#[test]
+fn autoload_starts_a_tape_with_the_real_rom() {
+    let Some(rom) = spectrum_rom() else {
+        emu198x_test_skip::skip!("Spectrum 48K ROM not staged (EMU198X_SPECTRUM_48K_ROM)");
+    };
+    let mut machine =
+        CMachine::create("sinclair-zx-spectrum", "spectrum_48k").expect("compiled variant");
+    machine
+        .firmware("sinclair-zx-spectrum-48k-rom", &rom)
+        .expect("firmware");
+    machine.boot().expect("boot");
+    machine.load("tape-1", &print_seven_tape()).expect("tape");
+    let boot_frames = machine.autoload_tape(500).expect("autoload");
+    assert!(boot_frames > 0, "it waited for the ROM to boot");
+}
+
+#[test]
 fn advance_runs_the_frames_wall_clock_time_owes() {
     let mut machine = booted_game_boy();
     let frame_ms = machine.frame_ms().expect("frame period");

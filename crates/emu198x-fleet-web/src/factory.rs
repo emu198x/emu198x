@@ -67,7 +67,11 @@ pub(super) fn create(
         "sega-sg-1000" => build::<runtime_sega_sg_1000::Sg1000Runtime>(variant, firmware),
         #[cfg(feature = "sinclair-zx-spectrum")]
         "sinclair-zx-spectrum" => {
-            build::<runtime_sinclair_zx_spectrum::SpectrumRuntimeKind>(variant, firmware)
+            build_with_queries::<runtime_sinclair_zx_spectrum::SpectrumRuntimeKind, _>(
+                variant,
+                firmware,
+                runtime_sinclair_zx_spectrum::SpectrumSessionQueryProvider,
+            )
         }
         #[cfg(feature = "sinclair-zx80")]
         "sinclair-zx80" => build::<runtime_sinclair_zx80::Zx80Runtime>(variant, firmware),
