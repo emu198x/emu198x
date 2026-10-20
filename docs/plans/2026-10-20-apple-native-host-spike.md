@@ -207,8 +207,14 @@ scans the keyboard once per frame. That is how the hardware behaves, and
 normal typing is fine, but keyboard replay on a fast host should hold
 keys for at least a frame.
 
-Still to verify: load a tape (Dizzy, from Spectrum Computing, where it
-is listed as available), play with a physical controller, save, quit, reopen
+- Steve, 2026-10-20: loaded Dizzy (1987, 48K TZX from Spectrum
+  Computing, where it is listed as available) at real speed with
+  `LOAD ""` and Play Tape, then played it with the keyboard: "it worked
+  exactly as it should". That covers the TZX path, the tape deck, the ROM
+  loader, beeper sound, picture and keyboard input in the packaged app.
+
+Still to verify: play with a physical controller (Kempston, in the
+build after the port change), save, quit, reopen
 and restore, a 10-minute underrun count, and the alert for a failed load.
 
 ### 5. Apple TV target (same project, tvOS target)
