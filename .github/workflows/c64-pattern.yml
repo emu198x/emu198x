@@ -50,7 +50,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test -n "$GH_TOKEN" && test -n "$CORPORA_REPO" || { echo '::error::Private corpus is not configured; no C64 runtime pass'; exit 1; }
+          if [[ -z "$GH_TOKEN" || -z "$CORPORA_REPO" ]]; then
+            echo '::error::Private corpus is not configured; no C64 runtime pass'
+            exit 1
+          fi
           delivery="$RUNNER_TEMP/c64-pattern-delivery"
           mkdir -p "$delivery" "$RUNNER_TEMP/c64-pattern-roms" "$RUNNER_TEMP/c64-pattern-evidence"
           timeout 60 gh release download "$CORPORA_TAG" --repo "$CORPORA_REPO" \

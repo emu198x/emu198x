@@ -1,0 +1,16 @@
+# actionlint reads this file by default. Run `actionlint` from the
+# repository root; with shellcheck installed it also checks every `run:`
+# script.
+paths:
+  # dist generates release.yml (`dist generate`), and the hand-added steps
+  # live alongside its output under allow-dirty = ["ci"] in Cargo.toml.
+  # These shellcheck findings are all in dist's generated lines: an unquoted
+  # $GITHUB_PATH and $RUNNER_TEMP, $PRERELEASE_FLAG left unquoted so an
+  # empty flag disappears, separate redirects into $GITHUB_OUTPUT, and a sed
+  # for a suffix. Rewriting them would make the next regeneration harder to
+  # review, so they stay as dist ships them.
+  .github/workflows/release.yml:
+    ignore:
+      - 'SC2086:'
+      - 'SC2129:'
+      - 'SC2001:'
