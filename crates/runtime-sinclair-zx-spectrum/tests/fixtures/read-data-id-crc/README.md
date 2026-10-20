@@ -16,3 +16,8 @@ SHA256:
 - `4c-0-1.postcard`: `163a7a96e6594b803c1e6419bd1a5c569eca26a91ba12ca36aea21ab1f9fbf32`
 - `4c-179-0.postcard`: `579535e2a3dc9b509d74e97717ba54951a9eb9cb35b98e6213eed7f1f767399c`
 - `4c-179-1.postcard`: `fa6929576c3d4c00b553b0c94264e92fa881fca1211cbc3c82d281ec6ae85482`
+
+Current v7 regression explicitly appends the new READY/PCN fields to construct
+synthetic current controllers from these captured prefixes. It does not claim
+that old v6 runtime snapshots restore: the approved version guard rejects them
+before payload decode. The original fixture bytes remain unchanged.
