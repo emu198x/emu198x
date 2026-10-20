@@ -123,8 +123,11 @@ public final class Machine {
         try check(emu198x_machine_key(handle, name, pressed))
     }
 
-    public func setButton(_ name: String, pressed: Bool) throws {
-        try check(emu198x_machine_button(handle, name, pressed))
+    /// Presses or releases a control on a numbered input port: the number
+    /// printed on the machine, or 0 for its primary joystick (Kempston on a
+    /// Spectrum), per `knowledge/decisions/joystick-port-numbering.md`.
+    public func setButton(_ name: String, port: UInt8, pressed: Bool) throws {
+        try check(emu198x_machine_button(handle, port, name, pressed))
     }
 
     public func configureAudio(sampleRate: Int) throws {

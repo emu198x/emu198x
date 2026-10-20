@@ -177,11 +177,15 @@ ad hoc for local runs only.
   then through the runtime's `keymap()`. Machine keys are counted, so
   chords sharing Caps Shift release correctly. Focus loss releases
   everything.
-- Controller: an extended gamepad's d-pad, left stick and A. `Fleet::button`
-  always sends port 1, which the Spectrum runtime treats as the Sinclair
-  Interface 2 joystick (keys 6–0), not Kempston (port 0). A Kempston
-  option needs the port passed through `Fleet`, which changes an existing
-  crate, so ask first when a game needs it.
+- Controller: an extended gamepad's d-pad, left stick and A, sent to
+  input port 0, the primary joystick (Kempston on the Spectrum), per
+  `joystick-port-numbering.md`. `Fleet::button` always sends port 1, which
+  suits a console's controller one but is the Sinclair Interface 2 on a
+  Spectrum, and Dizzy reads only the keyboard and Kempston. So `Fleet`
+  gained `button_on_port` (Steve approved, 2026-10-20), `button` now
+  forwards to it with port 1, and the C button function takes the port. A
+  test ROM that copies Kempston port $1F to the screen proves port 0
+  reaches it and port 1 doesn't.
 - Audio: an `AVAudioSourceNode` reads the loop's ring. The ring now waits
   for about 60 ms of sound before playing, and refills after running dry.
   Without that, nearly every render call ran short (11,861 underruns in a
@@ -203,7 +207,8 @@ scans the keyboard once per frame. That is how the hardware behaves, and
 normal typing is fine, but keyboard replay on a fast host should hold
 keys for at least a frame.
 
-Still to verify: load a tape, play with a controller, save, quit, reopen
+Still to verify: load a tape (Dizzy, from Spectrum Computing, where it
+is listed as available), play with a physical controller, save, quit, reopen
 and restore, a 10-minute underrun count, and the alert for a failed load.
 
 ### 5. Apple TV target (same project, tvOS target)
