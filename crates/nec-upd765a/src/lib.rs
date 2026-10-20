@@ -1607,6 +1607,10 @@ impl Upd765a {
     fn finish_write_sector(&mut self) {
         let mark = self.write_data_mark();
         let drive = (self.cmd_buf[1] & self.drive_select_mask) as usize;
+        if self.writes_inhibited(drive) {
+            self.write_result(0x02, 0);
+            return;
+        }
         let Some(sector) = self.disks[drive]
             .as_mut()
             .and_then(|image| image.tracks.get_mut(self.head as usize))
@@ -2527,6 +2531,27 @@ mod tests {
             before,
             "no byte accepted after WP assertion"
         );
+    }
+
+    #[test]
+    fn external_protection_after_last_byte_preserves_incomplete_crc() {
+        let mut fdc = write_test_fdc(true);
+        send_write(&mut fdc, 0, 0, 0, 1, 1);
+        transfer_write(&mut fdc, &[0x56; 511]);
+        await_write_request(&mut fdc);
+        fdc.write_data(0x56); // assert WP before advancing the final field deadline
+        assert_eq!(fdc.phase, Phase::Execution);
+        let before = format!("{:?}", fdc.disks[0]);
+        fdc.set_write_protect(0, true);
+        for _ in 0..1024 {
+            if fdc.phase != Phase::Execution {
+                break;
+            }
+            fdc.tick(0);
+        }
+        assert_eq!(fdc.phase, Phase::Result, "bounded final-field deadline");
+        assert_eq!(result(&mut fdc)[1], 2);
+        assert_eq!(format!("{:?}", fdc.disks[0]), before);
     }
 
     #[test]
