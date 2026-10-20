@@ -42,7 +42,11 @@ fn complete(fdc: &mut Upd765a) {
     for hc in 0..1024 {
         fdc.tick(hc);
     }
-    assert_eq!(fdc.read_status(), 0x80, "all staged seeks completed");
+    assert_eq!(
+        fdc.read_status() & 0xf0,
+        0x80,
+        "no command/result phase active"
+    );
     assert!(fdc.interrupt, "completion must raise an interrupt");
 }
 

@@ -62,9 +62,13 @@ fn completed_seeks_keep_two_bytes_and_drain_in_drive_order() {
     for drive in [0, 3] {
         fdc.write_data(0x08);
         assert_eq!(fdc.read_data(), 0x68 | drive);
-        assert_eq!(fdc.read_status(), 0xd0, "pending seek includes PCN");
+        assert_eq!(
+            fdc.read_status(),
+            0xd0 | if drive == 0 { 8 } else { 0 },
+            "PCN plus other logical busy"
+        );
         assert_eq!(fdc.read_data(), 0);
-        assert_eq!(fdc.read_status(), 0x80);
+        assert_eq!(fdc.read_status(), 0x80 | if drive == 0 { 8 } else { 0 });
         assert!(
             !fdc.interrupt,
             "SIS acknowledges IRQ independently of pending status"

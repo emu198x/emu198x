@@ -569,10 +569,23 @@ impl Upd765a {
     /// before issuing `SenseInterruptStatus`.
     pub fn read_status(&self) -> u8 {
         let mut msr = self.main_status;
-        for drive in 0..4 {
-            if self.seek_remaining[drive] > 0 {
-                msr |= 1 << drive;
+        for unit in 0..4 {
+            if self.seek_remaining[unit] > 0
+                || self.seek_pending[unit].is_some_and(|st0| st0 & 0x20 != 0)
+            {
+                msr |= 1 << unit;
             }
+        }
+        // Completing motion does not acknowledge a Seek/Recalibrate. The
+        // selected logical unit stays busy until SIS reads ST0, while PCN can
+        // remain unread (NEC A/B Seek; MAME fifo_r first-result handling).
+        if self.phase == Phase::Result
+            && self.command == Command::SenseInterruptStatus
+            && self.result_pos == 0
+            && self.result_buf.len() == 2
+            && self.result_buf[0] & 0x20 != 0
+        {
+            msr |= 1 << (self.result_buf[0] & 0x03);
         }
         msr
     }
