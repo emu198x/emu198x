@@ -1,0 +1,231 @@
+mise WARN  tracking config: failed to ln -sf /Users/stevehill/Projects/198x/output/qualification/workspaces/sis-irq-emu/rust-toolchain.toml /Users/stevehill/.local/state/mise/tracked-configs/7a086198fcb2ea6e: Operation not permitted (os error 1)
+   Compiling nec-upd765a v0.39.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/sis-irq-emu/crates/nec-upd765a)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.05s
+     Running unittests src/lib.rs (/Users/stevehill/Projects/198x/output/qualification/sis-irq-target/debug/deps/nec_upd765a-a01320700b222613)
+
+running 54 tests
+test tests::claims_port_recognises_msr_and_data_ports ... ok
+test tests::claims_port_returns_false_when_disabled ... ok
+test tests::format_protection_readiness_and_bounds_fail_without_mutation ... ok
+test tests::first_write_request_follows_the_pre_data_gap ... ok
+test tests::format_track_enters_host_to_controller_execution ... ok
+test tests::initial_state ... ok
+test tests::insert_disk_still_clears_cached_read_state ... ok
+test tests::insert_then_eject_disk_round_trip ... ok
+test tests::invalid_command_returns_one_status_byte_and_accepts_next_command ... ok
+test tests::legacy_bad_id_normalization_discards_a_previously_visited_data_mark ... ok
+test tests::format_readiness_direction_and_overrun_are_enforced ... ok
+test tests::export_refuses_active_writes_without_aborting_and_returns_committed_bytes ... ok
+test tests::complete_write_replaces_deleted_mark_and_bad_data_crc ... ok
+test tests::media_change_aborts_transfer_before_replacement_can_be_written ... ok
+test tests::marginal_sector_first_read_is_recorded_bytes_verbatim ... ok
+test tests::clean_sector_reads_deterministic_across_repeats ... ok
+test tests::marginal_sector_second_read_varies_bytes ... ok
+test tests::preamble_rechecks_missing_media_before_requesting_payload ... ok
+test tests::read_id_rotates_through_sectors ... ok
+test tests::preamble_rechecks_write_protection_before_changing_the_mark ... ok
+test tests::intervening_different_sector_resets_marginal_counter ... ok
+test tests::read_sector_by_id_not_position ... ok
+test tests::missing_second_sector_preserves_completed_first_write ... ok
+test tests::read_unknown_port_returns_ff ... ok
+test tests::reattach_disk_preserves_cached_read_state ... ok
+test tests::recalibrate_zeros_track_then_completes_after_seek_ticks ... ok
+test tests::reset_retains_written_prefix_and_mount_protection ... ok
+test tests::seek_track_sets_target_and_stages_interrupt ... ok
+test tests::sense_drive_status_reflects_disk_presence_and_track_zero ... ok
+test tests::sense_drive_status_with_disk_mounted ... ok
+test tests::sense_interrupt_drains_pending_then_returns_invalid_command ... ok
+test tests::marginal_sector_third_read_mangles_full_sector ... ok
+test tests::sense_interrupt_walks_drives_in_order ... ok
+test tests::set_drive_select_mask_affects_command_drive_decode ... ok
+test tests::specify_command_returns_to_idle_without_result_phase ... ok
+test tests::write_data_enters_host_to_controller_execution ... ok
+test tests::write_direction_readiness_and_overrun_are_enforced ... ok
+test tests::read_sector ... ok
+test tests::reset_preserves_completed_format_sectors_and_protection ... ok
+test tests::write_errors_identify_missing_media_sector_and_wrong_chrn ... ok
+test tests::write_protection_is_reported_and_prevents_mutation ... ok
+test tests::write_rejects_id_crc_and_unrepresentable_sector_lengths ... ok
+test tests::write_to_msr_port_is_silently_ignored ... ok
+test tests::zero_size_code_uses_dtl_and_pads_remaining_data_field ... ok
+test tests::multitrack_write_advances_to_second_head ... ok
+test tests::write_data_reads_back_and_preserves_other_sectors ... ok
+test tests::completed_format_sector_survives_overrun_and_media_ejection ... ok
+test tests::read_deleted_data_matches_dam_then_ddam ... ok
+test tests::writes_use_physical_track_head_and_drive_alias ... ok
+test tests::fm_format_uses_slower_byte_period_and_preserves_sector_order ... ok
+test tests::format_uses_physical_selection_and_command_size_not_id_fields ... ok
+test tests::export_refuses_active_format_and_allows_read_only_images ... ok
+test tests::format_read_id_and_data_agree_and_other_tracks_survive ... ok
+test tests::standard_plus3_format_fills_nine_sectors_without_host_latency_drift ... ok
+
+test result: ok. 54 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.12s
+
+     Running tests/read_cylinder.rs (/Users/stevehill/Projects/198x/output/qualification/sis-irq-target/debug/deps/read_cylinder-2cc9564f22e18ecc)
+
+running 9 tests
+test absent_requested_r_still_reports_encountered_wrong_cylinder ... ok
+test absent_requested_r_on_matching_cylinder_has_no_wrong_cylinder_status ... ok
+test read_data_rejects_bad_cylinder ... ok
+test read_deleted_data_rejects_wrong_cylinder ... ok
+test read_deleted_data_rejects_bad_cylinder ... ok
+test read_data_rejects_wrong_cylinder ... ok
+test later_wrong_cylinder_preserves_only_preceding_sector_data ... ok
+test later_matching_duplicate_sector_id_is_not_hidden_by_wrong_cylinder ... ok
+test matching_nonphysical_and_ff_headers_are_readable ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/read_eot.rs (/Users/stevehill/Projects/198x/output/qualification/sis-irq-target/debug/deps/read_eot-fca11d1d9b67f9a9)
+
+running 6 tests
+test all_skipped_sectors_do_not_become_clean_eot ... ok
+test multisector_read_retains_final_sector_at_eot ... ok
+test crc_and_control_mark_at_eot_do_not_gain_en ... ok
+test earlier_missing_or_wrong_cylinder_has_no_eot_status ... ok
+test read_deleted_data_reaches_eot_without_terminal_count ... ok
+test read_data_reaches_eot_without_terminal_count ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running tests/read_id_errors.rs (/Users/stevehill/Projects/198x/output/qualification/sis-irq-target/debug/deps/read_id_errors-8084c189791467a6)
+
+running 6 tests
+test read_id_on_absent_track_reports_missing_id ... ok
+test valid_read_id_preserves_recorded_chrn_rotation_and_plus3_drive_alias ... ok
+test read_id_on_empty_track_reports_missing_id ... ok
+test read_id_without_image_cannot_report_success ... ok
+test read_id_on_absent_head_reports_missing_id ... ok
+test read_id_reports_id_crc_and_keeps_data_errors_out_of_results ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/read_id_match.rs (/Users/stevehill/Projects/198x/output/qualification/sis-irq-target/debug/deps/read_id_match-3dd447b7703ea256)
+
+running 4 tests
+test requested_id_head_does_not_select_the_physical_side ... ok
+test wrong_recorded_size_is_rejected_and_matching_request_recovers ... ok
+test later_exact_duplicate_is_not_hidden_by_wrong_head_or_size ... ok
+test wrong_recorded_head_is_rejected_and_matching_request_recovers ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+     Running tests/read_media_change.rs (/Users/stevehill/Projects/198x/output/qualification/sis-irq-target/debug/deps/read_media_change-e290b6e39b183cf3)
+
+running 4 tests
+test media_change_keeps_encountered_mark_and_excludes_incomplete_crc ... ok
+test track_media_change_retains_completed_crc_but_not_pending_future_status ... ok
+test changing_unrelated_disk_does_not_abort_or_change_selected_read ... ok
+test changing_selected_disk_aborts_reads_without_delivering_more_cached_bytes ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.37s
+
+     Running tests/read_pacing.rs (/Users/stevehill/Projects/198x/output/qualification/sis-irq-target/debug/deps/read_pacing-54012600cc6b8b76)
+
+running 8 tests
+test first_read_request_waits_for_pre_data_interval ... ok
+test read_consumes_only_requested_bytes_and_rejects_wrong_direction ... ok
+test overrun_retains_encountered_control_mark_but_not_a_future_one ... ok
+test fm_and_mfm_requests_follow_fixed_byte_cadence ... ok
+test paced_complete_payload_preserves_eot_and_drains_exactly_seven_results ... ok
+test read_requests_follow_absolute_disk_time_without_rounding_drift ... ok
+test missing_first_or_later_read_deadline_reports_overrun_not_eot ... ok
+test every_host_service_offset_preserves_next_arrival ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.56s
+
+     Running tests/read_progress.rs (/Users/stevehill/Projects/198x/output/qualification/sis-irq-target/debug/deps/read_progress-172d7799a1e44e3c)
+
+running 13 tests
+test track_does_not_publish_an_unvisited_later_id_crc ... ok
+test track_media_removal_keeps_only_encountered_id_crc ... ok
+test abandoned_read_does_not_count_an_unvisited_future_marginal_sector ... ok
+test data_reads_do_not_transfer_later_bad_id_or_publish_its_data_mark ... ok
+test track_overrun_keeps_completed_crc_errors_but_not_future_errors ... ok
+test skipped_eot_after_data_retains_existing_next_r_result ... ok
+test data_reads_transfer_clean_and_data_crc_fields_before_result ... ok
+test track_interior_overrun_retains_encountered_id_crc ... ok
+test track_interior_overrun_does_not_invent_crc_on_clean_media ... ok
+test later_sector_interruption_reports_later_r_and_encountered_mark ... ok
+test track_interior_overrun_defers_data_crc_until_completion ... ok
+test data_reads_reject_id_crc_before_payload_and_recover_without_changing_media ... ok
+test interrupted_read_reports_current_sector_instead_of_eventual_eot_or_error ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+     Running tests/read_result_head.rs (/Users/stevehill/Projects/198x/output/qualification/sis-irq-target/debug/deps/read_result_head-bc7c07a8764b463b)
+
+running 3 tests
+test completed_read_and_crc_error_return_id_head_while_st0_keeps_physical_head ... ok
+test missing_first_and_later_id_return_requested_head_and_recover ... ok
+test interrupted_read_returns_requested_id_head ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.19s
+
+     Running tests/read_size_bound.rs (/Users/stevehill/Projects/198x/output/qualification/sis-irq-target/debug/deps/read_size_bound-730871955c322aec)
+
+running 5 tests
+test read_deleted_oversized_n_returns_a_result_instead_of_panicking ... ok
+test read_data_oversized_n_returns_a_result_instead_of_panicking ... ok
+test empty_tracks_reject_oversized_n_and_keep_the_existing_missing_id_result ... ok
+test all_out_of_model_sizes_are_rejected_before_payload_or_media_lookup ... ok
+test largest_in_model_size_preserves_payload_and_existing_short_field_fill ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.93s
+
+     Running tests/read_track.rs (/Users/stevehill/Projects/198x/output/qualification/sis-irq-target/debug/deps/read_track-4348a88a673e1115)
+
+running 4 tests
+test empty_and_missing_track_have_bounded_error_results ... ok
+test track_errors_continue_to_next_sector ... ok
+test track_ignores_mt_and_sk_and_preserves_source ... ok
+test track_reads_physical_order_and_eot_count_not_sorted_ids ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+     Running tests/read_track_drained.rs (/Users/stevehill/Projects/198x/output/qualification/sis-irq-target/debug/deps/read_track_drained-adc3340fc3472e2c)
+
+running 1 test
+test fully_drained_crc_observations_preserve_order_and_recover ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.16s
+
+     Running tests/scan.rs (/Users/stevehill/Projects/198x/output/qualification/sis-irq-target/debug/deps/scan-1c416bc02ee9baa3)
+
+running 10 tests
+test scan_ejection_aborts_without_a_fictitious_comparison ... ok
+test scan_overrun_is_non_mutating_and_direction_is_enforced ... ok
+test scan_ff_is_literal_and_n0_uses_sector_length_not_step ... ok
+test scan_missing_and_crc_errors_terminate_abnormally ... ok
+test scan_latches_an_earlier_violating_byte ... ok
+test scan_deleted_marks_stop_or_skip_and_remain_observable ... ok
+test scan_step_and_hit_terminate_on_the_matched_sector ... ok
+test scan_multitrack_and_missed_eot_are_distinct ... ok
+test scan_equal_counts_first_later_and_absent_hits_without_mutating_media ... ok
+test scan_equal_low_high_truth_table ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/seek_readiness.rs (/Users/stevehill/Projects/198x/output/qualification/sis-irq-target/debug/deps/seek_readiness-581a0768e9b1e31b)
+
+running 4 tests
+test initially_not_ready_seek_preserves_last_ready_position ... ok
+test seek_uses_masked_drive_readiness_and_echoes_requested_unit ... ok
+test ready_and_not_ready_seek_completions_remain_queued_separately ... FAILED
+test initially_not_ready_seek_reports_error_for_each_drive_and_same_cylinder ... ok
+
+failures:
+
+---- ready_and_not_ready_seek_completions_remain_queued_separately stdout ----
+
+thread 'ready_and_not_ready_seek_completions_remain_queued_separately' (134828235) panicked at crates/nec-upd765a/tests/seek_readiness.rs:118:5:
+drive 3 completion is still pending
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    ready_and_not_ready_seek_completions_remain_queued_separately
+
+test result: FAILED. 3 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p nec-upd765a --test seek_readiness`
