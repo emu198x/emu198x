@@ -68,8 +68,10 @@ int32_t emu198x_machine_transport(Emu198xMachine *machine, const char *slot, boo
 
 /* Presses or releases a machine key by name. */
 int32_t emu198x_machine_key(Emu198xMachine *machine, const char *name, bool pressed);
-/* Presses or releases a controller-one button by name. */
-int32_t emu198x_machine_button(Emu198xMachine *machine, const char *name, bool pressed);
+/* Presses or releases a named control on a numbered input port. Ports are
+ * the numbers printed on the machine; 0 is its primary joystick (Kempston
+ * on a Spectrum) and 1 is controller one on a console. */
+int32_t emu198x_machine_button(Emu198xMachine *machine, uint8_t port, const char *name, bool pressed);
 /* Browser key code to machine-key map as UTF-8 JSON. */
 int32_t emu198x_machine_keymap(Emu198xMachine *machine, Emu198xBuffer *out);
 

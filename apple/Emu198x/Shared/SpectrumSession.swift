@@ -58,7 +58,8 @@ final class SpectrumSession {
         audio.play(loop.audio)
         if controller == nil {
             controller = ControllerInput { [weak self] name, pressed in
-                self?.loop?.send(.button(name, pressed: pressed))
+                // Port 0 is the primary joystick: Kempston on the Spectrum.
+                self?.loop?.send(.button(name, port: 0, pressed: pressed))
             }
         }
         lastSample = (Date(), 0)

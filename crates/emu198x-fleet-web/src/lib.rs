@@ -328,8 +328,17 @@ impl Fleet {
     /// # Errors
     /// requires a booted machine.
     pub fn button(&mut self, name: &str, pressed: bool) -> Result<(), String> {
+        self.button_on_port(1, name, pressed)
+    }
+    /// Queues a control on a numbered input port. Ports are the numbers
+    /// printed on the machine, and 0 is its primary joystick (Kempston on a
+    /// Spectrum), per `knowledge/decisions/joystick-port-numbering.md`.
+    ///
+    /// # Errors
+    /// requires a booted machine.
+    pub fn button_on_port(&mut self, port: u8, name: &str, pressed: bool) -> Result<(), String> {
         self.host_mut()?.input(InputEvent::Button {
-            port: 1,
+            port,
             name: name.to_owned().into(),
             pressed,
         });

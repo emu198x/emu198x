@@ -117,10 +117,10 @@ impl CMachine {
         check(unsafe { ffi::emu198x_machine_key(self.0, name.as_ptr(), pressed) })
     }
 
-    pub fn button(&mut self, name: &str, pressed: bool) -> Result<(), Failure> {
+    pub fn button(&mut self, port: u8, name: &str, pressed: bool) -> Result<(), Failure> {
         let name = c_string(name);
         // SAFETY: a live handle owned by `self` and a NUL-terminated name.
-        check(unsafe { ffi::emu198x_machine_button(self.0, name.as_ptr(), pressed) })
+        check(unsafe { ffi::emu198x_machine_button(self.0, port, name.as_ptr(), pressed) })
     }
 
     pub fn configure_audio(&mut self, rate: u32) -> Result<(), Failure> {

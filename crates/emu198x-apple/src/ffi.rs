@@ -349,13 +349,14 @@ pub unsafe extern "C" fn emu198x_machine_key(
     }
 }
 
-/// Presses or releases a controller-one button.
+/// Presses or releases a control on a numbered input port.
 ///
 /// # Safety
 /// See `with_machine` and `text`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn emu198x_machine_button(
     machine: *mut Emu198xMachine,
+    port: u8,
     name: *const c_char,
     pressed: bool,
 ) -> i32 {
@@ -363,7 +364,7 @@ pub unsafe extern "C" fn emu198x_machine_button(
     unsafe {
         with_machine(machine, |m| {
             let name = text(name, "button name is null or not UTF-8")?;
-            Ok(m.fleet.button(name, pressed)?)
+            Ok(m.fleet.button_on_port(port, name, pressed)?)
         })
     }
 }

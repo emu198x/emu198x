@@ -73,7 +73,7 @@ fn game_boy_frames_and_audio_match_fleet() {
 
     let (mut native, mut direct) = (Vec::new(), Vec::new());
     for pressed in [false, true, false] {
-        machine.button("a", pressed).expect("button");
+        machine.button(1, "a", pressed).expect("button");
         fleet.button("a", pressed).expect("button");
         native.extend(through_c(&mut machine, 20));
         direct.extend(through_fleet(&mut fleet, 20));
@@ -142,6 +142,39 @@ fn pixel_aspect_comes_from_the_runtime() {
     assert!(
         (booted_game_boy().pixel_aspect().expect("aspect") - 1.0).abs() < f32::EPSILON,
         "an LCD has square pixels"
+    );
+}
+
+/// Port 0 is the primary joystick, which on a Spectrum is Kempston
+/// (`knowledge/decisions/joystick-port-numbering.md`). The test ROM copies
+/// Kempston port $1F into the first attribute cell, so the picture changes
+/// only when a press reaches that port.
+#[test]
+fn port_zero_drives_the_spectrum_kempston_joystick() {
+    // 0000 IN A,($1F) / LD ($5800),A / JR $0000
+    let mut rom = vec![0; 16 * 1024];
+    rom[..7].copy_from_slice(&[0xDB, 0x1F, 0x32, 0x00, 0x58, 0x18, 0xF9]);
+    let picture = |fire: Option<u8>| {
+        let mut machine =
+            CMachine::create("sinclair-zx-spectrum", "spectrum_48k").expect("compiled variant");
+        machine
+            .firmware("sinclair-zx-spectrum-48k-rom", &rom)
+            .expect("firmware");
+        machine.boot().expect("boot");
+        if let Some(port) = fire {
+            machine.button(port, "fire", true).expect("button");
+        }
+        for _ in 0..3 {
+            machine.step().expect("step");
+        }
+        hash(&machine.pixels().expect("pixels"))
+    };
+    let idle = picture(None);
+    assert_ne!(picture(Some(0)), idle, "port 0 fire reaches Kempston $1F");
+    assert_eq!(
+        picture(Some(1)),
+        idle,
+        "port 1 is Interface 2, not Kempston"
     );
 }
 
