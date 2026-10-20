@@ -8,7 +8,7 @@ struct ContentView: View {
     var body: some View {
         VStack(spacing: 0) {
             if let loop = session.loop {
-                ScreenView(loop: loop, session: session)
+                ScreenView(loop: loop, pixelAspect: session.pixelAspect, session: session)
                 if session.showsStatistics {
                     Text(session.statistics)
                         .font(.caption.monospacedDigit())

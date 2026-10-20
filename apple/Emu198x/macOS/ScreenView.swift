@@ -1,84 +1,59 @@
 import AppKit
 import Emu198xKit
+import MetalKit
 import SwiftUI
 
-/// The machine's picture, scaled by whole-pixel sampling to fit the window
-/// at its own aspect, and the keyboard focus for typing into the machine.
+/// The machine's picture, drawn by ``SharpRenderer``, and the keyboard
+/// focus for typing into the machine.
 struct ScreenView: NSViewRepresentable {
     let loop: EmulatorLoop
+    let pixelAspect: Float
     let session: SpectrumSession
 
     func makeNSView(context: Context) -> ScreenNSView {
-        ScreenNSView(loop: loop, session: session)
+        ScreenNSView(loop: loop, pixelAspect: pixelAspect, session: session)
     }
 
     func updateNSView(_ view: ScreenNSView, context: Context) {
-        view.loop = loop
+        view.show(loop, pixelAspect: pixelAspect)
     }
 }
 
-final class ScreenNSView: NSView {
-    var loop: EmulatorLoop {
-        didSet { sequence = 0 }
-    }
+final class ScreenNSView: MTKView {
     private weak var session: SpectrumSession?
-    private var sequence = 0
-    private var displayLink: CADisplayLink?
+    private var renderer: SharpRenderer?
     private var heldModifiers: Set<String> = []
 
-    init(loop: EmulatorLoop, session: SpectrumSession) {
-        self.loop = loop
+    init(loop: EmulatorLoop, pixelAspect: Float, session: SpectrumSession) {
         self.session = session
-        super.init(frame: .zero)
-        wantsLayer = true
-        layer?.backgroundColor = NSColor.black.cgColor
-        layer?.contentsGravity = .resizeAspect
-        layer?.magnificationFilter = .nearest
+        super.init(frame: .zero, device: MTLCreateSystemDefaultDevice())
+        (layer as? CAMetalLayer)?.colorspace = CGColorSpace(name: CGColorSpace.sRGB)
+        renderer = SharpRenderer(view: self, frames: loop.frames, pixelAspect: pixelAspect)
+        delegate = renderer
     }
 
     @available(*, unavailable)
-    required init?(coder: NSCoder) { fatalError("not used from a nib") }
+    required init(coder: NSCoder) { fatalError("not used from a nib") }
+
+    func show(_ loop: EmulatorLoop, pixelAspect: Float) {
+        renderer?.show(loop.frames, pixelAspect: pixelAspect)
+    }
 
     override var acceptsFirstResponder: Bool { true }
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        displayLink?.invalidate()
-        displayLink = nil
         NotificationCenter.default.removeObserver(self)
         guard let window else { return }
         window.makeFirstResponder(self)
-        // The display only decides when a finished frame is shown; the loop's
-        // own clock decides how many frames run.
-        let link = displayLink(target: self, selector: #selector(refresh))
-        link.add(to: .main, forMode: .common)
-        displayLink = link
         NotificationCenter.default.addObserver(
             self, selector: #selector(windowLostFocus),
             name: NSWindow.didResignKeyNotification, object: window)
     }
 
-    @objc private func refresh() {
-        guard let (frame, sequence) = loop.frames.frame(after: sequence) else { return }
-        self.sequence = sequence
-        layer?.contents = Self.image(from: frame)
-    }
-
     @objc private func windowLostFocus() {
         heldModifiers.removeAll()
         session?.releaseAll()
-    }
-
-    private static func image(from frame: Frame) -> CGImage? {
-        guard frame.pixels.count == frame.width * frame.height * 4,
-              let provider = CGDataProvider(data: Data(frame.pixels) as CFData)
-        else { return nil }
-        return CGImage(
-            width: frame.width, height: frame.height,
-            bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: frame.width * 4,
-            space: CGColorSpace(name: CGColorSpace.sRGB)!,
-            bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.noneSkipLast.rawValue),
-            provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent)
     }
 
     override func keyDown(with event: NSEvent) {

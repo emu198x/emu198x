@@ -148,9 +148,24 @@ drains audio every frame, but the app should clear its ring on restore.
 built from `apple/Emu198x/Emu198x.xcodeproj`. Not sandboxed, and signed
 ad hoc for local runs only.
 
-- SwiftUI app with a layer-backed screen view, scaled by nearest-neighbour
-  sampling at the machine's aspect. A display link shows the newest frame;
-  it never drives emulation.
+- SwiftUI app whose screen is an `MTKView` drawn by `SharpRenderer`
+  (shared with tvOS). The display link shows the newest frame and never
+  drives emulation.
+- Rendering (Steve, 2026-10-20): the machine's true pixel aspect, which
+  the runtime reports through `Fleet::pixel_aspect_ratio` (1.0549 for a
+  PAL Spectrum), with every pixel the same width. Sharp bilinear: each
+  source pixel is a solid block of screen pixels, and only the fractional
+  edge between two blocks is blended, in one shader pass. Nearest-
+  neighbour at a fractional scale instead mixes stroke widths (3 and 4
+  screen pixels at 3.17×), which is why characters looked slightly scaled.
+  Measured from a backing-resolution capture at 2.98×: the picture's
+  aspect is 1.054, and every single-pixel stroke on a text row is two
+  solid pixels with a blended pixel either side.
+- A macOS scaled display mode resamples the whole screen after every app
+  has drawn. The BenQ EW3270U here runs as "looks like 3008 × 1692", drawn
+  at 6016 × 3384 and shrunk to its 3840 × 2160 panel, so no app can be
+  pixel-exact on it. Judge sharpness on an exact 2× setting or at native
+  resolution.
 - Menus: File (Open Tape or Snapshot, Save State, Load State), Machine
   (Pause, Restart, Play/Stop Tape) and View (Show Statistics, Full
   Screen), each with a shortcut. Every one calls the same
