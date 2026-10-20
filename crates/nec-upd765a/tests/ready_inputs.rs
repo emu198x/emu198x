@@ -161,3 +161,17 @@ fn polling_uses_the_four_mhz_fdc_interval_without_per_period_rounding_drift() {
     );
     assert_eq!(events.len(), 16);
 }
+
+#[test]
+fn controller_reset_preserves_logical_pcn_and_physical_position() {
+    let mut fdc = controller();
+    fdc.set_ready(2, true);
+    for byte in [15, 2, 23] {
+        fdc.write_data(byte);
+    }
+    ticks(&mut fdc, 1024);
+    assert_eq!(result(&mut fdc), [0x22, 23]);
+    fdc.reset();
+    ticks(&mut fdc, 8000);
+    assert_eq!(result(&mut fdc), [0xc2, 23], "reset is not a recalibration");
+}
