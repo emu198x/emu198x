@@ -1,0 +1,69 @@
+mise WARN  tracking config: failed to ln -sf /Users/stevehill/Projects/198x/output/qualification/workspaces/sis-irq-emu/rust-toolchain.toml /Users/stevehill/.local/state/mise/tracked-configs/7a086198fcb2ea6e: Operation not permitted (os error 1)
+   Compiling proc-macro2 v1.0.106
+   Compiling quote v1.0.45
+   Compiling unicode-ident v1.0.24
+   Compiling serde_core v1.0.229
+   Compiling serde v1.0.229
+   Compiling syn v3.0.3
+   Compiling serde_derive v1.0.229
+   Compiling thiserror v2.0.20
+   Compiling thiserror-impl v2.0.20
+   Compiling format-sinclair-zx-spectrum-snapshot v0.39.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/sis-irq-emu/crates/format-sinclair-zx-spectrum-snapshot)
+   Compiling emu198x-gi-ay-3-8910 v0.6.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/sis-irq-emu/crates/emu198x-gi-ay-3-8910)
+   Compiling serde-big-array v0.5.1
+   Compiling common-tape v0.39.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/sis-irq-emu/crates/common-tape)
+   Compiling gi-ay-3-8912 v0.39.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/sis-irq-emu/crates/gi-ay-3-8912)
+   Compiling emu198x-zilog-z80 v0.8.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/sis-irq-emu/crates/emu198x-zilog-z80)
+   Compiling common-sinclair-zx-spectrum v0.39.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/sis-irq-emu/crates/common-sinclair-zx-spectrum)
+   Compiling nec-upd765a v0.39.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/sis-irq-emu/crates/nec-upd765a)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.78s
+     Running tests/logical_pcn.rs (/Users/stevehill/Projects/198x/output/qualification/sis-pcn-target/debug/deps/logical_pcn-1028f8cddc81e5a8)
+
+running 5 tests
+test identity_mask_keeps_independent_physical_drives ... ok
+test alias_pcns_and_pending_statuses_are_independent ... FAILED
+test alias_seek_steps_from_its_own_pcn_to_physical_track_eight ... FAILED
+test alias_failed_seek_preserves_pcn_and_echoes_unit_and_head ... FAILED
+test recalibrate_clears_only_selected_logical_pcn ... FAILED
+
+failures:
+
+---- alias_pcns_and_pending_statuses_are_independent stdout ----
+
+thread 'alias_pcns_and_pending_statuses_are_independent' (134967890) panicked at crates/nec-upd765a/tests/logical_pcn.rs:59:5:
+assertion `left == right` failed: logical unit2 owns its busy bit
+  left: 1
+ right: 4
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- alias_seek_steps_from_its_own_pcn_to_physical_track_eight stdout ----
+
+thread 'alias_seek_steps_from_its_own_pcn_to_physical_track_eight' (134967891) panicked at crates/nec-upd765a/tests/logical_pcn.rs:80:9:
+assertion `left == right` failed
+  left: 64
+ right: 8
+
+---- alias_failed_seek_preserves_pcn_and_echoes_unit_and_head stdout ----
+
+thread 'alias_failed_seek_preserves_pcn_and_echoes_unit_and_head' (134967889) panicked at crates/nec-upd765a/tests/logical_pcn.rs:94:5:
+assertion `left == right` failed
+  left: [34, 3]
+ right: [38, 3]
+
+---- recalibrate_clears_only_selected_logical_pcn stdout ----
+
+thread 'recalibrate_clears_only_selected_logical_pcn' (134967893) panicked at crates/nec-upd765a/tests/logical_pcn.rs:120:5:
+assertion `left != right` failed
+  left: 0
+ right: 0
+
+
+failures:
+    alias_failed_seek_preserves_pcn_and_echoes_unit_and_head
+    alias_pcns_and_pending_statuses_are_independent
+    alias_seek_steps_from_its_own_pcn_to_physical_track_eight
+    recalibrate_clears_only_selected_logical_pcn
+
+test result: FAILED. 1 passed; 4 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p nec-upd765a --test logical_pcn`

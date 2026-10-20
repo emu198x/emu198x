@@ -1,0 +1,60 @@
+{
+  "base": "1e471c6a9917b5d6d87c80e3335a333964f1f7a7",
+  "rustc": "1.99.0 (b940084d7 2026-09-28)",
+  "source_build": true,
+  "fresh_execution": true,
+  "commands": [
+    {
+      "command": "cargo test --locked -p nec-upd765a --test logical_pcn",
+      "log": "red.log",
+      "exit_code": 101,
+      "passed": 1,
+      "failed": 4,
+      "note": "initial test source before later outward delta and simultaneous-busy refinement"
+    },
+    {
+      "command": "cargo test --locked -p nec-upd765a",
+      "log": "old-expectation.log",
+      "exit_code": 101,
+      "note": "new tests pass; legacy seek_readiness pins physical rather than logical MSR busy bits"
+    },
+    {
+      "command": "cargo test --locked -p nec-upd765a",
+      "log": "test-refinement.log",
+      "exit_code": 101,
+      "note": "simultaneous seeks test retained prior single-seek expected busy value; corrected from4to5"
+    },
+    {
+      "command": "cargo test --locked -p nec-upd765a",
+      "log": "green.log",
+      "exit_code": 0,
+      "passed": 147,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "command": "cargo clippy --locked -p nec-upd765a --all-targets -- -D warnings",
+      "log": "clippy.log",
+      "exit_code": 0
+    },
+    {
+      "command": "cargo fmt --all --check",
+      "log": "fmt.log",
+      "exit_code": 0
+    }
+  ],
+  "environment": {
+    "CARGO_TARGET_DIR": "/Users/stevehill/Projects/198x/output/qualification/sis-pcn-target",
+    "CARGO_INCREMENTAL": "0",
+    "CARGO_BUILD_JOBS": "2"
+  },
+  "log_normalization": "Trailing terminal blank lines removed; test output retained.",
+  "log_sha256": {
+    "fmt.log": "474cc1eeed687c4fc3b98e49f70326e573b791d116765c32717b70efcbc8d087",
+    "red.log": "549b0b15308fce057418a42597c4491f208292f641bd2598501f8b50c5fd5102",
+    "green.log": "15a2f08542fd0a64ea2ba71aa48c21e09119e701d80049caabd392f87e82d614",
+    "clippy.log": "7fad03d53bf8c522eae6b774b62a49cff0e3bd99cafa97f3014d927b7c732fe8",
+    "test-refinement.log": "8ad585231e9df47e0623343584ced40cd882dada71c40e2a4e6d67e2ec70aee2",
+    "old-expectation.log": "c63fadd492998859677943e95e3d5a9364c8180f51323139aa0b1527191670e0"
+  }
+}
