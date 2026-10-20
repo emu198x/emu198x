@@ -142,24 +142,54 @@ Found along the way: restoring a state doesn't discard audio already
 queued from before the restore. That matches `Fleet`, and the loop
 drains audio every frame, but the app should clear its ring on restore.
 
-### 4. macOS app (`apple/Emu198x/`, macOS target)
+### 4. macOS app (`apple/Emu198x/`, macOS target) (in progress)
 
-- SwiftUI app: the screen as a layer-backed view with nearest-neighbour
-  scaling at the correct aspect, plus File (Open, Save State, Load
-  State), Machine (Reset, Pause) and View (Fullscreen) menus with keyboard
-  shortcuts. Every menu item and shortcut sends one `HostCommand`.
-- Keyboard: `NSEvent` key codes map to DOM codes, then through `keymap()`.
-  Focus loss releases every key.
-- Controller: a `GCController` extended gamepad's d-pad, left stick and A
-  map to Kempston `up/down/left/right/fire`. A disconnect releases every
-  button.
+"Emu198x Spectrum", a per-system app as `no-unified-launcher.md` requires,
+built from `apple/Emu198x/Emu198x.xcodeproj`. Not sandboxed, and signed
+ad hoc for local runs only.
 
-Verification on this Mac: boot to the © 1982 screen, type and run a
-BASIC line, load a project-owned tape, play with the controller, then
-save, quit, reopen and restore. Measure the sustained frame rate against
-`frame_ms()` and count audio underruns over 10 minutes. Check that a
-failed load shows an alert. Repeat with a packaged Release `.app`, not
-only a debug run from Xcode.
+- SwiftUI app with a layer-backed screen view, scaled by nearest-neighbour
+  sampling at the machine's aspect. A display link shows the newest frame;
+  it never drives emulation.
+- Menus: File (Open Tape or Snapshot, Save State, Load State), Machine
+  (Pause, Restart, Play/Stop Tape) and View (Show Statistics, Full
+  Screen), each with a shortcut. Every one calls the same
+  `SpectrumSession` method, which sends one `HostCommand`.
+- Tapes wait for the Spectrum's own `LOAD ""` and Play Tape, as in the
+  other hosts (`loading-a-tape-is-not-pressing-play.md`). `Fleet` loads
+  `.sna` and `.z80` snapshots directly.
+- Keyboard: Mac key codes map to browser key codes by physical position,
+  then through the runtime's `keymap()`. Machine keys are counted, so
+  chords sharing Caps Shift release correctly. Focus loss releases
+  everything.
+- Controller: an extended gamepad's d-pad, left stick and A. `Fleet::button`
+  always sends port 1, which the Spectrum runtime treats as the Sinclair
+  Interface 2 joystick (keys 6–0), not Kempston (port 0). A Kempston
+  option needs the port passed through `Fleet`, which changes an existing
+  crate, so ask first when a game needs it.
+- Audio: an `AVAudioSourceNode` reads the loop's ring. The ring now waits
+  for about 60 ms of sound before playing, and refills after running dry.
+  Without that, nearly every render call ran short (11,861 underruns in a
+  minute).
+- Save states are the runtime's own state bytes, not the browser player's
+  `.emu198x` file, so the two can't exchange saves yet.
+
+Verified so far, with the packaged Release `.app` on this Mac (Apple
+silicon, macOS 27, BenQ EW3270U display):
+- It boots to the © 1982 screen.
+- `PRINT 123` typed and run prints `123` and `0 OK, 0:1`.
+- It runs at 50.0–50.4 frames per second, with 0 underruns and 0 dropped
+  samples after the prebuffer change.
+- A display probe showed the view refreshing at 60 Hz and picking up 50
+  new frames a second.
+
+A key pressed and released within one frame is missed, because the ROM
+scans the keyboard once per frame. That is how the hardware behaves, and
+normal typing is fine, but keyboard replay on a fast host should hold
+keys for at least a frame.
+
+Still to verify: load a tape, play with a controller, save, quit, reopen
+and restore, a 10-minute underrun count, and the alert for a failed load.
 
 ### 5. Apple TV target (same project, tvOS target)
 
