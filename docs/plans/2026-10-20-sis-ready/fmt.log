@@ -1,0 +1,18 @@
+mise WARN  tracking config: failed to ln -sf /Users/stevehill/Projects/198x/output/qualification/workspaces/sense-interrupt-emu/rust-toolchain.toml /Users/stevehill/.local/state/mise/tracked-configs/e19b4cb87a664ffa: Operation not permitted (os error 1)
+error: couldn't find file `/Users/stevehill/Projects/198x/output/qualification/workspaces/sense-interrupt-emu/crates/commodore-agnus-ocs/tests/../../../test-data/commodore/amiga/ddf-register-writes/probe-native.rs`
+ --> /Users/stevehill/Projects/198x/output/qualification/workspaces/sense-interrupt-emu/crates/commodore-agnus-ocs/tests/ddf_register_writes.rs:2:1
+  |
+2 | mod probe;
+  | ^^^^^^^^^^
+
+Error writing files: failed to resolve mod `probe`: /Users/stevehill/Projects/198x/output/qualification/workspaces/sense-interrupt-emu/crates/commodore-agnus-ocs/tests/../../../test-data/commodore/amiga/ddf-register-writes/probe-native.rs does not exist
+Error: file `/Users/stevehill/Projects/198x/output/qualification/workspaces/sense-interrupt-emu/crates/emu198x-native-video/../../tools/spectrum-composite/src/validate_interlace.rs` does not exist
+Error: file `/Users/stevehill/Projects/198x/output/qualification/workspaces/sense-interrupt-emu/crates/emu198x-native-video/../../tools/spectrum-composite/src/validate_live.rs` does not exist
+Error: file `/Users/stevehill/Projects/198x/output/qualification/workspaces/sense-interrupt-emu/crates/emu198x-native-video/../../tools/spectrum-composite/src/validate_phosphor.rs` does not exist
+error: couldn't find file `/Users/stevehill/Projects/198x/output/qualification/workspaces/sense-interrupt-emu/crates/machine-commodore-amiga-ecs/tests/../../../test-data/commodore/amiga/ddf-register-writes/probe-copper.rs`
+ --> /Users/stevehill/Projects/198x/output/qualification/workspaces/sense-interrupt-emu/crates/machine-commodore-amiga-ecs/tests/ddf_register_writes.rs:2:1
+  |
+2 | mod probe;
+  | ^^^^^^^^^^
+
+Error writing files: failed to resolve mod `probe`: /Users/stevehill/Projects/198x/output/qualification/workspaces/sense-interrupt-emu/crates/machine-commodore-amiga-ecs/tests/../../../test-data/commodore/amiga/ddf-register-writes/probe-copper.rs does not exist

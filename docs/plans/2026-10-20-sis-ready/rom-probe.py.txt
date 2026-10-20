@@ -1,0 +1,25 @@
+from pathlib import Path
+import subprocess,json,hashlib,sys,os
+b=Path('/Users/stevehill/Projects/198x/output/qualification');u=b/'workspaces/sense-interrupt';s=b/'workspaces/sis-samples';out=b/'sis-ready-rom-regression';out.mkdir()
+tools=json.loads((b/'read-track-release-tools-pinned/release-tools.json').read_text());argvs=[]
+def run(name,argv,cwd=out):
+ p=subprocess.run(argv,cwd=cwd,capture_output=True,timeout=180,env=dict(os.environ,LC_ALL='C',TZ='UTC',CARGO_INCREMENTAL='0'))
+ (out/(name+'.stdout')).write_bytes(p.stdout);(out/(name+'.stderr')).write_bytes(p.stderr)
+ argvs.append(dict(name=name,argv=list(map(str,argv)),returncode=p.returncode))
+ (out/'commands.json').write_text(json.dumps(argvs,indent=2)+'\n')
+ if p.returncode:raise ValueError(name+' process failed')
+ return p
+source=s/'sinclair-zx-spectrum/qualification/tape-smoke/diagnostic.asm';code=out/'diagnostic.bin'
+a=json.loads(run('assembly',[tools['asm']['path'],'--dialect','pasmo','--cpu','z80','--message-format=json',str(source),'-o',str(code)]).stdout)
+image=out/'diagnostic.dsk';run('mastering',[tools['build']['path'],'plus3','--basic',str(s/'sinclair-zx-spectrum/qualification/read-track/loader.bas'),'--code',str(code),'--load-address','32768','-o',str(image),'--format','json'])
+sys.path.insert(0,str(u/'ops/qualification'));from disk import native_check
+recipe=json.loads((u/'ops/qualification/recipe-disk-plus3.json').read_text());native_check(image.read_bytes(),code.read_bytes(),recipe)
+session=[dict(action='load_media',slot='disk-a',kind='disk',path=str(image)),dict(action='wait_for_boot',max_frames=500),dict(action='watch_memory_start',addr=0x7000,len=2),dict(action='press_key',key='Enter',hold_frames=8),dict(action='run_frames',frames=2000),dict(action='query_cpu'),dict(action='watch_memory_log',limit=32),dict(action='memory_read',addr=0x7000,len=2),dict(action='memory_read',addr=0x8000,len=len(code.read_bytes()))]
+(out/'session.json').write_text(json.dumps(session,indent=2)+'\n')
+args=[str(b/'sis-ready-target/debug/emu198x-spectrum'),'--machine','spectrum_plus3']
+for i in range(4):args+=['--rom',f'sinclair-zx-spectrum-plus3-rom-{i}={Path.home()}/.emu198x/roms/amstrad-zx-spectrum-plus3/plus3-{i}.rom']
+args+=['--script',str(out/'session.json')]
+r=json.loads(run('runtime',args).stdout);reads={x['addr']:x['bytes'] for x in r['observations'] if x['kind']=='memory_read'}
+if reads[0x7000]!=[90,91]:raise ValueError('normal-ROM guest signature mismatch: '+repr(reads[0x7000]))
+if bytes(reads[0x8000])!=code.read_bytes():raise ValueError('ROM-loaded CODE mismatch')
+(out/'verification.json').write_text(json.dumps(dict(status='pass',delivery='source_build',source_fixture='fresh_assembly_and_mastering',signature=reads[0x7000],loaded_code_sha256=hashlib.sha256(code.read_bytes()).hexdigest()),indent=2)+'\n');print('normal-ROM guest signature and CODE pass')

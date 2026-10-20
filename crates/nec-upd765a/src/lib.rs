@@ -256,6 +256,15 @@ pub struct Upd765a {
     /// Only the selected field is buffered. CRC status is committed after its
     /// payload completes; unread fields cannot affect results or reread state.
     read_progress: Option<ReadProgress>,
+    /// Optional external READY levels. None retains the legacy image-presence
+    /// input for callers without a drive adapter. +3 always supplies its input.
+    ready_inputs: [Option<bool>; 4],
+    ready_sampled: [bool; 4],
+    /// Rational phase at the existing +3 CPU T-state boundary. Each drive is
+    /// sampled every8192 FDC clocks:2.048ms at4MHz (NEC A/B polling section).
+    ready_poll_phase: u64,
+    /// Seek IRQ must be acknowledged by SIS before another command (NEC p16).
+    seek_attention_unacknowledged: bool,
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -373,6 +382,10 @@ impl Upd765a {
             exec_timeout: 0,
             read_progress: None,
             read_id_index: [0; 4],
+            ready_inputs: [None; 4],
+            ready_sampled: [false; 4],
+            ready_poll_phase: 0,
+            seek_attention_unacknowledged: false,
         }
     }
 
@@ -382,6 +395,45 @@ impl Upd765a {
     /// US0+US1 → 4 drives).
     pub fn set_drive_select_mask(&mut self, mask: u8) {
         self.drive_select_mask = mask & 0x03;
+    }
+
+    /// Supply a logical asserted READY input, independent of mounted data.
+    /// This sets a level; polling between commands creates attention events.
+    /// Unknown units are ignored, matching the existing media attachment API.
+    pub fn set_ready(&mut self, drive: usize, ready: bool) {
+        if let Some(input) = self.ready_inputs.get_mut(drive) {
+            *input = Some(ready);
+        }
+    }
+
+    fn drive_ready(&self, drive: usize) -> bool {
+        self.ready_inputs[drive].unwrap_or(self.disks[drive].is_some())
+    }
+
+    fn poll_ready(&mut self) {
+        // A/B datasheet:2.048ms per drive with4MHz FDC. Accumulate the
+        // master-derived host T-state fraction rather than round every period.
+        let period = 2048 * common_sinclair_zx_spectrum::timing::CPU_HZ_128K;
+        self.ready_poll_phase += 1_000_000;
+        if self.ready_poll_phase < period {
+            return;
+        }
+        self.ready_poll_phase -= period;
+        if self.phase != Phase::Idle {
+            return;
+        }
+        for drive in 0..4 {
+            let ready = self.drive_ready(drive);
+            if ready != self.ready_sampled[drive] {
+                self.ready_sampled[drive] = ready;
+                // Preserve the first undrained event for a drive. MAME's
+                // st0_filled latch supplies independently inspected precedent.
+                if self.seek_pending[drive].is_none() {
+                    self.seek_pending[drive] = Some(0xc0 | drive as u8 | if ready { 0 } else { 8 });
+                    self.interrupt = true;
+                }
+            }
+        }
     }
 
     /// Insert a parsed disk image into a drive.
@@ -470,11 +522,13 @@ impl Upd765a {
         let writable = self.writable;
         let enabled = self.enabled;
         let drive_select_mask = self.drive_select_mask;
+        let ready_inputs = self.ready_inputs;
         *self = Self::new();
         self.disks = disks;
         self.writable = writable;
         self.enabled = enabled;
         self.drive_select_mask = drive_select_mask;
+        self.ready_inputs = ready_inputs;
     }
 
     /// Repair active ID-error reads captured by earlier version-6 snapshots.
@@ -559,7 +613,14 @@ impl Upd765a {
                 // First byte of a new command
                 self.cmd_buf.clear();
                 self.cmd_buf.push(val);
-                let (cmd, len) = Self::decode_command(val);
+                let (cmd, len) = if self.seek_attention_unacknowledged && val & 0x1f != 8 {
+                    // NEC Dec1978p16 and A/B Invalid section require SIS.
+                    // Fuse deliberately relaxes this for a compatibility case;
+                    // preserve that disagreement rather than imply conformance.
+                    (Command::None, 1)
+                } else {
+                    Self::decode_command(val)
+                };
                 self.command = cmd;
                 self.cmd_len = len;
 
@@ -672,7 +733,7 @@ impl Upd765a {
                 // drives by recalibrating each in turn; falsely
                 // returning Normal Termination for non-existent drives
                 // makes it think every drive is real.
-                let st0 = if self.disks[drive].is_some() {
+                let st0 = if self.drive_ready(drive) {
                     0x20 | drive_echo // Seek End | drive
                 } else {
                     0xD0 | drive_echo // Abnormal | Not Ready | EC | drive
@@ -708,9 +769,10 @@ impl Upd765a {
                 self.phase = Phase::Result;
                 self.main_status = MSR_RQM | MSR_DIO | MSR_CB;
                 // SIS acknowledges the interrupt signal, even when another
-                // drive still has status to drain (NEC December 1978, p. 16).
+                // drive still has status to drain (NEC December 1978, p.16).
                 // A later completion will raise the signal again.
                 self.interrupt = false;
+                self.seek_attention_unacknowledged = false;
                 if fdc_trace_enabled() {
                     eprintln!(
                         "[FDC-RES] SenseInt result=[{}]",
@@ -732,7 +794,7 @@ impl Upd765a {
                 // sets SE and preserves PCN; Fuse instead uses IC=11.
                 // READY changes during Seek and physical step timing
                 // remain outside this staged completion model.
-                let st0 = if self.disks[drive].is_some() {
+                let st0 = if self.drive_ready(drive) {
                     self.track[drive] = self.cmd_buf[2];
                     0x20 | drive_echo // Seek End | drive
                 } else {
@@ -750,7 +812,8 @@ impl Upd765a {
                 let disk_present = self.disks[drive].is_some();
                 self.st3 = (self.cmd_buf[1] & 0x07)        // US0/US1/HD copied from command
                     | if self.track[drive] == 0 { 0x10 } else { 0 } // T0 (track 0)
-                    | if disk_present { 0x08 | 0x20 } else { 0 } // TS (two-sided) + RY
+                    | if disk_present { 0x08 } else { 0 } // TS remains separately unqualified.
+                    | if self.drive_ready(drive) { 0x20 } else { 0 } // RY
                     | if disk_present && !self.writable[drive] { 0x40 } else { 0 }; // WP
                 self.head = head;
                 self.result_buf.clear();
@@ -1722,6 +1785,7 @@ impl Peripheral for Upd765a {
         if !self.enabled {
             return;
         }
+        self.poll_ready();
         for drive in 0..4 {
             if self.seek_remaining[drive] == 0 {
                 continue;
@@ -1730,7 +1794,13 @@ impl Peripheral for Upd765a {
             if self.seek_remaining[drive] == 0
                 && let Some(st0) = self.seek_staged_st0[drive].take()
             {
+                let st0 = if self.drive_ready(drive) {
+                    st0
+                } else {
+                    st0 | 0x48
+                };
                 self.seek_pending[drive] = Some(st0);
+                self.seek_attention_unacknowledged = true;
                 self.interrupt = true;
             }
         }
