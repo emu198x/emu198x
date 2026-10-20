@@ -28,7 +28,20 @@ fn controller(mask: u8) -> Upd765a {
             ],
         },
     );
-    f
+    // Settle and drain initial external READY attention before testing PCNs.
+    // Data-result IRQ can remain high, so IRQ alone is not a new seek deadline.
+    for hc in 0..8000 {
+        f.tick(hc);
+    }
+    for _ in 0..5 {
+        f.write_data(8);
+        let st0 = f.read_data();
+        if st0 == 0x80 {
+            return f;
+        }
+        f.read_data();
+    }
+    panic!("initial READY drain did not terminate");
 }
 fn seek(f: &mut Upd765a, select: u8, target: u8) {
     for b in [0x0f, select, target] {
@@ -105,6 +118,15 @@ fn alias_failed_seek_preserves_pcn_and_echoes_unit_and_head() {
     complete(&mut f);
     assert_eq!(sis(&mut f), [0x26, 3]);
     f.eject_disk(0);
+    for hc in 0..8000 {
+        f.tick(hc);
+    }
+    assert_eq!(sis(&mut f), [0xc8, 0], "physical A READY fell");
+    assert_eq!(
+        sis(&mut f),
+        [0xca, 3],
+        "logical alias shares external READY"
+    );
     seek(&mut f, 6, 9);
     complete(&mut f);
     assert_eq!(sis(&mut f), [0x6e, 3]);
