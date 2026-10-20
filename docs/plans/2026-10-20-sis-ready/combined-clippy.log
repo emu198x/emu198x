@@ -1,0 +1,9 @@
+mise WARN  tracking config: failed to ln -sf /Users/stevehill/Projects/198x/output/qualification/workspaces/sense-interrupt-emu/rust-toolchain.toml /Users/stevehill/.local/state/mise/tracked-configs/e19b4cb87a664ffa: Operation not permitted (os error 1)
+    Checking nec-upd765a v0.39.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/sense-interrupt-emu/crates/nec-upd765a)
+    Checking common-sinclair-zx-spectrum-amstrad-class v0.39.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/sense-interrupt-emu/crates/common-sinclair-zx-spectrum-amstrad-class)
+    Checking format-amstrad-dsk v0.39.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/sense-interrupt-emu/crates/format-amstrad-dsk)
+    Checking machine-sinclair-zx-spectrum-plus2b v0.39.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/sense-interrupt-emu/crates/machine-sinclair-zx-spectrum-plus2b)
+    Checking machine-sinclair-zx-spectrum-plus3 v0.39.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/sense-interrupt-emu/crates/machine-sinclair-zx-spectrum-plus3)
+    Checking machine-sinclair-zx-spectrum-plus2a v0.39.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/sense-interrupt-emu/crates/machine-sinclair-zx-spectrum-plus2a)
+    Checking runtime-sinclair-zx-spectrum v0.39.0 (/Users/stevehill/Projects/198x/output/qualification/workspaces/sense-interrupt-emu/crates/runtime-sinclair-zx-spectrum)
+    Finished `dev` profile [unoptimized] target(s) in 3.09s
