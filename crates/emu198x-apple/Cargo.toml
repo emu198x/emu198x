@@ -1,0 +1,42 @@
+[package]
+name = "emu198x-apple"
+description = "C interface over the Emu198x runtime catalogue for native Apple hosts"
+edition.workspace = true
+version.workspace = true
+publish = false
+license.workspace = true
+repository.workspace = true
+
+[lib]
+crate-type = ["staticlib", "rlib"]
+
+[features]
+default = ["sinclair-zx-spectrum"]
+all-families = ["emu198x-fleet-web/all-families"]
+nintendo-game-boy = ["emu198x-fleet-web/nintendo-game-boy"]
+sinclair-zx-spectrum = ["emu198x-fleet-web/sinclair-zx-spectrum"]
+
+[dependencies]
+emu198x-fleet-web = { path = "../emu198x-fleet-web", version = "0.40.0", default-features = false }
+
+[dev-dependencies]
+# The tests drive the repository's synthetic Game Boy cartridge, so their
+# build links that family whichever features the caller selected.
+emu198x-apple = { path = ".", features = ["nintendo-game-boy", "sinclair-zx-spectrum"] }
+emu198x-test-skip = { path = "../emu198x-test-skip", version = "0.40.0" }
+
+# The workspace forbids unsafe code, and `forbid` cannot be relaxed by an
+# `allow`, so this crate carries its own copy of the workspace lints with
+# `unsafe_code` lowered to `deny`. `src/lib.rs` allows it for the `ffi`
+# module alone. tests/lint_exception.rs fails if this table drifts from the
+# workspace's. See knowledge/decisions/apple-bridge-unsafe-exception.md.
+[lints.rust]
+unsafe_code = "deny"
+unsafe_op_in_unsafe_fn = "deny"
+unused_must_use = "deny"
+
+[lints.clippy]
+dbg_macro = "deny"
+todo = "deny"
+unwrap_used = "deny"
+undocumented_unsafe_blocks = "deny"

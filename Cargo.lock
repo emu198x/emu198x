@@ -1055,6 +1055,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "emu198x-apple"
+version = "0.40.0"
+dependencies = [
+ "emu198x-apple",
+ "emu198x-fleet-web",
+ "emu198x-test-skip",
+]
+
+[[package]]
 name = "emu198x-atari-2600"
 version = "0.40.0"
 dependencies = [

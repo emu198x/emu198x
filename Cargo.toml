@@ -32,6 +32,7 @@ members = [
     "crates/emu198x-nes-web",
     "crates/emu198x-game-boy-web",
     "crates/emu198x-fleet-web",
+    "crates/emu198x-apple",
     "crates/emu198x-nes",
     "crates/emu198x-spectrum",
     "crates/emu198x-shell",
